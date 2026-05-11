@@ -78,83 +78,12 @@ void Encoder_ParamInit(Encoder_TypeDef *Encoder)
 		default:break;
 	}
 	
-	/*enable SPI*/
-//	if(Encoder->source == ON_BOARD)
-//		BRD_ENC_SPI->CR1 |= SPI_CR1_SPE;
-//	else if(Encoder->source == EXTERNAL)
-//		EXT_ENC_SPI->CR1 |= SPI_CR1_SPE;
-	
 	if (HAL_SPI_Init(enc_spi) != HAL_OK)
 	{
 		Error_Handler();
 	}
 	
 
-}
-
-static int ENC_SPI_Xfer16(Encoder_Source source, uint16_t tx, uint16_t *prx)
-{
-	uint32_t timeout = ENC_SPI_XFER_SPIN_MAX;
-
-	if(source == ON_BOARD)
-	{
-		while ((BRD_ENC_SPI->SR & SPI_SR_TXE) == 0U)
-		{
-			if (--timeout == 0U)
-				return -1;
-		}
-
-		BRD_ENC_SPI->DR = tx;
-
-		timeout = ENC_SPI_XFER_SPIN_MAX;
-		while ((BRD_ENC_SPI->SR & SPI_SR_RXNE) == 0U)
-		{
-			if (--timeout == 0U)
-				return -2;
-		}
-
-		*prx = (uint16_t)BRD_ENC_SPI->DR;
-	}
-	else if(source == EXTERNAL)
-	{
-		while ((EXT_ENC_SPI->SR & SPI_SR_TXE) == 0U)
-		{
-			if (--timeout == 0U)
-				return -1;
-		}
-
-		EXT_ENC_SPI->DR = tx;
-
-		timeout = ENC_SPI_XFER_SPIN_MAX;
-		while ((EXT_ENC_SPI->SR & SPI_SR_RXNE) == 0U)
-		{
-			if (--timeout == 0U)
-				return -2;
-		}
-
-		*prx = (uint16_t)EXT_ENC_SPI->DR;
-	}
-	
-	return 0;
-}
-
-/** 超时后如 RXNE 仍置位则读走数据；先读 SR 便于释放部分错误标志。 */
-static void ENC_SPI_DrainIfRxPending(Encoder_Source source)
-{
-	if(source == ON_BOARD)
-	{
-		volatile uint32_t sr = BRD_ENC_SPI->SR;
-		(void)sr;
-		if ((BRD_ENC_SPI->SR & SPI_SR_RXNE) != 0)
-			(void)BRD_ENC_SPI->DR;
-	}
-	else if(source == EXTERNAL)
-	{
-		volatile uint32_t sr = EXT_ENC_SPI->SR;
-		(void)sr;
-		if ((EXT_ENC_SPI->SR & SPI_SR_RXNE) != 0)
-			(void)EXT_ENC_SPI->DR;	
-	}
 }
 
 static void SPI2_MOSI_HiZ(void)
@@ -186,36 +115,6 @@ uint16_t ReadTLE5012B_Raw(Encoder_Source source)
 {
 	uint16_t data_t[2] = {0x8021, 0x0000};
 	uint16_t data_r[2];
-	
-	/*Register method, more efficient*/
-//	if(source == ON_BOARD)
-//	{	
-//		BRD_ENC_CS_ENABLE;
-//		state = ENC_SPI_Xfer16(source, data_t, &dummy);
-//		if (state == 0)
-//			state = ENC_SPI_Xfer16(source, 0x0000, &data_r);
-//		BRD_ENC_CS_DISABLE;
-
-//		if (state != 0)
-//		{
-//			ENC_SPI_DrainIfRxPending(source);
-//			return 0;
-//		}
-//	}
-//	else if(source == EXTERNAL)
-//	{
-//		EXT_ENC_CS_ENABLE;
-//		state = ENC_SPI_Xfer16(source, data_t, &dummy);
-//		if (state == 0)
-//			state = ENC_SPI_Xfer16(source, 0x0000, &data_r);
-//		EXT_ENC_CS_DISABLE;
-
-//		if (state != 0)
-//		{
-//			ENC_SPI_DrainIfRxPending(source);
-//			return 0;
-//		}
-//	}
 	
 	/*HAL method, less efficient*/
 	if(source == ON_BOARD)
@@ -257,40 +156,6 @@ uint16_t ReadMT6816_Raw(Encoder_Source source)
 	
 	for(uint8_t i = 0; i < 3; i++)
 	{
-		/*Register method, more efficient*/
-//		if(source == ON_BOARD)
-//		{
-//			BRD_ENC_CS_ENABLE;
-//			while((BRD_ENC_SPI->SR & 1 << 1) == 0);
-//			BRD_ENC_SPI->DR = data_t[0];
-//			while((BRD_ENC_SPI->SR & 1 << 0) == 0);
-//			data_r[0] = BRD_ENC_SPI->DR;
-//			BRD_ENC_CS_DISABLE;
-//			
-//			BRD_ENC_CS_ENABLE;
-//			while((BRD_ENC_SPI->SR & 1 << 1) == 0);
-//			BRD_ENC_SPI->DR = data_t[1];
-//			while((BRD_ENC_SPI->SR & 1 << 0) == 0);
-//			data_r[1] = BRD_ENC_SPI->DR;		
-//			BRD_ENC_CS_DISABLE;		
-//		}
-//		else if(source == EXTERNAL)
-//		{
-//			EXT_ENC_CS_ENABLE;
-//			while((EXT_ENC_SPI->SR & 1 << 1) == 0);
-//			EXT_ENC_SPI->DR = data_t[0];
-//			while((EXT_ENC_SPI->SR & 1 << 0) == 0);
-//			data_r[0] = EXT_ENC_SPI->DR;
-//			EXT_ENC_CS_DISABLE;
-//			
-//			EXT_ENC_CS_ENABLE;
-//			while((EXT_ENC_SPI->SR & 1 << 1) == 0);
-//			EXT_ENC_SPI->DR = data_t[1];
-//			while((EXT_ENC_SPI->SR & 1 << 0) == 0);
-//			data_r[1] = EXT_ENC_SPI->DR;		
-//			EXT_ENC_CS_DISABLE;		
-//		}
-
 		/*HAL method, less efficient*/
 		if(source == EXTERNAL)
 		{
@@ -338,15 +203,12 @@ uint16_t ReadMT6701_Raw(Encoder_Source source)
 	
 	data_t = 0x0000;
 	
-	/*Register method, more efficient*/
+	/*HAL method, less efficient*/
 	if(source == EXTERNAL)
 	{
-		BRD_ENC_CS_ENABLE;
-		while((BRD_ENC_SPI->SR & 1 << 1) == 0);
-		BRD_ENC_SPI->DR = data_t;
-		while((BRD_ENC_SPI->SR & 1 << 0) == 0);
-		data_r = BRD_ENC_SPI->DR;
-		BRD_ENC_CS_DISABLE;		
+		EXT_ENC_CS_ENABLE;
+		HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)&data_t, (uint8_t *)&data_r, 1, 10);
+		EXT_ENC_CS_DISABLE;
 	}
 	
 	return (data_r & 0xFFFC) >> 2;

@@ -243,6 +243,11 @@ USBRXError_TypeDef USB_CyclicAnalyze(void)
 	}
 }
 
+/**
+	* @brief  Set encoder state from USB parameter value
+	* @param  data: encoded encoder state value
+	* @retval USB receive error state
+ **/
 USBRXError_TypeDef USB_SetEncoderState(int data)
 {
 	int enc1_type,enc1_enable,enc2_type,enc2_enable;
@@ -286,6 +291,9 @@ USBRXError_TypeDef USB_SetEncoderState(int data)
 	return USB_NO_ERROR;
 }
 
+/**
+	* @brief  Get encoder state and format USB response string
+ **/
 void USB_GetEncoderState(void)
 {
 	char enc1_type[10],enc1_enable[10],enc2_type[10],enc2_enable[10];
@@ -980,6 +988,11 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 	return USB_NO_ERROR;
 }
 
+/**
+	* @brief  USB receive interrupt handler
+	* @param  *data: received data buffer pointer
+	* @param  length: received data length
+ **/
 void USB_RxIRQHandler(uint8_t *data, uint16_t length)
 {
 	USBRXError_TypeDef USBRXError;
@@ -1035,6 +1048,9 @@ void USB_RxIRQHandler(uint8_t *data, uint16_t length)
 	}
 }
 
+/**
+	* @brief  Send USB response message
+ **/
 void USB_SendMessage(void)
 {
 	if(!USBMsg.tx_en)
@@ -1045,6 +1061,11 @@ void USB_SendMessage(void)
 	USBMsg.tx_en = 0;
 }
 
+/**
+	* @brief  Get scaled value for USB print profile
+	* @param  *var: variable information pointer
+	* @retval scaled variable value
+ **/
 static float print_get_value(VarInfo *var)
 {
 	float var_output;
@@ -1076,6 +1097,9 @@ static float print_get_value(VarInfo *var)
 	return var_output;
 }
 
+/**
+	* @brief  Send USB print profile data
+ **/
 void USB_PrintProfile(void)
 {
 	if(!USBMsg.print_en)

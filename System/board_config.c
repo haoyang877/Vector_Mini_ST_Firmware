@@ -1,5 +1,8 @@
 #include "board_config.h"
 
+/**
+	* @brief  Initialize board peripherals and application modules
+ **/
 void Board_Init(void)
 {
 	/*read parameters from flash*/

@@ -2,6 +2,13 @@
 
 #include "common_inc.h"
 
+/**
+	* @brief  Current mode control task
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  *Encoder: encoder struct pointer
+	* @param  *Fluxobserver: flux observer struct pointer
+ **/
 void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver)
 {
 	float theta_elec;
@@ -21,6 +28,13 @@ void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Enc
 	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
+/**
+	* @brief  Speed mode control task
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  *PID: PID struct pointer
+	* @param  *Encoder: encoder struct pointer
+ **/
 void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PID_TypeDef *PID, Encoder_TypeDef *Encoder)
 {
 	static int speedloop_count;
@@ -73,6 +87,13 @@ void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PID_T
 	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
+/**
+	* @brief  Position mode control task
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  *PID: PID struct pointer
+	* @param  *Encoder: encoder struct pointer
+ **/
 void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PID_TypeDef *PID, Encoder_TypeDef *Encoder)
 {
 	static int speedloop_count;

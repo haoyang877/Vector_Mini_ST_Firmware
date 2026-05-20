@@ -17,11 +17,21 @@ uint32_t p_param[PARAM_NUM];
 
 float* struct_ptr = (float *)(&InterfaceParam);
 
+/**
+	* @brief  Get flash page number from address
+	* @param  addr: flash address
+	* @retval flash page number
+ **/
 static uint32_t get_page(uint32_t addr)
 {
 	return (addr / FLASH_BASE) / FLASH_PAGE_SIZE;
 }
 
+/**
+	* @brief  Erase one flash page
+	* @param  page: page number to erase
+	* @retval erase result, true if success
+ **/
 bool flash_erase_page(uint8_t page)
 {
 	uint32_t page_error = 0;
@@ -45,6 +55,12 @@ bool flash_erase_page(uint8_t page)
 	return 1;
 }
 
+/**
+	* @brief  Erase flash pages between start and end addresses
+	* @param  start_addr: start flash address
+	* @param  end_addr: end flash address
+	* @retval erase result, true if success
+ **/
 bool flash_erase_pages(uint32_t start_addr, uint32_t end_addr)
 {
 	uint32_t page_error = 0;
@@ -70,6 +86,12 @@ bool flash_erase_pages(uint32_t start_addr, uint32_t end_addr)
 	return 1;
 }
 
+/**
+	* @brief  Write data to flash
+	* @param  addr: flash address
+	* @param  *data: data buffer pointer
+	* @param  size: double-word count to write
+ **/
 void flash_write_data(uint32_t addr, void *data, uint32_t size)
 {
 	uint64_t *buffer = (uint64_t *)data;
@@ -87,11 +109,20 @@ void flash_write_data(uint32_t addr, void *data, uint32_t size)
 	HAL_FLASH_Lock();	
 }
 
+/**
+	* @brief  Read data from flash
+	* @param  addr: flash address
+	* @param  *data: data buffer pointer
+	* @param  size: byte count to read
+ **/
 void flash_read_data(uint32_t addr ,uint32_t *data, uint32_t size)
 {
 	memcpy(data, (uint32_t *)addr, size);
 }
 
+/**
+	* @brief  Write interface parameters to flash
+ **/
 void flash_write_param(void)
 {
 	uint32_t flash_addr = ADDR_FLASH_PAGE_54;
@@ -122,6 +153,9 @@ void flash_write_param(void)
 //	}
 }
 
+/**
+	* @brief  Read interface parameters from flash
+ **/
 void flash_read_param(void)
 {
 	uint32_t flash_addr = ADDR_FLASH_PAGE_54;

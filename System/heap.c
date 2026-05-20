@@ -75,6 +75,11 @@ static size_t xBlockAllocatedBit = 0;
 
 /*-----------------------------------------------------------*/
 
+/**
+	* @brief  Allocate memory from internal heap
+	* @param  xWantedSize: requested allocation size in bytes
+	* @retval allocated memory pointer
+ **/
 void *HEAP_malloc(size_t xWantedSize)
 {
     BlockLink_t *pxBlock, *pxPreviousBlock, *pxNewBlockLink;
@@ -161,6 +166,10 @@ void *HEAP_malloc(size_t xWantedSize)
 }
 /*-----------------------------------------------------------*/
 
+/**
+	* @brief  Free memory back to internal heap
+	* @param  *pv: allocated memory pointer
+ **/
 void HEAP_free(void *pv)
 {
     uint8_t     *puc = (uint8_t *) pv;
@@ -189,18 +198,29 @@ void HEAP_free(void *pv)
 }
 /*-----------------------------------------------------------*/
 
+/**
+	* @brief  Get current free heap size
+	* @retval free heap size in bytes
+ **/
 size_t HEAP_get_free_size(void)
 {
     return xFreeBytesRemaining;
 }
 /*-----------------------------------------------------------*/
 
+/**
+	* @brief  Get minimum ever free heap size
+	* @retval minimum ever free heap size in bytes
+ **/
 size_t HEAP_get_minimumEver_free_size(void)
 {
     return xMinimumEverFreeBytesRemaining;
 }
 /*-----------------------------------------------------------*/
 
+/**
+	* @brief  Initialize internal heap structures
+ **/
 static void prvHeapInit(void)
 {
     BlockLink_t *pxFirstFreeBlock;
@@ -248,6 +268,10 @@ static void prvHeapInit(void)
 }
 /*-----------------------------------------------------------*/
 
+/**
+	* @brief  Insert a free block into heap free list
+	* @param  *pxBlockToInsert: free block pointer
+ **/
 static void prvInsertBlockIntoFreeList(BlockLink_t *pxBlockToInsert)
 {
     BlockLink_t *pxIterator;

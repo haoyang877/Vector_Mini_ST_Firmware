@@ -90,6 +90,10 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	}
 }
 
+/**
+	* @brief  Temperature sensing and protection
+	* @param  *FOC: FOC struct pointer
+ **/
 void Temperature_Update(FOC_TypeDef *FOC)
 {
 	static float count;

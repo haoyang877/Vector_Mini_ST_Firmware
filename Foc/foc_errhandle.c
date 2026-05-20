@@ -13,26 +13,45 @@ extern ErrorNow_TypeDef ErrorLast;
 
 bool is_Mode_Error_Change;
 
+/**
+	* @brief  Get current motor mode
+	* @retval current mode
+ **/
 ModeNow_TypeDef Get_ModeNow(void)
 {
 	return MotorControl.ModeNow;
 }
 
+/**
+	* @brief  Set current motor mode
+	* @param  tModeNow: mode to set
+ **/
 void Set_ModeNow(ModeNow_TypeDef tModeNow)
 {
 	MotorControl.ModeNow = tModeNow;
 }
 
+/**
+	* @brief  Get current motor error
+	* @retval current error
+ **/
 ErrorNow_TypeDef Get_ErroNow(void)
 {
 	return MotorControl.ErrorNow;
 }
 
+/**
+	* @brief  Set current motor error
+	* @param  tErrorNow: error to set
+ **/
 void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 {
 	MotorControl.ErrorNow = tErrorNow;
 }
 
+/**
+	* @brief  Clear running control data
+ **/
 void Clear_RunningData(void)
 {
 	MotorControl.idRef		 = 0.0f;
@@ -50,6 +69,10 @@ void Clear_RunningData(void)
 	PID_Speed.error_sum    = 0.0f;
 }
 
+/**
+	* @brief  Handle motor mode switching
+	* @param  mode_set: target mode
+ **/
 void ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
 	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
@@ -78,22 +101,35 @@ void ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	}
 }
 
+/**
+	* @brief  Detect mode or error state change
+ **/
 void Detect_Mode_Error_Change(void)
 {
 	if(ModeLast != MotorControl.ModeNow || ErrorLast != MotorControl.ErrorNow)
 		is_Mode_Error_Change = true;
 }
 
+/**
+	* @brief  Return mode or error change flag
+	* @retval change flag
+ **/
 bool Return_Mode_Error_Change(void)
 {
 	return is_Mode_Error_Change;
 }
 
+/**
+	* @brief  Clear mode or error change flag
+ **/
 void Clear_Mode_Error_Change(void)
 {
 	is_Mode_Error_Change = false;
 }
 
+/**
+	* @brief  Stop PWM generation
+ **/
 void Stop_PWM_Generate(void)
 {
 	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
@@ -106,6 +142,9 @@ void Stop_PWM_Generate(void)
 	
 }
 
+/**
+	* @brief  Start PWM generation
+ **/
 void Start_PWM_Generate(void)
 {
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);

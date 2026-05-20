@@ -146,21 +146,44 @@ float IIR_Butterworth(float input,IIR_Butterworth_TypeDef *IIR_Butterworth)
 	return output;
 }
 
+/**
+	* @brief  Fast absolute value
+	* @param  x: input value
+	* @retval absolute value
+ **/
 float fast_abs(float x)
 {
 	return x >=0 ? x: -x;
 }
 
+/**
+	* @brief  Fast square calculation
+	* @param  x: input value
+	* @retval square value
+ **/
 float fast_sq(float x)
 {
 	return x * x;
 }
 
+/**
+	* @brief  Fast maximum of two values
+	* @param  x: first input value
+	* @param  y: second input value
+	* @retval maximum value
+ **/
 float fast_max(float x,float y)
 {
 	return (((x) > (y)) ? (x) : (y));
 }
 
+/**
+	* @brief  Fast maximum of three values
+	* @param  x: first input value
+	* @param  y: second input value
+	* @param  z: third input value
+	* @retval maximum value
+ **/
 float fast_max_3(float x, float y, float z)
 {
     float max_xy = (x > y) ? x : y;
@@ -168,11 +191,24 @@ float fast_max_3(float x, float y, float z)
     return (max_xy > z) ? max_xy : z;
 }
 
+/**
+	* @brief  Fast minimum of two values
+	* @param  x: first input value
+	* @param  y: second input value
+	* @retval minimum value
+ **/
 float fast_min(float x,float y)
 {
 	return (((x) < (y)) ? (x) : (y));
 }
 
+/**
+	* @brief  Fast minimum of three values
+	* @param  x: first input value
+	* @param  y: second input value
+	* @param  z: third input value
+	* @retval minimum value
+ **/
 float fast_min_3(float x, float y, float z)
 {
     float min_xy = (x < y) ? x : y;
@@ -180,6 +216,11 @@ float fast_min_3(float x, float y, float z)
     return (min_xy < z) ? min_xy : z;
 }
 
+/**
+	* @brief  Fast sine calculation
+	* @param  theta: input angle
+	* @retval sine value
+ **/
 float fast_sin(float theta)
 {
 	theta = normalizeAngle(theta);
@@ -187,11 +228,22 @@ float fast_sin(float theta)
 	return sin_tab[(int)(LUT_MULT * theta)];
 }
 
+/**
+	* @brief  Fast cosine calculation
+	* @param  theta: input angle
+	* @retval cosine value
+ **/
 float fast_cos(float theta)
 {
 	return fast_sin(_PI_2 - theta);
 }
 
+/**
+	* @brief  Fast atan2 approximation
+	* @param  y: y input value
+	* @param  x: x input value
+	* @retval angle value
+ **/
 float fast_atan2(float y, float x) 
 {
     float abs_y = fast_abs(y) + 1e-20f; // kludge to prevent 0/0 condition
@@ -214,6 +266,11 @@ float fast_atan2(float y, float x)
     }
 }
 
+/**
+	* @brief  Fast square root approximation
+	* @param  val: input value
+	* @retval square root value
+ **/
 float fast_sqrt(float val) 
 {
 	long i;
@@ -232,6 +289,12 @@ float fast_sqrt(float val)
 	return y;
 }
 
+/**
+	* @brief  Fast integer power calculation
+	* @param  x: base value
+	* @param  y: exponent value
+	* @retval power value
+ **/
 float fast_pow(float x, int y)
 {
 	float result = 1.0f;
@@ -242,6 +305,11 @@ float fast_pow(float x, int y)
 	return result;
 }
 
+/**
+	* @brief  Hard sign function
+	* @param  x: input value
+	* @retval sign value
+ **/
 float sign_hard(float x)
 {
 	if(x < 0 )
@@ -250,6 +318,12 @@ float sign_hard(float x)
 		return 1;
 }
 
+/**
+	* @brief  Copy sign from one value to another
+	* @param  x: magnitude value
+	* @param  y: sign source value
+	* @retval signed value
+ **/
 float copy_sign(float x, float y)
 {
 	if(y >= 0)

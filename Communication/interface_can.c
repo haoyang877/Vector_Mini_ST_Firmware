@@ -56,6 +56,9 @@ void FDCAN1_Param_Init(void)
 	CANMsg.baudrate = 1000;
 }
 
+/**
+	* @brief  Handle CAN heartbeat disconnect protection
+ **/
 void CAN_DisConnect_Handle(void)
 {
 	if(CANMsg.can_hb_set != 0)
@@ -82,6 +85,10 @@ void CAN_DisConnect_Handle(void)
 	}
 }
 
+/**
+	* @brief  Set encoder state from CAN parameter value
+	* @param  data: encoded encoder state value
+ **/
 void CAN_SetEncoderState(int data)
 {
 	int enc1_type,enc1_enable,enc2_type,enc2_enable;
@@ -115,6 +122,9 @@ void CAN_SetEncoderState(int data)
 		External_Encoder.enable = ENCODER_ENABLE;
 }
 
+/**
+	* @brief  Switch CAN baudrate when baudrate setting changes
+ **/
 void CAN_BaudRateSwitching(void)
 {
 	static uint32_t baudrate_last = 1000;
@@ -151,6 +161,10 @@ void CAN_BaudRateSwitching(void)
 	baudrate_last = CANMsg.baudrate;
 }
 
+/**
+	* @brief  Get encoded encoder state
+	* @retval encoded encoder state value
+ **/
 int CAN_GetEncoderState(void)
 {
 	int encoder_state = 0;
@@ -436,6 +450,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 	}
 }
 
+/**
+	* @brief  Update CAN transmit message data
+	* @param  param_id: CAN parameter id
+	* @param  data: CAN transmit data
+ **/
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 {
 	CANMsg.tx_param_id = param_id;

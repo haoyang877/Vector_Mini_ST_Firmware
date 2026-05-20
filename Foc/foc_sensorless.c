@@ -3,6 +3,10 @@
 #include "utils.h"
 #include "hw_conf.h"
 
+/**
+	* @brief  Initialize flux observer parameters
+	* @param  *Fluxobserver: flux observer struct pointer
+ **/
 void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver)
 {
 	Fluxobserver->gamma = 1000000000.0f;
@@ -61,11 +65,21 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	UTILS_LP_FAST(Fluxobserver->omega_e, delta_theta / Current_Ts, 0.1f);
 }
 
+/**
+	* @brief  Get observer electrical phase
+	* @param  *Fluxobserver: flux observer struct pointer
+	* @retval observer electrical phase
+ **/
 float Observer_GetElePhase(Fluxobserver_TypeDef *Fluxobserver)
 {
 	return Fluxobserver->theta_e;
 }
 
+/**
+	* @brief  Get observer electrical velocity
+	* @param  *Fluxobserver: flux observer struct pointer
+	* @retval observer electrical velocity
+ **/
 float Observer_GetEleVel(Fluxobserver_TypeDef *Fluxobserver)
 {
 	return Fluxobserver->omega_e;

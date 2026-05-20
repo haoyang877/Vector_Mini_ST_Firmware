@@ -8,6 +8,10 @@ uint16_t CANBRSwitching_Cnt;
 extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder,External_Encoder;
 
+/**
+	* @brief  BSP 1 kHz interrupt task
+			  update USB print, LEDs, RGB, encoder state and CAN status
+ **/
 void BSP1kHzIRQHandler(void)
 {
 	USB_PrintProfile();

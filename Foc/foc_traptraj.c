@@ -65,6 +65,9 @@ void TRAJ_plan(float position, float start_position, float start_velocity, float
 }
 
 
+/**
+	* @brief  Evaluate trapezoidal profile output
+ **/
 void TRAJ_eval(void)
 {
     if (Traj.profile_done) {
@@ -99,11 +102,19 @@ void TRAJ_eval(void)
     }
 }
 
+/**
+	* @brief  Get trapezoidal profile position output
+	* @retval profile position output
+ **/
 float TRAJ_Get_Y(void)
 {
 	return Traj.Y;
 }
 
+/**
+	* @brief  Get trapezoidal profile velocity output
+	* @retval profile velocity output
+ **/
 float TRAJ_Get_Yd(void)
 {
 	return Traj.Yd;

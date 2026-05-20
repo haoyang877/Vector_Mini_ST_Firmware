@@ -12,6 +12,9 @@ ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
 
+/**
+	* @brief  Initialize motor control parameters
+ **/
 void MotorControl_Init(void)
 {
 	External_Encoder.source = EXTERNAL;

@@ -86,25 +86,68 @@ void Encoder_ParamInit(Encoder_TypeDef *Encoder)
 
 }
 
+/**
+  * @brief  Set SPI2 MOSI (PB15) to Hi-Z input for TLE5012 half-duplex rx
+  */
 static void SPI2_MOSI_HiZ(void)
 {
-	GPIO_InitTypeDef g = {0};
-	g.Pin = GPIO_PIN_15;
-	g.Mode = GPIO_MODE_INPUT;
-	g.Pull = GPIO_NOPULL;
-	g.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOB, &g);
+	/* Clear MODER[31:30] to set PB15 as input (00) */
+	GPIOB->MODER &= ~(0x3UL << 30U);
 }
 
+/**
+  * @brief  Restore SPI2 MOSI (PB15) to AF5 push-pull
+  */
 static void SPI2_MOSI_Restore_AF(void)
 {
-	GPIO_InitTypeDef g = {0};
-	g.Pin = GPIO_PIN_15;
-	g.Mode = GPIO_MODE_AF_PP;
-	g.Pull = GPIO_NOPULL;
-	g.Speed = GPIO_SPEED_FREQ_LOW;
-	g.Alternate = GPIO_AF5_SPI2;
-	HAL_GPIO_Init(GPIOB, &g);
+	/* Set PB15 MODER[31:30] = 10 (AF mode) */
+	GPIOB->MODER = (GPIOB->MODER & ~(0x3UL << 30U)) | (0x2UL << 30U);
+	/* Set AF5 for pin 15 (AFR[1] bits 31:28 = 5) */
+	GPIOB->AFR[1] = (GPIOB->AFR[1] & ~(0xFUL << 28U)) | (0x5UL << 28U);
+}
+
+/**
+  * @brief  SPI register-level transmit/receive one 16-bit word
+  * @param  SPIx: SPI peripheral (SPI1 or SPI2)
+  * @param  tx_data: 16-bit data to transmit
+  * @retval 16-bit received data
+  */
+static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data)
+{
+	uint32_t spin;
+
+	/* Enable SPI if disabled */
+	if (!(SPIx->CR1 & SPI_CR1_SPE))
+	{
+		SPIx->CR1 |= SPI_CR1_SPE;
+	}
+
+	/* Clear pending OVR by reading DR then SR */
+	if (SPIx->SR & SPI_FLAG_OVR)
+	{
+		(void)*(__IO uint16_t *)&SPIx->DR;
+		(void)SPIx->SR;
+	}
+
+	/* Wait for TXE flag with timeout */
+	spin = 0U;
+	while (!(SPIx->SR & SPI_FLAG_TXE))
+	{
+		if (++spin > ENC_SPI_XFER_SPIN_MAX) break;
+	}
+
+	/* Write tx data to DR to start transfer */
+	*(__IO uint16_t *)&SPIx->DR = tx_data;
+
+	/* Wait for RXNE flag with timeout */
+	spin = 0U;
+	while (!(SPIx->SR & SPI_FLAG_RXNE))
+	{
+		if (++spin > ENC_SPI_XFER_SPIN_MAX) break;
+	}
+
+	/* Read rx data from DR */
+	return *(__IO uint16_t *)&SPIx->DR;
 }
 
 /**
@@ -115,24 +158,47 @@ uint16_t ReadTLE5012B_Raw(Encoder_Source source)
 {
 	uint16_t data_t[2] = {0x8021, 0x0000};
 	uint16_t data_r[2];
-	
-	/*HAL method, less efficient*/
+
+	// /*HAL method, less efficient*/
+	// if(source == ON_BOARD)
+	// {
+	// 	BRD_ENC_CS_ENABLE;
+	// 	HAL_SPI_Transmit(&brd_enc_spi, (uint8_t *)&data_t[0], 1, 10);
+	// 	SPI2_MOSI_HiZ();
+	// 	HAL_SPI_Receive(&brd_enc_spi, (uint8_t *)&data_r[1], 1, 10);
+	// 	SPI2_MOSI_Restore_AF();
+	// 	BRD_ENC_CS_DISABLE;
+	// }
+	// else if(source == EXTERNAL)
+	// {
+	// 	EXT_ENC_CS_ENABLE;
+	// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)data_t, (uint8_t *)data_r, 2, 10);
+	// 	EXT_ENC_CS_DISABLE;
+	// }
+
+	/* Register-level SPI, faster */
 	if(source == ON_BOARD)
 	{
 		BRD_ENC_CS_ENABLE;
-		HAL_SPI_Transmit(&brd_enc_spi, (uint8_t *)&data_t[0], 1, 10);
+		/* Send command word, discard rx */
+		SPI_Reg_TxRx16(BRD_ENC_SPI, data_t[0]);
+		/* MOSI to HiZ for half-duplex rx */
 		SPI2_MOSI_HiZ();
-		HAL_SPI_Receive(&brd_enc_spi, (uint8_t *)&data_r[1], 1, 10);
+		/* Send dummy, receive angle data */
+		data_r[1] = SPI_Reg_TxRx16(BRD_ENC_SPI, data_t[1]);
+		/* Restore MOSI AF */
 		SPI2_MOSI_Restore_AF();
 		BRD_ENC_CS_DISABLE;
 	}
 	else if(source == EXTERNAL)
 	{
 		EXT_ENC_CS_ENABLE;
-		HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)data_t, (uint8_t *)data_r, 2, 10);
-		EXT_ENC_CS_DISABLE;	
+		/* Full-duplex: tx cmd + tx dummy, rx dummy + rx angle */
+		data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
+		data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
+		EXT_ENC_CS_DISABLE;
 	}
-	
+
 	return (data_r[1] & 0x7FFF);
 }
 
@@ -156,15 +222,26 @@ uint16_t ReadMT6816_Raw(Encoder_Source source)
 	
 	for(uint8_t i = 0; i < 3; i++)
 	{
-		/*HAL method, less efficient*/
+		// /*HAL method, less efficient*/
+		// if(source == EXTERNAL)
+		// {
+		// 	EXT_ENC_CS_ENABLE;
+		// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t*)&data_t[0], (uint8_t*)&data_r[0], 1, 0x10);
+		// 	EXT_ENC_CS_DISABLE;
+		// 	EXT_ENC_CS_ENABLE;
+		// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t*)&data_t[1], (uint8_t*)&data_r[1], 1, 0x10);
+		// 	EXT_ENC_CS_DISABLE;
+		// }
+
+		/* Register-level SPI, faster */
 		if(source == EXTERNAL)
 		{
 			EXT_ENC_CS_ENABLE;
-			HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t*)&data_t[0], (uint8_t*)&data_r[0], 1, 0x10);
+			data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
 			EXT_ENC_CS_DISABLE;
 			EXT_ENC_CS_ENABLE;
-			HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t*)&data_t[1], (uint8_t*)&data_r[1], 1, 0x10);
-			EXT_ENC_CS_DISABLE;		
+			data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
+			EXT_ENC_CS_DISABLE;
 		}
 		
 		sample_data = ((data_r[0] & 0x00FF) << 8) | (data_r[1] & 0x00FF);
@@ -203,11 +280,19 @@ uint16_t ReadMT6701_Raw(Encoder_Source source)
 	
 	data_t = 0x0000;
 	
-	/*HAL method, less efficient*/
+	// /*HAL method, less efficient*/
+	// if(source == EXTERNAL)
+	// {
+	// 	EXT_ENC_CS_ENABLE;
+	// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)&data_t, (uint8_t *)&data_r, 1, 10);
+	// 	EXT_ENC_CS_DISABLE;
+	// }
+
+	/* Register-level SPI, faster */
 	if(source == EXTERNAL)
 	{
 		EXT_ENC_CS_ENABLE;
-		HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)&data_t, (uint8_t *)&data_r, 1, 10);
+		data_r = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t);
 		EXT_ENC_CS_DISABLE;
 	}
 	
@@ -374,31 +459,61 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 	
 }
 
+/**
+	* @brief  Get encoder electrical phase
+	* @param  *Encoder: encoder struct pointer
+	* @retval electrical phase
+ **/
 float Encoder_GetElePhase(Encoder_TypeDef *Encoder)
 {
 	return Encoder->theta_elec;
 }
 
+/**
+	* @brief  Get encoder mechanical position
+	* @param  *Encoder: encoder struct pointer
+	* @retval mechanical position
+ **/
 float Encoder_GetMecPos(Encoder_TypeDef *Encoder)
 {
 	return Encoder->theta_mech;
 }
 
+/**
+	* @brief  Get encoder electrical velocity
+	* @param  *Encoder: encoder struct pointer
+	* @retval electrical velocity
+ **/
 float Encoder_GetEleVel(Encoder_TypeDef *Encoder)
 {
 	return Encoder->vel_elec;
 }
 
+/**
+	* @brief  Get encoder mechanical velocity
+	* @param  *Encoder: encoder struct pointer
+	* @retval mechanical velocity
+ **/
 float Encoder_GetMecVel(Encoder_TypeDef *Encoder)
 {
 	return Encoder->vel_mech;
 }
 
+/**
+	* @brief  Get encoder count ratio in one CPR
+	* @param  *Encoder: encoder struct pointer
+	* @retval count ratio in one CPR
+ **/
 float Encoder_GetCountInCPR_Ratio(Encoder_TypeDef *Encoder)
 {
 	return Encoder->count_in_cpr * Encoder->one_by_cpr;
 }
 
+/**
+	* @brief  Detect encoder type changes and reinitialize parameters
+	* @param  *Encoder1: first encoder struct pointer
+	* @param  *Encoder2: second encoder struct pointer
+ **/
 void Encoder_ChangeDetect(Encoder_TypeDef *Encoder1, Encoder_TypeDef *Encoder2)
 {
 	static Encoder_Type Encoder1_type_last;
@@ -417,6 +532,11 @@ void Encoder_ChangeDetect(Encoder_TypeDef *Encoder1, Encoder_TypeDef *Encoder2)
 	Encoder2_type_last = Encoder2->type;
 }
 
+/**
+	* @brief  Set current encoder count as zero position
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  *Encoder: encoder struct pointer
+ **/
 void Task_Set_ZeroPosition(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
 {
 	Encoder->zero_count = Encoder->count_in_cpr;

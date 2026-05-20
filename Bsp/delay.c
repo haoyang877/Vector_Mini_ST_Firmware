@@ -7,12 +7,19 @@
 
 static uint32_t g_fac_us = 0;
 
+/**
+	* @brief  Initialize delay time base
+	* @param  sysclk: system clock frequency in MHz
+ **/
 void delay_init(uint16_t sysclk)
 {
     g_fac_us = sysclk;
 }
 
-/*block delay*/
+/**
+	* @brief  Blocking delay in microseconds
+	* @param  nus: delay time in microseconds
+ **/
 void delay_us(uint32_t nus)
 {
     uint32_t ticks;
@@ -43,6 +50,10 @@ void delay_us(uint32_t nus)
     }
 }
 
+/**
+	* @brief  Blocking delay in milliseconds
+	* @param  nms: delay time in milliseconds
+ **/
 void delay_ms(uint16_t nms)
 {
     delay_us((uint32_t)(nms * 1000));

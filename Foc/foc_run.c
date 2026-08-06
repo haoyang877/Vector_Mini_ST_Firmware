@@ -193,3 +193,19 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI
 	
 	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
+
+/**
+	* @brief  Voltage open-loop mode
+	*         rotate electrical angle by open-loop velocity and
+	*         apply open-loop voltage on d-axis
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+ **/
+void Task_Voltage_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
+{
+	/*integrate electrical angle from open-loop velocity*/
+	MotorControl->ol_theta = normalizeAngle(MotorControl->ol_theta + MotorControl->ol_elec_vel * Current_Ts);
+	
+	/*open-loop voltage drive on d-axis*/
+	FOC_Voltage(FOC, MotorControl->ol_voltage, 0.0f, MotorControl->ol_theta);
+}

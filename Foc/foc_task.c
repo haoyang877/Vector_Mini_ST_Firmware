@@ -30,7 +30,7 @@ void RTT_Sampling(void)
     Rttstru.data2 = (int16_t)(FOC.Ic*1000.0f);
     Rttstru.data3 = (int16_t)(FOC.dtc_a*1000.0f);
     Rttstru.data4 = (int16_t)(FOC.dtc_b*1000.0f);
-    Rttstru.data5 = (int16_t)(FOC.dtc_c*1000.0f);
+    Rttstru.data5 = External_Encoder.raw;
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
     
@@ -54,6 +54,9 @@ void MotorControl_Init(void)
 	MotorControl.pos_error_window = 0.001f;
 	MotorControl.pos_Kp = 0.5f;
 	MotorControl.pos_Kd = 0.1f;
+	
+	/*run current offset calibration automatically at power-up*/
+	MotorControl.ModeNow = Calib_CurrentOffset;
 }
 
 /**
@@ -102,6 +105,14 @@ void FOC20kHzIRQHandler(void)
 		
 		case Calib_EncoderOffset:
 			Task_Calib_Encoder(&FOC, &MotorControl, &External_Encoder);
+		break;
+		
+		case Calib_CurrentOffset:
+			Task_Calib_CurrentOffset(&FOC, &MotorControl);
+		break;
+		
+		case Voltage_OpenLoop:
+			Task_Voltage_Mode(&FOC, &MotorControl);
 		break;
 		
 		case Set_ZeroPosition:

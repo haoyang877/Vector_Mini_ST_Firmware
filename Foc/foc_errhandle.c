@@ -84,7 +84,9 @@ void ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ModeNow  == Speed_Mode   || 
 	    MotorControl.ModeNow  == Position_Mode ||
 	    MotorControl.ModeNow == Calib_Motor_R_L_Flux ||
-	    MotorControl.ModeNow == Calib_EncoderOffset) &&
+	    MotorControl.ModeNow == Calib_EncoderOffset ||
+	    MotorControl.ModeNow == Calib_CurrentOffset ||
+	    MotorControl.ModeNow == Voltage_OpenLoop) &&
 	    MotorControl.ErrorNow == No_Error)
 	{
 		if(mode_set == Motor_Disable)

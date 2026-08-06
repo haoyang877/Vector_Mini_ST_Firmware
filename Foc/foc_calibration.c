@@ -652,3 +652,41 @@ void Task_Calib_Encoder(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, En
 	loop_count++;
 }
 
+/**
+	* @brief  Calibrate current sensor ADC zero offset
+	*         automatically executed at power-up
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+ **/
+void Task_Calib_CurrentOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
+{
+	static uint32_t offset_count;
+	static uint32_t A_offset_sum,B_offset_sum,C_offset_sum;
+	
+	A_offset_sum += CURRENT_ADC->IA_ADC_CHANNEL;
+	B_offset_sum += CURRENT_ADC->IB_ADC_CHANNEL;
+	C_offset_sum += CURRENT_ADC->IC_ADC_CHANNEL;
+	offset_count++;
+	
+	/*accumulate 1s (20000 cycles @ 20kHz)*/
+	if(offset_count >= 20000)
+	{
+		MotorControl->A_Offset = (uint16_t)(A_offset_sum / offset_count);
+		MotorControl->B_Offset = (uint16_t)(B_offset_sum / offset_count);
+		MotorControl->C_Offset = (uint16_t)(C_offset_sum / offset_count);
+		
+		offset_count = 0;
+		A_offset_sum = B_offset_sum = C_offset_sum = 0;
+		
+		/*check offset is around half scale (2048)*/
+		// if(MotorControl->A_Offset < 2018 || MotorControl->A_Offset > 2078 ||
+		//    MotorControl->B_Offset < 2018 || MotorControl->B_Offset > 2078 ||
+		//    MotorControl->C_Offset < 2018 || MotorControl->C_Offset > 2078)
+		// {
+		// 	Set_ErrorNow(CurrentOffset_Error);
+		// }
+		
+		Set_ModeNow(Motor_Disable);
+	}
+}
+

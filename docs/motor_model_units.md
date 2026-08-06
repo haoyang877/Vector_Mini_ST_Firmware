@@ -103,7 +103,7 @@ Encoder->vel_mech   = Encoder->vel * _2PI;                                      
 1 圈 = 2π rad
 ```
 
-默认极对数为 7。速度/位置相关参数内部均为 rad/s 或 rad：
+默认极对数为 21。速度/位置相关参数内部均为 rad/s 或 rad：
 
 ```
 speed_limit  = 200 × 2π  rad/s

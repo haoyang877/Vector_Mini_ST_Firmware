@@ -19,7 +19,21 @@ void Param_Return_Default(void)
 	MotorControl.B_Offset				= 2048;
 	MotorControl.C_Offset 				= 2048;
 	
-	MotorControl.motor_pole_pairs 		= 7;
+	MotorControl.motor_pole_pairs 		= 21;
+	
+	/*skip calibration default motor parameters*/
+	MotorControl.motor_phase_resistance 	= 1.0f;
+	MotorControl.motor_d_inductance 		= 100e-6f;
+	MotorControl.motor_q_inductance 		= 100e-6f;
+	/*current loop PI derived from R/L, same as calibration*/
+	MotorControl.id_Kp 					= MotorControl.motor_d_inductance * 200.0f;
+	MotorControl.iq_Kp 					= MotorControl.motor_q_inductance * 200.0f;
+	MotorControl.id_Ki 					= MotorControl.motor_phase_resistance * 200.0f;
+	MotorControl.iq_Ki 					= MotorControl.motor_phase_resistance * 200.0f;
+	/*voltage open-loop mode defaults*/
+	MotorControl.ol_voltage 			= 1.0f;
+	MotorControl.ol_elec_vel 			= 0.0f;
+	MotorControl.ol_theta 				= 0.0f;
 	
 	OnBoard_Encoder.type		   		= TLE5012B;
 	OnBoard_Encoder.enable				= ENCODER_DISABLE;
@@ -28,14 +42,14 @@ void Param_Return_Default(void)
 	OnBoard_Encoder.zero_count			= 0;
 	memset(&OnBoard_Encoder.offset_lut, 0, 128 * 4);
 	
-	External_Encoder.type		   		= TLE5012B;
+	External_Encoder.type		   		= MT6701;
 	External_Encoder.enable				= ENCODER_ENABLE;
 	External_Encoder.dir       			= 1;
 	External_Encoder.offset    			= 0;
 	External_Encoder.zero_count			= 0;
 	memset(&External_Encoder.offset_lut, 0, 128 * 4);
 	
-	MotorControl.calib_current 			= 10.0f;
+	MotorControl.calib_current 			= 4.0f;
 	MotorControl.current_limit 			= 30.0f;
 	MotorControl.speed_limit   			= 200.0f * _2PI;
 	MotorControl.speedAcc      			= 50.0f * _2PI;

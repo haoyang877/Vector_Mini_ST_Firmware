@@ -17,6 +17,8 @@ typedef enum
 	Default_Param,
 	Save_Param,
 	Clear_Error,
+	Calib_CurrentOffset,
+	Voltage_OpenLoop,
 	MODE_NUM
 }ModeNow_TypeDef; 
 
@@ -84,6 +86,11 @@ typedef struct
 	float posShadow;
 	float pos_Kp;
 	float pos_Kd;
+	
+	/*voltage open-loop mode*/
+	float ol_voltage;	/*open-loop voltage amplitude (V, d-axis)*/
+	float ol_elec_vel;	/*open-loop electrical angular velocity (rad/s)*/
+	float ol_theta;		/*open-loop electrical angle (rad)*/
 	
 }MotorControl_TypeDef;
 

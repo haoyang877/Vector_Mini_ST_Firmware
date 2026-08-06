@@ -25,3 +25,6 @@
 #JLINK file
 JLinkLog.txt
 *.dbgconf
+
+#Keil/J-Link debug session
+.omo/

@@ -1,6 +1,7 @@
 #include "foc_task.h"
 
 #include "common_inc.h"
+#include "SEGGER_RTT.h"
 
 MotorControl_TypeDef MotorControl;
 PID_TypeDef PID_Speed;
@@ -11,6 +12,31 @@ ModeNow_TypeDef  ModeLast  = Motor_Disable;
 ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
+
+int16_t rtt_cnt = 0;
+void RTT_Sampling(void)
+{
+    struct {
+    int16_t data0;
+    int16_t data1;
+    int16_t data2;
+    int16_t data3;
+    int16_t data4;
+    int16_t data5;
+    } Rttstru;
+
+    Rttstru.data0 = (int16_t)(FOC.Ia*1000.0f);
+    Rttstru.data1 = (int16_t)(FOC.Ib*1000.0f);
+    Rttstru.data2 = (int16_t)(FOC.Ic*1000.0f);
+    Rttstru.data3 = (int16_t)(FOC.dtc_a*1000.0f);
+    Rttstru.data4 = (int16_t)(FOC.dtc_b*1000.0f);
+    Rttstru.data5 = (int16_t)(FOC.dtc_c*1000.0f);
+    
+    SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
+    
+    rtt_cnt++;
+  
+}
 
 /**
 	* @brief  Initialize motor control parameters
@@ -123,4 +149,6 @@ void FOC20kHzIRQHandler(void)
 	
 	MotorControl.ModeNow_f = MotorControl.ModeNow;
 	MotorControl.ErrorNow_f = MotorControl.ErrorNow;
+    
+    RTT_Sampling();
 }

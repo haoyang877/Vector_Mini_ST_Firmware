@@ -30,6 +30,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "common_inc.h"
+#include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -81,6 +82,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+    SEGGER_RTT_ConfigUpBuffer(1, "JScope_i2i2i2i2i2i2", bRttBuf, sizeof(bRttBuf), SEGGER_RTT_MODE_NO_BLOCK_SKIP);
 
   /* USER CODE END Init */
 

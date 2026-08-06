@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lksscope appVersion="v1.4.8">
+    <params>
+        <param name="linkType" value="0"/>
+        <param name="jClock" value="10000000"/>
+        <param name="uClock" value="1000000"/>
+        <param name="commPort" value=""/>
+        <param name="commBaud" value="9600"/>
+        <param name="bleName" value=""/>
+        <param name="localIP" value=""/>
+        <param name="localPort" value=""/>
+        <param name="remoteIP" value=""/>
+        <param name="remotePort" value=""/>
+        <param name="rttAddr" value="20000000"/>
+        <param name="rttFreq" value="20000"/>
+        <param name="sampleInterval" value="10"/>
+        <param name="uiInterval" value="50"/>
+        <param name="maxPoint" value="100"/>
+        <param name="checkAxf" value="1"/>
+    </params>
+    <layouts>
+        <param name="geometry" value="AdnQywADAAD/////////9wAACgAAAAVkAAACzwAAAU0AAAcwAAAEFQAAAAACAAAACgAAAAAAAAAAHQAACf8AAAVj"/>
+        <param name="state" value="AAAA/wAAAAD9AAAAAgAAAAAAAAGJAAADf/wCAAAAAvsAAAAIepdT41v8gioBAAAAUgAAAcAAAAAAAAAAAPwAAAIWAAABuwAAAAAA////+gAAAAACAAAAAvsAAAAIW/xRZVPYkc8BAAAAAP////8AAAAAAAAAAPsAAAAKgepbmk5JU9iRzwEAAAAA/////wAAAAAAAAAAAAAAAQAABfMAAAN//AIAAAAH+wAAAAZbxFtYVmgAAAAAAP////8AAAAAAAAAAPwAAABOAAADhQAAAAAA/////AEAAAAC+wAAAAZm8n6/ADABAAAByQAABAcAAAAAAAAAAPsAAAAGZXBQPAAwAQAABdQAAAGsAAAAAAAAAAD7AAAACGVwY25mPnk6AQAAAFIAAAN/AAAAAAAAAAD7AAAACHU1Zzpjp1I2AAAAAAD/////AAAArwD////7AAAACI/QiExl5V/XAAAAAAD/////AAAAbQD////7AAAADABSAFQAVFR9TuSITAAAAAAA/////wAAAOQA////+wAAAAoAUgBUAFRlcGNuAAAAAAD/////AAABIwD///8AAAoAAAAE1AAAAAQAAAAEAAAACAAAAAj8AAAAAQAAAAIAAAADAAAADgB0AG8AbwBsAEIAYQByAQAAAAD/////AAAAAAAAAAAAAAASAHQAbwBvAGwAQgBhAHIAXwAyAQAAAOb/////AAAAAAAAAAAAAAAWAHQAbwBvAGwAQgBhAHIATABvAGcAbwEAAALw/////wAAAAAAAAAA"/>
+    </layouts>
+    <tabs curPage="0">
+        <tab geometry="AdnQywADAAAAAAAAAAAAAAAAB2gAAASiAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAAAAAB2gAAASi" title="标签页0" checked="1" state="AAAA/wAAAAD9AAAAAgAAAAAAAAAAAAAAAPwCAAAAAfsAAAAGZvJ+vwAwAAAAAAD/////AAAASAD///8AAAABAAAAAAAAAAD8AgAAAAH7AAAABmVwUDwAMAAAAAAA/////wAAAG0A////AAAAAAAAAAAAAAAEAAAABAAAAAgAAAAI/AAAAAA="/>
+    </tabs>
+    <forms>
+        <form type="0" title="Form"/>
+        <form lv-width="150,100,100,100,100,100,100,100,100,100" type="1" title="自定义变量"/>
+        <form lv-width="150,100,100,100,100,100,100,100,100,100" type="13" title="寄存器变量" chip=""/>
+        <form mapFile="" lv-width="178,100,100,100,320,100,100,204,100,100" type="2" title="代码变量"/>
+        <form page="-1" visible="0" type="3" title="运行日志" floating="0"/>
+        <form page="-1" visible="0" type="4" encode="GBK" title="RTT命令行" checkTStamp="0" syncFilePath="" sync2File="0" floating="0"/>
+        <form page="-1" max="500" subMode="0" scrollType="0" trigValue="0" trigName="" visible="0" xTag="0" type="5" title="RTT数据" scatterStyle="1" trigType="0" min="-500" floating="0" xCount="1" autoRange="1" lineStyle="1">
+            <var color="#ff0000" unit="" formula="" desc="rtt_channel1.data0" name="rtt_channel1.data0" subPlot="0"/>
+            <var color="#00ff00" unit="" formula="" desc="rtt_channel1.data1" name="rtt_channel1.data1" subPlot="0"/>
+            <var color="#00ffff" unit="" formula="" desc="rtt_channel1.data2" name="rtt_channel1.data2" subPlot="0"/>
+            <var color="#ff00ff" unit="" formula="" desc="rtt_channel1.data3" name="rtt_channel1.data3" subPlot="0"/>
+            <var color="#aa55ff" unit="" formula="" desc="rtt_channel1.data4" name="rtt_channel1.data4" subPlot="0"/>
+            <var color="#00b42a" unit="" formula="" desc="rtt_channel1.data5" name="rtt_channel1.data5" subPlot="0"/>
+        </form>
+        <form page="-1" lv-width="150,100,100,100,100" visible="0" type="12" title="电机控制" floating="0">
+            <var step="1" desc="速度设定" name="" upper="100" lower="0"/>
+            <var step="1" desc="电流设定" name="" upper="100" lower="0"/>
+            <var step="1" desc="功率设定" name="" upper="100" lower="0"/>
+            <var step="1" desc="电机启停" name="" upper="1" lower="0"/>
+        </form>
+        <form page="-1" visible="0" type="6" title="Form" floating="0" chip="0"/>
+        <form page="0" lv-hidden="" visible="0" lv-width="150,150,100,100,100,100,100,100,100,120,100,100" type="7" title="数值0" floating="0"/>
+        <form floating="0" visible="0" refValue="0" type="8" xTag="0" lineStyle="1" scrollType="0" subMode="0" refType="0" min="-500" page="0" trigName="" filterType="1" max="500" trigValue="0" title="曲线0" scatterStyle="1" autoRange="1" refName="" xCount="1000" trigType="0"/>
+    </forms>
+</lksscope>

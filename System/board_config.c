@@ -5,9 +5,9 @@
  **/
 void Board_Init(void)
 {
-	/*read parameters from flash*/
-	//flash_read_param();	/* disabled: use code defaults instead of flash params at boot */
-    Param_Return_Default();
+	/*read parameters and calibration data from flash*/
+	/*if magic word invalid or not calibrated, fall back to code defaults*/
+	flash_read_param();
 	
 	/*motor control related parameters initialize*/
 	MotorControl_Init();

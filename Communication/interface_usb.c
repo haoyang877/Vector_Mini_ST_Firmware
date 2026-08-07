@@ -344,13 +344,17 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 					return USB_DATA_INVALID;
 				
 				if(data_int >=0 && data_int <= (int)MODE_NUM)
-					ModeSwitch_Handle((ModeNow_TypeDef)data_int);
+				{
+					if(!ModeSwitch_Handle((ModeNow_TypeDef)data_int))
+						return USB_WRITE_INVALID;
+				}
 				else
 					return USB_DATA_OUT_OF_RANGE;
 			break;
 			
 			case USB_CURRENT_SET:
-				ModeSwitch_Handle(Current_Mode);
+				if(!ModeSwitch_Handle(Current_Mode))
+					return USB_WRITE_INVALID;
 				if(fast_abs(data) <= MotorControl.current_limit)
 					MotorControl.iqRef = data;
 				else
@@ -358,7 +362,8 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_SPEED_SET:
-				ModeSwitch_Handle(Speed_Mode);
+				if(!ModeSwitch_Handle(Speed_Mode))
+					return USB_WRITE_INVALID;
 				if(fast_abs(data) <= MotorControl.speed_limit * ONE_BY_2PI)
 					MotorControl.speedRef = data * _2PI;
 				else
@@ -366,7 +371,8 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_POS_SET:
-				ModeSwitch_Handle(Position_Mode);
+				if(!ModeSwitch_Handle(Position_Mode))
+					return USB_WRITE_INVALID;
 				MotorControl.posRef = data * _2PI;
 			break;
 			
@@ -560,16 +566,32 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				return USB_WRITE_INVALID;
 
 			case USB_RS:
-				return USB_WRITE_INVALID;
+				if(data >= 0.0001f && data <= 1.0f)
+					MotorControl.motor_phase_resistance = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
 			
 			case USB_LD:
-				return USB_WRITE_INVALID;
+				if(data >= 1e-6f && data <= 5e-3f)
+					MotorControl.motor_d_inductance = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
 			
 			case USB_LQ:
-				return USB_WRITE_INVALID;
+				if(data >= 1e-6f && data <= 5e-3f)
+					MotorControl.motor_q_inductance = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
 			
 			case USB_FLUX:
-				return USB_WRITE_INVALID;
+				if(data >= 1e-5f && data <= 1.0f)
+					MotorControl.motor_flux = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
 			
 			case USB_ERROR:
 				return USB_WRITE_INVALID;

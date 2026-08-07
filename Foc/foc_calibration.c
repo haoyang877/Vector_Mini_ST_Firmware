@@ -642,6 +642,10 @@ void Task_Calib_Encoder(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, En
 			next_sample_time      = 0;
 			CalibStep             = CS_NULL;
 			PWM_TurnOnHighSides();
+			
+			/*angle sensor linearization calibrated*/
+			Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
+			
 			Set_ModeNow(Save_Param);
 		}
 		break;

@@ -3,6 +3,7 @@
 #include "tim.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
+#include "encoder.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -10,6 +11,7 @@ extern PID_TypeDef PID_Speed;
 extern PID_TypeDef PID_Position;
 extern ModeNow_TypeDef  ModeLast;
 extern ErrorNow_TypeDef ErrorLast;
+extern Encoder_TypeDef External_Encoder;
 
 bool is_Mode_Error_Change;
 
@@ -71,13 +73,33 @@ void Clear_RunningData(void)
 
 /**
 	* @brief  Handle motor mode switching
+	*         motor identification is removed, motor body parameters
+	*         are filled externally; closed-loop modes require encoder
+	*         linearization and electrical angle zero position calibration
 	* @param  mode_set: target mode
+	* @retval true if mode switched
  **/
-void ModeSwitch_Handle(ModeNow_TypeDef mode_set)
+bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
+	/*motor identification (R/L/flux) is not used any more*/
+	if(mode_set == Calib_Motor_R_L_Flux)
+		return false;
+	
+	/*closed-loop control (current/speed/position) requires calibration*/
+	if(mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode)
+	{
+		if(MotorControl.isUseSensorless == false &&
+		   (External_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+		{
+			Set_ErrorNow(Encoder_NotCalibrated);
+			return false;
+		}
+	}
+	
 	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
 	{
 		MotorControl.ModeNow = mode_set;
+		return true;
 	}
 	
 	if((MotorControl.ModeNow  == Current_Mode || 
@@ -90,7 +112,10 @@ void ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ErrorNow == No_Error)
 	{
 		if(mode_set == Motor_Disable)
+		{
 			MotorControl.ModeNow = mode_set;
+			return true;
+		}
 	}
 	
 	if(mode_set == Clear_Error)
@@ -99,8 +124,11 @@ void ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		{
 			MotorControl.ErrorNow = No_Error;
 			MotorControl.ModeNow = Motor_Disable;
+			return true;
 		}
 	}
+	
+	return false;
 }
 
 /**

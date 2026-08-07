@@ -20,6 +20,7 @@ typedef struct
 	float encoder_dir[2];
 	float encoder_offset[2];
 	float encoder_zero_count[2];
+	float encoder_calib_flag[2];
 	float offset_lut[256];
 	
 	float id_kp;

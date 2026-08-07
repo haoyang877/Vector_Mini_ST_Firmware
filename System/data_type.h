@@ -35,6 +35,7 @@ typedef enum
 	Over_Voltage,
 	Under_Voltage,
 	High_Temprature,
+	Encoder_NotCalibrated,
 }ErrorNow_TypeDef;
 
 typedef struct

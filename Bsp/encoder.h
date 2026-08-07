@@ -20,11 +20,16 @@ typedef enum
 }Encoder_Source;
 
 /*Encoder type*/
-typedef enum 
-{	
+typedef enum
+{
 	ENCODER_DISABLE = 0,
 	ENCODER_ENABLE = 1
 }Encoder_Enable;
+
+/*calibration flags, bitmask stored in Encoder_TypeDef.calib_flag*/
+#define ENC_CALIB_LINEARIZED  (1U << 0)  /*angle sensor linearization LUT calibrated*/
+#define ENC_CALIB_ZERO_POS    (1U << 1)  /*electrical angle zero position calibrated*/
+#define ENC_CALIB_ALL         (ENC_CALIB_LINEARIZED | ENC_CALIB_ZERO_POS)
 
 typedef struct
 {
@@ -76,6 +81,7 @@ typedef struct
 	int offset;
 	int offset_lut[128];
 	int zero_count;
+	uint8_t calib_flag;
 	
 	int disconnect_count;
 }Encoder_TypeDef;

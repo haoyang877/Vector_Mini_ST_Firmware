@@ -518,13 +518,34 @@ void Encoder_ChangeDetect(Encoder_TypeDef *Encoder1, Encoder_TypeDef *Encoder2)
 {
 	static Encoder_Type Encoder1_type_last;
 	static Encoder_Type Encoder2_type_last;
+	static bool is_first_call = true;
+	
+	/*init last type with current type to avoid wiping calibration at boot*/
+	if(is_first_call)
+	{
+		Encoder1_type_last = Encoder1->type;
+		Encoder2_type_last = Encoder2->type;
+		is_first_call = false;
+	}
 	
 	if(Encoder1->type != Encoder1_type_last)
 	{
+		/*encoder type changed, calibration data is invalid*/
+		Encoder1->calib_flag = 0;
+		Encoder1->offset = 0;
+		Encoder1->zero_count = 0;
+		for(int i = 0; i < 128; i++)
+			Encoder1->offset_lut[i] = 0;
 		Encoder_ParamInit(Encoder1);
 	}
 	if(Encoder2->type != Encoder2_type_last)
 	{
+		/*encoder type changed, calibration data is invalid*/
+		Encoder2->calib_flag = 0;
+		Encoder2->offset = 0;
+		Encoder2->zero_count = 0;
+		for(int i = 0; i < 128; i++)
+			Encoder2->offset_lut[i] = 0;
 		Encoder_ParamInit(Encoder2);
 	}
 	
@@ -541,6 +562,9 @@ void Task_Set_ZeroPosition(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *
 {
 	Encoder->zero_count = Encoder->count_in_cpr;
 	Encoder->shadow_count = Encoder->zero_count;
+	
+	/*electrical angle zero position calibrated*/
+	Encoder->calib_flag |= ENC_CALIB_ZERO_POS;
 	
 	MotorControl->posTrajUpdated = true;
 	

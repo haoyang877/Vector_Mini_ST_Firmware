@@ -6,14 +6,16 @@
 #include "foc_param.h"
 #include "heap.h"
 
-#define PARAM_NUM 	sizeof(InterfaceParam_TypeDef) / sizeof(float) 
+#define PARAM_NUM 	sizeof(InterfaceParam_TypeDef) / sizeof(uint32_t)
+/*double-word count for flash programming*/
+#define PARAM_DW_NUM ((PARAM_NUM + 1) / 2) 
 
 int num;
 
 extern MotorControl_TypeDef MotorControl;
 extern InterfaceParam_TypeDef InterfaceParam;
 
-uint32_t p_param[PARAM_NUM];
+__ALIGNED(8) uint32_t p_param[PARAM_NUM];
 
 float* struct_ptr = (float *)(&InterfaceParam);
 
@@ -144,7 +146,7 @@ void flash_write_param(void)
 	flash_erase_page(flash_page);
 	flash_erase_page(flash_page + 1);
 	flash_erase_page(flash_page + 2);
-	flash_write_data(flash_addr, (uint64_t *)p_param, PARAM_NUM);
+	flash_write_data(flash_addr, (uint64_t *)p_param, PARAM_DW_NUM);
 	
 //	if(p_param != NULL)
 //	{

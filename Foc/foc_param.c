@@ -40,6 +40,7 @@ void Param_Return_Default(void)
 	OnBoard_Encoder.dir       			= 1;
 	OnBoard_Encoder.offset    			= 0;
 	OnBoard_Encoder.zero_count			= 0;
+	OnBoard_Encoder.calib_flag			= 0;
 	memset(&OnBoard_Encoder.offset_lut, 0, 128 * 4);
 	
 	External_Encoder.type		   		= MT6701;
@@ -47,6 +48,7 @@ void Param_Return_Default(void)
 	External_Encoder.dir       			= 1;
 	External_Encoder.offset    			= 0;
 	External_Encoder.zero_count			= 0;
+	External_Encoder.calib_flag			= 0;
 	memset(&External_Encoder.offset_lut, 0, 128 * 4);
 	
 	MotorControl.calib_current 			= 4.0f;
@@ -89,6 +91,7 @@ void Param_Upload(void)
 	InterfaceParam.encoder_dir[0] 		  = (float)OnBoard_Encoder.dir;
 	InterfaceParam.encoder_offset[0] 	  = (float)OnBoard_Encoder.offset;
 	InterfaceParam.encoder_zero_count[0]  = (float)OnBoard_Encoder.zero_count;
+	InterfaceParam.encoder_calib_flag[0]  = (float)OnBoard_Encoder.calib_flag;
 	for(int i = 0; i < 128; i++)
 	InterfaceParam.offset_lut[i] 		  = (float)OnBoard_Encoder.offset_lut[i];
 
@@ -97,6 +100,7 @@ void Param_Upload(void)
 	InterfaceParam.encoder_dir[1] 		  = (float)External_Encoder.dir;
 	InterfaceParam.encoder_offset[1] 	  = (float)External_Encoder.offset;
 	InterfaceParam.encoder_zero_count[1]  = (float)External_Encoder.zero_count;
+	InterfaceParam.encoder_calib_flag[1]  = (float)External_Encoder.calib_flag;
 	for(int i = 0; i < 128; i++)
 	InterfaceParam.offset_lut[i + 128] 	  = (float)External_Encoder.offset_lut[i];
 	
@@ -152,6 +156,7 @@ void Param_Download(void)
 		OnBoard_Encoder.dir       			= (int32_t)InterfaceParam.encoder_dir[0];
 		OnBoard_Encoder.offset    			= (int32_t)InterfaceParam.encoder_offset[0];
 		OnBoard_Encoder.zero_count			= (int32_t)InterfaceParam.encoder_zero_count[0];
+		OnBoard_Encoder.calib_flag			= (uint8_t)InterfaceParam.encoder_calib_flag[0];
 		for(int i = 0; i < 128; i++)
 		OnBoard_Encoder.offset_lut[i] 		= (int32_t)InterfaceParam.offset_lut[i];
 		
@@ -160,6 +165,7 @@ void Param_Download(void)
 		External_Encoder.dir       			= (int32_t)InterfaceParam.encoder_dir[1];
 		External_Encoder.offset    			= (int32_t)InterfaceParam.encoder_offset[1];
 		External_Encoder.zero_count			= (int32_t)InterfaceParam.encoder_zero_count[1];
+		External_Encoder.calib_flag			= (uint8_t)InterfaceParam.encoder_calib_flag[1];
 		for(int i = 0; i < 128; i++)
 		External_Encoder.offset_lut[i] 		= (int32_t)InterfaceParam.offset_lut[i + 128];
 		

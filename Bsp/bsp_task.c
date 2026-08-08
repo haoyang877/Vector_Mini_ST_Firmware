@@ -46,6 +46,10 @@ void BSP1kHzIRQHandler(void)
 				Set_RGB_BreathingColor(PURPLE);
 			break;
 			
+			case Calib_EncoderObserver:
+				Set_RGB_BreathingColor(PURPLE);
+			break;
+			
 			default:
 				Set_RGB_BreathingColor(COLOR_NULL);
 			break;

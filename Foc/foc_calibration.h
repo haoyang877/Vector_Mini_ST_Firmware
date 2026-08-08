@@ -6,6 +6,7 @@
 #include "foc_algorithm.h"
 #include "data_type.h"
 #include "encoder.h"
+#include "foc_sensorless.h"
 
 #define OFFSET_LUT_NUM   		128U
 
@@ -53,10 +54,20 @@ typedef enum
 	CS_ANTICOGGING_CCW_SAMPLE,
 	CS_ANTICOGGING_END,
 	
+	/*observer-based encoder linearization calibration*/
+	CS_OBS_ALIGN,
+	CS_OBS_ALIGN_LOOP,
+	CS_OBS_RAMP_CW,
+	CS_OBS_SAMPLE_CW,
+	CS_OBS_RAMP_CCW,
+	CS_OBS_SAMPLE_CCW,
+	CS_OBS_END,
+	
 }CalibStep_TyepeDef;
 
 void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 void Task_Calib_Encoder(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
+void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver);
 void Task_Calib_CurrentOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 
 #endif

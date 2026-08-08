@@ -19,6 +19,7 @@ typedef enum
 	Clear_Error,
 	Calib_CurrentOffset,
 	Voltage_OpenLoop,
+	Calib_EncoderObserver,
 	MODE_NUM
 }ModeNow_TypeDef; 
 
@@ -36,6 +37,7 @@ typedef enum
 	Under_Voltage,
 	High_Temprature,
 	Encoder_NotCalibrated,
+	MotorParam_Error,
 }ErrorNow_TypeDef;
 
 typedef struct

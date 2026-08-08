@@ -107,6 +107,10 @@ void FOC20kHzIRQHandler(void)
 			Task_Calib_Encoder(&FOC, &MotorControl, &External_Encoder);
 		break;
 		
+		case Calib_EncoderObserver:
+			Task_Calib_EncoderObserver(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
+		break;
+		
 		case Calib_CurrentOffset:
 			Task_Calib_CurrentOffset(&FOC, &MotorControl);
 		break;

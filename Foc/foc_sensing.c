@@ -6,6 +6,8 @@
 #include "utils.h"
 #include "foc_errhandle.h"
 
+#define OVERCURRENT_CONFIRM_CYCLES 5U
+
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
 
@@ -67,6 +69,8 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
  **/
 void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
+	static uint8_t overcurrent_count;
+
 	/*when actual current is near zero, adc offset is outght to be around 2048*/
 	if(MotorControl->A_Offset < 1948 || MotorControl->A_Offset > 2148 ||
 	   MotorControl->B_Offset < 1948 || MotorControl->B_Offset > 2148 ||
@@ -86,7 +90,14 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	
 	if(fast_abs(FOC->Ia) > i_limit || fast_abs(FOC->Ib) > i_limit || fast_abs(FOC->Ic) > i_limit)
 	{
-		Set_ErrorNow(Over_Current);
+		if(overcurrent_count < OVERCURRENT_CONFIRM_CYCLES)
+			overcurrent_count++;
+		if(overcurrent_count >= OVERCURRENT_CONFIRM_CYCLES)
+			Set_ErrorNow(Over_Current);
+	}
+	else
+	{
+		overcurrent_count = 0U;
 	}
 }
 

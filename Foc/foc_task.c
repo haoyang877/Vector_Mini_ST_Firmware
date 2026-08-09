@@ -25,12 +25,13 @@ void RTT_Sampling(void)
     int16_t data5;
     } Rttstru;
 
-    Rttstru.data0 = (int16_t)(FOC.Ia*1000.0f);
-    Rttstru.data1 = (int16_t)(FOC.Ib*1000.0f);
-    Rttstru.data2 = (int16_t)(FOC.Ic*1000.0f);
-    Rttstru.data3 = (int16_t)(FOC.dtc_a*1000.0f);
-    Rttstru.data4 = (int16_t)(FOC.dtc_b*1000.0f);
-    Rttstru.data5 = External_Encoder.raw;
+	/*speed: rev/s x1000, current: A x1000, voltage: V x1000*/
+    Rttstru.data0 = (int16_t)(MotorControl.speedShadow * ONE_BY_2PI * 1000.0f);
+    Rttstru.data1 = (int16_t)(External_Encoder.vel * 1000.0f);
+    Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
+    Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
+    Rttstru.data4 = (int16_t)(FOC.Id * 1000.0f);
+    Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
     

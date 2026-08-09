@@ -1,6 +1,7 @@
 #include "foc_param.h"
 
 #include "common_inc.h"
+#include "foc_param_profile.h"
 
 InterfaceParam_TypeDef InterfaceParam;
 
@@ -13,58 +14,57 @@ extern CANMsg_TypeDef CANMsg;
  **/
 void Param_Return_Default(void)
 {
-	CANMsg.node_id 						= 0x00;
+	CANMsg.node_id 						= PARAM_HW_CAN_NODE_ID;
 	
-	MotorControl.A_Offset 				= 2048;
-	MotorControl.B_Offset				= 2048;
-	MotorControl.C_Offset 				= 2048;
+	MotorControl.A_Offset 				= PARAM_HW_CURRENT_OFFSET_A_COUNTS;
+	MotorControl.B_Offset				= PARAM_HW_CURRENT_OFFSET_B_COUNTS;
+	MotorControl.C_Offset 				= PARAM_HW_CURRENT_OFFSET_C_COUNTS;
 	
-	MotorControl.motor_pole_pairs 		= 21;
-	
-	/*skip calibration default motor parameters*/
-	MotorControl.motor_phase_resistance 	= 1.0f;
-	MotorControl.motor_d_inductance 		= 100e-6f;
-	MotorControl.motor_q_inductance 		= 100e-6f;
+	MotorControl.motor_pole_pairs 		= PARAM_MOTOR_POLE_PAIRS;
+	MotorControl.motor_phase_resistance 	= PARAM_MOTOR_PHASE_RESISTANCE_OHM;
+	MotorControl.motor_d_inductance 		= PARAM_MOTOR_D_INDUCTANCE_H;
+	MotorControl.motor_q_inductance 		= PARAM_MOTOR_Q_INDUCTANCE_H;
+	MotorControl.motor_flux 				= PARAM_MOTOR_FLUX_WB;
 	/*current loop PI derived from R/L, same as calibration*/
-	MotorControl.id_Kp 					= MotorControl.motor_d_inductance * 200.0f;
-	MotorControl.iq_Kp 					= MotorControl.motor_q_inductance * 200.0f;
-	MotorControl.id_Ki 					= MotorControl.motor_phase_resistance * 200.0f;
-	MotorControl.iq_Ki 					= MotorControl.motor_phase_resistance * 200.0f;
+	MotorControl.id_Kp 					= MotorControl.motor_d_inductance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+	MotorControl.iq_Kp 					= MotorControl.motor_q_inductance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+	MotorControl.id_Ki 					= MotorControl.motor_phase_resistance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+	MotorControl.iq_Ki 					= MotorControl.motor_phase_resistance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
 	/*voltage open-loop mode defaults*/
-	MotorControl.ol_voltage 			= 1.0f;
-	MotorControl.ol_elec_vel 			= 0.0f;
-	MotorControl.ol_theta 				= 0.0f;
+	MotorControl.ol_voltage 			= PARAM_APP_OPEN_LOOP_VOLTAGE_V;
+	MotorControl.ol_elec_vel 			= PARAM_APP_OPEN_LOOP_ELEC_VEL_RAD_S;
+	MotorControl.ol_theta 				= PARAM_APP_OPEN_LOOP_THETA_RAD;
 	
-	OnBoard_Encoder.type		   		= TLE5012B;
-	OnBoard_Encoder.enable				= ENCODER_DISABLE;
-	OnBoard_Encoder.dir       			= 1;
-	OnBoard_Encoder.offset    			= 0;
-	OnBoard_Encoder.zero_count			= 0;
-	OnBoard_Encoder.calib_flag			= 0;
+	OnBoard_Encoder.type		   		= PARAM_HW_ONBOARD_ENCODER_TYPE;
+	OnBoard_Encoder.enable				= PARAM_HW_ONBOARD_ENCODER_ENABLE;
+	OnBoard_Encoder.dir       			= PARAM_HW_ONBOARD_ENCODER_DIR;
+	OnBoard_Encoder.offset    			= PARAM_APP_ENCODER_OFFSET_COUNTS;
+	OnBoard_Encoder.zero_count			= PARAM_APP_ENCODER_ZERO_COUNT;
+	OnBoard_Encoder.calib_flag			= PARAM_APP_ENCODER_CALIB_FLAG;
 	memset(&OnBoard_Encoder.offset_lut, 0, 128 * 4);
 	
-	External_Encoder.type		   		= MT6701;
-	External_Encoder.enable				= ENCODER_ENABLE;
-	External_Encoder.dir       			= 1;
-	External_Encoder.offset    			= 0;
-	External_Encoder.zero_count			= 0;
-	External_Encoder.calib_flag			= 0;
+	External_Encoder.type		   		= PARAM_HW_EXTERNAL_ENCODER_TYPE;
+	External_Encoder.enable				= PARAM_HW_EXTERNAL_ENCODER_ENABLE;
+	External_Encoder.dir       			= PARAM_HW_EXTERNAL_ENCODER_DIR;
+	External_Encoder.offset    			= PARAM_APP_ENCODER_OFFSET_COUNTS;
+	External_Encoder.zero_count			= PARAM_APP_ENCODER_ZERO_COUNT;
+	External_Encoder.calib_flag			= PARAM_APP_ENCODER_CALIB_FLAG;
 	memset(&External_Encoder.offset_lut, 0, 128 * 4);
 	
-	MotorControl.calib_current 			= 4.0f;
-	MotorControl.current_limit 			= 30.0f;
-	MotorControl.speed_limit   			= 200.0f * _2PI;
-	MotorControl.speedAcc      			= 50.0f * _2PI;
-	MotorControl.speedDec      			= 50.0f * _2PI;
-	MotorControl.speed_Kp 				= 0.05f;
-	MotorControl.speed_Ki 				= 0.5f;
-	MotorControl.posAcc      			= 10.0f * _2PI;
-	MotorControl.posDec      			= 10.0f * _2PI;
-	MotorControl.pos_maxspeed			= 5.0f * _2PI;
-	MotorControl.pos_Kp 				= 0.05f;
-	MotorControl.pos_Kd 				= 0.5f;
+	MotorControl.calib_current 			= PARAM_MOTOR_CALIB_CURRENT_A;
+	MotorControl.current_limit 			= PARAM_MOTOR_CURRENT_LIMIT_A;
+	MotorControl.speed_limit   			= PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
+	MotorControl.speedAcc      			= PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
+	MotorControl.speedDec      			= PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
+	MotorControl.speed_Kp 				= PARAM_APP_SPEED_KP;
+	MotorControl.speed_Ki 				= PARAM_APP_SPEED_KI;
+	MotorControl.posAcc      			= PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+	MotorControl.posDec      			= PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+	MotorControl.pos_maxspeed			= PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
+	MotorControl.pos_Kp 				= PARAM_APP_POSITION_KP;
+	MotorControl.pos_Kd 				= PARAM_APP_POSITION_KD;
 	//MotorControl.isUseAnticogging		= 0;
-	CANMsg.can_hb_set 					= 500;
+	CANMsg.can_hb_set 					= PARAM_HW_CAN_HEARTBEAT_MS;
 	
 	MotorControl.ModeNow = Save_Param;
 }

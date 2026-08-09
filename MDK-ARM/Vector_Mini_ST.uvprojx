@@ -639,6 +639,11 @@
               <FileType>5</FileType>
               <FilePath>..\System\data_type.h</FilePath>
             </File>
+            <File>
+              <FileName>foc_param_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\System\foc_param_profile.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

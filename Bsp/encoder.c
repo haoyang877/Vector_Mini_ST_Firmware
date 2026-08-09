@@ -337,10 +337,12 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 	if(Encoder->enable == ENCODER_DISABLE)
 		return;
 	
-	if(Encoder->dir == +1)
-		Encoder->raw = ReadSPIEncoder_Raw(Encoder);
-	else if(Encoder->dir == -1)
-		Encoder->raw = Encoder->cpr - ReadSPIEncoder_Raw(Encoder);
+	int raw = ReadSPIEncoder_Raw(Encoder);
+	if(Encoder->dir == -1)
+		raw = Encoder->cpr - raw;
+	if(raw >= Encoder->cpr)
+		raw -= Encoder->cpr;
+	Encoder->raw = raw;
 	
 	if(Encoder->raw == 0 || Encoder->raw == 1 || Encoder->raw == Encoder->cpr || Encoder->raw == Encoder->cpr - 1)
 	{
@@ -370,7 +372,7 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
     int count = Encoder->raw - off_interp;
 	
     /*  Wrap in ENCODER_CPR */
-    while (count > Encoder->cpr)
+    while (count >= Encoder->cpr)
         count -= Encoder->cpr;
     while (count < 0)
         count += Encoder->cpr;
@@ -395,7 +397,7 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
     while (delta_pos_cpr_counts < -(Encoder->cpr >> 1))
         delta_pos_cpr_counts += (float)Encoder->cpr;
     Encoder->pos_cpr_counts += Current_Ts * Encoder->pll_kp * delta_pos_cpr_counts;
-    while (Encoder->pos_cpr_counts > Encoder->cpr)
+    while (Encoder->pos_cpr_counts >= Encoder->cpr)
         Encoder->pos_cpr_counts -= (float)Encoder->cpr;
     while (Encoder->pos_cpr_counts < 0)
         Encoder->pos_cpr_counts += (float)Encoder->cpr;
@@ -435,7 +437,7 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
             Encoder->interpolation = 0.0f;
     }
     float interpolated_enc = Encoder->count_in_cpr - Encoder->offset + Encoder->interpolation;
-    while (interpolated_enc > Encoder->cpr)
+    while (interpolated_enc >= Encoder->cpr)
         interpolated_enc -= Encoder->cpr;
     while (interpolated_enc < 0)
         interpolated_enc += Encoder->cpr;

@@ -15,6 +15,18 @@ typedef enum
 
 typedef enum
 {
+	ENCODER_READ_OK = 0,
+	ENCODER_READ_SPI_TIMEOUT = 1,
+	ENCODER_READ_CRC_MISMATCH = 2,
+	ENCODER_READ_MAGNET_TOO_STRONG = 3,
+	ENCODER_READ_MAGNET_TOO_WEAK = 4,
+	ENCODER_READ_MAGNET_INVALID = 5,
+	ENCODER_READ_OVERSPEED = 6,
+	ENCODER_READ_UNSUPPORTED = 7
+}Encoder_ReadStatus;
+
+typedef enum
+{
 	ON_BOARD = 0,
 	EXTERNAL = 1
 }Encoder_Source;
@@ -84,6 +96,15 @@ typedef struct
 	uint8_t calib_flag;
 	
 	int disconnect_count;
+
+	Encoder_ReadStatus read_status;
+	Encoder_ReadStatus read_status_latched;
+	uint8_t mt6701_status_bits;
+	uint8_t mt6701_crc_received;
+	uint8_t mt6701_crc_calculated;
+	uint32_t mt6701_crc_error_count;
+	uint32_t read_error_count;
+	uint16_t read_error_streak;
 }Encoder_TypeDef;
 
 
@@ -97,13 +118,13 @@ typedef struct
 #define BRD_ENC_CS_DISABLE BRD_ENC_CS_GPIO_Port->BSRR = BRD_ENC_CS_Pin   
 
 #define EXT_ENC_CS_ENABLE  EXT_ENC_CS_GPIO_Port->BSRR = (uint32_t)EXT_ENC_CS_Pin << 16U
-#define EXT_ENC_CS_DISABLE EXT_ENC_CS_GPIO_Port->BSRR = EXT_ENC_CS_Pin        		
+#define EXT_ENC_CS_DISABLE EXT_ENC_CS_GPIO_Port->BSRR = EXT_ENC_CS_Pin
 
 void Encoder_ParamInit(Encoder_TypeDef *Encoder);
 
 uint16_t ReadTLE5012B_Raw(Encoder_Source source);
 uint16_t ReadMT6816_Raw(Encoder_Source source);
-uint16_t ReadMT6701_Raw(Encoder_Source source);
+uint16_t ReadMT6701_Raw(Encoder_TypeDef *Encoder);
 uint16_t ReadSPIEncoder_Raw(Encoder_TypeDef *Encoder);
 
 void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);

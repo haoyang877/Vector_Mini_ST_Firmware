@@ -13,9 +13,14 @@ ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
 
-int16_t rtt_cnt = 0;
 void RTT_Sampling(void)
 {
+	static uint32_t rtt_divider_count;
+
+	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
+		return;
+	rtt_divider_count = 0;
+
     struct {
     int16_t data0;
     int16_t data1;
@@ -23,20 +28,21 @@ void RTT_Sampling(void)
     int16_t data3;
     int16_t data4;
     int16_t data5;
+    int16_t data6;
+    int16_t data7;
     } Rttstru;
 
-	/*speed: rev/s x1000, current: A x1000, voltage: V x1000*/
-    Rttstru.data0 = (int16_t)(MotorControl.speedShadow * ONE_BY_2PI * 1000.0f);
-    Rttstru.data1 = (int16_t)(External_Encoder.vel * 1000.0f);
-    Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
-    Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
-    Rttstru.data4 = (int16_t)(FOC.Id * 1000.0f);
-    Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
+	/*RTT channels: speed x100, current/voltage x1000, angle mapped to int16 full scale.*/
+	Rttstru.data0 = (int16_t)(MotorControl.speedShadow * 100.0f);
+	Rttstru.data1 = (int16_t)(External_Encoder.vel_mech * 100.0f);
+	Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
+	Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
+	Rttstru.data4 = (int16_t)(FOC.Id * 1000.0f);
+	Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
+	Rttstru.data6 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
+	Rttstru.data7 = (int16_t)(normalizeAngle(External_Encoder.theta_elec) * (65536.0f / _2PI) - 32768.0f);
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
-    
-    rtt_cnt++;
-  
 }
 
 /**
@@ -72,17 +78,9 @@ void FOC20kHzIRQHandler(void)
 	
 	Temperature_Update(&FOC);
 	
-	if(MotorControl.isUseSensorless == true &&
-	   MotorControl.ModeNow != Vq_Mode &&
-	   MotorControl.ModeNow != Calib_EleAngelOffset)
-	{
-		Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
-	}
-	else
-	{
-		Encoder_Update(&MotorControl, &External_Encoder);
-		Encoder_Update(&MotorControl, &OnBoard_Encoder);	
-	}
+	Encoder_Update(&MotorControl, &External_Encoder);
+	Encoder_Update(&MotorControl, &OnBoard_Encoder);
+	Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
 
 	switch(MotorControl.ModeNow)
 	{

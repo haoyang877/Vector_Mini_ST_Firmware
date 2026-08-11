@@ -82,7 +82,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-    SEGGER_RTT_ConfigUpBuffer(1, "JScope_i2i2i2i2i2i2", bRttBuf, sizeof(bRttBuf), SEGGER_RTT_MODE_NO_BLOCK_SKIP);
+    SEGGER_RTT_ConfigUpBuffer(1, "JScope_i2i2i2i2i2i2i2i2", bRttBuf, sizeof(bRttBuf), SEGGER_RTT_MODE_NO_BLOCK_SKIP);
 
   /* USER CODE END Init */
 

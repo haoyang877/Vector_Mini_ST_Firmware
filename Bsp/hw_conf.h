@@ -11,6 +11,19 @@
 #define FOC_FREQ				PWM_TIM_FREQ
 #define FOC_PERIOD				1.0f / (float)FOC_FREQ
 
+/*RTT output sampling frequency; must divide FOC_FREQ exactly*/
+#define RTT_SAMPLE_RATE_HZ		2000U
+
+#if RTT_SAMPLE_RATE_HZ == 0U
+#error "RTT_SAMPLE_RATE_HZ must be greater than zero"
+#elif RTT_SAMPLE_RATE_HZ > FOC_FREQ
+#error "RTT_SAMPLE_RATE_HZ must not exceed FOC_FREQ"
+#elif (FOC_FREQ % RTT_SAMPLE_RATE_HZ) != 0U
+#error "RTT_SAMPLE_RATE_HZ must divide FOC_FREQ exactly"
+#endif
+
+#define RTT_SAMPLE_DIVIDER		(FOC_FREQ / RTT_SAMPLE_RATE_HZ)
+
 /*shunt resistor (ohm)*/
 #define SENSING_RES				0.002f
 /*current amplify gain (V/A)*/

@@ -10,6 +10,63 @@
 #define ENC_SPI_XFER_SPIN_MAX (340U)
 #endif
 
+static void Encoder_MarkReadStatus(Encoder_TypeDef *Encoder, Encoder_ReadStatus status)
+{
+	Encoder->read_status = status;
+	if (status != ENCODER_READ_OK)
+	{
+		Encoder->read_status_latched = status;
+		Encoder->read_error_count++;
+	}
+}
+
+static bool SPI_WaitFlag(SPI_TypeDef *SPIx, uint32_t flag, uint32_t timeout_spin)
+{
+	uint32_t spin = 0U;
+	while (!(SPIx->SR & flag))
+	{
+		if (++spin > timeout_spin)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool SPI_WaitBSYClear(SPI_TypeDef *SPIx, uint32_t timeout_spin)
+{
+	uint32_t spin = 0U;
+	while (SPIx->SR & SPI_FLAG_BSY)
+	{
+		if (++spin > timeout_spin)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+static uint8_t SPI_Reg_TxRx8(SPI_TypeDef *SPIx, uint8_t tx_data, bool *ok)
+{
+	if (!(SPIx->CR1 & SPI_CR1_SPE))
+	{
+		SPIx->CR1 |= SPI_CR1_SPE;
+	}
+	if (SPIx->SR & SPI_FLAG_OVR)
+	{
+		(void)*(__IO uint8_t *)&SPIx->DR;
+		(void)SPIx->SR;
+	}
+	if (!SPI_WaitFlag(SPIx, SPI_FLAG_TXE, ENC_SPI_XFER_SPIN_MAX)) { *ok = false; return 0U; }
+	*(__IO uint8_t *)&SPIx->DR = tx_data;
+	if (!SPI_WaitFlag(SPIx, SPI_FLAG_RXNE, ENC_SPI_XFER_SPIN_MAX)) { *ok = false; return 0U; }
+	uint8_t rx = *(__IO uint8_t *)&SPIx->DR;
+	if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX)) { *ok = false; return 0U; }
+	*ok = true;
+	return rx;
+}
+
+
 /**
 	* @brief  Init encoder parameters
  **/
@@ -26,6 +83,14 @@ void Encoder_ParamInit(Encoder_TypeDef *Encoder)
     Encoder->theta_elec          = 0;
     Encoder->vel_elec            = 0;
     Encoder->interpolation       = 0;
+    Encoder->read_status         = ENCODER_READ_OK;
+    Encoder->read_status_latched  = ENCODER_READ_OK;
+    Encoder->mt6701_status_bits   = 0;
+    Encoder->mt6701_crc_received  = 0;
+    Encoder->mt6701_crc_calculated = 0;
+    Encoder->mt6701_crc_error_count = 0;
+    Encoder->read_error_count     = 0;
+    Encoder->read_error_streak    = 0;
 
     int   encoder_pll_bw   	   		= 2000;
     float bandwidth            		= fast_min(encoder_pll_bw, 0.25f * PWM_TIM_FREQ);
@@ -65,11 +130,11 @@ void Encoder_ParamInit(Encoder_TypeDef *Encoder)
 		break;
 		
 		case MT6701:
-			enc_spi->Init.DataSize = SPI_DATASIZE_16BIT;
+			enc_spi->Init.DataSize = SPI_DATASIZE_8BIT;
 			enc_spi->Init.CLKPolarity = SPI_POLARITY_LOW;
 			enc_spi->Init.CLKPhase = SPI_PHASE_2EDGE;
 			enc_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
-		
+
 			Encoder->resolution = 14;
 			Encoder->cpr = 16384;
 			Encoder->one_by_cpr = 1.0f / 16384.0f;
@@ -273,56 +338,111 @@ uint16_t ReadMT6816_Raw(Encoder_Source source)
     * @param  Reg: Register address 
     * @retval Raw data of mechanical angle (0-16383)
  **/
-uint16_t ReadMT6701_Raw(Encoder_Source source)
+static uint8_t MT6701_CRC6(uint32_t payload18)
 {
-	uint16_t data_t;
-	uint16_t data_r;
-	
-	data_t = 0x0000;
-	
-	// /*HAL method, less efficient*/
-	// if(source == EXTERNAL)
-	// {
-	// 	EXT_ENC_CS_ENABLE;
-	// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)&data_t, (uint8_t *)&data_r, 1, 10);
-	// 	EXT_ENC_CS_DISABLE;
-	// }
-
-	/* Register-level SPI, faster */
-	if(source == EXTERNAL)
+	uint8_t crc = 0U;
+	for (int i = 17; i >= 0; --i)
 	{
-		EXT_ENC_CS_ENABLE;
-		data_r = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t);
-		EXT_ENC_CS_DISABLE;
+		uint8_t bit = (uint8_t)((payload18 >> i) & 1U);
+		uint8_t fb = (uint8_t)(((crc >> 5) & 1U) ^ bit);
+		crc = (uint8_t)((crc << 1) & 0x3FU);
+		if (fb)
+		{
+			crc ^= 0x03U;
+		}
 	}
-	
-	return (data_r & 0xFFFC) >> 2;
+	return crc & 0x3FU;
 }
 
-/**
-	* @brief  Read raw data of encoder
-    * @retval Raw data of mechanical angle
- **/
+uint16_t ReadMT6701_Raw(Encoder_TypeDef *Encoder)
+{
+	SPI_HandleTypeDef *enc_spi = (Encoder->source == ON_BOARD) ? &brd_enc_spi : &ext_enc_spi;
+	SPI_TypeDef *SPIx = enc_spi->Instance;
+	uint8_t rx_bytes[3] = {0U, 0U, 0U};
+	bool ok = true;
+	uint16_t raw = Encoder->raw;
+
+	if (Encoder->source != EXTERNAL)
+	{
+		/* This board routes MT6701 SSI only through the external SPI1 connector. */
+		Encoder_MarkReadStatus(Encoder, ENCODER_READ_UNSUPPORTED);
+		return raw;
+	}
+
+	EXT_ENC_CS_ENABLE;
+	for (uint8_t i = 0; i < 3U; ++i)
+	{
+		rx_bytes[i] = SPI_Reg_TxRx8(SPIx, 0x00U, &ok);
+		if (!ok)
+		{
+			break;
+		}
+	}
+	(void)SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX);
+	EXT_ENC_CS_DISABLE;
+
+	if (!ok)
+	{
+		Encoder_MarkReadStatus(Encoder, ENCODER_READ_SPI_TIMEOUT);
+		return raw;
+	}
+
+	uint32_t frame = ((uint32_t)rx_bytes[0] << 16) | ((uint32_t)rx_bytes[1] << 8) | rx_bytes[2];
+	uint16_t angle = (uint16_t)((frame >> 10) & 0x3FFFU);
+	uint8_t status = (uint8_t)((frame >> 6) & 0x0FU);
+	uint8_t crc_rx = (uint8_t)(frame & 0x3FU);
+	uint8_t crc_calc = MT6701_CRC6((frame >> 6) & 0x3FFFFU);
+
+	Encoder->mt6701_status_bits = status;
+	Encoder->mt6701_crc_received = crc_rx;
+	Encoder->mt6701_crc_calculated = crc_calc;
+
+	if (crc_rx != crc_calc)
+	{
+		Encoder->mt6701_crc_error_count++;
+		Encoder_MarkReadStatus(Encoder, ENCODER_READ_CRC_MISMATCH);
+		return raw;
+	}
+	if ((status & 0x08U) != 0U)
+	{
+		Encoder_MarkReadStatus(Encoder, ENCODER_READ_OVERSPEED);
+		return raw;
+	}
+	switch (status & 0x03U)
+	{
+		case 1U:
+			Encoder_MarkReadStatus(Encoder, ENCODER_READ_MAGNET_TOO_STRONG);
+			return raw;
+		case 2U:
+			Encoder_MarkReadStatus(Encoder, ENCODER_READ_MAGNET_TOO_WEAK);
+			return raw;
+		case 3U:
+			Encoder_MarkReadStatus(Encoder, ENCODER_READ_MAGNET_INVALID);
+		return raw;
+		default:
+		break;
+	}
+
+	Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
+	return angle;
+}
+
 uint16_t ReadSPIEncoder_Raw(Encoder_TypeDef *Encoder)
 {
-	uint16_t encoder_raw;
 	switch(Encoder->type)
 	{
 		case TLE5012B:
-			encoder_raw = ReadTLE5012B_Raw(Encoder->source);
-		break;
-		
+			Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
+			return ReadTLE5012B_Raw(Encoder->source);
 		case MT6816:
-			encoder_raw = ReadMT6816_Raw(Encoder->source);
-		break;
-		
+			Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
+			return ReadMT6816_Raw(Encoder->source);
 		case MT6701:
-			encoder_raw = ReadMT6701_Raw(Encoder->source);
-		break;
-		
-		default:break;
+			return ReadMT6701_Raw(Encoder);
+		default:
+			Encoder_MarkReadStatus(Encoder, ENCODER_READ_UNSUPPORTED);
+			return (uint16_t)Encoder->raw;
 	}
-	return encoder_raw;
 }
 
 /**
@@ -338,6 +458,22 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 		return;
 	
 	int raw = ReadSPIEncoder_Raw(Encoder);
+	if (Encoder->read_status != ENCODER_READ_OK)
+	{
+		if (Encoder->read_error_streak < UINT16_MAX)
+			Encoder->read_error_streak++;
+		if (Encoder->read_error_streak >= 500U &&
+		   (MotorControl->ModeNow == Calib_EncoderOffset ||
+		    MotorControl->ModeNow == Current_Mode ||
+		    MotorControl->ModeNow == Speed_Mode ||
+		    MotorControl->ModeNow == Position_Mode ||
+		    MotorControl->ModeNow == Vq_Mode))
+		{
+			Set_ErrorNow(Encoder_Error);
+		}
+		return;
+	}
+	Encoder->read_error_streak = 0U;
 	if(Encoder->dir == -1)
 		raw = Encoder->cpr - raw;
 	if(raw >= Encoder->cpr)
@@ -363,13 +499,13 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 		Encoder->disconnect_count = 0;
 	}
 	
-    /* Linearization */
-	int off_bit     = Encoder->resolution - 7;
-    int off_1       = Encoder->offset_lut[(Encoder->raw) >> off_bit];             // lookup table lower entry
-    int off_2       = Encoder->offset_lut[((Encoder->raw >> off_bit) + 1) % 128]; // lookup table higher entry
-    int off_interp  = off_1
-                       + ((off_2 - off_1) * (Encoder->raw - ((Encoder->raw >> off_bit) << off_bit))
-                        >> off_bit); // Interpolate between lookup table entries
+    /*Linearization LUT with interpolation between adjacent entries.*/
+	int off_bit = Encoder->resolution - 7;
+    int off_1 = Encoder->offset_lut[Encoder->raw >> off_bit];
+    int off_2 = Encoder->offset_lut[((Encoder->raw >> off_bit) + 1) % 128];
+    int off_interp = off_1
+                   + ((off_2 - off_1) * (Encoder->raw - ((Encoder->raw >> off_bit) << off_bit))
+                    >> off_bit);
     int count = Encoder->raw - off_interp;
 	
     /*  Wrap in ENCODER_CPR */

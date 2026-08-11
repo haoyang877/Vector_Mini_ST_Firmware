@@ -729,9 +729,6 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	
 	const float voltage = MotorControl->calib_current * MotorControl->motor_phase_resistance * 3.0f / 2.0f;
 	
-	/*flux observer must be updated every cycle in this mode*/
-	Fluxobserver_Update(FOC, MotorControl, Fluxobserver);
-	
 	switch(CalibStep)
 	{
 		case CS_NULL:
@@ -1039,16 +1036,16 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 	if(time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME))
 	{
 		if(sample_count == 0U)
-			sample_anchor = Encoder->raw;
+			sample_anchor = Encoder->count_in_cpr;
 
-		int unwrapped_raw = Encoder->raw;
-		int delta = unwrapped_raw - sample_anchor;
+		int unwrapped_count = Encoder->count_in_cpr;
+		int delta = unwrapped_count - sample_anchor;
 		if(delta > (Encoder->cpr >> 1))
-			unwrapped_raw -= Encoder->cpr;
+			unwrapped_count -= Encoder->cpr;
 		else if(delta < -(Encoder->cpr >> 1))
-			unwrapped_raw += Encoder->cpr;
+			unwrapped_count += Encoder->cpr;
 
-		unwrapped_sum += unwrapped_raw;
+		unwrapped_sum += unwrapped_count;
 		sample_count++;
 	}
 

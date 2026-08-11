@@ -25,6 +25,9 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	float flux = MotorControl->motor_flux;
 	float delta_theta = 0.0f;
 	
+	/*Use phase currents sampled in the current ADC interrupt.*/
+	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
+	
 	/*update input parameters*/
 	Fluxobserver->Ialpha = FOC->Ialpha;
 	Fluxobserver->Ibeta  = FOC->Ibeta;

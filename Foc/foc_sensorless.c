@@ -1,7 +1,37 @@
 #include "foc_sensorless.h"
 
+#include <float.h>
+
 #include "utils.h"
 #include "hw_conf.h"
+
+#define FLUX_OBSERVER_DEFAULT_GAMMA        800000.0f
+#define FLUX_OBSERVER_MAX_CORRECTION_STEP  0.2f
+#define FLUX_OBSERVER_MIN_FLUX             1e-6f
+
+static int Fluxobserver_IsFinite(float value)
+{
+	return value == value && value <= FLT_MAX && value >= -FLT_MAX;
+}
+
+static void Fluxobserver_ResetState(Fluxobserver_TypeDef *Fluxobserver)
+{
+	Fluxobserver->sin = 0.0f;
+	Fluxobserver->cos = 1.0f;
+	Fluxobserver->y1_last = 0.0f;
+	Fluxobserver->y2_last = 0.0f;
+	Fluxobserver->etax1 = 0.0f;
+	Fluxobserver->etax2 = 0.0f;
+	Fluxobserver->phi_err = 0.0f;
+	Fluxobserver->x1_last = 0.0f;
+	Fluxobserver->x2_last = 0.0f;
+	Fluxobserver->x1 = 0.0f;
+	Fluxobserver->x2 = 0.0f;
+	Fluxobserver->theta_e = 0.0f;
+	Fluxobserver->omega_e = 0.0f;
+	Fluxobserver->theta_last = 0.0f;
+	Fluxobserver->omega_last = 0.0f;
+}
 
 /**
 	* @brief  Initialize flux observer parameters
@@ -9,7 +39,8 @@
  **/
 void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver)
 {
-	Fluxobserver->gamma = 1000000000.0f;
+	Fluxobserver_ResetState(Fluxobserver);
+	Fluxobserver->gamma = FLUX_OBSERVER_DEFAULT_GAMMA;
 }
 
 /**
@@ -23,7 +54,24 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	float Rs   = MotorControl->motor_phase_resistance;
 	float Ls   = (MotorControl->motor_d_inductance + MotorControl->motor_q_inductance) * 0.5f;
 	float flux = MotorControl->motor_flux;
+	float flux_sq;
+	float gamma_limit;
+	float gamma;
 	float delta_theta = 0.0f;
+
+	if(!Fluxobserver_IsFinite(Rs) || !Fluxobserver_IsFinite(Ls) ||
+	   !Fluxobserver_IsFinite(flux) || flux <= FLUX_OBSERVER_MIN_FLUX)
+	{
+		Fluxobserver_ResetState(Fluxobserver);
+		return;
+	}
+
+	if(!Fluxobserver_IsFinite(Fluxobserver->x1_last) || !Fluxobserver_IsFinite(Fluxobserver->x2_last))
+		Fluxobserver_ResetState(Fluxobserver);
+
+	flux_sq = fast_sq(flux);
+	gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (Current_Ts * flux_sq);
+	gamma = fast_min(Fluxobserver->gamma, gamma_limit);
 	
 	/*Use phase currents sampled in the current ADC interrupt.*/
 	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
@@ -41,10 +89,16 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	Fluxobserver->etax1 = Fluxobserver->x1_last - Ls * Fluxobserver->Ialpha;
 	Fluxobserver->etax2 = Fluxobserver->x2_last - Ls * Fluxobserver->Ibeta;
 	
-	Fluxobserver->phi_err = fast_sq(flux) - (fast_sq(Fluxobserver->etax1) + fast_sq(Fluxobserver->etax2));
+	Fluxobserver->phi_err = flux_sq - (fast_sq(Fluxobserver->etax1) + fast_sq(Fluxobserver->etax2));
 	
-	Fluxobserver->x1 = Current_Ts * (Fluxobserver->y1_last + Fluxobserver->gamma * Fluxobserver->etax1 * Fluxobserver->phi_err) + Fluxobserver->x1_last;
-	Fluxobserver->x2 = Current_Ts * (Fluxobserver->y2_last + Fluxobserver->gamma * Fluxobserver->etax2 * Fluxobserver->phi_err) + Fluxobserver->x2_last;
+	Fluxobserver->x1 = Current_Ts * (Fluxobserver->y1_last + gamma * Fluxobserver->etax1 * Fluxobserver->phi_err) + Fluxobserver->x1_last;
+	Fluxobserver->x2 = Current_Ts * (Fluxobserver->y2_last + gamma * Fluxobserver->etax2 * Fluxobserver->phi_err) + Fluxobserver->x2_last;
+
+	if(!Fluxobserver_IsFinite(Fluxobserver->x1) || !Fluxobserver_IsFinite(Fluxobserver->x2))
+	{
+		Fluxobserver_ResetState(Fluxobserver);
+		return;
+	}
 	
 	/*iteration*/
 	Fluxobserver->x1_last = Fluxobserver->x1;
@@ -54,7 +108,12 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	Fluxobserver->sin = (Fluxobserver->x2 - Ls * Fluxobserver->Ibeta ) / flux;
 	
 	/*calculate angle with atan*/
-	Fluxobserver->theta_e = fast_atan2(Fluxobserver->sin,Fluxobserver->cos) + _PI;
+	Fluxobserver->theta_e = normalizeAngle(fast_atan2(Fluxobserver->sin, Fluxobserver->cos));
+	if(!Fluxobserver_IsFinite(Fluxobserver->theta_e))
+	{
+		Fluxobserver_ResetState(Fluxobserver);
+		return;
+	}
 	
 	delta_theta = Fluxobserver->theta_e - Fluxobserver->theta_last;
 	

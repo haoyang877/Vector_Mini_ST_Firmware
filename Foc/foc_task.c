@@ -72,7 +72,8 @@ void FOC20kHzIRQHandler(void)
 	
 	Temperature_Update(&FOC);
 	
-	if(MotorControl.isUseSensorless == true)
+	if(MotorControl.isUseSensorless == true &&
+	   MotorControl.ModeNow != Calib_EleAngelOffset)
 	{
 		Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
 	}
@@ -110,6 +111,10 @@ void FOC20kHzIRQHandler(void)
 		
 		case Calib_EncoderObserver:
 			Task_Calib_EncoderObserver(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
+		break;
+
+		case Calib_EleAngelOffset:
+			Task_Calib_EleAngelOffset(&FOC, &MotorControl, &External_Encoder);
 		break;
 		
 		case Calib_CurrentOffset:

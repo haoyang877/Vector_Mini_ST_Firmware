@@ -191,7 +191,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 	{
 		/*setting parameters*/
 		case CAN_SET_MODE:
-			if(data_int >=0 && data_int <= (int)MODE_NUM)
+			if(data_int >= 0 && data_int < (int)MODE_NUM)
 				ModeSwitch_Handle((ModeNow_TypeDef)data_int);
 		break;
 		case CAN_GET_MODE:

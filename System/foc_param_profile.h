@@ -27,8 +27,8 @@
 /* Kv = 15 rpm/V: psi = 60 / (sqrt(3) * 2pi * pole_pairs * Kv). */
 #define PARAM_MOTOR_FLUX_WB                       0.0175025f
 
-/* Encoder open-loop calibration applies approximately 1.5x this current. */
-#define PARAM_MOTOR_CALIB_CURRENT_A               1.4f
+/* Encoder electrical-angle alignment current. */
+#define PARAM_MOTOR_CALIB_CURRENT_A               3.0f
 #define PARAM_MOTOR_CURRENT_LIMIT_A               6.0f
 #define PARAM_MOTOR_SPEED_LIMIT_RPS               (372.0f / 60.0f)
 #define PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S  200.0f

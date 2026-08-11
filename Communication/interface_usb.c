@@ -343,7 +343,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				if(int_or_float == 1)
 					return USB_DATA_INVALID;
 				
-				if(data_int >=0 && data_int <= (int)MODE_NUM)
+				if(data_int >= 0 && data_int < (int)MODE_NUM)
 				{
 					if(!ModeSwitch_Handle((ModeNow_TypeDef)data_int))
 						return USB_WRITE_INVALID;

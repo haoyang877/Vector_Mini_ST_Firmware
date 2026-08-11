@@ -85,6 +85,13 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;
 	
+	/*Electrical-angle offset calibration always uses the external encoder.*/
+	if(mode_set == Calib_EleAngelOffset && External_Encoder.enable != ENCODER_ENABLE)
+	{
+		Set_ErrorNow(Encoder_Error);
+		return false;
+	}
+
 	/*closed-loop control (current/speed/position) requires calibration*/
 	if(mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode)
 	{
@@ -108,6 +115,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ModeNow == Calib_Motor_R_L_Flux ||
 	    MotorControl.ModeNow == Calib_EncoderOffset ||
 	    MotorControl.ModeNow == Calib_EncoderObserver ||
+	    MotorControl.ModeNow == Calib_EleAngelOffset ||
 	    MotorControl.ModeNow == Calib_CurrentOffset ||
 	    MotorControl.ModeNow == Voltage_OpenLoop) &&
 	    MotorControl.ErrorNow == No_Error)

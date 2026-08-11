@@ -20,6 +20,7 @@ typedef enum
 	Calib_CurrentOffset,
 	Voltage_OpenLoop,
 	Calib_EncoderObserver,
+	Calib_EleAngelOffset = 15,
 	MODE_NUM
 }ModeNow_TypeDef; 
 

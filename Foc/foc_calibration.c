@@ -15,6 +15,9 @@ CalibStep_TyepeDef CalibStep = CS_NULL;
 
 /*observer-based encoder linearization calibration parameters*/
 #define OBS_CALIB_ALIGN_TIME    1.5f                    /*s, rotor align + observer converge*/
+
+#define ENC_ZERO_ALIGN_TIME     1.5f                    /*s, fixed d-axis current alignment*/
+#define ENC_ZERO_SAMPLE_TIME    0.2f                    /*s, settled raw-angle averaging*/
 #define OBS_CALIB_RAMP_TIME     3.0f                    /*s, open-loop speed ramp duration*/
 #define OBS_CALIB_SPEED         (2.0f * _PI * 20.0f)    /*electrical rad/s (~20 Hz)*/
 #define OBS_CALIB_STEP_ANGLE    (_2PI / (float)SAMPLES_PER_PPAIR)
@@ -987,6 +990,94 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		default:break;
 	}
 	
+	loop_count++;
+}
+
+/**
+	* @brief  Calibrate electrical zero with a fixed stationary d-axis current
+	*         and average the settled encoder raw angle.
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  *Encoder: Encoder struct pointer
+	**/
+void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+{
+	static uint32_t loop_count;
+	static uint32_t sample_count;
+	static int sample_anchor;
+	static int64_t unwrapped_sum;
+	float time = (float)loop_count * Current_Ts;
+	float align_current = MotorControl->calib_current;
+
+	if(Encoder->enable != ENCODER_ENABLE || Encoder->cpr <= 0 || align_current <= 0.0f)
+	{
+		Set_ErrorNow(Encoder_Error);
+		loop_count = 0;
+		sample_count = 0;
+		unwrapped_sum = 0;
+		PWM_TurnOnHighSides();
+		return;
+	}
+
+	if(MotorControl->current_limit > 0.0f && align_current > MotorControl->current_limit)
+		align_current = MotorControl->current_limit;
+
+	if(loop_count == 0U)
+	{
+		sample_count = 0;
+		sample_anchor = 0;
+		unwrapped_sum = 0;
+		FOC->Vd_int = 0.0f;
+		FOC->Vq_int = 0.0f;
+		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_LINEARIZED;
+	}
+
+	MotorControl->idRef = align_current;
+	MotorControl->iqRef = 0.0f;
+	FOC_Current(FOC, MotorControl, 0.0f, 0.0f);
+
+	if(time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME))
+	{
+		if(sample_count == 0U)
+			sample_anchor = Encoder->raw;
+
+		int unwrapped_raw = Encoder->raw;
+		int delta = unwrapped_raw - sample_anchor;
+		if(delta > (Encoder->cpr >> 1))
+			unwrapped_raw -= Encoder->cpr;
+		else if(delta < -(Encoder->cpr >> 1))
+			unwrapped_raw += Encoder->cpr;
+
+		unwrapped_sum += unwrapped_raw;
+		sample_count++;
+	}
+
+	if(time >= ENC_ZERO_ALIGN_TIME)
+	{
+		if(sample_count > 0U)
+		{
+			int offset = (int)(unwrapped_sum / (int64_t)sample_count);
+			while(offset >= Encoder->cpr)
+				offset -= Encoder->cpr;
+			while(offset < 0)
+				offset += Encoder->cpr;
+			Encoder->offset = offset;
+		}
+
+		Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
+
+		MotorControl->idRef = 0.0f;
+		MotorControl->iqRef = 0.0f;
+		FOC->Vd_int = 0.0f;
+		FOC->Vq_int = 0.0f;
+		loop_count = 0;
+		sample_count = 0;
+		unwrapped_sum = 0;
+		PWM_TurnOnHighSides();
+		Set_ModeNow(Save_Param);
+		return;
+	}
+
 	loop_count++;
 }
 

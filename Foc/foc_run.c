@@ -209,3 +209,32 @@ void Task_Voltage_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	/*open-loop voltage drive on d-axis*/
 	FOC_Voltage(FOC, MotorControl->ol_voltage, 0.0f, MotorControl->ol_theta);
 }
+
+/**
+	* @brief  Q-axis voltage mode using encoder electrical angle
+	*         regulate d-axis current to zero and directly command Vq
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  *Encoder: encoder struct pointer
+	**/
+void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+{
+	if(Encoder->enable != ENCODER_ENABLE)
+	{
+		Set_ErrorNow(Encoder_Error);
+		return;
+	}
+	if((Encoder->calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+	{
+		Set_ErrorNow(Encoder_NotCalibrated);
+		return;
+	}
+
+	MotorControl->idRef = 0.0f;
+	MotorControl->iqRef = 0.0f;
+
+	FOC_Vq_Mode(FOC,
+				MotorControl,
+				Encoder_GetElePhase(Encoder),
+				Encoder_GetEleVel(Encoder));
+}

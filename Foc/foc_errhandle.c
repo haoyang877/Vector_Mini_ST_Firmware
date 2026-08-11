@@ -58,6 +58,7 @@ void Clear_RunningData(void)
 {
 	MotorControl.idRef		 = 0.0f;
 	MotorControl.iqRef		 = 0.0f;
+	MotorControl.vqRef		 = 0.0f;
 	MotorControl.speedRef    = 0.0f;
 	MotorControl.speedShadow = 0.0f;
 	MotorControl.posShadow   = 0.0f;
@@ -85,18 +86,20 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;
 	
-	/*Electrical-angle offset calibration always uses the external encoder.*/
-	if(mode_set == Calib_EleAngelOffset && External_Encoder.enable != ENCODER_ENABLE)
+	/*Vq and electrical-zero calibration always use the external encoder*/
+	if((mode_set == Vq_Mode || mode_set == Calib_EleAngelOffset) &&
+	   External_Encoder.enable != ENCODER_ENABLE)
 	{
 		Set_ErrorNow(Encoder_Error);
 		return false;
 	}
 
-	/*closed-loop control (current/speed/position) requires calibration*/
-	if(mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode)
+	/*encoder-based closed-loop control requires calibration*/
+	if(mode_set == Vq_Mode ||
+	  ((mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode) &&
+	   MotorControl.isUseSensorless == false))
 	{
-		if(MotorControl.isUseSensorless == false &&
-		   (External_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+		if((External_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
 		{
 			Set_ErrorNow(Encoder_NotCalibrated);
 			return false;
@@ -117,7 +120,8 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ModeNow == Calib_EncoderObserver ||
 	    MotorControl.ModeNow == Calib_EleAngelOffset ||
 	    MotorControl.ModeNow == Calib_CurrentOffset ||
-	    MotorControl.ModeNow == Voltage_OpenLoop) &&
+	    MotorControl.ModeNow == Voltage_OpenLoop ||
+	    MotorControl.ModeNow == Vq_Mode) &&
 	    MotorControl.ErrorNow == No_Error)
 	{
 		if(mode_set == Motor_Disable)

@@ -53,6 +53,7 @@ void Param_Return_Default(void)
 	
 	MotorControl.calib_current 			= PARAM_MOTOR_CALIB_CURRENT_A;
 	MotorControl.current_limit 			= PARAM_MOTOR_CURRENT_LIMIT_A;
+	MotorControl.vqRef 					= 0.0f;
 	MotorControl.speed_limit   			= PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
 	MotorControl.speedAcc      			= PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
 	MotorControl.speedDec      			= PARAM_APP_SPEED_DECEL_RPS2 * _2PI;

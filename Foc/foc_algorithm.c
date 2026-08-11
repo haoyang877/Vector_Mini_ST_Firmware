@@ -345,6 +345,75 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
 }
 
 /**
+	* @brief  Q-axis voltage control with closed-loop zero d-axis current
+	* @param  *FOC: FOC struct pointer
+	* @param  *MotorControl: MotorControl struct pointer
+	* @param  phase: encoder electrical angle
+	* @param  phase_vel: encoder electrical angular velocity
+	**/
+void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel)
+{
+	const float max_mod = 0.95f * SQRT_3_BY_2;
+	float vbus = FOC->Vbus_filt;
+
+	/*current feedback in the encoder d-q frame*/
+	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
+	Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
+
+	if(vbus > 0.0f)
+	{
+		/*limit Vq to the SVM linear region before vector saturation*/
+		float max_voltage = max_mod * vbus / 1.5f;
+		float vq_set = constrain(MotorControl->vqRef, -max_voltage, max_voltage);
+		float id_error = -FOC->Id;
+		float voltage_d = FOC->Vd_int + id_error * MotorControl->id_Kp;
+		float V_to_mod = 1.5f / vbus;
+		float mod_norm;
+
+		FOC->mod_d = V_to_mod * voltage_d;
+		FOC->mod_q = V_to_mod * vq_set;
+		mod_norm = fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
+
+		if(mod_norm > max_mod)
+		{
+			float mod_scale = max_mod / mod_norm;
+			FOC->mod_d *= mod_scale;
+			FOC->mod_q *= mod_scale;
+			FOC->Vd_int *= 0.99f;
+		}
+		else
+		{
+			FOC->Vd_int += id_error * MotorControl->id_Ki * Current_Ts;
+		}
+
+		mod_norm = fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
+		FOC->duty = sign_hard(FOC->mod_q) * mod_norm / max_mod;
+	}
+	else
+	{
+		FOC->mod_d = 0.0f;
+		FOC->mod_q = 0.0f;
+		FOC->duty = 0.0f;
+	}
+
+	/*compensate one current-loop period of PWM delay*/
+	float pwm_phase = phase + phase_vel * Current_Ts;
+	Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, pwm_phase, &FOC->mod_alpha, &FOC->mod_beta);
+
+	UTILS_LP_FAST(FOC->Id_filt, FOC->Id, 0.01f);
+	UTILS_LP_FAST(FOC->Iq_filt, FOC->Iq, 0.01f);
+
+	FOC->Ibus = FOC->mod_d * FOC->Id + FOC->mod_q * FOC->Iq;
+	UTILS_LP_FAST(FOC->Ibus_filt, FOC->Ibus, 0.01f);
+	FOC->Power_filt = vbus * FOC->Ibus_filt;
+
+	SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
+	Set_A_Duty(FOC->dtc_a);
+	Set_B_Duty(FOC->dtc_b);
+	Set_C_Duty(FOC->dtc_c);
+}
+
+/**
 	* @brief  Turn on all high side mosfets
  **/
 void PWM_TurnOnHighSides(void)

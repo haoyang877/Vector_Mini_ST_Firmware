@@ -350,7 +350,8 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 		{
 			if(MotorControl->ModeNow == Calib_EncoderOffset ||  
 			   MotorControl->ModeNow == Current_Mode ||
-  			   MotorControl->ModeNow == Speed_Mode)
+			   MotorControl->ModeNow == Speed_Mode ||
+			   MotorControl->ModeNow == Vq_Mode)
 			{
 				Set_ErrorNow(Encoder_Error);
 			}

@@ -73,6 +73,7 @@ void FOC20kHzIRQHandler(void)
 	Temperature_Update(&FOC);
 	
 	if(MotorControl.isUseSensorless == true &&
+	   MotorControl.ModeNow != Vq_Mode &&
 	   MotorControl.ModeNow != Calib_EleAngelOffset)
 	{
 		Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
@@ -125,6 +126,10 @@ void FOC20kHzIRQHandler(void)
 			Task_Voltage_Mode(&FOC, &MotorControl);
 		break;
 		
+		case Vq_Mode:
+			Task_Vq_Mode(&FOC, &MotorControl, &External_Encoder);
+		break;
+
 		case Set_ZeroPosition:
 			Task_Set_ZeroPosition(&MotorControl, &External_Encoder);
 		break;

@@ -20,6 +20,7 @@ typedef enum
 	Calib_CurrentOffset,
 	Voltage_OpenLoop,
 	Calib_EncoderObserver,
+	Vq_Mode = 14,
 	Calib_EleAngelOffset = 15,
 	MODE_NUM
 }ModeNow_TypeDef; 
@@ -71,6 +72,8 @@ typedef struct
 	float iqRef;
 	float iq_Kp;
 	float iq_Ki;
+	/*q-axis voltage command (V), used by Vq_Mode*/
+	float vqRef;
 	
 	bool isUseSpeedRamp;
 	float speedAcc;

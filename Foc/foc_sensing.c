@@ -31,6 +31,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	   MotorControl->ModeNow == Position_Mode ||
 	   MotorControl->ModeNow == Calib_Motor_R_L_Flux ||
 	   MotorControl->ModeNow == Calib_EncoderOffset ||
+	   MotorControl->ModeNow == Calib_EncoderObserver ||
 	   MotorControl->ModeNow == Vq_Mode ||
 	   MotorControl->ModeNow == Sensorless_Speed_Mode)
 	{

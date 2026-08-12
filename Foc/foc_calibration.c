@@ -11,14 +11,18 @@
 #include "heap.h"
 #include "foc_sensorless.h"
 
+#include <foc_run.h>
+
 static int32_t *p_error_sum = NULL;
 static uint16_t *calibration_samples = NULL;
+static int16_t *candidate_linearization_lut = NULL;
 
 CalibStep_TyepeDef CalibStep = CS_NULL;
 
 #define OBS_CALIB_ALIGN_TIME        1.5f
-#define ENC_ZERO_ALIGN_TIME         1.5f
-#define ENC_ZERO_SAMPLE_TIME        1.0f
+#define ENC_ZERO_ALIGN_TIME         (ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S + \
+	ENCODER_ELEC_ZERO_HOLD_TIME_S)
+#define ENC_ZERO_SAMPLE_TIME        ENCODER_ELEC_ZERO_HOLD_TIME_S
 #define OBS_CALIB_RAMP_TIME         3.0f
 #define OBS_CALIB_SPEED             (2.0f * _PI * 20.0f)
 #define OBS_CALIB_TIMEOUT_FACTOR    1.5f
@@ -36,28 +40,88 @@ static void Encoder_Calib_ReleaseSamples(void)
 		HEAP_free(calibration_samples);
 		calibration_samples = NULL;
 	}
+	if (candidate_linearization_lut != NULL)
+	{
+		HEAP_free(candidate_linearization_lut);
+		candidate_linearization_lut = NULL;
+	}
 }
 
-static void Encoder_Calib_Abort(void)
+static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_q15)
+{
+	int32_t difference = (int32_t)target_q15 - (int32_t)source_q15;
+
+	if (difference > ENCODER_Q15_HALF_TURN)
+		difference -= (int32_t)ENCODER_Q15_CPR;
+	else if (difference < -ENCODER_Q15_HALF_TURN)
+		difference += (int32_t)ENCODER_Q15_CPR;
+
+	return (int16_t)difference;
+}
+
+static bool Encoder_Calib_AllocateSamples(void)
+{
+	if (p_error_sum == NULL)
+		p_error_sum = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
+	if (calibration_samples == NULL)
+		calibration_samples = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
+	if (candidate_linearization_lut == NULL)
+		candidate_linearization_lut = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*candidate_linearization_lut));
+
+	if (p_error_sum == NULL || calibration_samples == NULL || candidate_linearization_lut == NULL)
+	{
+		Encoder_Calib_ReleaseSamples();
+		return false;
+	}
+
+	memset(p_error_sum, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
+	memset(calibration_samples, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
+	memset(candidate_linearization_lut, 0,
+		ENCODER_OFFSET_LUT_SIZE * sizeof(*candidate_linearization_lut));
+	return true;
+}
+
+static uint16_t Encoder_Calib_ApplyCandidateLut(uint16_t directed_q15)
+{
+	uint16_t lut_index = directed_q15 >> 6;
+	uint16_t fraction = directed_q15 & 0x003FU;
+	int32_t correction_a = candidate_linearization_lut[lut_index];
+	int32_t correction_b = candidate_linearization_lut[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
+	int32_t correction = correction_a + (((correction_b - correction_a) * fraction) >> 6);
+
+	return (uint16_t)((int32_t)directed_q15 - correction);
+}
+
+static void Encoder_ObserverCalib_Abort(FOC_TypeDef *FOC,
+	MotorControl_TypeDef *MotorControl, PI_Controller_TypeDef *SpeedController,
+	SensorlessStartup_TypeDef *Startup)
 {
 	Encoder_Calib_ReleaseSamples();
+	SensorlessStartup_Reset(Startup);
+	FOC_CurrentController_Reset(FOC);
+	PI_Controller_Reset(SpeedController);
+	MotorControl->speedRef = 0.0f;
+	MotorControl->speedShadow = 0.0f;
+	MotorControl->idRef = 0.0f;
+	MotorControl->iqRef = 0.0f;
 	CalibStep = CS_NULL;
-	PWM_TurnOnHighSides();
+	Set_ModeNow(Motor_Disable);
+	Stop_PWM_Generate();
 }
 
-static bool Encoder_Calib_Finalize(Encoder_TypeDef *Encoder)
+static bool Encoder_Calib_BuildLut(uint16_t minimum_samples)
 {
 	int32_t correction_previous;
 	int32_t correction_shift = 0;
 	int64_t average_correction;
 	uint16_t lut_index;
 
-	if (p_error_sum == NULL || calibration_samples == NULL)
+	if (p_error_sum == NULL || calibration_samples == NULL || candidate_linearization_lut == NULL)
 		return false;
 
 	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
 	{
-		if (calibration_samples[lut_index] == 0U)
+		if (calibration_samples[lut_index] < minimum_samples)
 			return false;
 	}
 
@@ -94,15 +158,77 @@ static bool Encoder_Calib_Finalize(Encoder_TypeDef *Encoder)
 		int32_t correction = p_error_sum[lut_index] - correction_shift;
 		if (correction < INT16_MIN || correction > INT16_MAX)
 			return false;
-		Encoder->linearization_lut_q15[lut_index] = (int16_t)correction;
+		candidate_linearization_lut[lut_index] = (int16_t)correction;
 	}
 
+	return true;
+}
+
+
+static void Encoder_Calib_CommitCandidateLut(Encoder_TypeDef *Encoder)
+{
+	uint16_t current_linearized_q15;
+
+	memcpy(Encoder->linearization_lut_q15, candidate_linearization_lut,
+		sizeof(Encoder->linearization_lut_q15));
+	current_linearized_q15 = Encoder_Calib_ApplyCandidateLut(Encoder->directed_q15);
+	Encoder->linearized_q15 = current_linearized_q15;
+	Encoder->previous_linearized_q15 = current_linearized_q15;
+	Encoder->shadow_q15 = current_linearized_q15;
+	Encoder->mechanical_zero_shadow_q15 = 0;
 	Encoder->electrical_zero_q15 = 0U;
 	Encoder->mechanical_zero_q15 = 0U;
 	Encoder->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
 	Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
-	Encoder_Calib_ReleaseSamples();
 	Encoder_ResetVelocity(Encoder);
+}
+
+static bool Encoder_ObserverCalib_IsStable(MotorControl_TypeDef *MotorControl,
+	Fluxobserver_TypeDef *Fluxobserver,
+	SensorlessStartup_TypeDef *Startup, uint32_t position_epoch)
+{
+	float target_electrical_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S *
+		(float)MotorControl->motor_pole_pairs;
+
+	return Startup->state == SENSORLESS_STARTUP_CLOSED_LOOP &&
+		Observer_GetPositionEpoch(Fluxobserver) == position_epoch &&
+		fast_abs(Observer_GetEleVel(Fluxobserver) - target_electrical_speed) <=
+			fast_abs(target_electrical_speed) * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO &&
+		fast_abs(MotorControl->speedShadow - SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S) <=
+			SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO;
+}
+
+static bool Encoder_ObserverCalib_IsTracking(Fluxobserver_TypeDef *Fluxobserver,
+	SensorlessStartup_TypeDef *Startup, uint32_t position_epoch)
+{
+	return Startup->state == SENSORLESS_STARTUP_CLOSED_LOOP &&
+		Observer_GetPositionEpoch(Fluxobserver) == position_epoch;
+}
+
+static float Encoder_ObserverCalib_GetStopSpeed(const MotorControl_TypeDef *MotorControl)
+{
+	float minimum_mechanical_speed = SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S /
+		(float)MotorControl->motor_pole_pairs;
+	float stop_speed = minimum_mechanical_speed * SENSORLESS_ENCODER_CALIB_STOP_SPEED_MARGIN;
+
+	return stop_speed < SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S ?
+		stop_speed : SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+}
+
+static void Encoder_Calib_Abort(void)
+{
+	Encoder_Calib_ReleaseSamples();
+	CalibStep = CS_NULL;
+	PWM_TurnOnHighSides();
+}
+
+static bool Encoder_Calib_Finalize(Encoder_TypeDef *Encoder)
+{
+	if (!Encoder_Calib_BuildLut(1U))
+		return false;
+
+	Encoder_Calib_CommitCandidateLut(Encoder);
+	Encoder_Calib_ReleaseSamples();
 	CalibStep = CS_NULL;
 	PWM_TurnOnHighSides();
 	Set_ModeNow(Save_Param);
@@ -554,7 +680,7 @@ void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
  * @brief Build the 1024-point linearization LUT with observer alignment and one forward sweep.
  *        The observer defines the mechanical angle reference; no encoder direction detection or reverse averaging is used.
  */
-void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+void Task_Calib_EncoderOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver)
 {
 	static uint32_t loop_count;
@@ -599,32 +725,16 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	{
 		case CS_NULL:
 			loop_count = 0U;
-			CalibStep = CS_OBS_ALIGN;
+			CalibStep = CS_ENC_OFFSET_ALIGN;
 			break;
 
-		case CS_OBS_ALIGN:
-			if (p_error_sum == NULL)
+		case CS_ENC_OFFSET_ALIGN:
+			if (!Encoder_Calib_AllocateSamples())
 			{
-				p_error_sum = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
-				if (p_error_sum == NULL)
-				{
-					Set_ErrorNow(Encoder_Error);
-					Encoder_Calib_Abort();
-					return;
-				}
+				Set_ErrorNow(Encoder_Error);
+				Encoder_Calib_Abort();
+				return;
 			}
-			if (calibration_samples == NULL)
-			{
-				calibration_samples = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
-				if (calibration_samples == NULL)
-				{
-					Set_ErrorNow(Encoder_Error);
-					Encoder_Calib_Abort();
-					return;
-				}
-			}
-			memset(p_error_sum, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
-			memset(calibration_samples, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
 			loop_count = 0U;
 			drive_phase = 0.0f;
 			drive_omega = 0.0f;
@@ -634,21 +744,21 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			sampling_started = false;
 			observer_unlock_ticks = 0U;
 			FOC_Voltage(FOC, voltage, 0.0f, 0.0f);
-			CalibStep = CS_OBS_ALIGN_LOOP;
+			CalibStep = CS_ENC_OFFSET_ALIGN_LOOP;
 			break;
 
-		case CS_OBS_ALIGN_LOOP:
+		case CS_ENC_OFFSET_ALIGN_LOOP:
 			FOC_Voltage(FOC, voltage, 0.0f, 0.0f);
 			if (time >= OBS_CALIB_ALIGN_TIME)
 			{
 				loop_count = 0U;
 				observer_theta_last = Observer_GetElePhase(Fluxobserver);
-				CalibStep = CS_OBS_RAMP_CW;
+				CalibStep = CS_ENC_OFFSET_RAMP_CW;
 			}
 			break;
 
-		case CS_OBS_RAMP_CW:
-		case CS_OBS_SAMPLE_CW:
+		case CS_ENC_OFFSET_RAMP_CW:
+		case CS_ENC_OFFSET_SAMPLE_CW:
 			observer_theta = Observer_GetElePhase(Fluxobserver);
 			observer_delta = observer_theta - observer_theta_last;
 			observer_theta_last = observer_theta;
@@ -658,21 +768,21 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 				observer_delta += _2PI;
 			observer_theta_unwrapped += observer_delta;
 
-			if (CalibStep == CS_OBS_RAMP_CW)
+			if (CalibStep == CS_ENC_OFFSET_RAMP_CW)
 			{
 				drive_omega += (OBS_CALIB_SPEED / OBS_CALIB_RAMP_TIME) * Current_Ts;
 				if (drive_omega >= OBS_CALIB_SPEED)
 				{
 					drive_omega = OBS_CALIB_SPEED;
 					observer_unlock_ticks = 0U;
-					CalibStep = CS_OBS_SAMPLE_CW;
+					CalibStep = CS_ENC_OFFSET_SAMPLE_CW;
 				}
 			}
 
 			drive_phase += drive_omega * Current_Ts;
 			FOC_Voltage(FOC, voltage + MotorControl->motor_flux * drive_omega, 0.0f, drive_phase);
 
-			if (CalibStep != CS_OBS_SAMPLE_CW)
+			if (CalibStep != CS_ENC_OFFSET_SAMPLE_CW)
 				break;
 
 			if (Fluxobserver->omega_e < OBS_CALIB_SPEED * 0.5f)
@@ -707,7 +817,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			}
 			else if (theta_relative >= required_theta)
 			{
-				CalibStep = CS_OBS_END;
+				CalibStep = CS_ENC_OFFSET_END;
 			}
 			else if (time >= OBS_CALIB_TIMEOUT_FACTOR * required_theta / OBS_CALIB_SPEED + OBS_CALIB_RAMP_TIME + OBS_CALIB_ALIGN_TIME)
 			{
@@ -716,7 +826,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			}
 			break;
 
-		case CS_OBS_END:
+		case CS_ENC_OFFSET_END:
 			if (!Encoder_Calib_Finalize(Encoder))
 			{
 				Set_ErrorNow(Encoder_Error);
@@ -730,6 +840,533 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	}
 
 	loop_count++;
+}
+
+/**
+ * @brief Mode 13: calibrate the encoder linearization LUT from the sensorless observer.
+ *        The static phase=0 alignment provides the mechanical reference origin for this power cycle.
+ */
+void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+	PI_Controller_TypeDef *SpeedController, Encoder_TypeDef *Encoder,
+	Fluxobserver_TypeDef *Fluxobserver, SensorlessStartup_TypeDef *Startup)
+{
+	static uint32_t state_ticks;
+	static uint32_t stage_ticks;
+	static uint32_t observer_position_epoch;
+	static uint16_t origin_anchor_q15;
+	static int64_t origin_sum_q15;
+	static uint32_t origin_sample_count;
+	static uint16_t origin_q15;
+	static uint16_t previous_directed_q15;
+	static float previous_observer_position;
+	static float observer_position_origin;
+	static float verify_start_position;
+	static float stop_start_speed;
+	static float stop_current_ref;
+	static bool origin_negative_seen;
+	static uint64_t residual_squared_sum;
+	static uint32_t residual_sample_count;
+	static uint32_t residual_peak_abs_q15;
+	static uint16_t candidate_lut_index;
+	static uint8_t candidate_lut_stage;
+	static int32_t candidate_lut_previous;
+	static int32_t candidate_lut_shift;
+	static int64_t candidate_lut_sum;
+	float required_electrical_theta;
+	float observer_position;
+	float relative_theta;
+	uint16_t reference_q15;
+
+	if (!Encoder_IsOnline(Encoder))
+	{
+		Set_ErrorNow(Encoder_Error);
+		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+		return;
+	}
+	if (MotorControl->motor_pole_pairs <= 0)
+	{
+		Set_ErrorNow(PolePairs_Error);
+		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+		return;
+	}
+	if (MotorControl->motor_phase_resistance <= 0.0f ||
+		MotorControl->motor_d_inductance <= 0.0f ||
+		MotorControl->motor_q_inductance <= 0.0f ||
+		MotorControl->motor_flux <= 0.0f || MotorControl->current_limit <= 0.0f)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+		return;
+	}
+
+	if (CalibStep == CS_NULL)
+	{
+		if (!Encoder_Calib_AllocateSamples())
+		{
+			Set_ErrorNow(Encoder_Error);
+			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			return;
+		}
+
+		SensorlessStartup_Reset(Startup);
+		FOC_CurrentController_Reset(FOC);
+		PI_Controller_Reset(SpeedController);
+		state_ticks = 0U;
+		stage_ticks = 0U;
+		observer_position_epoch = 0U;
+		origin_anchor_q15 = 0U;
+		origin_sum_q15 = 0;
+		origin_sample_count = 0U;
+		origin_q15 = 0U;
+		previous_directed_q15 = 0U;
+		previous_observer_position = 0.0f;
+		observer_position_origin = 0.0f;
+		verify_start_position = 0.0f;
+		stop_start_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+		stop_current_ref = 0.0f;
+		origin_negative_seen = false;
+		residual_squared_sum = 0U;
+		residual_sample_count = 0U;
+		residual_peak_abs_q15 = 0U;
+		candidate_lut_index = 0U;
+		candidate_lut_stage = 0U;
+		candidate_lut_previous = 0;
+		candidate_lut_shift = 0;
+		candidate_lut_sum = 0;
+		CalibStep = CS_OBS_ALIGN_ORIGIN;
+	}
+
+	if (CalibStep == CS_OBS_STOP_CURRENT)
+	{
+		float current_ratio;
+
+		if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
+		{
+			Set_ErrorNow(Sensorless_Error);
+			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			return;
+		}
+
+		current_ratio = constrain(((float)state_ticks + 1.0f) * Current_Ts /
+			SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S, 0.0f, 1.0f);
+		MotorControl->idRef = 0.0f;
+		MotorControl->iqRef = stop_current_ref * (1.0f - current_ratio);
+		FOC_Current(FOC, MotorControl, Observer_GetElePhase(Fluxobserver),
+			Observer_GetEleVel(Fluxobserver));
+	}
+	else
+	{
+		if (CalibStep == CS_OBS_STOP_DECEL)
+		{
+			float decel_ratio = constrain((float)state_ticks * Current_Ts /
+				SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIME_S, 0.0f, 1.0f);
+			float stop_speed = Encoder_ObserverCalib_GetStopSpeed(MotorControl);
+
+			MotorControl->speedRef = stop_start_speed +
+				(stop_speed - stop_start_speed) * decel_ratio;
+			MotorControl->speedShadow = MotorControl->speedRef;
+		}
+		else
+		{
+			MotorControl->speedRef = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+		}
+
+		Task_Sensorless_Speed_Mode(FOC, MotorControl, SpeedController, Fluxobserver, Startup);
+		if (MotorControl->ErrorNow != No_Error)
+		{
+			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			return;
+		}
+	}
+
+	required_electrical_theta = _2PI * (float)MotorControl->motor_pole_pairs;
+	observer_position = Observer_GetElePosition(Fluxobserver);
+
+	switch (CalibStep)
+	{
+		case CS_OBS_ALIGN_ORIGIN:
+			if (Startup->state == SENSORLESS_STARTUP_ALIGN &&
+				Startup->state_ticks >= (uint32_t)((SENSORLESS_ALIGN_TIME_S -
+					SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) / Current_Ts))
+			{
+				int32_t unwrapped_q15;
+
+				if (origin_sample_count == 0U)
+					origin_anchor_q15 = Encoder->directed_q15;
+				unwrapped_q15 = (int32_t)origin_anchor_q15 +
+					Encoder_Calib_Q15Difference(Encoder->directed_q15, origin_anchor_q15);
+				origin_sum_q15 += unwrapped_q15;
+				origin_sample_count++;
+			}
+
+			if (Startup->state != SENSORLESS_STARTUP_ALIGN)
+			{
+				if (origin_sample_count == 0U)
+				{
+					Set_ErrorNow(Encoder_Error);
+					Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+					return;
+				}
+
+				origin_q15 = (uint16_t)(origin_sum_q15 / (int64_t)origin_sample_count);
+				state_ticks = 0U;
+				stage_ticks = 0U;
+				CalibStep = CS_OBS_WAIT_CLOSED_LOOP;
+			}
+			break;
+
+		case CS_OBS_WAIT_CLOSED_LOOP:
+			if (Startup->state == SENSORLESS_STARTUP_CLOSED_LOOP)
+			{
+				observer_position_epoch = Observer_GetPositionEpoch(Fluxobserver);
+				state_ticks = 0U;
+				stage_ticks = 0U;
+				CalibStep = CS_OBS_SPEED_STABLE;
+			}
+			else if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STARTUP_TIMEOUT_S / Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			}
+			break;
+
+		case CS_OBS_SPEED_STABLE:
+			if (Observer_GetPositionEpoch(Fluxobserver) != observer_position_epoch)
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+				return;
+			}
+
+			if (Encoder_ObserverCalib_IsStable(MotorControl, Fluxobserver, Startup,
+				observer_position_epoch))
+			{
+				if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIME_S / Current_Ts))
+				{
+					previous_directed_q15 = Encoder->directed_q15;
+					previous_observer_position = observer_position;
+					origin_negative_seen = false;
+					state_ticks = 0U;
+					stage_ticks = 0U;
+					CalibStep = CS_OBS_FIND_ORIGIN;
+				}
+			}
+			else
+			{
+				state_ticks = 0U;
+			}
+			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIMEOUT_S / Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			}
+			break;
+
+		case CS_OBS_FIND_ORIGIN:
+		{
+			int16_t previous_relative = Encoder_Calib_Q15Difference(previous_directed_q15, origin_q15);
+			int16_t current_relative = Encoder_Calib_Q15Difference(Encoder->directed_q15, origin_q15);
+
+			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+				return;
+			}
+
+			if (current_relative < -64)
+				origin_negative_seen = true;
+
+			if (origin_negative_seen && previous_relative < 0 && current_relative >= 0)
+			{
+				float crossing_fraction = (float)(-previous_relative) /
+					(float)(current_relative - previous_relative);
+
+				observer_position_origin = previous_observer_position + crossing_fraction *
+					(observer_position - previous_observer_position);
+				stage_ticks = 0U;
+				CalibStep = CS_OBS_SAMPLE_CW;
+				break;
+			}
+
+			previous_directed_q15 = Encoder->directed_q15;
+			previous_observer_position = observer_position;
+			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_FIND_ORIGIN_TIMEOUT_S / Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			}
+			break;
+		}
+
+		case CS_OBS_SAMPLE_CW:
+			relative_theta = observer_position - observer_position_origin;
+			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+				return;
+			}
+
+			if (relative_theta >= (float)SENSORLESS_ENCODER_CALIB_MECH_TURNS * required_electrical_theta)
+			{
+				candidate_lut_index = 0U;
+				candidate_lut_stage = 0U;
+				candidate_lut_previous = 0;
+				candidate_lut_shift = 0;
+				candidate_lut_sum = 0;
+				CalibStep = CS_OBS_BUILD_LUT;
+				break;
+			}
+
+			if (relative_theta >= 0.0f)
+			{
+				uint16_t lut_index = Encoder->directed_q15 >> (16U - ENCODER_OFFSET_LUT_BITS);
+				int32_t correction_q15;
+
+				reference_q15 = (uint16_t)(relative_theta *
+					((float)ENCODER_Q15_CPR / required_electrical_theta));
+				correction_q15 = Encoder_Calib_Q15Difference(Encoder->directed_q15, reference_q15);
+				if (calibration_samples[lut_index] != 0U)
+				{
+					int32_t average_q15 = p_error_sum[lut_index] /
+						(int32_t)calibration_samples[lut_index];
+					while (correction_q15 - average_q15 > ENCODER_Q15_HALF_TURN)
+						correction_q15 -= (int32_t)ENCODER_Q15_CPR;
+					while (correction_q15 - average_q15 < -ENCODER_Q15_HALF_TURN)
+						correction_q15 += (int32_t)ENCODER_Q15_CPR;
+				}
+
+				if (calibration_samples[lut_index] < UINT16_MAX)
+				{
+					p_error_sum[lut_index] += correction_q15;
+					calibration_samples[lut_index]++;
+				}
+			}
+			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SAMPLE_TIMEOUT_S / Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			}
+			break;
+
+		case CS_OBS_BUILD_LUT:
+			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+				return;
+			}
+
+			if (candidate_lut_stage == 0U)
+			{
+				uint16_t bins_processed;
+
+				for (bins_processed = 0U;
+					bins_processed < SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE &&
+					candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
+					++bins_processed, ++candidate_lut_index)
+				{
+					if (calibration_samples[candidate_lut_index] <
+						SENSORLESS_ENCODER_CALIB_MIN_SAMPLES_PER_BIN)
+					{
+						Set_ErrorNow(Encoder_Error);
+						Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+						return;
+					}
+				}
+
+				if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)
+				{
+					candidate_lut_index = 0U;
+					candidate_lut_stage = 1U;
+				}
+			}
+			else if (candidate_lut_stage == 1U)
+			{
+				uint16_t bins_processed;
+
+				for (bins_processed = 0U;
+					bins_processed < SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE &&
+					candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
+					++bins_processed, ++candidate_lut_index)
+				{
+					int32_t correction = (int16_t)(p_error_sum[candidate_lut_index] /
+						(int32_t)calibration_samples[candidate_lut_index]);
+
+					if (candidate_lut_index > 0U)
+					{
+						while (correction - candidate_lut_previous > ENCODER_Q15_HALF_TURN)
+							correction -= (int32_t)ENCODER_Q15_CPR;
+						while (correction - candidate_lut_previous < -ENCODER_Q15_HALF_TURN)
+							correction += (int32_t)ENCODER_Q15_CPR;
+					}
+
+					p_error_sum[candidate_lut_index] = correction;
+					candidate_lut_previous = correction;
+				}
+
+				if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)
+				{
+					candidate_lut_index = 0U;
+					candidate_lut_sum = 0;
+					candidate_lut_stage = 2U;
+				}
+			}
+			else if (candidate_lut_stage == 2U)
+			{
+				uint16_t bins_processed;
+
+				for (bins_processed = 0U;
+					bins_processed < SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE &&
+					candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
+					++bins_processed, ++candidate_lut_index)
+				{
+					candidate_lut_sum += p_error_sum[candidate_lut_index];
+				}
+
+				if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)
+				{
+					candidate_lut_sum /= (int64_t)ENCODER_OFFSET_LUT_SIZE;
+					candidate_lut_shift = 0;
+					while (candidate_lut_sum > INT16_MAX)
+					{
+						candidate_lut_sum -= (int32_t)ENCODER_Q15_CPR;
+						candidate_lut_shift += (int32_t)ENCODER_Q15_CPR;
+					}
+					while (candidate_lut_sum < INT16_MIN)
+					{
+						candidate_lut_sum += (int32_t)ENCODER_Q15_CPR;
+						candidate_lut_shift -= (int32_t)ENCODER_Q15_CPR;
+					}
+					candidate_lut_index = 0U;
+					candidate_lut_stage = 3U;
+				}
+			}
+			else
+			{
+				uint16_t bins_processed;
+
+				for (bins_processed = 0U;
+					bins_processed < SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE &&
+					candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
+					++bins_processed, ++candidate_lut_index)
+				{
+					int32_t correction = p_error_sum[candidate_lut_index] - candidate_lut_shift;
+
+					if (correction < INT16_MIN || correction > INT16_MAX)
+					{
+						Set_ErrorNow(Encoder_Error);
+						Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+						return;
+					}
+
+					candidate_linearization_lut[candidate_lut_index] = (int16_t)correction;
+				}
+
+				if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)
+				{
+					verify_start_position = observer_position;
+					residual_squared_sum = 0U;
+					residual_sample_count = 0U;
+					residual_peak_abs_q15 = 0U;
+					stage_ticks = 0U;
+					CalibStep = CS_OBS_VERIFY_CW;
+				}
+			}
+			break;
+
+		case CS_OBS_VERIFY_CW:
+			relative_theta = observer_position - observer_position_origin;
+			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+				return;
+			}
+
+			if (observer_position - verify_start_position >=
+				(float)SENSORLESS_ENCODER_CALIB_VERIFY_MECH_TURNS * required_electrical_theta)
+			{
+				uint64_t max_rms_squared = (uint64_t)SENSORLESS_ENCODER_CALIB_MAX_RMS_RESIDUAL_Q15 *
+					(uint64_t)SENSORLESS_ENCODER_CALIB_MAX_RMS_RESIDUAL_Q15;
+
+				if (residual_sample_count == 0U || residual_peak_abs_q15 >
+					SENSORLESS_ENCODER_CALIB_MAX_PEAK_RESIDUAL_Q15 ||
+					residual_squared_sum > (uint64_t)residual_sample_count * max_rms_squared)
+				{
+					Set_ErrorNow(Encoder_Error);
+					Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+					return;
+				}
+
+				Encoder_Calib_CommitCandidateLut(Encoder);
+				Encoder_Calib_ReleaseSamples();
+				stop_start_speed = MotorControl->speedShadow;
+				if (stop_start_speed < Encoder_ObserverCalib_GetStopSpeed(MotorControl))
+					stop_start_speed = Encoder_ObserverCalib_GetStopSpeed(MotorControl);
+				state_ticks = 0U;
+				CalibStep = CS_OBS_STOP_DECEL;
+				break;
+			}
+
+			if (relative_theta >= 0.0f)
+			{
+				int16_t residual_q15;
+				int32_t residual_abs_q15;
+				uint16_t linearized_q15;
+
+				reference_q15 = (uint16_t)(relative_theta *
+					((float)ENCODER_Q15_CPR / required_electrical_theta));
+				linearized_q15 = Encoder_Calib_ApplyCandidateLut(Encoder->directed_q15);
+				residual_q15 = Encoder_Calib_Q15Difference(linearized_q15, reference_q15);
+				residual_abs_q15 = residual_q15 >= 0 ? residual_q15 : -(int32_t)residual_q15;
+				residual_squared_sum += (uint64_t)((int64_t)residual_q15 *
+					(int64_t)residual_q15);
+				if ((uint32_t)residual_abs_q15 > residual_peak_abs_q15)
+					residual_peak_abs_q15 = (uint32_t)residual_abs_q15;
+				residual_sample_count++;
+			}
+			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_VERIFY_TIMEOUT_S / Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			}
+			break;
+
+		case CS_OBS_STOP_DECEL:
+			if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIME_S /
+				Current_Ts))
+			{
+				stop_current_ref = MotorControl->iqRef;
+				state_ticks = 0U;
+				CalibStep = CS_OBS_STOP_CURRENT;
+			}
+			break;
+
+		case CS_OBS_STOP_CURRENT:
+			if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S /
+				Current_Ts))
+			{
+				SensorlessStartup_Reset(Startup);
+				FOC_CurrentController_Reset(FOC);
+				PI_Controller_Reset(SpeedController);
+				MotorControl->speedRef = 0.0f;
+				MotorControl->speedShadow = 0.0f;
+				MotorControl->idRef = 0.0f;
+				MotorControl->iqRef = 0.0f;
+				CalibStep = CS_NULL;
+				PWM_TurnOnHighSides();
+				Set_ModeNow(Save_Param);
+			}
+			break;
+
+		default:
+			Set_ErrorNow(Encoder_Error);
+			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			break;
+	}
+
 }
 
 /**
@@ -775,7 +1412,8 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 		FOC_CurrentController_Reset(FOC);
 	}
 
-	MotorControl->idRef = align_current;
+	MotorControl->idRef = align_current * constrain(((float)loop_count + 1.0f) * Current_Ts /
+		ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S, 0.0f, 1.0f);
 	MotorControl->iqRef = 0.0f;
 	FOC_Current(FOC, MotorControl, 0.0f, 0.0f);
 
@@ -853,4 +1491,3 @@ void Task_Calib_CurrentOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorContr
 		Set_ModeNow(Motor_Disable);
 	}
 }
-

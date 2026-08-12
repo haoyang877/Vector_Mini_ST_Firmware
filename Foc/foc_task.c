@@ -140,11 +140,12 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Calib_EncoderOffset:
-			Task_Calib_EncoderObserver(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
+			Task_Calib_EncoderOffset(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
 		break;
-		
+
 		case Calib_EncoderObserver:
-			Task_Calib_EncoderObserver(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
+			Task_Calib_EncoderObserver(&FOC, &MotorControl, &PI_Speed, &External_Encoder,
+				&Fluxobserver, &SensorlessStartup);
 		break;
 
 		case Calib_EleAngelOffset:

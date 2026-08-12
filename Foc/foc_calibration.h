@@ -35,15 +35,28 @@ typedef enum
 	CS_ANTICOGGING_CCW_TEMP,
 	CS_ANTICOGGING_CCW_SAMPLE,
 	CS_ANTICOGGING_END,
-	CS_OBS_ALIGN,
-	CS_OBS_ALIGN_LOOP,
-	CS_OBS_RAMP_CW,
+	CS_OBS_ALIGN_ORIGIN,
+	CS_OBS_WAIT_CLOSED_LOOP,
+	CS_OBS_SPEED_STABLE,
+	CS_OBS_FIND_ORIGIN,
 	CS_OBS_SAMPLE_CW,
-	CS_OBS_END
+	CS_OBS_BUILD_LUT,
+	CS_OBS_VERIFY_CW,
+	CS_OBS_STOP_DECEL,
+	CS_OBS_STOP_CURRENT,
+	CS_ENC_OFFSET_ALIGN,
+	CS_ENC_OFFSET_ALIGN_LOOP,
+	CS_ENC_OFFSET_RAMP_CW,
+	CS_ENC_OFFSET_SAMPLE_CW,
+	CS_ENC_OFFSET_END
 } CalibStep_TyepeDef;
 
 void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
-void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver);
+void Task_Calib_EncoderOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+	Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver);
+void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+	PI_Controller_TypeDef *SpeedController, Encoder_TypeDef *Encoder,
+	Fluxobserver_TypeDef *Fluxobserver, SensorlessStartup_TypeDef *Startup);
 void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
 void Task_Calib_CurrentOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 

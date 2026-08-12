@@ -20,6 +20,8 @@ typedef struct
 	float x1,x2;
 	float theta_e,omega_e;
 	float theta_last,omega_last;
+	float theta_e_unwrapped;
+	uint32_t position_epoch;
 }Fluxobserver_TypeDef;
 
 typedef enum
@@ -53,5 +55,7 @@ void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup);
 void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Fluxobserver_TypeDef *Fluxobserver);
 float Observer_GetElePhase(Fluxobserver_TypeDef *Fluxobserver);
 float Observer_GetEleVel(Fluxobserver_TypeDef *Fluxobserver);
+float Observer_GetElePosition(Fluxobserver_TypeDef *Fluxobserver);
+uint32_t Observer_GetPositionEpoch(Fluxobserver_TypeDef *Fluxobserver);
 
 #endif

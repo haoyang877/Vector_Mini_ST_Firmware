@@ -31,6 +31,8 @@ static void Fluxobserver_ResetState(Fluxobserver_TypeDef *Fluxobserver)
 	Fluxobserver->omega_e = 0.0f;
 	Fluxobserver->theta_last = 0.0f;
 	Fluxobserver->omega_last = 0.0f;
+	Fluxobserver->theta_e_unwrapped = 0.0f;
+	Fluxobserver->position_epoch++;
 }
 
 /**
@@ -140,6 +142,7 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	else if(delta_theta > 4.0f)
 		delta_theta -= _2PI;
 	
+	Fluxobserver->theta_e_unwrapped += delta_theta;
 	UTILS_LP_FAST(Fluxobserver->omega_e, delta_theta / Current_Ts, 0.1f);
 }
 
@@ -161,4 +164,14 @@ float Observer_GetElePhase(Fluxobserver_TypeDef *Fluxobserver)
 float Observer_GetEleVel(Fluxobserver_TypeDef *Fluxobserver)
 {
 	return Fluxobserver->omega_e;
+}
+
+float Observer_GetElePosition(Fluxobserver_TypeDef *Fluxobserver)
+{
+	return Fluxobserver->theta_e_unwrapped;
+}
+
+uint32_t Observer_GetPositionEpoch(Fluxobserver_TypeDef *Fluxobserver)
+{
+	return Fluxobserver->position_epoch;
 }

@@ -46,7 +46,7 @@ void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI_Co
     vel_elec = Encoder_GetEleVel(Encoder);
     vel_mech = Encoder_GetMecVel(Encoder);
 
-    if (++speedloop_count >= 2)
+    if (++speedloop_count >= SPEED_LOOP_DIVIDER)
     {
         MotorControl->isUseSpeedRamp = MotorControl->speedAcc > 0.0f && MotorControl->speedDec > 0.0f;
 
@@ -461,7 +461,7 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI
         positionloop_count = 0;
     }
 
-    if (++speedloop_count >= 2)
+    if (++speedloop_count >= SPEED_LOOP_DIVIDER)
     {
         PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
         MotorControl->idRef = 0.0f;
@@ -497,7 +497,7 @@ void Task_Voltage_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	**/
 void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
 {
-	if(Encoder->enable != ENCODER_ENABLE)
+	if(!Encoder_IsOnline(Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
 		return;

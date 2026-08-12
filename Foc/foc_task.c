@@ -34,7 +34,7 @@ void RTT_Sampling(void)
     int16_t data8;
     } Rttstru;
 
-	/*RTT channels: speed x100, current/voltage x1000, encoder and open-loop angles mapped to int16 full scale.*/
+	/*RTT channels: mechanical speed x100, current/voltage x1000, encoder angle and observer mechanical speed.*/
 	Rttstru.data0 = (int16_t)(MotorControl.speedShadow * 100.0f);
 	Rttstru.data1 = (int16_t)(External_Encoder.vel_mech * 100.0f);
 	Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
@@ -43,7 +43,8 @@ void RTT_Sampling(void)
 	Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
 	Rttstru.data6 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
 	Rttstru.data7 = (int16_t)(normalizeAngle(External_Encoder.theta_elec) * (65536.0f / _2PI) - 32768.0f);
-	Rttstru.data8 = (int16_t)(normalizeAngle(MotorControl.ol_theta) * (65536.0f / _2PI) - 32768.0f);
+	Rttstru.data8 = (int16_t)(Observer_GetEleVel(&Fluxobserver) /
+		(float)MotorControl.motor_pole_pairs * 100.0f);
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
 }

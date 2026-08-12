@@ -77,7 +77,8 @@ typedef enum
 	USB_LD				= 0x6D6C64,
 	USB_LQ				= 0x6D6C71,
 	USB_FLUX			= 0x6D6678,
-	USB_ERROR			= 0x657272
+	USB_ERROR			= 0x657272,
+	USB_LUT_EXPORT		= 0x6C7574
 }USB_PARAM_ID;
 
 typedef union
@@ -118,7 +119,11 @@ typedef struct
 	float rx_data;
 	
 	uint8_t tx_en;
+	volatile uint8_t tx_busy;
 	char tx_str[80];
+	char tx_buffer[80];
+	uint8_t lut_export_en;
+	uint16_t lut_export_index;
 
 	uint8_t print_en;
 	uint8_t en_channel_num;
@@ -129,6 +134,7 @@ typedef struct
 USBRXError_TypeDef USB_CyclicAnalyze(void);
 USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_id, float data, uint8_t int_or_float);
 void USB_RxIRQHandler(uint8_t *data, uint16_t length);
+void USB_TxCompleteIRQHandler(void);
 void USB_SendMessage(void);
 void USB_PrintProfile(void);
 

@@ -705,6 +705,16 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_ERROR:
 				sprintf(USBMsg.tx_str, "error=%d\r\n", (int)MotorControl.ErrorNow);
 			break;
+
+			case USB_LUT_EXPORT:
+				if (USBMsg.print_en != 0U || USBMsg.lut_export_en != 0U)
+					return USB_WRITE_INVALID;
+				USBMsg.lut_export_index = 0U;
+				USBMsg.lut_export_en = 1U;
+				sprintf(USBMsg.tx_str, "lut_begin,count=%u,reverse=%u\r\n",
+					(unsigned int)ENCODER_OFFSET_LUT_SIZE,
+					(unsigned int)External_Encoder.reverse);
+			break;
 			
 			default:return USB_UNKNOWNED_PARAM;
 		}
@@ -958,6 +968,9 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 void USB_RxIRQHandler(uint8_t *data, uint16_t length)
 {
 	USBRXError_TypeDef USBRXError;
+
+	if (USBMsg.lut_export_en != 0U)
+		return;
 	
 	/*write data to ring buffer*/
 	Cyclic_Write(data, length);
@@ -1013,14 +1026,53 @@ void USB_RxIRQHandler(uint8_t *data, uint16_t length)
 /**
 	* @brief  Send USB response message
  **/
+void USB_TxCompleteIRQHandler(void)
+{
+	USBMsg.tx_busy = 0U;
+}
+
 void USB_SendMessage(void)
 {
-	if(!USBMsg.tx_en)
+	if (USBMsg.tx_busy != 0U)
 		return;
-	
-	CDC_Transmit_FS((uint8_t *)USBMsg.tx_str, strlen(USBMsg.tx_str));
-	memset(USBMsg.tx_str, 0, 80);
-	USBMsg.tx_en = 0;
+
+	if (USBMsg.tx_en != 0U)
+	{
+		uint16_t tx_length = (uint16_t)strlen(USBMsg.tx_str);
+
+		memcpy(USBMsg.tx_buffer, USBMsg.tx_str, tx_length + 1U);
+		if (CDC_Transmit_FS((uint8_t *)USBMsg.tx_buffer, tx_length) != USBD_OK)
+			return;
+		USBMsg.tx_en = 0U;
+		USBMsg.tx_busy = 1U;
+		return;
+	}
+
+	if (USBMsg.lut_export_en == 0U)
+		return;
+
+	if (USBMsg.lut_export_index < ENCODER_OFFSET_LUT_SIZE)
+	{
+		uint16_t directed_q15 = (uint16_t)(USBMsg.lut_export_index << 6);
+		uint16_t raw_q15 = External_Encoder.reverse != 0U ?
+			(uint16_t)(0U - directed_q15) : directed_q15;
+		int16_t directed_error_q15 =
+			External_Encoder.linearization_lut_q15[USBMsg.lut_export_index];
+		int32_t raw_error_q15 = External_Encoder.reverse != 0U ?
+			-(int32_t)directed_error_q15 : (int32_t)directed_error_q15;
+
+		sprintf(USBMsg.tx_str, "lut=%u,raw_deg=%.4f,err_deg=%.5f\r\n",
+			(unsigned int)USBMsg.lut_export_index,
+			(float)raw_q15 * (360.0f / (float)ENCODER_Q15_CPR),
+			(float)raw_error_q15 * (360.0f / (float)ENCODER_Q15_CPR));
+		USBMsg.lut_export_index++;
+		USBMsg.tx_en = 1U;
+		return;
+	}
+
+	USBMsg.lut_export_en = 0U;
+	sprintf(USBMsg.tx_str, "lut_end\r\n");
+	USBMsg.tx_en = 1U;
 }
 
 /**

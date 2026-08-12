@@ -38,16 +38,16 @@ Flash 格式已升级并更换魔术字；旧格式的编码器标定数据会�
 
 | 模式 | 名称 | 当前行为 |
 | --- | --- | --- |
-| 5 | `Calib_EncoderOffset` | 与模式 13 相同：观测器对齐后的单向线性化标定 |
+| 5 | `Calib_EncoderOffset` | 电压开环单向线性化标定 |
 | 7 | `Set_ZeroPosition` | 将当前线性化机械角设为机械零位；不设置电零位 |
-| 13 | `Calib_EncoderObserver` | 与模式 5 相同：观测器对齐后的单向线性化标定 |
+| 13 | `Calib_EncoderObserver` | 无感启动后使用观测器闭环位置的 1024 点线性化标定 |
 | 15 | `Calib_EleAngelOffset` | 固定 d 轴电流对齐并标定电零位 |
 
 模式 5 保留仅为兼容已有上位机；它不再走旧的开环/反向平均算法。
 
-## 4. 线性化标定（模式 5 或 13）
+## 4. 电压开环线性化标定（模式 5）
 
-任务函数：`Task_Calib_EncoderObserver()`。
+任务函数：`Task_Calib_EncoderOffset()`。
 
 1. 检查 MT6701 在线、极对数、相电阻、磁链和标定电流。
 2. 施加 d 轴电压保持 `1.5 s`，让转子与观测器收敛。
@@ -63,9 +63,10 @@ Flash 格式已升级并更换魔术字；旧格式的编码器标定数据会�
 任务函数：`Task_Calib_EleAngelOffset()`。
 
 1. 先完成线性化标定。
-2. 施加 `Id = calib_current`、`Iq = 0` 的固定 d 轴电流，总时长 `1.5 s`。
-3. 仅在最后 `1 s` 平均 `linearized_q15`，跨零点时按环形角度解卷绕。
-4. 平均值写入 `electrical_zero_q15`，置位电零位标志并保存 Flash。
+2. 在 `0.5 s` 内将 `Id` 从零平滑上升至 `calib_current`，保持 `Iq = 0`。
+3. 维持 `Id = calib_current`、`Iq = 0` 继续 `1 s`。
+4. 仅在满预定位电流的这 `1 s` 内平均 `linearized_q15`，跨零点时按环形角度解卷绕。
+5. 平均值写入 `electrical_zero_q15`，置位电零位标志并保存 Flash。
 
 采样对象是线性化后的 Q15 角度，不是原始角度；因此不会覆盖线性化基准。
 

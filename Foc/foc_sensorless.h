@@ -27,6 +27,7 @@ typedef enum
 	SENSORLESS_STARTUP_IDLE = 0,
 	SENSORLESS_STARTUP_ALIGN,
 	SENSORLESS_STARTUP_OPEN_LOOP,
+	SENSORLESS_STARTUP_SPEED_LOCK,
 	SENSORLESS_STARTUP_HANDOFF,
 	SENSORLESS_STARTUP_CLOSED_LOOP
 }SensorlessStartupState_TypeDef;
@@ -36,6 +37,7 @@ typedef struct
 	SensorlessStartupState_TypeDef state;
 	float open_loop_theta;
 	float open_loop_omega;
+	float handoff_phase_delta;
 	float direction;
 	uint32_t state_ticks;
 	uint32_t open_loop_ticks;

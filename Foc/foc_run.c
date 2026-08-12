@@ -212,10 +212,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 
 		case SENSORLESS_STARTUP_OPEN_LOOP:
 		{
-			float speed_error;
 			float iq_ramp_ratio;
-			bool is_speed_locked;
-			bool open_loop_complete;
 
 			if (requested_direction != Startup->direction)
 			{
@@ -230,19 +227,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 					Startup->open_loop_omega = Startup->direction * SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S;
 			}
 
-			speed_error = fast_abs(Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
-			is_speed_locked = Sensorless_ObserverIsUsable(Fluxobserver) &&
-				fast_abs(Startup->open_loop_omega) >= SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S &&
-				Observer_GetEleVel(Fluxobserver) * Startup->open_loop_omega > 0.0f &&
-				speed_error <= fast_abs(Startup->open_loop_omega) * SENSORLESS_OBSERVER_LOCK_RATIO;
-
-			if (is_speed_locked)
-				Startup->lock_ticks++;
-			else
-				Startup->lock_ticks = 0U;
-
 			Startup->open_loop_ticks++;
-			open_loop_complete = Startup->open_loop_ticks >= (uint32_t)(SENSORLESS_STARTUP_OPEN_LOOP_TIME_S / Current_Ts);
 			iq_ramp_ratio = constrain((float)Startup->open_loop_ticks * Current_Ts /
 				SENSORLESS_STARTUP_IQ_RAMP_TIME_S, 0.0f, 1.0f);
 
@@ -252,26 +237,62 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				(SENSORLESS_STARTUP_IQ_A - SENSORLESS_STARTUP_IQ_INITIAL_A) * iq_ramp_ratio);
 			FOC_Current(FOC, MotorControl, Startup->open_loop_theta, Startup->open_loop_omega);
 
-			if (open_loop_complete)
+			if (fast_abs(Startup->open_loop_omega) >= SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S)
 			{
-				if (Startup->lock_ticks < (uint32_t)(SENSORLESS_OBSERVER_LOCK_TIME_S / Current_Ts))
-				{
-					Set_ErrorNow(Sensorless_Error);
-					return;
-				}
+				Startup->state = SENSORLESS_STARTUP_SPEED_LOCK;
+				Startup->state_ticks = 0U;
+				Startup->lock_ticks = 0U;
+			}
+		}
+		break;
+		case SENSORLESS_STARTUP_SPEED_LOCK:
+		{
+			float speed_error;
+			bool is_observer_locked;
 
+			if (requested_direction != Startup->direction || !Sensorless_ObserverIsUsable(Fluxobserver))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				return;
+			}
+
+			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
+			Startup->state_ticks++;
+
+			MotorControl->idRef = SENSORLESS_STARTUP_ID_A;
+			MotorControl->iqRef = Startup->direction * SENSORLESS_STARTUP_IQ_A;
+			FOC_Current(FOC, MotorControl, Startup->open_loop_theta, Startup->open_loop_omega);
+
+			speed_error = fast_abs(Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
+			is_observer_locked = Observer_GetEleVel(Fluxobserver) * Startup->open_loop_omega > 0.0f &&
+				speed_error <= fast_abs(Startup->open_loop_omega) * SENSORLESS_OBSERVER_LOCK_RATIO;
+
+			if (is_observer_locked)
+				Startup->lock_ticks++;
+			else
+				Startup->lock_ticks = 0U;
+
+			if (Startup->lock_ticks >= (uint32_t)(SENSORLESS_STARTUP_SPEED_LOCK_TIME_S / Current_Ts))
+			{
 				PI_Controller_Reset(controller);
 				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
 				PI_Controller_TrackOutput(controller, MotorControl->iqRef / MotorControl->current_limit);
+				Startup->handoff_phase_delta = Sensorless_AngleDifference(Startup->open_loop_theta,
+					Observer_GetElePhase(Fluxobserver));
 				Startup->state = SENSORLESS_STARTUP_HANDOFF;
 				Startup->state_ticks = 0U;
+			}
+
+			if (Startup->state_ticks >= (uint32_t)(SENSORLESS_STARTUP_LOCK_TIMEOUT_S / Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				return;
 			}
 		}
 		break;
 		case SENSORLESS_STARTUP_HANDOFF:
 		{
 			float blend;
-			float phase_error;
 			float phase;
 			float phase_vel;
 
@@ -282,10 +303,12 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
-			blend = constrain((float)(++Startup->state_ticks) * Current_Ts / SENSORLESS_ANGLE_HANDOFF_TIME_S, 0.0f, 1.0f);
-			phase_error = Sensorless_AngleDifference(Observer_GetElePhase(Fluxobserver), Startup->open_loop_theta);
-			phase = normalizeAngle(Startup->open_loop_theta + blend * phase_error);
-			phase_vel = Startup->open_loop_omega + blend * (Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
+			blend = constrain((float)(++Startup->state_ticks) * Current_Ts /
+				SENSORLESS_ANGLE_HANDOFF_TIME_S, 0.0f, 1.0f);
+			phase = normalizeAngle(Observer_GetElePhase(Fluxobserver) +
+				(1.0f - blend) * Startup->handoff_phase_delta);
+			phase_vel = Startup->open_loop_omega + blend *
+				(Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
 
 			MotorControl->idRef = SENSORLESS_STARTUP_ID_A;
 			MotorControl->iqRef = Startup->direction * SENSORLESS_STARTUP_IQ_A;

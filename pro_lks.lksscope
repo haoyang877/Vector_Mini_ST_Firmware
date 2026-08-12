@@ -23,53 +23,55 @@
         <param value="AAAA/wAAAAD9AAAAAgAAAAAAAAGJAAADf/wCAAAAAvsAAAAIepdT41v8gioBAAAAUgAAAcAAAAAAAAAAAPwAAAIWAAABuwAAAAAA////+gAAAAACAAAAAvsAAAAIW/xRZVPYkc8BAAAAAP////8AAAAAAAAAAPsAAAAKgepbmk5JU9iRzwEAAAAA/////wAAAAAAAAAAAAAAAQAABfMAAAN//AIAAAAH+wAAAAZbxFtYVmgAAAAAAP////8AAAAAAAAAAPwAAABOAAADhQAAAAAA/////AEAAAAC+wAAAAZm8n6/ADABAAAByQAABAcAAAAAAAAAAPsAAAAGZXBQPAAwAQAABdQAAAGsAAAAAAAAAAD7AAAACGVwY25mPnk6AQAAAFIAAAN/AAAAAAAAAAD7AAAACHU1Zzpjp1I2AAAAAAD/////AAAA6AD////7AAAACI/QiExl5V/XAAAAAAD/////AAAAuwD////7AAAADABSAFQAVFR9TuSITAAAAAAA/////wAAAY4A////+wAAAAoAUgBUAFRlcGNuAAAAAAD/////AAAAAAAAAAAAAAtAAAAFxQAAAAQAAAAEAAAACAAAAAj8AAAAAQAAAAIAAAADAAAADgB0AG8AbwBsAEIAYQByAQAAAAD/////AAAAAAAAAAAAAAASAHQAbwBvAGwAQgBhAHIAXwAyAQAAAYz/////AAAAAAAAAAAAAAAWAHQAbwBvAGwAQgBhAHIATABvAGcAbwEAAAUd/////wAAAAAAAAAA" name="state"/>
     </layouts>
     <tabs curPage="0">
-        <tab title="标签页0" geometry="AdnQywADAAAAAAAAAAAAAAAACyMAAAWHAAAAAAAAAAD//////////wAAAAAAAAAAC0AAAAAAAAAAAAAACyMAAAWH" state="AAAA/wAAAAD9AAAAAgAAAAAAAAOnAAAEo/wCAAAAAfsAAAAGZvJ+vwAwAAAAAAAAAASjAAAAUQD///8AAAABAAALJAAABYj8AgAAAAH8AAAAAAAABYgAAAGtAP////wBAAAAAvwAAAAAAAAEFgAAAK4A/////AIAAAAC+wAAAAZlcFA8ADABAAAAAAAAAtIAAAC7AP////sAAAAIkB9epowDi9UBAAAC1gAAArIAAADuAP////sAAAAKAFIAVABUZXBjbgEAAAQaAAAHCgAAAKoA////AAAAAAAABYgAAAAEAAAABAAAAAgAAAAI/AAAAAA=" checked="1"/>
+        <tab geometry="AdnQywADAAAAAAAAAAAAAAAACyMAAAWHAAAAAAAAAAD//////////wAAAAAAAAAAC0AAAAAAAAAAAAAACyMAAAWH" title="标签页0" state="AAAA/wAAAAD9AAAAAgAAAAAAAAOnAAAEo/wCAAAAAfsAAAAGZvJ+vwAwAAAAAAAAAASjAAAAUQD///8AAAABAAALJAAABYj8AgAAAAH8AAAAAAAABYgAAAGtAP////wBAAAAAvwAAAAAAAAEbAAAAK4A/////AIAAAAC+wAAAAZlcFA8ADABAAAAAAAAAtIAAAC7AP////sAAAAIkB9epowDi9UBAAAC1gAAArIAAADuAP////sAAAAKAFIAVABUZXBjbgEAAARwAAAGtAAAAKoA////AAAAAAAABYgAAAAEAAAABAAAAAgAAAAI/AAAAAA=" checked="1"/>
     </tabs>
     <forms>
-        <form title="Form" type="0"/>
-        <form title="自定义变量" type="1" lv-width="150,100,100,100,100,100,100,100,100,100"/>
-        <form title="寄存器变量" type="13" chip="" lv-width="150,100,100,100,100,100,100,100,100,100"/>
-        <form title="代码变量" type="2" mapFile="./MDK-ARM/Vector_Mini_ST/Vector_Mini_ST.axf" lv-width="264,100,100,100,320,100,100,204,100,100"/>
-        <form title="运行日志" type="3" page="-1" floating="0" visible="0"/>
-        <form title="RTT命令行" type="4" sync2File="0" page="-1" syncFilePath="" floating="0" visible="0" encode="GBK" checkTStamp="0"/>
-        <form title="RTT数据" max="500" scatterStyle="1" type="5" lineStyle="1" xCount="149759" xTag="0" subMode="1" page="0" floating="0" trigName="rtt_channel1.data7" scrollType="0" visible="1" min="-500" trigType="0" trigValue="0" autoRange="1">
-            <var subPlot="0" unit="" desc="rtt_channel1.data0" formula="" name="rtt_channel1.data0" color="#ff0000"/>
-            <var subPlot="1" unit="" desc="rtt_channel1.data1" formula="" name="rtt_channel1.data1" color="#00ff00"/>
-            <var subPlot="2" unit="" desc="rtt_channel1.data2" formula="" name="rtt_channel1.data2" color="#00ffff"/>
-            <var subPlot="3" unit="" desc="rtt_channel1.data3" formula="" name="rtt_channel1.data3" color="#ff00ff"/>
-            <var subPlot="4" unit="" desc="rtt_channel1.data4" formula="" name="rtt_channel1.data4" color="#aa55ff"/>
-            <var subPlot="5" unit="" desc="rtt_channel1.data5" formula="" name="rtt_channel1.data5" color="#00b42a"/>
-            <var subPlot="6" unit="" desc="rtt_channel1.data6" formula="" name="rtt_channel1.data6" color="#2ca8fe"/>
-            <var subPlot="7" unit="" desc="rtt_channel1.data7" formula="" name="rtt_channel1.data7" color="#800000"/>
-            <var subPlot="8" unit="" desc="rtt_channel1.data8" formula="" name="rtt_channel1.data8" color="#008000"/>
+        <form type="0" title="Form"/>
+        <form type="1" lv-width="150,100,100,100,100,100,100,100,100,100" title="自定义变量"/>
+        <form type="13" lv-width="150,100,100,100,100,100,100,100,100,100" title="寄存器变量" chip=""/>
+        <form type="2" lv-width="264,100,100,100,320,100,100,204,100,100" title="代码变量" mapFile="./MDK-ARM/Vector_Mini_ST/Vector_Mini_ST.axf"/>
+        <form type="3" page="-1" title="运行日志" visible="0" floating="0"/>
+        <form type="4" encode="GBK" page="-1" title="RTT命令行" visible="0" checkTStamp="0" syncFilePath="" floating="0" sync2File="0"/>
+        <form type="5" trigName="rtt_channel1.data7" scrollType="0" page="0" lineStyle="1" title="RTT数据" visible="1" autoRange="1" subMode="1" trigType="0" xTag="0" min="-500" trigValue="0" xCount="936.327" max="500" scatterStyle="1" floating="0">
+            <var formula="" color="#ff0000" desc="rtt_channel1.data0" unit="" name="rtt_channel1.data0" subPlot="0"/>
+            <var formula="" color="#00ff00" desc="rtt_channel1.data1" unit="" name="rtt_channel1.data1" subPlot="1"/>
+            <var formula="" color="#00ffff" desc="rtt_channel1.data2" unit="" name="rtt_channel1.data2" subPlot="2"/>
+            <var formula="" color="#ff00ff" desc="rtt_channel1.data3" unit="" name="rtt_channel1.data3" subPlot="3"/>
+            <var formula="" color="#aa55ff" desc="rtt_channel1.data4" unit="" name="rtt_channel1.data4" subPlot="4"/>
+            <var formula="" color="#00b42a" desc="rtt_channel1.data5" unit="" name="rtt_channel1.data5" subPlot="5"/>
+            <var formula="" color="#2ca8fe" desc="rtt_channel1.data6" unit="" name="rtt_channel1.data6" subPlot="6"/>
+            <var formula="" color="#800000" desc="rtt_channel1.data7" unit="" name="rtt_channel1.data7" subPlot="7"/>
+            <var formula="" color="#008000" desc="rtt_channel1.data8" unit="" name="rtt_channel1.data8" subPlot="7"/>
         </form>
-        <form title="电机控制" type="12" page="-1" floating="0" visible="0" lv-width="150,100,100,100,100">
-            <var lower="0" desc="速度设定" step="1" upper="100" name=""/>
-            <var lower="0" desc="电流设定" step="1" upper="100" name=""/>
-            <var lower="0" desc="功率设定" step="1" upper="100" name=""/>
-            <var lower="0" desc="电机启停" step="1" upper="1" name=""/>
+        <form type="12" lv-width="150,100,100,100,100" page="-1" title="电机控制" visible="0" floating="0">
+            <var desc="速度设定" lower="0" upper="100" name="" step="1"/>
+            <var desc="电流设定" lower="0" upper="100" name="" step="1"/>
+            <var desc="功率设定" lower="0" upper="100" name="" step="1"/>
+            <var desc="电机启停" lower="0" upper="1" name="" step="1"/>
         </form>
-        <form title="Form" type="6" chip="0" page="-1" floating="0" visible="0"/>
-        <form title="数值0" type="7" page="0" floating="0" visible="1" lv-hidden="" lv-width="538,370,100,100,100,100,100,100,100,120,100,1250">
-            <var unit="" subvar="0" desc="MotorControl.speed_Kp" formula="" name="MotorControl.speed_Kp" showType="Real" addr="0x20000820" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.speed_Ki" formula="" name="MotorControl.speed_Ki" showType="Real" addr="0x20000824" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.current_limit" formula="" name="MotorControl.current_limit" showType="Real" addr="0x200007e8" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.speedShadow" formula="" name="MotorControl.speedShadow" showType="Real" addr="0x2000081c" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.ol_elec_vel" formula="" name="MotorControl.ol_elec_vel" showType="Real" addr="0x20000850" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.ErrorNow" formula="" name="MotorControl.ErrorNow" showType="Enum" addr="0x200007b9" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.ModeNow" formula="" name="MotorControl.ModeNow" showType="Enum" addr="0x200007b8" interval="10" color=""/>
-            <var unit="" subvar="0" desc="External_Encoder.mt6701_crc_error_count" formula="" name="External_Encoder.mt6701_crc_error_count" showType="Unsigned" addr="0x200010fc" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.calib_current" formula="" name="MotorControl.calib_current" showType="Real" addr="0x200007e4" interval="10" color=""/>
-            <var unit="" subvar="0" desc="InterfaceParam.encoder_offset.[1]" formula="" name="InterfaceParam.encoder_offset.[1]" showType="Real" addr="" interval="10" color=""/>
-            <var unit="" subvar="0" desc="External_Encoder.offset" formula="" name="External_Encoder.offset" showType="Signed" addr="0x200008e4" interval="10" color=""/>
-            <var unit="" subvar="0" desc="MotorControl.idRef" formula="" name="MotorControl.idRef" showType="Real" addr="0x200007f0" interval="10" color=""/>
+        <form type="6" page="-1" title="Form" chip="0" visible="0" floating="0"/>
+        <form type="7" lv-width="538,370,100,100,100,100,100,100,100,120,100,1250" page="0" lv-hidden="" title="数值0" visible="1" floating="0">
+            <var formula="" color="" desc="MotorControl.speed_Kp" unit="" subvar="0" addr="0x20000820" name="MotorControl.speed_Kp" interval="10" showType="Real"/>
+            <var formula="" color="" desc="MotorControl.speed_Ki" unit="" subvar="0" addr="0x20000824" name="MotorControl.speed_Ki" interval="10" showType="Real"/>
+            <var formula="" color="" desc="MotorControl.current_limit" unit="" subvar="0" addr="0x200007e8" name="MotorControl.current_limit" interval="10" showType="Real"/>
+            <var formula="" color="" desc="MotorControl.speedShadow" unit="" subvar="0" addr="0x2000081c" name="MotorControl.speedShadow" interval="10" showType="Real"/>
+            <var formula="" color="" desc="MotorControl.ol_elec_vel" unit="" subvar="0" addr="0x20000850" name="MotorControl.ol_elec_vel" interval="10" showType="Real"/>
+            <var formula="" color="" desc="MotorControl.ErrorNow" unit="" subvar="0" addr="0x200007b9" name="MotorControl.ErrorNow" interval="10" showType="Enum"/>
+            <var formula="" color="" desc="MotorControl.ModeNow" unit="" subvar="0" addr="0x200007b8" name="MotorControl.ModeNow" interval="10" showType="Enum"/>
+            <var formula="" color="" desc="External_Encoder.mt6701_crc_error_count" unit="" subvar="0" addr="0x200010fc" name="External_Encoder.mt6701_crc_error_count" interval="10" showType="Unsigned"/>
+            <var formula="" color="" desc="MotorControl.calib_current" unit="" subvar="0" addr="0x200007e4" name="MotorControl.calib_current" interval="10" showType="Real"/>
+            <var formula="" color="" desc="InterfaceParam.encoder_offset.[1]" unit="" subvar="0" addr="" name="InterfaceParam.encoder_offset.[1]" interval="10" showType="Real"/>
+            <var formula="" color="" desc="External_Encoder.offset" unit="" subvar="0" addr="0x200008e4" name="External_Encoder.offset" interval="10" showType="Signed"/>
+            <var formula="" color="" desc="MotorControl.idRef" unit="" subvar="0" addr="0x200007f0" name="MotorControl.idRef" interval="10" showType="Real"/>
+            <var formula="" color="" desc="External_Encoder.raw" unit="" subvar="0" addr="0x2000089c" name="External_Encoder.raw" interval="10" showType="Signed"/>
+            <var formula="" color="" desc="SensorlessStartup.state" unit="" subvar="0" addr="0x20001158" name="SensorlessStartup.state" interval="10" showType="Enum"/>
         </form>
-        <form scrollType="0" trigValue="0" min="-500" lineStyle="1" scatterStyle="1" max="500" page="0" refName="" visible="0" subMode="0" refValue="0" refType="0" xTag="0" xCount="1000" filterType="1" title="曲线0" autoRange="1" type="8" floating="0" trigType="0" trigName=""/>
-        <form title="速度调试" type="11" page="0" floating="0" visible="1" lv-width="321,112,99,125,316,100,100,100">
-            <var lower="-15" desc="MotorControl.vqRef" step="0.1" upper="15" name="MotorControl.vqRef" color=""/>
-            <var lower="0" desc="MotorControl.ol_voltage" step="0.1" upper="15" name="MotorControl.ol_voltage" color=""/>
-            <var lower="0" desc="MotorControl.ol_elec_vel" step="0.1" upper="500" name="MotorControl.ol_elec_vel" color=""/>
-            <var lower="-40" desc="MotorControl.speedRef" step="0.1" upper="40" name="MotorControl.speedRef" color=""/>
+        <form lineStyle="1" autoRange="1" scatterStyle="1" title="曲线0" visible="0" refType="0" scrollType="0" subMode="0" refValue="0" trigType="0" refName="" xCount="1000" type="8" trigName="" floating="0" trigValue="0" max="500" filterType="1" page="0" min="-500" xTag="0"/>
+        <form type="11" lv-width="321,112,99,125,316,100,100,100" page="0" title="速度调试" visible="1" floating="0">
+            <var color="" desc="MotorControl.vqRef" lower="-15" upper="15" name="MotorControl.vqRef" step="0.1"/>
+            <var color="" desc="MotorControl.ol_voltage" lower="0" upper="15" name="MotorControl.ol_voltage" step="0.1"/>
+            <var color="" desc="MotorControl.ol_elec_vel" lower="0" upper="500" name="MotorControl.ol_elec_vel" step="0.1"/>
+            <var color="" desc="MotorControl.speedRef" lower="-40" upper="40" name="MotorControl.speedRef" step="0.1"/>
         </form>
     </forms>
 </lksscope>

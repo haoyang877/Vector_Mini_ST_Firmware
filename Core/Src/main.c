@@ -82,7 +82,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-    SEGGER_RTT_ConfigUpBuffer(1, "JScope_i2i2i2i2i2i2i2i2", bRttBuf, sizeof(bRttBuf), SEGGER_RTT_MODE_NO_BLOCK_SKIP);
+    SEGGER_RTT_ConfigUpBuffer(1, "JScope_i2i2i2i2i2i2i2i2i2", bRttBuf, sizeof(bRttBuf), SEGGER_RTT_MODE_NO_BLOCK_SKIP);
 
   /* USER CODE END Init */
 
@@ -97,8 +97,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC2_Init();
-  MX_FDCAN1_Init();
-  MX_TIM1_Init();
+  MX_FDCAN1_Init();  MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
   MX_USB_Device_Init();

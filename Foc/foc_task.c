@@ -4,9 +4,10 @@
 #include "SEGGER_RTT.h"
 
 MotorControl_TypeDef MotorControl;
-PID_TypeDef PID_Speed;
+PI_Controller_TypeDef PI_Speed;
 Encoder_TypeDef External_Encoder;
 Fluxobserver_TypeDef Fluxobserver;
+SensorlessStartup_TypeDef SensorlessStartup;
 
 ModeNow_TypeDef  ModeLast  = Motor_Disable;
 ErrorNow_TypeDef ErrorLast = No_Error;
@@ -30,6 +31,7 @@ void RTT_Sampling(void)
     int16_t data5;
     int16_t data6;
     int16_t data7;
+    int16_t data8;
     } Rttstru;
 
 	/*RTT channels: speed x100, current/voltage x1000, angle mapped to int16 full scale.*/
@@ -41,6 +43,7 @@ void RTT_Sampling(void)
 	Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
 	Rttstru.data6 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
 	Rttstru.data7 = (int16_t)(normalizeAngle(External_Encoder.theta_elec) * (65536.0f / _2PI) - 32768.0f);
+	Rttstru.data8 = (int16_t)(normalizeAngle(Fluxobserver.theta_e) * (65536.0f / _2PI) - 32768.0f);
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
 }
@@ -49,10 +52,12 @@ void RTT_Sampling(void)
 	* @brief  Initialize motor control parameters
  **/
 void MotorControl_Init(void)
-{
-	Encoder_ParamInit(&External_Encoder);
+{	Encoder_ParamInit(&External_Encoder);
 	
 	Fluxobserver_ParamInit(&Fluxobserver);
+	SensorlessStartup_Reset(&SensorlessStartup);
+	FOC_CurrentController_Reset(&FOC);
+	PI_Controller_Reset(&PI_Speed);
 	
 	MotorControl.posTrajUpdated = true;
 	MotorControl.pos_error_window = 0.001f;
@@ -89,11 +94,15 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Speed_Mode:
-			Task_Speed_Mode(&FOC, &MotorControl, &PID_Speed, &External_Encoder);
+			Task_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &External_Encoder);
+		break;
+
+		case Sensorless_Speed_Mode:
+			Task_Sensorless_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &Fluxobserver, &SensorlessStartup);
 		break;
 		
 		case Position_Mode:
-			Task_Position_Mode(&FOC, &MotorControl, &PID_Speed, &External_Encoder);
+			Task_Position_Mode(&FOC, &MotorControl, &PI_Speed, &External_Encoder);
 		break;
 		
 		case Calib_Motor_R_L_Flux:

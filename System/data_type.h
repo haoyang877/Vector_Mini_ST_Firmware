@@ -22,6 +22,7 @@ typedef enum
 	Calib_EncoderObserver,
 	Vq_Mode = 14,
 	Calib_EleAngelOffset = 15,
+	Sensorless_Speed_Mode = 16,
 	MODE_NUM
 }ModeNow_TypeDef; 
 
@@ -40,6 +41,7 @@ typedef enum
 	High_Temprature,
 	Encoder_NotCalibrated,
 	MotorParam_Error,
+	Sensorless_Error,
 }ErrorNow_TypeDef;
 
 typedef struct

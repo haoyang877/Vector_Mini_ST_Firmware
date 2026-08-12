@@ -3,20 +3,22 @@
 
 typedef struct
 {
-	/*reference value,feedback value*/
-	float ref_value,fbk_value;
-	/*Kp Ki*/
-	float Kp,Ki;
-	/*error now,error last,error_summation*/
-	float error,error_last,error_sum;
-	/*the maximum value of PID output(absolute)*/
-	float output_max;
-	/*PID output*/
-	float output;
-}PID_TypeDef;
+    float Kp;
+    float Ki;
+    float Ts;
+    float Umin;
+    float Umax;
+    float Ref;
+    float Fbk;
+    float Err;
+    float Up;
+    float Ui;
+    float Out;
+} PI_Controller_TypeDef;
 
-float Speed_PI_Ctrl(PID_TypeDef *PID);
-float Position_P_Ctrl(PID_TypeDef *PID);
-void Clear_PID_Param(PID_TypeDef *PID);
+void PI_Controller_Configure(PI_Controller_TypeDef *controller, float proportional_gain, float integral_gain, float sample_period, float output_min, float output_max);
+float PI_Controller_Run(PI_Controller_TypeDef *controller, float reference, float feedback);
+void PI_Controller_TrackOutput(PI_Controller_TypeDef *controller, float applied_output);
+void PI_Controller_Reset(PI_Controller_TypeDef *controller);
 
 #endif

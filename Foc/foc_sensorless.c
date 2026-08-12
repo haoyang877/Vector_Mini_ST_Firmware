@@ -43,6 +43,19 @@ void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver)
 	Fluxobserver->gamma = FLUX_OBSERVER_DEFAULT_GAMMA;
 }
 
+void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup)
+{
+	Startup->state = SENSORLESS_STARTUP_IDLE;
+	Startup->open_loop_theta = 0.0f;
+	Startup->open_loop_omega = 0.0f;
+	Startup->direction = 1.0f;
+	Startup->state_ticks = 0U;
+	Startup->open_loop_ticks = 0U;
+	Startup->lock_ticks = 0U;
+	Startup->id_ramp_ticks = 0U;
+	Startup->loss_ticks = 0U;
+}
+
 /**
 	* @brief  Update flux observer
     * @param  *MotorControl: MotorControl struct pointer

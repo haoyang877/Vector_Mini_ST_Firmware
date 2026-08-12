@@ -1,60 +1,53 @@
 #include "foc_pid.h"
 
 #include "utils.h"
-#include "hw_conf.h"
 
-/**
-	* @brief  Speed loop PI control 
-    * @param  *PID: PID struct pointer
-	* @retval output value of PI calculation
- **/
-float Speed_PI_Ctrl(PID_TypeDef *PID)
+void PI_Controller_Configure(PI_Controller_TypeDef *controller, float proportional_gain, float integral_gain, float sample_period, float output_min, float output_max)
 {
-	PID->error = PID->ref_value - PID->fbk_value;
-	
-	PID->error_sum += PID->error * PID->Ki * Speed_Ts;
-	
-	PID->error_sum = constrain(PID->error_sum, -1.0f, 1.0f);
-	
-	/*disable integral once error is too large to reduce overshot*/
-	if(PID->error > 0.7f * PID->ref_value || PID->error < -0.7f * PID->ref_value)
-		PID->error_sum = 0.0f;
-	
-	PID->output = PID->Kp * PID->error + PID->error_sum;
-	
-	PID->output = constrain(PID->output, -1.0f, 1.0f);
-	
-	return PID->output;
+    controller->Kp = proportional_gain;
+    controller->Ki = integral_gain;
+    controller->Ts = sample_period;
+    controller->Umin = output_min;
+    controller->Umax = output_max;
 }
 
-/**
-	* @brief  Position loop P control 
-    * @param  *PID: PID struct pointer
-	* @retval output value of PI calculation
- **/
-float Position_P_Ctrl(PID_TypeDef *PID)
+float PI_Controller_Run(PI_Controller_TypeDef *controller, float reference, float feedback)
 {
-	PID->error = PID->ref_value - PID->fbk_value;
-	
-	PID->error_sum += PID->error * PID->Ki * Position_Ts;
-	
-	PID->error_sum = constrain(PID->error_sum, -1.0f, 1.0f);
-	
-	PID->output = PID->Kp * PID->error;
-	
-	PID->output= constrain(PID->output, -1.0f, 1.0f);
+    float integral_candidate;
+    float output_candidate;
 
-	return PID->output * PID->output_max;
+    controller->Ref = reference;
+    controller->Fbk = feedback;
+    controller->Err = reference - feedback;
+    controller->Up = controller->Kp * controller->Err;
+
+    integral_candidate = controller->Ui + controller->Ki * controller->Err * controller->Ts;
+    output_candidate = controller->Up + integral_candidate;
+
+    if ((output_candidate >= controller->Umin && output_candidate <= controller->Umax) ||
+        (output_candidate > controller->Umax && controller->Err < 0.0f) ||
+        (output_candidate < controller->Umin && controller->Err > 0.0f))
+    {
+        controller->Ui = integral_candidate;
+    }
+
+    controller->Out = constrain(controller->Up + controller->Ui, controller->Umin, controller->Umax);
+    return controller->Out;
 }
 
-/**
-	* @brief  Clear running PID parameter
-    * @param  *PID: PID struct pointer
- **/
-void Clear_PID_Param(PID_TypeDef *PID)
+void PI_Controller_TrackOutput(PI_Controller_TypeDef *controller, float applied_output)
 {
-	PID->ref_value = 0.0f;
-	PID->error = 0.0f;
-	PID->output = 0.0f;
-	PID->error_sum = 0.0f;
+    controller->Ui += applied_output - controller->Out;
+    controller->Ui = constrain(controller->Ui, controller->Umin, controller->Umax);
+    controller->Out = applied_output;
+}
+
+void PI_Controller_Reset(PI_Controller_TypeDef *controller)
+{
+    controller->Ref = 0.0f;
+    controller->Fbk = 0.0f;
+    controller->Err = 0.0f;
+    controller->Up = 0.0f;
+    controller->Ui = 0.0f;
+    controller->Out = 0.0f;
 }

@@ -4,14 +4,15 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "encoder.h"
+#include "foc_sensorless.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
-extern PID_TypeDef PID_Speed;
-extern PID_TypeDef PID_Position;
+extern PI_Controller_TypeDef PI_Speed;
 extern ModeNow_TypeDef  ModeLast;
 extern ErrorNow_TypeDef ErrorLast;
 extern Encoder_TypeDef External_Encoder;
+extern SensorlessStartup_TypeDef SensorlessStartup;
 
 bool is_Mode_Error_Change;
 
@@ -63,13 +64,11 @@ void Clear_RunningData(void)
 	MotorControl.speedShadow = 0.0f;
 	MotorControl.posShadow   = 0.0f;
 	
-	FOC.Id     = 0.0f;
-	FOC.Iq     = 0.0f;
-	FOC.Vd_int = 0.0f;
-	FOC.Vq_int = 0.0f;
-	
-	PID_Speed.error		   = 0.0f;
-	PID_Speed.error_sum    = 0.0f;
+	FOC.Id = 0.0f;
+	FOC.Iq = 0.0f;
+	FOC_CurrentController_Reset(&FOC);
+	PI_Controller_Reset(&PI_Speed);
+	SensorlessStartup_Reset(&SensorlessStartup);
 }
 
 /**
@@ -92,6 +91,17 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	{
 		Set_ErrorNow(Encoder_Error);
 		return false;
+	}
+
+	if(mode_set == Sensorless_Speed_Mode)
+	{
+		if(MotorControl.motor_pole_pairs <= 0 || MotorControl.motor_phase_resistance <= 0.0f ||
+		   MotorControl.motor_d_inductance <= 0.0f || MotorControl.motor_q_inductance <= 0.0f ||
+		   MotorControl.motor_flux <= 0.0f || MotorControl.current_limit <= 0.0f)
+		{
+			Set_ErrorNow(MotorParam_Error);
+			return false;
+		}
 	}
 
 	/*encoder-based closed-loop control requires calibration*/
@@ -121,7 +131,8 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ModeNow == Calib_EleAngelOffset ||
 	    MotorControl.ModeNow == Calib_CurrentOffset ||
 	    MotorControl.ModeNow == Voltage_OpenLoop ||
-	    MotorControl.ModeNow == Vq_Mode) &&
+	    MotorControl.ModeNow == Vq_Mode ||
+	    MotorControl.ModeNow == Sensorless_Speed_Mode) &&
 	    MotorControl.ErrorNow == No_Error)
 	{
 		if(mode_set == Motor_Disable)

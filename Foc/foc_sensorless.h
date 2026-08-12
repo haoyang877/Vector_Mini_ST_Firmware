@@ -22,7 +22,30 @@ typedef struct
 	float theta_last,omega_last;
 }Fluxobserver_TypeDef;
 
+typedef enum
+{
+	SENSORLESS_STARTUP_IDLE = 0,
+	SENSORLESS_STARTUP_ALIGN,
+	SENSORLESS_STARTUP_OPEN_LOOP,
+	SENSORLESS_STARTUP_HANDOFF,
+	SENSORLESS_STARTUP_CLOSED_LOOP
+}SensorlessStartupState_TypeDef;
+
+typedef struct
+{
+	SensorlessStartupState_TypeDef state;
+	float open_loop_theta;
+	float open_loop_omega;
+	float direction;
+	uint32_t state_ticks;
+	uint32_t open_loop_ticks;
+	uint32_t lock_ticks;
+	uint32_t id_ramp_ticks;
+	uint32_t loss_ticks;
+}SensorlessStartup_TypeDef;
+
 void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver);
+void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup);
 void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Fluxobserver_TypeDef *Fluxobserver);
 float Observer_GetElePhase(Fluxobserver_TypeDef *Fluxobserver);
 float Observer_GetEleVel(Fluxobserver_TypeDef *Fluxobserver);

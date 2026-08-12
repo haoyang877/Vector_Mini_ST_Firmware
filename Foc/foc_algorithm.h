@@ -2,6 +2,7 @@
 #define __FOC_ALGORITHM_H__
 
 #include "data_type.h"
+#include "foc_pid.h"
 
 typedef struct
 {
@@ -14,7 +15,8 @@ typedef struct
 	float Ialpha,Ibeta;
 	float Ialpha_filt,Ibeta_filt;
 	float Id,Iq,Id_filt,Iq_filt;
-	float Vd_int,Vq_int;
+	PI_Controller_TypeDef id_pi;
+	PI_Controller_TypeDef iq_pi;
 	/*dq voltage of p.u.*/
 	float mod_d,mod_q;
 	/*alpha-beta voltage of p.u.*/
@@ -40,6 +42,7 @@ void Set_C_Duty(float duty);
 
 void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase);
 void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel);
+void FOC_CurrentController_Reset(FOC_TypeDef *FOC);
 void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel);
 
 void PWM_TurnOnHighSides(void);

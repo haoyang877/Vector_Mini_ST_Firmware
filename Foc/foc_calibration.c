@@ -17,7 +17,7 @@ CalibStep_TyepeDef CalibStep = CS_NULL;
 #define OBS_CALIB_ALIGN_TIME    1.5f                    /*s, rotor align + observer converge*/
 
 #define ENC_ZERO_ALIGN_TIME     1.5f                    /*s, fixed d-axis current alignment*/
-#define ENC_ZERO_SAMPLE_TIME    0.2f                    /*s, settled raw-angle averaging*/
+#define ENC_ZERO_SAMPLE_TIME    1.0f                    /*s, settled raw-angle averaging*/
 #define OBS_CALIB_RAMP_TIME     3.0f                    /*s, open-loop speed ramp duration*/
 #define OBS_CALIB_SPEED         (2.0f * _PI * 20.0f)    /*electrical rad/s (~20 Hz)*/
 #define OBS_CALIB_STEP_ANGLE    (_2PI / (float)SAMPLES_PER_PPAIR)
@@ -27,7 +27,7 @@ static void Encoder_Calib_Abort(void);
 
 /**
 	* @brief  Finalize encoder linearization calibration
-	*         compute average offset, build 128-point LUT with FIR filter,
+	*         compute average offset, build 1024-point LUT with FIR filter,
 	*         mark linearization as calibrated and save to flash
 	* @param  *Encoder: encoder struct pointer
 	* @param  *MotorControl: MotorControl struct pointer
@@ -1024,8 +1024,7 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 		sample_count = 0;
 		sample_anchor = 0;
 		unwrapped_sum = 0;
-		FOC->Vd_int = 0.0f;
-		FOC->Vq_int = 0.0f;
+		FOC_CurrentController_Reset(FOC);
 		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_ZERO_POS;
 	}
 
@@ -1065,8 +1064,7 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;
-		FOC->Vd_int = 0.0f;
-		FOC->Vq_int = 0.0f;
+		FOC_CurrentController_Reset(FOC);
 		loop_count = 0;
 		sample_count = 0;
 		unwrapped_sum = 0;

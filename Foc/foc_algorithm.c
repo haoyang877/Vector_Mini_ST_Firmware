@@ -1,7 +1,48 @@
 #include "foc_algorithm.h"
 
+#include <stdbool.h>
 #include "utils.h"
 #include "hw_conf.h"
+
+#define FOC_MAX_MODULATION (0.95f * SQRT_3_BY_2)
+
+static bool FOC_SetVoltageModulation(FOC_TypeDef *FOC, float voltage_d, float voltage_q)
+{
+    float voltage_to_modulation;
+    float modulation_magnitude;
+
+    if (FOC->Vbus_filt <= 0.0f)
+    {
+        FOC->mod_d = 0.0f;
+        FOC->mod_q = 0.0f;
+        FOC->duty = 0.0f;
+        return false;
+    }
+
+    voltage_to_modulation = 1.5f / FOC->Vbus_filt;
+    FOC->mod_d = voltage_to_modulation * voltage_d;
+    FOC->mod_q = voltage_to_modulation * voltage_q;
+    modulation_magnitude = fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
+
+    if (modulation_magnitude > FOC_MAX_MODULATION)
+    {
+        float modulation_scale = FOC_MAX_MODULATION / modulation_magnitude;
+        FOC->mod_d *= modulation_scale;
+        FOC->mod_q *= modulation_scale;
+        modulation_magnitude = FOC_MAX_MODULATION;
+    }
+
+    if (modulation_magnitude > 0.0f)
+    {
+        FOC->duty = sign_hard(FOC->mod_q) * modulation_magnitude / FOC_MAX_MODULATION;
+    }
+    else
+    {
+        FOC->duty = 0.0f;
+    }
+
+    return true;
+}
 
 //#pragma arm section code = "CCMRAMCODE"
 /**
@@ -245,40 +286,19 @@ void Set_C_Duty(float duty)
  **/
 void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase)
 {
-	/*clarke transform*/
-	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
-	
-	/*park transform*/
-	Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
-	
-	/*low pass filter for Id Iq*/
+    Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
+    Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
+
     UTILS_LP_FAST(FOC->Id_filt, FOC->Id, 0.01f);
     UTILS_LP_FAST(FOC->Iq_filt, FOC->Iq, 0.01f);
-	
-	/*d-q voltage in p.u. using bus voltage*/
-	float V_to_mod = 1.5f / FOC->Vbus_filt;
-	FOC->mod_d 	   = V_to_mod * Vd_set;
-	FOC->mod_q 	   = V_to_mod * Vq_set;
-	
-	/*over modulation and integral saturation handleing*/
-    float mod_scalefactor = 0.95f * SQRT_3_BY_2 / fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
-	FOC->duty = sign_hard(FOC->mod_q) / mod_scalefactor;
-    if (mod_scalefactor < 1.0f) 
-	{
-		FOC->mod_d  *= mod_scalefactor;
-		FOC->mod_q  *= mod_scalefactor;
-    }
 
-	/*inverse park transform*/
-	Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase, &FOC->mod_alpha, &FOC->mod_beta);
+    FOC_SetVoltageModulation(FOC, Vd_set, Vq_set);
 
-	/*space vector modulation*/
-	SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
-	
-	/*set CCR and generate PWM*/
-	Set_A_Duty(FOC->dtc_a);
-	Set_B_Duty(FOC->dtc_b);
-	Set_C_Duty(FOC->dtc_c);
+    Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase, &FOC->mod_alpha, &FOC->mod_beta);
+    SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
+    Set_A_Duty(FOC->dtc_a);
+    Set_B_Duty(FOC->dtc_b);
+    Set_C_Duty(FOC->dtc_c);
 }
 
 /**
@@ -290,58 +310,53 @@ void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase)
  **/
 void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel)
 {
-	/*clarke transform*/
-	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
-	
-	/*park transform*/
-	Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
-	
-	/*voltage normalize*/
-	float V_to_mod = 1.5f / FOC->Vbus_filt;
-	
-	/*apply PI control*/
-	float Ierr_d = MotorControl->idRef - FOC->Id;
-	float Ierr_q = MotorControl->iqRef - FOC->Iq;
-	FOC->mod_d  = V_to_mod * (FOC->Vd_int + Ierr_d * MotorControl->id_Kp);
-	FOC->mod_q  = V_to_mod * (FOC->Vq_int + Ierr_q * MotorControl->iq_Kp);
-	
-	/*over modulation and integral saturation handleing*/
-    float mod_scalefactor = 0.95f * SQRT_3_BY_2 / fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
-	FOC->duty = sign_hard(FOC->mod_q) / mod_scalefactor;
-	if(mod_scalefactor < 1.0f)
-	{
-		FOC->mod_d  *= mod_scalefactor;
-		FOC->mod_q  *= mod_scalefactor;
-		FOC->Vd_int *= 0.99f;
-		FOC->Vq_int *= 0.99f;
-	}
-	else
-	{
-		FOC->Vd_int += Ierr_d * MotorControl->id_Ki * Current_Ts;
-		FOC->Vq_int += Ierr_q * MotorControl->iq_Ki * Current_Ts;
-	}
-	
-	/*phase compensation*/
-	float pwm_phase = phase + phase_vel * Current_Ts;
-	/*inverse park transform*/
-	Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, pwm_phase, &FOC->mod_alpha, &FOC->mod_beta);
-	
-	/*low pass filter for Id Iq*/
+    float max_voltage;
+    float voltage_d;
+    float voltage_q;
+
+    Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
+    Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
+
+    if (FOC->Vbus_filt > 0.0f)
+    {
+        max_voltage = FOC_MAX_MODULATION * FOC->Vbus_filt / 1.5f;
+        PI_Controller_Configure(&FOC->id_pi, MotorControl->id_Kp, MotorControl->id_Ki, Current_Ts, -max_voltage, max_voltage);
+        PI_Controller_Configure(&FOC->iq_pi, MotorControl->iq_Kp, MotorControl->iq_Ki, Current_Ts, -max_voltage, max_voltage);
+
+        voltage_d = PI_Controller_Run(&FOC->id_pi, MotorControl->idRef, FOC->Id);
+        voltage_q = PI_Controller_Run(&FOC->iq_pi, MotorControl->iqRef, FOC->Iq);
+        FOC_SetVoltageModulation(FOC, voltage_d, voltage_q);
+
+        PI_Controller_TrackOutput(&FOC->id_pi, FOC->mod_d * FOC->Vbus_filt / 1.5f);
+        PI_Controller_TrackOutput(&FOC->iq_pi, FOC->mod_q * FOC->Vbus_filt / 1.5f);
+    }
+    else
+    {
+        FOC_CurrentController_Reset(FOC);
+        FOC->mod_d = 0.0f;
+        FOC->mod_q = 0.0f;
+        FOC->duty = 0.0f;
+    }
+
+    Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase + phase_vel * Current_Ts, &FOC->mod_alpha, &FOC->mod_beta);
+
     UTILS_LP_FAST(FOC->Id_filt, FOC->Id, 0.01f);
     UTILS_LP_FAST(FOC->Iq_filt, FOC->Iq, 0.01f);
-	
-	/*calculate bus current and power*/
-    FOC->Ibus = (FOC->mod_d * FOC->Id + FOC->mod_q * FOC->Iq);
+
+    FOC->Ibus = FOC->mod_d * FOC->Id + FOC->mod_q * FOC->Iq;
     UTILS_LP_FAST(FOC->Ibus_filt, FOC->Ibus, 0.01f);
     FOC->Power_filt = FOC->Vbus_filt * FOC->Ibus_filt;
-		
-	/*space vector modulation*/
-	SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
-	
-	/*set CCR and generate PWM*/
-	Set_A_Duty(FOC->dtc_a);
-	Set_B_Duty(FOC->dtc_b);
-	Set_C_Duty(FOC->dtc_c);
+
+    SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
+    Set_A_Duty(FOC->dtc_a);
+    Set_B_Duty(FOC->dtc_b);
+    Set_C_Duty(FOC->dtc_c);
+}
+
+void FOC_CurrentController_Reset(FOC_TypeDef *FOC)
+{
+    PI_Controller_Reset(&FOC->id_pi);
+    PI_Controller_Reset(&FOC->iq_pi);
 }
 
 /**
@@ -353,64 +368,44 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
 	**/
 void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel)
 {
-	const float max_mod = 0.95f * SQRT_3_BY_2;
-	float vbus = FOC->Vbus_filt;
+    float max_voltage;
+    float voltage_d;
+    float voltage_q;
 
-	/*current feedback in the encoder d-q frame*/
-	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
-	Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
+    Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
+    Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
 
-	if(vbus > 0.0f)
-	{
-		/*limit Vq to the SVM linear region before vector saturation*/
-		float max_voltage = max_mod * vbus / 1.5f;
-		float vq_set = constrain(MotorControl->vqRef, -max_voltage, max_voltage);
-		float id_error = -FOC->Id;
-		float voltage_d = FOC->Vd_int + id_error * MotorControl->id_Kp;
-		float V_to_mod = 1.5f / vbus;
-		float mod_norm;
+    if (FOC->Vbus_filt > 0.0f)
+    {
+        max_voltage = FOC_MAX_MODULATION * FOC->Vbus_filt / 1.5f;
+        PI_Controller_Configure(&FOC->id_pi, MotorControl->id_Kp, MotorControl->id_Ki, Current_Ts, -max_voltage, max_voltage);
 
-		FOC->mod_d = V_to_mod * voltage_d;
-		FOC->mod_q = V_to_mod * vq_set;
-		mod_norm = fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
+        voltage_d = PI_Controller_Run(&FOC->id_pi, 0.0f, FOC->Id);
+        voltage_q = constrain(MotorControl->vqRef, -max_voltage, max_voltage);
+        FOC_SetVoltageModulation(FOC, voltage_d, voltage_q);
+        PI_Controller_TrackOutput(&FOC->id_pi, FOC->mod_d * FOC->Vbus_filt / 1.5f);
+    }
+    else
+    {
+        FOC_CurrentController_Reset(FOC);
+        FOC->mod_d = 0.0f;
+        FOC->mod_q = 0.0f;
+        FOC->duty = 0.0f;
+    }
 
-		if(mod_norm > max_mod)
-		{
-			float mod_scale = max_mod / mod_norm;
-			FOC->mod_d *= mod_scale;
-			FOC->mod_q *= mod_scale;
-			FOC->Vd_int *= 0.99f;
-		}
-		else
-		{
-			FOC->Vd_int += id_error * MotorControl->id_Ki * Current_Ts;
-		}
+    Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase + phase_vel * Current_Ts, &FOC->mod_alpha, &FOC->mod_beta);
 
-		mod_norm = fast_sqrt(FOC->mod_d * FOC->mod_d + FOC->mod_q * FOC->mod_q);
-		FOC->duty = sign_hard(FOC->mod_q) * mod_norm / max_mod;
-	}
-	else
-	{
-		FOC->mod_d = 0.0f;
-		FOC->mod_q = 0.0f;
-		FOC->duty = 0.0f;
-	}
+    UTILS_LP_FAST(FOC->Id_filt, FOC->Id, 0.01f);
+    UTILS_LP_FAST(FOC->Iq_filt, FOC->Iq, 0.01f);
 
-	/*compensate one current-loop period of PWM delay*/
-	float pwm_phase = phase + phase_vel * Current_Ts;
-	Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, pwm_phase, &FOC->mod_alpha, &FOC->mod_beta);
+    FOC->Ibus = FOC->mod_d * FOC->Id + FOC->mod_q * FOC->Iq;
+    UTILS_LP_FAST(FOC->Ibus_filt, FOC->Ibus, 0.01f);
+    FOC->Power_filt = FOC->Vbus_filt * FOC->Ibus_filt;
 
-	UTILS_LP_FAST(FOC->Id_filt, FOC->Id, 0.01f);
-	UTILS_LP_FAST(FOC->Iq_filt, FOC->Iq, 0.01f);
-
-	FOC->Ibus = FOC->mod_d * FOC->Id + FOC->mod_q * FOC->Iq;
-	UTILS_LP_FAST(FOC->Ibus_filt, FOC->Ibus, 0.01f);
-	FOC->Power_filt = vbus * FOC->Ibus_filt;
-
-	SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
-	Set_A_Duty(FOC->dtc_a);
-	Set_B_Duty(FOC->dtc_b);
-	Set_C_Duty(FOC->dtc_c);
+    SVM_SectorJudge(FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
+    Set_A_Duty(FOC->dtc_a);
+    Set_B_Duty(FOC->dtc_b);
+    Set_C_Duty(FOC->dtc_c);
 }
 
 /**

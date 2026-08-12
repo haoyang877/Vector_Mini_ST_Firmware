@@ -33,6 +33,10 @@ void BSP1kHzIRQHandler(void)
 			case Speed_Mode:
 				Set_RGB_BreathingColor(CYAN);
 			break;
+
+			case Sensorless_Speed_Mode:
+				Set_RGB_BreathingColor(YELLOW);
+			break;
 			
 			case Position_Mode:
 				Set_RGB_BreathingColor(BLUE);

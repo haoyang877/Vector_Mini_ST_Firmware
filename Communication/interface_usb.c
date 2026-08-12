@@ -969,7 +969,7 @@ void USB_RxIRQHandler(uint8_t *data, uint16_t length)
 {
 	USBRXError_TypeDef USBRXError;
 
-	if (USBMsg.lut_export_en != 0U)
+	if (USBMsg.tx_busy != 0U || USBMsg.tx_en != 0U || USBMsg.lut_export_en != 0U)
 		return;
 	
 	/*write data to ring buffer*/

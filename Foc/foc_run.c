@@ -320,7 +320,8 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				Startup->state_ticks = 0U;
 				Startup->id_ramp_ticks = 0U;
 				Startup->loss_ticks = 0U;
-				MotorControl->speedShadow = Observer_GetEleVel(Fluxobserver) / pole_pairs;
+				Startup->speed_feedback = Observer_GetEleVel(Fluxobserver) / pole_pairs;
+				MotorControl->speedShadow = Startup->speed_feedback;
 			}
 		}
 		break;
@@ -350,12 +351,14 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			if (Startup->id_ramp_ticks < (uint32_t)(SENSORLESS_ID_RAMP_DOWN_TIME_S / Current_Ts))
 				Startup->id_ramp_ticks++;
 
-			if (++Startup->state_ticks >= 2U)
+			if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
 			{
+				Startup->speed_feedback += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
+					(observer_mech_vel - Startup->speed_feedback);
 				Sensorless_UpdateSpeedReference(MotorControl);
 				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
-				MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, observer_mech_vel) * MotorControl->current_limit;
-				Startup->state_ticks = 0U;
+				MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, Startup->speed_feedback) * MotorControl->current_limit;
+				Startup->speed_loop_ticks = 0U;
 			}
 
 			if (fast_abs(observer_vel) < SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S * 0.5f)

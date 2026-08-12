@@ -98,7 +98,6 @@ int main(void)
   MX_DMA_Init();
   MX_ADC2_Init();
   MX_FDCAN1_Init();
-  MX_SPI2_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();

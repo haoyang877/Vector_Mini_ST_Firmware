@@ -6,7 +6,7 @@ uint16_t EncoderChange_Cnt;
 uint16_t CANBRSwitching_Cnt;
 
 extern MotorControl_TypeDef MotorControl;
-extern Encoder_TypeDef OnBoard_Encoder,External_Encoder;
+extern Encoder_TypeDef External_Encoder;
 
 /**
 	* @brief  BSP 1 kHz interrupt task
@@ -60,7 +60,7 @@ void BSP1kHzIRQHandler(void)
 	
 	if(++EncoderChange_Cnt >= 100)
 	{
-		Encoder_ChangeDetect(&OnBoard_Encoder, &External_Encoder);
+		Encoder_ChangeDetect(&External_Encoder);
 		EncoderChange_Cnt = 0;
 	}
 	

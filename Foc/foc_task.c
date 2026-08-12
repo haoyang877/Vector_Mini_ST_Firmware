@@ -5,7 +5,7 @@
 
 MotorControl_TypeDef MotorControl;
 PID_TypeDef PID_Speed;
-Encoder_TypeDef OnBoard_Encoder,External_Encoder;
+Encoder_TypeDef External_Encoder;
 Fluxobserver_TypeDef Fluxobserver;
 
 ModeNow_TypeDef  ModeLast  = Motor_Disable;
@@ -50,10 +50,7 @@ void RTT_Sampling(void)
  **/
 void MotorControl_Init(void)
 {
-	External_Encoder.source = EXTERNAL;
 	Encoder_ParamInit(&External_Encoder);
-	OnBoard_Encoder.source = ON_BOARD;
-	Encoder_ParamInit(&OnBoard_Encoder);
 	
 	Fluxobserver_ParamInit(&Fluxobserver);
 	
@@ -79,7 +76,6 @@ void FOC20kHzIRQHandler(void)
 	Temperature_Update(&FOC);
 	
 	Encoder_Update(&MotorControl, &External_Encoder);
-	Encoder_Update(&MotorControl, &OnBoard_Encoder);
 	Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
 
 	switch(MotorControl.ModeNow)

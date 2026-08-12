@@ -8,7 +8,7 @@
 #include "encoder.h"
 #include "foc_sensorless.h"
 
-#define OFFSET_LUT_NUM   		128U
+#define OFFSET_LUT_NUM   		ENCODER_OFFSET_LUT_SIZE
 
 #define MAX_MOTOR_POLE_PAIRS 	20U
 #define SAMPLES_PER_PPAIR    	128U

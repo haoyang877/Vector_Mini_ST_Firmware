@@ -15,10 +15,9 @@ USBRxStep_TypeDef USBRXStep = USB_RX_NULL;
 
 extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
-extern Encoder_TypeDef OnBoard_Encoder,External_Encoder;
+extern Encoder_TypeDef External_Encoder;
 extern FOC_TypeDef FOC;
 extern CANMsg_TypeDef CANMsg;
-extern InterfaceParam_TypeDef InterfaceParam;
 extern Cyclic_TypeDef Cyclic;
 
 /**
@@ -250,44 +249,25 @@ USBRXError_TypeDef USB_CyclicAnalyze(void)
  **/
 USBRXError_TypeDef USB_SetEncoderState(int data)
 {
-	int enc1_type,enc1_enable,enc2_type,enc2_enable;
-	
-	enc2_enable = data % 10;
-	data /= 10;
-	enc2_type = data % 10;
-	data /= 10;
-	enc1_enable = data % 10;
-	data /= 10;
-	enc1_type = data % 10;
-	
-	if(enc1_enable == 0)
-		OnBoard_Encoder.enable = ENCODER_DISABLE;
-	else if(enc1_enable == 1)
-		OnBoard_Encoder.enable = ENCODER_ENABLE;
-	else
-		return USB_DATA_OUT_OF_RANGE;
-	
-	if(enc1_type == 0)
-		OnBoard_Encoder.type = TLE5012B;
-	else
-		return USB_DATA_OUT_OF_RANGE;
-	
-	if(enc2_enable == 0)
+	int encoder_enable = data % 10;
+	int encoder_type = (data / 10) % 10;
+
+	if (encoder_enable == 0)
 		External_Encoder.enable = ENCODER_DISABLE;
-	else if(enc2_enable == 1)
+	else if (encoder_enable == 1)
 		External_Encoder.enable = ENCODER_ENABLE;
 	else
 		return USB_DATA_OUT_OF_RANGE;
-	
-	if(enc2_type == 0)
+
+	if (encoder_type == 0)
 		External_Encoder.type = TLE5012B;
-	else if(enc2_type == 1)
+	else if (encoder_type == 1)
 		External_Encoder.type = MT6816;
-	else if(enc2_type == 2)
+	else if (encoder_type == 2)
 		External_Encoder.type = MT6701;
 	else
 		return USB_DATA_OUT_OF_RANGE;
-	
+
 	return USB_NO_ERROR;
 }
 
@@ -296,29 +276,17 @@ USBRXError_TypeDef USB_SetEncoderState(int data)
  **/
 void USB_GetEncoderState(void)
 {
-	char enc1_type[10],enc1_enable[10],enc2_type[10],enc2_enable[10];
-	
-	if(OnBoard_Encoder.type == TLE5012B)
-		sprintf(enc1_type, "TLE5012B");
-	
-	if(OnBoard_Encoder.enable == ENCODER_DISABLE)
-		sprintf(enc1_enable, "Disable");
-	else if(OnBoard_Encoder.enable == ENCODER_ENABLE)
-		sprintf(enc1_enable, "Enable");
-	
-	if(External_Encoder.type == TLE5012B)
-		sprintf(enc2_type, "TLE5012B");
-	else if(External_Encoder.type == MT6816)
-		sprintf(enc2_type, "MT6816");
-	else if(External_Encoder.type == MT6701)
-		sprintf(enc2_type, "MT6701");
-	
-	if(External_Encoder.enable == ENCODER_DISABLE)
-		sprintf(enc2_enable, "Disable");
-	else if(External_Encoder.enable == ENCODER_ENABLE)
-		sprintf(enc2_enable, "Enable");
-	
-	sprintf(USBMsg.tx_str, "enc1_type=%s-%s.\r\nenc2_type=%s-%s.\r\n", enc1_type, enc1_enable, enc2_type, enc2_enable);
+	const char *encoder_type = "Unknown";
+	const char *encoder_enable = External_Encoder.enable == ENCODER_ENABLE ? "Enable" : "Disable";
+
+	if (External_Encoder.type == TLE5012B)
+		encoder_type = "TLE5012B";
+	else if (External_Encoder.type == MT6816)
+		encoder_type = "MT6816";
+	else if (External_Encoder.type == MT6701)
+		encoder_type = "MT6701";
+
+	sprintf(USBMsg.tx_str, "encoder_type=%s-%s.\r\n", encoder_type, encoder_enable);
 }
 
 /**
@@ -362,7 +330,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_SPEED_SET:
-				if(!ModeSwitch_Handle(Speed_Mode))
+				if(MotorControl.ModeNow != Sensorless_Speed_Mode && !ModeSwitch_Handle(Speed_Mode))
 					return USB_WRITE_INVALID;
 				if(fast_abs(data) <= MotorControl.speed_limit * ONE_BY_2PI)
 					MotorControl.speedRef = data * _2PI;
@@ -550,11 +518,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_IQ:
 				return USB_WRITE_INVALID;
 			
-			case USB_SPEED1_FILT:
-				return USB_WRITE_INVALID;
 			
-			case USB_POS1_FILT:
-				return USB_WRITE_INVALID;
 
 			case USB_SPEED2_FILT:
 				return USB_WRITE_INVALID;
@@ -650,11 +614,11 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_SPEED_ACC:
-				sprintf(USBMsg.tx_str, "spd_acc=%.2fr/(s¡¤s)\r\n", MotorControl.speedAcc * ONE_BY_2PI);
+				sprintf(USBMsg.tx_str, "spd_acc=%.2fr/(sï¿½ï¿½s)\r\n", MotorControl.speedAcc * ONE_BY_2PI);
 			break;
 			
 			case USB_SPEED_DEC:
-				sprintf(USBMsg.tx_str, "spd_dec=%.2fr/(s¡¤s)\r\n", MotorControl.speedDec * ONE_BY_2PI);
+				sprintf(USBMsg.tx_str, "spd_dec=%.2fr/(sï¿½ï¿½s)\r\n", MotorControl.speedDec * ONE_BY_2PI);
 			break;
 			
 			case USB_SPEED_KP:
@@ -666,11 +630,11 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_POS_ACC:
-				sprintf(USBMsg.tx_str, "pos_acc=%.2fr/(s¡¤s)\r\n", MotorControl.posAcc * ONE_BY_2PI);
+				sprintf(USBMsg.tx_str, "pos_acc=%.2fr/(sï¿½ï¿½s)\r\n", MotorControl.posAcc * ONE_BY_2PI);
 			break;
 			
 			case USB_POS_DEC:
-				sprintf(USBMsg.tx_str, "pos_dec=%.2fr/(s¡¤s)\r\n", MotorControl.posDec * ONE_BY_2PI);
+				sprintf(USBMsg.tx_str, "pos_dec=%.2fr/(sï¿½ï¿½s)\r\n", MotorControl.posDec * ONE_BY_2PI);
 			break;
 			
 			case USB_POS_MAXSPEED:
@@ -722,13 +686,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				sprintf(USBMsg.tx_str, "iq=%.2fA\r\n", FOC.Iq);
 			break;
 			
-			case USB_SPEED1_FILT:
-				sprintf(USBMsg.tx_str, "spd1_filt=%.2fr/s\r\n", OnBoard_Encoder.vel);
-			break;
 			
-			case USB_POS1_FILT:
-				sprintf(USBMsg.tx_str, "pos1_filt=%.3fr\r\n", OnBoard_Encoder.pos);
-			break;
 
 			case USB_SPEED2_FILT:
 				sprintf(USBMsg.tx_str, "spd2_filt=%.2fr/s\r\n", External_Encoder.vel);
@@ -739,7 +697,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_TEMP:
-				sprintf(USBMsg.tx_str, "temp=%.2f¡ãC\r\n", FOC.temp);
+				sprintf(USBMsg.tx_str, "temp=%.2fï¿½ï¿½C\r\n", FOC.temp);
 			break;
 
 			case USB_RS:
@@ -943,17 +901,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				USBMsg.p_var[data_int].addr = &FOC.Iq_filt;
 			break;
 			
-			case USB_SPEED1_FILT:
-				USBMsg.p_var[data_int].scale = 1.0f;
-				USBMsg.p_var[data_int].type = TYPE_FLOAT;
-				USBMsg.p_var[data_int].addr = &OnBoard_Encoder.vel;
-			break;
 			
-			case USB_POS1_FILT:
-				USBMsg.p_var[data_int].scale = 1.0f;
-				USBMsg.p_var[data_int].type = TYPE_FLOAT;
-				USBMsg.p_var[data_int].addr = &OnBoard_Encoder.pos;
-			break;
 			
 			case USB_SPEED2_FILT:
 				USBMsg.p_var[data_int].scale = 1.0f;

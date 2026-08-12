@@ -1,6 +1,7 @@
 #include "encoder.h"
 
 #include <stdbool.h>
+#include <string.h>
 #include "spi.h"
 #include "hw_conf.h"
 #include "utils.h"
@@ -98,12 +99,7 @@ void Encoder_ParamInit(Encoder_TypeDef *Encoder)
     Encoder->pll_ki         		= 0.25f * fast_sq(Encoder->pll_kp); 
     Encoder->snap_threshold 		= 0.5f * Current_Ts * Encoder->pll_ki;
 	
-	SPI_HandleTypeDef *enc_spi;
-	
-	if(Encoder->source == ON_BOARD)
-		enc_spi = &brd_enc_spi;
-	else if(Encoder->source == EXTERNAL)
-		enc_spi = &ext_enc_spi;
+	SPI_HandleTypeDef *enc_spi = &ext_enc_spi;
 	
 	switch(Encoder->type)
 	{
@@ -152,28 +148,8 @@ void Encoder_ParamInit(Encoder_TypeDef *Encoder)
 }
 
 /**
-  * @brief  Set SPI2 MOSI (PB15) to Hi-Z input for TLE5012 half-duplex rx
-  */
-static void SPI2_MOSI_HiZ(void)
-{
-	/* Clear MODER[31:30] to set PB15 as input (00) */
-	GPIOB->MODER &= ~(0x3UL << 30U);
-}
-
-/**
-  * @brief  Restore SPI2 MOSI (PB15) to AF5 push-pull
-  */
-static void SPI2_MOSI_Restore_AF(void)
-{
-	/* Set PB15 MODER[31:30] = 10 (AF mode) */
-	GPIOB->MODER = (GPIOB->MODER & ~(0x3UL << 30U)) | (0x2UL << 30U);
-	/* Set AF5 for pin 15 (AFR[1] bits 31:28 = 5) */
-	GPIOB->AFR[1] = (GPIOB->AFR[1] & ~(0xFUL << 28U)) | (0x5UL << 28U);
-}
-
-/**
   * @brief  SPI register-level transmit/receive one 16-bit word
-  * @param  SPIx: SPI peripheral (SPI1 or SPI2)
+  * @param  SPIx: SPI peripheral (SPI1)
   * @param  tx_data: 16-bit data to transmit
   * @retval 16-bit received data
   */
@@ -219,117 +195,60 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data)
 	* @brief  Read raw data of TLE5012B encoder
     * @retval Raw data of mechanical angle (0-32767)
  **/
-uint16_t ReadTLE5012B_Raw(Encoder_Source source)
+uint16_t ReadTLE5012B_Raw(void)
 {
 	uint16_t data_t[2] = {0x8021, 0x0000};
 	uint16_t data_r[2];
 
-	// /*HAL method, less efficient*/
-	// if(source == ON_BOARD)
-	// {
-	// 	BRD_ENC_CS_ENABLE;
-	// 	HAL_SPI_Transmit(&brd_enc_spi, (uint8_t *)&data_t[0], 1, 10);
-	// 	SPI2_MOSI_HiZ();
-	// 	HAL_SPI_Receive(&brd_enc_spi, (uint8_t *)&data_r[1], 1, 10);
-	// 	SPI2_MOSI_Restore_AF();
-	// 	BRD_ENC_CS_DISABLE;
-	// }
-	// else if(source == EXTERNAL)
-	// {
-	// 	EXT_ENC_CS_ENABLE;
-	// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t *)data_t, (uint8_t *)data_r, 2, 10);
-	// 	EXT_ENC_CS_DISABLE;
-	// }
+	EXT_ENC_CS_ENABLE;
+	data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
+	data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
+	EXT_ENC_CS_DISABLE;
 
-	/* Register-level SPI, faster */
-	if(source == ON_BOARD)
-	{
-		BRD_ENC_CS_ENABLE;
-		/* Send command word, discard rx */
-		SPI_Reg_TxRx16(BRD_ENC_SPI, data_t[0]);
-		/* MOSI to HiZ for half-duplex rx */
-		SPI2_MOSI_HiZ();
-		/* Send dummy, receive angle data */
-		data_r[1] = SPI_Reg_TxRx16(BRD_ENC_SPI, data_t[1]);
-		/* Restore MOSI AF */
-		SPI2_MOSI_Restore_AF();
-		BRD_ENC_CS_DISABLE;
-	}
-	else if(source == EXTERNAL)
-	{
-		EXT_ENC_CS_ENABLE;
-		/* Full-duplex: tx cmd + tx dummy, rx dummy + rx angle */
-		data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
-		data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
-		EXT_ENC_CS_DISABLE;
-	}
-
-	return (data_r[1] & 0x7FFF);
+	return data_r[1] & 0x7FFF;
 }
 
 /**
 	* @brief  Read raw data of MT6816 encoder
     * @retval Raw data of mechanical angle (0-16383)
  **/
-uint16_t ReadMT6816_Raw(Encoder_Source source)
+uint16_t ReadMT6816_Raw(void)
 {
-	uint16_t sample_data;		
-
-	uint8_t pc_flag;	
-	uint16_t angle = 0;
-	
+	uint16_t sample_data = 0U;
+	uint8_t parity_ok = 0U;
+	uint16_t angle = 0U;
 	uint16_t data_t[2];
-	uint16_t data_r[2];
-	uint8_t h_count;
-	
+	uint16_t data_r[2] = {0U, 0U};
+
 	data_t[0] = (0x80 | 0x03) << 8;
 	data_t[1] = (0x80 | 0x04) << 8;
-	
-	for(uint8_t i = 0; i < 3; i++)
-	{
-		// /*HAL method, less efficient*/
-		// if(source == EXTERNAL)
-		// {
-		// 	EXT_ENC_CS_ENABLE;
-		// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t*)&data_t[0], (uint8_t*)&data_r[0], 1, 0x10);
-		// 	EXT_ENC_CS_DISABLE;
-		// 	EXT_ENC_CS_ENABLE;
-		// 	HAL_SPI_TransmitReceive(&ext_enc_spi, (uint8_t*)&data_t[1], (uint8_t*)&data_r[1], 1, 0x10);
-		// 	EXT_ENC_CS_DISABLE;
-		// }
 
-		/* Register-level SPI, faster */
-		if(source == EXTERNAL)
+	for (uint8_t i = 0U; i < 3U; ++i)
+	{
+		EXT_ENC_CS_ENABLE;
+		data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
+		EXT_ENC_CS_DISABLE;
+		EXT_ENC_CS_ENABLE;
+		data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
+		EXT_ENC_CS_DISABLE;
+
+		sample_data = ((data_r[0] & 0x00FFU) << 8) | (data_r[1] & 0x00FFU);
+		uint8_t high_count = 0U;
+		for (uint8_t bit = 0U; bit < 16U; ++bit)
 		{
-			EXT_ENC_CS_ENABLE;
-			data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
-			EXT_ENC_CS_DISABLE;
-			EXT_ENC_CS_ENABLE;
-			data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
-			EXT_ENC_CS_DISABLE;
+			if ((sample_data & (1U << bit)) != 0U)
+				high_count++;
 		}
-		
-		sample_data = ((data_r[0] & 0x00FF) << 8) | (data_r[1] & 0x00FF);
-		h_count = 0;
-		
-		for(int j = 0; j < 16; j++)
+		if ((high_count & 1U) == 0U)
 		{
-			if(sample_data & (0x0001 << j))
-				h_count++;
-		}
-		if(h_count & 0x01){
-			pc_flag = 0;
-		}
-		else{
-			pc_flag = 1;
+			parity_ok = 1U;
 			break;
 		}
 	}
-	if(pc_flag)
-	{
+
+	if (parity_ok != 0U)
 		angle = sample_data >> 2;
-	}
-	
+
 	return angle;
 }
 
@@ -356,18 +275,11 @@ static uint8_t MT6701_CRC6(uint32_t payload18)
 
 uint16_t ReadMT6701_Raw(Encoder_TypeDef *Encoder)
 {
-	SPI_HandleTypeDef *enc_spi = (Encoder->source == ON_BOARD) ? &brd_enc_spi : &ext_enc_spi;
+	SPI_HandleTypeDef *enc_spi = &ext_enc_spi;
 	SPI_TypeDef *SPIx = enc_spi->Instance;
 	uint8_t rx_bytes[3] = {0U, 0U, 0U};
 	bool ok = true;
 	uint16_t raw = Encoder->raw;
-
-	if (Encoder->source != EXTERNAL)
-	{
-		/* This board routes MT6701 SSI only through the external SPI1 connector. */
-		Encoder_MarkReadStatus(Encoder, ENCODER_READ_UNSUPPORTED);
-		return raw;
-	}
 
 	EXT_ENC_CS_ENABLE;
 	for (uint8_t i = 0; i < 3U; ++i)
@@ -433,10 +345,10 @@ uint16_t ReadSPIEncoder_Raw(Encoder_TypeDef *Encoder)
 	{
 		case TLE5012B:
 			Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
-			return ReadTLE5012B_Raw(Encoder->source);
+			return ReadTLE5012B_Raw();
 		case MT6816:
 			Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
-			return ReadMT6816_Raw(Encoder->source);
+			return ReadMT6816_Raw();
 		case MT6701:
 			return ReadMT6701_Raw(Encoder);
 		default:
@@ -498,14 +410,13 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 	{
 		Encoder->disconnect_count = 0;
 	}
-	
-    /*Linearization LUT with interpolation between adjacent entries.*/
-	int off_bit = Encoder->resolution - 7;
-    int off_1 = Encoder->offset_lut[Encoder->raw >> off_bit];
-    int off_2 = Encoder->offset_lut[((Encoder->raw >> off_bit) + 1) % 128];
-    int off_interp = off_1
-                   + ((off_2 - off_1) * (Encoder->raw - ((Encoder->raw >> off_bit) << off_bit))
-                    >> off_bit);
+    /* Linearization LUT with interpolation between adjacent entries. */
+	int off_bit = Encoder->resolution - ENCODER_OFFSET_LUT_BITS;
+	int lut_index = Encoder->raw >> off_bit;
+	int off_1 = Encoder->offset_lut[lut_index];
+	int off_2 = Encoder->offset_lut[(lut_index + 1) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
+	int off_interp = off_1
+				 + ((off_2 - off_1) * (Encoder->raw - (lut_index << off_bit)) >> off_bit);
     int count = Encoder->raw - off_interp;
 	
     /*  Wrap in ENCODER_CPR */
@@ -649,47 +560,30 @@ float Encoder_GetCountInCPR_Ratio(Encoder_TypeDef *Encoder)
 }
 
 /**
-	* @brief  Detect encoder type changes and reinitialize parameters
-	* @param  *Encoder1: first encoder struct pointer
-	* @param  *Encoder2: second encoder struct pointer
+	* @brief  Detect external encoder type changes and reinitialize parameters
+	* @param  *Encoder: external encoder struct pointer
  **/
-void Encoder_ChangeDetect(Encoder_TypeDef *Encoder1, Encoder_TypeDef *Encoder2)
+void Encoder_ChangeDetect(Encoder_TypeDef *Encoder)
 {
-	static Encoder_Type Encoder1_type_last;
-	static Encoder_Type Encoder2_type_last;
+	static Encoder_Type type_last;
 	static bool is_first_call = true;
-	
-	/*init last type with current type to avoid wiping calibration at boot*/
-	if(is_first_call)
+
+	if (is_first_call)
 	{
-		Encoder1_type_last = Encoder1->type;
-		Encoder2_type_last = Encoder2->type;
+		type_last = Encoder->type;
 		is_first_call = false;
 	}
-	
-	if(Encoder1->type != Encoder1_type_last)
+
+	if (Encoder->type != type_last)
 	{
-		/*encoder type changed, calibration data is invalid*/
-		Encoder1->calib_flag = 0;
-		Encoder1->offset = 0;
-		Encoder1->zero_count = 0;
-		for(int i = 0; i < 128; i++)
-			Encoder1->offset_lut[i] = 0;
-		Encoder_ParamInit(Encoder1);
+		Encoder->calib_flag = 0U;
+		Encoder->offset = 0;
+		Encoder->zero_count = 0;
+		memset(Encoder->offset_lut, 0, sizeof(Encoder->offset_lut));
+		Encoder_ParamInit(Encoder);
 	}
-	if(Encoder2->type != Encoder2_type_last)
-	{
-		/*encoder type changed, calibration data is invalid*/
-		Encoder2->calib_flag = 0;
-		Encoder2->offset = 0;
-		Encoder2->zero_count = 0;
-		for(int i = 0; i < 128; i++)
-			Encoder2->offset_lut[i] = 0;
-		Encoder_ParamInit(Encoder2);
-	}
-	
-	Encoder1_type_last = Encoder1->type;
-	Encoder2_type_last = Encoder2->type;
+
+	type_last = Encoder->type;
 }
 
 /**

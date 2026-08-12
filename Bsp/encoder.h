@@ -25,12 +25,6 @@ typedef enum
 	ENCODER_READ_UNSUPPORTED = 7
 }Encoder_ReadStatus;
 
-typedef enum
-{
-	ON_BOARD = 0,
-	EXTERNAL = 1
-}Encoder_Source;
-
 /*Encoder type*/
 typedef enum
 {
@@ -43,11 +37,13 @@ typedef enum
 #define ENC_CALIB_ZERO_POS    (1U << 1)  /*electrical angle zero position calibrated*/
 #define ENC_CALIB_ALL         (ENC_CALIB_LINEARIZED | ENC_CALIB_ZERO_POS)
 
+#define ENCODER_OFFSET_LUT_SIZE  1024U
+#define ENCODER_OFFSET_LUT_BITS  10U
+
 typedef struct
 {
 	Encoder_Type type;
 	Encoder_Enable enable;
-	Encoder_Source source;
 	
 	int resolution;
 	
@@ -91,7 +87,7 @@ typedef struct
     float snap_threshold;
 	
 	int offset;
-	int offset_lut[128];
+	int16_t offset_lut[ENCODER_OFFSET_LUT_SIZE];
 	int zero_count;
 	uint8_t calib_flag;
 	
@@ -108,22 +104,16 @@ typedef struct
 }Encoder_TypeDef;
 
 
-#define brd_enc_spi	 hspi2
-#define BRD_ENC_SPI  SPI2
-
 #define ext_enc_spi  hspi1
 #define EXT_ENC_SPI	 SPI1
-
-#define BRD_ENC_CS_ENABLE  BRD_ENC_CS_GPIO_Port->BSRR = (uint32_t)BRD_ENC_CS_Pin << 16U
-#define BRD_ENC_CS_DISABLE BRD_ENC_CS_GPIO_Port->BSRR = BRD_ENC_CS_Pin   
 
 #define EXT_ENC_CS_ENABLE  EXT_ENC_CS_GPIO_Port->BSRR = (uint32_t)EXT_ENC_CS_Pin << 16U
 #define EXT_ENC_CS_DISABLE EXT_ENC_CS_GPIO_Port->BSRR = EXT_ENC_CS_Pin
 
 void Encoder_ParamInit(Encoder_TypeDef *Encoder);
 
-uint16_t ReadTLE5012B_Raw(Encoder_Source source);
-uint16_t ReadMT6816_Raw(Encoder_Source source);
+uint16_t ReadTLE5012B_Raw(void);
+uint16_t ReadMT6816_Raw(void);
 uint16_t ReadMT6701_Raw(Encoder_TypeDef *Encoder);
 uint16_t ReadSPIEncoder_Raw(Encoder_TypeDef *Encoder);
 
@@ -134,7 +124,7 @@ float Encoder_GetElePhase(Encoder_TypeDef *Encoder);
 float Encoder_GetMecPos(Encoder_TypeDef *Encoder);
 float Encoder_GetCountInCPR_Ratio(Encoder_TypeDef *Encoder);
 
-void Encoder_ChangeDetect(Encoder_TypeDef *Encoder1, Encoder_TypeDef *Encoder2);
+void Encoder_ChangeDetect(Encoder_TypeDef *Encoder);
 
 void Task_Set_ZeroPosition(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
 

@@ -13,8 +13,7 @@ CANMsg_TypeDef CANMsg;
 extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
 extern FOC_TypeDef FOC;
-extern Encoder_TypeDef OnBoard_Encoder,External_Encoder;
-extern InterfaceParam_TypeDef InterfaceParam;
+extern Encoder_TypeDef External_Encoder;
 
 /**
 	* @brief  FDCAN1 Filter Init  
@@ -91,35 +90,20 @@ void CAN_DisConnect_Handle(void)
  **/
 void CAN_SetEncoderState(int data)
 {
-	int enc1_type,enc1_enable,enc2_type,enc2_enable;
+	int encoder_enable = data % 10;
+	int encoder_type = (data / 10) % 10;
 
-	enc2_enable = data % 10;
-	data /= 10;
-	enc2_type = data % 10;
-	data /= 10;
-	enc1_enable = data % 10;
-	data /= 10;
-	enc1_type = data % 10;
-	
-	if(enc1_type == 0)
-		OnBoard_Encoder.type = TLE5012B;
-	
-	if(enc1_enable == 0)
-		OnBoard_Encoder.enable = ENCODER_DISABLE;
-	else if(enc1_enable == 1)
-		OnBoard_Encoder.enable = ENCODER_ENABLE;
-	
-	if(enc2_type == 0)
-		External_Encoder.type = TLE5012B;
-	else if(enc2_type == 1)
-		External_Encoder.type = MT6816;
-	else if(enc2_type == 2)
-		External_Encoder.type = MT6701;
-	
-	if(enc2_enable == 0)
+	if (encoder_enable == 0)
 		External_Encoder.enable = ENCODER_DISABLE;
-	else if(enc2_enable == 1)
+	else if (encoder_enable == 1)
 		External_Encoder.enable = ENCODER_ENABLE;
+
+	if (encoder_type == 0)
+		External_Encoder.type = TLE5012B;
+	else if (encoder_type == 1)
+		External_Encoder.type = MT6816;
+	else if (encoder_type == 2)
+		External_Encoder.type = MT6701;
 }
 
 /**
@@ -167,14 +151,7 @@ void CAN_BaudRateSwitching(void)
  **/
 int CAN_GetEncoderState(void)
 {
-	int encoder_state = 0;
-	
-	encoder_state += (int)External_Encoder.enable;
-	encoder_state += 10 * (int)External_Encoder.type;
-	encoder_state += 100 * (int)OnBoard_Encoder.enable;
-	encoder_state += 1000 * (int)OnBoard_Encoder.type;
-	
-	return encoder_state;
+	return (int)External_Encoder.enable + 10 * (int)External_Encoder.type;
 }
 
 /**
@@ -208,7 +185,8 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 				
 		case CAN_SET_SPEED:
-			ModeSwitch_Handle(Speed_Mode);
+			if(MotorControl.ModeNow != Sensorless_Speed_Mode)
+				ModeSwitch_Handle(Speed_Mode);
 			if(fast_abs(data) <= MotorControl.speed_limit * ONE_BY_2PI)
 				MotorControl.speedRef = data * _2PI;
 		break;
@@ -406,13 +384,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 			CAN_SendMessage_Update(CAN_GET_IQ, FOC.Iq);
 		break;
 		
-		case CAN_GET_SPEED1_FILT:
-			CAN_SendMessage_Update(CAN_GET_SPEED1_FILT, OnBoard_Encoder.vel);
-		break;
 		
-		case CAN_GET_POS1_FILT:
-			CAN_SendMessage_Update(CAN_GET_POS1_FILT, OnBoard_Encoder.pos);
-		break;
 
 		case CAN_GET_SPEED2_FILT:
 			CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, External_Encoder.vel);

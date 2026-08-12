@@ -1026,7 +1026,7 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 		unwrapped_sum = 0;
 		FOC->Vd_int = 0.0f;
 		FOC->Vq_int = 0.0f;
-		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_LINEARIZED;
+		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_ZERO_POS;
 	}
 
 	MotorControl->idRef = align_current;
@@ -1061,7 +1061,7 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 			Encoder->offset = offset;
 		}
 
-		Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
+		Encoder->calib_flag |= ENC_CALIB_ZERO_POS;
 
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;

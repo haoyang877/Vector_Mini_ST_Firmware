@@ -249,26 +249,8 @@ USBRXError_TypeDef USB_CyclicAnalyze(void)
  **/
 USBRXError_TypeDef USB_SetEncoderState(int data)
 {
-	int encoder_enable = data % 10;
-	int encoder_type = (data / 10) % 10;
-
-	if (encoder_enable == 0)
-		External_Encoder.enable = ENCODER_DISABLE;
-	else if (encoder_enable == 1)
-		External_Encoder.enable = ENCODER_ENABLE;
-	else
-		return USB_DATA_OUT_OF_RANGE;
-
-	if (encoder_type == 0)
-		External_Encoder.type = TLE5012B;
-	else if (encoder_type == 1)
-		External_Encoder.type = MT6816;
-	else if (encoder_type == 2)
-		External_Encoder.type = MT6701;
-	else
-		return USB_DATA_OUT_OF_RANGE;
-
-	return USB_NO_ERROR;
+	(void)data;
+	return USB_DATA_OUT_OF_RANGE;
 }
 
 /**
@@ -276,17 +258,7 @@ USBRXError_TypeDef USB_SetEncoderState(int data)
  **/
 void USB_GetEncoderState(void)
 {
-	const char *encoder_type = "Unknown";
-	const char *encoder_enable = External_Encoder.enable == ENCODER_ENABLE ? "Enable" : "Disable";
-
-	if (External_Encoder.type == TLE5012B)
-		encoder_type = "TLE5012B";
-	else if (External_Encoder.type == MT6816)
-		encoder_type = "MT6816";
-	else if (External_Encoder.type == MT6701)
-		encoder_type = "MT6701";
-
-	sprintf(USBMsg.tx_str, "encoder_type=%s-%s.\r\n", encoder_type, encoder_enable);
+	sprintf(USBMsg.tx_str, "encoder=MT6701-%s.\r\n", Encoder_IsOnline(&External_Encoder) ? "Online" : "Offline");
 }
 
 /**
@@ -376,6 +348,16 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				   MotorControl.ModeNow == Speed_Mode   || 
 				   MotorControl.ModeNow == Speed_Mode     )
 					return USB_WRITE_INVALID;
+			break;
+
+			case USB_ENCODER_REVERSE:
+				if(int_or_float == 1)
+					return USB_DATA_INVALID;
+				if(MotorControl.ModeNow != Motor_Disable)
+					return USB_WRITE_INVALID;
+				if(data_int != 0 && data_int != 1)
+					return USB_DATA_OUT_OF_RANGE;
+				Encoder_SetReverse(&External_Encoder, data_int != 0);
 			break;
 			
 			case USB_CURRENT_CAL:
@@ -600,6 +582,10 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_ENCODER_STATE:
 				USB_GetEncoderState();
 			break;
+
+			case USB_ENCODER_REVERSE:
+				sprintf(USBMsg.tx_str, "erv=%u\r\n", (unsigned int)External_Encoder.reverse);
+			break;
 			
 			case USB_CURRENT_CAL:
 				sprintf(USBMsg.tx_str, "i_cal=%.2fA\r\n", MotorControl.calib_current);
@@ -689,11 +675,11 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			
 
 			case USB_SPEED2_FILT:
-				sprintf(USBMsg.tx_str, "spd2_filt=%.2fr/s\r\n", External_Encoder.vel);
+				sprintf(USBMsg.tx_str, "spd2_filt=%.2fr/s\r\n", External_Encoder.vel_mech);
 			break;
 			
 			case USB_POS2_FILT:
-				sprintf(USBMsg.tx_str, "pos2_filt=%.3fr\r\n", External_Encoder.pos);
+				sprintf(USBMsg.tx_str, "pos2_filt=%.3fr\r\n", External_Encoder.theta_mech);
 			break;
 			
 			case USB_TEMP:
@@ -772,6 +758,12 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			
 			case USB_ENCODER_STATE:
 				USB_GetEncoderState();
+			break;
+
+			case USB_ENCODER_REVERSE:
+				USBMsg.p_var[data_int].scale = 1.0f;
+				USBMsg.p_var[data_int].type = TYPE_UINT8;
+				USBMsg.p_var[data_int].addr = &External_Encoder.reverse;
 			break;
 			
 			case USB_CURRENT_CAL:
@@ -906,13 +898,13 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_SPEED2_FILT:
 				USBMsg.p_var[data_int].scale = 1.0f;
 				USBMsg.p_var[data_int].type = TYPE_FLOAT;
-				USBMsg.p_var[data_int].addr = &External_Encoder.vel;
+				USBMsg.p_var[data_int].addr = &External_Encoder.vel_mech;
 			break;
 			
 			case USB_POS2_FILT:
 				USBMsg.p_var[data_int].scale = 1.0f;
 				USBMsg.p_var[data_int].type = TYPE_FLOAT;
-				USBMsg.p_var[data_int].addr = &External_Encoder.pos;
+				USBMsg.p_var[data_int].addr = &External_Encoder.theta_mech;
 			break;
 			
 			case USB_TEMP:

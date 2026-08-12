@@ -85,9 +85,10 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;
 	
-	/*Vq and electrical-zero calibration always use the external encoder*/
-	if((mode_set == Vq_Mode || mode_set == Calib_EleAngelOffset) &&
-	   External_Encoder.enable != ENCODER_ENABLE)
+	/* Modes that directly consume encoder feedback must start with a valid MT6701 frame. */
+	if ((mode_set == Vq_Mode || mode_set == Calib_EncoderOffset ||
+		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
+		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&External_Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
 		return false;

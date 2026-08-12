@@ -68,7 +68,7 @@
 #define ADDR_FLASH_PAGE_62    ((uint32_t)0x0801F000) /* Base @ of Page 62, 2 Kbytes */
 #define ADDR_FLASH_PAGE_63    ((uint32_t)0x0801F800) /* Base @ of Page 63, 2 Kbytes */
 
-#define MAGIC_WORD  ((uint32_t )0x66666666)
+#define MAGIC_WORD  ((uint32_t)0x454E4332U)
 
 void flash_write_param(void);
 void flash_read_param(void);

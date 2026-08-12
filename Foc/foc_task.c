@@ -34,7 +34,7 @@ void RTT_Sampling(void)
     int16_t data8;
     } Rttstru;
 
-	/*RTT channels: speed x100, current/voltage x1000, open-loop and raw observer angles mapped to int16 full scale.*/
+	/*RTT channels: speed x100, current/voltage x1000, encoder and open-loop angles mapped to int16 full scale.*/
 	Rttstru.data0 = (int16_t)(MotorControl.speedShadow * 100.0f);
 	Rttstru.data1 = (int16_t)(External_Encoder.vel_mech * 100.0f);
 	Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
@@ -42,8 +42,8 @@ void RTT_Sampling(void)
 	Rttstru.data4 = (int16_t)(FOC.Id * 1000.0f);
 	Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
 	Rttstru.data6 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
-	Rttstru.data7 = (int16_t)(normalizeAngle(SensorlessStartup.open_loop_theta) * (65536.0f / _2PI) - 32768.0f);
-	Rttstru.data8 = (int16_t)(normalizeAngle(Fluxobserver.theta_e) * (65536.0f / _2PI) - 32768.0f);
+	Rttstru.data7 = (int16_t)(normalizeAngle(External_Encoder.theta_elec) * (65536.0f / _2PI) - 32768.0f);
+	Rttstru.data8 = (int16_t)(normalizeAngle(MotorControl.ol_theta) * (65536.0f / _2PI) - 32768.0f);
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
 }
@@ -52,7 +52,7 @@ void RTT_Sampling(void)
 	* @brief  Initialize motor control parameters
  **/
 void MotorControl_Init(void)
-{	Encoder_ParamInit(&External_Encoder);
+{	Encoder_ParamInit(&External_Encoder);
 	
 	Fluxobserver_ParamInit(&Fluxobserver);
 	SensorlessStartup_Reset(&SensorlessStartup);
@@ -72,6 +72,32 @@ void MotorControl_Init(void)
 	* @brief  FOC task, motor control related
 			  use finite state machine
  **/
+static void Task_SetMechanicalZero(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+{
+	if (!Encoder_SetMechanicalZero(Encoder))
+	{
+		Set_ErrorNow(Encoder_Error);
+		return;
+	}
+
+	MotorControl->posTrajUpdated = true;
+	Set_ModeNow(Save_Param);
+}
+
+static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
+{
+	if (MotorControl->ModeNow == Current_Mode)
+		return !MotorControl->isUseSensorless;
+
+	return MotorControl->ModeNow == Speed_Mode ||
+	       MotorControl->ModeNow == Position_Mode ||
+	       MotorControl->ModeNow == Vq_Mode ||
+	       MotorControl->ModeNow == Calib_EncoderOffset ||
+	       MotorControl->ModeNow == Calib_EncoderObserver ||
+	       MotorControl->ModeNow == Calib_EleAngelOffset ||
+	       MotorControl->ModeNow == Set_ZeroPosition;
+}
+
 void FOC20kHzIRQHandler(void)
 {
 	Vbus_Update(&FOC, &MotorControl);
@@ -82,6 +108,10 @@ void FOC20kHzIRQHandler(void)
 	
 	Encoder_Update(&MotorControl, &External_Encoder);
 	Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
+
+	if (Encoder_FeedbackRequired(&MotorControl) &&
+		External_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
+		Set_ErrorNow(Encoder_Error);
 
 	switch(MotorControl.ModeNow)
 	{
@@ -110,7 +140,7 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Calib_EncoderOffset:
-			Task_Calib_Encoder(&FOC, &MotorControl, &External_Encoder);
+			Task_Calib_EncoderObserver(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
 		break;
 		
 		case Calib_EncoderObserver:
@@ -134,7 +164,7 @@ void FOC20kHzIRQHandler(void)
 		break;
 
 		case Set_ZeroPosition:
-			Task_Set_ZeroPosition(&MotorControl, &External_Encoder);
+			Task_SetMechanicalZero(&MotorControl, &External_Encoder);
 		break;
 		
 		case Default_Param:

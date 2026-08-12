@@ -44,13 +44,6 @@
 #define PARAM_HW_CURRENT_OFFSET_B_COUNTS          2048U
 #define PARAM_HW_CURRENT_OFFSET_C_COUNTS          2048U
 
-#define PARAM_HW_ONBOARD_ENCODER_TYPE             TLE5012B
-#define PARAM_HW_ONBOARD_ENCODER_ENABLE           ENCODER_DISABLE
-#define PARAM_HW_ONBOARD_ENCODER_DIR              1
-#define PARAM_HW_EXTERNAL_ENCODER_TYPE            MT6701
-#define PARAM_HW_EXTERNAL_ENCODER_ENABLE          ENCODER_ENABLE
-#define PARAM_HW_EXTERNAL_ENCODER_DIR             1
-
 #define PARAM_HW_CAN_NODE_ID                      0x00U
 #define PARAM_HW_CAN_HEARTBEAT_MS                 500
 
@@ -59,9 +52,10 @@
 #endif
 
 /* Application defaults shared by the selected motor and hardware profiles. */
-#define PARAM_APP_ENCODER_OFFSET_COUNTS           0
-#define PARAM_APP_ENCODER_ZERO_COUNT              0
-#define PARAM_APP_ENCODER_CALIB_FLAG              0
+#define PARAM_APP_ENCODER_ELECTRICAL_ZERO_Q15     0U
+#define PARAM_APP_ENCODER_MECHANICAL_ZERO_Q15     0U
+#define PARAM_APP_ENCODER_CALIB_FLAG              0U
+#define PARAM_APP_ENCODER_REVERSE                 1U
 
 #define PARAM_APP_OPEN_LOOP_VOLTAGE_V             1.0f
 #define PARAM_APP_OPEN_LOOP_ELEC_VEL_RAD_S        12.0f

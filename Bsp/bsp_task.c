@@ -2,11 +2,9 @@
 
 uint16_t Led_Cnt;
 uint16_t RGB_Cnt;
-uint16_t EncoderChange_Cnt;
 uint16_t CANBRSwitching_Cnt;
 
 extern MotorControl_TypeDef MotorControl;
-extern Encoder_TypeDef External_Encoder;
 
 /**
 	* @brief  BSP 1 kHz interrupt task
@@ -62,11 +60,6 @@ void BSP1kHzIRQHandler(void)
 		RGB_Cnt = 0;
 	}
 	
-	if(++EncoderChange_Cnt >= 100)
-	{
-		Encoder_ChangeDetect(&External_Encoder);
-		EncoderChange_Cnt = 0;
-	}
 	
 	if(++CANBRSwitching_Cnt >= 100)
 	{

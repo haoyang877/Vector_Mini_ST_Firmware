@@ -4,6 +4,8 @@
 #include "main.h"
 #include "encoder.h"
 
+#define PARAM_SCHEMA_VERSION 3U
+
 typedef struct
 {
 	float node_id;
@@ -15,13 +17,12 @@ typedef struct
 	float motor_d_inductance;
 	float motor_q_inductance;
 	float motor_flux;
-	float encoder_type;
-	float encoder_enable;
-	float encoder_dir;
-	float encoder_offset;
-	float encoder_zero_count;
-	float encoder_calib_flag;
-	int16_t offset_lut[ENCODER_OFFSET_LUT_SIZE];
+	uint16_t encoder_electrical_zero_q15;
+	uint16_t encoder_mechanical_zero_q15;
+	uint8_t encoder_calib_flag;
+	uint8_t encoder_reverse;
+	uint8_t encoder_reserved[2];
+	int16_t encoder_linearization_lut_q15[ENCODER_OFFSET_LUT_SIZE];
 	float id_kp;
 	float id_ki;
 	float iq_kp;
@@ -39,6 +40,7 @@ typedef struct
 	float current_limit;
 	float speed_limit;
 	float can_hb;
+	uint32_t schema_version;
 	uint32_t magic_word;
 } InterfaceParam_TypeDef;
 

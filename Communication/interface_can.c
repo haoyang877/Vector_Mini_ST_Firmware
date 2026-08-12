@@ -90,20 +90,7 @@ void CAN_DisConnect_Handle(void)
  **/
 void CAN_SetEncoderState(int data)
 {
-	int encoder_enable = data % 10;
-	int encoder_type = (data / 10) % 10;
-
-	if (encoder_enable == 0)
-		External_Encoder.enable = ENCODER_DISABLE;
-	else if (encoder_enable == 1)
-		External_Encoder.enable = ENCODER_ENABLE;
-
-	if (encoder_type == 0)
-		External_Encoder.type = TLE5012B;
-	else if (encoder_type == 1)
-		External_Encoder.type = MT6816;
-	else if (encoder_type == 2)
-		External_Encoder.type = MT6701;
+	(void)data;
 }
 
 /**
@@ -151,7 +138,7 @@ void CAN_BaudRateSwitching(void)
  **/
 int CAN_GetEncoderState(void)
 {
-	return (int)External_Encoder.enable + 10 * (int)External_Encoder.type;
+	return Encoder_IsOnline(&External_Encoder) ? 1 : 0;
 }
 
 /**
@@ -230,6 +217,14 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		case CAN_GET_ENCODER_STATE: 
 			CAN_SendMessage_Update(CAN_GET_ENCODER_STATE, (float)CAN_GetEncoderState());
+		break;
+
+		case CAN_SET_ENCODER_REVERSE:
+			if(MotorControl.ModeNow == Motor_Disable && (data_int == 0 || data_int == 1))
+				Encoder_SetReverse(&External_Encoder, data_int != 0);
+		break;
+		case CAN_GET_ENCODER_REVERSE:
+			CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE, (float)External_Encoder.reverse);
 		break;
 
 		case CAN_SET_CURRENT_CAL:
@@ -387,11 +382,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		
 
 		case CAN_GET_SPEED2_FILT:
-			CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, External_Encoder.vel);
+			CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, External_Encoder.vel_mech);
 		break;
 		
 		case CAN_GET_POS2_FILT:
-			CAN_SendMessage_Update(CAN_GET_POS2_FILT, External_Encoder.pos);
+			CAN_SendMessage_Update(CAN_GET_POS2_FILT, External_Encoder.theta_mech);
 		break;
 		
 		case CAN_GET_TEMP:

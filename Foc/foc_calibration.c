@@ -2,102 +2,111 @@
 
 //#include <math.h>
 #include <stdbool.h>
+#include <limits.h>
+#include <stdint.h>
+#include <string.h>
 #include "utils.h"
 #include "foc_errhandle.h"
 #include "hw_conf.h"
 #include "heap.h"
 #include "foc_sensorless.h"
 
-//int p_error_arr[MAX_MOTOR_POLE_PAIRS * SAMPLES_PER_PPAIR];
-int *p_error_arr = NULL;
+static int32_t *p_error_sum = NULL;
+static uint16_t *calibration_samples = NULL;
 
 CalibStep_TyepeDef CalibStep = CS_NULL;
 
-/*observer-based encoder linearization calibration parameters*/
-#define OBS_CALIB_ALIGN_TIME    1.5f                    /*s, rotor align + observer converge*/
+#define OBS_CALIB_ALIGN_TIME        1.5f
+#define ENC_ZERO_ALIGN_TIME         1.5f
+#define ENC_ZERO_SAMPLE_TIME        1.0f
+#define OBS_CALIB_RAMP_TIME         3.0f
+#define OBS_CALIB_SPEED             (2.0f * _PI * 20.0f)
+#define OBS_CALIB_TIMEOUT_FACTOR    1.5f
+#define OBS_CALIB_UNLOCK_TIMEOUT_TICKS FOC_FREQ
 
-#define ENC_ZERO_ALIGN_TIME     1.5f                    /*s, fixed d-axis current alignment*/
-#define ENC_ZERO_SAMPLE_TIME    1.0f                    /*s, settled raw-angle averaging*/
-#define OBS_CALIB_RAMP_TIME     3.0f                    /*s, open-loop speed ramp duration*/
-#define OBS_CALIB_SPEED         (2.0f * _PI * 20.0f)    /*electrical rad/s (~20 Hz)*/
-#define OBS_CALIB_STEP_ANGLE    (_2PI / (float)SAMPLES_PER_PPAIR)
-
-static void Encoder_Calib_Finalize(Encoder_TypeDef *Encoder, MotorControl_TypeDef *MotorControl);
-static void Encoder_Calib_Abort(void);
-
-/**
-	* @brief  Finalize encoder linearization calibration
-	*         compute average offset, build 1024-point LUT with FIR filter,
-	*         mark linearization as calibrated and save to flash
-	* @param  *Encoder: encoder struct pointer
-	* @param  *MotorControl: MotorControl struct pointer
- **/
-static void Encoder_Calib_Finalize(Encoder_TypeDef *Encoder, MotorControl_TypeDef *MotorControl)
+static void Encoder_Calib_ReleaseSamples(void)
 {
-	/*calculate average offset*/
-	int64_t moving_avg = 0;
-	int total = MotorControl->motor_pole_pairs * SAMPLES_PER_PPAIR;
-	for(int i = 0; i < total; i++)
+	if (p_error_sum != NULL)
 	{
-		moving_avg += p_error_arr[i];
+		HEAP_free(p_error_sum);
+		p_error_sum = NULL;
 	}
-	Encoder->offset = moving_avg / total;
-	
-	/*FIR and map measurements to lut*/
-	int window     = SAMPLES_PER_PPAIR;
-	int lut_offset = p_error_arr[0] * OFFSET_LUT_NUM / Encoder->cpr;
-	for(int i = 0; i < OFFSET_LUT_NUM; i++)
+	if (calibration_samples != NULL)
 	{
-		moving_avg = 0;
-		for(int j = (-window) / 2; j < (window) / 2; j++)
-		{
-			int index = i * MotorControl->motor_pole_pairs * SAMPLES_PER_PPAIR / OFFSET_LUT_NUM + j;
-			if(index < 0)
-			{
-				index += total;
-			}
-			else if(index > (total - 1))
-			{
-				index -= total;
-			}
-			moving_avg += p_error_arr[index];
-		}
-		moving_avg    = moving_avg / window;
-		int lut_index = lut_offset + i;
-		
-		if(lut_index > (OFFSET_LUT_NUM - 1))
-		{
-			lut_index -= OFFSET_LUT_NUM;
-		}
-		Encoder->offset_lut[lut_index] = moving_avg - Encoder->offset;
+		HEAP_free(calibration_samples);
+		calibration_samples = NULL;
 	}
-	
-	if(p_error_arr != NULL)
+}
+
+static void Encoder_Calib_Abort(void)
+{
+	Encoder_Calib_ReleaseSamples();
+	CalibStep = CS_NULL;
+	PWM_TurnOnHighSides();
+}
+
+static bool Encoder_Calib_Finalize(Encoder_TypeDef *Encoder)
+{
+	int32_t correction_previous;
+	int32_t correction_shift = 0;
+	int64_t average_correction;
+	uint16_t lut_index;
+
+	if (p_error_sum == NULL || calibration_samples == NULL)
+		return false;
+
+	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
 	{
-		HEAP_free(p_error_arr);
-		p_error_arr = NULL;
+		if (calibration_samples[lut_index] == 0U)
+			return false;
 	}
-	
-	/*angle sensor linearization calibrated*/
+
+	correction_previous = (int16_t)(p_error_sum[0] / (int32_t)calibration_samples[0]);
+	p_error_sum[0] = correction_previous;
+	for (lut_index = 1U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
+	{
+		int32_t correction = (int16_t)(p_error_sum[lut_index] / (int32_t)calibration_samples[lut_index]);
+		while (correction - correction_previous > ENCODER_Q15_HALF_TURN)
+			correction -= (int32_t)ENCODER_Q15_CPR;
+		while (correction - correction_previous < -ENCODER_Q15_HALF_TURN)
+			correction += (int32_t)ENCODER_Q15_CPR;
+		p_error_sum[lut_index] = correction;
+		correction_previous = correction;
+	}
+
+	average_correction = 0;
+	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
+		average_correction += p_error_sum[lut_index];
+	average_correction /= (int64_t)ENCODER_OFFSET_LUT_SIZE;
+	while (average_correction > INT16_MAX)
+	{
+		average_correction -= (int32_t)ENCODER_Q15_CPR;
+		correction_shift += (int32_t)ENCODER_Q15_CPR;
+	}
+	while (average_correction < INT16_MIN)
+	{
+		average_correction += (int32_t)ENCODER_Q15_CPR;
+		correction_shift -= (int32_t)ENCODER_Q15_CPR;
+	}
+
+	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
+	{
+		int32_t correction = p_error_sum[lut_index] - correction_shift;
+		if (correction < INT16_MIN || correction > INT16_MAX)
+			return false;
+		Encoder->linearization_lut_q15[lut_index] = (int16_t)correction;
+	}
+
+	Encoder->electrical_zero_q15 = 0U;
+	Encoder->mechanical_zero_q15 = 0U;
+	Encoder->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
 	Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
-	
+	Encoder_Calib_ReleaseSamples();
+	Encoder_ResetVelocity(Encoder);
 	CalibStep = CS_NULL;
 	PWM_TurnOnHighSides();
 	Set_ModeNow(Save_Param);
-}
-
-/**
-	* @brief  Abort encoder linearization calibration and release resources
- **/
-static void Encoder_Calib_Abort(void)
-{
-	if(p_error_arr != NULL)
-	{
-		HEAP_free(p_error_arr);
-		p_error_arr = NULL;
-	}
-	CalibStep = CS_NULL;
-	PWM_TurnOnHighSides();
+	return true;
 }
 
 /**
@@ -542,533 +551,264 @@ void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 }
 
 /**
-	* @brief  Calibrate encoder offset and linearization
-    * @param  *FOC: FOC struct pointer
-    * @param  *MotorControl: MotorControl struct pointer
-    * @param  *Encoder: Encoder struct pointer 
- **/
-void Task_Calib_Encoder(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+ * @brief Build the 1024-point linearization LUT with observer alignment and one forward sweep.
+ *        The observer defines the mechanical angle reference; no encoder direction detection or reverse averaging is used.
+ */
+void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+	Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver)
 {
-	static int loop_count;
-	
-	static const float calib_phase_vel = _PI;
-	
-	static float phase_set;
-	static float start_count;
-	
-    static int sample_count;
-    static float   next_sample_time;
-	
-	float time = (float) loop_count * Current_Ts;
-	
-    const float voltage = MotorControl->calib_current * MotorControl->motor_phase_resistance * 3.0f / 2.0f;
-	
-	switch(CalibStep)
-	{
-		case CS_NULL:
-			CalibStep = CS_DIR_START;
-		break;
-		
-		case CS_DIR_START:
-		{	
-			Encoder->dir = +1;
-			phase_set = 0.0f;
-			FOC_Voltage(FOC, voltage, 0.0f, phase_set);
-			if(time >= 2.0f)
-			{
-				start_count = (float) Encoder->shadow_count;
-				CalibStep = CS_DIR_LOOP;
-				break;
-			}
-		}
-		break;
-		
-		case CS_DIR_LOOP:
-		{
-			phase_set += calib_phase_vel * Current_Ts;
-			FOC_Voltage(FOC, voltage, 0.0f, phase_set);
-			if(phase_set >= 4.0f * _2PI)
-				CalibStep = CS_DIR_END;
-		}
-		break;
-		
-		case CS_DIR_END:
-		{
-			int32_t diff = Encoder->shadow_count - start_count;
-			
-			/*judge the direction of encoder*/
-			/*to ensure that positive Q current produces torque*/
-			/*in the positive direction wrt the position sensor*/
-			if(diff > 0)
-				Encoder->dir = +1;
-			else
-				Encoder->dir = -1;
-			
-			CalibStep = CS_ENCODER_START;
-		}
-		break;
-		
-		case CS_ENCODER_START:
-		{
-			if(p_error_arr == NULL) 
-				p_error_arr = HEAP_malloc(SAMPLES_PER_PPAIR * MotorControl->motor_pole_pairs * sizeof(int));
-			
-			phase_set        = 0;
-			loop_count       = 0;
-			sample_count     = 0;
-			next_sample_time = 0;
-			CalibStep        = CS_ENCODER_CW_LOOP;
-		}
-		break;
-		
-		case CS_ENCODER_CW_LOOP:
-		{
-			if (sample_count < (MotorControl->motor_pole_pairs * SAMPLES_PER_PPAIR)) 
-			{
-				if (time > next_sample_time) 
-				{
-					next_sample_time += _2PI / ((float) SAMPLES_PER_PPAIR * calib_phase_vel);
-
-					int count_ref = (phase_set * (float)Encoder->cpr) / (_2PI * (float) MotorControl->motor_pole_pairs);
-					int error     = Encoder->raw - count_ref;
-					error += Encoder->cpr * (error < 0);
-					p_error_arr[sample_count] = error;
-
-					sample_count++;
-				}
-
-				phase_set += calib_phase_vel * Current_Ts;
-			} 
-			else 
-			{
-				phase_set -= calib_phase_vel * Current_Ts;
-				loop_count = 0;
-				sample_count--;
-				next_sample_time = 0;
-				CalibStep = CS_ENCODER_CCW_LOOP;
-				break;
-			}
-			FOC_Voltage(FOC, voltage, 0.0f, phase_set);
-		}
-		break;
-		
-		case CS_ENCODER_CCW_LOOP:
-		{
-			if (sample_count >= 0) 
-			{
-				if (time > next_sample_time) 
-				{
-					next_sample_time += _2PI / ((float) SAMPLES_PER_PPAIR * calib_phase_vel);
-
-					int count_ref = (phase_set * (float)Encoder->cpr) / (_2PI * (float) MotorControl->motor_pole_pairs);
-					int error     = Encoder->raw - count_ref;
-					error += Encoder->cpr * (error < 0);
-					p_error_arr[sample_count] = (p_error_arr[sample_count] + error) / 2;
-
-					sample_count--;
-				}
-
-				phase_set -= calib_phase_vel * Current_Ts;
-			} 
-			else 
-			{
-				PWM_TurnOnLowSides();
-				CalibStep = CS_ENCODER_END;
-				break;
-			}
-			FOC_Voltage(FOC, voltage, 0.0f, phase_set);
-		}
-		break;
-		
-		case CS_ENCODER_END:
-		{
-			loop_count            = 0;
-			sample_count          = 0;
-			next_sample_time      = 0;
-			Encoder_Calib_Finalize(Encoder, MotorControl);
-		}
-		break;
-		
-		default:break;
-	}
-	
-	loop_count++;
-}
-
-/**
-	* @brief  Calibrate encoder offset and linearization using flux observer
-	*         drive the motor open-loop at a moderate electrical speed and use
-	*         the observer electrical angle (back-EMF based) as the position
-	*         reference instead of the injected phase, so that the rotor
-	*         slip / torque-angle lag is not included in the LUT error
-    * @param  *FOC: FOC struct pointer
-    * @param  *MotorControl: MotorControl struct pointer
-    * @param  *Encoder: Encoder struct pointer
-    * @param  *Fluxobserver: flux observer struct pointer
- **/
-void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver)
-{
-	static int loop_count;
-	
-	/*direction detection*/
-	static float phase_set;
-	static float start_count;
-	
-	/*observer drive and reference*/
-	static float obs_phase;
-	static float obs_omega;
-	static float theta_cum;
-	static float theta_last;
-	static float theta_ref_start;
-	static bool  sampling_started;
-	static int   last_idx;
-	static int   total_samples;
-	static uint32_t settle_count;
-	
+	static uint32_t loop_count;
+	static float drive_phase;
+	static float drive_omega;
+	static float observer_theta_last;
+	static float observer_theta_unwrapped;
+	static float sample_theta_start;
+	static bool sampling_started;
+	static uint32_t observer_unlock_ticks;
 	float time = (float)loop_count * Current_Ts;
-	
-	const float voltage = MotorControl->calib_current * MotorControl->motor_phase_resistance * 3.0f / 2.0f;
-	
-	switch(CalibStep)
+	float voltage;
+	float observer_theta;
+	float observer_delta;
+	float theta_relative;
+	float required_theta;
+
+	if (!Encoder_IsOnline(Encoder))
+	{
+		Set_ErrorNow(Encoder_Error);
+		Encoder_Calib_Abort();
+		return;
+	}
+	if (MotorControl->motor_pole_pairs <= 0)
+	{
+		Set_ErrorNow(PolePairs_Error);
+		Encoder_Calib_Abort();
+		return;
+	}
+	if (MotorControl->motor_phase_resistance <= 0.0f || MotorControl->motor_flux <= 0.0f ||
+		MotorControl->calib_current <= 0.0f)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		Encoder_Calib_Abort();
+		return;
+	}
+
+	voltage = MotorControl->calib_current * MotorControl->motor_phase_resistance * 1.5f;
+	required_theta = _2PI * (float)MotorControl->motor_pole_pairs;
+
+	switch (CalibStep)
 	{
 		case CS_NULL:
-			loop_count = 0;
-			CalibStep = CS_DIR_START;
-		break;
-		
-		/*----------------- direction detection -----------------*/
-		case CS_DIR_START:
-		{	
-			Encoder->dir = +1;
-			phase_set = 0.0f;
-			FOC_Voltage(FOC, voltage, 0.0f, phase_set);
-			if(time >= 2.0f)
-			{
-				start_count = (float) Encoder->shadow_count;
-				CalibStep = CS_DIR_LOOP;
-				break;
-			}
-		}
-		break;
-		
-		case CS_DIR_LOOP:
-		{
-			phase_set += _PI * Current_Ts;
-			FOC_Voltage(FOC, voltage, 0.0f, phase_set);
-			if(phase_set >= 4.0f * _2PI)
-				CalibStep = CS_DIR_END;
-		}
-		break;
-		
-		case CS_DIR_END:
-		{
-			int32_t diff = Encoder->shadow_count - start_count;
-			
-			/*positive Q current must produce torque in positive direction*/
-			if(diff > 0)
-				Encoder->dir = +1;
-			else
-				Encoder->dir = -1;
-			
+			loop_count = 0U;
 			CalibStep = CS_OBS_ALIGN;
-		}
-		break;
-		
-		/*----------------- align rotor and let observer converge -----------------*/
+			break;
+
 		case CS_OBS_ALIGN:
-		{
-			/*motor parameters are filled externally, they are required here*/
-			if(MotorControl->motor_pole_pairs <= 0 || MotorControl->motor_pole_pairs > MAX_MOTOR_POLE_PAIRS)
+			if (p_error_sum == NULL)
 			{
-				Set_ErrorNow(PolePairs_Error);
-				CalibStep = CS_NULL;
-				break;
-			}
-			if(MotorControl->motor_phase_resistance <= 0.0f || MotorControl->motor_flux <= 0.0f)
-			{
-				Set_ErrorNow(MotorParam_Error);
-				CalibStep = CS_NULL;
-				break;
-			}
-			
-			if(p_error_arr == NULL)
-			{
-				p_error_arr = HEAP_malloc(SAMPLES_PER_PPAIR * MotorControl->motor_pole_pairs * sizeof(int));
-				if(p_error_arr == NULL)
+				p_error_sum = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
+				if (p_error_sum == NULL)
 				{
 					Set_ErrorNow(Encoder_Error);
-					CalibStep = CS_NULL;
-					break;
+					Encoder_Calib_Abort();
+					return;
 				}
 			}
-			
-			loop_count       = 0;
-			obs_phase        = 0.0f;
-			obs_omega        = 0.0f;
-			theta_cum        = 0.0f;
-			theta_last       = Observer_GetElePhase(Fluxobserver);
-			theta_ref_start  = 0.0f;
+			if (calibration_samples == NULL)
+			{
+				calibration_samples = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
+				if (calibration_samples == NULL)
+				{
+					Set_ErrorNow(Encoder_Error);
+					Encoder_Calib_Abort();
+					return;
+				}
+			}
+			memset(p_error_sum, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
+			memset(calibration_samples, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
+			loop_count = 0U;
+			drive_phase = 0.0f;
+			drive_omega = 0.0f;
+			observer_theta_last = Observer_GetElePhase(Fluxobserver);
+			observer_theta_unwrapped = 0.0f;
+			sample_theta_start = 0.0f;
 			sampling_started = false;
-			last_idx         = -1;
-			total_samples    = 0;
-			settle_count     = 0;
-			
-			/*align rotor on d-axis, observer converges to a steady angle*/
+			observer_unlock_ticks = 0U;
 			FOC_Voltage(FOC, voltage, 0.0f, 0.0f);
-			
 			CalibStep = CS_OBS_ALIGN_LOOP;
-		}
-		break;
-		
+			break;
+
 		case CS_OBS_ALIGN_LOOP:
-		{
-			/*hold d-axis voltage, rotor aligned and observer converges*/
 			FOC_Voltage(FOC, voltage, 0.0f, 0.0f);
-			
-			if(time >= OBS_CALIB_ALIGN_TIME)
+			if (time >= OBS_CALIB_ALIGN_TIME)
 			{
-				theta_last = Observer_GetElePhase(Fluxobserver);
-				CalibStep  = CS_OBS_RAMP_CW;
+				loop_count = 0U;
+				observer_theta_last = Observer_GetElePhase(Fluxobserver);
+				CalibStep = CS_OBS_RAMP_CW;
 			}
-		}
-		break;
-		
-		/*----------------- ramp open-loop speed to target -----------------*/
+			break;
+
 		case CS_OBS_RAMP_CW:
-		{
-			/*unwrap observer angle into continuous cumulative electrical angle*/
-			float theta_e = Observer_GetElePhase(Fluxobserver);
-			float delta   = theta_e - theta_last;
-			theta_last    = theta_e;
-			if(delta > _PI) delta -= _2PI;
-			else if(delta < -_PI) delta += _2PI;
-			theta_cum    += delta;
-			
-			obs_omega += (OBS_CALIB_SPEED / OBS_CALIB_RAMP_TIME) * Current_Ts;
-			if(obs_omega >= OBS_CALIB_SPEED)
-			{
-				obs_omega        = OBS_CALIB_SPEED;
-				settle_count     = 0;
-				sampling_started = false;
-				total_samples    = SAMPLES_PER_PPAIR * MotorControl->motor_pole_pairs;
-				CalibStep        = CS_OBS_SAMPLE_CW;
-			}
-			
-			obs_phase += obs_omega * Current_Ts;
-			/*boost voltage with back-EMF estimate to keep the rotor in sync*/
-			FOC_Voltage(FOC, voltage + MotorControl->motor_flux * obs_omega, 0.0f, obs_phase);
-		}
-		break;
-		
-		/*----------------- sample one mechanical turn (CW) -----------------*/
 		case CS_OBS_SAMPLE_CW:
-		{
-			float theta_e = Observer_GetElePhase(Fluxobserver);
-			float delta   = theta_e - theta_last;
-			theta_last    = theta_e;
-			if(delta > _PI) delta -= _2PI;
-			else if(delta < -_PI) delta += _2PI;
-			theta_cum    += delta;
-			
-			obs_phase += OBS_CALIB_SPEED * Current_Ts;
-			FOC_Voltage(FOC, voltage + MotorControl->motor_flux * OBS_CALIB_SPEED, 0.0f, obs_phase);
-			
-			/*wait for observer to lock onto the target speed*/
-			if(fast_abs(Fluxobserver->omega_e) < OBS_CALIB_SPEED * 0.5f)
+			observer_theta = Observer_GetElePhase(Fluxobserver);
+			observer_delta = observer_theta - observer_theta_last;
+			observer_theta_last = observer_theta;
+			if (observer_delta > _PI)
+				observer_delta -= _2PI;
+			else if (observer_delta < -_PI)
+				observer_delta += _2PI;
+			observer_theta_unwrapped += observer_delta;
+
+			if (CalibStep == CS_OBS_RAMP_CW)
 			{
-				if(++settle_count >= (uint32_t)(1.0f / Current_Ts))
+				drive_omega += (OBS_CALIB_SPEED / OBS_CALIB_RAMP_TIME) * Current_Ts;
+				if (drive_omega >= OBS_CALIB_SPEED)
+				{
+					drive_omega = OBS_CALIB_SPEED;
+					observer_unlock_ticks = 0U;
+					CalibStep = CS_OBS_SAMPLE_CW;
+				}
+			}
+
+			drive_phase += drive_omega * Current_Ts;
+			FOC_Voltage(FOC, voltage + MotorControl->motor_flux * drive_omega, 0.0f, drive_phase);
+
+			if (CalibStep != CS_OBS_SAMPLE_CW)
+				break;
+
+			if (Fluxobserver->omega_e < OBS_CALIB_SPEED * 0.5f)
+			{
+				if (++observer_unlock_ticks >= OBS_CALIB_UNLOCK_TIMEOUT_TICKS)
 				{
 					Set_ErrorNow(Encoder_Error);
 					Encoder_Calib_Abort();
 				}
 				break;
 			}
-			settle_count = 0;
-			
-			/*start the sampling reference at the current observer angle*/
-			if(sampling_started == false)
+			observer_unlock_ticks = 0U;
+
+			if (!sampling_started)
 			{
 				sampling_started = true;
-				theta_ref_start  = theta_cum;
-				last_idx         = -1;
+				sample_theta_start = observer_theta_unwrapped;
 			}
-			
-			float theta_rel = theta_cum - theta_ref_start;
-			int   idx       = (int)(theta_rel / OBS_CALIB_STEP_ANGLE);
-			
-			if(idx >= 0 && idx < total_samples && idx > last_idx)
+
+			theta_relative = observer_theta_unwrapped - sample_theta_start;
+			if (Encoder->read_status == ENCODER_READ_OK &&
+				theta_relative >= 0.0f && theta_relative < required_theta)
 			{
-				float count_ref = (theta_rel * (float)Encoder->cpr) / (_2PI * (float)MotorControl->motor_pole_pairs);
-				int   error     = Encoder->raw - (int)count_ref;
-				error += Encoder->cpr * (error < 0);
-				p_error_arr[idx] = error;
-				last_idx         = idx;
-			}
-			
-			/*one full mechanical turn sampled, ramp down and reverse*/
-			if(idx >= total_samples)
-				CalibStep = CS_OBS_RAMP_CCW;
-		}
-		break;
-		
-		/*----------------- ramp speed down and reverse -----------------*/
-		case CS_OBS_RAMP_CCW:
-		{
-			float theta_e = Observer_GetElePhase(Fluxobserver);
-			float delta   = theta_e - theta_last;
-			theta_last    = theta_e;
-			if(delta > _PI) delta -= _2PI;
-			else if(delta < -_PI) delta += _2PI;
-			theta_cum    += delta;
-			
-			obs_omega -= 2.0f * OBS_CALIB_SPEED / OBS_CALIB_RAMP_TIME * Current_Ts;
-			if(obs_omega <= -OBS_CALIB_SPEED)
-			{
-				obs_omega    = -OBS_CALIB_SPEED;
-				settle_count = 0;
-				last_idx     = total_samples;
-				CalibStep    = CS_OBS_SAMPLE_CCW;
-			}
-			
-			obs_phase += obs_omega * Current_Ts;
-			FOC_Voltage(FOC, voltage + MotorControl->motor_flux * fast_abs(obs_omega), 0.0f, obs_phase);
-		}
-		break;
-		
-		/*----------------- sample one mechanical turn (CCW), average into LUT -----------------*/
-		case CS_OBS_SAMPLE_CCW:
-		{
-			float theta_e = Observer_GetElePhase(Fluxobserver);
-			float delta   = theta_e - theta_last;
-			theta_last    = theta_e;
-			if(delta > _PI) delta -= _2PI;
-			else if(delta < -_PI) delta += _2PI;
-			theta_cum    += delta;
-			
-			obs_phase -= OBS_CALIB_SPEED * Current_Ts;
-			FOC_Voltage(FOC, voltage + MotorControl->motor_flux * OBS_CALIB_SPEED, 0.0f, obs_phase);
-			
-			/*wait for observer to lock onto the reverse speed*/
-			if(fast_abs(Fluxobserver->omega_e) < OBS_CALIB_SPEED * 0.5f)
-			{
-				if(++settle_count >= (uint32_t)(1.0f / Current_Ts))
+				uint16_t lut_index = Encoder->directed_q15 >> 6;
+				uint16_t reference_q15 = (uint16_t)(theta_relative * ((float)ENCODER_Q15_CPR / required_theta));
+				int16_t correction_q15 = (int16_t)(uint16_t)(Encoder->directed_q15 - reference_q15);
+				if (calibration_samples[lut_index] < UINT16_MAX)
 				{
-					Set_ErrorNow(Encoder_Error);
-					Encoder_Calib_Abort();
+					p_error_sum[lut_index] += correction_q15;
+					calibration_samples[lut_index]++;
 				}
-				break;
 			}
-			settle_count = 0;
-			
-			float theta_rel = theta_cum - theta_ref_start;
-			int   idx       = (int)(theta_rel / OBS_CALIB_STEP_ANGLE);
-			
-			if(theta_rel >= 0.0f && idx >= 0 && idx < total_samples && idx < last_idx)
+			else if (theta_relative >= required_theta)
 			{
-				float count_ref = (theta_rel * (float)Encoder->cpr) / (_2PI * (float)MotorControl->motor_pole_pairs);
-				int   error     = Encoder->raw - (int)count_ref;
-				error += Encoder->cpr * (error < 0);
-				p_error_arr[idx] = (p_error_arr[idx] + error) / 2;
-				last_idx         = idx;
-			}
-			
-			/*reverse pass finished*/
-			if(theta_rel < 0.0f || idx < 0)
 				CalibStep = CS_OBS_END;
-		}
-		break;
-		
+			}
+			else if (time >= OBS_CALIB_TIMEOUT_FACTOR * required_theta / OBS_CALIB_SPEED + OBS_CALIB_RAMP_TIME + OBS_CALIB_ALIGN_TIME)
+			{
+				Set_ErrorNow(Encoder_Error);
+				Encoder_Calib_Abort();
+			}
+			break;
+
 		case CS_OBS_END:
-		{
-			Encoder_Calib_Finalize(Encoder, MotorControl);
-		}
-		break;
-		
-		default:break;
+			if (!Encoder_Calib_Finalize(Encoder))
+			{
+				Set_ErrorNow(Encoder_Error);
+				Encoder_Calib_Abort();
+			}
+			break;
+
+		default:
+			Encoder_Calib_Abort();
+			break;
 	}
-	
+
 	loop_count++;
 }
 
 /**
-	* @brief  Calibrate electrical zero with a fixed stationary d-axis current
-	*         and average the settled encoder raw angle.
-	* @param  *FOC: FOC struct pointer
-	* @param  *MotorControl: MotorControl struct pointer
-	* @param  *Encoder: Encoder struct pointer
-	**/
+ * @brief Calibrate electrical zero using the averaged linearized Q15 angle.
+ */
 void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
 {
 	static uint32_t loop_count;
 	static uint32_t sample_count;
-	static int sample_anchor;
+	static uint16_t sample_anchor;
 	static int64_t unwrapped_sum;
 	float time = (float)loop_count * Current_Ts;
 	float align_current = MotorControl->calib_current;
 
-	if(Encoder->enable != ENCODER_ENABLE || Encoder->cpr <= 0 || align_current <= 0.0f)
+	if (!Encoder_IsOnline(Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
-		loop_count = 0;
-		sample_count = 0;
+		loop_count = 0U;
+		sample_count = 0U;
 		unwrapped_sum = 0;
 		PWM_TurnOnHighSides();
 		return;
 	}
-
-	if(MotorControl->current_limit > 0.0f && align_current > MotorControl->current_limit)
+	if ((Encoder->calib_flag & ENC_CALIB_LINEARIZED) == 0U)
+	{
+		Set_ErrorNow(Encoder_NotCalibrated);
+		return;
+	}
+	if (align_current <= 0.0f)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		return;
+	}
+	if (MotorControl->current_limit > 0.0f && align_current > MotorControl->current_limit)
 		align_current = MotorControl->current_limit;
 
-	if(loop_count == 0U)
+	if (loop_count == 0U)
 	{
-		sample_count = 0;
-		sample_anchor = 0;
+		sample_count = 0U;
+		sample_anchor = Encoder->linearized_q15;
 		unwrapped_sum = 0;
+		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_ELECTRICAL_ZERO;
 		FOC_CurrentController_Reset(FOC);
-		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_ZERO_POS;
 	}
 
 	MotorControl->idRef = align_current;
 	MotorControl->iqRef = 0.0f;
 	FOC_Current(FOC, MotorControl, 0.0f, 0.0f);
 
-	if(time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME))
+	if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) &&
+		Encoder->read_status == ENCODER_READ_OK)
 	{
-		if(sample_count == 0U)
-			sample_anchor = Encoder->count_in_cpr;
-
-		int unwrapped_count = Encoder->count_in_cpr;
-		int delta = unwrapped_count - sample_anchor;
-		if(delta > (Encoder->cpr >> 1))
-			unwrapped_count -= Encoder->cpr;
-		else if(delta < -(Encoder->cpr >> 1))
-			unwrapped_count += Encoder->cpr;
-
-		unwrapped_sum += unwrapped_count;
+		int32_t unwrapped_q15 = (int32_t)sample_anchor + (int16_t)(uint16_t)(Encoder->linearized_q15 - sample_anchor);
+		unwrapped_sum += unwrapped_q15;
 		sample_count++;
 	}
 
-	if(time >= ENC_ZERO_ALIGN_TIME)
+	if (time >= ENC_ZERO_ALIGN_TIME)
 	{
-		if(sample_count > 0U)
+		bool calibrated = false;
+		if (sample_count > 0U)
 		{
-			int offset = (int)(unwrapped_sum / (int64_t)sample_count);
-			while(offset >= Encoder->cpr)
-				offset -= Encoder->cpr;
-			while(offset < 0)
-				offset += Encoder->cpr;
-			Encoder->offset = offset;
+			uint16_t electrical_zero_q15 = (uint16_t)(unwrapped_sum / (int64_t)sample_count);
+			calibrated = Encoder_SetElectricalZeroQ15(Encoder, electrical_zero_q15);
 		}
-
-		Encoder->calib_flag |= ENC_CALIB_ZERO_POS;
 
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;
 		FOC_CurrentController_Reset(FOC);
-		loop_count = 0;
-		sample_count = 0;
+		loop_count = 0U;
+		sample_count = 0U;
 		unwrapped_sum = 0;
 		PWM_TurnOnHighSides();
+
+		if (!calibrated)
+		{
+			Set_ErrorNow(Encoder_Error);
+			return;
+		}
 		Set_ModeNow(Save_Param);
 		return;
 	}

@@ -9,7 +9,7 @@
 #define PWM_PERIOD				5e-5f
 
 #define FOC_FREQ				PWM_TIM_FREQ
-#define FOC_PERIOD				1.0f / (float)FOC_FREQ
+#define FOC_PERIOD				(1.0f / (float)FOC_FREQ)
 
 /*RTT output sampling frequency; must divide FOC_FREQ exactly*/
 #define RTT_SAMPLE_RATE_HZ		2000U
@@ -57,12 +57,23 @@
 #define TEMP_ADC				ADC1
 #define TEMP_ADC_CHANNEL		JDR1
 
-/*current loop period (s)*/
-#define Current_Ts	0.00005f
-/*speed loop period (s)*/
-#define Speed_Ts	0.0001f
-/*position loop period (s)*/
-#define Position_Ts 0.0002f
+/* Current loop executes at the PWM/FOC rate. */
+#define Current_Ts                  (FOC_PERIOD)
+
+/* All speed PI controllers and encoder velocity estimation run at 2 kHz. */
+#define SPEED_LOOP_FREQ             2000U
+#if SPEED_LOOP_FREQ == 0U
+#error "SPEED_LOOP_FREQ must be greater than zero"
+#elif SPEED_LOOP_FREQ > FOC_FREQ
+#error "SPEED_LOOP_FREQ must not exceed FOC_FREQ"
+#elif (FOC_FREQ % SPEED_LOOP_FREQ) != 0U
+#error "SPEED_LOOP_FREQ must divide FOC_FREQ exactly"
+#endif
+#define SPEED_LOOP_DIVIDER          (FOC_FREQ / SPEED_LOOP_FREQ)
+#define Speed_Ts                    (1.0f / (float)SPEED_LOOP_FREQ)
+
+/* Position trajectory update period (s). */
+#define Position_Ts                 0.0002f
 
 /* Sensorless speed-mode startup and observer handoff. */
 #define SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S       0.50f

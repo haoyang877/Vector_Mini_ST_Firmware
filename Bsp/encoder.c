@@ -1,35 +1,39 @@
 #include "encoder.h"
 
-#include <stdbool.h>
+#include <limits.h>
 #include <string.h>
 #include "spi.h"
 #include "hw_conf.h"
 #include "utils.h"
-#include "foc_errhandle.h"
 
 #ifndef ENC_SPI_XFER_SPIN_MAX
-#define ENC_SPI_XFER_SPIN_MAX (340U)
+#define ENC_SPI_XFER_SPIN_MAX 340U
 #endif
 
-static void Encoder_MarkReadStatus(Encoder_TypeDef *Encoder, Encoder_ReadStatus status)
+#define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
+
+static void Encoder_MarkReadStatus(Encoder_TypeDef *encoder, Encoder_ReadStatus status)
 {
-	Encoder->read_status = status;
-	if (status != ENCODER_READ_OK)
+	encoder->read_status = status;
+	if (status == ENCODER_READ_OK)
 	{
-		Encoder->read_status_latched = status;
-		Encoder->read_error_count++;
+		encoder->bad_frame_streak = 0U;
+		return;
 	}
+
+	encoder->read_status_latched = status;
+	encoder->read_error_count++;
+	if (encoder->bad_frame_streak < UINT16_MAX)
+		encoder->bad_frame_streak++;
 }
 
 static bool SPI_WaitFlag(SPI_TypeDef *SPIx, uint32_t flag, uint32_t timeout_spin)
 {
 	uint32_t spin = 0U;
-	while (!(SPIx->SR & flag))
+	while ((SPIx->SR & flag) == 0U)
 	{
 		if (++spin > timeout_spin)
-		{
 			return false;
-		}
 	}
 	return true;
 }
@@ -37,571 +41,379 @@ static bool SPI_WaitFlag(SPI_TypeDef *SPIx, uint32_t flag, uint32_t timeout_spin
 static bool SPI_WaitBSYClear(SPI_TypeDef *SPIx, uint32_t timeout_spin)
 {
 	uint32_t spin = 0U;
-	while (SPIx->SR & SPI_FLAG_BSY)
+	while ((SPIx->SR & SPI_FLAG_BSY) != 0U)
 	{
 		if (++spin > timeout_spin)
-		{
 			return false;
-		}
 	}
 	return true;
 }
 
 static uint8_t SPI_Reg_TxRx8(SPI_TypeDef *SPIx, uint8_t tx_data, bool *ok)
 {
-	if (!(SPIx->CR1 & SPI_CR1_SPE))
-	{
+	if ((SPIx->CR1 & SPI_CR1_SPE) == 0U)
 		SPIx->CR1 |= SPI_CR1_SPE;
-	}
-	if (SPIx->SR & SPI_FLAG_OVR)
+
+	if ((SPIx->SR & SPI_FLAG_OVR) != 0U)
 	{
 		(void)*(__IO uint8_t *)&SPIx->DR;
 		(void)SPIx->SR;
 	}
-	if (!SPI_WaitFlag(SPIx, SPI_FLAG_TXE, ENC_SPI_XFER_SPIN_MAX)) { *ok = false; return 0U; }
+
+	if (!SPI_WaitFlag(SPIx, SPI_FLAG_TXE, ENC_SPI_XFER_SPIN_MAX))
+	{
+		*ok = false;
+		return 0U;
+	}
 	*(__IO uint8_t *)&SPIx->DR = tx_data;
-	if (!SPI_WaitFlag(SPIx, SPI_FLAG_RXNE, ENC_SPI_XFER_SPIN_MAX)) { *ok = false; return 0U; }
-	uint8_t rx = *(__IO uint8_t *)&SPIx->DR;
-	if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX)) { *ok = false; return 0U; }
-	*ok = true;
-	return rx;
-}
 
-
-/**
-	* @brief  Init encoder parameters
- **/
-void Encoder_ParamInit(Encoder_TypeDef *Encoder)
-{
-    Encoder->raw                 = 0;
-    Encoder->count_in_cpr        = 0;
-    Encoder->count_in_cpr_prev   = 0;
-    Encoder->shadow_count        = 0;
-    Encoder->pos_cpr_counts      = 0;
-    Encoder->vel_estimate_counts = 0;
-    Encoder->pos                 = 0;
-    Encoder->vel                 = 0;
-    Encoder->theta_elec          = 0;
-    Encoder->vel_elec            = 0;
-    Encoder->interpolation       = 0;
-    Encoder->read_status         = ENCODER_READ_OK;
-    Encoder->read_status_latched  = ENCODER_READ_OK;
-    Encoder->mt6701_status_bits   = 0;
-    Encoder->mt6701_crc_received  = 0;
-    Encoder->mt6701_crc_calculated = 0;
-    Encoder->mt6701_crc_error_count = 0;
-    Encoder->read_error_count     = 0;
-    Encoder->read_error_streak    = 0;
-
-    int   encoder_pll_bw   	   		= 2000;
-    float bandwidth            		= fast_min(encoder_pll_bw, 0.25f * PWM_TIM_FREQ);
-    Encoder->pll_kp         		= 2.0f * bandwidth;           
-    Encoder->pll_ki         		= 0.25f * fast_sq(Encoder->pll_kp); 
-    Encoder->snap_threshold 		= 0.5f * Current_Ts * Encoder->pll_ki;
-	
-	SPI_HandleTypeDef *enc_spi = &ext_enc_spi;
-	
-	switch(Encoder->type)
+	if (!SPI_WaitFlag(SPIx, SPI_FLAG_RXNE, ENC_SPI_XFER_SPIN_MAX))
 	{
-		case TLE5012B:
-			enc_spi->Init.DataSize = SPI_DATASIZE_16BIT;
-			enc_spi->Init.CLKPolarity = SPI_POLARITY_LOW;
-			enc_spi->Init.CLKPhase = SPI_PHASE_2EDGE;
-			enc_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
-		
-			Encoder->resolution = 15;
-			Encoder->cpr = 32768;
-			Encoder->one_by_cpr = 1.0f / 32768.0f;
-		break;
-		
-		case MT6816:
-			enc_spi->Init.DataSize = SPI_DATASIZE_16BIT;
-			enc_spi->Init.CLKPolarity = SPI_POLARITY_HIGH;
-			enc_spi->Init.CLKPhase = SPI_PHASE_2EDGE;
-			enc_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
-		
-			Encoder->resolution = 14;
-			Encoder->cpr = 16384;
-			Encoder->one_by_cpr = 1.0f / 16384.0f;
-		break;
-		
-		case MT6701:
-			enc_spi->Init.DataSize = SPI_DATASIZE_8BIT;
-			enc_spi->Init.CLKPolarity = SPI_POLARITY_LOW;
-			enc_spi->Init.CLKPhase = SPI_PHASE_2EDGE;
-			enc_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
-
-			Encoder->resolution = 14;
-			Encoder->cpr = 16384;
-			Encoder->one_by_cpr = 1.0f / 16384.0f;
-		break;
-		
-		default:break;
-	}
-	
-	if (HAL_SPI_Init(enc_spi) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	
-
-}
-
-/**
-  * @brief  SPI register-level transmit/receive one 16-bit word
-  * @param  SPIx: SPI peripheral (SPI1)
-  * @param  tx_data: 16-bit data to transmit
-  * @retval 16-bit received data
-  */
-static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data)
-{
-	uint32_t spin;
-
-	/* Enable SPI if disabled */
-	if (!(SPIx->CR1 & SPI_CR1_SPE))
-	{
-		SPIx->CR1 |= SPI_CR1_SPE;
+		*ok = false;
+		return 0U;
 	}
 
-	/* Clear pending OVR by reading DR then SR */
-	if (SPIx->SR & SPI_FLAG_OVR)
 	{
-		(void)*(__IO uint16_t *)&SPIx->DR;
-		(void)SPIx->SR;
-	}
-
-	/* Wait for TXE flag with timeout */
-	spin = 0U;
-	while (!(SPIx->SR & SPI_FLAG_TXE))
-	{
-		if (++spin > ENC_SPI_XFER_SPIN_MAX) break;
-	}
-
-	/* Write tx data to DR to start transfer */
-	*(__IO uint16_t *)&SPIx->DR = tx_data;
-
-	/* Wait for RXNE flag with timeout */
-	spin = 0U;
-	while (!(SPIx->SR & SPI_FLAG_RXNE))
-	{
-		if (++spin > ENC_SPI_XFER_SPIN_MAX) break;
-	}
-
-	/* Read rx data from DR */
-	return *(__IO uint16_t *)&SPIx->DR;
-}
-
-/**
-	* @brief  Read raw data of TLE5012B encoder
-    * @retval Raw data of mechanical angle (0-32767)
- **/
-uint16_t ReadTLE5012B_Raw(void)
-{
-	uint16_t data_t[2] = {0x8021, 0x0000};
-	uint16_t data_r[2];
-
-	EXT_ENC_CS_ENABLE;
-	data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
-	data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
-	EXT_ENC_CS_DISABLE;
-
-	return data_r[1] & 0x7FFF;
-}
-
-/**
-	* @brief  Read raw data of MT6816 encoder
-    * @retval Raw data of mechanical angle (0-16383)
- **/
-uint16_t ReadMT6816_Raw(void)
-{
-	uint16_t sample_data = 0U;
-	uint8_t parity_ok = 0U;
-	uint16_t angle = 0U;
-	uint16_t data_t[2];
-	uint16_t data_r[2] = {0U, 0U};
-
-	data_t[0] = (0x80 | 0x03) << 8;
-	data_t[1] = (0x80 | 0x04) << 8;
-
-	for (uint8_t i = 0U; i < 3U; ++i)
-	{
-		EXT_ENC_CS_ENABLE;
-		data_r[0] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[0]);
-		EXT_ENC_CS_DISABLE;
-		EXT_ENC_CS_ENABLE;
-		data_r[1] = SPI_Reg_TxRx16(EXT_ENC_SPI, data_t[1]);
-		EXT_ENC_CS_DISABLE;
-
-		sample_data = ((data_r[0] & 0x00FFU) << 8) | (data_r[1] & 0x00FFU);
-		uint8_t high_count = 0U;
-		for (uint8_t bit = 0U; bit < 16U; ++bit)
+		uint8_t rx_data = *(__IO uint8_t *)&SPIx->DR;
+		if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX))
 		{
-			if ((sample_data & (1U << bit)) != 0U)
-				high_count++;
+			*ok = false;
+			return 0U;
 		}
-		if ((high_count & 1U) == 0U)
-		{
-			parity_ok = 1U;
-			break;
-		}
+		*ok = true;
+		return rx_data;
 	}
-
-	if (parity_ok != 0U)
-		angle = sample_data >> 2;
-
-	return angle;
 }
 
-/**
-	* @brief  Read raw data of MT6701 encoder
-    * @param  Reg: Register address 
-    * @retval Raw data of mechanical angle (0-16383)
- **/
 static uint8_t MT6701_CRC6(uint32_t payload18)
 {
 	uint8_t crc = 0U;
-	for (int i = 17; i >= 0; --i)
+	int bit_index;
+
+	for (bit_index = 17; bit_index >= 0; --bit_index)
 	{
-		uint8_t bit = (uint8_t)((payload18 >> i) & 1U);
-		uint8_t fb = (uint8_t)(((crc >> 5) & 1U) ^ bit);
+		uint8_t input_bit = (uint8_t)((payload18 >> bit_index) & 1U);
+		uint8_t feedback = (uint8_t)(((crc >> 5) & 1U) ^ input_bit);
 		crc = (uint8_t)((crc << 1) & 0x3FU);
-		if (fb)
-		{
+		if (feedback != 0U)
 			crc ^= 0x03U;
-		}
 	}
-	return crc & 0x3FU;
+	return (uint8_t)(crc & 0x3FU);
 }
 
-uint16_t ReadMT6701_Raw(Encoder_TypeDef *Encoder)
+static bool Encoder_ReadMt6701Frame(Encoder_TypeDef *encoder, uint16_t *raw_q15)
 {
-	SPI_HandleTypeDef *enc_spi = &ext_enc_spi;
-	SPI_TypeDef *SPIx = enc_spi->Instance;
+	SPI_TypeDef *SPIx = ext_enc_spi.Instance;
 	uint8_t rx_bytes[3] = {0U, 0U, 0U};
-	bool ok = true;
-	uint16_t raw = Encoder->raw;
+	bool transfer_ok = true;
+	uint8_t byte_index;
+	uint32_t frame;
+	uint16_t raw14;
+	uint8_t status;
+	uint8_t crc_received;
+	uint8_t crc_calculated;
 
 	EXT_ENC_CS_ENABLE;
-	for (uint8_t i = 0; i < 3U; ++i)
+	for (byte_index = 0U; byte_index < 3U; ++byte_index)
 	{
-		rx_bytes[i] = SPI_Reg_TxRx8(SPIx, 0x00U, &ok);
-		if (!ok)
-		{
+		rx_bytes[byte_index] = SPI_Reg_TxRx8(SPIx, 0x00U, &transfer_ok);
+		if (!transfer_ok)
 			break;
-		}
 	}
 	(void)SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX);
 	EXT_ENC_CS_DISABLE;
 
-	if (!ok)
+	if (!transfer_ok)
 	{
-		Encoder_MarkReadStatus(Encoder, ENCODER_READ_SPI_TIMEOUT);
-		return raw;
+		Encoder_MarkReadStatus(encoder, ENCODER_READ_SPI_TIMEOUT);
+		return false;
 	}
 
-	uint32_t frame = ((uint32_t)rx_bytes[0] << 16) | ((uint32_t)rx_bytes[1] << 8) | rx_bytes[2];
-	uint16_t angle = (uint16_t)((frame >> 10) & 0x3FFFU);
-	uint8_t status = (uint8_t)((frame >> 6) & 0x0FU);
-	uint8_t crc_rx = (uint8_t)(frame & 0x3FU);
-	uint8_t crc_calc = MT6701_CRC6((frame >> 6) & 0x3FFFFU);
+	frame = ((uint32_t)rx_bytes[0] << 16) | ((uint32_t)rx_bytes[1] << 8) | rx_bytes[2];
+	raw14 = (uint16_t)((frame >> 10) & 0x3FFFU);
+	status = (uint8_t)((frame >> 6) & 0x0FU);
+	crc_received = (uint8_t)(frame & 0x3FU);
+	crc_calculated = MT6701_CRC6((frame >> 6) & 0x3FFFFU);
 
-	Encoder->mt6701_status_bits = status;
-	Encoder->mt6701_crc_received = crc_rx;
-	Encoder->mt6701_crc_calculated = crc_calc;
+	encoder->mt6701_status_bits = status;
+	encoder->mt6701_crc_received = crc_received;
+	encoder->mt6701_crc_calculated = crc_calculated;
 
-	if (crc_rx != crc_calc)
+	if (crc_received != crc_calculated)
 	{
-		Encoder->mt6701_crc_error_count++;
-		Encoder_MarkReadStatus(Encoder, ENCODER_READ_CRC_MISMATCH);
-		return raw;
+		encoder->mt6701_crc_error_count++;
+		Encoder_MarkReadStatus(encoder, ENCODER_READ_CRC_MISMATCH);
+		return false;
 	}
 	if ((status & 0x08U) != 0U)
 	{
-		Encoder_MarkReadStatus(Encoder, ENCODER_READ_OVERSPEED);
-		return raw;
+		Encoder_MarkReadStatus(encoder, ENCODER_READ_OVERSPEED);
+		return false;
 	}
+
 	switch (status & 0x03U)
 	{
 		case 1U:
-			Encoder_MarkReadStatus(Encoder, ENCODER_READ_MAGNET_TOO_STRONG);
-			return raw;
+			Encoder_MarkReadStatus(encoder, ENCODER_READ_MAGNET_TOO_STRONG);
+			return false;
 		case 2U:
-			Encoder_MarkReadStatus(Encoder, ENCODER_READ_MAGNET_TOO_WEAK);
-			return raw;
+			Encoder_MarkReadStatus(encoder, ENCODER_READ_MAGNET_TOO_WEAK);
+			return false;
 		case 3U:
-			Encoder_MarkReadStatus(Encoder, ENCODER_READ_MAGNET_INVALID);
-		return raw;
+			Encoder_MarkReadStatus(encoder, ENCODER_READ_MAGNET_INVALID);
+			return false;
 		default:
-		break;
+			break;
 	}
 
-	Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
-	return angle;
+	*raw_q15 = (uint16_t)(raw14 << 2);
+	Encoder_MarkReadStatus(encoder, ENCODER_READ_OK);
+	return true;
 }
 
-uint16_t ReadSPIEncoder_Raw(Encoder_TypeDef *Encoder)
+static uint16_t Encoder_ApplyDirectionQ15(const Encoder_TypeDef *encoder, uint16_t raw_q15)
 {
-	switch(Encoder->type)
-	{
-		case TLE5012B:
-			Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
-			return ReadTLE5012B_Raw();
-		case MT6816:
-			Encoder_MarkReadStatus(Encoder, ENCODER_READ_OK);
-			return ReadMT6816_Raw();
-		case MT6701:
-			return ReadMT6701_Raw(Encoder);
-		default:
-			Encoder_MarkReadStatus(Encoder, ENCODER_READ_UNSUPPORTED);
-			return (uint16_t)Encoder->raw;
-	}
+	if (encoder->reverse == 0U)
+		return raw_q15;
+
+	return (uint16_t)(0U - raw_q15);
 }
 
-/**
-	* @brief  Update encoder parameters
-			  get encoder count considering offset and linearization
-			  apply PLL to get a smooth speed profile
-    * @param  *MotorControl: MotorControl struct pointer
-	  @param  *Encoder: Encoder struct pointer
- **/
-void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+static uint16_t Encoder_ApplyLinearizationQ15(const Encoder_TypeDef *encoder, uint16_t raw_q15)
 {
-	if(Encoder->enable == ENCODER_DISABLE)
+	uint16_t lut_index = raw_q15 >> 6;
+	uint16_t fraction = raw_q15 & 0x003FU;
+	int32_t correction_a = encoder->linearization_lut_q15[lut_index];
+	int32_t correction_b = encoder->linearization_lut_q15[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
+	int32_t correction = correction_a + (((correction_b - correction_a) * fraction) >> 6);
+
+	return (uint16_t)((int32_t)raw_q15 - correction);
+}
+
+void Encoder_ResetVelocity(Encoder_TypeDef *encoder)
+{
+	memset(encoder->velocity_delta_history, 0, sizeof(encoder->velocity_delta_history));
+	encoder->velocity_divider = 0U;
+	encoder->velocity_history_index = 0U;
+	encoder->velocity_sample_count = 0U;
+	encoder->velocity_delta_sum = 0;
+	encoder->velocity_ready = false;
+	encoder->velocity_shadow_q15 = encoder->shadow_q15;
+	encoder->vel_mech = 0.0f;
+	encoder->vel_elec = 0.0f;
+}
+
+void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
+{
+	uint8_t reverse_value = reverse ? 1U : 0U;
+	uint32_t primask;
+
+	if (encoder->reverse == reverse_value)
 		return;
-	
-	int raw = ReadSPIEncoder_Raw(Encoder);
-	if (Encoder->read_status != ENCODER_READ_OK)
-	{
-		if (Encoder->read_error_streak < UINT16_MAX)
-			Encoder->read_error_streak++;
-		if (Encoder->read_error_streak >= 500U &&
-		   (MotorControl->ModeNow == Calib_EncoderOffset ||
-		    MotorControl->ModeNow == Current_Mode ||
-		    MotorControl->ModeNow == Speed_Mode ||
-		    MotorControl->ModeNow == Position_Mode ||
-		    MotorControl->ModeNow == Vq_Mode))
-		{
-			Set_ErrorNow(Encoder_Error);
-		}
+
+	primask = __get_PRIMASK();
+	__disable_irq();
+	encoder->reverse = reverse_value;
+	encoder->electrical_zero_q15 = 0U;
+	encoder->mechanical_zero_q15 = 0U;
+	encoder->calib_flag = 0U;
+	memset(encoder->linearization_lut_q15, 0, sizeof(encoder->linearization_lut_q15));
+	encoder->raw_q15 = 0U;
+	encoder->directed_q15 = 0U;
+	encoder->linearized_q15 = 0U;
+	encoder->previous_linearized_q15 = 0U;
+	encoder->shadow_q15 = 0;
+	encoder->mechanical_zero_shadow_q15 = 0;
+	encoder->has_valid_sample = false;
+	encoder->theta_elec = 0.0f;
+	encoder->theta_mech = 0.0f;
+	Encoder_ResetVelocity(encoder);
+	__set_PRIMASK(primask);
+}
+
+static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *encoder, uint32_t pole_pairs)
+{
+	int64_t delta64;
+	int32_t delta_q15;
+	int32_t sum_abs;
+	float velocity_scale;
+
+	if (++encoder->velocity_divider < SPEED_LOOP_DIVIDER)
 		return;
-	}
-	Encoder->read_error_streak = 0U;
-	if(Encoder->dir == -1)
-		raw = Encoder->cpr - raw;
-	if(raw >= Encoder->cpr)
-		raw -= Encoder->cpr;
-	Encoder->raw = raw;
-	
-	if(Encoder->raw == 0 || Encoder->raw == 1 || Encoder->raw == Encoder->cpr || Encoder->raw == Encoder->cpr - 1)
+	encoder->velocity_divider = 0U;
+
+	delta64 = encoder->shadow_q15 - encoder->velocity_shadow_q15;
+	encoder->velocity_shadow_q15 = encoder->shadow_q15;
+	if (delta64 > INT32_MAX)
+		delta_q15 = INT32_MAX;
+	else if (delta64 < INT32_MIN)
+		delta_q15 = INT32_MIN;
+	else
+		delta_q15 = (int32_t)delta64;
+
+	encoder->velocity_delta_sum -= encoder->velocity_delta_history[encoder->velocity_history_index];
+	encoder->velocity_delta_history[encoder->velocity_history_index] = delta_q15;
+	encoder->velocity_delta_sum += delta_q15;
+	encoder->velocity_history_index = (uint8_t)((encoder->velocity_history_index + 1U) % ENCODER_VELOCITY_WINDOW);
+	if (encoder->velocity_sample_count < ENCODER_VELOCITY_WINDOW)
+		encoder->velocity_sample_count++;
+	encoder->velocity_ready = encoder->velocity_sample_count == ENCODER_VELOCITY_WINDOW;
+
+	sum_abs = encoder->velocity_delta_sum;
+	if (sum_abs < 0)
+		sum_abs = -sum_abs;
+	if (!encoder->velocity_ready || sum_abs <= ENCODER_VELOCITY_ZERO_THRESHOLD_Q15)
 	{
-		if(++ Encoder->disconnect_count >= 500)
-		{
-			if(MotorControl->ModeNow == Calib_EncoderOffset ||  
-			   MotorControl->ModeNow == Current_Mode ||
-			   MotorControl->ModeNow == Speed_Mode ||
-			   MotorControl->ModeNow == Vq_Mode)
-			{
-				Set_ErrorNow(Encoder_Error);
-			}
-			Encoder->disconnect_count = 0;
-		}
+		encoder->vel_mech = 0.0f;
 	}
 	else
 	{
-		Encoder->disconnect_count = 0;
+		velocity_scale = _2PI / ((float)ENCODER_Q15_CPR * (float)ENCODER_VELOCITY_WINDOW * Speed_Ts);
+		encoder->vel_mech = (float)encoder->velocity_delta_sum * velocity_scale;
 	}
-    /* Linearization LUT with interpolation between adjacent entries. */
-	int off_bit = Encoder->resolution - ENCODER_OFFSET_LUT_BITS;
-	int lut_index = Encoder->raw >> off_bit;
-	int off_1 = Encoder->offset_lut[lut_index];
-	int off_2 = Encoder->offset_lut[(lut_index + 1) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
-	int off_interp = off_1
-				 + ((off_2 - off_1) * (Encoder->raw - (lut_index << off_bit)) >> off_bit);
-    int count = Encoder->raw - off_interp;
-	
-    /*  Wrap in ENCODER_CPR */
-    while (count >= Encoder->cpr)
-        count -= Encoder->cpr;
-    while (count < 0)
-        count += Encoder->cpr;
-    Encoder->count_in_cpr = count;
-	
-    /* Delta count */
-    int delta_count           = Encoder->count_in_cpr - Encoder->count_in_cpr_prev;
-    Encoder->count_in_cpr_prev = Encoder->count_in_cpr;
-    while (delta_count > +(Encoder->cpr >> 1))
-        delta_count -= Encoder->cpr;
-    while (delta_count < -(Encoder->cpr >> 1))
-        delta_count += Encoder->cpr;
-	
-    /* Add measured delta to encoder count */
-    Encoder->shadow_count += delta_count;
-	
-    /* Run vel PLL */
-    Encoder->pos_cpr_counts += Current_Ts * Encoder->vel_estimate_counts;
-    float delta_pos_cpr_counts = (float) (Encoder->count_in_cpr - (int) Encoder->pos_cpr_counts);
-    while (delta_pos_cpr_counts > +(Encoder->cpr >> 1))
-        delta_pos_cpr_counts -= (float)Encoder->cpr;
-    while (delta_pos_cpr_counts < -(Encoder->cpr >> 1))
-        delta_pos_cpr_counts += (float)Encoder->cpr;
-    Encoder->pos_cpr_counts += Current_Ts * Encoder->pll_kp * delta_pos_cpr_counts;
-    while (Encoder->pos_cpr_counts >= Encoder->cpr)
-        Encoder->pos_cpr_counts -= (float)Encoder->cpr;
-    while (Encoder->pos_cpr_counts < 0)
-        Encoder->pos_cpr_counts += (float)Encoder->cpr;
-    Encoder->vel_estimate_counts += Current_Ts * Encoder->pll_ki * delta_pos_cpr_counts;
-
-    /* align delta-sigma on zero to prevent jitter */
-    bool snap_to_zero_vel = false;
-    if (fast_abs(Encoder->vel_estimate_counts) < Encoder->snap_threshold) 
-	{
-        Encoder->vel_estimate_counts = 0.0f;
-        snap_to_zero_vel            = true;
-    }
-
-    /* run encoder count interpolation */
-    /* if we are stopped, make sure we don't randomly drift */
-    if (snap_to_zero_vel) 
-	{
-        Encoder->interpolation = 0.5f;
-        /*reset interpolation if encoder edge comes */
-    } 
-	else if (delta_count > 0) 
-	{
-        Encoder->interpolation = 0.0f;
-    } 
-	else if (delta_count < 0) 
-	{
-        Encoder->interpolation = 1.0f;
-    } 
-	else 
-	{
-        /* Interpolate (predict) between encoder counts using vel_estimate */
-        Encoder->interpolation += Current_Ts * Encoder->vel_estimate_counts;
-        /* don't allow interpolation indicated position outside of [enc, enc+1) */
-        if (Encoder->interpolation > 1.0f)
-            Encoder->interpolation = 1.0f;
-        if (Encoder->interpolation < 0.0f)
-            Encoder->interpolation = 0.0f;
-    }
-    float interpolated_enc = Encoder->count_in_cpr - Encoder->offset + Encoder->interpolation;
-    while (interpolated_enc >= Encoder->cpr)
-        interpolated_enc -= Encoder->cpr;
-    while (interpolated_enc < 0)
-        interpolated_enc += Encoder->cpr;
-
-    float shadow_count_f = (float)Encoder->shadow_count;
-    Encoder->turns          = shadow_count_f * Encoder->one_by_cpr;
-    float residual       = shadow_count_f - Encoder->turns * (float)Encoder->cpr - Encoder->zero_count;
-	
-    /*outputs from encoder for controller*/
-    Encoder->pos = Encoder->turns + residual * Encoder->one_by_cpr;
-    UTILS_LP_MOVING_AVG_APPROX(Encoder->vel, (Encoder->vel_estimate_counts * Encoder->one_by_cpr), 5);
-	
-	if(MotorControl->motor_pole_pairs <= 0 || MotorControl->motor_pole_pairs > 30)
-		Set_ErrorNow(PolePairs_Error);
-
-    Encoder->theta_elec  = normalizeAngle((interpolated_enc * _2PI * MotorControl->motor_pole_pairs) * Encoder->one_by_cpr);
-    Encoder->vel_elec 	= Encoder->vel * _2PI * MotorControl->motor_pole_pairs;
-	
-	Encoder->theta_mech  = Encoder->pos * _2PI;
-	Encoder->vel_mech  	= Encoder->vel * _2PI;
-	
+	encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
 }
 
-/**
-	* @brief  Get encoder electrical phase
-	* @param  *Encoder: encoder struct pointer
-	* @retval electrical phase
- **/
-float Encoder_GetElePhase(Encoder_TypeDef *Encoder)
+static void Encoder_UpdateAngles(Encoder_TypeDef *encoder, uint32_t pole_pairs)
 {
-	return Encoder->theta_elec;
+	uint16_t electrical_q15;
+
+	electrical_q15 = (uint16_t)((uint32_t)(uint16_t)(encoder->linearized_q15 - encoder->electrical_zero_q15) * pole_pairs);
+	encoder->theta_elec = (float)electrical_q15 * (_2PI / (float)ENCODER_Q15_CPR);
+	encoder->theta_mech = (float)(encoder->shadow_q15 - encoder->mechanical_zero_shadow_q15) * (_2PI / (float)ENCODER_Q15_CPR);
 }
 
-/**
-	* @brief  Get encoder mechanical position
-	* @param  *Encoder: encoder struct pointer
-	* @retval mechanical position
- **/
-float Encoder_GetMecPos(Encoder_TypeDef *Encoder)
+void Encoder_ParamInit(Encoder_TypeDef *encoder)
 {
-	return Encoder->theta_mech;
+	SPI_HandleTypeDef *encoder_spi = &ext_enc_spi;
+
+	encoder->reverse = encoder->reverse != 0U ? 1U : 0U;
+	encoder->raw_q15 = 0U;
+	encoder->directed_q15 = 0U;
+	encoder->linearized_q15 = 0U;
+	encoder->previous_linearized_q15 = 0U;
+	encoder->shadow_q15 = 0;
+	encoder->mechanical_zero_shadow_q15 = (int64_t)encoder->mechanical_zero_q15;
+	encoder->velocity_shadow_q15 = 0;
+	encoder->has_valid_sample = false;
+	encoder->theta_elec = 0.0f;
+	encoder->theta_mech = 0.0f;
+	encoder->read_status = ENCODER_READ_OK;
+	encoder->read_status_latched = ENCODER_READ_OK;
+	encoder->mt6701_status_bits = 0U;
+	encoder->mt6701_crc_received = 0U;
+	encoder->mt6701_crc_calculated = 0U;
+	encoder->mt6701_crc_error_count = 0U;
+	encoder->read_error_count = 0U;
+	encoder->bad_frame_streak = 0U;
+	Encoder_ResetVelocity(encoder);
+
+	encoder_spi->Init.DataSize = SPI_DATASIZE_8BIT;
+	encoder_spi->Init.CLKPolarity = SPI_POLARITY_LOW;
+	encoder_spi->Init.CLKPhase = SPI_PHASE_2EDGE;
+	encoder_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+	if (HAL_SPI_Init(encoder_spi) != HAL_OK)
+		Error_Handler();
 }
 
-/**
-	* @brief  Get encoder electrical velocity
-	* @param  *Encoder: encoder struct pointer
-	* @retval electrical velocity
- **/
-float Encoder_GetEleVel(Encoder_TypeDef *Encoder)
+bool Encoder_IsOnline(const Encoder_TypeDef *encoder)
 {
-	return Encoder->vel_elec;
+	return encoder->has_valid_sample &&
+	       encoder->bad_frame_streak < ENCODER_BAD_FRAME_OFFLINE_COUNT;
 }
 
-/**
-	* @brief  Get encoder mechanical velocity
-	* @param  *Encoder: encoder struct pointer
-	* @retval mechanical velocity
- **/
-float Encoder_GetMecVel(Encoder_TypeDef *Encoder)
+bool Encoder_SetElectricalZeroQ15(Encoder_TypeDef *encoder, uint16_t electrical_zero_q15)
 {
-	return Encoder->vel_mech;
+	if (!Encoder_IsOnline(encoder))
+		return false;
+
+	encoder->electrical_zero_q15 = electrical_zero_q15;
+	encoder->calib_flag |= ENC_CALIB_ELECTRICAL_ZERO;
+	return true;
 }
 
-/**
-	* @brief  Get encoder count ratio in one CPR
-	* @param  *Encoder: encoder struct pointer
-	* @retval count ratio in one CPR
- **/
-float Encoder_GetCountInCPR_Ratio(Encoder_TypeDef *Encoder)
+bool Encoder_SetElectricalZero(Encoder_TypeDef *encoder)
 {
-	return Encoder->count_in_cpr * Encoder->one_by_cpr;
+	return Encoder_SetElectricalZeroQ15(encoder, encoder->linearized_q15);
 }
 
-/**
-	* @brief  Detect external encoder type changes and reinitialize parameters
-	* @param  *Encoder: external encoder struct pointer
- **/
-void Encoder_ChangeDetect(Encoder_TypeDef *Encoder)
+bool Encoder_SetMechanicalZero(Encoder_TypeDef *encoder)
 {
-	static Encoder_Type type_last;
-	static bool is_first_call = true;
+	if (!Encoder_IsOnline(encoder))
+		return false;
 
-	if (is_first_call)
+	encoder->mechanical_zero_q15 = encoder->linearized_q15;
+	encoder->mechanical_zero_shadow_q15 = encoder->shadow_q15;
+	encoder->calib_flag |= ENC_CALIB_MECHANICAL_ZERO;
+	encoder->theta_mech = 0.0f;
+	return true;
+}
+
+void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder)
+{
+	uint16_t raw_q15;
+	uint16_t directed_q15;
+	uint16_t linearized_q15;
+	int32_t delta_q15;
+	uint32_t pole_pairs;
+
+	if (!Encoder_ReadMt6701Frame(encoder, &raw_q15))
+		return;
+
+	directed_q15 = Encoder_ApplyDirectionQ15(encoder, raw_q15);
+	linearized_q15 = Encoder_ApplyLinearizationQ15(encoder, directed_q15);
+	encoder->raw_q15 = raw_q15;
+	encoder->directed_q15 = directed_q15;
+	encoder->linearized_q15 = linearized_q15;
+	pole_pairs = MotorControl->motor_pole_pairs > 0 ? (uint32_t)MotorControl->motor_pole_pairs : 1U;
+
+	if (!encoder->has_valid_sample)
 	{
-		type_last = Encoder->type;
-		is_first_call = false;
+		encoder->previous_linearized_q15 = linearized_q15;
+		encoder->shadow_q15 = linearized_q15;
+		if ((encoder->calib_flag & ENC_CALIB_MECHANICAL_ZERO) == 0U)
+			encoder->mechanical_zero_shadow_q15 = 0;
+		else
+			encoder->mechanical_zero_shadow_q15 = (int64_t)encoder->mechanical_zero_q15;
+		encoder->has_valid_sample = true;
+		Encoder_ResetVelocity(encoder);
+		Encoder_UpdateAngles(encoder, pole_pairs);
+		return;
 	}
 
-	if (Encoder->type != type_last)
-	{
-		Encoder->calib_flag = 0U;
-		Encoder->offset = 0;
-		Encoder->zero_count = 0;
-		memset(Encoder->offset_lut, 0, sizeof(Encoder->offset_lut));
-		Encoder_ParamInit(Encoder);
-	}
+	delta_q15 = (int32_t)linearized_q15 - (int32_t)encoder->previous_linearized_q15;
+	if (delta_q15 > ENCODER_Q15_HALF_TURN)
+		delta_q15 -= (int32_t)ENCODER_Q15_CPR;
+	else if (delta_q15 < -ENCODER_Q15_HALF_TURN)
+		delta_q15 += (int32_t)ENCODER_Q15_CPR;
 
-	type_last = Encoder->type;
+	encoder->previous_linearized_q15 = linearized_q15;
+	encoder->shadow_q15 += delta_q15;
+	Encoder_UpdateVelocity2kHz(encoder, pole_pairs);
+	Encoder_UpdateAngles(encoder, pole_pairs);
 }
 
-/**
-	* @brief  Set current encoder count as zero position
-	* @param  *MotorControl: MotorControl struct pointer
-	* @param  *Encoder: encoder struct pointer
- **/
-void Task_Set_ZeroPosition(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+float Encoder_GetElePhase(const Encoder_TypeDef *encoder)
 {
-	Encoder->zero_count = Encoder->count_in_cpr;
-	Encoder->shadow_count = Encoder->zero_count;
-	
-	/*electrical angle zero position calibrated*/
-	Encoder->calib_flag |= ENC_CALIB_ZERO_POS;
-	
-	MotorControl->posTrajUpdated = true;
-	
-	MotorControl->ModeNow = Save_Param;
+	return encoder->theta_elec;
 }
 
+float Encoder_GetMecPos(const Encoder_TypeDef *encoder)
+{
+	return encoder->theta_mech;
+}
 
+float Encoder_GetEleVel(const Encoder_TypeDef *encoder)
+{
+	return encoder->vel_elec;
+}
+
+float Encoder_GetMecVel(const Encoder_TypeDef *encoder)
+{
+	return encoder->vel_mech;
+}
+
+float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *encoder)
+{
+	return (float)encoder->linearized_q15 / (float)ENCODER_Q15_CPR;
+}

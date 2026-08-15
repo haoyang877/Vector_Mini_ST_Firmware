@@ -49,14 +49,16 @@ static bool SPI_WaitBSYClear(SPI_TypeDef *SPIx, uint32_t timeout_spin)
 	return true;
 }
 
-static uint8_t SPI_Reg_TxRx8(SPI_TypeDef *SPIx, uint8_t tx_data, bool *ok)
+static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
 {
+	uint16_t rx_data;
+
 	if ((SPIx->CR1 & SPI_CR1_SPE) == 0U)
 		SPIx->CR1 |= SPI_CR1_SPE;
 
 	if ((SPIx->SR & SPI_FLAG_OVR) != 0U)
 	{
-		(void)*(__IO uint8_t *)&SPIx->DR;
+		(void)*(__IO uint16_t *)&SPIx->DR;
 		(void)SPIx->SR;
 	}
 
@@ -65,7 +67,7 @@ static uint8_t SPI_Reg_TxRx8(SPI_TypeDef *SPIx, uint8_t tx_data, bool *ok)
 		*ok = false;
 		return 0U;
 	}
-	*(__IO uint8_t *)&SPIx->DR = tx_data;
+	*(__IO uint16_t *)&SPIx->DR = tx_data;
 
 	if (!SPI_WaitFlag(SPIx, SPI_FLAG_RXNE, ENC_SPI_XFER_SPIN_MAX))
 	{
@@ -73,55 +75,46 @@ static uint8_t SPI_Reg_TxRx8(SPI_TypeDef *SPIx, uint8_t tx_data, bool *ok)
 		return 0U;
 	}
 
+	rx_data = *(__IO uint16_t *)&SPIx->DR;
+	if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX))
 	{
-		uint8_t rx_data = *(__IO uint8_t *)&SPIx->DR;
-		if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX))
-		{
-			*ok = false;
-			return 0U;
-		}
-		*ok = true;
-		return rx_data;
+		*ok = false;
+		return 0U;
 	}
+
+	*ok = true;
+	return rx_data;
 }
 
-static uint8_t MT6701_CRC6(uint32_t payload18)
+static void SPI2_MOSI_HiZ(void)
 {
-	uint8_t crc = 0U;
-	int bit_index;
-
-	for (bit_index = 17; bit_index >= 0; --bit_index)
-	{
-		uint8_t input_bit = (uint8_t)((payload18 >> bit_index) & 1U);
-		uint8_t feedback = (uint8_t)(((crc >> 5) & 1U) ^ input_bit);
-		crc = (uint8_t)((crc << 1) & 0x3FU);
-		if (feedback != 0U)
-			crc ^= 0x03U;
-	}
-	return (uint8_t)(crc & 0x3FU);
+	GPIOB->MODER &= ~(0x3UL << 30U);
 }
 
-static bool Encoder_ReadMt6701Frame(Encoder_TypeDef *encoder, uint16_t *raw_q15)
+static void SPI2_MOSI_RestoreAF(void)
 {
-	SPI_TypeDef *SPIx = ext_enc_spi.Instance;
-	uint8_t rx_bytes[3] = {0U, 0U, 0U};
+	GPIOB->MODER = (GPIOB->MODER & ~(0x3UL << 30U)) | (0x2UL << 30U);
+	GPIOB->AFR[1] = (GPIOB->AFR[1] & ~(0xFUL << 28U)) | (0x5UL << 28U);
+}
+
+static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15)
+{
+	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
+	uint16_t angle_word = 0U;
 	bool transfer_ok = true;
-	uint8_t byte_index;
-	uint32_t frame;
-	uint16_t raw14;
-	uint8_t status;
-	uint8_t crc_received;
-	uint8_t crc_calculated;
 
-	EXT_ENC_CS_ENABLE;
-	for (byte_index = 0U; byte_index < 3U; ++byte_index)
+	BRD_ENC_CS_ENABLE;
+	(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
+	if (transfer_ok)
 	{
-		rx_bytes[byte_index] = SPI_Reg_TxRx8(SPIx, 0x00U, &transfer_ok);
-		if (!transfer_ok)
-			break;
+		SPI2_MOSI_HiZ();
+		__NOP();
+		__NOP();
+		angle_word = SPI_Reg_TxRx16(SPIx, 0U, &transfer_ok);
+		SPI2_MOSI_RestoreAF();
 	}
 	(void)SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX);
-	EXT_ENC_CS_DISABLE;
+	BRD_ENC_CS_DISABLE;
 
 	if (!transfer_ok)
 	{
@@ -129,48 +122,14 @@ static bool Encoder_ReadMt6701Frame(Encoder_TypeDef *encoder, uint16_t *raw_q15)
 		return false;
 	}
 
-	frame = ((uint32_t)rx_bytes[0] << 16) | ((uint32_t)rx_bytes[1] << 8) | rx_bytes[2];
-	raw14 = (uint16_t)((frame >> 10) & 0x3FFFU);
-	status = (uint8_t)((frame >> 6) & 0x0FU);
-	crc_received = (uint8_t)(frame & 0x3FU);
-	crc_calculated = MT6701_CRC6((frame >> 6) & 0x3FFFFU);
-
-	encoder->mt6701_status_bits = status;
-	encoder->mt6701_crc_received = crc_received;
-	encoder->mt6701_crc_calculated = crc_calculated;
-
-	if (crc_received != crc_calculated)
-	{
-		encoder->mt6701_crc_error_count++;
-		Encoder_MarkReadStatus(encoder, ENCODER_READ_CRC_MISMATCH);
-		return false;
-	}
-	if ((status & 0x08U) != 0U)
-	{
-		Encoder_MarkReadStatus(encoder, ENCODER_READ_OVERSPEED);
-		return false;
-	}
-
-	switch (status & 0x03U)
-	{
-		case 1U:
-			Encoder_MarkReadStatus(encoder, ENCODER_READ_MAGNET_TOO_STRONG);
-			return false;
-		case 2U:
-			Encoder_MarkReadStatus(encoder, ENCODER_READ_MAGNET_TOO_WEAK);
-			return false;
-		case 3U:
-			Encoder_MarkReadStatus(encoder, ENCODER_READ_MAGNET_INVALID);
-			return false;
-		default:
-			break;
-	}
-
-	*raw_q15 = (uint16_t)(raw14 << 2);
+	encoder->tle5012_angle_word = angle_word;
+	encoder->tle5012_safety_word = 0U;
+	encoder->tle5012_crc_received = 0U;
+	encoder->tle5012_crc_calculated = 0U;
+	*raw_q15 = (uint16_t)((angle_word & 0x7FFFU) << 1U);
 	Encoder_MarkReadStatus(encoder, ENCODER_READ_OK);
 	return true;
 }
-
 static uint16_t Encoder_ApplyDirectionQ15(const Encoder_TypeDef *encoder, uint16_t raw_q15)
 {
 	if (encoder->reverse == 0U)
@@ -285,7 +244,7 @@ static void Encoder_UpdateAngles(Encoder_TypeDef *encoder, uint32_t pole_pairs)
 
 void Encoder_ParamInit(Encoder_TypeDef *encoder)
 {
-	SPI_HandleTypeDef *encoder_spi = &ext_enc_spi;
+	SPI_HandleTypeDef *encoder_spi = &brd_enc_spi;
 
 	encoder->reverse = encoder->reverse != 0U ? 1U : 0U;
 	encoder->raw_q15 = 0U;
@@ -300,18 +259,19 @@ void Encoder_ParamInit(Encoder_TypeDef *encoder)
 	encoder->theta_mech = 0.0f;
 	encoder->read_status = ENCODER_READ_OK;
 	encoder->read_status_latched = ENCODER_READ_OK;
-	encoder->mt6701_status_bits = 0U;
-	encoder->mt6701_crc_received = 0U;
-	encoder->mt6701_crc_calculated = 0U;
-	encoder->mt6701_crc_error_count = 0U;
+	encoder->tle5012_angle_word = 0U;
+	encoder->tle5012_safety_word = 0U;
+	encoder->tle5012_crc_received = 0U;
+	encoder->tle5012_crc_calculated = 0U;
+	encoder->tle5012_crc_error_count = 0U;
 	encoder->read_error_count = 0U;
 	encoder->bad_frame_streak = 0U;
 	Encoder_ResetVelocity(encoder);
 
-	encoder_spi->Init.DataSize = SPI_DATASIZE_8BIT;
+	encoder_spi->Init.DataSize = SPI_DATASIZE_16BIT;
 	encoder_spi->Init.CLKPolarity = SPI_POLARITY_LOW;
 	encoder_spi->Init.CLKPhase = SPI_PHASE_2EDGE;
-	encoder_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+	encoder_spi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
 	if (HAL_SPI_Init(encoder_spi) != HAL_OK)
 		Error_Handler();
 }
@@ -357,7 +317,7 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder
 	int32_t delta_q15;
 	uint32_t pole_pairs;
 
-	if (!Encoder_ReadMt6701Frame(encoder, &raw_q15))
+	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15))
 		return;
 
 	directed_q15 = Encoder_ApplyDirectionQ15(encoder, raw_q15);

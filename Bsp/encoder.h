@@ -6,7 +6,7 @@
 #include "main.h"
 #include "data_type.h"
 
-/* MT6701 single-turn angle representation: unsigned Q15, [0, 65535]. */
+/* TLE5012B single-turn angle representation: unsigned Q15, [0, 65535]. */
 #define ENCODER_Q15_CPR                 65536UL
 #define ENCODER_Q15_HALF_TURN           32768
 #define ENCODER_OFFSET_LUT_SIZE          1024U
@@ -22,7 +22,11 @@ typedef enum
 	ENCODER_READ_MAGNET_TOO_STRONG = 3,
 	ENCODER_READ_MAGNET_TOO_WEAK = 4,
 	ENCODER_READ_MAGNET_INVALID = 5,
-	ENCODER_READ_OVERSPEED = 6
+	ENCODER_READ_OVERSPEED = 6,
+	ENCODER_READ_TLE_RESET = 7,
+	ENCODER_READ_TLE_SYSTEM_ERROR = 8,
+	ENCODER_READ_TLE_INTERFACE_ERROR = 9,
+	ENCODER_READ_TLE_INVALID_ANGLE = 10
 } Encoder_ReadStatus;
 
 /* Calibration flags stored in flash. Mechanical zero is optional feedback state. */
@@ -41,7 +45,7 @@ typedef struct
 	uint8_t calib_flag;
 	uint8_t reverse;
 
-	/* Raw MT6701 reading, direction-corrected input, and LUT-corrected angle. */
+	/* Raw TLE5012B reading, direction-corrected input, and LUT-corrected angle. */
 	uint16_t raw_q15;
 	uint16_t directed_q15;
 	uint16_t linearized_q15;
@@ -65,22 +69,23 @@ typedef struct
 	int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
 	int32_t velocity_delta_sum;
 
-	/* MT6701 frame diagnostics and online state. */
+	/* TLE5012B SSC frame diagnostics and online state. */
 	Encoder_ReadStatus read_status;
 	Encoder_ReadStatus read_status_latched;
-	uint8_t mt6701_status_bits;
-	uint8_t mt6701_crc_received;
-	uint8_t mt6701_crc_calculated;
-	uint32_t mt6701_crc_error_count;
+	uint16_t tle5012_angle_word;
+	uint16_t tle5012_safety_word;
+	uint8_t tle5012_crc_received;
+	uint8_t tle5012_crc_calculated;
+	uint32_t tle5012_crc_error_count;
 	uint32_t read_error_count;
 	uint16_t bad_frame_streak;
 } Encoder_TypeDef;
 
-#define ext_enc_spi  hspi1
-#define EXT_ENC_SPI  SPI1
+#define brd_enc_spi  hspi2
+#define BRD_ENC_SPI  SPI2
 
-#define EXT_ENC_CS_ENABLE  EXT_ENC_CS_GPIO_Port->BSRR = (uint32_t)EXT_ENC_CS_Pin << 16U
-#define EXT_ENC_CS_DISABLE EXT_ENC_CS_GPIO_Port->BSRR = EXT_ENC_CS_Pin
+#define BRD_ENC_CS_ENABLE  BRD_ENC_CS_GPIO_Port->BSRR = (uint32_t)BRD_ENC_CS_Pin << 16U
+#define BRD_ENC_CS_DISABLE BRD_ENC_CS_GPIO_Port->BSRR = BRD_ENC_CS_Pin
 
 void Encoder_ParamInit(Encoder_TypeDef *Encoder);
 void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
@@ -97,6 +102,5 @@ float Encoder_GetMecVel(const Encoder_TypeDef *Encoder);
 float Encoder_GetElePhase(const Encoder_TypeDef *Encoder);
 float Encoder_GetMecPos(const Encoder_TypeDef *Encoder);
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *Encoder);
-
 
 #endif

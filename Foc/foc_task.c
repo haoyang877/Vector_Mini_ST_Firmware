@@ -5,7 +5,7 @@
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
-Encoder_TypeDef External_Encoder;
+Encoder_TypeDef OnBoard_Encoder;
 Fluxobserver_TypeDef Fluxobserver;
 SensorlessStartup_TypeDef SensorlessStartup;
 
@@ -17,6 +17,9 @@ FOC_TypeDef FOC;
 void RTT_Sampling(void)
 {
 	static uint32_t rtt_divider_count;
+	float encoder_theta_elec;
+	float observer_theta_elec;
+	float phase_error;
 
 	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
 		return;
@@ -34,17 +37,24 @@ void RTT_Sampling(void)
     int16_t data8;
     } Rttstru;
 
-	/*RTT channels: mechanical speed x100, current/voltage x1000, encoder angle and observer mechanical speed.*/
-	Rttstru.data0 = (int16_t)(MotorControl.speedShadow * 100.0f);
-	Rttstru.data1 = (int16_t)(External_Encoder.vel_mech * 100.0f);
+	/* RTT channels: phase error Q15, speed/current/voltage, encoder and observer electrical angles Q15. */
+	encoder_theta_elec = normalizeAngle(OnBoard_Encoder.theta_elec);
+	observer_theta_elec = normalizeAngle(Observer_GetElePhase(&Fluxobserver));
+	phase_error = encoder_theta_elec - observer_theta_elec;
+	if (phase_error >= _PI)
+		phase_error -= _2PI;
+	else if (phase_error < -_PI)
+		phase_error += _2PI;
+
+	Rttstru.data0 = (int16_t)(phase_error * (65536.0f / _2PI));
+	Rttstru.data1 = (int16_t)(OnBoard_Encoder.vel_mech * 100.0f);
 	Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
 	Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
 	Rttstru.data4 = (int16_t)(FOC.Id * 1000.0f);
 	Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
 	Rttstru.data6 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
-	Rttstru.data7 = (int16_t)(normalizeAngle(External_Encoder.theta_elec) * (65536.0f / _2PI) - 32768.0f);
-	Rttstru.data8 = (int16_t)(Observer_GetEleVel(&Fluxobserver) /
-		(float)MotorControl.motor_pole_pairs * 100.0f);
+	Rttstru.data7 = (int16_t)(encoder_theta_elec * (65536.0f / _2PI) - 32768.0f);
+	Rttstru.data8 = (int16_t)(observer_theta_elec * (65536.0f / _2PI) - 32768.0f);
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
 }
@@ -53,7 +63,7 @@ void RTT_Sampling(void)
 	* @brief  Initialize motor control parameters
  **/
 void MotorControl_Init(void)
-{	Encoder_ParamInit(&External_Encoder);
+{	Encoder_ParamInit(&OnBoard_Encoder);
 	
 	Fluxobserver_ParamInit(&Fluxobserver);
 	SensorlessStartup_Reset(&SensorlessStartup);
@@ -107,11 +117,11 @@ void FOC20kHzIRQHandler(void)
 	
 	Temperature_Update(&FOC);
 	
-	Encoder_Update(&MotorControl, &External_Encoder);
+	Encoder_Update(&MotorControl, &OnBoard_Encoder);
 	Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
 
 	if (Encoder_FeedbackRequired(&MotorControl) &&
-		External_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
+		OnBoard_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
 		Set_ErrorNow(Encoder_Error);
 
 	switch(MotorControl.ModeNow)
@@ -121,11 +131,11 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Current_Mode:
-			Task_Current_Mode(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
+			Task_Current_Mode(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
 		break;
 		
 		case Speed_Mode:
-			Task_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &External_Encoder);
+			Task_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
 		break;
 
 		case Sensorless_Speed_Mode:
@@ -133,7 +143,7 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Position_Mode:
-			Task_Position_Mode(&FOC, &MotorControl, &PI_Speed, &External_Encoder);
+			Task_Position_Mode(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
 		break;
 		
 		case Calib_Motor_R_L_Flux:
@@ -141,16 +151,16 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Calib_EncoderOffset:
-			Task_Calib_EncoderOffset(&FOC, &MotorControl, &External_Encoder, &Fluxobserver);
+			Task_Calib_EncoderOffset(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
 		break;
 
 		case Calib_EncoderObserver:
-			Task_Calib_EncoderObserver(&FOC, &MotorControl, &PI_Speed, &External_Encoder,
+			Task_Calib_EncoderObserver(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder,
 				&Fluxobserver, &SensorlessStartup);
 		break;
 
 		case Calib_EleAngelOffset:
-			Task_Calib_EleAngelOffset(&FOC, &MotorControl, &External_Encoder);
+			Task_Calib_EleAngelOffset(&FOC, &MotorControl, &OnBoard_Encoder);
 		break;
 		
 		case Calib_CurrentOffset:
@@ -162,11 +172,11 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Vq_Mode:
-			Task_Vq_Mode(&FOC, &MotorControl, &External_Encoder);
+			Task_Vq_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
 		break;
 
 		case Set_ZeroPosition:
-			Task_SetMechanicalZero(&MotorControl, &External_Encoder);
+			Task_SetMechanicalZero(&MotorControl, &OnBoard_Encoder);
 		break;
 		
 		case Default_Param:

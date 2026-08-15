@@ -5,7 +5,7 @@
 #include "foc_param_profile.h"
 
 extern MotorControl_TypeDef MotorControl;
-extern Encoder_TypeDef External_Encoder;
+extern Encoder_TypeDef OnBoard_Encoder;
 extern CANMsg_TypeDef CANMsg;
 
 void Param_Return_Default(void)
@@ -29,11 +29,11 @@ void Param_Return_Default(void)
 	MotorControl.ol_elec_vel = PARAM_APP_OPEN_LOOP_ELEC_VEL_RAD_S;
 	MotorControl.ol_theta = PARAM_APP_OPEN_LOOP_THETA_RAD;
 
-	External_Encoder.electrical_zero_q15 = PARAM_APP_ENCODER_ELECTRICAL_ZERO_Q15;
-	External_Encoder.mechanical_zero_q15 = PARAM_APP_ENCODER_MECHANICAL_ZERO_Q15;
-	External_Encoder.calib_flag = PARAM_APP_ENCODER_CALIB_FLAG;
-	External_Encoder.reverse = PARAM_APP_ENCODER_REVERSE;
-	memset(External_Encoder.linearization_lut_q15, 0, sizeof(External_Encoder.linearization_lut_q15));
+	OnBoard_Encoder.electrical_zero_q15 = PARAM_APP_ENCODER_ELECTRICAL_ZERO_Q15;
+	OnBoard_Encoder.mechanical_zero_q15 = PARAM_APP_ENCODER_MECHANICAL_ZERO_Q15;
+	OnBoard_Encoder.calib_flag = PARAM_APP_ENCODER_CALIB_FLAG;
+	OnBoard_Encoder.reverse = PARAM_APP_ENCODER_REVERSE;
+	memset(OnBoard_Encoder.linearization_lut_q15, 0, sizeof(OnBoard_Encoder.linearization_lut_q15));
 
 	MotorControl.calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
 	MotorControl.current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
@@ -67,12 +67,12 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->motor_d_inductance = MotorControl.motor_d_inductance;
 	param->motor_q_inductance = MotorControl.motor_q_inductance;
 	param->motor_flux = MotorControl.motor_flux;
-	param->encoder_electrical_zero_q15 = External_Encoder.electrical_zero_q15;
-	param->encoder_mechanical_zero_q15 = External_Encoder.mechanical_zero_q15;
-	param->encoder_calib_flag = External_Encoder.calib_flag;
-	param->encoder_reverse = External_Encoder.reverse;
+	param->encoder_electrical_zero_q15 = OnBoard_Encoder.electrical_zero_q15;
+	param->encoder_mechanical_zero_q15 = OnBoard_Encoder.mechanical_zero_q15;
+	param->encoder_calib_flag = OnBoard_Encoder.calib_flag;
+	param->encoder_reverse = OnBoard_Encoder.reverse;
 	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
-		param->encoder_linearization_lut_q15[lut_index] = External_Encoder.linearization_lut_q15[lut_index];
+		param->encoder_linearization_lut_q15[lut_index] = OnBoard_Encoder.linearization_lut_q15[lut_index];
 	param->calib_current = MotorControl.calib_current;
 	param->current_limit = MotorControl.current_limit;
 	param->id_kp = MotorControl.id_Kp;
@@ -117,12 +117,12 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 	MotorControl.motor_d_inductance = param->motor_d_inductance;
 	MotorControl.motor_q_inductance = param->motor_q_inductance;
 	MotorControl.motor_flux = param->motor_flux;
-	External_Encoder.electrical_zero_q15 = param->encoder_electrical_zero_q15;
-	External_Encoder.mechanical_zero_q15 = param->encoder_mechanical_zero_q15;
-	External_Encoder.calib_flag = param->encoder_calib_flag;
-	External_Encoder.reverse = param->encoder_reverse;
+	OnBoard_Encoder.electrical_zero_q15 = param->encoder_electrical_zero_q15;
+	OnBoard_Encoder.mechanical_zero_q15 = param->encoder_mechanical_zero_q15;
+	OnBoard_Encoder.calib_flag = param->encoder_calib_flag;
+	OnBoard_Encoder.reverse = param->encoder_reverse;
 	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
-		External_Encoder.linearization_lut_q15[lut_index] = param->encoder_linearization_lut_q15[lut_index];
+		OnBoard_Encoder.linearization_lut_q15[lut_index] = param->encoder_linearization_lut_q15[lut_index];
 	MotorControl.calib_current = param->calib_current;
 	MotorControl.current_limit = param->current_limit;
 	MotorControl.id_Kp = param->id_kp;

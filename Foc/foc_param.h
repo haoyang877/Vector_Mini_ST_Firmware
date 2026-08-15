@@ -4,7 +4,7 @@
 #include "main.h"
 #include "encoder.h"
 
-#define PARAM_SCHEMA_VERSION 3U
+#define PARAM_SCHEMA_VERSION 4U
 
 typedef struct
 {

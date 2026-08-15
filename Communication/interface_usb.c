@@ -15,7 +15,7 @@ USBRxStep_TypeDef USBRXStep = USB_RX_NULL;
 
 extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
-extern Encoder_TypeDef External_Encoder;
+extern Encoder_TypeDef OnBoard_Encoder;
 extern FOC_TypeDef FOC;
 extern CANMsg_TypeDef CANMsg;
 extern Cyclic_TypeDef Cyclic;
@@ -258,7 +258,7 @@ USBRXError_TypeDef USB_SetEncoderState(int data)
  **/
 void USB_GetEncoderState(void)
 {
-	sprintf(USBMsg.tx_str, "encoder=MT6701-%s.\r\n", Encoder_IsOnline(&External_Encoder) ? "Online" : "Offline");
+	sprintf(USBMsg.tx_str, "encoder=TLE5012B-%s.\r\n", Encoder_IsOnline(&OnBoard_Encoder) ? "Online" : "Offline");
 }
 
 /**
@@ -357,7 +357,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 					return USB_WRITE_INVALID;
 				if(data_int != 0 && data_int != 1)
 					return USB_DATA_OUT_OF_RANGE;
-				Encoder_SetReverse(&External_Encoder, data_int != 0);
+				Encoder_SetReverse(&OnBoard_Encoder, data_int != 0);
 			break;
 			
 			case USB_CURRENT_CAL:
@@ -584,7 +584,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 
 			case USB_ENCODER_REVERSE:
-				sprintf(USBMsg.tx_str, "erv=%u\r\n", (unsigned int)External_Encoder.reverse);
+				sprintf(USBMsg.tx_str, "erv=%u\r\n", (unsigned int)OnBoard_Encoder.reverse);
 			break;
 			
 			case USB_CURRENT_CAL:
@@ -675,11 +675,11 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			
 
 			case USB_SPEED2_FILT:
-				sprintf(USBMsg.tx_str, "spd2_filt=%.2fr/s\r\n", External_Encoder.vel_mech);
+				sprintf(USBMsg.tx_str, "spd2_filt=%.2fr/s\r\n", OnBoard_Encoder.vel_mech);
 			break;
 			
 			case USB_POS2_FILT:
-				sprintf(USBMsg.tx_str, "pos2_filt=%.3fr\r\n", External_Encoder.theta_mech);
+				sprintf(USBMsg.tx_str, "pos2_filt=%.3fr\r\n", OnBoard_Encoder.theta_mech);
 			break;
 			
 			case USB_TEMP:
@@ -713,7 +713,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				USBMsg.lut_export_en = 1U;
 				sprintf(USBMsg.tx_str, "lut_begin,count=%u,reverse=%u\r\n",
 					(unsigned int)ENCODER_OFFSET_LUT_SIZE,
-					(unsigned int)External_Encoder.reverse);
+					(unsigned int)OnBoard_Encoder.reverse);
 			break;
 			
 			default:return USB_UNKNOWNED_PARAM;
@@ -773,7 +773,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_ENCODER_REVERSE:
 				USBMsg.p_var[data_int].scale = 1.0f;
 				USBMsg.p_var[data_int].type = TYPE_UINT8;
-				USBMsg.p_var[data_int].addr = &External_Encoder.reverse;
+				USBMsg.p_var[data_int].addr = &OnBoard_Encoder.reverse;
 			break;
 			
 			case USB_CURRENT_CAL:
@@ -908,13 +908,13 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_SPEED2_FILT:
 				USBMsg.p_var[data_int].scale = 1.0f;
 				USBMsg.p_var[data_int].type = TYPE_FLOAT;
-				USBMsg.p_var[data_int].addr = &External_Encoder.vel_mech;
+				USBMsg.p_var[data_int].addr = &OnBoard_Encoder.vel_mech;
 			break;
 			
 			case USB_POS2_FILT:
 				USBMsg.p_var[data_int].scale = 1.0f;
 				USBMsg.p_var[data_int].type = TYPE_FLOAT;
-				USBMsg.p_var[data_int].addr = &External_Encoder.theta_mech;
+				USBMsg.p_var[data_int].addr = &OnBoard_Encoder.theta_mech;
 			break;
 			
 			case USB_TEMP:
@@ -1054,11 +1054,11 @@ void USB_SendMessage(void)
 	if (USBMsg.lut_export_index < ENCODER_OFFSET_LUT_SIZE)
 	{
 		uint16_t directed_q15 = (uint16_t)(USBMsg.lut_export_index << 6);
-		uint16_t raw_q15 = External_Encoder.reverse != 0U ?
+		uint16_t raw_q15 = OnBoard_Encoder.reverse != 0U ?
 			(uint16_t)(0U - directed_q15) : directed_q15;
 		int16_t directed_error_q15 =
-			External_Encoder.linearization_lut_q15[USBMsg.lut_export_index];
-		int32_t raw_error_q15 = External_Encoder.reverse != 0U ?
+			OnBoard_Encoder.linearization_lut_q15[USBMsg.lut_export_index];
+		int32_t raw_error_q15 = OnBoard_Encoder.reverse != 0U ?
 			-(int32_t)directed_error_q15 : (int32_t)directed_error_q15;
 
 		sprintf(USBMsg.tx_str, "lut=%u,raw_deg=%.4f,err_deg=%.5f\r\n",

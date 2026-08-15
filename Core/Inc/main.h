@@ -75,6 +75,8 @@ void Error_Handler(void);
 #define PWM_BL_GPIO_Port GPIOB
 #define PWM_CL_Pin GPIO_PIN_1
 #define PWM_CL_GPIO_Port GPIOB
+#define BRD_ENC_CS_Pin GPIO_PIN_12
+#define BRD_ENC_CS_GPIO_Port GPIOB
 #define PWM_AH_Pin GPIO_PIN_8
 #define PWM_AH_GPIO_Port GPIOA
 #define PWM_BH_Pin GPIO_PIN_9

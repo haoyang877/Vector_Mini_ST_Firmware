@@ -11,7 +11,7 @@ extern FOC_TypeDef FOC;
 extern PI_Controller_TypeDef PI_Speed;
 extern ModeNow_TypeDef  ModeLast;
 extern ErrorNow_TypeDef ErrorLast;
-extern Encoder_TypeDef External_Encoder;
+extern Encoder_TypeDef OnBoard_Encoder;
 extern SensorlessStartup_TypeDef SensorlessStartup;
 
 bool is_Mode_Error_Change;
@@ -85,10 +85,10 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;
 	
-	/* Modes that directly consume encoder feedback must start with a valid MT6701 frame. */
+	/* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
 	if ((mode_set == Vq_Mode || mode_set == Calib_EncoderOffset ||
 		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
-		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&External_Encoder))
+		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&OnBoard_Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
 		return false;
@@ -110,7 +110,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	  ((mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode) &&
 	   MotorControl.isUseSensorless == false))
 	{
-		if((External_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+		if((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
 		{
 			Set_ErrorNow(Encoder_NotCalibrated);
 			return false;

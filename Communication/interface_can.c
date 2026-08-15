@@ -13,7 +13,7 @@ CANMsg_TypeDef CANMsg;
 extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
 extern FOC_TypeDef FOC;
-extern Encoder_TypeDef External_Encoder;
+extern Encoder_TypeDef OnBoard_Encoder;
 
 /**
 	* @brief  FDCAN1 Filter Init  
@@ -138,7 +138,7 @@ void CAN_BaudRateSwitching(void)
  **/
 int CAN_GetEncoderState(void)
 {
-	return Encoder_IsOnline(&External_Encoder) ? 1 : 0;
+	return Encoder_IsOnline(&OnBoard_Encoder) ? 1 : 0;
 }
 
 /**
@@ -221,10 +221,10 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 
 		case CAN_SET_ENCODER_REVERSE:
 			if(MotorControl.ModeNow == Motor_Disable && (data_int == 0 || data_int == 1))
-				Encoder_SetReverse(&External_Encoder, data_int != 0);
+				Encoder_SetReverse(&OnBoard_Encoder, data_int != 0);
 		break;
 		case CAN_GET_ENCODER_REVERSE:
-			CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE, (float)External_Encoder.reverse);
+			CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE, (float)OnBoard_Encoder.reverse);
 		break;
 
 		case CAN_SET_CURRENT_CAL:
@@ -382,11 +382,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		
 
 		case CAN_GET_SPEED2_FILT:
-			CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, External_Encoder.vel_mech);
+			CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, OnBoard_Encoder.vel_mech);
 		break;
 		
 		case CAN_GET_POS2_FILT:
-			CAN_SendMessage_Update(CAN_GET_POS2_FILT, External_Encoder.theta_mech);
+			CAN_SendMessage_Update(CAN_GET_POS2_FILT, OnBoard_Encoder.theta_mech);
 		break;
 		
 		case CAN_GET_TEMP:

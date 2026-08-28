@@ -42,6 +42,7 @@ typedef struct
 	float handoff_phase_delta;
 	float speed_feedback;
 	float direction;
+	float speed_pi_output_max;
 	uint32_t state_ticks;
 	uint32_t speed_loop_ticks;
 	uint32_t open_loop_ticks;

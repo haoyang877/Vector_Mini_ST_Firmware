@@ -860,7 +860,10 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	static uint16_t previous_directed_q15;
 	static float previous_observer_position;
 	static float observer_position_origin;
-	static float verify_start_position;
+	static float sample_previous_observer_position;
+	static float sample_valid_electrical_travel;
+	static float verify_previous_observer_position;
+	static float verify_valid_electrical_travel;
 	static float stop_start_speed;
 	static float stop_current_ref;
 	static bool origin_negative_seen;
@@ -921,7 +924,10 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		previous_directed_q15 = 0U;
 		previous_observer_position = 0.0f;
 		observer_position_origin = 0.0f;
-		verify_start_position = 0.0f;
+		sample_previous_observer_position = 0.0f;
+		sample_valid_electrical_travel = 0.0f;
+		verify_previous_observer_position = 0.0f;
+		verify_valid_electrical_travel = 0.0f;
 		stop_start_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
 		stop_current_ref = 0.0f;
 		origin_negative_seen = false;
@@ -956,6 +962,11 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	}
 	else
 	{
+		if (CalibStep == CS_OBS_STOP_DECEL)
+			Startup->speed_pi_output_max = 0.0f;
+		else
+			Startup->speed_pi_output_max = 1.0f;
+
 		if (CalibStep == CS_OBS_STOP_DECEL)
 		{
 			float decel_ratio = constrain((float)state_ticks * Current_Ts /
@@ -1084,6 +1095,8 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 
 				observer_position_origin = previous_observer_position + crossing_fraction *
 					(observer_position - previous_observer_position);
+				sample_previous_observer_position = observer_position;
+				sample_valid_electrical_travel = 0.0f;
 				stage_ticks = 0U;
 				CalibStep = CS_OBS_SAMPLE_CW;
 				break;
@@ -1108,7 +1121,43 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 				return;
 			}
 
-			if (relative_theta >= (float)SENSORLESS_ENCODER_CALIB_MECH_TURNS * required_electrical_theta)
+			if (Encoder_ObserverCalib_IsStable(MotorControl, Fluxobserver, Startup,
+				observer_position_epoch))
+			{
+				float observer_delta = observer_position - sample_previous_observer_position;
+
+				if (observer_delta > 0.0f)
+					sample_valid_electrical_travel += observer_delta;
+
+				if (relative_theta >= 0.0f)
+				{
+					uint16_t lut_index = Encoder->directed_q15 >> (16U - ENCODER_OFFSET_LUT_BITS);
+					int32_t correction_q15;
+
+					reference_q15 = (uint16_t)(relative_theta *
+						((float)ENCODER_Q15_CPR / required_electrical_theta));
+					correction_q15 = Encoder_Calib_Q15Difference(Encoder->directed_q15, reference_q15);
+					if (calibration_samples[lut_index] != 0U)
+					{
+						int32_t average_q15 = p_error_sum[lut_index] /
+							(int32_t)calibration_samples[lut_index];
+						while (correction_q15 - average_q15 > ENCODER_Q15_HALF_TURN)
+							correction_q15 -= (int32_t)ENCODER_Q15_CPR;
+						while (correction_q15 - average_q15 < -ENCODER_Q15_HALF_TURN)
+							correction_q15 += (int32_t)ENCODER_Q15_CPR;
+					}
+
+					if (calibration_samples[lut_index] < UINT16_MAX)
+					{
+						p_error_sum[lut_index] += correction_q15;
+						calibration_samples[lut_index]++;
+					}
+				}
+			}
+			sample_previous_observer_position = observer_position;
+
+			if (sample_valid_electrical_travel >=
+				(float)SENSORLESS_ENCODER_CALIB_MECH_TURNS * required_electrical_theta)
 			{
 				candidate_lut_index = 0U;
 				candidate_lut_stage = 0U;
@@ -1117,31 +1166,6 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 				candidate_lut_sum = 0;
 				CalibStep = CS_OBS_BUILD_LUT;
 				break;
-			}
-
-			if (relative_theta >= 0.0f)
-			{
-				uint16_t lut_index = Encoder->directed_q15 >> (16U - ENCODER_OFFSET_LUT_BITS);
-				int32_t correction_q15;
-
-				reference_q15 = (uint16_t)(relative_theta *
-					((float)ENCODER_Q15_CPR / required_electrical_theta));
-				correction_q15 = Encoder_Calib_Q15Difference(Encoder->directed_q15, reference_q15);
-				if (calibration_samples[lut_index] != 0U)
-				{
-					int32_t average_q15 = p_error_sum[lut_index] /
-						(int32_t)calibration_samples[lut_index];
-					while (correction_q15 - average_q15 > ENCODER_Q15_HALF_TURN)
-						correction_q15 -= (int32_t)ENCODER_Q15_CPR;
-					while (correction_q15 - average_q15 < -ENCODER_Q15_HALF_TURN)
-						correction_q15 += (int32_t)ENCODER_Q15_CPR;
-				}
-
-				if (calibration_samples[lut_index] < UINT16_MAX)
-				{
-					p_error_sum[lut_index] += correction_q15;
-					calibration_samples[lut_index]++;
-				}
 			}
 			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SAMPLE_TIMEOUT_S / Current_Ts))
 			{
@@ -1266,7 +1290,8 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 
 				if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)
 				{
-					verify_start_position = observer_position;
+					verify_previous_observer_position = observer_position;
+					verify_valid_electrical_travel = 0.0f;
 					residual_squared_sum = 0U;
 					residual_sample_count = 0U;
 					residual_peak_abs_q15 = 0U;
@@ -1285,7 +1310,35 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 				return;
 			}
 
-			if (observer_position - verify_start_position >=
+			if (Encoder_ObserverCalib_IsStable(MotorControl, Fluxobserver, Startup,
+				observer_position_epoch))
+			{
+				float observer_delta = observer_position - verify_previous_observer_position;
+
+				if (observer_delta > 0.0f)
+					verify_valid_electrical_travel += observer_delta;
+
+				if (relative_theta >= 0.0f)
+				{
+					int16_t residual_q15;
+					int32_t residual_abs_q15;
+					uint16_t linearized_q15;
+
+					reference_q15 = (uint16_t)(relative_theta *
+						((float)ENCODER_Q15_CPR / required_electrical_theta));
+					linearized_q15 = Encoder_Calib_ApplyCandidateLut(Encoder->directed_q15);
+					residual_q15 = Encoder_Calib_Q15Difference(linearized_q15, reference_q15);
+					residual_abs_q15 = residual_q15 >= 0 ? residual_q15 : -(int32_t)residual_q15;
+					residual_squared_sum += (uint64_t)((int64_t)residual_q15 *
+						(int64_t)residual_q15);
+					if ((uint32_t)residual_abs_q15 > residual_peak_abs_q15)
+						residual_peak_abs_q15 = (uint32_t)residual_abs_q15;
+					residual_sample_count++;
+				}
+			}
+			verify_previous_observer_position = observer_position;
+
+			if (verify_valid_electrical_travel >=
 				(float)SENSORLESS_ENCODER_CALIB_VERIFY_MECH_TURNS * required_electrical_theta)
 			{
 				uint64_t max_rms_squared = (uint64_t)SENSORLESS_ENCODER_CALIB_MAX_RMS_RESIDUAL_Q15 *
@@ -1309,24 +1362,6 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 				CalibStep = CS_OBS_STOP_DECEL;
 				break;
 			}
-
-			if (relative_theta >= 0.0f)
-			{
-				int16_t residual_q15;
-				int32_t residual_abs_q15;
-				uint16_t linearized_q15;
-
-				reference_q15 = (uint16_t)(relative_theta *
-					((float)ENCODER_Q15_CPR / required_electrical_theta));
-				linearized_q15 = Encoder_Calib_ApplyCandidateLut(Encoder->directed_q15);
-				residual_q15 = Encoder_Calib_Q15Difference(linearized_q15, reference_q15);
-				residual_abs_q15 = residual_q15 >= 0 ? residual_q15 : -(int32_t)residual_q15;
-				residual_squared_sum += (uint64_t)((int64_t)residual_q15 *
-					(int64_t)residual_q15);
-				if ((uint32_t)residual_abs_q15 > residual_peak_abs_q15)
-					residual_peak_abs_q15 = (uint32_t)residual_abs_q15;
-				residual_sample_count++;
-			}
 			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_VERIFY_TIMEOUT_S / Current_Ts))
 			{
 				Set_ErrorNow(Sensorless_Error);
@@ -1335,14 +1370,29 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			break;
 
 		case CS_OBS_STOP_DECEL:
-			if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIME_S /
-				Current_Ts))
+		{
+			float stop_speed = Encoder_ObserverCalib_GetStopSpeed(MotorControl);
+			float observer_mech_vel = Observer_GetEleVel(Fluxobserver) /
+				(float)MotorControl->motor_pole_pairs;
+			bool speed_reached = fast_abs(observer_mech_vel) <= stop_speed *
+				(1.0f + SENSORLESS_ENCODER_CALIB_STOP_SPEED_TOLERANCE_RATIO);
+
+			state_ticks++;
+			if (state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIME_S /
+				Current_Ts) && speed_reached)
 			{
-				stop_current_ref = MotorControl->iqRef;
+				stop_current_ref = fast_min(MotorControl->iqRef, 0.0f);
 				state_ticks = 0U;
 				CalibStep = CS_OBS_STOP_CURRENT;
 			}
+			else if (state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIMEOUT_S /
+				Current_Ts))
+			{
+				Set_ErrorNow(Sensorless_Error);
+				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			}
 			break;
+		}
 
 		case CS_OBS_STOP_CURRENT:
 			if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S /

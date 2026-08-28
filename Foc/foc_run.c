@@ -275,7 +275,8 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			if (Startup->lock_ticks >= (uint32_t)(SENSORLESS_STARTUP_SPEED_LOCK_TIME_S / Current_Ts))
 			{
 				PI_Controller_Reset(controller);
-				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
+				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
+					Speed_Ts, -1.0f, Startup->speed_pi_output_max);
 				PI_Controller_TrackOutput(controller, MotorControl->iqRef / MotorControl->current_limit);
 				Startup->handoff_phase_delta = Sensorless_AngleDifference(Startup->open_loop_theta,
 					Observer_GetElePhase(Fluxobserver));

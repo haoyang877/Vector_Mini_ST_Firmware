@@ -1,6 +1,6 @@
 #include "foc_calibration.h"
 
-//#include <math.h>
+#include <math.h>
 #include <stdbool.h>
 #include <limits.h>
 #include <stdint.h>
@@ -27,6 +27,306 @@ CalibStep_TyepeDef CalibStep = CS_NULL;
 #define OBS_CALIB_SPEED             (2.0f * _PI * 20.0f)
 #define OBS_CALIB_TIMEOUT_FACTOR    1.5f
 #define OBS_CALIB_UNLOCK_TIMEOUT_TICKS FOC_FREQ
+#define PHASE_RESISTANCE_VECTOR_COUNT 3U
+#define PHASE_RESISTANCE_RAMP_TICKS (FOC_FREQ / 5U)
+#define PHASE_RESISTANCE_SETTLE_TICKS (FOC_FREQ / 5U)
+#define PHASE_RESISTANCE_SAMPLE_TICKS (FOC_FREQ / 10U)
+#define PHASE_RESISTANCE_PAUSE_TICKS (FOC_FREQ / 10U)
+#define PHASE_RESISTANCE_TIMEOUT_TICKS (FOC_FREQ * 3U)
+#define PHASE_RESISTANCE_TEST_CURRENT_RATIO 0.25f
+#define PHASE_RESISTANCE_TEST_CURRENT_MIN 0.5f
+#define PHASE_RESISTANCE_CURRENT_TOLERANCE 0.10f
+#define PHASE_RESISTANCE_Q_CURRENT_TOLERANCE 0.10f
+#define PHASE_RESISTANCE_VOLTAGE_TOLERANCE 0.01f
+#define PHASE_RESISTANCE_VOLTAGE_MIN_DELTA 0.005f
+#define PHASE_RESISTANCE_VOLTAGE_FILTER 0.02f
+#define PHASE_RESISTANCE_PATH_COMPENSATION_OHM 0.004f
+#define PHASE_RESISTANCE_BALANCE_LIMIT_PCT 5.0f
+
+typedef enum
+{
+	PHASE_RESISTANCE_IDLE = 0,
+	PHASE_RESISTANCE_RAMP,
+	PHASE_RESISTANCE_SETTLE,
+	PHASE_RESISTANCE_SAMPLE,
+	PHASE_RESISTANCE_PAUSE
+} PhaseResistanceStep_TypeDef;
+
+typedef struct
+{
+	PhaseResistanceStep_TypeDef step;
+	uint8_t vector_index;
+	uint32_t ramp_count;
+	uint32_t stable_count;
+	uint32_t sample_count;
+	uint32_t timeout_count;
+	uint32_t pause_count;
+	float test_current;
+	float previous_voltage_d;
+	float previous_voltage_q;
+	float filtered_voltage_d;
+	float filtered_voltage_q;
+	float power_sum;
+	float current_square_sum;
+	float vector_resistance[PHASE_RESISTANCE_VECTOR_COUNT];
+} PhaseResistanceTest_TypeDef;
+
+static PhaseResistanceTest_TypeDef PhaseResistanceTest;
+
+static float PhaseResistance_GetVectorPhase(uint8_t vector_index)
+{
+	return (float)vector_index * _2PI / (float)PHASE_RESISTANCE_VECTOR_COUNT;
+}
+
+void PhaseResistance_Cancel(void)
+{
+	if (PhaseResistanceTest.step != PHASE_RESISTANCE_IDLE)
+		memset(&PhaseResistanceTest, 0, sizeof(PhaseResistanceTest));
+}
+
+static void PhaseResistance_Abort(FOC_TypeDef *FOC,
+	MotorControl_TypeDef *MotorControl, ErrorNow_TypeDef error)
+{
+	MotorControl->idRef = 0.0f;
+	MotorControl->iqRef = 0.0f;
+	FOC_CurrentController_Reset(FOC);
+	PWM_TurnOnHighSides();
+	MotorControl->phase_resistance_valid = false;
+	MotorControl->phase_resistance_balanced = false;
+	memset(&PhaseResistanceTest, 0, sizeof(PhaseResistanceTest));
+	Set_ErrorNow(error);
+}
+
+static bool PhaseResistance_Start(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
+{
+	float current_limit;
+
+	memset(&PhaseResistanceTest, 0, sizeof(PhaseResistanceTest));
+	MotorControl->phase_resistance_a = 0.0f;
+	MotorControl->phase_resistance_b = 0.0f;
+	MotorControl->phase_resistance_c = 0.0f;
+	MotorControl->phase_resistance_spread_pct = 0.0f;
+	MotorControl->phase_resistance_valid = false;
+	MotorControl->phase_resistance_balanced = false;
+
+	current_limit = MotorControl->current_limit * PHASE_RESISTANCE_TEST_CURRENT_RATIO;
+	PhaseResistanceTest.test_current = fast_min(MotorControl->calib_current, current_limit);
+	if (PhaseResistanceTest.test_current < PHASE_RESISTANCE_TEST_CURRENT_MIN)
+	{
+		PhaseResistance_Abort(FOC, MotorControl, MotorParam_Error);
+		return false;
+	}
+
+	FOC_CurrentController_Reset(FOC);
+	PhaseResistanceTest.step = PHASE_RESISTANCE_RAMP;
+	return true;
+}
+
+static bool PhaseResistance_IsStable(const FOC_TypeDef *FOC)
+{
+	float voltage_d = FOC->mod_d * FOC->Vbus_filt / 1.5f;
+	float voltage_q = FOC->mod_q * FOC->Vbus_filt / 1.5f;
+	float current_error = fast_abs(FOC->Id_filt - PhaseResistanceTest.test_current);
+	float voltage_delta;
+	float voltage_magnitude;
+	bool current_stable = current_error <= PhaseResistanceTest.test_current *
+		PHASE_RESISTANCE_CURRENT_TOLERANCE &&
+		fast_abs(FOC->Iq_filt) <= PhaseResistanceTest.test_current *
+		PHASE_RESISTANCE_Q_CURRENT_TOLERANCE;
+	bool voltage_stable;
+
+	UTILS_LP_FAST(PhaseResistanceTest.filtered_voltage_d, voltage_d,
+		PHASE_RESISTANCE_VOLTAGE_FILTER);
+	UTILS_LP_FAST(PhaseResistanceTest.filtered_voltage_q, voltage_q,
+		PHASE_RESISTANCE_VOLTAGE_FILTER);
+	voltage_delta = fast_abs(PhaseResistanceTest.filtered_voltage_d -
+		PhaseResistanceTest.previous_voltage_d) + fast_abs(PhaseResistanceTest.filtered_voltage_q -
+		PhaseResistanceTest.previous_voltage_q);
+	voltage_magnitude = fast_sqrt(PhaseResistanceTest.filtered_voltage_d *
+		PhaseResistanceTest.filtered_voltage_d + PhaseResistanceTest.filtered_voltage_q *
+		PhaseResistanceTest.filtered_voltage_q);
+	voltage_stable = voltage_delta <= fast_max(PHASE_RESISTANCE_VOLTAGE_MIN_DELTA,
+		voltage_magnitude * PHASE_RESISTANCE_VOLTAGE_TOLERANCE);
+
+	PhaseResistanceTest.previous_voltage_d = PhaseResistanceTest.filtered_voltage_d;
+	PhaseResistanceTest.previous_voltage_q = PhaseResistanceTest.filtered_voltage_q;
+	return current_stable && voltage_stable;
+}
+
+static bool PhaseResistance_Finalize(MotorControl_TypeDef *MotorControl)
+{
+	float resistance_0 = PhaseResistanceTest.vector_resistance[0];
+	float resistance_1 = PhaseResistanceTest.vector_resistance[1];
+	float resistance_2 = PhaseResistanceTest.vector_resistance[2];
+	float resistance_min;
+	float resistance_max;
+	float resistance_mean;
+
+	if (resistance_0 <= PHASE_RESISTANCE_PATH_COMPENSATION_OHM ||
+		resistance_1 <= PHASE_RESISTANCE_PATH_COMPENSATION_OHM ||
+		resistance_2 <= PHASE_RESISTANCE_PATH_COMPENSATION_OHM)
+		return false;
+
+	MotorControl->phase_resistance_a =
+		(5.0f * resistance_0 - resistance_1 - resistance_2) / 3.0f -
+		PHASE_RESISTANCE_PATH_COMPENSATION_OHM;
+	MotorControl->phase_resistance_b =
+		(5.0f * resistance_1 - resistance_0 - resistance_2) / 3.0f -
+		PHASE_RESISTANCE_PATH_COMPENSATION_OHM;
+	MotorControl->phase_resistance_c =
+		(5.0f * resistance_2 - resistance_0 - resistance_1) / 3.0f -
+		PHASE_RESISTANCE_PATH_COMPENSATION_OHM;
+	if (MotorControl->phase_resistance_a <= 0.0f ||
+		MotorControl->phase_resistance_b <= 0.0f ||
+		MotorControl->phase_resistance_c <= 0.0f)
+		return false;
+
+	resistance_min = fast_min(MotorControl->phase_resistance_a,
+		fast_min(MotorControl->phase_resistance_b, MotorControl->phase_resistance_c));
+	resistance_max = fast_max(MotorControl->phase_resistance_a,
+		fast_max(MotorControl->phase_resistance_b, MotorControl->phase_resistance_c));
+	resistance_mean = (MotorControl->phase_resistance_a + MotorControl->phase_resistance_b +
+		MotorControl->phase_resistance_c) / 3.0f;
+	MotorControl->phase_resistance_spread_pct =
+		(resistance_max - resistance_min) * 100.0f / resistance_mean;
+	MotorControl->phase_resistance_valid = true;
+	MotorControl->phase_resistance_balanced =
+		MotorControl->phase_resistance_spread_pct <= PHASE_RESISTANCE_BALANCE_LIMIT_PCT;
+	return true;
+}
+
+void Task_Calib_PhaseResistance(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
+{
+	float vector_phase;
+	float voltage_d;
+	float voltage_q;
+	bool stable;
+
+	if (FOC->Vbus_filt < 10.0f)
+	{
+		PhaseResistance_Abort(FOC, MotorControl, Under_Voltage);
+		return;
+	}
+	if (FOC->Vbus_filt > 30.0f)
+	{
+		PhaseResistance_Abort(FOC, MotorControl, Over_Voltage);
+		return;
+	}
+
+	if (PhaseResistanceTest.step == PHASE_RESISTANCE_IDLE)
+	{
+		(void)PhaseResistance_Start(FOC, MotorControl);
+		return;
+	}
+
+	if (PhaseResistanceTest.step == PHASE_RESISTANCE_PAUSE)
+	{
+		MotorControl->idRef = 0.0f;
+		MotorControl->iqRef = 0.0f;
+		FOC_CurrentController_Reset(FOC);
+		PWM_TurnOnHighSides();
+		PhaseResistanceTest.pause_count++;
+		if (PhaseResistanceTest.pause_count < PHASE_RESISTANCE_PAUSE_TICKS)
+			return;
+
+		PhaseResistanceTest.vector_index++;
+		if (PhaseResistanceTest.vector_index >= PHASE_RESISTANCE_VECTOR_COUNT)
+		{
+			if (!PhaseResistance_Finalize(MotorControl))
+			{
+				PhaseResistance_Abort(FOC, MotorControl, MotorParam_Error);
+				return;
+			}
+			memset(&PhaseResistanceTest, 0, sizeof(PhaseResistanceTest));
+			Set_ModeNow(Motor_Disable);
+			return;
+		}
+
+		FOC_CurrentController_Reset(FOC);
+		PhaseResistanceTest.ramp_count = 0U;
+		PhaseResistanceTest.stable_count = 0U;
+		PhaseResistanceTest.timeout_count = 0U;
+		PhaseResistanceTest.previous_voltage_d = 0.0f;
+		PhaseResistanceTest.previous_voltage_q = 0.0f;
+		PhaseResistanceTest.filtered_voltage_d = 0.0f;
+		PhaseResistanceTest.filtered_voltage_q = 0.0f;
+		PhaseResistanceTest.step = PHASE_RESISTANCE_RAMP;
+	}
+
+	vector_phase = PhaseResistance_GetVectorPhase(PhaseResistanceTest.vector_index);
+	if (PhaseResistanceTest.step == PHASE_RESISTANCE_RAMP)
+	{
+		PhaseResistanceTest.ramp_count++;
+		MotorControl->idRef = PhaseResistanceTest.test_current *
+			(float)PhaseResistanceTest.ramp_count / (float)PHASE_RESISTANCE_RAMP_TICKS;
+		MotorControl->iqRef = 0.0f;
+		FOC_Current(FOC, MotorControl, vector_phase, 0.0f);
+		if (PhaseResistanceTest.ramp_count >= PHASE_RESISTANCE_RAMP_TICKS)
+		{
+			PhaseResistanceTest.stable_count = 0U;
+			PhaseResistanceTest.timeout_count = 0U;
+			PhaseResistanceTest.previous_voltage_d = 0.0f;
+			PhaseResistanceTest.previous_voltage_q = 0.0f;
+			PhaseResistanceTest.filtered_voltage_d = 0.0f;
+			PhaseResistanceTest.filtered_voltage_q = 0.0f;
+			PhaseResistanceTest.step = PHASE_RESISTANCE_SETTLE;
+		}
+		return;
+	}
+
+	MotorControl->idRef = PhaseResistanceTest.test_current;
+	MotorControl->iqRef = 0.0f;
+	FOC_Current(FOC, MotorControl, vector_phase, 0.0f);
+
+	if (PhaseResistanceTest.step == PHASE_RESISTANCE_SETTLE)
+	{
+		stable = PhaseResistance_IsStable(FOC);
+		if (stable)
+			PhaseResistanceTest.stable_count++;
+		else
+			PhaseResistanceTest.stable_count = 0U;
+
+		PhaseResistanceTest.timeout_count++;
+		if (PhaseResistanceTest.stable_count >= PHASE_RESISTANCE_SETTLE_TICKS)
+		{
+			PhaseResistanceTest.sample_count = 0U;
+			PhaseResistanceTest.power_sum = 0.0f;
+			PhaseResistanceTest.current_square_sum = 0.0f;
+			PhaseResistanceTest.step = PHASE_RESISTANCE_SAMPLE;
+		}
+		else if (PhaseResistanceTest.timeout_count >= PHASE_RESISTANCE_TIMEOUT_TICKS)
+		{
+			PhaseResistance_Abort(FOC, MotorControl, Large_Phase_Resistance);
+		}
+		return;
+	}
+
+	if (!PhaseResistance_IsStable(FOC))
+	{
+		PhaseResistance_Abort(FOC, MotorControl, MotorParam_Error);
+		return;
+	}
+
+	voltage_d = FOC->mod_d * FOC->Vbus_filt / 1.5f;
+	voltage_q = FOC->mod_q * FOC->Vbus_filt / 1.5f;
+	PhaseResistanceTest.power_sum += voltage_d * FOC->Id + voltage_q * FOC->Iq;
+	PhaseResistanceTest.current_square_sum += FOC->Id * FOC->Id + FOC->Iq * FOC->Iq;
+	PhaseResistanceTest.sample_count++;
+	if (PhaseResistanceTest.sample_count < PHASE_RESISTANCE_SAMPLE_TICKS)
+		return;
+
+	if (PhaseResistanceTest.current_square_sum <= 0.0f)
+	{
+		PhaseResistance_Abort(FOC, MotorControl, MotorParam_Error);
+		return;
+	}
+
+	PhaseResistanceTest.vector_resistance[PhaseResistanceTest.vector_index] =
+		PhaseResistanceTest.power_sum / PhaseResistanceTest.current_square_sum;
+	PhaseResistanceTest.pause_count = 0U;
+	PhaseResistanceTest.step = PHASE_RESISTANCE_PAUSE;
+}
+
 
 static void Encoder_Calib_ReleaseSamples(void)
 {

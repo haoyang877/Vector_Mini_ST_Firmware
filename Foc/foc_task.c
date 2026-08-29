@@ -37,6 +37,21 @@ void RTT_Sampling(void)
     int16_t data8;
     } Rttstru;
 
+	if (MotorControl.ModeNow == Calib_PhaseResistance)
+	{
+		Rttstru.data0 = (int16_t)(FOC.Vbus_filt * 1000.0f);
+		Rttstru.data1 = (int16_t)(MotorControl.idRef * 1000.0f);
+		Rttstru.data2 = (int16_t)(FOC.Id * 1000.0f);
+		Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
+		Rttstru.data4 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
+		Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
+		Rttstru.data6 = (int16_t)(FOC.Ia * 1000.0f);
+		Rttstru.data7 = (int16_t)(FOC.Ib * 1000.0f);
+		Rttstru.data8 = (int16_t)(FOC.Ic * 1000.0f);
+		SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
+		return;
+	}
+
 	/* RTT channels: phase error Q15, speed/current/voltage, encoder and observer electrical angles Q15. */
 	encoder_theta_elec = normalizeAngle(OnBoard_Encoder.theta_elec);
 	observer_theta_elec = normalizeAngle(Observer_GetElePhase(&Fluxobserver));
@@ -127,6 +142,7 @@ void FOC20kHzIRQHandler(void)
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
+			PhaseResistance_Cancel();
 			PWM_TurnOnHighSides();
 		break;
 		
@@ -150,6 +166,10 @@ void FOC20kHzIRQHandler(void)
 			Task_Calib_R_L_Flux(&FOC, &MotorControl);
 		break;
 		
+		case Calib_PhaseResistance:
+			Task_Calib_PhaseResistance(&FOC, &MotorControl);
+		break;
+
 		case Calib_EncoderOffset:
 			Task_Calib_EncoderOffset(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
 		break;

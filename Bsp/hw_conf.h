@@ -12,7 +12,7 @@
 #define FOC_PERIOD				(1.0f / (float)FOC_FREQ)
 
 /*RTT output sampling frequency; must divide FOC_FREQ exactly*/
-#define RTT_SAMPLE_RATE_HZ		2000U
+#define RTT_SAMPLE_RATE_HZ		10000U
 
 #if RTT_SAMPLE_RATE_HZ == 0U
 #error "RTT_SAMPLE_RATE_HZ must be greater than zero"

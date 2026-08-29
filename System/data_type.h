@@ -23,6 +23,7 @@ typedef enum
 	Vq_Mode = 14,
 	Calib_EleAngelOffset = 15,
 	Sensorless_Speed_Mode = 16,
+	Calib_PhaseResistance = 17,
 	MODE_NUM
 }ModeNow_TypeDef; 
 
@@ -58,9 +59,15 @@ typedef struct
 	
 	int32_t motor_pole_pairs;
 	float motor_phase_resistance;
+	float phase_resistance_a;
+	float phase_resistance_b;
+	float phase_resistance_c;
+	float phase_resistance_spread_pct;
 	float motor_d_inductance;
 	float motor_q_inductance;
 	float motor_flux;
+	bool phase_resistance_valid;
+	bool phase_resistance_balanced;
 	
 	bool isUseSensorless;
 	

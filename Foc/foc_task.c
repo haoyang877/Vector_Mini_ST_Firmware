@@ -2,6 +2,7 @@
 
 #include "common_inc.h"
 #include "SEGGER_RTT.h"
+#include "foc_phase_resistance.h"
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -142,7 +143,7 @@ void FOC20kHzIRQHandler(void)
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
-			PhaseResistance_Cancel();
+			PhaseResistanceMode_Cancel(&FOC, &MotorControl);
 			PWM_TurnOnHighSides();
 		break;
 		
@@ -167,8 +168,22 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Calib_PhaseResistance:
-			Task_Calib_PhaseResistance(&FOC, &MotorControl);
-		break;
+		{
+			PhaseResistanceModeStatus_TypeDef status =
+				PhaseResistanceMode_Run(&FOC, &MotorControl);
+
+			if (status == PHASE_RESISTANCE_MODE_DONE)
+				Set_ModeNow(Motor_Disable);
+			else if (status == PHASE_RESISTANCE_MODE_SETTLE_TIMEOUT)
+				Set_ErrorNow(Large_Phase_Resistance);
+			else if (status == PHASE_RESISTANCE_MODE_INVALID_RESULT)
+				Set_ErrorNow(MotorParam_Error);
+			else if (status == PHASE_RESISTANCE_MODE_UNDER_VOLTAGE)
+				Set_ErrorNow(Under_Voltage);
+			else if (status == PHASE_RESISTANCE_MODE_OVER_VOLTAGE)
+				Set_ErrorNow(Over_Voltage);
+			break;
+		}
 
 		case Calib_EncoderOffset:
 			Task_Calib_EncoderOffset(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);

@@ -560,6 +560,16 @@
               <FilePath>..\Foc\foc_calibration.c</FilePath>
             </File>
             <File>
+              <FileName>phase_resistance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Foc\phase_resistance.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_phase_resistance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Foc\foc_phase_resistance.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_errhandle.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_errhandle.c</FilePath>

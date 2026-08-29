@@ -59,6 +59,8 @@ typedef struct
 	
 	int32_t motor_pole_pairs;
 	float motor_phase_resistance;
+	/* Raw resistance from the 0/120/240 degree test vectors. */
+	float phase_resistance_vector[3];
 	float phase_resistance_a;
 	float phase_resistance_b;
 	float phase_resistance_c;

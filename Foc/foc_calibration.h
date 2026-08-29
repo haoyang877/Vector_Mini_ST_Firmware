@@ -52,8 +52,6 @@ typedef enum
 } CalibStep_TyepeDef;
 
 void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
-void Task_Calib_PhaseResistance(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
-void PhaseResistance_Cancel(void);
 void Task_Calib_EncoderOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver);
 void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,

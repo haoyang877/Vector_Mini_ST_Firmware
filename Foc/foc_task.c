@@ -15,9 +15,22 @@ ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
 
+static int16_t RTT_EncodeInt16(float value, float scale)
+{
+	float scaled = value * scale;
+
+	if (scaled > 32767.0f)
+		return 32767;
+	if (scaled < -32768.0f)
+		return -32768;
+
+	return (int16_t)scaled;
+}
+
 void RTT_Sampling(void)
 {
 	static uint32_t rtt_divider_count;
+	PhaseResistanceModeTelemetry_TypeDef phase_rtt;
 	float encoder_theta_elec;
 	float observer_theta_elec;
 	float phase_error;
@@ -40,15 +53,31 @@ void RTT_Sampling(void)
 
 	if (MotorControl.ModeNow == Calib_PhaseResistance)
 	{
-		Rttstru.data0 = (int16_t)(FOC.Vbus_filt * 1000.0f);
-		Rttstru.data1 = (int16_t)(MotorControl.idRef * 1000.0f);
-		Rttstru.data2 = (int16_t)(FOC.Id * 1000.0f);
-		Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
-		Rttstru.data4 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
-		Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
-		Rttstru.data6 = (int16_t)(FOC.Ia * 1000.0f);
-		Rttstru.data7 = (int16_t)(FOC.Ib * 1000.0f);
-		Rttstru.data8 = (int16_t)(FOC.Ic * 1000.0f);
+		if (PhaseResistanceMode_GetTelemetry(&phase_rtt))
+		{
+			/* RTT channel 1: angle[mrad], IdRef/Id/Iq[mA], Vd/Vq[mV], I/U[mA/mV], Vbus[mV]. */
+			Rttstru.data0 = RTT_EncodeInt16(phase_rtt.electrical_angle, 1000.0f);
+			Rttstru.data1 = RTT_EncodeInt16(phase_rtt.id_ref, 1000.0f);
+			Rttstru.data2 = RTT_EncodeInt16(phase_rtt.id, 1000.0f);
+			Rttstru.data3 = RTT_EncodeInt16(phase_rtt.iq, 1000.0f);
+			Rttstru.data4 = RTT_EncodeInt16(phase_rtt.vd, 1000.0f);
+			Rttstru.data5 = RTT_EncodeInt16(phase_rtt.vq, 1000.0f);
+			Rttstru.data6 = RTT_EncodeInt16(phase_rtt.current_magnitude, 1000.0f);
+			Rttstru.data7 = RTT_EncodeInt16(phase_rtt.parallel_voltage, 1000.0f);
+			Rttstru.data8 = RTT_EncodeInt16(phase_rtt.vbus, 1000.0f);
+		}
+		else
+		{
+			Rttstru.data0 = 0;
+			Rttstru.data1 = 0;
+			Rttstru.data2 = 0;
+			Rttstru.data3 = 0;
+			Rttstru.data4 = 0;
+			Rttstru.data5 = 0;
+			Rttstru.data6 = 0;
+			Rttstru.data7 = 0;
+			Rttstru.data8 = 0;
+		}
 		SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
 		return;
 	}

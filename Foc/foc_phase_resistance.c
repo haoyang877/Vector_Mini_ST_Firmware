@@ -1,30 +1,47 @@
 #include "foc_phase_resistance.h"
 
+#include <math.h>
+
+#include "foc_param_profile.h"
 #include "hw_conf.h"
 
-#define PHASE_RESISTANCE_RAMP_TICKS (FOC_FREQ / 5U)
-#define PHASE_RESISTANCE_SETTLE_TICKS (FOC_FREQ / 5U)
-#define PHASE_RESISTANCE_SAMPLE_TICKS (FOC_FREQ / 10U)
-#define PHASE_RESISTANCE_PAUSE_TICKS (FOC_FREQ / 10U)
-#define PHASE_RESISTANCE_TIMEOUT_TICKS (FOC_FREQ * 3U)
-#define PHASE_RESISTANCE_TEST_CURRENT_RATIO 0.25f
+#define PHASE_RESISTANCE_RAMP_TICKS \
+	((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_RAMP_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_SETTLE_TICKS \
+	((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_SETTLE_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_SAMPLE_TICKS \
+	((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_SAMPLE_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_PAUSE_TICKS \
+	((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_PAUSE_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_TIMEOUT_TICKS \
+	((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_TIMEOUT_MS) / 1000U)
 #define PHASE_RESISTANCE_TEST_CURRENT_MIN 0.5f
 #define PHASE_RESISTANCE_CURRENT_TOLERANCE 0.10f
 #define PHASE_RESISTANCE_Q_CURRENT_TOLERANCE 0.10f
 #define PHASE_RESISTANCE_VOLTAGE_TOLERANCE 0.01f
 #define PHASE_RESISTANCE_VOLTAGE_MIN_DELTA 0.005f
 #define PHASE_RESISTANCE_VOLTAGE_FILTER 0.02f
-#define PHASE_RESISTANCE_PATH_COMPENSATION_OHM 0.004f
-#define PHASE_RESISTANCE_BALANCE_LIMIT_PCT 5.0f
+#define PHASE_RESISTANCE_VBUS_MIN 10.0f
+#define PHASE_RESISTANCE_VBUS_MAX 30.0f
 
 typedef struct
 {
 	PhaseResistanceContext_TypeDef core;
 	PhaseResistanceModeStatus_TypeDef status;
+	float applied_mod_d;
+	float applied_mod_q;
+	PhaseResistanceModeTelemetry_TypeDef telemetry;
+	bool applied_voltage_valid;
+	bool telemetry_valid;
 	bool started;
 } PhaseResistanceModeContext_TypeDef;
 
 static PhaseResistanceModeContext_TypeDef PhaseResistanceModeContext;
+
+static float PhaseResistanceMode_Min(float first, float second)
+{
+	return first < second ? first : second;
+}
 
 /** The adapter owns PWM release and current-loop reset; the core never does. */
 static void PhaseResistanceMode_StopOutput(FOC_TypeDef *foc, MotorControl_TypeDef *motor)
@@ -33,6 +50,10 @@ static void PhaseResistanceMode_StopOutput(FOC_TypeDef *foc, MotorControl_TypeDe
 	motor->iqRef = 0.0f;
 	FOC_CurrentController_Reset(foc);
 	PWM_TurnOnHighSides();
+	PhaseResistanceModeContext.applied_mod_d = 0.0f;
+	PhaseResistanceModeContext.applied_mod_q = 0.0f;
+	PhaseResistanceModeContext.applied_voltage_valid = false;
+	PhaseResistanceModeContext.telemetry_valid = false;
 }
 
 static void PhaseResistanceMode_ClearResult(MotorControl_TypeDef *motor)
@@ -46,16 +67,29 @@ static void PhaseResistanceMode_ClearResult(MotorControl_TypeDef *motor)
 	motor->phase_resistance_c = 0.0f;
 	motor->phase_resistance_spread_pct = 0.0f;
 	motor->phase_resistance_valid = false;
+	motor->phase_resistance_warning = false;
 	motor->phase_resistance_balanced = false;
+}
+
+static float PhaseResistanceMode_LimitCurrent(const MotorControl_TypeDef *motor,
+	float requested_current)
+{
+	float maximum_current = PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_MAX_A;
+
+	maximum_current = PhaseResistanceMode_Min(maximum_current, motor->current_limit);
+	return PhaseResistanceMode_Min(requested_current, maximum_current);
 }
 
 static bool PhaseResistanceMode_Start(MotorControl_TypeDef *motor)
 {
 	PhaseResistanceConfig_TypeDef config;
-	float current_limit = motor->current_limit * PHASE_RESISTANCE_TEST_CURRENT_RATIO;
 
-	config.test_current = motor->calib_current < current_limit ?
-		motor->calib_current : current_limit;
+	config.test_current_low = PhaseResistanceMode_LimitCurrent(motor,
+		PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_LOW_A);
+	config.test_current_high = PhaseResistanceMode_LimitCurrent(motor,
+		PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_HIGH_A);
+	config.maximum_test_current = PhaseResistanceMode_LimitCurrent(motor,
+		PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_MAX_A);
 	config.minimum_test_current = PHASE_RESISTANCE_TEST_CURRENT_MIN;
 	config.ramp_ticks = PHASE_RESISTANCE_RAMP_TICKS;
 	config.settle_ticks = PHASE_RESISTANCE_SETTLE_TICKS;
@@ -67,10 +101,15 @@ static bool PhaseResistanceMode_Start(MotorControl_TypeDef *motor)
 	config.voltage_tolerance = PHASE_RESISTANCE_VOLTAGE_TOLERANCE;
 	config.voltage_min_delta = PHASE_RESISTANCE_VOLTAGE_MIN_DELTA;
 	config.voltage_filter = PHASE_RESISTANCE_VOLTAGE_FILTER;
-	config.path_compensation_ohm = PHASE_RESISTANCE_PATH_COMPENSATION_OHM;
-	config.balance_limit_pct = PHASE_RESISTANCE_BALANCE_LIMIT_PCT;
+	config.path_compensation_ohm = PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM;
+	config.balance_warning_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_WARNING_PCT;
+	config.balance_fault_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_FAULT_PCT;
 
 	PhaseResistance_Init(&PhaseResistanceModeContext.core);
+	PhaseResistanceModeContext.applied_mod_d = 0.0f;
+	PhaseResistanceModeContext.applied_mod_q = 0.0f;
+	PhaseResistanceModeContext.applied_voltage_valid = false;
+	PhaseResistanceModeContext.telemetry_valid = false;
 	return PhaseResistance_Start(&PhaseResistanceModeContext.core, &config);
 }
 
@@ -89,6 +128,7 @@ static void PhaseResistanceMode_CopyResult(MotorControl_TypeDef *motor)
 	motor->phase_resistance_c = result.phase_resistance_c;
 	motor->phase_resistance_spread_pct = result.spread_pct;
 	motor->phase_resistance_valid = result.valid;
+	motor->phase_resistance_warning = result.warning;
 	motor->phase_resistance_balanced = result.balanced;
 }
 
@@ -127,9 +167,9 @@ PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
 		PhaseResistanceMode_StopOutput(foc, motor);
 		return PhaseResistanceModeContext.status;
 	}
-	if (foc->Vbus_filt < 10.0f)
+	if (foc->Vbus_filt < PHASE_RESISTANCE_VBUS_MIN)
 		return PhaseResistanceMode_Fail(foc, motor, PHASE_RESISTANCE_MODE_UNDER_VOLTAGE);
-	if (foc->Vbus_filt > 30.0f)
+	if (foc->Vbus_filt > PHASE_RESISTANCE_VBUS_MAX)
 		return PhaseResistanceMode_Fail(foc, motor, PHASE_RESISTANCE_MODE_OVER_VOLTAGE);
 
 	if (!PhaseResistanceModeContext.started)
@@ -151,6 +191,10 @@ PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
 	}
 	else
 	{
+		float applied_mod_d = PhaseResistanceModeContext.applied_mod_d;
+		float applied_mod_q = PhaseResistanceModeContext.applied_mod_q;
+		float current_magnitude;
+
 		motor->idRef = command.id_ref;
 		motor->iqRef = command.iq_ref;
 		FOC_Current(foc, motor, command.electrical_angle, 0.0f);
@@ -159,8 +203,34 @@ PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
 		sample.iq = foc->Iq;
 		sample.id_filt = foc->Id_filt;
 		sample.iq_filt = foc->Iq_filt;
-		sample.vd = foc->mod_d * foc->Vbus_filt / 1.5f;
-		sample.vq = foc->mod_q * foc->Vbus_filt / 1.5f;
+		if (PhaseResistanceModeContext.applied_voltage_valid)
+		{
+			sample.vd = applied_mod_d * foc->Vbus / 1.5f;
+			sample.vq = applied_mod_q * foc->Vbus / 1.5f;
+		}
+		else
+		{
+			sample.vd = 0.0f;
+			sample.vq = 0.0f;
+		}
+		current_magnitude = sqrtf(sample.id * sample.id + sample.iq * sample.iq);
+		PhaseResistanceModeContext.telemetry.electrical_angle = command.electrical_angle;
+		PhaseResistanceModeContext.telemetry.id_ref = command.id_ref;
+		PhaseResistanceModeContext.telemetry.id = sample.id;
+		PhaseResistanceModeContext.telemetry.iq = sample.iq;
+		PhaseResistanceModeContext.telemetry.vd = sample.vd;
+		PhaseResistanceModeContext.telemetry.vq = sample.vq;
+		PhaseResistanceModeContext.telemetry.current_magnitude = current_magnitude;
+		PhaseResistanceModeContext.telemetry.parallel_voltage =
+			current_magnitude > 0.0f ? (sample.vd * sample.id + sample.vq * sample.iq) /
+			current_magnitude : 0.0f;
+		PhaseResistanceModeContext.telemetry.vbus = foc->Vbus;
+		PhaseResistanceModeContext.telemetry_valid =
+			PhaseResistanceModeContext.applied_voltage_valid;
+
+		PhaseResistanceModeContext.applied_mod_d = foc->mod_d;
+		PhaseResistanceModeContext.applied_mod_q = foc->mod_q;
+		PhaseResistanceModeContext.applied_voltage_valid = true;
 		core_status = PhaseResistance_InputSample(&PhaseResistanceModeContext.core, &sample);
 	}
 
@@ -176,6 +246,16 @@ PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
 		return mode_status;
 	}
 	return PhaseResistanceMode_Fail(foc, motor, mode_status);
+}
+
+bool PhaseResistanceMode_GetTelemetry(PhaseResistanceModeTelemetry_TypeDef *telemetry)
+{
+	if (telemetry == NULL || !PhaseResistanceModeContext.started ||
+		!PhaseResistanceModeContext.telemetry_valid)
+		return false;
+
+	*telemetry = PhaseResistanceModeContext.telemetry;
+	return true;
 }
 
 void PhaseResistanceMode_Cancel(FOC_TypeDef *foc, MotorControl_TypeDef *motor)

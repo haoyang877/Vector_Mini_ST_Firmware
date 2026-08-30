@@ -69,6 +69,7 @@ typedef struct
 	float motor_q_inductance;
 	float motor_flux;
 	bool phase_resistance_valid;
+	bool phase_resistance_warning;
 	bool phase_resistance_balanced;
 	
 	bool isUseSensorless;

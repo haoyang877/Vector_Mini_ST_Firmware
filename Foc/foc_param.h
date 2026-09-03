@@ -4,7 +4,8 @@
 #include "main.h"
 #include "encoder.h"
 
-#define PARAM_SCHEMA_VERSION 5U
+#define PARAM_SCHEMA_VERSION 6U
+#define PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE 5U
 #define PARAM_SCHEMA_VERSION_LEGACY_CASCADE 4U
 
 /* Runtime/persisted position-impedance gain limits. */
@@ -51,6 +52,8 @@ typedef struct
 	uint32_t magic_word;
 	/* Appended in schema v5 so the v4 schema/magic offsets remain readable. */
 	float pos_ki;
+	/* Appended in schema v6; identifies the current-sense scaling in Flash. */
+	uint32_t current_sense_shunt_milliohm;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

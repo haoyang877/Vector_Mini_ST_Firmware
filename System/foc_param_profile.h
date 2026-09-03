@@ -1,6 +1,8 @@
 #ifndef __FOC_PARAM_PROFILE_H__
 #define __FOC_PARAM_PROFILE_H__
 
+#include "current_sense_profile.h"
+
 /*
  * Compile-time parameter profile selection.
  * Add a new profile ID and a corresponding #elif block for each motor or board.
@@ -28,8 +30,8 @@
 #define PARAM_MOTOR_FLUX_WB                       0.0175025f
 
 /* Encoder electrical-angle alignment current. */
-#define PARAM_MOTOR_CALIB_CURRENT_A               3.0f
-#define PARAM_MOTOR_CURRENT_LIMIT_A               6.0f
+#define PARAM_MOTOR_CALIB_CURRENT_A               CURRENT_SENSE_PROFILE_DEFAULT_CALIB_A
+#define PARAM_MOTOR_CURRENT_LIMIT_A               CURRENT_SENSE_PROFILE_DEFAULT_LIMIT_A
 #define PARAM_MOTOR_SPEED_LIMIT_RPS               (372.0f / 60.0f)
 #define PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S  (500.0f * 6.283185307f)
 
@@ -55,8 +57,7 @@
 #define PARAM_HW_CURRENT_OFFSET_A_COUNTS          2048U
 #define PARAM_HW_CURRENT_OFFSET_B_COUNTS          2048U
 #define PARAM_HW_CURRENT_OFFSET_C_COUNTS          2048U
-/* Previous 4 mOhm board-path estimate plus the 4 mOhm shunt increase (2 -> 6 mOhm). */
-#define PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM 0.008f
+#define PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM CURRENT_SENSE_PROFILE_PATH_COMPENSATION_OHM
 
 #define PARAM_HW_CAN_NODE_ID                      0x00U
 #define PARAM_HW_CAN_HEARTBEAT_MS                 500

@@ -91,6 +91,7 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->pos_kp = MotorControl.pos_Kp;
 	param->pos_kd = MotorControl.pos_Kd;
 	param->pos_ki = MotorControl.pos_Ki;
+	param->current_sense_shunt_milliohm = CURRENT_SENSE_SHUNT_MILLIOHM;
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
 }
@@ -98,17 +99,27 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 void Param_Download(const InterfaceParam_TypeDef *param)
 {
 	uint32_t lut_index;
+	uint32_t stored_shunt_milliohm;
 	bool legacy_cascade_parameters;
+	bool current_sense_profile_changed;
 	float position_speed_limit;
 
 	if (param->magic_word != MAGIC_WORD ||
 		(param->schema_version != PARAM_SCHEMA_VERSION &&
+		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_CASCADE))
 	{
 		Param_Return_Default();
 		return;
 	}
 	legacy_cascade_parameters = param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE;
+	if (param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE)
+		stored_shunt_milliohm = CURRENT_SENSE_SHUNT_2_MILLIOHM;
+	else if (param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE)
+		stored_shunt_milliohm = CURRENT_SENSE_SHUNT_6_MILLIOHM;
+	else
+		stored_shunt_milliohm = param->current_sense_shunt_milliohm;
+	current_sense_profile_changed = stored_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
 	if (param->encoder_reverse > 1U)
 	{
 		Param_Return_Default();
@@ -130,13 +141,15 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 	OnBoard_Encoder.reverse = param->encoder_reverse;
 	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
 		OnBoard_Encoder.linearization_lut_q15[lut_index] = param->encoder_linearization_lut_q15[lut_index];
-	/* Clamp parameters saved by older 2 mOhm firmware to the 6 mOhm limits. */
-	if (!isfinite(param->calib_current) || param->calib_current < 0.0f)
+	/* A scaling change invalidates saved current-domain defaults, but not calibration data. */
+	if (current_sense_profile_changed ||
+		!isfinite(param->calib_current) || param->calib_current < 0.0f)
 		MotorControl.calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
 	else
 		MotorControl.calib_current = constrain(param->calib_current, 0.0f, CURRENT_CALIB_LIMIT_MAX_A);
 
-	if (!isfinite(param->current_limit) || param->current_limit <= 0.0f)
+	if (current_sense_profile_changed ||
+		!isfinite(param->current_limit) || param->current_limit <= 0.0f)
 		MotorControl.current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
 	else
 		MotorControl.current_limit = constrain(param->current_limit, 0.0f, CURRENT_COMMAND_LIMIT_MAX_A);

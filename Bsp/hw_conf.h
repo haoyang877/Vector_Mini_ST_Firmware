@@ -2,6 +2,7 @@
 #define __HW_CONF_H__
 
 #include "main.h"
+#include "current_sense_profile.h"
 
 #define PWM_TIM_CLOCK			170000000
 #define PWM_TIM_FREQ			20000 /*Hz*/
@@ -24,20 +25,17 @@
 
 #define RTT_SAMPLE_DIVIDER		(FOC_FREQ / RTT_SAMPLE_RATE_HZ)
 
-/* Three-phase low-side current sensing: 6 mOhm shunt, gain 10 V/V. */
-#define SENSING_RES                         0.006f
-#define CURRENT_AMP_GAIN                    10.0f
+/* Three-phase low-side current sensing; selected in current_sense_profile.h. */
+#define SENSING_RES                         CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM
+#define CURRENT_AMP_GAIN                    CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN
 /* Current represented by one 12-bit ADC count (A/count). */
 #define SENSING_CURR_FACTOR                 (float)(3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
 
-/*
- * The theoretical ADC range is about +/-27.5 A with a 1.65 V midpoint.
- * Keep normal control and software protection below the amplifier/ADC rails.
- */
-#define CURRENT_SENSE_RELIABLE_LIMIT_A      20.0f
-#define CURRENT_COMMAND_LIMIT_MAX_A         10.0f
-#define CURRENT_CALIB_LIMIT_MAX_A           10.0f
-#define CURRENT_OVERCURRENT_TRIP_A          18.0f
+/* Keep normal control and software protection below the amplifier/ADC rails. */
+#define CURRENT_SENSE_RELIABLE_LIMIT_A      CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A
+#define CURRENT_COMMAND_LIMIT_MAX_A         CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A
+#define CURRENT_CALIB_LIMIT_MAX_A           CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A
+#define CURRENT_OVERCURRENT_TRIP_A          CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A
 
 /*bus voltagge R1 R2 (kohm)*/
 #define VBUS_R1					10.0f

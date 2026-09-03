@@ -20,11 +20,22 @@
 
 ## 2. 电流单位与换算
 
-定义见 `Bsp/hw_conf.h`：
+配置入口见 `Bsp/current_sense_profile.h`。只需修改一个宏即可切换整套参数：
 
 ```c
-#define SENSING_RES        0.006f   /* 采样电阻 Ω */
-#define CURRENT_AMP_GAIN   10.0f    /* 电流放大增益 V/V */
+#define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_6_MILLIOHM
+```
+
+该宏同时选择采样换算、软件可靠量程、命令/校准限幅、过流阈值、默认电流和相电阻路径补偿：
+
+| 配置 | A/LSB | 可靠量程 | 命令上限 | 校准上限 | 过流阈值 | 默认校准电流 | 默认限流 | 路径补偿 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2 mΩ | 0.04029 | 60 A | 30 A | 30 A | 40 A | 10 A | 30 A | 4 mΩ |
+| 6 mΩ（默认） | 0.01343 | 20 A | 10 A | 10 A | 18 A | 3 A | 6 A | 8 mΩ |
+
+`Bsp/hw_conf.h` 最终使用通用公式：
+
+```c
 #define SENSING_CURR_FACTOR (3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
 ```
 
@@ -40,7 +51,9 @@ SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 FOC->Ia = -((int16_t)ADC值 - A_Offset) * SENSING_CURR_FACTOR;  // A
 ```
 
-因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。当前6 mΩ配置默认 `calib_current = 3 A`，`current_limit = 6 A`。
+因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。默认 6 mΩ 配置的 `calib_current = 3 A`，`current_limit = 6 A`。
+
+Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置与编译配置不一致时，仅恢复 `calib_current` 和 `current_limit` 的档位默认值；编码器 LUT、电机参数及位置环参数继续保留。旧 schema v4 按 2 mΩ 识别，schema v5 按 6 mΩ 识别。
 
 ## 3. 电压单位与换算
 
@@ -123,10 +136,10 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 ### 5.1 相电阻 R（Ω）
 
 ```
-R = (V_phase / I_phase) × 2/3 − 0.008
+R = (V_phase / I_phase) × 2/3 − PATH_COMPENSATION
 ```
 
-`2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；`0.008 Ω` 是功率路径与 6 mΩ 采样电阻配置对应的补偿。单位 **Ω**，打印为 mΩ。
+`2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；`PATH_COMPENSATION` 随档位选择（2 mΩ 档为 0.004 Ω，6 mΩ 档为 0.008 Ω）。单位 **Ω**，打印为 mΩ。
 
 ### 5.2 电感 Ld/Lq（H）
 
@@ -178,7 +191,7 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 ## 8. 关键换算公式速查
 
 ```
-I [A]     = (ADC − Offset) × 3.3 / 4095 / 10 / 0.006
+I [A]     = (ADC − Offset) × 3.3 / 4095 / CURRENT_AMP_GAIN / SENSING_RES
 Vbus [V]  = ADC × 3.3 / 4095 × 11
 V_phase   = mod × Vbus / 1.5
 θe [rad]  = count / cpr × 2π × pole_pairs      （归一化到 [0, 2π)）
@@ -187,7 +200,7 @@ V_phase   = mod × Vbus / 1.5
 speed_ref(接口 rev/s) → 内部 × 2π → rad/s
 pos_ref(接口 r)      → 内部 × 2π → rad
 
-R  [Ω]  = (V/I) × 2/3 − 0.008
+R  [Ω]  = (V/I) × 2/3 − PATH_COMPENSATION
 L  [H]  = (V − R·I) / (ωe·I) × 2.25
 ψ  [Wb] = (|V| − R·|I|) / ωe − L·|I|
 ```

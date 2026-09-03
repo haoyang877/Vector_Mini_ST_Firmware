@@ -84,6 +84,8 @@ typedef enum
 	CAN_GET_ERROR			= 0x4D,
 	CAN_SET_ENCODER_REVERSE = 0x4E,
 	CAN_GET_ENCODER_REVERSE = 0x4F,
+	CAN_SET_POS_KI          = 0x50,
+	CAN_GET_POS_KI          = 0x51,
 }CAN_PARAM_ID;
 
 typedef struct

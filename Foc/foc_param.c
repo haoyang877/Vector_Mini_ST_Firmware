@@ -48,6 +48,7 @@ void Param_Return_Default(void)
 	MotorControl.pos_maxspeed = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
 	MotorControl.pos_Kp = PARAM_APP_POSITION_KP;
 	MotorControl.pos_Kd = PARAM_APP_POSITION_KD;
+	MotorControl.pos_Ki = PARAM_APP_POSITION_KI;
 	CANMsg.can_hb_set = PARAM_HW_CAN_HEARTBEAT_MS;
 
 	MotorControl.ModeNow = Save_Param;
@@ -89,6 +90,7 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->pos_maxspeed = MotorControl.pos_maxspeed;
 	param->pos_kp = MotorControl.pos_Kp;
 	param->pos_kd = MotorControl.pos_Kd;
+	param->pos_ki = MotorControl.pos_Ki;
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
 }
@@ -96,12 +98,17 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 void Param_Download(const InterfaceParam_TypeDef *param)
 {
 	uint32_t lut_index;
+	bool legacy_cascade_parameters;
+	float position_speed_limit;
 
-	if (param->magic_word != MAGIC_WORD || param->schema_version != PARAM_SCHEMA_VERSION)
+	if (param->magic_word != MAGIC_WORD ||
+		(param->schema_version != PARAM_SCHEMA_VERSION &&
+		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_CASCADE))
 	{
 		Param_Return_Default();
 		return;
 	}
+	legacy_cascade_parameters = param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE;
 	if (param->encoder_reverse > 1U)
 	{
 		Param_Return_Default();
@@ -123,21 +130,64 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 	OnBoard_Encoder.reverse = param->encoder_reverse;
 	for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
 		OnBoard_Encoder.linearization_lut_q15[lut_index] = param->encoder_linearization_lut_q15[lut_index];
-	MotorControl.calib_current = param->calib_current;
-	MotorControl.current_limit = param->current_limit;
+	/* Clamp parameters saved by older 2 mOhm firmware to the 6 mOhm limits. */
+	if (!isfinite(param->calib_current) || param->calib_current < 0.0f)
+		MotorControl.calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
+	else
+		MotorControl.calib_current = constrain(param->calib_current, 0.0f, CURRENT_CALIB_LIMIT_MAX_A);
+
+	if (!isfinite(param->current_limit) || param->current_limit <= 0.0f)
+		MotorControl.current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
+	else
+		MotorControl.current_limit = constrain(param->current_limit, 0.0f, CURRENT_COMMAND_LIMIT_MAX_A);
 	MotorControl.id_Kp = param->id_kp;
 	MotorControl.id_Ki = param->id_ki;
 	MotorControl.iq_Kp = param->iq_kp;
 	MotorControl.iq_Ki = param->iq_ki;
-	MotorControl.speed_limit = param->speed_limit;
+	MotorControl.speed_limit = isfinite(param->speed_limit) && param->speed_limit > 0.0f ?
+		constrain(param->speed_limit, 0.0f, 400.0f * _2PI) :
+		PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
+	position_speed_limit = fast_min(MotorControl.speed_limit,
+		POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI);
 	MotorControl.speedAcc = param->speedAcc;
 	MotorControl.speedDec = param->speedDec;
 	MotorControl.speed_Kp = param->speed_kp;
 	MotorControl.speed_Ki = param->speed_ki;
-	MotorControl.posAcc = param->posAcc;
-	MotorControl.posDec = param->posDec;
-	MotorControl.pos_maxspeed = param->pos_maxspeed;
-	MotorControl.pos_Kp = param->pos_kp;
-	MotorControl.pos_Kd = param->pos_kd;
+	/*
+	 * Schema v4 gains drove the speed PI and have incompatible units. Preserve
+	 * motor/encoder calibration, but migrate the position settings to the safe
+	 * low-speed impedance defaults.
+	 */
+	if (legacy_cascade_parameters)
+	{
+		MotorControl.posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+		MotorControl.posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+		MotorControl.pos_maxspeed = fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI,
+			position_speed_limit);
+		MotorControl.pos_Kp = PARAM_APP_POSITION_KP;
+		MotorControl.pos_Kd = PARAM_APP_POSITION_KD;
+		MotorControl.pos_Ki = PARAM_APP_POSITION_KI;
+	}
+	else
+	{
+		MotorControl.posAcc = isfinite(param->posAcc) && param->posAcc > 0.0f ?
+			constrain(param->posAcc, 0.0f, 200.0f * _2PI) :
+			PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+		MotorControl.posDec = isfinite(param->posDec) && param->posDec > 0.0f ?
+			constrain(param->posDec, 0.0f, 200.0f * _2PI) :
+			PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+		MotorControl.pos_maxspeed = isfinite(param->pos_maxspeed) && param->pos_maxspeed > 0.0f ?
+			constrain(param->pos_maxspeed, 0.0f, position_speed_limit) :
+			fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
+		MotorControl.pos_Kp = isfinite(param->pos_kp) && param->pos_kp >= 0.0f ?
+			constrain(param->pos_kp, 0.0f, POSITION_IMPEDANCE_KP_MAX_A_PER_RAD) :
+			PARAM_APP_POSITION_KP;
+		MotorControl.pos_Kd = isfinite(param->pos_kd) && param->pos_kd >= 0.0f ?
+			constrain(param->pos_kd, 0.0f, POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S) :
+			PARAM_APP_POSITION_KD;
+		MotorControl.pos_Ki = isfinite(param->pos_ki) && param->pos_ki >= 0.0f ?
+			constrain(param->pos_ki, 0.0f, POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S) :
+			PARAM_APP_POSITION_KI;
+	}
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
 }

@@ -23,15 +23,15 @@
 定义见 `Bsp/hw_conf.h`：
 
 ```c
-#define SENSING_RES        0.002f   /* 采样电阻 Ω */
-#define CURRENT_AMP_GAIN   10.0f    /* 电流放大增益 V/A */
+#define SENSING_RES        0.006f   /* 采样电阻 Ω */
+#define CURRENT_AMP_GAIN   10.0f    /* 电流放大增益 V/V */
 #define SENSING_CURR_FACTOR (3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
 ```
 
 12 位 ADC 满量程 3.3 V，换算系数：
 
 ```
-SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.002 ≈ 0.0403 A/LSB
+SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 ```
 
 `Foc/foc_sensing.c` 中：
@@ -40,7 +40,7 @@ SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.002 ≈ 0.0403 A/LSB
 FOC->Ia = -((int16_t)ADC值 - A_Offset) * SENSING_CURR_FACTOR;  // A
 ```
 
-因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。默认 `calib_current = 10 A`，`current_limit = 30 A`。
+因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。当前6 mΩ配置默认 `calib_current = 3 A`，`current_limit = 6 A`。
 
 ## 3. 电压单位与换算
 
@@ -106,11 +106,13 @@ Encoder->vel_mech   = Encoder->vel * _2PI;                                      
 默认极对数为 21。速度/位置相关参数内部均为 rad/s 或 rad：
 
 ```
-speed_limit  = 200 × 2π  rad/s
+speed_limit  = 6.2 × 2π  rad/s
 speedAcc/Dec = 50  × 2π  rad/s²
-pos_maxspeed = 5   × 2π  rad/s
-posAcc/Dec   = 10  × 2π  rad/s²
+pos_maxspeed = 0.125 × 2π  rad/s
+posAcc/Dec   = 0.125 × 2π  rad/s²
 ```
+
+位置模式的 `pos_Kp`、`pos_Kd`、`pos_Ki` 分别使用 A/rad、A/(rad/s)、A/(rad*s)，详细控制结构和整定方法见 [position_impedance_control.md](position_impedance_control.md)。
 
 > 注意：USB/CAN 接口上速度使用 **rev/s（圈/秒）**，位置使用 **圈（r）**，进入固件时乘 2π 转为 rad/s 与 rad；调试打印 `spd=xx r/s`、`pos=xx r` 也是圈单位。
 
@@ -121,10 +123,10 @@ posAcc/Dec   = 10  × 2π  rad/s²
 ### 5.1 相电阻 R（Ω）
 
 ```
-R = (V_phase / I_phase) × 2/3 − 0.004
+R = (V_phase / I_phase) × 2/3 − 0.008
 ```
 
-`2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；`0.004 Ω` 是 MOSFET 导通电阻 + 采样电阻 + 线路电阻的补偿。单位 **Ω**，打印为 mΩ。
+`2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；`0.008 Ω` 是功率路径与 6 mΩ 采样电阻配置对应的补偿。单位 **Ω**，打印为 mΩ。
 
 ### 5.2 电感 Ld/Lq（H）
 
@@ -176,7 +178,7 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 ## 8. 关键换算公式速查
 
 ```
-I [A]     = (ADC − Offset) × 3.3 / 4095 / 10 / 0.002
+I [A]     = (ADC − Offset) × 3.3 / 4095 / 10 / 0.006
 Vbus [V]  = ADC × 3.3 / 4095 × 11
 V_phase   = mod × Vbus / 1.5
 θe [rad]  = count / cpr × 2π × pole_pairs      （归一化到 [0, 2π)）
@@ -185,7 +187,7 @@ V_phase   = mod × Vbus / 1.5
 speed_ref(接口 rev/s) → 内部 × 2π → rad/s
 pos_ref(接口 r)      → 内部 × 2π → rad
 
-R  [Ω]  = (V/I) × 2/3 − 0.004
+R  [Ω]  = (V/I) × 2/3 − 0.008
 L  [H]  = (V − R·I) / (ωe·I) × 2.25
 ψ  [Wb] = (|V| − R·|I|) / ωe − L·|I|
 ```
@@ -195,5 +197,5 @@ L  [H]  = (V − R·I) / (ωe·I) × 2.25
 | 周期 | 值 | 用途 |
 | --- | --- | --- |
 | Current_Ts | 50 µs（20 kHz） | 电流环 / 观测器积分 |
-| Speed_Ts | 100 µs | 速度环 |
-| Position_Ts | 200 µs | 位置环 |
+| Speed_Ts | 500 µs（2 kHz） | 速度环 / 编码器通用测速 |
+| Position_Ts | 1 ms（1 kHz） | 位置阻抗环 / 轨迹发生器 |

@@ -15,16 +15,36 @@ ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
 
+#define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	10000.0f
+#define RTT_CURRENT_SCALE_COUNTS_PER_A		1000.0f
+#define RTT_VOLTAGE_SCALE_COUNTS_PER_V		1000.0f
+#define RTT_ANGLE_Q15_SCALE				(32768.0f / _PI)
+
 static int16_t RTT_EncodeInt16(float value, float scale)
 {
-	float scaled = value * scale;
+	float scaled;
 
+	if (!isfinite(value) || !isfinite(scale))
+		return 0;
+	scaled = value * scale;
 	if (scaled > 32767.0f)
 		return 32767;
 	if (scaled < -32768.0f)
 		return -32768;
 
 	return (int16_t)scaled;
+}
+
+static int16_t RTT_EncodeAngleQ15(float angle)
+{
+	if (!isfinite(angle))
+		return 0;
+
+	/* Signed Q15 angle: 0 rad -> 0; wrap occurs at +/-pi. */
+	angle = normalizeAngle(angle);
+	if (angle >= _PI)
+		angle -= _2PI;
+	return RTT_EncodeInt16(angle, RTT_ANGLE_Q15_SCALE);
 }
 
 void RTT_Sampling(void)
@@ -55,7 +75,7 @@ void RTT_Sampling(void)
 	{
 		if (PhaseResistanceMode_GetTelemetry(&phase_rtt))
 		{
-			/* RTT channel 1: angle[mrad], IdRef/Id/Iq[mA], Vd/Vq[mV], I/U[mA/mV], Vbus[mV]. */
+			/* angle[mrad], IdRef/Id/Iq[mA], Vd/Vq[mV], I/U[mA/mV], Vbus[mV]. */
 			Rttstru.data0 = RTT_EncodeInt16(phase_rtt.electrical_angle, 1000.0f);
 			Rttstru.data1 = RTT_EncodeInt16(phase_rtt.id_ref, 1000.0f);
 			Rttstru.data2 = RTT_EncodeInt16(phase_rtt.id, 1000.0f);
@@ -78,28 +98,51 @@ void RTT_Sampling(void)
 			Rttstru.data7 = 0;
 			Rttstru.data8 = 0;
 		}
-		SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
-		return;
 	}
+	else if (MotorControl.ModeNow == Position_Mode)
+	{
+		/*
+		 * Position impedance telemetry, nine signed 16-bit channels:
+		 * position/electrical angles use signed Q15; speed uses 0.0001 rad/s;
+		 * current and voltage use mA and mV respectively.
+		 */
+		Rttstru.data0 = RTT_EncodeAngleQ15(MotorControl.posShadow);
+		Rttstru.data1 = RTT_EncodeAngleQ15(OnBoard_Encoder.theta_mech);
+		Rttstru.data2 = RTT_EncodeInt16(MotorControl.speedShadow,
+			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+		Rttstru.data3 = RTT_EncodeInt16(MotorControl.pos_vel_filtered,
+			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+		Rttstru.data4 = RTT_EncodeInt16(MotorControl.iqRef,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		Rttstru.data5 = RTT_EncodeInt16(FOC.Iq,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		Rttstru.data6 = RTT_EncodeInt16(FOC.mod_q * FOC.Vbus_filt / 1.5f,
+			RTT_VOLTAGE_SCALE_COUNTS_PER_V);
+		Rttstru.data7 = RTT_EncodeInt16(FOC.mod_d * FOC.Vbus_filt / 1.5f,
+			RTT_VOLTAGE_SCALE_COUNTS_PER_V);
+		Rttstru.data8 = RTT_EncodeAngleQ15(OnBoard_Encoder.theta_elec);
+	}
+	else
+	{
+		/* Preserve the legacy observer diagnostics outside position/calibration modes. */
+		encoder_theta_elec = normalizeAngle(OnBoard_Encoder.theta_elec);
+		observer_theta_elec = normalizeAngle(Observer_GetElePhase(&Fluxobserver));
+		phase_error = encoder_theta_elec - observer_theta_elec;
+		if (phase_error >= _PI)
+			phase_error -= _2PI;
+		else if (phase_error < -_PI)
+			phase_error += _2PI;
 
-	/* RTT channels: phase error Q15, speed/current/voltage, encoder and observer electrical angles Q15. */
-	encoder_theta_elec = normalizeAngle(OnBoard_Encoder.theta_elec);
-	observer_theta_elec = normalizeAngle(Observer_GetElePhase(&Fluxobserver));
-	phase_error = encoder_theta_elec - observer_theta_elec;
-	if (phase_error >= _PI)
-		phase_error -= _2PI;
-	else if (phase_error < -_PI)
-		phase_error += _2PI;
-
-	Rttstru.data0 = (int16_t)(phase_error * (65536.0f / _2PI));
-	Rttstru.data1 = (int16_t)(OnBoard_Encoder.vel_mech * 100.0f);
-	Rttstru.data2 = (int16_t)(MotorControl.iqRef * 1000.0f);
-	Rttstru.data3 = (int16_t)(FOC.Iq * 1000.0f);
-	Rttstru.data4 = (int16_t)(FOC.Id * 1000.0f);
-	Rttstru.data5 = (int16_t)(FOC.mod_q * FOC.Vbus_filt / 1.5f * 1000.0f);
-	Rttstru.data6 = (int16_t)(FOC.mod_d * FOC.Vbus_filt / 1.5f * 1000.0f);
-	Rttstru.data7 = (int16_t)(encoder_theta_elec * (65536.0f / _2PI) - 32768.0f);
-	Rttstru.data8 = (int16_t)(observer_theta_elec * (65536.0f / _2PI) - 32768.0f);
+		Rttstru.data0 = RTT_EncodeAngleQ15(phase_error);
+		Rttstru.data1 = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, 100.0f);
+		Rttstru.data2 = RTT_EncodeInt16(MotorControl.iqRef, 1000.0f);
+		Rttstru.data3 = RTT_EncodeInt16(FOC.Iq, 1000.0f);
+		Rttstru.data4 = RTT_EncodeInt16(FOC.Id, 1000.0f);
+		Rttstru.data5 = RTT_EncodeInt16(FOC.mod_q * FOC.Vbus_filt / 1.5f, 1000.0f);
+		Rttstru.data6 = RTT_EncodeInt16(FOC.mod_d * FOC.Vbus_filt / 1.5f, 1000.0f);
+		Rttstru.data7 = RTT_EncodeAngleQ15(encoder_theta_elec - _PI);
+		Rttstru.data8 = RTT_EncodeAngleQ15(observer_theta_elec - _PI);
+	}
     
     SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
 }
@@ -117,8 +160,12 @@ void MotorControl_Init(void)
 	
 	MotorControl.posTrajUpdated = true;
 	MotorControl.pos_error_window = 0.001f;
-	MotorControl.pos_Kp = 0.5f;
-	MotorControl.pos_Kd = 0.1f;
+	MotorControl.pos_impedance_initialized = false;
+	MotorControl.pos_integral = 0.0f;
+	MotorControl.pos_vel_filtered = 0.0f;
+	MotorControl.pos_hold_counter = 0U;
+	MotorControl.pos_loop_counter = 0U;
+	MotorControl.pos_integral_transport_active = false;
 	
 	/*run current offset calibration automatically at power-up*/
 	MotorControl.ModeNow = Calib_CurrentOffset;
@@ -189,7 +236,7 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Position_Mode:
-			Task_Position_Mode(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
+			Task_Position_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
 		break;
 		
 		case Calib_Motor_R_L_Flux:

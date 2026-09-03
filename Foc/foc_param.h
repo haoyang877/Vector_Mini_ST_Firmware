@@ -4,7 +4,14 @@
 #include "main.h"
 #include "encoder.h"
 
-#define PARAM_SCHEMA_VERSION 4U
+#define PARAM_SCHEMA_VERSION 5U
+#define PARAM_SCHEMA_VERSION_LEGACY_CASCADE 4U
+
+/* Runtime/persisted position-impedance gain limits. */
+#define POSITION_IMPEDANCE_KP_MAX_A_PER_RAD       50.0f
+#define POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S     10.0f
+#define POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S     10.0f
+#define POSITION_IMPEDANCE_MAX_SPEED_RPS          0.125f
 
 typedef struct
 {
@@ -42,6 +49,8 @@ typedef struct
 	float can_hb;
 	uint32_t schema_version;
 	uint32_t magic_word;
+	/* Appended in schema v5 so the v4 schema/magic offsets remain readable. */
+	float pos_ki;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

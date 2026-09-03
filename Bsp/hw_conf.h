@@ -12,7 +12,7 @@
 #define FOC_PERIOD				(1.0f / (float)FOC_FREQ)
 
 /*RTT output sampling frequency; must divide FOC_FREQ exactly*/
-#define RTT_SAMPLE_RATE_HZ		10000U
+#define RTT_SAMPLE_RATE_HZ		2000U
 
 #if RTT_SAMPLE_RATE_HZ == 0U
 #error "RTT_SAMPLE_RATE_HZ must be greater than zero"
@@ -24,12 +24,20 @@
 
 #define RTT_SAMPLE_DIVIDER		(FOC_FREQ / RTT_SAMPLE_RATE_HZ)
 
-/*shunt resistor (ohm)*/
-#define SENSING_RES				0.002f
-/*current amplify gain (V/A)*/
-#define CURRENT_AMP_GAIN		10.0f
-/*current sensing factor (adc value/A)*/
-#define SENSING_CURR_FACTOR		(float)(3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
+/* Three-phase low-side current sensing: 6 mOhm shunt, gain 10 V/V. */
+#define SENSING_RES                         0.006f
+#define CURRENT_AMP_GAIN                    10.0f
+/* Current represented by one 12-bit ADC count (A/count). */
+#define SENSING_CURR_FACTOR                 (float)(3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
+
+/*
+ * The theoretical ADC range is about +/-27.5 A with a 1.65 V midpoint.
+ * Keep normal control and software protection below the amplifier/ADC rails.
+ */
+#define CURRENT_SENSE_RELIABLE_LIMIT_A      20.0f
+#define CURRENT_COMMAND_LIMIT_MAX_A         10.0f
+#define CURRENT_CALIB_LIMIT_MAX_A           10.0f
+#define CURRENT_OVERCURRENT_TRIP_A          18.0f
 
 /*bus voltagge R1 R2 (kohm)*/
 #define VBUS_R1					10.0f
@@ -72,8 +80,17 @@
 #define SPEED_LOOP_DIVIDER          (FOC_FREQ / SPEED_LOOP_FREQ)
 #define Speed_Ts                    (1.0f / (float)SPEED_LOOP_FREQ)
 
-/* Position trajectory update period (s). */
-#define Position_Ts                 0.0002f
+/* Position trajectory and impedance controller run at 1 kHz. */
+#define POSITION_LOOP_FREQ          1000U
+#if POSITION_LOOP_FREQ == 0U
+#error "POSITION_LOOP_FREQ must be greater than zero"
+#elif POSITION_LOOP_FREQ > FOC_FREQ
+#error "POSITION_LOOP_FREQ must not exceed FOC_FREQ"
+#elif (FOC_FREQ % POSITION_LOOP_FREQ) != 0U
+#error "POSITION_LOOP_FREQ must divide FOC_FREQ exactly"
+#endif
+#define POSITION_LOOP_DIVIDER       (FOC_FREQ / POSITION_LOOP_FREQ)
+#define Position_Ts                 (1.0f / (float)POSITION_LOOP_FREQ)
 
 /* Sensorless speed-mode startup and observer handoff. */
 #define SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S       0.50f

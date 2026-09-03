@@ -1,5 +1,6 @@
 #include "foc_errhandle.h"
 
+#include <math.h>
 #include "tim.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
@@ -63,6 +64,14 @@ void Clear_RunningData(void)
 	MotorControl.speedRef    = 0.0f;
 	MotorControl.speedShadow = 0.0f;
 	MotorControl.posShadow   = 0.0f;
+	MotorControl.posTrajUpdated = true;
+	MotorControl.isReachTargetPos = false;
+	MotorControl.pos_integral = 0.0f;
+	MotorControl.pos_vel_filtered = 0.0f;
+	MotorControl.pos_hold_counter = 0U;
+	MotorControl.pos_loop_counter = 0U;
+	MotorControl.pos_impedance_initialized = false;
+	MotorControl.pos_integral_transport_active = false;
 	
 	FOC.Id = 0.0f;
 	FOC.Iq = 0.0f;
@@ -86,7 +95,10 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		return false;
 	
 	/* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
-	if ((mode_set == Vq_Mode || mode_set == Calib_EncoderOffset ||
+	if ((mode_set == Position_Mode || mode_set == Vq_Mode ||
+		 ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
+		  MotorControl.isUseSensorless == false) ||
+		 mode_set == Calib_EncoderOffset ||
 		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
 		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&OnBoard_Encoder))
 	{
@@ -106,8 +118,8 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	}
 
 	/*encoder-based closed-loop control requires calibration*/
-	if(mode_set == Vq_Mode ||
-	  ((mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode) &&
+	if(mode_set == Position_Mode || mode_set == Vq_Mode ||
+	  ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
 	   MotorControl.isUseSensorless == false))
 	{
 		if((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
@@ -119,6 +131,24 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	
 	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
 	{
+		/* Entering position mode directly must hold the present position, not a stale target. */
+		if (mode_set == Position_Mode)
+		{
+			float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
+
+			if (!isfinite(current_position))
+			{
+				Set_ErrorNow(Encoder_Error);
+				return false;
+			}
+			MotorControl.posRef = current_position;
+			MotorControl.posShadow = current_position;
+			MotorControl.pos_ref_last = current_position;
+			MotorControl.speedShadow = 0.0f;
+			MotorControl.posTrajUpdated = true;
+			MotorControl.isReachTargetPos = false;
+			MotorControl.pos_integral_transport_active = false;
+		}
 		MotorControl.ModeNow = mode_set;
 		return true;
 	}

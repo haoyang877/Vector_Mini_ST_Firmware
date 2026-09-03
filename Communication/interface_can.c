@@ -1,5 +1,6 @@
 #include "interface_can.h"
 
+#include <math.h>
 #include "fdcan.h"
 #include "delay.h"
 #include "utils.h"
@@ -7,6 +8,7 @@
 #include "foc_param.h"
 #include "foc_errhandle.h"
 #include "encoder.h"
+#include "hw_conf.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -149,6 +151,9 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+	if (!isfinite(data))
+		return;
+
 	int data_int = (int)data;
 	
 	switch(param_id)
@@ -182,8 +187,14 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_POS:
-			ModeSwitch_Handle(Position_Mode);
-			MotorControl.posRef  = data * _2PI;
+		{
+			float position_ref = data * _2PI;
+			if (isfinite(position_ref) &&
+				(MotorControl.ModeNow == Position_Mode || ModeSwitch_Handle(Position_Mode)))
+			{
+				MotorControl.posRef = position_ref;
+			}
+		}
 		break;
 		case CAN_GET_POS_SET:
 			CAN_SendMessage_Update(CAN_GET_POS_SET, MotorControl.posRef * ONE_BY_2PI);
@@ -228,7 +239,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 
 		case CAN_SET_CURRENT_CAL:
-			if(data >= 0.0f && data <= 30.0f)
+			if(data >= 0.0f && data <= CURRENT_CALIB_LIMIT_MAX_A)
 				MotorControl.calib_current = data;
 		break;
 		case CAN_GET_CURRENT_CAL:
@@ -236,16 +247,27 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_CURRENT_LIMIT:
-			if(data >= 0.0f && data <= 60.0f)
+			if(data >= 0.0f && data <= CURRENT_COMMAND_LIMIT_MAX_A)
+			{
 				MotorControl.current_limit = data;
+				MotorControl.iqRef = constrain(MotorControl.iqRef, -data, data);
+			}
 		break;
 		case CAN_GET_CURRENT_LIMIT:
 			CAN_SendMessage_Update(CAN_GET_CURRENT_LIMIT, MotorControl.current_limit);
 		break;
 		
 		case CAN_SET_SPEED_LIMIT:
-			if(data >=0.0f && data <= 400.0f)
+			if(data > 0.0f && data <= 400.0f)
+			{
 				MotorControl.speed_limit = data * _2PI;
+				if (MotorControl.pos_maxspeed > MotorControl.speed_limit)
+				{
+					MotorControl.pos_maxspeed = MotorControl.speed_limit;
+					if (MotorControl.ModeNow == Position_Mode)
+						MotorControl.posTrajUpdated = true;
+				}
+			}
 		break;
 		case CAN_GET_SPEED_LIMIT:
 			CAN_SendMessage_Update(CAN_GET_SPEED_LIMIT, MotorControl.speed_limit * ONE_BY_2PI);
@@ -284,7 +306,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_POS_ACC:
-			if(data >= 0.0f && data <= 200.0f)
+			if(data > 0.0f && data <= 200.0f)
 				MotorControl.posAcc = data * _2PI;
 		break;
 		case CAN_GET_POS_ACC:
@@ -292,7 +314,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_POS_DEC:
-			if(data >= 0.0f && data <= 200.0f)
+			if(data > 0.0f && data <= 200.0f)
 				MotorControl.posDec = data * _2PI;		
 		break;
 		case CAN_GET_POS_DEC:
@@ -300,15 +322,24 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_POS_MAXSPEED:
-			if(fast_abs(data) <= MotorControl.speed_limit * ONE_BY_2PI)
-				MotorControl.pos_maxspeed = data * _2PI;			
+			if(data > 0.0f && data <= POSITION_IMPEDANCE_MAX_SPEED_RPS &&
+			   data <= MotorControl.speed_limit * ONE_BY_2PI)
+			{
+				float position_maxspeed = data * _2PI;
+				if (MotorControl.pos_maxspeed != position_maxspeed)
+				{
+					MotorControl.pos_maxspeed = position_maxspeed;
+					if (MotorControl.ModeNow == Position_Mode)
+						MotorControl.posTrajUpdated = true;
+				}
+			}
 		break;
 		case CAN_GET_POS_MAXSPEED:
 			CAN_SendMessage_Update(CAN_GET_POS_MAXSPEED, MotorControl.pos_maxspeed * ONE_BY_2PI);		
 		break;
 		
 		case CAN_SET_POS_KP:
-			if(data >= 0.01f && data <= 1.0f)
+			if(data >= 0.0f && data <= POSITION_IMPEDANCE_KP_MAX_A_PER_RAD)
 				MotorControl.pos_Kp = data;
 		break;
 		case CAN_GET_POS_KP:
@@ -316,11 +347,19 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 
 		case CAN_SET_POS_KD:
-			if(data >= 0.0f && data <= 1.0f)
+			if(data >= 0.0f && data <= POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S)
 				MotorControl.pos_Kd = data;
 		break;
 		case CAN_GET_POS_KD:
 			CAN_SendMessage_Update(CAN_GET_POS_KD, MotorControl.pos_Kd);
+		break;
+
+		case CAN_SET_POS_KI:
+			if(data >= 0.0f && data <= POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S)
+				MotorControl.pos_Ki = data;
+		break;
+		case CAN_GET_POS_KI:
+			CAN_SendMessage_Update(CAN_GET_POS_KI, MotorControl.pos_Ki);
 		break;
 		
 		case CAN_SET_COGGING:

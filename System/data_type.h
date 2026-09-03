@@ -105,6 +105,17 @@ typedef struct
 	float posShadow;
 	float pos_Kp;
 	float pos_Kd;
+	float pos_Ki;
+
+	/* Position-impedance runtime state (not persisted). */
+	float pos_integral;
+	float pos_vel_filtered;
+	float pos_last_mech;
+	float pos_ref_last;
+	uint32_t pos_hold_counter;
+	uint16_t pos_loop_counter;
+	bool pos_impedance_initialized;
+	bool pos_integral_transport_active;
 	
 	/*voltage open-loop mode*/
 	float ol_voltage;	/*open-loop voltage amplitude (V, d-axis)*/

@@ -90,9 +90,9 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 		FOC->Ic = -((float)((int16_t)CURRENT_ADC->IC_ADC_CHANNEL - MotorControl->C_Offset)) * SENSING_CURR_FACTOR;
 	}
 	
-	float i_limit = MotorControl->current_limit + 10.0f;
-	
-	if(fast_abs(FOC->Ia) > i_limit || fast_abs(FOC->Ib) > i_limit || fast_abs(FOC->Ic) > i_limit)
+	if(fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	   fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
+	   fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A)
 	{
 		if(overcurrent_count < OVERCURRENT_CONFIRM_CYCLES)
 			overcurrent_count++;

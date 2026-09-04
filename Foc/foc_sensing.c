@@ -35,7 +35,8 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	   MotorControl->ModeNow == Calib_EncoderOffset ||
 	   MotorControl->ModeNow == Calib_EncoderObserver ||
 	   MotorControl->ModeNow == Vq_Mode ||
-	   MotorControl->ModeNow == Sensorless_Speed_Mode)
+	   MotorControl->ModeNow == Sensorless_Speed_Mode ||
+	   MotorControl->ModeNow == Calib_Friction)
 	{
 		/*over voltage protect*/
 		if(FOC->Vbus_filt > 30.0f)

@@ -570,6 +570,16 @@
               <FilePath>..\Foc\foc_phase_resistance.c</FilePath>
             </File>
             <File>
+              <FileName>friction_identification.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Foc\friction_identification.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_friction_identification.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Foc\foc_friction_identification.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_errhandle.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_errhandle.c</FilePath>

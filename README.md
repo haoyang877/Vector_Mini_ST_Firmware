@@ -10,6 +10,7 @@
 * 电流域位置阻抗控制与梯形速度轨迹规划
 * 磁编码器偏心补偿
 * 电机相电阻+dq轴电感+永磁体磁链辨识
+* 空载正反向库仑/粘性摩擦辨识（见 [docs/friction_identification.md](docs/friction_identification.md)）
 * FDCAN通信控制+超时保护
 * USB通信控制
 * 支持绝对式SPI编码器 TLE5012B，MT6816, MT6701

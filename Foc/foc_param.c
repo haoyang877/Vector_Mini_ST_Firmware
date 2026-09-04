@@ -52,6 +52,11 @@ void Param_Return_Default(void)
 	MotorControl.pos_integral_limit = PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
 	MotorControl.cascade_pos_Kp = PARAM_APP_CASCADE_POSITION_KP;
 	MotorControl.cascade_pos_Kd = PARAM_APP_CASCADE_POSITION_KD;
+	MotorControl.friction_coulomb_pos_a = 0.0f;
+	MotorControl.friction_coulomb_neg_a = 0.0f;
+	MotorControl.friction_viscous_pos_a_per_rad_s = 0.0f;
+	MotorControl.friction_viscous_neg_a_per_rad_s = 0.0f;
+	MotorControl.friction_model_valid = false;
 	CANMsg.can_hb_set = PARAM_HW_CAN_HEARTBEAT_MS;
 
 	MotorControl.ModeNow = Save_Param;
@@ -98,6 +103,13 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->pos_integral_limit = MotorControl.pos_integral_limit;
 	param->cascade_pos_kp = MotorControl.cascade_pos_Kp;
 	param->cascade_pos_kd = MotorControl.cascade_pos_Kd;
+	param->friction_coulomb_pos_a = MotorControl.friction_coulomb_pos_a;
+	param->friction_coulomb_neg_a = MotorControl.friction_coulomb_neg_a;
+	param->friction_viscous_pos_a_per_rad_s =
+		MotorControl.friction_viscous_pos_a_per_rad_s;
+	param->friction_viscous_neg_a_per_rad_s =
+		MotorControl.friction_viscous_neg_a_per_rad_s;
+	param->friction_model_valid = MotorControl.friction_model_valid ? 1U : 0U;
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
 }
@@ -112,6 +124,7 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 
 	if (param->magic_word != MAGIC_WORD ||
 		(param->schema_version != PARAM_SCHEMA_VERSION &&
+		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_CURRENT_SENSE &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE &&
@@ -224,15 +237,40 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 			constrain(param->pos_integral_limit, 0.0f, CURRENT_COMMAND_LIMIT_MAX_A) :
 			PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
 		MotorControl.cascade_pos_Kp =
-			param->schema_version == PARAM_SCHEMA_VERSION &&
+			param->schema_version >= PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
 			isfinite(param->cascade_pos_kp) && param->cascade_pos_kp >= 0.0f ?
 			constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S) :
 			PARAM_APP_CASCADE_POSITION_KP;
 		MotorControl.cascade_pos_Kd =
-			param->schema_version == PARAM_SCHEMA_VERSION &&
+			param->schema_version >= PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
 			isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f ?
 			constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX) :
 			PARAM_APP_CASCADE_POSITION_KD;
+	}
+	if (param->schema_version == PARAM_SCHEMA_VERSION &&
+		!current_sense_profile_changed && param->friction_model_valid == 1U &&
+		isfinite(param->friction_coulomb_pos_a) && param->friction_coulomb_pos_a >= 0.0f &&
+		isfinite(param->friction_coulomb_neg_a) && param->friction_coulomb_neg_a >= 0.0f &&
+		isfinite(param->friction_viscous_pos_a_per_rad_s) &&
+		param->friction_viscous_pos_a_per_rad_s >= 0.0f &&
+		isfinite(param->friction_viscous_neg_a_per_rad_s) &&
+		param->friction_viscous_neg_a_per_rad_s >= 0.0f)
+	{
+		MotorControl.friction_coulomb_pos_a = param->friction_coulomb_pos_a;
+		MotorControl.friction_coulomb_neg_a = param->friction_coulomb_neg_a;
+		MotorControl.friction_viscous_pos_a_per_rad_s =
+			param->friction_viscous_pos_a_per_rad_s;
+		MotorControl.friction_viscous_neg_a_per_rad_s =
+			param->friction_viscous_neg_a_per_rad_s;
+		MotorControl.friction_model_valid = true;
+	}
+	else
+	{
+		MotorControl.friction_coulomb_pos_a = 0.0f;
+		MotorControl.friction_coulomb_neg_a = 0.0f;
+		MotorControl.friction_viscous_pos_a_per_rad_s = 0.0f;
+		MotorControl.friction_viscous_neg_a_per_rad_s = 0.0f;
+		MotorControl.friction_model_valid = false;
 	}
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
 }

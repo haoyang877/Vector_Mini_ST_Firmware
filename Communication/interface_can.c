@@ -9,6 +9,7 @@
 #include "foc_errhandle.h"
 #include "encoder.h"
 #include "hw_conf.h"
+#include "foc_friction_identification.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -235,7 +236,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 
 		case CAN_SET_ENCODER_REVERSE:
 			if(MotorControl.ModeNow == Motor_Disable && (data_int == 0 || data_int == 1))
+			{
+				if (OnBoard_Encoder.reverse != (uint8_t)data_int)
+					MotorControl.friction_model_valid = false;
 				Encoder_SetReverse(&OnBoard_Encoder, data_int != 0);
+			}
 		break;
 		case CAN_GET_ENCODER_REVERSE:
 			CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE, (float)OnBoard_Encoder.reverse);
@@ -384,6 +389,51 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		case CAN_GET_CASCADE_POS_KD:
 			CAN_SendMessage_Update(CAN_GET_CASCADE_POS_KD,
 				MotorControl.cascade_pos_Kd);
+		break;
+
+		case CAN_APPLY_FRICTION_MODEL:
+			if (data_int == 1)
+				(void)FocFrictionIdentification_ApplyCandidate(&MotorControl);
+		break;
+		case CAN_GET_FRICTION_STATE:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_STATE,
+				(float)FocFrictionIdentification_GetState());
+		break;
+		case CAN_GET_FRICTION_REASON:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_REASON,
+				(float)FocFrictionIdentification_GetReason());
+		break;
+		case CAN_GET_FRICTION_COULOMB_POS:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_COULOMB_POS,
+				FocFrictionIdentification_GetResult()->coulomb_pos_a);
+		break;
+		case CAN_GET_FRICTION_COULOMB_NEG:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_COULOMB_NEG,
+				FocFrictionIdentification_GetResult()->coulomb_neg_a);
+		break;
+		case CAN_GET_FRICTION_VISCOUS_POS:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_VISCOUS_POS,
+				FocFrictionIdentification_GetResult()->viscous_pos_a_per_rad_s);
+		break;
+		case CAN_GET_FRICTION_VISCOUS_NEG:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_VISCOUS_NEG,
+				FocFrictionIdentification_GetResult()->viscous_neg_a_per_rad_s);
+		break;
+		case CAN_GET_FRICTION_RMSE_POS:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_RMSE_POS,
+				FocFrictionIdentification_GetResult()->rmse_pos_a);
+		break;
+		case CAN_GET_FRICTION_RMSE_NEG:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_RMSE_NEG,
+				FocFrictionIdentification_GetResult()->rmse_neg_a);
+		break;
+		case CAN_GET_FRICTION_CANDIDATE_VALID:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_CANDIDATE_VALID,
+				FocFrictionIdentification_GetResult()->valid ? 1.0f : 0.0f);
+		break;
+		case CAN_GET_FRICTION_MODEL_VALID:
+			CAN_SendMessage_Update(CAN_GET_FRICTION_MODEL_VALID,
+				MotorControl.friction_model_valid ? 1.0f : 0.0f);
 		break;
 		
 		case CAN_SET_COGGING:

@@ -7,6 +7,7 @@
 #include "encoder.h"
 #include "foc_sensorless.h"
 #include "foc_run.h"
+#include "foc_friction_identification.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -59,6 +60,8 @@ void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
  **/
 void Clear_RunningData(void)
 {
+	if (ModeLast == Calib_Friction)
+		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
 	MotorControl.idRef		 = 0.0f;
 	MotorControl.iqRef		 = 0.0f;
 	MotorControl.vqRef		 = 0.0f;
@@ -97,6 +100,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		  MotorControl.isUseSensorless == false) ||
 		 mode_set == Calib_EncoderOffset ||
 		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
+		 mode_set == Calib_Friction ||
 		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&OnBoard_Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
@@ -117,6 +121,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	/*encoder-based closed-loop control requires calibration*/
 	if(mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
 	   mode_set == Vq_Mode ||
+	   mode_set == Calib_Friction ||
 	  ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
 	   MotorControl.isUseSensorless == false))
 	{
@@ -161,11 +166,14 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ModeNow == Calib_CurrentOffset ||
 	    MotorControl.ModeNow == Voltage_OpenLoop ||
 	    MotorControl.ModeNow == Vq_Mode ||
-	    MotorControl.ModeNow == Sensorless_Speed_Mode) &&
+	    MotorControl.ModeNow == Sensorless_Speed_Mode ||
+	    MotorControl.ModeNow == Calib_Friction) &&
 	    MotorControl.ErrorNow == No_Error)
 	{
 		if(mode_set == Motor_Disable)
 		{
+			if (MotorControl.ModeNow == Calib_Friction)
+				FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
 			MotorControl.ModeNow = mode_set;
 			return true;
 		}

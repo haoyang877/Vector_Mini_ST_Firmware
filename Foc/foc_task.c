@@ -2,6 +2,7 @@
 
 #include "common_inc.h"
 #include "SEGGER_RTT.h"
+#include "foc_friction_identification.h"
 #include "foc_phase_resistance.h"
 
 MotorControl_TypeDef MotorControl;
@@ -162,6 +163,7 @@ void MotorControl_Init(void)
 	MotorControl.pos_error_window = 0.001f;
 	MotorControl.pos_vel_filtered = 0.0f;
 	Task_Position_Mode_Reset();
+	FocFrictionIdentification_Init();
 	
 	/*run current offset calibration automatically at power-up*/
 	MotorControl.ModeNow = Calib_CurrentOffset;
@@ -195,6 +197,7 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 	       MotorControl->ModeNow == Calib_EncoderOffset ||
 	       MotorControl->ModeNow == Calib_EncoderObserver ||
 	       MotorControl->ModeNow == Calib_EleAngelOffset ||
+	       MotorControl->ModeNow == Calib_Friction ||
 	       MotorControl->ModeNow == Set_ZeroPosition;
 }
 
@@ -238,6 +241,10 @@ void FOC20kHzIRQHandler(void)
 
 		case Position_Impedance_Mode:
 			Task_Position_Impedance_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
+		break;
+
+		case Calib_Friction:
+			FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
 		break;
 		
 		case Calib_Motor_R_L_Flux:

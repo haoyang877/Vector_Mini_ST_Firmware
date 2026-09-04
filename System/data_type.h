@@ -25,6 +25,7 @@ typedef enum
 	Sensorless_Speed_Mode = 16,
 	Calib_PhaseResistance = 17,
 	Position_Impedance_Mode = 18,
+	Calib_Friction = 19,
 	MODE_NUM
 }ModeNow_TypeDef; 
 
@@ -44,6 +45,7 @@ typedef enum
 	Encoder_NotCalibrated,
 	MotorParam_Error,
 	Sensorless_Error,
+	FrictionIdentification_Error,
 }ErrorNow_TypeDef;
 
 typedef struct
@@ -109,6 +111,13 @@ typedef struct
 	float pos_integral_limit;
 	float cascade_pos_Kp;
 	float cascade_pos_Kd;
+
+	/* Applied friction model in current domain; identification does not enable compensation. */
+	float friction_coulomb_pos_a;
+	float friction_coulomb_neg_a;
+	float friction_viscous_pos_a_per_rad_s;
+	float friction_viscous_neg_a_per_rad_s;
+	bool friction_model_valid;
 
 	/* Position-impedance telemetry; controller state is private to its module. */
 	float pos_vel_filtered;

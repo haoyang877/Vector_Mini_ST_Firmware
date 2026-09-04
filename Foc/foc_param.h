@@ -6,7 +6,8 @@
 #include "position_impedance_config.h"
 #include "position_cascade_config.h"
 
-#define PARAM_SCHEMA_VERSION 8U
+#define PARAM_SCHEMA_VERSION 9U
+#define PARAM_SCHEMA_VERSION_LEGACY_FRICTION 8U
 #define PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT 7U
 #define PARAM_SCHEMA_VERSION_LEGACY_CURRENT_SENSE 6U
 #define PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE 5U
@@ -57,6 +58,12 @@ typedef struct
 	/* Appended in schema v8; legacy cascade outer-loop gains. */
 	float cascade_pos_kp;
 	float cascade_pos_kd;
+	/* Appended in schema v9; current-domain model, compensation remains disabled. */
+	float friction_coulomb_pos_a;
+	float friction_coulomb_neg_a;
+	float friction_viscous_pos_a_per_rad_s;
+	float friction_viscous_neg_a_per_rad_s;
+	uint32_t friction_model_valid;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

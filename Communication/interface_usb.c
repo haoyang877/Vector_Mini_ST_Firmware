@@ -11,6 +11,7 @@
 #include "encoder.h"
 #include "interface_can.h"
 #include "hw_conf.h"
+#include "foc_friction_identification.h"
 
 USBMsg_TypeDef USBMsg;
 USBRxStep_TypeDef USBRXStep = USB_RX_NULL;
@@ -369,6 +370,8 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 					return USB_WRITE_INVALID;
 				if(data_int != 0 && data_int != 1)
 					return USB_DATA_OUT_OF_RANGE;
+				if (OnBoard_Encoder.reverse != (uint8_t)data_int)
+					MotorControl.friction_model_valid = false;
 				Encoder_SetReverse(&OnBoard_Encoder, data_int != 0);
 			break;
 			
@@ -592,6 +595,13 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				else
 					return USB_DATA_OUT_OF_RANGE;
 			break;
+
+			case USB_FRICTION_APPLY:
+				if (int_or_float == 1 || data_int != 1)
+					return USB_DATA_INVALID;
+				if (!FocFrictionIdentification_ApplyCandidate(&MotorControl))
+					return USB_WRITE_INVALID;
+			break;
 			
 			case USB_ERROR:
 				return USB_WRITE_INVALID;
@@ -777,6 +787,76 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			
 			case USB_ERROR:
 				sprintf(USBMsg.tx_str, "error=%d\r\n", (int)MotorControl.ErrorNow);
+			break;
+
+			case USB_FRICTION_STATUS:
+			{
+				const FrictionIdentificationResult_TypeDef *result =
+					FocFrictionIdentification_GetResult();
+				sprintf(USBMsg.tx_str,
+					"friction_state=%u,reason=%u,point=%u,progress=%.1f,candidate=%u\r\n",
+					(unsigned int)FocFrictionIdentification_GetState(),
+					(unsigned int)FocFrictionIdentification_GetReason(),
+					(unsigned int)FocFrictionIdentification_GetPointIndex(),
+					FocFrictionIdentification_GetProgressPercent(),
+					(unsigned int)result->valid);
+			}
+			break;
+
+			case USB_FRICTION_COULOMB_POS:
+				sprintf(USBMsg.tx_str, "friction_coulomb_pos=%.6fA\r\n",
+					FocFrictionIdentification_GetResult()->coulomb_pos_a);
+			break;
+			case USB_FRICTION_COULOMB_NEG:
+				sprintf(USBMsg.tx_str, "friction_coulomb_neg=%.6fA\r\n",
+					FocFrictionIdentification_GetResult()->coulomb_neg_a);
+			break;
+			case USB_FRICTION_VISCOUS_POS:
+				sprintf(USBMsg.tx_str, "friction_viscous_pos=%.6fA_per_rad_s\r\n",
+					FocFrictionIdentification_GetResult()->viscous_pos_a_per_rad_s);
+			break;
+			case USB_FRICTION_VISCOUS_NEG:
+				sprintf(USBMsg.tx_str, "friction_viscous_neg=%.6fA_per_rad_s\r\n",
+					FocFrictionIdentification_GetResult()->viscous_neg_a_per_rad_s);
+			break;
+			case USB_FRICTION_RMSE_POS:
+				sprintf(USBMsg.tx_str, "friction_rmse_pos=%.6fA\r\n",
+					FocFrictionIdentification_GetResult()->rmse_pos_a);
+			break;
+			case USB_FRICTION_RMSE_NEG:
+				sprintf(USBMsg.tx_str, "friction_rmse_neg=%.6fA\r\n",
+					FocFrictionIdentification_GetResult()->rmse_neg_a);
+			break;
+			case USB_FRICTION_VALID:
+				sprintf(USBMsg.tx_str, "friction_model_valid=%u\r\n",
+					(unsigned int)MotorControl.friction_model_valid);
+			break;
+			case USB_ACTIVE_COULOMB_POS:
+				sprintf(USBMsg.tx_str, "active_coulomb_pos=%.6fA\r\n",
+					MotorControl.friction_coulomb_pos_a);
+			break;
+			case USB_ACTIVE_COULOMB_NEG:
+				sprintf(USBMsg.tx_str, "active_coulomb_neg=%.6fA\r\n",
+					MotorControl.friction_coulomb_neg_a);
+			break;
+			case USB_ACTIVE_VISCOUS_POS:
+				sprintf(USBMsg.tx_str, "active_viscous_pos=%.6fA_per_rad_s\r\n",
+					MotorControl.friction_viscous_pos_a_per_rad_s);
+			break;
+			case USB_ACTIVE_VISCOUS_NEG:
+				sprintf(USBMsg.tx_str, "active_viscous_neg=%.6fA_per_rad_s\r\n",
+					MotorControl.friction_viscous_neg_a_per_rad_s);
+			break;
+
+			case USB_FRICTION_DATA_EXPORT:
+				if (USBMsg.print_en != 0U || USBMsg.lut_export_en != 0U ||
+					USBMsg.friction_export_en != 0U ||
+					!FocFrictionIdentification_GetResult()->valid)
+					return USB_WRITE_INVALID;
+				USBMsg.friction_export_index = 0U;
+				USBMsg.friction_export_en = 1U;
+				sprintf(USBMsg.tx_str, "friction_begin,count=%u\r\n",
+					(unsigned int)FocFrictionIdentification_GetSampleCount());
 			break;
 
 			case USB_LUT_EXPORT:
@@ -1066,7 +1146,8 @@ void USB_RxIRQHandler(uint8_t *data, uint16_t length)
 {
 	USBRXError_TypeDef USBRXError;
 
-	if (USBMsg.tx_busy != 0U || USBMsg.tx_en != 0U || USBMsg.lut_export_en != 0U)
+	if (USBMsg.tx_busy != 0U || USBMsg.tx_en != 0U || USBMsg.lut_export_en != 0U ||
+		USBMsg.friction_export_en != 0U)
 		return;
 	
 	/*write data to ring buffer*/
@@ -1146,7 +1227,33 @@ void USB_SendMessage(void)
 	}
 
 	if (USBMsg.lut_export_en == 0U)
+	{
+		if (USBMsg.friction_export_en == 0U)
+			return;
+		if (USBMsg.friction_export_index < FocFrictionIdentification_GetSampleCount())
+		{
+			const FrictionIdentificationSample_TypeDef *samples =
+				FocFrictionIdentification_GetSamples();
+			const FrictionIdentificationSample_TypeDef *sample =
+				&samples[USBMsg.friction_export_index];
+
+			sprintf(USBMsg.tx_str,
+				"friction=%u,target=%.6f,speed=%.6f,iq=%.6f,n=%lu\r\n",
+				(unsigned int)USBMsg.friction_export_index,
+				sample->target_speed_rad_s * ONE_BY_2PI,
+				sample->mean_speed_rad_s * ONE_BY_2PI,
+				sample->mean_iq_a,
+				(unsigned long)sample->sample_count);
+			USBMsg.friction_export_index++;
+			USBMsg.tx_en = 1U;
+			return;
+		}
+
+		USBMsg.friction_export_en = 0U;
+		sprintf(USBMsg.tx_str, "friction_end\r\n");
+		USBMsg.tx_en = 1U;
 		return;
+	}
 
 	if (USBMsg.lut_export_index < ENCODER_OFFSET_LUT_SIZE)
 	{

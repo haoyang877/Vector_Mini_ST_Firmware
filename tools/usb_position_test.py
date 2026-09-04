@@ -174,10 +174,12 @@ def run_motion_test(
         f"current_limit={args.current_limit:.3f} A"
     )
 
+    device.write("mod", 0)
+    device.write("mod", 18)
     device.write("p_s", target_rev)
     mode = int(extract_number(device.read("mod"), "mode"))
-    if mode != 3:
-        raise ProtocolError(f"Expected Position_Mode (3), received mode {mode}")
+    if mode != 18:
+        raise ProtocolError(f"Expected Position_Impedance_Mode (18), received mode {mode}")
 
     deadline = time.monotonic() + args.duration
     final_position_rad = start_position_rad
@@ -186,8 +188,8 @@ def run_motion_test(
         error = int(extract_number(device.read("err"), "error"))
         if error != 0:
             raise ProtocolError(f"Motor reported error {error} during motion")
-        if mode != 3:
-            raise ProtocolError(f"Motor left Position_Mode during motion; mode={mode}")
+        if mode != 18:
+            raise ProtocolError(f"Motor left Position_Impedance_Mode during motion; mode={mode}")
         final_position_rad = extract_number(device.read("p2f"), "pos2_filt")
         error_rad = target_rad - final_position_rad
         print(

@@ -32,7 +32,7 @@ typedef struct
 }Traj_TypeDef;
 
 void TRAJ_plan(float position, float start_position, float start_velocity, float Vmax, float Amax, float Dmax);
-void TRAJ_eval(void);
+void TRAJ_eval(float sample_time);
 float TRAJ_Get_Y(void);
 float TRAJ_Get_Yd(void);
 

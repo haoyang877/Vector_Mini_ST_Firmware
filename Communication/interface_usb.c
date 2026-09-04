@@ -320,7 +320,9 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				float position_ref = data * _2PI;
 				if(!isfinite(position_ref))
 					return USB_DATA_INVALID;
-				if(MotorControl.ModeNow != Position_Mode && !ModeSwitch_Handle(Position_Mode))
+				if(MotorControl.ModeNow != Position_Mode &&
+				   MotorControl.ModeNow != Position_Impedance_Mode &&
+				   !ModeSwitch_Handle(Position_Mode))
 					return USB_WRITE_INVALID;
 				MotorControl.posRef = position_ref;
 			}
@@ -394,8 +396,6 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 					if (MotorControl.pos_maxspeed > MotorControl.speed_limit)
 					{
 						MotorControl.pos_maxspeed = MotorControl.speed_limit;
-						if (MotorControl.ModeNow == Position_Mode)
-							MotorControl.posTrajUpdated = true;
 					}
 				}
 				else
@@ -450,11 +450,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				{
 					float position_maxspeed = data * _2PI;
 					if (MotorControl.pos_maxspeed != position_maxspeed)
-					{
 						MotorControl.pos_maxspeed = position_maxspeed;
-						if (MotorControl.ModeNow == Position_Mode)
-							MotorControl.posTrajUpdated = true;
-					}
 				}
 				else
 					return USB_DATA_OUT_OF_RANGE;
@@ -477,6 +473,27 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			case USB_POS_KI:
 				if(data >= 0.0f && data <= POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S)
 					MotorControl.pos_Ki = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
+
+			case USB_POS_INTEGRAL_LIMIT:
+				if(data >= 0.0f && data <= CURRENT_COMMAND_LIMIT_MAX_A)
+					MotorControl.pos_integral_limit = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
+
+			case USB_CASCADE_POS_KP:
+				if(data >= 0.0f && data <= CASCADE_POSITION_KP_MAX_PER_S)
+					MotorControl.cascade_pos_Kp = data;
+				else
+					return USB_DATA_OUT_OF_RANGE;
+			break;
+
+			case USB_CASCADE_POS_KD:
+				if(data >= 0.0f && data <= CASCADE_POSITION_KD_MAX)
+					MotorControl.cascade_pos_Kd = data;
 				else
 					return USB_DATA_OUT_OF_RANGE;
 			break;
@@ -674,6 +691,21 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 
 			case USB_POS_KI:
 				sprintf(USBMsg.tx_str, "pos_ki=%.3f\r\n", MotorControl.pos_Ki);
+			break;
+
+			case USB_POS_INTEGRAL_LIMIT:
+				sprintf(USBMsg.tx_str, "pos_i_limit=%.3fA\r\n",
+					MotorControl.pos_integral_limit);
+			break;
+
+			case USB_CASCADE_POS_KP:
+				sprintf(USBMsg.tx_str, "cascade_pos_kp=%.3f\r\n",
+					MotorControl.cascade_pos_Kp);
+			break;
+
+			case USB_CASCADE_POS_KD:
+				sprintf(USBMsg.tx_str, "cascade_pos_kd=%.3f\r\n",
+					MotorControl.cascade_pos_Kd);
 			break;
 
 			case USB_CAN_BR:
@@ -893,6 +925,24 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 				USBMsg.p_var[data_int].scale = 1.0f;
 				USBMsg.p_var[data_int].type = TYPE_FLOAT;
 				USBMsg.p_var[data_int].addr = &MotorControl.pos_Ki;
+			break;
+
+			case USB_POS_INTEGRAL_LIMIT:
+				USBMsg.p_var[data_int].scale = 1.0f;
+				USBMsg.p_var[data_int].type = TYPE_FLOAT;
+				USBMsg.p_var[data_int].addr = &MotorControl.pos_integral_limit;
+			break;
+
+			case USB_CASCADE_POS_KP:
+				USBMsg.p_var[data_int].scale = 1.0f;
+				USBMsg.p_var[data_int].type = TYPE_FLOAT;
+				USBMsg.p_var[data_int].addr = &MotorControl.cascade_pos_Kp;
+			break;
+
+			case USB_CASCADE_POS_KD:
+				USBMsg.p_var[data_int].scale = 1.0f;
+				USBMsg.p_var[data_int].type = TYPE_FLOAT;
+				USBMsg.p_var[data_int].addr = &MotorControl.cascade_pos_Kd;
 			break;
 
 			case USB_CAN_BR:

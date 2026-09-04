@@ -90,23 +90,10 @@
 #define PARAM_APP_POSITION_KD                     0.50f  /* A/(rad/s) */
 #define PARAM_APP_POSITION_KI                     10.0f  /* A/(rad*s) */
 
-/* Compile-time shaping for the low-speed impedance controller. */
-#define PARAM_APP_POSITION_VELOCITY_FILTER_HZ     20.0f
-#define PARAM_APP_POSITION_INTEGRAL_LIMIT_A       1.5f
-#define PARAM_APP_POSITION_INTEGRAL_ZONE_RAD      0.08726646f /* 5 deg */
-#define PARAM_APP_POSITION_INTEGRAL_SPEED_RAD_S   0.03f
-/*
- * Forget position-dependent holding current smoothly as the rotor moves.
- * The decay distance is an e-fold distance: after 5 deg, 36.8% remains.
- */
-#define PARAM_APP_POSITION_INTEGRAL_DECAY_DISTANCE_RAD       0.08726646f /* 5 deg */
-#define PARAM_APP_POSITION_INTEGRAL_DECAY_MIN_SPEED_RAD_S    0.02f
-#define PARAM_APP_POSITION_INTEGRAL_OPPOSING_DECAY_RATIO_PER_TICK 0.01f
-#define PARAM_APP_POSITION_INTEGRAL_DECAY_MAX_RATIO_PER_TICK 0.01f
-#define PARAM_APP_POSITION_INTEGRAL_DECAY_MAX_STEP_A         0.005f
-#define PARAM_APP_POSITION_INTEGRAL_ZERO_THRESHOLD_A         0.0005f
-#define PARAM_APP_POSITION_HOLD_ENTER_SPEED_RAD_S 0.03f
-#define PARAM_APP_POSITION_HOLD_EXIT_SPEED_RAD_S  0.08f
-#define PARAM_APP_POSITION_HOLD_TIME_S            0.05f
+#define PARAM_APP_POSITION_INTEGRAL_LIMIT_A       5.0f
+
+/* Legacy position -> speed -> current cascade outer-loop gains. */
+#define PARAM_APP_CASCADE_POSITION_KP             0.05f
+#define PARAM_APP_CASCADE_POSITION_KD             0.50f
 
 #endif

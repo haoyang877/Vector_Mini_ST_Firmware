@@ -68,14 +68,14 @@ void TRAJ_plan(float position, float start_position, float start_velocity, float
 /**
 	* @brief  Evaluate trapezoidal profile output
  **/
-void TRAJ_eval(void)
+void TRAJ_eval(float sample_time)
 {
     if (Traj.profile_done) {
         return;
     }
 
     Traj.tick++;
-    float t = Traj.tick * Position_Ts;
+    float t = Traj.tick * sample_time;
 
     if (t < 0.0f) { // Initial Condition
         Traj.Y   = Traj.start_position;

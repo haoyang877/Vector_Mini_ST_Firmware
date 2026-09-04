@@ -1,0 +1,7 @@
+#ifndef __POSITION_CASCADE_CONFIG_H__
+#define __POSITION_CASCADE_CONFIG_H__
+
+#define CASCADE_POSITION_KP_MAX_PER_S  50.0f
+#define CASCADE_POSITION_KD_MAX        10.0f
+
+#endif

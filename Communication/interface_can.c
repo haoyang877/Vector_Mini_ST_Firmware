@@ -66,7 +66,8 @@ void CAN_DisConnect_Handle(void)
 	{
 		if(MotorControl.ModeNow  == Current_Mode || 
 		   MotorControl.ModeNow  == Speed_Mode   || 
-		   MotorControl.ModeNow  == Position_Mode  )
+		   MotorControl.ModeNow  == Position_Mode ||
+		   MotorControl.ModeNow  == Position_Impedance_Mode)
 		{
 			CANMsg.can_hb_en = true;
 		}
@@ -190,7 +191,9 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		{
 			float position_ref = data * _2PI;
 			if (isfinite(position_ref) &&
-				(MotorControl.ModeNow == Position_Mode || ModeSwitch_Handle(Position_Mode)))
+				(MotorControl.ModeNow == Position_Mode ||
+				 MotorControl.ModeNow == Position_Impedance_Mode ||
+				 ModeSwitch_Handle(Position_Mode)))
 			{
 				MotorControl.posRef = position_ref;
 			}
@@ -264,8 +267,6 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 				if (MotorControl.pos_maxspeed > MotorControl.speed_limit)
 				{
 					MotorControl.pos_maxspeed = MotorControl.speed_limit;
-					if (MotorControl.ModeNow == Position_Mode)
-						MotorControl.posTrajUpdated = true;
 				}
 			}
 		break;
@@ -327,11 +328,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 			{
 				float position_maxspeed = data * _2PI;
 				if (MotorControl.pos_maxspeed != position_maxspeed)
-				{
 					MotorControl.pos_maxspeed = position_maxspeed;
-					if (MotorControl.ModeNow == Position_Mode)
-						MotorControl.posTrajUpdated = true;
-				}
 			}
 		break;
 		case CAN_GET_POS_MAXSPEED:
@@ -360,6 +357,33 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		case CAN_GET_POS_KI:
 			CAN_SendMessage_Update(CAN_GET_POS_KI, MotorControl.pos_Ki);
+		break;
+
+		case CAN_SET_POS_INTEGRAL_LIMIT:
+			if(data >= 0.0f && data <= CURRENT_COMMAND_LIMIT_MAX_A)
+				MotorControl.pos_integral_limit = data;
+		break;
+		case CAN_GET_POS_INTEGRAL_LIMIT:
+			CAN_SendMessage_Update(CAN_GET_POS_INTEGRAL_LIMIT,
+				MotorControl.pos_integral_limit);
+		break;
+
+		case CAN_SET_CASCADE_POS_KP:
+			if(data >= 0.0f && data <= CASCADE_POSITION_KP_MAX_PER_S)
+				MotorControl.cascade_pos_Kp = data;
+		break;
+		case CAN_GET_CASCADE_POS_KP:
+			CAN_SendMessage_Update(CAN_GET_CASCADE_POS_KP,
+				MotorControl.cascade_pos_Kp);
+		break;
+
+		case CAN_SET_CASCADE_POS_KD:
+			if(data >= 0.0f && data <= CASCADE_POSITION_KD_MAX)
+				MotorControl.cascade_pos_Kd = data;
+		break;
+		case CAN_GET_CASCADE_POS_KD:
+			CAN_SendMessage_Update(CAN_GET_CASCADE_POS_KD,
+				MotorControl.cascade_pos_Kd);
 		break;
 		
 		case CAN_SET_COGGING:

@@ -24,6 +24,7 @@ typedef enum
 	Calib_EleAngelOffset = 15,
 	Sensorless_Speed_Mode = 16,
 	Calib_PhaseResistance = 17,
+	Position_Impedance_Mode = 18,
 	MODE_NUM
 }ModeNow_TypeDef; 
 
@@ -95,7 +96,6 @@ typedef struct
 	float speed_Kp;
 	float speed_Ki;
 	
-	bool posTrajUpdated;
 	bool isReachTargetPos;
 	float pos_error_window;
 	float posAcc;
@@ -106,16 +106,12 @@ typedef struct
 	float pos_Kp;
 	float pos_Kd;
 	float pos_Ki;
+	float pos_integral_limit;
+	float cascade_pos_Kp;
+	float cascade_pos_Kd;
 
-	/* Position-impedance runtime state (not persisted). */
-	float pos_integral;
+	/* Position-impedance telemetry; controller state is private to its module. */
 	float pos_vel_filtered;
-	float pos_last_mech;
-	float pos_ref_last;
-	uint32_t pos_hold_counter;
-	uint16_t pos_loop_counter;
-	bool pos_impedance_initialized;
-	bool pos_integral_transport_active;
 	
 	/*voltage open-loop mode*/
 	float ol_voltage;	/*open-loop voltage amplitude (V, d-axis)*/

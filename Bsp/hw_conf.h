@@ -90,6 +90,18 @@
 #define POSITION_LOOP_DIVIDER       (FOC_FREQ / POSITION_LOOP_FREQ)
 #define Position_Ts                 (1.0f / (float)POSITION_LOOP_FREQ)
 
+/* Legacy cascaded position-speed-current controller runs at 5 kHz. */
+#define CASCADE_POSITION_LOOP_FREQ  5000U
+#if CASCADE_POSITION_LOOP_FREQ == 0U
+#error "CASCADE_POSITION_LOOP_FREQ must be greater than zero"
+#elif CASCADE_POSITION_LOOP_FREQ > FOC_FREQ
+#error "CASCADE_POSITION_LOOP_FREQ must not exceed FOC_FREQ"
+#elif (FOC_FREQ % CASCADE_POSITION_LOOP_FREQ) != 0U
+#error "CASCADE_POSITION_LOOP_FREQ must divide FOC_FREQ exactly"
+#endif
+#define CASCADE_POSITION_LOOP_DIVIDER (FOC_FREQ / CASCADE_POSITION_LOOP_FREQ)
+#define Cascade_Position_Ts         (1.0f / (float)CASCADE_POSITION_LOOP_FREQ)
+
 /* Sensorless speed-mode startup and observer handoff. */
 #define SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S       0.50f
 #define SENSORLESS_ALIGN_HOLD_TIME_S               0.30f

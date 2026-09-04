@@ -590,6 +590,16 @@
               <FilePath>..\Foc\foc_run.c</FilePath>
             </File>
             <File>
+              <FileName>position_impedance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Foc\position_impedance.c</FilePath>
+            </File>
+            <File>
+              <FileName>position_cascade.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Foc\position_cascade.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_traptraj.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_traptraj.c</FilePath>

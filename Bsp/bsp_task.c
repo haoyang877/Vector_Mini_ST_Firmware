@@ -39,6 +39,10 @@ void BSP1kHzIRQHandler(void)
 			case Position_Mode:
 				Set_RGB_BreathingColor(BLUE);
 			break;
+
+			case Position_Impedance_Mode:
+				Set_RGB_BreathingColor(WHITE);
+			break;
 			
 			case Calib_Motor_R_L_Flux:
 				Set_RGB_BreathingColor(PURPLE);

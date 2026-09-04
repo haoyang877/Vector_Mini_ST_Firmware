@@ -3,16 +3,14 @@
 
 #include "main.h"
 #include "encoder.h"
+#include "position_impedance_config.h"
+#include "position_cascade_config.h"
 
-#define PARAM_SCHEMA_VERSION 6U
+#define PARAM_SCHEMA_VERSION 8U
+#define PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT 7U
+#define PARAM_SCHEMA_VERSION_LEGACY_CURRENT_SENSE 6U
 #define PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE 5U
 #define PARAM_SCHEMA_VERSION_LEGACY_CASCADE 4U
-
-/* Runtime/persisted position-impedance gain limits. */
-#define POSITION_IMPEDANCE_KP_MAX_A_PER_RAD       50.0f
-#define POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S     10.0f
-#define POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S     10.0f
-#define POSITION_IMPEDANCE_MAX_SPEED_RPS          0.125f
 
 typedef struct
 {
@@ -54,6 +52,11 @@ typedef struct
 	float pos_ki;
 	/* Appended in schema v6; identifies the current-sense scaling in Flash. */
 	uint32_t current_sense_shunt_milliohm;
+	/* Appended in schema v7; position-integrator output limit in amperes. */
+	float pos_integral_limit;
+	/* Appended in schema v8; legacy cascade outer-loop gains. */
+	float cascade_pos_kp;
+	float cascade_pos_kd;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

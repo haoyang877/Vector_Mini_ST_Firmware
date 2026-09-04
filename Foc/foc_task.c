@@ -99,10 +99,11 @@ void RTT_Sampling(void)
 			Rttstru.data8 = 0;
 		}
 	}
-	else if (MotorControl.ModeNow == Position_Mode)
+	else if (MotorControl.ModeNow == Position_Mode ||
+		MotorControl.ModeNow == Position_Impedance_Mode)
 	{
 		/*
-		 * Position impedance telemetry, nine signed 16-bit channels:
+		 * Position-control telemetry, nine signed 16-bit channels:
 		 * position/electrical angles use signed Q15; speed uses 0.0001 rad/s;
 		 * current and voltage use mA and mV respectively.
 		 */
@@ -158,14 +159,9 @@ void MotorControl_Init(void)
 	FOC_CurrentController_Reset(&FOC);
 	PI_Controller_Reset(&PI_Speed);
 	
-	MotorControl.posTrajUpdated = true;
 	MotorControl.pos_error_window = 0.001f;
-	MotorControl.pos_impedance_initialized = false;
-	MotorControl.pos_integral = 0.0f;
 	MotorControl.pos_vel_filtered = 0.0f;
-	MotorControl.pos_hold_counter = 0U;
-	MotorControl.pos_loop_counter = 0U;
-	MotorControl.pos_integral_transport_active = false;
+	Task_Position_Mode_Reset();
 	
 	/*run current offset calibration automatically at power-up*/
 	MotorControl.ModeNow = Calib_CurrentOffset;
@@ -183,7 +179,7 @@ static void Task_SetMechanicalZero(MotorControl_TypeDef *MotorControl, Encoder_T
 		return;
 	}
 
-	MotorControl->posTrajUpdated = true;
+	Task_Position_Mode_Reset();
 	Set_ModeNow(Save_Param);
 }
 
@@ -194,6 +190,7 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 
 	return MotorControl->ModeNow == Speed_Mode ||
 	       MotorControl->ModeNow == Position_Mode ||
+	       MotorControl->ModeNow == Position_Impedance_Mode ||
 	       MotorControl->ModeNow == Vq_Mode ||
 	       MotorControl->ModeNow == Calib_EncoderOffset ||
 	       MotorControl->ModeNow == Calib_EncoderObserver ||
@@ -237,6 +234,10 @@ void FOC20kHzIRQHandler(void)
 		
 		case Position_Mode:
 			Task_Position_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
+		break;
+
+		case Position_Impedance_Mode:
+			Task_Position_Impedance_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
 		break;
 		
 		case Calib_Motor_R_L_Flux:

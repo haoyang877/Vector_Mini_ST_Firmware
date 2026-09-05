@@ -66,10 +66,12 @@ static bool FirmwareIsInitialized;
  **/
 void FirmwareComposition_Initialize(void)
 {
+	const BoardProfile *board_profile = BoardProfile_GetActive();
 	PowerStagePort power_stage_port = PowerStageTim1_CreatePort();
 	MeasurementPort measurement_port = MeasurementAdc12_CreatePort();
 	RotorSensorPort rotor_sensor_port = RotorSensorTle5012b_CreatePort();
-	CanTransportPort can_transport = CanFdcan1Transport_CreatePort();
+	CanTransportPort can_transport = CanFdcan1Transport_CreatePort(
+		board_profile->can_fd_enabled, board_profile->can_brs_enabled);
 	ByteTransportPort usb_transport = UsbCdcTransport_CreatePort();
 	IndicatorPort indicator_port = IndicatorStm32G431_CreatePort();
 	RotorCalibrationPort rotor_calibration_port;
@@ -88,7 +90,6 @@ void FirmwareComposition_Initialize(void)
 	DiagnosticTransportPort diagnostic_transport =
 		DiagnosticRttStm32G431_CreatePort();
 	ParameterStorePort parameter_store = ParameterStoreFlash_CreatePort();
-	const BoardProfile *board_profile = BoardProfile_GetActive();
 	const MotorProfile *motor_profile = MotorProfile_GetActive();
 	const EncoderProfile *encoder_profile = EncoderProfile_GetActive();
 	const ControlTuningProfile *tuning_profile = ControlTuningProfile_GetActive();

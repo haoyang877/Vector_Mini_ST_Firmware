@@ -1,0 +1,15 @@
+
+
+channel              : 0
+bitrate_kbps         : 1000
+mode                 : 0
+error                : 0
+friction_model_valid : 1
+repeat_passed        : 100
+repeat_expected      : 100
+receive_error_count  : 0
+transmit_error_count : 0
+status_read_ok       : True
+
+
+

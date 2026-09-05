@@ -33,6 +33,8 @@ typedef struct
 	uint16_t temperature_sample_divider;
 	uint8_t default_can_node_id;
 	uint32_t default_can_heartbeat_ms;
+	bool can_fd_enabled;
+	bool can_brs_enabled;
 } BoardProfile;
 
 const BoardProfile *BoardProfile_GetActive(void);

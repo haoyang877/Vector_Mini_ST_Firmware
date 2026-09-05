@@ -82,6 +82,9 @@
 
 #define PARAM_HW_CAN_NODE_ID                      0x00U
 #define PARAM_HW_CAN_HEARTBEAT_MS                 500
+/* Classic CAN is compatible with CANalyst-II. Set both to 1 for CAN FD+BRS. */
+#define PARAM_HW_CAN_FD_ENABLED                   0U
+#define PARAM_HW_CAN_BRS_ENABLED                  0U
 
 #ifdef HARDWARE_VALIDATION_SKIP_TEMPERATURE_PROTECTION
 #define PARAM_HW_TEMPERATURE_PROTECTION_ENABLED   0U

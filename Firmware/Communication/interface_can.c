@@ -25,6 +25,9 @@ static bool CanInterface_SetNodeId(void *context, uint8_t node_id)
 	(void)context;
 	if (node_id > 7U)
 		return false;
+	if (CANTransportInitialized && CANContext.node_id != node_id &&
+		!CANTransport.configure_node_id(CANTransport.context, node_id))
+		return false;
 	CANContext.node_id = node_id;
 	return true;
 }
@@ -39,6 +42,9 @@ static bool CanInterface_SetBitrateKbps(void *context,
 	uint32_t bitrate_kbps)
 {
 	(void)context;
+	if (CANTransportInitialized && CANTransport.maximum_bitrate_kbps != 0U &&
+		bitrate_kbps > CANTransport.maximum_bitrate_kbps)
+		return false;
 	switch (bitrate_kbps)
 	{
 		case 100U:
@@ -121,6 +127,7 @@ bool CanInterface_Initialize(CanInterfaceContext *context,
 	const CanTransportPort *transport)
 {
 	if (context == 0 || transport == 0 || transport->initialize == 0 ||
+		transport->configure_node_id == 0 ||
 		transport->configure_bitrate_kbps == 0 || transport->receive == 0 ||
 		transport->transmit == 0)
 		return false;

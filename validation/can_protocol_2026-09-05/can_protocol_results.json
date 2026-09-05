@@ -1,0 +1,962 @@
+﻿{
+    "timestamp":  "2026-09-05T21:26:49.9546708+08:00",
+    "total":  106,
+    "passed":  106,
+    "failed":  0,
+    "results":  [
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_MODE",
+                        "Id":  "001",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CURRENT_SET",
+                        "Id":  "003",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED_SET",
+                        "Id":  "005",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_SET",
+                        "Id":  "007",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.02934265,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_NODE_ID",
+                        "Id":  "009",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POLE_PAIRS",
+                        "Id":  "00B",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  21,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_ENCODER_STATE",
+                        "Id":  "00D",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  1,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CURRENT_CAL",
+                        "Id":  "00F",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  4.5,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CURRENT_LIMIT",
+                        "Id":  "011",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  6,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED_LIMIT",
+                        "Id":  "013",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.5,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED_ACC",
+                        "Id":  "015",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  50,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED_DEC",
+                        "Id":  "017",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  50,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED_KP",
+                        "Id":  "019",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.05,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED_KI",
+                        "Id":  "01B",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.5,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_ACC",
+                        "Id":  "01D",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.125,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_DEC",
+                        "Id":  "01F",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.125,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_MAXSPEED",
+                        "Id":  "021",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.125,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_KP",
+                        "Id":  "023",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  8,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_KD",
+                        "Id":  "025",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.5,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CAN_BR",
+                        "Id":  "029",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  1000,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CAN_HB",
+                        "Id":  "02B",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  500,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_VBUS",
+                        "Id":  "02D",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  27.8134632,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_IBUS",
+                        "Id":  "02F",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  -3.92170441E-05,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_IA",
+                        "Id":  "031",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  -0.0134310126,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_IB",
+                        "Id":  "033",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_IC",
+                        "Id":  "035",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  -0.0268620253,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_ID",
+                        "Id":  "037",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_IQ",
+                        "Id":  "039",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_SPEED2_FILT",
+                        "Id":  "03F",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS2_FILT",
+                        "Id":  "041",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.184365317,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_TEMP",
+                        "Id":  "043",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_RS",
+                        "Id":  "045",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  1.905,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_LD",
+                        "Id":  "047",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.001635,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_LQ",
+                        "Id":  "049",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.001635,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FLUX",
+                        "Id":  "04B",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.0175025,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_ERROR",
+                        "Id":  "04D",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_ENCODER_REVERSE",
+                        "Id":  "04F",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_KI",
+                        "Id":  "051",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  10,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_POS_INTEGRAL_LIMIT",
+                        "Id":  "053",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  5,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CASCADE_POS_KP",
+                        "Id":  "055",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.05,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_CASCADE_POS_KD",
+                        "Id":  "057",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0.5,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_STATE",
+                        "Id":  "059",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_REASON",
+                        "Id":  "05A",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_COULOMB_POS",
+                        "Id":  "05B",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_COULOMB_NEG",
+                        "Id":  "05C",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_VISCOUS_POS",
+                        "Id":  "05D",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_VISCOUS_NEG",
+                        "Id":  "05E",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_RMSE_POS",
+                        "Id":  "05F",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_RMSE_NEG",
+                        "Id":  "060",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_CANDIDATE_VALID",
+                        "Id":  "061",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GET",
+                        "Command":  "GET_FRICTION_MODEL_VALID",
+                        "Id":  "062",
+                        "Result":  "PASS",
+                        "Expected":  "finite float32",
+                        "Actual":  1,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POLE_PAIRS",
+                        "Id":  "00A",
+                        "Result":  "PASS",
+                        "Expected":  20,
+                        "Actual":  20,
+                        "Detail":  "restores 21"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "CURRENT_CAL",
+                        "Id":  "00E",
+                        "Result":  "PASS",
+                        "Expected":  3.5,
+                        "Actual":  3.5,
+                        "Detail":  "restores 4.5"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "CURRENT_LIMIT",
+                        "Id":  "010",
+                        "Result":  "PASS",
+                        "Expected":  5.5,
+                        "Actual":  5.5,
+                        "Detail":  "restores 6"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "SPEED_LIMIT_RPS",
+                        "Id":  "012",
+                        "Result":  "PASS",
+                        "Expected":  0.4,
+                        "Actual":  0.4,
+                        "Detail":  "restores 0.5"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "SPEED_ACC_RPS2",
+                        "Id":  "014",
+                        "Result":  "PASS",
+                        "Expected":  40,
+                        "Actual":  40,
+                        "Detail":  "restores 50"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "SPEED_DEC_RPS2",
+                        "Id":  "016",
+                        "Result":  "PASS",
+                        "Expected":  40,
+                        "Actual":  40,
+                        "Detail":  "restores 50"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "SPEED_KP",
+                        "Id":  "018",
+                        "Result":  "PASS",
+                        "Expected":  0.06,
+                        "Actual":  0.06,
+                        "Detail":  "restores 0.05"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "SPEED_KI",
+                        "Id":  "01A",
+                        "Result":  "PASS",
+                        "Expected":  0.6,
+                        "Actual":  0.6,
+                        "Detail":  "restores 0.5"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_ACC_RPS2",
+                        "Id":  "01C",
+                        "Result":  "PASS",
+                        "Expected":  0.1,
+                        "Actual":  0.1,
+                        "Detail":  "restores 0.125"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_DEC_RPS2",
+                        "Id":  "01E",
+                        "Result":  "PASS",
+                        "Expected":  0.1,
+                        "Actual":  0.1,
+                        "Detail":  "restores 0.125"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_MAX_SPEED_RPS",
+                        "Id":  "020",
+                        "Result":  "PASS",
+                        "Expected":  0.1,
+                        "Actual":  0.1,
+                        "Detail":  "restores 0.125"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_KP",
+                        "Id":  "022",
+                        "Result":  "PASS",
+                        "Expected":  7.5,
+                        "Actual":  7.5,
+                        "Detail":  "restores 8"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_KD",
+                        "Id":  "024",
+                        "Result":  "PASS",
+                        "Expected":  0.4,
+                        "Actual":  0.4,
+                        "Detail":  "restores 0.5"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "RS_OHM",
+                        "Id":  "044",
+                        "Result":  "PASS",
+                        "Expected":  1.8,
+                        "Actual":  1.8,
+                        "Detail":  "restores 1.905"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "LD_H",
+                        "Id":  "046",
+                        "Result":  "PASS",
+                        "Expected":  0.0015,
+                        "Actual":  0.0015,
+                        "Detail":  "restores 0.001635"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "LQ_H",
+                        "Id":  "048",
+                        "Result":  "PASS",
+                        "Expected":  0.0015,
+                        "Actual":  0.0015,
+                        "Detail":  "restores 0.001635"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "FLUX_WB",
+                        "Id":  "04A",
+                        "Result":  "PASS",
+                        "Expected":  0.016,
+                        "Actual":  0.016,
+                        "Detail":  "restores 0.0175025"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_KI",
+                        "Id":  "050",
+                        "Result":  "PASS",
+                        "Expected":  9,
+                        "Actual":  9,
+                        "Detail":  "restores 10"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "POS_INTEGRAL_LIMIT_A",
+                        "Id":  "052",
+                        "Result":  "PASS",
+                        "Expected":  4.5,
+                        "Actual":  4.5,
+                        "Detail":  "restores 5"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "CASCADE_POS_KP",
+                        "Id":  "054",
+                        "Result":  "PASS",
+                        "Expected":  0.04,
+                        "Actual":  0.04,
+                        "Detail":  "restores 0.05"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "CASCADE_POS_KD",
+                        "Id":  "056",
+                        "Result":  "PASS",
+                        "Expected":  0.4,
+                        "Actual":  0.4,
+                        "Detail":  "restores 0.5"
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "ENCODER_REVERSE",
+                        "Id":  "04E",
+                        "Result":  "PASS",
+                        "Expected":  1,
+                        "Actual":  1,
+                        "Detail":  "restores 0"
+                    },
+                    {
+                        "Group":  "CONTROL",
+                        "Command":  "SET_CURRENT_ZERO",
+                        "Id":  "0x02",
+                        "Result":  "PASS",
+                        "Expected":  "set=0, mode=1",
+                        "Actual":  "set=0 mode=1",
+                        "Detail":  "disabled after test"
+                    },
+                    {
+                        "Group":  "CONTROL",
+                        "Command":  "SET_SPEED_ZERO",
+                        "Id":  "0x04",
+                        "Result":  "PASS",
+                        "Expected":  "set=0, mode=2",
+                        "Actual":  "set=0 mode=2",
+                        "Detail":  "disabled after test"
+                    },
+                    {
+                        "Group":  "CONTROL",
+                        "Command":  "SET_POSITION_HOLD",
+                        "Id":  "0x06",
+                        "Result":  "PASS",
+                        "Expected":  0.0293121338,
+                        "Actual":  "set=0.02931213 mode=3",
+                        "Detail":  "same-position command; disabled after test"
+                    },
+                    {
+                        "Group":  "CONTROL",
+                        "Command":  "SET_MODE_DISABLED",
+                        "Id":  "0x00",
+                        "Result":  "PASS",
+                        "Expected":  0,
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "CONFIG",
+                        "Command":  "SET_NODE_ID_1",
+                        "Id":  "0x08",
+                        "Result":  "PASS",
+                        "Expected":  "new=1, old filtered",
+                        "Actual":  "new=1 oldRejected=True",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "CONFIG",
+                        "Command":  "RESTORE_NODE_ID_0",
+                        "Id":  "0x08",
+                        "Result":  "PASS",
+                        "Expected":  0,
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "CONFIG",
+                        "Command":  "SET_BITRATE_500",
+                        "Id":  "0x28",
+                        "Result":  "PASS",
+                        "Expected":  500,
+                        "Actual":  500,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "CONFIG",
+                        "Command":  "RESTORE_BITRATE_1000",
+                        "Id":  "0x28",
+                        "Result":  "PASS",
+                        "Expected":  1000,
+                        "Actual":  1000,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "SET/GET",
+                        "Command":  "HEARTBEAT_MS",
+                        "Id":  "02A",
+                        "Result":  "PASS",
+                        "Expected":  600,
+                        "Actual":  600,
+                        "Detail":  "restores 500"
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_ENCODER_STATE",
+                        "Id":  "00C",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_COGGING",
+                        "Id":  "026",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_VBUS",
+                        "Id":  "02C",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_IBUS",
+                        "Id":  "02E",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_IA",
+                        "Id":  "030",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_IB",
+                        "Id":  "032",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_IC",
+                        "Id":  "034",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_ID",
+                        "Id":  "036",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_IQ",
+                        "Id":  "038",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_SPEED2_FILT",
+                        "Id":  "03E",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_POS2_FILT",
+                        "Id":  "040",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_TEMP",
+                        "Id":  "042",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "IGNORED",
+                        "Command":  "SET_ERROR",
+                        "Id":  "04C",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NOT_IMPLEMENTED",
+                        "Command":  "GET_COGGING",
+                        "Id":  "027",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "GUARDED",
+                        "Command":  "APPLY_FRICTION_MODEL_VALUE_0",
+                        "Id":  "058",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NEGATIVE",
+                        "Command":  "WRONG_NODE",
+                        "Id":  "101",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NEGATIVE",
+                        "Command":  "WRONG_DLC_3",
+                        "Id":  "001",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NEGATIVE",
+                        "Command":  "REMOTE_FRAME",
+                        "Id":  "001",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NEGATIVE",
+                        "Command":  "EXTENDED_FRAME",
+                        "Id":  "001",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NEGATIVE",
+                        "Command":  "UNKNOWN_PARAMETER",
+                        "Id":  "07F",
+                        "Result":  "PASS",
+                        "Expected":  "no response",
+                        "Actual":  "no response",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "NEGATIVE",
+                        "Command":  "NAN_REJECTED",
+                        "Id":  "0x00",
+                        "Result":  "PASS",
+                        "Expected":  "mode remains 0",
+                        "Actual":  0,
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "SAFETY",
+                        "Command":  "HEARTBEAT_TIMEOUT",
+                        "Id":  "0x2A",
+                        "Result":  "PASS",
+                        "Expected":  "entered=1,mode=0,error cleared on RX",
+                        "Actual":  "entered=1 mode=0 error=0",
+                        "Detail":  ""
+                    },
+                    {
+                        "Group":  "STRESS",
+                        "Command":  "GET_MODE_X200",
+                        "Id":  "0x01",
+                        "Result":  "PASS",
+                        "Expected":  "200/200",
+                        "Actual":  "200/200",
+                        "Detail":  "avg=0.98ms max=1.71ms"
+                    },
+                    {
+                        "Group":  "BUS",
+                        "Command":  "ADAPTER_ERROR_COUNTERS",
+                        "Id":  "000",
+                        "Result":  "PASS",
+                        "Expected":  "status readable,rx=0,tx=0",
+                        "Actual":  "rx=0 tx=0",
+                        "Detail":  "statusOk=1"
+                    }
+                ]
+}

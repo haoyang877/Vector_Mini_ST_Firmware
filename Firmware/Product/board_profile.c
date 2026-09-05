@@ -44,7 +44,9 @@ static const BoardProfile ActiveBoardProfile =
 	.voltage_confirm_cycles = 10000U,
 	.temperature_sample_divider = 20U,
 	.default_can_node_id = PARAM_HW_CAN_NODE_ID,
-	.default_can_heartbeat_ms = PARAM_HW_CAN_HEARTBEAT_MS
+	.default_can_heartbeat_ms = PARAM_HW_CAN_HEARTBEAT_MS,
+	.can_fd_enabled = PARAM_HW_CAN_FD_ENABLED != 0U,
+	.can_brs_enabled = PARAM_HW_CAN_BRS_ENABLED != 0U
 };
 
 const BoardProfile *BoardProfile_GetActive(void)

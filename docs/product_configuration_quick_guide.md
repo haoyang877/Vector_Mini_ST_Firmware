@@ -257,7 +257,7 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 | 项目 | USB 三字符 | 范围/说明 |
 | --- | --- | --- |
 | CAN 节点 ID | `cid` | 0–7 |
-| CAN 波特率 | `cbr` | 100、125、200、250、500、1000、2000、2500、5000 kbit/s；当前不写入 ParameterSnapshot |
+| CAN 波特率 | `cbr` | 经典 CAN：100–1000 kbit/s；CAN FD：最高 5000 kbit/s；当前不写入 ParameterSnapshot |
 | CAN 心跳 | `chb` | 0 表示关闭，或 500–1000 ms |
 | 编码器方向 | `erv` | 0/1；修改会使已有方向相关标定失效，应重新标定并保存 |
 | 编码器 LUT/电零位/机械零位 | 通过服务生成 | 不应作为普通数值直接写入 |
@@ -269,7 +269,7 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 1. 在线修改 R、Ld、Lq 时，Runtime 会使用活动 MotorProfile 的电流环带宽同步重算对应的 `d/q current Kp/Ki`。如果新电机需要不同带宽，仍应建立新的编译期 MotorProfile。
 2. R/L/磁链的运行时上下限由 MotorProfile 提供；当前 HT8115-4 Profile 的相电阻范围是 0.0001–5.0 Ω，覆盖其 1.905 Ω 默认值。
 3. USB 写 `mrs/mld/mlq/mfx` 使用 SI 单位 Ω/H/H/Wb，但 USB 读取文本分别显示 mΩ/µH/µH/mWb，读写单位并不对称。配置工具必须显式换算。
-4. CAN 波特率虽然可运行时切换，但当前 `ParameterSnapshot` 不保存它，复位后回到接口默认 1000 kbit/s。
+4. CAN 波特率虽然可运行时切换，但当前 `ParameterSnapshot` 不保存它，复位后回到接口默认 1000 kbit/s。经典 CAN Profile 会拒绝大于 1000 kbit/s 的设置。
 5. Board、Motor 和 MechanicalLoad Profile 均为编译期单选，不支持运行时切换硬件组合。
 6. 开环电压、开环电角速度、初始电角度和位置误差窗口不写入 ParameterSnapshot；每次加载默认值或有效 Flash 记录时都会从活动 MotorProfile 重新应用。
 7. `mechanical_load_profiles.c` 已提供可按 ID 查询的双配置表；Board、Encoder 和 ControlTuning 仍只构造一个活动对象。
@@ -278,6 +278,26 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
    `flux_observer_resistance_scale` 修正，不能通过伪造 `mrs` 或放宽锁定门限处理。
 
 因此推荐：运行时协议用于实验整定速度、位置和限幅；新电机的 R/L/磁链、电流环带宽和安全上限应写入新的编译期 MotorProfile，然后恢复该 Profile 默认值再标定。
+
+### 4.2 经典 CAN 与 CAN FD 选择
+
+帧格式由 `Firmware/Product/vector_mini_st_profile.h` 的 Board Profile 宏选择：
+
+| 目标 | `PARAM_HW_CAN_FD_ENABLED` | `PARAM_HW_CAN_BRS_ENABLED` | 适配器要求 |
+| --- | ---: | ---: | --- |
+| 经典 CAN 2.0 | 0 | 0 | CANalyst-II 等经典 CAN 适配器 |
+| CAN FD，不切换数据速率 | 1 | 0 | CAN FD 适配器 |
+| CAN FD+BRS | 1 | 1 | 支持 BRS 的 CAN FD 适配器 |
+
+当前 Vector Mini ST Profile 使用经典 CAN，标准 11 位 ID、4 字节大端浮点载荷和现有参数 ID 均保持不变。修改这两个宏后必须全量重建并重新下载；双方的帧格式和仲裁/数据速率必须一致。
+
+使用 CANalyst-II 的通道 0 做只读通信回归：
+
+```powershell
+pwsh -NoProfile -File tools/can_classic_smoke_test.ps1
+```
+
+脚本读取 Mode、Error、CAN 波特率和摩擦模型有效位，并重复读取 100 次 Mode；运行前必须关闭会独占设备的 USB_CAN_Tool/CANPro。
 
 ## 5. 同一硬件快速适配新电机
 

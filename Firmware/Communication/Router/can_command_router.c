@@ -394,9 +394,19 @@ void CanCommandRouter_Handle(CanParameterId param_id, float data)
 				MOTOR_TELEMETRY_TEMPERATURE_C, 1.0f);
 		break;
 
+		case CAN_SET_RS:
+			(void)ParameterService_WriteMotorParameter(
+				MOTOR_PARAMETER_PHASE_RESISTANCE_OHM, data);
+		break;
+
 		case CAN_GET_RS:
 			CanCommandRouter_SendMotorParameter(CAN_GET_RS,
 				MOTOR_PARAMETER_PHASE_RESISTANCE_OHM, 1.0f);
+		break;
+
+		case CAN_SET_LD:
+			(void)ParameterService_WriteMotorParameter(
+				MOTOR_PARAMETER_D_AXIS_INDUCTANCE_H, data);
 		break;
 
 		case CAN_GET_LD:
@@ -404,9 +414,19 @@ void CanCommandRouter_Handle(CanParameterId param_id, float data)
 				MOTOR_PARAMETER_D_AXIS_INDUCTANCE_H, 1.0f);
 		break;
 
+		case CAN_SET_LQ:
+			(void)ParameterService_WriteMotorParameter(
+				MOTOR_PARAMETER_Q_AXIS_INDUCTANCE_H, data);
+		break;
+
 		case CAN_GET_LQ:
 			CanCommandRouter_SendMotorParameter(CAN_GET_LQ,
 				MOTOR_PARAMETER_Q_AXIS_INDUCTANCE_H, 1.0f);
+		break;
+
+		case CAN_SET_FLUX:
+			(void)ParameterService_WriteMotorParameter(
+				MOTOR_PARAMETER_FLUX_WEBER, data);
 		break;
 
 		case CAN_GET_FLUX:

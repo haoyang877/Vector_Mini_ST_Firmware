@@ -179,7 +179,7 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 	MotorControl.iq_Kp = param->iq_kp;
 	MotorControl.iq_Ki = param->iq_ki;
 	MotorControl.speed_limit = isfinite(param->speed_limit) && param->speed_limit > 0.0f ?
-		constrain(param->speed_limit, 0.0f, 400.0f * _2PI) :
+		constrain(param->speed_limit, 0.0f, PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI) :
 		PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
 	position_speed_limit = fast_min(MotorControl.speed_limit,
 		POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI);

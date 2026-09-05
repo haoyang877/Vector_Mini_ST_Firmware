@@ -52,6 +52,7 @@ void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup)
 	Startup->open_loop_omega = 0.0f;
 	Startup->handoff_phase_delta = 0.0f;
 	Startup->speed_feedback = 0.0f;
+	Startup->lock_speed_feedback = 0.0f;
 	Startup->direction = 1.0f;
 	Startup->speed_pi_output_max = 1.0f;
 	Startup->state_ticks = 0U;

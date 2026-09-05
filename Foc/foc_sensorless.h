@@ -36,11 +36,34 @@ typedef enum
 
 typedef struct
 {
+	float align_current_ramp_time_s;
+	float align_hold_time_s;
+	float align_current_a;
+	float startup_iq_initial_a;
+	float startup_iq_a;
+	float startup_iq_ramp_time_s;
+	float startup_id_a;
+	float minimum_current_limit_a;
+	float minimum_electrical_velocity_rad_s;
+	float target_electrical_velocity_rad_s;
+	float startup_ramp_time_s;
+	float speed_lock_time_s;
+	float speed_lock_filter_alpha;
+	float observer_lock_ratio;
+	float angle_handoff_time_s;
+	float lock_timeout_s;
+	float id_ramp_down_time_s;
+	float observer_loss_time_s;
+}SensorlessStartupConfig_TypeDef;
+
+typedef struct
+{
 	SensorlessStartupState_TypeDef state;
 	float open_loop_theta;
 	float open_loop_omega;
 	float handoff_phase_delta;
 	float speed_feedback;
+	float lock_speed_feedback;
 	float direction;
 	float speed_pi_output_max;
 	uint32_t state_ticks;

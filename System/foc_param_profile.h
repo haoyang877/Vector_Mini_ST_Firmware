@@ -32,7 +32,7 @@
 /* Encoder electrical-angle alignment current. */
 #define PARAM_MOTOR_CALIB_CURRENT_A               CURRENT_SENSE_PROFILE_DEFAULT_CALIB_A
 #define PARAM_MOTOR_CURRENT_LIMIT_A               CURRENT_SENSE_PROFILE_DEFAULT_LIMIT_A
-#define PARAM_MOTOR_SPEED_LIMIT_RPS               (372.0f / 60.0f)
+#define PARAM_MOTOR_SPEED_LIMIT_RPS               0.50f
 #define PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S  (500.0f * 6.283185307f)
 
 /* Per-motor profile for encoder-independent phase-resistance identification. */
@@ -100,7 +100,7 @@
 #define PARAM_FRICTION_IDENT_SPEED_0_RPS           0.10f
 #define PARAM_FRICTION_IDENT_SPEED_1_RPS           0.20f
 #define PARAM_FRICTION_IDENT_SPEED_2_RPS           0.40f
-#define PARAM_FRICTION_IDENT_SPEED_3_RPS           0.80f
+#define PARAM_FRICTION_IDENT_SPEED_3_RPS           0.50f
 #define PARAM_FRICTION_IDENT_SPEED_POINT_COUNT     4U
 #define PARAM_FRICTION_IDENT_STABLE_TIME_S         0.75f
 #define PARAM_FRICTION_IDENT_TRACK_TIMEOUT_S       8.0f

@@ -7,6 +7,7 @@
 #include "ring_buffer.h"
 #include "foc_algorithm.h"
 #include "foc_param.h"
+#include "foc_param_profile.h"
 #include "foc_errhandle.h"
 #include "encoder.h"
 #include "interface_can.h"
@@ -393,7 +394,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_SPEED_LIMIT:
-				if(data > 0.0f && data <= 400.0f)
+				if(data > 0.0f && data <= PARAM_MOTOR_SPEED_LIMIT_RPS)
 				{
 					MotorControl.speed_limit = data * _2PI;
 					if (MotorControl.pos_maxspeed > MotorControl.speed_limit)

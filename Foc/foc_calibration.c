@@ -107,6 +107,22 @@ static void Encoder_ObserverCalib_Abort(FOC_TypeDef *FOC,
 	Stop_PWM_Generate();
 }
 
+static void Encoder_ObserverCalib_Finish(FOC_TypeDef *FOC,
+	MotorControl_TypeDef *MotorControl, PI_Controller_TypeDef *SpeedController,
+	SensorlessStartup_TypeDef *Startup)
+{
+	SensorlessStartup_Reset(Startup);
+	FOC_CurrentController_Reset(FOC);
+	PI_Controller_Reset(SpeedController);
+	MotorControl->speedRef = 0.0f;
+	MotorControl->speedShadow = 0.0f;
+	MotorControl->idRef = 0.0f;
+	MotorControl->iqRef = 0.0f;
+	CalibStep = CS_NULL;
+	PWM_TurnOnHighSides();
+	Set_ModeNow(Save_Param);
+}
+
 static bool Encoder_Calib_BuildLut(uint16_t minimum_samples)
 {
 	int32_t correction_previous;
@@ -187,10 +203,12 @@ static bool Encoder_ObserverCalib_IsStable(MotorControl_TypeDef *MotorControl,
 {
 	float target_electrical_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S *
 		(float)MotorControl->motor_pole_pairs;
+	float filtered_electrical_speed = Startup->speed_feedback *
+		(float)MotorControl->motor_pole_pairs;
 
 	return Startup->state == SENSORLESS_STARTUP_CLOSED_LOOP &&
 		Observer_GetPositionEpoch(Fluxobserver) == position_epoch &&
-		fast_abs(Observer_GetEleVel(Fluxobserver) - target_electrical_speed) <=
+		fast_abs(filtered_electrical_speed - target_electrical_speed) <=
 			fast_abs(target_electrical_speed) * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO &&
 		fast_abs(MotorControl->speedShadow - SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S) <=
 			SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO;
@@ -205,7 +223,7 @@ static bool Encoder_ObserverCalib_IsTracking(Fluxobserver_TypeDef *Fluxobserver,
 
 static float Encoder_ObserverCalib_GetStopSpeed(const MotorControl_TypeDef *MotorControl)
 {
-	float minimum_mechanical_speed = SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S /
+	float minimum_mechanical_speed = SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s /
 		(float)MotorControl->motor_pole_pairs;
 	float stop_speed = minimum_mechanical_speed * SENSORLESS_ENCODER_CALIB_STOP_SPEED_MARGIN;
 
@@ -899,6 +917,12 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
 		return;
 	}
+	if (MotorControl->current_limit < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+		return;
+	}
 
 	if (CalibStep == CS_NULL)
 	{
@@ -946,8 +970,9 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 
 		if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
 		{
-			Set_ErrorNow(Sensorless_Error);
-			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
+			/* The LUT is already committed. High friction can stop the rotor below the
+			 * observer's usable speed before the current ramp finishes; save safely. */
+			Encoder_ObserverCalib_Finish(FOC, MotorControl, SpeedController, Startup);
 			return;
 		}
 
@@ -980,7 +1005,8 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			MotorControl->speedRef = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
 		}
 
-		Task_Sensorless_Speed_Mode(FOC, MotorControl, SpeedController, Fluxobserver, Startup);
+		Task_Sensorless_Speed_Mode(FOC, MotorControl, SpeedController, Fluxobserver, Startup,
+			&SensorlessStartup_EncoderCalibConfig);
 		if (MotorControl->ErrorNow != No_Error)
 		{
 			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
@@ -995,7 +1021,8 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	{
 		case CS_OBS_ALIGN_ORIGIN:
 			if (Startup->state == SENSORLESS_STARTUP_ALIGN &&
-				Startup->state_ticks >= (uint32_t)((SENSORLESS_ALIGN_TIME_S -
+				Startup->state_ticks >= (uint32_t)(((SensorlessStartup_EncoderCalibConfig.align_current_ramp_time_s +
+					SensorlessStartup_EncoderCalibConfig.align_hold_time_s) -
 					SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) / Current_Ts))
 			{
 				int32_t unwrapped_q15;
@@ -1396,16 +1423,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S /
 				Current_Ts))
 			{
-				SensorlessStartup_Reset(Startup);
-				FOC_CurrentController_Reset(FOC);
-				PI_Controller_Reset(SpeedController);
-				MotorControl->speedRef = 0.0f;
-				MotorControl->speedShadow = 0.0f;
-				MotorControl->idRef = 0.0f;
-				MotorControl->iqRef = 0.0f;
-				CalibStep = CS_NULL;
-				PWM_TurnOnHighSides();
-				Set_ModeNow(Save_Param);
+				Encoder_ObserverCalib_Finish(FOC, MotorControl, SpeedController, Startup);
 			}
 			break;
 
@@ -1428,6 +1446,9 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 	static int64_t unwrapped_sum;
 	float time = (float)loop_count * Current_Ts;
 	float align_current = MotorControl->calib_current;
+
+	if (align_current < ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A)
+		align_current = ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A;
 
 	if (!Encoder_IsOnline(Encoder))
 	{

@@ -3,6 +3,7 @@
 #include "common_inc.h"
 #include "position_cascade.h"
 #include "position_impedance.h"
+#include "position_impedance_config.h"
 
 /**
 	* @brief  Current mode control task
@@ -96,6 +97,50 @@ static float Sensorless_AngleDifference(float target, float source)
 	return difference;
 }
 
+const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig =
+{
+	SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S,
+	SENSORLESS_ALIGN_HOLD_TIME_S,
+	SENSORLESS_ALIGN_CURRENT_A,
+	SENSORLESS_STARTUP_IQ_INITIAL_A,
+	SENSORLESS_STARTUP_IQ_A,
+	SENSORLESS_STARTUP_IQ_RAMP_TIME_S,
+	SENSORLESS_STARTUP_ID_A,
+	0.0f,
+	SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S,
+	SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S,
+	SENSORLESS_STARTUP_RAMP_TIME_S,
+	SENSORLESS_STARTUP_SPEED_LOCK_TIME_S,
+	SENSORLESS_SPEED_LOCK_FILTER_ALPHA,
+	SENSORLESS_OBSERVER_LOCK_RATIO,
+	SENSORLESS_ANGLE_HANDOFF_TIME_S,
+	SENSORLESS_STARTUP_LOCK_TIMEOUT_S,
+	SENSORLESS_ID_RAMP_DOWN_TIME_S,
+	SENSORLESS_OBSERVER_LOSS_TIME_S
+};
+
+const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig =
+{
+	SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
+	SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
+	SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
+	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
+	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
+	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+	SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
+	SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
+	SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
+	SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
+	SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
+	SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
+	SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
+	SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
+	SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
+	SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
+	SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
+	SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S
+};
+
 static bool Sensorless_ObserverIsUsable(const Fluxobserver_TypeDef *Fluxobserver)
 {
 	return Fluxobserver->theta_e == Fluxobserver->theta_e &&
@@ -103,11 +148,33 @@ static bool Sensorless_ObserverIsUsable(const Fluxobserver_TypeDef *Fluxobserver
 	       fast_abs(Fluxobserver->omega_e) <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S;
 }
 
-static bool Sensorless_StartupCurrentsAreValid(const MotorControl_TypeDef *MotorControl)
+static bool Sensorless_StartupConfigIsValid(const SensorlessStartupConfig_TypeDef *Config)
 {
-	return MotorControl->current_limit >= SENSORLESS_ALIGN_CURRENT_A &&
-	       MotorControl->current_limit >= SENSORLESS_STARTUP_IQ_A &&
-	       MotorControl->current_limit >= SENSORLESS_STARTUP_ID_A;
+	return Config != NULL &&
+		Config->align_current_ramp_time_s > 0.0f && Config->align_hold_time_s >= 0.0f &&
+		Config->align_current_a > 0.0f && Config->startup_iq_initial_a >= 0.0f &&
+		Config->startup_iq_a >= Config->startup_iq_initial_a &&
+		Config->startup_iq_ramp_time_s > 0.0f && Config->startup_id_a >= 0.0f &&
+		Config->minimum_current_limit_a >= 0.0f &&
+		Config->minimum_electrical_velocity_rad_s > 0.0f &&
+		Config->target_electrical_velocity_rad_s >= Config->minimum_electrical_velocity_rad_s &&
+		Config->startup_ramp_time_s > 0.0f && Config->speed_lock_time_s > 0.0f &&
+		Config->speed_lock_filter_alpha > 0.0f && Config->speed_lock_filter_alpha <= 1.0f &&
+		Config->observer_lock_ratio > 0.0f && Config->angle_handoff_time_s > 0.0f &&
+		Config->lock_timeout_s >= Config->speed_lock_time_s &&
+		Config->id_ramp_down_time_s > 0.0f && Config->observer_loss_time_s > 0.0f;
+}
+
+static bool Sensorless_StartupCurrentsAreValid(const MotorControl_TypeDef *MotorControl,
+	const SensorlessStartupConfig_TypeDef *Config)
+{
+	float current_limit_squared = MotorControl->current_limit * MotorControl->current_limit;
+	float startup_current_squared = Config->startup_iq_a * Config->startup_iq_a +
+		Config->startup_id_a * Config->startup_id_a;
+
+	return MotorControl->current_limit >= Config->minimum_current_limit_a &&
+		MotorControl->current_limit >= Config->align_current_a &&
+		startup_current_squared <= current_limit_squared;
 }
 
 static void Sensorless_UpdateSpeedReference(MotorControl_TypeDef *MotorControl)
@@ -142,13 +209,15 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 						MotorControl_TypeDef *MotorControl,
 						PI_Controller_TypeDef *controller,
 						Fluxobserver_TypeDef *Fluxobserver,
-						SensorlessStartup_TypeDef *Startup)
+						SensorlessStartup_TypeDef *Startup,
+						const SensorlessStartupConfig_TypeDef *Config)
 {
 	float pole_pairs = (float)MotorControl->motor_pole_pairs;
 	float min_mech_vel;
 	float requested_direction;
 
-	if (pole_pairs <= 0.0f || MotorControl->motor_phase_resistance <= 0.0f ||
+	if (!Sensorless_StartupConfigIsValid(Config) || pole_pairs <= 0.0f ||
+		MotorControl->motor_phase_resistance <= 0.0f ||
 		MotorControl->motor_d_inductance <= 0.0f || MotorControl->motor_q_inductance <= 0.0f ||
 		MotorControl->motor_flux <= 0.0f || MotorControl->current_limit <= 0.0f)
 	{
@@ -167,14 +236,14 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		return;
 	}
 
-	min_mech_vel = SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S / pole_pairs;
+	min_mech_vel = Config->minimum_electrical_velocity_rad_s / pole_pairs;
 	if (fast_abs(MotorControl->speedRef) < min_mech_vel)
 	{
 		Set_ErrorNow(Sensorless_Error);
 		return;
 	}
 
-	if (!Sensorless_StartupCurrentsAreValid(MotorControl))
+	if (!Sensorless_StartupCurrentsAreValid(MotorControl, Config))
 	{
 		Set_ErrorNow(Sensorless_Error);
 		return;
@@ -195,12 +264,13 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 	switch (Startup->state)
 	{
 		case SENSORLESS_STARTUP_ALIGN:
-			MotorControl->idRef = SENSORLESS_ALIGN_CURRENT_A *
+			MotorControl->idRef = Config->align_current_a *
 				constrain(((float)Startup->state_ticks + 1.0f) * Current_Ts /
-					SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S, 0.0f, 1.0f);
+					Config->align_current_ramp_time_s, 0.0f, 1.0f);
 			MotorControl->iqRef = 0.0f;
 			FOC_Current(FOC, MotorControl, 0.0f, 0.0f);
-			if (++Startup->state_ticks >= (uint32_t)(SENSORLESS_ALIGN_TIME_S / Current_Ts))
+			if (++Startup->state_ticks >= (uint32_t)((Config->align_current_ramp_time_s +
+				Config->align_hold_time_s) / Current_Ts))
 			{
 				Startup->state = SENSORLESS_STARTUP_OPEN_LOOP;
 				Startup->open_loop_theta = 0.0f;
@@ -221,24 +291,25 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				break;
 			}
 
-			if (fast_abs(Startup->open_loop_omega) < SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S)
+			if (fast_abs(Startup->open_loop_omega) < Config->target_electrical_velocity_rad_s)
 			{
-				Startup->open_loop_omega += Startup->direction * SENSORLESS_STARTUP_ELEC_ACCEL_RAD_S2 * Current_Ts;
-				if (fast_abs(Startup->open_loop_omega) >= SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S)
-					Startup->open_loop_omega = Startup->direction * SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S;
+				Startup->open_loop_omega += Startup->direction *
+					(Config->target_electrical_velocity_rad_s / Config->startup_ramp_time_s) * Current_Ts;
+				if (fast_abs(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
+					Startup->open_loop_omega = Startup->direction * Config->target_electrical_velocity_rad_s;
 			}
 
 			Startup->open_loop_ticks++;
 			iq_ramp_ratio = constrain((float)Startup->open_loop_ticks * Current_Ts /
-				SENSORLESS_STARTUP_IQ_RAMP_TIME_S, 0.0f, 1.0f);
+				Config->startup_iq_ramp_time_s, 0.0f, 1.0f);
 
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
-			MotorControl->idRef = SENSORLESS_STARTUP_ID_A;
-			MotorControl->iqRef = Startup->direction * (SENSORLESS_STARTUP_IQ_INITIAL_A +
-				(SENSORLESS_STARTUP_IQ_A - SENSORLESS_STARTUP_IQ_INITIAL_A) * iq_ramp_ratio);
+			MotorControl->idRef = Config->startup_id_a;
+			MotorControl->iqRef = Startup->direction * (Config->startup_iq_initial_a +
+				(Config->startup_iq_a - Config->startup_iq_initial_a) * iq_ramp_ratio);
 			FOC_Current(FOC, MotorControl, Startup->open_loop_theta, Startup->open_loop_omega);
 
-			if (fast_abs(Startup->open_loop_omega) >= SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S)
+			if (fast_abs(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
 			{
 				Startup->state = SENSORLESS_STARTUP_SPEED_LOCK;
 				Startup->state_ticks = 0U;
@@ -248,6 +319,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		break;
 		case SENSORLESS_STARTUP_SPEED_LOCK:
 		{
+			float observer_velocity;
 			float speed_error;
 			bool is_observer_locked;
 
@@ -260,20 +332,27 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
 			Startup->state_ticks++;
 
-			MotorControl->idRef = SENSORLESS_STARTUP_ID_A;
-			MotorControl->iqRef = Startup->direction * SENSORLESS_STARTUP_IQ_A;
+			MotorControl->idRef = Config->startup_id_a;
+			MotorControl->iqRef = Startup->direction * Config->startup_iq_a;
 			FOC_Current(FOC, MotorControl, Startup->open_loop_theta, Startup->open_loop_omega);
 
-			speed_error = fast_abs(Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
-			is_observer_locked = Observer_GetEleVel(Fluxobserver) * Startup->open_loop_omega > 0.0f &&
-				speed_error <= fast_abs(Startup->open_loop_omega) * SENSORLESS_OBSERVER_LOCK_RATIO;
+			observer_velocity = Observer_GetEleVel(Fluxobserver);
+			if (Startup->state_ticks == 1U)
+				Startup->lock_speed_feedback = observer_velocity;
+			else
+				Startup->lock_speed_feedback += Config->speed_lock_filter_alpha *
+					(observer_velocity - Startup->lock_speed_feedback);
+
+			speed_error = fast_abs(Startup->lock_speed_feedback - Startup->open_loop_omega);
+			is_observer_locked = Startup->lock_speed_feedback * Startup->open_loop_omega > 0.0f &&
+				speed_error <= fast_abs(Startup->open_loop_omega) * Config->observer_lock_ratio;
 
 			if (is_observer_locked)
 				Startup->lock_ticks++;
 			else
 				Startup->lock_ticks = 0U;
 
-			if (Startup->lock_ticks >= (uint32_t)(SENSORLESS_STARTUP_SPEED_LOCK_TIME_S / Current_Ts))
+			if (Startup->lock_ticks >= (uint32_t)(Config->speed_lock_time_s / Current_Ts))
 			{
 				PI_Controller_Reset(controller);
 				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
@@ -285,7 +364,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				Startup->state_ticks = 0U;
 			}
 
-			if (Startup->state_ticks >= (uint32_t)(SENSORLESS_STARTUP_LOCK_TIMEOUT_S / Current_Ts))
+			if (Startup->state_ticks >= (uint32_t)(Config->lock_timeout_s / Current_Ts))
 			{
 				Set_ErrorNow(Sensorless_Error);
 				return;
@@ -306,14 +385,14 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
 			blend = constrain((float)(++Startup->state_ticks) * Current_Ts /
-				SENSORLESS_ANGLE_HANDOFF_TIME_S, 0.0f, 1.0f);
+				Config->angle_handoff_time_s, 0.0f, 1.0f);
 			phase = normalizeAngle(Observer_GetElePhase(Fluxobserver) +
 				(1.0f - blend) * Startup->handoff_phase_delta);
 			phase_vel = Startup->open_loop_omega + blend *
 				(Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
 
-			MotorControl->idRef = SENSORLESS_STARTUP_ID_A;
-			MotorControl->iqRef = Startup->direction * SENSORLESS_STARTUP_IQ_A;
+			MotorControl->idRef = Config->startup_id_a;
+			MotorControl->iqRef = Startup->direction * Config->startup_iq_a;
 			FOC_Current(FOC, MotorControl, phase, phase_vel);
 
 			if (blend >= 1.0f)
@@ -340,7 +419,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			if (requested_direction * observer_vel < 0.0f &&
-				fast_abs(observer_vel) < SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S)
+				fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s)
 			{
 				SensorlessStartup_Reset(Startup);
 				FOC_CurrentController_Reset(FOC);
@@ -348,9 +427,9 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				return;
 			}
 
-			MotorControl->idRef = SENSORLESS_STARTUP_ID_A *
-				(1.0f - constrain((float)Startup->id_ramp_ticks * Current_Ts / SENSORLESS_ID_RAMP_DOWN_TIME_S, 0.0f, 1.0f));
-			if (Startup->id_ramp_ticks < (uint32_t)(SENSORLESS_ID_RAMP_DOWN_TIME_S / Current_Ts))
+			MotorControl->idRef = Config->startup_id_a *
+				(1.0f - constrain((float)Startup->id_ramp_ticks * Current_Ts / Config->id_ramp_down_time_s, 0.0f, 1.0f));
+			if (Startup->id_ramp_ticks < (uint32_t)(Config->id_ramp_down_time_s / Current_Ts))
 				Startup->id_ramp_ticks++;
 
 			if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
@@ -363,12 +442,12 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				Startup->speed_loop_ticks = 0U;
 			}
 
-			if (fast_abs(observer_vel) < SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S * 0.5f)
+			if (fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s * 0.5f)
 				Startup->loss_ticks++;
 			else
 				Startup->loss_ticks = 0U;
 
-			if (Startup->loss_ticks >= (uint32_t)(SENSORLESS_OBSERVER_LOSS_TIME_S / Current_Ts))
+			if (Startup->loss_ticks >= (uint32_t)(Config->observer_loss_time_s / Current_Ts))
 			{
 				Set_ErrorNow(Sensorless_Error);
 				return;
@@ -449,6 +528,24 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorC
 	config.ki = MotorControl->pos_Ki;
 	config.integral_limit = MotorControl->pos_integral_limit;
 	config.output_limit = MotorControl->current_limit;
+	config.friction_feedforward_enabled =
+		MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
+	config.friction_positive_current = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
+	config.friction_negative_current = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
+	config.breakaway_positive_current = POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A;
+	config.breakaway_negative_current = POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A;
+	config.friction_current_slew_rate = POSITION_IMPEDANCE_FRICTION_CURRENT_SLEW_A_PER_S;
+	config.friction_position_enter = POSITION_IMPEDANCE_FRICTION_POSITION_ENTER_RAD;
+	config.friction_position_exit = POSITION_IMPEDANCE_FRICTION_POSITION_EXIT_RAD;
+	config.friction_reference_speed = POSITION_IMPEDANCE_FRICTION_REFERENCE_SPEED_RAD_S;
+	config.friction_stop_speed = POSITION_IMPEDANCE_FRICTION_STOP_SPEED_RAD_S;
+	config.friction_move_speed = POSITION_IMPEDANCE_FRICTION_MOVE_SPEED_RAD_S;
+	config.friction_stuck_time = POSITION_IMPEDANCE_FRICTION_STUCK_TIME_S;
+	config.friction_landing_position = POSITION_IMPEDANCE_FRICTION_LANDING_POSITION_RAD;
+	config.friction_landing_speed = POSITION_IMPEDANCE_FRICTION_LANDING_SPEED_RAD_S;
+	config.friction_recovery_delay = POSITION_IMPEDANCE_FRICTION_RECOVERY_DELAY_S;
+	config.friction_recovery_pulse_time = POSITION_IMPEDANCE_FRICTION_RECOVERY_PULSE_S;
+	config.friction_recovery_cooldown = POSITION_IMPEDANCE_FRICTION_RECOVERY_COOLDOWN_S;
 
 	if (!PositionImpedance_Update(&config, theta_mech, &output))
 	{

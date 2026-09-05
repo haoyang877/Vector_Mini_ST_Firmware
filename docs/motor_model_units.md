@@ -119,11 +119,13 @@ Encoder->vel_mech   = Encoder->vel * _2PI;                                      
 默认极对数为 21。速度/位置相关参数内部均为 rad/s 或 rad：
 
 ```
-speed_limit  = 6.2 × 2π  rad/s
+speed_limit  = 0.5 × 2π  rad/s
 speedAcc/Dec = 50  × 2π  rad/s²
 pos_maxspeed = 0.125 × 2π  rad/s
 posAcc/Dec   = 0.125 × 2π  rad/s²
 ```
+
+`speed_limit`同时作为运行默认值和硬上限：Flash中更大的旧值在加载时会被限制到`0.5 rev/s`，USB/CAN也拒绝设置超过该值。位置轨迹的`pos_maxspeed`默认仍为`0.125 rev/s`，但允许在运行时配置到`0.5 rev/s`；例如内部值`2 rad/s`约等于`0.318 rev/s`，属于有效范围。
 
 位置模式的 `pos_Kp`、`pos_Kd`、`pos_Ki` 分别使用 A/rad、A/(rad/s)、A/(rad*s)，详细控制结构和整定方法见 [position_impedance_control.md](position_impedance_control.md)。
 

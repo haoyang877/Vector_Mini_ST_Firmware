@@ -22,6 +22,7 @@ FRICTION_MODE = 19
 STATE_COMPLETE = 4
 STATE_FAILED = 5
 EXPECTED_POINTS = 8
+REQUIRED_SPEED_LIMIT_RPS = 0.5
 
 STATE_NAMES = {
     0: "idle",
@@ -206,8 +207,11 @@ def preflight(device: VectorUsb) -> None:
         raise ProtocolError(f"Controller has active error {error}")
     if "Online" not in encoder:
         raise ProtocolError("Encoder is not online")
-    if speed_limit < 0.8:
-        raise ProtocolError(f"Speed limit {speed_limit:.3f} rev/s is below required 0.8 rev/s")
+    if speed_limit < REQUIRED_SPEED_LIMIT_RPS:
+        raise ProtocolError(
+            f"Speed limit {speed_limit:.3f} rev/s is below required "
+            f"{REQUIRED_SPEED_LIMIT_RPS:.1f} rev/s"
+        )
 
 
 def candidate_values(device: VectorUsb) -> dict[str, float]:
@@ -236,7 +240,7 @@ def run(args: argparse.Namespace) -> int:
         if not args.yes:
             answer = input(
                 "Confirm the motor is unloaded and can rotate freely in both directions "
-                "at up to 0.8 rev/s. Type RUN to continue: "
+                f"at up to {REQUIRED_SPEED_LIMIT_RPS:.1f} rev/s. Type RUN to continue: "
             )
             if answer != "RUN":
                 print("Cancelled without moving the motor.")

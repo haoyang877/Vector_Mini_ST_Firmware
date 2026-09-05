@@ -19,12 +19,6 @@ static bool Measurement_ConfigIsValid(const MeasurementModelConfig *config)
         isfinite(config->overvoltage_trip_v) &&
         isfinite(config->undervoltage_trip_v) &&
         config->overvoltage_trip_v > config->undervoltage_trip_v &&
-        isfinite(config->thermistor_series_resistance_kohm) &&
-        config->thermistor_series_resistance_kohm > 0.0f &&
-        isfinite(config->thermistor_nominal_resistance_kohm) &&
-        config->thermistor_nominal_resistance_kohm > 0.0f &&
-        isfinite(config->thermistor_beta_k) && config->thermistor_beta_k > 0.0f &&
-        isfinite(config->thermistor_nominal_temperature_c) &&
         isfinite(config->maximum_temperature_c) &&
         config->overcurrent_confirm_cycles > 0U &&
         config->voltage_confirm_cycles > 0U &&
@@ -135,30 +129,17 @@ bool MeasurementModel_Update(MeasurementModelContext *context,
 
     if (++context->temperature_count >= config->temperature_sample_divider)
     {
-		if (input->temperature_adc == 0U)
-		{
-			if (config->temperature_protection_enabled)
-				context->output.faults = (MeasurementFaultFlags)
-					(context->output.faults |
-					 MEASUREMENT_FAULT_HIGH_TEMPERATURE);
-        }
-        else
-        {
-            float thermistor_resistance =
-                (4095.0f / input->temperature_adc - 1.0f) *
-                config->thermistor_series_resistance_kohm;
-            context->output.temperature_c = 1.0f /
-                ((1.0f / config->thermistor_beta_k) *
-                 logf(thermistor_resistance /
-                    config->thermistor_nominal_resistance_kohm) +
-                 (1.0f / (config->thermistor_nominal_temperature_c + 273.15f))) -
-                273.15f;
-            context->temperature_count = 0U;
-        }
+		context->temperature_count = 0U;
+		context->temperature_sampled = true;
+		context->temperature_valid = input->temperature_valid &&
+			isfinite(input->temperature_c);
+		if (context->temperature_valid)
+			context->output.temperature_c = input->temperature_c;
     }
 
 	if (config->temperature_protection_enabled &&
-		(!isfinite(context->output.temperature_c) ||
+		context->temperature_sampled &&
+		(!context->temperature_valid ||
 		 context->output.temperature_c >= config->maximum_temperature_c))
         context->output.faults = (MeasurementFaultFlags)
             (context->output.faults | MEASUREMENT_FAULT_HIGH_TEMPERATURE);

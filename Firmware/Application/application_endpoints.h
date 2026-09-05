@@ -9,6 +9,7 @@
 #include "parameter_service.h"
 #include "rotor_calibration_service.h"
 #include "telemetry_service.h"
+#include "control_authority_service.h"
 
 typedef struct
 {
@@ -18,6 +19,7 @@ typedef struct
 	ParameterServiceContext *parameters;
 	RotorCalibrationServiceContext *rotor_calibration;
 	TelemetryServiceContext *telemetry;
+	ControlAuthorityServiceContext *control_authority;
 } ApplicationEndpoints;
 
 bool ApplicationEndpoints_Initialize(ApplicationEndpoints *context,
@@ -26,6 +28,7 @@ bool ApplicationEndpoints_Initialize(ApplicationEndpoints *context,
 	MotorCommandServiceContext *motor_command,
 	ParameterServiceContext *parameters,
 	RotorCalibrationServiceContext *rotor_calibration,
-	TelemetryServiceContext *telemetry);
+	TelemetryServiceContext *telemetry,
+	ControlAuthorityServiceContext *control_authority);
 
 #endif

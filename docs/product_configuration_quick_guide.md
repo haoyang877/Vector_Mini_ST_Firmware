@@ -9,22 +9,22 @@
 | 同一硬件更换电机 | `Firmware/Product/vector_mini_st_profile.h`、`motor_profiles.*` | Domain 算法、STM32 Platform |
 | 同一电机增加/移除阻尼器 | `mechanical_load_profiles.*`、`ACTIVE_MECHANICAL_LOAD_PROFILE` | 电流环、编码器算法 |
 | 同一 PCB 调整限流、速度、位置增益 | USB/CAN 运行时参数；稳定后回填 MotorProfile | Domain、CubeMX 配置 |
-| 更换采样电阻或运放增益 | `current_sense_profile.h`、`board_profile.c` | 电流换算算法 |
+| 更换采样电阻或运放增益 | `board_profile.h`、`board_profile.c` | 电流换算算法 |
 | 新 PCB、引脚或外设实例变化 | `Vector_Mini_ST.ioc`、`Firmware/Platform/<target>/`、BoardProfile | Domain、Application |
 | 同协议、不同分辨率编码器 | `encoder_profiles.*` | 电机控制算法 |
 | 不同编码器协议 | 新建 `RotorSensorPort` Adapter，并在 Composition 注入 | Domain 编码器模型 |
 | 新 MCU | 新建 Platform 目录、CubeMX 工程和目标工程配置 | Application、Domain |
-| Flash 容量或分区变化 | `parameter_store_flash.c`、Keil ROM 区域/Scatter、Bootloader 布局 | ParameterManager 算法 |
+| Flash 容量或分区变化 | `memory_layout_profile.*`、Keil ROM 区域/Scatter、Bootloader 布局 | ParameterManager 算法 |
 
 基本原则：硬件或产品变化应停留在 Product、Platform 和 Composition。如果为了换 PCB 或电机而修改 `Firmware/Domain/`，通常表示抽象边界仍不完整。
 
 ## 2. 配置数据如何进入运行系统
 
 ```text
-编译期选择 ACTIVE_BOARD_PROFILE / ACTIVE_MOTOR_PROFILE / ACTIVE_MECHANICAL_LOAD_PROFILE
+编译期选择 Board / Motor / Encoder / MechanicalLoad Profile
                          |
                          v
-Product 构造只读 BoardProfile / MotorProfile / EncoderProfile
+ProductVariant 原子组合并校验全部只读 Profile
                          |
                          v
 Composition 注入 Runtime 和 Application Service
@@ -49,11 +49,11 @@ USB/CAN 在 STANDBY 中写候选配置
 
 配置优先级为：
 
-1. 与产品 ID、硬件 Profile ID、电机 Profile ID、参数 Schema 均兼容的 A/B Flash 记录；
-2. 旧格式 ParameterSnapshot 兼容迁移；
+1. 与产品、板卡、电机、编码器、机械负载、控制整定及参数 Schema 指纹兼容的 A/B Flash 记录；
+2. 仅当前已知产品组合允许的一次性旧指纹/旧格式兼容迁移；
 3. Product Profile 的编译默认值。
 
-更换 Profile ID 可以阻止新的 A/B 记录误用旧配置，但旧格式回退记录不带完整 Profile ID。新硬件或新电机首次量产烧录时，应擦除参数页，或者升级 Schema 并明确实现迁移策略。
+`ProductVariant` 的 `configuration_fingerprint` 覆盖所有兼容性维度。新增或切换任一 Profile 时必须修改指纹并关闭不适用的旧格式迁移；新硬件或新电机首次量产烧录仍应擦除参数页或明确实现迁移策略。
 
 ## 3. 编译期配置清单
 
@@ -95,7 +95,7 @@ ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
 | 观测器电阻系数 | 0.4199475 | — | 等效观测器电阻 `1.905 × 0.4199475 ≈ 0.800 Ω` |
 | D/Q 轴电感 | 0.001635 / 0.001635 | H | 1.635 mH |
 | 永磁磁链 | 0.0175025 | Wb | 17.5025 mWb |
-| 默认标定电流 | 3 | A | 由 6 mΩ 电流采样档决定 |
+| 默认标定电流 | 3 | A | 电机标定需求；启动时校验不超过板级能力 |
 | 默认运行限流 | 6 | A | 必须低于板级命令上限 |
 | 默认速度限制 | 0.5（阻尼器）/ 6.2（无阻尼器） | rev/s | 由机械负载 Profile 选择 |
 | 电机模型运行时范围 | R: 0.0001–5；L: 1 µH–5 mH；磁链: 0.01 mWb–1 Wb | SI 单位 | 由 MotorProfile 统一校验 |
@@ -114,17 +114,17 @@ ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
 
 ### 3.2 BoardProfile
 
-文件：`Firmware/Product/board_profile.h`、`board_profile.c`、`current_sense_profile.h`
+文件：`Firmware/Product/board_profile.h`、`board_profile.c`
 
 BoardProfile 是硬件电气特性的单一只读视图：
 
 | 分组 | 配置字段 |
 | --- | --- |
 | 身份与时序 | `profile_id`、`control_frequency_hz` |
-| 电流采样 | 采样电阻、默认/最小/最大 ADC 零偏、零偏标定样本数、A/LSB、命令上限、标定上限、过流阈值 |
+| 电流采样 | 采样电阻、运放增益、可靠量程、三相独立默认 ADC 零偏、零偏范围/样本数、A/LSB、命令/标定上限、过流阈值 |
 | 母线采样 | V/LSB、欠压/过压阈值 |
-| 温度 | 最大温度、NTC 串联电阻、标称电阻、Beta、标称温度 |
-| 逆变器 | 死区时间、相电阻路径补偿 |
+| 温度 | 传感器类型、最大温度、保护启用状态 |
+| 逆变器 | 死区数值及来源、硬件 Break 能力、相电阻路径补偿 |
 | 故障确认 | 过流、母线电压确认周期，温度采样分频 |
 | 通信默认 | CAN 节点 ID、心跳超时 |
 
@@ -143,15 +143,16 @@ BoardProfile 是硬件电气特性的单一只读视图：
 | 零偏标定样本数 | 20000 个 20 kHz 样本，即 1 s |
 | 命令/标定/过流阈值 | 10 / 10 / 18 A |
 | 欠压/过压 | 10 / 30 V |
-| 最高温度 | 100 °C |
-| 逆变器模型死区 | 210 ns |
-| NTC | 10 kΩ，Beta 3455 K，25 °C |
+| 温度采集/保护 | MCU 内部温度可读；保护关闭（本板未实现功率级 NTC） |
+| 最高温度配置 | 100 °C（仅启用经验证的功率级传感器后生效） |
+| 逆变器死区 | 210 ns，由外部栅极驱动器提供；TIM1 deadtime=0 |
+| 硬件 Break 输入 | 当前板 Profile 未启用，仍使用软件过流保护 |
 | 过流确认 | 5 个 20 kHz 周期 |
 | 电压确认 | 10000 个 20 kHz 周期，即 0.5 s |
 | 温度采样分频 | 20 |
 | CAN 节点/心跳 | 0 / 500 ms |
 
-`current_sense_profile.h` 当前只内置 2 mΩ 和 6 mΩ 两档。新采样电阻或新运放增益必须增加一个完整档位，不能只改 A/LSB；命令限流、标定限流、过流阈值、默认电流和功率路径补偿也要一起评审。
+`board_profile.c` 当前内置 2 mΩ 和 6 mΩ 两套完整电流采样能力。新采样电阻或新运放增益不能只改 A/LSB；可靠量程、命令限流、标定限流、过流阈值和功率路径补偿必须成套评审。电机的默认运行/标定电流属于 MotorProfile，启动时由 ProductVariant 验证其不超过板级能力。
 
 ### 3.3 EncoderProfile
 
@@ -159,7 +160,7 @@ BoardProfile 是硬件电气特性的单一只读视图：
 
 | 字段 | 当前值 | 说明 |
 | --- | ---: | --- |
-| Profile ID | 1 | 当前未提供独立的 `ACTIVE_ENCODER_PROFILE` |
+| Profile ID | 1 | `ACTIVE_ENCODER_PROFILE=ENCODER_PROFILE_TLE5012B_16BIT` |
 | 每圈计数 | 65536 | TLE5012B 转成无符号 Q15 环形计数 |
 | 速度更新分频 | 10 | 20 kHz / 10 = 2 kHz |
 | 速度采样周期 | 0.5 ms | 必须与分频一致 |
@@ -212,9 +213,9 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 
 ### 3.6 ProductManifest、参数 Schema 和镜像契约
 
-文件：`product_manifest.*`、`parameter_schema.h`、`Bootloader/image_contract.h`
+文件：`product_manifest.*`、`product_variant.*`、`memory_layout_profile.*`、`parameter_schema.h`、`Bootloader/image_contract.h`
 
-需要维护：产品 ID、MCU ID、硬件修订、硬件 Profile ID、电机 Profile ID、固件版本、构建号、量产标志、参数 Schema 和 Bootloader 契约版本。
+需要维护：产品 ID、MCU ID、硬件修订、板卡/电机/编码器/机械负载/控制整定/存储布局 Profile ID、配置指纹、固件版本、构建号、量产标志、参数 Schema 和 Bootloader 契约版本。应用区当前为 `0x08000000 + 0x1C000`，参数双槽为 `0x0801C000/0x0801E000`、每槽 8 KiB；三处配置必须一致且不得重叠。
 
 以下情况通常需要增加参数 Schema：
 
@@ -270,9 +271,9 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 2. R/L/磁链的运行时上下限由 MotorProfile 提供；当前 HT8115-4 Profile 的相电阻范围是 0.0001–5.0 Ω，覆盖其 1.905 Ω 默认值。
 3. USB 写 `mrs/mld/mlq/mfx` 使用 SI 单位 Ω/H/H/Wb，但 USB 读取文本分别显示 mΩ/µH/µH/mWb，读写单位并不对称。配置工具必须显式换算。
 4. CAN 波特率虽然可运行时切换，但当前 `ParameterSnapshot` 不保存它，复位后回到接口默认 1000 kbit/s。经典 CAN Profile 会拒绝大于 1000 kbit/s 的设置。
-5. Board、Motor 和 MechanicalLoad Profile 均为编译期单选，不支持运行时切换硬件组合。
+5. Board、Motor、Encoder、MechanicalLoad 和 ControlTuning 由 `ProductVariant` 编译期原子选择，不支持运行时切换硬件组合。
 6. 开环电压、开环电角速度、初始电角度和位置误差窗口不写入 ParameterSnapshot；每次加载默认值或有效 Flash 记录时都会从活动 MotorProfile 重新应用。
-7. `mechanical_load_profiles.c` 已提供可按 ID 查询的双配置表；Board、Encoder 和 ControlTuning 仍只构造一个活动对象。
+7. `mechanical_load_profiles.c` 提供可按 ID 查询的双配置表；其他 Profile 当前各提供一个已验证对象，但全部具有稳定 ID 并进入配置指纹。
 8. Product Profile 已使用具名初始化器，新增字段时不会静默错位；仍应在首次上电前执行 Profile 参数审查和硬件验证。
 9. `mrs` 必须保存实测物理相电阻；Mode 13 的速度观测偏差应通过
    `flux_observer_resistance_scale` 修正，不能通过伪造 `mrs` 或放宽锁定门限处理。

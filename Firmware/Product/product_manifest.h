@@ -32,6 +32,10 @@ typedef struct
 	uint16_t hardware_revision;
 	uint16_t hardware_profile_id;
 	uint16_t motor_profile_id;
+	uint16_t encoder_profile_id;
+	uint16_t mechanical_load_profile_id;
+	uint16_t control_tuning_profile_id;
+	uint16_t memory_layout_profile_id;
 	uint16_t parameter_schema_version;
 	uint16_t boot_image_contract_version;
 	uint8_t firmware_version_major;
@@ -39,6 +43,7 @@ typedef struct
 	uint8_t firmware_version_patch;
 	uint8_t is_production_release;
 	uint32_t build_number;
+	uint32_t configuration_fingerprint;
 } ProductManifest;
 
 const ProductManifest *ProductManifest_Get(void);

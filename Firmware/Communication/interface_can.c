@@ -85,7 +85,8 @@ static bool CanInterface_SetHeartbeatMs(void *raw_context,
 	if (context == 0)
 		return false;
 	if (heartbeat_ms != 0U &&
-		(heartbeat_ms < 500U || heartbeat_ms > 1000U))
+		(heartbeat_ms < CANContext.minimum_heartbeat_ms ||
+		 heartbeat_ms > CANContext.maximum_heartbeat_ms))
 		return false;
 	CANContext.heartbeat_timeout_ms = heartbeat_ms;
 	if (heartbeat_ms == 0U)
@@ -137,18 +138,26 @@ void CanInterface_ApplyConfiguredBitrate(CanInterfaceContext *context,
 }
 
 bool CanInterface_Initialize(CanInterfaceContext *context,
-	const CanTransportPort *transport)
+	const CanTransportPort *transport,
+	ControlAuthorityServiceContext *control_authority,
+	uint32_t default_bitrate_kbps, uint32_t minimum_heartbeat_ms,
+	uint32_t maximum_heartbeat_ms)
 {
 	if (context == 0 || transport == 0 || transport->initialize == 0 ||
 		transport->configure_node_id == 0 ||
 		transport->configure_bitrate_kbps == 0 || transport->receive == 0 ||
-		transport->transmit == 0)
+		transport->transmit == 0 || control_authority == 0 ||
+		default_bitrate_kbps == 0U ||
+		minimum_heartbeat_ms > maximum_heartbeat_ms)
 		return false;
 	memset(context, 0, sizeof(*context));
 	CANTransport = *transport;
 	CANTransportInitialized = true;
-	CANContext.baudrate = 1000U;
-	CANContext.configured_bitrate = 1000U;
+	CANContext.control_authority = control_authority;
+	CANContext.baudrate = default_bitrate_kbps;
+	CANContext.configured_bitrate = default_bitrate_kbps;
+	CANContext.minimum_heartbeat_ms = minimum_heartbeat_ms;
+	CANContext.maximum_heartbeat_ms = maximum_heartbeat_ms;
 	return true;
 }
 
@@ -168,6 +177,8 @@ void CanInterface_UpdateWatchdog(CanInterfaceContext *context,
 		&mode_value);
 	mode = (int)mode_value;
 	CANContext.heartbeat_enabled = CANContext.heartbeat_timeout_ms != 0U &&
+		ControlAuthorityService_IsOwner(CANContext.control_authority,
+			CONTROL_AUTHORITY_CAN) &&
 		(mode == PROTOCOL_MODE_CURRENT || mode == PROTOCOL_MODE_SPEED ||
 		 mode == PROTOCOL_MODE_POSITION ||
 		 mode == PROTOCOL_MODE_POSITION_IMPEDANCE);

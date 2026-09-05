@@ -11,6 +11,8 @@ typedef struct
 	uint32_t hardware_profile_id;
 	uint32_t motor_profile_id;
 	uint32_t parameter_schema_version;
+	uint32_t configuration_fingerprint;
+	bool allow_legacy_configuration_fingerprint;
 } ParameterCompatibility;
 
 typedef struct

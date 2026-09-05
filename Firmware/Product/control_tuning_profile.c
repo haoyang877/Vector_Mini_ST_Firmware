@@ -2,6 +2,7 @@
 
 static const ControlTuningProfile ActiveControlTuningProfile =
 {
+	.profile_id = CONTROL_TUNING_PROFILE_HT8115_4_VECTOR_MINI_ST,
 	.sensorless_startup =
 	{
 		.align_current_ramp_time_s = 0.50f,

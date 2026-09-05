@@ -5,6 +5,7 @@
 #include "parameter_snapshot.h"
 #include "parameter_manager.h"
 #include "product_manifest.h"
+#include "product_variant.h"
 
 #define ParameterTransferBuffer (context->transfer_buffer)
 #define ParameterManager (context->manager)
@@ -30,18 +31,23 @@ static bool ParameterPersistenceAdapter_InitializeManager(
 {
 	ParameterCompatibility compatibility;
 	const ProductManifest *manifest;
+	ProductVariant variant;
 
 	if (context == 0)
 		return false;
 	if (ParameterManagerInitialized)
 		return true;
 	manifest = ProductManifest_Get();
-	if (manifest == 0)
+	if (manifest == 0 || !ProductVariant_GetActive(&variant))
 		return false;
 	compatibility.product_id = manifest->product_id;
 	compatibility.hardware_profile_id = manifest->hardware_profile_id;
 	compatibility.motor_profile_id = manifest->motor_profile_id;
 	compatibility.parameter_schema_version = manifest->parameter_schema_version;
+	compatibility.configuration_fingerprint =
+		manifest->configuration_fingerprint;
+	compatibility.allow_legacy_configuration_fingerprint =
+		variant.allow_legacy_parameter_migration;
 	ParameterManager_Initialize(&ParameterManager, &ParameterStore, &compatibility,
 		sizeof(ParameterTransferBuffer));
 	ParameterManagerInitialized = true;
@@ -77,7 +83,8 @@ void ParameterPersistenceAdapter_Load(ParameterPersistenceAdapterContext *contex
 		ParameterSnapshot_Apply(ParameterSnapshotRuntime, &ParameterTransferBuffer);
 		return;
 	}
-	if (ParameterStore.read_previous_format == 0 ||
+	if (!ParameterManager.compatibility.allow_legacy_configuration_fingerprint ||
+		ParameterStore.read_previous_format == 0 ||
 		!ParameterStore.read_previous_format(ParameterStore.context,
 			&ParameterTransferBuffer, sizeof(ParameterTransferBuffer)))
 		ParameterSnapshot_LoadDefaults(ParameterSnapshotRuntime);

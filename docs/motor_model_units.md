@@ -20,7 +20,7 @@
 
 ## 2. 电流单位与换算
 
-产品构造入口见 `Firmware/Product/current_sense_profile.h`；该宏只由 `Firmware/Product/board_profile.c` 消费并生成只读 `BoardProfile`：
+产品构造入口见 `Firmware/Product/board_profile.h`；采样电阻选择只由 `Firmware/Product/board_profile.c` 消费并生成只读 `BoardProfile`：
 
 ```c
 #define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_6_MILLIOHM

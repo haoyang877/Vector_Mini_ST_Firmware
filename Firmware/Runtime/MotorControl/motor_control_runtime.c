@@ -106,7 +106,8 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 			&MotorLifecycle, motor_profile, 120000U) &&
 		ParameterSnapshot_Initialize(&context->parameter_snapshot,
 			&MotorControl, &OnBoard_Encoder,
-			board_profile, motor_profile, encoder_profile, can_configuration);
+			board_profile, motor_profile, encoder_profile,
+			mechanical_load_profile, can_configuration);
 }
 
 RotorCalibrationPort MotorControlRuntime_CreateRotorCalibrationPort(

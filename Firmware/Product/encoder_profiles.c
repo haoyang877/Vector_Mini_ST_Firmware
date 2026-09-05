@@ -5,7 +5,7 @@
 
 static const EncoderProfile ActiveEncoderProfile =
 {
-	.profile_id = 1U,
+	.profile_id = ACTIVE_ENCODER_PROFILE,
 	.counts_per_revolution = 65536UL,
 	.speed_loop_divider = SPEED_LOOP_DIVIDER,
 	.speed_sample_period_s = SPEED_LOOP_PERIOD_S,
@@ -17,5 +17,8 @@ static const EncoderProfile ActiveEncoderProfile =
 
 const EncoderProfile *EncoderProfile_GetActive(void)
 {
+#if ACTIVE_ENCODER_PROFILE != ENCODER_PROFILE_TLE5012B_16BIT
+#error "Unsupported ACTIVE_ENCODER_PROFILE"
+#endif
 	return &ActiveEncoderProfile;
 }

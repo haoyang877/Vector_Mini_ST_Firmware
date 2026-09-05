@@ -14,6 +14,8 @@ typedef struct
 {
 	uint16_t profile_id;
 	bool damping_ring_present;
+	float default_speed_limit_rps;
+	float default_position_max_speed_rps;
 	SensorlessStartupTuning encoder_calibration_startup;
 	float encoder_calibration_speed_stable_timeout_s;
 	uint32_t encoder_calibration_mechanical_turns;

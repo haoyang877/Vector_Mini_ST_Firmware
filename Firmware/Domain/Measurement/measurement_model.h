@@ -20,7 +20,8 @@ typedef struct
     uint16_t phase_b_adc;
     uint16_t phase_c_adc;
     uint16_t bus_voltage_adc;
-    uint16_t temperature_adc;
+    float temperature_c;
+    bool temperature_valid;
     bool protection_is_active;
 } MeasurementModelInput;
 
@@ -36,10 +37,6 @@ typedef struct
     float overcurrent_trip_a;
     float overvoltage_trip_v;
     float undervoltage_trip_v;
-    float thermistor_series_resistance_kohm;
-    float thermistor_nominal_resistance_kohm;
-	float thermistor_beta_k;
-	float thermistor_nominal_temperature_c;
 	float maximum_temperature_c;
 	bool temperature_protection_enabled;
 	uint16_t overcurrent_confirm_cycles;
@@ -66,6 +63,8 @@ typedef struct
     uint16_t undervoltage_count;
     uint16_t overcurrent_count;
     uint16_t temperature_count;
+	bool temperature_valid;
+	bool temperature_sampled;
     bool is_configured;
 } MeasurementModelContext;
 

@@ -6,6 +6,8 @@ static const MechanicalLoadProfile NoDamperProfile =
 {
 	.profile_id = MECHANICAL_LOAD_PROFILE_NO_DAMPER,
 	.damping_ring_present = false,
+	.default_speed_limit_rps = 372.0f / 60.0f,
+	.default_position_max_speed_rps = 0.125f,
 	.encoder_calibration_startup =
 	{
 		.align_current_ramp_time_s = 0.50f,
@@ -72,6 +74,8 @@ static const MechanicalLoadProfile DampingRing1p5NmProfile =
 {
 	.profile_id = MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM,
 	.damping_ring_present = true,
+	.default_speed_limit_rps = 0.50f,
+	.default_position_max_speed_rps = 0.50f,
 	.encoder_calibration_startup =
 	{
 		.align_current_ramp_time_s = 0.80f,

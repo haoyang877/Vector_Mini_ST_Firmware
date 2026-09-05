@@ -75,9 +75,17 @@ static UsbCommandError UsbCommandRouter_Write(UsbCommandRouterContext *context,
 				return USB_DATA_INVALID;
 			if (integer_value < 0 || integer_value >= USB_COMMAND_ROUTER_MAX_MODE_VALUE)
 				return USB_DATA_OUT_OF_RANGE;
-			return MotorCommandService_RequestActionCode(context->application->motor_command,
-				(uint8_t)integer_value) ==
-				MOTOR_COMMAND_ACCEPTED ? USB_NO_ERROR : USB_WRITE_INVALID;
+			command_result = MotorCommandService_RequestActionCode(
+				context->application->motor_command, (uint8_t)integer_value);
+			if (command_result != MOTOR_COMMAND_ACCEPTED)
+				return USB_WRITE_INVALID;
+			if (integer_value == USB_COMMAND_ROUTER_DISABLED_MODE)
+				ControlAuthorityService_Release(
+					context->application->control_authority, CONTROL_AUTHORITY_USB);
+			else
+				ControlAuthorityService_Claim(
+					context->application->control_authority, CONTROL_AUTHORITY_USB);
+			return USB_NO_ERROR;
 		case USB_CURRENT_SET:
 			command_result = MotorCommandService_SetCurrentReferenceA(
 				context->application->motor_command, value);
@@ -233,8 +241,11 @@ static UsbCommandError UsbCommandRouter_Write(UsbCommandRouterContext *context,
 		return USB_DATA_INVALID;
 	if (command_result == MOTOR_COMMAND_OUT_OF_RANGE)
 		return USB_DATA_OUT_OF_RANGE;
-	return command_result == MOTOR_COMMAND_ACCEPTED ?
-		USB_NO_ERROR : USB_WRITE_INVALID;
+	if (command_result != MOTOR_COMMAND_ACCEPTED)
+		return USB_WRITE_INVALID;
+	ControlAuthorityService_Claim(context->application->control_authority,
+		CONTROL_AUTHORITY_USB);
+	return USB_NO_ERROR;
 }
 
 static UsbCommandError UsbCommandRouter_Read(UsbCommandRouterContext *context,

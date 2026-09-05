@@ -28,13 +28,6 @@ bool Measurement_Configure(MeasurementModelContext *context,
     config.overcurrent_trip_a = board_profile->overcurrent_trip_a;
     config.overvoltage_trip_v = board_profile->overvoltage_trip_v;
     config.undervoltage_trip_v = board_profile->undervoltage_trip_v;
-    config.thermistor_series_resistance_kohm =
-        board_profile->thermistor_series_resistance_kohm;
-    config.thermistor_nominal_resistance_kohm =
-        board_profile->thermistor_nominal_resistance_kohm;
-    config.thermistor_beta_k = board_profile->thermistor_beta_k;
-    config.thermistor_nominal_temperature_c =
-        board_profile->thermistor_nominal_temperature_c;
     config.maximum_temperature_c = board_profile->maximum_temperature_c;
 	config.temperature_protection_enabled =
 		board_profile->temperature_protection_enabled;
@@ -60,7 +53,8 @@ bool Measurement_Process(MeasurementModelContext *context,
     input.phase_b_adc = CurrentControl->measurement_raw.phase_b_adc;
     input.phase_c_adc = CurrentControl->measurement_raw.phase_c_adc;
     input.bus_voltage_adc = CurrentControl->measurement_raw.bus_voltage_adc;
-    input.temperature_adc = CurrentControl->measurement_raw.temperature_adc;
+    input.temperature_c = CurrentControl->measurement_raw.temperature_c;
+    input.temperature_valid = CurrentControl->measurement_raw.temperature_valid;
     input.protection_is_active = protection_is_active;
 
     if (!MeasurementModel_Update(context, &input, &output))

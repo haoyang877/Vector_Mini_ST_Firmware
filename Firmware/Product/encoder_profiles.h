@@ -3,6 +3,12 @@
 
 #include <stdint.h>
 
+#define ENCODER_PROFILE_TLE5012B_16BIT 1U
+
+#ifndef ACTIVE_ENCODER_PROFILE
+#define ACTIVE_ENCODER_PROFILE ENCODER_PROFILE_TLE5012B_16BIT
+#endif
+
 typedef struct
 {
 	uint16_t profile_id;

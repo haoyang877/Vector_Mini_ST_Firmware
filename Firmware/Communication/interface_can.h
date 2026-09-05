@@ -10,6 +10,7 @@
 #include "can_command_router.h"
 #include "communication_watchdog_service.h"
 #include "telemetry_service.h"
+#include "control_authority_service.h"
 
 #define CAN_INTERFACE_RX_QUEUE_CAPACITY 8U
 
@@ -31,6 +32,8 @@ typedef struct
 	bool heartbeat_enabled;
 	bool disconnect_reported;
 	uint32_t heartbeat_timeout_ms;
+	uint32_t minimum_heartbeat_ms;
+	uint32_t maximum_heartbeat_ms;
 	volatile uint32_t heartbeat_elapsed_ms;
 	volatile uint32_t receive_overflow_count;
 	CanReceivedCommand receive_queue[CAN_INTERFACE_RX_QUEUE_CAPACITY];
@@ -39,12 +42,16 @@ typedef struct
 	volatile uint8_t disconnect_clear_pending;
 	CanTransportPort transport;
 	bool transport_is_initialized;
+	ControlAuthorityServiceContext *control_authority;
 } CanInterfaceContext;
 
 void CanInterface_ApplyConfiguredBitrate(CanInterfaceContext *context,
 	CommunicationWatchdogServiceContext *watchdog);
 bool CanInterface_Initialize(CanInterfaceContext *context,
-	const CanTransportPort *transport);
+	const CanTransportPort *transport,
+	ControlAuthorityServiceContext *control_authority,
+	uint32_t default_bitrate_kbps, uint32_t minimum_heartbeat_ms,
+	uint32_t maximum_heartbeat_ms);
 CanConfigurationPort CanInterface_CreateConfigurationPort(
 	CanInterfaceContext *context);
 CanResponsePort CanInterface_CreateResponsePort(CanInterfaceContext *context);

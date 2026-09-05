@@ -12,10 +12,6 @@ static MeasurementModelConfig MeasurementModelTest_CreateConfig(void)
 	config.overcurrent_trip_a = 10.0f;
 	config.overvoltage_trip_v = 30.0f;
 	config.undervoltage_trip_v = 10.0f;
-	config.thermistor_series_resistance_kohm = 3.3f;
-	config.thermistor_nominal_resistance_kohm = 10.0f;
-	config.thermistor_beta_k = 3455.0f;
-	config.thermistor_nominal_temperature_c = 25.0f;
 	config.maximum_temperature_c = 100.0f;
 	config.overcurrent_confirm_cycles = 1U;
 	config.voltage_confirm_cycles = 1U;
@@ -36,7 +32,20 @@ int MeasurementModel_RunHostTests(void)
 	TEST_CHECK(MeasurementModel_Update(&context, &input, &output));
 	TEST_CHECK((output.faults & MEASUREMENT_FAULT_HIGH_TEMPERATURE) != 0U);
 
+	input.temperature_valid = true;
+	input.temperature_c = 50.0f;
+	MeasurementModel_Reset(&context);
+	TEST_CHECK(MeasurementModel_Configure(&context, &config));
+	TEST_CHECK(MeasurementModel_Update(&context, &input, &output));
+	TEST_CHECK((output.faults & MEASUREMENT_FAULT_HIGH_TEMPERATURE) == 0U);
+	TEST_CHECK(output.temperature_c == 50.0f);
+
+	input.temperature_c = 101.0f;
+	TEST_CHECK(MeasurementModel_Update(&context, &input, &output));
+	TEST_CHECK((output.faults & MEASUREMENT_FAULT_HIGH_TEMPERATURE) != 0U);
+
 	config.temperature_protection_enabled = false;
+	input.temperature_valid = false;
 	MeasurementModel_Reset(&context);
 	TEST_CHECK(MeasurementModel_Configure(&context, &config));
 	TEST_CHECK(MeasurementModel_Update(&context, &input, &output));

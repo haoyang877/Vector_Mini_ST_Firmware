@@ -13,9 +13,13 @@ int MechanicalLoadProfile_RunHostTests(void)
 	TEST_CHECK(damping_ring != 0);
 	TEST_CHECK(!no_damper->damping_ring_present);
 	TEST_CHECK(!no_damper->position_friction_feedforward_enabled);
+	TEST_CHECK(no_damper->default_speed_limit_rps == 372.0f / 60.0f);
+	TEST_CHECK(no_damper->default_position_max_speed_rps == 0.125f);
 	TEST_CHECK(no_damper->friction_positive_current_a == 0.0f);
 	TEST_CHECK(damping_ring->damping_ring_present);
 	TEST_CHECK(damping_ring->position_friction_feedforward_enabled);
+	TEST_CHECK(damping_ring->default_speed_limit_rps == 0.50f);
+	TEST_CHECK(damping_ring->default_position_max_speed_rps == 0.50f);
 	TEST_CHECK(damping_ring->encoder_calibration_startup.minimum_current_limit_a ==
 		5.50f);
 	TEST_CHECK(damping_ring->encoder_calibration_startup.startup_iq_a == 4.50f);

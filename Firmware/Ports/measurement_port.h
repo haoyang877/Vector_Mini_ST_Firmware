@@ -10,7 +10,8 @@ typedef struct
 	uint16_t phase_b_adc;
 	uint16_t phase_c_adc;
 	uint16_t bus_voltage_adc;
-	uint16_t temperature_adc;
+	float temperature_c;
+	bool temperature_valid;
 } MeasurementRawSample;
 
 typedef struct

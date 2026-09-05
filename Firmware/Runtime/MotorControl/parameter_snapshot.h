@@ -6,6 +6,7 @@
 #include "board_profile.h"
 #include "motor_profiles.h"
 #include "encoder_profiles.h"
+#include "mechanical_load_profiles.h"
 #include "encoder.h"
 #include "parameter_schema.h"
 #include "can_configuration_service.h"
@@ -72,6 +73,7 @@ typedef struct
 	const BoardProfile *board_profile;
 	const MotorProfile *motor_profile;
 	const EncoderProfile *encoder_profile;
+	const MechanicalLoadProfile *mechanical_load_profile;
 	CanConfigurationServiceContext *can_configuration;
 } ParameterSnapshotContext;
 
@@ -84,6 +86,7 @@ bool ParameterSnapshot_Initialize(ParameterSnapshotContext *context,
 	MotorControlContext *motor,
 	EncoderContext *encoder, const BoardProfile *board_profile,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
+	const MechanicalLoadProfile *mechanical_load_profile,
 	CanConfigurationServiceContext *can_configuration);
 
 #endif

@@ -72,8 +72,21 @@ void CanCommandRouter_Handle(CanCommandRouterContext *context,
 		/*setting parameters*/
 		case CAN_SET_MODE:
 			if(data_int >= 0)
-				(void)MotorCommandService_RequestActionCode(
+			{
+				MotorCommandResult result = MotorCommandService_RequestActionCode(
 					context->application->motor_command, (uint8_t)data_int);
+				if (result == MOTOR_COMMAND_ACCEPTED)
+				{
+					if (data_int == PROTOCOL_MODE_DISABLED)
+						ControlAuthorityService_Release(
+							context->application->control_authority,
+							CONTROL_AUTHORITY_CAN);
+					else
+						ControlAuthorityService_Claim(
+							context->application->control_authority,
+							CONTROL_AUTHORITY_CAN);
+				}
+			}
 		break;
 		case CAN_GET_MODE:
 			CanCommandRouter_SendTelemetry(context, CAN_GET_MODE,
@@ -81,8 +94,10 @@ void CanCommandRouter_Handle(CanCommandRouterContext *context,
 		break;
 		
 		case CAN_SET_CURRENT:
-			(void)MotorCommandService_SetCurrentReferenceA(
-				context->application->motor_command, data);
+			if (MotorCommandService_SetCurrentReferenceA(
+				context->application->motor_command, data) == MOTOR_COMMAND_ACCEPTED)
+				ControlAuthorityService_Claim(
+					context->application->control_authority, CONTROL_AUTHORITY_CAN);
 		break;
 		case CAN_GET_CURRENT_SET:
 			CanCommandRouter_SendTelemetry(context, CAN_GET_CURRENT_SET,
@@ -90,8 +105,10 @@ void CanCommandRouter_Handle(CanCommandRouterContext *context,
 		break;
 				
 		case CAN_SET_SPEED:
-			(void)MotorCommandService_SetSpeedReferenceRps(
-				context->application->motor_command, data);
+			if (MotorCommandService_SetSpeedReferenceRps(
+				context->application->motor_command, data) == MOTOR_COMMAND_ACCEPTED)
+				ControlAuthorityService_Claim(
+					context->application->control_authority, CONTROL_AUTHORITY_CAN);
 		break;
 		case CAN_GET_SPEED_SET:
 			CanCommandRouter_SendTelemetry(context, CAN_GET_SPEED_SET,
@@ -99,8 +116,10 @@ void CanCommandRouter_Handle(CanCommandRouterContext *context,
 		break;
 		
 		case CAN_SET_POS:
-			(void)MotorCommandService_SetPositionReferenceRevolutions(
-				context->application->motor_command, data);
+			if (MotorCommandService_SetPositionReferenceRevolutions(
+				context->application->motor_command, data) == MOTOR_COMMAND_ACCEPTED)
+				ControlAuthorityService_Claim(
+					context->application->control_authority, CONTROL_AUTHORITY_CAN);
 		break;
 		case CAN_GET_POS_SET:
 			CanCommandRouter_SendTelemetry(context, CAN_GET_POS_SET,

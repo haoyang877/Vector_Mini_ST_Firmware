@@ -13,7 +13,12 @@ static bool MeasurementAdc12_ReadRawSample(void *context,
 	sample->phase_b_adc = (uint16_t)ADC2->JDR2;
 	sample->phase_c_adc = (uint16_t)ADC2->JDR3;
 	sample->bus_voltage_adc = (uint16_t)ADC2->JDR4;
-	sample->temperature_adc = (uint16_t)ADC1->JDR1;
+	{
+		uint16_t temperature_adc = (uint16_t)ADC1->JDR1;
+		sample->temperature_valid = temperature_adc != 0U;
+		sample->temperature_c = (float)__HAL_ADC_CALC_TEMPERATURE(
+			3300U, temperature_adc, ADC_RESOLUTION_12B);
+	}
 	return true;
 }
 

@@ -21,9 +21,7 @@
 #include "communication_watchdog_service.h"
 #include "can_configuration_service.h"
 #include "can_response_service.h"
-#include "board_profile.h"
-#include "motor_profiles.h"
-#include "encoder_profiles.h"
+#include "product_variant.h"
 #include "parameter_transaction_service.h"
 #include "parameter_transaction_adapter.h"
 #include "telemetry_service.h"
@@ -65,6 +63,7 @@ static FrictionIdentificationServiceContext FrictionIdentificationService;
 static CanCommandRouterContext CanCommandRouter;
 static UsbCommandRouterContext UsbCommandRouter;
 static ApplicationEndpoints ApplicationEndpointSet;
+static ControlAuthorityServiceContext ControlAuthorityService;
 static bool FirmwareIsInitialized;
 
 /**
@@ -72,14 +71,19 @@ static bool FirmwareIsInitialized;
  **/
 void FirmwareComposition_Initialize(void)
 {
-	const BoardProfile *board_profile = BoardProfile_GetActive();
-	PowerStagePort power_stage_port = PowerStageTim1_CreatePort();
-	MeasurementPort measurement_port = MeasurementAdc12_CreatePort();
-	RotorSensorPort rotor_sensor_port = RotorSensorTle5012b_CreatePort();
-	CanTransportPort can_transport = CanFdcan1Transport_CreatePort(
-		board_profile->can_fd_enabled, board_profile->can_brs_enabled);
-	ByteTransportPort usb_transport = UsbCdcTransport_CreatePort();
-	IndicatorPort indicator_port = IndicatorStm32G431_CreatePort();
+	const ProductVariant *product;
+	ProductVariant product_storage;
+	const BoardProfile *board_profile;
+	const MotorProfile *motor_profile;
+	const EncoderProfile *encoder_profile;
+	const ControlTuningProfile *tuning_profile;
+	const MechanicalLoadProfile *mechanical_load_profile;
+	PowerStagePort power_stage_port;
+	MeasurementPort measurement_port;
+	RotorSensorPort rotor_sensor_port;
+	CanTransportPort can_transport;
+	ByteTransportPort usb_transport;
+	IndicatorPort indicator_port;
 	RotorCalibrationPort rotor_calibration_port;
 	MotorCommandPort motor_command_port;
 	MotorConfigurationPort motor_configuration_port;
@@ -88,20 +92,35 @@ void FirmwareComposition_Initialize(void)
 	CanConfigurationPort can_configuration_port;
 	CanResponsePort can_response_port;
 	ParameterTransactionPort parameter_transaction_port;
-	MonotonicClockPort monotonic_clock = MonotonicClockStm32G431_CreatePort();
-	ExecutionTimerPort execution_timer = ExecutionTimerStm32G431_CreatePort();
-	ResetReasonPort reset_reason_port = ResetReasonStm32G431_CreatePort();
-	DeviceIdentityPort device_identity_port =
-		DeviceIdentityStm32G431_CreatePort();
-	DiagnosticTransportPort diagnostic_transport =
-		DiagnosticRttStm32G431_CreatePort();
-	ParameterStorePort parameter_store = ParameterStoreFlash_CreatePort();
-	const MotorProfile *motor_profile = MotorProfile_GetActive();
-	const EncoderProfile *encoder_profile = EncoderProfile_GetActive();
-	const ControlTuningProfile *tuning_profile = ControlTuningProfile_GetActive();
-	const MechanicalLoadProfile *mechanical_load_profile =
-		MechanicalLoadProfile_GetActive();
+	MonotonicClockPort monotonic_clock;
+	ExecutionTimerPort execution_timer;
+	ResetReasonPort reset_reason_port;
+	DeviceIdentityPort device_identity_port;
+	DiagnosticTransportPort diagnostic_transport;
+	ParameterStorePort parameter_store;
+
 	FirmwareIsInitialized = false;
+	product = &product_storage;
+	if (!ProductVariant_GetActive(&product_storage))
+		return;
+	board_profile = product->board;
+	motor_profile = product->motor;
+	encoder_profile = product->encoder;
+	tuning_profile = product->control_tuning;
+	mechanical_load_profile = product->mechanical_load;
+	power_stage_port = PowerStageTim1_CreatePort();
+	measurement_port = MeasurementAdc12_CreatePort();
+	rotor_sensor_port = RotorSensorTle5012b_CreatePort();
+	can_transport = CanFdcan1Transport_CreatePort(board_profile->can_fd_enabled,
+		board_profile->can_brs_enabled);
+	usb_transport = UsbCdcTransport_CreatePort();
+	indicator_port = IndicatorStm32G431_CreatePort();
+	monotonic_clock = MonotonicClockStm32G431_CreatePort();
+	execution_timer = ExecutionTimerStm32G431_CreatePort();
+	reset_reason_port = ResetReasonStm32G431_CreatePort();
+	device_identity_port = DeviceIdentityStm32G431_CreatePort();
+	diagnostic_transport = DiagnosticRttStm32G431_CreatePort();
+	parameter_store = ParameterStoreFlash_CreatePort();
 	BoardCriticalSection = BoardRuntimeStm32G431_CreateCriticalSectionPort();
 	if (!TelemetryService_Initialize(&TelemetryService))
 		return;
@@ -111,7 +130,11 @@ void FirmwareComposition_Initialize(void)
 
 	/* Power outputs are disabled before application state is initialized. */
 	PowerStage_Initialize(&MotorPowerStage, &power_stage_port);
-	if (!CanInterface_Initialize(&CanInterface, &can_transport))
+	if (!ControlAuthorityService_Initialize(&ControlAuthorityService) ||
+		!CanInterface_Initialize(&CanInterface, &can_transport,
+			&ControlAuthorityService, board_profile->default_can_bitrate_kbps,
+			board_profile->minimum_can_heartbeat_ms,
+			board_profile->maximum_can_heartbeat_ms))
 		return;
 	can_configuration_port = CanInterface_CreateConfigurationPort(&CanInterface);
 	can_response_port = CanInterface_CreateResponsePort(&CanInterface);
@@ -191,7 +214,7 @@ void FirmwareComposition_Initialize(void)
 	if (!ApplicationEndpoints_Initialize(&ApplicationEndpointSet,
 			&CanConfigurationService, &FrictionIdentificationService,
 			&MotorCommandService, &ParameterService, &RotorCalibrationService,
-			&TelemetryService) ||
+			&TelemetryService, &ControlAuthorityService) ||
 		!CanCommandRouter_Initialize(&CanCommandRouter, &ApplicationEndpointSet,
 			&CanResponseService) ||
 		!UsbCommandRouter_Initialize(&UsbCommandRouter, &ApplicationEndpointSet))

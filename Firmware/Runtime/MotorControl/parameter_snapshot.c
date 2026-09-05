@@ -10,6 +10,7 @@
 #define ParameterBoardProfile (context->board_profile)
 #define ParameterMotorProfile (context->motor_profile)
 #define ParameterEncoderProfile (context->encoder_profile)
+#define ParameterMechanicalLoadProfile (context->mechanical_load_profile)
 #define CanConfiguration (context->can_configuration)
 #define MotorControl    (*ParameterMotor)
 #define OnBoard_Encoder (*ParameterEncoder)
@@ -18,16 +19,19 @@ bool ParameterSnapshot_Initialize(ParameterSnapshotContext *context,
 	MotorControlContext *motor,
 	EncoderContext *encoder, const BoardProfile *board_profile,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
+	const MechanicalLoadProfile *mechanical_load_profile,
 	CanConfigurationServiceContext *can_configuration)
 {
 	if (context == 0 || motor == 0 || encoder == 0 || board_profile == 0 ||
-		motor_profile == 0 || encoder_profile == 0 || can_configuration == 0)
+		motor_profile == 0 || encoder_profile == 0 ||
+		mechanical_load_profile == 0 || can_configuration == 0)
 		return false;
 	context->motor = motor;
 	context->encoder = encoder;
 	context->board_profile = board_profile;
 	context->motor_profile = motor_profile;
 	context->encoder_profile = encoder_profile;
+	context->mechanical_load_profile = mechanical_load_profile;
 	context->can_configuration = can_configuration;
 	return true;
 }
@@ -54,11 +58,11 @@ void ParameterSnapshot_LoadDefaults(ParameterSnapshotContext *context)
 		ParameterBoardProfile->default_can_node_id);
 
 	MotorControl.configuration.phase_a_current_offset_adc =
-		ParameterBoardProfile->default_current_offset_adc;
+		ParameterBoardProfile->default_phase_a_current_offset_adc;
 	MotorControl.configuration.phase_b_current_offset_adc =
-		ParameterBoardProfile->default_current_offset_adc;
+		ParameterBoardProfile->default_phase_b_current_offset_adc;
 	MotorControl.configuration.phase_c_current_offset_adc =
-		ParameterBoardProfile->default_current_offset_adc;
+		ParameterBoardProfile->default_phase_c_current_offset_adc;
 
 	MotorControl.configuration.pole_pairs = ParameterMotorProfile->pole_pairs;
 	MotorControl.configuration.phase_resistance_ohm = ParameterMotorProfile->phase_resistance_ohm;
@@ -78,14 +82,16 @@ void ParameterSnapshot_LoadDefaults(ParameterSnapshotContext *context)
 
 	MotorControl.configuration.calibration_current_a = ParameterMotorProfile->calibration_current_a;
 	MotorControl.configuration.current_limit_a = ParameterMotorProfile->current_limit_a;
-	MotorControl.configuration.speed_limit_rad_s = ParameterMotorProfile->speed_limit_rps * MATH_TWO_PI;
+	MotorControl.configuration.speed_limit_rad_s =
+		ParameterMechanicalLoadProfile->default_speed_limit_rps * MATH_TWO_PI;
 	MotorControl.configuration.speed_acceleration_rad_s2 = ParameterMotorProfile->speed_acceleration_rps2 * MATH_TWO_PI;
 	MotorControl.configuration.speed_deceleration_rad_s2 = ParameterMotorProfile->speed_deceleration_rps2 * MATH_TWO_PI;
 	MotorControl.configuration.speed_kp = ParameterMotorProfile->speed_kp;
 	MotorControl.configuration.speed_ki = ParameterMotorProfile->speed_ki;
 	MotorControl.configuration.position_acceleration_rad_s2 = ParameterMotorProfile->position_acceleration_rps2 * MATH_TWO_PI;
 	MotorControl.configuration.position_deceleration_rad_s2 = ParameterMotorProfile->position_deceleration_rps2 * MATH_TWO_PI;
-	MotorControl.configuration.position_max_speed_rad_s = ParameterMotorProfile->position_max_speed_rps * MATH_TWO_PI;
+	MotorControl.configuration.position_max_speed_rad_s =
+		ParameterMechanicalLoadProfile->default_position_max_speed_rps * MATH_TWO_PI;
 	MotorControl.configuration.position_kp_a_per_rad = ParameterMotorProfile->position_kp_a_per_rad;
 	MotorControl.configuration.position_kd_a_per_rad_s = ParameterMotorProfile->position_kd_a_per_rad_s;
 	MotorControl.configuration.position_ki_a_per_rad_s = ParameterMotorProfile->position_ki_a_per_rad_s;
@@ -231,7 +237,7 @@ void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
 	MotorControl.configuration.speed_limit_rad_s = isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f ?
 		FastMath_Clamp(param->speed_limit_rad_s, 0.0f,
 			ParameterMotorProfile->speed_limit_max_rad_s) :
-		ParameterMotorProfile->speed_limit_rps * MATH_TWO_PI;
+		ParameterMechanicalLoadProfile->default_speed_limit_rps * MATH_TWO_PI;
 	position_speed_limit = FastMath_Min(MotorControl.configuration.speed_limit_rad_s,
 		ParameterMotorProfile->position_speed_limit_rps * MATH_TWO_PI);
 	MotorControl.configuration.speed_acceleration_rad_s2 = param->speed_acceleration_rad_s2;
@@ -247,7 +253,7 @@ void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
 	{
 		MotorControl.configuration.position_acceleration_rad_s2 = ParameterMotorProfile->position_acceleration_rps2 * MATH_TWO_PI;
 		MotorControl.configuration.position_deceleration_rad_s2 = ParameterMotorProfile->position_deceleration_rps2 * MATH_TWO_PI;
-		MotorControl.configuration.position_max_speed_rad_s = FastMath_Min(ParameterMotorProfile->position_max_speed_rps * MATH_TWO_PI,
+		MotorControl.configuration.position_max_speed_rad_s = FastMath_Min(ParameterMechanicalLoadProfile->default_position_max_speed_rps * MATH_TWO_PI,
 			position_speed_limit);
 		MotorControl.configuration.position_kp_a_per_rad = ParameterMotorProfile->position_kp_a_per_rad;
 		MotorControl.configuration.position_kd_a_per_rad_s = ParameterMotorProfile->position_kd_a_per_rad_s;
@@ -276,7 +282,7 @@ void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
 			ParameterMotorProfile->position_deceleration_rps2 * MATH_TWO_PI;
 		MotorControl.configuration.position_max_speed_rad_s = isfinite(param->position_max_speed_rad_s) && param->position_max_speed_rad_s > 0.0f ?
 			FastMath_Clamp(param->position_max_speed_rad_s, 0.0f, position_speed_limit) :
-			FastMath_Min(ParameterMotorProfile->position_max_speed_rps * MATH_TWO_PI, position_speed_limit);
+			FastMath_Min(ParameterMechanicalLoadProfile->default_position_max_speed_rps * MATH_TWO_PI, position_speed_limit);
 		MotorControl.configuration.position_kp_a_per_rad = isfinite(param->position_kp_a_per_rad) && param->position_kp_a_per_rad >= 0.0f ?
 			FastMath_Clamp(param->position_kp_a_per_rad, 0.0f,
 				ParameterMotorProfile->position_kp_limit_a_per_rad) :

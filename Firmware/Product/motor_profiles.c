@@ -1,9 +1,14 @@
 #include "motor_profiles.h"
 
 #include "vector_mini_st_profile.h"
-#include "motor_safety_limits.h"
 
 #define MOTOR_PROFILE_TWO_PI 6.28318530717958647692f
+#define MOTOR_LIMIT_CASCADE_POSITION_KP_PER_S       50.0f
+#define MOTOR_LIMIT_CASCADE_POSITION_KD             10.0f
+#define MOTOR_LIMIT_POSITION_KP_A_PER_RAD            50.0f
+#define MOTOR_LIMIT_POSITION_KD_A_PER_RAD_S          10.0f
+#define MOTOR_LIMIT_POSITION_KI_A_PER_RAD_S          10.0f
+#define MOTOR_LIMIT_POSITION_SPEED_RPS               (372.0f / 60.0f)
 
 static const MotorProfile ActiveMotorProfile =
 {

@@ -51,15 +51,18 @@ foreach ($requiredDocument in @(
 
 foreach ($requiredTest in @(
 	'tests\host\context_isolation_tests.c',
+	'tests\host\control_authority_service_tests.c',
     'tests\host\device_lifecycle_tests.c',
     'tests\host\fault_manager_tests.c',
 	'tests\host\friction_identification_tests.c',
-    'tests\host\measurement_model_tests.c',
+	'tests\host\measurement_model_tests.c',
 	'tests\host\mechanical_load_profile_tests.c',
+	'tests\host\parameter_manager_tests.c',
     'tests\host\parameter_transaction_service_tests.c',
     'tests\host\parameter_service_tests.c',
     'tests\host\service_result_validation_tests.c',
-    'tests\host\update_service_tests.c'
+    'tests\host\update_service_tests.c',
+	'tests\host\product_variant_tests.c'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $requiredTest))) {
         $failures.Add("Missing host architecture test: $requiredTest")
@@ -68,6 +71,7 @@ foreach ($requiredTest in @(
 
 foreach ($requiredImplementation in @(
 	'Firmware\Application\application_endpoints.c',
+	'Firmware\Application\control_authority_service.c',
     'Firmware\Composition\firmware_composition.c',
     'Firmware\Communication\Protocol\can_protocol_v1.c',
     'Firmware\Communication\Protocol\usb_protocol_v1.c',
@@ -82,6 +86,8 @@ foreach ($requiredImplementation in @(
     'Firmware\Platform\Stm32G431\execution_timer_stm32g431.c',
     'Firmware\Platform\Stm32G431\reset_reason_stm32g431.c',
     'Firmware\Product\board_profile.c',
+	'Firmware\Product\product_variant.c',
+	'Firmware\Product\memory_layout_profile.c',
     'Firmware\Product\motor_profiles.c',
 	'Firmware\Product\mechanical_load_profiles.c',
     'Firmware\Product\encoder_profiles.c',

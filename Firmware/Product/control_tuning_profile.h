@@ -27,6 +27,7 @@ typedef struct
 
 typedef struct
 {
+	uint16_t profile_id;
 	SensorlessStartupTuning sensorless_startup;
 	float sensorless_observer_max_electrical_velocity_rad_s;
 	float sensorless_speed_feedback_lpf_alpha;
@@ -64,6 +65,8 @@ typedef struct
 	float encoder_electrical_zero_current_ramp_time_s;
 	float encoder_electrical_zero_hold_time_s;
 } ControlTuningProfile;
+
+#define CONTROL_TUNING_PROFILE_HT8115_4_VECTOR_MINI_ST 1U
 
 const ControlTuningProfile *ControlTuningProfile_GetActive(void);
 

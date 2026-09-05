@@ -1,7 +1,6 @@
 #ifndef PRODUCT_VECTOR_MINI_ST_PROFILE_H
 #define PRODUCT_VECTOR_MINI_ST_PROFILE_H
 
-#include "current_sense_profile.h"
 #include "mechanical_load_profiles.h"
 
 /*
@@ -41,13 +40,9 @@
 #define PARAM_MOTOR_FLUX_MAX_WB                    1.0f
 
 /* Encoder electrical-angle alignment current. */
-#define PARAM_MOTOR_CALIB_CURRENT_A               CURRENT_SENSE_PROFILE_DEFAULT_CALIB_A
-#define PARAM_MOTOR_CURRENT_LIMIT_A               CURRENT_SENSE_PROFILE_DEFAULT_LIMIT_A
-#if ACTIVE_MECHANICAL_LOAD_PROFILE == MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
-#define PARAM_MOTOR_SPEED_LIMIT_RPS               0.50f
-#else
+#define PARAM_MOTOR_CALIB_CURRENT_A               3.0f
+#define PARAM_MOTOR_CURRENT_LIMIT_A               6.0f
 #define PARAM_MOTOR_SPEED_LIMIT_RPS               (372.0f / 60.0f)
-#endif
 #define PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S  (500.0f * 6.283185307f)
 
 /* Per-motor profile for encoder-independent phase-resistance identification. */
@@ -78,19 +73,19 @@
 #define PARAM_HW_CURRENT_OFFSET_A_COUNTS          2048U
 #define PARAM_HW_CURRENT_OFFSET_B_COUNTS          2048U
 #define PARAM_HW_CURRENT_OFFSET_C_COUNTS          2048U
-#define PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM CURRENT_SENSE_PROFILE_PATH_COMPENSATION_OHM
-
 #define PARAM_HW_CAN_NODE_ID                      0x00U
 #define PARAM_HW_CAN_HEARTBEAT_MS                 500
 /* Classic CAN is compatible with CANalyst-II. Set both to 1 for CAN FD+BRS. */
 #define PARAM_HW_CAN_FD_ENABLED                   0U
 #define PARAM_HW_CAN_BRS_ENABLED                  0U
 
-#ifdef HARDWARE_VALIDATION_SKIP_TEMPERATURE_PROTECTION
+/*
+ * This board revision has no populated power-stage NTC measurement path.
+ * MCU internal temperature remains observable, but must not be treated as the
+ * inverter junction temperature. Enable protection only on a board profile
+ * whose sensor placement and trip threshold have been validated.
+ */
 #define PARAM_HW_TEMPERATURE_PROTECTION_ENABLED   0U
-#else
-#define PARAM_HW_TEMPERATURE_PROTECTION_ENABLED   1U
-#endif
 
 #else
 #error "Unsupported ACTIVE_BOARD_PROFILE"
@@ -114,11 +109,7 @@
 /* Low-speed (8 s/rev) position-impedance defaults. */
 #define PARAM_APP_POSITION_ACCEL_RPS2             0.125f
 #define PARAM_APP_POSITION_DECEL_RPS2             0.125f
-#if ACTIVE_MECHANICAL_LOAD_PROFILE == MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
-#define PARAM_APP_POSITION_MAX_SPEED_RPS          0.50f
-#else
 #define PARAM_APP_POSITION_MAX_SPEED_RPS          0.125f
-#endif
 /* Iq = Kp * position_error + Kd * velocity_error + integral_current. */
 #define PARAM_APP_POSITION_KP                     8.0f   /* A/rad */
 #define PARAM_APP_POSITION_KD                     0.50f  /* A/(rad/s) */

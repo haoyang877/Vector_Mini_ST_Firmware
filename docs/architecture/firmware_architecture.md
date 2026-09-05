@@ -78,6 +78,7 @@ Platform Adapter 可以为 HAL 回调保留硬件单例，但该状态不能向�
 ```text
 Firmware/
   Application/
+    control_authority_service.* CAN/USB 控制权仲裁及心跳归属
     device_lifecycle.*          设备生命周期与允许的转换
     motor_command_service.*     命令验证、仲裁和发布
     parameter_manager.*         参数校验、应用、保存请求
@@ -132,6 +133,8 @@ Firmware/
     usb_cdc_transport.*         USB CDC 适配
 
   Product/
+    product_variant.*           板卡/电机/编码器/负载/整定的原子组合与启动校验
+    memory_layout_profile.*     应用镜像与参数双槽 Flash 边界
     product_manifest.*          产品、硬件、固件兼容性标识
     control_loop_config.h       固定控制节拍与有界流程编译期配置
     control_tuning_profile.*    传感器/观测器/标定调参
@@ -210,13 +213,15 @@ typedef struct {
 
 Port 不拥有上层状态。Adapter 可以包含 HAL 句柄或寄存器基址，但不得反向调用控制域。初始化时由 composition root 把静态分配的 Context、Profile 和 Port 组装起来。
 
-当前 `FirmwareComposition_Initialize` 获取只读 `BoardProfile`、`MotorProfile`、`EncoderProfile` 并注入参数快照、测量模型、参数校验、编码器速度估计和相电阻辨识路径；这些模块不再从散落宏中自行选择产品配置。编译期宏只存在于 Product profile 构造中，历史持久化格式由显式 Schema 迁移处理。
+当前 `FirmwareComposition_Initialize` 只获取一个经校验的只读 `ProductVariant`，再把其中的 `BoardProfile`、`MotorProfile`、`EncoderProfile`、`MechanicalLoadProfile` 和 `ControlTuningProfile` 注入运行系统；这些模块不再从散落宏中自行选择产品配置。配置指纹写入持久化记录，历史格式只允许显式、一次性的兼容迁移。
 
 配置分三层：
 
 - `BoardProfile`：ADC 比例、分流电阻、栅极逻辑、PWM 频率/死区、传感器总线和安全电压温度边界。
 - `MotorProfile`：极对数、R/L/磁链、最大电流/速度、控制器默认带宽和辨识边界。
 - `ProductManifest`：产品 ID、PCB 修订、MCU、Bootloader 契约和允许的 Profile 组合。
+
+当前板卡没有实际功率级 NTC。平台层使用 STM32G431 内部温度传感器提供诊断温度，Product 明确关闭温度跳闸；未来接入 NTC 时由新的测量 Adapter 输出摄氏度，并在完成传感器位置、开短路和阈值验证后启用保护。TIM1 不生成死区，BoardProfile 明确声明 210 ns 死区来自外部栅极驱动器；硬件 Break 输入在确认原理图连接前保持关闭。
 
 编译期选择确定硬件能力，运行期持久化参数只能在 Manifest 给出的安全范围内调整，不能把不兼容硬件伪装为另一 Profile。
 

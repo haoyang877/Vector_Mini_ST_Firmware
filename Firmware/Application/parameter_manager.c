@@ -16,7 +16,7 @@ typedef struct
 	uint32_t payload_size;
 	uint32_t sequence;
 	uint32_t payload_crc32;
-	uint32_t reserved;
+	uint32_t configuration_fingerprint;
 	uint32_t product_id;
 	uint32_t hardware_profile_id;
 	uint32_t motor_profile_id;
@@ -66,6 +66,10 @@ static bool ParameterManager_IsHeaderCompatible(
 		header->product_id == context->compatibility.product_id &&
 		header->hardware_profile_id == context->compatibility.hardware_profile_id &&
 		header->motor_profile_id == context->compatibility.motor_profile_id &&
+		(header->configuration_fingerprint ==
+			context->compatibility.configuration_fingerprint ||
+		 (context->compatibility.allow_legacy_configuration_fingerprint &&
+		  header->configuration_fingerprint == UINT32_MAX)) &&
 		header->parameter_schema_version == schema_version &&
 		header->commit_marker == PARAMETER_RECORD_COMMIT_MARKER &&
 		header->commit_marker_inverse == ~PARAMETER_RECORD_COMMIT_MARKER;
@@ -258,7 +262,8 @@ bool ParameterManager_Save(ParameterManagerContext *context, const void *payload
 		context->active_sequence + 1U : 1U;
 	header.payload_crc32 = ParameterManager_CalculateCrc32(payload,
 		context->payload_size);
-	header.reserved = UINT32_MAX;
+	header.configuration_fingerprint =
+		context->compatibility.configuration_fingerprint;
 	header.product_id = context->compatibility.product_id;
 	header.hardware_profile_id = context->compatibility.hardware_profile_id;
 	header.motor_profile_id = context->compatibility.motor_profile_id;

@@ -22,8 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-#include "ring_buffer.h"
-#include "interface_usb.h"
+#include "firmware_composition.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -265,7 +264,7 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   
-  USB_RxIRQHandler(Buf, *Len);	
+  FirmwareComposition_OnUsbReceiveInterrupt(Buf, *Len);
 	
   return (USBD_OK);
   /* USER CODE END 6 */
@@ -287,6 +286,9 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 7 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+	if (hcdc == NULL) {
+		return USBD_FAIL;
+	}
   if (hcdc->TxState != 0){
     return USBD_BUSY;
   }
@@ -315,12 +317,28 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
-  USB_TxCompleteIRQHandler();
+  FirmwareComposition_OnUsbTransmitCompleteInterrupt();
   /* USER CODE END 13 */
   return result;
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
+
+uint8_t CDC_AbortTransmit_FS(void)
+{
+  USBD_CDC_HandleTypeDef *hcdc =
+    (USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData;
+  uint8_t result;
+
+  if (hcdc == NULL) {
+    return USBD_FAIL;
+  }
+  result = (uint8_t)USBD_LL_FlushEP(&hUsbDeviceFS, CDC_IN_EP);
+  if (result == USBD_OK) {
+    hcdc->TxState = 0U;
+  }
+  return result;
+}
 
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 

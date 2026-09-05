@@ -29,7 +29,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "common_inc.h"
+#include "firmware_composition.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
@@ -97,7 +97,8 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC2_Init();
-  MX_FDCAN1_Init();  MX_TIM1_Init();
+  MX_FDCAN1_Init();
+  MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
   MX_USB_Device_Init();
@@ -106,7 +107,7 @@ int main(void)
   MX_SPI2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  Board_Init();
+  FirmwareComposition_Initialize();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -116,21 +117,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	USB_SendMessage();
-	  
-	CAN_SendMessage();
-	  
-	if(Get_ModeNow() == Save_Param)
-	{
-		/*disable global interrupt*/
-		__disable_irq();
-		/*write parameters to flash*/
-		flash_write_param();
-		/*enable global interrupt*/
-		__enable_irq();
-		                                                                   
-		Set_ModeNow(Motor_Disable);
-	}
+	FirmwareComposition_RunBackground();
   }
   /* USER CODE END 3 */
 }

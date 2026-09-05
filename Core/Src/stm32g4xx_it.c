@@ -22,7 +22,8 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "common_inc.h"
+#include "firmware_composition.h"
+#include "tim.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -291,7 +292,7 @@ void TIM7_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 /**
-   * @brief  ADCIRQHandler, deal with FOC related tasks
+   * @brief  ADCIRQHandler, deal with CurrentControl related tasks
 			 Interrupt frequency: 20kHz
    * @param  
    * @retval 
@@ -300,7 +301,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if(hadc == &hadc2)
 	{		
-		FOC20kHzIRQHandler();
+		FirmwareComposition_ExecuteFastLoop();
 	}
 }
 
@@ -308,7 +309,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
 	if(hfdcan==&hfdcan1)
 	{
-		CANRxIRQHandler();
+		FirmwareComposition_OnCanReceiveInterrupt();
 	}
 }
 
@@ -322,7 +323,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim == (&htim7))
     {
-		BSP1kHzIRQHandler();
+		FirmwareComposition_ExecuteSupervisor1kHz();
     }
 }
 

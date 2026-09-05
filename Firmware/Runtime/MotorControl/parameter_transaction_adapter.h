@@ -1,0 +1,21 @@
+#ifndef RUNTIME_PARAMETER_TRANSACTION_ADAPTER_H
+#define RUNTIME_PARAMETER_TRANSACTION_ADAPTER_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "critical_section_port.h"
+#include "parameter_transaction_port.h"
+
+typedef struct
+{
+	CriticalSectionPort critical_section;
+	uint32_t interrupt_state;
+	bool transaction_is_open;
+} ParameterTransactionAdapterContext;
+
+ParameterTransactionPort ParameterTransactionAdapter_CreatePort(
+	ParameterTransactionAdapterContext *context,
+	const CriticalSectionPort *critical_section);
+
+#endif

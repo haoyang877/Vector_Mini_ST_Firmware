@@ -7,6 +7,7 @@
 *.axf
 *.htm
 *.build_log.htm
+MDK-ARM/architecture_refactor_build.log
 *.dep
 *.iex
 *.i
@@ -28,3 +29,4 @@ JLinkLog.txt
 
 #Keil/J-Link debug session
 .omo/
+.opencode/

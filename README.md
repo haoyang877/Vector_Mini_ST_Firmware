@@ -1,4 +1,4 @@
-<img src="./images/logo.png" width="600"/>
+<img src="./docs/assets/logo.png" width="600"/>
 
 ## 功能介绍
 
@@ -23,6 +23,12 @@
 > 驱动供电电压为**13V-30V**，外部电源超过35V运行可能会引发器件过压损坏。
 
 > 请按照**Vector_User Manual.pdf**完成各项参数的配置及校准，错误设置将会导致电机不正常运行。
+
+## 开发文档
+
+- [实机分阶段验证计划](docs/hardware_validation_plan.md)
+- [新硬件与新电机快速适配指南](docs/product_configuration_quick_guide.md)
+- [量产固件架构](docs/architecture/firmware_architecture.md)
 
 ## 参考项目
 

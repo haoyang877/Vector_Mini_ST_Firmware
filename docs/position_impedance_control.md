@@ -1,6 +1,6 @@
 # 位置阻抗控制
 
-`Position_Impedance_Mode`（模式号18）使用电流域位置阻抗控制。经典`Position_Mode`（模式号3）继续使用位置—速度—电流三环。两种模式共用轨迹发生器和FOC电流环，但控制器状态和参数彼此独立。
+协议动作号 18 在 Application 边界映射为 `MOTOR_CONTROL_MODE_POSITION_IMPEDANCE`，使用电流域位置阻抗控制；动作号 3 映射为 `MOTOR_CONTROL_MODE_POSITION_CASCADE`，使用位置—速度—电流三环。协议动作号不会进入 Runtime 状态机。两种模式共用轨迹发生器和电流环，但控制器状态和参数彼此独立。
 
 ```text
 iq_ref = Kp * (posShadow - theta_mech)
@@ -12,9 +12,9 @@ iq_ref = Kp * (posShadow - theta_mech)
 
 ## 模块边界
 
-位置阻抗控制位于`Foc/position_impedance.c`，经典三环位于`Foc/position_cascade.c`。两者分别通过`position_impedance.h`和`position_cascade.h`公开`Reset/Update`接口，内部状态不放入`MotorControl`，也不直接访问编码器、FOC、USB或CAN对象。
+位置阻抗控制位于 `Firmware/Domain/MotionControl/position_impedance.c`，经典三环位于 `Firmware/Domain/MotionControl/position_cascade.c`。两者分别通过 `position_impedance.h` 和 `position_cascade.h` 公开 `Reset/Update` 接口，内部状态由调用者持有，也不直接访问编码器、电流控制运行时、USB 或 CAN 对象。
 
-积分、速度滤波、到位判定、目标切换和轨迹重规划状态均由模块私有管理。`foc_run.c` 只负责组装输入、调用模块并把 `iq_reference` 交给电流环；USB/CAN 不再操作控制器内部状态，参数变化时模块会自行检测并连续重规划。
+积分、速度滤波、到位判定、目标切换和轨迹重规划状态均由显式 Context 管理。`Firmware/Runtime/MotorControl/control_mode_runtime.c` 只负责组装输入、调用模块并把 `iq_reference` 交给电流环；USB/CAN 不操作控制器内部状态，参数变化时模块会自行检测并连续重规划。
 
 经典三环模块内部还拥有专用速度PI，不复用速度模式的全局PI。经典位置外环为5kHz、速度环为2kHz；阻抗位置环为1kHz。
 

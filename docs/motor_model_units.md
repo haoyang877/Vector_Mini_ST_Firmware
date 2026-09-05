@@ -1,6 +1,6 @@
 # 电机模型计算单位说明
 
-本文档整理 Vector_Mini_ST_Firmware 工程中 FOC 与电机模型计算所使用的物理单位及换算关系。工程内部模型统一使用 **SI 单位（浮点）**，仅在 USB/CAN 上位机交互与调试打印时换算为 mΩ、µH、mWb、r/s 等显示单位。
+本文档整理 Vector_Mini_ST_Firmware 工程中电流矢量控制与电机模型计算所使用的物理单位及换算关系。工程内部模型统一使用 **SI 单位（浮点）**，仅在 USB/CAN 上位机交互与调试打印时换算为 mΩ、µH、mWb、r/s 等显示单位。
 
 ## 1. 总览
 
@@ -20,7 +20,7 @@
 
 ## 2. 电流单位与换算
 
-配置入口见 `Bsp/current_sense_profile.h`。只需修改一个宏即可切换整套参数：
+产品构造入口见 `Firmware/Product/current_sense_profile.h`；该宏只由 `Firmware/Product/board_profile.c` 消费并生成只读 `BoardProfile`：
 
 ```c
 #define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_6_MILLIOHM
@@ -33,7 +33,7 @@
 | 2 mΩ | 0.04029 | 60 A | 30 A | 30 A | 40 A | 10 A | 30 A | 4 mΩ |
 | 6 mΩ（默认） | 0.01343 | 20 A | 10 A | 10 A | 18 A | 3 A | 6 A | 8 mΩ |
 
-`Bsp/hw_conf.h` 最终使用通用公式：
+`Firmware/Product/board_profile.c` 使用通用公式构造换算系数：
 
 ```c
 #define SENSING_CURR_FACTOR (3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
@@ -45,10 +45,10 @@
 SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 ```
 
-`Foc/foc_sensing.c` 中：
+`Firmware/Runtime/MotorControl/measurement_runtime.c` 中：
 
 ```c
-FOC->Ia = -((int16_t)ADC值 - A_Offset) * SENSING_CURR_FACTOR;  // A
+phase_a_current_a = -((int16_t)ADC值 - phase_a_offset_adc) * current_a_per_adc_count;  // A
 ```
 
 因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。默认 6 mΩ 配置的 `calib_current = 3 A`，`current_limit = 6 A`。
@@ -67,19 +67,19 @@ Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置
 
 ```
 SENSING_VBUS_FACTOR = 3.3 / 4095 × 11 ≈ 0.008866 V/LSB
-FOC->Vbus = ADC值 × SENSING_VBUS_FACTOR;   // V
+CurrentControl->Vbus = ADC值 × SENSING_VBUS_FACTOR;   // V
 ```
 
-过压/欠压保护阈值（`Foc/foc_sensing.c`）同样以 V 为单位：Vbus > 30 V 报过压，< 10 V 报欠压。
+过压/欠压保护阈值（`Firmware/Runtime/MotorControl/measurement_runtime.c`）同样以 V 为单位：Vbus > 30 V 报过压，< 10 V 报欠压。
 
 ### 3.2 调制量（p.u.）与实际电压的关系
 
-`Foc/foc_algorithm.c` 中，电压给定先归一化为标幺值调制量：
+`Firmware/Runtime/MotorControl/current_control_runtime.c` 中，电压给定先归一化为标幺值调制量：
 
 ```c
-V_to_mod = 1.5f / FOC->Vbus_filt;   // V → p.u.
-FOC->mod_d = V_to_mod * Vd_set;
-FOC->mod_q = V_to_mod * Vq_set;
+V_to_mod = 1.5f / CurrentControl->Vbus_filt;   // V → p.u.
+CurrentControl->mod_d = V_to_mod * Vd_set;
+CurrentControl->mod_q = V_to_mod * Vq_set;
 ```
 
 反向关系即：
@@ -91,15 +91,15 @@ V_phase = mod × Vbus / 1.5        // p.u. → V
 1.5 是工程上的归一化基准，调制矢量被限幅在 `0.95 × √3/2 ≈ 0.823`。磁链观测器正是用该关系把调制量还原为真实相电压：
 
 ```c
-// Foc/foc_sensorless.c
-float mod_to_V = FOC->Vbus_filt / 1.5f;
-Fluxobserver->Ualpha = FOC->mod_alpha * mod_to_V;  // V
-Fluxobserver->Ubeta  = FOC->mod_beta  * mod_to_V;  // V
+// Firmware/Runtime/MotorControl/sensorless_runtime.c
+float mod_to_V = CurrentControl->Vbus_filt / 1.5f;
+Fluxobserver->Ualpha = CurrentControl->mod_alpha * mod_to_V;  // V
+Fluxobserver->Ubeta  = CurrentControl->mod_beta  * mod_to_V;  // V
 ```
 
 ## 4. 角度与角速度单位
 
-编码器输出换算见 `Bsp/encoder.c`：
+编码器输出换算见 `Firmware/Domain/RotorFeedback/encoder.c`：
 
 ```c
 Encoder->theta_elec = normalizeAngle((interpolated_enc * _2PI * pole_pairs) / cpr);  // rad，电气角 [0, 2π)
@@ -131,7 +131,7 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 
 ## 5. 电机模型参数单位（标定）
 
-标定流程 `Task_Calib_R_L_Flux`（`Foc/foc_calibration.c`）把电流、电压、角度三个量纲串成电机参数：
+当前固件仅启用 `SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION`，由 `Firmware/Runtime/MotorControl/phase_resistance_runtime.c` 驱动 `Firmware/Domain/Identification/phase_resistance.c`。协议动作号 4（完整 R/L/磁链辨识）明确返回不支持，不再保留已退出构建的旧一体化辨识实现。
 
 ### 5.1 相电阻 R（Ω）
 
@@ -141,25 +141,25 @@ R = (V_phase / I_phase) × 2/3 − PATH_COMPENSATION
 
 `2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；`PATH_COMPENSATION` 随档位选择（2 mΩ 档为 0.004 Ω，6 mΩ 档为 0.008 Ω）。单位 **Ω**，打印为 mΩ。
 
-### 5.2 电感 Ld/Lq（H）
+### 5.2 电感 Ld/Lq（H，配置模型）
 
 ```
 L = (V − R·I) / (ωe·I) × 2.25
 ```
 
-其中注入电频率 `ωe = 2π × 1000 rad/s`（电气），`2.25` 为标定经验修正系数。单位 **H**，打印为 µH。
+该公式仅说明历史参数的量纲关系；当前固件不会运行该辨识步骤。`d_axis_inductance_h`、`q_axis_inductance_h` 由已验证的 Product 默认值或持久化参数提供，单位 **H**，显示为 µH。
 
-### 5.3 磁链 ψ（Wb）
+### 5.3 磁链 ψ（Wb，配置模型）
 
 ```
 ψ = (|V| − R·|I|) / ωe − L·|I|
 ```
 
-量纲推导：`(V − Ω·A) / (rad/s) − H·A = V·s = Wb`。单位 **Wb**，打印为 mWb。
+量纲推导：`(V − Ω·A) / (rad/s) − H·A = V·s = Wb`。当前固件不执行磁链辨识；`flux_weber` 来自已验证的配置，单位 **Wb**，显示为 mWb。
 
 ## 6. 磁链观测器量纲自洽性
 
-`Foc/foc_sensorless.c` 的磁链观测器各中间量量纲如下：
+`Firmware/Runtime/MotorControl/sensorless_runtime.c` 的磁链观测器各中间量量纲如下：
 
 ```c
 y1 = -Rs·Iα + Uα                        // V（电压）
@@ -175,7 +175,7 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 
 ## 7. 上位机接口单位对照
 
-调试打印（`Communication/interface_usb.c`）确认的单位：
+调试打印（`Firmware/Communication/interface_usb.c`）确认的单位：
 
 | 打印项 | 单位 | 内部存储 |
 | --- | --- | --- |

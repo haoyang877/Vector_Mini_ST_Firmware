@@ -2,11 +2,13 @@
 
 ## 目的
 
-`ModeNow = 13`（`Calib_EncoderObserver`）用于标定 MT6701 编码器的 1024 点机械角线性化 LUT。标定过程复用现有无感启动；只有无感启动完成并已进入“观测器角度 + 转速闭环”后，才使用磁链观测器的位置作为机械角参考。
+协议动作号 13 在 Application 边界映射为 `SERVICE_PROCEDURE_OBSERVER_CALIBRATION`，用于标定编码器的 1024 点机械角线性化 LUT。标定过程复用现有无感启动；只有无感启动完成并已进入“观测器角度 + 转速闭环”后，才使用磁链观测器的位置作为机械角参考。
 
 LUT 的输入为 `Encoder.directed_q15`，即经过编码器安装方向统一后的原始角度；这与运行时 `Encoder_Update()` 中的 LUT 查表输入完全一致。
 
-`ModeNow = 5`（`Calib_EncoderOffset`）保留原有的电压开环单向扫角流程，不会进入模式 13 的无感闭环标定流程。
+协议动作号 5 映射为 `SERVICE_PROCEDURE_ENCODER_LINEARIZATION`，使用电流闭环旋转
+矢量和已知驱动电角度完成单向扫角，不依赖磁链观察器，也不会进入动作 13 的无感
+闭环标定流程。新电机首次调试应优先使用模式 5。
 
 ## 本次上电的参考坐标
 
@@ -38,10 +40,10 @@ reference_q15 = uint16((theta_obs - observer_position_origin) * 65536 / (2*pi*p)
 7. 仅在 RMS 残差不大于 256 Q15 counts、峰值残差不大于 1024 Q15 counts 时，将候选 LUT 替换为运行 LUT。
 8. 标定结束后先在 `1 s` 内将观测器闭环转速从 `20 rad/s` 平滑降至无感安全速度，再在 `0.5 s` 内将当前转矩电流平滑降至零，最后切换到 `Save_Param` 写入 Flash。
 
-该流程为误差和、桶样本数及候选 LUT 共分配约 8 KiB 堆空间；工程堆大小为 16 KiB。
+误差和、桶样本数及候选 LUT 均位于 Composition 静态拥有的 `MotorCalibrationContext` 中；20 kHz 路径不分配或释放堆内存。
 
 ## 标定结果与后续步骤
 
 标定成功后只设置 `ENC_CALIB_LINEARIZED`，并明确清除电角零位和机械零位标志；本流程不会写入电角零位。
 
-因此，完成模式 13 后，需要单独执行 `ModeNow = 15`（`Task_Calib_EleAngelOffset()`）以基于已线性化的编码器角度标定电角零位。将这两个步骤分开，便于后续扩展独立的电角度标定功能。
+因此，完成动作 13 后，需要单独执行动作号 15（映射为 `SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION`），以基于已线性化的编码器角度标定电角零位。将这两个步骤分开，便于独立验证电角度标定功能。

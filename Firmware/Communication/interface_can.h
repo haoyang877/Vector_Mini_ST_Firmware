@@ -1,0 +1,52 @@
+#ifndef COMMUNICATION_CAN_INTERFACE_H
+#define COMMUNICATION_CAN_INTERFACE_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "can_transport_port.h"
+#include "can_configuration_port.h"
+#include "can_response_port.h"
+#include "can_protocol_v1.h"
+
+#define CAN_INTERFACE_RX_QUEUE_CAPACITY 8U
+
+typedef struct
+{
+	CanParameterId parameter;
+	float value;
+} CanReceivedCommand;
+
+typedef struct
+{
+	volatile uint8_t node_id;
+	uint32_t baudrate;
+	uint32_t configured_bitrate;
+	CanParameterId tx_parameter_id;
+	float tx_value;
+	volatile bool received_once;
+	bool transmit_pending;
+	bool heartbeat_enabled;
+	bool disconnect_reported;
+	uint32_t heartbeat_timeout_ms;
+	volatile uint32_t heartbeat_elapsed_ms;
+	volatile uint32_t receive_overflow_count;
+	CanReceivedCommand receive_queue[CAN_INTERFACE_RX_QUEUE_CAPACITY];
+	volatile uint8_t receive_write_index;
+	volatile uint8_t receive_read_index;
+	volatile uint8_t disconnect_clear_pending;
+	CanTransportPort transport;
+	bool transport_is_initialized;
+} CanInterfaceContext;
+
+void CanInterface_ApplyConfiguredBitrate(void);
+bool CanInterface_Initialize(CanInterfaceContext *context,
+	const CanTransportPort *transport);
+CanConfigurationPort CanInterface_CreateConfigurationPort(
+	CanInterfaceContext *context);
+CanResponsePort CanInterface_CreateResponsePort(CanInterfaceContext *context);
+void CanInterface_UpdateWatchdog(void);
+void CanInterface_ApplyPendingBitrate(void);
+void CanInterface_OnReceiveInterrupt(void);
+void CanInterface_ProcessReceivedFrames(void);
+void CanInterface_FlushTransmit(void);
+#endif

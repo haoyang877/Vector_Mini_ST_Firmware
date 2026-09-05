@@ -55,6 +55,13 @@ typedef struct
 	float friction_identification_saturation_time_s;
 	float friction_identification_rmse_floor_a;
 	float friction_identification_rmse_ratio_max;
+	float cogging_identification_speed_rad_s;
+	uint32_t cogging_identification_turns;
+	float cogging_identification_stable_time_s;
+	float cogging_identification_stage_timeout_s;
+	float cogging_identification_speed_tolerance_ratio;
+	uint16_t cogging_identification_min_samples_per_bin;
+	float cogging_identification_max_current_a;
 } MechanicalLoadProfile;
 
 const MechanicalLoadProfile *MechanicalLoadProfile_GetActive(void);

@@ -62,6 +62,7 @@
 #define PARAM_MOTOR_PHASE_RESISTANCE_TIMEOUT_MS           3000U
 #define PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_WARNING_PCT  3.0f
 #define PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_FAULT_PCT    5.0f
+#define PARAM_MOTOR_PHASE_RESISTANCE_DESIGN_TOLERANCE_PCT 20.0f
 
 #else
 #error "Unsupported ACTIVE_MOTOR_PROFILE"
@@ -81,11 +82,10 @@
 
 /*
  * This board revision has no populated power-stage NTC measurement path.
- * MCU internal temperature remains observable, but must not be treated as the
- * inverter junction temperature. Enable protection only on a board profile
- * whose sensor placement and trip threshold have been validated.
+ * Use the MCU internal temperature as a temporary board-overtemperature proxy;
+ * it must not be interpreted as motor-winding or MOSFET junction temperature.
  */
-#define PARAM_HW_TEMPERATURE_PROTECTION_ENABLED   0U
+#define PARAM_HW_TEMPERATURE_PROTECTION_ENABLED   1U
 
 #else
 #error "Unsupported ACTIVE_BOARD_PROFILE"

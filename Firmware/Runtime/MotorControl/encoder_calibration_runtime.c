@@ -224,7 +224,10 @@ static void Encoder_Calib_CommitCandidateLut(
 	Encoder->mechanical_zero_shadow_q15 = 0;
 	Encoder->electrical_zero_q15 = 0U;
 	Encoder->mechanical_zero_q15 = 0U;
-	Encoder->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
+	Encoder->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO |
+		ENC_CALIB_MECHANICAL_ZERO | ENC_CALIB_COGGING);
+	memset(Encoder->cogging_compensation_map_ma, 0,
+		sizeof(Encoder->cogging_compensation_map_ma));
 	Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
 	Encoder_ResetVelocity(Encoder);
 }

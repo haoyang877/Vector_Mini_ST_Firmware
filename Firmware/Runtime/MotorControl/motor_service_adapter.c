@@ -65,6 +65,12 @@ static bool MotorServiceAdapter_MapRequestedService(MotorPortService service,
 			*procedure = SERVICE_PROCEDURE_PARAMETER_SAVE; return true;
 		case MOTOR_PORT_SERVICE_RESTORE_DEFAULTS:
 			*procedure = SERVICE_PROCEDURE_RESTORE_DEFAULTS; return true;
+		case MOTOR_PORT_SERVICE_ENCODER_DIRECTION_CALIBRATION:
+			*procedure = SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION; return true;
+		case MOTOR_PORT_SERVICE_COGGING_IDENTIFICATION:
+			*procedure = SERVICE_PROCEDURE_COGGING_IDENTIFICATION; return true;
+		case MOTOR_PORT_SERVICE_FULL_COMMISSIONING:
+			*procedure = SERVICE_PROCEDURE_FULL_COMMISSIONING; return true;
 		default: return false;
 	}
 }
@@ -355,30 +361,6 @@ bool MotorServiceAdapter_StageCurrentOffsetResult(
 	return true;
 }
 
-bool MotorServiceAdapter_StagePhaseResistanceResult(
-	MotorConfigurationAdapterContext *context, float resistance_ohm)
-{
-	uint32_t interrupt_state;
-	if (context == 0 || !context->is_initialized ||
-		resistance_ohm < context->motor_profile->phase_resistance_min_ohm ||
-		resistance_ohm > context->motor_profile->phase_resistance_max_ohm ||
-		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_SERVICING ||
-		MotorLifecycle_GetServiceProcedure(context->motor_state) !=
-			SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION)
-		return false;
-	interrupt_state = context->critical_section.enter(
-		context->critical_section.context);
-	if (context->published_revision == context->applied_revision)
-		context->candidate = context->motor->configuration;
-	context->candidate.phase_resistance_ohm = resistance_ohm;
-	MotorServiceAdapter_UpdateCurrentLoopGains(context,
-		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM);
-	context->published_revision++;
-	context->critical_section.exit(context->critical_section.context,
-		interrupt_state);
-	return true;
-}
-
 bool MotorServiceAdapter_StageFrictionModel(
 	MotorConfigurationAdapterContext *context, float coulomb_pos_a,
 	float coulomb_neg_a, float viscous_pos_a_per_rad_s,
@@ -390,7 +372,10 @@ bool MotorServiceAdapter_StageFrictionModel(
 		!isfinite(coulomb_neg_a) || coulomb_neg_a < 0.0f ||
 		!isfinite(viscous_pos_a_per_rad_s) || viscous_pos_a_per_rad_s < 0.0f ||
 		!isfinite(viscous_neg_a_per_rad_s) || viscous_neg_a_per_rad_s < 0.0f ||
-		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_STANDBY)
+		!((MotorLifecycle_GetDeviceState(context->motor_state) == DEVICE_STATE_STANDBY) ||
+		  (MotorLifecycle_GetDeviceState(context->motor_state) == DEVICE_STATE_SERVICING &&
+		   MotorLifecycle_GetServiceProcedure(context->motor_state) ==
+			SERVICE_PROCEDURE_FRICTION_IDENTIFICATION)))
 		return false;
 	interrupt_state = context->critical_section.enter(
 		context->critical_section.context);

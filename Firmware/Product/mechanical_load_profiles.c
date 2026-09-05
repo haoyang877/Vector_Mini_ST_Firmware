@@ -67,7 +67,14 @@ static const MechanicalLoadProfile NoDamperProfile =
 	.friction_identification_current_ratio_max = 0.90f,
 	.friction_identification_saturation_time_s = 0.25f,
 	.friction_identification_rmse_floor_a = 0.05f,
-	.friction_identification_rmse_ratio_max = 0.25f
+	.friction_identification_rmse_ratio_max = 0.25f,
+	.cogging_identification_speed_rad_s = 0.62831853f,
+	.cogging_identification_turns = 2U,
+	.cogging_identification_stable_time_s = 0.75f,
+	.cogging_identification_stage_timeout_s = 30.0f,
+	.cogging_identification_speed_tolerance_ratio = 0.10f,
+	.cogging_identification_min_samples_per_bin = 4U,
+	.cogging_identification_max_current_a = 1.0f
 };
 
 static const MechanicalLoadProfile DampingRing1p5NmProfile =
@@ -135,7 +142,14 @@ static const MechanicalLoadProfile DampingRing1p5NmProfile =
 	.friction_identification_current_ratio_max = 0.90f,
 	.friction_identification_saturation_time_s = 0.25f,
 	.friction_identification_rmse_floor_a = 0.05f,
-	.friction_identification_rmse_ratio_max = 0.25f
+	.friction_identification_rmse_ratio_max = 0.25f,
+	.cogging_identification_speed_rad_s = 0.62831853f,
+	.cogging_identification_turns = 2U,
+	.cogging_identification_stable_time_s = 0.75f,
+	.cogging_identification_stage_timeout_s = 45.0f,
+	.cogging_identification_speed_tolerance_ratio = 0.25f,
+	.cogging_identification_min_samples_per_bin = 4U,
+	.cogging_identification_max_current_a = 1.0f
 };
 
 static const MechanicalLoadProfile *const SupportedProfiles[] =

@@ -98,7 +98,8 @@ void ElectricalZeroCalibrationRuntime_ExecuteStep(
 		{
 			uint16_t electrical_zero_q15 = (uint16_t)(context->unwrapped_sum /
 				(int64_t)context->sample_count);
-			calibrated = Encoder_SetElectricalZeroQ15(encoder, electrical_zero_q15);
+			calibrated = Encoder_SetElectricalZeroQ15(encoder, electrical_zero_q15) &&
+				Encoder_SetMechanicalZero(encoder);
 		}
 		motor->targets.d_axis_current_a = 0.0f;
 		motor->targets.q_axis_current_a = 0.0f;

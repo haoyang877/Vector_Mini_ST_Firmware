@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MOTOR_TELEMETRY_FAULT_CODE_COUNT 17U
+#define MOTOR_TELEMETRY_FAULT_CODE_COUNT 19U
 
 typedef enum
 {
@@ -49,7 +49,11 @@ typedef enum
 	MOTOR_TELEMETRY_PHASE_RESISTANCE_OHM,
 	MOTOR_TELEMETRY_D_AXIS_INDUCTANCE_H,
 	MOTOR_TELEMETRY_Q_AXIS_INDUCTANCE_H,
-	MOTOR_TELEMETRY_FLUX_WEBER
+	MOTOR_TELEMETRY_FLUX_WEBER,
+	MOTOR_TELEMETRY_COMMISSIONING_STAGE,
+	MOTOR_TELEMETRY_COMMISSIONING_PROGRESS_PERCENT,
+	MOTOR_TELEMETRY_PHASE_RESISTANCE_SPREAD_PERCENT,
+	MOTOR_TELEMETRY_PHASE_RESISTANCE_DESIGN_ERROR_PERCENT
 } MotorTelemetryId;
 
 typedef struct
@@ -118,6 +122,10 @@ typedef struct
 	float d_axis_inductance_h;
 	float q_axis_inductance_h;
 	float flux_weber;
+	uint32_t commissioning_stage;
+	uint32_t commissioning_progress_percent;
+	float phase_resistance_spread_percent;
+	float phase_resistance_design_error_percent;
 } MotorTelemetrySnapshot;
 
 typedef struct

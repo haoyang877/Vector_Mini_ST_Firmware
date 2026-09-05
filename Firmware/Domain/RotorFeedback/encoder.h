@@ -13,6 +13,7 @@
 #define ENCODER_OFFSET_LUT_BITS          10U
 #define ENCODER_VELOCITY_WINDOW          16U
 #define ENCODER_BAD_FRAME_OFFLINE_COUNT  100U
+#define ENCODER_COGGING_MAP_SIZE          128U
 
 typedef enum
 {
@@ -33,6 +34,7 @@ typedef enum
 #define ENC_CALIB_LINEARIZED        (1U << 0)
 #define ENC_CALIB_ELECTRICAL_ZERO   (1U << 1)
 #define ENC_CALIB_MECHANICAL_ZERO   (1U << 2)
+#define ENC_CALIB_COGGING           (1U << 3)
 #define ENC_CALIB_ZERO_POS          ENC_CALIB_ELECTRICAL_ZERO
 #define ENC_CALIB_ALL               (ENC_CALIB_LINEARIZED | ENC_CALIB_ELECTRICAL_ZERO)
 
@@ -44,6 +46,7 @@ typedef struct
 	int16_t linearization_lut_q15[ENCODER_OFFSET_LUT_SIZE];
 	uint8_t calib_flag;
 	uint8_t reverse;
+	int16_t cogging_compensation_map_ma[ENCODER_COGGING_MAP_SIZE];
 
 	/* Raw TLE5012B reading, direction-corrected input, and LUT-corrected angle. */
 	uint16_t raw_q15;

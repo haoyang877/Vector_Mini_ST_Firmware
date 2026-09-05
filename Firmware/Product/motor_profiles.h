@@ -54,6 +54,7 @@ typedef struct
 	uint32_t phase_resistance_timeout_ms;
 	float phase_resistance_balance_warning_pct;
 	float phase_resistance_balance_fault_pct;
+	float phase_resistance_design_tolerance_pct;
 	float speed_limit_max_rad_s;
 	float speed_ramp_max_rad_s2;
 	float position_ramp_max_rad_s2;

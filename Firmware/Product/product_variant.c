@@ -67,6 +67,8 @@ bool ProductVariant_Validate(const ProductVariant *variant)
 		board->overcurrent_trip_a <= board->current_sense_reliable_limit_a &&
 		motor->current_limit_a <= board->current_command_limit_a &&
 		motor->calibration_current_a <= board->calibration_current_limit_a &&
+		isfinite(motor->phase_resistance_design_tolerance_pct) &&
+		motor->phase_resistance_design_tolerance_pct >= 0.0f &&
 		variant->mechanical_load->default_speed_limit_rps *
 			6.28318530717958647692f <= motor->speed_limit_max_rad_s &&
 		variant->mechanical_load->default_position_max_speed_rps <=
@@ -75,6 +77,27 @@ bool ProductVariant_Validate(const ProductVariant *variant)
 			variant->mechanical_load->default_speed_limit_rps &&
 		variant->mechanical_load->encoder_calibration_startup.minimum_current_limit_a <=
 			board->current_command_limit_a &&
+		variant->mechanical_load->encoder_electrical_zero_min_align_current_a <=
+			motor->current_limit_a &&
+		isfinite(variant->control_tuning->encoder_direction_align_time_s) &&
+		variant->control_tuning->encoder_direction_align_time_s > 0.0f &&
+		isfinite(variant->control_tuning->encoder_direction_speed_electrical_rad_s) &&
+		variant->control_tuning->encoder_direction_speed_electrical_rad_s > 0.0f &&
+		isfinite(variant->mechanical_load->cogging_identification_speed_rad_s) &&
+		variant->mechanical_load->cogging_identification_speed_rad_s > 0.0f &&
+		variant->mechanical_load->cogging_identification_turns > 0U &&
+		isfinite(variant->mechanical_load->cogging_identification_stable_time_s) &&
+		variant->mechanical_load->cogging_identification_stable_time_s > 0.0f &&
+		isfinite(variant->mechanical_load->cogging_identification_stage_timeout_s) &&
+		variant->mechanical_load->cogging_identification_stage_timeout_s >
+			variant->mechanical_load->cogging_identification_stable_time_s &&
+		isfinite(variant->mechanical_load->cogging_identification_speed_tolerance_ratio) &&
+		variant->mechanical_load->cogging_identification_speed_tolerance_ratio > 0.0f &&
+		variant->mechanical_load->cogging_identification_min_samples_per_bin > 0U &&
+		isfinite(variant->mechanical_load->cogging_identification_max_current_a) &&
+		variant->mechanical_load->cogging_identification_max_current_a > 0.0f &&
+		variant->mechanical_load->cogging_identification_max_current_a <=
+			motor->current_limit_a &&
 		board->default_can_node_id <= 7U &&
 		board->minimum_can_heartbeat_ms <= board->maximum_can_heartbeat_ms &&
 		(board->default_can_heartbeat_ms == 0U ||

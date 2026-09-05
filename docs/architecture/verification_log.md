@@ -226,3 +226,24 @@
 - Keil ARMCC 5.06u7 全量重建：0 errors，0 warnings；Code 93488 B，RO-data 5400 B，RW-data 504 B，ZI-data 28536 B。
 
 硬件/发布验证边界：目标板 PWM 波形与极性、TIM1 Break 保护注入、通信突发/模糊输入、Flash 掉电点、实测 20 kHz WCET、Bootloader 签名/回滚和 Option Bytes 仍需在确定硬件、内存布局与密钥策略后执行；本轮没有猜测或修改这些不可逆配置。
+
+## 统一电机模组标定：2026-09-06
+
+- 新增 `mode=21` 顺序工作流：电流偏置、三相相电阻设计符合性/平衡检查、编码器方向、Mode 13 LUT、电零位与初始机械零位、摩擦、齿槽以及最终一次性 Flash 保存。
+- 相电阻辨识不再修改运行配置；极对数、R/L/磁链、控制增益、限值和通信配置每次启动均从 Product Profile 加载。Flash schema v10 仅恢复个体电流偏置、编码器方向/LUT/零位、摩擦模型和 128 点齿槽表。
+- 所有带电标定阶段复用统一过流、过压、欠压、MCU 内部温度、功率级和编码器故障路径；故障当周期关闭功率级，并通过 `cst/0x63` 的高位和低 7 位报告失败及失败阶段。
+- `tools/verify_architecture.ps1 -StrictCommunication`：132 个工程条目，0 failure，0 warning；新增门禁禁止设计参数重新进入 Flash Capture/Apply。
+- 工作流测试和实现分别通过 ARMCC `--c99` 独立语法编译，均为 0 error；本机无原生 C 编译器，因此未宣称已执行主机测试二进制。
+- Keil ARMCC 5.06u7 全量重建：0 errors，0 warnings；Code 108004 B、RO-data 6144 B、RW-data 456 B、ZI-data 31424 B。
+
+### 2026-09-06 实机闭环
+
+- 使用 Keil ARMCC 5.06u7 全量构建最终镜像：0 errors、0 warnings；Code 108068 B、RO-data 6144 B、RW-data 456 B、ZI-data 31432 B。Map 总 ROM 114420/114688 B，总 RAM 31888/32768 B。
+- J-Link 下载并 Verify 通过；28 V 母线、约 1.5 Nm 阻尼器条件下，`mode=21` 在 129.907 s 到达 stage 9/100%，自动回到 mode 0，主故障保持 0。
+- 三相相电阻不平衡 1.003%，小于 5% 故障阈值；相对设计值误差 18.223%，小于 20% 设计验收阈值。设计参数未被辨识结果覆盖。
+- 全流程遥测范围：母线 27.528..27.787 V、估算母线电流最大 2.603 A、相电流绝对值最大 4.459 A、MCU 内部温度最大 46 C。
+- 复位前后运行时电/机械零位、`calib_flag=0x0F`、方向和 128 点齿槽表逐项一致；复位后摩擦模型有效标志为 1。
+- 复位后带载速度闭环在目标 +/-0.628319 rad/s 下的稳定段均值为 +0.623180/-0.628658 rad/s；最大相电流 1.679 A，测试后 mode 0/error 0。
+- CAN 在测试后连续 100 次查询全部成功，控制器收发错误计数均为 0；20 kHz 快环累计 4,029,159 次，最大 4159/8500 cycles，deadline overrun 为 0。
+
+证据目录：`validation/unified_commissioning_2026-09-06/run_11_all_bins/`。尚未关闭的量产验证项为外部 NTC、硬件过流/Break 故障注入、母线过欠压故障注入、Flash 写入中掉电、标定批量重复性和额定全工况耐久。

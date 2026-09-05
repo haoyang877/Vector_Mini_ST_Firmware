@@ -20,6 +20,8 @@
 #include "motor_service_adapter.h"
 #include "current_offset_calibration_runtime.h"
 #include "electrical_zero_calibration_runtime.h"
+#include "encoder_direction_calibration_runtime.h"
+#include "cogging_identification_runtime.h"
 
 #define MotorControl (context->motor)
 #define PI_Speed (context->speed_controller)
@@ -33,6 +35,8 @@
 #define MotorCalibration (context->calibration)
 #define CurrentOffsetCalibration (context->current_offset_calibration)
 #define ElectricalZeroCalibration (context->electrical_zero_calibration)
+#define EncoderDirectionCalibration (context->encoder_direction_calibration)
+#define CoggingIdentificationRuntime (context->cogging_identification)
 #define MotorLifecycle (context->lifecycle)
 #define MotorConfigurationAdapter (context->configuration_adapter)
 #define MotorCommandAdapter (context->command_adapter)
@@ -238,6 +242,17 @@ void MotorControlRuntime_PublishTelemetry(MotorControlRuntimeContext *context,
 	snapshot.d_axis_inductance_h = MotorControl.configuration.d_axis_inductance_h;
 	snapshot.q_axis_inductance_h = MotorControl.configuration.q_axis_inductance_h;
 	snapshot.flux_weber = MotorControl.configuration.flux_weber;
+	snapshot.commissioning_stage = (uint32_t)
+		MotorLifecycle_GetCommissioningStage(MotorStateRuntime);
+	if (snapshot.commissioning_stage == (uint32_t)COMMISSIONING_STAGE_FAILED)
+		snapshot.commissioning_stage = 0x80U | (uint32_t)
+			MotorLifecycle_GetCommissioningFailureStage(MotorStateRuntime);
+	snapshot.commissioning_progress_percent = (uint32_t)
+		MotorLifecycle_GetCommissioningProgressPercent(MotorStateRuntime);
+	snapshot.phase_resistance_spread_percent =
+		MotorControl.runtime.phase_resistance_spread_pct;
+	snapshot.phase_resistance_design_error_percent =
+		MotorControl.runtime.phase_resistance_design_error_pct;
 
 	TelemetryService_Publish(telemetry, &snapshot);
 }
@@ -412,6 +427,8 @@ void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	MotorCalibration_Reset(&MotorCalibration);
 	CurrentOffsetCalibrationRuntime_Reset(&CurrentOffsetCalibration);
 	ElectricalZeroCalibrationRuntime_Reset(&ElectricalZeroCalibration);
+	EncoderDirectionCalibrationRuntime_Reset(&EncoderDirectionCalibration);
+	CoggingIdentificationRuntime_Reset(&CoggingIdentificationRuntime);
 	CurrentControl.power_stage = power_stage;
 	if (critical_section_port != 0)
 		RuntimeCriticalSection = *critical_section_port;
@@ -464,6 +481,8 @@ static bool Encoder_FeedbackRequired(const MotorControlContext *motor,
 		 procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
 		 procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
 		 procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION ||
+		 procedure == SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION ||
+		 procedure == SERVICE_PROCEDURE_COGGING_IDENTIFICATION ||
 		 procedure == SERVICE_PROCEDURE_SET_MECHANICAL_ZERO);
 }
 
@@ -479,7 +498,9 @@ static bool LifecycleRequiresPowerStage(DeviceState device_state,
 		procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
 		procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
 		procedure == SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION ||
-		procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION;
+		procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION ||
+		procedure == SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION ||
+		procedure == SERVICE_PROCEDURE_COGGING_IDENTIFICATION;
 }
 
 static void MotorControlRuntime_PrepareControlTargets(
@@ -521,16 +542,25 @@ static void MotorControlRuntime_EnterFaultedState(
 {
 	/* Hardware output disable is deliberately the first fault-side effect. */
 	MotorState_DisablePowerStage(MotorStateRuntime);
+	/* The fast loop keeps enforcing the hardware disable, but teardown must be
+	 * edge-triggered. Repeating the large calibration/context resets at 20 kHz
+	 * starves the supervisor and communication tasks, hiding the root fault. */
+	if (context->fault_shutdown_complete)
+		return;
 	PhaseResistanceRuntime_Cancel(&PhaseResistanceRuntime, &CurrentControl, &MotorControl);
 	if (FrictionIdentificationRuntime.started)
 		FrictionIdentification_Fail(&FrictionIdentificationRuntime.core,
 			FRICTION_IDENT_REASON_SAFETY_FAULT);
 	FrictionIdentificationRuntime_Cancel(&FrictionIdentificationRuntime,
 		&CurrentControl, &MotorControl, &PI_Speed);
+	CoggingIdentificationRuntime_Cancel(&CoggingIdentificationRuntime,
+		&CurrentControl, &MotorControl, &PI_Speed);
+	EncoderDirectionCalibrationRuntime_Reset(&EncoderDirectionCalibration);
 	CurrentOffsetCalibrationRuntime_Reset(&CurrentOffsetCalibration);
 	ElectricalZeroCalibrationRuntime_Reset(&ElectricalZeroCalibration);
 	MotorState_ResetControlState(MotorStateRuntime);
 	PreviousOperationRequiresPower = false;
+	context->fault_shutdown_complete = true;
 	MotorControl.runtime.action_telemetry =
 		(float)MotorLifecycle_GetProtocolActionCode(MotorStateRuntime);
 	MotorControl.runtime.fault_telemetry = (float)MotorControl.runtime.primary_fault;
@@ -551,6 +581,10 @@ static void MotorControlRuntime_CancelExitedService(DeviceState device_state,
 		case SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION:
 			ElectricalZeroCalibrationRuntime_Reset(&ElectricalZeroCalibration);
 			break;
+		case SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION:
+			EncoderDirectionCalibrationRuntime_Reset(
+				&EncoderDirectionCalibration);
+			break;
 		case SERVICE_PROCEDURE_ENCODER_LINEARIZATION:
 		case SERVICE_PROCEDURE_OBSERVER_CALIBRATION:
 			MotorCalibration_Reset(&MotorCalibration);
@@ -561,6 +595,10 @@ static void MotorControlRuntime_CancelExitedService(DeviceState device_state,
 			break;
 		case SERVICE_PROCEDURE_FRICTION_IDENTIFICATION:
 			FrictionIdentificationRuntime_Cancel(&FrictionIdentificationRuntime,
+				&CurrentControl, &MotorControl, &PI_Speed);
+			break;
+		case SERVICE_PROCEDURE_COGGING_IDENTIFICATION:
+			CoggingIdentificationRuntime_Cancel(&CoggingIdentificationRuntime,
 				&CurrentControl, &MotorControl, &PI_Speed);
 			break;
 		default:
@@ -588,11 +626,14 @@ static bool MotorControlRuntime_MeasurementProtectionIsActive(
 	if (device_state == DEVICE_STATE_ACTIVE)
 		return true;
 	return device_state == DEVICE_STATE_SERVICING &&
-		(service_procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
+		(service_procedure == SERVICE_PROCEDURE_CURRENT_OFFSET_CALIBRATION ||
+		 service_procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
 		 service_procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
 		 service_procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
 		 service_procedure == SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION ||
-		 service_procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION);
+		 service_procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION ||
+		 service_procedure == SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION ||
+		 service_procedure == SERVICE_PROCEDURE_COGGING_IDENTIFICATION);
 }
 
 static void MotorControlRuntime_ExecuteFastLoopBody(
@@ -649,6 +690,7 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 		MotorControlRuntime_EnterFaultedState(context);
 		return;
 	}
+	context->fault_shutdown_complete = false;
 	if (MotorServiceAdapter_ApplyPendingConfiguration(
 		&MotorConfigurationAdapter))
 	{
@@ -756,6 +798,11 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 					&MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver,
 					&SensorlessStartup, MotorStateRuntime);
 				break;
+			case SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION:
+				EncoderDirectionCalibrationRuntime_ExecuteStep(
+					&EncoderDirectionCalibration, &CurrentControl, &MotorControl,
+					&OnBoard_Encoder, MotorStateRuntime);
+				break;
 			case SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION:
 			{
 				PhaseResistanceRuntimeStatus status = PhaseResistanceRuntime_Run(
@@ -763,18 +810,24 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 					ActiveBoardProfile, ActiveMotorProfile);
 				if (status == PHASE_RESISTANCE_MODE_DONE)
 				{
-					float mean_resistance_ohm;
-					if (IdentificationService_AcceptPhaseResistanceResult(
+					float mean_resistance_ohm = 0.0f;
+					bool accepted = IdentificationService_AcceptPhaseResistanceResult(
 							&context->identification_service,
 							MotorControl.runtime.phase_a_resistance_ohm,
 							MotorControl.runtime.phase_b_resistance_ohm,
 							MotorControl.runtime.phase_c_resistance_ohm,
 							MotorControl.runtime.phase_resistance_spread_pct,
 							MotorControl.runtime.phase_resistance_balanced,
-							&mean_resistance_ohm) &&
-						MotorServiceAdapter_StagePhaseResistanceResult(
-							&MotorConfigurationAdapter,
-							mean_resistance_ohm))
+							&mean_resistance_ohm);
+					MotorControl.runtime.phase_resistance_design_error_pct =
+						mean_resistance_ohm > 0.0f ?
+						FastMath_Abs(mean_resistance_ohm -
+							ActiveMotorProfile->phase_resistance_ohm) * 100.0f /
+							ActiveMotorProfile->phase_resistance_ohm : 100.0f;
+					MotorControl.runtime.phase_resistance_matches_design = accepted;
+					/* Identification is an acceptance test. The design resistance from
+					 * MotorProfile remains the only control/observer source of truth. */
+					if (accepted)
 						MotorLifecycle_ReportServiceComplete(MotorStateRuntime, false);
 					else
 						MotorState_RaiseFault(MotorStateRuntime,
@@ -803,12 +856,38 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 						&OnBoard_Encoder, ActiveBoardProfile,
 						ActiveMechanicalLoadProfile);
 				if (status == FRICTION_IDENT_COMPLETE)
+				{
+					if (MotorLifecycle_GetCommissioningStage(MotorStateRuntime) ==
+						COMMISSIONING_STAGE_FRICTION)
+					{
+						const FrictionIdentificationResult *candidate =
+							FrictionIdentification_GetResult(
+								&FrictionIdentificationRuntime.core);
+						if (candidate == 0 || !candidate->valid ||
+							!MotorServiceAdapter_StageFrictionModel(
+								&MotorConfigurationAdapter,
+								candidate->coulomb_pos_a, candidate->coulomb_neg_a,
+								candidate->viscous_pos_a_per_rad_s,
+								candidate->viscous_neg_a_per_rad_s))
+						{
+							MotorState_RaiseFault(MotorStateRuntime,
+								MOTOR_FAULT_FRICTION_IDENTIFICATION);
+							break;
+						}
+					}
 					MotorLifecycle_ReportServiceComplete(MotorStateRuntime, false);
+				}
 				else if (status == FRICTION_IDENT_FAILED)
 					MotorState_RaiseFault(MotorStateRuntime,
 						MOTOR_FAULT_FRICTION_IDENTIFICATION);
 				break;
 			}
+			case SERVICE_PROCEDURE_COGGING_IDENTIFICATION:
+				CoggingIdentificationRuntime_ExecuteStep(
+					&CoggingIdentificationRuntime, &MotionControl, &CurrentControl,
+					&MotorControl, &PI_Speed, &OnBoard_Encoder,
+					MotorStateRuntime);
+				break;
 			case SERVICE_PROCEDURE_SET_MECHANICAL_ZERO:
 				MotorControlRuntime_SetMechanicalZero(context, &MotorControl,
 					&OnBoard_Encoder);
@@ -820,10 +899,10 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 	}
 	else
 	{
-		PhaseResistanceRuntime_Cancel(&PhaseResistanceRuntime, &CurrentControl,
-			&MotorControl);
-		FrictionIdentificationRuntime_Cancel(&FrictionIdentificationRuntime,
-			&CurrentControl, &MotorControl, &PI_Speed);
+		/* Service-specific teardown is edge-triggered by
+		 * MotorControlRuntime_CancelExitedService(). Reinitializing every service
+		 * core here at 20 kHz can consume the entire fast-loop budget while the
+		 * lifecycle briefly passes through standby between commissioning stages. */
 		CurrentControlRuntime_ApplyHighSideZeroVector(&CurrentControl);
 	}
 

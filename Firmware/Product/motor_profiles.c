@@ -61,6 +61,8 @@ static const MotorProfile ActiveMotorProfile =
 	.phase_resistance_timeout_ms = PARAM_MOTOR_PHASE_RESISTANCE_TIMEOUT_MS,
 	.phase_resistance_balance_warning_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_WARNING_PCT,
 	.phase_resistance_balance_fault_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_FAULT_PCT,
+	.phase_resistance_design_tolerance_pct =
+		PARAM_MOTOR_PHASE_RESISTANCE_DESIGN_TOLERANCE_PCT,
 	.speed_limit_max_rad_s = 400.0f * MOTOR_PROFILE_TWO_PI,
 	.speed_ramp_max_rad_s2 = 1000.0f * MOTOR_PROFILE_TWO_PI,
 	.position_ramp_max_rad_s2 = 200.0f * MOTOR_PROFILE_TWO_PI,

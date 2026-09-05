@@ -232,6 +232,10 @@ static UsbCommandError UsbCommandRouter_Write(UsbCommandRouterContext *context,
 		case USB_ACTIVE_COULOMB_NEG:
 		case USB_ACTIVE_VISCOUS_POS:
 		case USB_ACTIVE_VISCOUS_NEG:
+		case USB_COMMISSIONING_STAGE:
+		case USB_COMMISSIONING_PROGRESS:
+		case USB_RESISTANCE_SPREAD:
+		case USB_RESISTANCE_DESIGN_ERROR:
 			return USB_WRITE_INVALID;
 		default:
 			return USB_UNKNOWNED_PARAM;
@@ -377,6 +381,22 @@ static UsbCommandError UsbCommandRouter_Read(UsbCommandRouterContext *context,
 		case USB_ACTIVE_VISCOUS_NEG:
 			if (!friction_available) return USB_WRITE_INVALID;
 			snprintf(response->text, sizeof(response->text), "active_viscous_neg=%.6fA_per_rad_s\r\n", friction.active_viscous_neg_a_per_rad_s); break;
+		case USB_COMMISSIONING_STAGE:
+			snprintf(response->text, sizeof(response->text), "cst=%u\r\n",
+				(unsigned int)UsbCommandRouter_ReadTelemetry(context,
+					MOTOR_TELEMETRY_COMMISSIONING_STAGE, 1.0f)); break;
+		case USB_COMMISSIONING_PROGRESS:
+			snprintf(response->text, sizeof(response->text), "cpr=%u%%\r\n",
+				(unsigned int)UsbCommandRouter_ReadTelemetry(context,
+					MOTOR_TELEMETRY_COMMISSIONING_PROGRESS_PERCENT, 1.0f)); break;
+		case USB_RESISTANCE_SPREAD:
+			snprintf(response->text, sizeof(response->text), "rsp=%.2f%%\r\n",
+				UsbCommandRouter_ReadTelemetry(context,
+					MOTOR_TELEMETRY_PHASE_RESISTANCE_SPREAD_PERCENT, 1.0f)); break;
+		case USB_RESISTANCE_DESIGN_ERROR:
+			snprintf(response->text, sizeof(response->text), "rde=%.2f%%\r\n",
+				UsbCommandRouter_ReadTelemetry(context,
+					MOTOR_TELEMETRY_PHASE_RESISTANCE_DESIGN_ERROR_PERCENT, 1.0f)); break;
 		case USB_FRICTION_DATA_EXPORT:
 			if (!friction_available || !friction.candidate_valid || state->print_active ||
 				state->lut_export_active || state->friction_export_active)

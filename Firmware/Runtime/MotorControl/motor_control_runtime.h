@@ -21,6 +21,8 @@
 #include "phase_resistance_runtime.h"
 #include "friction_identification_runtime.h"
 #include "encoder_calibration_runtime.h"
+#include "encoder_direction_calibration_runtime.h"
+#include "cogging_identification_runtime.h"
 #include "current_control_runtime.h"
 #include "device_lifecycle.h"
 #include "motor_state_runtime.h"
@@ -62,6 +64,8 @@ typedef struct
 	MotorCalibrationContext calibration;
 	CurrentOffsetCalibrationContext current_offset_calibration;
 	ElectricalZeroCalibrationContext electrical_zero_calibration;
+	EncoderDirectionCalibrationContext encoder_direction_calibration;
+	CoggingIdentificationRuntimeContext cogging_identification;
 	CurrentControlContext current_control;
 	DeviceLifecycleContext lifecycle;
 	MotorStateContext motor_state;
@@ -80,6 +84,7 @@ typedef struct
 	const ControlTuningProfile *tuning_profile;
 	const MechanicalLoadProfile *mechanical_load_profile;
 	bool previous_operation_requires_power;
+	bool fault_shutdown_complete;
 	ServiceProcedure previous_service_procedure;
 } MotorControlRuntimeContext;
 

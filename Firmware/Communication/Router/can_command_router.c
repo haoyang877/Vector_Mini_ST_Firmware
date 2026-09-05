@@ -369,6 +369,22 @@ void CanCommandRouter_Handle(CanCommandRouterContext *context,
 		break;
 		case CAN_GET_COGGING:
 		break;
+		case CAN_GET_COMMISSIONING_STAGE:
+			CanCommandRouter_SendTelemetry(context, param_id,
+				MOTOR_TELEMETRY_COMMISSIONING_STAGE, 1.0f);
+			break;
+		case CAN_GET_COMMISSIONING_PROGRESS:
+			CanCommandRouter_SendTelemetry(context, param_id,
+				MOTOR_TELEMETRY_COMMISSIONING_PROGRESS_PERCENT, 1.0f);
+			break;
+		case CAN_GET_RESISTANCE_SPREAD:
+			CanCommandRouter_SendTelemetry(context, param_id,
+				MOTOR_TELEMETRY_PHASE_RESISTANCE_SPREAD_PERCENT, 1.0f);
+			break;
+		case CAN_GET_RESISTANCE_DESIGN_ERROR:
+			CanCommandRouter_SendTelemetry(context, param_id,
+				MOTOR_TELEMETRY_PHASE_RESISTANCE_DESIGN_ERROR_PERCENT, 1.0f);
+			break;
 	
 		case CAN_SET_CAN_BR:
 			if (data_int >= 0)

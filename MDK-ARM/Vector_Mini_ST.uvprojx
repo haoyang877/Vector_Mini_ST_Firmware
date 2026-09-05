@@ -595,6 +595,11 @@
               <FilePath>..\Firmware\Application\motor_command_service.c</FilePath>
             </File>
             <File>
+              <FileName>motor_commissioning_workflow.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Application\motor_commissioning_workflow.c</FilePath>
+            </File>
+            <File>
               <FileName>device_lifecycle.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\device_lifecycle.c</FilePath>
@@ -848,6 +853,16 @@
               <FileName>encoder_calibration_runtime.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Runtime\MotorControl\encoder_calibration_runtime.c</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_direction_calibration_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Runtime\MotorControl\encoder_direction_calibration_runtime.c</FilePath>
+            </File>
+            <File>
+              <FileName>cogging_identification_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Runtime\MotorControl\cogging_identification_runtime.c</FilePath>
             </File>
             <File>
               <FileName>current_offset_calibration_runtime.c</FileName>

@@ -112,6 +112,14 @@ bool TelemetryService_ReadValue(const TelemetryServiceContext *context,
 		case MOTOR_TELEMETRY_D_AXIS_INDUCTANCE_H: *value = snapshot.d_axis_inductance_h; break;
 		case MOTOR_TELEMETRY_Q_AXIS_INDUCTANCE_H: *value = snapshot.q_axis_inductance_h; break;
 		case MOTOR_TELEMETRY_FLUX_WEBER: *value = snapshot.flux_weber; break;
+		case MOTOR_TELEMETRY_COMMISSIONING_STAGE:
+			*value = (float)snapshot.commissioning_stage; break;
+		case MOTOR_TELEMETRY_COMMISSIONING_PROGRESS_PERCENT:
+			*value = (float)snapshot.commissioning_progress_percent; break;
+		case MOTOR_TELEMETRY_PHASE_RESISTANCE_SPREAD_PERCENT:
+			*value = snapshot.phase_resistance_spread_percent; break;
+		case MOTOR_TELEMETRY_PHASE_RESISTANCE_DESIGN_ERROR_PERCENT:
+			*value = snapshot.phase_resistance_design_error_percent; break;
 		default: return false;
 	}
 

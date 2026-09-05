@@ -64,6 +64,8 @@ typedef struct
 	float friction_viscous_pos_a_per_rad_s;
 	float friction_viscous_neg_a_per_rad_s;
 	uint32_t friction_model_valid;
+	/* Appended in schema v10. Only calibration fields are meaningful from v10. */
+	int16_t cogging_compensation_map_ma[ENCODER_COGGING_MAP_SIZE];
 } ParameterSnapshot;
 
 typedef struct

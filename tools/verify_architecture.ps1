@@ -42,7 +42,8 @@ function Add-Matches {
 foreach ($requiredDocument in @(
     'docs\architecture\firmware_architecture.md',
     'docs\architecture\refactoring_plan.md',
-    'docs\product_configuration_quick_guide.md'
+	'docs\product_configuration_quick_guide.md',
+	'docs\unified_motor_commissioning_guide.md'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $requiredDocument))) {
         $failures.Add("Missing architecture document: $requiredDocument")
@@ -57,6 +58,7 @@ foreach ($requiredTest in @(
 	'tests\host\friction_identification_tests.c',
 	'tests\host\measurement_model_tests.c',
 	'tests\host\mechanical_load_profile_tests.c',
+	'tests\host\motor_commissioning_workflow_tests.c',
 	'tests\host\parameter_manager_tests.c',
     'tests\host\parameter_transaction_service_tests.c',
     'tests\host\parameter_service_tests.c',
@@ -80,7 +82,8 @@ foreach ($requiredImplementation in @(
     'Firmware\Communication\Transport\byte_ring_buffer.c',
     'Firmware\Application\can_configuration_service.c',
     'Firmware\Application\can_response_service.c',
-    'Firmware\Application\diagnostic_service.c',
+	'Firmware\Application\diagnostic_service.c',
+	'Firmware\Application\motor_commissioning_workflow.c',
     'Firmware\Application\update_service.c',
     'Firmware\Platform\Stm32G431\device_identity_stm32g431.c',
     'Firmware\Platform\Stm32G431\execution_timer_stm32g431.c',
@@ -96,6 +99,8 @@ foreach ($requiredImplementation in @(
     'Firmware\Domain\CurrentControl\current_control_math.c',
     'Firmware\Domain\MotionControl\trapezoidal_trajectory.c',
     'Firmware\Runtime\MotorControl\motor_control_runtime.c',
+	'Firmware\Runtime\MotorControl\encoder_direction_calibration_runtime.c',
+	'Firmware\Runtime\MotorControl\cogging_identification_runtime.c',
     'Firmware\Runtime\MotorControl\parameter_persistence_adapter.c',
     'Firmware\Runtime\Supervisor\supervisor_task.c'
 )) {
@@ -234,6 +239,11 @@ $runtimeSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmwar
 Add-Matches -Files $runtimeSources -Pattern '\bHAL_|\bTIM1->|\bADC[12]->|\bFDCAN1->|\bSPI[12]->' -Description 'Runtime module depends directly on HAL or peripheral registers'
 Add-Matches -Files $runtimeSources -Pattern '#include\s+"parameter_store_flash\.h"|\bParameterStoreFlash_' -Description 'Runtime module depends on the concrete STM32 parameter store instead of an injected Port'
 Add-Matches -Files $runtimeSources -Pattern '\bMotorExecutionAction\b|\bMOTOR_ACTION_|runtime\.action\b' -Description 'Runtime reintroduces a combined protocol action/state model'
+
+$parameterSnapshotSource = Join-Path $repositoryRoot 'Firmware\Runtime\MotorControl\parameter_snapshot.c'
+$designParameterNames = 'node_id|pole_pairs|phase_resistance_ohm|d_axis_inductance_h|q_axis_inductance_h|flux_weber|d_axis_current_kp|d_axis_current_ki|q_axis_current_kp|q_axis_current_ki|calibration_current_a|current_limit_a|speed_limit_rad_s|speed_acceleration_rad_s2|speed_deceleration_rad_s2|speed_kp|speed_ki|position_acceleration_rad_s2|position_deceleration_rad_s2|position_max_speed_rad_s|position_kp_a_per_rad|position_kd_a_per_rad_s|position_ki_a_per_rad_s|position_integral_limit_a|cascade_position_kp_per_s|cascade_position_kd|can_heartbeat_ms'
+Add-Matches -Files @($parameterSnapshotSource) -Pattern "param->(?:$designParameterNames)\s*=" -Description 'A design parameter is persisted instead of remaining Product Profile-owned'
+Add-Matches -Files @($parameterSnapshotSource) -Pattern "configuration\.(?:$designParameterNames)\s*=\s*param->" -Description 'A design parameter is restored from Flash instead of the Product Profile'
 
 $applicationImplementationSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Application') -Recurse -File -Filter *.c |
     ForEach-Object FullName

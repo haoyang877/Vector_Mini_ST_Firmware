@@ -71,6 +71,8 @@ static bool MotorLifecycle_ServiceNeedsEncoder(ServiceProcedure procedure)
 		procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
 		procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
 		procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION ||
+		procedure == SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION ||
+		procedure == SERVICE_PROCEDURE_COGGING_IDENTIFICATION ||
 		procedure == SERVICE_PROCEDURE_SET_MECHANICAL_ZERO;
 }
 
@@ -119,7 +121,8 @@ static bool MotorLifecycle_CheckServicePreconditions(
 		MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER);
 		return false;
 	}
-	if (procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION &&
+	if ((procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION ||
+		 procedure == SERVICE_PROCEDURE_COGGING_IDENTIFICATION) &&
 		(OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
 	{
 		MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
@@ -163,6 +166,7 @@ bool MotorState_Initialize(MotorStateContext *context,
 	ServiceElapsedTicks = 0U;
 	ServiceTerminalHold = false;
 	MotorStateChanged = true;
+	MotorCommissioningWorkflow_Initialize(&State.commissioning);
 	PreviousDeviceState = DEVICE_STATE_BOOTING;
 	PreviousControlMode = MOTOR_CONTROL_MODE_NONE;
 	PreviousServiceProcedure = SERVICE_PROCEDURE_NONE;
@@ -178,6 +182,8 @@ ProcedureState MotorLifecycle_GetProcedureState(const MotorStateContext *context
 
 uint8_t MotorLifecycle_GetProtocolActionCode(const MotorStateContext *context)
 {
+	if (State.commissioning.active)
+		return 21U;
 	if (MotorLifecycle.device_state == DEVICE_STATE_ACTIVE)
 	{
 		switch (MotorLifecycle.motor_control_mode)
@@ -205,10 +211,30 @@ uint8_t MotorLifecycle_GetProtocolActionCode(const MotorStateContext *context)
 			case SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION: return 15U;
 			case SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION: return 17U;
 			case SERVICE_PROCEDURE_FRICTION_IDENTIFICATION: return 19U;
+			case SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION: return 20U;
+			case SERVICE_PROCEDURE_COGGING_IDENTIFICATION: return 6U;
 			default: return 0U;
 		}
 	}
 	return 0U;
+}
+
+MotorCommissioningStage MotorLifecycle_GetCommissioningStage(
+	const MotorStateContext *context)
+{
+	return State.commissioning.stage;
+}
+
+uint8_t MotorLifecycle_GetCommissioningProgressPercent(
+	const MotorStateContext *context)
+{
+	return MotorCommissioningWorkflow_GetProgressPercent(&State.commissioning);
+}
+
+MotorCommissioningStage MotorLifecycle_GetCommissioningFailureStage(
+	const MotorStateContext *context)
+{
+	return State.commissioning.failure_stage;
 }
 
 bool MotorLifecycle_RequestControlMode(MotorStateContext *context,
@@ -239,8 +265,17 @@ bool MotorLifecycle_RequestControlMode(MotorStateContext *context,
 bool MotorLifecycle_RequestService(MotorStateContext *context,
 	ServiceProcedure procedure)
 {
+	ServiceProcedure first_procedure;
 	if (!MotorLifecycle_CheckServicePreconditions(context, procedure))
 		return false;
+	if (procedure == SERVICE_PROCEDURE_FULL_COMMISSIONING)
+	{
+		if (MotorLifecycle.device_state != DEVICE_STATE_STANDBY ||
+			!MotorCommissioningWorkflow_Start(&State.commissioning,
+				&first_procedure))
+			return false;
+		procedure = first_procedure;
+	}
 	PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(
 		LIFECYCLE_REQUEST_SERVICE, procedure);
 	return true;
@@ -251,6 +286,8 @@ bool MotorLifecycle_RequestStandby(MotorStateContext *context)
 	if (MotorLifecycle.device_state == DEVICE_STATE_BOOTING ||
 		MotorLifecycle.device_state == DEVICE_STATE_UPDATING)
 		return false;
+	if (State.commissioning.active)
+		MotorCommissioningWorkflow_Fail(&State.commissioning, 0xFFU);
 	PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(LIFECYCLE_REQUEST_STANDBY, 0U);
 	return true;
 }
@@ -354,13 +391,38 @@ void MotorLifecycle_Supervise1kHz(MotorStateContext *context)
 		if (result == SERVICE_RESULT_COMPLETE ||
 			result == SERVICE_RESULT_COMPLETE_AND_SAVE)
 		{
-			save_after_completion = result == SERVICE_RESULT_COMPLETE_AND_SAVE;
+			bool commissioning_was_active = State.commissioning.active;
+			ServiceProcedure next_procedure = SERVICE_PROCEDURE_NONE;
+			bool commissioning_complete = false;
+			save_after_completion = result == SERVICE_RESULT_COMPLETE_AND_SAVE &&
+				!commissioning_was_active;
 			if (DeviceLifecycle_BeginServiceVerification(&MotorLifecycle))
 				(void)DeviceLifecycle_CompleteService(&MotorLifecycle);
-			ServiceTerminalHold = true;
+			if (commissioning_was_active &&
+				MotorCommissioningWorkflow_CompleteProcedure(&State.commissioning,
+					MotorLifecycle.service_procedure, &next_procedure,
+					&commissioning_complete))
+			{
+				if (commissioning_complete)
+					ServiceTerminalHold = true;
+				else
+					PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(
+						LIFECYCLE_REQUEST_SERVICE, next_procedure);
+			}
+			else if (!commissioning_was_active)
+				ServiceTerminalHold = true;
+			else
+			{
+				MotorCommissioningWorkflow_Fail(&State.commissioning,
+					(uint8_t)MOTOR_FAULT_INVALID_PARAMETER);
+				DeviceLifecycle_FailService(&MotorLifecycle);
+				ServiceTerminalHold = true;
+			}
 		}
 		else if (result == SERVICE_RESULT_FAILED)
 		{
+			MotorCommissioningWorkflow_Fail(&State.commissioning,
+				(uint8_t)MotorControl.runtime.primary_fault);
 			DeviceLifecycle_FailService(&MotorLifecycle);
 			ServiceTerminalHold = true;
 		}
@@ -408,6 +470,7 @@ void MotorState_RaiseFault(MotorStateContext *context, MotorFaultCode fault)
 		(void)FaultManager_Raise(&MotorFaultManager, (uint8_t)fault,
 			&observation);
 		DeviceLifecycle_NotifyFault(&MotorLifecycle);
+		MotorCommissioningWorkflow_Fail(&State.commissioning, (uint8_t)fault);
 		PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(LIFECYCLE_REQUEST_NONE, 0U);
 	}
 	MotorFaults_UpdateRuntimeProjection(context);

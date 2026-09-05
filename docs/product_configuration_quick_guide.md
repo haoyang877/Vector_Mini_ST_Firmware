@@ -2,6 +2,9 @@
 
 本文说明 Vector Mini ST 固件中哪些内容属于配置、配置的生效优先级，以及如何在不修改控制算法的前提下适配新电机、新 PCB、新编码器或新 MCU。
 
+新电机模组的固定标定顺序、验收阈值和 Flash 数据边界见
+[`unified_motor_commissioning_guide.md`](unified_motor_commissioning_guide.md)。
+
 ## 1. 先判断需要改哪一层
 
 | 变化范围 | 主要修改位置 | 不应修改 |
@@ -35,23 +38,22 @@ ParameterSnapshot_LoadDefaults() 生成运行默认配置
              +-----------+-----------+
              |                       |
              v                       v
-兼容 Flash 记录覆盖默认值       无兼容记录则继续使用默认值
+兼容 Flash 只恢复个体标定量     无兼容记录则使用未标定状态
              |
              v
 USB/CAN 在 STANDBY 中写候选配置
              |
              v
 20 kHz 安全点整对象应用
-             |
-             v
-显式执行模式 9 后保存到 Flash A/B 槽
 ```
 
 配置优先级为：
 
-1. 与产品、板卡、电机、编码器、机械负载、控制整定及参数 Schema 指纹兼容的 A/B Flash 记录；
-2. 仅当前已知产品组合允许的一次性旧指纹/旧格式兼容迁移；
-3. Product Profile 的编译默认值。
+1. Product Profile 中的硬件、电机、控制与通信设计值；
+2. 与产品、板卡、电机、编码器、机械负载、控制整定及参数 Schema 指纹兼容的 A/B Flash 个体标定记录；
+3. 仅当前已知产品组合允许的一次性旧格式个体标定迁移。
+
+Flash 记录不能覆盖 Product Profile 的极对数、R/L/磁链、控制增益、运行限值或通信默认值。
 
 `ProductVariant` 的 `configuration_fingerprint` 覆盖所有兼容性维度。新增或切换任一 Profile 时必须修改指纹并关闭不适用的旧格式迁移；新硬件或新电机首次量产烧录仍应擦除参数页或明确实现迁移策略。
 
@@ -227,7 +229,7 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 
 ## 4. 运行时可配置参数
 
-运行时参数只允许在 `STANDBY` 写入。Application 校验后写候选配置，20 kHz 在安全点提交；除非显式执行保存服务，否则断电后不会保留。
+运行时参数只允许在 `STANDBY` 写入。Application 校验后写候选配置，20 kHz 在安全点提交；这些写入仅用于台架试验，断电后始终由 Product Profile 恢复，模式 9 也不会持久化设计参数。
 
 | 参数 | USB 三字符 | 协议写入单位 | 当前范围 | 当前默认 |
 | --- | --- | --- | --- | ---: |
@@ -270,12 +272,12 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 1. 在线修改 R、Ld、Lq 时，Runtime 会使用活动 MotorProfile 的电流环带宽同步重算对应的 `d/q current Kp/Ki`。如果新电机需要不同带宽，仍应建立新的编译期 MotorProfile。
 2. R/L/磁链的运行时上下限由 MotorProfile 提供；当前 HT8115-4 Profile 的相电阻范围是 0.0001–5.0 Ω，覆盖其 1.905 Ω 默认值。
 3. USB 写 `mrs/mld/mlq/mfx` 使用 SI 单位 Ω/H/H/Wb，但 USB 读取文本分别显示 mΩ/µH/µH/mWb，读写单位并不对称。配置工具必须显式换算。
-4. CAN 波特率虽然可运行时切换，但当前 `ParameterSnapshot` 不保存它，复位后回到接口默认 1000 kbit/s。经典 CAN Profile 会拒绝大于 1000 kbit/s 的设置。
+4. CAN 节点、心跳和波特率均不写入 `ParameterSnapshot`，复位后回到 Product Profile 默认值。经典 CAN Profile 会拒绝大于 1000 kbit/s 的设置。
 5. Board、Motor、Encoder、MechanicalLoad 和 ControlTuning 由 `ProductVariant` 编译期原子选择，不支持运行时切换硬件组合。
 6. 开环电压、开环电角速度、初始电角度和位置误差窗口不写入 ParameterSnapshot；每次加载默认值或有效 Flash 记录时都会从活动 MotorProfile 重新应用。
 7. `mechanical_load_profiles.c` 提供可按 ID 查询的双配置表；其他 Profile 当前各提供一个已验证对象，但全部具有稳定 ID 并进入配置指纹。
 8. Product Profile 已使用具名初始化器，新增字段时不会静默错位；仍应在首次上电前执行 Profile 参数审查和硬件验证。
-9. `mrs` 必须保存实测物理相电阻；Mode 13 的速度观测偏差应通过
+9. `mrs` 的设计值必须写入 MotorProfile；Mode 17 只做设计符合性检查，不覆盖它。Mode 13 的速度观测偏差应通过
    `flux_observer_resistance_scale` 修正，不能通过伪造 `mrs` 或放宽锁定门限处理。
 
 因此推荐：运行时协议用于实验整定速度、位置和限幅；新电机的 R/L/磁链、电流环带宽和安全上限应写入新的编译期 MotorProfile，然后恢复该 Profile 默认值再标定。
@@ -338,7 +340,6 @@ pwsh -NoProfile -File tools/can_classic_smoke_test.ps1
 \w_slm=低风险速度上限rev/s
 \w_sac=低风险加速度rev/s2
 \w_sde=低风险减速度rev/s2
-\w_mod=9          保存参数
 ```
 
 若临时写电机模型，单位必须如下：
@@ -350,29 +351,26 @@ pwsh -NoProfile -File tools/can_classic_smoke_test.ps1
 \w_mfx=0.012000   12 mWb
 ```
 
-这组在线写入会按活动 MotorProfile 的带宽同步重算电流环 PI，适合低风险台架试配。若新电机的目标带宽不同，用于正式上电控制前仍应生成新的编译期 MotorProfile、恢复默认值并重新标定。
+这组在线写入会按活动 MotorProfile 的带宽同步重算电流环 PI，只适合低风险台架试配且不会保存。验证通过后必须把最终设计值写回新的编译期 MotorProfile，重新构建并从统一流程开始标定。
 
 ### 5.4 标定与首次运行
 
-1. 空载或机械安全状态上电，等待自动模式 11 电流零偏标定完成并回到模式 0。
-2. 核对三相零电流读数、母线电压和温度。
-3. 用极低电流/电压检查相序和编码器方向；必要时在 Standby 设置 `erv=0/1`。
-4. 执行模式 5 或 13 完成编码器线性化。
-5. 执行模式 15 完成电零位标定。
-6. 需要位置坐标原点时执行模式 7。
-7. 从低限流电流模式开始，再依次验证速度和位置控制。
-8. 最后执行模式 9 保存，并断电重启验证参数和标定数据读回。
+1. 在机械安全状态上电，核对静态三相电流、母线电压、MCU 内部温度和编码器在线状态。
+2. 执行 `mode=21`；固件按电流偏置、相电阻验收、方向、Mode 13 LUT、电零位/机械零位、摩擦、齿槽和保存的固定顺序运行。
+3. 通过 `cst/cpr/err` 连续观察当前阶段、进度和故障；`cst` 的高位表示失败，低 7 位为失败阶段。任一步失败都排除原因后从 `mode=21` 重新开始。
+4. 完成后断电重启，验证个体标定数据恢复。
+5. 从低限流电流模式开始，再依次验证速度和位置控制。
 
 若选择模式 13，新电机首次适配还要完成观测器电阻系数确认：
 
-1. 保持 `mrs` 为实测相电阻，使用编码器 RTT 同时记录实际电角速度、观测器电角速度
+1. 保持 MotorProfile 中的设计相电阻，使用编码器 RTT 同时记录实际电角速度、观测器电角速度
    和锁速低通值；
 2. 只在限压、限流、可自由旋转且可立即停机的台架上调整
    `flux_observer_resistance_scale`；该值是编译期 Product 调参，不开放现场协议；
 3. 以目标匀速段的观测器/编码器速度比接近 1、能进入 handoff/closed-loop、无持续
    相位发散为通过条件；不能只看 Mode 13 是否超时；
-4. 至少连续执行两次 Mode 13，随后执行 Mode 15，硬件复位后确认 `mrs`、LUT 和电角
-   零位均恢复，最后再做低速闭环回归。
+4. 至少连续执行两次 Mode 21，硬件复位后确认 LUT、电角零位、机械零位、摩擦和齿槽
+   补偿均恢复，最后再做低速闭环回归。
 
 ## 6. 快速适配新 PCB 或新硬件修订
 
@@ -493,7 +491,7 @@ pwsh -NoProfile -File tools/verify_architecture.ps1
 ### 9.4 参数持久化
 
 - 新 Profile 首次烧录不加载旧板/旧电机参数；
-- 保存后复位，所有参数和编码器标定可正确恢复；
+- 保存后复位，所有个体标定量可正确恢复，设计参数仍来自当前 Product Profile；
 - A/B 槽写入、擦除、校验和提交期间分别断电，至少保留一个有效旧记录；
 - 恢复默认值后不会自动启动电机；
 - Schema 迁移和不兼容记录均回退到安全默认值并留下诊断记录。

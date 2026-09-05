@@ -16,6 +16,7 @@
 #include "calibration_service.h"
 #include "identification_service.h"
 #include "monotonic_clock_port.h"
+#include "motor_commissioning_workflow.h"
 
 typedef struct MotorStateContext MotorStateContext;
 
@@ -47,6 +48,7 @@ struct MotorStateContext
 	MotorControlMode previous_control_mode;
 	ServiceProcedure previous_service_procedure;
 	MotorFaultCode previous_fault;
+	MotorCommissioningWorkflowContext commissioning;
 };
 
 bool MotorState_Initialize(MotorStateContext *context,
@@ -69,6 +71,12 @@ ServiceProcedure MotorLifecycle_GetServiceProcedure(
 	const MotorStateContext *context);
 ProcedureState MotorLifecycle_GetProcedureState(const MotorStateContext *context);
 uint8_t MotorLifecycle_GetProtocolActionCode(const MotorStateContext *context);
+MotorCommissioningStage MotorLifecycle_GetCommissioningStage(
+	const MotorStateContext *context);
+uint8_t MotorLifecycle_GetCommissioningProgressPercent(
+	const MotorStateContext *context);
+MotorCommissioningStage MotorLifecycle_GetCommissioningFailureStage(
+	const MotorStateContext *context);
 bool MotorLifecycle_RequestControlMode(MotorStateContext *context,
 	MotorControlMode mode);
 bool MotorLifecycle_RequestService(MotorStateContext *context,

@@ -66,7 +66,9 @@ static const ControlTuningProfile ActiveControlTuningProfile =
 	.encoder_calibration_stop_speed_tolerance_ratio = 0.10f,
 	.encoder_calibration_stop_current_ramp_time_s = 0.50f,
 	.encoder_electrical_zero_current_ramp_time_s = 0.50f,
-	.encoder_electrical_zero_hold_time_s = 1.00f
+	.encoder_electrical_zero_hold_time_s = 1.00f,
+	.encoder_direction_align_time_s = 1.00f,
+	.encoder_direction_speed_electrical_rad_s = 20.0f
 };
 
 const ControlTuningProfile *ControlTuningProfile_GetActive(void)

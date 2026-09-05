@@ -24,7 +24,9 @@ typedef enum
 	MOTOR_FAULT_SENSORLESS,
 	MOTOR_FAULT_PARAMETER_STORE,
 	MOTOR_FAULT_POWER_STAGE,
-	MOTOR_FAULT_FRICTION_IDENTIFICATION
+	MOTOR_FAULT_FRICTION_IDENTIFICATION,
+	MOTOR_FAULT_ENCODER_DIRECTION,
+	MOTOR_FAULT_COGGING_IDENTIFICATION
 } MotorFaultCode;
 
 typedef struct
@@ -102,9 +104,11 @@ typedef struct
 	float phase_b_resistance_ohm;
 	float phase_c_resistance_ohm;
 	float phase_resistance_spread_pct;
+	float phase_resistance_design_error_pct;
 	bool phase_resistance_valid;
 	bool phase_resistance_warning;
 	bool phase_resistance_balanced;
+	bool phase_resistance_matches_design;
 	float speed_command_ramp_rad_s;
 	bool has_reached_position;
 	float position_command_ramp_rad;

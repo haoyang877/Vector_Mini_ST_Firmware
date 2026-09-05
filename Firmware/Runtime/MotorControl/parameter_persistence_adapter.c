@@ -77,6 +77,14 @@ void ParameterPersistenceAdapter_Load(ParameterPersistenceAdapterContext *contex
 	}
 	memset(&ParameterTransferBuffer, 0, sizeof(ParameterTransferBuffer));
 	if (ParameterManager_LoadCompatible(&ParameterManager,
+		&ParameterTransferBuffer, PARAM_SCHEMA_VERSION_PREVIOUS_COGGING,
+		offsetof(ParameterSnapshot, cogging_compensation_map_ma)))
+	{
+		ParameterSnapshot_Apply(ParameterSnapshotRuntime, &ParameterTransferBuffer);
+		return;
+	}
+	memset(&ParameterTransferBuffer, 0, sizeof(ParameterTransferBuffer));
+	if (ParameterManager_LoadCompatible(&ParameterManager,
 		&ParameterTransferBuffer, PARAM_SCHEMA_VERSION_PREVIOUS_FRICTION,
 		offsetof(ParameterSnapshot, friction_coulomb_pos_a)))
 	{

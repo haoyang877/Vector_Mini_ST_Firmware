@@ -31,6 +31,13 @@ int MechanicalLoadProfile_RunHostTests(void)
 	TEST_CHECK(damping_ring->friction_identification_speed_points_rad_s[3] > 3.14f);
 	TEST_CHECK(damping_ring->friction_identification_speed_points_rad_s[3] < 3.15f);
 	TEST_CHECK(damping_ring->friction_identification_current_ratio_max == 0.90f);
+	TEST_CHECK(no_damper->cogging_identification_turns >= 1U);
+	TEST_CHECK(no_damper->cogging_identification_stage_timeout_s == 30.0f);
+	TEST_CHECK(no_damper->cogging_identification_speed_tolerance_ratio == 0.10f);
+	TEST_CHECK(damping_ring->cogging_identification_min_samples_per_bin >= 1U);
+	TEST_CHECK(damping_ring->cogging_identification_max_current_a <= 1.0f);
+	TEST_CHECK(damping_ring->cogging_identification_stage_timeout_s == 45.0f);
+	TEST_CHECK(damping_ring->cogging_identification_speed_tolerance_ratio == 0.25f);
 	TEST_CHECK(MechanicalLoadProfile_GetById(2U) == 0);
 	return 0;
 }

@@ -64,6 +64,8 @@ typedef struct
 	float encoder_calibration_stop_current_ramp_time_s;
 	float encoder_electrical_zero_current_ramp_time_s;
 	float encoder_electrical_zero_hold_time_s;
+	float encoder_direction_align_time_s;
+	float encoder_direction_speed_electrical_rad_s;
 } ControlTuningProfile;
 
 #define CONTROL_TUNING_PROFILE_HT8115_4_VECTOR_MINI_ST 1U

@@ -77,9 +77,6 @@ void Encoder_SetReverse(EncoderContext *encoder, bool reverse)
 	uint8_t reverse_value = reverse ? 1U : 0U;
 	uint32_t primask;
 
-	if (encoder->reverse == reverse_value)
-		return;
-
 	primask = encoder->critical_section.enter != 0 ?
 		encoder->critical_section.enter(encoder->critical_section.context) : 0U;
 	encoder->reverse = reverse_value;
@@ -87,6 +84,8 @@ void Encoder_SetReverse(EncoderContext *encoder, bool reverse)
 	encoder->mechanical_zero_q15 = 0U;
 	encoder->calib_flag = 0U;
 	memset(encoder->linearization_lut_q15, 0, sizeof(encoder->linearization_lut_q15));
+	memset(encoder->cogging_compensation_map_ma, 0,
+		sizeof(encoder->cogging_compensation_map_ma));
 	encoder->raw_q15 = 0U;
 	encoder->directed_q15 = 0U;
 	encoder->linearized_q15 = 0U;

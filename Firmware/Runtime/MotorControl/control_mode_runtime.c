@@ -7,6 +7,34 @@
 #include "position_cascade.h"
 #include "position_impedance.h"
 
+static float ControlModeRuntime_AddCoggingCompensation(
+	const MotorControlContext *motor, const EncoderContext *encoder,
+	float current_reference_a)
+{
+	uint16_t position;
+	uint16_t index;
+	uint16_t fraction;
+	int32_t current_a_ma;
+	int32_t current_b_ma;
+	float compensation_a;
+
+	if (motor == 0 || encoder == 0 ||
+		(encoder->calib_flag & ENC_CALIB_COGGING) == 0U)
+		return current_reference_a;
+	/* Cogging is fixed to the rotor/absolute encoder, not the user-selected
+	 * mechanical coordinate zero. Keep lookup in the calibrated absolute frame. */
+	position = encoder->linearized_q15;
+	index = position >> 9U;
+	fraction = position & 0x01FFU;
+	current_a_ma = encoder->cogging_compensation_map_ma[index];
+	current_b_ma = encoder->cogging_compensation_map_ma[(index + 1U) & 0x7FU];
+	compensation_a = (float)(current_a_ma +
+		(((current_b_ma - current_a_ma) * (int32_t)fraction) >> 9U)) * 0.001f;
+	return FastMath_Clamp(current_reference_a + compensation_a,
+		-motor->configuration.current_limit_a,
+		motor->configuration.current_limit_a);
+}
+
 /**
 	* @brief  Current mode control task
 	* @param  *CurrentControl: CurrentControl struct pointer
@@ -85,7 +113,11 @@ void ControlModeRuntime_RunSpeed(MotionControlContext *motion, CurrentControlCon
 
         PI_Controller_Configure(controller, MotorControl->configuration.speed_kp, MotorControl->configuration.speed_ki, SPEED_LOOP_PERIOD_S, -1.0f, 1.0f);
         MotorControl->targets.d_axis_current_a = 0.0f;
-        MotorControl->targets.q_axis_current_a = PI_Controller_Run(controller, MotorControl->runtime.speed_command_ramp_rad_s, vel_mech) * MotorControl->configuration.current_limit_a;
+        MotorControl->targets.q_axis_current_a =
+			ControlModeRuntime_AddCoggingCompensation(MotorControl, Encoder,
+				PI_Controller_Run(controller,
+					MotorControl->runtime.speed_command_ramp_rad_s, vel_mech) *
+					MotorControl->configuration.current_limit_a);
         motion->speed_loop_count = 0U;
     }
 
@@ -505,7 +537,9 @@ void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, Current
 	MotorControl->runtime.position_velocity_filtered_rad_s = output.speed_feedback;
 	MotorControl->runtime.has_reached_position = output.target_reached;
 	MotorControl->targets.d_axis_current_a = 0.0f;
-	MotorControl->targets.q_axis_current_a = output.iq_reference;
+	MotorControl->targets.q_axis_current_a =
+		ControlModeRuntime_AddCoggingCompensation(MotorControl, Encoder,
+			output.iq_reference);
 	CurrentControlRuntime_RunClosedLoop(CurrentControl, MotorControl, theta_elec, vel_elec);
 }
 
@@ -550,16 +584,21 @@ void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, Curre
 	config.ki_limit = motor_profile->position_ki_limit_a_per_rad_s;
 	config.maximum_speed_limit_rad_s = motor_profile->position_speed_limit_rps * MATH_TWO_PI;
 	config.maximum_current_limit_a = board_profile->current_command_limit_a;
-	config.friction_feedforward_enabled = MotorControl->mechanical_load_profile->
+	config.friction_feedforward_enabled = MotorControl->configuration.
+		friction_model_valid || MotorControl->mechanical_load_profile->
 		position_friction_feedforward_enabled;
-	config.friction_positive_current = MotorControl->mechanical_load_profile->
-		friction_positive_current_a;
-	config.friction_negative_current = MotorControl->mechanical_load_profile->
-		friction_negative_current_a;
-	config.breakaway_positive_current = MotorControl->mechanical_load_profile->
-		breakaway_positive_current_a;
-	config.breakaway_negative_current = MotorControl->mechanical_load_profile->
-		breakaway_negative_current_a;
+	config.friction_positive_current = MotorControl->configuration.
+		friction_model_valid ? MotorControl->configuration.friction_coulomb_pos_a :
+		MotorControl->mechanical_load_profile->friction_positive_current_a;
+	config.friction_negative_current = MotorControl->configuration.
+		friction_model_valid ? MotorControl->configuration.friction_coulomb_neg_a :
+		MotorControl->mechanical_load_profile->friction_negative_current_a;
+	config.breakaway_positive_current = FastMath_Max(
+		MotorControl->mechanical_load_profile->breakaway_positive_current_a,
+		config.friction_positive_current);
+	config.breakaway_negative_current = FastMath_Max(
+		MotorControl->mechanical_load_profile->breakaway_negative_current_a,
+		config.friction_negative_current);
 	config.friction_current_slew_rate = MotorControl->mechanical_load_profile->
 		friction_current_slew_rate_a_per_s;
 	config.friction_position_enter = MotorControl->mechanical_load_profile->
@@ -601,7 +640,9 @@ void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, Curre
 	MotorControl->runtime.position_velocity_filtered_rad_s = output.velocity_feedback;
 	MotorControl->runtime.has_reached_position = output.target_reached;
 	MotorControl->targets.d_axis_current_a = 0.0f;
-	MotorControl->targets.q_axis_current_a = output.iq_reference;
+	MotorControl->targets.q_axis_current_a =
+		ControlModeRuntime_AddCoggingCompensation(MotorControl, Encoder,
+			output.iq_reference);
 	CurrentControlRuntime_RunClosedLoop(CurrentControl, MotorControl, theta_elec, vel_elec);
 }
 

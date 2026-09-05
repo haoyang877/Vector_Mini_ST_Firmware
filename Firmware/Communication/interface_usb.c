@@ -437,6 +437,10 @@ static float print_get_value(const UsbPrintChannel *var,
 		case USB_LQ: value = snapshot->q_axis_inductance_h; break;
 		case USB_FLUX: value = snapshot->flux_weber; break;
 		case USB_ERROR: value = (float)snapshot->primary_error; break;
+		case USB_COMMISSIONING_STAGE: value = (float)snapshot->commissioning_stage; break;
+		case USB_COMMISSIONING_PROGRESS: value = (float)snapshot->commissioning_progress_percent; break;
+		case USB_RESISTANCE_SPREAD: value = snapshot->phase_resistance_spread_percent; break;
+		case USB_RESISTANCE_DESIGN_ERROR: value = snapshot->phase_resistance_design_error_percent; break;
 		default: value = 0.0f; break;
 	}
 

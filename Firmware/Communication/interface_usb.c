@@ -4,6 +4,7 @@
 #include "usb_protocol_v1.h"
 #include "usb_command_router.h"
 #include "can_configuration_service.h"
+#include "friction_identification_service.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +23,7 @@ static UsbInterfaceContext *ActiveContext;
 #define tx_str transmit_text
 #define tx_buffer transmit_buffer
 #define lut_export_en lut_export_enabled
+#define friction_export_en friction_export_enabled
 #define print_en print_enabled
 #define en_channel_num enabled_channel_count
 #define p_var print_channels
@@ -139,7 +141,8 @@ void UsbInterface_ProcessReceivedCommands(void)
 	UsbCommandRouterState router_state;
 	UsbCommandRouterResponse response;
 
-	if (USBContext.tx_busy != 0U || USBContext.tx_en != 0U || USBContext.lut_export_en != 0U)
+	if (USBContext.tx_busy != 0U || USBContext.tx_en != 0U ||
+		USBContext.lut_export_en != 0U || USBContext.friction_export_en != 0U)
 		return;
 
 	if (USBRxOverflow != 0U)
@@ -168,6 +171,7 @@ void UsbInterface_ProcessReceivedCommands(void)
 
 	router_state.print_active = USBContext.print_en != 0U;
 	router_state.lut_export_active = USBContext.lut_export_en != 0U;
+	router_state.friction_export_active = USBContext.friction_export_en != 0U;
 	USBRXError = UsbCommandRouter_Handle(&command, &router_state, &response);
 	
 	switch(USBRXError)
@@ -211,6 +215,12 @@ void UsbInterface_ProcessReceivedCommands(void)
 				{
 					USBContext.lut_export_index = 0U;
 					USBContext.lut_export_en = 1U;
+					UsbInterface_QueueText(response.text);
+				}
+				else if (response.action == USB_COMMAND_ROUTER_ACTION_BEGIN_FRICTION_EXPORT)
+				{
+					USBContext.friction_export_index = 0U;
+					USBContext.friction_export_en = 1U;
 					UsbInterface_QueueText(response.text);
 				}
 				else if (response.action == USB_COMMAND_ROUTER_ACTION_SEND_TEXT)
@@ -294,7 +304,39 @@ void UsbInterface_FlushTransmit(void)
 	}
 
 	if (USBContext.lut_export_en == 0U)
+	{
+		FrictionIdentificationPortSample sample;
+		FrictionIdentificationPortStatus status;
+		if (USBContext.friction_export_en == 0U) return;
+		if (!FrictionIdentificationService_ReadStatus(&status))
+		{
+			USBContext.friction_export_en = 0U;
+			UsbInterface_QueueText("friction_error\r\n");
+			return;
+		}
+		if (USBContext.friction_export_index < status.sample_count)
+		{
+			if (!FrictionIdentificationService_ReadSample(
+					USBContext.friction_export_index, &sample))
+			{
+				USBContext.friction_export_en = 0U;
+				UsbInterface_QueueText("friction_error\r\n");
+				return;
+			}
+			(void)snprintf(USBContext.tx_str, sizeof(USBContext.tx_str),
+				"friction=%u,target=%.6f,speed=%.6f,iq=%.6f,n=%lu\r\n",
+				(unsigned int)USBContext.friction_export_index,
+				sample.target_speed_rad_s * 0.15915494309f,
+				sample.mean_speed_rad_s * 0.15915494309f,
+				sample.mean_iq_a, (unsigned long)sample.sample_count);
+			USBContext.friction_export_index++;
+			USBContext.tx_en = 1U;
+			return;
+		}
+		USBContext.friction_export_en = 0U;
+		UsbInterface_QueueText("friction_end\r\n");
 		return;
+	}
 
 	if (USBContext.lut_export_index < RotorCalibrationService_GetEntryCount())
 	{

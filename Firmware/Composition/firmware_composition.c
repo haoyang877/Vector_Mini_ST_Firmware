@@ -30,6 +30,7 @@
 #include "supervisor_task.h"
 #include "control_tuning_profile.h"
 #include "mechanical_load_profiles.h"
+#include "friction_identification_service.h"
 #include "monotonic_clock_stm32g431.h"
 #include "diagnostic_rtt_stm32g431.h"
 #include "execution_timer_stm32g431.h"
@@ -57,6 +58,7 @@ static ParameterPersistenceAdapterContext ParameterPersistenceAdapter;
 static CanInterfaceContext CanInterface;
 static UsbInterfaceContext UsbInterface;
 static DiagnosticServiceContext DiagnosticService;
+static FrictionIdentificationServiceContext FrictionIdentificationService;
 static bool FirmwareIsInitialized;
 
 /**
@@ -73,6 +75,7 @@ void FirmwareComposition_Initialize(void)
 	RotorCalibrationPort rotor_calibration_port;
 	MotorCommandPort motor_command_port;
 	MotorConfigurationPort motor_configuration_port;
+	FrictionIdentificationPort friction_identification_port;
 	FaultCommandPort fault_command_port;
 	CanConfigurationPort can_configuration_port;
 	CanResponsePort can_response_port;
@@ -131,10 +134,14 @@ void FirmwareComposition_Initialize(void)
 		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
 	motor_command_port = MotorControlRuntime_CreateCommandPort();
 	motor_configuration_port = MotorControlRuntime_CreateConfigurationPort();
+	friction_identification_port =
+		MotorControlRuntime_CreateFrictionIdentificationPort();
 	if (!MotorCommandService_Initialize(&MotorCommandService, &motor_command_port) ||
 		!ParameterService_Initialize(&ParameterService,
 			&motor_configuration_port, board_profile,
-			motor_profile))
+			motor_profile) ||
+		!FrictionIdentificationService_Initialize(
+			&FrictionIdentificationService, &friction_identification_port))
 		MotorState_RaiseFault(MOTOR_FAULT_PARAMETER_STORE);
 	parameter_transaction_port = ParameterTransactionAdapter_CreatePort(
 		&ParameterTransactionAdapter, &BoardCriticalSection);

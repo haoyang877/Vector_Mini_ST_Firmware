@@ -1,5 +1,7 @@
 #include "parameter_persistence_adapter.h"
 
+#include <stddef.h>
+#include <string.h>
 #include "parameter_snapshot.h"
 #include "parameter_manager.h"
 #include "product_manifest.h"
@@ -62,6 +64,14 @@ void ParameterPersistenceAdapter_Load(void)
 		return;
 	}
 	if (ParameterManager_Load(&ParameterManager, &ParameterTransferBuffer))
+	{
+		ParameterSnapshot_Apply(&ParameterTransferBuffer);
+		return;
+	}
+	memset(&ParameterTransferBuffer, 0, sizeof(ParameterTransferBuffer));
+	if (ParameterManager_LoadCompatible(&ParameterManager,
+		&ParameterTransferBuffer, PARAM_SCHEMA_VERSION_PREVIOUS_FRICTION,
+		offsetof(ParameterSnapshot, friction_coulomb_pos_a)))
 	{
 		ParameterSnapshot_Apply(&ParameterTransferBuffer);
 		return;

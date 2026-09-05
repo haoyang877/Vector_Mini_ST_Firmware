@@ -44,5 +44,9 @@ bool MotorServiceAdapter_StageCurrentOffsetResult(
 	uint16_t phase_b_offset_adc, uint16_t phase_c_offset_adc);
 bool MotorServiceAdapter_StagePhaseResistanceResult(
 	MotorConfigurationAdapterContext *context, float resistance_ohm);
+bool MotorServiceAdapter_StageFrictionModel(
+	MotorConfigurationAdapterContext *context, float coulomb_pos_a,
+	float coulomb_neg_a, float viscous_pos_a_per_rad_s,
+	float viscous_neg_a_per_rad_s);
 
 #endif

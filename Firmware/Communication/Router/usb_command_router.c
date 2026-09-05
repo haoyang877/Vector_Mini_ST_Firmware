@@ -5,6 +5,7 @@
 #include "parameter_service.h"
 #include "rotor_calibration_service.h"
 #include "telemetry_service.h"
+#include "friction_identification_service.h"
 
 #include <limits.h>
 #include <math.h>
@@ -166,6 +167,11 @@ static UsbCommandError UsbCommandRouter_Write(UsbParameterId parameter,
 			return UsbCommandRouter_WriteParameter(MOTOR_PARAMETER_FLUX_WEBER, value);
 		case USB_COGGING:
 			return USB_NO_ERROR;
+		case USB_FRICTION_APPLY:
+			if (value_is_float != 0U || integer_value != 1)
+				return USB_DATA_INVALID;
+			return FrictionIdentificationService_ApplyCandidate() ?
+				USB_NO_ERROR : USB_WRITE_INVALID;
 		case USB_VBUS:
 		case USB_IBUS:
 		case USB_IA:
@@ -178,6 +184,19 @@ static UsbCommandError UsbCommandRouter_Write(UsbParameterId parameter,
 		case USB_TEMP:
 		case USB_ERROR:
 		case USB_LUT_EXPORT:
+		case USB_FRICTION_STATUS:
+		case USB_FRICTION_COULOMB_POS:
+		case USB_FRICTION_COULOMB_NEG:
+		case USB_FRICTION_VISCOUS_POS:
+		case USB_FRICTION_VISCOUS_NEG:
+		case USB_FRICTION_RMSE_POS:
+		case USB_FRICTION_RMSE_NEG:
+		case USB_FRICTION_VALID:
+		case USB_FRICTION_DATA_EXPORT:
+		case USB_ACTIVE_COULOMB_POS:
+		case USB_ACTIVE_COULOMB_NEG:
+		case USB_ACTIVE_VISCOUS_POS:
+		case USB_ACTIVE_VISCOUS_NEG:
 			return USB_WRITE_INVALID;
 		default:
 			return USB_UNKNOWNED_PARAM;
@@ -196,6 +215,8 @@ static UsbCommandError UsbCommandRouter_Read(
 	UsbParameterId parameter)
 {
 	float value;
+	FrictionIdentificationPortStatus friction;
+	bool friction_available = FrictionIdentificationService_ReadStatus(&friction);
 
 	switch (parameter)
 	{
@@ -267,13 +288,62 @@ static UsbCommandError UsbCommandRouter_Read(
 		case USB_FLUX: value = UsbCommandRouter_ReadParameter(MOTOR_PARAMETER_FLUX_WEBER, 1000.0f); snprintf(response->text, sizeof(response->text), "Flux=%.2fmWb\r\n", value); break;
 		case USB_ERROR: snprintf(response->text, sizeof(response->text), "error=%d\r\n", (int)UsbCommandRouter_ReadTelemetry(MOTOR_TELEMETRY_PRIMARY_ERROR, 1.0f)); break;
 		case USB_LUT_EXPORT:
-			if (state->print_active || state->lut_export_active)
+			if (state->print_active || state->lut_export_active ||
+				state->friction_export_active)
 				return USB_WRITE_INVALID;
 			snprintf(response->text, sizeof(response->text), "lut_begin,count=%u,reverse=%u\r\n",
 				(unsigned int)RotorCalibrationService_GetEntryCount(),
 				(unsigned int)UsbCommandRouter_ReadTelemetry(
 					MOTOR_TELEMETRY_ENCODER_REVERSED, 1.0f));
 			response->action = USB_COMMAND_ROUTER_ACTION_BEGIN_LUT_EXPORT;
+			break;
+		case USB_FRICTION_STATUS:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text),
+				"friction_state=%u,reason=%u,point=%u,progress=%.1f,candidate=%u\r\n",
+				(unsigned int)friction.state, (unsigned int)friction.reason,
+				(unsigned int)friction.point_index, friction.progress_percent,
+				(unsigned int)friction.candidate_valid); break;
+		case USB_FRICTION_COULOMB_POS:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_coulomb_pos=%.6fA\r\n", friction.candidate_coulomb_pos_a); break;
+		case USB_FRICTION_COULOMB_NEG:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_coulomb_neg=%.6fA\r\n", friction.candidate_coulomb_neg_a); break;
+		case USB_FRICTION_VISCOUS_POS:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_viscous_pos=%.6fA_per_rad_s\r\n", friction.candidate_viscous_pos_a_per_rad_s); break;
+		case USB_FRICTION_VISCOUS_NEG:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_viscous_neg=%.6fA_per_rad_s\r\n", friction.candidate_viscous_neg_a_per_rad_s); break;
+		case USB_FRICTION_RMSE_POS:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_rmse_pos=%.6fA\r\n", friction.candidate_rmse_pos_a); break;
+		case USB_FRICTION_RMSE_NEG:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_rmse_neg=%.6fA\r\n", friction.candidate_rmse_neg_a); break;
+		case USB_FRICTION_VALID:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "friction_model_valid=%u\r\n", (unsigned int)friction.active_model_valid); break;
+		case USB_ACTIVE_COULOMB_POS:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "active_coulomb_pos=%.6fA\r\n", friction.active_coulomb_pos_a); break;
+		case USB_ACTIVE_COULOMB_NEG:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "active_coulomb_neg=%.6fA\r\n", friction.active_coulomb_neg_a); break;
+		case USB_ACTIVE_VISCOUS_POS:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "active_viscous_pos=%.6fA_per_rad_s\r\n", friction.active_viscous_pos_a_per_rad_s); break;
+		case USB_ACTIVE_VISCOUS_NEG:
+			if (!friction_available) return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text), "active_viscous_neg=%.6fA_per_rad_s\r\n", friction.active_viscous_neg_a_per_rad_s); break;
+		case USB_FRICTION_DATA_EXPORT:
+			if (!friction_available || !friction.candidate_valid || state->print_active ||
+				state->lut_export_active || state->friction_export_active)
+				return USB_WRITE_INVALID;
+			snprintf(response->text, sizeof(response->text),
+				"friction_begin,count=%u\r\n", (unsigned int)friction.sample_count);
+			response->action = USB_COMMAND_ROUTER_ACTION_BEGIN_FRICTION_EXPORT;
 			break;
 		default:
 			return USB_UNKNOWNED_PARAM;
@@ -303,6 +373,20 @@ static bool UsbCommandRouter_PrintScale(UsbParameterId parameter, float *scale)
 		case USB_FLUX: *scale = 1000.0f; break;
 		case USB_COGGING:
 		case USB_LUT_EXPORT:
+		case USB_FRICTION_STATUS:
+		case USB_FRICTION_APPLY:
+		case USB_FRICTION_COULOMB_POS:
+		case USB_FRICTION_COULOMB_NEG:
+		case USB_FRICTION_VISCOUS_POS:
+		case USB_FRICTION_VISCOUS_NEG:
+		case USB_FRICTION_RMSE_POS:
+		case USB_FRICTION_RMSE_NEG:
+		case USB_FRICTION_VALID:
+		case USB_FRICTION_DATA_EXPORT:
+		case USB_ACTIVE_COULOMB_POS:
+		case USB_ACTIVE_COULOMB_NEG:
+		case USB_ACTIVE_VISCOUS_POS:
+		case USB_ACTIVE_VISCOUS_NEG:
 			return false;
 		default:
 			break;

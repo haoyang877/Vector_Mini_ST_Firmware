@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MOTOR_TELEMETRY_FAULT_CODE_COUNT 16U
+#define MOTOR_TELEMETRY_FAULT_CODE_COUNT 17U
 
 typedef enum
 {

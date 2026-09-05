@@ -56,6 +56,12 @@ typedef struct
 	/* Appended in schema v8; previous-schema cascade outer-loop gains. */
 	float cascade_position_kp_per_s;
 	float cascade_position_kd;
+	/* Appended in schema v9; current-domain friction model. */
+	float friction_coulomb_pos_a;
+	float friction_coulomb_neg_a;
+	float friction_viscous_pos_a_per_rad_s;
+	float friction_viscous_neg_a_per_rad_s;
+	uint32_t friction_model_valid;
 } ParameterSnapshot;
 
 typedef struct

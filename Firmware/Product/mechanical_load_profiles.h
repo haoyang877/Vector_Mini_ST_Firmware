@@ -8,6 +8,7 @@
 
 #define MECHANICAL_LOAD_PROFILE_NO_DAMPER             0U
 #define MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM    1U
+#define FRICTION_IDENTIFICATION_SPEED_POINT_COUNT      4U
 
 typedef struct
 {
@@ -36,6 +37,22 @@ typedef struct
 	float friction_recovery_delay_s;
 	float friction_recovery_pulse_time_s;
 	float friction_recovery_cooldown_s;
+	float friction_identification_speed_points_rad_s[FRICTION_IDENTIFICATION_SPEED_POINT_COUNT];
+	uint32_t friction_identification_speed_point_count;
+	float friction_identification_stable_time_s;
+	float friction_identification_track_timeout_s;
+	float friction_identification_sample_timeout_s;
+	float friction_identification_stop_hold_time_s;
+	float friction_identification_stop_timeout_s;
+	float friction_identification_speed_tolerance_ratio;
+	float friction_identification_minimum_speed_tolerance_rad_s;
+	float friction_identification_stop_speed_rad_s;
+	float friction_identification_sample_turns;
+	float friction_identification_minimum_sample_time_s;
+	float friction_identification_current_ratio_max;
+	float friction_identification_saturation_time_s;
+	float friction_identification_rmse_floor_a;
+	float friction_identification_rmse_ratio_max;
 } MechanicalLoadProfile;
 
 const MechanicalLoadProfile *MechanicalLoadProfile_GetActive(void);

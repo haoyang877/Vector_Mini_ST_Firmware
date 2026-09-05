@@ -594,6 +594,11 @@
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\rotor_calibration_service.c</FilePath>
             </File>
+            <File>
+              <FileName>friction_identification_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Application\friction_identification_service.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -754,6 +759,11 @@
               <FileType>1</FileType>
               <FilePath>..\Firmware\Domain\Identification\phase_resistance.c</FilePath>
             </File>
+            <File>
+              <FileName>friction_identification.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Domain\Identification\friction_identification.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -833,6 +843,11 @@
               <FileName>phase_resistance_runtime.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Runtime\MotorControl\phase_resistance_runtime.c</FilePath>
+            </File>
+            <File>
+              <FileName>friction_identification_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Runtime\MotorControl\friction_identification_runtime.c</FilePath>
             </File>
             <File>
               <FileName>motor_state_runtime.c</FileName>

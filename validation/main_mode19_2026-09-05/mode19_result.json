@@ -1,0 +1,79 @@
+{
+  "created_unix_s": 1788609432.244928,
+  "firmware_fit": {
+    "coulomb_pos_a": 1.571724,
+    "coulomb_neg_a": 1.627571,
+    "viscous_pos_a_per_rad_s": 0.0,
+    "viscous_neg_a_per_rad_s": 0.0,
+    "rmse_pos_a": 0.010718,
+    "rmse_neg_a": 0.009965
+  },
+  "host_fit": {
+    "coulomb_pos_a": 1.5717245,
+    "coulomb_neg_a": 1.6275707499999998,
+    "viscous_pos_a_per_rad_s": 0.0,
+    "viscous_neg_a_per_rad_s": 0.0,
+    "rmse_pos_a": 0.010717962154719506,
+    "rmse_neg_a": 0.009965554359266743
+  },
+  "samples": [
+    {
+      "index": 0,
+      "target_rps": 0.1,
+      "speed_rps": 0.100062,
+      "iq_a": 1.582301,
+      "sample_count": 19987
+    },
+    {
+      "index": 1,
+      "target_rps": -0.1,
+      "speed_rps": -0.099788,
+      "iq_a": -1.639278,
+      "sample_count": 20044
+    },
+    {
+      "index": 2,
+      "target_rps": 0.2,
+      "speed_rps": 0.200046,
+      "iq_a": 1.582261,
+      "sample_count": 9998
+    },
+    {
+      "index": 3,
+      "target_rps": -0.2,
+      "speed_rps": -0.199613,
+      "iq_a": -1.634777,
+      "sample_count": 10020
+    },
+    {
+      "index": 4,
+      "target_rps": 0.4,
+      "speed_rps": 0.399686,
+      "iq_a": 1.563789,
+      "sample_count": 5005
+    },
+    {
+      "index": 5,
+      "target_rps": -0.4,
+      "speed_rps": -0.399557,
+      "iq_a": -1.621948,
+      "sample_count": 5006
+    },
+    {
+      "index": 6,
+      "target_rps": 0.5,
+      "speed_rps": 0.50042,
+      "iq_a": 1.558547,
+      "sample_count": 3997
+    },
+    {
+      "index": 7,
+      "target_rps": -0.5,
+      "speed_rps": -0.499827,
+      "iq_a": -1.61428,
+      "sample_count": 4002
+    }
+  ],
+  "applied": false,
+  "saved": false
+}

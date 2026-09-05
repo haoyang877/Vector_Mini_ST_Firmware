@@ -13,6 +13,7 @@ typedef struct
 {
 	bool print_active;
 	bool lut_export_active;
+	bool friction_export_active;
 } UsbCommandRouterState;
 
 typedef enum
@@ -20,7 +21,8 @@ typedef enum
 	USB_COMMAND_ROUTER_ACTION_NONE = 0,
 	USB_COMMAND_ROUTER_ACTION_SEND_TEXT,
 	USB_COMMAND_ROUTER_ACTION_CONFIGURE_PRINT,
-	USB_COMMAND_ROUTER_ACTION_BEGIN_LUT_EXPORT
+	USB_COMMAND_ROUTER_ACTION_BEGIN_LUT_EXPORT,
+	USB_COMMAND_ROUTER_ACTION_BEGIN_FRICTION_EXPORT
 } UsbCommandRouterAction;
 
 typedef struct

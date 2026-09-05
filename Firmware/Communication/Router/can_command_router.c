@@ -6,6 +6,7 @@
 #include "parameter_service.h"
 #include "rotor_calibration_service.h"
 #include "telemetry_service.h"
+#include "friction_identification_service.h"
 
 #include <limits.h>
 #include <math.h>
@@ -280,6 +281,42 @@ void CanCommandRouter_Handle(CanParameterId param_id, float data)
 			CanCommandRouter_SendMotorParameter(CAN_GET_CASCADE_POS_KD,
 				MOTOR_PARAMETER_CASCADE_POSITION_KD, 1.0f);
 		break;
+
+		case CAN_APPLY_FRICTION_MODEL:
+			if (data_int == 1)
+				(void)FrictionIdentificationService_ApplyCandidate();
+		break;
+		case CAN_GET_FRICTION_STATE:
+		case CAN_GET_FRICTION_REASON:
+		case CAN_GET_FRICTION_COULOMB_POS:
+		case CAN_GET_FRICTION_COULOMB_NEG:
+		case CAN_GET_FRICTION_VISCOUS_POS:
+		case CAN_GET_FRICTION_VISCOUS_NEG:
+		case CAN_GET_FRICTION_RMSE_POS:
+		case CAN_GET_FRICTION_RMSE_NEG:
+		case CAN_GET_FRICTION_CANDIDATE_VALID:
+		case CAN_GET_FRICTION_MODEL_VALID:
+		{
+			FrictionIdentificationPortStatus status;
+			float response = 0.0f;
+			if (!FrictionIdentificationService_ReadStatus(&status)) break;
+			switch (param_id)
+			{
+				case CAN_GET_FRICTION_STATE: response = (float)status.state; break;
+				case CAN_GET_FRICTION_REASON: response = (float)status.reason; break;
+				case CAN_GET_FRICTION_COULOMB_POS: response = status.candidate_coulomb_pos_a; break;
+				case CAN_GET_FRICTION_COULOMB_NEG: response = status.candidate_coulomb_neg_a; break;
+				case CAN_GET_FRICTION_VISCOUS_POS: response = status.candidate_viscous_pos_a_per_rad_s; break;
+				case CAN_GET_FRICTION_VISCOUS_NEG: response = status.candidate_viscous_neg_a_per_rad_s; break;
+				case CAN_GET_FRICTION_RMSE_POS: response = status.candidate_rmse_pos_a; break;
+				case CAN_GET_FRICTION_RMSE_NEG: response = status.candidate_rmse_neg_a; break;
+				case CAN_GET_FRICTION_CANDIDATE_VALID: response = status.candidate_valid ? 1.0f : 0.0f; break;
+				case CAN_GET_FRICTION_MODEL_VALID: response = status.active_model_valid ? 1.0f : 0.0f; break;
+				default: break;
+			}
+			CanResponseService_Queue(param_id, response);
+			break;
+		}
 		
 		case CAN_SET_COGGING:
 		break;

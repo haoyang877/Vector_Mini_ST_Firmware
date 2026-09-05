@@ -48,7 +48,24 @@ static const MechanicalLoadProfile NoDamperProfile =
 	.friction_landing_speed_rad_s = 0.10f,
 	.friction_recovery_delay_s = 0.20f,
 	.friction_recovery_pulse_time_s = 0.05f,
-	.friction_recovery_cooldown_s = 0.20f
+	.friction_recovery_cooldown_s = 0.20f,
+	.friction_identification_speed_points_rad_s =
+		{0.62831853f, 1.25663706f, 2.51327412f, 3.14159265f},
+	.friction_identification_speed_point_count = 4U,
+	.friction_identification_stable_time_s = 0.75f,
+	.friction_identification_track_timeout_s = 8.0f,
+	.friction_identification_sample_timeout_s = 15.0f,
+	.friction_identification_stop_hold_time_s = 0.30f,
+	.friction_identification_stop_timeout_s = 5.0f,
+	.friction_identification_speed_tolerance_ratio = 0.05f,
+	.friction_identification_minimum_speed_tolerance_rad_s = 0.08f,
+	.friction_identification_stop_speed_rad_s = 0.12f,
+	.friction_identification_sample_turns = 1.0f,
+	.friction_identification_minimum_sample_time_s = 0.50f,
+	.friction_identification_current_ratio_max = 0.90f,
+	.friction_identification_saturation_time_s = 0.25f,
+	.friction_identification_rmse_floor_a = 0.05f,
+	.friction_identification_rmse_ratio_max = 0.25f
 };
 
 static const MechanicalLoadProfile DampingRing1p5NmProfile =
@@ -97,7 +114,24 @@ static const MechanicalLoadProfile DampingRing1p5NmProfile =
 	.friction_landing_speed_rad_s = 0.10f,
 	.friction_recovery_delay_s = 0.20f,
 	.friction_recovery_pulse_time_s = 0.05f,
-	.friction_recovery_cooldown_s = 0.20f
+	.friction_recovery_cooldown_s = 0.20f,
+	.friction_identification_speed_points_rad_s =
+		{0.62831853f, 1.25663706f, 2.51327412f, 3.14159265f},
+	.friction_identification_speed_point_count = 4U,
+	.friction_identification_stable_time_s = 0.75f,
+	.friction_identification_track_timeout_s = 8.0f,
+	.friction_identification_sample_timeout_s = 15.0f,
+	.friction_identification_stop_hold_time_s = 0.30f,
+	.friction_identification_stop_timeout_s = 5.0f,
+	.friction_identification_speed_tolerance_ratio = 0.05f,
+	.friction_identification_minimum_speed_tolerance_rad_s = 0.08f,
+	.friction_identification_stop_speed_rad_s = 0.12f,
+	.friction_identification_sample_turns = 1.0f,
+	.friction_identification_minimum_sample_time_s = 0.50f,
+	.friction_identification_current_ratio_max = 0.90f,
+	.friction_identification_saturation_time_s = 0.25f,
+	.friction_identification_rmse_floor_a = 0.05f,
+	.friction_identification_rmse_ratio_max = 0.25f
 };
 
 static const MechanicalLoadProfile *const SupportedProfiles[] =

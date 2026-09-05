@@ -92,6 +92,11 @@ void ParameterSnapshot_LoadDefaults(void)
 	MotorControl.configuration.position_integral_limit_a = ParameterMotorProfile->position_integral_limit_a;
 	MotorControl.configuration.cascade_position_kp_per_s = ParameterMotorProfile->cascade_position_kp_per_s;
 	MotorControl.configuration.cascade_position_kd = ParameterMotorProfile->cascade_position_kd;
+	MotorControl.configuration.friction_coulomb_pos_a = 0.0f;
+	MotorControl.configuration.friction_coulomb_neg_a = 0.0f;
+	MotorControl.configuration.friction_viscous_pos_a_per_rad_s = 0.0f;
+	MotorControl.configuration.friction_viscous_neg_a_per_rad_s = 0.0f;
+	MotorControl.configuration.friction_model_valid = false;
 	(void)CanConfigurationService_SetHeartbeatMs(
 		ParameterBoardProfile->default_can_heartbeat_ms);
 }
@@ -138,6 +143,13 @@ void ParameterSnapshot_Capture(ParameterSnapshot *param)
 	param->position_integral_limit_a = MotorControl.configuration.position_integral_limit_a;
 	param->cascade_position_kp_per_s = MotorControl.configuration.cascade_position_kp_per_s;
 	param->cascade_position_kd = MotorControl.configuration.cascade_position_kd;
+	param->friction_coulomb_pos_a = MotorControl.configuration.friction_coulomb_pos_a;
+	param->friction_coulomb_neg_a = MotorControl.configuration.friction_coulomb_neg_a;
+	param->friction_viscous_pos_a_per_rad_s =
+		MotorControl.configuration.friction_viscous_pos_a_per_rad_s;
+	param->friction_viscous_neg_a_per_rad_s =
+		MotorControl.configuration.friction_viscous_neg_a_per_rad_s;
+	param->friction_model_valid = MotorControl.configuration.friction_model_valid ? 1U : 0U;
 	param->can_heartbeat_ms = (float)CanConfigurationService_GetHeartbeatMs();
 	param->schema_version = PARAM_SCHEMA_VERSION;
 }
@@ -152,6 +164,7 @@ void ParameterSnapshot_Apply(const ParameterSnapshot *param)
 
 	if (param->magic_word != PARAMETER_SNAPSHOT_MAGIC ||
 		(param->schema_version != PARAM_SCHEMA_VERSION &&
+		 param->schema_version != PARAM_SCHEMA_VERSION_PREVIOUS_FRICTION &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_PREVIOUS_INTEGRAL_LIMIT &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_PREVIOUS_CURRENT_SENSE &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_PREVIOUS_IMPEDANCE &&
@@ -279,17 +292,42 @@ void ParameterSnapshot_Apply(const ParameterSnapshot *param)
 				ParameterBoardProfile->current_command_limit_a) :
 			ParameterMotorProfile->position_integral_limit_a;
 		MotorControl.configuration.cascade_position_kp_per_s =
-			param->schema_version == PARAM_SCHEMA_VERSION &&
+			param->schema_version >= PARAM_SCHEMA_VERSION_PREVIOUS_FRICTION &&
 			isfinite(param->cascade_position_kp_per_s) && param->cascade_position_kp_per_s >= 0.0f ?
 			FastMath_Clamp(param->cascade_position_kp_per_s, 0.0f,
 				ParameterMotorProfile->cascade_position_kp_limit_per_s) :
 			ParameterMotorProfile->cascade_position_kp_per_s;
 		MotorControl.configuration.cascade_position_kd =
-			param->schema_version == PARAM_SCHEMA_VERSION &&
+			param->schema_version >= PARAM_SCHEMA_VERSION_PREVIOUS_FRICTION &&
 			isfinite(param->cascade_position_kd) && param->cascade_position_kd >= 0.0f ?
 			FastMath_Clamp(param->cascade_position_kd, 0.0f,
 				ParameterMotorProfile->cascade_position_kd_limit) :
 			ParameterMotorProfile->cascade_position_kd;
+	}
+	if (param->schema_version == PARAM_SCHEMA_VERSION &&
+		!current_scaling_changed && param->friction_model_valid == 1U &&
+		isfinite(param->friction_coulomb_pos_a) && param->friction_coulomb_pos_a >= 0.0f &&
+		isfinite(param->friction_coulomb_neg_a) && param->friction_coulomb_neg_a >= 0.0f &&
+		isfinite(param->friction_viscous_pos_a_per_rad_s) &&
+		param->friction_viscous_pos_a_per_rad_s >= 0.0f &&
+		isfinite(param->friction_viscous_neg_a_per_rad_s) &&
+		param->friction_viscous_neg_a_per_rad_s >= 0.0f)
+	{
+		MotorControl.configuration.friction_coulomb_pos_a = param->friction_coulomb_pos_a;
+		MotorControl.configuration.friction_coulomb_neg_a = param->friction_coulomb_neg_a;
+		MotorControl.configuration.friction_viscous_pos_a_per_rad_s =
+			param->friction_viscous_pos_a_per_rad_s;
+		MotorControl.configuration.friction_viscous_neg_a_per_rad_s =
+			param->friction_viscous_neg_a_per_rad_s;
+		MotorControl.configuration.friction_model_valid = true;
+	}
+	else
+	{
+		MotorControl.configuration.friction_coulomb_pos_a = 0.0f;
+		MotorControl.configuration.friction_coulomb_neg_a = 0.0f;
+		MotorControl.configuration.friction_viscous_pos_a_per_rad_s = 0.0f;
+		MotorControl.configuration.friction_viscous_neg_a_per_rad_s = 0.0f;
+		MotorControl.configuration.friction_model_valid = false;
 	}
 	(void)CanConfigurationService_SetHeartbeatMs((uint32_t)param->can_heartbeat_ms);
 }

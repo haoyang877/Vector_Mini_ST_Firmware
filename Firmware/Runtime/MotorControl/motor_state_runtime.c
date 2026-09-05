@@ -70,6 +70,7 @@ static bool MotorLifecycle_ServiceNeedsEncoder(ServiceProcedure procedure)
 	return procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
 		procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
 		procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
+		procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION ||
 		procedure == SERVICE_PROCEDURE_SET_MECHANICAL_ZERO;
 }
 
@@ -113,6 +114,12 @@ static bool MotorLifecycle_CheckServicePreconditions(ServiceProcedure procedure)
 		!Encoder_IsOnline(&OnBoard_Encoder))
 	{
 		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+		return false;
+	}
+	if (procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION &&
+		(OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+	{
+		MotorState_RaiseFault(MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
 		return false;
 	}
 	return MotorLifecycle.device_state == DEVICE_STATE_STANDBY ||
@@ -194,6 +201,7 @@ uint8_t MotorLifecycle_GetProtocolActionCode(void)
 			case SERVICE_PROCEDURE_OBSERVER_CALIBRATION: return 13U;
 			case SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION: return 15U;
 			case SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION: return 17U;
+			case SERVICE_PROCEDURE_FRICTION_IDENTIFICATION: return 19U;
 			default: return 0U;
 		}
 	}

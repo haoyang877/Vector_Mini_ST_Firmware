@@ -42,7 +42,8 @@ bool IdentificationService_AcceptPhaseResistanceResult(
 
 bool IdentificationService_OwnsProcedure(ServiceProcedure procedure)
 {
-	return procedure == SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION;
+	return procedure == SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION ||
+		procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION;
 }
 
 bool IdentificationService_Supervise1kHz(IdentificationServiceContext *context)
@@ -63,6 +64,10 @@ bool IdentificationService_Supervise1kHz(IdentificationServiceContext *context)
 		return DeviceLifecycle_BeginServiceRun(lifecycle);
 	}
 	if (lifecycle->procedure_state != PROCEDURE_STATE_RUNNING)
+		return true;
+	/* The friction core owns per-stage timeouts and fit rejection. */
+	if (lifecycle->service_procedure ==
+		SERVICE_PROCEDURE_FRICTION_IDENTIFICATION)
 		return true;
 	if (context->elapsed_ticks < UINT32_MAX)
 		context->elapsed_ticks++;

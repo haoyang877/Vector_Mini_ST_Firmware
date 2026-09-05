@@ -21,6 +21,12 @@ int MechanicalLoadProfile_RunHostTests(void)
 	TEST_CHECK(damping_ring->encoder_calibration_startup.startup_iq_a == 4.50f);
 	TEST_CHECK(damping_ring->encoder_electrical_zero_min_align_current_a == 4.50f);
 	TEST_CHECK(damping_ring->friction_positive_current_a == 1.55f);
+	TEST_CHECK(no_damper->friction_identification_speed_point_count == 4U);
+	TEST_CHECK(damping_ring->friction_identification_speed_point_count == 4U);
+	TEST_CHECK(damping_ring->friction_identification_speed_points_rad_s[0] > 0.62f);
+	TEST_CHECK(damping_ring->friction_identification_speed_points_rad_s[3] > 3.14f);
+	TEST_CHECK(damping_ring->friction_identification_speed_points_rad_s[3] < 3.15f);
+	TEST_CHECK(damping_ring->friction_identification_current_ratio_max == 0.90f);
 	TEST_CHECK(MechanicalLoadProfile_GetById(2U) == 0);
 	return 0;
 }

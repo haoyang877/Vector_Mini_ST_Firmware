@@ -23,7 +23,8 @@ typedef enum
 	MOTOR_FAULT_INVALID_PARAMETER,
 	MOTOR_FAULT_SENSORLESS,
 	MOTOR_FAULT_PARAMETER_STORE,
-	MOTOR_FAULT_POWER_STAGE
+	MOTOR_FAULT_POWER_STAGE,
+	MOTOR_FAULT_FRICTION_IDENTIFICATION
 } MotorFaultCode;
 
 typedef struct
@@ -60,6 +61,11 @@ typedef struct
 	float cascade_position_kd;
 	float open_loop_voltage_v;
 	float open_loop_electrical_velocity_rad_s;
+	float friction_coulomb_pos_a;
+	float friction_coulomb_neg_a;
+	float friction_viscous_pos_a_per_rad_s;
+	float friction_viscous_neg_a_per_rad_s;
+	bool friction_model_valid;
 } MotorConfiguration;
 
 typedef struct

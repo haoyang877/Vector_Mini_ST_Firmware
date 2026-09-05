@@ -28,6 +28,8 @@ void ParameterManager_Initialize(ParameterManagerContext *context,
 	const ParameterStorePort *store, const ParameterCompatibility *compatibility,
 	uint32_t payload_size);
 bool ParameterManager_Load(ParameterManagerContext *context, void *payload);
+bool ParameterManager_LoadCompatible(ParameterManagerContext *context, void *payload,
+	uint32_t schema_version, uint32_t payload_size);
 bool ParameterManager_Save(ParameterManagerContext *context, const void *payload);
 
 #endif

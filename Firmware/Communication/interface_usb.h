@@ -26,6 +26,8 @@ typedef struct
 	char transmit_buffer[USB_INTERFACE_TEXT_CAPACITY];
 	uint8_t lut_export_enabled;
 	uint16_t lut_export_index;
+	uint8_t friction_export_enabled;
+	uint8_t friction_export_index;
 	uint8_t print_enabled;
 	volatile uint8_t print_pending;
 	uint8_t enabled_channel_count;

@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-05",
+  "bus_voltage_v": 27.8,
+  "mechanical_load": "approximately 1.5 N*m damping ring",
+  "mode19": {
+    "completed_points": 8,
+    "expected_points": 8,
+    "final_mode": 0,
+    "final_error": 0,
+    "candidate_valid": true,
+    "candidate_applied": false,
+    "coulomb_pos_a": 1.571724,
+    "coulomb_neg_a": 1.627571,
+    "viscous_pos_a_per_rad_s": 0.0,
+    "viscous_neg_a_per_rad_s": 0.0,
+    "rmse_pos_a": 0.010718,
+    "rmse_neg_a": 0.009965
+  },
+  "parameter_migration": {
+    "from_schema": 8,
+    "to_schema": 9,
+    "lut_entries": 1024,
+    "lut_difference_count_after_load": 0,
+    "lut_difference_count_after_save_and_reboot": 0,
+    "lut_sha256": "23BA063CBC2127B375A8C85F5DD2033E039C5C98F7AA6690A4C48AB4B5BA9F21"
+  },
+  "fast_loop": {
+    "frequency_hz": 20000,
+    "maximum_cycles": 4430,
+    "deadline_cycles": 8500,
+    "deadline_overrun_count": 0
+  },
+  "build": {
+    "errors": 0,
+    "warnings": 0,
+    "code_bytes": 104212,
+    "ro_data_bytes": 6068,
+    "rw_data_bytes": 508,
+    "zi_data_bytes": 29148
+  }
+}

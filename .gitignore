@@ -30,3 +30,7 @@ JLinkLog.txt
 #Keil/J-Link debug session
 .omo/
 .opencode/
+
+# Python validation tools
+__pycache__/
+*.py[cod]

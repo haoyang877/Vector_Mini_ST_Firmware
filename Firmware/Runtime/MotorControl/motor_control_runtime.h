@@ -6,6 +6,7 @@
 #include "rotor_sensor_port.h"
 #include "critical_section_port.h"
 #include "rotor_calibration_port.h"
+#include "rotor_calibration_port_adapter.h"
 #include "motor_command_port.h"
 #include "motor_configuration_port.h"
 #include "board_profile.h"
@@ -18,6 +19,7 @@
 #include "control_mode_runtime.h"
 #include "measurement_model.h"
 #include "phase_resistance_runtime.h"
+#include "friction_identification_runtime.h"
 #include "encoder_calibration_runtime.h"
 #include "current_control_runtime.h"
 #include "device_lifecycle.h"
@@ -54,6 +56,7 @@ typedef struct
 	MotionControlContext motion_control;
 	MeasurementModelContext measurement_model;
 	PhaseResistanceRuntimeContext phase_resistance;
+	FrictionIdentificationRuntimeContext friction_identification;
 	MotorCalibrationContext calibration;
 	CurrentOffsetCalibrationContext current_offset_calibration;
 	ElectricalZeroCalibrationContext electrical_zero_calibration;
@@ -64,6 +67,7 @@ typedef struct
 	IdentificationServiceContext identification_service;
 	MotorConfigurationAdapterContext configuration_adapter;
 	MotorCommandAdapterContext command_adapter;
+	RotorCalibrationAdapterContext rotor_calibration_adapter;
 	ParameterSnapshotContext parameter_snapshot;
 	CriticalSectionPort critical_section;
 	ExecutionTimerPort execution_timer;
@@ -96,5 +100,6 @@ bool MotorControlRuntime_ReadFastLoopMetrics(MotorFastLoopMetrics *metrics);
 RotorCalibrationPort MotorControlRuntime_CreateRotorCalibrationPort(void);
 MotorCommandPort MotorControlRuntime_CreateCommandPort(void);
 MotorConfigurationPort MotorControlRuntime_CreateConfigurationPort(void);
+FrictionIdentificationPort MotorControlRuntime_CreateFrictionIdentificationPort(void);
 
 #endif

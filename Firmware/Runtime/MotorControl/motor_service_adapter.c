@@ -1,5 +1,7 @@
 #include "motor_service_adapter.h"
 
+#include <math.h>
+
 #include "motor_state_runtime.h"
 
 static MotorPortMode MotorServiceAdapter_MapMode(MotorControlMode mode)
@@ -55,6 +57,8 @@ static bool MotorServiceAdapter_MapRequestedService(MotorPortService service,
 			*procedure = SERVICE_PROCEDURE_OBSERVER_CALIBRATION; return true;
 		case MOTOR_PORT_SERVICE_PHASE_RESISTANCE_IDENTIFICATION:
 			*procedure = SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION; return true;
+		case MOTOR_PORT_SERVICE_FRICTION_IDENTIFICATION:
+			*procedure = SERVICE_PROCEDURE_FRICTION_IDENTIFICATION; return true;
 		case MOTOR_PORT_SERVICE_SET_MECHANICAL_ZERO:
 			*procedure = SERVICE_PROCEDURE_SET_MECHANICAL_ZERO; return true;
 		case MOTOR_PORT_SERVICE_PARAMETER_SAVE:
@@ -368,6 +372,36 @@ bool MotorServiceAdapter_StagePhaseResistanceResult(
 	context->candidate.phase_resistance_ohm = resistance_ohm;
 	MotorServiceAdapter_UpdateCurrentLoopGains(context,
 		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM);
+	context->published_revision++;
+	context->critical_section.exit(context->critical_section.context,
+		interrupt_state);
+	return true;
+}
+
+bool MotorServiceAdapter_StageFrictionModel(
+	MotorConfigurationAdapterContext *context, float coulomb_pos_a,
+	float coulomb_neg_a, float viscous_pos_a_per_rad_s,
+	float viscous_neg_a_per_rad_s)
+{
+	uint32_t interrupt_state;
+	if (context == 0 || !context->is_initialized ||
+		!isfinite(coulomb_pos_a) || coulomb_pos_a < 0.0f ||
+		!isfinite(coulomb_neg_a) || coulomb_neg_a < 0.0f ||
+		!isfinite(viscous_pos_a_per_rad_s) || viscous_pos_a_per_rad_s < 0.0f ||
+		!isfinite(viscous_neg_a_per_rad_s) || viscous_neg_a_per_rad_s < 0.0f ||
+		MotorLifecycle_GetDeviceState() != DEVICE_STATE_STANDBY)
+		return false;
+	interrupt_state = context->critical_section.enter(
+		context->critical_section.context);
+	if (context->published_revision == context->applied_revision)
+		context->candidate = context->motor->configuration;
+	context->candidate.friction_coulomb_pos_a = coulomb_pos_a;
+	context->candidate.friction_coulomb_neg_a = coulomb_neg_a;
+	context->candidate.friction_viscous_pos_a_per_rad_s =
+		viscous_pos_a_per_rad_s;
+	context->candidate.friction_viscous_neg_a_per_rad_s =
+		viscous_neg_a_per_rad_s;
+	context->candidate.friction_model_valid = true;
 	context->published_revision++;
 	context->critical_section.exit(context->critical_section.context,
 		interrupt_state);

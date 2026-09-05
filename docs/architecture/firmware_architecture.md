@@ -114,7 +114,7 @@ Firmware/
     control_tuning_profile.*    传感器/观测器/标定调参
     board_profile.*             引脚、量程、极性和时序
     motor_profiles.*            电机电气/机械参数和安全上限
-    mechanical_load_profiles.*  阻尼器/无阻尼器启动、标定与摩擦前馈配置
+    mechanical_load_profiles.*  阻尼器/无阻尼器启动、标定、摩擦前馈与摩擦辨识配置
     encoder_profiles.*          传感器类型、方向、标定能力
 
   Composition/

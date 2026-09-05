@@ -55,20 +55,27 @@ static uint32_t ParameterManager_CalculateCrc32(const void *data,
 		(const uint8_t *)data, size_bytes);
 }
 
-static bool ParameterManager_IsHeaderValid(const ParameterManagerContext *context,
-	const ParameterRecordHeader *header)
+static bool ParameterManager_IsHeaderCompatible(
+	const ParameterManagerContext *context, const ParameterRecordHeader *header,
+	uint32_t schema_version, uint32_t payload_size)
 {
 	return header->magic == PARAMETER_RECORD_MAGIC &&
 		header->format_version == PARAMETER_RECORD_FORMAT_VERSION &&
 		header->header_size == sizeof(ParameterRecordHeader) &&
-		header->payload_size == context->payload_size &&
+		header->payload_size == payload_size &&
 		header->product_id == context->compatibility.product_id &&
 		header->hardware_profile_id == context->compatibility.hardware_profile_id &&
 		header->motor_profile_id == context->compatibility.motor_profile_id &&
-		header->parameter_schema_version ==
-			context->compatibility.parameter_schema_version &&
+		header->parameter_schema_version == schema_version &&
 		header->commit_marker == PARAMETER_RECORD_COMMIT_MARKER &&
 		header->commit_marker_inverse == ~PARAMETER_RECORD_COMMIT_MARKER;
+}
+
+static bool ParameterManager_IsHeaderValid(const ParameterManagerContext *context,
+	const ParameterRecordHeader *header)
+{
+	return ParameterManager_IsHeaderCompatible(context, header,
+		context->compatibility.parameter_schema_version, context->payload_size);
 }
 
 static bool ParameterManager_IsSequenceNewer(uint32_t candidate, uint32_t reference)
@@ -76,17 +83,26 @@ static bool ParameterManager_IsSequenceNewer(uint32_t candidate, uint32_t refere
 	return (int32_t)(candidate - reference) > 0;
 }
 
+static bool ParameterManager_ReadCompatiblePayload(ParameterManagerContext *context,
+	uint8_t slot, const ParameterRecordHeader *header, void *payload,
+	uint32_t schema_version, uint32_t payload_size)
+{
+	if (!ParameterManager_IsHeaderCompatible(context, header, schema_version,
+		payload_size))
+		return false;
+	if (!context->store.read(context->store.context, slot,
+		(uint32_t)sizeof(*header), payload, payload_size))
+		return false;
+
+	return ParameterManager_CalculateCrc32(payload, payload_size) ==
+		header->payload_crc32;
+}
+
 static bool ParameterManager_ReadValidPayload(ParameterManagerContext *context,
 	uint8_t slot, const ParameterRecordHeader *header, void *payload)
 {
-	if (!ParameterManager_IsHeaderValid(context, header))
-		return false;
-	if (!context->store.read(context->store.context, slot,
-		(uint32_t)sizeof(*header), payload, context->payload_size))
-		return false;
-
-	return ParameterManager_CalculateCrc32(payload, context->payload_size) ==
-		header->payload_crc32;
+	return ParameterManager_ReadCompatiblePayload(context, slot, header, payload,
+		context->compatibility.parameter_schema_version, context->payload_size);
 }
 
 static bool ParameterManager_VerifyStoredPayload(ParameterManagerContext *context,
@@ -176,6 +192,48 @@ bool ParameterManager_Load(ParameterManagerContext *context, void *payload)
 	}
 
 	context->has_active_record = false;
+	return false;
+}
+
+bool ParameterManager_LoadCompatible(ParameterManagerContext *context, void *payload,
+	uint32_t schema_version, uint32_t payload_size)
+{
+	ParameterRecordHeader headers[PARAMETER_STORE_SLOT_COUNT];
+	bool header_valid[PARAMETER_STORE_SLOT_COUNT];
+	uint8_t first_slot = 0U;
+	uint8_t second_slot = 1U;
+	uint8_t slot;
+
+	if (context == NULL || !context->is_initialized || payload == NULL ||
+		payload_size == 0U || payload_size > context->payload_size)
+		return false;
+
+	for (slot = 0U; slot < PARAMETER_STORE_SLOT_COUNT; ++slot)
+	{
+		header_valid[slot] = context->store.read(context->store.context,
+			slot, 0U, &headers[slot], sizeof(headers[slot])) &&
+			ParameterManager_IsHeaderCompatible(context, &headers[slot],
+				schema_version, payload_size);
+	}
+	if (header_valid[1] && (!header_valid[0] ||
+		ParameterManager_IsSequenceNewer(headers[1].sequence, headers[0].sequence)))
+	{
+		first_slot = 1U;
+		second_slot = 0U;
+	}
+	for (slot = 0U; slot < PARAMETER_STORE_SLOT_COUNT; ++slot)
+	{
+		uint8_t candidate_slot = slot == 0U ? first_slot : second_slot;
+		if (header_valid[candidate_slot] &&
+			ParameterManager_ReadCompatiblePayload(context, candidate_slot,
+				&headers[candidate_slot], payload, schema_version, payload_size))
+		{
+			context->active_slot = candidate_slot;
+			context->active_sequence = headers[candidate_slot].sequence;
+			context->has_active_record = true;
+			return true;
+		}
+	}
 	return false;
 }
 

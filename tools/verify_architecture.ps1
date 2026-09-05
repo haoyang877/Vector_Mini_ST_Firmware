@@ -52,6 +52,7 @@ foreach ($requiredDocument in @(
 foreach ($requiredTest in @(
     'tests\host\device_lifecycle_tests.c',
     'tests\host\fault_manager_tests.c',
+	'tests\host\friction_identification_tests.c',
     'tests\host\measurement_model_tests.c',
 	'tests\host\mechanical_load_profile_tests.c',
     'tests\host\parameter_transaction_service_tests.c',
@@ -257,7 +258,9 @@ $realTimeSources = @(
     'Firmware\Runtime\MotorControl\electrical_zero_calibration_runtime.c',
     'Firmware\Runtime\MotorControl\encoder_calibration_runtime.c',
     'Firmware\Runtime\MotorControl\phase_resistance_runtime.c',
+	'Firmware\Runtime\MotorControl\friction_identification_runtime.c',
     'Firmware\Domain\Identification\phase_resistance.c',
+	'Firmware\Domain\Identification\friction_identification.c',
     'Firmware\Domain\RotorFeedback\encoder.c',
     'Firmware\Domain\Modulation\svpwm.c'
 ) | ForEach-Object { Join-Path $repositoryRoot $_ }
@@ -269,7 +272,8 @@ $controlAlgorithmSources = @(
     'Firmware\Runtime\MotorControl\current_offset_calibration_runtime.c',
     'Firmware\Runtime\MotorControl\electrical_zero_calibration_runtime.c',
     'Firmware\Runtime\MotorControl\encoder_calibration_runtime.c',
-    'Firmware\Runtime\MotorControl\phase_resistance_runtime.c'
+    'Firmware\Runtime\MotorControl\phase_resistance_runtime.c',
+	'Firmware\Runtime\MotorControl\friction_identification_runtime.c'
 ) | ForEach-Object { Join-Path $repositoryRoot $_ }
 Add-Matches -Files $controlAlgorithmSources -Pattern '(?:MotorControl|motor)->command\.[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)' -Description 'A control algorithm rewrites the accepted Application command instead of its internal targets'
 Add-Matches -Files $controlAlgorithmSources -Pattern '(?:MotorControl|motor)->configuration\.[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)' -Description 'A control algorithm mutates active configuration instead of staging a validated candidate'

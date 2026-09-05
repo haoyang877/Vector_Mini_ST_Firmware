@@ -71,18 +71,22 @@ int ParameterService_RunHostTests(void)
 
 	TEST_CHECK(ParameterService_Initialize(&service, &port, &board, &motor));
 	TEST_CHECK(ParameterService_WriteMotorParameter(
+		&service,
 		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM, 1.905f) ==
 		PARAMETER_SERVICE_ACCEPTED);
 	TEST_CHECK(configuration.staged_parameter ==
 		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM);
 	TEST_CHECK(configuration.staged_value == 1.905f);
 	TEST_CHECK(ParameterService_WriteMotorParameter(
+		&service,
 		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM, 5.001f) ==
 		PARAMETER_SERVICE_OUT_OF_RANGE);
 	TEST_CHECK(ParameterService_WriteMotorParameter(
+		&service,
 		MOTOR_PARAMETER_D_AXIS_INDUCTANCE_H, 0.001635f) ==
 		PARAMETER_SERVICE_ACCEPTED);
 	TEST_CHECK(ParameterService_WriteMotorParameter(
+		&service,
 		MOTOR_PARAMETER_FLUX_WEBER, 0.0175025f) ==
 		PARAMETER_SERVICE_ACCEPTED);
 	return 0;

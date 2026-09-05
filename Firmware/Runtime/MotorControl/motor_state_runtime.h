@@ -29,7 +29,6 @@ typedef struct
 	MotionControlContext *motion_control;
 	MotorCalibrationContext *motor_calibration;
 	DeviceLifecycleContext *lifecycle;
-	MotorStateContext *state;
 	CalibrationServiceContext *calibration_service;
 	IdentificationServiceContext *identification_service;
 	MonotonicClockPort monotonic_clock;
@@ -50,34 +49,41 @@ struct MotorStateContext
 	MotorFaultCode previous_fault;
 };
 
-bool MotorState_Initialize(const MotorFaultRuntimeBindings *bindings);
-MotorFaultCode MotorState_GetPrimaryFault(void);
-void MotorState_RaiseFault(MotorFaultCode fault);
-void MotorState_ClearFault(MotorFaultCode error_to_clear);
-void MotorState_ClearAllFaults(void);
-bool MotorFaults_HasActive(void);
-FaultSet MotorFaults_GetActiveSet(void);
-FaultSet MotorFaults_GetLatchedSet(void);
-uint32_t MotorFaults_GetEventSequence(void);
-bool MotorFaults_GetRecord(uint8_t fault_code, FaultRecord *record);
+bool MotorState_Initialize(MotorStateContext *context,
+	const MotorFaultRuntimeBindings *bindings);
+MotorFaultCode MotorState_GetPrimaryFault(const MotorStateContext *context);
+void MotorState_RaiseFault(MotorStateContext *context, MotorFaultCode fault);
+void MotorState_ClearFault(MotorStateContext *context,
+	MotorFaultCode error_to_clear);
+void MotorState_ClearAllFaults(MotorStateContext *context);
+bool MotorFaults_HasActive(const MotorStateContext *context);
+FaultSet MotorFaults_GetActiveSet(const MotorStateContext *context);
+FaultSet MotorFaults_GetLatchedSet(const MotorStateContext *context);
+uint32_t MotorFaults_GetEventSequence(const MotorStateContext *context);
+bool MotorFaults_GetRecord(const MotorStateContext *context,
+	uint8_t fault_code, FaultRecord *record);
 
-DeviceState MotorLifecycle_GetDeviceState(void);
-MotorControlMode MotorLifecycle_GetControlMode(void);
-ServiceProcedure MotorLifecycle_GetServiceProcedure(void);
-ProcedureState MotorLifecycle_GetProcedureState(void);
-uint8_t MotorLifecycle_GetProtocolActionCode(void);
-bool MotorLifecycle_RequestControlMode(MotorControlMode mode);
-bool MotorLifecycle_RequestService(ServiceProcedure procedure);
-bool MotorLifecycle_RequestStandby(void);
-bool MotorLifecycle_RequestClearFaults(void);
-void MotorLifecycle_ReportServiceComplete(bool request_parameter_save);
-void MotorLifecycle_ReportServiceFailed(void);
-void MotorLifecycle_Supervise1kHz(void);
+DeviceState MotorLifecycle_GetDeviceState(const MotorStateContext *context);
+MotorControlMode MotorLifecycle_GetControlMode(const MotorStateContext *context);
+ServiceProcedure MotorLifecycle_GetServiceProcedure(
+	const MotorStateContext *context);
+ProcedureState MotorLifecycle_GetProcedureState(const MotorStateContext *context);
+uint8_t MotorLifecycle_GetProtocolActionCode(const MotorStateContext *context);
+bool MotorLifecycle_RequestControlMode(MotorStateContext *context,
+	MotorControlMode mode);
+bool MotorLifecycle_RequestService(MotorStateContext *context,
+	ServiceProcedure procedure);
+bool MotorLifecycle_RequestStandby(MotorStateContext *context);
+bool MotorLifecycle_RequestClearFaults(MotorStateContext *context);
+void MotorLifecycle_ReportServiceComplete(MotorStateContext *context,
+	bool request_parameter_save);
+void MotorLifecycle_ReportServiceFailed(MotorStateContext *context);
+void MotorLifecycle_Supervise1kHz(MotorStateContext *context);
 
-void MotorState_ResetControlState(void);
-bool MotorState_HasChanged(void);
-void MotorState_ClearChangeFlag(void);
-void MotorState_DisablePowerStage(void);
-bool MotorState_EnablePowerStage(void);
+void MotorState_ResetControlState(MotorStateContext *context);
+bool MotorState_HasChanged(const MotorStateContext *context);
+void MotorState_ClearChangeFlag(MotorStateContext *context);
+void MotorState_DisablePowerStage(MotorStateContext *context);
+bool MotorState_EnablePowerStage(MotorStateContext *context);
 
 #endif

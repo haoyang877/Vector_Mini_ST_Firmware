@@ -1,12 +1,11 @@
 #include "rgb.h"
 
 /*2d array of data to be sent by DMA*/
-static RgbServiceContext *ActiveContext;
-#define Pixel_Buf (ActiveContext->pixel_buffer)
-#define RGB (ActiveContext->color)
-#define rgb_up_down (ActiveContext->direction)
-#define brightness (ActiveContext->brightness)
-#define RGBIndicatorPort (ActiveContext->port)
+#define Pixel_Buf (context->pixel_buffer)
+#define RGB (context->color)
+#define rgb_up_down (context->direction)
+#define brightness (context->brightness)
+#define RGBIndicatorPort (context->port)
 
 bool RGB_Initialize(RgbServiceContext *context, const IndicatorPort *port)
 {
@@ -14,7 +13,6 @@ bool RGB_Initialize(RgbServiceContext *context, const IndicatorPort *port)
 		return false;
 	context->port = *port;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
@@ -25,10 +23,11 @@ bool RGB_Initialize(RgbServiceContext *context, const IndicatorPort *port)
     * @param  LedId: Id of RGB LED
 	* @param  *Color: RGB struct pointer
  **/
-void RGB_SetColor(uint8_t LedId, RGB_Color *Color)
+void RGB_SetColor(RgbServiceContext *context, uint8_t LedId,
+	const RGB_Color *Color)
 {
     uint8_t i;
-	if (ActiveContext == 0 || !ActiveContext->is_initialized || Color == 0)
+	if (context == 0 || !context->is_initialized || Color == 0)
 		return;
 	/*avoid overflow*/
     if(LedId > LED_NUM){
@@ -54,10 +53,10 @@ void RGB_SetColor(uint8_t LedId, RGB_Color *Color)
              Load 24 "0" bits to last row as reset delay 
              24 * 1.2us = 30us > 24us(minimum delay)
  **/
-void Reset_Load(void)
+static void Reset_Load(RgbServiceContext *context)
 {
     uint8_t i;
-	if (ActiveContext == 0 || !ActiveContext->is_initialized)
+	if (context == 0 || !context->is_initialized)
 		return;
 	for(i=0; i<24; i++)
     {
@@ -68,9 +67,9 @@ void Reset_Load(void)
 /**
 	* @brief Send loaded array with DMA to generate PWM
  **/
-void RGB_SendArray(void)
+static void RGB_SendArray(RgbServiceContext *context)
 {
-	if (ActiveContext != 0 && ActiveContext->is_initialized &&
+	if (context != 0 && context->is_initialized &&
 		RGBIndicatorPort.send_rgb_pwm != 0)
 		(void)RGBIndicatorPort.send_rgb_pwm(RGBIndicatorPort.context,
 			(uint32_t *)Pixel_Buf, (LED_NUM + 1U) * 24U);
@@ -81,25 +80,27 @@ void RGB_SendArray(void)
     * @param  led_num: total number of RGB LEDs
 	* @param  *Color: RGB struct pointer
  **/
-void write_color(uint16_t led_num, RGB_Color *color)
+static void write_color(RgbServiceContext *context, uint16_t led_num,
+	const RGB_Color *color)
 {
     uint16_t i;
 	
     for(i = 0; i < led_num; i++)
     {
-        RGB_SetColor(i, color);
+		RGB_SetColor(context, i, color);
     }
-    Reset_Load();
-    RGB_SendArray();
+	Reset_Load(context);
+	RGB_SendArray(context);
 }
 
 /**
 	* @brief  Set color of RGB LED and add breathing effects 
 	* @param  color_type: color type enum 
  **/
-void Set_RGB_BreathingColor(COLOR_Type color_type)
+void Set_RGB_BreathingColor(RgbServiceContext *context,
+	COLOR_Type color_type)
 {
-	if (ActiveContext == 0 || !ActiveContext->is_initialized)
+	if (context == 0 || !context->is_initialized)
 		return;
 	if(rgb_up_down == 0)
 	{
@@ -173,5 +174,5 @@ void Set_RGB_BreathingColor(COLOR_Type color_type)
 		default:break;
 	}
 	
-	write_color(1, &RGB);
+	write_color(context, 1, &RGB);
 }

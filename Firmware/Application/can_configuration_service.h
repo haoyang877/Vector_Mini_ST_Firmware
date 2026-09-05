@@ -14,11 +14,17 @@ typedef struct
 
 bool CanConfigurationService_Initialize(CanConfigurationServiceContext *context,
 	const CanConfigurationPort *port);
-bool CanConfigurationService_SetNodeId(uint8_t node_id);
-uint8_t CanConfigurationService_GetNodeId(void);
-bool CanConfigurationService_SetBitrateKbps(uint32_t bitrate_kbps);
-uint32_t CanConfigurationService_GetBitrateKbps(void);
-bool CanConfigurationService_SetHeartbeatMs(uint32_t heartbeat_ms);
-uint32_t CanConfigurationService_GetHeartbeatMs(void);
+bool CanConfigurationService_SetNodeId(CanConfigurationServiceContext *context,
+	uint8_t node_id);
+uint8_t CanConfigurationService_GetNodeId(
+	const CanConfigurationServiceContext *context);
+bool CanConfigurationService_SetBitrateKbps(
+	CanConfigurationServiceContext *context, uint32_t bitrate_kbps);
+uint32_t CanConfigurationService_GetBitrateKbps(
+	const CanConfigurationServiceContext *context);
+bool CanConfigurationService_SetHeartbeatMs(
+	CanConfigurationServiceContext *context, uint32_t heartbeat_ms);
+uint32_t CanConfigurationService_GetHeartbeatMs(
+	const CanConfigurationServiceContext *context);
 
 #endif

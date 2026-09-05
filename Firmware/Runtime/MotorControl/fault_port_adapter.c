@@ -5,26 +5,31 @@
 
 static bool FaultApplicationAdapter_Raise(void *context, uint32_t fault_code)
 {
-	(void)context;
+	MotorStateContext *motor_state = (MotorStateContext *)context;
+	if (motor_state == 0)
+		return false;
 	if (fault_code > (uint32_t)MOTOR_FAULT_POWER_STAGE)
 		return false;
-	MotorState_RaiseFault((MotorFaultCode)fault_code);
+	MotorState_RaiseFault(motor_state, (MotorFaultCode)fault_code);
 	return true;
 }
 
 static bool FaultApplicationAdapter_Clear(void *context, uint32_t fault_code)
 {
-	(void)context;
+	MotorStateContext *motor_state = (MotorStateContext *)context;
+	if (motor_state == 0)
+		return false;
 	if (fault_code > (uint32_t)MOTOR_FAULT_POWER_STAGE)
 		return false;
-	MotorState_ClearFault((MotorFaultCode)fault_code);
+	MotorState_ClearFault(motor_state, (MotorFaultCode)fault_code);
 	return true;
 }
 
-FaultCommandPort FaultApplicationAdapter_CreatePort(void)
+FaultCommandPort FaultApplicationAdapter_CreatePort(
+	MotorStateContext *motor_state)
 {
 	FaultCommandPort port;
-	port.context = 0;
+	port.context = motor_state;
 	port.raise = FaultApplicationAdapter_Raise;
 	port.clear = FaultApplicationAdapter_Clear;
 	return port;

@@ -43,11 +43,10 @@ typedef struct
 	bool is_initialized;
 } RgbServiceContext;
 
-void RGB_SetColor(uint8_t LedId, RGB_Color *Color);
+void RGB_SetColor(RgbServiceContext *context, uint8_t LedId,
+	const RGB_Color *Color);
 bool RGB_Initialize(RgbServiceContext *context, const IndicatorPort *port);
-void Reset_Load(void);
-void RGB_SendArray(void);
-void write_color(uint16_t led_num,RGB_Color *color);
-void Set_RGB_BreathingColor(COLOR_Type color_type);
+void Set_RGB_BreathingColor(RgbServiceContext *context,
+	COLOR_Type color_type);
 
 #endif

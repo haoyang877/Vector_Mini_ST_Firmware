@@ -37,6 +37,29 @@ Composition Root
 Communication: Transport -> Protocol -> Router -> Application Services
 ```
 
+运行期对象关系由组合根显式建立，不允许模块通过文件级活动指针寻找“当前实例”：
+
+```text
+FirmwareComposition
+  +-- MotorControlRuntimeContext
+  |     +-- MotorStateContext
+  |     +-- control/calibration/identification Contexts
+  |     `-- ParameterSnapshotContext
+  +-- Application Service Contexts
+  |     `-- ApplicationEndpoints
+  |           +-- CAN Router Context
+  |           `-- USB Router Context
+  +-- CAN/USB Interface Contexts
+  `-- SupervisorTaskContext
+        +-- MotorControlRuntimeContext
+        +-- Telemetry/Indicator Contexts
+        `-- CAN/USB Interface Contexts
+```
+
+`FirmwareComposition` 是唯一允许静态拥有上述可变对象的位置。Application、Communication
+和 Runtime 的公共操作都显式接收所属 `Context`；同一模块可以在测试中创建多个互不干扰的实例。
+Platform Adapter 可以为 HAL 回调保留硬件单例，但该状态不能向上泄漏为应用级活动对象。
+
 硬性规则：
 
 - `domain/` 不包含 STM32 HAL、CMSIS 外设寄存器、CubeMX 生成头文件、USB 或 CAN 头文件。
@@ -336,7 +359,9 @@ ISR 仅把定长帧放入静态环形队列。任何协议写操作都返回明�
 - `ParameterService` 统一校验电机配置的有限值、范围、单位和跨字段约束；CAN/USB 不再各自维护一份规则。
 - `TelemetryService` 在 1 kHz 监督节拍发布双缓冲不可变快照；CAN 查询和 USB 五通道打印不再读取或保存电机控制运行时字段地址。
 - `CanConfigurationService` 和 `CanResponseService` 通过 Port 访问 CAN 接口私有状态；Router 不包含 `interface_can.h`，也不直接调用 Transport。
+- CAN 与 USB Router 共同依赖一个由组合根注入的 `ApplicationEndpoints`，协议层不再分别维护一套应用服务定位关系。
 - `FirmwareComposition` 是 ADC、1 kHz、CAN、USB 与后台任务的统一入口；周期中断只在全部 ISR 可见 Context 初始化完成后启用。
+- Application、Communication 和 Runtime 已移除 `ActiveContext`、`ActiveRuntime`、`ActiveState` 一类隐式单例；生命周期、故障、参数、遥测、接口和指示灯调用链均显式携带 Context。
 - 控制算法只写 `MotorControlTargets`，不再把速度环、位置环或标定派生的电流参考回写到 `MotorCommand`。
 - 电流零偏和相电阻先形成独立结果，由 Application 校验，再经配置候选邮箱在 20 kHz 安全点整对象提交；过程算法不直接改写生效配置。
 - `DiagnosticService` 发布复位原因、故障现场与 DWT 统计的 20 kHz 最大周期/超限次数；RTT 仅作为 Platform 后台 Transport。

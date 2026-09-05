@@ -129,8 +129,11 @@ typedef struct
 } TelemetryServiceContext;
 
 bool TelemetryService_Initialize(TelemetryServiceContext *context);
-void TelemetryService_Publish(const MotorTelemetrySnapshot *snapshot);
-bool TelemetryService_ReadSnapshot(MotorTelemetrySnapshot *snapshot);
-bool TelemetryService_ReadValue(MotorTelemetryId telemetry, float *value);
+void TelemetryService_Publish(TelemetryServiceContext *context,
+	const MotorTelemetrySnapshot *snapshot);
+bool TelemetryService_ReadSnapshot(const TelemetryServiceContext *context,
+	MotorTelemetrySnapshot *snapshot);
+bool TelemetryService_ReadValue(const TelemetryServiceContext *context,
+	MotorTelemetryId telemetry, float *value);
 
 #endif

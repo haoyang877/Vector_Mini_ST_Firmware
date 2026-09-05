@@ -3,12 +3,10 @@
 #include <math.h>
 #define TWO_PI                       6.28318530717958647692f
 
-static ParameterServiceContext *ActiveContext;
-
-#define ConfigurationPort (ActiveContext->port)
-#define ConfigurationPortInitialized (ActiveContext != 0 && ActiveContext->is_initialized)
-#define ActiveBoardProfile (ActiveContext->board_profile)
-#define ActiveMotorProfile (ActiveContext->motor_profile)
+#define ConfigurationPort (context->port)
+#define ConfigurationPortInitialized (context != 0 && context->is_initialized)
+#define ActiveBoardProfile (context->board_profile)
+#define ActiveMotorProfile (context->motor_profile)
 
 bool ParameterService_Initialize(ParameterServiceContext *context,
 	const MotorConfigurationPort *port,
@@ -22,7 +20,6 @@ bool ParameterService_Initialize(ParameterServiceContext *context,
 	context->board_profile = board_profile;
 	context->motor_profile = motor_profile;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
@@ -32,7 +29,7 @@ static bool ParameterService_IsInRange(float value, float minimum, float maximum
 }
 
 ParameterServiceResult ParameterService_WriteMotorParameter(
-	MotorParameterId parameter, float value)
+	ParameterServiceContext *context, MotorParameterId parameter, float value)
 {
 	float speed_limit;
 
@@ -150,7 +147,8 @@ ParameterServiceResult ParameterService_WriteMotorParameter(
 }
 
 ParameterServiceResult ParameterService_ReadMotorParameter(
-	MotorParameterId parameter, float *value)
+	const ParameterServiceContext *context, MotorParameterId parameter,
+	float *value)
 {
 	if (value == 0)
 		return PARAMETER_SERVICE_INVALID_VALUE;

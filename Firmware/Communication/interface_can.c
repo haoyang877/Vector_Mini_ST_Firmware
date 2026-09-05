@@ -4,25 +4,28 @@
 #include "can_command_router.h"
 #include "communication_watchdog_service.h"
 
+#include <string.h>
+
 #define PROTOCOL_MODE_CURRENT              1
 #define PROTOCOL_MODE_SPEED                2
 #define PROTOCOL_MODE_POSITION             3
 #define PROTOCOL_MODE_POSITION_IMPEDANCE  18
 
-static CanInterfaceContext *ActiveContext;
-#define CANContext (*ActiveContext)
-#define CANRxQueue (ActiveContext->receive_queue)
-#define CANRxQueueWriteIndex (ActiveContext->receive_write_index)
-#define CANRxQueueReadIndex (ActiveContext->receive_read_index)
-#define CANDisconnectClearPending (ActiveContext->disconnect_clear_pending)
-#define CANTransport (ActiveContext->transport)
-#define CANTransportInitialized (ActiveContext->transport_is_initialized)
+#define CANContext (*context)
+#define CANRxQueue (context->receive_queue)
+#define CANRxQueueWriteIndex (context->receive_write_index)
+#define CANRxQueueReadIndex (context->receive_read_index)
+#define CANDisconnectClearPending (context->disconnect_clear_pending)
+#define CANTransport (context->transport)
+#define CANTransportInitialized (context->transport_is_initialized)
 #define CAN_RX_QUEUE_CAPACITY CAN_INTERFACE_RX_QUEUE_CAPACITY
 #define CANReceivedCommand CanReceivedCommand
 
-static bool CanInterface_SetNodeId(void *context, uint8_t node_id)
+static bool CanInterface_SetNodeId(void *raw_context, uint8_t node_id)
 {
-	(void)context;
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	if (context == 0)
+		return false;
 	if (node_id > 7U)
 		return false;
 	if (CANTransportInitialized && CANContext.node_id != node_id &&
@@ -32,16 +35,20 @@ static bool CanInterface_SetNodeId(void *context, uint8_t node_id)
 	return true;
 }
 
-static uint8_t CanInterface_GetNodeId(void *context)
+static uint8_t CanInterface_GetNodeId(void *raw_context)
 {
-	(void)context;
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	if (context == 0)
+		return 0U;
 	return CANContext.node_id;
 }
 
-static bool CanInterface_SetBitrateKbps(void *context,
+static bool CanInterface_SetBitrateKbps(void *raw_context,
 	uint32_t bitrate_kbps)
 {
-	(void)context;
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	if (context == 0)
+		return false;
 	if (CANTransportInitialized && CANTransport.maximum_bitrate_kbps != 0U &&
 		bitrate_kbps > CANTransport.maximum_bitrate_kbps)
 		return false;
@@ -63,16 +70,20 @@ static bool CanInterface_SetBitrateKbps(void *context,
 	}
 }
 
-static uint32_t CanInterface_GetBitrateKbps(void *context)
+static uint32_t CanInterface_GetBitrateKbps(void *raw_context)
 {
-	(void)context;
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	if (context == 0)
+		return 0U;
 	return CANContext.baudrate;
 }
 
-static bool CanInterface_SetHeartbeatMs(void *context,
+static bool CanInterface_SetHeartbeatMs(void *raw_context,
 	uint32_t heartbeat_ms)
 {
-	(void)context;
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	if (context == 0)
+		return false;
 	if (heartbeat_ms != 0U &&
 		(heartbeat_ms < 500U || heartbeat_ms > 1000U))
 		return false;
@@ -86,9 +97,11 @@ static bool CanInterface_SetHeartbeatMs(void *context,
 	return true;
 }
 
-static uint32_t CanInterface_GetHeartbeatMs(void *context)
+static uint32_t CanInterface_GetHeartbeatMs(void *raw_context)
 {
-	(void)context;
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	if (context == 0)
+		return 0U;
 	return CANContext.heartbeat_timeout_ms;
 }
 
@@ -97,7 +110,6 @@ CanConfigurationPort CanInterface_CreateConfigurationPort(
 {
 	CanConfigurationPort port;
 
-	ActiveContext = context;
 	port.context = context;
 	port.set_node_id = CanInterface_SetNodeId;
 	port.get_node_id = CanInterface_GetNodeId;
@@ -116,11 +128,12 @@ CanConfigurationPort CanInterface_CreateConfigurationPort(
 	* @brief  FDCAN1 Filter Init
 			  Standard ID, Range Mode
  **/
-void CanInterface_ApplyConfiguredBitrate(void)
+void CanInterface_ApplyConfiguredBitrate(CanInterfaceContext *context,
+	CommunicationWatchdogServiceContext *watchdog)
 {
-	if (!CANTransportInitialized ||
+	if (context == 0 || !CANTransportInitialized ||
 		!CANTransport.initialize(CANTransport.context, CANContext.node_id))
-		(void)CommunicationWatchdogService_ReportDisconnected();
+		(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
 }
 
 bool CanInterface_Initialize(CanInterfaceContext *context,
@@ -131,7 +144,7 @@ bool CanInterface_Initialize(CanInterfaceContext *context,
 		transport->configure_bitrate_kbps == 0 || transport->receive == 0 ||
 		transport->transmit == 0)
 		return false;
-	ActiveContext = context;
+	memset(context, 0, sizeof(*context));
 	CANTransport = *transport;
 	CANTransportInitialized = true;
 	CANContext.baudrate = 1000U;
@@ -142,12 +155,17 @@ bool CanInterface_Initialize(CanInterfaceContext *context,
 /**
 	* @brief  Handle CAN heartbeat disconnect protection
  **/
-void CanInterface_UpdateWatchdog(void)
+void CanInterface_UpdateWatchdog(CanInterfaceContext *context,
+	const TelemetryServiceContext *telemetry,
+	CommunicationWatchdogServiceContext *watchdog)
 {
 	float mode_value = 0.0f;
 	int mode;
 
-	(void)TelemetryService_ReadValue(MOTOR_TELEMETRY_MODE, &mode_value);
+	if (context == 0)
+		return;
+	(void)TelemetryService_ReadValue(telemetry, MOTOR_TELEMETRY_MODE,
+		&mode_value);
 	mode = (int)mode_value;
 	CANContext.heartbeat_enabled = CANContext.heartbeat_timeout_ms != 0U &&
 		(mode == PROTOCOL_MODE_CURRENT || mode == PROTOCOL_MODE_SPEED ||
@@ -164,7 +182,7 @@ void CanInterface_UpdateWatchdog(void)
 			CANContext.heartbeat_timeout_ms &&
 			!CANContext.disconnect_reported)
 		{
-			(void)CommunicationWatchdogService_ReportDisconnected();
+			(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
 			CANContext.disconnect_reported = true;
 		}
 	}
@@ -179,13 +197,16 @@ void CanInterface_UpdateWatchdog(void)
 /**
 	* @brief  Switch CAN baudrate when baudrate setting changes
  **/
-void CanInterface_ApplyPendingBitrate(void)
+void CanInterface_ApplyPendingBitrate(CanInterfaceContext *context,
+	CommunicationWatchdogServiceContext *watchdog)
 {
+	if (context == 0)
+		return;
 	if(CANContext.configured_bitrate != CANContext.baudrate)
     {
 		if (!CANTransport.configure_bitrate_kbps(CANTransport.context,
 			CANContext.baudrate))
-			(void)CommunicationWatchdogService_ReportDisconnected();
+			(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
 		else
 			CANContext.configured_bitrate = CANContext.baudrate;
 	}
@@ -210,12 +231,15 @@ void CanInterface_ApplyPendingBitrate(void)
 	* @param  param_id: CAN parameter id
 	* @param  data: CAN transmit data
  **/
-static bool CanInterface_QueueResponse(void *context, uint8_t parameter_id, float data)
+static bool CanInterface_QueueResponse(void *raw_context,
+	uint8_t parameter_id, float data)
 {
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
 	CanTransportFrame frame;
 	CanParameterId param_id = (CanParameterId)parameter_id;
 
-	(void)context;
+	if (context == 0)
+		return false;
 
 	if (!CanProtocolV1_Encode(CANContext.node_id, (uint8_t)param_id,
 		data, &frame))
@@ -230,7 +254,6 @@ CanResponsePort CanInterface_CreateResponsePort(CanInterfaceContext *context)
 {
 	CanResponsePort port;
 
-	ActiveContext = context;
 	port.context = context;
 	port.queue_response = CanInterface_QueueResponse;
 	return port;
@@ -240,13 +263,13 @@ CanResponsePort CanInterface_CreateResponsePort(CanInterfaceContext *context)
 	* @brief  CAN Rx interrupt Handle
 			  extract param id and data from mail box
  **/
-void CanInterface_OnReceiveInterrupt(void)
+void CanInterface_OnReceiveInterrupt(CanInterfaceContext *context)
 {
 	CanTransportFrame frame;
 	CanProtocolV1Command decoded;
 	uint8_t next_write_index;
 
-	if (!CANTransportInitialized ||
+	if (context == 0 || !CANTransportInitialized ||
 		!CANTransport.receive(CANTransport.context, &frame))
 		return;
 	if (!CanProtocolV1_Decode(&frame, CANContext.node_id, &decoded))
@@ -271,14 +294,18 @@ void CanInterface_OnReceiveInterrupt(void)
 	}
 }
 
-void CanInterface_ProcessReceivedFrames(void)
+void CanInterface_ProcessReceivedFrames(CanInterfaceContext *context,
+	CanCommandRouterContext *router,
+	CommunicationWatchdogServiceContext *watchdog)
 {
 	CANReceivedCommand command;
+	if (context == 0 || router == 0)
+		return;
 
 	if (CANDisconnectClearPending != 0U)
 	{
 		CANDisconnectClearPending = 0U;
-		(void)CommunicationWatchdogService_ReportFrameReceived();
+		(void)CommunicationWatchdogService_ReportFrameReceived(watchdog);
 	}
 
 	if (CANRxQueueReadIndex == CANRxQueueWriteIndex)
@@ -287,18 +314,18 @@ void CanInterface_ProcessReceivedFrames(void)
 	command = CANRxQueue[CANRxQueueReadIndex];
 	CANRxQueueReadIndex = (uint8_t)((CANRxQueueReadIndex + 1U) %
 		CAN_RX_QUEUE_CAPACITY);
-	CanCommandRouter_Handle(command.parameter, command.value);
+	CanCommandRouter_Handle(router, command.parameter, command.value);
 }
 
 /**
 	* @brief  CAN Tx function
 			  use ExtId, DLC length 4
  **/
-void CanInterface_FlushTransmit(void)
+void CanInterface_FlushTransmit(CanInterfaceContext *context)
 {
 	CanTransportFrame frame;
 
-	if(!CANContext.transmit_pending)
+	if (context == 0 || !CANContext.transmit_pending)
 		return;
 	if (!CANTransportInitialized)
 		return;

@@ -1,9 +1,5 @@
 #include "can_response_service.h"
 
-static CanResponseServiceContext *ActiveContext;
-#define ResponsePort (ActiveContext->port)
-#define ResponsePortInitialized (ActiveContext != 0 && ActiveContext->is_initialized)
-
 bool CanResponseService_Initialize(CanResponseServiceContext *context,
 	const CanResponsePort *port)
 {
@@ -11,12 +7,12 @@ bool CanResponseService_Initialize(CanResponseServiceContext *context,
 		return false;
 	context->port = *port;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
-bool CanResponseService_Queue(uint8_t parameter_id, float value)
+bool CanResponseService_Queue(CanResponseServiceContext *context,
+	uint8_t parameter_id, float value)
 {
-	return ResponsePortInitialized &&
-		ResponsePort.queue_response(ResponsePort.context, parameter_id, value);
+	return context != 0 && context->is_initialized &&
+		context->port.queue_response(context->port.context, parameter_id, value);
 }

@@ -11,13 +11,14 @@ typedef struct
 	ParameterSnapshot transfer_buffer;
 	ParameterManagerContext manager;
 	ParameterStorePort store;
+	ParameterSnapshotContext *snapshot;
 	bool manager_is_initialized;
 } ParameterPersistenceAdapterContext;
 
 bool ParameterPersistenceAdapter_Initialize(
 	ParameterPersistenceAdapterContext *context,
-	const ParameterStorePort *store);
-bool ParameterPersistenceAdapter_Save(void);
-void ParameterPersistenceAdapter_Load(void);
+	const ParameterStorePort *store, ParameterSnapshotContext *snapshot);
+bool ParameterPersistenceAdapter_Save(ParameterPersistenceAdapterContext *context);
+void ParameterPersistenceAdapter_Load(ParameterPersistenceAdapterContext *context);
 
 #endif

@@ -1,9 +1,5 @@
 #include "can_configuration_service.h"
 
-static CanConfigurationServiceContext *ActiveContext;
-#define ConfigurationPort (ActiveContext->port)
-#define ConfigurationPortInitialized (ActiveContext != 0 && ActiveContext->is_initialized)
-
 bool CanConfigurationService_Initialize(CanConfigurationServiceContext *context,
 	const CanConfigurationPort *port)
 {
@@ -13,44 +9,49 @@ bool CanConfigurationService_Initialize(CanConfigurationServiceContext *context,
 		return false;
 	context->port = *port;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
-bool CanConfigurationService_SetNodeId(uint8_t node_id)
+bool CanConfigurationService_SetNodeId(CanConfigurationServiceContext *context,
+	uint8_t node_id)
 {
-	return ConfigurationPortInitialized &&
-		ConfigurationPort.set_node_id(ConfigurationPort.context, node_id);
+	return context != 0 && context->is_initialized &&
+		context->port.set_node_id(context->port.context, node_id);
 }
 
-uint8_t CanConfigurationService_GetNodeId(void)
+uint8_t CanConfigurationService_GetNodeId(
+	const CanConfigurationServiceContext *context)
 {
-	return ConfigurationPortInitialized ?
-		ConfigurationPort.get_node_id(ConfigurationPort.context) : 0U;
+	return context != 0 && context->is_initialized ?
+		context->port.get_node_id(context->port.context) : 0U;
 }
 
-bool CanConfigurationService_SetBitrateKbps(uint32_t bitrate_kbps)
+bool CanConfigurationService_SetBitrateKbps(
+	CanConfigurationServiceContext *context, uint32_t bitrate_kbps)
 {
-	return ConfigurationPortInitialized &&
-		ConfigurationPort.set_bitrate_kbps(ConfigurationPort.context,
+	return context != 0 && context->is_initialized &&
+		context->port.set_bitrate_kbps(context->port.context,
 			bitrate_kbps);
 }
 
-uint32_t CanConfigurationService_GetBitrateKbps(void)
+uint32_t CanConfigurationService_GetBitrateKbps(
+	const CanConfigurationServiceContext *context)
 {
-	return ConfigurationPortInitialized ?
-		ConfigurationPort.get_bitrate_kbps(ConfigurationPort.context) : 0U;
+	return context != 0 && context->is_initialized ?
+		context->port.get_bitrate_kbps(context->port.context) : 0U;
 }
 
-bool CanConfigurationService_SetHeartbeatMs(uint32_t heartbeat_ms)
+bool CanConfigurationService_SetHeartbeatMs(
+	CanConfigurationServiceContext *context, uint32_t heartbeat_ms)
 {
-	return ConfigurationPortInitialized &&
-		ConfigurationPort.set_heartbeat_ms(ConfigurationPort.context,
+	return context != 0 && context->is_initialized &&
+		context->port.set_heartbeat_ms(context->port.context,
 			heartbeat_ms);
 }
 
-uint32_t CanConfigurationService_GetHeartbeatMs(void)
+uint32_t CanConfigurationService_GetHeartbeatMs(
+	const CanConfigurationServiceContext *context)
 {
-	return ConfigurationPortInitialized ?
-		ConfigurationPort.get_heartbeat_ms(ConfigurationPort.context) : 0U;
+	return context != 0 && context->is_initialized ?
+		context->port.get_heartbeat_ms(context->port.context) : 0U;
 }

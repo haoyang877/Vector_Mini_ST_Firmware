@@ -10,7 +10,7 @@ typedef struct
 	bool use_brs;
 } CanFdcan1TransportContext;
 
-static CanFdcan1TransportContext ActiveContext;
+static CanFdcan1TransportContext CanFdcan1State;
 
 static bool CanFdcan1Transport_ConfigureReception(
 	CanFdcan1TransportContext *transport)
@@ -137,11 +137,11 @@ static bool CanFdcan1Transport_Transmit(void *context,
 CanTransportPort CanFdcan1Transport_CreatePort(bool use_fd, bool use_brs)
 {
 	CanTransportPort port;
-	ActiveContext.handle = &hfdcan1;
-	ActiveContext.node_id = 0U;
-	ActiveContext.use_fd = use_fd;
-	ActiveContext.use_brs = use_fd && use_brs;
-	port.context = &ActiveContext;
+	CanFdcan1State.handle = &hfdcan1;
+	CanFdcan1State.node_id = 0U;
+	CanFdcan1State.use_fd = use_fd;
+	CanFdcan1State.use_brs = use_fd && use_brs;
+	port.context = &CanFdcan1State;
 	port.maximum_bitrate_kbps = use_fd ? 5000U : 1000U;
 	port.initialize = CanFdcan1Transport_Initialize;
 	port.configure_node_id = CanFdcan1Transport_ConfigureNodeId;

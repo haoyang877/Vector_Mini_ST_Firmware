@@ -1,5 +1,19 @@
 # 重构验证记录
 
+## 2026-09-05：显式 Context 与应用端点收敛
+
+- Application、Communication、Runtime 中的活动实例指针已全部移除；`MotorStateContext`、`MotorControlRuntimeContext`、Supervisor、CAN/USB Interface、Router、参数快照/持久化以及各 Application Service 均由调用链显式传入。
+- CAN/USB Router 通过同一个 `ApplicationEndpoints` 访问命令、参数、遥测、CAN 配置、转子标定和摩擦辨识用例；CAN 响应端口仍保持为 CAN Router 私有依赖。
+- `tools/verify_architecture.ps1` 新增隐藏可变文件状态门禁，并加入双 `TelemetryServiceContext` 隔离测试源文件检查。
+- Keil ARMCC 5.06u7 对 126 个工程源文件执行全量重建：0 error、0 warning；镜像大小为 Code 104700、RO-data 6072、RW-data 456、ZI-data 29240 bytes。
+- 10 个 `tests/host/*.c` 已使用 ARMCC 完成独立语法编译；本机没有可用的 Windows 原生 C 测试运行器，因此未把该项描述为主机运行通过。
+- J-Link 已完成 112640-byte 镜像 Program/Verify；复位后 USB 只读检查为 mode=0、error=0、Vbus=27.81 V、TLE5012B Online、CAN node=0、1000 kbit/s、heartbeat=500 ms。
+- CANalyst-II Classic CAN 只读冒烟连续查询 20 次全部通过，接收/发送错误计数均为 0；测试未发送电流、速度或位置使能命令。
+- CANalyst-II 全协议回归 106/106 通过，覆盖零电流、零速、当前位置保持、参数写回、节点/波特率切换、异常帧拒绝和心跳保护；结束后回到 mode 0/error 0。
+- 20 kHz 快环运行计数持续增长；实测最大 4357/8500 cycles（51.3% 周期预算）、最新 4191 cycles，deadline 超限计数为 0。
+
+未关闭项：非零速度 USB 回归未形成有效闭环证据。第一次运行因之前 CAN 会话留下的 500 ms 心跳租约触发 `MOTOR_FAULT_CAN_DISCONNECTED`；关闭 CAN 心跳后再次运行时，USB CDC 在带转矩状态下停止应答。已立即通过 J-Link 复位恢复，最终复核 mode 0、error 0、Vbus 27.80 V，电流限值 6 A、速度加减速 50 r/s2、CAN 心跳 500 ms 均恢复。需单独定位控制权/心跳归属以及带载时 USB 抗扰或 CDC 活性，不能把该项记为闭环通过。
+
 ## Phase 0：2026-09-04 基线
 
 - 基线提交：`c747b93`；保留已有用户工作树改动。

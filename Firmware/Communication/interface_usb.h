@@ -8,6 +8,11 @@
 #include "usb_protocol_contract.h"
 #include "usb_protocol_v1.h"
 #include "byte_ring_buffer.h"
+#include "can_configuration_service.h"
+#include "friction_identification_service.h"
+#include "rotor_calibration_service.h"
+#include "telemetry_service.h"
+#include "usb_command_router.h"
 
 #define USB_COMMAND_MIN_LENGTH 8U
 #define USB_INTERFACE_TEXT_CAPACITY 80U
@@ -43,10 +48,16 @@ typedef struct
 
 bool UsbInterface_Initialize(UsbInterfaceContext *context,
 	const ByteTransportPort *transport, const MonotonicClockPort *clock);
-void UsbInterface_OnReceiveInterrupt(const uint8_t *data, uint32_t length);
-void UsbInterface_ProcessReceivedCommands(void);
-void UsbInterface_OnTransmitCompleteInterrupt(void);
-void UsbInterface_FlushTransmit(void);
-void UsbInterface_UpdateTelemetryStream(void);
+void UsbInterface_OnReceiveInterrupt(UsbInterfaceContext *context,
+	const uint8_t *data, uint32_t length);
+void UsbInterface_ProcessReceivedCommands(UsbInterfaceContext *context,
+	UsbCommandRouterContext *router);
+void UsbInterface_OnTransmitCompleteInterrupt(UsbInterfaceContext *context);
+void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
+	const FrictionIdentificationServiceContext *friction,
+	const RotorCalibrationServiceContext *rotor_calibration);
+void UsbInterface_UpdateTelemetryStream(UsbInterfaceContext *context,
+	const TelemetryServiceContext *telemetry,
+	const CanConfigurationServiceContext *can_configuration);
 
 #endif

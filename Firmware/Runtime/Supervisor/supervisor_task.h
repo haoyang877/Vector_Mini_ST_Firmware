@@ -5,6 +5,13 @@
 #include <stdint.h>
 #include "diagnostic_transport_port.h"
 #include "motor_control_runtime.h"
+#include "interface_can.h"
+#include "interface_usb.h"
+#include "communication_watchdog_service.h"
+#include "can_configuration_service.h"
+#include "telemetry_service.h"
+#include "led.h"
+#include "rgb.h"
 
 typedef struct
 {
@@ -16,12 +23,26 @@ typedef struct
 	volatile uint8_t published_diagnostic_buffer;
 	volatile bool diagnostic_pending;
 	DiagnosticTransportPort diagnostic_transport;
+	MotorControlRuntimeContext *motor_control;
+	TelemetryServiceContext *telemetry;
+	CanInterfaceContext *can_interface;
+	UsbInterfaceContext *usb_interface;
+	CommunicationWatchdogServiceContext *communication_watchdog;
+	CanConfigurationServiceContext *can_configuration;
+	LedServiceContext *led;
+	RgbServiceContext *rgb;
 	bool is_initialized;
 } SupervisorTaskContext;
 
 bool SupervisorTask_Initialize(SupervisorTaskContext *context,
-	const DiagnosticTransportPort *diagnostic_transport);
-void SupervisorTask_Execute1kHz(void);
-void SupervisorTask_RunBackground(void);
+	const DiagnosticTransportPort *diagnostic_transport,
+	MotorControlRuntimeContext *motor_control,
+	TelemetryServiceContext *telemetry, CanInterfaceContext *can_interface,
+	UsbInterfaceContext *usb_interface,
+	CommunicationWatchdogServiceContext *communication_watchdog,
+	CanConfigurationServiceContext *can_configuration,
+	LedServiceContext *led, RgbServiceContext *rgb);
+void SupervisorTask_Execute1kHz(SupervisorTaskContext *context);
+void SupervisorTask_RunBackground(SupervisorTaskContext *context);
 
 #endif

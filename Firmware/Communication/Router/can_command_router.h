@@ -2,7 +2,18 @@
 #define COMMUNICATION_CAN_COMMAND_ROUTER_H
 
 #include "can_protocol_v1.h"
+#include "application_endpoints.h"
+#include "can_response_service.h"
 
-void CanCommandRouter_Handle(CanParameterId parameter_id, float value);
+typedef struct
+{
+	ApplicationEndpoints *application;
+	CanResponseServiceContext *response;
+} CanCommandRouterContext;
+
+bool CanCommandRouter_Initialize(CanCommandRouterContext *context,
+	ApplicationEndpoints *application, CanResponseServiceContext *response);
+void CanCommandRouter_Handle(CanCommandRouterContext *context,
+	CanParameterId parameter_id, float value);
 
 #endif

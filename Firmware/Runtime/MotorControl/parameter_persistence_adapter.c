@@ -6,31 +6,32 @@
 #include "parameter_manager.h"
 #include "product_manifest.h"
 
-static ParameterPersistenceAdapterContext *ActiveContext;
-#define ParameterTransferBuffer (ActiveContext->transfer_buffer)
-#define ParameterManager (ActiveContext->manager)
-#define ParameterStore (ActiveContext->store)
-#define ParameterManagerInitialized (ActiveContext->manager_is_initialized)
+#define ParameterTransferBuffer (context->transfer_buffer)
+#define ParameterManager (context->manager)
+#define ParameterStore (context->store)
+#define ParameterSnapshotRuntime (context->snapshot)
+#define ParameterManagerInitialized (context->manager_is_initialized)
 
 bool ParameterPersistenceAdapter_Initialize(
 	ParameterPersistenceAdapterContext *context,
-	const ParameterStorePort *store)
+	const ParameterStorePort *store, ParameterSnapshotContext *snapshot)
 {
 	if (context == 0 || store == 0 || store->read == 0 ||
-		store->erase == 0 || store->program == 0)
+		store->erase == 0 || store->program == 0 || snapshot == 0)
 		return false;
 	context->store = *store;
+	context->snapshot = snapshot;
 	context->manager_is_initialized = false;
-	ActiveContext = context;
 	return true;
 }
 
-static bool ParameterPersistenceAdapter_InitializeManager(void)
+static bool ParameterPersistenceAdapter_InitializeManager(
+	ParameterPersistenceAdapterContext *context)
 {
 	ParameterCompatibility compatibility;
 	const ProductManifest *manifest;
 
-	if (ActiveContext == 0)
+	if (context == 0)
 		return false;
 	if (ParameterManagerInitialized)
 		return true;
@@ -47,25 +48,25 @@ static bool ParameterPersistenceAdapter_InitializeManager(void)
 	return true;
 }
 
-bool ParameterPersistenceAdapter_Save(void)
+bool ParameterPersistenceAdapter_Save(ParameterPersistenceAdapterContext *context)
 {
-	if (!ParameterPersistenceAdapter_InitializeManager())
+	if (!ParameterPersistenceAdapter_InitializeManager(context))
 		return false;
-	ParameterSnapshot_Capture(&ParameterTransferBuffer);
+	ParameterSnapshot_Capture(ParameterSnapshotRuntime, &ParameterTransferBuffer);
 	ParameterTransferBuffer.magic_word = PARAMETER_SNAPSHOT_MAGIC;
 	return ParameterManager_Save(&ParameterManager, &ParameterTransferBuffer);
 }
 
-void ParameterPersistenceAdapter_Load(void)
+void ParameterPersistenceAdapter_Load(ParameterPersistenceAdapterContext *context)
 {
-	if (!ParameterPersistenceAdapter_InitializeManager())
+	if (!ParameterPersistenceAdapter_InitializeManager(context))
 	{
-		ParameterSnapshot_LoadDefaults();
+		ParameterSnapshot_LoadDefaults(ParameterSnapshotRuntime);
 		return;
 	}
 	if (ParameterManager_Load(&ParameterManager, &ParameterTransferBuffer))
 	{
-		ParameterSnapshot_Apply(&ParameterTransferBuffer);
+		ParameterSnapshot_Apply(ParameterSnapshotRuntime, &ParameterTransferBuffer);
 		return;
 	}
 	memset(&ParameterTransferBuffer, 0, sizeof(ParameterTransferBuffer));
@@ -73,13 +74,13 @@ void ParameterPersistenceAdapter_Load(void)
 		&ParameterTransferBuffer, PARAM_SCHEMA_VERSION_PREVIOUS_FRICTION,
 		offsetof(ParameterSnapshot, friction_coulomb_pos_a)))
 	{
-		ParameterSnapshot_Apply(&ParameterTransferBuffer);
+		ParameterSnapshot_Apply(ParameterSnapshotRuntime, &ParameterTransferBuffer);
 		return;
 	}
 	if (ParameterStore.read_previous_format == 0 ||
 		!ParameterStore.read_previous_format(ParameterStore.context,
 			&ParameterTransferBuffer, sizeof(ParameterTransferBuffer)))
-		ParameterSnapshot_LoadDefaults();
+		ParameterSnapshot_LoadDefaults(ParameterSnapshotRuntime);
 	else
-		ParameterSnapshot_Apply(&ParameterTransferBuffer);
+		ParameterSnapshot_Apply(ParameterSnapshotRuntime, &ParameterTransferBuffer);
 }

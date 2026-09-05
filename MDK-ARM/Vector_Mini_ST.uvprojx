@@ -515,6 +515,11 @@
           <GroupName>Firmware/Application</GroupName>
           <Files>
             <File>
+              <FileName>application_endpoints.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Application\application_endpoints.c</FilePath>
+            </File>
+            <File>
               <FileName>fault_manager.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\fault_manager.c</FilePath>

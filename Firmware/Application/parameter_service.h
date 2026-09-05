@@ -27,10 +27,9 @@ bool ParameterService_Initialize(ParameterServiceContext *context,
 	const MotorConfigurationPort *port,
 	const BoardProfile *board_profile, const MotorProfile *motor_profile);
 ParameterServiceResult ParameterService_WriteMotorParameter(
-	MotorParameterId parameter,
-	float value);
+	ParameterServiceContext *context, MotorParameterId parameter, float value);
 ParameterServiceResult ParameterService_ReadMotorParameter(
-	MotorParameterId parameter,
+	const ParameterServiceContext *context, MotorParameterId parameter,
 	float *value);
 
 #endif

@@ -1,9 +1,5 @@
 #include "rotor_calibration_service.h"
 
-static RotorCalibrationServiceContext *ActiveContext;
-#define CalibrationPort (ActiveContext->port)
-#define CalibrationPortInitialized (ActiveContext != 0 && ActiveContext->is_initialized)
-
 bool RotorCalibrationService_Initialize(RotorCalibrationServiceContext *context,
 	const RotorCalibrationPort *port)
 {
@@ -14,31 +10,35 @@ bool RotorCalibrationService_Initialize(RotorCalibrationServiceContext *context,
 
 	context->port = *port;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
-bool RotorCalibrationService_SetReverse(bool reverse)
+bool RotorCalibrationService_SetReverse(RotorCalibrationServiceContext *context,
+	bool reverse)
 {
-	return CalibrationPortInitialized &&
-		CalibrationPort.set_reverse(CalibrationPort.context, reverse);
+	return context != 0 && context->is_initialized &&
+		context->port.set_reverse(context->port.context, reverse);
 }
 
-uint16_t RotorCalibrationService_GetEntryCount(void)
+uint16_t RotorCalibrationService_GetEntryCount(
+	const RotorCalibrationServiceContext *context)
 {
-	return CalibrationPortInitialized ? CalibrationPort.entry_count : 0U;
+	return context != 0 && context->is_initialized ?
+		context->port.entry_count : 0U;
 }
 
-uint32_t RotorCalibrationService_GetCountsPerRevolution(void)
+uint32_t RotorCalibrationService_GetCountsPerRevolution(
+	const RotorCalibrationServiceContext *context)
 {
-	return CalibrationPortInitialized ?
-		CalibrationPort.counts_per_revolution : 0U;
+	return context != 0 && context->is_initialized ?
+		context->port.counts_per_revolution : 0U;
 }
 
-bool RotorCalibrationService_ReadEntry(uint16_t index,
+bool RotorCalibrationService_ReadEntry(
+	const RotorCalibrationServiceContext *context, uint16_t index,
 	RotorCalibrationEntry *entry)
 {
-	return CalibrationPortInitialized && entry != 0 &&
-		index < CalibrationPort.entry_count &&
-		CalibrationPort.read_entry(CalibrationPort.context, index, entry);
+	return context != 0 && context->is_initialized && entry != 0 &&
+		index < context->port.entry_count &&
+		context->port.read_entry(context->port.context, index, entry);
 }

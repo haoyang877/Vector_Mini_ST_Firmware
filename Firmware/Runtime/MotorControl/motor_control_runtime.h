@@ -30,6 +30,8 @@
 #include "mechanical_load_profiles.h"
 #include "monotonic_clock_port.h"
 #include "execution_timer_port.h"
+#include "can_configuration_service.h"
+#include "telemetry_service.h"
 
 typedef struct
 {
@@ -81,7 +83,8 @@ typedef struct
 	ServiceProcedure previous_service_procedure;
 } MotorControlRuntimeContext;
 
-void MotorControlRuntime_Initialize(PowerStageContext *power_stage,
+void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
+	PowerStageContext *power_stage,
 	const MeasurementPort *measurement_port,
 	const RotorSensorPort *rotor_sensor_port,
 	const CriticalSectionPort *critical_section_port);
@@ -91,15 +94,23 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 	const ControlTuningProfile *tuning_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,
 	const MonotonicClockPort *monotonic_clock,
-	const ExecutionTimerPort *execution_timer);
+	const ExecutionTimerPort *execution_timer,
+	CanConfigurationServiceContext *can_configuration);
 
-void MotorControlRuntime_ExecuteFastLoop(void);
-void MotorControlRuntime_PublishTelemetry(void);
-bool MotorControlRuntime_ReadDiagnosticFrame(MotorDiagnosticFrame *frame);
-bool MotorControlRuntime_ReadFastLoopMetrics(MotorFastLoopMetrics *metrics);
-RotorCalibrationPort MotorControlRuntime_CreateRotorCalibrationPort(void);
-MotorCommandPort MotorControlRuntime_CreateCommandPort(void);
-MotorConfigurationPort MotorControlRuntime_CreateConfigurationPort(void);
-FrictionIdentificationPort MotorControlRuntime_CreateFrictionIdentificationPort(void);
+void MotorControlRuntime_ExecuteFastLoop(MotorControlRuntimeContext *context);
+void MotorControlRuntime_PublishTelemetry(MotorControlRuntimeContext *context,
+	TelemetryServiceContext *telemetry);
+bool MotorControlRuntime_ReadDiagnosticFrame(
+	MotorControlRuntimeContext *context, MotorDiagnosticFrame *frame);
+bool MotorControlRuntime_ReadFastLoopMetrics(
+	const MotorControlRuntimeContext *context, MotorFastLoopMetrics *metrics);
+RotorCalibrationPort MotorControlRuntime_CreateRotorCalibrationPort(
+	MotorControlRuntimeContext *context);
+MotorCommandPort MotorControlRuntime_CreateCommandPort(
+	MotorControlRuntimeContext *context);
+MotorConfigurationPort MotorControlRuntime_CreateConfigurationPort(
+	MotorControlRuntimeContext *context);
+FrictionIdentificationPort MotorControlRuntime_CreateFrictionIdentificationPort(
+	MotorControlRuntimeContext *context);
 
 #endif

@@ -19,7 +19,7 @@ void ElectricalZeroCalibrationRuntime_Reset(
 void ElectricalZeroCalibrationRuntime_ExecuteStep(
 	ElectricalZeroCalibrationContext *context,
 	CurrentControlContext *current_control, MotorControlContext *motor,
-	EncoderContext *encoder)
+	EncoderContext *encoder, MotorStateContext *motor_state)
 {
 	float ramp_time_s;
 	float align_time_s;
@@ -30,7 +30,7 @@ void ElectricalZeroCalibrationRuntime_ExecuteStep(
 	if (context == 0 || current_control == 0 || motor == 0 || encoder == 0 ||
 		motor->tuning_profile == 0 || motor->mechanical_load_profile == 0)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		return;
 	}
 	if (context->completion_reported)
@@ -50,19 +50,19 @@ void ElectricalZeroCalibrationRuntime_ExecuteStep(
 
 	if (!Encoder_IsOnline(encoder))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 		ElectricalZeroCalibrationRuntime_Reset(context);
 		CurrentControlRuntime_ApplyHighSideZeroVector(current_control);
 		return;
 	}
 	if ((encoder->calib_flag & ENC_CALIB_LINEARIZED) == 0U)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
 		return;
 	}
 	if (align_current <= 0.0f || ramp_time_s <= 0.0f || hold_time_s <= 0.0f)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		return;
 	}
 	if (motor->configuration.current_limit_a > 0.0f &&
@@ -107,11 +107,11 @@ void ElectricalZeroCalibrationRuntime_ExecuteStep(
 		if (!calibrated)
 		{
 			ElectricalZeroCalibrationRuntime_Reset(context);
-			MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+			MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 			return;
 		}
 		context->completion_reported = true;
-		MotorLifecycle_ReportServiceComplete(true);
+	MotorLifecycle_ReportServiceComplete(motor_state, true);
 		return;
 	}
 	context->loop_count++;

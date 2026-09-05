@@ -6,8 +6,14 @@
 
 #include "usb_protocol_contract.h"
 #include "usb_protocol_v1.h"
+#include "application_endpoints.h"
 
 #define USB_COMMAND_ROUTER_RESPONSE_CAPACITY 80U
+
+typedef struct
+{
+	ApplicationEndpoints *application;
+} UsbCommandRouterContext;
 
 typedef struct
 {
@@ -34,7 +40,10 @@ typedef struct
 	float print_scale;
 } UsbCommandRouterResponse;
 
-UsbCommandError UsbCommandRouter_Handle(const UsbProtocolV1Command *command,
+bool UsbCommandRouter_Initialize(UsbCommandRouterContext *context,
+	ApplicationEndpoints *application);
+UsbCommandError UsbCommandRouter_Handle(UsbCommandRouterContext *context,
+	const UsbProtocolV1Command *command,
 	const UsbCommandRouterState *state, UsbCommandRouterResponse *response);
 
 #endif

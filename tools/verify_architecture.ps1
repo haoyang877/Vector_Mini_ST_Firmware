@@ -50,6 +50,7 @@ foreach ($requiredDocument in @(
 }
 
 foreach ($requiredTest in @(
+	'tests\host\context_isolation_tests.c',
     'tests\host\device_lifecycle_tests.c',
     'tests\host\fault_manager_tests.c',
 	'tests\host\friction_identification_tests.c',
@@ -66,6 +67,7 @@ foreach ($requiredTest in @(
 }
 
 foreach ($requiredImplementation in @(
+	'Firmware\Application\application_endpoints.c',
     'Firmware\Composition\firmware_composition.c',
     'Firmware\Communication\Protocol\can_protocol_v1.c',
     'Firmware\Communication\Protocol\usb_protocol_v1.c',
@@ -229,7 +231,12 @@ Add-Matches -Files $runtimeSources -Pattern '\bMotorExecutionAction\b|\bMOTOR_AC
 
 $applicationImplementationSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Application') -Recurse -File -Filter *.c |
     ForEach-Object FullName
-Add-Matches -Files $applicationImplementationSources -Pattern '^\s*static\s+(?!const\b)(?![A-Za-z_][A-Za-z0-9_\s\*]*\()(?![A-Za-z_][A-Za-z0-9_\s]*\*\s*Active)' -Description 'Application owns hidden mutable state instead of a Composition-injected Context'
+Add-Matches -Files $applicationImplementationSources -Pattern '^\s*static\s+(?!const\b)(?![A-Za-z_][A-Za-z0-9_\s\*]*\()' -Description 'Application owns hidden mutable state instead of a Composition-injected Context'
+
+$contextOwnedImplementationSources = @('Communication', 'Runtime') | ForEach-Object {
+    Get-ChildItem -LiteralPath (Join-Path $repositoryRoot "Firmware\$_") -Recurse -File -Filter *.c
+} | ForEach-Object FullName
+Add-Matches -Files $contextOwnedImplementationSources -Pattern '^\s*static\s+(?!const\b)(?![A-Za-z_][A-Za-z0-9_\s\*]*\()' -Description 'Communication or Runtime owns hidden mutable state instead of a Composition-injected Context'
 
 $controlLoopConfig = Join-Path $repositoryRoot 'Firmware\Product\control_loop_config.h'
 Add-Matches -Files @($controlLoopConfig) -Pattern '^\s*#define\s+(SENSORLESS_|ENCODER_)' -Description 'Product tuning remains a compile-time macro instead of a typed injected Profile'

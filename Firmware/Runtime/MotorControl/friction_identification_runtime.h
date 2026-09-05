@@ -15,6 +15,7 @@ typedef struct
 	FrictionIdentificationContext core;
 	MotorControlContext *motor;
 	MotorConfigurationAdapterContext *configuration_adapter;
+	MotorStateContext *motor_state;
 	CriticalSectionPort critical_section;
 	bool started;
 	bool port_initialized;
@@ -33,6 +34,7 @@ void FrictionIdentificationRuntime_Cancel(
 FrictionIdentificationPort FrictionIdentificationRuntime_CreatePort(
 	FrictionIdentificationRuntimeContext *context, MotorControlContext *motor,
 	MotorConfigurationAdapterContext *configuration_adapter,
-	const CriticalSectionPort *critical_section);
+	const CriticalSectionPort *critical_section,
+	MotorStateContext *motor_state);
 
 #endif

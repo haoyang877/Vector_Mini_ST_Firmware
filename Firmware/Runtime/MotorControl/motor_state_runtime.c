@@ -20,8 +20,7 @@ typedef enum
 	SERVICE_RESULT_FAILED
 } ServiceResult;
 
-static MotorStateContext *ActiveState;
-#define RuntimeBindings (ActiveState->bindings)
+#define RuntimeBindings (context->bindings)
 
 #define MotorControl       (*RuntimeBindings.motor)
 #define CurrentControl     (*RuntimeBindings.current_control)
@@ -31,7 +30,7 @@ static MotorStateContext *ActiveState;
 #define MotionControl      (*RuntimeBindings.motion_control)
 #define MotorCalibration   (*RuntimeBindings.motor_calibration)
 #define MotorLifecycle     (*RuntimeBindings.lifecycle)
-#define State              (*ActiveState)
+#define State              (*context)
 #define MotorFaultManager  (State.fault_manager)
 #define PendingLifecycleRequest (State.pending_lifecycle_request)
 #define PendingServiceResult (State.pending_service_result)
@@ -49,13 +48,14 @@ static MotorStateContext *ActiveState;
 #define LIFECYCLE_REQUEST_VALUE(request) ((uint8_t)(((request) >> 8U) & 0xFFU))
 #define SERVICE_TIMEOUT_1KHZ_TICKS 120000U
 
-static void MotorFaults_UpdateRuntimeProjection(void)
+static void MotorFaults_UpdateRuntimeProjection(MotorStateContext *context)
 {
 	MotorControl.runtime.primary_fault = (MotorFaultCode)
 		FaultManager_GetPrimaryFault(&MotorFaultManager);
 }
 
-static bool MotorLifecycle_ModeNeedsEncoder(MotorControlMode mode)
+static bool MotorLifecycle_ModeNeedsEncoder(const MotorStateContext *context,
+	MotorControlMode mode)
 {
 	if (mode == MOTOR_CONTROL_MODE_CURRENT)
 		return !MotorControl.configuration.use_sensorless_feedback;
@@ -74,14 +74,16 @@ static bool MotorLifecycle_ServiceNeedsEncoder(ServiceProcedure procedure)
 		procedure == SERVICE_PROCEDURE_SET_MECHANICAL_ZERO;
 }
 
-static bool MotorLifecycle_CheckControlPreconditions(MotorControlMode mode)
+static bool MotorLifecycle_CheckControlPreconditions(
+	MotorStateContext *context, MotorControlMode mode)
 {
 	if (mode <= MOTOR_CONTROL_MODE_NONE || mode > MOTOR_CONTROL_MODE_VQ ||
-		MotorFaults_HasActive())
+		MotorFaults_HasActive(context))
 		return false;
-	if (MotorLifecycle_ModeNeedsEncoder(mode) && !Encoder_IsOnline(&OnBoard_Encoder))
+	if (MotorLifecycle_ModeNeedsEncoder(context, mode) &&
+		!Encoder_IsOnline(&OnBoard_Encoder))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+		MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER);
 		return false;
 	}
 	if (mode == MOTOR_CONTROL_MODE_SENSORLESS_SPEED &&
@@ -92,41 +94,42 @@ static bool MotorLifecycle_CheckControlPreconditions(MotorControlMode mode)
 		 MotorControl.configuration.flux_weber <= 0.0f ||
 		 MotorControl.configuration.current_limit_a <= 0.0f))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(context, MOTOR_FAULT_INVALID_PARAMETER);
 		return false;
 	}
-	if (MotorLifecycle_ModeNeedsEncoder(mode) &&
+	if (MotorLifecycle_ModeNeedsEncoder(context, mode) &&
 		(OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
+		MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
 		return false;
 	}
 	return MotorLifecycle.device_state == DEVICE_STATE_STANDBY ||
 		MotorLifecycle.device_state == DEVICE_STATE_ACTIVE;
 }
 
-static bool MotorLifecycle_CheckServicePreconditions(ServiceProcedure procedure)
+static bool MotorLifecycle_CheckServicePreconditions(
+	MotorStateContext *context, ServiceProcedure procedure)
 {
 	if (procedure <= SERVICE_PROCEDURE_NONE || procedure >= SERVICE_PROCEDURE_COUNT ||
-		MotorFaults_HasActive())
+		MotorFaults_HasActive(context))
 		return false;
 	if (MotorLifecycle_ServiceNeedsEncoder(procedure) &&
 		!Encoder_IsOnline(&OnBoard_Encoder))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+		MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER);
 		return false;
 	}
 	if (procedure == SERVICE_PROCEDURE_FRICTION_IDENTIFICATION &&
 		(OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
+		MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
 		return false;
 	}
 	return MotorLifecycle.device_state == DEVICE_STATE_STANDBY ||
 		MotorLifecycle.device_state == DEVICE_STATE_SERVICING;
 }
 
-static void MotorLifecycle_UpdateChangeFlag(void)
+static void MotorLifecycle_UpdateChangeFlag(MotorStateContext *context)
 {
 	if (PreviousDeviceState != MotorLifecycle.device_state ||
 		PreviousControlMode != MotorLifecycle.motor_control_mode ||
@@ -139,18 +142,18 @@ static void MotorLifecycle_UpdateChangeFlag(void)
 	PreviousFault = MotorControl.runtime.primary_fault;
 }
 
-bool MotorState_Initialize(const MotorFaultRuntimeBindings *bindings)
+bool MotorState_Initialize(MotorStateContext *context,
+	const MotorFaultRuntimeBindings *bindings)
 {
-	if (bindings == NULL || bindings->motor == NULL ||
+	if (context == NULL || bindings == NULL || bindings->motor == NULL ||
 		bindings->current_control == NULL || bindings->speed_controller == NULL ||
 		bindings->encoder == NULL || bindings->sensorless_startup == NULL ||
 		bindings->motion_control == NULL || bindings->motor_calibration == NULL ||
-		bindings->lifecycle == NULL || bindings->state == NULL ||
+		bindings->lifecycle == NULL ||
 		bindings->calibration_service == NULL ||
 		bindings->identification_service == NULL ||
 		bindings->monotonic_clock.read_ms == NULL)
 		return false;
-	ActiveState = bindings->state;
 	RuntimeBindings = *bindings;
 	FaultManager_Initialize(&MotorFaultManager);
 	DeviceLifecycle_Initialize(&MotorLifecycle);
@@ -164,16 +167,16 @@ bool MotorState_Initialize(const MotorFaultRuntimeBindings *bindings)
 	PreviousControlMode = MOTOR_CONTROL_MODE_NONE;
 	PreviousServiceProcedure = SERVICE_PROCEDURE_NONE;
 	PreviousFault = MOTOR_FAULT_NONE;
-	MotorFaults_UpdateRuntimeProjection();
+	MotorFaults_UpdateRuntimeProjection(context);
 	return true;
 }
 
-DeviceState MotorLifecycle_GetDeviceState(void) { return MotorLifecycle.device_state; }
-MotorControlMode MotorLifecycle_GetControlMode(void) { return MotorLifecycle.motor_control_mode; }
-ServiceProcedure MotorLifecycle_GetServiceProcedure(void) { return MotorLifecycle.service_procedure; }
-ProcedureState MotorLifecycle_GetProcedureState(void) { return MotorLifecycle.procedure_state; }
+DeviceState MotorLifecycle_GetDeviceState(const MotorStateContext *context) { return MotorLifecycle.device_state; }
+MotorControlMode MotorLifecycle_GetControlMode(const MotorStateContext *context) { return MotorLifecycle.motor_control_mode; }
+ServiceProcedure MotorLifecycle_GetServiceProcedure(const MotorStateContext *context) { return MotorLifecycle.service_procedure; }
+ProcedureState MotorLifecycle_GetProcedureState(const MotorStateContext *context) { return MotorLifecycle.procedure_state; }
 
-uint8_t MotorLifecycle_GetProtocolActionCode(void)
+uint8_t MotorLifecycle_GetProtocolActionCode(const MotorStateContext *context)
 {
 	if (MotorLifecycle.device_state == DEVICE_STATE_ACTIVE)
 	{
@@ -208,9 +211,10 @@ uint8_t MotorLifecycle_GetProtocolActionCode(void)
 	return 0U;
 }
 
-bool MotorLifecycle_RequestControlMode(MotorControlMode mode)
+bool MotorLifecycle_RequestControlMode(MotorStateContext *context,
+	MotorControlMode mode)
 {
-	if (!MotorLifecycle_CheckControlPreconditions(mode))
+	if (!MotorLifecycle_CheckControlPreconditions(context, mode))
 		return false;
 	if (mode == MOTOR_CONTROL_MODE_POSITION_CASCADE ||
 		mode == MOTOR_CONTROL_MODE_POSITION_IMPEDANCE)
@@ -218,7 +222,7 @@ bool MotorLifecycle_RequestControlMode(MotorControlMode mode)
 		float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
 		if (!isfinite(current_position))
 		{
-			MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+			MotorState_RaiseFault(context, MOTOR_FAULT_ENCODER);
 			return false;
 		}
 		MotorControl.command.position_reference_rad = current_position;
@@ -232,16 +236,17 @@ bool MotorLifecycle_RequestControlMode(MotorControlMode mode)
 	return true;
 }
 
-bool MotorLifecycle_RequestService(ServiceProcedure procedure)
+bool MotorLifecycle_RequestService(MotorStateContext *context,
+	ServiceProcedure procedure)
 {
-	if (!MotorLifecycle_CheckServicePreconditions(procedure))
+	if (!MotorLifecycle_CheckServicePreconditions(context, procedure))
 		return false;
 	PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(
 		LIFECYCLE_REQUEST_SERVICE, procedure);
 	return true;
 }
 
-bool MotorLifecycle_RequestStandby(void)
+bool MotorLifecycle_RequestStandby(MotorStateContext *context)
 {
 	if (MotorLifecycle.device_state == DEVICE_STATE_BOOTING ||
 		MotorLifecycle.device_state == DEVICE_STATE_UPDATING)
@@ -250,7 +255,7 @@ bool MotorLifecycle_RequestStandby(void)
 	return true;
 }
 
-bool MotorLifecycle_RequestClearFaults(void)
+bool MotorLifecycle_RequestClearFaults(MotorStateContext *context)
 {
 	if (MotorLifecycle.device_state != DEVICE_STATE_FAULTED)
 		return false;
@@ -259,18 +264,20 @@ bool MotorLifecycle_RequestClearFaults(void)
 	return true;
 }
 
-void MotorLifecycle_ReportServiceComplete(bool request_parameter_save)
+void MotorLifecycle_ReportServiceComplete(MotorStateContext *context,
+	bool request_parameter_save)
 {
 	PendingServiceResult = request_parameter_save ?
 		SERVICE_RESULT_COMPLETE_AND_SAVE : SERVICE_RESULT_COMPLETE;
 }
 
-void MotorLifecycle_ReportServiceFailed(void)
+void MotorLifecycle_ReportServiceFailed(MotorStateContext *context)
 {
 	PendingServiceResult = SERVICE_RESULT_FAILED;
 }
 
-static void MotorLifecycle_ApplyRequest(uint32_t request)
+static void MotorLifecycle_ApplyRequest(MotorStateContext *context,
+	uint32_t request)
 {
 	LifecycleRequestType type = LIFECYCLE_REQUEST_TYPE(request);
 	uint8_t value = LIFECYCLE_REQUEST_VALUE(request);
@@ -295,7 +302,7 @@ static void MotorLifecycle_ApplyRequest(uint32_t request)
 		case LIFECYCLE_REQUEST_CLEAR_FAULTS:
 			PowerStage_ClearLatchedFault(CurrentControl.power_stage);
 			FaultManager_ClearAll(&MotorFaultManager);
-			MotorFaults_UpdateRuntimeProjection();
+			MotorFaults_UpdateRuntimeProjection(context);
 			(void)DeviceLifecycle_ClearFault(&MotorLifecycle, true);
 			break;
 		default:
@@ -303,7 +310,7 @@ static void MotorLifecycle_ApplyRequest(uint32_t request)
 	}
 }
 
-void MotorLifecycle_Supervise1kHz(void)
+void MotorLifecycle_Supervise1kHz(MotorStateContext *context)
 {
 	uint32_t request = PendingLifecycleRequest;
 	ServiceResult result = (ServiceResult)PendingServiceResult;
@@ -312,7 +319,7 @@ void MotorLifecycle_Supervise1kHz(void)
 	PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(LIFECYCLE_REQUEST_NONE, 0U);
 	PendingServiceResult = SERVICE_RESULT_NONE;
 	if (request != LIFECYCLE_REQUEST_ENCODE(LIFECYCLE_REQUEST_NONE, 0U))
-		MotorLifecycle_ApplyRequest(request);
+		MotorLifecycle_ApplyRequest(context, request);
 
 	if (MotorLifecycle.device_state == DEVICE_STATE_SERVICING)
 	{
@@ -367,21 +374,22 @@ void MotorLifecycle_Supervise1kHz(void)
 			PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(
 				LIFECYCLE_REQUEST_SERVICE, SERVICE_PROCEDURE_PARAMETER_SAVE);
 	}
-	MotorLifecycle_UpdateChangeFlag();
+	MotorLifecycle_UpdateChangeFlag(context);
 }
 
-bool MotorFaults_HasActive(void) { return FaultManager_HasFaults(&MotorFaultManager); }
-FaultSet MotorFaults_GetActiveSet(void) { return FaultManager_GetActiveFaults(&MotorFaultManager); }
-FaultSet MotorFaults_GetLatchedSet(void) { return FaultManager_GetLatchedFaults(&MotorFaultManager); }
-uint32_t MotorFaults_GetEventSequence(void) { return FaultManager_GetEventSequence(&MotorFaultManager); }
-bool MotorFaults_GetRecord(uint8_t fault_code, FaultRecord *record)
+bool MotorFaults_HasActive(const MotorStateContext *context) { return FaultManager_HasFaults(&MotorFaultManager); }
+FaultSet MotorFaults_GetActiveSet(const MotorStateContext *context) { return FaultManager_GetActiveFaults(&MotorFaultManager); }
+FaultSet MotorFaults_GetLatchedSet(const MotorStateContext *context) { return FaultManager_GetLatchedFaults(&MotorFaultManager); }
+uint32_t MotorFaults_GetEventSequence(const MotorStateContext *context) { return FaultManager_GetEventSequence(&MotorFaultManager); }
+bool MotorFaults_GetRecord(const MotorStateContext *context,
+	uint8_t fault_code, FaultRecord *record)
 {
 	return FaultManager_GetRecord(&MotorFaultManager, fault_code, record);
 }
 
-MotorFaultCode MotorState_GetPrimaryFault(void) { return MotorControl.runtime.primary_fault; }
+MotorFaultCode MotorState_GetPrimaryFault(const MotorStateContext *context) { return MotorControl.runtime.primary_fault; }
 
-void MotorState_RaiseFault(MotorFaultCode fault)
+void MotorState_RaiseFault(MotorStateContext *context, MotorFaultCode fault)
 {
 	FaultObservation observation;
 	if (fault == MOTOR_FAULT_NONE)
@@ -402,22 +410,23 @@ void MotorState_RaiseFault(MotorFaultCode fault)
 		DeviceLifecycle_NotifyFault(&MotorLifecycle);
 		PendingLifecycleRequest = LIFECYCLE_REQUEST_ENCODE(LIFECYCLE_REQUEST_NONE, 0U);
 	}
-	MotorFaults_UpdateRuntimeProjection();
+	MotorFaults_UpdateRuntimeProjection(context);
 }
 
-void MotorState_ClearFault(MotorFaultCode error_to_clear)
+void MotorState_ClearFault(MotorStateContext *context,
+	MotorFaultCode error_to_clear)
 {
 	(void)FaultManager_ClearActive(&MotorFaultManager, (uint8_t)error_to_clear);
-	MotorFaults_UpdateRuntimeProjection();
+	MotorFaults_UpdateRuntimeProjection(context);
 }
 
-void MotorState_ClearAllFaults(void)
+void MotorState_ClearAllFaults(MotorStateContext *context)
 {
 	FaultManager_ClearAll(&MotorFaultManager);
-	MotorFaults_UpdateRuntimeProjection();
+	MotorFaults_UpdateRuntimeProjection(context);
 }
 
-void MotorState_ResetControlState(void)
+void MotorState_ResetControlState(MotorStateContext *context)
 {
 	MotorControl.command.d_axis_current_reference_a = 0.0f;
 	MotorControl.command.q_axis_current_reference_a = 0.0f;
@@ -441,10 +450,11 @@ void MotorState_ResetControlState(void)
 	SensorlessStartup_Reset(&SensorlessStartup);
 }
 
-bool MotorState_HasChanged(void) { return MotorStateChanged; }
-void MotorState_ClearChangeFlag(void) { MotorStateChanged = false; }
-void MotorState_DisablePowerStage(void) { PowerStage_ForceDisable(CurrentControl.power_stage); }
-bool MotorState_EnablePowerStage(void)
+bool MotorState_HasChanged(const MotorStateContext *context) { return MotorStateChanged; }
+void MotorState_ClearChangeFlag(MotorStateContext *context) { MotorStateChanged = false; }
+void MotorState_DisablePowerStage(MotorStateContext *context) { PowerStage_ForceDisable(CurrentControl.power_stage); }
+bool MotorState_EnablePowerStage(MotorStateContext *context)
 {
-	return PowerStage_RequestEnable(CurrentControl.power_stage, !MotorFaults_HasActive());
+	return PowerStage_RequestEnable(CurrentControl.power_stage,
+		!MotorFaults_HasActive(context));
 }

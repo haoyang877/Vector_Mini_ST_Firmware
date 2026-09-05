@@ -18,6 +18,8 @@ typedef struct
 	uint16_t speed_loop_count;
 } MotionControlContext;
 
+typedef struct MotorStateContext MotorStateContext;
+
 void ControlModeRuntime_RunCurrent(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, EncoderContext *Encoder, FluxObserverContext *Fluxobserver);
 void ControlModeRuntime_RunSpeed(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, PiController *controller,
@@ -25,15 +27,18 @@ void ControlModeRuntime_RunSpeed(MotionControlContext *motion, CurrentControlCon
 void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, PiController *controller,
 	FluxObserverContext *Fluxobserver, SensorlessStartupContext *Startup,
-	const SensorlessStartupTuning *tuning);
+	const SensorlessStartupTuning *tuning, MotorStateContext *motor_state);
 void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, EncoderContext *Encoder,
-	const MotorProfile *motor_profile);
+	const MotorProfile *motor_profile, MotorStateContext *motor_state);
 void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, EncoderContext *Encoder,
-	const MotorProfile *motor_profile, const BoardProfile *board_profile);
+	const MotorProfile *motor_profile, const BoardProfile *board_profile,
+	MotorStateContext *motor_state);
 void ControlModeRuntime_ResetPosition(MotionControlContext *motion);
 void ControlModeRuntime_RunVoltageOpenLoop(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl);
-void ControlModeRuntime_RunQVoltage(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, EncoderContext *Encoder);
+void ControlModeRuntime_RunQVoltage(CurrentControlContext *CurrentControl,
+	MotorControlContext *MotorControl, EncoderContext *Encoder,
+	MotorStateContext *motor_state);
 
 #endif

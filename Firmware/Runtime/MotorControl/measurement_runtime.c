@@ -47,7 +47,8 @@ bool Measurement_Configure(MeasurementModelContext *context,
 }
 
 bool Measurement_Process(MeasurementModelContext *context,
-    CurrentControlContext *CurrentControl, bool protection_is_active)
+	CurrentControlContext *CurrentControl, bool protection_is_active,
+	MotorStateContext *motor_state)
 {
     MeasurementModelInput input;
     MeasurementModelOutput output;
@@ -73,14 +74,14 @@ bool Measurement_Process(MeasurementModelContext *context,
     CurrentControl->temperature_c = output.temperature_c;
 
     if ((output.faults & MEASUREMENT_FAULT_OVER_VOLTAGE) != 0U)
-        MotorState_RaiseFault(MOTOR_FAULT_OVER_VOLTAGE);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_OVER_VOLTAGE);
     if ((output.faults & MEASUREMENT_FAULT_UNDER_VOLTAGE) != 0U)
-        MotorState_RaiseFault(MOTOR_FAULT_UNDER_VOLTAGE);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_UNDER_VOLTAGE);
     if ((output.faults & MEASUREMENT_FAULT_CURRENT_OFFSET) != 0U)
-        MotorState_RaiseFault(MOTOR_FAULT_CURRENT_OFFSET);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
     if ((output.faults & MEASUREMENT_FAULT_OVER_CURRENT) != 0U)
-        MotorState_RaiseFault(MOTOR_FAULT_OVER_CURRENT);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_OVER_CURRENT);
     if ((output.faults & MEASUREMENT_FAULT_HIGH_TEMPERATURE) != 0U)
-        MotorState_RaiseFault(MOTOR_FAULT_HIGH_TEMPERATURE);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_HIGH_TEMPERATURE);
     return true;
 }

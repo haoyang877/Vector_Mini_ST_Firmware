@@ -3,6 +3,9 @@
 
 #include "fault_command_port.h"
 
-FaultCommandPort FaultApplicationAdapter_CreatePort(void);
+typedef struct MotorStateContext MotorStateContext;
+
+FaultCommandPort FaultApplicationAdapter_CreatePort(
+	MotorStateContext *motor_state);
 
 #endif

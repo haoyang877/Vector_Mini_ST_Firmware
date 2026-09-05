@@ -1,8 +1,7 @@
 #include "led.h"
 
-static LedServiceContext *ActiveContext;
-#define LED (ActiveContext->state)
-#define LEDIndicatorPort (ActiveContext->port)
+#define LED (context->state)
+#define LEDIndicatorPort (context->port)
 
 bool LED_Initialize(LedServiceContext *context, const IndicatorPort *port)
 {
@@ -10,7 +9,6 @@ bool LED_Initialize(LedServiceContext *context, const IndicatorPort *port)
 		return false;
 	context->port = *port;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
@@ -19,9 +17,10 @@ bool LED_Initialize(LedServiceContext *context, const IndicatorPort *port)
     * @param  mode_or_error: 0:mode 1:error
     * @param  blink_num: LED blink number in a cycle of 5s
  **/
-void LED_SetState(bool mode_or_error,uint8_t blink_num)
+void LED_SetState(LedServiceContext *context, bool mode_or_error,
+	uint8_t blink_num)
 {
-	if (ActiveContext == 0 || !ActiveContext->is_initialized)
+	if (context == 0 || !context->is_initialized)
 		return;
 	LED.mode_or_error = mode_or_error;
 	LED.blink_num = blink_num;
@@ -30,9 +29,9 @@ void LED_SetState(bool mode_or_error,uint8_t blink_num)
 /**
 	* @brief  Set LED related GPIO 
  **/
-void LED_SetGPIO(void)
+static void LED_SetGPIO(LedServiceContext *context)
 {
-	if (ActiveContext != 0 && ActiveContext->is_initialized &&
+	if (context != 0 && context->is_initialized &&
 		LEDIndicatorPort.set_status_leds != 0)
 		LEDIndicatorPort.set_status_leds(LEDIndicatorPort.context,
 			LED.on_or_off[1], LED.on_or_off[0]);
@@ -42,9 +41,9 @@ void LED_SetGPIO(void)
 	* @brief  LED Task (0.2s)
     * @param  mode_or_error: 0 mode 1 error
  **/
-void LED_Task(void)
+void LED_Task(LedServiceContext *context)
 {
-	if (ActiveContext == 0 || !ActiveContext->is_initialized)
+	if (context == 0 || !context->is_initialized)
 		return;
 	/*type of mode or error changed, reset all LEDs*/
 	if(LED.mode_or_error_last != LED.mode_or_error ||
@@ -85,5 +84,5 @@ void LED_Task(void)
 	LED.cnt ++;
 	LED.mode_or_error_last = LED.mode_or_error;
 	LED.blink_num_last = LED.blink_num;
-	LED_SetGPIO();
+	LED_SetGPIO(context);
 }

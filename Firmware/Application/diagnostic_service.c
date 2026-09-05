@@ -2,15 +2,14 @@
 
 #include <stddef.h>
 
-static DiagnosticServiceContext *ActiveContext;
-
 bool DiagnosticService_Initialize(DiagnosticServiceContext *context,
 	const ResetReasonPort *reset_reason_port,
-	const DeviceIdentityPort *device_identity_port)
+	const DeviceIdentityPort *device_identity_port,
+	const TelemetryServiceContext *telemetry)
 {
 	if (context == NULL || reset_reason_port == NULL ||
 		reset_reason_port->read_and_clear == NULL ||
-		device_identity_port == NULL ||
+		device_identity_port == NULL || telemetry == NULL ||
 		device_identity_port->read_words == NULL)
 		return false;
 	context->reset_reason_flags = reset_reason_port->read_and_clear(
@@ -19,24 +18,25 @@ bool DiagnosticService_Initialize(DiagnosticServiceContext *context,
 		context->device_identity))
 		return false;
 	context->is_initialized = true;
-	ActiveContext = context;
+	context->telemetry = telemetry;
 	return true;
 }
 
-bool DiagnosticService_ReadSnapshot(DeviceDiagnosticSnapshot *snapshot)
+bool DiagnosticService_ReadSnapshot(const DiagnosticServiceContext *context,
+	DeviceDiagnosticSnapshot *snapshot)
 {
 	const ProductManifest *manifest;
 
-	if (snapshot == NULL || ActiveContext == NULL ||
-		!ActiveContext->is_initialized)
+	if (snapshot == NULL || context == NULL || !context->is_initialized)
 		return false;
 	manifest = ProductManifest_Get();
-	if (manifest == NULL || !TelemetryService_ReadSnapshot(&snapshot->motor))
+	if (manifest == NULL ||
+		!TelemetryService_ReadSnapshot(context->telemetry, &snapshot->motor))
 		return false;
 	snapshot->product = *manifest;
-	snapshot->reset_reason_flags = ActiveContext->reset_reason_flags;
-	snapshot->device_identity[0] = ActiveContext->device_identity[0];
-	snapshot->device_identity[1] = ActiveContext->device_identity[1];
-	snapshot->device_identity[2] = ActiveContext->device_identity[2];
+	snapshot->reset_reason_flags = context->reset_reason_flags;
+	snapshot->device_identity[0] = context->device_identity[0];
+	snapshot->device_identity[1] = context->device_identity[1];
+	snapshot->device_identity[2] = context->device_identity[2];
 	return true;
 }

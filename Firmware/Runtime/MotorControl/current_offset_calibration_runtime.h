@@ -7,6 +7,8 @@
 #include "motor_control_types.h"
 #include "board_profile.h"
 
+typedef struct MotorStateContext MotorStateContext;
+
 typedef struct
 {
 	uint32_t offset_count;
@@ -28,7 +30,7 @@ typedef enum
 CurrentOffsetCalibrationStatus CurrentOffsetCalibrationRuntime_ExecuteStep(
 	CurrentOffsetCalibrationContext *context,
 	CurrentControlContext *current_control,
-	const BoardProfile *board_profile);
+	const BoardProfile *board_profile, MotorStateContext *motor_state);
 bool CurrentOffsetCalibrationRuntime_ReadResult(
 	const CurrentOffsetCalibrationContext *context,
 	uint16_t *phase_a_offset_adc, uint16_t *phase_b_offset_adc,

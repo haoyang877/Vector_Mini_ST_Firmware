@@ -7,6 +7,9 @@
 #include "can_configuration_port.h"
 #include "can_response_port.h"
 #include "can_protocol_v1.h"
+#include "can_command_router.h"
+#include "communication_watchdog_service.h"
+#include "telemetry_service.h"
 
 #define CAN_INTERFACE_RX_QUEUE_CAPACITY 8U
 
@@ -38,15 +41,21 @@ typedef struct
 	bool transport_is_initialized;
 } CanInterfaceContext;
 
-void CanInterface_ApplyConfiguredBitrate(void);
+void CanInterface_ApplyConfiguredBitrate(CanInterfaceContext *context,
+	CommunicationWatchdogServiceContext *watchdog);
 bool CanInterface_Initialize(CanInterfaceContext *context,
 	const CanTransportPort *transport);
 CanConfigurationPort CanInterface_CreateConfigurationPort(
 	CanInterfaceContext *context);
 CanResponsePort CanInterface_CreateResponsePort(CanInterfaceContext *context);
-void CanInterface_UpdateWatchdog(void);
-void CanInterface_ApplyPendingBitrate(void);
-void CanInterface_OnReceiveInterrupt(void);
-void CanInterface_ProcessReceivedFrames(void);
-void CanInterface_FlushTransmit(void);
+void CanInterface_UpdateWatchdog(CanInterfaceContext *context,
+	const TelemetryServiceContext *telemetry,
+	CommunicationWatchdogServiceContext *watchdog);
+void CanInterface_ApplyPendingBitrate(CanInterfaceContext *context,
+	CommunicationWatchdogServiceContext *watchdog);
+void CanInterface_OnReceiveInterrupt(CanInterfaceContext *context);
+void CanInterface_ProcessReceivedFrames(CanInterfaceContext *context,
+	CanCommandRouterContext *router,
+	CommunicationWatchdogServiceContext *watchdog);
+void CanInterface_FlushTransmit(CanInterfaceContext *context);
 #endif

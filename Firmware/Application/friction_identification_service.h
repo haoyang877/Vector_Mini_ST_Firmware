@@ -16,9 +16,12 @@ bool FrictionIdentificationService_Initialize(
 	FrictionIdentificationServiceContext *context,
 	const FrictionIdentificationPort *port);
 bool FrictionIdentificationService_ReadStatus(
+	const FrictionIdentificationServiceContext *context,
 	FrictionIdentificationPortStatus *status);
-bool FrictionIdentificationService_ReadSample(uint8_t index,
+bool FrictionIdentificationService_ReadSample(
+	const FrictionIdentificationServiceContext *context, uint8_t index,
 	FrictionIdentificationPortSample *sample);
-bool FrictionIdentificationService_ApplyCandidate(void);
+bool FrictionIdentificationService_ApplyCandidate(
+	FrictionIdentificationServiceContext *context);
 
 #endif

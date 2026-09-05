@@ -1,7 +1,5 @@
 #include "friction_identification_service.h"
 
-static FrictionIdentificationServiceContext *ActiveContext;
-
 bool FrictionIdentificationService_Initialize(
 	FrictionIdentificationServiceContext *context,
 	const FrictionIdentificationPort *port)
@@ -11,26 +9,28 @@ bool FrictionIdentificationService_Initialize(
 		return false;
 	context->port = *port;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
 bool FrictionIdentificationService_ReadStatus(
+	const FrictionIdentificationServiceContext *context,
 	FrictionIdentificationPortStatus *status)
 {
-	return ActiveContext != 0 && ActiveContext->is_initialized && status != 0 &&
-		ActiveContext->port.read_status(ActiveContext->port.context, status);
+	return context != 0 && context->is_initialized && status != 0 &&
+		context->port.read_status(context->port.context, status);
 }
 
-bool FrictionIdentificationService_ReadSample(uint8_t index,
+bool FrictionIdentificationService_ReadSample(
+	const FrictionIdentificationServiceContext *context, uint8_t index,
 	FrictionIdentificationPortSample *sample)
 {
-	return ActiveContext != 0 && ActiveContext->is_initialized && sample != 0 &&
-		ActiveContext->port.read_sample(ActiveContext->port.context, index, sample);
+	return context != 0 && context->is_initialized && sample != 0 &&
+		context->port.read_sample(context->port.context, index, sample);
 }
 
-bool FrictionIdentificationService_ApplyCandidate(void)
+bool FrictionIdentificationService_ApplyCandidate(
+	FrictionIdentificationServiceContext *context)
 {
-	return ActiveContext != 0 && ActiveContext->is_initialized &&
-		ActiveContext->port.apply_candidate(ActiveContext->port.context);
+	return context != 0 && context->is_initialized &&
+		context->port.apply_candidate(context->port.context);
 }

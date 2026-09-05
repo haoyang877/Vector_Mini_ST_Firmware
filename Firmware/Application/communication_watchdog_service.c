@@ -1,10 +1,5 @@
 #include "communication_watchdog_service.h"
 
-static CommunicationWatchdogServiceContext *ActiveContext;
-#define WatchdogFaultPort (ActiveContext->port)
-#define DisconnectFaultCode (ActiveContext->disconnect_fault_code)
-#define WatchdogInitialized (ActiveContext != 0 && ActiveContext->is_initialized)
-
 bool CommunicationWatchdogService_Initialize(
 	CommunicationWatchdogServiceContext *context, const FaultCommandPort *port,
 	uint32_t disconnect_fault_code)
@@ -14,18 +9,19 @@ bool CommunicationWatchdogService_Initialize(
 	context->port = *port;
 	context->disconnect_fault_code = disconnect_fault_code;
 	context->is_initialized = true;
-	ActiveContext = context;
 	return true;
 }
 
-bool CommunicationWatchdogService_ReportDisconnected(void)
+bool CommunicationWatchdogService_ReportDisconnected(
+	CommunicationWatchdogServiceContext *context)
 {
-	return WatchdogInitialized && WatchdogFaultPort.raise(
-		WatchdogFaultPort.context, DisconnectFaultCode);
+	return context != 0 && context->is_initialized && context->port.raise(
+		context->port.context, context->disconnect_fault_code);
 }
 
-bool CommunicationWatchdogService_ReportFrameReceived(void)
+bool CommunicationWatchdogService_ReportFrameReceived(
+	CommunicationWatchdogServiceContext *context)
 {
-	return WatchdogInitialized && WatchdogFaultPort.clear(
-		WatchdogFaultPort.context, DisconnectFaultCode);
+	return context != 0 && context->is_initialized && context->port.clear(
+		context->port.context, context->disconnect_fault_code);
 }

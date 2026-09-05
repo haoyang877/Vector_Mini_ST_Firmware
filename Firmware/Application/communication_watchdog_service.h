@@ -16,7 +16,9 @@ typedef struct
 bool CommunicationWatchdogService_Initialize(
 	CommunicationWatchdogServiceContext *context, const FaultCommandPort *port,
 	uint32_t disconnect_fault_code);
-bool CommunicationWatchdogService_ReportDisconnected(void);
-bool CommunicationWatchdogService_ReportFrameReceived(void);
+bool CommunicationWatchdogService_ReportDisconnected(
+	CommunicationWatchdogServiceContext *context);
+bool CommunicationWatchdogService_ReportFrameReceived(
+	CommunicationWatchdogServiceContext *context);
 
 #endif

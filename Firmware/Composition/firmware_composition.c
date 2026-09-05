@@ -38,6 +38,9 @@
 #include "diagnostic_service.h"
 #include "device_identity_stm32g431.h"
 #include "parameter_store_flash.h"
+#include "can_command_router.h"
+#include "usb_command_router.h"
+#include "application_endpoints.h"
 
 static PowerStageContext MotorPowerStage;
 static MotorControlRuntimeContext MotorControlRuntime;
@@ -59,6 +62,9 @@ static CanInterfaceContext CanInterface;
 static UsbInterfaceContext UsbInterface;
 static DiagnosticServiceContext DiagnosticService;
 static FrictionIdentificationServiceContext FrictionIdentificationService;
+static CanCommandRouterContext CanCommandRouter;
+static UsbCommandRouterContext UsbCommandRouter;
+static ApplicationEndpoints ApplicationEndpointSet;
 static bool FirmwareIsInitialized;
 
 /**
@@ -96,21 +102,16 @@ void FirmwareComposition_Initialize(void)
 	const MechanicalLoadProfile *mechanical_load_profile =
 		MechanicalLoadProfile_GetActive();
 	FirmwareIsInitialized = false;
-	if (!DiagnosticService_Initialize(&DiagnosticService, &reset_reason_port,
-		&device_identity_port))
-		return;
 	BoardCriticalSection = BoardRuntimeStm32G431_CreateCriticalSectionPort();
 	if (!TelemetryService_Initialize(&TelemetryService))
 		return;
-	if (!ParameterPersistenceAdapter_Initialize(&ParameterPersistenceAdapter,
-		&parameter_store))
+	if (!DiagnosticService_Initialize(&DiagnosticService, &reset_reason_port,
+		&device_identity_port, &TelemetryService))
 		return;
 
 	/* Power outputs are disabled before application state is initialized. */
 	PowerStage_Initialize(&MotorPowerStage, &power_stage_port);
-	if (!MotorControlRuntime_Prepare(&MotorControlRuntime, board_profile,
-		motor_profile, encoder_profile, tuning_profile, mechanical_load_profile,
-		&monotonic_clock, &execution_timer))
+	if (!CanInterface_Initialize(&CanInterface, &can_transport))
 		return;
 	can_configuration_port = CanInterface_CreateConfigurationPort(&CanInterface);
 	can_response_port = CanInterface_CreateResponsePort(&CanInterface);
@@ -118,111 +119,145 @@ void FirmwareComposition_Initialize(void)
 			&can_configuration_port) ||
 		!CanResponseService_Initialize(&CanResponseService, &can_response_port))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_CAN_DISCONNECTED);
 		return;
 	}
+	if (!MotorControlRuntime_Prepare(&MotorControlRuntime, board_profile,
+		motor_profile, encoder_profile, tuning_profile, mechanical_load_profile,
+		&monotonic_clock, &execution_timer, &CanConfigurationService))
+		return;
+	if (!ParameterPersistenceAdapter_Initialize(&ParameterPersistenceAdapter,
+		&parameter_store, &MotorControlRuntime.parameter_snapshot))
+		return;
 
 	/*read parameters and calibration data from flash*/
 	/*if magic word invalid or not calibrated, fall back to code defaults*/
-	ParameterPersistenceAdapter_Load();
+	ParameterPersistenceAdapter_Load(&ParameterPersistenceAdapter);
 	
 	/*motor control related parameters initialize*/
-	MotorControlRuntime_Initialize(&MotorPowerStage, &measurement_port,
+	MotorControlRuntime_Initialize(&MotorControlRuntime, &MotorPowerStage,
+		&measurement_port,
 		&rotor_sensor_port, &BoardCriticalSection);
-	rotor_calibration_port = MotorControlRuntime_CreateRotorCalibrationPort();
+	rotor_calibration_port = MotorControlRuntime_CreateRotorCalibrationPort(
+		&MotorControlRuntime);
 	if (!RotorCalibrationService_Initialize(&RotorCalibrationService,
 		&rotor_calibration_port))
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
-	motor_command_port = MotorControlRuntime_CreateCommandPort();
-	motor_configuration_port = MotorControlRuntime_CreateConfigurationPort();
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_ENCODER);
+	motor_command_port = MotorControlRuntime_CreateCommandPort(
+		&MotorControlRuntime);
+	motor_configuration_port = MotorControlRuntime_CreateConfigurationPort(
+		&MotorControlRuntime);
 	friction_identification_port =
-		MotorControlRuntime_CreateFrictionIdentificationPort();
+		MotorControlRuntime_CreateFrictionIdentificationPort(
+			&MotorControlRuntime);
 	if (!MotorCommandService_Initialize(&MotorCommandService, &motor_command_port) ||
 		!ParameterService_Initialize(&ParameterService,
 			&motor_configuration_port, board_profile,
 			motor_profile) ||
 		!FrictionIdentificationService_Initialize(
 			&FrictionIdentificationService, &friction_identification_port))
-		MotorState_RaiseFault(MOTOR_FAULT_PARAMETER_STORE);
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_PARAMETER_STORE);
 	parameter_transaction_port = ParameterTransactionAdapter_CreatePort(
-		&ParameterTransactionAdapter, &BoardCriticalSection);
+		&ParameterTransactionAdapter, &BoardCriticalSection,
+		&ParameterPersistenceAdapter, &MotorControlRuntime.parameter_snapshot,
+		&MotorControlRuntime.motor_state);
 	if (!ParameterTransactionService_Initialize(&ParameterTransactionService,
 		&parameter_transaction_port))
-		MotorState_RaiseFault(MOTOR_FAULT_PARAMETER_STORE);
-	fault_command_port = FaultApplicationAdapter_CreatePort();
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_PARAMETER_STORE);
+	fault_command_port = FaultApplicationAdapter_CreatePort(
+		&MotorControlRuntime.motor_state);
 	if (!CommunicationWatchdogService_Initialize(&CommunicationWatchdogService,
 		&fault_command_port,
 		(uint32_t)MOTOR_FAULT_CAN_DISCONNECTED))
-		MotorState_RaiseFault(MOTOR_FAULT_CAN_DISCONNECTED);
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_CAN_DISCONNECTED);
 	
 	if (!LED_Initialize(&LedService, &indicator_port) ||
 		!RGB_Initialize(&RgbService, &indicator_port))
-		MotorState_RaiseFault(MOTOR_FAULT_POWER_STAGE);
-	if (!SupervisorTask_Initialize(&SupervisorTask, &diagnostic_transport))
-		MotorState_RaiseFault(MOTOR_FAULT_POWER_STAGE);
-	
-	/*CAN1 filter init*/
-	if (!CanInterface_Initialize(&CanInterface, &can_transport))
-	{
-		MotorState_RaiseFault(MOTOR_FAULT_CAN_DISCONNECTED);
-		return;
-	}
-	CanInterface_ApplyConfiguredBitrate();
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_POWER_STAGE);
+	/* Apply the node ID loaded from the parameter snapshot. */
+	CanInterface_ApplyConfiguredBitrate(&CanInterface,
+		&CommunicationWatchdogService);
 	if (!UsbInterface_Initialize(&UsbInterface, &usb_transport,
 		&monotonic_clock))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_POWER_STAGE);
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_POWER_STAGE);
 		return;
 	}
+	if (!ApplicationEndpoints_Initialize(&ApplicationEndpointSet,
+			&CanConfigurationService, &FrictionIdentificationService,
+			&MotorCommandService, &ParameterService, &RotorCalibrationService,
+			&TelemetryService) ||
+		!CanCommandRouter_Initialize(&CanCommandRouter, &ApplicationEndpointSet,
+			&CanResponseService) ||
+		!UsbCommandRouter_Initialize(&UsbCommandRouter, &ApplicationEndpointSet))
+	{
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_PARAMETER_STORE);
+		return;
+	}
+	if (!SupervisorTask_Initialize(&SupervisorTask, &diagnostic_transport,
+		&MotorControlRuntime, &TelemetryService, &CanInterface, &UsbInterface,
+		&CommunicationWatchdogService, &CanConfigurationService, &LedService,
+		&RgbService))
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_POWER_STAGE);
 
 	/* Enable periodic interrupts only after every ISR-visible context exists. */
 	FirmwareIsInitialized = true;
 	if (!BoardRuntimeStm32G431_Start())
 	{
 		FirmwareIsInitialized = false;
-		MotorState_RaiseFault(MOTOR_FAULT_POWER_STAGE);
+		MotorState_RaiseFault(&MotorControlRuntime.motor_state,
+			MOTOR_FAULT_POWER_STAGE);
 	}
 }
 
 void FirmwareComposition_ExecuteFastLoop(void)
 {
 	if (FirmwareIsInitialized)
-		MotorControlRuntime_ExecuteFastLoop();
+		MotorControlRuntime_ExecuteFastLoop(&MotorControlRuntime);
 }
 
 void FirmwareComposition_ExecuteSupervisor1kHz(void)
 {
 	if (FirmwareIsInitialized)
-		SupervisorTask_Execute1kHz();
+		SupervisorTask_Execute1kHz(&SupervisorTask);
 }
 
 void FirmwareComposition_OnCanReceiveInterrupt(void)
 {
 	if (FirmwareIsInitialized)
-		CanInterface_OnReceiveInterrupt();
+		CanInterface_OnReceiveInterrupt(&CanInterface);
 }
 
 void FirmwareComposition_OnUsbReceiveInterrupt(const uint8_t *data,
 	uint32_t size_bytes)
 {
 	if (FirmwareIsInitialized)
-		UsbInterface_OnReceiveInterrupt(data, size_bytes);
+		UsbInterface_OnReceiveInterrupt(&UsbInterface, data, size_bytes);
 }
 
 void FirmwareComposition_OnUsbTransmitCompleteInterrupt(void)
 {
 	if (FirmwareIsInitialized)
-		UsbInterface_OnTransmitCompleteInterrupt();
+		UsbInterface_OnTransmitCompleteInterrupt(&UsbInterface);
 }
 
 void FirmwareComposition_RunBackground(void)
 {
 	if (!FirmwareIsInitialized)
 		return;
-	UsbInterface_ProcessReceivedCommands();
-	UsbInterface_FlushTransmit();
-	CanInterface_ProcessReceivedFrames();
-	CanInterface_FlushTransmit();
-	SupervisorTask_RunBackground();
+	UsbInterface_ProcessReceivedCommands(&UsbInterface, &UsbCommandRouter);
+	UsbInterface_FlushTransmit(&UsbInterface, &FrictionIdentificationService,
+		&RotorCalibrationService);
+	CanInterface_ProcessReceivedFrames(&CanInterface, &CanCommandRouter,
+		&CommunicationWatchdogService);
+	CanInterface_FlushTransmit(&CanInterface);
+	SupervisorTask_RunBackground(&SupervisorTask);
 	ParameterTransactionService_RunBackground(&ParameterTransactionService);
 }

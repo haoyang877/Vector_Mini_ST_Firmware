@@ -88,7 +88,7 @@ static uint16_t Encoder_Calib_ApplyCandidateLut(
 static void Encoder_ObserverCalib_Abort(MotorCalibrationContext *context,
 	CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, PiController *SpeedController,
-	SensorlessStartupContext *Startup)
+	SensorlessStartupContext *Startup, MotorStateContext *motor_state)
 {
 	Encoder_Calib_ReleaseSamples(context);
 	SensorlessStartup_Reset(Startup);
@@ -99,13 +99,14 @@ static void Encoder_ObserverCalib_Abort(MotorCalibrationContext *context,
 	MotorControl->targets.d_axis_current_a = 0.0f;
 	MotorControl->targets.q_axis_current_a = 0.0f;
 	context->step = CS_NULL;
-	MotorLifecycle_ReportServiceFailed();
-	MotorState_DisablePowerStage();
+	MotorLifecycle_ReportServiceFailed(motor_state);
+	MotorState_DisablePowerStage(motor_state);
 }
 
 static void Encoder_ObserverCalib_Finish(MotorCalibrationContext *context,
 	CurrentControlContext *CurrentControl, MotorControlContext *MotorControl,
-	PiController *SpeedController, SensorlessStartupContext *Startup)
+	PiController *SpeedController, SensorlessStartupContext *Startup,
+	MotorStateContext *motor_state)
 {
 	SensorlessStartup_Reset(Startup);
 	CurrentControlRuntime_ResetControllers(CurrentControl);
@@ -116,7 +117,7 @@ static void Encoder_ObserverCalib_Finish(MotorCalibrationContext *context,
 	MotorControl->targets.q_axis_current_a = 0.0f;
 	context->step = CS_NULL;
 	CurrentControlRuntime_ApplyHighSideZeroVector(CurrentControl);
-	MotorLifecycle_ReportServiceComplete(true);
+	MotorLifecycle_ReportServiceComplete(motor_state, true);
 }
 
 typedef enum
@@ -282,7 +283,7 @@ static void Encoder_Calib_Abort(MotorCalibrationContext *context,
  */
 void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context,
 	CurrentControlContext *CurrentControl, MotorControlContext *MotorControl,
-	EncoderContext *Encoder)
+	EncoderContext *Encoder, MotorStateContext *motor_state)
 {
 	float time = (float)context->encoder_linearization.loop_count * CURRENT_LOOP_PERIOD_S;
 	float theta_relative;
@@ -290,13 +291,13 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 
 	if (!Encoder_IsOnline(Encoder))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 		Encoder_Calib_Abort(context, CurrentControl);
 		return;
 	}
 	if (MotorControl->configuration.pole_pairs <= 0)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_POLE_PAIRS);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_POLE_PAIRS);
 		Encoder_Calib_Abort(context, CurrentControl);
 		return;
 	}
@@ -305,7 +306,7 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 		MotorControl->configuration.calibration_current_a >
 			MotorControl->configuration.current_limit_a)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		Encoder_Calib_Abort(context, CurrentControl);
 		return;
 	}
@@ -317,7 +318,7 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 		case CS_NULL:
 			if (!Encoder_Calib_AllocateSamples(context))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 				Encoder_Calib_Abort(context, CurrentControl);
 				return;
 			}
@@ -394,7 +395,7 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 					(uint32_t)(ENCODER_LINEARIZATION_UNLOCK_TIMEOUT_S /
 						CURRENT_LOOP_PERIOD_S))
 				{
-					MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+					MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 					Encoder_Calib_Abort(context, CurrentControl);
 				}
 				break;
@@ -431,7 +432,7 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 				ENCODER_LINEARIZATION_RAMP_TIME_S +
 				ENCODER_LINEARIZATION_ALIGN_TIME_S)
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 				Encoder_Calib_Abort(context, CurrentControl);
 			}
 			break;
@@ -444,7 +445,7 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 				SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE);
 			if (build_status == ENCODER_LUT_BUILD_FAILED)
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 				Encoder_Calib_Abort(context, CurrentControl);
 			}
 			else if (build_status == ENCODER_LUT_BUILD_COMPLETE)
@@ -452,7 +453,7 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 				Encoder_Calib_CommitCandidateLut(context, Encoder);
 				Encoder_Calib_ReleaseSamples(context);
 				context->step = CS_NULL;
-				MotorLifecycle_ReportServiceComplete(true);
+				MotorLifecycle_ReportServiceComplete(motor_state, true);
 			}
 			break;
 		}
@@ -472,7 +473,8 @@ void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context
 void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 	CurrentControlContext *CurrentControl, MotorControlContext *MotorControl,
 	PiController *SpeedController, EncoderContext *Encoder,
-	FluxObserverContext *Fluxobserver, SensorlessStartupContext *Startup)
+	FluxObserverContext *Fluxobserver, SensorlessStartupContext *Startup,
+	MotorStateContext *motor_state)
 {
 	float required_electrical_theta;
 	float observer_position;
@@ -481,14 +483,14 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 
 	if (!Encoder_IsOnline(Encoder))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
-		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
+		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 		return;
 	}
 	if (MotorControl->configuration.pole_pairs <= 0)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_POLE_PAIRS);
-		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_POLE_PAIRS);
+		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 		return;
 	}
 	if (MotorControl->configuration.phase_resistance_ohm <= 0.0f ||
@@ -496,17 +498,17 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 		MotorControl->configuration.q_axis_inductance_h <= 0.0f ||
 		MotorControl->configuration.flux_weber <= 0.0f || MotorControl->configuration.current_limit_a <= 0.0f)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
-		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
+		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 		return;
 	}
 	if (MotorControl->mechanical_load_profile == 0 ||
 		MotorControl->configuration.current_limit_a < MotorControl->
 			mechanical_load_profile->encoder_calibration_startup.minimum_current_limit_a)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl,
-			SpeedController, Startup);
+			SpeedController, Startup, motor_state);
 		return;
 	}
 
@@ -514,8 +516,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 	{
 		if (!Encoder_Calib_AllocateSamples(context))
 		{
-			MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
-			Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+			MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
+			Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			return;
 		}
 		context->sample_clear_index = 0U;
@@ -564,7 +566,7 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			/* The LUT is committed before stopping. A high-friction rotor may stop
 			 * below the observer threshold; finish without discarding valid data. */
 			Encoder_ObserverCalib_Finish(context, CurrentControl, MotorControl,
-				SpeedController, Startup);
+				SpeedController, Startup, motor_state);
 			return;
 		}
 
@@ -599,10 +601,11 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 
 		ControlModeRuntime_RunSensorlessSpeed(CurrentControl, MotorControl,
 			SpeedController, Fluxobserver, Startup,
-			&MotorControl->mechanical_load_profile->encoder_calibration_startup);
+			&MotorControl->mechanical_load_profile->encoder_calibration_startup,
+			motor_state);
 		if (MotorControl->runtime.primary_fault != MOTOR_FAULT_NONE)
 		{
-			Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+			Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			return;
 		}
 	}
@@ -633,8 +636,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			{
 				if (context->observer_calibration.origin_sample_count == 0U)
 				{
-					MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
-					Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+					MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
+					Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 					return;
 				}
 
@@ -655,16 +658,16 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			}
 			else if (++context->observer_calibration.stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STARTUP_TIMEOUT_S / CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			}
 			break;
 
 		case CS_OBS_SPEED_STABLE:
 			if (FluxObserver_GetPositionEpoch(Fluxobserver) != context->observer_calibration.observer_position_epoch)
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 				return;
 			}
 
@@ -687,8 +690,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			}
 			if (++context->observer_calibration.stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIMEOUT_S / CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			}
 			break;
 
@@ -699,8 +702,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 
 			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, context->observer_calibration.observer_position_epoch))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 				return;
 			}
 
@@ -725,8 +728,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			context->observer_calibration.previous_observer_position = observer_position;
 			if (++context->observer_calibration.stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_FIND_ORIGIN_TIMEOUT_S / CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			}
 			break;
 		}
@@ -735,8 +738,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			relative_theta = observer_position - context->observer_calibration.observer_position_origin;
 			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, context->observer_calibration.observer_position_epoch))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 				return;
 			}
 
@@ -784,8 +787,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			}
 			if (++context->observer_calibration.stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SAMPLE_TIMEOUT_S / CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			}
 			break;
 
@@ -794,8 +797,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			EncoderLutBuildStatus build_status;
 			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, context->observer_calibration.observer_position_epoch))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 				return;
 			}
 			build_status = Encoder_Calib_BuildLutStep(context,
@@ -803,9 +806,9 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 				SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE);
 			if (build_status == ENCODER_LUT_BUILD_FAILED)
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl,
-					SpeedController, Startup);
+					SpeedController, Startup, motor_state);
 				return;
 			}
 			if (build_status == ENCODER_LUT_BUILD_COMPLETE)
@@ -825,8 +828,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			relative_theta = observer_position - context->observer_calibration.observer_position_origin;
 			if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, context->observer_calibration.observer_position_epoch))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 				return;
 			}
 
@@ -868,8 +871,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 					SENSORLESS_ENCODER_CALIB_MAX_PEAK_RESIDUAL_Q15 ||
 					context->observer_calibration.residual_squared_sum > (uint64_t)context->observer_calibration.residual_sample_count * max_rms_squared)
 				{
-					MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
-					Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+					MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
+					Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 					return;
 				}
 
@@ -884,8 +887,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			}
 			if (++context->observer_calibration.stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_VERIFY_TIMEOUT_S / CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			}
 			break;
 
@@ -908,8 +911,8 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 			else if (context->observer_calibration.state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIMEOUT_S /
 				CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
-				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
+				Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			}
 			break;
 		}
@@ -919,13 +922,13 @@ void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 				CURRENT_LOOP_PERIOD_S))
 			{
 				Encoder_ObserverCalib_Finish(context, CurrentControl, MotorControl,
-					SpeedController, Startup);
+					SpeedController, Startup, motor_state);
 			}
 			break;
 
 		default:
-			MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
-			Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup);
+			MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
+			Encoder_ObserverCalib_Abort(context, CurrentControl, MotorControl, SpeedController, Startup, motor_state);
 			break;
 	}
 

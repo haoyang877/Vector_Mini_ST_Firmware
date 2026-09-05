@@ -3,37 +3,37 @@
 #include <string.h>
 #include <math.h>
 #include "motor_state_runtime.h"
-#include "can_configuration_service.h"
 #include "fast_math.h"
 
-static ParameterSnapshotContext *ActiveContext;
-
-#define ParameterMotor (ActiveContext->motor)
-#define ParameterEncoder (ActiveContext->encoder)
-#define ParameterBoardProfile (ActiveContext->board_profile)
-#define ParameterMotorProfile (ActiveContext->motor_profile)
-#define ParameterEncoderProfile (ActiveContext->encoder_profile)
+#define ParameterMotor (context->motor)
+#define ParameterEncoder (context->encoder)
+#define ParameterBoardProfile (context->board_profile)
+#define ParameterMotorProfile (context->motor_profile)
+#define ParameterEncoderProfile (context->encoder_profile)
+#define CanConfiguration (context->can_configuration)
 #define MotorControl    (*ParameterMotor)
 #define OnBoard_Encoder (*ParameterEncoder)
 
 bool ParameterSnapshot_Initialize(ParameterSnapshotContext *context,
 	MotorControlContext *motor,
 	EncoderContext *encoder, const BoardProfile *board_profile,
-	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile)
+	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
+	CanConfigurationServiceContext *can_configuration)
 {
 	if (context == 0 || motor == 0 || encoder == 0 || board_profile == 0 ||
-		motor_profile == 0 || encoder_profile == 0)
+		motor_profile == 0 || encoder_profile == 0 || can_configuration == 0)
 		return false;
 	context->motor = motor;
 	context->encoder = encoder;
 	context->board_profile = board_profile;
 	context->motor_profile = motor_profile;
 	context->encoder_profile = encoder_profile;
-	ActiveContext = context;
+	context->can_configuration = can_configuration;
 	return true;
 }
 
-static void ParameterSnapshot_ApplyNonPersistentDefaults(void)
+static void ParameterSnapshot_ApplyNonPersistentDefaults(
+	ParameterSnapshotContext *context)
 {
 	MotorControl.configuration.use_sensorless_feedback = false;
 	MotorControl.configuration.open_loop_voltage_v =
@@ -47,10 +47,10 @@ static void ParameterSnapshot_ApplyNonPersistentDefaults(void)
 		ParameterMotorProfile->open_loop_initial_theta_rad;
 }
 
-void ParameterSnapshot_LoadDefaults(void)
+void ParameterSnapshot_LoadDefaults(ParameterSnapshotContext *context)
 {
-	ParameterSnapshot_ApplyNonPersistentDefaults();
-	(void)CanConfigurationService_SetNodeId(
+	ParameterSnapshot_ApplyNonPersistentDefaults(context);
+	(void)CanConfigurationService_SetNodeId(CanConfiguration,
 		ParameterBoardProfile->default_can_node_id);
 
 	MotorControl.configuration.phase_a_current_offset_adc =
@@ -97,16 +97,17 @@ void ParameterSnapshot_LoadDefaults(void)
 	MotorControl.configuration.friction_viscous_pos_a_per_rad_s = 0.0f;
 	MotorControl.configuration.friction_viscous_neg_a_per_rad_s = 0.0f;
 	MotorControl.configuration.friction_model_valid = false;
-	(void)CanConfigurationService_SetHeartbeatMs(
+	(void)CanConfigurationService_SetHeartbeatMs(CanConfiguration,
 		ParameterBoardProfile->default_can_heartbeat_ms);
 }
 
-void ParameterSnapshot_Capture(ParameterSnapshot *param)
+void ParameterSnapshot_Capture(const ParameterSnapshotContext *context,
+	ParameterSnapshot *param)
 {
 	uint32_t lut_index;
 
 	memset(param, 0, sizeof(*param));
-	param->node_id = (float)CanConfigurationService_GetNodeId();
+	param->node_id = (float)CanConfigurationService_GetNodeId(CanConfiguration);
 	param->phase_a_current_offset_adc = (float)MotorControl.configuration.phase_a_current_offset_adc;
 	param->phase_b_current_offset_adc = (float)MotorControl.configuration.phase_b_current_offset_adc;
 	param->phase_c_current_offset_adc = (float)MotorControl.configuration.phase_c_current_offset_adc;
@@ -150,11 +151,13 @@ void ParameterSnapshot_Capture(ParameterSnapshot *param)
 	param->friction_viscous_neg_a_per_rad_s =
 		MotorControl.configuration.friction_viscous_neg_a_per_rad_s;
 	param->friction_model_valid = MotorControl.configuration.friction_model_valid ? 1U : 0U;
-	param->can_heartbeat_ms = (float)CanConfigurationService_GetHeartbeatMs();
+	param->can_heartbeat_ms = (float)CanConfigurationService_GetHeartbeatMs(
+		CanConfiguration);
 	param->schema_version = PARAM_SCHEMA_VERSION;
 }
 
-void ParameterSnapshot_Apply(const ParameterSnapshot *param)
+void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
+	const ParameterSnapshot *param)
 {
 	uint32_t lut_index;
 	uint32_t stored_shunt_milliohm;
@@ -170,7 +173,7 @@ void ParameterSnapshot_Apply(const ParameterSnapshot *param)
 		 param->schema_version != PARAM_SCHEMA_VERSION_PREVIOUS_IMPEDANCE &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_PREVIOUS_CASCADE))
 	{
-		ParameterSnapshot_LoadDefaults();
+		ParameterSnapshot_LoadDefaults(context);
 		return;
 	}
 	previous_schema_cascade_parameters = param->schema_version == PARAM_SCHEMA_VERSION_PREVIOUS_CASCADE;
@@ -184,12 +187,13 @@ void ParameterSnapshot_Apply(const ParameterSnapshot *param)
 		ParameterBoardProfile->current_sense_shunt_milliohm;
 	if (param->encoder_reverse > 1U)
 	{
-		ParameterSnapshot_LoadDefaults();
+		ParameterSnapshot_LoadDefaults(context);
 		return;
 	}
-	ParameterSnapshot_ApplyNonPersistentDefaults();
+	ParameterSnapshot_ApplyNonPersistentDefaults(context);
 
-	(void)CanConfigurationService_SetNodeId((uint8_t)param->node_id);
+	(void)CanConfigurationService_SetNodeId(CanConfiguration,
+		(uint8_t)param->node_id);
 	MotorControl.configuration.phase_a_current_offset_adc = (uint16_t)param->phase_a_current_offset_adc;
 	MotorControl.configuration.phase_b_current_offset_adc = (uint16_t)param->phase_b_current_offset_adc;
 	MotorControl.configuration.phase_c_current_offset_adc = (uint16_t)param->phase_c_current_offset_adc;
@@ -329,5 +333,6 @@ void ParameterSnapshot_Apply(const ParameterSnapshot *param)
 		MotorControl.configuration.friction_viscous_neg_a_per_rad_s = 0.0f;
 		MotorControl.configuration.friction_model_valid = false;
 	}
-	(void)CanConfigurationService_SetHeartbeatMs((uint32_t)param->can_heartbeat_ms);
+	(void)CanConfigurationService_SetHeartbeatMs(CanConfiguration,
+		(uint32_t)param->can_heartbeat_ms);
 }

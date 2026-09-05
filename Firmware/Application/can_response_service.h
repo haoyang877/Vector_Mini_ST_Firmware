@@ -14,6 +14,7 @@ typedef struct
 
 bool CanResponseService_Initialize(CanResponseServiceContext *context,
 	const CanResponsePort *port);
-bool CanResponseService_Queue(uint8_t parameter_id, float value);
+bool CanResponseService_Queue(CanResponseServiceContext *context,
+	uint8_t parameter_id, float value);
 
 #endif

@@ -180,7 +180,8 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 						PiController *controller,
 						FluxObserverContext *Fluxobserver,
 						SensorlessStartupContext *Startup,
-						const SensorlessStartupTuning *tuning)
+						const SensorlessStartupTuning *tuning,
+						MotorStateContext *motor_state)
 {
 	float pole_pairs = (float)MotorControl->configuration.pole_pairs;
 	float min_mech_vel;
@@ -191,7 +192,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 		MotorControl->configuration.d_axis_inductance_h <= 0.0f || MotorControl->configuration.q_axis_inductance_h <= 0.0f ||
 		MotorControl->configuration.flux_weber <= 0.0f || MotorControl->configuration.current_limit_a <= 0.0f)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		return;
 	}
 
@@ -209,13 +210,13 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 	min_mech_vel = tuning->minimum_electrical_velocity_rad_s / pole_pairs;
 	if (FastMath_Abs(MotorControl->targets.speed_rad_s) < min_mech_vel)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 		return;
 	}
 
 	if (!Sensorless_StartupCurrentsAreValid(MotorControl, tuning))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 		return;
 	}
 
@@ -303,7 +304,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 		if (requested_direction != Startup->direction ||
 			!Sensorless_ObserverIsUsable(MotorControl, Fluxobserver))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 				return;
 			}
 
@@ -349,7 +350,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 			if (Startup->state_ticks >= (uint32_t)(tuning->lock_timeout_s /
 				CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 				return;
 			}
 		}
@@ -363,7 +364,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 			if (requested_direction != Startup->direction ||
 				!Sensorless_ObserverIsUsable(MotorControl, Fluxobserver))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 				return;
 			}
 
@@ -399,7 +400,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 
 			if (!Sensorless_ObserverIsUsable(MotorControl, Fluxobserver))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 				return;
 			}
 
@@ -438,7 +439,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 			if (Startup->loss_ticks >= (uint32_t)(tuning->observer_loss_time_s /
 				CURRENT_LOOP_PERIOD_S))
 			{
-				MotorState_RaiseFault(MOTOR_FAULT_SENSORLESS);
+				MotorState_RaiseFault(motor_state, MOTOR_FAULT_SENSORLESS);
 				return;
 			}
 
@@ -456,7 +457,7 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
  **/
 void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, EncoderContext *Encoder,
-	const MotorProfile *motor_profile)
+	const MotorProfile *motor_profile, MotorStateContext *motor_state)
 {
 	PositionCascadeConfig config;
 	PositionCascadeOutput output;
@@ -495,7 +496,7 @@ void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, Current
 	{
 		MotorControl->targets.d_axis_current_a = 0.0f;
 		MotorControl->targets.q_axis_current_a = 0.0f;
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		return;
 	}
 
@@ -516,7 +517,8 @@ void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, Current
  **/
 void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, EncoderContext *Encoder,
-	const MotorProfile *motor_profile, const BoardProfile *board_profile)
+	const MotorProfile *motor_profile, const BoardProfile *board_profile,
+	MotorStateContext *motor_state)
 {
 	PositionImpedanceConfig config;
 	PositionImpedanceOutput output;
@@ -590,7 +592,7 @@ void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, Curre
 	{
 		MotorControl->targets.d_axis_current_a = 0.0f;
 		MotorControl->targets.q_axis_current_a = 0.0f;
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		return;
 	}
 
@@ -635,16 +637,18 @@ void ControlModeRuntime_RunVoltageOpenLoop(CurrentControlContext *CurrentControl
 	* @param  *MotorControl: MotorControl struct pointer
 	* @param  *Encoder: encoder struct pointer
 	**/
-void ControlModeRuntime_RunQVoltage(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, EncoderContext *Encoder)
+void ControlModeRuntime_RunQVoltage(CurrentControlContext *CurrentControl,
+	MotorControlContext *MotorControl, EncoderContext *Encoder,
+	MotorStateContext *motor_state)
 {
 	if(!Encoder_IsOnline(Encoder))
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER);
 		return;
 	}
 	if((Encoder->calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
 		return;
 	}
 

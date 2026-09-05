@@ -13,10 +13,14 @@ typedef struct
 
 bool RotorCalibrationService_Initialize(RotorCalibrationServiceContext *context,
 	const RotorCalibrationPort *port);
-bool RotorCalibrationService_SetReverse(bool reverse);
-uint16_t RotorCalibrationService_GetEntryCount(void);
-uint32_t RotorCalibrationService_GetCountsPerRevolution(void);
-bool RotorCalibrationService_ReadEntry(uint16_t index,
+bool RotorCalibrationService_SetReverse(RotorCalibrationServiceContext *context,
+	bool reverse);
+uint16_t RotorCalibrationService_GetEntryCount(
+	const RotorCalibrationServiceContext *context);
+uint32_t RotorCalibrationService_GetCountsPerRevolution(
+	const RotorCalibrationServiceContext *context);
+bool RotorCalibrationService_ReadEntry(
+	const RotorCalibrationServiceContext *context, uint16_t index,
 	RotorCalibrationEntry *entry);
 
 #endif

@@ -1,11 +1,9 @@
 #include "telemetry_service.h"
 
-static TelemetryServiceContext *ActiveContext;
-
-#define TelemetryBuffers (ActiveContext->buffers)
-#define TelemetrySequence (ActiveContext->sequence)
-#define PublishedTelemetryBuffer (ActiveContext->published_buffer)
-#define TelemetryAvailable (ActiveContext != 0 && ActiveContext->is_available)
+#define TelemetryBuffers (context->buffers)
+#define TelemetrySequence (context->sequence)
+#define PublishedTelemetryBuffer (context->published_buffer)
+#define TelemetryAvailable (context != 0 && context->is_available)
 
 bool TelemetryService_Initialize(TelemetryServiceContext *context)
 {
@@ -15,15 +13,15 @@ bool TelemetryService_Initialize(TelemetryServiceContext *context)
 	context->sequence[1] = 0U;
 	context->published_buffer = 0U;
 	context->is_available = false;
-	ActiveContext = context;
 	return true;
 }
 
-void TelemetryService_Publish(const MotorTelemetrySnapshot *snapshot)
+void TelemetryService_Publish(TelemetryServiceContext *context,
+	const MotorTelemetrySnapshot *snapshot)
 {
 	uint8_t next_buffer;
 
-	if (snapshot == 0 || ActiveContext == 0)
+	if (snapshot == 0 || context == 0)
 		return;
 
 	next_buffer = PublishedTelemetryBuffer == 0U ? 1U : 0U;
@@ -31,10 +29,11 @@ void TelemetryService_Publish(const MotorTelemetrySnapshot *snapshot)
 	TelemetryBuffers[next_buffer] = *snapshot;
 	TelemetrySequence[next_buffer]++;
 	PublishedTelemetryBuffer = next_buffer;
-	ActiveContext->is_available = true;
+	context->is_available = true;
 }
 
-bool TelemetryService_ReadSnapshot(MotorTelemetrySnapshot *snapshot)
+bool TelemetryService_ReadSnapshot(const TelemetryServiceContext *context,
+	MotorTelemetrySnapshot *snapshot)
 {
 	uint8_t published_buffer;
 	uint32_t sequence_before;
@@ -61,11 +60,12 @@ bool TelemetryService_ReadSnapshot(MotorTelemetrySnapshot *snapshot)
 	return false;
 }
 
-bool TelemetryService_ReadValue(MotorTelemetryId telemetry, float *value)
+bool TelemetryService_ReadValue(const TelemetryServiceContext *context,
+	MotorTelemetryId telemetry, float *value)
 {
 	MotorTelemetrySnapshot snapshot;
 
-	if (value == 0 || !TelemetryService_ReadSnapshot(&snapshot))
+	if (value == 0 || !TelemetryService_ReadSnapshot(context, &snapshot))
 		return false;
 
 	switch (telemetry)

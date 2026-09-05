@@ -73,7 +73,8 @@ static MotorPortMode MotorServiceAdapter_GetMode(void *context)
 {
 	MotorCommandAdapterContext *adapter = (MotorCommandAdapterContext *)context;
 	return adapter == 0 || !adapter->is_initialized ? MOTOR_PORT_MODE_NONE :
-		MotorServiceAdapter_MapMode(MotorLifecycle_GetControlMode());
+		MotorServiceAdapter_MapMode(MotorLifecycle_GetControlMode(
+			adapter->motor_state));
 }
 
 static bool MotorServiceAdapter_RequestMode(void *context,
@@ -85,9 +86,9 @@ static bool MotorServiceAdapter_RequestMode(void *context,
 	if (adapter == 0 || !adapter->is_initialized ||
 		!MotorServiceAdapter_MapRequestedMode(mode, &control_mode))
 		return false;
-	return (MotorLifecycle_GetDeviceState() == DEVICE_STATE_ACTIVE &&
-		MotorLifecycle_GetControlMode() == control_mode) ||
-		MotorLifecycle_RequestControlMode(control_mode);
+	return (MotorLifecycle_GetDeviceState(adapter->motor_state) == DEVICE_STATE_ACTIVE &&
+		MotorLifecycle_GetControlMode(adapter->motor_state) == control_mode) ||
+		MotorLifecycle_RequestControlMode(adapter->motor_state, control_mode);
 }
 
 static bool MotorServiceAdapter_RequestService(void *context,
@@ -98,23 +99,23 @@ static bool MotorServiceAdapter_RequestService(void *context,
 	if (adapter == 0 || !adapter->is_initialized ||
 		!MotorServiceAdapter_MapRequestedService(service, &procedure))
 		return false;
-	return (MotorLifecycle_GetDeviceState() == DEVICE_STATE_SERVICING &&
-		MotorLifecycle_GetServiceProcedure() == procedure) ||
-		MotorLifecycle_RequestService(procedure);
+	return (MotorLifecycle_GetDeviceState(adapter->motor_state) == DEVICE_STATE_SERVICING &&
+		MotorLifecycle_GetServiceProcedure(adapter->motor_state) == procedure) ||
+		MotorLifecycle_RequestService(adapter->motor_state, procedure);
 }
 
 static bool MotorServiceAdapter_RequestStandby(void *context)
 {
 	MotorCommandAdapterContext *adapter = (MotorCommandAdapterContext *)context;
 	return adapter != 0 && adapter->is_initialized &&
-		MotorLifecycle_RequestStandby();
+		MotorLifecycle_RequestStandby(adapter->motor_state);
 }
 
 static bool MotorServiceAdapter_RequestClearFaults(void *context)
 {
 	MotorCommandAdapterContext *adapter = (MotorCommandAdapterContext *)context;
 	return adapter != 0 && adapter->is_initialized &&
-		MotorLifecycle_RequestClearFaults();
+		MotorLifecycle_RequestClearFaults(adapter->motor_state);
 }
 
 static float MotorServiceAdapter_GetCurrentLimit(void *context)
@@ -218,7 +219,7 @@ static bool MotorServiceAdapter_CanStageConfiguration(void *context)
 	MotorConfigurationAdapterContext *adapter =
 		(MotorConfigurationAdapterContext *)context;
 	return adapter != 0 && adapter->is_initialized &&
-		MotorLifecycle_GetDeviceState() == DEVICE_STATE_STANDBY;
+		MotorLifecycle_GetDeviceState(adapter->motor_state) == DEVICE_STATE_STANDBY;
 }
 
 static void MotorServiceAdapter_UpdateCurrentLoopGains(
@@ -337,8 +338,8 @@ bool MotorServiceAdapter_StageCurrentOffsetResult(
 {
 	uint32_t interrupt_state;
 	if (context == 0 || !context->is_initialized ||
-		MotorLifecycle_GetDeviceState() != DEVICE_STATE_SERVICING ||
-		MotorLifecycle_GetServiceProcedure() !=
+		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_SERVICING ||
+		MotorLifecycle_GetServiceProcedure(context->motor_state) !=
 			SERVICE_PROCEDURE_CURRENT_OFFSET_CALIBRATION)
 		return false;
 	interrupt_state = context->critical_section.enter(
@@ -361,8 +362,8 @@ bool MotorServiceAdapter_StagePhaseResistanceResult(
 	if (context == 0 || !context->is_initialized ||
 		resistance_ohm < context->motor_profile->phase_resistance_min_ohm ||
 		resistance_ohm > context->motor_profile->phase_resistance_max_ohm ||
-		MotorLifecycle_GetDeviceState() != DEVICE_STATE_SERVICING ||
-		MotorLifecycle_GetServiceProcedure() !=
+		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_SERVICING ||
+		MotorLifecycle_GetServiceProcedure(context->motor_state) !=
 			SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION)
 		return false;
 	interrupt_state = context->critical_section.enter(
@@ -389,7 +390,7 @@ bool MotorServiceAdapter_StageFrictionModel(
 		!isfinite(coulomb_neg_a) || coulomb_neg_a < 0.0f ||
 		!isfinite(viscous_pos_a_per_rad_s) || viscous_pos_a_per_rad_s < 0.0f ||
 		!isfinite(viscous_neg_a_per_rad_s) || viscous_neg_a_per_rad_s < 0.0f ||
-		MotorLifecycle_GetDeviceState() != DEVICE_STATE_STANDBY)
+		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_STANDBY)
 		return false;
 	interrupt_state = context->critical_section.enter(
 		context->critical_section.context);
@@ -410,13 +411,16 @@ bool MotorServiceAdapter_StageFrictionModel(
 
 MotorCommandPort MotorServiceAdapter_CreateCommandPort(
 	MotorCommandAdapterContext *context, MotorControlContext *motor,
-	const CriticalSectionPort *critical_section)
+	const CriticalSectionPort *critical_section,
+	MotorStateContext *motor_state)
 {
 	MotorCommandPort port = {0};
 	if (context == 0 || motor == 0 || critical_section == 0 ||
-		critical_section->enter == 0 || critical_section->exit == 0)
+		critical_section->enter == 0 || critical_section->exit == 0 ||
+		motor_state == 0)
 		return port;
 	context->motor = motor;
+	context->motor_state = motor_state;
 	context->pending_command = motor->command;
 	context->critical_section = *critical_section;
 	context->published_revision = 0U;
@@ -466,15 +470,17 @@ bool MotorServiceAdapter_ApplyPendingCommand(
 MotorConfigurationPort MotorServiceAdapter_CreateConfigurationPort(
 	MotorConfigurationAdapterContext *context, MotorControlContext *motor,
 	const CriticalSectionPort *critical_section,
-	const MotorProfile *motor_profile)
+	const MotorProfile *motor_profile, MotorStateContext *motor_state)
 {
 	MotorConfigurationPort port = {0};
 	if (context == 0 || motor == 0 || critical_section == 0 ||
 		motor_profile == 0 ||
 		motor_profile->current_loop_bandwidth_rad_s <= 0.0f ||
-		critical_section->enter == 0 || critical_section->exit == 0)
+		critical_section->enter == 0 || critical_section->exit == 0 ||
+		motor_state == 0)
 		return port;
 	context->motor = motor;
+	context->motor_state = motor_state;
 	context->motor_profile = motor_profile;
 	context->candidate = motor->configuration;
 	context->critical_section = *critical_section;

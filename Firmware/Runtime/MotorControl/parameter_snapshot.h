@@ -8,6 +8,7 @@
 #include "encoder_profiles.h"
 #include "encoder.h"
 #include "parameter_schema.h"
+#include "can_configuration_service.h"
 
 #define PARAMETER_SNAPSHOT_MAGIC ((uint32_t)0x454E4332U)
 
@@ -71,14 +72,18 @@ typedef struct
 	const BoardProfile *board_profile;
 	const MotorProfile *motor_profile;
 	const EncoderProfile *encoder_profile;
+	CanConfigurationServiceContext *can_configuration;
 } ParameterSnapshotContext;
 
-void ParameterSnapshot_LoadDefaults(void);
-void ParameterSnapshot_Capture(ParameterSnapshot *snapshot);
-void ParameterSnapshot_Apply(const ParameterSnapshot *snapshot);
+void ParameterSnapshot_LoadDefaults(ParameterSnapshotContext *context);
+void ParameterSnapshot_Capture(const ParameterSnapshotContext *context,
+	ParameterSnapshot *snapshot);
+void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
+	const ParameterSnapshot *snapshot);
 bool ParameterSnapshot_Initialize(ParameterSnapshotContext *context,
 	MotorControlContext *motor,
 	EncoderContext *encoder, const BoardProfile *board_profile,
-	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile);
+	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
+	CanConfigurationServiceContext *can_configuration);
 
 #endif

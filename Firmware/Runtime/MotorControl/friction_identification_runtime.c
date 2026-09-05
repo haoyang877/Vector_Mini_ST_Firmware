@@ -214,7 +214,7 @@ static bool ApplyCandidate(void *opaque)
 	FrictionIdentificationResult candidate;
 	uint32_t irq_state;
 	if (context == 0 || !context->port_initialized ||
-		MotorLifecycle_GetDeviceState() != DEVICE_STATE_STANDBY ||
+		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_STANDBY ||
 		FrictionIdentification_GetState(&context->core) != FRICTION_IDENT_COMPLETE)
 		return false;
 	irq_state = context->critical_section.enter(context->critical_section.context);
@@ -235,14 +235,16 @@ static bool ApplyCandidate(void *opaque)
 FrictionIdentificationPort FrictionIdentificationRuntime_CreatePort(
 	FrictionIdentificationRuntimeContext *context, MotorControlContext *motor,
 	MotorConfigurationAdapterContext *configuration_adapter,
-	const CriticalSectionPort *critical_section)
+	const CriticalSectionPort *critical_section,
+	MotorStateContext *motor_state)
 {
 	FrictionIdentificationPort port = {0};
 	if (context == 0 || motor == 0 || configuration_adapter == 0 ||
-		critical_section == 0 ||
+		critical_section == 0 || motor_state == 0 ||
 		critical_section->enter == 0 || critical_section->exit == 0) return port;
 	context->motor = motor;
 	context->configuration_adapter = configuration_adapter;
+	context->motor_state = motor_state;
 	context->critical_section = *critical_section;
 	context->port_initialized = true;
 	port.context = context;

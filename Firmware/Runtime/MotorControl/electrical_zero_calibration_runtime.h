@@ -8,6 +8,8 @@
 #include "encoder.h"
 #include "motor_control_types.h"
 
+typedef struct MotorStateContext MotorStateContext;
+
 typedef struct
 {
 	uint32_t loop_count;
@@ -20,7 +22,7 @@ typedef struct
 void ElectricalZeroCalibrationRuntime_ExecuteStep(
 	ElectricalZeroCalibrationContext *context,
 	CurrentControlContext *current_control, MotorControlContext *motor,
-	EncoderContext *encoder);
+	EncoderContext *encoder, MotorStateContext *motor_state);
 void ElectricalZeroCalibrationRuntime_Reset(
 	ElectricalZeroCalibrationContext *context);
 

@@ -20,12 +20,12 @@ void CurrentOffsetCalibrationRuntime_Reset(
 CurrentOffsetCalibrationStatus CurrentOffsetCalibrationRuntime_ExecuteStep(
 	CurrentOffsetCalibrationContext *context,
 	CurrentControlContext *current_control,
-	const BoardProfile *board_profile)
+	const BoardProfile *board_profile, MotorStateContext *motor_state)
 {
 	if (context == 0 || current_control == 0 || board_profile == 0 ||
 		board_profile->current_offset_calibration_sample_count == 0U)
 	{
-		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
+		MotorState_RaiseFault(motor_state, MOTOR_FAULT_INVALID_PARAMETER);
 		return CURRENT_OFFSET_CALIBRATION_RUNNING;
 	}
 	context->phase_a_offset_sum += current_control->measurement_raw.phase_a_adc;

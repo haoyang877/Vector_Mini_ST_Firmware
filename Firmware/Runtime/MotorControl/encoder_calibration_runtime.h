@@ -119,12 +119,15 @@ typedef struct
 	ObserverCalibrationContext observer_calibration;
 } MotorCalibrationContext;
 
+typedef struct MotorStateContext MotorStateContext;
+
 void MotorCalibration_Reset(MotorCalibrationContext *context);
 void CalibrationRuntime_RunEncoderLinearization(MotorCalibrationContext *context,
 	CurrentControlContext *CurrentControl, MotorControlContext *MotorControl,
-	EncoderContext *Encoder);
+	EncoderContext *Encoder, MotorStateContext *motor_state);
 void CalibrationRuntime_RunEncoderObserver(MotorCalibrationContext *context,
 	CurrentControlContext *CurrentControl, MotorControlContext *MotorControl,
 	PiController *SpeedController, EncoderContext *Encoder,
-	FluxObserverContext *Fluxobserver, SensorlessStartupContext *Startup);
+	FluxObserverContext *Fluxobserver, SensorlessStartupContext *Startup,
+	MotorStateContext *motor_state);
 #endif

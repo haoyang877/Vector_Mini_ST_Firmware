@@ -20,12 +20,15 @@ typedef struct
 {
 	uint32_t reset_reason_flags;
 	uint32_t device_identity[DEVICE_IDENTITY_WORD_COUNT];
+	const TelemetryServiceContext *telemetry;
 	bool is_initialized;
 } DiagnosticServiceContext;
 
 bool DiagnosticService_Initialize(DiagnosticServiceContext *context,
 	const ResetReasonPort *reset_reason_port,
-	const DeviceIdentityPort *device_identity_port);
-bool DiagnosticService_ReadSnapshot(DeviceDiagnosticSnapshot *snapshot);
+	const DeviceIdentityPort *device_identity_port,
+	const TelemetryServiceContext *telemetry);
+bool DiagnosticService_ReadSnapshot(const DiagnosticServiceContext *context,
+	DeviceDiagnosticSnapshot *snapshot);
 
 #endif

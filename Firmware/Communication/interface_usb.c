@@ -12,12 +12,11 @@
 #include "fast_math.h"
 #include "byte_ring_buffer.h"
 
-static UsbInterfaceContext *ActiveContext;
-#define USBContext (*ActiveContext)
-#define USBRxOverflow (ActiveContext->receive_overflow)
-#define USBTransport (ActiveContext->transport)
-#define USBTransportInitialized (ActiveContext->transport_is_initialized)
-#define USBRxQueue (ActiveContext->receive_queue)
+#define USBContext (*context)
+#define USBRxOverflow (context->receive_overflow)
+#define USBTransport (context->transport)
+#define USBTransportInitialized (context->transport_is_initialized)
+#define USBRxQueue (context->receive_queue)
 #define tx_en transmit_enabled
 #define tx_busy transmit_busy
 #define tx_str transmit_text
@@ -35,7 +34,6 @@ bool UsbInterface_Initialize(UsbInterfaceContext *context,
 	if (context == 0 || transport == 0 || transport->transmit == 0 ||
 		clock == 0 || clock->read_ms == 0)
 		return false;
-	ActiveContext = context;
 	memset(&USBContext, 0, sizeof(USBContext));
 	USBTransport = *transport;
 	USBContext.clock = *clock;
@@ -52,7 +50,8 @@ bool UsbInterface_Initialize(UsbInterfaceContext *context,
  **/
 #define USB_COMMAND_LINE_CAPACITY 64U
 
-static UsbCommandError UsbInterface_ReadCommandLine(uint8_t *line,
+static UsbCommandError UsbInterface_ReadCommandLine(UsbInterfaceContext *context,
+	uint8_t *line,
     uint16_t capacity, uint16_t *line_length)
 {
     uint16_t available;
@@ -93,12 +92,13 @@ static UsbCommandError UsbInterface_ReadCommandLine(uint8_t *line,
     return USB_INCOMPLETE_DATA;
 }
 
-static UsbCommandError UsbInterface_DecodeNextCommand(UsbProtocolV1Command *command)
+static UsbCommandError UsbInterface_DecodeNextCommand(
+	UsbInterfaceContext *context, UsbProtocolV1Command *command)
 {
     uint8_t line[USB_COMMAND_LINE_CAPACITY];
     uint16_t line_length = 0U;
 	UsbProtocolV1DecodeResult result;
-    UsbCommandError read_result = UsbInterface_ReadCommandLine(line,
+    UsbCommandError read_result = UsbInterface_ReadCommandLine(context, line,
         USB_COMMAND_LINE_CAPACITY, &line_length);
 
     if (read_result != USB_NO_ERROR)
@@ -111,7 +111,8 @@ static UsbCommandError UsbInterface_DecodeNextCommand(UsbProtocolV1Command *comm
 	return USB_NO_ERROR;
 }
 
-static void UsbInterface_QueueText(const char *text)
+static void UsbInterface_QueueText(UsbInterfaceContext *context,
+	const char *text)
 {
 	if (text == NULL)
 		return;
@@ -124,9 +125,10 @@ static void UsbInterface_QueueText(const char *text)
 	* @param  *data: received data buffer pointer
 	* @param  length: received data length
  **/
-void UsbInterface_OnReceiveInterrupt(const uint8_t *data, uint32_t length)
+void UsbInterface_OnReceiveInterrupt(UsbInterfaceContext *context,
+	const uint8_t *data, uint32_t length)
 {
-	if (data == 0 || length == 0U || length > UINT16_MAX)
+	if (context == 0 || data == 0 || length == 0U || length > UINT16_MAX)
 		return;
 
 	/* IRQ work is bounded to a byte copy; parsing and formatting run in main. */
@@ -134,71 +136,74 @@ void UsbInterface_OnReceiveInterrupt(const uint8_t *data, uint32_t length)
 		USBRxOverflow = 1U;
 }
 
-void UsbInterface_ProcessReceivedCommands(void)
+void UsbInterface_ProcessReceivedCommands(UsbInterfaceContext *context,
+	UsbCommandRouterContext *router)
 {
 	UsbCommandError USBRXError;
 	UsbProtocolV1Command command;
 	UsbCommandRouterState router_state;
 	UsbCommandRouterResponse response;
 
-	if (USBContext.tx_busy != 0U || USBContext.tx_en != 0U ||
+	if (context == 0 || router == 0 || USBContext.tx_busy != 0U ||
+		USBContext.tx_en != 0U ||
 		USBContext.lut_export_en != 0U || USBContext.friction_export_en != 0U)
 		return;
 
 	if (USBRxOverflow != 0U)
 	{
 		USBRxOverflow = 0U;
-		UsbInterface_QueueText("Receive buffer overflow!\r\n");
+		UsbInterface_QueueText(context, "Receive buffer overflow!\r\n");
 		return;
 	}
 
 	if (ByteRingBuffer_GetLength(&USBRxQueue) == 0U)
 		return;
 
-	USBRXError = UsbInterface_DecodeNextCommand(&command);
+	USBRXError = UsbInterface_DecodeNextCommand(context, &command);
 	if (USBRXError == USB_INCOMPLETE_DATA)
 		return;
 	if (USBRXError == USB_SYNTAX_ERROR)
 	{
-		UsbInterface_QueueText("Syntax error!\r\n");
+		UsbInterface_QueueText(context, "Syntax error!\r\n");
 		return;		
 	}
 	if (USBRXError == USB_DATA_INVALID)
 	{
-		UsbInterface_QueueText("Data invalid!\r\n");
+		UsbInterface_QueueText(context, "Data invalid!\r\n");
 		return;
 	}
 
 	router_state.print_active = USBContext.print_en != 0U;
 	router_state.lut_export_active = USBContext.lut_export_en != 0U;
 	router_state.friction_export_active = USBContext.friction_export_en != 0U;
-	USBRXError = UsbCommandRouter_Handle(&command, &router_state, &response);
+	USBRXError = UsbCommandRouter_Handle(router, &command, &router_state,
+		&response);
 	
 	switch(USBRXError)
 	{
 		case USB_WRITE_INVALID:
 		{
-				UsbInterface_QueueText("Write invalid!\r\n");
+				UsbInterface_QueueText(context, "Write invalid!\r\n");
 			return;		
 		}
 		case USB_UNKNOWNED_PARAM:
 		{
-				UsbInterface_QueueText("Unknowned parameter!\r\n");
+				UsbInterface_QueueText(context, "Unknowned parameter!\r\n");
 			return;
 		}
 		case USB_DATA_INVALID:
 		{
-				UsbInterface_QueueText("Data invalid!\r\n");
+				UsbInterface_QueueText(context, "Data invalid!\r\n");
 			return;
 		}
 		case USB_DATA_OUT_OF_RANGE:
 		{
-				UsbInterface_QueueText("Data out of range!\r\n");
+				UsbInterface_QueueText(context, "Data out of range!\r\n");
 			return;
 		}
 		case USB_CYCLIC_OVERFLOW:
 		{
-				UsbInterface_QueueText("Receive buffer overflow!\r\n");
+				UsbInterface_QueueText(context, "Receive buffer overflow!\r\n");
 			return;
 		}
 		default:
@@ -215,17 +220,17 @@ void UsbInterface_ProcessReceivedCommands(void)
 				{
 					USBContext.lut_export_index = 0U;
 					USBContext.lut_export_en = 1U;
-					UsbInterface_QueueText(response.text);
+				UsbInterface_QueueText(context, response.text);
 				}
 				else if (response.action == USB_COMMAND_ROUTER_ACTION_BEGIN_FRICTION_EXPORT)
 				{
 					USBContext.friction_export_index = 0U;
 					USBContext.friction_export_en = 1U;
-					UsbInterface_QueueText(response.text);
+				UsbInterface_QueueText(context, response.text);
 				}
 				else if (response.action == USB_COMMAND_ROUTER_ACTION_SEND_TEXT)
 				{
-					UsbInterface_QueueText(response.text);
+				UsbInterface_QueueText(context, response.text);
 				}
 		}
 		break;
@@ -235,13 +240,14 @@ void UsbInterface_ProcessReceivedCommands(void)
 /**
 	* @brief  Send USB response message
  **/
-void UsbInterface_OnTransmitCompleteInterrupt(void)
+void UsbInterface_OnTransmitCompleteInterrupt(UsbInterfaceContext *context)
 {
-	if (ActiveContext != 0)
+	if (context != 0)
 		USBContext.tx_busy = 0U;
 }
 
-static bool UsbInterface_StartTransmit(const uint8_t *data, uint16_t length)
+static bool UsbInterface_StartTransmit(UsbInterfaceContext *context,
+	const uint8_t *data, uint16_t length)
 {
 	if (!USBTransportInitialized || data == 0 || length == 0U)
 		return false;
@@ -258,7 +264,7 @@ static bool UsbInterface_StartTransmit(const uint8_t *data, uint16_t length)
 	return true;
 }
 
-static void UsbInterface_RecoverTimedOutTransmit(void)
+static void UsbInterface_RecoverTimedOutTransmit(UsbInterfaceContext *context)
 {
 	uint32_t now_ms;
 	if (USBContext.tx_busy == 0U)
@@ -273,9 +279,13 @@ static void UsbInterface_RecoverTimedOutTransmit(void)
 	USBContext.tx_busy = 0U;
 }
 
-void UsbInterface_FlushTransmit(void)
+void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
+	const FrictionIdentificationServiceContext *friction,
+	const RotorCalibrationServiceContext *rotor_calibration)
 {
-	UsbInterface_RecoverTimedOutTransmit();
+	if (context == 0 || friction == 0 || rotor_calibration == 0)
+		return;
+	UsbInterface_RecoverTimedOutTransmit(context);
 	if (USBContext.tx_busy != 0U)
 		return;
 
@@ -284,7 +294,8 @@ void UsbInterface_FlushTransmit(void)
 		uint16_t tx_length = (uint16_t)strlen(USBContext.tx_str);
 
 		memcpy(USBContext.tx_buffer, USBContext.tx_str, tx_length + 1U);
-		if (!UsbInterface_StartTransmit((uint8_t *)USBContext.tx_buffer,
+		if (!UsbInterface_StartTransmit(context,
+			(uint8_t *)USBContext.tx_buffer,
 			tx_length))
 			return;
 		USBContext.tx_en = 0U;
@@ -296,7 +307,8 @@ void UsbInterface_FlushTransmit(void)
 		uint16_t tx_length = (uint16_t)(4U *
 			(USBContext.en_channel_num + 1U));
 		memcpy(USBContext.tx_buffer, USBContext.print_array, tx_length);
-		if (!UsbInterface_StartTransmit((uint8_t *)USBContext.tx_buffer,
+		if (!UsbInterface_StartTransmit(context,
+			(uint8_t *)USBContext.tx_buffer,
 			tx_length))
 			return;
 		USBContext.print_pending = 0U;
@@ -308,19 +320,19 @@ void UsbInterface_FlushTransmit(void)
 		FrictionIdentificationPortSample sample;
 		FrictionIdentificationPortStatus status;
 		if (USBContext.friction_export_en == 0U) return;
-		if (!FrictionIdentificationService_ReadStatus(&status))
+		if (!FrictionIdentificationService_ReadStatus(friction, &status))
 		{
 			USBContext.friction_export_en = 0U;
-			UsbInterface_QueueText("friction_error\r\n");
+			UsbInterface_QueueText(context, "friction_error\r\n");
 			return;
 		}
 		if (USBContext.friction_export_index < status.sample_count)
 		{
-			if (!FrictionIdentificationService_ReadSample(
+			if (!FrictionIdentificationService_ReadSample(friction,
 					USBContext.friction_export_index, &sample))
 			{
 				USBContext.friction_export_en = 0U;
-				UsbInterface_QueueText("friction_error\r\n");
+				UsbInterface_QueueText(context, "friction_error\r\n");
 				return;
 			}
 			(void)snprintf(USBContext.tx_str, sizeof(USBContext.tx_str),
@@ -334,21 +346,23 @@ void UsbInterface_FlushTransmit(void)
 			return;
 		}
 		USBContext.friction_export_en = 0U;
-		UsbInterface_QueueText("friction_end\r\n");
+		UsbInterface_QueueText(context, "friction_end\r\n");
 		return;
 	}
 
-	if (USBContext.lut_export_index < RotorCalibrationService_GetEntryCount())
+	if (USBContext.lut_export_index <
+		RotorCalibrationService_GetEntryCount(rotor_calibration))
 	{
 		RotorCalibrationEntry entry;
 		uint32_t counts_per_revolution =
-			RotorCalibrationService_GetCountsPerRevolution();
+			RotorCalibrationService_GetCountsPerRevolution(rotor_calibration);
 
-		if (!RotorCalibrationService_ReadEntry(USBContext.lut_export_index, &entry) ||
+		if (!RotorCalibrationService_ReadEntry(rotor_calibration,
+			USBContext.lut_export_index, &entry) ||
 			counts_per_revolution == 0U)
 		{
 			USBContext.lut_export_en = 0U;
-			UsbInterface_QueueText("lut_error\r\n");
+			UsbInterface_QueueText(context, "lut_error\r\n");
 			return;
 		}
 
@@ -363,7 +377,7 @@ void UsbInterface_FlushTransmit(void)
 	}
 
 	USBContext.lut_export_en = 0U;
-	UsbInterface_QueueText("lut_end\r\n");
+	UsbInterface_QueueText(context, "lut_end\r\n");
 }
 
 /**
@@ -372,7 +386,8 @@ void UsbInterface_FlushTransmit(void)
 	* @retval scaled variable value
  **/
 static float print_get_value(const UsbPrintChannel *var,
-	const MotorTelemetrySnapshot *snapshot)
+	const MotorTelemetrySnapshot *snapshot,
+	const CanConfigurationServiceContext *can_configuration)
 {
 	float value;
 
@@ -382,7 +397,8 @@ static float print_get_value(const UsbPrintChannel *var,
 		case USB_CURRENT_SET: value = snapshot->current_reference_a; break;
 		case USB_SPEED_SET: value = snapshot->speed_reference_rad_s; break;
 		case USB_POS_SET: value = snapshot->position_reference_rad; break;
-		case USB_NODE_ID: value = (float)CanConfigurationService_GetNodeId(); break;
+		case USB_NODE_ID: value = (float)CanConfigurationService_GetNodeId(
+			can_configuration); break;
 		case USB_POLEPARIS: value = snapshot->pole_pairs; break;
 		case USB_ENCODER_STATE: value = (float)snapshot->encoder_online; break;
 		case USB_ENCODER_REVERSE: value = (float)snapshot->encoder_reversed; break;
@@ -402,8 +418,10 @@ static float print_get_value(const UsbPrintChannel *var,
 		case USB_POS_INTEGRAL_LIMIT: value = snapshot->position_integral_limit_a; break;
 		case USB_CASCADE_POS_KP: value = snapshot->cascade_position_kp_per_s; break;
 		case USB_CASCADE_POS_KD: value = snapshot->cascade_position_kd; break;
-		case USB_CAN_BR: value = (float)CanConfigurationService_GetBitrateKbps(); break;
-		case USB_CAN_HB: value = (float)CanConfigurationService_GetHeartbeatMs(); break;
+		case USB_CAN_BR: value = (float)CanConfigurationService_GetBitrateKbps(
+			can_configuration); break;
+		case USB_CAN_HB: value = (float)CanConfigurationService_GetHeartbeatMs(
+			can_configuration); break;
 		case USB_VBUS: value = snapshot->bus_voltage_v; break;
 		case USB_IBUS: value = snapshot->bus_current_a; break;
 		case USB_IA: value = snapshot->phase_a_current_a; break;
@@ -428,20 +446,24 @@ static float print_get_value(const UsbPrintChannel *var,
 /**
 	* @brief  Send USB print profile data
  **/
-void UsbInterface_UpdateTelemetryStream(void)
+void UsbInterface_UpdateTelemetryStream(UsbInterfaceContext *context,
+	const TelemetryServiceContext *telemetry,
+	const CanConfigurationServiceContext *can_configuration)
 {
 	MotorTelemetrySnapshot snapshot;
 
-	if (!USBContext.print_en || USBContext.print_pending != 0U)
+	if (context == 0 || telemetry == 0 || can_configuration == 0 ||
+		!USBContext.print_en || USBContext.print_pending != 0U)
 		return;
-	if (!TelemetryService_ReadSnapshot(&snapshot))
+	if (!TelemetryService_ReadSnapshot(telemetry, &snapshot))
 		return;
 	
 	USBContext.en_channel_num = 5;
 
 	for(int i = 0; i < USBContext.en_channel_num; i++)
 	{
-		float var_temp = print_get_value(&USBContext.p_var[i], &snapshot);
+		float var_temp = print_get_value(&USBContext.p_var[i], &snapshot,
+			can_configuration);
 		USBContext.print_array[i] = FloatBits_Encode(var_temp);
 	}
 	

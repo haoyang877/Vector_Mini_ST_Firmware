@@ -1,0 +1,16 @@
+{
+  "r_mod": "mode=0",
+  "r_err": "error=0",
+  "r_e_s": "encoder=TLE5012B-Online.",
+  "r_pol": "pol=21",
+  "r_ilm": "i_lim=6.00A",
+  "r_vbs": "vbus=27.80V",
+  "r_mrs": "Rs=1905.00mohm",
+  "r_mld": "Ld=1635.00uH",
+  "r_mlq": "Lq=1635.00uH",
+  "r_mfx": "Flux=17.50mWb",
+  "captured_at": "2026-09-05T18:23:38.9231882+08:00",
+  "port": "COM4",
+  "minimum_bus_voltage_v": 22.0,
+  "maximum_run_seconds": 35.0
+}

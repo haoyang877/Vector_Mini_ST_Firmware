@@ -13,6 +13,7 @@ typedef struct
 	float sin,cos;
 
 	float gamma;
+	float resistance_scale;
 	float maximum_correction_step_rad;
 	float minimum_flux_weber;
 	float velocity_lpf_alpha;

@@ -1,0 +1,50 @@
+{
+  "sample_count": 1661,
+  "duration_s": 16.6,
+  "calibration_transitions": [
+    {
+      "time_s": 0.0,
+      "value": 31,
+      "name": "clear_samples"
+    },
+    {
+      "time_s": 0.01,
+      "value": 22,
+      "name": "align_origin"
+    },
+    {
+      "time_s": 2.61,
+      "value": 23,
+      "name": "wait_closed_loop"
+    }
+  ],
+  "startup_transitions": [
+    {
+      "time_s": 0.0,
+      "value": 0,
+      "name": "idle"
+    },
+    {
+      "time_s": 0.01,
+      "value": 1,
+      "name": "align"
+    },
+    {
+      "time_s": 2.61,
+      "value": 2,
+      "name": "open_loop"
+    },
+    {
+      "time_s": 6.61,
+      "value": 3,
+      "name": "speed_lock"
+    }
+  ],
+  "maximum_actual_electrical_speed_rad_s": 426.92999999999995,
+  "maximum_observer_electrical_speed_rad_s": 164.0,
+  "maximum_lock_electrical_speed_rad_s": 93.4,
+  "final_actual_electrical_speed_rad_s": 421.26,
+  "final_observer_electrical_speed_rad_s": -78.3,
+  "final_lock_electrical_speed_rad_s": 62.4,
+  "final_speed_ratio": -0.1858709585529127
+}

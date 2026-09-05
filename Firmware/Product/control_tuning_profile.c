@@ -26,6 +26,14 @@ static const ControlTuningProfile ActiveControlTuningProfile =
 	.sensorless_observer_max_electrical_velocity_rad_s = 5000.0f,
 	.sensorless_speed_feedback_lpf_alpha = 0.1042f,
 	.flux_observer_gamma = 800000.0f,
+	/*
+	 * The voltage-model observer needs the effective stator resistance seen at
+	 * the PWM fundamental.  On this inverter/motor it is lower than the DC
+	 * phase resistance used to tune the current PI loop.  Keep the two models
+	 * independent so motor identification and current-loop gains remain
+	 * physically meaningful.
+	 */
+	.flux_observer_resistance_scale = 0.4199475f, /* 0.800 / 1.905 */
 	.flux_observer_max_correction_step_rad = 0.2f,
 	.flux_observer_minimum_flux_weber = 1.0e-6f,
 	.flux_observer_velocity_lpf_alpha = 0.1f,

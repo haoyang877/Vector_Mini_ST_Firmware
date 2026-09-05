@@ -1,0 +1,9 @@
+{
+  "samples": 1024,
+  "minimum_error_deg": -77.42065,
+  "maximum_error_deg": -76.47583,
+  "peak_to_peak_error_deg": 0.9448199999999929,
+  "mean_error_deg": -76.81731259765625,
+  "demeaned_rms_error_deg": 0.21952666652130312,
+  "demeaned_peak_abs_error_deg": 0.6033374023437403
+}

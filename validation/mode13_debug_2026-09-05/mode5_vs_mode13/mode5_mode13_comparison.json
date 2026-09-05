@@ -1,0 +1,23 @@
+{
+  "samples": 1024,
+  "maximum_raw_angle_grid_delta_deg": 0.0,
+  "mode5": {
+    "mean_correction_deg": -97.30458862304687,
+    "peak_to_peak_deg": 0.8459399999999988,
+    "demeaned_rms_deg": 0.21176281619170986,
+    "demeaned_peak_abs_deg": 0.5121813769531371
+  },
+  "mode13": {
+    "mean_correction_deg": -76.81731259765625,
+    "peak_to_peak_deg": 0.9448199999999929,
+    "demeaned_rms_deg": 0.21952666652130312,
+    "demeaned_peak_abs_deg": 0.6033374023437403
+  },
+  "comparison": {
+    "constant_offset_mode13_minus_mode5_deg": 20.487276025390614,
+    "demeaned_waveform_correlation": 0.9447040128435361,
+    "demeaned_difference_rms_deg": 0.07212094836244594,
+    "demeaned_difference_mean_abs_deg": 0.056693692169189874,
+    "demeaned_difference_peak_abs_deg": 0.23947602539061563
+  }
+}

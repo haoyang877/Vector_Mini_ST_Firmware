@@ -43,6 +43,8 @@ void FluxObserver_Initialize(FluxObserverContext *Fluxobserver,
 		return;
 	FluxObserver_Reset(Fluxobserver);
 	Fluxobserver->gamma = tuning_profile->flux_observer_gamma;
+	Fluxobserver->resistance_scale =
+		tuning_profile->flux_observer_resistance_scale;
 	Fluxobserver->maximum_correction_step_rad =
 		tuning_profile->flux_observer_max_correction_step_rad;
 	Fluxobserver->minimum_flux_weber =
@@ -79,7 +81,8 @@ void SensorlessStartup_Reset(SensorlessStartupContext *Startup)
 void FluxObserver_Update(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, FluxObserverContext *Fluxobserver)
 {
 	float mod_to_V = CurrentControl->filtered_bus_voltage_v / 1.5f;
-	float Rs   = MotorControl->configuration.phase_resistance_ohm;
+	float Rs   = MotorControl->configuration.phase_resistance_ohm *
+		Fluxobserver->resistance_scale;
 	float Ls   = (MotorControl->configuration.d_axis_inductance_h + MotorControl->configuration.q_axis_inductance_h) * 0.5f;
 	float flux = MotorControl->configuration.flux_weber;
 	float flux_sq;
@@ -87,7 +90,10 @@ void FluxObserver_Update(CurrentControlContext *CurrentControl, MotorControlCont
 	float gamma;
 	float delta_theta = 0.0f;
 
-	if(!FluxObserver_IsFinite(Rs) || !FluxObserver_IsFinite(Ls) ||
+	if(!FluxObserver_IsFinite(Rs) || Rs <= 0.0f ||
+	   !FluxObserver_IsFinite(Fluxobserver->resistance_scale) ||
+	   Fluxobserver->resistance_scale <= 0.0f ||
+	   !FluxObserver_IsFinite(Ls) ||
 	   !FluxObserver_IsFinite(flux) ||
 	   flux <= Fluxobserver->minimum_flux_weber)
 	{

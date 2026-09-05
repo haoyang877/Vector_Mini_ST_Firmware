@@ -1,0 +1,10 @@
+{
+  "terminal_reason": "mode15_completed",
+  "elapsed_s": 1.6679,
+  "sample_count": 28,
+  "final_mode": 0,
+  "final_error": 0,
+  "minimum_bus_voltage_v": 27.56,
+  "maximum_id_a": 4.51,
+  "maximum_abs_iq_a": 0.02
+}

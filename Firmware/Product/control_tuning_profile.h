@@ -31,6 +31,7 @@ typedef struct
 	float sensorless_observer_max_electrical_velocity_rad_s;
 	float sensorless_speed_feedback_lpf_alpha;
 	float flux_observer_gamma;
+	float flux_observer_resistance_scale;
 	float flux_observer_max_correction_step_rad;
 	float flux_observer_minimum_flux_weber;
 	float flux_observer_velocity_lpf_alpha;

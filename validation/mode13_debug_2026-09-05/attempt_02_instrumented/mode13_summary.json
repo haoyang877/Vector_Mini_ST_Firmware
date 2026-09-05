@@ -1,0 +1,10 @@
+﻿{
+    "terminal_reason":  "firmware_fault_13",
+    "elapsed_s":  16.6662,
+    "sample_count":  327,
+    "final_mode":  0,
+    "final_error":  13,
+    "minimum_bus_voltage_v":  27.53,
+    "maximum_bus_current_a":  2.8,
+    "maximum_speed_rad_s":  20.35
+}

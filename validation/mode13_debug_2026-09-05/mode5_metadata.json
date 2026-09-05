@@ -1,0 +1,21 @@
+{
+  "r_mod": "mode=0",
+  "r_err": "error=0",
+  "r_e_s": "encoder=TLE5012B-Online.",
+  "r_erv": "erv=0",
+  "r_pol": "pol=21",
+  "r_ica": "i_cal=4.50A",
+  "r_ilm": "i_lim=6.00A",
+  "r_slm": "spd_lim=0.50r/s",
+  "r_vbs": "vbus=27.80V",
+  "r_p2f": "pos2_filt=1.209r",
+  "r_mrs": "Rs=1905.00mohm",
+  "r_mld": "Ld=1635.00uH",
+  "r_mlq": "Lq=1635.00uH",
+  "r_mfx": "Flux=17.50mWb",
+  "lut_count": 1024,
+  "lut_reverse": 0,
+  "captured_at": "2026-09-05T18:01:22.7732043+08:00",
+  "port": "COM4",
+  "row_count": 1024
+}

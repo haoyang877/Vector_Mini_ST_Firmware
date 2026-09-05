@@ -1,0 +1,95 @@
+{
+  "sample_count": 1422,
+  "duration_s": 14.21,
+  "calibration_transitions": [
+    {
+      "time_s": 0.0,
+      "value": 31,
+      "name": "clear_samples"
+    },
+    {
+      "time_s": 0.01,
+      "value": 22,
+      "name": "align_origin"
+    },
+    {
+      "time_s": 2.61,
+      "value": 23,
+      "name": "wait_closed_loop"
+    },
+    {
+      "time_s": 7.21,
+      "value": 24,
+      "name": "speed_stable"
+    },
+    {
+      "time_s": 8.21,
+      "value": 25,
+      "name": "find_origin"
+    },
+    {
+      "time_s": 8.3,
+      "value": 26,
+      "name": "sample_cw"
+    },
+    {
+      "time_s": 11.43,
+      "value": 27,
+      "name": "build_lut"
+    },
+    {
+      "time_s": 11.48,
+      "value": 28,
+      "name": "verify_cw"
+    },
+    {
+      "time_s": 12.11,
+      "value": 29,
+      "name": "stop_decel"
+    },
+    {
+      "time_s": 14.11,
+      "value": 30,
+      "name": "stop_current"
+    }
+  ],
+  "startup_transitions": [
+    {
+      "time_s": 0.0,
+      "value": 0,
+      "name": "idle"
+    },
+    {
+      "time_s": 0.01,
+      "value": 1,
+      "name": "align"
+    },
+    {
+      "time_s": 2.61,
+      "value": 2,
+      "name": "open_loop"
+    },
+    {
+      "time_s": 6.61,
+      "value": 3,
+      "name": "speed_lock"
+    },
+    {
+      "time_s": 7.01,
+      "value": 4,
+      "name": "handoff"
+    },
+    {
+      "time_s": 7.21,
+      "value": 5,
+      "name": "closed_loop"
+    }
+  ],
+  "maximum_actual_electrical_speed_rad_s": 478.17,
+  "maximum_observer_electrical_speed_rad_s": 1064.0,
+  "maximum_lock_electrical_speed_rad_s": 422.3,
+  "final_actual_electrical_speed_rad_s": 0.0,
+  "final_observer_electrical_speed_rad_s": 0.8,
+  "final_lock_electrical_speed_rad_s": 420.2,
+  "final_speed_ratio": null
+}

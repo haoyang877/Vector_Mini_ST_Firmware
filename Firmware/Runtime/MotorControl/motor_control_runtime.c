@@ -61,7 +61,9 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 		monotonic_clock->read_ms == 0 || execution_timer == 0 ||
 		execution_timer->read_cycles == 0 ||
 		execution_timer->cycles_per_second == 0 ||
-		board_profile->control_frequency_hz == 0U)
+		board_profile->control_frequency_hz == 0U ||
+		!isfinite(tuning_profile->flux_observer_resistance_scale) ||
+		tuning_profile->flux_observer_resistance_scale <= 0.0f)
 		return false;
 	ActiveRuntime = context;
 	ActiveBoardProfile = board_profile;
@@ -284,6 +286,33 @@ bool MotorControlRuntime_ReadDiagnosticFrame(MotorDiagnosticFrame *frame)
 			for (index = 0U; index < 9U; ++index)
 				data[index] = 0;
 		}
+	}
+	else if (MotorLifecycle_GetDeviceState() == DEVICE_STATE_SERVICING &&
+		MotorLifecycle_GetServiceProcedure() ==
+		SERVICE_PROCEDURE_OBSERVER_CALIBRATION)
+	{
+		/* Mode 13 diagnostics: calibration/startup states, actual/open-loop/
+		 * observer/lock speeds, Iq reference/actual and encoder-observer phase.
+		 * Electrical speeds use 0.1 rad/s; mechanical speed uses 0.01 rad/s. */
+		encoder_theta_elec = FastMath_NormalizeAngle(OnBoard_Encoder.theta_elec);
+		observer_theta_elec = FastMath_NormalizeAngle(
+			FluxObserver_GetElectricalAngle(&Fluxobserver));
+		phase_error = encoder_theta_elec - observer_theta_elec;
+		if (phase_error >= MATH_PI)
+			phase_error -= MATH_TWO_PI;
+		else if (phase_error < -MATH_PI)
+			phase_error += MATH_TWO_PI;
+
+		data[0] = (int16_t)MotorCalibration.step;
+		data[1] = (int16_t)SensorlessStartup.state;
+		data[2] = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, 100.0f);
+		data[3] = RTT_EncodeInt16(SensorlessStartup.open_loop_omega, 10.0f);
+		data[4] = RTT_EncodeInt16(
+			FluxObserver_GetElectricalVelocity(&Fluxobserver), 10.0f);
+		data[5] = RTT_EncodeInt16(SensorlessStartup.lock_speed_feedback, 10.0f);
+		data[6] = RTT_EncodeInt16(MotorControl.targets.q_axis_current_a, 1000.0f);
+		data[7] = RTT_EncodeInt16(CurrentControl.q_axis_current_a, 1000.0f);
+		data[8] = RTT_EncodeAngleQ15(phase_error);
 	}
 	else if (MotorLifecycle_GetDeviceState() == DEVICE_STATE_ACTIVE &&
 		(MotorLifecycle_GetControlMode() == MOTOR_CONTROL_MODE_POSITION_CASCADE ||

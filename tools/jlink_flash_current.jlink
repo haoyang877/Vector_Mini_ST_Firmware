@@ -1,0 +1,10 @@
+device STM32G431CB
+si SWD
+speed 4000
+connect
+r
+h
+loadfile MDK-ARM\Vector_Mini_ST\Vector_Mini_ST.hex
+r
+g
+exit

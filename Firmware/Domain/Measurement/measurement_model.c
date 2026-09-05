@@ -47,15 +47,26 @@ void MeasurementModel_Reset(MeasurementModelContext *context)
         memset(context, 0, sizeof(*context));
 }
 
+bool MeasurementModel_Configure(MeasurementModelContext *context,
+    const MeasurementModelConfig *config)
+{
+    if (context == NULL || !Measurement_ConfigIsValid(config))
+        return false;
+    context->config = *config;
+    context->is_configured = true;
+    return true;
+}
+
 bool MeasurementModel_Update(MeasurementModelContext *context,
-    const MeasurementModelConfig *config, const MeasurementModelInput *input,
-    MeasurementModelOutput *output)
+    const MeasurementModelInput *input, MeasurementModelOutput *output)
 {
     bool has_overcurrent;
+    const MeasurementModelConfig *config;
 
     if (context == NULL || input == NULL || output == NULL ||
-        !Measurement_ConfigIsValid(config))
+        !context->is_configured)
         return false;
+    config = &context->config;
 
     context->output.faults = MEASUREMENT_FAULT_NONE;
     context->output.bus_voltage_v = input->bus_voltage_adc *

@@ -239,6 +239,40 @@ float FastMath_Cos(float theta)
 }
 
 /**
+	* @brief  Calculate sine and cosine with one angle normalization
+	* @param  theta: input angle
+	* @param  sine: sine output
+	* @param  cosine: cosine output
+ **/
+void FastMath_SinCos(float theta, float *sine, float *cosine)
+{
+	float cosine_theta;
+
+	if (sine == 0 || cosine == 0)
+		return;
+	/* Control angles are normally already in one electrical turn.  Keep that
+	 * 20 kHz path to one or two comparisons; retain the general reduction for
+	 * callers that provide angles more than one turn out of range. */
+	if (theta >= MATH_TWO_PI)
+	{
+		theta -= MATH_TWO_PI;
+		if (theta >= MATH_TWO_PI)
+			theta = FastMath_NormalizeAngle(theta);
+	}
+	else if (theta < 0.0f)
+	{
+		theta += MATH_TWO_PI;
+		if (theta < 0.0f)
+			theta = FastMath_NormalizeAngle(theta);
+	}
+	cosine_theta = MATH_PI_BY_TWO - theta;
+	if (cosine_theta < 0.0f)
+		cosine_theta += MATH_TWO_PI;
+	*sine = sin_tab[(int)(FAST_MATH_LUT_SCALE * theta)];
+	*cosine = sin_tab[(int)(FAST_MATH_LUT_SCALE * cosine_theta)];
+}
+
+/**
 	* @brief  Fast atan2 approximation
 	* @param  y: y input value
 	* @param  x: x input value

@@ -2,20 +2,6 @@
 
 #include "motor_state_runtime.h"
 
-static bool Measurement_ProtectionIsActive(void)
-{
-	DeviceState state = MotorLifecycle_GetDeviceState();
-	ServiceProcedure procedure = MotorLifecycle_GetServiceProcedure();
-
-	if (state == DEVICE_STATE_ACTIVE)
-		return true;
-	return state == DEVICE_STATE_SERVICING &&
-		(procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
-		 procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
-		 procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
-		 procedure == SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION);
-}
-
 bool Measurement_Capture(CurrentControlContext *CurrentControl)
 {
     if (CurrentControl == 0 || CurrentControl->measurement_port.read_raw_sample == 0)
@@ -24,14 +10,12 @@ bool Measurement_Capture(CurrentControlContext *CurrentControl)
         CurrentControl->measurement_port.context, &CurrentControl->measurement_raw);
 }
 
-bool Measurement_Process(MeasurementModelContext *context, CurrentControlContext *CurrentControl,
+bool Measurement_Configure(MeasurementModelContext *context,
     const MotorControlContext *motor, const BoardProfile *board_profile)
 {
     MeasurementModelConfig config;
-    MeasurementModelInput input;
-    MeasurementModelOutput output;
 
-    if (context == 0 || CurrentControl == 0 || motor == 0 || board_profile == 0)
+    if (context == 0 || motor == 0 || board_profile == 0)
         return false;
 
     config.phase_a_offset_adc = motor->configuration.phase_a_current_offset_adc;
@@ -59,15 +43,26 @@ bool Measurement_Process(MeasurementModelContext *context, CurrentControlContext
     config.voltage_confirm_cycles = board_profile->voltage_confirm_cycles;
     config.temperature_sample_divider =
         board_profile->temperature_sample_divider;
+    return MeasurementModel_Configure(context, &config);
+}
+
+bool Measurement_Process(MeasurementModelContext *context,
+    CurrentControlContext *CurrentControl, bool protection_is_active)
+{
+    MeasurementModelInput input;
+    MeasurementModelOutput output;
+
+    if (context == 0 || CurrentControl == 0)
+        return false;
 
     input.phase_a_adc = CurrentControl->measurement_raw.phase_a_adc;
     input.phase_b_adc = CurrentControl->measurement_raw.phase_b_adc;
     input.phase_c_adc = CurrentControl->measurement_raw.phase_c_adc;
     input.bus_voltage_adc = CurrentControl->measurement_raw.bus_voltage_adc;
     input.temperature_adc = CurrentControl->measurement_raw.temperature_adc;
-    input.protection_is_active = Measurement_ProtectionIsActive();
+    input.protection_is_active = protection_is_active;
 
-    if (!MeasurementModel_Update(context, &config, &input, &output))
+    if (!MeasurementModel_Update(context, &input, &output))
         return false;
 
     CurrentControl->phase_a_current_a = output.phase_a_current_a;

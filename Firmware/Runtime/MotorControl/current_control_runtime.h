@@ -38,6 +38,9 @@ typedef struct
 
 void CurrentControlRuntime_RunVoltage(CurrentControlContext *CurrentControl, float Vd_set, float Vq_set, float phase);
 void CurrentControlRuntime_RunClosedLoop(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, float phase, float phase_vel);
+void CurrentControlRuntime_UpdatePhaseCurrents(CurrentControlContext *CurrentControl);
+void CurrentControlRuntime_ConfigureControllers(CurrentControlContext *CurrentControl,
+	const MotorControlContext *MotorControl);
 void CurrentControlRuntime_ResetControllers(CurrentControlContext *CurrentControl);
 void CurrentControlRuntime_RunQVoltage(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, float phase, float phase_vel);
 

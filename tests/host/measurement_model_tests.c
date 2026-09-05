@@ -32,12 +32,14 @@ int MeasurementModel_RunHostTests(void)
 
 	config.temperature_protection_enabled = true;
 	MeasurementModel_Reset(&context);
-	TEST_CHECK(MeasurementModel_Update(&context, &config, &input, &output));
+	TEST_CHECK(MeasurementModel_Configure(&context, &config));
+	TEST_CHECK(MeasurementModel_Update(&context, &input, &output));
 	TEST_CHECK((output.faults & MEASUREMENT_FAULT_HIGH_TEMPERATURE) != 0U);
 
 	config.temperature_protection_enabled = false;
 	MeasurementModel_Reset(&context);
-	TEST_CHECK(MeasurementModel_Update(&context, &config, &input, &output));
+	TEST_CHECK(MeasurementModel_Configure(&context, &config));
+	TEST_CHECK(MeasurementModel_Update(&context, &input, &output));
 	TEST_CHECK((output.faults & MEASUREMENT_FAULT_HIGH_TEMPERATURE) == 0U);
 	return 0;
 }

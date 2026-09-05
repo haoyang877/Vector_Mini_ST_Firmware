@@ -1,0 +1,66 @@
+{
+  "target": {
+    "control_frequency_hz": 20000,
+    "cpu_frequency_hz": 170000000,
+    "deadline_cycles": 8500,
+    "deadline_us": 50.0
+  },
+  "hardware": {
+    "bus_voltage_nominal_v": 28.0,
+    "mechanical_load_profile": "MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM",
+    "temperature_protection_skipped_for_bench_validation": true
+  },
+  "baseline": {
+    "standby_filtered_cycles": 4682,
+    "standby_maximum_cycles": 4857,
+    "mode13_active_filtered_cycles": 8941,
+    "mode13_active_maximum_cycles": 9861,
+    "mode13_deadline_overruns_observed": true
+  },
+  "optimized": {
+    "standby_filtered_cycles": 4200,
+    "standby_maximum_cycles": 4368,
+    "mode13_active_filtered_cycles": 7848,
+    "mode13_active_maximum_cycles": 8063,
+    "mode13_deadline_overrun_count": 0,
+    "worst_case_margin_cycles": 437,
+    "worst_case_margin_us": 2.5706
+  },
+  "regression": {
+    "mode13": {
+      "completed": true,
+      "final_mode": 0,
+      "final_error": 0
+    },
+    "mode15": {
+      "completed": true,
+      "elapsed_s": 1.6714,
+      "minimum_bus_voltage_v": 27.57,
+      "maximum_id_a": 4.51,
+      "maximum_abs_iq_a": 0.02,
+      "final_mode": 0,
+      "final_error": 0
+    },
+    "encoder_speed_mode2": {
+      "target_rev_s": 0.1,
+      "target_rad_s": 0.6283185,
+      "steady_speed_mean_rad_s": 0.6305556,
+      "steady_speed_min_rad_s": 0.44,
+      "steady_speed_max_rad_s": 0.81,
+      "minimum_bus_voltage_v": 27.75,
+      "maximum_abs_iq_a": 1.72,
+      "sample_count": 50,
+      "fault_sample_count": 0,
+      "final_mode": 0,
+      "final_error": 0
+    }
+  },
+  "build": {
+    "errors": 0,
+    "warnings": 0,
+    "code_bytes": 96644,
+    "ro_data_bytes": 5848,
+    "rw_data_bytes": 504,
+    "zi_data_bytes": 28752
+  }
+}

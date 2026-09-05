@@ -376,10 +376,14 @@ void MotorControlRuntime_Initialize(PowerStageContext *power_stage,
 		ActiveEncoderProfile->speed_sample_period_s))
 		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
 	
-	FluxObserver_Initialize(&Fluxobserver, ActiveTuningProfile);
+	FluxObserver_Initialize(&Fluxobserver, ActiveTuningProfile, &MotorControl);
 	SensorlessStartup_Reset(&SensorlessStartup);
 	CurrentControlRuntime_ResetControllers(&CurrentControl);
+	CurrentControlRuntime_ConfigureControllers(&CurrentControl, &MotorControl);
 	MeasurementModel_Reset(&MeasurementModel);
+	if (!Measurement_Configure(&MeasurementModel, &MotorControl,
+		ActiveBoardProfile))
+		MotorState_RaiseFault(MOTOR_FAULT_INVALID_PARAMETER);
 	MotorCalibration_Reset(&MotorCalibration);
 	CurrentOffsetCalibrationRuntime_Reset(&CurrentOffsetCalibration);
 	ElectricalZeroCalibrationRuntime_Reset(&ElectricalZeroCalibration);
@@ -416,37 +420,34 @@ static void MotorControlRuntime_SetMechanicalZero(MotorControlContext *motor,
 	MotorLifecycle_ReportServiceComplete(true);
 }
 
-static bool Encoder_FeedbackRequired(const MotorControlContext *motor)
+static bool Encoder_FeedbackRequired(const MotorControlContext *motor,
+	DeviceState device_state, MotorControlMode mode,
+	ServiceProcedure procedure)
 {
-	MotorControlMode mode = MotorLifecycle_GetControlMode();
-	ServiceProcedure procedure = MotorLifecycle_GetServiceProcedure();
-
-	if (MotorLifecycle_GetDeviceState() == DEVICE_STATE_ACTIVE &&
-		mode == MOTOR_CONTROL_MODE_CURRENT)
+	if (device_state == DEVICE_STATE_ACTIVE && mode == MOTOR_CONTROL_MODE_CURRENT)
 		return !motor->configuration.use_sensorless_feedback;
 
-	if (MotorLifecycle_GetDeviceState() == DEVICE_STATE_ACTIVE)
+	if (device_state == DEVICE_STATE_ACTIVE)
 		return mode == MOTOR_CONTROL_MODE_SPEED ||
 			mode == MOTOR_CONTROL_MODE_POSITION_CASCADE ||
 			mode == MOTOR_CONTROL_MODE_POSITION_IMPEDANCE ||
 			mode == MOTOR_CONTROL_MODE_VQ;
 
-	return MotorLifecycle_GetDeviceState() == DEVICE_STATE_SERVICING &&
+	return device_state == DEVICE_STATE_SERVICING &&
 		(procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
 		 procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
 		 procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
 		 procedure == SERVICE_PROCEDURE_SET_MECHANICAL_ZERO);
 }
 
-static bool LifecycleRequiresPowerStage(void)
+static bool LifecycleRequiresPowerStage(DeviceState device_state,
+	ServiceProcedure procedure, ProcedureState procedure_state)
 {
-	ServiceProcedure procedure;
-	if (MotorLifecycle_GetDeviceState() == DEVICE_STATE_ACTIVE)
+	if (device_state == DEVICE_STATE_ACTIVE)
 		return true;
-	if (MotorLifecycle_GetDeviceState() != DEVICE_STATE_SERVICING ||
-		MotorLifecycle_GetProcedureState() != PROCEDURE_STATE_RUNNING)
+	if (device_state != DEVICE_STATE_SERVICING ||
+		procedure_state != PROCEDURE_STATE_RUNNING)
 		return false;
-	procedure = MotorLifecycle_GetServiceProcedure();
 	return procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
 		procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
 		procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
@@ -528,20 +529,29 @@ static void MotorControlRuntime_CancelExitedService(DeviceState device_state,
 	}
 }
 
-static bool MotorControlRuntime_RequiresFluxObserver(void)
+static bool MotorControlRuntime_RequiresFluxObserver(DeviceState device_state,
+	MotorControlMode mode, ServiceProcedure service_procedure)
 {
-	DeviceState device_state = MotorLifecycle_GetDeviceState();
-
 	if (device_state == DEVICE_STATE_ACTIVE)
 	{
-		MotorControlMode mode = MotorLifecycle_GetControlMode();
 		return mode == MOTOR_CONTROL_MODE_SENSORLESS_SPEED ||
 			(mode == MOTOR_CONTROL_MODE_CURRENT &&
 			 MotorControl.configuration.use_sensorless_feedback);
 	}
 	return device_state == DEVICE_STATE_SERVICING &&
-		MotorLifecycle_GetServiceProcedure() ==
-			SERVICE_PROCEDURE_OBSERVER_CALIBRATION;
+		service_procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION;
+}
+
+static bool MotorControlRuntime_MeasurementProtectionIsActive(
+	DeviceState device_state, ServiceProcedure service_procedure)
+{
+	if (device_state == DEVICE_STATE_ACTIVE)
+		return true;
+	return device_state == DEVICE_STATE_SERVICING &&
+		(service_procedure == SERVICE_PROCEDURE_ENCODER_LINEARIZATION ||
+		 service_procedure == SERVICE_PROCEDURE_ELECTRICAL_ZERO_CALIBRATION ||
+		 service_procedure == SERVICE_PROCEDURE_OBSERVER_CALIBRATION ||
+		 service_procedure == SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION);
 }
 
 static void MotorControlRuntime_ExecuteFastLoopBody(void)
@@ -551,6 +561,13 @@ static void MotorControlRuntime_ExecuteFastLoopBody(void)
 	MotorControlMode control_mode;
 	ServiceProcedure service_procedure;
 	ProcedureState procedure_state;
+	DeviceState sampled_device_state;
+	MotorControlMode sampled_control_mode;
+	ServiceProcedure sampled_service_procedure;
+
+	sampled_device_state = MotorLifecycle_GetDeviceState();
+	sampled_control_mode = MotorLifecycle_GetControlMode();
+	sampled_service_procedure = MotorLifecycle_GetServiceProcedure();
 
 	if (!Measurement_Capture(&CurrentControl))
 	{
@@ -558,13 +575,15 @@ static void MotorControlRuntime_ExecuteFastLoopBody(void)
 		MotorControlRuntime_EnterFaultedState();
 		return;
 	}
-	if (!Measurement_Process(&MeasurementModel, &CurrentControl, &MotorControl,
-		ActiveBoardProfile))
+	if (!Measurement_Process(&MeasurementModel, &CurrentControl,
+		MotorControlRuntime_MeasurementProtectionIsActive(
+			sampled_device_state, sampled_service_procedure)))
 	{
 		MotorState_RaiseFault(MOTOR_FAULT_POWER_STAGE);
 		MotorControlRuntime_EnterFaultedState();
 		return;
 	}
+	CurrentControlRuntime_UpdatePhaseCurrents(&CurrentControl);
 	
 	Encoder_Update(&OnBoard_Encoder,
 		MotorControl.configuration.pole_pairs > 0 ?
@@ -572,10 +591,12 @@ static void MotorControlRuntime_ExecuteFastLoopBody(void)
 	/* Encoder-feedback control and phase-commanded calibration do not consume
 	 * observer feedback. Keep the observer off those paths to preserve the
 	 * 20 kHz deadline and main-loop/USB bandwidth. */
-	if (MotorControlRuntime_RequiresFluxObserver())
-		FluxObserver_Update(&CurrentControl, &MotorControl, &Fluxobserver);
+	if (MotorControlRuntime_RequiresFluxObserver(sampled_device_state,
+		sampled_control_mode, sampled_service_procedure))
+		FluxObserver_Update(&CurrentControl, &Fluxobserver);
 
-	if (Encoder_FeedbackRequired(&MotorControl) &&
+	if (Encoder_FeedbackRequired(&MotorControl, sampled_device_state,
+		sampled_control_mode, sampled_service_procedure) &&
 		OnBoard_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
 		MotorState_RaiseFault(MOTOR_FAULT_ENCODER);
 
@@ -585,8 +606,15 @@ static void MotorControlRuntime_ExecuteFastLoopBody(void)
 		MotorControlRuntime_EnterFaultedState();
 		return;
 	}
-	(void)MotorServiceAdapter_ApplyPendingConfiguration(
-		&MotorConfigurationAdapter);
+	if (MotorServiceAdapter_ApplyPendingConfiguration(
+		&MotorConfigurationAdapter))
+	{
+		CurrentControlRuntime_ConfigureControllers(&CurrentControl,
+			&MotorControl);
+		(void)FluxObserver_ConfigureMotor(&Fluxobserver, &MotorControl);
+		(void)Measurement_Configure(&MeasurementModel, &MotorControl,
+			ActiveBoardProfile);
+	}
 	(void)MotorServiceAdapter_ApplyPendingCommand(&MotorCommandAdapter);
 	device_state = MotorLifecycle_GetDeviceState();
 	control_mode = MotorLifecycle_GetControlMode();
@@ -732,7 +760,8 @@ static void MotorControlRuntime_ExecuteFastLoopBody(void)
 	if (PowerStage_HasLatchedFault(CurrentControl.power_stage))
 		MotorState_RaiseFault(MOTOR_FAULT_POWER_STAGE);
 
-	operation_requires_power = LifecycleRequiresPowerStage();
+	operation_requires_power = LifecycleRequiresPowerStage(device_state,
+		service_procedure, procedure_state);
 	if (PreviousOperationRequiresPower && !operation_requires_power)
 	{
 		MotorState_DisablePowerStage();

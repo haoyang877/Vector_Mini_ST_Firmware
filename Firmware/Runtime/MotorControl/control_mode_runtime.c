@@ -223,7 +223,8 @@ void ControlModeRuntime_RunSensorlessSpeed(CurrentControlContext *CurrentControl
 
 	if (Startup->state == SENSORLESS_STARTUP_IDLE)
 	{
-		FluxObserver_Initialize(Fluxobserver, MotorControl->tuning_profile);
+		FluxObserver_Initialize(Fluxobserver, MotorControl->tuning_profile,
+			MotorControl);
 		CurrentControlRuntime_ResetControllers(CurrentControl);
 		PI_Controller_Reset(controller);
 		Startup->state = SENSORLESS_STARTUP_ALIGN;

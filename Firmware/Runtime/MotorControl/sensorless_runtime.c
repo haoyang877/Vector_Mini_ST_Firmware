@@ -37,9 +37,10 @@ static void FluxObserver_Reset(FluxObserverContext *Fluxobserver)
 	* @param  *Fluxobserver: flux observer struct pointer
  **/
 void FluxObserver_Initialize(FluxObserverContext *Fluxobserver,
-	const ControlTuningProfile *tuning_profile)
+	const ControlTuningProfile *tuning_profile,
+	const MotorControlContext *MotorControl)
 {
-	if (Fluxobserver == 0 || tuning_profile == 0)
+	if (Fluxobserver == 0 || tuning_profile == 0 || MotorControl == 0)
 		return;
 	FluxObserver_Reset(Fluxobserver);
 	Fluxobserver->gamma = tuning_profile->flux_observer_gamma;
@@ -53,6 +54,42 @@ void FluxObserver_Initialize(FluxObserverContext *Fluxobserver,
 		tuning_profile->flux_observer_velocity_lpf_alpha;
 	Fluxobserver->angle_wrap_threshold_rad =
 		tuning_profile->flux_observer_angle_wrap_threshold_rad;
+	(void)FluxObserver_ConfigureMotor(Fluxobserver, MotorControl);
+}
+
+bool FluxObserver_ConfigureMotor(FluxObserverContext *Fluxobserver,
+	const MotorControlContext *MotorControl)
+{
+	float flux_squared;
+	float gamma_limit;
+
+	if (Fluxobserver == 0 || MotorControl == 0)
+		return false;
+	Fluxobserver->effective_resistance_ohm =
+		MotorControl->configuration.phase_resistance_ohm *
+		Fluxobserver->resistance_scale;
+	Fluxobserver->stator_inductance_h =
+		(MotorControl->configuration.d_axis_inductance_h +
+		 MotorControl->configuration.q_axis_inductance_h) * 0.5f;
+	Fluxobserver->flux_weber = MotorControl->configuration.flux_weber;
+	Fluxobserver->motor_parameters_valid = 0U;
+	if (!FluxObserver_IsFinite(Fluxobserver->effective_resistance_ohm) ||
+		Fluxobserver->effective_resistance_ohm <= 0.0f ||
+		!FluxObserver_IsFinite(Fluxobserver->resistance_scale) ||
+		Fluxobserver->resistance_scale <= 0.0f ||
+		!FluxObserver_IsFinite(Fluxobserver->stator_inductance_h) ||
+		!FluxObserver_IsFinite(Fluxobserver->flux_weber) ||
+		Fluxobserver->flux_weber <= Fluxobserver->minimum_flux_weber)
+		return false;
+
+	flux_squared = FastMath_Square(Fluxobserver->flux_weber);
+	gamma_limit = Fluxobserver->maximum_correction_step_rad /
+		(CURRENT_LOOP_PERIOD_S * flux_squared);
+	Fluxobserver->inverse_flux_per_weber = 1.0f / Fluxobserver->flux_weber;
+	Fluxobserver->flux_squared_weber2 = flux_squared;
+	Fluxobserver->bounded_gamma = FastMath_Min(Fluxobserver->gamma, gamma_limit);
+	Fluxobserver->motor_parameters_valid = 1U;
+	return true;
 }
 
 void SensorlessStartup_Reset(SensorlessStartupContext *Startup)
@@ -78,24 +115,18 @@ void SensorlessStartup_Reset(SensorlessStartupContext *Startup)
     * @param  *MotorControl: MotorControl struct pointer
 	  @param  *Fluxobserver: Fluxobserver struct pointer  
  **/
-void FluxObserver_Update(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, FluxObserverContext *Fluxobserver)
+void FluxObserver_Update(CurrentControlContext *CurrentControl,
+	FluxObserverContext *Fluxobserver)
 {
 	float mod_to_V = CurrentControl->filtered_bus_voltage_v / 1.5f;
-	float Rs   = MotorControl->configuration.phase_resistance_ohm *
-		Fluxobserver->resistance_scale;
-	float Ls   = (MotorControl->configuration.d_axis_inductance_h + MotorControl->configuration.q_axis_inductance_h) * 0.5f;
-	float flux = MotorControl->configuration.flux_weber;
-	float flux_sq;
-	float gamma_limit;
-	float gamma;
+	float Rs = Fluxobserver->effective_resistance_ohm;
+	float Ls = Fluxobserver->stator_inductance_h;
+	float inverse_flux = Fluxobserver->inverse_flux_per_weber;
+	float flux_sq = Fluxobserver->flux_squared_weber2;
+	float gamma = Fluxobserver->bounded_gamma;
 	float delta_theta = 0.0f;
 
-	if(!FluxObserver_IsFinite(Rs) || Rs <= 0.0f ||
-	   !FluxObserver_IsFinite(Fluxobserver->resistance_scale) ||
-	   Fluxobserver->resistance_scale <= 0.0f ||
-	   !FluxObserver_IsFinite(Ls) ||
-	   !FluxObserver_IsFinite(flux) ||
-	   flux <= Fluxobserver->minimum_flux_weber)
+	if (Fluxobserver->motor_parameters_valid == 0U)
 	{
 		FluxObserver_Reset(Fluxobserver);
 		return;
@@ -104,14 +135,6 @@ void FluxObserver_Update(CurrentControlContext *CurrentControl, MotorControlCont
 	if(!FluxObserver_IsFinite(Fluxobserver->x1_last) || !FluxObserver_IsFinite(Fluxobserver->x2_last))
 		FluxObserver_Reset(Fluxobserver);
 
-	flux_sq = FastMath_Square(flux);
-	gamma_limit = Fluxobserver->maximum_correction_step_rad /
-		(CURRENT_LOOP_PERIOD_S * flux_sq);
-	gamma = FastMath_Min(Fluxobserver->gamma, gamma_limit);
-	
-	/*Use phase currents sampled in the current ADC interrupt.*/
-	CurrentControl_Clarke(CurrentControl->phase_a_current_a, CurrentControl->phase_b_current_a, CurrentControl->phase_c_current_a, &CurrentControl->alpha_current_a, &CurrentControl->beta_current_a);
-	
 	/*update input parameters*/
 	Fluxobserver->alpha_current_a = CurrentControl->alpha_current_a;
 	Fluxobserver->beta_current_a  = CurrentControl->beta_current_a;
@@ -140,11 +163,14 @@ void FluxObserver_Update(CurrentControlContext *CurrentControl, MotorControlCont
 	Fluxobserver->x1_last = Fluxobserver->x1;
 	Fluxobserver->x2_last = Fluxobserver->x2;
 	
-	Fluxobserver->cos = (Fluxobserver->x1 - Ls * Fluxobserver->alpha_current_a) / flux;
-	Fluxobserver->sin = (Fluxobserver->x2 - Ls * Fluxobserver->beta_current_a ) / flux;
+	Fluxobserver->cos = (Fluxobserver->x1 - Ls * Fluxobserver->alpha_current_a) * inverse_flux;
+	Fluxobserver->sin = (Fluxobserver->x2 - Ls * Fluxobserver->beta_current_a ) * inverse_flux;
 	
-	/*calculate angle with atan*/
-	Fluxobserver->theta_e = FastMath_NormalizeAngle(FastMath_Atan2(Fluxobserver->sin, Fluxobserver->cos));
+	/* FastMath_Atan2 returns [-pi, pi], so a single conditional is sufficient
+	 * to map the observer angle to [0, 2pi). */
+	Fluxobserver->theta_e = FastMath_Atan2(Fluxobserver->sin, Fluxobserver->cos);
+	if (Fluxobserver->theta_e < 0.0f)
+		Fluxobserver->theta_e += MATH_TWO_PI;
 	if(!FluxObserver_IsFinite(Fluxobserver->theta_e))
 	{
 		FluxObserver_Reset(Fluxobserver);

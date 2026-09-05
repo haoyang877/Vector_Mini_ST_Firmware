@@ -12,15 +12,43 @@
 static void CurrentControlRuntime_Park(float alpha, float beta, float angle,
 	float *direct, float *quadrature)
 {
-	CurrentControl_Park(alpha, beta, FastMath_Sin(angle), FastMath_Cos(angle),
-		direct, quadrature);
+	float sine;
+	float cosine;
+
+	FastMath_SinCos(angle, &sine, &cosine);
+	CurrentControl_Park(alpha, beta, sine, cosine, direct, quadrature);
 }
 
 static void CurrentControlRuntime_InversePark(float direct, float quadrature, float angle,
 	float *alpha, float *beta)
 {
-	CurrentControl_InversePark(direct, quadrature, FastMath_Sin(angle),
-		FastMath_Cos(angle), alpha, beta);
+	float sine;
+	float cosine;
+
+	FastMath_SinCos(angle, &sine, &cosine);
+	CurrentControl_InversePark(direct, quadrature, sine, cosine, alpha, beta);
+}
+
+void CurrentControlRuntime_UpdatePhaseCurrents(CurrentControlContext *CurrentControl)
+{
+	if (CurrentControl == NULL)
+		return;
+	CurrentControl_Clarke(CurrentControl->phase_a_current_a,
+		CurrentControl->phase_b_current_a, CurrentControl->phase_c_current_a,
+		&CurrentControl->alpha_current_a, &CurrentControl->beta_current_a);
+}
+
+void CurrentControlRuntime_ConfigureControllers(CurrentControlContext *CurrentControl,
+	const MotorControlContext *MotorControl)
+{
+	if (CurrentControl == NULL || MotorControl == NULL)
+		return;
+	CurrentControl->id_pi.Kp = MotorControl->configuration.d_axis_current_kp;
+	CurrentControl->id_pi.Ki = MotorControl->configuration.d_axis_current_ki;
+	CurrentControl->id_pi.Ts = CURRENT_LOOP_PERIOD_S;
+	CurrentControl->iq_pi.Kp = MotorControl->configuration.q_axis_current_kp;
+	CurrentControl->iq_pi.Ki = MotorControl->configuration.q_axis_current_ki;
+	CurrentControl->iq_pi.Ts = CURRENT_LOOP_PERIOD_S;
 }
 
 static void CurrentControlRuntime_ApplyModulation(CurrentControlContext *CurrentControl)
@@ -92,7 +120,6 @@ static bool CurrentControlRuntime_SetVoltageModulation(CurrentControlContext *Cu
  **/
 void CurrentControlRuntime_RunVoltage(CurrentControlContext *CurrentControl, float Vd_set, float Vq_set, float phase)
 {
-    CurrentControl_Clarke(CurrentControl->phase_a_current_a, CurrentControl->phase_b_current_a, CurrentControl->phase_c_current_a, &CurrentControl->alpha_current_a, &CurrentControl->beta_current_a);
     CurrentControlRuntime_Park(CurrentControl->alpha_current_a, CurrentControl->beta_current_a, phase, &CurrentControl->d_axis_current_a, &CurrentControl->q_axis_current_a);
 
     FAST_MATH_LOW_PASS(CurrentControl->filtered_d_axis_current_a, CurrentControl->d_axis_current_a, 0.01f);
@@ -118,14 +145,15 @@ void CurrentControlRuntime_RunClosedLoop(CurrentControlContext *CurrentControl, 
     float voltage_d;
     float voltage_q;
 
-    CurrentControl_Clarke(CurrentControl->phase_a_current_a, CurrentControl->phase_b_current_a, CurrentControl->phase_c_current_a, &CurrentControl->alpha_current_a, &CurrentControl->beta_current_a);
     CurrentControlRuntime_Park(CurrentControl->alpha_current_a, CurrentControl->beta_current_a, phase, &CurrentControl->d_axis_current_a, &CurrentControl->q_axis_current_a);
 
     if (CurrentControl->filtered_bus_voltage_v > 0.0f)
     {
         max_voltage = CURRENT_CONTROL_MAX_MODULATION * CurrentControl->filtered_bus_voltage_v / 1.5f;
-        PI_Controller_Configure(&CurrentControl->id_pi, MotorControl->configuration.d_axis_current_kp, MotorControl->configuration.d_axis_current_ki, CURRENT_LOOP_PERIOD_S, -max_voltage, max_voltage);
-        PI_Controller_Configure(&CurrentControl->iq_pi, MotorControl->configuration.q_axis_current_kp, MotorControl->configuration.q_axis_current_ki, CURRENT_LOOP_PERIOD_S, -max_voltage, max_voltage);
+        CurrentControl->id_pi.Umin = -max_voltage;
+        CurrentControl->id_pi.Umax = max_voltage;
+        CurrentControl->iq_pi.Umin = -max_voltage;
+        CurrentControl->iq_pi.Umax = max_voltage;
 
         voltage_d = PI_Controller_Run(&CurrentControl->id_pi, MotorControl->targets.d_axis_current_a, CurrentControl->d_axis_current_a);
         voltage_q = PI_Controller_Run(&CurrentControl->iq_pi, MotorControl->targets.q_axis_current_a, CurrentControl->q_axis_current_a);
@@ -174,13 +202,13 @@ void CurrentControlRuntime_RunQVoltage(CurrentControlContext *CurrentControl, Mo
     float voltage_d;
     float voltage_q;
 
-    CurrentControl_Clarke(CurrentControl->phase_a_current_a, CurrentControl->phase_b_current_a, CurrentControl->phase_c_current_a, &CurrentControl->alpha_current_a, &CurrentControl->beta_current_a);
     CurrentControlRuntime_Park(CurrentControl->alpha_current_a, CurrentControl->beta_current_a, phase, &CurrentControl->d_axis_current_a, &CurrentControl->q_axis_current_a);
 
     if (CurrentControl->filtered_bus_voltage_v > 0.0f)
     {
         max_voltage = CURRENT_CONTROL_MAX_MODULATION * CurrentControl->filtered_bus_voltage_v / 1.5f;
-        PI_Controller_Configure(&CurrentControl->id_pi, MotorControl->configuration.d_axis_current_kp, MotorControl->configuration.d_axis_current_ki, CURRENT_LOOP_PERIOD_S, -max_voltage, max_voltage);
+        CurrentControl->id_pi.Umin = -max_voltage;
+        CurrentControl->id_pi.Umax = max_voltage;
 
         voltage_d = PI_Controller_Run(&CurrentControl->id_pi, 0.0f, CurrentControl->d_axis_current_a);
         voltage_q = FastMath_Clamp(MotorControl->targets.q_axis_voltage_v, -max_voltage, max_voltage);

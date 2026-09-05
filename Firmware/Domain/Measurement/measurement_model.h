@@ -60,16 +60,19 @@ typedef struct
 
 typedef struct
 {
+    MeasurementModelConfig config;
     MeasurementModelOutput output;
     uint16_t overvoltage_count;
     uint16_t undervoltage_count;
     uint16_t overcurrent_count;
     uint16_t temperature_count;
+    bool is_configured;
 } MeasurementModelContext;
 
 void MeasurementModel_Reset(MeasurementModelContext *context);
+bool MeasurementModel_Configure(MeasurementModelContext *context,
+    const MeasurementModelConfig *config);
 bool MeasurementModel_Update(MeasurementModelContext *context,
-    const MeasurementModelConfig *config, const MeasurementModelInput *input,
-    MeasurementModelOutput *output);
+    const MeasurementModelInput *input, MeasurementModelOutput *output);
 
 #endif

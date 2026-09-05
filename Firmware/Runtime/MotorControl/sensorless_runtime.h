@@ -18,6 +18,13 @@ typedef struct
 	float minimum_flux_weber;
 	float velocity_lpf_alpha;
 	float angle_wrap_threshold_rad;
+	float effective_resistance_ohm;
+	float stator_inductance_h;
+	float flux_weber;
+	float inverse_flux_per_weber;
+	float flux_squared_weber2;
+	float bounded_gamma;
+	uint8_t motor_parameters_valid;
 
 	float y1_last,y2_last;
 	float etax1,etax2;
@@ -59,9 +66,13 @@ typedef struct
 }SensorlessStartupContext;
 
 void FluxObserver_Initialize(FluxObserverContext *Fluxobserver,
-	const ControlTuningProfile *tuning_profile);
+	const ControlTuningProfile *tuning_profile,
+	const MotorControlContext *MotorControl);
+bool FluxObserver_ConfigureMotor(FluxObserverContext *Fluxobserver,
+	const MotorControlContext *MotorControl);
 void SensorlessStartup_Reset(SensorlessStartupContext *Startup);
-void FluxObserver_Update(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl, FluxObserverContext *Fluxobserver);
+void FluxObserver_Update(CurrentControlContext *CurrentControl,
+	FluxObserverContext *Fluxobserver);
 float FluxObserver_GetElectricalAngle(FluxObserverContext *Fluxobserver);
 float FluxObserver_GetElectricalVelocity(FluxObserverContext *Fluxobserver);
 float FluxObserver_GetUnwrappedElectricalPosition(FluxObserverContext *Fluxobserver);

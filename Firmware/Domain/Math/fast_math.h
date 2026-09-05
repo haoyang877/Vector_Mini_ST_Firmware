@@ -42,6 +42,7 @@ float FastMath_Max(float x,float y);
 float FastMath_Min(float x,float y);
 float FastMath_Sin(float theta);
 float FastMath_Cos(float theta);
+void FastMath_SinCos(float theta, float *sine, float *cosine);
 float FastMath_Atan2(float y, float x);
 float FastMath_Sqrt(float x);
 float FastMath_Pow(float x, int y);

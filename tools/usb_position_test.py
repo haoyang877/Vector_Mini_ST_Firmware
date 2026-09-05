@@ -28,6 +28,7 @@ MAX_TEST_DELTA_REV = 0.1
 MAX_TEST_DURATION_S = 30.0
 MAX_POLL_INTERVAL_S = 0.5
 MAX_SERIAL_TIMEOUT_S = 5.0
+USB_COMMAND_SETTLE_S = 0.1
 
 
 def encode_decimal(value: float) -> str:
@@ -74,6 +75,10 @@ class VectorUsb:
             "Data out of range!",
         }:
             raise ProtocolError(f"Command {wire_command!r} failed: {response}")
+        # Let the CDC IN completion callback release the endpoint before the
+        # next request. Back-to-back host requests can otherwise starve the
+        # single-response firmware queue on some Windows USB CDC drivers.
+        time.sleep(USB_COMMAND_SETTLE_S)
         return response
 
     def read(self, parameter: str) -> str:
@@ -120,6 +125,19 @@ def verify_setting(device: VectorUsb, parameter: str, field: str, expected: floa
         raise ProtocolError(
             f"Readback mismatch for {parameter}: expected {expected}, received {actual}"
         )
+
+
+def wait_for_mode(device: VectorUsb, expected: int, timeout_s: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    observed = -1
+    while time.monotonic() < deadline:
+        observed = int(extract_number(device.read("mod"), "mode"))
+        if observed == expected:
+            return
+        time.sleep(0.05)
+    raise ProtocolError(
+        f"Mode transition timed out: expected {expected}, observed {observed}"
+    )
 
 
 def run_motion_test(
@@ -175,7 +193,11 @@ def run_motion_test(
     )
 
     device.write("mod", 0)
+    wait_for_mode(device, 0)
     device.write("mod", 18)
+    # Mode requests are consumed asynchronously by the 1 kHz supervisor. Wait
+    # before writing p_s, otherwise p_s can observe standby and request mode 3.
+    wait_for_mode(device, 18)
     device.write("p_s", target_rev)
     mode = int(extract_number(device.read("mod"), "mode"))
     if mode != 18:
@@ -190,18 +212,38 @@ def run_motion_test(
             raise ProtocolError(f"Motor reported error {error} during motion")
         if mode != 18:
             raise ProtocolError(f"Motor left Position_Impedance_Mode during motion; mode={mode}")
+        if args.live_position:
+            final_position_rad = extract_number(device.read("p2f"), "pos2_filt")
+            error_rad = target_rad - final_position_rad
+            print(
+                f"position={final_position_rad:+.4f} rad, "
+                f"target={target_rad:+.4f} rad, error={error_rad:+.4f} rad"
+            )
+            if abs(error_rad) <= args.tolerance_rad:
+                print("Position target reached within tolerance")
+                return
+        else:
+            print(f"motion active: mode={mode}, error={error}")
+        remaining = deadline - time.monotonic()
+        if remaining > 0.0:
+            time.sleep(min(args.poll_interval, remaining))
+
+    if not args.live_position:
+        # The firmware has one USB CDC response buffer. On some Windows hosts,
+        # repeated position reads while the loaded motor is moving can time out
+        # even though the control loop remains healthy. Stop first, then verify
+        # the final encoder position using a single guarded read.
+        device.write("mod", 0)
+        wait_for_mode(device, 0)
         final_position_rad = extract_number(device.read("p2f"), "pos2_filt")
         error_rad = target_rad - final_position_rad
         print(
-            f"position={final_position_rad:+.4f} rad, "
+            f"final position={final_position_rad:+.4f} rad, "
             f"target={target_rad:+.4f} rad, error={error_rad:+.4f} rad"
         )
         if abs(error_rad) <= args.tolerance_rad:
             print("Position target reached within tolerance")
             return
-        remaining = deadline - time.monotonic()
-        if remaining > 0.0:
-            time.sleep(min(args.poll_interval, remaining))
 
     raise ProtocolError(
         f"Position did not reach target: final error={target_rad - final_position_rad:+.4f} rad"
@@ -230,6 +272,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--duration", type=float, default=5.0)
     parser.add_argument("--poll-interval", type=float, default=0.1)
     parser.add_argument("--tolerance-rad", type=float, default=0.02)
+    parser.add_argument(
+        "--live-position",
+        action="store_true",
+        help="poll position while moving instead of verifying it after Motor_Disable",
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -318,6 +365,7 @@ def main() -> int:
                 motor_disabled = False
                 try:
                     device.write("mod", 0)
+                    wait_for_mode(device, 0)
                 except (OSError, ProtocolError, serial.SerialException) as exc:
                     print(f"WARNING: Disable command failed: {exc}", file=sys.stderr)
                 try:

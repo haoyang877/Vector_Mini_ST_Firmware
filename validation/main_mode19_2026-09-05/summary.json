@@ -3,18 +3,32 @@
   "bus_voltage_v": 27.8,
   "mechanical_load": "approximately 1.5 N*m damping ring",
   "mode19": {
+    "runs_completed": 2,
     "completed_points": 8,
     "expected_points": 8,
     "final_mode": 0,
     "final_error": 0,
     "candidate_valid": true,
-    "candidate_applied": false,
-    "coulomb_pos_a": 1.571724,
-    "coulomb_neg_a": 1.627571,
+    "candidate_applied": true,
+    "saved": true,
+    "persisted_after_jlink_reset": true,
+    "active_model_valid": true,
+    "coulomb_pos_a": 1.579139,
+    "coulomb_neg_a": 1.631087,
     "viscous_pos_a_per_rad_s": 0.0,
     "viscous_neg_a_per_rad_s": 0.0,
-    "rmse_pos_a": 0.010718,
-    "rmse_neg_a": 0.009965
+    "rmse_pos_a": 0.012405,
+    "rmse_neg_a": 0.011731
+  },
+  "position_impedance": {
+    "mode": 18,
+    "delta_rev": 0.02,
+    "positive_final_error_rad": 0.0027,
+    "negative_final_error_rad": -0.0037,
+    "positive_passed": true,
+    "negative_passed": true,
+    "final_mode": 0,
+    "final_error": 0
   },
   "parameter_migration": {
     "from_schema": 8,
@@ -31,11 +45,19 @@
     "deadline_overrun_count": 0
   },
   "build": {
+    "compiler": "Keil ARMCC 5.06u7",
+    "full_rebuild": true,
     "errors": 0,
     "warnings": 0,
     "code_bytes": 104212,
     "ro_data_bytes": 6068,
     "rw_data_bytes": 508,
     "zi_data_bytes": 29148
+  },
+  "scope_limits": {
+    "physical_can_tested": false,
+    "physical_can_reason": "No CAN adapter detected on validation host",
+    "no_damper_hardware_tested": false,
+    "no_damper_reason": "Approximately 1.5 N*m damping ring installed"
   }
 }

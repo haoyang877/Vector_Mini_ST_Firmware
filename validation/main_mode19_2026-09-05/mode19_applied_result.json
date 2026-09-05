@@ -1,0 +1,88 @@
+{
+  "created_unix_s": 1788610948.027463,
+  "firmware_fit": {
+    "coulomb_pos_a": 1.579139,
+    "coulomb_neg_a": 1.631087,
+    "viscous_pos_a_per_rad_s": 0.0,
+    "viscous_neg_a_per_rad_s": 0.0,
+    "rmse_pos_a": 0.012405,
+    "rmse_neg_a": 0.011731
+  },
+  "host_fit": {
+    "coulomb_pos_a": 1.57913875,
+    "coulomb_neg_a": 1.63108725,
+    "viscous_pos_a_per_rad_s": 0.0,
+    "viscous_neg_a_per_rad_s": 0.0,
+    "rmse_pos_a": 0.012404924170969358,
+    "rmse_neg_a": 0.01173135259411721
+  },
+  "torque_conversion": {
+    "pole_pairs": 21,
+    "flux_wb": 0.0175,
+    "torque_constant_nm_per_a": 0.55125,
+    "coulomb_pos_nm": 0.8705002359375,
+    "coulomb_neg_nm": 0.8991368465625,
+    "viscous_pos_nm_per_rad_s": 0.0,
+    "viscous_neg_nm_per_rad_s": 0.0
+  },
+  "samples": [
+    {
+      "index": 0,
+      "target_rps": 0.1,
+      "speed_rps": 0.099873,
+      "iq_a": 1.59789,
+      "sample_count": 20027
+    },
+    {
+      "index": 1,
+      "target_rps": -0.1,
+      "speed_rps": -0.099888,
+      "iq_a": -1.646848,
+      "sample_count": 20022
+    },
+    {
+      "index": 2,
+      "target_rps": 0.2,
+      "speed_rps": 0.200069,
+      "iq_a": 1.582778,
+      "sample_count": 9997
+    },
+    {
+      "index": 3,
+      "target_rps": -0.2,
+      "speed_rps": -0.199847,
+      "iq_a": -1.63694,
+      "sample_count": 10008
+    },
+    {
+      "index": 4,
+      "target_rps": 0.4,
+      "speed_rps": 0.399545,
+      "iq_a": 1.568006,
+      "sample_count": 5006
+    },
+    {
+      "index": 5,
+      "target_rps": -0.4,
+      "speed_rps": -0.399626,
+      "iq_a": -1.62442,
+      "sample_count": 5005
+    },
+    {
+      "index": 6,
+      "target_rps": 0.5,
+      "speed_rps": 0.500056,
+      "iq_a": 1.567881,
+      "sample_count": 4000
+    },
+    {
+      "index": 7,
+      "target_rps": -0.5,
+      "speed_rps": -0.499818,
+      "iq_a": -1.616141,
+      "sample_count": 4002
+    }
+  ],
+  "applied": true,
+  "saved": true
+}

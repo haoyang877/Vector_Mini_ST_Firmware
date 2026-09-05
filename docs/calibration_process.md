@@ -107,3 +107,63 @@ observer_Rs = phase_resistance_ohm × flux_observer_resistance_scale
 8. 最后进入电流、转速或位置闭环验证。
 
 连续错误帧达到 100 帧时，当前需要编码器反馈的模式会报 `Encoder_Error`；SPI 传输诊断状态保留在 `Encoder_TypeDef` 中供调试读取。
+
+## 8. LUT 读取与误差波形操作表
+
+必须在执行下一种线性化标定前导出当前 LUT。模式 5 和模式 13 共用同一个持久化
+`linearization_lut_q15[1024]`，后执行的标定会覆盖前一次结果；`-Prefix` 只决定导出
+文件名，不能从设备中读取已经被覆盖的历史 Mode 5 或 Mode 13 LUT。
+
+| 步骤 | 目的 | 命令 | 主要输出/通过条件 |
+| --- | --- | --- | --- |
+| 1 | 确认允许导出 | `\r_mod`、`\r_err`、`\r_e_s` | 必须为 `mode=0`、`error=0`、编码器 Online |
+| 2 | 手工读取当前 LUT | 串口发送 `\r_lut\r\n` | 首行 `lut_begin,count=1024,reverse=...`，随后 1024 行数据，末行 `lut_end` |
+| 3 | 导出 Mode 5 LUT | `pwsh -NoProfile -File tools/capture_encoder_lut.ps1 -Port COM4 -OutputDirectory validation/lut/mode5 -Prefix mode5` | 生成 metadata、CSV 和原始串口文本；必须收到 1024 点 |
+| 4 | 导出 Mode 13 LUT | `pwsh -NoProfile -File tools/capture_encoder_lut.ps1 -Port COM4 -OutputDirectory validation/lut/mode13 -Prefix mode13` | 必须在 Mode 13 完成后、执行其他线性化标定前导出 |
+| 5 | 绘制单次 LUT | `<python> tools/plot_encoder_lut.py <csv> <png> --summary <summary.json> --title "Mode 5 encoder LUT"` | 上图为含常量偏置的修正量，下图为去均值后的编码器非线性 |
+| 6 | 比较 Mode 5/13 | `<python> tools/compare_encoder_luts.py <mode5.csv> <mode13.csv> <output-dir>` | 生成逐点对比 CSV、JSON 摘要和三联波形图 |
+| 7 | 标定电角零位 | `\w_mod=15` | 新 LUT 会清除旧电角零位；完成后必须回到 `mode=0/error=0` |
+| 8 | 复位回读 | J-Link/硬件复位后再次执行步骤 1，并读取 `\r_mrs` | LUT、方向、电机参数及电角零位应从 Flash 正常恢复 |
+
+Python 3 环境需要提供 Pillow。示例：
+
+```powershell
+python tools\plot_encoder_lut.py `
+  validation\lut\mode5\mode5_encoder_lut.csv `
+  validation\lut\mode5\mode5_encoder_lut.png `
+  --summary validation\lut\mode5\mode5_lut_summary.json `
+  --title 'Mode 5 encoder LUT'
+```
+
+其他环境使用 Python 3，并确保已安装 Pillow。`capture_encoder_lut.ps1` 输出文件含义：
+
+| 文件 | 内容 | 用途 |
+| --- | --- | --- |
+| `<prefix>_metadata.json` | 模式、错误、编码器方向、极对数、母线、电流限制及 R/L/磁链 | 证明 LUT 的标定环境，比较时必须一起保存 |
+| `<prefix>_encoder_lut_raw.txt` | 设备原始响应，包括 begin/end 标记 | 协议审计和解析问题追溯 |
+| `<prefix>_encoder_lut.csv` | `index/raw_deg/error_deg` 三列 | 绘图和逐点数值分析的标准输入 |
+| `<prefix>_encoder_lut.png` | 原始修正和去均值非线性波形 | 人工检查周期形状、毛刺和局部异常 |
+| `<prefix>_lut_summary.json` | 极值、峰峰值、均值、去均值 RMS 和峰值 | 自动化比较和历史趋势记录 |
+
+单行 LUT 协议格式：
+
+```text
+lut=<index>,raw_deg=<原始机械角度>,err_deg=<LUT修正角度>
+```
+
+误差统计判读表：
+
+| 指标 | 含义 | 判读方式 |
+| --- | --- | --- |
+| `mean_error_deg` | 标定参考带来的整体常量相位 | 不用于比较编码器非线性；由 Mode 15 重新建立电角零位 |
+| `peak_to_peak_error_deg` | LUT 最大值与最小值之差 | 反映单圈总修正范围，但同时受局部异常影响 |
+| `demeaned_rms_error_deg` | 去掉常量后的非线性 RMS | 适合比较同一编码器不同标定方法/不同批次的总体形状幅度 |
+| `demeaned_peak_abs_error_deg` | 去掉常量后的最大绝对修正 | 用于定位最差机械角区域 |
+| `demeaned_waveform_correlation` | 两套去均值 LUT 的形状相关性 | 越接近 1，说明识别到的周期非线性形状越一致 |
+| `demeaned_difference_rms_deg` | 两套去均值 LUT 的逐点差异 RMS | 应结合相同方法的重复性基线判断，不能孤立设定统一阈值 |
+| `demeaned_difference_peak_abs_deg` | 两种方法局部最大差异 | 回到对比 CSV 和波形中定位对应机械角 |
+
+当前实机 Mode 5/Mode 13 的对比结果见
+`docs/mode5_vs_mode13_calibration_comparison_2026-09-05.md`。两者去均值波形相关系数
+为 `0.94470`，差异 RMS 为 `0.07212°`；同一 Mode 13 重复性差异 RMS 为
+`0.03324°`。

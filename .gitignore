@@ -28,3 +28,8 @@ JLinkLog.txt
 
 #Keil/J-Link debug session
 .omo/
+.opencode/
+__pycache__/
+
+# Local motor-control captures
+data_recoder/

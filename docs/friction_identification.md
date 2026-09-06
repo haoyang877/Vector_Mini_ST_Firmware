@@ -15,7 +15,7 @@ omega < 0: Iq = -Ic_neg + B_neg * omega
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
-| Domain | `Firmware/Domain/Identification/friction_identification.*` | 无硬件依赖的状态机、采样、约束拟合与结果验收 |
+| Core Service | `Firmware/Core/Services/Identification/friction_identification.*` | 无硬件依赖的状态机、采样、约束拟合与结果验收 |
 | Product | `Firmware/Product/mechanical_load_profiles.*` | 速度点、稳态/超时、饱和和 RMSE 阈值 |
 | Runtime | `Firmware/Runtime/MotorControl/friction_identification_runtime.*` | 速度环、编码器、电流反馈、安全停车和候选参数适配 |
 | Port/Application | `Firmware/Ports/friction_identification_port.h`、`Firmware/Application/friction_identification_service.*` | 向 USB/CAN 提供只读结果和显式应用操作 |

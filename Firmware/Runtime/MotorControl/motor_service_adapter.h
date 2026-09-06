@@ -2,8 +2,8 @@
 #define RUNTIME_MOTOR_SERVICE_ADAPTER_H
 
 #include "motor_control_types.h"
-#include "motor_command_port.h"
-#include "motor_configuration_port.h"
+#include "Core/Application/Contracts/motor_command_port.h"
+#include "Core/Application/Contracts/motor_configuration_port.h"
 #include "critical_section_port.h"
 #include "motor_profiles.h"
 

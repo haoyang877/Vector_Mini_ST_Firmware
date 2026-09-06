@@ -3,7 +3,7 @@
 
 #include "encoder.h"
 #include "motor_control_types.h"
-#include "rotor_calibration_port.h"
+#include "Core/Application/Contracts/rotor_calibration_port.h"
 
 typedef struct
 {

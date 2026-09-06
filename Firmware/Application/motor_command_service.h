@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "motor_command_port.h"
+#include "Core/Application/Contracts/motor_command_port.h"
 
 typedef enum
 {

@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "friction_identification_port.h"
+#include "Core/Application/Contracts/friction_identification_port.h"
 
 typedef struct
 {

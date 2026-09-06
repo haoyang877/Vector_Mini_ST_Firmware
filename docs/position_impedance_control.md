@@ -12,7 +12,7 @@ iq_ref = Kp * (posShadow - theta_mech)
 
 ## 模块边界
 
-位置阻抗控制位于 `Firmware/Domain/MotionControl/position_impedance.c`，经典三环位于 `Firmware/Domain/MotionControl/position_cascade.c`。两者分别通过 `position_impedance.h` 和 `position_cascade.h` 公开 `Reset/Update` 接口，内部状态由调用者持有，也不直接访问编码器、电流控制运行时、USB 或 CAN 对象。
+位置阻抗控制位于 `Firmware/Core/Services/MotionControl/position_impedance.c`，经典三环位于 `Firmware/Core/Services/MotionControl/position_cascade.c`。两者分别通过 `position_impedance.h` 和 `position_cascade.h` 公开 `Reset/Update` 接口，内部状态由调用者持有，也不直接访问编码器、电流控制运行时、USB 或 CAN 对象。
 
 积分、速度滤波、到位判定、目标切换和轨迹重规划状态均由显式 Context 管理。`Firmware/Runtime/MotorControl/control_mode_runtime.c` 只负责组装输入、调用模块并把 `iq_reference` 交给电流环；USB/CAN 不操作控制器内部状态，参数变化时模块会自行检测并连续重规划。
 

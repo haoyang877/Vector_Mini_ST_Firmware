@@ -6,7 +6,7 @@
 #include "critical_section_port.h"
 #include "encoder.h"
 #include "friction_identification.h"
-#include "friction_identification_port.h"
+#include "Core/Application/Contracts/friction_identification_port.h"
 #include "mechanical_load_profiles.h"
 #include "motor_service_adapter.h"
 

@@ -10,6 +10,7 @@ typedef struct
 } HostTestCase;
 
 int ContextIsolation_RunHostTests(void);
+int AngleSerialStm32g431Config_RunHostTests(void);
 int ControlAuthorityService_RunHostTests(void);
 int DeviceLifecycle_RunHostTests(void);
 int FaultManager_RunHostTests(void);
@@ -31,6 +32,8 @@ int UpdateService_RunHostTests(void);
 
 static const HostTestCase HostTests[] =
 {
+	{ "angle_serial_stm32g431_config",
+		AngleSerialStm32g431Config_RunHostTests },
 	{ "context_isolation", ContextIsolation_RunHostTests },
 	{ "control_authority_service", ControlAuthorityService_RunHostTests },
 	{ "device_lifecycle", DeviceLifecycle_RunHostTests },

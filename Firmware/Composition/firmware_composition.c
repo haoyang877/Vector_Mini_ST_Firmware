@@ -11,7 +11,6 @@
 #include "indicator_stm32g431.h"
 #include "led.h"
 #include "power_stage_tim1.h"
-#include "angle_serial_stm32g431.h"
 #include "tle5012b_rotor_sensor_adapter.h"
 #include "rotor_calibration_service.h"
 #include "motor_command_service.h"
@@ -43,6 +42,7 @@
 #include "product_config_bridge.h"
 #include "product_runtime_selection.h"
 #include "vector_mini_st_bsp.h"
+#include "vector_mini_st_angle_serial.h"
 
 #if defined(__CC_ARM)
 #pragma O3
@@ -73,6 +73,7 @@ static CanCommandRouterContext CanCommandRouter;
 static UsbCommandRouterContext UsbCommandRouter;
 static ApplicationEndpoints ApplicationEndpointSet;
 static ControlAuthorityServiceContext ControlAuthorityService;
+static AngleSerialStm32g431Context AngleSerialContext;
 static Tle5012bRotorSensorAdapterContext RotorSensorAdapter;
 static bool FirmwareIsInitialized;
 static volatile ProductConfigBridgeStatus ProductConfigBridgeStartupStatus;
@@ -93,6 +94,7 @@ void FirmwareComposition_Initialize(void)
 	MeasurementPort measurement_port;
 	RotorSensorPort rotor_sensor_port;
 	BspSynchronousSerialPort angle_serial_port;
+	const AngleSerialStm32g431ResourceConfig *angle_serial_resources;
 	CanTransportPort can_transport;
 	ByteTransportPort usb_transport;
 	IndicatorPort indicator_port;
@@ -128,7 +130,6 @@ void FirmwareComposition_Initialize(void)
 		ProductConfigBridgeStartupStatus = product_bridge_status;
 		return;
 	}
-	ProductConfigBridgeStartupStatus = PRODUCT_CONFIG_BRIDGE_OK;
 	board_profile = product->board;
 	motor_profile = product->motor;
 	encoder_profile = product->encoder;
@@ -136,9 +137,18 @@ void FirmwareComposition_Initialize(void)
 	mechanical_load_profile = product->mechanical_load;
 	power_stage_port = PowerStageTim1_CreatePort();
 	measurement_port = MeasurementAdc12_CreatePort();
-	angle_serial_port = AngleSerialStm32g431_CreatePort();
+	angle_serial_resources = BspVectorMiniSt_FindAngleSerialResources(
+		BSP_VECTOR_MINI_ST_ANGLE_ENDPOINT_ONBOARD);
+	if (!AngleSerialStm32g431_CreatePort(&AngleSerialContext,
+		angle_serial_resources, &angle_serial_port))
+	{
+		ProductConfigBridgeStartupStatus =
+			PRODUCT_CONFIG_BRIDGE_BINDING_MISMATCH;
+		return;
+	}
 	rotor_sensor_port = Tle5012bRotorSensorAdapter_CreatePort(
 		&RotorSensorAdapter, &angle_serial_port);
+	ProductConfigBridgeStartupStatus = PRODUCT_CONFIG_BRIDGE_OK;
 	can_transport = CanFdcan1Transport_CreatePort(board_profile->can_fd_enabled,
 		board_profile->can_brs_enabled);
 	usb_transport = UsbCdcTransport_CreatePort();

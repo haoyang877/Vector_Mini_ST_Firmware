@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Domain/Math;../Firmware/Domain/Modulation;../Firmware/Domain/RotorFeedback;../Firmware/Domain/Identification;../Firmware/Domain/CurrentControl;../Firmware/Domain/MotionControl;../Firmware/Domain/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
+              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Domain/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -665,6 +665,11 @@
               <FilePath>..\Firmware\Platform\Stm32G431\angle_serial_stm32g431.c</FilePath>
             </File>
             <File>
+              <FileName>angle_serial_stm32g431_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Platform\Stm32G431\angle_serial_stm32g431_config.c</FilePath>
+            </File>
+            <File>
               <FileName>parameter_store_flash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Platform\Stm32G431\parameter_store_flash.c</FilePath>
@@ -764,25 +769,30 @@
               <FileType>1</FileType>
               <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_bsp_identity.c</FilePath>
             </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Firmware/Domain/Modulation</GroupName>
-          <Files>
             <File>
-              <FileName>svpwm.c</FileName>
+              <FileName>vector_mini_st_angle_serial.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\Modulation\svpwm.c</FilePath>
+              <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_angle_serial.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Domain/Math</GroupName>
+          <GroupName>Firmware/Core/Services/Modulation</GroupName>
+          <Files>
+            <File>
+              <FileName>svpwm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Services\Modulation\svpwm.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Services/Math</GroupName>
           <Files>
             <File>
               <FileName>fast_math.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\Math\fast_math.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\Math\fast_math.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -797,62 +807,62 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Domain/Measurement</GroupName>
+          <GroupName>Firmware/Core/Services/Measurement</GroupName>
           <Files>
             <File>
               <FileName>measurement_model.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\Measurement\measurement_model.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\Measurement\measurement_model.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Domain/Identification</GroupName>
+          <GroupName>Firmware/Core/Services/Identification</GroupName>
           <Files>
             <File>
               <FileName>phase_resistance.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\Identification\phase_resistance.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\Identification\phase_resistance.c</FilePath>
             </File>
             <File>
               <FileName>friction_identification.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\Identification\friction_identification.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\Identification\friction_identification.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Domain/CurrentControl</GroupName>
+          <GroupName>Firmware/Core/Services/CurrentControl</GroupName>
           <Files>
             <File>
               <FileName>pi_controller.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\CurrentControl\pi_controller.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\CurrentControl\pi_controller.c</FilePath>
             </File>
             <File>
               <FileName>current_control_math.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\CurrentControl\current_control_math.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\CurrentControl\current_control_math.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Domain/MotionControl</GroupName>
+          <GroupName>Firmware/Core/Services/MotionControl</GroupName>
           <Files>
             <File>
               <FileName>position_impedance.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\MotionControl\position_impedance.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\MotionControl\position_impedance.c</FilePath>
             </File>
             <File>
               <FileName>position_cascade.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\MotionControl\position_cascade.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\MotionControl\position_cascade.c</FilePath>
             </File>
             <File>
               <FileName>trapezoidal_trajectory.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\MotionControl\trapezoidal_trajectory.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\MotionControl\trapezoidal_trajectory.c</FilePath>
             </File>
           </Files>
         </Group>

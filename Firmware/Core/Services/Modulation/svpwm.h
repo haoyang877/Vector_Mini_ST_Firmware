@@ -1,5 +1,5 @@
-#ifndef DOMAIN_MODULATION_SVPWM_H
-#define DOMAIN_MODULATION_SVPWM_H
+#ifndef CORE_SERVICES_MODULATION_SVPWM_H
+#define CORE_SERVICES_MODULATION_SVPWM_H
 
 #include <stdbool.h>
 #include <stdint.h>

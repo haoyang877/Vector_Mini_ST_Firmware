@@ -1,5 +1,5 @@
-#ifndef DOMAIN_CURRENT_CONTROL_MATH_H
-#define DOMAIN_CURRENT_CONTROL_MATH_H
+#ifndef CORE_SERVICES_CURRENT_CONTROL_CURRENT_CONTROL_MATH_H
+#define CORE_SERVICES_CURRENT_CONTROL_CURRENT_CONTROL_MATH_H
 
 void CurrentControl_Clarke(float phase_a, float phase_b, float phase_c,
     float *alpha, float *beta);

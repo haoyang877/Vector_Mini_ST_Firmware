@@ -131,7 +131,7 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 
 ## 5. 电机模型参数单位（标定）
 
-当前固件仅启用 `SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION`，由 `Firmware/Runtime/MotorControl/phase_resistance_runtime.c` 驱动 `Firmware/Domain/Identification/phase_resistance.c`。协议动作号 4（完整 R/L/磁链辨识）明确返回不支持，不再保留已退出构建的旧一体化辨识实现。
+当前固件仅启用 `SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION`，由 `Firmware/Runtime/MotorControl/phase_resistance_runtime.c` 驱动 `Firmware/Core/Services/Identification/phase_resistance.c`。协议动作号 4（完整 R/L/磁链辨识）明确返回不支持，不再保留已退出构建的旧一体化辨识实现。
 
 ### 5.1 相电阻 R（Ω）
 

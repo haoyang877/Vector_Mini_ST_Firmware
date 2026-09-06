@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "can_configuration_port.h"
+#include "Core/Application/Contracts/can_configuration_port.h"
 
 typedef struct
 {

@@ -18,6 +18,7 @@ $binaryPath = Join-Path $buildDirectory $binaryName
 # reviewed here instead of being pulled into a host build by a recursive glob.
 $sourcePaths = @(
     'tests\host\host_test_runner.c',
+    'tests\host\angle_serial_stm32g431_config_tests.c',
     'tests\host\context_isolation_tests.c',
     'tests\host\control_authority_service_tests.c',
     'tests\host\device_lifecycle_tests.c',
@@ -27,6 +28,7 @@ $sourcePaths = @(
 	'tests\host\phase_current_strategy_tests.c',
     'tests\host\tle5012b_driver_tests.c',
 	'Firmware\Composition\tle5012b_rotor_sensor_adapter.c',
+	'Firmware\Platform\Stm32G431\angle_serial_stm32g431_config.c',
     'tests\host\mechanical_load_profile_tests.c',
     'tests\host\motor_commissioning_workflow_tests.c',
     'tests\host\parameter_manager_tests.c',
@@ -50,8 +52,8 @@ $sourcePaths = @(
     'Firmware\Application\power_stage.c',
     'Firmware\Application\telemetry_service.c',
     'Firmware\Application\update_service.c',
-    'Firmware\Domain\Identification\friction_identification.c',
-    'Firmware\Domain\Measurement\measurement_model.c',
+    'Firmware\Core\Services\Identification\friction_identification.c',
+    'Firmware\Core\Services\Measurement\measurement_model.c',
 	'Firmware\Core\Services\Measurement\phase_current_strategy.c',
     'Firmware\Product\board_profile.c',
     'Firmware\Product\control_tuning_profile.c',
@@ -77,9 +79,10 @@ $sourcePaths = @(
 
 $includePaths = @(
     'Bootloader',
+    'Firmware',
     'Firmware\Application',
-    'Firmware\Domain\Identification',
-    'Firmware\Domain\Measurement',
+    'Firmware\Core\Services\Identification',
+    'Firmware\Core\Services\Measurement',
     'Firmware\Ports',
     'Firmware\Product',
     'Firmware\Core\Config',
@@ -88,6 +91,7 @@ $includePaths = @(
     'Firmware\Bsp\Api',
     'Firmware\Bsp\Boards',
     'Firmware\Bsp\Boards\VectorMiniSt',
+	'Firmware\Platform\Stm32G431',
 	'Firmware\Composition'
 )
 

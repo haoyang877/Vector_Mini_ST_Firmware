@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "critical_section_port.h"
-#include "parameter_transaction_port.h"
+#include "Core/Application/Contracts/parameter_transaction_port.h"
 #include "parameter_persistence_adapter.h"
 #include "parameter_snapshot.h"
 

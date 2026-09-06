@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "fault_command_port.h"
+#include "Core/Application/Contracts/fault_command_port.h"
 
 typedef struct
 {

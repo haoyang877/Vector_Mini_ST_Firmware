@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "can_transport_port.h"
-#include "can_configuration_port.h"
-#include "can_response_port.h"
+#include "Core/Application/Contracts/can_configuration_port.h"
+#include "Core/Application/Contracts/can_response_port.h"
 #include "can_protocol_v1.h"
 #include "can_command_router.h"
 #include "communication_watchdog_service.h"

@@ -2,7 +2,7 @@
 #define APPLICATION_PARAMETER_SERVICE_H
 
 #include <stdbool.h>
-#include "motor_configuration_port.h"
+#include "Core/Application/Contracts/motor_configuration_port.h"
 #include "board_profile.h"
 #include "motor_profiles.h"
 

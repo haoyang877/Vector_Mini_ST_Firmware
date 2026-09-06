@@ -94,10 +94,10 @@ foreach ($requiredImplementation in @(
     'Firmware\Product\motor_profiles.c',
 	'Firmware\Product\mechanical_load_profiles.c',
     'Firmware\Product\encoder_profiles.c',
-    'Firmware\Domain\Measurement\measurement_model.c',
-    'Firmware\Domain\Math\fast_math.c',
-    'Firmware\Domain\CurrentControl\current_control_math.c',
-    'Firmware\Domain\MotionControl\trapezoidal_trajectory.c',
+    'Firmware\Core\Services\Measurement\measurement_model.c',
+    'Firmware\Core\Services\Math\fast_math.c',
+    'Firmware\Core\Services\CurrentControl\current_control_math.c',
+    'Firmware\Core\Services\MotionControl\trapezoidal_trajectory.c',
     'Firmware\Runtime\MotorControl\motor_control_runtime.c',
 	'Firmware\Runtime\MotorControl\encoder_direction_calibration_runtime.c',
 	'Firmware\Runtime\MotorControl\cogging_identification_runtime.c',
@@ -119,9 +119,9 @@ $projectGroupNodes = @($project.Project.Targets.Target.Groups.Group)
 $projectFiles = @($projectGroupNodes.Files.File)
 $projectGroups = @($projectGroupNodes.GroupName)
 foreach ($requiredGroup in @('Firmware/Application', 'Firmware/Product',
-    'Firmware/Domain/Modulation', 'Firmware/Domain/Math',
-    'Firmware/Domain/Measurement', 'Firmware/Domain/Identification',
-    'Firmware/Domain/CurrentControl', 'Firmware/Domain/MotionControl',
+    'Firmware/Core/Services/Modulation', 'Firmware/Core/Services/Math',
+    'Firmware/Core/Services/Measurement', 'Firmware/Core/Services/Identification',
+    'Firmware/Core/Services/CurrentControl', 'Firmware/Core/Services/MotionControl',
     'Firmware/Domain/RotorFeedback', 'Firmware/Runtime/MotorControl',
     'Firmware/Runtime/Supervisor', 'Firmware/Communication/Transport',
     'Firmware/Communication/Protocol', 'Firmware/Communication/Router',
@@ -136,12 +136,12 @@ $groupPathPrefixes = [ordered]@{
     'Firmware/Application' = '..\Firmware\Application\'
     'Firmware/Application/Indicators' = '..\Firmware\Application\Indicators\'
     'Firmware/Product' = '..\Firmware\Product\'
-    'Firmware/Domain/Math' = '..\Firmware\Domain\Math\'
-    'Firmware/Domain/Measurement' = '..\Firmware\Domain\Measurement\'
-    'Firmware/Domain/Identification' = '..\Firmware\Domain\Identification\'
-    'Firmware/Domain/CurrentControl' = '..\Firmware\Domain\CurrentControl\'
-    'Firmware/Domain/MotionControl' = '..\Firmware\Domain\MotionControl\'
-    'Firmware/Domain/Modulation' = '..\Firmware\Domain\Modulation\'
+    'Firmware/Core/Services/Math' = '..\Firmware\Core\Services\Math\'
+    'Firmware/Core/Services/Measurement' = '..\Firmware\Core\Services\Measurement\'
+    'Firmware/Core/Services/Identification' = '..\Firmware\Core\Services\Identification\'
+    'Firmware/Core/Services/CurrentControl' = '..\Firmware\Core\Services\CurrentControl\'
+    'Firmware/Core/Services/MotionControl' = '..\Firmware\Core\Services\MotionControl\'
+    'Firmware/Core/Services/Modulation' = '..\Firmware\Core\Services\Modulation\'
     'Firmware/Domain/RotorFeedback' = '..\Firmware\Domain\RotorFeedback\'
     'Firmware/Runtime/MotorControl' = '..\Firmware\Runtime\MotorControl\'
     'Firmware/Runtime/Supervisor' = '..\Firmware\Runtime\Supervisor\'
@@ -282,10 +282,10 @@ $realTimeSources = @(
     'Firmware\Runtime\MotorControl\encoder_calibration_runtime.c',
     'Firmware\Runtime\MotorControl\phase_resistance_runtime.c',
 	'Firmware\Runtime\MotorControl\friction_identification_runtime.c',
-    'Firmware\Domain\Identification\phase_resistance.c',
-	'Firmware\Domain\Identification\friction_identification.c',
+    'Firmware\Core\Services\Identification\phase_resistance.c',
+	'Firmware\Core\Services\Identification\friction_identification.c',
     'Firmware\Domain\RotorFeedback\encoder.c',
-    'Firmware\Domain\Modulation\svpwm.c'
+    'Firmware\Core\Services\Modulation\svpwm.c'
 ) | ForEach-Object { Join-Path $repositoryRoot $_ }
 Add-Matches -Files $realTimeSources -Pattern '\b(HEAP_malloc|HEAP_free|malloc|calloc|realloc|free|flash_write|flash_erase|sprintf|snprintf|printf)\s*\(' -Description 'Prohibited operation appears in the 20 kHz call graph'
 

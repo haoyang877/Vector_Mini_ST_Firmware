@@ -1,5 +1,5 @@
-#ifndef DOMAIN_FAST_MATH_H
-#define DOMAIN_FAST_MATH_H
+#ifndef CORE_SERVICES_MATH_FAST_MATH_H
+#define CORE_SERVICES_MATH_FAST_MATH_H
 
 #include <stdint.h>
 

@@ -18,7 +18,7 @@ omega < 0: Iq = -Ic_neg + B_neg * omega
 | Core Service | `Firmware/Core/Services/Identification/friction_identification.*` | 无硬件依赖的状态机、采样、约束拟合与结果验收 |
 | Product | `Firmware/Product/mechanical_load_profiles.*` | 速度点、稳态/超时、饱和和 RMSE 阈值 |
 | Runtime | `Firmware/Runtime/MotorControl/friction_identification_runtime.*` | 速度环、编码器、电流反馈、安全停车和候选参数适配 |
-| Port/Application | `Firmware/Ports/friction_identification_port.h`、`Firmware/Application/friction_identification_service.*` | 向 USB/CAN 提供只读结果和显式应用操作 |
+| Application | `Firmware/Core/Application/Contracts/friction_identification_port.h`、`Firmware/Core/Application/friction_identification_service.*` | 向 USB/CAN 提供只读结果和显式应用操作 |
 
 Domain 不引用 Runtime、HAL、通信或 Product 类型。Mode 19 作为 `SERVICE_PROCEDURE_FRICTION_IDENTIFICATION` 进入主生命周期状态机，不把协议动作码泄漏到 Runtime。
 

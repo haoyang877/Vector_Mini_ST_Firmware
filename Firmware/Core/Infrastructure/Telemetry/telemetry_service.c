@@ -1,4 +1,4 @@
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 
 #define TelemetryBuffers (context->buffers)
 #define TelemetrySequence (context->sequence)

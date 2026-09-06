@@ -520,16 +520,6 @@
               <FilePath>..\Firmware\Application\application_endpoints.c</FilePath>
             </File>
             <File>
-              <FileName>control_authority_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\control_authority_service.c</FilePath>
-            </File>
-            <File>
-              <FileName>fault_manager.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\fault_manager.c</FilePath>
-            </File>
-            <File>
               <FileName>power_stage.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\power_stage.c</FilePath>
@@ -538,16 +528,6 @@
               <FileName>parameter_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\parameter_service.c</FilePath>
-            </File>
-            <File>
-              <FileName>parameter_transaction_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\parameter_transaction_service.c</FilePath>
-            </File>
-            <File>
-              <FileName>telemetry_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\telemetry_service.c</FilePath>
             </File>
             <File>
               <FileName>diagnostic_service.c</FileName>
@@ -560,19 +540,9 @@
               <FilePath>..\Firmware\Application\update_service.c</FilePath>
             </File>
             <File>
-              <FileName>communication_watchdog_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\communication_watchdog_service.c</FilePath>
-            </File>
-            <File>
               <FileName>can_configuration_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\can_configuration_service.c</FilePath>
-            </File>
-            <File>
-              <FileName>can_response_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\can_response_service.c</FilePath>
             </File>
             <File>
               <FileName>calibration_service.c</FileName>
@@ -584,30 +554,80 @@
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\identification_service.c</FilePath>
             </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Application</GroupName>
+          <Files>
             <File>
-              <FileName>motor_command_service.c</FileName>
+              <FileName>communication_watchdog_service.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\motor_command_service.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\communication_watchdog_service.c</FilePath>
             </File>
             <File>
-              <FileName>motor_commissioning_workflow.c</FileName>
+              <FileName>control_authority_service.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\motor_commissioning_workflow.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\control_authority_service.c</FilePath>
             </File>
             <File>
               <FileName>device_lifecycle.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\device_lifecycle.c</FilePath>
-            </File>
-            <File>
-              <FileName>rotor_calibration_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\rotor_calibration_service.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\device_lifecycle.c</FilePath>
             </File>
             <File>
               <FileName>friction_identification_service.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\friction_identification_service.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\friction_identification_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_command_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\motor_command_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_commissioning_workflow.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\motor_commissioning_workflow.c</FilePath>
+            </File>
+            <File>
+              <FileName>parameter_transaction_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\parameter_transaction_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>rotor_calibration_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\rotor_calibration_service.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Services/Safety</GroupName>
+          <Files>
+            <File>
+              <FileName>fault_manager.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Services\Safety\fault_manager.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Infrastructure/Telemetry</GroupName>
+          <Files>
+            <File>
+              <FileName>telemetry_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Infrastructure\Telemetry\telemetry_service.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Communication/Can</GroupName>
+          <Files>
+            <File>
+              <FileName>can_response_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Communication\Can\can_response_service.c</FilePath>
             </File>
           </Files>
         </Group>

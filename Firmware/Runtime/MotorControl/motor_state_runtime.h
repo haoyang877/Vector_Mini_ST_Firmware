@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 #include "motor_control_types.h"
-#include "fault_manager.h"
-#include "device_lifecycle.h"
+#include "Core/Services/Safety/fault_manager.h"
+#include "Core/Application/device_lifecycle.h"
 #include "current_control_runtime.h"
 #include "pi_controller.h"
 #include "encoder.h"
@@ -16,7 +16,7 @@
 #include "calibration_service.h"
 #include "identification_service.h"
 #include "bsp_system.h"
-#include "motor_commissioning_workflow.h"
+#include "Core/Application/motor_commissioning_workflow.h"
 
 typedef struct MotorStateContext MotorStateContext;
 

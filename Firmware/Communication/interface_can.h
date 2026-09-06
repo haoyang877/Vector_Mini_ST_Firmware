@@ -5,12 +5,12 @@
 #include <stdint.h>
 #include "can_transport_port.h"
 #include "Core/Application/Contracts/can_configuration_port.h"
-#include "Core/Application/Contracts/can_response_port.h"
+#include "Core/Communication/Contracts/can_response_port.h"
 #include "can_protocol_v1.h"
 #include "can_command_router.h"
-#include "communication_watchdog_service.h"
-#include "telemetry_service.h"
-#include "control_authority_service.h"
+#include "Core/Application/communication_watchdog_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
+#include "Core/Application/control_authority_service.h"
 
 #define CAN_INTERFACE_RX_QUEUE_CAPACITY 8U
 

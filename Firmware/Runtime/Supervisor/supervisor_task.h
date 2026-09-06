@@ -7,9 +7,9 @@
 #include "motor_control_runtime.h"
 #include "interface_can.h"
 #include "interface_usb.h"
-#include "communication_watchdog_service.h"
+#include "Core/Application/communication_watchdog_service.h"
 #include "can_configuration_service.h"
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 #include "led.h"
 #include "rgb.h"
 

@@ -1,8 +1,8 @@
-#ifndef APPLICATION_DEVICE_LIFECYCLE_H
-#define APPLICATION_DEVICE_LIFECYCLE_H
+#ifndef CORE_APPLICATION_DEVICE_LIFECYCLE_H
+#define CORE_APPLICATION_DEVICE_LIFECYCLE_H
 
 #include <stdbool.h>
-#include "procedure_state.h"
+#include "Core/Application/procedure_state.h"
 
 typedef enum
 {

@@ -1,4 +1,4 @@
-#include "device_lifecycle.h"
+#include "Core/Application/device_lifecycle.h"
 
 #include <stddef.h>
 

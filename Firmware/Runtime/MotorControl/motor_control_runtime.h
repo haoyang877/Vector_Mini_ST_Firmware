@@ -24,14 +24,14 @@
 #include "encoder_direction_calibration_runtime.h"
 #include "cogging_identification_runtime.h"
 #include "current_control_runtime.h"
-#include "device_lifecycle.h"
+#include "Core/Application/device_lifecycle.h"
 #include "motor_state_runtime.h"
 #include "motor_service_adapter.h"
 #include "parameter_snapshot.h"
 #include "control_tuning_profile.h"
 #include "mechanical_load_profiles.h"
 #include "can_configuration_service.h"
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 
 typedef struct
 {

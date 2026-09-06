@@ -4,9 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "device_lifecycle.h"
+#include "Core/Application/device_lifecycle.h"
 #include "power_stage.h"
-#include "parameter_transaction_service.h"
+#include "Core/Application/parameter_transaction_service.h"
 #include "Core/Application/Contracts/update_control_port.h"
 
 typedef enum

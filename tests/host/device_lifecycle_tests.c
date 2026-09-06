@@ -1,4 +1,4 @@
-#include "device_lifecycle.h"
+#include "Core/Application/device_lifecycle.h"
 
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 

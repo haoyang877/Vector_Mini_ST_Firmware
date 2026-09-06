@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "device_lifecycle.h"
+#include "Core/Application/device_lifecycle.h"
 #include "motor_profiles.h"
 
 typedef struct

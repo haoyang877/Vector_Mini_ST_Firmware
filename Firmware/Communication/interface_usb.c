@@ -1,10 +1,10 @@
 #include "interface_usb.h"
-#include "telemetry_service.h"
-#include "rotor_calibration_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
+#include "Core/Application/rotor_calibration_service.h"
 #include "usb_protocol_v1.h"
 #include "usb_command_router.h"
 #include "can_configuration_service.h"
-#include "friction_identification_service.h"
+#include "Core/Application/friction_identification_service.h"
 #include "Core/Communication/Formatting/text_writer.h"
 
 #include <string.h>

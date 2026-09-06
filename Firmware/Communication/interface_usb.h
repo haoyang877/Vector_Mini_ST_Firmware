@@ -9,9 +9,9 @@
 #include "usb_protocol_v1.h"
 #include "byte_ring_buffer.h"
 #include "can_configuration_service.h"
-#include "friction_identification_service.h"
-#include "rotor_calibration_service.h"
-#include "telemetry_service.h"
+#include "Core/Application/friction_identification_service.h"
+#include "Core/Application/rotor_calibration_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 #include "usb_command_router.h"
 
 #define USB_COMMAND_MIN_LENGTH 8U

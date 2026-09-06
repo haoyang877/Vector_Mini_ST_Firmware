@@ -1,4 +1,4 @@
-#include "control_authority_service.h"
+#include "Core/Application/control_authority_service.h"
 
 bool ControlAuthorityService_Initialize(ControlAuthorityServiceContext *context)
 {

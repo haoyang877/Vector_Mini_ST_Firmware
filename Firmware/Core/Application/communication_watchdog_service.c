@@ -1,4 +1,4 @@
-#include "communication_watchdog_service.h"
+#include "Core/Application/communication_watchdog_service.h"
 
 bool CommunicationWatchdogService_Initialize(
 	CommunicationWatchdogServiceContext *context, const FaultCommandPort *port,

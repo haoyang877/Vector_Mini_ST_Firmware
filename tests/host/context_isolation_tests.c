@@ -1,4 +1,4 @@
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 

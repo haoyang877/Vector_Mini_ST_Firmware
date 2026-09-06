@@ -1,4 +1,4 @@
-#include "motor_commissioning_workflow.h"
+#include "Core/Application/motor_commissioning_workflow.h"
 
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 

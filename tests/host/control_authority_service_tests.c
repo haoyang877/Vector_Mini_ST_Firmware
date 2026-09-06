@@ -1,4 +1,4 @@
-#include "control_authority_service.h"
+#include "Core/Application/control_authority_service.h"
 
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 

@@ -15,7 +15,7 @@
 #include "fast_math.h"
 #include "phase_resistance_runtime.h"
 #include "friction_identification_runtime.h"
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 #include "rotor_calibration_port_adapter.h"
 #include "motor_service_adapter.h"
 #include "current_offset_calibration_runtime.h"

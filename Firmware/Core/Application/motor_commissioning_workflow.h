@@ -1,10 +1,10 @@
-#ifndef APPLICATION_MOTOR_COMMISSIONING_WORKFLOW_H
-#define APPLICATION_MOTOR_COMMISSIONING_WORKFLOW_H
+#ifndef CORE_APPLICATION_MOTOR_COMMISSIONING_WORKFLOW_H
+#define CORE_APPLICATION_MOTOR_COMMISSIONING_WORKFLOW_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "device_lifecycle.h"
+#include "Core/Application/device_lifecycle.h"
 
 typedef enum
 {

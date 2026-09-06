@@ -73,7 +73,11 @@ foreach ($requiredTest in @(
 
 foreach ($requiredImplementation in @(
 	'Firmware\Application\application_endpoints.c',
-	'Firmware\Application\control_authority_service.c',
+	'Firmware\Core\Application\control_authority_service.c',
+    'Firmware\Core\Application\communication_watchdog_service.c',
+    'Firmware\Core\Application\device_lifecycle.c',
+    'Firmware\Core\Application\friction_identification_service.c',
+    'Firmware\Core\Application\motor_command_service.c',
     'Firmware\Composition\firmware_composition.c',
     'Firmware\Communication\Protocol\can_protocol_v1.c',
     'Firmware\Communication\Protocol\usb_protocol_v1.c',
@@ -81,9 +85,13 @@ foreach ($requiredImplementation in @(
     'Firmware\Communication\Router\usb_command_router.c',
     'Firmware\Communication\Transport\byte_ring_buffer.c',
     'Firmware\Application\can_configuration_service.c',
-    'Firmware\Application\can_response_service.c',
+    'Firmware\Core\Communication\Can\can_response_service.c',
+	'Firmware\Core\Application\parameter_transaction_service.c',
+	'Firmware\Core\Application\rotor_calibration_service.c',
+	'Firmware\Core\Infrastructure\Telemetry\telemetry_service.c',
+	'Firmware\Core\Services\Safety\fault_manager.c',
 	'Firmware\Application\diagnostic_service.c',
-	'Firmware\Application\motor_commissioning_workflow.c',
+	'Firmware\Core\Application\motor_commissioning_workflow.c',
     'Firmware\Application\update_service.c',
     'Firmware\Platform\Stm32G431\device_identity_stm32g431.c',
     'Firmware\Platform\Stm32G431\execution_timer_stm32g431.c',
@@ -121,6 +129,7 @@ $projectGroupNodes = @($project.Project.Targets.Target.Groups.Group)
 $projectFiles = @($projectGroupNodes.Files.File)
 $projectGroups = @($projectGroupNodes.GroupName)
 foreach ($requiredGroup in @('Firmware/Application', 'Firmware/Product',
+    'Firmware/Core/Application', 'Firmware/Core/Communication/Can',
     'Firmware/Core/Communication/Formatting',
     'Firmware/Core/Services/Modulation', 'Firmware/Core/Services/Math',
     'Firmware/Core/Services/Measurement', 'Firmware/Core/Services/Identification',
@@ -130,7 +139,8 @@ foreach ($requiredGroup in @('Firmware/Application', 'Firmware/Product',
     'Firmware/Communication/Protocol', 'Firmware/Communication/Router',
     'Firmware/Communication/Interfaces', 'Firmware/Application/Indicators',
     'Firmware/Platform/Stm32G431', 'Firmware/Composition',
-    'Firmware/Core/Infrastructure/Parameters')) {
+    'Firmware/Core/Infrastructure/Parameters',
+    'Firmware/Core/Infrastructure/Telemetry', 'Firmware/Core/Services/Safety')) {
     if ($projectGroups -notcontains $requiredGroup) {
         $failures.Add("Missing Keil architecture group: $requiredGroup")
     }
@@ -140,6 +150,8 @@ $groupPathPrefixes = [ordered]@{
     'Firmware/Application' = '..\Firmware\Application\'
     'Firmware/Application/Indicators' = '..\Firmware\Application\Indicators\'
     'Firmware/Product' = '..\Firmware\Product\'
+    'Firmware/Core/Application' = '..\Firmware\Core\Application\'
+    'Firmware/Core/Communication/Can' = '..\Firmware\Core\Communication\Can\'
     'Firmware/Core/Communication/Formatting' = '..\Firmware\Core\Communication\Formatting\'
     'Firmware/Core/Services/Math' = '..\Firmware\Core\Services\Math\'
     'Firmware/Core/Services/Measurement' = '..\Firmware\Core\Services\Measurement\'
@@ -157,6 +169,8 @@ $groupPathPrefixes = [ordered]@{
     'Firmware/Platform/Stm32G431' = '..\Firmware\Platform\Stm32G431\'
     'Firmware/Composition' = '..\Firmware\Composition\'
     'Firmware/Core/Infrastructure/Parameters' = '..\Firmware\Core\Infrastructure\Parameters\'
+    'Firmware/Core/Infrastructure/Telemetry' = '..\Firmware\Core\Infrastructure\Telemetry\'
+    'Firmware/Core/Services/Safety' = '..\Firmware\Core\Services\Safety\'
 }
 foreach ($groupNode in $projectGroupNodes) {
     $groupName = [string]$groupNode.GroupName

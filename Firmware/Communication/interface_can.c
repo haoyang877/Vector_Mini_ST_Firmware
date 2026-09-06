@@ -1,8 +1,8 @@
 #include "interface_can.h"
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 #include "can_protocol_v1.h"
 #include "can_command_router.h"
-#include "communication_watchdog_service.h"
+#include "Core/Application/communication_watchdog_service.h"
 
 #include <string.h>
 

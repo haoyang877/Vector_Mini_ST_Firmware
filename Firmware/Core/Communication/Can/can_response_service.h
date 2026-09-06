@@ -1,10 +1,10 @@
-#ifndef APPLICATION_CAN_RESPONSE_SERVICE_H
-#define APPLICATION_CAN_RESPONSE_SERVICE_H
+#ifndef CORE_COMMUNICATION_CAN_RESPONSE_SERVICE_H
+#define CORE_COMMUNICATION_CAN_RESPONSE_SERVICE_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "Core/Application/Contracts/can_response_port.h"
+#include "Core/Communication/Contracts/can_response_port.h"
 
 typedef struct
 {

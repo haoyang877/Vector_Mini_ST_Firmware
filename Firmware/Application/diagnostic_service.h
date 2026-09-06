@@ -5,7 +5,7 @@
 
 #include "bsp_system.h"
 #include "product_manifest.h"
-#include "telemetry_service.h"
+#include "Core/Infrastructure/Telemetry/telemetry_service.h"
 
 #define DIAGNOSTIC_DEVICE_IDENTITY_CAPACITY 12U
 

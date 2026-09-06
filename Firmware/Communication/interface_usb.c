@@ -1,16 +1,16 @@
 #include "interface_usb.h"
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
 #include "Core/Application/rotor_calibration_service.h"
-#include "usb_protocol_v1.h"
+#include "Core/Communication/Protocol/usb_protocol_v1.h"
 #include "usb_command_router.h"
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "Core/Application/friction_identification_service.h"
 #include "Core/Communication/Formatting/text_writer.h"
 
 #include <string.h>
 
 #include "fast_math.h"
-#include "byte_ring_buffer.h"
+#include "Core/Communication/Transport/byte_ring_buffer.h"
 
 #if defined(__CC_ARM)
 #pragma O3

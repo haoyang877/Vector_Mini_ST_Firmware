@@ -9,7 +9,7 @@
 #include "mechanical_load_profiles.h"
 #include "encoder.h"
 #include "parameter_schema.h"
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 
 #define PARAMETER_SNAPSHOT_MAGIC ((uint32_t)0x454E4332U)
 

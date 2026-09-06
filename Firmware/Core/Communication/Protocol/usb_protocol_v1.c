@@ -1,4 +1,4 @@
-#include "usb_protocol_v1.h"
+#include "Core/Communication/Protocol/usb_protocol_v1.h"
 
 #include <math.h>
 #include <stddef.h>

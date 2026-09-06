@@ -32,7 +32,7 @@ $sourcePaths = @(
     'tests\host\text_writer_tests.c',
     'tests\host\tle5012b_driver_tests.c',
 	'Firmware\Composition\tle5012b_rotor_sensor_adapter.c',
-	'Firmware\Communication\Protocol\can_protocol_v1.c',
+	'Firmware\Core\Communication\Protocol\can_protocol_v1.c',
 	'Firmware\Communication\interface_can.c',
 	'Firmware\Platform\Stm32G431\angle_serial_stm32g431_config.c',
     'tests\host\mechanical_load_profile_tests.c',
@@ -103,7 +103,7 @@ $includePaths = @(
     'Firmware\Bsp\Boards\VectorMiniSt',
 	'Firmware\Platform\Stm32G431',
     'Firmware\Composition',
-	'Firmware\Communication\Protocol',
+	'Firmware\Core\Communication\Protocol',
 	'Firmware\Communication\Router'
 )
 

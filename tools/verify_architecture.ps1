@@ -79,12 +79,12 @@ foreach ($requiredImplementation in @(
     'Firmware\Core\Application\friction_identification_service.c',
     'Firmware\Core\Application\motor_command_service.c',
     'Firmware\Composition\firmware_composition.c',
-    'Firmware\Communication\Protocol\can_protocol_v1.c',
-    'Firmware\Communication\Protocol\usb_protocol_v1.c',
+    'Firmware\Core\Communication\Protocol\can_protocol_v1.c',
+    'Firmware\Core\Communication\Protocol\usb_protocol_v1.c',
     'Firmware\Communication\Router\can_command_router.c',
     'Firmware\Communication\Router\usb_command_router.c',
-    'Firmware\Communication\Transport\byte_ring_buffer.c',
-    'Firmware\Application\can_configuration_service.c',
+    'Firmware\Core\Communication\Transport\byte_ring_buffer.c',
+    'Firmware\Core\Application\Communication\can_configuration_service.c',
     'Firmware\Core\Communication\Can\can_response_service.c',
 	'Firmware\Core\Application\parameter_transaction_service.c',
 	'Firmware\Core\Application\rotor_calibration_service.c',
@@ -134,9 +134,11 @@ foreach ($requiredGroup in @('Firmware/Application', 'Firmware/Product',
     'Firmware/Core/Services/Measurement', 'Firmware/Core/Services/Identification',
     'Firmware/Core/Services/CurrentControl', 'Firmware/Core/Services/MotionControl',
     'Firmware/Core/Services/RotorFeedback', 'Firmware/Runtime/MotorControl',
-    'Firmware/Runtime/Supervisor', 'Firmware/Communication/Transport',
-    'Firmware/Communication/Protocol', 'Firmware/Communication/Router',
-    'Firmware/Communication/Interfaces', 'Firmware/Application/Indicators',
+    'Firmware/Runtime/Supervisor', 'Firmware/Core/Communication/Transport',
+    'Firmware/Core/Communication/Protocol', 'Firmware/Communication/Router',
+    'Firmware/Communication/Interfaces',
+    'Firmware/Core/Application/Communication',
+    'Firmware/Core/Application/Indicators',
     'Firmware/Platform/Stm32G431', 'Firmware/Composition',
     'Firmware/Core/Infrastructure/Parameters',
     'Firmware/Core/Infrastructure/Telemetry', 'Firmware/Core/Services/Safety')) {
@@ -147,9 +149,10 @@ foreach ($requiredGroup in @('Firmware/Application', 'Firmware/Product',
 
 $groupPathPrefixes = [ordered]@{
     'Firmware/Application' = '..\Firmware\Application\'
-    'Firmware/Application/Indicators' = '..\Firmware\Application\Indicators\'
     'Firmware/Product' = '..\Firmware\Product\'
     'Firmware/Core/Application' = '..\Firmware\Core\Application\'
+    'Firmware/Core/Application/Communication' = '..\Firmware\Core\Application\Communication\'
+    'Firmware/Core/Application/Indicators' = '..\Firmware\Core\Application\Indicators\'
     'Firmware/Core/Communication/Can' = '..\Firmware\Core\Communication\Can\'
     'Firmware/Core/Communication/Formatting' = '..\Firmware\Core\Communication\Formatting\'
     'Firmware/Core/Services/Math' = '..\Firmware\Core\Services\Math\'
@@ -161,8 +164,8 @@ $groupPathPrefixes = [ordered]@{
     'Firmware/Core/Services/RotorFeedback' = '..\Firmware\Core\Services\RotorFeedback\'
     'Firmware/Runtime/MotorControl' = '..\Firmware\Runtime\MotorControl\'
     'Firmware/Runtime/Supervisor' = '..\Firmware\Runtime\Supervisor\'
-    'Firmware/Communication/Transport' = '..\Firmware\Communication\Transport\'
-    'Firmware/Communication/Protocol' = '..\Firmware\Communication\Protocol\'
+    'Firmware/Core/Communication/Transport' = '..\Firmware\Core\Communication\Transport\'
+    'Firmware/Core/Communication/Protocol' = '..\Firmware\Core\Communication\Protocol\'
     'Firmware/Communication/Router' = '..\Firmware\Communication\Router\'
     'Firmware/Communication/Interfaces' = '..\Firmware\Communication\'
     'Firmware/Platform/Stm32G431' = '..\Firmware\Platform\Stm32G431\'
@@ -320,8 +323,16 @@ $controlAlgorithmSources = @(
 Add-Matches -Files $controlAlgorithmSources -Pattern '(?:MotorControl|motor)->command\.[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)' -Description 'A control algorithm rewrites the accepted Application command instead of its internal targets'
 Add-Matches -Files $controlAlgorithmSources -Pattern '(?:MotorControl|motor)->configuration\.[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)' -Description 'A control algorithm mutates active configuration instead of staging a validated candidate'
 
-$communicationSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Communication') -Recurse -File -Include *.c,*.h |
-    ForEach-Object FullName
+$communicationSources = @(
+    foreach ($relativeDirectory in @('Firmware\Communication',
+        'Firmware\Core\Communication')) {
+        $absoluteDirectory = Join-Path $repositoryRoot $relativeDirectory
+        if (Test-Path -LiteralPath $absoluteDirectory -PathType Container) {
+            Get-ChildItem -LiteralPath $absoluteDirectory -Recurse -File `
+                -Include *.c,*.h | ForEach-Object FullName
+        }
+    }
+)
 $directCommunicationPattern = 'MotorControl\.[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)|\.addr\s*=\s*&(?:MotorControl|CurrentControl|OnBoard_Encoder)\.'
 $communicationMatches = @($communicationSources | ForEach-Object {
     Select-String -LiteralPath $_ -Pattern $directCommunicationPattern
@@ -332,7 +343,7 @@ foreach ($match in $communicationMatches) {
 }
 Add-Matches -Files $communicationSources -Pattern 'extern\s+[^;]*\b(MotorControl|CurrentControl|OnBoard_Encoder)\b|#include\s+"(encoder|current_control_runtime|parameter_snapshot|hw_conf)\.h"' -Description 'Communication bypasses an Application service boundary'
 
-$protocolSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Communication\Protocol') -Recurse -File -Include *.c,*.h |
+$protocolSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Core\Communication\Protocol') -Recurse -File -Include *.c,*.h |
     ForEach-Object FullName
 Add-Matches -Files $protocolSources -Pattern '#include\s+"(?:interface_|.*command_router|.*_service|current_control_runtime|hw_conf|motor_control_types|product_)[^"]*\.h"|\bHAL_' -Description 'Protocol codec depends on a Router, Service, control runtime, or platform implementation'
 
@@ -340,7 +351,7 @@ $routerSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware
     ForEach-Object FullName
 Add-Matches -Files $routerSources -Pattern '#include\s+"(?:interface_|foc_|hw_conf|data_type|stm32)[^"]*\.h"|\bHAL_|\bCAN_SendMessage_Update\b' -Description 'Router depends directly on a Transport or control/platform implementation'
 
-$transportSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Communication\Transport') -Recurse -File -Include *.c,*.h |
+$transportSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Core\Communication\Transport') -Recurse -File -Include *.c,*.h |
     ForEach-Object FullName
 Add-Matches -Files $transportSources -Pattern '#include\s+"(?:(?:can|usb)_protocol|.*command_router|.*_service|interface_|current_control_runtime|hw_conf|motor_control_types)[^"]*\.h"|\bHAL_' -Description 'Transport utility depends on Protocol, Router, Service, or platform implementation'
 
@@ -352,8 +363,8 @@ foreach ($obsoletePath in @('System\common_inc.h', 'System\heap.c', 'System\heap
     'System\utils.c', 'System\data_type.h',
     'Bsp\delay.c', 'Bsp\delay.h', 'Firmware\Communication\ring_buffer.c',
     'Firmware\Communication\ring_buffer.h', 'Foc\foc_pid.c', 'Foc\foc_pid.h',
-    'Firmware\Communication\Protocol\legacy_can_protocol.c',
-    'Firmware\Communication\Protocol\legacy_usb_protocol.c',
+    'Firmware\Core\Communication\Protocol\legacy_can_protocol.c',
+    'Firmware\Core\Communication\Protocol\legacy_usb_protocol.c',
     'Firmware\Communication\Router\legacy_can_router.c',
     'Firmware\Communication\Router\legacy_usb_router.c',
     'Foc\foc_traptraj.c', 'Foc\foc_traptraj.h',

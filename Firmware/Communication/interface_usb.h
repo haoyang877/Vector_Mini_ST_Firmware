@@ -9,11 +9,11 @@
 #include "Core/Application/friction_identification_service.h"
 #include "Core/Application/rotor_calibration_service.h"
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
-#include "byte_ring_buffer.h"
-#include "can_configuration_service.h"
+#include "Core/Communication/Transport/byte_ring_buffer.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "usb_command_router.h"
-#include "usb_protocol_contract.h"
-#include "usb_protocol_v1.h"
+#include "Core/Communication/Protocol/usb_protocol_contract.h"
+#include "Core/Communication/Protocol/usb_protocol_v1.h"
 
 #define USB_COMMAND_MIN_LENGTH 8U
 #define USB_INTERFACE_TEXT_CAPACITY 80U

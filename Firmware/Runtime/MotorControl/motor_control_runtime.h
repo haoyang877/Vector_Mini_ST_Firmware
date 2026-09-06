@@ -29,7 +29,7 @@
 #include "parameter_snapshot.h"
 #include "control_tuning_profile.h"
 #include "mechanical_load_profiles.h"
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
 
 typedef struct

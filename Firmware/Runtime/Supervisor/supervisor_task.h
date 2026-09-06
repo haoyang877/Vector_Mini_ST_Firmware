@@ -8,10 +8,10 @@
 #include "interface_can.h"
 #include "interface_usb.h"
 #include "Core/Application/communication_watchdog_service.h"
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
-#include "led.h"
-#include "rgb.h"
+#include "Core/Application/Indicators/led.h"
+#include "Core/Application/Indicators/rgb.h"
 
 typedef struct
 {

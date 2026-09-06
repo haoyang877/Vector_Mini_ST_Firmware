@@ -1,4 +1,4 @@
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 
 bool CanConfigurationService_Initialize(CanConfigurationServiceContext *context,
 	const CanConfigurationPort *port)

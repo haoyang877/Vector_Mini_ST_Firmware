@@ -1,4 +1,4 @@
-#include "Communication/Protocol/can_protocol_v1.h"
+#include "Core/Communication/Protocol/can_protocol_v1.h"
 
 #include <math.h>
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)

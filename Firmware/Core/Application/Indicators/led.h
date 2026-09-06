@@ -1,9 +1,9 @@
-#ifndef APPLICATION_LED_INDICATOR_H
-#define APPLICATION_LED_INDICATOR_H
+#ifndef CORE_APPLICATION_INDICATORS_LED_H
+#define CORE_APPLICATION_INDICATORS_LED_H
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "bsp_indicator.h"
+#include "Bsp/Api/bsp_indicator.h"
 
 typedef struct
 {

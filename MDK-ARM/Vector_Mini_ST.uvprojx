@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Core/Services/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
+              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Core/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Core/Communication/Transport;../Firmware/Application;../Firmware/Core/Application/Communication;../Firmware/Core/Application/Indicators;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Core/Services/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -497,17 +497,17 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Application/Indicators</GroupName>
+          <GroupName>Firmware/Core/Application/Indicators</GroupName>
           <Files>
             <File>
               <FileName>led.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\Indicators\led.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\Indicators\led.c</FilePath>
             </File>
             <File>
               <FileName>rgb.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\Indicators\rgb.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\Indicators\rgb.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -540,11 +540,6 @@
               <FilePath>..\Firmware\Application\update_service.c</FilePath>
             </File>
             <File>
-              <FileName>can_configuration_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\can_configuration_service.c</FilePath>
-            </File>
-            <File>
               <FileName>calibration_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\calibration_service.c</FilePath>
@@ -553,6 +548,16 @@
               <FileName>identification_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\identification_service.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Application/Communication</GroupName>
+          <Files>
+            <File>
+              <FileName>can_configuration_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\Communication\can_configuration_service.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1017,27 +1022,27 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Communication/Transport</GroupName>
+          <GroupName>Firmware/Core/Communication/Transport</GroupName>
           <Files>
             <File>
               <FileName>byte_ring_buffer.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\Transport\byte_ring_buffer.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Transport\byte_ring_buffer.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Communication/Protocol</GroupName>
+          <GroupName>Firmware/Core/Communication/Protocol</GroupName>
           <Files>
             <File>
               <FileName>can_protocol_v1.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\Protocol\can_protocol_v1.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Protocol\can_protocol_v1.c</FilePath>
             </File>
             <File>
               <FileName>usb_protocol_v1.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\Protocol\usb_protocol_v1.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Protocol\usb_protocol_v1.c</FilePath>
             </File>
           </Files>
         </Group>

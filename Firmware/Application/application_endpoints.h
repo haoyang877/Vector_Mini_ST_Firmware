@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "Core/Application/friction_identification_service.h"
 #include "Core/Application/motor_command_service.h"
 #include "parameter_service.h"

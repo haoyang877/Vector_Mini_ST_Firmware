@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "usb_protocol_contract.h"
-#include "usb_protocol_v1.h"
+#include "Core/Communication/Protocol/usb_protocol_contract.h"
+#include "Core/Communication/Protocol/usb_protocol_v1.h"
 #include "application_endpoints.h"
 
 #define USB_COMMAND_ROUTER_RESPONSE_CAPACITY 80U

@@ -1,6 +1,6 @@
 #include "can_command_router.h"
 
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "Core/Communication/Can/can_response_service.h"
 #include "Core/Application/motor_command_service.h"
 #include "parameter_service.h"

@@ -11,7 +11,7 @@
 #include "Core/Application/control_authority_service.h"
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
 #include "can_command_router.h"
-#include "can_protocol_v1.h"
+#include "Core/Communication/Protocol/can_protocol_v1.h"
 
 typedef struct
 {

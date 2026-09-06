@@ -1,6 +1,6 @@
 #include "usb_command_router.h"
 
-#include "can_configuration_service.h"
+#include "Core/Application/Communication/can_configuration_service.h"
 #include "Core/Application/motor_command_service.h"
 #include "parameter_service.h"
 #include "Core/Application/rotor_calibration_service.h"

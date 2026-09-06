@@ -11,10 +11,25 @@ static float Measurement_Abs(float value)
 
 static bool Measurement_ConfigIsValid(const MeasurementModelConfig *config)
 {
-    return config != NULL &&
-        config->minimum_valid_offset_adc <= config->maximum_valid_offset_adc &&
-        isfinite(config->current_a_per_count) && config->current_a_per_count > 0.0f &&
+    uint8_t channel;
+
+    if (config == NULL || config->minimum_valid_offset_adc == NULL ||
+        config->maximum_valid_offset_adc == NULL ||
+        config->current_a_per_count == NULL)
+        return false;
+    for (channel = 0U; channel < 3U; channel++)
+    {
+        if (config->minimum_valid_offset_adc[channel] >
+                config->maximum_valid_offset_adc[channel] ||
+            !isfinite(config->current_a_per_count[channel]) ||
+            config->current_a_per_count[channel] <= 0.0f)
+            return false;
+    }
+    return
         isfinite(config->bus_voltage_v_per_count) && config->bus_voltage_v_per_count > 0.0f &&
+        isfinite(config->bus_voltage_filter_alpha) &&
+        config->bus_voltage_filter_alpha > 0.0f &&
+        config->bus_voltage_filter_alpha <= 1.0f &&
         isfinite(config->overcurrent_trip_a) && config->overcurrent_trip_a > 0.0f &&
         isfinite(config->overvoltage_trip_v) &&
         isfinite(config->undervoltage_trip_v) &&
@@ -27,12 +42,12 @@ static bool Measurement_ConfigIsValid(const MeasurementModelConfig *config)
 
 static bool Measurement_OffsetsAreValid(const MeasurementModelConfig *config)
 {
-    return config->phase_a_offset_adc >= config->minimum_valid_offset_adc &&
-        config->phase_a_offset_adc <= config->maximum_valid_offset_adc &&
-        config->phase_b_offset_adc >= config->minimum_valid_offset_adc &&
-        config->phase_b_offset_adc <= config->maximum_valid_offset_adc &&
-        config->phase_c_offset_adc >= config->minimum_valid_offset_adc &&
-        config->phase_c_offset_adc <= config->maximum_valid_offset_adc;
+    return config->phase_a_offset_adc >= config->minimum_valid_offset_adc[0] &&
+        config->phase_a_offset_adc <= config->maximum_valid_offset_adc[0] &&
+        config->phase_b_offset_adc >= config->minimum_valid_offset_adc[1] &&
+        config->phase_b_offset_adc <= config->maximum_valid_offset_adc[1] &&
+        config->phase_c_offset_adc >= config->minimum_valid_offset_adc[2] &&
+        config->phase_c_offset_adc <= config->maximum_valid_offset_adc[2];
 }
 
 void MeasurementModel_Reset(MeasurementModelContext *context)
@@ -65,7 +80,7 @@ bool MeasurementModel_Update(MeasurementModelContext *context,
     context->output.faults = MEASUREMENT_FAULT_NONE;
     context->output.bus_voltage_v = input->bus_voltage_adc *
         config->bus_voltage_v_per_count;
-    context->output.bus_voltage_filtered_v += 0.05f *
+    context->output.bus_voltage_filtered_v += config->bus_voltage_filter_alpha *
         (context->output.bus_voltage_v - context->output.bus_voltage_filtered_v);
 
     if (input->protection_is_active)
@@ -103,13 +118,13 @@ bool MeasurementModel_Update(MeasurementModelContext *context,
     {
         context->output.phase_a_current_a =
             -((int16_t)input->phase_a_adc - config->phase_a_offset_adc) *
-            config->current_a_per_count;
+            config->current_a_per_count[0];
         context->output.phase_b_current_a =
             -((int16_t)input->phase_b_adc - config->phase_b_offset_adc) *
-            config->current_a_per_count;
+            config->current_a_per_count[1];
         context->output.phase_c_current_a =
             -((int16_t)input->phase_c_adc - config->phase_c_offset_adc) *
-            config->current_a_per_count;
+            config->current_a_per_count[2];
     }
 
     has_overcurrent =
@@ -139,7 +154,8 @@ bool MeasurementModel_Update(MeasurementModelContext *context,
 
 	if (config->temperature_protection_enabled &&
 		context->temperature_sampled &&
-		(!context->temperature_valid ||
+		((!context->temperature_valid &&
+		  config->temperature_invalid_is_fault) ||
 		 context->output.temperature_c >= config->maximum_temperature_c))
         context->output.faults = (MeasurementFaultFlags)
             (context->output.faults | MEASUREMENT_FAULT_HIGH_TEMPERATURE);

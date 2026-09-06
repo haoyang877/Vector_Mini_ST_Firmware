@@ -94,7 +94,6 @@ static void MotorControlRuntime_UpdateRotorFeedback(
 		(uint32_t)MotorControl.configuration.pole_pairs : 1U;
 	Encoder_Update(&OnBoard_Encoder, pole_pairs, &encoder_sample);
 }
-#define ActiveBoardProfile (context->board_profile)
 #define ActiveMotorProfile (context->motor_profile)
 #define ActiveEncoderProfile (context->encoder_profile)
 #define ActiveTuningProfile (context->tuning_profile)
@@ -105,7 +104,7 @@ static void MotorControlRuntime_UpdateRotorFeedback(
 #define MotorStateRuntime (&context->motor_state)
 
 bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
-	const BoardProfile *board_profile,
+	const MotorControlRuntimeConfig *runtime_config,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
 	const ControlTuningProfile *tuning_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,
@@ -115,19 +114,22 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 {
 	MotorFaultRuntimeBindings bindings;
 
-	if (context == 0 || board_profile == 0 || motor_profile == 0 ||
+	if (context == 0 || runtime_config == 0 || motor_profile == 0 ||
 		encoder_profile == 0 || tuning_profile == 0 ||
 		mechanical_load_profile == 0 || monotonic_clock == 0 ||
 		monotonic_clock->read_ms == 0 || execution_timer == 0 ||
 		execution_timer->read_cycles == 0 ||
 		execution_timer->frequency_hz == 0U ||
 		can_configuration == 0 ||
-		board_profile->control_frequency_hz == 0U ||
+		runtime_config->control_frequency_hz == 0U ||
 		!isfinite(tuning_profile->flux_observer_resistance_scale) ||
 		tuning_profile->flux_observer_resistance_scale <= 0.0f)
 		return false;
 	memset(context, 0, sizeof(*context));
-	ActiveBoardProfile = board_profile;
+	context->current_offset_calibration_sample_count =
+		runtime_config->current_offset_calibration_sample_count;
+	context->command_current_limit_a = runtime_config->command_current_limit_a;
+	context->phase_resistance_config = runtime_config->phase_resistance;
 	ActiveMotorProfile = motor_profile;
 	ActiveEncoderProfile = encoder_profile;
 	ActiveTuningProfile = tuning_profile;
@@ -142,7 +144,7 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 	context->fast_loop_metrics.filtered_cycles = 0U;
 	context->fast_loop_metrics.deadline_cycles =
 		execution_timer->frequency_hz /
-		board_profile->control_frequency_hz;
+		runtime_config->control_frequency_hz;
 	PreviousServiceProcedure = SERVICE_PROCEDURE_NONE;
 
 	bindings.motor = &MotorControl;
@@ -158,12 +160,12 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 	bindings.monotonic_clock = *monotonic_clock;
 	return MotorState_Initialize(MotorStateRuntime, &bindings) &&
 		CalibrationService_Initialize(&context->calibration_service,
-			&MotorLifecycle, board_profile, 120000U) &&
+			&MotorLifecycle, &runtime_config->current_offset_limits, 120000U) &&
 		IdentificationService_Initialize(&context->identification_service,
 			&MotorLifecycle, motor_profile, 120000U) &&
 		ParameterSnapshot_Initialize(&context->parameter_snapshot,
 			&MotorControl, &OnBoard_Encoder,
-			board_profile, motor_profile, encoder_profile,
+			&runtime_config->parameter_snapshot, motor_profile, encoder_profile,
 			mechanical_load_profile, can_configuration);
 }
 
@@ -461,6 +463,7 @@ bool MotorControlRuntime_ReadDiagnosticFrame(
 void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	PowerStageContext *power_stage,
 	const MeasurementPort *measurement_port,
+	const MeasurementModelConfig *measurement_config,
 	const RotorSensorPort *rotor_sensor_port,
 	const BspCriticalSectionPort *critical_section_port)
 {
@@ -489,7 +492,7 @@ void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	CurrentControlRuntime_ConfigureControllers(&CurrentControl, &MotorControl);
 	MeasurementModel_Reset(&MeasurementModel);
 	if (!Measurement_Configure(&MeasurementModel, &MotorControl,
-		ActiveBoardProfile))
+		measurement_config))
 		MotorState_RaiseFault(MotorStateRuntime, MOTOR_FAULT_INVALID_PARAMETER);
 	MotorCalibration_Reset(&MotorCalibration);
 	CurrentOffsetCalibrationRuntime_Reset(&CurrentOffsetCalibration);
@@ -762,8 +765,7 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 		CurrentControlRuntime_ConfigureControllers(&CurrentControl,
 			&MotorControl);
 		(void)FluxObserver_ConfigureMotor(&Fluxobserver, &MotorControl);
-		(void)Measurement_Configure(&MeasurementModel, &MotorControl,
-			ActiveBoardProfile);
+		(void)Measurement_UpdateCurrentOffsets(&MeasurementModel, &MotorControl);
 	}
 	(void)MotorServiceAdapter_ApplyPendingCommand(&MotorCommandAdapter);
 	device_state = MotorLifecycle_GetDeviceState(MotorStateRuntime);
@@ -799,7 +801,7 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 			case MOTOR_CONTROL_MODE_POSITION_IMPEDANCE:
 				ControlModeRuntime_RunPositionImpedance(&MotionControl, &CurrentControl,
 					&MotorControl, &OnBoard_Encoder, ActiveMotorProfile,
-					ActiveBoardProfile, MotorStateRuntime);
+					context->command_current_limit_a, MotorStateRuntime);
 				break;
 			case MOTOR_CONTROL_MODE_VOLTAGE_OPEN_LOOP:
 				ControlModeRuntime_RunVoltageOpenLoop(&CurrentControl, &MotorControl);
@@ -825,7 +827,8 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 				uint16_t phase_c_offset_adc;
 				if (CurrentOffsetCalibrationRuntime_ExecuteStep(
 						&CurrentOffsetCalibration, &CurrentControl,
-						ActiveBoardProfile, MotorStateRuntime) ==
+						context->current_offset_calibration_sample_count,
+						MotorStateRuntime) ==
 					CURRENT_OFFSET_CALIBRATION_COMPLETE)
 				{
 					bool accepted = CurrentOffsetCalibrationRuntime_ReadResult(
@@ -873,7 +876,7 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 			{
 				PhaseResistanceRuntimeStatus status = PhaseResistanceRuntime_Run(
 					&PhaseResistanceRuntime, &CurrentControl, &MotorControl,
-					ActiveBoardProfile, ActiveMotorProfile);
+					&context->phase_resistance_config, ActiveMotorProfile);
 				if (status == PHASE_RESISTANCE_MODE_DONE)
 				{
 					float mean_resistance_ohm = 0.0f;
@@ -919,7 +922,7 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 					FrictionIdentificationRuntime_Run(
 						&FrictionIdentificationRuntime, &MotionControl,
 						&CurrentControl, &MotorControl, &PI_Speed,
-						&OnBoard_Encoder, ActiveBoardProfile,
+						&OnBoard_Encoder,
 						ActiveMechanicalLoadProfile);
 				if (status == FRICTION_IDENT_COMPLETE)
 				{

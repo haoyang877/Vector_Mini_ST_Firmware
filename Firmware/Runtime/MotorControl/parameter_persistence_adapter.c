@@ -5,7 +5,19 @@
 #include "parameter_snapshot.h"
 #include "Core/Infrastructure/Parameters/parameter_manager.h"
 #include "product_manifest.h"
-#include "product_variant.h"
+#include "product_catalog.h"
+
+/* IDs of the already-deployed tuple whose erased legacy fingerprint may be
+ * migrated once. These are storage compatibility keys, not runtime selectors. */
+#define DEPLOYED_LEGACY_HARDWARE_PROFILE_ID 1U
+#define DEPLOYED_LEGACY_MOTOR_PROFILE_ID 1U
+#define DEPLOYED_LEGACY_ENCODER_PROFILE_ID 1U
+#define DEPLOYED_LEGACY_LOAD_PROFILE_ID 1U
+
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
 
 #define ParameterTransferBuffer (context->transfer_buffer)
 #define ParameterManager (context->manager)
@@ -32,23 +44,33 @@ static bool ParameterPersistenceAdapter_InitializeManager(
 {
 	ParameterCompatibility compatibility;
 	const ProductManifest *manifest;
-	ProductVariant variant;
+	const ProductConfig *product_config;
 
 	if (context == 0)
 		return false;
 	if (ParameterManagerInitialized)
 		return true;
 	manifest = ProductManifest_Get();
-	if (manifest == 0 || !ProductVariant_GetActive(&variant))
+	product_config = &ProductCatalog_CurrentConfig;
+	if (manifest == 0 || product_config == 0 ||
+		manifest->product_id != product_config->identity.product_id ||
+		manifest->configuration_fingerprint !=
+			product_config->identity.configuration_fingerprint)
 		return false;
 	compatibility.product_id = manifest->product_id;
 	compatibility.hardware_profile_id = manifest->hardware_profile_id;
 	compatibility.motor_profile_id = manifest->motor_profile_id;
 	compatibility.parameter_schema_version = manifest->parameter_schema_version;
 	compatibility.configuration_fingerprint =
-		manifest->configuration_fingerprint;
+		product_config->identity.configuration_fingerprint;
 	compatibility.allow_legacy_configuration_fingerprint =
-		variant.allow_legacy_parameter_migration;
+		product_config->identity.configuration_fingerprint ==
+			PRODUCT_CATALOG_CONFIGURATION_FINGERPRINT &&
+		manifest->hardware_profile_id == DEPLOYED_LEGACY_HARDWARE_PROFILE_ID &&
+		manifest->motor_profile_id == DEPLOYED_LEGACY_MOTOR_PROFILE_ID &&
+		manifest->encoder_profile_id == DEPLOYED_LEGACY_ENCODER_PROFILE_ID &&
+		manifest->mechanical_load_profile_id ==
+			DEPLOYED_LEGACY_LOAD_PROFILE_ID;
 	ParameterManager_Initialize(&ParameterManager, &ParameterStore, &compatibility,
 		sizeof(ParameterTransferBuffer));
 	ParameterManagerInitialized = ParameterManager.is_initialized;

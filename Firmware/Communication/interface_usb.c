@@ -12,13 +12,17 @@
 #include "fast_math.h"
 #include "byte_ring_buffer.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 #define USBContext (*context)
 #define USBRxOverflow (context->receive_overflow)
 #define USBTransport (context->transport)
 #define USBTransportInitialized (context->transport_is_initialized)
 #define USBRxQueue (context->receive_queue)
 #define tx_en transmit_enabled
-#define tx_busy transmit_busy
 #define tx_str transmit_text
 #define tx_buffer transmit_buffer
 #define lut_export_en lut_export_enabled
@@ -29,9 +33,13 @@
 #define USB_TRANSMIT_TIMEOUT_MS 250U
 
 bool UsbInterface_Initialize(UsbInterfaceContext *context,
-	const ByteTransportPort *transport, const BspMonotonicClockPort *clock)
+	const BspByteStreamPort *transport, const BspMonotonicClockPort *clock)
 {
-	if (context == 0 || transport == 0 || transport->transmit == 0 ||
+	if (context == 0 || transport == 0 || transport->capabilities == 0 ||
+		transport->capabilities->kind != BSP_COMMUNICATION_BYTE_STREAM ||
+		transport->start == 0 || transport->stop == 0 ||
+		transport->try_read == 0 || transport->try_write == 0 ||
+		transport->cancel_write == 0 || transport->read_faults == 0 ||
 		clock == 0 || clock->read_ms == 0)
 		return false;
 	memset(&USBContext, 0, sizeof(USBContext));
@@ -39,6 +47,8 @@ bool UsbInterface_Initialize(UsbInterfaceContext *context,
 	USBContext.clock = *clock;
 	USBRxOverflow = 0U;
 	ByteRingBuffer_Initialize(&USBRxQueue);
+	if (USBTransport.start(USBTransport.context) != BSP_RESULT_OK)
+		return false;
 	USBTransportInitialized = true;
 	return true;
 }
@@ -124,20 +134,31 @@ static void UsbInterface_QueueText(UsbInterfaceContext *context,
 	USBContext.tx_en = 1U;
 }
 
-/**
-	* @brief  USB receive interrupt handler
-	* @param  *data: received data buffer pointer
-	* @param  length: received data length
- **/
-void UsbInterface_OnReceiveInterrupt(UsbInterfaceContext *context,
-	const uint8_t *data, uint32_t length)
+static void UsbInterface_PollReceive(UsbInterfaceContext *context)
 {
-	if (context == 0 || data == 0 || length == 0U || length > UINT16_MAX)
-		return;
+	BspCommunicationFaultSet faults;
+	BspCommunicationFaultSet new_faults;
+	uint8_t received[USB_COMMAND_LINE_CAPACITY];
+	size_t read_count = 0U;
+	BspResult result;
 
-	/* IRQ work is bounded to a byte copy; parsing and formatting run in main. */
-	if (ByteRingBuffer_Write(&USBRxQueue, data, (uint16_t)length) != length)
+	if (!USBTransportInitialized)
+		return;
+	faults = USBTransport.read_faults(USBTransport.context);
+	new_faults = faults & ~USBContext.observed_transport_faults;
+	USBContext.observed_transport_faults |= faults;
+	if ((new_faults & BSP_COMMUNICATION_FAULT_RX_OVERFLOW) != 0U)
 		USBRxOverflow = 1U;
+	result = USBTransport.try_read(USBTransport.context, received,
+		sizeof(received), &read_count);
+	if (result == BSP_RESULT_NOT_READY || result == BSP_RESULT_BUSY)
+		return;
+	if (result != BSP_RESULT_OK || read_count > UINT16_MAX ||
+		(read_count != 0U && ByteRingBuffer_Write(&USBRxQueue, received,
+			(uint16_t)read_count) != read_count))
+	{
+		USBRxOverflow = 1U;
+	}
 }
 
 void UsbInterface_ProcessReceivedCommands(UsbInterfaceContext *context,
@@ -148,8 +169,10 @@ void UsbInterface_ProcessReceivedCommands(UsbInterfaceContext *context,
 	UsbCommandRouterState router_state;
 	UsbCommandRouterResponse response;
 
-	if (context == 0 || router == 0 || USBContext.tx_busy != 0U ||
-		USBContext.tx_en != 0U ||
+	if (context == 0 || router == 0)
+		return;
+	UsbInterface_PollReceive(context);
+	if (USBContext.transmit_pending || USBContext.tx_en != 0U ||
 		USBContext.lut_export_en != 0U || USBContext.friction_export_en != 0U)
 		return;
 
@@ -241,46 +264,77 @@ void UsbInterface_ProcessReceivedCommands(UsbInterfaceContext *context,
 	}
 }
 
-/**
-	* @brief  Send USB response message
- **/
-void UsbInterface_OnTransmitCompleteInterrupt(UsbInterfaceContext *context)
+static bool UsbInterface_BeginTransmit(UsbInterfaceContext *context,
+	const void *data, uint16_t length)
 {
-	if (context != 0)
-		USBContext.tx_busy = 0U;
-}
-
-static bool UsbInterface_StartTransmit(UsbInterfaceContext *context,
-	const uint8_t *data, uint16_t length)
-{
-	if (!USBTransportInitialized || data == 0 || length == 0U)
-		return false;
-
-	/* Mark busy first: a fast completion IRQ must not be overwritten here. */
-	USBContext.tx_busy = 1U;
-	USBContext.transmit_started_ms = USBContext.clock.read_ms(
-		USBContext.clock.context);
-	if (!USBTransport.transmit(USBTransport.context, data, length))
+	if (!USBTransportInitialized || data == NULL || length == 0U ||
+		length > sizeof(USBContext.tx_buffer) || USBContext.transmit_pending)
 	{
-		USBContext.tx_busy = 0U;
 		return false;
 	}
+	memcpy(USBContext.tx_buffer, data, length);
+	USBContext.transmit_length = length;
+	USBContext.transmit_offset = 0U;
+	USBContext.transmit_wait_active = false;
+	USBContext.transmit_pending = true;
 	return true;
 }
 
-static void UsbInterface_RecoverTimedOutTransmit(UsbInterfaceContext *context)
+static void UsbInterface_ContinueTransmit(UsbInterfaceContext *context)
 {
+	size_t accepted_count = 0U;
+	size_t remaining;
+	BspResult result;
 	uint32_t now_ms;
-	if (USBContext.tx_busy == 0U)
-		return;
-	now_ms = USBContext.clock.read_ms(USBContext.clock.context);
-	if ((uint32_t)(now_ms - USBContext.transmit_started_ms) <
-		USB_TRANSMIT_TIMEOUT_MS)
-		return;
 
-	if (USBTransport.cancel_transmit != 0)
-		(void)USBTransport.cancel_transmit(USBTransport.context);
-	USBContext.tx_busy = 0U;
+	if (!USBTransportInitialized || !USBContext.transmit_pending)
+		return;
+	remaining = (size_t)USBContext.transmit_length -
+		USBContext.transmit_offset;
+	result = USBTransport.try_write(USBTransport.context,
+		&USBContext.tx_buffer[USBContext.transmit_offset], remaining,
+		&accepted_count);
+	if (result == BSP_RESULT_OK)
+	{
+		if (accepted_count > remaining)
+			accepted_count = 0U;
+		USBContext.transmit_offset += (uint16_t)accepted_count;
+		if (USBContext.transmit_offset == USBContext.transmit_length)
+		{
+			USBContext.transmit_pending = false;
+			USBContext.transmit_wait_active = false;
+			return;
+		}
+	}
+	now_ms = USBContext.clock.read_ms(USBContext.clock.context);
+	if (!USBContext.transmit_wait_active)
+	{
+		USBContext.transmit_started_ms = now_ms;
+		USBContext.transmit_wait_active = true;
+		return;
+	}
+	if ((uint32_t)(now_ms - USBContext.transmit_started_ms) >=
+		USB_TRANSMIT_TIMEOUT_MS)
+	{
+		BspResult cancel_result = USBTransport.cancel_write(
+			USBTransport.context);
+
+		/* A byte stream cannot resume a logical response after an accepted
+		 * prefix is aborted: doing so would splice a suffix onto whatever the
+		 * host receives next.  Drop the complete logical message and expose a
+		 * sticky TX fault.  A later producer may start a fresh message. */
+		USBContext.observed_transport_faults |=
+			BSP_COMMUNICATION_FAULT_TX_OVERFLOW;
+		if (cancel_result != BSP_RESULT_OK)
+		{
+			USBContext.observed_transport_faults |=
+				BSP_COMMUNICATION_FAULT_IO;
+		}
+		USBContext.transmit_pending = false;
+		USBContext.transmit_length = 0U;
+		USBContext.transmit_offset = 0U;
+		USBContext.transmit_wait_active = false;
+	}
 }
 
 void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
@@ -289,20 +343,20 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 {
 	if (context == 0 || friction == 0 || rotor_calibration == 0)
 		return;
-	UsbInterface_RecoverTimedOutTransmit(context);
-	if (USBContext.tx_busy != 0U)
+	if (USBContext.transmit_pending)
+	{
+		UsbInterface_ContinueTransmit(context);
 		return;
+	}
 
 	if (USBContext.tx_en != 0U)
 	{
 		uint16_t tx_length = (uint16_t)strlen(USBContext.tx_str);
 
-		memcpy(USBContext.tx_buffer, USBContext.tx_str, tx_length + 1U);
-		if (!UsbInterface_StartTransmit(context,
-			(uint8_t *)USBContext.tx_buffer,
-			tx_length))
+		if (!UsbInterface_BeginTransmit(context, USBContext.tx_str, tx_length))
 			return;
 		USBContext.tx_en = 0U;
+		UsbInterface_ContinueTransmit(context);
 		return;
 	}
 
@@ -310,12 +364,11 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 	{
 		uint16_t tx_length = (uint16_t)(4U *
 			(USBContext.en_channel_num + 1U));
-		memcpy(USBContext.tx_buffer, USBContext.print_array, tx_length);
-		if (!UsbInterface_StartTransmit(context,
-			(uint8_t *)USBContext.tx_buffer,
+		if (!UsbInterface_BeginTransmit(context, USBContext.print_array,
 			tx_length))
 			return;
 		USBContext.print_pending = 0U;
+		UsbInterface_ContinueTransmit(context);
 		return;
 	}
 
@@ -403,6 +456,13 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 
 	USBContext.lut_export_en = 0U;
 	UsbInterface_QueueText(context, "lut_end\r\n");
+}
+
+BspCommunicationFaultSet UsbInterface_GetObservedTransportFaults(
+	const UsbInterfaceContext *context)
+{
+	return context != NULL ? context->observed_transport_faults :
+		BSP_COMMUNICATION_FAULT_IO;
 }
 
 /**

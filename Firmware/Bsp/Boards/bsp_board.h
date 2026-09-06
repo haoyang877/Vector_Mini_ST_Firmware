@@ -139,6 +139,9 @@ BspBoardValidationResult BspBoard_ValidateCapabilities(
 BspBoardValidationResult BspBoard_ValidateBindingRequest(
 	const BspBoardCapabilities *capabilities,
 	const BspBoardBindingRequest *request);
+const BspCommunicationEndpointCapabilities *
+	BspBoard_FindCommunicationEndpoint(
+		const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id);
 
 #ifdef __cplusplus
 }

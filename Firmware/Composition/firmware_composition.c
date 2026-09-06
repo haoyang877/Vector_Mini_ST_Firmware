@@ -21,7 +21,7 @@
 #include "Core/Application/communication_watchdog_service.h"
 #include "can_configuration_service.h"
 #include "Core/Communication/Can/can_response_service.h"
-#include "product_variant.h"
+#include "product_catalog.h"
 #include "Core/Application/parameter_transaction_service.h"
 #include "parameter_transaction_adapter.h"
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
@@ -40,7 +40,6 @@
 #include "usb_command_router.h"
 #include "application_endpoints.h"
 #include "product_config_bridge.h"
-#include "product_runtime_selection.h"
 #include "vector_mini_st_bsp.h"
 #include "vector_mini_st_angle_serial.h"
 #include "vector_mini_st_storage.h"
@@ -80,14 +79,85 @@ static Tle5012bRotorSensorAdapterContext RotorSensorAdapter;
 static bool FirmwareIsInitialized;
 static volatile ProductConfigBridgeStatus ProductConfigBridgeStartupStatus;
 
+static void FirmwareComposition_ProjectProductConfig(
+	const ProductConfig *product_config,
+	MotorControlRuntimeConfig *motor_runtime_config,
+	MeasurementModelConfig *measurement_config,
+	ParameterServiceLimits *parameter_limits)
+{
+	const ProductCurrentSenseConfig *current =
+		&product_config->board->current_sense;
+	const ProductTemperatureSensorInstanceConfig *temperature =
+		&product_config->temperature_sensors[0];
+
+	measurement_config->minimum_valid_offset_adc =
+		current->minimum_valid_offset_count;
+	measurement_config->maximum_valid_offset_adc =
+		current->maximum_valid_offset_count;
+	measurement_config->current_a_per_count = current->current_a_per_count;
+	motor_runtime_config->current_offset_limits.minimum_current_offset_adc =
+		current->minimum_valid_offset_count;
+	motor_runtime_config->current_offset_limits.maximum_current_offset_adc =
+		current->maximum_valid_offset_count;
+	motor_runtime_config->parameter_snapshot.default_current_offset_adc =
+		current->default_offset_count;
+	motor_runtime_config->parameter_snapshot.minimum_current_offset_adc =
+		current->minimum_valid_offset_count;
+	motor_runtime_config->parameter_snapshot.maximum_current_offset_adc =
+		current->maximum_valid_offset_count;
+	measurement_config->bus_voltage_v_per_count =
+		product_config->board->bus_voltage_v_per_count;
+	measurement_config->bus_voltage_filter_alpha =
+		product_config->safety.bus_voltage_filter_alpha;
+	measurement_config->overcurrent_trip_a =
+		product_config->safety.software_overcurrent_trip_a;
+	measurement_config->overvoltage_trip_v =
+		product_config->safety.overvoltage_trip_v;
+	measurement_config->undervoltage_trip_v =
+		product_config->safety.undervoltage_trip_v;
+	measurement_config->maximum_temperature_c = temperature->protection_limit_c;
+	measurement_config->temperature_protection_enabled =
+		temperature->protection_enabled;
+	measurement_config->temperature_invalid_is_fault =
+		product_config->safety.temperature_invalid_is_fault;
+	measurement_config->overcurrent_confirm_cycles =
+		product_config->safety.overcurrent_confirm_cycles;
+	measurement_config->voltage_confirm_cycles =
+		product_config->safety.voltage_confirm_cycles;
+	measurement_config->temperature_sample_divider = temperature->sample_divider;
+
+	motor_runtime_config->control_frequency_hz =
+		product_config->board->control_frequency_hz;
+	motor_runtime_config->current_offset_calibration_sample_count =
+		current->offset_calibration_sample_count;
+	motor_runtime_config->command_current_limit_a =
+		product_config->board->command_phase_current_limit_a;
+	motor_runtime_config->phase_resistance.control_frequency_hz =
+		product_config->board->control_frequency_hz;
+	motor_runtime_config->phase_resistance.path_compensation_ohm =
+		product_config->board->phase_resistance_path_compensation_ohm;
+	motor_runtime_config->phase_resistance.undervoltage_trip_v =
+		product_config->safety.undervoltage_trip_v;
+	motor_runtime_config->phase_resistance.overvoltage_trip_v =
+		product_config->safety.overvoltage_trip_v;
+	motor_runtime_config->parameter_snapshot.current_sense_shunt_milliohm =
+		current->nominal_shunt_milliohm;
+	motor_runtime_config->parameter_snapshot.default_can_node_id =
+		product_config->can.default_node_id;
+	motor_runtime_config->parameter_snapshot.default_can_heartbeat_ms =
+		product_config->can.heartbeat_ms;
+	parameter_limits->command_current_limit_a =
+		product_config->board->command_phase_current_limit_a;
+	parameter_limits->calibration_current_limit_a =
+		product_config->board->calibration_phase_current_limit_a;
+}
+
 /**
 	* @brief  Initialize board peripherals and application modules
  **/
 void FirmwareComposition_Initialize(void)
 {
-	const ProductVariant *product;
-	ProductVariant product_storage;
-	const BoardProfile *board_profile;
+	const ProductConfig *product_config;
 	const MotorProfile *motor_profile;
 	const EncoderProfile *encoder_profile;
 	const ControlTuningProfile *tuning_profile;
@@ -97,8 +167,10 @@ void FirmwareComposition_Initialize(void)
 	RotorSensorPort rotor_sensor_port;
 	BspSynchronousSerialPort angle_serial_port;
 	const AngleSerialStm32g431ResourceConfig *angle_serial_resources;
-	CanTransportPort can_transport;
-	ByteTransportPort usb_transport;
+	BspCanPort can_transport;
+	BspByteStreamPort usb_transport;
+	const BspCommunicationEndpointCapabilities *can_capabilities;
+	const BspCommunicationEndpointCapabilities *usb_capabilities;
 	BspIndicatorPort indicator_port;
 	RotorCalibrationPort rotor_calibration_port;
 	MotorCommandPort motor_command_port;
@@ -115,32 +187,35 @@ void FirmwareComposition_Initialize(void)
 	BspDiagnosticSinkPort diagnostic_transport;
 	BspNonvolatileStoragePort parameter_store;
 	ProductConfigBridgeStatus product_bridge_status;
+	MotorControlRuntimeConfig motor_runtime_config = {0};
+	MeasurementModelConfig measurement_config = {0};
+	ParameterServiceLimits parameter_limits = {0};
 
 	FirmwareIsInitialized = false;
-	product = &product_storage;
-	if (!ProductVariant_GetActive(&product_storage))
-	{
-		ProductConfigBridgeStartupStatus =
-			PRODUCT_CONFIG_BRIDGE_RUNTIME_CONFIG_INVALID;
-		return;
-	}
+	product_config = &ProductCatalog_CurrentConfig;
 	if (!ProductConfigBridge_ValidateRuntime(
-		&ProductCatalog_CurrentRuntimeSelection,
-		&BspVectorMiniSt_RuntimeIdentity,
-		product->configuration_fingerprint, &product_bridge_status))
+		product_config, &BspVectorMiniSt_RuntimeIdentity,
+		&product_bridge_status))
 	{
 		ProductConfigBridgeStartupStatus = product_bridge_status;
 		return;
 	}
-	board_profile = product->board;
-	motor_profile = product->motor;
-	encoder_profile = product->encoder;
-	tuning_profile = product->control_tuning;
-	mechanical_load_profile = product->mechanical_load;
+	motor_profile = MotorProfile_GetActive();
+	encoder_profile = EncoderProfile_GetActive();
+	tuning_profile = ControlTuningProfile_GetActive();
+	mechanical_load_profile = MechanicalLoadProfile_GetActive();
+	if (motor_profile == 0 || encoder_profile == 0 || tuning_profile == 0 ||
+		mechanical_load_profile == 0)
+	{
+		ProductConfigBridgeStartupStatus = PRODUCT_CONFIG_BRIDGE_PRODUCT_INVALID;
+		return;
+	}
+	FirmwareComposition_ProjectProductConfig(product_config,
+		&motor_runtime_config, &measurement_config, &parameter_limits);
 	power_stage_port = PowerStageTim1_CreatePort();
 	measurement_port = MeasurementAdc12_CreatePort();
 	angle_serial_resources = BspVectorMiniSt_FindAngleSerialResources(
-		BSP_VECTOR_MINI_ST_ANGLE_ENDPOINT_ONBOARD);
+		product_config->angle_sensors[0].endpoint);
 	if (!AngleSerialStm32g431_CreatePort(&AngleSerialContext,
 		angle_serial_resources, &angle_serial_port))
 	{
@@ -150,10 +225,20 @@ void FirmwareComposition_Initialize(void)
 	}
 	rotor_sensor_port = Tle5012bRotorSensorAdapter_CreatePort(
 		&RotorSensorAdapter, &angle_serial_port);
+	can_capabilities = BspBoard_FindCommunicationEndpoint(
+		&BspVectorMiniSt_Capabilities,
+		product_config->can.endpoint);
+	usb_capabilities = BspBoard_FindCommunicationEndpoint(
+		&BspVectorMiniSt_Capabilities,
+		product_config->service_stream.endpoint);
+	if (!CanFdcan1Transport_CreatePort(can_capabilities, &can_transport) ||
+		!UsbCdcTransport_CreatePort(usb_capabilities, &usb_transport))
+	{
+		ProductConfigBridgeStartupStatus =
+			PRODUCT_CONFIG_BRIDGE_BINDING_MISMATCH;
+		return;
+	}
 	ProductConfigBridgeStartupStatus = PRODUCT_CONFIG_BRIDGE_OK;
-	can_transport = CanFdcan1Transport_CreatePort(board_profile->can_fd_enabled,
-		board_profile->can_brs_enabled);
-	usb_transport = UsbCdcTransport_CreatePort();
 	indicator_port = IndicatorStm32G431_CreatePort();
 	monotonic_clock = MonotonicClockStm32G431_CreatePort();
 	execution_timer = ExecutionTimerStm32G431_CreatePort();
@@ -178,9 +263,13 @@ void FirmwareComposition_Initialize(void)
 	PowerStage_Initialize(&MotorPowerStage, &power_stage_port);
 	if (!ControlAuthorityService_Initialize(&ControlAuthorityService) ||
 		!CanInterface_Initialize(&CanInterface, &can_transport,
-			&ControlAuthorityService, board_profile->default_can_bitrate_kbps,
-			board_profile->minimum_can_heartbeat_ms,
-			board_profile->maximum_can_heartbeat_ms))
+			&ControlAuthorityService,
+			product_config->can.mode == PRODUCT_CAN_MODE_FD,
+			product_config->can.bit_rate_switching,
+			product_config->can.nominal_bitrate_kbps,
+			product_config->can.data_bitrate_kbps,
+			product_config->can.minimum_heartbeat_ms,
+			product_config->can.maximum_heartbeat_ms))
 		return;
 	can_configuration_port = CanInterface_CreateConfigurationPort(&CanInterface);
 	can_response_port = CanInterface_CreateResponsePort(&CanInterface);
@@ -190,7 +279,7 @@ void FirmwareComposition_Initialize(void)
 	{
 		return;
 	}
-	if (!MotorControlRuntime_Prepare(&MotorControlRuntime, board_profile,
+	if (!MotorControlRuntime_Prepare(&MotorControlRuntime, &motor_runtime_config,
 		motor_profile, encoder_profile, tuning_profile, mechanical_load_profile,
 		&monotonic_clock, &execution_timer, &CanConfigurationService))
 		return;
@@ -204,7 +293,7 @@ void FirmwareComposition_Initialize(void)
 	
 	/*motor control related parameters initialize*/
 	MotorControlRuntime_Initialize(&MotorControlRuntime, &MotorPowerStage,
-		&measurement_port,
+		&measurement_port, &measurement_config,
 		&rotor_sensor_port, &BoardCriticalSection);
 	rotor_calibration_port = MotorControlRuntime_CreateRotorCalibrationPort(
 		&MotorControlRuntime);
@@ -221,7 +310,7 @@ void FirmwareComposition_Initialize(void)
 			&MotorControlRuntime);
 	if (!MotorCommandService_Initialize(&MotorCommandService, &motor_command_port) ||
 		!ParameterService_Initialize(&ParameterService,
-			&motor_configuration_port, board_profile,
+			&motor_configuration_port, &parameter_limits,
 			motor_profile) ||
 		!FrictionIdentificationService_Initialize(
 			&FrictionIdentificationService, &friction_identification_port))
@@ -296,25 +385,6 @@ void FirmwareComposition_ExecuteSupervisor1kHz(void)
 {
 	if (FirmwareIsInitialized)
 		SupervisorTask_Execute1kHz(&SupervisorTask);
-}
-
-void FirmwareComposition_OnCanReceiveInterrupt(void)
-{
-	if (FirmwareIsInitialized)
-		CanInterface_OnReceiveInterrupt(&CanInterface);
-}
-
-void FirmwareComposition_OnUsbReceiveInterrupt(const uint8_t *data,
-	uint32_t size_bytes)
-{
-	if (FirmwareIsInitialized)
-		UsbInterface_OnReceiveInterrupt(&UsbInterface, data, size_bytes);
-}
-
-void FirmwareComposition_OnUsbTransmitCompleteInterrupt(void)
-{
-	if (FirmwareIsInitialized)
-		UsbInterface_OnTransmitCompleteInterrupt(&UsbInterface);
 }
 
 void FirmwareComposition_RunBackground(void)

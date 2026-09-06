@@ -7,7 +7,6 @@
 #include "motor_control_types.h"
 #include "encoder.h"
 #include "sensorless_runtime.h"
-#include "board_profile.h"
 #include "current_offset_calibration_runtime.h"
 #include "electrical_zero_calibration_runtime.h"
 

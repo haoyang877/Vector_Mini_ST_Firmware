@@ -61,6 +61,16 @@ const char *ProductConfig_ErrorCodeName(ProductConfigErrorCode code)
 		case PRODUCT_CONFIG_ERROR_CAN_BRS_REQUIRES_FD: return "can_brs_requires_fd";
 		case PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID: return "can_payload_invalid";
 		case PRODUCT_CONFIG_ERROR_COMMUNICATION_ENDPOINT_INVALID: return "communication_endpoint_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_SHUNT_INVALID: return "current_shunt_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_RANGE_INVALID: return "current_offset_range_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_DEFAULT_INVALID: return "current_offset_default_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_CALIBRATION_INVALID: return "current_offset_calibration_invalid";
+		case PRODUCT_CONFIG_ERROR_BOARD_PATH_COMPENSATION_INVALID: return "board_path_compensation_invalid";
+		case PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID: return "safety_limit_invalid";
+		case PRODUCT_CONFIG_ERROR_SAFETY_CONFIRMATION_INVALID: return "safety_confirmation_invalid";
+		case PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_DIVIDER_INVALID: return "temperature_sample_divider_invalid";
+		case PRODUCT_CONFIG_ERROR_CAN_NODE_ID_INVALID: return "can_node_id_invalid";
+		case PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID: return "can_heartbeat_invalid";
 		default: return "unknown";
 	}
 }

@@ -48,7 +48,8 @@ static float PhaseResistanceRuntime_LimitCurrent(const MotorControlContext *moto
 }
 
 static bool PhaseResistanceRuntime_Start(PhaseResistanceRuntimeContext *context,
-	MotorControlContext *motor, const BoardProfile *board_profile,
+	MotorControlContext *motor,
+	const PhaseResistanceRuntimeBoardConfig *board_config,
 	const MotorProfile *motor_profile)
 {
 	PhaseResistanceConfig config;
@@ -61,15 +62,15 @@ static bool PhaseResistanceRuntime_Start(PhaseResistanceRuntimeContext *context,
 		motor_profile, motor_profile->phase_resistance_test_current_max_a);
 	config.minimum_test_current =
 		motor_profile->phase_resistance_test_current_min_a;
-	config.ramp_ticks = board_profile->control_frequency_hz *
+	config.ramp_ticks = board_config->control_frequency_hz *
 		motor_profile->phase_resistance_ramp_time_ms / 1000U;
-	config.settle_ticks = board_profile->control_frequency_hz *
+	config.settle_ticks = board_config->control_frequency_hz *
 		motor_profile->phase_resistance_settle_time_ms / 1000U;
-	config.sample_ticks = board_profile->control_frequency_hz *
+	config.sample_ticks = board_config->control_frequency_hz *
 		motor_profile->phase_resistance_sample_time_ms / 1000U;
-	config.pause_ticks = board_profile->control_frequency_hz *
+	config.pause_ticks = board_config->control_frequency_hz *
 		motor_profile->phase_resistance_pause_time_ms / 1000U;
-	config.timeout_ticks = board_profile->control_frequency_hz *
+	config.timeout_ticks = board_config->control_frequency_hz *
 		motor_profile->phase_resistance_timeout_ms / 1000U;
 	config.current_tolerance =
 		motor_profile->phase_resistance_current_tolerance_a;
@@ -82,7 +83,7 @@ static bool PhaseResistanceRuntime_Start(PhaseResistanceRuntimeContext *context,
 	config.voltage_filter =
 		motor_profile->phase_resistance_voltage_filter_alpha;
 	config.path_compensation_ohm =
-		board_profile->phase_resistance_path_compensation_ohm;
+		board_config->path_compensation_ohm;
 	config.balance_warning_pct =
 		motor_profile->phase_resistance_balance_warning_pct;
 	config.balance_fault_pct =
@@ -140,7 +141,8 @@ static PhaseResistanceRuntimeStatus PhaseResistanceRuntime_MapCoreStatus(
 
 PhaseResistanceRuntimeStatus PhaseResistanceRuntime_Run(
 	PhaseResistanceRuntimeContext *context, CurrentControlContext *current_control,
-	MotorControlContext *motor, const BoardProfile *board_profile,
+	MotorControlContext *motor,
+	const PhaseResistanceRuntimeBoardConfig *board_config,
 	const MotorProfile *motor_profile)
 {
 	PhaseResistanceCommand command;
@@ -149,7 +151,7 @@ PhaseResistanceRuntimeStatus PhaseResistanceRuntime_Run(
 	PhaseResistanceRuntimeStatus mode_status;
 
 	if (context == NULL || current_control == NULL || motor == NULL ||
-		board_profile == NULL || motor_profile == NULL)
+		board_config == NULL || motor_profile == NULL)
 		return PHASE_RESISTANCE_MODE_INVALID_RESULT;
 	if (context->status != PHASE_RESISTANCE_MODE_RUNNING)
 	{
@@ -157,16 +159,16 @@ PhaseResistanceRuntimeStatus PhaseResistanceRuntime_Run(
 		return context->status;
 	}
 	if (current_control->filtered_bus_voltage_v <
-		board_profile->undervoltage_trip_v)
+		board_config->undervoltage_trip_v)
 		return PhaseResistanceRuntime_Fail(context, current_control, motor, PHASE_RESISTANCE_MODE_UNDER_VOLTAGE);
 	if (current_control->filtered_bus_voltage_v >
-		board_profile->overvoltage_trip_v)
+		board_config->overvoltage_trip_v)
 		return PhaseResistanceRuntime_Fail(context, current_control, motor, PHASE_RESISTANCE_MODE_OVER_VOLTAGE);
 
 	if (!context->started)
 	{
 		PhaseResistanceRuntime_ClearResult(motor);
-		if (!PhaseResistanceRuntime_Start(context, motor, board_profile,
+		if (!PhaseResistanceRuntime_Start(context, motor, board_config,
 			motor_profile))
 			return PhaseResistanceRuntime_Fail(context, current_control, motor, PHASE_RESISTANCE_MODE_INVALID_RESULT);
 		context->started = true;

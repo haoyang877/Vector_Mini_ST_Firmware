@@ -9,7 +9,6 @@
 #include "position_cascade.h"
 #include "position_impedance.h"
 #include "motor_profiles.h"
-#include "board_profile.h"
 
 typedef struct
 {
@@ -33,7 +32,7 @@ void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, Current
 	const MotorProfile *motor_profile, MotorStateContext *motor_state);
 void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, EncoderContext *Encoder,
-	const MotorProfile *motor_profile, const BoardProfile *board_profile,
+	const MotorProfile *motor_profile, float maximum_current_limit_a,
 	MotorStateContext *motor_state);
 void ControlModeRuntime_ResetPosition(MotionControlContext *motion);
 void ControlModeRuntime_RunVoltageOpenLoop(CurrentControlContext *CurrentControl, MotorControlContext *MotorControl);

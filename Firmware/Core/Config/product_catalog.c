@@ -11,6 +11,7 @@ const ProductBoardDesign ProductCatalog_CurrentBoard =
 	.reliable_phase_current_limit_a = 20.0f,
 	.command_phase_current_limit_a = 10.0f,
 	.calibration_phase_current_limit_a = 10.0f,
+	.phase_resistance_path_compensation_ohm = 0.008f,
 	.bus_voltage_measurement_available = true,
 	.bus_voltage_v_per_count = 0.0088644689f,
 	.classic_can_supported = true,
@@ -33,6 +34,10 @@ const ProductBoardDesign ProductCatalog_CurrentBoard =
 			0.0134310134f
 		},
 		.default_offset_count = {2048U, 2048U, 2048U},
+		.nominal_shunt_milliohm = 6U,
+		.minimum_valid_offset_count = {1948U, 1948U, 1948U},
+		.maximum_valid_offset_count = {2148U, 2148U, 2148U},
+		.offset_calibration_sample_count = 20000U,
 		.pwm_synchronized = true,
 		.samples_per_pwm_period = 1U,
 		.captures_pwm_sector = true,
@@ -123,6 +128,7 @@ const ProductConfig ProductCatalog_CurrentConfig =
 			.source = PRODUCT_TEMPERATURE_SENSOR_SOURCE_MCU_INTERNAL,
 			.zone = PRODUCT_TEMPERATURE_ZONE_MCU,
 			.endpoint = PRODUCT_CATALOG_ENDPOINT_TEMPERATURE_INTERNAL,
+			.sample_divider = 20U,
 			.protection_enabled = true,
 			.protection_limit_c = 100.0f
 		},
@@ -130,6 +136,16 @@ const ProductConfig ProductCatalog_CurrentConfig =
 		{0}
 	},
 	.temperature_sensor_count = 1U,
+	.safety =
+	{
+		.software_overcurrent_trip_a = 18.0f,
+		.undervoltage_trip_v = 10.0f,
+		.overvoltage_trip_v = 30.0f,
+		.bus_voltage_filter_alpha = 0.05f,
+		.overcurrent_confirm_cycles = 5U,
+		.voltage_confirm_cycles = 10000U,
+		.temperature_invalid_is_fault = true
+	},
 	.feedback =
 	{
 		.electrical_angle =
@@ -183,7 +199,9 @@ const ProductConfig ProductCatalog_CurrentConfig =
 		.bit_rate_switching = false,
 		.maximum_payload_bytes = 8U,
 		.default_node_id = 0U,
-		.heartbeat_ms = 500U
+		.heartbeat_ms = 500U,
+		.minimum_heartbeat_ms = 500U,
+		.maximum_heartbeat_ms = 1000U
 	},
 	.service_stream =
 	{

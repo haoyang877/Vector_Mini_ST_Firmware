@@ -64,6 +64,14 @@ static uint8_t ProductConfig_CurrentSenseChannelCount(
 	}
 }
 
+static bool ProductConfig_CurrentSenseUsesShunt(
+	ProductCurrentSenseTopology topology)
+{
+	return topology == PRODUCT_CURRENT_SENSE_TOPOLOGY_LOW_SIDE_3_SHUNT ||
+		topology == PRODUCT_CURRENT_SENSE_TOPOLOGY_LOW_SIDE_2_SHUNT ||
+		topology == PRODUCT_CURRENT_SENSE_TOPOLOGY_DC_LINK_1_SHUNT;
+}
+
 static bool ProductConfig_CurrentSenseIsStructurallyReady(
 	const ProductCurrentSenseConfig *current_sense)
 {
@@ -336,6 +344,14 @@ static void ProductConfig_ValidateCurrentSense(
 			PRODUCT_CONFIG_SENSOR_INDEX_NONE,
 			(uint32_t)current_sense->physical_channel_count);
 	}
+	if (ProductConfig_CurrentSenseUsesShunt(current_sense->topology) &&
+		current_sense->nominal_shunt_milliohm == 0U)
+	{
+		ProductConfig_AddIssue(result,
+			PRODUCT_CONFIG_ERROR_CURRENT_SHUNT_INVALID,
+			PRODUCT_CONFIG_SUBJECT_CURRENT_SENSE,
+			PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
+	}
 	for (channel = 0U; channel < required_channel_count; channel++)
 	{
 		if (current_sense->channel_endpoints[channel] ==
@@ -344,6 +360,23 @@ static void ProductConfig_ValidateCurrentSense(
 			ProductConfig_AddIssue(result,
 				PRODUCT_CONFIG_ERROR_CURRENT_ENDPOINT_INVALID,
 				PRODUCT_CONFIG_SUBJECT_CURRENT_SENSE, channel, 0U);
+		}
+		if (current_sense->minimum_valid_offset_count[channel] >
+			current_sense->maximum_valid_offset_count[channel])
+		{
+			ProductConfig_AddIssue(result,
+				PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_RANGE_INVALID,
+				PRODUCT_CONFIG_SUBJECT_CURRENT_SENSE, channel, 0U);
+		}
+		else if (current_sense->default_offset_count[channel] <
+				current_sense->minimum_valid_offset_count[channel] ||
+			current_sense->default_offset_count[channel] >
+				current_sense->maximum_valid_offset_count[channel])
+		{
+			ProductConfig_AddIssue(result,
+				PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_DEFAULT_INVALID,
+				PRODUCT_CONFIG_SUBJECT_CURRENT_SENSE, channel,
+				current_sense->default_offset_count[channel]);
 		}
 		if (!ProductConfig_IsPositiveFinite(
 			current_sense->current_a_per_count[channel]))
@@ -366,6 +399,14 @@ static void ProductConfig_ValidateCurrentSense(
 					(uint32_t)other);
 			}
 		}
+	}
+	if (current_sense->offset_calibration_supported &&
+		current_sense->offset_calibration_sample_count == 0U)
+	{
+		ProductConfig_AddIssue(result,
+			PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_CALIBRATION_INVALID,
+			PRODUCT_CONFIG_SUBJECT_CURRENT_SENSE,
+			PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
 	}
 	if (!current_sense->pwm_synchronized ||
 		current_sense->samples_per_pwm_period == 0U)
@@ -400,6 +441,40 @@ static void ProductConfig_ValidateCurrentSense(
 				PRODUCT_CONFIG_SUBJECT_CURRENT_SENSE,
 				PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
 		}
+	}
+}
+
+static void ProductConfig_ValidateSafety(const ProductConfig *config,
+	ProductConfigValidationResult *result)
+{
+	const ProductSafetyConfig *safety = &config->safety;
+	bool electrical_limits_are_valid =
+		ProductConfig_IsPositiveFinite(safety->software_overcurrent_trip_a) &&
+		ProductConfig_IsFinite(safety->undervoltage_trip_v) &&
+		safety->undervoltage_trip_v >= 0.0f &&
+		ProductConfig_IsPositiveFinite(safety->overvoltage_trip_v) &&
+		safety->overvoltage_trip_v > safety->undervoltage_trip_v &&
+		ProductConfig_IsPositiveFinite(safety->bus_voltage_filter_alpha) &&
+		safety->bus_voltage_filter_alpha <= 1.0f;
+
+	if (config->board != NULL &&
+		safety->software_overcurrent_trip_a >
+			config->board->reliable_phase_current_limit_a)
+		electrical_limits_are_valid = false;
+	if (!electrical_limits_are_valid)
+	{
+		ProductConfig_AddIssue(result,
+			PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID,
+			PRODUCT_CONFIG_SUBJECT_SAFETY_POLICY,
+			PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
+	}
+	if (safety->overcurrent_confirm_cycles == 0U ||
+		safety->voltage_confirm_cycles == 0U)
+	{
+		ProductConfig_AddIssue(result,
+			PRODUCT_CONFIG_ERROR_SAFETY_CONFIRMATION_INVALID,
+			PRODUCT_CONFIG_SUBJECT_SAFETY_POLICY,
+			PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
 	}
 }
 
@@ -475,9 +550,19 @@ bool ProductConfig_Validate(const ProductConfig *config,
 				PRODUCT_CONFIG_SENSOR_INDEX_NONE,
 				config->board->platform_id);
 		}
+		if (!ProductConfig_IsFinite(
+				config->board->phase_resistance_path_compensation_ohm) ||
+			config->board->phase_resistance_path_compensation_ohm < 0.0f)
+		{
+			ProductConfig_AddIssue(result,
+				PRODUCT_CONFIG_ERROR_BOARD_PATH_COMPENSATION_INVALID,
+				PRODUCT_CONFIG_SUBJECT_BOARD,
+				PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
+		}
 		ProductConfig_ValidateCurrentSense(&config->board->current_sense,
 			result);
 	}
+	ProductConfig_ValidateSafety(config, result);
 
 	if (config->motor == NULL)
 	{
@@ -647,6 +732,12 @@ bool ProductConfig_Validate(const ProductConfig *config,
 		{
 			ProductConfig_AddIssue(result,
 				PRODUCT_CONFIG_ERROR_TEMPERATURE_SENSOR_ENDPOINT_INVALID,
+				PRODUCT_CONFIG_SUBJECT_TEMPERATURE_SENSOR, index, 0U);
+		}
+		if (sensor->sample_divider == 0U)
+		{
+			ProductConfig_AddIssue(result,
+				PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_DIVIDER_INVALID,
 				PRODUCT_CONFIG_SUBJECT_TEMPERATURE_SENSOR, index, 0U);
 		}
 		if (sensor->protection_enabled &&
@@ -924,7 +1015,10 @@ bool ProductConfig_Validate(const ProductConfig *config,
 		if (config->can.nominal_bitrate_kbps == 0U ||
 			config->can.nominal_bitrate_kbps > UINT32_MAX / UINT32_C(1000) ||
 			config->can.data_bitrate_kbps == 0U ||
-			config->can.data_bitrate_kbps > UINT32_MAX / UINT32_C(1000))
+			config->can.data_bitrate_kbps > UINT32_MAX / UINT32_C(1000) ||
+			(!config->can.bit_rate_switching &&
+			 config->can.data_bitrate_kbps !=
+				config->can.nominal_bitrate_kbps))
 		{
 			ProductConfig_AddIssue(result,
 				PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID,
@@ -940,6 +1034,25 @@ bool ProductConfig_Validate(const ProductConfig *config,
 				PRODUCT_CONFIG_SENSOR_INDEX_NONE,
 				config->can.maximum_payload_bytes);
 		}
+	}
+	if (config->can.default_node_id > 7U)
+	{
+		ProductConfig_AddIssue(result,
+			PRODUCT_CONFIG_ERROR_CAN_NODE_ID_INVALID,
+			PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
+			PRODUCT_CONFIG_SENSOR_INDEX_NONE,
+			config->can.default_node_id);
+	}
+	if (config->can.minimum_heartbeat_ms >
+			config->can.maximum_heartbeat_ms ||
+		(config->can.heartbeat_ms != 0U &&
+		 (config->can.heartbeat_ms < config->can.minimum_heartbeat_ms ||
+		  config->can.heartbeat_ms > config->can.maximum_heartbeat_ms)))
+	{
+		ProductConfig_AddIssue(result,
+			PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID,
+			PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
+			PRODUCT_CONFIG_SENSOR_INDEX_NONE, config->can.heartbeat_ms);
 	}
 	if (config->service_stream.enabled &&
 		config->service_stream.endpoint == PRODUCT_CONFIG_ENDPOINT_NONE)

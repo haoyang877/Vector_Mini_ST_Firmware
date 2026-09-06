@@ -43,7 +43,7 @@ int ParameterService_RunHostTests(void)
 	ParameterServiceFakeConfiguration configuration = {0};
 	MotorConfigurationPort port = {0};
 	ParameterServiceContext service;
-	BoardProfile board = {0};
+	ParameterServiceLimits limits = {0};
 	MotorProfile motor = {0};
 
 	configuration.speed_limit_rad_s = 100.0f;
@@ -51,8 +51,8 @@ int ParameterService_RunHostTests(void)
 	port.can_stage = ParameterServiceTest_CanStage;
 	port.read = ParameterServiceTest_Read;
 	port.stage = ParameterServiceTest_Stage;
-	board.current_command_limit_a = 10.0f;
-	board.calibration_current_limit_a = 10.0f;
+	limits.command_current_limit_a = 10.0f;
+	limits.calibration_current_limit_a = 10.0f;
 	motor.phase_resistance_min_ohm = 0.0001f;
 	motor.phase_resistance_max_ohm = 5.0f;
 	motor.inductance_min_h = 1.0e-6f;
@@ -69,7 +69,7 @@ int ParameterService_RunHostTests(void)
 	motor.cascade_position_kp_limit_per_s = 50.0f;
 	motor.cascade_position_kd_limit = 10.0f;
 
-	TEST_CHECK(ParameterService_Initialize(&service, &port, &board, &motor));
+	TEST_CHECK(ParameterService_Initialize(&service, &port, &limits, &motor));
 	TEST_CHECK(ParameterService_WriteMotorParameter(
 		&service,
 		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM, 1.905f) ==

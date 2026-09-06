@@ -22,6 +22,7 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "can_fdcan1_transport.h"
 #include "firmware_composition.h"
 #include "tim.h"
 /* USER CODE END Includes */
@@ -307,9 +308,9 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
-	if(hfdcan==&hfdcan1)
+	if (hfdcan == &hfdcan1 && (RxFifo0ITs & FDCAN_IT_LIST_RX_FIFO0) != 0U)
 	{
-		FirmwareComposition_OnCanReceiveInterrupt();
+		CanFdcan1Transport_OnReceiveInterrupt(RxFifo0ITs);
 	}
 }
 

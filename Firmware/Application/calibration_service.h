@@ -5,18 +5,24 @@
 #include <stdint.h>
 
 #include "Core/Application/device_lifecycle.h"
-#include "board_profile.h"
+
+typedef struct
+{
+	const uint16_t *minimum_current_offset_adc;
+	const uint16_t *maximum_current_offset_adc;
+} CalibrationCurrentOffsetLimits;
 
 typedef struct
 {
 	DeviceLifecycleContext *lifecycle;
-	const BoardProfile *board_profile;
+	CalibrationCurrentOffsetLimits current_offset_limits;
 	uint32_t elapsed_ticks;
 	uint32_t timeout_ticks;
 } CalibrationServiceContext;
 
 bool CalibrationService_Initialize(CalibrationServiceContext *context,
-	DeviceLifecycleContext *lifecycle, const BoardProfile *board_profile,
+	DeviceLifecycleContext *lifecycle,
+	const CalibrationCurrentOffsetLimits *current_offset_limits,
 	uint32_t timeout_ticks);
 bool CalibrationService_OwnsProcedure(ServiceProcedure procedure);
 bool CalibrationService_Supervise1kHz(CalibrationServiceContext *context);

@@ -1,23 +1,29 @@
 #include "parameter_service.h"
 
 #include <math.h>
+
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 #define TWO_PI                       6.28318530717958647692f
 
 #define ConfigurationPort (context->port)
 #define ConfigurationPortInitialized (context != 0 && context->is_initialized)
-#define ActiveBoardProfile (context->board_profile)
+#define ActiveLimits (context->limits)
 #define ActiveMotorProfile (context->motor_profile)
 
 bool ParameterService_Initialize(ParameterServiceContext *context,
 	const MotorConfigurationPort *port,
-	const BoardProfile *board_profile, const MotorProfile *motor_profile)
+	const ParameterServiceLimits *limits, const MotorProfile *motor_profile)
 {
 	if (context == 0 || port == 0 || port->can_stage == 0 || port->read == 0 ||
 		port->stage == 0 ||
-		board_profile == 0 || motor_profile == 0)
+		limits == 0 || motor_profile == 0)
 		return false;
 	context->port = *port;
-	context->board_profile = board_profile;
+	context->limits = *limits;
 	context->motor_profile = motor_profile;
 	context->is_initialized = true;
 	return true;
@@ -49,12 +55,12 @@ ParameterServiceResult ParameterService_WriteMotorParameter(
 			break;
 		case MOTOR_PARAMETER_CALIBRATION_CURRENT_A:
 			if (!ParameterService_IsInRange(value, 0.0f,
-				ActiveBoardProfile->calibration_current_limit_a))
+				ActiveLimits.calibration_current_limit_a))
 				return PARAMETER_SERVICE_OUT_OF_RANGE;
 			break;
 		case MOTOR_PARAMETER_CURRENT_LIMIT_A:
 			if (!ParameterService_IsInRange(value, 0.0f,
-				ActiveBoardProfile->current_command_limit_a))
+				ActiveLimits.command_current_limit_a))
 				return PARAMETER_SERVICE_OUT_OF_RANGE;
 			break;
 		case MOTOR_PARAMETER_SPEED_LIMIT_RAD_S:
@@ -106,7 +112,7 @@ ParameterServiceResult ParameterService_WriteMotorParameter(
 			break;
 		case MOTOR_PARAMETER_POSITION_INTEGRAL_LIMIT_A:
 			if (!ParameterService_IsInRange(value, 0.0f,
-				ActiveBoardProfile->current_command_limit_a))
+				ActiveLimits.command_current_limit_a))
 				return PARAMETER_SERVICE_OUT_OF_RANGE;
 			break;
 		case MOTOR_PARAMETER_CASCADE_POSITION_KP_PER_S:

@@ -11,32 +11,27 @@ bool Measurement_Capture(CurrentControlContext *CurrentControl)
 }
 
 bool Measurement_Configure(MeasurementModelContext *context,
-    const MotorControlContext *motor, const BoardProfile *board_profile)
+    const MotorControlContext *motor,
+    const MeasurementModelConfig *design_config)
 {
     MeasurementModelConfig config;
 
-    if (context == 0 || motor == 0 || board_profile == 0)
+    if (context == 0 || motor == 0 || design_config == 0)
         return false;
 
+	config = *design_config;
     config.phase_a_offset_adc = motor->configuration.phase_a_current_offset_adc;
     config.phase_b_offset_adc = motor->configuration.phase_b_current_offset_adc;
     config.phase_c_offset_adc = motor->configuration.phase_c_current_offset_adc;
-	config.minimum_valid_offset_adc = board_profile->minimum_current_offset_adc;
-	config.maximum_valid_offset_adc = board_profile->maximum_current_offset_adc;
-    config.current_a_per_count = board_profile->current_a_per_adc_count;
-    config.bus_voltage_v_per_count = board_profile->bus_voltage_v_per_adc_count;
-    config.overcurrent_trip_a = board_profile->overcurrent_trip_a;
-    config.overvoltage_trip_v = board_profile->overvoltage_trip_v;
-    config.undervoltage_trip_v = board_profile->undervoltage_trip_v;
-    config.maximum_temperature_c = board_profile->maximum_temperature_c;
-	config.temperature_protection_enabled =
-		board_profile->temperature_protection_enabled;
-    config.overcurrent_confirm_cycles =
-        board_profile->overcurrent_confirm_cycles;
-    config.voltage_confirm_cycles = board_profile->voltage_confirm_cycles;
-    config.temperature_sample_divider =
-        board_profile->temperature_sample_divider;
     return MeasurementModel_Configure(context, &config);
+}
+
+bool Measurement_UpdateCurrentOffsets(MeasurementModelContext *context,
+    const MotorControlContext *motor)
+{
+	if (context == 0 || !context->is_configured)
+		return false;
+	return Measurement_Configure(context, motor, &context->config);
 }
 
 bool Measurement_Process(MeasurementModelContext *context,

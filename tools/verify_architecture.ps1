@@ -64,7 +64,7 @@ foreach ($requiredTest in @(
     'tests\host\parameter_service_tests.c',
     'tests\host\service_result_validation_tests.c',
     'tests\host\update_service_tests.c',
-	'tests\host\product_variant_tests.c'
+	'tests\host\product_config_bridge_tests.c'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $requiredTest))) {
         $failures.Add("Missing host architecture test: $requiredTest")
@@ -96,8 +96,7 @@ foreach ($requiredImplementation in @(
     'Firmware\Platform\Stm32G431\device_identity_stm32g431.c',
     'Firmware\Platform\Stm32G431\execution_timer_stm32g431.c',
     'Firmware\Platform\Stm32G431\reset_reason_stm32g431.c',
-    'Firmware\Product\board_profile.c',
-	'Firmware\Product\product_variant.c',
+	'Firmware\Core\Config\product_catalog.c',
     'Firmware\Product\motor_profiles.c',
 	'Firmware\Product\mechanical_load_profiles.c',
     'Firmware\Product\encoder_profiles.c',

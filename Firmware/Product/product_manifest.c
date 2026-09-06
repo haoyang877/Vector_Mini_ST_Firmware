@@ -5,7 +5,7 @@
 #include "image_contract.h"
 #include "encoder_profiles.h"
 #include "control_tuning_profile.h"
-#include "product_variant.h"
+#include "product_catalog.h"
 
 static const ProductManifest VectorMiniStManifest =
 {
@@ -26,7 +26,7 @@ static const ProductManifest VectorMiniStManifest =
 	.firmware_version_patch = FIRMWARE_VERSION_PATCH,
 	.is_production_release = FIRMWARE_IS_PRODUCTION_RELEASE,
 	.build_number = FIRMWARE_BUILD_NUMBER,
-	.configuration_fingerprint = PRODUCT_CONFIGURATION_FINGERPRINT
+	.configuration_fingerprint = PRODUCT_CATALOG_CONFIGURATION_FINGERPRINT
 };
 
 const ProductManifest *ProductManifest_Get(void)

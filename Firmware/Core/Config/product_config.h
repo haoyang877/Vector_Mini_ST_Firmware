@@ -165,6 +165,12 @@ typedef struct
 	ProductEndpointId channel_endpoints[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
 	float current_a_per_count[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
 	uint16_t default_offset_count[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
+	/* Retained as design metadata and for the deployed Flash compatibility
+	 * field. It is never restored from Flash as an operating parameter. */
+	uint16_t nominal_shunt_milliohm;
+	uint16_t minimum_valid_offset_count[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
+	uint16_t maximum_valid_offset_count[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
+	uint32_t offset_calibration_sample_count;
 	bool pwm_synchronized;
 	uint8_t samples_per_pwm_period;
 	bool captures_pwm_sector;
@@ -183,6 +189,7 @@ typedef struct
 	float reliable_phase_current_limit_a;
 	float command_phase_current_limit_a;
 	float calibration_phase_current_limit_a;
+	float phase_resistance_path_compensation_ohm;
 	bool bus_voltage_measurement_available;
 	float bus_voltage_v_per_count;
 	bool classic_can_supported;
@@ -245,9 +252,22 @@ typedef struct
 	ProductTemperatureSensorSource source;
 	ProductTemperatureZone zone;
 	ProductEndpointId endpoint;
+	uint16_t sample_divider;
 	bool protection_enabled;
 	float protection_limit_c;
 } ProductTemperatureSensorInstanceConfig;
+
+typedef struct
+{
+	float software_overcurrent_trip_a;
+	float undervoltage_trip_v;
+	float overvoltage_trip_v;
+	/* First-order bus-voltage filter coefficient in the interval (0, 1]. */
+	float bus_voltage_filter_alpha;
+	uint16_t overcurrent_confirm_cycles;
+	uint16_t voltage_confirm_cycles;
+	bool temperature_invalid_is_fault;
+} ProductSafetyConfig;
 
 typedef struct
 {
@@ -302,6 +322,8 @@ typedef struct
 	uint8_t maximum_payload_bytes;
 	uint8_t default_node_id;
 	uint32_t heartbeat_ms;
+	uint32_t minimum_heartbeat_ms;
+	uint32_t maximum_heartbeat_ms;
 } ProductCanConfig;
 
 typedef struct
@@ -322,6 +344,7 @@ typedef struct
 	ProductTemperatureSensorInstanceConfig
 		temperature_sensors[PRODUCT_CONFIG_MAX_TEMPERATURE_SENSORS];
 	uint8_t temperature_sensor_count;
+	ProductSafetyConfig safety;
 	ProductFeedbackRoutingConfig feedback;
 	ProductFeaturePolicy features;
 	ProductCommissioningPolicy commissioning;
@@ -354,7 +377,8 @@ typedef enum
 	PRODUCT_CONFIG_SUBJECT_FEEDBACK_ROUTING,
 	PRODUCT_CONFIG_SUBJECT_FEATURE_POLICY,
 	PRODUCT_CONFIG_SUBJECT_COMMISSIONING_POLICY,
-	PRODUCT_CONFIG_SUBJECT_COMMUNICATION
+	PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
+	PRODUCT_CONFIG_SUBJECT_SAFETY_POLICY
 } ProductConfigValidationSubject;
 
 typedef enum
@@ -415,7 +439,17 @@ typedef enum
 	PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID,
 	PRODUCT_CONFIG_ERROR_CAN_BRS_REQUIRES_FD,
 	PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID,
-	PRODUCT_CONFIG_ERROR_COMMUNICATION_ENDPOINT_INVALID
+	PRODUCT_CONFIG_ERROR_COMMUNICATION_ENDPOINT_INVALID,
+	PRODUCT_CONFIG_ERROR_CURRENT_SHUNT_INVALID,
+	PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_RANGE_INVALID,
+	PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_DEFAULT_INVALID,
+	PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_CALIBRATION_INVALID,
+	PRODUCT_CONFIG_ERROR_BOARD_PATH_COMPENSATION_INVALID,
+	PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID,
+	PRODUCT_CONFIG_ERROR_SAFETY_CONFIRMATION_INVALID,
+	PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_DIVIDER_INVALID,
+	PRODUCT_CONFIG_ERROR_CAN_NODE_ID_INVALID,
+	PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID
 } ProductConfigErrorCode;
 
 typedef struct
@@ -446,7 +480,8 @@ typedef enum
 	PRODUCT_CONFIG_RUNTIME_ANGLE_SENSOR,
 	PRODUCT_CONFIG_RUNTIME_TEMPERATURE_SENSOR,
 	PRODUCT_CONFIG_RUNTIME_FEEDBACK,
-	PRODUCT_CONFIG_RUNTIME_COMMUNICATION
+	PRODUCT_CONFIG_RUNTIME_COMMUNICATION,
+	PRODUCT_CONFIG_RUNTIME_SAFETY
 } ProductConfigRuntimeError;
 
 bool ProductConfig_Derive(const ProductConfig *config,

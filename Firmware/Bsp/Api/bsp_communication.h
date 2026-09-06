@@ -62,6 +62,44 @@ typedef struct
 	uint8_t data[BSP_CAN_FRAME_DATA_CAPACITY];
 } BspCanFrame;
 
+typedef enum
+{
+	BSP_CAN_IDENTIFIER_STANDARD = 0,
+	BSP_CAN_IDENTIFIER_EXTENDED
+} BspCanIdentifierKind;
+
+typedef enum
+{
+	BSP_CAN_FILTER_RANGE = 0,
+	BSP_CAN_FILTER_MASK
+} BspCanFilterKind;
+
+/*
+ * For RANGE matching, identifier_a and identifier_b are the inclusive lower
+ * and upper identifiers. For MASK matching, identifier_a is the identifier
+ * and identifier_b is its mask. filter_index selects a hardware filter slot.
+ */
+typedef struct
+{
+	uint8_t filter_index;
+	BspCanIdentifierKind identifier_kind;
+	BspCanFilterKind filter_kind;
+	uint32_t identifier_a;
+	uint32_t identifier_b;
+} BspCanAcceptanceFilter;
+
+typedef enum
+{
+	BSP_CAN_UNMATCHED_REJECT = 0,
+	BSP_CAN_UNMATCHED_ACCEPT
+} BspCanUnmatchedPolicy;
+
+typedef enum
+{
+	BSP_CAN_REMOTE_REJECT = 0,
+	BSP_CAN_REMOTE_FILTER
+} BspCanRemotePolicy;
+
 typedef struct
 {
 	uint32_t nominal_bit_rate;
@@ -71,6 +109,12 @@ typedef struct
 	bool enable_fd;
 	bool enable_brs;
 	bool listen_only;
+	const BspCanAcceptanceFilter *acceptance_filters;
+	size_t acceptance_filter_count;
+	BspCanUnmatchedPolicy unmatched_standard_policy;
+	BspCanUnmatchedPolicy unmatched_extended_policy;
+	BspCanRemotePolicy remote_standard_policy;
+	BspCanRemotePolicy remote_extended_policy;
 } BspCanConfiguration;
 
 typedef uint32_t BspCommunicationFaultSet;
@@ -91,6 +135,11 @@ typedef struct
 {
 	void *context;
 	const BspCommunicationEndpointCapabilities *capabilities;
+	/*
+	 * configure() consumes the complete configuration and filter array
+	 * synchronously. It never retains acceptance_filters. The port must be
+	 * stopped while configure() is called.
+	 */
 	BspResult (*configure)(void *context,
 		const BspCanConfiguration *configuration);
 	BspResult (*start)(void *context);

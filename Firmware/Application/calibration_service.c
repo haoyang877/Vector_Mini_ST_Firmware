@@ -2,15 +2,23 @@
 
 #include <stddef.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 bool CalibrationService_Initialize(CalibrationServiceContext *context,
-	DeviceLifecycleContext *lifecycle, const BoardProfile *board_profile,
+	DeviceLifecycleContext *lifecycle,
+	const CalibrationCurrentOffsetLimits *current_offset_limits,
 	uint32_t timeout_ticks)
 {
-	if (context == NULL || lifecycle == NULL || board_profile == NULL ||
+	if (context == NULL || lifecycle == NULL || current_offset_limits == NULL ||
+		current_offset_limits->minimum_current_offset_adc == NULL ||
+		current_offset_limits->maximum_current_offset_adc == NULL ||
 		timeout_ticks == 0U)
 		return false;
 	context->lifecycle = lifecycle;
-	context->board_profile = board_profile;
+	context->current_offset_limits = *current_offset_limits;
 	context->elapsed_ticks = 0U;
 	context->timeout_ticks = timeout_ticks;
 	return true;
@@ -20,20 +28,20 @@ bool CalibrationService_AcceptCurrentOffsetResult(
 	const CalibrationServiceContext *context, uint16_t phase_a_offset_adc,
 	uint16_t phase_b_offset_adc, uint16_t phase_c_offset_adc)
 {
-	if (context == NULL || context->board_profile == NULL)
+	if (context == NULL)
 		return false;
 	return phase_a_offset_adc >=
-			context->board_profile->minimum_current_offset_adc &&
+			context->current_offset_limits.minimum_current_offset_adc[0] &&
 		phase_a_offset_adc <=
-			context->board_profile->maximum_current_offset_adc &&
+			context->current_offset_limits.maximum_current_offset_adc[0] &&
 		phase_b_offset_adc >=
-			context->board_profile->minimum_current_offset_adc &&
+			context->current_offset_limits.minimum_current_offset_adc[1] &&
 		phase_b_offset_adc <=
-			context->board_profile->maximum_current_offset_adc &&
+			context->current_offset_limits.maximum_current_offset_adc[1] &&
 		phase_c_offset_adc >=
-			context->board_profile->minimum_current_offset_adc &&
+			context->current_offset_limits.minimum_current_offset_adc[2] &&
 		phase_c_offset_adc <=
-			context->board_profile->maximum_current_offset_adc;
+			context->current_offset_limits.maximum_current_offset_adc[2];
 }
 
 bool CalibrationService_OwnsProcedure(ServiceProcedure procedure)

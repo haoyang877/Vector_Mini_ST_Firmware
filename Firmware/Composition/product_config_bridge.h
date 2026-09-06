@@ -3,7 +3,6 @@
 
 #include "bsp_board.h"
 #include "product_config.h"
-#include "product_runtime_selection.h"
 
 typedef enum
 {
@@ -11,14 +10,13 @@ typedef enum
 	PRODUCT_CONFIG_BRIDGE_PRODUCT_INVALID,
 	PRODUCT_CONFIG_BRIDGE_BOARD_INVALID,
 	PRODUCT_CONFIG_BRIDGE_BINDING_MISMATCH,
-	PRODUCT_CONFIG_BRIDGE_RUNTIME_CONFIG_INVALID,
-	PRODUCT_CONFIG_BRIDGE_RUNTIME_CONFIG_MISMATCH
+	PRODUCT_CONFIG_BRIDGE_RUNTIME_UNSUPPORTED
 } ProductConfigBridgeStatus;
 
-/* Compact startup guard used by the flash-constrained production target. */
-bool ProductConfigBridge_ValidateRuntime(const ProductRuntimeSelection *selection,
+/* Validates the selected product directly against the linked BSP identity and
+ * the set of device/runtime strategies that are actually implemented. */
+bool ProductConfigBridge_ValidateRuntime(const ProductConfig *config,
 	const BspBoardRuntimeIdentity *board_identity,
-	uint32_t runtime_configuration_fingerprint,
 	ProductConfigBridgeStatus *bridge_status);
 
 #endif

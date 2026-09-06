@@ -5,9 +5,14 @@
 
 #include "fast_math.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 #define ParameterMotor (context->motor)
 #define ParameterEncoder (context->encoder)
-#define ParameterBoardProfile (context->board_profile)
+#define ParameterBoardConfig (context->board_config)
 #define ParameterMotorProfile (context->motor_profile)
 #define ParameterEncoderProfile (context->encoder_profile)
 #define ParameterMechanicalLoadProfile (context->mechanical_load_profile)
@@ -17,18 +22,22 @@
 
 bool ParameterSnapshot_Initialize(ParameterSnapshotContext *context,
 	MotorControlContext *motor, EncoderContext *encoder,
-	const BoardProfile *board_profile, const MotorProfile *motor_profile,
+	const ParameterSnapshotBoardConfig *board_config,
+	const MotorProfile *motor_profile,
 	const EncoderProfile *encoder_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,
 	CanConfigurationServiceContext *can_configuration)
 {
-	if (context == 0 || motor == 0 || encoder == 0 || board_profile == 0 ||
+	if (context == 0 || motor == 0 || encoder == 0 || board_config == 0 ||
+		board_config->default_current_offset_adc == 0 ||
+		board_config->minimum_current_offset_adc == 0 ||
+		board_config->maximum_current_offset_adc == 0 ||
 		motor_profile == 0 || encoder_profile == 0 ||
 		mechanical_load_profile == 0 || can_configuration == 0)
 		return false;
 	context->motor = motor;
 	context->encoder = encoder;
-	context->board_profile = board_profile;
+	context->board_config = *board_config;
 	context->motor_profile = motor_profile;
 	context->encoder_profile = encoder_profile;
 	context->mechanical_load_profile = mechanical_load_profile;
@@ -45,13 +54,16 @@ void ParameterSnapshot_LoadDefaults(ParameterSnapshotContext *context)
 	MotorControl.command.q_axis_voltage_reference_v = 0.0f;
 	MotorControl.runtime.open_loop_electrical_angle_rad = ParameterMotorProfile->open_loop_initial_theta_rad;
 	(void)CanConfigurationService_SetNodeId(CanConfiguration,
-		ParameterBoardProfile->default_can_node_id);
+		ParameterBoardConfig.default_can_node_id);
 	(void)CanConfigurationService_SetHeartbeatMs(CanConfiguration,
-		ParameterBoardProfile->default_can_heartbeat_ms);
+		ParameterBoardConfig.default_can_heartbeat_ms);
 
-	MotorControl.configuration.phase_a_current_offset_adc = ParameterBoardProfile->default_phase_a_current_offset_adc;
-	MotorControl.configuration.phase_b_current_offset_adc = ParameterBoardProfile->default_phase_b_current_offset_adc;
-	MotorControl.configuration.phase_c_current_offset_adc = ParameterBoardProfile->default_phase_c_current_offset_adc;
+	MotorControl.configuration.phase_a_current_offset_adc =
+		ParameterBoardConfig.default_current_offset_adc[0];
+	MotorControl.configuration.phase_b_current_offset_adc =
+		ParameterBoardConfig.default_current_offset_adc[1];
+	MotorControl.configuration.phase_c_current_offset_adc =
+		ParameterBoardConfig.default_current_offset_adc[2];
 	MotorControl.configuration.pole_pairs = ParameterMotorProfile->pole_pairs;
 	MotorControl.configuration.phase_resistance_ohm = ParameterMotorProfile->phase_resistance_ohm;
 	MotorControl.configuration.d_axis_inductance_h = ParameterMotorProfile->d_axis_inductance_h;
@@ -109,7 +121,8 @@ void ParameterSnapshot_Capture(const ParameterSnapshotContext *context,
 	param->encoder_reverse = OnBoard_Encoder.reverse;
 	for (index = 0U; index < ENCODER_OFFSET_LUT_SIZE; ++index)
 		param->encoder_linearization_lut_q15[index] = OnBoard_Encoder.linearization_lut_q15[index];
-	param->current_sense_shunt_milliohm = ParameterBoardProfile->current_sense_shunt_milliohm;
+	param->current_sense_shunt_milliohm =
+		ParameterBoardConfig.current_sense_shunt_milliohm;
 	param->friction_coulomb_pos_a = MotorControl.configuration.friction_coulomb_pos_a;
 	param->friction_coulomb_neg_a = MotorControl.configuration.friction_coulomb_neg_a;
 	param->friction_viscous_pos_a_per_rad_s = MotorControl.configuration.friction_viscous_pos_a_per_rad_s;
@@ -134,12 +147,18 @@ void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
 		param->schema_version < PARAM_SCHEMA_VERSION_PREVIOUS_CASCADE ||
 		param->schema_version > PARAM_SCHEMA_VERSION || param->encoder_reverse > 1U)
 		return;
-	offsets_valid = param->phase_a_current_offset_adc >= ParameterBoardProfile->minimum_current_offset_adc &&
-		param->phase_a_current_offset_adc <= ParameterBoardProfile->maximum_current_offset_adc &&
-		param->phase_b_current_offset_adc >= ParameterBoardProfile->minimum_current_offset_adc &&
-		param->phase_b_current_offset_adc <= ParameterBoardProfile->maximum_current_offset_adc &&
-		param->phase_c_current_offset_adc >= ParameterBoardProfile->minimum_current_offset_adc &&
-		param->phase_c_current_offset_adc <= ParameterBoardProfile->maximum_current_offset_adc;
+	offsets_valid = param->phase_a_current_offset_adc >=
+		ParameterBoardConfig.minimum_current_offset_adc[0] &&
+		param->phase_a_current_offset_adc <=
+		ParameterBoardConfig.maximum_current_offset_adc[0] &&
+		param->phase_b_current_offset_adc >=
+		ParameterBoardConfig.minimum_current_offset_adc[1] &&
+		param->phase_b_current_offset_adc <=
+		ParameterBoardConfig.maximum_current_offset_adc[1] &&
+		param->phase_c_current_offset_adc >=
+		ParameterBoardConfig.minimum_current_offset_adc[2] &&
+		param->phase_c_current_offset_adc <=
+		ParameterBoardConfig.maximum_current_offset_adc[2];
 	if (offsets_valid)
 	{
 		MotorControl.configuration.phase_a_current_offset_adc = (uint16_t)param->phase_a_current_offset_adc;

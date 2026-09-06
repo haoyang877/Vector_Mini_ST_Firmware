@@ -720,16 +720,6 @@
               <FilePath>..\Firmware\Product\product_manifest.c</FilePath>
             </File>
             <File>
-              <FileName>product_variant.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\product_variant.c</FilePath>
-            </File>
-            <File>
-              <FileName>board_profile.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\board_profile.c</FilePath>
-            </File>
-            <File>
               <FileName>motor_profiles.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Product\motor_profiles.c</FilePath>
@@ -765,9 +755,9 @@
           <GroupName>Firmware/Core/Config</GroupName>
           <Files>
             <File>
-              <FileName>product_runtime_selection.c</FileName>
+              <FileName>product_catalog.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Core\Config\product_runtime_selection.c</FilePath>
+              <FilePath>..\Firmware\Core\Config\product_catalog.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -785,6 +775,11 @@
           <GroupName>Firmware/Bsp/Boards</GroupName>
           <Files>
             <File>
+              <FileName>bsp_board.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Bsp\Boards\bsp_board.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_board.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Firmware\Bsp\Boards\bsp_board.h</FilePath>
@@ -794,6 +789,11 @@
         <Group>
           <GroupName>Firmware/Bsp/Boards/VectorMiniSt</GroupName>
           <Files>
+            <File>
+              <FileName>vector_mini_st_bsp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_bsp.c</FilePath>
+            </File>
             <File>
               <FileName>vector_mini_st_bsp_identity.c</FileName>
               <FileType>1</FileType>

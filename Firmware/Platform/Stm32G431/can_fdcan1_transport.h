@@ -3,8 +3,11 @@
 
 #include <stdbool.h>
 
-#include "can_transport_port.h"
+#include "Bsp/Api/bsp_communication.h"
 
-CanTransportPort CanFdcan1Transport_CreatePort(bool use_fd, bool use_brs);
+bool CanFdcan1Transport_CreatePort(
+	const BspCommunicationEndpointCapabilities *capabilities,
+	BspCanPort *port);
+void CanFdcan1Transport_OnReceiveInterrupt(uint32_t interrupt_flags);
 
 #endif

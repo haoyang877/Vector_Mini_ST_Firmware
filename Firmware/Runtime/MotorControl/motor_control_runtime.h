@@ -9,7 +9,6 @@
 #include "rotor_calibration_port_adapter.h"
 #include "Core/Application/Contracts/motor_command_port.h"
 #include "Core/Application/Contracts/motor_configuration_port.h"
-#include "board_profile.h"
 #include "motor_profiles.h"
 #include "encoder_profiles.h"
 #include "motor_control_types.h"
@@ -48,6 +47,19 @@ typedef struct
 	uint32_t filtered_cycles;
 } MotorFastLoopMetrics;
 
+/* ProductConfig projection owned by the motor-control composition boundary.
+ * Each nested value belongs to the leaf module that consumes it; no board or
+ * product descriptor is retained by the runtime. */
+typedef struct
+{
+	uint32_t control_frequency_hz;
+	uint32_t current_offset_calibration_sample_count;
+	float command_current_limit_a;
+	CalibrationCurrentOffsetLimits current_offset_limits;
+	PhaseResistanceRuntimeBoardConfig phase_resistance;
+	ParameterSnapshotBoardConfig parameter_snapshot;
+} MotorControlRuntimeConfig;
+
 typedef struct
 {
 	MotorControlContext motor;
@@ -77,7 +89,9 @@ typedef struct
 	BspCriticalSectionPort critical_section;
 	BspExecutionTimerPort execution_timer;
 	MotorFastLoopMetrics fast_loop_metrics;
-	const BoardProfile *board_profile;
+	uint32_t current_offset_calibration_sample_count;
+	float command_current_limit_a;
+	PhaseResistanceRuntimeBoardConfig phase_resistance_config;
 	const MotorProfile *motor_profile;
 	const EncoderProfile *encoder_profile;
 	const ControlTuningProfile *tuning_profile;
@@ -90,10 +104,11 @@ typedef struct
 void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	PowerStageContext *power_stage,
 	const MeasurementPort *measurement_port,
+	const MeasurementModelConfig *measurement_config,
 	const RotorSensorPort *rotor_sensor_port,
 	const BspCriticalSectionPort *critical_section_port);
 bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
-	const BoardProfile *board_profile,
+	const MotorControlRuntimeConfig *runtime_config,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
 	const ControlTuningProfile *tuning_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,

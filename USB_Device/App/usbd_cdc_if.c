@@ -22,7 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-#include "firmware_composition.h"
+#include "usb_cdc_transport.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -109,7 +109,7 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
 /* USER CODE BEGIN EXPORTED_VARIABLES */
-
+extern PCD_HandleTypeDef hpcd_USB_FS;
 /* USER CODE END EXPORTED_VARIABLES */
 
 /**
@@ -261,10 +261,9 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+  UsbCdcTransport_OnReceiveInterrupt(Buf, *Len);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-  
-  FirmwareComposition_OnUsbReceiveInterrupt(Buf, *Len);
 	
   return (USBD_OK);
   /* USER CODE END 6 */
@@ -317,7 +316,7 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
-  FirmwareComposition_OnUsbTransmitCompleteInterrupt();
+  UsbCdcTransport_OnTransmitCompleteInterrupt();
   /* USER CODE END 13 */
   return result;
 }
@@ -328,14 +327,27 @@ uint8_t CDC_AbortTransmit_FS(void)
 {
   USBD_CDC_HandleTypeDef *hcdc =
     (USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData;
+  uint32_t interrupt_state;
   uint8_t result;
 
   if (hcdc == NULL) {
     return USBD_FAIL;
   }
-  result = (uint8_t)USBD_LL_FlushEP(&hUsbDeviceFS, CDC_IN_EP);
+  interrupt_state = __get_PRIMASK();
+  __disable_irq();
+  result = HAL_PCD_EP_Abort(&hpcd_USB_FS, CDC_IN_EP) == HAL_OK ?
+    USBD_OK : USBD_FAIL;
   if (result == USBD_OK) {
-    hcdc->TxState = 0U;
+    /* EPStopXfer publishes NAK. Clearing a completion already pending before
+       the abort prevents it from being delivered after a new transfer starts. */
+    PCD_CLEAR_TX_EP_CTR(hpcd_USB_FS.Instance, CDC_IN_EP & EP_ADDR_MSK);
+    result = (uint8_t)USBD_LL_FlushEP(&hUsbDeviceFS, CDC_IN_EP);
+    if (result == USBD_OK) {
+      hcdc->TxState = 0U;
+    }
+  }
+  if (interrupt_state == 0U) {
+    __enable_irq();
   }
   return result;
 }

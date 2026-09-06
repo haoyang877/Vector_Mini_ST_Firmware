@@ -71,9 +71,19 @@ int BspBoard_RunHostTests(void)
 	BspMotorDriveEndpointCapabilities motor_endpoint;
 	BspTemperatureEndpointCapabilities temperature_endpoints[2];
 	BspCommunicationEndpointCapabilities communication_endpoints[2];
+	const BspCommunicationEndpointCapabilities *communication_endpoint;
 
 	result = BspBoard_ValidateCapabilities(&BspVectorMiniSt_Capabilities);
 	TEST_CHECK(result.code == BSP_BOARD_VALIDATION_OK);
+	communication_endpoint = BspBoard_FindCommunicationEndpoint(
+		&BspVectorMiniSt_Capabilities,
+		BSP_VECTOR_MINI_ST_COMMUNICATION_ENDPOINT_FIELD_BUS);
+	TEST_CHECK(communication_endpoint != NULL);
+	TEST_CHECK(communication_endpoint->kind == BSP_COMMUNICATION_CAN);
+	TEST_CHECK(BspBoard_FindCommunicationEndpoint(
+		&BspVectorMiniSt_Capabilities, 0x7FFEU) == NULL);
+	TEST_CHECK(BspBoard_FindCommunicationEndpoint(NULL,
+		BSP_VECTOR_MINI_ST_COMMUNICATION_ENDPOINT_FIELD_BUS) == NULL);
 	result = BspVectorMiniSt_ValidateBindingRequest(&request);
 	TEST_CHECK(result.code == BSP_BOARD_VALIDATION_OK);
 

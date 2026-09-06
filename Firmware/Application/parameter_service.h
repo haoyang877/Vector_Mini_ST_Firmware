@@ -3,8 +3,13 @@
 
 #include <stdbool.h>
 #include "Core/Application/Contracts/motor_configuration_port.h"
-#include "board_profile.h"
 #include "motor_profiles.h"
+
+typedef struct
+{
+	float command_current_limit_a;
+	float calibration_current_limit_a;
+} ParameterServiceLimits;
 
 typedef enum
 {
@@ -18,14 +23,14 @@ typedef enum
 typedef struct
 {
 	MotorConfigurationPort port;
-	const BoardProfile *board_profile;
+	ParameterServiceLimits limits;
 	const MotorProfile *motor_profile;
 	bool is_initialized;
 } ParameterServiceContext;
 
 bool ParameterService_Initialize(ParameterServiceContext *context,
 	const MotorConfigurationPort *port,
-	const BoardProfile *board_profile, const MotorProfile *motor_profile);
+	const ParameterServiceLimits *limits, const MotorProfile *motor_profile);
 ParameterServiceResult ParameterService_WriteMotorParameter(
 	ParameterServiceContext *context, MotorParameterId parameter, float value);
 ParameterServiceResult ParameterService_ReadMotorParameter(

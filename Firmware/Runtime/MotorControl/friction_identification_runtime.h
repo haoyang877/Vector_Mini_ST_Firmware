@@ -1,7 +1,6 @@
 #ifndef RUNTIME_FRICTION_IDENTIFICATION_H
 #define RUNTIME_FRICTION_IDENTIFICATION_H
 
-#include "board_profile.h"
 #include "control_mode_runtime.h"
 #include "bsp_system.h"
 #include "encoder.h"
@@ -25,7 +24,7 @@ FrictionIdentificationState FrictionIdentificationRuntime_Run(
 	FrictionIdentificationRuntimeContext *context,
 	MotionControlContext *motion, CurrentControlContext *current_control,
 	MotorControlContext *motor, PiController *speed_controller,
-	EncoderContext *encoder, const BoardProfile *board_profile,
+	EncoderContext *encoder,
 	const MechanicalLoadProfile *load_profile);
 void FrictionIdentificationRuntime_Cancel(
 	FrictionIdentificationRuntimeContext *context,

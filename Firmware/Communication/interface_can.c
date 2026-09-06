@@ -1,57 +1,21 @@
 #include "interface_can.h"
-#include "Core/Infrastructure/Telemetry/telemetry_service.h"
-#include "can_protocol_v1.h"
-#include "can_command_router.h"
-#include "Core/Application/communication_watchdog_service.h"
 
+#include <math.h>
+#include <stddef.h>
 #include <string.h>
+
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
 
 #define PROTOCOL_MODE_CURRENT              1
 #define PROTOCOL_MODE_SPEED                2
 #define PROTOCOL_MODE_POSITION             3
 #define PROTOCOL_MODE_POSITION_IMPEDANCE  18
 
-#define CANContext (*context)
-#define CANRxQueue (context->receive_queue)
-#define CANRxQueueWriteIndex (context->receive_write_index)
-#define CANRxQueueReadIndex (context->receive_read_index)
-#define CANDisconnectClearPending (context->disconnect_clear_pending)
-#define CANTransport (context->transport)
-#define CANTransportInitialized (context->transport_is_initialized)
-#define CAN_RX_QUEUE_CAPACITY CAN_INTERFACE_RX_QUEUE_CAPACITY
-#define CANReceivedCommand CanReceivedCommand
-
-static bool CanInterface_SetNodeId(void *raw_context, uint8_t node_id)
+static bool CanInterface_IsSupportedBitrate(uint32_t bitrate_kbps)
 {
-	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	if (context == 0)
-		return false;
-	if (node_id > 7U)
-		return false;
-	if (CANTransportInitialized && CANContext.node_id != node_id &&
-		!CANTransport.configure_node_id(CANTransport.context, node_id))
-		return false;
-	CANContext.node_id = node_id;
-	return true;
-}
-
-static uint8_t CanInterface_GetNodeId(void *raw_context)
-{
-	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	if (context == 0)
-		return 0U;
-	return CANContext.node_id;
-}
-
-static bool CanInterface_SetBitrateKbps(void *raw_context,
-	uint32_t bitrate_kbps)
-{
-	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	if (context == 0)
-		return false;
-	if (CANTransportInitialized && CANTransport.maximum_bitrate_kbps != 0U &&
-		bitrate_kbps > CANTransport.maximum_bitrate_kbps)
-		return false;
 	switch (bitrate_kbps)
 	{
 		case 100U:
@@ -63,37 +27,177 @@ static bool CanInterface_SetBitrateKbps(void *raw_context,
 		case 2000U:
 		case 2500U:
 		case 5000U:
-			CANContext.baudrate = bitrate_kbps;
 			return true;
 		default:
 			return false;
 	}
 }
 
+static uint32_t CanInterface_MaximumBitrateKbps(
+	const CanInterfaceContext *context)
+{
+	uint32_t maximum_bit_rate;
+
+	if (context == NULL || context->transport.capabilities == NULL)
+		return 0U;
+	maximum_bit_rate = context->enable_fd && context->enable_brs ?
+		context->transport.capabilities->maximum_data_bit_rate :
+		context->transport.capabilities->maximum_nominal_bit_rate;
+	return maximum_bit_rate / 1000U;
+}
+
+static bool CanInterface_BuildTransportConfiguration(
+	const CanInterfaceContext *context, uint8_t node_id,
+	uint32_t bitrate_kbps, BspCanAcceptanceFilter *filter,
+	BspCanConfiguration *configuration)
+{
+	if (context == NULL || filter == NULL || configuration == NULL ||
+		node_id > 7U || !CanInterface_IsSupportedBitrate(bitrate_kbps) ||
+		bitrate_kbps > CanInterface_MaximumBitrateKbps(context))
+	{
+		return false;
+	}
+
+	memset(configuration, 0, sizeof(*configuration));
+	filter->filter_index = 0U;
+	filter->identifier_kind = BSP_CAN_IDENTIFIER_STANDARD;
+	filter->filter_kind = BSP_CAN_FILTER_RANGE;
+	filter->identifier_a = (uint32_t)node_id << 8;
+	filter->identifier_b = filter->identifier_a + 0xFFU;
+	configuration->enable_fd = context->enable_fd;
+	configuration->enable_brs = context->enable_brs;
+	configuration->listen_only = false;
+	configuration->acceptance_filters = filter;
+	configuration->acceptance_filter_count = 1U;
+	configuration->unmatched_standard_policy = BSP_CAN_UNMATCHED_REJECT;
+	configuration->unmatched_extended_policy = BSP_CAN_UNMATCHED_REJECT;
+	configuration->remote_standard_policy = BSP_CAN_REMOTE_REJECT;
+	configuration->remote_extended_policy = BSP_CAN_REMOTE_REJECT;
+	if (context->enable_fd && context->enable_brs)
+	{
+		configuration->nominal_bit_rate =
+			context->nominal_bitrate_kbps * 1000U;
+		configuration->data_bit_rate = bitrate_kbps * 1000U;
+	}
+	else
+	{
+		configuration->nominal_bit_rate = bitrate_kbps * 1000U;
+		configuration->data_bit_rate = context->enable_fd ?
+			configuration->nominal_bit_rate : 0U;
+	}
+	return true;
+}
+
+static bool CanInterface_ConfigureAndStart(CanInterfaceContext *context,
+	uint8_t node_id, uint32_t bitrate_kbps)
+{
+	BspCanAcceptanceFilter filter;
+	BspCanConfiguration configuration;
+
+	if (!CanInterface_BuildTransportConfiguration(context, node_id,
+		bitrate_kbps, &filter, &configuration))
+	{
+		return false;
+	}
+	if (context->transport.configure(context->transport.context,
+		&configuration) != BSP_RESULT_OK)
+	{
+		return false;
+	}
+	return context->transport.start(context->transport.context) == BSP_RESULT_OK;
+}
+
+static bool CanInterface_ApplyTransportConfiguration(
+	CanInterfaceContext *context, uint8_t node_id, uint32_t bitrate_kbps)
+{
+	bool was_started;
+
+	if (context == NULL || !context->transport_is_initialized)
+		return false;
+	was_started = context->transport_started;
+	if (was_started &&
+		context->transport.stop(context->transport.context) != BSP_RESULT_OK)
+	{
+		return false;
+	}
+	context->transport_started = false;
+	if (CanInterface_ConfigureAndStart(context, node_id, bitrate_kbps))
+	{
+		context->transport_started = true;
+		return true;
+	}
+
+	/* A failed live reconfiguration must not silently change the active
+	 * protocol identity. Best-effort rollback restores the last applied pair. */
+	if (was_started && CanInterface_ConfigureAndStart(context,
+		context->node_id, context->configured_bitrate))
+	{
+		context->transport_started = true;
+	}
+	return false;
+}
+
+static bool CanInterface_SetNodeId(void *raw_context, uint8_t node_id)
+{
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+
+	if (context == NULL || node_id > 7U)
+		return false;
+	if (context->node_id == node_id)
+		return true;
+	if (context->transport_started &&
+		!CanInterface_ApplyTransportConfiguration(context, node_id,
+			context->configured_bitrate))
+	{
+		return false;
+	}
+	context->node_id = node_id;
+	return true;
+}
+
+static uint8_t CanInterface_GetNodeId(void *raw_context)
+{
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+	return context != NULL ? context->node_id : 0U;
+}
+
+static bool CanInterface_SetBitrateKbps(void *raw_context,
+	uint32_t bitrate_kbps)
+{
+	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
+
+	if (context == NULL || !CanInterface_IsSupportedBitrate(bitrate_kbps) ||
+		bitrate_kbps > CanInterface_MaximumBitrateKbps(context))
+	{
+		return false;
+	}
+	context->baudrate = bitrate_kbps;
+	return true;
+}
+
 static uint32_t CanInterface_GetBitrateKbps(void *raw_context)
 {
 	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	if (context == 0)
-		return 0U;
-	return CANContext.baudrate;
+	return context != NULL ? context->baudrate : 0U;
 }
 
 static bool CanInterface_SetHeartbeatMs(void *raw_context,
 	uint32_t heartbeat_ms)
 {
 	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	if (context == 0)
+
+	if (context == NULL || (heartbeat_ms != 0U &&
+		(heartbeat_ms < context->minimum_heartbeat_ms ||
+		 heartbeat_ms > context->maximum_heartbeat_ms)))
+	{
 		return false;
-	if (heartbeat_ms != 0U &&
-		(heartbeat_ms < CANContext.minimum_heartbeat_ms ||
-		 heartbeat_ms > CANContext.maximum_heartbeat_ms))
-		return false;
-	CANContext.heartbeat_timeout_ms = heartbeat_ms;
+	}
+	context->heartbeat_timeout_ms = heartbeat_ms;
 	if (heartbeat_ms == 0U)
 	{
-		CANContext.heartbeat_enabled = false;
-		CANContext.heartbeat_elapsed_ms = 0U;
-		CANContext.disconnect_reported = false;
+		context->heartbeat_enabled = false;
+		context->heartbeat_elapsed_ms = 0U;
+		context->disconnect_reported = false;
 	}
 	return true;
 }
@@ -101,9 +205,7 @@ static bool CanInterface_SetHeartbeatMs(void *raw_context,
 static uint32_t CanInterface_GetHeartbeatMs(void *raw_context)
 {
 	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	if (context == 0)
-		return 0U;
-	return CANContext.heartbeat_timeout_ms;
+	return context != NULL ? context->heartbeat_timeout_ms : 0U;
 }
 
 CanConfigurationPort CanInterface_CreateConfigurationPort(
@@ -121,143 +223,142 @@ CanConfigurationPort CanInterface_CreateConfigurationPort(
 	return port;
 }
 
-
-
-
-
-/**
-	* @brief  FDCAN1 Filter Init
-			  Standard ID, Range Mode
- **/
 void CanInterface_ApplyConfiguredBitrate(CanInterfaceContext *context,
 	CommunicationWatchdogServiceContext *watchdog)
 {
-	if (context == 0 || !CANTransportInitialized ||
-		!CANTransport.initialize(CANTransport.context, CANContext.node_id))
+	if (context == NULL ||
+		!CanInterface_ApplyTransportConfiguration(context, context->node_id,
+			context->baudrate))
+	{
 		(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
+		return;
+	}
+	context->configured_bitrate = context->baudrate;
 }
 
 bool CanInterface_Initialize(CanInterfaceContext *context,
-	const CanTransportPort *transport,
+	const BspCanPort *transport,
 	ControlAuthorityServiceContext *control_authority,
-	uint32_t default_bitrate_kbps, uint32_t minimum_heartbeat_ms,
-	uint32_t maximum_heartbeat_ms)
+	bool enable_fd, bool enable_brs, uint32_t default_nominal_bitrate_kbps,
+	uint32_t default_data_bitrate_kbps,
+	uint32_t minimum_heartbeat_ms, uint32_t maximum_heartbeat_ms)
 {
-	if (context == 0 || transport == 0 || transport->initialize == 0 ||
-		transport->configure_node_id == 0 ||
-		transport->configure_bitrate_kbps == 0 || transport->receive == 0 ||
-		transport->transmit == 0 || control_authority == 0 ||
-		default_bitrate_kbps == 0U ||
+	BspCommunicationFeatureSet required_features;
+	uint32_t active_bitrate_kbps;
+
+	if (context == NULL || transport == NULL || transport->capabilities == NULL ||
+		transport->capabilities->kind != BSP_COMMUNICATION_CAN ||
+		transport->configure == NULL || transport->start == NULL ||
+		transport->stop == NULL || transport->try_receive == NULL ||
+		transport->try_transmit == NULL || transport->read_faults == NULL ||
+		control_authority == NULL || (enable_brs && !enable_fd) ||
+		!CanInterface_IsSupportedBitrate(default_nominal_bitrate_kbps) ||
+		(!enable_fd && default_data_bitrate_kbps != 0U) ||
+		(enable_fd && (!CanInterface_IsSupportedBitrate(
+			default_data_bitrate_kbps) ||
+			(!enable_brs && default_data_bitrate_kbps !=
+				default_nominal_bitrate_kbps))) ||
 		minimum_heartbeat_ms > maximum_heartbeat_ms)
+	{
 		return false;
+	}
+	required_features = enable_fd ? BSP_COMMUNICATION_FEATURE_CAN_FD :
+		BSP_COMMUNICATION_FEATURE_CAN_CLASSIC;
+	if (enable_brs)
+		required_features |= BSP_COMMUNICATION_FEATURE_CAN_BRS;
+	if ((transport->capabilities->features & required_features) !=
+		required_features)
+	{
+		return false;
+	}
 	memset(context, 0, sizeof(*context));
-	CANTransport = *transport;
-	CANTransportInitialized = true;
-	CANContext.control_authority = control_authority;
-	CANContext.baudrate = default_bitrate_kbps;
-	CANContext.configured_bitrate = default_bitrate_kbps;
-	CANContext.minimum_heartbeat_ms = minimum_heartbeat_ms;
-	CANContext.maximum_heartbeat_ms = maximum_heartbeat_ms;
-	return true;
+	context->transport = *transport;
+	context->transport_is_initialized = true;
+	context->control_authority = control_authority;
+	context->enable_fd = enable_fd;
+	context->enable_brs = enable_brs;
+	context->nominal_bitrate_kbps = default_nominal_bitrate_kbps;
+	active_bitrate_kbps = enable_fd ? default_data_bitrate_kbps :
+		default_nominal_bitrate_kbps;
+	context->baudrate = active_bitrate_kbps;
+	context->configured_bitrate = active_bitrate_kbps;
+	context->minimum_heartbeat_ms = minimum_heartbeat_ms;
+	context->maximum_heartbeat_ms = maximum_heartbeat_ms;
+	return default_nominal_bitrate_kbps <=
+			transport->capabilities->maximum_nominal_bit_rate / 1000U &&
+		active_bitrate_kbps <= CanInterface_MaximumBitrateKbps(context);
 }
 
-/**
-	* @brief  Handle CAN heartbeat disconnect protection
- **/
 void CanInterface_UpdateWatchdog(CanInterfaceContext *context,
 	const TelemetryServiceContext *telemetry,
 	CommunicationWatchdogServiceContext *watchdog)
 {
+	BspCommunicationFaultSet transport_faults;
 	float mode_value = 0.0f;
 	int mode;
 
-	if (context == 0)
+	if (context == NULL)
 		return;
+	transport_faults = context->transport.read_faults(
+		context->transport.context);
+	context->observed_transport_faults |= transport_faults;
+	if (context->observed_transport_faults != 0U)
+	{
+		if (!context->disconnect_reported)
+		{
+			(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
+			context->disconnect_reported = true;
+		}
+		return;
+	}
 	(void)TelemetryService_ReadValue(telemetry, MOTOR_TELEMETRY_MODE,
 		&mode_value);
 	mode = (int)mode_value;
-	CANContext.heartbeat_enabled = CANContext.heartbeat_timeout_ms != 0U &&
-		ControlAuthorityService_IsOwner(CANContext.control_authority,
+	context->heartbeat_enabled = context->heartbeat_timeout_ms != 0U &&
+		ControlAuthorityService_IsOwner(context->control_authority,
 			CONTROL_AUTHORITY_CAN) &&
 		(mode == PROTOCOL_MODE_CURRENT || mode == PROTOCOL_MODE_SPEED ||
 		 mode == PROTOCOL_MODE_POSITION ||
 		 mode == PROTOCOL_MODE_POSITION_IMPEDANCE);
-
-	if(CANContext.received_once && CANContext.heartbeat_enabled)
+	if (context->received_once && context->heartbeat_enabled)
 	{
-		/*timeout protect*/
-		if (CANContext.heartbeat_elapsed_ms <
-			CANContext.heartbeat_timeout_ms)
-			CANContext.heartbeat_elapsed_ms++;
-		if (CANContext.heartbeat_elapsed_ms >=
-			CANContext.heartbeat_timeout_ms &&
-			!CANContext.disconnect_reported)
+		if (context->heartbeat_elapsed_ms < context->heartbeat_timeout_ms)
+			context->heartbeat_elapsed_ms++;
+		if (context->heartbeat_elapsed_ms >= context->heartbeat_timeout_ms &&
+			!context->disconnect_reported)
 		{
 			(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
-			CANContext.disconnect_reported = true;
+			context->disconnect_reported = true;
 		}
 	}
 }
 
-/**
-	* @brief  Set encoder state from CAN parameter value
-	* @param  data: encoded encoder state value
- **/
-
-
-/**
-	* @brief  Switch CAN baudrate when baudrate setting changes
- **/
 void CanInterface_ApplyPendingBitrate(CanInterfaceContext *context,
 	CommunicationWatchdogServiceContext *watchdog)
 {
-	if (context == 0)
+	if (context == NULL || context->configured_bitrate == context->baudrate)
 		return;
-	if(CANContext.configured_bitrate != CANContext.baudrate)
-    {
-		if (!CANTransport.configure_bitrate_kbps(CANTransport.context,
-			CANContext.baudrate))
-			(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
-		else
-			CANContext.configured_bitrate = CANContext.baudrate;
+	if (!CanInterface_ApplyTransportConfiguration(context, context->node_id,
+		context->baudrate))
+	{
+		(void)CommunicationWatchdogService_ReportDisconnected(watchdog);
+		return;
 	}
+	context->configured_bitrate = context->baudrate;
 }
 
-/**
-	* @brief  Get encoded encoder state
-	* @retval encoded encoder state value
- **/
-
-
-/**
-	* @brief  Handle received CAN message
-			  update motor control paramters
-    * @param  param_id: CAN parameter id
-    * @param  data: CAN parameter data
- **/
-
-
-/**
-	* @brief  Update CAN transmit message data
-	* @param  param_id: CAN parameter id
-	* @param  data: CAN transmit data
- **/
 static bool CanInterface_QueueResponse(void *raw_context,
 	uint8_t parameter_id, float data)
 {
 	CanInterfaceContext *context = (CanInterfaceContext *)raw_context;
-	CanTransportFrame frame;
-	CanParameterId param_id = (CanParameterId)parameter_id;
 
-	if (context == 0)
+	if (context == NULL || context->transmit_pending || !isfinite(data))
+	{
 		return false;
-
-	if (!CanProtocolV1_Encode(CANContext.node_id, (uint8_t)param_id,
-		data, &frame))
-		return false;
-	CANContext.tx_parameter_id = param_id;
-	CANContext.tx_value = data;
-	CANContext.transmit_pending = true;
+	}
+	context->tx_parameter_id = (CanParameterId)parameter_id;
+	context->tx_value = data;
+	context->transmit_pending = true;
 	return true;
 }
 
@@ -270,80 +371,61 @@ CanResponsePort CanInterface_CreateResponsePort(CanInterfaceContext *context)
 	return port;
 }
 
-/**
-	* @brief  CAN Rx interrupt Handle
-			  extract param id and data from mail box
- **/
-void CanInterface_OnReceiveInterrupt(CanInterfaceContext *context)
-{
-	CanTransportFrame frame;
-	CanProtocolV1Command decoded;
-	uint8_t next_write_index;
-
-	if (context == 0 || !CANTransportInitialized ||
-		!CANTransport.receive(CANTransport.context, &frame))
-		return;
-	if (!CanProtocolV1_Decode(&frame, CANContext.node_id, &decoded))
-		return;
-
-	CANContext.received_once = true;
-	CANContext.heartbeat_elapsed_ms = 0U;
-	CANContext.disconnect_reported = false;
-	CANDisconnectClearPending = 1U;
-	next_write_index = (uint8_t)((CANRxQueueWriteIndex + 1U) %
-		CAN_RX_QUEUE_CAPACITY);
-	if (next_write_index == CANRxQueueReadIndex)
-	{
-		CANContext.receive_overflow_count++;
-	}
-	else
-	{
-		CANRxQueue[CANRxQueueWriteIndex].parameter =
-			(CanParameterId)decoded.parameter_id;
-		CANRxQueue[CANRxQueueWriteIndex].value = decoded.value;
-		CANRxQueueWriteIndex = next_write_index;
-	}
-}
-
 void CanInterface_ProcessReceivedFrames(CanInterfaceContext *context,
 	CanCommandRouterContext *router,
 	CommunicationWatchdogServiceContext *watchdog)
 {
-	CANReceivedCommand command;
-	if (context == 0 || router == 0)
-		return;
+	BspCanFrame frame;
+	CanProtocolV1Command decoded;
+	BspResult result;
 
-	if (CANDisconnectClearPending != 0U)
+	if (context == NULL || router == NULL || !context->transport_started ||
+		context->transmit_pending)
+		return;
+	result = context->transport.try_receive(context->transport.context, &frame);
+	if (result == BSP_RESULT_NOT_READY || result == BSP_RESULT_BUSY)
+		return;
+	if (result != BSP_RESULT_OK ||
+		!CanProtocolV1_Decode(&frame, context->node_id, &decoded))
 	{
-		CANDisconnectClearPending = 0U;
+		return;
+	}
+	context->received_once = true;
+	context->heartbeat_elapsed_ms = 0U;
+	/* A valid frame recovers only heartbeat loss. Transport faults are sticky. */
+	if (context->observed_transport_faults == 0U)
+	{
+		context->disconnect_reported = false;
 		(void)CommunicationWatchdogService_ReportFrameReceived(watchdog);
 	}
-
-	if (CANRxQueueReadIndex == CANRxQueueWriteIndex)
-		return;
-
-	command = CANRxQueue[CANRxQueueReadIndex];
-	CANRxQueueReadIndex = (uint8_t)((CANRxQueueReadIndex + 1U) %
-		CAN_RX_QUEUE_CAPACITY);
-	CanCommandRouter_Handle(router, command.parameter, command.value);
+	CanCommandRouter_Handle(router, (CanParameterId)decoded.parameter_id,
+		decoded.value);
 }
 
-/**
-	* @brief  CAN Tx function
-			  use ExtId, DLC length 4
- **/
 void CanInterface_FlushTransmit(CanInterfaceContext *context)
 {
-	CanTransportFrame frame;
+	BspCanFrame frame;
+	BspResult result;
 
-	if (context == 0 || !CANContext.transmit_pending)
+	if (context == NULL || !context->transmit_pending ||
+		!context->transport_started ||
+		!CanProtocolV1_Encode(context->node_id,
+			(uint8_t)context->tx_parameter_id, context->tx_value, &frame))
+	{
 		return;
-	if (!CANTransportInitialized)
-		return;
-	if (!CanProtocolV1_Encode(CANContext.node_id,
-		(uint8_t)CANContext.tx_parameter_id, CANContext.tx_value, &frame))
-		return;
-	if (CANTransport.transmit(CANTransport.context, &frame))
-		CANContext.transmit_pending = false;
+	}
+	if (context->enable_fd)
+		frame.flags |= BSP_CAN_FRAME_FD;
+	if (context->enable_brs)
+		frame.flags |= BSP_CAN_FRAME_BRS;
+	result = context->transport.try_transmit(context->transport.context, &frame);
+	if (result == BSP_RESULT_OK)
+		context->transmit_pending = false;
+}
 
+BspCommunicationFaultSet CanInterface_GetObservedTransportFaults(
+	const CanInterfaceContext *context)
+{
+	return context != NULL ? context->observed_transport_faults :
+		BSP_COMMUNICATION_FAULT_IO;
 }

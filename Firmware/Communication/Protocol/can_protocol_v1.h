@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "can_transport_port.h"
+#include "Bsp/Api/bsp_communication.h"
 
 typedef enum
 {
@@ -73,9 +73,9 @@ typedef struct
     float value;
 } CanProtocolV1Command;
 
-bool CanProtocolV1_Decode(const CanTransportFrame *frame,
+bool CanProtocolV1_Decode(const BspCanFrame *frame,
     uint8_t expected_node_id, CanProtocolV1Command *command);
 bool CanProtocolV1_Encode(uint8_t node_id, uint8_t parameter_id,
-    float value, CanTransportFrame *frame);
+    float value, BspCanFrame *frame);
 
 #endif

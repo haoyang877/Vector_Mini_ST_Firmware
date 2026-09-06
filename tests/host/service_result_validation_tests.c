@@ -6,14 +6,16 @@
 int ServiceResultValidation_RunHostTests(void)
 {
 	DeviceLifecycleContext lifecycle;
-	BoardProfile board = {0};
+	CalibrationCurrentOffsetLimits offset_limits = {0};
+	uint16_t minimum_offsets[3] = {1948U, 1947U, 1946U};
+	uint16_t maximum_offsets[3] = {2148U, 2149U, 2150U};
 	MotorProfile motor = {0};
 	CalibrationServiceContext calibration;
 	IdentificationServiceContext identification;
 	float mean_resistance_ohm = 0.0f;
 
-	board.minimum_current_offset_adc = 1948U;
-	board.maximum_current_offset_adc = 2148U;
+	offset_limits.minimum_current_offset_adc = minimum_offsets;
+	offset_limits.maximum_current_offset_adc = maximum_offsets;
 	motor.phase_resistance_balance_fault_pct = 10.0f;
 	motor.phase_resistance_ohm = 0.10f;
 	motor.phase_resistance_min_ohm = 0.01f;
@@ -21,11 +23,13 @@ int ServiceResultValidation_RunHostTests(void)
 	motor.phase_resistance_design_tolerance_pct = 20.0f;
 	DeviceLifecycle_Initialize(&lifecycle);
 	TEST_CHECK(CalibrationService_Initialize(&calibration, &lifecycle,
-		&board, 1000U));
+		&offset_limits, 1000U));
 	TEST_CHECK(CalibrationService_AcceptCurrentOffsetResult(&calibration,
 		2048U, 2047U, 2049U));
 	TEST_CHECK(!CalibrationService_AcceptCurrentOffsetResult(&calibration,
 		1000U, 2047U, 2049U));
+	TEST_CHECK(!CalibrationService_AcceptCurrentOffsetResult(&calibration,
+		2048U, 1946U, 2049U));
 
 	TEST_CHECK(IdentificationService_Initialize(&identification, &lifecycle,
 		&motor, 1000U));

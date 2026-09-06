@@ -17,6 +17,16 @@ static bool ProductConfigTests_HasError(
 	return false;
 }
 
+static bool ProductConfigTests_NearlyEqual(float first, float second,
+	float tolerance)
+{
+	float difference = first - second;
+
+	if (difference < 0.0f)
+		difference = -difference;
+	return difference <= tolerance;
+}
+
 static ProductFeedbackSourceRef ProductConfigTests_NoFeedback(void)
 {
 	ProductFeedbackSourceRef source;
@@ -93,6 +103,7 @@ int ProductConfig_RunHostTests(void)
 	ProductBoardDesign board;
 	ProductConfigValidationResult result;
 	ProductConfigRuntimeError runtime_error;
+	uint8_t index;
 
 	/* Current catalog: one physical angle sensor, internal temperature,
 	 * classic CAN and low-side three-shunt current acquisition. */
@@ -113,6 +124,130 @@ int ProductConfig_RunHostTests(void)
 		PRODUCT_CONFIG_ENDPOINT_NONE);
 	TEST_CHECK(!catalog_config->board->require_hardware_shutdown);
 
+	/* ProductCatalog is the deployed board configuration source. These golden
+	 * checks prevent an accidental hardware-policy change. */
+	TEST_CHECK(catalog_config->board->current_sense.nominal_shunt_milliohm ==
+		6U);
+	for (index = 0U; index < PRODUCT_CONFIG_MAX_CURRENT_CHANNELS; index++)
+	{
+		TEST_CHECK(catalog_config->board->current_sense.default_offset_count[index] ==
+			2048U);
+		TEST_CHECK(catalog_config->board->current_sense.minimum_valid_offset_count[index] ==
+			1948U);
+		TEST_CHECK(catalog_config->board->current_sense.maximum_valid_offset_count[index] ==
+			2148U);
+		TEST_CHECK(ProductConfigTests_NearlyEqual(
+			catalog_config->board->current_sense.current_a_per_count[index],
+			0.0134310134f, 1.0e-9f));
+	}
+	TEST_CHECK(catalog_config->board->current_sense.offset_calibration_sample_count ==
+		20000U);
+	TEST_CHECK(ProductConfigTests_NearlyEqual(
+		catalog_config->board->phase_resistance_path_compensation_ohm,
+		0.008f, 1.0e-9f));
+	TEST_CHECK(ProductConfigTests_NearlyEqual(
+		catalog_config->safety.software_overcurrent_trip_a, 18.0f, 1.0e-6f));
+	TEST_CHECK(ProductConfigTests_NearlyEqual(
+		catalog_config->safety.undervoltage_trip_v, 10.0f, 1.0e-6f));
+	TEST_CHECK(ProductConfigTests_NearlyEqual(
+		catalog_config->safety.overvoltage_trip_v, 30.0f, 1.0e-6f));
+	TEST_CHECK(ProductConfigTests_NearlyEqual(
+		catalog_config->safety.bus_voltage_filter_alpha, 0.05f, 1.0e-7f));
+	TEST_CHECK(catalog_config->safety.overcurrent_confirm_cycles == 5U);
+	TEST_CHECK(catalog_config->safety.voltage_confirm_cycles == 10000U);
+	TEST_CHECK(catalog_config->safety.temperature_invalid_is_fault);
+	TEST_CHECK(catalog_config->temperature_sensors[0].sample_divider == 20U);
+	TEST_CHECK(catalog_config->can.minimum_heartbeat_ms == 500U);
+	TEST_CHECK(catalog_config->can.maximum_heartbeat_ms == 1000U);
+
+	/* Current-sense calibration metadata must be complete for every physical
+	 * channel; invalid defaults must never reach the runtime projection. */
+	config = *catalog_config;
+	board = *catalog_config->board;
+	config.board = &board;
+	board.current_sense.nominal_shunt_milliohm = 0U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(!ProductConfig_ValidateRuntime(&config, &runtime_error));
+	TEST_CHECK(runtime_error == PRODUCT_CONFIG_RUNTIME_CURRENT_SENSE);
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CURRENT_SHUNT_INVALID));
+
+	board = *catalog_config->board;
+	board.current_sense.minimum_valid_offset_count[1] = 2149U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_RANGE_INVALID));
+
+	board = *catalog_config->board;
+	board.current_sense.default_offset_count[2] = 2149U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_DEFAULT_INVALID));
+
+	board = *catalog_config->board;
+	board.current_sense.offset_calibration_sample_count = 0U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CURRENT_OFFSET_CALIBRATION_INVALID));
+
+	board = *catalog_config->board;
+	board.phase_resistance_path_compensation_ohm = -0.001f;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(!ProductConfig_ValidateRuntime(&config, &runtime_error));
+	TEST_CHECK(runtime_error == PRODUCT_CONFIG_RUNTIME_DESIGN);
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_BOARD_PATH_COMPENSATION_INVALID));
+
+	/* Software protection thresholds and debounce periods are product policy,
+	 * independent of the board's absolute measurable-current limit. */
+	config = *catalog_config;
+	config.safety.software_overcurrent_trip_a = 21.0f;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(!ProductConfig_ValidateRuntime(&config, &runtime_error));
+	TEST_CHECK(runtime_error == PRODUCT_CONFIG_RUNTIME_SAFETY);
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID));
+
+	config = *catalog_config;
+	config.safety.bus_voltage_filter_alpha = 0.0f;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID));
+
+	config = *catalog_config;
+	config.safety.voltage_confirm_cycles = 0U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_SAFETY_CONFIRMATION_INVALID));
+
+	config = *catalog_config;
+	config.temperature_sensors[0].sample_divider = 0U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(!ProductConfig_ValidateRuntime(&config, &runtime_error));
+	TEST_CHECK(runtime_error == PRODUCT_CONFIG_RUNTIME_TEMPERATURE_SENSOR);
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_DIVIDER_INVALID));
+
+	config = *catalog_config;
+	config.can.default_node_id = 8U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CAN_NODE_ID_INVALID));
+
+	config = *catalog_config;
+	config.can.heartbeat_ms = 499U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(!ProductConfig_ValidateRuntime(&config, &runtime_error));
+	TEST_CHECK(runtime_error == PRODUCT_CONFIG_RUNTIME_COMMUNICATION);
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID));
+
+	config = *catalog_config;
+	config.can.minimum_heartbeat_ms = 1001U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID));
+
 	/* Communication policy accepts both the catalog's Classic CAN profile and
 	 * an explicit CAN FD profile with data-phase bit-rate switching. */
 	config = *catalog_config;
@@ -131,6 +266,16 @@ int ProductConfig_RunHostTests(void)
 	config.can.bit_rate_switching = true;
 	config.can.nominal_bitrate_kbps = UINT32_MAX;
 	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID));
+
+	config = *catalog_config;
+	config.can.mode = PRODUCT_CAN_MODE_FD;
+	config.can.data_bitrate_kbps = 5000U;
+	config.can.bit_rate_switching = false;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(!ProductConfig_ValidateRuntime(&config, &runtime_error));
+	TEST_CHECK(runtime_error == PRODUCT_CONFIG_RUNTIME_COMMUNICATION);
 	TEST_CHECK(ProductConfigTests_HasError(&result,
 		PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID));
 

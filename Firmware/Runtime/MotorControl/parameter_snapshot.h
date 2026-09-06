@@ -1,9 +1,9 @@
 #ifndef RUNTIME_PARAMETER_SNAPSHOT_H
 #define RUNTIME_PARAMETER_SNAPSHOT_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "motor_control_types.h"
-#include "board_profile.h"
 #include "motor_profiles.h"
 #include "encoder_profiles.h"
 #include "mechanical_load_profiles.h"
@@ -12,6 +12,16 @@
 #include "can_configuration_service.h"
 
 #define PARAMETER_SNAPSHOT_MAGIC ((uint32_t)0x454E4332U)
+
+typedef struct
+{
+	const uint16_t *default_current_offset_adc;
+	const uint16_t *minimum_current_offset_adc;
+	const uint16_t *maximum_current_offset_adc;
+	uint16_t current_sense_shunt_milliohm;
+	uint8_t default_can_node_id;
+	uint32_t default_can_heartbeat_ms;
+} ParameterSnapshotBoardConfig;
 
 typedef struct
 {
@@ -68,11 +78,24 @@ typedef struct
 	int16_t cogging_compensation_map_ma[ENCODER_COGGING_MAP_SIZE];
 } ParameterSnapshot;
 
+/* Flash ABI guardrails. Changing any of these values requires an explicit
+ * schema migration; the v10 payload is already deployed in the field. */
+typedef char ParameterSnapshot_SchemaMustRemainV10[
+	(PARAM_SCHEMA_VERSION == 10U) ? 1 : -1];
+typedef char ParameterSnapshot_SizeMustRemain2464[
+	(sizeof(ParameterSnapshot) == 2464U) ? 1 : -1];
+typedef char ParameterSnapshot_ShuntOffsetMustRemain2172[
+	(offsetof(ParameterSnapshot, current_sense_shunt_milliohm) == 2172U) ? 1 : -1];
+typedef char ParameterSnapshot_FrictionOffsetMustRemain2188[
+	(offsetof(ParameterSnapshot, friction_coulomb_pos_a) == 2188U) ? 1 : -1];
+typedef char ParameterSnapshot_CoggingOffsetMustRemain2208[
+	(offsetof(ParameterSnapshot, cogging_compensation_map_ma) == 2208U) ? 1 : -1];
+
 typedef struct
 {
 	MotorControlContext *motor;
 	EncoderContext *encoder;
-	const BoardProfile *board_profile;
+	ParameterSnapshotBoardConfig board_config;
 	const MotorProfile *motor_profile;
 	const EncoderProfile *encoder_profile;
 	const MechanicalLoadProfile *mechanical_load_profile;
@@ -86,7 +109,8 @@ void ParameterSnapshot_Apply(ParameterSnapshotContext *context,
 	const ParameterSnapshot *snapshot);
 bool ParameterSnapshot_Initialize(ParameterSnapshotContext *context,
 	MotorControlContext *motor,
-	EncoderContext *encoder, const BoardProfile *board_profile,
+	EncoderContext *encoder,
+	const ParameterSnapshotBoardConfig *board_config,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,
 	CanConfigurationServiceContext *can_configuration);

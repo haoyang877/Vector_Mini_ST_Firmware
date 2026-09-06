@@ -11,6 +11,8 @@ typedef struct
 
 int ContextIsolation_RunHostTests(void);
 int AngleSerialStm32g431Config_RunHostTests(void);
+int CanProtocolV1_RunHostTests(void);
+int CommunicationInterfaceFault_RunHostTests(void);
 int ControlAuthorityService_RunHostTests(void);
 int DeviceLifecycle_RunHostTests(void);
 int Encoder_RunHostTests(void);
@@ -24,7 +26,6 @@ int ParameterManager_RunHostTests(void);
 int ParameterService_RunHostTests(void);
 int ParameterTransactionService_RunHostTests(void);
 int ProductConfig_RunHostTests(void);
-int ProductVariant_RunHostTests(void);
 int BspBoard_RunHostTests(void);
 int ProductConfigBridge_RunHostTests(void);
 int ServiceResultValidation_RunHostTests(void);
@@ -36,6 +37,9 @@ static const HostTestCase HostTests[] =
 {
 	{ "angle_serial_stm32g431_config",
 		AngleSerialStm32g431Config_RunHostTests },
+	{ "can_protocol_v1", CanProtocolV1_RunHostTests },
+	{ "communication_interface_fault",
+		CommunicationInterfaceFault_RunHostTests },
 	{ "context_isolation", ContextIsolation_RunHostTests },
 	{ "control_authority_service", ControlAuthorityService_RunHostTests },
 	{ "device_lifecycle", DeviceLifecycle_RunHostTests },
@@ -50,7 +54,6 @@ static const HostTestCase HostTests[] =
 	{ "parameter_service", ParameterService_RunHostTests },
 	{ "parameter_transaction_service", ParameterTransactionService_RunHostTests },
 	{ "product_config_v2", ProductConfig_RunHostTests },
-	{ "product_variant", ProductVariant_RunHostTests },
 	{ "bsp_board_v2", BspBoard_RunHostTests },
 	{ "product_config_bridge", ProductConfigBridge_RunHostTests },
 	{ "service_result_validation", ServiceResultValidation_RunHostTests },

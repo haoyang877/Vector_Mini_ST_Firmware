@@ -3,8 +3,15 @@
 
 #include "current_control_runtime.h"
 #include "phase_resistance.h"
-#include "board_profile.h"
 #include "motor_profiles.h"
+
+typedef struct
+{
+	uint32_t control_frequency_hz;
+	float path_compensation_ohm;
+	float undervoltage_trip_v;
+	float overvoltage_trip_v;
+} PhaseResistanceRuntimeBoardConfig;
 
 /**
  * @file phase_resistance_runtime.h
@@ -71,7 +78,8 @@ typedef struct
 /** Execute one 20 kHz resistance-identification cycle. */
 PhaseResistanceRuntimeStatus PhaseResistanceRuntime_Run(
 	PhaseResistanceRuntimeContext *context, CurrentControlContext *current_control,
-	MotorControlContext *motor, const BoardProfile *board_profile,
+	MotorControlContext *motor,
+	const PhaseResistanceRuntimeBoardConfig *board_config,
 	const MotorProfile *motor_profile);
 
 /** Read the latest active current/voltage sample used by the resistance fit. */

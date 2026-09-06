@@ -49,8 +49,8 @@
   * @{
   */
 /* Define size for the receive and transmit buffer over CDC */
-#define APP_RX_DATA_SIZE  1024
-#define APP_TX_DATA_SIZE  1024
+#define APP_RX_DATA_SIZE  CDC_DATA_FS_MAX_PACKET_SIZE
+#define APP_TX_DATA_SIZE  CDC_DATA_FS_MAX_PACKET_SIZE
 /* USER CODE BEGIN EXPORTED_DEFINES */
 
 /* USER CODE END EXPORTED_DEFINES */

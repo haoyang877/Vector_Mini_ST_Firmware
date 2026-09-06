@@ -510,11 +510,13 @@ static const BspTemperatureEndpointCapabilities *BspBoard_FindTemperatureEndpoin
 	return NULL;
 }
 
-static const BspCommunicationEndpointCapabilities *
+const BspCommunicationEndpointCapabilities *
 	BspBoard_FindCommunicationEndpoint(const BspBoardCapabilities *capabilities,
 		BspEndpointId endpoint_id)
 {
 	size_t index;
+	if (capabilities == NULL || capabilities->communication_endpoints == NULL)
+		return NULL;
 
 	for (index = 0U; index < capabilities->communication_endpoint_count; ++index)
 	{

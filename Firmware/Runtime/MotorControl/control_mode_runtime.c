@@ -1,5 +1,7 @@
 #include "control_mode_runtime.h"
 
+#include <math.h>
+
 #include "motor_state_runtime.h"
 #include "control_loop_config.h"
 #include "control_tuning_access.h"
@@ -551,7 +553,7 @@ void ControlModeRuntime_RunPositionCascade(MotionControlContext *motion, Current
  **/
 void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, CurrentControlContext *CurrentControl,
 	MotorControlContext *MotorControl, EncoderContext *Encoder,
-	const MotorProfile *motor_profile, const BoardProfile *board_profile,
+	const MotorProfile *motor_profile, float maximum_current_limit_a,
 	MotorStateContext *motor_state)
 {
 	PositionImpedanceConfig config;
@@ -561,7 +563,8 @@ void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, Curre
 	float vel_elec;
 
 	if (motion == 0 || CurrentControl == 0 || MotorControl == 0 || Encoder == 0 ||
-		motor_profile == 0 || board_profile == 0 ||
+		motor_profile == 0 || !isfinite(maximum_current_limit_a) ||
+		maximum_current_limit_a <= 0.0f ||
 		MotorControl->mechanical_load_profile == 0)
 		return;
 	theta_elec = Encoder_GetElePhase(Encoder);
@@ -583,7 +586,7 @@ void ControlModeRuntime_RunPositionImpedance(MotionControlContext *motion, Curre
 	config.kd_limit = motor_profile->position_kd_limit_a_per_rad_s;
 	config.ki_limit = motor_profile->position_ki_limit_a_per_rad_s;
 	config.maximum_speed_limit_rad_s = motor_profile->position_speed_limit_rps * MATH_TWO_PI;
-	config.maximum_current_limit_a = board_profile->current_command_limit_a;
+	config.maximum_current_limit_a = maximum_current_limit_a;
 	config.friction_feedforward_enabled = MotorControl->configuration.
 		friction_model_valid || MotorControl->mechanical_load_profile->
 		position_friction_feedforward_enabled;

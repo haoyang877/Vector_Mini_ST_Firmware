@@ -85,14 +85,12 @@ FrictionIdentificationState FrictionIdentificationRuntime_Run(
 	FrictionIdentificationRuntimeContext *context,
 	MotionControlContext *motion, CurrentControlContext *current_control,
 	MotorControlContext *motor, PiController *speed_controller,
-	EncoderContext *encoder, const BoardProfile *board_profile,
+	EncoderContext *encoder,
 	const MechanicalLoadProfile *load_profile)
 {
 	FrictionIdentificationConfig config;
 	FrictionIdentificationInput input;
 	FrictionIdentificationState state;
-	(void)board_profile;
-
 	if (context == 0 || motion == 0 || current_control == 0 || motor == 0 ||
 		speed_controller == 0 || encoder == 0 || load_profile == 0)
 		return FRICTION_IDENT_FAILED;

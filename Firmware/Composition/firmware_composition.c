@@ -39,6 +39,9 @@
 #include "can_command_router.h"
 #include "usb_command_router.h"
 #include "application_endpoints.h"
+#include "product_config_bridge.h"
+#include "product_runtime_selection.h"
+#include "vector_mini_st_bsp.h"
 
 static PowerStageContext MotorPowerStage;
 static MotorControlRuntimeContext MotorControlRuntime;
@@ -65,6 +68,7 @@ static UsbCommandRouterContext UsbCommandRouter;
 static ApplicationEndpoints ApplicationEndpointSet;
 static ControlAuthorityServiceContext ControlAuthorityService;
 static bool FirmwareIsInitialized;
+static volatile ProductConfigBridgeStatus ProductConfigBridgeStartupStatus;
 
 /**
 	* @brief  Initialize board peripherals and application modules
@@ -98,11 +102,25 @@ void FirmwareComposition_Initialize(void)
 	DeviceIdentityPort device_identity_port;
 	DiagnosticTransportPort diagnostic_transport;
 	ParameterStorePort parameter_store;
+	ProductConfigBridgeStatus product_bridge_status;
 
 	FirmwareIsInitialized = false;
 	product = &product_storage;
 	if (!ProductVariant_GetActive(&product_storage))
+	{
+		ProductConfigBridgeStartupStatus =
+			PRODUCT_CONFIG_BRIDGE_RUNTIME_CONFIG_INVALID;
 		return;
+	}
+	if (!ProductConfigBridge_ValidateRuntime(
+		&ProductCatalog_CurrentRuntimeSelection,
+		&BspVectorMiniSt_RuntimeIdentity,
+		product->configuration_fingerprint, &product_bridge_status))
+	{
+		ProductConfigBridgeStartupStatus = product_bridge_status;
+		return;
+	}
+	ProductConfigBridgeStartupStatus = PRODUCT_CONFIG_BRIDGE_OK;
 	board_profile = product->board;
 	motor_profile = product->motor;
 	encoder_profile = product->encoder;

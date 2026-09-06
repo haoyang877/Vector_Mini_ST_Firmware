@@ -73,6 +73,7 @@ bool ProductVariant_Validate(const ProductVariant *variant)
 			6.28318530717958647692f <= motor->speed_limit_max_rad_s &&
 		variant->mechanical_load->default_position_max_speed_rps <=
 			motor->position_speed_limit_rps &&
+		motor->position_max_speed_rps <= motor->position_speed_limit_rps &&
 		variant->mechanical_load->default_position_max_speed_rps <=
 			variant->mechanical_load->default_speed_limit_rps &&
 		variant->mechanical_load->encoder_calibration_startup.minimum_current_limit_a <=

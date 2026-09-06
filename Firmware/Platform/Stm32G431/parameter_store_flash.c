@@ -24,6 +24,10 @@ static bool ParameterStoreFlash_ResourcesAreValid(
 		resources->storage_base_address < resources->flash_base_address ||
 		resources->capacity_bytes == 0U || resources->erase_size_bytes == 0U ||
 		resources->program_alignment_bytes != 8U ||
+		resources->storage_base_address %
+			resources->program_alignment_bytes != 0U ||
+		resources->erase_size_bytes %
+			resources->program_alignment_bytes != 0U ||
 		(resources->storage_base_address - resources->flash_base_address) %
 			resources->erase_size_bytes != 0U ||
 		resources->capacity_bytes % resources->erase_size_bytes != 0U)

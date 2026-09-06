@@ -31,6 +31,11 @@ typedef struct
 	uint32_t marker_inverse;
 } ParameterCommitBlock;
 
+typedef char ParameterRecordHeaderSizeMustRemain48Bytes[
+	(sizeof(ParameterRecordHeader) == 48U) ? 1 : -1];
+typedef char ParameterRecordCommitOffsetMustRemain40Bytes[
+	(offsetof(ParameterRecordHeader, commit_marker) == 40U) ? 1 : -1];
+
 static bool ParameterManager_ReadStore(ParameterManagerContext *context,
 	uint8_t slot, uint32_t offset, void *destination, uint32_t size_bytes)
 {
@@ -349,7 +354,11 @@ bool ParameterManager_Save(ParameterManagerContext *context, const void *payload
 		return false;
 	if (!ParameterManager_ReadStore(context, target_slot, 0U,
 		&stored_header, sizeof(stored_header)) ||
-		!ParameterManager_IsHeaderValid(context, &stored_header))
+		!ParameterManager_IsHeaderValid(context, &stored_header) ||
+		stored_header.sequence != header.sequence ||
+		stored_header.payload_crc32 != header.payload_crc32 ||
+		!ParameterManager_VerifyStoredPayload(context, target_slot,
+			stored_header.payload_crc32))
 		return false;
 
 	context->active_slot = target_slot;

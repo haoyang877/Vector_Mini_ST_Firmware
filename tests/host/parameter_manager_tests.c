@@ -11,6 +11,7 @@ typedef struct
 	unsigned char bytes[PARAMETER_MANAGER_SLOT_COUNT * TEST_SLOT_SIZE];
 	uint32_t program_call_count;
 	uint32_t fail_program_call;
+	uint32_t corrupt_after_program_call;
 } TestStore;
 
 static BspResult TestStore_Read(void *raw_context, uint32_t offset,
@@ -56,6 +57,12 @@ static BspResult TestStore_Program(void *raw_context, uint32_t offset,
 		if ((*destination & source_bytes[index]) != source_bytes[index])
 			return BSP_RESULT_IO_ERROR;
 		*destination &= source_bytes[index];
+	}
+	if (store->corrupt_after_program_call != 0U &&
+		store->program_call_count == store->corrupt_after_program_call)
+	{
+		uint32_t slot_offset = (offset / TEST_SLOT_SIZE) * TEST_SLOT_SIZE;
+		store->bytes[slot_offset + 48U] ^= 0x01U;
 	}
 	return BSP_RESULT_OK;
 }
@@ -175,5 +182,21 @@ int ParameterManager_RunHostTests(void)
 	TEST_CHECK(!reader.is_initialized);
 	ParameterManager_Initialize(&reader, &store, &compatibility, UINT32_MAX);
 	TEST_CHECK(!reader.is_initialized);
+
+	/* A store that reports success but corrupts the committed payload must not
+	 * make Save report success or replace the active record. */
+	memset(&memory, 0, sizeof(memory));
+	memset(memory.bytes, 0xFF, sizeof(memory.bytes));
+	store.context = &memory;
+	store.geometry.capacity_bytes = sizeof(memory.bytes);
+	store.geometry.erase_size_bytes = TEST_SLOT_SIZE;
+	store.geometry.program_alignment_bytes = TEST_PROGRAM_ALIGNMENT;
+	compatibility.configuration_fingerprint = 0xA5A55A5AUL;
+	ParameterManager_Initialize(&writer, &store, &compatibility,
+		sizeof(written));
+	memory.corrupt_after_program_call = 3U;
+	written = 0x12345679UL;
+	TEST_CHECK(!ParameterManager_Save(&writer, &written));
+	TEST_CHECK(!writer.has_active_record);
 	return ParameterManager_CheckGoldenRecord();
 }

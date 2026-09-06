@@ -33,7 +33,8 @@ bool BoardRuntimeStm32G431_Start(void)
 	if (HAL_ADCEx_InjectedStart(&hadc2) != HAL_OK)
 		return false;
 
-	__HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOC);
+	/* The fast loop owns one complete four-rank current/bus acquisition. */
+	__HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOS);
 	return HAL_TIM_Base_Start_IT(&htim7) == HAL_OK;
 }
 

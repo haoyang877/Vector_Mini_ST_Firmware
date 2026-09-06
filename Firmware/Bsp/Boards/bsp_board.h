@@ -73,6 +73,7 @@ typedef struct
 {
 	BspEndpointId motor_drive_endpoint;
 	BspCurrentSenseTopology current_sense_topology;
+	BspCurrentSamplingMode current_sampling_mode;
 	uint8_t current_sensor_binding_count;
 	BspEndpointId
 		current_sensor_endpoints[BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT];
@@ -112,6 +113,8 @@ typedef enum
 	BSP_BOARD_VALIDATION_DUPLICATE_BINDING,
 	BSP_BOARD_VALIDATION_CURRENT_SENSE_TOPOLOGY_INVALID,
 	BSP_BOARD_VALIDATION_CURRENT_SENSE_TOPOLOGY_UNSUPPORTED,
+	BSP_BOARD_VALIDATION_CURRENT_SAMPLING_MODE_INVALID,
+	BSP_BOARD_VALIDATION_CURRENT_SAMPLING_MODE_UNSUPPORTED,
 	BSP_BOARD_VALIDATION_CURRENT_SENSOR_CAPACITY_INSUFFICIENT,
 	BSP_BOARD_VALIDATION_CURRENT_SENSOR_BINDING_MISMATCH,
 	BSP_BOARD_VALIDATION_SYNCHRONIZED_SAMPLING_UNSUPPORTED,
@@ -139,6 +142,21 @@ BspBoardValidationResult BspBoard_ValidateCapabilities(
 BspBoardValidationResult BspBoard_ValidateBindingRequest(
 	const BspBoardCapabilities *capabilities,
 	const BspBoardBindingRequest *request);
+const BspMotorDriveEndpointCapabilities *BspBoard_FindMotorDriveEndpoint(
+	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id);
+/* Resolves each requested physical current endpoint to the raw acquisition
+ * slot declared by the motor-drive capability. The result follows the request
+ * order, is written only after every endpoint resolves exactly once, and is
+ * independent of ProductConfig channel ordering. */
+bool BspBoard_ResolveCurrentAcquisitionIndices(
+	const BspMotorDriveEndpointCapabilities *capabilities,
+	const BspEndpointId *requested_endpoints,
+	uint8_t requested_endpoint_count,
+	uint8_t *acquisition_indices);
+const BspAngleSensorEndpointCapabilities *BspBoard_FindAngleSensorEndpoint(
+	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id);
+const BspTemperatureEndpointCapabilities *BspBoard_FindTemperatureEndpoint(
+	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id);
 const BspCommunicationEndpointCapabilities *
 	BspBoard_FindCommunicationEndpoint(
 		const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id);

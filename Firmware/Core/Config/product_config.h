@@ -9,6 +9,7 @@
 #define PRODUCT_CONFIG_MAX_ANGLE_SENSORS               2U
 #define PRODUCT_CONFIG_MAX_TEMPERATURE_SENSORS         3U
 #define PRODUCT_CONFIG_MAX_VALIDATION_ERRORS          32U
+#define PRODUCT_FRICTION_IDENTIFICATION_SPEED_POINT_COUNT 4U
 #define PRODUCT_CONFIG_SENSOR_INDEX_NONE             0xFFU
 #define PRODUCT_CONFIG_ENDPOINT_NONE                 0x0000U
 
@@ -27,6 +28,27 @@ typedef enum
 	PRODUCT_CURRENT_SENSE_TOPOLOGY_LOW_SIDE_2_SHUNT,
 	PRODUCT_CURRENT_SENSE_TOPOLOGY_DC_LINK_1_SHUNT
 } ProductCurrentSenseTopology;
+
+/* Logical quantity sampled by one physical current-acquisition endpoint.
+ * The role is explicit so neither the endpoint order nor an ADC rank implies
+ * which phase a sample belongs to. */
+typedef enum
+{
+	PRODUCT_CURRENT_CHANNEL_ROLE_INVALID = 0,
+	PRODUCT_CURRENT_CHANNEL_ROLE_PHASE_A,
+	PRODUCT_CURRENT_CHANNEL_ROLE_PHASE_B,
+	PRODUCT_CURRENT_CHANNEL_ROLE_PHASE_C,
+	PRODUCT_CURRENT_CHANNEL_ROLE_DC_LINK
+} ProductCurrentChannelRole;
+
+/* Sign convention from raw ADC delta to positive current. The scale stored in
+ * ProductCurrentSenseConfig is always a positive magnitude. */
+typedef enum
+{
+	PRODUCT_CURRENT_CHANNEL_POLARITY_INVALID = 0,
+	PRODUCT_CURRENT_CHANNEL_POLARITY_NORMAL,
+	PRODUCT_CURRENT_CHANNEL_POLARITY_INVERTED
+} ProductCurrentChannelPolarity;
 
 typedef enum
 {
@@ -162,7 +184,12 @@ typedef struct
 {
 	ProductCurrentSenseTopology topology;
 	uint8_t physical_channel_count;
+	ProductCurrentChannelRole
+		channel_roles[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
+	ProductCurrentChannelPolarity
+		channel_polarities[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
 	ProductEndpointId channel_endpoints[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
+	/* Positive magnitude; channel_polarities carries the sign convention. */
 	float current_a_per_count[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
 	uint16_t default_offset_count[PRODUCT_CONFIG_MAX_CURRENT_CHANNELS];
 	/* Retained as design metadata and for the deployed Flash compatibility
@@ -213,6 +240,210 @@ typedef struct
 
 typedef struct
 {
+	float phase_resistance_min_ohm;
+	float phase_resistance_max_ohm;
+	float inductance_min_h;
+	float inductance_max_h;
+	float flux_min_weber;
+	float flux_max_weber;
+} ProductMotorAcceptanceConfig;
+
+typedef struct
+{
+	float align_current_ramp_time_s;
+	float align_hold_time_s;
+	float align_current_a;
+	float startup_iq_initial_a;
+	float startup_iq_a;
+	float startup_iq_ramp_time_s;
+	float startup_id_a;
+	float minimum_current_limit_a;
+	float minimum_electrical_velocity_rad_s;
+	float target_electrical_velocity_rad_s;
+	float startup_ramp_time_s;
+	float speed_lock_time_s;
+	float speed_lock_filter_alpha;
+	float observer_lock_ratio;
+	float angle_handoff_time_s;
+	float lock_timeout_s;
+	float id_ramp_down_time_s;
+	float observer_loss_time_s;
+} ProductSensorlessStartupConfig;
+
+typedef struct
+{
+	ProductSensorlessStartupConfig startup;
+	float observer_max_electrical_velocity_rad_s;
+	float speed_feedback_lpf_alpha;
+	float flux_observer_gamma;
+	float flux_observer_resistance_scale;
+	float flux_observer_max_correction_step_rad;
+	float flux_observer_minimum_flux_weber;
+	float flux_observer_velocity_lpf_alpha;
+	float flux_observer_angle_wrap_threshold_rad;
+} ProductSensorlessControlConfig;
+
+typedef struct
+{
+	bool enabled;
+	float friction_positive_current_a;
+	float friction_negative_current_a;
+	float breakaway_positive_current_a;
+	float breakaway_negative_current_a;
+	float current_slew_rate_a_per_s;
+	float position_enter_rad;
+	float position_exit_rad;
+	float reference_speed_rad_s;
+	float stop_speed_rad_s;
+	float move_speed_rad_s;
+	float stuck_time_s;
+	float landing_position_rad;
+	float landing_speed_rad_s;
+	float recovery_delay_s;
+	float recovery_pulse_time_s;
+	float recovery_cooldown_s;
+} ProductPositionFrictionControlConfig;
+
+typedef struct
+{
+	float speed_limit_max_rad_s;
+	float speed_ramp_max_rad_s2;
+	float position_ramp_max_rad_s2;
+	float position_speed_limit_rad_s;
+	float position_kp_limit_a_per_rad;
+	float position_kd_limit_a_per_rad_s;
+	float position_ki_limit_a_per_rad_s;
+	float cascade_position_kp_limit_per_s;
+	float cascade_position_kd_limit;
+} ProductControlParameterLimits;
+
+typedef struct
+{
+	uint32_t speed_loop_frequency_hz;
+	uint32_t position_loop_frequency_hz;
+	uint32_t cascade_position_loop_frequency_hz;
+	float current_loop_bandwidth_rad_s;
+	float open_loop_voltage_v;
+	float open_loop_electrical_velocity_rad_s;
+	float open_loop_initial_theta_rad;
+	float default_speed_limit_rad_s;
+	float speed_acceleration_rad_s2;
+	float speed_deceleration_rad_s2;
+	float speed_kp;
+	float speed_ki;
+	float position_acceleration_rad_s2;
+	float position_deceleration_rad_s2;
+	float default_position_max_speed_rad_s;
+	float position_kp_a_per_rad;
+	float position_kd_a_per_rad_s;
+	float position_ki_a_per_rad_s;
+	float position_integral_limit_a;
+	float position_error_window_rad;
+	float cascade_position_kp_per_s;
+	float cascade_position_kd;
+	ProductControlParameterLimits parameter_limits;
+	ProductSensorlessControlConfig sensorless;
+	ProductPositionFrictionControlConfig position_friction;
+} ProductControlConfig;
+
+typedef struct
+{
+	float test_current_low_a;
+	float test_current_high_a;
+	float test_current_max_a;
+	float test_current_min_a;
+	float current_tolerance_a;
+	float q_current_tolerance_a;
+	float voltage_tolerance_v;
+	float voltage_min_delta_v;
+	float voltage_filter_alpha;
+	uint32_t ramp_time_ms;
+	uint32_t settle_time_ms;
+	uint32_t sample_time_ms;
+	uint32_t pause_time_ms;
+	uint32_t timeout_ms;
+	float balance_warning_pct;
+	float balance_fault_pct;
+	float design_tolerance_pct;
+} ProductPhaseResistanceCommissioningConfig;
+
+typedef struct
+{
+	ProductSensorlessStartupConfig startup;
+	float linearization_align_time_s;
+	float linearization_ramp_time_s;
+	float linearization_speed_electrical_rad_s;
+	float linearization_timeout_factor;
+	float linearization_unlock_timeout_s;
+	float calibration_speed_mechanical_rad_s;
+	float calibration_speed_error_ratio;
+	float calibration_speed_stable_time_s;
+	float calibration_speed_stable_timeout_s;
+	float calibration_align_sample_time_s;
+	uint32_t calibration_mechanical_turns;
+	uint32_t calibration_verify_mechanical_turns;
+	uint16_t calibration_min_samples_per_bin;
+	uint16_t calibration_lut_build_bins_per_cycle;
+	float calibration_find_origin_timeout_s;
+	float calibration_sample_timeout_s;
+	float calibration_verify_timeout_s;
+	uint16_t calibration_max_rms_residual_q15;
+	uint16_t calibration_max_peak_residual_q15;
+	float calibration_startup_timeout_s;
+	float calibration_stop_speed_margin;
+	float calibration_stop_deceleration_time_s;
+	float calibration_stop_deceleration_timeout_s;
+	float calibration_stop_speed_tolerance_ratio;
+	float calibration_stop_current_ramp_time_s;
+	float electrical_zero_current_ramp_time_s;
+	float electrical_zero_hold_time_s;
+	float electrical_zero_min_align_current_a;
+	float direction_align_time_s;
+	float direction_speed_electrical_rad_s;
+} ProductAngleCommissioningConfig;
+
+typedef struct
+{
+	float speed_points_rad_s[
+		PRODUCT_FRICTION_IDENTIFICATION_SPEED_POINT_COUNT];
+	uint32_t speed_point_count;
+	float stable_time_s;
+	float track_timeout_s;
+	float sample_timeout_s;
+	float stop_hold_time_s;
+	float stop_timeout_s;
+	float speed_tolerance_ratio;
+	float minimum_speed_tolerance_rad_s;
+	float stop_speed_rad_s;
+	float sample_turns;
+	float minimum_sample_time_s;
+	float current_ratio_max;
+	float saturation_time_s;
+	float rmse_floor_a;
+	float rmse_ratio_max;
+} ProductFrictionIdentificationConfig;
+
+typedef struct
+{
+	float speed_rad_s;
+	uint32_t turns;
+	float stable_time_s;
+	float stage_timeout_s;
+	float speed_tolerance_ratio;
+	uint16_t minimum_samples_per_bin;
+	float maximum_current_a;
+} ProductCoggingIdentificationConfig;
+
+typedef struct
+{
+	ProductPhaseResistanceCommissioningConfig phase_resistance;
+	ProductAngleCommissioningConfig angle;
+	ProductFrictionIdentificationConfig friction;
+	ProductCoggingIdentificationConfig cogging;
+} ProductCommissioningTuningConfig;
+
+typedef struct
+{
 	ProductComponentId design_id;
 	float transmission_ratio;
 	float maximum_output_speed_rad_s;
@@ -252,7 +483,10 @@ typedef struct
 	ProductTemperatureSensorSource source;
 	ProductTemperatureZone zone;
 	ProductEndpointId endpoint;
-	uint16_t sample_divider;
+	/* Supervisory wall-clock timing. These values are milliseconds and never
+	 * scale with the PWM or motor-control frequency. */
+	uint16_t sample_period_ms;
+	uint16_t pending_timeout_ms;
 	bool protection_enabled;
 	float protection_limit_c;
 } ProductTemperatureSensorInstanceConfig;
@@ -294,7 +528,10 @@ typedef struct
 	ProductFeatureRequirement angle_redundancy_monitor;
 	ProductFeatureRequirement temperature_monitoring;
 	ProductFeatureRequirement temperature_protection;
-	ProductTemperatureZoneMask required_temperature_zones;
+	/* Zones which must be observable even when they are diagnostic-only. */
+	ProductTemperatureZoneMask required_monitored_temperature_zones;
+	/* Zones which must have an enabled and valid shutdown threshold. */
+	ProductTemperatureZoneMask required_protected_temperature_zones;
 } ProductFeaturePolicy;
 
 typedef struct
@@ -345,6 +582,9 @@ typedef struct
 		temperature_sensors[PRODUCT_CONFIG_MAX_TEMPERATURE_SENSORS];
 	uint8_t temperature_sensor_count;
 	ProductSafetyConfig safety;
+	ProductMotorAcceptanceConfig motor_acceptance;
+	ProductControlConfig control;
+	ProductCommissioningTuningConfig commissioning_tuning;
 	ProductFeedbackRoutingConfig feedback;
 	ProductFeaturePolicy features;
 	ProductCommissioningPolicy commissioning;
@@ -378,7 +618,10 @@ typedef enum
 	PRODUCT_CONFIG_SUBJECT_FEATURE_POLICY,
 	PRODUCT_CONFIG_SUBJECT_COMMISSIONING_POLICY,
 	PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
-	PRODUCT_CONFIG_SUBJECT_SAFETY_POLICY
+	PRODUCT_CONFIG_SUBJECT_SAFETY_POLICY,
+	PRODUCT_CONFIG_SUBJECT_MOTOR_ACCEPTANCE,
+	PRODUCT_CONFIG_SUBJECT_CONTROL,
+	PRODUCT_CONFIG_SUBJECT_COMMISSIONING_TUNING
 } ProductConfigValidationSubject;
 
 typedef enum
@@ -447,9 +690,31 @@ typedef enum
 	PRODUCT_CONFIG_ERROR_BOARD_PATH_COMPENSATION_INVALID,
 	PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID,
 	PRODUCT_CONFIG_ERROR_SAFETY_CONFIRMATION_INVALID,
-	PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_DIVIDER_INVALID,
+	PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_PERIOD_INVALID,
 	PRODUCT_CONFIG_ERROR_CAN_NODE_ID_INVALID,
-	PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID
+	PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID,
+	PRODUCT_CONFIG_ERROR_MOTOR_ACCEPTANCE_RANGE_INVALID,
+	PRODUCT_CONFIG_ERROR_MOTOR_OUTSIDE_ACCEPTANCE,
+	PRODUCT_CONFIG_ERROR_CONTROL_FREQUENCY_INVALID,
+	PRODUCT_CONFIG_ERROR_CONTROL_PARAMETER_INVALID,
+	PRODUCT_CONFIG_ERROR_CONTROL_LIMIT_INVALID,
+	PRODUCT_CONFIG_ERROR_CONTROL_DEFAULT_EXCEEDS_LIMIT,
+	PRODUCT_CONFIG_ERROR_SENSORLESS_CONTROL_INVALID,
+	PRODUCT_CONFIG_ERROR_POSITION_FRICTION_CONTROL_INVALID,
+	PRODUCT_CONFIG_ERROR_PHASE_RESISTANCE_TUNING_INVALID,
+	PRODUCT_CONFIG_ERROR_ANGLE_COMMISSIONING_TUNING_INVALID,
+	PRODUCT_CONFIG_ERROR_FRICTION_IDENTIFICATION_TUNING_INVALID,
+	PRODUCT_CONFIG_ERROR_COGGING_IDENTIFICATION_TUNING_INVALID,
+	PRODUCT_CONFIG_ERROR_COMMISSIONING_EXCEEDS_LIMIT,
+	/* Appended to preserve all previously assigned diagnostic code values. */
+	PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_ROLE_INVALID,
+	PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_ROLE_DUPLICATE,
+	PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_ROLE_TOPOLOGY_MISMATCH,
+	PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_POLARITY_INVALID,
+	PRODUCT_CONFIG_ERROR_CURRENT_UNUSED_CHANNEL_CONFIGURED,
+	PRODUCT_CONFIG_ERROR_TEMPERATURE_PENDING_TIMEOUT_INVALID,
+	/* Schema 10 persists exactly one motor-rotor LUT. */
+	PRODUCT_CONFIG_ERROR_SECONDARY_ROTOR_LUT_UNSUPPORTED
 } ProductConfigErrorCode;
 
 typedef struct
@@ -481,7 +746,10 @@ typedef enum
 	PRODUCT_CONFIG_RUNTIME_TEMPERATURE_SENSOR,
 	PRODUCT_CONFIG_RUNTIME_FEEDBACK,
 	PRODUCT_CONFIG_RUNTIME_COMMUNICATION,
-	PRODUCT_CONFIG_RUNTIME_SAFETY
+	PRODUCT_CONFIG_RUNTIME_SAFETY,
+	PRODUCT_CONFIG_RUNTIME_MOTOR_ACCEPTANCE,
+	PRODUCT_CONFIG_RUNTIME_CONTROL,
+	PRODUCT_CONFIG_RUNTIME_COMMISSIONING_TUNING
 } ProductConfigRuntimeError;
 
 bool ProductConfig_Derive(const ProductConfig *config,

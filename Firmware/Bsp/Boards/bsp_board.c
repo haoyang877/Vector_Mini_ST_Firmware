@@ -75,6 +75,11 @@ static BspBoardValidationResult BspBoard_ValidateMotorDescriptors(
 	const BspCurrentSenseTopologySet known_topologies =
 		(UINT32_C(1) << (uint32_t)BSP_CURRENT_SENSE_TOPOLOGY_COUNT) -
 		UINT32_C(1);
+	const BspCurrentSamplingModeSet known_sampling_modes =
+		((UINT32_C(1) << (uint32_t)BSP_CURRENT_SAMPLING_MODE_COUNT) -
+		 UINT32_C(1)) &
+		~BSP_CURRENT_SAMPLING_MODE_BIT(
+			BSP_CURRENT_SAMPLING_MODE_UNSPECIFIED);
 	size_t index;
 	size_t previous;
 	size_t sensor;
@@ -90,10 +95,12 @@ static BspBoardValidationResult BspBoard_ValidateMotorDescriptors(
 			!BspBoard_AvailabilityIsValid(endpoint->availability) ||
 			(endpoint->supported_current_sense_topologies &
 			 ~known_topologies) != 0U ||
+			(endpoint->supported_sampling_modes & ~known_sampling_modes) != 0U ||
 			endpoint->current_sensor_capacity >
 				BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT ||
 			(endpoint->availability == BSP_ENDPOINT_AVAILABLE &&
-			 endpoint->supported_current_sense_topologies == 0U))
+			 (endpoint->supported_current_sense_topologies == 0U ||
+			  endpoint->supported_sampling_modes == 0U)))
 		{
 			return BspBoard_Result(BSP_BOARD_VALIDATION_INVALID_DESCRIPTOR,
 				BSP_BOARD_RESOURCE_MOTOR_DRIVE, index, endpoint->endpoint_id);
@@ -471,10 +478,12 @@ BspBoardValidationResult BspBoard_ValidateCapabilities(
 		BSP_BOARD_VALIDATION_NO_BINDING_INDEX, BSP_ENDPOINT_ID_NONE);
 }
 
-static const BspMotorDriveEndpointCapabilities *BspBoard_FindMotorEndpoint(
+const BspMotorDriveEndpointCapabilities *BspBoard_FindMotorDriveEndpoint(
 	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id)
 {
 	size_t index;
+	if (capabilities == NULL || capabilities->motor_drive_endpoints == NULL)
+		return NULL;
 
 	for (index = 0U; index < capabilities->motor_drive_endpoint_count; ++index)
 	{
@@ -484,10 +493,76 @@ static const BspMotorDriveEndpointCapabilities *BspBoard_FindMotorEndpoint(
 	return NULL;
 }
 
-static const BspAngleSensorEndpointCapabilities *BspBoard_FindAngleEndpoint(
+bool BspBoard_ResolveCurrentAcquisitionIndices(
+	const BspMotorDriveEndpointCapabilities *capabilities,
+	const BspEndpointId *requested_endpoints,
+	uint8_t requested_endpoint_count,
+	uint8_t *acquisition_indices)
+{
+	uint8_t resolved[BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT];
+	uint8_t requested_index;
+	uint8_t capability_index;
+
+	if (capabilities == NULL || requested_endpoints == NULL ||
+		acquisition_indices == NULL || requested_endpoint_count == 0U ||
+		requested_endpoint_count > BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT ||
+		capabilities->availability != BSP_ENDPOINT_AVAILABLE ||
+		capabilities->current_sensor_capacity == 0U ||
+		capabilities->current_sensor_capacity >
+			BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT ||
+		requested_endpoint_count > capabilities->current_sensor_capacity)
+	{
+		return false;
+	}
+
+	for (requested_index = 0U;
+		requested_index < requested_endpoint_count; ++requested_index)
+	{
+		uint8_t match_count = 0U;
+		uint8_t previous_index;
+
+		if (requested_endpoints[requested_index] == BSP_ENDPOINT_ID_NONE)
+			return false;
+		for (previous_index = 0U; previous_index < requested_index;
+			++previous_index)
+		{
+			if (requested_endpoints[previous_index] ==
+				requested_endpoints[requested_index])
+			{
+				return false;
+			}
+		}
+		for (capability_index = 0U;
+			capability_index < capabilities->current_sensor_capacity;
+			++capability_index)
+		{
+			if (capabilities->current_sensor_endpoints[capability_index] ==
+				requested_endpoints[requested_index])
+			{
+				resolved[requested_index] = capability_index;
+				match_count++;
+			}
+		}
+		/* Missing endpoints and malformed duplicate capability entries both
+		 * fail closed instead of selecting an arbitrary raw slot. */
+		if (match_count != 1U)
+			return false;
+	}
+
+	for (requested_index = 0U;
+		requested_index < requested_endpoint_count; ++requested_index)
+	{
+		acquisition_indices[requested_index] = resolved[requested_index];
+	}
+	return true;
+}
+
+const BspAngleSensorEndpointCapabilities *BspBoard_FindAngleSensorEndpoint(
 	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id)
 {
 	size_t index;
+	if (capabilities == NULL || capabilities->angle_sensor_endpoints == NULL)
+		return NULL;
 
 	for (index = 0U; index < capabilities->angle_sensor_endpoint_count; ++index)
 	{
@@ -497,10 +572,12 @@ static const BspAngleSensorEndpointCapabilities *BspBoard_FindAngleEndpoint(
 	return NULL;
 }
 
-static const BspTemperatureEndpointCapabilities *BspBoard_FindTemperatureEndpoint(
+const BspTemperatureEndpointCapabilities *BspBoard_FindTemperatureEndpoint(
 	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id)
 {
 	size_t index;
+	if (capabilities == NULL || capabilities->temperature_endpoints == NULL)
+		return NULL;
 
 	for (index = 0U; index < capabilities->temperature_endpoint_count; ++index)
 	{
@@ -542,7 +619,7 @@ static BspBoardValidationResult BspBoard_ValidateMotorBinding(
 			BSP_BOARD_VALIDATION_NO_BINDING_INDEX,
 			request->motor_drive_endpoint);
 
-	endpoint = BspBoard_FindMotorEndpoint(capabilities,
+	endpoint = BspBoard_FindMotorDriveEndpoint(capabilities,
 		request->motor_drive_endpoint);
 	if (endpoint == NULL)
 		return BspBoard_Result(BSP_BOARD_VALIDATION_ENDPOINT_NOT_FOUND,
@@ -559,6 +636,25 @@ static BspBoardValidationResult BspBoard_ValidateMotorBinding(
 	{
 		return BspBoard_Result(
 			BSP_BOARD_VALIDATION_CURRENT_SENSE_TOPOLOGY_UNSUPPORTED,
+			BSP_BOARD_RESOURCE_MOTOR_DRIVE,
+			BSP_BOARD_VALIDATION_NO_BINDING_INDEX,
+			request->motor_drive_endpoint);
+	}
+	if (request->current_sampling_mode <=
+			BSP_CURRENT_SAMPLING_MODE_UNSPECIFIED ||
+		request->current_sampling_mode >= BSP_CURRENT_SAMPLING_MODE_COUNT)
+	{
+		return BspBoard_Result(
+			BSP_BOARD_VALIDATION_CURRENT_SAMPLING_MODE_INVALID,
+			BSP_BOARD_RESOURCE_MOTOR_DRIVE,
+			BSP_BOARD_VALIDATION_NO_BINDING_INDEX,
+			request->motor_drive_endpoint);
+	}
+	if ((endpoint->supported_sampling_modes &
+		BSP_CURRENT_SAMPLING_MODE_BIT(request->current_sampling_mode)) == 0U)
+	{
+		return BspBoard_Result(
+			BSP_BOARD_VALIDATION_CURRENT_SAMPLING_MODE_UNSUPPORTED,
 			BSP_BOARD_RESOURCE_MOTOR_DRIVE,
 			BSP_BOARD_VALIDATION_NO_BINDING_INDEX,
 			request->motor_drive_endpoint);
@@ -664,7 +760,8 @@ static BspBoardValidationResult BspBoard_ValidateAngleBindings(
 					binding->endpoint_id);
 			}
 		}
-		endpoint = BspBoard_FindAngleEndpoint(capabilities, binding->endpoint_id);
+		endpoint = BspBoard_FindAngleSensorEndpoint(capabilities,
+			binding->endpoint_id);
 		if (endpoint == NULL)
 			return BspBoard_Result(BSP_BOARD_VALIDATION_ENDPOINT_NOT_FOUND,
 				BSP_BOARD_RESOURCE_ANGLE_SENSOR, index, binding->endpoint_id);

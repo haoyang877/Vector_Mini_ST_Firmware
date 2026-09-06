@@ -13,47 +13,43 @@
 | 机械角度 | rad（弧度） | 圈数 × 2π |
 | 电气/机械角速度 | rad/s | 电气 = 机械 × 极对数 |
 | 时间 / 控制周期 | s（秒） | Current_Ts = 50 µs 等 |
-| 相电阻 R | Ω（欧姆） | 标定得到，打印时显示 mΩ |
-| dq 电感 Ld/Lq | H（亨利） | 标定得到，打印时显示 µH |
-| 永磁磁链 ψ | Wb（韦伯，V·s） | 标定得到，打印时显示 mWb |
-| 温度 | °C | NTC 换算 |
+| 相电阻 R | Ω（欧姆） | Product 设计值；辨识只做验收，显示时为 mΩ |
+| dq 电感 Ld/Lq | H（亨利） | Product 设计值，显示时为 µH |
+| 永磁磁链 ψ | Wb（韦伯，V·s） | Product 设计值，显示时为 mWb |
+| 温度 | °C | 由具体温度 Adapter 换算；当前为 MCU 内部温度 |
 
 ## 2. 电流单位与换算
 
-产品构造入口见 `Firmware/Product/board_profile.h`；采样电阻选择只由 `Firmware/Product/board_profile.c` 消费并生成只读 `BoardProfile`：
+产品构造入口是 `Firmware/Core/Config/product_catalog.c` 中的 `ProductBoardDesign.current_sense`。配置为每个物理通道显式给出 role、polarity、endpoint、正的 `current_a_per_count`、默认 offset 和有效范围；通道顺序或 ADC Rank 不再隐含相位。
 
-```c
-#define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_6_MILLIOHM
-```
+当前 VectorMiniSt 只启用低侧三分流：
 
-该宏同时选择采样换算、软件可靠量程、命令/校准限幅、过流阈值、默认电流和相电阻路径补偿：
+| 项目 | 当前值 |
+| --- | ---: |
+| nominal shunt | 6 mΩ |
+| 三通道 scale | 0.0134310134 A/count |
+| 三通道 polarity | `INVERTED` |
+| 默认 offset | 2048 / 2048 / 2048 |
+| 有效 offset 范围 | 1948..2148 |
+| 可靠量程 | 20 A |
+| 命令/标定上限 | 10 A / 10 A |
+| 软件过流阈值 | 18 A |
+| 电机默认标定/运行限流 | 3 A / 6 A |
+| 相电阻功率路径补偿 | 0.008 Ω |
 
-| 配置 | A/LSB | 可靠量程 | 命令上限 | 校准上限 | 过流阈值 | 默认校准电流 | 默认限流 | 路径补偿 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2 mΩ | 0.04029 | 60 A | 30 A | 30 A | 40 A | 10 A | 30 A | 4 mΩ |
-| 6 mΩ（默认） | 0.01343 | 20 A | 10 A | 10 A | 18 A | 3 A | 6 A | 8 mΩ |
-
-`Firmware/Product/board_profile.c` 使用通用公式构造换算系数：
-
-```c
-#define SENSING_CURR_FACTOR (3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
-```
-
-12 位 ADC 满量程 3.3 V，换算系数：
+12 位 ADC、3.3 V、增益 10、6 mΩ 的设计关系为：
 
 ```
 SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 ```
 
-`Firmware/Runtime/MotorControl/measurement_runtime.c` 中：
+`Firmware/Core/Application/MotorControl/measurement_runtime.c` 和 `Firmware/Core/Services/Measurement/phase_current_strategy.c` 按显式极性换算。当前三相 polarity 都是 inverted，所以等价于：
 
 ```c
 phase_a_current_a = -((int16_t)ADC值 - phase_a_offset_adc) * current_a_per_adc_count;  // A
 ```
 
-因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。默认 6 mΩ 配置的 `calib_current = 3 A`，`current_limit = 6 A`。
-
-Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置与编译配置不一致时，仅恢复 `calib_current` 和 `current_limit` 的档位默认值；编码器 LUT、电机参数及位置环参数继续保留。旧 schema v4 按 2 mΩ 识别，schema v5 按 6 mΩ 识别。
+因此 `calibration_current`、`current_limit`、`Id/Iq` 参考与反馈、`Ia/Ib/Ic`、`Ibus` 全部以 **A** 为单位。schema 10 中的 shunt 字段只作为已部署 ABI/兼容身份保留；Flash 不恢复电流比例、标定电流或运行限流，三相 offset 是唯一恢复的电流测量个体量。
 
 ## 3. 电压单位与换算
 
@@ -70,11 +66,11 @@ SENSING_VBUS_FACTOR = 3.3 / 4095 × 11 ≈ 0.008866 V/LSB
 CurrentControl->Vbus = ADC值 × SENSING_VBUS_FACTOR;   // V
 ```
 
-过压/欠压保护阈值（`Firmware/Runtime/MotorControl/measurement_runtime.c`）同样以 V 为单位：Vbus > 30 V 报过压，< 10 V 报欠压。
+母线比例和保护阈值来自当前 ProductConfig：约 `0.0088644689 V/count`，Vbus > 30 V 报过压，< 10 V 报欠压。测量/保护编排位于 `Firmware/Core/Application/MotorControl/measurement_runtime.c`，纯测量模型位于 `Firmware/Core/Services/Measurement/measurement_model.c`。
 
 ### 3.2 调制量（p.u.）与实际电压的关系
 
-`Firmware/Runtime/MotorControl/current_control_runtime.c` 中，电压给定先归一化为标幺值调制量：
+`Firmware/Core/Application/MotorControl/current_control_runtime.c` 中，电压给定先归一化为标幺值调制量：
 
 ```c
 V_to_mod = 1.5f / CurrentControl->Vbus_filt;   // V → p.u.
@@ -91,7 +87,7 @@ V_phase = mod × Vbus / 1.5        // p.u. → V
 1.5 是工程上的归一化基准，调制矢量被限幅在 `0.95 × √3/2 ≈ 0.823`。磁链观测器正是用该关系把调制量还原为真实相电压：
 
 ```c
-// Firmware/Runtime/MotorControl/sensorless_runtime.c
+// Firmware/Core/Application/MotorControl/sensorless_runtime.c
 float mod_to_V = CurrentControl->Vbus_filt / 1.5f;
 Fluxobserver->Ualpha = CurrentControl->mod_alpha * mod_to_V;  // V
 Fluxobserver->Ubeta  = CurrentControl->mod_beta  * mod_to_V;  // V
@@ -116,12 +112,13 @@ Encoder->vel_mech   = Encoder->vel * _2PI;                                      
 1 圈 = 2π rad
 ```
 
-默认极对数为 21。速度/位置相关参数内部均为 rad/s 或 rad：
+当前电机设计极对数为 21。速度/位置相关参数内部均为 rad/s 或 rad；默认速度随构建变体变化：
 
 ```
-speed_limit  = 6.2 × 2π  rad/s
+motor speed design limit = 6.2 × 2π rad/s
+default speed limit      = 6.2 × 2π（无阻尼）或 0.5 × 2π（阻尼）rad/s
 speedAcc/Dec = 50  × 2π  rad/s²
-pos_maxspeed = 0.125 × 2π  rad/s
+pos_maxspeed = 0.125 × 2π（无阻尼）或 0.5 × 2π（阻尼）rad/s
 posAcc/Dec   = 0.125 × 2π  rad/s²
 ```
 
@@ -131,7 +128,7 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 
 ## 5. 电机模型参数单位（标定）
 
-当前固件仅启用 `SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION`，由 `Firmware/Runtime/MotorControl/phase_resistance_runtime.c` 驱动 `Firmware/Core/Services/Identification/phase_resistance.c`。协议动作号 4（完整 R/L/磁链辨识）明确返回不支持，不再保留已退出构建的旧一体化辨识实现。
+当前固件仅启用 `SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION`，由 `Firmware/Core/Application/MotorControl/phase_resistance_runtime.c` 驱动 `Firmware/Core/Services/Identification/phase_resistance.c`。协议动作号 4（完整 R/L/磁链辨识）明确返回不支持，不运行 L/磁链的一体化辨识。
 
 ### 5.1 相电阻 R（Ω）
 
@@ -139,7 +136,7 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 R = (V_phase / I_phase) × 2/3 − PATH_COMPENSATION
 ```
 
-`2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；`PATH_COMPENSATION` 随档位选择（2 mΩ 档为 0.004 Ω，6 mΩ 档为 0.008 Ω）。单位 **Ω**，打印为 mΩ。
+`2/3` 用于从“单相通电 + 另外两相并联回流”的等效电阻折算到相电阻；当前 6 mΩ 硬件 entry 的 `PATH_COMPENSATION` 为 0.008 Ω。单位 **Ω**，打印为 mΩ。若新增硬件档位，应建立新的 BoardDesign/variant 并重新验证，不能在线切换这一设计值。
 
 ### 5.2 电感 Ld/Lq（H，配置模型）
 
@@ -147,7 +144,7 @@ R = (V_phase / I_phase) × 2/3 − PATH_COMPENSATION
 L = (V − R·I) / (ωe·I) × 2.25
 ```
 
-该公式仅说明历史参数的量纲关系；当前固件不会运行该辨识步骤。`d_axis_inductance_h`、`q_axis_inductance_h` 由已验证的 Product 默认值或持久化参数提供，单位 **H**，显示为 µH。
+该公式仅说明历史参数的量纲关系；当前固件不会运行该辨识步骤。`d_axis_inductance_h`、`q_axis_inductance_h` 始终由活动 `ProductMotorDesign` 提供，单位 **H**，显示为 µH，Flash 不覆盖它们。
 
 ### 5.3 磁链 ψ（Wb，配置模型）
 
@@ -159,7 +156,7 @@ L = (V − R·I) / (ωe·I) × 2.25
 
 ## 6. 磁链观测器量纲自洽性
 
-`Firmware/Runtime/MotorControl/sensorless_runtime.c` 的磁链观测器各中间量量纲如下：
+`Firmware/Core/Application/MotorControl/sensorless_runtime.c` 的磁链观测器各中间量量纲如下：
 
 ```c
 y1 = -Rs·Iα + Uα                        // V（电压）
@@ -171,11 +168,11 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 ωe  = Δθ / Ts                            // rad/s（电气角速度，经低通滤波）
 ```
 
-投影增益 γ = 1e9，量纲为 `1/(Wb²·s)`，使 `γ·η·φerr` 与 y 同为 V。
+当前 ProductConfig 的投影增益 γ = 800000，量纲为 `1/(Wb²·s)`，使 `γ·η·φerr` 与 y 同为 V。
 
 ## 7. 上位机接口单位对照
 
-调试打印（`Firmware/Communication/interface_usb.c`）确认的单位：
+调试打印（`Firmware/Core/Communication/Interfaces/interface_usb.c`）确认的单位：
 
 | 打印项 | 单位 | 内部存储 |
 | --- | --- | --- |
@@ -183,7 +180,7 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 | ia / ib / ic / id / iq / ibus | A | A |
 | spd1/2_filt | r/s | 内部控制用 rad/s |
 | pos1/2_filt | r | 内部控制用 rad |
-| temp | °C | °C |
+| temp | °C | °C；当前为 MCU internal monitor-only |
 | Rs | mΩ | Ω |
 | Ld / Lq | µH | H |
 | Flux | mWb | Wb |
@@ -191,7 +188,7 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 ## 8. 关键换算公式速查
 
 ```
-I [A]     = (ADC − Offset) × 3.3 / 4095 / CURRENT_AMP_GAIN / SENSING_RES
+I [A]     = polarity_sign × (ADC − Offset) × current_a_per_count
 Vbus [V]  = ADC × 3.3 / 4095 × 11
 V_phase   = mod × Vbus / 1.5
 θe [rad]  = count / cpr × 2π × pole_pairs      （归一化到 [0, 2π)）

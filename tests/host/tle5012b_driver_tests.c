@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "tle5012b.h"
-#include "tle5012b_rotor_sensor_adapter.h"
+#include "tle5012b_angle_sensor_adapter.h"
 
 #define TEST_CHECK(condition_) \
 	do { if (!(condition_)) return __LINE__; } while (0)
@@ -16,6 +16,7 @@ typedef struct
 	uint32_t initialize_count;
 	uint32_t execute_count;
 	bool invalid_transaction;
+	uint16_t angle_word;
 	BspSynchronousSerialStep captured_steps[4];
 	size_t captured_step_count;
 } MockTransaction;
@@ -45,7 +46,7 @@ static BspResult Mock_Execute(void *context,
 	for (index = 0U; index < transaction->step_count; ++index)
 		mock->captured_steps[index] = transaction->steps[index];
 	transaction->received_words[0] = 0xAAAAU;
-	transaction->received_words[1] = 0x9234U;
+	transaction->received_words[1] = mock->angle_word;
 	return mock->execute_result;
 }
 
@@ -65,6 +66,7 @@ static void Mock_Reset(MockTransaction *mock)
 	(void)memset(mock, 0, sizeof(*mock));
 	mock->initialize_result = BSP_RESULT_OK;
 	mock->execute_result = BSP_RESULT_OK;
+	mock->angle_word = 0x9234U;
 }
 
 static int Test_InitializationContract(void)
@@ -148,31 +150,146 @@ static int Test_InvalidReadArguments(void)
 	return 0;
 }
 
-static int Test_LegacyAdapterPreservesGenericSample(void)
+static int Test_BspAngleAdapterLifecycleAndAngleMapping(void)
 {
 	MockTransaction mock;
 	BspSynchronousSerialPort transport;
-	Tle5012bRotorSensorAdapterContext adapter;
-	RotorSensorPort port;
-	RotorSensorSample sample;
+	Tle5012bAngleSensorAdapterContext adapter;
+	BspAngleSensorPort port;
+	BspAngleSensorSample sample;
 
 	Mock_Reset(&mock);
 	transport = Mock_CreatePort(&mock);
-	port = Tle5012bRotorSensorAdapter_CreatePort(&adapter, &transport);
+	TEST_CHECK(Tle5012bAngleSensorAdapter_CreatePort(&adapter, &transport, &port));
 	TEST_CHECK(port.context == &adapter);
-	TEST_CHECK(port.initialize != 0);
-	TEST_CHECK(port.read_sample != 0);
-	TEST_CHECK(port.initialize(port.context));
-	TEST_CHECK(port.read_sample(port.context, &sample) == ROTOR_SENSOR_READ_OK);
-	TEST_CHECK(sample.raw_data_word == 0x9234U);
-	TEST_CHECK(sample.raw_angle_q15 == 0x2468U);
+	TEST_CHECK(port.capabilities != 0);
+	TEST_CHECK(port.capabilities->resolution_bits == 15U);
+	TEST_CHECK(port.capabilities->is_absolute);
+	TEST_CHECK(!port.capabilities->supports_multiturn);
+	TEST_CHECK(!port.capabilities->provides_velocity);
+	TEST_CHECK(port.initialize != 0 && port.start_acquisition != 0 &&
+		port.stop_acquisition != 0 && port.request_sample != 0 &&
+		port.try_read_latest != 0 && port.read_status != 0);
+	TEST_CHECK(port.start_acquisition(port.context) == BSP_RESULT_NOT_READY);
+	TEST_CHECK(port.request_sample(port.context) == BSP_RESULT_NOT_READY);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_NOT_READY);
+	TEST_CHECK(port.initialize(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(mock.initialize_count == 1U);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_NOT_READY);
+	TEST_CHECK(port.start_acquisition(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(port.request_sample(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(mock.execute_count == 1U);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_OK);
+	/* Old raw_angle_q15 0x2468 maps exactly to the generic full-turn U32. */
+	TEST_CHECK(sample.single_turn_position_u32 == UINT32_C(0x24680000));
+	TEST_CHECK(sample.turn_count == 0 && sample.velocity_rad_s == 0.0f);
+	TEST_CHECK(sample.timestamp_us == 0U && sample.sequence == 1U);
+	TEST_CHECK(sample.status == BSP_ANGLE_SAMPLE_POSITION_VALID);
+	TEST_CHECK(port.read_status(port.context) == BSP_ANGLE_SAMPLE_POSITION_VALID);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_OK);
+	TEST_CHECK(sample.sequence == 1U);
+	mock.angle_word = 0xFFFFU;
+	TEST_CHECK(port.request_sample(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_OK);
+	TEST_CHECK(sample.single_turn_position_u32 == UINT32_C(0xFFFE0000));
+	TEST_CHECK(sample.sequence == 2U);
+	TEST_CHECK(port.stop_acquisition(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(port.read_status(port.context) == 0U);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_NOT_READY);
+	return 0;
+}
 
+static int Test_BspAngleAdapterFaultMappingAndRecovery(void)
+{
+	MockTransaction mock;
+	BspSynchronousSerialPort transport;
+	Tle5012bAngleSensorAdapterContext adapter;
+	BspAngleSensorPort port;
+	BspAngleSensorSample sample;
+
+	Mock_Reset(&mock);
+	transport = Mock_CreatePort(&mock);
+	TEST_CHECK(Tle5012bAngleSensorAdapter_CreatePort(&adapter, &transport, &port));
+	mock.initialize_result = BSP_RESULT_IO_ERROR;
+	TEST_CHECK(port.initialize(port.context) == BSP_RESULT_IO_ERROR);
+	TEST_CHECK(port.read_status(port.context) == BSP_ANGLE_SAMPLE_SENSOR_FAULT);
+	mock.initialize_result = BSP_RESULT_OK;
+	TEST_CHECK(port.initialize(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(port.start_acquisition(port.context) == BSP_RESULT_OK);
 	mock.execute_result = BSP_RESULT_IO_ERROR;
-	TEST_CHECK(port.read_sample(port.context, &sample) ==
-		ROTOR_SENSOR_READ_TRANSPORT_ERROR);
-	port = Tle5012bRotorSensorAdapter_CreatePort(0, &transport);
-	TEST_CHECK(port.initialize == 0);
-	TEST_CHECK(port.read_sample == 0);
+	TEST_CHECK(port.request_sample(port.context) == BSP_RESULT_IO_ERROR);
+	TEST_CHECK(port.read_status(port.context) == BSP_ANGLE_SAMPLE_SENSOR_FAULT);
+	TEST_CHECK(port.try_read_latest(port.context, &sample) == BSP_RESULT_NOT_READY);
+	mock.execute_result = BSP_RESULT_OK;
+	TEST_CHECK(port.request_sample(port.context) == BSP_RESULT_OK);
+	TEST_CHECK(port.read_status(port.context) == BSP_ANGLE_SAMPLE_POSITION_VALID);
+	adapter.device.initialized = false;
+	TEST_CHECK(port.request_sample(port.context) == BSP_RESULT_NOT_READY);
+	TEST_CHECK(port.read_status(port.context) == BSP_ANGLE_SAMPLE_SENSOR_FAULT);
+	TEST_CHECK(port.try_read_latest(port.context, 0) == BSP_RESULT_INVALID_ARGUMENT);
+	TEST_CHECK(port.try_read_latest(0, &sample) == BSP_RESULT_INVALID_ARGUMENT);
+	TEST_CHECK(port.read_status(0) == BSP_ANGLE_SAMPLE_SENSOR_FAULT);
+	return 0;
+}
+
+static int Test_BspAngleAdapterSupportsIndependentInstances(void)
+{
+	MockTransaction first_mock;
+	MockTransaction second_mock;
+	BspSynchronousSerialPort first_transport;
+	BspSynchronousSerialPort second_transport;
+	Tle5012bAngleSensorAdapterContext first_adapter;
+	Tle5012bAngleSensorAdapterContext second_adapter;
+	BspAngleSensorPort first_port;
+	BspAngleSensorPort second_port;
+	BspAngleSensorSample first_sample;
+	BspAngleSensorSample second_sample;
+
+	Mock_Reset(&first_mock);
+	Mock_Reset(&second_mock);
+	first_mock.angle_word = 0x8001U;
+	second_mock.angle_word = 0x8123U;
+	first_transport = Mock_CreatePort(&first_mock);
+	second_transport = Mock_CreatePort(&second_mock);
+	TEST_CHECK(Tle5012bAngleSensorAdapter_CreatePort(&first_adapter,
+		&first_transport, &first_port));
+	TEST_CHECK(Tle5012bAngleSensorAdapter_CreatePort(&second_adapter,
+		&second_transport, &second_port));
+	TEST_CHECK(first_port.capabilities == second_port.capabilities);
+	TEST_CHECK(first_port.initialize(first_port.context) == BSP_RESULT_OK);
+	TEST_CHECK(second_port.initialize(second_port.context) == BSP_RESULT_OK);
+	TEST_CHECK(first_port.start_acquisition(first_port.context) == BSP_RESULT_OK);
+	TEST_CHECK(second_port.start_acquisition(second_port.context) == BSP_RESULT_OK);
+	TEST_CHECK(first_port.request_sample(first_port.context) == BSP_RESULT_OK);
+	TEST_CHECK(second_port.request_sample(second_port.context) == BSP_RESULT_OK);
+	TEST_CHECK(first_port.try_read_latest(first_port.context, &first_sample) ==
+		BSP_RESULT_OK);
+	TEST_CHECK(second_port.try_read_latest(second_port.context, &second_sample) ==
+		BSP_RESULT_OK);
+	TEST_CHECK(first_sample.single_turn_position_u32 == UINT32_C(0x00020000));
+	TEST_CHECK(second_sample.single_turn_position_u32 == UINT32_C(0x02460000));
+	TEST_CHECK(first_mock.execute_count == 1U && second_mock.execute_count == 1U);
+	TEST_CHECK(first_sample.sequence == 1U && second_sample.sequence == 1U);
+	return 0;
+}
+
+static int Test_BspAngleAdapterRejectsInvalidCreation(void)
+{
+	MockTransaction mock;
+	BspSynchronousSerialPort transport;
+	Tle5012bAngleSensorAdapterContext adapter;
+	BspAngleSensorPort port;
+
+	Mock_Reset(&mock);
+	transport = Mock_CreatePort(&mock);
+	TEST_CHECK(!Tle5012bAngleSensorAdapter_CreatePort(0, &transport, &port));
+	TEST_CHECK(port.context == 0 && port.initialize == 0);
+	TEST_CHECK(!Tle5012bAngleSensorAdapter_CreatePort(&adapter, 0, &port));
+	TEST_CHECK(port.context == 0 && port.initialize == 0);
+	transport.execute = 0;
+	TEST_CHECK(!Tle5012bAngleSensorAdapter_CreatePort(&adapter, &transport, &port));
+	TEST_CHECK(port.context == 0 && port.initialize == 0);
+	TEST_CHECK(!Tle5012bAngleSensorAdapter_CreatePort(&adapter, &transport, 0));
 	return 0;
 }
 
@@ -192,7 +309,16 @@ int Tle5012bDriver_RunHostTests(void)
 	result = Test_InvalidReadArguments();
 	if (result != 0)
 		return result;
-	return Test_LegacyAdapterPreservesGenericSample();
+	result = Test_BspAngleAdapterLifecycleAndAngleMapping();
+	if (result != 0)
+		return result;
+	result = Test_BspAngleAdapterFaultMappingAndRecovery();
+	if (result != 0)
+		return result;
+	result = Test_BspAngleAdapterSupportsIndependentInstances();
+	if (result != 0)
+		return result;
+	return Test_BspAngleAdapterRejectsInvalidCreation();
 }
 
 #ifdef TLE5012B_DRIVER_TEST_MAIN

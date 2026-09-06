@@ -14,6 +14,7 @@ static BspBoardBindingRequest ValidRequest(void)
 		BSP_VECTOR_MINI_ST_MOTOR_DRIVE_ENDPOINT_MAIN;
 	request.current_sense_topology =
 		BSP_CURRENT_SENSE_LOW_SIDE_THREE_SHUNT;
+	request.current_sampling_mode = BSP_CURRENT_SAMPLING_MODE_FIXED;
 	request.current_sensor_binding_count = 3U;
 	request.current_sensor_endpoints[0] =
 		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_A;
@@ -71,10 +72,100 @@ int BspBoard_RunHostTests(void)
 	BspMotorDriveEndpointCapabilities motor_endpoint;
 	BspTemperatureEndpointCapabilities temperature_endpoints[2];
 	BspCommunicationEndpointCapabilities communication_endpoints[2];
+	const BspMotorDriveEndpointCapabilities *found_motor_endpoint;
+	const BspAngleSensorEndpointCapabilities *found_angle_endpoint;
 	const BspCommunicationEndpointCapabilities *communication_endpoint;
+	BspEndpointId requested_current_endpoints[3];
+	uint8_t acquisition_indices[3];
 
 	result = BspBoard_ValidateCapabilities(&BspVectorMiniSt_Capabilities);
 	TEST_CHECK(result.code == BSP_BOARD_VALIDATION_OK);
+	found_motor_endpoint = BspBoard_FindMotorDriveEndpoint(
+		&BspVectorMiniSt_Capabilities,
+		BSP_VECTOR_MINI_ST_MOTOR_DRIVE_ENDPOINT_MAIN);
+	TEST_CHECK(found_motor_endpoint != NULL);
+	TEST_CHECK(found_motor_endpoint->endpoint_id ==
+		BSP_VECTOR_MINI_ST_MOTOR_DRIVE_ENDPOINT_MAIN);
+	TEST_CHECK(BspBoard_FindMotorDriveEndpoint(
+		&BspVectorMiniSt_Capabilities, 0x7FFEU) == NULL);
+	TEST_CHECK(BspBoard_FindMotorDriveEndpoint(
+		&BspVectorMiniSt_Capabilities, BSP_ENDPOINT_ID_NONE) == NULL);
+	TEST_CHECK(BspBoard_FindMotorDriveEndpoint(NULL,
+		BSP_VECTOR_MINI_ST_MOTOR_DRIVE_ENDPOINT_MAIN) == NULL);
+
+	/* Product channels may be declared in any order. Raw acquisition indices
+	 * always follow the capability's physical JDR/current-sensor order. */
+	requested_current_endpoints[0] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_C;
+	requested_current_endpoints[1] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_A;
+	requested_current_endpoints[2] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_B;
+	TEST_CHECK(BspBoard_ResolveCurrentAcquisitionIndices(found_motor_endpoint,
+		requested_current_endpoints, 3U, acquisition_indices));
+	TEST_CHECK(acquisition_indices[0] == 2U);
+	TEST_CHECK(acquisition_indices[1] == 0U);
+	TEST_CHECK(acquisition_indices[2] == 1U);
+
+	/* Failure is transactional: missing or duplicate endpoints cannot leave a
+	 * partially usable mapping behind. */
+	acquisition_indices[0] = 0xA5U;
+	acquisition_indices[1] = 0xA5U;
+	acquisition_indices[2] = 0xA5U;
+	requested_current_endpoints[1] = 0x7FFEU;
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(found_motor_endpoint,
+		requested_current_endpoints, 3U, acquisition_indices));
+	TEST_CHECK(acquisition_indices[0] == 0xA5U &&
+		acquisition_indices[1] == 0xA5U &&
+		acquisition_indices[2] == 0xA5U);
+	requested_current_endpoints[0] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_A;
+	requested_current_endpoints[1] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_A;
+	requested_current_endpoints[2] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_C;
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(found_motor_endpoint,
+		requested_current_endpoints, 3U, acquisition_indices));
+
+	motor_endpoint = *found_motor_endpoint;
+	motor_endpoint.current_sensor_endpoints[1] =
+		motor_endpoint.current_sensor_endpoints[0];
+	requested_current_endpoints[0] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_A;
+	requested_current_endpoints[1] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_B;
+	requested_current_endpoints[2] =
+		BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_C;
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(&motor_endpoint,
+		requested_current_endpoints, 3U, acquisition_indices));
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(NULL,
+		requested_current_endpoints, 3U, acquisition_indices));
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(found_motor_endpoint,
+		NULL, 3U, acquisition_indices));
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(found_motor_endpoint,
+		requested_current_endpoints, 0U, acquisition_indices));
+	TEST_CHECK(!BspBoard_ResolveCurrentAcquisitionIndices(found_motor_endpoint,
+		requested_current_endpoints, 3U, NULL));
+	board = BspVectorMiniSt_Capabilities;
+	board.motor_drive_endpoints = NULL;
+	TEST_CHECK(BspBoard_FindMotorDriveEndpoint(&board,
+		BSP_VECTOR_MINI_ST_MOTOR_DRIVE_ENDPOINT_MAIN) == NULL);
+	found_angle_endpoint = BspBoard_FindAngleSensorEndpoint(
+		&BspVectorMiniSt_Capabilities,
+		BSP_VECTOR_MINI_ST_ANGLE_ENDPOINT_ONBOARD);
+	TEST_CHECK(found_angle_endpoint != NULL);
+	TEST_CHECK(!found_angle_endpoint->supports_dma);
+	TEST_CHECK(BspBoard_FindAngleSensorEndpoint(
+		&BspVectorMiniSt_Capabilities, 0x7FFEU) == NULL);
+	TEST_CHECK(BspBoard_FindAngleSensorEndpoint(NULL,
+		BSP_VECTOR_MINI_ST_ANGLE_ENDPOINT_ONBOARD) == NULL);
+	TEST_CHECK(BspBoard_FindTemperatureEndpoint(
+		&BspVectorMiniSt_Capabilities,
+		BSP_VECTOR_MINI_ST_TEMPERATURE_ENDPOINT_PROCESSOR) != NULL);
+	TEST_CHECK(BspBoard_FindTemperatureEndpoint(
+		&BspVectorMiniSt_Capabilities, 0x7FFEU) == NULL);
+	TEST_CHECK(BspBoard_FindTemperatureEndpoint(NULL,
+		BSP_VECTOR_MINI_ST_TEMPERATURE_ENDPOINT_PROCESSOR) == NULL);
 	communication_endpoint = BspBoard_FindCommunicationEndpoint(
 		&BspVectorMiniSt_Capabilities,
 		BSP_VECTOR_MINI_ST_COMMUNICATION_ENDPOINT_FIELD_BUS);
@@ -168,6 +259,35 @@ int BspBoard_RunHostTests(void)
 	result = BspVectorMiniSt_ValidateBindingRequest(&request);
 	TEST_CHECK(result.code ==
 		BSP_BOARD_VALIDATION_CURRENT_SENSE_TOPOLOGY_UNSUPPORTED);
+
+	/* Vector Mini owns a fixed ADC trigger. A dynamic request is a supported
+	 * enum value but not a capability of this board endpoint. */
+	request = ValidRequest();
+	request.current_sampling_mode = BSP_CURRENT_SAMPLING_MODE_DYNAMIC;
+	result = BspVectorMiniSt_ValidateBindingRequest(&request);
+	TEST_CHECK(result.code ==
+		BSP_BOARD_VALIDATION_CURRENT_SAMPLING_MODE_UNSUPPORTED);
+	TEST_CHECK(result.resource == BSP_BOARD_RESOURCE_MOTOR_DRIVE);
+	TEST_CHECK(result.endpoint_id ==
+		BSP_VECTOR_MINI_ST_MOTOR_DRIVE_ENDPOINT_MAIN);
+
+	/* UNSPECIFIED is never an executable acquisition policy. */
+	request = ValidRequest();
+	request.current_sampling_mode = BSP_CURRENT_SAMPLING_MODE_UNSPECIFIED;
+	result = BspVectorMiniSt_ValidateBindingRequest(&request);
+	TEST_CHECK(result.code ==
+		BSP_BOARD_VALIDATION_CURRENT_SAMPLING_MODE_INVALID);
+	TEST_CHECK(result.resource == BSP_BOARD_RESOURCE_MOTOR_DRIVE);
+
+	/* An available motor endpoint must advertise at least one concrete
+	 * sampling mode; an empty set must fail descriptor validation. */
+	board = BspVectorMiniSt_Capabilities;
+	motor_endpoint = board.motor_drive_endpoints[0];
+	motor_endpoint.supported_sampling_modes = 0U;
+	board.motor_drive_endpoints = &motor_endpoint;
+	result = BspBoard_ValidateCapabilities(&board);
+	TEST_CHECK(result.code == BSP_BOARD_VALIDATION_INVALID_DESCRIPTOR);
+	TEST_CHECK(result.resource == BSP_BOARD_RESOURCE_MOTOR_DRIVE);
 
 	request = ValidRequest();
 	request.temperature_bindings[0].endpoint_id =

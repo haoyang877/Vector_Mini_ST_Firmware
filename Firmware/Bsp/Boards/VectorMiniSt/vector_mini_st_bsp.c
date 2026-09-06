@@ -17,7 +17,8 @@ static const BspMotorDriveEndpointCapabilities MotorDriveEndpoints[] =
 			BSP_VECTOR_MINI_ST_CURRENT_SENSOR_ENDPOINT_PHASE_C
 		},
 		true,
-		false
+		false,
+		BSP_CURRENT_SAMPLING_MODE_BIT(BSP_CURRENT_SAMPLING_MODE_FIXED)
 	}
 };
 
@@ -30,7 +31,7 @@ static const BspAngleSensorEndpointCapabilities AngleSensorEndpoints[] =
 		16U,
 		true,
 		true,
-		true
+		false
 	},
 	{
 		BSP_VECTOR_MINI_ST_ANGLE_ENDPOINT_EXTERNAL,
@@ -39,7 +40,7 @@ static const BspAngleSensorEndpointCapabilities AngleSensorEndpoints[] =
 		16U,
 		true,
 		true,
-		true
+		false
 	}
 };
 

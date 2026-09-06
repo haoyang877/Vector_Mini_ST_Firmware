@@ -1,6 +1,8 @@
 param(
     [string]$Compiler,
-    [switch]$BuildOnly
+    [switch]$BuildOnly,
+    [ValidateSet('Damped', 'NoDamper')]
+    [string]$ProductVariant = 'Damped'
 )
 
 Set-StrictMode -Version Latest
@@ -8,11 +10,16 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $buildDirectory = Join-Path $PSScriptRoot '.build'
+$variantSlug = $ProductVariant.ToLowerInvariant()
 $binaryName = if ([System.Environment]::OSVersion.Platform -eq
-    [System.PlatformID]::Win32NT) { 'firmware_host_tests.exe' } else {
-    'firmware_host_tests'
+    [System.PlatformID]::Win32NT) { "firmware_host_tests_$variantSlug.exe" } else {
+    "firmware_host_tests_$variantSlug"
 }
 $binaryPath = Join-Path $buildDirectory $binaryName
+$variantDefine = switch ($ProductVariant) {
+    'Damped' { 'PRODUCT_CATALOG_VARIANT_DAMPED' }
+    'NoDamper' { 'PRODUCT_CATALOG_VARIANT_NO_DAMPER' }
+}
 
 # Keep this list explicit. A new production dependency or test suite must be
 # reviewed here instead of being pulled into a host build by a recursive glob.
@@ -20,24 +27,36 @@ $sourcePaths = @(
     'tests\host\host_test_runner.c',
     'tests\host\angle_serial_stm32g431_config_tests.c',
     'tests\host\can_protocol_v1_tests.c',
+	'tests\host\can_command_router_tests.c',
+	'tests\host\usb_command_router_tests.c',
+	'tests\host\usb_interface_tests.c',
 	'tests\host\communication_interface_fault_tests.c',
     'tests\host\context_isolation_tests.c',
     'tests\host\control_authority_service_tests.c',
     'tests\host\device_lifecycle_tests.c',
 	'tests\host\encoder_tests.c',
+	'tests\host\fast_math_tests.c',
+	'tests\host\feedback_router_tests.c',
+	'tests\host\rotor_feedback_runtime_tests.c',
     'tests\host\fault_manager_tests.c',
     'tests\host\friction_identification_tests.c',
     'tests\host\measurement_model_tests.c',
+	'tests\host\measurement_runtime_tests.c',
+	'tests\host\motor_drive_service_tests.c',
 	'tests\host\phase_current_strategy_tests.c',
+	'tests\host\temperature_monitor_tests.c',
+	'tests\host\temperature_supervision_tests.c',
     'tests\host\text_writer_tests.c',
     'tests\host\tle5012b_driver_tests.c',
-	'Firmware\Composition\tle5012b_rotor_sensor_adapter.c',
 	'Firmware\Core\Communication\Protocol\can_protocol_v1.c',
-	'Firmware\Communication\interface_can.c',
+	'Firmware\Core\Communication\Interfaces\interface_can.c',
+	'Firmware\Core\Communication\Protocol\usb_protocol_v1.c',
+	'Firmware\Core\Communication\Transport\byte_ring_buffer.c',
 	'Firmware\Platform\Stm32G431\angle_serial_stm32g431_config.c',
-    'tests\host\mechanical_load_profile_tests.c',
+    'tests\host\product_catalog_variant_tests.c',
     'tests\host\motor_commissioning_workflow_tests.c',
     'tests\host\parameter_manager_tests.c',
+    'tests\host\parameter_persistence_adapter_tests.c',
     'tests\host\parameter_service_tests.c',
     'tests\host\parameter_transaction_service_tests.c',
     'tests\host\service_result_validation_tests.c',
@@ -45,33 +64,40 @@ $sourcePaths = @(
     'Firmware\Core\Config\Tests\product_config_tests.c',
     'Firmware\Bsp\Boards\Tests\test_bsp_board.c',
 	'tests\host\product_config_bridge_tests.c',
-    'Firmware\Application\calibration_service.c',
+    'Firmware\Core\Application\Commissioning\calibration_service.c',
+	'Firmware\Core\Application\Communication\can_configuration_service.c',
     'Firmware\Core\Application\communication_watchdog_service.c',
     'Firmware\Core\Application\control_authority_service.c',
     'Firmware\Core\Application\device_lifecycle.c',
     'Firmware\Core\Services\Safety\fault_manager.c',
     'Firmware\Core\Application\friction_identification_service.c',
-    'Firmware\Application\identification_service.c',
+    'Firmware\Core\Application\Commissioning\identification_service.c',
     'Firmware\Core\Application\motor_command_service.c',
     'Firmware\Core\Application\motor_commissioning_workflow.c',
+	'Firmware\Core\Application\MotorControl\motor_drive_service.c',
+	'Firmware\Core\Application\Supervision\temperature_supervision.c',
     'Firmware\Core\Infrastructure\Parameters\parameter_manager.c',
-    'Firmware\Application\parameter_service.c',
+    'Firmware\Core\Application\MotorControl\parameter_persistence_adapter.c',
+    'Firmware\Core\Application\Parameters\parameter_service.c',
     'Firmware\Core\Application\parameter_transaction_service.c',
-    'Firmware\Application\power_stage.c',
     'Firmware\Core\Application\rotor_calibration_service.c',
     'Firmware\Core\Infrastructure\Telemetry\telemetry_service.c',
     'Firmware\Core\Communication\Can\can_response_service.c',
-    'Firmware\Application\update_service.c',
+    'Firmware\Core\Application\Update\update_service.c',
 	'Firmware\Core\Services\RotorFeedback\encoder.c',
+	'Firmware\Core\Services\Math\fast_math.c',
+	'Firmware\Core\Services\RotorFeedback\feedback_router.c',
+	'Firmware\Core\Services\RotorFeedback\secondary_angle_tracker.c',
+	'Firmware\Core\Application\MotorControl\rotor_feedback_runtime.c',
+	'Firmware\Drivers\Angle\Tle5012b\tle5012b_angle_sensor_adapter.c',
     'Firmware\Core\Communication\Formatting\text_writer.c',
     'Firmware\Core\Services\Identification\friction_identification.c',
     'Firmware\Core\Services\Measurement\measurement_model.c',
 	'Firmware\Core\Services\Measurement\phase_current_strategy.c',
-    'Firmware\Product\control_tuning_profile.c',
-    'Firmware\Product\encoder_profiles.c',
-    'Firmware\Product\mechanical_load_profiles.c',
-    'Firmware\Product\motor_profiles.c',
-    'Firmware\Product\product_manifest.c',
+	'Firmware\Core\Services\Measurement\temperature_monitor.c',
+	'Firmware\Core\Application\MotorControl\measurement_runtime.c',
+	'Firmware\Core\Application\MotorControl\current_offset_calibration_runtime.c',
+    'Firmware\Core\Config\product_manifest.c',
     'Firmware\Core\Config\product_config.c',
     'Firmware\Core\Config\product_capabilities.c',
     'Firmware\Core\Config\product_config_validator.c',
@@ -81,19 +107,26 @@ $sourcePaths = @(
     'Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_bsp.c',
 	'Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_bsp_identity.c',
 	'Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_bsp_validation.c',
-	'Firmware\Composition\product_config_bridge.c',
+	'Firmware\Bsp\Boards\VectorMiniSt\Bootstrap\product_config_bridge.c',
 	'Firmware\Bsp\Boards\bsp_product_binding.c'
 )
 
 $includePaths = @(
     'Bootloader',
     'Firmware',
-    'Firmware\Application',
+    'Firmware\Core\Application\Api',
+    'Firmware\Core\Application\Commissioning',
+    'Firmware\Core\Application\Diagnostics',
+    'Firmware\Core\Application\Parameters',
+    'Firmware\Core\Application\Update',
+	'Firmware\Core\Application\MotorControl',
+	'Firmware\Core\Application\Supervision',
     'Firmware\Core\Services\Identification',
-    'Firmware\Core\Services\Measurement',
+	'Firmware\Core\Services\Measurement',
+	'Firmware\Core\Services\CurrentControl',
+	'Firmware\Core\Services\Math',
+	'Firmware\Core\Services\MotionControl',
 	'Firmware\Core\Services\RotorFeedback',
-    'Firmware\Ports',
-    'Firmware\Product',
     'Firmware\Core\Config',
 	'Firmware\Core\Services\Measurement',
     'Firmware\Core\Infrastructure\Parameters',
@@ -102,9 +135,10 @@ $includePaths = @(
     'Firmware\Bsp\Boards',
     'Firmware\Bsp\Boards\VectorMiniSt',
 	'Firmware\Platform\Stm32G431',
-    'Firmware\Composition',
+	'Firmware\Bsp\Boards\VectorMiniSt\Bootstrap',
 	'Firmware\Core\Communication\Protocol',
-	'Firmware\Communication\Router'
+	'Firmware\Core\Communication\Router',
+	'Firmware\Core\Communication\Interfaces'
 )
 
 function Resolve-CompilerCommand {
@@ -184,18 +218,21 @@ if (Test-Path -LiteralPath $binaryPath -PathType Leaf) {
 }
 
 Write-Output "HOST_TEST_COMPILER=$($compilerCommand.Path)"
+Write-Output "HOST_TEST_PRODUCT_VARIANT=$ProductVariant"
 Write-Output "HOST_TEST_SOURCE_COUNT=$($absoluteSources.Count)"
 
 if ($compilerCommand.Kind -eq 'msvc') {
     $arguments = @('/nologo', '/std:c11', '/W4', '/WX', '/TC')
-	$arguments += '/DMECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG=1'
+	$arguments += '/DPRODUCT_CATALOG_INCLUDE_ALL=1'
+    $arguments += "/DPRODUCT_CATALOG_ACTIVE_VARIANT=$variantDefine"
     $arguments += $absoluteIncludes | ForEach-Object { "/I$_" }
     $arguments += $absoluteSources
     $arguments += "/Fe:$binaryPath"
     & $compilerCommand.Path @arguments
 } else {
     $arguments = @('-std=c11', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
-        '-fno-common', '-DMECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG=1')
+        '-fno-common', '-DPRODUCT_CATALOG_INCLUDE_ALL=1',
+        "-DPRODUCT_CATALOG_ACTIVE_VARIANT=$variantDefine")
     $arguments += $absoluteIncludes | ForEach-Object { '-I'; $_ }
     $arguments += $absoluteSources
     $arguments += @('-o', $binaryPath, '-lm')

@@ -1,536 +1,338 @@
-# 新硬件与新电机快速适配指南
+# 新硬件、新电机与新传感器快速适配指南
 
-本文说明 Vector Mini ST 固件中哪些内容属于配置、配置的生效优先级，以及如何在不修改控制算法的前提下适配新电机、新 PCB、新编码器或新 MCU。
+本指南说明如何用统一 `ProductConfig` 配置不同关节项目，同时把控制算法与 MCU、板卡和器件协议解耦。统一标定步骤见 [`unified_motor_commissioning_guide.md`](unified_motor_commissioning_guide.md)，完整分层见 [`architecture/firmware_architecture.md`](architecture/firmware_architecture.md)。
 
-新电机模组的固定标定顺序、验收阈值和 Flash 数据边界见
-[`unified_motor_commissioning_guide.md`](unified_motor_commissioning_guide.md)。
+## 1. 先理解四个对象
 
-## 1. 先判断需要改哪一层
-
-| 变化范围 | 主要修改位置 | 不应修改 |
+| 对象 | 回答的问题 | 主要文件 |
 | --- | --- | --- |
-| 同一硬件更换电机 | `Firmware/Product/vector_mini_st_profile.h`、`motor_profiles.*` | Domain 算法、STM32 Platform |
-| 同一电机增加/移除阻尼器 | `mechanical_load_profiles.*`、`ACTIVE_MECHANICAL_LOAD_PROFILE` | 电流环、编码器算法 |
-| 同一 PCB 调整限流、速度、位置增益 | USB/CAN 运行时参数；稳定后回填 MotorProfile | Domain、CubeMX 配置 |
-| 更换采样电阻或运放增益 | `board_profile.h`、`board_profile.c` | 电流换算算法 |
-| 新 PCB、引脚或外设实例变化 | `Vector_Mini_ST.ioc`、`Firmware/Platform/<target>/`、BoardProfile | Domain、Application |
-| 同协议、不同分辨率编码器 | `encoder_profiles.*` | 电机控制算法 |
-| 不同编码器协议 | 新建 `RotorSensorPort` Adapter，并在 Composition 注入 | Domain 编码器模型 |
-| 新 MCU | 新建 Platform 目录、CubeMX 工程和目标工程配置 | Application、Domain |
-| Flash 容量或分区变化 | `Bsp/Boards/<board>/*_memory_map.h`、Keil ROM 区域/Scatter、Bootloader 布局 | ParameterManager 算法 |
+| Product | 这个量产组合选择哪块板、哪台电机、哪种负载、哪些传感器与策略？ | `Firmware/Core/Config/product_catalog.*` |
+| Board | 这块 PCB 实际有哪些 PWM、采样、传感器、通信和存储资源？ | `Firmware/Bsp/Boards/<board>/` |
+| Platform | 这些通用硬件语义怎样映射到某个 MCU/HAL？ | `Firmware/Platform/<mcu>/` |
+| Driver | 某个外设芯片的协议怎样编解码？ | `Firmware/Drivers/<class>/<device>/` |
 
-基本原则：硬件或产品变化应停留在 `Core/Config`、`Bsp/Boards`、`Platform` 和对应 Bootstrap。如果为了换 PCB 或电机而修改 `Firmware/Core/Services/`，通常表示抽象边界仍不完整。
+不要把四者合成一个巨型配置文件：
 
-## 2. 配置数据如何进入运行系统
+- `ProductConfig` 是产品意图和设计值；
+- Board capability 是物理事实；
+- Platform 是 MCU 实现；
+- Driver 是器件协议实现。
+
+启动时由 `Firmware/Bsp/Boards/<board>/Bootstrap/firmware_composition.c` 取得当前 entry，先做 ProductConfig 校验，再做 Board endpoint/binding 校验，最后才创建接口并启动周期中断。任一条件不满足都保持电机输出关闭。
+
+## 2. endpoint 到底是什么
+
+endpoint 是稳定的逻辑资源 ID，用来把“产品所需资源”映射到“板上实际资源”。它不是：
+
+- GPIO 编号；
+- ADC Rank；
+- SPI/FDCAN 实例号；
+- Product 数组下标；
+- 传感器型号 ID。
+
+例如当前 entry 的逻辑资源：
 
 ```text
-编译期选择 Board / Motor / Encoder / MechanicalLoad Profile
-                         |
-                         v
-ProductVariant 原子组合并校验全部只读 Profile
-                         |
-                         v
-Composition 注入 Runtime 和 Application Service
-                         |
-                         v
-ParameterSnapshot_LoadDefaults() 生成运行默认配置
-                         |
-             +-----------+-----------+
-             |                       |
-             v                       v
-兼容 Flash 只恢复个体标定量     无兼容记录则使用未标定状态
-             |
-             v
-USB/CAN 在 STANDBY 中写候选配置
-             |
-             v
-20 kHz 安全点整对象应用
+0x0100  主 motor-drive
+0x0101  A 相电流采集
+0x0102  B 相电流采集
+0x0103  C 相电流采集
+0x0201  主角度传感器
+0x0301  MCU 内部温度
+0x0401  CAN 控制总线
+0x0402  USB service stream
 ```
 
-配置优先级为：
+映射过程：
 
-1. Product Profile 中的硬件、电机、控制与通信设计值；
-2. 与产品、板卡、电机、编码器、机械负载、控制整定及参数 Schema 指纹兼容的 A/B Flash 个体标定记录；
-3. 仅当前已知产品组合允许的一次性旧格式个体标定迁移。
-
-Flash 记录不能覆盖 Product Profile 的极对数、R/L/磁链、控制增益、运行限值或通信默认值。
-
-`ProductVariant` 的 `configuration_fingerprint` 覆盖所有兼容性维度。新增或切换任一 Profile 时必须修改指纹并关闭不适用的旧格式迁移；新硬件或新电机首次量产烧录仍应擦除参数页或明确实现迁移策略。
-
-## 3. 编译期配置清单
-
-### 3.1 产品选择和默认参数
-
-文件：`Firmware/Product/vector_mini_st_profile.h`
-
-当前采用单一活动 Profile 的编译模式：
-
-```c
-#define ACTIVE_MOTOR_PROFILE MOTOR_PROFILE_HT8115_4
-#define ACTIVE_BOARD_PROFILE BOARD_PROFILE_VECTOR_MINI_ST
-#define ACTIVE_MECHANICAL_LOAD_PROFILE MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
+```mermaid
+flowchart LR
+    P[ProductConfig<br/>实例/role/endpoint] --> R[BspBoardBindingRequest]
+    R --> C[Board capabilities<br/>检查 endpoint 与能力]
+    C --> I[endpoint -> acquisition index]
+    I --> A[Platform/Driver adapter]
+    A --> N[标准化样本或动作]
 ```
 
-也可以通过编译器宏覆盖这些选择。每个量产组合必须使用唯一且稳定的 Board/Motor Profile ID。
+以相电流为例，`channel_roles[]` 明确 A/B/C/DC-link，`channel_endpoints[]` 选择资源，`channel_polarities[]` 指定符号，`current_a_per_count[]` 指定正幅值。即使数组顺序改变，A 相也必须通过 role 和 endpoint 找到正确 acquisition index，不能用 `channel 0 == ADC rank 1 == phase A` 这种隐含耦合。
 
-机械负载当前提供两个选择：
+endpoint ID 一经量产应保持稳定。更换 ADC Rank 只改板级/Platform 映射；产品物理语义发生变化才分配新 endpoint。
 
-| 选择 | 编译器宏值 | 用途 |
-| --- | --- | --- |
-| 无阻尼器 | `MECHANICAL_LOAD_PROFILE_NO_DAMPER` | 原始轻载标定参数，位置摩擦前馈为 0 |
-| 约 1.5Nm 阻尼环 | `MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM` | 高转矩观测器标定及 1.5/1.55A 摩擦前馈 |
+## 3. 配置的单一来源
 
-Keil 的 `C/C++ > Define` 中设置：
-
-```text
-ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
-```
-
-移除阻尼器时只替换为 `MECHANICAL_LOAD_PROFILE_NO_DAMPER`，不修改 Runtime 或 Domain。
-
-当前电机默认值：
-
-| 参数 | 当前值 | 内部单位 | 说明 |
-| --- | ---: | --- | --- |
-| 极对数 | 21 | — | 不是磁极总数 |
-| 相电阻 | 1.905 | Ω | 当前定义为 `3.81 × 0.5` |
-| 观测器电阻系数 | 0.4199475 | — | 等效观测器电阻 `1.905 × 0.4199475 ≈ 0.800 Ω` |
-| D/Q 轴电感 | 0.001635 / 0.001635 | H | 1.635 mH |
-| 永磁磁链 | 0.0175025 | Wb | 17.5025 mWb |
-| 默认标定电流 | 3 | A | 电机标定需求；启动时校验不超过板级能力 |
-| 默认运行限流 | 6 | A | 必须低于板级命令上限 |
-| 默认速度限制 | 0.5（阻尼器）/ 6.2（无阻尼器） | rev/s | 由机械负载 Profile 选择 |
-| 电机模型运行时范围 | R: 0.0001–5；L: 1 µH–5 mH；磁链: 0.01 mWb–1 Wb | SI 单位 | 由 MotorProfile 统一校验 |
-| 电流环带宽 | `500 × 2π` | rad/s | 默认加载及在线修改 R/L 时用于推导 PI |
-| 开环电压 | 1 | V | 仅用于开环/标定 |
-| 开环电角速度 | 12 | rad/s | — |
-| 速度加/减速度 | 50 / 50 | rev/s² | 加载后转成 rad/s² |
-| 速度 Kp/Ki | 0.05 / 0.5 | 当前控制器定义 | 需要实机整定 |
-| 位置加/减速度 | 0.125 / 0.125 | rev/s² | — |
-| 位置最大速度 | 0.5（阻尼器）/ 0.125（无阻尼器） | rev/s | 由机械负载 Profile 选择 |
-| 阻抗位置 Kp/Kd/Ki | 8 / 0.5 / 10 | A/rad 等 | 输出为 Iq |
-| 位置积分限幅 | 5 | A | 还受板级电流上限限制 |
-| 级联位置 Kp/Kd | 0.05 / 0.5 | 1/s、无量纲组合 | 位置外环输出速度 |
-
-相电阻辨识默认值也属于 MotorProfile：测试电流 1/2/3 A、最低有效电流 0.5 A，斜坡 200 ms，稳定 200 ms，采样 100 ms，暂停 100 ms，总超时 3000 ms，电流/电压容差、滤波系数以及相间差异告警/故障阈值 3%/5%。测试母线窗口直接使用 BoardProfile 的欠压/过压阈值。
-
-### 3.2 BoardProfile
-
-文件：`Firmware/Product/board_profile.h`、`board_profile.c`
-
-BoardProfile 是硬件电气特性的单一只读视图：
-
-| 分组 | 配置字段 |
+| 文件 | 职责 |
 | --- | --- |
-| 身份与时序 | `profile_id`、`control_frequency_hz` |
-| 电流采样 | 采样电阻、运放增益、可靠量程、三相独立默认 ADC 零偏、零偏范围/样本数、A/LSB、命令/标定上限、过流阈值 |
-| 母线采样 | V/LSB、欠压/过压阈值 |
-| 温度 | 传感器类型、最大温度、保护启用状态 |
-| 逆变器 | 死区数值及来源、硬件 Break 能力、相电阻路径补偿 |
-| 故障确认 | 过流、母线电压确认周期，温度采样分频 |
-| 通信默认 | CAN 节点 ID、心跳超时 |
+| `Firmware/Core/Config/product_config.h` | 配置类型、最大实例数、拓扑、反馈、功能和标定策略 |
+| `Firmware/Core/Config/product_config_validator.c` | 完整结构与跨字段校验 |
+| `Firmware/Core/Config/product_config_runtime.c` | 目标端低成本运行前门禁 |
+| `Firmware/Core/Config/product_capabilities.c` | 从实例、反馈和策略派生能力/标定步骤 |
+| `Firmware/Core/Config/product_catalog.h` | 稳定 component/variant/endpoint ID 与构建选择 |
+| `Firmware/Core/Config/product_catalog.c` | Board/Motor/Load/Sensor design 和完整 entry |
+| `Firmware/Core/Config/product_manifest.*` | 固件、硬件、参数 schema 与 fingerprint 元数据 |
+| `Firmware/Bsp/Boards/<board>/` | endpoint、物理能力、Flash 布局、绑定与 Bootstrap |
 
-当前板级值：
+叶模块不调用 `ProductCatalog_GetCurrent()`。Bootstrap 把完整配置投影成电流、角度、控制、温度、标定、持久化和通信各自需要的窄配置。
 
-| 项目 | 当前值 |
-| --- | ---: |
-| 控制/PWM 频率 | 20 kHz |
-| ADC 参考与满量程 | 3.3 V / 4095 count |
-| 电流运放增益 | 10 |
-| 默认采样电阻 | 6 mΩ |
-| 电流换算 | 约 0.01343 A/count |
-| 母线分压 | 10 kΩ / 1 kΩ |
-| 母线换算 | 约 0.008864 V/count |
-| ADC 零偏默认/范围 | 2048 / 1948–2148 count |
-| 零偏标定样本数 | 20000 个 20 kHz 样本，即 1 s |
-| 命令/标定/过流阈值 | 10 / 10 / 18 A |
-| 欠压/过压 | 10 / 30 V |
-| 温度采集/保护 | MCU 内部温度可读；保护关闭（本板未实现功率级 NTC） |
-| 最高温度配置 | 100 °C（仅启用经验证的功率级传感器后生效） |
-| 逆变器死区 | 210 ns，由外部栅极驱动器提供；TIM1 deadtime=0 |
-| 硬件 Break 输入 | 当前板 Profile 未启用，仍使用软件过流保护 |
-| 过流确认 | 5 个 20 kHz 周期 |
-| 电压确认 | 10000 个 20 kHz 周期，即 0.5 s |
-| 温度采样分频 | 20 |
-| CAN 节点/心跳 | 0 / 500 ms |
+## 4. 多个项目如何同时配置
 
-`board_profile.c` 当前内置 2 mΩ 和 6 mΩ 两套完整电流采样能力。新采样电阻或新运放增益不能只改 A/LSB；可靠量程、命令限流、标定限流、过流阈值和功率路径补偿必须成套评审。电机的默认运行/标定电流属于 MotorProfile，启动时由 ProductVariant 验证其不超过板级能力。
+一个“项目”对应一个完整 `ProductCatalogEntry`，而不是运行时零散拼装：
 
-### 3.3 EncoderProfile
+```mermaid
+flowchart TD
+    B1[BoardDesign A] --> E1[Entry: A板 + M1 + 单编码器 + 无阻尼]
+    M1[MotorDesign M1] --> E1
+    L0[LoadDesign no-damper] --> E1
+    S1[SensorDesign S1] --> E1
 
-文件：`Firmware/Product/encoder_profiles.*`
+    B1 --> E2[Entry: A板 + M1 + 单编码器 + 1.5Nm阻尼]
+    M1 --> E2
+    L1[LoadDesign damped] --> E2
+    S1 --> E2
 
-| 字段 | 当前值 | 说明 |
-| --- | ---: | --- |
-| Profile ID | 1 | `ACTIVE_ENCODER_PROFILE=ENCODER_PROFILE_TLE5012B_16BIT` |
-| 每圈计数 | 65536 | TLE5012B 转成无符号 Q15 环形计数 |
-| 速度更新分频 | 10 | 20 kHz / 10 = 2 kHz |
-| 速度采样周期 | 0.5 ms | 必须与分频一致 |
-| 默认电零位/机械零位 | 0 / 0 | 标定后由 Flash 覆盖 |
-| 默认标定标志 | 0 | 新设备必须标定 |
-| 默认反向 | 0 | 安装方向必须实机确认 |
-
-编码器线性化 LUT、方向、电零位、机械零位属于运行时持久化数据，不应写死在通用算法里。
-
-### 3.4 控制与标定调参 Profile
-
-文件：`Firmware/Product/control_tuning_profile.*`
-
-该 Profile 包含两组参数：
-
-- 无感启动与磁链观测器：对齐电流斜坡/保持时间、Id/Iq、电角速度目标、启动斜坡、锁定比例、角度交接、丢锁时间、最大观测速度、observer gamma、观测器电阻系数、最大校正步长、最小磁链和低通系数；
-- 编码器标定：电角度线性化的对齐/加速时间、扫描电角速度和失锁超时，以及机械扫描速度、稳速判据、扫描圈数、验证圈数、每 LUT 桶最小样本数、每周期构建桶数、各阶段超时、RMS/峰值误差门限和停止减速/降流时间。
-
-这些参数通常不通过现场协议开放。新电机只在惯量、摩擦、磁链或允许标定电流明显变化时才需要修改；修改后必须重新执行标定超时、停机距离和失锁保护测试。
-
-机械负载相关差异单独放在 `mechanical_load_profiles.*`，包括 Mode 19 摩擦辨识速度点与验收阈值。1.5Nm 阻尼器标定使用
-3.5A 对齐电流、3.5→4.5A 启动 Iq、5.5A 最低相电流限值、0.01 锁速滤波系数、
-5s 锁定超时和 5 个机械采样圈；无阻尼器保留 2A 对齐、0.15→0.5A 启动 Iq、
-原锁定时间和 10 个采样圈。阻尼器的电角零位对齐最低使用 4.5A。
-
-磁链观测器使用：
-
-```text
-observer_Rs = phase_resistance_ohm × flux_observer_resistance_scale
+    B2[BoardDesign B] --> E3[Entry: B板 + M2 + 双角度 + NTC]
+    M2[MotorDesign M2] --> E3
+    L2[LoadDesign L2] --> E3
+    S2[SensorDesign set] --> E3
 ```
 
-`phase_resistance_ohm` 仍是电机真实相电阻，用于电流环 PI、辨识和其他电机模型；
-`flux_observer_resistance_scale` 是 PWM 基波电压模型在目标工作点的等效修正，只属于
-ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保持 `1.905 Ω`、系数
-`0.4199475`（等效 `0.800 Ω`）时，Mode 13 连续三次完成锁定、闭环、LUT 构建、
-验证和自动保存。不得把 `mrs` 临时改成 `0.800 Ω` 后作为量产电机参数保存。
+共享 design 对象，entry 只组合指针和项目级策略。每个 entry 必须拥有唯一且稳定的：
 
-### 3.5 控制周期
+- `variant_id`；
+- 兼容性需要变化时的新 `configuration_fingerprint`；
+- Board/Motor/Encoder/Load/Control/Storage compatibility tuple；
+- 明确的 legacy migration 授权，默认关闭。
 
-文件：`Firmware/Product/control_loop_config.h`
+生产构建只选择一个 entry：
 
-| 控制环 | 当前频率 | 相对 20 kHz 分频 |
-| --- | ---: | ---: |
-| 电流环 | 20 kHz | 1 |
-| 速度环/速度估算 | 2 kHz | 10 |
-| 位置阻抗/轨迹 | 1 kHz | 20 |
-| 位置级联外环 | 5 kHz | 4 |
+```text
+PRODUCT_CATALOG_ACTIVE_VARIANT=<variant macro>
+```
 
-若修改 20 kHz 基频，必须同时核对：TIM1 实际频率、ADC 触发、`BoardProfile.control_frequency_hz`、DWT deadline、各控制分频和所有按控制周期计数的超时。所有子频率必须整除基频。
+建议为每个量产项目建立独立 Keil target/CI job 和独立输出目录，target 只改变选择宏，不复制算法源码。不要在设备运行时根据 Flash 或 CAN 命令任意切换硬件产品身份。
 
-### 3.6 ProductManifest、参数 Schema 和镜像契约
+当前两个变体：
 
-文件：`product_manifest.*`、`product_variant.*`、`Bsp/Boards/<board>/*_memory_map.h`、`parameter_schema.h`、`Bootloader/image_contract.h`
+| 变体 | 宏 | variant/fingerprint | 关键差异 |
+| --- | --- | --- | --- |
+| 无阻尼 | `PRODUCT_CATALOG_VARIANT_NO_DAMPER` | `0x00010000` / `0x9C501110` | 轻载速度与标定参数、位置摩擦辅助关闭、拒绝 erased fingerprint |
+| 约 1.5 Nm 阻尼 | `PRODUCT_CATALOG_VARIANT_DAMPED` | `0x00010001` / `0x9C501111` | 阻尼启动/标定参数、位置摩擦辅助打开、保留已部署 legacy 授权 |
 
-需要维护：产品 ID、MCU ID、硬件修订、板卡/电机/编码器/机械负载/控制整定/存储布局兼容 ID、配置指纹、固件版本、构建号、量产标志、参数 Schema 和 Bootloader 契约版本。应用区当前为 `0x08000000 + 0x1C000`，参数双槽为 `0x0801C000/0x0801E000`、每槽 8 KiB。物理地址和擦写粒度只在所选板包的 `*_memory_map.h` 定义；Keil/Bootloader 链接布局必须与其核对且不得重叠。
-
-以下情况通常需要增加参数 Schema：
-
-- `ParameterSnapshot` 增删字段或改变字段含义/单位；
-- 旧值无法安全迁移；
-- 新硬件不能安全使用旧的校准或缩放数据。
-
-仅调整某个产品的默认值时，不应随意增加 Schema；应使用新的 Board/Motor Profile ID 隔离记录。
-
-## 4. 运行时可配置参数
-
-运行时参数只允许在 `STANDBY` 写入。Application 校验后写候选配置，20 kHz 在安全点提交；这些写入仅用于台架试验，断电后始终由 Product Profile 恢复，模式 9 也不会持久化设计参数。
-
-| 参数 | USB 三字符 | 协议写入单位 | 当前范围 | 当前默认 |
-| --- | --- | --- | --- | ---: |
-| 极对数 | `pol` | 整数 | 2–30 | 21 |
-| 标定电流 | `ica` | A | 0–板级标定上限 10 A | 3 |
-| 电流限制 | `ilm` | A | 0–板级命令上限 10 A | 6 |
-| 速度限制 | `slm` | rev/s | >0，且不超过 Profile 上限 | 0.5（当前阻尼器 Profile） |
-| 速度加速度 | `sac` | rev/s² | 0–1000 | 50 |
-| 速度减速度 | `sde` | rev/s² | 0–1000 | 50 |
-| 速度 Kp | `s_p` | 控制器系数 | 0.01–2 | 0.05 |
-| 速度 Ki | `s_i` | 控制器系数 | 0–2 | 0.5 |
-| 位置加速度 | `pac` | rev/s² | >0–200 | 0.125 |
-| 位置减速度 | `pde` | rev/s² | >0–200 | 0.125 |
-| 位置最大速度 | `pms` | rev/s | >0、≤机械负载 Profile 上限且 ≤总速度限制 | 0.5（当前阻尼器 Profile） |
-| 阻抗位置 Kp | `p_p` | A/rad | 0–50 | 8 |
-| 阻抗位置 Kd | `p_d` | A/(rad/s) | 0–10 | 0.5 |
-| 阻抗位置 Ki | `p_i` | A/(rad·s) | 0–10 | 10 |
-| 位置积分限幅 | `p_l` | A | 0–10 | 5 |
-| 级联位置 Kp | `c_p` | 1/s | 0–50 | 0.05 |
-| 级联位置 Kd | `c_d` | 当前控制器定义 | 0–10 | 0.5 |
-| 相电阻 | `mrs` | 写入为 Ω | Profile 当前范围 0.0001–5.0 Ω | 1.905 Ω |
-| D 轴电感 | `mld` | 写入为 H | 1 µH–5 mH | 1.635 mH |
-| Q 轴电感 | `mlq` | 写入为 H | 1 µH–5 mH | 1.635 mH |
-| 磁链 | `mfx` | 写入为 Wb | 0.01 mWb–1 Wb | 17.5025 mWb |
-
-其他通信/编码器配置（持久化情况见说明）：
-
-| 项目 | USB 三字符 | 范围/说明 |
-| --- | --- | --- |
-| CAN 节点 ID | `cid` | 0–7 |
-| CAN 波特率 | `cbr` | 经典 CAN：100–1000 kbit/s；CAN FD：最高 5000 kbit/s；当前不写入 ParameterSnapshot |
-| CAN 心跳 | `chb` | 0 表示关闭，或 500–1000 ms |
-| 编码器方向 | `erv` | 0/1；修改会使已有方向相关标定失效，应重新标定并保存 |
-| 编码器 LUT/电零位/机械零位 | 通过服务生成 | 不应作为普通数值直接写入 |
-
-### 4.1 当前运行时配置限制
-
-必须注意以下实现事实：
-
-1. 在线修改 R、Ld、Lq 时，Runtime 会使用活动 MotorProfile 的电流环带宽同步重算对应的 `d/q current Kp/Ki`。如果新电机需要不同带宽，仍应建立新的编译期 MotorProfile。
-2. R/L/磁链的运行时上下限由 MotorProfile 提供；当前 HT8115-4 Profile 的相电阻范围是 0.0001–5.0 Ω，覆盖其 1.905 Ω 默认值。
-3. USB 写 `mrs/mld/mlq/mfx` 使用 SI 单位 Ω/H/H/Wb，但 USB 读取文本分别显示 mΩ/µH/µH/mWb，读写单位并不对称。配置工具必须显式换算。
-4. CAN 节点、心跳和波特率均不写入 `ParameterSnapshot`，复位后回到 Product Profile 默认值。经典 CAN Profile 会拒绝大于 1000 kbit/s 的设置。
-5. Board、Motor、Encoder、MechanicalLoad 和 ControlTuning 由 `ProductVariant` 编译期原子选择，不支持运行时切换硬件组合。
-6. 开环电压、开环电角速度、初始电角度和位置误差窗口不写入 ParameterSnapshot；每次加载默认值或有效 Flash 记录时都会从活动 MotorProfile 重新应用。
-7. `mechanical_load_profiles.c` 提供可按 ID 查询的双配置表；其他 Profile 当前各提供一个已验证对象，但全部具有稳定 ID 并进入配置指纹。
-8. Product Profile 已使用具名初始化器，新增字段时不会静默错位；仍应在首次上电前执行 Profile 参数审查和硬件验证。
-9. `mrs` 的设计值必须写入 MotorProfile；Mode 17 只做设计符合性检查，不覆盖它。Mode 13 的速度观测偏差应通过
-   `flux_observer_resistance_scale` 修正，不能通过伪造 `mrs` 或放宽锁定门限处理。
-
-因此推荐：运行时协议用于实验整定速度、位置和限幅；新电机的 R/L/磁链、电流环带宽和安全上限应写入新的编译期 MotorProfile，然后恢复该 Profile 默认值再标定。
-
-### 4.2 经典 CAN 与 CAN FD 选择
-
-帧格式由 `Firmware/Product/vector_mini_st_profile.h` 的 Board Profile 宏选择：
-
-| 目标 | `PARAM_HW_CAN_FD_ENABLED` | `PARAM_HW_CAN_BRS_ENABLED` | 适配器要求 |
-| --- | ---: | ---: | --- |
-| 经典 CAN 2.0 | 0 | 0 | CANalyst-II 等经典 CAN 适配器 |
-| CAN FD，不切换数据速率 | 1 | 0 | CAN FD 适配器 |
-| CAN FD+BRS | 1 | 1 | 支持 BRS 的 CAN FD 适配器 |
-
-当前 Vector Mini ST Profile 使用经典 CAN，标准 11 位 ID、4 字节大端浮点载荷和现有参数 ID 均保持不变。修改这两个宏后必须全量重建并重新下载；双方的帧格式和仲裁/数据速率必须一致。
-
-使用 CANalyst-II 的通道 0 做只读通信回归：
+Keil 当前默认选择 Damped。Host 必须分别编译并运行两个活动分支：
 
 ```powershell
-pwsh -NoProfile -File tools/can_classic_smoke_test.ps1
+pwsh -NoProfile -File tests/host/build_and_run_host_tests.ps1 -ProductVariant Damped
+pwsh -NoProfile -File tests/host/build_and_run_host_tests.ps1 -ProductVariant NoDamper
 ```
 
-脚本读取 Mode、Error、CAN 波特率和摩擦模型有效位，并重复读取 100 次 Mode；运行前必须关闭会独占设备的 USB_CAN_Tool/CANPro。
+`PRODUCT_CATALOG_INCLUDE_ALL=1` 只用于 host catalog/matrix 测试，不加入量产 target。
 
-## 5. 同一硬件快速适配新电机
+## 5. 一个 ProductConfig 需要配置什么
 
-### 5.1 准备参数
-
-至少准备：
-
-- 极对数；
-- 每相电阻，明确是相电阻还是线间电阻；
-- Ld、Lq；
-- 永磁磁链或可靠 Kv；
-- 允许连续/峰值相电流；
-- 最高机械速度；
-- 推荐标定电流；
-- 转动惯量、负载和允许加速度。
-
-所有电气参数必须转换为固件内部 SI 单位：Ω、H、Wb、A、rad/s。接口速度使用 rev/s，进入固件后乘 `2π`。
-
-### 5.2 创建量产 MotorProfile
-
-1. 在 `vector_mini_st_profile.h` 增加唯一的 `MOTOR_PROFILE_<name>` ID。
-2. 增加对应 `#elif ACTIVE_MOTOR_PROFILE == ...` 默认参数块。
-3. 核对 `motor_profiles.c` 中的安全上限；新电机需要不同上限时，将上限也纳入按 Profile 选择的配置，而不是修改 Domain。
-4. 用编译器宏或头文件选择新的 `ACTIVE_MOTOR_PROFILE`。
-5. 确认 ProductManifest 中的 `motor_profile_id` 已变化。
-6. 擦除旧参数页，或进入 Standby 后执行恢复默认值服务并保存。
-
-### 5.3 USB 快速试验顺序
-
-以下报文末尾必须带 `\r\n`：
-
-```text
-\w_mod=0          进入 Standby
-\w_pol=新极对数
-\w_ica=低风险标定电流A
-\w_ilm=低风险运行限流A
-\w_slm=低风险速度上限rev/s
-\w_sac=低风险加速度rev/s2
-\w_sde=低风险减速度rev/s2
-```
-
-若临时写电机模型，单位必须如下：
-
-```text
-\w_mrs=0.250      0.250 Ω，不是 0.250 mΩ
-\w_mld=0.000500   500 µH
-\w_mlq=0.000500   500 µH
-\w_mfx=0.012000   12 mWb
-```
-
-这组在线写入会按活动 MotorProfile 的带宽同步重算电流环 PI，只适合低风险台架试配且不会保存。验证通过后必须把最终设计值写回新的编译期 MotorProfile，重新构建并从统一流程开始标定。
-
-### 5.4 标定与首次运行
-
-1. 在机械安全状态上电，核对静态三相电流、母线电压、MCU 内部温度和编码器在线状态。
-2. 执行 `mode=21`；固件按电流偏置、相电阻验收、方向、Mode 13 LUT、电零位/机械零位、摩擦、齿槽和保存的固定顺序运行。
-3. 通过 `cst/cpr/err` 连续观察当前阶段、进度和故障；`cst` 的高位表示失败，低 7 位为失败阶段。任一步失败都排除原因后从 `mode=21` 重新开始。
-4. 完成后断电重启，验证个体标定数据恢复。
-5. 从低限流电流模式开始，再依次验证速度和位置控制。
-
-若选择模式 13，新电机首次适配还要完成观测器电阻系数确认：
-
-1. 保持 MotorProfile 中的设计相电阻，使用编码器 RTT 同时记录实际电角速度、观测器电角速度
-   和锁速低通值；
-2. 只在限压、限流、可自由旋转且可立即停机的台架上调整
-   `flux_observer_resistance_scale`；该值是编译期 Product 调参，不开放现场协议；
-3. 以目标匀速段的观测器/编码器速度比接近 1、能进入 handoff/closed-loop、无持续
-   相位发散为通过条件；不能只看 Mode 13 是否超时；
-4. 至少连续执行两次 Mode 21，硬件复位后确认 LUT、电角零位、机械零位、摩擦和齿槽
-   补偿均恢复，最后再做低速闭环回归。
-
-## 6. 快速适配新 PCB 或新硬件修订
-
-### 6.1 Product 配置
-
-1. 新增 `BOARD_PROFILE_<name>` 和唯一 Profile ID。
-2. 设置电流采样电阻、运放增益、ADC 参考、母线分压、NTC 和保护阈值。
-3. 设置功率级死区模型、最大电流/电压/温度和故障确认周期。
-4. 更新 `PRODUCT_HARDWARE_REVISION` 和 ProductManifest。
-5. 检查新硬件是否允许沿用旧的编码器标定与参数 Schema。
-
-### 6.2 CubeMX 和 Platform
-
-在 `Vector_Mini_ST.ioc` 中确认并重新生成：
-
-- TIM1 三相互补 PWM、CH4 ADC 触发、中心对齐、频率、极性、死区和 Break；
-- ADC1/ADC2 注入通道、Rank 顺序、采样时间和 TIM1 触发边沿；
-- 编码器 SPI 模式、频率、数据宽度、CS/MOSI 管脚；
-- FDCAN 时钟、采样点、过滤器容量和可支持波特率；
-- USB、1 kHz TIM7、LED/RGB 资源；
-- 中断优先级，保证 20 kHz 控制优先于通信和后台任务。
-
-当前 Platform 中存在以下固定映射，新 PCB 必须逐项检查：
-
-| 文件 | 当前固定内容 |
-| --- | --- |
-| `measurement_adc12.c` | ADC2 JDR1/2/3 = Ia/Ib/Ic，JDR4 = Vbus；ADC1 JDR1 = 温度 |
-| `power_stage_tim1.c` | TIM1 CH1/2/3 及互补输出 |
-| `rotor_sensor_tle5012b.c` | SPI2、TLE5012B SSC、PB15 MOSI 模式切换、板载 CS |
-| `can_fdcan1_transport.c` | FDCAN1 和当前时钟下的分频计算 |
-| `board_runtime.c` | ADC1/2、TIM1 CH4 和 TIM7 启动顺序 |
-| `indicator_stm32g431.c` | LED GPIO、TIM2 DMA RGB |
-
-如果只是同 MCU 的新 PCB，可以增加 `Firmware/Platform/Stm32G431/<board>` Adapter 并由 Composition 选择；如果 MCU 或 HAL 句柄体系变化，应建立新的 `Firmware/Platform/<mcu>/`，不要在原 Adapter 中堆积大量板型条件分支。
-
-### 6.3 Flash 和链接布局
-
-当前应用 ROM 为 `0x08000000–0x0801BFFF`，参数 A/B 槽为：
-
-```text
-Slot 0: 0x0801C000，8 KiB
-Slot 1: 0x0801E000，8 KiB
-```
-
-Flash 型号或 Bootloader 布局变化时，必须同时修改：
-
-- Keil Target ROM 区域和生成的 Scatter；
-- `parameter_store_flash.c` 页大小、槽大小和地址；
-- Bootloader 镜像槽、邮箱和回滚区域；
-- 链接后镜像越界检查。
-
-严禁只修改 Flash Adapter 地址而不修改链接区域。
-
-## 7. 适配新编码器
-
-当前量产实现只支持板载 TLE5012B。
-
-同协议、仅分辨率或速度估算频率不同：
-
-1. 新增 Encoder Profile ID；
-2. 修改每圈计数、速度分频和采样周期；
-3. 默认清除标定标志、零位和 LUT；
-4. 重新执行线性化与电零位标定。
-
-不同协议或外设：
-
-1. 新建实现 `RotorSensorPort` 的 Platform Adapter；
-2. Adapter 负责 SPI/ABI/CRC/状态位和原始角度归一化；
-3. 在 Composition 中选择并注入该 Port；
-4. Domain Encoder 继续只处理标准化计数、方向、LUT、机械/电角度和速度；
-5. 添加断连、CRC、跨零点、方向和最大速度测试。
-
-## 8. 仍散落在 Profile 之外的硬编码配置
-
-以下数值目前会影响硬件或电机适配，修改产品时必须纳入评审：
-
-| 位置 | 当前内容 | 建议归属 |
+| 字段 | 内容 | 主要约束 |
 | --- | --- | --- |
-| `rotor_sensor_tle5012b.c` | SPI 等待上限、PB15 寄存器位和 AF5 | Platform 配置 |
-| `parameter_store_flash.c` | Flash 页面和槽地址 | Product memory layout |
-| `interface_can.c` | 默认 1000 kbit/s、允许的波特率和心跳范围 | Communication/Product Profile |
-| CubeMX TIM1 | 当前 DeadTime 配置为 0，而 BoardProfile 模型为 210 ns | 必须确认由定时器还是门驱动器提供实际死区 |
+| `identity` | product/variant/platform/fingerprint/hardware revision | 非零、与 Manifest/BSP 一致 |
+| `board` | PWM 频率、motor endpoint、电流拓扑、母线比例、板级上限和通信能力 | 必须与 Board capability 一致 |
+| `motor` | 极对数、R、Ld/Lq、磁链、电流、速度 | SI 单位、有限且不超过板上限 |
+| `motor_acceptance` | R/L/磁链设计验收范围 | 范围有效，包含设计值 |
+| `load` | 传动比、输出速度、允许的辨识能力 | 与控制/标定策略一致 |
+| `angle_sensors[]` | design、instance、source、role、endpoint | 0..2、ID/role/endpoint 不重复 |
+| `temperature_sensors[]` | design、instance、source、zone、endpoint、毫秒周期、保护 | 0..3；当前 target 另有限制 |
+| `safety` | 过流、欠压、过压、滤波和确认周期 | 与板/电机上限一致 |
+| `control` | 环路频率、带宽、默认值/边界、observer、位置摩擦辅助 | 慢环频率必须整除快环 |
+| `commissioning_tuning` | 各阶段电流、速度、时间、样本和验收阈值 | 不超过板/电机/控制上限 |
+| `feedback` | 电角度、速度、转子/输出位置、标定参考、fallback 来源 | 来源能力和实例索引有效 |
+| `features` | 必需/可选/关闭的功能和热区 | required 能力必须存在 |
+| `commissioning` | 必需/自动/关闭的标定步骤 | 步骤前置能力必须存在 |
+| `can` / `service_stream` | endpoint、模式、速率、payload、节点、心跳 | Board 和协议共同允许 |
 
-协议 ID、队列容量、CRC 多项式、数学常量等通常属于协议或算法不变量，不应为了换电机随意修改。
+内部物理量统一采用 SI：A、V、Ω、H、Wb、rad、rad/s、s；只有协议边界按协议换算。
 
-## 9. 必做验证门禁
+## 6. 适配新电机和负载
 
-### 9.1 构建和静态检查
+1. 在 `product_catalog.h` 分配新 motor design ID 和 variant ID；
+2. 在 `product_catalog.c` 添加 `ProductMotorDesign`：极对数、相电阻、Ld/Lq、磁链、运行/标定电流、机械速度；
+3. 添加 `ProductMotorAcceptanceConfig`，辨识只判断设计是否合格，不覆盖设计 R/L/磁链；
+4. 配置 `ProductControlConfig`：20 kHz 之下的速度/位置/级联位置频率、PI/轨迹默认值和范围、observer 参数；
+5. 添加或复用 `ProductLoadDesign`，把阻尼、传动比和允许辨识能力放在负载层；
+6. 在 `ProductCommissioningTuningConfig` 中配置动作电流、速度、稳定、采样、超时和验收阈值；
+7. 组合完整 entry，给出新 fingerprint，默认拒绝旧 Flash；
+8. 分别验证 ProductConfig、BSP binding、参数默认、标定和闭环。
 
-```powershell
-pwsh -NoProfile -File tools/verify_architecture.ps1
-```
-
-- Keil 全量 Rebuild 必须 0 error、0 warning；
-- 检查所有工程文件存在、IncludePath 正确；
-- 检查应用镜像不覆盖参数槽或 Bootloader 区域；
-- 新 Platform 之外不得出现 HAL/寄存器依赖。
-
-### 9.2 无电机或限能量台架
-
-- 上电、复位、故障和通信超时时 PWM 始终关闭；
-- 三相高低桥极性、互补关系、死区和 Break 实测正确；
-- ADC Rank 与 Ia/Ib/Ic/Vbus/温度对应正确；
-- 零电流 ADC 位于允许窗口；
-- 电流、母线电压和温度用外部仪表校准；
-- 过压、欠压、过流、过温注入能进入 FAULTED 并关闭功率。
-
-### 9.3 电机验证
-
-- 极对数、相序、编码器方向和电角方向一致；
-- 低电流模式下 Id/Iq 方向正确且无明显直流偏置；
-- R/L/磁链单位正确，电流 PI 与目标带宽相符；
-- 标定过程中电流、速度、持续时间均低于硬件限制；
-- 电流 → 速度 → 位置逐级升能量验证；
-- 模式切换、停机和故障过程无非预期扭矩脉冲；
-- 20 kHz DWT 最大周期低于 deadline 且超限计数为 0。
-
-### 9.4 参数持久化
-
-- 新 Profile 首次烧录不加载旧板/旧电机参数；
-- 保存后复位，所有个体标定量可正确恢复，设计参数仍来自当前 Product Profile；
-- A/B 槽写入、擦除、校验和提交期间分别断电，至少保留一个有效旧记录；
-- 恢复默认值后不会自动启动电机；
-- Schema 迁移和不兼容记录均回退到安全默认值并留下诊断记录。
-
-## 10. 最短执行清单
-
-### 只换电机
+当前 HT8115-4 设计基准：
 
 ```text
-新 Motor Profile ID
-→ 填 R/L/磁链/极对数/电流/速度/带宽
-→ 低安全上限
-→ 全量构建
-→ 擦除旧参数或恢复默认值
-→ 零偏/方向/线性化/电零位标定
-→ 电流/速度/位置逐级验证
-→ 保存并重启验证
+pole pairs          21
+phase resistance    1.905 ohm
+Ld / Lq             1.635 mH / 1.635 mH
+flux                17.5025 mWb
+motor current limit 6 A
+calibration current 3 A
+motor speed limit   38.9557489 rad/s
 ```
 
-### 只换 PCB
+这些是代码设计值，不从 Flash 恢复。observer 使用独立的 `flux_observer_resistance_scale`，它不会修改真实相电阻设计值。
+
+## 7. 配置 0/1/2 个角度传感器
+
+### 7.1 配置模型
+
+| 数量 | 可表达的产品意图 | 必须同步处理 |
+| ---: | --- | --- |
+| 0 | 纯无感电角度/速度；没有物理位置 | 所有 angle route 用 `NONE` 或 observer；关闭位置、方向/LUT/零位等不具备能力的功能 |
+| 1 | 主转子角度，或单独输出轴角度 | role、endpoint、feedback route 和标定 policy 一致 |
+| 2 | 当前运行时支持 primary + output shaft | 两个 instance/endpoint 与采集状态独立；输出位置显式路由。primary + redundant 尚不支持并必须拒绝 |
+
+每个实例包含：
+
+- 稳定 `instance_id`；
+- `ProductAngleSensorDesign`；
+- `source`；
+- `role`；
+- endpoint。
+
+`feedback` 单独选择电角度、motor velocity、motor position、output position、calibration reference 和 fallback。传感器存在并不自动成为控制反馈。
+
+### 7.2 当前 VectorMiniSt 边界
+
+当前活动 entry 只有一个板载 TLE5012B 主转子实例，design ID 为 `PRODUCT_CATALOG_ANGLE_TLE5012B`，65536 count/turn。电角度、motor velocity 和 motor position 都来自 index 0；标定参考使用 sensorless observer；`fallback_electrical_angle` 明确为 `NONE`。其他 16-bit 串行编码器必须分配新的 design ID 并增加独立 adapter case，不能复用 TLE5012B 的身份。
+
+VectorMiniSt Bootstrap 可创建 0/1/2 个实例；两个实例时只接受 `primary + output shaft`。关键转子 route 必须指向 primary，输出位置 route 必须指向 output，两个 endpoint 和跟踪状态相互独立。schema 10 仍只保存 primary 的方向、电/机械零位和 1024 点 LUT，output 不共享或占用第二份 LUT。
+
+`primary + redundant`、双转子对齐、自动 fallback 和第二份转子 LUT 尚未实现，相关 feature/policy 必须关闭，否则启动拒绝。Bootstrap 还会按每个实例的精确 `design_id` 选择 Driver；未知器件 ID 不会被当作当前 TLE5012B 兼容器件接受。
+
+适配新角度器件时，先分配稳定 sensor design ID 并填写分辨率/方向/LUT/零位等真实能力，再在 `Firmware/Drivers/Angle/<device>/` 实现协议，在目标 Bootstrap 的显式 factory 中加入 `design_id -> Driver` 分支，最后补充已知 ID、未知 ID、endpoint/role/route 与独立实例状态测试。仅复用相同总线协议不等于器件兼容。
+
+## 8. 配置可选温度传感器
+
+配置模型最多 3 个温度实例，每个实例指定 source、thermal zone、endpoint、`sample_period_ms`、`pending_timeout_ms`、保护开关和阈值。
+
+| 配置 | 正确做法 |
+| --- | --- |
+| `OFF` | 不要求该功能；无温度时 `temperature_sensor_count=0`，monitor/protection 和 required zone 均关闭 |
+| `OPTIONAL` | endpoint/实例存在时接入，缺失不阻止该产品启动；常用于可选监测硬件 |
+| `REQUIRED` | 对应实例、endpoint 和能力必须可绑定，否则启动失败；用于保护时还必须打开实例保护并验证 thermal zone |
+
+当前 VectorMiniSt 没有装配功率级 NTC：
+
+- 活动 entry 使用 MCU 内部温度 endpoint `0x0301`；
+- 1 ms 请求周期、2 ms pending timeout；
+- `temperature_protection=OFF`、实例 `protection_enabled=false`；
+- 高温、invalid、stale、open、short 或 sensor fault 只进入监测/诊断，不触发温度 trip；
+- MCU die 温度不能代表电机绕组或功率 MOSFET 温度；
+- 板能力中的功率级 NTC endpoint 是 `PROVISIONED_UNPOPULATED`，不能绑定为可用资源。
+
+当前 Bootstrap 最多接入 1 个温度实例。要使用多个 thermal zone，必须先扩展实例创建/监督聚合和故障归属，再配置多个 entry。
+
+## 9. 标定与控制模式策略
+
+`ProductConfig_Derive()` 将能力与 `commissioning` policy 合成为固定顺序的 `commissioning_steps`，Bootstrap 已把它投影到工作流和独立标定命令门禁。只执行 mask 中启用的阶段，不能重排阶段。全部步骤为 `DISABLED` 时产品仍可启动，但 Mode 21 和各单项标定命令拒绝；Mode 8/9 的参数加载/保存维护能力不受该 mask 关闭。
+
+`features` 同样真实决定运行时准入。速度、位置、输出位置和无感功能设为 `OFF` 时，对应控制模式请求会被拒绝；`OPTIONAL` 只有在反馈/observer 能力存在时才开放；`REQUIRED` 缺少前置能力会使配置校验或启动失败。
+
+## 10. 配置 3/2/1-shunt 电流采样
+
+| 拓扑 | Product/算法框架要求 | 当前 VectorMiniSt |
+| --- | --- | --- |
+| inline 3-shunt | A/B/C 三个 role/endpoint，三相直接观测 | 物理 capability 未声明，启动拒绝 |
+| low-side 3-shunt | A/B/C 三个通道、PWM 同步、固定或有效窗口采样 | 唯一已接通路径：固定同步采样，每 PWM 一组，三相直接有效 |
+| low-side 2-shunt | 两个物理通道、有效相 mask、缺相重构与不可观测窗口策略 | 纯策略可表达，板级 acquisition/验证未接通，启动拒绝 |
+| DC-link 1-shunt | 单通道、每 PWM 至少两个采样点、扇区、窗口补偿、PWM+ADC trigger 原子提交 | BSP 契约/纯策略可表达，当前 Platform 无动态采样实现，启动拒绝 |
+
+切换拓扑不能只改 enum。必须同时完成：
+
+1. Board capability 的 topology、容量、endpoint 与 sampling mode；
+2. Product channel role、polarity、endpoint、正 scale、offset 与有效范围；
+3. Platform 的 ADC trigger/window、采样序号和原子 `commit_cycle()`；
+4. 相重构的 valid mask/quality/failure 行为；
+5. offset 标定、过流保护、20 kHz 时序和示波器验证。
+
+当前 VectorMiniSt 三下管三分流配置：
 
 ```text
-新 Board Profile ID 和硬件修订
-→ 电流/电压/温度换算与保护阈值
-→ CubeMX PWM/ADC/SPI/FDCAN/中断
-→ Platform Adapter 映射
-→ Flash/链接布局
-→ 无电机波形与保护测试
-→ 低能量电机测试
-→ 掉电与持久化测试
+physical channels      3 (A/B/C)
+polarity               all INVERTED
+scale                   0.0134310134 A/count
+default offsets         2048 / 2048 / 2048
+valid offset range      1948 .. 2148
+nominal shunt           6 mOhm
+control frequency       20 kHz
+sampling                synchronized FIXED, 1 set/PWM
+reliable range          20 A
+command/calibration max 10 A / 10 A
+software overcurrent    18 A
 ```
 
-### 换 MCU 或编码器协议
+## 11. 适配新板与新 MCU
+
+### 11.1 新板，同 MCU
+
+1. 新建 `Firmware/Bsp/Boards/<new_board>/`；
+2. 定义 board ID、binding fingerprint、真实 endpoint 能力和 memory map；
+3. 复用或新增 `Firmware/Platform/Stm32G431/` Adapter；
+4. 在 `<new_board>/Bootstrap/` 创建该 target 唯一组合根；
+5. 建立对应 BoardDesign 和 Product entry；
+6. 为 BSP 正/反 binding、safe-state 和 endpoint 重排添加测试；
+7. 更新 CubeMX/Keil target，但不修改 Core 算法。
+
+### 11.2 新 MCU
+
+1. 保持 `Firmware/Bsp/Api/` 不变；
+2. 新建 `Firmware/Platform/<new_mcu>/`，实现 motor drive、angle bus、temperature、communication、time、critical section、storage、reset 等接口；
+3. 新建板包和 Bootstrap，不能在旧 Platform 堆积板型条件；
+4. 设置新的 `platform_id`、BoardDesign、Manifest 和 Flash 布局；
+5. 建立独立工程/链接配置；
+6. 重做 PWM、ADC 同步、故障关闭和 20 kHz deadline 实测。
+
+## 12. CAN/USB 配置
+
+`ProductCanConfig` 选择 endpoint、Classic/FD、nominal/data bitrate、BRS、最大 payload、node ID 与 heartbeat。当前活动 entry 是 Classic CAN、1 Mbit/s、data bitrate 0、BRS 关闭、8-byte payload。
+
+板能力声明支持 FD/BRS 不等于活动固件正在使用 FD。启用 FD 时必须同时满足 Product validator、Board capability、Platform timing 和 USB-CAN 工具设置，并重新执行真实总线测试。
+
+USB service stream 由独立 endpoint 配置。CAN 与 USB 的外层报文不同，但均路由到同一 Application API；不得让产品配置复制两份命令业务规则。
+
+当前 VectorMiniSt Bootstrap 要求 CAN 与 USB service stream 都启用并成功绑定。把其中任一项关闭会在该 target 上拒绝启动；这是 Vector target 的组合限制，不是通用 Core 不能支持无 CAN 或无 USB 产品。
+
+## 13. Flash/兼容性边界
+
+VectorMiniSt：
 
 ```text
-保留 Application/Domain
-→ 新 Platform Adapter
-→ 新 CubeMX/Keil 目标
-→ Composition 注入新 Port
-→ 更新 ProductManifest 和内存布局
-→ 完整主机、目标、保护和协议回归
+Application       0x08000000 .. 0x0801BFFF (114688 B)
+Parameter storage 0x0801C000 .. 0x0801FFFF (16 KiB)
+Slot 0 / Slot 1   各 8 KiB
+Erase             2048 B
+Program alignment 8 B
 ```
+
+schema 10 的 `ParameterSnapshot` payload 已部署为 2464 B；关键偏移 shunt=2172、friction=2188、cogging=2208。只恢复：
+
+- 三相电流 offset；
+- 当前单转子编码器方向、电/机械零位和 1024 点 LUT；
+- 摩擦模型；
+- 128 点齿槽表。
+
+R/L/磁链、极对数、控制增益/限值、CAN 默认值和标定动作参数始终来自代码 entry。历史结构中仍有同名字段只是 ABI 保留，不能把它们重新变成运行权威。
+
+新 entry 必须使用新 fingerprint，默认 `allow_erased_fingerprint_migration=false`。只有明确证明 tuple 相容并编写迁移测试后才允许兼容读取。
+
+## 14. 最短适配清单
+
+```text
+明确产品组合与物理能力
+→ 分配稳定 design/variant/endpoint ID
+→ 填 Board/Motor/Load/Sensor design
+→ 填实例映射、反馈、功能和标定策略
+→ ProductConfig validator
+→ BSP endpoint/binding validator
+→ 投影窄配置并创建 Adapter
+→ Damped/NoDamper/新变体 host 构建
+→ 架构门禁、Keil link、Flash/RAM 检查
+→ 母线断开检查启动与 fail-closed
+→ 重新确认母线电压/限流/接线/负载/急停
+→ PWM/ADC/保护实测
+→ 统一标定、保存、断电恢复
+→ 电流→速度→位置逐级升能量验证
+```
+
+每次开始实机操作都必须重新确认当下电源状态。聊天中的“母线已断开”“28 V/1 A”或“可以带电下载”只描述当时状态，不能作为下一次会话的授权或安全依据。

@@ -1,379 +1,402 @@
-# Vector Mini ST 量产固件架构
+# Vector Mini ST 固件架构
 
-## 1. 目的与适用范围
+## 1. 架构目标
 
-本文定义 Vector Mini ST 在 STM32G431、当前 PCB、TLE5012B 角度传感器和现有电机配置上的目标软件架构。近期实现只支持这套已验证硬件，但所有硬件与产品差异必须通过 Port、Adapter 和只读 Profile/Manifest 注入；控制域不得因新增 MCU、PCB、角度传感器或电机而修改算法核心。
+当前固件采用“可移植内核 + 窄 BSP 契约 + 板级组合根”的产品线架构。一个量产构建只选择一个完整、只读的 `ProductConfig`，由它原子地组合板卡、电机、负载、传感器、反馈路由、保护、控制、标定和通信配置。
 
-架构目标按优先级排列：
+架构需要同时满足：
 
-1. 任何故障路径都先撤销扭矩和功率输出，再执行控制或服务逻辑。
-2. 功率级只有一个软件所有者，其他模块只能提交输出请求。
-3. 20 kHz 实时路径具有有界执行时间，不分配动态内存、不访问 Flash、不格式化字符串。
-4. 配置、命令、运行状态、遥测和持久化镜像是不同的数据模型。
-5. 控制算法是硬件无关、可在主机上测试的纯 C 模块。
-6. 通信只解释和路由请求，不直接写控制器内部变量。
-7. Application 与 Bootloader 通过固定镜像契约协作，彼此不链接内部实现。
+- 控制算法不依赖具体 MCU、HAL、引脚、ADC Rank 或定时器实例；
+- 功能模块通过显式输入、Context 和窄接口协作，不读取彼此的内部状态；
+- 产品配置与板级物理能力分别建模，启动时交叉校验，能力不足时保持 PWM 关闭；
+- 20 kHz 路径有界、无动态分配、无阻塞 I/O、无字符串格式化；
+- Flash 只保存模组个体标定量，设计参数每次启动都来自当前产品目录；
+- CAN 与 USB 只调用 Application 用例，不直接操作电机控制对象。
 
-## 2. 架构原则与依赖规则
+## 2. 标准分层
 
-目标依赖方向如下：
+```mermaid
+flowchart TB
+    EXT[CAN / USB / ISR / main]
 
-```text
-Product Manifest / Profiles
-            |
-            v
-Composition Root
-       |
-       +------> Application Services -----> Domain Algorithms
-       |                 ^                        ^
-       |                 |                        |
-       +------> Runtime Orchestration ------------+
-       |                 |
-       +------> Ports <--+
-                      ^
-                      |
-              Platform Adapters -----> STM32 HAL / CMSIS / Core
+    subgraph FW[Firmware]
+        BOOT[Board Bootstrap<br/>唯一 Composition Root]
 
-Communication: Transport -> Protocol -> Router -> Application Services
+        subgraph CORE[Core]
+            APP[Application<br/>用例、生命周期、监督、MotorControl 编排]
+            COMM[Communication<br/>协议、路由、接口、字节/帧队列]
+            SVC[Services<br/>控制、测量、反馈、安全、辨识、数学]
+            CFG[Config<br/>ProductConfig、Catalog、Manifest、校验]
+            INF[Infrastructure<br/>参数仓储、遥测快照]
+        end
+
+        DRV[Drivers<br/>MCU 无关的器件协议]
+        BSPAPI[Bsp/Api<br/>硬件语义契约]
+        BOARD[Bsp/Boards<br/>endpoint、能力与板级资源绑定]
+        PLATFORM[Platform<br/>MCU/HAL 适配]
+    end
+
+    VENDOR[CubeMX / HAL / CMSIS]
+
+    EXT --> BOOT
+    COMM --> APP
+    APP --> SVC
+    APP --> CFG
+    APP --> INF
+    APP --> BSPAPI
+    SVC --> CFG
+    INF --> CFG
+    INF --> BSPAPI
+    DRV --> BSPAPI
+    BOARD --> BSPAPI
+    BOARD --> CFG
+    BOARD --> DRV
+    BOARD --> PLATFORM
+    PLATFORM --> BSPAPI
+    PLATFORM --> VENDOR
+    BOOT --> APP
+    BOOT --> COMM
+    BOOT --> SVC
+    BOOT --> CFG
+    BOOT --> INF
+    BOOT --> DRV
+    BOOT --> BOARD
+    BOOT --> PLATFORM
 ```
 
-运行期对象关系由组合根显式建立，不允许模块通过文件级活动指针寻找“当前实例”：
+箭头表示“使用”。只有 `Firmware/Bsp/Boards/<board>/Bootstrap/` 可以同时看到所有层并创建完整对象图；普通业务代码不得承担组合根职责。
 
-```text
-FirmwareComposition
-  +-- MotorControlRuntimeContext
-  |     +-- MotorStateContext
-  |     +-- control/calibration/identification Contexts
-  |     `-- ParameterSnapshotContext
-  +-- Application Service Contexts
-  |     `-- ApplicationEndpoints
-  |           +-- CAN Router Context
-  |           `-- USB Router Context
-  +-- CAN/USB Interface Contexts
-  `-- SupervisorTaskContext
-        +-- MotorControlRuntimeContext
-        +-- Telemetry/Indicator Contexts
-        `-- CAN/USB Interface Contexts
-```
-
-`FirmwareComposition` 是唯一允许静态拥有上述可变对象的位置。Application、Communication
-和 Runtime 的公共操作都显式接收所属 `Context`；同一模块可以在测试中创建多个互不干扰的实例。
-Platform Adapter 可以为 HAL 回调保留硬件单例，但该状态不能向上泄漏为应用级活动对象。
-
-硬性规则：
-
-- `domain/` 不包含 STM32 HAL、CMSIS 外设寄存器、CubeMX 生成头文件、USB 或 CAN 头文件。
-- Domain 函数只接收调用者持有的 `Context`、不可变配置、输入值和 Port；不读取隐藏全局变量。
-- `application/` 编排状态机和用例，可以依赖 Domain 与 Port 接口，不依赖具体 HAL Adapter。
-- `Firmware/Platform/Stm32G431/` 是允许依赖 HAL/CMSIS 和 TIM/ADC/SPI/FDCAN 句柄的唯一产品代码区域。
-- `Firmware/Communication/Transport/` 只移动字节/帧；`Protocol/` 只做编解码；`Router/` 做鉴权、范围和状态校验；Service 调用 Application API。
-- 中断入口只采集必要输入、执行确定性任务并投递事件；字符串和大报文生成留在后台任务。
-- 所有可跨中断访问的数据都必须有明确的单写者规则、原子快照或临界区策略。
-- 不新建含糊的 `System`、`Common`、`Run`、`Handle` 模块；名称表达所有者和动作。
-
-## 3. 目标目录及职责
-
-当前工程已完成目录级迁移，产品固件统一收口在 `Firmware/` 下，旧 `Bsp/`、`Foc/`、`System/` 已删除。运行时编排、纯算法、应用用例、平台访问和组合根均有独立所有者；除 `Firmware/Platform/Stm32G431/` 与 CubeMX `Core/` 外，任何产品代码都不得访问 HAL 或外设寄存器。
+### 2.1 最终目录
 
 ```text
 Firmware/
-  Application/
-    control_authority_service.* CAN/USB 控制权仲裁及心跳归属
-    device_lifecycle.*          设备生命周期与允许的转换
-    motor_command_service.*     命令验证、仲裁和发布
-    parameter_manager.*         参数校验、应用、保存请求
-    fault_manager.*             多故障集合、锁存和清除策略
-    power_stage.*               功率级唯一所有权和安全门控
-    calibration_service.*       标定流程编排
-    identification_service.*    电机辨识流程编排
-    telemetry_service.*         一致性快照与降采样
-    diagnostic_service.*        产品信息、故障统计与遥测的只读诊断快照
-    update_service.*            安全升级准备、取消与复位交接
-    rotor_calibration_service.* 转子方向配置与 LUT 只读服务
-    can_configuration_service.* CAN 配置用例与 Port 调用
-    can_response_service.*      CAN 响应投递用例与 Port 调用
-    communication_watchdog_service.* 链路故障上报用例
-    Indicators/                 LED/RGB 状态逻辑
-
-  Domain/
-    Math/                       无平台依赖的快速数学函数
-    Measurement/                电流、电压、温度换算与滤波
-    RotorFeedback/              角度、速度、方向与质量状态
-    CurrentControl/             Clarke/Park、PI、电压限幅
-    Modulation/                 SVPWM 占空比计算
-    MotionControl/              轨迹、位置级联和阻抗控制
-    Identification/             无硬件依赖的辨识算法
-
-  Ports/
-    power_stage_port.h           使能、禁止、安全占空比、三相占空比
-    measurement_port.h          ADC 原始快照
-    rotor_sensor_port.h         角度传感器原始帧
-    parameter_store_port.h       双槽记录读写
-    monotonic_clock_port.h       单调时钟
-    diagnostic_transport_port.h 诊断输出
-    execution_timer_port.h       控制周期计时
-    reset_reason_port.h          复位原因读取
-    device_identity_port.h       MCU 唯一标识读取
-    update_control_port.h        Application 到 Bootloader 邮箱/复位边界
-    motor_command_port.h        命令服务到实时控制的窄接口
-    motor_configuration_port.h  参数服务到运行配置的窄接口
-    rotor_calibration_port.h    转子标定数据受控读写接口
-    can_configuration_port.h    CAN 配置服务到接口状态的窄接口
-    can_response_port.h         CAN Router 到发送队列的窄接口
-
-  Platform/Stm32G431/
-    power_stage_tim1.*          TIM1 唯一寄存器/HAL 访问者
-    measurement_adc12.*         ADC/DMA 适配
-    rotor_sensor_tle5012b.*     SPI/TLE5012B 适配
-    parameter_store_flash.*     STM32 Flash 适配
-    execution_timer_stm32g431.* DWT 周期计数适配
-    reset_reason_stm32g431.*    RCC 复位标志适配
-    device_identity_stm32g431.* STM32 UID 适配
-    can_fdcan1_transport.*      FDCAN 适配
-    usb_cdc_transport.*         USB CDC 适配
-
-  Product/
-    product_variant.*           板卡/电机/编码器/负载/整定的原子组合与启动校验
-    product_manifest.*          产品、硬件、固件兼容性标识
-    control_loop_config.h       固定控制节拍与有界流程编译期配置
-    control_tuning_profile.*    传感器/观测器/标定调参
-    board_profile.*             引脚、量程、极性和时序
-    motor_profiles.*            电机电气/机械参数和安全上限
-    mechanical_load_profiles.*  阻尼器/无阻尼器启动、标定、摩擦前馈与摩擦辨识配置
-    encoder_profiles.*          传感器类型、方向、标定能力
-
-  Bsp/Boards/<board>/
-    *_memory_map.h              应用镜像与参数存储的唯一物理 Flash 边界
-
-  Composition/
-    firmware_composition.*      唯一组合根；静态创建并注入所有 Port/Profile
-
-  Runtime/
-    MotorControl/
-      motor_control_runtime.*    20 kHz 确定性编排入口
-      motor_control_types.h      命令、派生目标、配置和运行状态模型
-      measurement_runtime.*      测量 Port 到测量模型的适配
-      current_control_runtime.*  电流环与调制编排
-      control_mode_runtime.*     正常控制策略调度
-      current_offset_calibration_runtime.* 电流零偏有界 step
-      encoder_calibration_runtime.* 编码器线性化/观测器标定有界 step
-      electrical_zero_calibration_runtime.* 电角零位有界 step
-      phase_resistance_runtime.* 有界相电阻辨识 step
-      motor_state_runtime.*      生命周期请求、故障与协议只读投影
-      parameter_snapshot.*       运行参数快照与 Schema 迁移
-      parameter_persistence_adapter.* 参数快照到 ParameterManager 的适配
-      *_adapter.*                Application Port 到运行时状态的窄适配
-    Supervisor/
-      supervisor_task.*          1 kHz 遥测、指示灯和通信监督
-
-  Communication/
-    interface_can.*              CAN 队列、心跳和 Port Adapter
-    interface_usb.*              USB 队列、发送状态和打印调度
-    Transport/byte_ring_buffer.* USB SPSC 静态接收队列
-    Protocol/*_protocol_v1.*     当前线协议 v1 的有界编解码
-    Router/*_command_router.*    协议 ID 到 Application Service 的映射
-
-Bootloader/
-  image_contract.h            Application/Bootloader 共享 ABI
-  （独立工程，后续引入）
-
-tests/
-  host/                       Domain/Application 主机测试
-  target/                     板级冒烟、保护和升级测试
-
-docs/
-  product_configuration_quick_guide.md 新硬件与新电机快速适配指南
+├── Core/
+│   ├── Application/
+│   │   ├── Api/                 对通信公开的应用端点集合
+│   │   ├── Commissioning/       标定/辨识用例验收
+│   │   ├── Communication/       CAN 配置等应用用例
+│   │   ├── Contracts/           Application 的窄依赖接口
+│   │   ├── Diagnostics/         产品与故障诊断用例
+│   │   ├── Indicators/          指示灯应用逻辑
+│   │   ├── MotorControl/        20 kHz 控制与标定编排
+│   │   ├── Parameters/          参数读写和边界校验
+│   │   ├── Supervision/         1 kHz 监督与温度监测
+│   │   └── Update/              升级准备与复位交接
+│   ├── Services/
+│   │   ├── CurrentControl/      PI 和电流控制数学
+│   │   ├── Identification/      相电阻、摩擦辨识纯逻辑
+│   │   ├── Math/                快速数学
+│   │   ├── Measurement/         测量模型、电流策略、温度监测
+│   │   ├── Modulation/          SVPWM
+│   │   ├── MotionControl/       位置、轨迹控制
+│   │   ├── RotorFeedback/       编码器模型和反馈路由
+│   │   └── Safety/              故障集合与锁存策略
+│   ├── Communication/
+│   │   ├── Can/                 CAN 响应应用适配
+│   │   ├── Contracts/           通信侧窄接口
+│   │   ├── Formatting/          有界文本生成
+│   │   ├── Interfaces/          CAN/USB 会话编排
+│   │   ├── Protocol/            纯编解码和协议常量
+│   │   ├── Router/              命令分派、鉴权、范围语义
+│   │   └── Transport/           静态字节队列
+│   ├── Config/                  产品类型、目录、能力和校验
+│   └── Infrastructure/
+│       ├── Parameters/          A/B 参数记录管理
+│       └── Telemetry/           一致性遥测快照
+├── Drivers/
+│   └── Angle/Tle5012b/          不含 MCU 资源的 TLE5012B 协议
+├── Bsp/
+│   ├── Api/                     通用硬件语义接口
+│   └── Boards/
+│       ├── bsp_board.*          能力模型与 endpoint 查询
+│       ├── bsp_product_binding.* 配置需求与物理能力校验
+│       └── VectorMiniSt/
+│           ├── vector_mini_st_bsp.*
+│           ├── vector_mini_st_memory_map.h
+│           └── Bootstrap/       VectorMiniSt 唯一组合根
+└── Platform/
+    └── Stm32G431/               TIM/ADC/SPI/FDCAN/USB/Flash/HAL 适配
 ```
 
-## 4. Application 与 Bootloader 边界
+仓库根目录下 CubeMX 生成的 `Core/`、`Drivers/`、`Middlewares/` 和 `USB_Device/` 不是上述 `Firmware/Core`，只允许由 STM32 Platform、板级 Bootstrap 或生成入口接触。
 
-Bootloader 与 Application 仅共享版本化的 `ImageManifest`、启动邮箱和复位原因，不共享业务结构体、HAL 句柄或链接符号。
+## 3. 依赖契约
 
-`ImageManifest` 至少包含：
-
-- 魔数、契约版本、结构长度；
-- 产品 ID、硬件兼容位图、目标 MCU；
-- 语义版本、构建 ID、镜像长度、入口地址；
-- 镜像哈希、签名算法与签名位置；
-- 参数 Schema 最小/最大兼容版本；
-- 安全回滚计数器和发布通道。
-
-Bootloader 负责镜像接收、完整性/真实性检查、槽位选择、试运行计数、回滚和跳转。Application 的 `UpdateService` 负责候选兼容性检查、请求进入升级模式、确认功率级已禁止、写入请求并触发复位；具体邮箱地址、复位和 Bootloader 实现只通过 `UpdateControlPort` 接入。升级传输可复用协议定义，但 Bootloader 和 Application 必须各自拥有路由与服务实现。
-
-## 5. 硬件抽象与产品配置
-
-Port 使用窄接口和调用者提供的上下文：
-
-```c
-typedef struct {
-    void *context;
-    bool (*enable_outputs)(void *context);
-    void (*disable_outputs)(void *context);
-    void (*write_duty)(void *context, float phase_a, float phase_b, float phase_c);
-} PowerStagePort;
+```mermaid
+flowchart LR
+    CCOMM[Core/Communication] --> CAPP[Core/Application]
+    CAPP --> CSVC[Core/Services]
+    CAPP --> CCFG[Core/Config]
+    CAPP --> CINF[Core/Infrastructure]
+    CAPP --> BAPI[Bsp/Api]
+    CSVC --> CCFG
+    CINF --> CCFG
+    CINF --> BAPI
+    DRIVERS[Drivers] --> BAPI
+    BOARDS[Bsp/Boards] --> BAPI
+    BOARDS --> CCFG
+    BOARDS --> DRIVERS
+    BOARDS --> PLATFORM[Platform]
+    PLATFORM --> BAPI
+    BOOT[Boards/&lt;board&gt;/Bootstrap] --> CCOMM
+    BOOT --> CAPP
+    BOOT --> CSVC
+    BOOT --> CCFG
+    BOOT --> CINF
+    BOOT --> BOARDS
+    BOOT --> PLATFORM
 ```
 
-Port 不拥有上层状态。Adapter 可以包含 HAL 句柄或寄存器基址，但不得反向调用控制域。初始化时由 composition root 把静态分配的 Context、Profile 和 Port 组装起来。
+必须遵守：
 
-当前 `FirmwareComposition_Initialize` 只获取一个经校验的只读 `ProductVariant`，再把其中的 `BoardProfile`、`MotorProfile`、`EncoderProfile`、`MechanicalLoadProfile` 和 `ControlTuningProfile` 注入运行系统；这些模块不再从散落宏中自行选择产品配置。配置指纹写入持久化记录，历史格式只允许显式、一次性的兼容迁移。
+- `Core` 不包含 STM32、HAL/CMSIS、寄存器、引脚、外设句柄或具体器件驱动头文件；
+- `Core/Config` 只描述产品事实，不调用硬件、不持有可变运行状态；
+- `Services` 是可在 host 上执行的纯逻辑，状态由调用者持有；
+- `Application` 编排服务和硬件语义接口，不依赖具体 Platform；
+- `Protocol` 不调用 Router，Router 不调用具体 CAN/USB transport；
+- `Drivers` 只实现器件协议，不选择板卡引脚或产品；
+- `Platform` 把通用 BSP 语义映射到 MCU/HAL；
+- `Bsp/Boards` 声明一块板实际有哪些资源，不能把未焊接或未实现资源伪装为可用；
+- ISR 入口只转发到已经构造完成的静态 Context。
 
-配置分三层：
+## 4. BSP 解耦模型
 
-- `BoardProfile`：ADC 比例、分流电阻、栅极逻辑、PWM 频率/死区、传感器总线和安全电压温度边界。
-- `MotorProfile`：极对数、R/L/磁链、最大电流/速度、控制器默认带宽和辨识边界。
-- `ProductManifest`：产品 ID、PCB 修订、MCU、Bootloader 契约和允许的 Profile 组合。
+### 4.1 七类窄接口
 
-当前板卡没有实际功率级 NTC。平台层使用 STM32G431 内部温度传感器提供诊断温度，Product 明确关闭温度跳闸；未来接入 NTC 时由新的测量 Adapter 输出摄氏度，并在完成传感器位置、开短路和阈值验证后启用保护。TIM1 不生成死区，BoardProfile 明确声明 210 ns 死区来自外部栅极驱动器；硬件 Break 输入在确认原理图连接前保持关闭。
+| 接口 | 语义 | 实时约束 |
+| --- | --- | --- |
+| `BspMotorDrivePort` | 安全初始化、arm/disarm、采样、PWM+采样计划原子提交、立即关断 | 快环函数有界、非阻塞、无分配 |
+| `BspAngleSensorPort` | 带序号/状态的标准化单圈角度采样 | 非阻塞 |
+| `BspTemperaturePort` | 发起/读取带时间与状态的温度样本 | 1 kHz 监督，不作为执行器 |
+| `BspCanPort` / `BspByteStreamPort` | 原始帧或字节收发 | 不解释协议命令 |
+| `BspSystem` 系列接口 | 时钟、临界区、身份、存储、复位、诊断 | 各自窄职责 |
+| `BspIndicatorPort` | 状态指示输出 | 后台/监督调用 |
+| `BspSynchronousSerialPort` | 通用同步串行事务 | 由器件 Driver 消费 |
 
-编译期选择确定硬件能力，运行期持久化参数只能在 Manifest 给出的安全范围内调整，不能把不兼容硬件伪装为另一 Profile。
+`BspMotorDriveSample` 只携带 ADC 原始观测、母线原始值、有效相位、状态和采样计划序号。offset、极性、A/count、三相重构和滤波都在 BSP 之上完成，因此控制算法不依赖 ADC Rank。
 
-## 6. 数据模型
+### 4.2 endpoint 的含义
 
-不得继续用一个结构体承载所有数据：
+endpoint 是产品配置中的稳定逻辑资源 ID，不是 GPIO、ADC 通道号或数组下标。例如 `0x0101` 表示“该产品要求的 A 相电流采集资源”。板包把该 ID 绑定到实际 acquisition index，Platform 再把 index 映射到 ADC/DMA 数据。
 
-- `MotorCommand`：外部期望，如启停、控制模式、目标电流/速度/位置；由通信服务产生，由控制任务单写消费。
-- `MotorControlTargets`：由当前模式或服务过程派生的 dq 电流、速度、位置和电压目标；只由 20 kHz 编排/算法写，不反向覆盖外部命令。
-- `MotorConfiguration`：经校验且当前生效的参数；运行中默认只读，切换采用完整快照。
-- `MotorRuntimeState`：积分器、轨迹、观测器和状态机上下文，只由对应实时模块写。
-- `MotorTelemetry`：从运行状态复制出的只读快照；通信不得持有运行变量地址。
-- `ParameterRecord`：带 Header/CRC/序号的持久化 DTO；不直接 `memcpy` 内部结构体作为协议。
-- `FaultSet`：活动故障与锁存故障位图、首次发生时间、主故障和计数器。
+这条映射链为：
 
-命令发布使用双缓冲或短临界区复制；遥测按固定频率生成一致性快照。对 32 位 Cortex-M4 的自然对齐 32 位标量可原子读写，但复合对象仍必须由序号锁、双缓冲或临界区保证一致。
+```mermaid
+flowchart LR
+    PC[ProductConfig<br/>role + endpoint + scale] --> CAP[Board capabilities<br/>endpoint 能否提供]
+    CAP --> BIND[BSP binding<br/>endpoint -> acquisition index]
+    BIND --> PAD[Platform adapter<br/>ADC/TIM/SPI/FDCAN]
+    PAD --> OBS[标准化观测]
+    OBS --> CORE[Core Services / Application]
+```
 
-## 7. 实时任务与执行预算
+配置中的通道顺序可以变化，逻辑 role 不能由顺序推断；endpoint 缺失或重复、role 缺失或重复、极性非法都必须使启动失败。
 
-### 20 kHz 电流环（ADC 注入转换完成）
+## 5. 产品配置与能力
 
-固定顺序：
+`ProductCatalog_GetCurrent()` 返回当前构建唯一的 `ProductCatalogEntry`。entry 包含：
 
-1. 获取 ADC 与转子传感器快照；
-2. 更新测量值与传感器质量；
-3. 评估快速保护并将故障加入 `FaultSet`；
-4. 若存在禁止输出的故障，立即 `PowerStage_ForceDisable`，跳过控制输出；
-5. 消费已验证命令快照；
-6. 执行当前控制或服务过程的一个有界 step；
-7. 计算 SVPWM 占空比并向 PowerStage 提交；
-8. 更新轻量运行状态/降采样计数。
+- 完整 `ProductConfig`；
+- `ProductManifest`；
+- Flash 兼容 tuple、配置 fingerprint 与显式迁移授权。
 
-此路径禁止 `malloc/free`、Flash 擦写/编程、`printf/sprintf`、USB/CAN 发送、无界循环和阻塞 HAL API。
+`ProductConfig_Validate()` 检查结构、单位、范围、跨字段关系和能力派生；板级 binding 再检查所选 endpoint 与物理板能力。任一环节失败，都不得启动周期中断或 arm 功率级。
 
-### 1 kHz 监督任务
+配置模型最多描述 3 个电流通道、2 个角度传感器和 3 个温度传感器，也能描述 inline 三分流、低侧三分流、低侧两分流和母线单分流。模型能表达不代表当前目标已经具备物理实现，见第 10 节。
 
-负责生命周期转换、通信超时、慢保护去抖、命令看门狗、LED/RGB 状态、遥测快照和标定/辨识监督。不能绕过 PowerStage 或直接写控制状态。
+反馈源用 `NONE`、角度传感器实例索引或无感观测器显式表示。缺少传感器时使用 `NONE`，不能创建虚假设备。当前双传感器运行时只接受 `primary + output shaft`；转子冗余、自动 fallback、第二份转子 LUT/零位都明确拒绝，不能静默共用单编码器状态。
 
-### 后台任务
+`features` 不只是能力声明：Bootstrap 将速度、位置、输出位置、无感等策略投影为运行时控制模式门禁，被关闭或前置反馈不满足的模式请求会被拒绝。温度按 `OFF / OPTIONAL / REQUIRED` 处理：`OFF` 不创建该功能，`OPTIONAL` 仅在能力存在时接入，`REQUIRED` 缺失能力即启动失败。`ProductConfigDerived.commissioning_steps` 同样在启动时投影到标定工作流，而不是只用于离线校验。
 
-负责 Transport TX、诊断文本格式化、参数保存事务、升级准备和非实时统计。Flash 保存仅在设备处于安全禁止输出状态、实时任务明确让出后执行。
+## 6. 启动流程
 
-## 8. 状态模型
+```mermaid
+sequenceDiagram
+    participant Main as CubeMX main
+    participant Boot as VectorMiniSt Bootstrap
+    participant Catalog as Product Catalog
+    participant Board as BSP Board
+    participant Core as Application/Core
+    participant Store as Parameter Store
+    participant HW as Platform
 
-三个正交概念必须分开：
+    Main->>Main: HAL、Clock、GPIO、DMA、ADC、TIM、通信外设初始化
+    Main->>Boot: FirmwareComposition_Initialize()
+    Boot->>Catalog: ProductCatalog_GetCurrent()
+    Boot->>Catalog: Config/Manifest/Flash compatibility 校验
+    Boot->>Board: 核对 runtime identity、binding fingerprint 与 endpoint 能力
+    alt 任一校验失败
+        Boot->>HW: 保持 motor drive 为 safe/disarmed
+        Boot-->>Main: 返回，周期入口保持无效
+    else 校验通过
+        Boot->>Boot: 投影 CurrentSense、反馈、控制模式、温度与标定 mask
+        Boot->>HW: 创建 motor drive、角度、温度、通信、存储等接口
+        Boot->>Core: Prepare/Initialize 所有静态 Context
+        Boot->>Store: 加载当前 fingerprint/schema 兼容记录，否则用代码默认值
+        Boot->>Core: 初始化 Application endpoints、Router、Supervisor
+        Boot->>HW: BoardRuntimeStm32G431_Start()
+        Note over HW: ADC 校准与注入采集、PWM CH4 触发、1 kHz TIM7<br/>只在所有 ISR Context 就绪后启动
+    end
+    Main->>Boot: 循环 FirmwareComposition_RunBackground()
+```
 
-`DeviceState`：
+启动成功不等于功率桥已经导通。`BspMotorDrivePort` 先执行安全初始化，只有生命周期进入需要功率的活动/标定阶段并且没有阻断故障时才 arm；故障侧效果首先是立即关闭输出。
 
-- `BOOTING`：初始化和自检，输出禁止；
-- `STANDBY`：可接收配置/命令，输出禁止；
-- `ACTIVE`：控制模式运行；
-- `SERVICING`：执行一种标定或辨识过程；
-- `FAULTED`：存在阻断故障，输出禁止；
-- `UPDATING`：升级交接，输出禁止。
+## 7. 20 kHz 快环
 
-`MotorControlMode` 只包含正常控制策略：`CURRENT`、`SPEED`、`SENSORLESS_SPEED`、`POSITION_CASCADE`、`POSITION_IMPEDANCE`、`VOLTAGE_OPEN_LOOP`、`VQ`。保存参数、恢复默认值、清故障、设置机械零位和各种标定不属于控制模式。
+20 kHz 入口来自 ADC2 注入转换完成中断。控制频率由 `ProductBoardDesign.control_frequency_hz` 给出；速度、位置和级联位置环频率来自 `ProductControlConfig`，在 `MotorControlRuntime_Prepare()` 中一次性校验并生成分频。慢环频率必须非零、不高于 20 kHz、整除快环频率且分频不超过 `uint16_t`。
 
-`ServiceProcedure` 包含 `CURRENT_OFFSET_CALIBRATION`、`ENCODER_LINEARIZATION`、`ELECTRICAL_ZERO_CALIBRATION`、`OBSERVER_CALIBRATION`、`PHASE_RESISTANCE_IDENTIFICATION` 等。每项过程都有 `IDLE/PRECHECK/RUNNING/VERIFYING/COMPLETED/FAILED/CANCELLED` 子状态，进入时验证前置条件，退出时统一撤销输出并发布结果。
+```mermaid
+flowchart TD
+    IRQ[ADC injected conversion complete] --> GUARD{Bootstrap 已完成?}
+    GUARD -->|否| RET[返回]
+    GUARD -->|是| READ[MotorDrive read_sample<br/>读取 ADC/母线/序号]
+    READ --> OK{采样与序号有效?}
+    OK -->|否| FAULT[置故障并立即 disable]
+    OK -->|是| CONVERT[按 endpoint-role-polarity<br/>offset/scale 转换与三相策略]
+    CONVERT --> PROTECT[过流、母线电压、功率级故障检查]
+    PROTECT --> BLOCK{存在阻断故障?}
+    BLOCK -->|是| FAULT
+    BLOCK -->|否| ANGLE[采集物理角度并更新反馈路由]
+    ANGLE --> FEEDBACK{当前模式所需反馈有效?}
+    FEEDBACK -->|否| FAULT
+    FEEDBACK -->|是| APPLY[在安全点应用待处理配置/命令]
+    APPLY --> STATE[读取生命周期、模式、标定阶段]
+    STATE --> BRANCH{ACTIVE / SERVICING / 其他}
+    BRANCH -->|ACTIVE| CTRL[按分频执行位置/速度环<br/>生成 Id/Iq 或开环目标]
+    BRANCH -->|SERVICING| CAL[按派生 mask 执行固定顺序标定阶段]
+    BRANCH -->|其他| ZERO[高侧零矢量]
+    CTRL --> FOC[电流控制、SVPWM 与采样计划]
+    CAL --> FOC
+    ZERO --> COMMIT[commit_cycle 或保持禁用]
+    FOC --> COMMIT
+    COMMIT --> LATCH[检查硬件故障与功率需求边沿]
+    LATCH --> METRIC[记录 latest/max/filtered cycles<br/>及 deadline overrun]
+```
 
-状态转换只能由 `DeviceLifecycle` 执行。通信、故障检测和服务过程提交事件，不直接赋值状态。
+快环约束：
 
-## 9. PowerStage 与安全保护
+- 禁止等待 SPI、USB、CAN、Flash 或日志输出；
+- 禁止动态分配和无界循环；
+- 参数与命令只在确定的安全点整体生效；
+- 保护判定优先于控制计算；
+- PWM 与当前周期采样计划通过 `commit_cycle()` 在同一更新边界提交；
+- 任何错误路径都不能留下上一周期的非零输出；
+- DWT 统计必须用实机最大周期和超限计数验证，host 测试不能替代时序验收。
 
-`PowerStage` 是 TIM1 三相功率输出的唯一软件所有者：
+## 8. 1 kHz 与后台流程
 
-- 只有平台 Adapter 可写 TIM1 CCR/BDTR、启动或停止互补 PWM。
-- Domain 只生成归一化占空比；Application 负责验证有限值和范围后提交。
-- 上电初始化、任何复位/异常和未知状态都采用输出禁止。
-- 使能需要同时满足：设备状态允许、命令有效、必要标定完成、传感器在线、`FaultSet` 无阻断位、占空比为安全值。
-- 禁止是幂等操作，且优先于本周期任何控制计算。
-- 故障清除不自动重新使能；必须经过新的显式启动转换。
+```mermaid
+flowchart LR
+    TIM7[1 kHz TIM7] --> SUP[SupervisorTask]
+    SUP --> TEMP[温度采样状态机]
+    SUP --> WD[通信监督]
+    SUP --> TEL[发布一致性遥测快照]
+    MAIN[main while loop] --> CAN[CAN 后台收发/路由]
+    MAIN --> USB[USB 会话/路由]
+    MAIN --> STORE[参数保存事务]
+    MAIN --> DIAG[诊断与低优先级输出]
+```
 
-保护分层：硬件 Break/栅极驱动器提供最快关断；20 kHz 快保护处理过流、母线越界、无效数值、传感器连续丢帧；1 kHz 慢保护处理温度、通信看门狗和一致性问题。软件故障集合不能替代硬件过流关断。
+温度服务使用 wall-clock 毫秒，不随 PWM 频率缩放。`OFF` 不要求温度能力，`OPTIONAL` 在 endpoint 可用时接入但不因缺失阻止启动，`REQUIRED` 必须成功绑定；是否进入保护链还由实例 `protection_enabled` 和 thermal zone 策略决定。当前 MCU 内部温度仅监测：valid/stale/open/short/fault 会进入诊断状态，但活动产品关闭 `temperature_protection`，不会触发温度跳闸。它不能代表电机绕组或 MOSFET 温度。
 
-`FaultSet` 同时保存多个故障。当前实现保存活动/锁存位图、主故障、事件序号和每个故障的发生次数及首次/最近事件序号；墙钟时间和测量快照将在引入单调时钟 Port 后补齐。兼容旧协议时按固定优先级投影为一个 `primary_fault`，但不得丢失其他活动/锁存位。
+## 9. 状态与数据所有权
 
-## 10. 参数、标定和持久化
+| 数据 | 唯一权威/写者 | 其他消费者如何访问 |
+| --- | --- | --- |
+| 产品设计值 | 编译期 `ProductCatalogEntry` | Bootstrap 投影只读窄配置 |
+| 生命周期与控制模式 | Application lifecycle | 明确 API/快环快照 |
+| 控制器积分器、轨迹、observer | 对应 MotorControl Context | 遥测复制，不暴露地址 |
+| 外部命令候选 | Application command service | 快环安全点整体应用 |
+| 活动/锁存故障 | Safety/Fault manager | 一致性诊断快照 |
+| 遥测 | Infrastructure 双缓冲 seqlock | CAN/USB 读取不可变 snapshot |
+| Flash 个体参数 | Parameter manager A/B 记录 | 校验 schema/fingerprint/CRC 后投影应用 |
 
-`ParameterManager` 工作流：
+中断与后台共享数据必须使用已经定义的单写者、临界区、原子字段或 seqlock。不得通过去掉 `volatile`、强制转换后 `memcpy` 或直接导出 Context 指针绕过并发语义。
 
-1. Service 接收 typed parameter ID/value，不接收内部地址；
-2. 校验类型、有限值、范围、跨字段约束、当前 DeviceState 和 Profile 兼容性；
-3. 写入候选配置并计算派生量；
-4. 在安全同步点原子应用完整配置快照；
-5. 若请求持久化，进入后台保存事务；
-6. 读回并校验后才确认保存成功。
+## 10. 框架能力与当前 VectorMiniSt 能力
 
-持久化采用 A/B 双槽或日志式记录。每条记录含魔数、Schema、长度、产品/硬件/Profile ID、单调序号、payload CRC 和提交标志。写入顺序为：擦除非活动槽、写 Header/Payload、校验读回、最后写提交标志。掉电时始终保留一个已提交旧槽。加载时选择兼容且 CRC 正确的最高序号；失败则加载安全默认值并记录参数故障，不在实时路径访问 Flash。
+| 能力 | 配置/BSP 框架 | 当前 VectorMiniSt 量产路径 |
+| --- | --- | --- |
+| 电流采样 | inline 3-shunt、低侧 3/2-shunt、DC-link 1-shunt | 仅低侧三分流、固定同步采样、A/B/C 三个 endpoint；其他拓扑校验失败并保持关闭 |
+| 角度传感器 | 配置数组支持 0/1/2 个实例与显式反馈路由 | 0/1 个和 `primary + output shaft` 两实例可组装；两个实例各有独立采集/跟踪状态，但 schema 10 仍只有一份 primary 转子 LUT/方向/零位。`primary + redundant`、自动切换和第二转子 LUT 明确拒绝 |
+| 无编码器 | 反馈模型可选择 sensorless observer | 当前位置功能仍需要角度传感器；标定参考使用 observer，但不能据此宣称完整无编码器产品已验证 |
+| fallback | 模型有 `fallback_electrical_angle` | 当前活动 entry 明确为 `NONE`，不得宣称自动切换 |
+| 温度 | 最多 3 个实例与多个 thermal zone | 当前 Bootstrap 最多接入 1 个；仅 MCU 内部温度 monitor-only，功率级 NTC endpoint 为未装配状态 |
+| CAN | Classic、FD、BRS 能力模型 | 活动 entry 使用 Classic CAN，1 Mbit/s、8-byte、BRS 关闭；FD/BRS 需单独实机验证后才能作为产品能力发布 |
+| 通信可选性 | 配置可描述 CAN 与 service stream | 当前 VectorMiniSt Bootstrap 要求 CAN 和 USB byte-stream 都启用并成功绑定；关闭任一项属于目标不支持并拒绝启动，不是 Core 的通用限制 |
+| 产品变体 | 多 entry 共存，生产构建选择 1 个 | 已定义无阻尼与约 1.5 Nm 阻尼两个构建，默认阻尼版本 |
 
-标定/辨识结果先进入结果对象，只有验证通过并经 ParameterManager 接受后才能成为配置；保存必须显式请求。取消、超时、故障和正常完成都走统一清理路径。
+标定阶段仍保持固定依赖顺序，但只执行派生 mask 中启用的阶段。mask 全空是合法产品配置并可正常启动；此时统一标定 Mode 21 和各独立标定命令拒绝进入，Mode 8/9 的参数加载/保存维护能力保持可用。当前未实现的双角度对齐与 sensorless validation 必须配置为关闭。
 
-## 11. 通信、协议和升级流程
+## 11. Flash 边界
 
-通信分层：
+VectorMiniSt 物理布局的唯一来源是 `Firmware/Bsp/Boards/VectorMiniSt/vector_mini_st_memory_map.h`：
 
-- `Transport`：CAN 帧、USB 字节流、收发队列和链路统计；
-- `Protocol`：帧格式、版本、CRC、序列号、typed payload 编解码；
-- `Router`：命令 ID 到 Service 的映射、权限/状态/范围初检；
-- `Service`：调用 MotorCommandService、ParameterManager、CalibrationService、DiagnosticService 或 UpdateService；
-- `Telemetry`：读取不可变快照并编码响应。
+```text
+Flash             0x08000000 .. 0x0801FFFF  (128 KiB)
+Application       0x08000000 .. 0x0801BFFF  (0x1C000 = 114688 B)
+Parameter storage 0x0801C000 .. 0x0801FFFF  (16 KiB，两个 8 KiB 槽)
+Erase size        2048 B
+Program alignment 8 B
+```
 
-ISR 仅把定长帧放入静态环形队列。任何协议写操作都返回明确结果：accepted、busy、invalid-state、out-of-range、not-supported 或 internal-error。CAN 与 USB 可以共享 Service，不共享 Transport 状态，也不能保存 `MotorRuntimeState` 字段地址。
+已部署 `ParameterSnapshot` schema 10 的 payload 大小为 2464 B，关键 ABI 偏移受编译期断言保护：shunt 2172、friction 2188、cogging 2208。快照结构保留历史字段是为了兼容读取，不表示这些字段仍是运行权威。
 
-升级流程：收到请求后验证 Manifest 与产品兼容性；DeviceLifecycle 进入 `UPDATING`；PowerStage 强制禁止并确认；ParameterManager 完成或取消事务；写启动邮箱和候选镜像信息；系统复位；Bootloader 校验、试运行和必要时回滚；Application 健康自检后确认镜像。
+当前只应用以下个体量：
 
-## 12. 故障与诊断
+- 三相 ADC offset；
+- 单个转子编码器的方向、电零位、机械零位和 1024 点 LUT；
+- 摩擦模型；
+- 128 点齿槽补偿表。
 
-故障记录最少包含：活动位图、锁存位图、主故障、首次/最近时间、发生次数、当时的关键测量快照和最近复位原因。量产诊断提供：
+极对数、R/L/磁链、控制增益、限值、CAN 默认值和标定动作参数始终从当前 entry 重新加载。新 fingerprint 默认拒绝旧记录；只有已部署阻尼 entry 明确允许 erased-fingerprint legacy 迁移，无阻尼 entry 不允许。
 
-- 产品/硬件/固件/Bootloader/参数版本；
-- 唯一设备标识与生产批次字段；
-- 上电自检、ADC 偏置、传感器、Flash、CAN/USB 状态；
-- 活动/锁存故障集合及计数；
-- 最近升级和回滚结果；
-- 只读的控制周期最大耗时与溢出计数。
+## 12. 新项目扩展规则
 
-诊断读取不得改变设备状态。具有副作用的测试必须作为 ServiceProcedure 运行。
+1. 在 `Core/Config` 定义稳定 board/motor/sensor/load design ID、variant ID 和完整 catalog entry；
+2. 在 `Bsp/Boards/<board>` 声明真实 endpoint、容量、安全能力和 memory map；
+3. 在 `Drivers` 增加器件协议实现，在 `Platform/<mcu>` 实现通用 BSP 接口，不把产品选择写进二者；
+4. 在板级 `Bootstrap` 以精确 `design_id` 分派 Driver；未知或不匹配的 ID 必须拒绝，不能退回“当前唯一驱动”；
+5. 投影反馈、控制模式、温度和标定窄策略，并为 0/1/2 传感器及 OFF/OPTIONAL/REQUIRED 正反例增加 host 测试；
+6. 为新产品分配新 fingerprint，核对 compatibility tuple；改变已部署 `ParameterSnapshot` 大小/偏移必须升级 schema、提供显式迁移并做断电测试；
+7. 用架构门禁阻止 HAL 反向渗入 Core，并用 Keil/link map 验证镜像未进入参数区；
+8. 实机验证前重新确认母线状态、限流值、机械约束和急停路径，不能沿用上一次会话的电源假设。
 
-## 13. 命名规范
+详细配置步骤见 [`../product_configuration_quick_guide.md`](../product_configuration_quick_guide.md)，统一标定见 [`../unified_motor_commissioning_guide.md`](../unified_motor_commissioning_guide.md)。
 
-- 类型：完整 PascalCase，如 `MotorCommand`、`ParameterStorePort`。
-- 函数：`Module_VerbObject`，如 `FaultManager_Raise`、`PowerStage_ForceDisable`。
-- 枚举值：`TYPE_VALUE`，如 `DEVICE_STATE_STANDBY`。
-- 单位写入字段名：`bus_voltage_v`、`speed_rad_s`、`timeout_ms`。
-- 布尔值使用 `is_`、`has_`、`can_`；动作函数使用动词。
-- 用 `Read/Write` 表示 I/O，用 `Encode/Decode` 表示协议，用 `Load/Save` 表示持久化，用 `Apply` 表示运行配置切换。禁止用含糊的 `Upload/Download`。
-- 禁止新增 `System`、`Common`、`Run`、`Handle` 作为领域名称；协议兼容必须使用显式版本号，不得重新引入 `legacy_*` 主体模块。
-- 文件名与单一职责一致；一个公共头文件不能聚合所有工程头文件。
+## 13. 完成门禁
 
-## 14. 验证与发布门禁
+- Damped 与 NoDamper host 矩阵均通过；
+- 两道架构检查通过，工程源文件不存在旧目录引用；
+- ARM/Keil 0 error，链接镜像严格小于 application capacity；
+- ProductConfig 与 BSP identity/endpoint 不匹配时 fail-closed；
+- 20 kHz 实机最大周期低于 deadline，超限计数为 0；
+- PWM 极性、死区、采样相位、故障关断和母线测量经过示波器/外部仪表确认；
+- 统一标定、A/B 保存、断电恢复及不兼容记录拒绝均通过；
+- CAN/USB 字节协议与控制权语义保持回归兼容；
+- 温度保护只有在安装了代表目标热区的传感器并完成故障注入后才能打开。
 
-每次迭代至少执行：工程文件完整性检查、目标编译（工具可用时）、无 HAL 依赖扫描、实时路径禁用 API 扫描和相关主机测试。安全修改还需验证：上电禁止、故障同周期关断、多故障不丢失、清故障不自启、NaN/越界占空比拒绝、模式切换输出连续性。
+## 14. 2026-09-07 软件重构验证基线
 
-量产发布要求可重复构建、版本 Manifest、链接布局检查、静态分析、单元/集成测试、板级保护注入、通信兼容测试、参数掉电测试、升级/回滚测试，以及记录所用 Product/Motor/Encoder Profile。
+本次最终软件基线已完成以下自动验证：
 
-## 15. 当前落地状态
+- Damped 与 NoDamper 各 34 项 host 测试，共 68/68 通过；
+- STM32G431 motor-drive 与内部温度两个 fake-platform 边界测试均在
+  `-Wall -Wextra -Wpedantic -Werror` 下通过；
+- 两道架构门禁分别检查 217 个 Firmware 文件、216 个受依赖规则约束的文件和
+  451 条依赖边，结果均为 0 failure；
+- Keil ARMCC 5.06u7 使用 Level 2、size 优先配置分别全量构建 Damped 与
+  NoDamper，两个构建均为 0 error、0 warning；默认交付选择已恢复为 Damped；
+- 最终 Damped 镜像为 Code 105484 B、RO-data 5176 B、RW-data 460 B、
+  ZI-data 30844 B；按链接器压缩装载量计算占用 110864/114688 B，剩余
+  3824 B，高于 2048 B 最低余量；
+- Keil 工程包含 39 个组、141 个源文件条目，无重复组、重复文件或缺失文件；
+- schema 10、`ParameterSnapshot` 2464 B 以及 shunt/friction/cogging 的
+  2172/2188/2208 偏移继续由编译期断言保护；两个产品 fingerprint 保持
+  `0x9C501110` 与 `0x9C501111`。
 
-当前架构已作为唯一参与构建的实现：
-
-- `ParameterService` 统一校验电机配置的有限值、范围、单位和跨字段约束；CAN/USB 不再各自维护一份规则。
-- `TelemetryService` 在 1 kHz 监督节拍发布双缓冲不可变快照；CAN 查询和 USB 五通道打印不再读取或保存电机控制运行时字段地址。
-- `CanConfigurationService` 和 `CanResponseService` 通过 Port 访问 CAN 接口私有状态；Router 不包含 `interface_can.h`，也不直接调用 Transport。
-- CAN 与 USB Router 共同依赖一个由组合根注入的 `ApplicationEndpoints`，协议层不再分别维护一套应用服务定位关系。
-- `FirmwareComposition` 是 ADC、1 kHz、CAN、USB 与后台任务的统一入口；周期中断只在全部 ISR 可见 Context 初始化完成后启用。
-- Application、Communication 和 Runtime 已移除 `ActiveContext`、`ActiveRuntime`、`ActiveState` 一类隐式单例；生命周期、故障、参数、遥测、接口和指示灯调用链均显式携带 Context。
-- 控制算法只写 `MotorControlTargets`，不再把速度环、位置环或标定派生的电流参考回写到 `MotorCommand`。
-- 电流零偏和相电阻先形成独立结果，由 Application 校验，再经配置候选邮箱在 20 kHz 安全点整对象提交；过程算法不直接改写生效配置。
-- `DiagnosticService` 发布复位原因、故障现场与 DWT 统计的 20 kHz 最大周期/超限次数；RTT 仅作为 Platform 后台 Transport。
-- 单项故障恢复只清活动位，锁存位与每类发生次数保留到显式整机清故障，以支持追溯诊断。
-
-USB CDC 与 FDCAN 接收中断只采集到静态有界队列，命令解析、格式化和 Service 调用在主循环执行。USB Protocol、Router 和接口发送状态使用独立 DTO/Context，不共享可变控制状态。现有线上协议以 `can_protocol_v1` 和 `usb_protocol_v1` 明确版本化，保留既有协议 ID、显示单位和响应文本。
-
-`tools/verify_architecture.ps1` 会拒绝旧目录/文件、工程漏编源文件、HAL 越界、Product 宏越界、通信反向依赖、实时路径动态分配/Flash/格式化操作以及未经过 PowerStage 的 TIM1 三相输出访问。
+该基线证明目录边界、配置投影、协议路由、目标编译与链接布局成立，但不把软件测试
+等同于新镜像的实机验收。本次重构后的镜像尚未下载到目标板，也未重新执行 PWM/ADC
+波形、保护注入、20 kHz WCET、统一标定、掉电恢复和闭环运动验证。开始这些操作前必须
+重新确认当下母线电压、限流、机械负载、CAN 接线和急停条件。

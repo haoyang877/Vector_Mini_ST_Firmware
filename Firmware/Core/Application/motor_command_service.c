@@ -153,7 +153,7 @@ MotorCommandResult MotorCommandService_SetCurrentReferenceA(
 	port = &context->port;
 	if (!isfinite(current_a))
 		return MOTOR_COMMAND_INVALID_VALUE;
-	if (fabs(current_a) > port->get_current_limit_a(port->context))
+	if (fabsf(current_a) > port->get_current_limit_a(port->context))
 		return MOTOR_COMMAND_OUT_OF_RANGE;
 	if (port->get_mode(port->context) != MOTOR_PORT_MODE_CURRENT &&
 		!port->request_mode(port->context, MOTOR_PORT_MODE_CURRENT))
@@ -173,7 +173,7 @@ MotorCommandResult MotorCommandService_SetSpeedReferenceRps(
 	port = &context->port;
 	if (!isfinite(speed_rps))
 		return MOTOR_COMMAND_INVALID_VALUE;
-	if (fabs(speed_rps) > port->get_speed_limit_rad_s(port->context) *
+	if (fabsf(speed_rps) > port->get_speed_limit_rad_s(port->context) *
 		MOTOR_COMMAND_ONE_BY_2PI)
 		return MOTOR_COMMAND_OUT_OF_RANGE;
 	mode = port->get_mode(port->context);

@@ -26,6 +26,24 @@ typedef uint32_t BspCurrentSenseTopologySet;
 #define BSP_CURRENT_SENSE_TOPOLOGY_BIT(topology_) \
 	(UINT32_C(1) << (uint32_t)(topology_))
 
+/*
+ * FIXED means the board owns the ADC trigger/window and the fast loop may only
+ * identify the applied cycle. DYNAMIC means commit_cycle() may program one or
+ * more trigger points from the supplied plan.
+ */
+typedef enum
+{
+	BSP_CURRENT_SAMPLING_MODE_UNSPECIFIED = 0,
+	BSP_CURRENT_SAMPLING_MODE_FIXED,
+	BSP_CURRENT_SAMPLING_MODE_DYNAMIC,
+	BSP_CURRENT_SAMPLING_MODE_COUNT
+} BspCurrentSamplingMode;
+
+typedef uint32_t BspCurrentSamplingModeSet;
+
+#define BSP_CURRENT_SAMPLING_MODE_BIT(mode_) \
+	(UINT32_C(1) << (uint32_t)(mode_))
+
 typedef uint8_t BspMotorPhaseSet;
 
 enum
@@ -57,12 +75,18 @@ typedef struct
 		current_sensor_endpoints[BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT];
 	bool supports_synchronized_sampling;
 	bool supports_hardware_shutdown;
+	BspCurrentSamplingModeSet supported_sampling_modes;
 } BspMotorDriveEndpointCapabilities;
 
 typedef struct
 {
 	BspCurrentSenseTopology current_sense_topology;
 	uint32_t pwm_frequency_hz;
+	BspCurrentSamplingMode sampling_mode;
+	/* Fixed acquisition endpoints publish exactly this many direct phase
+	 * observations. Dynamic endpoints leave both fixed fields zero. */
+	uint8_t fixed_sample_count;
+	BspMotorPhaseSet fixed_direct_phase_currents;
 } BspMotorDriveConfiguration;
 
 /*
@@ -96,6 +120,7 @@ typedef struct
 
 typedef struct
 {
+	BspCurrentSamplingMode mode;
 	/* 0 means not sectorized; values 1..6 identify the modulation sector. */
 	uint8_t modulation_sector;
 	uint8_t sampling_point_count;
@@ -104,23 +129,31 @@ typedef struct
 	BspCurrentSamplingPoint points[BSP_MOTOR_MAX_SAMPLING_POINT_COUNT];
 } BspCurrentSamplingPlan;
 
-typedef struct
+typedef uint32_t BspMotorDriveSampleStatusSet;
+
+enum
 {
-	int32_t current_sensor_raw[BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT];
-	float current_sensor_a[BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT];
-	uint8_t valid_current_sensors;
-} BspCurrentSamplingResult;
+	BSP_MOTOR_DRIVE_SAMPLE_VALID = UINT32_C(1) << 0,
+	BSP_MOTOR_DRIVE_SAMPLE_ADC_OVERRUN = UINT32_C(1) << 1
+};
 
 /*
- * Samples remain in physical sensor/window form. Phase-current reconstruction
- * belongs to the selected measurement strategy above the BSP.
+ * The BSP exposes the raw observations produced at the sampling points of one
+ * applied plan, without offsets, gains, phase reconstruction, filtering, or
+ * SI conversion. For a fixed three-shunt plan these are the three physical
+ * sensors in capability order; for a dynamic single-shunt plan they are the
+ * ordered sampling-point observations. The plan is correlated by sequence in
+ * the application motor-drive service.
  */
 typedef struct
 {
-	float bus_voltage_v;
-	uint32_t applied_plan_sequence;
-	uint8_t valid_sampling_points;
-	BspCurrentSamplingResult points[BSP_MOTOR_MAX_SAMPLING_POINT_COUNT];
+	uint32_t current_raw[BSP_MOTOR_MAX_SAMPLING_POINT_COUNT];
+	uint8_t current_sample_count;
+	BspMotorPhaseSet valid_phase_currents;
+	uint32_t bus_voltage_raw;
+	BspMotorDriveSampleStatusSet status;
+	/* Identifies the sampling plan associated with this acquisition. */
+	uint32_t sequence;
 } BspMotorDriveSample;
 
 typedef struct
@@ -139,7 +172,10 @@ typedef struct
  * read_sample(), commit_cycle(), disable_immediate(), and read_faults() are
  * hard-real-time calls: bounded, non-blocking, allocation-free, and silent.
  * commit_cycle() applies PWM values and the complete sampling plan atomically
- * at one PWM update boundary. initialize_safe(), arm(), and disarm() execute
+ * at one PWM update boundary. For FIXED sampling, mode must be FIXED,
+ * sampling_point_count and modulation_sector must be zero, and
+ * cycle_valid_phase_currents describes the board-fixed acquisition. The
+ * points array is ignored. initialize_safe(), arm(), and disarm() execute
  * outside the motor ISR.
  */
 typedef struct

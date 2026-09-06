@@ -21,10 +21,18 @@ typedef enum
 	COMMISSIONING_STAGE_FAILED
 } MotorCommissioningStage;
 
+typedef uint16_t MotorCommissioningStageMask;
+
+#define MOTOR_COMMISSIONING_STAGE_MASK(stage) \
+	((MotorCommissioningStageMask)1U << (uint8_t)(stage))
+#define MOTOR_COMMISSIONING_SUPPORTED_STAGE_MASK \
+	((MotorCommissioningStageMask)0x01FEU)
+
 typedef struct
 {
 	MotorCommissioningStage stage;
 	MotorCommissioningStage failure_stage;
+	MotorCommissioningStageMask enabled_stage_mask;
 	uint16_t completed_stage_mask;
 	uint8_t failure_reason;
 	bool active;
@@ -32,6 +40,15 @@ typedef struct
 
 void MotorCommissioningWorkflow_Initialize(
 	MotorCommissioningWorkflowContext *context);
+bool MotorCommissioningWorkflow_Configure(
+	MotorCommissioningWorkflowContext *context,
+	MotorCommissioningStageMask enabled_stage_mask);
+/* Pure policy gate for standalone service requests.  Maintenance commands and
+ * FULL_COMMISSIONING remain admissible here; FULL is finally admitted by
+ * MotorCommissioningWorkflow_Start so an empty mask cannot start Mode 21. */
+bool MotorCommissioningWorkflow_IsServiceEnabled(
+	const MotorCommissioningWorkflowContext *context,
+	ServiceProcedure procedure);
 bool MotorCommissioningWorkflow_Start(
 	MotorCommissioningWorkflowContext *context,
 	ServiceProcedure *first_procedure);

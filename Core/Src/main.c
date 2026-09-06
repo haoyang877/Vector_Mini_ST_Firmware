@@ -23,13 +23,12 @@
 #include "fdcan.h"
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "firmware_composition.h"
+#include "Bsp/Boards/VectorMiniSt/Bootstrap/firmware_composition.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
@@ -103,9 +102,7 @@ int main(void)
   MX_TIM7_Init();
   MX_USB_Device_Init();
   MX_ADC1_Init();
-  MX_SPI1_Init();
   MX_SPI2_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   FirmwareComposition_Initialize();
   /* USER CODE END 2 */

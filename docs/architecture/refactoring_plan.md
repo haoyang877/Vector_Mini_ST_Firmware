@@ -1,5 +1,9 @@
 # Vector Mini ST 固件渐进重构计划
 
+> 状态说明：本文保留 2026-09-04 起的迁移计划与阶段性目录名称，用于追溯重构
+> 决策，不代表当前文件树。最终代码边界、目录和 2026-09-07 验证结果以
+> [`firmware_architecture.md`](firmware_architecture.md) 为准。
+
 ## 1. 基线与约束
 
 本计划以 2026-09-04 的 `c747b93` 为代码基线，并保留工作树中已有的用户改动。当前已识别的用户改动包括 `.gitignore`、`Core/Src/main.c` 的换行修复、Keil 用户选项、示波器配置和未跟踪的 `data_recoder/`；各阶段不得覆盖、删除或回退这些内容。
@@ -257,7 +261,7 @@
 
 ## 11. 本轮完成状态（2026-09-04）
 
-- Phase 0-5 的软件边界重构已接入目标工程并通过全量 ARMCC 构建；旧 `Bsp/`、`Foc/`、`System/` 均已删除，`Firmware/Application`、`Firmware/Domain`、`Firmware/Ports`、`Firmware/Product`、`Firmware/Runtime` 不含 HAL 依赖。
+- Phase 0-5 的软件边界重构已接入目标工程并通过全量 ARMCC 构建；旧 `Bsp/`、`Foc/`、`System/` 均已删除，Application 低风险叶子已迁入 `Firmware/Core/Application`，`Firmware/Application` 仅暂留 `power_stage.*`；其余迁移期目录不含 HAL 依赖。
 - 功率级、ADC 测量、TLE5012B、Flash、FDCAN、USB CDC 和指示灯均由 STM32G431 Adapter 实现，并在 `FirmwareComposition_Initialize` 静态注入。
 - 参数 A/B 原子记录、故障集合、生命周期投影、命令/参数/遥测/转子标定服务、ISR 静态队列和纯 Domain 算法均已启用。
 - CAN/USB 已拆成 Interfaces、Transport、版本化 Protocol、Command Router，并通过 Application Service + Port 访问配置和响应队列；共享 `CANMsg`/`USBMsg` 状态已移除。

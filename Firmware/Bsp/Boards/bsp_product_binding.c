@@ -104,6 +104,11 @@ static bool BspProductBinding_BuildRequest(const ProductConfig *config,
 		config->board->current_sense.topology,
 		&request->current_sense_topology))
 		return false;
+	request->current_sampling_mode =
+		config->board->current_sense.topology ==
+			PRODUCT_CURRENT_SENSE_TOPOLOGY_DC_LINK_1_SHUNT ?
+			BSP_CURRENT_SAMPLING_MODE_DYNAMIC :
+			BSP_CURRENT_SAMPLING_MODE_FIXED;
 	channel_count = config->board->current_sense.physical_channel_count;
 	if (channel_count > BSP_MOTOR_MAX_CURRENT_SENSOR_COUNT)
 		return false;

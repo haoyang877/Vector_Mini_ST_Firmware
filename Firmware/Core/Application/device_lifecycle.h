@@ -2,6 +2,7 @@
 #define CORE_APPLICATION_DEVICE_LIFECYCLE_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "Core/Application/procedure_state.h"
 
 typedef enum
@@ -25,6 +26,19 @@ typedef enum
 	MOTOR_CONTROL_MODE_VOLTAGE_OPEN_LOOP,
 	MOTOR_CONTROL_MODE_VQ
 } MotorControlMode;
+
+typedef uint8_t MotorControlModeMask;
+
+#define MOTOR_CONTROL_MODE_MASK(mode_) \
+	((MotorControlModeMask)(UINT8_C(1) << (uint8_t)(mode_)))
+#define MOTOR_CONTROL_SUPPORTED_MODE_MASK ((MotorControlModeMask)UINT8_C(0xFE))
+
+static inline bool MotorControlModeMask_Allows(MotorControlModeMask mask,
+	MotorControlMode mode)
+{
+	return mode > MOTOR_CONTROL_MODE_NONE && mode <= MOTOR_CONTROL_MODE_VQ &&
+		(mask & MOTOR_CONTROL_MODE_MASK(mode)) != 0U;
+}
 
 typedef enum
 {

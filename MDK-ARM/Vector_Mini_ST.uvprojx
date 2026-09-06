@@ -313,7 +313,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>2</Optim>
+            <Optim>3</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -337,9 +337,9 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx,ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM</Define>
+              <Define>USE_HAL_DRIVER,STM32G431xx,PRODUCT_CATALOG_ACTIVE_VARIANT=PRODUCT_CATALOG_VARIANT_DAMPED</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Core/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Core/Communication/Transport;../Firmware/Application;../Firmware/Core/Application/Communication;../Firmware/Core/Application/Indicators;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Core/Services/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
+              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Bsp/Boards/VectorMiniSt/Bootstrap;../Firmware/Core/Application/MotorControl;../Firmware/Core/Application/Supervision;../Firmware/Core/Communication/Interfaces;../Firmware/Core/Communication/Protocol;../Firmware/Core/Communication/Router;../Firmware/Core/Communication/Transport;../Firmware/Core/Application/Api;../Firmware/Core/Application/Commissioning;../Firmware/Core/Application/Communication;../Firmware/Core/Application/Diagnostics;../Firmware/Core/Application/Indicators;../Firmware/Core/Application/Parameters;../Firmware/Core/Application/Update;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Core/Services/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Platform/Stm32G431;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -512,42 +512,57 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Application</GroupName>
+          <GroupName>Firmware/Core/Application/Api</GroupName>
           <Files>
             <File>
               <FileName>application_endpoints.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\application_endpoints.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\Api\application_endpoints.c</FilePath>
             </File>
-            <File>
-              <FileName>power_stage.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\power_stage.c</FilePath>
-            </File>
-            <File>
-              <FileName>parameter_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\parameter_service.c</FilePath>
-            </File>
-            <File>
-              <FileName>diagnostic_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\diagnostic_service.c</FilePath>
-            </File>
-            <File>
-              <FileName>update_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\update_service.c</FilePath>
-            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Application/Commissioning</GroupName>
+          <Files>
             <File>
               <FileName>calibration_service.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\calibration_service.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\Commissioning\calibration_service.c</FilePath>
             </File>
             <File>
               <FileName>identification_service.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\identification_service.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\Commissioning\identification_service.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Application/Parameters</GroupName>
+          <Files>
+            <File>
+              <FileName>parameter_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\Parameters\parameter_service.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Application/Diagnostics</GroupName>
+          <Files>
+            <File>
+              <FileName>diagnostic_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\Diagnostics\diagnostic_service.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Application/Update</GroupName>
+          <Files>
+            <File>
+              <FileName>update_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\Update\update_service.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -640,14 +655,14 @@
           <GroupName>Firmware/Platform/Stm32G431</GroupName>
           <Files>
             <File>
-              <FileName>power_stage_tim1.c</FileName>
+              <FileName>motor_drive_tim1_adc2_stm32g431.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Platform\Stm32G431\power_stage_tim1.c</FilePath>
+              <FilePath>..\Firmware\Platform\Stm32G431\motor_drive_tim1_adc2_stm32g431.c</FilePath>
             </File>
             <File>
-              <FileName>measurement_adc12.c</FileName>
+              <FileName>temperature_adc1_stm32g431.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Platform\Stm32G431\measurement_adc12.c</FilePath>
+              <FilePath>..\Firmware\Platform\Stm32G431\temperature_adc1_stm32g431.c</FilePath>
             </File>
             <File>
               <FileName>board_runtime.c</FileName>
@@ -712,41 +727,6 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Product</GroupName>
-          <Files>
-            <File>
-              <FileName>control_loop_config.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Firmware\Product\control_loop_config.h</FilePath>
-            </File>
-            <File>
-              <FileName>product_manifest.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\product_manifest.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_profiles.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\motor_profiles.c</FilePath>
-            </File>
-            <File>
-              <FileName>mechanical_load_profiles.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\mechanical_load_profiles.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_profiles.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\encoder_profiles.c</FilePath>
-            </File>
-            <File>
-              <FileName>control_tuning_profile.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\control_tuning_profile.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
           <GroupName>Firmware/Core/Communication/Formatting</GroupName>
           <Files>
             <File>
@@ -759,6 +739,11 @@
         <Group>
           <GroupName>Firmware/Core/Config</GroupName>
           <Files>
+            <File>
+              <FileName>product_manifest.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Config\product_manifest.c</FilePath>
+            </File>
             <File>
               <FileName>product_catalog.c</FileName>
               <FileType>1</FileType>
@@ -844,6 +829,16 @@
               <FileType>1</FileType>
               <FilePath>..\Firmware\Core\Services\RotorFeedback\encoder.c</FilePath>
             </File>
+            <File>
+              <FileName>feedback_router.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Services\RotorFeedback\feedback_router.c</FilePath>
+            </File>
+            <File>
+              <FileName>secondary_angle_tracker.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Services\RotorFeedback\secondary_angle_tracker.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -853,6 +848,16 @@
               <FileName>measurement_model.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Core\Services\Measurement\measurement_model.c</FilePath>
+            </File>
+            <File>
+              <FileName>phase_current_strategy.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Services\Measurement\phase_current_strategy.c</FilePath>
+            </File>
+            <File>
+              <FileName>temperature_monitor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Services\Measurement\temperature_monitor.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -907,117 +912,132 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Runtime/MotorControl</GroupName>
+          <GroupName>Firmware/Core/Application/MotorControl</GroupName>
           <Files>
+            <File>
+              <FileName>motor_drive_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\MotorControl\motor_drive_service.c</FilePath>
+            </File>
             <File>
               <FileName>motor_control_types.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\motor_control_types.h</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\motor_control_types.h</FilePath>
             </File>
             <File>
               <FileName>current_control_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\current_control_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\current_control_runtime.c</FilePath>
             </File>
             <File>
               <FileName>measurement_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\measurement_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\measurement_runtime.c</FilePath>
             </File>
             <File>
               <FileName>sensorless_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\sensorless_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\sensorless_runtime.c</FilePath>
             </File>
             <File>
               <FileName>encoder_calibration_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\encoder_calibration_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\encoder_calibration_runtime.c</FilePath>
             </File>
             <File>
               <FileName>encoder_direction_calibration_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\encoder_direction_calibration_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\encoder_direction_calibration_runtime.c</FilePath>
             </File>
             <File>
               <FileName>cogging_identification_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\cogging_identification_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\cogging_identification_runtime.c</FilePath>
             </File>
             <File>
               <FileName>current_offset_calibration_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\current_offset_calibration_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\current_offset_calibration_runtime.c</FilePath>
             </File>
             <File>
               <FileName>electrical_zero_calibration_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\electrical_zero_calibration_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\electrical_zero_calibration_runtime.c</FilePath>
             </File>
             <File>
               <FileName>phase_resistance_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\phase_resistance_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\phase_resistance_runtime.c</FilePath>
             </File>
             <File>
               <FileName>friction_identification_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\friction_identification_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\friction_identification_runtime.c</FilePath>
             </File>
             <File>
               <FileName>motor_state_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\motor_state_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\motor_state_runtime.c</FilePath>
             </File>
             <File>
               <FileName>parameter_snapshot.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\parameter_snapshot.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\parameter_snapshot.c</FilePath>
             </File>
             <File>
               <FileName>parameter_persistence_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\parameter_persistence_adapter.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\parameter_persistence_adapter.c</FilePath>
             </File>
             <File>
               <FileName>parameter_transaction_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\parameter_transaction_adapter.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\parameter_transaction_adapter.c</FilePath>
             </File>
             <File>
               <FileName>control_mode_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\control_mode_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\control_mode_runtime.c</FilePath>
             </File>
             <File>
               <FileName>motor_control_runtime.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\motor_control_runtime.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\motor_control_runtime.c</FilePath>
+            </File>
+            <File>
+              <FileName>rotor_feedback_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\MotorControl\rotor_feedback_runtime.c</FilePath>
             </File>
             <File>
               <FileName>rotor_calibration_port_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\rotor_calibration_port_adapter.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\rotor_calibration_port_adapter.c</FilePath>
             </File>
             <File>
               <FileName>motor_service_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\motor_service_adapter.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\motor_service_adapter.c</FilePath>
             </File>
             <File>
               <FileName>fault_port_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\MotorControl\fault_port_adapter.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\MotorControl\fault_port_adapter.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Runtime/Supervisor</GroupName>
+          <GroupName>Firmware/Core/Application/Supervision</GroupName>
           <Files>
+            <File>
+              <FileName>temperature_supervision.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Application\Supervision\temperature_supervision.c</FilePath>
+            </File>
             <File>
               <FileName>supervisor_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Runtime\Supervisor\supervisor_task.c</FilePath>
+              <FilePath>..\Firmware\Core\Application\Supervision\supervisor_task.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1047,52 +1067,52 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Communication/Router</GroupName>
+          <GroupName>Firmware/Core/Communication/Router</GroupName>
           <Files>
             <File>
               <FileName>can_command_router.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\Router\can_command_router.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Router\can_command_router.c</FilePath>
             </File>
             <File>
               <FileName>usb_command_router.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\Router\usb_command_router.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Router\usb_command_router.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Communication/Interfaces</GroupName>
+          <GroupName>Firmware/Core/Communication/Interfaces</GroupName>
           <Files>
             <File>
               <FileName>interface_can.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\interface_can.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Interfaces\interface_can.c</FilePath>
             </File>
             <File>
               <FileName>interface_usb.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Communication\interface_usb.c</FilePath>
+              <FilePath>..\Firmware\Core\Communication\Interfaces\interface_usb.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Composition</GroupName>
+          <GroupName>Firmware/Bsp/Boards/VectorMiniSt/Bootstrap</GroupName>
           <Files>
             <File>
               <FileName>firmware_composition.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Composition\firmware_composition.c</FilePath>
+              <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\Bootstrap\firmware_composition.c</FilePath>
             </File>
             <File>
-              <FileName>tle5012b_rotor_sensor_adapter.c</FileName>
+              <FileName>tle5012b_angle_sensor_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Composition\tle5012b_rotor_sensor_adapter.c</FilePath>
+              <FilePath>..\Firmware\Drivers\Angle\Tle5012b\tle5012b_angle_sensor_adapter.c</FilePath>
             </File>
             <File>
               <FileName>product_config_bridge.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Composition\product_config_bridge.c</FilePath>
+              <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\Bootstrap\product_config_bridge.c</FilePath>
             </File>
           </Files>
         </Group>

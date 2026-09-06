@@ -1,6 +1,6 @@
 # 位置阻抗控制
 
-协议动作号 18 在 Application 边界映射为 `MOTOR_CONTROL_MODE_POSITION_IMPEDANCE`，使用电流域位置阻抗控制；动作号 3 映射为 `MOTOR_CONTROL_MODE_POSITION_CASCADE`，使用位置—速度—电流三环。协议动作号不会进入 Runtime 状态机。两种模式共用轨迹发生器和电流环，但控制器状态和参数彼此独立。
+协议动作号 18 在 Application 边界映射为 `MOTOR_CONTROL_MODE_POSITION_IMPEDANCE`，使用电流域位置阻抗控制；动作号 3 映射为 `MOTOR_CONTROL_MODE_POSITION_CASCADE`，使用位置—速度—电流三环。协议动作号不会进入 MotorControl 内部状态机。两种模式共用轨迹发生器和电流环，但控制器状态和参数彼此独立。
 
 ```text
 iq_ref = Kp * (posShadow - theta_mech)
@@ -14,7 +14,7 @@ iq_ref = Kp * (posShadow - theta_mech)
 
 位置阻抗控制位于 `Firmware/Core/Services/MotionControl/position_impedance.c`，经典三环位于 `Firmware/Core/Services/MotionControl/position_cascade.c`。两者分别通过 `position_impedance.h` 和 `position_cascade.h` 公开 `Reset/Update` 接口，内部状态由调用者持有，也不直接访问编码器、电流控制运行时、USB 或 CAN 对象。
 
-积分、速度滤波、到位判定、目标切换和轨迹重规划状态均由显式 Context 管理。`Firmware/Runtime/MotorControl/control_mode_runtime.c` 只负责组装输入、调用模块并把 `iq_reference` 交给电流环；USB/CAN 不操作控制器内部状态，参数变化时模块会自行检测并连续重规划。
+积分、速度滤波、到位判定、目标切换和轨迹重规划状态均由显式 Context 管理。`Firmware/Core/Application/MotorControl/control_mode_runtime.c` 只负责组装输入、调用模块并把 `iq_reference` 交给电流环；USB/CAN 不操作控制器内部状态，参数变化时模块会自行检测并连续重规划。
 
 经典三环模块内部还拥有专用速度PI，不复用速度模式的全局PI。经典位置外环为5kHz、速度环为2kHz；阻抗位置环为1kHz。
 
@@ -29,7 +29,7 @@ iq_ref = Kp * (posShadow - theta_mech)
 
 ## 默认参数
 
-工程针对最大速度约 8 s/rev（0.125 rev/s）的机构给出保守初值：
+控制器设计值来自活动 `ProductConfig.control`。两个现有变体共用下列增益，默认最大轨迹速度不同：无阻尼为 0.125 rev/s，约 1.5 Nm 阻尼为 0.5 rev/s。
 
 | 参数 | USB | CAN | 默认值 | 单位 | 作用 |
 | --- | --- | --- | ---: | --- | --- |
@@ -39,7 +39,7 @@ iq_ref = Kp * (posShadow - theta_mech)
 | 积分输出限幅 `pos_integral_limit` | `p_l` | 0x52/0x53 | 5.0 | A | 限制积分补偿电流；实际值不超过总电流限幅 |
 | 经典位置Kp `cascade_pos_Kp` | `c_p` | 0x54/0x55 | 0.05 | (rad/s)/rad | 位置误差转换为速度修正 |
 | 经典位置Kd `cascade_pos_Kd` | `c_d` | 0x56/0x57 | 0.50 | (rad/s)/(rad/s) | 到位后的误差微分阻尼 |
-| 最大轨迹速度 | `pms` | 0x20/0x21 | 0.125 | rev/s | 8 秒一圈 |
+| 最大轨迹速度 | `pms` | 0x20/0x21 | 0.125（无阻尼）/ 0.5（阻尼） | rev/s | 活动 entry 的保守默认值 |
 | 加速度/减速度 | `pac` / `pde` | 0x1C～0x1F | 0.125 | rev/s² | 约 1 秒达到最高速度 |
 
 位置阻抗环和轨迹发生器运行在 1 kHz。控制器从连续多圈位置计算速度，并使用 20 Hz 一阶低通，因此不会使用编码器通用测速器的硬零速阈值。
@@ -80,26 +80,13 @@ iq_ref = Kp * (posShadow - theta_mech)
 
 signed-Q15角度的解码公式为`angle_rad = raw × π / 32768`。位置的连续多圈量在RTT中按单圈显示，因此在±π处会跳变且不包含圈数；这样可在保持9路`int16_t`的前提下保留编码器级角度分辨率。
 
-## Flash兼容
+## ProductConfig 与 Flash 边界
 
-当前参数格式为v8。新增字段始终追加在旧版magic word之后，因此固件能够识别v4～v7数据并保留电机参数、编码器零位和1024点线性化表。v4的`pos_Kp/pos_Kd`迁移到经典三环参数；v5～v7的同名字段按阻抗参数迁移。旧格式缺少的参数使用对应默认值。
+当前参数 schema 为 v10。位置增益、轨迹速度/加速度和参数上限是产品设计值，每次启动都从 `Firmware/Core/Config/product_catalog.c` 的活动 entry 加载；即使历史 payload 结构中保留这些字段，v10 也不会把它们恢复为运行权威。
 
-确认实机参数后执行一次保存命令，即可把参数写成v8格式。
+USB/CAN 写入的 `p_p/p_d/p_i/p_l/c_p/c_d/pms/pac/pde` 用于当前 RAM 会话调试。Mode 9 只保存允许的模组个体标定量，不会持久化这些控制设计值。确认实机整定后，应把最终值回填到新/当前 ProductConfig entry，重新构建并复测两个变体及 Flash 兼容性。
 
-```text
-\w_mod=0
-\w_p_p=8
-\w_p_d=0.5
-\w_p_i=10
-\w_p_l=5
-\w_c_p=0.05
-\w_c_d=0.5
-\w_mod=9
-```
-
-保存完成后应断电重启，再读取`p_p/p_d/p_i/p_l/c_p/c_d`确认Flash中的实际值；已经保存的v8参数优先于源码默认值。
-
-旧固件不能反向读取v8格式；若需要回退，应先备份编码器零位和线性化表，或准备重新标定。
+schema 10 只恢复三相电流 offset、当前单转子编码器方向/LUT/零位、摩擦模型和齿槽表；产品 compatibility tuple 与 configuration fingerprint 不匹配时整条记录拒绝加载。
 
 ## 实机整定顺序
 

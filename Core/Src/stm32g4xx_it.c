@@ -23,7 +23,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "can_fdcan1_transport.h"
-#include "firmware_composition.h"
+#include "Bsp/Boards/VectorMiniSt/Bootstrap/firmware_composition.h"
+#include "motor_drive_tim1_adc2_stm32g431.h"
 #include "tim.h"
 /* USER CODE END Includes */
 
@@ -302,6 +303,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if(hadc == &hadc2)
 	{		
+		MotorDriveTim1Adc2Stm32g431_OnInjectedSequenceComplete();
 		FirmwareComposition_ExecuteFastLoop();
 	}
 }
@@ -311,6 +313,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 	if (hfdcan == &hfdcan1 && (RxFifo0ITs & FDCAN_IT_LIST_RX_FIFO0) != 0U)
 	{
 		CanFdcan1Transport_OnReceiveInterrupt(RxFifo0ITs);
+		FirmwareComposition_OnCanReceiveInterrupt();
 	}
 }
 

@@ -29,6 +29,8 @@ static int Encoder_CheckInitializationAndCalibrationState(void)
 	TEST_CHECK(encoder.read_status == ENCODER_READ_OK);
 	TEST_CHECK(encoder.read_status_latched == ENCODER_READ_OK);
 	TEST_CHECK(encoder.read_error_count == 0U);
+	TEST_CHECK(Encoder_ParamInit(&encoder, 300U, 0.015f));
+	TEST_CHECK(encoder.velocity_update_divider == 300U);
 	return 0;
 }
 

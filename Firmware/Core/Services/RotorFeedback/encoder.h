@@ -74,9 +74,9 @@ typedef struct
 	float theta_mech;
 	float vel_mech;
 
-	/* 2 kHz moving-average mechanical velocity estimator. */
-	uint8_t velocity_divider;
-	uint8_t velocity_update_divider;
+	/* Schedule-driven moving-average mechanical velocity estimator. */
+	uint16_t velocity_divider;
+	uint16_t velocity_update_divider;
 	float velocity_sample_period_s;
 	uint8_t velocity_history_index;
 	uint8_t velocity_sample_count;
@@ -93,7 +93,7 @@ typedef struct
 } EncoderContext;
 
 bool Encoder_ParamInit(EncoderContext *encoder,
-	uint8_t velocity_update_divider,
+	uint16_t velocity_update_divider,
 	float velocity_sample_period_s);
 /* The caller owns sensor acquisition and calls this once per fast-loop tick. */
 void Encoder_Update(EncoderContext *encoder, uint32_t pole_pairs,

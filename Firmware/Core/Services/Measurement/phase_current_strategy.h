@@ -50,6 +50,7 @@ typedef enum
 	PHASE_CURRENT_STATUS_NULL_ARGUMENT,
 	PHASE_CURRENT_STATUS_NOT_CONFIGURED,
 	PHASE_CURRENT_STATUS_UNSUPPORTED_TOPOLOGY,
+	PHASE_CURRENT_STATUS_INVALID_SAMPLE_COUNT,
 	PHASE_CURRENT_STATUS_INVALID_PHASE_MASK,
 	PHASE_CURRENT_STATUS_NONFINITE_SAMPLE,
 	PHASE_CURRENT_STATUS_SATURATED,
@@ -97,9 +98,11 @@ typedef struct
 } PhaseCurrentStrategyConfig;
 
 /*
- * Direct phase observations are already calibrated to amperes by the BSP.
- * valid_phase_mask identifies the observed phases.  Three-shunt strategies
- * require all three; the two-shunt strategy requires exactly two.
+ * Direct phase observations are calibrated to amperes by the MCU-independent
+ * measurement service before reaching this strategy. The BSP deliberately
+ * publishes raw acquisition-order observations only. valid_phase_mask
+ * identifies the observed phases: three-shunt strategies require all three;
+ * the two-shunt strategy requires exactly two.
  */
 typedef struct
 {

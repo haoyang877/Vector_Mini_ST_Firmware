@@ -9,18 +9,18 @@ omega > 0: Iq =  Ic_pos + B_pos * omega
 omega < 0: Iq = -Ic_neg + B_neg * omega
 ```
 
-`omega` 单位为 rad/s，`Ic` 单位为 A，`B` 单位为 A/(rad/s)。辨识结果只作为候选值保存；固件不会自动应用，也不会自动启用摩擦补偿。
+`omega` 单位为 rad/s，`Ic` 单位为 A，`B` 单位为 A/(rad/s)。独立 Mode 19 的结果只作为候选，需要显式审核和应用；在统一 Mode 21 中，通过验收的候选会暂存到本次工作流 RAM，最后由统一保存阶段一次性写入。任一路径都不会仅因拟合结束而绕过生命周期自动启用输出。
 
 ## 分层实现
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
 | Core Service | `Firmware/Core/Services/Identification/friction_identification.*` | 无硬件依赖的状态机、采样、约束拟合与结果验收 |
-| Product | `Firmware/Product/mechanical_load_profiles.*` | 速度点、稳态/超时、饱和和 RMSE 阈值 |
-| Runtime | `Firmware/Runtime/MotorControl/friction_identification_runtime.*` | 速度环、编码器、电流反馈、安全停车和候选参数适配 |
+| Product Config | `Firmware/Core/Config/product_catalog.c` 中的 `commissioning_tuning.friction` | 速度点、稳态/超时、饱和和 RMSE 阈值 |
+| Application MotorControl | `Firmware/Core/Application/MotorControl/friction_identification_runtime.*` | 速度环、角度反馈、电流反馈、安全停车和候选参数适配 |
 | Application | `Firmware/Core/Application/Contracts/friction_identification_port.h`、`Firmware/Core/Application/friction_identification_service.*` | 向 USB/CAN 提供只读结果和显式应用操作 |
 
-Domain 不引用 Runtime、HAL、通信或 Product 类型。Mode 19 作为 `SERVICE_PROCEDURE_FRICTION_IDENTIFICATION` 进入主生命周期状态机，不把协议动作码泄漏到 Runtime。
+Core Service 不引用 MCU/HAL、通信或完整 ProductConfig。Mode 19 作为 `SERVICE_PROCEDURE_FRICTION_IDENTIFICATION` 进入主生命周期状态机，协议动作码只在通信/Application 边界转换。
 
 ## 运行条件与运动序列
 
@@ -67,6 +67,6 @@ python tools/friction_identification.py COM4 --apply
 
 ## CAN 与持久化
 
-CAN 仍通过 `CAN_SET_MODE (0x00)` 写入 19 启动。`0x58` 应用候选；`0x59..0x62` 读取状态、原因、候选参数、RMSE 和有效位，定义见 `Firmware/Communication/Protocol/can_protocol_v1.h`。
+CAN 仍通过 `CAN_SET_MODE (0x00)` 写入 19 启动。`0x58` 应用候选；`0x59..0x62` 读取状态、原因、候选参数、RMSE 和有效位，定义见 `Firmware/Core/Communication/Protocol/can_protocol_v1.h`。
 
-参数 schema 已升级为 v9，并在 v8 尾部追加四个摩擦系数和有效位。v8 双槽记录可原位迁移，v4-v8 原始记录仍可读取；旧 schema、分流电阻配置变化或编码器方向变化都会将已保存的摩擦模型置为无效，其他电机与编码器标定数据不受影响。
+当前参数 schema 为 v10，payload 中保留 v9 引入的四个摩擦系数和有效位。兼容的 v9 记录可以恢复经过范围检查的摩擦模型；v8 记录不含该模型，加载时保持摩擦无效。编码器方向发生变化会显式使正/反向摩擦模型失效。是否允许读取历史记录还受当前产品 compatibility tuple、configuration fingerprint 和 catalog migration 授权约束；无阻尼与阻尼变体不能互相加载记录。

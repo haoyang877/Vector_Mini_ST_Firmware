@@ -20,6 +20,11 @@ const char *ProductConfig_ErrorCodeName(ProductConfigErrorCode code)
 		case PRODUCT_CONFIG_ERROR_CURRENT_ENDPOINT_INVALID: return "current_endpoint_invalid";
 		case PRODUCT_CONFIG_ERROR_CURRENT_ENDPOINT_DUPLICATE: return "current_endpoint_duplicate";
 		case PRODUCT_CONFIG_ERROR_CURRENT_SCALE_INVALID: return "current_scale_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_ROLE_INVALID: return "current_channel_role_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_ROLE_DUPLICATE: return "current_channel_role_duplicate";
+		case PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_ROLE_TOPOLOGY_MISMATCH: return "current_channel_role_topology_mismatch";
+		case PRODUCT_CONFIG_ERROR_CURRENT_CHANNEL_POLARITY_INVALID: return "current_channel_polarity_invalid";
+		case PRODUCT_CONFIG_ERROR_CURRENT_UNUSED_CHANNEL_CONFIGURED: return "current_unused_channel_configured";
 		case PRODUCT_CONFIG_ERROR_CURRENT_PWM_SYNC_REQUIRED: return "current_pwm_sync_required";
 		case PRODUCT_CONFIG_ERROR_SINGLE_SHUNT_TWO_SAMPLES_REQUIRED: return "single_shunt_two_samples_required";
 		case PRODUCT_CONFIG_ERROR_SINGLE_SHUNT_PWM_SECTOR_REQUIRED: return "single_shunt_pwm_sector_required";
@@ -68,9 +73,26 @@ const char *ProductConfig_ErrorCodeName(ProductConfigErrorCode code)
 		case PRODUCT_CONFIG_ERROR_BOARD_PATH_COMPENSATION_INVALID: return "board_path_compensation_invalid";
 		case PRODUCT_CONFIG_ERROR_SAFETY_LIMIT_INVALID: return "safety_limit_invalid";
 		case PRODUCT_CONFIG_ERROR_SAFETY_CONFIRMATION_INVALID: return "safety_confirmation_invalid";
-		case PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_DIVIDER_INVALID: return "temperature_sample_divider_invalid";
+		case PRODUCT_CONFIG_ERROR_TEMPERATURE_SAMPLE_PERIOD_INVALID: return "temperature_sample_period_invalid";
+		case PRODUCT_CONFIG_ERROR_TEMPERATURE_PENDING_TIMEOUT_INVALID: return "temperature_pending_timeout_invalid";
+		case PRODUCT_CONFIG_ERROR_SECONDARY_ROTOR_LUT_UNSUPPORTED: return "secondary_rotor_lut_unsupported";
 		case PRODUCT_CONFIG_ERROR_CAN_NODE_ID_INVALID: return "can_node_id_invalid";
 		case PRODUCT_CONFIG_ERROR_CAN_HEARTBEAT_INVALID: return "can_heartbeat_invalid";
+#if defined(PRODUCT_CATALOG_INCLUDE_ALL)
+		case PRODUCT_CONFIG_ERROR_MOTOR_ACCEPTANCE_RANGE_INVALID: return "motor_acceptance_range_invalid";
+		case PRODUCT_CONFIG_ERROR_MOTOR_OUTSIDE_ACCEPTANCE: return "motor_outside_acceptance";
+		case PRODUCT_CONFIG_ERROR_CONTROL_FREQUENCY_INVALID: return "control_frequency_invalid";
+		case PRODUCT_CONFIG_ERROR_CONTROL_PARAMETER_INVALID: return "control_parameter_invalid";
+		case PRODUCT_CONFIG_ERROR_CONTROL_LIMIT_INVALID: return "control_limit_invalid";
+		case PRODUCT_CONFIG_ERROR_CONTROL_DEFAULT_EXCEEDS_LIMIT: return "control_default_exceeds_limit";
+		case PRODUCT_CONFIG_ERROR_SENSORLESS_CONTROL_INVALID: return "sensorless_control_invalid";
+		case PRODUCT_CONFIG_ERROR_POSITION_FRICTION_CONTROL_INVALID: return "position_friction_control_invalid";
+		case PRODUCT_CONFIG_ERROR_PHASE_RESISTANCE_TUNING_INVALID: return "phase_resistance_tuning_invalid";
+		case PRODUCT_CONFIG_ERROR_ANGLE_COMMISSIONING_TUNING_INVALID: return "angle_commissioning_tuning_invalid";
+		case PRODUCT_CONFIG_ERROR_FRICTION_IDENTIFICATION_TUNING_INVALID: return "friction_identification_tuning_invalid";
+		case PRODUCT_CONFIG_ERROR_COGGING_IDENTIFICATION_TUNING_INVALID: return "cogging_identification_tuning_invalid";
+		case PRODUCT_CONFIG_ERROR_COMMISSIONING_EXCEEDS_LIMIT: return "commissioning_exceeds_limit";
+#endif
 		default: return "unknown";
 	}
 }

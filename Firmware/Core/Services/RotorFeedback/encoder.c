@@ -153,7 +153,7 @@ static void Encoder_UpdateAngles(EncoderContext *encoder, uint32_t pole_pairs)
 }
 
 bool Encoder_ParamInit(EncoderContext *encoder,
-	uint8_t velocity_update_divider,
+	uint16_t velocity_update_divider,
 	float velocity_sample_period_s)
 {
 	if (encoder == 0 || velocity_update_divider == 0U ||

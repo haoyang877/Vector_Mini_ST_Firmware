@@ -1,9 +1,50 @@
 #include "Core/Infrastructure/Telemetry/telemetry_service.h"
 
+#include <stddef.h>
+
+#if defined(__CC_ARM) || defined(__GNUC__) || defined(__clang__)
+#define TELEMETRY_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define TELEMETRY_NOINLINE __declspec(noinline)
+#else
+#define TELEMETRY_NOINLINE
+#endif
+
+#define TELEMETRY_SNAPSHOT_WORD_COUNT \
+	(sizeof(MotorTelemetrySnapshot) / sizeof(uint32_t))
+
+typedef char TelemetrySnapshotSizeMustBeWordAligned[
+	(sizeof(MotorTelemetrySnapshot) % sizeof(uint32_t)) == 0U ? 1 : -1];
+
 #define TelemetryBuffers (context->buffers)
 #define TelemetrySequence (context->sequence)
 #define PublishedTelemetryBuffer (context->published_buffer)
 #define TelemetryAvailable (context != 0 && context->is_available)
+
+/* Keep the copy count a runtime argument and these helpers out of line.  ARMCC
+ * otherwise expands each volatile structure assignment into hundreds of
+ * bytes.  Word accesses retain the volatile source/destination semantics used
+ * by the sequence lock.  MotorTelemetrySnapshot is word-aligned and its size
+ * is guarded above. */
+static TELEMETRY_NOINLINE void TelemetryService_CopyToVolatileWords(
+	volatile uint32_t *destination, const uint32_t *source, size_t word_count)
+{
+	while (word_count != 0U)
+	{
+		*destination++ = *source++;
+		word_count--;
+	}
+}
+
+static TELEMETRY_NOINLINE void TelemetryService_CopyFromVolatileWords(
+	uint32_t *destination, const volatile uint32_t *source, size_t word_count)
+{
+	while (word_count != 0U)
+	{
+		*destination++ = *source++;
+		word_count--;
+	}
+}
 
 bool TelemetryService_Initialize(TelemetryServiceContext *context)
 {
@@ -26,7 +67,10 @@ void TelemetryService_Publish(TelemetryServiceContext *context,
 
 	next_buffer = PublishedTelemetryBuffer == 0U ? 1U : 0U;
 	TelemetrySequence[next_buffer]++;
-	TelemetryBuffers[next_buffer] = *snapshot;
+	TelemetryService_CopyToVolatileWords(
+		(volatile uint32_t *)(void *)&TelemetryBuffers[next_buffer],
+		(const uint32_t *)(const void *)snapshot,
+		TELEMETRY_SNAPSHOT_WORD_COUNT);
 	TelemetrySequence[next_buffer]++;
 	PublishedTelemetryBuffer = next_buffer;
 	context->is_available = true;
@@ -50,7 +94,11 @@ bool TelemetryService_ReadSnapshot(const TelemetryServiceContext *context,
 		sequence_before = TelemetrySequence[published_buffer];
 		if ((sequence_before & 1U) != 0U)
 			continue;
-		*snapshot = TelemetryBuffers[published_buffer];
+		TelemetryService_CopyFromVolatileWords(
+			(uint32_t *)(void *)snapshot,
+			(const volatile uint32_t *)(const volatile void *)
+				&TelemetryBuffers[published_buffer],
+			TELEMETRY_SNAPSHOT_WORD_COUNT);
 		sequence_after = TelemetrySequence[published_buffer];
 		if (sequence_before == sequence_after &&
 			(sequence_after & 1U) == 0U &&

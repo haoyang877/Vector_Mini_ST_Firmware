@@ -1,4 +1,4 @@
-#include "update_service.h"
+#include "Core/Application/Update/update_service.h"
 
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 
@@ -12,20 +12,15 @@ typedef struct
 	unsigned int clear_count;
 } FakeUpdateContext;
 
-static bool Fake_EnableOutputs(void *context)
-{
-	((FakeUpdateContext *)context)->outputs_enabled = true;
-	return true;
-}
 static void Fake_DisableOutputs(void *context)
 {
 	FakeUpdateContext *fake = (FakeUpdateContext *)context;
 	fake->outputs_enabled = false;
 	fake->disable_count++;
 }
-static void Fake_WriteDuty(void *context, float a, float b, float c)
+static bool Fake_OutputsAreEnabled(void *context)
 {
-	(void)context; (void)a; (void)b; (void)c;
+	return ((FakeUpdateContext *)context)->outputs_enabled;
 }
 static bool Fake_CandidateCompatible(void *context, uint32_t address,
 	uint32_t size_bytes)
@@ -56,18 +51,15 @@ static ParameterTransactionOperation Fake_GetParameterOperation(void *context)
 int UpdateService_RunHostTests(void)
 {
 	FakeUpdateContext fake = { false, true, false, true, 0U, 0U };
-	PowerStagePort power_port;
-	PowerStageContext power_stage;
+	MotorOutputSafetyPort motor_output_safety;
 	UpdateControlPort update_port;
 	UpdateServiceContext service;
 	ParameterTransactionServiceContext parameter_transactions;
 	DeviceLifecycleContext lifecycle;
 
-	power_port.context = &fake;
-	power_port.enable_outputs = Fake_EnableOutputs;
-	power_port.disable_outputs = Fake_DisableOutputs;
-	power_port.write_duty_cycles = Fake_WriteDuty;
-	PowerStage_Initialize(&power_stage, &power_port);
+	motor_output_safety.context = &fake;
+	motor_output_safety.disable_immediate = Fake_DisableOutputs;
+	motor_output_safety.outputs_are_enabled = Fake_OutputsAreEnabled;
 	DeviceLifecycle_Initialize(&lifecycle);
 	TEST_CHECK(DeviceLifecycle_CompleteBoot(&lifecycle));
 	update_port.context = &fake;
@@ -79,7 +71,8 @@ int UpdateService_RunHostTests(void)
 	parameter_transactions.port.get_operation = Fake_GetParameterOperation;
 	parameter_transactions.is_initialized = true;
 	parameter_transactions.operation_has_run = false;
-	TEST_CHECK(UpdateService_Initialize(&service, &lifecycle, &power_stage,
+	TEST_CHECK(UpdateService_Initialize(&service, &lifecycle,
+		&motor_output_safety,
 		&parameter_transactions, &update_port));
 
 	TEST_CHECK(UpdateService_PrepareInstall(&service, 0x08020000U, 4096U) ==
@@ -89,7 +82,7 @@ int UpdateService_RunHostTests(void)
 	TEST_CHECK(UpdateService_PrepareInstall(&service, 0x08020000U, 4096U) ==
 		UPDATE_SERVICE_ACCEPTED);
 	TEST_CHECK(lifecycle.device_state == DEVICE_STATE_UPDATING);
-	TEST_CHECK(!PowerStage_AreOutputsEnabled(&power_stage));
+	TEST_CHECK(!fake.outputs_enabled);
 	TEST_CHECK(UpdateService_CommitReset(&service) == UPDATE_SERVICE_ACCEPTED);
 	TEST_CHECK(UpdateService_Cancel(&service));
 	TEST_CHECK(fake.clear_count == 1U);

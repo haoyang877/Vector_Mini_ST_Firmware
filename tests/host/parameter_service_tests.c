@@ -1,4 +1,4 @@
-#include "parameter_service.h"
+#include "Core/Application/Parameters/parameter_service.h"
 
 #define TEST_CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 
@@ -44,7 +44,6 @@ int ParameterService_RunHostTests(void)
 	MotorConfigurationPort port = {0};
 	ParameterServiceContext service;
 	ParameterServiceLimits limits = {0};
-	MotorProfile motor = {0};
 
 	configuration.speed_limit_rad_s = 100.0f;
 	port.context = &configuration;
@@ -53,23 +52,23 @@ int ParameterService_RunHostTests(void)
 	port.stage = ParameterServiceTest_Stage;
 	limits.command_current_limit_a = 10.0f;
 	limits.calibration_current_limit_a = 10.0f;
-	motor.phase_resistance_min_ohm = 0.0001f;
-	motor.phase_resistance_max_ohm = 5.0f;
-	motor.inductance_min_h = 1.0e-6f;
-	motor.inductance_max_h = 5.0e-3f;
-	motor.flux_min_weber = 1.0e-5f;
-	motor.flux_max_weber = 1.0f;
-	motor.speed_limit_max_rad_s = 200.0f;
-	motor.speed_ramp_max_rad_s2 = 1000.0f;
-	motor.position_ramp_max_rad_s2 = 200.0f;
-	motor.position_speed_limit_rps = 1.0f;
-	motor.position_kp_limit_a_per_rad = 50.0f;
-	motor.position_kd_limit_a_per_rad_s = 10.0f;
-	motor.position_ki_limit_a_per_rad_s = 10.0f;
-	motor.cascade_position_kp_limit_per_s = 50.0f;
-	motor.cascade_position_kd_limit = 10.0f;
+	limits.phase_resistance_min_ohm = 0.0001f;
+	limits.phase_resistance_max_ohm = 5.0f;
+	limits.inductance_min_h = 1.0e-6f;
+	limits.inductance_max_h = 5.0e-3f;
+	limits.flux_min_weber = 1.0e-5f;
+	limits.flux_max_weber = 1.0f;
+	limits.speed_limit_max_rad_s = 200.0f;
+	limits.speed_ramp_max_rad_s2 = 1000.0f;
+	limits.position_ramp_max_rad_s2 = 200.0f;
+	limits.position_speed_limit_rad_s = 6.283185307f;
+	limits.position_kp_limit_a_per_rad = 50.0f;
+	limits.position_kd_limit_a_per_rad_s = 10.0f;
+	limits.position_ki_limit_a_per_rad_s = 10.0f;
+	limits.cascade_position_kp_limit_per_s = 50.0f;
+	limits.cascade_position_kd_limit = 10.0f;
 
-	TEST_CHECK(ParameterService_Initialize(&service, &port, &limits, &motor));
+	TEST_CHECK(ParameterService_Initialize(&service, &port, &limits));
 	TEST_CHECK(ParameterService_WriteMotorParameter(
 		&service,
 		MOTOR_PARAMETER_PHASE_RESISTANCE_OHM, 1.905f) ==

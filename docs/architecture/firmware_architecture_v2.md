@@ -33,6 +33,7 @@ Firmware/
 ├── Bsp/
 │   ├── Api/               five narrow hardware contracts
 │   └── Boards/            board resources, endpoint maps, safe-state binding
+│       └── <board>/Bootstrap/  one composition root per board target
 └── Platform/              MCU-family implementations and Simulation
 ```
 
@@ -53,13 +54,16 @@ Core/Services -----------> Core-local contracts and value types
 Drivers -----------------> BSP bus/resource contracts
 Bsp/Boards --------------> Bsp/Api + Drivers + Platform
 Platform ----------------> vendor HAL/CMSIS/generated code
-Composition -------------> all concrete selections (the only such location)
+CompositionRoot ---------> all target layers (the only such location)
+  at Bsp/Boards/<board>/Bootstrap
 ```
 
 Every arrow points toward a dependency.  In particular:
 
 - Core never includes STM32, HAL, CMSIS, CubeMX, GPIO/pin, timer/ADC instance,
-  or concrete sensor-driver headers.
+  or concrete sensor-driver headers. `Core/Config` may name explicit products
+  and component models as catalog data, but cannot include their Driver,
+  Platform, or board implementation.
 - Communication decodes external messages and invokes Application use-case
   contracts.  Application never includes a protocol, transport, or concrete
   Communication implementation; bootstrap/composition schedules both peers.
@@ -68,8 +72,10 @@ Every arrow points toward a dependency.  In particular:
 - `Bsp/Api` contains no board, MCU, vendor, or device name.
 - A service receives only its narrow interface and immutable configuration; it
   cannot reach a global hardware bundle or another service context.
-- Only Composition may see the complete `BspDeviceSet` and instantiate the
-  selected product.
+- Only a board-specific CompositionRoot may see the complete `BspDeviceSet`
+  and instantiate the selected product. Ordinary board descriptors do not gain
+  its broad dependency permissions. Multiple board roots may coexist in the
+  repository, while each concrete build target selects exactly one.
 
 ## Five BSP contracts
 
@@ -130,6 +136,12 @@ Migration is behaviour-preserving and phase gated.  Compatibility adapters may
 temporarily translate old profiles and ports, but every exception is named in
 the architecture checker.  A compatibility adapter cannot become a new public
 API.  It is deleted as soon as its consumer moves to the new contract.
+
+Legacy code may point forward to a dependency that has reached its target
+owner; target code may never point back to a legacy layer. The composition-root
+location, forward-only migration edges, Config naming policy, and Driver
+boundary are recorded in
+[`ADR 0001`](adr_0001_composition_root_and_forward_migration.md).
 
 Completion requires all of the following:
 

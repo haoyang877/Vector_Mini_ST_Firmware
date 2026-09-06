@@ -21,13 +21,17 @@ Firmware/
 ├── Bsp/
 │   ├── Api/
 │   └── Boards/
+│       └── <board>/Bootstrap/  # 每个板卡目标一个 CompositionRoot
 └── Platform/
 ```
 
 迁移期的 `Firmware/Application`、`Communication`、`Composition`、
 `Domain`、`Ports`、`Product` 和 `Runtime` 是显式技术债，不属于目标树。
-`Composition` 暂时保留为唯一组装根；最终位置确定后应迁入
-`Core/Application` 或另一个唯一顶层 bootstrap，而不能复制多个组装点。
+`Composition` 暂时保留为唯一组装根；最终应迁入
+`Bsp/Boards/<board>/Bootstrap`。该目录作为独立 `CompositionRoot` 层，不能
+通过放宽整个 `BspBoards` 层来复制组装逻辑。同一仓库可保存多个板卡的根，
+但每个具体构建目标必须且只能选择一个。具体决策见
+[`ADR 0001`](adr_0001_composition_root_and_forward_migration.md)。
 
 ## 主机测试入口
 
@@ -85,19 +89,78 @@ pwsh -NoProfile -File tools/verify_architecture_v2.ps1 `
 当前检查包括：
 
 - 目标目录存在性和 `Firmware` 一级目录白名单；
-- `Core` 不得出现 STM32、HAL、CMSIS、CubeMX 生成头、寄存器或已知具体
-  器件名；
+- `Core/Application`、`Services`、`Communication`、`Infrastructure` 不得
+  出现 STM32、HAL、CMSIS、CubeMX 生成头、寄存器或具体器件名；
+- `Core/Config` 可以显式命名产品、板卡、电机和传感器型号，但不得包含
+  MCU 实现依赖，也不得 include Driver、Platform 或 BspBoards；
 - `Bsp/Api` 不得出现 MCU、厂商 SDK、板级或具体器件依赖；
 - `Drivers` 可以描述器件协议，但不得包含 MCU SDK、HAL、生成外设头或
-  寄存器访问；
+  寄存器访问，也不得依赖 `Core/Config`；
+- `Bsp/Boards/<board>/Bootstrap` 被识别为独立的 `CompositionRoot`；只有
+  当前构建目标所选的一个根可以依赖全部目标层，普通 BspBoards 保持窄依赖；
 - 解析固件内部 `#include`，按唯一头文件解析实际依赖层，并检查依赖方向；
 - 未限定且同名的内部头会失败，要求调用方使用可唯一解析的 include 路径；
 - 每个 legacy 依赖边和内容泄漏都有原因及最大出现次数，不能静默扩散。
 
+为支持小步迁移，legacy 层可以指向依赖的最终目标层，这类单向边不计为新增
+技术债。任何目标层回指 legacy 仍立即失败；已有 legacy-to-legacy 例外继续按
+冻结次数审计。
+
 无环核心规则是 `Core/Communication -> Core/Application` 的 use-case/command
 契约。`Application` 不依赖协议或 Communication 实现；调度由唯一
-composition/bootstrap 同级调用。`Core/Services` 和 `Core/Config` 是纯核心，
+CompositionRoot 同级调用。`Core/Services` 和 `Core/Config` 是纯核心，
 `Bsp/Api` 是硬件语义边界，`Platform` 才能包含厂商实现。
+
+## Keil Flash 余量门禁
+
+Keil 全量构建完成后，对已经生成的 map 执行只读余量检查：
+
+```powershell
+pwsh -NoProfile -File tools/verify_flash_budget.ps1
+```
+
+默认解析 `MDK-ARM/Vector_Mini_ST/Vector_Mini_ST.map` 的 `LR_IROM1`，要求至少
+保留 2048 bytes。也可以显式指定输入、region 和阈值：
+
+```powershell
+pwsh -NoProfile -File tools/verify_flash_budget.ps1 `
+    -MapPath artifacts/Vector_Mini_ST.map `
+    -Region LR_IROM1 `
+    -MinimumRemainingBytes 4096
+```
+
+脚本不会调用 Keil、不会生成或修改 map，也不会改固件。对于 Keil load region，
+存在 `COMPRESSED[0x...]` 时以实际压缩后的装载字节数计算 Flash 占用，否则使用
+`Size`；execution region 始终使用 `Size`。输出使用稳定的
+`FLASH_BUDGET_*` 键值，便于 CI 保存证据。
+
+退出码契约：
+
+| 退出码 | 含义 |
+| ---: | --- |
+| `0` | region 存在且余量达到阈值 |
+| `1` | region 已溢出，或剩余字节数低于阈值 |
+| `2` | 参数、文件读取或 map/region 解析错误 |
+
+2026-09-06 对当前 map 的默认门禁实测为：
+
+```text
+FLASH_BUDGET_REGION=LR_IROM1
+FLASH_BUDGET_USED_SOURCE=COMPRESSED
+FLASH_BUDGET_USED_BYTES=114396
+FLASH_BUDGET_MAX_BYTES=114688
+FLASH_BUDGET_MINIMUM_REMAINING_BYTES=2048
+FLASH_BUDGET_REMAINING_BYTES=292
+FLASH_BUDGET_RESULT=FAIL
+exit code: 1
+```
+
+这表示当前镜像仍能链接，但尚未满足 2 KiB 发布余量要求。将阈值设为 `0` 的
+解析自检返回 `PASS`/`0`；它只验证解析路径，不可替代发布门禁。
+
+该检查必须紧跟在 Keil 全量构建之后；旧 map 只能证明旧镜像的大小，不能作为
+当前源码的发布证据。阈值是发布策略而非链接器容量，不能通过降低阈值掩盖空间
+回归。
 
 ## 2026-09-06 验证记录
 
@@ -155,8 +218,9 @@ P1 仍是双配置模型迁移期，不能宣称 ProductConfig 已成为唯一�
 1. 运行架构默认门禁，阻止新增耦合或 legacy 扩散；
 2. 用原生主机编译器构建并执行全部 host suites；
 3. 执行 Keil 全量构建；
-4. 对影响 ISR、外设、持久化、标定或控制律的变更执行对应实机回归；
-5. 发布候选运行 `-FailOnLegacyExceptions`，确认旧层已清零。
+4. 对全量构建生成的 map 执行 Flash 余量门禁；
+5. 对影响 ISR、外设、持久化、标定或控制律的变更执行对应实机回归；
+6. 发布候选运行 `-FailOnLegacyExceptions`，确认旧层已清零。
 
 主机编译器补齐后，应优先增加配置矩阵测试：零/单/双角度传感器、无感、
 可选温度区域、3/2/1 电阻电流采样、无效 endpoint、能力不足和标定计划裁剪。

@@ -79,6 +79,7 @@ function Get-ArchitectureLayer {
         '^Firmware/Core/Infrastructure/' { return 'CoreInfrastructure' }
         '^Firmware/Drivers/' { return 'Drivers' }
         '^Firmware/Bsp/Api/' { return 'BspApi' }
+        '^Firmware/Bsp/Boards/[^/]+/Bootstrap/' { return 'CompositionRoot' }
         '^Firmware/Bsp/Boards/' { return 'BspBoards' }
         '^Firmware/Platform/' { return 'Platform' }
         '^Firmware/Application/' { return 'LegacyApplication' }
@@ -139,7 +140,7 @@ foreach ($relativePath in $requiredTargetDirectories) {
 $legacyDirectoryAllowlist = @{
     'application' = 'moves to Firmware/Core/Application'
     'communication' = 'moves to Firmware/Core/Communication'
-    'composition' = 'remains temporary until the final composition-root location is selected'
+    'composition' = 'moves to Firmware/Bsp/Boards/<board>/Bootstrap'
     'domain' = 'moves to Firmware/Core/Services'
     'ports' = 'splits by ownership between Core services and Bsp/Api'
     'product' = 'moves to the unified Firmware/Core/Config model'
@@ -184,8 +185,52 @@ if (Test-Path -LiteralPath $bspRoot -PathType Container) {
     }
 }
 
+# The final composition root is board-specific because it selects concrete
+# Platform adapters and portable device drivers.  It remains a distinct layer
+# from ordinary board descriptors so those descriptors cannot acquire broad
+# dependencies on Core.  During migration Firmware/Composition is the active
+# legacy root.  The repository may contain one Bootstrap per supported board;
+# each concrete build target must select exactly one of them. That per-target
+# rule belongs in the build-manifest/project gate rather than in this
+# repository-wide dependency scan.
+$bspBoardsRoot = Join-Path $bspRoot 'Boards'
+$compositionRootDirectories = @()
+if (Test-Path -LiteralPath $bspBoardsRoot -PathType Container) {
+    foreach ($boardDirectory in Get-ChildItem -LiteralPath $bspBoardsRoot `
+        -Directory) {
+        $bootstrapDirectory = Join-Path $boardDirectory.FullName 'Bootstrap'
+        if (Test-Path -LiteralPath $bootstrapDirectory -PathType Container) {
+            $compositionRootDirectories += $bootstrapDirectory
+        }
+    }
+}
+foreach ($compositionRootDirectory in $compositionRootDirectories) {
+    $compositionRootPath = [string]$compositionRootDirectory
+    $compositionSources = @(Get-ChildItem -LiteralPath $compositionRootPath `
+        -Recurse -File -Filter *.c)
+    if ($compositionSources.Count -eq 0) {
+        $failures.Add(
+            'CompositionRoot must contain at least one C implementation: ' +
+            (Get-RepositoryRelativePath $compositionRootPath))
+    }
+}
+if ($compositionRootDirectories.Count -eq 0 -and -not (Test-Path -LiteralPath `
+    (Join-Path $firmwareRoot 'Composition') -PathType Container)) {
+    $failures.Add(
+        'Missing CompositionRoot: expected at least one ' +
+        'Firmware/Bsp/Boards/<board>/Bootstrap directory')
+}
+
 $firmwareFiles = @(Get-ChildItem -LiteralPath $firmwareRoot -Recurse -File |
     Where-Object { $_.Extension -in @('.c', '.h') })
+
+$mcuLeakPattern = '(?i)(#include\s+["<](?:stm32[^">]*|cmsis[^">]*|' +
+    'main\.h|adc\.h|tim\.h|spi\.h|fdcan\.h|gpio\.h|usbd[^">]*)[">]|' +
+    '\bHAL_[A-Za-z0-9_]+|\bLL_[A-Za-z0-9_]+|' +
+    '\b(?:ADC|TIM|SPI|FDCAN|GPIO|DMA|UART|USB)_HandleTypeDef\b|' +
+    '\b(?:ADC|TIM|SPI|FDCAN|GPIO)[A-Z0-9_]*->|' +
+    '\b__(?:disable_irq|enable_irq|get_PRIMASK|set_PRIMASK)\b|' +
+    '\b(?:STM32[A-Z0-9_]*|CMSIS)\b)'
 
 $platformLeakPattern = '(?i)(#include\s+["<](?:stm32[^">]*|cmsis[^">]*|' +
     'main\.h|adc\.h|tim\.h|spi\.h|fdcan\.h|gpio\.h|usbd[^">]*)[">]|' +
@@ -196,12 +241,31 @@ $platformLeakPattern = '(?i)(#include\s+["<](?:stm32[^">]*|cmsis[^">]*|' +
     '\b(?:STM32[A-Z0-9_]*|CMSIS|VECTOR_?MINI(?:_?ST)?|TLE5012B|' +
     'AS5047|MT6701|MT6835|DRV83[0-9A-Z]*)\b)'
 
-$coreDirectory = Join-Path $firmwareRoot 'Core'
-if (Test-Path -LiteralPath $coreDirectory -PathType Container) {
-    $coreFiles = @(Get-ChildItem -LiteralPath $coreDirectory -Recurse -File |
+$corePortableDirectoryNames = @(
+    'Application', 'Services', 'Communication', 'Infrastructure'
+)
+foreach ($directoryName in $corePortableDirectoryNames) {
+    $directory = Join-Path $coreRoot $directoryName
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+        continue
+    }
+    $files = @(Get-ChildItem -LiteralPath $directory -Recurse -File |
         Where-Object { $_.Extension -in @('.c', '.h') })
-    Add-ContentMatches -Files $coreFiles -Pattern $platformLeakPattern `
-        -Description 'Core contains a platform or concrete-device dependency' `
+    Add-ContentMatches -Files $files -Pattern $platformLeakPattern `
+        -Description "Core/$directoryName contains a platform or concrete-device dependency" `
+        -LegacyFileAllowlist @{}
+}
+
+# Config is the only Core area where explicit product, board, motor, and sensor
+# model names are meaningful catalog data.  It still cannot contain MCU SDK
+# symbols or reach concrete Driver/Platform/BspBoards implementations; the
+# include dependency graph below enforces the latter restrictions.
+$coreConfigDirectory = Join-Path $coreRoot 'Config'
+if (Test-Path -LiteralPath $coreConfigDirectory -PathType Container) {
+    $coreConfigFiles = @(Get-ChildItem -LiteralPath $coreConfigDirectory `
+        -Recurse -File | Where-Object { $_.Extension -in @('.c', '.h') })
+    Add-ContentMatches -Files $coreConfigFiles -Pattern $mcuLeakPattern `
+        -Description 'Core/Config contains an MCU-platform implementation dependency' `
         -LegacyFileAllowlist @{}
 }
 
@@ -217,13 +281,6 @@ if (Test-Path -LiteralPath $bspApiDirectory -PathType Container) {
 # Portable drivers may name the device family that they implement, but they
 # must not bind directly to an MCU SDK, generated peripheral header, HAL call,
 # or memory-mapped peripheral register. Those bindings belong in Platform.
-$mcuLeakPattern = '(?i)(#include\s+["<](?:stm32[^">]*|cmsis[^">]*|' +
-    'main\.h|adc\.h|tim\.h|spi\.h|fdcan\.h|gpio\.h|usbd[^">]*)[">]|' +
-    '\bHAL_[A-Za-z0-9_]+|\bLL_[A-Za-z0-9_]+|' +
-    '\b(?:ADC|TIM|SPI|FDCAN|GPIO|DMA|UART|USB)_HandleTypeDef\b|' +
-    '\b(?:ADC|TIM|SPI|FDCAN|GPIO)[A-Z0-9_]*->|' +
-    '\b__(?:disable_irq|enable_irq|get_PRIMASK|set_PRIMASK)\b|' +
-    '\b(?:STM32[A-Z0-9_]*|CMSIS)\b)'
 $driversDirectory = Join-Path $firmwareRoot 'Drivers'
 if (Test-Path -LiteralPath $driversDirectory -PathType Container) {
     $driverFiles = @(Get-ChildItem -LiteralPath $driversDirectory -Recurse -File |
@@ -279,24 +336,66 @@ $allowedDependencies = @{
     # Drivers implement reusable components against BSP contracts. Platform
     # owns vendor SDK details. Boards are the only target-layer composition of
     # a product's physical capabilities/endpoints.
-    'Drivers' = @('Drivers', 'CoreConfig', 'BspApi')
+    'Drivers' = @('Drivers', 'BspApi')
     'BspApi' = @('BspApi')
     'Platform' = @('Platform', 'BspApi')
     'BspBoards' = @('BspBoards', 'BspApi', 'CoreConfig', 'Platform', 'Drivers')
 
-    # Legacy layers are frozen migration sources. Each cross-layer exception
-    # that remains outside these narrow rules is counted below.
-    'LegacyApplication' = @('LegacyApplication', 'LegacyDomain')
-    'LegacyCommunication' = @('LegacyCommunication', 'LegacyApplication')
+    # This is the only target layer allowed to see every concrete selection.
+    # It is recognized only below Bsp/Boards/<board>/Bootstrap, not as part of
+    # the wider BspBoards dependency policy.
+    'CompositionRoot' = @('CompositionRoot', 'CoreApplication',
+        'CoreServices', 'CoreCommunication', 'CoreConfig',
+        'CoreInfrastructure', 'Drivers', 'BspApi', 'BspBoards', 'Platform')
+
+    # Legacy layers are frozen migration sources.  They may point forward to
+    # the target owner of a dependency so migration can proceed one file at a
+    # time.  Target layers never point back to a Legacy layer.  Existing
+    # legacy-to-legacy debt outside these rules remains frozen and counted by
+    # the allowlist below.
+    'LegacyApplication' = @('LegacyApplication', 'LegacyDomain',
+        'CoreApplication', 'CoreServices', 'CoreConfig',
+        'CoreInfrastructure', 'BspApi')
+    'LegacyCommunication' = @('LegacyCommunication', 'LegacyApplication',
+        'CoreCommunication', 'CoreApplication', 'CoreServices', 'CoreConfig',
+        'CoreInfrastructure', 'BspApi')
     'LegacyComposition' = @('LegacyApplication', 'LegacyCommunication',
         'LegacyComposition', 'LegacyDomain', 'LegacyPorts', 'LegacyProduct',
         'LegacyRuntime', 'CoreApplication', 'CoreServices', 'CoreCommunication',
         'CoreConfig', 'CoreInfrastructure', 'Drivers', 'BspApi', 'BspBoards',
-        'Platform')
-    'LegacyDomain' = @('LegacyDomain')
-    'LegacyPorts' = @('LegacyPorts')
-    'LegacyProduct' = @('LegacyProduct')
-    'LegacyRuntime' = @('LegacyRuntime', 'LegacyDomain')
+        'Platform', 'CompositionRoot')
+    'LegacyDomain' = @('LegacyDomain', 'CoreServices', 'CoreConfig')
+    'LegacyPorts' = @('LegacyPorts', 'CoreApplication', 'CoreServices',
+        'CoreInfrastructure', 'BspApi')
+    'LegacyProduct' = @('LegacyProduct', 'CoreConfig')
+    'LegacyRuntime' = @('LegacyRuntime', 'LegacyDomain', 'CoreApplication',
+        'CoreServices', 'CoreConfig', 'CoreInfrastructure', 'BspApi')
+}
+
+# Guard the policy table itself. A future edit must not make a target layer
+# depend on migration-only code or on the all-seeing CompositionRoot.
+$targetArchitectureLayers = @(
+    'CoreApplication', 'CoreServices', 'CoreCommunication', 'CoreConfig',
+    'CoreInfrastructure', 'Drivers', 'BspApi', 'BspBoards', 'Platform',
+    'CompositionRoot'
+)
+foreach ($sourceLayer in $targetArchitectureLayers) {
+    if (-not $allowedDependencies.ContainsKey($sourceLayer)) {
+        $failures.Add("Missing dependency policy for target layer $sourceLayer")
+        continue
+    }
+    foreach ($targetLayer in $allowedDependencies[$sourceLayer]) {
+        if ($targetLayer.StartsWith('Legacy',
+            [System.StringComparison]::Ordinal)) {
+            $failures.Add(
+                "Target dependency policy points backward: ${sourceLayer}->${targetLayer}")
+        }
+        if ($sourceLayer -ne 'CompositionRoot' -and
+            $targetLayer -eq 'CompositionRoot') {
+            $failures.Add(
+                "Only CompositionRoot may depend on CompositionRoot: ${sourceLayer}->${targetLayer}")
+        }
+    }
 }
 
 # Frozen ceilings prevent an allowlisted legacy dependency direction from

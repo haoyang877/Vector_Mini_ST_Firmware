@@ -43,6 +43,7 @@
 #include "product_runtime_selection.h"
 #include "vector_mini_st_bsp.h"
 #include "vector_mini_st_angle_serial.h"
+#include "vector_mini_st_storage.h"
 
 #if defined(__CC_ARM)
 #pragma O3
@@ -74,6 +75,7 @@ static UsbCommandRouterContext UsbCommandRouter;
 static ApplicationEndpoints ApplicationEndpointSet;
 static ControlAuthorityServiceContext ControlAuthorityService;
 static AngleSerialStm32g431Context AngleSerialContext;
+static ParameterStoreFlashContext ParameterStoreContext;
 static Tle5012bRotorSensorAdapterContext RotorSensorAdapter;
 static bool FirmwareIsInitialized;
 static volatile ProductConfigBridgeStatus ProductConfigBridgeStartupStatus;
@@ -111,7 +113,7 @@ void FirmwareComposition_Initialize(void)
 	ResetReasonPort reset_reason_port;
 	DeviceIdentityPort device_identity_port;
 	DiagnosticTransportPort diagnostic_transport;
-	ParameterStorePort parameter_store;
+	BspNonvolatileStoragePort parameter_store;
 	ProductConfigBridgeStatus product_bridge_status;
 
 	FirmwareIsInitialized = false;
@@ -158,7 +160,13 @@ void FirmwareComposition_Initialize(void)
 	reset_reason_port = ResetReasonStm32G431_CreatePort();
 	device_identity_port = DeviceIdentityStm32G431_CreatePort();
 	diagnostic_transport = DiagnosticRttStm32G431_CreatePort();
-	parameter_store = ParameterStoreFlash_CreatePort();
+	if (!ParameterStoreFlash_CreatePort(&ParameterStoreContext,
+		&BspVectorMiniSt_ParameterStorageResources, &parameter_store))
+	{
+		ProductConfigBridgeStartupStatus =
+			PRODUCT_CONFIG_BRIDGE_BINDING_MISMATCH;
+		return;
+	}
 	BoardCriticalSection = BoardRuntimeStm32G431_CreateCriticalSectionPort();
 	if (!TelemetryService_Initialize(&TelemetryService))
 		return;

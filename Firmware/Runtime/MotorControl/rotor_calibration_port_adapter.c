@@ -5,13 +5,19 @@ static bool RotorCalibrationAdapter_SetReverse(void *context, bool reverse)
 	RotorCalibrationAdapterContext *adapter =
 		(RotorCalibrationAdapterContext *)context;
 	EncoderContext *encoder;
+	uint32_t interrupt_state;
 
 	if (adapter == 0 || adapter->encoder == 0 || adapter->motor == 0)
 		return false;
 	encoder = adapter->encoder;
+	interrupt_state = adapter->critical_section.enter != 0 ?
+		adapter->critical_section.enter(adapter->critical_section.context) : 0U;
 	if (encoder->reverse != (reverse ? 1U : 0U))
 		adapter->motor->configuration.friction_model_valid = false;
 	Encoder_SetReverse(encoder, reverse);
+	if (adapter->critical_section.exit != 0)
+		adapter->critical_section.exit(adapter->critical_section.context,
+			interrupt_state);
 	return encoder->reverse == (reverse ? 1U : 0U);
 }
 
@@ -40,14 +46,16 @@ static bool RotorCalibrationAdapter_ReadEntry(void *context, uint16_t index,
 
 RotorCalibrationPort RotorCalibrationAdapter_CreatePort(
 	RotorCalibrationAdapterContext *context, EncoderContext *encoder,
-	MotorControlContext *motor)
+	MotorControlContext *motor,
+	const CriticalSectionPort *critical_section)
 {
 	RotorCalibrationPort port = {0};
 
-	if (context == 0 || encoder == 0 || motor == 0)
+	if (context == 0 || encoder == 0 || motor == 0 || critical_section == 0)
 		return port;
 	context->encoder = encoder;
 	context->motor = motor;
+	context->critical_section = *critical_section;
 	port.context = context;
 	port.entry_count = ENCODER_OFFSET_LUT_SIZE;
 	port.counts_per_revolution = ENCODER_Q15_CPR;

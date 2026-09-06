@@ -20,7 +20,8 @@ void EncoderDirectionCalibrationRuntime_Reset(
 void EncoderDirectionCalibrationRuntime_ExecuteStep(
 	EncoderDirectionCalibrationContext *context,
 	CurrentControlContext *current_control, MotorControlContext *motor,
-	EncoderContext *encoder, MotorStateContext *motor_state)
+	EncoderContext *encoder, const CriticalSectionPort *critical_section,
+	MotorStateContext *motor_state)
 {
 	float align_current_a;
 	float align_time_s;
@@ -29,6 +30,7 @@ void EncoderDirectionCalibrationRuntime_ExecuteStep(
 	float time_s;
 
 	if (context == 0 || current_control == 0 || motor == 0 || encoder == 0 ||
+		critical_section == 0 ||
 		motor->tuning_profile == 0 || motor->mechanical_load_profile == 0 ||
 		motor->configuration.pole_pairs <= 0)
 	{
@@ -108,14 +110,26 @@ void EncoderDirectionCalibrationRuntime_ExecuteStep(
 		motor->targets.q_axis_current_a = 0.0f;
 		CurrentControlRuntime_ResetControllers(current_control);
 		CurrentControlRuntime_ApplyHighSideZeroVector(current_control);
-		if (context->raw_travel_q15 > ENCODER_Q15_HALF_TURN)
-			Encoder_SetReverse(encoder, false);
-		else if (context->raw_travel_q15 < -ENCODER_Q15_HALF_TURN)
-			Encoder_SetReverse(encoder, true);
-		else
 		{
-			MotorState_RaiseFault(motor_state, MOTOR_FAULT_ENCODER_DIRECTION);
-			return;
+			bool reverse;
+			uint32_t interrupt_state;
+
+			if (context->raw_travel_q15 > ENCODER_Q15_HALF_TURN)
+				reverse = false;
+			else if (context->raw_travel_q15 < -ENCODER_Q15_HALF_TURN)
+				reverse = true;
+			else
+			{
+				MotorState_RaiseFault(motor_state,
+					MOTOR_FAULT_ENCODER_DIRECTION);
+				return;
+			}
+			interrupt_state = critical_section->enter != 0 ?
+				critical_section->enter(critical_section->context) : 0U;
+			Encoder_SetReverse(encoder, reverse);
+			if (critical_section->exit != 0)
+				critical_section->exit(critical_section->context,
+					interrupt_state);
 		}
 		/* Positive/negative friction coefficients belong to the old direction
 		 * convention. A standalone direction calibration must not save them. */

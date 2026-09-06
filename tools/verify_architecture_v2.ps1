@@ -290,21 +290,15 @@ if (Test-Path -LiteralPath $driversDirectory -PathType Container) {
         -LegacyFileAllowlist @{}
 }
 
-# Apply the future Core rule to the current Domain too. Only the already-known
-# TLE5012B leakage is tolerated, with a frozen per-file occurrence ceiling.
+# Apply the future Core rule to any remaining legacy Domain files too. No
+# platform or concrete-device dependency is tolerated during migration.
 $legacyDomainDirectory = Join-Path $firmwareRoot 'Domain'
 if (Test-Path -LiteralPath $legacyDomainDirectory -PathType Container) {
     $legacyDomainFiles = @(Get-ChildItem -LiteralPath $legacyDomainDirectory `
         -Recurse -File | Where-Object { $_.Extension -in @('.c', '.h') })
-    $legacyDomainContentAllowlist = @{
-        'Firmware/Domain/RotorFeedback/encoder.h' = [pscustomobject]@{
-            MaximumOccurrences = 3
-            Reason = 'TLE5012B diagnostics must leave the domain contract'
-        }
-    }
     Add-ContentMatches -Files $legacyDomainFiles -Pattern $platformLeakPattern `
         -Description 'Legacy Domain contains a platform or concrete-device dependency' `
-        -LegacyFileAllowlist $legacyDomainContentAllowlist
+        -LegacyFileAllowlist @{}
 }
 
 # Firmware/Ports is the migration-era equivalent of part of Bsp/Api. It must

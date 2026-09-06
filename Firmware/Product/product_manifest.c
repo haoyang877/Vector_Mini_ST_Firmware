@@ -6,7 +6,6 @@
 #include "encoder_profiles.h"
 #include "control_tuning_profile.h"
 #include "product_variant.h"
-#include "memory_layout_profile.h"
 
 static const ProductManifest VectorMiniStManifest =
 {
@@ -19,7 +18,7 @@ static const ProductManifest VectorMiniStManifest =
 	.mechanical_load_profile_id = ACTIVE_MECHANICAL_LOAD_PROFILE,
 	.control_tuning_profile_id =
 		CONTROL_TUNING_PROFILE_HT8115_4_VECTOR_MINI_ST,
-	.memory_layout_profile_id = MEMORY_LAYOUT_PROFILE_VECTOR_MINI_ST,
+	.memory_layout_profile_id = PRODUCT_STORAGE_LAYOUT_COMPATIBILITY_ID,
 	.parameter_schema_version = PARAM_SCHEMA_VERSION,
 	.boot_image_contract_version = BOOT_IMAGE_CONTRACT_VERSION,
 	.firmware_version_major = FIRMWARE_VERSION_MAJOR,

@@ -1,9 +1,11 @@
-#ifndef APPLICATION_PARAMETER_MANAGER_H
-#define APPLICATION_PARAMETER_MANAGER_H
+#ifndef CORE_INFRASTRUCTURE_PARAMETERS_PARAMETER_MANAGER_H
+#define CORE_INFRASTRUCTURE_PARAMETERS_PARAMETER_MANAGER_H
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "parameter_store_port.h"
+#include "bsp_system.h"
+
+#define PARAMETER_MANAGER_SLOT_COUNT 2U
 
 typedef struct
 {
@@ -17,9 +19,10 @@ typedef struct
 
 typedef struct
 {
-	ParameterStorePort store;
+	BspNonvolatileStoragePort store;
 	ParameterCompatibility compatibility;
 	uint32_t payload_size;
+	uint32_t slot_size_bytes;
 	uint32_t active_sequence;
 	uint8_t active_slot;
 	bool has_active_record;
@@ -27,7 +30,8 @@ typedef struct
 } ParameterManagerContext;
 
 void ParameterManager_Initialize(ParameterManagerContext *context,
-	const ParameterStorePort *store, const ParameterCompatibility *compatibility,
+	const BspNonvolatileStoragePort *store,
+	const ParameterCompatibility *compatibility,
 	uint32_t payload_size);
 bool ParameterManager_Load(ParameterManagerContext *context, void *payload);
 bool ParameterManager_LoadCompatible(ParameterManagerContext *context, void *payload,

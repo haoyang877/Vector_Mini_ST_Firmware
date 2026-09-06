@@ -90,7 +90,6 @@ foreach ($requiredImplementation in @(
     'Firmware\Platform\Stm32G431\reset_reason_stm32g431.c',
     'Firmware\Product\board_profile.c',
 	'Firmware\Product\product_variant.c',
-	'Firmware\Product\memory_layout_profile.c',
     'Firmware\Product\motor_profiles.c',
 	'Firmware\Product\mechanical_load_profiles.c',
     'Firmware\Product\encoder_profiles.c',
@@ -109,9 +108,12 @@ foreach ($requiredImplementation in @(
     }
 }
 
-$parameterStorePort = Join-Path $repositoryRoot 'Firmware\Ports\parameter_store_port.h'
+$parameterStorePort = Join-Path $repositoryRoot 'Firmware\Bsp\Api\bsp_system.h'
 if (-not (Test-Path -LiteralPath $parameterStorePort)) {
-    $failures.Add('Missing parameter storage Port: Firmware\Ports\parameter_store_port.h')
+    $failures.Add('Missing BSP system contract: Firmware\Bsp\Api\bsp_system.h')
+} elseif ((Get-Content -Raw -LiteralPath $parameterStorePort) -notmatch
+        '\bBspNonvolatileStoragePort\b') {
+    $failures.Add('BSP system contract does not expose BspNonvolatileStoragePort')
 }
 
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath
@@ -119,14 +121,16 @@ $projectGroupNodes = @($project.Project.Targets.Target.Groups.Group)
 $projectFiles = @($projectGroupNodes.Files.File)
 $projectGroups = @($projectGroupNodes.GroupName)
 foreach ($requiredGroup in @('Firmware/Application', 'Firmware/Product',
+    'Firmware/Core/Communication/Formatting',
     'Firmware/Core/Services/Modulation', 'Firmware/Core/Services/Math',
     'Firmware/Core/Services/Measurement', 'Firmware/Core/Services/Identification',
     'Firmware/Core/Services/CurrentControl', 'Firmware/Core/Services/MotionControl',
-    'Firmware/Domain/RotorFeedback', 'Firmware/Runtime/MotorControl',
+    'Firmware/Core/Services/RotorFeedback', 'Firmware/Runtime/MotorControl',
     'Firmware/Runtime/Supervisor', 'Firmware/Communication/Transport',
     'Firmware/Communication/Protocol', 'Firmware/Communication/Router',
     'Firmware/Communication/Interfaces', 'Firmware/Application/Indicators',
-    'Firmware/Platform/Stm32G431', 'Firmware/Composition')) {
+    'Firmware/Platform/Stm32G431', 'Firmware/Composition',
+    'Firmware/Core/Infrastructure/Parameters')) {
     if ($projectGroups -notcontains $requiredGroup) {
         $failures.Add("Missing Keil architecture group: $requiredGroup")
     }
@@ -136,13 +140,14 @@ $groupPathPrefixes = [ordered]@{
     'Firmware/Application' = '..\Firmware\Application\'
     'Firmware/Application/Indicators' = '..\Firmware\Application\Indicators\'
     'Firmware/Product' = '..\Firmware\Product\'
+    'Firmware/Core/Communication/Formatting' = '..\Firmware\Core\Communication\Formatting\'
     'Firmware/Core/Services/Math' = '..\Firmware\Core\Services\Math\'
     'Firmware/Core/Services/Measurement' = '..\Firmware\Core\Services\Measurement\'
     'Firmware/Core/Services/Identification' = '..\Firmware\Core\Services\Identification\'
     'Firmware/Core/Services/CurrentControl' = '..\Firmware\Core\Services\CurrentControl\'
     'Firmware/Core/Services/MotionControl' = '..\Firmware\Core\Services\MotionControl\'
     'Firmware/Core/Services/Modulation' = '..\Firmware\Core\Services\Modulation\'
-    'Firmware/Domain/RotorFeedback' = '..\Firmware\Domain\RotorFeedback\'
+    'Firmware/Core/Services/RotorFeedback' = '..\Firmware\Core\Services\RotorFeedback\'
     'Firmware/Runtime/MotorControl' = '..\Firmware\Runtime\MotorControl\'
     'Firmware/Runtime/Supervisor' = '..\Firmware\Runtime\Supervisor\'
     'Firmware/Communication/Transport' = '..\Firmware\Communication\Transport\'
@@ -151,6 +156,7 @@ $groupPathPrefixes = [ordered]@{
     'Firmware/Communication/Interfaces' = '..\Firmware\Communication\'
     'Firmware/Platform/Stm32G431' = '..\Firmware\Platform\Stm32G431\'
     'Firmware/Composition' = '..\Firmware\Composition\'
+    'Firmware/Core/Infrastructure/Parameters' = '..\Firmware\Core\Infrastructure\Parameters\'
 }
 foreach ($groupNode in $projectGroupNodes) {
     $groupName = [string]$groupNode.GroupName
@@ -257,13 +263,13 @@ Add-Matches -Files $contextOwnedImplementationSources -Pattern '^\s*static\s+(?!
 $controlLoopConfig = Join-Path $repositoryRoot 'Firmware\Product\control_loop_config.h'
 Add-Matches -Files @($controlLoopConfig) -Pattern '^\s*#define\s+(SENSORLESS_|ENCODER_)' -Description 'Product tuning remains a compile-time macro instead of a typed injected Profile'
 
-$domainSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Domain') -Recurse -File -Include *.c,*.h |
+$domainSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Core\Services') -Recurse -File -Include *.c,*.h |
     ForEach-Object FullName
-Add-Matches -Files $domainSources -Pattern '#include\s+["<](stm32|main\.h|tim\.h|adc\.h|fdcan\.h|power_stage\.h)|\bHAL_|\bTIM1->|\bADC[12]->|\bFDCAN1->|\bSPI[12]->' -Description 'Domain module depends on platform or application output APIs'
-Add-Matches -Files $domainSources -Pattern '#include\s+"(?:foc_|interface_|telemetry_service|parameter_service|motor_command_service|hw_conf|data_type|vector_mini_st_profile)[^"]*\.h"' -Description 'Domain module depends on a legacy, communication, Application, or Product implementation header'
-$domainImplementationSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Domain') -Recurse -File -Filter *.c |
+Add-Matches -Files $domainSources -Pattern '#include\s+["<](stm32|main\.h|tim\.h|adc\.h|fdcan\.h|power_stage\.h)|\bHAL_|\bTIM1->|\bADC[12]->|\bFDCAN1->|\bSPI[12]->' -Description 'Core Service depends on platform or application output APIs'
+Add-Matches -Files $domainSources -Pattern '#include\s+"(?:foc_|interface_|telemetry_service|parameter_service|motor_command_service|hw_conf|data_type|vector_mini_st_profile)[^"]*\.h"' -Description 'Core Service depends on a legacy, communication, Application, or Product implementation header'
+$domainImplementationSources = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Firmware\Core\Services') -Recurse -File -Filter *.c |
     ForEach-Object FullName
-Add-Matches -Files $domainImplementationSources -Pattern '^\s*static\s+(?!const\b)(?![A-Za-z_][A-Za-z0-9_\s\*]*\()' -Description 'Domain module owns hidden mutable file-scope state'
+Add-Matches -Files $domainImplementationSources -Pattern '^\s*static\s+(?!const\b)(?![A-Za-z_][A-Za-z0-9_\s\*]*\()' -Description 'Core Service owns hidden mutable file-scope state'
 
 $ownedPublicSources = @('Application', 'Communication', 'Composition', 'Domain',
     'Ports', 'Product', 'Runtime') | ForEach-Object {
@@ -284,7 +290,7 @@ $realTimeSources = @(
 	'Firmware\Runtime\MotorControl\friction_identification_runtime.c',
     'Firmware\Core\Services\Identification\phase_resistance.c',
 	'Firmware\Core\Services\Identification\friction_identification.c',
-    'Firmware\Domain\RotorFeedback\encoder.c',
+    'Firmware\Core\Services\RotorFeedback\encoder.c',
     'Firmware\Core\Services\Modulation\svpwm.c'
 ) | ForEach-Object { Join-Path $repositoryRoot $_ }
 Add-Matches -Files $realTimeSources -Pattern '\b(HEAP_malloc|HEAP_free|malloc|calloc|realloc|free|flash_write|flash_erase|sprintf|snprintf|printf)\s*\(' -Description 'Prohibited operation appears in the 20 kHz call graph'

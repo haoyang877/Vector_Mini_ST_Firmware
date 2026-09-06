@@ -1,0 +1,9 @@
+#ifndef FIRMWARE_BSP_BOARDS_VECTOR_MINI_ST_STORAGE_H
+#define FIRMWARE_BSP_BOARDS_VECTOR_MINI_ST_STORAGE_H
+
+#include "parameter_store_flash.h"
+
+extern const ParameterStoreFlashResourceConfig
+	BspVectorMiniSt_ParameterStorageResources;
+
+#endif

@@ -134,7 +134,6 @@ Firmware/
 
   Product/
     product_variant.*           板卡/电机/编码器/负载/整定的原子组合与启动校验
-    memory_layout_profile.*     应用镜像与参数双槽 Flash 边界
     product_manifest.*          产品、硬件、固件兼容性标识
     control_loop_config.h       固定控制节拍与有界流程编译期配置
     control_tuning_profile.*    传感器/观测器/标定调参
@@ -142,6 +141,9 @@ Firmware/
     motor_profiles.*            电机电气/机械参数和安全上限
     mechanical_load_profiles.*  阻尼器/无阻尼器启动、标定、摩擦前馈与摩擦辨识配置
     encoder_profiles.*          传感器类型、方向、标定能力
+
+  Bsp/Boards/<board>/
+    *_memory_map.h              应用镜像与参数存储的唯一物理 Flash 边界
 
   Composition/
     firmware_composition.*      唯一组合根；静态创建并注入所有 Port/Profile

@@ -13,6 +13,7 @@ int ContextIsolation_RunHostTests(void);
 int AngleSerialStm32g431Config_RunHostTests(void);
 int ControlAuthorityService_RunHostTests(void);
 int DeviceLifecycle_RunHostTests(void);
+int Encoder_RunHostTests(void);
 int FaultManager_RunHostTests(void);
 int FrictionIdentification_RunHostTests(void);
 int MeasurementModel_RunHostTests(void);
@@ -27,6 +28,7 @@ int ProductVariant_RunHostTests(void);
 int BspBoard_RunHostTests(void);
 int ProductConfigBridge_RunHostTests(void);
 int ServiceResultValidation_RunHostTests(void);
+int TextWriter_RunHostTests(void);
 int Tle5012bDriver_RunHostTests(void);
 int UpdateService_RunHostTests(void);
 
@@ -37,6 +39,7 @@ static const HostTestCase HostTests[] =
 	{ "context_isolation", ContextIsolation_RunHostTests },
 	{ "control_authority_service", ControlAuthorityService_RunHostTests },
 	{ "device_lifecycle", DeviceLifecycle_RunHostTests },
+	{ "encoder", Encoder_RunHostTests },
 	{ "fault_manager", FaultManager_RunHostTests },
 	{ "friction_identification", FrictionIdentification_RunHostTests },
 	{ "measurement_model", MeasurementModel_RunHostTests },
@@ -51,6 +54,7 @@ static const HostTestCase HostTests[] =
 	{ "bsp_board_v2", BspBoard_RunHostTests },
 	{ "product_config_bridge", ProductConfigBridge_RunHostTests },
 	{ "service_result_validation", ServiceResultValidation_RunHostTests },
+	{ "text_writer", TextWriter_RunHostTests },
 	{ "tle5012b_driver", Tle5012bDriver_RunHostTests },
 	{ "update_service", UpdateService_RunHostTests }
 };

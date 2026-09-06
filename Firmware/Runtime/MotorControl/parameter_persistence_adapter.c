@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 #include "parameter_snapshot.h"
-#include "parameter_manager.h"
+#include "Core/Infrastructure/Parameters/parameter_manager.h"
 #include "product_manifest.h"
 #include "product_variant.h"
 
@@ -15,7 +15,8 @@
 
 bool ParameterPersistenceAdapter_Initialize(
 	ParameterPersistenceAdapterContext *context,
-	const ParameterStorePort *store, ParameterSnapshotContext *snapshot)
+	const BspNonvolatileStoragePort *store,
+	ParameterSnapshotContext *snapshot)
 {
 	if (context == 0 || store == 0 || store->read == 0 ||
 		store->erase == 0 || store->program == 0 || snapshot == 0)
@@ -50,8 +51,8 @@ static bool ParameterPersistenceAdapter_InitializeManager(
 		variant.allow_legacy_parameter_migration;
 	ParameterManager_Initialize(&ParameterManager, &ParameterStore, &compatibility,
 		sizeof(ParameterTransferBuffer));
-	ParameterManagerInitialized = true;
-	return true;
+	ParameterManagerInitialized = ParameterManager.is_initialized;
+	return ParameterManagerInitialized;
 }
 
 bool ParameterPersistenceAdapter_Save(ParameterPersistenceAdapterContext *context)
@@ -92,9 +93,9 @@ void ParameterPersistenceAdapter_Load(ParameterPersistenceAdapterContext *contex
 		return;
 	}
 	if (!ParameterManager.compatibility.allow_legacy_configuration_fingerprint ||
-		ParameterStore.read_previous_format == 0 ||
-		!ParameterStore.read_previous_format(ParameterStore.context,
-			&ParameterTransferBuffer, sizeof(ParameterTransferBuffer)))
+		ParameterStore.read(ParameterStore.context, 0U,
+			&ParameterTransferBuffer, sizeof(ParameterTransferBuffer)) !=
+			BSP_RESULT_OK)
 		ParameterSnapshot_LoadDefaults(ParameterSnapshotRuntime);
 	else
 		ParameterSnapshot_Apply(ParameterSnapshotRuntime, &ParameterTransferBuffer);

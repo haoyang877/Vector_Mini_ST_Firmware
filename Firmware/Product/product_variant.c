@@ -14,7 +14,6 @@ bool ProductVariant_GetActive(ProductVariant *variant)
 	variant->encoder = EncoderProfile_GetActive();
 	variant->mechanical_load = MechanicalLoadProfile_GetActive();
 	variant->control_tuning = ControlTuningProfile_GetActive();
-	variant->memory_layout = MemoryLayoutProfile_GetActive();
 	variant->configuration_fingerprint = PRODUCT_CONFIGURATION_FINGERPRINT;
 	/* One-time migration applies only to the already-deployed product tuple. */
 #if ACTIVE_BOARD_PROFILE == BOARD_PROFILE_VECTOR_MINI_ST && \
@@ -36,8 +35,7 @@ bool ProductVariant_Validate(const ProductVariant *variant)
 
 	if (variant == 0 || variant->identity == 0 || variant->board == 0 ||
 		variant->motor == 0 || variant->encoder == 0 ||
-		variant->mechanical_load == 0 || variant->control_tuning == 0 ||
-		variant->memory_layout == 0)
+		variant->mechanical_load == 0 || variant->control_tuning == 0)
 		return false;
 	board = variant->board;
 	motor = variant->motor;
@@ -52,7 +50,7 @@ bool ProductVariant_Validate(const ProductVariant *variant)
 		variant->identity->control_tuning_profile_id ==
 			variant->control_tuning->profile_id &&
 		variant->identity->memory_layout_profile_id ==
-			variant->memory_layout->profile_id &&
+			PRODUCT_STORAGE_LAYOUT_COMPATIBILITY_ID &&
 		board->control_frequency_hz == CONTROL_LOOP_FREQUENCY_HZ &&
 		board->minimum_current_offset_adc <= board->maximum_current_offset_adc &&
 		board->default_phase_a_current_offset_adc >= board->minimum_current_offset_adc &&
@@ -108,11 +106,5 @@ bool ProductVariant_Validate(const ProductVariant *variant)
 		 board->temperature_sensor != TEMPERATURE_SENSOR_NONE) &&
 		(board->inverter_deadtime_source ==
 			POWER_STAGE_DEADTIME_EXTERNAL_GATE_DRIVER ||
-		 board->inverter_deadtime_s > 0.0f) &&
-		variant->memory_layout->application_start_address +
-			variant->memory_layout->application_size_bytes <=
-			variant->memory_layout->parameter_slot_0_address &&
-		variant->memory_layout->parameter_slot_0_address +
-			variant->memory_layout->parameter_slot_size_bytes <=
-			variant->memory_layout->parameter_slot_1_address;
+		 board->inverter_deadtime_s > 0.0f);
 }

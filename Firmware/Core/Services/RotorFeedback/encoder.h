@@ -1,10 +1,8 @@
-#ifndef DOMAIN_ENCODER_H
-#define DOMAIN_ENCODER_H
+#ifndef CORE_SERVICES_ROTOR_FEEDBACK_ENCODER_H
+#define CORE_SERVICES_ROTOR_FEEDBACK_ENCODER_H
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "critical_section_port.h"
-#include "rotor_sensor_port.h"
 
 /* Normalized single-turn angle representation: unsigned 16-bit turn count. */
 #define ENCODER_Q15_CPR                 65536UL
@@ -15,19 +13,32 @@
 #define ENCODER_BAD_FRAME_OFFLINE_COUNT  100U
 #define ENCODER_COGGING_MAP_SIZE          128U
 
-typedef RotorSensorReadStatus Encoder_ReadStatus;
+/*
+ * Sensor-independent sample status. Numeric values remain stable for the
+ * runtime boundary adapter, but this service does not depend on a hardware
+ * transport contract.
+ */
+typedef enum
+{
+	ENCODER_READ_OK = 0,
+	ENCODER_READ_TRANSPORT_ERROR = 1,
+	ENCODER_READ_CRC_MISMATCH = 2,
+	ENCODER_READ_FIELD_TOO_STRONG = 3,
+	ENCODER_READ_FIELD_TOO_WEAK = 4,
+	ENCODER_READ_FIELD_INVALID = 5,
+	ENCODER_READ_OVERSPEED = 6,
+	ENCODER_READ_DEVICE_RESET = 7,
+	ENCODER_READ_DEVICE_SYSTEM_ERROR = 8,
+	ENCODER_READ_DEVICE_INTERFACE_ERROR = 9,
+	ENCODER_READ_INVALID_ANGLE = 10
+} Encoder_ReadStatus;
 
-#define ENCODER_READ_OK                     ROTOR_SENSOR_READ_OK
-#define ENCODER_READ_TRANSPORT_ERROR        ROTOR_SENSOR_READ_TRANSPORT_ERROR
-#define ENCODER_READ_CRC_MISMATCH           ROTOR_SENSOR_READ_CRC_MISMATCH
-#define ENCODER_READ_FIELD_TOO_STRONG       ROTOR_SENSOR_READ_FIELD_TOO_STRONG
-#define ENCODER_READ_FIELD_TOO_WEAK         ROTOR_SENSOR_READ_FIELD_TOO_WEAK
-#define ENCODER_READ_FIELD_INVALID          ROTOR_SENSOR_READ_FIELD_INVALID
-#define ENCODER_READ_OVERSPEED              ROTOR_SENSOR_READ_OVERSPEED
-#define ENCODER_READ_DEVICE_RESET           ROTOR_SENSOR_READ_DEVICE_RESET
-#define ENCODER_READ_DEVICE_SYSTEM_ERROR    ROTOR_SENSOR_READ_DEVICE_SYSTEM_ERROR
-#define ENCODER_READ_DEVICE_INTERFACE_ERROR ROTOR_SENSOR_READ_DEVICE_INTERFACE_ERROR
-#define ENCODER_READ_INVALID_ANGLE          ROTOR_SENSOR_READ_INVALID_ANGLE
+typedef struct
+{
+	Encoder_ReadStatus status;
+	uint16_t raw_data_word;
+	uint16_t raw_angle_q15;
+} EncoderSample;
 
 /* Calibration flags stored in flash. Mechanical zero is optional feedback state. */
 #define ENC_CALIB_LINEARIZED        (1U << 0)
@@ -57,7 +68,7 @@ typedef struct
 	int64_t velocity_shadow_q15;
 	bool has_valid_sample;
 
-	/* Mechanical and electrical feedback exposed to the CurrentControl/control interfaces. */
+	/* Mechanical and electrical feedback exposed to the control interfaces. */
 	float theta_elec;
 	float vel_elec;
 	float theta_mech;
@@ -73,34 +84,35 @@ typedef struct
 	int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
 	int32_t velocity_delta_sum;
 
-	/* Transport/device diagnostics and online state. */
+	/* Sample diagnostics and online state. */
 	Encoder_ReadStatus read_status;
 	Encoder_ReadStatus read_status_latched;
 	uint16_t sensor_raw_data_word;
 	uint32_t read_error_count;
 	uint16_t bad_frame_streak;
-	RotorSensorPort sensor_port;
-	CriticalSectionPort critical_section;
 } EncoderContext;
 
-bool Encoder_ParamInit(EncoderContext *Encoder,
-	const RotorSensorPort *sensor_port,
-	const CriticalSectionPort *critical_section,
+bool Encoder_ParamInit(EncoderContext *encoder,
 	uint8_t velocity_update_divider,
 	float velocity_sample_period_s);
-void Encoder_Update(EncoderContext *Encoder, uint32_t pole_pairs);
+/* The caller owns sensor acquisition and calls this once per fast-loop tick. */
+void Encoder_Update(EncoderContext *encoder, uint32_t pole_pairs,
+	const EncoderSample *sample);
 
-bool Encoder_IsOnline(const EncoderContext *Encoder);
-bool Encoder_SetElectricalZero(EncoderContext *Encoder);
-bool Encoder_SetElectricalZeroQ15(EncoderContext *Encoder, uint16_t electrical_zero_q15);
-bool Encoder_SetMechanicalZero(EncoderContext *Encoder);
-void Encoder_SetReverse(EncoderContext *Encoder, bool reverse);
-void Encoder_ResetVelocity(EncoderContext *Encoder);
+bool Encoder_IsOnline(const EncoderContext *encoder);
+/* Calibration mutations are deliberately unsynchronized; the caller owns the
+ * critical section when these APIs can race with the fast loop. */
+bool Encoder_SetElectricalZero(EncoderContext *encoder);
+bool Encoder_SetElectricalZeroQ15(EncoderContext *encoder,
+	uint16_t electrical_zero_q15);
+bool Encoder_SetMechanicalZero(EncoderContext *encoder);
+void Encoder_SetReverse(EncoderContext *encoder, bool reverse);
+void Encoder_ResetVelocity(EncoderContext *encoder);
 
-float Encoder_GetEleVel(const EncoderContext *Encoder);
-float Encoder_GetMecVel(const EncoderContext *Encoder);
-float Encoder_GetElePhase(const EncoderContext *Encoder);
-float Encoder_GetMecPos(const EncoderContext *Encoder);
-float Encoder_GetCountInCPR_Ratio(const EncoderContext *Encoder);
+float Encoder_GetEleVel(const EncoderContext *encoder);
+float Encoder_GetMecVel(const EncoderContext *encoder);
+float Encoder_GetElePhase(const EncoderContext *encoder);
+float Encoder_GetMecPos(const EncoderContext *encoder);
+float Encoder_GetCountInCPR_Ratio(const EncoderContext *encoder);
 
 #endif

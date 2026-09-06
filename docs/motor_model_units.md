@@ -99,7 +99,7 @@ Fluxobserver->Ubeta  = CurrentControl->mod_beta  * mod_to_V;  // V
 
 ## 4. 角度与角速度单位
 
-编码器输出换算见 `Firmware/Domain/RotorFeedback/encoder.c`：
+编码器输出换算见 `Firmware/Core/Services/RotorFeedback/encoder.c`：
 
 ```c
 Encoder->theta_elec = normalizeAngle((interpolated_enc * _2PI * pole_pairs) / cpr);  // rad，电气角 [0, 2π)

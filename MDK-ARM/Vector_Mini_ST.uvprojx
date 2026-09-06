@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Domain/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
+              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Core/Services/Math;../Firmware/Core/Services/Modulation;../Firmware/Core/Services/RotorFeedback;../Firmware/Core/Services/Identification;../Firmware/Core/Services/CurrentControl;../Firmware/Core/Services/MotionControl;../Firmware/Core/Services/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -535,11 +535,6 @@
               <FilePath>..\Firmware\Application\power_stage.c</FilePath>
             </File>
             <File>
-              <FileName>parameter_manager.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Application\parameter_manager.c</FilePath>
-            </File>
-            <File>
               <FileName>parameter_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Application\parameter_service.c</FilePath>
@@ -710,11 +705,6 @@
               <FilePath>..\Firmware\Product\product_variant.c</FilePath>
             </File>
             <File>
-              <FileName>memory_layout_profile.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Firmware\Product\memory_layout_profile.c</FilePath>
-            </File>
-            <File>
               <FileName>board_profile.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Product\board_profile.c</FilePath>
@@ -742,12 +732,32 @@
           </Files>
         </Group>
         <Group>
+          <GroupName>Firmware/Core/Communication/Formatting</GroupName>
+          <Files>
+            <File>
+              <FileName>text_writer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Communication\Formatting\text_writer.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
           <GroupName>Firmware/Core/Config</GroupName>
           <Files>
             <File>
               <FileName>product_runtime_selection.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Core\Config\product_runtime_selection.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Firmware/Core/Infrastructure/Parameters</GroupName>
+          <Files>
+            <File>
+              <FileName>parameter_manager.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Core\Infrastructure\Parameters\parameter_manager.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -774,6 +784,11 @@
               <FileType>1</FileType>
               <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_angle_serial.c</FilePath>
             </File>
+            <File>
+              <FileName>vector_mini_st_storage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Bsp\Boards\VectorMiniSt\vector_mini_st_storage.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -797,12 +812,12 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Firmware/Domain/RotorFeedback</GroupName>
+          <GroupName>Firmware/Core/Services/RotorFeedback</GroupName>
           <Files>
             <File>
               <FileName>encoder.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Domain\RotorFeedback\encoder.c</FilePath>
+              <FilePath>..\Firmware\Core\Services\RotorFeedback\encoder.c</FilePath>
             </File>
           </Files>
         </Group>

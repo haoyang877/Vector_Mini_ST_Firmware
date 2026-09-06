@@ -8,7 +8,6 @@
 #include "control_tuning_profile.h"
 #include "encoder_profiles.h"
 #include "mechanical_load_profiles.h"
-#include "memory_layout_profile.h"
 #include "motor_profiles.h"
 #include "product_manifest.h"
 #include "vector_mini_st_profile.h"
@@ -21,7 +20,7 @@
 	((uint32_t)ACTIVE_MECHANICAL_LOAD_PROFILE << 12U) ^ \
 	((uint32_t)CONTROL_TUNING_PROFILE_HT8115_4_VECTOR_MINI_ST << 16U) ^ \
 	((uint32_t)CURRENT_SENSE_SHUNT_MILLIOHM << 20U) ^ \
-	((uint32_t)MEMORY_LAYOUT_PROFILE_VECTOR_MINI_ST << 28U))
+	((uint32_t)PRODUCT_STORAGE_LAYOUT_COMPATIBILITY_ID << 28U))
 
 typedef struct
 {
@@ -31,7 +30,6 @@ typedef struct
 	const EncoderProfile *encoder;
 	const MechanicalLoadProfile *mechanical_load;
 	const ControlTuningProfile *control_tuning;
-	const MemoryLayoutProfile *memory_layout;
 	uint32_t configuration_fingerprint;
 	bool allow_legacy_parameter_migration;
 } ProductVariant;

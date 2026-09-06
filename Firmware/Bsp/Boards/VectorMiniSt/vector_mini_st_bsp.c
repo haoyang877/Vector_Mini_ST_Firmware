@@ -1,4 +1,5 @@
 #include "vector_mini_st_bsp.h"
+#include "vector_mini_st_memory_map.h"
 
 #define ARRAY_COUNT(array_) (sizeof(array_) / sizeof((array_)[0]))
 
@@ -107,8 +108,8 @@ const BspBoardCapabilities BspVectorMiniSt_Capabilities =
 			BSP_SYSTEM_FEATURE_UNIQUE_ID |
 			BSP_SYSTEM_FEATURE_NONVOLATILE_STORAGE |
 			BSP_SYSTEM_FEATURE_SOFTWARE_RESET,
-		16384U,
-		2048U,
-		8U
+		BSP_VECTOR_MINI_ST_PARAMETER_STORAGE_CAPACITY_BYTES,
+		BSP_VECTOR_MINI_ST_FLASH_ERASE_SIZE_BYTES,
+		BSP_VECTOR_MINI_ST_FLASH_PROGRAM_ALIGNMENT_BYTES
 	}
 };

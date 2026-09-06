@@ -17,9 +17,9 @@
 | 同协议、不同分辨率编码器 | `encoder_profiles.*` | 电机控制算法 |
 | 不同编码器协议 | 新建 `RotorSensorPort` Adapter，并在 Composition 注入 | Domain 编码器模型 |
 | 新 MCU | 新建 Platform 目录、CubeMX 工程和目标工程配置 | Application、Domain |
-| Flash 容量或分区变化 | `memory_layout_profile.*`、Keil ROM 区域/Scatter、Bootloader 布局 | ParameterManager 算法 |
+| Flash 容量或分区变化 | `Bsp/Boards/<board>/*_memory_map.h`、Keil ROM 区域/Scatter、Bootloader 布局 | ParameterManager 算法 |
 
-基本原则：硬件或产品变化应停留在 Product、Platform 和 Composition。如果为了换 PCB 或电机而修改 `Firmware/Domain/`，通常表示抽象边界仍不完整。
+基本原则：硬件或产品变化应停留在 `Core/Config`、`Bsp/Boards`、`Platform` 和对应 Bootstrap。如果为了换 PCB 或电机而修改 `Firmware/Core/Services/`，通常表示抽象边界仍不完整。
 
 ## 2. 配置数据如何进入运行系统
 
@@ -215,9 +215,9 @@ ControlTuningProfile。当前带约 1.5Nm 阻尼器实测：真实相电阻保�
 
 ### 3.6 ProductManifest、参数 Schema 和镜像契约
 
-文件：`product_manifest.*`、`product_variant.*`、`memory_layout_profile.*`、`parameter_schema.h`、`Bootloader/image_contract.h`
+文件：`product_manifest.*`、`product_variant.*`、`Bsp/Boards/<board>/*_memory_map.h`、`parameter_schema.h`、`Bootloader/image_contract.h`
 
-需要维护：产品 ID、MCU ID、硬件修订、板卡/电机/编码器/机械负载/控制整定/存储布局 Profile ID、配置指纹、固件版本、构建号、量产标志、参数 Schema 和 Bootloader 契约版本。应用区当前为 `0x08000000 + 0x1C000`，参数双槽为 `0x0801C000/0x0801E000`、每槽 8 KiB；三处配置必须一致且不得重叠。
+需要维护：产品 ID、MCU ID、硬件修订、板卡/电机/编码器/机械负载/控制整定/存储布局兼容 ID、配置指纹、固件版本、构建号、量产标志、参数 Schema 和 Bootloader 契约版本。应用区当前为 `0x08000000 + 0x1C000`，参数双槽为 `0x0801C000/0x0801E000`、每槽 8 KiB。物理地址和擦写粒度只在所选板包的 `*_memory_map.h` 定义；Keil/Bootloader 链接布局必须与其核对且不得重叠。
 
 以下情况通常需要增加参数 Schema：
 

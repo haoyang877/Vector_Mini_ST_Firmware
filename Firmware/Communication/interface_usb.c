@@ -5,8 +5,8 @@
 #include "usb_command_router.h"
 #include "can_configuration_service.h"
 #include "friction_identification_service.h"
+#include "Core/Communication/Formatting/text_writer.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include "fast_math.h"
@@ -114,9 +114,13 @@ static UsbCommandError UsbInterface_DecodeNextCommand(
 static void UsbInterface_QueueText(UsbInterfaceContext *context,
 	const char *text)
 {
+	TextWriter writer;
+
 	if (text == NULL)
 		return;
-	(void)snprintf(USBContext.tx_str, sizeof(USBContext.tx_str), "%s", text);
+	TextWriter_Initialize(&writer, USBContext.tx_str,
+		sizeof(USBContext.tx_str));
+	(void)TextWriter_AppendLiteral(&writer, text);
 	USBContext.tx_en = 1U;
 }
 
@@ -328,6 +332,8 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 		}
 		if (USBContext.friction_export_index < status.sample_count)
 		{
+			TextWriter writer;
+
 			if (!FrictionIdentificationService_ReadSample(friction,
 					USBContext.friction_export_index, &sample))
 			{
@@ -335,12 +341,22 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 				UsbInterface_QueueText(context, "friction_error\r\n");
 				return;
 			}
-			(void)snprintf(USBContext.tx_str, sizeof(USBContext.tx_str),
-				"friction=%u,target=%.6f,speed=%.6f,iq=%.6f,n=%lu\r\n",
-				(unsigned int)USBContext.friction_export_index,
-				sample.target_speed_rad_s * 0.15915494309f,
-				sample.mean_speed_rad_s * 0.15915494309f,
-				sample.mean_iq_a, (unsigned long)sample.sample_count);
+			TextWriter_Initialize(&writer, USBContext.tx_str,
+				sizeof(USBContext.tx_str));
+			(void)TextWriter_AppendLiteral(&writer, "friction=");
+			(void)TextWriter_AppendU32(&writer,
+				USBContext.friction_export_index);
+			(void)TextWriter_AppendLiteral(&writer, ",target=");
+			(void)TextWriter_AppendFixedF32(&writer,
+				sample.target_speed_rad_s * 0.15915494309f, 6U);
+			(void)TextWriter_AppendLiteral(&writer, ",speed=");
+			(void)TextWriter_AppendFixedF32(&writer,
+				sample.mean_speed_rad_s * 0.15915494309f, 6U);
+			(void)TextWriter_AppendLiteral(&writer, ",iq=");
+			(void)TextWriter_AppendFixedF32(&writer, sample.mean_iq_a, 6U);
+			(void)TextWriter_AppendLiteral(&writer, ",n=");
+			(void)TextWriter_AppendU32(&writer, sample.sample_count);
+			(void)TextWriter_AppendLiteral(&writer, "\r\n");
 			USBContext.friction_export_index++;
 			USBContext.tx_en = 1U;
 			return;
@@ -354,6 +370,7 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 		RotorCalibrationService_GetEntryCount(rotor_calibration))
 	{
 		RotorCalibrationEntry entry;
+		TextWriter writer;
 		uint32_t counts_per_revolution =
 			RotorCalibrationService_GetCountsPerRevolution(rotor_calibration);
 
@@ -366,11 +383,19 @@ void UsbInterface_FlushTransmit(UsbInterfaceContext *context,
 			return;
 		}
 
-		(void)snprintf(USBContext.tx_str, sizeof(USBContext.tx_str),
-			"lut=%u,raw_deg=%.4f,err_deg=%.5f\r\n",
-			(unsigned int)USBContext.lut_export_index,
-			(float)entry.raw_angle_q15 * (360.0f / (float)counts_per_revolution),
-			(float)entry.error_q15 * (360.0f / (float)counts_per_revolution));
+		TextWriter_Initialize(&writer, USBContext.tx_str,
+			sizeof(USBContext.tx_str));
+		(void)TextWriter_AppendLiteral(&writer, "lut=");
+		(void)TextWriter_AppendU32(&writer, USBContext.lut_export_index);
+		(void)TextWriter_AppendLiteral(&writer, ",raw_deg=");
+		(void)TextWriter_AppendFixedF32(&writer,
+			(float)entry.raw_angle_q15 *
+				(360.0f / (float)counts_per_revolution), 4U);
+		(void)TextWriter_AppendLiteral(&writer, ",err_deg=");
+		(void)TextWriter_AppendFixedF32(&writer,
+			(float)entry.error_q15 *
+				(360.0f / (float)counts_per_revolution), 5U);
+		(void)TextWriter_AppendLiteral(&writer, "\r\n");
 		USBContext.lut_export_index++;
 		USBContext.tx_en = 1U;
 		return;

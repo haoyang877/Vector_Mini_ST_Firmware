@@ -75,6 +75,7 @@ typedef struct
 	MotorCommandAdapterContext command_adapter;
 	RotorCalibrationAdapterContext rotor_calibration_adapter;
 	ParameterSnapshotContext parameter_snapshot;
+	RotorSensorPort rotor_sensor;
 	CriticalSectionPort critical_section;
 	ExecutionTimerPort execution_timer;
 	MotorFastLoopMetrics fast_loop_metrics;

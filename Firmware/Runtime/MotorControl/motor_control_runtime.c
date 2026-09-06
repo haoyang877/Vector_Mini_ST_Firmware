@@ -41,6 +41,59 @@
 #define MotorConfigurationAdapter (context->configuration_adapter)
 #define MotorCommandAdapter (context->command_adapter)
 #define RuntimeCriticalSection (context->critical_section)
+
+/* The legacy sensor-port status values are translated only at this runtime
+ * boundary. Encoder remains a hardware-independent service. */
+#define ENCODER_ASSERT_STATUS_MAPPING(name, encoder_status, rotor_status) \
+	typedef char name[(int)(encoder_status) == (int)(rotor_status) ? 1 : -1]
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusOkMustMatch,
+	ENCODER_READ_OK, ROTOR_SENSOR_READ_OK);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusTransportMustMatch,
+	ENCODER_READ_TRANSPORT_ERROR, ROTOR_SENSOR_READ_TRANSPORT_ERROR);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusCrcMustMatch,
+	ENCODER_READ_CRC_MISMATCH, ROTOR_SENSOR_READ_CRC_MISMATCH);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusFieldStrongMustMatch,
+	ENCODER_READ_FIELD_TOO_STRONG, ROTOR_SENSOR_READ_FIELD_TOO_STRONG);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusFieldWeakMustMatch,
+	ENCODER_READ_FIELD_TOO_WEAK, ROTOR_SENSOR_READ_FIELD_TOO_WEAK);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusFieldInvalidMustMatch,
+	ENCODER_READ_FIELD_INVALID, ROTOR_SENSOR_READ_FIELD_INVALID);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusOverspeedMustMatch,
+	ENCODER_READ_OVERSPEED, ROTOR_SENSOR_READ_OVERSPEED);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusResetMustMatch,
+	ENCODER_READ_DEVICE_RESET, ROTOR_SENSOR_READ_DEVICE_RESET);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusSystemMustMatch,
+	ENCODER_READ_DEVICE_SYSTEM_ERROR, ROTOR_SENSOR_READ_DEVICE_SYSTEM_ERROR);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusInterfaceMustMatch,
+	ENCODER_READ_DEVICE_INTERFACE_ERROR,
+	ROTOR_SENSOR_READ_DEVICE_INTERFACE_ERROR);
+ENCODER_ASSERT_STATUS_MAPPING(EncoderStatusInvalidAngleMustMatch,
+	ENCODER_READ_INVALID_ANGLE, ROTOR_SENSOR_READ_INVALID_ANGLE);
+#undef ENCODER_ASSERT_STATUS_MAPPING
+
+static void MotorControlRuntime_UpdateRotorFeedback(
+	MotorControlRuntimeContext *context)
+{
+	RotorSensorSample rotor_sample = {0};
+	EncoderSample encoder_sample = {ENCODER_READ_TRANSPORT_ERROR, 0U, 0U};
+	RotorSensorReadStatus status;
+	uint32_t pole_pairs;
+
+	if (context->rotor_sensor.read_sample != 0)
+	{
+		status = context->rotor_sensor.read_sample(
+			context->rotor_sensor.context, &rotor_sample);
+		encoder_sample.status = (Encoder_ReadStatus)status;
+		if (status == ROTOR_SENSOR_READ_OK)
+		{
+			encoder_sample.raw_data_word = rotor_sample.raw_data_word;
+			encoder_sample.raw_angle_q15 = rotor_sample.raw_angle_q15;
+		}
+	}
+	pole_pairs = MotorControl.configuration.pole_pairs > 0 ?
+		(uint32_t)MotorControl.configuration.pole_pairs : 1U;
+	Encoder_Update(&OnBoard_Encoder, pole_pairs, &encoder_sample);
+}
 #define ActiveBoardProfile (context->board_profile)
 #define ActiveMotorProfile (context->motor_profile)
 #define ActiveEncoderProfile (context->encoder_profile)
@@ -119,7 +172,7 @@ RotorCalibrationPort MotorControlRuntime_CreateRotorCalibrationPort(
 {
 	return RotorCalibrationAdapter_CreatePort(
 		&context->rotor_calibration_adapter, &OnBoard_Encoder,
-		&MotorControl);
+		&MotorControl, &RuntimeCriticalSection);
 }
 
 MotorCommandPort MotorControlRuntime_CreateCommandPort(
@@ -411,9 +464,23 @@ void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	const RotorSensorPort *rotor_sensor_port,
 	const CriticalSectionPort *critical_section_port)
 {
-	if (!Encoder_ParamInit(&OnBoard_Encoder, rotor_sensor_port,
-		critical_section_port, ActiveEncoderProfile->speed_loop_divider,
-		ActiveEncoderProfile->speed_sample_period_s))
+	bool encoder_initialized;
+
+	encoder_initialized = Encoder_ParamInit(&OnBoard_Encoder,
+		ActiveEncoderProfile->speed_loop_divider,
+		ActiveEncoderProfile->speed_sample_period_s);
+	memset(&context->rotor_sensor, 0, sizeof(context->rotor_sensor));
+	if (!encoder_initialized || rotor_sensor_port == 0 ||
+		rotor_sensor_port->initialize == 0 ||
+		rotor_sensor_port->read_sample == 0 || critical_section_port == 0)
+		encoder_initialized = false;
+	else
+	{
+		context->rotor_sensor = *rotor_sensor_port;
+		if (!context->rotor_sensor.initialize(context->rotor_sensor.context))
+			encoder_initialized = false;
+	}
+	if (!encoder_initialized)
 		MotorState_RaiseFault(MotorStateRuntime, MOTOR_FAULT_ENCODER);
 	
 	FluxObserver_Initialize(&Fluxobserver, ActiveTuningProfile, &MotorControl);
@@ -669,9 +736,7 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 	}
 	CurrentControlRuntime_UpdatePhaseCurrents(&CurrentControl);
 	
-	Encoder_Update(&OnBoard_Encoder,
-		MotorControl.configuration.pole_pairs > 0 ?
-		(uint32_t)MotorControl.configuration.pole_pairs : 1U);
+	MotorControlRuntime_UpdateRotorFeedback(context);
 	/* Encoder-feedback control and phase-commanded calibration do not consume
 	 * observer feedback. Keep the observer off those paths to preserve the
 	 * 20 kHz deadline and main-loop/USB bandwidth. */
@@ -801,7 +866,8 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 			case SERVICE_PROCEDURE_ENCODER_DIRECTION_CALIBRATION:
 				EncoderDirectionCalibrationRuntime_ExecuteStep(
 					&EncoderDirectionCalibration, &CurrentControl, &MotorControl,
-					&OnBoard_Encoder, MotorStateRuntime);
+					&OnBoard_Encoder, &RuntimeCriticalSection,
+					MotorStateRuntime);
 				break;
 			case SERVICE_PROCEDURE_PHASE_RESISTANCE_IDENTIFICATION:
 			{

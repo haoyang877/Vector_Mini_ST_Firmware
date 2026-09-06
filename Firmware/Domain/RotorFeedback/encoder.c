@@ -3,6 +3,11 @@
 #include <limits.h>
 #include <string.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 #define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
 #define ENCODER_TWO_PI 6.28318530717958647692f
 
@@ -21,21 +26,25 @@ static void Encoder_MarkReadStatus(EncoderContext *encoder, Encoder_ReadStatus s
 		encoder->bad_frame_streak++;
 }
 
-static bool Encoder_ReadTle5012BFrame(EncoderContext *encoder, uint16_t *raw_q15)
+static bool Encoder_ReadSensorSample(EncoderContext *encoder, uint16_t *raw_q15)
 {
-	RotorSensorRawSample sample;
+	RotorSensorSample sample;
+	RotorSensorReadStatus status;
 
-	if (encoder->sensor_port.read_sample == 0 ||
-		!encoder->sensor_port.read_sample(encoder->sensor_port.context, &sample))
+	if (encoder->sensor_port.read_sample == 0)
 	{
-		Encoder_MarkReadStatus(encoder, ENCODER_READ_SPI_TIMEOUT);
+		Encoder_MarkReadStatus(encoder, ENCODER_READ_TRANSPORT_ERROR);
+		return false;
+	}
+	status = encoder->sensor_port.read_sample(encoder->sensor_port.context,
+		&sample);
+	if (status != ROTOR_SENSOR_READ_OK)
+	{
+		Encoder_MarkReadStatus(encoder, status);
 		return false;
 	}
 
-	encoder->tle5012_angle_word = sample.angle_word;
-	encoder->tle5012_safety_word = 0U;
-	encoder->tle5012_crc_received = 0U;
-	encoder->tle5012_crc_calculated = 0U;
+	encoder->sensor_raw_data_word = sample.raw_data_word;
 	*raw_q15 = sample.raw_angle_q15;
 	Encoder_MarkReadStatus(encoder, ENCODER_READ_OK);
 	return true;
@@ -184,11 +193,7 @@ bool Encoder_ParamInit(EncoderContext *encoder,
 	encoder->theta_mech = 0.0f;
 	encoder->read_status = ENCODER_READ_OK;
 	encoder->read_status_latched = ENCODER_READ_OK;
-	encoder->tle5012_angle_word = 0U;
-	encoder->tle5012_safety_word = 0U;
-	encoder->tle5012_crc_received = 0U;
-	encoder->tle5012_crc_calculated = 0U;
-	encoder->tle5012_crc_error_count = 0U;
+	encoder->sensor_raw_data_word = 0U;
 	encoder->read_error_count = 0U;
 	encoder->bad_frame_streak = 0U;
 	Encoder_ResetVelocity(encoder);
@@ -238,7 +243,7 @@ void Encoder_Update(EncoderContext *encoder, uint32_t pole_pairs)
 	if (encoder == 0)
 		return;
 
-	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15))
+	if (!Encoder_ReadSensorSample(encoder, &raw_q15))
 		return;
 
 	directed_q15 = Encoder_ApplyDirectionQ15(encoder, raw_q15);

@@ -57,6 +57,10 @@ typedef struct
 	/* UNSPECIFIED accepts either framed CAN or a byte stream. */
 	BspCommunicationKind required_kind;
 	BspCommunicationFeatureSet required_features;
+	uint16_t required_payload_bytes;
+	/* Requested rates are in bits per second; zero means not applicable. */
+	uint32_t required_nominal_bit_rate;
+	uint32_t required_data_bit_rate;
 } BspCommunicationEndpointBindingRequest;
 
 /*
@@ -114,6 +118,8 @@ typedef enum
 	BSP_BOARD_VALIDATION_HARDWARE_SHUTDOWN_UNSUPPORTED,
 	BSP_BOARD_VALIDATION_ENDPOINT_KIND_MISMATCH,
 	BSP_BOARD_VALIDATION_ENDPOINT_FEATURE_UNSUPPORTED,
+	BSP_BOARD_VALIDATION_COMMUNICATION_PAYLOAD_UNSUPPORTED,
+	BSP_BOARD_VALIDATION_COMMUNICATION_BIT_RATE_UNSUPPORTED,
 	BSP_BOARD_VALIDATION_SYSTEM_FEATURE_UNSUPPORTED
 } BspBoardValidationCode;
 

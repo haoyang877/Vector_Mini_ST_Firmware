@@ -21,6 +21,7 @@ int ProductConfigBridge_RunHostTests(void)
 {
 	BspBoardCapabilities board;
 	BspMotorDriveEndpointCapabilities motor_endpoint;
+	ProductBoardDesign product_board;
 	ProductConfig invalid_config;
 	ProductRuntimeSelection selection;
 	ProductConfigValidationResult product_result;
@@ -117,11 +118,43 @@ int ProductConfigBridge_RunHostTests(void)
 		runtime_product.board->can_fd_enabled);
 	TEST_CHECK(config->can.bit_rate_switching ==
 		runtime_product.board->can_brs_enabled);
+	TEST_CHECK(config->can.maximum_payload_bytes == 8U);
 
 	TEST_CHECK(BspProductBinding_Validate(config,
 		&BspVectorMiniSt_Capabilities, &product_result, &board_result));
 	TEST_CHECK(product_result.total_error_count == 0U);
 	TEST_CHECK(board_result.code == BSP_BOARD_VALIDATION_OK);
+
+	/* Product CAN requirements are projected with payload and bps limits. */
+	invalid_config = *config;
+	invalid_config.can.mode = PRODUCT_CAN_MODE_FD;
+	invalid_config.can.data_bitrate_kbps = 5000U;
+	invalid_config.can.bit_rate_switching = true;
+	TEST_CHECK(BspProductBinding_Validate(&invalid_config,
+		&BspVectorMiniSt_Capabilities, &product_result, &board_result));
+	invalid_config.can.data_bitrate_kbps = 5001U;
+	TEST_CHECK(!BspProductBinding_Validate(&invalid_config,
+		&BspVectorMiniSt_Capabilities, &product_result, &board_result));
+	TEST_CHECK(product_result.total_error_count == 0U);
+	TEST_CHECK(board_result.code ==
+		BSP_BOARD_VALIDATION_COMMUNICATION_BIT_RATE_UNSUPPORTED);
+
+	/* Hardware shutdown is a ProductBoardDesign requirement, not a hidden BSP
+	 * default, and therefore survives the ProductConfig-to-BSP projection. */
+	invalid_config = *config;
+	product_board = *config->board;
+	product_board.require_hardware_shutdown = true;
+	invalid_config.board = &product_board;
+	TEST_CHECK(!BspProductBinding_Validate(&invalid_config,
+		&BspVectorMiniSt_Capabilities, &product_result, &board_result));
+	TEST_CHECK(board_result.code ==
+		BSP_BOARD_VALIDATION_HARDWARE_SHUTDOWN_UNSUPPORTED);
+	board = BspVectorMiniSt_Capabilities;
+	motor_endpoint = board.motor_drive_endpoints[0];
+	motor_endpoint.supports_hardware_shutdown = true;
+	board.motor_drive_endpoints = &motor_endpoint;
+	TEST_CHECK(BspProductBinding_Validate(&invalid_config,
+		&board, &product_result, &board_result));
 
 	invalid_config = *config;
 	invalid_config.angle_sensors[0].endpoint = 0x7FFEU;

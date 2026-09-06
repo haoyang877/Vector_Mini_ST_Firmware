@@ -59,6 +59,7 @@ const char *ProductConfig_ErrorCodeName(ProductConfigErrorCode code)
 		case PRODUCT_CONFIG_ERROR_CAN_MODE_UNSUPPORTED: return "can_mode_unsupported";
 		case PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID: return "can_bitrate_invalid";
 		case PRODUCT_CONFIG_ERROR_CAN_BRS_REQUIRES_FD: return "can_brs_requires_fd";
+		case PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID: return "can_payload_invalid";
 		case PRODUCT_CONFIG_ERROR_COMMUNICATION_ENDPOINT_INVALID: return "communication_endpoint_invalid";
 		default: return "unknown";
 	}

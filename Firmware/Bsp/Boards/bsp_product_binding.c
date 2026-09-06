@@ -2,6 +2,16 @@
 
 #include <string.h>
 
+static bool BspProductBinding_KilobitsToBits(uint32_t kilobits_per_second,
+	uint32_t *bits_per_second)
+{
+	if (bits_per_second == 0 ||
+		kilobits_per_second > UINT32_MAX / UINT32_C(1000))
+		return false;
+	*bits_per_second = kilobits_per_second * UINT32_C(1000);
+	return true;
+}
+
 static bool BspProductBinding_MapCurrentTopology(
 	ProductCurrentSenseTopology source, BspCurrentSenseTopology *target)
 {
@@ -105,7 +115,8 @@ static bool BspProductBinding_BuildRequest(const ProductConfig *config,
 	}
 	request->require_synchronized_current_sampling =
 		config->board->current_sense.pwm_synchronized;
-	request->require_hardware_shutdown = false;
+	request->require_hardware_shutdown =
+		config->board->require_hardware_shutdown;
 
 	if (config->angle_sensor_count > BSP_BOARD_MAX_ANGLE_BINDING_COUNT ||
 		config->temperature_sensor_count >
@@ -143,6 +154,17 @@ static bool BspProductBinding_BuildRequest(const ProductConfig *config,
 		if (config->can.bit_rate_switching)
 			request->communication_bindings[0].required_features |=
 				BSP_COMMUNICATION_FEATURE_CAN_BRS;
+		request->communication_bindings[0].required_payload_bytes =
+			config->can.maximum_payload_bytes;
+		if (!BspProductBinding_KilobitsToBits(
+			config->can.nominal_bitrate_kbps,
+			&request->communication_bindings[0].required_nominal_bit_rate))
+			return false;
+		if (config->can.data_bitrate_kbps != 0U &&
+			!BspProductBinding_KilobitsToBits(
+				config->can.data_bitrate_kbps,
+				&request->communication_bindings[0].required_data_bit_rate))
+			return false;
 		request->communication_binding_count = 1U;
 	}
 	if (config->service_stream.enabled)
@@ -156,6 +178,8 @@ static bool BspProductBinding_BuildRequest(const ProductConfig *config,
 			BSP_COMMUNICATION_BYTE_STREAM;
 		request->communication_bindings[communication_index].required_features =
 			BSP_COMMUNICATION_FEATURE_BYTE_STREAM;
+		request->communication_bindings[communication_index].required_payload_bytes =
+			1U;
 		request->communication_binding_count++;
 	}
 	request->required_system_features =

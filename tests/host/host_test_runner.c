@@ -15,6 +15,7 @@ int DeviceLifecycle_RunHostTests(void);
 int FaultManager_RunHostTests(void);
 int FrictionIdentification_RunHostTests(void);
 int MeasurementModel_RunHostTests(void);
+int PhaseCurrentStrategy_RunHostTests(void);
 int MechanicalLoadProfile_RunHostTests(void);
 int MotorCommissioningWorkflow_RunHostTests(void);
 int ParameterManager_RunHostTests(void);
@@ -25,6 +26,7 @@ int ProductVariant_RunHostTests(void);
 int BspBoard_RunHostTests(void);
 int ProductConfigBridge_RunHostTests(void);
 int ServiceResultValidation_RunHostTests(void);
+int Tle5012bDriver_RunHostTests(void);
 int UpdateService_RunHostTests(void);
 
 static const HostTestCase HostTests[] =
@@ -35,6 +37,7 @@ static const HostTestCase HostTests[] =
 	{ "fault_manager", FaultManager_RunHostTests },
 	{ "friction_identification", FrictionIdentification_RunHostTests },
 	{ "measurement_model", MeasurementModel_RunHostTests },
+	{ "phase_current_strategy", PhaseCurrentStrategy_RunHostTests },
 	{ "mechanical_load_profile", MechanicalLoadProfile_RunHostTests },
 	{ "motor_commissioning_workflow", MotorCommissioningWorkflow_RunHostTests },
 	{ "parameter_manager", ParameterManager_RunHostTests },
@@ -45,6 +48,7 @@ static const HostTestCase HostTests[] =
 	{ "bsp_board_v2", BspBoard_RunHostTests },
 	{ "product_config_bridge", ProductConfigBridge_RunHostTests },
 	{ "service_result_validation", ServiceResultValidation_RunHostTests },
+	{ "tle5012b_driver", Tle5012bDriver_RunHostTests },
 	{ "update_service", UpdateService_RunHostTests }
 };
 

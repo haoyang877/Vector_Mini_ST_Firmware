@@ -47,28 +47,26 @@ static uint8_t BspBoard_CurrentSensorCountRequired(
 
 static bool BspBoard_AngleKindIsValid(BspAngleEndpointKind kind)
 {
-	return kind >= BSP_ANGLE_ENDPOINT_UNSPECIFIED &&
-		kind <= BSP_ANGLE_ENDPOINT_PULSE;
+	return (uint32_t)kind <= (uint32_t)BSP_ANGLE_ENDPOINT_PULSE;
 }
 
 static bool BspBoard_TemperatureSourceIsValid(
 	BspTemperatureSourceKind source_kind)
 {
-	return source_kind >= BSP_TEMPERATURE_SOURCE_UNSPECIFIED &&
-		source_kind <= BSP_TEMPERATURE_SOURCE_DIGITAL;
+	return (uint32_t)source_kind <=
+		(uint32_t)BSP_TEMPERATURE_SOURCE_DIGITAL;
 }
 
 static bool BspBoard_TemperatureLocationIsValid(
 	BspTemperatureLocation location)
 {
-	return location >= BSP_TEMPERATURE_LOCATION_UNSPECIFIED &&
-		location <= BSP_TEMPERATURE_LOCATION_BOARD_AMBIENT;
+	return (uint32_t)location <=
+		(uint32_t)BSP_TEMPERATURE_LOCATION_BOARD_AMBIENT;
 }
 
 static bool BspBoard_CommunicationKindIsValid(BspCommunicationKind kind)
 {
-	return kind >= BSP_COMMUNICATION_UNSPECIFIED &&
-		kind <= BSP_COMMUNICATION_BYTE_STREAM;
+	return (uint32_t)kind <= (uint32_t)BSP_COMMUNICATION_BYTE_STREAM;
 }
 
 static BspBoardValidationResult BspBoard_ValidateMotorDescriptors(
@@ -256,15 +254,29 @@ static bool BspBoard_CommunicationDescriptorIsValid(
 	{
 		return (endpoint->features & (BSP_COMMUNICATION_FEATURE_CAN_CLASSIC |
 			BSP_COMMUNICATION_FEATURE_CAN_FD)) != 0U &&
-			(endpoint->features & BSP_COMMUNICATION_FEATURE_BYTE_STREAM) == 0U &&
+			(endpoint->features & (BSP_COMMUNICATION_FEATURE_BYTE_STREAM |
+			 BSP_COMMUNICATION_FEATURE_FULL_DUPLEX)) == 0U &&
 			((endpoint->features & BSP_COMMUNICATION_FEATURE_CAN_BRS) == 0U ||
-			 (endpoint->features & BSP_COMMUNICATION_FEATURE_CAN_FD) != 0U);
+			 (endpoint->features & BSP_COMMUNICATION_FEATURE_CAN_FD) != 0U) &&
+			endpoint->maximum_payload_bytes >=
+				BSP_CAN_CLASSIC_MAX_DATA_LENGTH &&
+			endpoint->maximum_payload_bytes <= BSP_CAN_FD_MAX_DATA_LENGTH &&
+			endpoint->maximum_nominal_bit_rate != 0U &&
+			(((endpoint->features & BSP_COMMUNICATION_FEATURE_CAN_FD) != 0U &&
+			  endpoint->maximum_data_bit_rate != 0U) ||
+			 ((endpoint->features & BSP_COMMUNICATION_FEATURE_CAN_FD) == 0U &&
+			  endpoint->maximum_payload_bytes <=
+				BSP_CAN_CLASSIC_MAX_DATA_LENGTH &&
+			  endpoint->maximum_data_bit_rate == 0U));
 	}
 	return (endpoint->features & BSP_COMMUNICATION_FEATURE_BYTE_STREAM) != 0U &&
 		(endpoint->features & (BSP_COMMUNICATION_FEATURE_CAN_CLASSIC |
 		 BSP_COMMUNICATION_FEATURE_CAN_FD |
 		 BSP_COMMUNICATION_FEATURE_CAN_BRS |
-		 BSP_COMMUNICATION_FEATURE_EXTENDED_ID)) == 0U;
+		 BSP_COMMUNICATION_FEATURE_EXTENDED_ID)) == 0U &&
+		endpoint->maximum_payload_bytes != 0U &&
+		endpoint->maximum_nominal_bit_rate == 0U &&
+		endpoint->maximum_data_bit_rate == 0U;
 }
 
 static BspBoardValidationResult BspBoard_ValidateCommunicationDescriptors(
@@ -291,6 +303,97 @@ static BspBoardValidationResult BspBoard_ValidateCommunicationDescriptors(
 					endpoint->endpoint_id);
 			}
 		}
+	}
+	return BspBoard_Result(BSP_BOARD_VALIDATION_OK, BSP_BOARD_RESOURCE_NONE,
+		BSP_BOARD_VALIDATION_NO_BINDING_INDEX, BSP_ENDPOINT_ID_NONE);
+}
+
+static size_t BspBoard_CountEndpointId(
+	const BspBoardCapabilities *capabilities, BspEndpointId endpoint_id)
+{
+	size_t count = 0U;
+	size_t index;
+	size_t sensor;
+
+	for (index = 0U; index < capabilities->motor_drive_endpoint_count; ++index)
+	{
+		const BspMotorDriveEndpointCapabilities *endpoint =
+			&capabilities->motor_drive_endpoints[index];
+
+		if (endpoint->endpoint_id == endpoint_id)
+			count++;
+		for (sensor = 0U; sensor < endpoint->current_sensor_capacity; ++sensor)
+		{
+			if (endpoint->current_sensor_endpoints[sensor] == endpoint_id)
+				count++;
+		}
+	}
+	for (index = 0U; index < capabilities->angle_sensor_endpoint_count; ++index)
+	{
+		if (capabilities->angle_sensor_endpoints[index].endpoint_id == endpoint_id)
+			count++;
+	}
+	for (index = 0U; index < capabilities->temperature_endpoint_count; ++index)
+	{
+		if (capabilities->temperature_endpoints[index].endpoint_id == endpoint_id)
+			count++;
+	}
+	for (index = 0U; index < capabilities->communication_endpoint_count; ++index)
+	{
+		if (capabilities->communication_endpoints[index].endpoint_id == endpoint_id)
+			count++;
+	}
+	return count;
+}
+
+static BspBoardValidationResult BspBoard_ValidateGlobalEndpointIds(
+	const BspBoardCapabilities *capabilities)
+{
+	size_t index;
+	size_t sensor;
+
+	for (index = 0U; index < capabilities->motor_drive_endpoint_count; ++index)
+	{
+		const BspMotorDriveEndpointCapabilities *endpoint =
+			&capabilities->motor_drive_endpoints[index];
+
+		if (BspBoard_CountEndpointId(capabilities, endpoint->endpoint_id) != 1U)
+			return BspBoard_Result(BSP_BOARD_VALIDATION_DUPLICATE_ENDPOINT_ID,
+				BSP_BOARD_RESOURCE_MOTOR_DRIVE, index, endpoint->endpoint_id);
+		for (sensor = 0U; sensor < endpoint->current_sensor_capacity; ++sensor)
+		{
+			if (BspBoard_CountEndpointId(capabilities,
+				endpoint->current_sensor_endpoints[sensor]) != 1U)
+			{
+				return BspBoard_Result(BSP_BOARD_VALIDATION_DUPLICATE_ENDPOINT_ID,
+					BSP_BOARD_RESOURCE_MOTOR_DRIVE, index,
+					endpoint->current_sensor_endpoints[sensor]);
+			}
+		}
+	}
+	for (index = 0U; index < capabilities->angle_sensor_endpoint_count; ++index)
+	{
+		BspEndpointId endpoint_id =
+			capabilities->angle_sensor_endpoints[index].endpoint_id;
+		if (BspBoard_CountEndpointId(capabilities, endpoint_id) != 1U)
+			return BspBoard_Result(BSP_BOARD_VALIDATION_DUPLICATE_ENDPOINT_ID,
+				BSP_BOARD_RESOURCE_ANGLE_SENSOR, index, endpoint_id);
+	}
+	for (index = 0U; index < capabilities->temperature_endpoint_count; ++index)
+	{
+		BspEndpointId endpoint_id =
+			capabilities->temperature_endpoints[index].endpoint_id;
+		if (BspBoard_CountEndpointId(capabilities, endpoint_id) != 1U)
+			return BspBoard_Result(BSP_BOARD_VALIDATION_DUPLICATE_ENDPOINT_ID,
+				BSP_BOARD_RESOURCE_TEMPERATURE, index, endpoint_id);
+	}
+	for (index = 0U; index < capabilities->communication_endpoint_count; ++index)
+	{
+		BspEndpointId endpoint_id =
+			capabilities->communication_endpoints[index].endpoint_id;
+		if (BspBoard_CountEndpointId(capabilities, endpoint_id) != 1U)
+			return BspBoard_Result(BSP_BOARD_VALIDATION_DUPLICATE_ENDPOINT_ID,
+				BSP_BOARD_RESOURCE_COMMUNICATION, index, endpoint_id);
 	}
 	return BspBoard_Result(BSP_BOARD_VALIDATION_OK, BSP_BOARD_RESOURCE_NONE,
 		BSP_BOARD_VALIDATION_NO_BINDING_INDEX, BSP_ENDPOINT_ID_NONE);
@@ -339,6 +442,9 @@ BspBoardValidationResult BspBoard_ValidateCapabilities(
 	if (result.code != BSP_BOARD_VALIDATION_OK)
 		return result;
 	result = BspBoard_ValidateCommunicationDescriptors(capabilities);
+	if (result.code != BSP_BOARD_VALIDATION_OK)
+		return result;
+	result = BspBoard_ValidateGlobalEndpointIds(capabilities);
 	if (result.code != BSP_BOARD_VALIDATION_OK)
 		return result;
 
@@ -672,10 +778,65 @@ static BspBoardValidationResult BspBoard_ValidateCommunicationBindings(
 			return BspBoard_Result(BSP_BOARD_VALIDATION_ENDPOINT_KIND_MISMATCH,
 				BSP_BOARD_RESOURCE_COMMUNICATION, index, binding->endpoint_id);
 		}
+		if ((endpoint->kind == BSP_COMMUNICATION_CAN &&
+			(((binding->required_features &
+			   (BSP_COMMUNICATION_FEATURE_CAN_CLASSIC |
+				BSP_COMMUNICATION_FEATURE_CAN_FD)) == 0U) ||
+			 ((binding->required_features &
+			   (BSP_COMMUNICATION_FEATURE_BYTE_STREAM |
+				BSP_COMMUNICATION_FEATURE_FULL_DUPLEX)) != 0U) ||
+			 ((binding->required_features & BSP_COMMUNICATION_FEATURE_CAN_BRS) !=
+				0U &&
+			  (binding->required_features & BSP_COMMUNICATION_FEATURE_CAN_FD) ==
+				0U))) ||
+			(endpoint->kind == BSP_COMMUNICATION_BYTE_STREAM &&
+			 (((binding->required_features &
+				BSP_COMMUNICATION_FEATURE_BYTE_STREAM) == 0U) ||
+			  ((binding->required_features &
+				(BSP_COMMUNICATION_FEATURE_CAN_CLASSIC |
+				 BSP_COMMUNICATION_FEATURE_CAN_FD |
+				 BSP_COMMUNICATION_FEATURE_CAN_BRS |
+				 BSP_COMMUNICATION_FEATURE_EXTENDED_ID)) != 0U))))
+		{
+			return BspBoard_Result(
+				BSP_BOARD_VALIDATION_ENDPOINT_FEATURE_UNSUPPORTED,
+				BSP_BOARD_RESOURCE_COMMUNICATION, index,
+				binding->endpoint_id);
+		}
 		if ((binding->required_features & ~endpoint->features) != 0U)
 			return BspBoard_Result(
 				BSP_BOARD_VALIDATION_ENDPOINT_FEATURE_UNSUPPORTED,
 				BSP_BOARD_RESOURCE_COMMUNICATION, index, binding->endpoint_id);
+		if (binding->required_payload_bytes == 0U ||
+			binding->required_payload_bytes > endpoint->maximum_payload_bytes ||
+			(endpoint->kind == BSP_COMMUNICATION_CAN &&
+			 (binding->required_features & BSP_COMMUNICATION_FEATURE_CAN_FD) == 0U &&
+			 binding->required_payload_bytes >
+				BSP_CAN_CLASSIC_MAX_DATA_LENGTH))
+		{
+			return BspBoard_Result(
+				BSP_BOARD_VALIDATION_COMMUNICATION_PAYLOAD_UNSUPPORTED,
+				BSP_BOARD_RESOURCE_COMMUNICATION, index, binding->endpoint_id);
+		}
+		if ((endpoint->kind == BSP_COMMUNICATION_CAN &&
+			 (binding->required_nominal_bit_rate == 0U ||
+			  binding->required_nominal_bit_rate >
+				endpoint->maximum_nominal_bit_rate ||
+			  ((binding->required_features & BSP_COMMUNICATION_FEATURE_CAN_FD) !=
+				0U &&
+			   (binding->required_data_bit_rate == 0U ||
+				binding->required_data_bit_rate >
+					endpoint->maximum_data_bit_rate)) ||
+			  ((binding->required_features & BSP_COMMUNICATION_FEATURE_CAN_FD) ==
+				0U && binding->required_data_bit_rate != 0U))) ||
+			(endpoint->kind == BSP_COMMUNICATION_BYTE_STREAM &&
+			 (binding->required_nominal_bit_rate != 0U ||
+			  binding->required_data_bit_rate != 0U)))
+		{
+			return BspBoard_Result(
+				BSP_BOARD_VALIDATION_COMMUNICATION_BIT_RATE_UNSUPPORTED,
+				BSP_BOARD_RESOURCE_COMMUNICATION, index, binding->endpoint_id);
+		}
 	}
 	return BspBoard_Result(BSP_BOARD_VALIDATION_OK, BSP_BOARD_RESOURCE_NONE,
 		BSP_BOARD_VALIDATION_NO_BINDING_INDEX, BSP_ENDPOINT_ID_NONE);

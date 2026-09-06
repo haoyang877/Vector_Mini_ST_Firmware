@@ -178,6 +178,7 @@ typedef struct
 	ProductComponentId platform_id;
 	uint32_t bsp_binding_fingerprint;
 	ProductEndpointId motor_drive_endpoint;
+	bool require_hardware_shutdown;
 	uint32_t control_frequency_hz;
 	float reliable_phase_current_limit_a;
 	float command_phase_current_limit_a;
@@ -298,6 +299,7 @@ typedef struct
 	uint32_t nominal_bitrate_kbps;
 	uint32_t data_bitrate_kbps;
 	bool bit_rate_switching;
+	uint8_t maximum_payload_bytes;
 	uint8_t default_node_id;
 	uint32_t heartbeat_ms;
 } ProductCanConfig;
@@ -412,6 +414,7 @@ typedef enum
 	PRODUCT_CONFIG_ERROR_CAN_MODE_UNSUPPORTED,
 	PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID,
 	PRODUCT_CONFIG_ERROR_CAN_BRS_REQUIRES_FD,
+	PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID,
 	PRODUCT_CONFIG_ERROR_COMMUNICATION_ENDPOINT_INVALID
 } ProductConfigErrorCode;
 

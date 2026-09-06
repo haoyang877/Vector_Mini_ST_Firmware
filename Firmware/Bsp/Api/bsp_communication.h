@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 
-#define BSP_CAN_FRAME_DATA_CAPACITY 64U
+#define BSP_CAN_CLASSIC_MAX_DATA_LENGTH 8U
+#define BSP_CAN_FD_MAX_DATA_LENGTH 64U
+#define BSP_CAN_FRAME_DATA_CAPACITY BSP_CAN_FD_MAX_DATA_LENGTH
 
 typedef enum
 {
@@ -35,6 +37,7 @@ typedef struct
 	BspCommunicationKind kind;
 	BspCommunicationFeatureSet features;
 	uint16_t maximum_payload_bytes;
+	/* Bit-rate limits are expressed in bits per second; zero is not applicable. */
 	uint32_t maximum_nominal_bit_rate;
 	uint32_t maximum_data_bit_rate;
 } BspCommunicationEndpointCapabilities;

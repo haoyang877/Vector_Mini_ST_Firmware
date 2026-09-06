@@ -11,7 +11,8 @@
 #include "indicator_stm32g431.h"
 #include "led.h"
 #include "power_stage_tim1.h"
-#include "rotor_sensor_tle5012b.h"
+#include "angle_serial_stm32g431.h"
+#include "tle5012b_rotor_sensor_adapter.h"
 #include "rotor_calibration_service.h"
 #include "motor_command_service.h"
 #include "parameter_service.h"
@@ -43,6 +44,11 @@
 #include "product_runtime_selection.h"
 #include "vector_mini_st_bsp.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 static PowerStageContext MotorPowerStage;
 static MotorControlRuntimeContext MotorControlRuntime;
 static CriticalSectionPort BoardCriticalSection;
@@ -67,6 +73,7 @@ static CanCommandRouterContext CanCommandRouter;
 static UsbCommandRouterContext UsbCommandRouter;
 static ApplicationEndpoints ApplicationEndpointSet;
 static ControlAuthorityServiceContext ControlAuthorityService;
+static Tle5012bRotorSensorAdapterContext RotorSensorAdapter;
 static bool FirmwareIsInitialized;
 static volatile ProductConfigBridgeStatus ProductConfigBridgeStartupStatus;
 
@@ -85,6 +92,7 @@ void FirmwareComposition_Initialize(void)
 	PowerStagePort power_stage_port;
 	MeasurementPort measurement_port;
 	RotorSensorPort rotor_sensor_port;
+	BspSynchronousSerialPort angle_serial_port;
 	CanTransportPort can_transport;
 	ByteTransportPort usb_transport;
 	IndicatorPort indicator_port;
@@ -128,7 +136,9 @@ void FirmwareComposition_Initialize(void)
 	mechanical_load_profile = product->mechanical_load;
 	power_stage_port = PowerStageTim1_CreatePort();
 	measurement_port = MeasurementAdc12_CreatePort();
-	rotor_sensor_port = RotorSensorTle5012b_CreatePort();
+	angle_serial_port = AngleSerialStm32g431_CreatePort();
+	rotor_sensor_port = Tle5012bRotorSensorAdapter_CreatePort(
+		&RotorSensorAdapter, &angle_serial_port);
 	can_transport = CanFdcan1Transport_CreatePort(board_profile->can_fd_enabled,
 		board_profile->can_brs_enabled);
 	usb_transport = UsbCdcTransport_CreatePort();

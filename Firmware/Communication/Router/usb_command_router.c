@@ -276,7 +276,7 @@ static UsbCommandError UsbCommandRouter_Read(UsbCommandRouterContext *context,
 		case USB_POLEPARIS:
 			snprintf(response->text, sizeof(response->text), "pol=%d\r\n", (int)UsbCommandRouter_ReadParameter(context, MOTOR_PARAMETER_POLE_PAIRS, 1.0f)); break;
 		case USB_ENCODER_STATE:
-			snprintf(response->text, sizeof(response->text), "encoder=TLE5012B-%s.\r\n", UsbCommandRouter_ReadTelemetry(context, MOTOR_TELEMETRY_ENCODER_ONLINE, 1.0f) != 0.0f ? "Online" : "Offline"); break;
+			snprintf(response->text, sizeof(response->text), "encoder=%s.\r\n", UsbCommandRouter_ReadTelemetry(context, MOTOR_TELEMETRY_ENCODER_ONLINE, 1.0f) != 0.0f ? "Online" : "Offline"); break;
 		case USB_ENCODER_REVERSE:
 			snprintf(response->text, sizeof(response->text), "erv=%u\r\n", (unsigned int)UsbCommandRouter_ReadTelemetry(context, MOTOR_TELEMETRY_ENCODER_REVERSED, 1.0f)); break;
 		case USB_CURRENT_CAL:

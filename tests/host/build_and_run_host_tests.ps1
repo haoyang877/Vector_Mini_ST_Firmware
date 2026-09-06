@@ -24,6 +24,9 @@ $sourcePaths = @(
     'tests\host\fault_manager_tests.c',
     'tests\host\friction_identification_tests.c',
     'tests\host\measurement_model_tests.c',
+	'tests\host\phase_current_strategy_tests.c',
+    'tests\host\tle5012b_driver_tests.c',
+	'Firmware\Composition\tle5012b_rotor_sensor_adapter.c',
     'tests\host\mechanical_load_profile_tests.c',
     'tests\host\motor_commissioning_workflow_tests.c',
     'tests\host\parameter_manager_tests.c',
@@ -49,6 +52,7 @@ $sourcePaths = @(
     'Firmware\Application\update_service.c',
     'Firmware\Domain\Identification\friction_identification.c',
     'Firmware\Domain\Measurement\measurement_model.c',
+	'Firmware\Core\Services\Measurement\phase_current_strategy.c',
     'Firmware\Product\board_profile.c',
     'Firmware\Product\control_tuning_profile.c',
     'Firmware\Product\encoder_profiles.c',
@@ -79,6 +83,8 @@ $includePaths = @(
     'Firmware\Ports',
     'Firmware\Product',
     'Firmware\Core\Config',
+	'Firmware\Core\Services\Measurement',
+    'Firmware\Drivers\Angle\Tle5012b',
     'Firmware\Bsp\Api',
     'Firmware\Bsp\Boards',
     'Firmware\Bsp\Boards\VectorMiniSt',
@@ -166,13 +172,14 @@ Write-Output "HOST_TEST_SOURCE_COUNT=$($absoluteSources.Count)"
 
 if ($compilerCommand.Kind -eq 'msvc') {
     $arguments = @('/nologo', '/std:c11', '/W4', '/WX', '/TC')
+	$arguments += '/DMECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG=1'
     $arguments += $absoluteIncludes | ForEach-Object { "/I$_" }
     $arguments += $absoluteSources
     $arguments += "/Fe:$binaryPath"
     & $compilerCommand.Path @arguments
 } else {
     $arguments = @('-std=c11', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
-        '-fno-common')
+        '-fno-common', '-DMECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG=1')
     $arguments += $absoluteIncludes | ForEach-Object { '-I'; $_ }
     $arguments += $absoluteSources
     $arguments += @('-o', $binaryPath, '-lm')

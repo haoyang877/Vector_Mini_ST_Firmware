@@ -2,6 +2,8 @@
 
 #include "vector_mini_st_profile.h"
 
+#if defined(MECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG) || \
+	ACTIVE_MECHANICAL_LOAD_PROFILE == MECHANICAL_LOAD_PROFILE_NO_DAMPER
 static const MechanicalLoadProfile NoDamperProfile =
 {
 	.profile_id = MECHANICAL_LOAD_PROFILE_NO_DAMPER,
@@ -76,7 +78,10 @@ static const MechanicalLoadProfile NoDamperProfile =
 	.cogging_identification_min_samples_per_bin = 4U,
 	.cogging_identification_max_current_a = 1.0f
 };
+#endif
 
+#if defined(MECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG) || \
+	ACTIVE_MECHANICAL_LOAD_PROFILE == MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
 static const MechanicalLoadProfile DampingRing1p5NmProfile =
 {
 	.profile_id = MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM,
@@ -151,24 +156,37 @@ static const MechanicalLoadProfile DampingRing1p5NmProfile =
 	.cogging_identification_min_samples_per_bin = 4U,
 	.cogging_identification_max_current_a = 1.0f
 };
+#endif
 
+#if defined(MECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG)
 static const MechanicalLoadProfile *const SupportedProfiles[] =
 {
 	&NoDamperProfile,
 	&DampingRing1p5NmProfile
 };
+#endif
 
 const MechanicalLoadProfile *MechanicalLoadProfile_GetActive(void)
 {
 #if ACTIVE_MECHANICAL_LOAD_PROFILE > MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM
 #error "Unsupported ACTIVE_MECHANICAL_LOAD_PROFILE"
 #endif
-	return SupportedProfiles[ACTIVE_MECHANICAL_LOAD_PROFILE];
+#if ACTIVE_MECHANICAL_LOAD_PROFILE == MECHANICAL_LOAD_PROFILE_NO_DAMPER
+	return &NoDamperProfile;
+#else
+	return &DampingRing1p5NmProfile;
+#endif
 }
 
 const MechanicalLoadProfile *MechanicalLoadProfile_GetById(uint16_t profile_id)
 {
+#if defined(MECHANICAL_LOAD_PROFILE_INCLUDE_CATALOG)
 	if (profile_id > MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM)
 		return 0;
 	return SupportedProfiles[profile_id];
+#else
+	const MechanicalLoadProfile *active = MechanicalLoadProfile_GetActive();
+
+	return profile_id == active->profile_id ? active : 0;
+#endif
 }

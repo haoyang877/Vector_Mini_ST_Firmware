@@ -6,7 +6,7 @@
 #include "critical_section_port.h"
 #include "rotor_sensor_port.h"
 
-/* TLE5012B single-turn angle representation: unsigned Q15, [0, 65535]. */
+/* Normalized single-turn angle representation: unsigned 16-bit turn count. */
 #define ENCODER_Q15_CPR                 65536UL
 #define ENCODER_Q15_HALF_TURN           32768
 #define ENCODER_OFFSET_LUT_SIZE          1024U
@@ -15,20 +15,19 @@
 #define ENCODER_BAD_FRAME_OFFLINE_COUNT  100U
 #define ENCODER_COGGING_MAP_SIZE          128U
 
-typedef enum
-{
-	ENCODER_READ_OK = 0,
-	ENCODER_READ_SPI_TIMEOUT = 1,
-	ENCODER_READ_CRC_MISMATCH = 2,
-	ENCODER_READ_MAGNET_TOO_STRONG = 3,
-	ENCODER_READ_MAGNET_TOO_WEAK = 4,
-	ENCODER_READ_MAGNET_INVALID = 5,
-	ENCODER_READ_OVERSPEED = 6,
-	ENCODER_READ_TLE_RESET = 7,
-	ENCODER_READ_TLE_SYSTEM_ERROR = 8,
-	ENCODER_READ_TLE_INTERFACE_ERROR = 9,
-	ENCODER_READ_TLE_INVALID_ANGLE = 10
-} Encoder_ReadStatus;
+typedef RotorSensorReadStatus Encoder_ReadStatus;
+
+#define ENCODER_READ_OK                     ROTOR_SENSOR_READ_OK
+#define ENCODER_READ_TRANSPORT_ERROR        ROTOR_SENSOR_READ_TRANSPORT_ERROR
+#define ENCODER_READ_CRC_MISMATCH           ROTOR_SENSOR_READ_CRC_MISMATCH
+#define ENCODER_READ_FIELD_TOO_STRONG       ROTOR_SENSOR_READ_FIELD_TOO_STRONG
+#define ENCODER_READ_FIELD_TOO_WEAK         ROTOR_SENSOR_READ_FIELD_TOO_WEAK
+#define ENCODER_READ_FIELD_INVALID          ROTOR_SENSOR_READ_FIELD_INVALID
+#define ENCODER_READ_OVERSPEED              ROTOR_SENSOR_READ_OVERSPEED
+#define ENCODER_READ_DEVICE_RESET           ROTOR_SENSOR_READ_DEVICE_RESET
+#define ENCODER_READ_DEVICE_SYSTEM_ERROR    ROTOR_SENSOR_READ_DEVICE_SYSTEM_ERROR
+#define ENCODER_READ_DEVICE_INTERFACE_ERROR ROTOR_SENSOR_READ_DEVICE_INTERFACE_ERROR
+#define ENCODER_READ_INVALID_ANGLE          ROTOR_SENSOR_READ_INVALID_ANGLE
 
 /* Calibration flags stored in flash. Mechanical zero is optional feedback state. */
 #define ENC_CALIB_LINEARIZED        (1U << 0)
@@ -48,7 +47,7 @@ typedef struct
 	uint8_t reverse;
 	int16_t cogging_compensation_map_ma[ENCODER_COGGING_MAP_SIZE];
 
-	/* Raw TLE5012B reading, direction-corrected input, and LUT-corrected angle. */
+	/* Raw sensor reading, direction-corrected input, and LUT-corrected angle. */
 	uint16_t raw_q15;
 	uint16_t directed_q15;
 	uint16_t linearized_q15;
@@ -74,14 +73,10 @@ typedef struct
 	int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
 	int32_t velocity_delta_sum;
 
-	/* TLE5012B SSC frame diagnostics and online state. */
+	/* Transport/device diagnostics and online state. */
 	Encoder_ReadStatus read_status;
 	Encoder_ReadStatus read_status_latched;
-	uint16_t tle5012_angle_word;
-	uint16_t tle5012_safety_word;
-	uint8_t tle5012_crc_received;
-	uint8_t tle5012_crc_calculated;
-	uint32_t tle5012_crc_error_count;
+	uint16_t sensor_raw_data_word;
 	uint32_t read_error_count;
 	uint16_t bad_frame_streak;
 	RotorSensorPort sensor_port;

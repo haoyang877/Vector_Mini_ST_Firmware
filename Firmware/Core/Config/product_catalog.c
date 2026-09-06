@@ -6,6 +6,7 @@ const ProductBoardDesign ProductCatalog_CurrentBoard =
 	.platform_id = PRODUCT_CATALOG_PLATFORM_CURRENT_TARGET,
 	.bsp_binding_fingerprint = PRODUCT_CATALOG_BSP_BINDING_FINGERPRINT,
 	.motor_drive_endpoint = 0x0100U,
+	.require_hardware_shutdown = false,
 	.control_frequency_hz = 20000U,
 	.reliable_phase_current_limit_a = 20.0f,
 	.command_phase_current_limit_a = 10.0f,
@@ -180,6 +181,7 @@ const ProductConfig ProductCatalog_CurrentConfig =
 		.nominal_bitrate_kbps = 1000U,
 		.data_bitrate_kbps = 0U,
 		.bit_rate_switching = false,
+		.maximum_payload_bytes = 8U,
 		.default_node_id = 0U,
 		.heartbeat_ms = 500U
 	},

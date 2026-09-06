@@ -62,7 +62,8 @@ typedef struct
 typedef struct
 {
 	void *context;
-	BspTemperatureLocation location;
+	/* Identifies the bound endpoint and its physical capabilities. */
+	const BspTemperatureEndpointCapabilities *capabilities;
 	BspResult (*initialize)(void *context);
 	BspResult (*request_sample)(void *context);
 	BspResult (*try_read_latest)(void *context, BspTemperatureSample *sample);

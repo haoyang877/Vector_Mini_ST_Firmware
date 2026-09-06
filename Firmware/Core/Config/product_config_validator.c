@@ -877,6 +877,7 @@ bool ProductConfig_Validate(const ProductConfig *config,
 				(uint32_t)config->can.mode);
 		}
 		if (config->can.nominal_bitrate_kbps == 0U ||
+			config->can.nominal_bitrate_kbps > UINT32_MAX / UINT32_C(1000) ||
 			config->can.data_bitrate_kbps != 0U)
 		{
 			ProductConfig_AddIssue(result,
@@ -890,6 +891,15 @@ bool ProductConfig_Validate(const ProductConfig *config,
 				PRODUCT_CONFIG_ERROR_CAN_BRS_REQUIRES_FD,
 				PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
 				PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
+		}
+		if (config->can.maximum_payload_bytes == 0U ||
+			config->can.maximum_payload_bytes > 8U)
+		{
+			ProductConfig_AddIssue(result,
+				PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID,
+				PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
+				PRODUCT_CONFIG_SENSOR_INDEX_NONE,
+				config->can.maximum_payload_bytes);
 		}
 	}
 	else if (config->can.mode == PRODUCT_CAN_MODE_FD)
@@ -912,12 +922,23 @@ bool ProductConfig_Validate(const ProductConfig *config,
 				(uint32_t)config->can.mode);
 		}
 		if (config->can.nominal_bitrate_kbps == 0U ||
-			config->can.data_bitrate_kbps == 0U)
+			config->can.nominal_bitrate_kbps > UINT32_MAX / UINT32_C(1000) ||
+			config->can.data_bitrate_kbps == 0U ||
+			config->can.data_bitrate_kbps > UINT32_MAX / UINT32_C(1000))
 		{
 			ProductConfig_AddIssue(result,
 				PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID,
 				PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
 				PRODUCT_CONFIG_SENSOR_INDEX_NONE, 0U);
+		}
+		if (config->can.maximum_payload_bytes == 0U ||
+			config->can.maximum_payload_bytes > 64U)
+		{
+			ProductConfig_AddIssue(result,
+				PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID,
+				PRODUCT_CONFIG_SUBJECT_COMMUNICATION,
+				PRODUCT_CONFIG_SENSOR_INDEX_NONE,
+				config->can.maximum_payload_bytes);
 		}
 	}
 	if (config->service_stream.enabled &&

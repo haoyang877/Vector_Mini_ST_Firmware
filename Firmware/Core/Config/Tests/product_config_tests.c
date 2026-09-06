@@ -111,6 +111,28 @@ int ProductConfig_RunHostTests(void)
 	TEST_CHECK(catalog_config->service_stream.enabled);
 	TEST_CHECK(catalog_config->service_stream.endpoint !=
 		PRODUCT_CONFIG_ENDPOINT_NONE);
+	TEST_CHECK(!catalog_config->board->require_hardware_shutdown);
+
+	/* Communication policy accepts both the catalog's Classic CAN profile and
+	 * an explicit CAN FD profile with data-phase bit-rate switching. */
+	config = *catalog_config;
+	config.can.mode = PRODUCT_CAN_MODE_FD;
+	config.can.data_bitrate_kbps = 5000U;
+	config.can.bit_rate_switching = true;
+	TEST_CHECK(ProductConfig_Validate(&config, &result));
+	config.can.maximum_payload_bytes = 65U;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CAN_PAYLOAD_INVALID));
+
+	config = *catalog_config;
+	config.can.mode = PRODUCT_CAN_MODE_FD;
+	config.can.data_bitrate_kbps = 5000U;
+	config.can.bit_rate_switching = true;
+	config.can.nominal_bitrate_kbps = UINT32_MAX;
+	TEST_CHECK(!ProductConfig_Validate(&config, &result));
+	TEST_CHECK(ProductConfigTests_HasError(&result,
+		PRODUCT_CONFIG_ERROR_CAN_BITRATE_INVALID));
 
 	/* Zero physical angle sensors without a sensorless route cannot satisfy
 	 * the required speed and position features. */

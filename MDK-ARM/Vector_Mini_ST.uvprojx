@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,ACTIVE_MECHANICAL_LOAD_PROFILE=MECHANICAL_LOAD_PROFILE_DAMPING_RING_1P5NM</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Domain/Math;../Firmware/Domain/Modulation;../Firmware/Domain/RotorFeedback;../Firmware/Domain/Identification;../Firmware/Domain/CurrentControl;../Firmware/Domain/MotionControl;../Firmware/Domain/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
+              <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Firmware/Composition;../Firmware/Runtime/MotorControl;../Firmware/Runtime/Supervisor;../Firmware/Communication;../Firmware/Communication/Protocol;../Firmware/Communication/Router;../Firmware/Communication/Transport;../Firmware/Application;../Firmware/Application/Indicators;../Firmware/Domain/Math;../Firmware/Domain/Modulation;../Firmware/Domain/RotorFeedback;../Firmware/Domain/Identification;../Firmware/Domain/CurrentControl;../Firmware/Domain/MotionControl;../Firmware/Domain/Measurement;../Firmware/Ports;../Firmware/Platform/Stm32G431;../Firmware/Product;../Firmware/Core/Config;../Firmware/Bsp/Api;../Firmware/Bsp/Boards;../Firmware/Bsp/Boards/VectorMiniSt;../Firmware/Drivers/Angle/Tle5012b;../Bootloader;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Middlewares/Third_Party/SEGGER/RTT</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -660,9 +660,9 @@
               <FilePath>..\Firmware\Platform\Stm32G431\device_identity_stm32g431.c</FilePath>
             </File>
             <File>
-              <FileName>rotor_sensor_tle5012b.c</FileName>
+              <FileName>angle_serial_stm32g431.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Firmware\Platform\Stm32G431\rotor_sensor_tle5012b.c</FilePath>
+              <FilePath>..\Firmware\Platform\Stm32G431\angle_serial_stm32g431.c</FilePath>
             </File>
             <File>
               <FileName>parameter_store_flash.c</FileName>
@@ -1033,6 +1033,11 @@
               <FileName>firmware_composition.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Firmware\Composition\firmware_composition.c</FilePath>
+            </File>
+            <File>
+              <FileName>tle5012b_rotor_sensor_adapter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Firmware\Composition\tle5012b_rotor_sensor_adapter.c</FilePath>
             </File>
             <File>
               <FileName>product_config_bridge.c</FileName>

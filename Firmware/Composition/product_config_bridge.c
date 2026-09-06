@@ -1,5 +1,10 @@
 #include "product_config_bridge.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Ospace
+#endif
+
 bool ProductConfigBridge_ValidateRuntime(const ProductRuntimeSelection *selection,
 	const BspBoardRuntimeIdentity *board_identity,
 	uint32_t runtime_configuration_fingerprint,

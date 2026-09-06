@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "bsp_system.h"
 #include "byte_transport_port.h"
-#include "monotonic_clock_port.h"
 #include "usb_protocol_contract.h"
 #include "usb_protocol_v1.h"
 #include "byte_ring_buffer.h"
@@ -40,14 +40,14 @@ typedef struct
 	uint32_t print_array[6];
 	volatile uint8_t receive_overflow;
 	ByteTransportPort transport;
-	MonotonicClockPort clock;
+	BspMonotonicClockPort clock;
 	bool transport_is_initialized;
 	uint32_t transmit_started_ms;
 	ByteRingBufferContext receive_queue;
 } UsbInterfaceContext;
 
 bool UsbInterface_Initialize(UsbInterfaceContext *context,
-	const ByteTransportPort *transport, const MonotonicClockPort *clock);
+	const ByteTransportPort *transport, const BspMonotonicClockPort *clock);
 void UsbInterface_OnReceiveInterrupt(UsbInterfaceContext *context,
 	const uint8_t *data, uint32_t length);
 void UsbInterface_ProcessReceivedCommands(UsbInterfaceContext *context,

@@ -5,7 +5,7 @@ static bool RotorCalibrationAdapter_SetReverse(void *context, bool reverse)
 	RotorCalibrationAdapterContext *adapter =
 		(RotorCalibrationAdapterContext *)context;
 	EncoderContext *encoder;
-	uint32_t interrupt_state;
+	BspCriticalSectionToken interrupt_state;
 
 	if (adapter == 0 || adapter->encoder == 0 || adapter->motor == 0)
 		return false;
@@ -47,7 +47,7 @@ static bool RotorCalibrationAdapter_ReadEntry(void *context, uint16_t index,
 RotorCalibrationPort RotorCalibrationAdapter_CreatePort(
 	RotorCalibrationAdapterContext *context, EncoderContext *encoder,
 	MotorControlContext *motor,
-	const CriticalSectionPort *critical_section)
+	const BspCriticalSectionPort *critical_section)
 {
 	RotorCalibrationPort port = {0};
 

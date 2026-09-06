@@ -4,7 +4,7 @@
 #include "power_stage.h"
 #include "measurement_port.h"
 #include "rotor_sensor_port.h"
-#include "critical_section_port.h"
+#include "bsp_system.h"
 #include "Core/Application/Contracts/rotor_calibration_port.h"
 #include "rotor_calibration_port_adapter.h"
 #include "Core/Application/Contracts/motor_command_port.h"
@@ -30,8 +30,6 @@
 #include "parameter_snapshot.h"
 #include "control_tuning_profile.h"
 #include "mechanical_load_profiles.h"
-#include "monotonic_clock_port.h"
-#include "execution_timer_port.h"
 #include "can_configuration_service.h"
 #include "telemetry_service.h"
 
@@ -76,8 +74,8 @@ typedef struct
 	RotorCalibrationAdapterContext rotor_calibration_adapter;
 	ParameterSnapshotContext parameter_snapshot;
 	RotorSensorPort rotor_sensor;
-	CriticalSectionPort critical_section;
-	ExecutionTimerPort execution_timer;
+	BspCriticalSectionPort critical_section;
+	BspExecutionTimerPort execution_timer;
 	MotorFastLoopMetrics fast_loop_metrics;
 	const BoardProfile *board_profile;
 	const MotorProfile *motor_profile;
@@ -93,14 +91,14 @@ void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	PowerStageContext *power_stage,
 	const MeasurementPort *measurement_port,
 	const RotorSensorPort *rotor_sensor_port,
-	const CriticalSectionPort *critical_section_port);
+	const BspCriticalSectionPort *critical_section_port);
 bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 	const BoardProfile *board_profile,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
 	const ControlTuningProfile *tuning_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,
-	const MonotonicClockPort *monotonic_clock,
-	const ExecutionTimerPort *execution_timer,
+	const BspMonotonicClockPort *monotonic_clock,
+	const BspExecutionTimerPort *execution_timer,
 	CanConfigurationServiceContext *can_configuration);
 
 void MotorControlRuntime_ExecuteFastLoop(MotorControlRuntimeContext *context);

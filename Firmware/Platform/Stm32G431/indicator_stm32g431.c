@@ -3,7 +3,7 @@
 #include "main.h"
 #include "tim.h"
 
-static void IndicatorStm32G431_SetStatusLeds(void *context,
+static BspResult IndicatorStm32G431_SetStatusLeds(void *context,
 	bool red_on, bool green_on)
 {
 	(void)context;
@@ -11,18 +11,29 @@ static void IndicatorStm32G431_SetStatusLeds(void *context,
 		((uint32_t)LED_R_Pin << 16U) : LED_R_Pin;
 	LED_G_GPIO_Port->BSRR = green_on ?
 		((uint32_t)LED_G_Pin << 16U) : LED_G_Pin;
+	return BSP_RESULT_OK;
 }
 
-static bool IndicatorStm32G431_SendRgbPwm(void *context,
-	uint32_t *data, uint16_t count)
+static BspResult IndicatorStm32G431_SendRgbPwm(void *context,
+	const uint32_t *data, size_t count)
 {
+	HAL_StatusTypeDef status;
+
 	(void)context;
-	return HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_3, data, count) == HAL_OK;
+	if (data == 0 || count == 0U || count > UINT16_MAX)
+		return BSP_RESULT_INVALID_ARGUMENT;
+	status = HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_3, (uint32_t *)data,
+		(uint16_t)count);
+	if (status == HAL_OK)
+		return BSP_RESULT_OK;
+	if (status == HAL_BUSY)
+		return BSP_RESULT_BUSY;
+	return BSP_RESULT_IO_ERROR;
 }
 
-IndicatorPort IndicatorStm32G431_CreatePort(void)
+BspIndicatorPort IndicatorStm32G431_CreatePort(void)
 {
-	IndicatorPort port;
+	BspIndicatorPort port;
 	port.context = 0;
 	port.set_status_leds = IndicatorStm32G431_SetStatusLeds;
 	port.send_rgb_pwm = IndicatorStm32G431_SendRgbPwm;

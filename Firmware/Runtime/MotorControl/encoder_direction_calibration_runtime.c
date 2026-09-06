@@ -20,7 +20,7 @@ void EncoderDirectionCalibrationRuntime_Reset(
 void EncoderDirectionCalibrationRuntime_ExecuteStep(
 	EncoderDirectionCalibrationContext *context,
 	CurrentControlContext *current_control, MotorControlContext *motor,
-	EncoderContext *encoder, const CriticalSectionPort *critical_section,
+	EncoderContext *encoder, const BspCriticalSectionPort *critical_section,
 	MotorStateContext *motor_state)
 {
 	float align_current_a;
@@ -112,7 +112,7 @@ void EncoderDirectionCalibrationRuntime_ExecuteStep(
 		CurrentControlRuntime_ApplyHighSideZeroVector(current_control);
 		{
 			bool reverse;
-			uint32_t interrupt_state;
+			BspCriticalSectionToken interrupt_state;
 
 			if (context->raw_travel_q15 > ENCODER_Q15_HALF_TURN)
 				reverse = false;

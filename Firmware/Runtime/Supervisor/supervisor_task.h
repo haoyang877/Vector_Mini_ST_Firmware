@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "diagnostic_transport_port.h"
+#include "bsp_system.h"
 #include "motor_control_runtime.h"
 #include "interface_can.h"
 #include "interface_usb.h"
@@ -22,7 +22,7 @@ typedef struct
 	MotorDiagnosticFrame diagnostic_buffers[2];
 	volatile uint8_t published_diagnostic_buffer;
 	volatile bool diagnostic_pending;
-	DiagnosticTransportPort diagnostic_transport;
+	BspDiagnosticSinkPort diagnostic_transport;
 	MotorControlRuntimeContext *motor_control;
 	TelemetryServiceContext *telemetry;
 	CanInterfaceContext *can_interface;
@@ -35,7 +35,7 @@ typedef struct
 } SupervisorTaskContext;
 
 bool SupervisorTask_Initialize(SupervisorTaskContext *context,
-	const DiagnosticTransportPort *diagnostic_transport,
+	const BspDiagnosticSinkPort *diagnostic_transport,
 	MotorControlRuntimeContext *motor_control,
 	TelemetryServiceContext *telemetry, CanInterfaceContext *can_interface,
 	UsbInterfaceContext *usb_interface,

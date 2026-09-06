@@ -1,8 +1,8 @@
 #ifndef PLATFORM_STM32G431_RESET_REASON_H
 #define PLATFORM_STM32G431_RESET_REASON_H
 
-#include "reset_reason_port.h"
+#include "bsp_system.h"
 
-ResetReasonPort ResetReasonStm32G431_CreatePort(void);
+BspResetReasonPort ResetReasonStm32G431_CreatePort(void);
 
 #endif

@@ -8,9 +8,9 @@ static uint32_t MonotonicClockStm32G431_ReadMs(void *context)
 	return HAL_GetTick();
 }
 
-MonotonicClockPort MonotonicClockStm32G431_CreatePort(void)
+BspMonotonicClockPort MonotonicClockStm32G431_CreatePort(void)
 {
-	MonotonicClockPort port;
+	BspMonotonicClockPort port;
 	port.context = 0;
 	port.read_ms = MonotonicClockStm32G431_ReadMs;
 	return port;

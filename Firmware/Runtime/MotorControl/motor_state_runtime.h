@@ -15,7 +15,7 @@
 #include "encoder_calibration_runtime.h"
 #include "calibration_service.h"
 #include "identification_service.h"
-#include "monotonic_clock_port.h"
+#include "bsp_system.h"
 #include "motor_commissioning_workflow.h"
 
 typedef struct MotorStateContext MotorStateContext;
@@ -32,7 +32,7 @@ typedef struct
 	DeviceLifecycleContext *lifecycle;
 	CalibrationServiceContext *calibration_service;
 	IdentificationServiceContext *identification_service;
-	MonotonicClockPort monotonic_clock;
+	BspMonotonicClockPort monotonic_clock;
 } MotorFaultRuntimeBindings;
 
 struct MotorStateContext

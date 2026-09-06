@@ -1,8 +1,8 @@
 #ifndef PLATFORM_STM32G431_DIAGNOSTIC_RTT_H
 #define PLATFORM_STM32G431_DIAGNOSTIC_RTT_H
 
-#include "diagnostic_transport_port.h"
+#include "bsp_system.h"
 
-DiagnosticTransportPort DiagnosticRttStm32G431_CreatePort(void);
+BspDiagnosticSinkPort DiagnosticRttStm32G431_CreatePort(void);
 
 #endif

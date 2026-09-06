@@ -3,7 +3,7 @@
 #define LED (context->state)
 #define LEDIndicatorPort (context->port)
 
-bool LED_Initialize(LedServiceContext *context, const IndicatorPort *port)
+bool LED_Initialize(LedServiceContext *context, const BspIndicatorPort *port)
 {
 	if (context == 0 || port == 0 || port->set_status_leds == 0)
 		return false;

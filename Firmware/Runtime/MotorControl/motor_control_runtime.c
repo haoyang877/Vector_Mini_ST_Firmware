@@ -109,8 +109,8 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 	const MotorProfile *motor_profile, const EncoderProfile *encoder_profile,
 	const ControlTuningProfile *tuning_profile,
 	const MechanicalLoadProfile *mechanical_load_profile,
-	const MonotonicClockPort *monotonic_clock,
-	const ExecutionTimerPort *execution_timer,
+	const BspMonotonicClockPort *monotonic_clock,
+	const BspExecutionTimerPort *execution_timer,
 	CanConfigurationServiceContext *can_configuration)
 {
 	MotorFaultRuntimeBindings bindings;
@@ -120,7 +120,7 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 		mechanical_load_profile == 0 || monotonic_clock == 0 ||
 		monotonic_clock->read_ms == 0 || execution_timer == 0 ||
 		execution_timer->read_cycles == 0 ||
-		execution_timer->cycles_per_second == 0 ||
+		execution_timer->frequency_hz == 0U ||
 		can_configuration == 0 ||
 		board_profile->control_frequency_hz == 0U ||
 		!isfinite(tuning_profile->flux_observer_resistance_scale) ||
@@ -141,7 +141,7 @@ bool MotorControlRuntime_Prepare(MotorControlRuntimeContext *context,
 	context->fast_loop_metrics.latest_cycles = 0U;
 	context->fast_loop_metrics.filtered_cycles = 0U;
 	context->fast_loop_metrics.deadline_cycles =
-		execution_timer->cycles_per_second(execution_timer->context) /
+		execution_timer->frequency_hz /
 		board_profile->control_frequency_hz;
 	PreviousServiceProcedure = SERVICE_PROCEDURE_NONE;
 
@@ -462,7 +462,7 @@ void MotorControlRuntime_Initialize(MotorControlRuntimeContext *context,
 	PowerStageContext *power_stage,
 	const MeasurementPort *measurement_port,
 	const RotorSensorPort *rotor_sensor_port,
-	const CriticalSectionPort *critical_section_port)
+	const BspCriticalSectionPort *critical_section_port)
 {
 	bool encoder_initialized;
 
@@ -1028,7 +1028,7 @@ void MotorControlRuntime_ExecuteFastLoop(MotorControlRuntimeContext *context)
 bool MotorControlRuntime_ReadFastLoopMetrics(
 	const MotorControlRuntimeContext *context, MotorFastLoopMetrics *metrics)
 {
-	uint32_t interrupt_state;
+	BspCriticalSectionToken interrupt_state;
 	if (context == 0 || metrics == 0)
 		return false;
 	interrupt_state = RuntimeCriticalSection.enter(RuntimeCriticalSection.context);

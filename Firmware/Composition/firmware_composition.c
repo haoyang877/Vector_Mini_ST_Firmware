@@ -52,7 +52,7 @@
 
 static PowerStageContext MotorPowerStage;
 static MotorControlRuntimeContext MotorControlRuntime;
-static CriticalSectionPort BoardCriticalSection;
+static BspCriticalSectionPort BoardCriticalSection;
 static ParameterTransactionServiceContext ParameterTransactionService;
 static ParameterTransactionAdapterContext ParameterTransactionAdapter;
 static MotorCommandServiceContext MotorCommandService;
@@ -99,7 +99,7 @@ void FirmwareComposition_Initialize(void)
 	const AngleSerialStm32g431ResourceConfig *angle_serial_resources;
 	CanTransportPort can_transport;
 	ByteTransportPort usb_transport;
-	IndicatorPort indicator_port;
+	BspIndicatorPort indicator_port;
 	RotorCalibrationPort rotor_calibration_port;
 	MotorCommandPort motor_command_port;
 	MotorConfigurationPort motor_configuration_port;
@@ -108,11 +108,11 @@ void FirmwareComposition_Initialize(void)
 	CanConfigurationPort can_configuration_port;
 	CanResponsePort can_response_port;
 	ParameterTransactionPort parameter_transaction_port;
-	MonotonicClockPort monotonic_clock;
-	ExecutionTimerPort execution_timer;
-	ResetReasonPort reset_reason_port;
-	DeviceIdentityPort device_identity_port;
-	DiagnosticTransportPort diagnostic_transport;
+	BspMonotonicClockPort monotonic_clock;
+	BspExecutionTimerPort execution_timer;
+	BspResetReasonPort reset_reason_port;
+	BspUniqueIdPort device_identity_port;
+	BspDiagnosticSinkPort diagnostic_transport;
 	BspNonvolatileStoragePort parameter_store;
 	ProductConfigBridgeStatus product_bridge_status;
 

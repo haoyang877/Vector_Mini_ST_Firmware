@@ -8,21 +8,15 @@ static uint32_t ExecutionTimerStm32G431_ReadCycles(void *context)
 	return DWT->CYCCNT;
 }
 
-static uint32_t ExecutionTimerStm32G431_CyclesPerSecond(void *context)
+BspExecutionTimerPort ExecutionTimerStm32G431_CreatePort(void)
 {
-	(void)context;
-	return SystemCoreClock;
-}
-
-ExecutionTimerPort ExecutionTimerStm32G431_CreatePort(void)
-{
-	ExecutionTimerPort port;
+	BspExecutionTimerPort port;
 
 	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
 	DWT->CYCCNT = 0U;
 	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 	port.context = 0;
+	port.frequency_hz = SystemCoreClock;
 	port.read_cycles = ExecutionTimerStm32G431_ReadCycles;
-	port.cycles_per_second = ExecutionTimerStm32G431_CyclesPerSecond;
 	return port;
 }

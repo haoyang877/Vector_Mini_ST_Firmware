@@ -3,7 +3,7 @@
 
 #include "board_profile.h"
 #include "control_mode_runtime.h"
-#include "critical_section_port.h"
+#include "bsp_system.h"
 #include "encoder.h"
 #include "friction_identification.h"
 #include "Core/Application/Contracts/friction_identification_port.h"
@@ -16,7 +16,7 @@ typedef struct
 	MotorControlContext *motor;
 	MotorConfigurationAdapterContext *configuration_adapter;
 	MotorStateContext *motor_state;
-	CriticalSectionPort critical_section;
+	BspCriticalSectionPort critical_section;
 	bool started;
 	bool port_initialized;
 } FrictionIdentificationRuntimeContext;
@@ -34,7 +34,7 @@ void FrictionIdentificationRuntime_Cancel(
 FrictionIdentificationPort FrictionIdentificationRuntime_CreatePort(
 	FrictionIdentificationRuntimeContext *context, MotorControlContext *motor,
 	MotorConfigurationAdapterContext *configuration_adapter,
-	const CriticalSectionPort *critical_section,
+	const BspCriticalSectionPort *critical_section,
 	MotorStateContext *motor_state);
 
 #endif

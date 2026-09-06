@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "critical_section_port.h"
+#include "bsp_system.h"
 #include "current_control_runtime.h"
 #include "encoder.h"
 #include "motor_control_types.h"
@@ -34,7 +34,7 @@ void EncoderDirectionCalibrationRuntime_Reset(
 void EncoderDirectionCalibrationRuntime_ExecuteStep(
 	EncoderDirectionCalibrationContext *context,
 	CurrentControlContext *current_control, MotorControlContext *motor,
-	EncoderContext *encoder, const CriticalSectionPort *critical_section,
+	EncoderContext *encoder, const BspCriticalSectionPort *critical_section,
 	MotorStateContext *motor_state);
 
 #endif

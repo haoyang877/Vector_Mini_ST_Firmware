@@ -4,7 +4,7 @@
 #include "motor_control_types.h"
 #include "Core/Application/Contracts/motor_command_port.h"
 #include "Core/Application/Contracts/motor_configuration_port.h"
-#include "critical_section_port.h"
+#include "bsp_system.h"
 #include "motor_profiles.h"
 
 typedef struct MotorStateContext MotorStateContext;
@@ -14,7 +14,7 @@ typedef struct
 	MotorControlContext *motor;
 	MotorStateContext *motor_state;
 	MotorCommand pending_command;
-	CriticalSectionPort critical_section;
+	BspCriticalSectionPort critical_section;
 	volatile uint32_t published_revision;
 	uint32_t applied_revision;
 	bool is_initialized;
@@ -26,7 +26,7 @@ typedef struct
 	MotorStateContext *motor_state;
 	const MotorProfile *motor_profile;
 	MotorConfiguration candidate;
-	CriticalSectionPort critical_section;
+	BspCriticalSectionPort critical_section;
 	volatile uint32_t published_revision;
 	uint32_t applied_revision;
 	bool is_initialized;
@@ -34,13 +34,13 @@ typedef struct
 
 MotorCommandPort MotorServiceAdapter_CreateCommandPort(
 	MotorCommandAdapterContext *context, MotorControlContext *motor,
-	const CriticalSectionPort *critical_section,
+	const BspCriticalSectionPort *critical_section,
 	MotorStateContext *motor_state);
 bool MotorServiceAdapter_ApplyPendingCommand(
 	MotorCommandAdapterContext *context);
 MotorConfigurationPort MotorServiceAdapter_CreateConfigurationPort(
 	MotorConfigurationAdapterContext *context, MotorControlContext *motor,
-	const CriticalSectionPort *critical_section,
+	const BspCriticalSectionPort *critical_section,
 	const MotorProfile *motor_profile, MotorStateContext *motor_state);
 bool MotorServiceAdapter_ApplyPendingConfiguration(
 	MotorConfigurationAdapterContext *context);

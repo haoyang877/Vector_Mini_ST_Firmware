@@ -7,7 +7,7 @@
 #define brightness (context->brightness)
 #define RGBIndicatorPort (context->port)
 
-bool RGB_Initialize(RgbServiceContext *context, const IndicatorPort *port)
+bool RGB_Initialize(RgbServiceContext *context, const BspIndicatorPort *port)
 {
 	if (context == 0 || port == 0 || port->send_rgb_pwm == 0)
 		return false;

@@ -10,7 +10,7 @@
 #define CANBRSwitching_Cnt (context->can_bitrate_ticks)
 
 bool SupervisorTask_Initialize(SupervisorTaskContext *context,
-	const DiagnosticTransportPort *diagnostic_transport,
+	const BspDiagnosticSinkPort *diagnostic_transport,
 	MotorControlRuntimeContext *motor_control,
 	TelemetryServiceContext *telemetry, CanInterfaceContext *can_interface,
 	UsbInterfaceContext *usb_interface,

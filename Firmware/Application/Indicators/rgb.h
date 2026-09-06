@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "indicator_port.h"
+#include "bsp_indicator.h"
 
 /*code type of WS2812*/
 #define CODE_1		(58)    //count of "1" bit
@@ -39,13 +39,13 @@ typedef struct
 	RGB_Color color;
 	uint8_t direction;
 	int brightness;
-	IndicatorPort port;
+	BspIndicatorPort port;
 	bool is_initialized;
 } RgbServiceContext;
 
 void RGB_SetColor(RgbServiceContext *context, uint8_t LedId,
 	const RGB_Color *Color);
-bool RGB_Initialize(RgbServiceContext *context, const IndicatorPort *port);
+bool RGB_Initialize(RgbServiceContext *context, const BspIndicatorPort *port);
 void Set_RGB_BreathingColor(RgbServiceContext *context,
 	COLOR_Type color_type);
 

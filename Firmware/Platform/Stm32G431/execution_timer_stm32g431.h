@@ -1,8 +1,8 @@
 #ifndef PLATFORM_STM32G431_EXECUTION_TIMER_H
 #define PLATFORM_STM32G431_EXECUTION_TIMER_H
 
-#include "execution_timer_port.h"
+#include "bsp_system.h"
 
-ExecutionTimerPort ExecutionTimerStm32G431_CreatePort(void);
+BspExecutionTimerPort ExecutionTimerStm32G431_CreatePort(void);
 
 #endif

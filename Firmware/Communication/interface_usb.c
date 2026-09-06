@@ -29,7 +29,7 @@
 #define USB_TRANSMIT_TIMEOUT_MS 250U
 
 bool UsbInterface_Initialize(UsbInterfaceContext *context,
-	const ByteTransportPort *transport, const MonotonicClockPort *clock)
+	const ByteTransportPort *transport, const BspMonotonicClockPort *clock)
 {
 	if (context == 0 || transport == 0 || transport->transmit == 0 ||
 		clock == 0 || clock->read_ms == 0)

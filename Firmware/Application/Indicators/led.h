@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "indicator_port.h"
+#include "bsp_indicator.h"
 
 typedef struct
 {
@@ -18,12 +18,12 @@ typedef struct
 typedef struct
 {
 	LedContext state;
-	IndicatorPort port;
+	BspIndicatorPort port;
 	bool is_initialized;
 } LedServiceContext;
 
 void LED_SetState(LedServiceContext *context, bool mode_or_error,
 	uint8_t blink_num);
-bool LED_Initialize(LedServiceContext *context, const IndicatorPort *port);
+bool LED_Initialize(LedServiceContext *context, const BspIndicatorPort *port);
 void LED_Task(LedServiceContext *context);
 #endif

@@ -83,7 +83,7 @@ static void ParameterTransactionAdapter_Fail(void *context)
 
 ParameterTransactionPort ParameterTransactionAdapter_CreatePort(
 	ParameterTransactionAdapterContext *context,
-	const CriticalSectionPort *critical_section,
+	const BspCriticalSectionPort *critical_section,
 	ParameterPersistenceAdapterContext *persistence,
 	ParameterSnapshotContext *snapshot, MotorStateContext *motor_state)
 {

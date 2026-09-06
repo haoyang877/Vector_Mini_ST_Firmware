@@ -141,7 +141,7 @@ static float MotorServiceAdapter_GetSpeedLimit(void *context)
 static void MotorServiceAdapter_PublishCommand(
 	MotorCommandAdapterContext *adapter, MotorCommand command)
 {
-	uint32_t interrupt_state = adapter->critical_section.enter(
+	BspCriticalSectionToken interrupt_state = adapter->critical_section.enter(
 		adapter->critical_section.context);
 	adapter->pending_command = command;
 	adapter->published_revision++;
@@ -261,7 +261,7 @@ static bool MotorServiceAdapter_StageConfiguration(void *context,
 	MotorConfigurationAdapterContext *adapter =
 		(MotorConfigurationAdapterContext *)context;
 	MotorConfiguration *configuration;
-	uint32_t interrupt_state;
+	BspCriticalSectionToken interrupt_state;
 
 	if (!MotorServiceAdapter_CanStageConfiguration(adapter))
 		return false;
@@ -342,7 +342,7 @@ bool MotorServiceAdapter_StageCurrentOffsetResult(
 	MotorConfigurationAdapterContext *context, uint16_t phase_a_offset_adc,
 	uint16_t phase_b_offset_adc, uint16_t phase_c_offset_adc)
 {
-	uint32_t interrupt_state;
+	BspCriticalSectionToken interrupt_state;
 	if (context == 0 || !context->is_initialized ||
 		MotorLifecycle_GetDeviceState(context->motor_state) != DEVICE_STATE_SERVICING ||
 		MotorLifecycle_GetServiceProcedure(context->motor_state) !=
@@ -366,7 +366,7 @@ bool MotorServiceAdapter_StageFrictionModel(
 	float coulomb_neg_a, float viscous_pos_a_per_rad_s,
 	float viscous_neg_a_per_rad_s)
 {
-	uint32_t interrupt_state;
+	BspCriticalSectionToken interrupt_state;
 	if (context == 0 || !context->is_initialized ||
 		!isfinite(coulomb_pos_a) || coulomb_pos_a < 0.0f ||
 		!isfinite(coulomb_neg_a) || coulomb_neg_a < 0.0f ||
@@ -396,7 +396,7 @@ bool MotorServiceAdapter_StageFrictionModel(
 
 MotorCommandPort MotorServiceAdapter_CreateCommandPort(
 	MotorCommandAdapterContext *context, MotorControlContext *motor,
-	const CriticalSectionPort *critical_section,
+	const BspCriticalSectionPort *critical_section,
 	MotorStateContext *motor_state)
 {
 	MotorCommandPort port = {0};
@@ -454,7 +454,7 @@ bool MotorServiceAdapter_ApplyPendingCommand(
 
 MotorConfigurationPort MotorServiceAdapter_CreateConfigurationPort(
 	MotorConfigurationAdapterContext *context, MotorControlContext *motor,
-	const CriticalSectionPort *critical_section,
+	const BspCriticalSectionPort *critical_section,
 	const MotorProfile *motor_profile, MotorStateContext *motor_state)
 {
 	MotorConfigurationPort port = {0};

@@ -40,7 +40,10 @@ enum
 	BSP_SYSTEM_FEATURE_CRITICAL_SECTION = UINT32_C(1) << 2,
 	BSP_SYSTEM_FEATURE_UNIQUE_ID = UINT32_C(1) << 3,
 	BSP_SYSTEM_FEATURE_NONVOLATILE_STORAGE = UINT32_C(1) << 4,
-	BSP_SYSTEM_FEATURE_SOFTWARE_RESET = UINT32_C(1) << 5
+	BSP_SYSTEM_FEATURE_SOFTWARE_RESET = UINT32_C(1) << 5,
+	BSP_SYSTEM_FEATURE_RESET_REASON = UINT32_C(1) << 6,
+	BSP_SYSTEM_FEATURE_DIAGNOSTIC_SINK = UINT32_C(1) << 7,
+	BSP_SYSTEM_FEATURE_STATUS_INDICATOR = UINT32_C(1) << 8
 };
 
 typedef struct
@@ -53,12 +56,12 @@ typedef struct
 
 /*
  * Time values intentionally wrap at 32 bits. Callers must use unsigned
- * subtraction. read_us() must be bounded and safe from real-time context.
+ * subtraction. read_ms() must be bounded and safe from real-time context.
  */
 typedef struct
 {
 	void *context;
-	uint32_t (*read_us)(void *context);
+	uint32_t (*read_ms)(void *context);
 } BspMonotonicClockPort;
 
 /* A free-running execution timer is used for deadline and WCET measurements. */
@@ -82,14 +85,45 @@ typedef struct
 typedef struct
 {
 	void *context;
+	/* Returns an opaque, stable byte sequence. Its bytes have no numeric
+	 * endianness and must not be reinterpreted above the BSP. */
 	BspResult (*read)(void *context, uint8_t *buffer, size_t capacity,
 		size_t *length);
 } BspUniqueIdPort;
+
+typedef uint32_t BspResetReasonFlagSet;
+
+enum
+{
+	BSP_RESET_REASON_NONE = 0U,
+	BSP_RESET_REASON_POWER_OR_BROWN_OUT = UINT32_C(1) << 0,
+	BSP_RESET_REASON_EXTERNAL_PIN = UINT32_C(1) << 1,
+	BSP_RESET_REASON_SOFTWARE = UINT32_C(1) << 2,
+	BSP_RESET_REASON_INDEPENDENT_WATCHDOG = UINT32_C(1) << 3,
+	BSP_RESET_REASON_WINDOW_WATCHDOG = UINT32_C(1) << 4,
+	BSP_RESET_REASON_LOW_POWER = UINT32_C(1) << 5,
+	BSP_RESET_REASON_OPTION_BYTES = UINT32_C(1) << 6
+};
+
+typedef struct
+{
+	void *context;
+	BspResetReasonFlagSet (*read_and_clear)(void *context);
+} BspResetReasonPort;
+
+typedef struct
+{
+	void *context;
+	BspResult (*write)(void *context, const void *data, size_t length);
+} BspDiagnosticSinkPort;
 
 typedef struct
 {
 	uint32_t capacity_bytes;
 	uint32_t erase_size_bytes;
+	/* Program offsets must be aligned. Length may be shorter than a program
+	 * granule; an implementation may fill the unused tail with erased bits, so
+	 * callers must own the complete rounded-up granule. */
 	uint32_t program_alignment_bytes;
 } BspNonvolatileStorageGeometry;
 
@@ -121,7 +155,9 @@ typedef struct
 	const BspExecutionTimerPort *execution_timer;
 	const BspCriticalSectionPort *critical_section;
 	const BspUniqueIdPort *unique_id;
+	const BspResetReasonPort *reset_reason;
 	const BspNonvolatileStoragePort *nonvolatile_storage;
+	const BspDiagnosticSinkPort *diagnostic_sink;
 	const BspResetPort *reset;
 } BspSystemPorts;
 

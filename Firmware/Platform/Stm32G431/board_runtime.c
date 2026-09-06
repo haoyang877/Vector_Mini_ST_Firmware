@@ -3,7 +3,7 @@
 #include "adc.h"
 #include "tim.h"
 
-static uint32_t BoardRuntimeStm32G431_EnterCritical(void *context)
+static BspCriticalSectionToken BoardRuntimeStm32G431_EnterCritical(void *context)
 {
 	uint32_t state;
 
@@ -13,7 +13,8 @@ static uint32_t BoardRuntimeStm32G431_EnterCritical(void *context)
 	return state;
 }
 
-static void BoardRuntimeStm32G431_ExitCritical(void *context, uint32_t state)
+static void BoardRuntimeStm32G431_ExitCritical(void *context,
+	BspCriticalSectionToken state)
 {
 	(void)context;
 	__set_PRIMASK(state);
@@ -36,9 +37,9 @@ bool BoardRuntimeStm32G431_Start(void)
 	return HAL_TIM_Base_Start_IT(&htim7) == HAL_OK;
 }
 
-CriticalSectionPort BoardRuntimeStm32G431_CreateCriticalSectionPort(void)
+BspCriticalSectionPort BoardRuntimeStm32G431_CreateCriticalSectionPort(void)
 {
-	CriticalSectionPort port;
+	BspCriticalSectionPort port;
 
 	port.context = 0;
 	port.enter = BoardRuntimeStm32G431_EnterCritical;

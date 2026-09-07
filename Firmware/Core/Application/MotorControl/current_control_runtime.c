@@ -6,6 +6,11 @@
 #include "svpwm.h"
 #include "current_control_math.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 #define CURRENT_CONTROL_MAX_MODULATION (0.95f * MATH_SQRT_3_BY_2)
 
 static void CurrentControlRuntime_Park(float alpha, float beta, float angle,

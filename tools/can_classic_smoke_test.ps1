@@ -1,6 +1,8 @@
 param(
     [int]$Channel = 0,
     [int]$RepeatCount = 100,
+    [int]$InterRequestDelayMilliseconds = 10,
+    [switch]$VerboseFrames,
     [string]$ControlCanDll = "C:/Program Files (x86)/USB_CAN TOOL/ControlCAN.dll"
 )
 
@@ -20,8 +22,16 @@ if (!(Test-Path -LiteralPath $ControlCanDll)) {
 # Windows PowerShell when invoked from the normal 64-bit shell.
 if ([Environment]::Is64BitProcess) {
     $powershell32 = "$env:WINDIR/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
-    & $powershell32 -NoProfile -File $PSCommandPath `
-        -Channel $Channel -RepeatCount $RepeatCount -ControlCanDll $ControlCanDll
+    $forwardArguments = @(
+        '-NoProfile', '-File', $PSCommandPath,
+        '-Channel', $Channel, '-RepeatCount', $RepeatCount,
+        '-InterRequestDelayMilliseconds', $InterRequestDelayMilliseconds,
+        '-ControlCanDll', $ControlCanDll
+    )
+    if ($VerboseFrames.IsPresent) {
+        $forwardArguments += '-VerboseFrames'
+    }
+    & $powershell32 @forwardArguments
     exit $LASTEXITCODE
 }
 
@@ -94,18 +104,32 @@ function ConvertFrom-BigEndianFloat([byte[]]$Data) {
 }
 
 function Invoke-CanRead([uint32]$Identifier) {
-    $request = New-CanFrame $Identifier
-    if ([VectorControlCan]::VCI_Transmit(4, 0, $Channel, [ref]$request, 1) -ne 1) {
-        throw ("Transmit failed for ID 0x{0:X3}." -f $Identifier)
-    }
-    $deadline = [DateTime]::UtcNow.AddMilliseconds(500)
-    while ([DateTime]::UtcNow -lt $deadline) {
-        $response = New-CanFrame 0
-        if ([VectorControlCan]::VCI_Receive(
-                4, 0, $Channel, [ref]$response, 1, 50) -eq 1 -and
-            $response.ID -eq $Identifier -and $response.DataLen -eq 4) {
-            return ConvertFrom-BigEndianFloat $response.Data
+    for ($attempt = 1; $attempt -le 2; ++$attempt) {
+        $request = New-CanFrame $Identifier
+        if ([VectorControlCan]::VCI_Transmit(4, 0, $Channel, [ref]$request, 1) -ne 1) {
+            throw ("Transmit failed for ID 0x{0:X3}." -f $Identifier)
         }
+        $deadline = [DateTime]::UtcNow.AddMilliseconds(500)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $response = New-CanFrame 0
+            $received = [VectorControlCan]::VCI_Receive(
+                4, 0, $Channel, [ref]$response, 1, 50)
+            if ($received -eq 1 -and $VerboseFrames) {
+                Write-Host ("RX id=0x{0:X3} len={1} ext={2} remote={3} data={4}" -f `
+                    $response.ID, $response.DataLen, $response.ExternFlag,
+                    $response.RemoteFlag,
+                    [BitConverter]::ToString($response.Data, 0, $response.DataLen))
+            }
+            if ($received -eq 1 -and $response.ID -eq $Identifier -and
+                $response.DataLen -eq 4) {
+                $value = ConvertFrom-BigEndianFloat $response.Data
+                if ($InterRequestDelayMilliseconds -gt 0) {
+                    Start-Sleep -Milliseconds $InterRequestDelayMilliseconds
+                }
+                return $value
+            }
+        }
+        Start-Sleep -Milliseconds 25
     }
     throw ("No matching response for ID 0x{0:X3}." -f $Identifier)
 }
@@ -161,6 +185,18 @@ try {
         $status.ReceiveErrorCount -ne 0 -or $status.TransmitErrorCount -ne 0) {
         throw "Classic CAN smoke test failed."
     }
+}
+catch {
+    $diagnosticStatus = New-Object VectorControlCan+Status
+    $diagnosticStatusOk = [VectorControlCan]::VCI_ReadCANStatus(
+        4, 0, $Channel, [ref]$diagnosticStatus)
+    Write-Host (("CAN_STATUS ok={0} interrupt=0x{1:X2} mode=0x{2:X2} " +
+        "status=0x{3:X2} ecc=0x{4:X2} rxerr={5} txerr={6}") -f
+        $diagnosticStatusOk, $diagnosticStatus.ErrInterrupt,
+        $diagnosticStatus.RegMode, $diagnosticStatus.RegStatus,
+        $diagnosticStatus.RegECCapture, $diagnosticStatus.ReceiveErrorCount,
+        $diagnosticStatus.TransmitErrorCount)
+    throw
 }
 finally {
     [void][VectorControlCan]::VCI_ResetCAN(4, 0, $Channel)

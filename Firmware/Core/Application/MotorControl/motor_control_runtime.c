@@ -23,6 +23,11 @@
 #include "encoder_direction_calibration_runtime.h"
 #include "cogging_identification_runtime.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 #define MotorControl (context->motor)
 #define PI_Speed (context->speed_controller)
 #define OnBoard_Encoder (context->encoder)
@@ -595,6 +600,12 @@ static void MotorControlRuntime_EnterFaultedState(
 {
 	/* Hardware output disable is deliberately the first fault-side effect. */
 	MotorState_DisableMotorDrive(MotorStateRuntime);
+	/* Keep the synchronized ADC pipeline alive while the bridge is disabled.
+	 * The 20 kHz interrupt consumes one sampling plan before it observes a
+	 * supervisor-side fault (for example a CAN heartbeat timeout).  Without a
+	 * replacement safe plan, the following interrupt has no pending acquisition
+	 * and incorrectly escalates that expected shutdown into POWER_STAGE. */
+	CurrentControlRuntime_ApplyHighSideZeroVector(&CurrentControl);
 	/* The fast loop keeps enforcing the hardware disable, but teardown must be
 	 * edge-triggered. Repeating the large calibration/context resets at 20 kHz
 	 * starves the supervisor and communication tasks, hiding the root fault. */
@@ -953,6 +964,9 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 				uint16_t phase_a_offset_adc;
 				uint16_t phase_b_offset_adc;
 				uint16_t phase_c_offset_adc;
+				/* Offset calibration keeps the bridge disarmed, but the fixed
+				 * acquisition pipeline still needs a plan for the next PWM period. */
+				CurrentControlRuntime_ApplyHighSideZeroVector(&CurrentControl);
 				if (CurrentOffsetCalibrationRuntime_ExecuteStep(
 						&CurrentOffsetCalibration, &CurrentControl,
 						&MeasurementModel.config.current_sense,
@@ -1087,6 +1101,9 @@ static void MotorControlRuntime_ExecuteFastLoopBody(
 					MotorStateRuntime);
 				break;
 			case SERVICE_PROCEDURE_SET_MECHANICAL_ZERO:
+				/* This service is measurement-only and may remain visible until the
+				 * supervisor consumes its completion result. Keep sampling alive. */
+				CurrentControlRuntime_ApplyHighSideZeroVector(&CurrentControl);
 				MotorControlRuntime_SetMechanicalZero(context, &OnBoard_Encoder);
 				break;
 			default:

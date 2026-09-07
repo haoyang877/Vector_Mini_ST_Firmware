@@ -2,6 +2,11 @@
 
 #include <stddef.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 #define CURRENT_CONTROL_ONE_BY_SQRT_3 0.57735026919f
 #define CURRENT_CONTROL_SQRT_3_BY_2    0.86602540378f
 

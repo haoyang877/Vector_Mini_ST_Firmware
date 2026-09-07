@@ -3,6 +3,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 #define MOTOR_DRIVE_SAFE_DUTY 1.0f
 #define MOTOR_DRIVE_KNOWN_SAMPLE_STATUS \
 	(BSP_MOTOR_DRIVE_SAMPLE_VALID | BSP_MOTOR_DRIVE_SAMPLE_ADC_OVERRUN)

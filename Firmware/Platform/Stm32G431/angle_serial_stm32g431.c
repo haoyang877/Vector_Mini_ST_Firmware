@@ -4,7 +4,7 @@
 
 #if defined(__CC_ARM)
 #pragma O3
-#pragma Ospace
+#pragma Otime
 #endif
 
 static bool AngleSerial_WaitFlag(SPI_TypeDef *spi, uint32_t flag,

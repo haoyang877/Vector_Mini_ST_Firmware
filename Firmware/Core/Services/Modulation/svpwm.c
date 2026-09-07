@@ -2,6 +2,11 @@
 
 #include <stddef.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 #define SVPWM_ONE_BY_SQRT_3 0.57735026919f
 #define SVPWM_TWO_BY_SQRT_3 1.15470053838f
 

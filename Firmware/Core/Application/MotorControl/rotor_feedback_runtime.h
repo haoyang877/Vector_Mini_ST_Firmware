@@ -44,6 +44,9 @@ typedef struct
 	FeedbackRouter router;
 	FeedbackRouterOutput routed;
 	RotorFeedbackFrame frame;
+	/* Prevalidated single-primary routing avoids rebuilding and revalidating a
+	 * generic graph in every current-control cycle. */
+	bool direct_primary_path;
 	bool initialized;
 } RotorFeedbackRuntimeContext;
 

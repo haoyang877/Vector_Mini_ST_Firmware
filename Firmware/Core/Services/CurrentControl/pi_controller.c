@@ -1,5 +1,10 @@
 #include "pi_controller.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 static float PI_Controller_Clamp(float value, float minimum, float maximum)
 {
     if (value < minimum)

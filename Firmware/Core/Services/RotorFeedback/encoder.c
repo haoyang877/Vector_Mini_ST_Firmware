@@ -5,7 +5,7 @@
 
 #if defined(__CC_ARM)
 #pragma O3
-#pragma Ospace
+#pragma Otime
 #endif
 
 #define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8

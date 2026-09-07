@@ -1,0 +1,19 @@
+﻿{
+    "captured_at":  "2026-09-07T09:16:37.5419514+08:00",
+    "success":  true,
+    "terminal_reason":  "completed",
+    "target_rps":  0.1,
+    "target_rad_s":  0.62831853071795862,
+    "requested_current_limit_a":  4.5,
+    "original_current_limit_a":  6,
+    "positive_mean_speed_rad_s":  0.66650725557253909,
+    "negative_mean_speed_rad_s":  -0.58538327308801508,
+    "sample_count":  67,
+    "maximum_abs_phase_current_a":  1.7326008081436157,
+    "maximum_bus_current_a":  0.36189261078834534,
+    "minimum_bus_voltage_v":  27.768306732177734,
+    "maximum_temperature_c":  38,
+    "can_status_read_ok":  true,
+    "can_receive_error_count":  0,
+    "can_transmit_error_count":  0
+}

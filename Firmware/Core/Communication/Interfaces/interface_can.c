@@ -556,14 +556,44 @@ static void CanInterface_FlushTransmit(CanInterfaceContext *context)
 		CanInterface_LatchIoFault(context);
 }
 
+static void CanInterface_AcknowledgeReceiveBeforeRouting(
+	CanInterfaceContext *context,
+	CommunicationWatchdogServiceContext *watchdog)
+{
+	BspCriticalSectionToken token;
+	BspCommunicationFaultSet pipeline_faults;
+	uint32_t last_valid_rx_ms;
+	uint32_t rx_generation;
+
+	/* A command response must observe recovery caused by that same valid frame.
+	 * The 1 kHz supervisor remains the timeout owner, while this background
+	 * boundary only acknowledges ISR-published arrivals before Router execution. */
+	token = context->critical_section.enter(context->critical_section.context);
+	pipeline_faults = context->rx_pipeline_faults;
+	last_valid_rx_ms = context->last_valid_rx_ms;
+	rx_generation = context->rx_generation;
+	context->critical_section.exit(context->critical_section.context, token);
+	if (rx_generation == context->supervised_rx_generation)
+		return;
+	context->observed_transport_faults |= pipeline_faults |
+		context->transport.read_faults(context->transport.context);
+	if (context->observed_transport_faults != 0U)
+		return;
+	context->heartbeat_reference_ms = last_valid_rx_ms;
+	context->supervised_rx_generation = rx_generation;
+	context->disconnect_reported = false;
+	(void)CommunicationWatchdogService_ReportFrameReceived(watchdog);
+}
+
 void CanInterface_RunBackground(CanInterfaceContext *context,
 	CanCommandRouterContext *router,
 	CommunicationWatchdogServiceContext *watchdog)
 {
 	CanProtocolV1Command decoded;
 
-	if (context == NULL || router == NULL)
+	if (context == NULL || router == NULL || watchdog == NULL)
 		return;
+	CanInterface_AcknowledgeReceiveBeforeRouting(context, watchdog);
 	if (CanInterface_HasStickyFault(context))
 	{
 		CanInterface_ResetReceivePipeline(context, false);

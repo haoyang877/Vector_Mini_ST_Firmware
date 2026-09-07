@@ -8,6 +8,11 @@
 #include "position_cascade.h"
 #include "position_impedance.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 static float ControlModeRuntime_AddCoggingCompensation(
 	const MotorControlContext *motor, const EncoderContext *encoder,
 	float current_reference_a)

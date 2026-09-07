@@ -4,6 +4,11 @@
 
 #include "motor_state_runtime.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 static uint16_t MeasurementRuntime_ReadOffsetSlot(
 	const MotorControlContext *motor, MeasurementCurrentChannelRole role)
 {

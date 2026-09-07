@@ -352,14 +352,15 @@ int CommunicationInterfaceFault_RunHostTests(void)
 	CanInterface_RunBackground(&interface_context, &router, &watchdog);
 	CHECK(RoutedFrameCount == 1U && RoutedParameters[0] == CAN_SET_CURRENT);
 
-	/* A later valid frame recovers heartbeat loss when no sticky fault exists. */
+	/* A later valid frame recovers before its command is routed, even when the
+	 * next 1 kHz supervision tick has not run yet. */
 	fake_clock.now_ms = 511U;
 	CHECK(FakeCan_PushEncoded(&transport, 3U, CAN_SET_SPEED, 2.0f));
 	CanInterface_OnReceiveInterrupt(&interface_context);
-	CanInterface_Supervise1kHz(&interface_context, true, &watchdog);
-	CHECK(fault_sink.cleared == 2U && !interface_context.disconnect_reported);
 	CanInterface_RunBackground(&interface_context, &router, &watchdog);
+	CHECK(fault_sink.cleared == 2U && !interface_context.disconnect_reported);
 	CHECK(RoutedFrameCount == 2U && RoutedParameters[1] == CAN_SET_SPEED);
+	CanInterface_Supervise1kHz(&interface_context, true, &watchdog);
 
 	/* Wrong node, bad DLC and NaN are not heartbeat-valid or routed. */
 	valid_timestamp = interface_context.last_valid_rx_ms;

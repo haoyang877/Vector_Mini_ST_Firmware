@@ -3,6 +3,11 @@
 #include <float.h>
 #include <string.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 static bool RotorFeedbackRuntime_IsFinite(float value)
 {
 	return value == value && value <= FLT_MAX && value >= -FLT_MAX;
@@ -99,6 +104,36 @@ static void RotorFeedbackRuntime_StopStartedPorts(
 	}
 }
 
+static bool RotorFeedbackRuntime_IsPrimarySource(
+	FeedbackRouterSourceRef source, uint8_t primary_index)
+{
+	return source.kind == FEEDBACK_ROUTER_SOURCE_ANGLE_SENSOR &&
+		source.index == primary_index;
+}
+
+static bool RotorFeedbackRuntime_CanUseDirectPrimaryPath(
+	const RotorFeedbackRuntimeConfig *config)
+{
+	const FeedbackRouterConfig *routing = &config->routing;
+	FeedbackRouterSourceRef calibration = routing->calibration_reference;
+
+	if (routing->angle_sensor_count != 1U ||
+		config->primary_encoder_index != 0U ||
+		routing->fallback_electrical_angle.kind !=
+			FEEDBACK_ROUTER_SOURCE_NONE ||
+		!RotorFeedbackRuntime_IsPrimarySource(routing->electrical_angle, 0U) ||
+		!RotorFeedbackRuntime_IsPrimarySource(routing->motor_velocity, 0U) ||
+		!RotorFeedbackRuntime_IsPrimarySource(routing->motor_position, 0U) ||
+		routing->output_position.kind != FEEDBACK_ROUTER_SOURCE_NONE)
+	{
+		return false;
+	}
+	return calibration.kind == FEEDBACK_ROUTER_SOURCE_NONE ||
+		RotorFeedbackRuntime_IsPrimarySource(calibration, 0U) ||
+		(calibration.kind == FEEDBACK_ROUTER_SOURCE_SENSORLESS_OBSERVER &&
+		 calibration.index == 0U);
+}
+
 RotorFeedbackRuntimeStatus RotorFeedbackRuntime_Initialize(
 	RotorFeedbackRuntimeContext *context,
 	const RotorFeedbackRuntimeConfig *config,
@@ -148,6 +183,8 @@ RotorFeedbackRuntimeStatus RotorFeedbackRuntime_Initialize(
 		RotorFeedbackRuntime_StopStartedPorts(context, angle_sensor_count);
 		return ROTOR_FEEDBACK_RUNTIME_INVALID_CONFIGURATION;
 	}
+	context->direct_primary_path =
+		RotorFeedbackRuntime_CanUseDirectPrimaryPath(config);
 	context->initialized = true;
 	return ROTOR_FEEDBACK_RUNTIME_OK;
 }
@@ -316,6 +353,119 @@ static float RotorFeedbackRuntime_ElectricalVelocity(
 	return 0.0f;
 }
 
+static void RotorFeedbackRuntime_SetUnavailable(
+	FeedbackRouterRoutedSignal *signal, FeedbackRouterSourceRef no_source)
+{
+	signal->selected_source = no_source;
+	signal->state = FEEDBACK_ROUTER_SIGNAL_STATE_UNAVAILABLE;
+}
+
+static RotorFeedbackRuntimeStatus RotorFeedbackRuntime_UpdateDirectPrimary(
+	RotorFeedbackRuntimeContext *context, const EncoderContext *encoder,
+	const FeedbackRouterNormalizedSample *observer_sample, uint32_t pole_pairs)
+{
+	FeedbackRouterOutput *output = &context->routed;
+	const FeedbackRouterConfig *routing = &context->config.routing;
+	FeedbackRouterSourceRef no_source = {FEEDBACK_ROUTER_SOURCE_NONE,
+		FEEDBACK_ROUTER_SOURCE_INDEX_NONE};
+	FeedbackRouterSignalMask physical_mask =
+		FEEDBACK_ROUTER_SIGNAL_MASK(FEEDBACK_ROUTER_SIGNAL_ELECTRICAL_ANGLE) |
+		FEEDBACK_ROUTER_SIGNAL_MASK(FEEDBACK_ROUTER_SIGNAL_MOTOR_VELOCITY) |
+		FEEDBACK_ROUTER_SIGNAL_MASK(FEEDBACK_ROUTER_SIGNAL_MOTOR_POSITION);
+	bool encoder_available = encoder != 0 && Encoder_IsOnline(encoder);
+
+	memset(output, 0, sizeof(*output));
+	output->configured_signals = physical_mask;
+	output->output_position.selected_source = no_source;
+	output->output_position.state = FEEDBACK_ROUTER_SIGNAL_STATE_DISABLED;
+	output->calibration_reference.selected_source = no_source;
+
+	if (encoder_available)
+	{
+		output->electrical_angle.value = Encoder_GetElePhase(encoder);
+		output->motor_velocity.value = Encoder_GetMecVel(encoder);
+		output->motor_position.value = Encoder_GetMecPos(encoder);
+		output->electrical_angle.selected_source = routing->electrical_angle;
+		output->motor_velocity.selected_source = routing->motor_velocity;
+		output->motor_position.selected_source = routing->motor_position;
+		output->electrical_angle.state = FEEDBACK_ROUTER_SIGNAL_STATE_PRIMARY;
+		output->motor_velocity.state = FEEDBACK_ROUTER_SIGNAL_STATE_PRIMARY;
+		output->motor_position.state = FEEDBACK_ROUTER_SIGNAL_STATE_PRIMARY;
+		output->valid_signals = physical_mask;
+	}
+	else
+	{
+		RotorFeedbackRuntime_SetUnavailable(&output->electrical_angle, no_source);
+		RotorFeedbackRuntime_SetUnavailable(&output->motor_velocity, no_source);
+		RotorFeedbackRuntime_SetUnavailable(&output->motor_position, no_source);
+		output->unavailable_signals = physical_mask;
+	}
+
+	if (routing->calibration_reference.kind == FEEDBACK_ROUTER_SOURCE_NONE)
+	{
+		output->calibration_reference.state =
+			FEEDBACK_ROUTER_SIGNAL_STATE_DISABLED;
+	}
+	else
+	{
+		FeedbackRouterSignalMask calibration_mask = FEEDBACK_ROUTER_SIGNAL_MASK(
+			FEEDBACK_ROUTER_SIGNAL_CALIBRATION_REFERENCE);
+		bool calibration_available = false;
+
+		output->configured_signals |= calibration_mask;
+		if (routing->calibration_reference.kind ==
+			FEEDBACK_ROUTER_SOURCE_ANGLE_SENSOR)
+		{
+			calibration_available = encoder_available;
+			if (calibration_available)
+				output->calibration_reference.value =
+					(float)encoder->directed_q15 *
+					(6.28318530717958647692f / 65536.0f);
+		}
+		else if (observer_sample != 0 && observer_sample->available &&
+			(observer_sample->valid_signals & calibration_mask) != 0U)
+		{
+			calibration_available = true;
+			output->calibration_reference.value =
+				observer_sample->calibration_reference_rad;
+		}
+		if (calibration_available)
+		{
+			output->calibration_reference.selected_source =
+				routing->calibration_reference;
+			output->calibration_reference.state =
+				FEEDBACK_ROUTER_SIGNAL_STATE_PRIMARY;
+			output->valid_signals |= calibration_mask;
+		}
+		else
+		{
+			RotorFeedbackRuntime_SetUnavailable(
+				&output->calibration_reference, no_source);
+			output->unavailable_signals |= calibration_mask;
+		}
+	}
+
+	output->health = output->unavailable_signals != 0U ?
+		FEEDBACK_ROUTER_HEALTH_UNAVAILABLE :
+		FEEDBACK_ROUTER_HEALTH_HEALTHY;
+	context->frame.electrical_angle_rad = output->electrical_angle.value;
+	context->frame.motor_velocity_rad_s = output->motor_velocity.value;
+	context->frame.electrical_velocity_rad_s = encoder_available ?
+		Encoder_GetEleVel(encoder) : 0.0f;
+	context->frame.motor_position_rad = output->motor_position.value;
+	context->frame.output_position_rad = 0.0f;
+	context->frame.output_velocity_rad_s = 0.0f;
+	context->frame.calibration_reference_rad =
+		output->calibration_reference.value;
+	context->frame.valid_signals = output->valid_signals;
+	context->frame.health = output->health;
+	context->frame.uses_output_position = false;
+	context->frame.control_position_rad = context->frame.motor_position_rad;
+	context->frame.control_velocity_rad_s = context->frame.motor_velocity_rad_s;
+	(void)pole_pairs;
+	return ROTOR_FEEDBACK_RUNTIME_OK;
+}
+
 RotorFeedbackRuntimeStatus RotorFeedbackRuntime_UpdateRoutes(
 	RotorFeedbackRuntimeContext *context,
 	const EncoderContext *primary_encoder,
@@ -327,6 +477,9 @@ RotorFeedbackRuntimeStatus RotorFeedbackRuntime_UpdateRoutes(
 
 	if (context == 0 || !context->initialized || pole_pairs == 0U)
 		return ROTOR_FEEDBACK_RUNTIME_INVALID_CONFIGURATION;
+	if (context->direct_primary_path)
+		return RotorFeedbackRuntime_UpdateDirectPrimary(context, primary_encoder,
+			observer_sample, pole_pairs);
 	memset(&input, 0, sizeof(input));
 	input.angle_sensor_count = context->angle_sensor_count;
 	if (context->config.primary_encoder_index !=

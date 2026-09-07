@@ -126,14 +126,16 @@ int main(void)
 	invalid_capabilities.supported_sampling_modes = 0U;
 	CHECK(!MotorDriveTim1Adc2Stm32g431_CreatePort(&invalid_capabilities,
 		&port));
-	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) == 0U);
+	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) != 0U);
+	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 
 	FakeTim1.BDTR = TIM_BDTR_MOE;
 	invalid_capabilities.supported_sampling_modes =
 		BSP_CURRENT_SAMPLING_MODE_BIT(BSP_CURRENT_SAMPLING_MODE_DYNAMIC);
 	CHECK(!MotorDriveTim1Adc2Stm32g431_CreatePort(&invalid_capabilities,
 		&port));
-	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) == 0U);
+	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) != 0U);
+	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 
 	CHECK(MotorDriveTim1Adc2Stm32g431_CreatePort(&capabilities, &port));
 	configuration.current_sense_topology =
@@ -144,7 +146,8 @@ int main(void)
 	FakeTim1.BDTR = TIM_BDTR_MOE;
 	CHECK(port.initialize_safe(port.context, &configuration) ==
 		BSP_RESULT_NOT_SUPPORTED);
-	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) == 0U);
+	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) != 0U);
+	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 	CHECK(FakeTim1.CCER == TIM_CCER_CC4E);
 
 	configuration.sampling_mode = BSP_CURRENT_SAMPLING_MODE_UNSPECIFIED;
@@ -152,7 +155,8 @@ int main(void)
 	FakeTim1.BDTR = TIM_BDTR_MOE;
 	CHECK(port.initialize_safe(port.context, &configuration) ==
 		BSP_RESULT_NOT_SUPPORTED);
-	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) == 0U);
+	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) != 0U);
+	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 	CHECK(FakeTim1.CCER == TIM_CCER_CC4E);
 
 	configuration.sampling_mode = BSP_CURRENT_SAMPLING_MODE_FIXED;
@@ -164,7 +168,8 @@ int main(void)
 	CHECK((FakeTim1.CCMR2 & TIM_CCMR2_OC3PE) != 0U);
 	preserved_ccer = FakeTim1.CCER;
 	CHECK(port.arm(port.context) == BSP_RESULT_NOT_READY);
-	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) == 0U);
+	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) != 0U);
+	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 
 	command.sampling.mode = BSP_CURRENT_SAMPLING_MODE_FIXED;
 	command.sampling.cycle_valid_phase_currents = BSP_MOTOR_PHASE_ALL;
@@ -234,7 +239,8 @@ int main(void)
 
 	port.disable_immediate(port.context);
 	port.disable_immediate(port.context);
-	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) == 0U);
+	CHECK((FakeTim1.BDTR & TIM_BDTR_MOE) != 0U);
+	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 	CHECK(port.disarm(port.context) == BSP_RESULT_OK);
 	CHECK((FakeTim1.CCER & MOTOR_OUTPUT_ENABLE_MASK) == 0U);
 	CHECK((FakeTim1.CCER & TIM_CCER_CC4E) != 0U);

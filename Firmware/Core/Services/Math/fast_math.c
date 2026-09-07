@@ -1,5 +1,10 @@
 #include "fast_math.h"
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 #define FAST_MATH_LUT_SIZE       1024U
 #define FAST_MATH_LUT_HALF_SIZE   512U
 #define FAST_MATH_LUT_LAST_INDEX (FAST_MATH_LUT_SIZE - 1U)

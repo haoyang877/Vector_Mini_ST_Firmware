@@ -50,8 +50,10 @@ static MotorDriveContext MotorDriveState;
 static void MotorDrive_DisableImmediate(void *context)
 {
 	/* This path intentionally bypasses HAL state and is safe to call repeatedly
-	 * from any context. Do not add a blocking peripheral operation here. */
-	CLEAR_BIT(TIM1->BDTR, TIM_BDTR_MOE);
+	 * from any context. CH4 and MOE remain active because CH4 is the injected
+	 * ADC trigger; CH1..3 main/complementary enables are the power-stage safety
+	 * boundary. Do not add a blocking peripheral operation here. */
+	CLEAR_BIT(TIM1->CCER, MOTOR_OUTPUT_ENABLE_MASK);
 	if (context == &MotorDriveState)
 		MotorDriveState.armed = false;
 }
@@ -122,9 +124,10 @@ static BspResult MotorDrive_Arm(void *context)
 	if (state->faults != 0U)
 		return BSP_RESULT_SAFETY_FAULT;
 
-	/* TIM1 CH4, counter/base state, and both ADCs remain untouched. */
+	/* TIM1 CH4, counter/base state, and both ADCs remain untouched. Restore the
+	 * global gate first; enabling CH1..3 is the final energizing operation. */
+	SET_BIT(TIM1->BDTR, TIM_BDTR_MOE);
 	SET_BIT(TIM1->CCER, MOTOR_OUTPUT_ENABLE_MASK);
-	SET_BIT(TIM1->BDTR, TIM_BDTR_MOE); /* Last operation: energize bridge. */
 	if ((TIM1->BDTR & TIM_BDTR_MOE) == 0U ||
 		(TIM1->CCER & MOTOR_OUTPUT_ENABLE_MASK) != MOTOR_OUTPUT_ENABLE_MASK)
 	{
@@ -254,7 +257,8 @@ static BspMotorDriveFaultSet MotorDrive_ReadFaults(void *context)
 	if (state != &MotorDriveState)
 		return BSP_MOTOR_DRIVE_FAULT_POWER_STAGE;
 	faults = state->faults;
-	if (state->armed && (TIM1->BDTR & TIM_BDTR_MOE) == 0U)
+	if (state->armed && ((TIM1->BDTR & TIM_BDTR_MOE) == 0U ||
+		(TIM1->CCER & MOTOR_OUTPUT_ENABLE_MASK) != MOTOR_OUTPUT_ENABLE_MASK))
 		faults |= BSP_MOTOR_DRIVE_FAULT_POWER_STAGE;
 	return faults;
 }

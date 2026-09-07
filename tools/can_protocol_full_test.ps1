@@ -1,6 +1,7 @@
 param(
     [int]$Channel = 0,
     [string]$OutputDirectory = "validation/can_protocol_2026-09-05",
+    [switch]$ResetTargetAtStart,
     [string]$ControlCanDll = "C:/Program Files (x86)/USB_CAN TOOL/ControlCAN.dll"
 )
 
@@ -8,8 +9,14 @@ $ErrorActionPreference = 'Stop'
 
 if ([Environment]::Is64BitProcess) {
     $powershell32 = "$env:WINDIR/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
-    & $powershell32 -NoProfile -File $PSCommandPath -Channel $Channel `
-        -OutputDirectory $OutputDirectory -ControlCanDll $ControlCanDll
+    $forwardArguments = @(
+        '-NoProfile', '-File', $PSCommandPath, '-Channel', $Channel,
+        '-OutputDirectory', $OutputDirectory, '-ControlCanDll', $ControlCanDll
+    )
+    if ($ResetTargetAtStart.IsPresent) {
+        $forwardArguments += '-ResetTargetAtStart'
+    }
+    & $powershell32 @forwardArguments
     exit $LASTEXITCODE
 }
 
@@ -179,6 +186,14 @@ if ([FullCanTest]::VCI_OpenDevice(4,0,0) -ne 1) { throw 'CANalyst-II open failed
 
 try {
     Start-Channel 1000
+    if ($ResetTargetAtStart) {
+        $startupJlinkExe='C:\Program Files\SEGGER\JLink_V964\JLink.exe'
+        $startupResetCommand=Join-Path $PSScriptRoot 'jlink_reset_run.jlink'
+        & $startupJlinkExe -NoGui 1 -CommanderScript $startupResetCommand | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'J-Link startup reset failed' }
+        Start-Sleep -Milliseconds 700
+        [void][FullCanTest]::VCI_ClearBuffer(4,0,$Channel)
+    }
     $mode=Read-Value 0x01
     if ($mode -ne 0.0) { Send-Value 0x00 0.0; Start-Sleep -Milliseconds 100 }
 

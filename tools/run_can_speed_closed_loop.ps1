@@ -4,6 +4,10 @@ param(
     [double]$TargetRps = 0.10,
     [double]$DirectionDurationSeconds = 8.0,
     [double]$SettleSeconds = 2.0,
+    [double]$CurrentLimitA = 4.5,
+    [double]$MaximumPhaseCurrentA = 5.0,
+    [int]$InterRequestDelayMilliseconds = 10,
+    [switch]$ResetTargetAtStart,
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
     [string]$ControlCanDll = "C:/Program Files (x86)/USB_CAN TOOL/ControlCAN.dll"
@@ -13,11 +17,20 @@ $ErrorActionPreference = "Stop"
 $absoluteOutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 if ([Environment]::Is64BitProcess) {
     $powershell32 = "$env:WINDIR/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
-    & $powershell32 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath `
-        -Channel $Channel -Node $Node -TargetRps $TargetRps `
-        -DirectionDurationSeconds $DirectionDurationSeconds `
-        -SettleSeconds $SettleSeconds -OutputDirectory $absoluteOutputDirectory `
-        -ControlCanDll $ControlCanDll
+    $forwardArguments = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
+        '-Channel', $Channel, '-Node', $Node, '-TargetRps', $TargetRps,
+        '-DirectionDurationSeconds', $DirectionDurationSeconds,
+        '-SettleSeconds', $SettleSeconds, '-CurrentLimitA', $CurrentLimitA,
+        '-MaximumPhaseCurrentA', $MaximumPhaseCurrentA,
+        '-InterRequestDelayMilliseconds', $InterRequestDelayMilliseconds,
+        '-OutputDirectory', $absoluteOutputDirectory,
+        '-ControlCanDll', $ControlCanDll
+    )
+    if ($ResetTargetAtStart.IsPresent) {
+        $forwardArguments += '-ResetTargetAtStart'
+    }
+    & $powershell32 @forwardArguments
     exit $LASTEXITCODE
 }
 
@@ -87,22 +100,58 @@ function Send-Value([byte]$Parameter, [float]$Value) {
 
 function Read-Value([byte]$Parameter) {
     $identifier = ([uint32]$Node -shl 8) -bor $Parameter
-    Send-Value $Parameter 0.0
-    $deadline = [DateTime]::UtcNow.AddMilliseconds(500)
-    while ([DateTime]::UtcNow -lt $deadline) {
-        $response = New-Frame 0 0.0
-        if ([SpeedLoopCan]::VCI_Receive(4, 0, $Channel, [ref]$response, 1, 30) -eq 1 -and
-            $response.ID -eq $identifier -and $response.DataLen -eq 4) {
-            return [BitConverter]::ToSingle(
-                [byte[]]@($response.Data[3], $response.Data[2],
-                    $response.Data[1], $response.Data[0]), 0)
+    for ($attempt = 1; $attempt -le 2; ++$attempt) {
+        Send-Value $Parameter 0.0
+        $deadline = [DateTime]::UtcNow.AddMilliseconds(500)
+        while ($deadline -gt [DateTime]::UtcNow) {
+            $response = New-Frame 0 0.0
+            if ([SpeedLoopCan]::VCI_Receive(4, 0, $Channel, [ref]$response, 1, 30) -eq 1 -and
+                $response.ID -eq $identifier -and $response.DataLen -eq 4) {
+                $value = [BitConverter]::ToSingle(
+                    [byte[]]@($response.Data[3], $response.Data[2],
+                        $response.Data[1], $response.Data[0]), 0)
+                if ($InterRequestDelayMilliseconds -gt 0) {
+                    Start-Sleep -Milliseconds $InterRequestDelayMilliseconds
+                }
+                return $value
+            }
         }
+        Start-Sleep -Milliseconds 25
     }
     throw ("No CAN response for 0x{0:X3}." -f $identifier)
 }
 
+function Set-ModeAndConfirm([int]$ExpectedMode) {
+    $observedMode = -1
+    for ($attempt = 1; $attempt -le 3; ++$attempt) {
+        Send-Value 0x00 ([float]$ExpectedMode)
+        Start-Sleep -Milliseconds 250
+        $observedMode = [int](Read-Value 0x01)
+        if ($observedMode -eq $ExpectedMode) {
+            return
+        }
+    }
+    $observedError = [int](Read-Value 0x4D)
+    throw "Mode transition failed: expected=$ExpectedMode observed=$observedMode error=$observedError."
+}
+
 function Capture-Direction([string]$Direction, [double]$CommandRps) {
+    # Start each direction with a disabled control state.  A direct reversal
+    # leaves the speed PI integral from the previous loaded direction in place,
+    # so the second half would measure integrator unwind instead of a clean
+    # negative-direction response.
+    Set-ModeAndConfirm 0
+    Start-Sleep -Milliseconds 200
+    $disabledMode = [int](Read-Value 0x01)
+    $disabledError = [int](Read-Value 0x4D)
+    if ($disabledMode -ne 0 -or $disabledError -ne 0) {
+        throw "Direction preflight failed: mode=$disabledMode, error=$disabledError."
+    }
+    Set-ModeAndConfirm 2
     Send-Value 0x04 ([float]$CommandRps)
+    # The firmware exposes a single command mailbox. Give the supervisor one
+    # cycle to consume the write before telemetry reads start arriving.
+    Start-Sleep -Milliseconds 80
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ($watch.Elapsed.TotalSeconds -lt $DirectionDurationSeconds) {
         $sample = [pscustomobject]@{
@@ -130,7 +179,9 @@ function Capture-Direction([string]$Direction, [double]$CommandRps) {
         $peak = [math]::Max([math]::Abs($sample.phase_a_current_a),
             [math]::Max([math]::Abs($sample.phase_b_current_a),
                 [math]::Abs($sample.phase_c_current_a)))
-        if ($peak -gt 8.0) { throw "Phase-current guard tripped: $peak A." }
+        if ($peak -gt $MaximumPhaseCurrentA) {
+            throw "Phase-current guard tripped: $peak A."
+        }
         if ($sample.temperature_c -gt 80.0) {
             throw "Temperature guard tripped: $($sample.temperature_c) C."
         }
@@ -145,6 +196,7 @@ $opened = $false
 $started = $false
 $success = $false
 $terminalReason = "not_started"
+$originalCurrentLimit = $null
 
 try {
     if ([SpeedLoopCan]::VCI_OpenDevice(4, 0, 0) -ne 1) {
@@ -160,21 +212,43 @@ try {
     }
     $started = $true
     [void][SpeedLoopCan]::VCI_ClearBuffer(4, 0, $Channel)
+    if ($ResetTargetAtStart) {
+        $startupJlinkExe = 'C:\Program Files\SEGGER\JLink_V964\JLink.exe'
+        $startupResetCommand = Join-Path $PSScriptRoot 'jlink_reset_run.jlink'
+        & $startupJlinkExe -NoGui 1 -CommanderScript $startupResetCommand | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'J-Link startup reset failed.' }
+        Start-Sleep -Milliseconds 700
+        [void][SpeedLoopCan]::VCI_ClearBuffer(4, 0, $Channel)
+    }
     $preflight = [ordered]@{
         mode = Read-Value 0x01; error = Read-Value 0x4D
         encoder_online = Read-Value 0x0D; friction_model_valid = Read-Value 0x62
         bus_voltage_v = Read-Value 0x2D; temperature_c = Read-Value 0x43
+        current_limit_a = Read-Value 0x11
     }
     if ($preflight.mode -ne 0 -or $preflight.error -ne 0 -or
         $preflight.encoder_online -ne 1 -or $preflight.friction_model_valid -ne 1) {
         throw "Closed-loop preflight failed."
     }
+    # Protocol mode 0 represents both STANDBY and FAULTED.  An idempotent clear
+    # request guarantees the lifecycle is in STANDBY after a prior watchdog
+    # trip, while a healthy standby target simply rejects it without mutation.
+    Send-Value 0x00 10.0
+    Start-Sleep -Milliseconds 150
+    if ([int](Read-Value 0x01) -ne 0 -or [int](Read-Value 0x4D) -ne 0) {
+        throw "Lifecycle recovery preflight failed."
+    }
+    $originalCurrentLimit = [double]$preflight.current_limit_a
+    Send-Value 0x10 ([float]$CurrentLimitA)
+    Start-Sleep -Milliseconds 100
+    $appliedCurrentLimit = Read-Value 0x11
+    if ([math]::Abs($appliedCurrentLimit - $CurrentLimitA) -gt 0.01) {
+        throw "Current-limit staging failed: requested=$CurrentLimitA applied=$appliedCurrentLimit."
+    }
 
     Capture-Direction "positive" $TargetRps
     Capture-Direction "negative" (-$TargetRps)
-    Send-Value 0x04 0.0
-    Start-Sleep -Milliseconds 800
-    Send-Value 0x00 0.0
+    Set-ModeAndConfirm 0
     Start-Sleep -Milliseconds 300
 
     $positive = @($samples | Where-Object {
@@ -203,7 +277,14 @@ catch {
 }
 finally {
     if ($opened -and $started) {
-        try { Send-Value 0x04 0.0; Send-Value 0x00 0.0 } catch { }
+        try {
+            Send-Value 0x00 0.0
+            Start-Sleep -Milliseconds 100
+            if ($null -ne $originalCurrentLimit) {
+                Send-Value 0x10 ([float]$originalCurrentLimit)
+                Start-Sleep -Milliseconds 100
+            }
+        } catch { }
     }
     $samples | Export-Csv -LiteralPath (Join-Path $absoluteOutputDirectory "speed_closed_loop_samples.csv") -NoTypeInformation -Encoding UTF8
     $status = New-Object SpeedLoopCan+Status
@@ -218,6 +299,8 @@ finally {
         captured_at = [DateTimeOffset]::Now.ToString("o")
         success = $success; terminal_reason = $terminalReason
         target_rps = $TargetRps; target_rad_s = $TargetRps * 2.0 * [math]::PI
+        requested_current_limit_a = $CurrentLimitA
+        original_current_limit_a = $originalCurrentLimit
         positive_mean_speed_rad_s = ($positive | Measure-Object speed_rad_s -Average).Average
         negative_mean_speed_rad_s = ($negative | Measure-Object speed_rad_s -Average).Average
         sample_count = $samples.Count

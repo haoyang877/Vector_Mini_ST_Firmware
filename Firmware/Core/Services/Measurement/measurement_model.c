@@ -4,6 +4,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#if defined(__CC_ARM)
+#pragma O3
+#pragma Otime
+#endif
+
 static float Measurement_Abs(float value)
 {
 	return value >= 0.0f ? value : -value;

@@ -7,7 +7,7 @@
 ## 软件已有功能
 
 * 基础有感FOC算法 电流 速度 位置 可控
-* 模式3 jerk 限制位置伺服与模式18电流域位置阻抗控制
+* 模式3连续加速度位置伺服与模式18电流域位置阻抗控制（[模式3优化过程](docs/mode3_optimization_20260908.md)）
 * 磁编码器偏心补偿
 * 电机相电阻+dq轴电感+永磁体磁链辨识
 * 空载正反向库仑/粘性摩擦辨识（见 [docs/friction_identification.md](docs/friction_identification.md)）

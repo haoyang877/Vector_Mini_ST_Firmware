@@ -469,8 +469,8 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	Encoder_TypeDef *Encoder)
 {
-	/* Defined padding makes exact configuration snapshot comparisons stable. */
-	PositionCascadeConfig_TypeDef config = {0};
+	/* Every member is assigned below; the core excludes padding from comparison. */
+	PositionCascadeConfig_TypeDef config;
 	PositionCascadeOutput_TypeDef output;
 	float theta_elec = Encoder_GetElePhase(Encoder);
 	float theta_mech = Encoder_GetMecPos(Encoder);
@@ -488,10 +488,13 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	config.stiction_integral_rate = POSITION_SERVO_STICTION_INTEGRAL_RATE_A_PER_S;
 	config.acceleration = MotorControl->posAcc;
 	config.deceleration = MotorControl->posDec;
+	if (config.deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
+		config.deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
 	config.maximum_speed = MotorControl->pos_maxspeed;
 	config.speed_limit = MotorControl->speed_limit;
-	config.jerk_limit = fast_max(MotorControl->posAcc, MotorControl->posDec) /
-		POSITION_SERVO_ACCEL_RAMP_TIME_S;
+	config.jerk_limit = (config.acceleration > config.deceleration ?
+		config.acceleration : config.deceleration) /
+		POSITION_SERVO_JERK_RAMP_TIME_S;
 	config.position_kp = MotorControl->cascade_pos_Kp;
 	config.position_kd = MotorControl->cascade_pos_Kd;
 	config.speed_kp = MotorControl->speed_Kp;

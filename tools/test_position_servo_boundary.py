@@ -26,6 +26,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
                 "<string.h>",
                 '"foc_pid.h"',
                 '"position_cascade_config.h"',
+                '"position_smooth_trajectory.h"',
             ],
         )
 

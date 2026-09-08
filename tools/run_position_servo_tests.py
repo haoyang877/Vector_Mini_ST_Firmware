@@ -117,8 +117,10 @@ def main():
         return executable
 
     exe = build("position_servo_test", ["tests/unit/position_servo_test.c",
-                                        "Foc/position_cascade.c", "Foc/foc_pid.c"])
+                                        "Foc/position_cascade.c", "Foc/position_smooth_trajectory.c", "Foc/foc_pid.c"])
     fixture = args.out / "encoder_estimator_test.c"
+    build("position_smooth_trajectory_test", ["tests/unit/position_smooth_trajectory_test.c",
+                                              "Foc/position_smooth_trajectory.c"])
     fixture.write_text(encoder_fixture(), encoding="utf-8")
     build("encoder_estimator_test", [fixture])
     build("servo_hil_test", ["tests/unit/servo_hil_test.c"])

@@ -9,6 +9,10 @@
  * remains zero until J/Kt has been identified for the complete mechanism.
  */
 #define POSITION_SERVO_ACCEL_RAMP_TIME_S                 0.10f
+/* Jerk shaping is independent of the trajectory speed-error response time. */
+#define POSITION_SERVO_JERK_RAMP_TIME_S                  0.20f
+/* Mode-3 soft-stop tuning ceiling; preserve a lower commanded deceleration. */
+#define POSITION_SERVO_DECELERATION_MAX_RAD_S2           0.523598776f /* 30 deg/s2 */
 #define POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2        0.0f
 
 /* Software tuning defaults, to validate on the direct-drive mechanism. */
@@ -38,6 +42,7 @@
 #define POSITION_SERVO_FRICTION_LANDING_ZERO_RATIO       0.50f
 #define POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S      200.0f
 #define POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S 200.0f
+#define POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S 30.0f
 #define POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S     15.0f
 
 /* Unload reversal/overshoot integral; preserve learned load during braking. */

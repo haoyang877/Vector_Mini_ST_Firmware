@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 
@@ -289,7 +290,8 @@ static void test_nearly_finished_reference_retains_approach(void)
 static void test_trajectory_decelerates_without_second_speed_rise(void)
 {
     const float distances[] = {.087266463f, .34906585f, 1.48352986f};
-    int sign, k, i;
+    int sign, k, i, profile;
+    for (profile = 0; profile < 2; ++profile)
     for (sign = -1; sign <= 1; sign += 2) for (k = 0; k < 3; ++k)
     {
         PositionCascadeConfig_TypeDef c = config();
@@ -297,6 +299,11 @@ static void test_trajectory_decelerates_without_second_speed_rise(void)
         PositionCascadeTelemetry_TypeDef t;
         float previous_speed = 0, previous_acceleration = 0, previous_position = 0;
         int braking = 0;
+        if (profile != 0)
+        {
+            c.deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
+            c.jerk_limit = c.acceleration / POSITION_SERVO_JERK_RAMP_TIME_S;
+        }
         c.target_position = sign * distances[k];
         c.friction_feedforward_enabled = 0;
         PositionCascade_Reset(); o = step(&c,0,0);
@@ -310,6 +317,8 @@ static void test_trajectory_decelerates_without_second_speed_rise(void)
             o = step(&c,o.position_reference,t.trajectory_speed_reference);
             assert(PositionCascade_GetTelemetry(&t));
             speed = sign * t.trajectory_speed_reference;
+            assert(sign * o.acceleration_reference >= -c.deceleration-.00001f);
+            assert(sign * o.acceleration_reference <= c.acceleration+.00001f);
             assert(speed >= -.000001f && speed <= c.maximum_speed+.000001f);
             if (speed < previous_speed-.000001f) braking = 1;
             if (braking) assert(speed <= previous_speed+.000001f);
@@ -584,6 +593,111 @@ static void test_bounded_speed_correction_headroom(void)
     }
 }
 
+static void test_configuration_padding_does_not_trigger_revalidation(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    unsigned char *bytes = (unsigned char *)&c;
+    size_t i;
+    c.call_divider = 10;
+    PositionCascade_Reset();
+    step(&c, 0, 0);
+    assert(PositionCascade_ShouldDeferTelemetry());
+    for (i = offsetof(PositionCascadeConfig_TypeDef, call_divider) + sizeof(c.call_divider);
+         i < offsetof(PositionCascadeConfig_TypeDef, target_position); ++i) bytes[i] = 0xa5;
+    for (i = offsetof(PositionCascadeConfig_TypeDef, friction_feedforward_enabled) + sizeof(c.friction_feedforward_enabled);
+         i < offsetof(PositionCascadeConfig_TypeDef, friction_coulomb_positive); ++i) bytes[i] = 0x5a;
+    step(&c, 0, 0);
+    assert(!PositionCascade_ShouldDeferTelemetry());
+    c.position_kp += .1f;
+    step(&c, 0, 0);
+    assert(PositionCascade_ShouldDeferTelemetry());
+}
+
+static void test_retarget_preserves_reference_state(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o, previous;
+    PositionCascadeTelemetry_TypeDef t;
+    float old_speed;
+    int i;
+    c.target_position = 1.0f;
+    c.friction_feedforward_enabled = 0;
+    PositionCascade_Reset();
+    o=step(&c,0,0);
+    for(i=0;i<600;++i) {
+        assert(PositionCascade_GetTelemetry(&t));
+        o=step(&c,o.position_reference,t.trajectory_speed_reference);
+    }
+    assert(PositionCascade_GetTelemetry(&t));
+    previous=o; old_speed=t.trajectory_speed_reference;
+    assert(old_speed>.01f);
+    c.target_position=-.2f;
+    o=step(&c,previous.position_reference,old_speed);
+    assert(PositionCascade_GetTelemetry(&t));
+    assert(fabsf(o.acceleration_reference-previous.acceleration_reference) <= c.jerk_limit*c.update_period_s+.00001f);
+    assert(fabsf(t.trajectory_speed_reference-old_speed) <= c.acceleration*c.update_period_s+.00001f);
+    assert(fabsf(o.position_reference-previous.position_reference) <= c.maximum_speed*c.update_period_s+.00001f);
+    for(i=0;i<16000;++i) {
+        previous=o; old_speed=t.trajectory_speed_reference;
+        o=step(&c,o.position_reference,old_speed);
+        assert(PositionCascade_GetTelemetry(&t));
+        assert(fabsf(o.acceleration_reference-previous.acceleration_reference) <= c.jerk_limit*c.update_period_s+.00001f);
+    }
+    assert(fabsf(o.position_reference-c.target_position)<.000001f);
+    /* A stream of targets must not keep restarting the stationary planner. */
+    PositionCascade_Reset(); c.target_position=.1f;
+    o=step(&c,0,0);
+    for(i=0;i<100;++i) {
+        c.target_position+=.001f;
+        o=step(&c,o.position_reference,0);
+    }
+    assert(o.position_reference>0.0001f);
+}
+
+static void test_capture_release_is_soft_until_target_crossing(void)
+{
+    int sign, i;
+    for (sign = -1; sign <= 1; sign += 2)
+    {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        float before;
+        c.target_position = sign * .1f;
+        c.velocity_filter_hz = 0;
+        PositionCascade_Reset();
+        for (i = 0; i < 6000; ++i) o = step(&c, 0, 0);
+        before = sign * o.friction_feedforward_current;
+        assert(before > 1.0f);
+        o = step(&c, sign * .098f, 0);
+        assert(fabsf(before - sign * o.friction_feedforward_current -
+            POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S *
+            c.update_period_s) < .00001f);
+        before = sign * o.friction_feedforward_current;
+        o = step(&c, sign * .101f, 0); /* Cross target within capture hysteresis. */
+        assert(fabsf(before - sign * o.friction_feedforward_current -
+            c.friction_fast_release_slew_rate * c.update_period_s) < .00001f);
+        for (i = 0; i < 2000; ++i) o = step(&c, sign * .101f, 0);
+        assert(o.target_reached && o.friction_feedforward_current == 0);
+
+        /* Actual position may enter first, before the reference can latch
+         * capture. The approach taper must obey the same soft release. */
+        c.target_position = sign * 1.0f;
+        PositionCascade_Reset();
+        for (i = 0; i < 100; ++i) o = step(&c, 0, sign * .1f);
+        assert(fabsf(o.position_reference-c.target_position) > .01f);
+        before = sign * o.friction_feedforward_current;
+        assert(before > 1.0f);
+        o = step(&c, sign * .998f, sign * .1f);
+        assert(fabsf(before - sign * o.friction_feedforward_current -
+            POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S *
+            c.update_period_s) < .00001f);
+        before = sign * o.friction_feedforward_current;
+        o = step(&c, sign * 1.001f, sign * .1f);
+        assert(fabsf(before - sign * o.friction_feedforward_current -
+            c.friction_fast_release_slew_rate * c.update_period_s) < .00001f);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
@@ -606,5 +720,8 @@ int main(int argc, char **argv)
     test_uncaptured_hysteresis_band_keeps_correcting(); puts("PASS capture hysteresis: correction before entry, quiet after entry");
     test_capture_survives_feedforward_release(); puts("PASS capture retained while feedforward unloads, exit still enforced");
     test_bounded_speed_correction_headroom(); puts("PASS speed correction headroom preserves trajectory and motor limits in both directions");
+    test_capture_release_is_soft_until_target_crossing(); puts("PASS soft capture release and fast target-crossing release in both directions");
+    test_configuration_padding_does_not_trigger_revalidation(); puts("PASS config padding ignored, actual tuning changes revalidated");
+    test_retarget_preserves_reference_state(); puts("PASS mid-motion retarget preserves q/v/a and converges");
     return 0;
 }

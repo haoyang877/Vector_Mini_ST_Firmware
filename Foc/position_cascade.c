@@ -7,12 +7,16 @@
 
 #include "foc_pid.h"
 #include "position_cascade_config.h"
+#include "position_smooth_trajectory.h"
 
 typedef struct
 {
 	PositionCascadeConfig_TypeDef validated_config;
 	bool config_valid;
 	PI_Controller_TypeDef speed_controller;
+	PositionSmoothTrajectory smooth_trajectory;
+	bool smooth_active;
+	bool smooth_planning;
 	uint16_t loop_count;
 	uint32_t hold_counter;
 	uint32_t friction_stuck_counter;
@@ -216,7 +220,7 @@ bool PositionCascade_ShouldDeferTelemetry(void)
 	return state.defer_telemetry;
 }
 
-static bool PositionCascade_UpdateTrajectory(
+static bool PositionCascade_UpdateOnlineTrajectory(
 	const PositionCascadeConfig_TypeDef *config, float measured_position)
 {
 	float distance = config->target_position - state.position_reference;
@@ -323,6 +327,48 @@ static bool PositionCascade_UpdateTrajectory(
 		state.trajectory_speed) * config->update_period_s;
 
 	return false;
+}
+
+static bool PositionCascade_UpdateTrajectory(
+	const PositionCascadeConfig_TypeDef *config, float measured_position)
+{
+	PositionSmoothTrajectory *s = &state.smooth_trajectory;
+	PositionSmoothSample sample;
+	bool done;
+	bool interrupted_preparation = state.smooth_active && !s->ready &&
+		s->target != config->target_position;
+	state.smooth_planning = false;
+	if (state.smooth_active && (s->target != config->target_position ||
+		s->speed_limit != config->maximum_speed ||
+		s->acceleration != config->acceleration || s->deceleration != config->deceleration ||
+		s->jerk_limit != config->jerk_limit || config->following_error_limit > 0))
+		state.smooth_active = false;
+	/* Mid-motion retargets retain the current q/v/a and use the existing online
+	 * jerk-limited planner. Rest-to-rest moves get exact smooth endpoints. */
+	if (!state.smooth_active && !interrupted_preparation && config->following_error_limit == 0 &&
+		state.trajectory_speed == 0 && state.trajectory_acceleration == 0 &&
+		PositionCascade_Abs(config->target_position-state.position_reference) >
+			config->position_error_window)
+	{
+		state.smooth_active = PositionSmooth_Begin(s, state.position_reference,
+			config->target_position, config->maximum_speed, config->acceleration,
+			config->deceleration, config->jerk_limit);
+		if (!state.smooth_active) { s->failed = true; return false; }
+	}
+	if (!state.smooth_active)
+		return PositionCascade_UpdateOnlineTrajectory(config, measured_position);
+	if (!s->ready)
+	{
+		state.smooth_planning = true;
+		(void)PositionSmooth_Prepare(s);
+		return false;
+	}
+	done = PositionSmooth_Advance(s, config->update_period_s, &sample);
+	state.position_reference = sample.position;
+	state.trajectory_speed = sample.speed;
+	state.trajectory_acceleration = sample.acceleration;
+	state.trajectory_limited = false;
+	return done;
 }
 
 static float PositionCascade_FrictionMagnitude(
@@ -580,8 +626,18 @@ static void PositionCascade_UpdateFriction(
 			config->friction_release_slew_rate : config->friction_attack_slew_rate) *
 			config->update_period_s;
 	else if (fast_release)
-		current_step = config->friction_fast_release_slew_rate *
-			config->update_period_s;
+	{
+		float release_rate = config->friction_fast_release_slew_rate;
+		/* Ease the final removal of approach torque inside the captured window.
+		 * Crossing the target or leaving capture still uses fast unloading. */
+		if ((state.settling_in_window ||
+			(state.friction_landing_active &&
+			 PositionCascade_Abs(target_error) <= config->hold_enter_position)) &&
+			state.friction_feedforward_current * target_error > 0.0f)
+			release_rate = PositionCascade_Min(release_rate,
+				POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S);
+		current_step = release_rate * config->update_period_s;
+	}
 	else
 		current_step = config->friction_release_slew_rate *
 			config->update_period_s;
@@ -618,6 +674,8 @@ static void PositionCascade_UpdateIntegralTransport(
 	bool opposes_position_correction;
 	bool opposes_speed_correction;
 
+	if (!state.target_transition_active)
+		return;
 	opposes_position_correction =
 		PositionCascade_Abs(target_error) > config->hold_enter_position &&
 		state.speed_controller.Ui * target_error < 0.0f;
@@ -627,8 +685,7 @@ static void PositionCascade_UpdateIntegralTransport(
 	/* A braking speed error alone does not invalidate learned load current.
 	 * Decay only when it opposes both position and velocity correction, e.g.
 	 * a target reversal or overshoot. Otherwise PI owns deceleration. */
-	if (!state.target_transition_active ||
-		!opposes_position_correction || !opposes_speed_correction)
+	if (!opposes_position_correction || !opposes_speed_correction)
 		return;
 
 	integral_magnitude = PositionCascade_Abs(state.speed_controller.Ui);
@@ -779,10 +836,17 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	measured_speed = state.velocity_filtered;
 
 	trajectory_done = PositionCascade_UpdateTrajectory(config, measured_position);
-	if (!isfinite(state.position_reference) ||
+	if (state.smooth_trajectory.failed || !isfinite(state.position_reference) ||
 		!isfinite(state.trajectory_speed) ||
 		!isfinite(state.trajectory_acceleration))
 		return false;
+	/* Planning is split across bounded ticks while a stationary reference keeps
+	 * its existing support current. Do not apply breakaway before the plan starts. */
+	if (state.smooth_planning)
+	{
+		PositionCascade_CopyOutput(output);
+		return true;
+	}
 	if (state.phase == POSITION_SERVO_PHASE_MOVE && trajectory_done)
 		state.phase = POSITION_SERVO_PHASE_SETTLE;
 

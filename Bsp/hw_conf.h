@@ -90,8 +90,8 @@
 #define POSITION_LOOP_DIVIDER       (FOC_FREQ / POSITION_LOOP_FREQ)
 #define Position_Ts                 (1.0f / (float)POSITION_LOOP_FREQ)
 
-/* Legacy cascaded position-speed-current controller runs at 5 kHz. */
-#define CASCADE_POSITION_LOOP_FREQ  5000U
+/* Legacy cascaded position and trajectory controller also run at 2 kHz. */
+#define CASCADE_POSITION_LOOP_FREQ  2000U
 #if CASCADE_POSITION_LOOP_FREQ == 0U
 #error "CASCADE_POSITION_LOOP_FREQ must be greater than zero"
 #elif CASCADE_POSITION_LOOP_FREQ > FOC_FREQ

@@ -5,5 +5,7 @@
 
 void MotorControl_Init(void);
 void FOC20kHzIRQHandler(void);
+/** Run temperature conversion/protection from the existing 1 kHz supervisor. */
+void FOC1kHzSupervisor(void);
 
 #endif

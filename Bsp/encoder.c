@@ -159,6 +159,7 @@ void Encoder_ResetVelocity(Encoder_TypeDef *encoder)
 	encoder->velocity_ready = false;
 	encoder->velocity_shadow_q15 = encoder->shadow_q15;
 	encoder->vel_mech = 0.0f;
+	encoder->vel_mech_continuous = 0.0f;
 	encoder->vel_elec = 0.0f;
 }
 
@@ -217,6 +218,10 @@ static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *encoder, uint32_t pole_p
 	if (encoder->velocity_sample_count < ENCODER_VELOCITY_WINDOW)
 		encoder->velocity_sample_count++;
 	encoder->velocity_ready = encoder->velocity_sample_count == ENCODER_VELOCITY_WINDOW;
+	velocity_scale = _2PI / ((float)ENCODER_Q15_CPR *
+		(float)ENCODER_VELOCITY_WINDOW * Speed_Ts);
+	encoder->vel_mech_continuous = encoder->velocity_ready ?
+		(float)encoder->velocity_delta_sum * velocity_scale : 0.0f;
 
 	sum_abs = encoder->velocity_delta_sum;
 	if (sum_abs < 0)
@@ -227,8 +232,7 @@ static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *encoder, uint32_t pole_p
 	}
 	else
 	{
-		velocity_scale = _2PI / ((float)ENCODER_Q15_CPR * (float)ENCODER_VELOCITY_WINDOW * Speed_Ts);
-		encoder->vel_mech = (float)encoder->velocity_delta_sum * velocity_scale;
+		encoder->vel_mech = encoder->vel_mech_continuous;
 	}
 	encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
 }
@@ -371,6 +375,11 @@ float Encoder_GetEleVel(const Encoder_TypeDef *encoder)
 float Encoder_GetMecVel(const Encoder_TypeDef *encoder)
 {
 	return encoder->vel_mech;
+}
+
+float Encoder_GetMecVelContinuous(const Encoder_TypeDef *encoder)
+{
+	return encoder->vel_mech_continuous;
 }
 
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *encoder)

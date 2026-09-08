@@ -2,6 +2,7 @@
 
 #include "common_inc.h"
 #include "position_cascade.h"
+#include "position_cascade_config.h"
 #include "position_impedance.h"
 #include "position_impedance_config.h"
 
@@ -463,28 +464,77 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 	}
 }
 /**
-	* @brief  Legacy position-speed-current cascade control task
+	* @brief  Mode-3 jerk-limited position-servo control task
  **/
 void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	Encoder_TypeDef *Encoder)
 {
-	PositionCascadeConfig_TypeDef config;
+	/* Defined padding makes exact configuration snapshot comparisons stable. */
+	PositionCascadeConfig_TypeDef config = {0};
 	PositionCascadeOutput_TypeDef output;
 	float theta_elec = Encoder_GetElePhase(Encoder);
 	float theta_mech = Encoder_GetMecPos(Encoder);
 	float vel_elec = Encoder_GetEleVel(Encoder);
-	float vel_mech = Encoder_GetMecVel(Encoder);
+	float vel_mech = Encoder_GetMecVelContinuous(Encoder);
 
+	config.update_period_s = Cascade_Position_Ts;
+	config.call_divider = CASCADE_POSITION_LOOP_DIVIDER;
 	config.target_position = MotorControl->posRef;
 	config.position_error_window = MotorControl->pos_error_window;
+	config.hold_enter_position = POSITION_SERVO_HOLD_ENTER_POSITION_RAD;
+	config.hold_exit_position = POSITION_SERVO_HOLD_EXIT_POSITION_RAD;
+	config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;
+	config.following_error_limit = POSITION_SERVO_FOLLOWING_ERROR_LIMIT_RAD;
+	config.stiction_integral_rate = POSITION_SERVO_STICTION_INTEGRAL_RATE_A_PER_S;
 	config.acceleration = MotorControl->posAcc;
 	config.deceleration = MotorControl->posDec;
 	config.maximum_speed = MotorControl->pos_maxspeed;
+	config.speed_limit = MotorControl->speed_limit;
+	config.jerk_limit = fast_max(MotorControl->posAcc, MotorControl->posDec) /
+		POSITION_SERVO_ACCEL_RAMP_TIME_S;
 	config.position_kp = MotorControl->cascade_pos_Kp;
 	config.position_kd = MotorControl->cascade_pos_Kd;
 	config.speed_kp = MotorControl->speed_Kp;
 	config.speed_ki = MotorControl->speed_Ki;
+	config.acceleration_feedforward_gain =
+		POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
 	config.current_limit = MotorControl->current_limit;
+	config.friction_feedforward_enabled =
+		MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
+	if (MotorControl->friction_model_valid)
+	{
+		config.friction_coulomb_positive = MotorControl->friction_coulomb_pos_a;
+		config.friction_coulomb_negative = MotorControl->friction_coulomb_neg_a;
+		config.friction_viscous_positive =
+			MotorControl->friction_viscous_pos_a_per_rad_s;
+		config.friction_viscous_negative =
+			MotorControl->friction_viscous_neg_a_per_rad_s;
+	}
+	else
+	{
+		/* Board damping-ring profile used until an identified model is applied. */
+		config.friction_coulomb_positive =
+			POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
+		config.friction_coulomb_negative =
+			POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
+		config.friction_viscous_positive = 0.0f;
+		config.friction_viscous_negative = 0.0f;
+	}
+	config.friction_breakaway_ratio =
+		POSITION_SERVO_FRICTION_BREAKAWAY_RATIO;
+	config.friction_attack_slew_rate =
+		POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
+	config.friction_fast_release_slew_rate =
+		POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
+	config.friction_release_slew_rate =
+		POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
+	config.friction_reference_speed =
+		POSITION_SERVO_FRICTION_REFERENCE_SPEED_RAD_S;
+	config.friction_stop_speed = POSITION_SERVO_FRICTION_STOP_SPEED_RAD_S;
+	config.friction_move_speed = POSITION_SERVO_FRICTION_MOVE_SPEED_RAD_S;
+	config.friction_breakaway_distance =
+		POSITION_SERVO_FRICTION_BREAKAWAY_DISTANCE_RAD;
+	config.friction_stuck_time = POSITION_SERVO_FRICTION_STUCK_TIME_S;
 
 	if (!PositionCascade_Update(&config, theta_mech, vel_mech, &output))
 	{

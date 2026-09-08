@@ -4,6 +4,8 @@
 #include "SEGGER_RTT.h"
 #include "foc_friction_identification.h"
 #include "foc_phase_resistance.h"
+#include "position_cascade.h"
+#include "servo_hil.h"
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -17,8 +19,43 @@ ErrorNow_TypeDef ErrorLast = No_Error;
 FOC_TypeDef FOC;
 
 #define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	10000.0f
+#define RTT_POSITION_ERROR_SCALE_COUNTS_PER_RAD	10000.0f
 #define RTT_CURRENT_SCALE_COUNTS_PER_A		1000.0f
 #define RTT_ANGLE_Q15_SCALE				(32768.0f / _PI)
+
+#define RTT_SERVO_STATUS_PHASE_MASK		0x0003U
+#define RTT_SERVO_STATUS_PHASE_INVALID	0x0003U
+#define RTT_SERVO_STATUS_TARGET_REACHED	(1U << 2)
+#define RTT_SERVO_STATUS_CURRENT_SATURATED	(1U << 3)
+#define RTT_SERVO_STATUS_FEEDFORWARD_ACTIVE	(1U << 4)
+#define RTT_SERVO_STATUS_FAULT_ACTIVE	(1U << 5)
+#define RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED	(1U << 6)
+#define RTT_SERVO_STATUS_TELEMETRY_VALID	(1U << 7)
+#define RTT_SERVO_STATUS_FRAME_VERSION_1	(1U << 8)
+#define RTT_SERVO_STATUS_FRICTION_LANDING	(1U << 9)
+#define RTT_SERVO_STATUS_SETTLE_RECOVERY	(1U << 10)
+#define RTT_SERVO_STATUS_HOLD_CANDIDATE	(1U << 11)
+#define RTT_SERVO_STATUS_TRAJECTORY_LIMITED	(1U << 12)
+#define RTT_SERVO_STATUS_STICTION_INTEGRATING	(1U << 13)
+
+typedef struct
+{
+	int16_t trajectory_position;
+	int16_t position_feedback;
+	int16_t position_error;
+	int16_t trajectory_speed;
+	int16_t speed_command;
+	int16_t speed_feedback;
+	int16_t iq_reference;
+	int16_t iq_feedback;
+	int16_t feedback_current;
+	int16_t feedforward_current;
+	int16_t hold_current;
+	int16_t servo_status;
+} RTT_ControlFrame_TypeDef;
+
+typedef char RTT_ControlFrame_SizeMustBe24Bytes[
+	(sizeof(RTT_ControlFrame_TypeDef) == 24U) ? 1 : -1];
 
 static int16_t RTT_EncodeInt16(float value, float scale)
 {
@@ -50,33 +87,99 @@ static int16_t RTT_EncodeAngleQ15(float angle)
 void RTT_Sampling(void)
 {
 	static uint32_t rtt_divider_count;
+	static bool previous_frame_dropped;
+	PositionCascadeTelemetry_TypeDef servo_telemetry;
+	RTT_ControlFrame_TypeDef frame;
+	uint16_t status_flags = RTT_SERVO_STATUS_FRAME_VERSION_1 |
+		RTT_SERVO_STATUS_PHASE_INVALID;
+	unsigned bytes_written;
+	bool servo_telemetry_valid;
 
 	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
 		return;
+	/* Do not stack frame encoding on the same IRQ as the 2 kHz servo.
+	 * A coincident frame is deferred by one fast tick; subsequent frames keep
+	 * their normal cadence. This does not delay the current/PWM update. */
+#if CASCADE_POSITION_LOOP_DIVIDER > 1U
+	if (MotorControl.ModeNow == Position_Mode && PositionCascade_ShouldDeferTelemetry())
+		return;
+#endif
 	rtt_divider_count = 0;
 
-    struct {
-        int16_t position_ref;
-        int16_t position_feedback;
-        int16_t speed_ref;
-        int16_t speed_feedback;
-        int16_t iq_ref;
-        int16_t iq_feedback;
-    } Rttstru;
+	/* This fixed frame is intentionally meaningful only in mode 3. */
+	frame.trajectory_position = 0;
+	frame.position_feedback = 0;
+	frame.position_error = 0;
+	frame.trajectory_speed = 0;
+	frame.speed_command = 0;
+	frame.speed_feedback = 0;
+	frame.iq_reference = 0;
+	frame.iq_feedback = 0;
+	frame.feedback_current = 0;
+	frame.feedforward_current = 0;
+	frame.hold_current = 0;
+	frame.servo_status = 0;
 
-	/* Fixed six-channel frame for stable host-side parsing in every motor mode. */
-	Rttstru.position_ref = RTT_EncodeAngleQ15(MotorControl.posShadow);
-	Rttstru.position_feedback = RTT_EncodeAngleQ15(OnBoard_Encoder.theta_mech);
-	Rttstru.speed_ref = RTT_EncodeInt16(MotorControl.speedShadow,
-		RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-	Rttstru.speed_feedback = RTT_EncodeInt16(OnBoard_Encoder.vel_mech,
-		RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-	Rttstru.iq_ref = RTT_EncodeInt16(MotorControl.iqRef,
-		RTT_CURRENT_SCALE_COUNTS_PER_A);
-	Rttstru.iq_feedback = RTT_EncodeInt16(FOC.Iq,
-		RTT_CURRENT_SCALE_COUNTS_PER_A);
-    
-    SEGGER_RTT_Write(1, &Rttstru, sizeof(Rttstru));
+	servo_telemetry_valid = MotorControl.ModeNow == Position_Mode &&
+		PositionCascade_GetTelemetry(&servo_telemetry);
+
+	if (servo_telemetry_valid)
+	{
+		status_flags &= (uint16_t)~RTT_SERVO_STATUS_PHASE_MASK;
+		status_flags |= (uint16_t)servo_telemetry.phase &
+			RTT_SERVO_STATUS_PHASE_MASK;
+		status_flags |= RTT_SERVO_STATUS_TELEMETRY_VALID;
+		frame.trajectory_position = RTT_EncodeAngleQ15(
+			servo_telemetry.position_reference);
+		frame.position_feedback = RTT_EncodeAngleQ15(
+			OnBoard_Encoder.theta_mech);
+		frame.position_error = RTT_EncodeInt16(
+			servo_telemetry.position_reference - OnBoard_Encoder.theta_mech,
+			RTT_POSITION_ERROR_SCALE_COUNTS_PER_RAD);
+		frame.trajectory_speed = RTT_EncodeInt16(
+			servo_telemetry.trajectory_speed_reference,
+			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+		frame.speed_command = RTT_EncodeInt16(servo_telemetry.speed_command,
+			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+		frame.speed_feedback = RTT_EncodeInt16(servo_telemetry.speed_feedback,
+			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+		frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		frame.iq_feedback = RTT_EncodeInt16(FOC.Iq,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		frame.feedback_current = RTT_EncodeInt16(
+			servo_telemetry.feedback_current,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		frame.feedforward_current = RTT_EncodeInt16(
+			MotorControl.iqRef - servo_telemetry.feedback_current,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		frame.hold_current = RTT_EncodeInt16(servo_telemetry.hold_current,
+			RTT_CURRENT_SCALE_COUNTS_PER_A);
+		if (servo_telemetry.target_reached)
+			status_flags |= RTT_SERVO_STATUS_TARGET_REACHED;
+		if (servo_telemetry.current_saturated)
+			status_flags |= RTT_SERVO_STATUS_CURRENT_SATURATED;
+		if (servo_telemetry.friction_landing_active)
+			status_flags |= RTT_SERVO_STATUS_FRICTION_LANDING;
+		if (servo_telemetry.settle_recovery_active)
+			status_flags |= RTT_SERVO_STATUS_SETTLE_RECOVERY;
+		if (servo_telemetry.hold_candidate_active)
+			status_flags |= RTT_SERVO_STATUS_HOLD_CANDIDATE;
+		if (servo_telemetry.trajectory_limited)
+			status_flags |= RTT_SERVO_STATUS_TRAJECTORY_LIMITED;
+		if (servo_telemetry.stiction_integrating)
+			status_flags |= RTT_SERVO_STATUS_STICTION_INTEGRATING;
+	}
+	if (frame.feedforward_current != 0)
+		status_flags |= RTT_SERVO_STATUS_FEEDFORWARD_ACTIVE;
+	if (MotorControl.ErrorNow != No_Error)
+		status_flags |= RTT_SERVO_STATUS_FAULT_ACTIVE;
+	if (previous_frame_dropped)
+		status_flags |= RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED;
+	frame.servo_status = (int16_t)status_flags;
+
+	bytes_written = SEGGER_RTT_Write(1, &frame, sizeof(frame));
+	previous_frame_dropped = bytes_written != sizeof(frame);
 }
 
 /**
@@ -131,16 +234,51 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 	       MotorControl->ModeNow == Set_ZeroPosition;
 }
 
+void FOC1kHzSupervisor(void)
+{
+	/* Temperature conversion includes logf and belongs to the slow supervisor. */
+	Temperature_Update(&FOC);
+}
+
 void FOC20kHzIRQHandler(void)
 {
 	Vbus_Update(&FOC, &MotorControl);
 	
 	Current_Cal(&FOC, &MotorControl);
 	
-	Temperature_Update(&FOC);
-	
 	Encoder_Update(&MotorControl, &OnBoard_Encoder);
-	Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
+#if SERVO_HIL_ENABLE
+	{
+		/* Debug mailbox at 10 kHz; count both fast ticks for the watchdog.
+		 * ARM occurs here, so the divided servo subsequently falls between polls. */
+		static uint8_t hil_divider;
+		if (++hil_divider >= 2U) {
+			ServoHilCommand command = ServoHil_Poll(Encoder_GetMecPos(&OnBoard_Encoder),
+				Encoder_GetMecVelContinuous(&OnBoard_Encoder), FOC.Iq,
+				(uint32_t)MotorControl.ModeNow, (uint32_t)MotorControl.ErrorNow, FOC_FREQ, 2U);
+			bool accepted = true;
+			hil_divider = 0U;
+			switch (command.action) {
+			case SERVO_HIL_STOP: Set_ModeNow(Motor_Disable); break;
+			case SERVO_HIL_ARM: accepted = ModeSwitch_Handle(Position_Mode); break;
+			case SERVO_HIL_POSITION: MotorControl.posRef = command.value; break;
+			case SERVO_HIL_POSITION_KP: MotorControl.cascade_pos_Kp = command.value; break;
+			case SERVO_HIL_POSITION_KD: MotorControl.cascade_pos_Kd = command.value; break;
+			case SERVO_HIL_SPEED_KP: MotorControl.speed_Kp = command.value; break;
+			case SERVO_HIL_SPEED_KI: MotorControl.speed_Ki = command.value; break;
+			case SERVO_HIL_MAX_SPEED:
+				accepted = command.value <= MotorControl.speed_limit;
+				if (accepted) MotorControl.pos_maxspeed = command.value;
+				break;
+			default: break;
+			}
+			ServoHil_Complete(accepted);
+		}
+	}
+#endif
+	/* Select after command dispatch, including the first mode-3 IRQ. */
+	if (MotorControl.ModeNow != Position_Mode)
+		Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
 
 	if (Encoder_FeedbackRequired(&MotorControl) &&
 		OnBoard_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)

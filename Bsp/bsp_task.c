@@ -12,6 +12,7 @@ extern MotorControl_TypeDef MotorControl;
  **/
 void BSP1kHzIRQHandler(void)
 {
+	FOC1kHzSupervisor();
 	USB_PrintProfile();
 	
 	if(++Led_Cnt >= 200)

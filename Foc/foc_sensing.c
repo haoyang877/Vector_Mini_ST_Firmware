@@ -113,8 +113,6 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
  **/
 void Temperature_Update(FOC_TypeDef *FOC)
 {
-	static float count;
-	
 	/*from NTC datasheet*/
 	const float B = 3455.0f;
 	float R2 = 10.0f;
@@ -123,7 +121,7 @@ void Temperature_Update(FOC_TypeDef *FOC)
 	uint32_t adc_val;
 	float R1;
 
-	if(++count >= 20)
+	/* Called at 1 kHz; keep transcendental conversion out of the fast IRQ. */
 	{
 		adc_val = TEMP_ADC->TEMP_ADC_CHANNEL;
 		
@@ -131,7 +129,6 @@ void Temperature_Update(FOC_TypeDef *FOC)
 		
 		FOC->temp = (1.0f / ((1.0f / B) * logf(R1 / R2) + (1.0f / (T2 + 273.15f))) - 273.15f);
 		
-		count = 0;
 	}
 	
 	if(FOC->temp >= 100.0f)

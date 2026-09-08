@@ -60,6 +60,7 @@ typedef struct
 	float vel_elec;
 	float theta_mech;
 	float vel_mech;
+	float vel_mech_continuous;
 
 	/* 2 kHz moving-average mechanical velocity estimator. */
 	uint8_t velocity_divider;
@@ -99,6 +100,8 @@ void Encoder_ResetVelocity(Encoder_TypeDef *Encoder);
 
 float Encoder_GetEleVel(const Encoder_TypeDef *Encoder);
 float Encoder_GetMecVel(const Encoder_TypeDef *Encoder);
+/** Same windowed mechanical velocity in rad/s, without the legacy zero deadband. */
+float Encoder_GetMecVelContinuous(const Encoder_TypeDef *Encoder);
 float Encoder_GetElePhase(const Encoder_TypeDef *Encoder);
 float Encoder_GetMecPos(const Encoder_TypeDef *Encoder);
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *Encoder);

@@ -214,3 +214,4 @@ L  [H]  = (V − R·I) / (ωe·I) × 2.25
 | Current_Ts | 50 µs（20 kHz） | 电流环 / 观测器积分 |
 | Speed_Ts | 500 µs（2 kHz） | 速度环 / 编码器通用测速 |
 | Position_Ts | 1 ms（1 kHz） | 位置阻抗环 / 轨迹发生器 |
+| Cascade_Position_Ts | 500 µs（2 kHz） | 模式3位置伺服 / jerk限制轨迹发生器 |

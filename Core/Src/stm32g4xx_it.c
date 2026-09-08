@@ -42,6 +42,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
+static volatile uint32_t hil_irq_last_cycles;
+static volatile uint32_t hil_irq_max_cycles;
+static volatile uint32_t hil_irq_histogram[4];
+#endif
 
 /* USER CODE END PV */
 
@@ -224,11 +229,27 @@ void DMA1_Channel1_IRQHandler(void)
 void ADC1_2_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC1_2_IRQn 0 */
+#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
+  uint32_t hil_start, hil_elapsed;
+  if ((DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) == 0U) {
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  }
+  hil_start = DWT->CYCCNT;
+#endif
 
   /* USER CODE END ADC1_2_IRQn 0 */
   HAL_ADC_IRQHandler(&hadc1);
   HAL_ADC_IRQHandler(&hadc2);
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
+#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
+  hil_elapsed = DWT->CYCCNT - hil_start;
+  hil_irq_last_cycles = hil_elapsed;
+  if (hil_elapsed > hil_irq_max_cycles) hil_irq_max_cycles = hil_elapsed;
+  /* 170 MHz board clock: bins below 50, 100, 150 us, and >=150 us. */
+  hil_irq_histogram[hil_elapsed < 8500U ? 0 : hil_elapsed < 17000U ? 1 :
+                    hil_elapsed < 25500U ? 2 : 3]++;
+#endif
 
   /* USER CODE END ADC1_2_IRQn 1 */
 }

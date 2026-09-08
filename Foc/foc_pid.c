@@ -1,6 +1,14 @@
 #include "foc_pid.h"
 
-#include "utils.h"
+/* Keep the reusable PI independent of board/vendor utility headers. */
+static float PI_Clamp(float value, float minimum, float maximum)
+{
+    if (value < minimum)
+        return minimum;
+    if (value > maximum)
+        return maximum;
+    return value;
+}
 
 void PI_Controller_Configure(PI_Controller_TypeDef *controller, float proportional_gain, float integral_gain, float sample_period, float output_min, float output_max)
 {
@@ -31,14 +39,14 @@ float PI_Controller_Run(PI_Controller_TypeDef *controller, float reference, floa
         controller->Ui = integral_candidate;
     }
 
-    controller->Out = constrain(controller->Up + controller->Ui, controller->Umin, controller->Umax);
+    controller->Out = PI_Clamp(controller->Up + controller->Ui, controller->Umin, controller->Umax);
     return controller->Out;
 }
 
 void PI_Controller_TrackOutput(PI_Controller_TypeDef *controller, float applied_output)
 {
     controller->Ui += applied_output - controller->Out;
-    controller->Ui = constrain(controller->Ui, controller->Umin, controller->Umax);
+    controller->Ui = PI_Clamp(controller->Ui, controller->Umin, controller->Umax);
     controller->Out = applied_output;
 }
 

@@ -7,7 +7,7 @@
 
   <Targets>
     <Target>
-      <TargetName>Vector_Mini_ST</TargetName>
+      <TargetName>Vector_Mini_ST_HIL</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
       <pCCUsed>5060960::V5.06 update 7 (build 960)::.\ARMCC</pCCUsed>
@@ -48,7 +48,7 @@
             <NotGenerated>0</NotGenerated>
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
-          <OutputDirectory>Vector_Mini_ST\</OutputDirectory>
+          <OutputDirectory>Vector_Mini_ST_HIL\</OutputDirectory>
           <OutputName>Vector_Mini_ST</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
@@ -81,7 +81,7 @@
           </BeforeMake>
           <AfterMake>
             <RunUserProg1>0</RunUserProg1>
-            <RunUserProg2>1</RunUserProg2>
+            <RunUserProg2>0</RunUserProg2>
             <UserProg1Name></UserProg1Name>
             <UserProg2Name></UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
@@ -337,7 +337,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx</Define>
+              <Define>USE_HAL_DRIVER,STM32G431xx,SERVO_HIL_ENABLE=1</Define>
               <Undefine></Undefine>
               <IncludePath>../Core/Inc;../USB_Device/App;../USB_Device/Target;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;D:/Keil5/ARM/CMSIS/5.4.0/CMSIS/Include;../Bsp;../Foc;../Communication;../System;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;..\RTT</IncludePath>
             </VariousControls>
@@ -488,7 +488,7 @@
               <FileName>stm32g4xx_it.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32g4xx_it.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -539,7 +539,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>stm32g4xx_hal_msp.c</FileName>
               <FileType>1</FileType>
@@ -564,7 +564,7 @@
               <FileName>encoder.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Bsp\encoder.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -615,7 +615,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>rgb.c</FileName>
               <FileType>1</FileType>
@@ -645,7 +645,7 @@
               <FileName>foc_algorithm.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_algorithm.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -696,12 +696,12 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>foc_sensing.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_sensing.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -752,7 +752,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>foc_sensorless.c</FileName>
               <FileType>1</FileType>
@@ -797,7 +797,7 @@
               <FileName>foc_pid.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_pid.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -848,12 +848,12 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>foc_run.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_run.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -904,7 +904,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>position_impedance.c</FileName>
               <FileType>1</FileType>
@@ -914,7 +914,7 @@
               <FileName>position_cascade.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\position_cascade.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -965,7 +965,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>foc_traptraj.c</FileName>
               <FileType>1</FileType>
@@ -975,7 +975,7 @@
               <FileName>foc_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_task.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -1026,7 +1026,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
           </Files>
         </Group>
         <Group>
@@ -1052,21 +1052,7 @@
         <Group>
           <GroupName>System</GroupName>
           <Files>
-            <File>
-              <FileName>heap.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\System\heap.c</FilePath>
-            </File>
-            <File>
-              <FileName>board_config.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\System\board_config.c</FilePath>
-            </File>
-            <File>
-              <FileName>utils.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\System\utils.c</FilePath>
-              <FileOption>
+            <File><FileName>servo_hil.c</FileName><FileType>1</FileType><FilePath>..\System\servo_hil.c</FilePath><FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -1117,7 +1103,73 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+</File>
+            <File>
+              <FileName>heap.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\System\heap.c</FilePath>
             </File>
+            <File>
+              <FileName>board_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\System\board_config.c</FilePath>
+            </File>
+            <File>
+              <FileName>utils.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\System\utils.c</FilePath>
+            <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument></CustomArgument>
+                  <IncludeLibraryModules></IncludeLibraryModules>
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls></MiscControls>
+                      <Define></Define>
+                      <Undefine></Undefine>
+                      <IncludePath></IncludePath>
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+</File>
             <File>
               <FileName>common_inc.h</FileName>
               <FileType>5</FileType>
@@ -1298,7 +1350,7 @@
               <FileName>stm32g4xx_hal_adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc.c</FilePath>
-              <FileOption>
+            <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
                   <RVCTCodeConst>0</RVCTCodeConst>
@@ -1349,7 +1401,7 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
+</File>
             <File>
               <FileName>stm32g4xx_hal_adc_ex.c</FileName>
               <FileType>1</FileType>

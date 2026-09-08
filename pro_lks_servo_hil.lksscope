@@ -29,7 +29,7 @@
         <form title="Form" type="0"/>
         <form title="自定义变量" type="1" lv-width="150,100,100,100,100,100,100,100,100,100"/>
         <form title="寄存器变量" type="13" chip="" lv-width="150,100,100,100,100,100,100,100,100,100"/>
-        <form mapFile="./MDK-ARM/Vector_Mini_ST/Vector_Mini_ST.axf" title="代码变量" type="2" lv-width="264,100,100,100,320,100,100,204,100,100"/>
+        <form mapFile="./MDK-ARM/Vector_Mini_ST_HIL/Vector_Mini_ST.axf" title="代码变量" type="2" lv-width="264,100,100,100,320,100,100,204,100,100"/>
         <form visible="0" title="运行日志" type="3" floating="0" page="-1"/>
         <form sync2File="0" syncFilePath="" checkTStamp="0" visible="0" title="RTT命令行" type="4" floating="0" encode="GBK" page="-1"/>
         <form xCount="213.426" xTag="0" visible="1" scatterStyle="1" scrollType="1" title="RTT数据" trigName="rtt_channel1.data7" type="5" floating="0" max="500" lineStyle="1" trigValue="0" trigType="0" autoRange="1" page="0" min="-500" subMode="1">

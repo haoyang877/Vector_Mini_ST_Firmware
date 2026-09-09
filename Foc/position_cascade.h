@@ -94,6 +94,15 @@ void PositionCascade_Reset(void);
 bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	float measured_position, float measured_speed,
 	PositionCascadeOutput_TypeDef *output);
+/** Borrow the last validated settings, or NULL after Reset/before configuration.
+ * Read-only; valid until the next Update/Reset. Calls require one serial owner.
+ * The adapter must detect live tuning changes before using UpdateTarget. */
+const PositionCascadeConfig_TypeDef *PositionCascade_GetConfiguration(void);
+/** Execute a fast tick with unchanged validated tuning and a fresh target.
+ * Checks finite target/feedback every call; preserves target-change handling
+ * and the existing divider. Fails if no configuration has been validated. */
+bool PositionCascade_UpdateTarget(float target_position, float measured_position,
+	float measured_speed, PositionCascadeOutput_TypeDef *output);
 /** Copy a coherent mode-3 diagnostic snapshot without exposing private state. */
 bool PositionCascade_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
 /** Defer optional telemetry after full configuration validation or a slow servo update. */

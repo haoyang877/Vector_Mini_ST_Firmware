@@ -49,10 +49,26 @@ static bool SPI_WaitBSYClear(SPI_TypeDef *SPIx, uint32_t timeout_spin)
 	return true;
 }
 
-static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *SPIx, bool *ok)
 {
 	uint16_t rx_data;
+	if (!SPI_WaitFlag(SPIx, SPI_FLAG_RXNE, ENC_SPI_XFER_SPIN_MAX))
+	{
+		*ok = false;
+		return 0U;
+	}
+	rx_data = *(__IO uint16_t *)&SPIx->DR;
+	if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX))
+	{
+		*ok = false;
+		return 0U;
+	}
+	*ok = true;
+	return rx_data;
+}
 
+static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+{
 	if ((SPIx->CR1 & SPI_CR1_SPE) == 0U)
 		SPIx->CR1 |= SPI_CR1_SPE;
 
@@ -68,22 +84,7 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
 		return 0U;
 	}
 	*(__IO uint16_t *)&SPIx->DR = tx_data;
-
-	if (!SPI_WaitFlag(SPIx, SPI_FLAG_RXNE, ENC_SPI_XFER_SPIN_MAX))
-	{
-		*ok = false;
-		return 0U;
-	}
-
-	rx_data = *(__IO uint16_t *)&SPIx->DR;
-	if (!SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX))
-	{
-		*ok = false;
-		return 0U;
-	}
-
-	*ok = true;
-	return rx_data;
+	return SPI_Reg_ReadRx16(SPIx, ok);
 }
 
 static void SPI2_MOSI_HiZ(void)
@@ -97,14 +98,33 @@ static void SPI2_MOSI_RestoreAF(void)
 	GPIOB->AFR[1] = (GPIOB->AFR[1] & ~(0xFUL << 28U)) | (0x5UL << 28U);
 }
 
-static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15)
+bool Encoder_BeginSample(void)
+{
+	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
+	/* Never wait ahead of current protection. Unexpected bus state retains
+	 * the original synchronous recovery path in Encoder_CompleteSample. */
+	if ((SPIx->CR1 & SPI_CR1_SPE) == 0U ||
+		(SPIx->SR & (SPI_FLAG_TXE | SPI_FLAG_OVR | SPI_FLAG_BSY | SPI_FLAG_RXNE)) != SPI_FLAG_TXE)
+		return false;
+	BRD_ENC_CS_ENABLE;
+	*(__IO uint16_t *)&SPIx->DR = 0x8021U;
+	return true;
+}
+
+static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15,
+	bool sample_started)
 {
 	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
 	uint16_t angle_word = 0U;
 	bool transfer_ok = true;
 
-	BRD_ENC_CS_ENABLE;
-	(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
+	if (sample_started)
+		(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+	else
+	{
+		BRD_ENC_CS_ENABLE;
+		(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
+	}
 	if (transfer_ok)
 	{
 		SPI2_MOSI_HiZ();
@@ -313,7 +333,8 @@ bool Encoder_SetMechanicalZero(Encoder_TypeDef *encoder)
 	return true;
 }
 
-void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder)
+void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder,
+	bool sample_started)
 {
 	uint16_t raw_q15;
 	uint16_t directed_q15;
@@ -321,7 +342,7 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder
 	int32_t delta_q15;
 	uint32_t pole_pairs;
 
-	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15))
+	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15, sample_started))
 		return;
 
 	directed_q15 = Encoder_ApplyDirectionQ15(encoder, raw_q15);
@@ -355,6 +376,11 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder
 	encoder->shadow_q15 += delta_q15;
 	Encoder_UpdateVelocity2kHz(encoder, pole_pairs);
 	Encoder_UpdateAngles(encoder, pole_pairs);
+}
+
+void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder)
+{
+	Encoder_CompleteSample(MotorControl, encoder, false);
 }
 
 float Encoder_GetElePhase(const Encoder_TypeDef *encoder)

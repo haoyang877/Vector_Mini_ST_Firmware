@@ -466,25 +466,17 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 /**
 	* @brief  Mode-3 jerk-limited position-servo control task
  **/
-void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
-	Encoder_TypeDef *Encoder)
+/* Keep the cold configuration frame off the unchanged-tuning fast path.
+ * This is a compiler hint only; other C99 compilers retain identical behavior. */
+#if defined(__GNUC__) || defined(__clang__) || defined(__CC_ARM)
+#define FOC_CONFIG_NOINLINE __attribute__((noinline))
+#else
+#define FOC_CONFIG_NOINLINE
+#endif
+static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_TypeDef *MotorControl,
+    float theta_mech, float vel_mech, PositionCascadeOutput_TypeDef *output)
 {
-	/* Every member is assigned below; the core excludes padding from comparison. */
-	PositionCascadeConfig_TypeDef config;
-	PositionCascadeOutput_TypeDef output;
-	float theta_elec = Encoder_GetElePhase(Encoder);
-	float theta_mech = Encoder_GetMecPos(Encoder);
-	float vel_elec = Encoder_GetEleVel(Encoder);
-	float vel_mech = Encoder_GetMecVelContinuous(Encoder);
-	if (!MotorAxisProfile_AllowsPosition(&MotorControl->axis_profile,
-		MotorControl->axis_profile_valid, theta_mech, MotorControl->posRef))
-	{
-		MotorControl->idRef = 0.0f;
-		MotorControl->iqRef = 0.0f;
-		Set_ErrorNow(MotorParam_Error);
-		return;
-	}
-
+    PositionCascadeConfig_TypeDef config;
 	config.update_period_s = Cascade_Position_Ts;
 	config.call_divider = CASCADE_POSITION_LOOP_DIVIDER;
 	config.target_position = MotorControl->posRef;
@@ -550,7 +542,79 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 		POSITION_SERVO_FRICTION_BREAKAWAY_DISTANCE_RAD;
 	config.friction_stuck_time = POSITION_SERVO_FRICTION_STUCK_TIME_S;
 
-	if (!PositionCascade_Update(&config, theta_mech, vel_mech, &output))
+    return PositionCascade_Update(&config, theta_mech, vel_mech, output);
+}
+
+/* Only this adapter supplies this controller's fixed tuning. Compare every
+ * live input each fast tick; rebuild/validate on a change without a second RAM
+ * cache or a parameter-write generation counter that could miss a writer. */
+static bool PositionMode_SameTuningValue(float first, float second)
+{
+    uint32_t first_bits, second_bits;
+    typedef char FloatMustBe32Bits[(sizeof(float) == sizeof(uint32_t)) ? 1 : -1];
+    (void)sizeof(FloatMustBe32Bits);
+    memcpy(&first_bits, &first, sizeof(first_bits));
+    memcpy(&second_bits, &second, sizeof(second_bits));
+    return first_bits == second_bits;
+}
+
+static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDef *config,
+    const MotorControl_TypeDef *MotorControl)
+{
+    float deceleration = MotorControl->posDec;
+    float maximum_speed = MotorControl->pos_maxspeed;
+    if (config == NULL) return false;
+    if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
+        deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
+    if (MotorControl->axis_profile.magic != 0U &&
+        maximum_speed > MotorControl->axis_profile.maximum_speed_rad_s)
+        maximum_speed = MotorControl->axis_profile.maximum_speed_rad_s;
+    if (!PositionMode_SameTuningValue(config->position_error_window, MotorControl->pos_error_window) ||
+        !PositionMode_SameTuningValue(config->acceleration, MotorControl->posAcc) ||
+        !PositionMode_SameTuningValue(config->deceleration, deceleration) ||
+        !PositionMode_SameTuningValue(config->maximum_speed, maximum_speed) ||
+        !PositionMode_SameTuningValue(config->speed_limit, MotorControl->speed_limit) ||
+        !PositionMode_SameTuningValue(config->position_kp, MotorControl->cascade_pos_Kp) ||
+        !PositionMode_SameTuningValue(config->position_kd, MotorControl->cascade_pos_Kd) ||
+        !PositionMode_SameTuningValue(config->speed_kp, MotorControl->speed_Kp) ||
+        !PositionMode_SameTuningValue(config->speed_ki, MotorControl->speed_Ki) ||
+        !PositionMode_SameTuningValue(config->current_limit, MotorControl->current_limit))
+        return false;
+    if (MotorControl->friction_model_valid)
+        return PositionMode_SameTuningValue(config->friction_coulomb_positive, MotorControl->friction_coulomb_pos_a) &&
+            PositionMode_SameTuningValue(config->friction_coulomb_negative, MotorControl->friction_coulomb_neg_a) &&
+            PositionMode_SameTuningValue(config->friction_viscous_positive, MotorControl->friction_viscous_pos_a_per_rad_s) &&
+            PositionMode_SameTuningValue(config->friction_viscous_negative, MotorControl->friction_viscous_neg_a_per_rad_s);
+    return PositionMode_SameTuningValue(config->friction_coulomb_positive, POSITION_IMPEDANCE_FRICTION_POSITIVE_A) &&
+        PositionMode_SameTuningValue(config->friction_coulomb_negative, POSITION_IMPEDANCE_FRICTION_NEGATIVE_A) &&
+        PositionMode_SameTuningValue(config->friction_viscous_positive, 0.0f) &&
+        PositionMode_SameTuningValue(config->friction_viscous_negative, 0.0f);
+}
+
+void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+	Encoder_TypeDef *Encoder)
+{
+	bool updated;
+	PositionCascadeOutput_TypeDef output;
+	float theta_elec = Encoder_GetElePhase(Encoder);
+	float theta_mech = Encoder_GetMecPos(Encoder);
+	float vel_elec = Encoder_GetEleVel(Encoder);
+	float vel_mech = Encoder_GetMecVelContinuous(Encoder);
+	if (!MotorAxisProfile_AllowsPosition(&MotorControl->axis_profile,
+		MotorControl->axis_profile_valid, theta_mech, MotorControl->posRef))
+	{
+		MotorControl->idRef = 0.0f;
+		MotorControl->iqRef = 0.0f;
+		Set_ErrorNow(MotorParam_Error);
+		return;
+	}
+
+	if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), MotorControl))
+		updated = PositionCascade_UpdateTarget(MotorControl->posRef, theta_mech, vel_mech, &output);
+	else
+		updated = PositionMode_UpdateConfiguration(MotorControl, theta_mech, vel_mech, &output);
+
+	if (!updated)
 	{
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;

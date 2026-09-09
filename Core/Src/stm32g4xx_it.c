@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "common_inc.h"
+#include "fast_loop_profile.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +47,14 @@
 static volatile uint32_t hil_irq_last_cycles;
 static volatile uint32_t hil_irq_max_cycles;
 static volatile uint32_t hil_irq_histogram[4];
+/* Additional profiling is independent of host resets of the legacy counters.
+ * Read while halted/disabled or use two snapshots; a 64-bit read is not atomic. */
+static volatile uint32_t hil_profile_count;
+static volatile uint64_t hil_profile_total_cycles;
+static volatile uint32_t hil_profile_min_cycles = UINT32_MAX;
+static volatile uint32_t hil_profile_interval_min_cycles = UINT32_MAX;
+static volatile uint32_t hil_profile_interval_max_cycles;
+static uint32_t hil_profile_previous_start;
 #endif
 
 /* USER CODE END PV */
@@ -57,6 +66,58 @@ static volatile uint32_t hil_irq_histogram[4];
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if defined(FAST_LOOP_STAGE_PROFILE) && FAST_LOOP_STAGE_PROFILE
+/* Diagnostic storage is private to the board clock adapter. No per-stage
+ * arrays: one selected stage keeps the temporary profiling image within RAM. */
+static volatile struct {
+  uint32_t selected, count;
+  uint64_t total;
+  uint32_t minimum, maximum, started;
+} fast_loop_stage_profile;
+
+void FastLoopProfile_Begin(unsigned stage)
+{
+  if (fast_loop_stage_profile.selected == stage)
+    fast_loop_stage_profile.started = DWT->CYCCNT;
+}
+
+void FastLoopProfile_End(unsigned stage)
+{
+  if (fast_loop_stage_profile.selected == stage) {
+    uint32_t elapsed = DWT->CYCCNT - fast_loop_stage_profile.started;
+    if (elapsed < fast_loop_stage_profile.minimum)
+      fast_loop_stage_profile.minimum = elapsed;
+    if (elapsed > fast_loop_stage_profile.maximum)
+      fast_loop_stage_profile.maximum = elapsed;
+    fast_loop_stage_profile.total += elapsed;
+    fast_loop_stage_profile.count++;
+  }
+}
+#endif
+
+/* Board IRQ adapter: specialize only the independently triggered, single JEOS
+ * event used by this board. All other configurations/events retain HAL handling.
+ * Keep the callback-before-clear ordering and HAL injected state semantics. */
+static void Board_ADC2DispatchInterrupt(void)
+{
+  uint32_t pending = hadc2.Instance->ISR & hadc2.Instance->IER;
+  if (pending == 0U)
+    return;
+#if (USE_HAL_ADC_REGISTER_CALLBACKS == 0)
+  if (pending == ADC_FLAG_JEOS &&
+      (hadc2.Instance->JSQR & ADC_JSQR_JEXTEN) != 0U &&
+      (hadc2.Instance->CFGR & (ADC_CFGR_JAUTO | ADC_CFGR_JQM)) == 0U &&
+      (ADC12_COMMON->CCR & ADC_CCR_DUAL) == 0U &&
+      (hadc2.State & HAL_ADC_STATE_ERROR_INTERNAL) == 0U)
+  {
+    hadc2.State |= HAL_ADC_STATE_INJ_EOC;
+    HAL_ADCEx_InjectedConvCpltCallback(&hadc2);
+    __HAL_ADC_CLEAR_FLAG(&hadc2, ADC_FLAG_JEOC | ADC_FLAG_JEOS);
+    return;
+  }
+#endif
+  HAL_ADC_IRQHandler(&hadc2);
+}
 
 /* USER CODE END 0 */
 
@@ -236,6 +297,12 @@ void ADC1_2_IRQHandler(void)
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   }
   hil_start = DWT->CYCCNT;
+  if (hil_profile_count != 0U) {
+    uint32_t interval = hil_start - hil_profile_previous_start;
+    if (interval < hil_profile_interval_min_cycles) hil_profile_interval_min_cycles = interval;
+    if (interval > hil_profile_interval_max_cycles) hil_profile_interval_max_cycles = interval;
+  }
+  hil_profile_previous_start = hil_start;
 #endif
 
   /* USER CODE END ADC1_2_IRQn 0 */
@@ -244,8 +311,7 @@ void ADC1_2_IRQHandler(void)
    * Retain these guards when regenerating the shared ADC vector. */
   if ((hadc1.Instance->ISR & hadc1.Instance->IER) != 0U)
     HAL_ADC_IRQHandler(&hadc1);
-  if ((hadc2.Instance->ISR & hadc2.Instance->IER) != 0U)
-    HAL_ADC_IRQHandler(&hadc2);
+  Board_ADC2DispatchInterrupt();
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
 #if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
   hil_elapsed = DWT->CYCCNT - hil_start;
@@ -254,6 +320,9 @@ void ADC1_2_IRQHandler(void)
   /* 170 MHz board clock: bins below 50, 100, 150 us, and >=150 us. */
   hil_irq_histogram[hil_elapsed < 8500U ? 0 : hil_elapsed < 17000U ? 1 :
                     hil_elapsed < 25500U ? 2 : 3]++;
+  if (hil_elapsed < hil_profile_min_cycles) hil_profile_min_cycles = hil_elapsed;
+  hil_profile_total_cycles += hil_elapsed;
+  hil_profile_count++;
 #endif
 
   /* USER CODE END ADC1_2_IRQn 1 */

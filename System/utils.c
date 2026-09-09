@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <math.h>
 
 const float sin_tab[1024] = {
 	0			,	0.006141883	,	0.012283533	,	0.018424721	,	0.024565213	,	0.030704779	,	0.036843186	,	0.042980204	,	0.0491156	,	0.055249144	,	0.061380603	,	0.067509747	,	0.073636344	,	0.079760163	,	0.085880974	,	0.091998545 ,
@@ -273,20 +274,13 @@ float fast_atan2(float y, float x)
  **/
 float fast_sqrt(float val) 
 {
-	long i;
-    float x, y;
- 
 	if(val < 1.19209290e-7f)
 		return 0.0f;
-	
-	x = val;
-	i = *((long *)&x);
-	i = 0x1FBA6EE6 + (i >>1);
-	y = *((float *)&i);
-	y = (y + x / y) * 0.5f;
-	y = (y + x / y) * 0.5f;
-	
-	return y;
+
+	/* Preserve the legacy small-input cutoff. The target compiler emits
+	 * single-precision hardware sqrt, avoiding two Newton-step divisions
+	 * and the old float/long aliasing (which also assumed a 32-bit long). */
+	return sqrtf(val);
 }
 
 /**

@@ -6,6 +6,7 @@ If STOP fails, attempt hardware output disable and only then halt for diagnosis.
 """
 import argparse
 import ctypes
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -71,7 +72,12 @@ def main():
                    help='Allow up to 6 A Iq only with verified board 6 A phase / 30 s exposure guard')
     p.add_argument('--arm-only', action='store_true',
                    help='Hold the current position for diagnostics; send no POSITION commands')
+    p.add_argument('--profile-timing', action='store_true',
+                   help='Verify the archived image and measure cumulative IRQ cycles while running')
+    p.add_argument('--profile-stage', type=int, choices=range(1, 10),
+                   help='Select one stage in the optional diagnostic image; requires --profile-timing')
     args = p.parse_args()
+    assert args.profile_stage is None or args.profile_timing
     if pylink is None:
         p.error('Install pylink-square in the bench Python environment; no probe was opened')
     session = args.session_dir.resolve() if args.session_dir else OUT
@@ -116,6 +122,44 @@ def main():
     phase_guard = None
     last_tick = None
     last_tick_time = time.monotonic()
+    verified_flash = None
+    command_channel_ready = not args.profile_timing
+
+    def verify_profile_image():
+        metadata = json.loads((session/'active_image.json').read_text())
+        image_dir = session/metadata['directory']
+        axf = image_dir/'Vector_Mini_ST.axf'
+        assert hashlib.sha256(axf.read_bytes()).hexdigest() == metadata['axf_sha256']
+        flash = bytes(j.memory_read8(0x08000000, 0x20000))
+        address_base, verified = 0, 0
+        for line in axf.with_suffix('.hex').read_text().splitlines():
+            record = bytes.fromhex(line[1:])
+            assert sum(record) % 256 == 0
+            size, offset, kind = record[0], int.from_bytes(record[1:3], 'big'), record[3]
+            if kind == 4:
+                address_base = int.from_bytes(record[4:6], 'big') << 16
+            elif kind == 0:
+                start = address_base + offset - 0x08000000
+                assert 0 <= start and start + size <= 0x1c000
+                assert flash[start:start+size] == record[4:4+size], 'installed image differs'
+                verified += size
+        assert verified > 0
+        assert flash[0x1c000:] == (session/'expected_parameters.bin').read_bytes()
+        return flash
+
+    def profile_snapshot(stage_address=None):
+        count_address = symbols['hil_profile_count'] if stage_address is None else stage_address + 4
+        before = j.memory_read32(count_address, 1)[0]
+        address = symbols['hil_profile_total_cycles'] if stage_address is None else stage_address + 8
+        for _ in range(10):
+            high = j.memory_read32(address + 4, 1)[0]
+            low = j.memory_read32(address, 1)[0]
+            if high == j.memory_read32(address + 4, 1)[0]:
+                break
+        else:
+            raise RuntimeError('inconsistent cycle accumulator')
+        after = j.memory_read32(count_address, 1)[0]
+        return dict(count_before=before, count_after=after, total_cycles=(high << 32) | low)
 
     def snapshot():
         b = struct.pack('<14I', *j.memory_read32(base, 14))
@@ -179,6 +223,9 @@ def main():
         j.set_tif(pylink.enums.JLinkInterfaces.SWD)
         j.connect('STM32G431CB', speed=4000)
         assert not j.halted()
+        if args.profile_timing:
+            verified_flash = verify_profile_image()
+        command_channel_ready = True
         seq = j.memory_read32(base + 4, 1)[0]
         command(1)
         time.sleep(.02)
@@ -229,6 +276,11 @@ def main():
         if 'hil_irq_histogram' in symbols:
             j.memory_write32(symbols['hil_irq_histogram'],[0,0,0,0])
             j.memory_write32(symbols['hil_irq_max_cycles'],[0])
+        if args.profile_stage:
+            stage_address = symbols['fast_loop_stage_profile']
+            j.memory_write32(stage_address, [0])
+            j.memory_write32(stage_address + 4, [0, 0, 0, 0xffffffff, 0, 0])
+            j.memory_write32(stage_address, [args.profile_stage])
         command(2)
         armed = True
         collect(.5)
@@ -236,12 +288,42 @@ def main():
             timing['startup_max_cycles'] = j.memory_read32(symbols['hil_irq_max_cycles'],1)[0]
             j.memory_write32(symbols['hil_irq_histogram'],[0,0,0,0])
             j.memory_write32(symbols['hil_irq_max_cycles'],[0])
+        if args.profile_timing:
+            for key, value in [('hil_profile_min_cycles', 0xffffffff),
+                               ('hil_profile_interval_min_cycles', 0xffffffff),
+                               ('hil_profile_interval_max_cycles', 0)]:
+                j.memory_write32(symbols[key], [value])
+            timing['profile_before'] = profile_snapshot()
+        if args.profile_stage:
+            j.memory_write32(stage_address + 16, [0xffffffff, 0])
+            timing['stage_before'] = profile_snapshot(stage_address)
         for target in targets:
             command(3, math.radians(target))
             print('target', target, 'deg', flush=True)
             collect(args.seconds)
         if args.arm_only:
             collect(args.seconds)
+        if args.profile_timing:
+            beat()
+            if args.profile_stage:
+                timing['stage_after'] = profile_snapshot(stage_address)
+                a, b = timing['stage_before'], timing['stage_after']
+                count_low = b['count_before'] - a['count_after']
+                count_high = b['count_after'] - a['count_before']
+                cycles = b['total_cycles'] - a['total_cycles']
+                assert 0 < count_low <= count_high and cycles > 0
+                timing['stage_average_us_bounds'] = [cycles/count_high/170, cycles/count_low/170]
+                timing['stage_min_max_cycles'] = j.memory_read32(stage_address + 16, 2)
+            timing['profile_after'] = profile_snapshot()
+            a, b = timing['profile_before'], timing['profile_after']
+            count_low = b['count_before'] - a['count_after']
+            count_high = b['count_after'] - a['count_before']
+            cycles = b['total_cycles'] - a['total_cycles']
+            assert 0 < count_low <= count_high and cycles > 0, 'counter reset or wrap'
+            timing['average_us_bounds'] = [cycles/count_high/170, cycles/count_low/170]
+            for key in ['hil_profile_min_cycles', 'hil_profile_interval_min_cycles',
+                        'hil_profile_interval_max_cycles']:
+                timing[key] = j.memory_read32(symbols[key], 1)[0]
         if 'hil_irq_histogram' in symbols:
             timing.update(max_cycles=j.memory_read32(symbols['hil_irq_max_cycles'],1)[0],
                 duration_bins_50us=j.memory_read32(symbols['hil_irq_histogram'],4),
@@ -253,7 +335,7 @@ def main():
         raise
     finally:
         try:
-            if j.opened():
+            if j.opened() and command_channel_ready:
                 command(1)
                 time.sleep(.03)
                 final = snapshot()
@@ -264,6 +346,10 @@ def main():
                 if 'hil_irq_histogram' in symbols:
                     timing['including_stop_max_cycles'] = j.memory_read32(symbols['hil_irq_max_cycles'],1)[0]
                 print('verified disabled at', round(math.degrees(final['position']),3), 'deg', flush=True)
+                if verified_flash is not None:
+                    timing['flash_and_parameters_unchanged'] = (
+                        bytes(j.memory_read8(0x08000000, 0x20000)) == verified_flash)
+                    assert timing['flash_and_parameters_unchanged'], 'Flash changed during trial'
         except BaseException as exc:
             shutdown_error = repr(exc)
             print('STOP NOT VERIFIED: disconnect motor power; ' + shutdown_error, flush=True)

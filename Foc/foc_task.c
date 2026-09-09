@@ -6,6 +6,7 @@
 #include "foc_phase_resistance.h"
 #include "position_cascade.h"
 #include "servo_hil.h"
+#include "fast_loop_profile.h"
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -258,14 +259,25 @@ void FOC20kHzIRQHandler(void)
 	static bool position_start_prepared;
 	bool defer_position_power_start = false;
 	bool defer_optional_telemetry = false;
+	bool encoder_sample_started;
+	FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
+	FAST_PROFILE_END(FAST_PROFILE_EMPTY);
+	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER_REQUEST);
+	encoder_sample_started = Encoder_BeginSample();
+	FAST_PROFILE_END(FAST_PROFILE_ENCODER_REQUEST);
+	FAST_PROFILE_BEGIN(FAST_PROFILE_SENSING);
 	Vbus_Update(&FOC, &MotorControl);
 	
 	Current_Cal(&FOC, &MotorControl);
 	#if SERVO_HIL_ENABLE
 	ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
 	#endif
+	FAST_PROFILE_END(FAST_PROFILE_SENSING);
 	
-	Encoder_Update(&MotorControl, &OnBoard_Encoder);
+	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER);
+	Encoder_CompleteSample(&MotorControl, &OnBoard_Encoder, encoder_sample_started);
+	FAST_PROFILE_END(FAST_PROFILE_ENCODER);
+	FAST_PROFILE_BEGIN(FAST_PROFILE_COMMANDS);
 #if SERVO_HIL_ENABLE
 	{
 		/* Debug mailbox at 10 kHz; count both fast ticks for the watchdog.
@@ -311,6 +323,7 @@ void FOC20kHzIRQHandler(void)
 		Set_ErrorNow(MotorParam_Error);
 		Set_ModeNow(Motor_Disable);
 	}
+	FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
@@ -337,7 +350,9 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Position_Mode:
+			FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_WITH_CURRENT);
 			Task_Position_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
+			FAST_PROFILE_END(FAST_PROFILE_POSITION_WITH_CURRENT);
 		break;
 
 		case Position_Impedance_Mode:
@@ -407,6 +422,7 @@ void FOC20kHzIRQHandler(void)
 		default:break;
 	}
 	
+	FAST_PROFILE_BEGIN(FAST_PROFILE_POST_CONTROL);
 	/*no error*/
 	if(MotorControl.ErrorNow == No_Error)
 	{
@@ -453,6 +469,9 @@ void FOC20kHzIRQHandler(void)
 	
 	MotorControl.ModeNow_f = MotorControl.ModeNow;
 	MotorControl.ErrorNow_f = MotorControl.ErrorNow;
+	FAST_PROFILE_END(FAST_PROFILE_POST_CONTROL);
     
+    FAST_PROFILE_BEGIN(FAST_PROFILE_TELEMETRY);
     RTT_Sampling(defer_optional_telemetry);
+    FAST_PROFILE_END(FAST_PROFILE_TELEMETRY);
 }

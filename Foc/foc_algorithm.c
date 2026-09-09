@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "utils.h"
 #include "hw_conf.h"
+#include "fast_loop_profile.h"
 
 #define FOC_MAX_MODULATION (0.95f * SQRT_3_BY_2)
 
@@ -314,6 +315,8 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
     float voltage_d;
     float voltage_q;
 
+    FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
+
     Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
     Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
 
@@ -351,6 +354,7 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
     Set_A_Duty(FOC->dtc_a);
     Set_B_Duty(FOC->dtc_b);
     Set_C_Duty(FOC->dtc_c);
+    FAST_PROFILE_END(FAST_PROFILE_CURRENT);
 }
 
 void FOC_CurrentController_Reset(FOC_TypeDef *FOC)

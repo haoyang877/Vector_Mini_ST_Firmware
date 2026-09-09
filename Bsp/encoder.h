@@ -90,6 +90,14 @@ typedef struct
 
 void Encoder_ParamInit(Encoder_TypeDef *Encoder);
 void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
+/** Nonblocking request for the next angle sample. The same fast-loop owner
+ * must call CompleteSample exactly once with the returned token, even on a
+ * protection fault. Do not access the sensor bus between these calls. */
+bool Encoder_BeginSample(void);
+/** Complete this cycle's request and update the same estimator as Update.
+ * A false token uses the original synchronous read/recovery path. */
+void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder,
+    bool sample_started);
 
 bool Encoder_IsOnline(const Encoder_TypeDef *Encoder);
 bool Encoder_SetElectricalZero(Encoder_TypeDef *Encoder);

@@ -15,8 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def function_source(source, name):
-    start = source.rfind("\n", 0, source.index(name + "(")) + 1
-    brace = source.index("{", start)
+    # A call may precede the definition (e.g. the board fast ADC adapter).
+    match = re.search(r'^[ \t]*(?:[A-Za-z_]\w*[ \t]+)+\**' + re.escape(name) +
+                      r'\s*\([^;{}]*\)\s*\{', source, re.M)
+    if match is None:
+        raise ValueError('Function definition not found: ' + name)
+    start, brace = match.start(), match.end() - 1
     depth = 1
     end = brace + 1
     while depth:
@@ -116,7 +120,8 @@ static void HAL_ADC_IRQHandler(ADC_HandleTypeDef *adc) {
     adc->calls++;
     adc->Instance->ISR &= ~adc->Instance->IER;
 }
-''' + function_source(source, 'ADC1_2_IRQHandler') + r'''
+''' + '\n#define USE_HAL_ADC_REGISTER_CALLBACKS 1\n' + function_source(source,
+    'Board_ADC2DispatchInterrupt') + '\n' + function_source(source, 'ADC1_2_IRQHandler') + r'''
 int main(void) {
     unsigned bit;
     for (bit=0; bit<11; ++bit) {

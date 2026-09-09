@@ -775,7 +775,7 @@ void PositionCascade_Reset(void)
 	PI_Controller_Reset(&state.speed_controller);
 }
 
-bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
+static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *config,
 	float measured_position, float measured_speed,
 	PositionCascadeOutput_TypeDef *output)
 {
@@ -791,11 +791,6 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	float speed_command_limit;
 	uint32_t hold_ticks;
 	bool trajectory_done;
-
-	state.defer_telemetry = false;
-	if (output == NULL || !isfinite(measured_position) ||
-		!isfinite(measured_speed) || !PositionCascade_CheckConfig(config))
-		return false;
 
 	if (!state.initialized)
 	{
@@ -983,4 +978,32 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	state.feedback_current = state.speed_controller.Out;
 	PositionCascade_CopyOutput(output);
 	return true;
+}
+
+bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
+	float measured_position, float measured_speed,
+	PositionCascadeOutput_TypeDef *output)
+{
+	state.defer_telemetry = false;
+	if (output == NULL || !isfinite(measured_position) ||
+		!isfinite(measured_speed) || !PositionCascade_CheckConfig(config))
+		return false;
+	return PositionCascade_RunValidated(config, measured_position, measured_speed, output);
+}
+
+const PositionCascadeConfig_TypeDef *PositionCascade_GetConfiguration(void)
+{
+	return state.config_valid ? &state.validated_config : NULL;
+}
+
+bool PositionCascade_UpdateTarget(float target_position, float measured_position,
+	float measured_speed, PositionCascadeOutput_TypeDef *output)
+{
+	state.defer_telemetry = false;
+	if (!state.config_valid || output == NULL || !isfinite(target_position) ||
+		!isfinite(measured_position) || !isfinite(measured_speed))
+		return false;
+	state.validated_config.target_position = target_position;
+	return PositionCascade_RunValidated(&state.validated_config,
+		measured_position, measured_speed, output);
 }

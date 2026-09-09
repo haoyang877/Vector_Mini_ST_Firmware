@@ -22,6 +22,8 @@
 
 /* USER CODE BEGIN 0 */
 
+#include "stm32g4xx_ll_adc.h"
+
 /* USER CODE END 0 */
 
 ADC_HandleTypeDef hadc1;
@@ -194,6 +196,18 @@ void MX_ADC2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN ADC2_Init 2 */
+
+  /* Board sampling adapter, applied after CubeMX config while ADC2 is stopped.
+   * One PWM trigger acquires four samples per injected rank (Ia/Ib/Ic/Vbus).
+   * Divide the sum by four to preserve the existing 12-bit calibration units.
+   * Keep this override in USER CODE: the .ioc retains its generated baseline.
+   * FOC must run on JEOS, not on the per-rank JEOC event. See
+   * docs/current_oversampling.md for the low-side sampling-window limits.
+   */
+  LL_ADC_ConfigOverSamplingRatioShift(hadc2.Instance,
+                                     LL_ADC_OVS_RATIO_4,
+                                     LL_ADC_OVS_SHIFT_RIGHT_2);
+  LL_ADC_SetOverSamplingScope(hadc2.Instance, LL_ADC_OVS_GRP_INJECTED);
 
   /* USER CODE END ADC2_Init 2 */
 

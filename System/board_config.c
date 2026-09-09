@@ -38,8 +38,10 @@ void Board_Init(void)
 	HAL_ADCEx_InjectedStart(&hadc1);
 	HAL_ADCEx_InjectedStart(&hadc2);
 	
-	/*enable ADC 2 injection mode sampling*/
-	__HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOC);
+	/* Dispatch one control tick only after all four injected ranks are ready.
+	 * JEOC is per rank and can expose a mixed-period current/Vbus sample. */
+	__HAL_ADC_DISABLE_IT(&hadc2, ADC_IT_JEOC);
+	__HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOS);
 		
 	/*enable TIM7 interrupt*/
 	HAL_TIM_Base_Start_IT(&htim7);

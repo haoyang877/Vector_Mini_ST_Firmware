@@ -324,7 +324,7 @@ void TIM7_IRQHandler(void)
    */
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-	if(hadc == &hadc2)
+	if(hadc == &hadc2 && __HAL_ADC_GET_FLAG(hadc, ADC_FLAG_JEOS))
 	{		
 		FOC20kHzIRQHandler();
 	}

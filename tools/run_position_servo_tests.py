@@ -137,6 +137,38 @@ int main(void) {
 '''
 
 
+def adc_sequence_fixture():
+    source = (ROOT / 'Core/Src/stm32g4xx_it.c').read_text(encoding='utf-8')
+    return r'''
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+enum { ADC_FLAG_JEOC = 1U << 5, ADC_FLAG_JEOS = 1U << 6 };
+typedef struct { uint32_t flags; } ADC_HandleTypeDef;
+static ADC_HandleTypeDef hadc1, hadc2;
+static unsigned control_ticks;
+#define __HAL_ADC_GET_FLAG(adc, flag) (((adc)->flags & (flag)) != 0U)
+static void FOC20kHzIRQHandler(void) { control_ticks++; }
+''' + function_source(source, 'HAL_ADCEx_InjectedConvCpltCallback') + r'''
+int main(void) {
+    unsigned rank;
+    for (rank = 1; rank <= 4; ++rank) {
+        hadc2.flags = ADC_FLAG_JEOC | (rank == 4 ? ADC_FLAG_JEOS : 0U);
+        HAL_ADCEx_InjectedConvCpltCallback(&hadc2);
+        assert(control_ticks == (rank == 4 ? 1U : 0U));
+    }
+    hadc1.flags = ADC_FLAG_JEOS;
+    HAL_ADCEx_InjectedConvCpltCallback(&hadc1);
+    assert(control_ticks == 1);
+    puts("PASS actual ADC callback: no control on incomplete ranks or temperature ADC");
+    return 0;
+}
+'''
+
+
 def joint_startup_fixture():
     source = (ROOT / 'Foc/foc_param.c').read_text(encoding='utf-8')
     return r'''
@@ -203,11 +235,12 @@ def joint_board_startup_fixture():
 #include <stdbool.h>
 #include <stdio.h>
 enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
-      TIM_CHANNEL_4=4, ADC_IT_JEOC=1};
+      TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
 static int hadc1, hadc2, htim1, htim7;
 static struct { bool axis_profile_valid; } MotorControl;
 static bool configured;
 static unsigned phases, sampling, communication, adc_started;
+static unsigned adc_irq_mask = ADC_IT_JEOC;
 static void flash_read_param(void) { MotorControl.axis_profile_valid = configured; }
 static void MotorControl_Init(void) {}
 static bool MotorControl_IsConfigurationValid(void) { return MotorControl.axis_profile_valid; }
@@ -218,16 +251,19 @@ static void HAL_TIM_PWM_Start(int *timer, int channel) {
 }
 static void HAL_TIMEx_OCN_Start(int *timer, int channel) { (void)timer; (void)channel; phases++; }
 static void HAL_ADCEx_InjectedStart(int *adc) { (void)adc; adc_started++; }
-static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { (void)adc; (void)mask; }
+static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask |= mask; }
+static void __HAL_ADC_DISABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask &= ~mask; }
 static void HAL_TIM_Base_Start_IT(int *timer) { (void)timer; }
 static void FDCAN1_Param_Init(void) { communication++; }
 ''' + function_source(source, 'Board_Init') + r'''
 int main(void) {
     Board_Init();
     assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
+    assert(adc_irq_mask == ADC_IT_JEOS);
     configured = true;
     Board_Init();
     assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
+    assert(adc_irq_mask == ADC_IT_JEOS);
     puts("PASS actual board startup: unconfigured phase outputs off, sampling and communication retained");
     return 0;
 }
@@ -277,6 +313,9 @@ def main():
     irq_fixture = args.out / "adc_irq_dispatch_test.c"
     irq_fixture.write_text(adc_irq_fixture(), encoding="utf-8")
     build("adc_irq_dispatch_test", [irq_fixture])
+    sequence_fixture = args.out / "adc_sequence_test.c"
+    sequence_fixture.write_text(adc_sequence_fixture(), encoding="utf-8")
+    build("adc_sequence_test", [sequence_fixture])
     build("servo_hil_test", ["tests/unit/servo_hil_test.c"])
     build("motor_axis_profile_test", ["tests/unit/motor_axis_profile_test.c",
                                       "software/config/motor_axis_profile.c"])

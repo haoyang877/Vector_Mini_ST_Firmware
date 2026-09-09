@@ -789,6 +789,11 @@
               <FilePath>..\Foc\foc_errhandle.c</FilePath>
             </File>
             <File>
+              <FileName>motor_axis_profile.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\software\config\motor_axis_profile.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_param.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Foc\foc_param.c</FilePath>

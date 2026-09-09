@@ -10,6 +10,8 @@ extern CANMsg_TypeDef CANMsg;
 
 void Param_Return_Default(void)
 {
+	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
+	MotorControl.axis_profile_valid = true;
 	CANMsg.node_id = PARAM_HW_CAN_NODE_ID;
 
 	MotorControl.A_Offset = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
@@ -112,6 +114,7 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->friction_model_valid = MotorControl.friction_model_valid ? 1U : 0U;
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
+	param->axis_profile = MotorControl.axis_profile;
 }
 
 void Param_Download(const InterfaceParam_TypeDef *param)
@@ -273,4 +276,6 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 		MotorControl.friction_model_valid = false;
 	}
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
+	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
+		&MotorControl.axis_profile);
 }

@@ -1,0 +1,63 @@
+{
+  "format_version": 1,
+  "name": "pitch",
+  "notes": "Pitch motor uses the same model/hardware as roll; +/-30 degrees, 8 s/rev. Gains and calibration require independent readback/validation.",
+  "motor": {
+    "identity": "pitch",
+    "inertia_kg_m2": null,
+    "torque_constant_Nm_A": null,
+    "ntc_connected": null,
+    "same_motor_model_and_hardware_as": "roll"
+  },
+  "motion": {
+    "minimum_deg": -30,
+    "maximum_deg": 30,
+    "target_margin_deg": 5,
+    "cruise_deg_s": 45,
+    "acceleration_deg_s2": 45,
+    "stored_deceleration_deg_s2": 45
+  },
+  "runtime": {
+    "cascade_pos_Kp": null,
+    "cascade_pos_Kd": null,
+    "speed_Kp": null,
+    "speed_Ki": null,
+    "current_limit_A": null
+  },
+  "core": {
+    "deceleration_cap_deg_s2": 30,
+    "jerk_ramp_s": 0.2,
+    "hold_enter_deg": 0.18,
+    "hold_exit_deg": 0.26
+  },
+  "friction": {
+    "model_valid": null,
+    "coulomb_positive_A": null,
+    "coulomb_negative_A": null,
+    "viscous_positive_A_per_rad_s": null,
+    "viscous_negative_A_per_rad_s": null
+  },
+  "acceptance": {
+    "position_tolerance_deg": 0.3,
+    "tail_seconds": 2,
+    "minimum_hold_fraction": 1,
+    "maximum_iq_A": 4,
+    "maximum_drop_samples": 0,
+    "maximum_saturation_samples": 0
+  },
+  "dwell_seconds": {
+    "hold": 10,
+    "micro": 8,
+    "small": 6,
+    "medium": 7,
+    "range": 10
+  },
+  "pending_confirmation": {
+    "connected_motor_verified": false,
+    "flash_saved": false
+  },
+  "speed_confirmed": {
+    "seconds_per_revolution": 8,
+    "degrees_per_second": 45
+  }
+}

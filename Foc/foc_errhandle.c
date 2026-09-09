@@ -89,6 +89,13 @@ void Clear_RunningData(void)
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
+	if (mode_set == Position_Mode && !MotorAxisProfile_AllowsPosition(
+		&MotorControl.axis_profile, MotorControl.axis_profile_valid,
+		Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecPos(&OnBoard_Encoder)))
+	{
+		Set_ErrorNow(MotorParam_Error);
+		return false;
+	}
 	/*motor identification (R/L/flux) is not used any more*/
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;

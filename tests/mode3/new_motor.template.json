@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "name": "UNKNOWN_new_motor",
+  "notes": "Fill null operating values from the actual mechanism. J/Kt and friction may remain unknown; do not invent them.",
+  "motor": {"identity": "UNKNOWN", "inertia_kg_m2": null, "torque_constant_Nm_A": null, "ntc_connected": null},
+  "motion": {"minimum_deg": null, "maximum_deg": null, "target_margin_deg": null, "cruise_deg_s": null, "acceleration_deg_s2": null, "stored_deceleration_deg_s2": null},
+  "runtime": {"cascade_pos_Kp": null, "cascade_pos_Kd": null, "speed_Kp": null, "speed_Ki": null, "current_limit_A": null},
+  "core": {"deceleration_cap_deg_s2": 30, "jerk_ramp_s": 0.2, "hold_enter_deg": 0.18, "hold_exit_deg": 0.26},
+  "friction": {"model_valid": null, "coulomb_positive_A": null, "coulomb_negative_A": null, "viscous_positive_A_per_rad_s": null, "viscous_negative_A_per_rad_s": null},
+  "acceptance": {"position_tolerance_deg": 0.3, "tail_seconds": 2, "minimum_hold_fraction": 1, "maximum_iq_A": null, "maximum_drop_samples": 0, "maximum_saturation_samples": 0},
+  "dwell_seconds": {"hold": 10, "micro": 8, "small": 6, "medium": 7, "range": 10}
+}

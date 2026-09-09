@@ -93,11 +93,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", default=os.environ.get("SERVO_CC"))
     parser.add_argument("--recording", type=Path)
-    parser.add_argument("--out", type=Path, default=ROOT / "outputs/servo_optimization_20260908")
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/mode3_host_tests")
     args = parser.parse_args()
     cc = args.cc or shutil.which("zig") or shutil.which("gcc") or shutil.which("clang")
     if not cc:
         parser.error("Provide --cc with a native C99 compiler or Zig executable")
+    # Build commands run from ROOT, even when the caller runs elsewhere.
+    args.out = args.out.resolve()
+    if args.recording:
+        args.recording = args.recording.resolve()
+    if Path(cc).is_file():
+        cc = str(Path(cc).resolve())
     args.out.mkdir(parents=True, exist_ok=True)
     compiler = [cc] + (["cc"] if Path(cc).stem == "zig" else [])
     logs = []
@@ -124,6 +130,8 @@ def main():
     fixture.write_text(encoder_fixture(), encoding="utf-8")
     build("encoder_estimator_test", [fixture])
     build("servo_hil_test", ["tests/unit/servo_hil_test.c"])
+    build("motor_axis_profile_test", ["tests/unit/motor_axis_profile_test.c",
+                                      "software/config/motor_axis_profile.c"])
     if args.recording:
         import numpy as np
         data = np.loadtxt(args.recording, delimiter="\t", skiprows=1)

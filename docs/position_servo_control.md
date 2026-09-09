@@ -1,5 +1,7 @@
 # 模式3位置伺服
 
+适配不同电机、阻力及角度范围时，先看 [核心参数与工况适配](mode3_parameter_guide.md)；主机回归、实机动作表及历史数据验收见 [测试用例与执行入口](mode3_test_plan.md)。
+
 `Position_Mode`（模式号3）采用 jerk 参考规划、位置/速度串级反馈、摩擦前馈与到位保持。控制器和轨迹为纯 C 模块 `Foc/position_cascade.c`、`Foc/position_smooth_trajectory.c`，只依赖标准库与项目 PI；`Foc/foc_run.c` 负责注入参数。模式号、正常命令入口和 Flash 参数结构保留。模式18算法不在本次整定范围内。
 
 优化过程、最终设置和未解决问题见 [模式3优化过程汇总](mode3_optimization_20260908.md)。初始台架整定与验证边界见 [模式3验证记录](mode3_validation_20260908.md)。原始采集数据和固件快照保留于本地 `outputs/servo_hil_20260908/`，不纳入源码提交。

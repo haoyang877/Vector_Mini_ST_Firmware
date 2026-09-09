@@ -476,6 +476,14 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	float theta_mech = Encoder_GetMecPos(Encoder);
 	float vel_elec = Encoder_GetEleVel(Encoder);
 	float vel_mech = Encoder_GetMecVelContinuous(Encoder);
+	if (!MotorAxisProfile_AllowsPosition(&MotorControl->axis_profile,
+		MotorControl->axis_profile_valid, theta_mech, MotorControl->posRef))
+	{
+		MotorControl->idRef = 0.0f;
+		MotorControl->iqRef = 0.0f;
+		Set_ErrorNow(MotorParam_Error);
+		return;
+	}
 
 	config.update_period_s = Cascade_Position_Ts;
 	config.call_divider = CASCADE_POSITION_LOOP_DIVIDER;
@@ -491,6 +499,9 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	if (config.deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
 		config.deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
 	config.maximum_speed = MotorControl->pos_maxspeed;
+	if (MotorControl->axis_profile.magic != 0U &&
+		config.maximum_speed > MotorControl->axis_profile.maximum_speed_rad_s)
+		config.maximum_speed = MotorControl->axis_profile.maximum_speed_rad_s;
 	config.speed_limit = MotorControl->speed_limit;
 	config.jerk_limit = (config.acceleration > config.deceleration ?
 		config.acceleration : config.deceleration) /

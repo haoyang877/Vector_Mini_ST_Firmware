@@ -3,6 +3,7 @@
 
 #include "main.h"
 #include <stdbool.h>
+#include "../software/config/motor_axis_profile.h"
 
 typedef enum
 {
@@ -127,6 +128,9 @@ typedef struct
 	float ol_elec_vel;	/*open-loop electrical angular velocity (rad/s)*/
 	float ol_theta;		/*open-loop electrical angle (rad)*/
 	
+    /* Append to preserve existing diagnostic member offsets. */
+    MotorAxisProfile axis_profile;
+    bool axis_profile_valid;
 }MotorControl_TypeDef;
 
 #endif

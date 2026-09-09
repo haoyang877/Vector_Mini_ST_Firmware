@@ -698,9 +698,61 @@ static void test_capture_release_is_soft_until_target_crossing(void)
     }
 }
 
+/* Synthetic ideal follower: verifies numerical/configuration envelopes only.
+ * These are test inputs, not identified motors or predictions of stability. */
+static void test_operating_envelopes(void)
+{
+    const float currents[] = {1.0f, 3.0f, 6.0f};
+    const float friction_ratios[] = {0.0f, 0.2f, 0.6f};
+    const float angles_deg[] = {0.1f, 5.0f, 20.0f, 85.0f};
+    unsigned ci, fi, ai;
+    int sign, tick;
+    for (ci = 0; ci < 3; ++ci)
+    for (fi = 0; fi < 3; ++fi)
+    for (ai = 0; ai < 4; ++ai)
+    for (sign = -1; sign <= 1; sign += 2)
+    {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        PositionCascadeTelemetry_TypeDef t;
+        float q = 0, v = 0;
+        c.current_limit = currents[ci];
+        c.friction_feedforward_enabled = fi != 0;
+        c.friction_coulomb_positive = currents[ci] * friction_ratios[fi];
+        c.friction_coulomb_negative = c.friction_coulomb_positive * 0.8f;
+        c.friction_viscous_positive = c.friction_viscous_negative = 0.05f * fi;
+        c.acceleration = (ci + 1) * 0.261799388f;
+        c.deceleration = fminf(c.acceleration, POSITION_SERVO_DECELERATION_MAX_RAD_S2);
+        c.maximum_speed = (ci + 1) * 0.261799388f;
+        c.speed_limit = c.maximum_speed * 2;
+        c.jerk_limit = fmaxf(c.acceleration, c.deceleration) / POSITION_SERVO_JERK_RAMP_TIME_S;
+        c.position_kp = 8; c.position_kd = 2;
+        c.speed_kp = .5f; c.speed_ki = 1;
+        c.target_position = sign * angles_deg[ai] * 0.01745329252f;
+        PositionCascade_Reset();
+        for (tick = 0; tick < 40000; ++tick)
+        {
+            o = step(&c, q, v);
+            assert(PositionCascade_GetTelemetry(&t));
+            assert(fabsf(t.trajectory_speed_reference) <= c.maximum_speed + .0001f);
+            assert(fabsf(t.acceleration_reference) <= c.acceleration + .0001f);
+            assert(sign * t.acceleration_reference >= -c.deceleration - .0001f);
+            assert(sign * (o.position_reference - q) >= -.000001f);
+            assert(sign * (c.target_position - o.position_reference) >= -.000001f);
+            q = o.position_reference;
+            v = t.trajectory_speed_reference;
+            if (o.target_reached && fabsf(q - c.target_position) < .00001f) break;
+        }
+        assert(tick < 40000);
+        assert(o.phase == POSITION_SERVO_PHASE_HOLD);
+        assert(fabsf(v) < .00001f);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
+    test_operating_envelopes(); puts("PASS 72 synthetic operating envelopes: current, asymmetric friction, range, both signs");
     test_invalid_config(); puts("PASS invalid inputs/configuration");
     test_low_speed_feedback(); puts("PASS continuous low-speed feedback");
     test_quiet_hold_with_recorded_noise_range(); puts("PASS quiet hold within recorded noise range");

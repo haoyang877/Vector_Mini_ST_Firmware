@@ -5,6 +5,7 @@
 #include "encoder.h"
 #include "position_impedance_config.h"
 #include "position_cascade_config.h"
+#include "../software/config/motor_axis_profile.h"
 
 #define PARAM_SCHEMA_VERSION 9U
 #define PARAM_SCHEMA_VERSION_LEGACY_FRICTION 8U
@@ -64,6 +65,8 @@ typedef struct
 	float friction_viscous_pos_a_per_rad_s;
 	float friction_viscous_neg_a_per_rad_s;
 	uint32_t friction_model_valid;
+	/* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
+	MotorAxisProfile axis_profile;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

@@ -24,6 +24,31 @@ except ImportError:
     pylink = None  # Offline tests can import the module without the bench dependency.
 
 
+def wait_for_rtt(probe, timeout_s=2.0):
+    """Wait for J-Link's asynchronous RTT discovery while the drive is disabled."""
+    deadline = time.monotonic() + timeout_s
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            if probe.rtt_get_num_up_buffers() >= 2:
+                return
+        except Exception as exc:
+            last_error = exc
+        time.sleep(.05)
+    raise RuntimeError(f'RTT discovery timed out before ARM: {last_error}')
+
+
+def read_phase_guard(probe, symbols):
+    """Read the board-owned burst contract and measured per-ARM exposure."""
+    address = symbols.get('servo_hil_current_guard')
+    if address is None:
+        return None
+    x = struct.unpack('<IffIIfIIIfff', bytes(probe.memory_read8(address, 48)))
+    return dict(magic=x[0], maximum_phase_A=x[1], exposure_threshold_A=x[2],
+                exposure_limit_us=x[3], exposure_ticks=x[4], observed_peak_A=x[5],
+                trip=x[6], frequency_hz=x[7], sample_count=x[8], trip_ia=x[9], trip_ib=x[10], trip_ic=x[11])
+
+
 def main():
     if not __debug__:
         raise RuntimeError('Bench safety checks require Python without -O/-OO')
@@ -38,12 +63,19 @@ def main():
     p.add_argument('--seconds', type=float, default=6)
     p.add_argument('--axis-profile', type=Path,
                    help='Verify persisted roll/pitch record and enforce its narrower host travel limits')
+    p.add_argument('--session-dir', type=Path,
+                   help='Separate image/symbol/parameter metadata and captures for this motor')
     p.add_argument('--keep-parameters', action='store_true',
                    help='Verify expected RAM gains and run without writing tuning parameters')
+    p.add_argument('--phase-burst', action='store_true',
+                   help='Allow up to 6 A Iq only with verified board 6 A phase / 30 s exposure guard')
+    p.add_argument('--arm-only', action='store_true',
+                   help='Hold the current position for diagnostics; send no POSITION commands')
     args = p.parse_args()
     if pylink is None:
         p.error('Install pylink-square in the bench Python environment; no probe was opened')
-    targets = [float(x) for x in args.targets.split(',')]
+    session = args.session_dir.resolve() if args.session_dir else OUT
+    targets = [] if args.arm_only else [float(x) for x in args.targets.split(',')]
     axis_profile = json.loads(args.axis_profile.read_text(encoding='utf-8')) if args.axis_profile else None
     target_low, target_high, stop_low, stop_high, stop_current = -85.0, 85.0, -88.0, 88.0, 4.0
     if axis_profile:
@@ -56,16 +88,19 @@ def main():
         stop_low = max(-88, motion['minimum_deg'] + min(2, margin / 2))
         stop_high = min(88, motion['maximum_deg'] - min(2, margin / 2))
         assert stop_low < target_low < target_high < stop_high
-        stop_current = min(4.0, axis_profile['acceptance']['maximum_iq_A'])
+        stop_current = min(6.0 if args.phase_burst else 4.0, axis_profile['acceptance']['maximum_iq_A'])
         assert math.isfinite(stop_current) and stop_current > 0
         assert args.max_speed_deg <= motion['cruise_deg_s'] <= 45
+        if 'test_cruise_deg_s' in motion:
+            assert math.isclose(args.max_speed_deg, motion['test_cruise_deg_s'], abs_tol=1e-6)
     assert all(target_low <= x <= target_high for x in targets)
+    assert not args.phase_burst or axis_profile is not None
     assert all(math.isfinite(x) and abs(x) <= 85 for x in targets)
     assert math.isfinite(args.max_speed_deg) and 0 < args.max_speed_deg <= 45
     assert 1 <= args.seconds <= 20
-    destination = OUT / args.name
+    destination = session / args.name
     destination.mkdir(exist_ok=False)
-    symbols = json.loads((OUT / 'symbols.json').read_text())
+    symbols = json.loads((session / 'symbols.json').read_text())
     base = symbols['servo_hil_mailbox']
     desc = symbols['_SEGGER_RTT'] + 24 + 24
     events, polls = [], []
@@ -78,6 +113,7 @@ def main():
     armed = False
     raw = bytearray()
     runtime_parameters = {}
+    phase_guard = None
     last_tick = None
     last_tick_time = time.monotonic()
 
@@ -148,6 +184,11 @@ def main():
         time.sleep(.02)
         x = snapshot()
         assert x['mode'] == 0 and not x['error']
+        phase_guard = read_phase_guard(j, symbols)
+        if args.phase_burst:
+            assert phase_guard is not None and phase_guard['magic'] == 0x48494331, 'board phase guard missing'
+            assert phase_guard['maximum_phase_A'] == 6.0 and phase_guard['exposure_threshold_A'] == 4.0
+            assert phase_guard['exposure_limit_us'] == 30000000, 'wrong board burst-time guard'
         assert abs(x['position']) <= math.radians(85)
         specs = [('cascade_pos_Kp',4,args.kp), ('cascade_pos_Kd',8,args.kd),
                  ('speed_Kp',5,args.speed_kp), ('speed_Ki',6,args.speed_ki),
@@ -155,7 +196,7 @@ def main():
         if not args.keep_parameters:
             for _, op, value in specs:
                 command(op, value)
-        offsets = json.loads((OUT/'member_offsets.json').read_text())['MotorControl_TypeDef']
+        offsets = json.loads((session/'member_offsets.json').read_text())['MotorControl_TypeDef']
         if axis_profile:
             motor_address = symbols['MotorControl']
             assert j.memory_read8(motor_address + offsets['axis_profile_valid'], 1)[0] == 1
@@ -180,8 +221,7 @@ def main():
         wr = j.memory_read32(desc + 12, 1)[0]
         j.memory_write32(desc + 16, [wr])
         j.rtt_start(symbols['_SEGGER_RTT'])
-        time.sleep(.05)
-        assert j.rtt_get_num_up_buffers() >= 2
+        wait_for_rtt(j)
         for _ in range(50):
             j.rtt_read(1,8192)
             time.sleep(.005)
@@ -200,6 +240,8 @@ def main():
             command(3, math.radians(target))
             print('target', target, 'deg', flush=True)
             collect(args.seconds)
+        if args.arm_only:
+            collect(args.seconds)
         if 'hil_irq_histogram' in symbols:
             timing.update(max_cycles=j.memory_read32(symbols['hil_irq_max_cycles'],1)[0],
                 duration_bins_50us=j.memory_read32(symbols['hil_irq_histogram'],4),
@@ -217,6 +259,7 @@ def main():
                 final = snapshot()
                 assert final['mode'] == 0 and not final['active']
                 assert j.memory_read32(0x40012c20,1)[0] & 0x555 == 0
+                phase_guard = read_phase_guard(j, symbols)
                 shutdown_verified = True
                 if 'hil_irq_histogram' in symbols:
                     timing['including_stop_max_cycles'] = j.memory_read32(symbols['hil_irq_max_cycles'],1)[0]
@@ -249,8 +292,10 @@ def main():
             shutdown_error=shutdown_error, shutdown_verified=shutdown_verified,
             timing=timing,
             runtime_parameters=runtime_parameters,
-            image=json.loads((OUT/'active_image.json').read_text())
-                if (OUT/'active_image.json').exists() else None,
+            phase_guard=phase_guard,
+            axis_profile_snapshot=axis_profile,
+            image=json.loads((session/'active_image.json').read_text())
+                if (session/'active_image.json').exists() else None,
             frame_bytes=24, nominal_sample_rate_hz=2000),indent=2))
         if len(raw)%24 == 0:
             with (destination/'capture.tsv').open('w') as f:

@@ -11,6 +11,14 @@
 #define SERVO_HIL_TRAVEL_LIMIT_RAD 1.57079633f /* 90 deg */
 #define SERVO_HIL_MAX_CRUISE_RAD_S 0.78539816f /* 8 s/rev = 45 deg/s */
 
+/* User-authorized pitch bench burst envelope, phase instantaneous amperes.
+ * User revised the above-4-A cumulative protection to 30 s.
+ * This is not a thermal motor model or a cooldown guarantee. */
+#define SERVO_HIL_PHASE_PEAK_A 6.0f
+#define SERVO_HIL_PHASE_EXPOSURE_THRESHOLD_A 4.0f
+#define SERVO_HIL_PHASE_EXPOSURE_LIMIT_SECONDS 30U
+#define SERVO_HIL_PHASE_EXPOSURE_LIMIT_US (SERVO_HIL_PHASE_EXPOSURE_LIMIT_SECONDS * 1000000U)
+
 typedef enum {
     SERVO_HIL_NONE = 0, SERVO_HIL_STOP = 1, SERVO_HIL_ARM = 2,
     SERVO_HIL_POSITION = 3, SERVO_HIL_POSITION_KP = 4,
@@ -29,4 +37,9 @@ ServoHilCommand ServoHil_Poll(float position, float speed, float iq,
     uint32_t mode, uint32_t error, uint32_t frequency_hz, uint32_t elapsed_ticks);
 /** Adapter reports whether the validated command was accepted by the motor API. */
 void ServoHil_Complete(bool accepted);
+/** Observe every fast-loop phase sample. Latches a bench stop for the next
+ * mailbox poll. Above-threshold time accumulates across dips within one ARM.
+ * Exactly one call per fast sample; Poll supplies the sample clock and checks
+ * time on the alternating tick. Uses no hardware/vendor dependencies. */
+void ServoHil_ObservePhaseCurrents(float ia, float ib, float ic);
 #endif

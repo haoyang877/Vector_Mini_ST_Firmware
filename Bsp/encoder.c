@@ -382,6 +382,12 @@ float Encoder_GetMecVelContinuous(const Encoder_TypeDef *encoder)
 	return encoder->vel_mech_continuous;
 }
 
+bool Encoder_DidUpdateVelocity(const Encoder_TypeDef *encoder)
+{
+	return encoder->bad_frame_streak == 0U && encoder->velocity_sample_count > 0U &&
+		encoder->velocity_divider == 0U;
+}
+
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *encoder)
 {
 	return (float)encoder->linearized_q15 / (float)ENCODER_Q15_CPR;

@@ -157,6 +157,43 @@ static void test_hold_retains_support_and_recovers_disturbance(void)
     assert(o.target_reached && fabsf(o.friction_feedforward_current) < 0.00001f);
 }
 
+static void test_hold_exit_restarts_opposing_integral_transport(void)
+{
+    int sign, i;
+    for (sign=-1; sign<=1; sign+=2) {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        float support, previous;
+        c.target_position = sign * 0.05f;
+        c.position_kp = 8; c.position_kd = 2;
+        c.speed_kp = .5f; c.speed_ki = .5f;
+        c.friction_feedforward_enabled = 0;
+        c.stiction_integral_rate = 0;
+        PositionCascade_Reset();
+        for (i=0; i<3000; ++i) o=step(&c, 0, 0);
+        for (i=0; i<3000; ++i) o=step(&c, c.target_position, 0);
+        assert(o.target_reached);
+        support=o.hold_current;
+        assert(sign*support > .3f);
+        c.speed_ki=0; /* Isolate transport from ordinary PI integration. */
+        for (i=0; i<200; ++i) {
+            o=step(&c,c.target_position-sign*.01f,0);
+            assert(fabsf(o.hold_current-support)<.00001f); /* Helpful support stays. */
+        }
+        for (i=0; i<300; ++i) o=step(&c,c.target_position,0);
+        assert(o.target_reached);
+        previous=o.hold_current;
+        for (i=0; i<200; ++i) {
+            o=step(&c,c.target_position+sign*.01f,sign*.1f);
+            assert(!o.target_reached);
+            assert(fabsf(o.hold_current-previous) <=
+                POSITION_SERVO_INTEGRAL_OPPOSING_MAX_SLEW_A_PER_S*c.update_period_s+.00001f);
+            previous=o.hold_current;
+        }
+        assert(fabsf(o.hold_current) < fabsf(support)-.1f);
+    }
+}
+
 static void test_recover_stalled_landing_before_trajectory_ends(void)
 {
     PositionCascadeConfig_TypeDef c = config();
@@ -749,14 +786,61 @@ static void test_operating_envelopes(void)
     }
 }
 
+static void test_live_filter_reconfiguration(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o;
+    float before, expected, ratio;
+    PositionCascade_Reset();
+    o = step(&c, 0, 0);
+    o = step(&c, 0, .1f);
+    before = o.speed_feedback;
+    c.velocity_filter_hz = 10.0f;
+    c.update_period_s = .001f;
+    ratio = 6.2831853072f * 10.0f * .001f;
+    expected = before + ratio / (1.0f + ratio) * (.1f - before);
+    o = step(&c, 0, .1f);
+    assert(fabsf(o.speed_feedback - expected) < .000001f);
+    c.velocity_filter_hz = 0;
+    o = step(&c, 0, -.1f);
+    assert(o.speed_feedback == -.1f);
+    c.velocity_filter_hz = 40;
+    before = o.speed_feedback;
+    ratio = 6.2831853072f * 40.0f * c.update_period_s;
+    expected = before + ratio / (1.0f + ratio) * (.1f - before);
+    o = step(&c, 0, .1f);
+    assert(fabsf(o.speed_feedback - expected) < .000001f);
+}
+
+static void test_live_hold_period_reconfiguration(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o;
+    int i;
+    c.velocity_filter_hz = 0;
+    PositionCascade_Reset();
+    o = step(&c, 0, .1f); /* Initialize without starting hold confirmation. */
+    assert(!o.target_reached);
+    c.update_period_s = .001f;
+    for (i = 0; i < 49; ++i) {
+        o = step(&c, 0, 0);
+        assert(!o.target_reached);
+    }
+    o = step(&c, 0, 0);
+    assert(o.target_reached); /* Still 50 ms after changing from 2 kHz to 1 kHz. */
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
+    test_live_filter_reconfiguration(); puts("PASS live filter frequency/period changes and disable/re-enable");
+    test_live_hold_period_reconfiguration(); puts("PASS hold confirmation time after live update-period change");
     test_operating_envelopes(); puts("PASS 72 synthetic operating envelopes: current, asymmetric friction, range, both signs");
     test_invalid_config(); puts("PASS invalid inputs/configuration");
     test_low_speed_feedback(); puts("PASS continuous low-speed feedback");
     test_quiet_hold_with_recorded_noise_range(); puts("PASS quiet hold within recorded noise range");
     test_hold_retains_support_and_recovers_disturbance(); puts("PASS retained support and disturbance recovery");
+    test_hold_exit_restarts_opposing_integral_transport(); puts("PASS HOLD loss restarts bounded opposing-integral transport; helpful support retained, both signs");
     test_recover_stalled_landing_before_trajectory_ends(); puts("PASS recovery before trajectory completion");
     test_deceleration_keeps_friction_until_capture(); puts("PASS deceleration friction retained until capture in both directions");
     test_braking_preserves_learned_load_until_reversal(); puts("PASS braking retains learned load while reversal unloads it");

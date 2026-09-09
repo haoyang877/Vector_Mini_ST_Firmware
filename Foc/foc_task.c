@@ -84,7 +84,7 @@ static int16_t RTT_EncodeAngleQ15(float angle)
 	return RTT_EncodeInt16(angle, RTT_ANGLE_Q15_SCALE);
 }
 
-void RTT_Sampling(void)
+static void RTT_Sampling(bool defer_encoding)
 {
 	static uint32_t rtt_divider_count;
 	static bool previous_frame_dropped;
@@ -96,6 +96,12 @@ void RTT_Sampling(void)
 	bool servo_telemetry_valid;
 
 	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
+		return;
+	/* Preserve the divider clock while deferring optional encoding away from
+	 * the HIL mailbox/diagnostic publication tick as well as the servo tick. */
+	if (defer_encoding)
+		return;
+	if (Encoder_DidUpdateVelocity(&OnBoard_Encoder))
 		return;
 	/* Do not stack frame encoding on the same IRQ as the 2 kHz servo.
 	 * A coincident frame is deferred by one fast tick; subsequent frames keep
@@ -242,9 +248,15 @@ void FOC1kHzSupervisor(void)
 
 void FOC20kHzIRQHandler(void)
 {
+	static bool position_start_prepared;
+	bool defer_position_power_start = false;
+	bool defer_optional_telemetry = false;
 	Vbus_Update(&FOC, &MotorControl);
 	
 	Current_Cal(&FOC, &MotorControl);
+	#if SERVO_HIL_ENABLE
+	ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
+	#endif
 	
 	Encoder_Update(&MotorControl, &OnBoard_Encoder);
 #if SERVO_HIL_ENABLE
@@ -253,6 +265,7 @@ void FOC20kHzIRQHandler(void)
 		 * ARM occurs here, so the divided servo subsequently falls between polls. */
 		static uint8_t hil_divider;
 		if (++hil_divider >= 2U) {
+			defer_optional_telemetry = true;
 			ServoHilCommand command = ServoHil_Poll(Encoder_GetMecPos(&OnBoard_Encoder),
 				Encoder_GetMecVelContinuous(&OnBoard_Encoder), FOC.Iq,
 				(uint32_t)MotorControl.ModeNow, (uint32_t)MotorControl.ErrorNow, FOC_FREQ, 2U);
@@ -288,7 +301,12 @@ void FOC20kHzIRQHandler(void)
 	{
 		case Motor_Disable:
 			PhaseResistanceMode_Cancel(&FOC, &MotorControl);
-			PWM_TurnOnHighSides();
+			/* Outputs stay disabled. Prime an equal-duty zero vector before
+			 * the next enable, rather than switching from 100% preload during
+			 * the first current-sampling window. Use the existing PWM adapter. */
+			Set_A_Duty(0.5f);
+			Set_B_Duty(0.5f);
+			Set_C_Duty(0.5f);
 		break;
 		
 		case Current_Mode:
@@ -398,16 +416,28 @@ void FOC20kHzIRQHandler(void)
 	
 	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable)
 	{
-		Start_PWM_Generate();
+		/* The first mode-3 tick validates/initializes the controller while
+		 * phase outputs are still off. Enable on the following fast tick,
+		 * after the neutral preload and without combining both startup costs. */
+		if (MotorControl.ModeNow == Position_Mode && !position_start_prepared)
+		{
+			position_start_prepared = true;
+			defer_position_power_start = true;
+		}
+		else
+			Start_PWM_Generate();
 	}
+	if (!defer_position_power_start)
+		position_start_prepared = false;
 	
 	Detect_Mode_Error_Change();
 	
-	ModeLast  = MotorControl.ModeNow;
+	if (!defer_position_power_start)
+		ModeLast = MotorControl.ModeNow;
 	ErrorLast = MotorControl.ErrorNow;
 	
 	MotorControl.ModeNow_f = MotorControl.ModeNow;
 	MotorControl.ErrorNow_f = MotorControl.ErrorNow;
     
-    RTT_Sampling();
+    RTT_Sampling(defer_optional_telemetry);
 }

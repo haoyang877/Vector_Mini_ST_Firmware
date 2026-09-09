@@ -89,6 +89,63 @@ class Mode3ValidationTests(unittest.TestCase):
             self.assertTrue(r["automatic_pass"], r["errors"])
             self.assertIn("NOT_EVALUATED", r["mechanical_vibration"])
 
+    def test_configured_irq_deadline_checks_startup_run_and_stop(self):
+        p = copy.deepcopy(self.profile); p['acceptance']['maximum_irq_cycles'] = 8500
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder)/'timed.json'; validation.write_json(profile, p)
+            self.assertFalse(validation.analyze_trial(profile, self.fixture(folder))['automatic_pass'])
+            def good(t): t['timing'] = dict(startup_max_cycles=8400, max_cycles=8300, including_stop_max_cycles=8350)
+            self.assertTrue(validation.analyze_trial(profile, self.fixture(folder, good))['automatic_pass'])
+            for key in ('startup_max_cycles','max_cycles','including_stop_max_cycles'):
+                def bad(t): good(t); t['timing'][key] = 8500
+                self.assertFalse(validation.analyze_trial(profile, self.fixture(folder, bad))['automatic_pass'])
+
+    def test_delayed_slip_cannot_hide_behind_a_good_final_tail(self):
+        p = copy.deepcopy(self.profile)
+        p['acceptance']['maximum_post_hold_error_deg'] = .3
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder)/'hold.json'; validation.write_json(profile, p)
+            self.assertTrue(validation.analyze_trial(profile, self.fixture(folder))['automatic_pass'])
+            def slip(rows):
+                rows[10][1] = 120  # 0.659 degrees, before the final 2 s tail.
+                rows[10][11] = 129  # Leave HOLD, then recover before the tail.
+            result = validation.analyze_trial(profile, self.fixture(folder, rows_mutate=slip))
+            self.assertFalse(result['automatic_pass'])
+            self.assertEqual(result['moves'][0]['tail_max_abs_error_deg'], 0)
+            self.assertGreater(result['moves'][0]['post_hold_max_abs_error_deg'], .6)
+
+    def test_reduced_test_cruise_keeps_axis_ceiling_and_checks_readback(self):
+        p = copy.deepcopy(self.profile)
+        p["motion"]["test_cruise_deg_s"] = 15
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder) / "slow.json"
+            validation.write_json(profile, p)
+            trial = self.fixture(folder)
+            self.assertFalse(validation.analyze_trial(profile, trial)["automatic_pass"])
+            trial = self.fixture(folder, lambda t: t["runtime_parameters"].update(pos_maxspeed=math.pi / 12))
+            self.assertTrue(validation.analyze_trial(profile, trial)["automatic_pass"])
+            self.assertEqual(p["motion"]["cruise_deg_s"], 45)
+        p["motion"]["test_cruise_deg_s"] = 46
+        with self.assertRaises(ValueError): validation.validate_profile(p)
+
+    def test_phase_burst_requires_measured_board_guard_without_trip(self):
+        p = copy.deepcopy(self.profile)
+        p['burst_current_guard'] = dict(maximum_phase_A=6, exposure_threshold_A=4, exposure_limit_us=4500000)
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder) / 'burst.json'
+            validation.write_json(profile, p)
+            trial = self.fixture(folder)
+            self.assertFalse(validation.analyze_trial(profile, trial)['automatic_pass'])
+            def measured(t):
+                t['arguments']['phase_burst'] = True
+                t['phase_guard'] = dict(magic=0x48494331, maximum_phase_A=6, exposure_threshold_A=4,
+                    exposure_limit_us=4500000, observed_peak_A=5, frequency_hz=20000, exposure_ticks=9000, trip=0)
+            self.assertTrue(validation.analyze_trial(profile, self.fixture(folder, measured))['automatic_pass'])
+            for field, value in [('trip', 6), ('exposure_ticks', 90000), ('observed_peak_A', 6), ('frequency_hz', 0)]:
+                def bad(t):
+                    measured(t); t['phase_guard'][field] = value
+                self.assertFalse(validation.analyze_trial(profile, self.fixture(folder, bad))['automatic_pass'])
+
     def test_stop_failure_missing_commands_and_image_cannot_pass(self):
         mutations = [lambda t: t.update(shutdown_verified=False),
                      lambda t: t.update(failure="heartbeat expired"),

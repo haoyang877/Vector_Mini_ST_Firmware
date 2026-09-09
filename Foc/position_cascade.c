@@ -13,6 +13,9 @@ typedef struct
 {
 	PositionCascadeConfig_TypeDef validated_config;
 	bool config_valid;
+	uint32_t configured_hold_ticks;
+	uint32_t configured_stuck_ticks;
+	float configured_velocity_filter_alpha;
 	PI_Controller_TypeDef speed_controller;
 	PositionSmoothTrajectory smooth_trajectory;
 	bool smooth_active;
@@ -182,6 +185,16 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 		return true;
 	state.defer_telemetry = true;
 	if (!PositionCascade_ConfigIsValid(config)) return false;
+	/* Configuration-derived constants stay out of the 2 kHz control path.
+	 * Refresh only after complete validation, including when tuning changes. */
+	state.configured_hold_ticks = PositionCascade_TimeToTicks(config,
+		POSITION_SERVO_HOLD_CONFIRM_TIME_S);
+	state.configured_stuck_ticks = PositionCascade_TimeToTicks(config,
+		config->friction_stuck_time);
+	{
+		float ratio = 6.2831853072f * config->velocity_filter_hz * config->update_period_s;
+		state.configured_velocity_filter_alpha = ratio / (1.0f + ratio);
+	}
 	memcpy(&state.validated_config, config, sizeof(*config));
 	state.config_valid = true;
 	return true;
@@ -428,8 +441,7 @@ static void PositionCascade_UpdateFriction(
 	landing_zero_position = landing_position * POSITION_SERVO_FRICTION_LANDING_ZERO_RATIO;
 	feedback_is_stopped = PositionCascade_Abs(measured_speed) <=
 		config->friction_stop_speed;
-	stuck_ticks = PositionCascade_TimeToTicks(config,
-		config->friction_stuck_time);
+	stuck_ticks = state.configured_stuck_ticks;
 
 	if (state.phase == POSITION_SERVO_PHASE_HOLD || state.settling_in_window)
 	{
@@ -714,7 +726,7 @@ static void PositionCascade_UpdateStictionIntegral(
 	float target_error = config->target_position - measured_position;
 	float current_candidate;
 	float increment;
-	uint32_t ticks = PositionCascade_TimeToTicks(config, config->friction_stuck_time);
+	uint32_t ticks = state.configured_stuck_ticks;
 
 	state.stiction_integrating = false;
 	/* Use reference error as well as target error: never push ahead of the
@@ -776,7 +788,6 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	float hold_exit_position;
 	float speed_kp_current_domain;
 	float speed_ki_current_domain;
-	float velocity_filter_ratio;
 	float speed_command_limit;
 	uint32_t hold_ticks;
 	bool trajectory_done;
@@ -826,9 +837,7 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	state.defer_telemetry = true;
 	if (config->velocity_filter_hz > 0.0f)
 	{
-		velocity_filter_ratio = 6.2831853072f * config->velocity_filter_hz *
-			config->update_period_s;
-		state.velocity_filtered += velocity_filter_ratio / (1.0f + velocity_filter_ratio) *
+		state.velocity_filtered += state.configured_velocity_filter_alpha *
 			(measured_speed - state.velocity_filtered);
 	}
 	else
@@ -870,12 +879,15 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 			state.phase = POSITION_SERVO_PHASE_SETTLE;
 			state.target_reached = false;
 			state.hold_counter = 0U;
+			/* A loss of hold starts a new correction episode even when the
+			 * command has not changed. Re-enable the existing bounded opposing
+			 * integral transport; useful load support still remains untouched. */
+			state.target_transition_active = true;
 		}
 	}
 	else if (trajectory_done)
 	{
-		hold_ticks = PositionCascade_TimeToTicks(config,
-			POSITION_SERVO_HOLD_CONFIRM_TIME_S);
+		hold_ticks = state.configured_hold_ticks;
 		if ((state.hold_counter == 0U && state.settling_in_window &&
 			 PositionCascade_Abs(config->target_position - measured_position) <=
 				hold_exit_position &&

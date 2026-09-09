@@ -102,6 +102,9 @@ float Encoder_GetEleVel(const Encoder_TypeDef *Encoder);
 float Encoder_GetMecVel(const Encoder_TypeDef *Encoder);
 /** Same windowed mechanical velocity in rad/s, without the legacy zero deadband. */
 float Encoder_GetMecVelContinuous(const Encoder_TypeDef *Encoder);
+/** True when the last successful sample also refreshed the divided velocity
+ * estimate. Optional telemetry may use this to avoid stacking slow work. */
+bool Encoder_DidUpdateVelocity(const Encoder_TypeDef *Encoder);
 float Encoder_GetElePhase(const Encoder_TypeDef *Encoder);
 float Encoder_GetMecPos(const Encoder_TypeDef *Encoder);
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *Encoder);

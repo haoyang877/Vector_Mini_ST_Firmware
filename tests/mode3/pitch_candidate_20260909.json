@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "name": "pitch",
-  "notes": "Pitch Flash baseline after manual zero correction; runtime tuning candidates and scope are recorded separately in pitch_candidate_20260909.json and docs/pitch_mode3_validation_20260909.md.",
+  "notes": "Pitch candidate: 6 A phase peak, 30 s cumulative above 4 A protection per latest user instruction; gains remain RAM only.",
   "motor": {
     "identity": "pitch",
     "inertia_kg_m2": null,
@@ -18,10 +18,10 @@
     "stored_deceleration_deg_s2": 45.0
   },
   "runtime": {
-    "cascade_pos_Kp": 0.05000000074505806,
-    "cascade_pos_Kd": 0.5,
-    "speed_Kp": 0.05000000074505806,
-    "speed_Ki": 0.5,
+    "cascade_pos_Kp": 8,
+    "cascade_pos_Kd": 2,
+    "speed_Kp": 0.5,
+    "speed_Ki": 2,
     "current_limit_A": 6.0
   },
   "core": {
@@ -41,9 +41,11 @@
     "position_tolerance_deg": 0.3,
     "tail_seconds": 2,
     "minimum_hold_fraction": 1,
-    "maximum_iq_A": 4,
+    "maximum_iq_A": 6,
     "maximum_drop_samples": 0,
-    "maximum_saturation_samples": 0
+    "maximum_saturation_samples": 0,
+    "maximum_irq_cycles": 8500,
+    "maximum_post_hold_error_deg": 0.3
   },
   "dwell_seconds": {
     "hold": 10,
@@ -67,9 +69,32 @@
     "mechanical_zero_q15": 36688,
     "schema_version": 10
   },
+  "validation_status": {
+    "gains_flash_saved": false,
+    "envelope": "FLASH_VERIFIED_-0.3_TO_0.9_RAD",
+    "current_image": "image_pitch_hold_transport",
+    "final_image_trials": [
+      "pitch43_hold_fix_micro",
+      "pitch44_hold_fix_short8",
+      "pitch45_hold_fix_range",
+      "pitch46_hold_fix_long_micro"
+    ],
+    "final_image_automatic_checks": "4_OF_4_PASS",
+    "final_image_maximum_post_hold_error_deg": 0.2640380859375002,
+    "irq": "0_OVERRUNS_IN_13734719_RECORDED_RUN_TICKS; FINAL_IMAGE_MAX_8311_CYCLES",
+    "historical_failure": "pitch39 HOLD fraction failed before hold-recovery fix; pitch31 delayed slip not reproduced this batch",
+    "structural_vibration": "NOT_INDEPENDENTLY_MEASURED",
+    "scope": "Bench observations within -12 to +46 deg target range, not exhaustive qualification"
+  },
   "mechanical_limit_confirmed": {
     "minimum_rad": -0.3,
     "maximum_rad": 0.9,
     "source": "User revised actual travel to -0.3 rad / +0.9 rad"
+  },
+  "burst_current_guard": {
+    "maximum_phase_A": 6,
+    "exposure_threshold_A": 4,
+    "exposure_limit_us": 30000000,
+    "user_maximum_seconds": 30
   }
 }

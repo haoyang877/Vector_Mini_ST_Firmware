@@ -33,6 +33,21 @@ class OutputProbe:
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_rtt_wait_handles_delayed_discovery_without_arming(self):
+        probe = MagicMock()
+        probe.rtt_get_num_up_buffers.side_effect = [RuntimeError('not yet found'), 1, 2]
+        with patch.object(runner.time, 'sleep'):
+            runner.wait_for_rtt(probe)
+        self.assertEqual(probe.rtt_get_num_up_buffers.call_count, 3)
+        probe.memory_write32.assert_not_called()
+
+    def test_rtt_wait_is_bounded(self):
+        probe = MagicMock(); probe.rtt_get_num_up_buffers.return_value = 0
+        with patch.object(runner.time, 'monotonic', side_effect=[0, .1, 2.1]), \
+             patch.object(runner.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'before ARM'):
+                runner.wait_for_rtt(probe)
+
     def test_shutdown_disables_before_halt(self):
         result = disable_outputs(OutputProbe())
         self.assertTrue(result['cpu_halted'])

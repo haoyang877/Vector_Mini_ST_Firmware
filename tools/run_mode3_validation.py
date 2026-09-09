@@ -44,6 +44,9 @@ def validate_profile(p):
         raise ValueError("Travel interval must exceed twice the target margin")
     for key in ("cruise_deg_s", "acceleration_deg_s2", "stored_deceleration_deg_s2"):
         number(m, key)
+    if "test_cruise_deg_s" in m:
+        if number(m, "test_cruise_deg_s") > m["cruise_deg_s"]:
+            raise ValueError("Test cruise must not exceed the persisted axis speed ceiling")
     for key in ("cascade_pos_Kp", "cascade_pos_Kd", "speed_Kp", "speed_Ki"):
         number(r, key, strictly=False)
     if r["cascade_pos_Kp"] > 50 or r["cascade_pos_Kd"] > 10:
@@ -58,6 +61,8 @@ def validate_profile(p):
     if number(a, "minimum_hold_fraction") > 1:
         raise ValueError("minimum_hold_fraction must be <= 1")
     number(a, "maximum_iq_A")
+    if "maximum_post_hold_error_deg" in a:
+        number(a, "maximum_post_hold_error_deg")
     for key in ("maximum_drop_samples", "maximum_saturation_samples"):
         value = number(a, key, strictly=False)
         if int(value) != value:
@@ -185,9 +190,28 @@ def analyze_trial(profile, trial_path, case_id=None):
     require(not trial.get("failure"), "trial failure")
     require(trial.get("shutdown_verified") is True and not trial.get("shutdown_error"), "shutdown not verified")
     require(bool(trial.get("image")), "image identity missing")
+    if "maximum_irq_cycles" in p["acceptance"]:
+        deadline = p["acceptance"]["maximum_irq_cycles"]
+        for key in ("startup_max_cycles", "max_cycles", "including_stop_max_cycles"):
+            cycles = (trial.get("timing") or {}).get(key)
+            require(isinstance(cycles, int) and 0 <= cycles < deadline, "IRQ deadline/missing: " + key)
+    if "burst_current_guard" in p:
+        guard = trial.get("phase_guard") or {}
+        require(trial.get("arguments", {}).get("phase_burst") is True, "phase burst not explicitly enabled")
+        require(guard.get("magic") == 0x48494331, "board phase guard missing")
+        for key in ("maximum_phase_A", "exposure_threshold_A", "exposure_limit_us"):
+            require(guard.get(key) == p["burst_current_guard"][key], "phase guard contract: " + key)
+        peak = guard.get("observed_peak_A")
+        require(isinstance(peak, (int, float)) and math.isfinite(peak) and
+                0 <= peak < p["burst_current_guard"]["maximum_phase_A"], "phase peak threshold")
+        freq, ticks = guard.get("frequency_hz", 0), guard.get("exposure_ticks", -1)
+        require(isinstance(freq, int) and freq > 0 and isinstance(ticks, int) and ticks >= 0 and
+                ticks * 1000000 < freq * p["burst_current_guard"]["exposure_limit_us"], "phase exposure duration")
+        require(guard.get("trip") == 0, "board phase guard tripped")
     expected_runtime = {key: p["runtime"][key] for key in
                         ("cascade_pos_Kp", "cascade_pos_Kd", "speed_Kp", "speed_Ki")}
-    expected_runtime["pos_maxspeed"] = math.radians(p["motion"]["cruise_deg_s"])
+    expected_runtime["pos_maxspeed"] = math.radians(
+        p["motion"].get("test_cruise_deg_s", p["motion"]["cruise_deg_s"]))
     actual_runtime = trial.get("runtime_parameters", {})
     for key, value in expected_runtime.items():
         actual = actual_runtime.get(key)
@@ -255,6 +279,22 @@ def analyze_trial(profile, trial_path, case_id=None):
         peak = max(abs(rows[n][7]) / 1000 for n in indices)
         drops = sum(bool(flags[n] & 64) for n in indices)
         saturation = sum(bool(flags[n] & 8) for n in indices)
+        # Require 50 ms continuously in HOLD after command dispatch before
+        # checking all subsequent samples, including a later exit/recovery.
+        # A good final tail must not hide a delayed slip earlier in the dwell.
+        post_hold_error = None
+        hold_start = None
+        for n in indices:
+            if times[n] < e["time"] + .05 or (flags[n] & 3) != 2:
+                hold_start = None
+            else:
+                if hold_start is None: hold_start = n
+                if times[n] - times[hold_start] >= .05:
+                    post_hold_error = max(abs(target - q[k]) for k in range(hold_start, end))
+                    break
+        if "maximum_post_hold_error_deg" in a:
+            require(post_hold_error is not None and post_hold_error <= a["maximum_post_hold_error_deg"],
+                    f"move {i+1}: post-HOLD excursion/missing sustained HOLD")
         require(error <= a["position_tolerance_deg"], f"move {i+1}: position tolerance")
         require(hold >= a["minimum_hold_fraction"], f"move {i+1}: HOLD fraction")
         require(peak < a["maximum_iq_A"], f"move {i+1}: current threshold")
@@ -262,6 +302,7 @@ def analyze_trial(profile, trial_path, case_id=None):
         require(saturation <= a["maximum_saturation_samples"], f"move {i+1}: current saturation")
         direction = 1 if target > q[start] else -1 if target < q[start] else 0
         moves.append({"target_deg": target, "tail_max_abs_error_deg": error, "tail_hold_fraction": hold,
+                      "post_hold_max_abs_error_deg": post_hold_error,
                       "tail_motion_peak_to_peak_deg": max(q[n] for n in tail) - min(q[n] for n in tail),
                       "iq_peak_A": peak, "drop_samples": drops, "saturation_samples": saturation,
                       "overshoot_deg": max(0, max(direction * (q[n]-target) for n in indices))})

@@ -78,8 +78,8 @@
 #define SPEED_LOOP_DIVIDER          (FOC_FREQ / SPEED_LOOP_FREQ)
 #define Speed_Ts                    (1.0f / (float)SPEED_LOOP_FREQ)
 
-/* Position trajectory and impedance controller run at 1 kHz. */
-#define POSITION_LOOP_FREQ          1000U
+/* Position trajectory and impedance controller run at 2 kHz. */
+#define POSITION_LOOP_FREQ          2000U
 #if POSITION_LOOP_FREQ == 0U
 #error "POSITION_LOOP_FREQ must be greater than zero"
 #elif POSITION_LOOP_FREQ > FOC_FREQ

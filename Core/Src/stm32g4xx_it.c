@@ -239,8 +239,13 @@ void ADC1_2_IRQHandler(void)
 #endif
 
   /* USER CODE END ADC1_2_IRQn 0 */
-  HAL_ADC_IRQHandler(&hadc1);
-  HAL_ADC_IRQHandler(&hadc2);
+  /* Board IRQ dispatch: ISR/IER bit positions match on STM32G4.
+   * Skip idle peripherals, but preserve every enabled ADC event/error path.
+   * Retain these guards when regenerating the shared ADC vector. */
+  if ((hadc1.Instance->ISR & hadc1.Instance->IER) != 0U)
+    HAL_ADC_IRQHandler(&hadc1);
+  if ((hadc2.Instance->ISR & hadc2.Instance->IER) != 0U)
+    HAL_ADC_IRQHandler(&hadc2);
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
 #if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
   hil_elapsed = DWT->CYCCNT - hil_start;

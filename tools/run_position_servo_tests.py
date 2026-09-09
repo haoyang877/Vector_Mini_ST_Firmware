@@ -52,6 +52,7 @@ def encoder_fixture():
 typedef struct {
     int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
     uint8_t velocity_divider, velocity_history_index, velocity_sample_count;
+    uint16_t bad_frame_streak;
     int32_t velocity_delta_sum;
     bool velocity_ready;
     int64_t velocity_shadow_q15, shadow_q15;
@@ -59,15 +60,22 @@ typedef struct {
 } Encoder_TypeDef;
 """ + "\n".join(function_source(source, name) for name in
     ["Encoder_ResetVelocity", "Encoder_UpdateVelocity2kHz", "Encoder_GetMecVel",
-     "Encoder_GetMecVelContinuous"]) + """
+     "Encoder_GetMecVelContinuous", "Encoder_DidUpdateVelocity"]) + """
 int main(void) {
     Encoder_TypeDef e = {0};
     int k, n;
     Encoder_ResetVelocity(&e);
+    assert(!Encoder_DidUpdateVelocity(&e));
     for (k=0; k<400; ++k) {
         if ((k % 4)==0) e.shadow_q15++;
-        for(n=0; n<10; ++n) Encoder_UpdateVelocity2kHz(&e, 7);
+        for(n=0; n<10; ++n) {
+            Encoder_UpdateVelocity2kHz(&e, 7);
+            assert(Encoder_DidUpdateVelocity(&e) == (n == 9));
+        }
     }
+    e.bad_frame_streak = 1;
+    assert(!Encoder_DidUpdateVelocity(&e));
+    e.bad_frame_streak = 0;
     assert(Encoder_GetMecVel(&e)==0);
     assert(fabsf(Encoder_GetMecVelContinuous(&e)-_2PI/(65536.0f*.002f))<.00001f);
     Encoder_ResetVelocity(&e);
@@ -87,6 +95,46 @@ int main(void) {
     return 0;
 }
 """
+
+
+def adc_irq_fixture():
+    # Compile the actual board vector with register stubs, without CMSIS or
+    # HIL cycle-counter instrumentation. The firmware build checks real types.
+    source = (ROOT / 'Core/Src/stm32g4xx_it.c').read_text(encoding='utf-8')
+    return r'''
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+typedef struct { uint32_t ISR, IER; } AdcRegisters;
+typedef struct { AdcRegisters *Instance; unsigned calls; } ADC_HandleTypeDef;
+static AdcRegisters adc1, adc2;
+static ADC_HandleTypeDef hadc1 = {&adc1, 0}, hadc2 = {&adc2, 0};
+static void HAL_ADC_IRQHandler(ADC_HandleTypeDef *adc) {
+    adc->calls++;
+    adc->Instance->ISR &= ~adc->Instance->IER;
+}
+''' + function_source(source, 'ADC1_2_IRQHandler') + r'''
+int main(void) {
+    unsigned bit;
+    for (bit=0; bit<11; ++bit) {
+        uint32_t mask=1U<<bit;
+        adc1.ISR=mask; adc1.IER=0; adc2.ISR=0; adc2.IER=mask;
+        hadc1.calls=hadc2.calls=0;
+        ADC1_2_IRQHandler();
+        assert(hadc1.calls==0 && hadc2.calls==0 && adc1.ISR==mask);
+        adc1.IER=mask; adc2.ISR=mask;
+        ADC1_2_IRQHandler();
+        assert(hadc1.calls==1 && hadc2.calls==1 && adc1.ISR==0 && adc2.ISR==0);
+        ADC1_2_IRQHandler();
+        assert(hadc1.calls==1 && hadc2.calls==1);
+    }
+    puts("PASS actual STM32G4 ADC vector: idle, disabled flags, both ADCs, all 11 event bits");
+    return 0;
+}
+'''
 
 
 def main():
@@ -129,6 +177,9 @@ def main():
                                               "Foc/position_smooth_trajectory.c"])
     fixture.write_text(encoder_fixture(), encoding="utf-8")
     build("encoder_estimator_test", [fixture])
+    irq_fixture = args.out / "adc_irq_dispatch_test.c"
+    irq_fixture.write_text(adc_irq_fixture(), encoding="utf-8")
+    build("adc_irq_dispatch_test", [irq_fixture])
     build("servo_hil_test", ["tests/unit/servo_hil_test.c"])
     build("motor_axis_profile_test", ["tests/unit/motor_axis_profile_test.c",
                                       "software/config/motor_axis_profile.c"])

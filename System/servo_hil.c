@@ -14,6 +14,50 @@ static uint32_t last_heartbeat, heartbeat_ticks, pending_sequence;
 static ServoHilAction pending_action;
 static bool armed;
 
+/* Read-only host diagnostics/contract; no host writes are accepted here. */
+typedef struct {
+    uint32_t magic;
+    float phase_peak_limit_a, exposure_threshold_a;
+    uint32_t exposure_limit_us, exposure_ticks;
+    float observed_peak_a;
+    uint32_t trip, frequency_hz, sample_count;
+    float trip_ia, trip_ib, trip_ic;
+} ServoHilCurrentGuard;
+static ServoHilCurrentGuard phase_guard_state = {0x48494331U, SERVO_HIL_PHASE_PEAK_A,
+    SERVO_HIL_PHASE_EXPOSURE_THRESHOLD_A, SERVO_HIL_PHASE_EXPOSURE_LIMIT_US,
+    0, 0, 0, 0, 0, 0, 0, 0};
+
+/* Publish on the alternating mailbox tick, away from the position-loop tick. */
+static volatile ServoHilCurrentGuard servo_hil_current_guard = {0x48494331U,
+    SERVO_HIL_PHASE_PEAK_A, SERVO_HIL_PHASE_EXPOSURE_THRESHOLD_A,
+    SERVO_HIL_PHASE_EXPOSURE_LIMIT_US, 0, 0, 0, 0, 0, 0, 0, 0};
+
+void ServoHil_ObservePhaseCurrents(float ia, float ib, float ic)
+{
+    float peak;
+    if (!armed || phase_guard_state.trip != 0U) return;
+    if (!isfinite(ia + ib + ic)) {
+        phase_guard_state.trip = 5U;
+        return;
+    }
+    peak = fabsf(ia);
+    if (fabsf(ib) > peak) peak = fabsf(ib);
+    if (fabsf(ic) > peak) peak = fabsf(ic);
+    if (peak > phase_guard_state.observed_peak_a)
+        phase_guard_state.observed_peak_a = peak;
+    if (peak >= SERVO_HIL_PHASE_PEAK_A) {
+        phase_guard_state.trip_ia = ia;
+        phase_guard_state.trip_ib = ib;
+        phase_guard_state.trip_ic = ic;
+        phase_guard_state.trip = 5U;
+    }
+    if (peak > SERVO_HIL_PHASE_EXPOSURE_THRESHOLD_A) {
+        if (phase_guard_state.exposure_ticks < UINT32_MAX)
+            phase_guard_state.exposure_ticks++;
+        else phase_guard_state.trip = 6U;
+    }
+}
+
 static ServoHilCommand stop(uint32_t result)
 {
     ServoHilCommand c = {SERVO_HIL_STOP, 0};
@@ -35,6 +79,17 @@ ServoHilCommand ServoHil_Poll(float position, float speed, float iq,
     servo_hil_mailbox.iq = iq;
     servo_hil_mailbox.mode = mode;
     servo_hil_mailbox.error = error;
+    if (armed) {
+        phase_guard_state.sample_count += elapsed_ticks;
+        phase_guard_state.frequency_hz = frequency_hz;
+        if (frequency_hz < 2U || frequency_hz > UINT32_MAX / SERVO_HIL_PHASE_EXPOSURE_LIMIT_SECONDS || elapsed_ticks == 0U)
+            phase_guard_state.trip = 5U;
+        else if (phase_guard_state.exposure_ticks >= frequency_hz * SERVO_HIL_PHASE_EXPOSURE_LIMIT_SECONDS)
+            phase_guard_state.trip = 6U;
+    }
+    servo_hil_current_guard = phase_guard_state;
+    if (armed && phase_guard_state.trip != 0U)
+        return stop(phase_guard_state.trip);
     heartbeat = servo_hil_mailbox.heartbeat;
     if (heartbeat != last_heartbeat) {
         last_heartbeat = heartbeat;
@@ -96,6 +151,13 @@ void ServoHil_Complete(bool accepted)
 {
     if (pending_action == SERVO_HIL_NONE) return;
     if (accepted && pending_action == SERVO_HIL_ARM) {
+        phase_guard_state.exposure_ticks = 0U;
+        phase_guard_state.observed_peak_a = 0.0f;
+        phase_guard_state.trip = 0U;
+        phase_guard_state.sample_count = 0U;
+        phase_guard_state.trip_ia = 0.0f;
+        phase_guard_state.trip_ib = 0.0f;
+        phase_guard_state.trip_ic = 0.0f;
         armed = true;
         heartbeat_ticks = 0;
     }

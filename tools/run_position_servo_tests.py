@@ -137,6 +137,103 @@ int main(void) {
 '''
 
 
+def joint_startup_fixture():
+    source = (ROOT / 'Foc/foc_param.c').read_text(encoding='utf-8')
+    return r'''
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include "../software/config/motor_axis_profile.h"
+typedef struct {
+    MotorAxisProfile axis_profile;
+    bool axis_profile_valid;
+    float cascade_pos_Kp, cascade_pos_Kd, speed_Kp, speed_Ki;
+    float posAcc, posDec, pos_maxspeed, current_limit, speed_limit;
+    unsigned calibration_sentinel;
+} MotorControl_TypeDef;
+''' + function_source(source, 'Param_ApplyJointProfile') + r'''
+int main(void) {
+    MotorControl_TypeDef m = {0}, before;
+    unsigned id;
+    m.axis_profile_valid = true;
+    m.calibration_sentinel = 0xdeadbeef;
+    m.current_limit = 4; m.speed_limit = .3f;
+    m.speed_Ki = .123f;
+    assert(MotorAxisProfile_Create(&m.axis_profile, "pitch", -.3f, .9f, .785398163f));
+    before = m;
+    assert(Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
+    for (id = 1; id <= 2; ++id) {
+        assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 1, -.3f, .9f, .785398163f));
+        before = m;
+        assert(Param_ApplyJointProfile(&m));
+        assert(m.speed_Ki == (id == 1 ? 1 : 2));
+        assert(m.cascade_pos_Kp == 8 && m.cascade_pos_Kd == 2 && m.speed_Kp == .5f);
+        assert(m.current_limit == 4 && m.pos_maxspeed == .3f);
+        assert(m.calibration_sentinel == 0xdeadbeef);
+        assert(memcmp(&m.axis_profile, &before.axis_profile, sizeof(m.axis_profile)) == 0);
+    }
+    m.current_limit = NAN;
+    before = m;
+    assert(!Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
+    m.current_limit = 8;
+    assert(Param_ApplyJointProfile(&m) && m.current_limit == 6);
+    for (id = 0; id <= 5; ++id) {
+        assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 0, 0, 0, 0));
+        before = m;
+        assert(!Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
+    }
+    assert(!Param_ApplyJointProfile(NULL));
+    puts("PASS actual joint startup adapter: selected gains, preserved calibration/limits, legacy and unknown");
+    return 0;
+}
+'''
+
+
+def joint_board_startup_fixture():
+    source = (ROOT / 'System/board_config.c').read_text(encoding='utf-8')
+    return r'''
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
+      TIM_CHANNEL_4=4, ADC_IT_JEOC=1};
+static int hadc1, hadc2, htim1, htim7;
+static struct { bool axis_profile_valid; } MotorControl;
+static bool configured;
+static unsigned phases, sampling, communication, adc_started;
+static void flash_read_param(void) { MotorControl.axis_profile_valid = configured; }
+static void MotorControl_Init(void) {}
+static bool MotorControl_IsConfigurationValid(void) { return MotorControl.axis_profile_valid; }
+static void delay_init(int clock) { (void)clock; }
+static void HAL_ADCEx_Calibration_Start(int *adc, int mode) { (void)adc; (void)mode; }
+static void HAL_TIM_PWM_Start(int *timer, int channel) {
+    (void)timer; if (channel == TIM_CHANNEL_4) sampling++; else phases++;
+}
+static void HAL_TIMEx_OCN_Start(int *timer, int channel) { (void)timer; (void)channel; phases++; }
+static void HAL_ADCEx_InjectedStart(int *adc) { (void)adc; adc_started++; }
+static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { (void)adc; (void)mask; }
+static void HAL_TIM_Base_Start_IT(int *timer) { (void)timer; }
+static void FDCAN1_Param_Init(void) { communication++; }
+''' + function_source(source, 'Board_Init') + r'''
+int main(void) {
+    Board_Init();
+    assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
+    configured = true;
+    Board_Init();
+    assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
+    puts("PASS actual board startup: unconfigured phase outputs off, sampling and communication retained");
+    return 0;
+}
+'''
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", default=os.environ.get("SERVO_CC"))
@@ -183,6 +280,12 @@ def main():
     build("servo_hil_test", ["tests/unit/servo_hil_test.c"])
     build("motor_axis_profile_test", ["tests/unit/motor_axis_profile_test.c",
                                       "software/config/motor_axis_profile.c"])
+    joint_fixture = args.out / "joint_startup_test.c"
+    joint_fixture.write_text(joint_startup_fixture(), encoding="utf-8")
+    build("joint_startup_test", [joint_fixture, "software/config/motor_axis_profile.c"])
+    board_fixture = args.out / "joint_board_startup_test.c"
+    board_fixture.write_text(joint_board_startup_fixture(), encoding="utf-8")
+    build("joint_board_startup_test", [board_fixture])
     if args.recording:
         import numpy as np
         data = np.loadtxt(args.recording, delimiter="\t", skiprows=1)

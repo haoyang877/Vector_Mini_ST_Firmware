@@ -191,6 +191,11 @@ static void RTT_Sampling(bool defer_encoding)
 /**
 	* @brief  Initialize motor control parameters
  **/
+bool MotorControl_IsConfigurationValid(void)
+{
+	return MotorControl.axis_profile_valid;
+}
+
 void MotorControl_Init(void)
 {	Encoder_ParamInit(&OnBoard_Encoder);
 	
@@ -204,8 +209,10 @@ void MotorControl_Init(void)
 	Task_Position_Mode_Reset();
 	FocFrictionIdentification_Init();
 	
-	/*run current offset calibration automatically at power-up*/
-	MotorControl.ModeNow = Calib_CurrentOffset;
+	/* Unconfigured joint records remain disabled at boot. */
+	MotorControl.ModeNow = MotorControl.axis_profile_valid ? Calib_CurrentOffset : Motor_Disable;
+	if (!MotorControl.axis_profile_valid)
+		Set_ErrorNow(MotorParam_Error);
 }
 
 /**
@@ -297,6 +304,13 @@ void FOC20kHzIRQHandler(void)
 		OnBoard_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
 		Set_ErrorNow(Encoder_Error);
 
+	/* Also cover internal mode assignments, not only communication requests. */
+	if (!MotorControl.axis_profile_valid && MotorControl.ModeNow != Motor_Disable &&
+		MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Clear_Error)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		Set_ModeNow(Motor_Disable);
+	}
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
@@ -414,7 +428,8 @@ void FOC20kHzIRQHandler(void)
 		Stop_PWM_Generate();
 	}
 	
-	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable)
+	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable &&
+		MotorControl.axis_profile_valid)
 	{
 		/* The first mode-3 tick validates/initializes the controller while
 		 * phase outputs are still off. Enable on the following fast tick,

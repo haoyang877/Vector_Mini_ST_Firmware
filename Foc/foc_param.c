@@ -8,6 +8,27 @@ extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder;
 extern CANMsg_TypeDef CANMsg;
 
+/* Startup adapter only: the portable module owns joint IDs and baselines.
+ * Individual motor/current calibration and stored axis bounds are untouched. */
+static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
+{
+    MotorJointControlConfig config;
+    if (motor == NULL || !motor->axis_profile_valid) return false;
+    if (motor->axis_profile.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC) return true;
+    if (!isfinite(motor->speed_limit) || motor->speed_limit <= 0.0f ||
+        !isfinite(motor->current_limit) || motor->current_limit <= 0.0f) return false;
+    if (!MotorAxisProfile_Resolve(&motor->axis_profile, &config)) return false;
+    motor->cascade_pos_Kp = config.position_kp;
+    motor->cascade_pos_Kd = config.position_kd;
+    motor->speed_Kp = config.speed_kp;
+    motor->speed_Ki = config.speed_ki;
+    motor->posAcc = config.acceleration_rad_s2;
+    motor->posDec = config.deceleration_rad_s2;
+    motor->pos_maxspeed = fminf(motor->axis_profile.maximum_speed_rad_s, motor->speed_limit);
+    motor->current_limit = fminf(motor->current_limit, config.maximum_current_a);
+    return true;
+}
+
 void Param_Return_Default(void)
 {
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
@@ -278,4 +299,5 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
 	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
 		&MotorControl.axis_profile);
+	MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);
 }

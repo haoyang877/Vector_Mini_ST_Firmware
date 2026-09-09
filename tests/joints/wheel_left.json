@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "name": "wheel_left",
+  "joint_type_id": 5,
+  "config_revision": 0,
+  "motion": {
+    "minimum_deg": 0,
+    "maximum_deg": 0,
+    "cruise_deg_s": 0
+  },
+  "notes": "Identity only: bounds are placeholders, not mechanical limits; this revision cannot enable the motor."
+}

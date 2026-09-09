@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "name": "pitch",
+  "joint_type_id": 2,
+  "config_revision": 1,
+  "motion": {
+    "minimum_deg": -17.188733853924695,
+    "maximum_deg": 51.56620156177409,
+    "cruise_deg_s": 45
+  },
+  "notes": "AXS2 revision 1 selects the tested mode-3 baseline; preserve this motor's calibration and verify matching firmware before saving."
+}

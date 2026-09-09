@@ -19,14 +19,17 @@ void Board_Init(void)
 	HAL_ADCEx_Calibration_Start(&hadc1,ADC_SINGLE_ENDED);
 	HAL_ADCEx_Calibration_Start(&hadc2,ADC_SINGLE_ENDED);
 	
-	/*enable three phase PWM output*/
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-	
-	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
-	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
-	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+	/* Preserve existing startup calibration only for a configured motor.
+	 * CH4 below still clocks sampling/diagnostics for an unconfigured joint. */
+	if (MotorControl_IsConfigurationValid())
+	{
+		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
+		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
+		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+	}
 
 	/*enable channel 4 PWM to trigger ADC conversion*/
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);

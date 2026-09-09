@@ -89,6 +89,14 @@ void Clear_RunningData(void)
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
+	/* Unknown/unconfigured numeric joints cannot fall through to another
+	 * torque-producing mode. Diagnostics and explicit storage remain usable. */
+	if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable &&
+		mode_set != Clear_Error && mode_set != Save_Param)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		return false;
+	}
 	if (mode_set == Position_Mode && !MotorAxisProfile_AllowsPosition(
 		&MotorControl.axis_profile, MotorControl.axis_profile_valid,
 		Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecPos(&OnBoard_Encoder)))

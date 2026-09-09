@@ -14,6 +14,8 @@
 
 最新补充：[30 秒保护和重复性排查](pitch_mode3_repeat_20260909.md)，包含 HOLD 退出后恢复逻辑修正、12 轮实测及最终四轮回归结果。
 
+后续数字身份扩展见[固定关节编号与自动配置](joint_identity_configuration_design.md)：AXS2 使用 0～5 的稳定编号，支持 roll/pitch 模板选择及 yaw/左右轮身份登记；旧 AXS1 数据继续兼容。AXS2 当前仅完成软件与构建验证，尚未写入板卡。
+
 ## Flash格式与控制生效范围
 
 新增 [MotorAxisProfile](../software/config/motor_axis_profile.h) 为纯C配置模块。现有参数结构尾部追加32字节AXS1记录：magic、独立版本1、8字节名称、最小/最大角度、最大巡航速度和CRC32。名称存储为ASCII `roll` 或 `pitch`，角度/速度使用rad、rad/s；CRC覆盖前28字节，采用CRC-32/ISO-HDLC的反射多项式0xEDB88320。

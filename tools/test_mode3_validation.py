@@ -74,7 +74,7 @@ class Mode3ValidationTests(unittest.TestCase):
                  "events": [{"opcode": 3, "frame": 0, "value": 0, "time": 0,
                              "result": 0, "error": 0, "mode": 3}],
                  "polls": [{"frame": 0, "time": 0}, {"frame": 60, "time": 3}]}
-        rows = [[0] * 11 + [130] for _ in range(60)]
+        rows = [[0] * 11 + [0x182] for _ in range(60)]
         if mutate: mutate(trial)
         if rows_mutate: rows_mutate(rows)
         validation.write_json(path / "trial.json", trial)
@@ -88,6 +88,22 @@ class Mode3ValidationTests(unittest.TestCase):
             r = validation.analyze_trial(validation.DEFAULT_PROFILE, self.fixture(folder))
             self.assertTrue(r["automatic_pass"], r["errors"])
             self.assertIn("NOT_EVALUATED", r["mechanical_vibration"])
+
+    def test_v2_acceptance_uses_measured_current_and_rejects_clipped_position(self):
+        def frames(rows):
+            for row in rows:
+                row[11] = 0x4082
+                row[7] = 5000  # feedforward is not the measured-current channel
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.fixture(folder, rows_mutate=frames)
+            self.assertTrue(validation.analyze_trial(validation.DEFAULT_PROFILE, path)['automatic_pass'])
+        for channel, value in ((8, 4000), (2, 32767)):
+            def bad_frames(rows):
+                frames(rows)
+                rows[-1][channel] = value
+            with tempfile.TemporaryDirectory() as folder:
+                path = self.fixture(folder, rows_mutate=bad_frames)
+                self.assertFalse(validation.analyze_trial(validation.DEFAULT_PROFILE, path)['automatic_pass'])
 
     def test_configured_irq_deadline_checks_startup_run_and_stop(self):
         p = copy.deepcopy(self.profile); p['acceptance']['maximum_irq_cycles'] = 8500
@@ -108,7 +124,7 @@ class Mode3ValidationTests(unittest.TestCase):
             self.assertTrue(validation.analyze_trial(profile, self.fixture(folder))['automatic_pass'])
             def slip(rows):
                 rows[10][1] = 120  # 0.659 degrees, before the final 2 s tail.
-                rows[10][11] = 129  # Leave HOLD, then recover before the tail.
+                rows[10][11] = 0x181  # Leave HOLD, then recover before the tail.
             result = validation.analyze_trial(profile, self.fixture(folder, rows_mutate=slip))
             self.assertFalse(result['automatic_pass'])
             self.assertEqual(result['moves'][0]['tail_max_abs_error_deg'], 0)
@@ -160,7 +176,7 @@ class Mode3ValidationTests(unittest.TestCase):
                 self.assertFalse(r["automatic_pass"])
 
     def test_invalid_tail_drop_current_and_hold_are_failures(self):
-        for channel, value in [(11, 2), (11, 194), (11, 138), (11, 128), (7, 4000), (1, 100)]:
+        for channel, value in [(11, 2), (11, 0x1c2), (11, 0x18a), (11, 0x180), (7, 4000), (1, 100)]:
             with self.subTest(channel=channel, value=value), tempfile.TemporaryDirectory() as folder:
                 def change(rows): rows[-1][channel] = value
                 r = validation.analyze_trial(validation.DEFAULT_PROFILE, self.fixture(folder, rows_mutate=change))

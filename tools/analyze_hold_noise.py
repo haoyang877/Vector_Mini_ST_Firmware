@@ -10,21 +10,17 @@ import json
 from pathlib import Path
 
 import numpy as np
+from rtt_control_frame import decode
 
 
 def analyze(path, minimum_samples=2000, tail_samples=4000):
     if minimum_samples < 2 or tail_samples < 2:
         raise ValueError("Sample counts must be at least two")
     data = np.loadtxt(path, skiprows=1, ndmin=2)
-    if (data.shape[1] != 12 or not np.isfinite(data).all() or
-            np.any(data != np.trunc(data)) or np.any(data < -32768) or
-            np.any(data > 32767)):
-        raise ValueError("Expected finite, raw signed-int16 RTT data with 12 columns")
-    status = data[:, 11].astype(np.int64) & 0xffff
-    # Valid version-1 HOLD, reached, no fault/current saturation/reported drop.
-    valid = ((status & 0x187) == 0x186) & ((status & 0x68) == 0)
-    # Exclude signal encoding saturation rather than interpreting it as noise.
-    valid &= np.all((data[:, :11] > -32768) & (data[:, :11] < 32767), axis=1)
+    decoded = decode(data)
+    status = decoded['flags']
+    valid = decoded['valid'] & ((status & 7) == 6) & ((status & 0x68) == 0)
+    valid &= ~decoded['encoding_saturated']
     edges = np.flatnonzero(np.diff(np.r_[False, valid, False]))
     intervals = []
     for start, stop in zip(edges[::2], edges[1::2]):
@@ -32,22 +28,22 @@ def analyze(path, minimum_samples=2000, tail_samples=4000):
             continue
         first = max(start, stop - tail_samples)
         tail = data[first:stop]
-        velocity = tail[:, 5] / 10000
-        reference = tail[:, 6] / 1000
-        feedback = tail[:, 7] / 1000
+        velocity = decoded['speed_feedback_rad_s'][first:stop]
+        reference = decoded['iq_reference_A'][first:stop]
+        feedback = decoded['iq_feedback_A'][first:stop]
         correlation = (float(np.corrcoef(velocity, reference)[0, 1])
                        if velocity.std() > 0 and reference.std() > 0 else None)
         intervals.append({
             "first_sample_zero_based": int(first), "stop_sample_exclusive": int(stop),
             "samples": len(tail),
-            "position_error_peak_to_peak_deg": float(np.ptp(tail[:, 2]) / 10000 * 180 / np.pi),
+            "position_error_peak_to_peak_deg": float(np.ptp(decoded['error_deg'][first:stop])),
             "speed_ac_rms_rad_s": float(velocity.std()),
             "iq_reference_ac_rms_A": float(reference.std()),
             "iq_feedback_ac_rms_A": float(feedback.std()),
             "iq_tracking_rms_A": float(np.sqrt(np.mean((feedback - reference) ** 2))),
             "velocity_iq_reference_correlation": correlation,
-            "hold_integral_ac_rms_A": float((tail[:, 10] / 1000).std()),
-            "feedforward_peak_A": float(np.max(np.abs(tail[:, 9])) / 1000),
+            "hold_integral_ac_rms_A": float(decoded['integral_A'][first:stop].std()),
+            "feedforward_peak_A": float(np.max(np.abs(decoded['feedforward_A'][first:stop]))),
         })
     return {"source": str(Path(path).resolve()),
             "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),

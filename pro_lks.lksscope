@@ -32,19 +32,19 @@
         <form mapFile="./MDK-ARM/Vector_Mini_ST/Vector_Mini_ST.axf" title="代码变量" type="2" lv-width="264,100,100,100,320,100,100,204,100,100"/>
         <form visible="0" title="运行日志" type="3" floating="0" page="-1"/>
         <form sync2File="0" syncFilePath="" checkTStamp="0" visible="0" title="RTT命令行" type="4" floating="0" encode="GBK" page="-1"/>
-        <form xCount="213.426" xTag="0" visible="1" scatterStyle="1" scrollType="1" title="RTT数据" trigName="rtt_channel1.data7" type="5" floating="0" max="500" lineStyle="1" trigValue="0" trigType="0" autoRange="1" page="0" min="-500" subMode="1">
-            <var color="#ff0000" unit="Q15" desc="轨迹位置" formula="" subPlot="0" name="rtt_channel1.data0"/>
-            <var color="#00aaff" unit="Q15" desc="位置反馈" formula="" subPlot="0" name="rtt_channel1.data1"/>
-            <var color="#ff00ff" unit="1e-4 rad" desc="轨迹位置误差" formula="" subPlot="0" name="rtt_channel1.data2"/>
-            <var color="#ff0000" unit="1e-4 rad/s" desc="轨迹速度" formula="" subPlot="1" name="rtt_channel1.data3"/>
-            <var color="#ffaa00" unit="1e-4 rad/s" desc="速度命令" formula="" subPlot="1" name="rtt_channel1.data4"/>
-            <var color="#00aaff" unit="1e-4 rad/s" desc="速度反馈" formula="" subPlot="1" name="rtt_channel1.data5"/>
-            <var color="#ff0000" unit="mA" desc="Iq参考" formula="" subPlot="2" name="rtt_channel1.data6"/>
-            <var color="#00aaff" unit="mA" desc="Iq反馈" formula="" subPlot="2" name="rtt_channel1.data7"/>
-            <var color="#00ff00" unit="mA" desc="反馈控制电流" formula="" subPlot="3" name="rtt_channel1.data8"/>
-            <var color="#ffaa00" unit="mA" desc="总前馈电流" formula="" subPlot="3" name="rtt_channel1.data9"/>
+        <form xCount="213.426" xTag="0" visible="1" scatterStyle="1" scrollType="1" title="RTT数据" trigName="rtt_channel1.data8" type="5" floating="0" max="500" lineStyle="1" trigValue="0" trigType="0" autoRange="1" page="0" min="-500" subMode="1">
+            <var color="#ff0000" unit="0.01°" desc="目标位置" formula="" subPlot="0" name="rtt_channel1.data0"/>
+            <var color="#00aaff" unit="0.01°" desc="参考位置" formula="" subPlot="0" name="rtt_channel1.data1"/>
+            <var color="#ff00ff" unit="0.01°" desc="反馈位置" formula="" subPlot="0" name="rtt_channel1.data2"/>
+            <var color="#ff0000" unit="0.01°" desc="位置误差" formula="" subPlot="0" name="rtt_channel1.data3"/>
+            <var color="#ffaa00" unit="0.01°/s" desc="参考速度" formula="" subPlot="1" name="rtt_channel1.data4"/>
+            <var color="#00aaff" unit="0.01°/s" desc="反馈速度" formula="" subPlot="1" name="rtt_channel1.data5"/>
+            <var color="#ff0000" unit="mA" desc="参考电流" formula="" subPlot="2" name="rtt_channel1.data6"/>
+            <var color="#00aaff" unit="mA" desc="前馈电流" formula="" subPlot="2" name="rtt_channel1.data7"/>
+            <var color="#00ff00" unit="mA" desc="反馈电流" formula="" subPlot="2" name="rtt_channel1.data8"/>
+            <var color="#ffaa00" unit="mA" desc="PI控制电流" formula="" subPlot="3" name="rtt_channel1.data9"/>
             <var color="#ff00ff" unit="mA" desc="保持积分电流" formula="" subPlot="3" name="rtt_channel1.data10"/>
-            <var color="#ff0000" unit="bits" desc="模式3状态字" formula="" subPlot="4" name="rtt_channel1.data11"/>
+            <var color="#ff0000" unit="bits" desc="模式3状态字 v2" formula="" subPlot="4" name="rtt_channel1.data11"/>
         </form>
         <form visible="0" title="电机控制" type="12" floating="0" lv-width="150,100,100,100,100" page="-1">
             <var step="1" lower="0" desc="速度设定" upper="100" name=""/>

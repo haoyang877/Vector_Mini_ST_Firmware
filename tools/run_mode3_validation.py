@@ -176,6 +176,8 @@ def analyze_trial(profile, trial_path, case_id=None):
         rows = [[int(v) for v in row] for row in reader]
     if not rows or any(len(row) != 12 or any(v < -32768 or v > 32767 for v in row) for row in rows):
         raise ValueError("Empty/malformed int16 RTT capture")
+    from rtt_control_frame import decode
+    decoded = decode(rows)
     count = len(rows)
     events = [e for e in trial["events"] if e["opcode"] == 3]
     expected = [float(v) for v in trial["arguments"]["targets"].split(",")]
@@ -243,15 +245,9 @@ def analyze_trial(profile, trial_path, case_id=None):
             anchors.append((frame, time_s))
     if len(anchors) < 2:
         raise ValueError("No sample progress")
-    q, times, flags = [], [], []
-    offset, previous, k = 0.0, None, 0
+    q, times, flags = decoded['position_deg'].tolist(), [], []
+    k = 0
     for i, row in enumerate(rows):
-        angle = row[1] * 180 / 32768
-        if previous is not None:
-            if angle - previous > 180: offset -= 360
-            if angle - previous < -180: offset += 360
-        previous = angle
-        q.append(angle + offset)
         while k + 1 < len(anchors) and anchors[k+1][0] <= i: k += 1
         if i < anchors[0][0]: t = anchors[0][1]
         elif k + 1 == len(anchors): t = anchors[k][1]
@@ -269,14 +265,15 @@ def analyze_trial(profile, trial_path, case_id=None):
             raise ValueError("Missing/out-of-order target samples")
         indices = range(start, end)
         target = math.degrees(e["value"])
-        require(all(flags[n] & 128 for n in indices), f"move {i+1}: invalid telemetry")
+        require(all(decoded['valid'][n] for n in indices), f"move {i+1}: invalid telemetry")
+        require(not any(decoded['encoding_saturated'][n] for n in indices), f'move {i+1}: RTT encoding saturated')
         tail = [n for n in indices if times[n] >= times[end-1] - a["tail_seconds"]]
         require(times[tail[-1]] - times[tail[0]] >= a["tail_seconds"] - .05, f"move {i+1}: incomplete acceptance tail")
         dwell = trial["arguments"]["seconds"]
         require(times[end-1] - e["time"] >= dwell - .1, f"move {i+1}: truncated dwell")
         error = max(abs(target - q[n]) for n in tail)
         hold = sum((flags[n] & 3) == 2 for n in tail) / len(tail)
-        peak = max(abs(rows[n][7]) / 1000 for n in indices)
+        peak = max(abs(decoded['iq_feedback_A'][n]) for n in indices)
         drops = sum(bool(flags[n] & 64) for n in indices)
         saturation = sum(bool(flags[n] & 8) for n in indices)
         # Require 50 ms continuously in HOLD after command dispatch before

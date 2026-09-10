@@ -452,7 +452,9 @@ def main():
             axis_profile_snapshot=axis_profile,
             image=json.loads((session/'active_image.json').read_text())
                 if (session/'active_image.json').exists() else None,
-            frame_bytes=24, nominal_sample_rate_hz=2000),indent=2))
+            frame_bytes=24, nominal_sample_rate_hz=2000,
+            rtt_version_tags=sorted({(row[11] & 0x4100) for row in
+                struct.iter_unpack('<12h', raw[:len(raw) // 24 * 24])})),indent=2))
         if len(raw)%24 == 0:
             with (destination/'capture.tsv').open('w') as f:
                 f.write('\t'.join(f'rtt_channel1.data{i}' for i in range(12))+'\n')

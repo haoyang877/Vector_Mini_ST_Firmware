@@ -8,14 +8,13 @@ import json
 from pathlib import Path
 
 import numpy as np
+from rtt_control_frame import decode
 
 
 def analyze(path):
     trial = json.loads((path / 'trial.json').read_text())
     data = np.loadtxt(path / 'capture.tsv', skiprows=1, ndmin=2)
-    if (data.shape[1] != 12 or not np.isfinite(data).all() or
-            np.any(data != np.trunc(data)) or np.any(data < -32768) or np.any(data > 32767)):
-        raise ValueError('Expected finite signed-int16 12-channel RTT data')
+    decoded = decode(data)
     events = [e for e in trial['events'] if e['opcode'] == 3]
     length, rate = 1024, 2000.0
     window = np.hanning(length)
@@ -25,18 +24,17 @@ def analyze(path):
     for i, event in enumerate(events):
         stop = events[i + 1]['frame'] if i + 1 < len(events) else len(data)
         for start in range(event['frame'], stop - length + 1, length // 4):
-            segment = data[start:start + length]
-            flags = segment[:, 11].astype(np.int64) & 65535
-            # Entire window in valid MOVE, no trip/drop/saturation; planned
-            # speed > 0.08 rad/s excludes the static breakaway/landing region.
-            valid = ((flags & 0x180) == 0x180) & ((flags & 0x6b) == 0)
-            valid &= np.abs(segment[:, 3]) > 800
-            valid &= np.all((segment[:, :11] > -32768) & (segment[:, :11] < 32767), axis=1)
+            span = slice(start, start + length)
+            flags = decoded['flags'][span]
+            valid = decoded['valid'][span] & ((flags & 0x6b) == 0)
+            valid &= np.abs(decoded['speed_reference_rad_s'][span]) > .08
+            valid &= ~decoded['encoding_saturated'][span]
             if not np.all(valid):
                 continue
-            signals = np.column_stack((segment[:, 5] / 10000,
-                segment[:, 6] / 1000, segment[:, 7] / 1000,
-                (segment[:, 7] - segment[:, 6]) / 1000, segment[:, 10] / 1000))
+            signals = np.column_stack((decoded['speed_feedback_rad_s'][span],
+                decoded['iq_reference_A'][span], decoded['iq_feedback_A'][span],
+                decoded['iq_feedback_A'][span] - decoded['iq_reference_A'][span],
+                decoded['integral_A'][span]))
             spectrum = np.fft.rfft((signals - signals.mean(axis=0)) * window[:, None], axis=0)
             powers.append(np.abs(spectrum)**2 * scale)
             cross.append(spectrum[:, 0] * np.conj(spectrum[:, 1]) * scale)

@@ -7,11 +7,43 @@
 #include <string.h>
 #include "../../software/config/motor_axis_profile.h"
 
+static void test_can_node_mapping(void)
+{
+    static const uint8_t expected[] = {7, 3, 4, 5, 2, 1};
+    MotorAxisProfile p, before;
+    unsigned id, byte;
+    assert(MotorAxisProfile_CanNodeId(NULL, 7) == 7);
+    memset(&p, 0, sizeof(p));
+    assert(MotorAxisProfile_CanNodeId(&p, 7) == 7);
+    memset(&p, 0xFF, sizeof(p));
+    assert(MotorAxisProfile_CanNodeId(&p, 7) == 7);
+    for (id = 0; id <= 5; ++id) {
+        assert(MotorAxisProfile_CreateJoint(&p, id, 0, 0, 0, 0));
+        before = p;
+        assert(MotorAxisProfile_CanNodeId(&p, 7) == expected[id]);
+        assert(memcmp(&before, &p, sizeof(p)) == 0);
+        for (byte = 0; byte < sizeof(p); ++byte) {
+            p = before; ((unsigned char *)&p)[byte] ^= 1;
+            assert(MotorAxisProfile_CanNodeId(&p, 7) == 7);
+        }
+    }
+    assert(MotorAxisProfile_Create(&p, "roll", -1, 1, .5f));
+    assert(MotorAxisProfile_CanNodeId(&p, 0) == 3);
+    assert(MotorAxisProfile_Create(&p, "pitch", -.3f, .9f, .5f));
+    assert(MotorAxisProfile_CanNodeId(&p, 0) == 4);
+    assert(MotorAxisProfile_CreateJoint(&p, MOTOR_JOINT_ROLL, 1, -1, 1, .5f));
+    assert(MotorAxisProfile_CanNodeId(&p, 0) == 3);
+    assert(MotorAxisProfile_CreateJoint(&p, MOTOR_JOINT_PITCH, 1, -.3f, .9f, .5f));
+    assert(MotorAxisProfile_CanNodeId(&p, 0) == 4);
+    puts("PASS CAN node mapping: five identities, legacy/configured axes, CRC rejection and record preservation");
+}
+
 int main(void)
 {
     MotorAxisProfile p, q;
     MotorJointControlConfig config;
     unsigned i;
+    test_can_node_mapping();
     memset(&p, 0xFF, sizeof(p));
     assert(MotorAxisProfile_Load(&p, &q) && q.magic == 0);
     assert(MotorAxisProfile_AllowsPosition(&q, true, 20, 30));

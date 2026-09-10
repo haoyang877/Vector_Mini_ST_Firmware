@@ -19,10 +19,9 @@ ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
 
-#define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	10000.0f
-#define RTT_POSITION_ERROR_SCALE_COUNTS_PER_RAD	10000.0f
+#define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	(18000.0f / _PI)
+#define RTT_POSITION_SCALE_COUNTS_PER_RAD	(18000.0f / _PI)
 #define RTT_CURRENT_SCALE_COUNTS_PER_A		1000.0f
-#define RTT_ANGLE_Q15_SCALE				(32768.0f / _PI)
 
 #define RTT_SERVO_STATUS_PHASE_MASK		0x0003U
 #define RTT_SERVO_STATUS_PHASE_INVALID	0x0003U
@@ -32,7 +31,7 @@ FOC_TypeDef FOC;
 #define RTT_SERVO_STATUS_FAULT_ACTIVE	(1U << 5)
 #define RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED	(1U << 6)
 #define RTT_SERVO_STATUS_TELEMETRY_VALID	(1U << 7)
-#define RTT_SERVO_STATUS_FRAME_VERSION_1	(1U << 8)
+#define RTT_SERVO_STATUS_FRAME_VERSION_2	(1U << 14)
 #define RTT_SERVO_STATUS_FRICTION_LANDING	(1U << 9)
 #define RTT_SERVO_STATUS_SETTLE_RECOVERY	(1U << 10)
 #define RTT_SERVO_STATUS_HOLD_CANDIDATE	(1U << 11)
@@ -41,16 +40,16 @@ FOC_TypeDef FOC;
 
 typedef struct
 {
+	int16_t target_position;
 	int16_t trajectory_position;
 	int16_t position_feedback;
 	int16_t position_error;
 	int16_t trajectory_speed;
-	int16_t speed_command;
 	int16_t speed_feedback;
 	int16_t iq_reference;
+	int16_t feedforward_current;
 	int16_t iq_feedback;
 	int16_t feedback_current;
-	int16_t feedforward_current;
 	int16_t hold_current;
 	int16_t servo_status;
 } RTT_ControlFrame_TypeDef;
@@ -73,25 +72,13 @@ static int16_t RTT_EncodeInt16(float value, float scale)
 	return (int16_t)scaled;
 }
 
-static int16_t RTT_EncodeAngleQ15(float angle)
-{
-	if (!isfinite(angle))
-		return 0;
-
-	/* Signed Q15 angle: 0 rad -> 0; wrap occurs at +/-pi. */
-	angle = normalizeAngle(angle);
-	if (angle >= _PI)
-		angle -= _2PI;
-	return RTT_EncodeInt16(angle, RTT_ANGLE_Q15_SCALE);
-}
-
 static void RTT_Sampling(bool defer_encoding)
 {
 	static uint32_t rtt_divider_count;
 	static bool previous_frame_dropped;
 	PositionCascadeTelemetry_TypeDef servo_telemetry;
 	RTT_ControlFrame_TypeDef frame;
-	uint16_t status_flags = RTT_SERVO_STATUS_FRAME_VERSION_1 |
+	uint16_t status_flags = RTT_SERVO_STATUS_FRAME_VERSION_2 |
 		RTT_SERVO_STATUS_PHASE_INVALID;
 	unsigned bytes_written;
 	bool servo_telemetry_valid;
@@ -118,7 +105,7 @@ static void RTT_Sampling(bool defer_encoding)
 	frame.position_feedback = 0;
 	frame.position_error = 0;
 	frame.trajectory_speed = 0;
-	frame.speed_command = 0;
+	frame.target_position = 0;
 	frame.speed_feedback = 0;
 	frame.iq_reference = 0;
 	frame.iq_feedback = 0;
@@ -136,17 +123,17 @@ static void RTT_Sampling(bool defer_encoding)
 		status_flags |= (uint16_t)servo_telemetry.phase &
 			RTT_SERVO_STATUS_PHASE_MASK;
 		status_flags |= RTT_SERVO_STATUS_TELEMETRY_VALID;
-		frame.trajectory_position = RTT_EncodeAngleQ15(
-			servo_telemetry.position_reference);
-		frame.position_feedback = RTT_EncodeAngleQ15(
-			OnBoard_Encoder.theta_mech);
+		frame.target_position = RTT_EncodeInt16(MotorControl.posRef,
+			RTT_POSITION_SCALE_COUNTS_PER_RAD);
+		frame.trajectory_position = RTT_EncodeInt16(
+			servo_telemetry.position_reference, RTT_POSITION_SCALE_COUNTS_PER_RAD);
+		frame.position_feedback = RTT_EncodeInt16(
+			OnBoard_Encoder.theta_mech, RTT_POSITION_SCALE_COUNTS_PER_RAD);
 		frame.position_error = RTT_EncodeInt16(
 			servo_telemetry.position_reference - OnBoard_Encoder.theta_mech,
-			RTT_POSITION_ERROR_SCALE_COUNTS_PER_RAD);
+			RTT_POSITION_SCALE_COUNTS_PER_RAD);
 		frame.trajectory_speed = RTT_EncodeInt16(
 			servo_telemetry.trajectory_speed_reference,
-			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-		frame.speed_command = RTT_EncodeInt16(servo_telemetry.speed_command,
 			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
 		frame.speed_feedback = RTT_EncodeInt16(servo_telemetry.speed_feedback,
 			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);

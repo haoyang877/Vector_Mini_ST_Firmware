@@ -10,18 +10,9 @@ MAIN_SOURCE = ROOT / "Core" / "Src" / "main.c"
 SCOPE_PROJECT = ROOT / "pro_lks.lksscope"
 
 EXPECTED_FIELDS = [
-    "trajectory_position",
-    "position_feedback",
-    "position_error",
-    "trajectory_speed",
-    "speed_command",
-    "speed_feedback",
-    "iq_reference",
-    "iq_feedback",
-    "feedback_current",
-    "feedforward_current",
-    "hold_current",
-    "servo_status",
+    "target_position", "trajectory_position", "position_feedback", "position_error",
+    "trajectory_speed", "speed_feedback", "iq_reference", "feedforward_current",
+    "iq_feedback", "feedback_current", "hold_current", "servo_status",
 ]
 
 
@@ -59,6 +50,17 @@ class RttControlTelemetryTests(unittest.TestCase):
             channels,
             [f"rtt_channel1.data{index}" for index in range(len(EXPECTED_FIELDS))],
         )
+
+    def test_both_scope_projects_use_new_units(self):
+        for filename in ('pro_lks.lksscope', 'pro_lks_servo_hil.lksscope'):
+            root = ET.parse(ROOT / filename).getroot()
+            variables = root.find(".//form[@type='5']").findall('var')
+            self.assertEqual([v.attrib['name'] for v in variables],
+                             [f'rtt_channel1.data{i}' for i in range(12)])
+            self.assertEqual([v.attrib['unit'] for v in variables],
+                             ['0.01°'] * 4 + ['0.01°/s'] * 2 + ['mA'] * 5 + ['bits'])
+            self.assertEqual(variables[7].attrib['desc'], '前馈电流')
+            self.assertEqual(variables[8].attrib['desc'], '反馈电流')
 
 
 if __name__ == "__main__":

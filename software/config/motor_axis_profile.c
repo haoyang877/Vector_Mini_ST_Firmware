@@ -76,6 +76,20 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
         isfinite(stored->maximum_speed_rad_s) && stored->maximum_speed_rad_s > 0;
 }
 
+uint8_t MotorAxisProfile_CanNodeId(const MotorAxisProfile *profile, uint8_t fallback)
+{
+    MotorAxisProfile checked;
+    if (!MotorAxisProfile_Load(profile, &checked)) return fallback;
+    switch (MotorAxisProfile_JointType(&checked)) {
+    case MOTOR_JOINT_WHEEL_LEFT: return 1U;
+    case MOTOR_JOINT_WHEEL_RIGHT: return 2U;
+    case MOTOR_JOINT_ROLL: return 3U;
+    case MOTOR_JOINT_PITCH: return 4U;
+    case MOTOR_JOINT_YAW: return 5U;
+    default: return fallback;
+    }
+}
+
 bool MotorAxisProfile_Create(MotorAxisProfile *output, const char *name,
     float minimum_position_rad, float maximum_position_rad, float maximum_speed_rad_s)
 {

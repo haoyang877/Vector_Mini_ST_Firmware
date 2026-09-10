@@ -299,5 +299,8 @@ void Param_Download(const InterfaceParam_TypeDef *param)
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
 	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
 		&MotorControl.axis_profile);
+	/* Resolve communication identity even for identity-only axes whose motion
+	 * configuration is not supported yet. CAN filters are initialized later. */
+	CANMsg.node_id = MotorAxisProfile_CanNodeId(&param->axis_profile, CANMsg.node_id);
 	MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);
 }

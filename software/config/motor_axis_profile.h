@@ -43,6 +43,11 @@ typedef struct {
 
 /** Display mapping only; unknown IDs return "unknown". No hardware access. */
 const char *MotorJointType_Name(uint32_t joint_type);
+/** Resolve the product CAN node address from a CRC-valid AXS1/AXS2 identity.
+ * wheel_left=1, wheel_right=2, roll=3, pitch=4, yaw=5. These addresses are
+ * independent of stable storage IDs. Unknown/invalid records retain fallback.
+ * Startup/parameter restore only; does not change the record or enable motion. */
+uint8_t MotorAxisProfile_CanNodeId(const MotorAxisProfile *profile, uint8_t fallback);
 /** Decode identity from an already validated record, including AXS1. */
 uint32_t MotorAxisProfile_JointType(const MotorAxisProfile *profile);
 /** Create AXS2. Revision zero stores identity only and requires zero bounds;

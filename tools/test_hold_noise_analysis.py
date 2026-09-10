@@ -43,6 +43,20 @@ class HoldNoiseAnalysisTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 analyze(self.capture(data))
 
+    def test_v2_hold_units_and_current_order(self):
+        data = np.zeros((8, 12))
+        data[:, 11] = 0x4086
+        data[:, 3] = [1, -1] * 4
+        data[:, 5] = [100, -100] * 4
+        data[:, 6] = [-20, 20] * 4
+        data[:, 7] = 123
+        data[:, 8] = data[:, 6] + 5
+        result = analyze(self.capture(data), 2, 8)['intervals'][0]
+        self.assertAlmostEqual(result['position_error_peak_to_peak_deg'], .02)
+        self.assertAlmostEqual(result['speed_ac_rms_rad_s'], np.pi / 180)
+        self.assertAlmostEqual(result['iq_tracking_rms_A'], .005)
+        self.assertAlmostEqual(result['feedforward_peak_A'], .123)
+
 
 if __name__ == "__main__":
     unittest.main()

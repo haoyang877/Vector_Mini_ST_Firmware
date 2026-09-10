@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from rtt_control_frame import decode
 
 
 def settle_time(times, error, tolerance, command_time):
@@ -24,13 +25,12 @@ def settle_time(times, error, tolerance, command_time):
 def analyze(path):
     trial = json.loads((path / 'trial.json').read_text())
     data = np.loadtxt(path / 'capture.tsv', skiprows=1, ndmin=2)
-    if data.shape[1] != 12 or not np.isfinite(data).all():
-        raise ValueError('Expected finite 12-channel RTT data')
+    decoded = decode(data)
     polls = trial['polls']
     times = np.interp(np.arange(len(data)), [p['frame'] for p in polls],
                       [p['time'] for p in polls])
-    position = np.unwrap(data[:, 1] * np.pi / 32768) * 180 / np.pi
-    reference = np.unwrap(data[:, 0] * np.pi / 32768) * 180 / np.pi
+    position = decoded['position_deg']
+    reference = decoded['reference_deg']
     flags = data[:, 11].astype(np.int64) & 65535
     commands = [e for e in trial['events'] if e['opcode'] == 3]
     moves = []
@@ -39,6 +39,8 @@ def analyze(path):
         end = commands[i + 1]['frame'] if i + 1 < len(commands) else len(data)
         if not 0 <= start < end <= len(data):
             raise ValueError('Missing samples for a position command')
+        if np.any(decoded['encoding_saturated'][start:end]):
+            raise ValueError('Position metrics unavailable for saturated RTT encoding')
         indexes = np.arange(start, end)
         target = float(np.degrees(event['value']))
         error = target - position[start:end]
@@ -60,8 +62,8 @@ def analyze(path):
             tail_error_abs_max_deg=float(np.max(np.abs(tail_error))),
             tail_position_pp_deg=float(np.ptp(position[tail])),
             tail_hold_fraction=float(np.mean((flags[tail] & 0x87) == 0x86)),
-            tail_iq_ac_rms_A=float(data[tail, 7].std() / 1000),
-            iq_peak_A=float(np.max(np.abs(data[start:end, 7])) / 1000),
+            tail_iq_ac_rms_A=float(decoded['iq_feedback_A'][tail].std()),
+            iq_peak_A=float(np.max(np.abs(decoded['iq_feedback_A'][start:end]))),
             invalid_samples=int(np.count_nonzero((flags[start:end] & 128) == 0)),
             drop_flag_samples=int(np.count_nonzero(flags[start:end] & 64)),
             saturation_samples=int(np.count_nonzero(flags[start:end] & 8))))

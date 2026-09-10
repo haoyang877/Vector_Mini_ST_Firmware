@@ -29,6 +29,68 @@ def function_source(source, name):
     return source[start:end]
 
 
+def rtt_frame_fixture():
+    source = (ROOT / "Foc/foc_task.c").read_text(encoding="utf-8")
+    encoding = source[source.index("#define RTT_SPEED_SCALE"):source.index("/**", source.index("static void RTT_Sampling"))]
+    return r'''
+#include <assert.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include "position_cascade.h"
+#define _PI 3.14159265358979323846f
+#define RTT_SAMPLE_DIVIDER 10U
+#define CASCADE_POSITION_LOOP_DIVIDER 10U
+#define Position_Mode 3
+#define No_Error 0
+static struct { int ModeNow, ErrorNow; float posRef, iqRef; } MotorControl;
+static struct { float theta_mech; } OnBoard_Encoder;
+static struct { float Iq; } FOC;
+static PositionCascadeTelemetry_TypeDef published;
+static bool valid = true, ready = true;
+static unsigned writes;
+static int16_t wire[12];
+#define Encoder_DidUpdateVelocity(p) false
+static bool MotorOuterLoop_IsReady(void) { return ready; }
+static __attribute__((noinline)) bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *out)
+{ *out = published; return valid; }
+static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned length)
+{ assert(channel == 1 && length == 24); memcpy(wire, data, length); ++writes; return length; }
+''' + encoding + r'''
+static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(false); }
+static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
+int main(void) {
+    unsigned before;
+    MotorControl.ModeNow = 3; MotorControl.posRef = 30 * _PI / 180;
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
+    OnBoard_Encoder.theta_mech = 10 * _PI / 180;
+    published.position_reference = 20 * _PI / 180;
+    published.trajectory_speed_reference = -25 * _PI / 180;
+    published.speed_command = 2; /* ensure reference is planned speed */
+    published.speed_feedback = -20 * _PI / 180;
+    published.feedback_current = 1.2f; published.hold_current = .2f;
+    sample(); assert(writes == 1);
+    near_count(0,3000); near_count(1,2000); near_count(2,1000); near_count(3,1000);
+    near_count(4,-2500); near_count(5,-2000); near_count(6,1500);
+    near_count(7,300); near_count(8,1400); near_count(9,1200); near_count(10,200);
+    assert(((uint16_t)wire[11] & 0x4180) == 0x4080);
+    MotorControl.posRef = -200 * _PI / 180; sample(); near_count(0,-20000);
+    MotorControl.posRef = 400 * _PI / 180; sample(); assert(wire[0] == 32767);
+    MotorControl.posRef = -400 * _PI / 180; sample(); assert(wire[0] == -32768);
+    assert(RTT_EncodeInt16(NAN, 1) == 0);
+    assert(RTT_EncodeInt16(INFINITY, 1) == 0);
+    before = writes; RTT_Sampling(true); assert(writes == before);
+    valid = false; sample(); assert((wire[11] & 128) == 0);
+    assert(wire[0] == 0 && wire[7] == 0 && wire[8] == 0);
+    puts("PASS actual RTT encoder v2: channel sources/units, negative continuous angles, clipping, invalid/deferred telemetry");
+    return 0;
+}
+'''
+
+
 def encoder_startup_fixture():
     source = (ROOT / "Bsp/encoder.c").read_text(encoding="utf-8")
     return r'''
@@ -394,6 +456,9 @@ def main():
 
     exe = build("position_servo_test", ["tests/unit/position_servo_test.c",
                                         "Foc/position_cascade.c", "Foc/position_smooth_trajectory.c", "Foc/foc_pid.c"])
+    rtt_fixture = args.out / "rtt_frame_test.c"
+    rtt_fixture.write_text(rtt_frame_fixture(), encoding="utf-8")
+    build("rtt_frame_test", [rtt_fixture])
     fixture = args.out / "encoder_estimator_test.c"
     build("position_smooth_trajectory_test", ["tests/unit/position_smooth_trajectory_test.c",
                                               "Foc/position_smooth_trajectory.c"])
@@ -420,15 +485,18 @@ def main():
     if args.recording:
         import numpy as np
         data = np.loadtxt(args.recording, delimiter="\t", skiprows=1)
-        status = data[:, 11].astype(int)
-        valid = (status & 128) != 0
+        from rtt_control_frame import decode
+        decoded = decode(data)
+        status = decoded['flags']
+        valid = decoded['valid']
+        assert not np.any(decoded['encoding_saturated'][valid]), 'Clipped RTT cannot be replayed'
         indexes = np.flatnonzero(valid)
         assert len(indexes) and np.all(np.diff(indexes) == 1), "Replay requires one contiguous valid interval"
         first = indexes[0]
         phase = status[indexes] & 3
         starts = np.flatnonzero((phase == 0) & np.r_[True, phase[:-1] != 0])
-        position = np.unwrap(data[indexes, 1] * np.pi / 32768)
-        reference = np.unwrap(data[indexes, 0] * np.pi / 32768)
+        position = np.radians(decoded['position_deg'][indexes])
+        reference = np.radians(decoded['reference_deg'][indexes])
         target = np.empty(len(indexes))
         episodes = []
         for n, a in enumerate(starts):

@@ -32,6 +32,22 @@ class MotionNoiseAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(band['iq_tracking_rms_A'], 0, places=10)
         self.assertAlmostEqual(band['speed_iq_reference_band_correlation'], -1)
 
+    def test_v2_band_rms_and_feedback_channel(self):
+        path = self.fixture()
+        old = np.loadtxt(path/'capture.tsv', skiprows=1)
+        new = np.zeros_like(old)
+        new[:, 4] = np.round(np.degrees(old[:, 3] / 10000) * 100)
+        new[:, 5] = np.round(np.degrees(old[:, 5] / 10000) * 100)
+        new[:, 6] = old[:, 6]
+        new[:, 7] = 1000  # deliberately distinct from measured Iq
+        new[:, 8] = old[:, 7]
+        new[:, 11] = 0x4080
+        np.savetxt(path/'capture.tsv', new, header='RTT', comments='')
+        band = analyze(path)['bands'][-1]
+        self.assertAlmostEqual(band['iq_feedback_rms_A'], .1/np.sqrt(2), delta=.001)
+        self.assertAlmostEqual(band['iq_tracking_rms_A'], 0, places=10)
+        self.assertAlmostEqual(band['speed_rms_rad_s'], .01/np.sqrt(2), delta=.0001)
+
     def test_excludes_hold_and_bad_windows(self):
         for flags in (0x186, 0x180 | 64, 0x180 | 8, 0x180 | 32, 0):
             with self.assertRaises(ValueError):

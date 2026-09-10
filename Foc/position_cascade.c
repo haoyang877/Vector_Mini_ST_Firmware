@@ -1,3 +1,4 @@
+#include "../System/fast_loop_profile.h"
 #include "position_cascade.h"
 
 #include <math.h>
@@ -56,7 +57,8 @@ static PositionCascadeState_TypeDef state;
 
 static inline float PositionCascade_Abs(float value)
 {
-	return value >= 0.0f ? value : -value;
+	/* C99 magnitude operation maps to one instruction on an FPU target. */
+	return fabsf(value);
 }
 
 static inline float PositionCascade_Min(float first, float second)
@@ -373,7 +375,9 @@ static bool PositionCascade_UpdateTrajectory(
 	if (!s->ready)
 	{
 		state.smooth_planning = true;
+		FAST_PROFILE_BEGIN(FAST_PROFILE_PLAN_PREPARE);
 		(void)PositionSmooth_Prepare(s);
+		FAST_PROFILE_END(FAST_PROFILE_PLAN_PREPARE);
 		return false;
 	}
 	done = PositionSmooth_Advance(s, config->update_period_s, &sample);
@@ -775,9 +779,14 @@ void PositionCascade_Reset(void)
 	PI_Controller_Reset(&state.speed_controller);
 }
 
-static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *config,
-	float measured_position, float measured_speed,
-	PositionCascadeOutput_TypeDef *output)
+/* Keep the 2 kHz register-save frame off the intermediate fast ticks. */
+#if defined(__GNUC__) || defined(__clang__) || defined(__CC_ARM)
+#define POSITION_CONTROL_NOINLINE __attribute__((noinline))
+#else
+#define POSITION_CONTROL_NOINLINE
+#endif
+static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionCascadeConfig_TypeDef *config,
+	float measured_position, float measured_speed)
 {
 	float position_error;
 	float velocity_error;
@@ -792,42 +801,6 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 	uint32_t hold_ticks;
 	bool trajectory_done;
 
-	if (!state.initialized)
-	{
-		/* Static initialization / Reset already cleared state. Preserve the
-		 * just-validated configuration and avoid a second reset on mode entry. */
-		state.initialized = true;
-		state.last_target = config->target_position;
-		state.position_reference = measured_position;
-		state.velocity_filtered = measured_speed;
-		state.friction_breakaway_start_position = measured_position;
-		state.target_transition_active =
-			PositionCascade_Abs(config->target_position - measured_position) >
-			config->position_error_window;
-		state.phase = state.target_transition_active ?
-			POSITION_SERVO_PHASE_MOVE : POSITION_SERVO_PHASE_SETTLE;
-	}
-	else if (state.last_target != config->target_position)
-	{
-		state.last_target = config->target_position;
-		state.phase = POSITION_SERVO_PHASE_MOVE;
-		state.target_reached = false;
-		state.hold_counter = 0U;
-		state.friction_stuck_counter = 0U;
-		state.friction_breakaway_active = false;
-		state.friction_landing_active = false;
-		state.settle_recovery_active = false;
-		state.target_transition_active = true;
-		state.settling_in_window = false;
-		state.position_stuck_counter = 0U;
-		state.stiction_integrating = false;
-	}
-
-	if (++state.loop_count < config->call_divider)
-	{
-		PositionCascade_CopyOutput(output);
-		return true;
-	}
 	state.loop_count = 0U;
 	state.defer_telemetry = true;
 	if (config->velocity_filter_hz > 0.0f)
@@ -839,7 +812,9 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		state.velocity_filtered = measured_speed;
 	measured_speed = state.velocity_filtered;
 
+	FAST_PROFILE_BEGIN(FAST_PROFILE_TRAJECTORY);
 	trajectory_done = PositionCascade_UpdateTrajectory(config, measured_position);
+	FAST_PROFILE_END(FAST_PROFILE_TRAJECTORY);
 	if (state.smooth_trajectory.failed || !isfinite(state.position_reference) ||
 		!isfinite(state.trajectory_speed) ||
 		!isfinite(state.trajectory_acceleration))
@@ -848,7 +823,6 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 	 * its existing support current. Do not apply breakaway before the plan starts. */
 	if (state.smooth_planning)
 	{
-		PositionCascade_CopyOutput(output);
 		return true;
 	}
 	if (state.phase == POSITION_SERVO_PHASE_MOVE && trajectory_done)
@@ -933,7 +907,9 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		PositionCascade_UpdateIntegralTransport(config,
 			config->target_position - measured_position,
 			state.speed_reference - measured_speed);
+	FAST_PROFILE_BEGIN(FAST_PROFILE_FRICTION);
 	PositionCascade_UpdateFriction(config, measured_position, measured_speed);
+	FAST_PROFILE_END(FAST_PROFILE_FRICTION);
 	state.acceleration_feedforward_current = PositionCascade_Constrain(
 		config->acceleration_feedforward_gain * state.trajectory_acceleration,
 		-config->current_limit, config->current_limit);
@@ -955,6 +931,7 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		(state.settling_in_window && PositionCascade_Abs(measured_speed) <=
 		 POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S))
 		speed_ki_current_domain = 0.0f;
+	FAST_PROFILE_BEGIN(FAST_PROFILE_SPEED_PI);
 	PI_Controller_Configure(&state.speed_controller, speed_kp_current_domain,
 		speed_ki_current_domain, config->update_period_s,
 		-config->current_limit, config->current_limit);
@@ -962,7 +939,10 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		state.speed_reference, measured_speed);
 	current_candidate = state.feedback_current + feedforward_current;
 	if (!isfinite(current_candidate))
+	{
+		FAST_PROFILE_END(FAST_PROFILE_SPEED_PI);
 		return false;
+	}
 	state.current_saturated =
 		feedforward_candidate > config->current_limit ||
 		feedforward_candidate < -config->current_limit ||
@@ -976,8 +956,49 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		feedforward_current, -config->current_limit, config->current_limit);
 	PI_Controller_TrackOutput(&state.speed_controller, applied_feedback_current);
 	state.feedback_current = state.speed_controller.Out;
-	PositionCascade_CopyOutput(output);
+	FAST_PROFILE_END(FAST_PROFILE_SPEED_PI);
 	return true;
+}
+
+static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *config,
+    float measured_position, float measured_speed)
+{
+	if (!state.initialized)
+	{
+		/* Static initialization / Reset already cleared state. Preserve the
+		 * just-validated configuration and avoid a second reset on mode entry. */
+		state.initialized = true;
+		state.last_target = config->target_position;
+		state.position_reference = measured_position;
+		state.velocity_filtered = measured_speed;
+		state.friction_breakaway_start_position = measured_position;
+		state.target_transition_active =
+			PositionCascade_Abs(config->target_position - measured_position) >
+			config->position_error_window;
+		state.phase = state.target_transition_active ?
+			POSITION_SERVO_PHASE_MOVE : POSITION_SERVO_PHASE_SETTLE;
+	}
+	else if (state.last_target != config->target_position)
+	{
+		state.last_target = config->target_position;
+		state.phase = POSITION_SERVO_PHASE_MOVE;
+		state.target_reached = false;
+		state.hold_counter = 0U;
+		state.friction_stuck_counter = 0U;
+		state.friction_breakaway_active = false;
+		state.friction_landing_active = false;
+		state.settle_recovery_active = false;
+		state.target_transition_active = true;
+		state.settling_in_window = false;
+		state.position_stuck_counter = 0U;
+		state.stiction_integrating = false;
+	}
+
+	if (++state.loop_count < config->call_divider)
+	{
+		return true;
+	}
+    return PositionCascade_RunControl(config, measured_position, measured_speed);
 }
 
 bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
@@ -988,7 +1009,9 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	if (output == NULL || !isfinite(measured_position) ||
 		!isfinite(measured_speed) || !PositionCascade_CheckConfig(config))
 		return false;
-	return PositionCascade_RunValidated(config, measured_position, measured_speed, output);
+	if (!PositionCascade_RunValidated(config, measured_position, measured_speed)) return false;
+	PositionCascade_CopyOutput(output);
+	return true;
 }
 
 const PositionCascadeConfig_TypeDef *PositionCascade_GetConfiguration(void)
@@ -1004,6 +1027,41 @@ bool PositionCascade_UpdateTarget(float target_position, float measured_position
 		!isfinite(measured_position) || !isfinite(measured_speed))
 		return false;
 	state.validated_config.target_position = target_position;
-	return PositionCascade_RunValidated(&state.validated_config,
-		measured_position, measured_speed, output);
+	if (!PositionCascade_RunValidated(&state.validated_config,
+		measured_position, measured_speed)) return false;
+	PositionCascade_CopyOutput(output);
+	return true;
+}
+
+static void PositionCascade_CopyControlOutput(PositionCascadeControlOutput_TypeDef *output)
+{
+    output->position_reference = state.position_reference;
+    output->speed_reference = state.speed_reference;
+    output->speed_feedback = state.velocity_filtered;
+    output->iq_reference = state.iq_reference;
+    output->target_reached = state.target_reached;
+}
+
+bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
+    float measured_position, float measured_speed, PositionCascadeControlOutput_TypeDef *output)
+{
+    state.defer_telemetry = false;
+    if (output == NULL || !isfinite(measured_position) ||
+        !isfinite(measured_speed) || !PositionCascade_CheckConfig(config)) return false;
+    if (!PositionCascade_RunValidated(config, measured_position, measured_speed)) return false;
+    PositionCascade_CopyControlOutput(output);
+    return true;
+}
+
+bool PositionCascade_UpdateTargetControl(float target_position, float measured_position,
+    float measured_speed, PositionCascadeControlOutput_TypeDef *output)
+{
+    state.defer_telemetry = false;
+    if (!state.config_valid || output == NULL || !isfinite(target_position) ||
+        !isfinite(measured_position) || !isfinite(measured_speed)) return false;
+    state.validated_config.target_position = target_position;
+    if (!PositionCascade_RunValidated(&state.validated_config,
+        measured_position, measured_speed)) return false;
+    PositionCascade_CopyControlOutput(output);
+    return true;
 }

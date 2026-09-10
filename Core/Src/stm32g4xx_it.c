@@ -44,6 +44,12 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 #if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
+static volatile struct {
+  uint32_t count, last_cycles, max_cycles, preempted_jobs;
+  uint64_t total_cycles;
+} outer_irq_profile;
+#endif
+#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
 static volatile uint32_t hil_irq_last_cycles;
 static volatile uint32_t hil_irq_max_cycles;
 static volatile uint32_t hil_irq_histogram[4];
@@ -242,7 +248,19 @@ void DebugMon_Handler(void)
 void PendSV_Handler(void)
 {
   /* USER CODE BEGIN PendSV_IRQn 0 */
-
+#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
+  uint32_t started = DWT->CYCCNT;
+  uint32_t fast_count = hil_profile_count;
+#endif
+  MotorOuterLoop_Service();
+#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
+  outer_irq_profile.last_cycles = DWT->CYCCNT - started;
+  if (outer_irq_profile.last_cycles > outer_irq_profile.max_cycles)
+    outer_irq_profile.max_cycles = outer_irq_profile.last_cycles;
+  outer_irq_profile.total_cycles += outer_irq_profile.last_cycles;
+  if (fast_count != hil_profile_count) outer_irq_profile.preempted_jobs++;
+  outer_irq_profile.count++;
+#endif
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
 

@@ -108,7 +108,7 @@ static void RTT_Sampling(bool defer_encoding)
 	 * A coincident frame is deferred by one fast tick; subsequent frames keep
 	 * their normal cadence. This does not delay the current/PWM update. */
 #if CASCADE_POSITION_LOOP_DIVIDER > 1U
-	if (MotorControl.ModeNow == Position_Mode && PositionCascade_ShouldDeferTelemetry())
+	if (MotorControl.ModeNow == Position_Mode && !MotorOuterLoop_IsReady())
 		return;
 #endif
 	rtt_divider_count = 0;
@@ -128,7 +128,7 @@ static void RTT_Sampling(bool defer_encoding)
 	frame.servo_status = 0;
 
 	servo_telemetry_valid = MotorControl.ModeNow == Position_Mode &&
-		PositionCascade_GetTelemetry(&servo_telemetry);
+		MotorOuterLoop_GetTelemetry(&servo_telemetry);
 
 	if (servo_telemetry_valid)
 	{
@@ -324,6 +324,7 @@ void FOC20kHzIRQHandler(void)
 		Set_ModeNow(Motor_Disable);
 	}
 	FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
+	MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
@@ -341,7 +342,8 @@ void FOC20kHzIRQHandler(void)
 		break;
 		
 		case Speed_Mode:
-			Task_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
+			FOC_Current(&FOC, &MotorControl, Encoder_GetElePhase(&OnBoard_Encoder),
+                Encoder_GetEleVel(&OnBoard_Encoder));
 		break;
 
 		case Sensorless_Speed_Mode:
@@ -351,7 +353,8 @@ void FOC20kHzIRQHandler(void)
 		
 		case Position_Mode:
 			FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_WITH_CURRENT);
-			Task_Position_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
+			FOC_Current(&FOC, &MotorControl, Encoder_GetElePhase(&OnBoard_Encoder),
+                Encoder_GetEleVel(&OnBoard_Encoder));
 			FAST_PROFILE_END(FAST_PROFILE_POSITION_WITH_CURRENT);
 		break;
 
@@ -450,7 +453,8 @@ void FOC20kHzIRQHandler(void)
 		/* The first mode-3 tick validates/initializes the controller while
 		 * phase outputs are still off. Enable on the following fast tick,
 		 * after the neutral preload and without combining both startup costs. */
-		if (MotorControl.ModeNow == Position_Mode && !position_start_prepared)
+		if ((MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Speed_Mode) &&
+            (!position_start_prepared || !MotorOuterLoop_IsReady()))
 		{
 			position_start_prepared = true;
 			defer_position_power_start = true;

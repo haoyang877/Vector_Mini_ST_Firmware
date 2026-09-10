@@ -19,7 +19,10 @@
 
 #include "main.h"
 
-#define TOTAL_HEAP_SIZE ((size_t) (1024 * 16)) // byte
+/* All live application allocations: encoder calibration 8192 B plus one
+ * parameter record (< 3 KiB), including allocator headers/alignment. Keep the
+ * capacity regression in test_outer_loop_runtime.py when adding allocations. */
+#define TOTAL_HEAP_SIZE ((size_t) (1024 * 12))
 
 void  *HEAP_malloc(size_t xWantedSize);
 void   HEAP_free(void *pv);

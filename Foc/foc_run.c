@@ -1,3 +1,4 @@
+#include "fast_loop_profile.h"
 #include "foc_run.h"
 
 #include "common_inc.h"
@@ -5,6 +6,9 @@
 #include "position_cascade_config.h"
 #include "position_impedance.h"
 #include "position_impedance_config.h"
+#include "../hal/api/motor_hw.h"
+
+static void MotorOuterLoop_RequestReset(void);
 
 /**
 	* @brief  Current mode control task
@@ -38,19 +42,9 @@ void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Enc
 	* @param  *MotorControl: MotorControl struct pointer
 	* @param  *Encoder: encoder struct pointer
  **/
-void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI_Controller_TypeDef *controller, Encoder_TypeDef *Encoder)
+static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
+    PI_Controller_TypeDef *controller, float vel_mech)
 {
-    static int speedloop_count;
-    float theta_elec;
-    float vel_elec;
-    float vel_mech;
-
-    theta_elec = Encoder_GetElePhase(Encoder);
-    vel_elec = Encoder_GetEleVel(Encoder);
-    vel_mech = Encoder_GetMecVel(Encoder);
-
-    if (++speedloop_count >= SPEED_LOOP_DIVIDER)
-    {
         MotorControl->isUseSpeedRamp = MotorControl->speedAcc > 0.0f && MotorControl->speedDec > 0.0f;
 
         if (MotorControl->isUseSpeedRamp)
@@ -80,10 +74,18 @@ void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI_Co
         PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
         MotorControl->idRef = 0.0f;
         MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech) * MotorControl->current_limit;
-        speedloop_count = 0;
-    }
+}
 
-    FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
+/* Calibration retains its serialized divided call path and shares the same PI. */
+void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+    PI_Controller_TypeDef *controller, Encoder_TypeDef *Encoder)
+{
+    static unsigned speedloop_count;
+    if (++speedloop_count >= SPEED_LOOP_DIVIDER) {
+        SpeedMode_UpdateControl(MotorControl, controller, Encoder_GetMecVel(Encoder));
+        speedloop_count = 0U;
+    }
+    FOC_Current(FOC, MotorControl, Encoder_GetElePhase(Encoder), Encoder_GetEleVel(Encoder));
 }
 
 static float Sensorless_AngleDifference(float target, float source)
@@ -474,11 +476,12 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 #define FOC_CONFIG_NOINLINE
 #endif
 static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_TypeDef *MotorControl,
-    float theta_mech, float vel_mech, PositionCascadeOutput_TypeDef *output)
+    float theta_mech, float vel_mech, PositionCascadeControlOutput_TypeDef *output,
+    uint16_t call_divider)
 {
     PositionCascadeConfig_TypeDef config;
 	config.update_period_s = Cascade_Position_Ts;
-	config.call_divider = CASCADE_POSITION_LOOP_DIVIDER;
+	config.call_divider = call_divider;
 	config.target_position = MotorControl->posRef;
 	config.position_error_window = MotorControl->pos_error_window;
 	config.hold_enter_position = POSITION_SERVO_HOLD_ENTER_POSITION_RAD;
@@ -542,7 +545,7 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 		POSITION_SERVO_FRICTION_BREAKAWAY_DISTANCE_RAD;
 	config.friction_stuck_time = POSITION_SERVO_FRICTION_STUCK_TIME_S;
 
-    return PositionCascade_Update(&config, theta_mech, vel_mech, output);
+    return PositionCascade_UpdateControl(&config, theta_mech, vel_mech, output);
 }
 
 /* Only this adapter supplies this controller's fixed tuning. Compare every
@@ -595,7 +598,8 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	Encoder_TypeDef *Encoder)
 {
 	bool updated;
-	PositionCascadeOutput_TypeDef output;
+	PositionCascadeControlOutput_TypeDef output;
+	FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_ONLY);
 	float theta_elec = Encoder_GetElePhase(Encoder);
 	float theta_mech = Encoder_GetMecPos(Encoder);
 	float vel_elec = Encoder_GetEleVel(Encoder);
@@ -606,19 +610,22 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;
 		Set_ErrorNow(MotorParam_Error);
+		FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
 		return;
 	}
 
 	if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), MotorControl))
-		updated = PositionCascade_UpdateTarget(MotorControl->posRef, theta_mech, vel_mech, &output);
+		updated = PositionCascade_UpdateTargetControl(MotorControl->posRef, theta_mech, vel_mech, &output);
 	else
-		updated = PositionMode_UpdateConfiguration(MotorControl, theta_mech, vel_mech, &output);
+		updated = PositionMode_UpdateConfiguration(MotorControl, theta_mech, vel_mech, &output,
+            CASCADE_POSITION_LOOP_DIVIDER);
 
 	if (!updated)
 	{
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;
 		Set_ErrorNow(MotorParam_Error);
+		FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
 		return;
 	}
 
@@ -628,6 +635,7 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	MotorControl->isReachTargetPos = output.target_reached;
 	MotorControl->idRef = 0.0f;
 	MotorControl->iqRef = output.iq_reference;
+	FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
 	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
@@ -694,9 +702,218 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorC
 
 void Task_Position_Mode_Reset(void)
 {
-	PositionCascade_Reset();
+	MotorOuterLoop_RequestReset();
 	PositionImpedance_Reset();
 }
+
+/* OUTER_RUNTIME_BEGIN
+ * One immutable request and one completion. Only the fast context may reuse
+ * the slot; the worker never writes live MotorControl or live PI_Speed.
+ * Reset invalidates the epoch without touching a possibly preempted controller.
+ * This mailbox deliberately cannot queue: a missed 500 us release is a fault. */
+enum { OUTER_IDLE, OUTER_QUEUED, OUTER_RUNNING, OUTER_DONE };
+static struct {
+    volatile unsigned status;
+    volatile uint32_t epoch;
+    uint32_t request_epoch, worker_epoch;
+    unsigned divider, age, maximum_age, deadline_misses, completed, discarded;
+    ModeNow_TypeDef mode;
+    bool ready, valid, telemetry_valid;
+    float position, speed;
+    MotorControl_TypeDef motor;
+    PI_Controller_TypeDef speed_controller;
+    PositionCascadeTelemetry_TypeDef result_telemetry, published_telemetry;
+} outer;
+
+static void MotorOuterLoop_RequestReset(void)
+{
+    outer.epoch++;
+    outer.ready = false;
+    outer.telemetry_valid = false;
+}
+
+static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
+{
+    const MotorControl_TypeDef *saved = &outer.motor;
+    if (outer.request_epoch != outer.epoch) return false;
+#define SAME_INPUT(field) PositionMode_SameTuningValue(m->field, saved->field)
+    return SAME_INPUT(current_limit) && SAME_INPUT(speed_Kp) && SAME_INPUT(speed_Ki) &&
+        SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
+        SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) &&
+        SAME_INPUT(cascade_pos_Kp) && SAME_INPUT(cascade_pos_Kd) &&
+        m->friction_model_valid == saved->friction_model_valid &&
+        (!m->friction_model_valid ||
+         (SAME_INPUT(friction_coulomb_pos_a) && SAME_INPUT(friction_coulomb_neg_a) &&
+          SAME_INPUT(friction_viscous_pos_a_per_rad_s) && SAME_INPUT(friction_viscous_neg_a_per_rad_s))) &&
+        m->axis_profile.magic == saved->axis_profile.magic &&
+        m->axis_profile.maximum_speed_rad_s == saved->axis_profile.maximum_speed_rad_s;
+#undef SAME_INPUT
+}
+
+/* Fast protection remains independent of the deferred controller. Match the
+ * effective clamping used by the configuration adapter, including NaN rejection. */
+static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m,
+    float position, float speed)
+{
+    float deceleration, maximum_speed;
+    if (!isfinite(speed)) return false;
+    if (m->ModeNow == Speed_Mode)
+        return isfinite(m->speedRef) && isfinite(m->speedAcc) && isfinite(m->speedDec) &&
+            isfinite(m->current_limit) && m->current_limit > 0.0f &&
+            isfinite(m->speed_Kp) && m->speed_Kp >= 0.0f &&
+            isfinite(m->speed_Ki) && m->speed_Ki >= 0.0f;
+    if (!MotorAxisProfile_AllowsPosition(&m->axis_profile,
+        m->axis_profile_valid, position, m->posRef)) return false;
+    /* The worker changes outputs only; request tuning stays immutable even
+     * during preemption. Every live field is compared each fast tick. */
+    if (MotorOuterLoop_SameTuning(m)) return true;
+    if (!isfinite(m->current_limit) || m->current_limit <= 0.0f ||
+        !isfinite(m->speed_Kp) || m->speed_Kp < 0.0f ||
+        !isfinite(m->speed_Ki) || m->speed_Ki < 0.0f) return false;
+    deceleration = m->posDec;
+    maximum_speed = m->pos_maxspeed;
+    if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
+        deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
+    if (m->axis_profile.magic != 0U && maximum_speed > m->axis_profile.maximum_speed_rad_s)
+        maximum_speed = m->axis_profile.maximum_speed_rad_s;
+    if (!isfinite(m->pos_error_window) || m->pos_error_window <= 0.0f ||
+        m->pos_error_window > POSITION_SERVO_HOLD_ENTER_POSITION_RAD ||
+        !isfinite(m->posAcc) || m->posAcc <= 0.0f ||
+        !isfinite(deceleration) || deceleration <= 0.0f ||
+        !isfinite(maximum_speed) || maximum_speed <= 0.0f ||
+        !isfinite(m->speed_limit) || m->speed_limit < maximum_speed ||
+        !isfinite((m->posAcc > deceleration ? m->posAcc : deceleration) /
+            POSITION_SERVO_JERK_RAMP_TIME_S) ||
+        !isfinite(m->cascade_pos_Kp) || m->cascade_pos_Kp < 0.0f ||
+        m->cascade_pos_Kp > CASCADE_POSITION_KP_MAX_PER_S ||
+        !isfinite(m->cascade_pos_Kd) || m->cascade_pos_Kd < 0.0f ||
+        m->cascade_pos_Kd > CASCADE_POSITION_KD_MAX) return false;
+    return !m->friction_model_valid ||
+        (isfinite(m->friction_coulomb_pos_a) && m->friction_coulomb_pos_a >= 0.0f &&
+         isfinite(m->friction_coulomb_neg_a) && m->friction_coulomb_neg_a >= 0.0f &&
+         isfinite(m->friction_viscous_pos_a_per_rad_s) && m->friction_viscous_pos_a_per_rad_s >= 0.0f &&
+         isfinite(m->friction_viscous_neg_a_per_rad_s) && m->friction_viscous_neg_a_per_rad_s >= 0.0f);
+}
+
+void MotorOuterLoop_Service(void)
+{
+    PositionCascadeControlOutput_TypeDef output;
+    if (outer.status != OUTER_QUEUED) return;
+    motor_hw_outer_barrier();
+    outer.status = OUTER_RUNNING;
+    if (outer.worker_epoch != outer.request_epoch) {
+        PositionCascade_Reset();
+        outer.worker_epoch = outer.request_epoch;
+    }
+    if (outer.motor.ModeNow == Position_Mode) {
+        if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), &outer.motor))
+            outer.valid = PositionCascade_UpdateTargetControl(outer.motor.posRef,
+                outer.position, outer.speed, &output);
+        else
+            outer.valid = PositionMode_UpdateConfiguration(&outer.motor,
+                outer.position, outer.speed, &output, 1U);
+        outer.valid = outer.valid && isfinite(output.iq_reference);
+        if (outer.valid) {
+            outer.motor.posShadow = output.position_reference;
+            outer.motor.speedShadow = output.speed_reference;
+            outer.motor.pos_vel_filtered = output.speed_feedback;
+            outer.motor.isReachTargetPos = output.target_reached;
+            outer.motor.iqRef = output.iq_reference;
+            outer.valid = PositionCascade_GetTelemetry(&outer.result_telemetry);
+        }
+    } else {
+        SpeedMode_UpdateControl(&outer.motor, &outer.speed_controller, outer.speed);
+        outer.valid = isfinite(outer.motor.iqRef);
+    }
+    motor_hw_outer_barrier();
+    outer.status = OUTER_DONE;
+}
+
+bool MotorOuterLoop_IsReady(void)
+{
+    return outer.ready;
+}
+
+bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
+{
+    /* Fast-context reader; the worker never modifies this published snapshot. */
+    if (!outer.telemetry_valid || telemetry == NULL) return false;
+    *telemetry = outer.published_telemetry;
+    return true;
+}
+
+void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
+    Encoder_TypeDef *encoder)
+{
+    bool active = m->ModeNow == Position_Mode || m->ModeNow == Speed_Mode;
+    float position = Encoder_GetMecPos(encoder);
+    float speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder) :
+        Encoder_GetMecVelContinuous(encoder);
+    if (m->ModeNow != outer.mode) {
+        MotorOuterLoop_RequestReset();
+        outer.mode = m->ModeNow;
+        outer.divider = SPEED_LOOP_DIVIDER - 1U;
+        if (active) { m->idRef = 0.0f; m->iqRef = 0.0f; }
+    }
+    if (active && m->ErrorNow == No_Error &&
+        !MotorOuterLoop_InputsValid(m, position, speed)) {
+        Set_ErrorNow(MotorParam_Error);
+        MotorOuterLoop_RequestReset();
+        m->idRef = 0.0f; m->iqRef = 0.0f;
+    }
+    if (outer.status != OUTER_IDLE) {
+        outer.age++;
+        if (outer.status == OUTER_DONE) {
+            motor_hw_outer_barrier();
+            if (active && m->ErrorNow == No_Error && outer.request_epoch == outer.epoch) {
+                if (!outer.valid) {
+                    Set_ErrorNow(MotorParam_Error);
+                    m->idRef = 0.0f; m->iqRef = 0.0f;
+                } else {
+                    m->idRef = 0.0f;
+                    /* A live current-limit reduction is effective immediately. */
+                    m->iqRef = fminf(fmaxf(outer.motor.iqRef, -m->current_limit), m->current_limit);
+                    m->speedShadow = outer.motor.speedShadow;
+                    if (m->ModeNow == Position_Mode) {
+                        m->posShadow = outer.motor.posShadow;
+                        m->pos_vel_filtered = outer.motor.pos_vel_filtered;
+                        m->isReachTargetPos = outer.motor.isReachTargetPos;
+                        outer.published_telemetry = outer.result_telemetry;
+                        outer.telemetry_valid = true;
+                    } else {
+                        m->isUseSpeedRamp = outer.motor.isUseSpeedRamp;
+                        *pi = outer.speed_controller;
+                    }
+                    outer.ready = true;
+                    outer.completed++;
+                }
+            } else outer.discarded++;
+            if (outer.age > outer.maximum_age) outer.maximum_age = outer.age;
+            motor_hw_outer_barrier();
+            outer.status = OUTER_IDLE;
+        }
+    }
+    if (!active || m->ErrorNow != No_Error) return;
+    if (++outer.divider < SPEED_LOOP_DIVIDER) return;
+    outer.divider = 0U;
+    if (outer.status != OUTER_IDLE) {
+        outer.deadline_misses++;
+        Set_ErrorNow(ControlOverrun_Error);
+        MotorOuterLoop_RequestReset();
+        m->idRef = 0.0f; m->iqRef = 0.0f;
+        return;
+    }
+    outer.motor = *m;
+    outer.speed_controller = *pi;
+    outer.position = position;
+    outer.speed = speed;
+    outer.request_epoch = outer.epoch;
+    outer.age = 0U;
+    motor_hw_outer_barrier();
+    outer.status = OUTER_QUEUED;
+    motor_hw_outer_schedule();
+}
+/* OUTER_RUNTIME_END */
 
 /**
 	* @brief  Voltage open-loop mode

@@ -1661,6 +1661,13 @@
             </File>
           </Files>
         </Group>
+        <Group>
+          <GroupName>Motor HAL Port</GroupName>
+          <Files><File>
+            <FileName>motor_outer_stm32g4.c</FileName><FileType>1</FileType>
+            <FilePath>..\hal\ports\stm32g4\motor\motor_outer_stm32g4.c</FilePath>
+          </File></Files>
+        </Group>
       </Groups>
     </Target>
   </Targets>

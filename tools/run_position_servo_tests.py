@@ -248,6 +248,7 @@ static unsigned phases, sampling, communication, adc_started;
 static unsigned adc_irq_mask = ADC_IT_JEOC;
 static void flash_read_param(void) { MotorControl.axis_profile_valid = configured; }
 static void MotorControl_Init(void) {}
+static void motor_hw_outer_init(void) {}
 static bool MotorControl_IsConfigurationValid(void) { return MotorControl.axis_profile_valid; }
 static void delay_init(int clock) { (void)clock; }
 static void HAL_ADCEx_Calibration_Start(int *adc, int mode) { (void)adc; (void)mode; }

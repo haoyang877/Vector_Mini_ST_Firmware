@@ -47,6 +47,7 @@ typedef enum
 	MotorParam_Error,
 	Sensorless_Error,
 	FrictionIdentification_Error,
+	ControlOverrun_Error,
 }ErrorNow_TypeDef;
 
 typedef struct

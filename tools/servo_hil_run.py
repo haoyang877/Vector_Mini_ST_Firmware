@@ -74,8 +74,10 @@ def main():
                    help='Hold the current position for diagnostics; send no POSITION commands')
     p.add_argument('--profile-timing', action='store_true',
                    help='Verify the archived image and measure cumulative IRQ cycles while running')
-    p.add_argument('--profile-stage', type=int, choices=range(1, 10),
+    p.add_argument('--profile-stage', type=int, choices=range(1, 15),
                    help='Select one stage in the optional diagnostic image; requires --profile-timing')
+    p.add_argument('--swd-speed-khz', type=int, choices=(1000, 2000, 4000), default=4000,
+                   help='J-Link debug clock only; does not change firmware or encoder SPI clocks')
     args = p.parse_args()
     assert args.profile_stage is None or args.profile_timing
     if pylink is None:
@@ -221,7 +223,7 @@ def main():
         ctypes.windll.winmm.timeBeginPeriod(1)
         j.open(602722271)
         j.set_tif(pylink.enums.JLinkInterfaces.SWD)
-        j.connect('STM32G431CB', speed=4000)
+        j.connect('STM32G431CB', speed=args.swd_speed_khz)
         assert not j.halted()
         if args.profile_timing:
             verified_flash = verify_profile_image()

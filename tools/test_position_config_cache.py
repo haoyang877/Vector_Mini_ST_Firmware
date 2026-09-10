@@ -49,6 +49,7 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
+#include "System/fast_loop_profile.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"

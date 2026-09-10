@@ -85,6 +85,25 @@ typedef struct
 	bool stiction_integrating; /* Bounded static-error integral applied this update. */
 } PositionCascadeTelemetry_TypeDef;
 
+/* Minimal current-command/feedback view for the high-rate motor adapter.
+ * Rich diagnostics remain available through GetTelemetry / the existing API. */
+typedef struct
+{
+    float position_reference;
+    float speed_reference;
+    float speed_feedback;
+    float iq_reference;
+    bool target_reached;
+} PositionCascadeControlOutput_TypeDef;
+
+/** Same state transition, validation and timing as Update, with compact output. */
+bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
+    float measured_position, float measured_speed, PositionCascadeControlOutput_TypeDef *output);
+/** Same validated-configuration contract as UpdateTarget, with compact output.
+ * All APIs share one controller instance and require the same serial owner. */
+bool PositionCascade_UpdateTargetControl(float target_position, float measured_position,
+    float measured_speed, PositionCascadeControlOutput_TypeDef *output);
+
 /** Reset all mode-3 position-servo trajectory and controller state. */
 void PositionCascade_Reset(void);
 /**

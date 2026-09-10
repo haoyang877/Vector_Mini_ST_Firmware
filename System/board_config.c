@@ -1,10 +1,12 @@
 #include "board_config.h"
+#include "../hal/api/motor_hw.h"
 
 /**
 	* @brief  Initialize board peripherals and application modules
  **/
 void Board_Init(void)
 {
+    motor_hw_outer_init();
 	/*read parameters and calibration data from flash*/
 	/*if magic word invalid or not calibrated, fall back to code defaults*/
 	flash_read_param();

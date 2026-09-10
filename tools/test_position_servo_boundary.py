@@ -19,6 +19,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertEqual(
             includes,
             [
+                '"../System/fast_loop_profile.h"',
                 '"position_cascade.h"',
                 "<math.h>",
                 "<stdint.h>",

@@ -359,7 +359,15 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef 
 		if ((encoder->calib_flag & ENC_CALIB_MECHANICAL_ZERO) == 0U)
 			encoder->mechanical_zero_shadow_q15 = 0;
 		else
+		{
 			encoder->mechanical_zero_shadow_q15 = (int64_t)encoder->mechanical_zero_q15;
+			/* Resolve only the first sample's turn; the portable axis policy
+			 * preserves the calibrated zero and leaves travel checks active. */
+			encoder->shadow_q15 = encoder->mechanical_zero_shadow_q15 +
+				MotorAxisProfile_InitialEncoderOffsetQ15(&MotorControl->axis_profile,
+					MotorControl->axis_profile_valid,
+					(int32_t)linearized_q15 - (int32_t)encoder->mechanical_zero_q15);
+		}
 		encoder->has_valid_sample = true;
 		Encoder_ResetVelocity(encoder);
 		Encoder_UpdateAngles(encoder, pole_pairs);

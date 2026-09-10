@@ -22,6 +22,24 @@ int main(void)
     assert(!MotorAxisProfile_AllowsPosition(&p, true, NAN, 0));
     assert(MotorAxisProfile_Create(&p, "roll", -1.57079633f, 1.57079633f, .785398163f));
     assert(p.crc32 == 3400232026U); /* Python zlib/Flash record golden vector. */
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -60800) == 4736);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 60800) == -4736);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 1000) == 1000);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, false, -60800) == -60800);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(NULL, true, -60800) == -60800);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 32768) == 32768);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -32768) == -32768);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 70000) == 70000);
+    /* A real out-of-travel angle stays out, even after branch selection. */
+    assert(!MotorAxisProfile_AllowsPosition(&p, true,
+        MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -45000) *
+        (6.283185307f / 65536.0f), 0.0f));
+    q = p; q.minimum_position_rad = -7.0f;
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&q, true, -60800) == -60800);
+    q = p; q.maximum_position_rad = NAN;
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&q, true, -60800) == -60800);
+    memset(&q, 0, sizeof(q));
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&q, true, -60800) == -60800);
     assert(MotorAxisProfile_JointType(&p) == MOTOR_JOINT_ROLL);
     assert(MotorAxisProfile_Load(&p, &q) && memcmp(&p, &q, sizeof(p)) == 0);
     assert(MotorAxisProfile_AllowsPosition(&p, true, 0, 1.48f));

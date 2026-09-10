@@ -137,3 +137,20 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
     *output = config;
     return true;
 }
+
+int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile,
+    bool valid, int32_t single_turn_difference)
+{
+    uint32_t joint_type;
+    if (profile == NULL || !valid || single_turn_difference < -65535 ||
+        single_turn_difference > 65535) return single_turn_difference;
+    joint_type = MotorAxisProfile_JointType(profile);
+    if ((joint_type != MOTOR_JOINT_ROLL && joint_type != MOTOR_JOINT_PITCH) ||
+        !(profile->minimum_position_rad > -3.141592654f &&
+          profile->maximum_position_rad < 3.141592654f &&
+          profile->minimum_position_rad < profile->maximum_position_rad))
+        return single_turn_difference;
+    if (single_turn_difference > 32768) return single_turn_difference - 65536;
+    if (single_turn_difference < -32768) return single_turn_difference + 65536;
+    return single_turn_difference;
+}

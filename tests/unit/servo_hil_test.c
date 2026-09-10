@@ -52,6 +52,12 @@ int main(void)
     c = request(SERVO_HIL_ARM, 0, 0);
     assert(c.action == SERVO_HIL_ARM); ServoHil_Complete(true);
     assert(armed);
+    c = request(SERVO_HIL_HOLD_FILTER, 0, 3);
+    assert(c.action == SERVO_HIL_HOLD_FILTER && c.value == 0); ServoHil_Complete(true);
+    c = request(SERVO_HIL_HOLD_FILTER, 1, 3);
+    assert(c.action == SERVO_HIL_HOLD_FILTER && c.value == 1); ServoHil_Complete(true);
+    c = request(SERVO_HIL_HOLD_FILTER, 2, 3);
+    assert(c.action == SERVO_HIL_HOLD_FILTER && c.value == 2); ServoHil_Complete(true);
     c = request(SERVO_HIL_POSITION, .1f, 3);
     assert(c.action == SERVO_HIL_POSITION); ServoHil_Complete(true);
     for(i=0; i<10001; ++i) {
@@ -94,7 +100,22 @@ int main(void)
     c = request(SERVO_HIL_ARM, 0, 0); ServoHil_Complete(true);
     c = ServoHil_Poll(0, 1.6f, 0, 3, 0, 20000, 1);
     assert(c.action == SERVO_HIL_STOP && !armed);
+    c = request(SERVO_HIL_HOLD_FILTER, .5f, 3); assert(c.action == SERVO_HIL_STOP);
+    c = request(SERVO_HIL_HOLD_FILTER, 3, 0); assert(c.action == SERVO_HIL_STOP);
+    c = request(SERVO_HIL_HOLD_FILTER, 0, 2); assert(c.action == SERVO_HIL_STOP);
+    c = request(SERVO_HIL_HOLD_FILTER, 1, 0);
+    assert(c.action == SERVO_HIL_HOLD_FILTER); ServoHil_Complete(true);
     c = request(999U, 0, 0); assert(c.action == SERVO_HIL_STOP);
+    c = request(SERVO_HIL_VELOCITY_FILTER, 0, 0);
+    assert(c.action == SERVO_HIL_VELOCITY_FILTER); ServoHil_Complete(true);
+    c = request(SERVO_HIL_VELOCITY_FILTER, 1, 0);
+    assert(c.action == SERVO_HIL_VELOCITY_FILTER); ServoHil_Complete(true);
+    c = request(SERVO_HIL_VELOCITY_FILTER, .5f, 0); assert(c.action == SERVO_HIL_STOP);
+    c = request(SERVO_HIL_VELOCITY_FILTER, 2, 0); assert(c.action == SERVO_HIL_STOP);
+    c = request(SERVO_HIL_VELOCITY_FILTER, NAN, 0); assert(c.action == SERVO_HIL_STOP);
+    request(SERVO_HIL_ARM, 0, 0); ServoHil_Complete(true);
+    c = request(SERVO_HIL_VELOCITY_FILTER, 1, 3);
+    assert(c.action == SERVO_HIL_STOP && !armed);
     test_phase_burst_guard();
     puts("PASS phase-current burst guard: 6 A all phases, 30 s cumulative, dips, re-arm, invalid sample");
     puts("PASS HIL command service: arm, timeout, travel bound, command validation, adapter failure");

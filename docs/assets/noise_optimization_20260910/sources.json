@@ -1,0 +1,42 @@
+{
+  "motion_noise_40hz_1": {
+    "capture_sha256": "cc9380914234601d23cb38490c0aa59d803ef95c9d1929b1543ffde2d2498aa3",
+    "image": {
+      "directory": "installed_motion_filter",
+      "axf_sha256": "d60627716167bc44afaee842c50f538800b1cc75c8701ccdd91fc8ddc6462ab9",
+      "hex_sha256": "e3eff678d301294dee77c7163aea5d5558d155baff3f753da8677decd12d7f2b"
+    }
+  },
+  "motion_noise_20hz_1": {
+    "capture_sha256": "78ccb51054242ad2e66337f10430b7c8c6263fed6b8eafdc478430d861550af9",
+    "image": {
+      "directory": "installed_motion_filter",
+      "axf_sha256": "d60627716167bc44afaee842c50f538800b1cc75c8701ccdd91fc8ddc6462ab9",
+      "hex_sha256": "e3eff678d301294dee77c7163aea5d5558d155baff3f753da8677decd12d7f2b"
+    }
+  },
+  "single_10hz_motion_1": {
+    "capture_sha256": "cd562b084c47826d03f314b24d26ab46ea3c0ba419d5a820951caaf37343fcd3",
+    "image": {
+      "directory": "installed_motion_20hz_default",
+      "axf_sha256": "fe9af998c2a085e2a82c6ec0470150caddb030738a3e2c777bcb2d02cbfdaa8b",
+      "hex_sha256": "90a7f484d999dad6734805995ad9461f0e4701ef9a4c7ccd557779acf7ab32d8"
+    }
+  },
+  "single_10hz_position_1": {
+    "capture_sha256": "49909034be719ca2a5e9f449c2f569173242c151adef17ff1061bdfbe385ab23",
+    "image": {
+      "directory": "installed_motion_20hz_default",
+      "axf_sha256": "fe9af998c2a085e2a82c6ec0470150caddb030738a3e2c777bcb2d02cbfdaa8b",
+      "hex_sha256": "90a7f484d999dad6734805995ad9461f0e4701ef9a4c7ccd557779acf7ab32d8"
+    }
+  },
+  "single_10hz_default_accept": {
+    "capture_sha256": "41e8b009a19fcdbee604c4db499fcf09806717328a543cf295bd0be107992f16",
+    "image": {
+      "directory": "installed_single_10hz_default",
+      "axf_sha256": "b29b0697c86bbabb656cb1fa592825eef730035a9926ede3b11410ca2ca04f20",
+      "hex_sha256": "642efded84734a9aede2b828e39cb6a2b4ca20dfedd5f48b108abe29a5df298f"
+    }
+  }
+}

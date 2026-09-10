@@ -17,6 +17,7 @@ typedef struct
 	uint32_t configured_hold_ticks;
 	uint32_t configured_stuck_ticks;
 	float configured_velocity_filter_alpha;
+	float configured_hold_velocity_filter_alpha;
 	PI_Controller_TypeDef speed_controller;
 	PositionSmoothTrajectory smooth_trajectory;
 	bool smooth_active;
@@ -32,6 +33,7 @@ typedef struct
 	float trajectory_acceleration;
 	float speed_reference;
 	float velocity_filtered;
+	float control_velocity;
 	float iq_reference;
 	float feedback_current;
 	float acceleration_feedforward_current;
@@ -108,6 +110,9 @@ static bool PositionCascade_ConfigIsValid(const PositionCascadeConfig_TypeDef *c
 		config->hold_exit_position > config->hold_enter_position &&
 		isfinite(config->velocity_filter_hz) && config->velocity_filter_hz >= 0.0f &&
 		config->velocity_filter_hz * config->update_period_s <= 0.5f &&
+		isfinite(config->hold_velocity_filter_hz) &&
+		config->hold_velocity_filter_hz >= 0.0f &&
+		config->hold_velocity_filter_hz * config->update_period_s <= 0.5f &&
 		isfinite(config->following_error_limit) && config->following_error_limit >= 0.0f &&
 		isfinite(config->stiction_integral_rate) && config->stiction_integral_rate >= 0.0f &&
 		isfinite(config->stiction_integral_rate * config->update_period_s) &&
@@ -157,7 +162,7 @@ static void PositionCascade_CopyOutput(PositionCascadeOutput_TypeDef *output)
 	output->position_reference = state.position_reference;
 	output->speed_reference = state.speed_reference;
 	output->acceleration_reference = state.trajectory_acceleration;
-	output->speed_feedback = state.velocity_filtered;
+	output->speed_feedback = state.control_velocity;
 	output->iq_reference = state.iq_reference;
 	output->feedback_current = state.feedback_current;
 	output->acceleration_feedforward_current =
@@ -196,6 +201,9 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 	{
 		float ratio = 6.2831853072f * config->velocity_filter_hz * config->update_period_s;
 		state.configured_velocity_filter_alpha = ratio / (1.0f + ratio);
+		ratio = 6.2831853072f * config->hold_velocity_filter_hz *
+			config->update_period_s;
+		state.configured_hold_velocity_filter_alpha = ratio / (1.0f + ratio);
 	}
 	memcpy(&state.validated_config, config, sizeof(*config));
 	state.config_valid = true;
@@ -210,7 +218,7 @@ bool PositionCascade_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
 	telemetry->position_reference = state.position_reference;
 	telemetry->trajectory_speed_reference = state.trajectory_speed;
 	telemetry->speed_command = state.speed_reference;
-	telemetry->speed_feedback = state.velocity_filtered;
+	telemetry->speed_feedback = state.control_velocity;
 	telemetry->acceleration_reference = state.trajectory_acceleration;
 	telemetry->feedback_current = state.feedback_current;
 	telemetry->acceleration_feedforward_current =
@@ -800,6 +808,7 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	float speed_command_limit;
 	uint32_t hold_ticks;
 	bool trajectory_done;
+	bool was_holding = state.phase == POSITION_SERVO_PHASE_HOLD;
 
 	state.loop_count = 0U;
 	state.defer_telemetry = true;
@@ -811,6 +820,8 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	else
 		state.velocity_filtered = measured_speed;
 	measured_speed = state.velocity_filtered;
+	if (!was_holding)
+		state.control_velocity = measured_speed;
 
 	FAST_PROFILE_BEGIN(FAST_PROFILE_TRAJECTORY);
 	trajectory_done = PositionCascade_UpdateTrajectory(config, measured_position);
@@ -891,8 +902,17 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 		state.hold_counter = 0U;
 	}
 
+	/* Qualify HOLD using the original feedback above. Seed on entry, bypass on
+	 * exit/retarget, and filter only the two damping/proportional speed paths.
+	 * Never deadband position or remove the learned load-support current. */
+	if (state.phase == POSITION_SERVO_PHASE_HOLD && was_holding &&
+		config->hold_velocity_filter_hz > 0.0f)
+		state.control_velocity += state.configured_hold_velocity_filter_alpha *
+			(measured_speed - state.control_velocity);
+	else
+		state.control_velocity = measured_speed;
 	position_error = state.position_reference - measured_position;
-	velocity_error = state.trajectory_speed - measured_speed;
+	velocity_error = state.trajectory_speed - state.control_velocity;
 	state.speed_reference = state.trajectory_speed +
 		config->position_kp * position_error +
 		config->position_kd * velocity_error;
@@ -936,7 +956,7 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 		speed_ki_current_domain, config->update_period_s,
 		-config->current_limit, config->current_limit);
 	state.feedback_current = PI_Controller_Run(&state.speed_controller,
-		state.speed_reference, measured_speed);
+		state.speed_reference, state.control_velocity);
 	current_candidate = state.feedback_current + feedforward_current;
 	if (!isfinite(current_candidate))
 	{
@@ -971,6 +991,7 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		state.last_target = config->target_position;
 		state.position_reference = measured_position;
 		state.velocity_filtered = measured_speed;
+		state.control_velocity = measured_speed;
 		state.friction_breakaway_start_position = measured_position;
 		state.target_transition_active =
 			PositionCascade_Abs(config->target_position - measured_position) >
@@ -1037,7 +1058,7 @@ static void PositionCascade_CopyControlOutput(PositionCascadeControlOutput_TypeD
 {
     output->position_reference = state.position_reference;
     output->speed_reference = state.speed_reference;
-    output->speed_feedback = state.velocity_filtered;
+    output->speed_feedback = state.control_velocity;
     output->iq_reference = state.iq_reference;
     output->target_reached = state.target_reached;
 }

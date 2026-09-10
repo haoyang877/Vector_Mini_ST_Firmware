@@ -486,7 +486,11 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 	config.position_error_window = MotorControl->pos_error_window;
 	config.hold_enter_position = POSITION_SERVO_HOLD_ENTER_POSITION_RAD;
 	config.hold_exit_position = POSITION_SERVO_HOLD_EXIT_POSITION_RAD;
-	config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;
+	config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ *
+		(MotorControl->position_velocity_filter_half_cutoff ? 0.5f : 1.0f);
+	config.hold_velocity_filter_hz = MotorControl->position_hold_filter_bypass ?
+		0.0f : POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ *
+		(MotorControl->position_hold_filter_half_cutoff ? 0.5f : 1.0f);
 	config.following_error_limit = POSITION_SERVO_FOLLOWING_ERROR_LIMIT_RAD;
 	config.stiction_integral_rate = POSITION_SERVO_STICTION_INTEGRAL_RATE_A_PER_S;
 	config.acceleration = MotorControl->posAcc;
@@ -572,7 +576,13 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     if (MotorControl->axis_profile.magic != 0U &&
         maximum_speed > MotorControl->axis_profile.maximum_speed_rad_s)
         maximum_speed = MotorControl->axis_profile.maximum_speed_rad_s;
-    if (!PositionMode_SameTuningValue(config->position_error_window, MotorControl->pos_error_window) ||
+    if (!PositionMode_SameTuningValue(config->velocity_filter_hz,
+            POSITION_SERVO_VELOCITY_FILTER_HZ *
+                (MotorControl->position_velocity_filter_half_cutoff ? 0.5f : 1.0f)) ||
+        !PositionMode_SameTuningValue(config->hold_velocity_filter_hz,
+            MotorControl->position_hold_filter_bypass ? 0.0f : POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ *
+                (MotorControl->position_hold_filter_half_cutoff ? 0.5f : 1.0f)) ||
+        !PositionMode_SameTuningValue(config->position_error_window, MotorControl->pos_error_window) ||
         !PositionMode_SameTuningValue(config->acceleration, MotorControl->posAcc) ||
         !PositionMode_SameTuningValue(config->deceleration, deceleration) ||
         !PositionMode_SameTuningValue(config->maximum_speed, maximum_speed) ||

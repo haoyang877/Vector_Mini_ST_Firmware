@@ -23,7 +23,12 @@ typedef enum {
     SERVO_HIL_NONE = 0, SERVO_HIL_STOP = 1, SERVO_HIL_ARM = 2,
     SERVO_HIL_POSITION = 3, SERVO_HIL_POSITION_KP = 4,
     SERVO_HIL_SPEED_KP = 5, SERVO_HIL_SPEED_KI = 6,
-    SERVO_HIL_MAX_SPEED = 7, SERVO_HIL_POSITION_KD = 8
+    SERVO_HIL_MAX_SPEED = 7, SERVO_HIL_POSITION_KD = 8,
+    /* 0 = bypass, 1 = configured HOLD filter, 2 = half its cutoff.
+     * Allowed while armed in mode 3; does not reset the control state. */
+    SERVO_HIL_HOLD_FILTER = 9,
+    /* Disabled only: 0 = default base velocity filter, 1 = half cutoff. */
+    SERVO_HIL_VELOCITY_FILTER = 10
 } ServoHilAction;
 typedef struct { ServoHilAction action; float value; } ServoHilCommand;
 

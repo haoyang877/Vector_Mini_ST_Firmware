@@ -296,6 +296,13 @@ void FOC20kHzIRQHandler(void)
 			case SERVO_HIL_POSITION: MotorControl.posRef = command.value; break;
 			case SERVO_HIL_POSITION_KP: MotorControl.cascade_pos_Kp = command.value; break;
 			case SERVO_HIL_POSITION_KD: MotorControl.cascade_pos_Kd = command.value; break;
+			case SERVO_HIL_HOLD_FILTER:
+				MotorControl.position_hold_filter_bypass = command.value == 0.0f;
+				MotorControl.position_hold_filter_half_cutoff = command.value == 2.0f;
+				break;
+			case SERVO_HIL_VELOCITY_FILTER:
+				MotorControl.position_velocity_filter_half_cutoff = command.value == 1.0f;
+				break;
 			case SERVO_HIL_SPEED_KP: MotorControl.speed_Kp = command.value; break;
 			case SERVO_HIL_SPEED_KI: MotorControl.speed_Ki = command.value; break;
 			case SERVO_HIL_MAX_SPEED:

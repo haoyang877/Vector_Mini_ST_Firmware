@@ -19,7 +19,8 @@ typedef struct
 	float position_error_window; /* Trajectory finish tolerance only, rad. */
 	float hold_enter_position; /* Position qualification window, rad. */
 	float hold_exit_position; /* Wider hold/recovery hysteresis, rad. */
-	float velocity_filter_hz; /* 0 bypasses the software feedback filter. */
+	float velocity_filter_hz; /* 0 bypasses the base filter; HOLD shaping is separate. */
+	float hold_velocity_filter_hz; /* 0 bypasses HOLD shaping; runtime tuning in Hz. */
 	float following_error_limit; /* Soft governor range in rad; 0 disables. */
 	float stiction_integral_rate; /* A/s added to PI only after confirmed stall; 0 disables. */
 	float acceleration;
@@ -69,7 +70,8 @@ typedef struct
 	float position_reference;
 	float trajectory_speed_reference;
 	float speed_command;
-	float speed_feedback; /* Continuous, filtered velocity used by this servo. */
+	float speed_feedback; /* Actual control velocity, including optional HOLD filter.
+	                       * HOLD exit uses the original feedback before that filter. */
 	float acceleration_reference;
 	float feedback_current;
 	float acceleration_feedforward_current;

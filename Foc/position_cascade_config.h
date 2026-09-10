@@ -16,7 +16,17 @@
 #define POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2        0.0f
 
 /* Software tuning defaults, to validate on the direct-drive mechanism. */
-#define POSITION_SERVO_VELOCITY_FILTER_HZ                40.0f
+#ifndef POSITION_SERVO_VELOCITY_FILTER_HZ
+/* One shared MOVE/SETTLE/HOLD low-pass. Roll motion/position verified;
+ * loaded-axis/full-speed validation remains target-specific. */
+#define POSITION_SERVO_VELOCITY_FILTER_HZ                10.0f
+#endif
+/* Optional extra HOLD stage retained for comparative tests. Disabled by
+ * default: all phases use the same base-filtered velocity without cascading
+ * another low-pass on entry to HOLD. */
+#ifndef POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ
+#define POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ            0.0f
+#endif
 /* Reserve bounded speed correction above planned cruise speed. */
 #define POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO   1.50f
 /* Soft reference governor for point-to-point moves; 0 disables it. Not a fault limit. */

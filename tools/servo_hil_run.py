@@ -72,6 +72,16 @@ def main():
                    help='Allow up to 6 A Iq only with verified board 6 A phase / 30 s exposure guard')
     p.add_argument('--arm-only', action='store_true',
                    help='Hold the current position for diagnostics; send no POSITION commands')
+    p.add_argument('--hold-filter-sequence',
+                   help='HIL opcode 9: 0=bypass, 1=default cutoff, 2=half cutoff; --seconds per state, requires --arm-only')
+    p.add_argument('--hold-filter-setting', type=int, choices=(0, 1, 2),
+                   help='Select one HOLD filter for the whole motion trial, using the verified command before ARM')
+    p.add_argument('--keep-final-hold-filter', action='store_true',
+                   help='Retain the final RAM filter selection after normal STOP; motor outputs still disabled')
+    p.add_argument('--base-filter-setting', type=int, choices=(0, 1),
+                   help='Before ARM: 0=default base velocity cutoff, 1=half; HOLD extra filter is separate')
+    p.add_argument('--keep-final-base-filter', action='store_true',
+                   help='Retain base-filter RAM selection after successful STOP; failure restores default')
     p.add_argument('--profile-timing', action='store_true',
                    help='Verify the archived image and measure cumulative IRQ cycles while running')
     p.add_argument('--profile-stage', type=int, choices=range(1, 15),
@@ -79,6 +89,14 @@ def main():
     p.add_argument('--swd-speed-khz', type=int, choices=(1000, 2000, 4000), default=4000,
                    help='J-Link debug clock only; does not change firmware or encoder SPI clocks')
     args = p.parse_args()
+    hold_filter_sequence = ([] if args.hold_filter_sequence is None else
+                            [int(x) for x in args.hold_filter_sequence.split(',')])
+    assert args.hold_filter_sequence is None or (args.arm_only and
+        1 <= len(hold_filter_sequence) <= 12 and all(x in (0, 1, 2) for x in hold_filter_sequence))
+    assert not hold_filter_sequence or args.hold_filter_setting is None
+    filter_requests = hold_filter_sequence or ([] if args.hold_filter_setting is None else [args.hold_filter_setting])
+    assert not args.keep_final_hold_filter or filter_requests
+    assert not args.keep_final_base_filter or args.base_filter_setting is not None
     assert args.profile_stage is None or args.profile_timing
     if pylink is None:
         p.error('Install pylink-square in the bench Python environment; no probe was opened')
@@ -126,6 +144,8 @@ def main():
     last_tick_time = time.monotonic()
     verified_flash = None
     command_channel_ready = not args.profile_timing
+    hold_filter_supported = False
+    base_filter_supported = False
 
     def verify_profile_image():
         metadata = json.loads((session/'active_image.json').read_text())
@@ -246,6 +266,14 @@ def main():
             for _, op, value in specs:
                 command(op, value)
         offsets = json.loads((session/'member_offsets.json').read_text())['MotorControl_TypeDef']
+        if args.base_filter_setting is not None:
+            assert 'position_velocity_filter_half_cutoff' in offsets, 'image does not support base filter comparison'
+            base_filter_supported = True
+        if filter_requests:
+            assert 'position_hold_filter_bypass' in offsets, 'image does not support live HOLD A/B'
+            if 2 in filter_requests:
+                assert 'position_hold_filter_half_cutoff' in offsets, 'image does not support half-cutoff comparison'
+            hold_filter_supported = True
         if axis_profile:
             motor_address = symbols['MotorControl']
             assert j.memory_read8(motor_address + offsets['axis_profile_valid'], 1)[0] == 1
@@ -283,6 +311,20 @@ def main():
             j.memory_write32(stage_address, [0])
             j.memory_write32(stage_address + 4, [0, 0, 0, 0xffffffff, 0, 0])
             j.memory_write32(stage_address, [args.profile_stage])
+        if filter_requests:
+            selection = filter_requests[0]
+            command(9, float(selection))
+            assert j.memory_read8(symbols['MotorControl'] +
+                offsets['position_hold_filter_bypass'], 1)[0] == int(selection == 0)
+            if 'position_hold_filter_half_cutoff' in offsets:
+                assert j.memory_read8(symbols['MotorControl'] +
+                    offsets['position_hold_filter_half_cutoff'], 1)[0] == int(selection == 2)
+            runtime_parameters['hold_filter_setting'] = selection
+        if base_filter_supported:
+            command(10, float(args.base_filter_setting))
+            assert j.memory_read8(symbols['MotorControl'] +
+                offsets['position_velocity_filter_half_cutoff'], 1)[0] == args.base_filter_setting
+            runtime_parameters['base_filter_setting'] = args.base_filter_setting
         command(2)
         armed = True
         collect(.5)
@@ -304,7 +346,22 @@ def main():
             print('target', target, 'deg', flush=True)
             collect(args.seconds)
         if args.arm_only:
-            collect(args.seconds)
+            if hold_filter_sequence:
+                for enabled in hold_filter_sequence:
+                    command(9, float(enabled))
+                    actual = j.memory_read8(symbols['MotorControl'] +
+                        offsets['position_hold_filter_bypass'], 1)[0]
+                    assert actual == int(enabled == 0), 'HOLD filter request readback differs'
+                    if 'position_hold_filter_half_cutoff' in offsets:
+                        actual_half = j.memory_read8(symbols['MotorControl'] +
+                            offsets['position_hold_filter_half_cutoff'], 1)[0]
+                        assert actual_half == int(enabled == 2), 'HOLD cutoff request readback differs'
+                    print({0: 'A: HOLD FILTER OFF', 1: 'B: DEFAULT HOLD CUTOFF',
+                           2: 'C: HALF HOLD CUTOFF'}[enabled] +
+                          ' for ' + str(args.seconds) + ' seconds', flush=True)
+                    collect(args.seconds)
+            else:
+                collect(args.seconds)
         if args.profile_timing:
             beat()
             if args.profile_stage:
@@ -343,6 +400,17 @@ def main():
                 final = snapshot()
                 assert final['mode'] == 0 and not final['active']
                 assert j.memory_read32(0x40012c20,1)[0] & 0x555 == 0
+                if base_filter_supported and not (args.keep_final_base_filter and failure is None):
+                    command(10, 0.0)
+                    assert j.memory_read8(symbols['MotorControl'] +
+                        offsets['position_velocity_filter_half_cutoff'], 1)[0] == 0
+                if hold_filter_supported and not (args.keep_final_hold_filter and failure is None):
+                    command(9, 1.0)  # Restore configured default only after confirmed STOP.
+                    assert j.memory_read8(symbols['MotorControl'] +
+                        offsets['position_hold_filter_bypass'], 1)[0] == 0
+                    if 'position_hold_filter_half_cutoff' in offsets:
+                        assert j.memory_read8(symbols['MotorControl'] +
+                            offsets['position_hold_filter_half_cutoff'], 1)[0] == 0
                 phase_guard = read_phase_guard(j, symbols)
                 shutdown_verified = True
                 if 'hil_irq_histogram' in symbols:

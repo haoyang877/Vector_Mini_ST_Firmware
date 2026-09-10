@@ -29,6 +29,89 @@ def function_source(source, name):
     return source[start:end]
 
 
+def encoder_startup_fixture():
+    source = (ROOT / "Bsp/encoder.c").read_text(encoding="utf-8")
+    return r'''
+#include <assert.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+#include "../software/config/motor_axis_profile.h"
+#define _2PI 6.2831853072f
+#define ENCODER_Q15_CPR 65536UL
+#define ENCODER_Q15_HALF_TURN 32768
+#define ENC_CALIB_MECHANICAL_ZERO 4U
+typedef struct {
+    MotorAxisProfile axis_profile;
+    bool axis_profile_valid;
+    int motor_pole_pairs;
+} MotorControl_TypeDef;
+typedef struct {
+    uint16_t raw_q15, directed_q15, linearized_q15, previous_linearized_q15;
+    uint16_t electrical_zero_q15, mechanical_zero_q15;
+    uint8_t calib_flag;
+    bool has_valid_sample;
+    int64_t shadow_q15, mechanical_zero_shadow_q15, velocity_shadow_q15;
+    float theta_elec, theta_mech;
+} Encoder_TypeDef;
+static uint16_t sample;
+static bool sample_ok = true;
+static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e, uint16_t *out, bool started)
+{ (void)e; (void)started; *out = sample; return sample_ok; }
+static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e, uint16_t v)
+{ (void)e; return v; }
+static uint16_t Encoder_ApplyLinearizationQ15(Encoder_TypeDef *e, uint16_t v)
+{ (void)e; return v; }
+static void Encoder_ResetVelocity(Encoder_TypeDef *e)
+{ e->velocity_shadow_q15 = e->shadow_q15; }
+static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *e, uint32_t poles)
+{ (void)e; (void)poles; }
+''' + "\n".join(function_source(source, name) for name in
+    ["Encoder_UpdateAngles", "Encoder_CompleteSample"]) + r'''
+int main(void) {
+    MotorControl_TypeDef m = {0};
+    Encoder_TypeDef e = {0};
+    m.motor_pole_pairs = 7;
+    assert(MotorAxisProfile_Create(&m.axis_profile, "roll", -1.57079633f, 1.57079633f, .785398163f));
+    m.axis_profile_valid = true;
+    e.mechanical_zero_q15 = 65000; e.electrical_zero_q15 = 1234;
+    e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
+    sample = 4000;
+    sample_ok = false; Encoder_CompleteSample(&m, &e, false);
+    assert(!e.has_valid_sample);
+    sample_ok = true; Encoder_CompleteSample(&m, &e, false);
+    assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 4536);
+    assert(e.velocity_shadow_q15 == e.shadow_q15);
+    assert(e.mechanical_zero_q15 == 65000 && e.electrical_zero_q15 == 1234);
+    assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, e.theta_mech));
+    sample = 65530; Encoder_CompleteSample(&m, &e, true);
+    assert(e.shadow_q15 == 65530);
+    sample = 10; Encoder_CompleteSample(&m, &e, true);
+    assert(e.shadow_q15 == 65546); /* continuous across wrap after startup */
+    memset(&e, 0, sizeof(e)); e.mechanical_zero_q15 = 500;
+    e.calib_flag = ENC_CALIB_MECHANICAL_ZERO; sample = 65000;
+    Encoder_CompleteSample(&m, &e, false);
+    assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == -1036);
+    /* Invalid/unconfigured axes and uncalibrated encoders keep legacy behavior. */
+    e.has_valid_sample = false; m.axis_profile_valid = false;
+    Encoder_CompleteSample(&m, &e, false);
+    assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 64500);
+    e.has_valid_sample = false; m.axis_profile_valid = true; e.calib_flag = 0;
+    Encoder_CompleteSample(&m, &e, false);
+    assert(e.shadow_q15 == 65000 && e.mechanical_zero_shadow_q15 == 0);
+    /* Do not map a real out-of-travel position into the allowed range. */
+    e.has_valid_sample = false; e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
+    e.mechanical_zero_q15 = 0; sample = 30000;
+    Encoder_CompleteSample(&m, &e, false);
+    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
+    puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
+    return 0;
+}
+'''
+
+
 def encoder_fixture():
     source = (ROOT / "Bsp/encoder.c").read_text(encoding="utf-8")
     header = (ROOT / "Bsp/encoder.h").read_text(encoding="utf-8")
@@ -316,6 +399,9 @@ def main():
                                               "Foc/position_smooth_trajectory.c"])
     fixture.write_text(encoder_fixture(), encoding="utf-8")
     build("encoder_estimator_test", [fixture])
+    startup_fixture = args.out / "encoder_startup_test.c"
+    startup_fixture.write_text(encoder_startup_fixture(), encoding="utf-8")
+    build("encoder_startup_test", [startup_fixture, "software/config/motor_axis_profile.c"])
     irq_fixture = args.out / "adc_irq_dispatch_test.c"
     irq_fixture.write_text(adc_irq_fixture(), encoding="utf-8")
     build("adc_irq_dispatch_test", [irq_fixture])

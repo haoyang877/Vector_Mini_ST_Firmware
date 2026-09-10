@@ -132,6 +132,10 @@ typedef struct
     /* Append to preserve existing diagnostic member offsets. */
     MotorAxisProfile axis_profile;
     bool axis_profile_valid;
+    /* RAM-only mode-3 A/B request, copied with the motor configuration snapshot. */
+    bool position_hold_filter_bypass;
+    bool position_hold_filter_half_cutoff; /* RAM-only comparison against default cutoff. */
+    bool position_velocity_filter_half_cutoff; /* RAM-only base velocity filter trial. */
 }MotorControl_TypeDef;
 
 #endif

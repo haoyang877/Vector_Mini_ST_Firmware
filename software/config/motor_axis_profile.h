@@ -61,6 +61,14 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
 /** Create a checked roll/pitch record for an explicitly configured mechanism. */
 bool MotorAxisProfile_Create(MotorAxisProfile *output, const char *name,
     float minimum_position_rad, float maximum_position_rad, float maximum_speed_rad_s);
+/** Select the startup single-turn branch relative to a calibrated zero.
+ * Only validated roll/pitch envelopes wholly inside (-pi, pi) qualify.
+ * Input/output units are 65536 counts/revolution. No clamping to travel limits:
+ * out-of-range positions must still fail AllowsPosition. Unconfigured or
+ * multi-turn envelopes retain the input; continuous tracking must not call this.
+ * Caller must establish mechanical-zero calibration before using this helper. */
+int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile,
+    bool valid, int32_t single_turn_difference);
 /** Fast bounds check after a successful load. No CRC work occurs in the ISR.
  * Actual position must remain strictly within limits; targets may equal them.
  * This is a software stop boundary, not a guarantee against physical overshoot. */

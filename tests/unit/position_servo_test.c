@@ -19,6 +19,7 @@ static PositionCascadeConfig_TypeDef config(void)
     c.hold_enter_position = POSITION_SERVO_HOLD_ENTER_POSITION_RAD;
     c.hold_exit_position = POSITION_SERVO_HOLD_EXIT_POSITION_RAD;
     c.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;
+    c.hold_velocity_filter_hz = POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ;
     c.following_error_limit = POSITION_SERVO_FOLLOWING_ERROR_LIMIT_RAD;
     c.stiction_integral_rate = POSITION_SERVO_STICTION_INTEGRAL_RATE_A_PER_S;
     c.acceleration = c.deceleration = 0.785398f;
@@ -124,6 +125,115 @@ static void test_quiet_hold_with_recorded_noise_range(void)
     }
     assert(o.target_reached && o.phase == POSITION_SERVO_PHASE_HOLD);
     assert(fabsf(o.hold_current) < 0.000001f);
+}
+
+/* Fixed sensor injection measures controller noise transfer, not plant stability. */
+static void test_hold_velocity_noise_transfer(void)
+{
+    int rate, frequency, i;
+    for (rate = 1000; rate <= 2000; rate += 1000)
+    for (frequency = 40; frequency <= 80; frequency += 40)
+    {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o = {0};
+        float base_velocity = 0, ratio, alpha;
+        double baseline_energy = 0, actual_energy = 0;
+        c.update_period_s = 1.0f / (float)rate;
+        c.position_kp = 8; c.position_kd = 2;
+        c.speed_kp = .5f; c.speed_ki = 2;
+        c.friction_feedforward_enabled = 0;
+        ratio = 6.2831853072f * c.velocity_filter_hz * c.update_period_s;
+        alpha = ratio / (1 + ratio);
+        PositionCascade_Reset();
+        for (i = 0; i < rate; ++i) o = step(&c, 0, 0);
+        assert(o.target_reached);
+        for (i = 0; i < 6 * rate; ++i)
+        {
+            float omega = 6.2831853072f * (float)frequency;
+            float phase = omega * (float)i * c.update_period_s;
+            float position = -.02f / omega * cosf(phase);
+            float speed = .02f * sinf(phase);
+            float baseline;
+            base_velocity += alpha * (speed - base_velocity);
+            baseline = c.speed_kp * c.current_limit *
+                (-c.position_kp * position - (1 + c.position_kd) * base_velocity);
+            o = step(&c, position, speed);
+            assert(o.target_reached && o.phase == POSITION_SERVO_PHASE_HOLD);
+            assert(fabsf(o.hold_current) < .000001f);
+            if (i >= rate) {
+                baseline_energy += (double)baseline * baseline;
+                actual_energy += (double)o.iq_reference * o.iq_reference;
+            }
+        }
+        if (POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ == 10.0f)
+            assert(actual_energy < .10 * baseline_energy);
+        else if (POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ == 0.0f)
+            assert(fabs(actual_energy / baseline_energy - 1) < .0001);
+        printf("HOLD injection %d Hz at %d Hz loop: baseline %.6f A RMS, actual %.6f A RMS\n",
+            frequency, rate, sqrt(baseline_energy / (5 * rate)),
+            sqrt(actual_energy / (5 * rate)));
+    }
+}
+
+static void test_hold_filter_keeps_stiffness_and_exit_sensing(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o;
+    PositionCascadeTelemetry_TypeDef t;
+    int i, sign;
+    c.position_kp = 8; c.position_kd = 2;
+    c.speed_kp = .5f; c.speed_ki = 2;
+    c.friction_feedforward_enabled = 0;
+    c.velocity_filter_hz = 0;
+    for (sign = -1; sign <= 1; sign += 2) {
+        PositionCascade_Reset();
+        c.target_position = 0;
+        for (i = 0; i < 200; ++i) o = step(&c, 0, 0);
+        assert(o.target_reached);
+        o = step(&c, sign * .001f, 0);
+        assert(o.target_reached);
+        assert(fabsf(o.iq_reference + sign * .024f) < .000001f);
+        o = step(&c, 0, sign * .09f);
+        assert(!o.target_reached && o.phase == POSITION_SERVO_PHASE_SETTLE);
+        assert(o.speed_feedback == sign * .09f);
+        for (i = 0; i < 400; ++i) o = step(&c, 0, 0);
+        assert(o.target_reached);
+        c.target_position = sign * .1f;
+        o = step(&c, 0, sign * .01f);
+        assert(!o.target_reached && o.phase == POSITION_SERVO_PHASE_MOVE);
+        assert(o.speed_feedback == sign * .01f);
+        assert(PositionCascade_GetTelemetry(&t));
+        assert(t.speed_feedback == o.speed_feedback);
+    }
+}
+
+static void test_live_hold_filter_switch_preserves_state(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o;
+    float support;
+    int i, toggle;
+    c.friction_feedforward_enabled = 0;
+    c.target_position = .05f;
+    PositionCascade_Reset();
+    for (i = 0; i < 3000; ++i) o = step(&c, 0, 0);
+    for (i = 0; i < 3000; ++i) o = step(&c, c.target_position, 0);
+    support = o.hold_current;
+    assert(o.target_reached && support > .01f);
+    for (toggle = 0; toggle < 20; ++toggle) {
+        c.hold_velocity_filter_hz = (float)(toggle % 3) * 5.0f;
+        for (i = 0; i < 20; ++i) {
+            o = step(&c, c.target_position, .005f);
+            assert(o.phase == POSITION_SERVO_PHASE_HOLD && o.target_reached);
+            assert(o.position_reference == c.target_position);
+            assert(fabsf(o.hold_current - support) < .000001f);
+        }
+        assert(PositionCascade_GetConfiguration()->hold_velocity_filter_hz == c.hold_velocity_filter_hz);
+    }
+    c.hold_velocity_filter_hz = NAN;
+    assert(!PositionCascade_Update(&c, c.target_position, 0, &o));
+    c.hold_velocity_filter_hz = -1;
+    assert(!PositionCascade_Update(&c, c.target_position, 0, &o));
 }
 
 static void test_hold_retains_support_and_recovers_disturbance(void)
@@ -786,6 +896,33 @@ static void test_operating_envelopes(void)
     }
 }
 
+/* Fixed sensor injection verifies one recurrence through phase changes;
+ * it is not a mechanical stability simulation. */
+static void test_single_filter_across_phases(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o;
+    float filtered = 0, ratio, alpha;
+    bool saw_move = false, saw_hold = false;
+    int i;
+    c.velocity_filter_hz = 10.0f;
+    c.hold_velocity_filter_hz = 0.0f;
+    c.friction_feedforward_enabled = 0;
+    ratio = 6.2831853072f * c.velocity_filter_hz * c.update_period_s;
+    alpha = ratio / (1.0f + ratio);
+    PositionCascade_Reset();
+    for (i = 0; i < 8000; ++i) {
+        float speed = .01f * sinf((float)i * .12f);
+        if (i == 1000) c.target_position = 1.0f;
+        filtered += alpha * (speed - filtered);
+        o = step(&c, i < 2000 ? 0.0f : 1.0f, speed);
+        assert(fabsf(o.speed_feedback - filtered) < .000001f);
+        saw_move = saw_move || o.phase == POSITION_SERVO_PHASE_MOVE;
+        saw_hold = saw_hold || o.phase == POSITION_SERVO_PHASE_HOLD;
+    }
+    assert(saw_move && saw_hold && o.target_reached);
+}
+
 static void test_live_filter_reconfiguration(void)
 {
     PositionCascadeConfig_TypeDef c = config();
@@ -833,12 +970,16 @@ static void test_live_hold_period_reconfiguration(void)
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
+    test_single_filter_across_phases(); puts("PASS single 10 Hz feedback across HOLD, retarget, MOVE and capture");
     test_live_filter_reconfiguration(); puts("PASS live filter frequency/period changes and disable/re-enable");
     test_live_hold_period_reconfiguration(); puts("PASS hold confirmation time after live update-period change");
     test_operating_envelopes(); puts("PASS 72 synthetic operating envelopes: current, asymmetric friction, range, both signs");
     test_invalid_config(); puts("PASS invalid inputs/configuration");
     test_low_speed_feedback(); puts("PASS continuous low-speed feedback");
     test_quiet_hold_with_recorded_noise_range(); puts("PASS quiet hold within recorded noise range");
+    test_hold_velocity_noise_transfer(); puts("PASS HOLD noise transfer at both update rates");
+    test_live_hold_filter_switch_preserves_state(); puts("PASS live HOLD A/B preserves target, support and state");
+    test_hold_filter_keeps_stiffness_and_exit_sensing(); puts("PASS HOLD stiffness, unfiltered exit sensing and retarget");
     test_hold_retains_support_and_recovers_disturbance(); puts("PASS retained support and disturbance recovery");
     test_hold_exit_restarts_opposing_integral_transport(); puts("PASS HOLD loss restarts bounded opposing-integral transport; helpful support retained, both signs");
     test_recover_stalled_landing_before_trajectory_ends(); puts("PASS recovery before trajectory completion");

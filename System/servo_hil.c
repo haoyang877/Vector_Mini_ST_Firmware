@@ -115,7 +115,7 @@ ServoHilCommand ServoHil_Poll(float position, float speed, float iq,
         servo_hil_mailbox.ack = seq;
         return stop(0);
     }
-    if (!isfinite(value) || op < SERVO_HIL_ARM || op > SERVO_HIL_POSITION_KD) {
+    if (!isfinite(value) || op < SERVO_HIL_ARM || op > SERVO_HIL_VELOCITY_FILTER) {
         servo_hil_mailbox.ack = seq;
         return stop(4);
     }
@@ -127,6 +127,17 @@ ServoHilCommand ServoHil_Poll(float position, float speed, float iq,
         }
     } else if (op == SERVO_HIL_POSITION) {
         if (!armed || fabsf(value) > SERVO_HIL_TARGET_LIMIT_RAD) {
+            servo_hil_mailbox.ack = seq;
+            return stop(4);
+        }
+    } else if (op == SERVO_HIL_HOLD_FILTER) {
+        if ((value != 0.0f && value != 1.0f && value != 2.0f) || error != 0 ||
+            !((mode == 0 && !armed) || (mode == 3 && armed))) {
+            servo_hil_mailbox.ack = seq;
+            return stop(4);
+        }
+    } else if (op == SERVO_HIL_VELOCITY_FILTER) {
+        if (mode != 0 || armed || error != 0 || (value != 0.0f && value != 1.0f)) {
             servo_hil_mailbox.ack = seq;
             return stop(4);
         }

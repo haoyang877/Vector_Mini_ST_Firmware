@@ -33,3 +33,6 @@ __pycache__/
 
 # Local motor-control captures
 data_recoder/
+
+# Generated analysis and test output
+/outputs/

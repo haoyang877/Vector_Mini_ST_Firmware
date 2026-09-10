@@ -7,6 +7,7 @@
 #include "position_cascade.h"
 #include "servo_hil.h"
 #include "fast_loop_profile.h"
+#include "../software/services/telemetry/motor_status.h"
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -174,6 +175,37 @@ static void RTT_Sampling(bool defer_encoding)
 
 	bytes_written = SEGGER_RTT_Write(1, &frame, sizeof(frame));
 	previous_frame_dropped = bytes_written != sizeof(frame);
+}
+
+/** Read-only publication from the motor owner. Requested at <=200 Hz; CAN
+ * packing and transmission stay in the foreground, never in this fast path. */
+static void MotorStatus_Sampling(void)
+{
+    MotorStatus sample;
+    PositionCascadeTelemetry_TypeDef planned;
+    if (!MotorStatus_IsRequested()) return;
+    sample.fault = (uint16_t)MotorControl.ErrorNow;
+    sample.mode = (uint16_t)MotorControl.ModeNow;
+    sample.position_target = MotorControl.posRef;
+    sample.position_feedback = OnBoard_Encoder.theta_mech;
+    sample.speed_target = MotorControl.speedRef;
+    sample.speed_feedback = (MotorControl.ModeNow == Position_Mode ||
+        MotorControl.ModeNow == Position_Impedance_Mode) ?
+        MotorControl.pos_vel_filtered : OnBoard_Encoder.vel_mech;
+    sample.current_reference = MotorControl.iqRef;
+    sample.current_feedback = FOC.Iq;
+    sample.position_planned = NAN;
+    sample.speed_planned = NAN;
+    if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned)) {
+        sample.position_planned = planned.position_reference;
+        sample.speed_planned = planned.trajectory_speed_reference;
+    } else if (MotorControl.ModeNow == Position_Impedance_Mode) {
+        sample.position_planned = MotorControl.posShadow;
+        sample.speed_planned = MotorControl.speedShadow;
+    } else if (MotorControl.ModeNow == Speed_Mode) {
+        sample.speed_planned = MotorControl.speedShadow;
+    }
+    MotorStatus_Publish(&sample);
 }
 
 /**
@@ -470,6 +502,7 @@ void FOC20kHzIRQHandler(void)
 	FAST_PROFILE_END(FAST_PROFILE_POST_CONTROL);
     
     FAST_PROFILE_BEGIN(FAST_PROFILE_TELEMETRY);
+    if (!defer_optional_telemetry) MotorStatus_Sampling();
     RTT_Sampling(defer_optional_telemetry);
     FAST_PROFILE_END(FAST_PROFILE_TELEMETRY);
 }

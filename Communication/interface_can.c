@@ -10,6 +10,9 @@
 #include "foc_errhandle.h"
 #include "encoder.h"
 #include "hw_conf.h"
+#include "../hal/api/comm_hw.h"
+#include "../hal/api/time_hw.h"
+#include "../software/communication/protocol/can_motor_status.h"
 #include "foc_friction_identification.h"
 
 CANMsg_TypeDef CANMsg;
@@ -26,6 +29,7 @@ extern Encoder_TypeDef OnBoard_Encoder;
 void FDCAN1_Param_Init(void)
 {
 	FDCAN_FilterTypeDef FDCAN_Filter;
+	CanMotorStatus_Init();
 	
 	FDCAN_Filter.IdType 		= FDCAN_STANDARD_ID;
 	FDCAN_Filter.FilterIndex 	= 0;
@@ -64,28 +68,23 @@ void FDCAN1_Param_Init(void)
  **/
 void CAN_DisConnect_Handle(void)
 {
-	if(CANMsg.can_hb_set != 0)
-	{
-		if(MotorControl.ModeNow  == Current_Mode || 
-		   MotorControl.ModeNow  == Speed_Mode   || 
-		   MotorControl.ModeNow  == Position_Mode ||
-		   MotorControl.ModeNow  == Position_Impedance_Mode)
-		{
-			CANMsg.can_hb_en = true;
-		}
+	/* Recompute on every supervisor tick: a previous RUN must not keep the
+	 * watchdog armed after STOP. Keep any existing fault latched here. */
+	CANMsg.can_hb_en = CANMsg.can_hb_set != 0U &&
+		(MotorControl.ModeNow == Current_Mode ||
+		 MotorControl.ModeNow == Speed_Mode ||
+		 MotorControl.ModeNow == Position_Mode ||
+		 MotorControl.ModeNow == Position_Impedance_Mode);
+	if (!CANMsg.can_hb_en) {
+		CANMsg.can_hb_count = 0U;
+		return;
 	}
-	else
-	{
-		CANMsg.can_hb_en = false;
-	}
-		
-	if(CANMsg.can_rx_en == true && CANMsg.can_hb_en == true)
-	{
-		/*timeout protect*/
-		if(++ CANMsg.can_hb_count >= CANMsg.can_hb_set)
-		{
+	if (CANMsg.can_rx_en) {
+		/* Saturate so a sustained disconnect cannot wrap the counter. */
+		if (CANMsg.can_hb_count < CANMsg.can_hb_set) ++CANMsg.can_hb_count;
+		if (CANMsg.can_hb_count >= CANMsg.can_hb_set &&
+			MotorControl.ErrorNow == No_Error)
 			Set_ErrorNow(CAN_DisConnect);
-		}
 	}
 }
 
@@ -154,6 +153,18 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+	/* Handle before float-to-int conversion; NaN/fraction/out-of-range commands
+	 * are rejected atomically without changing the previous stream setting. */
+	if (param_id == CAN_SET_STATUS_STREAM) {
+		bool accepted = CanMotorStatus_Configure(data);
+		CAN_SendMessage_Update(CAN_GET_STATUS_STREAM,
+			accepted ? (float)CanMotorStatus_Rate() : -1.0f);
+		return;
+	}
+	if (param_id == CAN_GET_STATUS_STREAM) {
+		CAN_SendMessage_Update(CAN_GET_STATUS_STREAM, (float)CanMotorStatus_Rate());
+		return;
+	}
 	if (!isfinite(data))
 		return;
 
@@ -559,17 +570,24 @@ void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
  **/
 void CANRxIRQHandler(void)
 {
-	FDCAN_RxHeaderTypeDef FDCAN_RxHeader;
+	CommHwCanFrame frame;
 	uint8_t node_id;
 	uint8_t param_id;
 	uint32_t u32_data = 0;
 	
-	HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &FDCAN_RxHeader, CANMsg.rx_data_u8);
+	/* Other nodes' 32-byte status can reach node 7's legacy range filter.
+	 * Receive into a full CAN FD buffer; reject status/invalid lengths before
+	 * decoding commands or refreshing the control heartbeat. */
+	if (!comm_hw_can_receive(&frame) || frame.extended || frame.remote ||
+		frame.length != 4U || frame.identifier > 0x7FFU ||
+		(frame.identifier >= CAN_MOTOR_STATUS_ID_BASE &&
+		 frame.identifier < CAN_MOTOR_STATUS_ID_BASE + 8U)) return;
+	for (unsigned i = 0; i < 4U; ++i) CANMsg.rx_data_u8[i] = frame.data[i];
 	
 	/*high 3 bits*/
-	node_id  = FDCAN_RxHeader.Identifier >> 8;
+	node_id  = frame.identifier >> 8;
 	/*low 8 bits*/
-	param_id = FDCAN_RxHeader.Identifier & 0x0FF;
+	param_id = frame.identifier & 0x0FF;
 		
 	/*node id matches*/
 	if(node_id == CANMsg.node_id)
@@ -581,10 +599,10 @@ void CANRxIRQHandler(void)
 		if(MotorControl.ErrorNow == CAN_DisConnect)
 			Set_ErrorNow(No_Error);
 		
-		u32_data |= CANMsg.rx_data_u8[0] << 24;
-		u32_data |= CANMsg.rx_data_u8[1] << 16;
-		u32_data |= CANMsg.rx_data_u8[2] << 8;
-		u32_data |= CANMsg.rx_data_u8[3];
+		u32_data |= (uint32_t)CANMsg.rx_data_u8[0] << 24;
+		u32_data |= (uint32_t)CANMsg.rx_data_u8[1] << 16;
+		u32_data |= (uint32_t)CANMsg.rx_data_u8[2] << 8;
+		u32_data |= (uint32_t)CANMsg.rx_data_u8[3];
 		
 		CANMsg.rx_param_id = (CAN_PARAM_ID)param_id;
 		CANMsg.rx_data     = IntBitToFloat(u32_data);
@@ -592,7 +610,6 @@ void CANRxIRQHandler(void)
 		CAN_ReceiveMessage_Update(CANMsg.rx_param_id, CANMsg.rx_data);
 	}
 	
-	FDCAN_RxHeader.Identifier = 0;
 }
 
 /**
@@ -601,8 +618,14 @@ void CANRxIRQHandler(void)
  **/
 void CAN_SendMessage(void)
 {
-	if(CANMsg.can_tx_en == false)
+	if(CANMsg.can_tx_en == false) {
+		uint8_t payload[CAN_MOTOR_STATUS_SIZE];
+		uint16_t identifier;
+		if (CanMotorStatus_Prepare(time_hw_now_ms(), CANMsg.node_id,
+			&identifier, payload, sizeof(payload)) && !CANMsg.can_tx_en)
+			(void)comm_hw_can_try_send_status(identifier, payload, sizeof(payload));
 		return;
+	}
 	
 	FDCAN_TxHeaderTypeDef FDCAN_TxHeader;
 	uint32_t ID = CANMsg.node_id << 8 | CANMsg.tx_param_id;

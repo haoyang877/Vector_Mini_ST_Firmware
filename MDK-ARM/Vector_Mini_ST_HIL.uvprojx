@@ -1099,6 +1099,26 @@
               <FilePath>..\Communication\ring_buffer.c</FilePath>
             </File>
             <File>
+              <FileName>motor_status.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\software\services\telemetry\motor_status.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_motor_status.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\software\communication\protocol\can_motor_status.c</FilePath>
+            </File>
+            <File>
+              <FileName>comm_status_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\hal\ports\stm32g4\comm\comm_status_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>time_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\hal\ports\stm32g4\time\time_stm32g4.c</FilePath>
+            </File>
+            <File>
               <FileName>interface_can.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Communication\interface_can.c</FilePath>

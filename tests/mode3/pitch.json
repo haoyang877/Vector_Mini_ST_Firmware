@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "name": "pitch",
-  "notes": "Pitch Flash baseline after manual zero correction; runtime tuning candidates and scope are recorded separately in pitch_candidate_20260909.json and docs/pitch_mode3_validation_20260909.md.",
+  "notes": "Pitch baseline persisted and reboot-verified on 2026-09-10: position 8/2, speed 0.5/2. See docs/pitch_parameter_baseline_20260910.md. Configured travel is not a verified safe bench range: suspected negative mechanical obstruction near -9 deg; subsequent bench targets must stay >= -5 deg.",
   "motor": {
     "identity": "pitch",
     "inertia_kg_m2": null,
@@ -18,10 +18,10 @@
     "stored_deceleration_deg_s2": 45.0
   },
   "runtime": {
-    "cascade_pos_Kp": 0.05000000074505806,
-    "cascade_pos_Kd": 0.5,
-    "speed_Kp": 0.05000000074505806,
-    "speed_Ki": 0.5,
+    "cascade_pos_Kp": 8.0,
+    "cascade_pos_Kd": 2.0,
+    "speed_Kp": 0.5,
+    "speed_Ki": 2.0,
     "current_limit_A": 6.0
   },
   "core": {

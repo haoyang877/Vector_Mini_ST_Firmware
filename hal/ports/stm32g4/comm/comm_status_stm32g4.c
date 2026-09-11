@@ -17,7 +17,7 @@ bool comm_hw_can_receive(CommHwCanFrame *frame)
 bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_t length)
 {
     FDCAN_TxHeaderTypeDef header = {0};
-    if (identifier > 0x7FFU || data == NULL || length != 32U) return false;
+    if (identifier > 0x7FFU || data == NULL || length != 48U) return false;
     /* This G4 HAL allocates three TX elements. In queue mode TFFL is not a
      * free-slot count (an empty queue reports zero on this target). Inspect
      * pending requests instead so telemetry only enters an empty queue.
@@ -30,7 +30,7 @@ bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_
     header.TxFrameType = FDCAN_DATA_FRAME;
     header.FDFormat = FDCAN_FD_CAN;
     header.BitRateSwitch = FDCAN_BRS_ON;
-    header.DataLength = FDCAN_DLC_BYTES_32;
+    header.DataLength = FDCAN_DLC_BYTES_48;
     header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, data) == HAL_OK;
 }

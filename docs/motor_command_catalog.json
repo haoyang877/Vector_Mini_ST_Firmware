@@ -1,0 +1,1268 @@
+[
+  {
+    "type": 0,
+    "hex": "0x0000",
+    "name": "TEST",
+    "group": "通用管理",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 1,
+    "hex": "0x0001",
+    "name": "GET_INFO",
+    "group": "通用管理",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 2,
+    "hex": "0x0002",
+    "name": "GET_CAPS",
+    "group": "通用管理",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 3,
+    "hex": "0x0003",
+    "name": "HEARTBEAT",
+    "group": "通用管理",
+    "role": "report",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 1000,
+    "default_frequency_hz": 1,
+    "trigger": "periodic",
+    "schedule_note": "1 Hz 心跳；状态/故障变化额外触发同格式事件"
+  },
+  {
+    "type": 4,
+    "hex": "0x0004",
+    "name": "ACQUIRE_CONTROL",
+    "group": "通用管理",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 5,
+    "hex": "0x0005",
+    "name": "RELEASE_CONTROL",
+    "group": "通用管理",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 50,
+    "hex": "0x0032",
+    "name": "UPDATE_OPEN",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 51,
+    "hex": "0x0033",
+    "name": "UPDATE_MANIFEST",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 52,
+    "hex": "0x0034",
+    "name": "UPDATE_BEGIN",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 53,
+    "hex": "0x0035",
+    "name": "UPDATE_WRITE",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 54,
+    "hex": "0x0036",
+    "name": "UPDATE_QUERY",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 55,
+    "hex": "0x0037",
+    "name": "UPDATE_FINALIZE",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 56,
+    "hex": "0x0038",
+    "name": "UPDATE_ACTIVATE",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 57,
+    "hex": "0x0039",
+    "name": "UPDATE_ABORT",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 58,
+    "hex": "0x003A",
+    "name": "GET_BOOT_RESULT",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 59,
+    "hex": "0x003B",
+    "name": "ENTER_BOOT",
+    "group": "固件升级",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 100,
+    "hex": "0x0064",
+    "name": "MOTOR_STOP",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "event",
+    "schedule_note": "立即功率禁止，允许广播，不等待周期"
+  },
+  {
+    "type": 101,
+    "hex": "0x0065",
+    "name": "MOTOR_ENABLE",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 102,
+    "hex": "0x0066",
+    "name": "MOTOR_DISABLE",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 103,
+    "hex": "0x0067",
+    "name": "SET_IQ",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "电流模式，200 Hz；每轴只发送当前模式的一种目标"
+  },
+  {
+    "type": 104,
+    "hex": "0x0068",
+    "name": "SET_SPEED",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "速度模式，200 Hz；每轴只发送当前模式的一种目标"
+  },
+  {
+    "type": 105,
+    "hex": "0x0069",
+    "name": "SET_POSITION",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "位置模式，200 Hz；每轴只发送当前模式的一种目标"
+  },
+  {
+    "type": 106,
+    "hex": "0x006A",
+    "name": "SET_MODE",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 107,
+    "hex": "0x006B",
+    "name": "CLEAR_FAULT",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 108,
+    "hex": "0x006C",
+    "name": "GET_MOTOR_STATE",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需查询位置、速度、Iq、完整状态、故障、母线电压、温度和执行序号"
+  },
+  {
+    "type": 109,
+    "hex": "0x006D",
+    "name": "SET_REPORT",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "三个周期字段必须相等，默认全 5 ms；全 0 关闭，否则步进 5 ms"
+  },
+  {
+    "type": 110,
+    "hex": "0x006E",
+    "name": "READ_PARAM",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 111,
+    "hex": "0x006F",
+    "name": "WRITE_PARAM",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 112,
+    "hex": "0x0070",
+    "name": "SAVE_PARAM",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 113,
+    "hex": "0x0071",
+    "name": "MOTION_KEEPALIVE",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "仅高级任务 mode 5～8，200 Hz，不能替代流式目标"
+  },
+  {
+    "type": 114,
+    "hex": "0x0072",
+    "name": "MOTION_ARM",
+    "group": "基础电机控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 120,
+    "hex": "0x0078",
+    "name": "旧版位置反馈",
+    "group": "电机状态上报",
+    "role": "report",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "retired",
+    "supported_profiles": [],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "none",
+    "schedule_note": "历史编号；本版不实现、不发送、不复用"
+  },
+  {
+    "type": 121,
+    "hex": "0x0079",
+    "name": "旧版速度反馈",
+    "group": "电机状态上报",
+    "role": "report",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "retired",
+    "supported_profiles": [],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "none",
+    "schedule_note": "历史编号；本版不实现、不发送、不复用"
+  },
+  {
+    "type": 122,
+    "hex": "0x007A",
+    "name": "旧版电流反馈",
+    "group": "电机状态上报",
+    "role": "report",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "retired",
+    "supported_profiles": [],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "none",
+    "schedule_note": "历史编号；本版不实现、不发送、不复用"
+  },
+  {
+    "type": 123,
+    "hex": "0x007B",
+    "name": "经典 CAN 心跳/状态事件",
+    "group": "电机状态上报",
+    "role": "report",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": false,
+    "status": "retired",
+    "supported_profiles": [],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "none",
+    "schedule_note": "历史编号；本版不实现、不发送、不复用"
+  },
+  {
+    "type": 124,
+    "hex": "0x007C",
+    "name": "MOTION_FEEDBACK",
+    "group": "电机状态上报",
+    "role": "report",
+    "business_ack": false,
+    "new_in_1_2": false,
+    "new_in_1_2_1": true,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "同一快照 position:i32 + speed:i16 + iq:i16；8 B payload，32 B FD 数据区",
+    "payload_bytes": 8,
+    "byte_order": "little",
+    "can_pgn": "0x00EF00",
+    "type_location": "company header offset 6, uint16",
+    "fd_data_bytes": 32,
+    "payload_fields": [
+      {
+        "name": "position",
+        "offset": 0,
+        "type": "int32",
+        "scale": 0.001,
+        "unit": "rad",
+        "invalid": -2147483648
+      },
+      {
+        "name": "speed",
+        "offset": 4,
+        "type": "int16",
+        "scale": 0.001,
+        "unit": "rad/s",
+        "invalid": -32768
+      },
+      {
+        "name": "iq",
+        "offset": 6,
+        "type": "int16",
+        "scale": 0.001,
+        "unit": "A",
+        "invalid": -32768
+      }
+    ],
+    "overflow_policy": "invalid sentinel for affected field; never wrap or saturate"
+  },
+  {
+    "type": 130,
+    "hex": "0x0082",
+    "name": "IMPEDANCE_CONFIG",
+    "group": "阻抗控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 131,
+    "hex": "0x0083",
+    "name": "SET_IMPEDANCE_TARGET",
+    "group": "阻抗控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "基础阻抗位置目标；与 132 互斥"
+  },
+  {
+    "type": 132,
+    "hex": "0x0084",
+    "name": "SET_IMPEDANCE_TARGET_FULL",
+    "group": "阻抗控制",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": 5,
+    "default_frequency_hz": 200,
+    "trigger": "periodic",
+    "schedule_note": "位置/速度/Iq 前馈联合目标，16 B payload，48 B FD 数据区"
+  },
+  {
+    "type": 133,
+    "hex": "0x0085",
+    "name": "GET_IMPEDANCE_STATE",
+    "group": "阻抗控制",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 140,
+    "hex": "0x008C",
+    "name": "TRAJ_BEGIN",
+    "group": "轨迹",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 141,
+    "hex": "0x008D",
+    "name": "TRAJ_APPEND",
+    "group": "轨迹",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 142,
+    "hex": "0x008E",
+    "name": "TRAJ_COMMIT",
+    "group": "轨迹",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 143,
+    "hex": "0x008F",
+    "name": "TRAJ_START",
+    "group": "轨迹",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 144,
+    "hex": "0x0090",
+    "name": "TRAJ_ABORT",
+    "group": "轨迹",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 145,
+    "hex": "0x0091",
+    "name": "GET_TRAJ_STATE",
+    "group": "轨迹",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 150,
+    "hex": "0x0096",
+    "name": "HOME_CONFIG",
+    "group": "回零",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 151,
+    "hex": "0x0097",
+    "name": "HOME_START",
+    "group": "回零",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 152,
+    "hex": "0x0098",
+    "name": "HOME_ABORT",
+    "group": "回零",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 153,
+    "hex": "0x0099",
+    "name": "GET_HOME_STATE",
+    "group": "回零",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 154,
+    "hex": "0x009A",
+    "name": "SET_POSITION_ORIGIN",
+    "group": "回零",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 160,
+    "hex": "0x00A0",
+    "name": "CALIB_CONFIG",
+    "group": "标定与结果应用",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 161,
+    "hex": "0x00A1",
+    "name": "CALIB_START",
+    "group": "标定与结果应用",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 162,
+    "hex": "0x00A2",
+    "name": "CALIB_ABORT",
+    "group": "标定与结果应用",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 163,
+    "hex": "0x00A3",
+    "name": "GET_CALIB_STATE",
+    "group": "标定与结果应用",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 164,
+    "hex": "0x00A4",
+    "name": "READ_CALIB_RESULT",
+    "group": "标定与结果应用",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 165,
+    "hex": "0x00A5",
+    "name": "APPLY_TASK_RESULT",
+    "group": "标定与结果应用",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 170,
+    "hex": "0x00AA",
+    "name": "IDENT_CONFIG",
+    "group": "参数辨识",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 171,
+    "hex": "0x00AB",
+    "name": "IDENT_START",
+    "group": "参数辨识",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 172,
+    "hex": "0x00AC",
+    "name": "IDENT_ABORT",
+    "group": "参数辨识",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 173,
+    "hex": "0x00AD",
+    "name": "GET_IDENT_STATE",
+    "group": "参数辨识",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 174,
+    "hex": "0x00AE",
+    "name": "READ_IDENT_RESULT",
+    "group": "参数辨识",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 180,
+    "hex": "0x00B4",
+    "name": "CLOCK_EXCHANGE",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 181,
+    "hex": "0x00B5",
+    "name": "CLOCK_ADJUST",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 182,
+    "hex": "0x00B6",
+    "name": "SYNC_ARM",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 183,
+    "hex": "0x00B7",
+    "name": "SYNC_COMMIT",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "允许广播，须满足提前量，不替代单轴保活"
+  },
+  {
+    "type": 184,
+    "hex": "0x00B8",
+    "name": "SYNC_ABORT",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": false,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "event",
+    "schedule_note": "取消同步组并禁止输出，允许广播"
+  },
+  {
+    "type": 185,
+    "hex": "0x00B9",
+    "name": "GET_SYNC_STATE",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  },
+  {
+    "type": 186,
+    "hex": "0x00BA",
+    "name": "GET_CLOCK_STATE",
+    "group": "时钟与同步",
+    "role": "request",
+    "business_ack": true,
+    "new_in_1_2": true,
+    "new_in_1_2_1": false,
+    "status": "active",
+    "supported_profiles": [
+      "canfd"
+    ],
+    "default_period_ms": null,
+    "default_frequency_hz": null,
+    "trigger": "on_demand",
+    "schedule_note": "按需请求；业务应答不等于异步操作完成"
+  }
+]

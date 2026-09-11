@@ -1,5 +1,6 @@
 #include "interface_can.h"
 
+#include <limits.h>
 #include <math.h>
 #include "fdcan.h"
 #include "delay.h"
@@ -21,6 +22,125 @@ extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
 extern FOC_TypeDef FOC;
 extern Encoder_TypeDef OnBoard_Encoder;
+
+/** @brief CAN 参数在线路上的数值编码。 */
+typedef enum {
+	CAN_VALUE_FLOAT32,
+	CAN_VALUE_MILLI_I32,
+	CAN_VALUE_CENTI_I32,
+	CAN_VALUE_MILLI_I16,
+} CanValueEncoding;
+
+/**
+ * @brief 返回写命令参数的线路编码。
+ * @param param_id 参数 ID。
+ * @return 位置/速度/电流参数的定点编码，其他参数返回遗留 float32。
+ */
+static CanValueEncoding CAN_CommandEncoding(CAN_PARAM_ID param_id)
+{
+	switch (param_id) {
+	case CAN_SET_CURRENT:
+	case CAN_SET_CURRENT_CAL:
+	case CAN_SET_CURRENT_LIMIT:
+		return CAN_VALUE_MILLI_I16;
+	case CAN_SET_POS:
+		return CAN_VALUE_MILLI_I32;
+	case CAN_SET_SPEED:
+	case CAN_SET_SPEED_LIMIT:
+	case CAN_SET_SPEED_ACC:
+	case CAN_SET_SPEED_DEC:
+	case CAN_SET_POS_ACC:
+	case CAN_SET_POS_DEC:
+	case CAN_SET_POS_MAXSPEED:
+		return CAN_VALUE_CENTI_I32;
+	default:
+		return CAN_VALUE_FLOAT32;
+	}
+}
+
+/**
+ * @brief 返回回复参数的线路编码。
+ * @param param_id 回复参数 ID。
+ * @return 位置/速度/电流参数的定点编码，其他参数返回遗留 float32。
+ */
+static CanValueEncoding CAN_ReplyEncoding(CAN_PARAM_ID param_id)
+{
+	switch (param_id) {
+	case CAN_GET_CURRENT_SET:
+	case CAN_GET_CURRENT_CAL:
+	case CAN_GET_CURRENT_LIMIT:
+	case CAN_GET_IBUS:
+	case CAN_GET_IA:
+	case CAN_GET_IB:
+	case CAN_GET_IC:
+	case CAN_GET_ID:
+	case CAN_GET_IQ:
+	case CAN_GET_FRICTION_COULOMB_POS:
+	case CAN_GET_FRICTION_COULOMB_NEG:
+	case CAN_GET_FRICTION_RMSE_POS:
+	case CAN_GET_FRICTION_RMSE_NEG:
+		return CAN_VALUE_MILLI_I16;
+	case CAN_GET_POS_SET:
+	case CAN_GET_POS2_FILT:
+		return CAN_VALUE_MILLI_I32;
+	case CAN_GET_SPEED_SET:
+	case CAN_GET_SPEED_LIMIT:
+	case CAN_GET_SPEED_ACC:
+	case CAN_GET_SPEED_DEC:
+	case CAN_GET_POS_ACC:
+	case CAN_GET_POS_DEC:
+	case CAN_GET_POS_MAXSPEED:
+	case CAN_GET_SPEED2_FILT:
+		return CAN_VALUE_CENTI_I32;
+	default:
+		return CAN_VALUE_FLOAT32;
+	}
+}
+
+/**
+ * @brief 将浮点 SI 值转换为保留最小值作为无效哨兵的 int32 毫单位。
+ * @param value 有限 SI 值。
+ * @return 截断并饱和后的线路值；非有限值返回 INT32_MIN。
+ */
+static int32_t CAN_Milli32(float value)
+{
+	float scaled;
+	if (!isfinite(value)) return INT32_MIN;
+	scaled = value * 1000.0f;
+	if (scaled >= 2147483648.0f) return INT32_MAX;
+	if (scaled <= -2147483648.0f) return -INT32_MAX;
+	return (int32_t)scaled;
+}
+
+/**
+ * @brief 将浮点速度或加速度转换为保留最小值哨兵的 int32 百分一单位。
+ * @param value 有限 SI 值，单位 rad/s 或 rad/s²。
+ * @return 截断并饱和后的线路值；非有限值返回 INT32_MIN。
+ */
+static int32_t CAN_Centi32(float value)
+{
+	float scaled;
+	if (!isfinite(value)) return INT32_MIN;
+	scaled = value * 100.0f;
+	if (scaled >= 2147483648.0f) return INT32_MAX;
+	if (scaled <= -2147483648.0f) return -INT32_MAX;
+	return (int32_t)scaled;
+}
+
+/**
+ * @brief 将浮点安培值转换为保留最小值作为无效哨兵的 int16 毫安。
+ * @param value 有限安培值。
+ * @return 截断并饱和后的线路值；非有限值返回 INT16_MIN。
+ */
+static int16_t CAN_Milli16(float value)
+{
+	float scaled;
+	if (!isfinite(value)) return INT16_MIN;
+	scaled = value * 1000.0f;
+	if (scaled >= 32767.0f) return INT16_MAX;
+	if (scaled <= -32767.0f) return -INT16_MAX;
+	return (int16_t)scaled;
+}
 
 /**
 	* @brief  FDCAN1 Filter Init  
@@ -193,16 +313,16 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		case CAN_SET_SPEED:
 			if(MotorControl.ModeNow != Sensorless_Speed_Mode)
 				ModeSwitch_Handle(Speed_Mode);
-			if(fast_abs(data) <= MotorControl.speed_limit * ONE_BY_2PI)
-				MotorControl.speedRef = data * _2PI;
+			if(fast_abs(data) <= MotorControl.speed_limit)
+				MotorControl.speedRef = data;
 		break;
 		case CAN_GET_SPEED_SET:
-			CAN_SendMessage_Update(CAN_GET_SPEED_SET, MotorControl.speedRef * ONE_BY_2PI);
+			CAN_SendMessage_Update(CAN_GET_SPEED_SET, MotorControl.speedRef);
 		break;
 		
 		case CAN_SET_POS:
 		{
-			float position_ref = data * _2PI;
+			float position_ref = data;
 			if (isfinite(position_ref) &&
 				(MotorControl.ModeNow == Position_Mode ||
 				 MotorControl.ModeNow == Position_Impedance_Mode ||
@@ -213,7 +333,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		}
 		break;
 		case CAN_GET_POS_SET:
-			CAN_SendMessage_Update(CAN_GET_POS_SET, MotorControl.posRef * ONE_BY_2PI);
+			CAN_SendMessage_Update(CAN_GET_POS_SET, MotorControl.posRef);
 		break;
 		
 		
@@ -278,9 +398,9 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_SPEED_LIMIT:
-			if(data > 0.0f && data <= PARAM_MOTOR_SPEED_LIMIT_RPS)
+			if(data > 0.0f && data <= PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI)
 			{
-				MotorControl.speed_limit = data * _2PI;
+				MotorControl.speed_limit = data;
 				if (MotorControl.pos_maxspeed > MotorControl.speed_limit)
 				{
 					MotorControl.pos_maxspeed = MotorControl.speed_limit;
@@ -288,23 +408,23 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 			}
 		break;
 		case CAN_GET_SPEED_LIMIT:
-			CAN_SendMessage_Update(CAN_GET_SPEED_LIMIT, MotorControl.speed_limit * ONE_BY_2PI);
+			CAN_SendMessage_Update(CAN_GET_SPEED_LIMIT, MotorControl.speed_limit);
 		break;
 			
 		case CAN_SET_SPEED_ACC:
-			if(data >= 0.0f && data <= 1000.0f)
-				MotorControl.speedAcc = data * _2PI;
+			if(data >= 0.0f && data <= 1000.0f * _2PI)
+				MotorControl.speedAcc = data;
 		break;
 		case CAN_GET_SPEED_ACC:
-			CAN_SendMessage_Update(CAN_GET_SPEED_ACC, MotorControl.speedAcc * ONE_BY_2PI);
+			CAN_SendMessage_Update(CAN_GET_SPEED_ACC, MotorControl.speedAcc);
 		break;
 		
 		case CAN_SET_SPEED_DEC:
-			if(data >= 0.0f && data <= 1000.0f)
-				MotorControl.speedDec = data * _2PI;
+			if(data >= 0.0f && data <= 1000.0f * _2PI)
+				MotorControl.speedDec = data;
 		break;
 		case CAN_GET_SPEED_DEC:
-			CAN_SendMessage_Update(CAN_GET_SPEED_DEC, MotorControl.speedDec * ONE_BY_2PI);
+			CAN_SendMessage_Update(CAN_GET_SPEED_DEC, MotorControl.speedDec);
 		break;
 		
 		case CAN_SET_SPEED_KP:
@@ -324,32 +444,32 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_POS_ACC:
-			if(data > 0.0f && data <= 200.0f)
-				MotorControl.posAcc = data * _2PI;
+			if(data > 0.0f && data <= 200.0f * _2PI)
+				MotorControl.posAcc = data;
 		break;
 		case CAN_GET_POS_ACC:
-			CAN_SendMessage_Update(CAN_GET_POS_ACC, MotorControl.posAcc * ONE_BY_2PI);
+			CAN_SendMessage_Update(CAN_GET_POS_ACC, MotorControl.posAcc);
 		break;
 		
 		case CAN_SET_POS_DEC:
-			if(data > 0.0f && data <= 200.0f)
-				MotorControl.posDec = data * _2PI;		
+			if(data > 0.0f && data <= 200.0f * _2PI)
+				MotorControl.posDec = data;
 		break;
 		case CAN_GET_POS_DEC:
-			CAN_SendMessage_Update(CAN_GET_POS_DEC, MotorControl.posDec * ONE_BY_2PI);	
+			CAN_SendMessage_Update(CAN_GET_POS_DEC, MotorControl.posDec);
 		break;
 		
 		case CAN_SET_POS_MAXSPEED:
-			if(data > 0.0f && data <= POSITION_IMPEDANCE_MAX_SPEED_RPS &&
-			   data <= MotorControl.speed_limit * ONE_BY_2PI)
+			if(data > 0.0f && data <= POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI &&
+			   data <= MotorControl.speed_limit)
 			{
-				float position_maxspeed = data * _2PI;
+				float position_maxspeed = data;
 				if (MotorControl.pos_maxspeed != position_maxspeed)
 					MotorControl.pos_maxspeed = position_maxspeed;
 			}
 		break;
 		case CAN_GET_POS_MAXSPEED:
-			CAN_SendMessage_Update(CAN_GET_POS_MAXSPEED, MotorControl.pos_maxspeed * ONE_BY_2PI);		
+			CAN_SendMessage_Update(CAN_GET_POS_MAXSPEED, MotorControl.pos_maxspeed);
 		break;
 		
 		case CAN_SET_POS_KP:
@@ -551,15 +671,27 @@ void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 {
 	CANMsg.tx_param_id = param_id;
 	CANMsg.tx_data = data;
-	
-	uint32_t tx_data_u32;
-	
-	tx_data_u32 = FloatToIntBit(CANMsg.tx_data);
-	
-	CANMsg.tx_data_u8[0] = tx_data_u32 >> 24;
-	CANMsg.tx_data_u8[1] = tx_data_u32 >> 16;
-	CANMsg.tx_data_u8[2] = tx_data_u32 >> 8;
-	CANMsg.tx_data_u8[3] = tx_data_u32;
+	CanValueEncoding encoding = CAN_ReplyEncoding(param_id);
+	if (encoding == CAN_VALUE_MILLI_I16) {
+		uint16_t value = (uint16_t)CAN_Milli16(data);
+		CANMsg.tx_data_u8[0] = (uint8_t)(value >> 8);
+		CANMsg.tx_data_u8[1] = (uint8_t)value;
+		CANMsg.tx_data_u8[2] = CANMsg.tx_data_u8[3] = 0U;
+		CANMsg.tx_data_len = 2U;
+	} else {
+		uint32_t value;
+		if (encoding == CAN_VALUE_MILLI_I32)
+			value = (uint32_t)CAN_Milli32(data);
+		else if (encoding == CAN_VALUE_CENTI_I32)
+			value = (uint32_t)CAN_Centi32(data);
+		else
+			value = FloatToIntBit(data);
+		CANMsg.tx_data_u8[0] = (uint8_t)(value >> 24);
+		CANMsg.tx_data_u8[1] = (uint8_t)(value >> 16);
+		CANMsg.tx_data_u8[2] = (uint8_t)(value >> 8);
+		CANMsg.tx_data_u8[3] = (uint8_t)value;
+		CANMsg.tx_data_len = 4U;
+	}
 	
 	CANMsg.can_tx_en = true;
 }
@@ -574,15 +706,16 @@ void CANRxIRQHandler(void)
 	uint8_t node_id;
 	uint8_t param_id;
 	uint32_t u32_data = 0;
+	float decoded_data;
+	CanValueEncoding encoding;
 	
-	/* Other nodes' 32-byte status can reach node 7's legacy range filter.
+	/* Other nodes' 48-byte status can reach node 7's legacy range filter.
 	 * Receive into a full CAN FD buffer; reject status/invalid lengths before
 	 * decoding commands or refreshing the control heartbeat. */
 	if (!comm_hw_can_receive(&frame) || frame.extended || frame.remote ||
-		frame.length != 4U || frame.identifier > 0x7FFU ||
+		(frame.length != 2U && frame.length != 4U) || frame.identifier > 0x7FFU ||
 		(frame.identifier >= CAN_MOTOR_STATUS_ID_BASE &&
 		 frame.identifier < CAN_MOTOR_STATUS_ID_BASE + 8U)) return;
-	for (unsigned i = 0; i < 4U; ++i) CANMsg.rx_data_u8[i] = frame.data[i];
 	
 	/*high 3 bits*/
 	node_id  = frame.identifier >> 8;
@@ -592,6 +725,32 @@ void CANRxIRQHandler(void)
 	/*node id matches*/
 	if(node_id == CANMsg.node_id)
 	{
+		encoding = CAN_CommandEncoding((CAN_PARAM_ID)param_id);
+		if ((encoding == CAN_VALUE_MILLI_I16 && frame.length != 2U) ||
+		    (encoding != CAN_VALUE_MILLI_I16 && frame.length != 4U)) return;
+		for (unsigned i = 0; i < frame.length; ++i)
+			CANMsg.rx_data_u8[i] = frame.data[i];
+		if (encoding == CAN_VALUE_MILLI_I16) {
+			int16_t value = (int16_t)(((uint16_t)frame.data[0] << 8) |
+				frame.data[1]);
+			if (value == INT16_MIN) return;
+			decoded_data = (float)value / 1000.0f;
+		} else {
+			u32_data |= (uint32_t)frame.data[0] << 24;
+			u32_data |= (uint32_t)frame.data[1] << 16;
+			u32_data |= (uint32_t)frame.data[2] << 8;
+			u32_data |= (uint32_t)frame.data[3];
+			if ((encoding == CAN_VALUE_MILLI_I32 ||
+			     encoding == CAN_VALUE_CENTI_I32) &&
+			    (int32_t)u32_data == INT32_MIN) return;
+			if (encoding == CAN_VALUE_MILLI_I32)
+				decoded_data = (float)(int32_t)u32_data / 1000.0f;
+			else if (encoding == CAN_VALUE_CENTI_I32)
+				decoded_data = (float)(int32_t)u32_data / 100.0f;
+			else
+				decoded_data = IntBitToFloat(u32_data);
+		}
+
 		CANMsg.can_rx_en = true;
 		CANMsg.can_hb_count = 0;
 		
@@ -599,13 +758,8 @@ void CANRxIRQHandler(void)
 		if(MotorControl.ErrorNow == CAN_DisConnect)
 			Set_ErrorNow(No_Error);
 		
-		u32_data |= (uint32_t)CANMsg.rx_data_u8[0] << 24;
-		u32_data |= (uint32_t)CANMsg.rx_data_u8[1] << 16;
-		u32_data |= (uint32_t)CANMsg.rx_data_u8[2] << 8;
-		u32_data |= (uint32_t)CANMsg.rx_data_u8[3];
-		
 		CANMsg.rx_param_id = (CAN_PARAM_ID)param_id;
-		CANMsg.rx_data     = IntBitToFloat(u32_data);
+		CANMsg.rx_data     = decoded_data;
 		
 		CAN_ReceiveMessage_Update(CANMsg.rx_param_id, CANMsg.rx_data);
 	}
@@ -635,7 +789,7 @@ void CAN_SendMessage(void)
 	FDCAN_TxHeader.IdType				 = FDCAN_STANDARD_ID;
 	FDCAN_TxHeader.Identifier			 = ID;
 	FDCAN_TxHeader.FDFormat				 = FDCAN_FD_CAN;
-	FDCAN_TxHeader.DataLength			 = 4;
+	FDCAN_TxHeader.DataLength			 = CANMsg.tx_data_len;
 	FDCAN_TxHeader.TxFrameType			 = FDCAN_DATA_FRAME;
 	FDCAN_TxHeader.BitRateSwitch		 = FDCAN_BRS_ON;
 	FDCAN_TxHeader.TxEventFifoControl	 = FDCAN_NO_TX_EVENTS;

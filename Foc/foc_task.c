@@ -194,6 +194,8 @@ static void MotorStatus_Sampling(void)
         MotorControl.pos_vel_filtered : OnBoard_Encoder.vel_mech;
     sample.current_reference = MotorControl.iqRef;
     sample.current_feedback = FOC.Iq;
+    sample.temperature = FOC.temp;
+    sample.bus_voltage = FOC.Vbus_filt;
     sample.position_planned = NAN;
     sample.speed_planned = NAN;
     if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned)) {

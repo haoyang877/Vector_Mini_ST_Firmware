@@ -12,6 +12,7 @@ typedef struct {
     float speed_target, speed_feedback;
     float current_reference, current_feedback;
     float position_planned, speed_planned;
+    float temperature, bus_voltage;
 } MotorStatus;
 
 /** Single foreground consumer requests one sample; never blocks. */

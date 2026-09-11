@@ -1,14 +1,15 @@
-"""Encode stream commands / decode 32-byte motor status; no hardware access."""
+"""Encode stream commands / decode 48-byte motor status; no hardware access."""
 import argparse
 import json
 import math
 import struct
 
-FORMAT = '>HHiiiihhii'
+FORMAT = '>HHiiiihhiihh12x'
 ID_BASE = 0x7F0
 FIELDS = ('fault','mode','position_target_rad','position_feedback_rad',
           'speed_target_rad_s','speed_feedback_rad_s','iq_reference_A','iq_feedback_A',
-          'position_planned_rad','speed_planned_rad_s')
+          'position_planned_rad','speed_planned_rad_s','temperature_C','bus_voltage_V')
+SCALES = (None,None,1000,1000,100,100,1000,1000,1000,100,100,100)
 
 
 def command(node, value):
@@ -20,16 +21,16 @@ def command(node, value):
 
 
 def decode(identifier, payload):
-    if not ID_BASE <= identifier <= ID_BASE+7 or len(payload) != 32:
-        raise ValueError('status requires standard ID 0x7F0..0x7F7 and 32 bytes')
+    if not ID_BASE <= identifier <= ID_BASE+7 or len(payload) != 48:
+        raise ValueError('status requires standard ID 0x7F0..0x7F7 and 48 bytes')
     values=struct.unpack(FORMAT,payload)
     result={'node':identifier-ID_BASE,'invalid_fields':[]}
     for index,(key,value) in enumerate(zip(FIELDS,values)):
-        sentinel = -32768 if index in (6,7) else -2147483648
+        sentinel = -32768 if index in (6,7,10,11) else -2147483648
         if index < 2: result[key]=value
         elif value == sentinel:
             result[key]=None;result['invalid_fields'].append(key)
-        else: result[key]=value/1000
+        else: result[key]=value/SCALES[index]
     return result
 
 

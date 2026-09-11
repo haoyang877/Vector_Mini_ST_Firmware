@@ -1,0 +1,135 @@
+{
+  "status": "proposal_not_adopted",
+  "requirements": {
+    "minimum_axes": 5,
+    "target_hz": 1000,
+    "per_axis_feedback_hz": 1000
+  },
+  "group_position": [
+    {
+      "can_id": "0x08EFFF02",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 50,
+      "fd_data_bytes": 64,
+      "data": "5A A5 01 00 02 FF C1 00 64 00 20 00 00 00 00 A2 55 44 33 22 64 00 05 00 10 4A 0F 00 E8 03 00 00 D0 07 00 00 B8 0B 00 00 A0 0F 00 00 88 13 00 00 11 1E 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    }
+  ],
+  "feedback": [
+    {
+      "can_id": "0x0CEF0203",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 32,
+      "fd_data_bytes": 32,
+      "data": "5A A5 01 00 03 02 7D 00 64 00 0E 00 00 00 00 6F 55 44 33 22 33 00 E8 03 00 00 B0 04 2C 01 F4 3B"
+    }
+  ],
+  "feedback_header_seq_semantics": "applied_cycle_seq; candidate 125 only",
+  "timing_model": {
+    "kind": "conservative_error_free_engineering_model_not_measured",
+    "reference": "https://raw.githubusercontent.com/torvalds/linux/master/include/linux/can/length.h",
+    "nominal_bits_bound": 58,
+    "data_bits_bound": "5+8*N+ceil((5+8*N)/4)+32",
+    "includes": [
+      "ISO CRC21",
+      "dynamic/fixed stuffing bounds",
+      "ACK",
+      "EOF",
+      "intermission"
+    ],
+    "excludes": [
+      "error recovery/retries",
+      "software latency",
+      "extra idle gaps",
+      "background blocking",
+      "error-passive suspend"
+    ],
+    "frame_time_us": {
+      "500000": {
+        "32": 187.8,
+        "48": 219.8,
+        "64": 251.8
+      },
+      "1000000": {
+        "32": 129.8,
+        "48": 161.8,
+        "64": 193.8
+      }
+    }
+  },
+  "estimates": [
+    {
+      "nominal_bps": 500000,
+      "axes_on_bus": 2,
+      "cyclic_us_per_1ms": 627.4,
+      "cyclic_percent": 62.74,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 64.662
+    },
+    {
+      "nominal_bps": 500000,
+      "axes_on_bus": 3,
+      "cyclic_us_per_1ms": 815.2,
+      "cyclic_percent": 81.52,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 83.464
+    },
+    {
+      "nominal_bps": 500000,
+      "axes_on_bus": 4,
+      "cyclic_us_per_1ms": 1003.0,
+      "cyclic_percent": 100.3,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 102.266
+    },
+    {
+      "nominal_bps": 500000,
+      "axes_on_bus": 5,
+      "cyclic_us_per_1ms": 1190.8,
+      "cyclic_percent": 119.08,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 121.068
+    },
+    {
+      "nominal_bps": 500000,
+      "axes_on_bus": 8,
+      "cyclic_us_per_1ms": 1754.2,
+      "cyclic_percent": 175.42,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 177.474
+    },
+    {
+      "nominal_bps": 1000000,
+      "axes_on_bus": 2,
+      "cyclic_us_per_1ms": 453.4,
+      "cyclic_percent": 45.34,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 46.67
+    },
+    {
+      "nominal_bps": 1000000,
+      "axes_on_bus": 3,
+      "cyclic_us_per_1ms": 583.2,
+      "cyclic_percent": 58.32,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 59.667
+    },
+    {
+      "nominal_bps": 1000000,
+      "axes_on_bus": 4,
+      "cyclic_us_per_1ms": 713.0,
+      "cyclic_percent": 71.3,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 72.663
+    },
+    {
+      "nominal_bps": 1000000,
+      "axes_on_bus": 5,
+      "cyclic_us_per_1ms": 842.8,
+      "cyclic_percent": 84.28,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 85.659
+    },
+    {
+      "nominal_bps": 1000000,
+      "axes_on_bus": 8,
+      "cyclic_us_per_1ms": 1232.2,
+      "cyclic_percent": 123.22,
+      "with_clock_50Hz_two_frames_and_heartbeat_1Hz_percent": 124.647
+    }
+  ]
+}

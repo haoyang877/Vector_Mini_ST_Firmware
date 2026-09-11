@@ -26,6 +26,8 @@ void MotorStatus_Publish(const MotorStatus *sample)
     published.current_feedback = sample->current_feedback;
     published.position_planned = sample->position_planned;
     published.speed_planned = sample->speed_planned;
+    published.temperature = sample->temperature;
+    published.bus_voltage = sample->bus_voltage;
     state = READY;
 }
 bool MotorStatus_Take(MotorStatus *sample)
@@ -41,6 +43,8 @@ bool MotorStatus_Take(MotorStatus *sample)
     sample->current_feedback = published.current_feedback;
     sample->position_planned = published.position_planned;
     sample->speed_planned = published.speed_planned;
+    sample->temperature = published.temperature;
+    sample->bus_voltage = published.bus_voltage;
     state = EMPTY;
     return true;
 }

@@ -1,4 +1,4 @@
-"""Execute one bounded two-axis CAN case, logging the 32-byte status stream.
+"""Execute one bounded two-axis CAN case, logging the 48-byte status stream.
 
 Requires both boards to support 0x64/0x65. Does not write Flash or controller gains.
 Command timing is host scheduled, not synchronized hardware triggering.
@@ -13,6 +13,7 @@ import sys
 import time
 
 from can_motor_status import decode, FIELDS
+from can_parameter_protocol import Client, Frame
 from canfd_diagnostics import error_record, read_channel_diagnostics
 from dual_axis_can_test import AXES, targets, validate_centers
 
@@ -109,19 +110,18 @@ def main():
     if args.zero_center and args.case!='preflight':ap.error('--zero-center is a preflight option')
     if args.case != 'preflight' and args.centers is None: ap.error('--centers required')
     sys.path.insert(0,str(args.adapter_root.resolve()))
-    from pc_replay.canfd import CanFD, RxFD, TxFD, Frame
-    from pc_replay.protocol import Client
+    from pc_replay.canfd import CanFD, RxFD, TxFD
     class StatusBus(CanFD):
         def send(self,channel,identifier,data):
-            if not 0<=identifier<=0x7ff or len(data)!=4:
-                raise ValueError('standard-ID four-byte command required')
+            if not 0<=identifier<=0x7ff or len(data) not in (2,4):
+                raise ValueError('standard-ID two/four-byte command required')
             message=TxFD()
             # Normal CAN transmission retries arbitration loss. Discovery's
             # single-shot mode can lose a command when periodic status competes.
             # One bounded case owns the adapter; close/reset clears pending TX.
             message.transmit_type=0
-            message.frame.can_id=identifier;message.frame.length=4;message.frame.flags=1
-            message.frame.data[:4]=data
+            message.frame.can_id=identifier;message.frame.length=len(data);message.frame.flags=1
+            message.frame.data[:len(data)]=data
             self._ok(self.dll.ZCAN_TransmitFD(self.channels[channel],ctypes.byref(message),1),'send')
         def receive(self,channel):
             messages=(RxFD*64)()
@@ -160,7 +160,7 @@ def main():
         if direction=='tx': last_tx[identifier]=when;return
         if safety and identifier & 0x20000000:
             raise RuntimeError(f'CAN adapter error frame: {identifier:#x}')
-        if 0x7f0 <= identifier <= 0x7f7 and len(data)==32:
+        if 0x7f0 <= identifier <= 0x7f7 and len(data)==48:
             sample=decode(identifier,data)
             if sample['node'] not in by_node: return
             axis=by_node[sample['node']];latest[axis]=(when,sample);counts[axis]+=1
@@ -199,11 +199,11 @@ def main():
         for axis,config in AXES.items():
             verify(axis,0,0);verify(axis,0x4c,0);verify(axis,8,config['node']);verify(axis,0xc,1)
             row={}
-            for key,param,wanted in [('position_kp',0x54,8),('position_kd',0x56,2),('speed_kp',0x18,.5),('speed_ki',0x1a,config['ki']),('current_limit',0x10,6),('acc_turn_s2',0x1c,.125),('dec_turn_s2',0x1e,.125)]:
+            for key,param,wanted in [('position_kp',0x54,8),('position_kd',0x56,2),('speed_kp',0x18,.5),('speed_ki',0x1a,config['ki']),('current_limit',0x10,6),('acc_rad_s2',0x1c,math.radians(45)),('dec_rad_s2',0x1e,math.radians(45))]:
                 row[key]=verify(axis,param,wanted)
             original_speeds[axis]=read(axis,0x20)
-            if not 0<original_speeds[axis]<=.1250001: raise RuntimeError('unexpected speed configuration')
-            row['original_max_speed_turn_s']=original_speeds[axis]
+            if not 0<original_speeds[axis]<=math.radians(45)+1e-6: raise RuntimeError('unexpected speed configuration')
+            row['original_max_speed_rad_s']=original_speeds[axis]
             report['centers'][axis]=math.degrees(read(axis,0x40))
             write(axis,0x2a,500);verify(axis,0x2a,500)
             write(axis,0x64,args.rate);configured_streams.add(axis);verify(axis,0x64,args.rate)
@@ -226,13 +226,13 @@ def main():
         if args.case!='preflight':
             test_speed=plan['max_speed_deg_s'] if plan else (5 if args.case=='center' else 15)
             report['test_max_speed_deg_s']=test_speed
-            for axis in AXES: write(axis,0x20,test_speed/360);verify(axis,0x20,test_speed/360)
+            for axis in AXES: write(axis,0x20,math.radians(test_speed));verify(axis,0x20,math.radians(test_speed))
             expected_mode=None
             report['motion_enabled']=True
             for axis in AXES: write(axis,0,3)
             for axis in AXES: verify(axis,0,3);verify(axis,0x4c,0)
             for axis in AXES:
-                history[axis]=[(time.perf_counter(),read(axis,6)*360)]
+                history[axis]=[(time.perf_counter(),math.degrees(read(axis,6)))]
             # Drain frames sampled during mode transition before enforcing mode 3.
             c._receive(0);expected_mode=3
             case_start=time.perf_counter();report['case_start_s']=case_start-epoch;cycle=0
@@ -254,7 +254,7 @@ def main():
                     low,high=AXES[axis]['bounds']
                     margin=2 if plan else 5
                     if not low+margin<=value<=high-margin: raise RuntimeError('command outside test bounds')
-                    write(axis,6,value/360)
+                    write(axis,6,math.radians(value))
                     sent=last_tx[(AXES[axis]['node']<<8)|6]
                     history[axis]=[(t,v) for t,v in history[axis] if sent-t<.3]+[(sent,value)]
                     writers['commands'].writerow([sent-epoch,sent-case_start,cycle,segment,axis,value,late])

@@ -117,6 +117,8 @@ typedef struct
 	CAN_PARAM_ID rx_param_id,tx_param_id;
 	float rx_data,tx_data;
 	uint8_t rx_data_u8[4],tx_data_u8[4];
+	/** @brief 当前待回复参数的线路载荷长度，电流为 2，其他为 4。 */
+	uint8_t tx_data_len;
 	bool can_rx_en;
 	bool can_tx_en;
 	bool can_hb_en;

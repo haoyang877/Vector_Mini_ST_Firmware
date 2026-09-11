@@ -129,7 +129,10 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 
 位置模式的 `pos_Kp`、`pos_Kd`、`pos_Ki` 分别使用 A/rad、A/(rad/s)、A/(rad*s)，详细控制结构和整定方法见 [position_impedance_control.md](position_impedance_control.md)。
 
-> 注意：USB/CAN 接口上速度使用 **rev/s（圈/秒）**，位置使用 **圈（r）**，进入固件时乘 2π 转为 rad/s 与 rad；调试打印 `spd=xx r/s`、`pos=xx r` 也是圈单位。
+> 注意：当前 CAN 参数协议不再暴露 rev/s 或圈数 API。速度载荷为 `int32`、
+> 1 LSB=`0.01 rad/s`，位置载荷为 `int32`、1 LSB=`0.001 rad`；协议层解码后
+> 直接得到内部 SI 值，不执行 `2π` 换算。调试文本若显示 r/s 或 r，仅是历史显示层，
+> 不得作为 CAN 接口单位。
 
 ## 5. 电机模型参数单位（标定）
 

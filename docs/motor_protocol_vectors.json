@@ -1,0 +1,133 @@
+{
+  "version": "1.2.3-review",
+  "crc_checks": {
+    "crc8_123456789": "EA",
+    "crc16_123456789": "932D"
+  },
+  "link_configuration": {
+    "profile": "canfd",
+    "extended_id": true,
+    "nominal_bps": 500000,
+    "data_bps": 5000000,
+    "brs": true,
+    "control_period_ms": 5,
+    "feedback_period_ms": 5
+  },
+  "full_frames": [
+    {
+      "name": "TEST request",
+      "data": "5A A5 01 20 02 03 00 00 01 00 0C 00 00 00 00 00 00 00 00 00 01 00 00 00 44 33 22 11 63 4D"
+    },
+    {
+      "name": "TEST response",
+      "data": "5A A5 01 10 03 02 00 00 01 00 10 00 00 00 00 3B 00 00 00 00 01 00 00 00 00 00 00 00 44 33 22 11 BB 5F"
+    },
+    {
+      "name": "UPDATE_WRITE 16 bytes",
+      "data": "5A A5 01 20 02 03 35 00 05 00 20 00 00 00 00 A9 40 30 20 10 05 00 00 00 00 00 00 00 10 00 00 00 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F FF 51"
+    }
+  ],
+  "fd_speed": [
+    {
+      "can_id": "0x08EF0302",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 26,
+      "fd_data_bytes": 32,
+      "data": "5A A5 01 00 02 03 68 00 01 00 08 00 00 00 00 4A 68 01 34 12 10 27 00 00 06 D0 00 00 00 00 00 00"
+    }
+  ],
+  "fd_write_128": [
+    {
+      "can_id": "0x18EF0302",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 64,
+      "fd_data_bytes": 64,
+      "data": "5A A5 01 40 02 03 35 00 00 00 2E 00 00 00 00 94 40 30 20 10 06 00 00 00 00 00 00 00 80 00 00 00 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D AA 8F"
+    },
+    {
+      "can_id": "0x18EF0302",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 64,
+      "fd_data_bytes": 64,
+      "data": "5A A5 01 80 02 03 35 00 01 00 2E 00 00 00 00 8B 1E 1F 20 21 22 23 24 25 26 27 28 29 2A 2B 2C 2D 2E 2F 30 31 32 33 34 35 36 37 38 39 3A 3B 3C 3D 3E 3F 40 41 42 43 44 45 46 47 48 49 4A 4B 3F 71"
+    },
+    {
+      "can_id": "0x18EF0302",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 64,
+      "fd_data_bytes": 64,
+      "data": "5A A5 01 80 02 03 35 00 02 00 2E 00 00 00 00 6A 4C 4D 4E 4F 50 51 52 53 54 55 56 57 58 59 5A 5B 5C 5D 5E 5F 60 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6E 6F 70 71 72 73 74 75 76 77 78 79 63 59"
+    },
+    {
+      "can_id": "0x18EF0302",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 24,
+      "fd_data_bytes": 24,
+      "data": "5A A5 01 E0 02 03 35 00 03 00 06 00 00 00 00 80 7A 7B 7C 7D 7E 7F BB AB"
+    }
+  ],
+  "fd_feedback": [
+    {
+      "can_id": "0x0CEF0203",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 26,
+      "fd_data_bytes": 32,
+      "data": "5A A5 01 00 03 02 7C 00 01 00 08 00 00 00 00 94 22 06 00 00 1C 25 B0 04 A6 DB 00 00 00 00 00 00"
+    }
+  ],
+  "fd_stop": [
+    {
+      "can_id": "0x00EFFF02",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 26,
+      "fd_data_bytes": 32,
+      "data": "5A A5 01 00 02 FF 64 00 01 00 08 00 00 00 00 F7 64 01 01 00 50 4F 54 53 F6 6C 00 00 00 00 00 00"
+    }
+  ],
+  "fd_test_request": [
+    {
+      "can_id": "0x18EF0302",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 30,
+      "fd_data_bytes": 32,
+      "data": "5A A5 01 20 02 03 00 00 01 00 0C 00 00 00 00 00 00 00 00 00 01 00 00 00 44 33 22 11 63 4D 00 00"
+    }
+  ],
+  "fd_test_response": [
+    {
+      "can_id": "0x18EF0203",
+      "extended_id": true,
+      "fdf": true,
+      "brs": true,
+      "logical_frame_bytes": 34,
+      "fd_data_bytes": 48,
+      "data": "5A A5 01 10 03 02 00 00 01 00 10 00 00 00 00 3B 00 00 00 00 01 00 00 00 00 00 00 00 44 33 22 11 BB 5F 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    }
+  ],
+  "advanced_payloads": {
+    "motion_keepalive": "71 01 34 12 07 00 00 00",
+    "motion_arm": "40 30 20 10 0C 00 00 00 01 00 00 00 07 00 00 00 2A 00 00 00 03 00 00 00",
+    "impedance_full": "84 02 34 12 E8 03 00 00 D0 07 00 00 64 00 00 00",
+    "sync_arm": "40 30 20 10 1E 00 00 00 01 00 22 22 07 00 00 00 A0 86 01 00 01 00 00 00 20 4E 00 00",
+    "sync_commit": "B7 01 22 22 A0 86 01 00",
+    "trajectory_segments": "E8 03 00 00 88 13 00 00 10 27 00 00 10 27 00 00 14 00 00 00 D0 07 00 00 88 13 00 00 10 27 00 00 10 27 00 00 00 00 00 00",
+    "trajectory_crc16": "3BCC",
+    "trajectory_append": "40 30 20 10 14 00 00 00 2A 00 00 00 00 00 02 00 E8 03 00 00 88 13 00 00 10 27 00 00 10 27 00 00 14 00 00 00 D0 07 00 00 88 13 00 00 10 27 00 00 10 27 00 00 00 00 00 00"
+  }
+}

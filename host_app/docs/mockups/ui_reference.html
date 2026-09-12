@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电机驱动器上位机 — UI 视觉参考稿</title>
+<style>
+  :root{
+    --bg:#1e1e1e; --panel:#252526; --panel2:#2d2d30; --panel3:#333337;
+    --border:#3c3c3c; --border2:#4a4a4f;
+    --text:#e0e0e0; --muted:#9e9e9e; --faint:#6e6e6e;
+    --accent:#4FC3F7; --ok:#66BB6A; --error:#EF5350; --warn:#FFB74D;
+    --purple:#BA68C8; --orange:#FF9800;
+    --mono:"Consolas","Cascadia Mono",monospace;
+    --sans:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#151516;color:var(--text);font:13px/1.5 var(--sans)}
+  .banner{max-width:1420px;margin:14px auto 0;padding:8px 14px;background:#2a2a18;border:1px solid #55552a;border-radius:6px;color:#d8d8a8;font-size:12px}
+  .nav{position:sticky;top:0;z-index:50;max-width:1420px;margin:10px auto 0;padding:8px 14px;background:rgba(30,30,30,.96);border:1px solid var(--border);border-radius:6px;display:flex;gap:6px;align-items:center}
+  .nav a{color:var(--muted);text-decoration:none;padding:4px 12px;border-radius:4px;border:1px solid transparent;font-size:12px}
+  .nav a:hover{color:var(--text);background:var(--panel2);border-color:var(--border)}
+  .nav .sp{flex:1}
+  .nav .hint{color:var(--faint);font-size:11px}
+
+  .win{max-width:1420px;margin:14px auto 60px;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+
+  .titlebar{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px;background:#202021;border-bottom:1px solid var(--border)}
+  .titlebar .tl{display:flex;gap:6px}
+  .titlebar .tl i{width:11px;height:11px;border-radius:50%;display:block}
+  .tl .r{background:#e35b57}.tl .y{background:#e2b93d}.tl .g{background:#57b95c}
+  .titlebar .name{font-size:12px;color:var(--muted)}
+
+  .toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
+  .toolbar .sep{width:1px;height:20px;background:var(--border2);margin:0 4px}
+  .toolbar .grow{flex:1}
+
+  .btn{appearance:none;background:var(--panel2);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:4px 12px;font:12px var(--sans);cursor:pointer}
+  .btn:hover{background:var(--panel3)}
+  .btn.primary{background:#123c4e;border-color:#1d6a86;color:#bfeaff}
+  .btn.primary:hover{background:#16495f}
+  .btn.danger{background:#3f1f1f;border-color:#7a3333;color:#ffd2d2}
+  .btn.danger:hover{background:#4d2626}
+  .btn.ghost{background:transparent}
+  .btn.sm{padding:2px 8px;font-size:11px}
+
+  .tabs{display:flex;gap:2px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--border)}
+  .tab{padding:7px 18px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer}
+  .tab:hover{color:var(--text)}
+  .tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+
+  .statusbar{display:flex;align-items:center;gap:18px;padding:5px 12px;background:var(--panel);border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+  .statusbar .v{color:var(--text)}
+
+  main{padding:14px}
+  .section{scroll-margin-top:64px;margin-bottom:26px}
+  .section-head{display:flex;align-items:center;gap:10px;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .section-head h2{margin:0;font-size:14px;color:#fff}
+  .section-head .idx{background:var(--panel3);border:1px solid var(--border2);border-radius:4px;padding:1px 7px;font-size:11px;color:var(--muted)}
+  .section-head .note{color:var(--faint);font-size:11px}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden}
+  .card-h{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--panel2);border-bottom:1px solid var(--border);font-size:12px;color:#d8d8d8}
+  .card-h .step{width:18px;height:18px;border-radius:50%;background:var(--accent);color:#08222e;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .card-b{padding:10px 12px}
+  .grid2{display:grid;grid-template-columns:1fr 1.35fr;gap:10px}
+  .grid-fp{display:grid;grid-template-columns:210px 1fr;gap:10px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+  table.t{width:100%;border-collapse:collapse;font-size:12px}
+  table.t th{text-align:left;font-weight:500;color:var(--muted);padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap}
+  table.t td{padding:4px 8px;border-bottom:1px solid #2f2f31;white-space:nowrap}
+  table.t tr:nth-child(even) td{background:#28282a}
+  table.t tr:hover td{background:#2e3640}
+  table.t td.mono, table.t th.mono{font-family:var(--mono);font-size:11.5px}
+  .num{text-align:right;font-family:var(--mono)}
+  tr.dirty td{background:#3a3418 !important}
+  tr.dirty td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+  tr.errrow td{background:#3a1e1e !important;color:#ffb4b0}
+  tr.errrow td:first-child{box-shadow:inset 3px 0 0 var(--error)}
+  .ro{color:var(--muted)}
+
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .dot.g{background:var(--ok)} .dot.gray{background:#5c5c5c} .dot.r{background:var(--error)}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+  .perm{font-size:11px;border:1px solid var(--border2);border-radius:3px;padding:0 5px;color:var(--muted)}
+  .perm.rw{color:#bfeaff;border-color:#1d6a86;background:#123c4e}
+  .okmark{color:var(--ok)} .failmark{color:var(--error)}
+
+  .input,.select{background:#1b1b1c;color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font:12px var(--mono)}
+  .select{font-family:var(--sans)}
+  .input.w160{width:160px}.input.w90{width:90px}.input.w220{width:220px}
+
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;font-size:12px}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-family:var(--mono)}
+
+  .chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:12px;font-size:11px;border:1px solid var(--border2);color:var(--muted);background:var(--panel2)}
+  .chip.done{color:#bdf0c0;border-color:#2f6b34;background:#1c2f1e}
+  .chip.active{color:#bfeaff;border-color:#1d6a86;background:#123c4e}
+  .chip.todo{color:var(--muted)}
+  .chip .ic{font-size:10px}
+
+  .progress{height:14px;background:#1b1b1c;border:1px solid var(--border2);border-radius:7px;overflow:hidden;margin:8px 0 4px}
+  .progress .bar{height:100%;width:68%;background:linear-gradient(90deg,#1d6a86,#4FC3F7);border-radius:6px}
+  .prog-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+
+  .logstrip{background:#1b1b1c;border:1px solid var(--border);border-radius:4px;padding:6px 8px;font:11px/1.6 var(--mono);color:#b9c7b9;max-height:64px;overflow:hidden}
+  .logstrip .t{color:var(--faint)}
+  .logstrip .err{color:#ff9a94}
+
+  .tree{background:#222225;border:1px solid var(--border);border-radius:6px;padding:8px 6px;min-height:100%}
+  .tree .item{padding:4px 8px;border-radius:4px;color:var(--muted);font-size:12px;cursor:pointer;display:flex;justify-content:space-between}
+  .tree .item:hover{background:var(--panel3);color:var(--text)}
+  .tree .item.on{background:#123c4e;color:#bfeaff}
+  .tree .cnt{color:var(--faint);font-size:11px}
+  .search{margin:0 4px 8px;display:flex;gap:6px}
+  .search .input{flex:1}
+
+  .detail{background:#222225;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;color:#c9c9c9;margin-top:8px}
+  .detail .tag{font-family:var(--mono);color:var(--accent)}
+
+  .opbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .opbar .grow{flex:1}
+  .opbar .stat{font-size:11.5px;color:var(--muted)}
+
+  .hexblock{background:#1b1b1c;border:1px solid var(--border);border-radius:4px;padding:8px 10px;font:12px/1.9 var(--mono);color:#9fb7a0;word-spacing:2px}
+  .hexblock .hl{background:#2c4a2f;color:#d6ffd9;border-radius:3px;padding:1px 0}
+
+  .scope{background:#111213;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .scope svg{display:block;width:100%;height:auto}
+  .statbar{display:flex;gap:18px;align-items:center;padding:6px 12px;background:var(--panel2);border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+  .statbar .v{color:var(--text);font-family:var(--mono)}
+  .legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);padding:6px 10px 0}
+  .lg{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:3px;border-radius:2px;display:inline-block}
+  .sw.a{background:var(--accent)} .sw.p{background:var(--purple)} .sw.g{background:var(--ok)} .sw.o{background:var(--orange)}
+
+  .modal-wrap{position:relative;background:#191A1B;border:1px solid var(--border);border-radius:6px;padding:36px 30px;display:flex;justify-content:center}
+  .modal{width:430px;background:var(--panel);border:1px solid var(--border2);border-radius:8px;box-shadow:0 16px 50px rgba(0,0,0,.6);overflow:hidden}
+  .modal .hd{padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--border);font-size:13px;color:#fff}
+  .modal .bd{padding:16px 14px;font-size:13px;color:#d6d6d6;display:flex;gap:10px}
+  .modal .warnic{width:26px;height:26px;flex:0 0 26px;border-radius:50%;background:#4a3320;color:var(--warn);display:flex;align-items:center;justify-content:center;font-weight:700}
+  .modal .ft{padding:10px 14px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+
+  .empty{background:var(--panel);border:1px dashed var(--border2);border-radius:8px;padding:38px;text-align:center;color:var(--muted)}
+  .empty .ic{font-size:28px;color:var(--faint);margin-bottom:8px}
+  .empty .sub{font-size:12px;color:var(--faint)}
+
+  .kbd{font-family:var(--mono);font-size:11px;background:#1b1b1c;border:1px solid var(--border2);border-bottom-width:2px;border-radius:3px;padding:0 5px;color:#cfcfcf}
+  .muted{color:var(--muted)} .faint{color:var(--faint)} .mono{font-family:var(--mono)}
+  .mt6{margin-top:6px}.mt10{margin-top:10px}.mb6{margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div class="banner">静态视觉参考稿（非可运行程序）｜对应规范：<span class="mono">host_app/docs/UI_DESIGN.md</span>｜直接用浏览器打开本文件即可评审</div>
+
+<nav class="nav">
+  <a href="#connect">① 连接</a>
+  <a href="#upgrade">② 固件升级</a>
+  <a href="#params">③ 参数</a>
+  <a href="#plots">④ 曲线</a>
+  <a href="#logs">⑤ 日志</a>
+  <span class="sp"></span>
+  <span class="hint">窗口最小 1200×760 · 深色主题 · 单位 SI</span>
+</nav>
+
+<div class="win">
+  <!-- ======== 全局框架 ======== -->
+  <div class="titlebar">
+    <span class="tl"><i class="r"></i><i class="y"></i><i class="g"></i></span>
+    <span class="name">电机驱动器上位机 v0.1 — USB-CAN 调试 / 参数 / 升级</span>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn primary">连接 ▾</button>
+    <button class="btn">扫描节点</button>
+    <span class="sep"></span>
+    <span class="muted">节点:</span>
+    <select class="select"><option>0</option><option>1</option><option>2</option></select>
+    <span class="sep"></span>
+    <span class="badge"><span class="dot g"></span>链路 1M/1M FD · 已连接</span>
+    <span class="grow"></span>
+    <button class="btn danger">⏹ 紧急停止</button>
+  </div>
+
+  <div class="tabs">
+    <div class="tab">连接</div>
+    <div class="tab">固件升级</div>
+    <div class="tab on">参数</div>
+    <div class="tab">曲线</div>
+    <div class="tab">日志</div>
+  </div>
+
+  <div class="statusbar">
+    <span>设备 <span class="v">USBCANFD…7431</span></span>
+    <span>节点 <span class="v">0 在线 (rev2)</span></span>
+    <span>遥测 <span class="v">25.1V · 0.0A · 32.5°C</span></span>
+    <span>帧率 <span class="v">200 Hz</span></span>
+    <span>错误 <span class="v">0</span></span>
+    <span class="grow" style="flex:1"></span>
+    <span>● 未录制</span>
+  </div>
+
+  <main>
+    <!-- ================= ① 连接页 ================= -->
+    <section class="section" id="connect">
+      <div class="section-head"><span class="idx">参考稿 ①</span><h2>连接页</h2><span class="note">设备开关 / 节点扫描 / 设备信息 / 事件流</span></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-h">设备</div>
+          <div class="card-b">
+            <div class="row mb6">
+              <span class="muted">DLL:</span>
+              <input class="input" style="flex:1" value="D:/Work/Code/motor_ctrl_app/.local/canfd-sdk/ControlCANFD.dll" readonly>
+            </div>
+            <div class="row mb6">
+              <button class="btn primary">打开设备</button>
+              <button class="btn">关闭</button>
+            </div>
+            <div class="kv">
+              <span class="k">序列号</span><span class="v">USBCANFD202609107431</span>
+              <span class="k">硬件</span><span class="v">USBCANFD</span>
+              <span class="k">固件</span><span class="v">531</span>
+              <span class="k">DLL SHA256</span><span class="v">e22527c1…72d2c</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">节点列表
+            <span class="grow" style="flex:1"></span>
+            <button class="btn sm">扫描</button>
+            <label class="muted" style="font-size:11px"><input type="checkbox" checked> 自动刷新 2s</label>
+          </div>
+          <div class="card-b" style="padding:0">
+            <table class="t">
+              <tr><th>节点</th><th>协议</th><th>模式</th><th>故障</th><th>延迟</th><th>状态</th></tr>
+              <tr><td><span class="dot g"></span>0</td><td class="mono">2</td><td class="mono">0</td><td class="mono">0</td><td class="mono">1.2 ms</td><td class="okmark">在线</td></tr>
+              <tr><td><span class="dot gray"></span>1</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="faint">离线</td></tr>
+              <tr><td><span class="dot gray"></span>2</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="faint">离线</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">最近事件</div>
+        <div class="card-b">
+          <div class="logstrip">
+            <div><span class="t">03:10:22.114</span> 设备已打开（ISO FD，仲裁 1 Mbps / 数据 1 Mbps）</div>
+            <div><span class="t">03:10:23.020</span> 节点 0 在线：协议 rev2 · mode=0 · fault=0</div>
+            <div><span class="t">03:10:23.041</span> 状态流当前关闭（可配置 10–200 Hz）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ② 固件升级页 ================= -->
+    <section class="section" id="upgrade">
+      <div class="section-head"><span class="idx">参考稿 ②</span><h2>固件升级页</h2><span class="note">镜像 / 目标 / 执行 / 结果（决策 A：0x66 进 Boot，参数区不受影响）</span></div>
+
+      <div class="card">
+        <div class="card-h"><span class="step">1</span>选择镜像</div>
+        <div class="card-b">
+          <div class="row mb6">
+            <button class="btn">选择 .bin …</button>
+            <span class="mono">Vector_Mini_ST_v123.bin</span>
+            <span class="grow" style="flex:1"></span>
+            <span class="muted">版本号</span><input class="input w90" value="123">
+          </div>
+          <div class="row">
+            <span class="muted">大小</span><span class="mono">82,872 B</span>
+            <span class="muted">CRC32</span><span class="mono">0xD21AB920</span>
+            <span class="okmark">✓ 8 字节对齐</span>
+            <span class="okmark">✓ 未超 96 KiB</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="step">2</span>目标设备</div>
+        <div class="card-b row">
+          <span class="muted">节点</span>
+          <select class="select"><option>0</option></select>
+          <span class="badge"><span class="dot g"></span>APP 运行中（mode=0）</span>
+          <span class="faint">升级将自动发送 0x66 使设备进入 Loader；不擦除参数/标定区</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="step">3</span>执行</div>
+        <div class="card-b">
+          <div class="row mb6">
+            <button class="btn primary">开始升级</button>
+            <button class="btn">取消</button>
+            <span class="grow" style="flex:1"></span>
+            <span class="muted">阶段 <span class="mono" style="color:#bfeaff">PROGRAM</span></span>
+            <span class="muted">进度 <span class="mono">68%</span></span>
+            <span class="faint">3.1s / 4.6s</span>
+          </div>
+          <div class="progress"><div class="bar"></div></div>
+          <div class="prog-label"><span>offset 0x5638 / 0x143B8 · 块 1379/2072</span><span>≈ 1.5s 剩余</span></div>
+          <div class="chips">
+            <span class="chip done"><span class="ic">✓</span>进 Boot</span>
+            <span class="chip done"><span class="ic">✓</span>ERASE</span>
+            <span class="chip active"><span class="ic">▶</span>PROGRAM</span>
+            <span class="chip todo"><span class="ic">○</span>VERIFY</span>
+            <span class="chip todo"><span class="ic">○</span>ACTIVATE</span>
+            <span class="chip todo"><span class="ic">○</span>APP 确认</span>
+          </div>
+          <div class="logstrip">
+            <div><span class="t">03:31:02.455</span> PROGRAM offset=0x5618 len=32 next=0x5638</div>
+            <div><span class="t">03:31:02.459</span> ACK next_offset=0x5638（回读校验通过）</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">结果</div>
+        <div class="card-b">
+          <div class="row mb6">
+            <span style="color:var(--ok);font-size:14px">✅ 升级成功</span>
+            <span class="muted">版本 123</span><span class="muted">用时 <span class="mono">4.72 s</span></span>
+            <span class="grow" style="flex:1"></span>
+            <button class="btn sm">导出日志</button>
+          </div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted)">begin 1ms │ erase 1079 │ program 3465 │ verify 42 │ activate 23 │ app_alive 101</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ③ 参数页 ================= -->
+    <section class="section" id="params">
+      <div class="section-head"><span class="idx">参考稿 ③</span><h2>参数页</h2><span class="note">子页：在线参数 │ Flash 参数（新增）│ 角度误差曲线（新增）</span></div>
+
+      <div class="tabs" style="background:transparent;border-bottom:1px solid var(--border);padding-left:0">
+        <div class="tab on">在线参数</div>
+        <div class="tab">Flash 参数</div>
+        <div class="tab">角度误差曲线</div>
+      </div>
+
+      <!-- ③-A 在线参数 -->
+      <div class="section" style="margin-top:10px">
+        <div class="grid-fp">
+          <div class="tree">
+            <div class="search"><input class="input" placeholder="搜索名称/ID" style="flex:1"></div>
+            <div class="item on">模式 <span class="cnt">2</span></div>
+            <div class="item">电流 <span class="cnt">8</span></div>
+            <div class="item">速度 <span class="cnt">10</span></div>
+            <div class="item">位置 <span class="cnt">12</span></div>
+            <div class="item">位置阻抗 <span class="cnt">10</span></div>
+            <div class="item">摩擦 <span class="cnt">10</span></div>
+            <div class="item">电机模型 <span class="cnt">4</span></div>
+            <div class="item">CAN <span class="cnt">4</span></div>
+            <div class="item">遥测 <span class="cnt">20</span></div>
+          </div>
+
+          <div>
+            <table class="t">
+              <tr><th class="mono">ID</th><th>参数名</th><th class="num">当前值</th><th>单位</th><th class="num">新值</th><th>范围</th><th>权限</th><th>状态</th></tr>
+              <tr><td class="mono">0x00</td><td>SET_MODE</td><td class="num">0</td><td>–</td><td class="num">0</td><td>枚举</td><td><span class="perm rw">R/W</span></td><td class="okmark">✓</td></tr>
+              <tr><td class="mono">0x02</td><td>SET_CURRENT</td><td class="num">0.000</td><td>A</td><td class="num"></td><td>±6.0</td><td><span class="perm rw">R/W</span></td><td></td></tr>
+              <tr class="dirty"><td class="mono">0x04</td><td>SET_SPEED</td><td class="num">0.000</td><td>rad/s</td><td class="num">12.500</td><td>±30</td><td><span class="perm rw">R/W</span></td><td class="muted">待写入</td></tr>
+              <tr><td class="mono">0x06</td><td>SET_POS</td><td class="num">0.000</td><td>rad</td><td class="num"></td><td>±π</td><td><span class="perm rw">R/W</span></td><td></td></tr>
+              <tr><td class="mono">0x10</td><td>CURRENT_LIMIT</td><td class="num">6.000</td><td>A</td><td class="num">6.000</td><td>0–6</td><td><span class="perm rw">R/W</span></td><td class="okmark">✓</td></tr>
+              <tr><td class="mono">0x18</td><td>SPEED_KP</td><td class="num">0.500</td><td>–</td><td class="num">0.500</td><td>0.01–2.0</td><td><span class="perm rw">R/W</span></td><td></td></tr>
+              <tr><td class="mono">0x22</td><td>POS_KP</td><td class="num">8.000</td><td>A/rad</td><td class="num">8.000</td><td>0–20</td><td><span class="perm rw">R/W</span></td><td></td></tr>
+              <tr><td class="mono">0x2D</td><td>GET_VBUS</td><td class="num ro">25.10</td><td>V</td><td class="num ro">—</td><td>—</td><td><span class="perm">R</span></td><td class="muted">只读</td></tr>
+              <tr><td class="mono">0x2F</td><td>GET_IBUS</td><td class="num ro">0.000</td><td>A</td><td class="num ro">—</td><td>—</td><td><span class="perm">R</span></td><td class="muted">只读</td></tr>
+              <tr><td class="mono">0x31</td><td>GET_IA</td><td class="num ro">0.000</td><td>A</td><td class="num ro">—</td><td>—</td><td><span class="perm">R</span></td><td class="muted">只读</td></tr>
+              <tr><td class="mono">0x43</td><td>GET_TEMP</td><td class="num ro">32.5</td><td>°C</td><td class="num ro">—</td><td>—</td><td><span class="perm">R</span></td><td class="muted">只读</td></tr>
+              <tr><td class="mono">0x67</td><td>PROTOCOL_REVISION</td><td class="num ro">2</td><td>–</td><td class="num ro">—</td><td>—</td><td><span class="perm">R</span></td><td class="muted">只读</td></tr>
+            </table>
+
+            <div class="detail">
+              <span class="tag">0x04 SET_SPEED</span>：固定点 <span class="mono">crad32（×100）</span>，单位 rad/s，范围 0&lt;x≤30；
+              线格式 4B BE int32；写后校验：读 <span class="mono">0x05</span> 比对（容差 0.01）。
+              <span class="faint">（提示：写速度/模式类命令会切换电机运行模式，需二次确认）</span>
+            </div>
+
+            <div class="opbar">
+              <button class="btn">读取选中</button>
+              <button class="btn">读取全部</button>
+              <button class="btn primary">写入选中</button>
+              <button class="btn primary">写入并保存到设备 💾</button>
+              <button class="btn ghost">导入</button>
+              <button class="btn ghost">导出</button>
+              <span class="grow"></span>
+              <span class="stat">只读项 20 │ 未保存更改 <span style="color:var(--warn)">3</span> │ 上次保存 03:22:10 <span class="okmark">✓</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③-B Flash 参数 -->
+      <div class="section" style="margin-top:18px">
+        <div class="section-head" style="border-bottom-style:dashed"><span class="idx">新增</span><h2 style="font-size:13px">子页：Flash 参数（完整记录读取 / 解析 / 导出）</h2></div>
+
+        <div class="opbar mb6">
+          <button class="btn primary">读取 Flash 参数</button>
+          <button class="btn">导出 JSON</button>
+          <button class="btn">导出 CSV</button>
+          <button class="btn">原始 blob</button>
+          <button class="btn ghost">与在线参数对比</button>
+        </div>
+        <div class="row mb6" style="font-size:12px">
+          <span class="okmark">magic ✓</span><span class="mono">0x454E4332</span>
+          <span class="muted">schema</span><span class="mono">v10</span>
+          <span class="muted">大小</span><span class="mono">2,240 B</span>
+          <span class="okmark">CRC32 ✓</span><span class="mono">0xA1B2C3D4</span>
+          <span class="muted">读取于</span><span class="mono">03:30:12</span>
+        </div>
+
+        <div class="grid-fp">
+          <div class="tree">
+            <div class="item">基础 / 标识</div>
+            <div class="item">电流标定</div>
+            <div class="item">电机参数</div>
+            <div class="item">电流环</div>
+            <div class="item">速度环</div>
+            <div class="item">位置环</div>
+            <div class="item">摩擦</div>
+            <div class="item on">编码器 ★</div>
+            <div class="item">轴配置</div>
+          </div>
+          <div>
+            <table class="t">
+              <tr><th>字段</th><th class="mono">偏移</th><th>类型</th><th class="mono">原始值</th><th class="num">工程值</th><th>单位</th></tr>
+              <tr><td>node_id</td><td class="mono">0x000</td><td>f32</td><td class="mono">0x3F800000</td><td class="num">1.0</td><td>–</td></tr>
+              <tr><td>currentoffset_a</td><td class="mono">0x004</td><td>f32</td><td class="mono">0x3A9D70A4</td><td class="num">0.0012</td><td>A</td></tr>
+              <tr><td>currentoffset_b</td><td class="mono">0x008</td><td>f32</td><td class="mono">0xB9C985C6</td><td class="num">-0.0004</td><td>A</td></tr>
+              <tr><td>currentoffset_c</td><td class="mono">0x00C</td><td>f32</td><td class="mono">0x3A03126F</td><td class="num">0.0009</td><td>A</td></tr>
+              <tr><td>motor_pole_pairs</td><td class="mono">0x010</td><td>f32</td><td class="mono">0x40E00000</td><td class="num">7.0</td><td>对</td></tr>
+              <tr><td>motor_phase_resistance</td><td class="mono">0x014</td><td>f32</td><td class="mono">0x3E99999A</td><td class="num">0.30</td><td>Ω</td></tr>
+              <tr><td>motor_flux</td><td class="mono">0x020</td><td>f32</td><td class="mono">0x3C23D70A</td><td class="num">0.0100</td><td>Wb</td></tr>
+              <tr><td>encoder_electrical_zero_q15</td><td class="mono">0x024</td><td>u16</td><td class="mono">0x1A2B</td><td class="num">—</td><td>q15</td></tr>
+              <tr><td>encoder_reverse</td><td class="mono">0x029</td><td>u8</td><td class="mono">0x00</td><td class="num">0</td><td>–</td></tr>
+              <tr><td>encoder_linearization_lut_q15</td><td class="mono">0x02C</td><td>int16[1024]</td><td class="mono">…</td><td class="num">1024 点</td><td>q15</td></tr>
+              <tr><td>id_kp</td><td class="mono">0x82C</td><td>f32</td><td class="mono">0x3F000000</td><td class="num">0.5</td><td>–</td></tr>
+              <tr><td>axis_profile</td><td class="mono">0x8A0</td><td>struct(32B)</td><td class="mono">…</td><td class="num">roll</td><td>–</td></tr>
+            </table>
+
+            <div class="mt6 muted" style="font-size:11.5px">原始字节（选中字段高亮）</div>
+            <div class="hexblock">00 00 80 3F <span class="hl">A4 70 9D 3A 86 85 C9 B9 6F 12 03 3A 00 00 E0 40</span> 9A 99 99 3E …（共 2,240 B）</div>
+
+            <div class="opbar">
+              <button class="btn">查看角度误差曲线 →</button>
+              <span class="stat">编码器 LUT：1024 点 · 最大 0.36° · RMS 0.19°</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③-C 角度误差曲线 -->
+      <div class="section" style="margin-top:18px">
+        <div class="section-head" style="border-bottom-style:dashed"><span class="idx">新增</span><h2 style="font-size:13px">子页：角度误差曲线（编码器线性化 LUT）</h2></div>
+
+        <div class="opbar mb6">
+          <button class="btn primary">读取并绘制</button>
+          <button class="btn">叠加对比（校准前/后）</button>
+          <button class="btn ghost">导出 PNG</button>
+          <button class="btn ghost">导出 CSV</button>
+          <span class="grow"></span>
+          <span class="stat">点数 1024 │ 最大 <span style="color:var(--warn)">0.36°</span> │ RMS 0.19° │ 峰峰 0.52°</span>
+        </div>
+
+        <div class="card" style="margin-bottom:0">
+          <div class="legend">
+            <span class="lg"><i class="sw a"></i>本次读取</span>
+            <span class="lg"><i class="sw p"></i>上次读取（校准前）</span>
+            <span class="faint">X = 原始角度 0–360° ｜ Y = 角度误差 ° ｜ 公式与旧 USB 导出一致</span>
+          </div>
+          <div class="scope">
+            <svg viewBox="0 0 920 240" preserveAspectRatio="none" aria-label="角度误差曲线">
+              <rect x="0" y="0" width="920" height="240" fill="#111213"/>
+              <!-- grid -->
+              <g stroke="#242628" stroke-width="1">
+                <line x1="50" y1="46" x2="890" y2="46"/><line x1="50" y1="78" x2="890" y2="78"/>
+                <line x1="50" y1="142" x2="890" y2="142"/><line x1="50" y1="174" x2="890" y2="174"/>
+                <line x1="190" y1="20" x2="190" y2="210"/><line x1="330" y1="20" x2="330" y2="210"/>
+                <line x1="470" y1="20" x2="470" y2="210"/><line x1="610" y1="20" x2="610" y2="210"/>
+                <line x1="750" y1="20" x2="750" y2="210"/>
+              </g>
+              <line x1="50" y1="110" x2="890" y2="110" stroke="#3a3d40" stroke-width="1.5"/>
+              <!-- axes labels -->
+              <g fill="#8b8f93" font-size="10" font-family="Consolas,monospace">
+                <text x="14" y="50">+0.4°</text><text x="14" y="114">0°</text><text x="14" y="178">-0.4°</text>
+                <text x="46" y="226">0°</text><text x="180" y="226">60°</text><text x="320" y="226">120°</text>
+                <text x="460" y="226">180°</text><text x="600" y="226">240°</text><text x="740" y="226">300°</text><text x="866" y="226">360°</text>
+              </g>
+              <!-- previous curve (gray) -->
+              <polyline fill="none" stroke="#6e6e6e" stroke-width="1.2" stroke-dasharray="4 3"
+                points="50,62 84,66 118,58 152,64 186,54 220,66 254,72 288,78 322,72 356,84 390,88 424,92 458,86 492,94 526,98 560,92 594,98 628,104 662,96 696,104 730,110 764,104 798,110 832,102 866,110 890,104"/>
+              <!-- current curve (accent) -->
+              <polyline fill="none" stroke="#4FC3F7" stroke-width="1.8"
+                points="50,62 84,60 118,56 152,52 186,58 220,66 254,74 288,82 322,88 356,94 390,100 424,104 458,102 492,96 526,90 560,86 594,84 628,86 662,92 696,100 730,108 764,112 798,108 832,100 866,106 890,102"/>
+              <!-- cursor -->
+              <line x1="254" y1="20" x2="254" y2="210" stroke="#FFB74D" stroke-width="1" stroke-dasharray="3 3"/>
+              <rect x="196" y="24" rx="3" width="118" height="18" fill="#2d2d30" stroke="#4a4a4f"/>
+              <text x="204" y="37" fill="#e8d7b0" font-size="10.5" font-family="Consolas,monospace">88.6° · 0.36°</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ④ 曲线页 ================= -->
+    <section class="section" id="plots">
+      <div class="section-head"><span class="idx">参考稿 ④</span><h2>曲线页</h2><span class="note">CAN 状态流（10–200 Hz）/ 可选 RTT 2 kHz · 多节点 · 录制</span></div>
+
+      <div class="grid-fp">
+        <div class="tree" style="min-width:0">
+          <div class="mb6 muted" style="font-size:12px">数据源</div>
+          <div class="mb6"><label><input type="radio" name="src" checked> CAN 状态流</label>
+            <label style="margin-left:12px" class="faint"><input type="radio" name="src"> RTT（需 JLink）</label></div>
+          <div class="row mb6"><span class="muted">速率</span><input class="input w90" value="200"><span class="muted">Hz</span><button class="btn sm">应用</button></div>
+          <div class="row mb6"><button class="btn primary sm">▶ 启动</button><button class="btn sm">■ 停止</button></div>
+          <div class="row mb6"><span class="muted">时间窗</span><select class="select"><option>10 s</option><option>5 s</option><option>30 s</option><option>60 s</option></select></div>
+          <div class="row mb6"><span class="muted">Y 轴</span><label><input type="radio" name="y" checked> 自动</label>
+            <label style="margin-left:10px" class="faint"><input type="radio" name="y"> 固定</label></div>
+          <div class="mb6 muted" style="font-size:12px">通道</div>
+          <div class="mb6" style="font-size:12px;line-height:1.9">
+            <label><input type="checkbox" checked> <i class="sw a"></i> 位置反馈</label><br>
+            <label><input type="checkbox" checked> <i class="sw p"></i> 位置目标</label><br>
+            <label><input type="checkbox" checked> <i class="sw g"></i> 速度</label><br>
+            <label><input type="checkbox" checked> <i class="sw o"></i> Iq</label><br>
+            <label><input type="checkbox"> 温度</label><br>
+            <label><input type="checkbox"> 母线电压</label>
+          </div>
+          <div class="row mb6"><span class="muted">节点</span>
+            <label><input type="checkbox" checked> 0</label>
+            <label><input type="checkbox"> 1</label>
+            <label><input type="checkbox"> 2</label></div>
+          <div class="row" style="font-size:12px"><label><input type="checkbox"> 录制到 CSV</label></div>
+        </div>
+
+        <div>
+          <div class="legend" style="padding:0 0 6px">
+            <span class="lg"><i class="sw p"></i>位置目标</span>
+            <span class="lg"><i class="sw a"></i>位置反馈</span>
+            <span class="lg"><i class="sw g"></i>速度</span>
+            <span class="grow" style="flex:1"></span>
+            <span class="faint">游标 X1=3.98s X2=4.22s ΔX=0.24s ΔY=1.83°</span>
+          </div>
+          <div class="scope">
+            <svg viewBox="0 0 920 320" preserveAspectRatio="none" aria-label="实时曲线">
+              <rect width="920" height="320" fill="#111213"/>
+              <g stroke="#242628" stroke-width="1">
+                <line x1="50" y1="50" x2="890" y2="50"/><line x1="50" y1="95" x2="890" y2="95"/>
+                <line x1="50" y1="140" x2="890" y2="140"/><line x1="50" y1="185" x2="890" y2="185"/>
+                <line x1="50" y1="230" x2="890" y2="230"/>
+                <line x1="134" y1="30" x2="134" y2="270"/><line x1="218" y1="30" x2="218" y2="270"/>
+                <line x1="302" y1="30" x2="302" y2="270"/><line x1="386" y1="30" x2="386" y2="270"/>
+                <line x1="470" y1="30" x2="470" y2="270"/><line x1="554" y1="30" x2="554" y2="270"/>
+                <line x1="638" y1="30" x2="638" y2="270"/><line x1="722" y1="30" x2="722" y2="270"/>
+                <line x1="806" y1="30" x2="806" y2="270"/>
+              </g>
+              <line x1="50" y1="140" x2="890" y2="140" stroke="#3a3d40" stroke-width="1.5"/>
+              <g fill="#8b8f93" font-size="10" font-family="Consolas,monospace">
+                <text x="12" y="54">30°</text><text x="12" y="144">0°</text><text x="6" y="234">-30°</text>
+                <text x="44" y="292">0s</text><text x="296" y="292">3s</text><text x="548" y="292">6s</text><text x="800" y="292">9s</text>
+              </g>
+              <!-- speed (green) -->
+              <polyline fill="none" stroke="#66BB6A" stroke-width="1.1" opacity="0.85"
+                points="50,140 92,118 134,140 176,162 218,140 260,118 302,140 344,162 386,140 428,118 470,140 512,162 554,140 596,118 638,140 680,162 722,140 764,118 806,140 848,162 890,140"/>
+              <!-- target (purple dashed) -->
+              <polyline fill="none" stroke="#BA68C8" stroke-width="1.6" stroke-dasharray="6 4"
+                points="50,140 134,140 218,120 302,80 386,80 470,80 554,110 638,140 722,170 806,170 890,140"/>
+              <!-- feedback (accent) -->
+              <polyline fill="none" stroke="#4FC3F7" stroke-width="1.9"
+                points="50,140 134,140 218,124 302,86 386,74 470,82 554,102 638,146 722,178 806,166 890,146"/>
+              <!-- cursors -->
+              <line x1="386" y1="30" x2="386" y2="270" stroke="#FFB74D" stroke-width="1" stroke-dasharray="3 3"/>
+              <line x1="406" y1="30" x2="406" y2="270" stroke="#FFB74D" stroke-width="1" stroke-dasharray="3 3"/>
+              <rect x="330" y="34" rx="3" width="132" height="18" fill="#2d2d30" stroke="#4a4a4f"/>
+              <text x="338" y="47" fill="#e8d7b0" font-size="10.5" font-family="Consolas,monospace">ΔX 0.24s · ΔY 1.83°</text>
+            </svg>
+          </div>
+          <div class="statbar">
+            <span>实际 <span class="v">199.2 Hz</span></span>
+            <span>帧 <span class="v">5987</span></span>
+            <span>丢帧 <span class="v">0</span></span>
+            <span>无效字段 <span class="v">0</span></span>
+            <span class="grow" style="flex:1"></span>
+            <button class="btn sm">⏸ 暂停</button>
+            <button class="btn sm">导出 PNG</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ⑤ 日志页 ================= -->
+    <section class="section" id="logs">
+      <div class="section-head"><span class="idx">参考稿 ⑤</span><h2>日志页</h2><span class="note">原始帧 / 操作审计 / 诊断包导出（环形缓冲 5 万行）</span></div>
+
+      <div class="opbar mb6">
+        <label><input type="checkbox" checked> TX</label>
+        <label><input type="checkbox" checked> RX</label>
+        <label><input type="checkbox" checked> 错误</label>
+        <span class="muted">ID</span><input class="input w90" placeholder="0x">
+        <span class="grow" style="flex:1"></span>
+        <button class="btn sm">暂停</button>
+        <button class="btn sm">清空</button>
+        <button class="btn sm primary">导出诊断包</button>
+      </div>
+
+      <table class="t">
+        <tr><th>时间</th><th>方向</th><th class="mono">ID</th><th class="num">DLC</th><th class="mono">数据（hex）</th><th>解码</th></tr>
+        <tr><td class="mono">03:22:10.112</td><td>TX</td><td class="mono">0x064</td><td class="num">4</td><td class="mono">43 32 00 00</td><td>SET_STATUS_STREAM = 50</td></tr>
+        <tr><td class="mono">03:22:10.121</td><td>RX</td><td class="mono">0x065</td><td class="num">4</td><td class="mono">42 48 00 00</td><td>→ 50 Hz</td></tr>
+        <tr><td class="mono">03:22:10.130</td><td>RX</td><td class="mono">0x7F0</td><td class="num">48</td><td class="mono">00 00 00 00 03 00 00 00 …</td><td>fault=0 mode=0 25.10V 0.0A 32.5°C</td></tr>
+        <tr><td class="mono">03:22:10.150</td><td>RX</td><td class="mono">0x7F0</td><td class="num">48</td><td class="mono">00 00 00 00 03 00 00 00 …</td><td>fault=0 mode=0 25.10V 0.0A 32.5°C</td></tr>
+        <tr><td class="mono">03:22:10.170</td><td>RX</td><td class="mono">0x7F0</td><td class="num">48</td><td class="mono">00 00 00 00 03 00 00 00 …</td><td>fault=0 mode=0 25.10V 0.0A 32.5°C</td></tr>
+        <tr class="errrow"><td class="mono">03:22:11.002</td><td>RX</td><td class="mono">0x200007F0</td><td class="num">—</td><td class="mono">—</td><td>错误帧：总线干扰（已计入错误计数）</td></tr>
+        <tr><td class="mono">03:22:11.090</td><td>TX</td><td class="mono">0x010</td><td class="num">4</td><td class="mono">40 BE 00 00</td><td>SET_CURRENT_LIMIT = 5.95 A</td></tr>
+        <tr><td class="mono">03:22:11.108</td><td>RX</td><td class="mono">0x011</td><td class="num">4</td><td class="mono">00 00 BE 40</td><td>→ 5.95 A ✓（写后校验通过）</td></tr>
+        <tr><td class="mono">03:22:11.240</td><td>TX</td><td class="mono">0x068</td><td class="num">4</td><td class="mono">43 20 00 00</td><td>SAVE_PARAM = 10.0（保存到 Flash）</td></tr>
+        <tr><td class="mono">03:22:11.642</td><td>RX</td><td class="mono">0x001</td><td class="num">4</td><td class="mono">00 00 00 00</td><td>GET_MODE → 0（保存完成）</td></tr>
+      </table>
+    </section>
+
+    <!-- ================= 附录：组件参考 ================= -->
+    <section class="section" id="appendix">
+      <div class="section-head"><span class="idx">附录</span><h2>组件参考</h2><span class="note">ConfirmDialog（危险操作确认）与 EmptyState（空状态）</span></div>
+
+      <div class="grid2">
+        <div class="modal-wrap">
+          <div class="modal">
+            <div class="hd">确认操作</div>
+            <div class="bd">
+              <div class="warnic">!</div>
+              <div>即将擦除 APP 区（<b>不影响参数/标定区</b>），并开始下载新固件。<br>
+                <span class="faint">擦除期间请勿断电；中断后设备将停留在 Loader 恢复模式。</span></div>
+            </div>
+            <div class="ft">
+              <button class="btn">取消</button>
+              <button class="btn danger">继续</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="empty" style="display:flex;flex-direction:column;justify-content:center">
+          <div class="ic">🔌</div>
+          <div>未连接：请先打开设备</div>
+          <div class="sub mt6">菜单：设备 → 连接；或点击工具栏「连接」</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

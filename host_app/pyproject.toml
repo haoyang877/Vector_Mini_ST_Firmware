@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdrive-host"
+version = "0.1.0"
+description = "PC host tooling for the motor drive platform: CAN firmware upgrade, parameters, telemetry."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.7", "pyqtgraph>=0.13", "numpy>=1.26"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+mdrive = "mdrive_cli.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

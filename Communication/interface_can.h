@@ -108,6 +108,11 @@ typedef enum
 	CAN_GET_STATUS_STREAM = 0x65,
 	/* Host request: safe-stop and hand control to the resident loader. */
 	CAN_ENTER_BOOT = BOOT_HANDOFF_CMD_ENTER_BOOT,
+	CAN_GET_PROTOCOL_REVISION = 0x67,
+	/* Host requests: persist parameters and read back the flash record. */
+	CAN_SAVE_PARAM = 0x68,
+	CAN_GET_FLASH_PARAM_INFO = 0x69,
+	CAN_GET_FLASH_PARAM_CHUNK = 0x6A,
 }CAN_PARAM_ID;
 
 typedef struct
@@ -119,7 +124,9 @@ typedef struct
 	/*parameter ID*/
 	CAN_PARAM_ID rx_param_id,tx_param_id;
 	float rx_data,tx_data;
-	uint8_t rx_data_u8[4],tx_data_u8[4];
+	uint8_t rx_data_u8[4];
+	/* CAN-FD replies (flash record readback) may carry up to 64 bytes. */
+	uint8_t tx_data_u8[64];
 	/** @brief 当前待回复参数的线路载荷长度，电流为 2，其他为 4。 */
 	uint8_t tx_data_len;
 	bool can_rx_en;

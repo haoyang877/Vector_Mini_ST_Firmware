@@ -14,8 +14,15 @@
 #include "../hal/api/comm_hw.h"
 #include "../hal/api/time_hw.h"
 #include "../software/communication/protocol/can_motor_status.h"
+#include "../software/communication/protocol/can_parameter_format.h"
 #include "foc_friction_identification.h"
 #include "boot_mailbox.h"
+#include <string.h>
+#include "flash.h"
+
+/* CAN-FD reply helpers (defined near CAN_SendMessage_Update). */
+static uint32_t CAN_Crc32(const uint8_t *data, uint32_t length);
+static void CAN_SendFD_Update(CAN_PARAM_ID param_id, const uint8_t *data, uint8_t length);
 
 CANMsg_TypeDef CANMsg;
 
@@ -274,6 +281,12 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+	/* Read-only handshake; this query never arms or changes motor settings. */
+	if (param_id == CAN_GET_PROTOCOL_REVISION) {
+		CAN_SendMessage_Update(CAN_GET_PROTOCOL_REVISION,
+			(float)CAN_PARAMETER_FORMAT_REVISION);
+		return;
+	}
 	/* Resident-loader handoff: safe-stop, latch the request, then reset.
 	 * The loader reads the mailbox and stays in update mode after reset. */
 	if (param_id == CAN_ENTER_BOOT) {
@@ -667,7 +680,55 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		case CAN_GET_ERROR:
 			CAN_SendMessage_Update(CAN_GET_ERROR, (float)MotorControl.ErrorNow);
 		break;
-		
+
+		case CAN_SAVE_PARAM:
+			/* Persist RAM parameters through the existing Save_Param main-loop path. */
+			if (data_int == 1 && MotorControl.ModeNow == Motor_Disable)
+			{
+				Set_ModeNow(Save_Param);
+				CAN_SendMessage_Update(CAN_SAVE_PARAM, 1.0f);
+			}
+		break;
+
+		case CAN_GET_FLASH_PARAM_INFO:
+		{
+			const InterfaceParam_TypeDef *record =
+				(const InterfaceParam_TypeDef *)ADDR_FLASH_PAGE_56;
+			uint32_t size = (uint32_t)sizeof(InterfaceParam_TypeDef);
+			uint32_t magic = record->magic_word;
+			uint32_t schema = record->schema_version;
+			uint32_t crc = CAN_Crc32((const uint8_t *)record, size);
+			uint8_t buf[16];
+			buf[0] = (uint8_t)(magic >> 24);  buf[1] = (uint8_t)(magic >> 16);
+			buf[2] = (uint8_t)(magic >> 8);   buf[3] = (uint8_t)magic;
+			buf[4] = (uint8_t)(schema >> 24); buf[5] = (uint8_t)(schema >> 16);
+			buf[6] = (uint8_t)(schema >> 8);  buf[7] = (uint8_t)schema;
+			buf[8] = (uint8_t)(size >> 24);   buf[9] = (uint8_t)(size >> 16);
+			buf[10] = (uint8_t)(size >> 8);   buf[11] = (uint8_t)size;
+			buf[12] = (uint8_t)(crc >> 24);  buf[13] = (uint8_t)(crc >> 16);
+			buf[14] = (uint8_t)(crc >> 8);   buf[15] = (uint8_t)crc;
+			CAN_SendFD_Update(CAN_GET_FLASH_PARAM_INFO, buf, 16U);
+		}
+		break;
+
+		case CAN_GET_FLASH_PARAM_CHUNK:
+		{
+			uint32_t size = (uint32_t)sizeof(InterfaceParam_TypeDef);
+			uint32_t offset = (uint32_t)data_int;
+			uint32_t remaining;
+			uint32_t len;
+			uint8_t buf[64];
+			if (offset > size) offset = size;
+			remaining = size - offset;
+			len = (remaining > 56U) ? 56U : remaining;
+			buf[0] = (uint8_t)(offset >> 24); buf[1] = (uint8_t)(offset >> 16);
+			buf[2] = (uint8_t)(offset >> 8);  buf[3] = (uint8_t)offset;
+			buf[4] = (uint8_t)len;
+			memcpy(&buf[5], ((const uint8_t *)ADDR_FLASH_PAGE_56) + offset, len);
+			CAN_SendFD_Update(CAN_GET_FLASH_PARAM_CHUNK, buf, (uint8_t)(5U + len));
+		}
+		break;
+
 		default:break;
 	}
 }
@@ -703,6 +764,33 @@ void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 		CANMsg.tx_data_len = 4U;
 	}
 	
+	CANMsg.can_tx_en = true;
+}
+
+/**
+	* @brief  CRC-32/ISO-HDLC over a byte range (matches Python zlib.crc32).
+ **/
+static uint32_t CAN_Crc32(const uint8_t *data, uint32_t length)
+{
+	uint32_t crc = 0xFFFFFFFFU;
+	for (uint32_t i = 0U; i < length; ++i) {
+		crc ^= (uint32_t)data[i];
+		for (uint8_t bit = 0U; bit < 8U; ++bit)
+			crc = (crc & 1U) ? ((crc >> 1) ^ 0xEDB88320U) : (crc >> 1);
+	}
+	return ~crc;
+}
+
+/**
+	* @brief  Queue an arbitrary-length (<=64 B) CAN-FD reply.
+ **/
+static void CAN_SendFD_Update(CAN_PARAM_ID param_id, const uint8_t *data, uint8_t length)
+{
+	uint8_t i;
+	if (length > 64U) length = 64U;
+	CANMsg.tx_param_id = param_id;
+	for (i = 0U; i < length; ++i) CANMsg.tx_data_u8[i] = data[i];
+	CANMsg.tx_data_len = length;
 	CANMsg.can_tx_en = true;
 }
 
@@ -791,7 +879,8 @@ void CAN_SendMessage(void)
 		return;
 	}
 	
-	FDCAN_TxHeaderTypeDef FDCAN_TxHeader;
+	/* HAL copies ESI and MessageMarker into message RAM too. */
+	FDCAN_TxHeaderTypeDef FDCAN_TxHeader = {0};
 	uint32_t ID = CANMsg.node_id << 8 | CANMsg.tx_param_id;
 	
 	uint8_t send_num = 0;
@@ -799,7 +888,20 @@ void CAN_SendMessage(void)
 	FDCAN_TxHeader.IdType				 = FDCAN_STANDARD_ID;
 	FDCAN_TxHeader.Identifier			 = ID;
 	FDCAN_TxHeader.FDFormat				 = FDCAN_FD_CAN;
-	FDCAN_TxHeader.DataLength			 = CANMsg.tx_data_len;
+	{
+		/* DLC codes 0..8 equal byte counts; larger lengths need CAN-FD codes. */
+		uint8_t reply_len = CANMsg.tx_data_len;
+		uint32_t dlc;
+		if (reply_len <= 8U) dlc = reply_len;
+		else if (reply_len <= 12U) dlc = FDCAN_DLC_BYTES_12;
+		else if (reply_len <= 16U) dlc = FDCAN_DLC_BYTES_16;
+		else if (reply_len <= 20U) dlc = FDCAN_DLC_BYTES_20;
+		else if (reply_len <= 24U) dlc = FDCAN_DLC_BYTES_24;
+		else if (reply_len <= 32U) dlc = FDCAN_DLC_BYTES_32;
+		else if (reply_len <= 48U) dlc = FDCAN_DLC_BYTES_48;
+		else dlc = FDCAN_DLC_BYTES_64;
+		FDCAN_TxHeader.DataLength		 = dlc;
+	}
 	FDCAN_TxHeader.TxFrameType			 = FDCAN_DATA_FRAME;
 	FDCAN_TxHeader.BitRateSwitch		 = FDCAN_BRS_ON;
 	FDCAN_TxHeader.TxEventFifoControl	 = FDCAN_NO_TX_EVENTS;

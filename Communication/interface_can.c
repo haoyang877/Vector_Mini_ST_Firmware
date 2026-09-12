@@ -15,6 +15,7 @@
 #include "../hal/api/time_hw.h"
 #include "../software/communication/protocol/can_motor_status.h"
 #include "foc_friction_identification.h"
+#include "boot_mailbox.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -273,6 +274,15 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+	/* Resident-loader handoff: safe-stop, latch the request, then reset.
+	 * The loader reads the mailbox and stays in update mode after reset. */
+	if (param_id == CAN_ENTER_BOOT) {
+		ModeSwitch_Handle(Motor_Disable);
+		boot_mailbox_request(BOOT_MAILBOX_CMD_ENTER_LOADER);
+		__DSB();
+		NVIC_SystemReset();
+		return;
+	}
 	/* Handle before float-to-int conversion; NaN/fraction/out-of-range commands
 	 * are rejected atomically without changing the previous stream setting. */
 	if (param_id == CAN_SET_STATUS_STREAM) {

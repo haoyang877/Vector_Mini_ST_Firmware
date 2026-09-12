@@ -8,13 +8,12 @@ extern MotorControl_TypeDef MotorControl;
 
 /**
 	* @brief  BSP 1 kHz interrupt task
-			  update USB print, LEDs, RGB, encoder state and CAN status
+			  update LEDs, RGB, encoder state and CAN status
  **/
 void BSP1kHzIRQHandler(void)
 {
 	FOC1kHzSupervisor();
-	USB_PrintProfile();
-	
+
 	if(++Led_Cnt >= 200)
 	{
 		LED_Task();

@@ -17,7 +17,6 @@
 #include "dma.h"
 #include "spi.h"
 #include "tim.h"
-#include "usbd_cdc_if.h"
 
 /*Bsp*/
 #include "delay.h"
@@ -43,7 +42,6 @@
 /*Communication*/
 #include "ring_buffer.h"
 #include "interface_can.h"
-#include "interface_usb.h"
 
 /*System*/
 #include "utils.h"

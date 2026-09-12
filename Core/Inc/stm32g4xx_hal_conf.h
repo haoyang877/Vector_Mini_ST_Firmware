@@ -53,7 +53,7 @@
 /*#define HAL_NAND_MODULE_ENABLED   */
 /*#define HAL_NOR_MODULE_ENABLED   */
 /*#define HAL_OPAMP_MODULE_ENABLED   */
-#define HAL_PCD_MODULE_ENABLED
+/*#define HAL_PCD_MODULE_ENABLED   */
 /*#define HAL_QSPI_MODULE_ENABLED   */
 /*#define HAL_RNG_MODULE_ENABLED   */
 /*#define HAL_RTC_MODULE_ENABLED   */
@@ -94,7 +94,7 @@
 #define USE_HAL_NAND_REGISTER_CALLBACKS       0U
 #define USE_HAL_NOR_REGISTER_CALLBACKS        0U
 #define USE_HAL_OPAMP_REGISTER_CALLBACKS      0U
-#define USE_HAL_PCD_REGISTER_CALLBACKS        0U
+/*#define USE_HAL_PCD_REGISTER_CALLBACKS        0U*/
 #define USE_HAL_QSPI_REGISTER_CALLBACKS       0U
 #define USE_HAL_RNG_REGISTER_CALLBACKS        0U
 #define USE_HAL_RTC_REGISTER_CALLBACKS        0U
@@ -301,7 +301,7 @@ The real value may vary depending on the variations in voltage and temperature.*
 #endif /* HAL_OPAMP_MODULE_ENABLED */
 
 #ifdef HAL_PCD_MODULE_ENABLED
-#include "stm32g4xx_hal_pcd.h"
+/* #include "stm32g4xx_hal_pcd.h" */
 #endif /* HAL_PCD_MODULE_ENABLED */
 
 #ifdef HAL_PWR_MODULE_ENABLED

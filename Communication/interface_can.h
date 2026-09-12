@@ -3,11 +3,12 @@
 
 #include "main.h"
 #include "data_type.h"
+#include "protocol/boot_handoff.h"
 
 typedef enum
 {
 	CAN_SET_MODE			= 0x00,
-	CAN_GET_MODE			= 0x01,
+	CAN_GET_MODE			= BOOT_HANDOFF_CMD_GET_MODE,
 	CAN_SET_CURRENT			= 0x02,
 	CAN_GET_CURRENT_SET		= 0x03,
 	CAN_SET_SPEED			= 0x04,
@@ -105,6 +106,8 @@ typedef enum
 	CAN_GET_FRICTION_MODEL_VALID = 0x62,
 	CAN_SET_STATUS_STREAM = 0x64,
 	CAN_GET_STATUS_STREAM = 0x65,
+	/* Host request: safe-stop and hand control to the resident loader. */
+	CAN_ENTER_BOOT = BOOT_HANDOFF_CMD_ENTER_BOOT,
 }CAN_PARAM_ID;
 
 typedef struct

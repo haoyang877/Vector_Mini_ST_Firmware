@@ -24,7 +24,6 @@
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
-#include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -101,7 +100,6 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
-  MX_USB_Device_Init();
   MX_ADC1_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
@@ -117,8 +115,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	USB_SendMessage();
-	  
 	CAN_SendMessage();
 	  
 	if(Get_ModeNow() == Save_Param)

@@ -25,14 +25,14 @@ static bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *out)
 {out->position_reference=.75f;out->trajectory_speed_reference=-.5f;return true;}
 static struct { unsigned ErrorNow, ModeNow; float posRef,speedRef,iqRef,posShadow,speedShadow,pos_vel_filtered; } MotorControl;
 static struct {float theta_mech,vel_mech;} OnBoard_Encoder;
-static struct {float Iq,temp,Vbus_filt;} FOC;
+static struct {float Iq,temp,Vbus_filt,Ibus_filt;} FOC;
 '''+function_source(source,'MotorStatus_Sampling')+r'''
 int main(void) {
  MotorStatus s;
  MotorControl.ErrorNow=7; MotorControl.ModeNow=3;
  MotorControl.posRef=1.25f; MotorControl.posShadow=.75f;
  MotorControl.speedRef=2.5f; MotorControl.speedShadow=9.f;
- MotorControl.iqRef=1.5f; FOC.Iq=1.25f; FOC.temp=65.25f; FOC.Vbus_filt=48.75f;
+ MotorControl.iqRef=1.5f; FOC.Iq=1.25f; FOC.temp=65.25f; FOC.Vbus_filt=48.75f; FOC.Ibus_filt=-.375f;
  OnBoard_Encoder.theta_mech=-1.5f; OnBoard_Encoder.vel_mech=-4.f;
  MotorControl.pos_vel_filtered=-2.f;
  MotorStatus_Sampling(); assert(!MotorStatus_Take(&s));
@@ -41,6 +41,7 @@ int main(void) {
  assert(s.speed_target==2.5f && s.speed_planned==-.5f && s.speed_feedback==-2.f);
  assert(s.position_feedback==-1.5f && s.current_reference==1.5f && s.current_feedback==1.25f);
  assert(s.temperature==65.25f && s.bus_voltage==48.75f);
+ assert(s.bus_current==-.375f && s.bus_current!=s.current_feedback);
  MotorControl.ModeNow=2; MotorStatus_Request(); MotorStatus_Sampling();
  assert(MotorStatus_Take(&s) && s.speed_feedback==-4.f);
  puts("PASS actual motor status source: target vs planned, filtered speed, current, temperature, voltage and fault");return 0;

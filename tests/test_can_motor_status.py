@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from can_motor_status import command,decode
+from can_motor_status import command,decode,FIELDS
 
 class StatusWireTests(unittest.TestCase):
     def test_command_vectors(self):
@@ -26,13 +26,29 @@ class StatusWireTests(unittest.TestCase):
         self.assertEqual(v['iq_feedback_A'],-1.5)
         self.assertEqual(v['temperature_C'],65.25)
         self.assertEqual(v['bus_voltage_V'],48.75)
-        self.assertEqual(v['invalid_fields'],[])
+        self.assertIsNone(v['bus_current_A'])
+        self.assertEqual(v['invalid_fields'],['bus_current_A'])
+    def test_bus_current_extension(self):
+        data=bytearray(48)
+        data[22:24]=bytes.fromhex('fa24')
+        data[36:40]=bytes.fromhex('fe890001')
+        v=decode(0x7f4,data)
+        self.assertEqual(v['iq_feedback_A'],-1.5)
+        self.assertEqual(v['bus_current_A'],-.375)
+        self.assertIn('bus_current_A', FIELDS)
+        self.assertEqual(dict(zip(FIELDS, (v[key] for key in FIELDS)))['bus_current_A'], -.375)
+        data[36:38]=bytes(2)
+        self.assertEqual(decode(0x7f4,data)['bus_current_A'],0)
+        data[36:38]=bytes.fromhex('8000')
+        self.assertIsNone(decode(0x7f4,data)['bus_current_A'])
+        data[39]=2
+        self.assertIsNone(decode(0x7f4,data)['bus_current_A'])
     def test_invalid_value_not_falsely_zero(self):
         data=bytearray(48);data[4]=0x80;data[20]=0x80;data[32]=0x80;data[34]=0x80
         result=decode(0x7f3,data)
         self.assertIsNone(result['position_target_rad'])
         self.assertIsNone(result['iq_reference_A'])
-        self.assertEqual(result['invalid_fields'],['position_target_rad','iq_reference_A','temperature_C','bus_voltage_V'])
+        self.assertEqual(result['invalid_fields'],['position_target_rad','iq_reference_A','temperature_C','bus_voltage_V','bus_current_A'])
         with self.assertRaises(ValueError):decode(0x7f3,bytes(32))
 
 if __name__=='__main__':unittest.main()

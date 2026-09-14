@@ -28,6 +28,7 @@ void MotorStatus_Publish(const MotorStatus *sample)
     published.speed_planned = sample->speed_planned;
     published.temperature = sample->temperature;
     published.bus_voltage = sample->bus_voltage;
+    published.bus_current = sample->bus_current;
     state = READY;
 }
 bool MotorStatus_Take(MotorStatus *sample)
@@ -45,6 +46,7 @@ bool MotorStatus_Take(MotorStatus *sample)
     sample->speed_planned = published.speed_planned;
     sample->temperature = published.temperature;
     sample->bus_voltage = published.bus_voltage;
+    sample->bus_current = published.bus_current;
     state = EMPTY;
     return true;
 }

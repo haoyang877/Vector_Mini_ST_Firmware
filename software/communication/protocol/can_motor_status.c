@@ -93,6 +93,8 @@ bool CanMotorStatus_Encode(const MotorStatus *s, uint8_t *data, size_t capacity)
     be32(data+28, (uint32_t)centi32(s->speed_planned));
     be16(data+32, (uint16_t)centi16(s->temperature));
     be16(data+34, (uint16_t)centi16(s->bus_voltage));
+    be16(data+36, (uint16_t)milli16(s->bus_current));
+    be16(data+38, CAN_MOTOR_STATUS_EXTENSION_REVISION);
     return true;
 }
 bool CanMotorStatus_Prepare(uint32_t now, uint8_t node,

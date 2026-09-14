@@ -6,9 +6,10 @@ import struct
 
 FORMAT = '>HHiiiihhiihh12x'
 ID_BASE = 0x7F0
-FIELDS = ('fault','mode','position_target_rad','position_feedback_rad',
+BASE_FIELDS = ('fault','mode','position_target_rad','position_feedback_rad',
           'speed_target_rad_s','speed_feedback_rad_s','iq_reference_A','iq_feedback_A',
           'position_planned_rad','speed_planned_rad_s','temperature_C','bus_voltage_V')
+FIELDS = (*BASE_FIELDS, 'bus_current_A')
 SCALES = (None,None,1000,1000,100,100,1000,1000,1000,100,100,100)
 
 
@@ -25,12 +26,17 @@ def decode(identifier, payload):
         raise ValueError('status requires standard ID 0x7F0..0x7F7 and 48 bytes')
     values=struct.unpack(FORMAT,payload)
     result={'node':identifier-ID_BASE,'invalid_fields':[]}
-    for index,(key,value) in enumerate(zip(FIELDS,values)):
+    for index,(key,value) in enumerate(zip(BASE_FIELDS,values)):
         sentinel = -32768 if index in (6,7,10,11) else -2147483648
         if index < 2: result[key]=value
         elif value == sentinel:
             result[key]=None;result['invalid_fields'].append(key)
         else: result[key]=value/SCALES[index]
+    bus_current, extension = struct.unpack_from('>hH', payload, 36)
+    result['extension_revision'] = extension
+    result['bus_current_A'] = bus_current / 1000 if extension == 1 and bus_current != -32768 else None
+    if result['bus_current_A'] is None:
+        result['invalid_fields'].append('bus_current_A')
     return result
 
 

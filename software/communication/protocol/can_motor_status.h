@@ -9,6 +9,9 @@
 #define CAN_MOTOR_STATUS_REPLY 0x65U
 #define CAN_MOTOR_STATUS_ID_BASE 0x7F0U
 #define CAN_MOTOR_STATUS_SIZE 48U
+/** Offset 38: extension revision 1 provides signed milliamp Ibus at offset 36.
+ * Revision 0 is legacy padding and must not be interpreted as measured zero. */
+#define CAN_MOTOR_STATUS_EXTENSION_REVISION 1U
 
 /** Initialization before reception: disabled, configured rate 20 Hz. */
 void CanMotorStatus_Init(void);

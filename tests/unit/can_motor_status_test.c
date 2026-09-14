@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 static MotorStatus sample = {
-    7,3,-1.25f,1.5f,2.5f,-2.0f,1.25f,-1.5f,.75f,-.5f,65.25f,48.75f};
+    7,3,-1.25f,1.5f,2.5f,-2.0f,1.25f,-1.5f,.75f,-.5f,65.25f,48.75f,-.375f};
 static uint8_t data[50];
 static uint16_t id;
 
@@ -28,7 +28,7 @@ static void encoding(void)
     static const uint8_t expected[48] = {
         0,7,0,3, 0xff,0xff,0xfb,0x1e, 0,0,5,0xdc, 0,0,0,0xfa,
         0xff,0xff,0xff,0x38, 4,0xe2,0xfa,0x24, 0,0,2,0xee, 0xff,0xff,0xff,0xce,
-        0x19,0x7d,0x13,0x0b, 0,0,0,0,0,0,0,0,0,0,0,0};
+        0x19,0x7d,0x13,0x0b, 0xfe,0x89,0,1,0,0,0,0,0,0,0,0};
     MotorStatus s = sample;
     memset(data,0xa5,sizeof(data));
     assert(!CanMotorStatus_Encode(&s,data,47));
@@ -49,6 +49,14 @@ static void encoding(void)
     assert(data[22]==0x80 && data[23]==1);
     assert(data[32]==0x80 && data[33]==0);
     assert(data[34]==0x80 && data[35]==0);
+    s.bus_current=NAN; assert(CanMotorStatus_Encode(&s,data,48));
+    assert(data[36]==0x80 && data[37]==0 && data[38]==0 && data[39]==1);
+    s.bus_current=40.f; assert(CanMotorStatus_Encode(&s,data,48));
+    assert(data[36]==0x7f && data[37]==0xff);
+    s.bus_current=-40.f; assert(CanMotorStatus_Encode(&s,data,48));
+    assert(data[36]==0x80 && data[37]==1);
+    s.bus_current=0.f; assert(CanMotorStatus_Encode(&s,data,48));
+    assert(data[36]==0 && data[37]==0 && data[39]==1);
 }
 static void rates(void)
 {

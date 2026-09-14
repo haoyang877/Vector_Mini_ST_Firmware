@@ -5,7 +5,8 @@
 
 /** SI-unit observation captured by the motor owner at the end of a fast tick.
  * Targets are external commands; planned references are controller outputs.
- * Current is q-axis current, not bus current or phase RMS. */
+ * current_reference/current_feedback are q-axis currents, not bus current or
+ * phase RMS. bus_current is the filtered DC-link current estimate in amperes. */
 typedef struct {
     uint16_t fault, mode;
     float position_target, position_feedback;
@@ -13,6 +14,7 @@ typedef struct {
     float current_reference, current_feedback;
     float position_planned, speed_planned;
     float temperature, bus_voltage;
+    float bus_current;
 } MotorStatus;
 
 /** Single foreground consumer requests one sample; never blocks. */

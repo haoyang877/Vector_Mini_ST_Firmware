@@ -9,6 +9,9 @@
 typedef struct {
     float start, target, distance, direction;
     float acceleration, deceleration, speed_limit, jerk_limit;
+    /* Precomputed per-move search coefficients: ta = accel_time_per_speed*speed,
+     * td = decel_time_per_speed*speed, tj = sqrtf(jerk_time_sq_per_speed*speed). */
+    float accel_time_per_speed, decel_time_per_speed, jerk_time_sq_per_speed;
     float lower_speed, upper_speed, speed;
     float accel_time, cruise_time, decel_time;
     float inv_accel_time, inv_decel_time;

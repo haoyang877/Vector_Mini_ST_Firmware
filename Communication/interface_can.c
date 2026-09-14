@@ -14,6 +14,7 @@
 #include "../hal/api/comm_hw.h"
 #include "../hal/api/time_hw.h"
 #include "../software/communication/protocol/can_motor_status.h"
+#include "../software/communication/protocol/can_parameter_format.h"
 #include "foc_friction_identification.h"
 
 CANMsg_TypeDef CANMsg;
@@ -273,6 +274,12 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+	/* Read-only handshake; this query never arms or changes motor settings. */
+	if (param_id == CAN_GET_PROTOCOL_REVISION) {
+		CAN_SendMessage_Update(CAN_GET_PROTOCOL_REVISION,
+			(float)CAN_PARAMETER_FORMAT_REVISION);
+		return;
+	}
 	/* Handle before float-to-int conversion; NaN/fraction/out-of-range commands
 	 * are rejected atomically without changing the previous stream setting. */
 	if (param_id == CAN_SET_STATUS_STREAM) {
@@ -781,7 +788,8 @@ void CAN_SendMessage(void)
 		return;
 	}
 	
-	FDCAN_TxHeaderTypeDef FDCAN_TxHeader;
+	/* HAL copies ESI and MessageMarker into message RAM too. */
+	FDCAN_TxHeaderTypeDef FDCAN_TxHeader = {0};
 	uint32_t ID = CANMsg.node_id << 8 | CANMsg.tx_param_id;
 	
 	uint8_t send_num = 0;

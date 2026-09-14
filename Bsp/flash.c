@@ -109,6 +109,7 @@ void flash_write_param(void)
 void flash_read_param(void)
 {
 	InterfaceParam_TypeDef *param = HEAP_malloc(sizeof(*param));
+	bool rewrite_legacy_param;
 	if (param == NULL)
 	{
 		Param_Return_Default();
@@ -116,6 +117,21 @@ void flash_read_param(void)
 	}
 
 	memcpy(param, (const void *)PARAM_FLASH_ADDR, sizeof(*param));
-	Param_Download(param);
+	rewrite_legacy_param = Param_Download(param);
+	if (rewrite_legacy_param)
+	{
+		uint32_t primask;
+
+		/* Persist the validated migration before motor control is enabled. */
+		Param_Upload(param);
+		param->magic_word = MAGIC_WORD;
+		primask = __get_PRIMASK();
+		__disable_irq();
+		if (flash_erase_pages(PARAM_FLASH_ADDR,
+			PARAM_FLASH_ADDR + sizeof(*param) - 1U))
+			flash_write_data(PARAM_FLASH_ADDR, param, sizeof(*param));
+		if (primask == 0U)
+			__enable_irq();
+	}
 	HEAP_free(param);
 }

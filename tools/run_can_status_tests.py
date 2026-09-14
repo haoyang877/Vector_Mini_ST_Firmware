@@ -110,7 +110,8 @@ int main(void) {
 #define FDCAN_TX_BUFFER1 2
 #define FDCAN_TX_BUFFER2 4
 #define FDCAN_DLC_BYTES_48 14
-typedef struct {unsigned Identifier,IdType,TxFrameType,FDFormat,BitRateSwitch,DataLength,TxEventFifoControl;} FDCAN_TxHeaderTypeDef;
+/* Match all fields/order of the vendor header: omitted fields hid stack junk. */
+typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength;} FDCAN_RxHeaderTypeDef;
 typedef struct {struct {unsigned TxFifoQueueMode;} Init;} Handle;
 extern Handle hfdcan1;
@@ -128,6 +129,7 @@ static unsigned pending,tx_calls,tx_result,rx_length=14;
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7);return (pending&mask)!=0;}
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
  (void)h; assert(hdr->Identifier==0x7f4 && hdr->DataLength==14 && hdr->FDFormat==1 && hdr->BitRateSwitch==1);
+ assert(hdr->ErrorStateIndicator==0 && hdr->MessageMarker==0);
  assert(d[0]==0xab);++tx_calls;return tx_result;
 }
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *hdr,uint8_t *d) {
@@ -167,7 +169,9 @@ bool comm_hw_can_try_send_status(uint16_t id,const uint8_t *d,size_t len) {
  (void)d;assert(id==0x7f4 && len==48);++status_sent;return true;
 }
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
- (void)h;(void)d;assert(hdr->Identifier==0x465 && hdr->DataLength==4);++replies;return 0;
+ (void)h;(void)d;assert(hdr->Identifier==0x465 && hdr->DataLength==4);
+ assert(hdr->ErrorStateIndicator==0 && hdr->MessageMarker==0);
+ ++replies;return 0;
 }
 '''+function_source(source,'CAN_SendMessage')+r'''
 int main(void) {
@@ -219,6 +223,14 @@ int main(void) {
  assert(CANMsg.tx_data_len==2 && CANMsg.tx_data_u8[0]==0xfb && CANMsg.tx_data_u8[1]==0x1e);
  CAN_SendMessage_Update(0x15,6.283f);
  assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==2 && CANMsg.tx_data_u8[3]==0x74);
+ { const unsigned ids[]={0x15,0x17,0x1d,0x1f,0x21};
+   for(unsigned i=0;i<sizeof(ids)/sizeof(ids[0]);++i) {
+    CAN_SendMessage_Update(ids[i],0.785398163f);
+    assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==0 && CANMsg.tx_data_u8[3]==0x4e);
+   }
+ }
+ CAN_SendMessage_Update(0x11,6.f);assert(CANMsg.tx_data_len==2 && CANMsg.tx_data_u8[0]==0x17 && CANMsg.tx_data_u8[1]==0x70);
+ CAN_SendMessage_Update(0x67,2.f);assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0x40 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==0 && CANMsg.tx_data_u8[3]==0);
  puts("PASS actual CAN reply encoding: centi speed/acceleration, milli position and milliamp current");return 0;
 }
 '''
@@ -227,9 +239,12 @@ int main(void) {
 typedef unsigned CAN_PARAM_ID;
 #define CAN_SET_STATUS_STREAM 0x64
 #define CAN_GET_STATUS_STREAM 0x65
+#define CAN_GET_PROTOCOL_REVISION 0x67
+#include "software/communication/protocol/can_parameter_format.h"
 static float reply;
 static unsigned replies;
-static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65);reply=value;++replies;}
+static unsigned reply_id;
+static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67);reply_id=id;reply=value;++replies;}
 '''+function_source(source,'CAN_ReceiveMessage_Update').split('\tif (!isfinite(data))')[0]+'}\n'+r'''
 #include <math.h>
 int main(void) {
@@ -240,6 +255,7 @@ int main(void) {
  CAN_ReceiveMessage_Update(0x64,0);assert(reply==0);
  CAN_ReceiveMessage_Update(0x65,0);assert(reply==0);
  CAN_ReceiveMessage_Update(0x64,1);assert(reply==200 && replies==7);
+ CAN_ReceiveMessage_Update(0x67,0);assert(reply_id==0x67 && reply==2 && CanMotorStatus_Rate()==200);
  puts("PASS actual command adapter: start/rate/stop/query ACK and invalid input NAK");return 0;
 }
 '''
@@ -290,7 +306,11 @@ int main(void) {
             path=out/(name+'.c');path.write_text(fixture)
         else:path=fixture
         exe=out/(name+'.exe')
-        cmd=[args.cc,'-std=c99','-O2','-Wall','-Wextra','-Werror','-I',str(out),'-I',str(ROOT),str(path),*map(str,extra),'-lm','-o',str(exe)]
+        compiler=[args.cc]+(['cc'] if Path(args.cc).stem=='zig' else [])
+        cmd=compiler+['-std=c99','-O2','-UNDEBUG','-Wall','-Wextra','-Werror','-I',str(out),'-I',str(ROOT),str(path),*map(str,extra),'-lm','-o',str(exe)]
+        # Poison automatic variables to reproduce missing TX header initialization.
+        # These host fixtures require a compiler supporting this Clang/GCC option.
+        if name in ('priority','port'):cmd.insert(len(compiler),'-ftrivial-auto-var-init=pattern')
         for command in (cmd,[str(exe)]):
             result=subprocess.run(command,capture_output=True,text=True)
             logs.append(result.stdout+result.stderr);print(logs[-1],end='')

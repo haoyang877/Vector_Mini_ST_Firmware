@@ -449,7 +449,7 @@ def main():
 
     def build(name, files):
         executable = args.out / (name + (".exe" if os.name == "nt" else ""))
-        run(compiler + ["-std=c99", "-O1", "-Wall", "-Wextra", "-Werror", "-I", "Foc"] +
+        run(compiler + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", "Foc"] +
             list(files) + ([] if os.name == "nt" else ["-lm"]) + ["-o", executable])
         run([executable])
         return executable

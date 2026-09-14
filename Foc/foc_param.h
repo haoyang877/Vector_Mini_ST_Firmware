@@ -7,7 +7,8 @@
 #include "position_cascade_config.h"
 #include "../software/config/motor_axis_profile.h"
 
-#define PARAM_SCHEMA_VERSION 9U
+#define PARAM_SCHEMA_VERSION 10U
+#define PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING 9U
 #define PARAM_SCHEMA_VERSION_LEGACY_FRICTION 8U
 #define PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT 7U
 #define PARAM_SCHEMA_VERSION_LEGACY_CURRENT_SENSE 6U
@@ -71,6 +72,7 @@ typedef struct
 
 void Param_Return_Default(void);
 void Param_Upload(InterfaceParam_TypeDef *param);
-void Param_Download(const InterfaceParam_TypeDef *param);
+/** Load parameters and report whether a valid legacy record must be rewritten. */
+bool Param_Download(const InterfaceParam_TypeDef *param);
 
 #endif

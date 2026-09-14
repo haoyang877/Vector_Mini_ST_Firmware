@@ -680,7 +680,10 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorC
 	config.friction_negative_current = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
 	config.breakaway_positive_current = POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A;
 	config.breakaway_negative_current = POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A;
-	config.friction_current_slew_rate = POSITION_IMPEDANCE_FRICTION_CURRENT_SLEW_A_PER_S;
+	config.friction_attack_slew_rate = POSITION_IMPEDANCE_FRICTION_ATTACK_SLEW_A_PER_S;
+	config.friction_fast_release_slew_rate =
+		POSITION_IMPEDANCE_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
+	config.friction_release_slew_rate = POSITION_IMPEDANCE_FRICTION_RELEASE_SLEW_A_PER_S;
 	config.friction_position_enter = POSITION_IMPEDANCE_FRICTION_POSITION_ENTER_RAD;
 	config.friction_position_exit = POSITION_IMPEDANCE_FRICTION_POSITION_EXIT_RAD;
 	config.friction_reference_speed = POSITION_IMPEDANCE_FRICTION_REFERENCE_SPEED_RAD_S;

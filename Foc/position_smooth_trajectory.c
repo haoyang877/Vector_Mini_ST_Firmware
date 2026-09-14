@@ -8,14 +8,22 @@
 #define SMOOTH_JERK_PEAK 5.773503f
 #define SMOOTH_SEARCH_ITERATIONS 16U
 
+/* The search only takes square roots of non-negative products, so the bare
+ * VSQRT is safe and skips the sqrtf NaN fallback that never runs here. */
+#if defined(__CC_ARM)
+#define SMOOTH_SQRTF(x) __sqrtf(x)
+#else
+#define SMOOTH_SQRTF(x) sqrtf(x)
+#endif
+
 static float maximum(float a, float b) { return a > b ? a : b; }
 
 static float ramp_distance(const PositionSmoothTrajectory *s, float speed,
     float *ta, float *td)
 {
-    float jerk_time = sqrtf(SMOOTH_JERK_PEAK * speed / s->jerk_limit);
-    *ta = maximum(SMOOTH_ACCEL_PEAK * speed / s->acceleration, jerk_time);
-    *td = maximum(SMOOTH_ACCEL_PEAK * speed / s->deceleration, jerk_time);
+    float jerk_time = SMOOTH_SQRTF(s->jerk_time_sq_per_speed * speed);
+    *ta = maximum(s->accel_time_per_speed * speed, jerk_time);
+    *td = maximum(s->decel_time_per_speed * speed, jerk_time);
     return 0.5f * speed * (*ta + *td);
 }
 
@@ -35,6 +43,9 @@ bool PositionSmooth_Begin(PositionSmoothTrajectory *s, float start, float target
     s->distance = fabsf(target-start); s->direction = target >= start ? 1.0f : -1.0f;
     s->speed_limit = speed; s->upper_speed = speed;
     s->acceleration = acceleration; s->deceleration = deceleration; s->jerk_limit = jerk;
+    s->accel_time_per_speed = SMOOTH_ACCEL_PEAK / acceleration;
+    s->decel_time_per_speed = SMOOTH_ACCEL_PEAK / deceleration;
+    s->jerk_time_sq_per_speed = SMOOTH_JERK_PEAK / jerk;
     if (s->distance == 0) s->ready = true;
     return true;
 }
@@ -120,6 +131,13 @@ bool PositionSmooth_Advance(PositionSmoothTrajectory *s, float dt, PositionSmoot
 {
     s->elapsed += dt;
     if (s->elapsed > s->duration) s->elapsed = s->duration;
+    /* Already at the endpoint: skip re-evaluating the profile every tick while
+     * the caller keeps holding the completed move. */
+    if (s->ready && s->elapsed >= s->duration) {
+        o->position = s->target;
+        o->speed = o->acceleration = o->jerk = 0;
+        return true;
+    }
     PositionSmooth_Sample(s, s->elapsed, o);
     return s->ready && s->elapsed >= s->duration;
 }

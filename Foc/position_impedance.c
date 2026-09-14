@@ -9,14 +9,6 @@
 #include "hw_conf.h"
 #include "utils.h"
 
-typedef enum
-{
-	POSITION_IMPEDANCE_FRICTION_TRACK = 0,
-	POSITION_IMPEDANCE_FRICTION_LANDING,
-	POSITION_IMPEDANCE_FRICTION_HOLD,
-	POSITION_IMPEDANCE_FRICTION_RECOVERY
-} PositionImpedanceFrictionState_TypeDef;
-
 typedef struct
 {
 	bool initialized;
@@ -32,6 +24,9 @@ typedef struct
 	float speed_reference;
 	float iq_reference;
 	float friction_current;
+	float friction_breakaway_start_position;
+	float friction_recovery_start_position;
+	float friction_recovery_landing_start_distance;
 	uint32_t hold_counter;
 	uint32_t friction_stuck_counter;
 	uint32_t friction_recovery_delay_counter;
@@ -39,7 +34,9 @@ typedef struct
 	uint32_t friction_recovery_cooldown_counter;
 	uint16_t loop_counter;
 	int8_t friction_direction;
+	int8_t friction_pending_direction;
 	PositionImpedanceFrictionState_TypeDef friction_state;
+	bool friction_breakaway_active;
 	bool target_reached;
 } PositionImpedanceState_TypeDef;
 
@@ -75,7 +72,11 @@ static bool PositionImpedance_ConfigIsValid(const PositionImpedanceConfig_TypeDe
 		isfinite(config->breakaway_negative_current) &&
 		config->breakaway_negative_current >= config->friction_negative_current &&
 		config->breakaway_negative_current <= CURRENT_COMMAND_LIMIT_MAX_A &&
-		isfinite(config->friction_current_slew_rate) && config->friction_current_slew_rate > 0.0f &&
+		isfinite(config->friction_attack_slew_rate) && config->friction_attack_slew_rate > 0.0f &&
+		isfinite(config->friction_fast_release_slew_rate) &&
+		config->friction_fast_release_slew_rate >= config->friction_release_slew_rate &&
+		config->friction_fast_release_slew_rate <= config->friction_attack_slew_rate &&
+		isfinite(config->friction_release_slew_rate) && config->friction_release_slew_rate > 0.0f &&
 		isfinite(config->friction_position_enter) && config->friction_position_enter > 0.0f &&
 		isfinite(config->friction_position_exit) &&
 		config->friction_position_exit > config->friction_position_enter &&
@@ -105,6 +106,19 @@ static void PositionImpedance_CopyOutput(PositionImpedanceOutput_TypeDef *output
 	output->target_reached = state.target_reached;
 }
 
+bool PositionImpedance_GetTelemetry(PositionImpedanceTelemetry_TypeDef *telemetry)
+{
+	if (telemetry == NULL)
+		return false;
+
+	telemetry->velocity_feedback = state.velocity_filtered;
+	telemetry->friction_current = state.friction_current;
+	telemetry->integral_current = state.integral;
+	telemetry->friction_state = state.friction_state;
+	telemetry->target_reached = state.target_reached;
+	return state.initialized;
+}
+
 static float PositionImpedance_GetFrictionMagnitude(
 	const PositionImpedanceConfig_TypeDef *config, int8_t direction, bool breakaway)
 {
@@ -131,23 +145,45 @@ static uint32_t PositionImpedance_TimeToTicks(float time_s)
 	return (uint32_t)ticks;
 }
 
+static void PositionImpedance_ClearBreakaway(void)
+{
+	state.friction_breakaway_active = false;
+	state.friction_stuck_counter = 0U;
+	state.friction_breakaway_start_position = state.last_position;
+}
+
 static void PositionImpedance_UpdateFriction(
 	const PositionImpedanceConfig_TypeDef *config, float target_error)
 {
 	float friction_target = 0.0f;
+	float friction_attack_step;
+	float friction_fast_release_step;
+	float friction_release_step;
 	float friction_step;
 	float recovery_magnitude;
+	float recovery_displacement;
+	float measured_position;
+	float remaining_distance;
+	float speed_toward_target;
+	float reference_speed_toward_target;
+	float tracking_error_toward_target;
+	float speed_excess;
+	float braking_distance;
+	float landing_distance;
+	float landing_span;
+	float landing_scale;
+	float landing_speed_scale;
+	float landing_magnitude;
 	uint32_t stuck_ticks;
 	uint32_t recovery_delay_ticks;
 	uint32_t recovery_pulse_ticks;
 	uint32_t recovery_cooldown_ticks;
 	int8_t desired_direction;
+	int8_t previous_direction;
 	bool reference_is_moving = fast_abs(state.speed_reference) >
 		config->friction_reference_speed;
 	bool feedback_is_stopped = fast_abs(state.velocity_filtered) <=
 		config->friction_stop_speed;
-	bool feedback_is_moving = fast_abs(state.velocity_filtered) >=
-		config->friction_move_speed;
 	bool trajectory_is_finished = fast_abs(config->target_position -
 		state.position_reference) <= config->position_error_window;
 
@@ -160,10 +196,17 @@ static void PositionImpedance_UpdateFriction(
 		state.friction_recovery_pulse_counter = 0U;
 		state.friction_recovery_cooldown_counter = 0U;
 		state.friction_current = 0.0f;
+		state.friction_pending_direction = 0;
+		state.friction_recovery_landing_start_distance = 0.0f;
+		PositionImpedance_ClearBreakaway();
 		return;
 	}
 
-	friction_step = config->friction_current_slew_rate * Position_Ts;
+	measured_position = config->target_position - target_error;
+	friction_attack_step = config->friction_attack_slew_rate * Position_Ts;
+	friction_fast_release_step = config->friction_fast_release_slew_rate * Position_Ts;
+	friction_release_step = config->friction_release_slew_rate * Position_Ts;
+	friction_step = friction_release_step;
 	stuck_ticks = PositionImpedance_TimeToTicks(config->friction_stuck_time);
 	recovery_delay_ticks = PositionImpedance_TimeToTicks(config->friction_recovery_delay);
 	recovery_pulse_ticks = PositionImpedance_TimeToTicks(config->friction_recovery_pulse_time);
@@ -174,94 +217,212 @@ static void PositionImpedance_UpdateFriction(
 	switch (state.friction_state)
 	{
 	case POSITION_IMPEDANCE_FRICTION_TRACK:
-		/* Remove drive before the target and keep the move direction latched. */
-		if (fast_abs(target_error) <= config->friction_landing_position &&
-			fast_abs(state.speed_reference) <= config->friction_landing_speed)
-		{
-			state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
-			state.friction_stuck_counter = 0U;
-			state.friction_recovery_delay_counter = 0U;
-			break;
-		}
-
+		previous_direction = state.friction_direction;
 		desired_direction = state.friction_direction;
 		if (reference_is_moving)
 			desired_direction = state.speed_reference > 0.0f ? 1 : -1;
 		else if (desired_direction == 0 &&
 			fast_abs(target_error) >= config->friction_position_exit)
 			desired_direction = target_error > 0.0f ? 1 : -1;
+		if (desired_direction != previous_direction)
+			PositionImpedance_ClearBreakaway();
 		state.friction_direction = desired_direction;
 
 		if (desired_direction == 0)
 		{
-			state.friction_stuck_counter = 0U;
+			PositionImpedance_ClearBreakaway();
 			break;
 		}
-		if (feedback_is_moving)
+
+		remaining_distance = (float)desired_direction * target_error;
+		speed_toward_target = (float)desired_direction * state.velocity_filtered;
+		braking_distance = speed_toward_target > 0.0f ?
+			(speed_toward_target * speed_toward_target) / (2.0f * config->deceleration) : 0.0f;
+		landing_distance = config->friction_landing_position + braking_distance;
+		if (remaining_distance <= 0.0f ||
+			(speed_toward_target > config->friction_stop_speed &&
+			 remaining_distance <= landing_distance) ||
+			(fast_abs(target_error) <= config->friction_landing_position &&
+			 fast_abs(state.speed_reference) <= config->friction_landing_speed))
+		{
+			state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
+			state.friction_recovery_landing_start_distance = 0.0f;
+			state.friction_recovery_delay_counter = 0U;
+			PositionImpedance_ClearBreakaway();
+			break;
+		}
+
+		if (state.friction_breakaway_active)
+		{
+			if ((float)desired_direction *
+				(measured_position - state.friction_breakaway_start_position) >=
+				config->friction_position_exit)
+				PositionImpedance_ClearBreakaway();
+		}
+		else if (feedback_is_stopped)
+		{
+			if (state.friction_stuck_counter < UINT32_MAX)
+				state.friction_stuck_counter++;
+			if (stuck_ticks == 0U || state.friction_stuck_counter >= stuck_ticks)
+			{
+				state.friction_breakaway_active = true;
+				state.friction_breakaway_start_position = measured_position;
+			}
+		}
+		else if (speed_toward_target >= config->friction_move_speed)
+		{
 			state.friction_stuck_counter = 0U;
-		else if (feedback_is_stopped && state.friction_stuck_counter < UINT32_MAX)
-			state.friction_stuck_counter++;
-		else
-			state.friction_stuck_counter = 0U;
+		}
+
 		friction_target = PositionImpedance_GetFrictionMagnitude(config,
-			desired_direction, stuck_ticks == 0U ||
-			state.friction_stuck_counter >= stuck_ticks);
+			desired_direction, state.friction_breakaway_active);
 		friction_target = desired_direction > 0 ? friction_target : -friction_target;
 		break;
 
 	case POSITION_IMPEDANCE_FRICTION_LANDING:
-		state.friction_stuck_counter = 0U;
+		PositionImpedance_ClearBreakaway();
 		if (state.target_reached)
 		{
 			state.friction_state = POSITION_IMPEDANCE_FRICTION_HOLD;
 			state.friction_recovery_delay_counter = 0U;
 		}
-		else if (trajectory_is_finished && !feedback_is_moving &&
-			fast_abs(target_error) > config->friction_position_exit &&
-			state.friction_recovery_cooldown_counter == 0U)
+		else
 		{
-			if (state.friction_recovery_delay_counter < UINT32_MAX)
-				state.friction_recovery_delay_counter++;
-			if (recovery_delay_ticks == 0U ||
-				state.friction_recovery_delay_counter >= recovery_delay_ticks)
+			/*
+			 * During a planned deceleration, retain dynamic friction compensation
+			 * while feedback is materially behind the trajectory. Taper only when
+			 * feedback catches the reference or is faster than it. A successful
+			 * recovery uses its own remaining-distance taper below.
+			 */
+			remaining_distance = (float)state.friction_direction * target_error;
+			speed_toward_target = (float)state.friction_direction *
+				state.velocity_filtered;
+			reference_speed_toward_target = (float)state.friction_direction *
+				state.speed_reference;
+			tracking_error_toward_target = (float)state.friction_direction *
+				(state.position_reference - measured_position);
+			speed_excess = speed_toward_target -
+				fast_max(reference_speed_toward_target, 0.0f);
+			landing_scale = 0.0f;
+			landing_span = state.friction_recovery_landing_start_distance -
+				config->friction_landing_position;
+
+			if (state.friction_direction != 0 && remaining_distance > 0.0f &&
+				landing_span > 0.0f)
 			{
-				state.friction_state = POSITION_IMPEDANCE_FRICTION_RECOVERY;
-				state.friction_direction = target_error > 0.0f ? 1 : -1;
-				state.friction_recovery_delay_counter = 0U;
-				state.friction_recovery_pulse_counter = 0U;
-				friction_target = PositionImpedance_GetFrictionMagnitude(config,
-					state.friction_direction, true);
+				landing_scale = constrain((remaining_distance -
+					config->friction_landing_position) / landing_span, 0.0f, 1.0f);
+				if (remaining_distance <= config->friction_landing_position)
+					state.friction_recovery_landing_start_distance = 0.0f;
+			}
+			else if (state.friction_direction != 0 && !trajectory_is_finished &&
+				remaining_distance > 0.0f)
+			{
+				if (tracking_error_toward_target > config->friction_landing_position)
+				{
+					landing_scale = 1.0f;
+				}
+				else if (tracking_error_toward_target > 0.0f)
+				{
+					landing_scale = constrain(tracking_error_toward_target /
+						config->friction_landing_position, 0.0f, 1.0f);
+					if (speed_excess > 0.0f)
+					{
+						landing_speed_scale = constrain(1.0f - speed_excess /
+							POSITION_IMPEDANCE_FRICTION_OVERSPEED_MARGIN_RAD_S,
+							0.0f, 1.0f);
+						landing_scale = fast_min(landing_scale, landing_speed_scale);
+					}
+				}
+			}
+
+			if (landing_scale > 0.0f)
+			{
+				landing_magnitude = PositionImpedance_GetFrictionMagnitude(config,
+					state.friction_direction, false);
+				friction_target = landing_magnitude * landing_scale;
 				if (state.friction_direction < 0)
 					friction_target = -friction_target;
 			}
-		}
-		else
-		{
-			state.friction_recovery_delay_counter = 0U;
+			if ((landing_span <= 0.0f &&
+				 (trajectory_is_finished || tracking_error_toward_target <= 0.0f ||
+				  speed_excess >= POSITION_IMPEDANCE_FRICTION_OVERSPEED_MARGIN_RAD_S)) ||
+				(state.friction_direction != 0 && remaining_distance <= 0.0f))
+				friction_step = friction_fast_release_step;
+
+			if (trajectory_is_finished &&
+				fast_abs(state.velocity_filtered) < config->friction_move_speed &&
+				fast_abs(target_error) > config->friction_landing_position &&
+				state.friction_recovery_cooldown_counter == 0U)
+			{
+				if (state.friction_recovery_delay_counter < UINT32_MAX)
+					state.friction_recovery_delay_counter++;
+				if (recovery_delay_ticks == 0U ||
+					state.friction_recovery_delay_counter >= recovery_delay_ticks)
+				{
+					state.friction_state = POSITION_IMPEDANCE_FRICTION_RECOVERY;
+					state.friction_direction = target_error > 0.0f ? 1 : -1;
+					state.friction_recovery_start_position = measured_position;
+					state.friction_recovery_landing_start_distance = 0.0f;
+					state.friction_recovery_delay_counter = 0U;
+					state.friction_recovery_pulse_counter = 0U;
+					/* A stopped correction needs the identified breakaway current. */
+					friction_target = PositionImpedance_GetFrictionMagnitude(config,
+						state.friction_direction, true);
+					if (state.friction_direction < 0)
+						friction_target = -friction_target;
+				}
+			}
+			else
+			{
+				state.friction_recovery_delay_counter = 0U;
+			}
 		}
 		break;
 
 	case POSITION_IMPEDANCE_FRICTION_HOLD:
-		state.friction_stuck_counter = 0U;
+		PositionImpedance_ClearBreakaway();
 		state.friction_recovery_delay_counter = 0U;
 		if (!state.target_reached)
+		{
 			state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
+			state.friction_direction = fast_abs(target_error) >
+				config->friction_position_enter ? (target_error > 0.0f ? 1 : -1) : 0;
+			state.friction_recovery_landing_start_distance = 0.0f;
+		}
 		break;
 
 	case POSITION_IMPEDANCE_FRICTION_RECOVERY:
-	default:
 		recovery_magnitude = PositionImpedance_GetFrictionMagnitude(config,
 			state.friction_direction, true);
 		friction_target = state.friction_direction > 0 ?
 			recovery_magnitude : -recovery_magnitude;
+		recovery_displacement = (float)state.friction_direction *
+			(measured_position - state.friction_recovery_start_position);
 		if (state.friction_direction == 0 ||
-			state.friction_direction * target_error <= config->friction_position_enter ||
-			feedback_is_moving)
+			(float)state.friction_direction * target_error <=
+				config->friction_position_enter)
 		{
 			state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
+			state.friction_recovery_landing_start_distance = 0.0f;
 			state.friction_recovery_pulse_counter = 0U;
 			state.friction_recovery_cooldown_counter = recovery_cooldown_ticks;
 			friction_target = 0.0f;
+			friction_step = friction_fast_release_step;
+		}
+		else if (recovery_displacement >= config->friction_position_exit)
+		{
+			/* Confirm real motion by displacement, then taper through the remaining distance. */
+			state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
+			state.friction_recovery_landing_start_distance = fast_max(
+				(float)state.friction_direction * target_error,
+				config->friction_landing_position);
+			state.friction_recovery_pulse_counter = 0U;
+			state.friction_recovery_cooldown_counter = recovery_cooldown_ticks;
+			friction_target = PositionImpedance_GetFrictionMagnitude(config,
+				state.friction_direction, false);
+			if (state.friction_direction < 0)
+				friction_target = -friction_target;
 		}
 		else if (fast_abs(state.friction_current) >=
 			fast_min(recovery_magnitude, config->output_limit) - friction_step)
@@ -272,14 +433,53 @@ static void PositionImpedance_UpdateFriction(
 				state.friction_recovery_pulse_counter >= recovery_pulse_ticks)
 			{
 				state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
+				state.friction_recovery_landing_start_distance = 0.0f;
 				state.friction_recovery_pulse_counter = 0U;
 				state.friction_recovery_cooldown_counter = recovery_cooldown_ticks;
 				friction_target = 0.0f;
+				friction_step = friction_fast_release_step;
 			}
 		}
 		break;
+
+	case POSITION_IMPEDANCE_FRICTION_DIRECTION_CHANGE:
+		PositionImpedance_ClearBreakaway();
+		friction_target = 0.0f;
+		if (fast_abs(state.friction_current) <= friction_release_step &&
+			(state.friction_pending_direction == 0 ||
+			 (float)state.friction_pending_direction * state.integral >=
+				-POSITION_IMPEDANCE_INTEGRAL_ZERO_THRESHOLD_A))
+		{
+			state.friction_current = 0.0f;
+			state.friction_state = POSITION_IMPEDANCE_FRICTION_TRACK;
+			state.friction_direction = state.friction_pending_direction;
+			state.friction_pending_direction = 0;
+			state.friction_recovery_landing_start_distance = 0.0f;
+			state.friction_breakaway_active = feedback_is_stopped &&
+				state.friction_direction != 0;
+			state.friction_breakaway_start_position = measured_position;
+		}
+		break;
+
+	default:
+		state.friction_state = POSITION_IMPEDANCE_FRICTION_LANDING;
+		state.friction_direction = 0;
+		state.friction_pending_direction = 0;
+		state.friction_recovery_landing_start_distance = 0.0f;
+		PositionImpedance_ClearBreakaway();
+		friction_target = 0.0f;
+		break;
 	}
 
+	/*
+	 * A known friction model must establish torque before trajectory error grows.
+	 * TRACK uses the fast attack. Catch-up and failed recovery use the intermediate
+	 * release rate; ordinary tapering and direction changes remain conservative.
+	 */
+	if (state.friction_state == POSITION_IMPEDANCE_FRICTION_TRACK &&
+		friction_target * state.friction_current >= 0.0f &&
+		fast_abs(friction_target) > fast_abs(state.friction_current))
+		friction_step = friction_attack_step;
 	state.friction_current += constrain(friction_target - state.friction_current,
 		-friction_step, friction_step);
 	state.friction_current = constrain(state.friction_current,
@@ -313,7 +513,10 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 	float integral_decay_step;
 	float hold_exit_position;
 	uint32_t hold_ticks;
+	int8_t target_direction;
 	bool trajectory_is_moving;
+	bool trajectory_held_for_friction;
+	bool friction_allows_integral;
 	bool target_is_unsettled;
 	bool integral_opposes_motion;
 	bool feedback_follows_motion;
@@ -333,6 +536,17 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 		state.last_acceleration = config->acceleration;
 		state.last_deceleration = config->deceleration;
 		state.last_maximum_speed = config->maximum_speed;
+		target_direction = 0;
+		if (fast_abs(config->target_position - measured_position) >
+			config->position_error_window)
+			target_direction = config->target_position > measured_position ? 1 : -1;
+		if (config->friction_feedforward_enabled && target_direction != 0)
+		{
+			state.friction_state = POSITION_IMPEDANCE_FRICTION_TRACK;
+			state.friction_direction = target_direction;
+			state.friction_breakaway_active = true;
+			state.friction_breakaway_start_position = measured_position;
+		}
 		trajectory_needs_update = true;
 	}
 	else
@@ -347,19 +561,46 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 			state.target_reached = false;
 			state.hold_counter = 0U;
 			state.integral_transport_active = true;
-			state.friction_state = POSITION_IMPEDANCE_FRICTION_TRACK;
-			state.friction_direction = 0;
+			target_direction = 0;
+			if (fast_abs(config->target_position - measured_position) >
+				config->position_error_window)
+				target_direction = config->target_position > measured_position ? 1 : -1;
+			if (config->friction_feedforward_enabled && target_direction != 0 &&
+				(float)target_direction * state.friction_current < 0.0f)
+			{
+				/* Unload old-direction friction before allowing the new trajectory to run. */
+				state.friction_state = POSITION_IMPEDANCE_FRICTION_DIRECTION_CHANGE;
+				state.friction_direction = 0;
+				state.friction_pending_direction = target_direction;
+				state.friction_breakaway_active = false;
+			}
+			else
+			{
+				state.friction_state = target_direction == 0 ?
+					POSITION_IMPEDANCE_FRICTION_LANDING :
+					POSITION_IMPEDANCE_FRICTION_TRACK;
+				state.friction_direction = target_direction;
+				state.friction_pending_direction = 0;
+				state.friction_breakaway_active =
+					config->friction_feedforward_enabled && target_direction != 0 &&
+					fast_abs(state.velocity_filtered) <= config->friction_stop_speed;
+			}
 			state.friction_stuck_counter = 0U;
 			state.friction_recovery_delay_counter = 0U;
 			state.friction_recovery_pulse_counter = 0U;
 			state.friction_recovery_cooldown_counter = 0U;
+			state.friction_breakaway_start_position = measured_position;
+			state.friction_recovery_start_position = measured_position;
+			state.friction_recovery_landing_start_distance = 0.0f;
 		}
 	}
 
 	if (trajectory_needs_update)
 	{
 		TRAJ_plan(config->target_position, state.position_reference,
-			state.speed_reference, config->maximum_speed,
+			state.friction_state == POSITION_IMPEDANCE_FRICTION_DIRECTION_CHANGE ?
+				0.0f : state.speed_reference,
+			config->maximum_speed,
 			config->acceleration, config->deceleration);
 		state.last_target = config->target_position;
 		state.last_acceleration = config->acceleration;
@@ -374,9 +615,18 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 	}
 	state.loop_counter = 0U;
 
-	TRAJ_eval(Position_Ts);
-	state.position_reference = TRAJ_Get_Y();
-	state.speed_reference = TRAJ_Get_Yd();
+	trajectory_held_for_friction = config->friction_feedforward_enabled &&
+		state.friction_state == POSITION_IMPEDANCE_FRICTION_DIRECTION_CHANGE;
+	if (trajectory_held_for_friction)
+	{
+		state.speed_reference = 0.0f;
+	}
+	else
+	{
+		TRAJ_eval(Position_Ts);
+		state.position_reference = TRAJ_Get_Y();
+		state.speed_reference = TRAJ_Get_Yd();
+	}
 
 	raw_velocity = (measured_position - state.last_position) / Position_Ts;
 	state.last_position = measured_position;
@@ -428,6 +678,14 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 	proportional_current = config->kp * position_error;
 	damping_current = config->kd * velocity_error;
 	PositionImpedance_UpdateFriction(config, target_error);
+	friction_allows_integral = !config->friction_feedforward_enabled ||
+		(state.friction_state == POSITION_IMPEDANCE_FRICTION_LANDING &&
+		 fast_abs(config->target_position - state.position_reference) <=
+			config->position_error_window &&
+		 fast_abs(state.friction_current) <=
+			POSITION_IMPEDANCE_INTEGRAL_FRICTION_MAX_A &&
+		 fast_abs(state.velocity_filtered) <= config->friction_stop_speed &&
+		 fast_abs(target_error) <= config->friction_landing_position);
 	integral_limit = fast_min(config->integral_limit, config->output_limit);
 	if (!isfinite(state.integral))
 		state.integral = 0.0f;
@@ -440,12 +698,6 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 	if (integral_limit <= 0.0f)
 	{
 		state.integral = 0.0f;
-		state.integral_transport_active = false;
-	}
-	else if (config->friction_feedforward_enabled &&
-		state.friction_state != POSITION_IMPEDANCE_FRICTION_TRACK)
-	{
-		/* Keep the learned load bias fixed while landing, holding or recovering. */
 		state.integral_transport_active = false;
 	}
 	else if (config->ki <= 0.0f)
@@ -498,7 +750,8 @@ bool PositionImpedance_Update(const PositionImpedanceConfig_TypeDef *config,
 			}
 		}
 
-		if (!state.target_reached &&
+		if (!trajectory_held_for_friction && friction_allows_integral &&
+			!state.target_reached &&
 			fast_abs(state.speed_reference) <= POSITION_IMPEDANCE_INTEGRAL_SPEED_RAD_S &&
 			fast_abs(state.velocity_filtered) <= POSITION_IMPEDANCE_INTEGRAL_SPEED_RAD_S &&
 			fast_abs(position_error) > config->position_error_window &&

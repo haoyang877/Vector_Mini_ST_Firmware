@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lksscope appVersion="v1.5.0">
+    <params>
+        <param name="linkType" value="0"/>
+        <param name="jClock" value="4000000"/>
+        <param name="uClock" value="1000000"/>
+        <param name="commPort" value=""/>
+        <param name="commBaud" value="9600"/>
+        <param name="bleName" value=""/>
+        <param name="localIP" value=""/>
+        <param name="localPort" value=""/>
+        <param name="remoteIP" value=""/>
+        <param name="remotePort" value=""/>
+        <param name="rttAddr" value="20005078"/>
+        <param name="rttFreq" value="2000"/>
+        <param name="rttInterval" value="5"/>
+        <param name="sampleInterval" value="10"/>
+        <param name="uiInterval" value="50"/>
+        <param name="maxPoint" value="10000"/>
+        <param name="checkAxf" value="1"/>
+    </params>
+    <layouts>
+        <param name="geometry" value="AdnQywADAAD/////////9QAADwAAAAgoAAAFTwAAAq8AAAmwAAAFdwAAAAACAAAADwAAAAAAAAAAIgAADv8AAAgn"/>
+        <param name="state" value="AAAA/wAAAAD9AAAAAQAAAAEAAAAAAAAAAPwCAAAABPsAAAAMAFIAVABUVH1O5IhMAAAAAAD/////AAABEgD////7AAAACgBSAFQAVGVwY24AAAAAAP////8AAAAAAAAAAPsAAAAIdTVnOmOnUjYAAAAAAP////8AAACxAP////sAAAAIj9CITGXlX9cAAAAAAP////8AAACBAP///wAADwAAAAeJAAAABAAAAAQAAAAIAAAACPwAAAABAAAAAgAAAAMAAAAOAHQAbwBvAGwAQgBhAHIBAAAAAP////8AAAAAAAAAAAAAABIAdABvAG8AbABCAGEAcgBfADIBAAABFP////8AAAAAAAAAAAAAABYAdABvAG8AbABCAGEAcgBMAG8AZwBvAQAAA8H/////AAAAAAAAAAA="/>
+    </layouts>
+    <tabs curPage="0">
+        <tab title="电机标定 RTT" geometry="AdnQywADAAAAAAAAAAAAAAAACygAAAdVAAAAAAAAAAD//////////wAAAAAAAAAADwAAAAAAAAAAAAAACygAAAdV" state="AAAA/wAAAAD9AAAAAQAAAAEAAAspAAAHVvwCAAAAAvsAAAAKAFIAVABUZXBjbgEAAAAAAAAFLAAAAT0A////+wAAAAx1NWc6jAOL1VPYkc8BAAAFMAAAAiYAAACBAP///wAAAAAAAAYTAAAABAAAAAQAAAAIAAAACPwAAAAA" checked="1"/>
+    </tabs>
+    <forms>
+        <form title="Form" type="0"/>
+        <form title="自定义变量" type="1" lv-width="150,100,100,100,100,100,100,100,0,100,100,100"/>
+        <form title="寄存器变量" chip="" type="13" lv-width="150,100,100,100,100,100,100,100,0,100,100,100"/>
+        <form title="代码变量" type="2" mapFile="../../../outputs/build/keil/Vector_Mini_ST/Vector_Mini_ST.axf" lv-width="150,100,100,100,100,100,100,100,0,100,100,100"/>
+        <form title="运行日志" floating="0" visible="0" type="3" page="-1"/>
+        <form title="RTT命令行" encode="GBK" checkTStamp="0" floating="0" visible="0" type="4" page="-1" sync2File="0" syncFilePath=""/>
+        <form trigName="rtt_channel1.data6" lineStyle="1" scrollType="1" visible="1" xTag="0" type="5" subMode="1" autoRange="1" trigValue="0" title="RTT数据" trigType="0" min="-500" subCols="1" floating="0" max="500" page="0" scatterStyle="1" xCount="5888.89">
+            <dynrttcrc value="0"/>
+            <var color="#ff0000" name="rtt_channel1.data0" desc="编码器电角度" subPlot="0" formula="" unit="Q15:180°/32768"/>
+            <var color="#00aaff" name="rtt_channel1.data1" desc="观测器电角度" subPlot="0" formula="" unit="Q15:180°/32768"/>
+            <var color="#ff0000" name="rtt_channel1.data2" desc="编码器机械转速" subPlot="1" formula="" unit="0.1 rpm"/>
+            <var color="#00aaff" name="rtt_channel1.data3" desc="观测器机械转速" subPlot="1" formula="" unit="0.1 rpm"/>
+            <var color="#ff0000" name="rtt_channel1.data4" desc="Iq 指令" subPlot="2" formula="" unit="mA"/>
+            <var color="#00aaff" name="rtt_channel1.data5" desc="Iq 反馈" subPlot="2" formula="" unit="mA"/>
+            <var color="#ff0000" name="rtt_channel1.data6" desc="标定阶段" subPlot="3" formula="" unit="enum"/>
+            <var color="#00aaff" name="rtt_channel1.data7" desc="启动状态" subPlot="3" formula="" unit="enum"/>
+        </form>
+        <form title="电机控制" floating="0" visible="0" type="12" page="-1" lv-width="150,100,100,100,100">
+            <var upper="100" step="1" name="" desc="速度设定" lower="0"/>
+            <var upper="100" step="1" name="" desc="速度反馈" lower="0"/>
+            <var upper="100" step="1" name="" desc="电流设定" lower="0"/>
+            <var upper="100" step="1" name="" desc="功率设定" lower="0"/>
+            <var upper="1" step="1" name="" desc="电机启停" lower="0"/>
+        </form>
+        <form title="寄存器读写 - " chip="1" floating="0" visible="0" type="6" page="-1"/>
+        <form title="电机调试变量" floating="0" visible="1" lv-hidden="" type="7" page="0" lv-width="269,352,100,100,100,100,100,100,100,120,100,1314">
+            <var interval="100" color="" name="MotorControl.ModeNow" desc="运行模式" subvar="0" showType="Enum" formula="" unit=""/>
+            <var interval="100" color="" name="MotorControl.ErrorNow" desc="故障码" subvar="0" showType="Enum" formula="" unit=""/>
+            <var interval="100" color="" name="CalibStep" desc="标定阶段" subvar="0" showType="Enum" formula="" unit=""/>
+            <var interval="100" color="" name="SensorlessStartup.state" desc="启动状态" subvar="0" showType="Enum" formula="" unit=""/>
+            <var interval="100" color="" name="MotorControl.speedRef" desc="转速指令" subvar="0" showType="Real" formula="" unit="rad/s"/>
+            <var interval="100" color="" name="MotorControl.speed_Kp" desc="速度Kp" subvar="0" showType="Real" formula="" unit=""/>
+            <var interval="100" color="" name="MotorControl.speed_Ki" desc="速度Ki" subvar="0" showType="Real" formula="" unit=""/>
+            <var interval="100" color="" name="MotorControl.current_limit" desc="电流上限" subvar="0" showType="Real" formula="" unit="A"/>
+            <var interval="100" color="" name="OnBoard_Encoder.reverse" desc="编码器方向（保持原值）" subvar="0" showType="Unsigned" formula="" unit=""/>
+            <var interval="100" color="" name="OnBoard_Encoder.calib_flag" desc="标定标志" subvar="0" showType="Unsigned" formula="" unit="bits"/>
+            <var interval="100" color="" name="FOC.Vbus_filt" desc="母线电压" subvar="0" showType="Real" formula="" unit="V"/>
+            <var interval="100" color="" name="rtt_calibration_dropped_frames" desc="RTT 累计丢帧" subvar="0" showType="Unsigned" formula="" unit="frames"/>
+        </form>
+    </forms>
+</lksscope>

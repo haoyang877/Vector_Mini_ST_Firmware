@@ -1,5 +1,8 @@
 # RTT 模式3位置伺服遥测
 
+普通固件目前默认使用 [8 路标定调试格式](rtt_calibration_telemetry.md)。本文的 12 路
+位置伺服格式由 `RTT_TELEMETRY_PROFILE=RTT_TELEMETRY_SERVO` 选择，HIL 固件仍默认使用此格式。
+
 ## 当前格式 v2（2026-09-10）
 
 前9路按下表排列。位置单位为0.01°，速度为0.01°/s，电流为1 mA。

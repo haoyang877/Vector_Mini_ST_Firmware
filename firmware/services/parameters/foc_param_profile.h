@@ -29,9 +29,10 @@
 /* Kv = 15 rpm/V: psi = 60 / (sqrt(3) * 2pi * pole_pairs * Kv). */
 #define PARAM_MOTOR_FLUX_WB                       0.0175025f
 
-/* Encoder electrical-angle alignment current. */
-#define PARAM_MOTOR_CALIB_CURRENT_A               CURRENT_SENSE_PROFILE_DEFAULT_CALIB_A
-#define PARAM_MOTOR_CURRENT_LIMIT_A               CURRENT_SENSE_PROFILE_DEFAULT_LIMIT_A
+/* Motor current defaults do not increase when a lower-resistance shunt is fitted.
+ * Mode-specific alignment minima remain defined in hw_conf.h. */
+#define PARAM_MOTOR_CALIB_CURRENT_A               3.0f
+#define PARAM_MOTOR_CURRENT_LIMIT_A               6.0f
 #define PARAM_MOTOR_SPEED_LIMIT_RPS               0.50f
 #define PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S  (500.0f * 6.283185307f)
 

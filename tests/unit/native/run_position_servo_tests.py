@@ -47,6 +47,9 @@ def rtt_frame_fixture():
 #define _PI 3.14159265358979323846f
 #define RTT_SAMPLE_DIVIDER 10U
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
+#define RTT_TELEMETRY_SERVO 0U
+#define RTT_TELEMETRY_CALIBRATION 1U
+#define RTT_TELEMETRY_PROFILE RTT_TELEMETRY_SERVO
 #define Position_Mode 3
 #define No_Error 0
 static struct { int ModeNow, ErrorNow; float posRef, iqRef; } MotorControl;

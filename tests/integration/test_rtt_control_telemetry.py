@@ -40,8 +40,10 @@ class RttControlTelemetryTests(unittest.TestCase):
 
     def test_j_scope_descriptor_matches_int16_frame(self) -> None:
         source = MAIN_SOURCE.read_text(encoding="utf-8")
+        self.assertIn('SEGGER_RTT_ConfigUpBuffer(1, RTT_JSCOPE_DESCRIPTOR', source)
+        source = (ROOT / 'firmware/platform/stm32g4/bsp/hw_conf.h').read_text(encoding='utf-8')
         descriptor = re.search(
-            r'SEGGER_RTT_ConfigUpBuffer\(1,\s*"([^"]+)"', source
+            r'#define RTT_JSCOPE_DESCRIPTOR\s*"([^"]+)"', source
         )
         self.assertIsNotNone(descriptor)
         self.assertEqual(descriptor.group(1), "JScope_" + "i2" * len(EXPECTED_FIELDS))
@@ -56,8 +58,10 @@ class RttControlTelemetryTests(unittest.TestCase):
             [f"rtt_channel1.data{index}" for index in range(len(EXPECTED_FIELDS))],
         )
 
-    def test_both_scope_projects_use_new_units(self):
-        for filename in ('tools/bench/scopes/pro_lks.lksscope', 'tools/bench/scopes/pro_lks_servo_hil.lksscope'):
+    def test_servo_hil_scope_uses_v2_units(self):
+        # pro_lks.lksscope is the user's generic/custom scope. The HIL scope
+        # remains the maintained v2 layout; calibration has its own project.
+        for filename in ('tools/bench/scopes/pro_lks_servo_hil.lksscope',):
             root = ET.parse(ROOT / filename).getroot()
             variables = root.find(".//form[@type='5']").findall('var')
             self.assertEqual([v.attrib['name'] for v in variables],
@@ -66,6 +70,18 @@ class RttControlTelemetryTests(unittest.TestCase):
                              ['0.01°'] * 4 + ['0.01°/s'] * 2 + ['mA'] * 5 + ['bits'])
             self.assertEqual(variables[7].attrib['desc'], '前馈电流')
             self.assertEqual(variables[8].attrib['desc'], '反馈电流')
+
+    def test_calibration_scope_and_descriptor(self):
+        root = ET.parse(ROOT / 'tools/bench/scopes/pro_lks_calibration.lksscope').getroot()
+        variables = root.find(".//form[@type='5']").findall('var')
+        self.assertEqual([v.attrib['name'] for v in variables],
+                         [f'rtt_channel1.data{i}' for i in range(8)])
+        self.assertEqual([v.attrib['unit'] for v in variables],
+                         ['Q15:180°/32768']*2 + ['0.1 rpm']*2 + ['mA']*2 + ['enum']*2)
+        self.assertEqual(root.find(".//param[@name='rttFreq']").attrib['value'], '2000')
+        self.assertTrue(all(not v.attrib.get('addr') for v in root.findall(".//form[@type='7']/var")))
+        header = (ROOT / 'firmware/platform/stm32g4/bsp/hw_conf.h').read_text(encoding='utf-8')
+        self.assertIn('"JScope_' + 'i2'*8 + '"', header)
 
 
 if __name__ == "__main__":

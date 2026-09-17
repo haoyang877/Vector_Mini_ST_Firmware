@@ -51,6 +51,9 @@ typedef enum
 	CS_ENC_OFFSET_END
 } CalibStep_TyepeDef;
 
+/* Read by owner-ISR RTT telemetry; calibration remains the only writer. */
+extern CalibStep_TyepeDef CalibStep;
+
 void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 void Task_Calib_EncoderOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver);

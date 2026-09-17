@@ -73,9 +73,58 @@ static int16_t RTT_EncodeInt16(float value, float scale)
 	return (int16_t)scaled;
 }
 
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
+volatile uint32_t rtt_calibration_dropped_frames;
+
+typedef struct
+{
+	int16_t encoder_electrical_angle;
+	int16_t observer_electrical_angle;
+	int16_t encoder_speed;
+	int16_t observer_speed;
+	int16_t iq_reference;
+	int16_t iq_feedback;
+	int16_t calibration_step;
+	int16_t startup_state;
+} RTT_CalibrationFrame_TypeDef;
+
+typedef char RTT_CalibrationFrame_SizeMustBe16Bytes[
+	(sizeof(RTT_CalibrationFrame_TypeDef) == 16U) ? 1 : -1];
+
+/* These electrical phases are normalized to [0, 2*pi) by their owners.
+ * Encode signed single-turn Q15; preserve the live encoder direction as-is. */
+static int16_t RTT_EncodeElectricalAngle(float angle)
+{
+	if (angle >= _PI)
+		angle -= 2.0f * _PI;
+	return RTT_EncodeInt16(angle, 32768.0f / _PI);
+}
+
+static unsigned RTT_WriteCalibrationFrame(void)
+{
+	RTT_CalibrationFrame_TypeDef frame;
+	float observer_speed = 0.0f;
+	const float speed_scale = 300.0f / _PI; /* 0.1 mechanical rpm/count */
+
+	if (MotorControl.motor_pole_pairs > 0)
+		observer_speed = Fluxobserver.omega_e / (float)MotorControl.motor_pole_pairs;
+
+	frame.encoder_electrical_angle = RTT_EncodeElectricalAngle(OnBoard_Encoder.theta_elec);
+	frame.observer_electrical_angle = RTT_EncodeElectricalAngle(Fluxobserver.theta_e);
+	frame.encoder_speed = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, speed_scale);
+	frame.observer_speed = RTT_EncodeInt16(observer_speed, speed_scale);
+	frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.iq_feedback = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.calibration_step = (int16_t)CalibStep;
+	frame.startup_state = (int16_t)SensorlessStartup.state;
+	return SEGGER_RTT_Write(1, &frame, sizeof(frame));
+}
+#endif
+
 static void RTT_Sampling(bool defer_encoding)
 {
 	static uint32_t rtt_divider_count;
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_SERVO
 	static bool previous_frame_dropped;
 	PositionCascadeTelemetry_TypeDef servo_telemetry;
 	RTT_ControlFrame_TypeDef frame;
@@ -83,6 +132,7 @@ static void RTT_Sampling(bool defer_encoding)
 		RTT_SERVO_STATUS_PHASE_INVALID;
 	unsigned bytes_written;
 	bool servo_telemetry_valid;
+#endif
 
 	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
 		return;
@@ -101,6 +151,10 @@ static void RTT_Sampling(bool defer_encoding)
 #endif
 	rtt_divider_count = 0;
 
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
+	if (RTT_WriteCalibrationFrame() != sizeof(RTT_CalibrationFrame_TypeDef))
+		++rtt_calibration_dropped_frames;
+#else
 	/* This fixed frame is intentionally meaningful only in mode 3. */
 	frame.trajectory_position = 0;
 	frame.position_feedback = 0;
@@ -175,6 +229,7 @@ static void RTT_Sampling(bool defer_encoding)
 
 	bytes_written = SEGGER_RTT_Write(1, &frame, sizeof(frame));
 	previous_frame_dropped = bytes_written != sizeof(frame);
+#endif
 }
 
 /** Read-only publication from the motor owner. Requested at <=200 Hz; CAN

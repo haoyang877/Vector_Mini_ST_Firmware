@@ -72,6 +72,8 @@ typedef struct
 
 void Param_Return_Default(void);
 void Param_Upload(InterfaceParam_TypeDef *param);
+/** Set the runtime limit in rad/s, bounded by the current node's ceiling. */
+bool Param_SetSpeedLimit(float limit_rad_s);
 /** Load parameters and report whether a valid legacy record must be rewritten. */
 bool Param_Download(const InterfaceParam_TypeDef *param);
 

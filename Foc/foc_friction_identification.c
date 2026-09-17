@@ -8,6 +8,7 @@
 #include "foc_run.h"
 #include "hw_conf.h"
 #include "utils.h"
+#include "bus_voltage_profile.h"
 
 #if PARAM_FRICTION_IDENT_SPEED_POINT_COUNT != 4U
 #error "Update the FOC friction adapter when changing the profile point count"
@@ -146,9 +147,9 @@ void FocFrictionIdentification_Task(FOC_TypeDef *foc, MotorControl_TypeDef *moto
 		return;
 	}
 
-	if (foc->Vbus_filt > 30.0f)
+	if (foc->Vbus_filt >= BUS_VOLTAGE_OVERVOLTAGE_V)
 		Set_ErrorNow(Over_Voltage);
-	else if (foc->Vbus_filt < 10.0f)
+	else if (foc->Vbus_filt <= BUS_VOLTAGE_UNDERVOLTAGE_V)
 		Set_ErrorNow(Under_Voltage);
 	else if (foc->temp >= 100.0f)
 		Set_ErrorNow(High_Temprature);

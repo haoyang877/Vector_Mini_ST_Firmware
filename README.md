@@ -8,6 +8,8 @@
 
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/motor_axis_profiles.md)。
 
+底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/chassis_wheel_speed_limit.md)。
+
 * 基础有感FOC算法 电流 速度 位置 可控
 * 模式3连续加速度位置伺服与模式18电流域位置阻抗控制（[优化过程](docs/mode3_optimization_20260908.md)、[参数适配](docs/mode3_parameter_guide.md)、[执行测试](docs/mode3_test_plan.md)）
 * 磁编码器偏心补偿
@@ -23,7 +25,7 @@
 
 > MCU的PB8引脚为BOOT0引脚，在设计时由于引脚紧张复用成FDCAN1_RX，让程序正常启动需要使用STM32CubeProgrammer将BOOT0软件下拉。
 
-> 驱动供电电压为**13V-30V**，外部电源超过35V运行可能会引发器件过压损坏。
+> 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
 
 > 请按照**Vector_User Manual.pdf**完成各项参数的配置及校准，错误设置将会导致电机不正常运行。
 

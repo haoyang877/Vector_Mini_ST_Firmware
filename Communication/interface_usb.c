@@ -336,7 +336,11 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 					return USB_DATA_INVALID;
 				
 				if(data_int >= 0 && data_int <= 7)
+				{
 					CANMsg.node_id = data;
+					Param_SetSpeedLimit(fminf(MotorControl.speed_limit,
+						Param_SpeedLimitRadS(CANMsg.node_id)));
+				}
 				else
 					return USB_DATA_OUT_OF_RANGE;
 			break;
@@ -394,15 +398,7 @@ USBRXError_TypeDef USB_ReceiveMessage_Update(uint8_t w_r_p, USB_PARAM_ID param_i
 			break;
 			
 			case USB_SPEED_LIMIT:
-				if(data > 0.0f && data <= PARAM_MOTOR_SPEED_LIMIT_RPS)
-				{
-					MotorControl.speed_limit = data * _2PI;
-					if (MotorControl.pos_maxspeed > MotorControl.speed_limit)
-					{
-						MotorControl.pos_maxspeed = MotorControl.speed_limit;
-					}
-				}
-				else
+				if(!Param_SetSpeedLimit(data * _2PI))
 					return USB_DATA_OUT_OF_RANGE;
 			break;
 			

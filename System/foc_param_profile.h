@@ -51,6 +51,20 @@
 #error "Unsupported FOC_ACTIVE_MOTOR_PROFILE"
 #endif
 
+/* Direct-drive chassis wheels: node 1 = left, node 2 = right.
+ * omega_max = v_max / radius = 2 * 1 m/s / 0.10 m = 20 rad/s.
+ * Other nodes retain the selected motor profile's ceiling. */
+#define PARAM_WHEEL_DIAMETER_M                    0.10f
+#define PARAM_WHEEL_MAX_LINEAR_SPEED_M_S          1.0f
+#define PARAM_WHEEL_SPEED_LIMIT_RAD_S \
+    (2.0f * PARAM_WHEEL_MAX_LINEAR_SPEED_M_S / PARAM_WHEEL_DIAMETER_M)
+
+static inline float Param_SpeedLimitRadS(unsigned int node_id)
+{
+    return (node_id == 1U || node_id == 2U) ? PARAM_WHEEL_SPEED_LIMIT_RAD_S :
+        PARAM_MOTOR_SPEED_LIMIT_RPS * 6.2831853072f;
+}
+
 /* Hardware-dependent defaults. Encoder symbols are resolved at macro use. */
 #if FOC_ACTIVE_HW_PROFILE == FOC_HW_PROFILE_VECTOR_MINI_ST
 

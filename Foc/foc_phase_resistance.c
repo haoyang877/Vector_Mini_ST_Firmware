@@ -4,6 +4,7 @@
 
 #include "foc_param_profile.h"
 #include "hw_conf.h"
+#include "bus_voltage_profile.h"
 
 #define PHASE_RESISTANCE_RAMP_TICKS \
 	((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_RAMP_TIME_MS) / 1000U)
@@ -21,8 +22,8 @@
 #define PHASE_RESISTANCE_VOLTAGE_TOLERANCE 0.01f
 #define PHASE_RESISTANCE_VOLTAGE_MIN_DELTA 0.005f
 #define PHASE_RESISTANCE_VOLTAGE_FILTER 0.02f
-#define PHASE_RESISTANCE_VBUS_MIN 10.0f
-#define PHASE_RESISTANCE_VBUS_MAX 30.0f
+#define PHASE_RESISTANCE_VBUS_MIN BUS_VOLTAGE_UNDERVOLTAGE_V
+#define PHASE_RESISTANCE_VBUS_MAX BUS_VOLTAGE_OVERVOLTAGE_V
 
 typedef struct
 {
@@ -167,9 +168,9 @@ PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
 		PhaseResistanceMode_StopOutput(foc, motor);
 		return PhaseResistanceModeContext.status;
 	}
-	if (foc->Vbus_filt < PHASE_RESISTANCE_VBUS_MIN)
+	if (foc->Vbus_filt <= PHASE_RESISTANCE_VBUS_MIN)
 		return PhaseResistanceMode_Fail(foc, motor, PHASE_RESISTANCE_MODE_UNDER_VOLTAGE);
-	if (foc->Vbus_filt > PHASE_RESISTANCE_VBUS_MAX)
+	if (foc->Vbus_filt >= PHASE_RESISTANCE_VBUS_MAX)
 		return PhaseResistanceMode_Fail(foc, motor, PHASE_RESISTANCE_MODE_OVER_VOLTAGE);
 
 	if (!PhaseResistanceModeContext.started)

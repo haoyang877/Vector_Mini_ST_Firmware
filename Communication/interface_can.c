@@ -347,7 +347,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		/*user parameters*/
 		case CAN_SET_NODE_ID:
 			if(data_int >= 0 && data_int <= 7)
+			{
 				CANMsg.node_id = data;
+				Param_SetSpeedLimit(fminf(MotorControl.speed_limit,
+					Param_SpeedLimitRadS(CANMsg.node_id)));
+			}
 		break;
 		case CAN_GET_NODE_ID:
 			CAN_SendMessage_Update(CAN_GET_NODE_ID, (float)CANMsg.node_id);
@@ -405,14 +409,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_SPEED_LIMIT:
-			if(data > 0.0f && data <= PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI)
-			{
-				MotorControl.speed_limit = data;
-				if (MotorControl.pos_maxspeed > MotorControl.speed_limit)
-				{
-					MotorControl.pos_maxspeed = MotorControl.speed_limit;
-				}
-			}
+			Param_SetSpeedLimit(data);
 		break;
 		case CAN_GET_SPEED_LIMIT:
 			CAN_SendMessage_Update(CAN_GET_SPEED_LIMIT, MotorControl.speed_limit);

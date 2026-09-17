@@ -5,6 +5,7 @@
 #include "hw_conf.h"
 #include "utils.h"
 #include "foc_errhandle.h"
+#include "bus_voltage_profile.h"
 
 #define OVERCURRENT_CONFIRM_CYCLES 5U
 
@@ -20,7 +21,7 @@ extern FOC_TypeDef FOC;
  **/
 void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
-	static int overvoltage_count,undervoltage_count;
+	static uint32_t overvoltage_count, undervoltage_count, hard_overvoltage_count;
 	
 	FOC->Vbus = (float)(VBUS_ADC->VBUS_ADC_CHANNEL) * SENSING_VBUS_FACTOR;
 	
@@ -34,18 +35,41 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	   MotorControl->ModeNow == Calib_PhaseResistance ||
 	   MotorControl->ModeNow == Calib_EncoderOffset ||
 	   MotorControl->ModeNow == Calib_EncoderObserver ||
+	   MotorControl->ModeNow == Calib_EleAngelOffset ||
 	   MotorControl->ModeNow == Vq_Mode ||
+	   MotorControl->ModeNow == Voltage_OpenLoop ||
 	   MotorControl->ModeNow == Sensorless_Speed_Mode ||
 	   MotorControl->ModeNow == Calib_Friction)
 	{
-		/*over voltage protect*/
-		if(FOC->Vbus_filt > 30.0f)
+		/* Keep the first fault latched. Raw samples bypass the LPF near the
+		 * hardware voltage ceiling; filtered thresholds reject short dips. */
+		if (MotorControl->ErrorNow != No_Error)
+			return;
+		if (!isfinite(FOC->Vbus) || !isfinite(FOC->Vbus_filt))
 		{
-			if(++overvoltage_count >= 10000)
+			Set_ErrorNow(Over_Voltage);
+			return;
+		}
+		if (FOC->Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V)
+		{
+			if (hard_overvoltage_count < BUS_VOLTAGE_HARD_CONFIRM_CYCLES)
+				++hard_overvoltage_count;
+			if (hard_overvoltage_count >= BUS_VOLTAGE_HARD_CONFIRM_CYCLES)
+			{
+				Set_ErrorNow(Over_Voltage);
+				return;
+			}
+		}
+		else
+			hard_overvoltage_count = 0U;
+		if(FOC->Vbus_filt >= BUS_VOLTAGE_OVERVOLTAGE_V)
+		{
+			if (overvoltage_count < (FOC_FREQ * BUS_VOLTAGE_OVERVOLTAGE_MS / 1000U))
+				++overvoltage_count;
+			if(overvoltage_count >= (FOC_FREQ * BUS_VOLTAGE_OVERVOLTAGE_MS / 1000U))
 			{
 				Set_ErrorNow(Over_Voltage);
 			}
-			overvoltage_count = 0;
 		}
 		else
 		{
@@ -53,18 +77,25 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 		}
 			
 		/*under voltage protect*/
-		if(FOC->Vbus_filt < 10.0f)
+		if(FOC->Vbus_filt <= BUS_VOLTAGE_UNDERVOLTAGE_V)
 		{
-			if(++undervoltage_count >= 10000)
+			if (undervoltage_count < (FOC_FREQ * BUS_VOLTAGE_UNDERVOLTAGE_MS / 1000U))
+				++undervoltage_count;
+			if(undervoltage_count >= (FOC_FREQ * BUS_VOLTAGE_UNDERVOLTAGE_MS / 1000U))
 			{
 				Set_ErrorNow(Under_Voltage);
-				undervoltage_count = 0;
 			}
 		}
 		else
 		{
 			undervoltage_count = 0;
 		}
+	}
+	else
+	{
+		overvoltage_count = 0U;
+		undervoltage_count = 0U;
+		hard_overvoltage_count = 0U;
 	}
 }
 

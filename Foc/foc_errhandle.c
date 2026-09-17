@@ -8,6 +8,7 @@
 #include "foc_sensorless.h"
 #include "foc_run.h"
 #include "foc_friction_identification.h"
+#include "bus_voltage_profile.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -89,6 +90,29 @@ void Clear_RunningData(void)
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
+	/* Reject an unsafe restart before any phase output can be enabled.
+	 * The normal supervisor owns voltage fault latching during operation. */
+	if (MotorControl.ModeNow == Motor_Disable &&
+		(mode_set == Current_Mode || mode_set == Speed_Mode ||
+		mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
+		mode_set == Calib_PhaseResistance || mode_set == Calib_EncoderOffset ||
+		mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
+		mode_set == Voltage_OpenLoop || mode_set == Vq_Mode ||
+		mode_set == Sensorless_Speed_Mode || mode_set == Calib_Friction))
+	{
+		if (!isfinite(FOC.Vbus) || !isfinite(FOC.Vbus_filt) ||
+			FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
+			FOC.Vbus_filt > BUS_VOLTAGE_ENABLE_MAX_V)
+		{
+			if (MotorControl.ErrorNow == No_Error) Set_ErrorNow(Over_Voltage);
+			return false;
+		}
+		if (FOC.Vbus_filt < BUS_VOLTAGE_ENABLE_MIN_V)
+		{
+			if (MotorControl.ErrorNow == No_Error) Set_ErrorNow(Under_Voltage);
+			return false;
+		}
+	}
 	/* Unknown/unconfigured numeric joints cannot fall through to another
 	 * torque-producing mode. Diagnostics and explicit storage remain usable. */
 	if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable &&

@@ -8,6 +8,18 @@ extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder;
 extern CANMsg_TypeDef CANMsg;
 
+bool Param_SetSpeedLimit(float limit_rad_s)
+{
+    if (!isfinite(limit_rad_s) || limit_rad_s <= 0.0f ||
+        limit_rad_s > Param_SpeedLimitRadS(CANMsg.node_id)) return false;
+    MotorControl.speed_limit = limit_rad_s;
+    /* A reduced limit also reduces an existing command; the speed ramp still
+     * uses the configured acceleration/deceleration. */
+    MotorControl.speedRef = constrain(MotorControl.speedRef, -limit_rad_s, limit_rad_s);
+    MotorControl.pos_maxspeed = fminf(MotorControl.pos_maxspeed, limit_rad_s);
+    return true;
+}
+
 /* Startup adapter only: the portable module owns joint IDs and baselines.
  * Individual motor/current calibration and stored axis bounds are untouched. */
 static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
@@ -61,7 +73,7 @@ void Param_Return_Default(void)
 	MotorControl.calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
 	MotorControl.current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
 	MotorControl.vqRef = 0.0f;
-	MotorControl.speed_limit = PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
+	MotorControl.speed_limit = Param_SpeedLimitRadS(CANMsg.node_id);
 	MotorControl.speedAcc = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
 	MotorControl.speedDec = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
 	MotorControl.speed_Kp = PARAM_APP_SPEED_KP;
@@ -174,7 +186,8 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 		return false;
 	}
 
-	CANMsg.node_id = (uint8_t)param->node_id;
+	/* Resolve axis identity before selecting the node-specific speed ceiling. */
+	CANMsg.node_id = MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id);
 	MotorControl.A_Offset = (uint16_t)param->currentoffset_a;
 	MotorControl.B_Offset = (uint16_t)param->currentoffset_b;
 	MotorControl.C_Offset = (uint16_t)param->currentoffset_c;
@@ -206,8 +219,8 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 	MotorControl.iq_Kp = param->iq_kp;
 	MotorControl.iq_Ki = param->iq_ki;
 	MotorControl.speed_limit = isfinite(param->speed_limit) && param->speed_limit > 0.0f ?
-		constrain(param->speed_limit, 0.0f, PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI) :
-		PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
+		constrain(param->speed_limit, 0.0f, Param_SpeedLimitRadS(CANMsg.node_id)) :
+		Param_SpeedLimitRadS(CANMsg.node_id);
 	position_speed_limit = fast_min(MotorControl.speed_limit,
 		POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI);
 	MotorControl.speedAcc = param->speedAcc;
@@ -315,9 +328,6 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
 	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
 		&MotorControl.axis_profile);
-	/* Resolve communication identity even for identity-only axes whose motion
-	 * configuration is not supported yet. CAN filters are initialized later. */
-	CANMsg.node_id = MotorAxisProfile_CanNodeId(&param->axis_profile, CANMsg.node_id);
 	MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);
 	/* Unsupported identity/configuration must not trigger a migration rewrite. */
 	if (!MotorControl.axis_profile_valid) return false;

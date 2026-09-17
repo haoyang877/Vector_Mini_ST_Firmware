@@ -111,6 +111,9 @@ static void Encoder_ObserverCalib_Finish(FOC_TypeDef *FOC,
 	MotorControl_TypeDef *MotorControl, PI_Controller_TypeDef *SpeedController,
 	SensorlessStartup_TypeDef *Startup)
 {
+	/* End active torque before saving. A low-speed flux observer must not
+	 * keep applying negative Iq after the rotor has crossed zero. */
+	Stop_PWM_Generate();
 	SensorlessStartup_Reset(Startup);
 	FOC_CurrentController_Reset(FOC);
 	PI_Controller_Reset(SpeedController);
@@ -119,7 +122,6 @@ static void Encoder_ObserverCalib_Finish(FOC_TypeDef *FOC,
 	MotorControl->idRef = 0.0f;
 	MotorControl->iqRef = 0.0f;
 	CalibStep = CS_NULL;
-	PWM_TurnOnHighSides();
 	Set_ModeNow(Save_Param);
 }
 
@@ -229,6 +231,27 @@ static float Encoder_ObserverCalib_GetStopSpeed(const MotorControl_TypeDef *Moto
 
 	return stop_speed < SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S ?
 		stop_speed : SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+}
+
+static bool Encoder_ObserverCalib_CanBrake(const MotorControl_TypeDef *MotorControl,
+	const Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver,
+	SensorlessStartup_TypeDef *Startup, uint32_t position_epoch)
+{
+	float minimum_speed = SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s;
+	float observer_speed = Observer_GetEleVel(Fluxobserver);
+	float observer_phase = Observer_GetElePhase(Fluxobserver);
+	float encoder_speed = Encoder_GetMecVelContinuous(Encoder);
+
+	if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, position_epoch) ||
+		!(observer_speed > minimum_speed) ||
+		observer_speed > SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S ||
+		!(observer_phase >= 0.0f && observer_phase <= _2PI))
+		return false;
+	/* LUT commit restarts the encoder speed estimator. Use it once ready as
+	 * an independent early cutoff; electrical zero is not needed for speed. */
+	return !Encoder->velocity_ready ||
+		(encoder_speed > minimum_speed / (float)MotorControl->motor_pole_pairs &&
+		encoder_speed <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S / (float)MotorControl->motor_pole_pairs);
 }
 
 static void Encoder_Calib_Abort(void)
@@ -964,17 +987,19 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		CalibStep = CS_OBS_ALIGN_ORIGIN;
 	}
 
+	if ((CalibStep == CS_OBS_STOP_DECEL || CalibStep == CS_OBS_STOP_CURRENT) &&
+		!Encoder_ObserverCalib_CanBrake(MotorControl, Encoder, Fluxobserver, Startup,
+			observer_position_epoch))
+	{
+		/* The LUT is already verified and committed in both stop stages.
+		 * Below the observer's usable speed, coast instead of driving through zero. */
+		Encoder_ObserverCalib_Finish(FOC, MotorControl, SpeedController, Startup);
+		return;
+	}
+
 	if (CalibStep == CS_OBS_STOP_CURRENT)
 	{
 		float current_ratio;
-
-		if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
-		{
-			/* The LUT is already committed. High friction can stop the rotor below the
-			 * observer's usable speed before the current ramp finishes; save safely. */
-			Encoder_ObserverCalib_Finish(FOC, MotorControl, SpeedController, Startup);
-			return;
-		}
 
 		current_ratio = constrain(((float)state_ticks + 1.0f) * Current_Ts /
 			SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S, 0.0f, 1.0f);

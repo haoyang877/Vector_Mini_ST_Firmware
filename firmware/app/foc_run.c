@@ -1,5 +1,6 @@
 #include "fast_loop_profile.h"
 #include "foc_run.h"
+#include <math.h>
 
 #include "common_inc.h"
 #include "position_cascade.h"
@@ -205,6 +206,26 @@ static void Sensorless_UpdateSpeedReference(MotorControl_TypeDef *MotorControl)
 	}
 }
 
+/* Keep the same speed PI running through angle handoff and normal tracking.
+ * Its output is always a torque-current reference in the observer frame. */
+static float Sensorless_UpdateSpeedLoop(MotorControl_TypeDef *MotorControl,
+	PI_Controller_TypeDef *controller, SensorlessStartup_TypeDef *Startup,
+	float observer_mech_vel)
+{
+	if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
+	{
+		Startup->speed_feedback += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
+			(observer_mech_vel - Startup->speed_feedback);
+		Sensorless_UpdateSpeedReference(MotorControl);
+		PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
+			Speed_Ts, -1.0f, Startup->speed_pi_output_max);
+		PI_Controller_Run(controller, MotorControl->speedShadow, Startup->speed_feedback);
+		Startup->speed_loop_ticks = 0U;
+	}
+	return constrain(controller->Out, -1.0f, Startup->speed_pi_output_max) *
+		MotorControl->current_limit;
+}
+
 /**
 	* @brief  Sensorless speed control with align, open-loop startup and observer handoff
  **/
@@ -357,12 +378,27 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 
 			if (Startup->lock_ticks >= (uint32_t)(Config->speed_lock_time_s / Current_Ts))
 			{
+				float observer_iq;
+				float phase_sin;
+				float phase_cos;
+
+				Startup->handoff_phase_delta = Sensorless_AngleDifference(Startup->open_loop_theta,
+					Observer_GetElePhase(Fluxobserver));
+				phase_sin = sinf(Startup->handoff_phase_delta);
+				phase_cos = cosf(Startup->handoff_phase_delta);
+				/* The open-loop dq frame can carry substantial load angle. Reusing
+				 * its Iq in the observer frame turns alignment current into torque. */
+				Startup->handoff_id_reference = MotorControl->idRef * phase_cos -
+					MotorControl->iqRef * phase_sin;
+				observer_iq = MotorControl->idRef * phase_sin + MotorControl->iqRef * phase_cos;
+				Startup->speed_feedback = Startup->lock_speed_feedback / pole_pairs;
+				MotorControl->speedShadow = Startup->speed_feedback;
+				Startup->speed_loop_ticks = 0U;
 				PI_Controller_Reset(controller);
 				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
 					Speed_Ts, -1.0f, Startup->speed_pi_output_max);
-				PI_Controller_TrackOutput(controller, MotorControl->iqRef / MotorControl->current_limit);
-				Startup->handoff_phase_delta = Sensorless_AngleDifference(Startup->open_loop_theta,
-					Observer_GetElePhase(Fluxobserver));
+				PI_Controller_TrackOutput(controller, constrain(observer_iq / MotorControl->current_limit,
+					-1.0f, Startup->speed_pi_output_max));
 				Startup->state = SENSORLESS_STARTUP_HANDOFF;
 				Startup->state_ticks = 0U;
 			}
@@ -379,6 +415,16 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			float blend;
 			float phase;
 			float phase_vel;
+			float phase_offset;
+			float phase_sin;
+			float phase_cos;
+			float observer_id;
+			float observer_iq;
+			float frame_step;
+			float frame_step_squared;
+			float previous_blend;
+			float previous_id_integral;
+			float previous_iq_integral;
 
 			if (requested_direction != Startup->direction || !Sensorless_ObserverIsUsable(Fluxobserver))
 			{
@@ -387,15 +433,45 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
+			previous_blend = constrain((float)Startup->state_ticks * Current_Ts /
+				Config->angle_handoff_time_s, 0.0f, 1.0f);
 			blend = constrain((float)(++Startup->state_ticks) * Current_Ts /
 				Config->angle_handoff_time_s, 0.0f, 1.0f);
-			phase = normalizeAngle(Observer_GetElePhase(Fluxobserver) +
-				(1.0f - blend) * Startup->handoff_phase_delta);
-			phase_vel = Startup->open_loop_omega + blend *
-				(Observer_GetEleVel(Fluxobserver) - Startup->open_loop_omega);
+			phase_offset = (1.0f - blend) * Startup->handoff_phase_delta;
+			phase = normalizeAngle(Observer_GetElePhase(Fluxobserver) + phase_offset);
+			frame_step = (previous_blend - blend) * Startup->handoff_phase_delta;
+			phase_vel = Observer_GetEleVel(Fluxobserver) + frame_step / Current_Ts;
 
-			MotorControl->idRef = Config->startup_id_a;
-			MotorControl->iqRef = Startup->direction * Config->startup_iq_a;
+			observer_iq = Sensorless_UpdateSpeedLoop(MotorControl, controller, Startup,
+				Observer_GetEleVel(Fluxobserver) / pole_pairs);
+			observer_id = Startup->handoff_id_reference + blend *
+				(Config->startup_id_a - Startup->handoff_id_reference);
+			phase_sin = sinf(phase_offset);
+			phase_cos = cosf(phase_offset);
+			MotorControl->idRef = observer_id * phase_cos + observer_iq * phase_sin;
+			MotorControl->iqRef = -observer_id * phase_sin + observer_iq * phase_cos;
+
+			/* Rotate only the deliberate frame correction, not normal rotor travel,
+			 * so the current PI's stored voltage has no handoff-induced step. */
+			/* The coarse sine table rounds these sub-bin steps to zero. Use a
+			 * bounded small-angle expansion to avoid accumulating rotation error. */
+			frame_step_squared = frame_step * frame_step;
+			if (frame_step_squared <= 0.01f)
+			{
+				phase_sin = frame_step * (1.0f - frame_step_squared / 6.0f +
+					frame_step_squared * frame_step_squared / 120.0f);
+				phase_cos = 1.0f - frame_step_squared * 0.5f +
+					frame_step_squared * frame_step_squared / 24.0f;
+			}
+			else
+			{
+				phase_sin = sinf(frame_step);
+				phase_cos = cosf(frame_step);
+			}
+			previous_id_integral = FOC->id_pi.Ui;
+			previous_iq_integral = FOC->iq_pi.Ui;
+			FOC->id_pi.Ui = previous_id_integral * phase_cos + previous_iq_integral * phase_sin;
+			FOC->iq_pi.Ui = -previous_id_integral * phase_sin + previous_iq_integral * phase_cos;
 			FOC_Current(FOC, MotorControl, phase, phase_vel);
 
 			if (blend >= 1.0f)
@@ -404,8 +480,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				Startup->state_ticks = 0U;
 				Startup->id_ramp_ticks = 0U;
 				Startup->loss_ticks = 0U;
-				Startup->speed_feedback = Observer_GetEleVel(Fluxobserver) / pole_pairs;
-				MotorControl->speedShadow = Startup->speed_feedback;
+				/* Preserve speed PI, filtered feedback and reference across this edge. */
 			}
 		}
 		break;
@@ -435,15 +510,8 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			if (Startup->id_ramp_ticks < (uint32_t)(Config->id_ramp_down_time_s / Current_Ts))
 				Startup->id_ramp_ticks++;
 
-			if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
-			{
-				Startup->speed_feedback += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
-					(observer_mech_vel - Startup->speed_feedback);
-				Sensorless_UpdateSpeedReference(MotorControl);
-				PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
-				MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, Startup->speed_feedback) * MotorControl->current_limit;
-				Startup->speed_loop_ticks = 0U;
-			}
+			MotorControl->iqRef = Sensorless_UpdateSpeedLoop(MotorControl, controller, Startup,
+				observer_mech_vel);
 
 			if (fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s * 0.5f)
 				Startup->loss_ticks++;

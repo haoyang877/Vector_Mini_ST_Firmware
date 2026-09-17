@@ -62,6 +62,7 @@ typedef struct
 	float open_loop_theta;
 	float open_loop_omega;
 	float handoff_phase_delta;
+	float handoff_id_reference;
 	float speed_feedback;
 	float lock_speed_feedback;
 	float direction;

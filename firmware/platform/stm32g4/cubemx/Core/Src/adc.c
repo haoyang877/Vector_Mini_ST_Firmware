@@ -109,7 +109,24 @@ void MX_ADC1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
-
+  /* No external NTC is fitted. Sample MCU die temperature + VREFINT as a
+   * software-triggered pair; the 1 kHz supervisor starts subsequent pairs.
+   * 640.5 cycles at 42.5 MHz = 15.07 us, above TS's 5 us minimum.
+   * Keep this board override after CubeMX's unused PA3 baseline. */
+  /* HAL otherwise discards injected sequence length/rank 2 when scan is off. */
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
+  sConfigInjected.InjectedNbrOfConversion = 2;
+  sConfigInjected.ExternalTrigInjecConv = ADC_INJECTED_SOFTWARE_START;
+  sConfigInjected.ExternalTrigInjecConvEdge = ADC_EXTERNALTRIGINJECCONV_EDGE_NONE;
+  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_TEMPSENSOR_ADC1;
+  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_1;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK) Error_Handler();
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_VREFINT;
+  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_2;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK) Error_Handler();
+  /* Covers the temperature buffer's 120 us continuous-mode startup. */
+  HAL_Delay(1);
   /* USER CODE END ADC1_Init 2 */
 
 }

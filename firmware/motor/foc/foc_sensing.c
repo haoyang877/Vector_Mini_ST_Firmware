@@ -6,11 +6,14 @@
 #include "utils.h"
 #include "foc_errhandle.h"
 #include "bus_voltage_profile.h"
+#include "mcu_temperature.h"
+#include "stm32g4xx_ll_adc.h"
 
 #define OVERCURRENT_CONFIRM_CYCLES 5U
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
+volatile McuTemperatureTelemetry McuTemperature;
 
 //#pragma arm section code = "CCMRAMCODE"
 
@@ -146,27 +149,42 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
  **/
 void Temperature_Update(FOC_TypeDef *FOC)
 {
-	/*from NTC datasheet*/
-	const float B = 3455.0f;
-	float R2 = 10.0f;
-	float T2 = 25.0f;
-	
-	uint32_t adc_val;
-	float R1;
-
-	/* Called at 1 kHz; keep transcendental conversion out of the fast IRQ. */
-	{
-		adc_val = TEMP_ADC->TEMP_ADC_CHANNEL;
-		
-		R1 = (4095.0f / (float)adc_val - 1.0f) * TEMP_R2;
-		
-		FOC->temp = (1.0f / ((1.0f / B) * logf(R1 / R2) + (1.0f / (T2 + 273.15f))) - 273.15f);
-		
-	}
-	
-	if(FOC->temp >= 100.0f)
-	{
-		Set_ErrorNow(High_Temprature);
-	}
+    float celsius, vdda;
+    bool good = false;
+    /* Software-triggered ADC1 sequence completes between 1 kHz supervisor
+     * calls. Read both ranks only on JEOS, then request the next sequence.
+     * ADC2/PWM current sampling and the 20 kHz IRQ are unaffected. */
+    if (__HAL_ADC_GET_FLAG(&hadc1, ADC_FLAG_JEOS)) {
+        McuTemperature.raw_ts = ADC1->JDR1;
+        McuTemperature.raw_vref = ADC1->JDR2;
+        __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_JEOS | ADC_FLAG_JEOC);
+        good = McuTemperature_Convert(McuTemperature.raw_ts, McuTemperature.raw_vref,
+            *TEMPSENSOR_CAL1_ADDR, *TEMPSENSOR_CAL2_ADDR, *VREFINT_CAL_ADDR, &celsius, &vdda);
+        if (good) {
+            FOC->temp = McuTemperature.valid ? FOC->temp + 0.02f * (celsius - FOC->temp) : celsius;
+            McuTemperature.raw_celsius = celsius;
+            McuTemperature.vdda_mv = vdda;
+            McuTemperature.valid = 1U;
+            McuTemperature.missed_ms = 0U;
+            ++McuTemperature.sample_count;
+            /* 90 C leaves 15 C below even suffix-6's 105 C junction limit,
+             * allowing calibration/sensing error. No winding/MOSFET coverage. */
+            if (celsius >= MCU_TEMPERATURE_TRIP_C && MotorControl.ErrorNow == No_Error)
+                Set_ErrorNow(High_Temprature);
+        } else {
+            McuTemperature.valid = 0U;
+            FOC->temp = NAN;
+        }
+    }
+    if (!good) {
+        if (McuTemperature.missed_ms < MCU_TEMPERATURE_TIMEOUT_MS) ++McuTemperature.missed_ms;
+        if (!McuTemperature.valid || McuTemperature.missed_ms >= MCU_TEMPERATURE_TIMEOUT_MS) {
+            McuTemperature.valid = 0U;
+            FOC->temp = NAN;
+        }
+        if (McuTemperature.missed_ms >= MCU_TEMPERATURE_TIMEOUT_MS && MotorControl.ErrorNow == No_Error)
+            Set_ErrorNow(TemperatureSensor_Error);
+    }
+    if (!LL_ADC_INJ_IsConversionOngoing(ADC1)) LL_ADC_INJ_StartConversion(ADC1);
 }
 //#pragma arm section

@@ -49,6 +49,7 @@ typedef enum
 	FrictionIdentification_Error,
 	ControlOverrun_Error,
 	CoggingCalibration_Error,
+	TemperatureSensor_Error,
 }ErrorNow_TypeDef;
 
 typedef struct

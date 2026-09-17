@@ -304,18 +304,21 @@ int main(void) {
 '''
     # Compile the real GET case bodies so a wrong reply ID cannot pass a codec-only test.
     cases=[]
-    for label in ('CAN_GET_CAN_BR','CAN_GET_CAN_HB'):
+    for label in ('CAN_GET_CAN_BR','CAN_GET_CAN_HB','CAN_GET_TEMPERATURE_SOURCE','CAN_GET_TEMPERATURE_VALID'):
         case=source.split('case '+label+':',1)[1].split('break;',1)[0]
         cases.append('case '+label+':'+case+'break;')
     config_get='\n'.join(common)+r'''
 #define CAN_GET_CAN_BR 0x29
 #define CAN_GET_CAN_HB 0x2b
+#define CAN_GET_TEMPERATURE_SOURCE 0x6e
+#define CAN_GET_TEMPERATURE_VALID 0x6f
+static struct {unsigned valid;} McuTemperature;
 static struct {unsigned baudrate,can_hb_set;} CANMsg={1000,500};
 static unsigned reply_id,calls;
 static float reply_value;
 static void CAN_SendMessage_Update(unsigned id,float value)
 {reply_id=id;reply_value=value;++calls;}
-static void dispatch(unsigned id) {switch(id) {
+static void dispatch(unsigned param_id) {switch(param_id) {
 '''+ '\n'.join(cases)+r'''
 }}
 int main(void) {
@@ -323,7 +326,11 @@ int main(void) {
   dispatch(CAN_GET_CAN_BR);assert(reply_id==0x29 && reply_value==1000.f);
   dispatch(CAN_GET_CAN_HB);assert(reply_id==0x2b && reply_value==500.f);
  }
- assert(calls==10);puts("PASS production CAN baudrate/heartbeat GET reply IDs");return 0;
+ assert(calls==10);
+ dispatch(0x6e);assert(reply_id==0x6e && reply_value==1.f);
+ dispatch(0x6f);assert(reply_id==0x6f && reply_value==0.f);
+ McuTemperature.valid=1;dispatch(0x6f);assert(reply_id==0x6f && reply_value==1.f);
+ puts("PASS production CAN baudrate/heartbeat IDs and MCU temperature source/validity");return 0;
 }
 '''
     fixtures=[('config_get',config_get,[]),('heartbeat',heartbeat,[]),('codec',ROOT/'tests/unit/can_motor_status_test.c',[

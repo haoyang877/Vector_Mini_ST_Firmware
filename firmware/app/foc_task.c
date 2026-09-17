@@ -329,7 +329,7 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 
 void FOC1kHzSupervisor(void)
 {
-	/* Temperature conversion includes logf and belongs to the slow supervisor. */
+	/* MCU temperature/VREFINT conversion belongs to the slow supervisor. */
 	Temperature_Update(&FOC);
 }
 

@@ -112,6 +112,8 @@ typedef enum
 	CAN_GET_COGGING_POINT = 0x6B, /* float32 request index, float32 signed Q15 reply */
 	CAN_GET_COGGING_FULL_SCALE = 0x6C, /* amperes represented by 32768 */
 	CAN_GET_COGGING_VALID = 0x6D,
+	CAN_GET_TEMPERATURE_SOURCE = 0x6E, /* float32: 1 = MCU die */
+	CAN_GET_TEMPERATURE_VALID = 0x6F, /* float32: 0/1 */
 }CAN_PARAM_ID;
 
 typedef struct

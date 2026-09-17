@@ -17,6 +17,7 @@
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
+#include "foc_sensing.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -605,6 +606,12 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		case CAN_GET_COGGING:
 			CAN_SendMessage_Update(CAN_GET_COGGING, (float)CoggingCompensation.enabled);
+		break;
+		case CAN_GET_TEMPERATURE_SOURCE:
+			CAN_SendMessage_Update(param_id, 1.0f);
+		break;
+		case CAN_GET_TEMPERATURE_VALID:
+			CAN_SendMessage_Update(param_id, (float)McuTemperature.valid);
 		break;
 	
 		case CAN_SET_CAN_BR:

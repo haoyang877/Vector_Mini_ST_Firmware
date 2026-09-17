@@ -1,4 +1,4 @@
-#include "software/communication/protocol/can_motor_status.h"
+#include "firmware/communication/protocol/can_motor_status.h"
 #include <assert.h>
 #include <math.h>
 #include <string.h>

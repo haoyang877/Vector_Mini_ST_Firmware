@@ -5,7 +5,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "../../software/config/motor_axis_profile.h"
+#include "../../firmware/services/parameters/motor_axis_profile.h"
 
 static void test_can_node_mapping(void)
 {

@@ -1,4 +1,4 @@
-# Keil Generated output files in the sub-directories .\MDK-ARM\Main
+# Keil generated files (normal/HIL images live under outputs/build/keil)
 *.lst
 *.o
 *.d
@@ -7,6 +7,7 @@
 *.axf
 *.htm
 *.build_log.htm
+*_structure_build.log
 *.dep
 *.iex
 *.i
@@ -36,3 +37,11 @@ data_recoder/
 
 # Generated analysis and test output
 /outputs/
+
+# Local Python runtimes, caches and host packaging output
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+/host_app/build/
+/host_app/dist/

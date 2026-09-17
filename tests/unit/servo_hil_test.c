@@ -3,7 +3,7 @@
 #endif
 #include <assert.h>
 #include <stdio.h>
-#include "../../System/servo_hil.c"
+#include "../hil/firmware/servo_hil.c"
 static ServoHilCommand request(uint32_t op, float value, uint32_t mode)
 {
     servo_hil_mailbox.opcode = op;

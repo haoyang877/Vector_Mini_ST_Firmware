@@ -3,8 +3,8 @@
 ## 实现与配置归属
 
 ADC2 在 `firmware/platform/stm32g4/cubemx/Core/Src/adc.c` 的 `USER CODE ADC2_Init 2` 中启用注入组
-4×硬件过采样、右移2位。每次原有 TIM1 CC4 触发，硬件为每个注入
-rank 连续完成4次采样和转换，将累加结果除以4后写入对应 JDR。
+4×硬件过采样、不右移。每次原有 TIM1 CC4 触发，硬件为每个注入
+rank 连续完成4次采样和转换，将完整累加结果写入对应 JDR。
 顺序仍为 Ia、Ib、Ic、Vbus；Vbus 同属此组，因此也使用4×。
 ADC1 温度采样不变。PWM及电流环的名义频率保持20 kHz。
 
@@ -24,10 +24,11 @@ Ia/Ib/Ic/Vbus整组转换时执行FOC。没有按每个子样本运行FOC。
 
 ## 数值兼容性
 
-- 输出为 `floor((sample0 + sample1 + sample2 + sample3) / 4)`。
-- 原始满量程仍为4095，零电流偏置仍约2048。
-- 电流换算系数、Vbus换算系数和已有偏置校准数据保持原有单位。
-- 这种设置主要用于平均降噪，不输出额外的有效位；不会纠正增益误差、
+- JDR 输出为 `sample0 + sample1 + sample2 + sample3`，最大 16380。
+- 软件乘 `ADC2_SUM_TO_COUNTS=0.25f`，保留 0.25 个原 ADC count 的分辨率。
+- 电流和 Vbus 均先乘 0.25；换算系数与持久化偏置仍使用原 12 位单位，零电流约 2048。
+- 偏置累加使用整数、最终除法与运行偏置使用 float，避免截断小数。参数原本即以 float 保存，schema 不变。
+- 2 mΩ 配置的数字电流步进由约 40.29 mA 降到 10.07 mA；这不等同于真实有效位或绝对精度保证。不会纠正增益误差、
   零偏误差、无效采样窗口或同步开关干扰。
 
 ## 时序预算与未验证项
@@ -52,7 +53,7 @@ Ia/Ib/Ic/Vbus整组转换时执行FOC。没有按每个子样本运行FOC。
 1×镜像的IRQ计时结论。未以推测的运放建立时间或死区裕量修改占空比
 上限；高调制度闭环使用前必须完成以下验证。
 
-1. 只读核对ADC2最终CFGR2：JOVSE=1、OVSR=1（4×编码）、OVSS=2、
+1. 只读核对ADC2最终CFGR2：JOVSE=1、OVSR=1（4×编码）、OVSS=0、
    ROVSE=0、TROVS=0；确认IER只使能JEOS完成事件，非JEOC。
 2. 同步观察PWM、分流运放输出、ADC采样时刻和FOC起止。
    运放/RC建立时间、实际触发延迟、最窄有效采样窗口当前均为UNKNOWN。
@@ -70,14 +71,18 @@ Ia/Ib/Ic/Vbus整组转换时执行FOC。没有按每个子样本运行FOC。
 RAM中的模拟寄存器及HAL记录桩，检查：
 
 - 四个rank的通道、次序、采样时间和硬件触发配置；
-- 初始化末尾确实覆盖生成基线，注入组4×、右移2位、规则组不启用；
+- 初始化末尾确实覆盖生成基线，注入组4×、不右移、规则组不启用；
 - 重复初始化、无关寄存器位和序列保持；
 - 全部12位直流码及零偏附近样本的数值尺度。
 
-已有 `tests/unit/native/run_position_servo_tests.py` 覆盖JEOS完整序列回调、ADC共享
-中断分派和板级启动，另构建普通及HIL两个Keil目标。日志放在
-`outputs/current_oversampling/`。未执行烧录、电机运行或模拟量实测。
+`test_current_precision.py` 执行实际启动偏置和电流换算代码，覆盖 2/6 mΩ、浮点偏置、四分之一 ADC 步进、实际 1 A 换算和无效偏置保护。2026-09-17 的升级没有增加 ADC 转换次数或改变触发时序；实测与日志见 `outputs/cogging_precision_20260917/`。
 
-2026-09-09验证结果：新增寄存器配置测试及已有主机回归测试全部通过；
+已有 `tests/unit/native/run_position_servo_tests.py` 覆盖JEOS完整序列回调、ADC共享
+中断分派和板级启动，另构建普通及HIL两个Keil目标。2026-09-09 的日志放在
+`outputs/current_oversampling/`，当时未执行烧录、电机运行或模拟量实测。
+2026-09-17 的浮点精度改版已进行低速齿槽标定实机验证，日志另存于
+`outputs/cogging_precision_20260917/`；这不替代高调制度采样窗口验证。
+
+历史 2026-09-09（当时右移 2 位）验证结果：新增寄存器配置测试及已有主机回归测试全部通过；
 `Vector_Mini_ST` 和 `Vector_Mini_ST_HIL` 使用ARMCC 5.06 update 7完整
 重编译，均为0错误、0警告，并生成HEX。实机时序与噪声改善尚未验收。

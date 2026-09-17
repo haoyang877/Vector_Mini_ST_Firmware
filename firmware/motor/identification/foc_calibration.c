@@ -306,7 +306,8 @@ void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	
 	float time = (float) loop_count * Current_Ts;
 	
-	static float A_offset_sum,B_offset_sum,C_offset_sum;
+	static uint32_t A_offset_sum,B_offset_sum,C_offset_sum;
+	static uint32_t offset_samples;
 	
 	
 	switch(CalibStep)
@@ -317,6 +318,7 @@ void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 		
 		case CS_ADC_OFFSET_START:
 		{
+			A_offset_sum = B_offset_sum = C_offset_sum = offset_samples = 0U;
 			loop_count = 0;
 			time = 0;
 			CalibStep = CS_ADC_OFFSET_LOOP;
@@ -325,9 +327,10 @@ void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 		
 		case CS_ADC_OFFSET_LOOP:
 		{
-			A_offset_sum += (float)CURRENT_ADC->IA_ADC_CHANNEL;
-			B_offset_sum += (float)CURRENT_ADC->IB_ADC_CHANNEL;
-			C_offset_sum += (float)CURRENT_ADC->IC_ADC_CHANNEL;
+			A_offset_sum += CURRENT_ADC->IA_ADC_CHANNEL;
+			B_offset_sum += CURRENT_ADC->IB_ADC_CHANNEL;
+			C_offset_sum += CURRENT_ADC->IC_ADC_CHANNEL;
+			++offset_samples;
 			if(time >= 1.0f)
 			{
 				CalibStep = CS_ADC_OFFSET_END;
@@ -337,9 +340,10 @@ void Task_Calib_R_L_Flux(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 		
 		case CS_ADC_OFFSET_END:
 		{
-			MotorControl->A_Offset = (uint16_t)(A_offset_sum / 20000.0f);
-			MotorControl->B_Offset = (uint16_t)(B_offset_sum / 20000.0f);
-			MotorControl->C_Offset = (uint16_t)(C_offset_sum / 20000.0f);
+			if (offset_samples == 0U) { Set_ErrorNow(CurrentOffset_Error); return; }
+			MotorControl->A_Offset = (float)A_offset_sum * ADC2_SUM_TO_COUNTS / (float)offset_samples;
+			MotorControl->B_Offset = (float)B_offset_sum * ADC2_SUM_TO_COUNTS / (float)offset_samples;
+			MotorControl->C_Offset = (float)C_offset_sum * ADC2_SUM_TO_COUNTS / (float)offset_samples;
 			
 			A_offset_sum = 0;
 			B_offset_sum = 0;
@@ -1567,9 +1571,9 @@ void Task_Calib_CurrentOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorContr
 	/*accumulate 1s (20000 cycles @ 20kHz)*/
 	if(offset_count >= 20000)
 	{
-		MotorControl->A_Offset = (uint16_t)(A_offset_sum / offset_count);
-		MotorControl->B_Offset = (uint16_t)(B_offset_sum / offset_count);
-		MotorControl->C_Offset = (uint16_t)(C_offset_sum / offset_count);
+		MotorControl->A_Offset = (float)A_offset_sum * ADC2_SUM_TO_COUNTS / (float)offset_count;
+		MotorControl->B_Offset = (float)B_offset_sum * ADC2_SUM_TO_COUNTS / (float)offset_count;
+		MotorControl->C_Offset = (float)C_offset_sum * ADC2_SUM_TO_COUNTS / (float)offset_count;
 		
 		offset_count = 0;
 		A_offset_sum = B_offset_sum = C_offset_sum = 0;

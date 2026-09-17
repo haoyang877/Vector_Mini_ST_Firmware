@@ -48,6 +48,7 @@ typedef enum
 	Sensorless_Error,
 	FrictionIdentification_Error,
 	ControlOverrun_Error,
+	CoggingCalibration_Error,
 }ErrorNow_TypeDef;
 
 typedef struct
@@ -58,9 +59,9 @@ typedef struct
 	float ModeNow_f;
 	float ErrorNow_f;
 	
-	uint16_t A_Offset;
-	uint16_t B_Offset;
-	uint16_t C_Offset;
+	float A_Offset; /* fractional 12-bit ADC counts, same units as stored parameters */
+	float B_Offset;
+	float C_Offset;
 	
 	int32_t motor_pole_pairs;
 	float motor_phase_resistance;

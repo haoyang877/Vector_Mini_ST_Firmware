@@ -9,9 +9,10 @@ from project_paths import ROOT
 
 NATIVE = (
     'run_position_servo_tests', 'run_can_status_tests', 'test_outer_loop_runtime',
-    'test_wheel_speed_limits', 'test_bus_voltage_protection', 'test_current_oversampling',
+    'test_wheel_speed_limits', 'test_bus_voltage_protection', 'test_current_oversampling', 'test_current_precision',
     'test_adc_fast_dispatch', 'test_encoder_sample_overlap', 'test_fast_loop_math',
     'test_position_config_cache', 'test_rtt_calibration', 'test_sensorless_transitions',
+    'test_cogging_calibration',
 )
 
 

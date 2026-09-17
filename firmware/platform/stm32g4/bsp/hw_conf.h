@@ -48,6 +48,9 @@
 #define CURRENT_AMP_GAIN                    CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN
 /* Current represented by one 12-bit ADC count (A/count). */
 #define SENSING_CURR_FACTOR                 (float)(3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
+/* ADC2 retains the four-sample sum. Convert to fractional 12-bit units
+ * at the boundary, preserving parameter units and two fractional bits. */
+#define ADC2_SUM_TO_COUNTS                  0.25f
 
 /* Keep normal control and software protection below the amplifier/ADC rails. */
 #define CURRENT_SENSE_RELIABLE_LIMIT_A      CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A

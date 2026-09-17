@@ -23,7 +23,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
 	static uint32_t overvoltage_count, undervoltage_count, hard_overvoltage_count;
 	
-	FOC->Vbus = (float)(VBUS_ADC->VBUS_ADC_CHANNEL) * SENSING_VBUS_FACTOR;
+	FOC->Vbus = (float)(VBUS_ADC->VBUS_ADC_CHANNEL) * ADC2_SUM_TO_COUNTS * SENSING_VBUS_FACTOR;
 	
 	UTILS_LP_FAST(FOC->Vbus_filt, FOC->Vbus, 0.05f);
 	
@@ -39,6 +39,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	   MotorControl->ModeNow == Vq_Mode ||
 	   MotorControl->ModeNow == Voltage_OpenLoop ||
 	   MotorControl->ModeNow == Sensorless_Speed_Mode ||
+	   MotorControl->ModeNow == Calib_Anticogging ||
 	   MotorControl->ModeNow == Calib_Friction)
 	{
 		/* Keep the first fault latched. Raw samples bypass the LPF near the
@@ -109,7 +110,8 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	static uint8_t overcurrent_count;
 
 	/*when actual current is near zero, adc offset is outght to be around 2048*/
-	if(MotorControl->A_Offset < 1948 || MotorControl->A_Offset > 2148 ||
+	if(!isfinite(MotorControl->A_Offset) || !isfinite(MotorControl->B_Offset) || !isfinite(MotorControl->C_Offset) ||
+	   MotorControl->A_Offset < 1948 || MotorControl->A_Offset > 2148 ||
 	   MotorControl->B_Offset < 1948 || MotorControl->B_Offset > 2148 ||
 	   MotorControl->C_Offset < 1948 || MotorControl->C_Offset > 2148	)
 	{
@@ -118,9 +120,9 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	
 	else
 	{	
-		FOC->Ia = -((float)((int16_t)CURRENT_ADC->IA_ADC_CHANNEL - MotorControl->A_Offset)) * SENSING_CURR_FACTOR;
-		FOC->Ib = -((float)((int16_t)CURRENT_ADC->IB_ADC_CHANNEL - MotorControl->B_Offset)) * SENSING_CURR_FACTOR;
-		FOC->Ic = -((float)((int16_t)CURRENT_ADC->IC_ADC_CHANNEL - MotorControl->C_Offset)) * SENSING_CURR_FACTOR;
+		FOC->Ia = -((float)CURRENT_ADC->IA_ADC_CHANNEL * ADC2_SUM_TO_COUNTS - MotorControl->A_Offset) * SENSING_CURR_FACTOR;
+		FOC->Ib = -((float)CURRENT_ADC->IB_ADC_CHANNEL * ADC2_SUM_TO_COUNTS - MotorControl->B_Offset) * SENSING_CURR_FACTOR;
+		FOC->Ic = -((float)CURRENT_ADC->IC_ADC_CHANNEL * ADC2_SUM_TO_COUNTS - MotorControl->C_Offset) * SENSING_CURR_FACTOR;
 	}
 	
 	if(fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||

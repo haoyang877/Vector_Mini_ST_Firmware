@@ -240,11 +240,14 @@ int main(void) {
 }
 '''
     command='\n'.join(common)+r'''
+#include <math.h>
+#include "cogging_calibration.h"
 #include "firmware/communication/protocol/can_motor_status.h"
 typedef unsigned CAN_PARAM_ID;
 #define CAN_SET_STATUS_STREAM 0x64
 #define CAN_GET_STATUS_STREAM 0x65
 #define CAN_GET_PROTOCOL_REVISION 0x67
+#define CAN_GET_COGGING_POINT 0x6B
 #include "firmware/communication/protocol/can_parameter_format.h"
 static float reply;
 static unsigned replies;
@@ -299,7 +302,31 @@ int main(void) {
  puts("PASS heartbeat: timeout, STOP disarms, rearm, disabled, saturation, existing fault preserved");return 0;
 }
 '''
-    fixtures=[('heartbeat',heartbeat,[]),('codec',ROOT/'tests/unit/can_motor_status_test.c',[
+    # Compile the real GET case bodies so a wrong reply ID cannot pass a codec-only test.
+    cases=[]
+    for label in ('CAN_GET_CAN_BR','CAN_GET_CAN_HB'):
+        case=source.split('case '+label+':',1)[1].split('break;',1)[0]
+        cases.append('case '+label+':'+case+'break;')
+    config_get='\n'.join(common)+r'''
+#define CAN_GET_CAN_BR 0x29
+#define CAN_GET_CAN_HB 0x2b
+static struct {unsigned baudrate,can_hb_set;} CANMsg={1000,500};
+static unsigned reply_id,calls;
+static float reply_value;
+static void CAN_SendMessage_Update(unsigned id,float value)
+{reply_id=id;reply_value=value;++calls;}
+static void dispatch(unsigned id) {switch(id) {
+'''+ '\n'.join(cases)+r'''
+}}
+int main(void) {
+ for(unsigned n=0;n<5;++n) {
+  dispatch(CAN_GET_CAN_BR);assert(reply_id==0x29 && reply_value==1000.f);
+  dispatch(CAN_GET_CAN_HB);assert(reply_id==0x2b && reply_value==500.f);
+ }
+ assert(calls==10);puts("PASS production CAN baudrate/heartbeat GET reply IDs");return 0;
+}
+'''
+    fixtures=[('config_get',config_get,[]),('heartbeat',heartbeat,[]),('codec',ROOT/'tests/unit/can_motor_status_test.c',[
         ROOT/'firmware/communication/protocol/can_motor_status.c',ROOT/'firmware/services/telemetry/motor_status.c']),
         ('sampling',sampling,[ROOT/'firmware/services/telemetry/motor_status.c']),('rx',rx,[]),
         ('port',port,[ROOT/'firmware/platform/stm32g4/ports/comm/comm_status_stm32g4.c']),

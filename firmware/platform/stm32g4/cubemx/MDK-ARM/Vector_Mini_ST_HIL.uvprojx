@@ -779,6 +779,16 @@
               <FilePath>..\..\..\..\motor\identification\friction_identification.c</FilePath>
             </File>
             <File>
+              <FileName>cogging_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\cogging_calibration.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_cogging_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\foc_cogging_calibration.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_friction_identification.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\identification\foc_friction_identification.c</FilePath>

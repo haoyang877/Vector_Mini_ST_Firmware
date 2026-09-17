@@ -6,8 +6,10 @@
 #include "position_impedance_config.h"
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
+#include "cogging_calibration.h"
 
-#define PARAM_SCHEMA_VERSION 10U
+#define PARAM_SCHEMA_VERSION 11U
+#define PARAM_SCHEMA_VERSION_LEGACY_COGGING 10U
 #define PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING 9U
 #define PARAM_SCHEMA_VERSION_LEGACY_FRICTION 8U
 #define PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT 7U
@@ -68,6 +70,8 @@ typedef struct
 	uint32_t friction_model_valid;
 	/* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
 	MotorAxisProfile axis_profile;
+	/* Schema v11: complete, independently CRC-checked 1024-point Q15 Iq map. */
+	CoggingMapRecord cogging;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

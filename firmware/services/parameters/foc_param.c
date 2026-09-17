@@ -43,6 +43,7 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
 
 void Param_Return_Default(void)
 {
+	memset(&CoggingMap, 0, sizeof(CoggingMap));
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
 	MotorControl.axis_profile_valid = true;
 	CANMsg.node_id = PARAM_HW_CAN_NODE_ID;
@@ -148,6 +149,11 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
 	param->axis_profile = MotorControl.axis_profile;
+	if ((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+		CoggingMap_Valid(&CoggingMap, Cogging_EncoderSignature(OnBoard_Encoder.reverse,
+			OnBoard_Encoder.electrical_zero_q15, MotorControl.motor_pole_pairs,
+			OnBoard_Encoder.linearization_lut_q15)))
+		param->cogging = CoggingMap;
 }
 
 bool Param_Download(const InterfaceParam_TypeDef *param)
@@ -161,6 +167,7 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 
 	if (param->magic_word != MAGIC_WORD ||
 		(param->schema_version != PARAM_SCHEMA_VERSION &&
+		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_COGGING &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
 		 param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT &&
@@ -172,7 +179,7 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 		return false;
 	}
 	legacy_cascade_parameters = param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE;
-	position_tuning_requires_migration = param->schema_version != PARAM_SCHEMA_VERSION;
+	position_tuning_requires_migration = param->schema_version < PARAM_SCHEMA_VERSION_LEGACY_COGGING;
 	if (param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE)
 		stored_shunt_milliohm = CURRENT_SENSE_SHUNT_2_MILLIOHM;
 	else if (param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE)
@@ -188,9 +195,9 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 
 	/* Resolve axis identity before selecting the node-specific speed ceiling. */
 	CANMsg.node_id = MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id);
-	MotorControl.A_Offset = (uint16_t)param->currentoffset_a;
-	MotorControl.B_Offset = (uint16_t)param->currentoffset_b;
-	MotorControl.C_Offset = (uint16_t)param->currentoffset_c;
+	MotorControl.A_Offset = param->currentoffset_a;
+	MotorControl.B_Offset = param->currentoffset_b;
+	MotorControl.C_Offset = param->currentoffset_c;
 	MotorControl.motor_pole_pairs = (int32_t)param->motor_pole_pairs;
 	MotorControl.motor_phase_resistance = param->motor_phase_resistance;
 	MotorControl.motor_d_inductance = param->motor_d_inductance;
@@ -329,7 +336,15 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
 		&MotorControl.axis_profile);
 	MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);
+	memset(&CoggingMap, 0, sizeof(CoggingMap));
+	if (param->schema_version == PARAM_SCHEMA_VERSION && !current_sense_profile_changed &&
+		param->cogging.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A &&
+		(OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+		CoggingMap_Valid(&param->cogging, Cogging_EncoderSignature(OnBoard_Encoder.reverse,
+			OnBoard_Encoder.electrical_zero_q15, MotorControl.motor_pole_pairs,
+			OnBoard_Encoder.linearization_lut_q15)))
+		CoggingMap = param->cogging;
 	/* Unsupported identity/configuration must not trigger a migration rewrite. */
 	if (!MotorControl.axis_profile_valid) return false;
-	return position_tuning_requires_migration;
+	return param->schema_version != PARAM_SCHEMA_VERSION;
 }

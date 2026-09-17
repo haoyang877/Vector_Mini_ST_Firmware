@@ -23,6 +23,7 @@ PRELUDE = r'''
 #include "bus_voltage_profile.h"
 #define FOC_FREQ 20000U
 #define SENSING_VBUS_FACTOR (3.3f / 4095.0f * 11.0f)
+#define ADC2_SUM_TO_COUNTS .25f
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
 #define ENC_CALIB_ALL 3U
 typedef struct { float Vbus, Vbus_filt; } FOC_TypeDef;
@@ -35,6 +36,8 @@ static FOC_TypeDef FOC;
 static Encoder_TypeDef OnBoard_Encoder;
 static int PI_Speed;
 static void FocFrictionIdentification_Abort(MotorControl_TypeDef *m,int *p) { (void)m;(void)p; }
+static void FocCogging_Abort(void) {}
+static bool FocCogging_CanStart(MotorControl_TypeDef *m,Encoder_TypeDef *e) { (void)m;(void)e; return true; }
 static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { (void)e; return 0; }
@@ -43,8 +46,8 @@ static void Task_Position_Mode_Reset(void) {}
 
 CASES = r'''
 static void input(float v) {
-    adc.JDR4=(uint32_t)roundf(v/SENSING_VBUS_FACTOR);
-    assert(adc.JDR4<=4095);
+    adc.JDR4=(uint32_t)roundf(v/SENSING_VBUS_FACTOR/ADC2_SUM_TO_COUNTS);
+    assert(adc.JDR4<=4*4095);
 }
 static void reset(float v) {
     memset(&MotorControl,0,sizeof(MotorControl));
@@ -59,7 +62,7 @@ int main(void) {
     unsigned k; ModeNow_TypeDef modes[]={Current_Mode,Speed_Mode,Position_Mode,
         Position_Impedance_Mode,Calib_PhaseResistance,Calib_EncoderOffset,
         Calib_EncoderObserver,Calib_EleAngelOffset,Voltage_OpenLoop,Vq_Mode,
-        Sensorless_Speed_Mode,Calib_Friction};
+        Sensorless_Speed_Mode,Calib_Friction,Calib_Anticogging};
     /* Full 8S charge must run beyond both the old 10000-cycle window and
      * the new delays, without inheriting the old 30 V false threshold. */
     running(33.6f);tick(40000);assert(MotorControl.ErrorNow==No_Error);

@@ -9,7 +9,7 @@
 
 #define OFFSET_LUT_NUM              ENCODER_OFFSET_LUT_SIZE
 #define MAX_MOTOR_POLE_PAIRS        20U
-#define COGGING_MAP_NUM             5000U
+#define COGGING_MAP_NUM             1024U
 
 typedef enum
 {

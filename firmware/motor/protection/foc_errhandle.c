@@ -8,6 +8,7 @@
 #include "foc_sensorless.h"
 #include "foc_run.h"
 #include "foc_friction_identification.h"
+#include "foc_cogging_calibration.h"
 #include "bus_voltage_profile.h"
 
 extern MotorControl_TypeDef MotorControl;
@@ -61,6 +62,7 @@ void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
  **/
 void Clear_RunningData(void)
 {
+	if (ModeLast == Calib_Anticogging) FocCogging_Abort();
 	if (ModeLast == Calib_Friction)
 		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
 	MotorControl.idRef		 = 0.0f;
@@ -98,7 +100,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		mode_set == Calib_PhaseResistance || mode_set == Calib_EncoderOffset ||
 		mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
 		mode_set == Voltage_OpenLoop || mode_set == Vq_Mode ||
-		mode_set == Sensorless_Speed_Mode || mode_set == Calib_Friction))
+		mode_set == Sensorless_Speed_Mode || mode_set == Calib_Anticogging || mode_set == Calib_Friction))
 	{
 		if (!isfinite(FOC.Vbus) || !isfinite(FOC.Vbus_filt) ||
 			FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
@@ -128,6 +130,11 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		Set_ErrorNow(MotorParam_Error);
 		return false;
 	}
+	if (mode_set == Calib_Anticogging && !FocCogging_CanStart(&MotorControl, &OnBoard_Encoder))
+	{
+		Set_ErrorNow(CoggingCalibration_Error);
+		return false;
+	}
 	/*motor identification (R/L/flux) is not used any more*/
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;
@@ -139,7 +146,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		  MotorControl.isUseSensorless == false) ||
 		 mode_set == Calib_EncoderOffset ||
 		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
-		 mode_set == Calib_Friction ||
+		 mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
 		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&OnBoard_Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
@@ -160,7 +167,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	/*encoder-based closed-loop control requires calibration*/
 	if(mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
 	   mode_set == Vq_Mode ||
-	   mode_set == Calib_Friction ||
+	   mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
 	  ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
 	   MotorControl.isUseSensorless == false))
 	{
@@ -206,11 +213,20 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	    MotorControl.ModeNow == Voltage_OpenLoop ||
 	    MotorControl.ModeNow == Vq_Mode ||
 	    MotorControl.ModeNow == Sensorless_Speed_Mode ||
-	    MotorControl.ModeNow == Calib_Friction) &&
+	    MotorControl.ModeNow == Calib_Friction ||
+	    MotorControl.ModeNow == Calib_Anticogging) &&
 	    MotorControl.ErrorNow == No_Error)
 	{
 		if(mode_set == Motor_Disable)
 		{
+			if (MotorControl.ModeNow == Calib_Anticogging)
+			{
+				/* ADC control may preempt CAN: publish STOP before clearing the
+				 * session so the owner cannot interpret the cleared state as restart. */
+				MotorControl.ModeNow = mode_set;
+				FocCogging_Abort();
+				return true;
+			}
 			if (MotorControl.ModeNow == Calib_Friction)
 				FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
 			MotorControl.ModeNow = mode_set;

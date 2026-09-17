@@ -88,15 +88,15 @@ int main(void) {
         assert((registers.CFGR2 & ADC_CFGR2_JOVSE) != 0);
         assert((registers.CFGR2 & (ADC_CFGR2_ROVSE | ADC_CFGR2_TROVS)) == 0);
         assert(((registers.CFGR2 & ADC_CFGR2_OVSR) >> ADC_CFGR2_OVSR_Pos) == 1);
-        assert(((registers.CFGR2 & ADC_CFGR2_OVSS) >> ADC_CFGR2_OVSS_Pos) == 2);
+        assert(((registers.CFGR2 & ADC_CFGR2_OVSS) >> ADC_CFGR2_OVSS_Pos) == 0);
         assert((registers.CFGR2 & ADC_CFGR2_GCOMP) != 0);
         assert(registers.JSQR == 0x12345678U); /* adapter keeps sequence */
     }
-    /* All DC codes, including offset and full scale, retain 12-bit units. */
+    /* Sensing converts the unshifted sum to fractional 12-bit parameter units. */
     for (value = 0; value <= 4095; ++value)
-        assert(((value * 4U) >> 2) == value);
-    assert(((2047U + 2048U + 2049U + 2048U) >> 2) == 2048U);
-    puts("PASS ADC2: four ranks, 4x injected-only, /4 scale, repeat init, sequence preserved");
+        assert((float)(value * 4U)*.25f == value);
+    assert((2047U + 2048U + 2049U + 2049U)*.25f == 2048.25f);
+    puts("PASS ADC2: four ranks, 4x injected-only, fractional /4 units, repeat init, sequence preserved");
     return 0;
 }
 '''

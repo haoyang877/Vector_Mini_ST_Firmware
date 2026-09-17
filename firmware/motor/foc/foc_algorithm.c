@@ -311,6 +311,12 @@ void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase)
  **/
 void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel)
 {
+    FOC_CurrentWithReference(FOC, MotorControl, phase, phase_vel, MotorControl->iqRef);
+}
+
+void FOC_CurrentWithReference(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+    float phase, float phase_vel, float iq_reference)
+{
     float max_voltage;
     float voltage_d;
     float voltage_q;
@@ -327,7 +333,7 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
         PI_Controller_Configure(&FOC->iq_pi, MotorControl->iq_Kp, MotorControl->iq_Ki, Current_Ts, -max_voltage, max_voltage);
 
         voltage_d = PI_Controller_Run(&FOC->id_pi, MotorControl->idRef, FOC->Id);
-        voltage_q = PI_Controller_Run(&FOC->iq_pi, MotorControl->iqRef, FOC->Iq);
+        voltage_q = PI_Controller_Run(&FOC->iq_pi, iq_reference, FOC->Iq);
         FOC_SetVoltageModulation(FOC, voltage_d, voltage_q);
 
         PI_Controller_TrackOutput(&FOC->id_pi, FOC->mod_d * FOC->Vbus_filt / 1.5f);

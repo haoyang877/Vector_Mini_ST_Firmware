@@ -5,6 +5,7 @@
 #include "heap.h"
 
 #define PARAM_FLASH_ADDR ADDR_FLASH_PAGE_56
+typedef char ParamRecordFitsReservedFlash[(sizeof(InterfaceParam_TypeDef) <= 0x4000U) ? 1 : -1];
 
 /**
 	* @brief  Get flash page number from address
@@ -67,7 +68,7 @@ bool flash_erase_pages(uint32_t start_addr, uint32_t end_addr)
 	* @param  data: data buffer pointer
 	* @param  size_bytes: byte count to write
  **/
-static void flash_write_data(uint32_t addr, const void *data, uint32_t size_bytes)
+static bool flash_write_data(uint32_t addr, const void *data, uint32_t size_bytes)
 {
 	const uint8_t *bytes = (const uint8_t *)data;
 	uint32_t doubleword_count = (size_bytes + 7U) / 8U;
@@ -81,26 +82,33 @@ static void flash_write_data(uint32_t addr, const void *data, uint32_t size_byte
 		if (copy_size > 8U)
 			copy_size = 8U;
 		memcpy(&value, &bytes[offset], copy_size);
-		(void)HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr + offset, value);
+		if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr + offset, value) != HAL_OK)
+		{
+			HAL_FLASH_Lock();
+			return false;
+		}
 	}
 	HAL_FLASH_Lock();
+	return memcmp((const void *)addr, data, size_bytes) == 0;
 }
 
 /**
 	* @brief  Write interface parameters to flash
  **/
-void flash_write_param(void)
+bool flash_write_param(void)
 {
+	bool written = false;
 	InterfaceParam_TypeDef *param = HEAP_malloc(sizeof(*param));
 	if (param == NULL)
-		return;
+		return false;
 
 	Param_Upload(param);
 	param->magic_word = MAGIC_WORD;
 	if (flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + sizeof(*param) - 1U))
-		flash_write_data(PARAM_FLASH_ADDR, param, sizeof(*param));
+		written = flash_write_data(PARAM_FLASH_ADDR, param, sizeof(*param));
 
 	HEAP_free(param);
+	return written;
 }
 
 /**

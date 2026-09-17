@@ -11,7 +11,7 @@
         <param name="localPort" value=""/>
         <param name="remoteIP" value=""/>
         <param name="remotePort" value=""/>
-        <param name="rttAddr" value="2000507c"/>
+        <param name="rttAddr" value="200069ec"/>
         <param name="rttFreq" value="2000"/>
         <param name="rttInterval" value="5"/>
         <param name="sampleInterval" value="10"/>

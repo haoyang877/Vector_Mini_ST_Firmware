@@ -56,6 +56,7 @@ void BSP1kHzIRQHandler(void)
 				Set_RGB_BreathingColor(PURPLE);
 			break;
 
+			case Calib_Anticogging:
 			case Calib_Friction:
 				Set_RGB_BreathingColor(PURPLE);
 			break;

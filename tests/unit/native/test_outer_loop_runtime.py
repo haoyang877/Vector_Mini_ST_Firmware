@@ -53,6 +53,7 @@ def main():
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
 #include "heap.h"
+#include "cogging_calibration.h"
 #define FOC_CONFIG_NOINLINE
 #define ENCODER_OFFSET_LUT_SIZE 1024U
 typedef struct { float position, speed; } Encoder_TypeDef;

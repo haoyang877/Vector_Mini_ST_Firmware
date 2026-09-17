@@ -91,6 +91,35 @@ int main(void) {
     assert(CANMsg.node_id==4 && MotorControl.speed_limit==.5f*_2PI && MotorControl.speedRef==-.5f*_2PI);
     can_set(CAN_SET_SPEED_LIMIT,20); assert(MotorControl.speed_limit==.5f*_2PI);
     puts("PASS node changes reduce limits and never silently increase a stored lower limit");
+    /* Schema 10 -> 11 preserves tuned gains and encoder calibration, never
+     * interprets the erased old tail as a valid cogging map. */
+    p=saved; p.schema_version=10; p.node_id=1; p.speed_limit=20;
+    p.pos_kp=1.3f; p.pos_ki=.7f; p.pos_kd=.15f; p.speed_kp=.023f;
+    memset(&p.cogging,0xff,sizeof(p.cogging));
+    assert(Param_Download(&p));
+    assert(MotorControl.pos_Kp==1.3f && MotorControl.pos_Ki==.7f && MotorControl.pos_Kd==.15f);
+    assert(MotorControl.speed_Kp==.023f && MotorControl.speed_limit==20);
+    assert(OnBoard_Encoder.electrical_zero_q15==3155 && OnBoard_Encoder.reverse==0);
+    assert(CoggingMap.magic==0);
+    Param_Upload(&p); p.magic_word=MAGIC_WORD;
+    {
+        CoggingCalibration c={0};
+        uint32_t signature=Cogging_EncoderSignature(p.encoder_reverse,p.encoder_electrical_zero_q15,
+            (int32_t)p.motor_pole_pairs,p.encoder_linearization_lut_q15);
+        c.state=COGGING_COMPLETE; c.points_done=2048;
+        c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
+        for(unsigned i=0;i<1024;i++) c.iq_q15[i]=(i&1) ? 123 : -123;
+        assert(CoggingCalibration_Finish(&c,signature,&CoggingMap));
+        Param_Upload(&p); p.magic_word=MAGIC_WORD;
+        memset(&CoggingMap,0,sizeof(CoggingMap));
+        assert(!Param_Download(&p) && CoggingMap_Valid(&CoggingMap,signature));
+        assert(CoggingMap.iq_q15[17]==123);
+        p.cogging.iq_q15[5]^=1;
+        Param_Download(&p); assert(CoggingMap.magic==0);
+        p.cogging.iq_q15[5]^=1; p.encoder_electrical_zero_q15++;
+        Param_Download(&p); assert(CoggingMap.magic==0);
+    }
+    puts("PASS schema migration, Q15 map round trip, corrupt/stale map rejection");
     return 0;
 }
 '''
@@ -114,7 +143,8 @@ def main():
     includes = [str(out)] + [str(ROOT / p) for p in ("firmware/common", "firmware/motor/foc", "firmware/platform/stm32g4/bsp", "firmware/communication")]
     command = cc + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [item for p in includes for item in ("-I", p)]
-    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), "-o", str(exe)]
+    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+                str(ROOT / "firmware/motor/identification/cogging_calibration.c"), "-o", str(exe)]
     logs = []
     for cmd in (command, [str(exe)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

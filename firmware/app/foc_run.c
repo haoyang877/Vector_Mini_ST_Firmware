@@ -8,6 +8,7 @@
 #include "position_impedance.h"
 #include "position_impedance_config.h"
 #include "motor_hw.h"
+#include "foc_cogging_calibration.h"
 
 static void MotorOuterLoop_RequestReset(void);
 
@@ -22,6 +23,7 @@ void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Enc
 {
 	float theta_elec;
 	float vel_elec;
+	if (!FocCogging_TorqueGuard(MotorControl, Encoder)) return;
 
 	if(MotorControl->isUseSensorless == true)
 	{
@@ -34,7 +36,9 @@ void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Enc
 		vel_elec = Encoder_GetEleVel(Encoder);		
 	}
 
-	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
+	FOC_CurrentWithReference(FOC, MotorControl, theta_elec, vel_elec,
+        FocCogging_Apply(MotorControl, Encoder));
+    FocCogging_TorqueObserve(FOC, MotorControl, Encoder);
 }
 
 /**

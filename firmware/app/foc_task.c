@@ -3,6 +3,7 @@
 #include "common_inc.h"
 #include "SEGGER_RTT.h"
 #include "foc_friction_identification.h"
+#include "foc_cogging_calibration.h"
 #include "foc_phase_resistance.h"
 #include "position_cascade.h"
 #include "servo_hil.h"
@@ -322,6 +323,7 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 	       MotorControl->ModeNow == Calib_EncoderObserver ||
 	       MotorControl->ModeNow == Calib_EleAngelOffset ||
 	       MotorControl->ModeNow == Calib_Friction ||
+	       MotorControl->ModeNow == Calib_Anticogging ||
 	       MotorControl->ModeNow == Set_ZeroPosition;
 }
 
@@ -409,6 +411,8 @@ void FOC20kHzIRQHandler(void)
 	}
 	FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
 	MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
+	if (ModeLast == Calib_Anticogging && MotorControl.ModeNow != Calib_Anticogging)
+		FocCogging_Abort();
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
@@ -444,6 +448,10 @@ void FOC20kHzIRQHandler(void)
 
 		case Position_Impedance_Mode:
 			Task_Position_Impedance_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
+		break;
+
+		case Calib_Anticogging:
+			FocCogging_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
 		break;
 
 		case Calib_Friction:
@@ -532,6 +540,9 @@ void FOC20kHzIRQHandler(void)
 	}
 	
 	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable &&
+		MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Default_Param &&
+		MotorControl.ModeNow != Clear_Error && MotorControl.ModeNow != Set_ZeroPosition &&
+		MotorControl.ModeNow != Calib_Anticogging &&
 		MotorControl.axis_profile_valid)
 	{
 		/* The first mode-3 tick validates/initializes the controller while

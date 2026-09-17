@@ -2,6 +2,7 @@
 #define __FLASH_H__
 
 #include "main.h"
+#include <stdbool.h>
 
 #define ADDR_FLASH_PAGE_0     ((uint32_t)0x08000000) /* Base @ of Page 0, 2 Kbytes */
 #define ADDR_FLASH_PAGE_1     ((uint32_t)0x08000800) /* Base @ of Page 1, 2 Kbytes */
@@ -70,7 +71,7 @@
 
 #define MAGIC_WORD  ((uint32_t)0x454E4332U)
 
-void flash_write_param(void);
+bool flash_write_param(void);
 void flash_read_param(void);
 
 #endif

@@ -42,6 +42,8 @@ void Set_C_Duty(float duty);
 
 void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase);
 void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel);
+void FOC_CurrentWithReference(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
+    float phase, float phase_vel, float iq_reference);
 void FOC_CurrentController_Reset(FOC_TypeDef *FOC);
 void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel);
 

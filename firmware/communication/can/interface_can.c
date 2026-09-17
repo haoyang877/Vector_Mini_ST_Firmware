@@ -16,6 +16,7 @@
 #include "can_motor_status.h"
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
+#include "foc_cogging_calibration.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -292,6 +293,10 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		CAN_SendMessage_Update(CAN_GET_STATUS_STREAM, (float)CanMotorStatus_Rate());
 		return;
 	}
+	/* Validate table indexes before the shared float-to-int conversion. */
+	if (param_id == CAN_GET_COGGING_POINT &&
+		(!isfinite(data) || data < 0.0f || data >= (float)COGGING_MAP_POINTS || floorf(data) != data))
+		return;
 	if (!isfinite(data))
 		return;
 
@@ -573,13 +578,33 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 		break;
 		
 		case CAN_SET_COGGING:
-//			if(data_int == 0)
-//				MotorControl.isUseAnticogging = false;
-//			else if(data_int == 1)
-//				MotorControl.isUseAnticogging = true;
+			if (data == 0.0f || data == 1.0f)
+				CoggingCompensation.request = (uint32_t)data; /* CRC validation in foreground */
+		break;
+		case CAN_GET_COGGING_STATE:
+			CAN_SendMessage_Update(param_id, (float)FocCogging_GetState());
+		break;
+		case CAN_GET_COGGING_REASON:
+			CAN_SendMessage_Update(param_id, (float)CoggingCalib.reason);
+		break;
+		case CAN_GET_COGGING_PROGRESS:
+			CAN_SendMessage_Update(param_id, 100.0f * (float)CoggingCalib.points_done /
+				(2.0f * (float)COGGING_MAP_POINTS));
+		break;
+		case CAN_GET_COGGING_POINT:
+			if (isfinite(data) && data >= 0.0f && data < (float)COGGING_MAP_POINTS &&
+				data == (float)data_int)
+				CAN_SendMessage_Update(param_id, FocCogging_TableValid() ?
+					(float)CoggingMap.iq_q15[data_int] : NAN);
+		break;
+		case CAN_GET_COGGING_FULL_SCALE:
+			CAN_SendMessage_Update(param_id, FocCogging_TableValid() ? CoggingMap.full_scale_a : NAN);
+		break;
+		case CAN_GET_COGGING_VALID:
+			CAN_SendMessage_Update(param_id, FocCogging_TableValid() ? 1.0f : 0.0f);
 		break;
 		case CAN_GET_COGGING:
-//			CAN_SendMessage_Update(CAN_GET_COGGING, (float)MotorControl.isUseAnticogging);
+			CAN_SendMessage_Update(CAN_GET_COGGING, (float)CoggingCompensation.enabled);
 		break;
 	
 		case CAN_SET_CAN_BR:
@@ -588,7 +613,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 				CANMsg.baudrate = data_int;
 		break;
 		case CAN_GET_CAN_BR:
-			CAN_SendMessage_Update(CAN_GET_CAN_HB, (float)CANMsg.baudrate);
+			CAN_SendMessage_Update(CAN_GET_CAN_BR, (float)CANMsg.baudrate);
 		break;
 		
 		case CAN_SET_CAN_HB:

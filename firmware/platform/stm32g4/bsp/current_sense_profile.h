@@ -14,6 +14,10 @@
 #endif
 
 #define CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN       10.0f
+/* Bipolar ADC full scale around 1.65 V, distinct from reliable/control limits.
+ * 2 mOhm: +/-82.5 A; 6 mOhm: +/-27.5 A. Q15 tables use 32768 counts/full scale. */
+#define CURRENT_SENSE_PROFILE_FULL_SCALE_A \
+    (1.65f / (CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN * CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM))
 
 #if CURRENT_SENSE_SHUNT_MILLIOHM == CURRENT_SENSE_SHUNT_2_MILLIOHM
 

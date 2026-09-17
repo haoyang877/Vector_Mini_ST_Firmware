@@ -28,6 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "foc_cogging_calibration.h"
 #include "common_inc.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
@@ -117,15 +118,19 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  
 	CAN_SendMessage();
+	FocCogging_Service();
 	  
 	if(Get_ModeNow() == Save_Param)
 	{
+		bool saved;
 		/*disable global interrupt*/
 		__disable_irq();
 		/*write parameters to flash*/
-		flash_write_param();
+		saved = flash_write_param();
 		/*enable global interrupt*/
 		__enable_irq();
+		FocCogging_SaveResult(saved);
+		if (!saved) Set_ErrorNow(MotorParam_Error);
 		                                                                   
 		Set_ModeNow(Motor_Disable);
 	}

@@ -60,6 +60,20 @@ commands require an explicit bench identity, motor profile, image hash, and scen
 - Run `uv run python tools/run.py format --check` and `uv run python tools/run.py lint`;
   the selected verify profile runs both again.
 
+## Simplification, coupling, and reuse
+
+- Before adding code, search for an existing implementation and inspect every affected caller.
+- Prefer deletion, an existing project facility, or the standard library over new code or dependencies.
+- Put behavior in the narrowest layer that owns it; cross-layer access uses documented interfaces.
+- Do not introduce hidden dependencies through mutable globals, implicit initialization order, or
+  direct hardware access outside the platform layer.
+- Reuse only when units, timing, ownership, errors, and safety semantics match. Prefer small obvious
+  duplication over a generic abstraction that hides different behavior.
+- Do not add speculative interfaces, factories, registries, or configuration. A single-implementation
+  interface is justified only by a real hardware boundary, test seam, or stable ABI boundary.
+- Shared code needs real callers and a focused test. Keep substantial behavior-preserving refactors
+  separate from functional changes.
+
 ## Required checks by change
 
 - Documentation/tooling only: quick; use PR profile when harness rules change.

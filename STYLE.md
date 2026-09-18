@@ -72,6 +72,39 @@ a competing formatter configuration. Cross-module interfaces use the `shared` na
 error semantics, and ABI vocabulary. New module build commands must run the root `format --check`
 and `lint` gates rather than defining weaker local equivalents.
 
+## Simplification, coupling, and reuse
+
+Use this order before introducing code or a dependency:
+
+1. Remove behavior that is no longer required.
+2. Reuse an existing repository implementation with the same contract.
+3. Use the language standard library or an already required platform facility.
+4. Add the smallest direct implementation that satisfies the current requirement.
+5. Extract a shared abstraction only after real callers demonstrate the same semantics.
+
+Similar syntax is not sufficient reason to share code. Units, timing, execution context, ownership,
+error handling, persistence, and hardware-safety behavior must also match. If those differ, keep the
+implementations separate or share only the genuinely common data transformation.
+
+Avoid interfaces with one implementation, factories for one product, callback registries for fixed
+control flow, and configuration for values that never vary. Exceptions are real hardware boundaries,
+host-test seams, protocol or persistent ABI boundaries, and safety isolation. Record the reason in the
+interface contract.
+
+For non-trivial changes, review these questions:
+
+1. Which existing implementations and callers were inspected?
+2. What code was removed or reused?
+3. Which layer owns the behavior, and did any dependency direction change?
+4. Does the change add hidden mutable state or initialization-order coupling?
+5. If code was extracted, which real callers share its complete contract?
+6. Could a direct function or data structure replace the new abstraction?
+7. What smallest test protects the behavior and shared contract?
+
+Keep substantial refactoring separate from functional changes so each diff remains independently
+reviewable and reversible. Never simplify away boundary validation, explicit error handling, power
+stage shutdown checks, calibration controls, or bounded real-time behavior.
+
 ## Golden examples
 
 Copy and rename the examples under `templates/` when creating a module or command. The examples are

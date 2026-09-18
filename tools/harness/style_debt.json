@@ -1,0 +1,992 @@
+{
+    "schema_version": 1,
+    "files": {
+        "firmware/app/board_config.c": {
+            "sha256": "55b0d86b29f71bb9fed9ec8e5ce31d0d74a446ca00cf7e93a35f06c5449d0cc9",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/app/bsp_task.c": {
+            "sha256": "736ea742414c294d800bb44e0ce28f678611ff95797287f9de88664734debc4a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/app/common_inc.h": {
+            "sha256": "69d155403f270feda6d085d5414172f6137e3cbf0b53a38b3cae0dafc7b78c37",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/app/foc_run.c": {
+            "sha256": "d35085012b3032ec476cd8b2ddbfc0748de1eab92a84e2293efb639ce0717f93",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/app/foc_run.h": {
+            "sha256": "d30dc2dfcdcf12c523aba7bee5528fbc4b4e8f43698f61a6b1ed3d87f2e3683c",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/app/foc_task.c": {
+            "sha256": "b054b140698930805f6f5bd4fff57f2c8e6b661cf3a2d49223d28126d8cc01b6",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/app/foc_task.h": {
+            "sha256": "17055709f673de0eca07f15700a2e49d38243402015668f1b83202862003c7bf",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/common/heap.c": {
+            "sha256": "de484afccc073aec781f2a5a65cec52995483b702bbd6cfd32145bdbe297ac52",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/common/heap.h": {
+            "sha256": "a809b9517979d2e401482c8b454d1b0ae41cc48390f94d86f0117173e2109fa8",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/common/utils.c": {
+            "sha256": "b7e319c99a65a75653183657edbef0f3ac4420c79de0af97d5d738dc30b117b8",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/common/utils.h": {
+            "sha256": "629221f00b196353b09763ea7280b9dad3d372733dae9b0bd9ffd491cf9d2608",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/communication/can/interface_can.c": {
+            "sha256": "d4eeb409c65bf6b2089302cd547e3a82e5bc0a0ac388ce5bdf9f6380b364597a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/communication/can/interface_can.h": {
+            "sha256": "867e8dc9cc321bd1ca92c4b00c142bd88d0c52dc41f853f09e989bb3e647b6c8",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/communication/protocol/can_motor_status.c": {
+            "sha256": "91d571854c23bb3a2da3ff994da863b9638e4bc0b714239c84c7f1276dcbf928",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/communication/protocol/can_motor_status.h": {
+            "sha256": "9310699cedca789cfa6d0eb5b5d14453602ed2ac0d681ac0a5662f1047266719",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/data_type.h": {
+            "sha256": "7c812ae342785c56b918448599353f55fd86a4bad245f2cadcc5e6f96db2b36e",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/foc/foc_algorithm.c": {
+            "sha256": "29749b453eea85dc25bcd30da8f8cf7471e70e1ed585c497fb785fb6e7129ff5",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/foc/foc_algorithm.h": {
+            "sha256": "a1baa1694aa9064bbfe993d81859426ad68a9458a3f412ba7aecac963bcf03b4",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/foc/foc_pid.c": {
+            "sha256": "8eb7c343c59aa0b4ee4584ad561cfad58bf7e6d4acf85cec6e32d6d00435baa1",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/foc/foc_pid.h": {
+            "sha256": "5a95239b3c29df323e27f7832f709b11f4bba82763e796beffd654c5479246b1",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/foc/foc_sensing.c": {
+            "sha256": "b4315a4807c52f44516dea1154f8894bd8071e4cb5dd383ff721f52e0ddb845c",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/foc/foc_sensing.h": {
+            "sha256": "e46818e5bf74eef441a74958af759b96d08b2a01e764f7504f27ac2a74cbaece",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/foc/foc_sensorless.c": {
+            "sha256": "4eaf57cb636a5ae4ae01194280b5060bc173c2b69184c1ea47d64beb457e51d1",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/foc/foc_sensorless.h": {
+            "sha256": "6cc68974094fc10ae9fba4ffcf3db85b0971929174cb7fbeefa2827e29e248f8",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/foc/mcu_temperature.h": {
+            "sha256": "aa2649b420970b830a31645f3f9b14e6a31446d75f90fefc4d7f6b9054e2595a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/cogging_calibration.c": {
+            "sha256": "ff48479fa1b4a5483d4c3cfc95c7148bd2ca6d8be3e116542bcf200f85685f0b",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/cogging_calibration.h": {
+            "sha256": "e859baf344acdba54e97aead573a5e98753d2d264363b6ef8eb2bece58e89d34",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/identification/foc_calibration.c": {
+            "sha256": "347fb1c2a676b6f49599e077f405b76ec4e6917a5041ad71a7199843ea8a393e",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/foc_calibration.h": {
+            "sha256": "8f4aaa4bbeeb5f0b457ee3986ed9860f69f03e0cc51c90d230d5c0d1d539b3d1",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/foc_cogging_calibration.c": {
+            "sha256": "1558d2a17c3915d3e293f3940a559a244aa64243d69812597484563f8ea7846e",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/foc_cogging_calibration.h": {
+            "sha256": "8a591f325a485c8431f4e42c04799e884b10b106ebfbe74c603b84a54fd39226",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/identification/foc_friction_identification.c": {
+            "sha256": "5a05af087d48363435815625712354377b7e7f1ff65266e08f0134a8c7546970",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/foc_friction_identification.h": {
+            "sha256": "c28fec7a59a79642bf752ad8c8fd7696e86abc62e155401a0b8d9c31ba014454",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/foc_phase_resistance.c": {
+            "sha256": "28a1c5070e1ad583953037d48d595f3b7c5993c1b0fbf020a94b2036efad331c",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/foc_phase_resistance.h": {
+            "sha256": "d85c601924576449653f6abb98f5f399ce7f7ee924f03a35c317ead2cb778cc6",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/friction_identification.c": {
+            "sha256": "ed1e1d642485fc8fcc58af17e7381e0255c5d92182f9e6bf612d31cdf4967dde",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/friction_identification.h": {
+            "sha256": "9c946189513f93d92248c5547da5020a918bcfebbe3783dc890ae7208ac15457",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/phase_resistance.c": {
+            "sha256": "2eef65c0b81f11a862934784942027dfa5a53aa233feaae6cdcb09c7326097d0",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/identification/phase_resistance.h": {
+            "sha256": "225496152e93f25df4140965d5c7923efc547a86a81280f251374761efdb5a7b",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/position/position_cascade.c": {
+            "sha256": "5c06cec779489810b7f13c9d4a51db82f0fce49247d807572cf8e30b5efdba74",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/position/position_cascade.h": {
+            "sha256": "524fcca48a7badff100ebc15ac13dac6ade84ea3e803a507620d786294a9045e",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/position/position_cascade_config.h": {
+            "sha256": "da0452b84eb0ef8918495a405db1542a462516c852a2216b827ae5476b899efd",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/position/position_impedance.c": {
+            "sha256": "7cfd806c73200b90899d28da39cb7f6c8e577057043d3f01c24c68f4a5b3e88a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/position/position_impedance.h": {
+            "sha256": "a86405ca45457340c8ecb324ecfd35b19157482ab033dc1d70529b514d044033",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/position/position_impedance_config.h": {
+            "sha256": "2b91fc589b9d5ed8f9224b2eaaa0a43e02ffc516d06186a93ecf640af0c549e5",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/protection/bus_voltage_profile.h": {
+            "sha256": "8efb2d80a3b6faaadc9e7cd453878d5276502cffd6665bca3e7df35edca72cbe",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/protection/foc_errhandle.c": {
+            "sha256": "c21e9487d4e096e939f5308d828dfa99158f5773321b5734a9f79afd7dfe3174",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/protection/foc_errhandle.h": {
+            "sha256": "b49d078ab2aa144501beb038df364870c0bd250a0de9ff0fa20f2aeb2460abbe",
+            "checks": [
+                "comment-language"
+            ]
+        },
+        "firmware/motor/trajectory/foc_traptraj.c": {
+            "sha256": "34b7062677a7b93136117512cee3364310d6a5e75ccb53c5f258975798711054",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/trajectory/foc_traptraj.h": {
+            "sha256": "6951253bc92993bed232556bf85199e0bb1d483337c8cf9e496f075c2244e65b",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/motor/trajectory/position_smooth_trajectory.c": {
+            "sha256": "428dad2e8676c9aed18fd58fdee70a6c2b92bda6e9f0d586b5aadbd1d984cba7",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/motor/trajectory/position_smooth_trajectory.h": {
+            "sha256": "33d11a7787084ea63bff7f9c7a1e4e16a8465e945856da4138db7c7c313e5ed3",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/platform/api/comm_hw.h": {
+            "sha256": "d29a7985a7b719e97a50bc5a51c33cf119032cc5dad9143dd72ca30b6dd22eb1",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/platform/api/motor_hw.h": {
+            "sha256": "e9adfc3d16554e41032034db02f071d57641c8be9662fa55f77a650795ae7199",
+            "checks": [
+                "comment-language"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/current_sense_profile.h": {
+            "sha256": "0a84c13f922d4e1e3d4b7eb68d40cdbaaa1ccb3907e036bbec8e569562b23bba",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/delay.c": {
+            "sha256": "37b0541158dadbb417f0841850f816512ea8c6553e0ca7bbca2f80514d11b21a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/delay.h": {
+            "sha256": "c768ce9ea0bf7064dfcc7a164d8b3725643117609bb2fb6755956098fd419330",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/encoder.c": {
+            "sha256": "16a2cd92ac91eb654ccc354bc8a6bbc1127467d49cde2bc7c78651ae15e1276b",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/encoder.h": {
+            "sha256": "91c4fd280518d7701c6b1697e40c72b11b9c073ff3335cc0c2e016225fd07f05",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/flash.c": {
+            "sha256": "69305ddd8eeaff0777bd76b1697942f2aefc1525389e51dfef363d9a60df7e39",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/flash.h": {
+            "sha256": "d67d877ac1518e235d9f560ed32c50fde76e76b80f87946797762d085eaae620",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/hw_conf.h": {
+            "sha256": "d50c5342860e0f59f0dc9b3a5c2cdb0f1ce03ae5c26bb14ca1930d19c121895d",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/led.c": {
+            "sha256": "c71d9d34b111248444fb2b16e874108864ae47835fd8b5482758c2d17070e570",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/led.h": {
+            "sha256": "8be6857fd85fe9dc6945e993249d9e9afe2d63723ec6455d7992fb53f5fb8637",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/rgb.c": {
+            "sha256": "5d6b101c88b6e2deea3f27e2b7987d75e9b4f5e719df0ad0ac9666c9610f8248",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/rgb.h": {
+            "sha256": "7cdd4d6bceab631dd9598b14e817bfa7f7b5c1b5608f2d6bd05be7adc9c8ae3a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/ports/comm/comm_status_stm32g4.c": {
+            "sha256": "741c9ffeae0c59042ddbad88eccb4c17324a026ad15af2beac202a080451aaae",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/platform/stm32g4/ports/motor/motor_outer_stm32g4.c": {
+            "sha256": "e8b86aac396fea9bf5d646e38acab1eca52bf0299437bf292cbc182e5092d412",
+            "checks": [
+                "comment-language"
+            ]
+        },
+        "firmware/platform/stm32g4/ports/time/time_stm32g4.c": {
+            "sha256": "005c12ef8bfada89a1b2086d2e89ce1eab5705cd07d9440a790c1af3bfd853d5",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/services/parameters/foc_param.c": {
+            "sha256": "35f369118f7e678887261fa7a4676c7789f781f4820412f5cafa2601707efcea",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/services/parameters/foc_param.h": {
+            "sha256": "115be457cab08494930f8d300891ad5bb595f4e4232d410b4ecc94988f06a9ca",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/services/parameters/foc_param_profile.h": {
+            "sha256": "9261c9be3a7ba3bde4298c05309171bd62987f91add2569661127c8cb269e959",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/services/parameters/motor_axis_profile.c": {
+            "sha256": "3f27a41b8e233f19f8846989b0b6a3e8ce4ac3a4a3dfacefeab446cf0d9869f6",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/services/parameters/motor_axis_profile.h": {
+            "sha256": "8512e9e6c6854e27fd9cfd5d4788fe6cd7f2b0f711ecaea0bedf8859548831cf",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/services/telemetry/fast_loop_profile.h": {
+            "sha256": "bcdb9d64e6383d2327d0d2deeab260eac41f853e279b8467e04f3e332486abdb",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "firmware/services/telemetry/motor_status.c": {
+            "sha256": "d5660673d00f520310f1a43bd040f8dd2ae0ca563d642e85f8431b63ff1b8c71",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "firmware/services/telemetry/motor_status.h": {
+            "sha256": "ad5e738cbd433e5f7aac01ee9757fd5b33731117a1dc8c4434c69ef0c055a6b1",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "tests/hil/firmware/servo_hil.c": {
+            "sha256": "ebcf15bf333ea148414a461e3202872b6e0d4d41f678600bd5a4afc21953770a",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "tests/hil/firmware/servo_hil.h": {
+            "sha256": "4cf1b682ca0920e0efe9e80437f8141285a104d81fa57d9d62fe08ce1d8d639e",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "tests/integration/test_friction_module_boundary.py": {
+            "sha256": "31a51f5b9e9b6a4b1e29ece52b0ad8cccbdbded54b8c5cc5b12b747a7e7755ab",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/integration/test_mode3_validation.py": {
+            "sha256": "86cfa8e9554dd6ad821141263ca980715ec797a0571c7acaa94b5ba3714d887e",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/integration/test_position_servo_boundary.py": {
+            "sha256": "1eb693aa09a9d902ff4a790960c320c9e060152bdc87914f03d30986c94f4920",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/integration/test_rtt_control_telemetry.py": {
+            "sha256": "04df5679179e1b26f20e3af42be5ceb57ac465c541ea6e872f99924bc3c56b4a",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/integration/test_servo_hil_recovery.py": {
+            "sha256": "34da083b9d4d956ba8ed03946d07f120d565c5b4188fc99954a80851270d47d9",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/integration/test_usb_removed.py": {
+            "sha256": "9f1bc57d32d3a24d0189881ddc02acc90a3b8903c6192c3b5d1881a76e2f12a3",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/run.py": {
+            "sha256": "c9230a9a911809cfd6fa432555953fa004b711d42dd01f3dacbf54e48a641559",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/can_motor_status_test.c": {
+            "sha256": "008643c9307dde69c6421bda674bf3f5e54d135f15c0b8592ceacddc4aa00d3b",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "tests/unit/motor_axis_profile_test.c": {
+            "sha256": "815fe2068431020db75b6ab81e09d7636a7b7748943687eb08f98406f7ad6700",
+            "checks": [
+                "c-format"
+            ]
+        },
+        "tests/unit/native/run_can_status_tests.py": {
+            "sha256": "73f9aedfe8c47327a37ed77f9eda392fcb5d8c5f9ec5e4cac1483b925c66bc69",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/run_position_servo_tests.py": {
+            "sha256": "682d8de047617357475f8c2e70d1e26bf3a3d847ac854c3fbaabb1c7c8f71b1a",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_adc_fast_dispatch.py": {
+            "sha256": "53be1c01768efcbc746d5783452b3c8cd58dfa06a4d5af6d01a9cae6c7f35a38",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_bus_voltage_protection.py": {
+            "sha256": "7bb11a1d0680a48c628afb244cfc51cd8d837680ddc28ade73fd6052a08316bb",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_cogging_calibration.py": {
+            "sha256": "6ad1e9f977cc82b629a07cb0449cd0f599a41b91468f3f3580508182532721bd",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_current_oversampling.py": {
+            "sha256": "54b94784f8c815338842d62c85d6242618d3972bcaa45d723834266610f270c3",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_current_precision.py": {
+            "sha256": "7068e157587de2c9a462386e73fdfea740fa8c4448ca5a3be60575c7268307f4",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_encoder_sample_overlap.py": {
+            "sha256": "9c9cd3e333790affc414a165382c4f3f735ff066d74aec3f15c3141d4f90928d",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_fast_loop_math.py": {
+            "sha256": "c0554da4d92a944cfa83391c8df45d801a9136578ef3bb20dc99bb49a68c8977",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_mcu_temperature.py": {
+            "sha256": "8c8916961e4b963c826ecfbe15d343aa25565f0e5cd816b4bb92b58daadfc776",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_outer_loop_runtime.py": {
+            "sha256": "eb1a89da791b8f15dc6e9587669f152db21c4f740b8aa1dae0002b4062a6eeda",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_position_config_cache.py": {
+            "sha256": "43af388bcfb2094fef4d9c15f8101103b59e94106bdd94ca5e018380b40e1fc1",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_position_core_equivalence.py": {
+            "sha256": "9789dcf62fe50931daa24a452a58cdd5ba5a763b79687f338d7a2ff4e8e7a888",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_rtt_calibration.py": {
+            "sha256": "026b0a1784de2da99da81c45e598069cd258a031449f419d5660e3484eb1a7ca",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_sensorless_transitions.py": {
+            "sha256": "18061026cf3e0b0181d432e537ada2ad190b98991908b9a4bdedb2fe39e02632",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_wheel_speed_limits.py": {
+            "sha256": "36e297af6d61a8fe9fbe60f4d37300a1e62c60039bd5d171906f7e5e882a3896",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/position_servo_test.c": {
+            "sha256": "1520ca83462f9a5b904cf508e3343580ed8742a3985e608b01f25a8bbe28d411",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "tests/unit/position_smooth_trajectory_test.c": {
+            "sha256": "4e105b0c4436391c8fe025433dd8452b57f41f7c30535d2842f977ef73d4ab92",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "tests/unit/servo_hil_test.c": {
+            "sha256": "6701bc2480b8e2b9b35a748ed1871218c857150b58196cacc4f8112432a83350",
+            "checks": [
+                "c-format",
+                "c-readability"
+            ]
+        },
+        "tests/unit/test_can_motor_status.py": {
+            "sha256": "daa09eb3bacdb911d6d0bfeb9bb729f7230857f1b6dd33fc09c95e922bd2a0d4",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_can_parameter_protocol.py": {
+            "sha256": "abebfe761372adda2f98c2a493d17f86aa140d03767392dc35a8ff5fbe3cc666",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_canfd_diagnostics.py": {
+            "sha256": "62677e2863b43391f14e878265c48a8bffaeb26efc15ecc1aad8e19dfd1b4f5e",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_dual_axis_can_test.py": {
+            "sha256": "218818617a0bbf7b726834aaf6243ecad5ca9399ce38fb87ccfd00bdc693caff",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_dual_axis_status_analysis.py": {
+            "sha256": "1a44420bdbd13789c7da1cd2489afe93abb89cacbfe18eb69202ee9b1d338ecc",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_dual_axis_status_test.py": {
+            "sha256": "7774e02d1260a06c66830f45deed5b98d836db7aca05f2ce43cd9e94dec32141",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_friction_identification.py": {
+            "sha256": "e93cd830704692a11ab6cd5241b2864bc06697e1cb6a36536b78b178ea26b5be",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_hold_noise_analysis.py": {
+            "sha256": "51384db6a2645bcbd313c00fb4e6d4303691de6a219ca662cc10b32e2f21a2eb",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_motion_noise_analysis.py": {
+            "sha256": "9486437c8107cb44ddfd5e05c821801c4e9f615c1fccbcc69b52311e961bbde5",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_motor_axis_record.py": {
+            "sha256": "9c87ebe4ba4fee3150cb7e3ab95745e0467f8ed871cc0fc80e6d74cbddfad26a",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_positioning_comparison.py": {
+            "sha256": "ccc4a8749d2e480758e4ea32e68847139de1f0a11c41b5a952f22b715cb41d55",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/test_rtt_control_frame.py": {
+            "sha256": "563284f8c9ca2bf42cceff44196486b93940c40da811ad4f3a8ae1bd0a5e73d1",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/analyze_dual_axis_status.py": {
+            "sha256": "d41e9b61e240a8c6534fbb1fac7e1ba8b5183c8611cea21f31ebda8603f7853a",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/analyze_hold_noise.py": {
+            "sha256": "47f5a0ccb3ad240f79a181831d664c92bfb616a798dca7262262105f3ff6fc0b",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/analyze_motion_noise.py": {
+            "sha256": "607c0e1ea1186f2772d6e6dd5fb170ea3312fd8e35779832f99885294486d572",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/analyze_positioning_comparison.py": {
+            "sha256": "2fabb4c446961eb97aa4cb752e843e5e01c3bc26e87cc08fab56acf192b02f8b",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/analyze_servo_hil.py": {
+            "sha256": "426a315fd6037b99f3d649e355ce1cd2677265387f5783fdf5d11f41ade8fab0",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/analyze_servo_landing.py": {
+            "sha256": "c83df7014b97bd0ecd7cef3ab70315e46191bf6a202c7dce4c99ba1e26873f64",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/canfd_sync_budget_reference.py": {
+            "sha256": "00297b87ca489c85c416e3e8f49bebf0f72088009db29baafb3867016c26be30",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/friction_identification.py": {
+            "sha256": "96ed17ac92726de6b8dd5576b729a27b5fdf4dd8a021409570dc92ad18754cf4",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/plot_noise_optimization_report.py": {
+            "sha256": "d1787805ed7d971c03972b20634ab3e5d15d0be8bc8cbb3417c932a64aa96f28",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/plot_servo_hil.py": {
+            "sha256": "4f26de707819fec9951170921cf1c7acb7e6e3fd625a678e0b8cfe7ca1355bdc",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/plot_servo_landing.py": {
+            "sha256": "fa9279181c4fb62c5be65472d8bdebb204f58b6a0b0c51dce002f97c2ebd4b19",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/protocol_vectors_reference.py": {
+            "sha256": "d2160a9dbfa62cc3136e3e3903a6a151bab507747d3568adf48cfeadaedf1036",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/analysis/rtt_control_frame.py": {
+            "sha256": "29ba450dad921df052772cf938d6dd603abf0e068e8dc4532d144f3c7195b914",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/can_motor_status.py": {
+            "sha256": "0d65d797a79bf506b47d3b4494e2c5823ea704ebfd3e380c88f774e347cdde15",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/can_parameter_protocol.py": {
+            "sha256": "b5381122a623555383527ffcfcd9987fa243f4ecd10568ff70a8136da06fc1b6",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/canfd_diagnostics.py": {
+            "sha256": "ba8042cd563e07b5aa2f2dc6239e35ff477561463f6ec2351f4d4ea67302eb04",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/dual_axis_can_test.py": {
+            "sha256": "66e5284b2f511c7a8d3352f4b496e5966f1971f336c19625dfc2bac1f846c3a9",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/dual_axis_status_test.py": {
+            "sha256": "4ce58e56a2f491f9d980ad3c204b9194ebc1fa6805b388ca5b18bbf9d65d2a1a",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/motor_axis_record.py": {
+            "sha256": "37cbb2bc66bab6489f0b6230eee861208ef1b1547c47b611b0c00b168f7a1a21",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/run_mode3_validation.py": {
+            "sha256": "0ba410b3aa9eb33d4e89c700ee505e57175a0dc0c5224af9c6c20f157f25c91b",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/servo_hil_emergency.py": {
+            "sha256": "7c6b6f171f52422838aced79cc110385b5ae082ff86e7144795ee7f42f05c4dc",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/bench/servo_hil_run.py": {
+            "sha256": "f0b9ce65dbf8e269fe73365a98e1d8a6c278ec9b01d5860c488fcb73484eb5bf",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/build/build_firmware.py": {
+            "sha256": "7ba7f373e504f2a88108502e1ef529c647e281c402c4f87eb410cfa8fa7f877a",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/build/check_project_layout.py": {
+            "sha256": "089ba06e9ef331ee2e2ad3fff3fae2419328664cfac3d03f4f4e09a5b5d351cc",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/flash/servo_hil_flash.py": {
+            "sha256": "8dc05ffc122f2f1cc60224bea9adf13e8327714de6ff450b01528149751b742f",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tools/project_paths.py": {
+            "sha256": "393d36ef511d7d056d7203cafd9d500eab13167e4753c7e6cfe87e73d1be79d7",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        }
+    }
+}

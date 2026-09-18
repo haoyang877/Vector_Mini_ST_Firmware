@@ -8,10 +8,10 @@ from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(ROOT / 'outputs/servo_capture_03_pid3_20260908/.plot_deps'))
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -21,8 +21,8 @@ from matplotlib.font_manager import FontProperties
 SESSION = ROOT / 'outputs/hold_noise_20260910/roll_connected'
 OUT = ROOT / 'docs/assets/noise_optimization_20260910'
 OUT.mkdir(parents=True, exist_ok=True)
-FONT = Path('C:/Windows/Fonts/msyh.ttc')
-if FONT.exists():
+FONT = Path(os.environ['HARNESS_CJK_FONT']).expanduser() if os.environ.get('HARNESS_CJK_FONT') else None
+if FONT and FONT.exists():
     matplotlib.rcParams['font.family'] = FontProperties(fname=str(FONT)).get_name()
 matplotlib.rcParams.update({'axes.unicode_minus': False, 'font.size': 10,
     'axes.spines.top': False, 'axes.spines.right': False, 'figure.dpi': 160,

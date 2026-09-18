@@ -147,21 +147,28 @@ def make_plan(profile, out, python_executable=sys.executable):
     if compatible:
         quote = lambda s: "'" + str(s).replace("'", "''") + "'"
         commands = ["# Explicit invocation moves the existing bench motor. No flashing or parameter writes.",
-                    "param([ValidateSet('hold','micro','small','medium','range')][string]$Case = 'small')",
+                    "param([ValidateSet('hold','micro','small','medium','range')][string]$Case = 'small',",
+                    "      [Parameter(Mandatory=$true)][string]$SessionDir,",
+                    "      [Parameter(Mandatory=$true)][string]$FirmwareSha256,",
+                    "      [Parameter(Mandatory=$true)][string]$BenchId)",
                     "$ErrorActionPreference = 'Stop'", f"$taskPython = {quote(python_executable)}",
                     f"$taskBackend = {quote(ROOT / 'tools/bench/servo_hil_run.py')}",
                     "if (!(Test-Path -LiteralPath $taskBackend)) { throw 'Local HIL backend is missing; see docs/guides/mode3_test_plan.md' }",
+                    "& $taskPython " + quote(ROOT / 'tools/run.py') + " doctor --profile hil",
+                    "if ($LASTEXITCODE -ne 0) { throw 'HIL environment preflight failed before probe access' }",
                     "$taskName = 'mode3_' + $Case + '_' + [Guid]::NewGuid().ToString('N')", "switch ($Case) {"]
         r = p["runtime"]
         for case in cases:
             target = ",".join(f"{x:g}" for x in case["targets_deg"])
-            axis_arg = f" --axis-profile {quote(out / 'profile.json')}" if p.get('name') == 'roll' else ""
             commands += [f"  '{case['id']}' {{ & $taskPython $taskBackend --name $taskName --keep-parameters "
+                         f"--session-dir $SessionDir --axis-profile {quote(out / 'profile.json')} "
+                         f"--bench-id $BenchId --scenario motion --expected-firmware-sha256 $FirmwareSha256 "
+                         f"--operator-confirmation POWER_LIMITS_VERIFIED "
                          f"--kp {r['cascade_pos_Kp']} --kd {r['cascade_pos_Kd']} --speed-kp {r['speed_Kp']} "
                          f"--speed-ki {r['speed_Ki']} --max-speed-deg {m['cruise_deg_s']} "
-                         f"'--targets={target}' --seconds {case['seconds_per_target']}{axis_arg} }}"]
+                         f"'--targets={target}' --seconds {case['seconds_per_target']} }}"]
         commands += ["}", "if ($LASTEXITCODE -ne 0) { throw 'HIL run failed; inspect the trial and shutdown state before continuing' }",
-                     f"$taskTrial = Join-Path {quote(ROOT / 'outputs/servo_hil_20260908')} $taskName",
+                     "$taskTrial = Join-Path $SessionDir $taskName",
                      f"& $taskPython {quote(Path(__file__).resolve())} analyze --profile {quote(out / 'profile.json')} --trial $taskTrial --case $Case",
                      "if ($LASTEXITCODE -ne 0) { throw 'Recorded-data acceptance failed' }"]
         (out / "run_bench.ps1").write_text("\n".join(commands) + "\n", encoding="utf-8-sig")
@@ -197,6 +204,13 @@ def analyze_trial(profile, trial_path, case_id=None):
     require(not trial.get("failure"), "trial failure")
     require(trial.get("shutdown_verified") is True and not trial.get("shutdown_error"), "shutdown not verified")
     require(bool(trial.get("image")), "image identity missing")
+    require(trial.get("schema_version") == 1, "HIL evidence schema missing")
+    require(bool(trial.get("bench_id")), "bench identity missing")
+    require(trial.get("scenario") in ("motion", "hold", "timing"), "scenario identity missing")
+    require(trial.get("operator_confirmation") == "POWER_LIMITS_VERIFIED", "operator safety confirmation missing")
+    require(bool(trial.get("motor_profile_sha256")), "motor profile hash missing")
+    require(trial.get("authorized_firmware_sha256") == (trial.get("image") or {}).get("axf_sha256"),
+            "authorized firmware hash differs from captured image identity")
     if "maximum_irq_cycles" in p["acceptance"]:
         deadline = p["acceptance"]["maximum_irq_cycles"]
         for key in ("startup_max_cycles", "max_cycles", "including_stop_max_cycles"):

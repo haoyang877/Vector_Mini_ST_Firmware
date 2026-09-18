@@ -15,6 +15,7 @@ import ctypes
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import sys
 import time
@@ -75,8 +76,11 @@ def main():
     ap.add_argument('case',choices=['preflight','hold','small','same','opposite','sine01','sine02'])
     ap.add_argument('--out',type=Path,required=True)
     ap.add_argument('--centers',type=Path,help='Verified preflight run.json')
-    ap.add_argument('--adapter-root',type=Path,default=Path('D:/Work/Code/motor_ctrl_app'))
+    ap.add_argument('--adapter-root',type=Path,
+                    default=Path(os.environ['MOTOR_CTRL_APP_ROOT']) if os.environ.get('MOTOR_CTRL_APP_ROOT') else None)
     args = ap.parse_args()
+    if args.adapter_root is None:
+        ap.error('--adapter-root or MOTOR_CTRL_APP_ROOT is required; no CAN adapter was opened')
     if args.case != 'preflight' and not args.centers: ap.error('--centers required for motion')
     sys.path.insert(0,str(args.adapter_root.resolve()))
     from pc_replay.canfd import CanFD

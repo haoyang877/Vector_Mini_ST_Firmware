@@ -9,7 +9,7 @@
 依赖Python 3.10+和C99编译器（Zig、GCC或Clang）。默认不需要NumPy、Keil或J-Link；只有旧数据重放功能需要NumPy。在仓库根目录执行：
 
 ```powershell
-python tools/bench/run_mode3_validation.py host --cc 'C:/path/to/zig.exe'
+python tools/bench/run_mode3_validation.py host --cc <zig-executable>
 ```
 
 也可将编译器路径放入环境变量 `SERVO_CC`，或将编译器加入PATH后省略 `--cc`。每次在 `outputs/mode3_validation/host_<时间>/` 新建目录，保留 `result.json`、Git版本/工作区状态、核心文件哈希及每步日志。目录已存在会拒绝覆盖。退出码0为通过，非0为失败；这不是实机验收。
@@ -17,7 +17,7 @@ python tools/bench/run_mode3_validation.py host --cc 'C:/path/to/zig.exe'
 只运行原生C回归：
 
 ```powershell
-python tests/unit/native/run_position_servo_tests.py --cc 'C:/path/to/zig.exe' --out outputs/mode3_native
+python tests/unit/native/run_position_servo_tests.py --cc <zig-executable> --out outputs/mode3_native
 ```
 
 | 编号 | 主机用例 | 覆盖/判据 |
@@ -70,7 +70,7 @@ python tools/bench/run_mode3_validation.py plan --profile tests/hil/profiles/mod
 
 每次只执行一个用例，调用既有 `servo_hil_run.py --keep-parameters`，试验名称唯一。成功停机后自动执行数据验收；任一步失败返回非0，先检查失败记录和停机状态，再继续。脚本不烧写固件、不保存Flash，也不主动修改RAM增益；后端会核对位置/速度增益及巡航速度。电流上限、加减速度、编译宏、摩擦模型仍需核对实际板卡，不能只相信JSON。
 
-**台架依赖边界：** 现有后端 `tools/bench/servo_hil_run.py`、`servo_hil_emergency.py` 随本次源码提交提供，当前实现绑定STM32G431CB、J-Link序号602722271、SEGGER V9.64 DLL及 `outputs/servo_hil_20260908/` 会话目录。其中需要匹配已装载HIL固件的 `symbols.json`、`member_offsets.json`、`active_image.json` 和本地pylink依赖。依赖及会话文件不随源码分发；全新checkout需先配置匹配的台架环境，不能只凭源码直接驱动电机。缺少后端时生成脚本会明确报错，不能伪称实机验证通过。
+**台架依赖边界：** 现有后端 `tools/bench/servo_hil_run.py`、`servo_hil_emergency.py` 随源码提交提供，目标为STM32G431CB。J-Link DLL、探针序列号和工作台标识必须通过 `JLINK_DLL`、`JLINK_PROBE_SERIAL`、`VECTOR_BENCH_ID` 或等价命令行参数显式配置；运行还必须给出会话目录、电机轴配置、场景、预期固件 SHA-256，并显式传入 `--operator-confirmation POWER_LIMITS_VERIFIED`，确认物理隔离、限位和急停条件。其中需要匹配已装载HIL固件的 `symbols.json`、`member_offsets.json`、`active_image.json` 和参数备份。先运行 `python tools/run.py doctor --profile hil`；该命令只检查环境，不连接探针。缺少任一上下文时后端会在打开探针前失败，不能伪称实机验证通过。
 
 现有HIL板端目标/保护边界为±85°/±90°，主机位置停止阈值±88°，速度停止阈值主机85°/s、板端90°/s，主机采样Iq停止阈值4 A，心跳500 ms。改变机械可动范围或更换电机后必须适配主机和板端保护，不能仅修改JSON就认为保护已更新。因此非当前台架配置只生成动作表；可在对应设备已验证的控制入口执行这些目标，再接入相同数据验收。
 

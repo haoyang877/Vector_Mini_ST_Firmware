@@ -43,7 +43,7 @@ python tools/run.py --list
 python tools/run.py check_project_layout
 python tools/run.py build_firmware --target all
 python tests/run.py
-python tests/run.py --cc 'C:/path/to/zig.exe'
+uv run python tools/run.py verify --profile pr
 ```
 
 统一 CLI 根据名称定位工具，不要求依赖当前工作目录。各目录内脚本也可直接运行。

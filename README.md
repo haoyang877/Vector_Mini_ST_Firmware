@@ -24,11 +24,25 @@ Keil 工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`，
 普通/HIL 构建产物输出到 `outputs/build/keil/`。
 
 ```powershell
+python -m pip install uv==0.12.16
+uv sync --locked --extra dev
+uv run python tools/run.py doctor --profile pr
+uv run python tools/run.py verify --profile pr
+
+# 兼容的底层入口仍然可用
 python tools/run.py --list
 python tools/run.py check_project_layout
 python tools/run.py build_firmware
 python tests/run.py
 ```
+
+统一验证会在 `outputs/runs/<run-id>/summary.json` 留下与 Git 提交、工具版本和产物哈希
+绑定的证据。`quick` 与 `pr` 完全离线；`release` 只构建、不烧录；HIL 必须显式选择工作台、
+电机配置、镜像哈希和场景。项目协作约定见 [AGENTS.md](AGENTS.md)，架构地图见
+[ARCHITECTURE.md](ARCHITECTURE.md)，文档入口见 [docs/README.md](docs/README.md)。
+
+代码风格和可读性规则见 [STYLE.md](STYLE.md)。新 C 模块和 Python 命令应从持续接受
+CI 检查的 [templates](templates/README.md) 示例开始，再按模块职责进行重命名和裁剪。
 
 详细目录与验证结果见 [代码框架与目录规范](docs/architecture/code_structure.md)，
 后续 Loader 与 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/README.md)、

@@ -15,6 +15,7 @@ import ctypes
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import struct
 import sys
@@ -23,11 +24,15 @@ from servo_hil_emergency import disable_outputs
 from motor_axis_record import decode as decode_axis_record
 
 OUT = ROOT / 'outputs/servo_hil_20260908'
-sys.path.insert(0, str(OUT / '.deps'))
 try:
     import pylink
 except ImportError:
     pylink = None  # Offline tests can import the module without the bench dependency.
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
 
 
 def wait_for_rtt(probe, timeout_s=2.0):
@@ -60,6 +65,16 @@ def main():
         raise RuntimeError('Bench safety checks require Python without -O/-OO')
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--name', required=True)
+    p.add_argument('--bench-id', default=os.environ.get('VECTOR_BENCH_ID'))
+    p.add_argument('--scenario', required=True, choices=('motion', 'hold', 'timing'))
+    p.add_argument('--operator-confirmation', required=True, choices=('POWER_LIMITS_VERIFIED',),
+                   help='Confirms physical isolation, limits, and emergency-stop readiness')
+    p.add_argument('--expected-firmware-sha256', required=True,
+                   help='Expected SHA-256 of the active HIL AXF')
+    p.add_argument('--jlink-dll', type=Path,
+                   default=Path(os.environ['JLINK_DLL']) if os.environ.get('JLINK_DLL') else None)
+    p.add_argument('--probe-serial', type=int,
+                   default=int(os.environ['JLINK_PROBE_SERIAL']) if os.environ.get('JLINK_PROBE_SERIAL') else None)
     p.add_argument('--kp', type=float, default=8.0)
     p.add_argument('--kd', type=float, default=2.0)
     p.add_argument('--speed-kp', type=float, default=.5)
@@ -67,9 +82,9 @@ def main():
     p.add_argument('--max-speed-deg', type=float, default=45)
     p.add_argument('--targets', default='0,5,0,-5,0')
     p.add_argument('--seconds', type=float, default=6)
-    p.add_argument('--axis-profile', type=Path,
+    p.add_argument('--axis-profile', type=Path, required=True,
                    help='Verify persisted roll/pitch record and enforce its narrower host travel limits')
-    p.add_argument('--session-dir', type=Path,
+    p.add_argument('--session-dir', type=Path, required=True,
                    help='Separate image/symbol/parameter metadata and captures for this motor')
     p.add_argument('--keep-parameters', action='store_true',
                    help='Verify expected RAM gains and run without writing tuning parameters')
@@ -94,49 +109,76 @@ def main():
     p.add_argument('--swd-speed-khz', type=int, choices=(1000, 2000, 4000), default=4000,
                    help='J-Link debug clock only; does not change firmware or encoder SPI clocks')
     args = p.parse_args()
+    if not args.bench_id:
+        p.error('--bench-id or VECTOR_BENCH_ID is required; no probe was opened')
+    if not args.jlink_dll or not args.jlink_dll.is_file():
+        p.error('--jlink-dll or JLINK_DLL must identify JLink_x64.dll; no probe was opened')
+    if args.probe_serial is None:
+        p.error('--probe-serial or JLINK_PROBE_SERIAL is required; no probe was opened')
+    if args.scenario == 'hold' and not args.arm_only:
+        p.error('--scenario hold requires --arm-only')
+    if args.scenario == 'timing' and not args.profile_timing:
+        p.error('--scenario timing requires --profile-timing')
+    if args.scenario == 'motion' and args.arm_only:
+        p.error('--scenario motion cannot use --arm-only')
     hold_filter_sequence = ([] if args.hold_filter_sequence is None else
                             [int(x) for x in args.hold_filter_sequence.split(',')])
-    assert args.hold_filter_sequence is None or (args.arm_only and
-        1 <= len(hold_filter_sequence) <= 12 and all(x in (0, 1, 2) for x in hold_filter_sequence))
-    assert not hold_filter_sequence or args.hold_filter_setting is None
+    require(args.hold_filter_sequence is None or (args.arm_only and
+        1 <= len(hold_filter_sequence) <= 12 and all(x in (0, 1, 2) for x in hold_filter_sequence)),
+        'hold filter sequence requires ARM-only and 1..12 values from 0,1,2')
+    require(not hold_filter_sequence or args.hold_filter_setting is None,
+            'sequence and single hold-filter setting are mutually exclusive')
     filter_requests = hold_filter_sequence or ([] if args.hold_filter_setting is None else [args.hold_filter_setting])
-    assert not args.keep_final_hold_filter or filter_requests
-    assert not args.keep_final_base_filter or args.base_filter_setting is not None
-    assert args.profile_stage is None or args.profile_timing
+    require(not args.keep_final_hold_filter or filter_requests, 'keeping HOLD filter requires a requested setting')
+    require(not args.keep_final_base_filter or args.base_filter_setting is not None,
+            'keeping base filter requires a requested setting')
+    require(args.profile_stage is None or args.profile_timing, 'profile stage requires profile timing')
     if pylink is None:
         p.error('Install pylink-square in the bench Python environment; no probe was opened')
-    session = args.session_dir.resolve() if args.session_dir else OUT
+    session = args.session_dir.resolve()
     targets = [] if args.arm_only else [float(x) for x in args.targets.split(',')]
-    axis_profile = json.loads(args.axis_profile.read_text(encoding='utf-8')) if args.axis_profile else None
+    axis_profile = json.loads(args.axis_profile.read_text(encoding='utf-8'))
     target_low, target_high, stop_low, stop_high, stop_current = -85.0, 85.0, -88.0, 88.0, 4.0
     if axis_profile:
         motion = axis_profile['motion']
         margin = motion['target_margin_deg']
-        assert math.isfinite(margin) and margin > 0
+        require(math.isfinite(margin) and margin > 0, 'axis target margin must be finite and positive')
         target_low = motion['minimum_deg'] + margin
         target_high = motion['maximum_deg'] - margin
-        assert -85 <= target_low < target_high <= 85
+        require(-85 <= target_low < target_high <= 85, 'axis target envelope exceeds host safety range')
         stop_low = max(-88, motion['minimum_deg'] + min(2, margin / 2))
         stop_high = min(88, motion['maximum_deg'] - min(2, margin / 2))
-        assert stop_low < target_low < target_high < stop_high
+        require(stop_low < target_low < target_high < stop_high, 'invalid target/stop envelope ordering')
         stop_current = min(6.0 if args.phase_burst else 4.0, axis_profile['acceptance']['maximum_iq_A'])
-        assert math.isfinite(stop_current) and stop_current > 0
-        assert args.max_speed_deg <= motion['cruise_deg_s'] <= 45
+        require(math.isfinite(stop_current) and stop_current > 0, 'invalid current stop threshold')
+        require(args.max_speed_deg <= motion['cruise_deg_s'] <= 45, 'requested speed exceeds axis profile')
         if 'test_cruise_deg_s' in motion:
-            assert math.isclose(args.max_speed_deg, motion['test_cruise_deg_s'], abs_tol=1e-6)
-    assert all(target_low <= x <= target_high for x in targets)
-    assert not args.phase_burst or axis_profile is not None
-    assert all(math.isfinite(x) and abs(x) <= 85 for x in targets)
-    assert math.isfinite(args.max_speed_deg) and 0 < args.max_speed_deg <= 45
-    assert 1 <= args.seconds <= 20
+            require(math.isclose(args.max_speed_deg, motion['test_cruise_deg_s'], abs_tol=1e-6),
+                    'requested speed differs from the profile test speed')
+    require(all(target_low <= x <= target_high for x in targets), 'target exceeds axis profile envelope')
+    require(not args.phase_burst or axis_profile is not None, 'phase burst requires an axis profile')
+    require(all(math.isfinite(x) and abs(x) <= 85 for x in targets), 'target is nonfinite or exceeds host range')
+    require(math.isfinite(args.max_speed_deg) and 0 < args.max_speed_deg <= 45, 'invalid host speed limit')
+    require(1 <= args.seconds <= 20, 'segment duration must be 1..20 seconds')
     destination = session / args.name
     destination.mkdir(exist_ok=False)
+    image_metadata = json.loads((session/'active_image.json').read_text())
+    authorized_axf = session/image_metadata['directory']/'Vector_Mini_ST.axf'
+    authorized_sha256 = hashlib.sha256(authorized_axf.read_bytes()).hexdigest()
+    if authorized_sha256 != image_metadata['axf_sha256'] or authorized_sha256 != args.expected_firmware_sha256.lower():
+        message = ('active image metadata hash is stale' if authorized_sha256 != image_metadata['axf_sha256']
+                   else 'active HIL image differs from explicit firmware authorization')
+        (destination/'preflight_failure.json').write_text(json.dumps(dict(
+            schema_version=1, bench_id=args.bench_id, scenario=args.scenario,
+            operator_confirmation=args.operator_confirmation, hardware_contacted=False,
+            failure=message, expected_firmware_sha256=args.expected_firmware_sha256.lower(),
+            actual_firmware_sha256=authorized_sha256), indent=2))
+        raise RuntimeError(message)
     symbols = json.loads((session / 'symbols.json').read_text())
     base = symbols['servo_hil_mailbox']
     desc = symbols['_SEGGER_RTT'] + 24 + 24
     events, polls = [], []
-    j = pylink.JLink(lib=pylink.library.Library(
-        dllpath='C:/Program Files/SEGGER/JLink_V964/JLink_x64.dll'))
+    j = pylink.JLink(lib=pylink.library.Library(dllpath=str(args.jlink_dll.resolve())))
     seq = 0
     heartbeat = 100
     beginning = time.monotonic()
@@ -156,22 +198,24 @@ def main():
         metadata = json.loads((session/'active_image.json').read_text())
         image_dir = session/metadata['directory']
         axf = image_dir/'Vector_Mini_ST.axf'
-        assert hashlib.sha256(axf.read_bytes()).hexdigest() == metadata['axf_sha256']
+        require(hashlib.sha256(axf.read_bytes()).hexdigest() == metadata['axf_sha256'],
+                'profile image hash differs from active metadata')
         flash = bytes(j.memory_read8(0x08000000, 0x20000))
         address_base, verified = 0, 0
         for line in axf.with_suffix('.hex').read_text().splitlines():
             record = bytes.fromhex(line[1:])
-            assert sum(record) % 256 == 0
+            require(sum(record) % 256 == 0, 'invalid profile-image HEX checksum')
             size, offset, kind = record[0], int.from_bytes(record[1:3], 'big'), record[3]
             if kind == 4:
                 address_base = int.from_bytes(record[4:6], 'big') << 16
             elif kind == 0:
                 start = address_base + offset - 0x08000000
-                assert 0 <= start and start + size <= 0x1c000
-                assert flash[start:start+size] == record[4:4+size], 'installed image differs'
+                require(0 <= start and start + size <= 0x1c000, 'profile image overlaps parameters or target bounds')
+                require(flash[start:start+size] == record[4:4+size], 'installed image differs')
                 verified += size
-        assert verified > 0
-        assert flash[0x1c000:] == (session/'expected_parameters.bin').read_bytes()
+        require(verified > 0, 'profile image contains no verified load bytes')
+        require(flash[0x1c000:] == (session/'expected_parameters.bin').read_bytes(),
+                'live parameters differ from authorized backup')
         return flash
 
     def profile_snapshot(stage_address=None):
@@ -191,7 +235,7 @@ def main():
     def snapshot():
         b = struct.pack('<14I', *j.memory_read32(base, 14))
         x = struct.unpack('<III f IIIII fff II', b)
-        assert x[0] == 0x48494c31, 'wrong firmware mailbox'
+        require(x[0] == 0x48494c31, 'wrong firmware mailbox')
         return dict(ack=x[5], result=x[6], active=x[7], tick=x[8],
                     position=x[9], speed=x[10], iq=x[11], mode=x[12], error=x[13])
 
@@ -217,7 +261,7 @@ def main():
             if x['ack'] == seq:
                 events.append(dict(time=time.monotonic()-beginning, frame=len(raw)//24,
                                    opcode=op, value=value, **x))
-                assert x['result'] == 0, ('command rejected', op, x)
+                require(x['result'] == 0, f'command rejected: opcode={op}, snapshot={x}')
                 return x
             time.sleep(.002)
         raise RuntimeError('command acknowledgement timeout')
@@ -233,11 +277,11 @@ def main():
             now = time.monotonic()
             if x['tick'] != last_tick:
                 last_tick, last_tick_time = x['tick'], now
-            assert now - last_tick_time < .1, ('control tick stalled for 100 ms', x)
-            assert not x['error'] and x['active'] and x['mode'] == 3, ('stopped/fault', x)
-            assert math.radians(stop_low) < x['position'] < math.radians(stop_high), ('host position stop', x)
-            assert abs(x['speed']) < math.radians(85), ('host speed stop', x)
-            assert abs(x['iq']) < stop_current, ('host current stop', x)
+            require(now - last_tick_time < .1, f'control tick stalled for 100 ms: {x}')
+            require(not x['error'] and x['active'] and x['mode'] == 3, f'stopped/fault: {x}')
+            require(math.radians(stop_low) < x['position'] < math.radians(stop_high), f'host position stop: {x}')
+            require(abs(x['speed']) < math.radians(85), f'host speed stop: {x}')
+            require(abs(x['iq']) < stop_current, f'host current stop: {x}')
             time.sleep(.006)
 
     failure = None
@@ -246,10 +290,10 @@ def main():
     shutdown_verified = False
     try:
         ctypes.windll.winmm.timeBeginPeriod(1)
-        j.open(602722271)
+        j.open(args.probe_serial)
         j.set_tif(pylink.enums.JLinkInterfaces.SWD)
         j.connect('STM32G431CB', speed=args.swd_speed_khz)
-        assert not j.halted()
+        require(not j.halted(), 'CPU must be running before HIL preflight')
         if args.profile_timing:
             verified_flash = verify_profile_image()
         command_channel_ready = True
@@ -257,13 +301,14 @@ def main():
         command(1)
         time.sleep(.02)
         x = snapshot()
-        assert x['mode'] == 0 and not x['error']
+        require(x['mode'] == 0 and not x['error'], 'firmware must be disabled and fault-free before ARM')
         phase_guard = read_phase_guard(j, symbols)
         if args.phase_burst:
-            assert phase_guard is not None and phase_guard['magic'] == 0x48494331, 'board phase guard missing'
-            assert phase_guard['maximum_phase_A'] == 6.0 and phase_guard['exposure_threshold_A'] == 4.0
-            assert phase_guard['exposure_limit_us'] == 30000000, 'wrong board burst-time guard'
-        assert abs(x['position']) <= math.radians(85)
+            require(phase_guard is not None and phase_guard['magic'] == 0x48494331, 'board phase guard missing')
+            require(phase_guard['maximum_phase_A'] == 6.0 and phase_guard['exposure_threshold_A'] == 4.0,
+                    'wrong board phase-current guard')
+            require(phase_guard['exposure_limit_us'] == 30000000, 'wrong board burst-time guard')
+        require(abs(x['position']) <= math.radians(85), 'initial position exceeds host range')
         specs = [('cascade_pos_Kp',4,args.kp), ('cascade_pos_Kd',8,args.kd),
                  ('speed_Kp',5,args.speed_kp), ('speed_Ki',6,args.speed_ki),
                  ('pos_maxspeed',7,math.radians(args.max_speed_deg))]
@@ -272,32 +317,37 @@ def main():
                 command(op, value)
         offsets = json.loads((session/'member_offsets.json').read_text())['MotorControl_TypeDef']
         if args.base_filter_setting is not None:
-            assert 'position_velocity_filter_half_cutoff' in offsets, 'image does not support base filter comparison'
+            require('position_velocity_filter_half_cutoff' in offsets, 'image does not support base filter comparison')
             base_filter_supported = True
         if filter_requests:
-            assert 'position_hold_filter_bypass' in offsets, 'image does not support live HOLD A/B'
+            require('position_hold_filter_bypass' in offsets, 'image does not support live HOLD A/B')
             if 2 in filter_requests:
-                assert 'position_hold_filter_half_cutoff' in offsets, 'image does not support half-cutoff comparison'
+                require('position_hold_filter_half_cutoff' in offsets, 'image does not support half-cutoff comparison')
             hold_filter_supported = True
         if axis_profile:
             motor_address = symbols['MotorControl']
-            assert j.memory_read8(motor_address + offsets['axis_profile_valid'], 1)[0] == 1
+            require(j.memory_read8(motor_address + offsets['axis_profile_valid'], 1)[0] == 1,
+                    'persisted axis profile is not valid')
             axis = decode_axis_record(bytes(j.memory_read8(motor_address + offsets['axis_profile'], 32)))
-            assert axis['name'] == axis_profile['name'], ('wrong persisted motor axis', axis)
+            require(axis['name'] == axis_profile['name'], f'wrong persisted motor axis: {axis}')
             for actual_key, expected_key in [('minimum_deg', 'minimum_deg'),
                                              ('maximum_deg', 'maximum_deg'),
                                              ('maximum_speed_deg_s', 'cruise_deg_s')]:
-                assert math.isclose(axis[actual_key], motion[expected_key], abs_tol=1e-4), ('wrong axis envelope', axis)
-            assert math.radians(target_low) <= x['position'] <= math.radians(target_high)
+                require(math.isclose(axis[actual_key], motion[expected_key], abs_tol=1e-4),
+                        f'wrong axis envelope: {axis}')
+            require(math.radians(target_low) <= x['position'] <= math.radians(target_high),
+                    'initial position is outside the profiled target envelope')
             for key, expected in [('current_limit', axis_profile['runtime']['current_limit_A']),
                                   ('posAcc', math.radians(motion['acceleration_deg_s2'])),
                                   ('posDec', math.radians(motion['stored_deceleration_deg_s2']))]:
                 actual = struct.unpack('<f', bytes(j.memory_read8(motor_address + offsets[key], 4)))[0]
-                assert math.isclose(actual, expected, abs_tol=1e-6), ('unexpected axis parameter', key, actual, expected)
+                require(math.isclose(actual, expected, abs_tol=1e-6),
+                        f'unexpected axis parameter: {key}={actual}, expected {expected}')
         for key, _, value in specs:
             bits = j.memory_read32(symbols['MotorControl']+offsets[key],1)[0]
             actual = struct.unpack('<f',struct.pack('<I',bits))[0]
-            assert math.isclose(actual,value,abs_tol=1e-6), ('unexpected gain',key,actual,value)
+            require(math.isclose(actual,value,abs_tol=1e-6),
+                    f'unexpected gain: {key}={actual}, expected {value}')
             runtime_parameters[key] = actual
         # Flush stale bytes to the producer's complete-frame boundary.
         wr = j.memory_read32(desc + 12, 1)[0]
@@ -319,16 +369,19 @@ def main():
         if filter_requests:
             selection = filter_requests[0]
             command(9, float(selection))
-            assert j.memory_read8(symbols['MotorControl'] +
-                offsets['position_hold_filter_bypass'], 1)[0] == int(selection == 0)
+            require(j.memory_read8(symbols['MotorControl'] +
+                offsets['position_hold_filter_bypass'], 1)[0] == int(selection == 0),
+                'HOLD filter selection readback differs')
             if 'position_hold_filter_half_cutoff' in offsets:
-                assert j.memory_read8(symbols['MotorControl'] +
-                    offsets['position_hold_filter_half_cutoff'], 1)[0] == int(selection == 2)
+                require(j.memory_read8(symbols['MotorControl'] +
+                    offsets['position_hold_filter_half_cutoff'], 1)[0] == int(selection == 2),
+                    'HOLD half-cutoff selection readback differs')
             runtime_parameters['hold_filter_setting'] = selection
         if base_filter_supported:
             command(10, float(args.base_filter_setting))
-            assert j.memory_read8(symbols['MotorControl'] +
-                offsets['position_velocity_filter_half_cutoff'], 1)[0] == args.base_filter_setting
+            require(j.memory_read8(symbols['MotorControl'] +
+                offsets['position_velocity_filter_half_cutoff'], 1)[0] == args.base_filter_setting,
+                'base-filter selection readback differs')
             runtime_parameters['base_filter_setting'] = args.base_filter_setting
         command(2)
         armed = True
@@ -356,11 +409,11 @@ def main():
                     command(9, float(enabled))
                     actual = j.memory_read8(symbols['MotorControl'] +
                         offsets['position_hold_filter_bypass'], 1)[0]
-                    assert actual == int(enabled == 0), 'HOLD filter request readback differs'
+                    require(actual == int(enabled == 0), 'HOLD filter request readback differs')
                     if 'position_hold_filter_half_cutoff' in offsets:
                         actual_half = j.memory_read8(symbols['MotorControl'] +
                             offsets['position_hold_filter_half_cutoff'], 1)[0]
-                        assert actual_half == int(enabled == 2), 'HOLD cutoff request readback differs'
+                        require(actual_half == int(enabled == 2), 'HOLD cutoff request readback differs')
                     print({0: 'A: HOLD FILTER OFF', 1: 'B: DEFAULT HOLD CUTOFF',
                            2: 'C: HALF HOLD CUTOFF'}[enabled] +
                           ' for ' + str(args.seconds) + ' seconds', flush=True)
@@ -375,7 +428,7 @@ def main():
                 count_low = b['count_before'] - a['count_after']
                 count_high = b['count_after'] - a['count_before']
                 cycles = b['total_cycles'] - a['total_cycles']
-                assert 0 < count_low <= count_high and cycles > 0
+                require(0 < count_low <= count_high and cycles > 0, 'invalid stage timing counters')
                 timing['stage_average_us_bounds'] = [cycles/count_high/170, cycles/count_low/170]
                 timing['stage_min_max_cycles'] = j.memory_read32(stage_address + 16, 2)
             timing['profile_after'] = profile_snapshot()
@@ -383,7 +436,7 @@ def main():
             count_low = b['count_before'] - a['count_after']
             count_high = b['count_after'] - a['count_before']
             cycles = b['total_cycles'] - a['total_cycles']
-            assert 0 < count_low <= count_high and cycles > 0, 'counter reset or wrap'
+            require(0 < count_low <= count_high and cycles > 0, 'counter reset or wrap')
             timing['average_us_bounds'] = [cycles/count_high/170, cycles/count_low/170]
             for key in ['hil_profile_min_cycles', 'hil_profile_interval_min_cycles',
                         'hil_profile_interval_max_cycles']:
@@ -403,19 +456,22 @@ def main():
                 command(1)
                 time.sleep(.03)
                 final = snapshot()
-                assert final['mode'] == 0 and not final['active']
-                assert j.memory_read32(0x40012c20,1)[0] & 0x555 == 0
+                require(final['mode'] == 0 and not final['active'], 'STOP did not disable HIL mode')
+                require(j.memory_read32(0x40012c20,1)[0] & 0x555 == 0, 'phase PWM remains enabled after STOP')
                 if base_filter_supported and not (args.keep_final_base_filter and failure is None):
                     command(10, 0.0)
-                    assert j.memory_read8(symbols['MotorControl'] +
-                        offsets['position_velocity_filter_half_cutoff'], 1)[0] == 0
+                    require(j.memory_read8(symbols['MotorControl'] +
+                        offsets['position_velocity_filter_half_cutoff'], 1)[0] == 0,
+                        'base filter failed to restore after STOP')
                 if hold_filter_supported and not (args.keep_final_hold_filter and failure is None):
                     command(9, 1.0)  # Restore configured default only after confirmed STOP.
-                    assert j.memory_read8(symbols['MotorControl'] +
-                        offsets['position_hold_filter_bypass'], 1)[0] == 0
+                    require(j.memory_read8(symbols['MotorControl'] +
+                        offsets['position_hold_filter_bypass'], 1)[0] == 0,
+                        'HOLD filter failed to restore after STOP')
                     if 'position_hold_filter_half_cutoff' in offsets:
-                        assert j.memory_read8(symbols['MotorControl'] +
-                            offsets['position_hold_filter_half_cutoff'], 1)[0] == 0
+                        require(j.memory_read8(symbols['MotorControl'] +
+                            offsets['position_hold_filter_half_cutoff'], 1)[0] == 0,
+                            'HOLD half-cutoff failed to restore after STOP')
                 phase_guard = read_phase_guard(j, symbols)
                 shutdown_verified = True
                 if 'hil_irq_histogram' in symbols:
@@ -424,7 +480,7 @@ def main():
                 if verified_flash is not None:
                     timing['flash_and_parameters_unchanged'] = (
                         bytes(j.memory_read8(0x08000000, 0x20000)) == verified_flash)
-                    assert timing['flash_and_parameters_unchanged'], 'Flash changed during trial'
+                    require(timing['flash_and_parameters_unchanged'], 'Flash changed during trial')
         except BaseException as exc:
             shutdown_error = repr(exc)
             print('STOP NOT VERIFIED: disconnect motor power; ' + shutdown_error, flush=True)
@@ -448,6 +504,10 @@ def main():
         ctypes.windll.winmm.timeEndPeriod(1)
         (destination/'capture.bin').write_bytes(raw)
         (destination/'trial.json').write_text(json.dumps(dict(
+            schema_version=1, bench_id=args.bench_id, scenario=args.scenario,
+            operator_confirmation=args.operator_confirmation,
+            authorized_firmware_sha256=args.expected_firmware_sha256.lower(),
+            motor_profile_sha256=hashlib.sha256(args.axis_profile.read_bytes()).hexdigest(),
             arguments={k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
             events=events, polls=polls, failure=failure,
             shutdown_error=shutdown_error, shutdown_verified=shutdown_verified,

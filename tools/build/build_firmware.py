@@ -1,5 +1,6 @@
 """Rebuild the APP Keil targets. This command never downloads firmware."""
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,11 +12,11 @@ from project_paths import ROOT, KEIL
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--uv4', default=shutil.which('UV4.exe') or 'C:/Keil_v5/UV4/UV4.exe')
+    parser.add_argument('--uv4', default=os.environ.get('KEIL_UV4') or shutil.which('UV4.exe'))
     parser.add_argument('--target', choices=('normal', 'hil', 'all'), default='all')
     args = parser.parse_args()
-    if not Path(args.uv4).is_file():
-        parser.error('Keil executable not found; specify --uv4 /path/to/UV4.exe')
+    if not args.uv4 or not Path(args.uv4).is_file():
+        parser.error('Keil executable not found; set KEIL_UV4 or specify --uv4 /path/to/UV4.exe')
     log_dir = ROOT / 'outputs/build/logs'
     log_dir.mkdir(parents=True, exist_ok=True)
     targets = {'normal': 'Vector_Mini_ST', 'hil': 'Vector_Mini_ST_HIL'}
@@ -27,7 +28,7 @@ def main():
                                  '-j0', '-o', str(log)], cwd=KEIL)
         text = log.read_text(errors='replace') if log.exists() else ''
         print('\n'.join(text.splitlines()[-6:]))
-        if result.returncode > 1 or '0 Error(s)' not in text:
+        if result.returncode > 1 or '0 Error(s)' not in text or '0 Warning(s)' not in text:
             print(f'Build failed. See {log}', file=sys.stderr)
             return 1
     return 0

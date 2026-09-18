@@ -6,6 +6,7 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
 from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -61,7 +62,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_failed_disable_does_not_halt_energized_cpu(self):
         probe = OutputProbe(stuck=True)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(RuntimeError):
             disable_outputs(probe)
         self.assertFalse(probe.halted())
 
@@ -70,8 +71,20 @@ class RecoveryTests(unittest.TestCase):
             out = Path(folder)
             (out/'symbols.json').write_text(json.dumps({'servo_hil_mailbox': 0x20001000,
                                                        '_SEGGER_RTT': 0x20002000}))
+            image = out/'image'
+            image.mkdir()
+            axf = image/'Vector_Mini_ST.axf'
+            axf.write_bytes(b'test-image')
+            digest = hashlib.sha256(axf.read_bytes()).hexdigest()
+            (out/'active_image.json').write_text(json.dumps({'directory': 'image', 'axf_sha256': digest}))
+            profile = ROOT/'tests/hil/profiles/mode3/roll.json'
             with patch.object(runner, 'OUT', out), \
-                 patch.object(runner.sys, 'argv', ['runner', '--name', 'failed']), \
+                 patch.object(runner.sys, 'argv', ['runner', '--name', 'failed',
+                    '--session-dir', str(out), '--axis-profile', str(profile),
+                    '--bench-id', 'test-bench', '--scenario', 'motion',
+                    '--operator-confirmation', 'POWER_LIMITS_VERIFIED',
+                    '--expected-firmware-sha256', digest,
+                    '--jlink-dll', str(Path(__file__)), '--probe-serial', '1']), \
                  patch.object(runner, 'pylink', MagicMock()) as library:
                 probe = library.JLink.return_value
                 probe.connect.side_effect = RuntimeError('probe disconnected')
@@ -85,6 +98,28 @@ class RecoveryTests(unittest.TestCase):
             self.assertIn('probe disconnected', trial['shutdown_error'])
             self.assertFalse(trial['shutdown_verified'])
             self.assertTrue((out/'failed/capture.bin').exists())
+
+    def test_wrong_image_hash_fails_before_probe_open(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            image = out/'image'; image.mkdir()
+            (image/'Vector_Mini_ST.axf').write_bytes(b'test-image')
+            digest = hashlib.sha256((image/'Vector_Mini_ST.axf').read_bytes()).hexdigest()
+            (out/'active_image.json').write_text(json.dumps({'directory': 'image', 'axf_sha256': digest}))
+            (out/'symbols.json').write_text('{}')
+            library = MagicMock()
+            with patch.object(runner.sys, 'argv', ['runner', '--name', 'bad-hash',
+                    '--session-dir', str(out), '--axis-profile', str(ROOT/'tests/hil/profiles/mode3/roll.json'),
+                    '--bench-id', 'test-bench', '--scenario', 'motion',
+                    '--operator-confirmation', 'POWER_LIMITS_VERIFIED',
+                    '--expected-firmware-sha256', '0'*64,
+                    '--jlink-dll', str(Path(__file__)), '--probe-serial', '1']), \
+                 patch.object(runner, 'pylink', library):
+                with self.assertRaisesRegex(RuntimeError, 'explicit firmware authorization'):
+                    runner.main()
+            library.JLink.assert_not_called()
+            failure = json.loads((out/'bad-hash/preflight_failure.json').read_text())
+            self.assertFalse(failure['hardware_contacted'])
 
 
 if __name__ == '__main__':

@@ -11,19 +11,24 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
 from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
 
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
 
 def disable_outputs(j):
     ccer, bdtr = 0x40012C20, 0x40012C44
     j.memory_write32(bdtr, [j.memory_read32(bdtr, 1)[0] & ~0x8000])
     j.memory_write32(ccer, [j.memory_read32(ccer, 1)[0] & ~0x555])
-    assert j.memory_read32(ccer, 1)[0] & 0x555 == 0, 'phase outputs not disabled'
-    assert j.memory_read32(bdtr, 1)[0] & 0x8000 == 0, 'main output not disabled'
+    require(j.memory_read32(ccer, 1)[0] & 0x555 == 0, 'phase outputs not disabled')
+    require(j.memory_read32(bdtr, 1)[0] & 0x8000 == 0, 'main output not disabled')
     j.halt()
-    assert j.halted(), 'CPU halt after output disable failed'
+    require(j.halted(), 'CPU halt after output disable failed')
     # Defend against firmware re-enabling in the interval preceding the halt.
     j.memory_write32(bdtr, [j.memory_read32(bdtr, 1)[0] & ~0x8000])
     j.memory_write32(ccer, [j.memory_read32(ccer, 1)[0] & ~0x555])
     state = dict(ccer=j.memory_read32(ccer, 1)[0], bdtr=j.memory_read32(bdtr, 1)[0],
                  cpu_halted=j.halted())
-    assert state['ccer'] & 0x555 == 0 and state['bdtr'] & 0x8000 == 0
+    require(state['ccer'] & 0x555 == 0 and state['bdtr'] & 0x8000 == 0,
+            'phase outputs changed state after CPU halt')
     return state

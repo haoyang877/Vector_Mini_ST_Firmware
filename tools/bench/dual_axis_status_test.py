@@ -14,6 +14,7 @@ import csv
 import ctypes
 import json
 import math
+import os
 from pathlib import Path
 import sys
 import time
@@ -108,8 +109,11 @@ def main():
     ap.add_argument('--zero-center',action='store_true',help='Preflight for absolute zero, without changing encoder zero')
     ap.add_argument('--plan',type=Path,help='Validated absolute-angle waypoints, only with case=waypoints')
     ap.add_argument('--rate',type=int,default=20,choices=range(10,201),metavar='10..200')
-    ap.add_argument('--adapter-root',type=Path,default=Path('D:/Work/Code/motor_ctrl_app'))
+    ap.add_argument('--adapter-root',type=Path,
+                    default=Path(os.environ['MOTOR_CTRL_APP_ROOT']) if os.environ.get('MOTOR_CTRL_APP_ROOT') else None)
     args=ap.parse_args()
+    if args.adapter_root is None:
+        ap.error('--adapter-root or MOTOR_CTRL_APP_ROOT is required; no CAN adapter was opened')
     if (args.case=='waypoints') != bool(args.plan):ap.error('--plan required only for waypoints')
     plan=json.loads(args.plan.read_text()) if args.plan else None
     if plan:validate_waypoints(plan)

@@ -1,0 +1,100 @@
+schema_version = 1
+python_version = "3.13"
+zig_version = "0.16.0"
+uv_version = "0.12.16"
+keil_version = "5.36.0.0"
+jlink_version = "9.64"
+ruff_version = "0.13.2"
+clang_format_version = "20.1.8"
+
+[environment]
+compiler = "HARNESS_CC"
+keil = "KEIL_UV4"
+jlink_dll = "JLINK_DLL"
+jlink_probe_serial = "JLINK_PROBE_SERIAL"
+bench_id = "VECTOR_BENCH_ID"
+motor_adapter_root = "MOTOR_CTRL_APP_ROOT"
+cjk_font = "HARNESS_CJK_FONT"
+
+[style]
+line_length = 100
+python_extensions = [".py"]
+native_extensions = [".c", ".h", ".cc", ".cpp", ".hh", ".hpp"]
+exclude_prefixes = [
+  "firmware/third_party",
+  "firmware/platform/stm32g4/cubemx",
+  "host_app/.venv",
+  "host_app/build",
+  "host_app/dist",
+  "outputs",
+]
+
+[style.modules.firmware]
+paths = ["firmware", "tests/hil/firmware"]
+
+[style.modules.loader]
+paths = ["loader"]
+
+[style.modules.host_app]
+paths = ["host_app"]
+
+[style.modules.shared]
+paths = ["shared"]
+
+[style.modules.tooling]
+paths = ["tools", "tests"]
+
+[style.modules.templates]
+paths = ["templates"]
+
+[profiles.quick]
+checks = ["format", "lint", "project-layout", "python-tests"]
+
+[profiles.pr]
+checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "docs", "hygiene"]
+
+[profiles.release]
+checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "docs", "hygiene", "keil-build", "release-manifest"]
+
+[profiles.hil]
+checks = ["python", "bench-dependencies", "jlink", "bench-identity"]
+
+[architecture.layers.common]
+paths = ["firmware/common"]
+allows = ["common"]
+
+[architecture.layers.platform_api]
+paths = ["firmware/platform/api"]
+allows = ["common", "platform_api"]
+
+[architecture.layers.motor]
+paths = ["firmware/motor"]
+allows = ["common", "platform_api", "motor"]
+
+[architecture.layers.services]
+paths = ["firmware/services"]
+allows = ["common", "platform_api", "motor", "services"]
+
+[architecture.layers.protocol]
+paths = ["firmware/communication/protocol"]
+allows = ["common", "motor", "services", "protocol"]
+
+[architecture.layers.communication]
+paths = ["firmware/communication/can"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication"]
+
+[architecture.layers.app]
+paths = ["firmware/app"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "platform_stm32", "cubemx", "hil", "app"]
+
+[architecture.layers.platform_stm32]
+paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
+allows = ["common", "platform_api", "motor", "services", "platform_stm32", "cubemx"]
+
+[architecture.layers.cubemx]
+paths = ["firmware/platform/stm32g4/cubemx/Core"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx", "hil"]
+
+[architecture.layers.hil]
+paths = ["tests/hil/firmware"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx", "hil"]

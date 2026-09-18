@@ -1,0 +1,30 @@
+name: harness-governance
+
+on:
+  schedule:
+    - cron: "23 2 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install harness environment
+        shell: pwsh
+        run: |
+          python -m pip install uv==0.12.16
+          uv sync --locked --extra dev
+      - name: Generate read-only governance report
+        shell: pwsh
+        run: uv run python tools/run.py governance --out outputs/governance/${{ github.run_id }}.json
+      - name: Upload governance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-governance-${{ github.run_id }}
+          path: outputs/governance/
+          if-no-files-found: error

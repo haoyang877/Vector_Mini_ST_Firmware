@@ -106,8 +106,6 @@ def analyze(directory,plot=True):
     if skews: result['command_pair_skew_ms']={'mean':float(np.mean(skews)*1000),'max':float(max(skews)*1000)}
     (directory/'metrics.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     if plot and datasets:
-        root=Path(__file__).resolve().parents[2]
-        sys.path.insert(0,str(root/'outputs/servo_capture_03_pid3_20260908/.plot_deps'))
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt

@@ -6,9 +6,9 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
 from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
 from pathlib import Path
+import os
 import sys, json
 
-sys.path.insert(0, str(ROOT / 'outputs/servo_capture_03_pid3_20260908/.plot_deps'))
 import numpy as np
 from rtt_control_frame import decode
 import matplotlib
@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 
 OUT = ROOT / 'outputs/servo_hil_20260908'
-FONT = Path('C:/Windows/Fonts/msyh.ttc')
-if FONT.exists():
+FONT = Path(os.environ['HARNESS_CJK_FONT']).expanduser() if os.environ.get('HARNESS_CJK_FONT') else None
+if FONT and FONT.exists():
     matplotlib.rcParams['font.family'] = FontProperties(fname=str(FONT)).get_name()
 matplotlib.rcParams.update({'axes.unicode_minus': False, 'font.size': 10,
     'axes.spines.top': False, 'axes.spines.right': False, 'figure.dpi': 150})

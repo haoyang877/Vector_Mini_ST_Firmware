@@ -10,11 +10,13 @@
 ```powershell
 python tools/run.py check_project_layout
 python tests/run.py
-python tests/run.py --cc 'C:/path/to/zig.exe'
-python tests/run.py --cc 'C:/path/to/zig.exe' --reference-source 'C:/baseline/position_cascade.c'
+python tests/run.py --cc <zig-executable>
+python tests/run.py --cc <zig-executable> --reference-source <baseline-position-cascade.c>
 ```
 
-Python 离线测试使用 `numpy`；解释器需预先具备该依赖。原生 C 用例支持 Zig，
+推荐先执行 `uv sync --locked --extra dev`，然后使用
+`uv run python tools/run.py verify --profile pr`。Python 离线测试使用锁定版本的
+`numpy`；原生 C 用例使用锁定的 Zig，
 部分独立脚本也支持 GCC/Clang；外环运行测试目前按 Zig 命令调用。
 测试日志默认写入 `outputs/tests/`，可以用 `--out` 指定。
 统一测试入口不会烧录、连接探针或操作电机。

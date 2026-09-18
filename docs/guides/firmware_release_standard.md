@@ -131,6 +131,11 @@ SHA-256 针对归档文件本身；镜像 CRC 针对升级实际传输的字节�
 
 所有发布类别都执行命名、构建、范围和校验一致性检查；功能验证深度按类别及变更影响记录。
 
+当前仓库先从干净工作树运行 `uv run python tools/run.py verify --profile release`。
+该命令只构建、不烧录，并在 `outputs/runs/<run-id>/` 生成 `summary.json` 与
+`release-manifest.json`。正式发布清单应引用这份当前 Git SHA 对应的 harness 证据；
+历史 `outputs/`、工作树非干净或未在同一次运行中重建的产物不能作为发布通过依据。
+
 | 检查项 | 要求 |
 | --- | --- |
 | 命名一致性 | 文件名合法，且项目、芯片、分支、版本、日期与清单一致 |

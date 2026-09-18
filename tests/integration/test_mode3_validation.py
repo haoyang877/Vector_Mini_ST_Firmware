@@ -35,6 +35,9 @@ class Mode3ValidationTests(unittest.TestCase):
             script = (out / "run_bench.ps1").read_text(encoding="utf-8-sig")
             self.assertIn("--keep-parameters", script)
             self.assertIn("--case $Case", script)
+            self.assertIn("--scenario motion", script)
+            self.assertIn("--operator-confirmation POWER_LIMITS_VERIFIED", script)
+            self.assertIn("doctor --profile hil", script)
             self.assertNotIn("servo_hil_flash", script)
             with self.assertRaises(FileExistsError):
                 validation.make_plan(validation.DEFAULT_PROFILE, out)
@@ -72,11 +75,14 @@ class Mode3ValidationTests(unittest.TestCase):
 
     def fixture(self, folder, mutate=None, rows_mutate=None):
         path = Path(folder)
-        trial = {"arguments": {"targets": "0", "seconds": 3}, "failure": None,
+        trial = {"schema_version": 1, "bench_id": "synthetic-bench", "scenario": "motion",
+                 "operator_confirmation": "POWER_LIMITS_VERIFIED",
+                 "authorized_firmware_sha256": "synthetic-axf", "motor_profile_sha256": "synthetic-profile",
+                 "arguments": {"targets": "0", "seconds": 3}, "failure": None,
                  "runtime_parameters": {"cascade_pos_Kp": 8, "cascade_pos_Kd": 2,
                                         "speed_Kp": .5, "speed_Ki": 1, "pos_maxspeed": math.pi / 4},
                  "shutdown_verified": True, "shutdown_error": None,
-                 "image": {"hex_sha256": "synthetic-fixture-not-a-firmware-image"},
+                 "image": {"axf_sha256": "synthetic-axf", "hex_sha256": "synthetic-fixture-not-a-firmware-image"},
                  "events": [{"opcode": 3, "frame": 0, "value": 0, "time": 0,
                              "result": 0, "error": 0, "mode": 3}],
                  "polls": [{"frame": 0, "time": 0}, {"frame": 60, "time": 3}]}

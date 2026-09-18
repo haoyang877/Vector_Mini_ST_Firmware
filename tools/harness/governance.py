@@ -18,7 +18,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/governance/latest.json")
     args = parser.parse_args()
     checks = []
-    for name in ("check_architecture", "check_docs", "check_hygiene"):
+    for name in ("check_architecture", "check_interfaces", "check_docs", "check_hygiene"):
         result = subprocess.run(
             [sys.executable, str(ROOT / "tools/harness" / f"{name}.py"), "--json"],
             cwd=ROOT,

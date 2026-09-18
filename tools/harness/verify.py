@@ -163,7 +163,12 @@ def main() -> int:
             test_command += ["--reference-source", str(args.reference_source.resolve())]
         checks.append(run_check("tests", test_command, run_dir))
         if args.profile in ("pr", "release"):
-            for name in ("check_architecture", "check_docs", "check_hygiene"):
+            for name in (
+                "check_architecture",
+                "check_interfaces",
+                "check_docs",
+                "check_hygiene",
+            ):
                 checks.append(
                     run_check(
                         name.replace("check_", ""),

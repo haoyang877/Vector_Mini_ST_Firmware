@@ -54,6 +54,8 @@ commands require an explicit bench identity, motor profile, image hash, and scen
   invariants or hardware risk rather than syntax.
 - Repository-owned comments and docstrings use concise Chinese; public APIs and non-trivial modules
   must document their contract, units, ownership, or failure behavior.
+- Public C/C++ declarations require a Chinese Doxygen `@brief`, every `@param`, and non-void
+  `@return`; use `@note` for ISR context, side effects, blocking, ownership, or safety constraints.
 - Never reformat vendor, third-party, or CubeMX-generated files.
 - Run `uv run python tools/run.py format --check` and `uv run python tools/run.py lint`;
   the selected verify profile runs both again.

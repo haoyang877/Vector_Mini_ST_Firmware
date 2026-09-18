@@ -1,0 +1,359 @@
+{
+    "schema_version": 1,
+    "files": {
+        "firmware/app/board_config.h": {
+            "sha256": "e86d526af5a82dd8484da36002d42dd1eb703f8c0a9b22b5219fa46329523da5",
+            "interfaces": [
+                "Board_Init"
+            ]
+        },
+        "firmware/app/bsp_task.h": {
+            "sha256": "159dc9bb8ec09f0b958b932c3eae55331bbcf1a6a9deda580bb7c31c1476db0e",
+            "interfaces": [
+                "BSP1kHzIRQHandler"
+            ]
+        },
+        "firmware/app/foc_run.h": {
+            "sha256": "d30dc2dfcdcf12c523aba7bee5528fbc4b4e8f43698f61a6b1ed3d87f2e3683c",
+            "interfaces": [
+                "MotorOuterLoop_FastTick",
+                "MotorOuterLoop_GetTelemetry",
+                "MotorOuterLoop_IsReady",
+                "MotorOuterLoop_Service",
+                "Task_Current_Mode",
+                "Task_Position_Impedance_Mode",
+                "Task_Position_Mode",
+                "Task_Position_Mode_Reset",
+                "Task_Sensorless_Speed_Mode",
+                "Task_Speed_Mode",
+                "Task_Voltage_Mode",
+                "Task_Vq_Mode"
+            ]
+        },
+        "firmware/common/heap.h": {
+            "sha256": "a809b9517979d2e401482c8b454d1b0ae41cc48390f94d86f0117173e2109fa8",
+            "interfaces": [
+                "HEAP_free",
+                "HEAP_get_free_size",
+                "HEAP_get_minimumEver_free_size",
+                "HEAP_malloc"
+            ]
+        },
+        "firmware/common/utils.h": {
+            "sha256": "629221f00b196353b09763ea7280b9dad3d372733dae9b0bd9ffd491cf9d2608",
+            "interfaces": [
+                "FloatToIntBit",
+                "IIR_Butterworth",
+                "IntBitToFloat",
+                "constrain",
+                "copy_sign",
+                "fast_abs",
+                "fast_atan2",
+                "fast_cos",
+                "fast_max",
+                "fast_min",
+                "fast_pow",
+                "fast_sin",
+                "fast_sq",
+                "fast_sqrt",
+                "normalizeAngle",
+                "sign_hard"
+            ]
+        },
+        "firmware/communication/can/interface_can.h": {
+            "sha256": "867e8dc9cc321bd1ca92c4b00c142bd88d0c52dc41f853f09e989bb3e647b6c8",
+            "interfaces": [
+                "CANRxIRQHandler",
+                "CAN_BaudRateSwitching",
+                "CAN_DisConnect_Handle",
+                "CAN_ReceiveMessage_Update",
+                "CAN_SendMessage",
+                "CAN_SendMessage_Update",
+                "FDCAN1_Param_Init"
+            ]
+        },
+        "firmware/motor/foc/foc_algorithm.h": {
+            "sha256": "a1baa1694aa9064bbfe993d81859426ad68a9458a3f412ba7aecac963bcf03b4",
+            "interfaces": [
+                "Clarke_Transform",
+                "FOC_Current",
+                "FOC_CurrentController_Reset",
+                "FOC_CurrentWithReference",
+                "FOC_Voltage",
+                "FOC_Vq_Mode",
+                "Inverse_Clarke_Transform",
+                "Inverse_Park_Transform",
+                "PWM_TurnOnHighSides",
+                "PWM_TurnOnLowSides",
+                "Park_Transform",
+                "SVM_SectorJudge",
+                "SVM_ZeroInjection",
+                "Set_A_Duty",
+                "Set_B_Duty",
+                "Set_C_Duty"
+            ]
+        },
+        "firmware/motor/foc/foc_pid.h": {
+            "sha256": "5a95239b3c29df323e27f7832f709b11f4bba82763e796beffd654c5479246b1",
+            "interfaces": [
+                "PI_Controller_Configure",
+                "PI_Controller_Reset",
+                "PI_Controller_Run",
+                "PI_Controller_TrackOutput"
+            ]
+        },
+        "firmware/motor/foc/foc_sensing.h": {
+            "sha256": "e46818e5bf74eef441a74958af759b96d08b2a01e764f7504f27ac2a74cbaece",
+            "interfaces": [
+                "Current_Cal",
+                "Temperature_Update",
+                "Vbus_Update"
+            ]
+        },
+        "firmware/motor/foc/foc_sensorless.h": {
+            "sha256": "6cc68974094fc10ae9fba4ffcf3db85b0971929174cb7fbeefa2827e29e248f8",
+            "interfaces": [
+                "Fluxobserver_ParamInit",
+                "Fluxobserver_Update",
+                "Observer_GetElePhase",
+                "Observer_GetElePosition",
+                "Observer_GetEleVel",
+                "Observer_GetPositionEpoch",
+                "SensorlessStartup_Reset"
+            ]
+        },
+        "firmware/motor/identification/cogging_calibration.h": {
+            "sha256": "e859baf344acdba54e97aead573a5e98753d2d264363b6ef8eb2bece58e89d34",
+            "interfaces": [
+                "CoggingCalibration_Abort",
+                "CoggingCalibration_Finish",
+                "CoggingCalibration_Start",
+                "CoggingCalibration_Update",
+                "CoggingMap_Valid",
+                "Cogging_Crc32",
+                "Cogging_EncoderSignature"
+            ]
+        },
+        "firmware/motor/identification/foc_calibration.h": {
+            "sha256": "8f4aaa4bbeeb5f0b457ee3986ed9860f69f03e0cc51c90d230d5c0d1d539b3d1",
+            "interfaces": [
+                "Task_Calib_CurrentOffset",
+                "Task_Calib_EleAngelOffset",
+                "Task_Calib_EncoderObserver",
+                "Task_Calib_EncoderOffset",
+                "Task_Calib_R_L_Flux"
+            ]
+        },
+        "firmware/motor/identification/foc_cogging_calibration.h": {
+            "sha256": "8a591f325a485c8431f4e42c04799e884b10b106ebfbe74c603b84a54fd39226",
+            "interfaces": [
+                "FocCogging_Abort",
+                "FocCogging_Apply",
+                "FocCogging_CanStart",
+                "FocCogging_GetState",
+                "FocCogging_SaveResult",
+                "FocCogging_Service",
+                "FocCogging_SetCompensation",
+                "FocCogging_TableValid",
+                "FocCogging_Task",
+                "FocCogging_TorqueGuard",
+                "FocCogging_TorqueObserve"
+            ]
+        },
+        "firmware/motor/identification/foc_friction_identification.h": {
+            "sha256": "c28fec7a59a79642bf752ad8c8fd7696e86abc62e155401a0b8d9c31ba014454",
+            "interfaces": [
+                "FocFrictionIdentification_Abort",
+                "FocFrictionIdentification_ApplyCandidate",
+                "FocFrictionIdentification_GetPointIndex",
+                "FocFrictionIdentification_GetProgressPercent",
+                "FocFrictionIdentification_GetReason",
+                "FocFrictionIdentification_GetResult",
+                "FocFrictionIdentification_GetSampleCount",
+                "FocFrictionIdentification_GetSamples",
+                "FocFrictionIdentification_GetState",
+                "FocFrictionIdentification_Init",
+                "FocFrictionIdentification_Start",
+                "FocFrictionIdentification_Task"
+            ]
+        },
+        "firmware/motor/identification/foc_phase_resistance.h": {
+            "sha256": "d85c601924576449653f6abb98f5f399ce7f7ee924f03a35c317ead2cb778cc6",
+            "interfaces": [
+                "PhaseResistanceMode_Cancel",
+                "PhaseResistanceMode_GetTelemetry",
+                "PhaseResistanceMode_Run"
+            ]
+        },
+        "firmware/motor/identification/friction_identification.h": {
+            "sha256": "9c946189513f93d92248c5547da5020a918bcfebbe3783dc890ae7208ac15457",
+            "interfaces": [
+                "FrictionIdentification_Abort",
+                "FrictionIdentification_Fail",
+                "FrictionIdentification_GetPointIndex",
+                "FrictionIdentification_GetProgressPercent",
+                "FrictionIdentification_GetReason",
+                "FrictionIdentification_GetResult",
+                "FrictionIdentification_GetSampleCount",
+                "FrictionIdentification_GetSamples",
+                "FrictionIdentification_GetState",
+                "FrictionIdentification_GetTargetSpeed",
+                "FrictionIdentification_Init",
+                "FrictionIdentification_Reset",
+                "FrictionIdentification_Start",
+                "FrictionIdentification_Update"
+            ]
+        },
+        "firmware/motor/identification/phase_resistance.h": {
+            "sha256": "225496152e93f25df4140965d5c7923efc547a86a81280f251374761efdb5a7b",
+            "interfaces": [
+                "PhaseResistance_Cancel",
+                "PhaseResistance_GetCommand",
+                "PhaseResistance_GetResult",
+                "PhaseResistance_Init",
+                "PhaseResistance_InputSample",
+                "PhaseResistance_Start"
+            ]
+        },
+        "firmware/motor/position/position_cascade.h": {
+            "sha256": "524fcca48a7badff100ebc15ac13dac6ade84ea3e803a507620d786294a9045e",
+            "interfaces": [
+                "PositionCascade_GetConfiguration",
+                "PositionCascade_GetTelemetry",
+                "PositionCascade_Reset",
+                "PositionCascade_ShouldDeferTelemetry",
+                "PositionCascade_Update",
+                "PositionCascade_UpdateControl",
+                "PositionCascade_UpdateTarget",
+                "PositionCascade_UpdateTargetControl"
+            ]
+        },
+        "firmware/motor/position/position_impedance.h": {
+            "sha256": "a86405ca45457340c8ecb324ecfd35b19157482ab033dc1d70529b514d044033",
+            "interfaces": [
+                "PositionImpedance_GetTelemetry",
+                "PositionImpedance_Reset",
+                "PositionImpedance_Update"
+            ]
+        },
+        "firmware/motor/protection/foc_errhandle.h": {
+            "sha256": "b49d078ab2aa144501beb038df364870c0bd250a0de9ff0fa20f2aeb2460abbe",
+            "interfaces": [
+                "Clear_Mode_Error_Change",
+                "Clear_RunningData",
+                "Detect_Mode_Error_Change",
+                "Get_ErroNow",
+                "Get_ModeNow",
+                "ModeSwitch_Handle",
+                "Return_Mode_Error_Change",
+                "Set_ErrorNow",
+                "Set_ModeNow",
+                "Start_PWM_Generate",
+                "Stop_PWM_Generate",
+                "Stop_PWM_Generate"
+            ]
+        },
+        "firmware/motor/trajectory/foc_traptraj.h": {
+            "sha256": "6951253bc92993bed232556bf85199e0bb1d483337c8cf9e496f075c2244e65b",
+            "interfaces": [
+                "TRAJ_Get_Y",
+                "TRAJ_Get_Yd",
+                "TRAJ_eval",
+                "TRAJ_plan"
+            ]
+        },
+        "firmware/motor/trajectory/position_smooth_trajectory.h": {
+            "sha256": "33d11a7787084ea63bff7f9c7a1e4e16a8465e945856da4138db7c7c313e5ed3",
+            "interfaces": [
+                "PositionSmooth_Advance",
+                "PositionSmooth_Begin",
+                "PositionSmooth_Prepare",
+                "PositionSmooth_Sample"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/delay.h": {
+            "sha256": "c768ce9ea0bf7064dfcc7a164d8b3725643117609bb2fb6755956098fd419330",
+            "interfaces": [
+                "delay_init",
+                "delay_ms",
+                "delay_us"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/encoder.h": {
+            "sha256": "91c4fd280518d7701c6b1697e40c72b11b9c073ff3335cc0c2e016225fd07f05",
+            "interfaces": [
+                "Encoder_BeginSample",
+                "Encoder_CompleteSample",
+                "Encoder_DidUpdateVelocity",
+                "Encoder_GetCountInCPR_Ratio",
+                "Encoder_GetElePhase",
+                "Encoder_GetEleVel",
+                "Encoder_GetMecPos",
+                "Encoder_GetMecVel",
+                "Encoder_GetMecVelContinuous",
+                "Encoder_IsOnline",
+                "Encoder_ParamInit",
+                "Encoder_ResetVelocity",
+                "Encoder_SetElectricalZero",
+                "Encoder_SetElectricalZeroQ15",
+                "Encoder_SetMechanicalZero",
+                "Encoder_SetReverse",
+                "Encoder_Update"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/flash.h": {
+            "sha256": "d67d877ac1518e235d9f560ed32c50fde76e76b80f87946797762d085eaae620",
+            "interfaces": [
+                "flash_read_param",
+                "flash_write_param"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/led.h": {
+            "sha256": "8be6857fd85fe9dc6945e993249d9e9afe2d63723ec6455d7992fb53f5fb8637",
+            "interfaces": [
+                "LED_SetState",
+                "LED_Task"
+            ]
+        },
+        "firmware/platform/stm32g4/bsp/rgb.h": {
+            "sha256": "7cdd4d6bceab631dd9598b14e817bfa7f7b5c1b5608f2d6bd05be7adc9c8ae3a",
+            "interfaces": [
+                "RGB_SendArray",
+                "RGB_SetColor",
+                "Reset_Load",
+                "Set_RGB_BreathingColor",
+                "write_color"
+            ]
+        },
+        "firmware/services/parameters/foc_param.h": {
+            "sha256": "115be457cab08494930f8d300891ad5bb595f4e4232d410b4ecc94988f06a9ca",
+            "interfaces": [
+                "Param_Download",
+                "Param_Return_Default",
+                "Param_SetSpeedLimit",
+                "Param_Upload"
+            ]
+        },
+        "firmware/services/parameters/motor_axis_profile.h": {
+            "sha256": "8512e9e6c6854e27fd9cfd5d4788fe6cd7f2b0f711ecaea0bedf8859548831cf",
+            "interfaces": [
+                "MotorAxisProfile_CanNodeId",
+                "MotorAxisProfile_Create",
+                "MotorAxisProfile_CreateJoint",
+                "MotorAxisProfile_InitialEncoderOffsetQ15",
+                "MotorAxisProfile_JointType",
+                "MotorAxisProfile_Load",
+                "MotorAxisProfile_Resolve",
+                "MotorJointType_Name"
+            ]
+        },
+        "tests/hil/firmware/servo_hil.h": {
+            "sha256": "4cf1b682ca0920e0efe9e80437f8141285a104d81fa57d9d62fe08ce1d8d639e",
+            "interfaces": [
+                "ServoHil_Complete",
+                "ServoHil_ObservePhaseCurrents",
+                "ServoHil_Poll"
+            ]
+        }
+    }
+}

@@ -6,6 +6,7 @@ ContinuationIndentWidth: 4
 TabWidth: 4
 UseTab: Never
 ColumnLimit: 100
+ReflowComments: false
 BreakBeforeBraces: Allman
 AllowShortBlocksOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: false

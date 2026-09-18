@@ -17,6 +17,7 @@ import _style
 import check_architecture
 import check_docs
 import check_hygiene
+import check_interfaces
 import doctor
 
 
@@ -84,6 +85,57 @@ class HarnessTests(unittest.TestCase):
         }
         self.assertTrue(_style.debt_allows(source, "python-format", valid))
         self.assertFalse(_style.debt_allows(source, "python-format", changed))
+
+    def test_public_interface_requires_complete_chinese_contract(self):
+        valid_source = """\
+/**
+ * @brief 读取当前计数，不访问硬件。
+ * @param channel 通道编号，范围为 0..3。
+ * @return 当前无符号计数值。
+ */
+unsigned Counter_Read(unsigned channel);
+"""
+        invalid_source = "/** 读取计数。 */\nunsigned Counter_Read(unsigned channel);\n"
+        with tempfile.TemporaryDirectory() as folder:
+            header = _Path(folder) / "counter.h"
+            with patch.object(check_interfaces, "relative", lambda path: path.name):
+                header.write_text(valid_source, encoding="utf-8")
+                self.assertEqual(check_interfaces.scan([header]), [])
+                header.write_text(invalid_source, encoding="utf-8")
+                problems = check_interfaces.scan([header])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("@param channel", problems[0]["missing"])
+        self.assertIn("@return", problems[0]["missing"])
+
+    def test_interface_debt_hash_rejects_a_changed_header(self):
+        source = "/** 旧接口。 */\nunsigned Counter_Read(unsigned channel);\n"
+        with tempfile.TemporaryDirectory() as folder:
+            header = _Path(folder) / "counter.h"
+            debt = _Path(folder) / "debt.json"
+            header.write_text(source, encoding="utf-8")
+            debt.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "files": {
+                            "counter.h": {
+                                "sha256": check_interfaces.sha256(header),
+                                "interfaces": ["Counter_Read"],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(check_interfaces, "DEBT", debt),
+                patch.object(check_interfaces, "relative", lambda path: path.name),
+            ):
+                _, new, _ = check_interfaces.evaluate([header])
+                self.assertEqual(new, [])
+                header.write_text(source + "\n", encoding="utf-8")
+                _, new, _ = check_interfaces.evaluate([header])
+        self.assertEqual(len(new), 1)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,8 @@ debt never needs to be restored.
 ## C and C++
 
 - Use four spaces, no tabs, Allman braces, and a 100-column target.
+- Manually wrap Chinese prose near the 100-column target. The formatter does not reflow comments,
+  because byte-based wrapping can split Chinese contracts at unreadable positions.
 - Every `if`, `else`, `for`, `while`, and `do` body uses braces.
 - Public functions use `Module_Action`; private functions and variables use `snake_case`; types use
   `PascalCase`; macros and compile-time constants use `UPPER_SNAKE_CASE`.
@@ -39,6 +41,10 @@ debt never needs to be restored.
 - Repository-owned comments and docstrings use concise Chinese. They explain invariants, units,
   ownership, hardware risks, or a non-obvious decision; they do not narrate syntax. Public APIs and
   non-trivial modules require a Chinese contract comment.
+- Every public C/C++ function declaration uses a Doxygen contract immediately above it: Chinese
+  `@brief`, one `@param` for every named parameter, and `@return` for every non-`void` result.
+  Add `@note` when the caller must know ISR/thread context, ownership, blocking behavior, side
+  effects, hardware state, or a safety precondition.
 
 ## Python
 
@@ -71,3 +77,17 @@ and `lint` gates rather than defining weaker local equivalents.
 Copy and rename the examples under `templates/` when creating a module or command. The examples are
 part of the managed style scope, so CI verifies them with the same rules as production code. They
 demonstrate structure and error handling, not product-specific behavior or default parameters.
+
+## Public interface example
+
+```c
+/**
+ * @brief 尝试发布一帧状态；队列忙时立即返回，不等待也不重试。
+ * @param identifier 标准 CAN 标识符，只使用低 11 位。
+ * @param data 只读负载，所有权始终属于调用方。
+ * @param length 负载字节数，范围为 0..64。
+ * @return 成功入队返回 true；参数非法或队列忙返回 false。
+ * @note 可从前台调用，不可在电机快速中断中调用。
+ */
+bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_t length);
+```

@@ -51,10 +51,10 @@ paths = ["templates"]
 checks = ["format", "lint", "project-layout", "python-tests"]
 
 [profiles.pr]
-checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "docs", "hygiene"]
+checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "interfaces", "docs", "hygiene"]
 
 [profiles.release]
-checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "docs", "hygiene", "keil-build", "release-manifest"]
+checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "interfaces", "docs", "hygiene", "keil-build", "release-manifest"]
 
 [profiles.hil]
 checks = ["python", "bench-dependencies", "jlink", "bench-identity"]

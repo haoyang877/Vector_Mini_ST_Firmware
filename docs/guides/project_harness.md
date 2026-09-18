@@ -53,6 +53,12 @@ uv run python tools/run.py lint --module firmware
 仓库自有代码必须包含必要的中文注释；注释用于解释接口契约、单位、不变量和硬件风险，
 而不是复述语句。缺少中文说明的新文件会由 `lint` 拒绝。
 
+PR 和 release profile 还会运行 `check_interfaces`。公共 C/C++ 函数声明必须紧邻中文
+Doxygen 契约：`@brief` 描述目的，每个具名参数有 `@param`，非 `void` 返回值有
+`@return`；ISR/线程上下文、所有权、副作用、阻塞行为和安全前置条件按需写入 `@note`。
+`interface_debt.json` 只豁免内容哈希完全不变的历史头文件，新文件以及发生变化的旧头文件
+必须完整达标。
+
 ## CI 与硬件边界
 
 GitHub 托管 Windows runner 执行 PR 离线门禁；带 Keil 许可证的 self-hosted runner

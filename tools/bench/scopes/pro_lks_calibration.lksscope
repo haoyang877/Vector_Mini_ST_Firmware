@@ -33,17 +33,13 @@
         <form title="代码变量" type="2" mapFile="../../../outputs/build/keil/Vector_Mini_ST/Vector_Mini_ST.axf" lv-width="150,100,100,100,100,100,100,100,0,100,100,100"/>
         <form title="运行日志" floating="0" visible="0" type="3" page="-1"/>
         <form title="RTT命令行" encode="GBK" checkTStamp="0" floating="0" visible="0" type="4" page="-1" sync2File="0" syncFilePath=""/>
-        <form trigName="rtt_channel1.data6" lineStyle="1" scrollType="1" visible="1" xTag="0" type="5" subMode="1" autoRange="1" trigValue="0" title="RTT数据" trigType="0" min="-500" subCols="1" floating="0" max="500" page="0" scatterStyle="1" xCount="5888.89">
+        <form trigName="rtt_channel1.data0" lineStyle="1" scrollType="1" visible="1" xTag="0" type="5" subMode="1" autoRange="1" trigValue="0" title="RTT数据" trigType="0" min="-500" subCols="1" floating="0" max="500" page="0" scatterStyle="1" xCount="5888.89">
             <dynrttcrc value="0"/>
-            <var color="#ff0000" name="rtt_channel1.data0" desc="编码器电角度" subPlot="0" formula="" unit="Q15:180°/32768"/>
-            <var color="#00aaff" name="rtt_channel1.data1" desc="观测器电角度" subPlot="0" formula="" unit="Q15:180°/32768"/>
-            <var color="#ff0000" name="rtt_channel1.data2" desc="编码器机械转速" subPlot="1" formula="" unit="0.1 rpm"/>
-            <var color="#00aaff" name="rtt_channel1.data3" desc="观测器机械转速" subPlot="1" formula="" unit="0.1 rpm"/>
-            <var color="#ff0000" name="rtt_channel1.data4" desc="Iq 指令" subPlot="2" formula="" unit="mA"/>
-            <var color="#00aaff" name="rtt_channel1.data5" desc="Iq 反馈" subPlot="2" formula="" unit="mA"/>
-            <var color="#ff0000" name="rtt_channel1.data6" desc="标定阶段" subPlot="3" formula="" unit="enum"/>
-            <var color="#00aaff" name="rtt_channel1.data7" desc="启动状态" subPlot="3" formula="" unit="enum"/>
-        </form>
+                    <var color="#ff0000" unit="Q15:180°/32768" desc="机械位置" formula="" subPlot="0" name="rtt_channel1.data0"/>
+            <var color="#00aaff" unit="0.1 rpm" desc="机械转速" formula="" subPlot="1" name="rtt_channel1.data1"/>
+            <var color="#ffaa00" unit="mA" desc="Iq 指令" formula="" subPlot="2" name="rtt_channel1.data2"/>
+            <var color="#00ff00" unit="mA" desc="Iq 反馈" formula="" subPlot="2" name="rtt_channel1.data3"/>
+</form>
         <form title="电机控制" floating="0" visible="0" type="12" page="-1" lv-width="150,100,100,100,100">
             <var upper="100" step="1" name="" desc="速度设定" lower="0"/>
             <var upper="100" step="1" name="" desc="速度反馈" lower="0"/>
@@ -64,7 +60,6 @@
             <var interval="100" color="" name="OnBoard_Encoder.reverse" desc="编码器方向（保持原值）" subvar="0" showType="Unsigned" formula="" unit=""/>
             <var interval="100" color="" name="OnBoard_Encoder.calib_flag" desc="标定标志" subvar="0" showType="Unsigned" formula="" unit="bits"/>
             <var interval="100" color="" name="FOC.Vbus_filt" desc="母线电压" subvar="0" showType="Real" formula="" unit="V"/>
-            <var interval="100" color="" name="rtt_calibration_dropped_frames" desc="RTT 累计丢帧" subvar="0" showType="Unsigned" formula="" unit="frames"/>
         </form>
     </forms>
 </lksscope>

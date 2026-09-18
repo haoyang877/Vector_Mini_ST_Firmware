@@ -78,7 +78,7 @@ map 明确显示 `interface_usb.o` 调用 `__2sprintf` 和浮点格式化链。`
 | --- | --- | --- | --- |
 | 1 | USB 带入的格式化库 | 当前 Code+RO 4,414 B | 随 USB 删除后检查链接结果；优先收益，不手工删除共享 C 运行库 |
 | 2 | APP 当前仅初始化的 USART1 | UART/HAL UART/EX 共 Code+RO 1,996 B、RAM 148 B | 可从无需 UART 业务的 APP 目标移除；保留通用 MCU UART port 以实现 Loader UART 升级。两个独立固件分别决定是否链接 |
-| 3 | RTT 生产配置 | `segger_rtt.o` Code 520 B、RAM 3,256 B；采样编码还在 `foc_task.o` | 优先保留调试能力并缩小未使用缓冲；工程/HIL 版保留完整采样，生产版可选关闭。不能把整个 `foc_task.o` 算作可删除空间 |
+| 3 | RTT 生产配置 | `segger_rtt.o` Code 520 B、RAM 3,256 B；采样编码还在 `rtt_telemetry.o` | 优先保留调试能力并缩小未使用缓冲；工程/HIL 版保留完整采样，生产版可选关闭。不能把整个 `rtt_telemetry.o` 算作可删除空间 |
 | 4 | 正弦 LUT | `sin_tab[1024]` RO 4,096 B；四分之一周期 float 表约 1,028 B，表本体理论省 3,068 B | 涉及 20 kHz FOC 快速路径，低优先级。额外索引/符号代码减少净收益；先验证数值误差、边界、周期和实机噪声，不直接切换 |
 | 5 | 自定义堆 | `heap.o` RAM 12,312 B，其中池 12 KiB；Code 356 B | RAM 优化，不是大额 Flash 来源。校准数组共 8 KiB，加参数记录及分配开销，不能因移除 USB 而一并缩减校准内存 |
 | 6 | 工厂/诊断功能构建配置 | `foc_calibration.o` Code 7,362 B；辨识、观测器等还跨多个对象 | 可为明确不需现场校准的产品另建精简配置；当前默认保留。不能将文件总大小直接当可省空间，运行控制和校准可能共用代码 |

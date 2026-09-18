@@ -4,6 +4,19 @@
 
 本功能生成、校验、保存和读取标定表。2026-09-18 增加编码器力矩模式（mode 1）的运行补偿，默认关闭，开关不持久化。
 
+## 模块归属
+
+2026-09-19 完成解耦重构，运行行为、参数 ABI、CAN 协议与 RTT/J-Link 变量名保持不变；
+同日将台架保护收敛为适配层内联的租约与测速判定，并把表记录从标定过程中拆出：
+
+- `motor/identification/cogging_map.{c,h}`：表格式、身份签名、CRC 校验、跨圈查表与成表（纯数据，无硬件）。
+- `motor/identification/cogging_calibration.{c,h}`：标定过程状态机（网格定位、稳定/采样窗口、双向遍历），不含表格式。
+- `motor/foc/cogging_compensation.{c,h}`：运行补偿纯核心（准入、查表、200 ms 渐变、±1 A 钳位与遥测台账），不包含平台头。
+- `motor/identification/foc_cogging_calibration.{c,h}`：唯一硬件适配层，保留全部 `FocCogging_*` 公共接口与既有全局符号；台架保护（约 10 行租约/测速判定）与力矩遥测帧内联于此。
+
+全局变量的 RAM 地址随构建变化，J-Link 调试需使用配套 AXF；变量与字段名未变。
+
+
 ## 力矩模式运行补偿
 
 仅在 `Current_Mode=1`、编码器反馈有效且关闭无感模式时叠加。使用有方向且线性化的机械角度，按低 6 位在相邻 1024 点之间线性插值，最后一点跨圈插值到第 0 点。
@@ -16,7 +29,7 @@ CAN 0x26 写入大端 float32 `1.0` 开启、`0.0` 关闭，0x27 读取开关。
 
 J-Link 可写 `CoggingCompensation.request=0/1`，观察 `enabled/rejected/blend/table_a/applied_a/total_a`。`TorqueTelemetryState` 写 1 请求，等 2 后读取冻结的 36 字节 `TorqueTelemetry`，读完写 0；其中包含同一次电流环的角度、速度、原始指令、实际补偿、总指令和 Iq 反馈。RTT 原有八通道布局未改变，原始 Iq 指令与实际总指令应区分。
 
-台架脚本另使用 RAM-only `TorqueGuard`：20 kHz 倒计时租约、速度上限与总电流上限。租约到期、测速超限或指令无效时直接关闭 PWM 并回 mode 0；`trip=1/2/3` 分别表示租约、速度和电流配置/指令问题。此保护默认关闭，不是生产模式下自动存在的主机断连保护。测试结束恢复电流/速度配置并关闭补偿。
+台架脚本另使用 RAM-only `TorqueGuard`：20 kHz 倒计时租约与速度上限。租约到期或测速超限时直接关闭 PWM 并回 mode 0；`trip=1/2` 分别表示租约与测速。此保护默认关闭，不是生产模式下自动存在的主机断连保护；测试电流包络由 `MotorControl.current_limit` 保证。测试结束恢复电流/速度配置并关闭补偿。
 
 实现已通过主机回归、普通/HIL 编译和零 Iq 实机开关测试；小力矩运动 A/B 对比尚待台架交回，不能据零电流静止结果宣称降低了转速纹波。精确固件、脚本与记录见 `outputs/cogging_compensation_20260918/`，该版 RTT 地址 `0x200069ec`，普通/HIL RAM 为 32008/32272 字节。
 
@@ -56,11 +69,8 @@ iq_q15[i] = round(Iq_A / full_scale_a * 32768)
 从 mode 0 设置 `ModeNow=6`，或者用现有 CAN 模式命令切换到 6。设置 mode 0 可以中止。J-Link 可查看：
 
 - `CoggingCalib.state/reason/index/direction_pass/points_done`：状态、原因、当前索引、方向和完成点数。
-- `CoggingCalib.accepted_sample_ticks/max_sample_error_rad/sample_error_sq_sum`：ISR 对全部有效采样周期统计，包含随后被重试窗口的有效周期；`sample_restarts/rejected_ticks` 显示重试与拒绝情况。
-- `CoggingTelemetryState`：主机写 1 请求同一 ISR 时刻的目标、内部参考、实际位置、速度与电流；等待 2 后读取冻结的 60 字节 `CoggingTelemetry`，读完写 0。异步分别读取其他 RAM 字段不保证同步。
 - `CoggingCalib.iq_q15`：标定中的暂存表，不是可用的最终表。
 - `CoggingMap.iq_q15[1024]` 和 `CoggingMap.full_scale_a`：发布的完整表及量程。
-- `CoggingFault`：保护退出前的速度、Iq、Iq 指令、位置、目标、电压、温度和原故障号，用于定位退出原因；单点超时不填写此快照。
 
 CAN 新增只读参数，请求和回复均为 **4 字节大端 float32**，沿用现有标准帧地址 `(node << 8) | param_id`：
 
@@ -85,7 +95,7 @@ CAN参数`0x26`写大端float32的0或1，`0x27`读当前启用状态；左轮no
 
 `TorqueTelemetryState`写1请求同一ISR采样，等于2时读取36字节`TorqueTelemetry`，读完写0。内容依次为uint32 tick及8个float：机械位置rad、速度rad/s、用户Iq、实际补偿Iq、总Iq指令、反馈Iq、母线电压、blend。原RTT仍为8通道，用户Iq通道不含补偿。
 
-可选的`TorqueGuard`仅供有界测试，默认关闭。enabled=1时，lease_ticks按20 kHz倒计时，测试主机必须续租；租约到期trip1、超速trip2、指令或测试配置无效trip3均停PWM并回mode0。设置测试电流和速度上限后再启动；它不是速度闭环，不能维持恒力矩空载电机的恒速。
+可选的`TorqueGuard`仅供有界测试，默认关闭。enabled=1时，lease_ticks按20 kHz倒计时，测试主机必须续租；租约到期trip1、超速trip2均停PWM并回mode0。测试电流包络由`MotorControl.current_limit`设置；它不是速度闭环，不能维持恒力矩空载电机的恒速。
 
 已完成CAN运行中开关、零Iq验证、正反向小力矩OFF/ON对比及失联停机验证。当前证据证明功能生效，尚不能证明动态平滑度改善。实际结果、最终HEX/AXF和匹配RTT地址见[力矩补偿实机报告](../reports/2026-09/cogging_compensation_20260918.md)。下文精度标定镜像的地址仅适用于该历史镜像。
 

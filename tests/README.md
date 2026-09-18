@@ -21,7 +21,8 @@ python tests/run.py --cc <zig-executable> --reference-source <baseline-position-
 测试日志默认写入 `outputs/tests/`，可以用 `--out` 指定。
 统一测试入口不会烧录、连接探针或操作电机。
 
-RTT 测试覆盖普通固件的 8 路标定帧和 HIL 固件的 12 路伺服帧；通道单位检查
-针对各自配套工程。通用 `pro_lks.lksscope` 保留用户配置，不要求使用 HIL 单位。
+RTT 测试覆盖统一的 4 通道帧：固件编码由 `run_position_servo_tests` 的夹具执行，
+帧布局、JScope 描述符与三个波形工程的一致性由 `test_rtt_control_telemetry.py` 校验；
+通用 `pro_lks.lksscope` 保留用户自定义单位，只校验通道数量。
 历史 `3980f92` 等价性比较也有既存失败，统一入口仅在明确提供
 `--reference-source` 时进行本次变更的状态等价比较。

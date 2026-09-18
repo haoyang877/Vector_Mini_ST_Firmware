@@ -1,87 +1,86 @@
+"""校验 RTT 4 通道帧布局、JScope 描述符与配套波形工程的一致性；不连接硬件。"""
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
 import re
 import unittest
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
+from project_paths import ROOT
 
-FOC_TASK = ROOT / "firmware/app/foc_task.c"
+RTT_TELEMETRY = ROOT / "firmware/app/rtt_telemetry.c"
 MAIN_SOURCE = ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/main.c"
-SCOPE_PROJECT = ROOT / "tools/bench/scopes/pro_lks.lksscope"
+HW_CONF = ROOT / "firmware/platform/stm32g4/bsp/hw_conf.h"
+SCOPES = (
+    ROOT / "tools/bench/scopes/pro_lks.lksscope",
+    ROOT / "tools/bench/scopes/pro_lks_servo_hil.lksscope",
+    ROOT / "tools/bench/scopes/pro_lks_calibration.lksscope",
+)
 
-EXPECTED_FIELDS = [
-    "target_position", "trajectory_position", "position_feedback", "position_error",
-    "trajectory_speed", "speed_feedback", "iq_reference", "feedforward_current",
-    "iq_feedback", "feedback_current", "hold_current", "servo_status",
-]
+EXPECTED_FIELDS = ["position", "speed", "iq_reference", "iq_feedback"]
+EXPECTED_UNITS = ["Q15:180°/32768", "0.1 rpm", "mA", "mA"]
+EXPECTED_DESCRIPTIONS = ["机械位置", "机械转速", "Iq 指令", "Iq 反馈"]
 
 
-class RttControlTelemetryTests(unittest.TestCase):
+class RttTelemetryTests(unittest.TestCase):
     def test_firmware_frame_has_fixed_documented_layout(self) -> None:
-        source = FOC_TASK.read_text(encoding="utf-8")
+        source = RTT_TELEMETRY.read_text(encoding="utf-8")
         frame = re.search(
-            r"typedef struct\s*\{(?P<body>.*?)\}\s*RTT_ControlFrame_TypeDef;",
+            r"typedef struct\s*\{(?P<body>.*?)\}\s*RTT_TelemetryFrame_TypeDef;",
             source,
             flags=re.DOTALL,
         )
         self.assertIsNotNone(frame)
         fields = re.findall(r"\bint16_t\s+(\w+)\s*;", frame.group("body"))
         self.assertEqual(fields, EXPECTED_FIELDS)
-        self.assertIn("sizeof(RTT_ControlFrame_TypeDef) == 24U", source)
+        self.assertIn("sizeof(RTT_TelemetryFrame_TypeDef) == 8U", source)
         self.assertNotIn("PositionImpedance_GetTelemetry", source)
-        self.assertIn("RTT_SERVO_STATUS_FRICTION_LANDING", source)
-        self.assertIn("RTT_SERVO_STATUS_SETTLE_RECOVERY", source)
-        self.assertIn("RTT_SERVO_STATUS_HOLD_CANDIDATE", source)
+        self.assertNotIn("RTT_SERVO_STATUS", source)
 
     def test_j_scope_descriptor_matches_int16_frame(self) -> None:
         source = MAIN_SOURCE.read_text(encoding="utf-8")
-        self.assertIn('SEGGER_RTT_ConfigUpBuffer(1, RTT_JSCOPE_DESCRIPTOR', source)
-        source = (ROOT / 'firmware/platform/stm32g4/bsp/hw_conf.h').read_text(encoding='utf-8')
-        descriptor = re.search(
-            r'#define RTT_JSCOPE_DESCRIPTOR\s*"([^"]+)"', source
-        )
+        self.assertIn("SEGGER_RTT_ConfigUpBuffer(1, RTT_JSCOPE_DESCRIPTOR", source)
+        header = HW_CONF.read_text(encoding="utf-8")
+        descriptor = re.search(r'#define RTT_JSCOPE_DESCRIPTOR\s*"([^"]+)"', header)
         self.assertIsNotNone(descriptor)
         self.assertEqual(descriptor.group(1), "JScope_" + "i2" * len(EXPECTED_FIELDS))
 
-    def test_scope_project_exposes_every_channel_once(self) -> None:
-        root = ET.parse(SCOPE_PROJECT).getroot()
-        form = root.find(".//form[@type='5']")
-        self.assertIsNotNone(form)
-        channels = [variable.attrib["name"] for variable in form.findall("var")]
-        self.assertEqual(
-            channels,
-            [f"rtt_channel1.data{index}" for index in range(len(EXPECTED_FIELDS))],
+    def test_scope_projects_expose_every_channel_once(self) -> None:
+        for path in SCOPES:
+            with self.subTest(scope=path.name):
+                root = ET.parse(path).getroot()
+                form = root.find(".//form[@type='5']")
+                self.assertIsNotNone(form)
+                channels = [variable.attrib["name"] for variable in form.findall("var")]
+                self.assertEqual(
+                    channels,
+                    [f"rtt_channel1.data{index}" for index in range(len(EXPECTED_FIELDS))],
+                )
+
+    def test_maintained_scopes_use_shared_units(self) -> None:
+        for name in ("pro_lks_servo_hil.lksscope", "pro_lks_calibration.lksscope"):
+            with self.subTest(scope=name):
+                root = ET.parse(ROOT / "tools/bench/scopes" / name).getroot()
+                form = root.find(".//form[@type='5']")
+                self.assertEqual(
+                    [variable.attrib["unit"] for variable in form.findall("var")],
+                    EXPECTED_UNITS,
+                )
+                self.assertEqual(
+                    [variable.attrib["desc"] for variable in form.findall("var")],
+                    EXPECTED_DESCRIPTIONS,
+                )
+                self.assertEqual(form.attrib["trigName"], "rtt_channel1.data0")
+
+    def test_calibration_scope_drops_stale_counter_and_keeps_rate(self) -> None:
+        source = (ROOT / "tools/bench/scopes/pro_lks_calibration.lksscope").read_text(
+            encoding="utf-8"
         )
-
-    def test_servo_hil_scope_uses_v2_units(self):
-        # pro_lks.lksscope is the user's generic/custom scope. The HIL scope
-        # remains the maintained v2 layout; calibration has its own project.
-        for filename in ('tools/bench/scopes/pro_lks_servo_hil.lksscope',):
-            root = ET.parse(ROOT / filename).getroot()
-            variables = root.find(".//form[@type='5']").findall('var')
-            self.assertEqual([v.attrib['name'] for v in variables],
-                             [f'rtt_channel1.data{i}' for i in range(12)])
-            self.assertEqual([v.attrib['unit'] for v in variables],
-                             ['0.01°'] * 4 + ['0.01°/s'] * 2 + ['mA'] * 5 + ['bits'])
-            self.assertEqual(variables[7].attrib['desc'], '前馈电流')
-            self.assertEqual(variables[8].attrib['desc'], '反馈电流')
-
-    def test_calibration_scope_and_descriptor(self):
-        root = ET.parse(ROOT / 'tools/bench/scopes/pro_lks_calibration.lksscope').getroot()
-        variables = root.find(".//form[@type='5']").findall('var')
-        self.assertEqual([v.attrib['name'] for v in variables],
-                         [f'rtt_channel1.data{i}' for i in range(8)])
-        self.assertEqual([v.attrib['unit'] for v in variables],
-                         ['Q15:180°/32768']*2 + ['0.1 rpm']*2 + ['mA']*2 + ['enum']*2)
-        self.assertEqual(root.find(".//param[@name='rttFreq']").attrib['value'], '2000')
-        self.assertTrue(all(not v.attrib.get('addr') for v in root.findall(".//form[@type='7']/var")))
-        header = (ROOT / 'firmware/platform/stm32g4/bsp/hw_conf.h').read_text(encoding='utf-8')
-        self.assertIn('"JScope_' + 'i2'*8 + '"', header)
+        self.assertNotIn("rtt_calibration_dropped_frames", source)
+        root = ET.fromstring(source)
+        self.assertEqual(root.find(".//param[@name='rttFreq']").attrib["value"], "2000")
 
 
 if __name__ == "__main__":

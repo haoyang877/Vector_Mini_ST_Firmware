@@ -122,18 +122,6 @@
                 "SensorlessStartup_Reset"
             ]
         },
-        "firmware/motor/identification/cogging_calibration.h": {
-            "sha256": "e859baf344acdba54e97aead573a5e98753d2d264363b6ef8eb2bece58e89d34",
-            "interfaces": [
-                "CoggingCalibration_Abort",
-                "CoggingCalibration_Finish",
-                "CoggingCalibration_Start",
-                "CoggingCalibration_Update",
-                "CoggingMap_Valid",
-                "Cogging_Crc32",
-                "Cogging_EncoderSignature"
-            ]
-        },
         "firmware/motor/identification/foc_calibration.h": {
             "sha256": "8f4aaa4bbeeb5f0b457ee3986ed9860f69f03e0cc51c90d230d5c0d1d539b3d1",
             "interfaces": [
@@ -142,22 +130,6 @@
                 "Task_Calib_EncoderObserver",
                 "Task_Calib_EncoderOffset",
                 "Task_Calib_R_L_Flux"
-            ]
-        },
-        "firmware/motor/identification/foc_cogging_calibration.h": {
-            "sha256": "8a591f325a485c8431f4e42c04799e884b10b106ebfbe74c603b84a54fd39226",
-            "interfaces": [
-                "FocCogging_Abort",
-                "FocCogging_Apply",
-                "FocCogging_CanStart",
-                "FocCogging_GetState",
-                "FocCogging_SaveResult",
-                "FocCogging_Service",
-                "FocCogging_SetCompensation",
-                "FocCogging_TableValid",
-                "FocCogging_Task",
-                "FocCogging_TorqueGuard",
-                "FocCogging_TorqueObserve"
             ]
         },
         "firmware/motor/identification/foc_friction_identification.h": {

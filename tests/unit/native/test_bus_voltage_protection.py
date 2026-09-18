@@ -1,19 +1,20 @@
-"""Execute production voltage sensing and mode admission with simulated ADC input.
+"""使用模拟 ADC 输入执行生产母线采样与模式准入。
 
-No probe is opened and no physical over/undervoltage is applied.
+不打开探针，也不施加真实过压/欠压；仅覆盖离线判定逻辑。
 """
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
-
 import argparse
-from pathlib import Path
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
 
-PRELUDE = r'''
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
+
+PRELUDE = r"""
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -42,9 +43,9 @@ static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { (void)e; return 0; }
 static void Task_Position_Mode_Reset(void) {}
-'''
+"""
 
-CASES = r'''
+CASES = r"""
 static void input(float v) {
     adc.JDR4=(uint32_t)roundf(v/SENSING_VBUS_FACTOR/ADC2_SUM_TO_COUNTS);
     assert(adc.JDR4<=4*4095);
@@ -121,23 +122,59 @@ int main(void) {
     puts("PASS explicit recovery needs safe voltage, never auto-restarts");
     return 0;
 }
-'''
+"""
+
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--cc',required=True)
-    ap.add_argument('--out',type=Path,default=ROOT/'outputs/bus_voltage_8s_20260917/host')
-    a=ap.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
-    (out/'main.h').write_text('#include <stdint.h>\n')
-    fixture=out/'bus_voltage_test.c'
-    fixture.write_text(PRELUDE+function_source((ROOT/'firmware/motor/foc/foc_sensing.c').read_text(),'Vbus_Update')+'\n'+function_source((ROOT/'firmware/motor/protection/foc_errhandle.c').read_text(),'ModeSwitch_Handle')+CASES)
-    cc=[str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
-    if Path(a.cc).stem=='zig':cc+=['cc']
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cc", required=True)
+    ap.add_argument("--out", type=Path, default=ROOT / "outputs/bus_voltage_8s_20260917/host")
+    a = ap.parse_args()
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "main.h").write_text("#include <stdint.h>\n")
+    fixture = out / "bus_voltage_test.c"
+    fixture.write_text(
+        PRELUDE
+        + function_source((ROOT / "firmware/motor/foc/foc_sensing.c").read_text(), "Vbus_Update")
+        + "\n"
+        + function_source(
+            (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(), "ModeSwitch_Handle"
+        )
+        + CASES
+    )
+    cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
+    if Path(a.cc).stem == "zig":
+        cc += ["cc"]
     cc += NATIVE_INCLUDE_FLAGS
-    exe=out/'bus_voltage_test.exe'
-    command=cc+['-std=c99','-O1','-UNDEBUG','-Wall','-Wextra','-Werror','-I',str(out),'-I',str(ROOT/'firmware/common'),'-I',str(ROOT/'firmware/motor/foc'),str(fixture),str(ROOT/'firmware/services/parameters/motor_axis_profile.c'),'-o',str(exe)]
-    logs=[]
-    for cmd in [command,[str(exe)]]:
-        r=subprocess.run(cmd,capture_output=True,text=True);logs.append(r.stdout+r.stderr)
-        print(logs[-1],end='');(out/'test.log').write_text('\n'.join(logs));r.check_returncode()
+    exe = out / "bus_voltage_test.exe"
+    command = cc + [
+        "-std=c99",
+        "-O1",
+        "-UNDEBUG",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I",
+        str(out),
+        "-I",
+        str(ROOT / "firmware/common"),
+        "-I",
+        str(ROOT / "firmware/motor/foc"),
+        str(fixture),
+        str(ROOT / "firmware/common/crc32.c"),
+        str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+        "-o",
+        str(exe),
+    ]
+    logs = []
+    for cmd in [command, [str(exe)]]:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        logs.append(r.stdout + r.stderr)
+        print(logs[-1], end="")
+        (out / "test.log").write_text("\n".join(logs))
+        r.check_returncode()
 
-if __name__=='__main__':main()
+
+if __name__ == "__main__":
+    main()

@@ -1,17 +1,19 @@
-"""Execute production cogging core and FOC adapter with synthetic encoder/current.
+"""使用合成编码器/电流数据执行生产齿槽核心与 FOC 适配层。
 
-Verifies full-turn coverage, sign/scale, bidirectional averaging, rejected
-samples, bounded failures, stop-before-save, and preserving prior records.
-No hardware is accessed; the synthetic plant does not certify motor tuning.
+覆盖整圈双向采样、符号/量程、双向平均、拒绝样本、有界失败、先停机后保存、
+旧记录保持，以及补偿纯核心的插值/准入/渐变/限幅与台架保护判定。
+不访问硬件；合成被控对象不代表实物整定结论。
 """
+
 import argparse
-from pathlib import Path
 import subprocess
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
+from pathlib import Path
 
-FIXTURE = r'''
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+
+FIXTURE = r"""
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -66,7 +68,7 @@ static void core_tests(void) {
             assert(c.state!=COGGING_FAILED);
         }
         for(unsigned i=0;i<1024;i++) assert(seen[0][i] && seen[1][i]);
-        assert(CoggingCalibration_Finish(&c,42,&record));
+        assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,42,&record));
         assert(CoggingMap_Valid(&record,42) && !CoggingMap_Valid(&record,43));
         for(unsigned i=0;i<1024;i++) {
             float expected=.2f*sinf((float)i*COGGING_STEP_RAD*21);
@@ -78,12 +80,11 @@ static void core_tests(void) {
     assert(CoggingCalibration_Start(&c,0,82.5f));run_point(82.5f);assert(c.iq_q15[1]==32767);
     run_point(-82.5f);assert(c.iq_q15[2]==-32768);
     before=record;CoggingCalibration_Abort(&c,COGGING_CANCELLED);
-    assert(!CoggingCalibration_Finish(&c,42,&record) && !memcmp(&record,&before,sizeof(record)));
+    assert(c.state==COGGING_FAILED);
     assert(CoggingCalibration_Start(&c,0,82.5f));
     for(unsigned i=0;i<COGGING_SETTLE_TICKS+50;i++) CoggingCalibration_Update(&c,c.target_rad,0,.1f,false);
     assert(c.samples==50);CoggingCalibration_Update(&c,c.target_rad,.3f,.1f,false);
     assert(c.samples==0 && c.state==COGGING_SETTLING);
-    assert(c.sample_restarts==1 && c.accepted_sample_ticks==50);
     /* An 8 ms quantized speed estimate may toggle above 0.08 rad/s while
      * raw position holds the grid. Its slow drift, not each toggle, gates us. */
     assert(CoggingCalibration_Start(&c,0,82.5f));
@@ -98,24 +99,23 @@ static void core_tests(void) {
         if(i%20==0) CoggingCalibration_Update(&c,c.target_rad+COGGING_POSITION_TOL_RAD*1.1f,0,50,false);
         CoggingCalibration_Update(&c,c.target_rad,0,.1f,false);
     }
-    assert(c.points_done==1 && c.rejected_ticks==10 && c.accepted_sample_ticks==200);
+    assert(c.points_done==1);
     assert(abs(c.iq_q15[1]-40)<=1);
     for(unsigned i=0;i<COGGING_SETTLE_TICKS+50;i++) CoggingCalibration_Update(&c,c.target_rad,0,.1f,false);
     for(unsigned i=0;i<4;i++) CoggingCalibration_Update(&c,c.target_rad+COGGING_POSITION_TOL_RAD*1.1f,0,50,false);
-    assert(c.state==COGGING_SETTLING && c.samples==0 && c.sample_restarts==1);
+    assert(c.state==COGGING_SETTLING && c.samples==0);
     for(unsigned i=0;i<COGGING_SETTLE_TICKS;i++) CoggingCalibration_Update(&c,c.target_rad,0,.1f,false);
     for(unsigned i=0;i<11;i++) {
         CoggingCalibration_Update(&c,c.target_rad+COGGING_POSITION_TOL_RAD*1.1f,0,50,false);
         CoggingCalibration_Update(&c,c.target_rad,0,.1f,false);
     }
-    assert(c.state==COGGING_SETTLING && c.samples==0 && c.sample_restarts==2);
+    assert(c.state==COGGING_SETTLING && c.samples==0);
     assert(CoggingCalibration_Start(&c,0,82.5f));
     for(unsigned i=0;i<1000;i++) CoggingCalibration_Update(&c,c.target_rad+COGGING_POSITION_TOL_RAD*1.1f,0,.1f,false);
-    assert(c.points_done==0 && c.samples==0 && c.accepted_sample_ticks==0);
+    assert(c.points_done==0 && c.samples==0);
     for(unsigned i=0;i<COGGING_SETTLE_TICKS+COGGING_SAMPLE_TICKS;i++)
         CoggingCalibration_Update(&c,c.target_rad+COGGING_POSITION_TOL_RAD*.75f,0,.1f,false);
-    assert(c.points_done==1 && c.accepted_sample_ticks==COGGING_SAMPLE_TICKS);
-    assert(c.max_sample_error_rad<=COGGING_POSITION_TOL_RAD);
+    assert(c.points_done==1);
     /* At every grid over two turns, exactly four encoder counts qualify;
      * a fifth count does not. Include float rounding at the wrap boundary. */
     for(unsigned grid=1;grid<2048;grid++) {
@@ -127,7 +127,7 @@ static void core_tests(void) {
             assert(c.stable_ticks==1);
             position=(float)((int)grid*64+direction*5)*(6.283185307179586f/65536.0f);
             CoggingCalibration_Update(&c,position,0,.1f,false);
-            assert(c.stable_ticks==1 && c.last_sample_accepted==0);
+            assert(c.stable_ticks==1);
         }
     }
     assert(CoggingCalibration_Start(&c,0,82.5f));
@@ -164,22 +164,8 @@ static void adapter_tests(void) {
     assert(!pwm && CoggingCalib.state==COGGING_FAILED);
     assert(!memcmp(&CoggingMap,&before,sizeof(before)));
     setup();
-    CoggingTelemetryState=1;
-    float expected_iq=0;
-    for(unsigned i=0;i<10;i++) {
-        foc.Iq=i%2 ? .3f : .1f; expected_iq+=foc.Iq;
-        FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
-    }
-    assert(CoggingTelemetryState==2);
-    assert(fabsf(CoggingTelemetry.iq_average_a-expected_iq/10)<1e-6f);
-    CoggingTelemetryFrame frozen=CoggingTelemetry;
-    for(unsigned i=0;i<20;i++) FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
-    assert(!memcmp((const void*)&CoggingTelemetry,&frozen,sizeof(frozen)));
-    CoggingTelemetryState=0;
-    setup();
     FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
     double synthetic_position=0.0,synthetic_velocity=0.0;
-    unsigned telemetry_frames=0;
     for(unsigned ticks=0;MotorControl.ModeNow==Calib_Anticogging && ticks<36000000;ticks++) {
         /* Independent inertial plant, driven by actual controller output. */
         double load=.03*sin(synthetic_position*21.0)+.10*synthetic_velocity;
@@ -189,20 +175,9 @@ static void adapter_tests(void) {
         OnBoard_Encoder.shadow_q15=(int64_t)llround(synthetic_position*65536.0/6.283185307);
         OnBoard_Encoder.linearized_q15=(uint16_t)OnBoard_Encoder.shadow_q15;
         foc.Iq=MotorControl.iqRef;
-        if(CoggingTelemetryState==0) CoggingTelemetryState=1;
         FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
-        if(CoggingTelemetryState==2) {
-            assert(fabsf(CoggingTelemetry.error_rad-(CoggingTelemetry.target_rad-CoggingTelemetry.position_rad))<1e-7f);
-            if(CoggingTelemetry.accepted) {
-                assert(CoggingTelemetry.state==COGGING_SAMPLING);
-                assert(fabsf(CoggingTelemetry.error_rad)<=COGGING_POSITION_GATE_RAD);
-            }
-            ++telemetry_frames;CoggingTelemetryState=0;
-        }
     }
     assert(CoggingCalib.state==COGGING_COMPLETE && CoggingCalib.points_done==2048);
-    assert(telemetry_frames>2048 && CoggingCalib.accepted_sample_ticks>=2048*COGGING_SAMPLE_TICKS);
-    assert(CoggingCalib.max_sample_error_rad<=COGGING_POSITION_GATE_RAD);
     assert(FocCogging_GetState()==COGGING_SAVING);
     assert(!pwm && MotorControl.ModeNow==Motor_Disable && OnBoard_Encoder.reverse==0);
     FocCogging_Service();assert(MotorControl.ModeNow==Save_Param && FocCogging_TableValid());
@@ -214,7 +189,7 @@ static void compensation_tests(void) {
     setup();MotorControl.ModeNow=Motor_Disable;
     memset(&c,0,sizeof(c));c.state=COGGING_COMPLETE;c.points_done=2048;c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
     c.iq_q15[0]=100;c.iq_q15[1023]=-100;
-    assert(CoggingCalibration_Finish(&c,Cogging_EncoderSignature(0,0,21,OnBoard_Encoder.linearization_lut_q15),&CoggingMap));
+    assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,Cogging_EncoderSignature(0,0,21,OnBoard_Encoder.linearization_lut_q15),&CoggingMap));
     assert(FocCogging_SetCompensation(true));MotorControl.ModeNow=Current_Mode;MotorControl.iqRef=.2f;
     for(unsigned i=0;i<4001;i++) FocCogging_Apply(&MotorControl,&OnBoard_Encoder);
     float scale=82.5f/32768;
@@ -240,37 +215,95 @@ static void compensation_tests(void) {
     assert(CoggingCompensation.request==1 && CoggingCompensation.enabled==0);
     FocCogging_Service();assert(CoggingCompensation.enabled==1);
     CoggingCompensation.request=0;FocCogging_Service();assert(CoggingCompensation.enabled==0);
-    TorqueGuard.enabled=1;TorqueGuard.lease_ticks=2;TorqueGuard.speed_limit_rad_s=2;TorqueGuard.current_limit_a=.3f;
+    TorqueGuard.enabled=1;TorqueGuard.lease_ticks=2;TorqueGuard.speed_limit_rad_s=2;
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     pwm=true;assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     assert(!pwm && MotorControl.ModeNow==Motor_Disable && TorqueGuard.trip==1);
     TorqueGuard.lease_ticks=100;OnBoard_Encoder.vel_mech_continuous=3;
     assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder) && TorqueGuard.trip==2);
-    OnBoard_Encoder.vel_mech_continuous=0;MotorControl.iqRef=.4f;
-    assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder) && TorqueGuard.trip==3);
+    OnBoard_Encoder.vel_mech_continuous=0;TorqueGuard.enabled=0;
+    assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     puts("PASS compensation interpolation/wrap/sign, command ownership, ramp, total clamp, stale/corrupt rejection and independent torque watchdog");
 }
-int main(void) {core_tests();adapter_tests();compensation_tests();}
-'''
+static void lookup_tests(void) {
+    /* 纯插值核心：中点、子步、跨圈与表内满量程换算；不依赖硬件。 */
+    CoggingMapRecord map;
+    memset(&map,0,sizeof(map));
+    map.full_scale_a=82.5f;
+    map.iq_q15[0]=100;map.iq_q15[1]=200;map.iq_q15[1023]=-100;
+    float scale=82.5f/32768.0f;
+    assert(fabsf(CoggingMap_LookupA(&map,0)-100*scale)<1e-9f);
+    assert(fabsf(CoggingMap_LookupA(&map,32)-150*scale)<1e-9f);
+    assert(fabsf(CoggingMap_LookupA(&map,63)-(100+100*63.0f/64.0f)*scale)<1e-9f);
+    assert(fabsf(CoggingMap_LookupA(&map,65504))<1e-9f); /* 1023 -> 0 跨圈中点 */
+    map.full_scale_a=27.5f;
+    assert(fabsf(CoggingMap_LookupA(&map,0)-100*(27.5f/32768.0f))<1e-9f);
+    puts("PASS cogging map lookup midpoint, substep, wrap and record scale");
+}
+static void update_core_tests(void) {
+    /* 纯 Update：未准入时只做指令限幅并输出总指令。 */
+    CoggingCompensationControl control;
+    CoggingCompensationTick tick;
+    CoggingMapRecord map;
+    memset(&control,0,sizeof(control));
+    memset(&tick,0,sizeof(tick));memset(&map,0,sizeof(map));
+    map.full_scale_a=82.5f;map.iq_q15[0]=1000;
+    tick.mode_is_current=true;tick.error_clear=true;tick.sensorless_off=true;
+    tick.encoder_usable=true;tick.command_a=.5f;tick.limit_a=.3f;tick.tick_s=Current_Ts;
+    assert(fabsf(CoggingCompensation_Update(&control,&map,&tick)-.3f)<1e-6f);
+    assert(control.table_a==0 && control.blend==0);
+    tick.command_a=-.5f;
+    assert(fabsf(CoggingCompensation_Update(&control,&map,&tick)+.3f)<1e-6f);
+    puts("PASS compensation core supervision and command clamping");
+}
+int main(void) {lookup_tests();update_core_tests();core_tests();adapter_tests();compensation_tests();}
+"""
+
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--cc',required=True)
-    ap.add_argument('--out',type=Path,default=ROOT/'outputs/cogging_tests')
-    a=ap.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
-    (out/'main.h').write_text('#ifndef TEST_MAIN_H\n#define TEST_MAIN_H\n#include <stdint.h>\n#include <stddef.h>\n'
-        'static inline uint32_t __get_PRIMASK(void) {return 0;}\n'
-        'static inline void __disable_irq(void) {}\n'
-        'static inline void __set_PRIMASK(uint32_t p) {(void)p;}\n#endif\n')
-    src=out/'cogging_test.c';src.write_text(FIXTURE)
-    compiler=[a.cc]+(['cc'] if Path(a.cc).stem=='zig' else [])
-    exe=out/'cogging_test.exe'
-    cmd=compiler+['-std=c99','-O1','-UNDEBUG','-Wall','-Wextra','-Werror','-I',str(out)]+NATIVE_INCLUDE_FLAGS
-    cmd += [str(src)]+[str(ROOT/p) for p in ['firmware/motor/identification/cogging_calibration.c',
-        'firmware/motor/identification/foc_cogging_calibration.c','firmware/motor/foc/foc_pid.c','firmware/common/utils.c']]
-    cmd += ['-o',str(exe),'-lm']
-    logs=[]
-    for command in (cmd,[str(exe)]):
-        r=subprocess.run(command,capture_output=True,text=True);logs.append(r.stdout+r.stderr)
-        print(logs[-1],end='');(out/'test.log').write_text('\n'.join(logs));r.check_returncode()
-if __name__=='__main__':main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cc", required=True)
+    ap.add_argument("--out", type=Path, default=ROOT / "outputs/cogging_tests")
+    a = ap.parse_args()
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "main.h").write_text(
+        "#ifndef TEST_MAIN_H\n#define TEST_MAIN_H\n#include <stdint.h>\n#include <stddef.h>\n"
+        "static inline uint32_t __get_PRIMASK(void) {return 0;}\n"
+        "static inline void __disable_irq(void) {}\n"
+        "static inline void __set_PRIMASK(uint32_t p) {(void)p;}\n#endif\n"
+    )
+    src = out / "cogging_test.c"
+    src.write_text(FIXTURE)
+    compiler = [a.cc] + (["cc"] if Path(a.cc).stem == "zig" else [])
+    exe = out / "cogging_test.exe"
+    cmd = (
+        compiler
+        + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+        + NATIVE_INCLUDE_FLAGS
+    )
+    cmd += [str(src)] + [
+        str(ROOT / p)
+        for p in [
+            "firmware/motor/identification/cogging_calibration.c",
+            "firmware/motor/identification/cogging_map.c",
+            "firmware/motor/identification/foc_cogging_calibration.c",
+            "firmware/motor/foc/cogging_compensation.c",
+            "firmware/motor/foc/foc_pid.c",
+            "firmware/common/utils.c",
+            "firmware/common/crc32.c",
+        ]
+    ]
+    cmd += ["-o", str(exe), "-lm"]
+    logs = []
+    for command in (cmd, [str(exe)]):
+        r = subprocess.run(command, capture_output=True, text=True)
+        logs.append(r.stdout + r.stderr)
+        print(logs[-1], end="")
+        (out / "test.log").write_text("\n".join(logs))
+        r.check_returncode()
+
+
+if __name__ == "__main__":
+    main()

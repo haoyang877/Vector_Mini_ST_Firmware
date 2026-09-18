@@ -1,577 +1,62 @@
 #include "foc_task.h"
 
 #include "common_inc.h"
-#include "SEGGER_RTT.h"
-#include "foc_friction_identification.h"
-#include "foc_cogging_calibration.h"
-#include "foc_phase_resistance.h"
-#include "position_cascade.h"
+#include "motor_state.h"
+#include "foc_mode_dispatch.h"
+#include "foc_run_state.h"
+#include "rtt_telemetry.h"
 #include "servo_hil.h"
 #include "fast_loop_profile.h"
-#include "motor_status.h"
 
-MotorControl_TypeDef MotorControl;
-PI_Controller_TypeDef PI_Speed;
-Encoder_TypeDef OnBoard_Encoder;
-Fluxobserver_TypeDef Fluxobserver;
-SensorlessStartup_TypeDef SensorlessStartup;
-
-ModeNow_TypeDef  ModeLast  = Motor_Disable;
-ErrorNow_TypeDef ErrorLast = No_Error;
-
-FOC_TypeDef FOC;
-
-#define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	(18000.0f / _PI)
-#define RTT_POSITION_SCALE_COUNTS_PER_RAD	(18000.0f / _PI)
-#define RTT_CURRENT_SCALE_COUNTS_PER_A		1000.0f
-
-#define RTT_SERVO_STATUS_PHASE_MASK		0x0003U
-#define RTT_SERVO_STATUS_PHASE_INVALID	0x0003U
-#define RTT_SERVO_STATUS_TARGET_REACHED	(1U << 2)
-#define RTT_SERVO_STATUS_CURRENT_SATURATED	(1U << 3)
-#define RTT_SERVO_STATUS_FEEDFORWARD_ACTIVE	(1U << 4)
-#define RTT_SERVO_STATUS_FAULT_ACTIVE	(1U << 5)
-#define RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED	(1U << 6)
-#define RTT_SERVO_STATUS_TELEMETRY_VALID	(1U << 7)
-#define RTT_SERVO_STATUS_FRAME_VERSION_2	(1U << 14)
-#define RTT_SERVO_STATUS_FRICTION_LANDING	(1U << 9)
-#define RTT_SERVO_STATUS_SETTLE_RECOVERY	(1U << 10)
-#define RTT_SERVO_STATUS_HOLD_CANDIDATE	(1U << 11)
-#define RTT_SERVO_STATUS_TRAJECTORY_LIMITED	(1U << 12)
-#define RTT_SERVO_STATUS_STICTION_INTEGRATING	(1U << 13)
-
-typedef struct
-{
-	int16_t target_position;
-	int16_t trajectory_position;
-	int16_t position_feedback;
-	int16_t position_error;
-	int16_t trajectory_speed;
-	int16_t speed_feedback;
-	int16_t iq_reference;
-	int16_t feedforward_current;
-	int16_t iq_feedback;
-	int16_t feedback_current;
-	int16_t hold_current;
-	int16_t servo_status;
-} RTT_ControlFrame_TypeDef;
-
-typedef char RTT_ControlFrame_SizeMustBe24Bytes[
-	(sizeof(RTT_ControlFrame_TypeDef) == 24U) ? 1 : -1];
-
-static int16_t RTT_EncodeInt16(float value, float scale)
-{
-	float scaled;
-
-	if (!isfinite(value) || !isfinite(scale))
-		return 0;
-	scaled = value * scale;
-	if (scaled > 32767.0f)
-		return 32767;
-	if (scaled < -32768.0f)
-		return -32768;
-
-	return (int16_t)scaled;
-}
-
-#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
-volatile uint32_t rtt_calibration_dropped_frames;
-
-typedef struct
-{
-	int16_t encoder_electrical_angle;
-	int16_t observer_electrical_angle;
-	int16_t encoder_speed;
-	int16_t observer_speed;
-	int16_t iq_reference;
-	int16_t iq_feedback;
-	int16_t calibration_step;
-	int16_t startup_state;
-} RTT_CalibrationFrame_TypeDef;
-
-typedef char RTT_CalibrationFrame_SizeMustBe16Bytes[
-	(sizeof(RTT_CalibrationFrame_TypeDef) == 16U) ? 1 : -1];
-
-/* These electrical phases are normalized to [0, 2*pi) by their owners.
- * Encode signed single-turn Q15; preserve the live encoder direction as-is. */
-static int16_t RTT_EncodeElectricalAngle(float angle)
-{
-	if (angle >= _PI)
-		angle -= 2.0f * _PI;
-	return RTT_EncodeInt16(angle, 32768.0f / _PI);
-}
-
-static unsigned RTT_WriteCalibrationFrame(void)
-{
-	RTT_CalibrationFrame_TypeDef frame;
-	float observer_speed = 0.0f;
-	const float speed_scale = 300.0f / _PI; /* 0.1 mechanical rpm/count */
-
-	if (MotorControl.motor_pole_pairs > 0)
-		observer_speed = Fluxobserver.omega_e / (float)MotorControl.motor_pole_pairs;
-
-	frame.encoder_electrical_angle = RTT_EncodeElectricalAngle(OnBoard_Encoder.theta_elec);
-	frame.observer_electrical_angle = RTT_EncodeElectricalAngle(Fluxobserver.theta_e);
-	frame.encoder_speed = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, speed_scale);
-	frame.observer_speed = RTT_EncodeInt16(observer_speed, speed_scale);
-	frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.iq_feedback = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.calibration_step = (int16_t)CalibStep;
-	frame.startup_state = (int16_t)SensorlessStartup.state;
-	return SEGGER_RTT_Write(1, &frame, sizeof(frame));
-}
-#endif
-
-static void RTT_Sampling(bool defer_encoding)
-{
-	static uint32_t rtt_divider_count;
-#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_SERVO
-	static bool previous_frame_dropped;
-	PositionCascadeTelemetry_TypeDef servo_telemetry;
-	RTT_ControlFrame_TypeDef frame;
-	uint16_t status_flags = RTT_SERVO_STATUS_FRAME_VERSION_2 |
-		RTT_SERVO_STATUS_PHASE_INVALID;
-	unsigned bytes_written;
-	bool servo_telemetry_valid;
-#endif
-
-	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
-		return;
-	/* Preserve the divider clock while deferring optional encoding away from
-	 * the HIL mailbox/diagnostic publication tick as well as the servo tick. */
-	if (defer_encoding)
-		return;
-	if (Encoder_DidUpdateVelocity(&OnBoard_Encoder))
-		return;
-	/* Do not stack frame encoding on the same IRQ as the 2 kHz servo.
-	 * A coincident frame is deferred by one fast tick; subsequent frames keep
-	 * their normal cadence. This does not delay the current/PWM update. */
-#if CASCADE_POSITION_LOOP_DIVIDER > 1U
-	if (MotorControl.ModeNow == Position_Mode && !MotorOuterLoop_IsReady())
-		return;
-#endif
-	rtt_divider_count = 0;
-
-#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
-	if (RTT_WriteCalibrationFrame() != sizeof(RTT_CalibrationFrame_TypeDef))
-		++rtt_calibration_dropped_frames;
-#else
-	/* This fixed frame is intentionally meaningful only in mode 3. */
-	frame.trajectory_position = 0;
-	frame.position_feedback = 0;
-	frame.position_error = 0;
-	frame.trajectory_speed = 0;
-	frame.target_position = 0;
-	frame.speed_feedback = 0;
-	frame.iq_reference = 0;
-	frame.iq_feedback = 0;
-	frame.feedback_current = 0;
-	frame.feedforward_current = 0;
-	frame.hold_current = 0;
-	frame.servo_status = 0;
-
-	servo_telemetry_valid = MotorControl.ModeNow == Position_Mode &&
-		MotorOuterLoop_GetTelemetry(&servo_telemetry);
-
-	if (servo_telemetry_valid)
-	{
-		status_flags &= (uint16_t)~RTT_SERVO_STATUS_PHASE_MASK;
-		status_flags |= (uint16_t)servo_telemetry.phase &
-			RTT_SERVO_STATUS_PHASE_MASK;
-		status_flags |= RTT_SERVO_STATUS_TELEMETRY_VALID;
-		frame.target_position = RTT_EncodeInt16(MotorControl.posRef,
-			RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.trajectory_position = RTT_EncodeInt16(
-			servo_telemetry.position_reference, RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.position_feedback = RTT_EncodeInt16(
-			OnBoard_Encoder.theta_mech, RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.position_error = RTT_EncodeInt16(
-			servo_telemetry.position_reference - OnBoard_Encoder.theta_mech,
-			RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.trajectory_speed = RTT_EncodeInt16(
-			servo_telemetry.trajectory_speed_reference,
-			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-		frame.speed_feedback = RTT_EncodeInt16(servo_telemetry.speed_feedback,
-			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-		frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.iq_feedback = RTT_EncodeInt16(FOC.Iq,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.feedback_current = RTT_EncodeInt16(
-			servo_telemetry.feedback_current,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.feedforward_current = RTT_EncodeInt16(
-			MotorControl.iqRef - servo_telemetry.feedback_current,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.hold_current = RTT_EncodeInt16(servo_telemetry.hold_current,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		if (servo_telemetry.target_reached)
-			status_flags |= RTT_SERVO_STATUS_TARGET_REACHED;
-		if (servo_telemetry.current_saturated)
-			status_flags |= RTT_SERVO_STATUS_CURRENT_SATURATED;
-		if (servo_telemetry.friction_landing_active)
-			status_flags |= RTT_SERVO_STATUS_FRICTION_LANDING;
-		if (servo_telemetry.settle_recovery_active)
-			status_flags |= RTT_SERVO_STATUS_SETTLE_RECOVERY;
-		if (servo_telemetry.hold_candidate_active)
-			status_flags |= RTT_SERVO_STATUS_HOLD_CANDIDATE;
-		if (servo_telemetry.trajectory_limited)
-			status_flags |= RTT_SERVO_STATUS_TRAJECTORY_LIMITED;
-		if (servo_telemetry.stiction_integrating)
-			status_flags |= RTT_SERVO_STATUS_STICTION_INTEGRATING;
-	}
-	if (frame.feedforward_current != 0)
-		status_flags |= RTT_SERVO_STATUS_FEEDFORWARD_ACTIVE;
-	if (MotorControl.ErrorNow != No_Error)
-		status_flags |= RTT_SERVO_STATUS_FAULT_ACTIVE;
-	if (previous_frame_dropped)
-		status_flags |= RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED;
-	frame.servo_status = (int16_t)status_flags;
-
-	bytes_written = SEGGER_RTT_Write(1, &frame, sizeof(frame));
-	previous_frame_dropped = bytes_written != sizeof(frame);
-#endif
-}
-
-/** Read-only publication from the motor owner. Requested at <=200 Hz; CAN
- * packing and transmission stay in the foreground, never in this fast path. */
-static void MotorStatus_Sampling(void)
-{
-    MotorStatus sample;
-    PositionCascadeTelemetry_TypeDef planned;
-    if (!MotorStatus_IsRequested()) return;
-    sample.fault = (uint16_t)MotorControl.ErrorNow;
-    sample.mode = (uint16_t)MotorControl.ModeNow;
-    sample.position_target = MotorControl.posRef;
-    sample.position_feedback = OnBoard_Encoder.theta_mech;
-    sample.speed_target = MotorControl.speedRef;
-    sample.speed_feedback = (MotorControl.ModeNow == Position_Mode ||
-        MotorControl.ModeNow == Position_Impedance_Mode) ?
-        MotorControl.pos_vel_filtered : OnBoard_Encoder.vel_mech;
-    sample.current_reference = MotorControl.iqRef;
-    sample.current_feedback = FOC.Iq;
-    sample.temperature = FOC.temp;
-    sample.bus_voltage = FOC.Vbus_filt;
-    sample.bus_current = FOC.Ibus_filt;
-    sample.position_planned = NAN;
-    sample.speed_planned = NAN;
-    if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned)) {
-        sample.position_planned = planned.position_reference;
-        sample.speed_planned = planned.trajectory_speed_reference;
-    } else if (MotorControl.ModeNow == Position_Impedance_Mode) {
-        sample.position_planned = MotorControl.posShadow;
-        sample.speed_planned = MotorControl.speedShadow;
-    } else if (MotorControl.ModeNow == Speed_Mode) {
-        sample.speed_planned = MotorControl.speedShadow;
-    }
-    MotorStatus_Publish(&sample);
-}
-
-/**
-	* @brief  Initialize motor control parameters
- **/
-bool MotorControl_IsConfigurationValid(void)
-{
-	return MotorControl.axis_profile_valid;
-}
-
-void MotorControl_Init(void)
-{	Encoder_ParamInit(&OnBoard_Encoder);
-	
-	Fluxobserver_ParamInit(&Fluxobserver);
-	SensorlessStartup_Reset(&SensorlessStartup);
-	FOC_CurrentController_Reset(&FOC);
-	PI_Controller_Reset(&PI_Speed);
-	
-	MotorControl.pos_error_window = 0.001f;
-	MotorControl.pos_vel_filtered = 0.0f;
-	Task_Position_Mode_Reset();
-	FocFrictionIdentification_Init();
-	
-	/* Unconfigured joint records remain disabled at boot. */
-	MotorControl.ModeNow = MotorControl.axis_profile_valid ? Calib_CurrentOffset : Motor_Disable;
-	if (!MotorControl.axis_profile_valid)
-		Set_ErrorNow(MotorParam_Error);
-}
-
-/**
-	* @brief  FOC task, motor control related
-			  use finite state machine
- **/
-static void Task_SetMechanicalZero(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
-{
-	if (!Encoder_SetMechanicalZero(Encoder))
-	{
-		Set_ErrorNow(Encoder_Error);
-		return;
-	}
-
-	Task_Position_Mode_Reset();
-	Set_ModeNow(Save_Param);
-}
-
-static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
-{
-	if (MotorControl->ModeNow == Current_Mode)
-		return !MotorControl->isUseSensorless;
-
-	return MotorControl->ModeNow == Speed_Mode ||
-	       MotorControl->ModeNow == Position_Mode ||
-	       MotorControl->ModeNow == Position_Impedance_Mode ||
-	       MotorControl->ModeNow == Vq_Mode ||
-	       MotorControl->ModeNow == Calib_EncoderOffset ||
-	       MotorControl->ModeNow == Calib_EncoderObserver ||
-	       MotorControl->ModeNow == Calib_EleAngelOffset ||
-	       MotorControl->ModeNow == Calib_Friction ||
-	       MotorControl->ModeNow == Calib_Anticogging ||
-	       MotorControl->ModeNow == Set_ZeroPosition;
-}
+/* 20 kHz 快速环入口：本文件只保留周期顺序与阶段划分，
+ * 采样、命令分发、模式执行、运行状态与遥测细节分别在 app 各模块内。 */
 
 void FOC1kHzSupervisor(void)
 {
-	/* MCU temperature/VREFINT conversion belongs to the slow supervisor. */
-	Temperature_Update(&FOC);
+    /* MCU 温度与 VREFINT 换算属于慢速监督任务。 */
+    Temperature_Update(&FOC);
 }
 
 void FOC20kHzIRQHandler(void)
 {
-	static bool position_start_prepared;
-	bool defer_position_power_start = false;
-	bool defer_optional_telemetry = false;
-	bool encoder_sample_started;
-	FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
-	FAST_PROFILE_END(FAST_PROFILE_EMPTY);
-	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER_REQUEST);
-	encoder_sample_started = Encoder_BeginSample();
-	FAST_PROFILE_END(FAST_PROFILE_ENCODER_REQUEST);
-	FAST_PROFILE_BEGIN(FAST_PROFILE_SENSING);
-	Vbus_Update(&FOC, &MotorControl);
-	
-	Current_Cal(&FOC, &MotorControl);
-	#if SERVO_HIL_ENABLE
-	ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
-	#endif
-	FAST_PROFILE_END(FAST_PROFILE_SENSING);
-	
-	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER);
-	Encoder_CompleteSample(&MotorControl, &OnBoard_Encoder, encoder_sample_started);
-	FAST_PROFILE_END(FAST_PROFILE_ENCODER);
-	FAST_PROFILE_BEGIN(FAST_PROFILE_COMMANDS);
+    bool defer_position_power_start;
+    bool encoder_sample_started;
+
+    FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
+    FAST_PROFILE_END(FAST_PROFILE_EMPTY);
+    FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER_REQUEST);
+    encoder_sample_started = Encoder_BeginSample();
+    FAST_PROFILE_END(FAST_PROFILE_ENCODER_REQUEST);
+    FAST_PROFILE_BEGIN(FAST_PROFILE_SENSING);
+    Vbus_Update(&FOC, &MotorControl);
+
+    Current_Cal(&FOC, &MotorControl);
 #if SERVO_HIL_ENABLE
-	{
-		/* Debug mailbox at 10 kHz; count both fast ticks for the watchdog.
-		 * ARM occurs here, so the divided servo subsequently falls between polls. */
-		static uint8_t hil_divider;
-		if (++hil_divider >= 2U) {
-			defer_optional_telemetry = true;
-			ServoHilCommand command = ServoHil_Poll(Encoder_GetMecPos(&OnBoard_Encoder),
-				Encoder_GetMecVelContinuous(&OnBoard_Encoder), FOC.Iq,
-				(uint32_t)MotorControl.ModeNow, (uint32_t)MotorControl.ErrorNow, FOC_FREQ, 2U);
-			bool accepted = true;
-			hil_divider = 0U;
-			switch (command.action) {
-			case SERVO_HIL_STOP: Set_ModeNow(Motor_Disable); break;
-			case SERVO_HIL_ARM: accepted = ModeSwitch_Handle(Position_Mode); break;
-			case SERVO_HIL_POSITION: MotorControl.posRef = command.value; break;
-			case SERVO_HIL_POSITION_KP: MotorControl.cascade_pos_Kp = command.value; break;
-			case SERVO_HIL_POSITION_KD: MotorControl.cascade_pos_Kd = command.value; break;
-			case SERVO_HIL_HOLD_FILTER:
-				MotorControl.position_hold_filter_bypass = command.value == 0.0f;
-				MotorControl.position_hold_filter_half_cutoff = command.value == 2.0f;
-				break;
-			case SERVO_HIL_VELOCITY_FILTER:
-				MotorControl.position_velocity_filter_half_cutoff = command.value == 1.0f;
-				break;
-			case SERVO_HIL_SPEED_KP: MotorControl.speed_Kp = command.value; break;
-			case SERVO_HIL_SPEED_KI: MotorControl.speed_Ki = command.value; break;
-			case SERVO_HIL_MAX_SPEED:
-				accepted = command.value <= MotorControl.speed_limit;
-				if (accepted) MotorControl.pos_maxspeed = command.value;
-				break;
-			default: break;
-			}
-			ServoHil_Complete(accepted);
-		}
-	}
+    ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
 #endif
-	/* Select after command dispatch, including the first mode-3 IRQ. */
-	if (MotorControl.ModeNow != Position_Mode)
-		Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
+    FAST_PROFILE_END(FAST_PROFILE_SENSING);
 
-	if (Encoder_FeedbackRequired(&MotorControl) &&
-		OnBoard_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
-		Set_ErrorNow(Encoder_Error);
+    FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER);
+    Encoder_CompleteSample(&MotorControl, &OnBoard_Encoder, encoder_sample_started);
+    FAST_PROFILE_END(FAST_PROFILE_ENCODER);
+    FAST_PROFILE_BEGIN(FAST_PROFILE_COMMANDS);
+    /* 命令分发完成后再选择观测器，覆盖首次模式 3 中断。 */
+    if (MotorControl.ModeNow != Position_Mode)
+    {
+        Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
+    }
+    FocRunState_CheckFastFaults();
+    FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
+    MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
+    FocMode_Dispatch();
 
-	/* Also cover internal mode assignments, not only communication requests. */
-	if (!MotorControl.axis_profile_valid && MotorControl.ModeNow != Motor_Disable &&
-		MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Clear_Error)
-	{
-		Set_ErrorNow(MotorParam_Error);
-		Set_ModeNow(Motor_Disable);
-	}
-	FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
-	MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
-	if (ModeLast == Calib_Anticogging && MotorControl.ModeNow != Calib_Anticogging)
-		FocCogging_Abort();
-	switch(MotorControl.ModeNow)
-	{
-		case Motor_Disable:
-			PhaseResistanceMode_Cancel(&FOC, &MotorControl);
-			/* Outputs stay disabled. Prime an equal-duty zero vector before
-			 * the next enable, rather than switching from 100% preload during
-			 * the first current-sampling window. Use the existing PWM adapter. */
-			Set_A_Duty(0.5f);
-			Set_B_Duty(0.5f);
-			Set_C_Duty(0.5f);
-		break;
-		
-		case Current_Mode:
-			Task_Current_Mode(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
-		break;
-		
-		case Speed_Mode:
-			FOC_Current(&FOC, &MotorControl, Encoder_GetElePhase(&OnBoard_Encoder),
-                Encoder_GetEleVel(&OnBoard_Encoder));
-		break;
+    FAST_PROFILE_BEGIN(FAST_PROFILE_POST_CONTROL);
+    FocRunState_HandleFaultIndication();
+    defer_position_power_start = FocRunState_ManagePowerStage();
+    FocRunState_CommitModeAndError(defer_position_power_start);
+    FAST_PROFILE_END(FAST_PROFILE_POST_CONTROL);
 
-		case Sensorless_Speed_Mode:
-			Task_Sensorless_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &Fluxobserver,
-				&SensorlessStartup, &SensorlessStartup_DefaultConfig);
-		break;
-		
-		case Position_Mode:
-			FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_WITH_CURRENT);
-			FOC_Current(&FOC, &MotorControl, Encoder_GetElePhase(&OnBoard_Encoder),
-                Encoder_GetEleVel(&OnBoard_Encoder));
-			FAST_PROFILE_END(FAST_PROFILE_POSITION_WITH_CURRENT);
-		break;
-
-		case Position_Impedance_Mode:
-			Task_Position_Impedance_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
-		break;
-
-		case Calib_Anticogging:
-			FocCogging_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
-		break;
-
-		case Calib_Friction:
-			FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
-		break;
-		
-		case Calib_Motor_R_L_Flux:
-			Task_Calib_R_L_Flux(&FOC, &MotorControl);
-		break;
-		
-		case Calib_PhaseResistance:
-		{
-			PhaseResistanceModeStatus_TypeDef status =
-				PhaseResistanceMode_Run(&FOC, &MotorControl);
-
-			if (status == PHASE_RESISTANCE_MODE_DONE)
-				Set_ModeNow(Motor_Disable);
-			else if (status == PHASE_RESISTANCE_MODE_SETTLE_TIMEOUT)
-				Set_ErrorNow(Large_Phase_Resistance);
-			else if (status == PHASE_RESISTANCE_MODE_INVALID_RESULT)
-				Set_ErrorNow(MotorParam_Error);
-			else if (status == PHASE_RESISTANCE_MODE_UNDER_VOLTAGE)
-				Set_ErrorNow(Under_Voltage);
-			else if (status == PHASE_RESISTANCE_MODE_OVER_VOLTAGE)
-				Set_ErrorNow(Over_Voltage);
-			break;
-		}
-
-		case Calib_EncoderOffset:
-			Task_Calib_EncoderOffset(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
-		break;
-
-		case Calib_EncoderObserver:
-			Task_Calib_EncoderObserver(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder,
-				&Fluxobserver, &SensorlessStartup);
-		break;
-
-		case Calib_EleAngelOffset:
-			Task_Calib_EleAngelOffset(&FOC, &MotorControl, &OnBoard_Encoder);
-		break;
-		
-		case Calib_CurrentOffset:
-			Task_Calib_CurrentOffset(&FOC, &MotorControl);
-		break;
-		
-		case Voltage_OpenLoop:
-			Task_Voltage_Mode(&FOC, &MotorControl);
-		break;
-		
-		case Vq_Mode:
-			Task_Vq_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
-		break;
-
-		case Set_ZeroPosition:
-			Task_SetMechanicalZero(&MotorControl, &OnBoard_Encoder);
-		break;
-		
-		case Default_Param:
-			Param_Return_Default();
-		
-		case Clear_Error:
-			Set_ErrorNow(No_Error);
-		default:break;
-	}
-	
-	FAST_PROFILE_BEGIN(FAST_PROFILE_POST_CONTROL);
-	/*no error*/
-	if(MotorControl.ErrorNow == No_Error)
-	{
-		LED_SetState(0, (uint8_t)MotorControl.ModeNow);
-	}
-	/*error*/
-	else
-	{
-		/*tolerant when writing paramters to flash*/
-		if(MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Default_Param)
-			MotorControl.ModeNow = Motor_Disable;
-		
-		LED_SetState(1, (uint8_t)MotorControl.ErrorNow);
-	}
-	
-	if(ModeLast != Motor_Disable && MotorControl.ModeNow == Motor_Disable) 
-	{
-		Clear_RunningData();
-		Stop_PWM_Generate();
-	}
-	
-	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable &&
-		MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Default_Param &&
-		MotorControl.ModeNow != Clear_Error && MotorControl.ModeNow != Set_ZeroPosition &&
-		MotorControl.ModeNow != Calib_Anticogging &&
-		MotorControl.axis_profile_valid)
-	{
-		/* The first mode-3 tick validates/initializes the controller while
-		 * phase outputs are still off. Enable on the following fast tick,
-		 * after the neutral preload and without combining both startup costs. */
-		if ((MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Speed_Mode) &&
-            (!position_start_prepared || !MotorOuterLoop_IsReady()))
-		{
-			position_start_prepared = true;
-			defer_position_power_start = true;
-		}
-		else
-			Start_PWM_Generate();
-	}
-	if (!defer_position_power_start)
-		position_start_prepared = false;
-	
-	Detect_Mode_Error_Change();
-	
-	if (!defer_position_power_start)
-		ModeLast = MotorControl.ModeNow;
-	ErrorLast = MotorControl.ErrorNow;
-	
-	MotorControl.ModeNow_f = MotorControl.ModeNow;
-	MotorControl.ErrorNow_f = MotorControl.ErrorNow;
-	FAST_PROFILE_END(FAST_PROFILE_POST_CONTROL);
-    
     FAST_PROFILE_BEGIN(FAST_PROFILE_TELEMETRY);
-    if (!defer_optional_telemetry) MotorStatus_Sampling();
-    RTT_Sampling(defer_optional_telemetry);
+    RTT_Sampling();
     FAST_PROFILE_END(FAST_PROFILE_TELEMETRY);
 }

@@ -168,19 +168,6 @@
                 "c-readability"
             ]
         },
-        "firmware/motor/identification/cogging_calibration.c": {
-            "sha256": "ff48479fa1b4a5483d4c3cfc95c7148bd2ca6d8be3e116542bcf200f85685f0b",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/identification/cogging_calibration.h": {
-            "sha256": "e859baf344acdba54e97aead573a5e98753d2d264363b6ef8eb2bece58e89d34",
-            "checks": [
-                "c-format"
-            ]
-        },
         "firmware/motor/identification/foc_calibration.c": {
             "sha256": "347fb1c2a676b6f49599e077f405b76ec4e6917a5041ad71a7199843ea8a393e",
             "checks": [
@@ -193,19 +180,6 @@
             "checks": [
                 "c-format",
                 "c-readability"
-            ]
-        },
-        "firmware/motor/identification/foc_cogging_calibration.c": {
-            "sha256": "1558d2a17c3915d3e293f3940a559a244aa64243d69812597484563f8ea7846e",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/identification/foc_cogging_calibration.h": {
-            "sha256": "8a591f325a485c8431f4e42c04799e884b10b106ebfbe74c603b84a54fd39226",
-            "checks": [
-                "c-format"
             ]
         },
         "firmware/motor/identification/foc_friction_identification.c": {
@@ -482,13 +456,6 @@
                 "c-format"
             ]
         },
-        "firmware/services/parameters/motor_axis_profile.c": {
-            "sha256": "3f27a41b8e233f19f8846989b0b6a3e8ce4ac3a4a3dfacefeab446cf0d9869f6",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/services/parameters/motor_axis_profile.h": {
             "sha256": "8512e9e6c6854e27fd9cfd5d4788fe6cd7f2b0f711ecaea0bedf8859548831cf",
             "checks": [
@@ -589,36 +556,8 @@
                 "c-format"
             ]
         },
-        "tests/unit/native/run_can_status_tests.py": {
-            "sha256": "73f9aedfe8c47327a37ed77f9eda392fcb5d8c5f9ec5e4cac1483b925c66bc69",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/native/run_position_servo_tests.py": {
-            "sha256": "682d8de047617357475f8c2e70d1e26bf3a3d847ac854c3fbaabb1c7c8f71b1a",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tests/unit/native/test_adc_fast_dispatch.py": {
             "sha256": "53be1c01768efcbc746d5783452b3c8cd58dfa06a4d5af6d01a9cae6c7f35a38",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/native/test_bus_voltage_protection.py": {
-            "sha256": "7bb11a1d0680a48c628afb244cfc51cd8d837680ddc28ade73fd6052a08316bb",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/native/test_cogging_calibration.py": {
-            "sha256": "6ad1e9f977cc82b629a07cb0449cd0f599a41b91468f3f3580508182532721bd",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -689,13 +628,6 @@
         },
         "tests/unit/native/test_sensorless_transitions.py": {
             "sha256": "18061026cf3e0b0181d432e537ada2ad190b98991908b9a4bdedb2fe39e02632",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/native/test_wheel_speed_limits.py": {
-            "sha256": "36e297af6d61a8fe9fbe60f4d37300a1e62c60039bd5d171906f7e5e882a3896",
             "checks": [
                 "python-format",
                 "python-lint"

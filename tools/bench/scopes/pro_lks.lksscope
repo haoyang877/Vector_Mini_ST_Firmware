@@ -33,21 +33,13 @@
         <form mapFile="../../../outputs/build/keil/Vector_Mini_ST/Vector_Mini_ST.axf" title="代码变量" type="2" lv-width="264,100,100,100,320,100,100,204,0,100,100,100"/>
         <form page="-1" title="运行日志" visible="0" floating="0" type="3"/>
         <form page="-1" encode="GBK" checkTStamp="0" title="RTT命令行" visible="0" syncFilePath="" floating="0" sync2File="0" type="4"/>
-        <form page="0" floating="0" trigValue="0" visible="1" scrollType="1" type="5" xCount="213.426" xTag="0" autoRange="1" min="-500" trigType="0" title="RTT数据" scatterStyle="1" subMode="1" max="500" lineStyle="1" subCols="1" trigName="rtt_channel1.data8">
+        <form page="0" floating="0" trigValue="0" visible="1" scrollType="1" type="5" xCount="213.426" xTag="0" autoRange="1" min="-500" trigType="0" title="RTT数据" scatterStyle="1" subMode="1" max="500" lineStyle="1" subCols="1" trigName="rtt_channel1.data0">
             <dynrttcrc value="0"/>
-            <var color="#ff0000" name="rtt_channel1.data0" unit="" subPlot="0" desc="rtt_channel1.data0" formula=""/>
+                    <var color="#ff0000" name="rtt_channel1.data0" unit="" subPlot="0" desc="rtt_channel1.data0" formula=""/>
             <var color="#00aaff" name="rtt_channel1.data1" unit="" subPlot="1" desc="rtt_channel1.data1" formula=""/>
-            <var color="#ff00ff" name="rtt_channel1.data2" unit="" subPlot="2" desc="rtt_channel1.data2" formula=""/>
-            <var color="#ff0000" name="rtt_channel1.data3" unit="" subPlot="3" desc="rtt_channel1.data3" formula=""/>
-            <var color="#ffaa00" name="rtt_channel1.data4" unit="" subPlot="1" desc="rtt_channel1.data4" formula=""/>
-            <var color="#00aaff" name="rtt_channel1.data5" unit="" subPlot="1" desc="rtt_channel1.data5" formula=""/>
-            <var color="#ff0000" name="rtt_channel1.data6" unit="" subPlot="2" desc="rtt_channel1.data6" formula=""/>
-            <var color="#00aaff" name="rtt_channel1.data7" unit="" subPlot="2" desc="rtt_channel1.data7" formula=""/>
-            <var color="#00ff00" name="rtt_channel1.data8" unit="" subPlot="2" desc="rtt_channel1.data8" formula=""/>
-            <var color="#ffaa00" name="rtt_channel1.data9" unit="" subPlot="3" desc="rtt_channel1.data9" formula=""/>
-            <var color="#ff00ff" name="rtt_channel1.data10" unit="" subPlot="3" desc="rtt_channel1.data10" formula=""/>
-            <var color="#ff0000" name="rtt_channel1.data11" unit="" subPlot="4" desc="rtt_channel1.data11" formula=""/>
-        </form>
+            <var color="#ffaa00" name="rtt_channel1.data2" unit="" subPlot="2" desc="rtt_channel1.data2" formula=""/>
+            <var color="#00ff00" name="rtt_channel1.data3" unit="" subPlot="2" desc="rtt_channel1.data3" formula=""/>
+</form>
         <form page="-1" title="电机控制" visible="0" floating="0" type="12" lv-width="150,100,100,100,100">
             <var lower="0" name="" upper="100" desc="速度设定" step="1"/>
             <var lower="0" name="" upper="100" desc="速度反馈" step="1"/>

@@ -1,15 +1,16 @@
-"""Host regression of production parameter loading and CAN limit cases."""
+"""轮子限速相关的主机回归：生产参数装载与 CAN 边界用例。"""
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
 import re
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def command_case(path, name):
@@ -21,7 +22,7 @@ def command_case(path, name):
 
 
 def fixture():
-    prelude = r'''
+    prelude = r"""
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -34,15 +35,20 @@ def fixture():
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
 CANMsg_TypeDef CANMsg;
-'''
+"""
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
-    prelude += re.sub(r'^#include.*$', '', production, flags=re.M)
-    prelude += '\nstatic void can_set(int id, float data) { int data_int=(int)data; switch(id) {\n'
-    prelude += '\n'.join(command_case("firmware/communication/can/interface_can.c", n) for n in
-                         ("CAN_SET_NODE_ID", "CAN_SET_SPEED_LIMIT"))
-    return prelude + '\n} }\n' + r'''
+    prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
+    prelude += "\nstatic void can_set(int id, float data) { int data_int=(int)data; switch(id) {\n"
+    prelude += "\n".join(
+        command_case("firmware/communication/can/interface_can.c", n)
+        for n in ("CAN_SET_NODE_ID", "CAN_SET_SPEED_LIMIT")
+    )
+    return (
+        prelude
+        + "\n} }\n"
+        + r"""
 int main(void) {
     InterfaceParam_TypeDef p, saved;
     unsigned node;
@@ -109,7 +115,7 @@ int main(void) {
         c.state=COGGING_COMPLETE; c.points_done=2048;
         c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
         for(unsigned i=0;i<1024;i++) c.iq_q15[i]=(i&1) ? 123 : -123;
-        assert(CoggingCalibration_Finish(&c,signature,&CoggingMap));
+        assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,signature,&CoggingMap));
         Param_Upload(&p); p.magic_word=MAGIC_WORD;
         memset(&CoggingMap,0,sizeof(CoggingMap));
         assert(!Param_Download(&p) && CoggingMap_Valid(&CoggingMap,signature));
@@ -122,7 +128,8 @@ int main(void) {
     puts("PASS schema migration, Q15 map round trip, corrupt/stale map rejection");
     return 0;
 }
-'''
+"""
+    )
 
 
 def main():
@@ -132,7 +139,7 @@ def main():
     args = ap.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / "main.h").write_text('#include <stdint.h>\n')
+    (out / "main.h").write_text("#include <stdint.h>\n")
     source = out / "wheel_speed_test.c"
     source.write_text(fixture(), encoding="utf-8")
     cc = [str(Path(args.cc).resolve())] if Path(args.cc).is_file() else [args.cc]
@@ -140,11 +147,25 @@ def main():
         cc += ["cc"]
     cc += NATIVE_INCLUDE_FLAGS
     exe = out / "wheel_speed_test.exe"
-    includes = [str(out)] + [str(ROOT / p) for p in ("firmware/common", "firmware/motor/foc", "firmware/platform/stm32g4/bsp", "firmware/communication")]
+    includes = [str(out)] + [
+        str(ROOT / p)
+        for p in (
+            "firmware/common",
+            "firmware/motor/foc",
+            "firmware/platform/stm32g4/bsp",
+            "firmware/communication",
+        )
+    ]
     command = cc + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [item for p in includes for item in ("-I", p)]
-    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
-                str(ROOT / "firmware/motor/identification/cogging_calibration.c"), "-o", str(exe)]
+    command += [
+        str(source),
+        str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+        str(ROOT / "firmware/motor/identification/cogging_map.c"),
+        str(ROOT / "firmware/common/crc32.c"),
+        "-o",
+        str(exe),
+    ]
     logs = []
     for cmd in (command, [str(exe)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

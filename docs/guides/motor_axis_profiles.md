@@ -18,7 +18,7 @@
 
 ## Flash格式与控制生效范围
 
-新增 [MotorAxisProfile](../../firmware/services/parameters/motor_axis_profile.h) 为纯C配置模块。现有参数结构尾部追加32字节AXS1记录：magic、独立版本1、8字节名称、最小/最大角度、最大巡航速度和CRC32。名称存储为ASCII `roll` 或 `pitch`，角度/速度使用rad、rad/s；CRC覆盖前28字节，采用CRC-32/ISO-HDLC的反射多项式0xEDB88320。
+新增 [MotorAxisProfile](../../firmware/services/parameters/motor_axis_profile.h) 为纯C配置模块。现有参数结构尾部追加32字节AXS1记录：magic、独立版本1、8字节名称、最小/最大角度、最大巡航速度和CRC32。名称存储为ASCII `roll` 或 `pitch`，角度/速度使用rad、rad/s；CRC覆盖前28字节，采用CRC-32/ISO-HDLC的反射多项式0xEDB88320（实现为 `common/crc32.h` 的 `Crc32_Compute`，与齿槽表共用同一份实现）。
 
 本目标由匹配AXF的DWARF确认，扩展偏移为参数区起点+2208，即地址0x0801C8A0；既有pos_maxspeed偏移2132。记录位于原参数页57内部，没有另占页，也没有移动原有字段、校准表或schema/magic。模块不操作Flash，仍由既有参数存储路径负责保存和恢复。
 

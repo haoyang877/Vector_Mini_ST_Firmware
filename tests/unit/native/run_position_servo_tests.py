@@ -1,28 +1,33 @@
-"""Compile and execute the real C servo; optionally replay recorded sensor inputs.
+"""编译并执行真实 C 伺服代码；可选回放录制的传感器输入。
 
-Example: python tests/unit/native/run_position_servo_tests.py --cc /path/to/zig.exe
-Replay fixes the old measured motion as an input, so it is NOT a plant simulation.
+运行示例：python tests/unit/native/run_position_servo_tests.py --cc /path/to/zig.exe
+回放把旧实测运动固定为输入，因此不是被控对象仿真。
 """
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+
 
 def function_source(source, name):
     # A call may precede the definition (e.g. the board fast ADC adapter).
-    match = re.search(r'^[ \t]*(?:[A-Za-z_]\w*[ \t]+)+\**' + re.escape(name) +
-                      r'\s*\([^;{}]*\)\s*\{', source, re.M)
+    match = re.search(
+        r"^[ \t]*(?:[A-Za-z_]\w*[ \t]+)+\**" + re.escape(name) + r"\s*\([^;{}]*\)\s*\{",
+        source,
+        re.M,
+    )
     if match is None:
-        raise ValueError('Function definition not found: ' + name)
+        raise ValueError("Function definition not found: " + name)
     start, brace = match.start(), match.end() - 1
     depth = 1
     end = brace + 1
@@ -33,9 +38,11 @@ def function_source(source, name):
 
 
 def rtt_frame_fixture():
-    source = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
-    encoding = source[source.index("#define RTT_SPEED_SCALE"):source.index("/**", source.index("static void RTT_Sampling"))]
-    return r'''
+    # 从定标宏切片到文件末尾，使夹具编译的正是固件里的真实编码实现。
+    source = (ROOT / "firmware/app/rtt_telemetry.c").read_text(encoding="utf-8")
+    encoding = source[source.index("#define RTT_POSITION_SCALE") :]
+    return (
+        r"""
 #include <assert.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -43,63 +50,51 @@ def rtt_frame_fixture():
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "position_cascade.h"
 #define _PI 3.14159265358979323846f
 #define RTT_SAMPLE_DIVIDER 10U
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
-#define RTT_TELEMETRY_SERVO 0U
-#define RTT_TELEMETRY_CALIBRATION 1U
-#define RTT_TELEMETRY_PROFILE RTT_TELEMETRY_SERVO
 #define Position_Mode 3
-#define No_Error 0
-static struct { int ModeNow, ErrorNow; float posRef, iqRef; } MotorControl;
-static struct { float theta_mech; } OnBoard_Encoder;
-static struct { float Iq; } FOC;
-static PositionCascadeTelemetry_TypeDef published;
-static bool valid = true, ready = true;
-static unsigned writes;
-static int16_t wire[12];
 #define Encoder_DidUpdateVelocity(p) false
+static struct { int ModeNow; float iqRef; } MotorControl;
+static struct { float theta_mech, vel_mech; } OnBoard_Encoder;
+static struct { float Iq; } FOC;
+static bool ready = true;
+static unsigned writes;
+static int16_t wire[4];
 static bool MotorOuterLoop_IsReady(void) { return ready; }
-static __attribute__((noinline)) bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *out)
-{ *out = published; return valid; }
 static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned length)
-{ assert(channel == 1 && length == 24); memcpy(wire, data, length); ++writes; return length; }
-''' + encoding + r'''
-static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(false); }
+{ assert(channel == 1 && length == 8); memcpy(wire, data, length); ++writes; return length; }
+"""
+        + encoding
+        + r"""
+static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(); }
 static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
 int main(void) {
-    unsigned before;
-    MotorControl.ModeNow = 3; MotorControl.posRef = 30 * _PI / 180;
-    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
-    OnBoard_Encoder.theta_mech = 10 * _PI / 180;
-    published.position_reference = 20 * _PI / 180;
-    published.trajectory_speed_reference = -25 * _PI / 180;
-    published.speed_command = 2; /* ensure reference is planned speed */
-    published.speed_feedback = -20 * _PI / 180;
-    published.feedback_current = 1.2f; published.hold_current = .2f;
+    unsigned before, i;
+    MotorControl.ModeNow = 3; MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
+    OnBoard_Encoder.theta_mech = 10 * _PI / 180; OnBoard_Encoder.vel_mech = -20;
     sample(); assert(writes == 1);
-    near_count(0,3000); near_count(1,2000); near_count(2,1000); near_count(3,1000);
-    near_count(4,-2500); near_count(5,-2000); near_count(6,1500);
-    near_count(7,300); near_count(8,1400); near_count(9,1200); near_count(10,200);
-    assert(((uint16_t)wire[11] & 0x4180) == 0x4080);
-    MotorControl.posRef = -200 * _PI / 180; sample(); near_count(0,-20000);
-    MotorControl.posRef = 400 * _PI / 180; sample(); assert(wire[0] == 32767);
-    MotorControl.posRef = -400 * _PI / 180; sample(); assert(wire[0] == -32768);
-    assert(RTT_EncodeInt16(NAN, 1) == 0);
-    assert(RTT_EncodeInt16(INFINITY, 1) == 0);
-    before = writes; RTT_Sampling(true); assert(writes == before);
-    valid = false; sample(); assert((wire[11] & 128) == 0);
-    assert(wire[0] == 0 && wire[7] == 0 && wire[8] == 0);
-    puts("PASS actual RTT encoder v2: channel sources/units, negative continuous angles, clipping, invalid/deferred telemetry");
+    near_count(0,1820); near_count(1,-1909); near_count(2,1500); near_count(3,1400);
+    OnBoard_Encoder.theta_mech = 200 * _PI / 180; sample(); near_count(0,-29127);
+    MotorControl.iqRef = 50; FOC.Iq = -50; sample(); assert(wire[2] == 32767 && wire[3] == -32768);
+    MotorControl.iqRef = NAN; FOC.Iq = INFINITY; OnBoard_Encoder.vel_mech = INFINITY;
+    sample(); assert(wire[1] == 0 && wire[2] == 0 && wire[3] == 0);
+    assert(RTT_EncodeInt16(NAN, 1) == 0 && RTT_EncodeInt16(INFINITY, 1) == 0);
+    before = writes; RTT_Sampling(); assert(writes == before);
+    for (i = 1; i < 10; ++i) RTT_Sampling();
+    assert(writes == before + 1);
+    ready = false; MotorControl.ModeNow = 3; before = writes; sample(); assert(writes == before);
+    puts("PASS actual RTT 4-channel frame: units, single-turn wrap, clipping, non-finite values, divider");
     return 0;
 }
-'''
+"""
+    )
 
 
 def encoder_startup_fixture():
     source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
-    return r'''
+    return (
+        r"""
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -136,8 +131,12 @@ static void Encoder_ResetVelocity(Encoder_TypeDef *e)
 { e->velocity_shadow_q15 = e->shadow_q15; }
 static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *e, uint32_t poles)
 { (void)e; (void)poles; }
-''' + "\n".join(function_source(source, name) for name in
-    ["Encoder_UpdateAngles", "Encoder_CompleteSample"]) + r'''
+"""
+        + "\n".join(
+            function_source(source, name)
+            for name in ["Encoder_UpdateAngles", "Encoder_CompleteSample"]
+        )
+        + r"""
 int main(void) {
     MotorControl_TypeDef m = {0};
     Encoder_TypeDef e = {0};
@@ -177,19 +176,24 @@ int main(void) {
     puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
     return 0;
 }
-'''
+"""
+    )
 
 
 def encoder_fixture():
     source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
     header = (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(encoding="utf-8")
     macros = []
-    for name, text in [("ENCODER_Q15_CPR", header), ("ENCODER_VELOCITY_WINDOW", header),
-                       ("ENCODER_VELOCITY_ZERO_THRESHOLD_Q15", source)]:
+    for name, text in [
+        ("ENCODER_Q15_CPR", header),
+        ("ENCODER_VELOCITY_WINDOW", header),
+        ("ENCODER_VELOCITY_ZERO_THRESHOLD_Q15", source),
+    ]:
         macros.append(re.search(r"^#define\s+" + name + r"\s+[^\r\n]+", text, re.M)[0])
     # Only peripheral-independent estimator functions are compiled here. The
     # hardware build separately checks the actual full Encoder_TypeDef layout.
-    return """
+    return (
+        """
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -203,7 +207,9 @@ def encoder_fixture():
 #define _2PI 6.2831853072f
 #define SPEED_LOOP_DIVIDER 10U
 #define Speed_Ts 0.0005f
-""" + "\n".join(macros) + """
+"""
+        + "\n".join(macros)
+        + """
 typedef struct {
     int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
     uint8_t velocity_divider, velocity_history_index, velocity_sample_count;
@@ -213,9 +219,18 @@ typedef struct {
     int64_t velocity_shadow_q15, shadow_q15;
     float vel_mech, vel_elec, vel_mech_continuous;
 } Encoder_TypeDef;
-""" + "\n".join(function_source(source, name) for name in
-    ["Encoder_ResetVelocity", "Encoder_UpdateVelocity2kHz", "Encoder_GetMecVel",
-     "Encoder_GetMecVelContinuous", "Encoder_DidUpdateVelocity"]) + """
+"""
+        + "\n".join(
+            function_source(source, name)
+            for name in [
+                "Encoder_ResetVelocity",
+                "Encoder_UpdateVelocity2kHz",
+                "Encoder_GetMecVel",
+                "Encoder_GetMecVelContinuous",
+                "Encoder_DidUpdateVelocity",
+            ]
+        )
+        + """
 int main(void) {
     Encoder_TypeDef e = {0};
     int k, n;
@@ -250,13 +265,17 @@ int main(void) {
     return 0;
 }
 """
+    )
 
 
 def adc_irq_fixture():
     # Compile the actual board vector with register stubs, without CMSIS or
     # HIL cycle-counter instrumentation. The firmware build checks real types.
-    source = (ROOT / 'firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c').read_text(encoding='utf-8')
-    return r'''
+    source = (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c").read_text(
+        encoding="utf-8"
+    )
+    return (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -271,8 +290,12 @@ static void HAL_ADC_IRQHandler(ADC_HandleTypeDef *adc) {
     adc->calls++;
     adc->Instance->ISR &= ~adc->Instance->IER;
 }
-''' + '\n#define USE_HAL_ADC_REGISTER_CALLBACKS 1\n' + function_source(source,
-    'Board_ADC2DispatchInterrupt') + '\n' + function_source(source, 'ADC1_2_IRQHandler') + r'''
+"""
+        + "\n#define USE_HAL_ADC_REGISTER_CALLBACKS 1\n"
+        + function_source(source, "Board_ADC2DispatchInterrupt")
+        + "\n"
+        + function_source(source, "ADC1_2_IRQHandler")
+        + r"""
 int main(void) {
     unsigned bit;
     for (bit=0; bit<11; ++bit) {
@@ -290,12 +313,16 @@ int main(void) {
     puts("PASS actual STM32G4 ADC vector: idle, disabled flags, both ADCs, all 11 event bits");
     return 0;
 }
-'''
+"""
+    )
 
 
 def adc_sequence_fixture():
-    source = (ROOT / 'firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c').read_text(encoding='utf-8')
-    return r'''
+    source = (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c").read_text(
+        encoding="utf-8"
+    )
+    return (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -308,7 +335,9 @@ static ADC_HandleTypeDef hadc1, hadc2;
 static unsigned control_ticks;
 #define __HAL_ADC_GET_FLAG(adc, flag) (((adc)->flags & (flag)) != 0U)
 static void FOC20kHzIRQHandler(void) { control_ticks++; }
-''' + function_source(source, 'HAL_ADCEx_InjectedConvCpltCallback') + r'''
+"""
+        + function_source(source, "HAL_ADCEx_InjectedConvCpltCallback")
+        + r"""
 int main(void) {
     unsigned rank;
     for (rank = 1; rank <= 4; ++rank) {
@@ -322,12 +351,14 @@ int main(void) {
     puts("PASS actual ADC callback: no control on incomplete ranks or temperature ADC");
     return 0;
 }
-'''
+"""
+    )
 
 
 def joint_startup_fixture():
-    source = (ROOT / 'firmware/services/parameters/foc_param.c').read_text(encoding='utf-8')
-    return r'''
+    source = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
+    return (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -343,7 +374,9 @@ typedef struct {
     float posAcc, posDec, pos_maxspeed, current_limit, speed_limit;
     unsigned calibration_sentinel;
 } MotorControl_TypeDef;
-''' + function_source(source, 'Param_ApplyJointProfile') + r'''
+"""
+        + function_source(source, "Param_ApplyJointProfile")
+        + r"""
 int main(void) {
     MotorControl_TypeDef m = {0}, before;
     unsigned id;
@@ -378,12 +411,14 @@ int main(void) {
     puts("PASS actual joint startup adapter: selected gains, preserved calibration/limits, legacy and unknown");
     return 0;
 }
-'''
+"""
+    )
 
 
 def joint_board_startup_fixture():
-    source = (ROOT / 'firmware/app/board_config.c').read_text(encoding='utf-8')
-    return r'''
+    source = (ROOT / "firmware/app/board_config.c").read_text(encoding="utf-8")
+    return (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -412,7 +447,9 @@ static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc
 static void __HAL_ADC_DISABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask &= ~mask; }
 static void HAL_TIM_Base_Start_IT(int *timer) { (void)timer; }
 static void FDCAN1_Param_Init(void) { communication++; }
-''' + function_source(source, 'Board_Init') + r'''
+"""
+        + function_source(source, "Board_Init")
+        + r"""
 int main(void) {
     Board_Init();
     assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
@@ -424,7 +461,8 @@ int main(void) {
     puts("PASS actual board startup: unconfigured phase outputs off, sampling and communication retained");
     return 0;
 }
-'''
+"""
+    )
 
 
 def main():
@@ -455,24 +493,57 @@ def main():
 
     def build(name, files):
         executable = args.out / (name + (".exe" if os.name == "nt" else ""))
-        run(compiler + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", "firmware/motor/foc"] +
-            list(files) + ([] if os.name == "nt" else ["-lm"]) + ["-o", executable])
+        run(
+            compiler
+            + [
+                "-std=c99",
+                "-O1",
+                "-UNDEBUG",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                "firmware/motor/foc",
+            ]
+            + list(files)
+            + ([] if os.name == "nt" else ["-lm"])
+            + ["-o", executable]
+        )
         run([executable])
         return executable
 
-    exe = build("position_servo_test", ["tests/unit/position_servo_test.c",
-                                        "firmware/motor/position/position_cascade.c", "firmware/motor/trajectory/position_smooth_trajectory.c", "firmware/motor/foc/foc_pid.c"])
+    exe = build(
+        "position_servo_test",
+        [
+            "tests/unit/position_servo_test.c",
+            "firmware/motor/position/position_cascade.c",
+            "firmware/motor/trajectory/position_smooth_trajectory.c",
+            "firmware/motor/foc/foc_pid.c",
+        ],
+    )
     rtt_fixture = args.out / "rtt_frame_test.c"
     rtt_fixture.write_text(rtt_frame_fixture(), encoding="utf-8")
     build("rtt_frame_test", [rtt_fixture])
     fixture = args.out / "encoder_estimator_test.c"
-    build("position_smooth_trajectory_test", ["tests/unit/position_smooth_trajectory_test.c",
-                                              "firmware/motor/trajectory/position_smooth_trajectory.c"])
+    build(
+        "position_smooth_trajectory_test",
+        [
+            "tests/unit/position_smooth_trajectory_test.c",
+            "firmware/motor/trajectory/position_smooth_trajectory.c",
+        ],
+    )
     fixture.write_text(encoder_fixture(), encoding="utf-8")
     build("encoder_estimator_test", [fixture])
     startup_fixture = args.out / "encoder_startup_test.c"
     startup_fixture.write_text(encoder_startup_fixture(), encoding="utf-8")
-    build("encoder_startup_test", [startup_fixture, "firmware/services/parameters/motor_axis_profile.c"])
+    build(
+        "encoder_startup_test",
+        [
+            startup_fixture,
+            "firmware/services/parameters/motor_axis_profile.c",
+            "firmware/common/crc32.c",
+        ],
+    )
     irq_fixture = args.out / "adc_irq_dispatch_test.c"
     irq_fixture.write_text(adc_irq_fixture(), encoding="utf-8")
     build("adc_irq_dispatch_test", [irq_fixture])
@@ -480,60 +551,91 @@ def main():
     sequence_fixture.write_text(adc_sequence_fixture(), encoding="utf-8")
     build("adc_sequence_test", [sequence_fixture])
     build("servo_hil_test", ["tests/unit/servo_hil_test.c"])
-    build("motor_axis_profile_test", ["tests/unit/motor_axis_profile_test.c",
-                                      "firmware/services/parameters/motor_axis_profile.c"])
+    build(
+        "motor_axis_profile_test",
+        [
+            "tests/unit/motor_axis_profile_test.c",
+            "firmware/services/parameters/motor_axis_profile.c",
+            "firmware/common/crc32.c",
+        ],
+    )
     joint_fixture = args.out / "joint_startup_test.c"
     joint_fixture.write_text(joint_startup_fixture(), encoding="utf-8")
-    build("joint_startup_test", [joint_fixture, "firmware/services/parameters/motor_axis_profile.c"])
+    build(
+        "joint_startup_test",
+        [
+            joint_fixture,
+            "firmware/services/parameters/motor_axis_profile.c",
+            "firmware/common/crc32.c",
+        ],
+    )
     board_fixture = args.out / "joint_board_startup_test.c"
     board_fixture.write_text(joint_board_startup_fixture(), encoding="utf-8")
     build("joint_board_startup_test", [board_fixture])
     if args.recording:
         import numpy as np
+
         data = np.loadtxt(args.recording, delimiter="\t", skiprows=1)
         from rtt_control_frame import decode
+
         decoded = decode(data)
-        status = decoded['flags']
-        valid = decoded['valid']
-        assert not np.any(decoded['encoding_saturated'][valid]), 'Clipped RTT cannot be replayed'
+        status = decoded["flags"]
+        valid = decoded["valid"]
+        assert not np.any(decoded["encoding_saturated"][valid]), "Clipped RTT cannot be replayed"
         indexes = np.flatnonzero(valid)
-        assert len(indexes) and np.all(np.diff(indexes) == 1), "Replay requires one contiguous valid interval"
+        assert len(indexes) and np.all(np.diff(indexes) == 1), (
+            "Replay requires one contiguous valid interval"
+        )
         first = indexes[0]
         phase = status[indexes] & 3
         starts = np.flatnonzero((phase == 0) & np.r_[True, phase[:-1] != 0])
-        position = np.radians(decoded['position_deg'][indexes])
-        reference = np.radians(decoded['reference_deg'][indexes])
+        position = np.radians(decoded["position_deg"][indexes])
+        reference = np.radians(decoded["reference_deg"][indexes])
         target = np.empty(len(indexes))
         episodes = []
         for n, a in enumerate(starts):
-            end = starts[n+1] if n+1 < len(starts) else len(indexes)
+            end = starts[n + 1] if n + 1 < len(starts) else len(indexes)
             settled = a + np.flatnonzero(phase[a:end] != 0)[0]
             target[a:end] = reference[settled]
             episodes.append((int(a), int(settled), int(end)))
         assert starts[0] == 0
         velocity = np.zeros(len(indexes))
-        velocity[16:] = (position[16:] - position[:-16]) / .008
+        velocity[16:] = (position[16:] - position[:-16]) / 0.008
         inputs = args.out / "replay_inputs.csv"
         output = args.out / "replay_outputs.csv"
-        np.savetxt(inputs, np.column_stack([indexes / 2000., target, position, velocity]),
-                   delimiter=",", fmt="%.9f")
+        np.savetxt(
+            inputs,
+            np.column_stack([indexes / 2000.0, target, position, velocity]),
+            delimiter=",",
+            fmt="%.9f",
+        )
         run([exe, inputs, output])
         replay = np.loadtxt(output, delimiter=",", skiprows=1)
         assert len(replay) == len(indexes) and np.isfinite(replay).all()
         tails = []
         for n, (_, settled, end) in enumerate(episodes[:-1]):
-            tail = slice(max(settled, end-4000), end)
+            tail = slice(max(settled, end - 4000), end)
             ff_max = float(np.max(np.abs(replay[tail, 4])))
-            assert ff_max < .001, "Settled original tail must not receive new breakaway pulses"
-            tails.append({"move": n+1, "end_time_s": (end+first)/2000,
-                          "max_abs_ff_A": ff_max,
-                          "hold_fraction": float(np.mean(replay[tail, 7] != 0))})
-        result = {"input_rows": len(indexes), "original_motion_is_fixed": True,
-                  "not_a_prediction_of_new_closed_loop_motion": True,
-                  "targets_inferred_from_original_trajectory_end": True,
-                  "velocity_reconstructed_from_quantized_position_16_sample_window": True,
-                  "settled_tails": tails}
-        (args.out / "replay_summary.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+            assert ff_max < 0.001, "Settled original tail must not receive new breakaway pulses"
+            tails.append(
+                {
+                    "move": n + 1,
+                    "end_time_s": (end + first) / 2000,
+                    "max_abs_ff_A": ff_max,
+                    "hold_fraction": float(np.mean(replay[tail, 7] != 0)),
+                }
+            )
+        result = {
+            "input_rows": len(indexes),
+            "original_motion_is_fixed": True,
+            "not_a_prediction_of_new_closed_loop_motion": True,
+            "targets_inferred_from_original_trajectory_end": True,
+            "velocity_reconstructed_from_quantized_position_16_sample_window": True,
+            "settled_tails": tails,
+        }
+        (args.out / "replay_summary.json").write_text(
+            json.dumps(result, indent=2), encoding="utf-8"
+        )
         print(json.dumps(result, indent=2))
 
 

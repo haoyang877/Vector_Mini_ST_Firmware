@@ -6,7 +6,7 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `firmware/app/` | board_config、bsp_task、foc_task、foc_run 等启动与运行组装 |
+| `firmware/app/` | board_config、bsp_task、foc_task、foc_run、motor_state、foc_mode_dispatch、foc_run_state、rtt_telemetry 等启动与运行组装 |
 | `firmware/motor/foc/` | FOC、PID、采样及观测器 |
 | `firmware/motor/position/` | 位置伺服与阻抗控制 |
 | `firmware/motor/trajectory/` | 平滑轨迹及梯形轨迹 |

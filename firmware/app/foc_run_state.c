@@ -1,8 +1,13 @@
 #include "foc_run_state.h"
 
 #include "app_lifecycle.h"
+#include "bus_voltage_profile.h"
 #include "common_inc.h"
 #include "motor_state.h"
+
+/* 阶段 D 恢复矩阵参数：过流回落驻留 100 ms（20 kHz 快环 2000 拍），高温恢复滞回 80 °C。 */
+#define RUN_STATE_OC_RECOVER_TICKS 2000U
+#define RUN_STATE_TEMP_RECOVER_C 80.0f
 
 /* 运行状态机适配器：
  * - READY/STARTING/RUNNING/STOPPING/FAULT 由 AppLifecycle 纯核心拥有；
@@ -24,6 +29,8 @@ enum
     SAVE_FINISH_FAILED
 };
 static volatile uint8_t save_finish;
+/* Over_Current 回落驻留计数；饱和于 RUN_STATE_OC_RECOVER_TICKS。 */
+static uint16_t overcurrent_recover_ticks;
 
 /* 需要编码器反馈的模式在坏帧超限后立即置编码器故障。 */
 static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
@@ -176,6 +183,72 @@ static void RunState_ConfirmStart(void)
     (void)RunState_Send(APP_EVENT_START_DONE, 0U, APP_CONTROL_NONE, false, false);
 }
 
+/* 母线电压处于重新使能窗口 [25.6, 33.8] V：过/欠压故障的源恢复判据。 */
+static bool RunState_VbusInEnableWindow(void)
+{
+    if (!isfinite(FOC.Vbus_filt))
+    {
+        return false;
+    }
+    return FOC.Vbus_filt >= BUS_VOLTAGE_ENABLE_MIN_V && FOC.Vbus_filt <= BUS_VOLTAGE_ENABLE_MAX_V;
+}
+
+/* 每拍更新与清除请求无关的恢复证据：过流回落需持续 100 ms。 */
+static void RunState_UpdateRecoveryEvidence(void)
+{
+    if (MotorControl.ErrorNow != Over_Current)
+    {
+        overcurrent_recover_ticks = 0U;
+        return;
+    }
+    if (fast_abs(FOC.Ia) < CURRENT_OVERCURRENT_TRIP_A * 0.9f &&
+        fast_abs(FOC.Ib) < CURRENT_OVERCURRENT_TRIP_A * 0.9f &&
+        fast_abs(FOC.Ic) < CURRENT_OVERCURRENT_TRIP_A * 0.9f)
+    {
+        if (overcurrent_recover_ticks < RUN_STATE_OC_RECOVER_TICKS)
+        {
+            ++overcurrent_recover_ticks;
+        }
+        return;
+    }
+    overcurrent_recover_ticks = 0U;
+}
+
+/* 恢复矩阵（阶段 D1）：逐故障源恢复判据。参数/标定/操作类故障暂无在线判据，
+ * 保留操作员确认语义（过渡，随故障保护解耦计划细化）；未知故障一律拒绝。 */
+static bool RunState_FaultSourceRecovered(ErrorNow_TypeDef error)
+{
+    switch (error)
+    {
+    case CAN_DisConnect:
+        return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
+    case Encoder_Error:
+        return OnBoard_Encoder.bad_frame_streak == 0U;
+    case TemperatureSensor_Error:
+        return McuTemperature.valid != 0U;
+    case High_Temprature:
+        return McuTemperature.valid != 0U && FOC.temp < RUN_STATE_TEMP_RECOVER_C;
+    case Over_Voltage:
+    case Under_Voltage:
+        return RunState_VbusInEnableWindow();
+    case Over_Current:
+        return overcurrent_recover_ticks >= RUN_STATE_OC_RECOVER_TICKS;
+    case CurrentOffset_Error:
+    case PolePairs_Error:
+    case Large_Phase_Resistance:
+    case Large_Phase_Inductance:
+    case Encoder_NotCalibrated:
+    case MotorParam_Error:
+    case Sensorless_Error:
+    case FrictionIdentification_Error:
+    case ControlOverrun_Error:
+    case CoggingCalibration_Error:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* 维护目标模式 → 核心操作；标定会话随 foc_calibration 拆解后接入。 */
 static AppOperation RunState_OperationFor(ModeNow_TypeDef mode)
 {
@@ -306,6 +379,7 @@ void FocRunState_Init(void)
     power_on = false;
     operation_mode = Motor_Disable;
     save_finish = (uint8_t)SAVE_FINISH_NONE;
+    overcurrent_recover_ticks = 0U;
 }
 
 void FocRunState_SaveFinished(bool committed)
@@ -336,6 +410,7 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
     bool needs_preparation;
     bool defer_start;
     bool operation_event;
+    bool clear_requested;
 
     /* 1. worker 结果 → 目标模式与前置动作（与旧实现同序）。 */
     target = MotorControl.ModeNow;
@@ -361,6 +436,9 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
         break;
     }
 
+    /* 1b. 清除请求：ModeNow==Clear_Error 由模式切换层登记，故障投影前捕获。 */
+    clear_requested = MotorControl.ModeNow == Clear_Error;
+
     /* 2. 故障策略与指示：Save/Default 期间容错保留当前模式。 */
     if (MotorControl.ErrorNow != No_Error)
     {
@@ -376,9 +454,21 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
         LED_SetState(0, (uint8_t)MotorControl.ModeNow);
     }
 
-    /* 3. 启动链、维护会话与故障/清除处理。 */
+    /* 3. 启动链、维护会话、恢复证据与故障/清除处理。 */
     RunState_RunBootChain();
     operation_event = RunState_ServiceOperations(target);
+    RunState_UpdateRecoveryEvidence();
+    /* 通信类故障自愈：链路恢复即清（替代旧 CAN 接收路径的隐式清错）。 */
+    if (MotorControl.ErrorNow == CAN_DisConnect && RunState_FaultSourceRecovered(CAN_DisConnect))
+    {
+        Set_ErrorNow(No_Error);
+    }
+    /* 操作员清除请求：按恢复矩阵准入；未恢复时保留故障（请求已被故障路径消费）。 */
+    if (clear_requested && MotorControl.ErrorNow != No_Error &&
+        RunState_FaultSourceRecovered(MotorControl.ErrorNow))
+    {
+        Set_ErrorNow(No_Error);
+    }
     if (MotorControl.ErrorNow != No_Error)
     {
         /* 故障本身不动功率级；停机清理统一由下方停止路径按旧条件执行一次。 */

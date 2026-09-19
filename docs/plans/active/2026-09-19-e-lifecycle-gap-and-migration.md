@@ -130,7 +130,36 @@ DEFAULTS 在进入会话后的下一拍派生完成（UNCOMMITTED）；被故障
 夹具新增会话用例 5 组（SAVE 成功/失败、ZERO→SAVE 链、DEFAULTS、取消释放），
 差分等价 38,400 组 tick 保持通过。
 
-## 6. 阶段 D 设计：故障恢复矩阵（草案，阈值待确认）
+## 6. 阶段 D 设计：故障恢复矩阵（阈值已确认，实施中）
+
+阈值裁决（2026-09-19，第二轮）：全部按建议默认执行——温度 90→80 °C 滞回；过流
+trip−10% 持续 100 ms；过/欠压用 enable 窗口 25.6–33.8 V；控制超时静默 1 s；
+编码器 streak 清零即恢复；CAN 断连收到帧即恢复。
+
+实施切分：
+
+- **D1（本批）**：清除权限收口——`Clear_Error` 直写路径（`foc_errhandle.c`）与
+  `Default_Param` 清错副作用（`foc_mode_dispatch.c`）移除；清除统一由适配器评估
+  （源恢复 + 样本新鲜 + 资源释放）后置 `ErrorNow=No_Error` 并走核心 CLEAR；
+  CAN 断连恢复改为通知适配器（`FocRunState_LinkRecovered`）后由适配器清除；
+  恢复条件 v1：CAN=链路恢复标志、编码器=坏帧 streak 清零、温度传感器=采样恢复、
+  高温=温度 < 80 °C、过/欠压=enable 窗口 + 100 ms 驻留、过流=trip−10% + 100 ms 驻留、
+  操作类=会话已释放；无在线判据的参数类故障保留操作员确认语义（文档注明过渡）。
+- **D2（后续）**：FaultLatch 多故障投影完善与逐故障夹具扩充；控制超时静默窗口；
+  与故障保护解耦计划（`2026-09-18-fault-protection-v1`）的检测接口协同。
+
+D1 证据（2026-09-19）：
+
+- `foc_errhandle.c`：Clear 只登记 `ModeNow=Clear_Error`（不再直写 `ErrorNow`）；
+  `foc_mode_dispatch.c`：`Default_Param` 不再隐式清错、`Clear_Error` 变为请求标记；
+  `interface_can.c`：接收恢复不再隐式清 `CAN_DisConnect`。
+- `foc_run_state.c`：恢复矩阵 v1（编码器 streak 清零 / 温度 80 °C 滞回 + 传感器有效 /
+  过欠压 enable 窗口 / 过流 trip−10% 驻留 2000 拍 / CAN 计数回落即自动恢复 /
+  参数与操作类保留操作员确认（过渡）/ 未知枚举拒绝）；清除经核心 `CLEAR` + 自检回 `READY`。
+- 夹具：`test_run_state.py` 新增恢复矩阵 6 组用例（含 2100 拍驻留验证），
+  差分等价 **38,400 组 tick 保持**；`test_bus_voltage_protection.py` 更新为
+  "登记请求、由状态机准入"契约；`run_can_status_tests.py` 移除已无调用的清错桩。
+- PR 全量九项通过：`outputs/runs/20260919T024822024336Z-27f5b3a0/summary.json`。
 
 原则（E 语义）：CLEAR 只在**源恢复 + 样本新鲜 + 资源释放**同时成立时被接受；
 清除不是硬件恢复证明；通信类故障允许自动恢复，其余不允许隐式清错。

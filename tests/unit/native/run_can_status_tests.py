@@ -74,16 +74,12 @@ typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALU
 static CanValueEncoding CAN_CommandEncoding(CAN_PARAM_ID p)
 {if(p==2)return CAN_VALUE_MILLI_I16;if(p==4)return CAN_VALUE_CENTI_I32;if(p==6)return CAN_VALUE_MILLI_I32;return CAN_VALUE_FLOAT32;}
 static struct { unsigned node_id,can_hb_count; bool can_rx_en; uint8_t rx_data_u8[4]; unsigned rx_param_id; float rx_data; } CANMsg;
-static struct {unsigned ErrorNow;} MotorControl;
-#define CAN_DisConnect 4
-#define No_Error 0
 static unsigned calls,last_param;
 static float last_value;
 static CommHwCanFrame incoming;
 static bool rx_ok=true;
 static bool comm_hw_can_receive_stub(CommHwCanFrame *f) {*f=incoming;return rx_ok;}
 #define comm_hw_can_receive comm_hw_can_receive_stub
-static void Set_ErrorNow(unsigned e) {MotorControl.ErrorNow=e;}
 static float IntBitToFloat(uint32_t i) {float f;memcpy(&f,&i,4);return f;}
 static void CAN_ReceiveMessage_Update(unsigned p,float f) {last_param=p;last_value=f;++calls;}
 """

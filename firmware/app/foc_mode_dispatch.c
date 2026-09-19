@@ -152,11 +152,13 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
         break;
 
     case Default_Param:
+        /* 恢复默认参数不再隐式清除故障：清除统一走恢复矩阵（阶段 D）。 */
         Param_Return_Default();
+        break;
 
-    /* 有意贯穿到 Clear_Error：恢复默认参数后清除故障。 */
     case Clear_Error:
-        Set_ErrorNow(No_Error);
+        /* ModeNow==Clear_Error 为清除请求标记，由运行状态机按恢复矩阵处理。 */
+        break;
     default:
         break;
     }

@@ -86,6 +86,7 @@ static void Old_Tick(void)
 
 FIXTURE_HEAD = r"""
 #include <assert.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -126,8 +127,57 @@ typedef struct
 #define Sensorless_Speed_Mode 11
 #define Voltage_OpenLoop 12
 #define No_Error 0
-#define Test_Error 9
+#define CurrentOffset_Error 1
+#define Encoder_Error 2
+#define PolePairs_Error 3
+#define CAN_DisConnect 4
+#define Large_Phase_Resistance 5
+#define Large_Phase_Inductance 6
+#define Over_Current 7
+#define Over_Voltage 8
+#define Under_Voltage 9
+#define High_Temprature 10
+#define Encoder_NotCalibrated 11
 #define MotorParam_Error 12
+#define Sensorless_Error 13
+#define FrictionIdentification_Error 14
+#define ControlOverrun_Error 15
+#define CoggingCalibration_Error 16
+#define TemperatureSensor_Error 17
+#define Test_Error 99
+
+/* 阶段 D 恢复矩阵常量与外部信号桩（真实模块为全局，这里由夹具提供）。 */
+#define RUN_STATE_OC_RECOVER_TICKS 2000U
+#define RUN_STATE_TEMP_RECOVER_C 80.0f
+#define BUS_VOLTAGE_ENABLE_MIN_V 25.6f
+#define BUS_VOLTAGE_ENABLE_MAX_V 33.8f
+#define CURRENT_OVERCURRENT_TRIP_A 18.0f
+
+typedef struct
+{
+    float Ia, Ib, Ic, Vbus_filt, temp;
+} FOCStub_TypeDef;
+static FOCStub_TypeDef FOC;
+
+typedef struct
+{
+    uint16_t bad_frame_streak;
+} EncoderStub_TypeDef;
+static EncoderStub_TypeDef OnBoard_Encoder;
+
+typedef struct
+{
+    uint32_t valid, missed_ms;
+} McuTemperatureStub_TypeDef;
+static McuTemperatureStub_TypeDef McuTemperature;
+
+typedef struct
+{
+    uint32_t can_hb_count, can_hb_set;
+} CANMsgStub_TypeDef;
+static CANMsgStub_TypeDef CANMsg;
+
+static float fast_abs(float x) { return x < 0.0f ? -x : x; }
 
 /* 适配器内部状态（真实模块为文件级 static，这里由夹具提供）。 */
 static AppLifecycle lifecycle;
@@ -140,6 +190,7 @@ enum
     SAVE_FINISH_FAILED
 };
 static volatile uint8_t save_finish;
+static uint16_t overcurrent_recover_ticks;
 
 typedef struct
 {
@@ -162,7 +213,7 @@ static int log_codes[LOG_CAP];
 static int log_args[LOG_CAP];
 static int log_len;
 
-static void log2(int code, int arg)
+static void log_event(int code, int arg)
 {
     assert(log_len < LOG_CAP);
     log_codes[log_len] = code;
@@ -170,11 +221,11 @@ static void log2(int code, int arg)
     ++log_len;
 }
 
-void LED_SetState(unsigned led, unsigned value) { log2(1 + (int)led, (int)value); }
-void Clear_RunningData(void) { log2(3, 0); }
-void Stop_PWM_Generate(void) { log2(4, 0); }
-void Start_PWM_Generate(void) { log2(5, 0); }
-void Detect_Mode_Error_Change(void) { log2(6, 0); }
+void LED_SetState(unsigned led, unsigned value) { log_event(1 + (int)led, (int)value); }
+void Clear_RunningData(void) { log_event(3, 0); }
+void Stop_PWM_Generate(void) { log_event(4, 0); }
+void Start_PWM_Generate(void) { log_event(5, 0); }
+void Detect_Mode_Error_Change(void) { log_event(6, 0); }
 /* 就绪查询是纯查询：适配器与旧实现的调用时机不同，不计入行为对拍。 */
 bool MotorOuterLoop_IsReady(void) { return ready; }
 """
@@ -428,6 +479,84 @@ int main(void)
                " defaults, cancel release\n");
     }
 
+    /* ===== 恢复矩阵用例（阶段 D1） ===== */
+    {
+        MotorWorkOutcome_TypeDef running = { MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false };
+        int i;
+
+        /* 编码器：坏帧未清零拒绝；恢复后准入。 */
+        ResetWorld(Motor_Disable, Motor_Disable, Encoder_Error, 1, true);
+        OnBoard_Encoder.bad_frame_streak = 40U;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == Encoder_Error);
+        OnBoard_Encoder.bad_frame_streak = 0U;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == No_Error);
+        assert(lifecycle.snapshot.state == APP_READY);
+
+        /* 高温：95 °C 拒绝，75 °C 准入（80 °C 滞回）。 */
+        ResetWorld(Motor_Disable, Motor_Disable, High_Temprature, 1, true);
+        McuTemperature.valid = 1U;
+        FOC.temp = 95.0f;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == High_Temprature);
+        FOC.temp = 75.0f;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == No_Error);
+
+        /* 过压：窗口外拒绝，窗口内准入。 */
+        ResetWorld(Motor_Disable, Motor_Disable, Over_Voltage, 1, true);
+        FOC.Vbus_filt = 34.2f;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == Over_Voltage);
+        FOC.Vbus_filt = 32.0f;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == No_Error);
+
+        /* 过流：回落不足 100 ms 拒绝；驻留满后准入。 */
+        ResetWorld(Motor_Disable, Motor_Disable, Over_Current, 1, true);
+        FOC.Ia = 1.0f;
+        FOC.Ib = 1.0f;
+        FOC.Ic = 1.0f;
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == Over_Current);
+        for (i = 0; i < 2100; ++i)
+        {
+            log_len = 0; /* 场景只累计恢复证据：丢弃指示灯日志避免溢出。 */
+            FocRunState_Tick(running);
+        }
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == No_Error);
+
+        /* CAN 断连：链路恢复自动清除（无需操作员请求）。 */
+        ResetWorld(Motor_Disable, Motor_Disable, CAN_DisConnect, 1, true);
+        CANMsg.can_hb_set = 100U;
+        CANMsg.can_hb_count = 100U;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == CAN_DisConnect);
+        CANMsg.can_hb_count = 0U;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == No_Error);
+        assert(lifecycle.snapshot.state == APP_READY);
+
+        /* 未知故障值一律拒绝，避免隐式清错。 */
+        ResetWorld(Motor_Disable, Motor_Disable, Test_Error, 1, true);
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(MotorControl.ErrorNow == Test_Error);
+
+        printf("PASS recovery matrix: encoder, temperature, voltage, overcurrent dwell,"
+               " CAN auto-recovery, unknown denied\n");
+    }
+
     printf("PASS run state differential: %ld tick comparisons identical"
            " (legacy trio vs AppLifecycle adapter)\n", comparisons);
     return 0;
@@ -447,6 +576,9 @@ def run_state_fixture():
         + function_source(source, "RunState_RunBootChain")
         + function_source(source, "RunState_RequestStop")
         + function_source(source, "RunState_ConfirmStart")
+        + function_source(source, "RunState_VbusInEnableWindow")
+        + function_source(source, "RunState_UpdateRecoveryEvidence")
+        + function_source(source, "RunState_FaultSourceRecovered")
         + function_source(source, "RunState_OperationFor")
         + function_source(source, "RunState_SendOperation")
         + function_source(source, "RunState_ServiceOperations")

@@ -118,8 +118,11 @@ int main(void) {
     reset(34.2f);MotorControl.ErrorNow=Over_Voltage;
     assert(ModeSwitch_Handle(Clear_Error));assert(!ModeSwitch_Handle(Speed_Mode));
     input(33);FOC.Vbus_filt=33;assert(ModeSwitch_Handle(Clear_Error));
-    assert(MotorControl.ModeNow==Motor_Disable);assert(ModeSwitch_Handle(Speed_Mode));
-    puts("PASS explicit recovery needs safe voltage, never auto-restarts");
+    /* 清除权限收归运行状态机：本层只登记请求，不隐式清错。 */
+    assert(MotorControl.ErrorNow==Over_Voltage);
+    MotorControl.ErrorNow=No_Error;MotorControl.ModeNow=Motor_Disable;
+    assert(ModeSwitch_Handle(Speed_Mode));
+    puts("PASS clear request registered by handler; recovery evaluated by run state machine");
     return 0;
 }
 """

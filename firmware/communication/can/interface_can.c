@@ -811,9 +811,7 @@ void CANRxIRQHandler(void)
         CANMsg.can_rx_en = true;
         CANMsg.can_hb_count = 0;
 
-        /*clear error if CAN receiver resumed*/
-        if (MotorControl.ErrorNow == CAN_DisConnect)
-            Set_ErrorNow(No_Error);
+        /* 链路恢复后的故障清除由运行状态机按恢复矩阵执行（阶段 D）。 */
 
         CANMsg.rx_param_id = (CAN_PARAM_ID)param_id;
         CANMsg.rx_data = decoded_data;

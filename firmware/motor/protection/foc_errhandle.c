@@ -237,8 +237,8 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
     {
         if (MotorControl.ErrorNow != No_Error)
         {
-            MotorControl.ErrorNow = No_Error;
-            MotorControl.ModeNow = Motor_Disable;
+            /* 清除权限收归运行状态机：这里只登记请求，由快速环按恢复矩阵准入。 */
+            MotorControl.ModeNow = Clear_Error;
             return true;
         }
     }

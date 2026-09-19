@@ -5,6 +5,7 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "cogging_calibration.h"
+#include "motor_work.h"
 /* 齿槽功能对外公共接口：本文件承载标定适配、运行补偿适配与台架保护；
  * 补偿纯核心由以下模块提供，并在此汇总导出，使既有调用方
  * （foc_run.c、interface_can.c、main.c）无需改动。 */
@@ -27,13 +28,16 @@ bool FocCogging_CanStart(const MotorControl_TypeDef *motor, const Encoder_TypeDe
  * @param motor 电机控制状态。
  * @param pi 标定专用位置 PI（复用速度环控制器对象）。
  * @param encoder 编码器状态。
- * @return 无返回值。
- * @note 由 20 kHz 电流环上下文调用；失败时关闭 PWM 并切到 Motor_Disable。
+ * @return 结果协议：完成返回 SWITCH_MODE(Motor_Disable)+power_off；失败返回 FAULT；
+ *         其余返回 RUNNING。
+ * @note 由 20 kHz 电流环上下文调用；不再自行停相或写模式——停相与模式回退由运行
+ *       状态机按结果协议执行；会话启动时仍由本函数按准入条件启相（自管启动边界，
+ *       受 CanStart 与会话安全门守卫）。失败/中止在本函数内完成本地状态清理。
  */
-void FocCogging_Task(FOC_TypeDef *foc,
-                     MotorControl_TypeDef *motor,
-                     PI_Controller_TypeDef *pi,
-                     Encoder_TypeDef *encoder);
+MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *foc,
+                                         MotorControl_TypeDef *motor,
+                                         PI_Controller_TypeDef *pi,
+                                         Encoder_TypeDef *encoder);
 
 /**
  * @brief 中止标定会话并复位标定步骤；不操作 PWM、不切换模式。
@@ -109,14 +113,23 @@ extern volatile uint32_t TorqueTelemetryState;
 extern volatile CoggingTorqueFrame TorqueTelemetry;
 
 /**
- * @brief 台架保护入口：租约倒计时与测速上限判定；跳闸时停 PWM、退出补偿并回 mode 0。
- * @param motor 电机控制状态；跳闸时清零 idRef/iqRef 并切到 Motor_Disable。
+ * @brief 台架保护入口：租约倒计时与测速上限判定；跳闸时置挂起标志、退出补偿并清零指令。
+ * @param motor 电机控制状态；跳闸时清零 idRef/iqRef。
  * @param encoder 编码器状态，只读。
- * @return 未跳闸返回 true；跳闸并已停机返回 false。
+ * @return 未跳闸返回 true；跳闸返回 false（停相与模式回退由调度层转为结果协议后，
+ *         由运行状态机执行）。
  * @note 仅电流环上下文调用；默认关闭且不持久化，不是量产主机断连保护。
  *       trip=1 租约到期，trip=2 测速超限或无效；电流包络由 MotorControl.current_limit 保证。
+ *       跳闸标志经 FocCogging_TakeTorqueTrip 由模式调度消费。
  */
 bool FocCogging_TorqueGuard(MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
+
+/**
+ * @brief 读取并清除台架保护跳闸挂起标志。
+ * @return 有挂起跳闸返回 true（并清除）；否则返回 false。
+ * @note 仅模式调度（20 kHz 上下文）调用；标志由 FocCogging_TorqueGuard 置位。
+ */
+bool FocCogging_TakeTorqueTrip(void);
 
 /**
  * @brief 力矩遥测：主机请求时冻结同一 ISR 时刻的指令、补偿与反馈。

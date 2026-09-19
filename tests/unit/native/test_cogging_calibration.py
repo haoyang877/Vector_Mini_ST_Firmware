@@ -49,6 +49,18 @@ static void run_point(float iq) {
     while(c.points_done==old && c.state!=COGGING_FAILED)
         CoggingCalibration_Update(&c,c.target_rad,0,iq,false);
 }
+/* 模拟运行状态机对结果协议的消费：SWITCH_MODE 按 power_off 停相并应用模式；
+ * FAULT 锁存故障、停相并回 Motor_Disable（等价旧模块内联动作的归属方）。 */
+static void consume(MotorWorkOutcome_TypeDef o) {
+    if(o.result==MOTOR_WORK_SWITCH_MODE) {
+        if(o.power_off) Stop_PWM_Generate();
+        MotorControl.ModeNow=o.next_mode;
+    } else if(o.result==MOTOR_WORK_FAULT) {
+        Set_ErrorNow(o.error);
+        if(pwm) Stop_PWM_Generate();
+        MotorControl.ModeNow=Motor_Disable;
+    }
+}
 static void core_tests(void) {
     assert(sizeof(record.iq_q15)==2048 && sizeof(record)==2064);
     assert(!CoggingCalibration_Start(&c,NAN,82.5f));
@@ -153,20 +165,24 @@ static void setup(void) {
 }
 static void adapter_tests(void) {
     setup();foc.Vbus=foc.Vbus_filt=20;
-    FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+    MotorWorkOutcome_TypeDef out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+    assert(out.result==MOTOR_WORK_FAULT && out.error==CoggingCalibration_Error);
+    consume(out);
     assert(!pwm && !enabled && MotorControl.ModeNow==Motor_Disable);
     setup();MotorControl.axis_profile.magic=MOTOR_AXIS_PROFILE_MAGIC;
     assert(!FocCogging_CanStart(&MotorControl,&OnBoard_Encoder));
     setup();OnBoard_Encoder.calib_flag=1;
     assert(!FocCogging_CanStart(&MotorControl,&OnBoard_Encoder));
     setup();before=CoggingMap;
-    FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);assert(pwm);
+    out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);consume(out);assert(pwm);
     OnBoard_Encoder.has_valid_sample=false;
-    FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+    out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+    assert(out.result==MOTOR_WORK_FAULT && out.error==CoggingCalibration_Error);
+    consume(out);
     assert(!pwm && CoggingCalib.state==COGGING_FAILED);
     assert(!memcmp(&CoggingMap,&before,sizeof(before)));
     setup();
-    FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+    consume(FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder));
     double synthetic_position=0.0,synthetic_velocity=0.0;
     for(unsigned ticks=0;MotorControl.ModeNow==Calib_Anticogging && ticks<36000000;ticks++) {
         /* Independent inertial plant, driven by actual controller output. */
@@ -177,7 +193,8 @@ static void adapter_tests(void) {
         OnBoard_Encoder.shadow_q15=(int64_t)llround(synthetic_position*65536.0/6.283185307);
         OnBoard_Encoder.linearized_q15=(uint16_t)OnBoard_Encoder.shadow_q15;
         foc.Iq=MotorControl.iqRef;
-        FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+        out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+        if(out.result!=MOTOR_WORK_RUNNING) consume(out);
     }
     assert(CoggingCalib.state==COGGING_COMPLETE && CoggingCalib.points_done==2048);
     assert(FocCogging_GetState()==COGGING_SAVING);
@@ -185,7 +202,7 @@ static void adapter_tests(void) {
     FocCogging_Service();assert(MotorControl.ModeNow==Save_Param && FocCogging_TableValid());
     FocCogging_SaveResult(false);assert(CoggingCalib.reason==COGGING_SAVE_FAILED);
     OnBoard_Encoder.electrical_zero_q15++;assert(!FocCogging_TableValid());
-    puts("PASS production FOC adapter admission, no power on unsafe start, encoder loss stop, complete before save, failed-save status, unchanged direction and stale-map rejection");
+    puts("PASS production FOC adapter result protocol: unsafe-start fault, encoder loss fault, complete-then-save, failed-save status, unchanged direction and stale-map rejection");
 }
 static void compensation_tests(void) {
     setup();MotorControl.ModeNow=Motor_Disable;
@@ -221,12 +238,16 @@ static void compensation_tests(void) {
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     pwm=true;assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
-    assert(!pwm && MotorControl.ModeNow==Motor_Disable && TorqueGuard.trip==1);
+    /* 跳闸只置挂起标志；停相与模式回退由调度层转为结果协议后执行（此处模拟消费）。 */
+    assert(FocCogging_TakeTorqueTrip() && TorqueGuard.trip==1);
+    consume((MotorWorkOutcome_TypeDef){MOTOR_WORK_SWITCH_MODE,Motor_Disable,No_Error,true});
+    assert(!pwm && MotorControl.ModeNow==Motor_Disable);
     TorqueGuard.lease_ticks=100;OnBoard_Encoder.vel_mech_continuous=3;
     assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder) && TorqueGuard.trip==2);
+    assert(FocCogging_TakeTorqueTrip());
     OnBoard_Encoder.vel_mech_continuous=0;TorqueGuard.enabled=0;
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
-    puts("PASS compensation interpolation/wrap/sign, command ownership, ramp, total clamp, stale/corrupt rejection and independent torque watchdog");
+    puts("PASS compensation interpolation/wrap/sign, command ownership, ramp, total clamp, stale/corrupt rejection and independent torque watchdog trip flag");
 }
 static void lookup_tests(void) {
     /* 纯插值核心：中点、子步、跨圈与表内满量程换算；不依赖硬件。 */

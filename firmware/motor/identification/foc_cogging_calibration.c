@@ -9,7 +9,8 @@
 #include "bus_voltage_profile.h"
 
 /* 齿槽功能适配层：运行补偿采集、台架保护、标定会话。
- * 公共符号与参数 ABI 保持既有约定，调用方无需改动。 */
+ * 公共符号与参数 ABI 保持既有约定；标定完成/失败经结果协议上报
+ * （MotorWorkOutcome），停相与模式回退由运行状态机执行。 */
 
 extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder;
@@ -20,6 +21,8 @@ volatile CoggingTorqueFrame TorqueTelemetry;
 
 static bool session_started;
 static volatile bool finalize_pending, save_pending;
+/* 台架保护跳闸挂起：置位后由模式调度转为结果协议（见 FocCogging_TakeTorqueTrip）。 */
+static volatile bool torque_trip_pending;
 static uint32_t divider;
 static int64_t start_shadow;
 static float start_angle, calibration_current;
@@ -101,12 +104,18 @@ bool FocCogging_TorqueGuard(MotorControl_TypeDef *m, const Encoder_TypeDef *e)
         return true;
     }
     TorqueGuard.trip = trip;
-    Stop_PWM_Generate();
+    torque_trip_pending = true;
     m->iqRef = m->idRef = 0.0f;
     CoggingCompensation_Disable(&CoggingCompensation);
     CoggingCompensation_ZeroBlend(&CoggingCompensation);
-    Set_ModeNow(Motor_Disable);
     return false;
+}
+
+bool FocCogging_TakeTorqueTrip(void)
+{
+    bool pending = torque_trip_pending;
+    torque_trip_pending = false;
+    return pending;
 }
 
 void FocCogging_TorqueObserve(const FOC_TypeDef *f,
@@ -145,14 +154,13 @@ bool FocCogging_CanStart(const MotorControl_TypeDef *m, const Encoder_TypeDef *e
            fabsf(Encoder_GetMecVelContinuous(e)) < 0.05f && !finalize_pending && !save_pending;
 }
 
-static void Stop(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi)
+/* 本地停止：只清理控制状态，不动功率级与模式（由运行状态机按结果协议执行）。 */
+static void LocalStop(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi)
 {
-    Stop_PWM_Generate();
     m->idRef = m->iqRef = m->speedRef = m->speedShadow = 0.0f;
     PI_Controller_Reset(pi);
     FOC_CurrentController_Reset(f);
     session_started = false;
-    Set_ModeNow(Motor_Disable);
 }
 
 void FocCogging_Abort(void)
@@ -195,7 +203,7 @@ StartSession(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
         CoggingCalib.state = COGGING_FAILED;
         CoggingCalib.reason = COGGING_INVALID_INPUT;
         Set_ErrorNow(CoggingCalibration_Error);
-        Stop(f, m, pi);
+        LocalStop(f, m, pi);
         return false;
     }
     start_shadow = e->shadow_q15;
@@ -253,12 +261,12 @@ static bool ServiceTick2kHz(FOC_TypeDef *f,
     if (CoggingCalib.state == COGGING_FAILED)
     {
         Set_ErrorNow(CoggingCalibration_Error);
-        Stop(f, m, pi);
+        LocalStop(f, m, pi);
         return false;
     }
     if (CoggingCalib.state == COGGING_COMPLETE)
     {
-        Stop(f, m, pi);
+        LocalStop(f, m, pi);
         finalize_pending = true;
         return false;
     }
@@ -295,15 +303,19 @@ static void HoldCurrentPoint(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                          calibration_current);
 }
 
-void FocCogging_Task(FOC_TypeDef *f,
-                     MotorControl_TypeDef *m,
-                     PI_Controller_TypeDef *pi,
-                     Encoder_TypeDef *e)
+MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *f,
+                                         MotorControl_TypeDef *m,
+                                         PI_Controller_TypeDef *pi,
+                                         Encoder_TypeDef *e)
 {
+    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
     float position, velocity;
+
     if (!session_started && !StartSession(f, m, pi, e))
     {
-        return;
+        outcome.result = MOTOR_WORK_FAULT;
+        outcome.error = (m->ErrorNow != No_Error) ? m->ErrorNow : CoggingCalibration_Error;
+        return outcome;
     }
     position = start_angle + (float)(e->shadow_q15 - start_shadow) * (_2PI / 65536.0f);
     velocity = Encoder_GetMecVelContinuous(e);
@@ -314,14 +326,30 @@ void FocCogging_Task(FOC_TypeDef *f,
         {
             Set_ErrorNow(CoggingCalibration_Error);
         }
-        Stop(f, m, pi);
-        return;
+        LocalStop(f, m, pi);
+        outcome.result = MOTOR_WORK_FAULT;
+        outcome.error = m->ErrorNow;
+        return outcome;
     }
     if (!ServiceTick2kHz(f, m, pi, position, velocity))
     {
-        return;
+        /* 会话已结束：完成时请求停相并回 Motor_Disable（等价旧直接写入）；
+         * 失败时经故障结果停机；本函数不再触碰功率级与模式。 */
+        if (CoggingCalib.state == COGGING_COMPLETE)
+        {
+            outcome.result = MOTOR_WORK_SWITCH_MODE;
+            outcome.next_mode = Motor_Disable;
+            outcome.power_off = true;
+        }
+        else
+        {
+            outcome.result = MOTOR_WORK_FAULT;
+            outcome.error = (m->ErrorNow != No_Error) ? m->ErrorNow : CoggingCalibration_Error;
+        }
+        return outcome;
     }
     FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
+    return outcome;
 }
 
 static uint32_t Signature(void)
@@ -362,7 +390,9 @@ void FocCogging_Service(void)
     {
         return;
     }
-    /* 在长耗时 CRC/拷贝前占用非驱动保存状态，防止 CAN 启动新模式。 */
+    /* 在长耗时 CRC/拷贝前占用非驱动保存状态，防止 CAN 启动新模式。
+     * 过渡例外（显式记录）：占位写仍由本模块在临界区内完成；完整迁移需要
+     * 状态机侧操作占位锁，列入运行状态机 2b 后续。 */
     primask = critical_hw_enter();
     if (!finalize_pending || MotorControl.ModeNow != Motor_Disable)
     {

@@ -51,6 +51,13 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
 
     case Current_Mode:
         Task_Current_Mode(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
+        if (FocCogging_TakeTorqueTrip())
+        {
+            /* 台架保护跳闸：经结果协议停机，停相与模式回退由运行状态机执行。 */
+            outcome.result = MOTOR_WORK_SWITCH_MODE;
+            outcome.next_mode = Motor_Disable;
+            outcome.power_off = true;
+        }
         break;
 
     case Speed_Mode:
@@ -83,7 +90,7 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
         break;
 
     case Calib_Anticogging:
-        FocCogging_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
+        outcome = FocCogging_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
         break;
 
     case Calib_Friction:

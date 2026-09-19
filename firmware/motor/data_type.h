@@ -1,8 +1,8 @@
 #ifndef __DATA_TYPE_H__
 #define __DATA_TYPE_H__
 
-#include "main.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include "motor_axis_profile.h"
 
 typedef enum

@@ -3,7 +3,7 @@
 #include <float.h>
 #include <math.h>
 
-#include "hw_conf.h"
+#include "control_config.h"
 #include "utils.h"
 
 #define FLUX_OBSERVER_DEFAULT_GAMMA 800000.0f

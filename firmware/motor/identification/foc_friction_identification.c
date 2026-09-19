@@ -5,8 +5,8 @@
 
 #include "foc_errhandle.h"
 #include "foc_param_profile.h"
-#include "foc_run.h"
-#include "hw_conf.h"
+#include "foc_speed.h"
+#include "control_config.h"
 #include "utils.h"
 #include "bus_voltage_profile.h"
 
@@ -157,7 +157,12 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
         return outcome;
     }
 
-    Task_Speed_Mode(foc, motor, speed_controller, encoder);
+    SpeedMode_Run(foc,
+                  motor,
+                  speed_controller,
+                  Encoder_GetElePhase(encoder),
+                  Encoder_GetEleVel(encoder),
+                  Encoder_GetMecVel(encoder));
     if (++speed_loop_divider < SPEED_LOOP_DIVIDER)
         return outcome;
     speed_loop_divider = 0U;

@@ -62,9 +62,11 @@ static void reset(float v) {
 static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl); }
 static void running(float v) { reset(v);MotorControl.ModeNow=Speed_Mode; }
 int main(void) {
-    unsigned k; ModeNow_TypeDef modes[]={Current_Mode,Speed_Mode,Position_Mode,
-        Position_Impedance_Mode,Calib_PhaseResistance,Calib_EncoderOffset,
-        Calib_EncoderObserver,Calib_EleAngelOffset,Voltage_OpenLoop,Vq_Mode,
+    unsigned k;     /* FOC-Calibration 删除（2026-09-19）：EncoderOffset/Observer/EleAngelOffset
+     * 已被入口拒绝，不再纳入电压门矩阵。 */
+    ModeNow_TypeDef modes[]={Current_Mode,Speed_Mode,Position_Mode,
+        Position_Impedance_Mode,Calib_PhaseResistance,
+        Voltage_OpenLoop,Vq_Mode,
         Sensorless_Speed_Mode,Calib_Friction,Calib_Anticogging};
     /* Full 8S charge must run beyond both the old 10000-cycle window and
      * the new delays, without inheriting the old 30 V false threshold. */

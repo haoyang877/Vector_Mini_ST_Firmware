@@ -42,4 +42,10 @@ void motor_hw_pwm_set_duty(float dtc_a, float dtc_b, float dtc_c);
  */
 void motor_hw_pwm_set_phase_duty(MotorHwPwmPhase phase, float duty);
 
+/**
+ * @brief 三相上桥臂常开，占空比 1.0。
+ * @note 供标定短接测试使用；只写比较寄存器，不改变定时器与驱动使能状态。
+ */
+void motor_hw_pwm_force_high_sides(void);
+
 #endif

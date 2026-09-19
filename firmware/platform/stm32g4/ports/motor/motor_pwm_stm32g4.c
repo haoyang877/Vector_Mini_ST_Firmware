@@ -30,3 +30,10 @@ void motor_hw_pwm_set_phase_duty(MotorHwPwmPhase phase, float duty)
         break;
     }
 }
+
+void motor_hw_pwm_force_high_sides(void)
+{
+    TIM1->CCR1 = (uint16_t)(PWM_TIM_PERIOD);
+    TIM1->CCR2 = (uint16_t)(PWM_TIM_PERIOD);
+    TIM1->CCR3 = (uint16_t)(PWM_TIM_PERIOD);
+}

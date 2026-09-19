@@ -25,7 +25,6 @@
     "firmware/motor/identification/foc_friction_identification.c -> firmware/platform/stm32g4/bsp/hw_conf.h",
     "firmware/motor/identification/foc_friction_identification.c -> firmware/services/parameters/foc_param_profile.h",
     "firmware/motor/identification/foc_friction_identification.h -> firmware/platform/stm32g4/bsp/encoder.h",
-    "firmware/motor/identification/foc_phase_resistance.c -> firmware/platform/stm32g4/bsp/hw_conf.h",
     "firmware/motor/identification/foc_phase_resistance.c -> firmware/services/parameters/foc_param_profile.h",
     "firmware/motor/position/position_cascade.c -> firmware/services/telemetry/fast_loop_profile.h",
     "firmware/motor/position/position_impedance.c -> firmware/platform/stm32g4/bsp/hw_conf.h",

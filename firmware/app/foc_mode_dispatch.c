@@ -5,6 +5,7 @@
 #include "foc_friction_identification.h"
 #include "foc_phase_resistance.h"
 #include "fast_loop_profile.h"
+#include "motor_hw.h"
 #include "motor_state.h"
 
 /** 记录当前机械零位；成功后请求进入参数保存模式，失败时上报编码器故障。 */
@@ -41,10 +42,8 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
     case Motor_Disable:
         PhaseResistanceMode_Cancel(&FOC, &MotorControl);
         /* 输出保持关闭。下一次使能前预置等占空比零矢量，
-         * 避免首个电流采样窗口从 100% 预载跳变；沿用现有 PWM 适配器。 */
-        Set_A_Duty(0.5f);
-        Set_B_Duty(0.5f);
-        Set_C_Duty(0.5f);
+         * 避免首个电流采样窗口从 100% 预载跳变。 */
+        motor_hw_pwm_set_duty(0.5f, 0.5f, 0.5f);
         break;
 
     case Current_Mode:

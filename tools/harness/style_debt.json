@@ -182,13 +182,6 @@
                 "c-readability"
             ]
         },
-        "firmware/motor/identification/foc_phase_resistance.c": {
-            "sha256": "28a1c5070e1ad583953037d48d595f3b7c5993c1b0fbf020a94b2036efad331c",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/motor/identification/foc_phase_resistance.h": {
             "sha256": "d85c601924576449653f6abb98f5f399ce7f7ee924f03a35c317ead2cb778cc6",
             "checks": [

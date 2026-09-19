@@ -198,10 +198,11 @@ firmware/platform/api/       ← 12 个纯契约（能力 / 单位 / 时序 / �
   RX 路由、端口队列/滤波/波特率/应答、派发优先级、命令适配器）；单元协议套件
   `test_can_motor_status` + `test_can_parameter_protocol` + `test_canfd_diagnostics`
   10 项 PASS；双轴 CAN 工具套件 12 项 PASS。
-- 余量：release 档待干净工作树（统一提交后补）。release 预检（2026-09-19）：
-  `doctor --profile release` 六项工具链全 PASS（含 Keil 5.36.0.0）；对当前 dirty 树运行
-  `verify --profile release`，除 `clean-release-source`（设计性拒绝）与同因连带的
-  `release-manifest` 外其余 9 项全 PASS，证明提交后即可产出发布证据。
+- 发布证据（2026-09-19，提交 `c39d0d25`，dirty=false）：`verify --profile release`
+  **PASS（11/11）**，含 `keil-build` 与 `release-manifest`；产物 HEX `8c1f5787…`（245,085 B）、
+  AXF `90866aac…`、MAP `b380d742…`，0 错误 0 警告；证据：
+  `outputs/runs/20260919T091846109938Z-c39d0d25/summary.json`。
+  （预检记录：`doctor --profile release` 六项工具链全 PASS。）
 
 ## 8. 关联文档
 

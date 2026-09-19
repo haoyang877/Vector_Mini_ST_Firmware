@@ -101,8 +101,9 @@
 - **PR 档终验（2026-09-19）**：`verify --profile pr` **PASS**（doctor/format/lint/project-layout/
   tests/architecture/interfaces/docs/hygiene 全绿）；证据：
   `outputs/runs/20260919T072345136533Z-dda0c780/summary.json`。
-- **余量**：release 档（Keil 构建 + 发布 manifest）待工作树干净后补；届时以统一提交后的
-  run 记录为准。
+- **发布证据（2026-09-19，提交 `c39d0d25`，dirty=false）**：`verify --profile release`
+  **PASS（11/11）**，含 Keil 构建与发布 manifest；run
+  `outputs/runs/20260919T091846109938Z-c39d0d25/summary.json`。
 
 ## 7. 关联文档
 

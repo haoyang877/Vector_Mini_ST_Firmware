@@ -28,16 +28,7 @@ void SensorlessStartup_Run(FOC_TypeDef *FOC,
                            SensorlessStartup_TypeDef *Startup,
                            const SensorlessStartupConfig_TypeDef *Config);
 
-/**
- * @brief  速度参考斜坡：把 speedShadow 按加减速限制推进到 speedRef。
- * @param  MotorControl 电机控制状态指针。
- * @note 速度模式与无感启动共用；在快速环上下文调用。
- */
-void MotorControl_UpdateSpeedRamp(MotorControl_TypeDef *MotorControl);
-
 /** 默认无感启动参数集。 */
 extern const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig;
-/** 编码器观测器标定使用的无感启动参数集。 */
-extern const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig;
 
 #endif

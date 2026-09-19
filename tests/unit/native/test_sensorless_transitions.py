@@ -1,6 +1,6 @@
-"""在无电机硬件下验证无感交接与标定停机代码。
+"""在无电机硬件下验证无感交接代码。
 
-覆盖电流矢量连续性、交接期间的实时速度反馈、制动限幅与“先停机后保存”的顺序；
+覆盖电流矢量连续性、交接期间的实时速度反馈与制动限幅；
 这不是物理被控对象验收测试。
 """
 
@@ -22,9 +22,9 @@ PRELUDE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "foc_calibration.h"
 #include "foc_run.h"
 #include "foc_sensorless_run.h"
+#include "foc_speed.h"
 #include "hw_conf.h"
 #include "utils.h"
 static MotorControl_TypeDef motor;
@@ -33,7 +33,7 @@ static PI_Controller_TypeDef pi;
 static Fluxobserver_TypeDef observer;
 static SensorlessStartup_TypeDef startup;
 static Encoder_TypeDef encoder;
-static unsigned current_calls, stop_calls, high_side_calls;
+static unsigned current_calls, stop_calls;
 static bool pwm_enabled;
 static float applied_observer_iq, applied_observer_id, applied_phase, applied_velocity;
 void Set_ErrorNow(ErrorNow_TypeDef e) { motor.ErrorNow=e; }
@@ -42,7 +42,6 @@ void Set_ModeNow(ModeNow_TypeDef m) {
     motor.ModeNow=m;
 }
 void Stop_PWM_Generate(void) { pwm_enabled=false; ++stop_calls; }
-void PWM_TurnOnHighSides(void) { ++high_side_calls; }
 void FOC_CurrentController_Reset(FOC_TypeDef *f) {
     PI_Controller_Reset(&f->id_pi); PI_Controller_Reset(&f->iq_pi);
 }
@@ -66,7 +65,27 @@ static void HEAP_free(void *p) { free(p); }
 """
 
 CASES = r"""
-static const SensorlessStartupConfig_TypeDef *cfg=&SensorlessStartup_EncoderCalibConfig;
+/* 编码器标定配置已随 FOC-Calibration 功能移除：夹具内联同参配置供无感用例使用。 */
+static const SensorlessStartupConfig_TypeDef test_startup_config = {
+    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
+    SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
+    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
+    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
+    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
+    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+    SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
+    SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
+    SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
+    SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
+    SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
+    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
+    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
+    SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
+    SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
+    SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
+    SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
+    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S};
+static const SensorlessStartupConfig_TypeDef *cfg=&test_startup_config;
 static void setup(void) {
     memset(&motor,0,sizeof(motor)); memset(&foc,0,sizeof(foc));
     memset(&observer,0,sizeof(observer)); memset(&encoder,0,sizeof(encoder));
@@ -83,17 +102,9 @@ static void setup(void) {
     encoder.has_valid_sample=true; encoder.velocity_ready=true;
     encoder.vel_mech_continuous=motor.speedRef; encoder.calib_flag=ENC_CALIB_LINEARIZED;
     startup.speed_feedback=motor.speedRef;
-    current_calls=stop_calls=high_side_calls=0; pwm_enabled=true;
+    current_calls=stop_calls=0; pwm_enabled=true;
 }
 static void tick(void) { SensorlessStartup_Run(&foc,&motor,&pi,&observer,&startup,cfg); }
-static MotorWorkOutcome_TypeDef calibration_tick(void) {
-    MotorWorkOutcome_TypeDef outcome=Task_Calib_EncoderObserver(&foc,&motor,&pi,&encoder,&observer,&startup);
-    /* 模拟运行状态机消费结果：先按 power_off 关断功率级，再提交模式。 */
-    if(outcome.result==MOTOR_WORK_SWITCH_MODE && outcome.power_off) Stop_PWM_Generate();
-    if(outcome.result==MOTOR_WORK_SWITCH_MODE) Set_ModeNow(outcome.next_mode);
-    else if(outcome.result==MOTOR_WORK_STOP) Set_ModeNow(Motor_Disable);
-    return outcome;
-}
 static void enter_handoff(float direction, float phase_delta) {
     setup(); motor.speedRef*=direction; motor.speedShadow=motor.speedRef;
     observer.omega_e*=direction;
@@ -154,50 +165,10 @@ static void check_braking_cap(void) {
     for(unsigned i=0;i<10;++i) tick();
     assert(motor.iqRef>0); /* Ordinary mode retains its positive torque authority. */
 }
-static void expect_coast(CalibStep_TyepeDef step, float obs_speed, float enc_speed,
-                         bool ready, bool tracking) {
-    setup(); CalibStep=step; startup.state=SENSORLESS_STARTUP_CLOSED_LOOP;
-    observer.omega_e=obs_speed; encoder.vel_mech_continuous=enc_speed;
-    encoder.velocity_ready=ready;
-    if(!tracking) ++observer.position_epoch;
-    motor.iqRef=-.12f; pi.Ui=-.02f;
-    calibration_tick();
-    assert(motor.ModeNow==Save_Param && CalibStep==CS_NULL);
-    assert(!pwm_enabled && stop_calls==1 && current_calls==0 && high_side_calls==0);
-    assert(motor.idRef==0 && motor.iqRef==0 && pi.Ui==0);
-    assert(encoder.reverse==0 && encoder.calib_flag==ENC_CALIB_LINEARIZED);
-}
-static void check_calibration_stop(void) {
-    float minimum=cfg->minimum_electrical_velocity_rad_s;
-    for(unsigned step=CS_OBS_STOP_DECEL;step<=CS_OBS_STOP_CURRENT;++step) {
-        expect_coast((CalibStep_TyepeDef)step,minimum,15,true,true);
-        expect_coast((CalibStep_TyepeDef)step,-100,15,true,true);
-        expect_coast((CalibStep_TyepeDef)step,NAN,15,true,true);
-        expect_coast((CalibStep_TyepeDef)step,INFINITY,15,true,true);
-        expect_coast((CalibStep_TyepeDef)step,315,-1,true,true);
-        expect_coast((CalibStep_TyepeDef)step,315,NAN,true,true);
-        expect_coast((CalibStep_TyepeDef)step,315,INFINITY,true,true);
-        expect_coast((CalibStep_TyepeDef)step,315,15,true,false);
-    }
-    setup(); CalibStep=CS_OBS_STOP_CURRENT; startup.state=SENSORLESS_STARTUP_CLOSED_LOOP;
-    observer.theta_e=NAN; calibration_tick();
-    assert(motor.ModeNow==Save_Param && !pwm_enabled && current_calls==0);
-    setup(); CalibStep=CS_OBS_STOP_CURRENT; startup.state=SENSORLESS_STARTUP_CLOSED_LOOP;
-    encoder.velocity_ready=false; /* Immediate LUT reset is not a false stop. */
-    calibration_tick(); assert(current_calls==1 && pwm_enabled && stop_calls==0);
-    /* Replay a deceleration through zero with an otherwise frozen/stale state.
-     * PWM must be cut while speed is still positive, before the sign crossing. */
-    for(float speed=14;speed>=-8 && motor.ModeNow!=Save_Param;speed-=.02f) {
-        observer.omega_e=speed*21; encoder.vel_mech_continuous=speed;
-        calibration_tick();
-        if(motor.ModeNow==Save_Param) assert(speed>0);
-    }
-    assert(motor.ModeNow==Save_Param && !pwm_enabled);
-}
 int main(void) {
     check_handoff(1); check_handoff(-1); check_voltage_rotation();
-    check_braking_cap(); check_calibration_stop();
-    puts("PASS observer-frame current continuity, state-4 speed feedback, PI cap, low-speed/reverse/invalid-feedback cutoff, PWM-off before save, encoder direction preserved");
+    check_braking_cap();
+    puts("PASS observer-frame current continuity, state-4 speed feedback, PI cap, braking authority");
 }
 """
 
@@ -215,19 +186,15 @@ def main():
         "/* SENSORLESS_RUNTIME_END */", 1
     )[0]
     run = "/* SENSORLESS_RUNTIME_BEGIN" + run
-    cal = (ROOT / "firmware/motor/identification/foc_calibration.c").read_text(encoding="utf-8")
-    helpers = cal[
-        cal.index("static int32_t *p_error_sum") : cal.rindex(
-            "/**", 0, cal.index("@brief  Calibrate Rs")
-        )
-    ]
     reset = function_source(
         (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8"),
         "SensorlessStartup_Reset",
     )
-    fixture = (
-        PRELUDE + reset + run + helpers + function_source(cal, "Task_Calib_EncoderObserver") + CASES
+    ramp = function_source(
+        (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8"),
+        "MotorControl_UpdateSpeedRamp",
     )
+    fixture = PRELUDE + reset + ramp + run + CASES
     source = out / "transitions.c"
     source.write_text(fixture, encoding="utf-8")
     compiler = [a.cc] + (["cc"] if Path(a.cc).stem == "zig" else [])
@@ -256,7 +223,9 @@ def main():
             ]
         )
         for command in (cmd, [str(exe)]):
-            r = subprocess.run(command, capture_output=True, text=True)
+            r = subprocess.run(
+                command, capture_output=True, text=True, encoding="utf-8", errors="replace"
+            )
             logs.append(r.stdout + r.stderr)
             print(logs[-1], end="")
             (out / "test.log").write_text("\n".join(logs), encoding="utf-8")

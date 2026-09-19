@@ -1,9 +1,9 @@
 #include "foc_cogging_calibration.h"
 #include <math.h>
 #include "cogging_compensation.h"
-#include "foc_calibration.h"
 #include "foc_errhandle.h"
-#include "hw_conf.h"
+#include "control_config.h"
+#include "current_sense_profile.h"
 #include "utils.h"
 #include "bus_voltage_profile.h"
 
@@ -151,7 +151,6 @@ static void Stop(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef 
     PI_Controller_Reset(pi);
     FOC_CurrentController_Reset(f);
     session_started = false;
-    CalibStep = CS_NULL;
     Set_ModeNow(Motor_Disable);
 }
 
@@ -159,7 +158,6 @@ void FocCogging_Abort(void)
 {
     CoggingCalibration_Abort(&CoggingCalib, COGGING_CANCELLED);
     session_started = false;
-    CalibStep = CS_NULL;
 }
 
 /* 每拍安全门：会话身份、输入有限性、母线/温度、电流与限流配置。 */
@@ -322,11 +320,6 @@ void FocCogging_Task(FOC_TypeDef *f,
     {
         return;
     }
-    CalibStep = CoggingCalib.direction_pass == 0U
-                    ? (CoggingCalib.state == COGGING_SAMPLING ? CS_ANTICOGGING_CW_SAMPLE
-                                                              : CS_ANTICOGGING_CW_TEMP)
-                    : (CoggingCalib.state == COGGING_SAMPLING ? CS_ANTICOGGING_CCW_SAMPLE
-                                                              : CS_ANTICOGGING_CCW_TEMP);
     FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
 }
 

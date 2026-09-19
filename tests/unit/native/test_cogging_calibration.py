@@ -19,11 +19,9 @@ FIXTURE = r"""
 #include <stdio.h>
 #include <string.h>
 #include "foc_cogging_calibration.h"
-#include "foc_calibration.h"
 #include "hw_conf.h"
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
-CalibStep_TyepeDef CalibStep;
 static FOC_TypeDef foc;
 static PI_Controller_TypeDef pi;
 static bool pwm;

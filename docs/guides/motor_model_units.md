@@ -139,7 +139,7 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 
 ## 5. 电机模型参数单位（标定）
 
-标定流程 `Task_Calib_R_L_Flux`（`firmware/motor/identification/foc_calibration.c`）把电流、电压、角度三个量纲串成电机参数：
+标定流程（原 `Task_Calib_R_L_Flux`，`foc_calibration` 已移除待重建）把电流、电压、角度三个量纲串成电机参数：
 
 ### 5.1 相电阻 R（Ω）
 

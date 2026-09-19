@@ -1,6 +1,9 @@
 #ifndef __COMMON_INC_H__
 #define __COMMON_INC_H__
 
+/* 应用层公共聚合头：集中引入 HAL/驱动/FOC/通信/工具头文件供各模式与任务模块使用；
+ * 新增依赖应放入最窄的模块头，不要扩到此处。 */
+
 #include "main.h"
 
 /*Lib*/
@@ -31,7 +34,6 @@
 #include "foc_algorithm.h"
 #include "foc_sensing.h"
 #include "foc_sensorless.h"
-#include "foc_calibration.h"
 #include "foc_param.h"
 #include "foc_pid.h"
 #include "foc_traptraj.h"
@@ -47,6 +49,5 @@
 #include "heap.h"
 #include "board_config.h"
 #include "data_type.h"
-
 
 #endif

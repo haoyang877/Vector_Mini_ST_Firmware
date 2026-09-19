@@ -87,10 +87,6 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
         outcome = FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
         break;
 
-    case Calib_Motor_R_L_Flux:
-        Task_Calib_R_L_Flux(&FOC, &MotorControl);
-        break;
-
     case Calib_PhaseResistance:
     {
         PhaseResistanceModeStatus_TypeDef status = PhaseResistanceMode_Run(&FOC, &MotorControl);
@@ -121,23 +117,6 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
         }
         break;
     }
-
-    case Calib_EncoderOffset:
-        Task_Calib_EncoderOffset(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
-        break;
-
-    case Calib_EncoderObserver:
-        outcome = Task_Calib_EncoderObserver(
-            &FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver, &SensorlessStartup);
-        break;
-
-    case Calib_EleAngelOffset:
-        Task_Calib_EleAngelOffset(&FOC, &MotorControl, &OnBoard_Encoder);
-        break;
-
-    case Calib_CurrentOffset:
-        outcome = Task_Calib_CurrentOffset(&FOC, &MotorControl);
-        break;
 
     case Voltage_OpenLoop:
         Task_Voltage_Mode(&FOC, &MotorControl);

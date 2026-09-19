@@ -154,20 +154,6 @@
                 "c-readability"
             ]
         },
-        "firmware/motor/identification/foc_calibration.c": {
-            "sha256": "347fb1c2a676b6f49599e077f405b76ec4e6917a5041ad71a7199843ea8a393e",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/identification/foc_calibration.h": {
-            "sha256": "8f4aaa4bbeeb5f0b457ee3986ed9860f69f03e0cc51c90d230d5c0d1d539b3d1",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/motor/identification/foc_friction_identification.c": {
             "sha256": "5a05af087d48363435815625712354377b7e7f1ff65266e08f0134a8c7546970",
             "checks": [

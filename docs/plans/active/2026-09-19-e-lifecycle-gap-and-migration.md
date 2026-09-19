@@ -117,10 +117,10 @@
 guards `operation_idle`/`maintenance_released` 由占位改为真实信号；经典模式编号仍经
 `ModeNow` 投影（线上编号不变）。
 
-范围调整（2026-09-19，用户裁决）：`foc_calibration.{c,h}` 将拆解并删除，其 5 个标定任务
-（R_L_Flux/EncoderOffset/EncoderObserver/EleAngelOffset/CurrentOffset）**不在原地补会话接口**，
-标定会话改为在拆解后的新模块结构上接入。当前实施范围 = SAVE/DEFAULTS/ZERO 会话 +
-适配器 OPERATION 事件；cogging/friction/相电阻包装随后按同构接入。
+范围调整（2026-09-19，用户裁决）：`foc_calibration.{c,h}` **已整体删除**——其 5 个标定任务
+（R_L_Flux/EncoderOffset/EncoderObserver/EleAngelOffset/CurrentOffset）、相关接线（dispatch/
+errhandle/公共头/Keil 双工程/债务基线/夹具）一并移除；模式编号保留线上 ABI，进入请求被拒；
+后续由用户逐步重建并接入标定会话。当前实施范围 = SAVE/DEFAULTS/ZERO + 齿槽/相电阻会话。
 
 实施进度（2026-09-19）：SAVE/DEFAULTS/ZERO 会话已接入 `foc_run_state.c`——
 `FocRunState_SaveFinished()` 上报前台保存结果（COMMITTED/FAILED，失败按操作失败锁存）；
@@ -132,8 +132,15 @@ DEFAULTS 在进入会话后的下一拍派生完成（UNCOMMITTED）；被故障
 标定会话收尾（2026-09-19）：齿槽（完成切往 Save_Param → 未提交完成）与相电阻
 （会话开启时按旧入口条件启相、停机结果完成会话）已接入；同步修复阶段 B 起
 `Calib_PhaseResistance` 缺失的入口启相回归（该模式不在适配器控制模式映射内，
-差分原未覆盖——现纳入差分集合，46,464 组 tick 全一致）。friction 与
-`foc_calibration` 拆解后的任务仍待接入。
+差分原未覆盖——现纳入差分集合，46,464 组 tick 全一致）。friction 待接入；
+`foc_calibration` 已整体删除（2026-09-19，待逐步重建）。
+
+删除证据（2026-09-19）：`foc_calibration.{c,h}` 删除；`foc_mode_dispatch.c` 五任务用例、
+`common_inc.h` 包含、errhandle 进入拒绝、cogging 的 `CalibStep` 残留、`foc_run.h`/
+`foc_sensorless_run.h` 的标定配置 extern、Keil 双工程条目、architecture/style 债务条目、
+`path_migration.json` 映射同步清理；`test_sensorless_transitions.py`/`test_current_precision.py`/
+`test_cogging_calibration.py` 夹具改为不依赖被删模块（无感用例内联启动配置）；
+`check_project_layout` 0 错误、三夹具 PASS、`test_run_state` 全 PASS。
 
 ## 6. 阶段 D 设计：故障恢复矩阵（阈值已确认，实施中）
 

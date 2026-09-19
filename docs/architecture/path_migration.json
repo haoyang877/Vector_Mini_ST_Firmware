@@ -191,8 +191,6 @@
     "software/motor/bus_voltage_profile.h": "firmware/motor/protection/bus_voltage_profile.h",
     "software/motor/foc_algorithm.c": "firmware/motor/foc/foc_algorithm.c",
     "software/motor/foc_algorithm.h": "firmware/motor/foc/foc_algorithm.h",
-    "software/motor/foc_calibration.c": "firmware/motor/identification/foc_calibration.c",
-    "software/motor/foc_calibration.h": "firmware/motor/identification/foc_calibration.h",
     "software/motor/foc_errhandle.c": "firmware/motor/protection/foc_errhandle.c",
     "software/motor/foc_errhandle.h": "firmware/motor/protection/foc_errhandle.h",
     "software/motor/foc_friction_identification.c": "firmware/motor/identification/foc_friction_identification.c",

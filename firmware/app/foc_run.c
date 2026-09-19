@@ -7,6 +7,7 @@
 #include "foc_errhandle.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
+#include "foc_speed.h"
 #include "hw_conf.h"
 #include "motor_axis_profile.h"
 #include "motor_hw.h"
@@ -60,47 +61,25 @@ void Task_Current_Mode(FOC_TypeDef *FOC,
 }
 
 /**
- * @brief  速度模式控制更新：斜坡推进速度参考并生成速度环输出。
- * @param  MotorControl 电机控制状态指针，读写 speedShadow、idRef 与 iqRef。
- * @param  controller 速度 PI 控制器指针。
- * @param  vel_mech 机械角速度反馈，单位 rad/s。
- * @note 在快速环上下文调用；归一化输出按 current_limit 缩放为电流参考。
- */
-static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
-                                    PI_Controller_TypeDef *controller,
-                                    float vel_mech)
-{
-    MotorControl_UpdateSpeedRamp(MotorControl);
-
-    PI_Controller_Configure(
-        controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
-    MotorControl->idRef = 0.0f;
-    MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech) *
-                          MotorControl->current_limit;
-}
-
-/* 标定模式复用同一速度 PI 与分频调用路径，序列化调用顺序保持不变。 */
-/**
- * @brief  速度模式控制任务。
+ * @brief  速度模式控制任务（对外顺序入口）。
  * @param  FOC FOC 状态指针。
  * @param  MotorControl 电机控制状态指针。
  * @param  controller 速度 PI 控制器指针。
  * @param  Encoder 编码器状态指针。
  * @note 在 20kHz 快速环上下文调用；速度环按 SPEED_LOOP_DIVIDER 分频。
+ *       分频与速度环实现在 motor/foc/foc_speed.c；摩擦辨识与外部调用共用该核心。
  */
 void Task_Speed_Mode(FOC_TypeDef *FOC,
                      MotorControl_TypeDef *MotorControl,
                      PI_Controller_TypeDef *controller,
                      Encoder_TypeDef *Encoder)
 {
-    static unsigned speedloop_count;
-
-    if (++speedloop_count >= SPEED_LOOP_DIVIDER)
-    {
-        SpeedMode_UpdateControl(MotorControl, controller, Encoder_GetMecVel(Encoder));
-        speedloop_count = 0U;
-    }
-    FOC_Current(FOC, MotorControl, Encoder_GetElePhase(Encoder), Encoder_GetEleVel(Encoder));
+    SpeedMode_Run(FOC,
+                  MotorControl,
+                  controller,
+                  Encoder_GetElePhase(Encoder),
+                  Encoder_GetEleVel(Encoder),
+                  Encoder_GetMecVel(Encoder));
 }
 
 /**
@@ -307,11 +286,12 @@ static void PositionMode_RejectRequest(MotorControl_TypeDef *MotorControl)
 }
 
 /**
- * @brief  模式 3：带加加速度限制的连续加速度位置伺服任务。
+ * @brief  模式 3：带加加速度限制的连续加速度位置伺服任务（顺序入口）。
  * @param  FOC FOC 状态指针。
  * @param  MotorControl 电机控制状态指针。
  * @param  Encoder 编码器状态指针。
  * @note 在 20kHz 快速环上下文调用；配置未变化时复用缓存控制器，否则重建配置帧。
+ *       生产运行由外环 worker 执行本适配器，本入口保留供外部/调试顺序调用。
  */
 void Task_Position_Mode(FOC_TypeDef *FOC,
                         MotorControl_TypeDef *MotorControl,

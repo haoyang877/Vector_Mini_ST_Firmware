@@ -81,6 +81,7 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include "firmware/services/telemetry/fast_loop_profile.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
+#include "hw_conf.h"
 #include "position_impedance_config.h"
 #include "firmware/services/parameters/motor_axis_profile.h"
 #define FOC_CONFIG_NOINLINE

@@ -31,11 +31,14 @@ def main():
         re.M,
     )[1]
     src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
-    motor_src = (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8")
+    speed_src = (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8")
     block = src.split("/* OUTER_RUNTIME_BEGIN", 1)[1].split("/* OUTER_RUNTIME_END */", 1)[0]
     block = "/* OUTER_RUNTIME_BEGIN" + block
     funcs = (
-        function_source(motor_src, "MotorControl_UpdateSpeedRamp")
+        "\n".join(
+            function_source(speed_src, n)
+            for n in ["MotorControl_UpdateSpeedRamp", "SpeedMode_UpdateControl"]
+        )
         + "\n"
         + "\n".join(
             function_source(src, n)
@@ -43,7 +46,6 @@ def main():
                 "PositionMode_ApplyFrictionConfiguration",
                 "PositionMode_EffectiveDeceleration",
                 "PositionMode_EffectiveMaximumSpeed",
-                "SpeedMode_UpdateControl",
                 "PositionMode_UpdateConfiguration",
                 "PositionMode_SameTuningValue",
                 "PositionMode_ConfigurationMatches",

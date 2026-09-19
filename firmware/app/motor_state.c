@@ -3,6 +3,7 @@
 #include "common_inc.h"
 #include "foc_friction_identification.h"
 #include "foc_run_state.h"
+#include "foc_sensorless_run.h"
 
 /* 电机与控制对象实例：全部定义在此，其他模块只持有引用。 */
 MotorControl_TypeDef MotorControl;

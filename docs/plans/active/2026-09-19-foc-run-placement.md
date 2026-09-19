@@ -1,6 +1,6 @@
 # foc_run 归位与瘦身 v1.0
 
-日期：2026-09-19。状态：阶段 0/1.1/1.2 已完成；阶段 1.3 待决策；阶段 2 待办。
+日期：2026-09-19。状态：阶段 0/1.1/1.2/1.3/1.4 与 2.1/2.2 已完成；2.3（可选文件级拆分）待办。
 
 ## 意图与验收
 
@@ -27,10 +27,11 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 | 0 | 0.3 本计划入库 | 本文档 + plans 索引 | 完成 |
 | 1 | 1.1 无感序列下沉 | 代码与区域标记迁至 `motor/foc/foc_sensorless.{c,h}`（复用该文件既有 hw_conf 依赖，零新增违规）；共享速度斜坡随迁并公开（`MotorControl_UpdateSpeedRamp`）；`foc_run.c` 保留薄包装 `Task_Sensorless_Speed_Mode`（`foc_run.h` 不变）；`foc_calibration.c` 改调 `SensorlessStartup_Run` 并删 `<foc_run.h>`；两个原生夹具同步迁移；`foc_sensorless.h` 7 条历史接口债还清并从 `interface_debt.json` 删除 | 完成 |
 | 1 | 1.2 `Task_Position_Mode_Reset` 拆分 | `foc_errhandle` 两处改调 `PositionImpedance_Reset` 并删 `foc_run.h`（架构债 −1，基线条目已删除）；`foc_run_state.c` 首次进入故障时统一 `Task_Position_Mode_Reset()`（邮箱失效 + 状态复位收口）；bus_voltage/run_state 夹具同步；模式切换的邮箱失效沿用 FastTick 既有逻辑 | 完成 |
-| 1 | 1.3 位置入口决策 | `Task_Position_Mode` 无生产调用者但为模式 3 顺序入口；删除需重定向等价性测试入口（覆盖度略降），保留则与 `Task_Speed_Mode` 形成对称外部接口。**待决策**：删除 / 保留并文档化 / 接入显式调用方 | 待决策 |
-| 2 | 2.1 hw_conf 控制常量上移 | `Current_Ts/Speed_Ts/SPEED_LOOP_DIVIDER/POSITION_*/CASCADE_*` 的派生机制移入 `platform/api` 板级参数契约 | 前置条件 |
-| 2 | 2.2 速度环核心下沉 | `SpeedMode_UpdateControl`+斜坡迁入 motor；摩擦辨识改调核；`Task_Speed_Mode` 保留为 app 包装 | 依赖 2.1 |
-| 2 | 2.3（可选）文件级拆分 | `app/foc_run.c` → `foc_mode_tasks.c` / `foc_outer_loop.c` / `foc_position_adapter.c` | 依赖 2b 收敛 |
+| 1 | 1.3 位置入口决策 | `Task_Position_Mode` 保留为模式 3 顺序入口（与 `Task_Speed_Mode` 对称的外部/调试接口），定义处已注明"生产由外环执行本适配器"；不删除，等价性夹具继续以其为被测入口 | 完成（保留并文档化） |
+| 1 | 1.4 无感运行模块拆分 | 启动序列与速度模式从观测器实现拆出为 `motor/foc/foc_sensorless_run.{c,h}`（观测器文件只留 Fluxobserver/Observer）；`SensorlessStartup_Reset` 随迁；`EncoderCalibConfig` 归位 `foc_calibration.c`（其 profile 所有者，已含 hw_conf 债务）；控制时基与无感默认参数下沉 `platform/api/control_config.h`（跨层文档化契约，hw_conf 引用并派生 PWM 参数）；删除两个全仓库无消费者的派生宏；`foc_run.c`/`motor_state.c`/calibration/errhandle 补 include；两个原生夹具与两个 Keil 工程同步 | 完成 |
+| 2 | 2.1 hw_conf 控制常量上移 | 控制时基（FOC/速度/位置/级联环）与无感启动默认参数移入 `platform/api/control_config.h`；`hw_conf.h` 改为引用并派生 `PWM_TIM_FREQ` | 完成（作为 1.4 前置） |
+| 2 | 2.2 速度环核心下沉 | 新建 `motor/foc/foc_speed.{c,h}`：`MotorControl_UpdateSpeedRamp` 自运行模块迁入、`SpeedMode_UpdateControl` 自 `foc_run.c` 迁入（去 static）、新增 `SpeedMode_Run`（分频 + 更新 + 电流环，顺序任务核心）；`Task_Speed_Mode` 保留为 app 薄包装（签名不变，外部接口）；摩擦辨识改调 `SpeedMode_Run` 并删 `foc_run.h`（**最后一条 motor→app 反向依赖消除**，架构债 −1）；夹具/两工程/债务基线同步 | 完成 |
+| 2 | 2.3（可选）文件级拆分 | `app/foc_run.c` → `foc_mode_tasks.c` / `foc_outer_loop.c` / `foc_position_adapter.c` | 待办 |
 
 ## 依赖矩阵（改动面 × 并行工作）
 
@@ -50,13 +51,14 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 
 ## 夹具迁移清单
 
-| 夹具 | 阶段 0 | 阶段 1.1 | 阶段 1.2 | 阶段 1.3 |
-| --- | --- | --- | --- | --- |
-| `run_can_status_tests.py` | 删除 `MotorOuterLoop_GetTelemetry` stub 与 telemetry 类型，改影子字段断言 | — | — | — |
-| `test_sensorless_transitions.py` | — | 切片源改为 `foc_sensorless.c`（区域标记随代码迁移） | — | — |
-| `test_outer_loop_runtime.py` | — | — | 若邮箱失效收口点变化，补故障/清空时序断言 | — |
-| `test_position_config_cache.py` | — | — | — | actual 入口改为适配器组合 |
-| `test_bus_voltage_protection.py` | — | — | `Task_Position_Mode_Reset` stub 随 1.2 调整 | — |
+| 夹具 | 最终状态 |
+| --- | --- |
+| `run_can_status_tests.py` | 已删除 `MotorOuterLoop_GetTelemetry` stub 与 telemetry 类型，改影子字段断言（0.1） |
+| `test_sensorless_transitions.py` | 切片源与 `SensorlessStartup_Reset` 提取改指 `foc_sensorless_run.c`，`MotorControl_UpdateSpeedRamp` 独立自 `foc_speed.c` 提取；PRELUDE 补两个模块头；标定配置经 calibration 切片提供（1.1→1.4→2.2） |
+| `test_outer_loop_runtime.py` | 斜坡与 `SpeedMode_UpdateControl` 自 `foc_speed.c` 提取，其余仍取自 `foc_run.c`（1.1→1.4→2.2） |
+| `test_position_config_cache.py` | 保持以 `Task_Position_Mode` 为 actual 入口（1.3 保留决策），无需修改 |
+| `test_bus_voltage_protection.py` | `Task_Position_Mode_Reset` stub 改为 `PositionImpedance_Reset`（1.2） |
+| `test_run_state.py` | 新增 `Task_Position_Mode_Reset` 静默 stub（1.2） |
 
 ## 关键决策
 
@@ -71,9 +73,30 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
   快中断抢占，快速侧直接调用 `PositionCascade_Reset()` 会与被抢占的 worker 竞争；因此
   快速侧只置故障/请求，邮箱失效由 app 故障提交点收口，motor 侧仅复位与调用方同上下文
   运行的阻抗控制器。
+- 1.4 的拆分边界遵循"最窄所有者"：观测器算法留在 `foc_sensorless`；启动序列与速度模式
+  组成独立的无感运行模块；`EncoderCalibConfig` 属标定 profile，放在 `foc_calibration.c`
+  并由其直接初始化（避免 motor 新文件依赖 hw_conf）；控制时基与无感默认值作为跨层契约
+  放 `platform/api/control_config.h`，`hw_conf.h` 引用并派生定时器参数（bsp→api 合法）。
+- 1.4 顺带删除两个全仓库无消费者的派生宏（`SENSORLESS_ALIGN_TIME_S`、
+  `SENSORLESS_STARTUP_ELEC_ACCEL_RAD_S2`），符合"删除不再需要的行为"。
 - 已知边界：镜像在 `MotorOuterLoop_FastTick` 内执行，模式切换提交到下一 tick 之间
   （≤50 µs）影子字段仍可能显示上一次准备值而非 NaN；该窗口远小于 CAN 状态帧周期，
   且旧实现同样依赖 tick 边界，接受不另行加锁。
+
+## 硬件解耦（H 阶段，按 AGENTS.md「平台层外禁止直接硬件访问」编排）
+
+| 步骤 | 内容 | 状态 |
+| --- | --- | --- |
+| H1.1 | `data_type.h` 去 CubeMX `main.h`，显式 `<stdint.h>` | 完成 |
+| H1.3 | `common/utils.h`、`common/heap.h` 去 `main.h`（heap.c 显式补 `<stdint.h>`；common 仅剩纯软件） | 完成 |
+| H1.4 | `foc_sensing.h`、`foc_traptraj.h` 去 `main.h`；四个头文件补齐 27 条中文接口契约并还清接口债 | 完成 |
+| H1.2 | 轴 profile 纯类型下沉 motor | 待决策：`foc_errhandle` 调 services 的 `MotorAxisProfile_AllowsPosition`，移类型需连带拆"类型+谓词"或把校验上移 app |
+| H2.1 | `foc_sensorless.c` 用 `platform/api/control_config.h` | 完成（早前） |
+| H2.2 | 其余 `hw_conf` 用户归位：`foc_cogging_calibration.c`/`foc_friction_identification.c` 只留时基改 `control_config.h`；`foc_traptraj.c` 删未用包含；`foc_traptraj.c` 借此从 GBK 转为 UTF-8；`position_impedance.c` 走感测契约（宏改全名）；`position_impedance_config.h` 改引用新契约；**新增 `platform/api/motor_hardware_profile.h`（阻尼环/前馈选择簇）**；`current_sense_profile.h` 由 bsp 迁入 `platform/api`；`foc_param.c` 改用 `CURRENT_SENSE_PROFILE_*` 全名 | 本批 6 项完成；剩余 `foc_sensing.c`、`foc_calibration.c` |
+| H4a | `foc_algorithm.c` 的 `TIM1->CCR` 直访 → `motor_hw` PWM 端口 | 完成（并行会话，提交 `23ef80ab`） |
+| H4b | `foc_sensing.c` 的 `adc.h`、`foc_errhandle.c` 的 `tim.h` → 平台接口 | 待做 |
+| H3 | `encoder.h` BSP 大结构 → `platform/api` 采样快照接口（涉及 `foc_calibration.h`/`foc_cogging_calibration.h`/`foc_friction_identification.h`/`foc_errhandle.c`/`foc_param.h` 五处公共签名） | 待立项（最高风险） |
+| H5 | 其余反向依赖：`interface_can.*` 的 BSP/HAL 引用（delay/encoder/hw_conf/fdcan/main）、`foc_param.c→common_inc.h`、`data_type.h→services/motor_axis_profile.h`、`foc_algorithm/position_cascade→fast_loop_profile.h`、`friction/phase_resistance→foc_param_profile.h` | 待做 |
 
 ## 验证证据
 
@@ -101,4 +124,41 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
   - `format --check` / `lint` / `check_interfaces` / `check_architecture` / `test_harness` 全部通过；
     架构债 −1（`foc_errhandle.c -> foc_run.h` 已从 `architecture_debt.json` 删除）；
   - 日志：`outputs/phase1/suite12/`、`outputs/build/logs/`。
-- 阶段 2 与 1.3：实施后补充。
+- 阶段 1.3/1.4（2026-09-19，模块拆分 + 契约头前置）：
+  - Keil 主工程 `build_firmware --target normal`：0 Error / 0 Warning
+    （Code=88876、ZI=31456，与拆分前 88912 基本持平）；
+  - `tests/run.py` 全量 17 项 PASS（无感夹具改切 `foc_sensorless_run.c` 并从
+    calibration 切片取标定配置；外环夹具从新模块提取斜坡；模式 3 位级等价）；
+  - `format --check` / `lint` / `check_interfaces` / `check_architecture` / `test_harness`
+    全部通过；`check_project_layout` 两工程 0 错误（新文件已登记）；
+  - 日志：`outputs/phase1/suite_split2/`、`outputs/build/logs/`。
+  - 说明：A/B 实验确认控制常量上移为尺寸中性（上移前后主工程目标逐字节一致）。
+- 阶段 2.2（2026-09-19，速度环核心下沉）：
+  - Keil 主工程 0 Error / 0 Warning（Code=89340、ZI=31460；较拆分前 +464 B 为跨 TU
+    后速度环与斜坡不再内联，属预期）；
+  - `tests/run.py` 全量 17 项 PASS（外环夹具改从 `foc_speed.c` 提取斜坡与速度环、
+    无感夹具独立提取斜坡）；摩擦辨识切换后单独复跑两个相关夹具仍 PASS；
+  - `lint` / `check_interfaces` / `check_architecture`（36 条已知、0 新增）/
+    `test_harness` / `check_project_layout`（两工程 0 错误）通过；
+    架构债 −1：`foc_friction_identification.c -> foc_run.h` 已删除，motor 层不再
+    直接依赖 app 头（`foc_run.h` 仅 app 内部与统一聚合头引用）；
+  - 日志：`outputs/phase1/suite_speed/`、`outputs/build/logs/`。
+  - 并行备注：验证期间另一会话正在迁移 `mcu_temperature.h`（motor/foc → platform/api）
+    并对测试追加 encoding 参数，仓库级 `format --check` 的个别失败来自这些在途改动；
+    本轮所属文件经定向 `format --check` 验证为 0 问题。
+- 硬件解耦 H1.1/H1.3/H1.4（2026-09-19）：
+  - Keil 主工程 0 Error / 0 Warning（Code=89224，纯 include 变更尺寸不变）；
+  - `tests/run.py` 全量 17 项 PASS；
+  - 架构债 −4（四个头文件 → `main.h` 全部清理，基线 33 → 29）；
+    接口债 −4 文件条目（补 27 条中文契约后 `check_interfaces` 0 新增、0 已解决）；
+  - `format --check` / `lint` / `check_architecture` / `test_harness` 全部通过；
+  - 日志：`outputs/phase1/suite_hw3/`、`outputs/build/logs/`。
+- 硬件解耦 H2.2（2026-09-19）：
+  - Keil 主工程 0 Error / 0 Warning（Code=89620；含并行会话新提交的功能增量）；
+  - `tests/run.py` 全量 17 项 PASS（`test_wheel_speed_limits` 与 `test_position_config_cache`
+    随契约链变化同步更新：前者改感测全名后自愈，后者夹具显式包含 stub `hw_conf.h`）；
+  - 架构债 −6（`hw_conf` 五个消费方 + `current_sense_profile` 迁移；基线 28 → 22）；
+  - `format --check` / `lint` / `check_interfaces` / `check_architecture` / `test_harness` 全部通过；
+  - 修复并行提交 `195b7ae4` 引入的主工程编译缺陷：`foc_run_state.c` 使用 `CANMsg`
+    但全仓库无 extern 声明，按 `foc_param.c` 既有局部 extern 模式补充（一行）。
+  - 日志：`outputs/phase1/suite_h22c/`、`outputs/build/logs/`。

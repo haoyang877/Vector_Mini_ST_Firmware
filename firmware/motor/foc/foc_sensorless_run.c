@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "foc_errhandle.h"
+#include "foc_speed.h"
 #include "foc_pid.h"
 #include "control_config.h"
 #include "utils.h"
@@ -33,37 +34,6 @@ void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup)
 /* SENSORLESS_RUNTIME_BEGIN
  * 无感速度任务区：对准→开环→速度锁定→角度交接→闭环，与编码器标定模式共享。
  * 离线测试按本标记切取源码，标记文字不得修改。 */
-
-/* 速度参考斜坡：把 speedShadow 按加减速限制推进到 speedRef。
- * 速度模式与无感启动共用；两者对时基、单位与所有权的要求一致。 */
-void MotorControl_UpdateSpeedRamp(MotorControl_TypeDef *MotorControl)
-{
-    MotorControl->isUseSpeedRamp = MotorControl->speedAcc > 0.0f && MotorControl->speedDec > 0.0f;
-
-    if (MotorControl->isUseSpeedRamp)
-    {
-        if (MotorControl->speedRef > MotorControl->speedShadow)
-        {
-            MotorControl->speedShadow += MotorControl->speedAcc * Speed_Ts;
-            if (MotorControl->speedShadow > MotorControl->speedRef)
-            {
-                MotorControl->speedShadow = MotorControl->speedRef;
-            }
-        }
-        else if (MotorControl->speedRef < MotorControl->speedShadow)
-        {
-            MotorControl->speedShadow -= MotorControl->speedDec * Speed_Ts;
-            if (MotorControl->speedShadow < MotorControl->speedRef)
-            {
-                MotorControl->speedShadow = MotorControl->speedRef;
-            }
-        }
-    }
-    else
-    {
-        MotorControl->speedShadow = MotorControl->speedRef;
-    }
-}
 
 /* 角度差归一化到 -PI..PI。 */
 static float Sensorless_AngleDifference(float target, float source)
@@ -101,26 +71,6 @@ const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig = {
     SENSORLESS_STARTUP_LOCK_TIMEOUT_S,
     SENSORLESS_ID_RAMP_DOWN_TIME_S,
     SENSORLESS_OBSERVER_LOSS_TIME_S};
-
-const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig = {
-    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
-    SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
-    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
-    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
-    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
-    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
-    SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
-    SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
-    SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
-    SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
-    SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
-    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
-    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
-    SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
-    SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
-    SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
-    SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
-    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S};
 
 /* 观测器可用性：有限值且角速度在最大电角速度以内。 */
 static bool Sensorless_ObserverIsUsable(const Fluxobserver_TypeDef *Fluxobserver)

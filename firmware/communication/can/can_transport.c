@@ -17,12 +17,22 @@ void CanTransport_Init(uint8_t node)
 
 void CAN_BaudRateSwitching(void)
 {
+    static uint8_t bus_off_divider = 0U;
+
     if (baudrate_last != baudrate)
     {
         comm_hw_can_set_baudrate(baudrate);
     }
 
     baudrate_last = baudrate;
+
+    /* bus-off 自恢复：本函数由 1 kHz 监督每 100 拍调用一次，故此处按 10 拍限频（约 1 Hz），
+     * 避免总线真断时反复恢复抖动。 */
+    if (++bus_off_divider >= 10U)
+    {
+        bus_off_divider = 0U;
+        (void)comm_hw_can_service_bus_off();
+    }
 }
 
 uint32_t CanTransport_Baudrate(void)

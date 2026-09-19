@@ -50,4 +50,11 @@ void comm_hw_can_set_baudrate(uint32_t kbps);
  * @note 不等待、不重试；重试次数与退避由调用方决定。
  */
 bool comm_hw_can_try_send_reply(uint16_t identifier, const uint8_t *data, uint8_t length);
+/**
+ * @brief 检查 CAN 控制器是否因 bus-off 退出总线，必要时重新上线。
+ * @return 本次执行了恢复动作返回 true；控制器健康返回 false。
+ * @note 由 1 kHz 监督限频调用。bus-off 后控制器会锁在初始化态不再收发，恢复动作只清除该
+ *       状态并重回总线，不改变位时序、滤波器或中断配置；恢复失败按致命处理，不返回。
+ */
+bool comm_hw_can_service_bus_off(void);
 #endif

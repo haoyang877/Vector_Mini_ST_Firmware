@@ -167,7 +167,10 @@ int main(void) {
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength;} FDCAN_RxHeaderTypeDef;
 typedef struct {unsigned IdType,FilterIndex,FilterType,FilterConfig,FilterID1,FilterID2;} FDCAN_FilterTypeDef;
-typedef struct {struct {unsigned TxFifoQueueMode,NominalPrescaler,DataPrescaler;} Init;} Handle;
+typedef struct {unsigned PSR,CCCR;} FDCAN_GlobalTypeDef;
+#define FDCAN_PSR_BO 0x80U
+#define FDCAN_CCCR_INIT 0x1U
+typedef struct {struct {unsigned TxFifoQueueMode,NominalPrescaler,DataPrescaler;} Init; FDCAN_GlobalTypeDef *Instance;} Handle;
 extern Handle hfdcan1;
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask);
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d);
@@ -187,7 +190,8 @@ unsigned HAL_FDCAN_Init(Handle *h);
         + r"""
 #include "fdcan.h"
 #include "firmware/platform/api/comm_hw.h"
-Handle hfdcan1;
+static FDCAN_GlobalTypeDef regs;
+Handle hfdcan1 = {.Instance = &regs};
 static unsigned pending,tx_calls,tx_result,rx_length=14;
 static FDCAN_TxHeaderTypeDef last_tx_header;
 static uint8_t last_tx_data0;
@@ -251,6 +255,13 @@ int main(void) {
   assert(last_tx_header.TxEventFifoControl==FDCAN_NO_TX_EVENTS && last_tx_data0==0x11);
   tx_result=1;assert(!comm_hw_can_try_send_reply(0x465,reply,2));assert(tx_calls==4);
  }
+ /* bus-off 自恢复：健康不动作；PSR.BO 或 CCCR.INIT 置位时清 INIT 重回总线。 */
+ regs.PSR=0;regs.CCCR=0;
+ assert(!comm_hw_can_service_bus_off() && start_calls==3);
+ regs.PSR=FDCAN_PSR_BO;
+ assert(comm_hw_can_service_bus_off() && start_calls==4);
+ regs.PSR=0;regs.CCCR=FDCAN_CCCR_INIT;
+ assert(comm_hw_can_service_bus_off() && start_calls==5);
  puts("PASS actual HAL port: queue discipline, node filter start, baudrate switch and reply header");return 0;
 }
 """

@@ -84,3 +84,20 @@ bool comm_hw_can_try_send_reply(uint16_t identifier, const uint8_t *data, uint8_
 
     return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &FDCAN_TxHeader, data) == HAL_OK;
 }
+
+bool comm_hw_can_service_bus_off(void)
+{
+    /* 无人 ACK 时发送错误计数累积到 255 会进入 bus-off，M_CAN 硬件随即置位 CCCR.INIT，
+     * 控制器彻底退出总线（既不收也不发）。只有软件清 INIT 才能重新参与。 */
+    if ((hfdcan1.Instance->PSR & FDCAN_PSR_BO) == 0U &&
+        (hfdcan1.Instance->CCCR & FDCAN_CCCR_INIT) == 0U)
+    {
+        return false;
+    }
+
+    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    return true;
+}

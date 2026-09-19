@@ -181,6 +181,11 @@ typedef struct
     uint32_t can_hb_count, can_hb_set;
 } CANMsgStub_TypeDef;
 static CANMsgStub_TypeDef CANMsg;
+/* 与通信层只读判据等价：本夹具不编译通信源文件，故按同一表达式提供。 */
+static bool CAN_IsHeartbeatAlive(void)
+{
+    return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
+}
 
 static float fast_abs(float x) { return x < 0.0f ? -x : x; }
 

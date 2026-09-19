@@ -15,9 +15,6 @@
 #include "motor_state.h"
 #include "utils.h"
 
-/* 心跳计数字段由 interface_can 持有；本文件只读，沿用局部 extern 约定（同 foc_param.c）。 */
-extern CANMsg_TypeDef CANMsg;
-
 /* 阶段 D 恢复矩阵参数：过流回落驻留 100 ms（20 kHz 快环 2000 拍），高温恢复滞回 80 °C。 */
 #define RUN_STATE_OC_RECOVER_TICKS 2000U
 #define RUN_STATE_TEMP_RECOVER_C 80.0f
@@ -233,7 +230,7 @@ static bool RunState_FaultSourceRecovered(ErrorNow_TypeDef error)
     switch (error)
     {
     case CAN_DisConnect:
-        return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
+        return CAN_IsHeartbeatAlive();
     case Encoder_Error:
         return Encoder_GetBadFrameStreak(&OnBoard_Encoder) == 0U;
     case TemperatureSensor_Error:

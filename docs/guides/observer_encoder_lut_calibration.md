@@ -1,6 +1,6 @@
 # 模式 13：基于观测器的编码器 LUT 线性化标定
 
-> 2026-09-19：本标定功能（`foc_calibration.{c,h}`）已整体移除，待逐步重建；本文档保留作重建参考。
+> 2026-09-20：Mode 13 已重建（`foc_encoder_calibration.{c,h}`）；其余三个标定任务（EncoderOffset/R_L_Flux/CurrentOffset）仍待重建。
 
 ## 目的
 

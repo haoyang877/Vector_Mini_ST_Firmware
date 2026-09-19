@@ -128,6 +128,8 @@ typedef struct
 #define Voltage_OpenLoop 12
 #define Calib_PhaseResistance 13
 #define Calib_Friction 14
+#define Calib_EncoderObserver 15
+#define Calib_EleAngelOffset 16
 #define No_Error 0
 #define CurrentOffset_Error 1
 #define Encoder_Error 2
@@ -498,6 +500,8 @@ int main(void)
         MotorWorkOutcome_TypeDef running = { MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false };
         MotorWorkOutcome_TypeDef stop_tick = { MOTOR_WORK_STOP, Motor_Disable, No_Error, false };
         MotorWorkOutcome_TypeDef to_save = { MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, false };
+        /* 编码器标定完成：切往 Save_Param 且先关断功率级（power_off=true）。 */
+        MotorWorkOutcome_TypeDef to_save_off = { MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, true };
 
         /* 齿槽标定：完成切往 Save_Param → CALIBRATION 未提交完成，随后由 SAVE 提交。 */
         ResetWorld(Motor_Disable, Calib_Anticogging, No_Error, 1, true);
@@ -531,8 +535,31 @@ int main(void)
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
         assert(!power_on);
 
+        /* 观测器 LUT 标定（Mode 13）：会话入口启相；完成关相并切往 Save_Param → 未提交完成。 */
+        ResetWorld(Motor_Disable, Calib_EncoderObserver, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
+        assert(power_on);
+        FocRunState_Tick(to_save_off);
+        assert(lifecycle.snapshot.last_operation == APP_OPERATION_CALIBRATION);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(!power_on);
+
+        /* 电角度零位标定（Mode 15）：同构（完成关相并切往 Save_Param → 未提交完成）。 */
+        ResetWorld(Motor_Disable, Calib_EleAngelOffset, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
+        assert(power_on);
+        FocRunState_Tick(to_save_off);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(!power_on);
+
         printf("PASS calibration sessions: anticogging then save, phase resistance and"
-               " friction start/stop\n");
+               " friction start/stop, encoder LUT/ele-zero save chains\n");
     }
 
     /* ===== 恢复矩阵用例（阶段 D1） ===== */

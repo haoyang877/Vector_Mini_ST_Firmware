@@ -2,6 +2,7 @@
 
 #include "angle_feedback.h"
 #include "foc_cogging_calibration.h"
+#include "foc_encoder_calibration.h"
 #include "foc_errhandle.h"
 #include "foc_friction_identification.h"
 #include "foc_param.h"
@@ -127,6 +128,15 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
         }
         break;
     }
+
+    case Calib_EncoderObserver:
+        outcome = Task_Calib_EncoderObserver(
+            &FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver, &SensorlessStartup);
+        break;
+
+    case Calib_EleAngelOffset:
+        outcome = Task_Calib_EleAngelOffset(&FOC, &MotorControl, &OnBoard_Encoder);
+        break;
 
     case Voltage_OpenLoop:
         Task_Voltage_Mode(&FOC, &MotorControl);

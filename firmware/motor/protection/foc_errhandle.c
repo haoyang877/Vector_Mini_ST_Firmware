@@ -99,9 +99,9 @@ void Clear_RunningData(void)
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
-    /* FOC-Calibration 功能已整体移除（2026-09-19），模式编号保留 ABI，待逐步重建。 */
+    /* Mode 13/15（观测器 LUT、电角度零位）已重建；其余 FOC-Calibration 任务
+     * （R_L_Flux/EncoderOffset/CurrentOffset）仍待重建，模式编号保留 ABI。 */
     if (mode_set == Calib_Motor_R_L_Flux || mode_set == Calib_EncoderOffset ||
-        mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
         mode_set == Calib_CurrentOffset)
     {
         return false;

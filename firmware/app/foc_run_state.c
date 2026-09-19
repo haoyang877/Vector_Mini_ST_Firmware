@@ -62,7 +62,8 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 static bool RunState_ModeIsAutoStartable(ModeNow_TypeDef mode)
 {
     return mode != Save_Param && mode != Default_Param && mode != Clear_Error &&
-           mode != Set_ZeroPosition && mode != Calib_Anticogging && mode != Calib_Friction;
+           mode != Set_ZeroPosition && mode != Calib_Anticogging && mode != Calib_Friction &&
+           mode != Calib_EncoderObserver && mode != Calib_EleAngelOffset;
 }
 
 /* 位置/速度模式首个周期先在功率输出关闭时校验控制器，下一快周期再使能。 */
@@ -272,6 +273,8 @@ static AppOperation RunState_OperationFor(ModeNow_TypeDef mode)
     case Calib_Anticogging:
     case Calib_PhaseResistance:
     case Calib_Friction:
+    case Calib_EncoderObserver:
+    case Calib_EleAngelOffset:
         return APP_OPERATION_CALIBRATION;
     default:
         return APP_OPERATION_NONE;
@@ -353,7 +356,10 @@ static bool RunState_ServiceOperations(ModeNow_TypeDef target, bool worker_stopp
         else if (lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION &&
                  ((operation_mode == Calib_Anticogging && target == Save_Param) ||
                   (operation_mode == Calib_PhaseResistance && worker_stopped) ||
-                  (operation_mode == Calib_Friction && worker_stopped)))
+                  (operation_mode == Calib_Friction && worker_stopped) ||
+                  ((operation_mode == Calib_EncoderObserver ||
+                    operation_mode == Calib_EleAngelOffset) &&
+                   target == Save_Param)))
         {
             /* 标定完成以模块切往 Save_Param 或停机结果表达：未提交完成，随后由 SAVE 提交。 */
             sent = true;
@@ -393,8 +399,9 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
         RunState_SendOperation(APP_EVENT_BEGIN_OPERATION, operation, APP_EFFECT_UNCOMMITTED, 0U))
     {
         operation_mode = target;
-        /* 相电阻/摩擦标定无自管功率：按旧入口条件（自 Disable 且轴配置有效）启相。 */
-        if ((target == Calib_PhaseResistance || target == Calib_Friction) &&
+        /* 相电阻/摩擦/编码器标定无自管功率：按旧入口条件（自 Disable 且轴配置有效）启相。 */
+        if ((target == Calib_PhaseResistance || target == Calib_Friction ||
+             target == Calib_EncoderObserver || target == Calib_EleAngelOffset) &&
             ModeLast == Motor_Disable && MotorControl.axis_profile_valid)
         {
             Start_PWM_Generate();

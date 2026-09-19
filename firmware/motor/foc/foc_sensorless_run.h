@@ -31,4 +31,7 @@ void SensorlessStartup_Run(FOC_TypeDef *FOC,
 /** 默认无感启动参数集。 */
 extern const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig;
 
+/** 编码器标定（Mode 13）观测器启动参数集；由 foc_encoder_calibration 模块消费。 */
+extern const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig;
+
 #endif

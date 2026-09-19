@@ -804,6 +804,11 @@
               <FilePath>..\..\..\..\motor\identification\foc_cogging_calibration.c</FilePath>
             </File>
             <File>
+              <FileName>foc_encoder_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\foc_encoder_calibration.c</FilePath>
+            </File>
+            <File>
               <FileName>cogging_compensation.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\foc\cogging_compensation.c</FilePath>

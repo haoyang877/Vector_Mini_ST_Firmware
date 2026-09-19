@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../third_party/segger_rtt;../../../../../tests/hil/firmware</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt;../../../../../tests/hil/firmware</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -757,6 +757,11 @@
               <FileName>foc_sensorless.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\foc\foc_sensorless.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_sensorless_run.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensorless_run.c</FilePath>
             </File>
             <File>
               <FileName>foc_calibration.c</FileName>
@@ -1234,6 +1239,16 @@
               <FileName>motor_status.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\services\telemetry\motor_status.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_lifecycle.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\app_lifecycle.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_motor_status.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\can_motor_status.c</FilePath>
             </File>
             <File>
               <FileName>rtt_telemetry.c</FileName>

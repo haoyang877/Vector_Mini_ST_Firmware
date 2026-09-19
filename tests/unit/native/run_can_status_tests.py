@@ -36,10 +36,7 @@ def main():
 #define Position_Mode 3
 #define Position_Impedance_Mode 18
 #define Speed_Mode 2
-typedef struct {float position_reference,trajectory_speed_reference;} PositionCascadeTelemetry_TypeDef;
-static bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *out)
-{out->position_reference=.75f;out->trajectory_speed_reference=-.5f;return true;}
-static struct { unsigned ErrorNow, ModeNow; float posRef,speedRef,iqRef,posShadow,speedShadow,pos_vel_filtered; } MotorControl;
+static struct { unsigned ErrorNow, ModeNow; float posRef,speedRef,iqRef,posShadow,speedShadow,pos_vel_filtered,pos_trajectory_speed_rad_s; } MotorControl;
 static struct {float theta_mech,vel_mech;} OnBoard_Encoder;
 static struct {float Iq,temp,Vbus_filt,Ibus_filt;} FOC;
 """
@@ -49,6 +46,7 @@ int main(void) {
  MotorStatus s;
  MotorControl.ErrorNow=7; MotorControl.ModeNow=3;
  MotorControl.posRef=1.25f; MotorControl.posShadow=.75f;
+ MotorControl.pos_trajectory_speed_rad_s=-.5f;
  MotorControl.speedRef=2.5f; MotorControl.speedShadow=9.f;
  MotorControl.iqRef=1.5f; FOC.Iq=1.25f; FOC.temp=65.25f; FOC.Vbus_filt=48.75f; FOC.Ibus_filt=-.375f;
  OnBoard_Encoder.theta_mech=-1.5f; OnBoard_Encoder.vel_mech=-4.f;

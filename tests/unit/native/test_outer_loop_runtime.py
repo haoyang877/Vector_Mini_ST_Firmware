@@ -1,42 +1,63 @@
-"""Compile the actual deferred runtime with deterministic interrupt injection.
+"""以确定性中断注入编译并运行真实延迟外环运行时。
 
-Checks publication ownership, stale reset/fault rejection, deadline faults,
-2 kHz cadence, unchanged speed PI/ramp arithmetic, and application heap capacity.
-Synthetic feedback is not an acceptance test of the physical plant.
+覆盖发布所有权、过期复位/故障拒绝、截止期故障、2 kHz 节拍、速度 PI/斜坡算术不变
+与应用堆容量；合成反馈不构成物理被控对象验收。
 """
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
-import subprocess
 import re
-from run_position_servo_tests import ROOT, function_source
+import subprocess
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--cc', required=True)
-    p.add_argument('--out', type=Path, default=ROOT / 'outputs/outer_loop_host')
+    p.add_argument("--cc", required=True)
+    p.add_argument("--out", type=Path, default=ROOT / "outputs/outer_loop_host")
     args = p.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
-    lut_size = re.search(r'^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U',
-                         (ROOT / 'firmware/platform/stm32g4/bsp/encoder.h').read_text(), re.M)[1]
-    src = (ROOT / 'firmware/app/foc_run.c').read_text()
-    block = src.split('/* OUTER_RUNTIME_BEGIN', 1)[1].split('/* OUTER_RUNTIME_END */', 1)[0]
-    block = '/* OUTER_RUNTIME_BEGIN' + block
-    funcs = '\n'.join(function_source(src, n) for n in [
-        'SpeedMode_UpdateControl', 'PositionMode_UpdateConfiguration',
-        'PositionMode_SameTuningValue', 'PositionMode_ConfigurationMatches'])
+    (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
+    lut_size = re.search(
+        r"^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U",
+        (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(),
+        re.M,
+    )[1]
+    src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
+    motor_src = (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8")
+    block = src.split("/* OUTER_RUNTIME_BEGIN", 1)[1].split("/* OUTER_RUNTIME_END */", 1)[0]
+    block = "/* OUTER_RUNTIME_BEGIN" + block
+    funcs = (
+        function_source(motor_src, "MotorControl_UpdateSpeedRamp")
+        + "\n"
+        + "\n".join(
+            function_source(src, n)
+            for n in [
+                "PositionMode_ApplyFrictionConfiguration",
+                "PositionMode_EffectiveDeceleration",
+                "PositionMode_EffectiveMaximumSpeed",
+                "SpeedMode_UpdateControl",
+                "PositionMode_UpdateConfiguration",
+                "PositionMode_SameTuningValue",
+                "PositionMode_ConfigurationMatches",
+            ]
+        )
+    )
     # Use the real parameter structure to guard the full current allocation set.
-    param = (ROOT / 'firmware/services/parameters/foc_param.h').read_text()
-    param = param[param.index('typedef struct'):param.index('} InterfaceParam_TypeDef;') + len('} InterfaceParam_TypeDef;')]
-    fixture = r'''
+    param = (ROOT / "firmware/services/parameters/foc_param.h").read_text()
+    param = param[
+        param.index("typedef struct") : param.index("} InterfaceParam_TypeDef;")
+        + len("} InterfaceParam_TypeDef;")
+    ]
+    fixture = (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -67,7 +88,11 @@ static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->speed; 
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
 static void motor_hw_outer_barrier(void);
 static void motor_hw_outer_schedule(void) { schedules++; }
-''' + param + funcs + block + r'''
+"""
+        + param
+        + funcs
+        + block
+        + r"""
 static void tick(void) { MotorOuterLoop_FastTick(&live, &live_pi, &enc); }
 static void motor_hw_outer_barrier(void) {
     if (injection && outer.status == OUTER_RUNNING) {
@@ -80,7 +105,10 @@ static void motor_hw_outer_barrier(void) {
             tick();
             assert(live.iqRef == old_iq);
             assert(valid == MotorOuterLoop_GetTelemetry(&after));
-            if (valid) assert(memcmp(&before, &after, sizeof(before)) == 0);
+            if (valid)
+            {
+                assert(memcmp(&before, &after, sizeof(before)) == 0);
+            }
         } else if (action == 2) {
             live.ModeNow = Motor_Disable;
             live.iqRef = 0;
@@ -115,7 +143,10 @@ static void setup(ModeNow_TypeDef mode) {
 }
 static void run_step(void) {
     tick();
-    if (outer.status == OUTER_QUEUED) MotorOuterLoop_Service();
+    if (outer.status == OUTER_QUEUED)
+    {
+        MotorOuterLoop_Service();
+    }
 }
 int main(void) {
     /* All known live heap allocations, even parameter I/O overlapping calibration. */
@@ -132,7 +163,10 @@ int main(void) {
     for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
         setup((ModeNow_TypeDef)mode);
         for (unsigned i = 0; i < 200000; i++) {
-            if (i % 10000 == 0) live.posRef = .3f + (i % 20000 ? .05f : -.05f);
+            if (i % 10000 == 0)
+            {
+                live.posRef = .3f + (i % 20000 ? .05f : -.05f);
+            }
             run_step();
             assert(live.ErrorNow == No_Error);
             assert(isfinite(live.iqRef) && fabsf(live.iqRef) <= live.current_limit);
@@ -147,9 +181,18 @@ int main(void) {
             injection = action; MotorOuterLoop_Service();
             assert(injection == 0 && outer.status == OUTER_DONE);
             tick(); assert(outer.status == OUTER_IDLE);
-            if (action >= 2) assert(live.iqRef == 0 && !outer.ready);
-            if (action == 2 || action == 3 || action == 5) assert(outer.discarded == 1);
-            if (action == 4) assert(outer.deadline_misses == 1);
+            if (action >= 2)
+            {
+                assert(live.iqRef == 0 && !outer.ready);
+            }
+            if (action == 2 || action == 3 || action == 5)
+            {
+                assert(outer.discarded == 1);
+            }
+            if (action == 4)
+            {
+                assert(outer.deadline_misses == 1);
+            }
         }
         /* A queued job may outlive STOP; no output may be resurrected. */
         setup((ModeNow_TypeDef)mode); tick();
@@ -158,7 +201,14 @@ int main(void) {
         assert(live.iqRef == 0 && outer.discarded == 1 && !outer.ready);
         /* Validate invalid commands immediately, even on a non-release tick. */
         setup((ModeNow_TypeDef)mode); run_step(); run_step();
-        if (mode == Position_Mode) live.posRef = NAN; else live.speedRef = NAN;
+        if (mode == Position_Mode)
+        {
+            live.posRef = NAN;
+        }
+        else
+        {
+            live.speedRef = NAN;
+        }
         tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
     }
     /* No stale validation cache may conceal a changed live tuning field. */
@@ -186,7 +236,10 @@ int main(void) {
     MotorControl_TypeDef expected = live;
     PI_Controller_TypeDef expected_pi = live_pi;
     for (unsigned step = 0; step < 2000; step++) {
-        if (step % 70 == 0) live.speedRef = expected.speedRef = -live.speedRef;
+        if (step % 70 == 0)
+        {
+            live.speedRef = expected.speedRef = -live.speedRef;
+        }
         SpeedMode_UpdateControl(&expected, &expected_pi, enc.speed);
         for (unsigned i = 0; i < 10; i++) run_step();
         if (live.speedShadow != expected.speedShadow || live.iqRef != expected.iqRef) {
@@ -199,20 +252,40 @@ int main(void) {
     }
     puts("PASS: 420000 fast ticks; cadence, coherent publication, preemption, STOP/fault/reset, deadline, PI/ramp");
 }
-'''
-    fixture = fixture.replace('#define ENCODER_OFFSET_LUT_SIZE 1024U',
-                              '#define ENCODER_OFFSET_LUT_SIZE ' + lut_size + 'U')
-    (out / 'fixture.c').write_text(fixture)
-    sources = [out / 'fixture.c', ROOT / 'firmware/motor/position/position_cascade.c',
-               ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c', ROOT / 'firmware/common/heap.c']
-    cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
-           '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),
-           '-I' + str(ROOT / 'firmware/platform/stm32g4/bsp'), '-I' + str(ROOT)]
+"""
+    )
+    fixture = fixture.replace(
+        "#define ENCODER_OFFSET_LUT_SIZE 1024U", "#define ENCODER_OFFSET_LUT_SIZE " + lut_size + "U"
+    )
+    (out / "fixture.c").write_text(fixture, encoding="utf-8")
+    sources = [
+        out / "fixture.c",
+        ROOT / "firmware/motor/position/position_cascade.c",
+        ROOT / "firmware/motor/trajectory/position_smooth_trajectory.c",
+        ROOT / "firmware/motor/foc/foc_pid.c",
+        ROOT / "firmware/common/heap.c",
+    ]
+    cmd = [
+        args.cc,
+        "cc",
+        "-std=c99",
+        "-O2",
+        "-UNDEBUG",
+        "-ffp-contract=off",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I" + str(out),
+        "-I" + str(ROOT / "firmware/motor/foc"),
+        "-I" + str(ROOT / "firmware/common"),
+        "-I" + str(ROOT / "firmware/platform/stm32g4/bsp"),
+        "-I" + str(ROOT),
+    ]
     cmd += NATIVE_INCLUDE_FLAGS
-    cmd += [str(x) for x in sources] + ['-o', str(out / 'outer_runtime.exe')]
+    cmd += [str(x) for x in sources] + ["-o", str(out / "outer_runtime.exe")]
     subprocess.run(cmd, check=True, cwd=ROOT)
-    subprocess.run([str(out / 'outer_runtime.exe')], check=True, cwd=ROOT)
+    subprocess.run([str(out / "outer_runtime.exe")], check=True, cwd=ROOT)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

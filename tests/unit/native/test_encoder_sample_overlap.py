@@ -1,22 +1,27 @@
-"""Check command/receive ownership and fallback using actual board functions."""
+"""用真实板级函数验证命令/接收的所有权与回退路径；不访问硬件。"""
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--cc',required=True);p.add_argument('--out',type=Path,required=True)
-    a=p.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
-    source=(ROOT/'firmware/platform/stm32g4/bsp/encoder.c').read_text()
-    fixture=r'''
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--cc", required=True)
+    p.add_argument("--out", type=Path, required=True)
+    a = p.parse_args()
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text()
+    fixture = (
+        r"""
 #undef NDEBUG
 #include <stdint.h>
 #include <stdbool.h>
@@ -60,7 +65,11 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *s,uint16_t data,bool *ok) {
     if (data==0x8021) { assert(!hiz); commands++; *ok=fail!=1; return 0; }
     assert(data==0 && hiz); receives++; *ok=fail!=2; return response;
 }
-''' + function_source(source,'Encoder_BeginSample') + '\n' + function_source(source,'Encoder_ReadTle5012BFrame') + r'''
+"""
+        + function_source(source, "Encoder_BeginSample")
+        + "\n"
+        + function_source(source, "Encoder_ReadTle5012BFrame")
+        + r"""
 int main(void) {
     unsigned sr, enabled, pipeline, failure, word, cases=0;
     for (enabled=0;enabled<2;enabled++) for(sr=0;sr<256;sr++) {
@@ -87,18 +96,28 @@ int main(void) {
             assert(receives==(failure==1?0U:1U));
             assert(e.status==(failure?ENCODER_READ_SPI_TIMEOUT:ENCODER_READ_OK));
             assert(raw==(failure?0x1357:(uint16_t)((word & 0x7fffU)<<1)));
-            if(!failure) assert(e.tle5012_angle_word==word && e.tle5012_safety_word==0);
+            if(!failure)
+            {
+                assert(e.tle5012_angle_word==word && e.tle5012_safety_word==0);
+            }
             cases++;
         }
     }
     printf("PASS %u encoder cases: nonblocking request, same frame, fallback, both transfer failures, CS/HiZ cleanup\n",cases);
     return 0;
 }
-'''
-    c=out/'encoder_overlap.c';c.write_text(fixture);exe=out/'encoder_overlap.exe'
-    cc=[a.cc]+(['cc'] if Path(a.cc).stem=='zig' else []) + NATIVE_INCLUDE_FLAGS
-    subprocess.run(cc+['-std=c99','-O2','-Wall','-Wextra','-Werror',str(c),'-o',str(exe)],check=True)
-    subprocess.run([str(exe)],check=True)
+"""
+    )
+    c = out / "encoder_overlap.c"
+    c.write_text(fixture)
+    exe = out / "encoder_overlap.exe"
+    cc = [a.cc] + (["cc"] if Path(a.cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
+    subprocess.run(
+        cc + ["-std=c99", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", str(c), "-o", str(exe)],
+        check=True,
+    )
+    subprocess.run([str(exe)], check=True)
 
 
-if __name__=='__main__':main()
+if __name__ == "__main__":
+    main()

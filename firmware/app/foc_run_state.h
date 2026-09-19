@@ -3,27 +3,33 @@
 
 #include <stdbool.h>
 
+#include "motor_work.h"
+
+/* 运行状态机状态：迁移条件与动作集中在 FocRunState_Tick 内，外部只读。 */
+typedef enum
+{
+    RUN_DISABLED = 0, /* 功率级关闭，可接受模式请求 */
+    RUN_PREPARING,    /* 位置/速度模式已准入：等控制器就绪后使能 */
+    RUN_ENABLED,      /* 功率级开启，模式任务执行中 */
+    RUN_FAULT         /* 故障锁存：功率级关闭，等待清除 */
+} RunState_TypeDef;
+
+/**
+ * @brief 初始化运行状态机适配器：核心进入 BOOT 态，功率级记录为关闭。
+ * @note 由启动组合层在中断使能前调用一次；不访问硬件。
+ */
+void FocRunState_Init(void);
 /**
  * @brief 快速环故障检查：编码器离线或轴配置失效时置故障并停机。
  * @note 仅由 20 kHz 快速中断调用；不清除既有故障，也不写参数。
  */
 void FocRunState_CheckFastFaults(void);
 /**
- * @brief 刷新运行指示：无故障按模式点亮；有故障时按策略强制停机并显示故障码。
- * @note 仅由 20 kHz 快速中断调用；会修改 MotorControl.ModeNow 与 LED 状态。
+ * @brief 执行一次运行状态机：应用 worker 结果，完成故障指示、功率级启停迁移与提交。
+ * @param outcome 本周期模式 worker 的结果；未请求转换时使用 MOTOR_WORK_RUNNING。
+ * @note 仅由 20 kHz 快速中断调用；顺序为 worker 结果应用 → 故障反应 →
+ *       停机/使能迁移 → 变化检测与影子提交（ModeLast/ErrorLast 与前台镜像）。
  */
-void FocRunState_HandleFaultIndication(void);
-/**
- * @brief 管理功率级启停迁移：停机清理、使能前预载校验与延迟使能。
- * @return true 表示本周期延迟功率启动，调用方需推迟模式跟踪提交。
- * @note 仅由 20 kHz 快速中断调用；内部保留跨周期的启动准备状态。
- */
-bool FocRunState_ManagePowerStage(void);
-/**
- * @brief 提交模式与故障跟踪：检测变化、更新 ModeLast/ErrorLast 与前台镜像。
- * @param defer_position_power_start true 时保持 ModeLast 不更新，等待延迟使能完成。
- * @note 仅由 20 kHz 快速中断调用；Detect_Mode_Error_Change 在此触发变化上报。
- */
-void FocRunState_CommitModeAndError(bool defer_position_power_start);
+void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome);
 
 #endif

@@ -2,6 +2,7 @@
 
 #include "common_inc.h"
 #include "foc_friction_identification.h"
+#include "foc_run_state.h"
 
 /* 电机与控制对象实例：全部定义在此，其他模块只持有引用。 */
 MotorControl_TypeDef MotorControl;
@@ -23,6 +24,7 @@ bool MotorControl_IsConfigurationValid(void)
 
 void MotorControl_Init(void)
 {
+    FocRunState_Init();
     Encoder_ParamInit(&OnBoard_Encoder);
 
     Fluxobserver_ParamInit(&Fluxobserver);

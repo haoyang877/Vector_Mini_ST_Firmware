@@ -1,18 +1,19 @@
-"""Exercise production handoff and calibration-stop code without motor hardware.
+"""在无电机硬件下验证无感交接与标定停机代码。
 
-Checks current-vector continuity, active speed feedback during handoff, braking
-limits, and stop-before-save ordering. This is not a physical-plant acceptance test.
+覆盖电流矢量连续性、交接期间的实时速度反馈、制动限幅与“先停机后保存”的顺序；
+这不是物理被控对象验收测试。
 """
+
 import argparse
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
 
-PRELUDE = r'''
+PRELUDE = r"""
 #include <assert.h>
 #include <math.h>
 #include <stdbool.h>
@@ -23,6 +24,7 @@ PRELUDE = r'''
 #include <limits.h>
 #include "foc_calibration.h"
 #include "foc_run.h"
+#include "foc_sensorless_run.h"
 #include "hw_conf.h"
 #include "utils.h"
 static MotorControl_TypeDef motor;
@@ -61,9 +63,9 @@ float Encoder_GetMecVelContinuous(const Encoder_TypeDef *e) { return e->vel_mech
 void Encoder_ResetVelocity(Encoder_TypeDef *e) { e->velocity_ready=false; }
 static void *HEAP_malloc(size_t n) { return malloc(n); }
 static void HEAP_free(void *p) { free(p); }
-'''
+"""
 
-CASES = r'''
+CASES = r"""
 static const SensorlessStartupConfig_TypeDef *cfg=&SensorlessStartup_EncoderCalibConfig;
 static void setup(void) {
     memset(&motor,0,sizeof(motor)); memset(&foc,0,sizeof(foc));
@@ -83,8 +85,15 @@ static void setup(void) {
     startup.speed_feedback=motor.speedRef;
     current_calls=stop_calls=high_side_calls=0; pwm_enabled=true;
 }
-static void tick(void) { Task_Sensorless_Speed_Mode(&foc,&motor,&pi,&observer,&startup,cfg); }
-static void calibration_tick(void) { Task_Calib_EncoderObserver(&foc,&motor,&pi,&encoder,&observer,&startup); }
+static void tick(void) { SensorlessStartup_Run(&foc,&motor,&pi,&observer,&startup,cfg); }
+static MotorWorkOutcome_TypeDef calibration_tick(void) {
+    MotorWorkOutcome_TypeDef outcome=Task_Calib_EncoderObserver(&foc,&motor,&pi,&encoder,&observer,&startup);
+    /* 模拟运行状态机消费结果：先按 power_off 关断功率级，再提交模式。 */
+    if(outcome.result==MOTOR_WORK_SWITCH_MODE && outcome.power_off) Stop_PWM_Generate();
+    if(outcome.result==MOTOR_WORK_SWITCH_MODE) Set_ModeNow(outcome.next_mode);
+    else if(outcome.result==MOTOR_WORK_STOP) Set_ModeNow(Motor_Disable);
+    return outcome;
+}
 static void enter_handoff(float direction, float phase_delta) {
     setup(); motor.speedRef*=direction; motor.speedShadow=motor.speedRef;
     observer.omega_e*=direction;
@@ -190,36 +199,69 @@ int main(void) {
     check_braking_cap(); check_calibration_stop();
     puts("PASS observer-frame current continuity, state-4 speed feedback, PI cap, low-speed/reverse/invalid-feedback cutoff, PWM-off before save, encoder direction preserved");
 }
-'''
+"""
 
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--cc', required=True)
-    ap.add_argument('--out', type=Path, default=ROOT/'outputs/sensorless_transition_tests')
-    a=ap.parse_args(); out=a.out.resolve(); out.mkdir(parents=True,exist_ok=True)
-    (out/'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
-    run=(ROOT/'firmware/app/foc_run.c').read_text()
-    run=run[run.index('static float Sensorless_AngleDifference'):run.index('/**\n\t* @brief  Mode-3')]
-    cal=(ROOT/'firmware/motor/identification/foc_calibration.c').read_text()
-    helpers=cal[cal.index('static int32_t *p_error_sum'):cal.index('/**\n\t* @brief  Calibrate Rs')]
-    reset=function_source((ROOT/'firmware/motor/foc/foc_sensorless.c').read_text(),'SensorlessStartup_Reset')
-    fixture=PRELUDE+reset+run+helpers+function_source(cal,'Task_Calib_EncoderObserver')+CASES
-    source=out/'transitions.c'; source.write_text(fixture,encoding='utf-8')
-    compiler=[a.cc]+(['cc'] if Path(a.cc).stem=='zig' else [])
-    logs=[]
-    for damping in (0,1):
-        exe=out/f'transitions_{damping}.exe'
-        cmd=compiler+['-I',str(out)]+NATIVE_INCLUDE_FLAGS+[
-            '-std=c99','-O1','-UNDEBUG','-Wall','-Wextra','-Werror','-Wno-unused-function',
-            '-DMOTOR_HAS_DAMPING_RING='+str(damping),str(source),
-            str(ROOT/'firmware/motor/foc/foc_pid.c'),str(ROOT/'firmware/common/utils.c'),
-            '-o',str(exe),'-lm']
-        for command in (cmd,[str(exe)]):
-            r=subprocess.run(command,capture_output=True,text=True)
-            logs.append(r.stdout+r.stderr); print(logs[-1],end='')
-            (out/'test.log').write_text('\n'.join(logs),encoding='utf-8')
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--cc", required=True)
+    ap.add_argument("--out", type=Path, default=ROOT / "outputs/sensorless_transition_tests")
+    a = ap.parse_args()
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
+    source = (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8")
+    run = source.split("/* SENSORLESS_RUNTIME_BEGIN", 1)[1].split(
+        "/* SENSORLESS_RUNTIME_END */", 1
+    )[0]
+    run = "/* SENSORLESS_RUNTIME_BEGIN" + run
+    cal = (ROOT / "firmware/motor/identification/foc_calibration.c").read_text(encoding="utf-8")
+    helpers = cal[
+        cal.index("static int32_t *p_error_sum") : cal.rindex(
+            "/**", 0, cal.index("@brief  Calibrate Rs")
+        )
+    ]
+    reset = function_source(
+        (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8"),
+        "SensorlessStartup_Reset",
+    )
+    fixture = (
+        PRELUDE + reset + run + helpers + function_source(cal, "Task_Calib_EncoderObserver") + CASES
+    )
+    source = out / "transitions.c"
+    source.write_text(fixture, encoding="utf-8")
+    compiler = [a.cc] + (["cc"] if Path(a.cc).stem == "zig" else [])
+    logs = []
+    for damping in (0, 1):
+        exe = out / f"transitions_{damping}.exe"
+        cmd = (
+            compiler
+            + ["-I", str(out)]
+            + NATIVE_INCLUDE_FLAGS
+            + [
+                "-std=c99",
+                "-O1",
+                "-UNDEBUG",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-function",
+                "-DMOTOR_HAS_DAMPING_RING=" + str(damping),
+                str(source),
+                str(ROOT / "firmware/motor/foc/foc_pid.c"),
+                str(ROOT / "firmware/common/utils.c"),
+                "-o",
+                str(exe),
+                "-lm",
+            ]
+        )
+        for command in (cmd, [str(exe)]):
+            r = subprocess.run(command, capture_output=True, text=True)
+            logs.append(r.stdout + r.stderr)
+            print(logs[-1], end="")
+            (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
             r.check_returncode()
 
 
-if __name__=='__main__': main()
+if __name__ == "__main__":
+    main()

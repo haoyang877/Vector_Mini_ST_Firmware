@@ -19,7 +19,7 @@ void FOC1kHzSupervisor(void)
 
 void FOC20kHzIRQHandler(void)
 {
-    bool defer_position_power_start;
+    MotorWorkOutcome_TypeDef work_outcome;
     bool encoder_sample_started;
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
@@ -48,12 +48,10 @@ void FOC20kHzIRQHandler(void)
     FocRunState_CheckFastFaults();
     FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
     MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
-    FocMode_Dispatch();
+    work_outcome = FocMode_Dispatch();
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_POST_CONTROL);
-    FocRunState_HandleFaultIndication();
-    defer_position_power_start = FocRunState_ManagePowerStage();
-    FocRunState_CommitModeAndError(defer_position_power_start);
+    FocRunState_Tick(work_outcome);
     FAST_PROFILE_END(FAST_PROFILE_POST_CONTROL);
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_TELEMETRY);

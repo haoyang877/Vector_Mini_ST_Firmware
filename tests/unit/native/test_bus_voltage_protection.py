@@ -42,7 +42,7 @@ static bool FocCogging_CanStart(MotorControl_TypeDef *m,Encoder_TypeDef *e) { (v
 static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { (void)e; return 0; }
-static void Task_Position_Mode_Reset(void) {}
+static void PositionImpedance_Reset(void) {}
 """
 
 CASES = r"""
@@ -139,7 +139,8 @@ def main():
         + function_source((ROOT / "firmware/motor/foc/foc_sensing.c").read_text(), "Vbus_Update")
         + "\n"
         + function_source(
-            (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(), "ModeSwitch_Handle"
+            (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(encoding="utf-8"),
+            "ModeSwitch_Handle",
         )
         + CASES
     )

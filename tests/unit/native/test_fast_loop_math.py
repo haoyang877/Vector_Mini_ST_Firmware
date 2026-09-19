@@ -1,30 +1,32 @@
-"""Validate the actual fast_sqrt implementation without MCU dependencies.
+"""在无 MCU 依赖下验证真实 fast_sqrt 实现。
 
-Builds a native C99 numerical sweep. Host timing is deliberately not used as
-an MCU speed estimate. --cc accepts Zig, GCC or Clang.
+构建原生 C99 数值扫描；主机耗时不作为 MCU 速度估计。--cc 支持 Zig、GCC 或 Clang。
 """
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
-
 import argparse
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
-from run_position_servo_tests import ROOT, function_source
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--cc', required=True)
-    parser.add_argument('--out', type=Path, default=ROOT / 'outputs/fast_loop_math')
+    parser.add_argument("--cc", required=True)
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/fast_loop_math")
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    actual = function_source((ROOT / 'firmware/common/utils.c').read_text(encoding='utf-8'), 'fast_sqrt')
-    fixture = r'''
+    actual = function_source(
+        (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8"), "fast_sqrt"
+    )
+    fixture = (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -33,12 +35,17 @@ def main():
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-''' + actual + r'''
+"""
+        + actual
+        + r"""
 /* The old 32-bit target algorithm, with defined bit conversions for the host. */
 static float legacy(float x) {
     uint32_t bits;
     float y;
-    if (x < 1.19209290e-7f) return 0.0f;
+    if (x < 1.19209290e-7f)
+    {
+        return 0.0f;
+    }
     memcpy(&bits, &x, sizeof(bits));
     bits = 0x1FBA6EE6U + (bits >> 1);
     memcpy(&y, &bits, sizeof(y));
@@ -65,7 +72,10 @@ int main(void) {
         expected = x < cutoff ? 0.0f : (float)sqrt((double)x);
         assert(result == expected);
         change = expected > 0.0f ? fabsf(before-result)/expected : 0.0f;
-        if (change > max_change) max_change = change;
+        if (change > max_change)
+        {
+            max_change = change;
+        }
         assert(change < 0.000003f);
         samples++;
     }
@@ -73,21 +83,35 @@ int main(void) {
            samples, (double)max_change);
     return 0;
 }
-'''
-    source = out / 'fast_loop_math_test.c'
-    source.write_text(fixture, encoding='utf-8')
-    exe = out / 'fast_loop_math_test.exe'
-    compiler = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else []) + NATIVE_INCLUDE_FLAGS
-    commands = [compiler + ['-std=c99', '-O2', '-Wall', '-Wextra', '-Werror',
-                            str(source), '-o', str(exe)], [str(exe)]]
+"""
+    )
+    source = out / "fast_loop_math_test.c"
+    source.write_text(fixture, encoding="utf-8")
+    exe = out / "fast_loop_math_test.exe"
+    compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
+    commands = [
+        compiler
+        + [
+            "-std=c99",
+            "-O2",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(exe),
+        ],
+        [str(exe)],
+    ]
     logs = []
     for command in commands:
         result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
-        (out / 'test.log').write_text('\n'.join(logs), encoding='utf-8')
-        print(logs[-1], end='')
+        (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        print(logs[-1], end="")
         result.check_returncode()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

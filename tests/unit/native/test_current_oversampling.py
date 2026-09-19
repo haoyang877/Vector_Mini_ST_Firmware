@@ -1,30 +1,33 @@
-"""Run the actual ADC2 initializer and vendor LL code against host registers.
+"""用主机寄存器运行真实 ADC2 初始化与厂商 LL 代码。
 
-HAL calls are recorded instead of accessing physical peripherals. This checks
-configuration and data scale, not analog accuracy or MCU timing.
+HAL 调用被记录而不访问物理外设；验证配置与数据量纲，不验证模拟精度或 MCU 时序。
 """
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
-
 import argparse
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
-from run_position_servo_tests import ROOT, function_source
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--cc', required=True)
-    parser.add_argument('--out', type=Path, default=ROOT / 'outputs/current_oversampling/host')
+    parser.add_argument("--cc", required=True)
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/current_oversampling/host")
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    actual = function_source((ROOT / 'firmware/platform/stm32g4/cubemx/Core/Src/adc.c').read_text(encoding='utf-8'), 'MX_ADC2_Init')
-    fixture = r'''
+    actual = function_source(
+        (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/adc.c").read_text(encoding="utf-8"),
+        "MX_ADC2_Init",
+    )
+    fixture = (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -76,7 +79,9 @@ HAL_StatusTypeDef HAL_ADCEx_InjectedConfigChannel(
     ++ranks;
     return HAL_OK;
 }
-''' + actual + r'''
+"""
+        + actual
+        + r"""
 int main(void) {
     unsigned run, value;
     for (run = 0; run < 2; ++run) {
@@ -99,21 +104,35 @@ int main(void) {
     puts("PASS ADC2: four ranks, 4x injected-only, fractional /4 units, repeat init, sequence preserved");
     return 0;
 }
-'''
-    source = out / 'current_oversampling_test.c'
-    source.write_text(fixture, encoding='utf-8')
-    exe = out / 'current_oversampling_test.exe'
-    compiler = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else []) + NATIVE_INCLUDE_FLAGS
-    includes = ['firmware/platform/stm32g4/cubemx/Core/Inc', 'firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc',
-                'firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include', 'firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Include']
-    command = compiler + ['-std=c99', '-O1', '-Wall', '-Wextra', '-Werror',
-                          '-Wno-pointer-to-int-cast', '-Wno-int-to-pointer-cast',
-                          '-DSTM32G431xx', '-DUSE_HAL_DRIVER']
+"""
+    )
+    source = out / "current_oversampling_test.c"
+    source.write_text(fixture, encoding="utf-8")
+    exe = out / "current_oversampling_test.exe"
+    compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
+    includes = [
+        "firmware/platform/stm32g4/cubemx/Core/Inc",
+        "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc",
+        "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
+        "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Include",
+    ]
+    command = compiler + [
+        "-std=c99",
+        "-O1",
+        "-UNDEBUG",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wno-pointer-to-int-cast",
+        "-Wno-int-to-pointer-cast",
+        "-DSTM32G431xx",
+        "-DUSE_HAL_DRIVER",
+    ]
     for path in includes:
-        command += ['-I', str(ROOT / path)]
-    for step in (command + [str(source), '-o', str(exe)], [str(exe)]):
+        command += ["-I", str(ROOT / path)]
+    for step in (command + [str(source), "-o", str(exe)], [str(exe)]):
         subprocess.run(step, cwd=ROOT, check=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

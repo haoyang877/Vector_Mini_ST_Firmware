@@ -1,25 +1,30 @@
-"""Exercise the actual board fast dispatch with modeled W1C registers."""
+"""用 W1C 行为建模的寄存器验证真实板级快速派发；不访问硬件。"""
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--cc', required=True)
-    p.add_argument('--out', type=Path, required=True)
+    p.add_argument("--cc", required=True)
+    p.add_argument("--out", type=Path, required=True)
     args = p.parse_args()
-    out = args.out.resolve(); out.mkdir(parents=True, exist_ok=True)
-    source = function_source((ROOT/'firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c').read_text(),
-                             'Board_ADC2DispatchInterrupt')
-    fixture = r'''
+    out = args.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    source = function_source(
+        (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c").read_text(),
+        "Board_ADC2DispatchInterrupt",
+    )
+    fixture = (
+        r"""
 #undef NDEBUG
 #include <assert.h>
 #include <stdint.h>
@@ -53,7 +58,9 @@ void clear_flags(ADC_HandleTypeDef *h, uint32_t flags) {
     h->Instance->ISR &= ~flags; clears++;
 }
 #define __HAL_ADC_CLEAR_FLAG(h,f) clear_flags(h,f)
-''' + source + r'''
+"""
+        + source
+        + r"""
 int main(void) {
     unsigned pending, variant, cases = 0;
     for (pending = 0; pending < 2048; ++pending) {
@@ -83,15 +90,29 @@ int main(void) {
     printf("PASS %u dispatch cases, callback registration=%d\n", cases+1, USE_HAL_ADC_REGISTER_CALLBACKS);
     return 0;
 }
-'''
-    c = out/'dispatch.c'; c.write_text(fixture)
-    compiler = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else []) + NATIVE_INCLUDE_FLAGS
+"""
+    )
+    c = out / "dispatch.c"
+    c.write_text(fixture)
+    compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
     for callbacks in [0, 1]:
-        exe = out/f'dispatch_{callbacks}.exe'
-        subprocess.run(compiler + ['-std=c99', '-O2', '-Wall',
-            f'-DUSE_HAL_ADC_REGISTER_CALLBACKS={callbacks}', str(c), '-o', str(exe)], check=True)
+        exe = out / f"dispatch_{callbacks}.exe"
+        subprocess.run(
+            compiler
+            + [
+                "-std=c99",
+                "-O2",
+                "-UNDEBUG",
+                "-Wall",
+                f"-DUSE_HAL_ADC_REGISTER_CALLBACKS={callbacks}",
+                str(c),
+                "-o",
+                str(exe),
+            ],
+            check=True,
+        )
         subprocess.run([str(exe)], check=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

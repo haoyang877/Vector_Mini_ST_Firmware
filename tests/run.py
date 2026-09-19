@@ -20,6 +20,7 @@ NATIVE = (
     "test_encoder_sample_overlap",
     "test_fast_loop_math",
     "test_position_config_cache",
+    "test_run_state",
     "test_sensorless_transitions",
     "test_cogging_calibration",
     "test_mcu_temperature",

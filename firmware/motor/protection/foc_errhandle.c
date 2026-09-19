@@ -6,7 +6,8 @@
 #include "foc_pid.h"
 #include "encoder.h"
 #include "foc_sensorless.h"
-#include "foc_run.h"
+#include "foc_sensorless_run.h"
+#include "position_impedance.h"
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
 #include "bus_voltage_profile.h"
@@ -14,7 +15,7 @@
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
 extern PI_Controller_TypeDef PI_Speed;
-extern ModeNow_TypeDef  ModeLast;
+extern ModeNow_TypeDef ModeLast;
 extern ErrorNow_TypeDef ErrorLast;
 extern Encoder_TypeDef OnBoard_Encoder;
 extern SensorlessStartup_TypeDef SensorlessStartup;
@@ -22,282 +23,279 @@ extern SensorlessStartup_TypeDef SensorlessStartup;
 bool is_Mode_Error_Change;
 
 /**
-	* @brief  Get current motor mode
-	* @retval current mode
+    * @brief  Get current motor mode
+    * @retval current mode
  **/
 ModeNow_TypeDef Get_ModeNow(void)
 {
-	return MotorControl.ModeNow;
+    return MotorControl.ModeNow;
 }
 
 /**
-	* @brief  Set current motor mode
-	* @param  tModeNow: mode to set
+    * @brief  Set current motor mode
+    * @param  tModeNow: mode to set
  **/
 void Set_ModeNow(ModeNow_TypeDef tModeNow)
 {
-	MotorControl.ModeNow = tModeNow;
+    MotorControl.ModeNow = tModeNow;
 }
 
 /**
-	* @brief  Get current motor error
-	* @retval current error
+    * @brief  Get current motor error
+    * @retval current error
  **/
 ErrorNow_TypeDef Get_ErroNow(void)
 {
-	return MotorControl.ErrorNow;
+    return MotorControl.ErrorNow;
 }
 
 /**
-	* @brief  Set current motor error
-	* @param  tErrorNow: error to set
+    * @brief  Set current motor error
+    * @param  tErrorNow: error to set
  **/
 void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 {
-	MotorControl.ErrorNow = tErrorNow;
+    MotorControl.ErrorNow = tErrorNow;
 }
 
 /**
-	* @brief  Clear running control data
+    * @brief  Clear running control data
  **/
 void Clear_RunningData(void)
 {
-	if (ModeLast == Calib_Anticogging) FocCogging_Abort();
-	if (ModeLast == Calib_Friction)
-		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
-	MotorControl.idRef		 = 0.0f;
-	MotorControl.iqRef		 = 0.0f;
-	MotorControl.vqRef		 = 0.0f;
-	MotorControl.speedRef    = 0.0f;
-	MotorControl.speedShadow = 0.0f;
-	MotorControl.posShadow   = 0.0f;
-	MotorControl.isReachTargetPos = false;
-	MotorControl.pos_vel_filtered = 0.0f;
-	Task_Position_Mode_Reset();
-	
-	FOC.Id = 0.0f;
-	FOC.Iq = 0.0f;
-	FOC_CurrentController_Reset(&FOC);
-	PI_Controller_Reset(&PI_Speed);
-	SensorlessStartup_Reset(&SensorlessStartup);
+    if (ModeLast == Calib_Anticogging)
+        FocCogging_Abort();
+    if (ModeLast == Calib_Friction)
+        FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+    MotorControl.idRef = 0.0f;
+    MotorControl.iqRef = 0.0f;
+    MotorControl.vqRef = 0.0f;
+    MotorControl.speedRef = 0.0f;
+    MotorControl.speedShadow = 0.0f;
+    MotorControl.posShadow = 0.0f;
+    MotorControl.isReachTargetPos = false;
+    MotorControl.pos_vel_filtered = 0.0f;
+    /* 位置控制器状态复位；外环邮箱失效由 app 故障/模式提交点统一处理。 */
+    PositionImpedance_Reset();
+
+    FOC.Id = 0.0f;
+    FOC.Iq = 0.0f;
+    FOC_CurrentController_Reset(&FOC);
+    PI_Controller_Reset(&PI_Speed);
+    SensorlessStartup_Reset(&SensorlessStartup);
 }
 
 /**
-	* @brief  Handle motor mode switching
-	*         motor identification is removed, motor body parameters
-	*         are filled externally; closed-loop modes require encoder
-	*         linearization and electrical angle zero position calibration
-	* @param  mode_set: target mode
-	* @retval true if mode switched
+    * @brief  Handle motor mode switching
+    *         motor identification is removed, motor body parameters
+    *         are filled externally; closed-loop modes require encoder
+    *         linearization and electrical angle zero position calibration
+    * @param  mode_set: target mode
+    * @retval true if mode switched
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
-	/* Reject an unsafe restart before any phase output can be enabled.
-	 * The normal supervisor owns voltage fault latching during operation. */
-	if (MotorControl.ModeNow == Motor_Disable &&
-		(mode_set == Current_Mode || mode_set == Speed_Mode ||
-		mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
-		mode_set == Calib_PhaseResistance || mode_set == Calib_EncoderOffset ||
-		mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
-		mode_set == Voltage_OpenLoop || mode_set == Vq_Mode ||
-		mode_set == Sensorless_Speed_Mode || mode_set == Calib_Anticogging || mode_set == Calib_Friction))
-	{
-		if (!isfinite(FOC.Vbus) || !isfinite(FOC.Vbus_filt) ||
-			FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
-			FOC.Vbus_filt > BUS_VOLTAGE_ENABLE_MAX_V)
-		{
-			if (MotorControl.ErrorNow == No_Error) Set_ErrorNow(Over_Voltage);
-			return false;
-		}
-		if (FOC.Vbus_filt < BUS_VOLTAGE_ENABLE_MIN_V)
-		{
-			if (MotorControl.ErrorNow == No_Error) Set_ErrorNow(Under_Voltage);
-			return false;
-		}
-	}
-	/* Unknown/unconfigured numeric joints cannot fall through to another
-	 * torque-producing mode. Diagnostics and explicit storage remain usable. */
-	if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable &&
-		mode_set != Clear_Error && mode_set != Save_Param)
-	{
-		Set_ErrorNow(MotorParam_Error);
-		return false;
-	}
-	if (mode_set == Position_Mode && !MotorAxisProfile_AllowsPosition(
-		&MotorControl.axis_profile, MotorControl.axis_profile_valid,
-		Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecPos(&OnBoard_Encoder)))
-	{
-		Set_ErrorNow(MotorParam_Error);
-		return false;
-	}
-	if (mode_set == Calib_Anticogging && !FocCogging_CanStart(&MotorControl, &OnBoard_Encoder))
-	{
-		Set_ErrorNow(CoggingCalibration_Error);
-		return false;
-	}
-	/*motor identification (R/L/flux) is not used any more*/
-	if(mode_set == Calib_Motor_R_L_Flux)
-		return false;
-	
-	/* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
-	if ((mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
-		 mode_set == Vq_Mode ||
-		 ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
-		  MotorControl.isUseSensorless == false) ||
-		 mode_set == Calib_EncoderOffset ||
-		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
-		 mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
-		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&OnBoard_Encoder))
-	{
-		Set_ErrorNow(Encoder_Error);
-		return false;
-	}
+    /* Reject an unsafe restart before any phase output can be enabled.
+     * The normal supervisor owns voltage fault latching during operation. */
+    if (MotorControl.ModeNow == Motor_Disable &&
+        (mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode ||
+         mode_set == Position_Impedance_Mode || mode_set == Calib_PhaseResistance ||
+         mode_set == Calib_EncoderOffset || mode_set == Calib_EncoderObserver ||
+         mode_set == Calib_EleAngelOffset || mode_set == Voltage_OpenLoop || mode_set == Vq_Mode ||
+         mode_set == Sensorless_Speed_Mode || mode_set == Calib_Anticogging ||
+         mode_set == Calib_Friction))
+    {
+        if (!isfinite(FOC.Vbus) || !isfinite(FOC.Vbus_filt) ||
+            FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V || FOC.Vbus_filt > BUS_VOLTAGE_ENABLE_MAX_V)
+        {
+            if (MotorControl.ErrorNow == No_Error)
+                Set_ErrorNow(Over_Voltage);
+            return false;
+        }
+        if (FOC.Vbus_filt < BUS_VOLTAGE_ENABLE_MIN_V)
+        {
+            if (MotorControl.ErrorNow == No_Error)
+                Set_ErrorNow(Under_Voltage);
+            return false;
+        }
+    }
+    /* Unknown/unconfigured numeric joints cannot fall through to another
+     * torque-producing mode. Diagnostics and explicit storage remain usable. */
+    if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable && mode_set != Clear_Error &&
+        mode_set != Save_Param)
+    {
+        Set_ErrorNow(MotorParam_Error);
+        return false;
+    }
+    if (mode_set == Position_Mode &&
+        !MotorAxisProfile_AllowsPosition(&MotorControl.axis_profile,
+                                         MotorControl.axis_profile_valid,
+                                         Encoder_GetMecPos(&OnBoard_Encoder),
+                                         Encoder_GetMecPos(&OnBoard_Encoder)))
+    {
+        Set_ErrorNow(MotorParam_Error);
+        return false;
+    }
+    if (mode_set == Calib_Anticogging && !FocCogging_CanStart(&MotorControl, &OnBoard_Encoder))
+    {
+        Set_ErrorNow(CoggingCalibration_Error);
+        return false;
+    }
+    /*motor identification (R/L/flux) is not used any more*/
+    if (mode_set == Calib_Motor_R_L_Flux)
+        return false;
 
-	if(mode_set == Sensorless_Speed_Mode)
-	{
-		if(MotorControl.motor_pole_pairs <= 0 || MotorControl.motor_phase_resistance <= 0.0f ||
-		   MotorControl.motor_d_inductance <= 0.0f || MotorControl.motor_q_inductance <= 0.0f ||
-		   MotorControl.motor_flux <= 0.0f || MotorControl.current_limit <= 0.0f)
-		{
-			Set_ErrorNow(MotorParam_Error);
-			return false;
-		}
-	}
+    /* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
+    if ((mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
+         ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
+          MotorControl.isUseSensorless == false) ||
+         mode_set == Calib_EncoderOffset || mode_set == Calib_EncoderObserver ||
+         mode_set == Calib_EleAngelOffset || mode_set == Calib_Anticogging ||
+         mode_set == Calib_Friction || mode_set == Set_ZeroPosition) &&
+        !Encoder_IsOnline(&OnBoard_Encoder))
+    {
+        Set_ErrorNow(Encoder_Error);
+        return false;
+    }
 
-	/*encoder-based closed-loop control requires calibration*/
-	if(mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
-	   mode_set == Vq_Mode ||
-	   mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
-	  ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
-	   MotorControl.isUseSensorless == false))
-	{
-		if((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
-		{
-			Set_ErrorNow(Encoder_NotCalibrated);
-			return false;
-		}
-	}
-	
-	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
-	{
-		/* Entering either position mode must hold the present position, not a stale target. */
-		if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
-		{
-			float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
+    if (mode_set == Sensorless_Speed_Mode)
+    {
+        if (MotorControl.motor_pole_pairs <= 0 || MotorControl.motor_phase_resistance <= 0.0f ||
+            MotorControl.motor_d_inductance <= 0.0f || MotorControl.motor_q_inductance <= 0.0f ||
+            MotorControl.motor_flux <= 0.0f || MotorControl.current_limit <= 0.0f)
+        {
+            Set_ErrorNow(MotorParam_Error);
+            return false;
+        }
+    }
 
-			if (!isfinite(current_position))
-			{
-				Set_ErrorNow(Encoder_Error);
-				return false;
-			}
-			MotorControl.posRef = current_position;
-			MotorControl.posShadow = current_position;
-			MotorControl.speedShadow = 0.0f;
-			MotorControl.isReachTargetPos = false;
-			Task_Position_Mode_Reset();
-		}
-		MotorControl.ModeNow = mode_set;
-		return true;
-	}
-	
-	if((MotorControl.ModeNow  == Current_Mode || 
-	    MotorControl.ModeNow  == Speed_Mode   || 
-	    MotorControl.ModeNow  == Position_Mode ||
-	    MotorControl.ModeNow  == Position_Impedance_Mode ||
-	    MotorControl.ModeNow == Calib_Motor_R_L_Flux ||
-	    MotorControl.ModeNow == Calib_PhaseResistance ||
-	    MotorControl.ModeNow == Calib_EncoderOffset ||
-	    MotorControl.ModeNow == Calib_EncoderObserver ||
-	    MotorControl.ModeNow == Calib_EleAngelOffset ||
-	    MotorControl.ModeNow == Calib_CurrentOffset ||
-	    MotorControl.ModeNow == Voltage_OpenLoop ||
-	    MotorControl.ModeNow == Vq_Mode ||
-	    MotorControl.ModeNow == Sensorless_Speed_Mode ||
-	    MotorControl.ModeNow == Calib_Friction ||
-	    MotorControl.ModeNow == Calib_Anticogging) &&
-	    MotorControl.ErrorNow == No_Error)
-	{
-		if(mode_set == Motor_Disable)
-		{
-			if (MotorControl.ModeNow == Calib_Anticogging)
-			{
-				/* ADC control may preempt CAN: publish STOP before clearing the
-				 * session so the owner cannot interpret the cleared state as restart. */
-				MotorControl.ModeNow = mode_set;
-				FocCogging_Abort();
-				return true;
-			}
-			if (MotorControl.ModeNow == Calib_Friction)
-				FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
-			MotorControl.ModeNow = mode_set;
-			return true;
-		}
-	}
-	
-	if(mode_set == Clear_Error)
-	{
-		if(MotorControl.ErrorNow != No_Error)
-		{
-			MotorControl.ErrorNow = No_Error;
-			MotorControl.ModeNow = Motor_Disable;
-			return true;
-		}
-	}
-	
-	return false;
+    /*encoder-based closed-loop control requires calibration*/
+    if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
+        mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
+        ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
+         MotorControl.isUseSensorless == false))
+    {
+        if ((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+        {
+            Set_ErrorNow(Encoder_NotCalibrated);
+            return false;
+        }
+    }
+
+    if (MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
+    {
+        /* Entering either position mode must hold the present position, not a stale target. */
+        if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
+        {
+            float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
+
+            if (!isfinite(current_position))
+            {
+                Set_ErrorNow(Encoder_Error);
+                return false;
+            }
+            MotorControl.posRef = current_position;
+            MotorControl.posShadow = current_position;
+            MotorControl.speedShadow = 0.0f;
+            MotorControl.isReachTargetPos = false;
+            PositionImpedance_Reset();
+        }
+        MotorControl.ModeNow = mode_set;
+        return true;
+    }
+
+    if ((MotorControl.ModeNow == Current_Mode || MotorControl.ModeNow == Speed_Mode ||
+         MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Position_Impedance_Mode ||
+         MotorControl.ModeNow == Calib_Motor_R_L_Flux ||
+         MotorControl.ModeNow == Calib_PhaseResistance ||
+         MotorControl.ModeNow == Calib_EncoderOffset ||
+         MotorControl.ModeNow == Calib_EncoderObserver ||
+         MotorControl.ModeNow == Calib_EleAngelOffset ||
+         MotorControl.ModeNow == Calib_CurrentOffset || MotorControl.ModeNow == Voltage_OpenLoop ||
+         MotorControl.ModeNow == Vq_Mode || MotorControl.ModeNow == Sensorless_Speed_Mode ||
+         MotorControl.ModeNow == Calib_Friction || MotorControl.ModeNow == Calib_Anticogging) &&
+        MotorControl.ErrorNow == No_Error)
+    {
+        if (mode_set == Motor_Disable)
+        {
+            if (MotorControl.ModeNow == Calib_Anticogging)
+            {
+                /* ADC control may preempt CAN: publish STOP before clearing the
+                 * session so the owner cannot interpret the cleared state as restart. */
+                MotorControl.ModeNow = mode_set;
+                FocCogging_Abort();
+                return true;
+            }
+            if (MotorControl.ModeNow == Calib_Friction)
+                FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+            MotorControl.ModeNow = mode_set;
+            return true;
+        }
+    }
+
+    if (mode_set == Clear_Error)
+    {
+        if (MotorControl.ErrorNow != No_Error)
+        {
+            MotorControl.ErrorNow = No_Error;
+            MotorControl.ModeNow = Motor_Disable;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
-	* @brief  Detect mode or error state change
+    * @brief  Detect mode or error state change
  **/
 void Detect_Mode_Error_Change(void)
 {
-	if(ModeLast != MotorControl.ModeNow || ErrorLast != MotorControl.ErrorNow)
-		is_Mode_Error_Change = true;
+    if (ModeLast != MotorControl.ModeNow || ErrorLast != MotorControl.ErrorNow)
+        is_Mode_Error_Change = true;
 }
 
 /**
-	* @brief  Return mode or error change flag
-	* @retval change flag
+    * @brief  Return mode or error change flag
+    * @retval change flag
  **/
 bool Return_Mode_Error_Change(void)
 {
-	return is_Mode_Error_Change;
+    return is_Mode_Error_Change;
 }
 
 /**
-	* @brief  Clear mode or error change flag
+    * @brief  Clear mode or error change flag
  **/
 void Clear_Mode_Error_Change(void)
 {
-	is_Mode_Error_Change = false;
+    is_Mode_Error_Change = false;
 }
 
 /**
-	* @brief  Stop PWM generation
+    * @brief  Stop PWM generation
  **/
 void Stop_PWM_Generate(void)
 {
-	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
-	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
-	
-	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
-	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
-	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
-	
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+
+    HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
+    HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
+    HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
 }
 
 /**
-	* @brief  Start PWM generation
+    * @brief  Start PWM generation
  **/
 void Start_PWM_Generate(void)
 {
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-	
-	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
-	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
-	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+
+    HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
+    HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
+    HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
 }

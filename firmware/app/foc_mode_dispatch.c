@@ -7,21 +7,29 @@
 #include "fast_loop_profile.h"
 #include "motor_state.h"
 
-/** 记录当前机械零位并切换到参数保存模式；编码器失败时置故障。 */
-static void Task_SetMechanicalZero(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+/** 记录当前机械零位；成功后请求进入参数保存模式，失败时上报编码器故障。 */
+static MotorWorkOutcome_TypeDef Task_SetMechanicalZero(MotorControl_TypeDef *MotorControl,
+                                                       Encoder_TypeDef *Encoder)
 {
+    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+
     if (!Encoder_SetMechanicalZero(Encoder))
     {
-        Set_ErrorNow(Encoder_Error);
-        return;
+        outcome.result = MOTOR_WORK_FAULT;
+        outcome.error = Encoder_Error;
+        return outcome;
     }
 
     Task_Position_Mode_Reset();
-    Set_ModeNow(Save_Param);
+    outcome.result = MOTOR_WORK_SWITCH_MODE;
+    outcome.next_mode = Save_Param;
+    return outcome;
 }
 
-void FocMode_Dispatch(void)
+MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
 {
+    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+
     /* 退出齿槽转矩标定模式时立即释放补偿状态，避免残留力矩指令。 */
     if (ModeLast == Calib_Anticogging && MotorControl.ModeNow != Calib_Anticogging)
     {
@@ -77,7 +85,7 @@ void FocMode_Dispatch(void)
         break;
 
     case Calib_Friction:
-        FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
+        outcome = FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
         break;
 
     case Calib_Motor_R_L_Flux:
@@ -90,23 +98,27 @@ void FocMode_Dispatch(void)
 
         if (status == PHASE_RESISTANCE_MODE_DONE)
         {
-            Set_ModeNow(Motor_Disable);
+            outcome.result = MOTOR_WORK_STOP;
         }
         else if (status == PHASE_RESISTANCE_MODE_SETTLE_TIMEOUT)
         {
-            Set_ErrorNow(Large_Phase_Resistance);
+            outcome.result = MOTOR_WORK_FAULT;
+            outcome.error = Large_Phase_Resistance;
         }
         else if (status == PHASE_RESISTANCE_MODE_INVALID_RESULT)
         {
-            Set_ErrorNow(MotorParam_Error);
+            outcome.result = MOTOR_WORK_FAULT;
+            outcome.error = MotorParam_Error;
         }
         else if (status == PHASE_RESISTANCE_MODE_UNDER_VOLTAGE)
         {
-            Set_ErrorNow(Under_Voltage);
+            outcome.result = MOTOR_WORK_FAULT;
+            outcome.error = Under_Voltage;
         }
         else if (status == PHASE_RESISTANCE_MODE_OVER_VOLTAGE)
         {
-            Set_ErrorNow(Over_Voltage);
+            outcome.result = MOTOR_WORK_FAULT;
+            outcome.error = Over_Voltage;
         }
         break;
     }
@@ -116,7 +128,7 @@ void FocMode_Dispatch(void)
         break;
 
     case Calib_EncoderObserver:
-        Task_Calib_EncoderObserver(
+        outcome = Task_Calib_EncoderObserver(
             &FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver, &SensorlessStartup);
         break;
 
@@ -125,7 +137,7 @@ void FocMode_Dispatch(void)
         break;
 
     case Calib_CurrentOffset:
-        Task_Calib_CurrentOffset(&FOC, &MotorControl);
+        outcome = Task_Calib_CurrentOffset(&FOC, &MotorControl);
         break;
 
     case Voltage_OpenLoop:
@@ -137,7 +149,7 @@ void FocMode_Dispatch(void)
         break;
 
     case Set_ZeroPosition:
-        Task_SetMechanicalZero(&MotorControl, &OnBoard_Encoder);
+        outcome = Task_SetMechanicalZero(&MotorControl, &OnBoard_Encoder);
         break;
 
     case Default_Param:
@@ -149,4 +161,6 @@ void FocMode_Dispatch(void)
     default:
         break;
     }
+
+    return outcome;
 }

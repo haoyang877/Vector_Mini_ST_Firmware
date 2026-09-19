@@ -1,52 +1,75 @@
-"""Compare the real mode-3 adapter against the pre-cache adapter, tick by tick.
+"""将真实模式 3 适配器与缓存前基线逐 tick 对比。
 
-The frozen reference is extracted from Git, generated only under --out, and is
-never part of firmware. Feedback is synthetic, not a motor/plant simulation.
+冻结基线从 Git 提取、只在 --out 下生成，永不进入固件；反馈为合成数据，
+不是电机/被控对象仿真。
 """
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
 import re
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--cc', required=True)
-    p.add_argument('--out', type=Path, default=ROOT / 'outputs/position_config_cache')
-    p.add_argument('--reference-ref', default='f092e3d')
+    p.add_argument("--cc", required=True)
+    p.add_argument("--out", type=Path, default=ROOT / "outputs/position_config_cache")
+    p.add_argument("--reference-ref", default="f092e3d")
     args = p.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    source = (ROOT / 'firmware/app/foc_run.c').read_text(encoding='utf-8')
-    reference = subprocess.check_output(['git', 'show', args.reference_ref + ':Foc/foc_run.c'],
-                                        cwd=ROOT).decode('utf-8')
-    reference = function_source(reference, 'Task_Position_Mode').replace(
-        'Task_Position_Mode(', 'Task_Position_Mode_Reference(')
-    actual = '\n'.join(function_source(source, n) for n in [
-        'PositionMode_UpdateConfiguration', 'PositionMode_SameTuningValue',
-        'PositionMode_ConfigurationMatches', 'Task_Position_Mode'])
-    fields = sorted(set(re.findall(r'MotorControl->(\w+)', actual + reference)) -
-                    {'axis_profile', 'axis_profile_valid', 'friction_model_valid', 'isReachTargetPos'})
-    typedef = 'typedef struct {\n' + '\n'.join('float ' + f + ';' for f in fields) + '''
+    source = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
+    reference = subprocess.check_output(
+        ["git", "show", args.reference_ref + ":Foc/foc_run.c"], cwd=ROOT
+    ).decode("utf-8")
+    reference = function_source(reference, "Task_Position_Mode").replace(
+        "Task_Position_Mode(", "Task_Position_Mode_Reference("
+    )
+    actual = "\n".join(
+        function_source(source, n)
+        for n in [
+            "PositionMode_ApplyFrictionConfiguration",
+            "PositionMode_EffectiveDeceleration",
+            "PositionMode_EffectiveMaximumSpeed",
+            "PositionMode_UpdateConfiguration",
+            "PositionMode_SameTuningValue",
+            "PositionMode_ConfigurationMatches",
+            "PositionMode_RejectRequest",
+            "Task_Position_Mode",
+        ]
+    )
+    fields = sorted(
+        set(re.findall(r"MotorControl->(\w+)", actual + reference))
+        - {"axis_profile", "axis_profile_valid", "friction_model_valid", "isReachTargetPos"}
+    )
+    typedef = (
+        "typedef struct {\n"
+        + "\n".join("float " + f + ";" for f in fields)
+        + """
 MotorAxisProfile axis_profile;
 bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 } MotorControl_TypeDef;
-'''
+"""
+    )
     # Only the hardware definitions consumed by the adapter's tuning header.
-    (out / 'hw_conf.h').write_text('''
+    (out / "hw_conf.h").write_text(
+        """
 #define MOTOR_DAMPING_FEEDFORWARD_ENABLED 1U
 #define MOTOR_DAMPING_FEEDFORWARD 1U
 #define Cascade_Position_Ts 0.0005f
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
-''', encoding='utf-8')
-    fixture = r'''
+""",
+        encoding="utf-8",
+    )
+    fixture = (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -61,7 +84,9 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include "position_impedance_config.h"
 #include "firmware/services/parameters/motor_axis_profile.h"
 #define FOC_CONFIG_NOINLINE
-''' + typedef + r'''
+"""
+        + typedef
+        + r"""
 typedef struct { float position, velocity; } Encoder_TypeDef;
 typedef struct { unsigned calls; } FOC_TypeDef;
 enum { MotorParam_Error = 12 };
@@ -75,7 +100,11 @@ static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->velocit
 static void FOC_Current(FOC_TypeDef *f, MotorControl_TypeDef *m, float a, float v) {
     (void)m; (void)a; (void)v; f->calls++;
 }
-''' + reference + '\n' + actual + r'''
+"""
+        + reference
+        + "\n"
+        + actual
+        + r"""
 typedef struct {
     MotorControl_TypeDef motor;
     PositionCascadeTelemetry_TypeDef telemetry;
@@ -95,18 +124,38 @@ static void setup(MotorControl_TypeDef *m) {
     m->friction_viscous_neg_a_per_rad_s = .2f;
 }
 static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
-    if (tick == 127 || tick == 253 || tick == 411) m->posRef += tick == 253 ? -.18f : .09f;
-    if (tick != 131 && tick != 271) return;
+    if (tick == 127 || tick == 253 || tick == 411)
+    {
+        m->posRef += tick == 253 ? -.18f : .09f;
+    }
+    if (tick != 131 && tick != 271)
+    {
+        return;
+    }
     switch(scenario) {
-''' + '\n'.join(
-        f'case {i}: m->{field} = tick == 131 ? {value} : NAN; break;'
-        for i, (field, value) in enumerate([
-            ('pos_error_window', '.0011f'), ('posAcc', '.5f'), ('posDec', '.3f'),
-            ('pos_maxspeed', '.4f'), ('speed_limit', '.7f'), ('cascade_pos_Kp', '9.0f'),
-            ('cascade_pos_Kd', '1.0f'), ('speed_Kp', '.3f'), ('speed_Ki', '1.0f'),
-            ('current_limit', '4.0f'), ('friction_coulomb_pos_a', '1.2f'),
-            ('friction_coulomb_neg_a', '1.1f'), ('friction_viscous_pos_a_per_rad_s', '.3f'),
-            ('friction_viscous_neg_a_per_rad_s', '.4f')])) + r'''
+"""
+        + "\n".join(
+            f"case {i}: m->{field} = tick == 131 ? {value} : NAN; break;"
+            for i, (field, value) in enumerate(
+                [
+                    ("pos_error_window", ".0011f"),
+                    ("posAcc", ".5f"),
+                    ("posDec", ".3f"),
+                    ("pos_maxspeed", ".4f"),
+                    ("speed_limit", ".7f"),
+                    ("cascade_pos_Kp", "9.0f"),
+                    ("cascade_pos_Kd", "1.0f"),
+                    ("speed_Kp", ".3f"),
+                    ("speed_Ki", "1.0f"),
+                    ("current_limit", "4.0f"),
+                    ("friction_coulomb_pos_a", "1.2f"),
+                    ("friction_coulomb_neg_a", "1.1f"),
+                    ("friction_viscous_pos_a_per_rad_s", ".3f"),
+                    ("friction_viscous_neg_a_per_rad_s", ".4f"),
+                ]
+            )
+        )
+        + r"""
     case 14: m->friction_model_valid = !m->friction_model_valid; break;
     case 15: m->axis_profile.magic=1; m->axis_profile.minimum_position_rad=-1;
         m->axis_profile.maximum_position_rad=1;
@@ -134,14 +183,26 @@ int main(void) {
             change(&m,scenario,tick);
             e.position=.0001f * (float)((int)(tick%17)-8);
             e.velocity=.0002f * (float)((int)(tick%11)-5);
-            if(scenario==20 && tick==263) e.velocity=NAN;
+            if(scenario==20 && tick==263)
+            {
+                e.velocity=NAN;
+            }
             error=0; f.calls=0;
-            if(pass==0) Task_Position_Mode_Reference(&f,&m,&e);
-            else Task_Position_Mode(&f,&m,&e);
+            if(pass==0)
+            {
+                Task_Position_Mode_Reference(&f,&m,&e);
+            }
+            else
+            {
+                Task_Position_Mode(&f,&m,&e);
+            }
             memset(&s,0,sizeof(s)); s.motor=m;
             PositionCascade_GetTelemetry(&s.telemetry);
             s.error=error; s.calls=f.calls; s.defer=PositionCascade_ShouldDeferTelemetry();
-            if(pass==0) expected[tick]=s;
+            if(pass==0)
+            {
+                expected[tick]=s;
+            }
             else if(memcmp(&expected[tick],&s,sizeof(s))!=0) {
                 fprintf(stderr,"Mismatch scenario=%u tick=%u error=%u/%u defer=%d/%d\n",
                     scenario,tick,expected[tick].error,s.error,expected[tick].defer,s.defer);
@@ -156,21 +217,44 @@ int main(void) {
     puts("PASS 25200 tick comparisons: every live tuning field, NaN, signed zero, target/axis bounds, reset, telemetry/divider, same-tick rejection");
     return 0;
 }
-'''
-    src = out / 'config_cache_test.c'
-    src.write_text(fixture, encoding='utf-8')
-    exe = out / 'config_cache_test.exe'
-    cc = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else [])
+"""
+    )
+    src = out / "config_cache_test.c"
+    src.write_text(fixture, encoding="utf-8")
+    exe = out / "config_cache_test.exe"
+    cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     log = []
-    for command in [cc + ['-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(out), *NATIVE_INCLUDE_FLAGS,
-                         '-I', 'firmware/motor/foc', '-I', '.', str(src), 'firmware/motor/position/position_cascade.c',
-                         'firmware/motor/trajectory/position_smooth_trajectory.c', 'firmware/motor/foc/foc_pid.c', '-o', str(exe)], [str(exe)]]:
+    for command in [
+        cc
+        + [
+            "-std=c99",
+            "-O2",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(out),
+            *NATIVE_INCLUDE_FLAGS,
+            "-I",
+            "firmware/motor/foc",
+            "-I",
+            ".",
+            str(src),
+            "firmware/motor/position/position_cascade.c",
+            "firmware/motor/trajectory/position_smooth_trajectory.c",
+            "firmware/motor/foc/foc_pid.c",
+            "-o",
+            str(exe),
+        ],
+        [str(exe)],
+    ]:
         r = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
         log.append(r.stdout + r.stderr)
-        (out / 'test.log').write_text('\n'.join(log), encoding='utf-8')
-        print(log[-1], end='')
+        (out / "test.log").write_text("\n".join(log), encoding="utf-8")
+        print(log[-1], end="")
         r.check_returncode()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -26,8 +26,6 @@ extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
 extern FOC_TypeDef FOC;
 extern Encoder_TypeDef OnBoard_Encoder;
-/* 通信层不包含 app 头文件；沿用本文件的 extern 约定声明快速环侧遥测访问器。 */
-bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
 
 /** @brief CAN 参数在线路上的数值编码。 */
 typedef enum
@@ -830,7 +828,6 @@ void CANRxIRQHandler(void)
  **/
 static void CAN_BuildMotorStatusSnapshot(MotorStatus *sample)
 {
-    PositionCascadeTelemetry_TypeDef planned;
     sample->fault = (uint16_t)MotorControl.ErrorNow;
     sample->mode = (uint16_t)MotorControl.ModeNow;
     sample->position_target = MotorControl.posRef;
@@ -847,10 +844,10 @@ static void CAN_BuildMotorStatusSnapshot(MotorStatus *sample)
     sample->bus_current = FOC.Ibus_filt;
     sample->position_planned = NAN;
     sample->speed_planned = NAN;
-    if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned))
+    if (MotorControl.ModeNow == Position_Mode)
     {
-        sample->position_planned = planned.position_reference;
-        sample->speed_planned = planned.trajectory_speed_reference;
+        sample->position_planned = MotorControl.posShadow;
+        sample->speed_planned = MotorControl.pos_trajectory_speed_rad_s;
     }
     else if (MotorControl.ModeNow == Position_Impedance_Mode)
     {

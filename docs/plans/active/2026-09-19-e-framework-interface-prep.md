@@ -47,6 +47,15 @@
 ### 一、必须做（不先收口，对接必然踩坑）
 
 - [ ] **1. RunState 2b 剩余直写点收口**
+  - 2026-09-19 状态：启动默认遗留已修（`2b4fee3`：`motor_state.c` 由 `Calib_CurrentOffset`
+    改为 `Motor_Disable`）。实测剩余 = cogging `Set_ModeNow`×4 + `Stop/Start_PWM_Generate`×3
+    （`foc_cogging_calibration.c` L104/108/150/155/218/374/382）、`foc_errhandle.c` 准入路径
+    `ModeNow` 写入×4（L220/242/250/260，属请求登记、夹具已建模的过渡）、TorqueGuard 跳闸路径
+    （经 `Task_Current_Mode` 签名锁定，需经模块标志 + dispatch 转结果协议）、`main.c` save 收尾
+    `Set_ModeNow(Motor_Disable)`、dispatch `Motor_Disable` 分支零矢量预载。
+  - 深水设计约束（cogging finalize）：现 `FocCogging_Service` 在临界区内写 `Save_Param` 作为
+    "占位锁"（防 CAN 抢占长耗时 CRC）；迁移须由状态机承接——模块置请求句柄，快环 ≤1 拍内落位，
+    或在计划中显式记录保留边界。**每路径先建夹具再迁移（对照 2a 做法），不得跳步。**
   - 范围：TorqueGuard 跳闸、cogging `Stop/Start/finalize` 临界区握手、标定模块剩余
     `Save_Param`/高侧路径、sensorless/position/impedance worker、dispatch 零矢量预载。
   - 产出：全部直写点经结果协议或会话边界上报；统一运行状态机 2b 收尾记录更新。
@@ -88,9 +97,12 @@
   Mode3 相位参考等）：E 侧落点、依赖的硬件接口/状态机写点/会话、前置解耦项、已有证据。
 - [ ] **10. 齿槽收尾**：全转矩模式接线（等 `foc_task.c` 并行改动落定）、标定会话不直写
   模式/功率级、夹具固化——用户已裁决"后续合并"的第一个确定性对象。
-- [ ] **11. 硬件解耦 H 尾项**：H4b（`foc_sensing.c`/`foc_errhandle.c`）、H5
+- [x] **11. 硬件解耦 H 尾项**：H4b（`foc_sensing.c`/`foc_errhandle.c`）、H5
   （`interface_can` 等反向依赖）先做；**H3（encoder 大结构 → `platform/api` 快照契约）
   单独立项评审**（最高风险，涉 5 处公共签名）。
+  ——2026-09-19 已由波次关闭：H3（编码器解耦 A/B/C/D + 实机只读证据）、H4b（感测/功率级
+  契约）、H5 硬件类（通信分层 S1 = T3）；架构债硬件类清零（11→5，余 5 条为 motor→services
+  方向项，并入任务 9 一并处理）。
 
 ### 四、冻结与禁止（防返工）
 
@@ -100,9 +112,12 @@
 - [ ] **13. 禁止清单**：不动本节点目录结构（物理迁移是 E 侧任务）；不新建会被 E 取代的
   大件（持久化事务/NV 记录/产品配置）；不改 CAN 编号与线上语义；核心不单独演化；
   不给接口另起命名体系（`AppLifecycle`/`MotorState`/`MotorCommands` 已定）。
-- [ ] **14. 对接通道与锚点**：deepseek-e 尚无远程分支；本分支截至 2026-09-19 领先其
+- [x] **14. 对接通道与锚点**：deepseek-e 尚无远程分支；本分支截至 2026-09-19 领先其
   origin 对应分支 15 个提交（另有在途未提交改动）。切换节点前完成锚定（提交/标签 +
   证据目录 + 备份）；对接通道（补丁包 vs 推送远程）由用户决定。
+  ——2026-09-19 锚定已执行：推送 `4d395bf2..2b4fee3a` + 标签 `sync-20260919` /
+  `sync-20260919-latest` 已在 origin。通道按既定方案执行：补丁/交底包**单向回移**到
+  deepseek-e（两树结构分叉，不做整树 merge）；如需改为推送远程另议。
 
 ## 3. 执行顺序（三批）
 
@@ -134,3 +149,9 @@
   （`2026-09-19-e-handoff-pack.md`）：E 核心逐 token 复验与回灌包（待审）、适配器语义对照表、
   Operation 会话语义规格、故障三口径对照表 + 8 项裁决清单。
   提交：`<pending>`。
+- 2026-09-19（波次收尾）：硬件边界 T1–T5、通信分层 S1–S4/S6、HIL 退役全部落地并提交
+  （硬件类架构债清零，`check_architecture` = 5 known 全部为方向类）；任务 11、14 关闭。
+- 2026-09-19（本轮）：启动默认遗留修复 `2b4fee3`（quick 档 PASS：
+  `outputs/runs/20260919T131434088712Z-05d9ebc6`；Keil normal 0 Error / 0 Warning，Code=81964）；
+  锚定推送 `4d395bf2..2b4fee3a` + 标签 `sync-20260919` / `sync-20260919-latest`。
+- 待办：任务 1 剩余清单见条目注释（深水项按"先夹具后迁移"逐路径推进）；任务 2/3/8/9/12 未启动。

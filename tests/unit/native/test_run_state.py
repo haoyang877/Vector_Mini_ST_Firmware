@@ -127,6 +127,7 @@ typedef struct
 #define Sensorless_Speed_Mode 11
 #define Voltage_OpenLoop 12
 #define Calib_PhaseResistance 13
+#define Calib_Friction 14
 #define No_Error 0
 #define CurrentOffset_Error 1
 #define Encoder_Error 2
@@ -519,7 +520,19 @@ int main(void)
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
         assert(!power_on);
 
-        printf("PASS calibration sessions: anticogging then save, phase resistance start/stop\n");
+        /* 摩擦辨识：入口自动启相（自自动使能迁移到会话）；停机结果完成会话并关相。 */
+        ResetWorld(Motor_Disable, Calib_Friction, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
+        assert(power_on);
+        FocRunState_Tick(stop_tick);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(!power_on);
+
+        printf("PASS calibration sessions: anticogging then save, phase resistance and"
+               " friction start/stop\n");
     }
 
     /* ===== 恢复矩阵用例（阶段 D1） ===== */

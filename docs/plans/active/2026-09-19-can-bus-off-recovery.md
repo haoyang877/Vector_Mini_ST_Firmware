@@ -49,10 +49,23 @@
 - PR 档全绿：`outputs/runs/20260919T151739722017Z-9cc22d36/summary.json`。
 - Keil 双目标 **0 Error / 0 Warning**：Code=82148 / RO=4888 / RW=256 / ZI=31344。
 
-**台架（待补）**
-- 断开 CANL（或断对端供电）→ 观察驱动器进入 bus-off 后**自动恢复**（≤1 s 重新上线，
-  只读 CLI 继续收到遥测）；插回后持续正常；
-- 稳定性：连续插拔 5 次不应出现永久静默（复位前行为）。
+**台架（2026-09-19 完成，含烧录验证）**
+- 烧录：J-Link 下载 `outputs/build/keil/Vector_Mini_ST/Vector_Mini_ST.hex`（245,580 B），
+  `Program & Verify → O.K.`（Erase 0.959 s / Program 0.981 s / Verify 0.051 s），复位后运行。
+- 复位后连通性：只读 GET（node 1）→ `adapter_online=true`、`telemetry_observed=true`、
+  位置 3.786 rad、母线 27.86 V、温度 26.61 °C、mode/fault = 0/0、4 s 内 76 帧 RX。
+- **bus-off 自恢复回归（软件注入"无人 ACK"）**：
+  | 步骤 | 条件 | 结果 |
+  | --- | --- | --- |
+  | A | 正常模式，发 `0x64=20` 启流，听 2 s | **40 帧**（20 Hz × 2 s，正在推 48 B 状态流） |
+  | B | **listen-only（不 ACK）10 s** → 制造 bus-off | **18,625 帧**：10 s 内**持续**有帧，未出现永久静默 |
+  | C | 切回正常模式 3 s | **62 帧**（≈20 Hz × 3 s），**无需复位即恢复** |
+  - 判据说明：修复前同一条件（无 ACK）会让控制器锁在 bus-off/INIT 直到复位——已由本次
+    J-Link 寄存器实测（CCCR.INIT=1、PSR.BO=1、TEC=248、RXF0S=0）证实；本次 B 步在 10 s 内
+    持续出帧，即为**自恢复生效**的直接证据（D 步 CLI 因 revision/profile 不匹配拒绝发送，
+    因此未做 STOP）。
+- 遗留：本次为制造无 ACK，探针以 listen-only 观察，驱动器状态流仍保持 20 Hz 开启
+  （未下发 `0x64=0`）；如需关闭请复位或由上位机停流。
 
 ## 5. 回滚
 

@@ -1,6 +1,6 @@
 # foc_run 归位与瘦身 v1.0
 
-日期：2026-09-19。状态：阶段 0/1.1/1.2/1.3/1.4 与 2.1/2.2 已完成；2.3（可选文件级拆分）待办。
+日期：2026-09-19。状态：主体完成并提交（阶段 0/1.1–1.4、2.1/2.2，硬件解耦 H1–H4 由本轮与并行工作流共同完成，架构债 44 → 11）。余量：H1.2 轴 profile 决策、H5 反向依赖（interface_can 4 条 + 服务/协议 7 条）、2.3（可选）。
 
 ## 意图与验收
 
@@ -92,11 +92,25 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 | H1.4 | `foc_sensing.h`、`foc_traptraj.h` 去 `main.h`；四个头文件补齐 27 条中文接口契约并还清接口债 | 完成 |
 | H1.2 | 轴 profile 纯类型下沉 motor | 待决策：`foc_errhandle` 调 services 的 `MotorAxisProfile_AllowsPosition`，移类型需连带拆"类型+谓词"或把校验上移 app |
 | H2.1 | `foc_sensorless.c` 用 `platform/api/control_config.h` | 完成（早前） |
-| H2.2 | 其余 `hw_conf` 用户归位：`foc_cogging_calibration.c`/`foc_friction_identification.c` 只留时基改 `control_config.h`；`foc_traptraj.c` 删未用包含；`foc_traptraj.c` 借此从 GBK 转为 UTF-8；`position_impedance.c` 走感测契约（宏改全名）；`position_impedance_config.h` 改引用新契约；**新增 `platform/api/motor_hardware_profile.h`（阻尼环/前馈选择簇）**；`current_sense_profile.h` 由 bsp 迁入 `platform/api`；`foc_param.c` 改用 `CURRENT_SENSE_PROFILE_*` 全名 | 本批 6 项完成；剩余 `foc_sensing.c`、`foc_calibration.c` |
+| H2.2 | 其余 `hw_conf` 用户归位：`foc_cogging_calibration.c`/`foc_friction_identification.c` 只留时基改 `control_config.h`；`foc_traptraj.c` 删未用包含；`foc_traptraj.c` 借此从 GBK 转为 UTF-8；`position_impedance.c` 走感测契约（宏改全名）；`position_impedance_config.h` 改引用新契约；**新增 `platform/api/motor_hardware_profile.h`（阻尼环/前馈选择簇）**；`current_sense_profile.h` 由 bsp 迁入 `platform/api`；`foc_param.c` 改用 `CURRENT_SENSE_PROFILE_*` 全名 | 完成（`foc_sensing.c` 余量由并行会话的感测重构一并清除） |
 | H4a | `foc_algorithm.c` 的 `TIM1->CCR` 直访 → `motor_hw` PWM 端口 | 完成（并行会话，提交 `23ef80ab`） |
-| H4b | `foc_sensing.c` 的 `adc.h`、`foc_errhandle.c` 的 `tim.h` → 平台接口 | 待做 |
-| H3 | `encoder.h` BSP 大结构 → `platform/api` 采样快照接口（涉及 `foc_calibration.h`/`foc_cogging_calibration.h`/`foc_friction_identification.h`/`foc_errhandle.c`/`foc_param.h` 五处公共签名） | 待立项（最高风险） |
-| H5 | 其余反向依赖：`interface_can.*` 的 BSP/HAL 引用（delay/encoder/hw_conf/fdcan/main）、`foc_param.c→common_inc.h`、`data_type.h→services/motor_axis_profile.h`、`foc_algorithm/position_cascade→fast_loop_profile.h`、`friction/phase_resistance→foc_param_profile.h` | 待做 |
+| H4b | `foc_sensing.c` 的 `adc.h`、`foc_errhandle.c` 的 `tim.h` → 平台接口 | 完成（感测契约 + 功率级端口，并行批次提交） |
+| H3 | `encoder.h` BSP 大结构 → `platform/api` 采样快照接口 | 完成（并行会话编码器解耦：`aabd03f4` + 在途批次） |
+| H5 | 其余反向依赖：`interface_can.*` 的 BSP/HAL 引用（delay/hw_conf/fdcan/main）、`foc_param.c→common_inc.h`、`data_type.h→services/motor_axis_profile.h`、`foc_algorithm/position_cascade→fast_loop_profile.h`、`friction/phase_resistance→foc_param_profile.h`、`foc_param.h→main.h` | 待办（架构债余 11 条，见下） |
+
+## 收尾与余量（2026-09-19）
+
+架构债剩余 **11 条**（44 → 11，其余由本轮与并行工作流清除）：
+
+- **interface_can 批次（4 条）**：`delay.h`、`hw_conf.h`、`fdcan.h`、`main.h` —— 需要通信层接入
+  `time_hw`/`comm_hw` 契约并按需提取 CAN 帧缓冲视图。
+- **服务/协议反向（7 条）**：`data_type.h → motor_axis_profile.h`（轴 profile 纯类型下沉，
+  需先决定 `MotorAxisProfile_AllowsPosition` 归属，即 H1.2）、`foc_algorithm/position_cascade
+  → fast_loop_profile.h`（profiling 契约归位）、`friction/phase_resistance →
+  foc_param_profile.h`（参数 profile 边界）、`foc_param.c → common_inc.h`（聚合头拆分）、
+  `foc_param.h → main.h`。
+- **可选**：2.3 `foc_run.c` 文件级拆分（纯可读性；动两个工程与三个夹具）。
+- 已由并行工作流关闭：编码器解耦（H3）、标定功能移除与后续清理、感知/功率级契约（H4b）。
 
 ## 验证证据
 

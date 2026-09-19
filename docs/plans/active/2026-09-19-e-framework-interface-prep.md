@@ -56,6 +56,9 @@
   - 深水设计约束（cogging finalize）：现 `FocCogging_Service` 在临界区内写 `Save_Param` 作为
     "占位锁"（防 CAN 抢占长耗时 CRC）；迁移须由状态机承接——模块置请求句柄，快环 ≤1 拍内落位，
     或在计划中显式记录保留边界。**每路径先建夹具再迁移（对照 2a 做法），不得跳步。**
+    ——2026-09-19 已迁移：friction 会话（`44e7aa5`）、齿槽结果协议 + TorqueGuard 挂起标志
+    （`5a7e92c`）。保留为例外并已在代码注明：齿槽自管启相 / finalize 保存占位写 /
+    `foc_errhandle` 准入登记写（阶段 3）/ `main.c` 前台保存握手 / dispatch 禁用态预载。
   - 范围：TorqueGuard 跳闸、cogging `Stop/Start/finalize` 临界区握手、标定模块剩余
     `Save_Param`/高侧路径、sensorless/position/impedance worker、dispatch 零矢量预载。
   - 产出：全部直写点经结果协议或会话边界上报；统一运行状态机 2b 收尾记录更新。
@@ -155,3 +158,6 @@
   `outputs/runs/20260919T131434088712Z-05d9ebc6`；Keil normal 0 Error / 0 Warning，Code=81964）；
   锚定推送 `4d395bf2..2b4fee3a` + 标签 `sync-20260919` / `sync-20260919-latest`。
 - 待办：任务 1 剩余清单见条目注释（深水项按"先夹具后迁移"逐路径推进）；任务 2/3/8/9/12 未启动。
+- 2026-09-19（第二批）：friction 会话 `44e7aa5`；齿槽结果协议 + TorqueGuard `5a7e92c`
+  （quick 全绿 `outputs/runs/20260919T145921116298Z-44e7aa57`；Keil normal 0/0，Code=82080；
+  差分 46,464 保持；齿槽夹具全 PASS）。任务 1 的主体直写点已收口，仅余已注明的过渡例外。

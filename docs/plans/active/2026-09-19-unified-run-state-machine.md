@@ -259,3 +259,22 @@ stateDiagram-v2
   `outputs/runs/20260918T184405803443Z-baaa0338/summary.json`。
 
 阶段 3：待启动（伪命令迁出枚举 + CAN 兼容，需单独评审）。
+
+## 2b 收尾记录（2026-09-19）
+
+- **摩擦标定接入会话**（`44e7aa5`）：`Calib_Friction` 退出通用自动使能，改由会话开启时按旧入口
+  条件启相（与相电阻同构）；worker STOP 完成 CALIBRATION（UNCOMMITTED）。夹具新增摩擦会话用例。
+- **齿槽标定结果协议化**（`5a7e92c`）：`FocCogging_Task` 返回 `MotorWorkOutcome`——完成
+  `SWITCH_MODE(Motor_Disable)+power_off`、失败 `FAULT`；模块只做本地清理，停相与模式回退归状态机。
+  台架 TorqueGuard 改置挂起标志，由调度层（`FocCogging_TakeTorqueTrip`）转为同一停机结果。
+  齿槽夹具改为"模拟状态机消费结果"（对照 sensorless 先例）。
+- **保留的显式例外**（均已在代码内注明）：
+  1. 齿槽会话启动的自管启相（受 CanStart 与会话安全门守卫）；
+  2. 齿槽 finalize 的保存占位写（临界区内 `Set_ModeNow(Save_Param)`，等状态机侧操作占位锁）；
+  3. `foc_errhandle` 准入路径的模式登记写与 `main.c` 前台保存收尾写（命令/模式分离属阶段 3；
+     main.c 写为前台保存握手的一部分）。
+- **核实无写点的条目**：sensorless/position/impedance worker 复查无直接写点（早前批次已清除）。
+- **dispatch 零矢量预载**：保持现状——它是禁用态的安全默认占空比（非使能动作），已在调度层注明；
+  如要求完全收口，可改由状态机停机路径单次应用并复核波形（另立项）。
+- **证据**：quick 全绿（`outputs/runs/20260919T145921116298Z-44e7aa57`）；Keil normal 0/0
+  （Code=82080）；run-state 差分 46,464 组保持；齿槽夹具全 PASS。

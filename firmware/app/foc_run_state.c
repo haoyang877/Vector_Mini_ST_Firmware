@@ -5,6 +5,9 @@
 #include "common_inc.h"
 #include "motor_state.h"
 
+/* 心跳计数字段由 interface_can 持有；本文件只读，沿用局部 extern 约定（同 foc_param.c）。 */
+extern CANMsg_TypeDef CANMsg;
+
 /* 阶段 D 恢复矩阵参数：过流回落驻留 100 ms（20 kHz 快环 2000 拍），高温恢复滞回 80 °C。 */
 #define RUN_STATE_OC_RECOVER_TICKS 2000U
 #define RUN_STATE_TEMP_RECOVER_C 80.0f

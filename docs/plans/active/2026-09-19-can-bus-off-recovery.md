@@ -31,7 +31,7 @@
   检查 `PSR.BO` 或 `CCCR.INIT`，必要时重新上线；健康时返回 false 且不动硬件。
 - `ports/comm/comm_control_stm32g4.c` 实现：置位时调用 `HAL_FDCAN_Start`（清 INIT 重回
   总线），失败按致命处理；不改变位时序、滤波器与中断配置。
-- `communication/can/can_transport.c`：在既有 1 kHz 监督入口 `CAN_BaudRateSwitching`
+- `communication/can/can_transport.c`：在既有 2 kHz 监督入口 `CAN_BaudRateSwitching`
   （每 100 拍调用一次）内按 10 拍限频（**约 1 Hz**）执行恢复，避免总线真断时反复抖动。
 
 ## 3. 不变行为

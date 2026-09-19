@@ -79,10 +79,11 @@ int main(void) {
  assert(!McuTemperature_Convert(1000,100,1000,1400,1500,&c,&v));
  reset();Temperature_Update(&foc);assert(isnan(foc.temp) && starts==1 && !McuTemperature.valid);
  fresh(1000,1500);assert(foc.temp==30 && McuTemperature.valid && McuTemperature.sample_count==1);
- fresh(1040,1500);assert(fabsf(foc.temp-30.2f)<.0001f && McuTemperature.raw_celsius==40);
- /* A pending conversion is never restarted and stale samples expire exactly at 100 ms. */
+ fresh(1040,1500);assert(fabsf(foc.temp-30.1f)<.0001f && McuTemperature.raw_celsius==40);
+ /* A pending conversion is never restarted and stale samples expire exactly at 100 ms
+    (200 supervision ticks at 2 kHz). */
  unsigned n=starts;
- for(unsigned i=0;i<99;i++) Temperature_Update(&foc);
+ for(unsigned i=0;i<199;i++) Temperature_Update(&foc);
  assert(McuTemperature.valid && starts==n && MotorControl.ErrorNow==No_Error);
  Temperature_Update(&foc);assert(!McuTemperature.valid && isnan(foc.temp) && MotorControl.ErrorNow==TemperatureSensor_Error);
  fresh(1000,1500);assert(McuTemperature.valid && foc.temp==30 && MotorControl.ErrorNow==TemperatureSensor_Error);
@@ -90,9 +91,9 @@ int main(void) {
  fresh(1240,1500);assert(MotorControl.ErrorNow==High_Temprature && foc.temp<90); /* unfiltered trip */
  MotorControl.ErrorNow=Encoder_Error;fresh(1400,1500);assert(MotorControl.ErrorNow==Encoder_Error);
  reset();fresh(1000,1500);fresh(0,1500);assert(!McuTemperature.valid && isnan(foc.temp));
- for(unsigned i=1;i<100;i++)fresh(0,1500);
+ for(unsigned i=1;i<200;i++)fresh(0,1500);
  assert(MotorControl.ErrorNow==TemperatureSensor_Error);
- reset();for(unsigned i=0;i<100;i++)Temperature_Update(&foc);
+ reset();for(unsigned i=0;i<200;i++)Temperature_Update(&foc);
  assert(MotorControl.ErrorNow==TemperatureSensor_Error); /* startup with no ADC */
  puts("PASS MCU 30/130C calibration, supply correction, invalid trim/ADC, filtering, raw hot trip, stale/startup timeout and fault preservation");
  return 0;
@@ -100,7 +101,7 @@ int main(void) {
 """
     )
     fixture = out / "mcu_temperature.c"
-    fixture.write_text(src)
+    fixture.write_text(src, encoding="utf-8")
     exe = out / "mcu_temperature.exe"
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     subprocess.run(

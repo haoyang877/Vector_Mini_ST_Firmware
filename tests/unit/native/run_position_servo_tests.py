@@ -54,7 +54,6 @@ def rtt_frame_fixture():
 #define RTT_SAMPLE_DIVIDER 10U
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
 #define Position_Mode 3
-#define Encoder_DidUpdateVelocity(p) false
 static struct { int ModeNow; float iqRef; } MotorControl;
 typedef struct { float theta_mech, vel_mech; } EncoderTelemetry_TypeDef;
 static EncoderTelemetry_TypeDef OnBoard_Encoder;
@@ -101,6 +100,7 @@ def encoder_startup_fixture():
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -108,6 +108,9 @@ def encoder_startup_fixture():
 #define _2PI 6.2831853072f
 #define ENCODER_Q15_CPR 65536UL
 #define ENCODER_Q15_HALF_TURN 32768
+#define ENCODER_VELOCITY_WINDOW 16U
+#define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
+#define Supervisor_Ts 0.0005f
 #define ENC_CALIB_MECHANICAL_ZERO 4U
 typedef struct {
     MotorAxisProfile axis_profile;
@@ -115,12 +118,18 @@ typedef struct {
     int motor_pole_pairs;
 } MotorControl_TypeDef;
 typedef struct {
-    uint16_t raw_q15, directed_q15, linearized_q15, previous_linearized_q15;
-    uint16_t electrical_zero_q15, mechanical_zero_q15;
+    uint16_t raw_q15, directed_q15, linearized_q15, electrical_zero_q15, mechanical_zero_q15;
+    uint16_t previous_linearized_q15;
     uint8_t calib_flag;
     bool has_valid_sample;
+    volatile uint32_t sample_epoch;
+    uint32_t slow_sample_epoch;
+    volatile bool rebase_requested, zero_requested, velocity_restart_requested;
     int64_t shadow_q15, mechanical_zero_shadow_q15, velocity_shadow_q15;
-    float theta_elec, theta_mech;
+    float theta_elec, theta_mech, vel_mech, vel_elec, vel_mech_continuous;
+    uint8_t velocity_history_index, velocity_sample_count;
+    bool velocity_ready;
+    int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW], velocity_delta_sum;
 } Encoder_TypeDef;
 static uint16_t sample;
 static bool sample_ok = true;
@@ -130,14 +139,18 @@ static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e, uint16_t v)
 { (void)e; return v; }
 static uint16_t Encoder_ApplyLinearizationQ15(Encoder_TypeDef *e, uint16_t v)
 { (void)e; return v; }
-static void Encoder_ResetVelocity(Encoder_TypeDef *e)
-{ e->velocity_shadow_q15 = e->shadow_q15; }
-static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *e, uint32_t poles)
-{ (void)e; (void)poles; }
 """
         + "\n".join(
             function_source(source, name)
-            for name in ["Encoder_UpdateAngles", "Encoder_CompleteSample"]
+            for name in [
+                "Encoder_UpdateElecAngle",
+                "Encoder_RestartVelocityWindow",
+                "Encoder_UpdateShadow",
+                "Encoder_UpdateVelocity",
+                "Encoder_RebaseMultiTurnPosition",
+                "Encoder_CompleteSample",
+                "Encoder_UpdateSlowEstimate",
+            ]
         )
         + r"""
 int main(void) {
@@ -152,29 +165,33 @@ int main(void) {
     sample_ok = false; Encoder_CompleteSample(&m, &e, false);
     assert(!e.has_valid_sample);
     sample_ok = true; Encoder_CompleteSample(&m, &e, false);
+    assert(e.has_valid_sample);
+    /* 首个有效帧在 2 kHz 慢估计中重定多圈基准。 */
+    Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 4536);
     assert(e.velocity_shadow_q15 == e.shadow_q15);
     assert(e.mechanical_zero_q15 == 65000 && e.electrical_zero_q15 == 1234);
     assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, e.theta_mech));
-    sample = 65530; Encoder_CompleteSample(&m, &e, true);
+    sample = 65530; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 == 65530);
-    sample = 10; Encoder_CompleteSample(&m, &e, true);
+    sample = 10; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 == 65546); /* continuous across wrap after startup */
     memset(&e, 0, sizeof(e)); e.mechanical_zero_q15 = 500;
     e.calib_flag = ENC_CALIB_MECHANICAL_ZERO; sample = 65000;
     Encoder_CompleteSample(&m, &e, false);
+    Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == -1036);
     /* Invalid/unconfigured axes and uncalibrated encoders keep legacy behavior. */
     e.has_valid_sample = false; m.axis_profile_valid = false;
-    Encoder_CompleteSample(&m, &e, false);
+    Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 64500);
     e.has_valid_sample = false; m.axis_profile_valid = true; e.calib_flag = 0;
-    Encoder_CompleteSample(&m, &e, false);
+    Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 == 65000 && e.mechanical_zero_shadow_q15 == 0);
     /* Do not map a real out-of-travel position into the allowed range. */
     e.has_valid_sample = false; e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
     e.mechanical_zero_q15 = 0; sample = 30000;
-    Encoder_CompleteSample(&m, &e, false);
+    Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
     assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
     puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
     return 0;
@@ -208,17 +225,16 @@ def encoder_fixture():
 #include <math.h>
 #include <stdio.h>
 #define _2PI 6.2831853072f
-#define SPEED_LOOP_DIVIDER 10U
-#define Speed_Ts 0.0005f
+#define Supervisor_Ts 0.0005f
 """
         + "\n".join(macros)
         + """
 typedef struct {
     int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
-    uint8_t velocity_divider, velocity_history_index, velocity_sample_count;
-    uint16_t bad_frame_streak;
     int32_t velocity_delta_sum;
+    uint8_t velocity_history_index, velocity_sample_count;
     bool velocity_ready;
+    volatile bool velocity_restart_requested;
     int64_t velocity_shadow_q15, shadow_q15;
     float vel_mech, vel_elec, vel_mech_continuous;
 } Encoder_TypeDef;
@@ -226,45 +242,39 @@ typedef struct {
         + "\n".join(
             function_source(source, name)
             for name in [
-                "Encoder_ResetVelocity",
-                "Encoder_UpdateVelocity2kHz",
+                "Encoder_RestartVelocityWindow",
+                "Encoder_UpdateVelocity",
                 "Encoder_GetMecVel",
                 "Encoder_GetMecVelContinuous",
-                "Encoder_DidUpdateVelocity",
             ]
         )
         + """
 int main(void) {
     Encoder_TypeDef e = {0};
-    int k, n;
-    Encoder_ResetVelocity(&e);
-    assert(!Encoder_DidUpdateVelocity(&e));
-    for (k=0; k<400; ++k) {
-        if ((k % 4)==0) e.shadow_q15++;
-        for(n=0; n<10; ++n) {
-            Encoder_UpdateVelocity2kHz(&e, 7);
-            assert(Encoder_DidUpdateVelocity(&e) == (n == 9));
-        }
-    }
-    e.bad_frame_streak = 1;
-    assert(!Encoder_DidUpdateVelocity(&e));
-    e.bad_frame_streak = 0;
-    assert(Encoder_GetMecVel(&e)==0);
-    assert(fabsf(Encoder_GetMecVelContinuous(&e)-_2PI/(65536.0f*.002f))<.00001f);
-    Encoder_ResetVelocity(&e);
-    assert(Encoder_GetMecVelContinuous(&e)==0 && !e.velocity_ready);
-    for (k=0; k<400; ++k) {
-        if ((k % 4)==0) e.shadow_q15--;
-        for(n=0; n<10; ++n) Encoder_UpdateVelocity2kHz(&e, 7);
-    }
-    assert(Encoder_GetMecVel(&e)==0 && Encoder_GetMecVelContinuous(&e)<-.04f);
-    for(k=0;k<100;++k) {
-        e.shadow_q15+=20;
-        for(n=0;n<10;++n) Encoder_UpdateVelocity2kHz(&e, 7);
-    }
-    assert(Encoder_GetMecVel(&e)==Encoder_GetMecVelContinuous(&e));
-    assert(e.vel_elec==e.vel_mech*7);
-    puts("PASS actual encoder estimator: low speed, both directions, reset, legacy path");
+    int k;
+    float expected;
+    Encoder_RestartVelocityWindow(&e);
+    assert(!e.velocity_ready && e.velocity_shadow_q15 == 0 && Encoder_GetMecVelContinuous(&e) == 0);
+    /* Forward constant speed: one Q15 count per 2 kHz tick; window fills after 16 ticks. */
+    for (k=0; k<16; ++k) { e.shadow_q15 += 1; Encoder_UpdateVelocity(&e, 7); }
+    assert(e.velocity_ready);
+    expected = _2PI / (65536.0f * 0.0005f);
+    assert(fabsf(Encoder_GetMecVelContinuous(&e) - expected) < 1e-4f);
+    assert(fabsf(Encoder_GetMecVel(&e) - expected) < 1e-4f);
+    assert(e.vel_elec == e.vel_mech * 7);
+    /* Reverse direction gives negative speed. */
+    Encoder_RestartVelocityWindow(&e);
+    for (k=0; k<16; ++k) { e.shadow_q15 -= 1; Encoder_UpdateVelocity(&e, 7); }
+    assert(fabsf(Encoder_GetMecVelContinuous(&e) + expected) < 1e-4f);
+    /* Low-speed deadband: proportional speed is zero while continuous speed stays valid. */
+    Encoder_RestartVelocityWindow(&e);
+    for (k=0; k<16; ++k) { if ((k % 4) == 0) e.shadow_q15 += 1; Encoder_UpdateVelocity(&e, 7); }
+    assert(Encoder_GetMecVel(&e) == 0 && Encoder_GetMecVelContinuous(&e) > 0.0f);
+    /* Restart: clears the window, syncs the shadow and zeroes both speeds. */
+    Encoder_RestartVelocityWindow(&e);
+    assert(!e.velocity_ready && Encoder_GetMecVel(&e) == 0 && Encoder_GetMecVelContinuous(&e) == 0);
+    assert(e.velocity_shadow_q15 == e.shadow_q15);
+    puts("PASS actual encoder estimator: both directions, deadband, reset");
     return 0;
 }
 """
@@ -480,7 +490,6 @@ static int order_len;
 static bool configured;
 static bool board_start_argument;
 static void log_step(int step) { order[order_len++] = step; }
-static void motor_hw_outer_init(void) { log_step(1); }
 static void param_store_load(void) { log_step(2); }
 static void MotorControl_Init(void) { log_step(3); }
 static bool MotorControl_IsConfigurationValid(void) { return configured; }
@@ -493,15 +502,15 @@ static void FDCAN1_Param_Init(void) { log_step(5); }
         + function_source(source, "Board_Init")
         + r"""
 int main(void) {
-    static const int expected[] = {1, 2, 3, 4, 5};
+    static const int expected[] = {2, 3, 4, 5};
     int index;
     Board_Init();
-    assert(order_len == 5 && !board_start_argument);
-    for (index = 0; index < 5; ++index) assert(order[index] == expected[index]);
+    assert(order_len == 4 && !board_start_argument);
+    for (index = 0; index < 4; ++index) assert(order[index] == expected[index]);
     configured = true;
     order_len = 0;
     Board_Init();
-    assert(order_len == 5 && board_start_argument);
+    assert(order_len == 4 && board_start_argument);
     puts("PASS board startup orchestration: order and configuration condition preserved");
     return 0;
 }

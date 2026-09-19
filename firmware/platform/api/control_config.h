@@ -50,6 +50,15 @@
 #define CASCADE_POSITION_LOOP_DIVIDER (FOC_FREQ / CASCADE_POSITION_LOOP_FREQ)
 #define Cascade_Position_Ts (1.0f / (float)CASCADE_POSITION_LOOP_FREQ)
 
+/* 监督 tick（TIM7）时基契约：温度、通信健康与指示器分频在该节拍更新。
+ * 板级 TIM7 周期必须与本契约一致（见 MX_TIM7_Init 的 USER CODE 覆写与 CubeMX 工程）。 */
+#define SUPERVISOR_FREQ 2000U
+#if (SUPERVISOR_FREQ % 1000U) != 0U
+#error "SUPERVISOR_FREQ must be a multiple of 1000 Hz for ms-based supervision"
+#endif
+#define SUPERVISOR_TICKS_PER_MS (SUPERVISOR_FREQ / 1000U)
+#define Supervisor_Ts (1.0f / (float)SUPERVISOR_FREQ)
+
 /* Sensorless speed-mode startup and observer handoff. */
 #define SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S 0.50f
 #define SENSORLESS_ALIGN_HOLD_TIME_S 0.30f

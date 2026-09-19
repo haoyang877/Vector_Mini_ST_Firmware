@@ -40,7 +40,7 @@ typedef enum
 #define ENC_CALIB_ZERO_POS ENC_CALIB_ELECTRICAL_ZERO
 #define ENC_CALIB_ALL (ENC_CALIB_LINEARIZED | ENC_CALIB_ELECTRICAL_ZERO)
 
-/** 编码器完整状态：持久化标定、单圈/多圈角度、速度估计与帧诊断。 */
+/** 编码器完整状态：持久化标定、20 kHz 快路径数据与 2 kHz 慢估计状态。 */
 typedef struct
 {
     /* 持久化的方向配置与标定数据。 */
@@ -50,25 +50,32 @@ typedef struct
     uint8_t calib_flag;
     uint8_t reverse;
 
-    /* 原始读数、方向校正值与 LUT 校正值。 */
+    /* 20 kHz 快路径写：原始读数、方向校正值、LUT 校正值与电角度。 */
     uint16_t raw_q15;
     uint16_t directed_q15;
     uint16_t linearized_q15;
+    bool has_valid_sample;
+    float theta_elec;
+    /* 快路径每产生一帧有效样本递增；慢估计据此判断是否有新样本。 */
+    volatile uint32_t sample_epoch;
+
+    /* 2 kHz 慢估计为下列状态的唯一写者；快路径只置请求标志。 */
     uint16_t previous_linearized_q15;
     int64_t shadow_q15;
     int64_t mechanical_zero_shadow_q15;
     int64_t velocity_shadow_q15;
-    bool has_valid_sample;
+    volatile bool rebase_requested;
+    volatile bool zero_requested;
+    volatile bool velocity_restart_requested;
+    uint32_t slow_sample_epoch;
 
     /* 对外提供的机械/电角度与角速度反馈。 */
-    float theta_elec;
-    float vel_elec;
     float theta_mech;
+    float vel_elec;
     float vel_mech;
     float vel_mech_continuous;
 
     /* 2 kHz 滑动平均机械速度估计。 */
-    uint8_t velocity_divider;
     uint8_t velocity_history_index;
     uint8_t velocity_sample_count;
     bool velocity_ready;
@@ -95,7 +102,7 @@ typedef struct
 void Encoder_ParamInit(Encoder_TypeDef *Encoder);
 
 /**
- * @brief 同步读取一帧角度并更新角度与速度反馈。
+ * @brief 同步读取一帧角度并更新电角度（20 kHz 快路径）。
  * @param MotorControl 电机控制状态指针，读取极对数与轴配置。
  * @param Encoder 编码器状态指针。
  * @note 20 kHz 快速环的兼容入口；新代码使用 BeginSample/CompleteSample 分离采样。
@@ -110,15 +117,25 @@ void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder
 bool Encoder_BeginSample(void);
 
 /**
- * @brief 完成本周期的角度采样并更新同一套估计器。
- * @param MotorControl 电机控制状态指针，读取极对数与轴配置。
+ * @brief 完成本周期角度采样：方向/LUT 校正与电角度更新（20 kHz 快路径）。
+ * @param MotorControl 电机控制状态指针，读取极对数。
  * @param Encoder 编码器状态指针。
  * @param sample_started Encoder_BeginSample() 的返回值；false 时走同步兜底读取。
- * @note 与 BeginSample 由同一调用方配对执行，故障路径也必须调用。
+ * @note 与 BeginSample 由同一调用方配对执行，故障路径也必须调用；本函数不更新
+ *       多圈/机械角/速度，这些慢状态由 Encoder_UpdateSlowEstimate() 独占写入。
  */
 void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl,
                             Encoder_TypeDef *Encoder,
                             bool sample_started);
+
+/**
+ * @brief 执行一次 2 kHz 编码器慢估计：多圈累积、机械角与滑动平均速度。
+ * @param MotorControl 电机控制状态指针，读取轴配置与机械零位，用于重定多圈基准。
+ * @param Encoder 编码器状态指针。
+ * @note 仅由 2 kHz 监督 tick 调用；本函数是慢状态的唯一写者，快路径只能通过
+ *       rebase_requested/zero_requested/velocity_restart_requested 请求变更。
+ */
+void Encoder_UpdateSlowEstimate(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
 
 /**
  * @brief 判断编码器是否在线。
@@ -159,8 +176,9 @@ bool Encoder_SetMechanicalZero(Encoder_TypeDef *Encoder);
 void Encoder_SetReverse(Encoder_TypeDef *Encoder, bool reverse);
 
 /**
- * @brief 复位速度估计窗口（停机、模式切换或首个有效样本后调用）。
+ * @brief 请求复位速度估计窗口（停机、模式切换或首个有效样本后调用）。
  * @param Encoder 编码器状态指针。
+ * @note 请求在下一 2 kHz 慢估计时生效；可从任意中断上下文调用。
  */
 void Encoder_ResetVelocity(Encoder_TypeDef *Encoder);
 
@@ -184,14 +202,6 @@ float Encoder_GetMecVel(const Encoder_TypeDef *Encoder);
  * @return 机械角速度，单位 rad/s；速度窗口未满时为 0。
  */
 float Encoder_GetMecVelContinuous(const Encoder_TypeDef *Encoder);
-
-/**
- * @brief 判断最近一次成功采样是否同时刷新了分频后的速度估计。
- * @param Encoder 编码器状态指针。
- * @return 已刷新返回 true；坏帧或未到分频点时返回 false。
- * @note 供慢速遥测避免与快速环重复计算。
- */
-bool Encoder_DidUpdateVelocity(const Encoder_TypeDef *Encoder);
 
 /**
  * @brief 读取电角度。

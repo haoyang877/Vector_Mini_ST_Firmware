@@ -1,7 +1,7 @@
-"""以确定性中断注入编译并运行真实延迟外环运行时。
+"""以确定性慢拍编译并运行真实 2 kHz 外环。
 
-覆盖发布所有权、过期复位/故障拒绝、截止期故障、2 kHz 节拍、速度 PI/斜坡算术不变
-与应用堆容量；合成反馈不构成物理被控对象验收。
+覆盖发布所有权、模式切换/复位、无效输入与故障拒绝、速度 PI/斜坡算术不变与
+应用堆容量；合成反馈不构成物理被控对象验收。
 """
 
 import sys as _sys
@@ -83,57 +83,21 @@ typedef struct { float position, speed; } Encoder_TypeDef;
 static MotorControl_TypeDef live;
 static PI_Controller_TypeDef live_pi;
 static Encoder_TypeDef enc;
-static unsigned schedules, injection;
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
 static float Encoder_GetMecVel(Encoder_TypeDef *e) { return e->speed; }
 static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->speed; }
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
-static void motor_hw_outer_barrier(void);
-static void motor_hw_outer_schedule(void) { schedules++; }
 """
         + param
         + funcs
         + block
         + r"""
-static void tick(void) { MotorOuterLoop_FastTick(&live, &live_pi, &enc); }
-static void motor_hw_outer_barrier(void) {
-    if (injection && outer.status == OUTER_RUNNING) {
-        unsigned action = injection;
-        float old_iq = live.iqRef;
-        PositionCascadeTelemetry_TypeDef before, after;
-        bool valid = MotorOuterLoop_GetTelemetry(&before);
-        injection = 0;
-        if (action == 1) {
-            tick();
-            assert(live.iqRef == old_iq);
-            assert(valid == MotorOuterLoop_GetTelemetry(&after));
-            if (valid)
-            {
-                assert(memcmp(&before, &after, sizeof(before)) == 0);
-            }
-        } else if (action == 2) {
-            live.ModeNow = Motor_Disable;
-            live.iqRef = 0;
-            tick();
-        } else if (action == 3) {
-            live.ErrorNow = Over_Current;
-            live.iqRef = 0;
-            tick();
-        } else if (action == 4) {
-            for (unsigned i = 0; i < 10; i++) tick();
-            assert(live.ErrorNow == ControlOverrun_Error);
-        } else if (action == 5) {
-            MotorOuterLoop_RequestReset();
-            live.iqRef = 0;
-        }
-    }
-}
+static void slow_tick(void) { MotorOuterLoop_SlowTick(&live, &live_pi, &enc); }
 static void setup(ModeNow_TypeDef mode) {
     memset(&outer, 0, sizeof(outer));
     memset(&live, 0, sizeof(live));
     memset(&live_pi, 0, sizeof(live_pi));
     enc.position = .3f; enc.speed = 0;
-    schedules = injection = 0;
     PositionCascade_Reset();
     live.ModeNow = mode; live.axis_profile_valid = true;
     live.pos_error_window = .001f; live.posAcc = .785398f; live.posDec = .523599f;
@@ -142,13 +106,6 @@ static void setup(ModeNow_TypeDef mode) {
     live.speed_Kp = .5f; live.speed_Ki = 2; live.current_limit = 4;
     live.posRef = enc.position; live.speedRef = .2f;
     live.speedAcc = .8f; live.speedDec = .5f;
-}
-static void run_step(void) {
-    tick();
-    if (outer.status == OUTER_QUEUED)
-    {
-        MotorOuterLoop_Service();
-    }
 }
 int main(void) {
     /* All known live heap allocations, even parameter I/O overlapping calibration. */
@@ -164,45 +121,19 @@ int main(void) {
         sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
     for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
         setup((ModeNow_TypeDef)mode);
-        for (unsigned i = 0; i < 200000; i++) {
-            if (i % 10000 == 0)
+        for (unsigned i = 0; i < 20000; i++) {
+            if (i % 1000 == 0)
             {
-                live.posRef = .3f + (i % 20000 ? .05f : -.05f);
+                live.posRef = .3f + (i % 2000 ? .05f : -.05f);
             }
-            run_step();
+            slow_tick();
             assert(live.ErrorNow == No_Error);
             assert(isfinite(live.iqRef) && fabsf(live.iqRef) <= live.current_limit);
         }
-        assert(schedules == 20000 && outer.completed == 20000);
-        assert(outer.maximum_age == 1 && outer.deadline_misses == 0);
-        assert(outer.status == OUTER_IDLE);
-        /* Inject a preemption at the completed calculation before publication. */
-        for (unsigned action = 1; action <= 5; action++) {
-            setup((ModeNow_TypeDef)mode);
-            tick(); assert(outer.status == OUTER_QUEUED);
-            injection = action; MotorOuterLoop_Service();
-            assert(injection == 0 && outer.status == OUTER_DONE);
-            tick(); assert(outer.status == OUTER_IDLE);
-            if (action >= 2)
-            {
-                assert(live.iqRef == 0 && !outer.ready);
-            }
-            if (action == 2 || action == 3 || action == 5)
-            {
-                assert(outer.discarded == 1);
-            }
-            if (action == 4)
-            {
-                assert(outer.deadline_misses == 1);
-            }
-        }
-        /* A queued job may outlive STOP; no output may be resurrected. */
-        setup((ModeNow_TypeDef)mode); tick();
-        live.ModeNow = Motor_Disable; live.iqRef = 0; tick();
-        MotorOuterLoop_Service(); tick();
-        assert(live.iqRef == 0 && outer.discarded == 1 && !outer.ready);
-        /* Validate invalid commands immediately, even on a non-release tick. */
-        setup((ModeNow_TypeDef)mode); run_step(); run_step();
+        assert(MotorOuterLoop_IsReady());
+        /* Tuning/config invalidity is rejected on the next slow tick with zero output. */
+        setup((ModeNow_TypeDef)mode); slow_tick();
+        assert(MotorOuterLoop_IsReady());
         if (mode == Position_Mode)
         {
             live.posRef = NAN;
@@ -211,7 +142,23 @@ int main(void) {
         {
             live.speedRef = NAN;
         }
-        tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+        slow_tick();
+        assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0 && !MotorOuterLoop_IsReady());
+        /* Mode change clears readiness; disabled modes publish nothing. */
+        setup((ModeNow_TypeDef)mode); slow_tick();
+        live.ModeNow = Motor_Disable; live.iqRef = 0;
+        slow_tick();
+        assert(!MotorOuterLoop_IsReady() && live.iqRef == 0);
+        /* Reset requests are consumed inside the slow tick; the controller rebuilds and republishes. */
+        setup((ModeNow_TypeDef)mode); slow_tick();
+        MotorOuterLoop_RequestReset();
+        assert(!MotorOuterLoop_IsReady());
+        slow_tick();
+        assert(MotorOuterLoop_IsReady());
+        /* Existing faults block output publication. */
+        setup((ModeNow_TypeDef)mode); slow_tick();
+        live.ErrorNow = Over_Current; live.iqRef = 0; slow_tick();
+        assert(live.iqRef == 0);
     }
     /* No stale validation cache may conceal a changed live tuning field. */
     {
@@ -227,32 +174,33 @@ int main(void) {
         for (unsigned i = 0; i < sizeof(fields)/sizeof(fields[0]); i++) {
             float invalid = NAN;
             setup(Position_Mode); live.friction_model_valid = true;
-            run_step(); run_step();
-            assert(outer.ready && MotorOuterLoop_SameTuning(&live));
+            slow_tick(); slow_tick();
+            assert(MotorOuterLoop_IsReady());
             memcpy((char *)&live + fields[i], &invalid, sizeof(invalid));
-            tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+            slow_tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
         }
     }
     /* PI/ramp arithmetic must match the shared sequential implementation exactly. */
     setup(Speed_Mode);
+    slow_tick();
     MotorControl_TypeDef expected = live;
     PI_Controller_TypeDef expected_pi = live_pi;
-    for (unsigned step = 0; step < 2000; step++) {
-        if (step % 70 == 0)
+    for (unsigned step = 0; step < 20000; step++) {
+        if (step % 700 == 0)
         {
             live.speedRef = expected.speedRef = -live.speedRef;
         }
         SpeedMode_UpdateControl(&expected, &expected_pi, enc.speed);
-        for (unsigned i = 0; i < 10; i++) run_step();
+        slow_tick();
         if (live.speedShadow != expected.speedShadow || live.iqRef != expected.iqRef) {
-            fprintf(stderr, "step %u shadow %.9g/%.9g iq %.9g/%.9g status %u error %u\n",
+            fprintf(stderr, "step %u shadow %.9g/%.9g iq %.9g/%.9g error %u\n",
                 step, live.speedShadow, expected.speedShadow, live.iqRef, expected.iqRef,
-                outer.status, live.ErrorNow);
+                live.ErrorNow);
             assert(0);
         }
         assert(memcmp(&live_pi, &expected_pi, sizeof(live_pi)) == 0);
     }
-    puts("PASS: 420000 fast ticks; cadence, coherent publication, preemption, STOP/fault/reset, deadline, PI/ramp");
+    puts("PASS: 2 kHz slow tick; publication ownership, mode/reset, invalid input, fault hold, PI/ramp");
 }
 """
     )

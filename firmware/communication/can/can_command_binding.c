@@ -2,6 +2,7 @@
 
 #include <limits.h>
 #include <math.h>
+#include "critical_hw.h"
 #include "utils.h"
 #include "can_motor_status.h"
 #include "can_parameter_format.h"
@@ -10,11 +11,23 @@
 #include "can_binding_queries.h"
 #include "foc_cogging_calibration.h"
 
-/* 命令入口实现：本文件只做取帧、帧级校验、线路解码与路由。
- * 具体状态更新与应答取值分别落在 can_binding_commands / can_binding_queries。 */
+/* 命令入口实现：中断只做取帧、帧级校验、线路解码与入队；2 kHz 服务排空队列并
+ * 路由到写路径/读路径。具体状态更新与应答取值分别落在 can_binding_commands /
+ * can_binding_queries。 */
+
+/* 索引类查询的越界判定：中断入队前与 2 kHz 派发时共用，避免无效命令占用队列槽位。 */
+static bool CanCommand_CoggingIndexInvalid(CAN_PARAM_ID param_id, float data)
+{
+    return param_id == CAN_GET_COGGING_POINT &&
+           (!isfinite(data) || data < 0.0f || data >= (float)COGGING_MAP_POINTS ||
+            floorf(data) != data);
+}
 
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+    int data_int;
+    uint32_t primask;
+
     /* Read-only handshake; this query never arms or changes motor settings. */
     if (param_id == CAN_GET_PROTOCOL_REVISION)
     {
@@ -36,18 +49,30 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
         return;
     }
     /* Validate table indexes before the shared float-to-int conversion. */
-    if (param_id == CAN_GET_COGGING_POINT &&
-        (!isfinite(data) || data < 0.0f || data >= (float)COGGING_MAP_POINTS ||
-         floorf(data) != data))
+    if (CanCommand_CoggingIndexInvalid(param_id, data))
         return;
     if (!isfinite(data))
         return;
 
-    int data_int = (int)data;
+    data_int = (int)data;
 
-    /* 写路径与读路径的参数 ID 集合互不相交，先后顺序不影响结果。 */
+    /* 写路径在短临界区内应用：2 kHz 服务可被 20 kHz 快环抢占，临界区恢复
+     * "命令对快环原子"（含成对限幅）；读路径只生成应答，不屏蔽中断。 */
+    primask = critical_hw_enter();
     CanBinding_ApplyCommand(param_id, data, data_int);
+    critical_hw_exit(primask);
+    /* 写路径与读路径的参数 ID 集合互不相交，先后顺序不影响结果。 */
     CanBinding_ApplyQuery(param_id, data, data_int);
+}
+
+void CanCommand_ServiceRx(void)
+{
+    CanQueuedCommand_TypeDef command;
+
+    while (CanTransport_PopRxCommand(&command))
+    {
+        CAN_ReceiveMessage_Update((CAN_PARAM_ID)command.param_id, command.data);
+    }
 }
 
 /**
@@ -109,6 +134,10 @@ void CANRxIRQHandler(void)
         CANMsg.rx_param_id = (CAN_PARAM_ID)param_id;
         CANMsg.rx_data = decoded_data;
 
-        CAN_ReceiveMessage_Update(CANMsg.rx_param_id, CANMsg.rx_data);
+        /* 派发移出中断：只入队，由 2 kHz 服务统一处理（S5）；越界索引帧在这里拒绝。 */
+        if (!CanCommand_CoggingIndexInvalid((CAN_PARAM_ID)param_id, decoded_data))
+        {
+            (void)CanTransport_PushRxCommand(param_id, decoded_data);
+        }
     }
 }

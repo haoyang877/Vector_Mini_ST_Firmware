@@ -1,5 +1,10 @@
 # 统一运行状态机设计 v1.0
 
+> **2026-09-20 注记**：主状态机（`FocRunState_Tick`）已移入 TIM7 2 kHz 慢拍；20 kHz 快环
+> 改为上报结果（`FocRunState_PostOutcome`）并保留“故障 → 立即关断”快车道
+> （`FocRunState_FastFaultStop`）。本文中 `FocRunState_Tick(outcome)` 的调用形态为当时状态，
+> 语义与差分结论不变。见 [监督时基计划](2026-09-20-supervisor-2khz.md)。
+
 日期：2026-09-19。状态：**阶段 1 与阶段 2a 已实施并验证**（阶段 2b/3 待启动）。
 
 ## 背景

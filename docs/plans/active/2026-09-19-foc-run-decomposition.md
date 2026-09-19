@@ -1,5 +1,10 @@
 # foc_run.c 拆解简化 v1.0
 
+> **2026-09-20 注记**：后续 [监督时基计划](2026-09-20-supervisor-2khz.md) 阶段 3 已把外环移入
+> 2 kHz 慢拍，`foc_run.h` 的对外面随之变更（`MotorOuterLoop_SlowTick` 取代
+> `MotorOuterLoop_FastTick`/`MotorOuterLoop_Service`）；本文“公共 API/ABI 不变”的约束
+> 只覆盖该次拆解。
+
 日期：2026-09-19。状态：实施完成，随本轮离线验证提交。
 
 ## 意图与验收

@@ -6,11 +6,23 @@
 
 #include "position_cascade.h"
 
+#include "angle_feedback.h"
+#include "foc_algorithm.h"
+#include "foc_sensorless.h"
+#include "foc_pid.h"
+#include "data_type.h"
+
 /**
- * @brief  外环服务入口：由低优先级电机 worker 调用，执行延迟外环作业。
- * @note 不得在快速环上下文调用；作业数据经快照交换。
+ * @brief  外环 2 kHz 慢拍：位置级联/轨迹与速度 PI 直接执行并发布电流参考。
+ * @param  motor 电机控制状态。
+ * @param  pi 速度环控制器（速度模式使用）。
+ * @param  encoder 编码器状态。
+ * @note 仅由 2 kHz 监督 tick 调用；本函数是位置/速度外环输出的唯一写者，
+ *       20 kHz 快环只读取 MotorControl.iqRef。
  */
-void MotorOuterLoop_Service(void);
+void MotorOuterLoop_SlowTick(MotorControl_TypeDef *motor,
+                             PI_Controller_TypeDef *pi,
+                             Encoder_TypeDef *encoder);
 /**
  * @brief  查询外环是否就绪：供快速环启动确认使用。
  * @return 就绪返回 true；只读取外环自有状态。
@@ -22,23 +34,6 @@ bool MotorOuterLoop_IsReady(void);
  * @return 快照有效返回 true；参数为空返回 false。
  */
 bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
-
-#include "angle_feedback.h"
-#include "foc_algorithm.h"
-#include "foc_sensorless.h"
-#include "foc_pid.h"
-#include "data_type.h"
-
-/**
- * @brief  外环快速拍：回收完成作业、校验实时输入，每十个快拍最多释放一个作业。
- * @param  motor 电机控制状态。
- * @param  pi 速度环控制器。
- * @param  encoder 编码器状态。
- * @note 仅快速环调用；电机禁用时也必须运行以丢弃陈旧作业。
- */
-void MotorOuterLoop_FastTick(MotorControl_TypeDef *motor,
-                             PI_Controller_TypeDef *pi,
-                             Encoder_TypeDef *encoder);
 
 /**
  * @brief  电流模式任务：执行一拍 d/q 电流闭环。
@@ -104,7 +99,7 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC,
                                   MotorControl_TypeDef *MotorControl,
                                   Encoder_TypeDef *Encoder);
 /**
- * @brief  复位位置模式适配状态：外环邮箱失效并清零位置/阻抗状态。
+ * @brief  复位位置模式适配状态：请求外环在下一慢拍重建，并清零位置/阻抗状态。
  * @note 模式切换与故障入口调用；可在非快速环上下文调用。
  */
 void Task_Position_Mode_Reset(void);

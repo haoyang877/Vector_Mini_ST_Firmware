@@ -1,5 +1,10 @@
 # foc_run 归位与瘦身 v1.0
 
+> **2026-09-20 迁移注记**：延迟外环运行时（作业邮箱 + PendSV）已删除；位置级联/轨迹与速度 PI
+> 现由 TIM7 2 kHz 慢拍 `MotorOuterLoop_SlowTick` 直接执行。本文中 `MotorOuterLoop_FastTick`
+> 镜像点与“worker 运行在 PendSV”均为当时状态，已被
+> [监督时基计划](2026-09-20-supervisor-2khz.md) 阶段 3 取代。
+
 日期：2026-09-19。状态：主体完成并提交（阶段 0/1.1–1.4、2.1/2.2，硬件解耦 H1–H4 由本轮与并行工作流共同完成，架构债 44 → 11）。余量：H1.2 轴 profile 决策、H5 反向依赖（interface_can 4 条 + 服务/协议 7 条）、2.3（可选）。
 
 ## 意图与验收

@@ -235,7 +235,8 @@ void DebugMon_Handler(void)
 void PendSV_Handler(void)
 {
   /* USER CODE BEGIN PendSV_IRQn 0 */
-  MotorOuterLoop_Service();
+  /* The outer loops now run in the TIM7 2 kHz supervisor tick (see foc_task.c);
+   * this vector is kept but no longer dispatches motor work. */
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
 
@@ -352,8 +353,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 }
 
 /**
-   * @brief  TIM7IRQHandler, deal with low priority tasks
-			 Interrupt frequency: 1kHz
+   * @brief  TIM7IRQHandler, deal with mid-frequency supervision tasks
+			 Interrupt frequency: 2kHz
    * @param  
    * @retval 
    */
@@ -361,7 +362,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim == (&htim7))
     {
-		BSP1kHzIRQHandler();
+		BSP2kHzIRQHandler();
     }
 }
 

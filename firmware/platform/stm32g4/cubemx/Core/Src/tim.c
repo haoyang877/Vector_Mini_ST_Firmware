@@ -202,7 +202,10 @@ void MX_TIM7_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM7_Init 2 */
-
+  /* 监督节拍提升为 2 kHz：与 control_config.h 的 SUPERVISOR_FREQ 契约一致。
+   * CubeMX 工程周期已同步为 500-1，下次重新生成后生成的初值即为 2 kHz，
+   * 本覆写可随之删除（首次溢出仍按旧值 1 ms，属启动瞬态）。 */
+  __HAL_TIM_SET_AUTORELOAD(&htim7, 500U - 1U);
   /* USER CODE END TIM7_Init 2 */
 
 }

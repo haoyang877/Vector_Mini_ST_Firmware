@@ -24,7 +24,7 @@ static volatile bool finalize_pending, save_pending;
 /* 台架保护跳闸挂起：置位后由模式调度转为结果协议（见 FocCogging_TakeTorqueTrip）。 */
 static volatile bool torque_trip_pending;
 static uint32_t divider;
-static int64_t start_shadow;
+static float start_mech_rad;
 static float start_angle, calibration_current;
 static float hold_position, previous_position, hold_velocity;
 static float reference_velocity, iq_block_sum;
@@ -128,7 +128,7 @@ void FocCogging_TorqueObserve(const FOC_TypeDef *f,
         return;
     }
     TorqueTelemetry.tick = torque_tick;
-    TorqueTelemetry.position_rad = (float)e->shadow_q15 * (_2PI / 65536.0f);
+    TorqueTelemetry.position_rad = Encoder_GetMecPos(e);
     TorqueTelemetry.velocity_rad_s = e->vel_mech_continuous;
     TorqueTelemetry.command_a = m->iqRef;
     TorqueTelemetry.compensation_a = CoggingCompensation.applied_a;
@@ -206,7 +206,7 @@ StartSession(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
         LocalStop(f, m, pi);
         return false;
     }
-    start_shadow = e->shadow_q15;
+    start_mech_rad = Encoder_GetMecPos(e);
     start_angle = (float)e->linearized_q15 * (_2PI / 65536.0f);
     hold_position = previous_position = start_angle;
     hold_velocity = 0.0f;
@@ -317,7 +317,7 @@ MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *f,
         outcome.error = (m->ErrorNow != No_Error) ? m->ErrorNow : CoggingCalibration_Error;
         return outcome;
     }
-    position = start_angle + (float)(e->shadow_q15 - start_shadow) * (_2PI / 65536.0f);
+    position = start_angle + (Encoder_GetMecPos(e) - start_mech_rad);
     velocity = Encoder_GetMecVelContinuous(e);
     if (!SessionIsSafe(f, m, e, position, velocity))
     {

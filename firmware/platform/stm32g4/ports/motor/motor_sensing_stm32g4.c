@@ -33,7 +33,7 @@ void motor_hw_temperature_poll(MotorHwTemperaturePoll_TypeDef *result)
     result->sample_ready = false;
     result->conversion_ok = false;
 
-    /* 软件触发的 ADC1 序列在 1 kHz 监督调用之间完成：仅在 JEOS 时读取两个
+    /* 软件触发的 ADC1 序列在 2 kHz 监督调用之间完成：仅在 JEOS 时读取两个
      * rank 并清标志，随后请求下一次转换。 */
     if (__HAL_ADC_GET_FLAG(&hadc1, ADC_FLAG_JEOS))
     {

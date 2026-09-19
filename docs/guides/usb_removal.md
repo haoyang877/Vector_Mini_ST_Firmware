@@ -3,7 +3,7 @@
 2026-09-17：当前 APP 已移除 USB CDC 命令、VOFA 周期打印、USB Device 中间件、
 HAL PCD/LL USB 输入、USB 专用环形缓冲与应用 IRQ 实现。普通版和 HIL 版均适用。
 
-启动代码不再初始化 USB，1 kHz 任务不再发送 USB 遥测，HSI48 不再开启，
+启动代码不再初始化 USB，2 kHz 监督任务不再发送 USB 遥测，HSI48 不再开启，
 PA11/PA12 配置为模拟输入且无上下拉。芯片启动文件保留 USB 固定向量槽位及弱默认处理器，
 避免后续中断编号变化。CubeMX `.ioc` 与 `.mxproject` 同步清理。
 

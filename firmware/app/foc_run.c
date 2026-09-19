@@ -10,7 +10,6 @@
 #include "foc_sensorless_run.h"
 #include "foc_speed.h"
 #include "motor_axis_profile.h"
-#include "motor_hw.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance.h"
@@ -416,7 +415,7 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC,
     FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
-/* 位置模式复位：失效外环邮箱纪元并复位阻抗控制器状态。 */
+/* 位置模式复位：请求外环在下一 2 kHz 慢拍重建，并复位阻抗控制器状态。 */
 void Task_Position_Mode_Reset(void)
 {
     MotorOuterLoop_RequestReset();
@@ -424,59 +423,25 @@ void Task_Position_Mode_Reset(void)
 }
 
 /* OUTER_RUNTIME_BEGIN
- * 外环延迟运行时：一个不可变请求对应一次完成，只有快速上下文可复用槽位；
- * worker 不写实时 MotorControl 与 PI_Speed。复位只递增纪元，不触碰可能已被抢占的控制器。
- * 该邮箱刻意不做排队：错过的释放视为故障。 */
-enum
-{
-    OUTER_IDLE,
-    OUTER_QUEUED,
-    OUTER_RUNNING,
-    OUTER_DONE
-};
+ * 2 kHz 慢拍外环：位置级联/轨迹与速度 PI 在 TIM7 监督上下文直接执行，是位置/速度
+ * 外环输出的唯一写者；20 kHz 快环只读取 MotorControl.iqRef。复位与模式变化由
+ * 请求标志在本函数内消费，跨上下文只交换标志与单字状态。 */
 static struct
 {
-    volatile unsigned status;
-    volatile uint32_t epoch;
-    uint32_t request_epoch, worker_epoch;
-    unsigned divider, age, maximum_age, deadline_misses, completed, discarded;
+    volatile bool reset_requested;
+    bool ready, telemetry_valid;
     ModeNow_TypeDef mode;
-    bool ready, valid, telemetry_valid;
-    float position, speed;
-    MotorControl_TypeDef motor;
-    PI_Controller_TypeDef speed_controller;
-    PositionCascadeTelemetry_TypeDef result_telemetry, published_telemetry;
+    PositionCascadeTelemetry_TypeDef published_telemetry;
 } outer;
 
 static void MotorOuterLoop_RequestReset(void)
 {
-    outer.epoch++;
+    outer.reset_requested = true;
     outer.ready = false;
     outer.telemetry_valid = false;
 }
 
-static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
-{
-    const MotorControl_TypeDef *saved = &outer.motor;
-    if (outer.request_epoch != outer.epoch)
-    {
-        return false;
-    }
-#define SAME_INPUT(field) PositionMode_SameTuningValue(m->field, saved->field)
-    return SAME_INPUT(current_limit) && SAME_INPUT(speed_Kp) && SAME_INPUT(speed_Ki) &&
-           SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
-           SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) && SAME_INPUT(cascade_pos_Kp) &&
-           SAME_INPUT(cascade_pos_Kd) && m->friction_model_valid == saved->friction_model_valid &&
-           (!m->friction_model_valid ||
-            (SAME_INPUT(friction_coulomb_pos_a) && SAME_INPUT(friction_coulomb_neg_a) &&
-             SAME_INPUT(friction_viscous_pos_a_per_rad_s) &&
-             SAME_INPUT(friction_viscous_neg_a_per_rad_s))) &&
-           m->axis_profile.magic == saved->axis_profile.magic &&
-           m->axis_profile.maximum_speed_rad_s == saved->axis_profile.maximum_speed_rad_s;
-#undef SAME_INPUT
-}
-
-/* 快速保护独立于延迟控制器；其有效钳位必须与配置适配器一致，包括 NaN 拒绝。 */
+/* 输入有效性：与配置适配器同一组钳位与 NaN 拒绝规则，每个慢拍全量比较。 */
 static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float position, float speed)
 {
     float deceleration;
@@ -496,11 +461,6 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float posi
             &m->axis_profile, m->axis_profile_valid, position, m->posRef))
     {
         return false;
-    }
-    /* worker 只改输出；请求调参在抢占期间保持不可变，每个快速 tick 全量比较。 */
-    if (MotorOuterLoop_SameTuning(m))
-    {
-        return true;
     }
     if (!isfinite(m->current_limit) || m->current_limit <= 0.0f || !isfinite(m->speed_Kp) ||
         m->speed_Kp < 0.0f || !isfinite(m->speed_Ki) || m->speed_Ki < 0.0f)
@@ -531,53 +491,6 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float posi
             m->friction_viscous_neg_a_per_rad_s >= 0.0f);
 }
 
-void MotorOuterLoop_Service(void)
-{
-    PositionCascadeControlOutput_TypeDef output;
-
-    if (outer.status != OUTER_QUEUED)
-    {
-        return;
-    }
-    motor_hw_outer_barrier();
-    outer.status = OUTER_RUNNING;
-    if (outer.worker_epoch != outer.request_epoch)
-    {
-        PositionCascade_Reset();
-        outer.worker_epoch = outer.request_epoch;
-    }
-    if (outer.motor.ModeNow == Position_Mode)
-    {
-        if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), &outer.motor))
-        {
-            outer.valid = PositionCascade_UpdateTargetControl(
-                outer.motor.posRef, outer.position, outer.speed, &output);
-        }
-        else
-        {
-            outer.valid = PositionMode_UpdateConfiguration(
-                &outer.motor, outer.position, outer.speed, &output, 1U);
-        }
-        outer.valid = outer.valid && isfinite(output.iq_reference);
-        if (outer.valid)
-        {
-            outer.motor.posShadow = output.position_reference;
-            outer.motor.speedShadow = output.speed_reference;
-            outer.motor.pos_vel_filtered = output.speed_feedback;
-            outer.motor.isReachTargetPos = output.target_reached;
-            outer.motor.iqRef = output.iq_reference;
-            outer.valid = PositionCascade_GetTelemetry(&outer.result_telemetry);
-        }
-    }
-    else
-    {
-        SpeedMode_UpdateControl(&outer.motor, &outer.speed_controller, outer.speed);
-        outer.valid = isfinite(outer.motor.iqRef);
-    }
-    motor_hw_outer_barrier();
-    outer.status = OUTER_DONE;
-}
-
 bool MotorOuterLoop_IsReady(void)
 {
     return outer.ready;
@@ -585,7 +498,7 @@ bool MotorOuterLoop_IsReady(void)
 
 bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
 {
-    /* 快速上下文读取；worker 从不修改已发布快照。 */
+    /* 慢拍写、快速上下文读；只在有效期返回已发布快照。 */
     if (!outer.telemetry_valid || telemetry == NULL)
     {
         return false;
@@ -594,10 +507,19 @@ bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
     return true;
 }
 
-void MotorOuterLoop_FastTick(MotorControl_TypeDef *m,
+/**
+ * @brief  外环 2 kHz 慢拍：位置级联/轨迹与速度 PI 直接执行并发布电流参考。
+ * @param  m 电机控制状态指针。
+ * @param  pi 速度环控制器指针（速度模式使用）。
+ * @param  encoder 编码器状态指针。
+ * @note 仅由 2 kHz 监督 tick 调用；本函数是外环输出的唯一写者，快环只读取
+ *       MotorControl.iqRef；模式变化、故障与复位请求在当前慢拍内消费。
+ */
+void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
                              PI_Controller_TypeDef *pi,
                              Encoder_TypeDef *encoder)
 {
+    PositionCascadeControlOutput_TypeDef output;
     bool active = m->ModeNow == Position_Mode || m->ModeNow == Speed_Mode;
     float position = Encoder_GetMecPos(encoder);
     float speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder)
@@ -607,103 +529,78 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m,
     {
         MotorOuterLoop_RequestReset();
         outer.mode = m->ModeNow;
-        outer.divider = SPEED_LOOP_DIVIDER - 1U;
         if (active)
         {
             m->idRef = 0.0f;
             m->iqRef = 0.0f;
         }
     }
-    if (active && m->ErrorNow == No_Error && !MotorOuterLoop_InputsValid(m, position, speed))
+    if (outer.reset_requested)
     {
-        Set_ErrorNow(MotorParam_Error);
-        MotorOuterLoop_RequestReset();
-        m->idRef = 0.0f;
-        m->iqRef = 0.0f;
-    }
-    if (outer.status != OUTER_IDLE)
-    {
-        outer.age++;
-        if (outer.status == OUTER_DONE)
-        {
-            motor_hw_outer_barrier();
-            if (active && m->ErrorNow == No_Error && outer.request_epoch == outer.epoch)
-            {
-                if (!outer.valid)
-                {
-                    Set_ErrorNow(MotorParam_Error);
-                    m->idRef = 0.0f;
-                    m->iqRef = 0.0f;
-                }
-                else
-                {
-                    m->idRef = 0.0f;
-                    /* 实时电流限制下调立即生效。 */
-                    m->iqRef = fminf(fmaxf(outer.motor.iqRef, -m->current_limit), m->current_limit);
-                    m->speedShadow = outer.motor.speedShadow;
-                    if (m->ModeNow == Position_Mode)
-                    {
-                        m->posShadow = outer.motor.posShadow;
-                        m->pos_vel_filtered = outer.motor.pos_vel_filtered;
-                        m->isReachTargetPos = outer.motor.isReachTargetPos;
-                        outer.published_telemetry = outer.result_telemetry;
-                        outer.telemetry_valid = true;
-                    }
-                    else
-                    {
-                        m->isUseSpeedRamp = outer.motor.isUseSpeedRamp;
-                        *pi = outer.speed_controller;
-                    }
-                    outer.ready = true;
-                    outer.completed++;
-                }
-            }
-            else
-            {
-                outer.discarded++;
-            }
-            if (outer.age > outer.maximum_age)
-            {
-                outer.maximum_age = outer.age;
-            }
-            motor_hw_outer_barrier();
-            outer.status = OUTER_IDLE;
-        }
-    }
-    if (m->ModeNow == Position_Mode)
-    {
-        /* 模式 3 规划量发布：与延迟遥测有效期同步，无效窗口写 NaN。 */
-        m->posShadow = outer.telemetry_valid ? outer.published_telemetry.position_reference : NAN;
-        m->pos_trajectory_speed_rad_s =
-            outer.telemetry_valid ? outer.published_telemetry.trajectory_speed_reference : NAN;
+        PositionCascade_Reset();
+        outer.reset_requested = false;
     }
     if (!active || m->ErrorNow != No_Error)
     {
         return;
     }
-    if (++outer.divider < SPEED_LOOP_DIVIDER)
+    if (!MotorOuterLoop_InputsValid(m, position, speed))
     {
-        return;
-    }
-    outer.divider = 0U;
-    if (outer.status != OUTER_IDLE)
-    {
-        outer.deadline_misses++;
-        Set_ErrorNow(ControlOverrun_Error);
-        MotorOuterLoop_RequestReset();
+        Set_ErrorNow(MotorParam_Error);
         m->idRef = 0.0f;
         m->iqRef = 0.0f;
+        outer.ready = false;
+        outer.telemetry_valid = false;
+        PositionCascade_Reset();
         return;
     }
-    outer.motor = *m;
-    outer.speed_controller = *pi;
-    outer.position = position;
-    outer.speed = speed;
-    outer.request_epoch = outer.epoch;
-    outer.age = 0U;
-    motor_hw_outer_barrier();
-    outer.status = OUTER_QUEUED;
-    motor_hw_outer_schedule();
+
+    if (m->ModeNow == Position_Mode)
+    {
+        bool valid;
+        if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), m))
+        {
+            valid = PositionCascade_UpdateTargetControl(m->posRef, position, speed, &output);
+        }
+        else
+        {
+            valid = PositionMode_UpdateConfiguration(m, position, speed, &output, 1U);
+        }
+        valid = valid && isfinite(output.iq_reference);
+        if (!valid)
+        {
+            Set_ErrorNow(MotorParam_Error);
+            m->idRef = 0.0f;
+            m->iqRef = 0.0f;
+            outer.ready = false;
+            outer.telemetry_valid = false;
+            return;
+        }
+        m->idRef = 0.0f;
+        /* 实时电流限制下调立即生效。 */
+        m->iqRef = fminf(fmaxf(output.iq_reference, -m->current_limit), m->current_limit);
+        m->posShadow = output.position_reference;
+        m->speedShadow = output.speed_reference;
+        m->pos_vel_filtered = output.speed_feedback;
+        m->isReachTargetPos = output.target_reached;
+        if (PositionCascade_GetTelemetry(&outer.published_telemetry))
+        {
+            m->pos_trajectory_speed_rad_s = outer.published_telemetry.trajectory_speed_reference;
+            outer.telemetry_valid = true;
+        }
+        else
+        {
+            /* 模式 3 规划量发布：无效窗口写 NaN。 */
+            m->pos_trajectory_speed_rad_s = NAN;
+            outer.telemetry_valid = false;
+        }
+        outer.ready = true;
+    }
+    else
+    {
+        SpeedMode_UpdateControl(m, pi, speed);
+        outer.ready = true;
+    }
 }
 /* OUTER_RUNTIME_END */
 

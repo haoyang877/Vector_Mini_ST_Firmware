@@ -125,7 +125,6 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  
-	CAN_SendMessage();
 	FocCogging_Service();
 	  
 	if(Get_ModeNow() == Save_Param)

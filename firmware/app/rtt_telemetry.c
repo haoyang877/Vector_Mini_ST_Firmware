@@ -64,12 +64,8 @@ void RTT_Sampling(void)
     {
         return;
     }
-    if (Encoder_DidUpdateVelocity(&OnBoard_Encoder))
-    {
-        return;
-    }
-    /* 同一 IRQ 不叠加帧编码与 2 kHz 伺服：冲突帧延后一个快速周期，
-     * 后续帧保持正常节拍，且不延迟电流/PWM 更新。 */
+    /* 2 kHz 伺服已在 TIM7 监督上下文执行：本帧不再与慢估计叠加，
+     * 仅保留"位置模式外环未就绪时延后一帧"的保护。 */
 #if CASCADE_POSITION_LOOP_DIVIDER > 1U
     if (MotorControl.ModeNow == Position_Mode && !MotorOuterLoop_IsReady())
     {

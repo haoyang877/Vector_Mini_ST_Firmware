@@ -20,9 +20,9 @@ bool MotorControl_IsConfigurationValid(void);
  */
 void FOC20kHzIRQHandler(void);
 /**
- * @brief 执行一次 1 kHz 温度换算、保护监督和慢速维护任务。
- * @note 由既有 1 kHz 监督上下文调用，不得替代快速环中的立即关断路径。
+ * @brief 执行一次 2 kHz 温度换算、保护监督和慢速维护任务。
+ * @note 由 TIM7 监督中断上下文调用，不得替代快速环中的立即关断路径。
  */
-void FOC1kHzSupervisor(void);
+void FOC2kHzSupervisor(void);
 
 #endif

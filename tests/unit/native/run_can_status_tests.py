@@ -26,6 +26,7 @@ def main():
         "#include <stddef.h>",
         "#include <string.h>",
         "#include <stdio.h>",
+        "#include <math.h>",
     ]
     source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
     wire = (ROOT / "firmware/communication/protocol/can_parameter_wire.c").read_text(
@@ -87,6 +88,8 @@ int main(void) {
         + r"""
 #include "firmware/platform/api/comm_hw.h"
 #include "firmware/communication/protocol/can_motor_status.h"
+#include "can_transport.h"
+#include "cogging_calibration.h"
 typedef unsigned CAN_PARAM_ID;
 typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALUE_MILLI_I16} CanValueEncoding;
 #define CAN_SET_CURRENT 0x02
@@ -100,44 +103,76 @@ typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALU
 #define CAN_SET_POS_ACC 0x1c
 #define CAN_SET_POS_DEC 0x1e
 #define CAN_SET_POS_MAXSPEED 0x20
-static struct { unsigned node_id,can_hb_count; bool can_rx_en; uint8_t rx_data_u8[4]; unsigned rx_param_id; float rx_data; } CANMsg;
-static unsigned calls,last_param;
-static float last_value;
+#define CAN_GET_COGGING_POINT 0x6B
+static struct { unsigned node_id,can_hb_count; bool can_rx_en; unsigned rx_param_id; float rx_data; } CANMsg;
 static CommHwCanFrame incoming;
 static bool rx_ok=true;
 static bool comm_hw_can_receive_stub(CommHwCanFrame *f) {*f=incoming;return rx_ok;}
 #define comm_hw_can_receive comm_hw_can_receive_stub
 static float IntBitToFloat(uint32_t i) {float f;memcpy(&f,&i,4);return f;}
-static void CAN_ReceiveMessage_Update(unsigned p,float f) {last_param=p;last_value=f;++calls;}
 """
         + function_source(wire, "CanParamWire_CommandEncoding")
         + function_source(wire, "CanParamWire_Length")
         + function_source(transport_source, "CanTransport_ReceiveFrame")
+        + "/* CAN_RING_BEGIN\n * ---- 定长环实现：RX 单生产者/单消费者，TX 单上下文 ---- */\n\ntypedef struct\n{\n    volatile uint16_t head;\n    volatile uint16_t tail;\n    CanQueuedCommand_TypeDef items[CAN_RX_RING_CAPACITY];\n} CanRxRing_TypeDef;\n\ntypedef struct\n{\n    volatile uint16_t head;\n    volatile uint16_t tail;\n    CanTxReply_TypeDef items[CAN_TX_RING_CAPACITY];\n} CanTxRing_TypeDef;\n\nstatic CanRxRing_TypeDef rx_ring;\nstatic CanTxRing_TypeDef tx_ring;\nstatic volatile uint32_t rx_drop_count;\nstatic volatile uint32_t tx_drop_count;\n\nbool CanTransport_PushRxCommand(uint8_t param_id, float data)\n{\n    if ((uint16_t)(rx_ring.head - rx_ring.tail) >= CAN_RX_RING_CAPACITY)\n    {\n        ++rx_drop_count;\n        return false;\n    }\n    /* 先写负载、后推进 head：消费者只读取 head 之下的槽位，中断抢占读取端安全。 */\n    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].param_id = param_id;\n    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].data = data;\n    ++rx_ring.head;\n    return true;\n}\n\nbool CanTransport_PopRxCommand(CanQueuedCommand_TypeDef *command)\n{\n    if (command == NULL || rx_ring.tail == rx_ring.head)\n    {\n        return false;\n    }\n    *command = rx_ring.items[rx_ring.tail % CAN_RX_RING_CAPACITY];\n    ++rx_ring.tail;\n    return true;\n}\n\nbool CanTransport_PushTxReply(const CanTxReply_TypeDef *reply)\n{\n    if (reply == NULL)\n    {\n        return false;\n    }\n    if ((uint16_t)(tx_ring.head - tx_ring.tail) >= CAN_TX_RING_CAPACITY)\n    {\n        ++tx_drop_count;\n        return false;\n    }\n    tx_ring.items[tx_ring.head % CAN_TX_RING_CAPACITY] = *reply;\n    ++tx_ring.head;\n    return true;\n}\n\nbool CanTransport_PopTxReply(CanTxReply_TypeDef *reply)\n{\n    if (reply == NULL || tx_ring.tail == tx_ring.head)\n    {\n        return false;\n    }\n    *reply = tx_ring.items[tx_ring.tail % CAN_TX_RING_CAPACITY];\n    ++tx_ring.tail;\n    return true;\n}\n\nbool CanTransport_TxPending(void)\n{\n    return tx_ring.tail != tx_ring.head;\n}\n\nuint32_t CanTransport_GetRxDropCount(void)\n{\n    return rx_drop_count;\n}\n\nuint32_t CanTransport_GetTxDropCount(void)\n{\n    return tx_drop_count;\n}\n/* CAN_RING_END */\n"
+        + function_source(binding_source, "CanCommand_CoggingIndexInvalid")
         + function_source(binding_source, "CANRxIRQHandler")
         + r"""
+static void expect_queued(unsigned param,float value) {
+    CanQueuedCommand_TypeDef item;
+    assert(CanTransport_PopRxCommand(&item));
+    assert(item.param_id==param && item.data==value);
+}
+static void expect_empty(void) {
+    CanQueuedCommand_TypeDef item;
+    assert(!CanTransport_PopRxCommand(&item));
+}
 int main(void) {
  CANMsg.node_id=4;CANMsg.can_hb_count=123;
  incoming.identifier=0x464;incoming.length=4;incoming.data[0]=0x41;incoming.data[1]=0xa0;
- CANRxIRQHandler();assert(calls==1 && last_param==0x64 && last_value==20.f && CANMsg.can_hb_count==0);
+ CANRxIRQHandler();assert(CANMsg.can_hb_count==0);expect_queued(0x64,20.f);
  incoming.identifier=0x402;incoming.length=2;incoming.data[0]=0xfb;incoming.data[1]=0x1e;
- CANRxIRQHandler();assert(calls==2 && last_param==2 && last_value==-1.25f);
+ CANRxIRQHandler();expect_queued(2,-1.25f);
  incoming.identifier=0x404;incoming.length=4;incoming.data[0]=0xff;incoming.data[1]=0xff;incoming.data[2]=0xfd;incoming.data[3]=0x8c;
- CANRxIRQHandler();assert(calls==3 && last_param==4 && last_value==-6.28f);
+ CANRxIRQHandler();expect_queued(4,-6.28f);
+ /* Sentinels, lengths and frame classes stay rejected with heartbeat untouched. */
  incoming.data[0]=0x80;incoming.data[1]=incoming.data[2]=incoming.data[3]=0;CANMsg.can_hb_count=123;
- CANRxIRQHandler();assert(calls==3 && CANMsg.can_hb_count==123);
+ CANRxIRQHandler();assert(CANMsg.can_hb_count==123);expect_empty();
  incoming.identifier=0x402;incoming.length=2;incoming.data[0]=0x80;incoming.data[1]=0;CANMsg.can_hb_count=123;
- CANRxIRQHandler();assert(calls==3 && CANMsg.can_hb_count==123);
+ CANRxIRQHandler();assert(CANMsg.can_hb_count==123);expect_empty();
  incoming.identifier=0x464;
  for(unsigned n=0;n<=64;++n) if(n!=4) {
   incoming.length=n;CANMsg.can_hb_count=123;CANRxIRQHandler();
-  assert(calls==3 && CANMsg.can_hb_count==123);
+  assert(CANMsg.can_hb_count==123);
  }
- incoming.length=4;incoming.extended=true;CANRxIRQHandler();assert(calls==3);
- incoming.extended=false;incoming.remote=true;CANRxIRQHandler();assert(calls==3);
- incoming.remote=false;incoming.identifier=0x364;CANRxIRQHandler();assert(calls==3);
- CANMsg.node_id=7;incoming.identifier=0x7f4;CANRxIRQHandler();assert(calls==3 && CANMsg.can_hb_count==123);
- incoming.length=48;CANRxIRQHandler();assert(calls==3);
- puts("PASS actual CAN RX: float config, milli-i16 current, centi-i32 speed, milli-i32 position, length and routing guards");return 0;
+ expect_empty();
+ incoming.length=4;incoming.extended=true;CANRxIRQHandler();
+ incoming.extended=false;incoming.remote=true;CANRxIRQHandler();
+ incoming.remote=false;incoming.identifier=0x364;CANRxIRQHandler();
+ CANMsg.node_id=7;incoming.identifier=0x7f4;CANRxIRQHandler();assert(CANMsg.can_hb_count==123);
+ incoming.length=48;CANRxIRQHandler();
+ expect_empty();
+ /* Out-of-range cogging index is rejected before enqueue, so it never takes a slot. */
+ CANMsg.node_id=4;incoming.identifier=0x46b;incoming.length=4;
+ { float v=2048.f;uint32_t bits;memcpy(&bits,&v,4);
+   incoming.data[0]=(uint8_t)(bits>>24);incoming.data[1]=(uint8_t)(bits>>16);
+   incoming.data[2]=(uint8_t)(bits>>8);incoming.data[3]=(uint8_t)bits; }
+ CANRxIRQHandler();expect_empty();
+ /* Multiple frames keep FIFO order (0x02 is milliamp i16: 0x0100 reads 0.256 A). */
+ for(unsigned n=0;n<3;++n) {
+  incoming.identifier=0x402;incoming.length=2;incoming.data[0]=(uint8_t)(n+1);incoming.data[1]=0;
+  CANRxIRQHandler();
+ }
+ for(unsigned n=0;n<3;++n) expect_queued(2,(float)((n+1)<<8)/1000.0f);
+ expect_empty();
+ /* Ring full: newest is dropped with a counter, queued items stay in order. */
+ for(unsigned n=0;n<CAN_RX_RING_CAPACITY;++n)
+  assert(CanTransport_PushRxCommand((uint8_t)(0x40U+n),(float)n));
+ assert(!CanTransport_PushRxCommand(0x7f,1.f));
+ assert(CanTransport_GetRxDropCount()==1U);
+ for(unsigned n=0;n<CAN_RX_RING_CAPACITY;++n) expect_queued(0x40U+n,(float)n);
+ expect_empty();
+ puts("PASS actual CAN RX: heartbeat refresh, decode, guards, index rejection, FIFO order and ring-full drop count");return 0;
 }
 """
     )
@@ -271,36 +306,56 @@ int main(void) {
         + r"""
 #include "firmware/platform/api/comm_hw.h"
 #include "firmware/communication/protocol/can_motor_status.h"
-static struct {bool can_tx_en;unsigned node_id,tx_param_id;uint8_t tx_data_u8[4];uint8_t tx_data_len;} CANMsg;
+#include "can_transport.h"
+static struct {unsigned node_id;} CANMsg;
 static unsigned prepared,status_sent,replies;
-static bool interrupt_reply;
+static uint16_t last_reply_id;
+static uint8_t last_reply_len;
 static uint32_t time_hw_now_ms(void) {return 100;}
 bool CanMotorStatus_Prepare(uint32_t t,uint8_t n,uint16_t *id,uint8_t *d,size_t cap) {
- assert(t==100 && n==4 && cap==48);*id=0x7f4;memset(d,0,48);++prepared;
- if(interrupt_reply) CANMsg.can_tx_en=true;
- return true;
+ assert(t==100 && n==4 && cap==48);*id=0x7f4;memset(d,0,48);++prepared;return true;
 }
 bool comm_hw_can_try_send_status(uint16_t id,const uint8_t *d,size_t len) {
  (void)d;assert(id==0x7f4 && len==48);++status_sent;return true;
 }
 bool comm_hw_can_try_send_reply(uint16_t id,const uint8_t *d,uint8_t len) {
- (void)d;assert(id==0x465 && len==4);++replies;return true;
+ (void)d;++replies;last_reply_id=id;last_reply_len=len;return true;
 }
 static void CanStatus_BuildSnapshot(MotorStatus *sample) {(void)sample;}
+static void CanCommand_ServiceRx(void) {}
 typedef unsigned CAN_PARAM_ID;
 """
         + function_source(wire, "CanParamWire_Identifier")
         + function_source(transport_source, "CanTransport_SendReply")
         + function_source(transport_source, "CanTransport_TrySendStatus")
-        + function_source(source, "CAN_SendMessage")
+        + "/* CAN_RING_BEGIN\n * ---- 定长环实现：RX 单生产者/单消费者，TX 单上下文 ---- */\n\ntypedef struct\n{\n    volatile uint16_t head;\n    volatile uint16_t tail;\n    CanQueuedCommand_TypeDef items[CAN_RX_RING_CAPACITY];\n} CanRxRing_TypeDef;\n\ntypedef struct\n{\n    volatile uint16_t head;\n    volatile uint16_t tail;\n    CanTxReply_TypeDef items[CAN_TX_RING_CAPACITY];\n} CanTxRing_TypeDef;\n\nstatic CanRxRing_TypeDef rx_ring;\nstatic CanTxRing_TypeDef tx_ring;\nstatic volatile uint32_t rx_drop_count;\nstatic volatile uint32_t tx_drop_count;\n\nbool CanTransport_PushRxCommand(uint8_t param_id, float data)\n{\n    if ((uint16_t)(rx_ring.head - rx_ring.tail) >= CAN_RX_RING_CAPACITY)\n    {\n        ++rx_drop_count;\n        return false;\n    }\n    /* 先写负载、后推进 head：消费者只读取 head 之下的槽位，中断抢占读取端安全。 */\n    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].param_id = param_id;\n    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].data = data;\n    ++rx_ring.head;\n    return true;\n}\n\nbool CanTransport_PopRxCommand(CanQueuedCommand_TypeDef *command)\n{\n    if (command == NULL || rx_ring.tail == rx_ring.head)\n    {\n        return false;\n    }\n    *command = rx_ring.items[rx_ring.tail % CAN_RX_RING_CAPACITY];\n    ++rx_ring.tail;\n    return true;\n}\n\nbool CanTransport_PushTxReply(const CanTxReply_TypeDef *reply)\n{\n    if (reply == NULL)\n    {\n        return false;\n    }\n    if ((uint16_t)(tx_ring.head - tx_ring.tail) >= CAN_TX_RING_CAPACITY)\n    {\n        ++tx_drop_count;\n        return false;\n    }\n    tx_ring.items[tx_ring.head % CAN_TX_RING_CAPACITY] = *reply;\n    ++tx_ring.head;\n    return true;\n}\n\nbool CanTransport_PopTxReply(CanTxReply_TypeDef *reply)\n{\n    if (reply == NULL || tx_ring.tail == tx_ring.head)\n    {\n        return false;\n    }\n    *reply = tx_ring.items[tx_ring.tail % CAN_TX_RING_CAPACITY];\n    ++tx_ring.tail;\n    return true;\n}\n\nbool CanTransport_TxPending(void)\n{\n    return tx_ring.tail != tx_ring.head;\n}\n\nuint32_t CanTransport_GetRxDropCount(void)\n{\n    return rx_drop_count;\n}\n\nuint32_t CanTransport_GetTxDropCount(void)\n{\n    return tx_drop_count;\n}\n/* CAN_RING_END */\n"
+        + function_source(source, "CAN_Service")
         + r"""
 int main(void) {
- CANMsg.node_id=4;CANMsg.tx_param_id=0x65;CANMsg.tx_data_len=4;CANMsg.can_tx_en=true;
- CAN_SendMessage();assert(replies==1 && prepared==0 && status_sent==0);
- CAN_SendMessage();assert(prepared==1 && status_sent==1);
- interrupt_reply=true;CAN_SendMessage();assert(prepared==2 && status_sent==1);
- CAN_SendMessage();assert(replies==2 && prepared==2);
- puts("PASS actual send dispatcher: reply first, recheck reply after snapshot preparation");return 0;
+ CanTxReply_TypeDef reply={0x65,{1,2,3,4},4};
+ CANMsg.node_id=4;
+ /* Queue idle: the status stream is submitted once. */
+ CAN_Service();assert(prepared==1 && status_sent==1 && replies==0);
+ /* Burst replies: both go out FIFO and the status stream is deferred for this tick. */
+ assert(CanTransport_PushTxReply(&reply));
+ reply.param_id=0x66;assert(CanTransport_PushTxReply(&reply));
+ CAN_Service();
+ assert(replies==2 && last_reply_id==0x466 && last_reply_len==4 && prepared==1);
+ assert(!CanTransport_TxPending());
+ /* A tick with a reply never submits the status stream; the next idle tick does. */
+ assert(CanTransport_PushTxReply(&reply));
+ CAN_Service();assert(replies==3 && prepared==1 && status_sent==1);
+ CAN_Service();assert(prepared==2 && status_sent==2);
+ /* TX ring full: newest dropped with a counter, queued items stay. */
+ { uint32_t drops=CanTransport_GetTxDropCount();
+   for(unsigned n=0;n<CAN_TX_RING_CAPACITY;++n) assert(CanTransport_PushTxReply(&reply));
+   assert(!CanTransport_PushTxReply(&reply));
+   assert(CanTransport_GetTxDropCount()==drops+1U);
+   CanTxReply_TypeDef out;
+   for(unsigned n=0;n<CAN_TX_RING_CAPACITY;++n) assert(CanTransport_PopTxReply(&out));
+   assert(!CanTransport_TxPending());
+ }
+ puts("PASS send service: replies FIFO first, status deferred while pending, TX ring drop counter");return 0;
 }
 """
     )
@@ -309,6 +364,7 @@ int main(void) {
         + r"""
 #include <limits.h>
 #include <math.h>
+#include "can_transport.h"
 typedef unsigned CAN_PARAM_ID;
 typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALUE_MILLI_I16} CanValueEncoding;
 #define CAN_GET_CURRENT_SET 0x03
@@ -334,7 +390,6 @@ typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALU
 #define CAN_GET_SPEED2_FILT 0x3f
 #define CAN_GET_POS_SET 0x07
 #define CAN_GET_POS2_FILT 0x41
-static struct {unsigned tx_param_id;float tx_data;uint8_t tx_data_u8[4],tx_data_len;bool can_tx_en;} CANMsg;
 static uint32_t FloatToIntBit(float value) {uint32_t bits;memcpy(&bits,&value,4);return bits;}
 """
         + function_source(wire, "CanParamWire_ReplyEncoding")
@@ -342,25 +397,33 @@ static uint32_t FloatToIntBit(float value) {uint32_t bits;memcpy(&bits,&value,4)
         + function_source(wire, "CanParamWire_Centi32")
         + function_source(wire, "CanParamWire_Milli16")
         + function_source(wire, "CanParamWire_Length")
+        + "/* CAN_RING_BEGIN\n * ---- 定长环实现：RX 单生产者/单消费者，TX 单上下文 ---- */\n\ntypedef struct\n{\n    volatile uint16_t head;\n    volatile uint16_t tail;\n    CanQueuedCommand_TypeDef items[CAN_RX_RING_CAPACITY];\n} CanRxRing_TypeDef;\n\ntypedef struct\n{\n    volatile uint16_t head;\n    volatile uint16_t tail;\n    CanTxReply_TypeDef items[CAN_TX_RING_CAPACITY];\n} CanTxRing_TypeDef;\n\nstatic CanRxRing_TypeDef rx_ring;\nstatic CanTxRing_TypeDef tx_ring;\nstatic volatile uint32_t rx_drop_count;\nstatic volatile uint32_t tx_drop_count;\n\nbool CanTransport_PushRxCommand(uint8_t param_id, float data)\n{\n    if ((uint16_t)(rx_ring.head - rx_ring.tail) >= CAN_RX_RING_CAPACITY)\n    {\n        ++rx_drop_count;\n        return false;\n    }\n    /* 先写负载、后推进 head：消费者只读取 head 之下的槽位，中断抢占读取端安全。 */\n    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].param_id = param_id;\n    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].data = data;\n    ++rx_ring.head;\n    return true;\n}\n\nbool CanTransport_PopRxCommand(CanQueuedCommand_TypeDef *command)\n{\n    if (command == NULL || rx_ring.tail == rx_ring.head)\n    {\n        return false;\n    }\n    *command = rx_ring.items[rx_ring.tail % CAN_RX_RING_CAPACITY];\n    ++rx_ring.tail;\n    return true;\n}\n\nbool CanTransport_PushTxReply(const CanTxReply_TypeDef *reply)\n{\n    if (reply == NULL)\n    {\n        return false;\n    }\n    if ((uint16_t)(tx_ring.head - tx_ring.tail) >= CAN_TX_RING_CAPACITY)\n    {\n        ++tx_drop_count;\n        return false;\n    }\n    tx_ring.items[tx_ring.head % CAN_TX_RING_CAPACITY] = *reply;\n    ++tx_ring.head;\n    return true;\n}\n\nbool CanTransport_PopTxReply(CanTxReply_TypeDef *reply)\n{\n    if (reply == NULL || tx_ring.tail == tx_ring.head)\n    {\n        return false;\n    }\n    *reply = tx_ring.items[tx_ring.tail % CAN_TX_RING_CAPACITY];\n    ++tx_ring.tail;\n    return true;\n}\n\nbool CanTransport_TxPending(void)\n{\n    return tx_ring.tail != tx_ring.head;\n}\n\nuint32_t CanTransport_GetRxDropCount(void)\n{\n    return rx_drop_count;\n}\n\nuint32_t CanTransport_GetTxDropCount(void)\n{\n    return tx_drop_count;\n}\n/* CAN_RING_END */\n"
         + function_source(source, "CAN_SendMessage_Update")
         + r"""
+static void expect_reply(unsigned id,unsigned len,unsigned b0,unsigned b1,unsigned b2,unsigned b3) {
+ CanTxReply_TypeDef r;
+ assert(CanTransport_PopTxReply(&r));
+ assert(r.param_id==id && r.length==len);
+ assert(r.data[0]==b0 && r.data[1]==b1 && r.data[2]==b2 && r.data[3]==b3);
+}
 int main(void) {
  CAN_SendMessage_Update(0x05,6.283f);
- assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==2 && CANMsg.tx_data_u8[3]==0x74);
+ expect_reply(0x05,4,0,0,2,0x74);
  CAN_SendMessage_Update(0x07,-1.25f);
- assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0xff && CANMsg.tx_data_u8[1]==0xff && CANMsg.tx_data_u8[2]==0xfb && CANMsg.tx_data_u8[3]==0x1e);
+ expect_reply(0x07,4,0xff,0xff,0xfb,0x1e);
  CAN_SendMessage_Update(0x03,-1.25f);
- assert(CANMsg.tx_data_len==2 && CANMsg.tx_data_u8[0]==0xfb && CANMsg.tx_data_u8[1]==0x1e);
+ expect_reply(0x03,2,0xfb,0x1e,0,0);
  CAN_SendMessage_Update(0x15,6.283f);
- assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==2 && CANMsg.tx_data_u8[3]==0x74);
+ expect_reply(0x15,4,0,0,2,0x74);
  { const unsigned ids[]={0x15,0x17,0x1d,0x1f,0x21};
    for(unsigned i=0;i<sizeof(ids)/sizeof(ids[0]);++i) {
     CAN_SendMessage_Update(ids[i],0.785398163f);
-    assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==0 && CANMsg.tx_data_u8[3]==0x4e);
+    expect_reply(ids[i],4,0,0,0,0x4e);
    }
  }
- CAN_SendMessage_Update(0x11,6.f);assert(CANMsg.tx_data_len==2 && CANMsg.tx_data_u8[0]==0x17 && CANMsg.tx_data_u8[1]==0x70);
- CAN_SendMessage_Update(0x67,2.f);assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0x40 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==0 && CANMsg.tx_data_u8[3]==0);
+ CAN_SendMessage_Update(0x11,6.f);expect_reply(0x11,2,0x17,0x70,0,0);
+ CAN_SendMessage_Update(0x67,2.f);expect_reply(0x67,4,0x40,0,0,0);
+ assert(!CanTransport_TxPending());
  puts("PASS actual CAN reply encoding: centi speed/acceleration, milli position and milliamp current");return 0;
 }
 """
@@ -383,9 +446,9 @@ static unsigned reply_id;
 static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67);reply_id=id;reply=value;++replies;}
 """
         + function_source(binding_source, "CAN_ReceiveMessage_Update").split(
-            "if (!isfinite(data))"
+            "/* Validate table indexes"
         )[0]
-        + "}\n"
+        + "(void)data_int;(void)primask;}\n"
         + r"""
 #include <math.h>
 int main(void) {
@@ -413,6 +476,8 @@ int main(void) {
 static struct {bool can_hb_en,can_rx_en;uint32_t can_hb_set,can_hb_count;} CANMsg;
 static struct {unsigned ModeNow,ErrorNow;} MotorControl;
 static void Set_ErrorNow(unsigned error) {MotorControl.ErrorNow=error;}
+/* 与 platform/api/control_config.h 的 SUPERVISOR_FREQ=2 kHz 契约一致。 */
+#define SUPERVISOR_TICKS_PER_MS 2U
 """
         + function_source(status_source, "CanStatus_HeartbeatArmed")
         + function_source(source, "CAN_DisConnect_Handle")
@@ -422,16 +487,16 @@ int main(void) {
  for(unsigned i=0;i<4;++i) {
   MotorControl.ModeNow=modes[i];MotorControl.ErrorNow=0;
   CANMsg.can_rx_en=true;CANMsg.can_hb_set=500;CANMsg.can_hb_count=0;
-  for(unsigned t=0;t<499;++t) CAN_DisConnect_Handle();
-  assert(MotorControl.ErrorNow==0 && CANMsg.can_hb_count==499);
+  for(unsigned t=0;t<999;++t) CAN_DisConnect_Handle();
+  assert(MotorControl.ErrorNow==0 && CANMsg.can_hb_count==999);
   CAN_DisConnect_Handle();assert(MotorControl.ErrorNow==4);
-  CAN_DisConnect_Handle();assert(CANMsg.can_hb_count==500);
+  CAN_DisConnect_Handle();assert(CANMsg.can_hb_count==1000);
  }
  MotorControl.ModeNow=0;MotorControl.ErrorNow=0;
  for(unsigned t=0;t<1000;++t) CAN_DisConnect_Handle();
  assert(!CANMsg.can_hb_en && CANMsg.can_hb_count==0 && MotorControl.ErrorNow==0);
  MotorControl.ModeNow=3;CAN_DisConnect_Handle();assert(CANMsg.can_hb_count==1);
- CANMsg.can_hb_count=500;MotorControl.ErrorNow=7;
+ CANMsg.can_hb_count=1000;MotorControl.ErrorNow=7;
  CAN_DisConnect_Handle();assert(MotorControl.ErrorNow==7);
  CANMsg.can_hb_set=0;CAN_DisConnect_Handle();assert(!CANMsg.can_hb_en && CANMsg.can_hb_count==0);
  CANMsg.can_hb_set=UINT32_MAX;CANMsg.can_hb_count=UINT32_MAX;

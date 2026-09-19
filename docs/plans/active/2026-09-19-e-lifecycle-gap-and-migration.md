@@ -183,7 +183,7 @@ D1 证据（2026-09-19）：
 | `Under_Voltage` | 采样（24.0 V/100 ms）、模式切换、辨识 | 否 | `vbus >= 25.6 V`（enable 下界）持续 100 ms + 样本新鲜 | 同上 |
 | `Over_Current` | 采样（18 A/40 A 档 trip） | 否 | 电流回落至 trip−10% 以下持续 100 ms + 功率已释放 | 裕度与窗口 |
 | `High_Temprature` | 采样 ≥90 °C（仅在 `ErrorNow` 干净时锁存）、辨识 | 否 | 温度 < 80 °C（滞回）+ 传感器有效 | 滞回值与驻留时间 |
-| `TemperatureSensor_Error` | 采样丢失 ≥100 ms | 否 | `missed_ms < timeout`（采样恢复）且新鲜 | — |
+| `TemperatureSensor_Error` | 采样丢失 ≥100 ms | 否 | `missed_ticks < timeout`（采样恢复）且新鲜 | — |
 | `Encoder_Error` | 坏帧步进 ≥100（运行/标定多点） | 否 | 有效帧恢复（streak 清零）+ 样本新鲜 | streak 窗口 |
 | `Encoder_NotCalibrated` | 启动检查、运行检查、辨识 | 否 | 编码器标定有效 | — |
 | `PolePairs_Error` | 参数校验、标定 | 否 | 极对数参数有效 | — |

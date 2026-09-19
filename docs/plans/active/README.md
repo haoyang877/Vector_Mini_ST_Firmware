@@ -18,5 +18,6 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [硬件边界收口：仅 platform/stm32g4 为硬件域（AI 交接说明）v1.0](2026-09-19-hardware-boundary-closure.md)：services/communication/app 剩余硬件耦合的清零路线（T1–T5）+ AI 执行规则；完成后收紧 harness app 层 allows，把定则变成机械门禁。
 - [编码器标定重建：Mode 13 / Mode 15 v1.0](2026-09-20-encoder-calibration-rebuild.md)：按裁决重建观测器 LUT 与电角度零位两条链路（结果协议接入、常量上移、Keil 登记）；其余三个标定任务仍待重建；实机验收待台架。**T1–T5 全部完成**（2026-09-19：board_hw/indicator_hw/param_store 契约、app 零硬件头、foc_param 清零与 `common_inc.h` 删除、CAN 契约化、app 层 allows 收紧；协议测试全绿）；**release 档已通过**（提交 `c39d0d25`，11/11）。
 - [通信分层优化设计 v1.0](2026-09-19-communication-layering-optimization.md)：按分层说明落地"协议约定/协议实现/耦合"三层；S0–S4、S6 已实施并提交，通信层硬件债 0、隐藏 `extern CANMsg` 归零；S5 未执行（转下条）。
-- [CAN 接收中断瘦身（S5）设计与验收计划 v1.0](2026-09-19-can-isr-slimming.md)：中断内完整派发改为有界队列 + 前台派发；已给出优先级/原子性/主循环最坏项分析与设计约束，待 D5 裁决与实机 CAN 回归授权后实施。
+- [CAN 接收中断瘦身（S5）设计与验收计划 v1.0](2026-09-19-can-isr-slimming.md)：中断内完整派发改为有界队列 + 2 kHz 派发。**已按方案 A 实施并离线验证**（PR 档全绿）；实机 CAN 回归待台架。
 - [HIL 退役：删除 HIL 工程与工装，仅保留 normal 工程 v1.0](2026-09-19-hil-retirement.md)：删除 HIL Keil 工程、`SERVO_HIL_ENABLE` 固件变体、HIL 台架工装与测试、`profiles.hil`/`layers.hil`，构建/发布链路改单目标；**已完成**（2026-09-19：PR 档全绿 + release 档通过，提交 `c39d0d25`）。
+- [监督时基 2 kHz 与三层环路架构 v1.0](2026-09-20-supervisor-2khz.md)：TIM7 1 kHz→2 kHz 与内容重标定（分频、心跳、温度、总线恢复）；编码器慢估计、外环控制与主状态机迁入 2 kHz 慢拍，故障紧急关断保留 20 kHz 快车道。**阶段 1–4 已实施**（PR 档全绿）；实机台架项待授权。

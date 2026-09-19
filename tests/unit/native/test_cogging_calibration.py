@@ -34,6 +34,8 @@ bool Encoder_IsOnline(const Encoder_TypeDef *e) { return e->has_valid_sample; }
 uint32_t critical_hw_enter(void) { return 0U; }
 void critical_hw_exit(uint32_t state) { (void)state; }
 float Encoder_GetMecVelContinuous(const Encoder_TypeDef *e) { return e->vel_mech_continuous; }
+float Encoder_GetMecPos(const Encoder_TypeDef *e)
+{ return (float)(e->shadow_q15 - e->mechanical_zero_shadow_q15) * (6.283185307f / 65536.0f); }
 float Encoder_GetElePhase(const Encoder_TypeDef *e) { return e->theta_elec; }
 float Encoder_GetEleVel(const Encoder_TypeDef *e) { return e->vel_elec; }
 uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }

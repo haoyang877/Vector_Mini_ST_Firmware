@@ -138,13 +138,12 @@ static void Encoder_Calib_CommitCandidateLut(Encoder_TypeDef *Encoder)
            sizeof(Encoder->linearization_lut_q15));
     current_linearized_q15 = Encoder_Calib_ApplyCandidateLut(Encoder->directed_q15);
     Encoder->linearized_q15 = current_linearized_q15;
-    Encoder->previous_linearized_q15 = current_linearized_q15;
-    Encoder->shadow_q15 = current_linearized_q15;
-    Encoder->mechanical_zero_shadow_q15 = 0;
     Encoder->electrical_zero_q15 = 0U;
     Encoder->mechanical_zero_q15 = 0U;
     Encoder->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
     Encoder->calib_flag |= ENC_CALIB_LINEARIZED;
+    /* 慢状态由 2 kHz 慢估计独占：请求重定多圈基准（基准取当前线性化角、零影子归零）。 */
+    Encoder->rebase_requested = true;
     Encoder_ResetVelocity(Encoder);
 }
 

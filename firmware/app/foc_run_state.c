@@ -6,6 +6,7 @@
 #include "angle_feedback.h"
 #include "app_lifecycle.h"
 #include "bus_voltage_profile.h"
+#include "critical_hw.h"
 #include "foc_errhandle.h"
 #include "foc_run.h"
 #include "foc_sensing.h"
@@ -40,6 +41,11 @@ enum
 static volatile uint8_t save_finish;
 /* Over_Current 回落驻留计数；饱和于 RUN_STATE_OC_RECOVER_TICKS。 */
 static uint16_t overcurrent_recover_ticks;
+/* 快环结果邮箱：20 kHz 写入、2 kHz 消费；只保留最新的非 RUNNING 结果。 */
+static MotorWorkOutcome_TypeDef pending_outcome;
+static volatile bool outcome_latched;
+/* 故障紧急关断标记：快车道已直接关断硬件，由 2 kHz 状态机对齐功率级记录。 */
+static volatile bool fast_power_stopped;
 
 /* 需要编码器反馈的模式在坏帧超限后立即置编码器故障。 */
 static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
@@ -441,13 +447,70 @@ void FocRunState_CheckFastFaults(void)
     }
 }
 
-void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
+/**
+ * @brief  上报本周期 worker 结果（20 kHz 快环调用，2 kHz 状态机消费）。
+ * @param  outcome 模式 worker 的周期结果；MOTOR_WORK_RUNNING 不入箱。
+ * @note 与消费端通过短临界区交换；只保留最新的非 RUNNING 结果。
+ */
+void FocRunState_PostOutcome(MotorWorkOutcome_TypeDef outcome)
 {
+    uint32_t primask;
+
+    if (outcome.result == MOTOR_WORK_RUNNING)
+    {
+        return;
+    }
+    primask = critical_hw_enter();
+    pending_outcome = outcome;
+    outcome_latched = true;
+    critical_hw_exit(primask);
+}
+
+/**
+ * @brief  故障紧急关断快车道：故障已锁存且功率级记录为开时立即关断硬件。
+ * @note 仅由 20 kHz 快速中断调用。本板无 TIM1 BKIN 与驱动器故障引脚，软件是
+ *       唯一关断路径：该动作把"故障 → 功率级关断"保持在快速环时延内；状态机
+ *       在下一 2 kHz 慢拍对齐记录并执行停机清理。
+ */
+void FocRunState_FastFaultStop(void)
+{
+    if (MotorControl.ErrorNow != No_Error && power_on && !fast_power_stopped)
+    {
+        Stop_PWM_Generate();
+        fast_power_stopped = true;
+    }
+}
+
+/* 取走待处理结果；无请求时按 RUNNING 处理。 */
+static MotorWorkOutcome_TypeDef FocRunState_TakeOutcome(void)
+{
+    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+    uint32_t primask = critical_hw_enter();
+
+    if (outcome_latched)
+    {
+        outcome = pending_outcome;
+        outcome_latched = false;
+    }
+    critical_hw_exit(primask);
+    return outcome;
+}
+
+void FocRunState_Tick(void)
+{
+    MotorWorkOutcome_TypeDef outcome = FocRunState_TakeOutcome();
     ModeNow_TypeDef target;
     bool needs_preparation;
     bool defer_start;
     bool operation_event;
     bool clear_requested;
+
+    /* 快车道紧急关断已停止硬件：先对齐功率级记录，再走停机清理路径。 */
+    if (fast_power_stopped)
+    {
+        fast_power_stopped = false;
+        power_on = false;
+    }
 
     /* 1. worker 结果 → 目标模式与前置动作（与旧实现同序）。 */
     target = MotorControl.ModeNow;

@@ -8,7 +8,7 @@
 状态发布与 RTT 遥测。本轮按指令完成：拆分职责、删除状态发布模块、移除 HIL 邮箱分发、
 把 RTT 从双布局精简为固定 4 通道帧。验收条件：
 
-1. `foc_task.c` 只保留 `FOC1kHzSupervisor` 与 `FOC20kHzIRQHandler` 的周期顺序；
+1. `foc_task.c` 只保留 `FOC2kHzSupervisor` 与 `FOC20kHzIRQHandler` 的周期顺序；
 2. CAN 状态流继续有数据，但采样改由前台打包时直接读取；
 3. 迁移块逐 token 等价，20 kHz 调用顺序、故障提交点与功率级延迟使能语义不变；
 4. Keil 主工程可构建且零错误，离线套件通过。

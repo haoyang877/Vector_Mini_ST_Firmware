@@ -169,9 +169,9 @@ void Temperature_Update(FOC_TypeDef *FOC)
     MotorHwTemperaturePoll_TypeDef poll;
     bool good = false;
 
-    /* 软件触发的 ADC1 序列在两次 1 kHz 监督调用之间完成：端口在 JEOS 就绪时
-     * 读取两个 rank、清标志并请求下一次序列。ADC2/PWM 电流采样与 20 kHz
-     * 中断不受影响。 */
+    /* 软件触发的 ADC1 序列在两次 2 kHz 监督调用之间完成（序列约 30.7 µs）：端口在
+     * JEOS 就绪时读取两个 rank、清标志并请求下一次序列。ADC2/PWM 电流采样与
+     * 20 kHz 中断不受影响。 */
     motor_hw_temperature_poll(&poll);
     if (poll.sample_ready)
     {
@@ -180,12 +180,13 @@ void Temperature_Update(FOC_TypeDef *FOC)
         good = poll.conversion_ok;
         if (good)
         {
-            FOC->temp = McuTemperature.valid ? FOC->temp + 0.02f * (poll.celsius - FOC->temp)
+            /* 0.01 @2 kHz 与原 1 kHz 的 0.02 等效，保持约 50 ms 时间常数。 */
+            FOC->temp = McuTemperature.valid ? FOC->temp + 0.01f * (poll.celsius - FOC->temp)
                                              : poll.celsius;
             McuTemperature.raw_celsius = poll.celsius;
             McuTemperature.vdda_mv = poll.vdda_mv;
             McuTemperature.valid = 1U;
-            McuTemperature.missed_ms = 0U;
+            McuTemperature.missed_ticks = 0U;
             ++McuTemperature.sample_count;
             /* 90°C 比后缀 6 器件的 105°C 结温上限低 15°C，为校准公差与测量
              * 误差留余量；不覆盖绕组/MOSFET 温度。 */
@@ -202,16 +203,16 @@ void Temperature_Update(FOC_TypeDef *FOC)
     }
     if (!good)
     {
-        if (McuTemperature.missed_ms < MCU_TEMPERATURE_TIMEOUT_MS)
+        if (McuTemperature.missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS)
         {
-            ++McuTemperature.missed_ms;
+            ++McuTemperature.missed_ticks;
         }
-        if (!McuTemperature.valid || McuTemperature.missed_ms >= MCU_TEMPERATURE_TIMEOUT_MS)
+        if (!McuTemperature.valid || McuTemperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS)
         {
             McuTemperature.valid = 0U;
             FOC->temp = NAN;
         }
-        if (McuTemperature.missed_ms >= MCU_TEMPERATURE_TIMEOUT_MS &&
+        if (McuTemperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
             MotorControl.ErrorNow == No_Error)
         {
             Set_ErrorNow(TemperatureSensor_Error);

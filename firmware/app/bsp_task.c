@@ -1,13 +1,19 @@
 #include "bsp_task.h"
 
+#include "control_config.h"
 #include "data_type.h"
 #include "foc_task.h"
 #include "indicator_hw.h"
 #include "interface_can.h"
 #include "motor_state.h"
 
-/* 1 kHz 板级任务：只做调度与应用指示策略；LED/RGB 驱动经平台指示器契约。
- * 三个分频计数（式样与迁移前一致）：LED 200、RGB 50、CAN 波特率维护 100。 */
+/* 2 kHz 板级监督任务：通信服务优先执行，随后是指示器、CAN 维护与监督组合；
+ * LED/RGB 驱动与 CAN 波特率维护按 SUPERVISOR_FREQ 整数分频，保持迁移前
+ * 5 Hz / 20 Hz / 10 Hz 的节拍。 */
+
+#define LED_DIVIDER (SUPERVISOR_FREQ / 5U)
+#define RGB_DIVIDER (SUPERVISOR_FREQ / 20U)
+#define CAN_BR_DIVIDER (SUPERVISOR_FREQ / 10U)
 
 uint16_t Led_Cnt;
 uint16_t RGB_Cnt;
@@ -40,26 +46,30 @@ static IndicatorHwColor Mode_Color(ModeNow_TypeDef mode)
 }
 
 /**
- * @brief 1 kHz 板级任务：推进指示器、CAN 维护与 1 kHz 监督。
+ * @brief 2 kHz 板级监督任务：推进通信服务、指示器、CAN 维护与监督组合。
  * @note 仅由 TIM7 中断上下文调用；不得阻塞、不得动态分配。
  */
-void BSP1kHzIRQHandler(void)
+void BSP2kHzIRQHandler(void)
 {
-    FOC1kHzSupervisor();
+    /* 1. 通信服务：排空接收队列并派发（写路径短临界区），发送应答与状态流。 */
+    CAN_Service();
 
-    if (++Led_Cnt >= 200)
+    /* 2. 监督组合：编码器慢估计、外环控制、主状态机与温度。 */
+    FOC2kHzSupervisor();
+
+    if (++Led_Cnt >= LED_DIVIDER)
     {
         indicator_hw_led_task();
         Led_Cnt = 0;
     }
 
-    if (++RGB_Cnt >= 50)
+    if (++RGB_Cnt >= RGB_DIVIDER)
     {
         indicator_hw_set_color(Mode_Color(MotorControl.ModeNow));
         RGB_Cnt = 0;
     }
 
-    if (++CANBRSwitching_Cnt >= 100)
+    if (++CANBRSwitching_Cnt >= CAN_BR_DIVIDER)
     {
         CAN_BaudRateSwitching();
         CANBRSwitching_Cnt = 0;

@@ -1,6 +1,6 @@
 # 编码器标定重建：Mode 13 / Mode 15 v1.0
 
-日期：2026-09-20。状态：**已实施，离线验证通过；实机验收待台架**。
+日期：2026-09-20。状态：**已实施；离线验证通过，实机验收通过（标定两段 + 转速闭环 ±10 rad/s）**。
 背景：2026-09-19 按用户裁决整体删除 `foc_calibration.{c,h}` 五任务（"删除 → 在新模块结构上重建"）；
 用户要求优先恢复 **Mode 13（观测器 LUT）** 与 **Mode 15（电角度零位）**。
 
@@ -30,12 +30,20 @@
 - quick 档 PASS：`outputs/runs/20260919T162813621215Z-71e0687f/summary.json`。
 - Keil normal：0 Error / 0 Warning，Code=86920 / RO=4964 / RW=392 / ZI=31344。
 
-## 4. 实机验收（待台架）
+## 4. 实机验收（台架）—— 通过
 
-顺序：上电 → Mode 13 LUT 标定（约 5 圈采样 + 1 圈验证）→ Mode 15 电角度零位 →
-转速闭环（约 10 rad/s，经 CAN）。
-前提：CAN 物理链路恢复（当前设备因断链处于 bus-off；固件已含自恢复）。
-台架工装可沿用 `outputs/hil_encoder_20260919/` 的 SWD/CAN 脚本（pylink 需临时安装，或改用 JLink Commander）。
+顺序：上电 → Mode 13 LUT 标定 → Mode 15 电角度零位 → 转速闭环（±10 rad/s，经 CAN）。
+
+- Mode 13：8.72 s，max|speed| 15.57 rad/s，位置累计 100.47 rad，全程无故障；
+  LUT 1024/1024 重写（delta spread 仅 18 counts = 原点平移），`calib_flag=3`，已保存 Flash。
+- Mode 15：1.62 s；电零位与 Mode 13 LUT 在电角度域一致（差 ≈4 counts）。
+- 转速闭环（Mode 2，CAN）：+10 rad/s 稳态 fb=10.00 rad/s（iq≈0.073 A），
+  −10 rad/s 稳态 fb=−10.01 rad/s（iq≈−0.077 A）；停机后 mode=0、fault=0。
+- 证据：`outputs/bench_20260919/calibration_result.json`、`speed_loop_result.json`
+  （脚本 `bench_calibration_speed.py`、`verify_speed_loop.py`）。
+- **心跳约定**：运动模式（电流/速度/位置/阻抗）武装 CAN 心跳租约（`can_hb=500 ms`）；
+  主机停发帧超时即按设计强制停机（实测无保活时 533.6 ms 触发，故障随模式退出自愈清）。
+  台架脚本在运动期必须每 ≤200 ms 发送任意查询帧（如 GET_MODE）保活。
 
 ## 5. 回滚
 

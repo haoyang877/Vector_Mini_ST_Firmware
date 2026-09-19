@@ -77,7 +77,7 @@
 
 | 机制 | 位置 | 说明 |
 | --- | --- | --- |
-| 波特率运行态与切换 | `can/can_transport.c` | 模块持有当前/上次波特率；设置变化时才调用 `comm_hw_can_set_baudrate`，由 1 kHz 任务驱动。 |
+| 波特率运行态与切换 | `can/can_transport.c` | 模块持有当前/上次波特率；设置变化时才调用 `comm_hw_can_set_baudrate`，由 2 kHz 监督任务驱动。 |
 | 帧级收帧与过滤 | `can/can_transport.c` | 经 `comm_hw_can_receive` 取帧并拒收扩展帧/远程帧/长度非 2,4/ID 越界/状态流 ID 区间。 |
 | 应答发送与重试 | `can/can_transport.c` | 最多 5 次 `comm_hw_can_try_send_reply` 尝试，不等待；状态帧走队列空闲检查。 |
 | FDCAN 滤波/启停/中断使能 | `ports/comm/comm_control_stm32g4.c` | `HAL_FDCAN_ConfigFilter/ConfigGlobalFilter/Start/ActivateNotification/Stop/Init` 与 `hfdcan1` 全在此文件。 |
@@ -89,7 +89,7 @@
 | 机制 | 位置 | 说明 |
 | --- | --- | --- |
 | 线路编码/解码 | `can_parameter_wire.c`（约定层） + `can_command_binding.c`（解码入口） | 大端定长；写入侧经 `INBitToFloat`/定点还原，哨兵值直接拒收。 |
-| 回复编码 | `interface_can.c: CAN_SendMessage_Update` | 按 `CanParamWire_ReplyEncoding` 写 2/4 字节大端。 |
+| 回复编码 | `interface_can.c: CAN_SendMessage_Update` | 按 `CanParamWire_ReplyEncoding` 编码 2/4 字节大端并排入发送队列（FIFO），由 2 kHz 服务发送。 |
 | 状态流编码与调度 | `protocol/can_motor_status.c` | 48 字节大端纯函数 + 32 位时间回绕安全的周期调度；错过多个周期合并为最新一帧。 |
 
 `can_motor_status.c` 不含 HAL、不含电机头文件，只依赖载荷结构与 `can_parameter_wire`。
@@ -107,18 +107,18 @@
 | 状态快照 | `can/can_status_source.c` | 通信 → 电机 | 前台按需组装 `MotorStatus`；按当前模式挑选 planned 字段；另提供只读的心跳可见性判定。 |
 | 心跳断连保护 | `can/interface_can.c: CAN_DisConnect_Handle` | 通信 → 电机/保护 | 读模式可见性与心跳设置；超时后 `Set_ErrorNow(CAN_DisConnect)`；判据唯一实现见 `CAN_IsHeartbeatAlive`。 |
 | 参数/心跳取值缝 | `services/parameters/param_comm_bridge.h` | 服务 ↔ 通信 | 只读/读写节点身份与心跳超时；替换原先 `foc_param.c`、`foc_run_state.c` 的隐藏 `extern CANMsg`。 |
-| 状态邮箱 | `services/telemetry/motor_status.c` | 服务 ↔ 通信 | 无锁单生产者/单消费者邮箱；生产者仍是通信前台 `CAN_SendMessage`。 |
+| 状态邮箱 | `services/telemetry/motor_status.c` | 服务 ↔ 通信 | 无锁单生产者/单消费者邮箱；生产者是 2 kHz 通信服务 `CAN_Service`。 |
 | 共享全局状态 | `can/interface_can.c: CANMsg` | 通信内部 | 节点身份、收发暂存、心跳状态；声明集中在 `interface_can.h`，**通信层之外不再有隐藏 `extern`**。 |
-| 应用集成 | `board_config.c`、`bsp_task.c`、`main.c`、`stm32g4xx_it.c` | 应用 → 通信 | 初始化 `FDCAN1_Param_Init`；1 kHz 做波特率切换与心跳；主循环调 `CAN_SendMessage`；CubeMX 回调进 `CANRxIRQHandler`。 |
+| 应用集成 | `board_config.c`、`bsp_task.c`、`main.c`、`stm32g4xx_it.c` | 应用 → 通信 | 初始化 `FDCAN1_Param_Init`；2 kHz 服务 `CAN_Service` 排空接收队列并派发、发送应答与状态流，另做波特率切换与心跳；主循环只保留 cogging 服务与保存会话；CubeMX 回调进 `CANRxIRQHandler`（只入队）。 |
 
 **两个必须记录的现状事实**：
 
 - `CAN_SetEncoderState`（`can/can_binding_commands.c`）是空实现，`CAN_SET_ENCODER_STATE`(0x0C)
   当前不改变任何状态；槽位保留按设计决策 D1。
-- `CANRxIRQHandler`（`can/can_command_binding.c`）在 RX 中断里完成取帧、校验、解码与完整
-  命令派发，超出 `ARCHITECTURE.md`"ISR 只做有界采集"的要求。这是**已接受的偏差**
-  （设计决策 D3/S5 默认不执行）：中断内工作量有界（单帧、≤4 字节解码、无等待/无分配），
-  且模式/禁用类命令依赖最短时延；如 E 统一准入落地后再评估则另行立项。
+- `CANRxIRQHandler`（`can/can_command_binding.c`）在 RX 中断里只做取帧、校验、解码与入队
+  （单帧、≤4 字节、无等待/无分配）；派发移到 2 kHz 服务 `CAN_Service`，写路径在短临界区
+  内应用以恢复对 20 kHz 快环的原子性。原偏差已按 S5/方案 A 关闭，见
+  [S5 计划](../plans/active/2026-09-19-can-isr-slimming.md) §10。
 
 ---
 
@@ -176,5 +176,6 @@ common/types  →  platform API + motor algorithms  →  services + protocol + c
 
 - 本文件是**当前边界参考**；重构过程与证据见
   [通信分层优化设计](../plans/active/2026-09-19-communication-layering-optimization.md)。
-- 若继续推进：S5（RX 中断瘦身）与 D4（是否为 transport 单列 harness 允许面）尚未裁决，
-  需用户决定后另行立项；任何进一步改动仍按行为保持重构记录基线与证据。
+- 后续：S5（RX 中断瘦身）已按方案 A 实施（见 S5 计划 §10），实机 CAN 回归待台架授权；
+  D4（是否为 transport 单列 harness 允许面）尚未裁决；任何进一步改动仍按行为保持重构
+  记录基线与证据。

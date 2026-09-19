@@ -26,8 +26,8 @@ void CAN_BaudRateSwitching(void)
 
     baudrate_last = baudrate;
 
-    /* bus-off 自恢复：本函数由 1 kHz 监督每 100 拍调用一次，故此处按 10 拍限频（约 1 Hz），
-     * 避免总线真断时反复恢复抖动。 */
+    /* bus-off 自恢复：本函数由 2 kHz 监督每 200 拍调用一次（100 ms），故此处按 10 拍
+     * 限频（约 1 Hz），避免总线真断时反复恢复抖动。 */
     if (++bus_off_divider >= 10U)
     {
         bus_off_divider = 0U;
@@ -77,3 +77,93 @@ bool CanTransport_TrySendStatus(uint16_t identifier, const uint8_t *data, size_t
 {
     return comm_hw_can_try_send_status(identifier, data, length);
 }
+
+/* CAN_RING_BEGIN
+ * ---- 定长环实现：RX 单生产者/单消费者，TX 单上下文 ---- */
+
+typedef struct
+{
+    volatile uint16_t head;
+    volatile uint16_t tail;
+    CanQueuedCommand_TypeDef items[CAN_RX_RING_CAPACITY];
+} CanRxRing_TypeDef;
+
+typedef struct
+{
+    volatile uint16_t head;
+    volatile uint16_t tail;
+    CanTxReply_TypeDef items[CAN_TX_RING_CAPACITY];
+} CanTxRing_TypeDef;
+
+static CanRxRing_TypeDef rx_ring;
+static CanTxRing_TypeDef tx_ring;
+static volatile uint32_t rx_drop_count;
+static volatile uint32_t tx_drop_count;
+
+bool CanTransport_PushRxCommand(uint8_t param_id, float data)
+{
+    if ((uint16_t)(rx_ring.head - rx_ring.tail) >= CAN_RX_RING_CAPACITY)
+    {
+        ++rx_drop_count;
+        return false;
+    }
+    /* 先写负载、后推进 head：消费者只读取 head 之下的槽位，中断抢占读取端安全。 */
+    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].param_id = param_id;
+    rx_ring.items[rx_ring.head % CAN_RX_RING_CAPACITY].data = data;
+    ++rx_ring.head;
+    return true;
+}
+
+bool CanTransport_PopRxCommand(CanQueuedCommand_TypeDef *command)
+{
+    if (command == NULL || rx_ring.tail == rx_ring.head)
+    {
+        return false;
+    }
+    *command = rx_ring.items[rx_ring.tail % CAN_RX_RING_CAPACITY];
+    ++rx_ring.tail;
+    return true;
+}
+
+bool CanTransport_PushTxReply(const CanTxReply_TypeDef *reply)
+{
+    if (reply == NULL)
+    {
+        return false;
+    }
+    if ((uint16_t)(tx_ring.head - tx_ring.tail) >= CAN_TX_RING_CAPACITY)
+    {
+        ++tx_drop_count;
+        return false;
+    }
+    tx_ring.items[tx_ring.head % CAN_TX_RING_CAPACITY] = *reply;
+    ++tx_ring.head;
+    return true;
+}
+
+bool CanTransport_PopTxReply(CanTxReply_TypeDef *reply)
+{
+    if (reply == NULL || tx_ring.tail == tx_ring.head)
+    {
+        return false;
+    }
+    *reply = tx_ring.items[tx_ring.tail % CAN_TX_RING_CAPACITY];
+    ++tx_ring.tail;
+    return true;
+}
+
+bool CanTransport_TxPending(void)
+{
+    return tx_ring.tail != tx_ring.head;
+}
+
+uint32_t CanTransport_GetRxDropCount(void)
+{
+    return rx_drop_count;
+}
+
+uint32_t CanTransport_GetTxDropCount(void)
+{
+    return tx_drop_count;
+}
+/* CAN_RING_END */

@@ -39,6 +39,6 @@ void board_hw_start(bool motor_phases_enabled)
     __HAL_ADC_DISABLE_IT(&hadc2, ADC_IT_JEOC);
     __HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOS);
 
-    /* 启动 TIM7 1 kHz 监督中断。 */
+    /* 启动 TIM7 2 kHz 监督中断（节拍契约见 control_config.h，周期覆写见 MX_TIM7_Init）。 */
     HAL_TIM_Base_Start_IT(&htim7);
 }

@@ -1,10 +1,12 @@
 #include "interface_can.h"
 
+#include "control_config.h"
 #include "utils.h"
 #include "foc_algorithm.h"
 #include "foc_errhandle.h"
 #include "param_comm_bridge.h"
 #include "can_motor_status.h"
+#include "can_command_binding.h"
 #include "can_transport.h"
 #include "can_status_source.h"
 #include "time_hw.h"
@@ -55,7 +57,10 @@ void FDCAN1_Param_Init(void)
  **/
 void CAN_DisConnect_Handle(void)
 {
-    /* 每个监督时基重算：上一轮 RUN 不得在 STOP 之后继续武装看门狗；
+    /* can_hb_set 单位为 ms；监督 tick 2 kHz，按 tick 换算以保持毫秒级超时契约。 */
+    uint32_t timeout_ticks = CANMsg.can_hb_set * SUPERVISOR_TICKS_PER_MS;
+
+    /* 每个监督 tick 重算：上一轮 RUN 不得在 STOP 之后继续武装看门狗；
      * 已锁存的故障在本函数中保留不清除。 */
     CANMsg.can_hb_en = CANMsg.can_hb_set != 0U && CanStatus_HeartbeatArmed();
     if (!CANMsg.can_hb_en)
@@ -65,10 +70,10 @@ void CAN_DisConnect_Handle(void)
     }
     if (CANMsg.can_rx_en)
     {
-        /* 饱和累加，避免持续断连把计数器绕回。 */
-        if (CANMsg.can_hb_count < CANMsg.can_hb_set)
+        /* 饱和累加，避免持续断连把计数器绕回；计数粒度 0.5 ms。 */
+        if (CANMsg.can_hb_count < timeout_ticks)
             ++CANMsg.can_hb_count;
-        if (CANMsg.can_hb_count >= CANMsg.can_hb_set && MotorControl.ErrorNow == No_Error)
+        if (CANMsg.can_hb_count >= timeout_ticks && MotorControl.ErrorNow == No_Error)
             Set_ErrorNow(CAN_DisConnect);
     }
 }
@@ -79,7 +84,8 @@ void CAN_DisConnect_Handle(void)
  **/
 bool CAN_IsHeartbeatAlive(void)
 {
-    return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
+    return CANMsg.can_hb_set > 0U &&
+           CANMsg.can_hb_count < CANMsg.can_hb_set * SUPERVISOR_TICKS_PER_MS;
 }
 
 /**
@@ -89,15 +95,18 @@ bool CAN_IsHeartbeatAlive(void)
  **/
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 {
-    CANMsg.tx_param_id = param_id;
-    CANMsg.tx_data = data;
+    CanTxReply_TypeDef reply;
     CanValueEncoding encoding = CanParamWire_ReplyEncoding(param_id);
+
+    reply.param_id = (uint8_t)param_id;
+    reply.length = CanParamWire_Length(encoding);
     if (encoding == CAN_VALUE_MILLI_I16)
     {
         uint16_t value = (uint16_t)CanParamWire_Milli16(data);
-        CANMsg.tx_data_u8[0] = (uint8_t)(value >> 8);
-        CANMsg.tx_data_u8[1] = (uint8_t)value;
-        CANMsg.tx_data_u8[2] = CANMsg.tx_data_u8[3] = 0U;
+        reply.data[0] = (uint8_t)(value >> 8);
+        reply.data[1] = (uint8_t)value;
+        reply.data[2] = 0U;
+        reply.data[3] = 0U;
     }
     else
     {
@@ -108,23 +117,32 @@ void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
             value = (uint32_t)CanParamWire_Centi32(data);
         else
             value = FloatToIntBit(data);
-        CANMsg.tx_data_u8[0] = (uint8_t)(value >> 24);
-        CANMsg.tx_data_u8[1] = (uint8_t)(value >> 16);
-        CANMsg.tx_data_u8[2] = (uint8_t)(value >> 8);
-        CANMsg.tx_data_u8[3] = (uint8_t)value;
+        reply.data[0] = (uint8_t)(value >> 24);
+        reply.data[1] = (uint8_t)(value >> 16);
+        reply.data[2] = (uint8_t)(value >> 8);
+        reply.data[3] = (uint8_t)value;
     }
-    CANMsg.tx_data_len = CanParamWire_Length(encoding);
-
-    CANMsg.can_tx_en = true;
+    (void)CanTransport_PushTxReply(&reply);
 }
 
 /**
-    * @brief  CAN Tx function   
-              use ExtId, DLC length 4
+    * @brief  2 kHz communication service: drain and dispatch the RX queue, then
+              drain the TX queue; when idle, submit the periodic status stream.
  **/
-void CAN_SendMessage(void)
+void CAN_Service(void)
 {
-    if (CANMsg.can_tx_en == false)
+    CanTxReply_TypeDef reply;
+    bool status_allowed;
+
+    CanCommand_ServiceRx();
+    /* 应答优先：本拍有任何待发应答（含本拍派发产生）时不提交状态流。 */
+    status_allowed = !CanTransport_TxPending();
+    while (CanTransport_PopTxReply(&reply))
+    {
+        uint32_t identifier = CanParamWire_Identifier(CANMsg.node_id, (CAN_PARAM_ID)reply.param_id);
+        CanTransport_SendReply(identifier, reply.data, reply.length);
+    }
+    if (status_allowed)
     {
         uint8_t payload[CAN_MOTOR_STATUS_SIZE];
         uint16_t identifier;
@@ -135,15 +153,19 @@ void CAN_SendMessage(void)
             MotorStatus_Publish(&snapshot);
         }
         if (CanMotorStatus_Prepare(
-                time_hw_now_ms(), CANMsg.node_id, &identifier, payload, sizeof(payload)) &&
-            !CANMsg.can_tx_en)
+                time_hw_now_ms(), CANMsg.node_id, &identifier, payload, sizeof(payload)))
+        {
             (void)CanTransport_TrySendStatus(identifier, payload, sizeof(payload));
-        return;
+        }
     }
+}
 
-    uint32_t ID = CanParamWire_Identifier(CANMsg.node_id, CANMsg.tx_param_id);
+uint32_t CAN_GetRxDropCount(void)
+{
+    return CanTransport_GetRxDropCount();
+}
 
-    CanTransport_SendReply(ID, CANMsg.tx_data_u8, CANMsg.tx_data_len);
-
-    CANMsg.can_tx_en = false;
+uint32_t CAN_GetTxDropCount(void)
+{
+    return CanTransport_GetTxDropCount();
 }

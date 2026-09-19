@@ -1,6 +1,7 @@
 # 通信分层优化设计 v1.0
 
-日期：2026-09-19。状态：**已自评 v1.1（未实施）**。
+日期：2026-09-19。状态：**S0–S4、S6 已实施并提交；S5 未执行（用户裁决为"需先出最坏时延分析
+并授权实机 CAN 回归"）**。
 依据：[通信分层说明（CAN 接入）](../../architecture/communication_layering.md)的三层划分
 （协议约定 / 协议实现 / 耦合）。自评结论见 §13（按用户要求由主会话自行评审，未使用外部评审代理）。
 
@@ -256,6 +257,23 @@ firmware/communication/
 | S6 | `check_architecture` 通信 0 条、文档更新 | ✅ 完成（D4 待裁决） |
 
 ## 12. 执行记录
+
+### 提交记录（2026-09-19）
+
+| 阶段 | 提交 | 说明 |
+| --- | --- | --- |
+| S1 (=T3) | `c39d0d25` | 随"retire HIL target and close hardware boundary to platform layer"提交（含本计划的 comm_hw 契约与端口实现）。 |
+| S2 | `7de7b7c1` | `refactor: extract CAN wire conventions and share fixed-point codecs` |
+| S3 | `b5eefc08` | `refactor: split CAN implementation into transport, binding and status modules` |
+| S4 | `ed78c8fa` | `refactor: drop the hidden CANMsg extern from the run state machine` |
+| S6 | `680ade8f` | `docs: record the communication layering refactor and refresh its boundary reference` |
+
+提交后复验：PR 档全绿 `outputs/runs/20260919T114553882298Z-680ade8f/summary.json`；
+Keil 双目标 0 Error / 0 Warning（Code=81976 / RO=4888 / RW=252 / ZI=31348）。
+
+S3/S4 的提交边界说明：`interface_can.{c,h}` 在 S3 被整体重写（同时承载 S2 的去重结果），
+故 S2 提交只含协议约定模块与 `can_motor_status` 迁移；`CAN_IsHeartbeatAlive()` 随 S3 提交落地，
+其消费方 `foc_run_state.c` 在 S4 提交切换。逐阶段回退仍成立（每个提交都可独立构建）。
 
 ### S0 基线与冻结（2026-09-19 完成，未提交）
 

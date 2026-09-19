@@ -77,6 +77,7 @@
 - 状态机上移：`outputs/runs/20260919T173126321554Z-90982812/summary.json`；`test_run_state`
   差分扩为 46,464 组比对全一致（含结果信箱投递/消费），新增紧急关断快车道路径。
 - S5 阶段 4：`outputs/runs/20260919T175256075981Z-90982812/summary.json`。
-- 全部为 PR 档（离线）；release 档需先提交。
+- PR 档全绿；release 档全绿（含 keil-build 与 release-manifest）：
+  `outputs/runs/20260919T180543775644Z-6cbe306c/summary.json`（提交 `6cbe306`）。
 - 实机：`outputs/bench_20260920/verify_refactor_result.json`（含固件 hex SHA256 与闪存前
   参数区备份 `params_before_flash.bin`、烧录脚本 `flash_app.jlink`、验证脚本）。

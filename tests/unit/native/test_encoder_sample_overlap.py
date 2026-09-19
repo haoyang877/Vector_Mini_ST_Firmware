@@ -1,8 +1,9 @@
-"""按层验证编码器采样：SPI 传输端口与帧协议编排；不访问硬件。
+"""按层验证编码器采样：SPI 传输端口、传感器通道 driver 与角度层状态映射；不访问硬件。
 
-夹具分两个可执行文件：
+夹具分三个可执行文件：
 1. 传输端口（寄存器桩）：总线就绪判定、CS/MOSI 顺序、两类传输失败与资源释放；
-2. 协议编排（传输 seam 桩）：请求/读帧取值、异步与回退路径、角度解码与状态映射。
+2. 传感器通道（总线 seam 桩）：请求/读帧取值、异步与回退路径、角度解码与状态归类；
+3. 角度层映射（通道 seam 桩）：通道状态到读取状态的映射、诊断字与角度传递、失败不覆盖。
 """
 
 import sys as _sys
@@ -103,8 +104,10 @@ int main(void) {
     )
 
 
-def _protocol_source() -> str:
-    source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
+def _channel_source() -> str:
+    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_tle5012b.c").read_text(
+        encoding="utf-8"
+    )
     return (
         r"""
 #undef NDEBUG
@@ -112,16 +115,9 @@ def _protocol_source() -> str:
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
-#define ENCODER_REQUEST_READ_ANGLE 0x8021U
-#define ENCODER_READ_FRAME 0x0000U
-typedef struct {
-    uint16_t tle5012_angle_word, tle5012_safety_word;
-    uint8_t tle5012_crc_received, tle5012_crc_calculated;
-    unsigned status;
-} Encoder_TypeDef;
-enum { ENCODER_READ_OK, ENCODER_READ_SPI_TIMEOUT };
-static void Encoder_MarkReadStatus(Encoder_TypeDef *e, unsigned status) { e->status = status; }
+#include "encoder_sensor.h"
+#define TLE5012B_REQUEST_READ_ANGLE 0x8021U
+#define TLE5012B_READ_FRAME 0x0000U
 static unsigned begin_calls, complete_calls;
 static unsigned last_begin_frame, last_request_frame, last_read_frame;
 static bool begin_result, complete_result, seen_begin_ok;
@@ -136,10 +132,15 @@ bool encoder_spi_read_complete(bool begin_ok, uint16_t request_frame, uint16_t r
     if (!complete_result) return false;
     *word = complete_response; return true;
 }
+static void encoder_spi_init(void) {}
 """
-        + function_source(source, "Encoder_BeginSample")
+        + function_source(source, "encoder_sensor_init")
         + "\n"
-        + function_source(source, "Encoder_ReadTle5012BFrame")
+        + function_source(source, "encoder_sensor_begin")
+        + "\n"
+        + function_source(source, "encoder_sensor_complete")
+        + "\n"
+        + function_source(source, "encoder_sensor_type")
         + r"""
 static void reset(unsigned pipeline, unsigned fail) {
     begin_calls = complete_calls = 0;
@@ -147,32 +148,105 @@ static void reset(unsigned pipeline, unsigned fail) {
     begin_result = pipeline != 0; complete_result = fail == 0; seen_begin_ok = false;
 }
 int main(void) {
-    Encoder_TypeDef e;
-    uint16_t raw;
+    EncoderSensorSample s;
     unsigned word, cases = 0;
+    assert(encoder_sensor_type() == ENCODER_SENSOR_TYPE_TLE5012B);
     for (unsigned pipeline = 0; pipeline < 2; pipeline++) {
         for (unsigned fail = 0; fail < 2; fail++) {
             for (word = 0; word < 65536U; word += 257U) {
-                memset(&e, 0, sizeof(e)); raw = 0x1357U;
+                s.angle_q15 = 0x1357U; s.status = ENCODER_SENSOR_SENSOR_FAULT;
                 reset(pipeline, fail); complete_response = (uint16_t)word;
-                assert(Encoder_BeginSample() == (bool)pipeline);
+                assert(encoder_sensor_begin() == (bool)pipeline);
                 assert(begin_calls == 1 && last_begin_frame == 0x8021U);
-                assert(Encoder_ReadTle5012BFrame(&e, &raw, pipeline != 0) == (fail == 0));
+                assert(encoder_sensor_complete(pipeline != 0, &s)
+                       == (fail == 0 ? ENCODER_SENSOR_OK : ENCODER_SENSOR_BUS_TIMEOUT));
                 assert(complete_calls == 1 && seen_begin_ok == (pipeline != 0));
                 assert(last_request_frame == 0x8021U && last_read_frame == 0U);
                 if (fail == 0) {
-                    assert(raw == (uint16_t)((word & 0x7FFFU) << 1U));
-                    assert(e.tle5012_angle_word == (uint16_t)word);
-                    assert(e.tle5012_safety_word == 0U && e.tle5012_crc_received == 0U);
-                    assert(e.status == ENCODER_READ_OK);
+                    assert(s.angle_q15 == (uint16_t)((word & 0x7FFFU) << 1U));
+                    assert(s.frame_word == (uint16_t)word);
+                    assert(s.safety_word == 0U && s.crc_ok);
                 } else {
-                    assert(raw == 0x1357U && e.status == ENCODER_READ_SPI_TIMEOUT);
+                    assert(s.angle_q15 == 0x1357U);
                 }
                 cases++;
             }
         }
     }
-    printf("PASS %u encoder protocol cases: request/read frame, async and fallback paths, decode, timeout status\n", cases);
+    printf("PASS %u encoder channel cases: TLE request/read frame, async and fallback, decode, bus-timeout status\n", cases);
+    return 0;
+}
+"""
+    )
+
+
+def _mapping_source() -> str:
+    source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
+    return (
+        r"""
+#undef NDEBUG
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include "encoder_sensor.h"
+typedef unsigned Encoder_ReadStatus;
+#define ENCODER_READ_OK 0U
+#define ENCODER_READ_SPI_TIMEOUT 1U
+#define ENCODER_READ_CRC_MISMATCH 2U
+#define ENCODER_READ_TLE_SYSTEM_ERROR 8U
+typedef struct {
+    uint16_t frame_word, safety_word;
+    uint8_t crc_received, crc_calculated;
+    Encoder_ReadStatus status;
+} Encoder_TypeDef;
+static void Encoder_MarkReadStatus(Encoder_TypeDef *e, Encoder_ReadStatus status) {
+    e->status = status;
+}
+static unsigned begin_calls;
+static EncoderSensorStatus complete_status;
+static EncoderSensorSample complete_sample;
+bool encoder_sensor_begin(void) { begin_calls++; return true; }
+EncoderSensorStatus encoder_sensor_complete(bool started, EncoderSensorSample *out) {
+    (void)started;
+    *out = complete_sample;
+    return complete_status;
+}
+"""
+        + function_source(source, "Encoder_BeginSample")
+        + "\n"
+        + function_source(source, "Encoder_MapSensorStatus")
+        + "\n"
+        + function_source(source, "Encoder_ReadFrame")
+        + r"""
+static void expect(EncoderSensorStatus status, Encoder_ReadStatus expected, bool ok) {
+    Encoder_TypeDef e;
+    uint16_t raw = 0x2468U;
+    complete_status = status;
+    complete_sample.status = status;
+    complete_sample.angle_q15 = 0x1234U;
+    complete_sample.frame_word = 0xBEEFU;
+    complete_sample.safety_word = 0x0001U;
+    complete_sample.crc_ok = true;
+    e.frame_word = 0U; e.safety_word = 0U; e.crc_received = 1U; e.crc_calculated = 1U;
+    assert(Encoder_ReadFrame(&e, &raw, false) == ok);
+    assert(e.status == expected);
+    if (ok) {
+        assert(raw == 0x1234U && e.frame_word == 0xBEEFU && e.safety_word == 0x0001U);
+        assert(e.crc_received == 0U && e.crc_calculated == 0U);
+    } else {
+        assert(raw == 0x2468U); /* 失败不覆盖调用方缓存。 */
+        assert(e.frame_word == 0U && e.safety_word == 0U);
+    }
+}
+int main(void) {
+    begin_calls = 0;
+    assert(Encoder_BeginSample() && begin_calls == 1);
+    expect(ENCODER_SENSOR_OK, ENCODER_READ_OK, true);
+    expect(ENCODER_SENSOR_BUS_TIMEOUT, ENCODER_READ_SPI_TIMEOUT, false);
+    expect(ENCODER_SENSOR_FRAME_ERROR, ENCODER_READ_CRC_MISMATCH, false);
+    expect(ENCODER_SENSOR_SENSOR_FAULT, ENCODER_READ_TLE_SYSTEM_ERROR, false);
+    puts("PASS encoder mapping cases: begin passthrough, status mapping, diagnostics and raw angle transfer");
     return 0;
 }
 """
@@ -204,7 +278,8 @@ def main():
     (out / "main.h").write_text("#pragma once\n#include <stdint.h>\n")
     for name, source in (
         ("encoder_transport", _transport_source()),
-        ("encoder_protocol", _protocol_source()),
+        ("encoder_channel", _channel_source()),
+        ("encoder_mapping", _mapping_source()),
     ):
         exe = _build(out, name, source, args.cc)
         subprocess.run([str(exe)], check=True)

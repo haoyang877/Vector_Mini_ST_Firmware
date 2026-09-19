@@ -3,15 +3,13 @@
 #include <limits.h>
 #include <string.h>
 #include "control_config.h"
-#include "encoder_spi.h"
+#include "encoder_sensor.h"
 #include "utils.h"
 
 /* 编码器角度反馈：TLE5012B 帧读取编排、方向/线性化/电零位/多圈累积与速度估计。
  * SPI 传输在 platform/stm32g4/ports/motor/encoder_spi_stm32g4.c 完成；
  * 本文件不访问寄存器、片选或 SPI 句柄。 */
 
-#define ENCODER_REQUEST_READ_ANGLE 0x8021U
-#define ENCODER_READ_FRAME 0x0000U
 #define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
 
 /* 记录一次读取结果；出现有效帧时清零连续坏帧计数。 */
@@ -32,29 +30,43 @@ static void Encoder_MarkReadStatus(Encoder_TypeDef *encoder, Encoder_ReadStatus 
     }
 }
 
-/* 非阻塞发起角度帧请求；总线异常时保留同步兜底路径。 */
+/* 非阻塞发起一次传感器采样；总线异常时保留同步兜底路径。 */
 bool Encoder_BeginSample(void)
 {
-    return encoder_spi_read_begin(ENCODER_REQUEST_READ_ANGLE);
+    return encoder_sensor_begin();
 }
 
-/* 读回一帧 TLE5012B 角度并归一化为 Q15；失败时只登记超时状态。 */
-static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15, bool started)
+/* 通道状态映射到既有对外读取状态；旧枚举保留以兼容遥测。 */
+static Encoder_ReadStatus Encoder_MapSensorStatus(EncoderSensorStatus status)
 {
-    uint16_t angle_word = 0U;
-
-    if (!encoder_spi_read_complete(
-            started, ENCODER_REQUEST_READ_ANGLE, ENCODER_READ_FRAME, &angle_word))
+    switch (status)
     {
-        Encoder_MarkReadStatus(encoder, ENCODER_READ_SPI_TIMEOUT);
+    case ENCODER_SENSOR_FRAME_ERROR:
+        return ENCODER_READ_CRC_MISMATCH;
+    case ENCODER_SENSOR_SENSOR_FAULT:
+        return ENCODER_READ_TLE_SYSTEM_ERROR;
+    case ENCODER_SENSOR_BUS_TIMEOUT:
+    default:
+        return ENCODER_READ_SPI_TIMEOUT;
+    }
+}
+
+/* 采样一帧并取出归一化 Q15 角度；失败时登记映射后的读取状态。 */
+static bool Encoder_ReadFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15, bool started)
+{
+    EncoderSensorSample sample;
+
+    if (encoder_sensor_complete(started, &sample) != ENCODER_SENSOR_OK)
+    {
+        Encoder_MarkReadStatus(encoder, Encoder_MapSensorStatus(sample.status));
         return false;
     }
 
-    encoder->tle5012_angle_word = angle_word;
-    encoder->tle5012_safety_word = 0U;
-    encoder->tle5012_crc_received = 0U;
-    encoder->tle5012_crc_calculated = 0U;
-    *raw_q15 = (uint16_t)((angle_word & 0x7FFFU) << 1U);
+    encoder->frame_word = sample.frame_word;
+    encoder->safety_word = sample.safety_word;
+    encoder->crc_received = 0U;
+    encoder->crc_calculated = 0U;
+    *raw_q15 = sample.angle_q15;
     Encoder_MarkReadStatus(encoder, ENCODER_READ_OK);
     return true;
 }
@@ -214,16 +226,16 @@ void Encoder_ParamInit(Encoder_TypeDef *encoder)
     encoder->theta_mech = 0.0f;
     encoder->read_status = ENCODER_READ_OK;
     encoder->read_status_latched = ENCODER_READ_OK;
-    encoder->tle5012_angle_word = 0U;
-    encoder->tle5012_safety_word = 0U;
-    encoder->tle5012_crc_received = 0U;
-    encoder->tle5012_crc_calculated = 0U;
-    encoder->tle5012_crc_error_count = 0U;
+    encoder->frame_word = 0U;
+    encoder->safety_word = 0U;
+    encoder->crc_received = 0U;
+    encoder->crc_calculated = 0U;
+    encoder->crc_error_count = 0U;
     encoder->read_error_count = 0U;
     encoder->bad_frame_streak = 0U;
     Encoder_ResetVelocity(encoder);
 
-    encoder_spi_init();
+    encoder_sensor_init();
 }
 
 bool Encoder_IsOnline(const Encoder_TypeDef *encoder)
@@ -273,7 +285,7 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl,
     int32_t delta_q15;
     uint32_t pole_pairs;
 
-    if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15, sample_started))
+    if (!Encoder_ReadFrame(encoder, &raw_q15, sample_started))
     {
         return;
     }

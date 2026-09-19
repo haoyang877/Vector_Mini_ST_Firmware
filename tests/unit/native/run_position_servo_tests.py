@@ -121,7 +121,7 @@ typedef struct {
 } Encoder_TypeDef;
 static uint16_t sample;
 static bool sample_ok = true;
-static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e, uint16_t *out, bool started)
+static bool Encoder_ReadFrame(Encoder_TypeDef *e, uint16_t *out, bool started)
 { (void)e; (void)started; *out = sample; return sample_ok; }
 static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e, uint16_t v)
 { (void)e; return v; }

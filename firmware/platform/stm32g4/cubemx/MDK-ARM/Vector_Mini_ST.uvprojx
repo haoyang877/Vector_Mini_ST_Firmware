@@ -1735,6 +1735,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\ports\motor\encoder_spi_stm32g4.c</FilePath>
             </File>
+            <File>
+              <FileName>encoder_tle5012b.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\encoder_tle5012b.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

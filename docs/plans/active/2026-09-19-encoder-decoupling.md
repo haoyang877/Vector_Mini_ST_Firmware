@@ -1,6 +1,7 @@
 # Encoder 解耦：传感器通道 / SPI 传输 / 角度输出 v2.0
 
-日期：2026-09-19。状态：**阶段 A 已完成（本轮提交）；阶段 B/C/D 待办**。Q1/Q2/Q3/Q6/Q8 按推荐执行；Q4 已确认"保留"。
+日期：2026-09-19。状态：**阶段 A/B 已完成；阶段 C（角度层归位）/D（检查层）待办**。
+Q1/Q2/Q3/Q6/Q8 按推荐执行；Q4 已确认"保留"；Q9 采用统一 Q15；Q10 资料暂缺，driver 骨架留待型号确定。
 
 范围：`firmware/platform/stm32g4/bsp/encoder.{c,h}`（428 + 120 行）的解耦。
 目标三层：**硬件的归硬件、通信（传感器协议）的归通信、输出角度的归输出角度**；
@@ -144,7 +145,10 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
 | **2 编译期分发（推荐）** | `hw_conf.h`（板级）定义 `ENCODER_SENSOR_TYPE`；`ports/motor/encoder_sensor_stm32g4.c` 用 `#if` 只编译并转发到选中 driver（各 driver 用 `xxx_sensor_*` 内部符号） | 换型号=改一个板级宏；与现有 `CURRENT_SENSE_SHUNT_MILLIOHM` 板级 profile 同例；通道契约不变 | 需保证宏与实现一致（加 `#error` 兜底） |
 | 3 运行期表 | 函数指针表 + 运行期选择 | 运行期可换 | 20 kHz 间接调用、未用驱动进镜像；违反"固定控制流不用回调注册表" |
 
-推荐方案 2；若你更倾向"零多余代码"，方案 1 同样满足"功能通道 + 每型号 driver"。
+方案 2 已按**精简形式**落地：不设分发文件，各 driver 直接实现同一组 `encoder_sensor_*` 符号，
+用 `#if ENCODER_SENSOR_TYPE == <该型号>` 包裹整个实现——编译时只会有一份有效定义，
+未选中的 driver 编译为空，换型号=改 `hw_conf.h` 的一个宏（推荐，与 `CURRENT_SENSE_SHUNT_MILLIOHM`
+板级 profile 同例）。若你更倾向"零多余代码"，方案 1（链接期）同样满足通道+driver 结构。
 
 ---
 
@@ -235,3 +239,23 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
   失败）；两个 Keil 工程的端口组登记（`power_stage` 重复、`motor_sensing` 丢失）——修复后
   布局检查 0 错误、双目标可链接。
 - 待办：阶段 B（驱动通道 + TLE driver）、C（角度层归位）、D（检查层）；Q3/Q7/Q9/Q10 仍待确认。
+
+阶段 B（2026-09-19，传感器功能通道）：
+
+- 新增 `platform/api/encoder_sensor.h`：型号枚举、采样状态、归一化样本
+  （`status/angle_q15/frame_word/safety_word/crc_ok`）与 `encoder_sensor_init/begin/complete/type`。
+- 新增 `ports/motor/encoder_tle5012b.c`：TLE5012B 的请求帧 `0x8021`、读相位、`(word & 0x7FFF) << 1`
+  解码与超时归类全部封装在 driver 内；整文件由 `#if ENCODER_SENSOR_TYPE == ENCODER_SENSOR_TYPE_TLE5012B`
+  保护，未选中时编译为空。`hw_conf.h` 新增板级选择宏（默认 TLE5012B）。
+- `encoder.c` 不再接触总线：`Encoder_BeginSample()`→`encoder_sensor_begin()`，
+  帧读取→`Encoder_ReadFrame()` 消费通道样本；新增 `Encoder_MapSensorStatus()` 把通道状态映射到
+  既有 `Encoder_ReadStatus`（旧枚举保留以兼容遥测；Q3 按"保留不实现"执行）。
+- 诊断字段去 TLE 前缀：`tle5012_angle_word/safety_word/crc_*` → `frame_word/safety_word/crc_*`
+  （仅 encoder 自身与夹具使用，无外部字段直读）。
+- 夹具扩展为三个子用例：传输端口（2048 例）、传感器通道（1024 例，driver + 总线 seam）、
+  角度层映射（状态映射/诊断字/角度传递/失败不覆盖）；`run_position_servo_tests` 的帧桩随
+  函数改名同步。
+- 验证：原生套件 17/17 PASS；`format`/`lint`/`architecture`/`interfaces`/`project-layout` 0 new；
+  Keil 双目标 0 Error / 0 Warning（主工程 Code=82288）。
+- 新增 MT6701/MT6535 的落点：加 `ports/motor/encoder_<型号>.c`（同一 `#if` 模式）+ 板级宏切换 +
+  该型号解码向量；传输层与角度层零改动。

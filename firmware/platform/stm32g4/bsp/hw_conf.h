@@ -6,6 +6,12 @@
 #include "motor_hardware_profile.h"
 #include "motor_sensing.h"
 #include "current_sense_profile.h"
+#include "encoder_sensor.h"
+
+/* 编码器传感器选择：每个型号一个 driver，未选中的 driver 编译为空。 */
+#ifndef ENCODER_SENSOR_TYPE
+#define ENCODER_SENSOR_TYPE ENCODER_SENSOR_TYPE_TLE5012B
+#endif
 
 #define PWM_TIM_CLOCK 170000000
 /* 板级 PWM 定时器实现 control_config.h 的电流环频率契约。 */

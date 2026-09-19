@@ -6,7 +6,8 @@
 #include "main.h"
 #include "data_type.h"
 
-/* TLE5012B 单圈角度表示：无符号 Q15，范围 [0, 65535]。 */
+/* TLE5012B 单圈角度表示：无符号 Q15，范围 [0, 65535]。传感器由 hw_conf.h 的
+ * ENCODER_SENSOR_TYPE 选择；其它型号 driver 负责把各自位宽归一化到同一 Q15 语义。 */
 #define ENCODER_Q15_CPR 65536UL
 #define ENCODER_Q15_HALF_TURN 32768
 #define ENCODER_OFFSET_LUT_SIZE 1024U
@@ -72,14 +73,14 @@ typedef struct
     int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
     int32_t velocity_delta_sum;
 
-    /* TLE5012B 帧诊断与在线状态。 */
+    /* 传感器帧诊断与在线状态。 */
     Encoder_ReadStatus read_status;
     Encoder_ReadStatus read_status_latched;
-    uint16_t tle5012_angle_word;
-    uint16_t tle5012_safety_word;
-    uint8_t tle5012_crc_received;
-    uint8_t tle5012_crc_calculated;
-    uint32_t tle5012_crc_error_count;
+    uint16_t frame_word;
+    uint16_t safety_word;
+    uint8_t crc_received;
+    uint8_t crc_calculated;
+    uint32_t crc_error_count;
     uint32_t read_error_count;
     uint16_t bad_frame_streak;
 } Encoder_TypeDef;

@@ -249,11 +249,11 @@ firmware/communication/
 | --- | --- | --- |
 | S0 | 基线表（debt 11/4 条、Keil Code=81888 ZI=31352 0/0、CAN 夹具 3 组 PASS） | ✅ 完成 |
 | S1 | debt 11→9、双目标 0/0、CAN 夹具 | 待启动 |
-| S2 | 黄金向量逐字节、`check_interfaces` | 待启动 |
-| S3 | 双目标 0/0、全套夹具、等价核对 | 待启动 |
-| S4 | 隐藏 extern 归零、恢复/参数夹具 | 待启动 |
-| S5 | 裁决记录（如执行） | 未决 |
-| S6 | `check_architecture` 通信 0 条、文档更新 | 待启动 |
+| S2 | 黄金向量逐字节、`check_interfaces` | ✅ 完成 |
+| S3 | 双目标 0/0、全套夹具、等价核对 | ✅ 完成 |
+| S4 | 隐藏 extern 归零、恢复/参数夹具 | ✅ 完成 |
+| S5 | 裁决记录（如执行） | 未决（默认不执行，待用户确认） |
+| S6 | `check_architecture` 通信 0 条、文档更新 | ✅ 完成（D4 待裁决） |
 
 ## 12. 执行记录
 
@@ -267,6 +267,89 @@ firmware/communication/
   - 夹具：`outputs/tests/s0_can/`、`s0_wheel/`、`s0_runstate/`（均 PASS）。
 - 说明：`uv` 不在 PATH，按 §14 使用 `.\.venv\Scripts\python.exe`；Keil 需显式
   `--uv4 C:\Keil_v5\UV4\UV4.exe`（`KEIL_UV4` 未设置）。
+
+### S1 硬件契约化（=T3，2026-09-19 完成）
+
+- 说明：本阶段由并行会话收尾并随 `c39d0d25` 提交；本会话产出了其中的契约与端口实现。
+- 改动文件：`platform/api/comm_hw.h`（+`comm_hw_can_start`/`comm_hw_can_set_baudrate`/
+  `comm_hw_can_try_send_reply` 三个中文契约能力）、新增
+  `platform/stm32g4/ports/comm/comm_control_stm32g4.c`（滤波/启停/波特率/TX 头组装下沉）、
+  `communication/can/interface_can.{c,h}`（删 `fdcan.h`/`delay.h`/`hw_conf.h`/`main.h`，
+  改调 comm_hw 与 `time_hw`，补 7 个公共函数中文契约）、
+  `MDK-ARM/Vector_Mini_ST.uvprojx`（登记新端口源）。
+- 证据：`check_architecture` 通信 4 条 → 0（总债务 9 → 5）；Keil 双目标 0 Error / 0 Warning
+  （Code=81980 / RO=4888 / RW=248 / ZI=31352）；CAN 夹具全绿。
+
+### S2 协议约定抽取（2026-09-19 完成）
+
+- 改动文件：新增 `communication/protocol/can_parameter_wire.{c,h}`（`CAN_PARAM_ID` 注册表、
+  `CanValueEncoding`、`CanParamWire_CommandEncoding/ReplyEncoding`、
+  定点四件套 `Milli32/Centi32/Milli16/Centi16`、`Identifier`/`Length`）；
+  `interface_can.h` 改为 include 新头；`interface_can.c` 删除本地编码/转换副本、
+  改用 `CanParamWire_Length` 做长度门、`CanParamWire_Identifier` 组装 ID，并清掉死引用
+  `extern ModeLast` 与无人消费的 `rx_data_u8` 拷贝；`can_motor_status.c` 改用统一转换器；
+  `can_motor_status.h` 删除 `CAN_MOTOR_STATUS_COMMAND/REPLY`（D2 默认值）；
+  夹具 `run_can_status_tests.py` 改从新文件取真实函数源（不再用 stub）；uvprojx 登记新源。
+- 证据：PR 档全绿 `outputs/runs/20260919T092320244690Z-70984926/summary.json`；
+  Keil 双目标 0/0（Code=81692 / RO=4888 / RW=248 / ZI=31352，较 S1 −288 B 为去重收益）；
+  `run_can_status_tests` 9 组 PASS（含 48 字节黄金帧逐字节一致）；
+  `test_wheel_speed_limits`、`test_run_state`（46464 tick）、`test_position_config_cache`
+  （25200 tick）、Python CAN 用例 8 项全 PASS。
+
+### S3 实现分解（2026-09-19 完成）
+
+- 新增文件（均为逐 token 搬移，公共签名与调用方零改动）：
+  `can/can_transport.{c,h}`（波特率运行态与切换、帧级收帧过滤、应答 5 次重试、状态帧提交）、
+  `can/can_command_binding.{c,h}`（`CANRxIRQHandler` + `CAN_ReceiveMessage_Update`
+  前导握手与路由）、`can/can_binding_commands.{c,h}`（写路径 28 个 case）、
+  `can/can_binding_queries.{c,h}`（读路径 60 个 case）、
+  `can/can_status_source.{c,h}`（`CanStatus_BuildSnapshot` + `CanStatus_HeartbeatArmed`）。
+  `interface_can.{c,h}` 收敛为门面：`CANMsg` 运行态、应答暂存 `CAN_SendMessage_Update`、
+  心跳状态机 `CAN_DisConnect_Handle`、发送调度 `CAN_SendMessage`、`FDCAN1_Param_Init` 与
+  `param_comm_bridge` 实现；`CANMsg.baudrate` 字段删除（所有权归 `can_transport`）。
+- 拆分后体量（目标 ≤300 行）：interface_can.c 139、can_transport.c 68、
+  can_command_binding.c 113、can_binding_commands.c 207、can_binding_queries.c 272、
+  can_status_source.c 54（拆分前单文件 866 行）。
+- 偏差记录：`can_transport` 只承载"波特率运行态 + 帧级过滤 + 发送重试"，
+  滤波/启停/中断使能的机制在 S1 已下沉 `platform/stm32g4/ports/comm`，
+  故未再引入一层 pass-through 的 HAL 包装。`CANMsg` 保持为通信层公开运行态结构
+  （声明集中在 `interface_can.h`，通信层外无隐藏 `extern`）。
+- 夹具迁移：`run_can_status_tests.py` 的切片目标改到新文件并编译真实
+  `CanTransport_ReceiveFrame/SendReply/TrySendStatus`、`CanStatus_BuildSnapshot/HeartbeatArmed`；
+  `test_wheel_speed_limits.py` 的 `command_case` 改从 `can_binding_commands.c` 取
+  `CanBinding_ApplyCommand` 的 case 块；uvprojx 登记 5 个新源。
+- 证据：PR 档全绿 `outputs/runs/20260919T092908988818Z-70984926/summary.json`；
+  Keil 双目标 0/0（Code=81960 / RO=4888 / RW=252 / ZI=31348；RW+4/ZI−4 为波特率运行态
+  从 ZI 迁到带初值的 RW）；`run_can_status_tests` 9 组 PASS（含 48 字节黄金帧逐字节）；
+  `test_wheel_speed_limits`、`test_run_state`（46464 tick）、`test_position_config_cache`
+  （25200 tick）、`run_position_servo_tests` 全 PASS。
+
+### S4 耦合显式化（2026-09-19 完成）
+
+- `foc_param.c` 的隐藏 `extern CANMsg` 已由 `services/parameters/param_comm_bridge.h`
+  窄桥替换（节点身份与心跳超时读写经 `CAN_NodeId_Get/Set`、`CAN_HeartbeatMs_Get/Set`）。
+- 本阶段新增只读 `CAN_IsHeartbeatAlive()`（`interface_can.{c,h}`），
+  `app/foc_run_state.c` 删除局部 `extern CANMsg_TypeDef CANMsg` 并用它等价替换恢复判据
+  （原式 `can_hb_set > 0 && can_hb_count < can_hb_set`）。
+- 偏差记录：桥接口采用"服务声明、通信实现并持有存储"的方向（与 §6.3 的"存储迁往
+  services"相反），因为 `CANMsg` 是 CAN 运行态且节点的线槽位、滤波与限速副作用都依赖它；
+  两种方向都能满足本阶段验收"隐藏 extern 归零"。
+- 证据：`git grep "extern CANMsg_TypeDef" -- firmware tests` 仅剩 `interface_can.h` 的
+  正式声明（通信层外 0 处）；Keil 双目标 0/0（Code=81976）；`test_run_state`
+  差分 46464 tick 一致、恢复矩阵夹具 PASS；
+  PR 档全绿 `outputs/runs/20260919T092930298304Z-70984926/summary.json`。
+
+### S6 门禁与收尾（2026-09-19 完成，D4 待裁决）
+
+- `architecture_debt.json` 通信条目为 0（总债务 5 条，全部为 motor→services 方向项）。
+- `docs/architecture/communication_layering.md` 更新为落地后的三层与文件归属；
+  `docs/plans/tech-debt-tracker.md` 的 ARCH-001/ARCH-002 改写为当前真实债务并记录
+  硬件域已收口。
+- 未执行项：D4（是否为 `communication/transport` 单列 harness 允许面）按 §14 需用户裁决；
+  S5 维持"默认不执行"。
+- 证据：`check_architecture` = `PASS (5 known, 0 new, 0 resolved)`，通信条目 0；
+  最终 PR 档全绿 `outputs/runs/20260919T093142547570Z-70984926/summary.json`
+  （含 docs 链接检查、format、lint、project-layout、interfaces、hygiene、tests）。
 
 ## 13. 自评记录（2026-09-19）
 

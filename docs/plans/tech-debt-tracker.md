@@ -2,8 +2,8 @@
 
 | ID | Debt | Enforcement and exit condition |
 | --- | --- | --- |
-| ARCH-001 | Motor/common headers still depend on CubeMX `main.h`. | Listed in `tools/harness/architecture_debt.json`; remove entries as pure types and platform interfaces are extracted. |
-| ARCH-002 | Some motor and service code reaches APP/BSP/CubeMX details. | Architecture ratchet forbids any new include-level violation; refactor existing entries incrementally. |
+| ARCH-001 | Motor headers still reach services profiles (`motor_axis_profile` / `foc_param_profile` / `fast_loop_profile`) as include-level reverse dependencies. | Listed in `tools/harness/architecture_debt.json` (5 entries); remove entries as those profiles are inverted into `platform/api` or pure types. |
+| ARCH-002 | Some motor code reaches APP telemetry/service details. | Architecture ratchet forbids any new include-level violation; refactor existing entries incrementally. The hardware boundary is now closed: only `firmware/platform/stm32g4/**` includes CubeMX/HAL. |
 | TOOL-001 | Keil requires a licensed Windows installation. | `doctor release` requires `KEIL_UV4`; CI uses a labeled self-hosted runner. |
 | TEST-001 | Historical state-equivalence comparison needs an external pre-change source. | Keep optional `--reference-source`; release evidence states whether it was supplied. |
 

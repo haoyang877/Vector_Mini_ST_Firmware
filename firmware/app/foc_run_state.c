@@ -4,14 +4,26 @@
 #include "common_inc.h"
 #include "motor_state.h"
 
-/* 运行状态机适配器（阶段 B 骨架）：
+/* 运行状态机适配器：
  * - READY/STARTING/RUNNING/STOPPING/FAULT 由 AppLifecycle 纯核心拥有；
  * - 适配器负责：worker 结果与外部模式写入 → 事件合成、真实 guards 供给、
  *   动作执行（START_CONTROL/DISABLE_POWER）与兼容投影；
+ * - 维护会话（阶段 C）：Save/Default/Zero 进入 MAINTENANCE，标定会话随
+ *   foc_calibration 拆解后接入；
  * - 兼容期：未迁移的 worker 仍直接写 ModeNow，本层按旧差分语义转为事件。 */
 
 static AppLifecycle lifecycle;
 static bool power_on; /* 已执行 START_CONTROL 且未执行 DISABLE_POWER */
+/* 已完成会话的模式值：同值持续期间不重复开启维护会话。 */
+static ModeNow_TypeDef operation_mode;
+/* 前台保存结果：0 无、1 成功、2 失败；由快速环消费一次。 */
+enum
+{
+    SAVE_FINISH_NONE = 0,
+    SAVE_FINISH_COMMITTED,
+    SAVE_FINISH_FAILED
+};
+static volatile uint8_t save_finish;
 
 /* 需要编码器反馈的模式在坏帧超限后立即置编码器故障。 */
 static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
@@ -164,10 +176,141 @@ static void RunState_ConfirmStart(void)
     (void)RunState_Send(APP_EVENT_START_DONE, 0U, APP_CONTROL_NONE, false, false);
 }
 
+/* 维护目标模式 → 核心操作；标定会话随 foc_calibration 拆解后接入。 */
+static AppOperation RunState_OperationFor(ModeNow_TypeDef mode)
+{
+    switch (mode)
+    {
+    case Save_Param:
+        return APP_OPERATION_SAVE;
+    case Default_Param:
+        return APP_OPERATION_DEFAULTS;
+    case Set_ZeroPosition:
+        return APP_OPERATION_ZERO;
+    default:
+        return APP_OPERATION_NONE;
+    }
+}
+
+/* 发送维护会话事件（BEGIN/DONE/FAILED/CANCEL_DONE）；动作只作请求，不写硬件。 */
+static bool RunState_SendOperation(uint32_t events,
+                                   AppOperation operation,
+                                   AppOperationEffect effects,
+                                   uint32_t faults)
+{
+    AppLifecycleEvent event;
+    AppLifecycleGuards guards;
+    AppLifecycleResult result;
+
+    memset(&event, 0, sizeof(event));
+    event.events = events;
+    event.faults = faults;
+    event.operation = operation;
+    event.effects = effects;
+    event.control_mode = APP_CONTROL_NONE;
+    event.completion_epoch = lifecycle.snapshot.epoch;
+    event.request_epoch = lifecycle.snapshot.epoch;
+    guards = RunState_BuildGuards();
+    result = AppLifecycle_Step(&lifecycle, &event, &guards);
+    RunState_ApplyActions(result.actions, false);
+    return result.rejection == APP_ACCEPTED;
+}
+
+/* 会话服务：SAVE 结果上报、ZERO/DEFAULTS 派生完成、被打断会话的取消确认。
+ * 陈旧完成不污染新会话；被故障/停止打断的会话必须确认取消，否则 CLEAR 被永久阻塞。
+ * 返回 true 表示本拍已上报会话事件（完成/失败/取消确认），调用方推迟一拍再开新会话。 */
+static bool RunState_ServiceOperations(ModeNow_TypeDef target)
+{
+    AppLifecycleState state = lifecycle.snapshot.state;
+    bool sent = false;
+
+    if (state != APP_MAINTENANCE || lifecycle.snapshot.operation != APP_OPERATION_SAVE)
+    {
+        save_finish = (uint8_t)SAVE_FINISH_NONE;
+    }
+
+    if (state == APP_MAINTENANCE)
+    {
+        if (lifecycle.snapshot.operation == APP_OPERATION_SAVE)
+        {
+            if (save_finish == (uint8_t)SAVE_FINISH_COMMITTED)
+            {
+                save_finish = (uint8_t)SAVE_FINISH_NONE;
+                sent = true;
+                (void)RunState_SendOperation(
+                    APP_EVENT_OPERATION_DONE, APP_OPERATION_SAVE, APP_EFFECT_COMMITTED, 0U);
+            }
+            else if (save_finish == (uint8_t)SAVE_FINISH_FAILED)
+            {
+                save_finish = (uint8_t)SAVE_FINISH_NONE;
+                sent = true;
+                (void)RunState_SendOperation(APP_EVENT_OPERATION_FAILED,
+                                             APP_OPERATION_SAVE,
+                                             APP_EFFECT_UNKNOWN,
+                                             (uint32_t)MotorParam_Error);
+            }
+        }
+        else if (lifecycle.snapshot.operation == APP_OPERATION_ZERO && target == Save_Param)
+        {
+            /* 零位写入成功由 worker 切往 Save_Param 表达：先完成 ZERO 会话。 */
+            sent = true;
+            (void)RunState_SendOperation(
+                APP_EVENT_OPERATION_DONE, APP_OPERATION_ZERO, APP_EFFECT_UNCOMMITTED, 0U);
+        }
+        else if (lifecycle.snapshot.operation == APP_OPERATION_DEFAULTS && target == Default_Param)
+        {
+            /* Default_Param 由调度层每拍执行：进入会话后的下一拍即可确认完成。 */
+            sent = true;
+            (void)RunState_SendOperation(
+                APP_EVENT_OPERATION_DONE, APP_OPERATION_DEFAULTS, APP_EFFECT_UNCOMMITTED, 0U);
+        }
+    }
+    else if ((state == APP_STOPPING || state == APP_FAULT) &&
+             lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED)
+    {
+        sent = true;
+        (void)RunState_SendOperation(
+            APP_EVENT_CANCEL_DONE, lifecycle.snapshot.operation, APP_EFFECT_UNKNOWN, 0U);
+    }
+    return sent;
+}
+
+/* 维护目标在 READY 下开启会话；同值持续不重复开启，非操作目标允许下次重新开启。 */
+static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
+{
+    AppOperation operation = RunState_OperationFor(target);
+
+    if (lifecycle.snapshot.operation != APP_OPERATION_NONE)
+    {
+        return;
+    }
+    if (operation == APP_OPERATION_NONE)
+    {
+        operation_mode = Motor_Disable;
+        return;
+    }
+    if (target == operation_mode)
+    {
+        return;
+    }
+    if (lifecycle.snapshot.state == APP_READY &&
+        RunState_SendOperation(APP_EVENT_BEGIN_OPERATION, operation, APP_EFFECT_UNCOMMITTED, 0U))
+    {
+        operation_mode = target;
+    }
+}
+
 void FocRunState_Init(void)
 {
     AppLifecycle_Init(&lifecycle);
     power_on = false;
+    operation_mode = Motor_Disable;
+    save_finish = (uint8_t)SAVE_FINISH_NONE;
+}
+
+void FocRunState_SaveFinished(bool committed)
+{
+    save_finish = committed ? (uint8_t)SAVE_FINISH_COMMITTED : (uint8_t)SAVE_FINISH_FAILED;
 }
 
 void FocRunState_CheckFastFaults(void)
@@ -192,6 +335,7 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
     ModeNow_TypeDef target;
     bool needs_preparation;
     bool defer_start;
+    bool operation_event;
 
     /* 1. worker 结果 → 目标模式与前置动作（与旧实现同序）。 */
     target = MotorControl.ModeNow;
@@ -232,8 +376,9 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
         LED_SetState(0, (uint8_t)MotorControl.ModeNow);
     }
 
-    /* 3. 启动链与故障/清除处理。 */
+    /* 3. 启动链、维护会话与故障/清除处理。 */
     RunState_RunBootChain();
+    operation_event = RunState_ServiceOperations(target);
     if (MotorControl.ErrorNow != No_Error)
     {
         /* 故障本身不动功率级；停机清理统一由下方停止路径按旧条件执行一次。 */
@@ -296,6 +441,10 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
     {
         /* 命令/标定类目标：退出运行态；操作本身仍走旧投影（阶段 C 迁移）。 */
         RunState_RequestStop(false);
+    }
+    if (!operation_event)
+    {
+        RunState_BeginOperationIfRequested(target);
     }
 
     /* 5. 兼容提交：启动等待（STARTING）等同旧的 defer 语义。 */

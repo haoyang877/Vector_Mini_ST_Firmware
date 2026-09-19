@@ -117,6 +117,19 @@
 guards `operation_idle`/`maintenance_released` 由占位改为真实信号；经典模式编号仍经
 `ModeNow` 投影（线上编号不变）。
 
+范围调整（2026-09-19，用户裁决）：`foc_calibration.{c,h}` 将拆解并删除，其 5 个标定任务
+（R_L_Flux/EncoderOffset/EncoderObserver/EleAngelOffset/CurrentOffset）**不在原地补会话接口**，
+标定会话改为在拆解后的新模块结构上接入。当前实施范围 = SAVE/DEFAULTS/ZERO 会话 +
+适配器 OPERATION 事件；cogging/friction/相电阻包装随后按同构接入。
+
+实施进度（2026-09-19）：SAVE/DEFAULTS/ZERO 会话已接入 `foc_run_state.c`——
+`FocRunState_SaveFinished()` 上报前台保存结果（COMMITTED/FAILED，失败按操作失败锁存）；
+ZERO 以"切往 Save_Param"派生完成（UNCOMMITTED），随后一拍开启 SAVE 会话；
+DEFAULTS 在进入会话后的下一拍派生完成（UNCOMMITTED）；被故障/停止打断的会话经
+`CANCEL_DONE` 确认释放（要求在 ErrorNow 清除后，符合健康 guard 语义）。
+夹具新增会话用例 5 组（SAVE 成功/失败、ZERO→SAVE 链、DEFAULTS、取消释放），
+差分等价 38,400 组 tick 保持通过。
+
 ## 6. 阶段 D 设计：故障恢复矩阵（草案，阈值待确认）
 
 原则（E 语义）：CLEAR 只在**源恢复 + 样本新鲜 + 资源释放**同时成立时被接受；

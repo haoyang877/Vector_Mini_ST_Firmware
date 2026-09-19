@@ -30,6 +30,7 @@
 /* USER CODE BEGIN Includes */
 #include "foc_cogging_calibration.h"
 #include "common_inc.h"
+#include "foc_run_state.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
@@ -131,6 +132,8 @@ int main(void)
 		__enable_irq();
 		FocCogging_SaveResult(saved);
 		if (!saved) Set_ErrorNow(MotorParam_Error);
+		/*report save result: fast loop completes the SAVE session*/
+		FocRunState_SaveFinished(saved);
 		                                                                   
 		Set_ModeNow(Motor_Disable);
 	}

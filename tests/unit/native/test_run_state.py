@@ -127,10 +127,19 @@ typedef struct
 #define Voltage_OpenLoop 12
 #define No_Error 0
 #define Test_Error 9
+#define MotorParam_Error 12
 
 /* 适配器内部状态（真实模块为文件级 static，这里由夹具提供）。 */
 static AppLifecycle lifecycle;
 static bool power_on;
+static ModeNow_TypeDef operation_mode;
+enum
+{
+    SAVE_FINISH_NONE = 0,
+    SAVE_FINISH_COMMITTED,
+    SAVE_FINISH_FAILED
+};
+static volatile uint8_t save_finish;
 
 typedef struct
 {
@@ -337,6 +346,88 @@ int main(void)
         }
     }
 
+    /* ===== 维护会话用例（阶段 C）：Save/Default/Zero ===== */
+    {
+        MotorWorkOutcome_TypeDef running = { MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false };
+        MotorWorkOutcome_TypeDef zero_done = { MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, false };
+
+        /* SAVE 成功：COMMITTED 完成后回 READY。 */
+        ResetWorld(Motor_Disable, Save_Param, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.state == APP_MAINTENANCE);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
+        FocRunState_SaveFinished(true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.state == APP_READY);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_COMMITTED);
+
+        /* SAVE 失败：FAILED + 故障锁存；清除后回 READY。 */
+        ResetWorld(Motor_Disable, Save_Param, No_Error, 1, true);
+        FocRunState_Tick(running);
+        FocRunState_SaveFinished(false);
+        Set_ErrorNow(Test_Error);
+        MotorControl.ModeNow = Motor_Disable;
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.state == APP_FAULT);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_FAILED);
+        assert(lifecycle.snapshot.latched_faults != 0U);
+        Set_ErrorNow(No_Error);
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.state == APP_READY);
+        assert(lifecycle.snapshot.latched_faults == 0U);
+
+        /* ZERO → SAVE 链：ZERO 以 UNCOMMITTED 完成，随后开启 SAVE 会话。 */
+        ResetWorld(Motor_Disable, Set_ZeroPosition, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_ZERO);
+        FocRunState_Tick(zero_done);
+        assert(lifecycle.snapshot.last_operation == APP_OPERATION_ZERO);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
+        FocRunState_SaveFinished(true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_COMMITTED);
+
+        /* DEFAULTS：UNCOMMITTED 完成；同值持续不重复开启。 */
+        ResetWorld(Motor_Disable, Default_Param, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_DEFAULTS);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+
+        /* 会话被故障打断：故障未清除前 CANCEL_DONE 被健康 guard 拒绝；
+         * 清除 ErrorNow 的同一拍先确认取消再放行 CLEAR，回到 READY。 */
+        ResetWorld(Motor_Disable, Save_Param, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
+        Set_ErrorNow(Test_Error);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.state == APP_FAULT);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
+        Set_ErrorNow(No_Error);
+        MotorControl.ModeNow = Clear_Error;
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.state == APP_READY);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_CANCELLED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+
+        printf("PASS operation sessions: save committed/failed, zero chain,"
+               " defaults, cancel release\n");
+    }
+
     printf("PASS run state differential: %ld tick comparisons identical"
            " (legacy trio vs AppLifecycle adapter)\n", comparisons);
     return 0;
@@ -356,7 +447,12 @@ def run_state_fixture():
         + function_source(source, "RunState_RunBootChain")
         + function_source(source, "RunState_RequestStop")
         + function_source(source, "RunState_ConfirmStart")
+        + function_source(source, "RunState_OperationFor")
+        + function_source(source, "RunState_SendOperation")
+        + function_source(source, "RunState_ServiceOperations")
+        + function_source(source, "RunState_BeginOperationIfRequested")
         + function_source(source, "FocRunState_Init")
+        + function_source(source, "FocRunState_SaveFinished")
         + function_source(source, "FocRunState_Tick")
     )
     return FIXTURE_HEAD + OLD_LOGIC + new_logic + DRIVER

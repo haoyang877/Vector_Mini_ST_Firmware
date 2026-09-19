@@ -44,7 +44,9 @@ void MotorControl_Init(void)
     FocFrictionIdentification_Init();
 
     /* 未配置轴记录的关节在启动后保持禁用。 */
-    MotorControl.ModeNow = MotorControl.axis_profile_valid ? Calib_CurrentOffset : Motor_Disable;
+    /* 启动默认保持禁用：CurrentOffset 标定启动已随 FOC-Calibration 功能移除，
+     * 待标定重建后再定启动流程；避免以死模式进入自动使能而空开功率级。 */
+    MotorControl.ModeNow = Motor_Disable;
     if (!MotorControl.axis_profile_valid)
     {
         Set_ErrorNow(MotorParam_Error);

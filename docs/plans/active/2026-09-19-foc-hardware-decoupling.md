@@ -1,7 +1,7 @@
 # FOC 硬件解耦：PWM 契约与 MCU 温度归位 v1.0
 
-日期：2026-09-19。状态：阶段 1/2/3 完成——标定迁移随 FOC-Calibration 功能删除取消；
-过渡 shim 已删除、`foc_algorithm.h` 接口契约债已还清。
+日期：2026-09-19。状态：阶段 1/2/3/4 完成——标定迁移随 FOC-Calibration 功能删除取消；
+过渡 shim 已删除、`foc_algorithm.h` 接口契约债已还清；感测边界与功率级封装已落地。
 
 范围：本记录覆盖两条具体交付：MCU 结温换算头归位 `platform/api`，以及
 `foc_algorithm.c` 的 PWM 寄存器访问剥离与调用方迁移。更大范围的 `hw_conf`/BSP 归位
@@ -27,7 +27,8 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
 | --- | --- | --- |
 | 1 | `mcu_temperature.h` 从 motor/foc 移到 platform/api（motor 只允许 include common/platform_api）并重写为中文契约；`foc_algorithm.c` 剥离 TIM1/`hw_conf`，新增 `motor_hw_pwm_set_duty`/`motor_hw_pwm_set_phase_duty` 契约与 `ports/motor/motor_pwm_stm32g4.c`；双 Keil 工程登记；债务基线清理 | 完成（23ef80a） |
 | 2 | 新增 `motor_hw_pwm_force_high_sides` 契约与端口实现；`foc_phase_resistance.c` 改用契约并把 `hw_conf.h` 换成 `control_config.h`（架构债 −1）并全文件清理；`foc_mode_dispatch.c` 改用三相契约 | 完成（本轮） |
-| 3 | ~~`foc_calibration.c` 迁移~~（功能已整体删除，调用方一并消失）；删除过渡 shim（`Set_*_Duty`、`PWM_TurnOnHigh/LowSides`）及声明、补齐 `foc_algorithm.h` 中文契约并还清其接口债 | 完成（本轮） |
+| 3 | ~~`foc_calibration.c` 迁移~~（功能已整体删除，调用方一并消失）；删除过渡 shim（`Set_*_Duty`、`PWM_TurnOnHigh/LowSides`）及声明、补齐 `foc_algorithm.h` 中文契约并还清其接口债 | 完成（d78baf15） |
+| 4 | `foc_sensing.c` 改接 `platform/api/motor_sensing.h`（原始计数出参 + 平台换算常量）：Vbus/三相电流/温度判定不再含寄存器、HAL 句柄或板级宏；`foc_errhandle.c` 去 `tim.h`/HAL，功率级启停走 `power_stage_hw_*`；三个原生夹具同步到新 seam | 完成（本轮） |
 
 ## 关键决策
 
@@ -46,6 +47,9 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
   `foc_sensing.c` 与夹具，另行立项。
 - 2026-09-19：标定功能删除后 `motor_hw_pwm_set_phase_duty` 暂无调用方；作为逐相操作的
   平台契约保留，待标定重建时复用（不因"当下无调用者"删契约）。
+- 2026-09-19：感测边界收敛到并行会话的 `platform/api/motor_sensing.h`（原始计数出参 +
+  平台拥有的换算常量），不再另建 SI 出参契约；折入设计评审要点：温度换算与 JEOS/启动
+  时序留在端口、偏置保持整数计数域、功率级启停六调用顺序不变（HAL 每次调用会切换 MOE）。
 
 ## 验证证据
 
@@ -73,3 +77,18 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
   （interfaces 检查 107 known / 0 new）；format/lint 均 0 new。
 - 无感交接夹具同步删除已死的 shim 桩；夹具 PASS（双变体）。
 - 过渡 shim 删除后 `foc_algorithm.c` 仅经 `motor_hw_pwm_set_duty` 触及硬件。
+
+阶段 4（2026-09-19，感测与功率级边界）：
+
+- `foc_sensing.c`：`Vbus_Update`/`Current_Cal`/`Temperature_Update` 改调
+  `motor_hw_vbus_sample_raw()`/`motor_hw_current_sample_raw()`/`motor_hw_temperature_poll()`，
+  运算顺序与历史实现逐位一致；移除 `adc.h`、`hw_conf.h`、`stm32g4xx_ll_adc.h`。
+- `foc_errhandle.c`：`Stop/Start_PWM_Generate` 改为 `power_stage_hw_*` 薄包装，移除 `tim.h`
+  与 HAL 调用；全文件补齐花括号与中文注释，style 豁免还清。
+- 夹具：`test_current_precision` 改测新 seam（偏置标定功能已删除，直接采用标定值）；
+  `test_mcu_temperature` 以 `motor_hw_temperature_poll` 假实现验证 JEOS/启动/超时语义；
+  两者 PASS。`test_bus_voltage_protection` 的本轮失败经对照实验证实为并行会话在途的
+  "已删除标定模式拒绝"块与其待迁移夹具冲突，非本记录改动。
+- 门禁：`architecture`/`interfaces`/`lint`/`project-layout` 0 new；Keil 双目标
+  0 Error / 0 Warning（本次 `foc_sensing.c` 已参与链接）。
+- 日志：`outputs/tests/`、`outputs/build/logs/`。

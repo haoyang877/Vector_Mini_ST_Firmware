@@ -22,6 +22,7 @@ PRELUDE = r"""
 #include <string.h>
 #include "data_type.h"
 #include "bus_voltage_profile.h"
+#include "motor_sensing.h"
 #define FOC_FREQ 20000U
 #define SENSING_VBUS_FACTOR (3.3f / 4095.0f * 11.0f)
 #define ADC2_SUM_TO_COUNTS .25f
@@ -30,8 +31,9 @@ PRELUDE = r"""
 typedef struct { float Vbus, Vbus_filt; } FOC_TypeDef;
 typedef struct { unsigned calib_flag; } Encoder_TypeDef;
 static struct { uint32_t JDR4; } adc;
-#define VBUS_ADC (&adc)
-#define VBUS_ADC_CHANNEL JDR4
+uint16_t motor_hw_vbus_sample_raw(void) {
+    return (uint16_t)adc.JDR4;
+}
 static MotorControl_TypeDef MotorControl;
 static FOC_TypeDef FOC;
 static Encoder_TypeDef OnBoard_Encoder;
@@ -139,7 +141,9 @@ def main():
     fixture = out / "bus_voltage_test.c"
     fixture.write_text(
         PRELUDE
-        + function_source((ROOT / "firmware/motor/foc/foc_sensing.c").read_text(), "Vbus_Update")
+        + function_source(
+            (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8"), "Vbus_Update"
+        )
         + "\n"
         + function_source(
             (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(encoding="utf-8"),

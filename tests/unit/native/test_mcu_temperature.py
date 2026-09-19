@@ -1,39 +1,61 @@
-"""Run the production MCU temperature conversion/supervisor; no hardware access."""
-import argparse,subprocess,sys
+"""离线编译并运行生产 MCU 温度换算与监督任务；不访问硬件。"""
+
+import sys as _sys
+from pathlib import Path as _Path
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
+import argparse
+import subprocess
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'tools'))
-from project_paths import ROOT,NATIVE_INCLUDE_FLAGS
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
 
+
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--cc',required=True);p.add_argument('--out',type=Path,required=True);a=p.parse_args()
-    out=a.out.resolve();out.mkdir(parents=True,exist_ok=True);(out/'main.h').write_text('#pragma once\n#include <stdint.h>\n')
-    production=(ROOT/'firmware/motor/foc/foc_sensing.c').read_text()
-    src=r'''
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cc", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    out = args.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "main.h").write_text("#pragma once\n#include <stdint.h>\n")
+    production = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+    src = (
+        r"""
 #include <assert.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "foc_sensing.h"
 #include "mcu_temperature.h"
+#include "motor_sensing.h"
 static struct {uint32_t JDR1,JDR2,flags;} adc;
-#define ADC1 (&adc)
 #define ADC_FLAG_JEOS 1U
 #define ADC_FLAG_JEOC 2U
-#define __HAL_ADC_GET_FLAG(h,f) (adc.flags & (f))
-#define __HAL_ADC_CLEAR_FLAG(h,f) (adc.flags &= ~(f))
 static uint16_t cal30=1000,cal130=1400,vrefcal=1500;
-#define TEMPSENSOR_CAL1_ADDR (&cal30)
-#define TEMPSENSOR_CAL2_ADDR (&cal130)
-#define VREFINT_CAL_ADDR (&vrefcal)
 static unsigned starts;
 static bool busy;
-#define LL_ADC_INJ_IsConversionOngoing(p) busy
-#define LL_ADC_INJ_StartConversion(p) (busy=true,++starts)
 static MotorControl_TypeDef MotorControl;
 static FOC_TypeDef foc;
 volatile McuTemperatureTelemetry McuTemperature;
 static void Set_ErrorNow(ErrorNow_TypeDef e) {MotorControl.ErrorNow=e;}
-'''+function_source(production,'Temperature_Update')+r'''
+void motor_hw_temperature_poll(MotorHwTemperaturePoll_TypeDef *result) {
+    result->sample_ready=false; result->conversion_ok=false;
+    if(adc.flags & ADC_FLAG_JEOS) {
+        result->raw_ts=adc.JDR1; result->raw_vref=adc.JDR2;
+        adc.flags &= ~(ADC_FLAG_JEOS | ADC_FLAG_JEOC);
+        result->sample_ready=true;
+        result->conversion_ok=McuTemperature_Convert(result->raw_ts,result->raw_vref,cal30,cal130,
+                                                     vrefcal,&result->celsius,&result->vdda_mv);
+    }
+    if(!busy) {busy=true;++starts;}
+}
+"""
+        + function_source(production, "Temperature_Update")
+        + r"""
 static void fresh(uint32_t ts,uint32_t vr) {
  adc.JDR1=ts;adc.JDR2=vr;adc.flags=3;busy=false;Temperature_Update(&foc);
  assert(adc.flags==0 && busy);
@@ -75,10 +97,21 @@ int main(void) {
  puts("PASS MCU 30/130C calibration, supply correction, invalid trim/ADC, filtering, raw hot trip, stale/startup timeout and fault preservation");
  return 0;
 }
-'''
-    f=out/'mcu_temperature.c';f.write_text(src);exe=out/'mcu_temperature.exe'
-    compiler=[a.cc]+(['cc'] if Path(a.cc).stem=='zig' else [])
-    subprocess.run(compiler+['-std=c99','-O2','-UNDEBUG','-Wall','-Wextra','-Werror','-I',str(out)]+NATIVE_INCLUDE_FLAGS+[str(f),'-lm','-o',str(exe)],check=True)
-    subprocess.run([str(exe)],check=True)
+"""
+    )
+    fixture = out / "mcu_temperature.c"
+    fixture.write_text(src)
+    exe = out / "mcu_temperature.exe"
+    compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
+    subprocess.run(
+        compiler
+        + ["-std=c99", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+        + NATIVE_INCLUDE_FLAGS
+        + [str(fixture), "-lm", "-o", str(exe)],
+        check=True,
+    )
+    subprocess.run([str(exe)], check=True)
 
-if __name__=='__main__':main()
+
+if __name__ == "__main__":
+    main()

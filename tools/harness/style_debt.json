@@ -127,13 +127,6 @@
                 "c-format"
             ]
         },
-        "firmware/motor/foc/foc_sensing.c": {
-            "sha256": "b4315a4807c52f44516dea1154f8894bd8071e4cb5dd383ff721f52e0ddb845c",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/motor/foc/foc_sensing.h": {
             "sha256": "e46818e5bf74eef441a74958af759b96d08b2a01e764f7504f27ac2a74cbaece",
             "checks": [
@@ -248,13 +241,6 @@
             "sha256": "8efb2d80a3b6faaadc9e7cd453878d5276502cffd6665bca3e7df35edca72cbe",
             "checks": [
                 "c-format"
-            ]
-        },
-        "firmware/motor/protection/foc_errhandle.c": {
-            "sha256": "c21e9487d4e096e939f5308d828dfa99158f5773321b5734a9f79afd7dfe3174",
-            "checks": [
-                "c-format",
-                "c-readability"
             ]
         },
         "firmware/motor/protection/foc_errhandle.h": {
@@ -529,13 +515,6 @@
                 "python-lint"
             ]
         },
-        "tests/unit/native/test_current_precision.py": {
-            "sha256": "7068e157587de2c9a462386e73fdfea740fa8c4448ca5a3be60575c7268307f4",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tests/unit/native/test_encoder_sample_overlap.py": {
             "sha256": "9c9cd3e333790affc414a165382c4f3f735ff066d74aec3f15c3141d4f90928d",
             "checks": [
@@ -545,13 +524,6 @@
         },
         "tests/unit/native/test_fast_loop_math.py": {
             "sha256": "c0554da4d92a944cfa83391c8df45d801a9136578ef3bb20dc99bb49a68c8977",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/native/test_mcu_temperature.py": {
-            "sha256": "8c8916961e4b963c826ecfbe15d343aa25565f0e5cd816b4bb92b58daadfc776",
             "checks": [
                 "python-format",
                 "python-lint"

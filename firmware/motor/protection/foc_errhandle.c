@@ -1,7 +1,6 @@
 #include "foc_errhandle.h"
 
 #include <math.h>
-#include "tim.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "encoder.h"
@@ -11,6 +10,7 @@
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
 #include "bus_voltage_profile.h"
+#include "power_stage_hw.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -64,9 +64,13 @@ void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 void Clear_RunningData(void)
 {
     if (ModeLast == Calib_Anticogging)
+    {
         FocCogging_Abort();
+    }
     if (ModeLast == Calib_Friction)
+    {
         FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+    }
     MotorControl.idRef = 0.0f;
     MotorControl.iqRef = 0.0f;
     MotorControl.vqRef = 0.0f;
@@ -109,13 +113,17 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
             FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V || FOC.Vbus_filt > BUS_VOLTAGE_ENABLE_MAX_V)
         {
             if (MotorControl.ErrorNow == No_Error)
+            {
                 Set_ErrorNow(Over_Voltage);
+            }
             return false;
         }
         if (FOC.Vbus_filt < BUS_VOLTAGE_ENABLE_MIN_V)
         {
             if (MotorControl.ErrorNow == No_Error)
+            {
                 Set_ErrorNow(Under_Voltage);
+            }
             return false;
         }
     }
@@ -141,9 +149,11 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
         Set_ErrorNow(CoggingCalibration_Error);
         return false;
     }
-    /*motor identification (R/L/flux) is not used any more*/
+    /* 电机本体辨识（R/L/磁链）已不再使用。 */
     if (mode_set == Calib_Motor_R_L_Flux)
+    {
         return false;
+    }
 
     /* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
     if ((mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
@@ -227,7 +237,9 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
                 return true;
             }
             if (MotorControl.ModeNow == Calib_Friction)
+            {
                 FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+            }
             MotorControl.ModeNow = mode_set;
             return true;
         }
@@ -252,7 +264,9 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 void Detect_Mode_Error_Change(void)
 {
     if (ModeLast != MotorControl.ModeNow || ErrorLast != MotorControl.ErrorNow)
+    {
         is_Mode_Error_Change = true;
+    }
 }
 
 /**
@@ -272,30 +286,15 @@ void Clear_Mode_Error_Change(void)
     is_Mode_Error_Change = false;
 }
 
-/**
-    * @brief  Stop PWM generation
- **/
+/* 过渡兼容层：功率级启停的历史入口。硬件调用已移至
+ * platform/stm32g4/ports/motor/power_stage_stm32g4.c；调用方迁移到
+ * power_stage_hw_* 契约后删除本节。 */
 void Stop_PWM_Generate(void)
 {
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
-
-    HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
-    HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
-    HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
+    power_stage_hw_stop();
 }
 
-/**
-    * @brief  Start PWM generation
- **/
 void Start_PWM_Generate(void)
 {
-    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-
-    HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
-    HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
-    HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+    power_stage_hw_start();
 }

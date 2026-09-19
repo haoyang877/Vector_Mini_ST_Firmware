@@ -764,9 +764,9 @@
               <FilePath>..\..\..\..\motor\foc\foc_sensorless_run.c</FilePath>
             </File>
             <File>
-              <FileName>foc_calibration.c</FileName>
+              <FileName>foc_speed.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\foc_calibration.c</FilePath>
+              <FilePath>..\..\..\..\motor\foc\foc_speed.c</FilePath>
             </File>
             <File>
               <FileName>phase_resistance.c</FileName>
@@ -1767,6 +1767,12 @@
           </File><File>
             <FileName>motor_pwm_stm32g4.c</FileName><FileType>1</FileType>
             <FilePath>..\..\ports\motor\motor_pwm_stm32g4.c</FilePath>
+          </File><File>
+            <FileName>power_stage_stm32g4.c</FileName><FileType>1</FileType>
+            <FilePath>..\..\ports\motor\power_stage_stm32g4.c</FilePath>
+          </File><File>
+            <FileName>motor_sensing_stm32g4.c</FileName><FileType>1</FileType>
+            <FilePath>..\..\ports\motor\motor_sensing_stm32g4.c</FilePath>
           </File></Files>
         </Group>
       </Groups>

@@ -3,6 +3,8 @@
 
 #include "main.h"
 #include "control_config.h"
+#include "motor_hardware_profile.h"
+#include "motor_sensing.h"
 #include "current_sense_profile.h"
 
 #define PWM_TIM_CLOCK 170000000
@@ -30,23 +32,21 @@
 /* Three-phase low-side current sensing; selected in current_sense_profile.h. */
 #define SENSING_RES CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM
 #define CURRENT_AMP_GAIN CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN
-/* Current represented by one 12-bit ADC count (A/count). */
-#define SENSING_CURR_FACTOR (float)(3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)
-/* ADC2 retains the four-sample sum. Convert to fractional 12-bit units
- * at the boundary, preserving parameter units and two fractional bits. */
-#define ADC2_SUM_TO_COUNTS 0.25f
+/* 换算常量归 platform/api/motor_sensing.h 所有；此处保留历史名称。 */
+#define SENSING_CURR_FACTOR MOTOR_SENSING_CURRENT_A_PER_COUNT
+#define ADC2_SUM_TO_COUNTS MOTOR_SENSING_ADC_SUM_TO_COUNTS
 
 /* Keep normal control and software protection below the amplifier/ADC rails. */
 #define CURRENT_SENSE_RELIABLE_LIMIT_A CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A
 #define CURRENT_COMMAND_LIMIT_MAX_A CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A
 #define CURRENT_CALIB_LIMIT_MAX_A CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A
-#define CURRENT_OVERCURRENT_TRIP_A CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A
+#define CURRENT_OVERCURRENT_TRIP_A MOTOR_SENSING_OVERCURRENT_TRIP_A
 
 /*bus voltagge R1 R2 (kohm)*/
-#define VBUS_R1 10.0f
-#define VBUS_R2 1.0f
+#define VBUS_R1 MOTOR_SENSING_VBUS_R1_KOHM
+#define VBUS_R2 MOTOR_SENSING_VBUS_R2_KOHM
 /*bus voltage sensing factor (adc value/V)*/
-#define SENSING_VBUS_FACTOR (float)(3.3f / 4095.0f * (VBUS_R1 + VBUS_R2) / VBUS_R2)
+#define SENSING_VBUS_FACTOR MOTOR_SENSING_VBUS_V_PER_COUNT
 
 #define TEMP_R2 3.3f
 
@@ -67,31 +67,6 @@
 
 #define TEMP_ADC ADC1
 #define TEMP_ADC_CHANNEL JDR1
-
-/* Damping-ring dependent encoder calibration profile. */
-#define MOTOR_DAMPING_RING_DISABLED 0U
-#define MOTOR_DAMPING_RING_ENABLED 1U
-#ifndef MOTOR_HAS_DAMPING_RING
-/* Current motor has no friction shaft / damping ring installed. */
-#define MOTOR_HAS_DAMPING_RING MOTOR_DAMPING_RING_DISABLED
-#endif
-
-/*
- * Position-impedance damping/friction feedforward. This is intentionally
- * independent from MOTOR_HAS_DAMPING_RING so calibration can retain the
- * damping-ring startup profile while the feedforward controller is disabled.
- */
-#define MOTOR_DAMPING_FEEDFORWARD_DISABLED 0U
-#define MOTOR_DAMPING_FEEDFORWARD_ENABLED 1U
-#ifndef MOTOR_DAMPING_FEEDFORWARD
-#define MOTOR_DAMPING_FEEDFORWARD MOTOR_HAS_DAMPING_RING
-#endif
-
-#if MOTOR_DAMPING_FEEDFORWARD != MOTOR_DAMPING_FEEDFORWARD_ENABLED &&                              \
-    MOTOR_DAMPING_FEEDFORWARD != MOTOR_DAMPING_FEEDFORWARD_DISABLED
-#error                                                                                             \
-    "MOTOR_DAMPING_FEEDFORWARD must be MOTOR_DAMPING_FEEDFORWARD_ENABLED or MOTOR_DAMPING_FEEDFORWARD_DISABLED"
-#endif
 
 #if MOTOR_HAS_DAMPING_RING == MOTOR_DAMPING_RING_ENABLED
 #define SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S 0.80f

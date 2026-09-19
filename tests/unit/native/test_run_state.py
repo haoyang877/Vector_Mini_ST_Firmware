@@ -126,6 +126,7 @@ typedef struct
 #define Position_Impedance_Mode 10
 #define Sensorless_Speed_Mode 11
 #define Voltage_OpenLoop 12
+#define Calib_PhaseResistance 13
 #define No_Error 0
 #define CurrentOffset_Error 1
 #define Encoder_Error 2
@@ -239,7 +240,7 @@ DRIVER = r"""
 
 static const ModeNow_TypeDef modes[] = {
     Motor_Disable, Save_Param, Default_Param, Clear_Error, Set_ZeroPosition,
-    Calib_Anticogging, Position_Mode, Speed_Mode, Current_Mode, Vq_Mode,
+    Calib_Anticogging, Calib_PhaseResistance, Position_Mode, Speed_Mode, Current_Mode, Vq_Mode,
 };
 
 static const MotorWorkOutcome_TypeDef outcomes[] = {
@@ -477,6 +478,36 @@ int main(void)
 
         printf("PASS operation sessions: save committed/failed, zero chain,"
                " defaults, cancel release\n");
+    }
+
+    /* ===== 标定会话用例（阶段 C 收尾）：齿槽 / 相电阻 ===== */
+    {
+        MotorWorkOutcome_TypeDef running = { MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false };
+        MotorWorkOutcome_TypeDef stop_tick = { MOTOR_WORK_STOP, Motor_Disable, No_Error, false };
+        MotorWorkOutcome_TypeDef to_save = { MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, false };
+
+        /* 齿槽标定：完成切往 Save_Param → CALIBRATION 未提交完成，随后由 SAVE 提交。 */
+        ResetWorld(Motor_Disable, Calib_Anticogging, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
+        FocRunState_Tick(to_save);
+        assert(lifecycle.snapshot.last_operation == APP_OPERATION_CALIBRATION);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+
+        /* 相电阻标定：入口自动启相（修复阶段 B 回归）；停机结果完成会话并关相。 */
+        ResetWorld(Motor_Disable, Calib_PhaseResistance, No_Error, 1, true);
+        FocRunState_Tick(running);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
+        assert(power_on);
+        FocRunState_Tick(stop_tick);
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
+        assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(!power_on);
+
+        printf("PASS calibration sessions: anticogging then save, phase resistance start/stop\n");
     }
 
     /* ===== 恢复矩阵用例（阶段 D1） ===== */

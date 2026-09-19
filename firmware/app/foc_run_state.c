@@ -249,7 +249,7 @@ static bool RunState_FaultSourceRecovered(ErrorNow_TypeDef error)
     }
 }
 
-/* 维护目标模式 → 核心操作；标定会话随 foc_calibration 拆解后接入。 */
+/* 维护目标模式 → 核心操作；friction 与 foc_calibration 拆解后的任务在结构落定后接入。 */
 static AppOperation RunState_OperationFor(ModeNow_TypeDef mode)
 {
     switch (mode)
@@ -260,6 +260,9 @@ static AppOperation RunState_OperationFor(ModeNow_TypeDef mode)
         return APP_OPERATION_DEFAULTS;
     case Set_ZeroPosition:
         return APP_OPERATION_ZERO;
+    case Calib_Anticogging:
+    case Calib_PhaseResistance:
+        return APP_OPERATION_CALIBRATION;
     default:
         return APP_OPERATION_NONE;
     }
@@ -289,10 +292,10 @@ static bool RunState_SendOperation(uint32_t events,
     return result.rejection == APP_ACCEPTED;
 }
 
-/* 会话服务：SAVE 结果上报、ZERO/DEFAULTS 派生完成、被打断会话的取消确认。
+/* 会话服务：SAVE 结果上报、ZERO/DEFAULTS/标定派生完成、被打断会话的取消确认。
  * 陈旧完成不污染新会话；被故障/停止打断的会话必须确认取消，否则 CLEAR 被永久阻塞。
  * 返回 true 表示本拍已上报会话事件（完成/失败/取消确认），调用方推迟一拍再开新会话。 */
-static bool RunState_ServiceOperations(ModeNow_TypeDef target)
+static bool RunState_ServiceOperations(ModeNow_TypeDef target, bool worker_stopped)
 {
     AppLifecycleState state = lifecycle.snapshot.state;
     bool sent = false;
@@ -337,6 +340,15 @@ static bool RunState_ServiceOperations(ModeNow_TypeDef target)
             (void)RunState_SendOperation(
                 APP_EVENT_OPERATION_DONE, APP_OPERATION_DEFAULTS, APP_EFFECT_UNCOMMITTED, 0U);
         }
+        else if (lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION &&
+                 ((operation_mode == Calib_Anticogging && target == Save_Param) ||
+                  (operation_mode == Calib_PhaseResistance && worker_stopped)))
+        {
+            /* 标定完成以模块切往 Save_Param 或停机结果表达：未提交完成，随后由 SAVE 提交。 */
+            sent = true;
+            (void)RunState_SendOperation(
+                APP_EVENT_OPERATION_DONE, APP_OPERATION_CALIBRATION, APP_EFFECT_UNCOMMITTED, 0U);
+        }
     }
     else if ((state == APP_STOPPING || state == APP_FAULT) &&
              lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED)
@@ -370,6 +382,13 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
         RunState_SendOperation(APP_EVENT_BEGIN_OPERATION, operation, APP_EFFECT_UNCOMMITTED, 0U))
     {
         operation_mode = target;
+        /* 相电阻标定无自管功率：按旧入口条件（自 Disable 且轴配置有效）启相。 */
+        if (target == Calib_PhaseResistance && ModeLast == Motor_Disable &&
+            MotorControl.axis_profile_valid)
+        {
+            Start_PWM_Generate();
+            power_on = true;
+        }
     }
 }
 
@@ -456,7 +475,7 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
 
     /* 3. 启动链、维护会话、恢复证据与故障/清除处理。 */
     RunState_RunBootChain();
-    operation_event = RunState_ServiceOperations(target);
+    operation_event = RunState_ServiceOperations(target, outcome.result == MOTOR_WORK_STOP);
     RunState_UpdateRecoveryEvidence();
     /* 通信类故障自愈：链路恢复即清（替代旧 CAN 接收路径的隐式清错）。 */
     if (MotorControl.ErrorNow == CAN_DisConnect && RunState_FaultSourceRecovered(CAN_DisConnect))

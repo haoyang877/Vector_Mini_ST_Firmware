@@ -127,8 +127,13 @@ guards `operation_idle`/`maintenance_released` 由占位改为真实信号；经
 ZERO 以"切往 Save_Param"派生完成（UNCOMMITTED），随后一拍开启 SAVE 会话；
 DEFAULTS 在进入会话后的下一拍派生完成（UNCOMMITTED）；被故障/停止打断的会话经
 `CANCEL_DONE` 确认释放（要求在 ErrorNow 清除后，符合健康 guard 语义）。
-夹具新增会话用例 5 组（SAVE 成功/失败、ZERO→SAVE 链、DEFAULTS、取消释放），
-差分等价 38,400 组 tick 保持通过。
+夹具新增会话用例 5 组（SAVE 成功/失败、ZERO→SAVE 链、DEFAULTS、取消释放）。
+
+标定会话收尾（2026-09-19）：齿槽（完成切往 Save_Param → 未提交完成）与相电阻
+（会话开启时按旧入口条件启相、停机结果完成会话）已接入；同步修复阶段 B 起
+`Calib_PhaseResistance` 缺失的入口启相回归（该模式不在适配器控制模式映射内，
+差分原未覆盖——现纳入差分集合，46,464 组 tick 全一致）。friction 与
+`foc_calibration` 拆解后的任务仍待接入。
 
 ## 6. 阶段 D 设计：故障恢复矩阵（阈值已确认，实施中）
 

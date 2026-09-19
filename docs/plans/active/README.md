@@ -16,5 +16,6 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [对接 deepseek-e 节点：当前节点收尾与供料清单 v1.0](2026-09-19-e-framework-interface-prep.md)：对照 E 六件套 + schema11 对接面；四组 14 项（必须收口 / 供料 / 回移准备 / 冻结禁止）；待在途功能优化完成后按三批统一执行。
 - [对接 deepseek-e：供料包（任务 4/5/6/7）v1.0](2026-09-19-e-handoff-pack.md)：E 核心逐 token 复验（2571/383 一致）与回灌包（待审，git apply --check 通过）；适配器语义对照表；Operation 会话规格；故障三口径待补。
 - [硬件边界收口：仅 platform/stm32g4 为硬件域（AI 交接说明）v1.0](2026-09-19-hardware-boundary-closure.md)：services/communication/app 剩余硬件耦合的清零路线（T1–T5）+ AI 执行规则；完成后收紧 harness app 层 allows，把定则变成机械门禁。**T1–T5 全部完成**（2026-09-19：board_hw/indicator_hw/param_store 契约、app 零硬件头、foc_param 清零与 `common_inc.h` 删除、CAN 契约化、app 层 allows 收紧；协议测试全绿）；**release 档已通过**（提交 `c39d0d25`，11/11）。
-- [通信分层优化设计 v1.0](2026-09-19-communication-layering-optimization.md)：按分层说明落地"协议约定/协议实现/耦合"三层（S0–S6，行为保持）；S1 复用硬件边界 T3，S4 消除隐藏 `extern CANMsg`；设计待评审。
+- [通信分层优化设计 v1.0](2026-09-19-communication-layering-optimization.md)：按分层说明落地"协议约定/协议实现/耦合"三层；S0–S4、S6 已实施并提交，通信层硬件债 0、隐藏 `extern CANMsg` 归零；S5 未执行（转下条）。
+- [CAN 接收中断瘦身（S5）设计与验收计划 v1.0](2026-09-19-can-isr-slimming.md)：中断内完整派发改为有界队列 + 前台派发；已给出优先级/原子性/主循环最坏项分析与设计约束，待 D5 裁决与实机 CAN 回归授权后实施。
 - [HIL 退役：删除 HIL 工程与工装，仅保留 normal 工程 v1.0](2026-09-19-hil-retirement.md)：删除 HIL Keil 工程、`SERVO_HIL_ENABLE` 固件变体、HIL 台架工装与测试、`profiles.hil`/`layers.hil`，构建/发布链路改单目标；**已完成**（2026-09-19：PR 档全绿 + release 档通过，提交 `c39d0d25`）。

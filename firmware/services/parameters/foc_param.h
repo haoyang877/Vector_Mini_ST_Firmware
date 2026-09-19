@@ -1,7 +1,9 @@
 #ifndef __FOC_PARAM_H__
 #define __FOC_PARAM_H__
 
-#include "main.h"
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "angle_feedback.h"
 #include "position_impedance_config.h"
 #include "position_cascade_config.h"
@@ -10,6 +12,10 @@
 
 /* 参数持久化契约：InterfaceParam_TypeDef 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。 */
+
+/* Flash 参数记录识别字，与 InterfaceParam_TypeDef.magic_word 配对；
+ * 属于已发布 schema 的一部分，数值禁止更改。 */
+#define MAGIC_WORD ((uint32_t)0x454E4332U)
 
 #define PARAM_SCHEMA_VERSION 11U
 #define PARAM_SCHEMA_VERSION_LEGACY_COGGING 10U

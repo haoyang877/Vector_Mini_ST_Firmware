@@ -20,7 +20,7 @@
 | 维护/保存 | Operation 域；SAVE 必须 `COMMITTED`；取消不回滚 Flash；效果分 `UNKNOWN/UNCOMMITTED/COMMITTED` | `Save_Param` 伪命令 + 前台 Flash 流程；无 operation 结果语义 | 保存成功语义未编程化 |
 | 故障锁存 | FaultLatch 域：首故障+活动故障、恢复资格、通信恢复不清锁存 | `ErrorNow` 单值（首故障兼兼容投影）；CAN 恢复/默认参数有清错副作用 | 恢复条件未统一；存在隐式清错路径 |
 | 验证 | 135 格转移表（9 态 × 15 事件）+ 2292 断言，`-UNDEBUG -Wall -Wextra -Werror` | 差分对拍 38,400 组 tick（旧实现 vs 新迁移）+ 逐路径夹具 | 状态转移矩阵未穷举；事件类型少 |
-| 工程布局 | `yg_esc_app/` + `hardware_platform/...`，五个 Keil 工程；内部状态不占用 CAN 编号 | `firmware/` 单工程（普通/HIL 两目标） | 路径与构建挂载不同；CAN 模式编号是协议 ABI |
+| 工程布局 | `yg_esc_app/` + `hardware_platform/...`，五个 Keil 工程；内部状态不占用 CAN 编号 | `firmware/` 单 Keil 工程（HIL 已于 2026-09-19 退役） | 路径与构建挂载不同；CAN 模式编号是协议 ABI |
 
 结论：本仓库现有 4 态是 E 目标的**简化子集**——DIAGNOSED 缺口不是"要不要状态机"，而是
 **状态域划分、事件仲裁、撤销语义、操作会话、恢复条件**五项能力；E 的纯核心可直接复用。
@@ -49,7 +49,7 @@
 **暂不适用**
 
 - A/B 存储后端与掉电原子性声明；角色策略（normal/maintenance/HIL）在 E 中以
-  `role_policy.h` 实现，本仓库是 `axis_profile` + Factory/HIL 目标，需另立映射表。
+  `role_policy.h` 实现，本仓库是 `axis_profile` + Factory 目标（HIL 已退役），需另立映射表。
 - D Loader 相关的交接与内存布局（两线各自登记中）。
 
 ## 3. 迁移方案（阶段 A–D）
@@ -61,7 +61,7 @@
 | C | **Operation 会话（全量，含 6 个标定会话）**：Save/Default/Zero/标定完成路径挂入 MAINTENANCE/Operation（Begin/Step/Cancel/IsReleased/Result）；继续 2b 剩余路径但目标形态从"结果协议"升级为 operation 协议。模块清单与缺口见 §5 | 逐路径夹具（含取消/失败/释放确认）；SAVE 成功需 `COMMITTED` | 阶段 B；设计已就绪（§5） |
 | D | **FaultLatch + CLEAR 恢复（直接定义恢复矩阵）**：活动故障/首故障分离；CLEAR 要求源恢复+样本新鲜+资源释放；迁移 CAN 重连/默认参数的隐式清错副作用。逐故障条件见 §6 | 故障锁存与恢复条件夹具；通信恢复不清错；幂等 CLEAR | 阶段 C；设计已就绪（§6），阈值待确认 |
 
-每阶段：`check_project_layout` 0 错误、普通/HIL 双变体编译 0 错误、PR 全绿、
+每阶段：`check_project_layout` 0 错误、Keil 主工程编译 0 错误、PR 全绿、
 新增测试登记 hygiene 清单。
 
 ## 4. 风险与约束

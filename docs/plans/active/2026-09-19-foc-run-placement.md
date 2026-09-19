@@ -11,7 +11,7 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 
 1. 保留清单内的公共接口签名与行为不变；
 2. 架构棘轮零新增违规，且反向依赖逐步减少（现有债务只减不增）；
-3. 每阶段以 `tests/run.py` 全量、`verify --profile pr`、Keil 双目标 0 Error/0 Warning 验收；
+3. 每阶段以 `tests/run.py` 全量、`verify --profile pr`、Keil 主工程 0 Error/0 Warning 验收；
 4. 原生测试夹具随文件迁移同步更新，等价性测试价值不降低。
 
 **明确保留（签名不动）**：`Task_Speed_Mode`（对外接口，用户确认）、`Task_Current_Mode`、
@@ -96,20 +96,20 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 | H4a | `foc_algorithm.c` 的 `TIM1->CCR` 直访 → `motor_hw` PWM 端口 | 完成（并行会话，提交 `23ef80ab`） |
 | H4b | `foc_sensing.c` 的 `adc.h`、`foc_errhandle.c` 的 `tim.h` → 平台接口 | 完成（感测契约 + 功率级端口，并行批次提交） |
 | H3 | `encoder.h` BSP 大结构 → `platform/api` 采样快照接口 | 完成（并行会话编码器解耦：`aabd03f4` + 在途批次） |
-| H5 | 其余反向依赖：`interface_can.*` 的 BSP/HAL 引用（delay/hw_conf/fdcan/main）、`foc_param.c→common_inc.h`、`data_type.h→services/motor_axis_profile.h`、`foc_algorithm/position_cascade→fast_loop_profile.h`、`friction/phase_resistance→foc_param_profile.h`、`foc_param.h→main.h` | 待办（架构债余 11 条，见下） |
+| H5 | 其余反向依赖：`interface_can.*` 的 BSP/HAL 引用（delay/hw_conf/fdcan/main）、`data_type.h→services/motor_axis_profile.h`、`foc_algorithm/position_cascade→fast_loop_profile.h`、`friction/phase_resistance→foc_param_profile.h`（`foc_param.c→common_inc.h`、`foc_param.h→main.h` 已于 2026-09-19 清除） | 部分完成（架构债余 9 条，见下） |
 
 ## 收尾与余量（2026-09-19）
 
-架构债剩余 **11 条**（44 → 11，其余由本轮与并行工作流清除）：
+架构债剩余 **9 条**（44 → 9；2026-09-19 又清 `foc_param.c→common_inc.h`、`foc_param.h→main.h`
+两条，聚合头 `app/common_inc.h` 已删除）：
 
 - **interface_can 批次（4 条）**：`delay.h`、`hw_conf.h`、`fdcan.h`、`main.h` —— 需要通信层接入
   `time_hw`/`comm_hw` 契约并按需提取 CAN 帧缓冲视图。
-- **服务/协议反向（7 条）**：`data_type.h → motor_axis_profile.h`（轴 profile 纯类型下沉，
+- **服务/协议反向（5 条）**：`data_type.h → motor_axis_profile.h`（轴 profile 纯类型下沉，
   需先决定 `MotorAxisProfile_AllowsPosition` 归属，即 H1.2）、`foc_algorithm/position_cascade
   → fast_loop_profile.h`（profiling 契约归位）、`friction/phase_resistance →
-  foc_param_profile.h`（参数 profile 边界）、`foc_param.c → common_inc.h`（聚合头拆分）、
-  `foc_param.h → main.h`。
-- **可选**：2.3 `foc_run.c` 文件级拆分（纯可读性；动两个工程与三个夹具）。
+  foc_param_profile.h`（参数 profile 边界）。
+- **可选**：2.3 `foc_run.c` 文件级拆分（纯可读性；动 Keil 工程与三个夹具）。
 - 已由并行工作流关闭：编码器解耦（H3）、标定功能移除与后续清理、感知/功率级契约（H4b）。
 
 ## 验证证据

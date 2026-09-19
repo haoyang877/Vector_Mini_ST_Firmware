@@ -31,7 +31,6 @@ def fixture():
 #include "foc_param_profile.h"
 #include "interface_can.h"
 #include "utils.h"
-#define MAGIC_WORD 0x454e4332U
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
 uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
@@ -39,6 +38,11 @@ CANMsg_TypeDef CANMsg;
 """
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
+    can_source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
+    prelude += "\n".join(
+        function_source(can_source, n)
+        for n in ("CAN_NodeId_Get", "CAN_NodeId_Set", "CAN_HeartbeatMs_Get", "CAN_HeartbeatMs_Set")
+    )
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
     prelude += "\nstatic void can_set(int id, float data) { int data_int=(int)data; switch(id) {\n"

@@ -272,8 +272,8 @@ int main(void) {
 
 
 def adc_irq_fixture():
-    # Compile the actual board vector with register stubs, without CMSIS or
-    # HIL cycle-counter instrumentation. The firmware build checks real types.
+    # Compile the actual board vector with register stubs, without CMSIS.
+    # The firmware build checks real types.
     source = (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c").read_text(
         encoding="utf-8"
     )
@@ -418,8 +418,10 @@ int main(void) {
     )
 
 
-def joint_board_startup_fixture():
-    source = (ROOT / "firmware/app/board_config.c").read_text(encoding="utf-8")
+def board_startup_fixture():
+    source = (ROOT / "firmware/platform/stm32g4/ports/board/board_startup_stm32g4.c").read_text(
+        encoding="utf-8"
+    )
     return (
         r"""
 #ifdef NDEBUG
@@ -427,19 +429,16 @@ def joint_board_startup_fixture():
 #endif
 #include <assert.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
       TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
 static int hadc1, hadc2, htim1, htim7;
-static struct { bool axis_profile_valid; } MotorControl;
-static bool configured;
-static unsigned phases, sampling, communication, adc_started;
+static uint32_t SystemCoreClock = 170000000U;
+static unsigned delay_clock;
+static unsigned phases, sampling, adc_started;
 static unsigned adc_irq_mask = ADC_IT_JEOC;
-static void flash_read_param(void) { MotorControl.axis_profile_valid = configured; }
-static void MotorControl_Init(void) {}
-static void motor_hw_outer_init(void) {}
-static bool MotorControl_IsConfigurationValid(void) { return MotorControl.axis_profile_valid; }
-static void delay_init(int clock) { (void)clock; }
+static void delay_init(uint16_t clock) { delay_clock = clock; }
 static void HAL_ADCEx_Calibration_Start(int *adc, int mode) { (void)adc; (void)mode; }
 static void HAL_TIM_PWM_Start(int *timer, int channel) {
     (void)timer; if (channel == TIM_CHANNEL_4) sampling++; else phases++;
@@ -449,19 +448,61 @@ static void HAL_ADCEx_InjectedStart(int *adc) { (void)adc; adc_started++; }
 static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask |= mask; }
 static void __HAL_ADC_DISABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask &= ~mask; }
 static void HAL_TIM_Base_Start_IT(int *timer) { (void)timer; }
-static void FDCAN1_Param_Init(void) { communication++; }
+"""
+        + function_source(source, "board_hw_start")
+        + r"""
+int main(void) {
+    board_hw_start(false);
+    assert(phases == 0 && sampling == 1 && adc_started == 2);
+    assert(adc_irq_mask == ADC_IT_JEOS && delay_clock == 170U);
+    board_hw_start(true);
+    assert(phases == 6 && sampling == 2 && adc_started == 4);
+    assert(adc_irq_mask == ADC_IT_JEOS);
+    puts("PASS actual board startup: unconfigured phase outputs off, sampling retained");
+    return 0;
+}
+"""
+    )
+
+
+def board_orchestration_fixture():
+    source = (ROOT / "firmware/app/board_config.c").read_text(encoding="utf-8")
+    return (
+        r"""
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+static int order[8];
+static int order_len;
+static bool configured;
+static bool board_start_argument;
+static void log_step(int step) { order[order_len++] = step; }
+static void motor_hw_outer_init(void) { log_step(1); }
+static void param_store_load(void) { log_step(2); }
+static void MotorControl_Init(void) { log_step(3); }
+static bool MotorControl_IsConfigurationValid(void) { return configured; }
+static void board_hw_start(bool motor_phases_enabled) {
+    log_step(4);
+    board_start_argument = motor_phases_enabled;
+}
+static void FDCAN1_Param_Init(void) { log_step(5); }
 """
         + function_source(source, "Board_Init")
         + r"""
 int main(void) {
+    static const int expected[] = {1, 2, 3, 4, 5};
+    int index;
     Board_Init();
-    assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
-    assert(adc_irq_mask == ADC_IT_JEOS);
+    assert(order_len == 5 && !board_start_argument);
+    for (index = 0; index < 5; ++index) assert(order[index] == expected[index]);
     configured = true;
+    order_len = 0;
     Board_Init();
-    assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
-    assert(adc_irq_mask == ADC_IT_JEOS);
-    puts("PASS actual board startup: unconfigured phase outputs off, sampling and communication retained");
+    assert(order_len == 5 && board_start_argument);
+    puts("PASS board startup orchestration: order and configuration condition preserved");
     return 0;
 }
 """
@@ -553,7 +594,6 @@ def main():
     sequence_fixture = args.out / "adc_sequence_test.c"
     sequence_fixture.write_text(adc_sequence_fixture(), encoding="utf-8")
     build("adc_sequence_test", [sequence_fixture])
-    build("servo_hil_test", ["tests/unit/servo_hil_test.c"])
     build(
         "motor_axis_profile_test",
         [
@@ -572,9 +612,12 @@ def main():
             "firmware/common/crc32.c",
         ],
     )
-    board_fixture = args.out / "joint_board_startup_test.c"
-    board_fixture.write_text(joint_board_startup_fixture(), encoding="utf-8")
-    build("joint_board_startup_test", [board_fixture])
+    board_fixture = args.out / "board_startup_test.c"
+    board_fixture.write_text(board_startup_fixture(), encoding="utf-8")
+    build("board_startup_test", [board_fixture])
+    orchestration_fixture = args.out / "board_orchestration_test.c"
+    orchestration_fixture.write_text(board_orchestration_fixture(), encoding="utf-8")
+    build("board_orchestration_test", [orchestration_fixture])
     if args.recording:
         import numpy as np
 

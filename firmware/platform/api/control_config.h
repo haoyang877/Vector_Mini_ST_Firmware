@@ -1,7 +1,7 @@
 #ifndef CONTROL_CONFIG_H
 #define CONTROL_CONFIG_H
 
-/* 控制时基与无感启动默认参数契约。
+/* 控制时基、RTT 遥测与无感启动默认参数契约。
  * platform/api 层拥有该契约；板级配置（hw_conf.h）引用并据此派生定时器参数，
  * motor 层算法直接包含本头文件。 */
 
@@ -68,5 +68,19 @@
 #define SENSORLESS_OBSERVER_LOSS_TIME_S 0.20f
 #define SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S 5000.0f
 #define SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA 0.1042f
+
+/* RTT 遥测契约：上行 channel 1，采样频率必须整除 FOC_FREQ。 */
+#define RTT_SAMPLE_RATE_HZ 2000U
+#if RTT_SAMPLE_RATE_HZ == 0U
+#error "RTT_SAMPLE_RATE_HZ must be greater than zero"
+#elif RTT_SAMPLE_RATE_HZ > FOC_FREQ
+#error "RTT_SAMPLE_RATE_HZ must not exceed FOC_FREQ"
+#elif (FOC_FREQ % RTT_SAMPLE_RATE_HZ) != 0U
+#error "RTT_SAMPLE_RATE_HZ must divide FOC_FREQ exactly"
+#endif
+#define RTT_SAMPLE_DIVIDER (FOC_FREQ / RTT_SAMPLE_RATE_HZ)
+
+/* 固定 4 通道 int16 帧：位置/转速/Iq 指令/Iq 反馈，布局见 rtt_telemetry.c。 */
+#define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2"
 
 #endif

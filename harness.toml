@@ -10,9 +10,6 @@ clang_format_version = "20.1.8"
 [environment]
 compiler = "HARNESS_CC"
 keil = "KEIL_UV4"
-jlink_dll = "JLINK_DLL"
-jlink_probe_serial = "JLINK_PROBE_SERIAL"
-bench_id = "VECTOR_BENCH_ID"
 motor_adapter_root = "MOTOR_CTRL_APP_ROOT"
 cjk_font = "HARNESS_CJK_FONT"
 
@@ -30,7 +27,7 @@ exclude_prefixes = [
 ]
 
 [style.modules.firmware]
-paths = ["firmware", "tests/hil/firmware"]
+paths = ["firmware"]
 
 [style.modules.loader]
 paths = ["loader"]
@@ -55,9 +52,6 @@ checks = ["format", "lint", "project-layout", "python-native-tests", "architectu
 
 [profiles.release]
 checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "interfaces", "docs", "hygiene", "keil-build", "release-manifest"]
-
-[profiles.hil]
-checks = ["python", "bench-dependencies", "jlink", "bench-identity"]
 
 [architecture.layers.common]
 paths = ["firmware/common"]
@@ -85,7 +79,7 @@ allows = ["common", "platform_api", "motor", "services", "protocol", "communicat
 
 [architecture.layers.app]
 paths = ["firmware/app"]
-allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "platform_stm32", "cubemx", "hil", "app"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app"]
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
@@ -93,8 +87,5 @@ allows = ["common", "platform_api", "motor", "services", "platform_stm32", "cube
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/stm32g4/cubemx/Core"]
-allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx", "hil"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx"]
 
-[architecture.layers.hil]
-paths = ["tests/hil/firmware"]
-allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx", "hil"]

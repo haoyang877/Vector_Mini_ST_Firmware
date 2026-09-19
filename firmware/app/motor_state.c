@@ -1,8 +1,13 @@
 #include "motor_state.h"
 
-#include "common_inc.h"
+#include "angle_feedback.h"
+#include "foc_algorithm.h"
+#include "foc_errhandle.h"
 #include "foc_friction_identification.h"
+#include "foc_pid.h"
+#include "foc_run.h"
 #include "foc_run_state.h"
+#include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 
 /* 电机与控制对象实例：全部定义在此，其他模块只持有引用。 */

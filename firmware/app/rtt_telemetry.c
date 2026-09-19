@@ -1,8 +1,13 @@
 #include "rtt_telemetry.h"
 
-#include "common_inc.h"
+#include <math.h>
+
 #include "SEGGER_RTT.h"
+#include "angle_feedback.h"
+#include "control_config.h"
+#include "foc_run.h"
 #include "motor_state.h"
+#include "utils.h"
 
 /* 定标：物理量乘以尺度后饱和编码为 int16 计数，不是测量精度。 */
 #define RTT_POSITION_SCALE_COUNTS_PER_RAD (32768.0f / _PI)

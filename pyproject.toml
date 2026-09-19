@@ -1,7 +1,7 @@
 [project]
 name = "vector-mini-st-harness"
 version = "0.1.0"
-description = "Reproducible build, test, analysis, and HIL tooling for Vector Mini ST firmware"
+description = "Reproducible build, test, analysis, and bench tooling for Vector Mini ST firmware"
 requires-python = ">=3.13,<3.14"
 dependencies = []
 
@@ -13,16 +13,10 @@ analysis = [
   "matplotlib==3.11.2",
   "numpy==2.5.3",
 ]
-bench = [
-  "pyelftools==0.33",
-  "pylink-square==2.0.1",
-]
 dev = [
   "clang-format==20.1.8",
   "matplotlib==3.11.2",
   "numpy==2.5.3",
-  "pyelftools==0.33",
-  "pylink-square==2.0.1",
   "ruff==0.13.2",
   "ziglang==0.16.0",
 ]

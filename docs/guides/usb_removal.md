@@ -8,7 +8,8 @@ PA11/PA12 配置为模拟输入且无上下拉。芯片启动文件保留 USB �
 避免后续中断编号变化。CubeMX `.ioc` 与 `.mxproject` 同步清理。
 
 PC 的 USB-CAN 分析仪及其驱动保留。现有 FDCAN、编码器、校准、保护、Flash 参数 schema、
-RTT 观测和 HIL 测试支持继续保留。当前 UART 仅保留已有外设初始化，不代表 Loader UART 已实现。
+RTT 观测和 HIL 测试支持继续保留（HIL 后于 2026-09-19 退役）。
+当前 UART 仅保留已有外设初始化，不代表 Loader UART 已实现。
 
 ## 当前业务入口与缺口
 

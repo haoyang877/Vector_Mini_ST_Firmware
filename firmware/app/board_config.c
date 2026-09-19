@@ -1,53 +1,28 @@
 #include "board_config.h"
-#include "motor_hw.h"
 
-/**
-	* @brief  Initialize board peripherals and application modules
- **/
+#include "board_hw.h"
+#include "interface_can.h"
+#include "motor_hw.h"
+#include "motor_state.h"
+#include "param_store.h"
+
+/* 启动编排：顺序与迁移前一致——外环上下文 → 参数装载 → 应用状态初始化 →
+ * 板级启动序列（条件启用三相输出）→ CAN 滤波器初始化。
+ * 硬件细节全部位于 platform 契约实现内；本文件不再包含任何硬件头。 */
+
 void Board_Init(void)
 {
     motor_hw_outer_init();
-	/*read parameters and calibration data from flash*/
-	/*if magic word invalid or not calibrated, fall back to code defaults*/
-	flash_read_param();
-	
-	/*motor control related parameters initialize*/
-	MotorControl_Init();
-	
-	/*delay function init*/
-	delay_init(170);
-	
-	/*ADC inner calibration*/
-	HAL_ADCEx_Calibration_Start(&hadc1,ADC_SINGLE_ENDED);
-	HAL_ADCEx_Calibration_Start(&hadc2,ADC_SINGLE_ENDED);
-	
-	/* Preserve existing startup calibration only for a configured motor.
-	 * CH4 below still clocks sampling/diagnostics for an unconfigured joint. */
-	if (MotorControl_IsConfigurationValid())
-	{
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
-		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
-		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
-	}
 
-	/*enable channel 4 PWM to trigger ADC conversion*/
-	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);
-	
-	/*enable ADC1 ADC 2 injection mode sampling*/
-	HAL_ADCEx_InjectedStart(&hadc1);
-	HAL_ADCEx_InjectedStart(&hadc2);
-	
-	/* Dispatch one control tick only after all four injected ranks are ready.
-	 * JEOC is per rank and can expose a mixed-period current/Vbus sample. */
-	__HAL_ADC_DISABLE_IT(&hadc2, ADC_IT_JEOC);
-	__HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOS);
-		
-	/*enable TIM7 interrupt*/
-	HAL_TIM_Base_Start_IT(&htim7);
-	
-	/*CAN1 filter init*/
-	FDCAN1_Param_Init();
+    /* 从非易失参数区读取参数与标定；无效记录回退编译期默认值。 */
+    param_store_load();
+
+    /* 电机控制相关运行态初始化。 */
+    MotorControl_Init();
+
+    /* 板级启动：仅配置有效时启动三相互补 PWM。 */
+    board_hw_start(MotorControl_IsConfigurationValid());
+
+    /* CAN1 滤波器初始化。 */
+    FDCAN1_Param_Init();
 }

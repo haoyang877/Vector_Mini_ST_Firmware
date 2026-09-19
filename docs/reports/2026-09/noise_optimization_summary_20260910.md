@@ -152,7 +152,7 @@ HOLD、重定向、MOVE、再捕获阶段保持连续。正常和HIL构建均0�
 - [最终逐目标指标CSV](../../assets/noise_optimization_20260910/final_tracking_metrics.csv)
 - [完整图表指标JSON](../../assets/noise_optimization_20260910/metrics.json)
 - [原始记录哈希与镜像版本](../../assets/noise_optimization_20260910/sources.json)
-- [绘图脚本](../../../tools/analysis/plot_noise_optimization_report.py)
+- 绘图脚本 `plot_noise_optimization_report.py`（已随 HIL 台架于 2026-09-19 退役删除）
 - [完整运动降噪过程记录](motion_noise_20260910.md)
 - [早期HOLD定位噪声记录](position_hold_noise_20260910.md)
 

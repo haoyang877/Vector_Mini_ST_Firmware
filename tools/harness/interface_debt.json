@@ -1,18 +1,6 @@
 {
   "schema_version": 1,
   "files": {
-    "firmware/app/board_config.h": {
-      "sha256": "e86d526af5a82dd8484da36002d42dd1eb703f8c0a9b22b5219fa46329523da5",
-      "interfaces": [
-        "Board_Init"
-      ]
-    },
-    "firmware/app/bsp_task.h": {
-      "sha256": "159dc9bb8ec09f0b958b932c3eae55331bbcf1a6a9deda580bb7c31c1476db0e",
-      "interfaces": [
-        "BSP1kHzIRQHandler"
-      ]
-    },
     "firmware/communication/can/interface_can.h": {
       "sha256": "867e8dc9cc321bd1ca92c4b00c142bd88d0c52dc41f853f09e989bb3e647b6c8",
       "interfaces": [
@@ -127,13 +115,6 @@
         "delay_us"
       ]
     },
-    "firmware/platform/stm32g4/bsp/flash.h": {
-      "sha256": "d67d877ac1518e235d9f560ed32c50fde76e76b80f87946797762d085eaae620",
-      "interfaces": [
-        "flash_read_param",
-        "flash_write_param"
-      ]
-    },
     "firmware/platform/stm32g4/bsp/led.h": {
       "sha256": "8be6857fd85fe9dc6945e993249d9e9afe2d63723ec6455d7992fb53f5fb8637",
       "interfaces": [
@@ -162,14 +143,6 @@
         "MotorAxisProfile_Load",
         "MotorAxisProfile_Resolve",
         "MotorJointType_Name"
-      ]
-    },
-    "tests/hil/firmware/servo_hil.h": {
-      "sha256": "4cf1b682ca0920e0efe9e80437f8141285a104d81fa57d9d62fe08ce1d8d639e",
-      "interfaces": [
-        "ServoHil_Complete",
-        "ServoHil_ObservePhaseCurrents",
-        "ServoHil_Poll"
       ]
     }
   }

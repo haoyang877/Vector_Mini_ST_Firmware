@@ -14,7 +14,7 @@ static void Old_HandleFaultIndication(void)
 {
     if (MotorControl.ErrorNow == No_Error)
     {
-        LED_SetState(0, (uint8_t)MotorControl.ModeNow);
+        indicator_hw_set_led(false, (uint8_t)MotorControl.ModeNow);
     }
     else
     {
@@ -23,7 +23,7 @@ static void Old_HandleFaultIndication(void)
             MotorControl.ModeNow = Motor_Disable;
         }
 
-        LED_SetState(1, (uint8_t)MotorControl.ErrorNow);
+        indicator_hw_set_led(true, (uint8_t)MotorControl.ErrorNow);
     }
 }
 
@@ -152,7 +152,7 @@ typedef struct
 #define RUN_STATE_TEMP_RECOVER_C 80.0f
 #define BUS_VOLTAGE_ENABLE_MIN_V 25.6f
 #define BUS_VOLTAGE_ENABLE_MAX_V 33.8f
-#define CURRENT_OVERCURRENT_TRIP_A 18.0f
+#define MOTOR_SENSING_OVERCURRENT_TRIP_A 18.0f
 
 typedef struct
 {
@@ -226,7 +226,10 @@ static void log_event(int code, int arg)
     ++log_len;
 }
 
-void LED_SetState(unsigned led, unsigned value) { log_event(1 + (int)led, (int)value); }
+void indicator_hw_set_led(bool error_channel, uint8_t blink_num)
+{
+    log_event(1 + (int)error_channel, (int)blink_num);
+}
 void Clear_RunningData(void) { log_event(3, 0); }
 void Stop_PWM_Generate(void) { log_event(4, 0); }
 void Start_PWM_Generate(void) { log_event(5, 0); }

@@ -28,9 +28,16 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
+
+#include "board_config.h"
+#include "control_config.h"
+#include "data_type.h"
 #include "foc_cogging_calibration.h"
-#include "common_inc.h"
+#include "foc_errhandle.h"
 #include "foc_run_state.h"
+#include "interface_can.h"
+#include "param_store.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
@@ -127,7 +134,7 @@ int main(void)
 		/*disable global interrupt*/
 		__disable_irq();
 		/*write parameters to flash*/
-		saved = flash_write_param();
+		saved = param_store_save();
 		/*enable global interrupt*/
 		__enable_irq();
 		FocCogging_SaveResult(saved);

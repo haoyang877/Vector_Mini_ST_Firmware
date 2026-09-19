@@ -1,7 +1,6 @@
 #ifndef __FOC_TASK_H__
 #define __FOC_TASK_H__
 
-#include "main.h"
 #include <stdbool.h>
 
 /**

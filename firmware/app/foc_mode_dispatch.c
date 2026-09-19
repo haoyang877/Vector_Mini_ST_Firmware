@@ -1,9 +1,12 @@
 #include "foc_mode_dispatch.h"
 
-#include "common_inc.h"
+#include "angle_feedback.h"
 #include "foc_cogging_calibration.h"
+#include "foc_errhandle.h"
 #include "foc_friction_identification.h"
+#include "foc_param.h"
 #include "foc_phase_resistance.h"
+#include "foc_run.h"
 #include "fast_loop_profile.h"
 #include "motor_hw.h"
 #include "motor_state.h"

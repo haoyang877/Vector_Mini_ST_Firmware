@@ -183,7 +183,7 @@ stateDiagram-v2
 | 2b（进行中） | 剩余直接写者：TorqueGuard 跳闸、cogging `Stop/Start/finalize` 临界区握手、sensorless/position/impedance worker、dispatch 零矢量预载。（2026-09-19：FOC-Calibration 功能已整体移除，原"标定模块其余 `Save_Param`/高侧路径"随之删除，待重建。）~~friction 完成路径~~ ✅、~~编码器观测器标定完成路径~~ ✅ | 每路径先建夹具再迁移（对照 2a 做法） |
 | 3 | 命令与模式分离（伪命令迁出枚举）与 CAN 映射兼容处理 | 协议文档 + 上位机约定 + 兼容性说明；本阶段单独评审后启动 |
 
-每阶段：`check_project_layout` 0 错误、普通/HIL 双变体交叉编译 0 错误、PR 离线套件通过。
+每阶段：`check_project_layout` 0 错误、Keil 主工程交叉编译 0 错误、PR 离线套件通过。
 
 ## 风险与缓解
 

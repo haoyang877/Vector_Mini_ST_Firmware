@@ -8,7 +8,7 @@
 | 允许角度范围 | −90°～+90° | −0.3～+0.9 rad，约 −17.19°～+51.57°（用户最新修正） |
 | 最大巡航速度 | 45°/s | 45°/s，沿用此次确认的速度 |
 | 本次状态 | 已写入Flash并复位读回 | 独立电机已校零；最新轴范围已写入Flash并回读，控制参数实测整定中 |
-| 配置文件 | [roll.json](../../tests/hil/profiles/mode3/roll.json) | [pitch.json](../../tests/hil/profiles/mode3/pitch.json) |
+| 配置文件 | `roll.json` | `pitch.json`（两者原位于 `tests/hil/profiles/mode3/`，已随 HIL 台架于 2026-09-19 退役删除） |
 
 角度沿用各电机自身编码器机械零点。型号与硬件相同不表示编码器零点、偏心补偿或装配摩擦相同；pitch不会自动复制roll的校准区。pitch.json保存当前Flash基线，RAM候选在pitch_candidate_20260909.json；最新范围、短时相电流保护及实测过程见[pitch续测记录](../reports/2026-09/pitch_mode3_burst_20260909.md)，早期过程保留在[pitch验证记录](../reports/2026-09/pitch_mode3_validation_20260909.md)。
 
@@ -48,15 +48,14 @@ AXS1采用独立版本，不改变外层schema9/10的控制参数解释。全零
 [motor_axis_record.py](../../tools/bench/motor_axis_record.py) 只在离线生成参数副本，不连接J-Link、不写Flash。输入必须是当前参数备份、匹配固件导出的偏移和所选轴配置。工具保留所有非目标字段，拒绝覆盖无法解释的非空AXS1记录。
 
 ```text
-python tools/bench/motor_axis_record.py --parameters <参数区备份.bin> --offsets <匹配AXF导出的参数偏移.json> --profile tests/hil/profiles/mode3/roll.json --out <新输出目录>
-python tools/bench/run_mode3_validation.py host --cc <C99编译器或zig路径>
+python tools/bench/motor_axis_record.py --parameters <参数区备份.bin> --offsets <匹配AXF导出的参数偏移.json> --profile <轴配置.json> --out <新输出目录>
 ```
 
 新增C回归覆盖空白旧参数、roll/pitch边界、无效值、逐字节损坏及Python/C一致的CRC样例；Python回归覆盖编码、解码和参数/校准保留。既有模式3回归继续运行。
 
 本次从Git暂存区导出的独立源码快照验证通过：23组C伺服场景（含72组组合）、独立轨迹/编码器/HIL服务/AXS1测试、全部27项Python检查。正常及HIL工程均0错误0警告；正常Code=94760 B、ZI=31688 B，HIL Code=95740 B、ZI=31704 B。该快照仅构建测试，未覆盖下载到板卡。
 
-实机测试后端支持 `--axis-profile tests/hil/profiles/mode3/roll.json` 或pitch配置：先核对运行上下文的AXS1名称/CRC/范围/速度、实际电流上限与加减速度，再使能。pitch必须指定独立 `--session-dir outputs/pitch_validation_20260909/session`。按最新范围采用5°目标留量时，目标区间约−12.19°～+46.57°，主机停止边界约−15.19°～+49.57°。HIL原±90°保护仍作为外层限制，不能代替pitch自身范围。
+（原实机测试后端的 `--axis-profile` 使能流程已随 HIL 台架于 2026-09-19 退役，见 [HIL 退役计划](../plans/active/2026-09-19-hil-retirement.md)；当时 pitch 按最新范围采用5°目标留量，目标区间约−12.19°～+46.57°，主机停止边界约−15.19°～+49.57°，HIL 原±90°保护作为外层限制。）
 
 ## 提交与后续pitch测试
 

@@ -25,3 +25,5 @@ this map or to the closest indexed sub-area.
 
 Protection design: [故障保护模块、接口与参数设计 v1.0](architecture/fault_protection_design_v1.md)
 and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
+
+Communication layering: [通信分层说明（CAN 接入）](architecture/communication_layering.md).

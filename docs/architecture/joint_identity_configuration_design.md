@@ -67,13 +67,13 @@ roll、pitch、yaw、wheel_right、wheel_left 共用固件。装配时赋予关�
 
 | 类型 | 已知边界 | 已知速度 | 参数状态 |
 | --- | --- | --- | --- |
-| roll | −90°～+90° | 45°/s（8 s/rev） | 已有持久化配置，见 roll.json |
+| roll | −90°～+90° | 45°/s（8 s/rev） | 已有持久化配置（原 roll.json 随 HIL 退役删除） |
 | pitch | −0.3～+0.9 rad | 45°/s | 当前候选位置 Kp/Kd=8/2、速度 Kp/Ki=0.5/2；仍须区分候选与 Flash 基线 |
 | yaw | UNKNOWN | UNKNOWN | 未整定，暂不可使能 |
 | wheel_right | 连续旋转或有限角度待确认 | UNKNOWN | 控制模式、方向、速度/电流约束待确认 |
 | wheel_left | 连续旋转或有限角度待确认 | UNKNOWN | 控制模式、方向、速度/电流约束待确认 |
 
-pitch 的 6 A 峰值、超过 4 A 累计 30 s 是当前 HIL 测试保护。它不能自动成为所有关节的量产保护，也不能在普通固件尚无对应监督逻辑时标记为已生效。轮电机不应自动套用 mode 3 的到位保持策略。
+pitch 的 6 A 峰值、超过 4 A 累计 30 s 是原 HIL 测试保护（HIL 台架已于 2026-09-19 退役）。它不能自动成为所有关节的量产保护，也不能在普通固件尚无对应监督逻辑时标记为已生效。轮电机不应自动套用 mode 3 的到位保持策略。
 
 ## 当前实现与迁移
 
@@ -96,10 +96,10 @@ AXS2 版本 1 的模板是这几项控制参数的启动来源：RAM 临时调�
 
 AXS2 无配置、格式不支持或 CRC 错误时，轴配置有效标志为 false。启动不执行电流偏置校准，不启动三相 PWM；采样时钟和通信保留。正常模式入口拒绝使能，快环也阻止内部模式赋值绕过，存储/清错路径不能因此开启 PWM。全零/全 FF 的无 AXS 旧固件参数仍按既有未绑定兼容路径工作，本次未把所有旧设备强制改为必须登记。
 
-新配置文件在 `tests/joints/`，与记录实测运行数据的 `tests/mode3/` 分开。离线生成 pitch 数字记录的例子：
+新配置文件原置于 `tests/hil/profiles/joints/`，已随 HIL 退役删除；工具仍接受等价格式的轴配置 JSON。离线生成 pitch 数字记录的例子：
 
 ```powershell
-python tools/bench/motor_axis_record.py --parameters <当前参数区备份.bin> --offsets <匹配固件的参数偏移.json> --profile tests/hil/profiles/joints/pitch.json --out <新的输出目录>
+python tools/bench/motor_axis_record.py --parameters <当前参数区备份.bin> --offsets <匹配固件的参数偏移.json> --profile <轴配置.json> --out <新的输出目录>
 ```
 
 此工具只生成补丁和清单，不连接 J-Link。旧参数区其余字节不变，AXS1/AXS2 轴记录偏移也不变；写板前必须使用支持 AXS2 且外层参数 schema 相匹配的固件。类型编号不是 MCU UID，也不自动改变 CAN 节点地址。

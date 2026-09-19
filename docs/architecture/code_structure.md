@@ -16,17 +16,18 @@
 | `firmware/services/telemetry/` | 电机状态快照、快速环诊断接口 |
 | `firmware/communication/can/`、`protocol/` | CAN 接入与协议编码 |
 | `firmware/platform/api/` | 硬件接口 |
-| `firmware/platform/stm32g4/bsp/`、`ports/` | 板级驱动、CAN/时间/外环调度实现 |
+| `firmware/platform/stm32g4/bsp/`、`ports/` | 板级驱动、板级启动/指示器、CAN/时间/外环调度实现 |
 | `firmware/platform/stm32g4/cubemx/` | .ioc、.mxproject、Core、Drivers、MDK-ARM |
 | `firmware/common/` | 数学工具、内存池 |
 | `firmware/third_party/segger_rtt/` | 第三方 RTT |
-| `tests/unit/`、`integration/`、`hil/` | 单元、离线集成、实机支持与场景配置 |
+| `tests/unit/`、`integration/` | 单元、离线集成 |
 | `tools/build/`、`flash/`、`bench/`、`analysis/` | 构建、下载、采集操作、离线分析 |
 | `docs/architecture/`、`protocols/`、`guides/`、`hardware/`、`reports/` | 架构、协议、使用说明、硬件资料、历史报告 |
-| `outputs/build/keil/` | 普通/HIL 编译输出 |
+| `outputs/build/keil/` | Keil 主工程编译输出 |
 
 原 `software/`、`hal/`、顶层生成目录已迁入 `firmware/`。`System` 杂项目录取消：
-初始化归 app，参数归 parameters，工具归 common，共享电机类型归 motor，HIL 支持归 tests/hil/firmware。
+初始化归 app，参数归 parameters，工具归 common，共享电机类型归 motor（原 HIL 支持目录已随
+2026-09-19 HIL 退役删除）。
 源码与头文件在所属模块内相邻存放。完整文件迁移清单见 [path_migration.json](path_migration.json)。
 
 `outputs/` 为生成内容；原有 `data_recoder/`、`tmp/` 和本机工具缓存保留原位置，避免破坏历史实验引用。
@@ -34,9 +35,9 @@
 
 ## 工程入口
 
-普通与 HIL 工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`。
+Keil 主工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`。
 CubeMX 的内部 Core/Drivers 相对关系保持一致，用户源码通过相对 include 路径接入。
-两个工程保留原文件编译顺序、逐文件优化配置和原有调试选项，删除 USB 相关输入。
+工程保留原文件编译顺序、逐文件优化配置和原有调试选项，删除 USB 相关输入。
 
 ```powershell
 python tools/run.py --list
@@ -50,7 +51,7 @@ uv run python tools/run.py verify --profile pr
 `tools/project_paths.py` 管理仓库路径、模块搜索位置及原生测试头文件路径。
 测试、构建和硬件操作入口分开，离线验证不会烧录或操作电机。
 
-CubeMX 再生成后仍需审查用户代码区、输出目录和自定义源文件组，再执行工程检查与双目标全量编译。
+CubeMX 再生成后仍需审查用户代码区、输出目录和自定义源文件组，再执行工程检查与全量编译。
 本次校验了生成输入的结构和路径，没有运行 CubeMX GUI 再生成。
 
 ## 后续 Loader 与 PC 接入
@@ -94,8 +95,10 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 
 ## 下一阶段代码优化
 
-文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 仍是历史聚合头，
-`motor/data_type.h` 仍依赖 MCU main.h。后续优先拆小接口与纯类型，再提取公共命令服务，
-最后细化 foc_run 中的模式执行与异步外环上下文。每步独立验证实时性和状态一致性。
+文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：
+app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platform/api` 与
+`param_comm_bridge.h` 窄桥访问通信运行态；`motor/data_type.h` 已改用 `<stdint.h>`。后续优先
+拆小接口与纯类型，再提取公共命令服务，最后细化 foc_run 中的模式执行与异步外环上下文。
+每步独立验证实时性和状态一致性。
 
 新增 Loader/PC 业务时遵守既定边界；不要重新建立 System 杂项目录，也不要让主机 UI 直接处理 Flash 升级状态机。

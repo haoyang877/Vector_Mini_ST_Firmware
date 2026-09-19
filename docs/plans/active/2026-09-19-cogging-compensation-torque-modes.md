@@ -89,7 +89,7 @@ static bool CompensationModeAppliesTorque(ModeNow_TypeDef mode);
    - 位置模式：多点保持与小行程往复，比较跟随误差 RMS/峰值与整定时间。
    - 阻抗模式：同位置模式指标。
    - 安全项：总电流不超限、模式退出自动关闭、身份失配拒绝、STOP 行为不变。
-   - 证据写入 `outputs/`，按 HIL 规范记录工作台、电机配置、镜像哈希与场景；
+   - 证据写入 `outputs/`，按台架规范记录工作台、电机配置、镜像哈希与场景；
      PR 只能证明编译与回归，不能替代台架结论。
 3. **文档**：
    - `docs/guides/cogging_calibration.md`：更新"仅接受 mode 0/1""速度、位置…不使用"

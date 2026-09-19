@@ -1,48 +1,8 @@
 {
     "schema_version": 1,
     "files": {
-        "firmware/app/board_config.c": {
-            "sha256": "55b0d86b29f71bb9fed9ec8e5ce31d0d74a446ca00cf7e93a35f06c5449d0cc9",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/app/bsp_task.c": {
-            "sha256": "736ea742414c294d800bb44e0ce28f678611ff95797287f9de88664734debc4a",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/app/common_inc.h": {
-            "sha256": "69d155403f270feda6d085d5414172f6137e3cbf0b53a38b3cae0dafc7b78c37",
-            "checks": [
-                "c-format"
-            ]
-        },
-        "firmware/app/foc_run.c": {
-            "sha256": "d35085012b3032ec476cd8b2ddbfc0748de1eab92a84e2293efb639ce0717f93",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/app/foc_run.h": {
             "sha256": "d30dc2dfcdcf12c523aba7bee5528fbc4b4e8f43698f61a6b1ed3d87f2e3683c",
-            "checks": [
-                "c-format"
-            ]
-        },
-        "firmware/app/foc_task.c": {
-            "sha256": "b054b140698930805f6f5bd4fff57f2c8e6b661cf3a2d49223d28126d8cc01b6",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/app/foc_task.h": {
-            "sha256": "17055709f673de0eca07f15700a2e49d38243402015668f1b83202862003c7bf",
             "checks": [
                 "c-format"
             ]
@@ -293,21 +253,22 @@
                 "c-format"
             ]
         },
-        "firmware/platform/stm32g4/bsp/flash.c": {
-            "sha256": "69305ddd8eeaff0777bd76b1697942f2aefc1525389e51dfef363d9a60df7e39",
+        "firmware/platform/stm32g4/bsp/encoder.c": {
+            "sha256": "16a2cd92ac91eb654ccc354bc8a6bbc1127467d49cde2bc7c78651ae15e1276b",
             "checks": [
                 "c-format",
                 "c-readability"
             ]
         },
-        "firmware/platform/stm32g4/bsp/flash.h": {
-            "sha256": "d67d877ac1518e235d9f560ed32c50fde76e76b80f87946797762d085eaae620",
+        "firmware/platform/stm32g4/bsp/encoder.h": {
+            "sha256": "91c4fd280518d7701c6b1697e40c72b11b9c073ff3335cc0c2e016225fd07f05",
             "checks": [
-                "c-format"
+                "c-format",
+                "c-readability"
             ]
         },
-        "firmware/platform/stm32g4/bsp/hw_conf.h": {
-            "sha256": "d50c5342860e0f59f0dc9b3a5c2cdb0f1ce03ae5c26bb14ca1930d19c121895d",
+        "firmware/platform/stm32g4/bsp/flash.c": {
+            "sha256": "69305ddd8eeaff0777bd76b1697942f2aefc1525389e51dfef363d9a60df7e39",
             "checks": [
                 "c-format",
                 "c-readability"
@@ -360,13 +321,6 @@
                 "c-format"
             ]
         },
-        "firmware/services/parameters/foc_param.c": {
-            "sha256": "35f369118f7e678887261fa7a4676c7789f781f4820412f5cafa2601707efcea",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/services/parameters/foc_param_profile.h": {
             "sha256": "9261c9be3a7ba3bde4298c05309171bd62987f91add2569661127c8cb269e959",
             "checks": [
@@ -398,28 +352,8 @@
                 "c-format"
             ]
         },
-        "tests/hil/firmware/servo_hil.c": {
-            "sha256": "ebcf15bf333ea148414a461e3202872b6e0d4d41f678600bd5a4afc21953770a",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "tests/hil/firmware/servo_hil.h": {
-            "sha256": "4cf1b682ca0920e0efe9e80437f8141285a104d81fa57d9d62fe08ce1d8d639e",
-            "checks": [
-                "c-format"
-            ]
-        },
         "tests/integration/test_friction_module_boundary.py": {
             "sha256": "31a51f5b9e9b6a4b1e29ece52b0ad8cccbdbded54b8c5cc5b12b747a7e7755ab",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/integration/test_mode3_validation.py": {
-            "sha256": "86cfa8e9554dd6ad821141263ca980715ec797a0571c7acaa94b5ba3714d887e",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -434,13 +368,6 @@
         },
         "tests/integration/test_rtt_control_telemetry.py": {
             "sha256": "04df5679179e1b26f20e3af42be5ceb57ac465c541ea6e872f99924bc3c56b4a",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/integration/test_servo_hil_recovery.py": {
-            "sha256": "34da083b9d4d956ba8ed03946d07f120d565c5b4188fc99954a80851270d47d9",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -482,6 +409,13 @@
         },
         "tests/unit/native/test_current_oversampling.py": {
             "sha256": "54b94784f8c815338842d62c85d6242618d3972bcaa45d723834266610f270c3",
+            "checks": [
+                "python-format",
+                "python-lint"
+            ]
+        },
+        "tests/unit/native/test_encoder_sample_overlap.py": {
+            "sha256": "9c9cd3e333790affc414a165382c4f3f735ff066d74aec3f15c3141d4f90928d",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -543,13 +477,6 @@
                 "c-readability"
             ]
         },
-        "tests/unit/servo_hil_test.c": {
-            "sha256": "6701bc2480b8e2b9b35a748ed1871218c857150b58196cacc4f8112432a83350",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "tests/unit/test_can_motor_status.py": {
             "sha256": "daa09eb3bacdb911d6d0bfeb9bb729f7230857f1b6dd33fc09c95e922bd2a0d4",
             "checks": [
@@ -606,22 +533,8 @@
                 "python-lint"
             ]
         },
-        "tests/unit/test_motion_noise_analysis.py": {
-            "sha256": "9486437c8107cb44ddfd5e05c821801c4e9f615c1fccbcc69b52311e961bbde5",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tests/unit/test_motor_axis_record.py": {
             "sha256": "9c87ebe4ba4fee3150cb7e3ab95745e0467f8ed871cc0fc80e6d74cbddfad26a",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/test_positioning_comparison.py": {
-            "sha256": "ccc4a8749d2e480758e4ea32e68847139de1f0a11c41b5a952f22b715cb41d55",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -648,34 +561,6 @@
                 "python-lint"
             ]
         },
-        "tools/analysis/analyze_motion_noise.py": {
-            "sha256": "607c0e1ea1186f2772d6e6dd5fb170ea3312fd8e35779832f99885294486d572",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/analysis/analyze_positioning_comparison.py": {
-            "sha256": "2fabb4c446961eb97aa4cb752e843e5e01c3bc26e87cc08fab56acf192b02f8b",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/analysis/analyze_servo_hil.py": {
-            "sha256": "426a315fd6037b99f3d649e355ce1cd2677265387f5783fdf5d11f41ade8fab0",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/analysis/analyze_servo_landing.py": {
-            "sha256": "c83df7014b97bd0ecd7cef3ab70315e46191bf6a202c7dce4c99ba1e26873f64",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tools/analysis/canfd_sync_budget_reference.py": {
             "sha256": "00297b87ca489c85c416e3e8f49bebf0f72088009db29baafb3867016c26be30",
             "checks": [
@@ -685,27 +570,6 @@
         },
         "tools/analysis/friction_identification.py": {
             "sha256": "96ed17ac92726de6b8dd5576b729a27b5fdf4dd8a021409570dc92ad18754cf4",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/analysis/plot_noise_optimization_report.py": {
-            "sha256": "d1787805ed7d971c03972b20634ab3e5d15d0be8bc8cbb3417c932a64aa96f28",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/analysis/plot_servo_hil.py": {
-            "sha256": "4f26de707819fec9951170921cf1c7acb7e6e3fd625a678e0b8cfe7ca1355bdc",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/analysis/plot_servo_landing.py": {
-            "sha256": "fa9279181c4fb62c5be65472d8bdebb204f58b6a0b0c51dce002f97c2ebd4b19",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -767,27 +631,6 @@
                 "python-lint"
             ]
         },
-        "tools/bench/run_mode3_validation.py": {
-            "sha256": "0ba410b3aa9eb33d4e89c700ee505e57175a0dc0c5224af9c6c20f157f25c91b",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/bench/servo_hil_emergency.py": {
-            "sha256": "7c6b6f171f52422838aced79cc110385b5ae082ff86e7144795ee7f42f05c4dc",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/bench/servo_hil_run.py": {
-            "sha256": "f0b9ce65dbf8e269fe73365a98e1d8a6c278ec9b01d5860c488fcb73484eb5bf",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tools/build/build_firmware.py": {
             "sha256": "7ba7f373e504f2a88108502e1ef529c647e281c402c4f87eb410cfa8fa7f877a",
             "checks": [
@@ -797,13 +640,6 @@
         },
         "tools/build/check_project_layout.py": {
             "sha256": "089ba06e9ef331ee2e2ad3fff3fae2419328664cfac3d03f4f4e09a5b5d351cc",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/flash/servo_hil_flash.py": {
-            "sha256": "8dc05ffc122f2f1cc60224bea9adf13e8327714de6ff450b01528149751b742f",
             "checks": [
                 "python-format",
                 "python-lint"

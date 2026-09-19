@@ -19,7 +19,7 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
    `foc_phase_resistance.c -> hw_conf.h`）从基线删除；
 3. 全部 PWM 调用方迁移后删除 `Set_*_Duty`/`PWM_TurnOn*` 过渡 shim，并还清
    `foc_algorithm.h` 接口契约债；
-4. 每阶段以 `tests/run.py`、`verify --profile pr`、Keil 双目标 0 Error/0 Warning 验收。
+4. 每阶段以 `tests/run.py`、`verify --profile pr`、Keil 主工程 0 Error/0 Warning 验收。
 
 ## 阶段与进度
 

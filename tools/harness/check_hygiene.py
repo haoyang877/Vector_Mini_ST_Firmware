@@ -53,27 +53,10 @@ def problems() -> list[dict]:
                             "message": "runtime dependency loaded from historical outputs",
                         }
                     )
-    safety_files = [
-        ROOT / "tools/flash/servo_hil_flash.py",
-        ROOT / "tools/bench/servo_hil_run.py",
-        ROOT / "tools/bench/servo_hil_emergency.py",
-    ]
-    for path in safety_files:
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for number, line in enumerate(text.splitlines(), 1):
-            if re.match(r"^\s*assert\b", line):
-                issues.append(
-                    {
-                        "file": path.relative_to(ROOT).as_posix(),
-                        "line": number,
-                        "message": "hardware safety check uses optimizable assert",
-                    }
-                )
     commands = {}
     for directory in (
         "tools/harness",
         "tools/build",
-        "tools/flash",
         "tools/bench",
         "tools/analysis",
         "tests/unit/native",

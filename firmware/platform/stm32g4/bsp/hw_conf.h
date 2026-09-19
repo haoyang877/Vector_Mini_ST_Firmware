@@ -19,22 +19,6 @@
 #define PWM_TIM_PERIOD (PWM_TIM_CLOCK / PWM_TIM_FREQ / 2)
 #define PWM_PERIOD 5e-5f
 
-/* RTT 输出采样频率，必须整除 FOC_FREQ。 */
-#define RTT_SAMPLE_RATE_HZ 2000U
-
-#if RTT_SAMPLE_RATE_HZ == 0U
-#error "RTT_SAMPLE_RATE_HZ must be greater than zero"
-#elif RTT_SAMPLE_RATE_HZ > FOC_FREQ
-#error "RTT_SAMPLE_RATE_HZ must not exceed FOC_FREQ"
-#elif (FOC_FREQ % RTT_SAMPLE_RATE_HZ) != 0U
-#error "RTT_SAMPLE_RATE_HZ must divide FOC_FREQ exactly"
-#endif
-
-#define RTT_SAMPLE_DIVIDER (FOC_FREQ / RTT_SAMPLE_RATE_HZ)
-
-/* 固定 4 通道 int16 帧：位置/转速/Iq 指令/Iq 反馈，布局见 rtt_telemetry.c。 */
-#define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2"
-
 /* Three-phase low-side current sensing; selected in current_sense_profile.h. */
 #define SENSING_RES CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM
 #define CURRENT_AMP_GAIN CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN

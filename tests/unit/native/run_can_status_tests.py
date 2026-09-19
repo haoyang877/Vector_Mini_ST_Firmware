@@ -131,17 +131,30 @@ int main(void) {
 #define FDCAN_TX_BUFFER1 2
 #define FDCAN_TX_BUFFER2 4
 #define FDCAN_DLC_BYTES_48 14
+#define FDCAN_FILTER_RANGE 1
+#define FDCAN_FILTER_TO_RXFIFO0 2
+#define FDCAN_REJECT 2
+#define FDCAN_FILTER_REMOTE 1
+#define FDCAN_IT_RX_FIFO0_NEW_MESSAGE 8U
 /* Match all fields/order of the vendor header: omitted fields hid stack junk. */
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength;} FDCAN_RxHeaderTypeDef;
-typedef struct {struct {unsigned TxFifoQueueMode;} Init;} Handle;
+typedef struct {unsigned IdType,FilterIndex,FilterType,FilterConfig,FilterID1,FilterID2;} FDCAN_FilterTypeDef;
+typedef struct {struct {unsigned TxFifoQueueMode,NominalPrescaler,DataPrescaler;} Init;} Handle;
 extern Handle hfdcan1;
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask);
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d);
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *hdr,uint8_t *d);
+unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *f);
+unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned a,unsigned b,unsigned c,unsigned d);
+unsigned HAL_FDCAN_Start(Handle *h);
+unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned m,unsigned x);
+unsigned HAL_FDCAN_Stop(Handle *h);
+unsigned HAL_FDCAN_Init(Handle *h);
 #endif
 """
     (out / "fdcan.h").write_text(header)
+    (out / "main.h").write_text("void Error_Handler(void);\n")
     port = (
         "\n".join(common)
         + r"""
@@ -149,39 +162,77 @@ unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *h
 #include "firmware/platform/api/comm_hw.h"
 Handle hfdcan1;
 static unsigned pending,tx_calls,tx_result,rx_length=14;
+static FDCAN_TxHeaderTypeDef last_tx_header;
+static uint8_t last_tx_data0;
+static FDCAN_FilterTypeDef last_filter;
+static unsigned last_global[4];
+static unsigned filter_calls,global_calls,start_calls,notify_calls,stop_calls,init_calls;
+static unsigned last_notify_mask;
+void Error_Handler(void) {assert(0);}
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7);return (pending&mask)!=0;}
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
- (void)h; assert(hdr->Identifier==0x7f4 && hdr->DataLength==14 && hdr->FDFormat==1 && hdr->BitRateSwitch==1);
- assert(hdr->ErrorStateIndicator==0 && hdr->MessageMarker==0);
- assert(d[0]==0xab);++tx_calls;return tx_result;
+ (void)h;last_tx_header=*hdr;last_tx_data0=d[0];++tx_calls;return tx_result;
 }
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *hdr,uint8_t *d) {
  (void)h;(void)fifo;memset(hdr,0,sizeof(*hdr));hdr->DataLength=rx_length;hdr->Identifier=0x7f4;
  memset(d,0xaa,64);return 0;
 }
+unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *f) {(void)h;last_filter=*f;++filter_calls;return 0;}
+unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned a,unsigned b,unsigned c,unsigned d) {
+ (void)h;last_global[0]=a;last_global[1]=b;last_global[2]=c;last_global[3]=d;++global_calls;return 0;
+}
+unsigned HAL_FDCAN_Start(Handle *h) {(void)h;++start_calls;return 0;}
+unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned m,unsigned x) {(void)h;(void)x;last_notify_mask=m;++notify_calls;return 0;}
+unsigned HAL_FDCAN_Stop(Handle *h) {(void)h;++stop_calls;return 0;}
+unsigned HAL_FDCAN_Init(Handle *h) {(void)h;++init_calls;return 0;}
 int main(void) {
  uint8_t data[48]={0xab};struct {CommHwCanFrame f;uint32_t guard;} bounded;
  hfdcan1.Init.TxFifoQueueMode=1;
  for(pending=1;pending<=7;++pending) assert(!comm_hw_can_try_send_status(0x7f4,data,48));
  pending=0; /* Bench regression: empty queue has TFFL=0, TXBRP=0. */
  assert(tx_calls==0);assert(comm_hw_can_try_send_status(0x7f4,data,48));assert(tx_calls==1);
+ assert(last_tx_header.Identifier==0x7f4 && last_tx_header.DataLength==14 && last_tx_header.FDFormat==1);
+ assert(last_tx_header.BitRateSwitch==1 && last_tx_header.ErrorStateIndicator==0 && last_tx_header.MessageMarker==0);
+ assert(last_tx_data0==0xab);
  tx_result=1;assert(!comm_hw_can_try_send_status(0x7f4,data,48));assert(tx_calls==2);
  assert(!comm_hw_can_try_send_status(0x7f4,data,47));assert(!comm_hw_can_try_send_status(0x800,data,48));
  hfdcan1.Init.TxFifoQueueMode=0;assert(!comm_hw_can_try_send_status(0x7f4,data,48));assert(tx_calls==2);
  bounded.guard=0x12345678;assert(comm_hw_can_receive(&bounded.f));
  assert(bounded.f.length==48 && bounded.guard==0x12345678);
  rx_length=15;assert(comm_hw_can_receive(&bounded.f));assert(bounded.f.length==64 && bounded.guard==0x12345678);
- puts("PASS actual HAL port: low-priority queue, congestion/no retry, FD48 DLC and bounded FD64 receive");return 0;
+ tx_result=0;
+ comm_hw_can_start(4);
+ assert(filter_calls==1 && global_calls==1 && start_calls==1 && notify_calls==1);
+ assert(last_filter.IdType==FDCAN_STANDARD_ID && last_filter.FilterIndex==0);
+ assert(last_filter.FilterType==FDCAN_FILTER_RANGE && last_filter.FilterConfig==FDCAN_FILTER_TO_RXFIFO0);
+ assert(last_filter.FilterID1==0x400 && last_filter.FilterID2==0x4FF);
+ assert(last_global[0]==FDCAN_REJECT && last_global[1]==FDCAN_REJECT);
+ assert(last_global[2]==FDCAN_FILTER_REMOTE && last_global[3]==FDCAN_FILTER_REMOTE);
+ assert(last_notify_mask==FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
+ comm_hw_can_set_baudrate(1000);
+ assert(stop_calls==1 && init_calls==1 && start_calls==2);
+ assert(hfdcan1.Init.DataPrescaler==10 && hfdcan1.Init.NominalPrescaler==10);
+ comm_hw_can_set_baudrate(2000);
+ assert(stop_calls==2 && init_calls==2 && start_calls==3);
+ assert(hfdcan1.Init.DataPrescaler==5 && hfdcan1.Init.NominalPrescaler==10);
+ {
+  uint8_t reply[4]={0x11,0x22,0x33,0x44};
+  assert(comm_hw_can_try_send_reply(0x465,reply,4));assert(tx_calls==3);
+  assert(last_tx_header.Identifier==0x465 && last_tx_header.IdType==FDCAN_STANDARD_ID);
+  assert(last_tx_header.DataLength==4 && last_tx_header.FDFormat==FDCAN_FD_CAN);
+  assert(last_tx_header.BitRateSwitch==FDCAN_BRS_ON && last_tx_header.TxFrameType==FDCAN_DATA_FRAME);
+  assert(last_tx_header.TxEventFifoControl==FDCAN_NO_TX_EVENTS && last_tx_data0==0x11);
+  tx_result=1;assert(!comm_hw_can_try_send_reply(0x465,reply,2));assert(tx_calls==4);
+ }
+ puts("PASS actual HAL port: queue discipline, node filter start, baudrate switch and reply header");return 0;
 }
 """
     )
     priority = (
         "\n".join(common)
         + r"""
-#include "fdcan.h"
 #include "firmware/platform/api/comm_hw.h"
 #include "firmware/communication/protocol/can_motor_status.h"
-Handle hfdcan1;
 static struct {bool can_tx_en;unsigned node_id,tx_param_id;uint8_t tx_data_u8[4];uint8_t tx_data_len;} CANMsg;
 static unsigned prepared,status_sent,replies;
 static bool interrupt_reply;
@@ -194,10 +245,8 @@ bool CanMotorStatus_Prepare(uint32_t t,uint8_t n,uint16_t *id,uint8_t *d,size_t 
 bool comm_hw_can_try_send_status(uint16_t id,const uint8_t *d,size_t len) {
  (void)d;assert(id==0x7f4 && len==48);++status_sent;return true;
 }
-unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
- (void)h;(void)d;assert(hdr->Identifier==0x465 && hdr->DataLength==4);
- assert(hdr->ErrorStateIndicator==0 && hdr->MessageMarker==0);
- ++replies;return 0;
+bool comm_hw_can_try_send_reply(uint16_t id,const uint8_t *d,uint8_t len) {
+ (void)d;assert(id==0x465 && len==4);++replies;return true;
 }
 static void CAN_BuildMotorStatusSnapshot(MotorStatus *sample) {(void)sample;}
 """
@@ -401,7 +450,14 @@ int main(void) {
         ),
         ("sampling", sampling, []),
         ("rx", rx, []),
-        ("port", port, [ROOT / "firmware/platform/stm32g4/ports/comm/comm_status_stm32g4.c"]),
+        (
+            "port",
+            port,
+            [
+                ROOT / "firmware/platform/stm32g4/ports/comm/comm_status_stm32g4.c",
+                ROOT / "firmware/platform/stm32g4/ports/comm/comm_control_stm32g4.c",
+            ],
+        ),
         ("priority", priority, [ROOT / "firmware/services/telemetry/motor_status.c"]),
         ("reply", reply, []),
         (

@@ -1,146 +1,180 @@
 #ifndef __INTERFACE_CAN_H__
 #define __INTERFACE_CAN_H__
 
-#include "main.h"
+#include <stdbool.h>
+#include <stdint.h>
 #include "data_type.h"
 
 typedef enum
 {
-	CAN_SET_MODE			= 0x00,
-	CAN_GET_MODE			= 0x01,
-	CAN_SET_CURRENT			= 0x02,
-	CAN_GET_CURRENT_SET		= 0x03,
-	CAN_SET_SPEED			= 0x04,
-	CAN_GET_SPEED_SET		= 0x05,
-	CAN_SET_POS				= 0x06,
-	CAN_GET_POS_SET			= 0x07,
-/***********************************/
-	CAN_SET_NODE_ID			= 0x08,
-	CAN_GET_NODE_ID			= 0x09,
-	CAN_SET_POLEPARIS		= 0x0A,
-	CAN_GET_POLEPARIS		= 0x0B,
-	CAN_SET_ENCODER_STATE 	= 0x0C,
-	CAN_GET_ENCODER_STATE	= 0x0D,
-	CAN_SET_CURRENT_CAL		= 0x0E,
-	CAN_GET_CURRENT_CAL		= 0x0F,
-	CAN_SET_CURRENT_LIMIT	= 0x10,
-	CAN_GET_CURRENT_LIMIT	= 0x11,
-	CAN_SET_SPEED_LIMIT		= 0x12,
-	CAN_GET_SPEED_LIMIT		= 0x13,
-	CAN_SET_SPEED_ACC 		= 0x14,
-	CAN_GET_SPEED_ACC		= 0x15,
-	CAN_SET_SPEED_DEC		= 0x16,
-	CAN_GET_SPEED_DEC		= 0x17,
-	CAN_SET_SPEED_KP		= 0x18,
-	CAN_GET_SPEED_KP		= 0x19,
-	CAN_SET_SPEED_KI 		= 0x1A,
-	CAN_GET_SPEED_KI		= 0x1B,
-	CAN_SET_POS_ACC			= 0x1C,
-	CAN_GET_POS_ACC			= 0x1D,
-	CAN_SET_POS_DEC			= 0x1E,
-	CAN_GET_POS_DEC			= 0x1F,
-	CAN_SET_POS_MAXSPEED	= 0x20,
-	CAN_GET_POS_MAXSPEED	= 0x21,
-	CAN_SET_POS_KP			= 0x22,
-	CAN_GET_POS_KP			= 0x23,
-	CAN_SET_POS_KD			= 0x24,
-	CAN_GET_POS_KD			= 0x25,
-	CAN_SET_COGGING			= 0x26,
-	CAN_GET_COGGING			= 0x27,
-	CAN_SET_CAN_BR			= 0x28,
-	CAN_GET_CAN_BR			= 0x29,
-	CAN_SET_CAN_HB			= 0x2A,
-	CAN_GET_CAN_HB			= 0x2B,
-/***********************************/
-	CAN_SET_VBUS			= 0x2C,
-	CAN_GET_VBUS			= 0x2D,
-	CAN_SET_IBUS			= 0x2E,
-	CAN_GET_IBUS			= 0x2F,
-	CAN_SET_IA				= 0x30,
-	CAN_GET_IA				= 0x31,
-	CAN_SET_IB				= 0x32,
-	CAN_GET_IB				= 0x33,	
-	CAN_SET_IC				= 0x34,
-	CAN_GET_IC				= 0x35,	
-	CAN_SET_ID				= 0x36,
-	CAN_GET_ID				= 0x37,	
-	CAN_SET_IQ				= 0x38,
-	CAN_GET_IQ				= 0x39,
-	CAN_SET_SPEED2_FILT		= 0x3E,
-	CAN_GET_SPEED2_FILT		= 0x3F,	
-	CAN_SET_POS2_FILT		= 0x40,
-	CAN_GET_POS2_FILT		= 0x41,
-	CAN_SET_TEMP			= 0x42,
-	CAN_GET_TEMP			= 0x43,
-	CAN_SET_RS				= 0x44,
-	CAN_GET_RS				= 0x45,
-	CAN_SET_LD				= 0x46,
-	CAN_GET_LD				= 0x47,
-	CAN_SET_LQ				= 0x48,
-	CAN_GET_LQ				= 0x49,
-	CAN_SET_FLUX			= 0x4A,
-	CAN_GET_FLUX			= 0x4B,
-	CAN_SET_ERROR			= 0x4C,
-	CAN_GET_ERROR			= 0x4D,
-	CAN_SET_ENCODER_REVERSE = 0x4E,
-	CAN_GET_ENCODER_REVERSE = 0x4F,
-	CAN_SET_POS_KI          = 0x50,
-	CAN_GET_POS_KI          = 0x51,
-	CAN_SET_POS_INTEGRAL_LIMIT = 0x52,
-	CAN_GET_POS_INTEGRAL_LIMIT = 0x53,
-	CAN_SET_CASCADE_POS_KP = 0x54,
-	CAN_GET_CASCADE_POS_KP = 0x55,
-	CAN_SET_CASCADE_POS_KD = 0x56,
-	CAN_GET_CASCADE_POS_KD = 0x57,
-	CAN_APPLY_FRICTION_MODEL = 0x58,
-	CAN_GET_FRICTION_STATE = 0x59,
-	CAN_GET_FRICTION_REASON = 0x5A,
-	CAN_GET_FRICTION_COULOMB_POS = 0x5B,
-	CAN_GET_FRICTION_COULOMB_NEG = 0x5C,
-	CAN_GET_FRICTION_VISCOUS_POS = 0x5D,
-	CAN_GET_FRICTION_VISCOUS_NEG = 0x5E,
-	CAN_GET_FRICTION_RMSE_POS = 0x5F,
-	CAN_GET_FRICTION_RMSE_NEG = 0x60,
-	CAN_GET_FRICTION_CANDIDATE_VALID = 0x61,
-	CAN_GET_FRICTION_MODEL_VALID = 0x62,
-	CAN_SET_STATUS_STREAM = 0x64,
-	CAN_GET_STATUS_STREAM = 0x65,
-	CAN_GET_PROTOCOL_REVISION = 0x67,
-	CAN_GET_COGGING_STATE = 0x68,
-	CAN_GET_COGGING_REASON = 0x69,
-	CAN_GET_COGGING_PROGRESS = 0x6A,
-	CAN_GET_COGGING_POINT = 0x6B, /* float32 request index, float32 signed Q15 reply */
-	CAN_GET_COGGING_FULL_SCALE = 0x6C, /* amperes represented by 32768 */
-	CAN_GET_COGGING_VALID = 0x6D,
-	CAN_GET_TEMPERATURE_SOURCE = 0x6E, /* float32: 1 = MCU die */
-	CAN_GET_TEMPERATURE_VALID = 0x6F, /* float32: 0/1 */
-}CAN_PARAM_ID;
+    CAN_SET_MODE = 0x00,
+    CAN_GET_MODE = 0x01,
+    CAN_SET_CURRENT = 0x02,
+    CAN_GET_CURRENT_SET = 0x03,
+    CAN_SET_SPEED = 0x04,
+    CAN_GET_SPEED_SET = 0x05,
+    CAN_SET_POS = 0x06,
+    CAN_GET_POS_SET = 0x07,
+    /***********************************/
+    CAN_SET_NODE_ID = 0x08,
+    CAN_GET_NODE_ID = 0x09,
+    CAN_SET_POLEPARIS = 0x0A,
+    CAN_GET_POLEPARIS = 0x0B,
+    CAN_SET_ENCODER_STATE = 0x0C,
+    CAN_GET_ENCODER_STATE = 0x0D,
+    CAN_SET_CURRENT_CAL = 0x0E,
+    CAN_GET_CURRENT_CAL = 0x0F,
+    CAN_SET_CURRENT_LIMIT = 0x10,
+    CAN_GET_CURRENT_LIMIT = 0x11,
+    CAN_SET_SPEED_LIMIT = 0x12,
+    CAN_GET_SPEED_LIMIT = 0x13,
+    CAN_SET_SPEED_ACC = 0x14,
+    CAN_GET_SPEED_ACC = 0x15,
+    CAN_SET_SPEED_DEC = 0x16,
+    CAN_GET_SPEED_DEC = 0x17,
+    CAN_SET_SPEED_KP = 0x18,
+    CAN_GET_SPEED_KP = 0x19,
+    CAN_SET_SPEED_KI = 0x1A,
+    CAN_GET_SPEED_KI = 0x1B,
+    CAN_SET_POS_ACC = 0x1C,
+    CAN_GET_POS_ACC = 0x1D,
+    CAN_SET_POS_DEC = 0x1E,
+    CAN_GET_POS_DEC = 0x1F,
+    CAN_SET_POS_MAXSPEED = 0x20,
+    CAN_GET_POS_MAXSPEED = 0x21,
+    CAN_SET_POS_KP = 0x22,
+    CAN_GET_POS_KP = 0x23,
+    CAN_SET_POS_KD = 0x24,
+    CAN_GET_POS_KD = 0x25,
+    CAN_SET_COGGING = 0x26,
+    CAN_GET_COGGING = 0x27,
+    CAN_SET_CAN_BR = 0x28,
+    CAN_GET_CAN_BR = 0x29,
+    CAN_SET_CAN_HB = 0x2A,
+    CAN_GET_CAN_HB = 0x2B,
+    /***********************************/
+    CAN_SET_VBUS = 0x2C,
+    CAN_GET_VBUS = 0x2D,
+    CAN_SET_IBUS = 0x2E,
+    CAN_GET_IBUS = 0x2F,
+    CAN_SET_IA = 0x30,
+    CAN_GET_IA = 0x31,
+    CAN_SET_IB = 0x32,
+    CAN_GET_IB = 0x33,
+    CAN_SET_IC = 0x34,
+    CAN_GET_IC = 0x35,
+    CAN_SET_ID = 0x36,
+    CAN_GET_ID = 0x37,
+    CAN_SET_IQ = 0x38,
+    CAN_GET_IQ = 0x39,
+    CAN_SET_SPEED2_FILT = 0x3E,
+    CAN_GET_SPEED2_FILT = 0x3F,
+    CAN_SET_POS2_FILT = 0x40,
+    CAN_GET_POS2_FILT = 0x41,
+    CAN_SET_TEMP = 0x42,
+    CAN_GET_TEMP = 0x43,
+    CAN_SET_RS = 0x44,
+    CAN_GET_RS = 0x45,
+    CAN_SET_LD = 0x46,
+    CAN_GET_LD = 0x47,
+    CAN_SET_LQ = 0x48,
+    CAN_GET_LQ = 0x49,
+    CAN_SET_FLUX = 0x4A,
+    CAN_GET_FLUX = 0x4B,
+    CAN_SET_ERROR = 0x4C,
+    CAN_GET_ERROR = 0x4D,
+    CAN_SET_ENCODER_REVERSE = 0x4E,
+    CAN_GET_ENCODER_REVERSE = 0x4F,
+    CAN_SET_POS_KI = 0x50,
+    CAN_GET_POS_KI = 0x51,
+    CAN_SET_POS_INTEGRAL_LIMIT = 0x52,
+    CAN_GET_POS_INTEGRAL_LIMIT = 0x53,
+    CAN_SET_CASCADE_POS_KP = 0x54,
+    CAN_GET_CASCADE_POS_KP = 0x55,
+    CAN_SET_CASCADE_POS_KD = 0x56,
+    CAN_GET_CASCADE_POS_KD = 0x57,
+    CAN_APPLY_FRICTION_MODEL = 0x58,
+    CAN_GET_FRICTION_STATE = 0x59,
+    CAN_GET_FRICTION_REASON = 0x5A,
+    CAN_GET_FRICTION_COULOMB_POS = 0x5B,
+    CAN_GET_FRICTION_COULOMB_NEG = 0x5C,
+    CAN_GET_FRICTION_VISCOUS_POS = 0x5D,
+    CAN_GET_FRICTION_VISCOUS_NEG = 0x5E,
+    CAN_GET_FRICTION_RMSE_POS = 0x5F,
+    CAN_GET_FRICTION_RMSE_NEG = 0x60,
+    CAN_GET_FRICTION_CANDIDATE_VALID = 0x61,
+    CAN_GET_FRICTION_MODEL_VALID = 0x62,
+    CAN_SET_STATUS_STREAM = 0x64,
+    CAN_GET_STATUS_STREAM = 0x65,
+    CAN_GET_PROTOCOL_REVISION = 0x67,
+    CAN_GET_COGGING_STATE = 0x68,
+    CAN_GET_COGGING_REASON = 0x69,
+    CAN_GET_COGGING_PROGRESS = 0x6A,
+    CAN_GET_COGGING_POINT = 0x6B,      /* float32 request index, float32 signed Q15 reply */
+    CAN_GET_COGGING_FULL_SCALE = 0x6C, /* amperes represented by 32768 */
+    CAN_GET_COGGING_VALID = 0x6D,
+    CAN_GET_TEMPERATURE_SOURCE = 0x6E, /* float32: 1 = MCU die */
+    CAN_GET_TEMPERATURE_VALID = 0x6F,  /* float32: 0/1 */
+} CAN_PARAM_ID;
 
 typedef struct
 {
-	/*node ID*/
-	uint8_t node_id;
-	/*CAN baudrate (kbps)*/
-	uint32_t baudrate;
-	/*parameter ID*/
-	CAN_PARAM_ID rx_param_id,tx_param_id;
-	float rx_data,tx_data;
-	uint8_t rx_data_u8[4],tx_data_u8[4];
-	/** @brief 当前待回复参数的线路载荷长度，电流为 2，其他为 4。 */
-	uint8_t tx_data_len;
-	bool can_rx_en;
-	bool can_tx_en;
-	bool can_hb_en;
-	/*heart beat timeout setting (ms)*/
-	uint32_t can_hb_set;
-	uint32_t can_hb_count;
-}CANMsg_TypeDef;
+    /*node ID*/
+    uint8_t node_id;
+    /*CAN baudrate (kbps)*/
+    uint32_t baudrate;
+    /*parameter ID*/
+    CAN_PARAM_ID rx_param_id, tx_param_id;
+    float rx_data, tx_data;
+    uint8_t rx_data_u8[4], tx_data_u8[4];
+    /** @brief 当前待回复参数的线路载荷长度，电流为 2，其他为 4。 */
+    uint8_t tx_data_len;
+    bool can_rx_en;
+    bool can_tx_en;
+    bool can_hb_en;
+    /*heart beat timeout setting (ms)*/
+    uint32_t can_hb_set;
+    uint32_t can_hb_count;
+} CANMsg_TypeDef;
 
+/**
+ * @brief 初始化 FDCAN1 接收通道：装载状态流默认配置，按当前节点配置范围滤波并启动。
+ * @note 由 Board_Init 在参数装载之后调用；初始化失败按致命处理，不返回。
+ */
 void FDCAN1_Param_Init(void);
+/**
+ * @brief 心跳看门狗：按当前运行模式与心跳设置判定断连并置 CAN_DisConnect 故障。
+ * @note 每个 1 kHz 监督时基调用一次；仅在电流/速度/位置/阻抗模式下武装，
+ *       已锁存的故障保留，本函数不做清除。
+ */
 void CAN_DisConnect_Handle(void);
+/**
+ * @brief 检测波特率设置变化并切换 FDCAN1 波特率。
+ * @note 由 1 kHz 任务调用；设置未变化时不访问硬件。
+ */
 void CAN_BaudRateSwitching(void);
+/**
+ * @brief 处理一帧已解码的 CAN 命令：按参数 ID 更新电机/服务状态或生成应答。
+ * @param param_id 线路参数 ID，取值来自 CAN_PARAM_ID。
+ * @param data 已按线路编码还原的 SI 值；非有限值由各命令的接受条件决定是否生效。
+ * @note 接收中断上下文；只做有界解码与下发，不等待、不分配、不访问 Flash。
+ */
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data);
+/**
+ * @brief 按回复编码规则暂存一帧应答载荷，等待前台发送。
+ * @param param_id 回复参数 ID，决定定点编码与负载长度。
+ * @param data 待回复的 SI 值；非有限值按哨兵编码。
+ * @note 接收中断上下文；只写暂存区并置发送使能，不直接访问硬件。
+ */
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data);
+/**
+ * @brief FDCAN RX FIFO0 中断入口：取帧、校验并派发本节点命令，同时刷新心跳。
+ * @note 中断上下文；帧级校验失败或非本节点帧直接丢弃，不产生副作用。
+ */
 void CANRxIRQHandler(void);
+/**
+ * @brief 前台发送调度：优先发送暂存应答，空闲时按周期提交 48 字节状态流。
+ * @note 主循环调用；发送队列忙时丢帧而不等待，状态流周期由协议层决定。
+ */
 void CAN_SendMessage(void);
 #endif

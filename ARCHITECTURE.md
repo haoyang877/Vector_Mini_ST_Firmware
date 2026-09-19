@@ -35,7 +35,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
 - Services expose parameters and telemetry without owning platform peripherals.
 - Communication validates wire data at the boundary and invokes explicit services.
 - Application code assembles tasks and modes; it must not become a second protocol layer.
-- Hardware/HIL tools are outside normal verification and require explicit physical context.
+- Hardware bench tools are outside normal verification and require explicit physical context.
 
 ## Embedded boundary contracts
 
@@ -65,7 +65,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
 ### Substitution evidence
 
 A hardware boundary is complete only when the portable behavior can be exercised through a native
-fake/test seam or an explicitly scoped HIL check. Substitution must preserve units, timing and error
+fake/test seam or an explicitly scoped hardware check. Substitution must preserve units, timing and error
 semantics; merely compiling a second implementation is not sufficient evidence.
 
 These rules adapt the layered hardware independence of

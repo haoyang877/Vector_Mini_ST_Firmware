@@ -132,6 +132,33 @@ stage shutdown checks, calibration controls, or bounded real-time behavior.
 - A reusable tool function has type annotations, a Chinese contract, deterministic return data,
   actionable errors, and a focused offline test. It never contacts hardware merely by being imported.
 
+## Behavior-preserving refactoring
+
+### Before editing
+
+- State the structural problem, the desired improvement, and the behavior that must remain unchanged.
+- Inspect every caller and capture a baseline appropriate to the module: tests, protocol and
+  parameter ABI, control outputs, fault behavior, timing/jitter, stack, ROM/RAM, and firmware
+  artifacts. Use `verify --reference-source` when source-equivalence comparison is applicable.
+- Add characterization tests or golden vectors for legacy behavior that is not already covered.
+
+### During migration
+
+- Keep refactoring separate from feature, parameter, protocol, and safety-policy changes.
+- Use small stages that build, test, and revert independently. Do not keep two runtime paths or a
+  feature flag on the MCU without an explicit Flash/RAM, state-space, timing, and removal plan.
+- Preserve ownership, units, error semantics, interrupt eligibility, worst-case execution time, and
+  observable ordering while moving code between modules.
+- If temporary telemetry is needed, keep it bounded, compile-time gated, and outside the fast loop
+  unless the measurement itself is the subject of the change.
+
+### Acceptance
+
+- Treat unexplained changes in output, state transitions, fault response, timing, memory use, ABI,
+  map, HEX, or image hash as behavior changes rather than harmless refactoring noise.
+- Record the rollback point, comparison result, failed checks, and remaining debt in the plan before
+  declaring the refactor complete.
+
 ## Golden examples
 
 Copy and rename the examples under `templates/` when creating a module or command. The examples are

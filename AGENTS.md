@@ -6,8 +6,8 @@ the linked documents instead of expanding this file into a handbook.
 ## Repository map
 
 - `firmware/`: STM32G4 motor-control application. See `ARCHITECTURE.md`.
-- `tests/`: offline unit/integration/native checks plus explicitly invoked HIL support.
-- `tools/`: build, flash, bench, analysis, and project-harness commands.
+- `tests/`: offline unit/integration/native checks.
+- `tools/`: build, bench, analysis, and project-harness commands.
 - `docs/`: architecture, protocols, guides, hardware references, reports, and plans.
 - `loader/`, `host_app/`, `shared/`: future independent products and shared contracts.
 - `outputs/`: ignored generated evidence; never treat an old output as current proof.
@@ -24,11 +24,10 @@ Install uv, then run `uv sync --locked --extra dev`.
 - Pull request: `uv run python tools/run.py verify --profile pr`
 - Release: `uv run python tools/run.py verify --profile release`
 - Diagnose only: `uv run python tools/run.py doctor --profile <profile>`
-- HIL environment: `uv run python tools/run.py doctor --profile hil`
 
 `doctor` never contacts hardware. Quick and PR verification never flash firmware or
-command a motor. Release builds firmware but does not download it. Hardware/HIL
-commands require an explicit bench identity, motor profile, image hash, and scenario.
+command a motor. Release builds firmware but does not download it. Hardware bench
+commands require an explicit bench context and scenario.
 
 ## Change rules
 
@@ -43,6 +42,9 @@ commands require an explicit bench identity, motor profile, image hash, and scen
 - Generated logs, binaries, captures, and manifests belong under `outputs/`.
 - Update durable docs when public behavior, architecture, safety limits, or workflows change.
 - Significant work needs a versioned plan or decision record under `docs/plans/`.
+- Behavior-preserving refactors need a plan with objective, unchanged behavior, baseline, acceptance,
+  rollback, and evidence; firmware comparisons cover ABI, state/fault behavior, outputs, timing,
+  resources, and artifacts as applicable.
 
 ## Code quality
 
@@ -77,8 +79,7 @@ commands require an explicit bench identity, motor profile, image hash, and scen
   duplication over a generic abstraction that hides different behavior.
 - Do not add speculative interfaces, factories, registries, or configuration. A single-implementation
   interface is justified only by a real hardware boundary, test seam, or stable ABI boundary.
-- Shared code needs real callers and a focused test. Keep substantial behavior-preserving refactors
-  separate from functional changes.
+- Shared code needs real callers and a focused test.
 - Keep helpers file-local first. Promote them to a narrowly named common module only after unrelated
   real callers need the same complete contract; never create a catch-all `utils` module.
 
@@ -86,7 +87,7 @@ commands require an explicit bench identity, motor profile, image hash, and scen
 
 - Documentation/tooling only: quick; use PR profile when harness rules change.
 - Firmware logic, protocol, parameters, build inputs, or tests: PR profile.
-- CubeMX, linker, release, flash, or HIL changes: release profile plus the applicable
+- CubeMX, linker, release, or hardware bench changes: release profile plus the applicable
   explicitly authorized bench procedure.
 
 ## Code review rules

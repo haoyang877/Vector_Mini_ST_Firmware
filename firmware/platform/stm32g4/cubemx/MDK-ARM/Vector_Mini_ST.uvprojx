@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt;../../../../../tests/hil/firmware</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1393,11 +1393,6 @@
               </FileOption>
             </File>
             <File>
-              <FileName>common_inc.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\..\..\..\app\common_inc.h</FilePath>
-            </File>
-            <File>
               <FileName>data_type.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\..\..\..\motor\data_type.h</FilePath>
@@ -1711,6 +1706,11 @@
               <FilePath>..\..\ports\comm\comm_status_stm32g4.c</FilePath>
             </File>
             <File>
+              <FileName>comm_control_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\comm\comm_control_stm32g4.c</FilePath>
+            </File>
+            <File>
               <FileName>time_stm32g4.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\ports\time\time_stm32g4.c</FilePath>
@@ -1744,6 +1744,21 @@
               <FileName>encoder_tle5012b.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\ports\motor\encoder_tle5012b.c</FilePath>
+            </File>
+            <File>
+              <FileName>board_startup_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\board_startup_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>indicator_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\indicator_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>param_store_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\param_store_stm32g4.c</FilePath>
             </File>
           </Files>
         </Group>

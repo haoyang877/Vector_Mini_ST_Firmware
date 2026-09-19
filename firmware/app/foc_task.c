@@ -1,12 +1,14 @@
 #include "foc_task.h"
 
-#include "common_inc.h"
-#include "motor_state.h"
-#include "foc_mode_dispatch.h"
-#include "foc_run_state.h"
-#include "rtt_telemetry.h"
-#include "servo_hil.h"
+#include "angle_feedback.h"
 #include "fast_loop_profile.h"
+#include "foc_mode_dispatch.h"
+#include "foc_run.h"
+#include "foc_run_state.h"
+#include "foc_sensing.h"
+#include "foc_sensorless.h"
+#include "motor_state.h"
+#include "rtt_telemetry.h"
 
 /* 20 kHz 快速环入口：本文件只保留周期顺序与阶段划分，
  * 采样、命令分发、模式执行、运行状态与遥测细节分别在 app 各模块内。 */
@@ -31,9 +33,6 @@ void FOC20kHzIRQHandler(void)
     Vbus_Update(&FOC, &MotorControl);
 
     Current_Cal(&FOC, &MotorControl);
-#if SERVO_HIL_ENABLE
-    ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
-#endif
     FAST_PROFILE_END(FAST_PROFILE_SENSING);
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER);

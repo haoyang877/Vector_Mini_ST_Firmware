@@ -114,41 +114,6 @@ def collect(profile: str) -> dict:
             )
         )
 
-    if profile == "hil":
-        for module, distribution in (("elftools", "pyelftools"), ("pylink", "pylink-square")):
-            checks.append(
-                item(
-                    distribution,
-                    module_available(module),
-                    "installed" if module_available(module) else "missing",
-                    "installed",
-                    "Run uv sync --locked --extra bench.",
-                )
-            )
-        dll_value = os.environ.get(env_name("jlink_dll"))
-        dll = Path(dll_value).expanduser().resolve() if dll_value else None
-        version = file_version(dll)
-        checks.append(
-            item(
-                "jlink-dll",
-                bool(dll and dll.is_file() and version == cfg["jlink_version"]),
-                f"{version or 'missing'} ({dll or 'not configured'})",
-                cfg["jlink_version"],
-                f"Set {env_name('jlink_dll')} to the supported JLink_x64.dll ({cfg['jlink_version']}).",
-            )
-        )
-        for key, label in (("jlink_probe_serial", "probe-serial"), ("bench_id", "bench-id")):
-            value = os.environ.get(env_name(key))
-            checks.append(
-                item(
-                    label,
-                    bool(value),
-                    "configured" if value else "missing",
-                    "configured",
-                    f"Set {env_name(key)} in the local bench environment.",
-                )
-            )
-
     return {
         "schema_version": 1,
         "profile": profile,
@@ -160,7 +125,7 @@ def collect(profile: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("quick", "pr", "release", "hil"), default="quick")
+    parser.add_argument("--profile", choices=("quick", "pr", "release"), default="quick")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     result = collect(args.profile)

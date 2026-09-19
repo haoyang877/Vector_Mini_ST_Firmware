@@ -74,7 +74,7 @@ def record_check(
 def firmware_artifacts() -> list[dict]:
     artifacts = []
     build_root = ROOT / "outputs/build/keil"
-    for target in ("Vector_Mini_ST", "Vector_Mini_ST_HIL"):
+    for target in ("Vector_Mini_ST",):
         directory = build_root / target
         target_files = []
         for suffix in (".axf", ".hex", ".map"):
@@ -215,7 +215,7 @@ def main() -> int:
                 "release-manifest",
                 "PASS" if release_ok else "FAIL",
                 json.dumps(artifacts, indent=2),
-                "Rebuild both Keil targets in this run; require AXF/HEX/MAP and 0 errors/0 warnings."
+                "Rebuild the Keil target in this run; require AXF/HEX/MAP and 0 errors/0 warnings."
                 if not release_ok
                 else None,
             )

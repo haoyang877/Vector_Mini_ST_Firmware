@@ -141,7 +141,7 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
 
 | 方案 | 做法 | 优点 | 代价 |
 | --- | --- | --- | --- |
-| 1 链接期 | 每个工程/板型只把一个 driver `.c` 编进工程；换型号=改工程条目 + 新 driver 文件 | 零运行时代价、无 vtable、镜像最小 | 换型号需要动两个 Keil 工程 |
+| 1 链接期 | 每个工程/板型只把一个 driver `.c` 编进工程；换型号=改工程条目 + 新 driver 文件 | 零运行时代价、无 vtable、镜像最小 | 换型号需要动 Keil 工程条目 |
 | **2 编译期分发（推荐）** | `hw_conf.h`（板级）定义 `ENCODER_SENSOR_TYPE`；`ports/motor/encoder_sensor_stm32g4.c` 用 `#if` 只编译并转发到选中 driver（各 driver 用 `xxx_sensor_*` 内部符号） | 换型号=改一个板级宏；与现有 `CURRENT_SENSE_SHUNT_MILLIOHM` 板级 profile 同例；通道契约不变 | 需保证宏与实现一致（加 `#error` 兜底） |
 | 3 运行期表 | 函数指针表 + 运行期选择 | 运行期可换 | 20 kHz 间接调用、未用驱动进镜像；违反"固定控制流不用回调注册表" |
 

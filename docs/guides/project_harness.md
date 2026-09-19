@@ -19,9 +19,6 @@ uv run python tools/run.py doctor --profile pr
 | --- | --- |
 | `HARNESS_CC` | 可选的 Zig 编译器覆盖路径 |
 | `KEIL_UV4` | release profile 使用的 `UV4.exe` |
-| `JLINK_DLL` | HIL 使用的 SEGGER 动态库 |
-| `JLINK_PROBE_SERIAL` | 明确选择的探针序列号 |
-| `VECTOR_BENCH_ID` | 物理工作台标识 |
 | `MOTOR_CTRL_APP_ROOT` | 双轴 CAN 工具依赖的适配器工程 |
 | `HARNESS_CJK_FONT` | 报告绘图可选的中文字体 |
 
@@ -29,11 +26,10 @@ uv run python tools/run.py doctor --profile pr
 
 - `quick`：工程布局、Python 单元和离线集成测试。
 - `pr`：quick 的能力，加全部原生 C、架构、文档和仓库 hygiene 检查。
-- `release`：PR 检查，加普通/HIL Keil 全量构建和发布 manifest；要求干净工作树。
-- `hil`：`doctor` 只检查依赖和本机配置，不打开探针。
+- `release`：PR 检查，加 Keil 主工程全量构建和发布 manifest；要求干净工作树。
 
 每次 `verify` 在 `outputs/runs/<run-id>/` 写入日志与 `summary.json`。release 额外写入
-`release-manifest.json`，包含当前 Git SHA、工作树状态、两个固件目标和 AXF/HEX/MAP
+`release-manifest.json`，包含当前 Git SHA、工作树状态、固件目标和 AXF/HEX/MAP
 哈希。旧目录中的产物不能作为本次验证通过的依据。
 
 ## 代码风格门禁
@@ -62,6 +58,6 @@ Doxygen 契约：`@brief` 描述目的，每个具名参数有 `@param`，非 `v
 ## CI 与硬件边界
 
 GitHub 托管 Windows runner 执行 PR 离线门禁；带 Keil 许可证的 self-hosted runner
-执行构建和 release。HIL 不自动触发。HIL 命令必须给出工作台、电机 profile、场景、
-预期固件 SHA-256，并使用 `POWER_LIMITS_VERIFIED` 明确确认物理安全条件。失败记录必须
+执行构建和 release。硬件台架命令不自动触发，必须显式给出工作台、电机 profile、场景与
+预期固件 SHA-256，并明确确认物理安全条件。失败记录必须
 保留 STOP/紧急关闭结果；无法确认关闭时应断开电机电源，不得自动恢复运行。

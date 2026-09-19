@@ -12,10 +12,9 @@ from project_paths import ROOT
 
 RTT_TELEMETRY = ROOT / "firmware/app/rtt_telemetry.c"
 MAIN_SOURCE = ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/main.c"
-HW_CONF = ROOT / "firmware/platform/stm32g4/bsp/hw_conf.h"
+CONTROL_CONFIG = ROOT / "firmware/platform/api/control_config.h"
 SCOPES = (
     ROOT / "tools/bench/scopes/pro_lks.lksscope",
-    ROOT / "tools/bench/scopes/pro_lks_servo_hil.lksscope",
     ROOT / "tools/bench/scopes/pro_lks_calibration.lksscope",
 )
 
@@ -42,7 +41,7 @@ class RttTelemetryTests(unittest.TestCase):
     def test_j_scope_descriptor_matches_int16_frame(self) -> None:
         source = MAIN_SOURCE.read_text(encoding="utf-8")
         self.assertIn("SEGGER_RTT_ConfigUpBuffer(1, RTT_JSCOPE_DESCRIPTOR", source)
-        header = HW_CONF.read_text(encoding="utf-8")
+        header = CONTROL_CONFIG.read_text(encoding="utf-8")
         descriptor = re.search(r'#define RTT_JSCOPE_DESCRIPTOR\s*"([^"]+)"', header)
         self.assertIsNotNone(descriptor)
         self.assertEqual(descriptor.group(1), "JScope_" + "i2" * len(EXPECTED_FIELDS))
@@ -60,7 +59,7 @@ class RttTelemetryTests(unittest.TestCase):
                 )
 
     def test_maintained_scopes_use_shared_units(self) -> None:
-        for name in ("pro_lks_servo_hil.lksscope", "pro_lks_calibration.lksscope"):
+        for name in ("pro_lks_calibration.lksscope",):
             with self.subTest(scope=name):
                 root = ET.parse(ROOT / "tools/bench/scopes" / name).getroot()
                 form = root.find(".//form[@type='5']")

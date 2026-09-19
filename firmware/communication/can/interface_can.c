@@ -2,22 +2,21 @@
 
 #include <limits.h>
 #include <math.h>
-#include "fdcan.h"
-#include "delay.h"
 #include "utils.h"
 #include "foc_algorithm.h"
 #include "foc_param.h"
 #include "foc_param_profile.h"
 #include "foc_errhandle.h"
 #include "angle_feedback.h"
-#include "hw_conf.h"
 #include "comm_hw.h"
+#include "current_sense_profile.h"
 #include "time_hw.h"
 #include "can_motor_status.h"
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
 #include "foc_sensing.h"
+#include "param_comm_bridge.h"
 #include "position_cascade.h"
 
 CANMsg_TypeDef CANMsg;
@@ -26,6 +25,28 @@ extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
 extern FOC_TypeDef FOC;
 extern Encoder_TypeDef OnBoard_Encoder;
+
+/* 参数模块桥接口实现：节点身份与心跳超时的存储所有权在本文件（CANMsg），
+ * 此处只做读写转发，不触发保存或总线重配置。 */
+uint8_t CAN_NodeId_Get(void)
+{
+    return CANMsg.node_id;
+}
+
+void CAN_NodeId_Set(uint8_t node_id)
+{
+    CANMsg.node_id = node_id;
+}
+
+uint32_t CAN_HeartbeatMs_Get(void)
+{
+    return CANMsg.can_hb_set;
+}
+
+void CAN_HeartbeatMs_Set(uint32_t heartbeat_ms)
+{
+    CANMsg.can_hb_set = heartbeat_ms;
+}
 
 /** @brief CAN 参数在线路上的数值编码。 */
 typedef enum
@@ -164,39 +185,9 @@ static int16_t CAN_Milli16(float value)
  **/
 void FDCAN1_Param_Init(void)
 {
-    FDCAN_FilterTypeDef FDCAN_Filter;
     CanMotorStatus_Init();
 
-    FDCAN_Filter.IdType = FDCAN_STANDARD_ID;
-    FDCAN_Filter.FilterIndex = 0;
-    FDCAN_Filter.FilterType = FDCAN_FILTER_RANGE;
-
-    FDCAN_Filter.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-
-    FDCAN_Filter.FilterID1 = (((uint32_t)CANMsg.node_id) << 8);
-    FDCAN_Filter.FilterID2 = (((uint32_t)CANMsg.node_id) << 8) + 0xFF;
-
-    if (HAL_FDCAN_ConfigFilter(&hfdcan1, &FDCAN_Filter) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    if (HAL_FDCAN_ConfigGlobalFilter(
-            &hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) !=
-        HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    if (HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK)
-    {
-        Error_Handler();
-    }
+    comm_hw_can_start(CANMsg.node_id);
 
     CANMsg.baudrate = 1000;
 }
@@ -245,31 +236,7 @@ void CAN_BaudRateSwitching(void)
 
     if (baudrate_last != CANMsg.baudrate)
     {
-        if (HAL_FDCAN_Stop(&hfdcan1) != HAL_OK)
-        {
-            Error_Handler();
-        }
-
-        if (CANMsg.baudrate <= 1000)
-        {
-            hfdcan1.Init.DataPrescaler = 10000 / CANMsg.baudrate;
-            hfdcan1.Init.NominalPrescaler = 10000 / CANMsg.baudrate;
-        }
-        else
-        {
-            hfdcan1.Init.DataPrescaler = 10000 / CANMsg.baudrate;
-            hfdcan1.Init.NominalPrescaler = 10;
-        }
-
-        if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
-        {
-            Error_Handler();
-        }
-
-        if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
-        {
-            Error_Handler();
-        }
+        comm_hw_can_set_baudrate(CANMsg.baudrate);
     }
 
     baudrate_last = CANMsg.baudrate;
@@ -413,7 +380,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
         break;
 
     case CAN_SET_CURRENT_CAL:
-        if (data >= 0.0f && data <= CURRENT_CALIB_LIMIT_MAX_A)
+        if (data >= 0.0f && data <= CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A)
             MotorControl.calib_current = data;
         break;
     case CAN_GET_CURRENT_CAL:
@@ -421,7 +388,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
         break;
 
     case CAN_SET_CURRENT_LIMIT:
-        if (data >= 0.0f && data <= CURRENT_COMMAND_LIMIT_MAX_A)
+        if (data >= 0.0f && data <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
         {
             MotorControl.current_limit = data;
             MotorControl.iqRef = constrain(MotorControl.iqRef, -data, data);
@@ -524,7 +491,7 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
         break;
 
     case CAN_SET_POS_INTEGRAL_LIMIT:
-        if (data >= 0.0f && data <= CURRENT_COMMAND_LIMIT_MAX_A)
+        if (data >= 0.0f && data <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
             MotorControl.pos_integral_limit = data;
         break;
     case CAN_GET_POS_INTEGRAL_LIMIT:
@@ -882,25 +849,17 @@ void CAN_SendMessage(void)
         return;
     }
 
-    /* HAL copies ESI and MessageMarker into message RAM too. */
-    FDCAN_TxHeaderTypeDef FDCAN_TxHeader = {0};
     uint32_t ID = CANMsg.node_id << 8 | CANMsg.tx_param_id;
 
     uint8_t send_num = 0;
 
-    FDCAN_TxHeader.IdType = FDCAN_STANDARD_ID;
-    FDCAN_TxHeader.Identifier = ID;
-    FDCAN_TxHeader.FDFormat = FDCAN_FD_CAN;
-    FDCAN_TxHeader.DataLength = CANMsg.tx_data_len;
-    FDCAN_TxHeader.TxFrameType = FDCAN_DATA_FRAME;
-    FDCAN_TxHeader.BitRateSwitch = FDCAN_BRS_ON;
-    FDCAN_TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-
-    while (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &FDCAN_TxHeader, CANMsg.tx_data_u8))
+    while (!comm_hw_can_try_send_reply((uint16_t)ID, CANMsg.tx_data_u8, CANMsg.tx_data_len))
     {
         /* blocked*/
         if (++send_num == 5)
+        {
             break;
+        }
     }
 
     CANMsg.can_tx_en = false;

@@ -67,22 +67,22 @@ MOVE/SETTLE着陆后若停在保持退出窗口外，均可恢复受斜率限制
 
 调试发现原模式3有效频率不足20 kHz。已将温度logf换算移至既有1 kHz监督任务，模式3不计算未使用的无感磁链观测器；在命令派发后选择观测器路径，避免进入模式3的首周期叠加两套计算。
 
-控制配置仅在参数变化后完整验证；每次快调用仍检查目标与传感器有效性。缓存比较排除结构体填充字节，位置目标改变不触发整套不变参数验证。RTT帧编码避开2 kHz外环执行周期，完整配置校验的首周期也避让RTT；冲突时延后一个50 μs快周期。主工程与HIL工程的8个实时业务/算法文件及ADC中断入口、ADC HAL编译单元使用ARMCC `-O3 -Otime`；未修改Vendor SDK。
+控制配置仅在参数变化后完整验证；每次快调用仍检查目标与传感器有效性。缓存比较排除结构体填充字节，位置目标改变不触发整套不变参数验证。RTT帧编码避开2 kHz外环执行周期，完整配置校验的首周期也避让RTT；冲突时延后一个50 μs快周期。主工程的8个实时业务/算法文件及ADC中断入口、ADC HAL编译单元使用ARMCC `-O3 -Otime`；未修改Vendor SDK。
 
-HIL的DWT计时只存在于硬件IRQ的USER CODE区域，命令服务不包含MCU对象。实测数值见报告；DWT记录区间不包括全部异常入栈/返回开销，也不能替代PWM相位与最坏中断嵌套的示波器验收。
+HIL 的 DWT 计时（已随 HIL 退役删除）只存在于硬件IRQ的USER CODE区域，命令服务不包含MCU对象。实测数值见报告；DWT记录区间不包括全部异常入栈/返回开销，也不能替代PWM相位与最坏中断嵌套的示波器验收。
 
 ## 构建与复现
 
-正常工程 `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx` 默认不启用HIL服务。专用 `Vector_Mini_ST_HIL.uvprojx` 复用同一控制代码，增加受限调试命令、500 ms心跳和行程保护。对应Scope工程为 `pro_lks_servo_hil.lksscope`，AXF必须与下载镜像匹配。自动采集期间只允许一个RTT消费者。
+Keil 主工程 `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx` 为唯一构建目标。（原专用 `Vector_Mini_ST_HIL.uvprojx`、配套 Scope 工程与采集工装已于 2026-09-19 随 HIL 退役删除，见 [HIL 退役计划](../plans/active/2026-09-19-hil-retirement.md)。）自动采集期间只允许一个RTT消费者。
 
-`tests/unit/native/run_position_servo_tests.py` 编译实际控制器、实际编码器测速函数和HIL命令服务进行主机回归。运行示例：
+`tests/unit/native/run_position_servo_tests.py` 编译实际控制器和实际编码器测速函数进行主机回归。运行示例：
 
 ```text
 python tests/unit/native/run_position_servo_tests.py --cc /path/to/zig
 python -m unittest discover -s tools -p "test_*.py"
 ```
 
-HIL主机采集和参数烧录脚本依赖本地调试环境，本次未纳入提交；以上命令不控制硬件。专用HIL工程及邮箱接口可用于后续接入台架工具。台架所用参数及Flash版本与本提交的区别见验证记录。
+以上命令不控制硬件。（HIL 主机采集工装、专用 HIL 工程及邮箱接口已于 2026-09-19 退役，见 [HIL 退役计划](../plans/active/2026-09-19-hil-retirement.md)。）台架所用参数及Flash版本与本提交的区别见验证记录。
 
 当前台架NTC未安装（用户确认），ADC温度原始值0及显示−273.15°C均不代表有效温度；本轮未验收热保护能力。
 

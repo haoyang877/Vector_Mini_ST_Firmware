@@ -3,12 +3,12 @@
 #include <math.h>
 #include <string.h>
 
+#include "control_config.h"
 #include "foc_cogging_calibration.h"
 #include "foc_errhandle.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 #include "foc_speed.h"
-#include "hw_conf.h"
 #include "motor_axis_profile.h"
 #include "motor_hw.h"
 #include "position_cascade.h"

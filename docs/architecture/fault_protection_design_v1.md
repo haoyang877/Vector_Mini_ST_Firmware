@@ -360,5 +360,5 @@ HardFault发生后不返回正常使能路径；新启动保持禁止。禁止�
 原生测试通过不证明输出物理安全，硬件验收必须记录fault输入到功率输出禁止的完整延迟和残余运动。
 
 文档改动运行quick及链接检查；后续固件/协议/参数改动运行PR；CubeMX/硬件配置/构建输入改动运行release。
-release不烧录；HIL须显式bench身份、电机profile、镜像hash和场景，输出归outputs。
+release不烧录；硬件台架操作须显式bench身份、电机profile、镜像hash和场景，输出归outputs。
 本设计未设任意“通用安全阈值”，所有TBD参数和不具备能力的功能应在各阶段完成前关闭对应运行资格。

@@ -12,7 +12,6 @@ def commands():
     for directory in (
         "tools/harness",
         "tools/build",
-        "tools/flash",
         "tools/bench",
         "tools/analysis",
         "tests/unit/native",

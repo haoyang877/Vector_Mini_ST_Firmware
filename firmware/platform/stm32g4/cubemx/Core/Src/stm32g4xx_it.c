@@ -22,8 +22,15 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "common_inc.h"
+#include "adc.h"
+#include "bsp_task.h"
+#include "dma.h"
 #include "fast_loop_profile.h"
+#include "fdcan.h"
+#include "foc_run.h"
+#include "foc_task.h"
+#include "interface_can.h"
+#include "tim.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,25 +50,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
-static volatile struct {
-  uint32_t count, last_cycles, max_cycles, preempted_jobs;
-  uint64_t total_cycles;
-} outer_irq_profile;
-#endif
-#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
-static volatile uint32_t hil_irq_last_cycles;
-static volatile uint32_t hil_irq_max_cycles;
-static volatile uint32_t hil_irq_histogram[4];
-/* Additional profiling is independent of host resets of the legacy counters.
- * Read while halted/disabled or use two snapshots; a 64-bit read is not atomic. */
-static volatile uint32_t hil_profile_count;
-static volatile uint64_t hil_profile_total_cycles;
-static volatile uint32_t hil_profile_min_cycles = UINT32_MAX;
-static volatile uint32_t hil_profile_interval_min_cycles = UINT32_MAX;
-static volatile uint32_t hil_profile_interval_max_cycles;
-static uint32_t hil_profile_previous_start;
-#endif
 
 /* USER CODE END PV */
 
@@ -247,19 +235,7 @@ void DebugMon_Handler(void)
 void PendSV_Handler(void)
 {
   /* USER CODE BEGIN PendSV_IRQn 0 */
-#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
-  uint32_t started = DWT->CYCCNT;
-  uint32_t fast_count = hil_profile_count;
-#endif
   MotorOuterLoop_Service();
-#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
-  outer_irq_profile.last_cycles = DWT->CYCCNT - started;
-  if (outer_irq_profile.last_cycles > outer_irq_profile.max_cycles)
-    outer_irq_profile.max_cycles = outer_irq_profile.last_cycles;
-  outer_irq_profile.total_cycles += outer_irq_profile.last_cycles;
-  if (fast_count != hil_profile_count) outer_irq_profile.preempted_jobs++;
-  outer_irq_profile.count++;
-#endif
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
 
@@ -307,20 +283,6 @@ void DMA1_Channel1_IRQHandler(void)
 void ADC1_2_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC1_2_IRQn 0 */
-#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
-  uint32_t hil_start, hil_elapsed;
-  if ((DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) == 0U) {
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-  }
-  hil_start = DWT->CYCCNT;
-  if (hil_profile_count != 0U) {
-    uint32_t interval = hil_start - hil_profile_previous_start;
-    if (interval < hil_profile_interval_min_cycles) hil_profile_interval_min_cycles = interval;
-    if (interval > hil_profile_interval_max_cycles) hil_profile_interval_max_cycles = interval;
-  }
-  hil_profile_previous_start = hil_start;
-#endif
 
   /* USER CODE END ADC1_2_IRQn 0 */
   /* Board IRQ dispatch: ISR/IER bit positions match on STM32G4.
@@ -330,17 +292,6 @@ void ADC1_2_IRQHandler(void)
     HAL_ADC_IRQHandler(&hadc1);
   Board_ADC2DispatchInterrupt();
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
-#if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
-  hil_elapsed = DWT->CYCCNT - hil_start;
-  hil_irq_last_cycles = hil_elapsed;
-  if (hil_elapsed > hil_irq_max_cycles) hil_irq_max_cycles = hil_elapsed;
-  /* 170 MHz board clock: bins below 50, 100, 150 us, and >=150 us. */
-  hil_irq_histogram[hil_elapsed < 8500U ? 0 : hil_elapsed < 17000U ? 1 :
-                    hil_elapsed < 25500U ? 2 : 3]++;
-  if (hil_elapsed < hil_profile_min_cycles) hil_profile_min_cycles = hil_elapsed;
-  hil_profile_total_cycles += hil_elapsed;
-  hil_profile_count++;
-#endif
 
   /* USER CODE END ADC1_2_IRQn 1 */
 }

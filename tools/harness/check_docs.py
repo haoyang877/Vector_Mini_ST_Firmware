@@ -24,8 +24,7 @@ REQUIRED_INDEX_LINKS = (
     "plans/",
 )
 STALE_CURRENT_PATTERNS = {
-    "tools/servo_hil_run.py": "use the repository path tools/bench/servo_hil_run.py",
-    "J-Link序号602722271": "document probe selection through JLINK_PROBE_SERIAL instead of a fixed serial",
+    "J-Link序号602722271": "select the probe through explicit bench configuration instead of a fixed serial",
     "C:/path/to/zig.exe": "use the locked uv/Zig environment",
 }
 

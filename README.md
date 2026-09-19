@@ -14,14 +14,14 @@ firmware/                         电机 APP
 loader/                           独立 Loader 工程入口（后续实现）
 host_app/                         PC 上位机工程入口（后续实现）
 shared/                           APP/Loader/PC 契约规划
-tools/                           build、flash、bench、analysis
-tests/                           unit、integration、hil
+tools/                           build、bench、analysis
+tests/                           unit、integration
 docs/                            architecture、protocols、guides、hardware、reports
 outputs/                         构建、测试与分析产物（忽略提交）
 ```
 
 Keil 工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`，
-普通/HIL 构建产物输出到 `outputs/build/keil/`。
+构建产物输出到 `outputs/build/keil/`。
 
 ```powershell
 python -m pip install uv==0.12.16
@@ -37,8 +37,8 @@ python tests/run.py
 ```
 
 统一验证会在 `outputs/runs/<run-id>/summary.json` 留下与 Git 提交、工具版本和产物哈希
-绑定的证据。`quick` 与 `pr` 完全离线；`release` 只构建、不烧录；HIL 必须显式选择工作台、
-电机配置、镜像哈希和场景。项目协作约定见 [AGENTS.md](AGENTS.md)，架构地图见
+绑定的证据。`quick` 与 `pr` 完全离线；`release` 只构建、不烧录；台架命令必须显式提供
+工作台配置与场景。项目协作约定见 [AGENTS.md](AGENTS.md)，架构地图见
 [ARCHITECTURE.md](ARCHITECTURE.md)，文档入口见 [docs/README.md](docs/README.md)。
 
 代码风格和可读性规则见 [STYLE.md](STYLE.md)。新 C 模块和 Python 命令应从持续接受

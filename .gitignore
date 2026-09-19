@@ -38,6 +38,9 @@ data_recoder/
 # Generated analysis and test output
 /outputs/
 
+# Local scratch (patch probes, downloaded references)
+/tmp/
+
 # Local Python runtimes, caches and host packaging output
 .pytest_cache/
 .ruff_cache/

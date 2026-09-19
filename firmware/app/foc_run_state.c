@@ -1,9 +1,19 @@
 #include "foc_run_state.h"
 
+#include <math.h>
+#include <string.h>
+
+#include "angle_feedback.h"
 #include "app_lifecycle.h"
 #include "bus_voltage_profile.h"
-#include "common_inc.h"
+#include "foc_errhandle.h"
+#include "foc_run.h"
+#include "foc_sensing.h"
+#include "indicator_hw.h"
+#include "interface_can.h"
+#include "motor_sensing.h"
 #include "motor_state.h"
+#include "utils.h"
 
 /* 心跳计数字段由 interface_can 持有；本文件只读，沿用局部 extern 约定（同 foc_param.c）。 */
 extern CANMsg_TypeDef CANMsg;
@@ -16,8 +26,7 @@ extern CANMsg_TypeDef CANMsg;
  * - READY/STARTING/RUNNING/STOPPING/FAULT 由 AppLifecycle 纯核心拥有；
  * - 适配器负责：worker 结果与外部模式写入 → 事件合成、真实 guards 供给、
  *   动作执行（START_CONTROL/DISABLE_POWER）与兼容投影；
- * - 维护会话（阶段 C）：Save/Default/Zero 进入 MAINTENANCE，标定会话随
- *   foc_calibration 拆解后接入；
+ * - 维护会话（阶段 C）：Save/Default/Zero 与齿槽/相电阻标定进入 MAINTENANCE；
  * - 兼容期：未迁移的 worker 仍直接写 ModeNow，本层按旧差分语义转为事件。 */
 
 static AppLifecycle lifecycle;
@@ -204,9 +213,9 @@ static void RunState_UpdateRecoveryEvidence(void)
         overcurrent_recover_ticks = 0U;
         return;
     }
-    if (fast_abs(FOC.Ia) < CURRENT_OVERCURRENT_TRIP_A * 0.9f &&
-        fast_abs(FOC.Ib) < CURRENT_OVERCURRENT_TRIP_A * 0.9f &&
-        fast_abs(FOC.Ic) < CURRENT_OVERCURRENT_TRIP_A * 0.9f)
+    if (fast_abs(FOC.Ia) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f &&
+        fast_abs(FOC.Ib) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f &&
+        fast_abs(FOC.Ic) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f)
     {
         if (overcurrent_recover_ticks < RUN_STATE_OC_RECOVER_TICKS)
         {
@@ -252,7 +261,7 @@ static bool RunState_FaultSourceRecovered(ErrorNow_TypeDef error)
     }
 }
 
-/* 维护目标模式 → 核心操作；friction 与 foc_calibration 拆解后的任务在结构落定后接入。 */
+/* 维护目标模式 → 核心操作；friction 待接入（FOC-Calibration 功能已移除，待重建）。 */
 static AppOperation RunState_OperationFor(ModeNow_TypeDef mode)
 {
     switch (mode)
@@ -469,11 +478,11 @@ void FocRunState_Tick(MotorWorkOutcome_TypeDef outcome)
             MotorControl.ModeNow = Motor_Disable;
             target = Motor_Disable;
         }
-        LED_SetState(1, (uint8_t)MotorControl.ErrorNow);
+        indicator_hw_set_led(true, (uint8_t)MotorControl.ErrorNow);
     }
     else
     {
-        LED_SetState(0, (uint8_t)MotorControl.ModeNow);
+        indicator_hw_set_led(false, (uint8_t)MotorControl.ModeNow);
     }
 
     /* 3. 启动链、维护会话、恢复证据与故障/清除处理。 */

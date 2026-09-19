@@ -222,24 +222,6 @@ void SVM_SectorJudge(float alpha, float beta, float *tA, float *tB, float *tC, i
     }
 }
 
-/* 过渡兼容层：PWM 命令的历史入口，供标定等调用方使用；寄存器写入已移至
- * platform/stm32g4/ports/motor/motor_pwm_stm32g4.c。调用方迁移到
- * motor_hw_pwm_* 契约后删除本节。 */
-void Set_A_Duty(float duty)
-{
-    motor_hw_pwm_set_phase_duty(MOTOR_HW_PWM_PHASE_A, duty);
-}
-
-void Set_B_Duty(float duty)
-{
-    motor_hw_pwm_set_phase_duty(MOTOR_HW_PWM_PHASE_B, duty);
-}
-
-void Set_C_Duty(float duty)
-{
-    motor_hw_pwm_set_phase_duty(MOTOR_HW_PWM_PHASE_C, duty);
-}
-
 /* 电压环：按设定 d/q 电压直接生成调制与三相占空比，不做电流闭环。 */
 void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase)
 {
@@ -379,16 +361,4 @@ void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
     SVM_SectorJudge(
         FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
     motor_hw_pwm_set_duty(FOC->dtc_a, FOC->dtc_b, FOC->dtc_c);
-}
-
-/* 过渡兼容层：三相全开（占空比 1.0）与三相全关（占空比 0.0），
- * 供标定短接测试使用；调用方迁移到 motor_hw_pwm_* 契约后删除。 */
-void PWM_TurnOnHighSides(void)
-{
-    motor_hw_pwm_set_duty(1.0f, 1.0f, 1.0f);
-}
-
-void PWM_TurnOnLowSides(void)
-{
-    motor_hw_pwm_set_duty(0.0f, 0.0f, 0.0f);
 }

@@ -1,6 +1,7 @@
 # FOC 硬件解耦：PWM 契约与 MCU 温度归位 v1.0
 
-日期：2026-09-19。状态：阶段 1/2 完成；阶段 3（标定迁移与 shim 删除）待并行 2b 收敛。
+日期：2026-09-19。状态：阶段 1/2/3 完成——标定迁移随 FOC-Calibration 功能删除取消；
+过渡 shim 已删除、`foc_algorithm.h` 接口契约债已还清。
 
 范围：本记录覆盖两条具体交付：MCU 结温换算头归位 `platform/api`，以及
 `foc_algorithm.c` 的 PWM 寄存器访问剥离与调用方迁移。更大范围的 `hw_conf`/BSP 归位
@@ -26,7 +27,7 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
 | --- | --- | --- |
 | 1 | `mcu_temperature.h` 从 motor/foc 移到 platform/api（motor 只允许 include common/platform_api）并重写为中文契约；`foc_algorithm.c` 剥离 TIM1/`hw_conf`，新增 `motor_hw_pwm_set_duty`/`motor_hw_pwm_set_phase_duty` 契约与 `ports/motor/motor_pwm_stm32g4.c`；双 Keil 工程登记；债务基线清理 | 完成（23ef80a） |
 | 2 | 新增 `motor_hw_pwm_force_high_sides` 契约与端口实现；`foc_phase_resistance.c` 改用契约并把 `hw_conf.h` 换成 `control_config.h`（架构债 −1）并全文件清理；`foc_mode_dispatch.c` 改用三相契约 | 完成（本轮） |
-| 3 | `foc_calibration.c`（10 处 `PWM_TurnOnHighSides`、3 组逐相 `Set_*_Duty`）迁移；删除过渡 shim 及声明、还清 `foc_algorithm.h` 接口契约债 | 待 2b 收敛 |
+| 3 | ~~`foc_calibration.c` 迁移~~（功能已整体删除，调用方一并消失）；删除过渡 shim（`Set_*_Duty`、`PWM_TurnOnHigh/LowSides`）及声明、补齐 `foc_algorithm.h` 中文契约并还清其接口债 | 完成（本轮） |
 
 ## 关键决策
 
@@ -43,6 +44,8 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
 - 90°C 跳闸与 100 ms 失效窗口仍留在 `platform/api/mcu_temperature.h` 并注明是保守默认值；
   其版本化参数化归后续故障保护设计，拆分到 `motor/protection` 需连带清理
   `foc_sensing.c` 与夹具，另行立项。
+- 2026-09-19：标定功能删除后 `motor_hw_pwm_set_phase_duty` 暂无调用方；作为逐相操作的
+  平台契约保留，待标定重建时复用（不因"当下无调用者"删契约）。
 
 ## 验证证据
 
@@ -60,3 +63,13 @@ FOC 与快速环代码不再直接写定时器寄存器、不再依赖板级 `hw
 - 日志：`outputs/runs/20260919T024410120567Z-23ef80ab/`、
   `outputs/runs/20260919T024513181612Z-23ef80ab/`、
   `outputs/runs/20260919T024620102523Z-23ef80ab/`、`outputs/build/logs/`。
+
+阶段 3（2026-09-19，随标定功能删除解锁）：
+
+- 删除 5 个过渡 shim（`Set_A/B/C_Duty`、`PWM_TurnOnHigh/LowSides`）及声明；全仓
+  （含未跟踪文件）确认无调用方；`foc_algorithm.c` 独立 `zig cc -Wall -Wextra -Werror`
+  编译 0 错误。
+- `foc_algorithm.h` 补齐 11 条中文接口契约与结构说明；接口债条目清除
+  （interfaces 检查 107 known / 0 new）；format/lint 均 0 new。
+- 无感交接夹具同步删除已死的 shim 桩；夹具 PASS（双变体）。
+- 过渡 shim 删除后 `foc_algorithm.c` 仅经 `motor_hw_pwm_set_duty` 触及硬件。

@@ -1,6 +1,6 @@
 # E 生命周期状态机：差距分析与迁移方案 v1.0
 
-日期：2026-09-19。状态：**阶段 A/B 已完成**，阶段 C/D 待排期。
+日期：2026-09-19。状态：**阶段 A/B 已完成；C/D 设计已就绪（见 §5/§6，恢复矩阵阈值待确认），实施待启动**。
 来源：`D:/Work/Code/yg_esc_deepseek`（E 框架工作区，2026-09-18）：
 `project_docs/architecture/e_app_lifecycle_design.md`、
 `project_docs/handover/deepseek_e/E_PROTOTYPE_STATE_FLOW.md`、
@@ -58,8 +58,8 @@
 | --- | --- | --- | --- |
 | A ✅ | **移植纯核心**：`firmware/services/lifecycle/app_lifecycle.{c,h}`（逐 token 保真）；按裁决**暂不移植 135 格测试**、暂不登记 Keil（不接生产路径） | 与上游逐 token 一致（.c 2570 / .h 380 tokens）；门禁全过；编译冒烟 0 错误 | 无 |
 | B ✅ | **适配器骨架**：`foc_run_state.c` 改为 AppLifecycle 适配器（事件合成 + guards 供给 + 动作执行 + 兼容投影），保持 `FocRunState_Tick(outcome)` 接口与 CAN 编号；核心 `app_lifecycle.c` 已登记两个 Keil 工程并新增 include 路径 | 差分夹具：旧三函数 vs 适配器 **38,400 组 tick 全部一致**；双变体编译 0 错误 | 无（foc_run.c 拆解已落定） |
-| C | **Operation 会话**：Save/Default/Zero/标定完成路径挂入 MAINTENANCE/Operation（Begin/Step/Cancel/IsReleased/Result）；继续 2b 剩余路径但目标形态从"结果协议"升级为 operation 协议 | 逐路径夹具（含取消/失败/释放确认）；SAVE 成功需 `COMMITTED` | 阶段 B；2b 已迁移的 friction/观测器标定 outcome 直接映射为 operation 结果 |
-| D | **FaultLatch + CLEAR 恢复**：活动故障/首故障分离；CLEAR 要求源恢复+样本新鲜+资源释放；迁移 CAN 重连/默认参数的隐式清错副作用 | 故障锁存与恢复条件夹具；通信恢复不清错；幂等 CLEAR | 阶段 C |
+| C | **Operation 会话（全量，含 6 个标定会话）**：Save/Default/Zero/标定完成路径挂入 MAINTENANCE/Operation（Begin/Step/Cancel/IsReleased/Result）；继续 2b 剩余路径但目标形态从"结果协议"升级为 operation 协议。模块清单与缺口见 §5 | 逐路径夹具（含取消/失败/释放确认）；SAVE 成功需 `COMMITTED` | 阶段 B；设计已就绪（§5） |
+| D | **FaultLatch + CLEAR 恢复（直接定义恢复矩阵）**：活动故障/首故障分离；CLEAR 要求源恢复+样本新鲜+资源释放；迁移 CAN 重连/默认参数的隐式清错副作用。逐故障条件见 §6 | 故障锁存与恢复条件夹具；通信恢复不清错；幂等 CLEAR | 阶段 C；设计已就绪（§6），阈值待确认 |
 
 每阶段：`check_project_layout` 0 错误、普通/HIL 双变体编译 0 错误、PR 全绿、
 新增测试登记 hygiene 清单。
@@ -83,6 +83,72 @@
 | 适配器 | 仅取核心 + 本仓库自研适配 | 不引入 `yg_esc` 的 `services/safety_management` 布局依赖 |
 | 本仓库与 yg_esc 关系 | **最终合路 YG-ESC** | 核心保持与上游 API/语义逐 token 一致；投影层与角色策略的对齐在阶段 B 按 YG-ESC 约定设计 |
 | 135 格测试 | **先不做** | 移植保真度改用逐 token 比对证明；测试移植登记为后续项，接生产路径前补齐 |
+
+第二轮裁决（C/D 启动，2026-09-19）：
+
+| 问题 | 裁决 | 影响 |
+| --- | --- | --- |
+| 阶段 C 范围 | **全量：含 6 个标定会话**（Begin/Step/Cancel/IsReleased/Result） | 各标定模块需补公开取消/释放/结果接口（见 §5） |
+| 阶段 D 路径 | **直接定义恢复矩阵**（逐故障恢复条件，非先兼容映射） | 需先确认 §6 阈值项，再实施 |
+| 提交节奏 | **先提交再继续**：代码批次已提交 `6c3dcf9` | C/D 基于该 SHA 推进 |
+| 135 格测试 | **继续暂缓** | 回归依赖差分夹具与逐路径夹具 |
+
+## 5. 阶段 C 设计：Operation 会话映射
+
+目标协议（E 语义）：核心进入 `MAINTENANCE` 时由适配器开启操作会话，提供
+`Begin/Step/Cancel/IsReleased/Result` 五项；`Result` 报告
+`COMMITTED/FAILED/CANCELED(原因)`；取消不回滚 Flash；SAVE 成功必须 `COMMITTED`。
+
+| 操作（核心） | 现有入口 | 现有能力 | 阶段 C 缺口 |
+| --- | --- | --- | --- |
+| SAVE | `ModeNow=Save_Param` 伪命令；前台 `main.c` 主循环处理（关中断 `flash_write_param()`） | 成功布尔；失败置 `MotorParam_Error`；`FocCogging_SaveResult(saved)` 既有消费者 | `Result(COMMITTED/FAILED)` 上报核心；前台步骤纳入 operation `Step`；`IsReleased` 关联写入完成 |
+| DEFAULTS | `foc_mode_dispatch.c` 的 `Default_Param` 分支 | 一次性；**副作用 `Set_ErrorNow(No_Error)`** | 移除无条件清错（受 §6 约束）；`Result` 上报 |
+| ZERO | `foc_mode_dispatch.c` 的 `Set_ZeroPosition` 分支（编码器机械零位写入） | 一次性 | `Result`/`IsReleased` 标准化 |
+| CALIB_CURRENT_OFFSET | `Task_Calib_CurrentOffset`（已返回 `MotorWorkOutcome_TypeDef`） | 结果协议（2b 已迁移） | 公开 `Cancel`、`IsReleased`、`Result` 映射 |
+| CALIB_R_L_FLUX | `Task_Calib_R_L_Flux` | 完成以切 `Save_Param` 表达 | 同上 |
+| CALIB_ENCODER_OFFSET | `Task_Calib_EncoderOffset` | 同上 | 同上 |
+| CALIB_ELE_ANGEL_OFFSET | `Task_Calib_EleAngelOffset` | 同上 | 同上 |
+| CALIB_ENCODER_OBSERVER | `Task_Calib_EncoderObserver`（返回 outcome；取消为模块内 `static` 实现） | 结果有、取消未公开 | 取消公开化、`IsReleased`、`Result` 枚举 |
+| CALIB_PHASE_RESISTANCE | `PhaseResistanceMode_Run/Cancel` + 状态返回 | 取消已有 | `IsReleased`/`Result` 包装 |
+| CALIB_FRICTION | `FocFrictionIdentification_Start/Abort/GetState/GetReason` | 取消 + 原因已有 | `IsReleased`（由 `GetState` 导出）、`Result` 由 `GetReason` 映射 |
+| CALIB_ANTICOGGING | `FocCogging_CanStart/Abort/GetState/SaveResult` | 取消 + 结果（经 `SaveResult`）已有 | `Result(COMMITTED)` 承接、`IsReleased` |
+
+适配器侧（`foc_run_state.c`）：事件合成新增 `OPERATION_BEGIN/STEP/CANCEL/RELEASE`；
+guards `operation_idle`/`maintenance_released` 由占位改为真实信号；经典模式编号仍经
+`ModeNow` 投影（线上编号不变）。
+
+## 6. 阶段 D 设计：故障恢复矩阵（草案，阈值待确认）
+
+原则（E 语义）：CLEAR 只在**源恢复 + 样本新鲜 + 资源释放**同时成立时被接受；
+清除不是硬件恢复证明；通信类故障允许自动恢复，其余不允许隐式清错。
+
+| 故障 | 置位源 | 自动解除 | CLEAR 准入（草案） | 待确认 |
+| --- | --- | --- | --- | --- |
+| `CAN_DisConnect` | 心跳超时（`interface_can.c`） | **是（现状保留）** | 收到有效帧即恢复；改经核心恢复事件上报 | 窗口 = 现有心跳超时 |
+| `Over_Voltage` | 采样（34.0 V/2 ms、34.5 V/3 拍）、模式切换、辨识 | 否 | `vbus < 33.8 V`（enable 上界）持续 100 ms + 样本新鲜 | 用 enable 窗口还是 trip−滞回 |
+| `Under_Voltage` | 采样（24.0 V/100 ms）、模式切换、辨识 | 否 | `vbus >= 25.6 V`（enable 下界）持续 100 ms + 样本新鲜 | 同上 |
+| `Over_Current` | 采样（18 A/40 A 档 trip） | 否 | 电流回落至 trip−10% 以下持续 100 ms + 功率已释放 | 裕度与窗口 |
+| `High_Temprature` | 采样 ≥90 °C（仅在 `ErrorNow` 干净时锁存）、辨识 | 否 | 温度 < 80 °C（滞回）+ 传感器有效 | 滞回值与驻留时间 |
+| `TemperatureSensor_Error` | 采样丢失 ≥100 ms | 否 | `missed_ms < timeout`（采样恢复）且新鲜 | — |
+| `Encoder_Error` | 坏帧步进 ≥100（运行/标定多点） | 否 | 有效帧恢复（streak 清零）+ 样本新鲜 | streak 窗口 |
+| `Encoder_NotCalibrated` | 启动检查、运行检查、辨识 | 否 | 编码器标定有效 | — |
+| `PolePairs_Error` | 参数校验、标定 | 否 | 极对数参数有效 | — |
+| `MotorParam_Error` | 保存失败、参数校验（多点） | 否 | 参数校验全过 | — |
+| `Large_Phase_Resistance` | R/L/Flux 标定多点 | 否 | 相电阻参数在界内 | 界内判据 |
+| `Large_Phase_Inductance` | 标定 | 否 | 电感参数在界内 | 同上 |
+| `CurrentOffset_Error` | 采样自检、零偏标定 | 否 | 零偏值有效（需重跑标定） | — |
+| `Sensorless_Error` | 无感观测器多点 | 否 | 无感会话释放 + 退出无感模式（重启动，不热恢复） | — |
+| `ControlOverrun_Error` | 快环超时 | 否 | 静默窗口内无新超时 | 窗口（建议 1 s） |
+| `FrictionIdentification_Error` | 辨识多点 | 否 | 会话释放 + 电压/编码器健康 | — |
+| `CoggingCalibration_Error` | 齿槽标定、模式互斥守卫 | 否 | 会话释放 + 编码器健康 | — |
+
+迁移动作（与矩阵配套）：
+
+1. `Clear_Error` 直写路径（`foc_errhandle.c`）收归适配器：置 `APP_EVENT_CLEAR`，按矩阵聚合准入；
+2. `interface_can.c` 的 CAN 恢复自动清错改经核心恢复事件（保持"收到帧即恢复"语义）；
+3. `Default_Param` 的无条件 `Set_ErrorNow(No_Error)` 移除（默认参数不得清无关故障）；
+4. FaultLatch：`first_fault` + 活动故障由核心维护；`ErrorNow` 保留为兼容投影
+   （当前无多故障位域，矩阵按单值锁存实施）。
 
 ## 验证证据
 

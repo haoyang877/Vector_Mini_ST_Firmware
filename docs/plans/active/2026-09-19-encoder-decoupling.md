@@ -5,7 +5,7 @@ Q1/Q2/Q3/Q6/Q8 按推荐执行；Q4 已确认"保留"；Q9 统一 Q15；Q10 资�
 
 范围：`firmware/platform/stm32g4/bsp/encoder.{c,h}`（428 + 120 行）的解耦。
 目标三层：**硬件的归硬件、通信（传感器协议）的归通信、输出角度的归输出角度**；
-并为本项目后续更换传感器（当前 TLE5012B，未来 MT6701 / MT6535 等）提供
+并为本项目后续更换传感器（当前 TLE5012B，未来 MT6701 / MT6835 等）提供
 **"传感器功能通道 + 每型号 driver"** 的可替换结构。
 
 ---
@@ -58,7 +58,7 @@ Q1/Q2/Q3/Q6/Q8 按推荐执行；Q4 已确认"保留"；Q9 统一 Q15；Q10 资�
 
 ## 2. 新增需求：传感器可替换
 
-当前 TLE5012B 未来可能换成 MT6701 / MT6535 等。因此不能把 TLE 的帧格式、位宽、CRC 规则
+当前 TLE5012B 未来可能换成 MT6701 / MT6835 等。因此不能把 TLE 的帧格式、位宽、CRC 规则
 写进角度层或传输层，而要形成**传感器功能通道**：同一组接口，每个型号一个 driver。
 
 ---
@@ -161,7 +161,7 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
 | **C 角度层归位** | `AngleFeedback`（或保名 `Encoder_TypeDef`）迁 motor；字段直读改窄接口；`foc_param.c`/`interface_can.c`/`foc_run*.c`/`rtt_telemetry.c`/`foc_task.c` 同步；首拍轴向策略从 BSP 移出 | 调用方等价编译/行为；架构债 5 条清零；夹具同步 | **中-高**（签名与持久化字段面广） |
 | **D 在线检查** | 现仅"valid + 坏帧<100"；是否新增冻结/跳变检查见 Q7 | checker 向量 | 低（若仅归位） |
 
-阶段 B 完成后，**新增 MT6701/MT6535 只需**：加一个 driver 文件 + 板级宏选择 + 该型号的
+阶段 B 完成后，**新增 MT6701/MT6835 只需**：加一个 driver 文件 + 板级宏选择 + 该型号的
 解码向量；角度层与传输层零改动。
 
 ---
@@ -202,7 +202,7 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
 - 阶段 A 不触碰并行会话在改的文件；阶段 C 触达 `interface_can.c`/`foc_run*.c`/
   `rtt_telemetry.c`/`foc_param.c` 前先确认并行改动收敛。
 - 不做：不改 20 kHz 调度与 Q15/单位语义；不改参数持久化 ABI；不删 TLE 诊断字段；
-  不实现新传感器（MT6701/MT6535）本体——本轮只保证"加 driver 即可扩展"的结构。
+  不实现新传感器（MT6701/MT6835）本体——本轮只保证"加 driver 即可扩展"的结构。
 
 ## 9. 待评审确认
 
@@ -220,7 +220,7 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
 - **Q7 检查层范围**：本轮只归位现有在线判定；冻结/跳变等新增检查另立计划（推荐）？
 - **Q8 推进粒度**：A 完成并提交后评审一次再做 B/C/D（推荐），还是一次性完成？
 - **Q9 传感器归一化位宽**：driver 统一输出 Q15（推荐）还是保留各型号原始位宽 + 缩放参数？
-- **Q10 未来型号资料**：MT6701/MT6535 的位宽/CRC/时序在你手里有数据手册吗？
+- **Q10 未来型号资料**：MT6701/MT6835 的位宽/CRC/时序在你手里有数据手册吗？
   （决定 driver 骨架与向量，本轮可先不动。）
 
 ## 10. 验证证据
@@ -257,7 +257,7 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
   函数改名同步。
 - 验证：原生套件 17/17 PASS；`format`/`lint`/`architecture`/`interfaces`/`project-layout` 0 new；
   Keil 双目标 0 Error / 0 Warning（主工程 Code=82288）。
-- 新增 MT6701/MT6535 的落点：加 `ports/motor/encoder_<型号>.c`（同一 `#if` 模式）+ 板级宏切换 +
+- 新增 MT6701/MT6835 的落点：加 `ports/motor/encoder_<型号>.c`（同一 `#if` 模式）+ 板级宏切换 +
   该型号解码向量；传输层与角度层零改动。
 
 阶段 C/D（2026-09-19，角度层归位与检查归位）：
@@ -295,3 +295,39 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
   标定删除后遗留的启动默认，属并行会话的清理项，非本次改动）。
 - 说明：SWD 分块读取与 20 kHz 更新可能交错，同一次分组里原始值与派生值允许相差一个采样。
 - 证据：`outputs/hil_encoder_20260919/evidence.json`、`encoder_state.json`（输出目录被忽略）。
+
+电机驱动下实机验证（2026-09-19，纯 SWD，不使用 CAN）：
+
+- 背景：原 CAN 驱动脚本无法建立收发——适配器自环成功，但设备对 2 个通道 × 4 组波特率
+  （1M/5M、1M/2M、500k/2M、500k/5M）× 8 个节点（0..7）的 `SET_STATUS_STREAM` 扫描均无任何应答。
+  按用户指示改为 J-Link/SWD 直驱验证，不再依赖 CAN 链路。
+- 方法（`outputs/hil_encoder_20260919/jlink_drive_verification.py`）：经 DWARF 成员偏移读写
+  `MotorControl`/`FOC`/`OnBoard_Encoder`；前置条件（`ErrorNow==0`、`Vbus_filt∈[25.6,33.8]`）用显式
+  RuntimeError；先写 `ol_voltage=1.0 V`、`ol_elec_vel=4.0 rad/s`、`ol_theta=0`，再写
+  `ModeNow=Voltage_OpenLoop(12)`（编码器不参与该控制回路）；采样 5 s 后在 `finally` 中无条件写回
+  `ModeNow=Motor_Disable(0)` 并复验。角度快照要求"连续两次读取一致"，以排除 2 kHz 快环的撕裂读。
+- 结果 **13/13 PASS**：模式全程保持 12、`ErrorNow` 全程为 0；编码器全程 `has_valid_sample=1`、
+  `read_status=0`、`bad_frame_streak=0`；机械角单调推进 0.9053 rad（12 个样本，平均间隔 0.43 s，
+  最大电角步进 1.85 rad < π，解缠有效）；**电/机械行程比 21.006**（21 极对，误差 0.03%）；
+  方向一致；停机后 `ModeNow=0`、`ErrorNow=0`、`vel_mech=0`、TIM1 `CCR1..3=2125`
+  （等占空比零矢量，零相电压）、编码器仍健康（`calib_flag=3`、`read_error_count=0`）。
+- 前两轮未通过均为脚本侧判定/采样问题，非器件问题：① 模式 0 会预载 0.5 占空比零矢量，被误判为
+  "占空比非 0"（改为读 TIM1 比较寄存器后消除）；② 20 rad/s 电速下"稳定读"把采样间隔拉到 0.43 s，
+  导致 `theta_elec` 解缠混叠、速比假性为 5.617（降至 4 rad/s 后消除）。
+- 证据：`outputs/hil_encoder_20260919/jlink_drive_verification.json`（13 项检查 + 逐样本 trace；
+  输出目录被忽略）。CAN 诊断脚本 `can_diagnostics.py` / `can_sweep.py` 保留为链路排查记录。
+
+文档一致性修正（2026-09-19，不改变固件行为）：
+
+- `platform/api/encoder_sensor.h`：型号枚举 `ENCODER_SENSOR_TYPE_MT6535` → `ENCODER_SENSOR_TYPE_MT6835`
+  （枚举值 3 未变，无 ABI 影响；无任何调用方引用该成员），并注明 MT6701/MT6835 为预留位、
+  当前仅 TLE5012B 提供 driver。
+- `README.md`：原"支持绝对式SPI编码器 TLE5012B，MT6816, MT6701"与仓库现状不符（无任何 MT 系
+  driver，`git log -S MT6816 -- firmware` 无记录），改为只声明板载 TLE5012B 已实现、其他型号
+  按 driver 接入。
+- `docs/guides/observer_encoder_lut_calibration.md`：模式 13 的描述由"标定 MT6701 编码器"改为
+  与型号无关的"编码器"，与该功能（已整体移除、待逐步重建）的实际归属一致。
+- `README.md` 功能介绍段的"支持外部SPI编码器信号输入"经确认保留（外部编码器输入后续再增加，
+  当前尚未实现，不属本轮范围）。
+- 待确认（未改）：MT6701/MT6835 若为 24 位帧 + CRC，则接入需扩展 `encoder_spi` 传输契约
+  （Q10 资料到位后再定）。

@@ -64,7 +64,7 @@ CI 检查的 [templates](templates/README.md) 示例开始，再按模块职责�
 * 电机相电阻+dq轴电感+永磁体磁链辨识
 * 空载正反向库仑/粘性摩擦辨识（见 [docs/friction_identification.md](docs/guides/friction_identification.md)）
 * FDCAN通信控制+超时保护
-* 支持绝对式SPI编码器 TLE5012B，MT6816, MT6701
+* 绝对式 SPI 编码器：板载 TLE5012B（传感器通道已解耦，其他型号按 driver 接入）
 * 过压、欠压、过流、过温保护
 * 编码器断连识别
 

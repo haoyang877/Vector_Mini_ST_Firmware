@@ -8,13 +8,13 @@
  * 通道只输出归一化样本（Q15 单圈角度 + 状态 + 诊断字），不暴露帧格式、位宽或总线细节；
  * 板级通过 hw_conf.h 的 ENCODER_SENSOR_TYPE 选择唯一 driver，未选中的 driver 编译为空。 */
 
-/** 传感器型号标识，用于遥测与诊断。 */
+/** 传感器型号标识，用于遥测与诊断。MT6701/MT6835 为预留位，当前仅 TLE5012B 提供 driver。 */
 typedef enum
 {
     ENCODER_SENSOR_TYPE_NONE = 0,
     ENCODER_SENSOR_TYPE_TLE5012B = 1,
     ENCODER_SENSOR_TYPE_MT6701 = 2,
-    ENCODER_SENSOR_TYPE_MT6535 = 3
+    ENCODER_SENSOR_TYPE_MT6835 = 3
 } EncoderSensorType;
 
 /** 采样状态；driver 负责把型号特有的错误归类到这里。 */

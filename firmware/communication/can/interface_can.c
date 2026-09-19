@@ -1,30 +1,21 @@
 #include "interface_can.h"
 
-#include <limits.h>
-#include <math.h>
 #include "utils.h"
 #include "foc_algorithm.h"
-#include "foc_param.h"
-#include "foc_param_profile.h"
 #include "foc_errhandle.h"
-#include "angle_feedback.h"
-#include "comm_hw.h"
-#include "current_sense_profile.h"
-#include "time_hw.h"
-#include "can_motor_status.h"
-#include "can_parameter_format.h"
-#include "foc_friction_identification.h"
-#include "foc_cogging_calibration.h"
-#include "foc_sensing.h"
 #include "param_comm_bridge.h"
-#include "position_cascade.h"
+#include "can_motor_status.h"
+#include "can_transport.h"
+#include "can_status_source.h"
+#include "time_hw.h"
+
+/* CAN 门面：对外保持全部公共入口签名不变，内部只保留
+ * 运行态（CANMsg）、应答暂存、心跳状态机与发送调度；
+ * 传输机制在 can_transport，读/写路径分别在各 binding 文件。 */
 
 CANMsg_TypeDef CANMsg;
 
 extern MotorControl_TypeDef MotorControl;
-extern ModeNow_TypeDef ModeLast;
-extern FOC_TypeDef FOC;
-extern Encoder_TypeDef OnBoard_Encoder;
 
 /* 参数模块桥接口实现：节点身份与心跳超时的存储所有权在本文件（CANMsg），
  * 此处只做读写转发，不触发保存或总线重配置。 */
@@ -48,137 +39,6 @@ void CAN_HeartbeatMs_Set(uint32_t heartbeat_ms)
     CANMsg.can_hb_set = heartbeat_ms;
 }
 
-/** @brief CAN 参数在线路上的数值编码。 */
-typedef enum
-{
-    CAN_VALUE_FLOAT32,
-    CAN_VALUE_MILLI_I32,
-    CAN_VALUE_CENTI_I32,
-    CAN_VALUE_MILLI_I16,
-} CanValueEncoding;
-
-/**
- * @brief 返回写命令参数的线路编码。
- * @param param_id 参数 ID。
- * @return 位置/速度/电流参数的定点编码，其他参数返回遗留 float32。
- */
-static CanValueEncoding CAN_CommandEncoding(CAN_PARAM_ID param_id)
-{
-    switch (param_id)
-    {
-    case CAN_SET_CURRENT:
-    case CAN_SET_CURRENT_CAL:
-    case CAN_SET_CURRENT_LIMIT:
-        return CAN_VALUE_MILLI_I16;
-    case CAN_SET_POS:
-        return CAN_VALUE_MILLI_I32;
-    case CAN_SET_SPEED:
-    case CAN_SET_SPEED_LIMIT:
-    case CAN_SET_SPEED_ACC:
-    case CAN_SET_SPEED_DEC:
-    case CAN_SET_POS_ACC:
-    case CAN_SET_POS_DEC:
-    case CAN_SET_POS_MAXSPEED:
-        return CAN_VALUE_CENTI_I32;
-    default:
-        return CAN_VALUE_FLOAT32;
-    }
-}
-
-/**
- * @brief 返回回复参数的线路编码。
- * @param param_id 回复参数 ID。
- * @return 位置/速度/电流参数的定点编码，其他参数返回遗留 float32。
- */
-static CanValueEncoding CAN_ReplyEncoding(CAN_PARAM_ID param_id)
-{
-    switch (param_id)
-    {
-    case CAN_GET_CURRENT_SET:
-    case CAN_GET_CURRENT_CAL:
-    case CAN_GET_CURRENT_LIMIT:
-    case CAN_GET_IBUS:
-    case CAN_GET_IA:
-    case CAN_GET_IB:
-    case CAN_GET_IC:
-    case CAN_GET_ID:
-    case CAN_GET_IQ:
-    case CAN_GET_FRICTION_COULOMB_POS:
-    case CAN_GET_FRICTION_COULOMB_NEG:
-    case CAN_GET_FRICTION_RMSE_POS:
-    case CAN_GET_FRICTION_RMSE_NEG:
-        return CAN_VALUE_MILLI_I16;
-    case CAN_GET_POS_SET:
-    case CAN_GET_POS2_FILT:
-        return CAN_VALUE_MILLI_I32;
-    case CAN_GET_SPEED_SET:
-    case CAN_GET_SPEED_LIMIT:
-    case CAN_GET_SPEED_ACC:
-    case CAN_GET_SPEED_DEC:
-    case CAN_GET_POS_ACC:
-    case CAN_GET_POS_DEC:
-    case CAN_GET_POS_MAXSPEED:
-    case CAN_GET_SPEED2_FILT:
-        return CAN_VALUE_CENTI_I32;
-    default:
-        return CAN_VALUE_FLOAT32;
-    }
-}
-
-/**
- * @brief 将浮点 SI 值转换为保留最小值作为无效哨兵的 int32 毫单位。
- * @param value 有限 SI 值。
- * @return 截断并饱和后的线路值；非有限值返回 INT32_MIN。
- */
-static int32_t CAN_Milli32(float value)
-{
-    float scaled;
-    if (!isfinite(value))
-        return INT32_MIN;
-    scaled = value * 1000.0f;
-    if (scaled >= 2147483648.0f)
-        return INT32_MAX;
-    if (scaled <= -2147483648.0f)
-        return -INT32_MAX;
-    return (int32_t)scaled;
-}
-
-/**
- * @brief 将浮点速度或加速度转换为保留最小值哨兵的 int32 百分一单位。
- * @param value 有限 SI 值，单位 rad/s 或 rad/s²。
- * @return 截断并饱和后的线路值；非有限值返回 INT32_MIN。
- */
-static int32_t CAN_Centi32(float value)
-{
-    float scaled;
-    if (!isfinite(value))
-        return INT32_MIN;
-    scaled = value * 100.0f;
-    if (scaled >= 2147483648.0f)
-        return INT32_MAX;
-    if (scaled <= -2147483648.0f)
-        return -INT32_MAX;
-    return (int32_t)scaled;
-}
-
-/**
- * @brief 将浮点安培值转换为保留最小值作为无效哨兵的 int16 毫安。
- * @param value 有限安培值。
- * @return 截断并饱和后的线路值；非有限值返回 INT16_MIN。
- */
-static int16_t CAN_Milli16(float value)
-{
-    float scaled;
-    if (!isfinite(value))
-        return INT16_MIN;
-    scaled = value * 1000.0f;
-    if (scaled >= 32767.0f)
-        return INT16_MAX;
-    if (scaled <= -32767.0f)
-        return -INT16_MAX;
-    return (int16_t)scaled;
-}
-
 /**
     * @brief  FDCAN1 Filter Init  
               Stdandard ID, Range Mode 
@@ -187,9 +47,7 @@ void FDCAN1_Param_Init(void)
 {
     CanMotorStatus_Init();
 
-    comm_hw_can_start(CANMsg.node_id);
-
-    CANMsg.baudrate = 1000;
+    CanTransport_Init(CANMsg.node_id);
 }
 
 /**
@@ -197,12 +55,9 @@ void FDCAN1_Param_Init(void)
  **/
 void CAN_DisConnect_Handle(void)
 {
-    /* Recompute on every supervisor tick: a previous RUN must not keep the
-     * watchdog armed after STOP. Keep any existing fault latched here. */
-    CANMsg.can_hb_en =
-        CANMsg.can_hb_set != 0U &&
-        (MotorControl.ModeNow == Current_Mode || MotorControl.ModeNow == Speed_Mode ||
-         MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Position_Impedance_Mode);
+    /* 每个监督时基重算：上一轮 RUN 不得在 STOP 之后继续武装看门狗；
+     * 已锁存的故障在本函数中保留不清除。 */
+    CANMsg.can_hb_en = CANMsg.can_hb_set != 0U && CanStatus_HeartbeatArmed();
     if (!CANMsg.can_hb_en)
     {
         CANMsg.can_hb_count = 0U;
@@ -210,7 +65,7 @@ void CAN_DisConnect_Handle(void)
     }
     if (CANMsg.can_rx_en)
     {
-        /* Saturate so a sustained disconnect cannot wrap the counter. */
+        /* 饱和累加，避免持续断连把计数器绕回。 */
         if (CANMsg.can_hb_count < CANMsg.can_hb_set)
             ++CANMsg.can_hb_count;
         if (CANMsg.can_hb_count >= CANMsg.can_hb_set && MotorControl.ErrorNow == No_Error)
@@ -219,464 +74,12 @@ void CAN_DisConnect_Handle(void)
 }
 
 /**
-    * @brief  Set encoder state from CAN parameter value
-    * @param  data: encoded encoder state value
+    * @brief  只读判断控制心跳是否仍然存活
+    * @retval 非 0 表示心跳未超时
  **/
-void CAN_SetEncoderState(int data)
+bool CAN_IsHeartbeatAlive(void)
 {
-    (void)data;
-}
-
-/**
-    * @brief  Switch CAN baudrate when baudrate setting changes
- **/
-void CAN_BaudRateSwitching(void)
-{
-    static uint32_t baudrate_last = 1000;
-
-    if (baudrate_last != CANMsg.baudrate)
-    {
-        comm_hw_can_set_baudrate(CANMsg.baudrate);
-    }
-
-    baudrate_last = CANMsg.baudrate;
-}
-
-/**
-    * @brief  Get encoded encoder state
-    * @retval encoded encoder state value
- **/
-int CAN_GetEncoderState(void)
-{
-    return Encoder_IsOnline(&OnBoard_Encoder) ? 1 : 0;
-}
-
-/**
-    * @brief  Handle received CAN message
-              update motor control paramters
-    * @param  param_id: CAN parameter id 
-    * @param  data: CAN parameter data
- **/
-void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
-{
-    /* Read-only handshake; this query never arms or changes motor settings. */
-    if (param_id == CAN_GET_PROTOCOL_REVISION)
-    {
-        CAN_SendMessage_Update(CAN_GET_PROTOCOL_REVISION, (float)CAN_PARAMETER_FORMAT_REVISION);
-        return;
-    }
-    /* Handle before float-to-int conversion; NaN/fraction/out-of-range commands
-     * are rejected atomically without changing the previous stream setting. */
-    if (param_id == CAN_SET_STATUS_STREAM)
-    {
-        bool accepted = CanMotorStatus_Configure(data);
-        CAN_SendMessage_Update(CAN_GET_STATUS_STREAM,
-                               accepted ? (float)CanMotorStatus_Rate() : -1.0f);
-        return;
-    }
-    if (param_id == CAN_GET_STATUS_STREAM)
-    {
-        CAN_SendMessage_Update(CAN_GET_STATUS_STREAM, (float)CanMotorStatus_Rate());
-        return;
-    }
-    /* Validate table indexes before the shared float-to-int conversion. */
-    if (param_id == CAN_GET_COGGING_POINT &&
-        (!isfinite(data) || data < 0.0f || data >= (float)COGGING_MAP_POINTS ||
-         floorf(data) != data))
-        return;
-    if (!isfinite(data))
-        return;
-
-    int data_int = (int)data;
-
-    switch (param_id)
-    {
-    /*setting parameters*/
-    case CAN_SET_MODE:
-        if (data_int >= 0 && data_int < (int)MODE_NUM)
-            ModeSwitch_Handle((ModeNow_TypeDef)data_int);
-        break;
-    case CAN_GET_MODE:
-        CAN_SendMessage_Update(CAN_GET_MODE, (float)MotorControl.ModeNow);
-        break;
-
-    case CAN_SET_CURRENT:
-        ModeSwitch_Handle(Current_Mode);
-        if (fast_abs(data) <= MotorControl.current_limit)
-            MotorControl.iqRef = data;
-        break;
-    case CAN_GET_CURRENT_SET:
-        CAN_SendMessage_Update(CAN_GET_CURRENT_SET, MotorControl.iqRef);
-        break;
-
-    case CAN_SET_SPEED:
-        if (MotorControl.ModeNow != Sensorless_Speed_Mode)
-            ModeSwitch_Handle(Speed_Mode);
-        if (fast_abs(data) <= MotorControl.speed_limit)
-            MotorControl.speedRef = data;
-        break;
-    case CAN_GET_SPEED_SET:
-        CAN_SendMessage_Update(CAN_GET_SPEED_SET, MotorControl.speedRef);
-        break;
-
-    case CAN_SET_POS:
-    {
-        float position_ref = data;
-        if (isfinite(position_ref) &&
-            (MotorControl.ModeNow == Position_Mode ||
-             MotorControl.ModeNow == Position_Impedance_Mode || ModeSwitch_Handle(Position_Mode)))
-        {
-            MotorControl.posRef = position_ref;
-        }
-    }
-    break;
-    case CAN_GET_POS_SET:
-        CAN_SendMessage_Update(CAN_GET_POS_SET, MotorControl.posRef);
-        break;
-
-    /*user parameters*/
-    case CAN_SET_NODE_ID:
-        if (data_int >= 0 && data_int <= 7)
-        {
-            CANMsg.node_id = data;
-            Param_SetSpeedLimit(
-                fminf(MotorControl.speed_limit, Param_SpeedLimitRadS(CANMsg.node_id)));
-        }
-        break;
-    case CAN_GET_NODE_ID:
-        CAN_SendMessage_Update(CAN_GET_NODE_ID, (float)CANMsg.node_id);
-        break;
-
-    case CAN_SET_POLEPARIS:
-        if (data_int >= 2 && data_int <= 30)
-            MotorControl.motor_pole_pairs = data;
-        break;
-    case CAN_GET_POLEPARIS:
-        CAN_SendMessage_Update(CAN_GET_POLEPARIS, (float)MotorControl.motor_pole_pairs);
-        break;
-
-    case CAN_SET_ENCODER_STATE:
-        if (MotorControl.ModeNow != Current_Mode && MotorControl.ModeNow != Speed_Mode &&
-            MotorControl.ModeNow != Speed_Mode)
-        {
-            CAN_SetEncoderState(data_int);
-        }
-        break;
-    case CAN_GET_ENCODER_STATE:
-        CAN_SendMessage_Update(CAN_GET_ENCODER_STATE, (float)CAN_GetEncoderState());
-        break;
-
-    case CAN_SET_ENCODER_REVERSE:
-        if (MotorControl.ModeNow == Motor_Disable && (data_int == 0 || data_int == 1))
-        {
-            if (Encoder_GetReverse(&OnBoard_Encoder) != (uint8_t)data_int)
-                MotorControl.friction_model_valid = false;
-            Encoder_SetReverse(&OnBoard_Encoder, data_int != 0);
-        }
-        break;
-    case CAN_GET_ENCODER_REVERSE:
-        CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE,
-                               (float)Encoder_GetReverse(&OnBoard_Encoder));
-        break;
-
-    case CAN_SET_CURRENT_CAL:
-        if (data >= 0.0f && data <= CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A)
-            MotorControl.calib_current = data;
-        break;
-    case CAN_GET_CURRENT_CAL:
-        CAN_SendMessage_Update(CAN_GET_CURRENT_CAL, MotorControl.calib_current);
-        break;
-
-    case CAN_SET_CURRENT_LIMIT:
-        if (data >= 0.0f && data <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
-        {
-            MotorControl.current_limit = data;
-            MotorControl.iqRef = constrain(MotorControl.iqRef, -data, data);
-        }
-        break;
-    case CAN_GET_CURRENT_LIMIT:
-        CAN_SendMessage_Update(CAN_GET_CURRENT_LIMIT, MotorControl.current_limit);
-        break;
-
-    case CAN_SET_SPEED_LIMIT:
-        Param_SetSpeedLimit(data);
-        break;
-    case CAN_GET_SPEED_LIMIT:
-        CAN_SendMessage_Update(CAN_GET_SPEED_LIMIT, MotorControl.speed_limit);
-        break;
-
-    case CAN_SET_SPEED_ACC:
-        if (data >= 0.0f && data <= 1000.0f * _2PI)
-            MotorControl.speedAcc = data;
-        break;
-    case CAN_GET_SPEED_ACC:
-        CAN_SendMessage_Update(CAN_GET_SPEED_ACC, MotorControl.speedAcc);
-        break;
-
-    case CAN_SET_SPEED_DEC:
-        if (data >= 0.0f && data <= 1000.0f * _2PI)
-            MotorControl.speedDec = data;
-        break;
-    case CAN_GET_SPEED_DEC:
-        CAN_SendMessage_Update(CAN_GET_SPEED_DEC, MotorControl.speedDec);
-        break;
-
-    case CAN_SET_SPEED_KP:
-        if (data >= 0.01f && data <= 2.0f)
-            MotorControl.speed_Kp = data;
-        break;
-    case CAN_GET_SPEED_KP:
-        CAN_SendMessage_Update(CAN_GET_SPEED_KP, MotorControl.speed_Kp);
-        break;
-
-    case CAN_SET_SPEED_KI:
-        if (data >= 0.0f && data <= 2.0f)
-            MotorControl.speed_Ki = data;
-        break;
-    case CAN_GET_SPEED_KI:
-        CAN_SendMessage_Update(CAN_GET_SPEED_KI, MotorControl.speed_Ki);
-        break;
-
-    case CAN_SET_POS_ACC:
-        if (data > 0.0f && data <= 200.0f * _2PI)
-            MotorControl.posAcc = data;
-        break;
-    case CAN_GET_POS_ACC:
-        CAN_SendMessage_Update(CAN_GET_POS_ACC, MotorControl.posAcc);
-        break;
-
-    case CAN_SET_POS_DEC:
-        if (data > 0.0f && data <= 200.0f * _2PI)
-            MotorControl.posDec = data;
-        break;
-    case CAN_GET_POS_DEC:
-        CAN_SendMessage_Update(CAN_GET_POS_DEC, MotorControl.posDec);
-        break;
-
-    case CAN_SET_POS_MAXSPEED:
-        if (data > 0.0f && data <= POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI &&
-            data <= MotorControl.speed_limit)
-        {
-            float position_maxspeed = data;
-            if (MotorControl.pos_maxspeed != position_maxspeed)
-                MotorControl.pos_maxspeed = position_maxspeed;
-        }
-        break;
-    case CAN_GET_POS_MAXSPEED:
-        CAN_SendMessage_Update(CAN_GET_POS_MAXSPEED, MotorControl.pos_maxspeed);
-        break;
-
-    case CAN_SET_POS_KP:
-        if (data >= 0.0f && data <= POSITION_IMPEDANCE_KP_MAX_A_PER_RAD)
-            MotorControl.pos_Kp = data;
-        break;
-    case CAN_GET_POS_KP:
-        CAN_SendMessage_Update(CAN_GET_POS_KP, MotorControl.pos_Kp);
-        break;
-
-    case CAN_SET_POS_KD:
-        if (data >= 0.0f && data <= POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S)
-            MotorControl.pos_Kd = data;
-        break;
-    case CAN_GET_POS_KD:
-        CAN_SendMessage_Update(CAN_GET_POS_KD, MotorControl.pos_Kd);
-        break;
-
-    case CAN_SET_POS_KI:
-        if (data >= 0.0f && data <= POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S)
-            MotorControl.pos_Ki = data;
-        break;
-    case CAN_GET_POS_KI:
-        CAN_SendMessage_Update(CAN_GET_POS_KI, MotorControl.pos_Ki);
-        break;
-
-    case CAN_SET_POS_INTEGRAL_LIMIT:
-        if (data >= 0.0f && data <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
-            MotorControl.pos_integral_limit = data;
-        break;
-    case CAN_GET_POS_INTEGRAL_LIMIT:
-        CAN_SendMessage_Update(CAN_GET_POS_INTEGRAL_LIMIT, MotorControl.pos_integral_limit);
-        break;
-
-    case CAN_SET_CASCADE_POS_KP:
-        if (data >= 0.0f && data <= CASCADE_POSITION_KP_MAX_PER_S)
-            MotorControl.cascade_pos_Kp = data;
-        break;
-    case CAN_GET_CASCADE_POS_KP:
-        CAN_SendMessage_Update(CAN_GET_CASCADE_POS_KP, MotorControl.cascade_pos_Kp);
-        break;
-
-    case CAN_SET_CASCADE_POS_KD:
-        if (data >= 0.0f && data <= CASCADE_POSITION_KD_MAX)
-            MotorControl.cascade_pos_Kd = data;
-        break;
-    case CAN_GET_CASCADE_POS_KD:
-        CAN_SendMessage_Update(CAN_GET_CASCADE_POS_KD, MotorControl.cascade_pos_Kd);
-        break;
-
-    case CAN_APPLY_FRICTION_MODEL:
-        if (data_int == 1)
-            (void)FocFrictionIdentification_ApplyCandidate(&MotorControl);
-        break;
-    case CAN_GET_FRICTION_STATE:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_STATE, (float)FocFrictionIdentification_GetState());
-        break;
-    case CAN_GET_FRICTION_REASON:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_REASON,
-                               (float)FocFrictionIdentification_GetReason());
-        break;
-    case CAN_GET_FRICTION_COULOMB_POS:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_COULOMB_POS,
-                               FocFrictionIdentification_GetResult()->coulomb_pos_a);
-        break;
-    case CAN_GET_FRICTION_COULOMB_NEG:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_COULOMB_NEG,
-                               FocFrictionIdentification_GetResult()->coulomb_neg_a);
-        break;
-    case CAN_GET_FRICTION_VISCOUS_POS:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_VISCOUS_POS,
-                               FocFrictionIdentification_GetResult()->viscous_pos_a_per_rad_s);
-        break;
-    case CAN_GET_FRICTION_VISCOUS_NEG:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_VISCOUS_NEG,
-                               FocFrictionIdentification_GetResult()->viscous_neg_a_per_rad_s);
-        break;
-    case CAN_GET_FRICTION_RMSE_POS:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_RMSE_POS,
-                               FocFrictionIdentification_GetResult()->rmse_pos_a);
-        break;
-    case CAN_GET_FRICTION_RMSE_NEG:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_RMSE_NEG,
-                               FocFrictionIdentification_GetResult()->rmse_neg_a);
-        break;
-    case CAN_GET_FRICTION_CANDIDATE_VALID:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_CANDIDATE_VALID,
-                               FocFrictionIdentification_GetResult()->valid ? 1.0f : 0.0f);
-        break;
-    case CAN_GET_FRICTION_MODEL_VALID:
-        CAN_SendMessage_Update(CAN_GET_FRICTION_MODEL_VALID,
-                               MotorControl.friction_model_valid ? 1.0f : 0.0f);
-        break;
-
-    case CAN_SET_COGGING:
-        if (data == 0.0f || data == 1.0f)
-            CoggingCompensation.request = (uint32_t)data; /* CRC validation in foreground */
-        break;
-    case CAN_GET_COGGING_STATE:
-        CAN_SendMessage_Update(param_id, (float)FocCogging_GetState());
-        break;
-    case CAN_GET_COGGING_REASON:
-        CAN_SendMessage_Update(param_id, (float)CoggingCalib.reason);
-        break;
-    case CAN_GET_COGGING_PROGRESS:
-        CAN_SendMessage_Update(param_id,
-                               100.0f * (float)CoggingCalib.points_done /
-                                   (2.0f * (float)COGGING_MAP_POINTS));
-        break;
-    case CAN_GET_COGGING_POINT:
-        if (isfinite(data) && data >= 0.0f && data < (float)COGGING_MAP_POINTS &&
-            data == (float)data_int)
-            CAN_SendMessage_Update(
-                param_id, FocCogging_TableValid() ? (float)CoggingMap.iq_q15[data_int] : NAN);
-        break;
-    case CAN_GET_COGGING_FULL_SCALE:
-        CAN_SendMessage_Update(param_id, FocCogging_TableValid() ? CoggingMap.full_scale_a : NAN);
-        break;
-    case CAN_GET_COGGING_VALID:
-        CAN_SendMessage_Update(param_id, FocCogging_TableValid() ? 1.0f : 0.0f);
-        break;
-    case CAN_GET_COGGING:
-        CAN_SendMessage_Update(CAN_GET_COGGING, (float)CoggingCompensation.enabled);
-        break;
-    case CAN_GET_TEMPERATURE_SOURCE:
-        CAN_SendMessage_Update(param_id, 1.0f);
-        break;
-    case CAN_GET_TEMPERATURE_VALID:
-        CAN_SendMessage_Update(param_id, (float)McuTemperature.valid);
-        break;
-
-    case CAN_SET_CAN_BR:
-        if (data_int == 100 || data_int == 125 || data_int == 200 || data_int == 250 ||
-            data_int == 500 || data_int == 1000 || data_int == 2000 || data_int == 2500 ||
-            data_int == 5000)
-            CANMsg.baudrate = data_int;
-        break;
-    case CAN_GET_CAN_BR:
-        CAN_SendMessage_Update(CAN_GET_CAN_BR, (float)CANMsg.baudrate);
-        break;
-
-    case CAN_SET_CAN_HB:
-        if ((data_int >= 500 && data <= 1000) || data_int == 0)
-            CANMsg.can_hb_set = data_int;
-        break;
-    case CAN_GET_CAN_HB:
-        CAN_SendMessage_Update(CAN_GET_CAN_HB, (float)CANMsg.can_hb_set);
-        break;
-
-    /*state parameters*/
-    case CAN_GET_VBUS:
-        CAN_SendMessage_Update(CAN_GET_VBUS, FOC.Vbus_filt);
-        break;
-
-    case CAN_GET_IBUS:
-        CAN_SendMessage_Update(CAN_GET_IBUS, FOC.Ibus_filt);
-        break;
-
-    case CAN_GET_IA:
-        CAN_SendMessage_Update(CAN_GET_IA, FOC.Ia);
-        break;
-
-    case CAN_GET_IB:
-        CAN_SendMessage_Update(CAN_GET_IB, FOC.Ib);
-        break;
-
-    case CAN_GET_IC:
-        CAN_SendMessage_Update(CAN_GET_IC, FOC.Ic);
-        break;
-
-    case CAN_GET_ID:
-        CAN_SendMessage_Update(CAN_GET_ID, FOC.Id);
-        break;
-
-    case CAN_GET_IQ:
-        CAN_SendMessage_Update(CAN_GET_IQ, FOC.Iq);
-        break;
-
-    case CAN_GET_SPEED2_FILT:
-        CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, Encoder_GetMecVel(&OnBoard_Encoder));
-        break;
-
-    case CAN_GET_POS2_FILT:
-        CAN_SendMessage_Update(CAN_GET_POS2_FILT, Encoder_GetMecPos(&OnBoard_Encoder));
-        break;
-
-    case CAN_GET_TEMP:
-        CAN_SendMessage_Update(CAN_GET_TEMP, FOC.temp);
-        break;
-
-    case CAN_GET_RS:
-        CAN_SendMessage_Update(CAN_GET_RS, MotorControl.motor_phase_resistance);
-        break;
-
-    case CAN_GET_LD:
-        CAN_SendMessage_Update(CAN_GET_LD, MotorControl.motor_d_inductance);
-        break;
-
-    case CAN_GET_LQ:
-        CAN_SendMessage_Update(CAN_GET_LQ, MotorControl.motor_q_inductance);
-        break;
-
-    case CAN_GET_FLUX:
-        CAN_SendMessage_Update(CAN_GET_FLUX, MotorControl.motor_flux);
-        break;
-
-    case CAN_GET_ERROR:
-        CAN_SendMessage_Update(CAN_GET_ERROR, (float)MotorControl.ErrorNow);
-        break;
-
-    default:
-        break;
-    }
+    return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
 }
 
 /**
@@ -688,142 +91,31 @@ void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 {
     CANMsg.tx_param_id = param_id;
     CANMsg.tx_data = data;
-    CanValueEncoding encoding = CAN_ReplyEncoding(param_id);
+    CanValueEncoding encoding = CanParamWire_ReplyEncoding(param_id);
     if (encoding == CAN_VALUE_MILLI_I16)
     {
-        uint16_t value = (uint16_t)CAN_Milli16(data);
+        uint16_t value = (uint16_t)CanParamWire_Milli16(data);
         CANMsg.tx_data_u8[0] = (uint8_t)(value >> 8);
         CANMsg.tx_data_u8[1] = (uint8_t)value;
         CANMsg.tx_data_u8[2] = CANMsg.tx_data_u8[3] = 0U;
-        CANMsg.tx_data_len = 2U;
     }
     else
     {
         uint32_t value;
         if (encoding == CAN_VALUE_MILLI_I32)
-            value = (uint32_t)CAN_Milli32(data);
+            value = (uint32_t)CanParamWire_Milli32(data);
         else if (encoding == CAN_VALUE_CENTI_I32)
-            value = (uint32_t)CAN_Centi32(data);
+            value = (uint32_t)CanParamWire_Centi32(data);
         else
             value = FloatToIntBit(data);
         CANMsg.tx_data_u8[0] = (uint8_t)(value >> 24);
         CANMsg.tx_data_u8[1] = (uint8_t)(value >> 16);
         CANMsg.tx_data_u8[2] = (uint8_t)(value >> 8);
         CANMsg.tx_data_u8[3] = (uint8_t)value;
-        CANMsg.tx_data_len = 4U;
     }
+    CANMsg.tx_data_len = CanParamWire_Length(encoding);
 
     CANMsg.can_tx_en = true;
-}
-
-/**
-    * @brief  CAN Rx interrupt Handle  
-              extract param id and data from mail box
- **/
-void CANRxIRQHandler(void)
-{
-    CommHwCanFrame frame;
-    uint8_t node_id;
-    uint8_t param_id;
-    uint32_t u32_data = 0;
-    float decoded_data;
-    CanValueEncoding encoding;
-
-    /* Other nodes' 48-byte status can reach node 7's legacy range filter.
-     * Receive into a full CAN FD buffer; reject status/invalid lengths before
-     * decoding commands or refreshing the control heartbeat. */
-    if (!comm_hw_can_receive(&frame) || frame.extended || frame.remote ||
-        (frame.length != 2U && frame.length != 4U) || frame.identifier > 0x7FFU ||
-        (frame.identifier >= CAN_MOTOR_STATUS_ID_BASE &&
-         frame.identifier < CAN_MOTOR_STATUS_ID_BASE + 8U))
-        return;
-
-    /*high 3 bits*/
-    node_id = frame.identifier >> 8;
-    /*low 8 bits*/
-    param_id = frame.identifier & 0x0FF;
-
-    /*node id matches*/
-    if (node_id == CANMsg.node_id)
-    {
-        encoding = CAN_CommandEncoding((CAN_PARAM_ID)param_id);
-        if ((encoding == CAN_VALUE_MILLI_I16 && frame.length != 2U) ||
-            (encoding != CAN_VALUE_MILLI_I16 && frame.length != 4U))
-            return;
-        for (unsigned i = 0; i < frame.length; ++i)
-            CANMsg.rx_data_u8[i] = frame.data[i];
-        if (encoding == CAN_VALUE_MILLI_I16)
-        {
-            int16_t value = (int16_t)(((uint16_t)frame.data[0] << 8) | frame.data[1]);
-            if (value == INT16_MIN)
-                return;
-            decoded_data = (float)value / 1000.0f;
-        }
-        else
-        {
-            u32_data |= (uint32_t)frame.data[0] << 24;
-            u32_data |= (uint32_t)frame.data[1] << 16;
-            u32_data |= (uint32_t)frame.data[2] << 8;
-            u32_data |= (uint32_t)frame.data[3];
-            if ((encoding == CAN_VALUE_MILLI_I32 || encoding == CAN_VALUE_CENTI_I32) &&
-                (int32_t)u32_data == INT32_MIN)
-                return;
-            if (encoding == CAN_VALUE_MILLI_I32)
-                decoded_data = (float)(int32_t)u32_data / 1000.0f;
-            else if (encoding == CAN_VALUE_CENTI_I32)
-                decoded_data = (float)(int32_t)u32_data / 100.0f;
-            else
-                decoded_data = IntBitToFloat(u32_data);
-        }
-
-        CANMsg.can_rx_en = true;
-        CANMsg.can_hb_count = 0;
-
-        /* 链路恢复后的故障清除由运行状态机按恢复矩阵执行（阶段 D）。 */
-
-        CANMsg.rx_param_id = (CAN_PARAM_ID)param_id;
-        CANMsg.rx_data = decoded_data;
-
-        CAN_ReceiveMessage_Update(CANMsg.rx_param_id, CANMsg.rx_data);
-    }
-}
-
-/**
-    * @brief  前台按需组装电机状态快照
-             直接读取电机与控制状态，不再由快速环发布
- **/
-static void CAN_BuildMotorStatusSnapshot(MotorStatus *sample)
-{
-    sample->fault = (uint16_t)MotorControl.ErrorNow;
-    sample->mode = (uint16_t)MotorControl.ModeNow;
-    sample->position_target = MotorControl.posRef;
-    sample->position_feedback = Encoder_GetMecPos(&OnBoard_Encoder);
-    sample->speed_target = MotorControl.speedRef;
-    sample->speed_feedback =
-        (MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Position_Impedance_Mode)
-            ? MotorControl.pos_vel_filtered
-            : Encoder_GetMecVel(&OnBoard_Encoder);
-    sample->current_reference = MotorControl.iqRef;
-    sample->current_feedback = FOC.Iq;
-    sample->temperature = FOC.temp;
-    sample->bus_voltage = FOC.Vbus_filt;
-    sample->bus_current = FOC.Ibus_filt;
-    sample->position_planned = NAN;
-    sample->speed_planned = NAN;
-    if (MotorControl.ModeNow == Position_Mode)
-    {
-        sample->position_planned = MotorControl.posShadow;
-        sample->speed_planned = MotorControl.pos_trajectory_speed_rad_s;
-    }
-    else if (MotorControl.ModeNow == Position_Impedance_Mode)
-    {
-        sample->position_planned = MotorControl.posShadow;
-        sample->speed_planned = MotorControl.speedShadow;
-    }
-    else if (MotorControl.ModeNow == Speed_Mode)
-    {
-        sample->speed_planned = MotorControl.speedShadow;
-    }
 }
 
 /**
@@ -839,28 +131,19 @@ void CAN_SendMessage(void)
         if (MotorStatus_IsRequested())
         {
             MotorStatus snapshot;
-            CAN_BuildMotorStatusSnapshot(&snapshot);
+            CanStatus_BuildSnapshot(&snapshot);
             MotorStatus_Publish(&snapshot);
         }
         if (CanMotorStatus_Prepare(
                 time_hw_now_ms(), CANMsg.node_id, &identifier, payload, sizeof(payload)) &&
             !CANMsg.can_tx_en)
-            (void)comm_hw_can_try_send_status(identifier, payload, sizeof(payload));
+            (void)CanTransport_TrySendStatus(identifier, payload, sizeof(payload));
         return;
     }
 
-    uint32_t ID = CANMsg.node_id << 8 | CANMsg.tx_param_id;
+    uint32_t ID = CanParamWire_Identifier(CANMsg.node_id, CANMsg.tx_param_id);
 
-    uint8_t send_num = 0;
-
-    while (!comm_hw_can_try_send_reply((uint16_t)ID, CANMsg.tx_data_u8, CANMsg.tx_data_len))
-    {
-        /* blocked*/
-        if (++send_num == 5)
-        {
-            break;
-        }
-    }
+    CanTransport_SendReply(ID, CANMsg.tx_data_u8, CANMsg.tx_data_len);
 
     CANMsg.can_tx_en = false;
 }

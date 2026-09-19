@@ -1321,6 +1321,31 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\communication\can\interface_can.c</FilePath>
             </File>
+            <File>
+              <FileName>can_transport.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\can_transport.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_command_binding.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\can_command_binding.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_binding_commands.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\can_binding_commands.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_binding_queries.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\can_binding_queries.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_status_source.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\can_status_source.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

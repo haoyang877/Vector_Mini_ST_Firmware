@@ -15,7 +15,7 @@ from run_position_servo_tests import function_source
 
 def command_case(path, name):
     source = (ROOT / path).read_text(encoding="utf-8")
-    source = function_source(source, "CAN_ReceiveMessage_Update")
+    source = function_source(source, "CanBinding_ApplyCommand")
     start = source.index("case " + name + ":")
     end = source.index("break;", start) + len("break;")
     return source[start:end]
@@ -47,7 +47,7 @@ CANMsg_TypeDef CANMsg;
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
     prelude += "\nstatic void can_set(int id, float data) { int data_int=(int)data; switch(id) {\n"
     prelude += "\n".join(
-        command_case("firmware/communication/can/interface_can.c", n)
+        command_case("firmware/communication/can/can_binding_commands.c", n)
         for n in ("CAN_SET_NODE_ID", "CAN_SET_SPEED_LIMIT")
     )
     return (

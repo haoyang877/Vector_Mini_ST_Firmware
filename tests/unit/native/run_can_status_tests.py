@@ -28,6 +28,21 @@ def main():
         "#include <stdio.h>",
     ]
     source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
+    wire = (ROOT / "firmware/communication/protocol/can_parameter_wire.c").read_text(
+        encoding="utf-8"
+    )
+    transport_source = (ROOT / "firmware/communication/can/can_transport.c").read_text(
+        encoding="utf-8"
+    )
+    binding_source = (ROOT / "firmware/communication/can/can_command_binding.c").read_text(
+        encoding="utf-8"
+    )
+    queries_source = (ROOT / "firmware/communication/can/can_binding_queries.c").read_text(
+        encoding="utf-8"
+    )
+    status_source = (ROOT / "firmware/communication/can/can_status_source.c").read_text(
+        encoding="utf-8"
+    )
     sampling = (
         "\n".join(common)
         + r"""
@@ -43,7 +58,7 @@ static float Encoder_GetMecPos(const EncoderTelemetry_TypeDef *e) { return e->th
 static float Encoder_GetMecVel(const EncoderTelemetry_TypeDef *e) { return e->vel_mech; }
 static struct {float Iq,temp,Vbus_filt,Ibus_filt;} FOC;
 """
-        + function_source(source, "CAN_BuildMotorStatusSnapshot")
+        + function_source(status_source, "CanStatus_BuildSnapshot")
         + r"""
 int main(void) {
  MotorStatus s;
@@ -54,13 +69,13 @@ int main(void) {
  MotorControl.iqRef=1.5f; FOC.Iq=1.25f; FOC.temp=65.25f; FOC.Vbus_filt=48.75f; FOC.Ibus_filt=-.375f;
  OnBoard_Encoder.theta_mech=-1.5f; OnBoard_Encoder.vel_mech=-4.f;
  MotorControl.pos_vel_filtered=-2.f;
- CAN_BuildMotorStatusSnapshot(&s);
+ CanStatus_BuildSnapshot(&s);
  assert(s.fault==7 && s.mode==3 && s.position_target==1.25f && s.position_planned==.75f);
  assert(s.speed_target==2.5f && s.speed_planned==-.5f && s.speed_feedback==-2.f);
  assert(s.position_feedback==-1.5f && s.current_reference==1.5f && s.current_feedback==1.25f);
  assert(s.temperature==65.25f && s.bus_voltage==48.75f);
  assert(s.bus_current==-.375f && s.bus_current!=s.current_feedback);
- MotorControl.ModeNow=2; CAN_BuildMotorStatusSnapshot(&s);
+ MotorControl.ModeNow=2; CanStatus_BuildSnapshot(&s);
  assert(s.speed_feedback==-4.f && s.speed_planned==9.f);
  puts("PASS actual motor status source: target vs planned, filtered speed, current, temperature, voltage and fault");return 0;
 }
@@ -74,8 +89,17 @@ int main(void) {
 #include "firmware/communication/protocol/can_motor_status.h"
 typedef unsigned CAN_PARAM_ID;
 typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALUE_MILLI_I16} CanValueEncoding;
-static CanValueEncoding CAN_CommandEncoding(CAN_PARAM_ID p)
-{if(p==2)return CAN_VALUE_MILLI_I16;if(p==4)return CAN_VALUE_CENTI_I32;if(p==6)return CAN_VALUE_MILLI_I32;return CAN_VALUE_FLOAT32;}
+#define CAN_SET_CURRENT 0x02
+#define CAN_SET_SPEED 0x04
+#define CAN_SET_POS 0x06
+#define CAN_SET_CURRENT_CAL 0x0e
+#define CAN_SET_CURRENT_LIMIT 0x10
+#define CAN_SET_SPEED_LIMIT 0x12
+#define CAN_SET_SPEED_ACC 0x14
+#define CAN_SET_SPEED_DEC 0x16
+#define CAN_SET_POS_ACC 0x1c
+#define CAN_SET_POS_DEC 0x1e
+#define CAN_SET_POS_MAXSPEED 0x20
 static struct { unsigned node_id,can_hb_count; bool can_rx_en; uint8_t rx_data_u8[4]; unsigned rx_param_id; float rx_data; } CANMsg;
 static unsigned calls,last_param;
 static float last_value;
@@ -86,7 +110,10 @@ static bool comm_hw_can_receive_stub(CommHwCanFrame *f) {*f=incoming;return rx_o
 static float IntBitToFloat(uint32_t i) {float f;memcpy(&f,&i,4);return f;}
 static void CAN_ReceiveMessage_Update(unsigned p,float f) {last_param=p;last_value=f;++calls;}
 """
-        + function_source(source, "CANRxIRQHandler")
+        + function_source(wire, "CanParamWire_CommandEncoding")
+        + function_source(wire, "CanParamWire_Length")
+        + function_source(transport_source, "CanTransport_ReceiveFrame")
+        + function_source(binding_source, "CANRxIRQHandler")
         + r"""
 int main(void) {
  CANMsg.node_id=4;CANMsg.can_hb_count=123;
@@ -248,8 +275,12 @@ bool comm_hw_can_try_send_status(uint16_t id,const uint8_t *d,size_t len) {
 bool comm_hw_can_try_send_reply(uint16_t id,const uint8_t *d,uint8_t len) {
  (void)d;assert(id==0x465 && len==4);++replies;return true;
 }
-static void CAN_BuildMotorStatusSnapshot(MotorStatus *sample) {(void)sample;}
+static void CanStatus_BuildSnapshot(MotorStatus *sample) {(void)sample;}
+typedef unsigned CAN_PARAM_ID;
 """
+        + function_source(wire, "CanParamWire_Identifier")
+        + function_source(transport_source, "CanTransport_SendReply")
+        + function_source(transport_source, "CanTransport_TrySendStatus")
         + function_source(source, "CAN_SendMessage")
         + r"""
 int main(void) {
@@ -295,10 +326,11 @@ typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALU
 static struct {unsigned tx_param_id;float tx_data;uint8_t tx_data_u8[4],tx_data_len;bool can_tx_en;} CANMsg;
 static uint32_t FloatToIntBit(float value) {uint32_t bits;memcpy(&bits,&value,4);return bits;}
 """
-        + function_source(source, "CAN_ReplyEncoding")
-        + function_source(source, "CAN_Milli32")
-        + function_source(source, "CAN_Centi32")
-        + function_source(source, "CAN_Milli16")
+        + function_source(wire, "CanParamWire_ReplyEncoding")
+        + function_source(wire, "CanParamWire_Milli32")
+        + function_source(wire, "CanParamWire_Centi32")
+        + function_source(wire, "CanParamWire_Milli16")
+        + function_source(wire, "CanParamWire_Length")
         + function_source(source, "CAN_SendMessage_Update")
         + r"""
 int main(void) {
@@ -339,7 +371,9 @@ static unsigned replies;
 static unsigned reply_id;
 static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67);reply_id=id;reply=value;++replies;}
 """
-        + function_source(source, "CAN_ReceiveMessage_Update").split("if (!isfinite(data))")[0]
+        + function_source(binding_source, "CAN_ReceiveMessage_Update").split(
+            "if (!isfinite(data))"
+        )[0]
         + "}\n"
         + r"""
 #include <math.h>
@@ -369,6 +403,7 @@ static struct {bool can_hb_en,can_rx_en;uint32_t can_hb_set,can_hb_count;} CANMs
 static struct {unsigned ModeNow,ErrorNow;} MotorControl;
 static void Set_ErrorNow(unsigned error) {MotorControl.ErrorNow=error;}
 """
+        + function_source(status_source, "CanStatus_HeartbeatArmed")
         + function_source(source, "CAN_DisConnect_Handle")
         + r"""
 int main(void) {
@@ -404,7 +439,7 @@ int main(void) {
         "CAN_GET_TEMPERATURE_SOURCE",
         "CAN_GET_TEMPERATURE_VALID",
     ):
-        case = source.split("case " + label + ":", 1)[1].split("break;", 1)[0]
+        case = queries_source.split("case " + label + ":", 1)[1].split("break;", 1)[0]
         cases.append("case " + label + ":" + case + "break;")
     config_get = (
         "\n".join(common)
@@ -414,7 +449,8 @@ int main(void) {
 #define CAN_GET_TEMPERATURE_SOURCE 0x6e
 #define CAN_GET_TEMPERATURE_VALID 0x6f
 static struct {unsigned valid;} McuTemperature;
-static struct {unsigned baudrate,can_hb_set;} CANMsg={1000,500};
+static struct {unsigned can_hb_set;} CANMsg={500};
+static uint32_t CanTransport_Baudrate(void) {return 1000U;}
 static unsigned reply_id,calls;
 static float reply_value;
 static void CAN_SendMessage_Update(unsigned id,float value)
@@ -445,6 +481,7 @@ int main(void) {
             ROOT / "tests/unit/can_motor_status_test.c",
             [
                 ROOT / "firmware/communication/protocol/can_motor_status.c",
+                ROOT / "firmware/communication/protocol/can_parameter_wire.c",
                 ROOT / "firmware/services/telemetry/motor_status.c",
             ],
         ),
@@ -465,6 +502,7 @@ int main(void) {
             command,
             [
                 ROOT / "firmware/communication/protocol/can_motor_status.c",
+                ROOT / "firmware/communication/protocol/can_parameter_wire.c",
                 ROOT / "firmware/services/telemetry/motor_status.c",
             ],
         ),

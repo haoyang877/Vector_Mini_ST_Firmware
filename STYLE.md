@@ -105,6 +105,33 @@ Keep substantial refactoring separate from functional changes so each diff remai
 reviewable and reversible. Never simplify away boundary validation, explicit error handling, power
 stage shutdown checks, calibration controls, or bounded real-time behavior.
 
+### Firmware helper functions
+
+- Start a helper as `static` in the owning `.c` file. Move it into a module-private file only when
+  multiple functions in that module need it.
+- Promote a helper to `firmware/common/` only when unrelated real modules use the same complete
+  contract. Name the module after the capability, such as byte order, CRC, fixed-point conversion,
+  or a bounded container; do not create `utils.c`, `helpers.c`, or another miscellaneous bucket.
+- Prefer pure functions with explicit inputs and outputs. A common helper must not read mutable
+  globals, access hardware, depend on HAL/RTOS types, allocate memory, block, or hide initialization.
+- Document width, units, valid range, overflow/saturation, NaN handling, buffer capacity, aliasing,
+  ISR safety, and worst-case work when they affect correctness.
+- Keep reusable headers self-contained and implementation visibility minimal. Do not add Boolean
+  mode flags, `void *`, callbacks, or configuration merely to make unrelated behavior look generic.
+- Shared helpers need focused host-native tests covering boundary and failure behavior. Remove an
+  unused public helper instead of retaining it for a hypothetical caller.
+
+### Repository tool helpers
+
+- Keep imports free of device access and side effects. Pass paths, environment-derived settings,
+  subprocess runners, and hardware sessions explicitly at the boundary.
+- Reuse `tools/project_paths.py` for repository paths and `tools/harness/common.py` for harness
+  evidence mechanics; domain-specific protocol or analysis helpers stay with their owning tool area.
+- Promote repeated code only when parsing, units, failure behavior, and output schema match. Prefer
+  a small duplicated adapter over a shared function with product-specific flags and branches.
+- A reusable tool function has type annotations, a Chinese contract, deterministic return data,
+  actionable errors, and a focused offline test. It never contacts hardware merely by being imported.
+
 ## Golden examples
 
 Copy and rename the examples under `templates/` when creating a module or command. The examples are

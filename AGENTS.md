@@ -67,12 +67,20 @@ commands require an explicit bench identity, motor profile, image hash, and scen
 - Put behavior in the narrowest layer that owns it; cross-layer access uses documented interfaces.
 - Do not introduce hidden dependencies through mutable globals, implicit initialization order, or
   direct hardware access outside the platform layer.
+- Motor, service, and communication code must not expose STM32 HAL types, CubeMX handles, registers,
+  board pins, or vendor headers. Platform APIs describe capabilities, units, timing, and failures.
+- Keep board/MCU variants and vendor adaptation in BSP, ports, or composition code; do not scatter
+  hardware `#ifdef` branches through portable modules.
+- Separate deterministic computation from I/O and scheduling. Give mutable state one owner and
+  exchange commands, snapshots, or explicit state objects across module boundaries.
 - Reuse only when units, timing, ownership, errors, and safety semantics match. Prefer small obvious
   duplication over a generic abstraction that hides different behavior.
 - Do not add speculative interfaces, factories, registries, or configuration. A single-implementation
   interface is justified only by a real hardware boundary, test seam, or stable ABI boundary.
 - Shared code needs real callers and a focused test. Keep substantial behavior-preserving refactors
   separate from functional changes.
+- Keep helpers file-local first. Promote them to a narrowly named common module only after unrelated
+  real callers need the same complete contract; never create a catch-all `utils` module.
 
 ## Required checks by change
 

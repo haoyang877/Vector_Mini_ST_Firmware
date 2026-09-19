@@ -1256,6 +1256,11 @@
               <FilePath>..\..\..\..\communication\protocol\can_motor_status.c</FilePath>
             </File>
             <File>
+              <FileName>can_parameter_wire.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\can_parameter_wire.c</FilePath>
+            </File>
+            <File>
               <FileName>rtt_telemetry.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\app\rtt_telemetry.c</FilePath>

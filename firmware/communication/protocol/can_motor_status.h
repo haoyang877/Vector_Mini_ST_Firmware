@@ -5,8 +5,6 @@
 #include <stddef.h>
 #include "motor_status.h"
 
-#define CAN_MOTOR_STATUS_COMMAND 0x64U
-#define CAN_MOTOR_STATUS_REPLY 0x65U
 #define CAN_MOTOR_STATUS_ID_BASE 0x7F0U
 #define CAN_MOTOR_STATUS_SIZE 48U
 /** Offset 38: extension revision 1 provides signed milliamp Ibus at offset 36.

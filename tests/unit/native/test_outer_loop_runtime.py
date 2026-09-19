@@ -27,7 +27,7 @@ def main():
     (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
     lut_size = re.search(
         r"^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U",
-        (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(encoding="utf-8"),
+        (ROOT / "firmware/motor/position/angle_feedback.h").read_text(encoding="utf-8"),
         re.M,
     )[1]
     src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
@@ -53,7 +53,7 @@ def main():
         )
     )
     # Use the real parameter structure to guard the full current allocation set.
-    param = (ROOT / "firmware/services/parameters/foc_param.h").read_text()
+    param = (ROOT / "firmware/services/parameters/foc_param.h").read_text(encoding="utf-8")
     param = param[
         param.index("typedef struct") : param.index("} InterfaceParam_TypeDef;")
         + len("} InterfaceParam_TypeDef;")

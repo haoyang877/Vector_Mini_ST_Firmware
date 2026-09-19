@@ -737,7 +737,7 @@ void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_
         Set_ErrorNow(Encoder_Error);
         return;
     }
-    if ((Encoder->calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+    if ((Encoder_GetCalibFlag(Encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
     {
         Set_ErrorNow(Encoder_NotCalibrated);
         return;

@@ -1,14 +1,16 @@
-#include "encoder.h"
+#include "angle_feedback.h"
 
 #include <limits.h>
 #include <string.h>
 #include "control_config.h"
+#include "critical_hw.h"
 #include "encoder_sensor.h"
 #include "utils.h"
 
-/* 编码器角度反馈：TLE5012B 帧读取编排、方向/线性化/电零位/多圈累积与速度估计。
- * SPI 传输在 platform/stm32g4/ports/motor/encoder_spi_stm32g4.c 完成；
- * 本文件不访问寄存器、片选或 SPI 句柄。 */
+/* 角度反馈（motor 层拥有）：帧读取编排、方向/线性化/电零位/多圈累积与速度估计。
+ * 传感器通道见 platform/api/encoder_sensor.h，SPI 传输见
+ * platform/stm32g4/ports/motor/encoder_spi_stm32g4.c；本文件不访问寄存器、片选、
+ * SPI 句柄或板级宏。 */
 
 #define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
 
@@ -119,8 +121,7 @@ void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
         return;
     }
 
-    primask = __get_PRIMASK();
-    __disable_irq();
+    primask = critical_hw_enter();
     encoder->reverse = reverse_value;
     encoder->electrical_zero_q15 = 0U;
     encoder->mechanical_zero_q15 = 0U;
@@ -136,7 +137,7 @@ void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
     encoder->theta_elec = 0.0f;
     encoder->theta_mech = 0.0f;
     Encoder_ResetVelocity(encoder);
-    __set_PRIMASK(primask);
+    critical_hw_exit(primask);
 }
 
 /* 2 kHz 分频的 16 样本滑动平均速度估计。 */
@@ -377,4 +378,19 @@ bool Encoder_DidUpdateVelocity(const Encoder_TypeDef *encoder)
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *encoder)
 {
     return (float)encoder->linearized_q15 / (float)ENCODER_Q15_CPR;
+}
+
+uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *encoder)
+{
+    return encoder->calib_flag;
+}
+
+uint16_t Encoder_GetBadFrameStreak(const Encoder_TypeDef *encoder)
+{
+    return encoder->bad_frame_streak;
+}
+
+uint8_t Encoder_GetReverse(const Encoder_TypeDef *encoder)
+{
+    return encoder->reverse;
 }

@@ -43,6 +43,7 @@ static void FocCogging_Abort(void) {}
 static bool FocCogging_CanStart(MotorControl_TypeDef *m,Encoder_TypeDef *e) { (void)m;(void)e; return true; }
 static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
+static uint8_t Encoder_GetCalibFlag(Encoder_TypeDef *e) { return e->calib_flag; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { (void)e; return 0; }
 static void PositionImpedance_Reset(void) {}
 """

@@ -181,7 +181,7 @@ int main(void) {
 
 
 def _mapping_source() -> str:
-    source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/position/angle_feedback.c").read_text(encoding="utf-8")
     return (
         r"""
 #undef NDEBUG

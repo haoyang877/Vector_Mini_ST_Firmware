@@ -24,7 +24,7 @@
 /*Bsp*/
 #include "delay.h"
 #include "led.h"
-#include "encoder.h"
+#include "angle_feedback.h"
 #include "rgb.h"
 #include "flash.h"
 #include "hw_conf.h"

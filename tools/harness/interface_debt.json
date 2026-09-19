@@ -127,28 +127,6 @@
         "delay_us"
       ]
     },
-    "firmware/platform/stm32g4/bsp/encoder.h": {
-      "sha256": "91c4fd280518d7701c6b1697e40c72b11b9c073ff3335cc0c2e016225fd07f05",
-      "interfaces": [
-        "Encoder_BeginSample",
-        "Encoder_CompleteSample",
-        "Encoder_DidUpdateVelocity",
-        "Encoder_GetCountInCPR_Ratio",
-        "Encoder_GetElePhase",
-        "Encoder_GetEleVel",
-        "Encoder_GetMecPos",
-        "Encoder_GetMecVel",
-        "Encoder_GetMecVelContinuous",
-        "Encoder_IsOnline",
-        "Encoder_ParamInit",
-        "Encoder_ResetVelocity",
-        "Encoder_SetElectricalZero",
-        "Encoder_SetElectricalZeroQ15",
-        "Encoder_SetMechanicalZero",
-        "Encoder_SetReverse",
-        "Encoder_Update"
-      ]
-    },
     "firmware/platform/stm32g4/bsp/flash.h": {
       "sha256": "d67d877ac1518e235d9f560ed32c50fde76e76b80f87946797762d085eaae620",
       "interfaces": [
@@ -171,15 +149,6 @@
         "Reset_Load",
         "Set_RGB_BreathingColor",
         "write_color"
-      ]
-    },
-    "firmware/services/parameters/foc_param.h": {
-      "sha256": "115be457cab08494930f8d300891ad5bb595f4e4232d410b4ecc94988f06a9ca",
-      "interfaces": [
-        "Param_Download",
-        "Param_Return_Default",
-        "Param_SetSpeedLimit",
-        "Param_Upload"
       ]
     },
     "firmware/services/parameters/motor_axis_profile.h": {

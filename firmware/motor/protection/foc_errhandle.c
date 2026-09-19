@@ -3,7 +3,7 @@
 #include <math.h>
 #include "foc_algorithm.h"
 #include "foc_pid.h"
-#include "encoder.h"
+#include "angle_feedback.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 #include "position_impedance.h"
@@ -192,7 +192,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
         ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
          MotorControl.isUseSensorless == false))
     {
-        if ((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+        if ((Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
         {
             Set_ErrorNow(Encoder_NotCalibrated);
             return false;

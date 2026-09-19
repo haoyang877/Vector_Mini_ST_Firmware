@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "data_type.h"
-#include "encoder.h"
+#include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "foc_sensorless.h"

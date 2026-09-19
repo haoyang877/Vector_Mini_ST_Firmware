@@ -34,6 +34,7 @@ def fixture():
 #define MAGIC_WORD 0x454e4332U
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
+uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
 CANMsg_TypeDef CANMsg;
 """
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")

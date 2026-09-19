@@ -31,9 +31,13 @@ void Start_PWM_Generate(void) { pwm=true; ++enabled; }
 void Set_ModeNow(ModeNow_TypeDef m) { if(m==Save_Param) assert(!pwm); MotorControl.ModeNow=m; }
 void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 bool Encoder_IsOnline(const Encoder_TypeDef *e) { return e->has_valid_sample; }
+uint32_t critical_hw_enter(void) { return 0U; }
+void critical_hw_exit(uint32_t state) { (void)state; }
 float Encoder_GetMecVelContinuous(const Encoder_TypeDef *e) { return e->vel_mech_continuous; }
 float Encoder_GetElePhase(const Encoder_TypeDef *e) { return e->theta_elec; }
 float Encoder_GetEleVel(const Encoder_TypeDef *e) { return e->vel_elec; }
+uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
+uint8_t Encoder_GetReverse(const Encoder_TypeDef *e) { return e->reverse; }
 void FOC_CurrentController_Reset(FOC_TypeDef *f) { (void)f; }
 void FOC_Current(FOC_TypeDef *f,MotorControl_TypeDef *m,float p,float v) {
     (void)f;(void)p;(void)v; assert(isfinite(m->iqRef) && fabsf(m->iqRef)<=1.001f);

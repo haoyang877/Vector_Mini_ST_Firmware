@@ -226,7 +226,7 @@ static bool RunState_FaultSourceRecovered(ErrorNow_TypeDef error)
     case CAN_DisConnect:
         return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
     case Encoder_Error:
-        return OnBoard_Encoder.bad_frame_streak == 0U;
+        return Encoder_GetBadFrameStreak(&OnBoard_Encoder) == 0U;
     case TemperatureSensor_Error:
         return McuTemperature.valid != 0U;
     case High_Temprature:
@@ -412,7 +412,7 @@ void FocRunState_SaveFinished(bool committed)
 void FocRunState_CheckFastFaults(void)
 {
     if (Encoder_FeedbackRequired(&MotorControl) &&
-        OnBoard_Encoder.bad_frame_streak >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
+        Encoder_GetBadFrameStreak(&OnBoard_Encoder) >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
     {
         Set_ErrorNow(Encoder_Error);
     }

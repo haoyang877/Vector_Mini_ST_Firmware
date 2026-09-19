@@ -1,13 +1,15 @@
-#ifndef __ENCODER_H__
-#define __ENCODER_H__
+#ifndef ANGLE_FEEDBACK_H
+#define ANGLE_FEEDBACK_H
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "main.h"
 #include "data_type.h"
 
-/* TLE5012B 单圈角度表示：无符号 Q15，范围 [0, 65535]。传感器由 hw_conf.h 的
- * ENCODER_SENSOR_TYPE 选择；其它型号 driver 负责把各自位宽归一化到同一 Q15 语义。 */
+/* 角度反馈（motor 层拥有）：传感器采样 -> 方向/线性化/电零位/多圈/速度。
+ * 传感器型号由板级 hw_conf.h 的 ENCODER_SENSOR_TYPE 选择，驱动负责把各自位宽
+ * 归一化为同一 Q15 语义；本层不访问寄存器、总线或板级宏。 */
+
+/* 单圈角度表示：无符号 Q15，范围 [0, 65535]。 */
 #define ENCODER_Q15_CPR 65536UL
 #define ENCODER_Q15_HALF_TURN 32768
 #define ENCODER_OFFSET_LUT_SIZE 1024U
@@ -211,5 +213,26 @@ float Encoder_GetMecPos(const Encoder_TypeDef *Encoder);
  * @return [0,1) 的比例值，供调试与诊断使用。
  */
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *Encoder);
+
+/**
+ * @brief 读取标定标志位。
+ * @param Encoder 编码器状态指针。
+ * @return 标定位图，取值为 ENC_CALIB_* 的组合。
+ */
+uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *Encoder);
+
+/**
+ * @brief 读取连续坏帧计数。
+ * @param Encoder 编码器状态指针。
+ * @return 自最近一次有效帧以来的连续坏帧数。
+ */
+uint16_t Encoder_GetBadFrameStreak(const Encoder_TypeDef *Encoder);
+
+/**
+ * @brief 读取编码器方向配置。
+ * @param Encoder 编码器状态指针。
+ * @return 1 表示反向，0 表示正向。
+ */
+uint8_t Encoder_GetReverse(const Encoder_TypeDef *Encoder);
 
 #endif

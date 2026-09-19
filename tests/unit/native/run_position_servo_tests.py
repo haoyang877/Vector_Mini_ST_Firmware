@@ -56,7 +56,10 @@ def rtt_frame_fixture():
 #define Position_Mode 3
 #define Encoder_DidUpdateVelocity(p) false
 static struct { int ModeNow; float iqRef; } MotorControl;
-static struct { float theta_mech, vel_mech; } OnBoard_Encoder;
+typedef struct { float theta_mech, vel_mech; } EncoderTelemetry_TypeDef;
+static EncoderTelemetry_TypeDef OnBoard_Encoder;
+static float Encoder_GetMecPos(const EncoderTelemetry_TypeDef *e) { return e->theta_mech; }
+static float Encoder_GetMecVel(const EncoderTelemetry_TypeDef *e) { return e->vel_mech; }
 static struct { float Iq; } FOC;
 static bool ready = true;
 static unsigned writes;
@@ -92,7 +95,7 @@ int main(void) {
 
 
 def encoder_startup_fixture():
-    source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/position/angle_feedback.c").read_text(encoding="utf-8")
     return (
         r"""
 #include <assert.h>
@@ -181,8 +184,8 @@ int main(void) {
 
 
 def encoder_fixture():
-    source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
-    header = (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/position/angle_feedback.c").read_text(encoding="utf-8")
+    header = (ROOT / "firmware/motor/position/angle_feedback.h").read_text(encoding="utf-8")
     macros = []
     for name, text in [
         ("ENCODER_Q15_CPR", header),

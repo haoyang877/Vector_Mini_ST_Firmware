@@ -1,7 +1,7 @@
 #ifndef FOC_COGGING_CALIBRATION_H
 #define FOC_COGGING_CALIBRATION_H
 #include "data_type.h"
-#include "encoder.h"
+#include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "cogging_calibration.h"

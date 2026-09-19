@@ -1,7 +1,7 @@
 # Encoder 解耦：传感器通道 / SPI 传输 / 角度输出 v2.0
 
-日期：2026-09-19。状态：**阶段 A/B 已完成；阶段 C（角度层归位）/D（检查层）待办**。
-Q1/Q2/Q3/Q6/Q8 按推荐执行；Q4 已确认"保留"；Q9 采用统一 Q15；Q10 资料暂缺，driver 骨架留待型号确定。
+日期：2026-09-19。状态：**阶段 A/B/C/D 已完成**（D 按 Q7 推荐范围：只归位现有在线判定）。
+Q1/Q2/Q3/Q6/Q8 按推荐执行；Q4 已确认"保留"；Q9 统一 Q15；Q10 资料待型号确定后补 driver。
 
 范围：`firmware/platform/stm32g4/bsp/encoder.{c,h}`（428 + 120 行）的解耦。
 目标三层：**硬件的归硬件、通信（传感器协议）的归通信、输出角度的归输出角度**；
@@ -259,3 +259,23 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
   Keil 双目标 0 Error / 0 Warning（主工程 Code=82288）。
 - 新增 MT6701/MT6535 的落点：加 `ports/motor/encoder_<型号>.c`（同一 `#if` 模式）+ 板级宏切换 +
   该型号解码向量；传输层与角度层零改动。
+
+阶段 C/D（2026-09-19，角度层归位与检查归位）：
+
+- `bsp/encoder.{c,h}` 删除；角度层（初始化、方向、LUT、电零位、多圈、2 kHz 速度估计与
+  在线判定）迁到 `motor/position/angle_feedback.{c,h}`，公共签名保持 `Encoder_*` 不变
+  （调用方零签名改动，含 Q4 保留的电零位标定入口）。
+- 新增窄接口 `Encoder_GetCalibFlag()` / `Encoder_GetBadFrameStreak()` / `Encoder_GetReverse()`，
+  替换 app / motor / communication 中的散落字段直读；`services` 的参数持久化按"整块标定记录"
+  语义保留直接访问（foc_param.c 读写 zeros/flags/LUT）。
+- 新增 `platform/api/critical_hw.h` + `bsp/critical.c`：把 CMSIS 临界区从 motor 层收回平台层；
+  `angle_feedback.c` 与 `foc_cogging_calibration.c` 改经契约进入/退出临界区（行为逐位不变）。
+- 架构债：5 条 `-> bsp/encoder.h` 全部消除（app/services/communication 现依赖 motor 层头文件，
+  方向合法）；接口债 17（迁移）+ 4（foc_param.h 契约补齐）还清；`encode` 目录内不再有硬件访问。
+- 夹具：7 个夹具补齐新窄接口/临界区桩，`run_position_servo_tests` 与 `test_encoder_sample_overlap`
+  改读新路径，`test_outer_loop_runtime` 读 `foc_param.h` 指定 UTF-8。
+- 验证：原生套件 **17/17 PASS**；`format`/`lint`/`architecture`/`interfaces`/`project-layout`
+  0 new；Keil 双目标 **0 Error / 0 Warning**（主工程 Code=82372）。
+- 阶段 D 范围（Q7 推荐）：现有在线判定（`has_valid_sample && bad_frame_streak < 100`）已随角度层
+  归入 motor；冻结/跳变等新增检查另立项，不在本轮。
+- 实机：同一套脚本 `outputs/hil_encoder_20260919/flash_and_read_encoder.py` 可复跑（见下方实机证据）。

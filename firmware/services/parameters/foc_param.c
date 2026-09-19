@@ -157,7 +157,7 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     param->can_hb = (float)CANMsg.can_hb_set;
     param->schema_version = PARAM_SCHEMA_VERSION;
     param->axis_profile = MotorControl.axis_profile;
-    if ((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+    if ((Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
         CoggingMap_Valid(&CoggingMap,
                          Cogging_EncoderSignature(OnBoard_Encoder.reverse,
                                                   OnBoard_Encoder.electrical_zero_q15,

@@ -9,7 +9,7 @@
 #include "foc_param.h"
 #include "foc_param_profile.h"
 #include "foc_errhandle.h"
-#include "encoder.h"
+#include "angle_feedback.h"
 #include "hw_conf.h"
 #include "comm_hw.h"
 #include "time_hw.h"
@@ -402,13 +402,14 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
     case CAN_SET_ENCODER_REVERSE:
         if (MotorControl.ModeNow == Motor_Disable && (data_int == 0 || data_int == 1))
         {
-            if (OnBoard_Encoder.reverse != (uint8_t)data_int)
+            if (Encoder_GetReverse(&OnBoard_Encoder) != (uint8_t)data_int)
                 MotorControl.friction_model_valid = false;
             Encoder_SetReverse(&OnBoard_Encoder, data_int != 0);
         }
         break;
     case CAN_GET_ENCODER_REVERSE:
-        CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE, (float)OnBoard_Encoder.reverse);
+        CAN_SendMessage_Update(CAN_GET_ENCODER_REVERSE,
+                               (float)Encoder_GetReverse(&OnBoard_Encoder));
         break;
 
     case CAN_SET_CURRENT_CAL:
@@ -675,11 +676,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
         break;
 
     case CAN_GET_SPEED2_FILT:
-        CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, OnBoard_Encoder.vel_mech);
+        CAN_SendMessage_Update(CAN_GET_SPEED2_FILT, Encoder_GetMecVel(&OnBoard_Encoder));
         break;
 
     case CAN_GET_POS2_FILT:
-        CAN_SendMessage_Update(CAN_GET_POS2_FILT, OnBoard_Encoder.theta_mech);
+        CAN_SendMessage_Update(CAN_GET_POS2_FILT, Encoder_GetMecPos(&OnBoard_Encoder));
         break;
 
     case CAN_GET_TEMP:
@@ -829,12 +830,12 @@ static void CAN_BuildMotorStatusSnapshot(MotorStatus *sample)
     sample->fault = (uint16_t)MotorControl.ErrorNow;
     sample->mode = (uint16_t)MotorControl.ModeNow;
     sample->position_target = MotorControl.posRef;
-    sample->position_feedback = OnBoard_Encoder.theta_mech;
+    sample->position_feedback = Encoder_GetMecPos(&OnBoard_Encoder);
     sample->speed_target = MotorControl.speedRef;
     sample->speed_feedback =
         (MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Position_Impedance_Mode)
             ? MotorControl.pos_vel_filtered
-            : OnBoard_Encoder.vel_mech;
+            : Encoder_GetMecVel(&OnBoard_Encoder);
     sample->current_reference = MotorControl.iqRef;
     sample->current_feedback = FOC.Iq;
     sample->temperature = FOC.temp;

@@ -23,7 +23,7 @@ bool MotorOuterLoop_IsReady(void);
  */
 bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
 
-#include "encoder.h"
+#include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_sensorless.h"
 #include "foc_pid.h"

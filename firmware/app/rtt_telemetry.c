@@ -73,9 +73,10 @@ void RTT_Sampling(void)
 #endif
     rtt_divider_count = 0;
 
-    frame.position = RTT_EncodeInt16(RTT_WrapSingleTurn(OnBoard_Encoder.theta_mech),
+    frame.position = RTT_EncodeInt16(RTT_WrapSingleTurn(Encoder_GetMecPos(&OnBoard_Encoder)),
                                      RTT_POSITION_SCALE_COUNTS_PER_RAD);
-    frame.speed = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, RTT_SPEED_SCALE_COUNTS_PER_RPM10);
+    frame.speed =
+        RTT_EncodeInt16(Encoder_GetMecVel(&OnBoard_Encoder), RTT_SPEED_SCALE_COUNTS_PER_RPM10);
     frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
     frame.iq_feedback = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
     (void)SEGGER_RTT_Write(1, &frame, sizeof(frame));

@@ -561,9 +561,14 @@
               <FilePath>..\..\bsp\led.c</FilePath>
             </File>
             <File>
-              <FileName>encoder.c</FileName>
+              <FileName>critical.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\bsp\encoder.c</FilePath>
+              <FilePath>..\..\bsp\critical.c</FilePath>
+            </File>
+            <File>
+              <FileName>angle_feedback.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\position\angle_feedback.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>

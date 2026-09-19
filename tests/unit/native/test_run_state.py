@@ -165,6 +165,10 @@ typedef struct
     uint16_t bad_frame_streak;
 } EncoderStub_TypeDef;
 static EncoderStub_TypeDef OnBoard_Encoder;
+static uint16_t Encoder_GetBadFrameStreak(const EncoderStub_TypeDef *e)
+{
+    return e->bad_frame_streak;
+}
 
 typedef struct
 {

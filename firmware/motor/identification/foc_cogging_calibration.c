@@ -3,6 +3,7 @@
 #include "cogging_compensation.h"
 #include "foc_errhandle.h"
 #include "control_config.h"
+#include "critical_hw.h"
 #include "current_sense_profile.h"
 #include "utils.h"
 #include "bus_voltage_profile.h"
@@ -45,7 +46,7 @@ bool FocCogging_SetCompensation(bool enabled)
     info.sensorless_off = !MotorControl.isUseSensorless;
     info.table_valid = FocCogging_TableValid();
     info.scale_matches = CoggingMap.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A;
-    info.identity.reverse = OnBoard_Encoder.reverse;
+    info.identity.reverse = Encoder_GetReverse(&OnBoard_Encoder);
     info.identity.electrical_zero_q15 = OnBoard_Encoder.electrical_zero_q15;
     info.identity.pole_pairs = MotorControl.motor_pole_pairs;
     info.identity.table_crc = CoggingMap.crc32;
@@ -325,7 +326,7 @@ void FocCogging_Task(FOC_TypeDef *f,
 
 static uint32_t Signature(void)
 {
-    return Cogging_EncoderSignature(OnBoard_Encoder.reverse,
+    return Cogging_EncoderSignature(Encoder_GetReverse(&OnBoard_Encoder),
                                     OnBoard_Encoder.electrical_zero_q15,
                                     MotorControl.motor_pole_pairs,
                                     OnBoard_Encoder.linearization_lut_q15);
@@ -333,7 +334,7 @@ static uint32_t Signature(void)
 
 bool FocCogging_TableValid(void)
 {
-    return (OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+    return (Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
            CoggingMap_Valid(&CoggingMap, Signature());
 }
 
@@ -362,17 +363,16 @@ void FocCogging_Service(void)
         return;
     }
     /* 在长耗时 CRC/拷贝前占用非驱动保存状态，防止 CAN 启动新模式。 */
-    primask = __get_PRIMASK();
-    __disable_irq();
+    primask = critical_hw_enter();
     if (!finalize_pending || MotorControl.ModeNow != Motor_Disable)
     {
-        __set_PRIMASK(primask);
+        critical_hw_exit(primask);
         return;
     }
     save_pending = true;
     finalize_pending = false;
     Set_ModeNow(Save_Param);
-    __set_PRIMASK(primask);
+    critical_hw_exit(primask);
     if (MotorControl.ErrorNow != No_Error || CoggingCalib.state != COGGING_COMPLETE ||
         !CoggingMap_Build(CoggingCalib.iq_q15, CoggingCalib.full_scale_a, Signature(), &CoggingMap))
     {

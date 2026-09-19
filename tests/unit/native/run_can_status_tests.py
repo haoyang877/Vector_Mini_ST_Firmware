@@ -37,7 +37,10 @@ def main():
 #define Position_Impedance_Mode 18
 #define Speed_Mode 2
 static struct { unsigned ErrorNow, ModeNow; float posRef,speedRef,iqRef,posShadow,speedShadow,pos_vel_filtered,pos_trajectory_speed_rad_s; } MotorControl;
-static struct {float theta_mech,vel_mech;} OnBoard_Encoder;
+typedef struct {float theta_mech,vel_mech;} EncoderTelemetry_TypeDef;
+static EncoderTelemetry_TypeDef OnBoard_Encoder;
+static float Encoder_GetMecPos(const EncoderTelemetry_TypeDef *e) { return e->theta_mech; }
+static float Encoder_GetMecVel(const EncoderTelemetry_TypeDef *e) { return e->vel_mech; }
 static struct {float Iq,temp,Vbus_filt,Ibus_filt;} FOC;
 """
         + function_source(source, "CAN_BuildMotorStatusSnapshot")

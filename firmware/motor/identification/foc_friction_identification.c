@@ -92,7 +92,8 @@ bool FocFrictionIdentification_Start(MotorControl_TypeDef *motor,
 {
     FocFrictionIdentification_Init();
     if (encoder == NULL || speed_controller == NULL || !RuntimeConfigIsValid(motor) ||
-        !Encoder_IsOnline(encoder) || (encoder->calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL ||
+        !Encoder_IsOnline(encoder) ||
+        (Encoder_GetCalibFlag(encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL ||
         !FrictionIdentification_Start(&identification))
     {
         FrictionIdentification_Fail(&identification, FRICTION_IDENT_REASON_INVALID_CONFIG);
@@ -132,7 +133,7 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
         return outcome;
     }
-    if ((encoder->calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+    if ((Encoder_GetCalibFlag(encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
     {
         Set_ErrorNow(Encoder_NotCalibrated);
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
@@ -170,7 +171,7 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
     input.measured_speed_rad_s = Encoder_GetMecVel(encoder);
     input.ramped_speed_reference_rad_s = motor->speedShadow;
     input.iq_a = foc->Iq_filt;
-    input.mechanical_position_rad = encoder->theta_mech;
+    input.mechanical_position_rad = Encoder_GetMecPos(encoder);
     input.current_saturated =
         fast_abs(motor->iqRef) >= motor->current_limit * PARAM_FRICTION_IDENT_CURRENT_RATIO_MAX;
     FrictionIdentification_Update(&identification, &input);

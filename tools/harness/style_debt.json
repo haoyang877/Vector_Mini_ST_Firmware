@@ -74,13 +74,6 @@
                 "c-readability"
             ]
         },
-        "firmware/communication/can/interface_can.c": {
-            "sha256": "d4eeb409c65bf6b2089302cd547e3a82e5bc0a0ac388ce5bdf9f6380b364597a",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/communication/can/interface_can.h": {
             "sha256": "867e8dc9cc321bd1ca92c4b00c142bd88d0c52dc41f853f09e989bb3e647b6c8",
             "checks": [
@@ -369,13 +362,6 @@
         },
         "firmware/services/parameters/foc_param.c": {
             "sha256": "35f369118f7e678887261fa7a4676c7789f781f4820412f5cafa2601707efcea",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/services/parameters/foc_param.h": {
-            "sha256": "115be457cab08494930f8d300891ad5bb595f4e4232d410b4ecc94988f06a9ca",
             "checks": [
                 "c-format",
                 "c-readability"

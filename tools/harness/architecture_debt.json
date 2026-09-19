@@ -11,7 +11,6 @@
     "firmware/communication/can/interface_can.h -> firmware/platform/stm32g4/cubemx/Core/Inc/main.h",
     "firmware/motor/data_type.h -> firmware/platform/stm32g4/cubemx/Core/Inc/main.h",
     "firmware/motor/data_type.h -> firmware/services/parameters/motor_axis_profile.h",
-    "firmware/motor/foc/foc_algorithm.c -> firmware/platform/stm32g4/bsp/hw_conf.h",
     "firmware/motor/foc/foc_algorithm.c -> firmware/services/telemetry/fast_loop_profile.h",
     "firmware/motor/foc/foc_sensing.c -> firmware/platform/stm32g4/bsp/hw_conf.h",
     "firmware/motor/foc/foc_sensing.c -> firmware/platform/stm32g4/cubemx/Core/Inc/adc.h",

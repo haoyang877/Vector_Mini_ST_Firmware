@@ -108,13 +108,6 @@
                 "c-readability"
             ]
         },
-        "firmware/motor/foc/foc_algorithm.c": {
-            "sha256": "29749b453eea85dc25bcd30da8f8cf7471e70e1ed585c497fb785fb6e7129ff5",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/motor/foc/foc_algorithm.h": {
             "sha256": "a1baa1694aa9064bbfe993d81859426ad68a9458a3f412ba7aecac963bcf03b4",
             "checks": [
@@ -156,13 +149,6 @@
         },
         "firmware/motor/foc/foc_sensorless.h": {
             "sha256": "6cc68974094fc10ae9fba4ffcf3db85b0971929174cb7fbeefa2827e29e248f8",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/foc/mcu_temperature.h": {
-            "sha256": "aa2649b420970b830a31645f3f9b14e6a31446d75f90fefc4d7f6b9054e2595a",
             "checks": [
                 "c-format",
                 "c-readability"
@@ -328,12 +314,6 @@
             "sha256": "d29a7985a7b719e97a50bc5a51c33cf119032cc5dad9143dd72ca30b6dd22eb1",
             "checks": [
                 "c-format"
-            ]
-        },
-        "firmware/platform/api/motor_hw.h": {
-            "sha256": "e9adfc3d16554e41032034db02f071d57641c8be9662fa55f77a650795ae7199",
-            "checks": [
-                "comment-language"
             ]
         },
         "firmware/platform/stm32g4/bsp/current_sense_profile.h": {

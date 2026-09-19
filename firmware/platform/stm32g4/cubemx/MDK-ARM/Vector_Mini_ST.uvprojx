@@ -1715,6 +1715,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\ports\motor\motor_outer_stm32g4.c</FilePath>
             </File>
+            <File>
+              <FileName>motor_pwm_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\motor_pwm_stm32g4.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

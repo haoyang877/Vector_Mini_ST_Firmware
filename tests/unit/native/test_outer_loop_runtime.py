@@ -27,7 +27,7 @@ def main():
     (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
     lut_size = re.search(
         r"^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U",
-        (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(),
+        (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(encoding="utf-8"),
         re.M,
     )[1]
     src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")

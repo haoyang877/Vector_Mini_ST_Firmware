@@ -300,20 +300,6 @@
                 "c-format"
             ]
         },
-        "firmware/platform/stm32g4/bsp/encoder.c": {
-            "sha256": "16a2cd92ac91eb654ccc354bc8a6bbc1127467d49cde2bc7c78651ae15e1276b",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/platform/stm32g4/bsp/encoder.h": {
-            "sha256": "91c4fd280518d7701c6b1697e40c72b11b9c073ff3335cc0c2e016225fd07f05",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/platform/stm32g4/bsp/flash.c": {
             "sha256": "69305ddd8eeaff0777bd76b1697942f2aefc1525389e51dfef363d9a60df7e39",
             "checks": [
@@ -510,13 +496,6 @@
         },
         "tests/unit/native/test_current_oversampling.py": {
             "sha256": "54b94784f8c815338842d62c85d6242618d3972bcaa45d723834266610f270c3",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/native/test_encoder_sample_overlap.py": {
-            "sha256": "9c9cd3e333790affc414a165382c4f3f735ff066d74aec3f15c3141d4f90928d",
             "checks": [
                 "python-format",
                 "python-lint"

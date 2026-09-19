@@ -279,3 +279,19 @@ float    AngleFeedback_MecVel(const AngleFeedback *);          /* 取代 ->vel_m
 - 阶段 D 范围（Q7 推荐）：现有在线判定（`has_valid_sample && bad_frame_streak < 100`）已随角度层
   归入 motor；冻结/跳变等新增检查另立项，不在本轮。
 - 实机：同一套脚本 `outputs/hil_encoder_20260919/flash_and_read_encoder.py` 可复跑（见下方实机证据）。
+
+实机验证（2026-09-19，普通工程；全程未使能电机）：
+
+- 流程：门控 TIM1 `MOE`+`CCER` 六路输出并校验 → 烧录普通 APP → 回读镜像与参数区校验 →
+  以 SWD 读取 `OnBoard_Encoder` 与 `MotorControl`/`FOC` 状态；脚本对每条前置条件用显式
+  RuntimeError（不使用 assert）。
+- 镜像：`axf_sha256=7d5521d5…`、`hex_sha256=c8b3204b…`，86956 字节回读全一致，参数区
+  `0x0801C000..0x08020000` 未变；探针 serial 602722271。
+- 编码器（经 `angle_feedback`(motor) → `encoder_sensor`(通道) → `encoder_tle5012b`(driver)
+  → `encoder_spi`(端口) 全链路）：`has_valid_sample=1`、`read_status=0`、`read_status_latched=0`、
+  `bad_frame_streak=0`、`frame_word` 逐帧变化、`calib_flag=3`、`electrical_zero_q15=15593`、
+  `theta_elec≈2.39–2.42 rad`、`theta_mech≈0.1136 rad`、`vel_mech=0`。
+- 驱动状态：`error_now=0`、`duty=[0,0,0]`（无转矩）；`mode_now=11`（`Calib_CurrentOffset`，
+  标定删除后遗留的启动默认，属并行会话的清理项，非本次改动）。
+- 说明：SWD 分块读取与 20 kHz 更新可能交错，同一次分组里原始值与派生值允许相差一个采样。
+- 证据：`outputs/hil_encoder_20260919/evidence.json`、`encoder_state.json`（输出目录被忽略）。

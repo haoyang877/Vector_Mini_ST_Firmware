@@ -26,6 +26,7 @@ PRELUDE = r"""
 #include "foc_sensorless_run.h"
 #include "foc_speed.h"
 #include "hw_conf.h"
+#include "motor_startup_profile.h"
 #include "utils.h"
 static MotorControl_TypeDef motor;
 static FOC_TypeDef foc;

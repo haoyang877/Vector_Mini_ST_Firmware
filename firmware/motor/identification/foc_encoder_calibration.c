@@ -8,6 +8,7 @@
 #include "control_config.h"
 #include "foc_errhandle.h"
 #include "heap.h"
+#include "motor_startup_profile.h"
 #include "utils.h"
 
 /* Mode 13/15 编码器标定重建（契约见头文件）。

@@ -10,6 +10,7 @@
 #include "foc_sensorless_run.h"
 #include "foc_speed.h"
 #include "motor_axis_profile.h"
+#include "motor_hardware_profile.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance.h"

@@ -7,6 +7,7 @@
 #include "foc_speed.h"
 #include "foc_pid.h"
 #include "control_config.h"
+#include "motor_startup_profile.h"
 #include "utils.h"
 
 /* 无感运行应用：启动序列（对准→开环→速度锁定→交接→闭环）与速度模式。

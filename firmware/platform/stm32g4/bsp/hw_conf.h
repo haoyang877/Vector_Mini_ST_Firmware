@@ -3,7 +3,6 @@
 
 #include "main.h"
 #include "control_config.h"
-#include "motor_hardware_profile.h"
 #include "motor_sensing.h"
 #include "current_sense_profile.h"
 #include "encoder_sensor.h"
@@ -58,7 +57,7 @@
 #define TEMP_ADC ADC1
 #define TEMP_ADC_CHANNEL JDR1
 
-/* 编码器标定（Mode 13 LUT / Mode 15 电角度零位）参数已上移
- * platform/api/control_config.h（经本文件 include 可见）；板级不再重复定义。 */
+/* 电机启动/标定默认参数归 firmware/motor/motor_startup_profile.h（motor 层）；
+ * 板级配置不引用该头文件，也不再重复定义相关常量。 */
 
 #endif

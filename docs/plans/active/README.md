@@ -21,3 +21,4 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [CAN 接收中断瘦身（S5）设计与验收计划 v1.0](2026-09-19-can-isr-slimming.md)：中断内完整派发改为有界队列 + 2 kHz 派发。**已按方案 A 实施；PR 档全绿 + 实机验收通过（突发应答 5/5、断连保护 0.404 s，2026-09-20）**。
 - [HIL 退役：删除 HIL 工程与工装，仅保留 normal 工程 v1.0](2026-09-19-hil-retirement.md)：删除 HIL Keil 工程、`SERVO_HIL_ENABLE` 固件变体、HIL 台架工装与测试、`profiles.hil`/`layers.hil`，构建/发布链路改单目标；**已完成**（2026-09-19：PR 档全绿 + release 档通过，提交 `c39d0d25`）。
 - [监督时基 2 kHz 与三层环路架构 v1.0](2026-09-20-supervisor-2khz.md)：TIM7 1 kHz→2 kHz 与内容重标定（分频、心跳、温度、总线恢复）；编码器慢估计、外环控制与主状态机迁入 2 kHz 慢拍，故障紧急关断保留 20 kHz 快车道。**阶段 1–4 已实施；PR 档全绿 + 实机台架验收通过（2026-09-20）**。
+- [电机装配/启动参数归位 motor 层 v1.0](2026-09-20-motor-profile-relocation.md)：拆分 `control_config.h`——时基/采样率留 platform/api，阻尼环装配选择与无感启动/编码器标定默认值归 `motor`（`motor_hardware_profile.h`、`motor_startup_profile.h`）；宏名与取值不变。**已实施，PR 档全绿；Keil/release 待提交后执行**。

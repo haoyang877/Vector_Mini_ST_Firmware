@@ -1,6 +1,8 @@
-# 公司 CAN FD 通信协议框架重构计划 v1.0
+# 公司 CAN FD 通信协议框架重构计划 v1.1
 
-日期：2026-09-20。状态：**规划阶段，未修改固件运行行为**。
+日期：2026-09-20；确认记录：2026-09-22。状态：**框架已实现，实时电机行为和实机闭环仍在迁移**。
+
+本计划的产品决策以[2026-09-22 通信协议确认记录](2026-09-22-communication-decision-record.md)为准。
 
 本计划用于把公司通信协议的主体框架先搭稳，再按阶段迁移当前固件。它覆盖协议核心、CAN FD
 传输、命令路由、电机控制、状态反馈、参数、升级和后续多轴同步。每一阶段都有独立边界、验收
@@ -15,7 +17,8 @@
 
 - 固件当前实现的是 11 位标准 CAN、参数命令和 48 字节大端状态流；入口在
   `firmware/communication/can/` 与 `firmware/communication/protocol/`。
-- 公司 CAN FD 设计稿是 29 位扩展 ID、公司头部、CRC8/CRC16、分片和升级流程，当前固件还未实现。
+- 公司 CAN FD 设计稿是 29 位扩展 ID、公司头部、CRC8/CRC16、分片和升级流程；当前仓库已完成
+  核心 codec、CAN FD 适配和只读链路骨架，电机控制、参数写入、标定和 Loader 仍未完成。
 - 当前 `platform/api/comm_hw.h` 及 STM32 端口仍以旧协议的标准 ID 和发送接口为主。
 - 现有旧协议必须在迁移完成前保持可回滚；新协议不能通过悄悄改变旧接口来接入。
 
@@ -77,7 +80,7 @@ Motor control / parameter store / loader
    禁止 ISR 动态分配、阻塞和 Flash 操作。
 8. 控制命令必须带 sequence、时间/租约语义和目标模式；断连、序号回退、模式不匹配和看门狗超时
    都有明确的拒绝或安全停机结果。
-9. Node ID 采用公司的节点注册表。现有源码读回的节点号属于公司约定；新 type 编号和优先级映射
+9. Node ID 采用公司的节点注册表：主站 `0x01`，电机控制器 `0x03`～`0x07`；主站不是轴。新 type 编号和优先级映射
    在公司登记前只能标为项目候选，不能写成“已批准”。
 
 ## 4. 内部数据契约
@@ -132,8 +135,9 @@ ACK/错误码位定义、节点注册表、type 登记、标称速率与数据�
   `uint32_t identifier` 和显式数据长度。
 - STM32 端口负责 FDCAN FD 格式、BRS、DLC 映射、过滤器、启动停止、总线错误和队列提交；HAL 只在
   `platform/stm32g4/ports/comm` 内出现。
-- 第一版按硬件验证结果配置标称速率和数据速率。当前设计稿为数据段 5 Mbit/s；标称段先保持现有
-  可验证配置，不在没有示波器/板级证据时擅自改为 1 Mbit/s。
+- 当前产品配置为标称段 1 Mbit/s、数据段 5 Mbit/s、FD+BRS；STM32G431CBU6 使用 170 MHz
+  FDCAN 内核时钟、NominalPrescaler=10、DataPrescaler=2、TimeSeg1=12、TimeSeg2=4。
+  这是已确认的部署参数，仍需板级误码和采样点验证。
 - transport 提供有界 RX/TX 队列、丢帧/CRC/过滤/总线错误计数和非阻塞失败码。
 
 验收：native transport mock、板级 loopback 或授权台架能证明 29 位扩展 ID、FD、BRS、DLC、队列满和
@@ -204,10 +208,10 @@ rejected、reason 和 applied sequence，方便主机判断是否真正生效。
 验收：5 轴控制和每轴反馈均达到 1 kHz 目标；记录每轴端到端延迟、周期抖动和同步误差；停止、
 故障和总线降级仍满足安全要求。
 
-### Stage 8：兼容窗口与旧协议退役
+### Stage 8：旧协议退役
 
-新协议稳定后，保留明确的旧协议兼容窗口：主机工具切换、版本协商、日志和故障码迁移完成后，才
-关闭旧 parser 和旧发送接口。退役前必须有兼容矩阵、现场升级/回滚方案和最终协议登记。
+新协议稳定后，按确认记录直接安排旧 parser 和旧发送接口退役；不建立旧协议兼容窗口。退役前仍需
+完成主机工具切换、日志和故障码迁移、现场升级/回滚方案和最终协议登记。
 
 ## 6. 工作包与后续委派边界
 
@@ -263,16 +267,115 @@ WP-F 分开施工；WP-G 从第一天开始维护向量和回归。后续若派�
 
 ## 9. 当前进度与下一步
 
+2026-09-22 当前状态：协议核心、CAN FD 承载和只读诊断链路已经接入固件运行入口；电机控制、
+状态反馈、参数写入、任务、升级和多轴实时目标仍未完成。验收分为“接口可编译且可替换”、
+“业务已接线”和“硬件/实时性能已验证”，三者不得互称完成。
+
+当前已完成的增量包括：`yg_protocol_endpoint` 已接入 FDCAN RX 中断和 2 kHz 服务循环；
+`yg_protocol_link` 已注册 GET_INFO/GET_CAPS，只读响应不使能电机；STM32G4 位时序为 1 Mbit/s
+仲裁段、5 Mbit/s 数据段、FD+BRS；RX 队列已改为单生产者/单消费者 head/tail。电机和参数
+模块目前只有离线 `yg_protocol_*_adapter` 与 native 测试，尚未绑定真实运行状态所有者。
+
 - [x] 记录当前旧协议与公司 CAN FD 设计稿的差异。
 - [x] 固化目标分层、内部对象和工作包边界。
 - [x] 固化 Stage 0–8 的实施顺序、验收门槛和回滚规则。
+- [x] Stage 1 核心接口：`yg_protocol_wire_types`、`yg_protocol_crc`、`yg_protocol_frame_codec`、
+  `yg_protocol_can_id` 和 `yg_protocol_router` 已实现，并由 native 测试串联验证。
+- [x] Stage 1 传输骨架：`yg_protocol_message_registry`、`yg_protocol_fragment` 和
+  `yg_protocol_transfer` 已实现；路由器要求路由表中的 type 必须先在注册表登记。
+- [x] Stage 2a CAN FD 适配接口：`yg_protocol_canfd`、DLC/零填充、ID/头部地址检查、平台完整帧发送
+  能力和 HAL 替身测试已完成，并已接入 MCU 工程、FDCAN RX 中断和扩展帧 FIFO0。
+- [x] Stage 3a 只读服务骨架：路由 handler 支持显式上下文，`yg_protocol_readonly` 已打通协议信息、
+  设备信息、能力和电机状态四类 provider 的请求到响应 payload 链路；type 仍是项目候选值。
+- [x] Stage 3b 只读登记与 payload 编码：接入登记稿中的 GET_INFO=1、GET_CAPS=2、
+  GET_MOTOR_STATE=108、MOTION_FEEDBACK=124 常量，并新增固定小端字段编码器。
+- [x] 核心接口收口 v0.1：新增 `yg_protocol_endpoint` 串行组装入口，以及
+  `yg_protocol_service`、`yg_protocol_motor`、`yg_protocol_parameter`、`yg_protocol_job`、
+  `yg_protocol_update` 的可注入后端契约；未连接真实业务所有者。
 - [ ] Stage 0 决策记录：CRC 覆盖、len 语义、ACK/错误码、Node/type 注册、位时序和升级元数据。
-- [ ] Stage 1：把公司 wire codec、CAN ID codec 和 native 黄金向量整理成正式公共契约。
+- [ ] Stage 1 收尾：将公司评审后的 CRC/flags/len/type 决策固化为正式黄金向量；当前仍需公司
+  文档确认候选字段，并补齐正式兼容版本记录。
 
-推荐下一次实施从 Stage 1 开始，只新增纯协议模块和测试，不替换旧 CAN 路径；Stage 1 通过后再进入
-CAN FD transport。这样可以先验证“公司协议帧能否正确编码/解码”，再把硬件和电机控制接上。
+当前优先级是先完成无动力 GET_CAPS 硬件连通性测试，再接入电机 STOP/DISABLE 和状态快照，
+最后接入 ENABLE/MODE/TARGET 及 1 kHz 多轴调度。不把“接口可编译”写成“业务已完成”。
 
 ## 10. 证据记录
 
+### Stage 3c v0.1：电机快照适配与核心接口收口
+
+- 目标：复用 `MotorStatus` 值对象，完成 SI 测量到详细状态/紧凑反馈的转换，并通过现有
+  provider、router、CAN FD codec 验证 GET_MOTOR_STATE 请求到响应。
+- 基线：Stage 3b native 测试通过；旧转换器截断/饱和的语义不符合新协议，不能复用数值转换。
+  `MotorStatus_Take` 只有单消费者；现有 `CanStatus_BuildSnapshot` 实际在前台读取全局量，尚无
+  跨快环原子性证明。新适配器只读调用方传入的完整副本，不新增邮箱消费者或读取全局变量。
+- 保持不变：旧 48B 状态 ABI、状态邮箱、故障/控制输出、运行调度、工程编译输入、位时序。
+- 范围：测量四舍五入、无效值和 valid_bits；显式传入线上状态/模式/故障等元数据；管理 Q/R
+  前缀、应答方向、单播校验和 BUSY；不伪造 UID、产品/Boot 信息或声明未验收能力。
+- 验收：完整黄金帧、负值/NaN/Inf/越界/半单位、坏请求和 provider 失败；PR profile。
+  不声称实机资源/时序已验收，新增模块仍只在 native 编译。
+- 回滚：撤销本阶段适配模块、响应守卫和相应测试文档，保留旧通信及此前核心。
+- 设备信息剩余项：GET_INFO page0 完整响应为 48B payload，超过当前 46B 结果容量；需要独立
+  完成 TX 分片及硬件身份来源后再接入，不能省略公共前缀挤进单帧。
+- 实现文件：`firmware/communication/can/yg_protocol_endpoint.{h,c}`、
+  `firmware/communication/protocol/yg_protocol_service.h`、`yg_protocol_motor.{h,c}`、
+  `yg_protocol_parameter.{h,c}`、`yg_protocol_job.{h,c}`、`yg_protocol_update.{h,c}`、
+  `yg_protocol_motor_status.{h,c}`；测试为 `tests/unit/yg_protocol_contract_test.c`。
+- 证据：PR 档全绿，`outputs/runs/20260921T072750021644Z-8982922a/summary.json`；未刷写、未访问硬件。
+
+### Stage 2a：CAN FD 帧适配与平台能力（2026-09-21）
+
+- 范围：新增 `yg_protocol_canfd`，将统一帧与扩展 CAN FD 数据帧转换，接入已有有界队列；
+  增量扩展 `comm_hw` 的 FD/BRS 元数据和完整帧发送能力。
+- 不变量：旧标准帧协议、滤波器、位时序、2 kHz 调度、电机输出、故障保护和升级入口保持不变。
+  新协议仍是离线可编译模块，本阶段不登记到 MCU 工程、不启用扩展帧接收滤波。
+- 验收：0..46B 载荷的 DLC/填充/CRC、ID 与头部地址一致性、错误帧、队列满、发送忙和旧端口回归；
+  使用 PR profile，不刷写、不接触硬件。
+- 回滚：只撤销本阶段适配模块、增量端口字段/函数及对应测试；保留此前核心和旧运行路径。
+- 并发边界：当前通用队列仅允许单上下文或由调用方串行化访问，不能直接用于 ISR/任务无锁并发。
+  后续运行时集成必须另行验证队列同步、调度预算、Flash/RAM 和滤波配置。
+- 实现文件：`firmware/communication/can/yg_protocol_canfd.{c,h}`；平台增量在
+  `firmware/platform/api/comm_hw.h` 和 `platform/stm32g4/ports/comm/comm_status_stm32g4.c`；
+  测试为 `tests/unit/yg_protocol_canfd_test.c` 和 `tests/unit/native/run_can_status_tests.py`。
+- 证据：PR 档全绿，`outputs/runs/20260921T040807036691Z-8982922a/summary.json`；未刷写、未访问硬件。
+
 本计划建立时只做了仓库和文档审计，未运行硬件、未刷写固件、未修改电机控制行为。后续每个阶段在
 本节追加验证命令、`outputs/runs/<run>/summary.json`、黄金向量版本、板级测试结果和已知偏差。
+
+### Stage 1 核心接口（2026-09-21）
+
+- 新增纯协议模块：
+  `firmware/communication/protocol/yg_protocol_wire_types.h`、
+  `yg_protocol_crc.{c,h}`、`yg_protocol_frame_codec.{c,h}`、
+  `yg_protocol_can_id.{c,h}`、`yg_protocol_message_registry.{c,h}`、
+  `yg_protocol_fragment.{c,h}`、`yg_protocol_transfer.{c,h}` 和 `yg_protocol_router.{c,h}`。
+- 新增 native 调用链测试：`tests/unit/yg_protocol_core_test.c` 和
+  `tests/unit/native/test_yg_protocol_core.py`；测试已加入 `tests/run.py` 的 native 清单。
+- 已验证的关系：frame codec → CAN ID codec/CRC → message view → fragment/transfer →
+  message registry → router → service handler。
+- 证据：PR 档全绿，`outputs/runs/20260921T034019548078Z-8982922a/summary.json`；未访问硬件，旧
+  CAN 运行路径未接入新模块。
+
+### Stage 3a：只读服务请求到响应（2026-09-21）
+
+- 范围：为路由 handler 增加显式上下文；新增 `yg_protocol_readonly.{h,c}`，通过 provider 回调
+  输出协议信息、设备信息、能力和电机状态查询 payload；新增响应消息视图构造接口。
+- 不变量：provider 不访问 CAN/HAL，不修改电机控制状态；type 编号只作项目候选，正式注册前不得
+  接入线上电机路径；响应 payload 最大 46 字节并复用统一 frame codec。
+- 验收：native 测试覆盖 provider 选择、响应源/目的地址交换、sequence 保留和 payload 长度边界。
+- 回滚：删除只读服务模块和路由 context/响应扩展即可恢复 Stage 2a 的离线路由接口；不影响旧协议。
+- 实现文件：`firmware/communication/protocol/yg_protocol_readonly.{h,c}`、`yg_protocol_router.{h,c}`；
+  测试为 `tests/unit/yg_protocol_core_test.c`。
+- 证据：PR 档全绿，`outputs/runs/20260921T044621417659Z-8982922a/summary.json`；未刷写、未访问硬件。
+
+### Stage 3b：只读登记与 payload 编码（2026-09-21）
+
+- 范围：只读服务的 type 由调用方配置，默认映射公司登记稿的 `GET_INFO=1`、`GET_CAPS=2`、
+  `GET_MOTOR_STATE=108` 和 `MOTION_FEEDBACK=124`；新增只读注册表、page 请求、设备信息、能力和
+  详细电机状态的固定长度小端编码器。
+- 不变量：编码器只处理值对象，不读取 MotorControl、Flash 或 HAL；GET_INFO/GET_CAPS 保留字段必须
+  为 0；详细状态保持 32 字节同快照格式，周期合并反馈仍保持 8 字节定义。
+- 验收：native 测试覆盖小端字节向量、负数补码、长度边界和路由响应封装。
+- 回滚：删除 `yg_protocol_readonly_payload.{h,c}` 并恢复候选 type 配置即可回到 Stage 3a；不影响旧协议。
+- 实现文件：`firmware/communication/protocol/yg_protocol_readonly.{h,c}`、
+  `yg_protocol_readonly_payload.{h,c}`；测试为 `tests/unit/yg_protocol_core_test.c`。
+- 证据：PR 档全绿，`outputs/runs/20260921T045744050501Z-8982922a/summary.json`；未刷写、未访问硬件。

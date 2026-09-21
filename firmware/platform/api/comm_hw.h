@@ -10,7 +10,17 @@ typedef struct
     uint8_t length;
     bool extended, remote;
     uint8_t data[64];
+    bool fd;
+    bool bitrate_switch;
 } CommHwCanFrame;
+
+/**
+ * @brief 单次非阻塞提交一帧 CAN FD 数据帧，支持标准或扩展标识符。
+ * @param frame 调用方拥有的帧；length 为 DLC 对应的实际字节数，填充由调用方完成。
+ * @return 成功提交返回 true；格式非法或 HAL 忙/失败返回 false。
+ * @note 不保存指针，不启动外设或改变滤波与位时序；调用方串行调用并保留失败帧。
+ */
+bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame);
 
 /**
  * @brief 非阻塞地取出一帧已完成接收的 CAN/CAN FD 报文。

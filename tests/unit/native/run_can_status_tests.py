@@ -109,6 +109,7 @@ static CommHwCanFrame incoming;
 static bool rx_ok=true;
 static bool comm_hw_can_receive_stub(CommHwCanFrame *f) {*f=incoming;return rx_ok;}
 #define comm_hw_can_receive comm_hw_can_receive_stub
+static bool YgProtocolLink_OnRxFrame(const CommHwCanFrame *f) {(void)f;return true;}
 static float IntBitToFloat(uint32_t i) {float f;memcpy(&f,&i,4);return f;}
 """
         + function_source(wire, "CanParamWire_CommandEncoding")
@@ -183,9 +184,11 @@ int main(void) {
 #include <stddef.h>
 #define HAL_OK 0
 #define FDCAN_STANDARD_ID 0
+#define FDCAN_EXTENDED_ID 1
 #define FDCAN_DATA_FRAME 0
 #define FDCAN_FD_CAN 1
 #define FDCAN_BRS_ON 1
+#define FDCAN_BRS_OFF 0
 #define FDCAN_NO_TX_EVENTS 0
 #define FDCAN_RX_FIFO0 0
 #define FDCAN_TX_QUEUE_OPERATION 1
@@ -196,11 +199,12 @@ int main(void) {
 #define FDCAN_FILTER_RANGE 1
 #define FDCAN_FILTER_TO_RXFIFO0 2
 #define FDCAN_REJECT 2
+#define FDCAN_ACCEPT_IN_RX_FIFO0 3
 #define FDCAN_FILTER_REMOTE 1
 #define FDCAN_IT_RX_FIFO0_NEW_MESSAGE 8U
 /* Match all fields/order of the vendor header: omitted fields hid stack junk. */
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
-typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength;} FDCAN_RxHeaderTypeDef;
+typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength,FDFormat,BitRateSwitch;} FDCAN_RxHeaderTypeDef;
 typedef struct {unsigned IdType,FilterIndex,FilterType,FilterConfig,FilterID1,FilterID2;} FDCAN_FilterTypeDef;
 typedef struct {unsigned PSR,CCCR;} FDCAN_GlobalTypeDef;
 #define FDCAN_PSR_BO 0x80U
@@ -228,6 +232,7 @@ unsigned HAL_FDCAN_Init(Handle *h);
 static FDCAN_GlobalTypeDef regs;
 Handle hfdcan1 = {.Instance = &regs};
 static unsigned pending,tx_calls,tx_result,rx_length=14;
+static unsigned rx_result,rx_fd,rx_brs,rx_extended;
 static FDCAN_TxHeaderTypeDef last_tx_header;
 static uint8_t last_tx_data0;
 static FDCAN_FilterTypeDef last_filter;
@@ -241,7 +246,8 @@ unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hd
 }
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *hdr,uint8_t *d) {
  (void)h;(void)fifo;memset(hdr,0,sizeof(*hdr));hdr->DataLength=rx_length;hdr->Identifier=0x7f4;
- memset(d,0xaa,64);return 0;
+ hdr->FDFormat=rx_fd;hdr->BitRateSwitch=rx_brs;hdr->IdType=rx_extended;
+ memset(d,0xaa,64);return rx_result;
 }
 unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *f) {(void)h;last_filter=*f;++filter_calls;return 0;}
 unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned a,unsigned b,unsigned c,unsigned d) {
@@ -272,7 +278,7 @@ int main(void) {
  assert(last_filter.IdType==FDCAN_STANDARD_ID && last_filter.FilterIndex==0);
  assert(last_filter.FilterType==FDCAN_FILTER_RANGE && last_filter.FilterConfig==FDCAN_FILTER_TO_RXFIFO0);
  assert(last_filter.FilterID1==0x400 && last_filter.FilterID2==0x4FF);
- assert(last_global[0]==FDCAN_REJECT && last_global[1]==FDCAN_REJECT);
+ assert(last_global[0]==FDCAN_REJECT && last_global[1]==FDCAN_ACCEPT_IN_RX_FIFO0);
  assert(last_global[2]==FDCAN_FILTER_REMOTE && last_global[3]==FDCAN_FILTER_REMOTE);
  assert(last_notify_mask==FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
  comm_hw_can_set_baudrate(1000);
@@ -297,7 +303,43 @@ int main(void) {
  assert(comm_hw_can_service_bus_off() && start_calls==4);
  regs.PSR=0;regs.CCCR=FDCAN_CCCR_INIT;
  assert(comm_hw_can_service_bus_off() && start_calls==5);
- puts("PASS actual HAL port: queue discipline, node filter start, baudrate switch and reply header");return 0;
+ {
+  /* 增量完整帧 API：全 DLC、元数据、HAL 失败和非法输入均检查真实端口实现。 */
+  const unsigned lengths[]={0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64};
+  CommHwCanFrame f={0};f.identifier=0x08ef0302;f.extended=true;f.fd=true;f.bitrate_switch=true;
+  f.data[0]=0x5a;tx_result=0;
+  for(unsigned dlc=0;dlc<16;++dlc) {
+   f.length=lengths[dlc];assert(comm_hw_can_try_send_frame(&f));
+   assert(last_tx_header.Identifier==f.identifier && last_tx_header.IdType==FDCAN_EXTENDED_ID);
+   assert(last_tx_header.DataLength==dlc && last_tx_header.FDFormat==FDCAN_FD_CAN);
+   assert(last_tx_header.BitRateSwitch==FDCAN_BRS_ON && last_tx_header.ErrorStateIndicator==0);
+   assert(last_tx_header.TxEventFifoControl==FDCAN_NO_TX_EVENTS && last_tx_header.MessageMarker==0);
+  }
+  f.bitrate_switch=false;assert(comm_hw_can_try_send_frame(&f));
+  assert(last_tx_header.BitRateSwitch==FDCAN_BRS_OFF);
+  f.extended=false;f.identifier=0x7ff;assert(comm_hw_can_try_send_frame(&f));
+  assert(last_tx_header.IdType==FDCAN_STANDARD_ID);
+  tx_result=1;assert(!comm_hw_can_try_send_frame(&f));tx_result=0;
+  unsigned before=tx_calls;
+  for(unsigned len=9;len<=65;++len) {
+   if(len==12 || len==16 || len==20 || len==24 || len==32 || len==48 || len==64) continue;
+   f.length=len;assert(!comm_hw_can_try_send_frame(&f));
+  }
+  f.length=32;f.identifier=0x800;assert(!comm_hw_can_try_send_frame(&f));
+  f.extended=true;f.identifier=0x20000000;assert(!comm_hw_can_try_send_frame(&f));
+  f.identifier=0x08ef0302;f.remote=true;assert(!comm_hw_can_try_send_frame(&f));
+  f.remote=false;f.fd=false;assert(!comm_hw_can_try_send_frame(&f));
+  assert(!comm_hw_can_try_send_frame(NULL) && tx_calls==before);
+  rx_fd=FDCAN_FD_CAN;rx_brs=FDCAN_BRS_ON;rx_extended=FDCAN_EXTENDED_ID;
+  for(unsigned dlc=0;dlc<16;++dlc) {
+   rx_length=dlc;assert(comm_hw_can_receive(&f));
+   assert(f.length==lengths[dlc] && f.fd && f.bitrate_switch && f.extended && !f.remote);
+  }
+  CommHwCanFrame previous=f;
+  rx_result=1;assert(!comm_hw_can_receive(&f));assert(memcmp(&previous,&f,sizeof(f))==0);
+  rx_result=0;rx_length=16;assert(!comm_hw_can_receive(&f));assert(memcmp(&previous,&f,sizeof(f))==0);
+ }
+ puts("PASS actual HAL port: legacy and full CAN FD frame API, DLC, metadata and failures");return 0;
 }
 """
     )
@@ -312,6 +354,7 @@ static unsigned prepared,status_sent,replies;
 static uint16_t last_reply_id;
 static uint8_t last_reply_len;
 static uint32_t time_hw_now_ms(void) {return 100;}
+static void YgProtocolLink_Service(uint32_t now_ms) {(void)now_ms;}
 bool CanMotorStatus_Prepare(uint32_t t,uint8_t n,uint16_t *id,uint8_t *d,size_t cap) {
  assert(t==100 && n==4 && cap==48);*id=0x7f4;memset(d,0,48);++prepared;return true;
 }

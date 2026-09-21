@@ -22,9 +22,11 @@ void comm_hw_can_start(uint8_t node)
         Error_Handler();
     }
 
-    if (HAL_FDCAN_ConfigGlobalFilter(
-            &hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) !=
-        HAL_OK)
+    if (HAL_FDCAN_ConfigGlobalFilter(&hfdcan1,
+                                     FDCAN_REJECT,
+                                     FDCAN_ACCEPT_IN_RX_FIFO0,
+                                     FDCAN_FILTER_REMOTE,
+                                     FDCAN_FILTER_REMOTE) != HAL_OK)
     {
         Error_Handler();
     }

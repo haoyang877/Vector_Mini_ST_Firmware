@@ -10,6 +10,8 @@
 #include "can_binding_commands.h"
 #include "can_binding_queries.h"
 #include "foc_cogging_calibration.h"
+#include "comm_hw.h"
+#include "yg_protocol_link.h"
 
 /* 命令入口实现：中断只做取帧、帧级校验、线路解码与入队；2 kHz 服务排空队列并
  * 路由到写路径/读路径。具体状态更新与应答取值分别落在 can_binding_commands /
@@ -88,7 +90,19 @@ void CANRxIRQHandler(void)
     float decoded_data;
     CanValueEncoding encoding;
 
-    if (!CanTransport_ReceiveFrame(&frame))
+    if (!comm_hw_can_receive(&frame))
+        return;
+
+    /* 新协议只接受扩展 CAN FD 数据帧；旧标准帧仍走兼容命令入口。 */
+    if (frame.extended || frame.fd)
+    {
+        if (frame.extended && frame.fd)
+            (void)YgProtocolLink_OnRxFrame(&frame);
+        return;
+    }
+    if (frame.remote || (frame.length != 2U && frame.length != 4U) || frame.identifier > 0x7FFU ||
+        (frame.identifier >= CAN_MOTOR_STATUS_ID_BASE &&
+         frame.identifier < CAN_MOTOR_STATUS_ID_BASE + 8U))
         return;
 
     /*high 3 bits*/

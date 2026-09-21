@@ -9,8 +9,9 @@ bool comm_hw_can_receive(CommHwCanFrame *frame)
 {
     static const uint8_t lengths[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
     FDCAN_RxHeaderTypeDef header;
+    CommHwCanFrame received = {0};
     if (frame == NULL ||
-        HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &header, frame->data) != HAL_OK)
+        HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &header, received.data) != HAL_OK)
     {
         return false;
     }
@@ -18,11 +19,41 @@ bool comm_hw_can_receive(CommHwCanFrame *frame)
     {
         return false;
     }
-    frame->identifier = header.Identifier;
-    frame->extended = header.IdType != FDCAN_STANDARD_ID;
-    frame->remote = header.RxFrameType != FDCAN_DATA_FRAME;
-    frame->length = lengths[header.DataLength];
+    received.identifier = header.Identifier;
+    received.extended = header.IdType != FDCAN_STANDARD_ID;
+    received.remote = header.RxFrameType != FDCAN_DATA_FRAME;
+    received.length = lengths[header.DataLength];
+    received.fd = header.FDFormat == FDCAN_FD_CAN;
+    received.bitrate_switch = header.BitRateSwitch == FDCAN_BRS_ON;
+    *frame = received;
     return true;
+}
+
+bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame)
+{
+    static const uint8_t lengths[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
+    FDCAN_TxHeaderTypeDef header = {0};
+    if (frame == NULL || !frame->fd || frame->remote ||
+        frame->identifier > (frame->extended ? 0x1FFFFFFFU : 0x7FFU))
+    {
+        return false;
+    }
+    for (uint32_t dlc = 0U; dlc < 16U; ++dlc)
+    {
+        if (lengths[dlc] == frame->length)
+        {
+            /* 本仓库 G4 HAL 使用未移位的 DLC 编码 0..15。 */
+            header.DataLength = dlc;
+            header.Identifier = frame->identifier;
+            header.IdType = frame->extended ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
+            header.TxFrameType = FDCAN_DATA_FRAME;
+            header.FDFormat = FDCAN_FD_CAN;
+            header.BitRateSwitch = frame->bitrate_switch ? FDCAN_BRS_ON : FDCAN_BRS_OFF;
+            header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+            return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, frame->data) == HAL_OK;
+        }
+    }
+    return false;
 }
 
 bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_t length)

@@ -27,3 +27,5 @@ Protection design: [故障保护模块、接口与参数设计 v1.0](architectur
 and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
 
 Communication layering: [通信分层说明（CAN 接入）](architecture/communication_layering.md).
+
+CAN FD link smoke test: [yg_protocol CAN FD 硬件连通性冒烟测试 v0.1](protocols/yg_protocol_link_smoke_test_v0_1.md).

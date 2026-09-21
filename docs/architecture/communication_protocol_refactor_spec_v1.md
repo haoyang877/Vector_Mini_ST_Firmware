@@ -10,6 +10,14 @@
 
 ## 0. 文档使用说明
 
+2026-09-21 核心接口以 [核心接口契约 v0.1](../protocols/yg_protocol_core_interfaces_v0_1.md)
+为当前实现索引：包含实际文件、调用顺序、所有权及待完成项；下文目标图不代表已完成实机迁移。
+
+2026-09-21 实现补充：[CAN FD 适配契约 v0.1](../protocols/yg_protocol_canfd_adapter_v0_1.md)
+记录实际接口、所有权、DLC/填充规则和兼容边界。当前仅离线串联验证，新协议尚未挂入 MCU 调度。
+下文图中的队列跨中断使用是目标设计；当前 `yg_protocol_transfer` 仅允许串行访问，需要完成并发
+同步与硬件滤波集成后才能用于 RX ISR。CAN 元数据结构不能直接用于其他链路。
+
 本文件把三个来源合并为一个可执行的技术规范，但不把它们混成同一层级：
 
 | 来源 | 本文件中的作用 |
@@ -194,13 +202,17 @@ flowchart TB
 | 消息注册 | `yg_protocol_message_registry.h/.c` | type、方向、周期、是否允许分片 |
 | 消息路由 | `yg_protocol_router.h/.c` | 将完整消息送到对应服务 |
 | CAN FD 适配 | `yg_protocol_canfd.h/.c` | FD、BRS、DLC、过滤和硬件帧转换 |
+| 端点组装 | `yg_protocol_endpoint.h/.c` | 队列、分片、路由和自动应答的串行组合入口 |
+| 只读服务 | `yg_protocol_readonly.h/.c` | 协议、设备、能力和电机状态查询的提供者接口 |
+| 只读 payload | `yg_protocol_readonly_payload.h/.c` | GET_INFO、GET_CAPS、GET_MOTOR_STATE 的显式小端字段编码 |
+| 服务契约 | `yg_protocol_service.h` | 内部业务结果和异步 token，不直接映射线上枚举 |
 | 电机服务 | `yg_protocol_motor.h/.c` | MotorCommand、MotorStatusSnapshot 转换 |
 | 参数服务 | `yg_protocol_parameter.h/.c` | 参数读写、事务和保存请求 |
 | 任务服务 | `yg_protocol_job.h/.c` | 辨识、标定、诊断任务 |
 | 升级服务 | `yg_protocol_update.h/.c` | 升级会话和 loader 接口 |
 
 第一阶段不必一次创建全部文件。建议先实现 `wire_types`、`crc`、`frame_codec`、`canfd`、`router` 和
-对应测试，确认真实调用关系后再增加参数、Job 和升级模块。
+对应测试，确认真实调用关系后再增加只读服务、参数、Job 和升级模块。
 
 ### 2.1 模块之间的接口形状
 
@@ -237,15 +249,25 @@ yg_protocol_result_t yg_protocol_frame_encode(
     size_t *out_length);
 
 yg_protocol_result_t yg_protocol_router_handle(
+    const yg_protocol_router_t *router,
     const yg_protocol_message_t *message,
     yg_protocol_service_result_t *out_result);
 
-bool yg_protocol_transfer_send(
-    const yg_protocol_message_t *message);
+yg_protocol_result_t yg_protocol_router_build_response(
+    const yg_protocol_message_t *request,
+    const yg_protocol_service_result_t *service_result,
+    yg_protocol_message_t *out_response);
+
+yg_protocol_result_t yg_protocol_endpoint_send(
+    yg_protocol_endpoint_t *endpoint,
+    const yg_protocol_message_t *message,
+    uint8_t priority);
 ```
 
 这些接口的语义必须固定：输入缓冲区由调用方拥有；跨周期数据复制到模块自己的固定存储；发送成功
-只表示进入 TX 队列；电机命令执行结果必须通过 `service_result` 或状态反馈确认。
+只表示进入 TX 队列；电机命令执行结果必须通过 `service_result` 或状态反馈确认。路由 handler 接收
+显式 `context`，只读服务通过 provider 回调填充固定的 46 字节响应缓冲区；路由器只负责初始化响应
+元数据和封装消息视图，不拥有业务状态，也不直接访问电机或 HAL。
 
 ### 2.2 重构后的信息流程图
 

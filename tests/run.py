@@ -24,6 +24,11 @@ NATIVE = (
     "test_sensorless_transitions",
     "test_cogging_calibration",
     "test_mcu_temperature",
+    "test_yg_protocol_core",
+    "test_yg_protocol_fragment",
+    "test_yg_protocol_motor_adapter",
+    "test_yg_protocol_parameter_adapter",
+    "test_yg_protocol_link",
 )
 
 

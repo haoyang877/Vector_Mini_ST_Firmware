@@ -6,6 +6,7 @@
 
 #include "comm_hw.h"
 #include "yg_protocol_motor.h"
+#include "yg_protocol_motor_status.h"
 #include "yg_protocol_wire_types.h"
 
 /**
@@ -23,6 +24,14 @@ bool YgProtocolLink_Init(uint8_t node_id);
  * @note 只复制服务指针和上下文，不访问硬件；未绑定时 STOP/DISABLE 返回 UNSUPPORTED。
  */
 bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service);
+
+/**
+ * @brief 绑定只读电机状态快照源。
+ * @param source 调用方持有的稳定快照；传入 NULL 表示恢复为无新鲜数据状态。
+ * @return 已初始化且绑定成功返回 true，否则返回 false。
+ * @note 端点只借用该指针；调用方负责在查询期间提供不可变快照。
+ */
+bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_t *source);
 
 /**
  * @brief 把硬件接收的扩展 CAN FD 帧放入协议 RX 队列。

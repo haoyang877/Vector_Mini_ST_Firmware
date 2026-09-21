@@ -21,6 +21,8 @@ typedef struct
     yg_protocol_readonly_info_page0_t info;
     yg_protocol_readonly_caps_page0_t capabilities;
     yg_protocol_motor_service_t motor_service;
+    yg_protocol_motor_status_source_t empty_motor_status;
+    const yg_protocol_motor_status_source_t *motor_status_source;
 } yg_protocol_link_context_t;
 
 static yg_protocol_link_context_t link_context;
@@ -113,11 +115,29 @@ static yg_protocol_result_t handle_motor_stop(void *context,
     return YG_PROTOCOL_OK;
 }
 
+static yg_protocol_result_t provide_motor_status(void *context,
+                                                 const yg_protocol_message_t *request,
+                                                 uint8_t *payload,
+                                                 uint32_t *payload_length)
+{
+    yg_protocol_link_context_t *link = context;
+    const yg_protocol_motor_status_source_t *source;
+
+    if (link == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    source = link->motor_status_source != NULL ? link->motor_status_source
+                                               : &link->empty_motor_status;
+    return yg_protocol_motor_status_provider((void *)source, request, payload, payload_length);
+}
+
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     static const yg_protocol_route_t routes[] = {
         {YG_LINK_PROTOCOL_INFO_TYPE, yg_protocol_readonly_handle, &readonly_service},
         {YG_LINK_CAPABILITIES_TYPE, yg_protocol_readonly_handle, &readonly_service},
+        {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_stop, &link_context},
         {YG_PROTOCOL_MOTOR_TYPE_DISABLE, handle_motor_stop, &link_context},
     };
@@ -135,6 +155,8 @@ bool YgProtocolLink_Init(uint8_t node_id)
 
     link_context.node_id = node_id;
     link_context.motor_service = (yg_protocol_motor_service_t){0};
+    memset(&link_context.empty_motor_status, 0, sizeof(link_context.empty_motor_status));
+    link_context.motor_status_source = NULL;
     memset(&link_context.info, 0, sizeof(link_context.info));
     link_context.info.product_id = 0x5947U;
     link_context.info.hardware_revision = 1U;
@@ -154,9 +176,10 @@ bool YgProtocolLink_Init(uint8_t node_id)
     configuration.protocol_info_type = YG_LINK_PROTOCOL_INFO_TYPE;
     configuration.capabilities_type = YG_LINK_CAPABILITIES_TYPE;
     configuration.device_info_type = YG_PROTOCOL_READONLY_TYPE_DISABLED;
-    configuration.motor_status_type = YG_PROTOCOL_READONLY_TYPE_DISABLED;
+    configuration.motor_status_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE;
     configuration.protocol_info = provide_info;
     configuration.capabilities = provide_capabilities;
+    configuration.motor_status = provide_motor_status;
     if (yg_protocol_readonly_init(&readonly_service, &configuration) != YG_PROTOCOL_OK ||
         yg_protocol_router_init(&router, &registry, routes, sizeof(routes) / sizeof(routes[0])) !=
             YG_PROTOCOL_OK)
@@ -187,6 +210,16 @@ bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
         return false;
     }
     link_context.motor_service = service != NULL ? *service : (yg_protocol_motor_service_t){0};
+    return true;
+}
+
+bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_t *source)
+{
+    if (!ready)
+    {
+        return false;
+    }
+    link_context.motor_status_source = source;
     return true;
 }
 

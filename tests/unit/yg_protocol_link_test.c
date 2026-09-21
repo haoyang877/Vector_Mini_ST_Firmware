@@ -124,5 +124,38 @@ int main(void)
     assert(response.message_type == YG_PROTOCOL_MOTOR_TYPE_STOP);
     assert(response.payload_length == YG_PROTOCOL_MOTOR_REPLY_SIZE);
     assert(response.payload[0] == YG_PROTOCOL_SERVICE_UNSUPPORTED);
+
+    sent = false;
+    assert(YgProtocolLink_Init(7U));
+    memset(payload, 0, sizeof(payload));
+    put_u32(payload, 0U);
+    put_u32(payload + 4U, 1U);
+    request.flags = YG_PROTOCOL_FLAGS_ACK_REQUEST;
+    request.message_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE;
+    request.sequence = 13U;
+    request.payload_length = 8U;
+    request.payload = payload;
+    assert(yg_protocol_canfd_pack(&request, 2U, &request_frame) == YG_PROTOCOL_OK);
+    received.identifier = request_frame.identifier;
+    received.length = request_frame.length;
+    received.extended = request_frame.extended;
+    received.remote = request_frame.remote;
+    received.fd = request_frame.fd;
+    received.bitrate_switch = request_frame.bitrate_switch;
+    memcpy(received.data, request_frame.data, received.length);
+    assert(YgProtocolLink_OnRxFrame(&received));
+    YgProtocolLink_Service(300U);
+    assert(sent);
+    response_frame.identifier = sent_frame.identifier;
+    response_frame.length = sent_frame.length;
+    response_frame.extended = sent_frame.extended;
+    response_frame.remote = sent_frame.remote;
+    response_frame.fd = sent_frame.fd;
+    response_frame.bitrate_switch = sent_frame.bitrate_switch;
+    memcpy(response_frame.data, sent_frame.data, sent_frame.length);
+    assert(yg_protocol_canfd_unpack(&response_frame, 1U, &response) == YG_PROTOCOL_OK);
+    assert(response.message_type == YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE);
+    assert(response.payload_length == 12U);
+    assert(response.payload[8] == 6U && response.payload[9] == 0U);
     return 0;
 }

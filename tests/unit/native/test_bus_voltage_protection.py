@@ -64,25 +64,25 @@ int main(void) {
      * the new delays, without inheriting the old 30 V false threshold. */
     running(33.6f);tick(40000);assert(MotorControl.ErrorNow==No_Error);
     puts("PASS 33.6 V full-charge operation");
-    running(34.2f);tick(39);assert(MotorControl.ErrorNow==No_Error);
+    running(36.05f);tick(39);assert(MotorControl.ErrorNow==No_Error);
     tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
     input(32);tick(100);assert(MotorControl.ErrorNow==Over_Voltage);
     puts("PASS 2 ms sustained overvoltage and fault latch");
     running(23.9f);tick(1999);assert(MotorControl.ErrorNow==No_Error);
     tick(1);assert(MotorControl.ErrorNow==Under_Voltage);
     puts("PASS 100 ms sustained undervoltage");
-    running(33);input(34.8f);tick(2);assert(MotorControl.ErrorNow==No_Error);
+    running(35.9f);input(36.25f);tick(2);assert(MotorControl.ErrorNow==No_Error);
     tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
-    assert(FOC.Vbus_filt<34.0f);
+    assert(FOC.Vbus_filt<36.0f);
     puts("PASS three-sample hard overvoltage bypasses filter lag");
     running(33);for(k=0;k<100;k++) {
-        input(34.8f);tick(2);input(33);tick(20);
+        input(36.25f);tick(2);input(33);tick(20);
         assert(MotorControl.ErrorNow==No_Error);
     }
     running(23.9f);tick(1900);input(30);tick(1000);
     input(23.9f);tick(1900);assert(MotorControl.ErrorNow==No_Error);
     puts("PASS isolated spikes and interrupted dips do not accumulate");
-    running(34.2f);tick(39);MotorControl.ModeNow=Motor_Disable;tick(1);
+    running(36.05f);tick(39);MotorControl.ModeNow=Motor_Disable;tick(1);
     MotorControl.ModeNow=Speed_Mode;tick(39);assert(MotorControl.ErrorNow==No_Error);
     tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
     running(23.9f);tick(1999);MotorControl.ModeNow=Motor_Disable;tick(1);
@@ -90,9 +90,9 @@ int main(void) {
     tick(1);assert(MotorControl.ErrorNow==Under_Voltage);
     puts("PASS disable resets both confirmation counters");
     for(k=0;k<sizeof(modes)/sizeof(modes[0]);k++) {
-        running(34.2f);MotorControl.ModeNow=modes[k];tick(40);
+        running(36.05f);MotorControl.ModeNow=modes[k];tick(40);
         assert(MotorControl.ErrorNow==Over_Voltage);
-        reset(34.2f);assert(!ModeSwitch_Handle(modes[k]));
+        reset(36.05f);assert(!ModeSwitch_Handle(modes[k]));
         assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==Over_Voltage);
         reset(24.5f);assert(!ModeSwitch_Handle(modes[k]));
         assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==Under_Voltage);

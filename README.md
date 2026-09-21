@@ -58,7 +58,7 @@ python tests/run.py
 
 > MCU的PB8引脚为BOOT0引脚，在设计时由于引脚紧张复用成FDCAN1_RX，让程序正常启动需要使用STM32CubeProgrammer将BOOT0软件下拉。
 
-> 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/guides/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
+> 本分支（`codex/ovp-36v`）为实验配置，母线保护仍按 **8 串常规三元锂电池（满充 33.6 V）**设定：欠压 24.0 V、过压 36.0 V、快速过压 36.2 V；启动/故障清除后重新使能要求 25.6–33.8 V（不变）。保护配置与验证见 [8S 母线电压保护](docs/guides/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。实验分支，不可发布，不可烧录到产品，不代表板子可承受该电压。
 
 > 原始手册见 [Vector_User Manual.pdf](<docs/hardware/Vector_User Manual.pdf>)。其中 USB/VOFA 章节属于历史功能，不适用于当前固件；当前接口与功能缺口见 [USB 移除说明](docs/guides/usb_removal.md)。
 

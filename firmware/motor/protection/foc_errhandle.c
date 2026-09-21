@@ -258,58 +258,17 @@ void Clear_Mode_Error_Change(void)
 }
 
 /**
-	* @brief  Release the six gate-driver inputs to high impedance
-	* @note   The PWM is stopped and the pins become analog inputs (highest
-	*         impedance, no pull) while the motor is disabled. MOE stays set
-	*         because the CH4 compare clocks the injected ADC conversions and
-	*         its trigger is gated by MOE.
- **/
-void PWM_Outputs_HiZ(void)
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
-	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
-}
-
-/**
-	* @brief  Hand the six gate-driver pins back to TIM1
- **/
-static void PWM_Outputs_ToTimer(void)
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.Alternate = GPIO_AF6_TIM1;
-	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
-	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
-}
-
-/**
 	* @brief  Stop PWM generation
+	* @note   Test-plan state A: while the motor is disabled the six outputs
+	*         keep running at the default 50% duty (zero-modulation compare).
+	*         The channel enables, MOE and TIM1 are left untouched so CH4 keeps
+	*         clocking the injected ADC conversions.
  **/
 void Stop_PWM_Generate(void)
 {
-	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
-	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
-	
-	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
-	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
-	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
-	
-	/* The HAL stops cleared the channel enables; release the gate-driver
-	 * inputs to high impedance (MOE keeps the CH4 ADC trigger running). */
-	PWM_Outputs_HiZ();
-	
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, htim1.Init.Period / 2);
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, htim1.Init.Period / 2);
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, htim1.Init.Period / 2);
 }
 
 /**
@@ -324,7 +283,4 @@ void Start_PWM_Generate(void)
 	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
 	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
 	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
-	
-	/* Channel enables and MOE are set; hand the pins back to TIM1. */
-	PWM_Outputs_ToTimer();
 }

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "comm_hw.h"
+#include "yg_protocol_motor.h"
 #include "yg_protocol_wire_types.h"
 
 /**
@@ -14,6 +15,14 @@
  * @note 只注册 GET_INFO/GET_CAPS，不使能电机、不修改参数；应在板级 CAN 启动后调用。
  */
 bool YgProtocolLink_Init(uint8_t node_id);
+
+/**
+ * @brief 绑定电机业务服务。
+ * @param service 业务所有者提供的服务；传入 NULL 表示解除绑定。
+ * @return 已初始化且绑定成功返回 true，否则返回 false。
+ * @note 只复制服务指针和上下文，不访问硬件；未绑定时 STOP/DISABLE 返回 UNSUPPORTED。
+ */
+bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service);
 
 /**
  * @brief 把硬件接收的扩展 CAN FD 帧放入协议 RX 队列。

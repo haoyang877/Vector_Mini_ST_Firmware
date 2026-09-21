@@ -1,6 +1,20 @@
 /* motor 服务边界：显式注入后端，不读取全局状态或访问硬件。 */
 #include "yg_protocol_motor.h"
 
+static void put_u16(uint8_t *payload, uint16_t value)
+{
+    payload[0] = (uint8_t)value;
+    payload[1] = (uint8_t)(value >> 8U);
+}
+
+static void put_u32(uint8_t *payload, uint32_t value)
+{
+    payload[0] = (uint8_t)value;
+    payload[1] = (uint8_t)(value >> 8U);
+    payload[2] = (uint8_t)(value >> 16U);
+    payload[3] = (uint8_t)(value >> 24U);
+}
+
 yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_service_t *service,
                                                     const yg_protocol_motor_request_t *request,
                                                     yg_protocol_service_reply_t *reply)
@@ -24,4 +38,26 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
         service->handler(service->context, request, reply);
     }
     return reply->status;
+}
+
+yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_reply_t *reply,
+                                                     uint8_t *payload,
+                                                     size_t capacity,
+                                                     size_t *written)
+{
+    if (reply == NULL || payload == NULL || capacity < YG_PROTOCOL_MOTOR_REPLY_SIZE)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    payload[0] = (uint8_t)reply->status;
+    payload[1] = 0U;
+    put_u16(payload + 2U, reply->detail);
+    put_u32(payload + 4U, reply->token);
+    put_u32(payload + 8U, reply->revision);
+    put_u32(payload + 12U, (uint32_t)reply->value);
+    if (written != NULL)
+    {
+        *written = YG_PROTOCOL_MOTOR_REPLY_SIZE;
+    }
+    return YG_PROTOCOL_OK;
 }

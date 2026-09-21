@@ -2,6 +2,12 @@
 #define YG_PROTOCOL_MOTOR_H
 
 #include "yg_protocol_service.h"
+#include "yg_protocol_wire_types.h"
+
+/* 项目候选 type；公司电机 100～199 登记完成后再冻结线上编号。 */
+#define YG_PROTOCOL_MOTOR_TYPE_STOP 110U
+#define YG_PROTOCOL_MOTOR_TYPE_DISABLE 111U
+#define YG_PROTOCOL_MOTOR_REPLY_SIZE 16U
 
 /** @brief motor 内部操作，不分配线上 type，不等同于电机模式枚举。 */
 typedef enum
@@ -56,5 +62,19 @@ typedef struct
 yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_service_t *service,
                                                     const yg_protocol_motor_request_t *request,
                                                     yg_protocol_service_reply_t *reply);
+
+/**
+ * @brief 编码电机业务结果响应。
+ * @param reply 内部服务结果。
+ * @param payload 输出的小端 payload 缓冲区。
+ * @param capacity 输出容量，至少 16 字节。
+ * @param written 成功时写入长度，可为 NULL。
+ * @return 编码结果。
+ * @note 该 payload 是项目候选格式；内部服务枚举不直接暴露给电机控制模块。
+ */
+yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_reply_t *reply,
+                                                     uint8_t *payload,
+                                                     size_t capacity,
+                                                     size_t *written);
 
 #endif

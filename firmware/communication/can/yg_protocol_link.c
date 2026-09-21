@@ -8,6 +8,7 @@
 #include "yg_protocol_readonly.h"
 #include "yg_protocol_readonly_payload.h"
 #include "yg_protocol_transfer.h"
+#include "yg_protocol_motor.h"
 
 #define YG_LINK_QUEUE_CAPACITY 8U
 #define YG_LINK_FRAGMENT_CAPACITY 1767U
@@ -19,6 +20,7 @@ typedef struct
     uint8_t node_id;
     yg_protocol_readonly_info_page0_t info;
     yg_protocol_readonly_caps_page0_t capabilities;
+    yg_protocol_motor_service_t motor_service;
 } yg_protocol_link_context_t;
 
 static yg_protocol_link_context_t link_context;
@@ -81,11 +83,43 @@ static yg_protocol_result_t provide_capabilities(void *context,
     return YG_PROTOCOL_OK;
 }
 
+static yg_protocol_result_t handle_motor_stop(void *context,
+                                              const yg_protocol_message_t *request,
+                                              yg_protocol_service_result_t *result)
+{
+    yg_protocol_motor_request_t motor_request = {0};
+    yg_protocol_service_reply_t motor_reply;
+    yg_protocol_link_context_t *link = context;
+
+    if (link == NULL || request == NULL || result == NULL || request->payload_length != 0U)
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    motor_request.operation = request->message_type == YG_PROTOCOL_MOTOR_TYPE_STOP
+                                  ? YG_PROTOCOL_MOTOR_STOP
+                                  : YG_PROTOCOL_MOTOR_DISABLE;
+    motor_request.source_node = request->source_node;
+    motor_request.sequence = request->sequence;
+    (void)yg_protocol_motor_call(&link->motor_service, &motor_request, &motor_reply);
+    if (yg_protocol_motor_encode_reply(&motor_reply,
+                                       result->response_payload,
+                                       sizeof(result->response_payload),
+                                       NULL) != YG_PROTOCOL_OK)
+    {
+        return YG_PROTOCOL_BUFFER_TOO_SMALL;
+    }
+    result->response_payload_length = YG_PROTOCOL_MOTOR_REPLY_SIZE;
+    result->response_flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    return YG_PROTOCOL_OK;
+}
+
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     static const yg_protocol_route_t routes[] = {
         {YG_LINK_PROTOCOL_INFO_TYPE, yg_protocol_readonly_handle, &readonly_service},
         {YG_LINK_CAPABILITIES_TYPE, yg_protocol_readonly_handle, &readonly_service},
+        {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_stop, &link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_DISABLE, handle_motor_stop, &link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
     yg_protocol_endpoint_config_t endpoint_config;
@@ -100,6 +134,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
     }
 
     link_context.node_id = node_id;
+    link_context.motor_service = (yg_protocol_motor_service_t){0};
     memset(&link_context.info, 0, sizeof(link_context.info));
     link_context.info.product_id = 0x5947U;
     link_context.info.hardware_revision = 1U;
@@ -142,6 +177,16 @@ bool YgProtocolLink_Init(uint8_t node_id)
         return false;
     }
     ready = true;
+    return true;
+}
+
+bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
+{
+    if (!ready)
+    {
+        return false;
+    }
+    link_context.motor_service = service != NULL ? *service : (yg_protocol_motor_service_t){0};
     return true;
 }
 

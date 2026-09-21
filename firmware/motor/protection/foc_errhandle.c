@@ -258,25 +258,19 @@ void Clear_Mode_Error_Change(void)
 }
 
 /**
-	* @brief  Drive the six gate-driver inputs low
-	* @note   The TIM1 off-state selection cannot drive a channel whose enable
-	*         bits are cleared, so the disabled pins are held low as GPIO
-	*         outputs. MOE stays set because the CH4 compare clocks the
-	*         injected ADC conversions and its trigger is gated by MOE.
+	* @brief  Release the six gate-driver inputs to high impedance
+	* @note   The PWM is stopped and the pins become analog inputs (highest
+	*         impedance, no pull) while the motor is disabled. MOE stays set
+	*         because the CH4 compare clocks the injected ADC conversions and
+	*         its trigger is gated by MOE.
  **/
-void PWM_Outputs_Low(void)
+void PWM_Outputs_HiZ(void)
 {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-	HAL_GPIO_WritePin(PWM_AL_GPIO_Port,
-	                  PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin,
-	                  GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(PWM_BL_GPIO_Port, PWM_BL_Pin | PWM_CL_Pin,
-	                  GPIO_PIN_RESET);
 	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
 	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
@@ -312,10 +306,9 @@ void Stop_PWM_Generate(void)
 	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
 	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
 	
-	/* The HAL stops cleared the channel enables, so hold the gate-driver
-	 * inputs actively low instead of leaving them floating (MOE keeps the
-	 * CH4 ADC trigger running). */
-	PWM_Outputs_Low();
+	/* The HAL stops cleared the channel enables; release the gate-driver
+	 * inputs to high impedance (MOE keeps the CH4 ADC trigger running). */
+	PWM_Outputs_HiZ();
 	
 }
 

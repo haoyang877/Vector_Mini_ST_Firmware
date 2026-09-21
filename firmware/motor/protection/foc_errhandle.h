@@ -15,6 +15,6 @@ void Clear_Mode_Error_Change(void);
 void Stop_PWM_Generate(void);
 void Stop_PWM_Generate(void);
 void Start_PWM_Generate(void);
-void PWM_Outputs_Low(void);
+void PWM_Outputs_HiZ(void);
 
 #endif

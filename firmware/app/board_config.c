@@ -37,11 +37,11 @@ void Board_Init(void)
 	/*enable channel 4 PWM to trigger ADC conversion*/
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);
 	
-	/* An unconfigured joint never starts the phase channels, which would leave
-	 * the gate-driver inputs floating. Hold them low instead. */
+	/* An unconfigured joint never starts the phase channels; release the six
+	 * pins to high impedance explicitly. */
 	if (!MotorControl_IsConfigurationValid())
 	{
-		PWM_Outputs_Low();
+		PWM_Outputs_HiZ();
 	}
 	
 	/*enable ADC1 ADC 2 injection mode sampling*/

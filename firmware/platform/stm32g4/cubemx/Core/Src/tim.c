@@ -116,7 +116,7 @@ void MX_TIM1_Init(void)
   /* USER CODE BEGIN TIM1_Init 2 */
   /* Select the inactive (low) level for TIM1 outputs instead of Hi-Z whenever
    * the off state applies (disabled channel, cleared MOE). The resting disabled
-   * state drives the gate-driver pins low as GPIO in Stop_PWM_Generate, and
+   * state releases the six pins to high impedance in Stop_PWM_Generate, and
    * MOE must stay set because the CH4 compare clocks the injected ADC
    * conversions. */
   htim1.Instance->BDTR |= (TIM_BDTR_OSSR | TIM_BDTR_OSSI);

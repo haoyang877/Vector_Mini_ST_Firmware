@@ -22,3 +22,6 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [HIL 退役：删除 HIL 工程与工装，仅保留 normal 工程 v1.0](2026-09-19-hil-retirement.md)：删除 HIL Keil 工程、`SERVO_HIL_ENABLE` 固件变体、HIL 台架工装与测试、`profiles.hil`/`layers.hil`，构建/发布链路改单目标；**已完成**（2026-09-19：PR 档全绿 + release 档通过，提交 `c39d0d25`）。
 - [监督时基 2 kHz 与三层环路架构 v1.0](2026-09-20-supervisor-2khz.md)：TIM7 1 kHz→2 kHz 与内容重标定（分频、心跳、温度、总线恢复）；编码器慢估计、外环控制与主状态机迁入 2 kHz 慢拍，故障紧急关断保留 20 kHz 快车道。**阶段 1–4 已实施；PR 档全绿 + 实机台架验收通过（2026-09-20）**。
 - [电机装配/启动参数归位 motor 层 v1.0](2026-09-20-motor-profile-relocation.md)：拆分 `control_config.h`——时基/采样率留 platform/api，阻尼环装配选择与无感启动/编码器标定默认值归 `motor`（`motor_hardware_profile.h`、`motor_startup_profile.h`）；宏名与取值不变。**已实施，PR 档全绿；Keil/release 待提交后执行**。
+- [公司 CAN FD 通信协议框架重构 v1.0](2026-09-20-company-canfd-protocol-migration.md)：先搭建协议核心、CAN FD 传输、dispatcher、命令网关和服务边界，再分阶段接入电机控制、反馈、参数、升级和 5 轴 1 kHz 同步；当前为规划阶段，未改变固件运行行为。
+- [电机通信协议重构技术实现规范 v1.0](../../architecture/communication_protocol_refactor_spec_v1.md)：供 AI 和开发者执行重构的顶层规范，统一来源层级、目标架构、程序流、硬件解耦、文件边界、迁移阶段和验收规则。
+- [参数描述符模型与 ID 分区设计 v1.0](2026-09-20-parameter-descriptor-model.md)：把逐 case 参数处理收敛为单一描述符表（分组 + `apply_policy` + ID 分区）；冻结"未实现不登记枚举"纪律，不改既有 106 个 ID；仅设计，P0 之外不实施。

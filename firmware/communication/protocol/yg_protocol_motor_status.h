@@ -7,8 +7,8 @@
 #include "motor_status.h"
 #include "yg_protocol_readonly_payload.h"
 
-#define YG_PROTOCOL_MOTOR_MEASUREMENT_MASK 0x37U
-#define YG_PROTOCOL_MOTOR_RESPONSE_SIZE 44U
+#define YG_PROTOCOL_MOTOR_MEASUREMENT_MASK 0x77U
+#define YG_PROTOCOL_MOTOR_RESPONSE_SIZE 46U
 #define YG_PROTOCOL_MOTION_PAYLOAD_SIZE 8U
 
 /**

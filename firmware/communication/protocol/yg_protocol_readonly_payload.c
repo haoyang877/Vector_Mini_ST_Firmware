@@ -130,11 +130,12 @@ yg_protocol_readonly_encode_motor_state(const yg_protocol_readonly_motor_state_t
     write_u32(payload + 16U, (uint32_t)state->iq_mA);
     write_u32(payload + 20U, state->faults);
     write_u16(payload + 24U, state->bus_mV);
-    write_u16(payload + 26U, (uint16_t)state->temperature_centi_c);
-    payload[28] = state->state;
-    payload[29] = state->mode;
-    payload[30] = state->last_applied_sequence;
-    payload[31] = state->valid_bits;
+    write_u16(payload + 26U, (uint16_t)state->bus_mA);
+    write_u16(payload + 28U, (uint16_t)state->temperature_centi_c);
+    payload[30] = state->state;
+    payload[31] = state->mode;
+    payload[32] = state->last_applied_sequence;
+    payload[33] = state->valid_bits;
     if (written != NULL)
     {
         *written = YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE;

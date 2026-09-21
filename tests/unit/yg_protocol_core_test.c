@@ -209,6 +209,7 @@ static void readonly_payload_codecs(void)
                                                 -3000,
                                                 0xAABBCCDDU,
                                                 48000U,
+                                                -1200,
                                                 -2500,
                                                 2U,
                                                 3U,
@@ -233,7 +234,7 @@ static void readonly_payload_codecs(void)
            YG_PROTOCOL_OK);
     assert(written == YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE);
     assert(payload[8] == 0x18U && payload[9] == 0xFCU);
-    assert(payload[26] == 0x3CU && payload[27] == 0xF6U);
+    assert(payload[26] == 0x50U && payload[27] == 0xFBU);
     assert(yg_protocol_readonly_encode_motor_state(&state, payload, 31U, &written) ==
            YG_PROTOCOL_BUFFER_TOO_SMALL);
 }
@@ -258,6 +259,7 @@ static void motor_status_adapter(void)
     source.sample.speed_feedback = -40.0F;
     source.sample.current_feedback = 1.2F;
     source.sample.bus_voltage = 24.0F;
+    source.sample.bus_current = 1.5F;
     source.sample.temperature = 25.25F;
     source.boot_id = 0x01020304U;
     source.sample_counter = 99U;
@@ -269,7 +271,7 @@ static void motor_status_adapter(void)
     source.sample_available = true;
     assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_OK);
     assert(state.position_mrad == 1235 && state.speed_mrad_s == -40000 && state.iq_mA == 1200);
-    assert(state.bus_mV == 24000U && state.temperature_centi_c == 2525);
+    assert(state.bus_mV == 24000U && state.bus_mA == 1500 && state.temperature_centi_c == 2525);
     assert(state.valid_bits == (YG_PROTOCOL_MOTOR_MEASUREMENT_MASK | 0x08U));
     assert(yg_protocol_motor_feedback_encode(&source, payload, 8U) == YG_PROTOCOL_OK);
     assert(payload[0] == 0xD3U && payload[1] == 0x04U && payload[4] == 0x00U &&

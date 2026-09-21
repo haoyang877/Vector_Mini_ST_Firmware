@@ -9,7 +9,7 @@
 #define YG_PROTOCOL_READONLY_PAGE_REQUEST_SIZE 12U
 #define YG_PROTOCOL_READONLY_INFO_PAGE0_SIZE 32U
 #define YG_PROTOCOL_READONLY_CAPS_PAGE0_SIZE 16U
-#define YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE 32U
+#define YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE 34U
 
 /** @brief GET_INFO/GET_CAPS 的页查询前缀，数值均为小端。 */
 typedef struct
@@ -43,7 +43,7 @@ typedef struct
     uint16_t max_watchdog_ms;
 } yg_protocol_readonly_caps_page0_t;
 
-/** @brief GET_MOTOR_STATE 的 32 字节同快照状态字段。 */
+/** @brief GET_MOTOR_STATE 的 34 字节同快照状态字段。 */
 typedef struct
 {
     uint32_t boot_id;
@@ -53,6 +53,7 @@ typedef struct
     int32_t iq_mA;
     uint32_t faults;
     uint16_t bus_mV;
+    int16_t bus_mA;
     int16_t temperature_centi_c;
     uint8_t state;
     uint8_t mode;
@@ -103,7 +104,7 @@ yg_protocol_readonly_encode_caps_page0(const yg_protocol_readonly_caps_page0_t *
  * @brief 编码 GET_MOTOR_STATE 的详细状态字段。
  * @param state 输入的同快照电机状态。
  * @param payload 输出缓冲区。
- * @param capacity 输出容量，至少 32 字节。
+ * @param capacity 输出容量，至少 34 字节。
  * @param written 成功时写入字节数，可为 NULL。
  * @return 编码结果。
  */

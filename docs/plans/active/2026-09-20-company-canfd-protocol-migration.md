@@ -373,7 +373,7 @@ WP-F 分开施工；WP-G 从第一天开始维护向量和回归。后续若派�
   `GET_MOTOR_STATE=108` 和 `MOTION_FEEDBACK=124`；新增只读注册表、page 请求、设备信息、能力和
   详细电机状态的固定长度小端编码器。
 - 不变量：编码器只处理值对象，不读取 MotorControl、Flash 或 HAL；GET_INFO/GET_CAPS 保留字段必须
-  为 0；详细状态保持 32 字节同快照格式，周期合并反馈仍保持 8 字节定义。
+  为 0；详细状态为 34 字节同快照格式（增加母线电流），连同 12 字节事务前缀后仍为 46 字节，周期合并反馈保持 8 字节定义。
 - 验收：native 测试覆盖小端字节向量、负数补码、长度边界和路由响应封装。
 - 回滚：删除 `yg_protocol_readonly_payload.{h,c}` 并恢复候选 type 配置即可回到 Stage 3a；不影响旧协议。
 - 实现文件：`firmware/communication/protocol/yg_protocol_readonly.{h,c}`、

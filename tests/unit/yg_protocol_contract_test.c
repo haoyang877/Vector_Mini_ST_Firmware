@@ -106,6 +106,7 @@ static yg_protocol_motor_status_source_t status_source(void)
     source.sample.speed_feedback = -0.0625F;
     source.sample.current_feedback = 1.25F;
     source.sample.bus_voltage = 24.0F;
+    source.sample.bus_current = 1.5F;
     source.sample.temperature = -25.25F;
     source.measurement_valid_bits = YG_PROTOCOL_MOTOR_MEASUREMENT_MASK;
     source.sample_available = true;
@@ -126,11 +127,13 @@ static void numeric_boundaries(void)
     source.sample.speed_feedback = INFINITY;
     source.sample.current_feedback = -INFINITY;
     source.sample.bus_voltage = 100.0F;
+    source.sample.bus_current = NAN;
     source.sample.temperature = 400.0F;
     assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_OK);
     assert(state.position_mrad == INT32_MIN && state.speed_mrad_s == INT32_MIN &&
            state.iq_mA == INT32_MIN);
-    assert(state.bus_mV == UINT16_MAX && state.temperature_centi_c == INT16_MIN &&
+    assert(state.bus_mV == UINT16_MAX && state.bus_mA == INT16_MIN &&
+           state.temperature_centi_c == INT16_MIN &&
            state.valid_bits == 0U);
     source = status_source();
     source.sample.position_feedback = 2147483.75F;
@@ -192,8 +195,8 @@ static void endpoint_round_trip(void)
     assert(frame.length == 64U && frame.identifier == 0x18EF0203U);
     assert(yg_protocol_canfd_unpack(&frame, 2U, &response) == YG_PROTOCOL_OK);
     assert(response.flags == YG_PROTOCOL_FLAGS_RESPONSE && response.sequence == 9U);
-    assert(response.payload_length == 44U && response.payload[8] == 0U);
-    assert(response.payload[20] == 63U && response.payload[43] == 0x37U);
+    assert(response.payload_length == YG_PROTOCOL_MOTOR_RESPONSE_SIZE && response.payload[8] == 0U);
+    assert(response.payload[20] == 63U && response.payload[45] == 0x77U);
     /* TX 满后仍发原先的 OK 快照，没有重新调用 provider 变成 BUSY。 */
     assert(yg_protocol_canfd_pack(&request, 6U, &frame) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_push(&rx, &frame));

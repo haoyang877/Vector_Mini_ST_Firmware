@@ -41,7 +41,7 @@ yg_protocol_motor_status_convert(const yg_protocol_motor_status_source_t *source
                                  yg_protocol_readonly_motor_state_t *state)
 {
     yg_protocol_readonly_motor_state_t candidate = {0};
-    int32_t bus_mV, temperature_centi_c;
+    int32_t bus_mV, bus_mA, temperature_centi_c;
     if (source == NULL || state == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
@@ -77,11 +77,15 @@ yg_protocol_motor_status_convert(const yg_protocol_motor_status_source_t *source
     bus_mV = (source->measurement_valid_bits & 0x10U) != 0U
                  ? measurement(source->sample.bus_voltage, 1000.0, 0, UINT16_MAX - 1)
                  : INT32_MIN;
+    bus_mA = (source->measurement_valid_bits & 0x40U) != 0U
+                 ? measurement(source->sample.bus_current, 1000.0, -INT16_MAX, INT16_MAX)
+                 : INT32_MIN;
     temperature_centi_c =
         (source->measurement_valid_bits & 0x20U) != 0U
             ? measurement(source->sample.temperature, 100.0, -INT16_MAX, INT16_MAX)
             : INT32_MIN;
     candidate.bus_mV = bus_mV == INT32_MIN ? UINT16_MAX : (uint16_t)bus_mV;
+    candidate.bus_mA = bus_mA == INT32_MIN ? INT16_MIN : (int16_t)bus_mA;
     candidate.temperature_centi_c =
         temperature_centi_c == INT32_MIN ? INT16_MIN : (int16_t)temperature_centi_c;
     if (candidate.position_mrad != INT32_MIN)
@@ -103,6 +107,10 @@ yg_protocol_motor_status_convert(const yg_protocol_motor_status_source_t *source
     if (temperature_centi_c != INT32_MIN)
     {
         candidate.valid_bits |= 0x20U;
+    }
+    if (bus_mA != INT32_MIN)
+    {
+        candidate.valid_bits |= 0x40U;
     }
     *state = candidate;
     return YG_PROTOCOL_OK;
@@ -188,7 +196,8 @@ yg_protocol_result_t yg_protocol_motor_status_provider(void *context,
         }
         else
         {
-            result = yg_protocol_readonly_encode_motor_state(&state, response + 12U, 32U, NULL);
+            result = yg_protocol_readonly_encode_motor_state(
+                &state, response + 12U, YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE, NULL);
             if (result != YG_PROTOCOL_OK)
             {
                 return result;

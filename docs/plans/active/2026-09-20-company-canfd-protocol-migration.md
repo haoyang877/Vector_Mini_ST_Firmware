@@ -299,6 +299,21 @@ WP-F 分开施工；WP-G 从第一天开始维护向量和回归。后续若派�
 当前优先级是先完成无动力 GET_CAPS 硬件连通性测试，再接入电机 STOP/DISABLE 和状态快照，
 最后接入 ENABLE/MODE/TARGET 及 1 kHz 多轴调度。不把“接口可编译”写成“业务已完成”。
 
+2026-09-22 运行边界复核：`BSP2kHzIRQHandler` 在 TIM7 中断上下文调用 `CAN_Service`；当前新端点的
+`YgProtocolLink_Service` 仍会在该调用中执行解码、路由和业务 provider。真实电机、参数、标定和升级
+接入前必须拆成“ISR 只收帧/提交有界事件，后台上下文执行 codec、路由、业务和应答组帧”。在此之前，
+STOP/DISABLE 只保留 native 端到端验证，不绑定生产生命周期所有者。
+
+后续按以下最小切片提交：
+
+1. **ISR/后台边界**：增加后台协议服务入口；TIM7 只推进旧兼容队列和新协议 RX/TX 事件，不调用新业务 handler。
+2. **状态快照接线**：在后台绑定稳定的 `yg_protocol_motor_status_source_t`，完成 GET_MOTOR_STATE；不消费现有单消费者邮箱。
+3. **STOP/DISABLE 生产绑定**：给 `FocRunState` 暴露窄停机 owner port，只允许生命周期所有者确认功率禁止后返回成功。
+4. **管理命令响应统一化**：为无效节点、坏字段、未知 type 和业务拒绝生成确定响应；实时控制采用反馈回显 sequence。
+5. **参数/标定**：先读，再写/保存，最后 Job 状态机；Flash 只在后台受控服务执行。
+6. **实时组帧**：实现五轴位置组目标和每轴反馈调度，先单轴、再五轴，最后按实测决定 1 kHz 或 500 Hz。
+7. **Loader 升级**：在协议和后台边界稳定后接入，不把 Flash 操作放入 CAN ISR 或协议 codec。
+
 ## 10. 证据记录
 
 ### Stage 3c v0.1：电机快照适配与核心接口收口

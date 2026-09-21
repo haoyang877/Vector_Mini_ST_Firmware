@@ -1,5 +1,6 @@
 #include "board_config.h"
 #include "motor_hw.h"
+#include "foc_errhandle.h"
 
 /**
 	* @brief  Initialize board peripherals and application modules
@@ -35,6 +36,13 @@ void Board_Init(void)
 
 	/*enable channel 4 PWM to trigger ADC conversion*/
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);
+	
+	/* An unconfigured joint never starts the phase channels; release the six
+	 * pins to high impedance explicitly. */
+	if (!MotorControl_IsConfigurationValid())
+	{
+		PWM_Outputs_HiZ();
+	}
 	
 	/*enable ADC1 ADC 2 injection mode sampling*/
 	HAL_ADCEx_InjectedStart(&hadc1);

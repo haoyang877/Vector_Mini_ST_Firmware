@@ -393,6 +393,8 @@ def joint_board_startup_fixture():
 enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
       TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
 static int hadc1, hadc2, htim1, htim7;
+static unsigned hiz_state_calls;
+static void PWM_Outputs_HiZ(void) { hiz_state_calls++; }
 static struct { bool axis_profile_valid; } MotorControl;
 static bool configured;
 static unsigned phases, sampling, communication, adc_started;
@@ -416,12 +418,14 @@ static void FDCAN1_Param_Init(void) { communication++; }
 int main(void) {
     Board_Init();
     assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
+    assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
     configured = true;
     Board_Init();
     assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
+    assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
-    puts("PASS actual board startup: unconfigured phase outputs off, sampling and communication retained");
+    puts("PASS actual board startup: unconfigured phase outputs released to high impedance, sampling and communication retained");
     return 0;
 }
 '''

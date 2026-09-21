@@ -258,17 +258,98 @@ void Clear_Mode_Error_Change(void)
 }
 
 /**
+	* @brief  Release the six gate-driver inputs to high impedance
+	* @note   Free release: the PWM is stopped and the pins become analog
+	*         inputs (highest impedance, no pull) so the motor coasts.
+ **/
+void PWM_Outputs_HiZ(void)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
+	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+}
+
+/**
+	* @brief  Short the three low-side switches for high-damping braking
+	* @note   Static three-phase low-side short: low-side gate inputs high,
+	*         high sides low. No switching, no bus pumping, bootstrap safe.
+ **/
+static void PWM_Outputs_LowSideShort(void)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	/* High-side inputs low (off). */
+	HAL_GPIO_WritePin(PWM_AH_GPIO_Port, PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin,
+	                  GPIO_PIN_RESET);
+	GPIO_InitStruct.Pin = PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(PWM_AH_GPIO_Port, &GPIO_InitStruct);
+	/* Low-side inputs high (three-phase short). */
+	HAL_GPIO_WritePin(PWM_AL_GPIO_Port, PWM_AL_Pin, GPIO_PIN_SET);
+	GPIO_InitStruct.Pin = PWM_AL_Pin;
+	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_WritePin(PWM_BL_GPIO_Port, PWM_BL_Pin | PWM_CL_Pin, GPIO_PIN_SET);
+	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
+	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+}
+
+/**
+	* @brief  Hand the six gate-driver pins back to TIM1
+ **/
+static void PWM_Outputs_ToTimer(void)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	GPIO_InitStruct.Alternate = GPIO_AF6_TIM1;
+	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
+	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+}
+
+/**
 	* @brief  Stop PWM generation
-	* @note   Test-plan state A: while the motor is disabled the six outputs
-	*         keep running at the default 50% duty (zero-modulation compare).
-	*         The channel enables, MOE and TIM1 are left untouched so CH4 keeps
-	*         clocking the injected ADC conversions.
+	* @note   Mode 0 free release: the outputs are stopped and the pins are
+	*         released to high impedance so the motor coasts. MOE stays set
+	*         because the CH4 compare clocks the injected ADC conversions.
  **/
 void Stop_PWM_Generate(void)
 {
-	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, htim1.Init.Period / 2);
-	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, htim1.Init.Period / 2);
-	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, htim1.Init.Period / 2);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+	
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
+	
+	PWM_Outputs_HiZ();
+}
+
+/**
+	* @brief  Enter the high-damping mode (three-phase low-side short)
+ **/
+void Start_Damping_Brake(void)
+{
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+	
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
+	
+	PWM_Outputs_LowSideShort();
 }
 
 /**
@@ -283,4 +364,7 @@ void Start_PWM_Generate(void)
 	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
 	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
 	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+	
+	/* Channel enables and MOE are set; hand the pins back to TIM1. */
+	PWM_Outputs_ToTimer();
 }

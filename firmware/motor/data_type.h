@@ -27,6 +27,7 @@ typedef enum
 	Calib_PhaseResistance = 17,
 	Position_Impedance_Mode = 18,
 	Calib_Friction = 19,
+	Damping_Mode = 20,
 	MODE_NUM
 }ModeNow_TypeDef; 
 

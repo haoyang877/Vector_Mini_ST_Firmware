@@ -543,6 +543,8 @@ void FOC20kHzIRQHandler(void)
 			position_start_prepared = true;
 			defer_position_power_start = true;
 		}
+		else if (MotorControl.ModeNow == Damping_Mode)
+			Start_Damping_Brake();
 		else
 			Start_PWM_Generate();
 	}

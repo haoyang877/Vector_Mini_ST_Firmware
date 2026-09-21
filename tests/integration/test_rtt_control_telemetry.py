@@ -77,7 +77,9 @@ class RttControlTelemetryTests(unittest.TestCase):
         self.assertEqual([v.attrib['name'] for v in variables],
                          [f'rtt_channel1.data{i}' for i in range(8)])
         self.assertEqual([v.attrib['unit'] for v in variables],
-                         ['Q15:180°/32768']*2 + ['0.1 rpm']*2 + ['mA']*2 + ['enum']*2)
+                         ['0.1 rpm']*4 + ['mA']*2 + ['enum']*2)
+        self.assertEqual(variables[0].attrib['desc'], '转速参考')
+        self.assertEqual(variables[1].attrib['desc'], '观测器闭环反馈')
         self.assertEqual(root.find(".//param[@name='rttFreq']").attrib['value'], '2000')
         self.assertTrue(all(not v.attrib.get('addr') for v in root.findall(".//form[@type='7']/var")))
         header = (ROOT / 'firmware/platform/stm32g4/bsp/hw_conf.h').read_text(encoding='utf-8')

@@ -49,6 +49,22 @@ Flash 格式已升级并更换魔术字；旧格式的编码器标定数据会�
 
 模式 5 保留仅为兼容已有上位机；它不再走旧的开环/反向平均算法。
 
+### 阻尼环电机的无感启动电流
+
+模式 13 复用 `SensorlessStartup_EncoderCalibConfig`（`foc_run.c`），模式 15 的对齐电流见第 5 节。两者随 `MOTOR_HAS_DAMPING_RING` 切换：
+
+| 项目 | 无阻尼环 | 阻尼环（当前，2.5 Nm 摩擦轴） |
+| --- | ---: | ---: |
+| 模式 13 对齐电流 | 2.0 A | 5.0 A |
+| 模式 13 启动 Iq 初值 / 终值 | 0.15 A / 0.5 A | 5.0 A / 6.5 A |
+| 模式 13 启动 Id | 0.5 A | 0.5 A |
+| 模式 13 所需最小 `current_limit` | 0 A | 6.5 A |
+| 模式 15 对齐电流 | `calib_current` | `max(calib_current, 5.0 A)` |
+
+2.5 Nm 摩擦轴按转矩常数 0.55～0.67 N·m/A（**未实测确认**）折算需约 3.7～4.5 A 才动得起来，旧的 3.5 A 对齐 / 4.5 A 启动没有余量，故上表按约 30% 以上余量取值。
+
+启动前固件强制校验 `current_limit ≥ 最小限流`、`current_limit ≥ 对齐电流`、`√(Iq² + Id²) ≤ current_limit`，任一不满足立即报 `Sensorless_Error` 并拒绝进入启动流程（`foc_run.c` 的 `Sensorless_StartupCurrentsAreValid`）。
+
 ## 4. 电压开环线性化标定（模式 5）
 
 任务函数：`Task_Calib_EncoderOffset()`。
@@ -67,10 +83,11 @@ Flash 格式已升级并更换魔术字；旧格式的编码器标定数据会�
 任务函数：`Task_Calib_EleAngelOffset()`。
 
 1. 先完成线性化标定。
-2. 在 `0.5 s` 内将 `Id` 从零平滑上升至 `calib_current`，保持 `Iq = 0`。
-3. 维持 `Id = calib_current`、`Iq = 0` 继续 `1 s`。
-4. 仅在满预定位电流的这 `1 s` 内平均 `linearized_q15`，跨零点时按环形角度解卷绕。
-5. 平均值写入 `electrical_zero_q15`，置位电零位标志并保存 Flash。
+2. 对齐电流取 `Id = max(calib_current, ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A)` 并夹到 `current_limit`；当前阻尼环配置为 `4.5` 与 `5.0 A` 取大，即 `5.0 A`。
+3. 在 `0.5 s` 内将 `Id` 从零平滑上升至该值，保持 `Iq = 0`。
+4. 维持该 `Id`、`Iq = 0` 继续 `1 s`。
+5. 仅在满预定位电流的这 `1 s` 内平均 `linearized_q15`，跨零点时按环形角度解卷绕。
+6. 平均值写入 `electrical_zero_q15`，置位电零位标志并保存 Flash。
 
 采样对象是线性化后的 Q15 角度，不是原始角度；因此不会覆盖线性化基准。
 

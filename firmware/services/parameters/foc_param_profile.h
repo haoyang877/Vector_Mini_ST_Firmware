@@ -31,8 +31,17 @@
 
 /* Motor current defaults do not increase when a lower-resistance shunt is fitted.
  * Mode-specific alignment minima remain defined in hw_conf.h. */
-#define PARAM_MOTOR_CALIB_CURRENT_A               3.0f
-#define PARAM_MOTOR_CURRENT_LIMIT_A               6.0f
+/* Mode 4 (R/L/flux) injects this current and spins up at half of it, and mode 5
+ * derives its open-loop voltage from it. Raised for the 2.5 Nm friction shaft;
+ * note the flux spin-up step still uses only calib_current * 0.5. */
+#define PARAM_MOTOR_CALIB_CURRENT_A               4.5f
+/* Damping-ring motor. Torque constant is not bench-confirmed: the datasheet
+ * (docs/hardware/ht8115-4_performance_curves.md) gives 0.67 Nm/A while the
+ * firmware flux model gives 1.5 * 21 * 0.0175025 = 0.551 Nm/A, so the 2.5 Nm
+ * ring alone needs roughly 3.7 to 4.5 A. 8 A keeps torque headroom and stays
+ * below the 6 mOhm command ceiling (10 A) and trip level (18 A); it is a
+ * software ceiling, not a continuous rating (datasheet peak current 6.60 A). */
+#define PARAM_MOTOR_CURRENT_LIMIT_A               8.0f
 #define PARAM_MOTOR_SPEED_LIMIT_RPS               0.50f
 #define PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S  (500.0f * 6.283185307f)
 

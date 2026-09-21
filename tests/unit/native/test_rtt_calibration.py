@@ -25,11 +25,11 @@ def calibration_fixture():
 #define Position_Mode 3
 #define Encoder_DidUpdateVelocity(p) velocity_tick
 static bool MotorOuterLoop_IsReady(void) { return true; }
-static struct { int ModeNow, ErrorNow, motor_pole_pairs; float speedRef, iqRef, idRef; } MotorControl;
+static struct { int ModeNow, ErrorNow, motor_pole_pairs; float speedRef, speedShadow, iqRef, idRef; } MotorControl;
 static struct { float theta_elec, vel_mech; unsigned calib_flag, reverse; } OnBoard_Encoder;
 static struct { float Iq, Id, Vbus_filt; } FOC;
 static struct { float theta_e, omega_e; } Fluxobserver;
-static struct { float open_loop_theta; unsigned state; } SensorlessStartup;
+static struct { float open_loop_theta, speed_feedback; unsigned state; } SensorlessStartup;
 static unsigned CalibStep, writes;
 static bool skip_next, velocity_tick;
 static int16_t wire[8];
@@ -45,17 +45,23 @@ static void near_count(unsigned i, int expected) { assert(abs((int)wire[i]-expec
 int main(void) {
     unsigned before;
     MotorControl.ModeNow=13; MotorControl.motor_pole_pairs=21;
-    MotorControl.speedRef=15; MotorControl.iqRef=.5f; MotorControl.idRef=.3f;
-    OnBoard_Encoder.theta_elec=.5f*_PI; OnBoard_Encoder.vel_mech=-20;
+    MotorControl.speedRef=20; MotorControl.speedShadow=-15;
+    MotorControl.iqRef=.5f; MotorControl.idRef=.3f;
+    OnBoard_Encoder.vel_mech=-20;
     Fluxobserver.theta_e=1.5f*_PI; Fluxobserver.omega_e=630;
-    SensorlessStartup.open_loop_theta=_PI; SensorlessStartup.state=5; CalibStep=24;
+    SensorlessStartup.open_loop_theta=_PI; SensorlessStartup.speed_feedback=10;
+    SensorlessStartup.state=5; CalibStep=24;
     FOC.Iq=.49f; FOC.Id=-.2f; FOC.Vbus_filt=28.13f;
     sample(); assert(writes==1);
-    near_count(0,16384); near_count(1,-16384);
+    near_count(0,-1432); near_count(1,955);
     near_count(2,-1909); near_count(3,2864);
     near_count(4,500); near_count(5,490);
     assert(wire[6]==24 && wire[7]==5);
-    OnBoard_Encoder.theta_elec=_PI; sample(); near_count(0,-32768);
+    /* Saturation on both speed channels; mode 13's target is +20 rad/s = 1910 counts. */
+    MotorControl.speedShadow=1000; SensorlessStartup.speed_feedback=-1000;
+    sample(); assert(wire[0]==32767 && wire[1]==-32768);
+    MotorControl.speedShadow=20; SensorlessStartup.speed_feedback=20;
+    sample(); near_count(0,1910); near_count(1,1910);
     assert(OnBoard_Encoder.reverse==0 && OnBoard_Encoder.calib_flag==0);
     OnBoard_Encoder.reverse=1; OnBoard_Encoder.calib_flag=3; MotorControl.ErrorNow=9;
     sample(); near_count(4,500);
@@ -63,9 +69,9 @@ int main(void) {
     MotorControl.ModeNow=0; sample(); near_count(2,-1909);
     MotorControl.iqRef=50; FOC.Iq=-50; OnBoard_Encoder.vel_mech=10000;
     sample(); assert(wire[4]==32767 && wire[5]==-32768 && wire[2]==32767);
-    MotorControl.motor_pole_pairs=0; OnBoard_Encoder.theta_elec=NAN; FOC.Id=INFINITY;
-    FOC.Iq=INFINITY;
-    sample(); assert(wire[0]==0 && wire[3]==0 && wire[5]==0);
+    MotorControl.motor_pole_pairs=0; MotorControl.speedShadow=NAN;
+    SensorlessStartup.speed_feedback=NAN; FOC.Id=INFINITY; FOC.Iq=INFINITY;
+    sample(); assert(wire[0]==0 && wire[1]==0 && wire[3]==0 && wire[5]==0);
     assert(rtt_calibration_dropped_frames==0);
     skip_next=true; sample(); sample(); assert(rtt_calibration_dropped_frames==1);
     sample(); assert(rtt_calibration_dropped_frames==1);
@@ -73,7 +79,7 @@ int main(void) {
     RTT_Sampling(false); assert(writes==before+1);
     before=writes; velocity_tick=true; sample(); assert(writes==before);
     velocity_tick=false; RTT_Sampling(false); assert(writes==before+1);
-    puts("PASS calibration RTT: 8 signals/units, angle wrap, clipping, invalid data, idle output, drop counter, deferral, direction unchanged");
+    puts("PASS calibration RTT: 8 speed/current/state signals and units, saturation, invalid data, idle output, drop counter, deferral, direction unchanged");
 }
 '''
 

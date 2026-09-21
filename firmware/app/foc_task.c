@@ -76,10 +76,14 @@ static int16_t RTT_EncodeInt16(float value, float scale)
 #if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
 volatile uint32_t rtt_calibration_dropped_frames;
 
+/* Mode-13 diagnostics. The sensorless startup runs its speed loop on the
+ * observer estimate, so the reference/feedback pair below is exactly the pair
+ * the calibration stability gate compares against the forced 20 mechanical
+ * rad/s target, and the two speed sources stay independent for cross-checks. */
 typedef struct
 {
-	int16_t encoder_electrical_angle;
-	int16_t observer_electrical_angle;
+	int16_t speed_reference;
+	int16_t speed_feedback;
 	int16_t encoder_speed;
 	int16_t observer_speed;
 	int16_t iq_reference;
@@ -91,15 +95,6 @@ typedef struct
 typedef char RTT_CalibrationFrame_SizeMustBe16Bytes[
 	(sizeof(RTT_CalibrationFrame_TypeDef) == 16U) ? 1 : -1];
 
-/* These electrical phases are normalized to [0, 2*pi) by their owners.
- * Encode signed single-turn Q15; preserve the live encoder direction as-is. */
-static int16_t RTT_EncodeElectricalAngle(float angle)
-{
-	if (angle >= _PI)
-		angle -= 2.0f * _PI;
-	return RTT_EncodeInt16(angle, 32768.0f / _PI);
-}
-
 static unsigned RTT_WriteCalibrationFrame(void)
 {
 	RTT_CalibrationFrame_TypeDef frame;
@@ -109,8 +104,8 @@ static unsigned RTT_WriteCalibrationFrame(void)
 	if (MotorControl.motor_pole_pairs > 0)
 		observer_speed = Fluxobserver.omega_e / (float)MotorControl.motor_pole_pairs;
 
-	frame.encoder_electrical_angle = RTT_EncodeElectricalAngle(OnBoard_Encoder.theta_elec);
-	frame.observer_electrical_angle = RTT_EncodeElectricalAngle(Fluxobserver.theta_e);
+	frame.speed_reference = RTT_EncodeInt16(MotorControl.speedShadow, speed_scale);
+	frame.speed_feedback = RTT_EncodeInt16(SensorlessStartup.speed_feedback, speed_scale);
 	frame.encoder_speed = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, speed_scale);
 	frame.observer_speed = RTT_EncodeInt16(observer_speed, speed_scale);
 	frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);

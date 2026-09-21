@@ -31,15 +31,26 @@
 #define POSITION_IMPEDANCE_HOLD_TIME_S            0.05f
 
 /*
- * Damping-ring friction compensation, identified from the 01_position-loop_03
- * capture. Positive and negative values are magnitudes; direction is selected
- * from the continuous target error and trajectory velocity.
+ * Damping-ring friction compensation. Values are currents in amperes as
+ * magnitudes; direction is selected from the continuous target error and
+ * trajectory velocity.
+ *
+ * Re-measured on the damping-ring motor 2026-09-22 (see
+ * docs/reports/2026-09/damping_ring_friction_20260922.md): mode 17 gave a real
+ * phase resistance of 2.2035 ohm, and a bidirectional closed-loop sweep from
+ * motion gave 3.26/3.18 A in the >=14 rpm plateau and 3.59/3.54 A in the
+ * Stribeck zone below 14 rpm, where the position loops actually work. Breakaway
+ * from a long standstill measured about 4.5 A forward and beyond 5.1 A reverse,
+ * so 4.3/4.2 A is a lower bound on the reverse side at a 28 V bus. The previous
+ * 1.55/1.50/1.85/1.80 A was only ~43% of the measured kinetic friction and left
+ * a +4.3 deg residual on a 180 deg mode-3 move, versus -0.2 deg with these
+ * values (A/B captured in the same report).
  */
 #if MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED
-#define POSITION_IMPEDANCE_FRICTION_POSITIVE_A            1.55f
-#define POSITION_IMPEDANCE_FRICTION_NEGATIVE_A            1.50f
-#define POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A           1.85f
-#define POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A           1.80f
+#define POSITION_IMPEDANCE_FRICTION_POSITIVE_A            3.6f
+#define POSITION_IMPEDANCE_FRICTION_NEGATIVE_A            3.5f
+#define POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A           4.3f
+#define POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A           4.2f
 #else
 #define POSITION_IMPEDANCE_FRICTION_POSITIVE_A            0.0f
 #define POSITION_IMPEDANCE_FRICTION_NEGATIVE_A            0.0f

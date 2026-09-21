@@ -23,6 +23,7 @@ PRELUDE = r'''
 #include <limits.h>
 #include "foc_calibration.h"
 #include "foc_run.h"
+#include "foc_param_profile.h"
 #include "hw_conf.h"
 #include "utils.h"
 static MotorControl_TypeDef motor;
@@ -71,7 +72,10 @@ static void setup(void) {
     PI_Controller_Reset(&pi); SensorlessStartup_Reset(&startup);
     motor.motor_pole_pairs=21; motor.motor_phase_resistance=1.905f;
     motor.motor_d_inductance=motor.motor_q_inductance=.001635f;
-    motor.motor_flux=.0175025f; motor.current_limit=6;
+    motor.motor_flux=.0175025f;
+    /* Use the production default: the encoder-calibration profile refuses to
+     * start when the configured limit cannot deliver its own startup vector. */
+    motor.current_limit=PARAM_MOTOR_CURRENT_LIMIT_A;
     motor.speed_Kp=.02f; motor.speed_Ki=.5f;
     motor.speedAcc=motor.speedDec=314.159f;
     motor.ModeNow=Calib_EncoderObserver;

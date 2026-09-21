@@ -54,7 +54,7 @@ SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 FOC->Ia = -((int16_t)ADC值 - A_Offset) * SENSING_CURR_FACTOR;  // A
 ```
 
-因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。默认 6 mΩ 配置的 `calib_current = 3 A`，`current_limit = 6 A`。
+因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。当前 6 mΩ 配置（阻尼环电机）的 `calib_current = 3 A`，`current_limit = 8 A`。阻尼环扭矩 2.5 Nm，但**转矩常数尚未实测确认**：数据手册给 0.67 N·m/A，固件磁链折算 `1.5 × 21 × 0.0175025 = 0.551 N·m/A`，故 2.5 Nm 约需 3.7～4.5 A，限流取 8 A。8 A 低于该档命令上限 10 A 与过流判据 18 A，但**高于数据手册峰值电流 6.60 A**，是软件上限而非连续定额，实际持续能力由温升与工况决定。
 
 Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置与编译配置不一致时，仅恢复 `calib_current` 和 `current_limit` 的档位默认值；编码器 LUT、电机参数及位置环参数继续保留。旧 schema v4 按 2 mΩ 识别，schema v5 按 6 mΩ 识别。
 

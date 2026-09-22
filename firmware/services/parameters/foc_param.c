@@ -16,7 +16,7 @@ extern Encoder_TypeDef OnBoard_Encoder;
 bool Param_SetSpeedLimit(float limit_rad_s)
 {
     if (!isfinite(limit_rad_s) || limit_rad_s <= 0.0f ||
-        limit_rad_s > Param_SpeedLimitRadS(CAN_NodeId_Get()))
+        limit_rad_s > Param_SpeedLimitRadS(Protocol_NodeId_Get()))
         return false;
     MotorControl.speed_limit = limit_rad_s;
     /* A reduced limit also reduces an existing command; the speed ramp still
@@ -56,7 +56,7 @@ void Param_Return_Default(void)
     memset(&CoggingMap, 0, sizeof(CoggingMap));
     memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
     MotorControl.axis_profile_valid = true;
-    CAN_NodeId_Set((uint8_t)PARAM_HW_CAN_NODE_ID);
+    Protocol_NodeId_Set((uint8_t)PARAM_HW_CAN_NODE_ID);
 
     MotorControl.A_Offset = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
     MotorControl.B_Offset = PARAM_HW_CURRENT_OFFSET_B_COUNTS;
@@ -86,7 +86,7 @@ void Param_Return_Default(void)
     MotorControl.calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
     MotorControl.current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
     MotorControl.vqRef = 0.0f;
-    MotorControl.speed_limit = Param_SpeedLimitRadS(CAN_NodeId_Get());
+    MotorControl.speed_limit = Param_SpeedLimitRadS(Protocol_NodeId_Get());
     MotorControl.speedAcc = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
     MotorControl.speedDec = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
     MotorControl.speed_Kp = PARAM_APP_SPEED_KP;
@@ -105,7 +105,7 @@ void Param_Return_Default(void)
     MotorControl.friction_viscous_pos_a_per_rad_s = 0.0f;
     MotorControl.friction_viscous_neg_a_per_rad_s = 0.0f;
     MotorControl.friction_model_valid = false;
-    CAN_HeartbeatMs_Set((uint32_t)PARAM_HW_CAN_HEARTBEAT_MS);
+    Protocol_HeartbeatMs_Set((uint32_t)PARAM_HW_CAN_HEARTBEAT_MS);
 
     MotorControl.ModeNow = Save_Param;
 }
@@ -115,7 +115,7 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     uint32_t lut_index;
 
     memset(param, 0, sizeof(*param));
-    param->node_id = (float)CAN_NodeId_Get();
+    param->node_id = (float)Protocol_NodeId_Get();
     param->currentoffset_a = (float)MotorControl.A_Offset;
     param->currentoffset_b = (float)MotorControl.B_Offset;
     param->currentoffset_c = (float)MotorControl.C_Offset;
@@ -157,7 +157,7 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     param->friction_viscous_pos_a_per_rad_s = MotorControl.friction_viscous_pos_a_per_rad_s;
     param->friction_viscous_neg_a_per_rad_s = MotorControl.friction_viscous_neg_a_per_rad_s;
     param->friction_model_valid = MotorControl.friction_model_valid ? 1U : 0U;
-    param->can_hb = (float)CAN_HeartbeatMs_Get();
+    param->can_hb = (float)Protocol_HeartbeatMs_Get();
     param->schema_version = PARAM_SCHEMA_VERSION;
     param->axis_profile = MotorControl.axis_profile;
     if ((Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
@@ -208,7 +208,7 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
     }
 
     /* Resolve axis identity before selecting the node-specific speed ceiling. */
-    CAN_NodeId_Set(MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id));
+    Protocol_NodeId_Set(MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id));
     MotorControl.A_Offset = param->currentoffset_a;
     MotorControl.B_Offset = param->currentoffset_b;
     MotorControl.C_Offset = param->currentoffset_c;
@@ -244,8 +244,8 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
     MotorControl.iq_Ki = param->iq_ki;
     MotorControl.speed_limit =
         isfinite(param->speed_limit) && param->speed_limit > 0.0f
-            ? constrain(param->speed_limit, 0.0f, Param_SpeedLimitRadS(CAN_NodeId_Get()))
-            : Param_SpeedLimitRadS(CAN_NodeId_Get());
+            ? constrain(param->speed_limit, 0.0f, Param_SpeedLimitRadS(Protocol_NodeId_Get()))
+            : Param_SpeedLimitRadS(Protocol_NodeId_Get());
     position_speed_limit =
         fast_min(MotorControl.speed_limit, POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI);
     MotorControl.speedAcc = param->speedAcc;
@@ -353,7 +353,7 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
         MotorControl.friction_viscous_neg_a_per_rad_s = 0.0f;
         MotorControl.friction_model_valid = false;
     }
-    CAN_HeartbeatMs_Set((uint32_t)param->can_hb);
+    Protocol_HeartbeatMs_Set((uint32_t)param->can_hb);
     MotorControl.axis_profile_valid =
         MotorAxisProfile_Load(&param->axis_profile, &MotorControl.axis_profile);
     MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);

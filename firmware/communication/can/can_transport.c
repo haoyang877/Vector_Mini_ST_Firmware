@@ -11,7 +11,7 @@ static uint32_t baudrate_last = 1000;
 
 void CanTransport_Init(uint8_t node)
 {
-    comm_hw_can_start(node);
+    comm_hw_can_start_fd(node);
     baudrate = 1000;
 }
 

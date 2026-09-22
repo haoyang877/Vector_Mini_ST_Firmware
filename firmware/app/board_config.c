@@ -1,13 +1,14 @@
 #include "board_config.h"
 
 #include "board_hw.h"
-#include "interface_can.h"
+#include "yg_protocol_runtime.h"
 #include "motor_hw.h"
 #include "motor_state.h"
+#include "param_comm_bridge.h"
 #include "param_store.h"
 
 /* 启动编排：顺序与迁移前一致——参数装载 → 应用状态初始化 →
- * 板级启动序列（条件启用三相输出）→ CAN 滤波器初始化。
+ * 板级启动序列（条件启用三相输出）→ CAN FD 协议端点初始化。
  * 硬件细节全部位于 platform 契约实现内；本文件不再包含任何硬件头。 */
 
 void Board_Init(void)
@@ -21,6 +22,6 @@ void Board_Init(void)
     /* 板级启动：仅配置有效时启动三相互补 PWM。 */
     board_hw_start(MotorControl_IsConfigurationValid());
 
-    /* CAN1 滤波器初始化。 */
-    FDCAN1_Param_Init();
+    /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
+    (void)YgProtocolRuntime_Init(Protocol_NodeId_Get());
 }

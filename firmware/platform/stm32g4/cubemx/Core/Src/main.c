@@ -36,7 +36,6 @@
 #include "foc_cogging_calibration.h"
 #include "foc_errhandle.h"
 #include "foc_run_state.h"
-#include "interface_can.h"
 #include "param_store.h"
 #include "SEGGER_RTT.h"
 #include "time_hw.h"

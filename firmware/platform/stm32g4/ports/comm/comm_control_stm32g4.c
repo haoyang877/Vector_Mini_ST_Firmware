@@ -6,7 +6,7 @@
  * 全部收在本文件，通信层只使用 comm_hw 契约。失败语义与迁移前逐字一致：
  * 初始化类失败即进入平台错误处理，应答发送只做单次非阻塞尝试。 */
 
-void comm_hw_can_start(uint8_t node)
+void comm_hw_can_start_fd(uint8_t node)
 {
     FDCAN_FilterTypeDef FDCAN_Filter;
 

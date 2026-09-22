@@ -1351,6 +1351,16 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\communication\can\can_status_source.c</FilePath>
             </File>
+            <File>
+              <FileName>yg_protocol_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_runtime.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_canfd_irq.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd_irq.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

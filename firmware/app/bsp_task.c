@@ -4,20 +4,16 @@
 #include "data_type.h"
 #include "foc_task.h"
 #include "indicator_hw.h"
-#include "interface_can.h"
 #include "motor_state.h"
 
-/* 2 kHz 板级监督任务：通信服务优先执行，随后是指示器、CAN 维护与监督组合；
- * LED/RGB 驱动与 CAN 波特率维护按 SUPERVISOR_FREQ 整数分频，保持迁移前
- * 5 Hz / 20 Hz / 10 Hz 的节拍。 */
+/* 2 kHz 板级监督任务：电机监督与指示器组合。CAN FD 协议在主循环后台服务，
+ * 不在监督中混入旧标准 CAN 的队列、波特率或心跳维护。 */
 
 #define LED_DIVIDER (SUPERVISOR_FREQ / 5U)
 #define RGB_DIVIDER (SUPERVISOR_FREQ / 20U)
-#define CAN_BR_DIVIDER (SUPERVISOR_FREQ / 10U)
 
 uint16_t Led_Cnt;
 uint16_t RGB_Cnt;
-uint16_t CANBRSwitching_Cnt;
 
 /* 模式→呼吸色映射：应用策略，保持既有颜色语义不变。 */
 static IndicatorHwColor Mode_Color(ModeNow_TypeDef mode)
@@ -51,10 +47,8 @@ static IndicatorHwColor Mode_Color(ModeNow_TypeDef mode)
  */
 void BSP2kHzIRQHandler(void)
 {
-    /* 1. 通信服务：排空接收队列并派发（写路径短临界区），发送应答与状态流。 */
-    CAN_Service();
-
-    /* 2. 监督组合：编码器慢估计、外环控制、主状态机与温度。 */
+    /* CAN FD 收发由 RX ISR + 主循环 YgProtocolLink_Service 完成。 */
+    /* 电机监督：编码器慢估计、外环控制、主状态机与温度。 */
     FOC2kHzSupervisor();
 
     if (++Led_Cnt >= LED_DIVIDER)
@@ -69,11 +63,4 @@ void BSP2kHzIRQHandler(void)
         RGB_Cnt = 0;
     }
 
-    if (++CANBRSwitching_Cnt >= CAN_BR_DIVIDER)
-    {
-        CAN_BaudRateSwitching();
-        CANBRSwitching_Cnt = 0;
-    }
-
-    CAN_DisConnect_Handle();
 }

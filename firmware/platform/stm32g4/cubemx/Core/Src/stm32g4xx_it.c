@@ -29,7 +29,7 @@
 #include "fdcan.h"
 #include "foc_run.h"
 #include "foc_task.h"
-#include "interface_can.h"
+#include "yg_protocol_canfd_irq.h"
 #include "tim.h"
 /* USER CODE END Includes */
 
@@ -348,7 +348,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
 	if(hfdcan==&hfdcan1)
 	{
-		CANRxIRQHandler();
+		YgProtocolCanfd_RxIrqHandler();
 	}
 }
 

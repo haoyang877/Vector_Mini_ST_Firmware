@@ -43,7 +43,7 @@ bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_
  * @param node 本节点号；滤波范围固定为 [node<<8, node<<8+0xFF]，调用方保证取值 0..7。
  * @note 失败按致命处理：移植层直接进入平台错误处理，本函数不返回。
  */
-void comm_hw_can_start(uint8_t node);
+void comm_hw_can_start_fd(uint8_t node);
 /**
  * @brief 切换 CAN 传输波特率并重启外设。
  * @param kbps 目标波特率，单位 kbps；调用方保证不为 0。

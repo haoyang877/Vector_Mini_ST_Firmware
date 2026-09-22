@@ -11,7 +11,6 @@
 #include "foc_run.h"
 #include "foc_sensing.h"
 #include "indicator_hw.h"
-#include "interface_can.h"
 #include "motor_sensing.h"
 #include "motor_state.h"
 #include "utils.h"
@@ -236,8 +235,6 @@ static bool RunState_FaultSourceRecovered(ErrorNow_TypeDef error)
 {
     switch (error)
     {
-    case CAN_DisConnect:
-        return CAN_IsHeartbeatAlive();
     case Encoder_Error:
         return Encoder_GetBadFrameStreak(&OnBoard_Encoder) == 0U;
     case TemperatureSensor_Error:
@@ -558,11 +555,6 @@ void FocRunState_Tick(void)
     RunState_RunBootChain();
     operation_event = RunState_ServiceOperations(target, outcome.result == MOTOR_WORK_STOP);
     RunState_UpdateRecoveryEvidence();
-    /* 通信类故障自愈：链路恢复即清（替代旧 CAN 接收路径的隐式清错）。 */
-    if (MotorControl.ErrorNow == CAN_DisConnect && RunState_FaultSourceRecovered(CAN_DisConnect))
-    {
-        Set_ErrorNow(No_Error);
-    }
     /* 操作员清除请求：按恢复矩阵准入；未恢复时保留故障（请求已被故障路径消费）。 */
     if (clear_requested && MotorControl.ErrorNow != No_Error &&
         RunState_FaultSourceRecovered(MotorControl.ErrorNow))

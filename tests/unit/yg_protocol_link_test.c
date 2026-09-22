@@ -82,9 +82,9 @@ static void backlog_and_interrupt_handoff(void)
     tx_blocked = true;
     for (unsigned batch = 0U; batch < 2U; ++batch)
     {
-        for (unsigned index = 0U; index < 4U; ++index)
+        for (unsigned index = 0U; index < 2U; ++index)
         {
-            request.sequence = (uint16_t)(batch * 4U + index);
+            request.sequence = (uint16_t)(batch * 2U + index);
             assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
             injected_frame = (CommHwCanFrame){.identifier = frame.identifier,
                                               .length = frame.length,
@@ -95,15 +95,15 @@ static void backlog_and_interrupt_handoff(void)
             assert(YgProtocolLink_OnRxFrame(&injected_frame));
         }
         assert(!YgProtocolLink_OnRxFrame(&injected_frame));
-        assert(motor_calls == batch * 4U);
+        assert(motor_calls == batch * 2U);
         YgProtocolLink_Service(10U);
         if (batch == 0U)
         {
-            /* TX 队列先被 4 个应答填满，后续业务帧会在队列背压处停住。 */
-            assert(motor_calls == 4U && sent_count == 0U);
+            /* TX 队列先被 2 个应答填满，后续业务帧会在队列背压处停住。 */
+            assert(motor_calls == 2U && sent_count == 0U);
         }
     }
-    assert(motor_calls == 5U && sent_count == 0U);
+    assert(motor_calls == 3U && sent_count == 0U);
     YgProtocolLink_Service(12U);
     tx_blocked = false;
     for (unsigned i = 0U; i < 20U; ++i)
@@ -111,8 +111,8 @@ static void backlog_and_interrupt_handoff(void)
         sent = false;
         YgProtocolLink_Service(13U + i);
     }
-    assert(motor_calls == 8U && sent_count == 8U);
-    for (unsigned i = 0U; i < 8U; ++i)
+    assert(motor_calls == 4U && sent_count == 4U);
+    for (unsigned i = 0U; i < 4U; ++i)
     {
         assert(sent_sequences[i] == i);
     }
@@ -121,7 +121,7 @@ static void backlog_and_interrupt_handoff(void)
     inject_on_unlock = true;
     sent = false;
     YgProtocolLink_Service(100U);
-    assert(motor_calls == 10U && !inject_on_unlock && irq_mask == 0U);
+    assert(motor_calls == 6U && !inject_on_unlock && irq_mask == 0U);
 }
 
 static void put_u16(uint8_t *buffer, uint16_t value)

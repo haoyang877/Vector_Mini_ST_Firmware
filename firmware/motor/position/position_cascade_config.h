@@ -41,17 +41,22 @@
 #define POSITION_SERVO_HOLD_EXIT_POSITION_RAD            0.004537856f /* 0.26 deg */
 #define POSITION_SERVO_HOLD_CONFIRM_TIME_S               0.05f
 
-/* Identified friction model shaping and static breakaway assistance. */
+/* Identified friction model shaping and static breakaway assistance.
+ * 2026-09-22 experiment on the damping-ring motor: the breakaway pulse is a
+ * torque step into a low-inertia rotor and produced 1.5-3 deg lurches with
+ * 14-15 rpm spikes (see docs/reports/2026-09/cascade_smoothness_20260922.md).
+ * Ratio 1.0 removes the step so the feedforward is a single ramped value, and
+ * the attack/release slews are slowed so no step is injected at all. */
 #define POSITION_SERVO_FRICTION_REFERENCE_SPEED_RAD_S    0.03f
 #define POSITION_SERVO_FRICTION_STOP_SPEED_RAD_S         0.02f
 #define POSITION_SERVO_FRICTION_MOVE_SPEED_RAD_S         0.05f
 #define POSITION_SERVO_FRICTION_BREAKAWAY_DISTANCE_RAD   0.003f
 #define POSITION_SERVO_FRICTION_STUCK_TIME_S             0.05f
-#define POSITION_SERVO_FRICTION_BREAKAWAY_RATIO          1.20f
+#define POSITION_SERVO_FRICTION_BREAKAWAY_RATIO          1.00f
 /* Keep some approach torque until capture; zero-torque distance is inside it. */
 #define POSITION_SERVO_FRICTION_LANDING_ZERO_RATIO       0.50f
-#define POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S      200.0f
-#define POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S 200.0f
+#define POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S      30.0f
+#define POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S 30.0f
 #define POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S 30.0f
 #define POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S     15.0f
 

@@ -1,6 +1,6 @@
 # yg_protocol 核心接口契约 v0.1
 
-日期：2026-09-21。状态：核心接口可编译、离线链路已实现；不是整套业务或实机通信验收。
+日期：2026-09-22，内部接口修订 2。状态：核心接口、后台链路及 MCU 构建已实现；不是整套业务或实机通信验收。
 线格式依据项目评审稿 [motor_protocol_v1.md](motor_protocol_v1.md)，公司正式 type/flags 勘误仍待冻结。
 
 ## 1. 当前范围与文件关系
@@ -107,8 +107,8 @@ yg_protocol_service_status_t status = yg_protocol_motor_call(&motor, &request, &
 3F 00 00 00 C1 FF E2 04
 ```
 
-GET_MOTOR_STATE provider只支持session=0、非零request_id的8B Q。成功返回12B R+32B状态，
-共44B payload，封装为62B公司帧并填充至64B CAN FD。无新鲜副本返回BUSY的12B R；
+GET_MOTOR_STATE provider只支持session=0、非零request_id的8B Q。成功返回12B R+34B状态，
+共46B payload，封装为64B公司帧。无新鲜副本返回BUSY的12B R；
 有完整Q但长度错返回BAD_LENGTH，非法session/request_id返回BAD_FIELD；短于Q则本地拒绝。
 响应flags=0x10，不复制请求ACK_REQ或RETRY位。采样原子性、新鲜度和boot_id由调用方负责，
 现有前台采集路径尚未证明跨快环原子一致，不宣称已实机取得同步快照。
@@ -118,6 +118,11 @@ GET_MOTOR_STATE provider只支持session=0、非零request_id的8B Q。成功返
 完成：第一版公共接口文件、四类可注入后端边界、串行端点组装、长消息TX分片、只读测试实现；
 协议源文件已加入 Keil 工程，CAN FD RX 入队和主循环后台服务已接线。旧标准帧协议、FOC、Flash、
 节点配置和波特率保持不变。
+
+APP 实例当前限定 RX/TX 各 4 帧、接收重组 128B；超限返回错误，不截断。核心独立实例仍支持
+1767B，不能据此假设 APP 拥有相同缓冲。队列所有访问须串行化：组合层只在入队/出队复制时
+屏蔽中断，`process_frame`、业务处理和编码在临界区外运行；TX 队列由后台独占，HAL 单次提交
+由平台防抢占。每次后台调用最多推进 4 次处理和 4 帧发送，不保证固定周期；五轴 1kHz 待独立验收。
 
 尚未完成且不能因接口存在而视为完成：
 
@@ -134,4 +139,4 @@ GET_INFO page0完整响应48B可以经显式TX分片发送，但现有只读prov
 本轮内部C接口新增，不修改既有线上字段布局。响应flags纠正为RESPONSE，旧的离线示例若
 假设回复照搬请求flags需要更新；0x0100～0x0103已不作为候选只读编号。不得在正式公司登记前
 切换运行协议。验证入口为 `tests/unit/native/test_yg_protocol_core.py` 与 PR profile；
-`yg_protocol_contract_test.c` 包含替身调用、数值边界、TX背压、44B响应和48B分片往返。
+`yg_protocol_contract_test.c` 包含替身调用、数值边界、TX背压、46B响应和48B分片往返。

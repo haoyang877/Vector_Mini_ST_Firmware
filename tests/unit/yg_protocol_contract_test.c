@@ -73,6 +73,14 @@ static void service_boundaries(void)
     yg_protocol_service_reply_t reply;
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) == YG_PROTOCOL_SERVICE_ACCEPTED);
     assert(calls == 1U && reply.token == 7U);
+    motor_request.operation = (yg_protocol_motor_operation_t)-1;
+    assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
+           YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
+    motor_request.operation = (yg_protocol_motor_operation_t)(YG_PROTOCOL_MOTOR_SET_TARGET + 1U);
+    assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
+           YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
+    assert(calls == 1U);
+    motor_request.operation = YG_PROTOCOL_MOTOR_SET_TARGET;
     assert(yg_protocol_parameter_call(&parameter, &parameter_request, &reply) ==
            YG_PROTOCOL_SERVICE_OK);
     assert(reply.value == 123 && reply.revision == 2U && reply.token == 0U);

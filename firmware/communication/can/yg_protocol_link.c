@@ -1,4 +1,4 @@
-/* 只读 CAN FD 链路诊断端点：验证扩展帧、CRC、路由和响应闭环，不接触电机控制。 */
+/* CAN FD 组合层：后台路由，电机业务经显式绑定注入；不直接访问电机控制。 */
 #include "yg_protocol_link.h"
 
 #include <stddef.h>
@@ -12,6 +12,7 @@
 #include "yg_protocol_transfer.h"
 #include "yg_protocol_motor.h"
 
+/* STM32G431 当前 RAM 预算：两条 4 帧队列与 128B 重组区；长事务接入前重新预算。 */
 #define YG_LINK_QUEUE_CAPACITY 4U
 #define YG_LINK_FRAGMENT_CAPACITY 128U
 #define YG_LINK_PROTOCOL_INFO_TYPE 1U

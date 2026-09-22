@@ -1,6 +1,6 @@
 # 通信分层说明（CAN 接入）
 
-2026-09-19（v2，落地后）。本文描述 `firmware/communication/` 的三层划分，以及**已实施**的
+2026-09-22（v3，CAN FD 后台接入）。本文描述 `firmware/communication/` 的三层划分，以及**已实施**的
 文件边界与机械门禁。落地过程与验收见
 [通信分层优化设计](../plans/active/2026-09-19-communication-layering-optimization.md)；
 硬件域定则见 [硬件边界收口](../plans/active/2026-09-19-hardware-boundary-closure.md)。

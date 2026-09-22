@@ -45,6 +45,7 @@ static MotorWorkOutcome_TypeDef pending_outcome;
 static volatile bool outcome_latched;
 /* 故障紧急关断标记：快车道已直接关断硬件，由 2 kHz 状态机对齐功率级记录。 */
 static volatile bool fast_power_stopped;
+static volatile bool protocol_stop_requested;
 
 /* 需要编码器反馈的模式在坏帧超限后立即置编码器故障。 */
 static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
@@ -227,6 +228,7 @@ static void RunState_UpdateRecoveryEvidence(void)
         return;
     }
     overcurrent_recover_ticks = 0U;
+    protocol_stop_requested = false;
 }
 
 /* 恢复矩阵（阶段 D1）：逐故障源恢复判据。参数/标定/操作类故障暂无在线判据，
@@ -478,6 +480,16 @@ void FocRunState_FastFaultStop(void)
     }
 }
 
+void FocRunState_RequestProtocolStop(void)
+{
+    protocol_stop_requested = true;
+}
+
+bool FocRunState_IsPowerDisabled(void)
+{
+    return !power_on;
+}
+
 /* 取走待处理结果；无请求时按 RUNNING 处理。 */
 static MotorWorkOutcome_TypeDef FocRunState_TakeOutcome(void)
 {
@@ -511,6 +523,12 @@ void FocRunState_Tick(void)
 
     /* 1. worker 结果 → 目标模式与前置动作（与旧实现同序）。 */
     target = MotorControl.ModeNow;
+    if (protocol_stop_requested)
+    {
+        protocol_stop_requested = false;
+        MotorControl.ModeNow = Motor_Disable;
+        target = Motor_Disable;
+    }
     switch (outcome.result)
     {
     case MOTOR_WORK_SWITCH_MODE:

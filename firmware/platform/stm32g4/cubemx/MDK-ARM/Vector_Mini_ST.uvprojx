@@ -1361,6 +1361,21 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\communication\can\yg_protocol_canfd_irq.c</FilePath>
             </File>
+            <File>
+              <FileName>yg_protocol_app_adapter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_app_adapter.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor_adapter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_adapter.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_stop_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\motor_stop_service.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

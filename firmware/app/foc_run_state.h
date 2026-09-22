@@ -43,4 +43,16 @@ void FocRunState_PostOutcome(MotorWorkOutcome_TypeDef outcome);
  */
 void FocRunState_Tick(void);
 
+/**
+ * @brief 请求由 2 kHz 运行状态机执行协议停机。
+ * @note 仅置位有界请求，不在 CAN 后台上下文直接写功率或模式状态。
+ */
+void FocRunState_RequestProtocolStop(void);
+
+/**
+ * @brief 查询协议停机所需的功率输出关闭证据。
+ * @return 功率级已由状态机记录为关闭返回 true。
+ */
+bool FocRunState_IsPowerDisabled(void);
+
 #endif

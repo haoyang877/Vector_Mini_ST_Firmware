@@ -1,6 +1,7 @@
 #include "yg_protocol_runtime.h"
 
 #include "comm_hw.h"
+#include "yg_protocol_app_adapter.h"
 #include "yg_protocol_link.h"
 
 static uint8_t node_id;
@@ -9,6 +10,10 @@ static uint32_t heartbeat_ms;
 bool YgProtocolRuntime_Init(uint8_t configured_node_id)
 {
     if (!YgProtocolLink_Init(configured_node_id))
+    {
+        return false;
+    }
+    if (!YgProtocolAppAdapter_Init())
     {
         return false;
     }

@@ -6,7 +6,7 @@
 
 `firmware/communication/can/yg_protocol_canfd.{c,h}` 组合既有帧 codec、CAN ID codec、串行队列和
 平台 `comm_hw`。没有新增电机 type、ACK 语义、自动重传、硬件初始化、滤波配置或调度入口。
-`yg_protocol_link.c` 已在 `FDCAN1_Param_Init`、FDCAN RX 中断和 `CAN_Service` 中接线，首批只注册
+`yg_protocol_link.c` 已在 `FDCAN1_Param_Init`、FDCAN RX 中断和主循环后台服务中接线，首批只注册
 GET_INFO/GET_CAPS，只读响应不使能电机。旧标准帧入口继续保留兼容路径；扩展 CAN FD 帧由新端点独占处理。
 STM32G4 的工程输入已切到 1 Mbit/s 仲裁段、5 Mbit/s 数据段、FD+BRS；扩展帧通过全局滤波器进入 FIFO0。
 

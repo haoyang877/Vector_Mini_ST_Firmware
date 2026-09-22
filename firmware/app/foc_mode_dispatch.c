@@ -41,6 +41,12 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
         FocCogging_Abort();
     }
 
+    /* 模式切换或故障停机时释放编码器标定工作区，避免占用参数保存空间。 */
+    if (MotorControl.ModeNow != Calib_EncoderObserver)
+    {
+        FocEncoderCalibration_Cancel();
+    }
+
     switch (MotorControl.ModeNow)
     {
     case Motor_Disable:

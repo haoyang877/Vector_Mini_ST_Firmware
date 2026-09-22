@@ -62,6 +62,12 @@ typedef enum
 extern CalibStep_TyepeDef CalibStep;
 
 /**
+ * @brief 退出观测器编码器标定并释放其工作区。
+ * @note 只清理本模块的内存与阶段变量，不停相、不改模式、不写参数；可重复调用。
+ */
+void FocEncoderCalibration_Cancel(void);
+
+/**
  * @brief 观测器 LUT 标定周期任务（Mode 13）：无感闭环下重建 1024 点线性化 LUT。
  * @param FOC 电流控制与观测量。
  * @param MotorControl 电机与控制状态；任务只写指令类字段。

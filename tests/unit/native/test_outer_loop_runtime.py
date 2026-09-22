@@ -52,7 +52,7 @@ def main():
             ]
         )
     )
-    # Use the real parameter structure to guard the full current allocation set.
+    # Use the real parameter structure to guard the mutually exclusive heap users.
     param = (ROOT / "firmware/services/parameters/foc_param.h").read_text(encoding="utf-8")
     param = param[
         param.index("typedef struct") : param.index("} InterfaceParam_TypeDef;")
@@ -108,16 +108,18 @@ static void setup(ModeNow_TypeDef mode) {
     live.speedAcc = .8f; live.speedDec = .5f;
 }
 int main(void) {
-    /* All known live heap allocations, even parameter I/O overlapping calibration. */
+    /* Calibration and parameter I/O are serialized; the pool must fit either peak. */
     for (unsigned trial = 0; trial < 100; trial++) {
-        void *a = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t));
-        void *b = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(uint16_t));
-        void *c = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int16_t));
-        void *d = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
-        assert(a && b && c && d);
-        HEAP_free(b); HEAP_free(d); HEAP_free(a); HEAP_free(c);
+        void *calibration = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t) +
+                                        ENCODER_OFFSET_LUT_SIZE * sizeof(uint16_t));
+        assert(calibration);
+        assert(HEAP_malloc(sizeof(InterfaceParam_TypeDef)) == NULL);
+        HEAP_free(calibration);
+        void *parameter = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
+        assert(parameter);
+        HEAP_free(parameter);
     }
-    printf("heap capacity passed: calibration=8192 parameter=%zu pool=%zu minimum_free=%zu\n",
+    printf("heap capacity passed: calibration=6144 parameter=%zu pool=%zu minimum_free=%zu\n",
         sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
     for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
         setup((ModeNow_TypeDef)mode);

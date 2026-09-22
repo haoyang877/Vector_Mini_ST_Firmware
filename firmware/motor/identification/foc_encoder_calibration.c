@@ -16,9 +16,18 @@
  * 其辅助函数（分相电阻/电感/磁链扫描、开环扫角偏移、ADC 零偏）未随本模块恢复。
  * 迁移约定：任务不自行停相或写模式；本地中止只清理采样区与控制状态。 */
 
-static int32_t *p_error_sum = NULL;
-static uint16_t *calibration_samples = NULL;
-static int16_t *candidate_linearization_lut = NULL;
+/* 采样计数在构建候选 LUT 前已不再使用，与候选 LUT 复用同一块空间。 */
+typedef struct
+{
+    int32_t error_sum[ENCODER_OFFSET_LUT_SIZE];
+    union
+    {
+        uint16_t samples[ENCODER_OFFSET_LUT_SIZE];
+        int16_t candidate[ENCODER_OFFSET_LUT_SIZE];
+    } bins;
+} EncoderCalibWorkspace_TypeDef;
+
+static EncoderCalibWorkspace_TypeDef *encoder_calib_workspace = NULL;
 
 CalibStep_TyepeDef CalibStep = CS_NULL;
 
@@ -27,20 +36,19 @@ CalibStep_TyepeDef CalibStep = CS_NULL;
 
 static void Encoder_Calib_ReleaseSamples(void)
 {
-    if (p_error_sum != NULL)
+    if (encoder_calib_workspace != NULL)
     {
-        HEAP_free(p_error_sum);
-        p_error_sum = NULL;
+        HEAP_free(encoder_calib_workspace);
+        encoder_calib_workspace = NULL;
     }
-    if (calibration_samples != NULL)
+}
+
+void FocEncoderCalibration_Cancel(void)
+{
+    if (encoder_calib_workspace != NULL)
     {
-        HEAP_free(calibration_samples);
-        calibration_samples = NULL;
-    }
-    if (candidate_linearization_lut != NULL)
-    {
-        HEAP_free(candidate_linearization_lut);
-        candidate_linearization_lut = NULL;
+        Encoder_Calib_ReleaseSamples();
+        CalibStep = CS_NULL;
     }
 }
 
@@ -58,25 +66,16 @@ static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_
 
 static bool Encoder_Calib_AllocateSamples(void)
 {
-    if (p_error_sum == NULL)
-        p_error_sum = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
-    if (calibration_samples == NULL)
-        calibration_samples = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
-    if (candidate_linearization_lut == NULL)
-        candidate_linearization_lut =
-            HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(*candidate_linearization_lut));
+    if (encoder_calib_workspace == NULL)
+        encoder_calib_workspace = HEAP_malloc(sizeof(*encoder_calib_workspace));
 
-    if (p_error_sum == NULL || calibration_samples == NULL || candidate_linearization_lut == NULL)
+    if (encoder_calib_workspace == NULL)
     {
         Encoder_Calib_ReleaseSamples();
         return false;
     }
 
-    memset(p_error_sum, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
-    memset(calibration_samples, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
-    memset(candidate_linearization_lut,
-           0,
-           ENCODER_OFFSET_LUT_SIZE * sizeof(*candidate_linearization_lut));
+    memset(encoder_calib_workspace, 0, sizeof(*encoder_calib_workspace));
     return true;
 }
 
@@ -84,9 +83,9 @@ static uint16_t Encoder_Calib_ApplyCandidateLut(uint16_t directed_q15)
 {
     uint16_t lut_index = directed_q15 >> 6;
     uint16_t fraction = directed_q15 & 0x003FU;
-    int32_t correction_a = candidate_linearization_lut[lut_index];
+    int32_t correction_a = encoder_calib_workspace->bins.candidate[lut_index];
     int32_t correction_b =
-        candidate_linearization_lut[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
+        encoder_calib_workspace->bins.candidate[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
     int32_t correction = correction_a + (((correction_b - correction_a) * fraction) >> 6);
 
     return (uint16_t)((int32_t)directed_q15 - correction);
@@ -135,7 +134,7 @@ static void Encoder_Calib_CommitCandidateLut(Encoder_TypeDef *Encoder)
     uint16_t current_linearized_q15;
 
     memcpy(Encoder->linearization_lut_q15,
-           candidate_linearization_lut,
+           encoder_calib_workspace->bins.candidate,
            sizeof(Encoder->linearization_lut_q15));
     current_linearized_q15 = Encoder_Calib_ApplyCandidateLut(Encoder->directed_q15);
     Encoder->linearized_q15 = current_linearized_q15;
@@ -562,20 +561,20 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 reference_q15 = (uint16_t)(relative_theta *
                                            ((float)ENCODER_Q15_CPR / required_electrical_theta));
                 correction_q15 = Encoder_Calib_Q15Difference(Encoder->directed_q15, reference_q15);
-                if (calibration_samples[lut_index] != 0U)
+                if (encoder_calib_workspace->bins.samples[lut_index] != 0U)
                 {
-                    int32_t average_q15 =
-                        p_error_sum[lut_index] / (int32_t)calibration_samples[lut_index];
+                    int32_t average_q15 = encoder_calib_workspace->error_sum[lut_index] /
+                                          (int32_t)encoder_calib_workspace->bins.samples[lut_index];
                     while (correction_q15 - average_q15 > ENCODER_Q15_HALF_TURN)
                         correction_q15 -= (int32_t)ENCODER_Q15_CPR;
                     while (correction_q15 - average_q15 < -ENCODER_Q15_HALF_TURN)
                         correction_q15 += (int32_t)ENCODER_Q15_CPR;
                 }
 
-                if (calibration_samples[lut_index] < UINT16_MAX)
+                if (encoder_calib_workspace->bins.samples[lut_index] < UINT16_MAX)
                 {
-                    p_error_sum[lut_index] += correction_q15;
-                    calibration_samples[lut_index]++;
+                    encoder_calib_workspace->error_sum[lut_index] += correction_q15;
+                    encoder_calib_workspace->bins.samples[lut_index]++;
                 }
             }
         }
@@ -620,7 +619,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                  candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
                  ++bins_processed, ++candidate_lut_index)
             {
-                if (calibration_samples[candidate_lut_index] <
+                if (encoder_calib_workspace->bins.samples[candidate_lut_index] <
                     SENSORLESS_ENCODER_CALIB_MIN_SAMPLES_PER_BIN)
                 {
                     Set_ErrorNow(Encoder_Error);
@@ -646,8 +645,9 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                  candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
                  ++bins_processed, ++candidate_lut_index)
             {
-                int32_t correction = (int16_t)(p_error_sum[candidate_lut_index] /
-                                               (int32_t)calibration_samples[candidate_lut_index]);
+                int32_t correction =
+                    (int16_t)(encoder_calib_workspace->error_sum[candidate_lut_index] /
+                              (int32_t)encoder_calib_workspace->bins.samples[candidate_lut_index]);
 
                 if (candidate_lut_index > 0U)
                 {
@@ -657,7 +657,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                         correction += (int32_t)ENCODER_Q15_CPR;
                 }
 
-                p_error_sum[candidate_lut_index] = correction;
+                encoder_calib_workspace->error_sum[candidate_lut_index] = correction;
                 candidate_lut_previous = correction;
             }
 
@@ -677,7 +677,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                  candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
                  ++bins_processed, ++candidate_lut_index)
             {
-                candidate_lut_sum += p_error_sum[candidate_lut_index];
+                candidate_lut_sum += encoder_calib_workspace->error_sum[candidate_lut_index];
             }
 
             if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)
@@ -707,7 +707,8 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                  candidate_lut_index < ENCODER_OFFSET_LUT_SIZE;
                  ++bins_processed, ++candidate_lut_index)
             {
-                int32_t correction = p_error_sum[candidate_lut_index] - candidate_lut_shift;
+                int32_t correction =
+                    encoder_calib_workspace->error_sum[candidate_lut_index] - candidate_lut_shift;
 
                 if (correction < INT16_MIN || correction > INT16_MAX)
                 {
@@ -718,7 +719,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                     return outcome;
                 }
 
-                candidate_linearization_lut[candidate_lut_index] = (int16_t)correction;
+                encoder_calib_workspace->bins.candidate[candidate_lut_index] = (int16_t)correction;
             }
 
             if (candidate_lut_index >= ENCODER_OFFSET_LUT_SIZE)

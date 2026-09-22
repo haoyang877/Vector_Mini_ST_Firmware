@@ -1792,6 +1792,81 @@
             </File>
           </Files>
         </Group>
+        <Group>
+          <GroupName>Communication YG Protocol</GroupName>
+          <Files>
+            <File>
+              <FileName>yg_protocol_link.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_link.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_canfd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_endpoint.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_endpoint.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_crc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_crc.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_frame_codec.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_frame_codec.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_can_id.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_can_id.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_message_registry.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_message_registry.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_fragment.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_fragment.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_router.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_router.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor_status.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_status.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_readonly.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_readonly_payload.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly_payload.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_transfer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_transfer.c</FilePath>
+            </File>
+          </Files>
+        </Group>
       </Groups>
     </Target>
   </Targets>

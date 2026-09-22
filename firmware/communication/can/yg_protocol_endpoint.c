@@ -4,8 +4,8 @@
 static bool queue_valid(const yg_protocol_transfer_queue_t *queue)
 {
     return queue != NULL && queue->storage != NULL && queue->capacity > 0U &&
-           queue->count <= queue->capacity && queue->head < queue->capacity &&
-           queue->tail < queue->capacity;
+           yg_protocol_transfer_queue_count(queue) <= queue->capacity &&
+           queue->head < queue->capacity && queue->tail < queue->capacity;
 }
 
 yg_protocol_result_t yg_protocol_endpoint_init(yg_protocol_endpoint_t *endpoint,
@@ -102,7 +102,8 @@ yg_protocol_result_t yg_protocol_endpoint_send(yg_protocol_endpoint_t *endpoint,
         return YG_PROTOCOL_INVALID_LENGTH;
     }
     if (count > endpoint->config.tx->capacity ||
-        count > endpoint->config.tx->capacity - endpoint->config.tx->count)
+        count >
+            endpoint->config.tx->capacity - yg_protocol_transfer_queue_count(endpoint->config.tx))
     {
         return YG_PROTOCOL_QUEUE_FULL;
     }
@@ -147,6 +148,21 @@ yg_protocol_result_t yg_protocol_endpoint_process_one(yg_protocol_endpoint_t *en
                                                       uint32_t now_ms)
 {
     yg_protocol_transfer_frame_t frame;
+    if (endpoint == NULL || !endpoint->initialized)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (endpoint->response_pending || !yg_protocol_transfer_queue_pop(endpoint->config.rx, &frame))
+    {
+        return yg_protocol_endpoint_process_frame(endpoint, NULL, now_ms);
+    }
+    return yg_protocol_endpoint_process_frame(endpoint, &frame, now_ms);
+}
+
+yg_protocol_result_t yg_protocol_endpoint_process_frame(yg_protocol_endpoint_t *endpoint,
+                                                        const yg_protocol_transfer_frame_t *frame,
+                                                        uint32_t now_ms)
+{
     yg_protocol_message_t part, message;
     const yg_protocol_message_descriptor_t *descriptor;
     yg_protocol_result_t result;
@@ -156,13 +172,14 @@ yg_protocol_result_t yg_protocol_endpoint_process_one(yg_protocol_endpoint_t *en
     }
     if (endpoint->response_pending)
     {
-        return send_pending(endpoint);
+        /* 新帧不可越过待发应答；调用方保留输入并先以 NULL 推进应答。 */
+        return frame == NULL ? send_pending(endpoint) : YG_PROTOCOL_QUEUE_FULL;
     }
-    if (!yg_protocol_transfer_queue_pop(endpoint->config.rx, &frame))
+    if (frame == NULL)
     {
         return YG_PROTOCOL_QUEUE_EMPTY;
     }
-    result = yg_protocol_canfd_unpack(&frame, endpoint->config.local_node, &part);
+    result = yg_protocol_canfd_unpack(frame, endpoint->config.local_node, &part);
     if (result != YG_PROTOCOL_OK)
     {
         return result;

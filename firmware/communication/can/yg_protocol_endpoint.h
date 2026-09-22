@@ -66,6 +66,18 @@ yg_protocol_result_t yg_protocol_endpoint_process_one(yg_protocol_endpoint_t *en
                                                       uint32_t now_ms);
 
 /**
+ * @brief 在后台处理调用方已安全出队的一帧，或推进待发应答。
+ * @param endpoint 已初始化的单上下文端点。
+ * @param frame 完整帧副本；传入 NULL 仅重试待发应答，不读取 RX 队列。
+ * @param now_ms 单调毫秒时间。
+ * @return 处理结果；存在待发应答且 frame 非空时返回 QUEUE_FULL，输入未消费。
+ * @note 有待发应答时调用方须先传 NULL；帧及 payload 只在本次调用内借用。
+ */
+yg_protocol_result_t yg_protocol_endpoint_process_frame(yg_protocol_endpoint_t *endpoint,
+                                                        const yg_protocol_transfer_frame_t *frame,
+                                                        uint32_t now_ms);
+
+/**
  * @brief 丢弃未发送/未处理帧、重组和待发应答，保留绑定及丢帧累计值。
  * @param endpoint 已初始化的独占端点。
  * @return 重置结果。

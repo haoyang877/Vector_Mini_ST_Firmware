@@ -4,14 +4,16 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "critical_hw.h"
+
 #include "yg_protocol_endpoint.h"
 #include "yg_protocol_readonly.h"
 #include "yg_protocol_readonly_payload.h"
 #include "yg_protocol_transfer.h"
 #include "yg_protocol_motor.h"
 
-#define YG_LINK_QUEUE_CAPACITY 8U
-#define YG_LINK_FRAGMENT_CAPACITY 1767U
+#define YG_LINK_QUEUE_CAPACITY 4U
+#define YG_LINK_FRAGMENT_CAPACITY 128U
 #define YG_LINK_PROTOCOL_INFO_TYPE 1U
 #define YG_LINK_CAPABILITIES_TYPE 2U
 
@@ -89,7 +91,7 @@ static yg_protocol_result_t handle_motor_stop(void *context,
                                               const yg_protocol_message_t *request,
                                               yg_protocol_service_result_t *result)
 {
-    yg_protocol_motor_request_t motor_request = {0};
+    yg_protocol_motor_request_t motor_request = {.operation = YG_PROTOCOL_MOTOR_STOP};
     yg_protocol_service_reply_t motor_reply;
     yg_protocol_link_context_t *link = context;
 
@@ -97,16 +99,16 @@ static yg_protocol_result_t handle_motor_stop(void *context,
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    motor_request.operation = request->message_type == YG_PROTOCOL_MOTOR_TYPE_STOP
-                                  ? YG_PROTOCOL_MOTOR_STOP
-                                  : YG_PROTOCOL_MOTOR_DISABLE;
+    motor_request.operation =
+        (yg_protocol_motor_operation_t)(request->message_type == YG_PROTOCOL_MOTOR_TYPE_STOP
+                                            ? YG_PROTOCOL_MOTOR_STOP
+                                            : YG_PROTOCOL_MOTOR_DISABLE);
     motor_request.source_node = request->source_node;
     motor_request.sequence = request->sequence;
     (void)yg_protocol_motor_call(&link->motor_service, &motor_request, &motor_reply);
-    if (yg_protocol_motor_encode_reply(&motor_reply,
-                                       result->response_payload,
-                                       sizeof(result->response_payload),
-                                       NULL) != YG_PROTOCOL_OK)
+    if (yg_protocol_motor_encode_reply(
+            &motor_reply, result->response_payload, sizeof(result->response_payload), NULL) !=
+        YG_PROTOCOL_OK)
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
@@ -127,8 +129,8 @@ static yg_protocol_result_t provide_motor_status(void *context,
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    source = link->motor_status_source != NULL ? link->motor_status_source
-                                               : &link->empty_motor_status;
+    source =
+        link->motor_status_source != NULL ? link->motor_status_source : &link->empty_motor_status;
     return yg_protocol_motor_status_provider((void *)source, request, payload, payload_length);
 }
 
@@ -225,11 +227,16 @@ bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_
 
 bool YgProtocolLink_OnRxFrame(const CommHwCanFrame *frame)
 {
+    uint32_t state;
+    bool accepted;
     if (!ready || frame == NULL || !frame->extended || !frame->fd || frame->remote)
     {
         return false;
     }
-    return yg_protocol_canfd_receive(&rx_queue, frame) == YG_PROTOCOL_OK;
+    state = critical_hw_enter();
+    accepted = yg_protocol_canfd_receive(&rx_queue, frame) == YG_PROTOCOL_OK;
+    critical_hw_exit(state);
+    return accepted;
 }
 
 void YgProtocolLink_Service(uint32_t now_ms)
@@ -241,9 +248,30 @@ void YgProtocolLink_Service(uint32_t now_ms)
     {
         return;
     }
-    while (processed < 4U &&
-           yg_protocol_endpoint_process_one(&endpoint, now_ms) != YG_PROTOCOL_QUEUE_EMPTY)
+    while (processed < 4U)
     {
+        yg_protocol_transfer_frame_t frame;
+        yg_protocol_result_t result;
+        if (endpoint.response_pending)
+        {
+            result = yg_protocol_endpoint_process_frame(&endpoint, NULL, now_ms);
+        }
+        else
+        {
+            uint32_t state = critical_hw_enter();
+            bool received = yg_protocol_transfer_queue_pop(&rx_queue, &frame);
+            critical_hw_exit(state);
+            if (!received)
+            {
+                break;
+            }
+            /* 临界区只复制帧；CRC、路由和业务处理始终允许电机中断抢占。 */
+            result = yg_protocol_endpoint_process_frame(&endpoint, &frame, now_ms);
+        }
+        if (result == YG_PROTOCOL_QUEUE_FULL)
+        {
+            break;
+        }
         ++processed;
     }
     while (sent < 4U && yg_protocol_canfd_send_one(&tx_queue) == YG_PROTOCOL_OK)

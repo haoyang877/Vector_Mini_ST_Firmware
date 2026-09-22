@@ -239,9 +239,14 @@ static FDCAN_FilterTypeDef last_filter;
 static unsigned last_global[4];
 static unsigned filter_calls,global_calls,start_calls,notify_calls,stop_calls,init_calls;
 static unsigned last_notify_mask;
+static uint32_t irq_mask;
+static bool require_tx_lock;
+uint32_t critical_hw_enter(void) {uint32_t previous=irq_mask;irq_mask=1U;return previous;}
+void critical_hw_exit(uint32_t state) {assert(irq_mask==1U);irq_mask=state;}
 void Error_Handler(void) {assert(0);}
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7);return (pending&mask)!=0;}
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
+ if(require_tx_lock) assert(irq_mask==1U);
  (void)h;last_tx_header=*hdr;last_tx_data0=d[0];++tx_calls;return tx_result;
 }
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *hdr,uint8_t *d) {
@@ -308,8 +313,10 @@ int main(void) {
   const unsigned lengths[]={0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64};
   CommHwCanFrame f={0};f.identifier=0x08ef0302;f.extended=true;f.fd=true;f.bitrate_switch=true;
   f.data[0]=0x5a;tx_result=0;
+  require_tx_lock=true;
   for(unsigned dlc=0;dlc<16;++dlc) {
    f.length=lengths[dlc];assert(comm_hw_can_try_send_frame(&f));
+   assert(irq_mask==0U);
    assert(last_tx_header.Identifier==f.identifier && last_tx_header.IdType==FDCAN_EXTENDED_ID);
    assert(last_tx_header.DataLength==dlc && last_tx_header.FDFormat==FDCAN_FD_CAN);
    assert(last_tx_header.BitRateSwitch==FDCAN_BRS_ON && last_tx_header.ErrorStateIndicator==0);
@@ -320,6 +327,8 @@ int main(void) {
   f.extended=false;f.identifier=0x7ff;assert(comm_hw_can_try_send_frame(&f));
   assert(last_tx_header.IdType==FDCAN_STANDARD_ID);
   tx_result=1;assert(!comm_hw_can_try_send_frame(&f));tx_result=0;
+  assert(irq_mask==0U);
+  irq_mask=1U;assert(comm_hw_can_try_send_frame(&f));assert(irq_mask==1U);irq_mask=0U;
   unsigned before=tx_calls;
   for(unsigned len=9;len<=65;++len) {
    if(len==12 || len==16 || len==20 || len==24 || len==32 || len==48 || len==64) continue;
@@ -354,7 +363,6 @@ static unsigned prepared,status_sent,replies;
 static uint16_t last_reply_id;
 static uint8_t last_reply_len;
 static uint32_t time_hw_now_ms(void) {return 100;}
-static void YgProtocolLink_Service(uint32_t now_ms) {(void)now_ms;}
 bool CanMotorStatus_Prepare(uint32_t t,uint8_t n,uint16_t *id,uint8_t *d,size_t cap) {
  assert(t==100 && n==4 && cap==48);*id=0x7f4;memset(d,0,48);++prepared;return true;
 }

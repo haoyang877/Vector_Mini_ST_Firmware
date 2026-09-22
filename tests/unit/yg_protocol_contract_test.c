@@ -133,8 +133,7 @@ static void numeric_boundaries(void)
     assert(state.position_mrad == INT32_MIN && state.speed_mrad_s == INT32_MIN &&
            state.iq_mA == INT32_MIN);
     assert(state.bus_mV == UINT16_MAX && state.bus_mA == INT16_MIN &&
-           state.temperature_centi_c == INT16_MIN &&
-           state.valid_bits == 0U);
+           state.temperature_centi_c == INT16_MIN && state.valid_bits == 0U);
     source = status_source();
     source.sample.position_feedback = 2147483.75F;
     source.sample.speed_feedback = 32.767F;
@@ -187,6 +186,8 @@ static void endpoint_round_trip(void)
     assert(yg_protocol_transfer_queue_push(&tx, &frame));
     assert(yg_protocol_transfer_queue_push(&tx, &frame));
     assert(yg_protocol_endpoint_process_one(&endpoint, 1U) == YG_PROTOCOL_QUEUE_FULL);
+    assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 1U) == YG_PROTOCOL_QUEUE_FULL);
+    assert(endpoint.response_pending);
     source.sample_available = false;
     assert(yg_protocol_transfer_queue_pop(&tx, &frame));
     assert(yg_protocol_endpoint_process_one(&endpoint, 2U) == YG_PROTOCOL_OK);

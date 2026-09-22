@@ -1,12 +1,7 @@
-/* CAN 帧的单生产者/单消费者内存队列；先写槽位，最后提交 head。 */
+/* 固定容量环形队列；跨中断访问由通信组合层串行化。 */
 #include "yg_protocol_transfer.h"
 
 #include <string.h>
-
-static size_t queue_used(const yg_protocol_transfer_queue_t *queue)
-{
-    return queue->head - queue->tail;
-}
 
 bool yg_protocol_transfer_queue_init(yg_protocol_transfer_queue_t *queue,
                                      yg_protocol_transfer_frame_t *storage,
@@ -33,34 +28,41 @@ bool yg_protocol_transfer_queue_push(yg_protocol_transfer_queue_t *queue,
     {
         return false;
     }
-    if (queue_used(queue) >= queue->capacity)
+    if (queue->count >= queue->capacity)
     {
         queue->dropped++;
         return false;
     }
     queue->storage[queue->head % queue->capacity] = *frame;
-    queue->head++;
-    queue->count = queue_used(queue);
+    queue->head = (queue->head + 1U) % queue->capacity;
+    queue->count++;
     return true;
 }
 
 bool yg_protocol_transfer_queue_pop(yg_protocol_transfer_queue_t *queue,
                                     yg_protocol_transfer_frame_t *frame)
 {
-    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U ||
-        queue->head == queue->tail)
+    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U)
+    {
+        return false;
+    }
+    if (queue->count == 0U)
     {
         return false;
     }
     *frame = queue->storage[queue->tail % queue->capacity];
-    queue->tail++;
-    queue->count = queue_used(queue);
+    queue->tail = (queue->tail + 1U) % queue->capacity;
+    queue->count--;
     return true;
 }
 
 size_t yg_protocol_transfer_queue_count(const yg_protocol_transfer_queue_t *queue)
 {
-    return queue == NULL ? 0U : queue_used(queue);
+    if (queue == NULL)
+    {
+        return 0U;
+    }
+    return queue->count;
 }
 
 uint32_t yg_protocol_transfer_queue_dropped(const yg_protocol_transfer_queue_t *queue)
@@ -71,8 +73,11 @@ uint32_t yg_protocol_transfer_queue_dropped(const yg_protocol_transfer_queue_t *
 bool yg_protocol_transfer_queue_peek(const yg_protocol_transfer_queue_t *queue,
                                      yg_protocol_transfer_frame_t *frame)
 {
-    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U ||
-        queue->head == queue->tail)
+    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U)
+    {
+        return false;
+    }
+    if (queue->count == 0U)
     {
         return false;
     }

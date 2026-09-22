@@ -18,7 +18,7 @@ typedef struct
  * @brief 单次非阻塞提交一帧 CAN FD 数据帧，支持标准或扩展标识符。
  * @param frame 调用方拥有的帧；length 为 DLC 对应的实际字节数，填充由调用方完成。
  * @return 成功提交返回 true；格式非法或 HAL 忙/失败返回 false。
- * @note 不保存指针，不启动外设或改变滤波与位时序；调用方串行调用并保留失败帧。
+ * @note 不保存指针，不启动外设或改变滤波与位时序；单次硬件提交防中断抢占，调用方保留失败帧。
  */
 bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame);
 

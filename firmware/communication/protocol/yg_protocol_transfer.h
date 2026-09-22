@@ -19,15 +19,15 @@ typedef struct
     uint8_t data[YG_PROTOCOL_TRANSFER_DATA_SIZE];
 } yg_protocol_transfer_frame_t;
 
-/** @brief 固定容量帧队列；支持一个生产者与一个消费者跨 ISR/任务并发。 */
+/** @brief 固定容量帧队列；所有访问由调用方串行化，不提供无锁并发。 */
 typedef struct
 {
     yg_protocol_transfer_frame_t *storage;
     size_t capacity;
-    volatile size_t head;
-    volatile size_t tail;
-    volatile size_t count;
-    volatile uint32_t dropped;
+    size_t head;
+    size_t tail;
+    size_t count;
+    uint32_t dropped;
 } yg_protocol_transfer_queue_t;
 
 /**
@@ -47,7 +47,7 @@ bool yg_protocol_transfer_queue_init(yg_protocol_transfer_queue_t *queue,
  * @param queue 已初始化队列。
  * @param frame 待入队帧，函数复制完整内容。
  * @return 入队成功返回 true；队列满或参数非法返回 false。
- * @note 不等待、不重试；队列满时丢弃最新帧并增加 dropped。队列只能有一个生产者和一个消费者。
+ * @note 不等待、不重试；队列满时丢弃最新帧并增加 dropped。跨 ISR/后台使用时，调用方必须保护入队、出队及查询。
  */
 bool yg_protocol_transfer_queue_push(yg_protocol_transfer_queue_t *queue,
                                      const yg_protocol_transfer_frame_t *frame);

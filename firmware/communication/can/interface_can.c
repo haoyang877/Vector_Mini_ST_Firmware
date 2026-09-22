@@ -50,8 +50,8 @@ void FDCAN1_Param_Init(void)
 {
     CanMotorStatus_Init();
 
-    CanTransport_Init(CANMsg.node_id);
     (void)YgProtocolLink_Init(CANMsg.node_id);
+    CanTransport_Init(CANMsg.node_id);
 }
 
 /**
@@ -137,7 +137,6 @@ void CAN_Service(void)
     bool status_allowed;
 
     CanCommand_ServiceRx();
-    YgProtocolLink_Service(time_hw_now_ms());
     /* 应答优先：本拍有任何待发应答（含本拍派发产生）时不提交状态流。 */
     status_allowed = !CanTransport_TxPending();
     while (CanTransport_PopTxReply(&reply))

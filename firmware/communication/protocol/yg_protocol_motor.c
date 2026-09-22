@@ -23,10 +23,9 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
     {
         return YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
     }
-    *reply = (yg_protocol_service_reply_t){0};
+    *reply = (yg_protocol_service_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
     reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-    if (service == NULL || request == NULL || request->operation < YG_PROTOCOL_MOTOR_STOP ||
-        request->operation > YG_PROTOCOL_MOTOR_SET_TARGET)
+    if (service == NULL || request == NULL || request->operation > YG_PROTOCOL_MOTOR_SET_TARGET)
     {
         return reply->status;
     }
@@ -41,9 +40,9 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
 }
 
 yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_reply_t *reply,
-                                                     uint8_t *payload,
-                                                     size_t capacity,
-                                                     size_t *written)
+                                                    uint8_t *payload,
+                                                    size_t capacity,
+                                                    size_t *written)
 {
     if (reply == NULL || payload == NULL || capacity < YG_PROTOCOL_MOTOR_REPLY_SIZE)
     {

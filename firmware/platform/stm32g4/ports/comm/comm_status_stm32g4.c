@@ -1,4 +1,5 @@
 #include "comm_hw.h"
+#include "critical_hw.h"
 
 #include "fdcan.h"
 
@@ -50,7 +51,11 @@ bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame)
             header.FDFormat = FDCAN_FD_CAN;
             header.BitRateSwitch = frame->bitrate_switch ? FDCAN_BRS_ON : FDCAN_BRS_OFF;
             header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-            return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, frame->data) == HAL_OK;
+            /* 后台 FD 提交不可被 TIM7 的旧协议发送或重配置抢占。 */
+            uint32_t state = critical_hw_enter();
+            bool accepted = HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, frame->data) == HAL_OK;
+            critical_hw_exit(state);
+            return accepted;
         }
     }
     return false;

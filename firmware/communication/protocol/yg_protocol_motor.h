@@ -73,8 +73,8 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
  * @note 该 payload 是项目候选格式；内部服务枚举不直接暴露给电机控制模块。
  */
 yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_reply_t *reply,
-                                                     uint8_t *payload,
-                                                     size_t capacity,
-                                                     size_t *written);
+                                                    uint8_t *payload,
+                                                    size_t capacity,
+                                                    size_t *written);
 
 #endif

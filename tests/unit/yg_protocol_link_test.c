@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "comm_hw.h"
+#include "critical_hw.h"
 #include "yg_protocol_canfd.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_readonly.h"
@@ -11,17 +12,116 @@
 
 static CommHwCanFrame sent_frame;
 static bool sent;
+static uint32_t irq_mask;
+static unsigned motor_calls;
+static bool tx_blocked;
+static CommHwCanFrame injected_frame;
+static bool inject_on_unlock;
+static uint16_t sent_sequences[32];
+static size_t sent_count;
+
+uint32_t critical_hw_enter(void)
+{
+    uint32_t previous = irq_mask;
+    irq_mask = 1U;
+    return previous;
+}
+
+void critical_hw_exit(uint32_t state)
+{
+    assert(irq_mask == 1U);
+    irq_mask = state;
+    if (state == 0U && inject_on_unlock)
+    {
+        inject_on_unlock = false;
+        assert(YgProtocolLink_OnRxFrame(&injected_frame));
+    }
+}
 
 /* 替代平台发送口，验证链路只读请求的编码、路由与响应，不接触真实 CAN 或电机。 */
 bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame)
 {
-    if (frame == NULL || sent)
+    assert(irq_mask == 0U);
+    if (frame == NULL || sent || tx_blocked)
     {
         return false;
     }
     sent_frame = *frame;
     sent = true;
+    assert(sent_count < sizeof(sent_sequences) / sizeof(sent_sequences[0]));
+    sent_sequences[sent_count++] = (uint16_t)frame->data[8] | ((uint16_t)frame->data[9] << 8U);
     return true;
+}
+
+static void motor_handler(void *context,
+                          const yg_protocol_motor_request_t *request,
+                          yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    assert(irq_mask == 0U);
+    assert(request->operation == YG_PROTOCOL_MOTOR_STOP);
+    ++motor_calls;
+    reply->status = YG_PROTOCOL_SERVICE_OK;
+}
+
+/* 在发送持续忙时填满 TX，随后恢复发送：命令不得执行两次或乱序丢失。 */
+static void backlog_and_interrupt_handoff(void)
+{
+    yg_protocol_motor_service_t service = {NULL, motor_handler};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 1U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP};
+    yg_protocol_transfer_frame_t frame;
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindMotorService(&service));
+    motor_calls = 0U;
+    sent_count = 0U;
+    sent = false;
+    tx_blocked = true;
+    for (unsigned batch = 0U; batch < 2U; ++batch)
+    {
+        for (unsigned index = 0U; index < 4U; ++index)
+        {
+            request.sequence = (uint16_t)(batch * 4U + index);
+            assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+            injected_frame = (CommHwCanFrame){.identifier = frame.identifier,
+                                              .length = frame.length,
+                                              .extended = true,
+                                              .fd = true,
+                                              .bitrate_switch = true};
+            memcpy(injected_frame.data, frame.data, frame.length);
+            assert(YgProtocolLink_OnRxFrame(&injected_frame));
+        }
+        assert(!YgProtocolLink_OnRxFrame(&injected_frame));
+        assert(motor_calls == batch * 4U);
+        YgProtocolLink_Service(10U);
+        if (batch == 0U)
+        {
+            /* TX 队列先被 4 个应答填满，后续业务帧会在队列背压处停住。 */
+            assert(motor_calls == 4U && sent_count == 0U);
+        }
+    }
+    assert(motor_calls == 5U && sent_count == 0U);
+    YgProtocolLink_Service(12U);
+    tx_blocked = false;
+    for (unsigned i = 0U; i < 20U; ++i)
+    {
+        sent = false;
+        YgProtocolLink_Service(13U + i);
+    }
+    assert(motor_calls == 8U && sent_count == 8U);
+    for (unsigned i = 0U; i < 8U; ++i)
+    {
+        assert(sent_sequences[i] == i);
+    }
+    /* 在后台解锁出队副本时模拟 RX 中断，验证新帧不会覆盖已出队的请求。 */
+    assert(YgProtocolLink_OnRxFrame(&injected_frame));
+    inject_on_unlock = true;
+    sent = false;
+    YgProtocolLink_Service(100U);
+    assert(motor_calls == 10U && !inject_on_unlock && irq_mask == 0U);
 }
 
 static void put_u16(uint8_t *buffer, uint16_t value)
@@ -157,5 +257,6 @@ int main(void)
     assert(response.message_type == YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE);
     assert(response.payload_length == 12U);
     assert(response.payload[8] == 6U && response.payload[9] == 0U);
+    backlog_and_interrupt_handoff();
     return 0;
 }

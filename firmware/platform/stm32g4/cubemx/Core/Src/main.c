@@ -39,6 +39,8 @@
 #include "interface_can.h"
 #include "param_store.h"
 #include "SEGGER_RTT.h"
+#include "time_hw.h"
+#include "yg_protocol_link.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -126,6 +128,8 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  
 	FocCogging_Service();
+	/* 新协议在后台解码、路由和组帧；FDCAN RX 中断只收帧入队。 */
+	YgProtocolLink_Service(time_hw_now_ms());
 	  
 	if(Get_ModeNow() == Save_Param)
 	{

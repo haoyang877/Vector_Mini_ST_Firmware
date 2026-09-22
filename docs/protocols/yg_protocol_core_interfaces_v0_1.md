@@ -9,7 +9,7 @@
 flowchart TD
   HW[唯一硬件接收入口 / comm_hw] --> CAN[yg_protocol_canfd_receive]
   CAN --> RX[yg_protocol_transfer RX 队列]
-  RX --> EP[yg_protocol_endpoint_process_one]
+  RX --> EP[yg_protocol_endpoint_process_frame]
   EP --> CODEC[canfd_unpack / frame_codec / crc / can_id]
   CODEC --> FRAG[fragment_accept]
   FRAG --> ROUTER[registry / router_handle]
@@ -32,7 +32,7 @@ flowchart TD
 | `message_registry.{h,c}` | init/find | 只有 type、allow_fragment、periodic，不含权限与去重策略 |
 | `router.{h,c}` | init/handle/build_response | handler+context；自动响应缓冲为 46B |
 | `can/yg_protocol_canfd.{h,c}` | pack/unpack/receive/send_one | DLC/地址/填充与平台 API 边界 |
-| `can/yg_protocol_endpoint.{h,c}` | init/send/process_one/reset | 串行组装以上模块，长 TX 消息按46B分片 |
+| `can/yg_protocol_endpoint.{h,c}` | init/send/process_one/process_frame/reset | 串行组装以上模块，长 TX 消息按46B分片；`process_frame` 接收已安全出队的副本 |
 | `readonly.{h,c}`、`readonly_payload.{h,c}` | 只读 provider 注册、字段编解码 | 校验请求方向、拒绝广播；不是能力已实现声明 |
 | `motor_status.{h,c}` | convert/feedback_encode/provider | 现有 MotorStatus 值副本转换；无硬件取样 |
 | `service.h` | 内部状态码与结果 | status/token/revision/value/detail，不直接序列化 |
@@ -50,7 +50,8 @@ flowchart TD
 2. 为每个真实支持的 type 建立 route，绑定 handler 与 context，初始化 router。
 3. 提供本机 Node、回复优先级、片间超时、重组存储，初始化 endpoint。
 4. 唯一硬件接收入口把帧传给 `canfd_receive(rx, received)`；它复制整帧。
-5. 通信前台调用 `endpoint_process_one(endpoint, now_ms)`，每次至多消费一个 RX 帧。
+5. 主循环后台调用 `endpoint_process_frame(endpoint, frame, now_ms)`，每次至多处理一个已安全出队的 RX 帧；
+   `process_one` 仅保留给无并发的串行测试/组合场景。
 6. 调用 `canfd_send_one(tx)`，每次只尝试一次平台发送；忙时保持队首。
 7. 主动上报或长业务输出调用 `endpoint_send(endpoint, message, priority)`；它复制全部片段。
 8. bus-off/会话撤销时显式调用 `endpoint_reset` 丢弃两队列、重组和暂存应答；恢复硬件及业务
@@ -114,14 +115,16 @@ GET_MOTOR_STATE provider只支持session=0、非零request_id的8B Q。成功返
 
 ## 5. 完成状态、兼容与后续
 
-完成：第一版公共接口文件、四类可注入后端边界、串行端点组装、长消息TX分片、只读测试实现。
-新模块仅由native测试编译；旧协议、工程输入、FOC、Flash、节点配置和波特率没有切换。
+完成：第一版公共接口文件、四类可注入后端边界、串行端点组装、长消息TX分片、只读测试实现；
+协议源文件已加入 Keil 工程，CAN FD RX 入队和主循环后台服务已接线。旧标准帧协议、FOC、Flash、
+节点配置和波特率保持不变。
 
 尚未完成且不能因接口存在而视为完成：
 
 1. 传输完整策略：分片冲突/重复/绝对超时、ACK关联与整消息重传、序号去重、方向/权限及优先级表。
 2. 真实业务：电机控制后端、参数事务、Job状态机、Loader存储和升级恢复；真实身份/能力provider。
-3. 运行集成：唯一RX消费者、ISR同步、滤波器、并发、快照采集、工程构建与Flash/RAM测量。
+3. 运行集成：真实滤波器验收、快照采集和 Flash/RAM 预算仍需台架/发布验证；RX 唯一消费者、ISR
+   同步和工程构建已有离线覆盖。
 4. 多轴时序：至少5轴、控制及每轴反馈均1kHz的调度和同步误差实测。
 5. 公司正式登记：当前沿用项目评审稿，不将type=1/2/108/124称为公司已批准的新业务定义。
 

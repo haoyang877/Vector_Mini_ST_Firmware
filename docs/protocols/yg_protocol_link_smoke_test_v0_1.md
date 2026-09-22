@@ -5,7 +5,8 @@
 `tools/bench/yg_protocol_link_test.py` 只验证一块板卡的 CAN FD 物理链路、扩展 ID、FD+BRS、
 协议头 CRC、整帧 CRC 和只读 GET_CAPS 响应。它不发送电机控制、参数写入、Flash 擦写或升级命令。
 
-固件端点在 `FDCAN1` 的 RX 中断接收帧，在 2 kHz `CAN_Service` 中推进路由，并返回 GET_CAPS。
+固件端点在 `FDCAN1` 的 RX 中断接收帧，在主循环后台 `YgProtocolLink_Service` 中推进路由，并返回 GET_CAPS；
+2 kHz `CAN_Service` 仅继续服务旧标准帧协议。
 固定位时序为仲裁段 1 Mbit/s、数据段 5 Mbit/s。请求使用 source=主机 Node ID、destination=板卡
 Node ID、priority=2；响应使用反向地址、priority=3。
 

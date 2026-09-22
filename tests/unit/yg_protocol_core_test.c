@@ -368,6 +368,28 @@ static void transfer_queue_is_bounded(void)
     assert(yg_protocol_transfer_queue_pop(&queue, &output) && output.identifier == 0x123U);
     assert(yg_protocol_transfer_queue_pop(&queue, &output) && output.identifier == 0x456U);
     assert(!yg_protocol_transfer_queue_pop(&queue, &output));
+
+    /* 任意容量重复绕圈：满与空不能靠 head == tail 区分。 */
+    yg_protocol_transfer_frame_t odd_storage[3];
+    assert(yg_protocol_transfer_queue_init(&queue, odd_storage, 3U));
+    for (uint32_t cycle = 0U; cycle < 20U; ++cycle)
+    {
+        for (uint32_t index = 0U; index < 3U; ++index)
+        {
+            frame.identifier = cycle * 3U + index;
+            assert(yg_protocol_transfer_queue_push(&queue, &frame));
+        }
+        assert(yg_protocol_transfer_queue_count(&queue) == 3U);
+        for (uint32_t index = 0U; index < 3U; ++index)
+        {
+            assert(yg_protocol_transfer_queue_peek(&queue, &output));
+            assert(output.identifier == cycle * 3U + index);
+            assert(yg_protocol_transfer_queue_pop(&queue, &output));
+            assert(output.identifier == cycle * 3U + index);
+        }
+        assert(yg_protocol_transfer_queue_count(&queue) == 0U);
+        assert(queue.head < queue.capacity && queue.tail < queue.capacity);
+    }
 }
 
 void yg_protocol_canfd_test(void);

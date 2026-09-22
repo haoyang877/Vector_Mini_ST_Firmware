@@ -7,9 +7,11 @@
 
 ## 0. 结论速览
 
-- 固件当前只实现**一套**线路协议：11 位标准帧参数协议 + 48 字节大端状态流。
-- `docs/protocols/` 中的公司 CAN FD 1.2.3（29 位扩展帧、CRC8/CRC16、分片、固件升级）
-  是**设计稿，固件未实现**，不要与已实现协议混淆。
+- 固件当前保留 11 位标准帧参数协议和 48 字节大端状态流，同时接入 `yg_protocol` 的 CAN FD
+  扩展帧端点；两者共享 FDCAN 硬件入口，但使用独立队列和路由。
+- `docs/protocols/` 中的公司 CAN FD 1.2.3（29 位扩展帧、CRC8/CRC16、分片、固件升级）是
+  协议基线；当前固件只接入 `yg_protocol` 的帧编解码、只读查询和基础停机路由，参数、标定、
+  升级和完整电机控制仍按阶段接入。
 - 三层已落到独立文件：**协议约定**（`protocol/can_parameter_wire.*`）、
   **协议实现**（`can/can_transport`、`can/can_command_binding`、`protocol/can_motor_status`）、
   **耦合**（`can/can_binding_commands`、`can/can_binding_queries`、`can/can_status_source`、
@@ -45,7 +47,7 @@
    can/can_status_source.{c,h}        状态快照组装 + 心跳可见性判定
    can/interface_can.{c,h}            门面：CANMsg 运行态、应答暂存、心跳状态机、发送调度
    services/parameters/param_comm_bridge.h  节点身份/心跳超时的窄桥
-   app: board_config.c / bsp_task.c / main.c / stm32g4xx_it.c   集成与调度
+   app: board_config.c / bsp_task.c / main.c / stm32g4xx_it.c   集成与调度；CAN FD 协议服务在 main 后台循环
 ```
 
 ---
@@ -65,7 +67,7 @@
 | 比例、哨兵、字节序 | `can_parameter_wire.c` | 单一实现 `CanParamWire_Milli32/Centi32/Milli16/Centi16`：×1000/×100，截断并饱和；非有限值 → `INT_MIN`/`INT16_MIN` 哨兵（接收端拒收）；状态帧与回复一律**大端**。 |
 | CAN ID 编址与长度 | `can_parameter_wire.c` | `CanParamWire_Identifier(node, param)` = `node << 8 \| param`；`CanParamWire_Length`：int16 毫安 = 2，其余 = 4。状态帧 `0x7F0 + node`，node 0..7，滤波器按 `[node<<8, node<<8+0xFF]` 范围接收。 |
 | 传输能力契约 | `platform/api/comm_hw.h` | 收帧、状态帧发送、启动/波特率切换/应答发送；全部"非阻塞、有界、无等待"。 |
-| 设计稿（未实现） | `docs/protocols/motor_protocol_v1.md` 等 | 公司 CAN FD 1.2.3：magic 0xA55A、CRC8 多项式 0x9B / CRC16 0xBAAD、小端、类型 0–186、Q/R 会话、升级清单。固件无任何代码引用。 |
+| 协议基线与分阶段实现 | `docs/protocols/yg_protocol_*.md` | 公司 CAN FD 1.2.3：magic 0xA55A、CRC8 多项式 0x9B / CRC16 0xBAAD、小端、类型 0–186、Q/R 会话、升级清单。当前固件仅接入帧编解码、只读查询和基础停机路由。 |
 | 主机镜像 | `tools/bench/can_parameter_protocol.py`、`tools/bench/can_motor_status.py` | PC 侧同构编解码/发送模型，与固件共享同一约定（改协议必须同步）。 |
 | 黄金向量 | `tests/unit/can_motor_status_test.c`、`tests/unit/test_can_motor_status.py`、`tests/unit/test_can_parameter_protocol.py`、`tests/unit/native/run_can_status_tests.py` | 48 字节状态帧、参数 SET/GET 编码、状态流命令的期望字节。 |
 
@@ -109,15 +111,15 @@
 | 参数/心跳取值缝 | `services/parameters/param_comm_bridge.h` | 服务 ↔ 通信 | 只读/读写节点身份与心跳超时；替换原先 `foc_param.c`、`foc_run_state.c` 的隐藏 `extern CANMsg`。 |
 | 状态邮箱 | `services/telemetry/motor_status.c` | 服务 ↔ 通信 | 无锁单生产者/单消费者邮箱；生产者是 2 kHz 通信服务 `CAN_Service`。 |
 | 共享全局状态 | `can/interface_can.c: CANMsg` | 通信内部 | 节点身份、收发暂存、心跳状态；声明集中在 `interface_can.h`，**通信层之外不再有隐藏 `extern`**。 |
-| 应用集成 | `board_config.c`、`bsp_task.c`、`main.c`、`stm32g4xx_it.c` | 应用 → 通信 | 初始化 `FDCAN1_Param_Init`；2 kHz 服务 `CAN_Service` 排空接收队列并派发、发送应答与状态流，另做波特率切换与心跳；主循环只保留 cogging 服务与保存会话；CubeMX 回调进 `CANRxIRQHandler`（只入队）。 |
+| 应用集成 | `board_config.c`、`bsp_task.c`、`main.c`、`stm32g4xx_it.c` | 应用 → 通信 | 初始化 `FDCAN1_Param_Init`；TIM7 的 `CAN_Service` 只排空旧标准帧队列、发送旧协议应答与状态流；CAN FD `YgProtocolLink_Service` 在 `main` 后台循环执行解码、路由和应答；CubeMX 回调进 `CANRxIRQHandler`（CAN FD 只入队）。 |
 
 **两个必须记录的现状事实**：
 
 - `CAN_SetEncoderState`（`can/can_binding_commands.c`）是空实现，`CAN_SET_ENCODER_STATE`(0x0C)
   当前不改变任何状态；槽位保留按设计决策 D1。
-- `CANRxIRQHandler`（`can/can_command_binding.c`）在 RX 中断里只做取帧、校验、解码与入队
-  （单帧、≤4 字节、无等待/无分配）；派发移到 2 kHz 服务 `CAN_Service`，写路径在短临界区
-  内应用以恢复对 20 kHz 快环的原子性。原偏差已按 S5/方案 A 关闭，见
+- `CANRxIRQHandler`（`can/can_command_binding.c`）在 RX 中断里只做取帧、帧级校验与入队
+  （无等待/无分配）。旧标准帧派发仍由 2 kHz 服务 `CAN_Service` 完成；CAN FD 帧在短临界区
+  复制后由 `main` 后台服务执行 CRC、解码、路由和业务。原偏差已按 S5/方案 A 关闭，见
   [S5 计划](../plans/active/2026-09-19-can-isr-slimming.md) §10。
 
 ---

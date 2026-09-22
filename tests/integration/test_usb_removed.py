@@ -26,9 +26,10 @@ class UsbRemovalTests(unittest.TestCase):
         main = (CUBEMX / "Core/Src/main.c").read_text(encoding="utf-8")
         task = (ROOT / "firmware/app/bsp_task.c").read_text(encoding="utf-8")
         self.assertIn("MX_FDCAN1_Init();", main)
-        self.assertIn("CAN_Service();", task)
+        self.assertNotIn("CAN_Service();", task)
         self.assertIn("FOC2kHzSupervisor();", task)
-        self.assertIn("CAN_DisConnect_Handle();", task)
+        self.assertNotIn("CAN_DisConnect_Handle();", task)
+        self.assertIn("YgProtocolRuntime_Service", main)
         self.assertNotRegex(main + task, r"USB_|usb_device|HSI48_ON")
 
     def test_usb_irq_slots_remain_but_no_application_handlers(self):

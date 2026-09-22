@@ -8,7 +8,7 @@
 #include "motor_work.h"
 /* 齿槽功能对外公共接口：本文件承载标定适配、运行补偿适配与台架保护；
  * 补偿纯核心由以下模块提供，并在此汇总导出，使既有调用方
- * （foc_run.c、interface_can.c、main.c）无需改动。 */
+ * （foc_run.c、main.c）无需改动。 */
 #include "cogging_compensation.h"
 
 extern CoggingCalibration CoggingCalib;

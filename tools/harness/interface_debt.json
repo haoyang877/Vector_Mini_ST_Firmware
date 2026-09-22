@@ -1,18 +1,6 @@
 {
   "schema_version": 1,
   "files": {
-    "firmware/communication/can/interface_can.h": {
-      "sha256": "867e8dc9cc321bd1ca92c4b00c142bd88d0c52dc41f853f09e989bb3e647b6c8",
-      "interfaces": [
-        "CANRxIRQHandler",
-        "CAN_BaudRateSwitching",
-        "CAN_DisConnect_Handle",
-        "CAN_ReceiveMessage_Update",
-        "CAN_SendMessage",
-        "CAN_SendMessage_Update",
-        "FDCAN1_Param_Init"
-      ]
-    },
     "firmware/motor/foc/foc_pid.h": {
       "sha256": "5a95239b3c29df323e27f7832f709b11f4bba82763e796beffd654c5479246b1",
       "interfaces": [

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #include "motor_work.h"
+#include "app_lifecycle.h"
 
 /**
  * @brief 初始化运行状态机适配器：核心进入 BOOT 态，功率级记录为关闭。
@@ -44,15 +45,10 @@ void FocRunState_PostOutcome(MotorWorkOutcome_TypeDef outcome);
 void FocRunState_Tick(void);
 
 /**
- * @brief 请求由 2 kHz 运行状态机执行协议停机。
- * @note 仅置位有界请求，不在 CAN 后台上下文直接写功率或模式状态。
+ * @brief 读取运行所有者的生命周期状态。
+ * @return 当前内部状态，数值不能直接用作线上枚举。
+ * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
  */
-void FocRunState_RequestProtocolStop(void);
-
-/**
- * @brief 查询协议停机所需的功率输出关闭证据。
- * @return 功率级已由状态机记录为关闭返回 true。
- */
-bool FocRunState_IsPowerDisabled(void);
+AppLifecycleState FocRunState_GetState(void);
 
 #endif

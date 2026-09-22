@@ -2,7 +2,6 @@
 #define COMM_HW_H
 #include <stdbool.h>
 #include <stdint.h>
-#include <stddef.h>
 
 typedef struct
 {
@@ -15,56 +14,31 @@ typedef struct
 } CommHwCanFrame;
 
 /**
- * @brief 单次非阻塞提交一帧 CAN FD 数据帧，支持标准或扩展标识符。
- * @param frame 调用方拥有的帧；length 为 DLC 对应的实际字节数，填充由调用方完成。
+ * @brief 单次非阻塞提交一帧 CAN FD 扩展数据帧。
+ * @param frame 调用方拥有的帧；必须是 29 位扩展 ID、FD 数据帧和 BRS，length 为 DLC 对应的实际字节数。
  * @return 成功提交返回 true；格式非法或 HAL 忙/失败返回 false。
  * @note 不保存指针，不启动外设或改变滤波与位时序；单次硬件提交防中断抢占，调用方保留失败帧。
  */
 bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame);
 
 /**
- * @brief 非阻塞地取出一帧已完成接收的 CAN/CAN FD 报文。
+ * @brief 非阻塞地取出一帧已完成接收的 CAN FD 报文。
  * @param frame 调用方提供的输出缓冲区；成功时写入完整帧，失败时保持内容不变。
  * @return 取到一帧返回 true；当前无完整帧返回 false。
  * @note 不等待、不重试，也不保存 frame 指针；调用方继续拥有缓冲区。
  */
 bool comm_hw_can_receive(CommHwCanFrame *frame);
 /**
- * @brief 仅在发送队列空闲时提交低优先级 CAN FD 状态帧。
- * @param identifier 标准帧标识符，只使用低 11 位。
- * @param data 只读负载缓冲区；函数返回后不保存指针。
- * @param length 负载字节数，合法范围为 0..64。
- * @return 成功入队返回 true；参数非法或队列忙返回 false。
- * @note 函数不等待、不重试，为后续高优先级应答保留发送空间。
+ * @brief 初始化并启动 CAN FD 接收通道。
+ * @note 硬件接受扩展数据帧，FD/BRS 和地址由上层校验。失败进入平台错误处理。
+ *       只允许在外设初始化后调用一次，不在此处更改 1M/5M 位时序。
  */
-bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_t length);
+void comm_hw_can_start_fd(void);
+
 /**
- * @brief 初始化并启动 CAN 接收通道：配置本节点范围滤波、启动外设并使能接收中断。
- * @param node 本节点号；滤波范围固定为 [node<<8, node<<8+0xFF]，调用方保证取值 0..7。
- * @note 失败按致命处理：移植层直接进入平台错误处理，本函数不返回。
- */
-void comm_hw_can_start_fd(uint8_t node);
-/**
- * @brief 切换 CAN 传输波特率并重启外设。
- * @param kbps 目标波特率，单位 kbps；调用方保证不为 0。
- * @note kbps 不大于 1000 时数据段与仲裁段同取 10000/kbps 分频，否则仲裁段固定 10 分频；
- *       失败按致命处理，本函数不返回。
- */
-void comm_hw_can_set_baudrate(uint32_t kbps);
-/**
- * @brief 单次非阻塞提交一帧控制应答帧。
- * @param identifier 标准帧标识符，只使用低 11 位。
- * @param data 只读负载缓冲区；函数返回后不保存指针，调用方保证非空。
- * @param length 负载字节数，取 2 或 4，与对应 DLC 编码同值。
- * @return 成功进入发送队列返回 true；队列忙或提交失败返回 false。
- * @note 不等待、不重试；重试次数与退避由调用方决定。
- */
-bool comm_hw_can_try_send_reply(uint16_t identifier, const uint8_t *data, uint8_t length);
-/**
- * @brief 检查 CAN 控制器是否因 bus-off 退出总线，必要时重新上线。
- * @return 本次执行了恢复动作返回 true；控制器健康返回 false。
- * @note 由 1 kHz 监督限频调用。bus-off 后控制器会锁在初始化态不再收发，恢复动作只清除该
- *       状态并重回总线，不改变位时序、滤波器或中断配置；恢复失败按致命处理，不返回。
+ * @brief 检查 bus-off 并重新启动 CAN FD 控制器。
+ * @return 执行了恢复返回 true，健康时返回 false。
+ * @note 前台每秒限频调用；不更改滤波、位时序或协议队列，失败进入平台错误处理。
  */
 bool comm_hw_can_service_bus_off(void);
 #endif

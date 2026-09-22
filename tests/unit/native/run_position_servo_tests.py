@@ -497,7 +497,11 @@ static void board_hw_start(bool motor_phases_enabled) {
     log_step(4);
     board_start_argument = motor_phases_enabled;
 }
-static void FDCAN1_Param_Init(void) { log_step(5); }
+static unsigned Protocol_NodeId_Get(void) { return 1U; }
+static bool protocol_ready = true;
+static bool YgProtocolRuntime_Init(unsigned node) { assert(node == 1U); log_step(5); return protocol_ready; }
+static bool YgProtocolStatusAdapter_Init(void) { return protocol_ready; }
+static void power_stage_hw_stop(void) { log_step(6); }
 """
         + function_source(source, "Board_Init")
         + r"""
@@ -511,7 +515,11 @@ int main(void) {
     order_len = 0;
     Board_Init();
     assert(order_len == 4 && board_start_argument);
-    puts("PASS board startup orchestration: order and configuration condition preserved");
+    protocol_ready = false;
+    order_len = 0;
+    Board_Init();
+    assert(order_len == 5 && order[4] == 6);
+    puts("PASS board startup: order, configuration and communication failure disables power");
     return 0;
 }
 """

@@ -10,7 +10,6 @@ from project_paths import ROOT
 
 NATIVE = (
     "run_position_servo_tests",
-    "run_can_status_tests",
     "test_outer_loop_runtime",
     "test_wheel_speed_limits",
     "test_bus_voltage_protection",

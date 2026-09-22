@@ -1,4 +1,4 @@
-"""轮子限速相关的主机回归：生产参数装载与 CAN 边界用例。"""
+"""轮子限速相关的主机回归：生产参数装载与业务限速边界用例。"""
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -13,14 +13,6 @@ from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
 
 
-def command_case(path, name):
-    source = (ROOT / path).read_text(encoding="utf-8")
-    source = function_source(source, "CanBinding_ApplyCommand")
-    start = source.index("case " + name + ":")
-    end = source.index("break;", start) + len("break;")
-    return source[start:end]
-
-
 def fixture():
     prelude = r"""
 #include <assert.h>
@@ -29,30 +21,24 @@ def fixture():
 #include <string.h>
 #include "foc_param.h"
 #include "foc_param_profile.h"
-#include "interface_can.h"
+#include "param_comm_bridge.h"
 #include "utils.h"
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
 uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
-CANMsg_TypeDef CANMsg;
+static uint8_t node_id;
+static uint32_t heartbeat_ms;
+uint8_t Protocol_NodeId_Get(void) { return node_id; }
+void Protocol_NodeId_Set(uint8_t value) { node_id = value; }
+uint32_t Protocol_HeartbeatMs_Get(void) { return heartbeat_ms; }
+void Protocol_HeartbeatMs_Set(uint32_t value) { heartbeat_ms = value; }
 """
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
-    can_source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
-    prelude += "\n".join(
-        function_source(can_source, n)
-        for n in ("CAN_NodeId_Get", "CAN_NodeId_Set", "CAN_HeartbeatMs_Get", "CAN_HeartbeatMs_Set")
-    )
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
-    prelude += "\nstatic void can_set(int id, float data) { int data_int=(int)data; switch(id) {\n"
-    prelude += "\n".join(
-        command_case("firmware/communication/can/can_binding_commands.c", n)
-        for n in ("CAN_SET_NODE_ID", "CAN_SET_SPEED_LIMIT")
-    )
     return (
         prelude
-        + "\n} }\n"
         + r"""
 int main(void) {
     InterfaceParam_TypeDef p, saved;
@@ -66,7 +52,7 @@ int main(void) {
         assert(Param_SpeedLimitRadS(node)==cap);
         p=saved; p.node_id=(float)node; p.speed_limit=21;
         assert(!Param_Download(&p)); assert(MotorControl.speed_limit==cap);
-        assert(CANMsg.node_id==node && MotorControl.axis_profile_valid);
+        assert(node_id==node && MotorControl.axis_profile_valid);
         assert(OnBoard_Encoder.electrical_zero_q15==3155);
         assert(OnBoard_Encoder.linearization_lut_q15[71]==-42);
         assert(MotorControl.speed_Kp==.02f);
@@ -79,29 +65,19 @@ int main(void) {
     p=saved; p.node_id=1; p.speed_limit=20;
     assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
     Param_Download(&p);
-    assert(CANMsg.node_id==3 && MotorControl.speed_limit==.5f*_2PI);
+    assert(node_id==3 && MotorControl.speed_limit==.5f*_2PI);
     puts("PASS resolved joint identity selects the ceiling before parameter loading");
     for(node=1; node<=2; node++) {
-        CANMsg.node_id=node; MotorControl.speedRef=25; MotorControl.pos_maxspeed=24;
-        can_set(CAN_SET_SPEED_LIMIT,20);
+        node_id=node; MotorControl.speedRef=25; MotorControl.pos_maxspeed=24;
+        assert(Param_SetSpeedLimit(20));
         assert(MotorControl.speed_limit==20 && MotorControl.speedRef==20 && MotorControl.pos_maxspeed==20);
-        can_set(CAN_SET_SPEED_LIMIT,20.01f); assert(MotorControl.speed_limit==20);
+        assert(!Param_SetSpeedLimit(20.01f)); assert(MotorControl.speed_limit==20);
         assert(!Param_SetSpeedLimit(NAN) && !Param_SetSpeedLimit(INFINITY));
         assert(!Param_SetSpeedLimit(0) && !Param_SetSpeedLimit(-1));
         MotorControl.speedRef=-20;
         assert(Param_SetSpeedLimit(10) && MotorControl.speedRef==-10);
     }
-    puts("PASS CAN rad/s boundaries; reduced limits clamp both command signs");
-    CANMsg.node_id=2; MotorControl.speedRef=20; Param_SetSpeedLimit(20);
-    can_set(CAN_SET_NODE_ID,3);
-    assert(CANMsg.node_id==3 && MotorControl.speed_limit==.5f*_2PI && MotorControl.speedRef==.5f*_2PI);
-    can_set(CAN_SET_SPEED_LIMIT,20); assert(MotorControl.speed_limit==.5f*_2PI);
-    can_set(CAN_SET_NODE_ID,1); assert(MotorControl.speed_limit==.5f*_2PI);
-    Param_SetSpeedLimit(20); MotorControl.speedRef=-20;
-    can_set(CAN_SET_NODE_ID,4);
-    assert(CANMsg.node_id==4 && MotorControl.speed_limit==.5f*_2PI && MotorControl.speedRef==-.5f*_2PI);
-    can_set(CAN_SET_SPEED_LIMIT,20); assert(MotorControl.speed_limit==.5f*_2PI);
-    puts("PASS node changes reduce limits and never silently increase a stored lower limit");
+    puts("PASS parameter service rad/s boundaries; reduced limits clamp both command signs");
     /* Schema 10 -> 11 preserves tuned gains and encoder calibration, never
      * interprets the erased old tail as a valid cogging map. */
     p=saved; p.schema_version=10; p.node_id=1; p.speed_limit=20;

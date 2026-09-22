@@ -6,6 +6,8 @@
 #include "motor_state.h"
 #include "param_comm_bridge.h"
 #include "param_store.h"
+#include "power_stage_hw.h"
+#include "yg_protocol_status_adapter.h"
 
 /* 启动编排：顺序与迁移前一致——参数装载 → 应用状态初始化 →
  * 板级启动序列（条件启用三相输出）→ CAN FD 协议端点初始化。
@@ -23,5 +25,9 @@ void Board_Init(void)
     board_hw_start(MotorControl_IsConfigurationValid());
 
     /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
-    (void)YgProtocolRuntime_Init(Protocol_NodeId_Get());
+    if (!YgProtocolRuntime_Init(Protocol_NodeId_Get()) || !YgProtocolStatusAdapter_Init())
+    {
+        /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
+        power_stage_hw_stop();
+    }
 }

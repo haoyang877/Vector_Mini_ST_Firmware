@@ -13,29 +13,10 @@
 bool YgProtocolRuntime_Init(uint8_t node_id);
 
 /**
- * @brief 读取当前协议节点号。
- * @return 已生效的节点号。
+ * @brief 推进 CAN FD 协议并按秒限频恢复 bus-off。
+ * @param now_ms 单调毫秒时钟，允许 uint32_t 回绕。
+ * @note 只在前台调用；一次最多处理 8 个输入和 8 个输出，无等待。
  */
-uint8_t YgProtocolRuntime_NodeId(void);
-
-/**
- * @brief 写入协议节点号运行态值。
- * @param node_id 目标节点号。
- * @note 只更新参数运行态，不在运行中重配硬件；下次启动时生效。
- */
-void YgProtocolRuntime_SetNodeId(uint8_t node_id);
-
-/**
- * @brief 读取保存在参数 ABI 中的通信超时值。
- * @return 超时时间，单位 ms；当前 CAN FD 协议阶段不启用旧心跳看门狗。
- */
-uint32_t YgProtocolRuntime_HeartbeatMs(void);
-
-/**
- * @brief 更新参数 ABI 中的通信超时值。
- * @param heartbeat_ms 超时时间，单位 ms。
- * @note 保留参数存储兼容性，不触发旧协议看门狗或总线重配置。
- */
-void YgProtocolRuntime_SetHeartbeatMs(uint32_t heartbeat_ms);
+void YgProtocolRuntime_Service(uint32_t now_ms);
 
 #endif

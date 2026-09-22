@@ -134,7 +134,6 @@ typedef struct
 #define CurrentOffset_Error 1
 #define Encoder_Error 2
 #define PolePairs_Error 3
-#define CAN_DisConnect 4
 #define Large_Phase_Resistance 5
 #define Large_Phase_Inductance 6
 #define Over_Current 7
@@ -178,17 +177,6 @@ typedef struct
     uint32_t valid, missed_ticks;
 } McuTemperatureStub_TypeDef;
 static McuTemperatureStub_TypeDef McuTemperature;
-
-typedef struct
-{
-    uint32_t can_hb_count, can_hb_set;
-} CANMsgStub_TypeDef;
-static CANMsgStub_TypeDef CANMsg;
-/* 与通信层只读判据等价：本夹具不编译通信源文件，故按同一表达式提供。 */
-static bool CAN_IsHeartbeatAlive(void)
-{
-    return CANMsg.can_hb_set > 0U && CANMsg.can_hb_count < CANMsg.can_hb_set;
-}
 
 static float fast_abs(float x) { return x < 0.0f ? -x : x; }
 
@@ -624,17 +612,6 @@ int main(void)
         FocRunState_PostOutcome(running); FocRunState_Tick();
         assert(MotorControl.ErrorNow == No_Error);
 
-        /* CAN 断连：链路恢复自动清除（无需操作员请求）。 */
-        ResetWorld(Motor_Disable, Motor_Disable, CAN_DisConnect, 1, true);
-        CANMsg.can_hb_set = 100U;
-        CANMsg.can_hb_count = 100U;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
-        assert(MotorControl.ErrorNow == CAN_DisConnect);
-        CANMsg.can_hb_count = 0U;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
-        assert(MotorControl.ErrorNow == No_Error);
-        assert(lifecycle.snapshot.state == APP_READY);
-
         /* 未知故障值一律拒绝，避免隐式清错。 */
         ResetWorld(Motor_Disable, Motor_Disable, Test_Error, 1, true);
         MotorControl.ModeNow = Clear_Error;
@@ -642,7 +619,7 @@ int main(void)
         assert(MotorControl.ErrorNow == Test_Error);
 
         printf("PASS recovery matrix: encoder, temperature, voltage, overcurrent dwell,"
-               " CAN auto-recovery, unknown denied\n");
+               " unknown denied\n");
     }
 
     printf("PASS run state differential: %ld tick comparisons identical"

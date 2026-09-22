@@ -1,77 +1,58 @@
-# yg_protocol CAN FD 适配契约 v0.1
+# yg_protocol CAN FD 承载适配契约 v0.2
 
-日期：2026-09-21。状态：已接入 STM32G4 CAN FD 收发入口并完成离线闭环测试；项目候选承载规则，不代表已完成实机收发。
+日期：2026-09-22。状态：CAN FD-only 运行入口和离线链路已接入，电机业务命令仍按服务目录继续扩展。
 
-## 1. 实现边界
+## 1. 线路基线
 
-`firmware/communication/can/yg_protocol_canfd.{c,h}` 组合既有帧 codec、CAN ID codec、串行队列和
-平台 `comm_hw`。没有新增电机 type、ACK 语义、自动重传、硬件初始化、滤波配置或调度入口。
-`yg_protocol_link.c` 已在 `FDCAN1_Param_Init`、FDCAN RX 中断和主循环后台服务中接线，首批只注册
-GET_INFO/GET_CAPS，只读响应不使能电机。旧标准帧入口继续保留兼容路径；扩展 CAN FD 帧由新端点独占处理。
-STM32G4 的工程输入已切到 1 Mbit/s 仲裁段、5 Mbit/s 数据段、FD+BRS；扩展帧通过全局滤波器进入 FIFO0。
+- CAN ID：29 位扩展，J1939 风格 priority/R/DP/PF/dst/src，当前 PF=`0xEF`。
+- 帧格式：CAN FD、BRS、数据帧；仲裁段 1 Mbit/s，数据段 5 Mbit/s。
+- 应用头：公司协议定义的 magic、version、flags、源/目的节点、type、sequence、长度、保留字段和 CRC8；payload 后为 CRC16。
+- 字节序：应用字段小端；CAN 控制器 CRC 不重复放入应用 payload。
+- 实时控制和位置/速度/电流合并反馈必须单帧完成；管理、诊断、标定表和升级才允许分片。
 
-## 2. 数据和所有权
-
-```text
-业务消息 → canfd_pack → transfer_queue_push(TX)
-                            ↓
-                  canfd_send_one → comm_hw_can_try_send_frame → HAL
-
-唯一硬件 RX 入口 → comm_hw_can_receive → canfd_receive(RX queue)
-                            ↓
-                   transfer_queue_pop（调用方缓冲）
-                            ↓
-                  canfd_unpack → 分片处理/消息路由 → 服务
-```
-
-- `pack` 只做编码，不入队、不发硬件；`receive` 只复制调用方提供的硬件帧，不主动读取 FIFO。
-- `unpack` 返回的 payload 借用输入帧存储，必须在覆写该帧之前完成同步处理或复制。
-- `send_one` 先 peek，平台成功接收后才 pop。忙/失败保留队首，不等待、不循环重试。
-- 入队、出队复制完整帧；队列满丢弃最新并计数。新链路 RX 队列采用单生产者/单消费者 head/tail，
-  ISR 只提交已完整复制的帧，2 kHz 服务上下文消费；不得增加第二个生产者或消费者。
-- `yg_protocol_transfer_frame_t` 实际包含 CAN 元数据，不能宣称是串口/以太网通用帧。
-- `comm_hw` 不含公司帧语义：只检查 CAN ID 宽度、FD 数据帧和合法实际长度，并调用一次 HAL。
-
-## 3. 候选承载规则
-
-| 项目 | v0.1 实现 |
-| --- | --- |
-| CAN ID | 29 位，priority 0..7，R/DP 为 0，PF=0xEF，dst/src 各 8 位 |
-| 帧形式 | IDE=1、FDF=1、BRS=1、非远程帧 |
-| 路由 | ID 的 src/dst 必须等于公司头部地址；接受本机和 0xFF 广播目的地；源地址不可为广播 |
-| 应用长度 | `18 + payload_len`，payload_len 为 0..46；加法之前检查上限 |
-| DLC 对齐 | 取容纳应用帧的最小长度 20/24/32/48/64；接收也要求最小长度 |
-| 填充 | CRC16 之后全为 0；接收遇非零填充拒绝，不把填充算进 CRC |
-| CRC 基线 | CRC8 覆盖字节 0..14；CRC16 覆盖完整 16B 头及 payload，CRC16 小端；沿用既有离线示例 |
-| 分片 | pack/unpack 仅处理一个物理片段，不做自动分片、ACK 或重传 |
-
-公司 flags、重组并发和 type 登记的未决事项仍需独立定版。此实现不把 CRC 成功等同于业务准入，
-也不把平台提交成功等同于电机执行成功。
-
-## 4. 黄金向量与验证
-
-沿用既有离线位置示例，type=105 是项目示例编号，没有开启真实电机处理器：
+## 2. 代码边界
 
 ```text
-CAN ID = 08EF0302, IDE=1 FDF=1 BRS=1
-应用长度 = 26, DLC = 13, 物理长度 = 32
-5A A5 01 00 02 03 69 00 02 00 08 00 00 00 00 D1
-69 02 34 12 E8 03 00 00 D2 E1 00 00 00 00 00 00
+FDCAN HAL → comm_hw.h → yg_protocol_canfd_irq → yg_protocol_link
+                                      │                  │
+                                      │                  ├─ frame_codec / CRC
+                                      │                  ├─ fragment / transfer queue
+                                      │                  ├─ registry / router
+                                      │                  └─ motor / readonly services
+                                      ▼
+                               电机与参数服务
 ```
 
-`tests/unit/yg_protocol_canfd_test.c` 固定比较上述字节，并覆盖全部 47 种 payload 长度、DLC 对齐、
-填充、CRC、地址匹配、广播、无效 CAN 元数据、越界长度、失败输出不变、RX 复制及满队列、TX 忙后
-保留队首和 FIFO 顺序。链路最终进入测试服务函数；不表示已接入电机服务。
+`comm_hw.h` 只描述能力：取一帧、提交一帧、启动 FDCAN。它不解释 type、sequence、payload 或业务错误。`YgProtocolCanfd_RxIrqHandler` 是唯一 RX FIFO0 入口，ISR 只做有限复制和帧元数据筛选。
 
-`tests/unit/native/run_can_status_tests.py` 编译真实 STM32 端口与 HAL 替身，覆盖所有 16 个 DLC、
-FD/BRS 元数据、非法输入、HAL 失败及旧标准帧行为。G4 HAL 的 DataLength 是未移位的 DLC 值 0..15，
-平台层将实际字节数转换为该值，协议层不包含厂商常量。
+## 3. 队列和处理上限
 
-## 5. 兼容和下一步
+- RX 队列 8 个物理帧；TX 队列 40 个物理帧，可覆盖 1767 字节逻辑消息的 39 个分片并保留一个空槽。
+- `YgProtocolLink_Service` 每次最多处理 8 个输入和 8 个输出，失败帧保留在队首。
+- 队列不分配动态内存；满时丢弃最新项并递增统计。
+- 物理帧填充为零，不计入应用 CRC；非法填充、ID、地址、长度、CRC 或 BRS 均拒绝。
 
-`CommHwCanFrame` 末尾增加 `fd/bitrate_switch`，所有源码调用者需一起编译；这是内部 C 接口变化，
-不是线上协议变化。既有发送接口保留；旧接收者忽略新字段。接收失败保持输出不变。
+## 4. 当前已接入的类型
 
-下一步仍需在明确的无动力台架上测量位时序、收发器能力、发送队列和中断负载；离线通过不能替代
-CAN FD 实机收发，也不能宣称 5 轴 1 kHz 能力。硬件冒烟只允许 GET_INFO/GET_CAPS，需记录板卡固件
-SHA-256、Node ID、适配器和原始收发帧。
+| 类型 | 方向 | 当前行为 |
+| --- | --- | --- |
+| GET_INFO | 请求/回复 | 返回设备和版本页 |
+| GET_CAPS | 请求/回复 | 返回 CAN FD、帧长和分片能力 |
+| GET_MOTOR_STATE | 请求/回复 | 调用应用状态快照；启动后尚未刷新时返回 BUSY |
+| MOTOR_STOP | 请求/回复 | 经电机停机服务执行；未绑定服务返回 UNSUPPORTED |
+| MOTOR_DISABLE | 请求/回复 | 经电机停机服务执行；未绑定服务返回 UNSUPPORTED |
+
+所有未注册类型都返回路由错误，不自动转到历史标准 CAN 编号。
+
+## 5. 旧协议兼容边界
+
+本版本不兼容旧标准 CAN 参数帧、旧 48 字节状态流、旧心跳超时和旧波特率切换命令。
+这些实现、工程条目、测试和主机镜像已删除；上位机必须按本文件的 CAN FD 扩展帧、公司
+应用头、CRC、请求/回复和序列号重新建立会话。旧帧即使使用相同节点号也不会被转换或
+转发到新服务。
+
+## 6. 后续接入约束
+
+模式、位置/速度/电流目标、参数、标定、升级和多轴同步都必须实现为 `yg_protocol` service handler。handler 接收平台无关值对象，先校验单位、范围、权限、状态和 sequence，再调用电机/参数所有者；执行结果通过统一回复和状态快照确认。禁止在 handler 中访问 HAL、直接操作 FDCAN 或恢复旧协议兼容路径。
+
+协议 ABI 变更必须同步更新版本号、黄金向量、主机镜像、离线测试和本文件。硬件回归先做只读命令，再做停机和状态反馈；释放固件前重新生成当前提交的构建哈希证据。

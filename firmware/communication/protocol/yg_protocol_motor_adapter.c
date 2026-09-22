@@ -37,8 +37,11 @@ void yg_protocol_motor_adapter_handle(void *context,
         return;
     }
     /* 稳定初始化：任何早退路径都给出确定结果，绝不沿用调用方旧值。 */
-    *reply = (yg_protocol_service_reply_t){0};
     reply->status = YG_PROTOCOL_SERVICE_FAILED;
+    reply->token = 0U;
+    reply->revision = 0U;
+    reply->value = 0;
+    reply->detail = 0U;
     if (handler == NULL || request == NULL)
     {
         reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;

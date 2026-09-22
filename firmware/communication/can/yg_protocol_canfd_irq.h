@@ -3,7 +3,7 @@
 
 /**
  * @brief 唯一 CAN FD RX FIFO0 中断入口。
- * @note 只复制扩展 FD+BRS 帧并入协议队列，不执行 CRC、分片或电机业务。
+ * @note 单次最多取 3 帧，只复制扩展 FD+BRS 帧并入队，不执行 CRC、分片或电机业务。
  */
 void YgProtocolCanfd_RxIrqHandler(void);
 

@@ -11,9 +11,10 @@ CAN FD 线路基线保持为：仲裁段 1 Mbit/s、数据段 5 Mbit/s、29 位�
 
 ## 当前基线
 
-- 当前固件仍存在两条入口：旧标准 CAN 路径和 `yg_protocol` CAN FD 路径。
-- `YgProtocolLink` 已能离线编解码，并已在目标板上完成 GET_CAPS、GET_INFO 和
-  GET_MOTOR_STATE 的只读冒烟；GET_MOTOR_STATE 在状态源尚未绑定时返回 BUSY。
+- 旧标准 CAN 路径已从固件源文件、Keil 工程、测试和主机镜像删除；运行时只保留
+  `yg_protocol` CAN FD 入口。
+- `YgProtocolLink` 已能离线编解码；应用启动时绑定电机状态快照适配器，主循环在
+  协议服务前刷新一次快照。GET_MOTOR_STATE 在快照尚未刷新时返回 BUSY。
 - 最近一次 release 证据：
   `outputs/runs/20260922T071436899469Z-ef007a0a/summary.json`。
 - 最近一次目标板验证的固件、适配器和帧记录位于 `outputs/bench/`，这些文件是证据，
@@ -37,6 +38,7 @@ CAN FD 线路基线保持为：仲裁段 1 Mbit/s、数据段 5 Mbit/s、29 位�
 4. 参数服务的节点身份桥改为协议节点身份桥，暂保留同一参数存储和单位。
 
 阶段 1 的验收是全量编译、离线测试通过，并且源码中不存在旧标准帧 RX/TX 的可达入口。
+当前阶段 1 和旧实现删除已完成；阶段 2 的业务服务迁移仍在进行。
 
 ### 阶段 2：迁移业务命令
 

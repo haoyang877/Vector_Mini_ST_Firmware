@@ -34,26 +34,6 @@
                 "c-readability"
             ]
         },
-        "firmware/communication/can/interface_can.h": {
-            "sha256": "867e8dc9cc321bd1ca92c4b00c142bd88d0c52dc41f853f09e989bb3e647b6c8",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/communication/protocol/can_motor_status.c": {
-            "sha256": "91d571854c23bb3a2da3ff994da863b9638e4bc0b714239c84c7f1276dcbf928",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/communication/protocol/can_motor_status.h": {
-            "sha256": "9310699cedca789cfa6d0eb5b5d14453602ed2ac0d681ac0a5662f1047266719",
-            "checks": [
-                "c-format"
-            ]
-        },
         "firmware/motor/data_type.h": {
             "sha256": "7c812ae342785c56b918448599353f55fd86a4bad245f2cadcc5e6f96db2b36e",
             "checks": [
@@ -234,12 +214,6 @@
                 "c-format"
             ]
         },
-        "firmware/platform/stm32g4/bsp/current_sense_profile.h": {
-            "sha256": "0a84c13f922d4e1e3d4b7eb68d40cdbaaa1ccb3907e036bbec8e569562b23bba",
-            "checks": [
-                "c-format"
-            ]
-        },
         "firmware/platform/stm32g4/bsp/delay.c": {
             "sha256": "37b0541158dadbb417f0841850f816512ea8c6553e0ca7bbca2f80514d11b21a",
             "checks": [
@@ -251,20 +225,6 @@
             "sha256": "c768ce9ea0bf7064dfcc7a164d8b3725643117609bb2fb6755956098fd419330",
             "checks": [
                 "c-format"
-            ]
-        },
-        "firmware/platform/stm32g4/bsp/encoder.c": {
-            "sha256": "16a2cd92ac91eb654ccc354bc8a6bbc1127467d49cde2bc7c78651ae15e1276b",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/platform/stm32g4/bsp/encoder.h": {
-            "sha256": "91c4fd280518d7701c6b1697e40c72b11b9c073ff3335cc0c2e016225fd07f05",
-            "checks": [
-                "c-format",
-                "c-readability"
             ]
         },
         "firmware/platform/stm32g4/bsp/flash.c": {
@@ -307,12 +267,6 @@
             "checks": [
                 "c-format",
                 "c-readability"
-            ]
-        },
-        "firmware/platform/stm32g4/ports/motor/motor_outer_stm32g4.c": {
-            "sha256": "e8b86aac396fea9bf5d646e38acab1eca52bf0299437bf292cbc182e5092d412",
-            "checks": [
-                "comment-language"
             ]
         },
         "firmware/platform/stm32g4/ports/time/time_stm32g4.c": {
@@ -387,13 +341,6 @@
                 "python-lint"
             ]
         },
-        "tests/unit/can_motor_status_test.c": {
-            "sha256": "008643c9307dde69c6421bda674bf3f5e54d135f15c0b8592ceacddc4aa00d3b",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "tests/unit/motor_axis_profile_test.c": {
             "sha256": "815fe2068431020db75b6ab81e09d7636a7b7748943687eb08f98406f7ad6700",
             "checks": [
@@ -449,13 +396,6 @@
                 "python-lint"
             ]
         },
-        "tests/unit/native/test_rtt_calibration.py": {
-            "sha256": "026b0a1784de2da99da81c45e598069cd258a031449f419d5660e3484eb1a7ca",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tests/unit/native/test_sensorless_transitions.py": {
             "sha256": "18061026cf3e0b0181d432e537ada2ad190b98991908b9a4bdedb2fe39e02632",
             "checks": [
@@ -477,20 +417,6 @@
                 "c-readability"
             ]
         },
-        "tests/unit/test_can_motor_status.py": {
-            "sha256": "daa09eb3bacdb911d6d0bfeb9bb729f7230857f1b6dd33fc09c95e922bd2a0d4",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/test_can_parameter_protocol.py": {
-            "sha256": "abebfe761372adda2f98c2a493d17f86aa140d03767392dc35a8ff5fbe3cc666",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tests/unit/test_canfd_diagnostics.py": {
             "sha256": "62677e2863b43391f14e878265c48a8bffaeb26efc15ecc1aad8e19dfd1b4f5e",
             "checks": [
@@ -507,13 +433,6 @@
         },
         "tests/unit/test_dual_axis_status_analysis.py": {
             "sha256": "1a44420bdbd13789c7da1cd2489afe93abb89cacbfe18eb69202ee9b1d338ecc",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tests/unit/test_dual_axis_status_test.py": {
-            "sha256": "7774e02d1260a06c66830f45deed5b98d836db7aca05f2ce43cd9e94dec32141",
             "checks": [
                 "python-format",
                 "python-lint"
@@ -589,20 +508,6 @@
                 "python-lint"
             ]
         },
-        "tools/bench/can_motor_status.py": {
-            "sha256": "0d65d797a79bf506b47d3b4494e2c5823ea704ebfd3e380c88f774e347cdde15",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/bench/can_parameter_protocol.py": {
-            "sha256": "b5381122a623555383527ffcfcd9987fa243f4ecd10568ff70a8136da06fc1b6",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
         "tools/bench/canfd_diagnostics.py": {
             "sha256": "ba8042cd563e07b5aa2f2dc6239e35ff477561463f6ec2351f4d4ea67302eb04",
             "checks": [
@@ -612,13 +517,6 @@
         },
         "tools/bench/dual_axis_can_test.py": {
             "sha256": "66e5284b2f511c7a8d3352f4b496e5966f1971f336c19625dfc2bac1f846c3a9",
-            "checks": [
-                "python-format",
-                "python-lint"
-            ]
-        },
-        "tools/bench/dual_axis_status_test.py": {
-            "sha256": "4ce58e56a2f491f9d980ad3c204b9194ebc1fa6805b388ca5b18bbf9d65d2a1a",
             "checks": [
                 "python-format",
                 "python-lint"

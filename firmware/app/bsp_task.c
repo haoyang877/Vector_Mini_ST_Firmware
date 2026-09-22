@@ -5,7 +5,6 @@
 #include "foc_task.h"
 #include "indicator_hw.h"
 #include "motor_state.h"
-#include "yg_protocol_app_adapter.h"
 
 /* 2 kHz 板级监督任务：电机监督与指示器组合。CAN FD 协议在主循环后台服务，
  * 不在监督中混入旧标准 CAN 的队列、波特率或心跳维护。 */
@@ -49,7 +48,6 @@ static IndicatorHwColor Mode_Color(ModeNow_TypeDef mode)
 void BSP2kHzIRQHandler(void)
 {
     /* CAN FD 收发由 RX ISR + 主循环 YgProtocolLink_Service 完成。 */
-    YgProtocolAppAdapter_RefreshStatus();
     /* 电机监督：编码器慢估计、外环控制、主状态机与温度。 */
     FOC2kHzSupervisor();
 
@@ -64,5 +62,4 @@ void BSP2kHzIRQHandler(void)
         indicator_hw_set_color(Mode_Color(MotorControl.ModeNow));
         RGB_Cnt = 0;
     }
-
 }

@@ -232,7 +232,8 @@ bool YgProtocolLink_OnRxFrame(const CommHwCanFrame *frame)
 {
     uint32_t state;
     bool accepted;
-    if (!ready || frame == NULL || !frame->extended || !frame->fd || frame->remote)
+    if (!ready || frame == NULL || !frame->extended || !frame->fd || !frame->bitrate_switch ||
+        frame->remote)
     {
         return false;
     }

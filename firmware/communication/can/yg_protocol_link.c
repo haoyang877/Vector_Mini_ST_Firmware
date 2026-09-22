@@ -12,9 +12,11 @@
 #include "yg_protocol_transfer.h"
 #include "yg_protocol_motor.h"
 
-/* STM32G431 当前 RAM 预算：两条 2 帧队列与 64B 重组区；长事务接入前重新预算。 */
-#define YG_LINK_QUEUE_CAPACITY 2U
-#define YG_LINK_FRAGMENT_CAPACITY 64U
+/* 队列一次覆盖最大 1767B 逻辑消息的 39 个 46B 分片，并保留一个空槽。
+ * 重组区与协议上限一致，避免声明支持长消息却在组合层静默截短。 */
+#define YG_LINK_RX_QUEUE_CAPACITY 8U
+#define YG_LINK_TX_QUEUE_CAPACITY 40U
+#define YG_LINK_FRAGMENT_CAPACITY YG_PROTOCOL_MAX_MESSAGE_PAYLOAD
 #define YG_LINK_PROTOCOL_INFO_TYPE 1U
 #define YG_LINK_CAPABILITIES_TYPE 2U
 
@@ -29,8 +31,8 @@ typedef struct
 } yg_protocol_link_context_t;
 
 static yg_protocol_link_context_t link_context;
-static yg_protocol_transfer_frame_t rx_storage[YG_LINK_QUEUE_CAPACITY];
-static yg_protocol_transfer_frame_t tx_storage[YG_LINK_QUEUE_CAPACITY];
+static yg_protocol_transfer_frame_t rx_storage[YG_LINK_RX_QUEUE_CAPACITY];
+static yg_protocol_transfer_frame_t tx_storage[YG_LINK_TX_QUEUE_CAPACITY];
 static uint8_t fragment_storage[YG_LINK_FRAGMENT_CAPACITY];
 static yg_protocol_transfer_queue_t rx_queue;
 static yg_protocol_transfer_queue_t tx_queue;
@@ -149,8 +151,8 @@ bool YgProtocolLink_Init(uint8_t node_id)
 
     ready = false;
     if (node_id == YG_PROTOCOL_BROADCAST_NODE_ID ||
-        !yg_protocol_transfer_queue_init(&rx_queue, rx_storage, YG_LINK_QUEUE_CAPACITY) ||
-        !yg_protocol_transfer_queue_init(&tx_queue, tx_storage, YG_LINK_QUEUE_CAPACITY) ||
+        !yg_protocol_transfer_queue_init(&rx_queue, rx_storage, YG_LINK_RX_QUEUE_CAPACITY) ||
+        !yg_protocol_transfer_queue_init(&tx_queue, tx_storage, YG_LINK_TX_QUEUE_CAPACITY) ||
         yg_protocol_readonly_registry_init(&registry) != YG_PROTOCOL_OK)
     {
         return false;
@@ -249,7 +251,7 @@ void YgProtocolLink_Service(uint32_t now_ms)
     {
         return;
     }
-    while (processed < 4U)
+    while (processed < 8U)
     {
         yg_protocol_transfer_frame_t frame;
         yg_protocol_result_t result;
@@ -275,7 +277,7 @@ void YgProtocolLink_Service(uint32_t now_ms)
         }
         ++processed;
     }
-    while (sent < 4U && yg_protocol_canfd_send_one(&tx_queue) == YG_PROTOCOL_OK)
+    while (sent < 8U && yg_protocol_canfd_send_one(&tx_queue) == YG_PROTOCOL_OK)
     {
         ++sent;
     }

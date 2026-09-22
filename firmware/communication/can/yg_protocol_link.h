@@ -45,7 +45,7 @@ bool YgProtocolLink_OnRxFrame(const CommHwCanFrame *frame);
 /**
  * @brief 在主循环后台推进协议收发和只读响应。
  * @param now_ms 单调毫秒时间，用于分片重组截止时间。
- * @note 有界、不等待；一次调用最多处理 4 个输入和 4 个发送帧。不得在 CAN ISR 调用。
+ * @note 有界、不等待；一次调用最多处理 8 个输入和 8 个发送帧。不得在 CAN ISR 调用。
  */
 void YgProtocolLink_Service(uint32_t now_ms);
 

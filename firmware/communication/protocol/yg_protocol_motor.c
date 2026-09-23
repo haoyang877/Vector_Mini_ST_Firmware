@@ -1,18 +1,83 @@
 /* motor 服务边界：显式注入后端，不读取全局状态或访问硬件。 */
 #include "yg_protocol_motor.h"
 
+#include <stddef.h>
+
+static uint32_t read_u32(const uint8_t *payload)
+{
+    return (uint32_t)payload[0] | ((uint32_t)payload[1] << 8U) | ((uint32_t)payload[2] << 16U) |
+           ((uint32_t)payload[3] << 24U);
+}
+
+yg_protocol_result_t yg_protocol_motor_decode_enable(const yg_protocol_message_t *message,
+                                                     bool *enabled)
+{
+    if (message == NULL || enabled == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (message->message_type != YG_PROTOCOL_MOTOR_TYPE_ENABLE)
+    {
+        return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+    }
+    if (message->payload_length != YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE ||
+        message->payload == NULL)
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    if (message->payload[0] > 1U || message->payload[1] != 0U || message->payload[2] != 0U ||
+        message->payload[3] != 0U)
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    *enabled = message->payload[0] != 0U;
+    return YG_PROTOCOL_OK;
+}
+
+yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_t *message,
+                                                      yg_protocol_motor_request_t *request)
+{
+    yg_protocol_motor_request_t decoded = {0};
+    const uint8_t *payload;
+    if (message == NULL || request == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (message->message_type != YG_PROTOCOL_MOTOR_TYPE_CONTROL)
+    {
+        return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+    }
+    if (message->payload_length != YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE ||
+        message->payload == NULL)
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    payload = message->payload;
+    decoded.operation = YG_PROTOCOL_MOTOR_SET_CONTROL;
+    decoded.source_node = message->source_node;
+    decoded.sequence = message->sequence;
+    decoded.mode = payload[0];
+    decoded.position_mrad = (int32_t)read_u32(payload + 4U);
+    decoded.speed_mrad_s = (int32_t)read_u32(payload + 8U);
+    decoded.iq_mA = (int32_t)read_u32(payload + 12U);
+    decoded.v_q_mV = (int32_t)read_u32(payload + 16U);
+    if (decoded.mode < 1U || decoded.mode > 6U || payload[1] != 0U || payload[2] != 0U ||
+        payload[3] != 0U ||
+        (decoded.mode != 3U && decoded.mode != 4U && decoded.position_mrad != 0) ||
+        (decoded.mode != 2U && decoded.mode != 4U && decoded.speed_mrad_s != 0) ||
+        (decoded.mode != 1U && decoded.mode != 4U && decoded.iq_mA != 0) ||
+        (decoded.mode != 6U && decoded.v_q_mV != 0))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    *request = decoded;
+    return YG_PROTOCOL_OK;
+}
+
 static void put_u16(uint8_t *payload, uint16_t value)
 {
     payload[0] = (uint8_t)value;
     payload[1] = (uint8_t)(value >> 8U);
-}
-
-static void put_u32(uint8_t *payload, uint32_t value)
-{
-    payload[0] = (uint8_t)value;
-    payload[1] = (uint8_t)(value >> 8U);
-    payload[2] = (uint8_t)(value >> 16U);
-    payload[3] = (uint8_t)(value >> 24U);
 }
 
 yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_service_t *service,
@@ -25,7 +90,7 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
     }
     *reply = (yg_protocol_service_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
     if (service == NULL || request == NULL ||
-        (unsigned)request->operation > (unsigned)YG_PROTOCOL_MOTOR_SET_TARGET)
+        (unsigned)request->operation > (unsigned)YG_PROTOCOL_MOTOR_SET_CONTROL)
     {
         return reply->status;
     }
@@ -48,12 +113,30 @@ yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_re
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    payload[0] = (uint8_t)reply->status;
-    payload[1] = 0U;
+    uint16_t result;
+    switch (reply->status)
+    {
+    case YG_PROTOCOL_SERVICE_OK:
+    case YG_PROTOCOL_SERVICE_ACCEPTED:
+    case YG_PROTOCOL_SERVICE_UNSUPPORTED:
+        result = (uint16_t)reply->status;
+        break;
+    case YG_PROTOCOL_SERVICE_INVALID_ARGUMENT:
+        result = 4U;
+        break;
+    case YG_PROTOCOL_SERVICE_BUSY:
+        result = 6U;
+        break;
+    case YG_PROTOCOL_SERVICE_DENIED:
+        result = 5U;
+        break;
+    case YG_PROTOCOL_SERVICE_FAILED:
+    default:
+        result = 8U;
+        break;
+    }
+    put_u16(payload, result);
     put_u16(payload + 2U, reply->detail);
-    put_u32(payload + 4U, reply->token);
-    put_u32(payload + 8U, reply->revision);
-    put_u32(payload + 12U, (uint32_t)reply->value);
     if (written != NULL)
     {
         *written = YG_PROTOCOL_MOTOR_REPLY_SIZE;

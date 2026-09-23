@@ -1,6 +1,6 @@
 # 电调协议简化决策与实施顺序 v0.1
 
-日期：2026-09-23。状态：设计待评审，**不授权控制业务接线或硬件动作**。依据[飞书《电调通信协议》](https://wcnxj7iyqdkp.feishu.cn/wiki/M5KJwCZApilqfjk251XcktAPnxa)和[简化版电调协议](../../protocols/yg_protocol_simplified_motor_v0_1.md)。此前[业务重构实施方案](2026-09-23-yg-protocol-business-implementation.md)中的控制会话、独立 SET_MODE 和大量管理 Type 不是本轮默认路线。
+日期：2026-09-23，2026-09-24 开始分步实施。用户已确认按候选首批 Type 编号定版，且新设计优先于旧代码；公司消息类型表仍待同步登记。硬件功率动作仍须经过明确 bench 场景验证。线路字段以[单轴线路契约 v1](../../protocols/yg_protocol_motor_wire_v1.md)为准。依据[飞书《电调通信协议》](https://wcnxj7iyqdkp.feishu.cn/wiki/M5KJwCZApilqfjk251XcktAPnxa)和[简化版电调协议](../../protocols/yg_protocol_simplified_motor_v0_1.md)。此前[业务重构实施方案](2026-09-23-yg-protocol-business-implementation.md)中的控制会话、独立 SET_MODE 和大量管理 Type 不是本轮默认路线。
 
 ## 目标、基线与不可变行为
 

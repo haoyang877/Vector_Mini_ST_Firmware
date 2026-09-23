@@ -176,7 +176,6 @@ static yg_protocol_motor_request_t make_request(yg_protocol_motor_operation_t op
     request.operation = operation;
     request.source_node = 1U;
     request.sequence = 7U;
-    request.lease_ms = 500U;
     return request;
 }
 
@@ -225,9 +224,7 @@ static void test_early_returns(void)
     /* 本批不提供使能/模式/目标：一律 UNSUPPORTED。 */
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_ENABLE, &reply) ==
           YG_PROTOCOL_SERVICE_UNSUPPORTED);
-    CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_SET_MODE, &reply) ==
-          YG_PROTOCOL_SERVICE_UNSUPPORTED);
-    CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_SET_TARGET, &reply) ==
+    CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_SET_CONTROL, &reply) ==
           YG_PROTOCOL_SERVICE_UNSUPPORTED);
 
     /* 越界内部操作按参数错误处理，不构造成功响应。 */

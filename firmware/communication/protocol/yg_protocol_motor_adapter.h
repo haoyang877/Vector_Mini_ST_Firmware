@@ -4,9 +4,8 @@
 #include "motor_stop_service.h"
 #include "yg_protocol_motor.h"
 
-/* 通信侧适配器：把线格式电机请求映射到业务所有者的窄接口。
- * 本批只接通 STOP/DISABLE；ENABLE/SET_MODE/SET_TARGET 无授权、租约与目标会话契约，
- * 一律返回 UNSUPPORTED，绝不从通信侧使能。处理器不持有请求指针，也不访问硬件。 */
+/* 通信侧适配器：STOP/失能接停机所有者；使能与控制在功率行为验证前拒绝。
+ * 处理器不持有请求指针，也不访问硬件。 */
 
 /** 组合层绑定对象；停止服务由业务所有者维护，生命周期必须覆盖所有 handler 调用。 */
 typedef struct

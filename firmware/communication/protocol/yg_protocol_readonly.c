@@ -42,7 +42,6 @@ yg_protocol_result_t yg_protocol_readonly_registry_init(yg_protocol_message_regi
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, false, false},
         {YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK, false, true},
         {YG_PROTOCOL_MOTOR_TYPE_STOP, false, false},
-        {YG_PROTOCOL_MOTOR_TYPE_DISABLE, false, false},
     };
 
     if (registry == NULL)

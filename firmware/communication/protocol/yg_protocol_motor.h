@@ -4,10 +4,13 @@
 #include "yg_protocol_service.h"
 #include "yg_protocol_wire_types.h"
 
-/* 项目候选 type；公司电机 100～199 登记完成后再冻结线上编号。 */
+/* 已按项目决策冻结的首批电机 Type；公司消息表待同步登记。 */
 #define YG_PROTOCOL_MOTOR_TYPE_STOP 110U
-#define YG_PROTOCOL_MOTOR_TYPE_DISABLE 111U
-#define YG_PROTOCOL_MOTOR_REPLY_SIZE 16U
+#define YG_PROTOCOL_MOTOR_TYPE_ENABLE 101U
+#define YG_PROTOCOL_MOTOR_TYPE_CONTROL 116U
+#define YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE 4U
+#define YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE 20U
+#define YG_PROTOCOL_MOTOR_REPLY_SIZE 4U
 
 /** @brief motor 内部操作，不分配线上 type，不等同于电机模式枚举。 */
 typedef enum
@@ -15,11 +18,10 @@ typedef enum
     YG_PROTOCOL_MOTOR_STOP = 0,
     YG_PROTOCOL_MOTOR_DISABLE,
     YG_PROTOCOL_MOTOR_ENABLE,
-    YG_PROTOCOL_MOTOR_SET_MODE,
-    YG_PROTOCOL_MOTOR_SET_TARGET,
+    YG_PROTOCOL_MOTOR_SET_CONTROL,
 } yg_protocol_motor_operation_t;
 
-/** @brief 位置、速度、电流使用 mrad、mrad/s、mA；绝对执行时间由本地同步时钟解释。 */
+/** @brief 单轴控制值对象；位置、速度、电流、电压单位依次为 mrad、mrad/s、mA、mV。 */
 typedef struct
 {
     yg_protocol_motor_operation_t operation;
@@ -29,9 +31,27 @@ typedef struct
     int32_t position_mrad;
     int32_t speed_mrad_s;
     int32_t iq_mA;
-    uint32_t execute_at_us;
-    uint32_t lease_ms;
+    int32_t v_q_mV;
 } yg_protocol_motor_request_t;
+
+/**
+ * @brief 解码 101 使能请求；只解析字段，不执行功率级动作。
+ * @param message 已通过统一帧 CRC 校验的请求。
+ * @param enabled 成功时输出 0/1 使能值；失败保持不变。
+ * @return 长度、字段或参数检查结果。
+ */
+yg_protocol_result_t yg_protocol_motor_decode_enable(const yg_protocol_message_t *message,
+                                                     bool *enabled);
+
+/**
+ * @brief 解码 116 模式与目标，按模式检查未使用字段必须为零。
+ * @param message 已通过统一帧 CRC 校验的请求。
+ * @param request 成功时输出值请求；失败保持不变。
+ * @return 长度、字段或参数检查结果。
+ * @note 不判断实时位置限位、功率状态或控制权限，这些归业务所有者。
+ */
+yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_t *message,
+                                                      yg_protocol_motor_request_t *request);
 
 /**
  * @brief 业务所有者实现的非阻塞处理入口。
@@ -67,10 +87,10 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
  * @brief 编码电机业务结果响应。
  * @param reply 内部服务结果。
  * @param payload 输出的小端 payload 缓冲区。
- * @param capacity 输出容量，至少 16 字节。
+ * @param capacity 输出容量，至少 4 字节。
  * @param written 成功时写入长度，可为 NULL。
  * @return 编码结果。
- * @note 该 payload 是项目候选格式；内部服务枚举不直接暴露给电机控制模块。
+ * @note payload 为 result:u16 + detail:u16；内部服务状态须显式映射到线路结果码。
  */
 yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_reply_t *reply,
                                                     uint8_t *payload,

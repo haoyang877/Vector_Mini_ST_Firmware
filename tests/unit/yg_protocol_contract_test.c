@@ -17,7 +17,7 @@ static void motor_handler(void *context,
 {
     unsigned *calls = context;
     ++*calls;
-    assert(request->operation == YG_PROTOCOL_MOTOR_SET_TARGET);
+    assert(request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL);
     assert(request->position_mrad == -1000);
     reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
     reply->token = 7U;
@@ -61,7 +61,7 @@ static void service_boundaries(void)
     yg_protocol_parameter_service_t parameter = {NULL, parameter_handler};
     yg_protocol_job_service_t job = {NULL, job_handler};
     yg_protocol_update_service_t update = {NULL, update_handler};
-    yg_protocol_motor_request_t motor_request = {.operation = YG_PROTOCOL_MOTOR_SET_TARGET,
+    yg_protocol_motor_request_t motor_request = {.operation = YG_PROTOCOL_MOTOR_SET_CONTROL,
                                                  .position_mrad = -1000};
     yg_protocol_parameter_request_t parameter_request = {.operation = YG_PROTOCOL_PARAMETER_READ};
     yg_protocol_job_request_t job_request = {.operation = YG_PROTOCOL_JOB_QUERY, .job_id = 42U};
@@ -76,11 +76,11 @@ static void service_boundaries(void)
     motor_request.operation = (yg_protocol_motor_operation_t)-1;
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
            YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
-    motor_request.operation = (yg_protocol_motor_operation_t)(YG_PROTOCOL_MOTOR_SET_TARGET + 1U);
+    motor_request.operation = (yg_protocol_motor_operation_t)(YG_PROTOCOL_MOTOR_SET_CONTROL + 1U);
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
            YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
     assert(calls == 1U);
-    motor_request.operation = YG_PROTOCOL_MOTOR_SET_TARGET;
+    motor_request.operation = YG_PROTOCOL_MOTOR_SET_CONTROL;
     assert(yg_protocol_parameter_call(&parameter, &parameter_request, &reply) ==
            YG_PROTOCOL_SERVICE_OK);
     assert(reply.value == 123 && reply.revision == 2U && reply.token == 0U);
@@ -204,6 +204,60 @@ static void full_feedback_vector(void)
            YG_PROTOCOL_INVALID_FIELD);
 }
 
+static void motor_command_vectors(void)
+{
+    static const uint8_t enable_frame[24] = {
+        0x5A, 0xA5, 0x01, 0x20, 0x02, 0x03, 0x65, 0x00, 0x28, 0x00, 0x04, 0x00,
+        0x00, 0x00, 0x00, 0xF3, 0x01, 0x00, 0x00, 0x00, 0x31, 0xBF, 0x00, 0x00,
+    };
+    static const uint8_t control_frame[48] = {
+        0x5A, 0xA5, 0x01, 0x20, 0x02, 0x03, 0x74, 0x00, 0x29, 0x00, 0x14, 0x00,
+        0x00, 0x00, 0x00, 0x2D, 0x03, 0x00, 0x00, 0x00, 0xE8, 0x03, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x6B, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    uint8_t enable_payload[4] = {1U, 0U, 0U, 0U};
+    uint8_t control_payload[20] = {3U, 0U, 0U, 0U, 0xE8U, 0x03U};
+    yg_protocol_message_t message = {YG_PROTOCOL_VERSION,
+                                     YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     2U,
+                                     3U,
+                                     YG_PROTOCOL_MOTOR_TYPE_ENABLE,
+                                     40U,
+                                     sizeof(enable_payload),
+                                     0U,
+                                     enable_payload};
+    yg_protocol_transfer_frame_t frame;
+    yg_protocol_motor_request_t request = {.position_mrad = -7};
+    bool enabled = false;
+
+    assert(yg_protocol_canfd_pack(&message, 2U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x08EF0302U && frame.length == sizeof(enable_frame));
+    assert(memcmp(frame.data, enable_frame, sizeof(enable_frame)) == 0);
+    assert(yg_protocol_motor_decode_enable(&message, &enabled) == YG_PROTOCOL_OK && enabled);
+    enable_payload[1] = 1U;
+    assert(yg_protocol_motor_decode_enable(&message, &enabled) == YG_PROTOCOL_INVALID_FIELD);
+    assert(enabled);
+    enable_payload[1] = 0U;
+
+    message.message_type = YG_PROTOCOL_MOTOR_TYPE_CONTROL;
+    message.sequence = 41U;
+    message.payload = control_payload;
+    message.payload_length = sizeof(control_payload);
+    assert(yg_protocol_canfd_pack(&message, 2U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x08EF0302U && frame.length == sizeof(control_frame));
+    assert(memcmp(frame.data, control_frame, sizeof(control_frame)) == 0);
+    assert(yg_protocol_motor_decode_control(&message, &request) == YG_PROTOCOL_OK);
+    assert(request.operation == YG_PROTOCOL_MOTOR_SET_CONTROL && request.mode == 3U &&
+           request.position_mrad == 1000 && request.sequence == 41U);
+    control_payload[12] = 1U;
+    assert(yg_protocol_motor_decode_control(&message, &request) == YG_PROTOCOL_INVALID_FIELD);
+    assert(request.position_mrad == 1000);
+    control_payload[12] = 0U;
+    message.payload_length = 19U;
+    assert(yg_protocol_motor_decode_control(&message, &request) == YG_PROTOCOL_INVALID_LENGTH);
+}
+
 static void endpoint_round_trip(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
@@ -305,5 +359,6 @@ void yg_protocol_contract_test(void)
     service_boundaries();
     numeric_boundaries();
     full_feedback_vector();
+    motor_command_vectors();
     endpoint_round_trip();
 }

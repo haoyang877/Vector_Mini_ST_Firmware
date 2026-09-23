@@ -61,9 +61,8 @@ void yg_protocol_motor_adapter_handle(void *context,
         reply->detail = (uint16_t)stop_result;
         return;
     case YG_PROTOCOL_MOTOR_ENABLE:
-    case YG_PROTOCOL_MOTOR_SET_MODE:
-    case YG_PROTOCOL_MOTOR_SET_TARGET:
-        /* 本批不提供使能/模式/目标通道，避免通信侧越权启动；缺口见计划文档。 */
+    case YG_PROTOCOL_MOTOR_SET_CONTROL:
+        /* 功率级所有者尚未提供安全使能与目标提交接口。 */
         reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
         return;
     default:

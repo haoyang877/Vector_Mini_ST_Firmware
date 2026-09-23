@@ -217,6 +217,18 @@ int main(void)
     assert(response.message_type == YG_PROTOCOL_MOTOR_TYPE_STOP);
     assert(response.payload_length == YG_PROTOCOL_MOTOR_REPLY_SIZE);
     assert(response.payload[0] == YG_PROTOCOL_SERVICE_UNSUPPORTED);
+    assert(response.payload[1] == 0U && response.payload[2] == 0U && response.payload[3] == 0U);
+
+    /* 旧 111 不再注册；即使帧校验正确也不能触发控制或产生成功回复。 */
+    sent = false;
+    request.message_type = 111U;
+    assert(yg_protocol_canfd_pack(&request, 2U, &request_frame) == YG_PROTOCOL_OK);
+    received.identifier = request_frame.identifier;
+    received.length = request_frame.length;
+    memcpy(received.data, request_frame.data, received.length);
+    assert(YgProtocolLink_OnRxFrame(&received));
+    YgProtocolLink_Service(201U);
+    assert(!sent);
 
     sent = false;
     assert(YgProtocolLink_Init(7U));

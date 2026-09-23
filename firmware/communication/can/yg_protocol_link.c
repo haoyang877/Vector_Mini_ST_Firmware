@@ -102,10 +102,6 @@ static yg_protocol_result_t handle_motor_stop(void *context,
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    motor_request.operation =
-        (yg_protocol_motor_operation_t)(request->message_type == YG_PROTOCOL_MOTOR_TYPE_STOP
-                                            ? YG_PROTOCOL_MOTOR_STOP
-                                            : YG_PROTOCOL_MOTOR_DISABLE);
     motor_request.source_node = request->source_node;
     motor_request.sequence = request->sequence;
     (void)yg_protocol_motor_call(&link->motor_service, &motor_request, &motor_reply);
@@ -144,7 +140,6 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_LINK_CAPABILITIES_TYPE, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_stop, &link_context},
-        {YG_PROTOCOL_MOTOR_TYPE_DISABLE, handle_motor_stop, &link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
     yg_protocol_endpoint_config_t endpoint_config;

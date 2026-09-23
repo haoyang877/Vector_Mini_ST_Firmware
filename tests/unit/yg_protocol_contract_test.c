@@ -125,29 +125,32 @@ static yg_protocol_motor_status_source_t status_source(void)
 static void numeric_boundaries(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
-    yg_protocol_readonly_motor_state_t state;
+    yg_protocol_motor_feedback_t feedback;
     source.sample.position_feedback = NAN;
     source.sample.speed_feedback = INFINITY;
     source.sample.current_feedback = -INFINITY;
-    source.sample.bus_voltage = 100.0F;
+    source.sample.bus_voltage = 400.0F;
     source.sample.bus_current = NAN;
     source.sample.temperature = 400.0F;
-    assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_OK);
-    assert(state.position_mrad == INT32_MIN && state.speed_mrad_s == INT32_MIN &&
-           state.iq_mA == INT32_MIN);
-    assert(state.bus_mV == UINT16_MAX && state.bus_mA == INT16_MIN &&
-           state.temperature_centi_c == INT16_MIN && state.valid_bits == 0U);
+    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
+           YG_PROTOCOL_OK);
+    assert(feedback.actual_position_mrad == INT32_MIN &&
+           feedback.actual_speed_mrad_s == INT32_MIN && feedback.actual_iq_mA == INT16_MIN);
+    assert(feedback.bus_voltage_cV == INT16_MIN && feedback.bus_current_mA == INT16_MIN &&
+           feedback.mcu_temperature_centi_c == INT16_MIN);
     source = status_source();
     source.sample.position_feedback = 2147483.75F;
     source.sample.speed_feedback = 32.767F;
     source.sample.current_feedback = -32.768F;
     source.measurement_valid_bits = 0U;
-    assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_OK &&
-           state.valid_bits == 0U);
+    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
+           YG_PROTOCOL_OK);
+    assert((feedback.valid_bits & 0x1BAU) == 0U);
     source.mode = 18U;
-    state.boot_id = 0x12345678U;
-    assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_INVALID_FIELD);
-    assert(state.boot_id == 0x12345678U);
+    feedback.result = 0x1234U;
+    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
+           YG_PROTOCOL_INVALID_FIELD);
+    assert(feedback.result == 0x1234U);
 }
 
 static void full_feedback_snapshot(void)
@@ -230,6 +233,9 @@ static void full_feedback_vector(void)
 
 static void motor_command_vectors(void)
 {
+    static const uint8_t status_query_frame[20] = {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x03, 0x6C,
+                                                   0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                                   0x00, 0xFA, 0xF5, 0xDA, 0x00, 0x00};
     static const uint8_t enable_frame[24] = {
         0x5A, 0xA5, 0x01, 0x20, 0x02, 0x03, 0x65, 0x00, 0x28, 0x00, 0x04, 0x00,
         0x00, 0x00, 0x00, 0xF3, 0x01, 0x00, 0x00, 0x00, 0x31, 0xBF, 0x00, 0x00,
@@ -280,6 +286,14 @@ static void motor_command_vectors(void)
     control_payload[12] = 0U;
     message.payload_length = 19U;
     assert(yg_protocol_motor_decode_control(&message, &request) == YG_PROTOCOL_INVALID_LENGTH);
+
+    message.message_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE;
+    message.sequence = 42U;
+    message.payload = NULL;
+    message.payload_length = 0U;
+    assert(yg_protocol_canfd_pack(&message, 2U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.length == sizeof(status_query_frame) &&
+           memcmp(frame.data, status_query_frame, sizeof(status_query_frame)) == 0);
 }
 
 static void endpoint_round_trip(void)
@@ -302,9 +316,8 @@ static void endpoint_round_trip(void)
     yg_protocol_endpoint_t endpoint;
     yg_protocol_endpoint_config_t config = {
         3U, 6U, 200U, &rx, &tx, &router, fragments, sizeof(fragments)};
-    uint8_t query[] = {0, 0, 0, 0, 1, 0, 0, 0};
     yg_protocol_message_t request = {
-        1U, YG_PROTOCOL_FLAGS_ACK_REQUEST, 2U, 3U, 108U, 9U, 8U, 0U, query};
+        1U, YG_PROTOCOL_FLAGS_ACK_REQUEST, 2U, 3U, 108U, 9U, 0U, 0U, NULL};
     yg_protocol_message_t response;
     assert(yg_protocol_product_registry_init(&registry) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_init(&router, &registry, &route, 1U) == YG_PROTOCOL_OK);
@@ -327,15 +340,18 @@ static void endpoint_round_trip(void)
     assert(frame.length == 64U && frame.identifier == 0x18EF0203U);
     assert(yg_protocol_canfd_unpack(&frame, 2U, &response) == YG_PROTOCOL_OK);
     assert(response.flags == YG_PROTOCOL_FLAGS_RESPONSE && response.sequence == 9U);
-    assert(response.payload_length == YG_PROTOCOL_MOTOR_RESPONSE_SIZE && response.payload[8] == 0U);
-    assert(response.payload[20] == 63U && response.payload[45] == 0x77U);
+    assert(response.payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE);
+    assert(response.payload[0] == 0U && response.payload[1] == 0U && response.payload[2] == 0U &&
+           response.payload[3] == 0U);
+    assert(response.payload[12] == 63U && response.payload[42] == 3U);
     /* TX 满后仍发原先的 OK 快照，没有重新调用 provider 变成 BUSY。 */
     assert(yg_protocol_canfd_pack(&request, 6U, &frame) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_push(&rx, &frame));
     assert(yg_protocol_endpoint_process_one(&endpoint, 3U) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_pop(&tx, &frame));
     assert(yg_protocol_canfd_unpack(&frame, 2U, &response) == YG_PROTOCOL_OK);
-    assert(response.payload_length == 12U && response.payload[8] == 6U);
+    assert(response.payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE &&
+           response.payload[0] == 6U && response.payload[24] == 0U);
     request.flags = YG_PROTOCOL_FLAGS_RESPONSE;
     assert(yg_protocol_canfd_pack(&request, 6U, &frame) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_push(&rx, &frame));

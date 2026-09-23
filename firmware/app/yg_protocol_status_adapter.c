@@ -14,7 +14,6 @@
 
 /* 状态适配器只组装 SI 快照；线路缩放、哨兵和小端编码由 protocol 层统一完成。 */
 static yg_protocol_motor_status_source_t source;
-static uint32_t sample_counter;
 static bool initialized;
 
 static uint32_t fault_bits(ErrorNow_TypeDef error)
@@ -147,7 +146,6 @@ static void sample_motor_status(MotorStatus *sample)
 bool YgProtocolStatusAdapter_Init(void)
 {
     source = (yg_protocol_motor_status_source_t){0};
-    sample_counter = 0U;
     initialized = YgProtocolLink_BindMotorStatusSource(&source);
     return initialized;
 }
@@ -161,14 +159,11 @@ void YgProtocolStatusAdapter_Refresh(void)
     /* 前台独占 source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
     uint32_t mask = critical_hw_enter();
     sample_motor_status(&source.sample);
-    source.boot_id = 0U;
-    source.sample_counter = ++sample_counter;
     source.faults = fault_bits(MotorControl.ErrorNow);
     source.mode = protocol_mode(MotorControl.ModeNow);
     source.state = MotorControl.ErrorNow != No_Error
                        ? 8U
                        : protocol_state(FocRunState_GetState(), source.mode);
-    source.last_applied_sequence = 0U;
     source.measurement_valid_bits = 0x54U;
     if (MotorControl.axis_profile_valid && Encoder_GetBadFrameStreak(&OnBoard_Encoder) == 0U &&
         Encoder_GetCalibFlag(&OnBoard_Encoder) != 0U)
@@ -179,7 +174,6 @@ void YgProtocolStatusAdapter_Refresh(void)
     {
         source.measurement_valid_bits |= 0x20U;
     }
-    source.target_applied = false;
     source.sample_available = true;
     critical_hw_exit(mask);
 }

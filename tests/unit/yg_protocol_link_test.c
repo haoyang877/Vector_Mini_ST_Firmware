@@ -341,15 +341,12 @@ int main(void)
 
     sent = false;
     assert(YgProtocolLink_Init(7U));
-    memset(payload, 0, sizeof(payload));
-    put_u32(payload, 0U);
-    put_u32(payload + 4U, 1U);
     request.flags = YG_PROTOCOL_FLAGS_ACK_REQUEST;
     request.source_node = 1U;
     request.message_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE;
     request.sequence = 13U;
-    request.payload_length = 8U;
-    request.payload = payload;
+    request.payload_length = 0U;
+    request.payload = NULL;
     assert(yg_protocol_canfd_pack(&request, 2U, &request_frame) == YG_PROTOCOL_OK);
     received.identifier = request_frame.identifier;
     received.length = request_frame.length;
@@ -370,8 +367,9 @@ int main(void)
     memcpy(response_frame.data, sent_frame.data, sent_frame.length);
     assert(yg_protocol_canfd_unpack(&response_frame, 1U, &response) == YG_PROTOCOL_OK);
     assert(response.message_type == YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE);
-    assert(response.payload_length == 12U);
-    assert(response.payload[8] == 6U && response.payload[9] == 0U);
+    assert(response.payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE);
+    assert(response.payload[0] == 6U && response.payload[1] == 0U && response.payload[24] == 0U &&
+           response.payload[42] == 7U);
     enable_route();
     control_reply_and_feedback();
     backlog_and_interrupt_handoff();

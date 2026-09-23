@@ -202,20 +202,7 @@ static void readonly_payload_codecs(void)
         {0U}, 0x11223344U, 0x5566U, 0x7788U, 0x99AABBCCU, 0xDDEEFF00U, 0x12345678U};
     yg_protocol_readonly_caps_page0_t caps = {
         0x01020304U, 0x0506U, 0x0708U, 0x090AU, 0x0B0CU, 0x0D0EU, 0x0F10U};
-    yg_protocol_readonly_motor_state_t state = {0x10203040U,
-                                                0x50607080U,
-                                                -1000,
-                                                2000,
-                                                -3000,
-                                                0xAABBCCDDU,
-                                                48000U,
-                                                -1200,
-                                                -2500,
-                                                2U,
-                                                3U,
-                                                4U,
-                                                0x0FU};
-    uint8_t payload[YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE];
+    uint8_t payload[YG_PROTOCOL_READONLY_INFO_PAGE0_SIZE];
     size_t written = 0U;
 
     assert(yg_protocol_readonly_decode_page_request(&page_request_message, &page_request) ==
@@ -230,29 +217,21 @@ static void readonly_payload_codecs(void)
            YG_PROTOCOL_OK);
     assert(written == YG_PROTOCOL_READONLY_CAPS_PAGE0_SIZE);
     assert(payload[0] == 0x04U && payload[15] == 0x0FU);
-    assert(yg_protocol_readonly_encode_motor_state(&state, payload, sizeof(payload), &written) ==
-           YG_PROTOCOL_OK);
-    assert(written == YG_PROTOCOL_READONLY_MOTOR_STATE_SIZE);
-    assert(payload[8] == 0x18U && payload[9] == 0xFCU);
-    assert(payload[26] == 0x50U && payload[27] == 0xFBU);
-    assert(yg_protocol_readonly_encode_motor_state(&state, payload, 31U, &written) ==
-           YG_PROTOCOL_BUFFER_TOO_SMALL);
 }
 
 static void motor_status_adapter(void)
 {
     yg_protocol_motor_status_source_t source = {0};
-    yg_protocol_readonly_motor_state_t state;
-    uint8_t payload[YG_PROTOCOL_MOTOR_RESPONSE_SIZE];
+    uint8_t payload[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
     yg_protocol_message_t request = {YG_PROTOCOL_VERSION,
                                      YG_PROTOCOL_FLAGS_ACK_REQUEST,
                                      2U,
                                      3U,
                                      YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE,
                                      7U,
-                                     8U,
                                      0U,
-                                     payload};
+                                     0U,
+                                     NULL};
     uint32_t payload_length = sizeof(payload);
 
     source.sample.position_feedback = 1.2345F;
@@ -261,32 +240,29 @@ static void motor_status_adapter(void)
     source.sample.bus_voltage = 24.0F;
     source.sample.bus_current = 1.5F;
     source.sample.temperature = 25.25F;
-    source.boot_id = 0x01020304U;
-    source.sample_counter = 99U;
     source.state = 3U;
     source.mode = 3U;
-    source.last_applied_sequence = 8U;
     source.measurement_valid_bits = YG_PROTOCOL_MOTOR_MEASUREMENT_MASK;
-    source.target_applied = true;
     source.sample_available = true;
-    assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_OK);
-    assert(state.position_mrad == 1235 && state.speed_mrad_s == -40000 && state.iq_mA == 1200);
-    assert(state.bus_mV == 24000U && state.bus_mA == 1500 && state.temperature_centi_c == 2525);
-    assert(state.valid_bits == (YG_PROTOCOL_MOTOR_MEASUREMENT_MASK | 0x08U));
-    memset(payload, 0, sizeof(payload));
-    for (size_t index = 0U; index < 8U; ++index)
-    {
-        payload[index] = (uint8_t)((index == 4U) ? 1U : 0U);
-    }
     assert(yg_protocol_motor_status_provider(&source, &request, payload, &payload_length) ==
            YG_PROTOCOL_OK);
-    assert(payload_length == YG_PROTOCOL_MOTOR_RESPONSE_SIZE);
-    assert(payload[8] == 0U && payload[9] == 0U && payload[10] == 0U && payload[11] == 0U);
+    assert(payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE);
+    assert(payload[0] == 0U && payload[2] == 0U && payload[42] == 3U);
+    assert(payload[12] == 0xD3U && payload[13] == 0x04U && payload[24] == 0xFFU);
+    request.payload_length = 1U;
+    request.payload = payload;
+    payload_length = sizeof(payload);
+    assert(yg_protocol_motor_status_provider(&source, &request, payload, &payload_length) ==
+           YG_PROTOCOL_OK);
+    assert(payload[0] == 3U && payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE);
+    request.payload_length = 0U;
+    request.payload = NULL;
     source.sample_available = false;
     payload_length = sizeof(payload);
     assert(yg_protocol_motor_status_provider(&source, &request, payload, &payload_length) ==
            YG_PROTOCOL_OK);
-    assert(payload_length == 12U && payload[8] == 6U);
+    assert(payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE && payload[0] == 6U &&
+           payload[24] == 0U);
 }
 
 static void fragments_reassemble(void)

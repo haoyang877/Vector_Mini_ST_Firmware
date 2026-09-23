@@ -14,8 +14,17 @@
 #define ENCODER_Q15_HALF_TURN 32768
 #define ENCODER_OFFSET_LUT_SIZE 1024U
 #define ENCODER_OFFSET_LUT_BITS 10U
-#define ENCODER_VELOCITY_WINDOW 16U
 #define ENCODER_BAD_FRAME_OFFLINE_COUNT 100U
+
+/* 机械速度估计：20 kHz 快路径的二阶角度跟踪观测器（PLL）。
+ * 带宽 ENCODER_PLL_OMEGA_N_HZ、阻尼比 ENCODER_PLL_ZETA；输出机械角速度 rad/s。
+ * ENCODER_PLL_OMEGA_MAX_RAD_S 为输出限幅（防坏帧/极端输入发散）；
+ * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 vel_mech 归零，
+ * vel_mech_continuous 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
+#define ENCODER_PLL_OMEGA_N_HZ 300.0f
+#define ENCODER_PLL_ZETA 0.707f
+#define ENCODER_PLL_OMEGA_MAX_RAD_S 2000.0f
+#define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 0.05f
 
 /** 编码器读取状态；当前实现只产生 OK 与 SPI_TIMEOUT，其余为协议层预留。 */
 typedef enum
@@ -59,28 +68,25 @@ typedef struct
     /* 快路径每产生一帧有效样本递增；慢估计据此判断是否有新样本。 */
     volatile uint32_t sample_epoch;
 
-    /* 2 kHz 慢估计为下列状态的唯一写者；快路径只置请求标志。 */
+    /* 2 kHz 慢估计为下列位置的唯一写者；快路径只置请求标志。 */
     uint16_t previous_linearized_q15;
     int64_t shadow_q15;
     int64_t mechanical_zero_shadow_q15;
-    int64_t velocity_shadow_q15;
     volatile bool rebase_requested;
     volatile bool zero_requested;
     volatile bool velocity_restart_requested;
     uint32_t slow_sample_epoch;
+
+    /* 20 kHz 快路径写的角度跟踪观测器（PLL）状态；速度状态属快路径所有。 */
+    float pll_theta_rad;
+    float pll_omega_rad_s;
+    bool velocity_ready;
 
     /* 对外提供的机械/电角度与角速度反馈。 */
     float theta_mech;
     float vel_elec;
     float vel_mech;
     float vel_mech_continuous;
-
-    /* 2 kHz 滑动平均机械速度估计。 */
-    uint8_t velocity_history_index;
-    uint8_t velocity_sample_count;
-    bool velocity_ready;
-    int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
-    int32_t velocity_delta_sum;
 
     /* 传感器帧诊断与在线状态。 */
     Encoder_ReadStatus read_status;
@@ -129,11 +135,11 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl,
                             bool sample_started);
 
 /**
- * @brief 执行一次 2 kHz 编码器慢估计：多圈累积、机械角与滑动平均速度。
+ * @brief 执行一次 2 kHz 编码器慢估计：多圈累积与机械角。
  * @param MotorControl 电机控制状态指针，读取轴配置与机械零位，用于重定多圈基准。
  * @param Encoder 编码器状态指针。
- * @note 仅由 2 kHz 监督 tick 调用；本函数是慢状态的唯一写者，快路径只能通过
- *       rebase_requested/zero_requested/velocity_restart_requested 请求变更。
+ * @note 仅由 2 kHz 监督 tick 调用；本函数是慢位置状态的唯一写者，快路径只能通过
+ *       rebase_requested/zero_requested 请求变更。角速度不在此计算，见快路径 PLL。
  */
 void Encoder_UpdateSlowEstimate(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
 
@@ -192,14 +198,14 @@ float Encoder_GetEleVel(const Encoder_TypeDef *Encoder);
 /**
  * @brief 读取机械角速度。
  * @param Encoder 编码器状态指针。
- * @return 机械角速度，单位 rad/s；窗口未满或低于零速死区时为 0。
+ * @return 机械角速度，单位 rad/s；观测器未就绪或低于软零速死区时为 0。
  */
 float Encoder_GetMecVel(const Encoder_TypeDef *Encoder);
 
 /**
  * @brief 读取连续机械角速度，不含零速死区。
  * @param Encoder 编码器状态指针。
- * @return 机械角速度，单位 rad/s；速度窗口未满时为 0。
+ * @return 机械角速度，单位 rad/s；观测器未就绪时为 0。
  */
 float Encoder_GetMecVelContinuous(const Encoder_TypeDef *Encoder);
 

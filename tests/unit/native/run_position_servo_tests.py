@@ -106,11 +106,14 @@ def encoder_startup_fixture():
 #include <stdio.h>
 #include "motor_axis_profile.h"
 #define _2PI 6.2831853072f
+#define _PI 3.1415926536f
+#define FOC_PERIOD (1.0f / 20000.0f)
 #define ENCODER_Q15_CPR 65536UL
 #define ENCODER_Q15_HALF_TURN 32768
-#define ENCODER_VELOCITY_WINDOW 16U
-#define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
-#define Supervisor_Ts 0.0005f
+#define ENCODER_PLL_OMEGA_N_HZ 150.0f
+#define ENCODER_PLL_ZETA 0.707f
+#define ENCODER_PLL_OMEGA_MAX_RAD_S 2000.0f
+#define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 0.05f
 #define ENC_CALIB_MECHANICAL_ZERO 4U
 typedef struct {
     MotorAxisProfile axis_profile;
@@ -125,11 +128,10 @@ typedef struct {
     volatile uint32_t sample_epoch;
     uint32_t slow_sample_epoch;
     volatile bool rebase_requested, zero_requested, velocity_restart_requested;
-    int64_t shadow_q15, mechanical_zero_shadow_q15, velocity_shadow_q15;
-    float theta_elec, theta_mech, vel_mech, vel_elec, vel_mech_continuous;
-    uint8_t velocity_history_index, velocity_sample_count;
+    int64_t shadow_q15, mechanical_zero_shadow_q15;
+    float pll_theta_rad, pll_omega_rad_s;
     bool velocity_ready;
-    int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW], velocity_delta_sum;
+    float theta_elec, theta_mech, vel_mech, vel_elec, vel_mech_continuous;
 } Encoder_TypeDef;
 static uint16_t sample;
 static bool sample_ok = true;
@@ -144,9 +146,8 @@ static uint16_t Encoder_ApplyLinearizationQ15(Encoder_TypeDef *e, uint16_t v)
             function_source(source, name)
             for name in [
                 "Encoder_UpdateElecAngle",
-                "Encoder_RestartVelocityWindow",
                 "Encoder_UpdateShadow",
-                "Encoder_UpdateVelocity",
+                "Encoder_UpdateVelocityPll",
                 "Encoder_RebaseMultiTurnPosition",
                 "Encoder_CompleteSample",
                 "Encoder_UpdateSlowEstimate",
@@ -169,7 +170,7 @@ int main(void) {
     /* 首个有效帧在 2 kHz 慢估计中重定多圈基准。 */
     Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 4536);
-    assert(e.velocity_shadow_q15 == e.shadow_q15);
+    assert(e.velocity_ready && e.vel_mech == 0.0f && e.vel_mech_continuous == 0.0f);
     assert(e.mechanical_zero_q15 == 65000 && e.electrical_zero_q15 == 1234);
     assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, e.theta_mech));
     sample = 65530; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
@@ -206,8 +207,10 @@ def encoder_fixture():
     macros = []
     for name, text in [
         ("ENCODER_Q15_CPR", header),
-        ("ENCODER_VELOCITY_WINDOW", header),
-        ("ENCODER_VELOCITY_ZERO_THRESHOLD_Q15", source),
+        ("ENCODER_PLL_OMEGA_N_HZ", header),
+        ("ENCODER_PLL_ZETA", header),
+        ("ENCODER_PLL_OMEGA_MAX_RAD_S", header),
+        ("ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S", header),
     ]:
         macros.append(re.search(r"^#define\s+" + name + r"\s+[^\r\n]+", text, re.M)[0])
     # Only peripheral-independent estimator functions are compiled here. The
@@ -225,56 +228,79 @@ def encoder_fixture():
 #include <math.h>
 #include <stdio.h>
 #define _2PI 6.2831853072f
-#define Supervisor_Ts 0.0005f
+#define _PI 3.1415926536f
+#define FOC_PERIOD (1.0f / 20000.0f)
 """
         + "\n".join(macros)
         + """
 typedef struct {
-    int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
-    int32_t velocity_delta_sum;
-    uint8_t velocity_history_index, velocity_sample_count;
     bool velocity_ready;
     volatile bool velocity_restart_requested;
-    int64_t velocity_shadow_q15, shadow_q15;
+    float pll_theta_rad, pll_omega_rad_s;
     float vel_mech, vel_elec, vel_mech_continuous;
+    uint16_t linearized_q15;
 } Encoder_TypeDef;
 """
         + "\n".join(
             function_source(source, name)
             for name in [
-                "Encoder_RestartVelocityWindow",
-                "Encoder_UpdateVelocity",
+                "Encoder_ResetVelocityEstimate",
+                "Encoder_UpdateVelocityPll",
                 "Encoder_GetMecVel",
                 "Encoder_GetMecVelContinuous",
             ]
         )
         + """
+static void run_ramp(Encoder_TypeDef *e, float target_rad_s, int ticks)
+{
+    float delta_counts = target_rad_s * FOC_PERIOD * (65536.0f / _2PI);
+    float angle = 0.0f;
+    int k;
+    for (k = 0; k < ticks; ++k) {
+        angle += delta_counts;
+        e->linearized_q15 = (uint16_t)((int32_t)angle & 0xFFFF);
+        Encoder_UpdateVelocityPll(e, 7);
+    }
+}
+
 int main(void) {
     Encoder_TypeDef e = {0};
     int k;
-    float expected;
-    Encoder_RestartVelocityWindow(&e);
-    assert(!e.velocity_ready && e.velocity_shadow_q15 == 0 && Encoder_GetMecVelContinuous(&e) == 0);
-    /* Forward constant speed: one Q15 count per 2 kHz tick; window fills after 16 ticks. */
-    for (k=0; k<16; ++k) { e.shadow_q15 += 1; Encoder_UpdateVelocity(&e, 7); }
+    /* Reset: clears observer, ready flag and all speed outputs. */
+    Encoder_ResetVelocityEstimate(&e);
+    assert(!e.velocity_ready && e.pll_omega_rad_s == 0.0f);
+    assert(Encoder_GetMecVel(&e) == 0.0f && Encoder_GetMecVelContinuous(&e) == 0.0f);
+    /* Constant speed: type-2 tracking loop reaches zero steady-state error (no lag). */
+    run_ramp(&e, 20.0f, 4000);
     assert(e.velocity_ready);
-    expected = _2PI / (65536.0f * 0.0005f);
-    assert(fabsf(Encoder_GetMecVelContinuous(&e) - expected) < 1e-4f);
-    assert(fabsf(Encoder_GetMecVel(&e) - expected) < 1e-4f);
-    assert(e.vel_elec == e.vel_mech * 7);
-    /* Reverse direction gives negative speed. */
-    Encoder_RestartVelocityWindow(&e);
-    for (k=0; k<16; ++k) { e.shadow_q15 -= 1; Encoder_UpdateVelocity(&e, 7); }
-    assert(fabsf(Encoder_GetMecVelContinuous(&e) + expected) < 1e-4f);
-    /* Low-speed deadband: proportional speed is zero while continuous speed stays valid. */
-    Encoder_RestartVelocityWindow(&e);
-    for (k=0; k<16; ++k) { if ((k % 4) == 0) e.shadow_q15 += 1; Encoder_UpdateVelocity(&e, 7); }
-    assert(Encoder_GetMecVel(&e) == 0 && Encoder_GetMecVelContinuous(&e) > 0.0f);
-    /* Restart: clears the window, syncs the shadow and zeroes both speeds. */
-    Encoder_RestartVelocityWindow(&e);
-    assert(!e.velocity_ready && Encoder_GetMecVel(&e) == 0 && Encoder_GetMecVelContinuous(&e) == 0);
-    assert(e.velocity_shadow_q15 == e.shadow_q15);
-    puts("PASS actual encoder estimator: both directions, deadband, reset");
+    assert(fabsf(Encoder_GetMecVelContinuous(&e) - 20.0f) < 0.05f);
+    assert(fabsf(Encoder_GetMecVel(&e) - 20.0f) < 0.05f);
+    assert(fabsf(e.vel_elec - e.vel_mech * 7.0f) < 1e-3f);
+    /* Reverse direction. */
+    Encoder_ResetVelocityEstimate(&e);
+    run_ramp(&e, -35.0f, 4000);
+    assert(fabsf(Encoder_GetMecVelContinuous(&e) + 35.0f) < 0.05f);
+    /* Standstill deadband: soft threshold zeroes vel_mech; continuous stays small. */
+    Encoder_ResetVelocityEstimate(&e);
+    e.linearized_q15 = 12345U;
+    for (k = 0; k < 4000; ++k) { Encoder_UpdateVelocityPll(&e, 7); }
+    assert(Encoder_GetMecVel(&e) == 0.0f);
+    assert(fabsf(Encoder_GetMecVelContinuous(&e)) < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S);
+    /* Output saturation: an over-limit velocity state is clamped to the configured limit. */
+    Encoder_ResetVelocityEstimate(&e);
+    e.velocity_ready = true;
+    e.pll_theta_rad = 0.0f;
+    e.pll_omega_rad_s = ENCODER_PLL_OMEGA_MAX_RAD_S * 3.0f;
+    e.linearized_q15 = 0U;
+    Encoder_UpdateVelocityPll(&e, 7);
+    assert(fabsf(e.pll_omega_rad_s - ENCODER_PLL_OMEGA_MAX_RAD_S) < 1e-3f);
+    assert(fabsf(e.vel_mech_continuous) <= ENCODER_PLL_OMEGA_MAX_RAD_S + 1e-3f);
+    /* First update initializes from the measured angle without a velocity kick. */
+    Encoder_ResetVelocityEstimate(&e);
+    e.linearized_q15 = 40000U;
+    Encoder_UpdateVelocityPll(&e, 7);
+    assert(fabsf(Encoder_GetMecVelContinuous(&e)) < 1e-3f);
+    puts("PASS actual encoder PLL: ramp tracking both signs, deadband, saturation, self-init");
     return 0;
 }
 """

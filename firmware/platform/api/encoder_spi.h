@@ -38,4 +38,13 @@ bool encoder_spi_read_complete(bool begin_ok,
                                uint16_t read_frame,
                                uint16_t *word);
 
+/**
+ * @brief 同步读取一个传感器寄存器（只读，诊断用）。
+ * @param request_frame 传感器驱动给出的 16 位请求帧。
+ * @param word 输出 16 位数据帧；仅返回 true 时有效。
+ * @return 完整读回返回 true；总线未就绪或任一阶段超时返回 false。
+ * @note 阻塞式；仅供初始化/诊断读取，不得在 20 kHz 快速环调用。
+ */
+bool encoder_spi_read_register(uint16_t request_frame, uint16_t *word);
+
 #endif

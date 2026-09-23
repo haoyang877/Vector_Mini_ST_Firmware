@@ -65,4 +65,20 @@ EncoderSensorStatus encoder_sensor_complete(bool started, EncoderSensorSample *o
  */
 EncoderSensorType encoder_sensor_type(void);
 
+/** 诊断配置字数量（型号相关；TLE5012B 依次为 STAT/MOD_1/MOD_2/MOD_3/ACSTAT/STAT_2）。 */
+#define ENCODER_SENSOR_CONFIG_WORDS 6U
+
+/**
+ * @brief 只读捕获传感器配置字（诊断用；仅初始化/标定时调用）。
+ * @note 只读、不修改传感器配置，也不进入控制路径；阻塞式，失败的字保留旧值。
+ */
+void encoder_sensor_capture_config(void);
+
+/**
+ * @brief 读取已捕获的传感器配置字。
+ * @param index 下标，0..ENCODER_SENSOR_CONFIG_WORDS-1。
+ * @return 对应配置字；越界返回 0。各型号位域语义见对应 driver。
+ */
+uint16_t encoder_sensor_config_word(uint8_t index);
+
 #endif

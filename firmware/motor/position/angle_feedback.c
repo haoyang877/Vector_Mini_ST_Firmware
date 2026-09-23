@@ -7,22 +7,19 @@
 #include "encoder_sensor.h"
 #include "utils.h"
 
-/* 角度反馈（motor 层拥有）：帧读取编排与电角度（20 kHz 快路径）、多圈/机械角/
- * 速度慢估计（2 kHz 独占写）。传感器通道见 platform/api/encoder_sensor.h，
- * SPI 传输见 platform/stm32g4/ports/motor/encoder_spi_stm32g4.c；本文件不访问寄存器。
+/* 角度反馈（motor 层拥有）：帧读取编排与电角度（20 kHz 快路径）、机械/电角速度
+ * （20 kHz 快路径二阶角度跟踪观测器）、多圈/机械角慢估计（2 kHz 独占写）。
  *
  * 数据流：传感器单圈角 raw_q15 -> 方向校正 directed_q15 -> LUT 线性化 linearized_q15；
  *         快路径：linearized_q15 -> 电角度 theta_elec（20 kHz 每有效帧）；
- *         慢路径：linearized_q15 -> 多圈 shadow_q15 -> theta_mech 与滑动平均速度（2 kHz）。
+ *                  linearized_q15 -> 角度跟踪观测器 -> vel_mech/vel_elec（20 kHz）；
+ *         慢路径：linearized_q15 -> 多圈 shadow_q15 -> theta_mech（2 kHz）。
  *
- * 所有权约定：快路径只写即时量（raw/directed/linearized/theta_elec/sample_epoch）；
- * 慢状态（多圈/机械角/速度）由 Encoder_UpdateSlowEstimate() 独占写，快路径需要变更时
- * 只置 rebase_requested/zero_requested/velocity_restart_requested，由下一拍 2 kHz
- * 慢估计统一消费，避免跨中断读改写撕裂。 */
-
-/* 速度零死区：16 样本窗口（2 kHz 下 8 ms）内增量和的绝对值不超过该值时 vel_mech 归零，
- * 约 0.096 rad/s，用于抑制静止时的量化抖动；vel_mech_continuous 不受该死区影响。 */
-#define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
+ * 所有权约定：快路径只写即时量（raw/directed/linearized/theta_elec/sample_epoch）与观测器
+ * 速度状态（pll_*、vel_*、velocity_ready）；慢位置状态（多圈/机械角）由
+ * Encoder_UpdateSlowEstimate() 独占写，快路径需要变更时只置 rebase_requested/zero_requested，
+ * 由下一拍 2 kHz 慢估计统一消费，避免跨中断读改写撕裂。velocity_restart_requested 由快路径
+ * 消费（重建观测器）。观测器只出速度：不写 theta_elec/theta_mech，也不触及任何标定量。 */
 
 /* 登记一次读取结果；出现有效帧时清零连续坏帧计数。
  * 输入：encoder 状态归属；status 本次读取状态。
@@ -141,19 +138,15 @@ static void Encoder_UpdateElecAngle(Encoder_TypeDef *encoder, uint32_t pole_pair
     encoder->theta_elec = (float)electrical_q15 * (_2PI / (float)ENCODER_Q15_CPR);
 }
 
-/* 复位速度窗口：清历史、同步影子位置并清请求；仅慢估计上下文调用。
+/* 复位角度跟踪观测器：清观测器角/角速度与全部速度输出；仅初始化/临界区调用。
  * 输入：encoder；无返回值。
- * 输出/副作用：清增量历史/索引/样本数与增量和，velocity_ready = false，
- *              速度影子对齐 shadow_q15，三个速度输出归零，
- *              并清除 velocity_restart_requested（请求在此消费）。 */
-static void Encoder_RestartVelocityWindow(Encoder_TypeDef *encoder)
+ * 输出/副作用：pll_theta_rad/pll_omega_rad_s 归零，velocity_ready = false，
+ *              三个速度输出归零，并清除 velocity_restart_requested。 */
+static void Encoder_ResetVelocityEstimate(Encoder_TypeDef *encoder)
 {
-    memset(encoder->velocity_delta_history, 0, sizeof(encoder->velocity_delta_history));
-    encoder->velocity_history_index = 0U;
-    encoder->velocity_sample_count = 0U;
-    encoder->velocity_delta_sum = 0;
+    encoder->pll_theta_rad = 0.0f;
+    encoder->pll_omega_rad_s = 0.0f;
     encoder->velocity_ready = false;
-    encoder->velocity_shadow_q15 = encoder->shadow_q15;
     encoder->vel_mech = 0.0f;
     encoder->vel_mech_continuous = 0.0f;
     encoder->vel_elec = 0.0f;
@@ -183,61 +176,74 @@ static void Encoder_UpdateShadow(Encoder_TypeDef *encoder)
     encoder->shadow_q15 += delta_q15;
 }
 
-/* 2 kHz 分频的 16 样本滑动平均速度估计；慢估计上下文每拍调用一次。
- * 输入：encoder、pole_pairs 极对数；无返回值。
- * 输出：vel_mech_continuous（连续量，无死区）、vel_mech（含零速死区）、vel_elec。
- * 窗口 = 16 x 0.5 ms = 8 ms；增量先钳位到 int32 再进环形缓冲；
- * 窗口满后 scale = 2π / (65536 x 16 x Supervisor_Ts)。 */
-static void Encoder_UpdateVelocity(Encoder_TypeDef *encoder, uint32_t pole_pairs)
+/* 20 kHz 快路径二阶角度跟踪观测器（PLL）：由线性化单圈角估计机械角速度。
+ * 输入：encoder（读 linearized_q15）、pole_pairs 极对数（调用方保证 >= 1）；仅有效帧调用。
+ * 输出：pll_theta_rad、pll_omega_rad_s、velocity_ready、vel_mech_continuous、
+ *       vel_mech（含软零速死区）、vel_elec。
+ * 首帧/重启（!velocity_ready）以当前角初始化观测器，不产生速度冲击；之后在 [0,2π)
+ * 内部回绕估计角，误差不足半圈时单次 wrap 归位，角速度按上限限幅。
+ * 不写 theta_elec/theta_mech，也不触及标定量。 */
+static void Encoder_UpdateVelocityPll(Encoder_TypeDef *encoder, uint32_t pole_pairs)
 {
-    int64_t delta64;
-    int32_t delta_q15;
-    int32_t sum_abs;
-    float velocity_scale;
+    float theta_meas = (float)encoder->linearized_q15 * (_2PI / (float)ENCODER_Q15_CPR);
+    float omega_n;
+    float kp;
+    float ki;
+    float err;
+    float vel;
 
-    delta64 = encoder->shadow_q15 - encoder->velocity_shadow_q15;
-    encoder->velocity_shadow_q15 = encoder->shadow_q15;
-    if (delta64 > INT32_MAX)
+    if (!encoder->velocity_ready)
     {
-        delta_q15 = INT32_MAX;
-    }
-    else if (delta64 < INT32_MIN)
-    {
-        delta_q15 = INT32_MIN;
-    }
-    else
-    {
-        delta_q15 = (int32_t)delta64;
-    }
-
-    encoder->velocity_delta_sum -= encoder->velocity_delta_history[encoder->velocity_history_index];
-    encoder->velocity_delta_history[encoder->velocity_history_index] = delta_q15;
-    encoder->velocity_delta_sum += delta_q15;
-    encoder->velocity_history_index =
-        (uint8_t)((encoder->velocity_history_index + 1U) % ENCODER_VELOCITY_WINDOW);
-    if (encoder->velocity_sample_count < ENCODER_VELOCITY_WINDOW)
-    {
-        encoder->velocity_sample_count++;
-    }
-    encoder->velocity_ready = encoder->velocity_sample_count == ENCODER_VELOCITY_WINDOW;
-    velocity_scale =
-        _2PI / ((float)ENCODER_Q15_CPR * (float)ENCODER_VELOCITY_WINDOW * Supervisor_Ts);
-    encoder->vel_mech_continuous =
-        encoder->velocity_ready ? (float)encoder->velocity_delta_sum * velocity_scale : 0.0f;
-
-    sum_abs = encoder->velocity_delta_sum;
-    if (sum_abs < 0)
-    {
-        sum_abs = -sum_abs;
-    }
-    if (!encoder->velocity_ready || sum_abs <= ENCODER_VELOCITY_ZERO_THRESHOLD_Q15)
-    {
+        encoder->pll_theta_rad = theta_meas;
+        encoder->pll_omega_rad_s = 0.0f;
+        encoder->velocity_ready = true;
         encoder->vel_mech = 0.0f;
+        encoder->vel_mech_continuous = 0.0f;
+        encoder->vel_elec = 0.0f;
+        return;
     }
-    else
+
+    omega_n = _2PI * ENCODER_PLL_OMEGA_N_HZ;
+    kp = 2.0f * ENCODER_PLL_ZETA * omega_n * FOC_PERIOD;
+    ki = omega_n * omega_n * FOC_PERIOD;
+    err = theta_meas - encoder->pll_theta_rad;
+
+    if (err > _PI)
     {
-        encoder->vel_mech = encoder->vel_mech_continuous;
+        err -= _2PI;
     }
+    else if (err < -_PI)
+    {
+        err += _2PI;
+    }
+
+    encoder->pll_theta_rad += FOC_PERIOD * encoder->pll_omega_rad_s + kp * err;
+    encoder->pll_omega_rad_s += ki * err;
+
+    if (encoder->pll_theta_rad > _2PI)
+    {
+        encoder->pll_theta_rad -= _2PI;
+    }
+    else if (encoder->pll_theta_rad < 0.0f)
+    {
+        encoder->pll_theta_rad += _2PI;
+    }
+
+    if (encoder->pll_omega_rad_s > ENCODER_PLL_OMEGA_MAX_RAD_S)
+    {
+        encoder->pll_omega_rad_s = ENCODER_PLL_OMEGA_MAX_RAD_S;
+    }
+    else if (encoder->pll_omega_rad_s < -ENCODER_PLL_OMEGA_MAX_RAD_S)
+    {
+        encoder->pll_omega_rad_s = -ENCODER_PLL_OMEGA_MAX_RAD_S;
+    }
+
+    vel = encoder->pll_omega_rad_s;
+    encoder->vel_mech_continuous = vel;
+    encoder->vel_mech =
+        (vel < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S && vel > -ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S)
+            ? 0.0f
+            : vel;
     encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
 }
 
@@ -309,7 +315,7 @@ void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
     encoder->mechanical_zero_shadow_q15 = 0;
     encoder->previous_linearized_q15 = 0U;
     encoder->theta_mech = 0.0f;
-    Encoder_ResetVelocity(encoder);
+    Encoder_ResetVelocityEstimate(encoder);
     critical_hw_exit(primask);
 }
 
@@ -326,7 +332,6 @@ void Encoder_ParamInit(Encoder_TypeDef *encoder)
     encoder->previous_linearized_q15 = 0U;
     encoder->shadow_q15 = 0;
     encoder->mechanical_zero_shadow_q15 = (int64_t)encoder->mechanical_zero_q15;
-    encoder->velocity_shadow_q15 = 0;
     encoder->has_valid_sample = false;
     encoder->theta_elec = 0.0f;
     encoder->theta_mech = 0.0f;
@@ -343,7 +348,7 @@ void Encoder_ParamInit(Encoder_TypeDef *encoder)
     encoder->crc_error_count = 0U;
     encoder->read_error_count = 0U;
     encoder->bad_frame_streak = 0U;
-    Encoder_RestartVelocityWindow(encoder);
+    Encoder_ResetVelocityEstimate(encoder);
 
     encoder_sensor_init();
 }
@@ -400,13 +405,14 @@ bool Encoder_SetMechanicalZero(Encoder_TypeDef *encoder)
     return true;
 }
 
-/* 完成一帧读取：方向/LUT 校正与电角度更新（20 kHz 快路径）。
+/* 完成一帧读取：方向/LUT 校正、电角度与观测器速度更新（20 kHz 快路径）。
  * 输入：MotorControl（读 motor_pole_pairs，<= 0 按 1 处理）、encoder、
  *       sample_started 为 Encoder_BeginSample() 的返回值；无返回值。
  * 流程：取帧 -> 方向校正 -> LUT 线性化 -> 更新 raw/directed/linearized
+ *       -> 消费 velocity_restart_requested（以当前角重建观测器）
  *       -> 首个有效帧置 has_valid_sample 并请求重定多圈基准（由慢估计执行）
- *       -> sample_epoch++ -> 更新 theta_elec。
- * 取帧失败时仅登记读取状态，theta_elec 保持旧值；本函数不写多圈/机械角/速度。 */
+ *       -> sample_epoch++ -> 更新 theta_elec 与观测器速度。
+ * 取帧失败时仅登记读取状态，theta_elec 与速度保持旧值；本函数不写多圈/机械角。 */
 void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl,
                             Encoder_TypeDef *encoder,
                             bool sample_started)
@@ -428,26 +434,32 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl,
     encoder->linearized_q15 = linearized_q15;
     pole_pairs = MotorControl->motor_pole_pairs > 0 ? (uint32_t)MotorControl->motor_pole_pairs : 1U;
 
+    if (encoder->velocity_restart_requested)
+    {
+        /* 重建观测器：下一拍以当前角自初始化，避免重启后速度冲击。 */
+        encoder->velocity_ready = false;
+        encoder->velocity_restart_requested = false;
+    }
+
     if (!encoder->has_valid_sample)
     {
         encoder->has_valid_sample = true;
-        /* 首个有效帧：2 kHz 慢估计重建多圈基准并复位速度窗口。 */
+        /* 首个有效帧：2 kHz 慢估计重建多圈基准；观测器在下一拍自初始化。 */
         encoder->rebase_requested = true;
+        encoder->velocity_ready = false;
     }
     encoder->sample_epoch++;
     Encoder_UpdateElecAngle(encoder, pole_pairs);
+    Encoder_UpdateVelocityPll(encoder, pole_pairs);
 }
 
-/* 2 kHz 慢估计：多圈/机械角/速度为慢状态唯一写者；快路径只置请求标志。
- * 输入：MotorControl（极对数与轴配置）、encoder；无返回值。
- * 顺序：有新样本时按 rebase_requested 走重定多圈基准（并复位速度窗口），否则累积多圈并
- *       更新速度；随后消费 zero_requested（机械零位影子对齐当前多圈值）；
- *       再消费 velocity_restart_requested；最后每拍重算 theta_mech 与 vel_elec
- *       ——即使没有新样本也更新，保证零位请求下一拍立即生效。 */
+/* 2 kHz 慢估计：多圈/机械角为慢位置状态唯一写者；速度由 20 kHz 快路径观测器负责。
+ * 输入：MotorControl（轴配置）、encoder；无返回值。
+ * 顺序：有新样本时按 rebase_requested 走重定多圈基准，否则累积多圈；
+ *       随后消费 zero_requested（机械零位影子对齐当前多圈值）；
+ *       最后每拍重算 theta_mech——即使没有新样本也更新，保证零位请求下一拍立即生效。 */
 void Encoder_UpdateSlowEstimate(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder)
 {
-    uint32_t pole_pairs =
-        MotorControl->motor_pole_pairs > 0 ? (uint32_t)MotorControl->motor_pole_pairs : 1U;
     bool new_sample =
         encoder->has_valid_sample && encoder->sample_epoch != encoder->slow_sample_epoch;
 
@@ -457,12 +469,10 @@ void Encoder_UpdateSlowEstimate(MotorControl_TypeDef *MotorControl, Encoder_Type
         {
             Encoder_RebaseMultiTurnPosition(MotorControl, encoder);
             encoder->rebase_requested = false;
-            Encoder_RestartVelocityWindow(encoder);
         }
         else
         {
             Encoder_UpdateShadow(encoder);
-            Encoder_UpdateVelocity(encoder, pole_pairs);
         }
         encoder->slow_sample_epoch = encoder->sample_epoch;
     }
@@ -471,13 +481,8 @@ void Encoder_UpdateSlowEstimate(MotorControl_TypeDef *MotorControl, Encoder_Type
         encoder->mechanical_zero_shadow_q15 = encoder->shadow_q15;
         encoder->zero_requested = false;
     }
-    if (encoder->velocity_restart_requested)
-    {
-        Encoder_RestartVelocityWindow(encoder);
-    }
     encoder->theta_mech = (float)(encoder->shadow_q15 - encoder->mechanical_zero_shadow_q15) *
                           (_2PI / (float)ENCODER_Q15_CPR);
-    encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
 }
 
 /* 同步读取一帧角度并更新电角度（20 kHz 快路径兼容入口）。

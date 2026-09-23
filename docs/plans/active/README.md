@@ -30,3 +30,4 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [电机 STOP/DISABLE 适配器第一步 v0.1](2026-09-21-yg-motor-adapter.md)：通过窄停机所有者接口实现幂等、异步确认和拒绝语义；尚未接入真实 FocRunState/CAN 入口。
 - [参数只读适配器 v0.1](2026-09-21-yg-parameter-read-adapter.md)：基于调用方只读快照映射已明确的速度/电流限值与配置版本；写入、保存和运行入口接线留待后续。
 - [参数描述符模型与 ID 分区设计 v1.0](2026-09-20-parameter-descriptor-model.md)：把逐 case 参数处理收敛为单一描述符表（分组 + `apply_policy` + ID 分区）；冻结"未实现不登记枚举"纪律，不改既有 106 个 ID；仅设计，P0 之外不实施。
+- [编码器测速估计优化：低延迟估计器替换 8 ms 滑窗 v1.0](2026-09-23-encoder-speed-estimation-optimization.md)：Phase 0 只读确认 TLE5012B 内部更新率/滤波（延迟地板，前置阻塞）；Phase 1 用 20 kHz 角度样本的低延迟估计器（最小二乘斜率/α-β）替换 2 kHz 割线；Phase 2 可选角度跟踪观测器。原"2 阶 IIR 替换"经量化复核否决（等噪声下不降延迟）；Phase 0 只读采集已实施（PR 档全绿），寄存器台架读取待执行。

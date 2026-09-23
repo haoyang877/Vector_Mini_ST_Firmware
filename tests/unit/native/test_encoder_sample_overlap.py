@@ -11,6 +11,7 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
@@ -133,6 +134,7 @@ bool encoder_spi_read_complete(bool begin_ok, uint16_t request_frame, uint16_t r
     *word = complete_response; return true;
 }
 static void encoder_spi_init(void) {}
+void encoder_sensor_capture_config(void) {}
 """
         + function_source(source, "encoder_sensor_init")
         + "\n"
@@ -253,6 +255,119 @@ int main(void) {
     )
 
 
+def _register_read_source() -> str:
+    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_spi_stm32g4.c").read_text(
+        encoding="utf-8"
+    )
+    return (
+        r"""
+#undef NDEBUG
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+static unsigned complete_calls;
+static bool complete_begin_ok, complete_result;
+static uint16_t complete_request, complete_read_frame, complete_response;
+bool encoder_spi_read_complete(bool begin_ok, uint16_t request_frame, uint16_t read_frame,
+                               uint16_t *word) {
+    complete_calls++; complete_begin_ok = begin_ok;
+    complete_request = request_frame; complete_read_frame = read_frame;
+    if (!complete_result) return false;
+    *word = complete_response; return true;
+}
+"""
+        + function_source(source, "encoder_spi_read_register")
+        + r"""
+int main(void) {
+    uint16_t out;
+    /* 成功：转发 begin_ok=false、请求帧、read_frame=0 并回写数据。 */
+    complete_calls = 0; complete_result = true; complete_response = 0x2468U;
+    out = 0x1357U;
+    assert(encoder_spi_read_register(0x8061U, &out));
+    assert(complete_calls == 1 && !complete_begin_ok);
+    assert(complete_request == 0x8061U && complete_read_frame == 0U && out == 0x2468U);
+    /* 失败：不修改输出。 */
+    complete_calls = 0; complete_result = false; out = 0x1357U;
+    assert(!encoder_spi_read_register(0x8091U, &out));
+    assert(complete_calls == 1 && complete_request == 0x8091U && out == 0x1357U);
+    puts("PASS encoder register read: sync forward, request/read frame, output pass-through, failure retention");
+    return 0;
+}
+"""
+    )
+
+
+def _config_capture_source() -> str:
+    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_tle5012b.c").read_text(
+        encoding="utf-8"
+    )
+    header = (ROOT / "firmware/platform/api/encoder_sensor.h").read_text(encoding="utf-8")
+    macro_names = {
+        "ENCODER_SENSOR_CONFIG_WORDS": header,
+        "TLE5012B_REQUEST_READ_STAT": source,
+        "TLE5012B_REQUEST_READ_ACSTAT": source,
+        "TLE5012B_REQUEST_READ_MOD_1": source,
+        "TLE5012B_REQUEST_READ_MOD_2": source,
+        "TLE5012B_REQUEST_READ_MOD_3": source,
+    }
+    macros = "\n".join(
+        re.search(r"^#define\s+" + name + r"\s+[^\r\n]+", text, re.M)[0]
+        for name, text in macro_names.items()
+    )
+    return (
+        r"""
+#undef NDEBUG
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+"""
+        + macros
+        + r"""
+static volatile uint16_t tle5012b_config_words[ENCODER_SENSOR_CONFIG_WORDS];
+static unsigned read_calls;
+static uint16_t read_request[8], read_value[8];
+static bool read_ok[8];
+bool encoder_spi_read_register(uint16_t request_frame, uint16_t *word) {
+    unsigned i = read_calls++;
+    read_request[i] = request_frame;
+    if (!read_ok[i]) return false;
+    *word = read_value[i]; return true;
+}
+"""
+        + function_source(source, "encoder_sensor_capture_config")
+        + "\n"
+        + function_source(source, "encoder_sensor_config_word")
+        + r"""
+int main(void) {
+    unsigned i;
+    /* 命令顺序 STAT/MOD_1/MOD_2/MOD_3；成功时按序存储。 */
+    read_calls = 0;
+    for (i = 0; i < ENCODER_SENSOR_CONFIG_WORDS; i++) { read_ok[i] = true; read_value[i] = (uint16_t)(0x1000U + i); }
+    encoder_sensor_capture_config();
+    assert(read_calls == ENCODER_SENSOR_CONFIG_WORDS);
+    assert(read_request[0] == 0x8001U && read_request[1] == 0x8061U);
+    assert(read_request[2] == 0x8081U && read_request[3] == 0x8091U);
+    for (i = 0; i < ENCODER_SENSOR_CONFIG_WORDS; i++)
+        assert(encoder_sensor_config_word((uint8_t)i) == (uint16_t)(0x1000U + i));
+    assert(encoder_sensor_config_word(ENCODER_SENSOR_CONFIG_WORDS) == 0U);
+    assert(encoder_sensor_config_word(200U) == 0U);
+    /* 失败字保留旧值。 */
+    read_calls = 0;
+    read_ok[0] = true; read_value[0] = 0xAAAAU;
+    read_ok[1] = false; read_ok[2] = false; read_ok[3] = false;
+    encoder_sensor_capture_config();
+    assert(encoder_sensor_config_word(0U) == 0xAAAAU);
+    assert(encoder_sensor_config_word(1U) == 0x1001U);
+    assert(encoder_sensor_config_word(2U) == 0x1002U && encoder_sensor_config_word(3U) == 0x1003U);
+    puts("PASS encoder config capture: STAT/MOD1/MOD2/MOD3 order, storage, out-of-range, failure retention");
+    return 0;
+}
+"""
+    )
+
+
 def _build(out: Path, name: str, source: str, cc: str) -> Path:
     fixture = out / f"{name}.c"
     fixture.write_text(source, encoding="utf-8")
@@ -280,6 +395,8 @@ def main():
         ("encoder_transport", _transport_source()),
         ("encoder_channel", _channel_source()),
         ("encoder_mapping", _mapping_source()),
+        ("encoder_register_read", _register_read_source()),
+        ("encoder_config_capture", _config_capture_source()),
     ):
         exe = _build(out, name, source, args.cc)
         subprocess.run([str(exe)], check=True)

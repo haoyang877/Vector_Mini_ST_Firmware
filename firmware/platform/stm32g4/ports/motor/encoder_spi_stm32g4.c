@@ -160,3 +160,9 @@ bool encoder_spi_read_complete(bool begin_ok,
     *word = received;
     return true;
 }
+
+/* 同步寄存器只读：复用完整读回路径，起始 begin_ok=false 走同步补发。 */
+bool encoder_spi_read_register(uint16_t request_frame, uint16_t *word)
+{
+    return encoder_spi_read_complete(false, request_frame, 0U, word);
+}

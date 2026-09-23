@@ -1,8 +1,6 @@
 /* 只读查询服务适配器；只负责 provider 选择和有界响应 payload。 */
 #include "yg_protocol_readonly.h"
 
-#include "yg_protocol_motor.h"
-
 static yg_protocol_readonly_provider_t
 select_provider(const yg_protocol_readonly_service_t *service, uint16_t message_type)
 {
@@ -32,24 +30,6 @@ select_provider(const yg_protocol_readonly_service_t *service, uint16_t message_
 static bool type_is_enabled(uint16_t message_type)
 {
     return message_type != YG_PROTOCOL_READONLY_TYPE_DISABLED;
-}
-
-yg_protocol_result_t yg_protocol_readonly_registry_init(yg_protocol_message_registry_t *registry)
-{
-    static const yg_protocol_message_descriptor_t descriptors[] = {
-        {YG_PROTOCOL_READONLY_TYPE_GET_INFO, true, false},
-        {YG_PROTOCOL_READONLY_TYPE_GET_CAPS, false, false},
-        {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, false, false},
-        {YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK, false, true},
-        {YG_PROTOCOL_MOTOR_TYPE_STOP, false, false},
-    };
-
-    if (registry == NULL)
-    {
-        return YG_PROTOCOL_INVALID_ARGUMENT;
-    }
-    return yg_protocol_message_registry_init(
-        registry, descriptors, sizeof(descriptors) / sizeof(descriptors[0]));
 }
 
 yg_protocol_result_t yg_protocol_readonly_init(yg_protocol_readonly_service_t *service,

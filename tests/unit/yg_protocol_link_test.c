@@ -64,13 +64,24 @@ static void motor_handler(void *context,
     reply->status = YG_PROTOCOL_SERVICE_OK;
 }
 
+static void control_handler(void *context,
+                            const yg_protocol_motor_request_t *request,
+                            yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    assert(request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL && request->mode == 3U &&
+           request->position_mrad == 1000);
+    ++motor_calls;
+    reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
+}
+
 /* 在发送持续忙时填满 TX，随后恢复发送：命令不得执行两次或乱序丢失。 */
 static void backlog_and_interrupt_handoff(void)
 {
     yg_protocol_motor_service_t service = {NULL, motor_handler};
     yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
                                      .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
-                                     .source_node = 1U,
+                                     .source_node = 2U,
                                      .destination_node = 7U,
                                      .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP};
     yg_protocol_transfer_frame_t frame;
@@ -129,6 +140,103 @@ static void put_u32(uint8_t *buffer, uint32_t value)
     buffer[1] = (uint8_t)(value >> 8U);
     buffer[2] = (uint8_t)(value >> 16U);
     buffer[3] = (uint8_t)(value >> 24U);
+}
+
+static void control_reply_and_feedback(void)
+{
+    uint8_t payload[YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE] = {3U, 0U, 0U, 0U, 0xE8U, 0x03U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_CONTROL,
+                                     .sequence = 41U,
+                                     .payload_length = sizeof(payload),
+                                     .payload = payload};
+    yg_protocol_transfer_frame_t packed, response_frame;
+    yg_protocol_message_t response;
+    CommHwCanFrame received = {0};
+    assert(YgProtocolLink_Init(7U));
+    assert(yg_protocol_canfd_pack(&request, 2U, &packed) == YG_PROTOCOL_OK);
+    received.identifier = packed.identifier;
+    received.length = packed.length;
+    received.extended = true;
+    received.fd = true;
+    received.bitrate_switch = true;
+    memcpy(received.data, packed.data, packed.length);
+    sent = false;
+    assert(YgProtocolLink_OnRxFrame(&received));
+    YgProtocolLink_Service(1U);
+    assert(sent);
+    response_frame = (yg_protocol_transfer_frame_t){0};
+    response_frame.identifier = sent_frame.identifier;
+    response_frame.length = sent_frame.length;
+    response_frame.extended = true;
+    response_frame.fd = true;
+    response_frame.bitrate_switch = true;
+    memcpy(response_frame.data, sent_frame.data, sent_frame.length);
+    assert(yg_protocol_canfd_unpack(&response_frame, 2U, &response) == YG_PROTOCOL_OK);
+    assert(response.message_type == YG_PROTOCOL_MOTOR_TYPE_CONTROL && response.sequence == 41U);
+    assert(response.payload_length == YG_PROTOCOL_MOTOR_REPLY_SIZE && response.payload[0] == 2U);
+
+    sent = false;
+    YgProtocolLink_Service(2U);
+    assert(sent);
+    response_frame.identifier = sent_frame.identifier;
+    response_frame.length = sent_frame.length;
+    memcpy(response_frame.data, sent_frame.data, sent_frame.length);
+    assert(yg_protocol_canfd_unpack(&response_frame, 2U, &response) == YG_PROTOCOL_OK);
+    assert(response.message_type == YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK &&
+           response.payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE &&
+           response.payload[0] == 2U && response.payload[2] == 41U && response.payload[42] == 7U);
+    assert(response.payload[24] == 0U && response.payload[25] == 0U);
+
+    /* 同序号重传重发回复与反馈，但不得再次提交目标。 */
+    {
+        yg_protocol_motor_service_t service = {NULL, control_handler};
+        assert(YgProtocolLink_Init(7U));
+        assert(YgProtocolLink_BindMotorService(&service));
+        motor_calls = 0U;
+        sent = false;
+        assert(YgProtocolLink_OnRxFrame(&received));
+        YgProtocolLink_Service(3U);
+        assert(motor_calls == 1U);
+        request.flags |= YG_PROTOCOL_FLAGS_RETRY;
+        assert(yg_protocol_canfd_pack(&request, 2U, &packed) == YG_PROTOCOL_OK);
+        received.length = packed.length;
+        memcpy(received.data, packed.data, packed.length);
+        assert(YgProtocolLink_OnRxFrame(&received));
+        YgProtocolLink_Service(4U);
+        assert(motor_calls == 1U);
+    }
+}
+
+static void enable_route(void)
+{
+    uint8_t payload[YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE] = {1U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_ENABLE,
+                                     .sequence = 40U,
+                                     .payload_length = sizeof(payload),
+                                     .payload = payload};
+    yg_protocol_transfer_frame_t frame;
+    CommHwCanFrame received = {0};
+    assert(YgProtocolLink_Init(7U));
+    assert(yg_protocol_canfd_pack(&request, 2U, &frame) == YG_PROTOCOL_OK);
+    received.identifier = frame.identifier;
+    received.length = frame.length;
+    received.extended = true;
+    received.fd = true;
+    received.bitrate_switch = true;
+    memcpy(received.data, frame.data, frame.length);
+    sent = false;
+    assert(YgProtocolLink_OnRxFrame(&received));
+    YgProtocolLink_Service(1U);
+    assert(sent && sent_frame.data[6] == YG_PROTOCOL_MOTOR_TYPE_ENABLE &&
+           sent_frame.data[8] == 40U && sent_frame.data[16] == 2U);
 }
 
 int main(void)
@@ -192,6 +300,7 @@ int main(void)
     sent = false;
     assert(YgProtocolLink_Init(7U));
     request.flags = YG_PROTOCOL_FLAGS_ACK_REQUEST;
+    request.source_node = 2U;
     request.message_type = YG_PROTOCOL_MOTOR_TYPE_STOP;
     request.payload_length = 0U;
     request.payload = NULL;
@@ -213,7 +322,7 @@ int main(void)
     response_frame.fd = sent_frame.fd;
     response_frame.bitrate_switch = sent_frame.bitrate_switch;
     memcpy(response_frame.data, sent_frame.data, sent_frame.length);
-    assert(yg_protocol_canfd_unpack(&response_frame, 1U, &response) == YG_PROTOCOL_OK);
+    assert(yg_protocol_canfd_unpack(&response_frame, 2U, &response) == YG_PROTOCOL_OK);
     assert(response.message_type == YG_PROTOCOL_MOTOR_TYPE_STOP);
     assert(response.payload_length == YG_PROTOCOL_MOTOR_REPLY_SIZE);
     assert(response.payload[0] == YG_PROTOCOL_SERVICE_UNSUPPORTED);
@@ -236,6 +345,7 @@ int main(void)
     put_u32(payload, 0U);
     put_u32(payload + 4U, 1U);
     request.flags = YG_PROTOCOL_FLAGS_ACK_REQUEST;
+    request.source_node = 1U;
     request.message_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE;
     request.sequence = 13U;
     request.payload_length = 8U;
@@ -262,6 +372,8 @@ int main(void)
     assert(response.message_type == YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE);
     assert(response.payload_length == 12U);
     assert(response.payload[8] == 6U && response.payload[9] == 0U);
+    enable_route();
+    control_reply_and_feedback();
     backlog_and_interrupt_handoff();
     return 0;
 }

@@ -68,7 +68,7 @@ yg_protocol_motor_status_convert(const yg_protocol_motor_status_source_t *source
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    if (source->state > 6U || source->mode > 8U || source->faults > 0x3FFFFU ||
+    if (source->state > 9U || source->mode > 8U || source->faults > 0x3FFFFU ||
         (source->measurement_valid_bits & ~YG_PROTOCOL_MOTOR_MEASUREMENT_MASK) != 0U)
     {
         return YG_PROTOCOL_INVALID_FIELD;

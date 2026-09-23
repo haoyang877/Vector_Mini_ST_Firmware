@@ -1,6 +1,9 @@
 /* 消息类型的静态登记和查找；不承担业务执行和硬件访问。 */
 #include "yg_protocol_message_registry.h"
 
+#include "yg_protocol_motor.h"
+#include "yg_protocol_readonly.h"
+
 yg_protocol_result_t
 yg_protocol_message_registry_init(yg_protocol_message_registry_t *registry,
                                   const yg_protocol_message_descriptor_t *descriptors,
@@ -41,4 +44,19 @@ yg_protocol_message_registry_find(const yg_protocol_message_registry_t *registry
         }
     }
     return NULL;
+}
+
+yg_protocol_result_t yg_protocol_product_registry_init(yg_protocol_message_registry_t *registry)
+{
+    static const yg_protocol_message_descriptor_t descriptors[] = {
+        {YG_PROTOCOL_READONLY_TYPE_GET_INFO, true, false},
+        {YG_PROTOCOL_READONLY_TYPE_GET_CAPS, false, false},
+        {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, false, false},
+        {YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK, false, true},
+        {YG_PROTOCOL_MOTOR_TYPE_ENABLE, false, false},
+        {YG_PROTOCOL_MOTOR_TYPE_STOP, false, false},
+        {YG_PROTOCOL_MOTOR_TYPE_CONTROL, false, false},
+    };
+    return yg_protocol_message_registry_init(
+        registry, descriptors, sizeof(descriptors) / sizeof(descriptors[0]));
 }

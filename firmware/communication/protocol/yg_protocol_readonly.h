@@ -49,14 +49,6 @@ yg_protocol_result_t yg_protocol_readonly_init(yg_protocol_readonly_service_t *s
                                                const yg_protocol_readonly_service_t *configuration);
 
 /**
- * @brief 初始化公司登记稿中的只读消息注册表。
- * @param registry 输出注册表对象。
- * @return 初始化结果。
- * @note 注册表使用模块内静态描述符，调用方不需要复制或释放描述符。
- */
-yg_protocol_result_t yg_protocol_readonly_registry_init(yg_protocol_message_registry_t *registry);
-
-/**
  * @brief 处理一个只读查询路由。
  * @param context 指向 yg_protocol_readonly_service_t。
  * @param request 已完成协议校验的请求消息。

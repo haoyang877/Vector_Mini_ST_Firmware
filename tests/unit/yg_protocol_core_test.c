@@ -156,7 +156,7 @@ static void readonly_request_to_response(void)
     yg_protocol_message_t response;
 
     assert(yg_protocol_readonly_init(&service, &configuration) == YG_PROTOCOL_OK);
-    assert(yg_protocol_readonly_registry_init(&registry) == YG_PROTOCOL_OK);
+    assert(yg_protocol_product_registry_init(&registry) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_init(&router, &registry, &route, 1U) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_handle(&router, &request, &result) == YG_PROTOCOL_OK);
     assert(result.response_payload_length == 4U);

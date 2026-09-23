@@ -46,4 +46,12 @@ const yg_protocol_message_descriptor_t *
 yg_protocol_message_registry_find(const yg_protocol_message_registry_t *registry,
                                   uint16_t message_type);
 
+/**
+ * @brief 初始化本产品已登记的统一消息 Type 表。
+ * @param registry 输出注册表对象。
+ * @return 初始化结果。
+ * @note 描述符为静态只读存储；未开放的 Type 不在表中。
+ */
+yg_protocol_result_t yg_protocol_product_registry_init(yg_protocol_message_registry_t *registry);
+
 #endif

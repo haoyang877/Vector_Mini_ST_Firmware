@@ -306,7 +306,7 @@ static void endpoint_round_trip(void)
     yg_protocol_message_t request = {
         1U, YG_PROTOCOL_FLAGS_ACK_REQUEST, 2U, 3U, 108U, 9U, 8U, 0U, query};
     yg_protocol_message_t response;
-    assert(yg_protocol_readonly_registry_init(&registry) == YG_PROTOCOL_OK);
+    assert(yg_protocol_product_registry_init(&registry) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_init(&router, &registry, &route, 1U) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_init(&rx, rx_storage, 3U));
     assert(yg_protocol_transfer_queue_init(&tx, tx_storage, 2U));

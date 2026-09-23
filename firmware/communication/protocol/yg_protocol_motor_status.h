@@ -85,6 +85,23 @@ yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_f
                                                        size_t capacity);
 
 /**
+ * @brief 从同一稳定电机快照生成 124 全量反馈值对象。
+ * @param source 可为空；缺失或无新鲜样本时所有测量字段标为无效。
+ * @param node_id 本机电机节点 ID。
+ * @param result 本条 116 的线路结果码。
+ * @param correlated_seq 本条 116 的公司帧序号。
+ * @param feedback 输出反馈值；参数错误时保持不变。
+ * @return 成功或节点/参数错误。
+ * @note 不读取硬件或控制目标；无电机温度、Vq/Vd 测量源时相应位保持无效。
+ */
+yg_protocol_result_t
+yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *source,
+                                       uint8_t node_id,
+                                       uint16_t result,
+                                       uint16_t correlated_seq,
+                                       yg_protocol_motor_feedback_t *feedback);
+
+/**
  * @brief 为只读服务提供 GET_MOTOR_STATE 的完整 R+32B 响应。
  * @param context 指向稳定的 yg_protocol_motor_status_source_t，调用期间不得被并发写入。
  * @param request 已校验的单播查询；仅支持 session=0，request_id 非零。

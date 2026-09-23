@@ -109,37 +109,39 @@ yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_re
                                                     size_t capacity,
                                                     size_t *written)
 {
-    if (reply == NULL || payload == NULL || capacity < YG_PROTOCOL_MOTOR_REPLY_SIZE)
+    if (reply == NULL || payload == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    uint16_t result;
-    switch (reply->status)
+    if (capacity < YG_PROTOCOL_MOTOR_REPLY_SIZE)
     {
-    case YG_PROTOCOL_SERVICE_OK:
-    case YG_PROTOCOL_SERVICE_ACCEPTED:
-    case YG_PROTOCOL_SERVICE_UNSUPPORTED:
-        result = (uint16_t)reply->status;
-        break;
-    case YG_PROTOCOL_SERVICE_INVALID_ARGUMENT:
-        result = 4U;
-        break;
-    case YG_PROTOCOL_SERVICE_BUSY:
-        result = 6U;
-        break;
-    case YG_PROTOCOL_SERVICE_DENIED:
-        result = 5U;
-        break;
-    case YG_PROTOCOL_SERVICE_FAILED:
-    default:
-        result = 8U;
-        break;
+        return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
-    put_u16(payload, result);
+    put_u16(payload, yg_protocol_motor_result_code(reply->status));
     put_u16(payload + 2U, reply->detail);
     if (written != NULL)
     {
         *written = YG_PROTOCOL_MOTOR_REPLY_SIZE;
     }
     return YG_PROTOCOL_OK;
+}
+
+uint16_t yg_protocol_motor_result_code(yg_protocol_service_status_t status)
+{
+    switch (status)
+    {
+    case YG_PROTOCOL_SERVICE_OK:
+    case YG_PROTOCOL_SERVICE_ACCEPTED:
+    case YG_PROTOCOL_SERVICE_UNSUPPORTED:
+        return (uint16_t)status;
+    case YG_PROTOCOL_SERVICE_INVALID_ARGUMENT:
+        return 4U;
+    case YG_PROTOCOL_SERVICE_BUSY:
+        return 6U;
+    case YG_PROTOCOL_SERVICE_DENIED:
+        return 5U;
+    case YG_PROTOCOL_SERVICE_FAILED:
+    default:
+        return 8U;
+    }
 }

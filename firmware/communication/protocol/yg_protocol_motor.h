@@ -54,6 +54,13 @@ yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_
                                                       yg_protocol_motor_request_t *request);
 
 /**
+ * @brief 把内部执行状态映射到已冻结的电机线路结果码。
+ * @param status 电机业务服务状态。
+ * @return 线路结果码，未知状态返回 8（内部失败）。
+ */
+uint16_t yg_protocol_motor_result_code(yg_protocol_service_status_t status);
+
+/**
  * @brief 业务所有者实现的非阻塞处理入口。
  * @param context 后端拥有的状态，生命周期覆盖调用。
  * @param request 只读请求；返回后不可保留其指针。

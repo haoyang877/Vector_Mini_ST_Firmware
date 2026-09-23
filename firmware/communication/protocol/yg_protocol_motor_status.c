@@ -22,6 +22,28 @@ static int32_t measurement(float value, double scale, int32_t minimum, int32_t m
     return (int32_t)rounded;
 }
 
+static int32_t feedback_i32(float sample, bool available, uint16_t *valid_bits, uint8_t bit)
+{
+    int32_t value = available ? measurement(sample, 1000.0, -INT32_MAX, INT32_MAX) : INT32_MIN;
+    if (value != INT32_MIN)
+    {
+        *valid_bits |= (uint16_t)(1U << bit);
+    }
+    return value;
+}
+
+static int16_t
+feedback_i16(float sample, double scale, bool available, uint16_t *valid_bits, uint8_t bit)
+{
+    int32_t value = available ? measurement(sample, scale, -INT16_MAX, INT16_MAX) : INT32_MIN;
+    if (value == INT32_MIN)
+    {
+        return INT16_MIN;
+    }
+    *valid_bits |= (uint16_t)(1U << bit);
+    return (int16_t)value;
+}
+
 static void write_u16(uint8_t *bytes, uint16_t value)
 {
     bytes[0] = (uint8_t)value;
@@ -154,6 +176,84 @@ yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_f
     encoded[43] = feedback->motor_state;
     encoded[44] = feedback->control_mode;
     memcpy(payload, encoded, sizeof(encoded));
+    return YG_PROTOCOL_OK;
+}
+
+yg_protocol_result_t
+yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *source,
+                                       uint8_t node_id,
+                                       uint16_t result,
+                                       uint16_t correlated_seq,
+                                       yg_protocol_motor_feedback_t *feedback)
+{
+    yg_protocol_motor_feedback_t value = {0};
+    if (feedback == NULL || node_id == 0U || node_id == YG_PROTOCOL_BROADCAST_NODE_ID)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    value.node_id = node_id;
+    value.result = result;
+    value.correlated_seq = correlated_seq;
+    value.reference_position_mrad = INT32_MIN;
+    value.actual_position_mrad = INT32_MIN;
+    value.reference_speed_mrad_s = INT32_MIN;
+    value.actual_speed_mrad_s = INT32_MIN;
+    value.bus_voltage_cV = INT16_MIN;
+    value.bus_current_mA = INT16_MIN;
+    value.reference_iq_mA = INT16_MIN;
+    value.actual_iq_mA = INT16_MIN;
+    value.mcu_temperature_centi_c = INT16_MIN;
+    value.motor_temperature_centi_c = INT16_MIN;
+    value.v_q_mV = INT16_MIN;
+    value.v_d_mV = INT16_MIN;
+    if (source == NULL)
+    {
+        *feedback = value;
+        return YG_PROTOCOL_OK;
+    }
+    value.fault_code = source->faults;
+    value.motor_state = source->state;
+    value.control_mode = source->mode;
+    if (!source->sample_available)
+    {
+        *feedback = value;
+        return YG_PROTOCOL_OK;
+    }
+    value.reference_position_mrad =
+        feedback_i32(source->sample.position_target, true, &value.valid_bits, 0U);
+    value.actual_position_mrad = feedback_i32(source->sample.position_feedback,
+                                              (source->measurement_valid_bits & 0x01U) != 0U,
+                                              &value.valid_bits,
+                                              1U);
+    value.reference_speed_mrad_s =
+        feedback_i32(source->sample.speed_target, true, &value.valid_bits, 2U);
+    value.actual_speed_mrad_s = feedback_i32(source->sample.speed_feedback,
+                                             (source->measurement_valid_bits & 0x02U) != 0U,
+                                             &value.valid_bits,
+                                             3U);
+    value.bus_voltage_cV = feedback_i16(source->sample.bus_voltage,
+                                        100.0,
+                                        (source->measurement_valid_bits & 0x10U) != 0U,
+                                        &value.valid_bits,
+                                        4U);
+    value.bus_current_mA = feedback_i16(source->sample.bus_current,
+                                        1000.0,
+                                        (source->measurement_valid_bits & 0x40U) != 0U,
+                                        &value.valid_bits,
+                                        5U);
+    value.reference_iq_mA =
+        feedback_i16(source->sample.current_reference, 1000.0, true, &value.valid_bits, 6U);
+    value.actual_iq_mA = feedback_i16(source->sample.current_feedback,
+                                      1000.0,
+                                      (source->measurement_valid_bits & 0x04U) != 0U,
+                                      &value.valid_bits,
+                                      7U);
+    value.mcu_temperature_centi_c = feedback_i16(source->sample.temperature,
+                                                 100.0,
+                                                 (source->measurement_valid_bits & 0x20U) != 0U,
+                                                 &value.valid_bits,
+                                                 8U);
+    *feedback = value;
     return YG_PROTOCOL_OK;
 }
 

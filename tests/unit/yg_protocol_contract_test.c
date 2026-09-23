@@ -150,6 +150,30 @@ static void numeric_boundaries(void)
     assert(state.boot_id == 0x12345678U);
 }
 
+static void full_feedback_snapshot(void)
+{
+    yg_protocol_motor_status_source_t source = status_source();
+    yg_protocol_motor_feedback_t feedback;
+    source.sample.position_target = 1.0F;
+    source.sample.speed_target = 2.0F;
+    source.sample.current_reference = 3.0F;
+    source.faults = 4U;
+    source.mode = 3U;
+    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 1U, 41U, &feedback) ==
+           YG_PROTOCOL_OK);
+    assert(feedback.result == 1U && feedback.correlated_seq == 41U && feedback.fault_code == 4U &&
+           feedback.reference_position_mrad == 1000 && feedback.actual_position_mrad == 63 &&
+           feedback.reference_speed_mrad_s == 2000 && feedback.bus_voltage_cV == 2400 &&
+           feedback.reference_iq_mA == 3000 && feedback.actual_iq_mA == 1250 &&
+           feedback.valid_bits == 0x01FFU && feedback.motor_temperature_centi_c == INT16_MIN &&
+           feedback.v_q_mV == INT16_MIN);
+    source.sample_available = false;
+    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 6U, 42U, &feedback) ==
+           YG_PROTOCOL_OK);
+    assert(feedback.valid_bits == 0U && feedback.actual_position_mrad == INT32_MIN &&
+           feedback.fault_code == 4U && feedback.correlated_seq == 42U);
+}
+
 static void full_feedback_vector(void)
 {
     yg_protocol_motor_feedback_t feedback = {
@@ -358,6 +382,7 @@ void yg_protocol_contract_test(void)
 {
     service_boundaries();
     numeric_boundaries();
+    full_feedback_snapshot();
     full_feedback_vector();
     motor_command_vectors();
     endpoint_round_trip();

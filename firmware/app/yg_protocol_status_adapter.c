@@ -67,6 +67,8 @@ static uint8_t protocol_mode(ModeNow_TypeDef mode)
         return 3U;
     case Position_Impedance_Mode:
         return 4U;
+    case Vq_Mode:
+        return 6U;
     case Calib_EncoderOffset:
     case Calib_CurrentOffset:
     case Calib_Anticogging:
@@ -87,22 +89,24 @@ static uint8_t protocol_state(AppLifecycleState state, uint8_t mode)
     switch (state)
     {
     case APP_BOOT:
-    case APP_SELF_TEST:
         return 0U;
+    case APP_SELF_TEST:
+        return 3U;
     case APP_READY:
-        return 1U;
+        return 5U;
     case APP_STARTING:
         return 2U;
     case APP_RUNNING:
-        return 3U;
+        return 6U;
     case APP_STOPPING:
-        return 4U;
+        return 7U;
     case APP_MAINTENANCE:
-        return mode == 7U || mode == 8U ? 3U : 1U;
+        return mode == 7U || mode == 8U ? 4U : 5U;
     case APP_FAULT:
+        return 8U;
     case APP_FATAL:
     default:
-        return 5U;
+        return 9U;
     }
 }
 
@@ -162,7 +166,7 @@ void YgProtocolStatusAdapter_Refresh(void)
     source.faults = fault_bits(MotorControl.ErrorNow);
     source.mode = protocol_mode(MotorControl.ModeNow);
     source.state = MotorControl.ErrorNow != No_Error
-                       ? 5U
+                       ? 8U
                        : protocol_state(FocRunState_GetState(), source.mode);
     source.last_applied_sequence = 0U;
     source.measurement_valid_bits = 0x54U;

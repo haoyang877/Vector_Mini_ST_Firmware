@@ -51,4 +51,11 @@ void FocRunState_Tick(void);
  */
 AppLifecycleState FocRunState_GetState(void);
 
+/**
+ * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。
+ * @return 请求已登记返回 true；不表示功率输出已经关闭。
+ * @note 与监督中断通过短临界区交接；故障快车道仍可优先关断。
+ */
+bool FocRunState_RequestRemoteStop(void);
+
 #endif

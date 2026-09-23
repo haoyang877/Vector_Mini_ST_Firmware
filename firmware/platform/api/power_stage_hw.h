@@ -1,6 +1,8 @@
 #ifndef POWER_STAGE_HW_H
 #define POWER_STAGE_HW_H
 
+#include <stdbool.h>
+
 /* 功率级输出契约：停止与恢复六路互补 PWM 输出，不暴露定时器句柄或寄存器。
  * 调用方包含故障处理与 20 kHz 快速环，因此实现必须非阻塞且可在中断上下文调用。
  * 停止/恢复只切换输出使能，比较寄存器与占空比保持不变。 */
@@ -17,5 +19,12 @@ void power_stage_hw_stop(void);
  * @note 可在中断上下文调用；顺序与停止对称。
  */
 void power_stage_hw_start(void);
+
+/**
+ * @brief 检查三相六路输出使能位是否全部关闭。
+ * @return 三相主/互补输出均关闭返回 true，否则返回 false。
+ * @note 仅作软件侧关相证据；栅极驱动与实际相电压仍需台架验证。
+ */
+bool power_stage_hw_phases_disabled(void);
 
 #endif

@@ -432,6 +432,14 @@ AppLifecycleState FocRunState_GetState(void)
     return lifecycle.snapshot.state;
 }
 
+bool FocRunState_RequestRemoteStop(void)
+{
+    uint32_t state = critical_hw_enter();
+    MotorControl.ModeNow = Motor_Disable;
+    critical_hw_exit(state);
+    return true;
+}
+
 void FocRunState_CheckFastFaults(void)
 {
     if (Encoder_FeedbackRequired(&MotorControl) &&

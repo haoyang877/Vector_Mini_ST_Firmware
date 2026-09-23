@@ -513,12 +513,10 @@ def board_orchestration_fixture():
 #include <stdio.h>
 static int order[8];
 static int order_len;
-static bool configured;
 static bool board_start_argument;
 static void log_step(int step) { order[order_len++] = step; }
 static void param_store_load(void) { log_step(2); }
 static void MotorControl_Init(void) { log_step(3); }
-static bool MotorControl_IsConfigurationValid(void) { return configured; }
 static void board_hw_start(bool motor_phases_enabled) {
     log_step(4);
     board_start_argument = motor_phases_enabled;
@@ -527,20 +525,20 @@ static unsigned Protocol_NodeId_Get(void) { return 1U; }
 static bool protocol_ready = true;
 static bool YgProtocolRuntime_Init(unsigned node) { assert(node == 1U); log_step(5); return protocol_ready; }
 static bool YgProtocolStatusAdapter_Init(void) { return protocol_ready; }
+static bool bind_motor_stop(void) { log_step(7); return protocol_ready; }
 static void power_stage_hw_stop(void) { log_step(6); }
 """
         + function_source(source, "Board_Init")
         + r"""
 int main(void) {
-    static const int expected[] = {2, 3, 4, 5};
+    static const int expected[] = {2, 3, 4, 5, 7};
     int index;
     Board_Init();
-    assert(order_len == 4 && !board_start_argument);
-    for (index = 0; index < 4; ++index) assert(order[index] == expected[index]);
-    configured = true;
+    assert(order_len == 5 && !board_start_argument);
+    for (index = 0; index < 5; ++index) assert(order[index] == expected[index]);
     order_len = 0;
     Board_Init();
-    assert(order_len == 4 && board_start_argument);
+    assert(order_len == 5 && !board_start_argument);
     protocol_ready = false;
     order_len = 0;
     Board_Init();

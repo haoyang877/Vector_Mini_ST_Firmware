@@ -169,7 +169,7 @@ static yg_protocol_result_t handle_motor_enable(void *context,
                                                 yg_protocol_service_result_t *result)
 {
     yg_protocol_link_context_t *link = context;
-    yg_protocol_motor_request_t command = {0};
+    yg_protocol_motor_request_t command = {.operation = YG_PROTOCOL_MOTOR_STOP};
     yg_protocol_service_reply_t reply;
     yg_protocol_result_t decoded;
     bool enabled;

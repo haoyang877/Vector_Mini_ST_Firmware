@@ -26,7 +26,7 @@ def main():
             continue
         log = log_dir / (name + ".log")
         result = subprocess.run(
-            [args.uv4, "-r", str(KEIL / (name + ".uvprojx")), "-j0", "-o", str(log)], cwd=KEIL
+            [args.uv4, "-r", str(KEIL / (name + ".uvprojx")), "-j1", "-o", str(log)], cwd=KEIL
         )
         text = log.read_text(errors="replace") if log.exists() else ""
         print("\n".join(text.splitlines()[-6:]))

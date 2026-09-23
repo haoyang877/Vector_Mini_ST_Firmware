@@ -37,7 +37,7 @@ yg_protocol_result_t yg_protocol_motor_decode_enable(const yg_protocol_message_t
 yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_t *message,
                                                       yg_protocol_motor_request_t *request)
 {
-    yg_protocol_motor_request_t decoded = {0};
+    yg_protocol_motor_request_t decoded = {.operation = YG_PROTOCOL_MOTOR_STOP};
     const uint8_t *payload;
     if (message == NULL || request == NULL)
     {

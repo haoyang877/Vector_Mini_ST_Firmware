@@ -24,6 +24,7 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [电机装配/启动参数归位 motor 层 v1.0](2026-09-20-motor-profile-relocation.md)：拆分 `control_config.h`——时基/采样率留 platform/api，阻尼环装配选择与无感启动/编码器标定默认值归 `motor`（`motor_hardware_profile.h`、`motor_startup_profile.h`）；宏名与取值不变。**已实施，PR 档全绿；Keil/release 待提交后执行**。
 - [公司 CAN FD 通信协议框架重构 v1.1](2026-09-20-company-canfd-protocol-migration.md)：先搭建协议核心、CAN FD 传输、命令网关和服务边界，再分阶段接入电机控制、反馈、参数、升级和 5 轴 1 kHz 同步；当前框架和只读链路已实现，实时电机行为仍待接线与实机验收。
 - [通信协议确认记录 2026-09-22](2026-09-22-communication-decision-record.md)：冻结公司帧、节点、1 Mbit/s / 5 Mbit/s、1 kHz、超时重试、参数/标定/升级范围和剩余六项输入。
+- [yg_protocol 业务重构实施方案 v0.1](2026-09-23-yg-protocol-business-implementation.md)：基于候选 Type 表分阶段接入安全停机、单轴控制/反馈、参数/标定、五轴 1 kHz 和升级；当前待评估，未启动业务代码变更。
 - [电机通信协议重构技术实现规范 v1.0](../../architecture/communication_protocol_refactor_spec_v1.md)：供 AI 和开发者执行重构的顶层规范，统一来源层级、目标架构、程序流、硬件解耦、文件边界、迁移阶段和验收规则。
 - [yg_protocol 模块开发交接单 v0.1](2026-09-21-yg-protocol-module-handoff.md)：共同基线、业务所有者分工、文件所有权、可复制任务模板和集成验收；第一轮 DeepSeek v4.1-flash 并行开发已完成电机 STOP/DISABLE 适配器与参数只读适配器，分片可靠性任务待审。
 - [电机 STOP/DISABLE 适配器第一步 v0.1](2026-09-21-yg-motor-adapter.md)：通过窄停机所有者接口实现幂等、异步确认和拒绝语义；尚未接入真实 FocRunState/CAN 入口。

@@ -36,3 +36,5 @@ Motor payload design: [yg_protocol 电机控制、参数与反馈 Payload 细化
 
 Current motor redesign proposal: [yg_protocol 简化电调协议 v0.1](protocols/yg_protocol_simplified_motor_v0_1.md)
 and its [implementation decision](plans/active/2026-09-23-yg-protocol-simplification.md).
+
+CMD ID audit before implementation: [yg_protocol CMD ID 核对表 v0.1](protocols/yg_protocol_cmd_id_review_v0_1.md).

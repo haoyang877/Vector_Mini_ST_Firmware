@@ -337,7 +337,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx</Define>
+              <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U</Define>
               <Undefine></Undefine>
               <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
             </VariousControls>

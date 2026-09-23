@@ -29,3 +29,5 @@ and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
 Communication layering: [通信分层说明（CAN 接入）](architecture/communication_layering.md).
 
 CAN FD link smoke test: [yg_protocol CAN FD 硬件连通性冒烟测试 v0.1](protocols/yg_protocol_link_smoke_test_v0_1.md).
+
+Business type allocation proposal: [yg_protocol 业务 Type 分配提案 v0.3](protocols/yg_protocol_business_type_allocation_v0_3.md).

@@ -9,7 +9,8 @@
 
 #define YG_PROTOCOL_MOTOR_MEASUREMENT_MASK 0x77U
 #define YG_PROTOCOL_MOTOR_RESPONSE_SIZE 46U
-#define YG_PROTOCOL_MOTION_PAYLOAD_SIZE 8U
+#define YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE 45U
+#define YG_PROTOCOL_MOTOR_FEEDBACK_VALID_MASK 0x0FFFU
 
 /**
  * @brief 调用方拥有的只读快照与线上元数据，不含硬件句柄。
@@ -33,6 +34,34 @@ typedef struct
 } yg_protocol_motor_status_source_t;
 
 /**
+ * @brief 飞书状态反馈字段的固定单位值对象；结构体内存布局不是线路布局。
+ * @note result/关联序号由控制事务提供，valid_bits 的位 0～11 对应十二个测量量。
+ *       无效测量由所有者填入对应整数最小值，编码器只写入这些显式值。
+ */
+typedef struct
+{
+    uint16_t result;
+    uint16_t correlated_seq;
+    uint32_t fault_code;
+    int32_t reference_position_mrad;
+    int32_t actual_position_mrad;
+    int32_t reference_speed_mrad_s;
+    int32_t actual_speed_mrad_s;
+    uint16_t valid_bits;
+    int16_t bus_voltage_cV;
+    int16_t bus_current_mA;
+    int16_t reference_iq_mA;
+    int16_t actual_iq_mA;
+    int16_t mcu_temperature_centi_c;
+    int16_t motor_temperature_centi_c;
+    int16_t v_q_mV;
+    int16_t v_d_mV;
+    uint8_t node_id;
+    uint8_t motor_state;
+    uint8_t control_mode;
+} yg_protocol_motor_feedback_t;
+
+/**
  * @brief 将现有 SI 测量副本转换为详细状态值对象。
  * @param source 调用方提供的稳定快照及已映射的线上元数据。
  * @param state 输出状态，失败保持不变。
@@ -44,15 +73,16 @@ yg_protocol_motor_status_convert(const yg_protocol_motor_status_source_t *source
                                  yg_protocol_readonly_motor_state_t *state);
 
 /**
- * @brief 将同一快照编码为 8B 位置/速度/Iq 合并反馈。
- * @param source 调用方提供的稳定快照及已映射元数据。
+ * @brief 将飞书全量状态值编码为 45B 的 124 反馈 payload。
+ * @param feedback 调用方提供的稳定、已缩放状态值；返回后不保留指针。
  * @param payload 输出缓冲区，失败保持不变。
- * @param capacity 缓冲区容量，至少 8 字节。
+ * @param capacity 缓冲区容量，至少 45 字节。
  * @return 编码结果。
- * @note 小端 i32/i16/i16，单位 mrad、mrad/s、mA；本函数不调度也不发送帧。
+ * @note 小端逐字段编码；本函数不调度也不发送帧。具体单位见反馈契约 v0.2。
  */
-yg_protocol_result_t yg_protocol_motor_feedback_encode(
-    const yg_protocol_motor_status_source_t *source, uint8_t *payload, size_t capacity);
+yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_feedback_t *feedback,
+                                                       uint8_t *payload,
+                                                       size_t capacity);
 
 /**
  * @brief 为只读服务提供 GET_MOTOR_STATE 的完整 R+32B 响应。

@@ -126,11 +126,6 @@ static void numeric_boundaries(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
     yg_protocol_readonly_motor_state_t state;
-    uint8_t feedback[8];
-    static const uint8_t golden[] = {0x3F, 0, 0, 0, 0xC1, 0xFF, 0xE2, 0x04};
-    assert(yg_protocol_motor_feedback_encode(&source, feedback, sizeof(feedback)) ==
-           YG_PROTOCOL_OK);
-    assert(memcmp(feedback, golden, sizeof(golden)) == 0);
     source.sample.position_feedback = NAN;
     source.sample.speed_feedback = INFINITY;
     source.sample.current_feedback = -INFINITY;
@@ -146,10 +141,6 @@ static void numeric_boundaries(void)
     source.sample.position_feedback = 2147483.75F;
     source.sample.speed_feedback = 32.767F;
     source.sample.current_feedback = -32.768F;
-    assert(yg_protocol_motor_feedback_encode(&source, feedback, sizeof(feedback)) ==
-           YG_PROTOCOL_OK);
-    assert(feedback[3] == 0x80U && feedback[4] == 0xFFU && feedback[5] == 0x7FU);
-    assert(feedback[6] == 0U && feedback[7] == 0x80U);
     source.measurement_valid_bits = 0U;
     assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_OK &&
            state.valid_bits == 0U);
@@ -157,6 +148,60 @@ static void numeric_boundaries(void)
     state.boot_id = 0x12345678U;
     assert(yg_protocol_motor_status_convert(&source, &state) == YG_PROTOCOL_INVALID_FIELD);
     assert(state.boot_id == 0x12345678U);
+}
+
+static void full_feedback_vector(void)
+{
+    yg_protocol_motor_feedback_t feedback = {
+        .result = 0U,
+        .correlated_seq = 0x1234U,
+        .fault_code = 0x01020304U,
+        .reference_position_mrad = 1000,
+        .actual_position_mrad = -2000,
+        .reference_speed_mrad_s = 3000,
+        .actual_speed_mrad_s = -4000,
+        .valid_bits = 0x0DFFU,
+        .bus_voltage_cV = 2400,
+        .bus_current_mA = 1500,
+        .reference_iq_mA = -1200,
+        .actual_iq_mA = 1100,
+        .mcu_temperature_centi_c = 2534,
+        .motor_temperature_centi_c = INT16_MIN,
+        .v_q_mV = 5000,
+        .v_d_mV = -250,
+        .node_id = 3U,
+        .motor_state = 6U,
+        .control_mode = 3U,
+    };
+    uint8_t encoded[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE] = {0};
+    static const uint8_t golden[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE] = {
+        0x00, 0x00, 0x34, 0x12, 0x04, 0x03, 0x02, 0x01, 0xE8, 0x03, 0x00, 0x00, 0x30, 0xF8, 0xFF,
+        0xFF, 0xB8, 0x0B, 0x00, 0x00, 0x60, 0xF0, 0xFF, 0xFF, 0xFF, 0x0D, 0x60, 0x09, 0xDC, 0x05,
+        0x50, 0xFB, 0x4C, 0x04, 0xE6, 0x09, 0x00, 0x80, 0x88, 0x13, 0x06, 0xFF, 0x03, 0x06, 0x03,
+    };
+    assert(yg_protocol_motor_feedback_encode(&feedback, encoded, sizeof(encoded)) ==
+           YG_PROTOCOL_OK);
+    assert(memcmp(encoded, golden, sizeof(golden)) == 0);
+    yg_protocol_message_t message = {
+        YG_PROTOCOL_VERSION, 0U, 3U, 2U, 124U, 7U, sizeof(encoded), 0U, encoded};
+    yg_protocol_transfer_frame_t frame;
+    yg_protocol_message_t decoded;
+    assert(yg_protocol_canfd_pack(&message, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x0CEF0203U && frame.length == 64U && frame.data[63] == 0U);
+    assert(yg_protocol_canfd_unpack(&frame, 2U, &decoded) == YG_PROTOCOL_OK);
+    assert(decoded.message_type == 124U && decoded.sequence == 7U &&
+           decoded.payload_length == sizeof(golden) &&
+           memcmp(decoded.payload, golden, sizeof(golden)) == 0);
+    memset(encoded, 0xA5, sizeof(encoded));
+    assert(yg_protocol_motor_feedback_encode(&feedback, encoded, sizeof(encoded) - 1U) ==
+           YG_PROTOCOL_BUFFER_TOO_SMALL);
+    for (size_t index = 0U; index < sizeof(encoded); ++index)
+    {
+        assert(encoded[index] == 0xA5U);
+    }
+    feedback.valid_bits = 0x1000U;
+    assert(yg_protocol_motor_feedback_encode(&feedback, encoded, sizeof(encoded)) ==
+           YG_PROTOCOL_INVALID_FIELD);
 }
 
 static void endpoint_round_trip(void)
@@ -259,5 +304,6 @@ void yg_protocol_contract_test(void)
 {
     service_boundaries();
     numeric_boundaries();
+    full_feedback_vector();
     endpoint_round_trip();
 }

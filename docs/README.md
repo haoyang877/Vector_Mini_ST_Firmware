@@ -40,3 +40,5 @@ and its [implementation decision](plans/active/2026-09-23-yg-protocol-simplifica
 CMD ID audit before implementation: [yg_protocol CMD ID 核对表 v0.1](protocols/yg_protocol_cmd_id_review_v0_1.md).
 
 CMD behavior review: [yg_protocol CMD 功能契约 v0.1](protocols/yg_protocol_cmd_function_contract_v0_1.md).
+
+Per-command motor feedback revision: [电机逐命令反馈契约 v0.2](protocols/yg_protocol_motor_feedback_v0_2.md).

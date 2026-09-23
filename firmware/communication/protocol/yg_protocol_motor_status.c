@@ -116,32 +116,44 @@ yg_protocol_motor_status_convert(const yg_protocol_motor_status_source_t *source
     return YG_PROTOCOL_OK;
 }
 
-yg_protocol_result_t yg_protocol_motor_feedback_encode(
-    const yg_protocol_motor_status_source_t *source, uint8_t *payload, size_t capacity)
+yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_feedback_t *feedback,
+                                                       uint8_t *payload,
+                                                       size_t capacity)
 {
-    yg_protocol_readonly_motor_state_t state;
-    yg_protocol_result_t result;
-    int16_t speed_mrad_s, iq_mA;
-    if (payload == NULL)
+    uint8_t encoded[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
+    if (feedback == NULL || payload == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    if (capacity < YG_PROTOCOL_MOTION_PAYLOAD_SIZE)
+    if (capacity < YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE)
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
-    result = yg_protocol_motor_status_convert(source, &state);
-    if (result != YG_PROTOCOL_OK)
+    if ((feedback->valid_bits & ~YG_PROTOCOL_MOTOR_FEEDBACK_VALID_MASK) != 0U ||
+        feedback->node_id == 0U || feedback->node_id == YG_PROTOCOL_BROADCAST_NODE_ID)
     {
-        return result;
+        return YG_PROTOCOL_INVALID_FIELD;
     }
-    speed_mrad_s = state.speed_mrad_s < -INT16_MAX || state.speed_mrad_s > INT16_MAX
-                       ? INT16_MIN
-                       : (int16_t)state.speed_mrad_s;
-    iq_mA = state.iq_mA < -INT16_MAX || state.iq_mA > INT16_MAX ? INT16_MIN : (int16_t)state.iq_mA;
-    write_u32(payload, (uint32_t)state.position_mrad);
-    write_u16(payload + 4U, (uint16_t)speed_mrad_s);
-    write_u16(payload + 6U, (uint16_t)iq_mA);
+    write_u16(encoded, feedback->result);
+    write_u16(encoded + 2U, feedback->correlated_seq);
+    write_u32(encoded + 4U, feedback->fault_code);
+    write_u32(encoded + 8U, (uint32_t)feedback->reference_position_mrad);
+    write_u32(encoded + 12U, (uint32_t)feedback->actual_position_mrad);
+    write_u32(encoded + 16U, (uint32_t)feedback->reference_speed_mrad_s);
+    write_u32(encoded + 20U, (uint32_t)feedback->actual_speed_mrad_s);
+    write_u16(encoded + 24U, feedback->valid_bits);
+    write_u16(encoded + 26U, (uint16_t)feedback->bus_voltage_cV);
+    write_u16(encoded + 28U, (uint16_t)feedback->bus_current_mA);
+    write_u16(encoded + 30U, (uint16_t)feedback->reference_iq_mA);
+    write_u16(encoded + 32U, (uint16_t)feedback->actual_iq_mA);
+    write_u16(encoded + 34U, (uint16_t)feedback->mcu_temperature_centi_c);
+    write_u16(encoded + 36U, (uint16_t)feedback->motor_temperature_centi_c);
+    write_u16(encoded + 38U, (uint16_t)feedback->v_q_mV);
+    write_u16(encoded + 40U, (uint16_t)feedback->v_d_mV);
+    encoded[42] = feedback->node_id;
+    encoded[43] = feedback->motor_state;
+    encoded[44] = feedback->control_mode;
+    memcpy(payload, encoded, sizeof(encoded));
     return YG_PROTOCOL_OK;
 }
 

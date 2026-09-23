@@ -1,6 +1,6 @@
 # yg_protocol 简化电调协议 v0.1（设计提案）
 
-日期：2026-09-23。状态：**依据飞书《电调通信协议》重拟，尚未成为线上 ABI，固件未实现本文控制命令**。本文件替代此前[业务 Type 分配 v0.3](yg_protocol_business_type_allocation_v0_3.md)和[电机 Payload v0.1](yg_protocol_motor_payload_design_v0_1.md)中的**电机启动/控制流程提案**；旧文件保留为历史方案，不作为新功能接线依据。
+日期：2026-09-23。状态：**依据飞书《电调通信协议》重拟，尚未成为线上 ABI，固件未实现本文控制命令**。本文件替代此前[业务 Type 分配 v0.3](yg_protocol_business_type_allocation_v0_3.md)和[电机 Payload v0.1](yg_protocol_motor_payload_design_v0_1.md)中的**电机启动/控制流程提案**；旧文件保留为历史方案，不作为新功能接线依据。**本文第 5 节的 12B/仅周期 124 反馈设想已由[逐命令反馈契约 v0.2](yg_protocol_motor_feedback_v0_2.md)替代。**
 
 ## 1. 原文、项目约束和边界
 
@@ -23,7 +23,7 @@
 | 101 | SET_ENABLE | P | `enable=1` 默认进入 mode 5 三相低侧导通；`enable=0` 进入 mode 0 失能 |
 | 116 | SET_CONTROL | P | 一条消息同时选模式和设置该模式目标；不得隐式使能 |
 | 108 | GET_MOTOR_STATE | R，但当前请求/回复格式不同 | 按需读取完整状态、故障和诊断量 |
-| 124 | MOTOR_FEEDBACK | D，当前仅有 8B 编码 | 单轴周期反馈；拟补应用序号和状态摘要 |
+| 124 | MOTOR_FEEDBACK | 已有 45B 离线编码器，尚未发送 | 单轴每条 116 后一条飞书字段全量反馈，见[反馈 v0.2](yg_protocol_motor_feedback_v0_2.md) |
 | 110 | MOTOR_STOP | R，执行服务未绑定 | 故障/紧急停止入口；普通退出使用 101 失能 |
 | 193 / 125 | GROUP_POSITION / GROUP_FEEDBACK | P | 五轴 1 kHz 同步目标与每轴 1 kHz 反馈的专用扩展 |
 
@@ -75,7 +75,7 @@
    ├────────────────────────────────────>│ 校验当前位置、限位和编码器；
    │                                     │ 从安全当前位置起步，交给位置环
    │<────────────────────────────────────┤ 同 type/seq 业务回复：OK 或 ACCEPTED
-   │<─────────124 payload.applied_seq=41──┤ 实际位置、速度、Iq、状态/故障摘要
+   │<─────────124 correlated_seq=41───────┤ 全量状态：参考/实际位置、速度、Iq 等飞书字段
    │ 101 SET_ENABLE(enable=0)           │
    ├────────────────────────────────────>│ 停止并禁止输出，确认后回复
 ```
@@ -86,7 +86,7 @@
 
 ## 5. 反馈、同步和升级仍保持明确边界
 
-当前 108 使用 8B 的 `session_id/request_id` 请求，成功回复为 12B 前缀加 34B 状态；当前 124 仅能编码 `position:i32 + speed:i16 + iq:i16`，尚未周期发送。简化版目标是：108 空 payload 查询、回复 `result/detail` 4B 加已有 34B 状态；124 的 8B 测量后补 `applied_seq:u16 + state_mode:u8 + fault_summary:u8`，合计 12B，完整公司帧 30B、CAN FD 数据区 32B。124 的公司头 `seq_id` 仍是反馈发送流序号，**目标应用序号只在 payload.applied_seq**。这样主机不再为应用确认额外查询 112。该改动是线上 ABI 变更，必须同主机、黄金向量和测试一起实施。
+当前 108 使用 8B 的 `session_id/request_id` 请求，成功回复为 12B 前缀加 34B 状态。简化版目标是 108 空 payload 查询；**124 已按[反馈 v0.2](yg_protocol_motor_feedback_v0_2.md)改为 45B 飞书全量字段候选**，每条 116 有同 Type 业务回复及一条关联 124。124 的公司头 `seq_id` 仍是反馈发送流序号，payload 的 `correlated_seq` 对应控制命令。该改动是线上 ABI 变更，必须同主机、黄金向量和测试一起实施；目前固件只有离线编码器，尚未发送 124。
 
 五轴每轴 1 kHz 不能由每周期五条 116 加五条反馈直接推断可行。原[同步方案](canfd_1khz_sync_design_proposal.md)的单路 1M/5M 组目标＋五帧反馈估算已占约 84% 周期；本版保留一条 193 广播五轴未来位置和每轴一条 125 同步反馈，但不把先前提案的 180～194 全部管理命令当作启动必需项。节点顺序、时钟质量、缺包动作与物理同步误差仍需单独定版和实测。
 

@@ -1,6 +1,6 @@
 # yg_protocol CMD ID 核对表 v0.1
 
-日期：2026-09-23。状态：**待公司消息类型表登记及项目评审；此表不授权修改控制固件**。本文用于在实现[简化电调协议](yg_protocol_simplified_motor_v0_1.md)前冻结业务 `type:u16`。CMD ID 是公司应用帧头偏移 6～7 的 `type`，不是 29 位 CAN ID、`mode`、参数 ID、标定子类型或结果码。所有 Type 十六进制按小端序发送，例如 `116 / 0x0074` 在线上为 `74 00`。
+日期：2026-09-23。状态：**待公司消息类型表登记及项目评审；此表不授权修改控制固件**。本文用于在实现[简化电调协议](yg_protocol_simplified_motor_v0_1.md)前冻结业务 `type:u16`。CMD ID 是公司应用帧头偏移 6～7 的 `type`，不是 29 位 CAN ID、`mode`、参数 ID、标定子类型或结果码。所有 Type 十六进制按小端序发送，例如 `116 / 0x0074` 在线上为 `74 00`。**124 的反馈字段与触发时机已更新，见[逐命令反馈契约 v0.2](yg_protocol_motor_feedback_v0_2.md)。**
 
 ## 1. 三份证据及其权限
 
@@ -36,7 +36,7 @@
 | 121 / 0x0079 | WRITE_PARAM | 电机参数 | 后续 | 仅写运行态；未注册 |
 | 122 / 0x007A | SAVE_PARAM | 电机参数 | 后续 | 显式持久化；未注册 |
 | 123 / 0x007B | GET_PARAM_SCHEMA | 电机参数 | 条件保留 | 主机需要动态参数表时才实现；未注册 |
-| 124 / 0x007C | MOTOR_FEEDBACK | 电机反馈 | 首批 | 已有 8B 编码，无周期发送；简化版拟扩成 12B |
+| 124 / 0x007C | MOTOR_FEEDBACK | 电机反馈 | 首批 | 已有 45B 全量字段离线编码器，尚无逐命令发送；旧 8B/12B 提案已由反馈 v0.2 替代 |
 | 125 / 0x007D | GROUP_FEEDBACK | 电机反馈 | 五轴阶段 | 每轴 1 kHz 反馈；未注册 |
 | 160 / 0x00A0 | CALIBRATION_START | 电机标定 | 后续 | payload 的 `task_kind` 选择具体标定；旧候选 TASK_START 未注册 |
 | 161 / 0x00A1 | CALIBRATION_STATUS | 电机标定 | 后续 | 读取 token、进度、最终状态；旧候选 TASK_ABORT 未注册 |

@@ -273,9 +273,6 @@ static void motor_status_adapter(void)
     assert(state.position_mrad == 1235 && state.speed_mrad_s == -40000 && state.iq_mA == 1200);
     assert(state.bus_mV == 24000U && state.bus_mA == 1500 && state.temperature_centi_c == 2525);
     assert(state.valid_bits == (YG_PROTOCOL_MOTOR_MEASUREMENT_MASK | 0x08U));
-    assert(yg_protocol_motor_feedback_encode(&source, payload, 8U) == YG_PROTOCOL_OK);
-    assert(payload[0] == 0xD3U && payload[1] == 0x04U && payload[4] == 0x00U &&
-           payload[5] == 0x80U);
     memset(payload, 0, sizeof(payload));
     for (size_t index = 0U; index < 8U; ++index)
     {

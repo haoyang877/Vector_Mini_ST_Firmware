@@ -17,6 +17,8 @@ static bool FOC_SetVoltageModulation(FOC_TypeDef *FOC, float voltage_d, float vo
         FOC->mod_d = 0.0f;
         FOC->mod_q = 0.0f;
         FOC->duty = 0.0f;
+        FOC->Vd = 0.0f;
+        FOC->Vq = 0.0f;
         return false;
     }
 
@@ -332,6 +334,9 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
 
         PI_Controller_TrackOutput(&FOC->id_pi, FOC->mod_d * FOC->Vbus_filt / 1.5f);
         PI_Controller_TrackOutput(&FOC->iq_pi, FOC->mod_q * FOC->Vbus_filt / 1.5f);
+        /* 实际 d/q 电压(V)：由标幺调制量还原（与上面的抗饱和关系一致），供遥测/诊断消费。 */
+        FOC->Vd = FOC->mod_d * FOC->Vbus_filt / 1.5f;
+        FOC->Vq = FOC->mod_q * FOC->Vbus_filt / 1.5f;
     }
     else
     {
@@ -339,6 +344,8 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
         FOC->mod_d = 0.0f;
         FOC->mod_q = 0.0f;
         FOC->duty = 0.0f;
+        FOC->Vd = 0.0f;
+        FOC->Vq = 0.0f;
     }
 
     Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase + phase_vel * Current_Ts, &FOC->mod_alpha, &FOC->mod_beta);
@@ -395,6 +402,8 @@ void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
         FOC->mod_d = 0.0f;
         FOC->mod_q = 0.0f;
         FOC->duty = 0.0f;
+        FOC->Vd = 0.0f;
+        FOC->Vq = 0.0f;
     }
 
     Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase + phase_vel * Current_Ts, &FOC->mod_alpha, &FOC->mod_beta);

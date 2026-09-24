@@ -69,7 +69,9 @@ Revision: $Rev: 9599 $
 
 #include "SEGGER_RTT_Conf.h"
 
-extern unsigned char bRttBuf[2048];
+#define RTT_BUF_LEN 4096
+
+extern unsigned char bRttBuf[RTT_BUF_LEN];
 
 /*********************************************************************
 *

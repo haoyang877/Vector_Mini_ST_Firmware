@@ -10,8 +10,6 @@
 #define ENC_SPI_XFER_SPIN_MAX 340U
 #endif
 
-#define ENCODER_VELOCITY_ZERO_THRESHOLD_Q15 8
-
 static void Encoder_MarkReadStatus(Encoder_TypeDef *encoder, Encoder_ReadStatus status)
 {
 	encoder->read_status = status;
@@ -171,16 +169,21 @@ static uint16_t Encoder_ApplyLinearizationQ15(const Encoder_TypeDef *encoder, ui
 
 void Encoder_ResetVelocity(Encoder_TypeDef *encoder)
 {
-	memset(encoder->velocity_delta_history, 0, sizeof(encoder->velocity_delta_history));
-	encoder->velocity_divider = 0U;
-	encoder->velocity_history_index = 0U;
-	encoder->velocity_sample_count = 0U;
-	encoder->velocity_delta_sum = 0;
+	encoder->pll_theta_rad = 0.0f;
+	encoder->pll_omega_rad_s = 0.0f;
 	encoder->velocity_ready = false;
-	encoder->velocity_shadow_q15 = encoder->shadow_q15;
+	encoder->velocity_divider = 0U;
 	encoder->vel_mech = 0.0f;
 	encoder->vel_mech_continuous = 0.0f;
+	encoder->vel_mech_fast = 0.0f;
 	encoder->vel_elec = 0.0f;
+
+	memset(encoder->velocity_win4_delta_history, 0,
+		sizeof(encoder->velocity_win4_delta_history));
+	encoder->velocity_win4_index = 0U;
+	encoder->velocity_win4_sample_count = 0U;
+	encoder->velocity_win4_delta_sum = 0;
+	encoder->velocity_win4_ready = false;
 }
 
 void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
@@ -211,51 +214,135 @@ void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
 	__set_PRIMASK(primask);
 }
 
-static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *encoder, uint32_t pole_pairs)
+/* 20 kHz 快路径二阶角度跟踪观测器（PLL）：由线性化单圈角估计机械角速度。
+ * 输入：encoder（读 linearized_q15）、pole_pairs 极对数（调用方保证 >= 1）；仅有效帧调用。
+ * 输出：pll_theta_rad/pll_omega_rad_s/velocity_ready、vel_mech_continuous 与 vel_mech_fast
+ *       （PLL 下两者同值）、vel_mech（含软零速死区）、vel_elec。
+ * 首帧/重启（velocity_ready == false）以当前角初始化观测器，不产生速度冲击；之后在 [0,2π)
+ * 内部回绕估计角，误差不足半圈时单次 wrap 归位，角速度按上限限幅。
+ * 不写 theta_elec/theta_mech，也不触及多圈与标定量。
+ * 结束时维护快拍分频计数，供 Encoder_DidUpdateVelocity() 报告 2 kHz 慢拍边界。 */
+static void Encoder_UpdateVelocityPll(Encoder_TypeDef *encoder, uint32_t pole_pairs)
 {
-	int64_t delta64;
-	int32_t delta_q15;
+	float theta_meas = (float)encoder->linearized_q15 * (_2PI / (float)ENCODER_Q15_CPR);
+	float abs_omega = encoder->pll_omega_rad_s;
+	float blend;
+	float omega_n;
+	float kp;
+	float ki;
+	float err;
+	float vel;
+
+	/* 按速调度观测器带宽：低速 600 Hz（相位余量优先，允许更硬的转速环增益），
+	 * 高速 300 Hz（滤掉随速增长的与角度相关的周期误差），中间线性过渡。
+	 * 调度量取上一拍估计速度：自洽、不依赖外部反馈，且转速连续时无跳变。 */
+	if (abs_omega < 0.0f)
+		abs_omega = -abs_omega;
+	if (abs_omega <= ENCODER_PLL_SCHED_LOW_RAD_S)
+		blend = 0.0f;
+	else if (abs_omega >= ENCODER_PLL_SCHED_HIGH_RAD_S)
+		blend = 1.0f;
+	else
+		blend = (abs_omega - ENCODER_PLL_SCHED_LOW_RAD_S) /
+			(ENCODER_PLL_SCHED_HIGH_RAD_S - ENCODER_PLL_SCHED_LOW_RAD_S);
+	omega_n = _2PI * (ENCODER_PLL_OMEGA_N_LOW_SPEED_HZ +
+		(ENCODER_PLL_OMEGA_N_HIGH_SPEED_HZ - ENCODER_PLL_OMEGA_N_LOW_SPEED_HZ) * blend);
+	kp = 2.0f * ENCODER_PLL_ZETA * omega_n * Current_Ts;
+	ki = omega_n * omega_n * Current_Ts;
+
+	if (++encoder->velocity_divider >= SPEED_LOOP_DIVIDER)
+		encoder->velocity_divider = 0U;
+
+	if (!encoder->velocity_ready)
+	{
+		encoder->pll_theta_rad = theta_meas;
+		encoder->pll_omega_rad_s = 0.0f;
+		encoder->velocity_ready = true;
+		encoder->vel_mech = 0.0f;
+		encoder->vel_mech_continuous = 0.0f;
+		encoder->vel_mech_fast = 0.0f;
+		encoder->vel_elec = 0.0f;
+		return;
+	}
+
+	err = theta_meas - encoder->pll_theta_rad;
+
+	if (err > _PI)
+		err -= _2PI;
+	else if (err < -_PI)
+		err += _2PI;
+
+	encoder->pll_theta_rad += Current_Ts * encoder->pll_omega_rad_s + kp * err;
+	encoder->pll_omega_rad_s += ki * err;
+
+	if (encoder->pll_theta_rad > _2PI)
+		encoder->pll_theta_rad -= _2PI;
+	else if (encoder->pll_theta_rad < 0.0f)
+		encoder->pll_theta_rad += _2PI;
+
+	if (encoder->pll_omega_rad_s > ENCODER_PLL_OMEGA_MAX_RAD_S)
+		encoder->pll_omega_rad_s = ENCODER_PLL_OMEGA_MAX_RAD_S;
+	else if (encoder->pll_omega_rad_s < -ENCODER_PLL_OMEGA_MAX_RAD_S)
+		encoder->pll_omega_rad_s = -ENCODER_PLL_OMEGA_MAX_RAD_S;
+
+	vel = encoder->pll_omega_rad_s;
+	encoder->vel_mech_continuous = vel;
+	encoder->vel_mech_fast = vel;
+	if (vel < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S && vel > -ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S)
+		encoder->vel_mech = 0.0f;
+	else
+		encoder->vel_mech = vel;
+	encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
+}
+
+/* A/B 对照用：4 抽头/2 ms 短窗测速（旧短窗方案 A2）。
+ * 输入：encoder、pole_pairs、delta_q15 本拍位移增量（0.5 ms）；仅有效帧调用。
+ * 输出：覆盖 vel_mech_continuous/vel_mech（8 计数门限）/vel_mech_fast（1 计数门限）/vel_elec，
+ *       口径与旧短窗实现一致；仅在 ENCODER_VELOCITY_SOURCE 选中 WINDOW4 时被调用。
+ * 无模型、无预测：群延时 (TAPS-1)/2*Speed_Ts + 半拍 ≈ 0.75 ms。 */
+#if ENCODER_VELOCITY_SOURCE == ENCODER_VELOCITY_SOURCE_WINDOW4
+static void Encoder_UpdateVelocityWindow4(Encoder_TypeDef *encoder, uint32_t pole_pairs,
+	int32_t delta_q15)
+{
 	int32_t sum_abs;
 	float velocity_scale;
 
-	if (++encoder->velocity_divider < SPEED_LOOP_DIVIDER)
-		return;
-	encoder->velocity_divider = 0U;
+	encoder->velocity_win4_delta_sum -=
+		encoder->velocity_win4_delta_history[encoder->velocity_win4_index];
+	encoder->velocity_win4_delta_history[encoder->velocity_win4_index] = delta_q15;
+	encoder->velocity_win4_delta_sum += delta_q15;
+	encoder->velocity_win4_index =
+		(uint8_t)((encoder->velocity_win4_index + 1U) % ENCODER_VELOCITY_WINDOW4_TAPS);
+	if (encoder->velocity_win4_sample_count < ENCODER_VELOCITY_WINDOW4_TAPS)
+		encoder->velocity_win4_sample_count++;
+	encoder->velocity_win4_ready =
+		encoder->velocity_win4_sample_count == ENCODER_VELOCITY_WINDOW4_TAPS;
 
-	delta64 = encoder->shadow_q15 - encoder->velocity_shadow_q15;
-	encoder->velocity_shadow_q15 = encoder->shadow_q15;
-	if (delta64 > INT32_MAX)
-		delta_q15 = INT32_MAX;
-	else if (delta64 < INT32_MIN)
-		delta_q15 = INT32_MIN;
-	else
-		delta_q15 = (int32_t)delta64;
-
-	encoder->velocity_delta_sum -= encoder->velocity_delta_history[encoder->velocity_history_index];
-	encoder->velocity_delta_history[encoder->velocity_history_index] = delta_q15;
-	encoder->velocity_delta_sum += delta_q15;
-	encoder->velocity_history_index = (uint8_t)((encoder->velocity_history_index + 1U) % ENCODER_VELOCITY_WINDOW);
-	if (encoder->velocity_sample_count < ENCODER_VELOCITY_WINDOW)
-		encoder->velocity_sample_count++;
-	encoder->velocity_ready = encoder->velocity_sample_count == ENCODER_VELOCITY_WINDOW;
+	/* 4 个增量是连续 4 个 20 kHz 快拍（窗口 4*Current_Ts=200 µs），
+	 * 必须用 Current_Ts 归一化；用 Speed_Ts 会让分母大 10 倍、速度报小 10 倍。 */
 	velocity_scale = _2PI / ((float)ENCODER_Q15_CPR *
-		(float)ENCODER_VELOCITY_WINDOW * Speed_Ts);
-	encoder->vel_mech_continuous = encoder->velocity_ready ?
-		(float)encoder->velocity_delta_sum * velocity_scale : 0.0f;
+		(float)ENCODER_VELOCITY_WINDOW4_TAPS * Current_Ts);
+	encoder->vel_mech_continuous = encoder->velocity_win4_ready ?
+		(float)encoder->velocity_win4_delta_sum * velocity_scale : 0.0f;
 
-	sum_abs = encoder->velocity_delta_sum;
+	sum_abs = encoder->velocity_win4_delta_sum;
 	if (sum_abs < 0)
 		sum_abs = -sum_abs;
-	if (!encoder->velocity_ready || sum_abs <= ENCODER_VELOCITY_ZERO_THRESHOLD_Q15)
-	{
+	if (!encoder->velocity_win4_ready ||
+		sum_abs <= ENCODER_VELOCITY_WINDOW4_ZERO_THRESHOLD_Q15)
 		encoder->vel_mech = 0.0f;
-	}
 	else
-	{
 		encoder->vel_mech = encoder->vel_mech_continuous;
-	}
+
+	if (!encoder->velocity_win4_ready ||
+		sum_abs <= ENCODER_VELOCITY_WINDOW4_FAST_ZERO_THRESHOLD_Q15)
+		encoder->vel_mech_fast = 0.0f;
+	else
+		encoder->vel_mech_fast = encoder->vel_mech_continuous;
+
 	encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
 }
+#endif
 
 static void Encoder_UpdateAngles(Encoder_TypeDef *encoder, uint32_t pole_pairs)
 {
@@ -277,7 +364,6 @@ void Encoder_ParamInit(Encoder_TypeDef *encoder)
 	encoder->previous_linearized_q15 = 0U;
 	encoder->shadow_q15 = 0;
 	encoder->mechanical_zero_shadow_q15 = (int64_t)encoder->mechanical_zero_q15;
-	encoder->velocity_shadow_q15 = 0;
 	encoder->has_valid_sample = false;
 	encoder->theta_elec = 0.0f;
 	encoder->theta_mech = 0.0f;
@@ -382,7 +468,10 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef 
 
 	encoder->previous_linearized_q15 = linearized_q15;
 	encoder->shadow_q15 += delta_q15;
-	Encoder_UpdateVelocity2kHz(encoder, pole_pairs);
+	Encoder_UpdateVelocityPll(encoder, pole_pairs);
+#if ENCODER_VELOCITY_SOURCE == ENCODER_VELOCITY_SOURCE_WINDOW4
+	Encoder_UpdateVelocityWindow4(encoder, pole_pairs, delta_q15);
+#endif
 	Encoder_UpdateAngles(encoder, pole_pairs);
 }
 
@@ -411,6 +500,11 @@ float Encoder_GetMecVel(const Encoder_TypeDef *encoder)
 	return encoder->vel_mech;
 }
 
+float Encoder_GetMecVelFast(const Encoder_TypeDef *encoder)
+{
+	return encoder->vel_mech_fast;
+}
+
 float Encoder_GetMecVelContinuous(const Encoder_TypeDef *encoder)
 {
 	return encoder->vel_mech_continuous;
@@ -418,8 +512,10 @@ float Encoder_GetMecVelContinuous(const Encoder_TypeDef *encoder)
 
 bool Encoder_DidUpdateVelocity(const Encoder_TypeDef *encoder)
 {
-	return encoder->bad_frame_streak == 0U && encoder->velocity_sample_count > 0U &&
-		encoder->velocity_divider == 0U;
+	if (encoder->bad_frame_streak == 0U && encoder->velocity_ready && encoder->velocity_divider == 0U)
+		return true;
+
+	return false;
 }
 
 float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *encoder)

@@ -38,7 +38,8 @@
 #if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_SERVO
 #define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2i2i2i2i2"
 #elif RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
-#define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2"
+/* 精简档 11 路（22 B/帧）：Iq参考/Iq反馈/Id反馈/Vq/Vd/电角度/观测器电角度/观测器-编码器电角度差/Ia/Ib/Ic。 */
+#define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2i2i2i2"
 #else
 #error "Unsupported RTT_TELEMETRY_PROFILE"
 #endif
@@ -143,12 +144,18 @@
 #define SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S     5000.0f
 #define SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA         0.1042f
 
+/* 速度环速度反馈来源：1 = 使用 PLL 观测器输出（低延时，默认）；
+ * 0 = 使用 HEAD 的 16 抽头/8 ms 滑窗（旧估计器，用于 A/B 对比）。 */
+#ifndef SPEED_LOOP_USE_FAST_VELOCITY
+#define SPEED_LOOP_USE_FAST_VELOCITY                1U
+#endif
+
 /* Damping-ring dependent encoder calibration profile. */
 #define MOTOR_DAMPING_RING_DISABLED                         0U
 #define MOTOR_DAMPING_RING_ENABLED                          1U
 #ifndef MOTOR_HAS_DAMPING_RING
-/* Current motor carries the 2.5 Nm friction shaft / damping ring. */
-#define MOTOR_HAS_DAMPING_RING              MOTOR_DAMPING_RING_ENABLED
+/* Current motor has no friction shaft / damping ring installed. */
+#define MOTOR_HAS_DAMPING_RING              MOTOR_DAMPING_RING_DISABLED
 #endif
 
 /*

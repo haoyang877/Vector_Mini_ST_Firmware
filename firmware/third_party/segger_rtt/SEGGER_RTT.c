@@ -87,7 +87,7 @@ Additional information:
 
 #include <string.h>                 // for memcpy
 
-unsigned char bRttBuf[2048];
+unsigned char bRttBuf[RTT_BUF_LEN];
 
 /*********************************************************************
 *

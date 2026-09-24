@@ -25,18 +25,14 @@ class RttControlTelemetryTests(unittest.TestCase):
     def test_firmware_frame_has_fixed_documented_layout(self) -> None:
         source = FOC_TASK.read_text(encoding="utf-8")
         frame = re.search(
-            r"typedef struct\s*\{(?P<body>.*?)\}\s*RTT_ControlFrame_TypeDef;",
+            r"typedef struct\s*\{(?P<body>.*?)\}\s*RTT_Data_TypeDef;",
             source,
             flags=re.DOTALL,
         )
         self.assertIsNotNone(frame)
         fields = re.findall(r"\bint16_t\s+(\w+)\s*;", frame.group("body"))
-        self.assertEqual(fields, EXPECTED_FIELDS)
-        self.assertIn("sizeof(RTT_ControlFrame_TypeDef) == 24U", source)
-        self.assertNotIn("PositionImpedance_GetTelemetry", source)
-        self.assertIn("RTT_SERVO_STATUS_FRICTION_LANDING", source)
-        self.assertIn("RTT_SERVO_STATUS_SETTLE_RECOVERY", source)
-        self.assertIn("RTT_SERVO_STATUS_HOLD_CANDIDATE", source)
+        self.assertEqual(fields, [f"data{i}" for i in range(11)])
+        self.assertIn("sizeof(RTT_Data_TypeDef) == 22U", source)
 
     def test_j_scope_descriptor_matches_int16_frame(self) -> None:
         source = MAIN_SOURCE.read_text(encoding="utf-8")
@@ -55,7 +51,7 @@ class RttControlTelemetryTests(unittest.TestCase):
         channels = [variable.attrib["name"] for variable in form.findall("var")]
         self.assertEqual(
             channels,
-            [f"rtt_channel1.data{index}" for index in range(len(EXPECTED_FIELDS))],
+            [f"rtt_channel1.data{index}" for index in range(11)],
         )
 
     def test_servo_hil_scope_uses_v2_units(self):
@@ -67,7 +63,7 @@ class RttControlTelemetryTests(unittest.TestCase):
             self.assertEqual([v.attrib['name'] for v in variables],
                              [f'rtt_channel1.data{i}' for i in range(12)])
             self.assertEqual([v.attrib['unit'] for v in variables],
-                             ['0.01°'] * 4 + ['0.01°/s'] * 2 + ['mA'] * 5 + ['bits'])
+                         ['0.01°'] * 4 + ['0.01°/s'] * 2 + ['mA'] * 5 + ['bits'])
             self.assertEqual(variables[7].attrib['desc'], '前馈电流')
             self.assertEqual(variables[8].attrib['desc'], '反馈电流')
 
@@ -75,15 +71,15 @@ class RttControlTelemetryTests(unittest.TestCase):
         root = ET.parse(ROOT / 'tools/bench/scopes/pro_lks_calibration.lksscope').getroot()
         variables = root.find(".//form[@type='5']").findall('var')
         self.assertEqual([v.attrib['name'] for v in variables],
-                         [f'rtt_channel1.data{i}' for i in range(8)])
+                         [f'rtt_channel1.data{i}' for i in range(11)])
         self.assertEqual([v.attrib['unit'] for v in variables],
-                         ['0.1 rpm']*4 + ['mA']*2 + ['enum']*2)
-        self.assertEqual(variables[0].attrib['desc'], '转速参考')
-        self.assertEqual(variables[1].attrib['desc'], '观测器闭环反馈')
+                         ['mA']*3 + ['mV']*2 + ['0.0002 rad']*2 + ['0.0055 deg'] + ['mA']*3)
+        self.assertEqual(variables[0].attrib['desc'], 'Iq参考')
+        self.assertEqual(variables[1].attrib['desc'], 'Iq反馈')
         self.assertEqual(root.find(".//param[@name='rttFreq']").attrib['value'], '2000')
         self.assertTrue(all(not v.attrib.get('addr') for v in root.findall(".//form[@type='7']/var")))
         header = (ROOT / 'firmware/platform/stm32g4/bsp/hw_conf.h').read_text(encoding='utf-8')
-        self.assertIn('"JScope_' + 'i2'*8 + '"', header)
+        self.assertIn('"JScope_' + 'i2'*11 + '"', header)
 
 
 if __name__ == "__main__":

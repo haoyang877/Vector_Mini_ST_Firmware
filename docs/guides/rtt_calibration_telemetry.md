@@ -1,4 +1,4 @@
-# 8 路电机标定 RTT 输出
+# 20 路电机标定 RTT 输出（含观测器内部量）
 
 打开 `tools/bench/scopes/pro_lks_calibration.lksscope`，加载匹配板内固件的
 `outputs/build/keil/Vector_Mini_ST/Vector_Mini_ST.axf`。
@@ -6,14 +6,26 @@
 
 | 通道 | 信号 | 物理量换算 |
 |---|---|---|
-| data0 | 转速参考 `MotorControl.speedShadow` | raw / 10 rpm |
-| data1 | 观测器闭环转速反馈 `SensorlessStartup.speed_feedback` | raw / 10 rpm |
-| data2 | 编码器机械转速 `OnBoard_Encoder.vel_mech` | raw / 10 rpm |
-| data3 | 观测器机械转速 `Fluxobserver.omega_e / motor_pole_pairs` | raw / 10 rpm |
-| data4 | Iq 指令 `MotorControl.iqRef` | raw / 1000 A |
-| data5 | Iq 反馈 `FOC.Iq` | raw / 1000 A |
-| data6 | 标定阶段 `CalibStep` | 枚举原值 |
-| data7 | 无感启动状态 `SensorlessStartup.state` | 枚举原值 |
+| data0 | 转速参考 | raw：0.1 rpm |
+| data1 | 观测器闭环反馈 | raw：0.1 rpm |
+| data2 | 编码器机械转速 `OnBoard_Encoder.vel_mech` | raw：0.1 rpm |
+| data3 | 观测器机械转速 `Fluxobserver.omega_e / motor_pole_pairs` | raw：0.1 rpm |
+| data4 | Iq 指令 `MotorControl.iqRef` | raw：mA |
+| data5 | Iq 反馈 `FOC.Iq` | raw：mA |
+| data6 | 标定阶段 `CalibStep` | raw：enum |
+| data7 | 无感启动状态 `SensorlessStartup.state` | raw：enum |
+| data8 | 观测器 sin (`Fluxobserver.sin`×32767) | raw：cnt |
+| data9 | 观测器 cos (`Fluxobserver.cos`×32767) | raw：cnt |
+| data10 | 编码器 sin（`theta_elec`×32767） | raw：cnt |
+| data11 | 编码器 cos（`theta_elec`×32767） | raw：cnt |
+| data12 | α 轴定子磁链 `etax1` | raw：µWb |
+| data13 | β 轴定子磁链 `etax2` | raw：µWb |
+| data14 | Uα `Ualpha` | raw：mV |
+| data15 | Uβ `Ubeta` | raw：mV |
+| data16 | Iα `Ialpha` | raw：mA |
+| data17 | Iβ `Ibeta` | raw：mA |
+| data18 | 电角速度 `omega_e` | raw：0.1 rad/s |
+| data19 | 观测器诊断帧序号（0x7FFF 回绕，用于检测丢帧） | raw：cnt |
 
 这套通道按模式 13 的排查顺序选取：先看启动状态是否从 1 走到 5，再看观测器
 闭环反馈能否追上参考（模式 13 强制 +20 rad/s，稳定判据取 20%），再看 Iq 是否
@@ -21,8 +33,13 @@
 无感启动运行在观测器估计上，因此 data0/data1 就是稳定判据比较的那一对量；
 data2 与 data3 相互独立，可区分"观测器认为在转"和"编码器认为在转"。
 
-RTT 上行通道 1，小端有符号 int16，每帧 8 项、16 字节，描述符为
-`JScope_i2i2i2i2i2i2i2i2`。目标 2 kHz，带宽由原 64 kB/s 降为 32 kB/s。
+> data2 的来源随 `SPEED_LOOP_USE_FAST_VELOCITY`（`hw_conf.h`）切换：置 1（默认）时记录
+> **速度环实际使用的 4 抽头 / 2 ms 短窗测速** `vel_mech_fast`（群延时约 0.75 ms），置 0 时
+> 记录 16 抽头 / 8 ms 的 `vel_mech`。两者标度相同（0.1 rpm/count）。
+
+RTT 上行通道 1，小端有符号 int16，每帧 20 项、40 字节，描述符为
+`JScopeCal20_i2×20`。目标 2 kHz，带宽 80 kB/s。后 12 路为观测器内部量
+（sin/cos、α/β 磁链、Uα/Uβ、Iα/Iβ、ω_e、帧序号），用于离线角度/磁链分析。
 继续使用 2048 字节缓冲、非阻塞 SKIP 和快环错峰发送，所有模式均输出实际字段。
 本格式与旧 16 路标定帧、12 路位置伺服帧不兼容，必须重新打开配套波形工程。
 

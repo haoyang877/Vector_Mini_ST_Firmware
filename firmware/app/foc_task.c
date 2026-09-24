@@ -24,39 +24,6 @@ FOC_TypeDef FOC;
 #define RTT_POSITION_SCALE_COUNTS_PER_RAD	(18000.0f / _PI)
 #define RTT_CURRENT_SCALE_COUNTS_PER_A		1000.0f
 
-#define RTT_SERVO_STATUS_PHASE_MASK		0x0003U
-#define RTT_SERVO_STATUS_PHASE_INVALID	0x0003U
-#define RTT_SERVO_STATUS_TARGET_REACHED	(1U << 2)
-#define RTT_SERVO_STATUS_CURRENT_SATURATED	(1U << 3)
-#define RTT_SERVO_STATUS_FEEDFORWARD_ACTIVE	(1U << 4)
-#define RTT_SERVO_STATUS_FAULT_ACTIVE	(1U << 5)
-#define RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED	(1U << 6)
-#define RTT_SERVO_STATUS_TELEMETRY_VALID	(1U << 7)
-#define RTT_SERVO_STATUS_FRAME_VERSION_2	(1U << 14)
-#define RTT_SERVO_STATUS_FRICTION_LANDING	(1U << 9)
-#define RTT_SERVO_STATUS_SETTLE_RECOVERY	(1U << 10)
-#define RTT_SERVO_STATUS_HOLD_CANDIDATE	(1U << 11)
-#define RTT_SERVO_STATUS_TRAJECTORY_LIMITED	(1U << 12)
-#define RTT_SERVO_STATUS_STICTION_INTEGRATING	(1U << 13)
-
-typedef struct
-{
-	int16_t target_position;
-	int16_t trajectory_position;
-	int16_t position_feedback;
-	int16_t position_error;
-	int16_t trajectory_speed;
-	int16_t speed_feedback;
-	int16_t iq_reference;
-	int16_t feedforward_current;
-	int16_t iq_feedback;
-	int16_t feedback_current;
-	int16_t hold_current;
-	int16_t servo_status;
-} RTT_ControlFrame_TypeDef;
-
-typedef char RTT_ControlFrame_SizeMustBe24Bytes[
-	(sizeof(RTT_ControlFrame_TypeDef) == 24U) ? 1 : -1];
 
 static int16_t RTT_EncodeInt16(float value, float scale)
 {
@@ -73,159 +40,61 @@ static int16_t RTT_EncodeInt16(float value, float scale)
 	return (int16_t)scaled;
 }
 
-#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
-volatile uint32_t rtt_calibration_dropped_frames;
-
-/* Mode-13 diagnostics. The sensorless startup runs its speed loop on the
- * observer estimate, so the reference/feedback pair below is exactly the pair
- * the calibration stability gate compares against the forced 20 mechanical
- * rad/s target, and the two speed sources stay independent for cross-checks. */
 typedef struct
 {
-	int16_t speed_reference;
-	int16_t speed_feedback;
-	int16_t encoder_speed;
-	int16_t observer_speed;
-	int16_t iq_reference;
-	int16_t iq_feedback;
-	int16_t calibration_step;
-	int16_t startup_state;
-} RTT_CalibrationFrame_TypeDef;
+	int16_t data0;
+	int16_t data1;
+	int16_t data2;
+	int16_t data3;
+	int16_t data4;
+	int16_t data5;
+	int16_t data6;
+	int16_t data7;
+	int16_t data8;
+	int16_t data9;
+	int16_t data10;
+} RTT_Data_TypeDef;
 
-typedef char RTT_CalibrationFrame_SizeMustBe16Bytes[
-	(sizeof(RTT_CalibrationFrame_TypeDef) == 16U) ? 1 : -1];
+typedef char RTT_DataFrame_SizeMustBe22Bytes[
+    (sizeof(RTT_Data_TypeDef) == 22U) ? 1 : -1];
 
-static unsigned RTT_WriteCalibrationFrame(void)
-{
-	RTT_CalibrationFrame_TypeDef frame;
-	float observer_speed = 0.0f;
-	const float speed_scale = 300.0f / _PI; /* 0.1 mechanical rpm/count */
-
-	if (MotorControl.motor_pole_pairs > 0)
-		observer_speed = Fluxobserver.omega_e / (float)MotorControl.motor_pole_pairs;
-
-	frame.speed_reference = RTT_EncodeInt16(MotorControl.speedShadow, speed_scale);
-	frame.speed_feedback = RTT_EncodeInt16(SensorlessStartup.speed_feedback, speed_scale);
-	frame.encoder_speed = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, speed_scale);
-	frame.observer_speed = RTT_EncodeInt16(observer_speed, speed_scale);
-	frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.iq_feedback = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.calibration_step = (int16_t)CalibStep;
-	frame.startup_state = (int16_t)SensorlessStartup.state;
-	return SEGGER_RTT_Write(1, &frame, sizeof(frame));
-}
-#endif
-
-static void RTT_Sampling(bool defer_encoding)
+static void RTT_Sampling(void)
 {
 	static uint32_t rtt_divider_count;
-#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_SERVO
-	static bool previous_frame_dropped;
-	PositionCascadeTelemetry_TypeDef servo_telemetry;
-	RTT_ControlFrame_TypeDef frame;
-	uint16_t status_flags = RTT_SERVO_STATUS_FRAME_VERSION_2 |
-		RTT_SERVO_STATUS_PHASE_INVALID;
-	unsigned bytes_written;
-	bool servo_telemetry_valid;
-#endif
 
-	if(++rtt_divider_count < RTT_SAMPLE_DIVIDER)
+	if (++rtt_divider_count < RTT_SAMPLE_DIVIDER)
 		return;
-	/* Preserve the divider clock while deferring optional encoding away from
-	 * the HIL mailbox/diagnostic publication tick as well as the servo tick. */
-	if (defer_encoding)
-		return;
-	if (Encoder_DidUpdateVelocity(&OnBoard_Encoder))
-		return;
-	/* Do not stack frame encoding on the same IRQ as the 2 kHz servo.
-	 * A coincident frame is deferred by one fast tick; subsequent frames keep
-	 * their normal cadence. This does not delay the current/PWM update. */
-#if CASCADE_POSITION_LOOP_DIVIDER > 1U
-	if (MotorControl.ModeNow == Position_Mode && !MotorOuterLoop_IsReady())
-		return;
-#endif
-	rtt_divider_count = 0;
+	rtt_divider_count = 0U; /* 必须清零，否则达到门限后每次都通过 */
 
-#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
-	if (RTT_WriteCalibrationFrame() != sizeof(RTT_CalibrationFrame_TypeDef))
-		++rtt_calibration_dropped_frames;
-#else
-	/* This fixed frame is intentionally meaningful only in mode 3. */
-	frame.trajectory_position = 0;
-	frame.position_feedback = 0;
-	frame.position_error = 0;
-	frame.trajectory_speed = 0;
-	frame.target_position = 0;
-	frame.speed_feedback = 0;
-	frame.iq_reference = 0;
-	frame.iq_feedback = 0;
-	frame.feedback_current = 0;
-	frame.feedforward_current = 0;
-	frame.hold_current = 0;
-	frame.servo_status = 0;
+	RTT_Data_TypeDef frame;
+	const float ang_scale = 32767.0f / (2.0f * _PI);
+	float obs;
+	float diff;
 
-	servo_telemetry_valid = MotorControl.ModeNow == Position_Mode &&
-		MotorOuterLoop_GetTelemetry(&servo_telemetry);
-
-	if (servo_telemetry_valid)
-	{
-		status_flags &= (uint16_t)~RTT_SERVO_STATUS_PHASE_MASK;
-		status_flags |= (uint16_t)servo_telemetry.phase &
-			RTT_SERVO_STATUS_PHASE_MASK;
-		status_flags |= RTT_SERVO_STATUS_TELEMETRY_VALID;
-		frame.target_position = RTT_EncodeInt16(MotorControl.posRef,
-			RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.trajectory_position = RTT_EncodeInt16(
-			servo_telemetry.position_reference, RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.position_feedback = RTT_EncodeInt16(
-			OnBoard_Encoder.theta_mech, RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.position_error = RTT_EncodeInt16(
-			servo_telemetry.position_reference - OnBoard_Encoder.theta_mech,
-			RTT_POSITION_SCALE_COUNTS_PER_RAD);
-		frame.trajectory_speed = RTT_EncodeInt16(
-			servo_telemetry.trajectory_speed_reference,
-			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-		frame.speed_feedback = RTT_EncodeInt16(servo_telemetry.speed_feedback,
-			RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-		frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.iq_feedback = RTT_EncodeInt16(FOC.Iq,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.feedback_current = RTT_EncodeInt16(
-			servo_telemetry.feedback_current,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.feedforward_current = RTT_EncodeInt16(
-			MotorControl.iqRef - servo_telemetry.feedback_current,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		frame.hold_current = RTT_EncodeInt16(servo_telemetry.hold_current,
-			RTT_CURRENT_SCALE_COUNTS_PER_A);
-		if (servo_telemetry.target_reached)
-			status_flags |= RTT_SERVO_STATUS_TARGET_REACHED;
-		if (servo_telemetry.current_saturated)
-			status_flags |= RTT_SERVO_STATUS_CURRENT_SATURATED;
-		if (servo_telemetry.friction_landing_active)
-			status_flags |= RTT_SERVO_STATUS_FRICTION_LANDING;
-		if (servo_telemetry.settle_recovery_active)
-			status_flags |= RTT_SERVO_STATUS_SETTLE_RECOVERY;
-		if (servo_telemetry.hold_candidate_active)
-			status_flags |= RTT_SERVO_STATUS_HOLD_CANDIDATE;
-		if (servo_telemetry.trajectory_limited)
-			status_flags |= RTT_SERVO_STATUS_TRAJECTORY_LIMITED;
-		if (servo_telemetry.stiction_integrating)
-			status_flags |= RTT_SERVO_STATUS_STICTION_INTEGRATING;
-	}
-	if (frame.feedforward_current != 0)
-		status_flags |= RTT_SERVO_STATUS_FEEDFORWARD_ACTIVE;
-	if (MotorControl.ErrorNow != No_Error)
-		status_flags |= RTT_SERVO_STATUS_FAULT_ACTIVE;
-	if (previous_frame_dropped)
-		status_flags |= RTT_SERVO_STATUS_PREVIOUS_FRAME_DROPPED;
-	frame.servo_status = (int16_t)status_flags;
-
-	bytes_written = SEGGER_RTT_Write(1, &frame, sizeof(frame));
-	previous_frame_dropped = bytes_written != sizeof(frame);
-#endif
+	frame.data0 = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.data1 = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.data2 = RTT_EncodeInt16(FOC.Id, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.data3 = RTT_EncodeInt16(FOC.Vq, 1000.0f);
+	frame.data4 = RTT_EncodeInt16(FOC.Vd, 1000.0f);
+	frame.data5 = RTT_EncodeInt16(OnBoard_Encoder.theta_elec, ang_scale);
+	/* 观测器电角度：归到 [0,2π) 后与编码器电角度同刻度；差值单次有界归位到 ±π
+	 * （ISR 中不允许循环等待）。差值按 ±180°↔±32767 归一（0.0055°/计数，不饱和）。 */
+	obs = Fluxobserver.theta_e;
+	if (obs < 0.0f)
+		obs += _2PI;
+	frame.data6 = RTT_EncodeInt16(obs, ang_scale);
+	diff = obs - OnBoard_Encoder.theta_elec;
+	if (diff > _PI)
+		diff -= _2PI;
+	else if (diff < -_PI)
+		diff += _2PI;
+	frame.data7 = RTT_EncodeInt16(diff, 32767.0f / _PI);
+	frame.data8 = RTT_EncodeInt16(FOC.Ia, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.data9 = RTT_EncodeInt16(FOC.Ib, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	frame.data10 = RTT_EncodeInt16(FOC.Ic, RTT_CURRENT_SCALE_COUNTS_PER_A);
+	SEGGER_RTT_Write(1, &frame, sizeof(frame));
 }
+
 
 /** Read-only publication from the motor owner. Requested at <=200 Hz; CAN
  * packing and transmission stay in the foreground, never in this fast path. */
@@ -554,10 +423,9 @@ void FOC20kHzIRQHandler(void)
 	
 	MotorControl.ModeNow_f = MotorControl.ModeNow;
 	MotorControl.ErrorNow_f = MotorControl.ErrorNow;
-	FAST_PROFILE_END(FAST_PROFILE_POST_CONTROL);
-    
-    FAST_PROFILE_BEGIN(FAST_PROFILE_TELEMETRY);
+
     if (!defer_optional_telemetry) MotorStatus_Sampling();
-    RTT_Sampling(defer_optional_telemetry);
-    FAST_PROFILE_END(FAST_PROFILE_TELEMETRY);
+    RTT_Sampling();
+
 }
+

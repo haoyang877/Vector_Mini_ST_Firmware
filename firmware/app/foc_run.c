@@ -83,7 +83,12 @@ void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 {
     static unsigned speedloop_count;
     if (++speedloop_count >= SPEED_LOOP_DIVIDER) {
+#if SPEED_LOOP_USE_FAST_VELOCITY
+        /* 短窗测速：反馈延时约 0.75 ms 群延时，用少量噪声换相位裕度。 */
+        SpeedMode_UpdateControl(MotorControl, controller, Encoder_GetMecVelFast(Encoder));
+#else
         SpeedMode_UpdateControl(MotorControl, controller, Encoder_GetMecVel(Encoder));
+#endif
         speedloop_count = 0U;
     }
     FOC_Current(FOC, MotorControl, Encoder_GetElePhase(Encoder), Encoder_GetEleVel(Encoder));

@@ -2,7 +2,9 @@
 
 #include "adc.h"
 #include <math.h>
+#include <stdbool.h>
 #include "hw_conf.h"
+#include "motor_hw.h"
 #include "utils.h"
 #include "foc_errhandle.h"
 #include "bus_voltage_profile.h"
@@ -100,19 +102,50 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 }
 
 /**
-	* @brief  Three phase current sensing and calculating
-	* @param  *FOC: FOC struct pointer
-	* @param  *MotorControl: MotorControl struct pointer
- **/
+ * @brief 保留两相测量值，重构最大占空比相的电流，单位 A。
+ * @param FOC 当拍相电流，原位更新被舍弃的一相。
+ * @param sample_sector 采样对应的 PWM 扇区；无效扇区保持原始三相。
+ * @note 保留的两相必须采样有效；三相顺序采样的时间偏差仍然存在。
+ */
+static void Current_Reconstruct(FOC_TypeDef *FOC, unsigned sample_sector)
+{
+    switch (sample_sector)
+    {
+        case 1U:
+        case 2U:
+            FOC->Ic = -FOC->Ia - FOC->Ib;
+            break;
+        case 3U:
+        case 4U:
+            FOC->Ia = -FOC->Ib - FOC->Ic;
+            break;
+        case 5U:
+        case 6U:
+            FOC->Ib = -FOC->Ia - FOC->Ic;
+            break;
+        default:
+            break;
+    }
+}
+
+/**
+ * @brief 换算并重构当拍相电流，检查原始值及重构值的过流。
+ * @param FOC 接收电流反馈，单位 A。
+ * @param MotorControl 提供 ADC 零偏和运行模式。
+ * @note 完整 ADC 序列结束后、当拍任何 PWM 写入前调用；校准使用原始值。
+ */
 void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
 	static uint8_t overcurrent_count;
+	unsigned sample_sector = motor_hw_current_sample_sector();
+	bool raw_overcurrent;
 
 	/*when actual current is near zero, adc offset is outght to be around 2048*/
 	if(MotorControl->A_Offset < 1948 || MotorControl->A_Offset > 2148 ||
 	   MotorControl->B_Offset < 1948 || MotorControl->B_Offset > 2148 ||
 	   MotorControl->C_Offset < 1948 || MotorControl->C_Offset > 2148	)
 	{
+		sample_sector = 0U;
 		Set_ErrorNow(CurrentOffset_Error);
 	}
 	
@@ -123,7 +156,16 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 		FOC->Ic = -((float)((int16_t)CURRENT_ADC->IC_ADC_CHANNEL - MotorControl->C_Offset)) * SENSING_CURR_FACTOR;
 	}
 	
-	if(fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	/* 先保留原始三相的保护判定，不能用重构掩盖被舍弃相的过流。 */
+	raw_overcurrent = fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	                  fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
+	                  fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A;
+	if (MotorControl->ModeNow != Calib_CurrentOffset)
+	{
+		Current_Reconstruct(FOC, sample_sector);
+	}
+
+	if(raw_overcurrent || fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
 	   fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
 	   fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A)
 	{

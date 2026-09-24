@@ -11,4 +11,12 @@ void motor_hw_outer_schedule(void);
  * This is a compiler and hardware memory barrier, never an interrupt lock. */
 void motor_hw_outer_barrier(void);
 
+/**
+ * @brief 获取本次完整电流采样对应的 PWM 扇区。
+ * @return 当前 SVM 编号 1～6；输出未使能、零矢量或比较值无效时返回 0。
+ * @note 仅在电流快中断内、完整采样完成后且本拍 PWM 写入前调用。
+ *       依赖上一拍 PWM 已生效；返回扇区不保证其余两相的采样窗口有效。
+ */
+unsigned motor_hw_current_sample_sector(void);
+
 #endif

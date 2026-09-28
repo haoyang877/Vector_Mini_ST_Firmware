@@ -25,8 +25,9 @@ def main():
         if args.target not in (kind, "all"):
             continue
         log = log_dir / (name + ".log")
+        # Keil 的 -j0 隐藏 GUI 并抑制交互消息；不是编译任务并行度选项。
         result = subprocess.run(
-            [args.uv4, "-r", str(KEIL / (name + ".uvprojx")), "-j1", "-o", str(log)], cwd=KEIL
+            [args.uv4, "-r", str(KEIL / (name + ".uvprojx")), "-j0", "-o", str(log)], cwd=KEIL
         )
         text = log.read_text(errors="replace") if log.exists() else ""
         print("\n".join(text.splitlines()[-6:]))

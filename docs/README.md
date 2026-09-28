@@ -64,3 +64,5 @@ Retired modes: [无当前入口的旧电机模式退役契约 v1](protocols/reti
 APP Flash details: [按功能、驱动和函数拆分的 Flash 占用（2026-09-28）](reports/2026-09/app_flash_by_function_20260928.md).
 
 Current parameter loading: [仅接受 schema 11，移除历史参数迁移 v1](protocols/parameter_schema11_loading_policy_v1.md).
+
+Numeric encoding: [CAN 与参数整数编码的等价实现 v1](protocols/numeric_encoding_v1.md).

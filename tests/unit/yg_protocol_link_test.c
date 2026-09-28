@@ -25,6 +25,21 @@ static unsigned can_starts;
 static unsigned bus_off_services;
 static yg_protocol_motor_operation_t power_operation;
 
+/* 本夹具未绑定 boot 服务；普通响应不得进入跟踪发送通道，也不伪造发送完成。 */
+bool comm_hw_can_try_send_tracked_frame(const CommHwCanFrame *frame, uint64_t ticket)
+{
+    (void)frame;
+    (void)ticket;
+    assert(false);
+    return false;
+}
+
+bool comm_hw_can_take_tx_completion(CommHwCanTxCompletion *completion)
+{
+    (void)completion;
+    return false;
+}
+
 /* 运行时测试用的硬件替身：只计数，不接触真实外设。 */
 void comm_hw_can_start_fd(void)
 {
@@ -406,6 +421,10 @@ static void runtime_start_boundary(void)
     sent = false;
     sent_count = 0U;
     YgProtocolRuntime_Service(999U);
+    assert(can_starts == 0U && bus_off_services == 0U && !sent);
+    assert(YgProtocolRuntime_Start());
+    assert(YgProtocolRuntime_Start());
+    YgProtocolRuntime_Service(999U);
     assert(can_starts == 1U && bus_off_services == 0U && sent);
     /* 重新初始化撤销旧服务；仍从冻结的节点 7 返回未绑定结果。 */
     assert(sent_frame.data[4] == 7U && sent_frame.data[16] == 2U);
@@ -430,6 +449,11 @@ int main(void)
 
     assert(YgProtocolLink_Init(7U));
     assert(YgProtocolLink_IsReady());
+
+    /* 身份由组合层显式绑定；初始化不能再假定存在默认设备能力。 */
+    yg_protocol_readonly_info_page0_t info = {0};
+    yg_protocol_readonly_caps_page0_t capabilities = {.features = 1U};
+    assert(YgProtocolLink_SetDeviceDescription(&info, &capabilities));
 
     put_u32(payload, session_id);
     put_u32(payload + 4U, request_id);

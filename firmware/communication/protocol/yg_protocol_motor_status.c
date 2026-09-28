@@ -6,25 +6,52 @@
 #include <string.h>
 #include "yg_protocol_readonly.h"
 
-/* 使用 double 避免 float 的 INT32_MAX 表示误差导致越界强转；不复用旧协议的饱和转换。 */
-static int32_t measurement(float value, double scale, int32_t minimum, int32_t maximum)
+/* 当前线路缩放仅为 100/1000。拆解 binary32 的符号、尾数和指数，整数乘积
+ * 精确表示缩放结果，以最高丢弃位实现半值远离零，避免引入软件双精度库。
+ * 输入非有限或舍入后越界返回 INT32_MIN；状态 i16/i32 均保留最小值作无效哨兵。
+ * 循环有界且无浮点近似；与参数编码的加半后边界检查语义不同，不合并入口。 */
+static int32_t measurement(float value, uint32_t scale, int32_t minimum, int32_t maximum)
 {
-    double rounded;
-    if (!isfinite(value))
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    unsigned exponent = (bits >> 23U) & 255U;
+    if (exponent == 255U)
     {
         return INT32_MIN;
     }
-    rounded = round((double)value * scale);
-    if (rounded < (double)minimum || rounded > (double)maximum)
+    uint64_t product = (uint64_t)((bits & 0x7fffffU) | (exponent ? 0x800000U : 0U)) * scale;
+    int shift = exponent ? 150 - (int)exponent : 149;
+    uint64_t magnitude;
+    if (shift > 63)
+    {
+        magnitude = 0U;
+    }
+    else if (shift > 0)
+    {
+        uint64_t midpoint = (uint64_t)1U << (shift - 1);
+        magnitude = (product >> shift) + ((product & midpoint) != 0U);
+    }
+    else
+    {
+        if (shift < -31 || product > (UINT32_MAX >> -shift))
+        {
+            return INT32_MIN;
+        }
+        magnitude = product << -shift;
+    }
+    bool negative = (bits >> 31U) != 0U;
+
+    uint32_t limit = negative ? 0U - (uint32_t)minimum : (uint32_t)maximum;
+    if (magnitude > limit)
     {
         return INT32_MIN;
     }
-    return (int32_t)rounded;
+    return negative ? -(int32_t)magnitude : (int32_t)magnitude;
 }
 
 static int32_t feedback_i32(float sample, bool available, uint16_t *valid_bits, uint8_t bit)
 {
-    int32_t value = available ? measurement(sample, 1000.0, -INT32_MAX, INT32_MAX) : INT32_MIN;
+    int32_t value = available ? measurement(sample, 1000U, -INT32_MAX, INT32_MAX) : INT32_MIN;
     if (value != INT32_MIN)
     {
         *valid_bits |= (uint16_t)(1U << bit);
@@ -33,7 +60,7 @@ static int32_t feedback_i32(float sample, bool available, uint16_t *valid_bits, 
 }
 
 static int16_t
-feedback_i16(float sample, double scale, bool available, uint16_t *valid_bits, uint8_t bit)
+feedback_i16(float sample, uint32_t scale, bool available, uint16_t *valid_bits, uint8_t bit)
 {
     int32_t value = available ? measurement(sample, scale, -INT16_MAX, INT16_MAX) : INT32_MIN;
     if (value == INT32_MIN)
@@ -157,24 +184,24 @@ yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *
                                              &value.valid_bits,
                                              3U);
     value.bus_voltage_cV = feedback_i16(source->sample.bus_voltage,
-                                        100.0,
+                                        100U,
                                         (source->measurement_valid_bits & 0x10U) != 0U,
                                         &value.valid_bits,
                                         4U);
     value.bus_current_mA = feedback_i16(source->sample.bus_current,
-                                        1000.0,
+                                        1000U,
                                         (source->measurement_valid_bits & 0x40U) != 0U,
                                         &value.valid_bits,
                                         5U);
     value.reference_iq_mA =
-        feedback_i16(source->sample.current_reference, 1000.0, true, &value.valid_bits, 6U);
+        feedback_i16(source->sample.current_reference, 1000U, true, &value.valid_bits, 6U);
     value.actual_iq_mA = feedback_i16(source->sample.current_feedback,
-                                      1000.0,
+                                      1000U,
                                       (source->measurement_valid_bits & 0x04U) != 0U,
                                       &value.valid_bits,
                                       7U);
     value.mcu_temperature_centi_c = feedback_i16(source->sample.temperature,
-                                                 100.0,
+                                                 100U,
                                                  (source->measurement_valid_bits & 0x20U) != 0U,
                                                  &value.valid_bits,
                                                  8U);

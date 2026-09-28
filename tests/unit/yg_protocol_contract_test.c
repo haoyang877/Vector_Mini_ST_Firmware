@@ -7,7 +7,6 @@
 #include "yg_protocol_motor.h"
 #include "yg_protocol_parameter.h"
 #include "yg_protocol_job.h"
-#include "yg_protocol_update.h"
 #include "yg_protocol_motor_status.h"
 #include "yg_protocol_readonly.h"
 
@@ -34,24 +33,12 @@ static void parameter_handler(void *context,
     reply->revision = 2U;
 }
 
-static void job_handler(void *context,
-                        const yg_protocol_job_request_t *request,
-                        yg_protocol_service_reply_t *reply)
+static void
+job_handler(void *context, const yg_protocol_job_request_t *request, yg_protocol_job_reply_t *reply)
 {
     (void)context;
     assert(request->operation == YG_PROTOCOL_JOB_QUERY && request->job_id == 42U);
     reply->status = YG_PROTOCOL_SERVICE_BUSY;
-}
-
-static void update_handler(void *context,
-                           const yg_protocol_update_request_t *request,
-                           yg_protocol_service_reply_t *reply)
-{
-    (void)context;
-    assert(request->operation == YG_PROTOCOL_UPDATE_WRITE);
-    assert(request->data_length == 2U && request->data[0] == 5U);
-    reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
-    reply->token = request->image_offset;
 }
 
 static void service_boundaries(void)
@@ -60,23 +47,18 @@ static void service_boundaries(void)
     yg_protocol_motor_service_t motor = {&calls, motor_handler};
     yg_protocol_parameter_service_t parameter = {NULL, parameter_handler};
     yg_protocol_job_service_t job = {NULL, job_handler};
-    yg_protocol_update_service_t update = {NULL, update_handler};
     yg_protocol_motor_request_t motor_request = {.operation = YG_PROTOCOL_MOTOR_SET_CONTROL,
                                                  .position_mrad = -1000};
     yg_protocol_parameter_request_t parameter_request = {.operation = YG_PROTOCOL_PARAMETER_READ};
+    yg_protocol_job_reply_t job_reply;
     yg_protocol_job_request_t job_request = {.operation = YG_PROTOCOL_JOB_QUERY, .job_id = 42U};
-    uint8_t data[] = {5U, 6U};
-    yg_protocol_update_request_t update_request = {.operation = YG_PROTOCOL_UPDATE_WRITE,
-                                                   .image_offset = 128U,
-                                                   .data = data,
-                                                   .data_length = sizeof(data)};
     yg_protocol_service_reply_t reply;
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) == YG_PROTOCOL_SERVICE_ACCEPTED);
     assert(calls == 1U && reply.token == 7U);
     motor_request.operation = (yg_protocol_motor_operation_t)-1;
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
            YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
-    motor_request.operation = (yg_protocol_motor_operation_t)(YG_PROTOCOL_MOTOR_SET_CONTROL + 1U);
+    motor_request.operation = (yg_protocol_motor_operation_t)(YG_PROTOCOL_MOTOR_CLEAR_FAULT + 1U);
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
            YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
     assert(calls == 1U);
@@ -84,25 +66,15 @@ static void service_boundaries(void)
     assert(yg_protocol_parameter_call(&parameter, &parameter_request, &reply) ==
            YG_PROTOCOL_SERVICE_OK);
     assert(reply.value == 123 && reply.revision == 2U && reply.token == 0U);
-    assert(yg_protocol_job_call(&job, &job_request, &reply) == YG_PROTOCOL_SERVICE_BUSY);
-    assert(yg_protocol_update_call(&update, &update_request, &reply) ==
-           YG_PROTOCOL_SERVICE_ACCEPTED);
-    assert(reply.token == 128U);
-    update_request.data = NULL;
-    assert(yg_protocol_update_call(&update, &update_request, &reply) ==
-           YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
+    assert(yg_protocol_job_call(&job, &job_request, &job_reply) == YG_PROTOCOL_SERVICE_BUSY);
     motor.handler = NULL;
     parameter.handler = NULL;
     job.handler = NULL;
-    update.handler = NULL;
-    update_request.data_length = 0U;
     assert(yg_protocol_motor_call(&motor, &motor_request, &reply) ==
            YG_PROTOCOL_SERVICE_UNSUPPORTED);
     assert(yg_protocol_parameter_call(&parameter, &parameter_request, &reply) ==
            YG_PROTOCOL_SERVICE_UNSUPPORTED);
-    assert(yg_protocol_job_call(&job, &job_request, &reply) == YG_PROTOCOL_SERVICE_UNSUPPORTED);
-    assert(yg_protocol_update_call(&update, &update_request, &reply) ==
-           YG_PROTOCOL_SERVICE_UNSUPPORTED);
+    assert(yg_protocol_job_call(&job, &job_request, &job_reply) == YG_PROTOCOL_SERVICE_UNSUPPORTED);
     assert(yg_protocol_motor_call(NULL, &motor_request, &reply) ==
            YG_PROTOCOL_SERVICE_INVALID_ARGUMENT);
 }

@@ -16,11 +16,12 @@ def main() -> None:
     """编译并执行纯内存模型，证据留在outputs。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", default=None)
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/tests/loader_upgrade")
     args = parser.parse_args()
     compiler = Path(args.cc) if args.cc else zig_path()
     if compiler is None:
         parser.error("未找到编译器，请通过--cc指定Zig或C编译器")
-    output = ROOT / "outputs/tests/loader_upgrade"
+    output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
     executable = output / ("loader_upgrade.exe" if sys.platform == "win32" else "loader_upgrade")
     command = [str(compiler)]

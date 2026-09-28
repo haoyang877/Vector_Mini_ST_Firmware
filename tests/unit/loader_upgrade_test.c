@@ -24,7 +24,7 @@ static bool read_bytes(void *context, uint32_t a, void *out, uint32_t n)
     {
         return false;
     }
-    memcpy(out, flash_bytes + a - MODEL_BASE, n);
+    memcpy(out, flash_bytes + (a - MODEL_BASE), n);
     return true;
 }
 static bool erase_bytes(void *context, uint32_t a, uint32_t n)
@@ -34,7 +34,7 @@ static bool erase_bytes(void *context, uint32_t a, uint32_t n)
     {
         return false;
     }
-    memset(flash_bytes + a - MODEL_BASE, 255, n);
+    memset(flash_bytes + (a - MODEL_BASE), 255, n);
     memset(programmed + (a - MODEL_BASE) / 8, 0, n / 8);
     return true;
 }
@@ -52,7 +52,7 @@ static bool program_bytes(void *context, uint32_t a, const void *p, uint32_t n)
         return false;
     }
     programmed[unit] = 1;
-    memcpy(flash_bytes + a - MODEL_BASE, p, 8);
+    memcpy(flash_bytes + (a - MODEL_BASE), p, 8);
     ++programs;
     if (cross_deadline)
     {

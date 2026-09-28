@@ -48,6 +48,8 @@ def main() -> None:
             str(ROOT / "firmware/communication/protocol/yg_protocol_router.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_parameter.c"),
+            str(ROOT / "firmware/communication/protocol/yg_protocol_job.c"),
+            str(ROOT / "firmware/communication/protocol/yg_protocol_boot.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor_status.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_readonly.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_readonly_payload.c"),

@@ -18,6 +18,8 @@ NATIVE = (
     "test_adc_fast_dispatch",
     "test_encoder_sample_overlap",
     "test_fast_loop_math",
+    "test_numeric_encoding",
+    "test_loader_upgrade",
     "test_heap_capacity",
     "test_position_config_cache",
     "test_run_state",

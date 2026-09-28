@@ -12,7 +12,7 @@ typedef struct
 {
     uint8_t id, access;
     uint16_t offset;
-    float scale;
+    uint32_t scale;
 } ScalarField;
 
 #define READ_FIELD(id, field, scale)                                                               \
@@ -28,33 +28,33 @@ typedef struct
      offsetof(MotorControl_TypeDef, field),                                                        \
      scale}
 static const ScalarField fields[] = {
-    WRITE_FIELD(1U, speed_limit, 1000.0f),
-    WRITE_FIELD(2U, current_limit, 1000.0f),
-    READ_FIELD(6U, motor_flux, 1000000000.0f),
-    READ_FIELD(7U, motor_phase_resistance, 1000000.0f),
-    READ_FIELD(8U, motor_d_inductance, 1000000000.0f),
-    READ_FIELD(9U, motor_q_inductance, 1000000000.0f),
-    READ_FIELD(11U, id_Kp, 1000.0f),
-    READ_FIELD(12U, id_Ki, 1000.0f),
-    READ_FIELD(13U, iq_Kp, 1000.0f),
-    READ_FIELD(14U, iq_Ki, 1000.0f),
-    READ_FIELD(16U, speed_Kp, 1000000.0f),
-    READ_FIELD(17U, speed_Ki, 1000000.0f),
-    READ_FIELD(19U, speedAcc, 1000.0f),
-    READ_FIELD(20U, speedDec, 1000.0f),
-    WRITE_FIELD(21U, cascade_pos_Kp, 1000000.0f),
-    WRITE_FIELD(22U, cascade_pos_Kd, 1000000.0f),
-    WRITE_FIELD(23U, pos_maxspeed, 1000.0f),
-    READ_FIELD(24U, posAcc, 1000.0f),
-    READ_FIELD(25U, posDec, 1000.0f),
-    READ_FIELD(26U, pos_error_window, 1000.0f),
-    CAL_FIELD(0x44U, A_Offset, 1000.0f),
-    CAL_FIELD(0x45U, B_Offset, 1000.0f),
-    CAL_FIELD(0x46U, C_Offset, 1000.0f),
-    CAL_FIELD(0x47U, friction_coulomb_pos_a, 1000.0f),
-    CAL_FIELD(0x48U, friction_coulomb_neg_a, 1000.0f),
-    CAL_FIELD(0x49U, friction_viscous_pos_a_per_rad_s, 1000000.0f),
-    CAL_FIELD(0x4AU, friction_viscous_neg_a_per_rad_s, 1000000.0f),
+    WRITE_FIELD(1U, speed_limit, 1000U),
+    WRITE_FIELD(2U, current_limit, 1000U),
+    READ_FIELD(6U, motor_flux, 1000000000U),
+    READ_FIELD(7U, motor_phase_resistance, 1000000U),
+    READ_FIELD(8U, motor_d_inductance, 1000000000U),
+    READ_FIELD(9U, motor_q_inductance, 1000000000U),
+    READ_FIELD(11U, id_Kp, 1000U),
+    READ_FIELD(12U, id_Ki, 1000U),
+    READ_FIELD(13U, iq_Kp, 1000U),
+    READ_FIELD(14U, iq_Ki, 1000U),
+    READ_FIELD(16U, speed_Kp, 1000000U),
+    READ_FIELD(17U, speed_Ki, 1000000U),
+    READ_FIELD(19U, speedAcc, 1000U),
+    READ_FIELD(20U, speedDec, 1000U),
+    WRITE_FIELD(21U, cascade_pos_Kp, 1000000U),
+    WRITE_FIELD(22U, cascade_pos_Kd, 1000000U),
+    WRITE_FIELD(23U, pos_maxspeed, 1000U),
+    READ_FIELD(24U, posAcc, 1000U),
+    READ_FIELD(25U, posDec, 1000U),
+    READ_FIELD(26U, pos_error_window, 1000U),
+    CAL_FIELD(0x44U, A_Offset, 1000U),
+    CAL_FIELD(0x45U, B_Offset, 1000U),
+    CAL_FIELD(0x46U, C_Offset, 1000U),
+    CAL_FIELD(0x47U, friction_coulomb_pos_a, 1000U),
+    CAL_FIELD(0x48U, friction_coulomb_neg_a, 1000U),
+    CAL_FIELD(0x49U, friction_viscous_pos_a_per_rad_s, 1000000U),
+    CAL_FIELD(0x4AU, friction_viscous_neg_a_per_rad_s, 1000000U),
 };
 
 /* 返回的描述符属于只读常量表，不含可变控制对象地址。 */
@@ -70,20 +70,49 @@ static const ScalarField *find_field(uint8_t id)
     return NULL;
 }
 
-static ParameterStatus encode_float(float si_value, float scale, uint32_t *raw)
+/* 仅供本表的正整数缩放使用（1000/10^6/10^9），尾数乘积精确且不溢出 u64。
+ * 保留原先 double 缩放后加正负半值、先检查 i32 边界再截断的顺序：
+ * 舍入值到达端点时，只有精确半值允许通过；不可改成状态编码的舍入后检查。
+ * binary32 非有限值直接拒绝，失败不修改输出；有界移位不依赖硬件或全局状态。 */
+static ParameterStatus encode_float(float value, uint32_t scale, uint32_t *raw)
 {
-    if (!isfinite(si_value))
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    unsigned exponent = (bits >> 23U) & 255U;
+    if (exponent == 255U)
     {
         return PARAMETER_OUT_OF_RANGE;
     }
-    double rounded = (double)si_value * scale;
-    rounded += rounded >= 0.0 ? 0.5 : -0.5;
-    /* 此界限只防整数编码溢出；写入另行校验真实产品范围。 */
-    if (rounded > INT32_MAX || rounded < INT32_MIN)
+    uint64_t product = (uint64_t)((bits & 0x7fffffU) | (exponent ? 0x800000U : 0U)) * scale;
+    int shift = exponent ? 150 - (int)exponent : 149;
+    uint64_t magnitude;
+    bool half = false;
+    if (shift > 63)
+    {
+        magnitude = 0U;
+    }
+    else if (shift > 0)
+    {
+        uint64_t midpoint = (uint64_t)1U << (shift - 1);
+        magnitude = (product >> shift) + ((product & midpoint) != 0U);
+        half = (product & ((midpoint << 1) - 1U)) == midpoint;
+    }
+    else
+    {
+        if (shift < -31 || product > (UINT32_MAX >> -shift))
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        magnitude = product << -shift;
+    }
+    bool negative = (bits >> 31U) != 0U;
+
+    uint32_t limit = negative ? 0x80000000U : 0x7fffffffU;
+    if (magnitude > limit || (magnitude == limit && !half))
     {
         return PARAMETER_OUT_OF_RANGE;
     }
-    *raw = (uint32_t)(int32_t)rounded;
+    *raw = negative ? 0U - (uint32_t)magnitude : (uint32_t)magnitude;
     return PARAMETER_OK;
 }
 

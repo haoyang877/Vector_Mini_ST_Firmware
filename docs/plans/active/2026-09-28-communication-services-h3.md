@@ -83,3 +83,11 @@ ROOT冻结Type3空请求/16B角色、阶段、有效位及boot64回复；H在既
 link借用稳定APP快照，无新服务、无硬件访问。未绑定仍16B返回当前数据不可用，不猜补高位。
 [发现v1](../../protocols/yg_protocol_device_status_wire_v1.md)连接主机Type3→56的实际流程；
 E须用真实BootHwInfo来源接线，Loader可继续用53，不要求重复实现。
+
+## 确定软件绑定早于RX启动
+
+Runtime_Init不再启动外设，只初始化link与冻结节点；E全部业务/快照绑定成功后明确Runtime_Start。
+Start未初始化拒绝、成功后重复调用幂等；Service未Start无动作，不在Bind中隐式启停硬件。
+平台实际启动仍沿comm_hw_can_start_fd，未改位时序、滤波或硬件错误处理。
+Link_OnRx仍是已初始化软件队列的注入接口；真实RX由平台Start开启，离线注入不等于硬件已启动。
+ROOT/E更新APP组合层与现有board初始化stub，留最终统一验证，不运行硬件或测试。

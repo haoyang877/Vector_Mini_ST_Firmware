@@ -10,6 +10,7 @@ static uint8_t configured_node_id;
 static uint32_t configured_heartbeat_ms;
 static uint32_t last_recovery_ms;
 static bool initialized;
+static bool started;
 
 bool YgProtocolRuntime_Init(uint8_t node_id)
 {
@@ -20,14 +21,28 @@ bool YgProtocolRuntime_Init(uint8_t node_id)
     }
     configured_node_id = node_id;
     last_recovery_ms = 0U;
-    comm_hw_can_start_fd();
     initialized = true;
+    return true;
+}
+
+bool YgProtocolRuntime_Start(void)
+{
+    if (!initialized || !YgProtocolLink_IsReady())
+    {
+        return false;
+    }
+    if (started)
+    {
+        return true;
+    }
+    comm_hw_can_start_fd();
+    started = true;
     return true;
 }
 
 void YgProtocolRuntime_Service(uint32_t now_ms)
 {
-    if (!initialized)
+    if (!started)
     {
         return;
     }

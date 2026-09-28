@@ -44,6 +44,8 @@ APP平台普通try_send接口仅表示提交；link使用ROOT提供的tracked提
 编解码存在不等于安装了Loader，也不等于能进入Loader。
 
 `YgProtocolLink_BindBootService`只在RX启动前或停止RX且清空队列时调用。
+启动顺序固定为Runtime_Init（纯软件）→APP绑定全部业务/快照→Runtime_Start（既有平台开启RX）。
+未Start时Runtime_Service不处理收发或bus-off；重复Start幂等，不重配或清队列。
 两回调完整且没有在途票据/待发回复才开放最后一条56路由；NULL撤销，缺一项拒绝。
 描述表包含56不等于业务路由启用，未绑定时不处理该业务或声明能力。
 READY回复入队时记录其精确tail位置；仅到对应head才调用tracked发送。

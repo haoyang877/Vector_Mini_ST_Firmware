@@ -17,7 +17,6 @@
 #include "critical_hw.h"
 #include "indicator_hw.h"
 #include "bus_voltage_profile.h"
-#include "boot_hw.h"
 #include "utils.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
@@ -33,11 +32,7 @@ static bool outer_ready;
 static bool check_borrowed_requests;
 static uint32_t critical_depth;
 
-/* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
-void BootHw_GetInfo(BootHwInfo *info)
-{
-    *info = (BootHwInfo){0};
-}
+/* 本夹具模拟普通 APP，配置修订号仍有可用空间。 */
 bool MotorControl_ConfigurationRevisionAvailable(void)
 {
     return true;
@@ -515,10 +510,104 @@ static void test_maintenance_identity(void)
     puts("PASS identified retry and original calibration terminal survive derived SAVE completion");
 }
 
+/* 恢复证据、核心提交和重新启动分离；CLEAR 不得绕过源恢复或恢复旧目标。 */
+static void test_clear_recovery_contract(void)
+{
+    reset();
+    motor.ErrorNow = Over_Voltage;
+    foc.Vbus_filt = BUS_VOLTAGE_ENABLE_MAX_V + 1.0f;
+    tick();
+    assert(FocRunState_GetState() == APP_FAULT);
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_DENIED);
+    assert(motor.ErrorNow == Over_Voltage && output_off);
+    foc.Vbus_filt = 30.0f;
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    assert(FocRunState_GetState() == APP_SELF_TEST && motor.ErrorNow == No_Error && output_off);
+    tick();
+    assert(FocRunState_GetState() == APP_READY && motor.ModeNow == Motor_Disable);
+
+    reset();
+    motor.ErrorNow = TemperatureSensor_Error;
+    temperature_fresh = false;
+    tick();
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_DENIED);
+    temperature_fresh = true;
+    foc.temp = NAN;
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_DENIED);
+    foc.temp = 25.0f;
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    assert(FocRunState_GetState() == APP_SELF_TEST && output_off);
+
+    reset();
+    motor.ErrorNow = Over_Current;
+    tick();
+    for (uint32_t ticks = 1U; ticks < 1999U; ++ticks)
+    {
+        tick();
+    }
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_DENIED);
+    assert(motor.ErrorNow == Over_Current && output_off);
+    tick();
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    assert(FocRunState_GetState() == APP_SELF_TEST && motor.ModeNow == Motor_Disable && output_off);
+    puts("PASS CLEAR requires voltage/temperature recovery and exactly 2000 overcurrent ticks");
+}
+
+/* 邮箱受理不是执行许可；监督拍必须按最新限值复核并丢弃失效目标。 */
+static void test_control_revalidation(void)
+{
+    reset();
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    tick();
+    MotorControlCommand goal = {.mode = MOTOR_CONTROL_CURRENT, .iq_a = 2.0f};
+    assert(FocRunState_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
+    motor.current_limit = 1.0f;
+    tick();
+    assert(FocRunState_GetState() == APP_RUNNING && motor.iqRef == 0.0f);
+    goal.iq_a = 0.5f;
+    assert(FocRunState_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    assert(motor.iqRef == 0.5f);
+    assert(FocRunState_RequestRemoteStop());
+    tick();
+    assert(output_off && motor.iqRef == 0.0f && FocRunState_GetState() == APP_READY);
+    puts("PASS accepted target is revalidated against current limits before execution");
+}
+
+/* 已入箱的同代故障优先于 STOP/CANCEL；撤销结果不能撤销故障锁存。 */
+static void test_revoke_preserves_worker_fault(void)
+{
+    reset();
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    tick();
+    FocRunState_PostOutcome(
+        (MotorWorkOutcome_TypeDef){MOTOR_WORK_FAULT, Motor_Disable, Encoder_Error, false},
+        FocRunState_WorkEpoch());
+    assert(FocRunState_RequestRemoteStop());
+    assert(motor.ErrorNow == Encoder_Error);
+    tick();
+    assert(FocRunState_GetState() == APP_FAULT && output_off);
+
+    reset();
+    uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
+    FocRunState_PostOutcome(
+        (MotorWorkOutcome_TypeDef){MOTOR_WORK_FAULT, Motor_Disable, Encoder_Error, false}, ticket);
+    assert(FocRunState_CancelMaintenance(ticket) == MOTOR_CONTROL_FAULT);
+    assert(motor.ErrorNow == Encoder_Error);
+    tick();
+    assert(FocRunState_GetState() == APP_FAULT && output_off);
+    puts("PASS STOP and CANCEL preserve pending faults from the original worker epoch");
+}
+
 int main(void)
 {
     test_request_admission();
     test_maintenance_identity();
+    test_clear_recovery_contract();
+    test_control_revalidation();
+    test_revoke_preserves_worker_fault();
     test_control();
     test_calibration_save();
     test_borrow_cancel();

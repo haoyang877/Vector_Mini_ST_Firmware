@@ -6,7 +6,6 @@
 #include "angle_feedback.h"
 #include "app_lifecycle.h"
 #include "bus_voltage_profile.h"
-#include "boot_hw.h"
 #include "image_format.h"
 #include "critical_hw.h"
 #include "foc_errhandle.h"
@@ -65,7 +64,6 @@ static FocBackgroundClaim background_claim;
 static bool background_busy, stop_pending, configuration_reading;
 /* 前台升级交接独占票据；失败后继续禁止运动，只有重新启动初始化才能清空。 */
 static uint64_t boot_stop_ticket;
-static bool boot_confirmation_pending;
 static bool boot_maintenance_only;
 /* Over_Current 回落驻留计数；饱和于 RUN_STATE_OC_RECOVER_TICKS。 */
 static MotorFaultRecovery recovery;
@@ -80,7 +78,6 @@ static volatile bool control_pending;
 static volatile uint32_t fast_sample_epoch;
 static uint32_t observed_fast_sample_epoch;
 static bool fast_samples_fresh;
-static uint32_t supervisor_epoch;
 static bool RunState_VbusInEnableWindow(void);
 static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode);
 /* 停机清理：按上一模式中止自管辨识，并清零全部参考/影子/滤波量与控制器状态。 */
@@ -113,7 +110,7 @@ static void clear_running_data(void)
 static MotorControlResult validate_control(const MotorControlCommand *command)
 {
     ModeNow_TypeDef mode;
-    if (boot_stop_ticket != 0U || boot_confirmation_pending || boot_maintenance_only)
+    if (boot_stop_ticket != 0U || boot_maintenance_only)
     {
         return MOTOR_CONTROL_DENIED;
     }
@@ -309,8 +306,7 @@ static AppLifecycleGuards RunState_BuildGuards(void)
     guards.fault_sources_clear = MotorControl->ErrorNow == No_Error;
     guards.self_test_passed =
         MotorControl->axis_profile_valid && guards.samples_fresh && guards.fault_sources_clear;
-    guards.start_permitted =
-        MotorControl->axis_profile_valid && !boot_confirmation_pending && !boot_maintenance_only;
+    guards.start_permitted = MotorControl->axis_profile_valid && !boot_maintenance_only;
     if (lifecycle.snapshot.state != APP_RUNNING)
     {
         guards.start_permitted = guards.start_permitted && RunState_VbusInEnableWindow() &&
@@ -457,10 +453,10 @@ static void RunState_ConfirmStart(void)
 {
     uint32_t state = critical_hw_enter();
     AppLifecycleGuards guards = RunState_BuildGuards();
-    if (boot_stop_ticket == 0U && !boot_confirmation_pending &&
-        lifecycle.snapshot.state == APP_STARTING && guards.start_permitted &&
-        guards.samples_fresh && guards.fault_sources_clear && guards.startup_confirmed &&
-        RunState_ModeNeedsPreparation(MotorControl->ModeNow) && power_stage_hw_phases_disabled())
+    if (boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_STARTING &&
+        guards.start_permitted && guards.samples_fresh && guards.fault_sources_clear &&
+        guards.startup_confirmed && RunState_ModeNeedsPreparation(MotorControl->ModeNow) &&
+        power_stage_hw_phases_disabled())
     {
         power_stage_hw_start();
     }
@@ -487,21 +483,25 @@ static bool RunState_TryClearFault(void)
     ErrorNow_TypeDef error = MotorControl->ErrorNow;
     AppLifecycleEvent event;
 
-    if (lifecycle.snapshot.state != APP_FAULT ||
-        (error != No_Error &&
-         !MotorFault_SourceRecovered(&recovery,
-                                     MotorControl,
-                                     FOC,
-                                     OnBoard_Encoder,
-                                     error,
-                                     fast_samples_fresh && RunState_BuildGuards().samples_fresh,
-                                     RunState_BuildGuards().maintenance_released,
-                                     MotorTemperature_IsFresh())))
+    if (lifecycle.snapshot.state != APP_FAULT)
     {
         critical_hw_exit(state);
         return false;
     }
+    /* 恢复判据只读且期间不提交状态或功率动作，同一临界区共用本次证据。 */
     AppLifecycleGuards guards = RunState_BuildGuards();
+    if (error != No_Error && !MotorFault_SourceRecovered(&recovery,
+                                                         MotorControl,
+                                                         FOC,
+                                                         OnBoard_Encoder,
+                                                         error,
+                                                         fast_samples_fresh && guards.samples_fresh,
+                                                         guards.maintenance_released,
+                                                         MotorTemperature_IsFresh()))
+    {
+        critical_hw_exit(state);
+        return false;
+    }
     /* 仅覆盖本次已经按恢复矩阵或操作员确认策略获准的锁存源，不先改 ErrorNow。 */
     guards.active_faults = 0U;
     guards.fault_sources_clear = true;
@@ -658,7 +658,7 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
 {
     AppOperation operation = RunState_OperationFor(target);
 
-    if (boot_stop_ticket != 0U || boot_confirmation_pending)
+    if (boot_stop_ticket != 0U)
     {
         return;
     }
@@ -760,13 +760,12 @@ static bool RunState_OwnerQuiescent(const AppLifecycleGuards *guards)
            guards->control_idle && guards->operation_idle && guards->maintenance_released;
 }
 
-/* READY 且无票据、无故障、无占用：停机配置写入的静态前提。 */
-static bool configuration_idle(void)
+/* READY 且无票据、无故障、无占用；证据仅用于调用方当前临界区内的判定。 */
+static bool configuration_idle(const AppLifecycleGuards *guards)
 {
-    AppLifecycleGuards guards = RunState_BuildGuards();
     /* 纯布尔合取：ModeNow 在辅助函数内部检查，交换与 ErrorNow 的读取次序不影响结果。 */
     return boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_READY &&
-           MotorControl->ErrorNow == No_Error && RunState_OwnerQuiescent(&guards);
+           MotorControl->ErrorNow == No_Error && RunState_OwnerQuiescent(guards);
 }
 
 /**
@@ -776,7 +775,8 @@ static bool configuration_idle(void)
  */
 bool FocRunState_ConfigurationAllowed(void)
 {
-    return !boot_confirmation_pending && configuration_idle();
+    AppLifecycleGuards guards = RunState_BuildGuards();
+    return configuration_idle(&guards);
 }
 
 /* 调用方已持有临界区；只读共同占用标志，故障优先级和资源释放由各入口判断。 */
@@ -784,6 +784,20 @@ static bool request_busy(void)
 {
     return boot_stop_ticket != 0U || background_busy || configuration_reading || outcome_latched ||
            control_pending || lifecycle.snapshot.operation != APP_OPERATION_NONE;
+}
+
+/* 调用方持有临界区；撤销邮箱前锁存同代故障，STOP/CANCEL 不得吞掉故障结果。 */
+static void revoke_pending_requests(uint32_t worker_epoch)
+{
+    control_pending = false;
+    if (outcome_latched)
+    {
+        if (pending_outcome.result == MOTOR_WORK_FAULT && outcome_epoch == worker_epoch)
+        {
+            MotorFault_Report(MotorControl, pending_outcome.error);
+        }
+        outcome_latched = false;
+    }
 }
 
 /**
@@ -826,11 +840,11 @@ MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else if (FocRunState_ConfigurationAllowed())
+    else
     {
         AppLifecycleGuards guards = RunState_BuildGuards();
-        if (guards.self_test_passed && guards.start_permitted && guards.samples_fresh &&
-            guards.fault_sources_clear && !MotorControl->isUseSensorless)
+        if (configuration_idle(&guards) && guards.self_test_passed && guards.start_permitted &&
+            guards.samples_fresh && guards.fault_sources_clear && !MotorControl->isUseSensorless)
         {
             clear_running_data();
             request_epoch = lifecycle.snapshot.epoch;
@@ -894,26 +908,34 @@ MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uin
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (request_busy() || !RunState_BuildGuards().maintenance_released)
+    else if (request_busy())
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else if (FocRunState_ConfigurationAllowed() && RunState_BuildGuards().self_test_passed &&
-             (kind == MOTOR_MAINTENANCE_SAVE || MotorControl_ConfigurationRevisionAvailable()))
+    else
     {
-        request_epoch = lifecycle.snapshot.epoch;
-        clear_running_data();
-        if (FocMode_Admit(MotorControl, FOC, OnBoard_Encoder, mode))
+        AppLifecycleGuards guards = RunState_BuildGuards();
+        if (!guards.maintenance_released)
         {
-            RunState_BeginOperationIfRequested(mode);
-            if (FocRunState_IsMaintenanceActive(mode))
+            result = MOTOR_CONTROL_BUSY;
+        }
+        else if (configuration_idle(&guards) && guards.self_test_passed &&
+                 (kind == MOTOR_MAINTENANCE_SAVE || MotorControl_ConfigurationRevisionAvailable()))
+        {
+            request_epoch = lifecycle.snapshot.epoch;
+            clear_running_data();
+            if (FocMode_Admit(MotorControl, FOC, OnBoard_Encoder, mode))
             {
-                *ticket = operation_epoch;
-                result = MOTOR_CONTROL_ACCEPTED;
-            }
-            else
-            {
-                MotorControl->ModeNow = Motor_Disable;
+                RunState_BeginOperationIfRequested(mode);
+                if (FocRunState_IsMaintenanceActive(mode))
+                {
+                    *ticket = operation_epoch;
+                    result = MOTOR_CONTROL_ACCEPTED;
+                }
+                else
+                {
+                    MotorControl->ModeNow = Motor_Disable;
+                }
             }
         }
     }
@@ -1043,16 +1065,7 @@ MotorControlResult FocRunState_CancelMaintenance(uint32_t ticket)
         }
         else if (lifecycle.snapshot.state == APP_MAINTENANCE)
         {
-            control_pending = false;
-            if (outcome_latched)
-            {
-                if (pending_outcome.result == MOTOR_WORK_FAULT && outcome_epoch == operation_epoch)
-                {
-                    /* 同代故障先锁存，再取消；不能让CANCEL递增代号后丢弃故障。 */
-                    MotorFault_Report(MotorControl, pending_outcome.error);
-                }
-                outcome_latched = false;
-            }
+            revoke_pending_requests(operation_epoch);
             bool accepted = RunState_SendOperation(
                 APP_EVENT_CANCEL, lifecycle.snapshot.operation, APP_EFFECT_UNKNOWN, 0U);
             MotorControl->ModeNow = Motor_Disable;
@@ -1095,11 +1108,7 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
     request_epoch = lifecycle.snapshot.epoch;
     background_busy = stop_pending = configuration_reading = false;
     boot_stop_ticket = 0U;
-    BootHwInfo boot_info = {0};
-    BootHw_GetInfo(&boot_info);
-    boot_confirmation_pending = boot_info.available && !boot_info.confirmed;
-    boot_maintenance_only = boot_info.available && boot_info.image_role == YGI_ROLE_MAINTENANCE;
-    supervisor_epoch = 0U;
+    boot_maintenance_only = false;
     background_claim = (FocBackgroundClaim){0};
     operation_mode = Motor_Disable;
     save_finish = (uint8_t)SAVE_FINISH_NONE;
@@ -1140,16 +1149,7 @@ AppLifecycleState FocRunState_GetState(void)
 bool FocRunState_RequestRemoteStop(void)
 {
     uint32_t state = critical_hw_enter();
-    control_pending = false;
-    if (outcome_latched)
-    {
-        if (pending_outcome.result == MOTOR_WORK_FAULT && outcome_epoch == FocRunState_WorkEpoch())
-        {
-            /* STOP撤销目标，但不能撤销当前worker已报告的故障。 */
-            MotorFault_Report(MotorControl, pending_outcome.error);
-        }
-        outcome_latched = false;
-    }
+    revoke_pending_requests(FocRunState_WorkEpoch());
     MotorControl->ModeNow = Motor_Disable;
     stop_pending = true;
     critical_hw_exit(state);
@@ -1203,52 +1203,6 @@ bool FocRunState_BootHandoffReady(uint64_t ticket)
                  RunState_OwnerQuiescent(&guards);
     critical_hw_exit(mask);
     return ready;
-}
-
-/**
- * @brief 读取基础运行健康及试启动确认资格的一致值。
- * @param progress 接收监督调度进展计数，调用方必须比较新进展而非反复消费旧值。
- * @param confirmation_ready 接收自检通过、READY、无资源占用、关相和编码器在线资格。
- * @return 感测新鲜且未进入 FATAL 返回 true；通信及保存健康由组合层补充。
- * @note 前台短临界区只读；完整标定仍是运动模式条件，不是试启动确认条件。
- */
-bool FocRunState_ReadBootHealth(uint32_t *progress, bool *confirmation_ready)
-{
-    if (progress == NULL || confirmation_ready == NULL)
-    {
-        return false;
-    }
-    uint32_t mask = critical_hw_enter();
-    AppLifecycleGuards guards = RunState_BuildGuards();
-    *progress = supervisor_epoch;
-    bool healthy = guards.samples_fresh && lifecycle.snapshot.state != APP_FATAL;
-    *confirmation_ready = healthy && configuration_idle() && guards.self_test_passed &&
-                          Encoder_IsOnline(OnBoard_Encoder);
-    critical_hw_exit(mask);
-    return healthy;
-}
-
-/**
- * @brief 复核平台真实确认记录并解除试启动禁止。
- * @param boot_epoch 本次实际启动代号，必须非零。
- * @param image_token 本次镜像身份，必须非零。
- * @return 平台已确认且身份完全匹配返回 true；否则保持禁止。
- * @note 仅前台交接服务在确认写入并回读成功后调用，不自动启动或恢复目标。
- */
-bool FocRunState_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image_token)
-{
-    uint32_t mask = critical_hw_enter();
-    BootHwInfo info = {0};
-    BootHw_GetInfo(&info);
-    bool confirmed = info.available && info.confirmed && !info.trial &&
-                     info.boot_epoch == boot_epoch && info.image_token == image_token &&
-                     boot_epoch != 0U && image_token != 0U;
-    if (confirmed)
-    {
-        boot_confirmation_pending = false;
-    }
-    critical_hw_exit(mask);
-    return confirmed;
 }
 
 /**
@@ -1516,7 +1470,6 @@ void FocRunState_Tick(void)
 
     MotorControl->ModeNow_f = MotorControl->ModeNow;
     MotorControl->ErrorNow_f = MotorControl->ErrorNow;
-    ++supervisor_epoch;
 }
 
 /**
@@ -1630,8 +1583,8 @@ void FocRunState_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();
     bool permitted =
-        boot_stop_ticket == 0U && !boot_confirmation_pending && !background_busy && !stop_pending &&
-        !outcome_latched && MotorControl->ErrorNow == No_Error &&
+        boot_stop_ticket == 0U && !background_busy && !stop_pending && !outcome_latched &&
+        MotorControl->ErrorNow == No_Error &&
         (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_RUNNING);
     if (permitted)
     {

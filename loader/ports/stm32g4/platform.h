@@ -23,15 +23,11 @@ void LoaderPlatform_Unlock(uint32_t key);
 void LoaderPlatform_Reset(void);
 /** @brief 安全关断并停喂看门狗，不返回。 */
 void LoaderPlatform_Fatal(void);
-/** @brief 读取芯片唯一标识。 @param uid 输出12B标识，不是电机SN。 */
-void LoaderPlatform_Uid(uint8_t uid[12]);
 /**
- * @brief 建立仅允许APP槽及镜像记录页写入的端口。
+ * @brief 建立仅允许APP槽写入的端口。
  * @param io 输出端口，指向平台固定范围而非主机地址。
  */
 void LoaderPlatform_ImageIo(LoaderFlashIo *io);
-/** @brief 建立仅允许boot双页写入的端口。 @param io 输出专用端口。 */
-void LoaderPlatform_BootIo(LoaderFlashIo *io);
 /**
  * @brief 只读识别raw11存储外形并解析CAN节点。
  * @param node 成功识别后输出0..254节点，否则保持原值。
@@ -44,12 +40,6 @@ LoaderParameterState LoaderPlatform_Parameters(uint8_t *node);
  * @return CRC与命令格式有效返回true。
  */
 bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message);
-/**
- * @brief 写入校验过的邮箱，发布magic在最后。
- * @param message 完整命令值，不保留指针。
- * @return 编码和读回相同返回true。
- */
-bool LoaderPlatform_PutMailbox(const BootMailboxMessage *message);
 /**
  * @brief 停外设并通过已经校验的向量进入固定APP槽。
  * @note 仅启动所有者完成完整镜像校验后调用；失败安全停机，不接受任意入口地址。

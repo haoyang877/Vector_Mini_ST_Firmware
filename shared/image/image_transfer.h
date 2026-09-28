@@ -1,9 +1,23 @@
 #ifndef LOADER_IMAGE_TRANSFER_H
 #define LOADER_IMAGE_TRANSFER_H
 
-#include "nv_record.h"
-#include "nv_sha256.h"
 #include "image_format.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+/* 独占存储原语只描述端口能力，不授予功率使能；调用方负责生命周期与写边界。 */
+typedef struct
+{
+    void *context;
+    uint32_t base, bytes, erase_bytes, program_bytes;
+    bool (*read)(void *context, uint32_t address, void *out, uint32_t bytes);
+    bool (*erase)(void *context, uint32_t address, uint32_t bytes);
+    bool (*program)(void *context, uint32_t address, const void *data, uint32_t bytes);
+} LoaderFlashIo;
+typedef struct
+{
+    uint32_t base, bytes;
+} LoaderFlashRegion;
 
 /** 镜像阶段由单一前台所有者推进；写失败只能重新建立整包事务。 */
 typedef enum
@@ -14,7 +28,6 @@ typedef enum
     YI_RECEIVING,
     YI_VERIFYING,
     YI_VERIFIED,
-    YI_COMMITTED,
     YI_ERROR
 } LoaderImagePhase;
 typedef enum
@@ -37,22 +50,16 @@ typedef enum
     YI_PARAMS_BLANK,
     YI_PARAMS_UNSAFE
 } LoaderParameterState;
-typedef enum
-{
-    YI_RESCUE,
-    YI_BOOT_NORMAL,
-    YI_BOOT_MAINTENANCE_INHIBITED
-} LoaderBootDecision;
+/** 镜像声明身份：长度与整包 CRC32 由描述符/清单给出，仅声明完整性，不提供认证。 */
 typedef struct
 {
-    uint32_t version, token, bytes, role;
-    uint8_t sha[32];
+    uint32_t version, token, bytes, role, crc32;
 } LoaderImageIdentity;
 /** 组合层持有终生有效的几何与权限端口；读写不得访问参数区。 */
 typedef struct
 {
     LoaderFlashIo io;
-    LoaderFlashRegion app, record;
+    LoaderFlashRegion app;
     uint32_t layout, mcu, product, hardware, param_abi, ram_start, ram_end, descriptor_offset;
     uint16_t schema;
     void *owner;
@@ -65,8 +72,7 @@ typedef struct
     const LoaderImageConfig *config;
     uint8_t manifest[96];
     LoaderImageIdentity image;
-    LoaderSha256 hash;
-    uint32_t manifest_crc, next, erased;
+    uint32_t manifest_crc, hash, next, erased;
     LoaderImagePhase phase;
     LoaderImageResult reason;
     bool in_call;
@@ -83,7 +89,7 @@ bool LoaderImage_Init(LoaderImageTransfer *transfer, const LoaderImageConfig *co
 /**
  * @brief 解析完整清单并检查目标、角色、长度和参数 ABI。
  * @param config 固定目标配置。
- * @param manifest 完整 96B 大端清单。
+ * @param manifest 完整 96B 大端清单，48..51 为整包 CRC32，其后保留必须为零。
  * @param identity 成功后写入身份，失败不修改。
  * @return 清单符合本目标返回 true。
  */
@@ -117,68 +123,37 @@ LoaderImageResult LoaderImage_Write(LoaderImageTransfer *transfer,
                                     const uint8_t *data,
                                     uint32_t bytes);
 /**
- * @brief 启动整镜像摘要、向量表和内嵌描述符检查。
+ * @brief 启动整镜像 CRC32、向量表和内嵌描述符检查。
  * @param transfer 已连续接收全部镜像的事务。
  * @return 接受返回 YI_OK，未收齐返回 YI_STATE。
  */
 LoaderImageResult LoaderImage_Verify(LoaderImageTransfer *transfer);
 /**
- * @brief 推进一步擦除或摘要校验。
+ * @brief 推进一步擦除或 CRC32 校验。
  * @param transfer 独占事务。
- * @return 本步结果，不等于完整事务已提交。
- * @note 每次最多擦除一页或摘要 64B；仅前台调用。
+ * @return 本步结果，不等于完整事务已可用。
+ * @note 每次最多擦除一页或校验 64B；仅前台调用。
  */
 LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *transfer);
 /**
  * @brief 撤销 RAM 会话，已擦写的镜像不会回滚。
  * @param transfer 待撤销事务。
- * @note 不擦写 Flash，不使能输出；已提交事务由上层拒绝撤销。
+ * @note 不擦写 Flash，不使能输出；已校验事务由上层拒绝撤销。
  */
 void LoaderImage_Abort(LoaderImageTransfer *transfer);
 /**
- * @brief 在精确 ACK 完成后重新验证并发布 trial-ready 记录。
- * @param transfer 已 VERIFIED 的事务。
- * @return 持久记录读回完成返回 YI_OK。
- * @note 唯一升级所有者调用；配置 allowed 每个写单元再次核对权限。
- */
-LoaderImageResult LoaderImage_Commit(LoaderImageTransfer *transfer);
-/**
- * @brief 读取完整有效的镜像记录。
- * @param config 固定目标配置。
- * @param manifest 成功输出 96B 清单。
- * @param state 输出 1待试启动、2已尝试未确认、3已确认。
- * @return 容器和身份有效返回 true，不代表镜像已经校验。
- */
-bool LoaderImage_ReadRecord(const LoaderImageConfig *config, uint8_t manifest[96], uint32_t *state);
-/**
- * @brief 检查整个 Flash 镜像、向量和内嵌描述符。
+ * @brief 按清单身份整包核对已写入镜像。
  * @param config 只读目标配置。
- * @param identity 已校验清单的镜像身份。
- * @return 所有校验满足返回 true。
- * @note 有界扫描整个镜像并喂狗，不得在 ISR 调用。
+ * @param identity 清单声明的镜像身份，含长度与 CRC32。
+ * @return 向量、长度、CRC32 和内嵌描述符全部满足返回 true。
+ * @note 有界扫描并喂狗，不得在 ISR 调用。
  */
 bool LoaderImage_Check(const LoaderImageConfig *config, const LoaderImageIdentity *identity);
 /**
- * @brief 准入启动并在首次试启动前持久标记 attempted。
- * @param config 固定目标配置。
- * @param parameters 参数外形状态，不授予电机使能。
- * @param forced_rescue 显式救援请求。
- * @param identity 成功返回实际启动镜像身份。
- * @return 救援、普通启动或受抑制维护启动。
+ * @brief 现场读取 APP 内嵌描述符并整包核对，作为每次跳转前的唯一判据。
+ * @param config 只读目标配置。
+ * @return 描述符合法且向量、长度、CRC32 全部满足返回 true。
+ * @note 不依赖任何持久提交记录；损坏或半写镜像返回 false，调用方留在 Loader。
  */
-LoaderBootDecision LoaderImage_PrepareBoot(const LoaderImageConfig *config,
-                                           LoaderParameterState parameters,
-                                           bool forced_rescue,
-                                           LoaderImageIdentity *identity);
-/**
- * @brief 确认精确绑定的已尝试镜像。
- * @param config 固定目标配置，只允许镜像记录页写入。
- * @param parameters 参数外形状态，完整 APP 健康由调用方验证。
- * @param expected APP 自检且通信可用后提交的精确镜像身份。
- * @return 持久确认完成返回 YI_OK，身份或阶段不符拒绝。
- * @note 仅可信 APP 确认所有者调用，不能由任意主机清除故障启动状态。
- */
-LoaderImageResult LoaderImage_Confirm(const LoaderImageConfig *config,
-                                      LoaderParameterState parameters,
-                                      const LoaderImageIdentity *expected);
+bool LoaderImage_CheckImage(const LoaderImageConfig *config);
 #endif

@@ -1,8 +1,9 @@
 #include "board_config.h"
 
 #include "board_hw.h"
-#include "boot_handoff.h"
+#include "boot_hw.h"
 #include "comm_hw.h"
+#include "critical_hw.h"
 #include "foc_run_state.h"
 #include "yg_protocol_runtime.h"
 #include "yg_protocol_link.h"
@@ -72,43 +73,104 @@ static bool bind_device_description(void)
 }
 
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-static bool boot_request_stop(void *context, uint64_t ticket)
+/* 56 进 Loader 的最小所有者：停机→关相→精确TX完成后写ENTER邮箱复位；无持久确认。 */
+#define BOOT_ENTRY_TIMEOUT_MS 1000U
+static BootEntryRequest entry_request;
+static BootEntryResult entry_result;
+static uint64_t entry_ticket;
+static uint32_t entry_started_ms;
+static bool entry_requested, boot_supported;
+
+static bool same_request(const BootEntryRequest *left, const BootEntryRequest *right)
 {
-    (void)context;
-    return FocRunState_RequestBootStop(ticket) == MOTOR_CONTROL_ACCEPTED;
+    return left->boot_epoch == right->boot_epoch && left->source_node == right->source_node &&
+           left->sequence == right->sequence;
 }
 
-static bool boot_stop_ready(void *context, uint64_t ticket)
+static void poll_entry(uint32_t now_ms)
 {
-    (void)context;
-    return FocRunState_BootHandoffReady(ticket) && MotorControl_SaveIdle();
+    if (!entry_requested ||
+        (entry_result != BOOT_ENTRY_PENDING && entry_result != BOOT_ENTRY_READY))
+    {
+        return;
+    }
+    if ((uint32_t)(now_ms - entry_started_ms) >= BOOT_ENTRY_TIMEOUT_MS)
+    {
+        entry_result = BOOT_ENTRY_FAILED;
+    }
+    else if (FocRunState_BootHandoffReady(entry_ticket) && MotorControl_SaveIdle())
+    {
+        entry_result = BOOT_ENTRY_READY;
+    }
+    else
+    {
+        entry_result = BOOT_ENTRY_PENDING;
+    }
 }
 
-static void boot_read_health(void *context, BootHandoffHealth *health)
+static void handle_entry(void *context, const BootEntryRequest *request, BootEntryReply *reply)
 {
     (void)context;
-    *health = (BootHandoffHealth){0};
-    bool control_healthy =
-        FocRunState_ReadBootHealth(&health->supervisor_epoch, &health->confirmation_ready);
-    health->healthy = control_healthy && communication_ready && YgProtocolLink_IsReady() &&
-                      comm_hw_can_is_healthy();
-    health->confirmation_ready =
-        health->confirmation_ready && health->healthy && MotorControl_SaveIdle();
+    uint32_t now_ms;
+    if (reply == NULL)
+    {
+        return;
+    }
+    *reply = (BootEntryReply){.result = BOOT_ENTRY_UNAVAILABLE};
+    if (!boot_supported || request == NULL || request->boot_epoch == 0U ||
+        request->source_node == UINT8_MAX)
+    {
+        return;
+    }
+    if (entry_requested && !same_request(request, &entry_request))
+    {
+        reply->result = BOOT_ENTRY_DENIED;
+        return;
+    }
+    now_ms = time_hw_now_ms();
+    if (!entry_requested)
+    {
+        entry_request = *request;
+        entry_ticket = request->boot_epoch;
+        entry_started_ms = now_ms;
+        entry_requested = true;
+        entry_result = FocRunState_RequestBootStop(entry_ticket) == MOTOR_CONTROL_ACCEPTED
+                           ? BOOT_ENTRY_PENDING
+                           : BOOT_ENTRY_DENIED;
+    }
+    poll_entry(now_ms);
+    reply->result = entry_result;
+    reply->ack_ticket = entry_result == BOOT_ENTRY_READY ? entry_ticket : 0U;
 }
 
-static bool boot_confirmation_complete(void *context, uint64_t boot_epoch, uint32_t image_token)
+static void handle_tx_complete(void *context, uint64_t ticket, bool success)
 {
     (void)context;
-    return FocRunState_AcknowledgeBootConfirmation(boot_epoch, image_token);
+    uint32_t mask;
+    bool permitted;
+    if (!entry_requested || ticket == 0U || ticket != entry_ticket ||
+        entry_result != BOOT_ENTRY_READY)
+    {
+        return;
+    }
+    mask = critical_hw_enter();
+    /* 最终二次复核后撤销票据使用权限；复位失败也不能再次消费旧TX结果。 */
+    permitted = success && entry_result == BOOT_ENTRY_READY &&
+                (uint32_t)(time_hw_now_ms() - entry_started_ms) < BOOT_ENTRY_TIMEOUT_MS &&
+                FocRunState_BootHandoffReady(ticket) && MotorControl_SaveIdle();
+    entry_result = BOOT_ENTRY_FAILED;
+    if (permitted)
+    {
+        (void)BootHw_EnterLoader(entry_request.source_node);
+    }
+    critical_hw_exit(mask);
 }
 
-static bool bind_boot_handoff(void)
+static bool bind_boot_entry(void)
 {
-    const BootHandoffOwner owner = {
-        boot_request_stop, boot_stop_ready, boot_read_health, boot_confirmation_complete};
-    BootEntryService service;
-    return BootHandoff_Init(&owner, NULL, time_hw_now_ms()) && BootHandoff_GetService(&service) &&
-           YgProtocolLink_BindBootService(&service);
+    const BootEntryService service = {NULL, handle_entry, handle_tx_complete};
+    boot_supported = BootHw_Init();
+    return YgProtocolLink_BindBootService(&service);
 }
 #endif
 
@@ -125,7 +187,7 @@ void Board_Init(void)
                           YgProtocolStatusAdapter_Init() && bind_motor_stop() &&
                           YgProtocolOwner_BindServices() && bind_device_description();
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-    communication_ready = communication_ready && bind_boot_handoff();
+    communication_ready = communication_ready && bind_boot_entry();
 #endif
     communication_ready = communication_ready && YgProtocolRuntime_Start();
     if (!communication_ready)
@@ -138,7 +200,7 @@ void Board_Init(void)
 void Board_ServiceBoot(uint32_t now_ms)
 {
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-    BootHandoff_Service(now_ms);
+    poll_entry(now_ms);
 #else
     (void)now_ms;
 #endif

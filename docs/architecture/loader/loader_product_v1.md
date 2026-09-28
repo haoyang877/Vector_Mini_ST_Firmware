@@ -1,128 +1,204 @@
-# Loader 独立产品实现 v1
+# Loader 独立产品设计与实现 v2（简化候选）
 
-版本日期：2026-09-28。状态：源码已实现、集成中；本轮按用户要求不构建、不测试、不操作硬件。
-本文描述当前代码，不把历史报告或设计预算当作本次验收。首次实际目标为STM32G431CBUx。
+版本日期：2026-09-28。本文按 codex/capacity-fit、基线 abc3b45a 上尚未提交的简化源码更新。
+文件名保留为现有文档入口。当前为**审查未通过的候选实现**，不代表可发布固件。
+发现、修复顺序与离线证据见[简化审查记录 v1](../../plans/active/2026-09-28-loader-simplification-review-v1.md)。
+
+## 设计目标与本次取舍
+
+目标是独立 Loader、APP、参数三段布局：通过 CAN FD 接收 APP，限制 Flash 写入范围，
+跳转前检查完整镜像，APP 在安全停机和精确回复发送完成后交出控制权。
+硬件细节位于端口与板级，升级核心不依赖电机运行态、HAL 或 MCU 寄存器。
+
+本次删除 boot 双页日志、镜像记录页、SHA256、试运行确认及首次 boot 供应工具，
+改为 RAM ENTER 邮箱与 CRC32 校验。相对上一版 20KiB Loader + 86KiB APP，为 APP 释放 6KiB，
+形成 92KiB APP 槽；这是分区变化，不等于已测得同等代码缩减。
+原先就没有旧 APP 自动回滚；本次进一步取消未确认 APP 的持久救援判定与跨复位启动号隔离。
+这属于功能取舍，不能称为行为等价简化。
 
 ## 软件框图与所有权
 
 ```mermaid
 flowchart TB
-    Host[主机：公司协议50到55] --> CAN[CAN-FD 1M/5M物理端口]
-    CAN --> Codec[shared/protocol：帧CRC、CAN ID、分片、升级payload]
-    Codec --> Run[loader/runtime：来源策略、回复映射、启动调度]
-    Run --> Upgrade[loader/core/upgrade：boot+session+source租约与ACK票据]
-    Upgrade --> Image[shared/image：清单/描述符、SHA、连续写入与记录]
-    Run --> Boot[loader/core/boot_epoch：双页启动高水位]
-    Image --> Flash[固定Flash写域与ECC守卫]
-    Boot --> Flash
-    Run --> Board[板级：安全GPIO、时钟、UID、跳转]
-    Run --> Mailbox[shared/boot：32B一次性交接邮箱]
-    Mailbox --> App[APP生命周期所有者]
-    App --> AppPort[APP boot_hw：真实交接识别、记录确认、ENTER复位]
-    AppPort --> Image
+    Host[主机：公司协议50到55] --> Wire[CAN FD端口与共享帧编解码]
+    Wire --> Runtime[Loader runtime：路由与启动调度]
+    Runtime --> Upgrade[升级核心：会话、租约、激活TX票据]
+    Upgrade --> Image[镜像核心：连续写入、描述符、CRC32]
+    Image --> Flash[G431端口：固定Flash写域、读回、ECC]
+    Runtime --> Platform[平台与板级：安全输出、时钟、复位、跳转]
+    App[APP组合层：交接事务] --> Owner[运行所有者：停机、资源归还]
+    App --> BootHw[APP boot_hw：ENTER邮箱与复位]
+    BootHw --> Mailbox[32B RAM邮箱]
+    Mailbox --> Runtime
 ```
 
-- Loader前台独占升级状态。ISR每次最多搬3个CAN帧，不做CRC、擦写、复位或电机控制。
-- `shared/protocol`由H维护；APP与Loader共用单份纯codec，Loader不链接APP router/runtime。
-- `shared/image`有两个真实调用方：Loader接收/启动，APP完整身份校验与trial确认。所有Flash经回调，
-  不包含HAL、地址常量或GPIO。当前镜像profile要求8B写单元和schema11，不宣称任意MCU无需适配。
-- `loader/ports/stm32g4`拥有CAN寄存器、Flash写域/ECC、时钟和跳转；`boards/vector_mini_st`拥有引脚与时钟。
-- 无USB、CLI或UART实现，也不承载旧YI/Y3/B1线上格式。UART是后续传输适配，不能标为已交付能力。
+- loader/runtime/main.c 独占产品调度；loader/core/upgrade.c 独占升级事务与租约。
+- shared/image/image_transfer.c 通过 Flash 回调擦写 APP、校验向量和描述符，当前不再由 APP 调用。
+- shared/protocol 保留单份纯编解码；Loader 不链接 APP 路由或电机运行态。
+- loader/ports/stm32g4 拥有 CAN、Flash/ECC、时钟和跳转；板级拥有引脚与安全初始化。
+- APP 交接事务从独立 boot_handoff 服务移入 firmware/app/board_config.c，
+  通过 BootEntryService 绑定通信层、通过运行所有者核对停机。
+- 无 USB 或 UART 升级实现。UART 仍为后续传输适配，不能登记为已支持能力。
 
-## Flash与RAM
+## Flash 与 RAM
 
-几何的唯一输入为 `shared/targets/vector_mini_st_g431.json`；生成共享头、Loader/APP scatter和独立Keil工程。
+唯一几何输入为 shared/targets/vector_mini_st_g431.json，当前目标 STM32G431CBUx。
 
-`TARGET_HARDWARE=1` 的语义是**镜像目标的硬件兼容 profile 标识**，沿用历史目标配置中的
-`identity.hardware=1`。可追溯来源为提交 `0f617a5af4e2043793e2f724778e6ca8fb6443b2` 的
-`loader/targets/vector_mini_st_g431/target.json`；该历史文件的其他布局与参数版本并非本版配置。
-目前没有证据将这个值认定为实测或已登记的PCB revision；它仅参与清单/描述符的兼容性比较。
-APP设备信息中的PCB revision须取明确登记的板卡数据；缺少来源时按协议报告未知/不可用，
-不得直接将 `TARGET_HARDWARE` 报作物理板卡版本。此说明不改变常量值或线上字节。
-
-| 区域 | 起始地址 | 大小 | 写者/用途 |
+| 区域 | 起始地址 | 大小 | 权限与用途 |
 | --- | --- | --- | --- |
-| Loader | 0x08000000 | 28KiB | 离线安装；线上不可写 |
-| boot双页 | 0x08007000 | 4KiB | Loader分配启动号；UID绑定、双页持久见证 |
-| 镜像记录 | 0x08008000 | 2KiB | Loader提交/标记试启动；APP仅能写确认 |
-| APP单槽 | 0x08008800 | 78KiB | Loader整槽擦除、顺序写入 |
-| raw11参数保留区 | 0x0801C000 | 16KiB | 保留现有4304B参数；Loader只读 |
-| 普通RAM | 0x20000000 | 32736B上限 | 各独立镜像的数据、栈、堆合计 |
-| 交接邮箱 | 0x20007FE0 | 32B | APP/Loader共同保留；不被启动清零或普通RAM分配 |
+| Loader | 0x08000000 | 20KiB / 20480B | 离线安装；线上不可擦写 |
+| APP 单槽 | 0x08005000 | 92KiB / 94208B | Loader 整槽擦除、连续 8B 单元写入 |
+| raw11 参数区 | 0x0801C000 | 16KiB / 16384B | Loader 只读，APP 参数服务负责写入 |
+| 普通 RAM | 0x20000000 | 32736B 上限 | 各镜像的数据、栈、堆合计 |
+| ENTER 邮箱 | 0x20007FE0 | 32B | APP 写、Loader 一次性读并清除 |
 
-APP向量位于槽首，描述符位于APP+0x200、固定64B，代码从APP+0x240开始。
-链接文件对槽与RAM上限给出硬限制。Loader复用ST启动汇编的3072B栈/512B堆预留；当前代码不动态分配。
-CAN软件环8个物理帧槽（环算法可用7个），3个TX票据槽；协议重组缓冲146B。其余C结构大小/链接填充、
-调用栈峰值及真实ROM/RAM必须由后续map和统一测试给出，不能将缓冲相加视为全部RAM。
+APP 向量在槽首，描述符位于 0x08005200、固定 64B，代码区从 0x08005240 开始。
+旧 0x08006800 或 0x08008800 布局镜像不可直接使用；standalone APP 是另一独立构建目标。
+旧 boot/record 地址已归 APP，部署时必须按配套布局安装 Loader 与打包后的 APP。
 
-固定基线a174e00既有摘要为APP ROM98980B、RAM32608B。ROM比78KiB槽多19108B；该数值不是
-重构后结果。当前布局**尚未证明容纳完整APP**，不能生成或声称存在可发布的组合固件。
-后续统一构建若仍超限，应由总工调整实际功能/布局，不能截断固件、缩减标定区或虚报尺寸。
+Loader 栈预留 3072B、堆 512B，当前不动态分配；CAN 软件环 8 槽（可用 7），
+TX 票据 3 槽，协议重组缓冲 146B。完整 ROM/RAM、加载跨度和栈峰值须以新 map 验收；
+本次未构建，不能用历史产物证明候选装入 20KiB/92KiB。
 
-## 升级与故障流程
+TARGET_HARDWARE=1 是历史 identity.hardware=1 沿用的镜像硬件兼容 profile，
+来源为提交 0f617a5af4e2043793e2f724778e6ca8fb6443b2 的历史目标配置。
+它不是实测 PCB revision；设备信息缺少权威板卡数据时应报告未知。
 
-1. 冷启动先将六路门极输出拉低；确认G431 DEV_ID=0x468、Flash=128KiB，启动IWDG。
-2. 消费并清除邮箱；识别raw11外形和CAN节点。参数不可信时用登记的救援节点1，不改参数。
-3. 从双页分配本次boot epoch。双页历史未知或损坏则只允许诊断回复，不猜floor或自动格式化。
-4. CAN启动后开放50ms等待窗口。有效主站2的BEGIN首片使Loader驻留，避免分片期间跳APP。
-   有效软件复位ENTER也强制驻留；否则校验持久镜像和参数外形后尝试启动一次。
-5. BEGIN完整校验96B清单，分配本次session；逐页先擦镜像记录再擦APP。正常参数区从不参与擦除。
-6. WRITE仅接受8..128B、8B对齐连续偏移；每8B写后读回。重复偏移只比较，内容不同拒绝，
-   不对已经写过或失败的ECC单元补写。FINISH逐64B计算SHA并验证向量/描述符。
-7. ACTIVATE返回ACCEPTED并分配内部u64票据。只在对应物理TX成功、500ms ACK期限与5s租约内，
-   重新完整校验镜像、持久提交ready记录，再复核关相/链路并发布START邮箱复位。
-8. 首次跳APP前把ready(1)改为attempted(2)。APP自检、通信健康及生命周期准入通过后，
-   由唯一owner调用 `BootHw_Confirm` 写confirmed(3)。通信健康采用本机初始化、后台推进和控制器状态，
-   不以在线主机往返为前提，支持无主机独立启动。attempted未确认后再复位必驻留救援。
+## 启动与升级流程
 
-线上seq16只关联回复，不能作为跨分片逻辑消息的去重键；不同WRITE块尾片seq相同合法。
-会话身份为source+boot epoch+session，WRITE再校验offset和原数据。超时、bus-off、接收溢出或关相失效
-撤销当前会话；bus-off端口不自动复活旧票据，需要复位重新建链。数字关相失败走致命停机。
+拆为三个短图，分别说明启动、下载与 APP 交接。
 
-单槽掉电策略是重新下载：擦除或写入中断后记录无效；试启动标记/确认页改写掉电也可能丢记录。
-均留在Loader等待完整重传，**不提供旧镜像自动回滚、跨复位断点续传或签名认证**。
-ERROR保留独立的已读回字节计数，供诊断；该值不授予失败后的继续编程权限。
+### 启动判定
 
-SHA256/CRC用于完整性；公司升级v1回复始终标记INTEGRITY_ONLY。清单和描述符的未知保留位/版本拒绝。
-主站地址过滤不是密码认证，不能据此声称有设备授权或抗恶意升级能力。
+```mermaid
+flowchart TB
+    A[安全输出、参数节点识别、启动CAN和IWDG] --> B{软件复位且ENTER有效?}
+    B -- 是 --> R[驻留Loader]
+    B -- 否 --> C{约50ms内收到有效BEGIN首片?}
+    C -- 是 --> R
+    C -- 否 --> D{描述符、整包CRC32、向量合法?}
+    D -- 否 --> R
+    D -- 是 --> E[恢复时钟并跳APP]
+```
 
-## APP交接与参数权限
+邮箱仅在符合软件复位来源时强制驻留，掉电后不依赖 RAM 邮箱。
+参数空白或不可信时采用救援节点 1；当前不以参数识别结果限制跳 APP，
+完整参数合法性与电机准入仍由 APP 自身负责。
+IWDG 复位没有单独驻留策略，CRC 正确但运行故障的 APP 可能反复被启动。
 
-`BootHw_Init`在main最早、HAL_Init/开中断前调用：仅实际 `__Vectors==APP槽起点` 才接触邮箱，
-消费本次TRIAL/NORMAL并匹配持久记录状态、token、完整SHA/描述符。只有成功才发布真实boot epoch。
-独立APP链接0x08000000时返回不可用；旧记录、固定常量或芯片UID都不能替代本次交接证明。
+### 下载与激活
 
-56的业务值契约为 `shared/boot/loader_entry.h`，线上由H负责。E生命周期owner负责STOP/revoke、
-worker归还、save空闲、数字关相与截止。PENDING仅等待；READY必须携带u64内部ACK票据；
-通信把对应帧真实完成回传后，E再次复核才调用 `BootHw_EnterLoader`。接口返回READY不表示已经复位。
-`BootHw_Confirm`仅授权记录页写入，持久确认前不允许任意循环无限喂继承IWDG；确认后仍由健康监督
-显式调用 `BootHw_Watchdog(healthy)`。首次IWDG配置标称约32s，实际期限依赖LSI误差，待实测。
-本机健康不能证明端到端通信正确；若坏APP满足本机检查并已确认但协议不能通信，仍需复位并
-利用50ms窗口进入Loader重新升级，不能声称所有无法通信的APP都会自动回退。
+```mermaid
+flowchart TB
+    A[BEGIN校验清单并建会话] --> B[整槽擦除APP]
+    B --> C[WRITE连续写入并读回]
+    C --> D[FINISH分步CRC32校验]
+    D --> E{镜像检查通过?}
+    E -- 否 --> R[留Loader重新下载]
+    E -- 是 --> F[ACTIVATE回复绑定TX票据]
+    F --> G{对应帧发送成功且未超时?}
+    G -- 否 --> R
+    G -- 是 --> H[完整复核、复位、重新判定启动]
+```
 
-Loader只识别schema/magic/节点与区域可读性；不替代APP对校准值、类型、物理限值和可使能条件的检查。
-首版没有引入SN存储、类型写服务或双STABLE参数日志，不能伪造空SN为已登记。参数读写权限仍归APP服务，
-Loader命令不提供任意地址/参数擦写功能；原16KiB保持完整。
+WRITE 接受 8..128B、8B 对齐连续偏移；相同已写内容只比较，不重复编程。
+失败后不得向已编程或不确定 ECC 单元补写，应重新整槽下载。
+租约 5s、激活回复期限 500ms；仅对应物理 TX 成功事件能触发复位，入队或 FIFO 空不能替代。
 
-## 更换MCU
+当前没有持久激活标记：**完整镜像在 FINISH/ACTIVATE 前就可能满足冷启动检查**。
+完整写入后掉电再上电可能运行该镜像，ACTIVATE 不再是跨复位唯一启动门槛。
+若保留这一门槛，可将一个 8B 启动有效单元留至激活时最后写入；需另行定义版本、CRC、
+ECC 写入及掉电规则，不能原位改写已编程单元。此方案当前未实现。
 
-先确认目标实际Flash/RAM、擦除单位、编程/ECC单位和启动语义，增加目标配置与对应端口/板级实现；
-不在升级内核添加型号分支。端口必须提供有界Flash读/整页擦/单位编程及读回、包含Flash停顿的时间、
-唯一UID、掉电持久启动号、安全输出状态和精确TX完成。现有profile只支持8B逻辑写单元；若新MCU不能
-提供同等掉电/ECC语义，应定义新的目标profile和版本化契约，不能把16B硬件单位伪装为可独立8B补写。
-重新生成APP/Loader/主机配置并在后续统一执行同一故障矩阵。当前只实现G431，其他MCU尚未验收。
+### APP 安全交接
 
-## 集成与后续验收
+```mermaid
+flowchart TB
+    A[Type 56请求] --> B[撤销目标并申请停机]
+    B --> C{关相、资源归还、保存空闲?}
+    C -- 否 --> W[等待或超时失败]
+    C -- 是 --> D[READY回复绑定TX票据]
+    D --> E{精确发送成功并再次复核?}
+    E -- 否 --> W
+    E -- 是 --> F[写ENTER邮箱并复位]
+```
 
-- 独立工程：`loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx`；不含APP对象或自动下载配置。
-- APP使用生成的 `app.sct`、编入 `shared/targets/vector_mini_st_g431_app_descriptor.c`，显式定义
-  `YG_APP_LOADER_IMAGE=1`、`YG_APP_IMAGE_VERSION`（u32）、`YG_APP_IMAGE_ROLE`（1普通/2维护）。
-- APP编入 `boot_hw_stm32g4.c`、mailbox及shared/image三个C；E负责上述真实生命周期接点，ROOT负责工程接入。
-- `loader/tools/package_image.py`只校验已链接BIN，补FF到8B并把补齐字节计入SHA；不修改描述符或猜地址。
-- `loader/tools/provision_boot.py`仅为明确UID/floor/完整备份SHA、且boot双页全FF生成供应数据；
-  旧独立APP初次转换有非空boot地址时明确拒绝，须另行审核完整部署，不覆盖旧启动高水位。
-- 首次安装、实际升级、断电、故障APP、ECC/NMI归属及32s看门狗链路均未在本轮执行。
-- 后续须运行PR/release验证、当前产物哈希核对、CAN1M/5M实际帧/ACK事件测试和掉电矩阵。
-  新增纯内存用例源码与黄金字节向量只是待执行输入，不是通过证据。
-- 按用户选择，硬件测试结束恢复测试前固件和**完整原参数**，保留校准和空SN；读回比对备份。
-  未恢复或不能确认输出关闭必须报失败并停止，不能自动继续试验。
+期限 1s；READY 表示具备交接条件，不表示已复位。失败后继续保持停机所有权，
+不自动恢复旧运动目标。当前内部票据直接采用主机提供的非零 boot_epoch，
+已失去旧版设备可信启动身份的含义。
+
+BootHw_Init 按实际链接向量地址识别偏移 APP 并设置 VTOR，不再核对邮箱、镜像或持久记录；
+它只能判断布局，不能证明由某个 Loader 版本实际启动。
+BootHw_Watchdog 保留为端口函数，但 APP 当前没有调用者，正常 APP 也会因继承 IWDG 超时复位。
+须恢复由监督进展和健康条件驱动的有界喂狗，不能无条件喂狗掩盖故障。
+
+## 邮箱、镜像与协议兼容性
+
+RAM 邮箱当前为 v4、32B、小端：magic、version、ENTER、node 各 4B，12B 保留零，
+末 4B 为前 28B 的 CRC32。不携带 token/epoch/TRIAL/NORMAL。APP 最后发布 magic 并读回，
+Loader 读后立即清零。APP 当前将主机来源节点写入邮箱，Loader 仍从参数读取本机节点，
+尚不消费邮箱 node；该字段含义需同步收口。
+
+镜像仍为 96B 清单和 64B 描述符，大端字段，当前候选规则如下。
+
+| 对象 | 字节偏移 | 含义 |
+| --- | --- | --- |
+| 清单 | 48..51 | 镜像 CRC32 |
+| 清单 | 52..95 | 全零 |
+| 描述符 | 44..47 | 含 8B 补齐的镜像长度 |
+| 描述符 | 48..51 | 镜像 CRC32 |
+| 描述符 | 52..63 | 全零 |
+
+CRC32 使用反射多项式 0xEDB88320、初值与末异或 0xFFFFFFFF。
+覆盖完整补齐镜像，描述符 CRC 字段按零参与，长度字段参与计算。
+它检查偶发损坏，不提供签名、发布者认证或恶意篡改防护。
+
+package_image.py 现在补齐并回填长度/CRC，输出 image.bin 和 manifest.bin。
+用于升级或偏移 APP 安装的是**打包后的 image.bin**；原始链接 BIN/HEX 中占位字段为零，
+不满足启动判据，不能直接作为部署包。
+
+当前 YGI_PROFILE、描述符版本 1、TARGET_LAYOUT=3 和包格式名 loader-image-v1 仍沿用旧值，
+但摘要字段与 APP 基址已变化；旧 SHA256 fixture、协议文档和主机调用约定未同步。
+须定义新 profile/布局版本、兼容拒绝策略及三端黄金向量，不能隐式混用。
+
+Type 50..55 字节布局仍沿用公司载荷 v1，但启动身份语义改变：
+空 STATUS 返回 boot_epoch=0，BEGIN 要求主机提供非零值并回显，APP 也不再发布有效启动身份。
+旧 v1 主机“先发现设备启动号，再 BEGIN/56”的流程不兼容。
+活动 BEGIN 当前不比较请求 boot 字段，跨复位 session/ticket 计数从零开始；
+不得宣称旧启动报文隔离仍存在。协议修复须覆盖发现、BEGIN 幂等与 APP 入口。
+
+## 掉电、故障 APP 与参数权限
+
+| 情况 | 当前行为 | 边界 |
+| --- | --- | --- |
+| BEGIN 受理但尚未擦除时掉电 | 旧 APP 若仍完整可再次启动 | 无持久事务标志 |
+| 擦除或部分写入后掉电 | 描述符/CRC/向量不合法则留 Loader | 重新整包下载，无跨复位续传 |
+| 写完整但未 FINISH/ACTIVATE 就掉电 | 新镜像通过检查即可启动 | 无持久激活门槛 |
+| CRC 正确但 APP 崩溃或不喂狗 | 看门狗复位后可能重跳同一 APP | 无试运行失败驻留 |
+| CRC 正确但 APP 无法通信 | 复位后利用约 50ms BEGIN 窗口救援 | 主机链路与窗口可靠性待实测 |
+| Loader 被离线误刷或启动入口破坏 | 线上升级不能恢复 | 需 SWD 等离线恢复 |
+
+建议增加“看门狗/异常复位驻留 Loader”的最小策略，无需恢复两个持久分区；
+该策略当前**尚未实现**，复位归属与救援矩阵待验收。
+
+参数保留现有 4304B raw11 记录与完整 16KiB 区域；Loader 只识别外形和节点，
+不提供参数或任意地址擦写。SN、类型字段和权限服务未在此批新增，不能宣称已实现。
+参数合法性、校准和电机使能由 APP 所有者负责。
+role=2 仍被镜像解码接受，但 APP 的维护禁止运动标志固定为 false；
+恢复角色限制或明确拒绝 role=2 前，不能发布维护镜像能力。
+
+## 更换 MCU 与后续验收
+
+新 MCU 增加目标配置、端口与板级安全实现，内核不添加型号分支。
+核对 Flash/RAM、擦除页、编程/ECC 单位、异常与复位来源、CAN 精确 TX 完成及时基。
+当前逻辑仅支持 8B 写单元，16B 硬件单元不能伪装成可独立 8B 补写。
+UART 后续适配应复用会话和镜像层，并定义准确发送完成与链路错误契约。
+
+本轮 Loader 纯内存用例通过，补充复现确认未激活镜像可冷启动、不同 boot BEGIN 被接受、
+复位模型会重用会话身份。quick 验证 FAIL，详细证据见审查记录。
+未运行 Keil 构建、烧录、CAN/J-Link 或电机操作。
+
+发布前修复看门狗与维护角色，闭合协议/profile/黄金向量，核对寄存器 Flash 和生成输入，
+完成 PR/release 与明确授权的掉电、故障 APP、ECC、CAN FD 测试。
+按用户选择，后续硬件测试结束恢复测试前固件和**完整原参数**，保留校准和空 SN；
+读回比对备份，不能确认输出关闭或恢复状态时停止测试。

@@ -38,10 +38,11 @@ typedef struct
     void (*watchdog)(void *context);
     uint32_t (*lock)(void *context);
     void (*unlock)(void *context, uint32_t key);
-    bool (*publish_start)(void *context, uint32_t token, uint64_t boot_epoch);
+    /** @brief 复核通过后发布启动复位；成功复位不返回，返回 true 仅用于纯内存模型。 */
+    bool (*boot)(void *context);
 } LoaderUpgradePorts;
 
-/** 组合层独占，初始化仅发生在真实新 boot；不能通过重新初始化清空序号高水位。 */
+/** 组合层独占；不使用持久启动记录，仅绑定本次会话的几何与端口。 */
 typedef struct
 {
     LoaderImageTransfer image;
@@ -60,24 +61,22 @@ typedef struct
 } LoaderUpgrade;
 
 /**
- * @brief 绑定镜像几何、物理端口和一次持久分配的启动代号。
+ * @brief 绑定镜像几何与物理端口。
  * @param upgrade 调用方拥有的整个升级状态。
  * @param image 固定镜像配置；复制几何与 Flash 端口，不保留配置指针。
  * @param ports 终生有效的平台回调值。
- * @param boot_epoch 本次启动唯一代号，必须非零。
  * @return 参数有效并初始化成功返回 true。
- * @note 前台初始化一次；不擦写、不启动硬件。
+ * @note 前台初始化一次；不擦写、不启动硬件、不分配持久启动号。
  */
 bool LoaderUpgrade_Init(LoaderUpgrade *upgrade,
                         const LoaderImageConfig *image,
-                        const LoaderUpgradePorts *ports,
-                        uint64_t boot_epoch);
+                        const LoaderUpgradePorts *ports);
 
 /**
  * @brief 检查新镜像并分配会话，随后由 Poll 执行整槽擦除。
  * @param upgrade 唯一升级状态。
  * @param source_node 通过外层校验的主机节点，禁止广播。
- * @param expected_boot 主机观察到的本次启动代号。
+ * @param expected_boot 主机提供的非零不透明会话标识；不再对应持久启动记录。
  * @param manifest 完整 96B 镜像容器，返回后不保留指针。
  * @param status 输出当前状态和分配的 session_id。
  * @return 接受返回 YI_OK；其他主机、未过期不同镜像和错误启动代号拒绝。
@@ -129,6 +128,7 @@ LoaderImageResult LoaderUpgrade_Status(LoaderUpgrade *upgrade,
  * @param ack_ticket 输出不可截断的 64 位平台发送票据。
  * @return 接受返回 YI_OK；重复请求只返回同一票据，不延长截止。
  * @note 票据必须随对应 54 回复帧进入硬件队列；只有同帧完成事件才能回传。
+ *       不再持久提交；成功后由完成事件复核镜像并复位，下次启动现场校验。
  */
 LoaderImageResult LoaderUpgrade_Activate(LoaderUpgrade *upgrade,
                                          const LoaderUpgradeBinding *binding,

@@ -37,8 +37,6 @@ def main() -> None:
             "loader/core/upgrade.c",
             "shared/boot/image_mailbox.c",
             "shared/image/image_transfer.c",
-            "shared/image/nv_record.c",
-            "shared/image/nv_sha256.c",
         )
     ]
     command += ["-o", str(executable)]

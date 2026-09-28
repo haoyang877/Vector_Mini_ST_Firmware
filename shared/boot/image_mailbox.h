@@ -4,21 +4,18 @@
 #include <stdint.h>
 #define YGIM_BYTES 32U
 #define YGIM_MAGIC 0x33494759U
-#define YGIM_VERSION 3U
+#define YGIM_VERSION 4U
 #define YG_BOOT_ENTER 1U
-#define YG_BOOT_TRIAL 2U
-#define YG_BOOT_NORMAL 4U
-/** LE布局magic/version/command/node/token/epoch低32/高32/CRC32，末字覆盖前28B。 */
+/** LE布局magic/version/command/node，其余保留为零，末字覆盖前28B。 */
 typedef struct
 {
-    uint32_t command, node, token;
-    uint64_t epoch;
+    uint32_t command, node;
 } BootMailboxMessage;
 /**
- * @brief 编码一次性APP/Loader交接值。
- * @param message 命令和0..254节点；TRIAL/NORMAL/START要求非零token和epoch。
+ * @brief 编码一次性APP→Loader进入请求。
+ * @param message 仅接受ENTER和0..254节点。
  * @param out 成功输出32B，调用方负责保留RAM、内存屏障和最终magic发布。
- * @return 格式有效返回true；不分配epoch或授予硬件写权限。
+ * @return 格式有效返回true；不授予硬件写权限。
  */
 bool BootMailbox_Encode(const BootMailboxMessage *message, uint8_t out[YGIM_BYTES]);
 /**

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import sys
@@ -88,35 +87,17 @@ def main() -> None:
                 "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c"
             )
     group = ET.SubElement(groups, "Group")
-    ET.SubElement(group, "GroupName").text = "APP Boot Handoff"
+    ET.SubElement(group, "GroupName").text = "APP Boot Entry"
     files = ET.SubElement(group, "Files")
-    # 沿用已验证的参数冷路径 O2/空间选项；显式副本不改变原工程或共享源的 Loader 构建。
-    space_options = next(
-        file.find("FileOption")
-        for file in groups.findall("Group/Files/File")
-        if file.findtext("FileName") == "foc_param.c"
-    )
-    if space_options is None:
-        raise ValueError("参数模块缺少已验证的空间优化配置")
+    # APP 只保留进 Loader 的 RAM 邮箱与内嵌描述符；镜像校验与启动判据归 Loader。
     for source in (
-        "firmware/services/boot_handoff/boot_handoff.c",
         "shared/boot/image_mailbox.c",
-        "shared/image/image_transfer.c",
-        "shared/image/nv_record.c",
-        "shared/image/nv_sha256.c",
         "shared/targets/vector_mini_st_g431_app_descriptor.c",
     ):
         file = ET.SubElement(files, "File")
         ET.SubElement(file, "FileName").text = Path(source).name
         ET.SubElement(file, "FileType").text = "1"
         ET.SubElement(file, "FilePath").text = relative(source)
-        if Path(source).name in {
-            "boot_handoff.c",
-            "image_transfer.c",
-            "nv_record.c",
-            "nv_sha256.c",
-        }:
-            file.append(copy.deepcopy(space_options))
     for info in tree.getroot().findall("RTE/packages/package/targetInfos/targetInfo"):
         info.set("name", name)
     layer = tree.getroot().find("LayerInfo/Layers/Layer/LayName")

@@ -1,6 +1,5 @@
-/* 产品组合根：唯一前台所有者，冷启动驻留/升级/试启动；不链接APP运行态。 */
+/* 产品组合根：唯一前台所有者，冷启动驻留/升级/跳前校验；不链接APP运行态。 */
 #include "upgrade.h"
-#include "boot_epoch.h"
 #include "platform.h"
 #include "can_port.h"
 #include "vector_mini_st_g431.h"
@@ -14,8 +13,7 @@ static LoaderImageConfig image_config;
 static yg_protocol_fragment_state_t fragments;
 static uint8_t assembly[YG_PROTOCOL_UPGRADE_MAX_REQUEST_BYTES];
 static uint8_t node = TARGET_RESCUE_NODE;
-static uint64_t boot_epoch;
-static bool resident, boot_authority;
+static bool resident;
 static uint32_t started_ms;
 
 static uint32_t now_ms(void *context)
@@ -33,10 +31,6 @@ static bool safe(void *context)
     (void)context;
     return LoaderPlatform_OutputsOff() && LoaderCan_Ready();
 }
-static bool boot_write_allowed(void *context)
-{
-    return boot_authority && safe(context) && !upgrade.active;
-}
 static uint32_t lock(void *context)
 {
     (void)context;
@@ -47,17 +41,9 @@ static void unlock(void *context, uint32_t key)
     (void)context;
     LoaderPlatform_Unlock(key);
 }
-static bool publish_start(void *context, uint32_t token, uint64_t epoch)
+static bool boot_now(void *context)
 {
-    BootMailboxMessage message = {YGI_BOOT_START, 0, 0, 0};
     (void)context;
-    message.node = node;
-    message.token = token;
-    message.epoch = epoch;
-    if (!safe(NULL) || !LoaderPlatform_PutMailbox(&message))
-    {
-        return false;
-    }
     LoaderPlatform_Reset();
     return false;
 }
@@ -77,8 +63,6 @@ static uint8_t phase_code(LoaderImagePhase phase)
         return YG_PROTOCOL_UPGRADE_PHASE_VERIFYING;
     case YI_VERIFIED:
         return YG_PROTOCOL_UPGRADE_PHASE_VERIFIED;
-    case YI_COMMITTED:
-        return YG_PROTOCOL_UPGRADE_PHASE_COMMITTED;
     default:
         return YG_PROTOCOL_UPGRADE_PHASE_ERROR;
     }
@@ -136,7 +120,8 @@ static void status_reply(YgProtocolUpgradeReply *reply)
 {
     LoaderUpgradeStatus status;
     memset(reply, 0, sizeof(*reply));
-    reply->boot_epoch = boot_epoch;
+    /* 启动记录已移除；这里回显本次会话由主机提供的不透明标识，不代表持久启动号。 */
+    reply->boot_epoch = upgrade.binding.boot_epoch;
     reply->max_block_bytes = LOADER_UPGRADE_MAX_BLOCK_BYTES;
     reply->flags = YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY;
     if (!upgrade.initialized || LoaderUpgrade_Status(&upgrade, NULL, &status) != YI_OK)
@@ -218,11 +203,6 @@ static void dispatch(const yg_protocol_message_t *message)
     else if (message->destination_node != node && !request.discover)
     {
         reply.result = YG_PROTOCOL_UPGRADE_RESULT_DENIED;
-    }
-    else if (!request.discover && request.boot_epoch != boot_epoch)
-    {
-        reply.result = YG_PROTOCOL_UPGRADE_RESULT_DENIED;
-        reply.detail = YG_PROTOCOL_UPGRADE_DETAIL_WRONG_BOOT;
     }
     else
     {
@@ -329,8 +309,6 @@ static bool initialize_image(void)
     LoaderPlatform_ImageIo(&image_config.io);
     image_config.app.base = TARGET_APP_BASE;
     image_config.app.bytes = TARGET_APP_BYTES;
-    image_config.record.base = TARGET_RECORD_BASE;
-    image_config.record.bytes = TARGET_ERASE_BYTES;
     image_config.layout = TARGET_LAYOUT;
     image_config.mcu = TARGET_MCU;
     image_config.product = TARGET_PRODUCT;
@@ -340,41 +318,25 @@ static bool initialize_image(void)
     image_config.ram_start = TARGET_RAM_BASE;
     image_config.ram_end = TARGET_RAM_END;
     image_config.descriptor_offset = TARGET_DESCRIPTOR_OFFSET;
-    image_config.allowed = boot_write_allowed;
+    image_config.allowed = safe;
     image_config.watchdog = watchdog;
     ports.now_ms = now_ms;
     ports.outputs_off_and_link_ready = safe;
     ports.watchdog = watchdog;
     ports.lock = lock;
     ports.unlock = unlock;
-    ports.publish_start = publish_start;
-    return LoaderUpgrade_Init(&upgrade, &image_config, &ports, boot_epoch);
+    ports.boot = boot_now;
+    return LoaderUpgrade_Init(&upgrade, &image_config, &ports);
 }
-static void try_boot(LoaderParameterState parameters)
+static void try_boot(void)
 {
-    LoaderImageIdentity image;
-    BootMailboxMessage message = {0};
-    uint8_t raw[96];
-    uint32_t state;
-    LoaderBootDecision decision;
     if (resident || upgrade.active || !upgrade.initialized || !safe(NULL) ||
-        (uint32_t)(LoaderPlatform_NowMs() - started_ms) < TARGET_BOOT_WINDOW_MS)
+        (uint32_t)(LoaderPlatform_NowMs() - started_ms) < TARGET_LOADER_WINDOW_MS)
     {
         return;
     }
-    resident = true; /* 每次真实启动最多尝试一次；失败留在Loader。 */
-    boot_authority = true;
-    decision = LoaderImage_PrepareBoot(&image_config, parameters, false, &image);
-    boot_authority = false;
-    if (decision == YI_RESCUE || !safe(NULL) || !LoaderImage_ReadRecord(&image_config, raw, &state))
-    {
-        return;
-    }
-    message.command = state == 3 ? YG_BOOT_NORMAL : YG_BOOT_TRIAL;
-    message.node = node;
-    message.token = image.token;
-    message.epoch = boot_epoch;
-    if (!LoaderPlatform_PutMailbox(&message))
+    resident = true; /* 每次真实启动最多尝试一次；校验失败留在Loader。 */
+    if (!LoaderImage_CheckImage(&image_config) || !safe(NULL))
     {
         return;
     }
@@ -382,36 +344,20 @@ static void try_boot(LoaderParameterState parameters)
 }
 int main(void)
 {
-    LoaderBootStore store = {0};
     LoaderCanTxEvent event;
     BootMailboxMessage message = {0};
-    LoaderParameterState parameters;
     bool software_reset, mailbox_valid;
     if (!LoaderPlatform_Init(&software_reset))
     {
         LoaderPlatform_Fatal();
     }
     mailbox_valid = LoaderPlatform_TakeMailbox(&message);
-    parameters = LoaderPlatform_Parameters(&node);
+    (void)LoaderPlatform_Parameters(&node);
     if (!LoaderCan_Init(node))
     {
         LoaderPlatform_Fatal();
     }
-    LoaderPlatform_BootIo(&store.io);
-    store.page[0].base = TARGET_BOOT_BASE;
-    store.page[0].bytes = TARGET_ERASE_BYTES;
-    store.page[1].base = TARGET_BOOT_BASE + TARGET_ERASE_BYTES;
-    store.page[1].bytes = TARGET_ERASE_BYTES;
-    store.magic = TARGET_BOOT_MAGIC;
-    store.version = TARGET_BOOT_VERSION;
-    store.header_commit = TARGET_BOOT_HEADER_COMMIT;
-    store.entry_commit = TARGET_BOOT_ENTRY_COMMIT;
-    LoaderPlatform_Uid(store.uid);
-    /* 不在现场猜floor、不自动格式化空白boot页；首次供应由离线工装明确执行。 */
-    if (LoaderBoot_Allocate(&store, &boot_epoch) == YGB_OK)
-    {
-        (void)initialize_image();
-    }
+    (void)initialize_image();
     resident = software_reset && mailbox_valid && message.command == YG_BOOT_ENTER;
     (void)yg_protocol_fragment_init(&fragments, assembly, sizeof(assembly));
     started_ms = LoaderPlatform_NowMs();
@@ -433,7 +379,7 @@ int main(void)
         LoaderUpgrade_Poll(&upgrade);
         receive();
         (void)yg_protocol_fragment_poll(&fragments, LoaderPlatform_NowMs(), 500);
-        try_boot(parameters);
+        try_boot();
         LoaderPlatform_Watchdog();
     }
 }

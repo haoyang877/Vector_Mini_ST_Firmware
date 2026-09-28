@@ -152,22 +152,6 @@ MotorControlResult FocRunState_RequestBootStop(uint64_t ticket);
  * @note 必须在最终邮箱写入与复位的同一短临界区复核；不表示保存业务已完成。
  */
 bool FocRunState_BootHandoffReady(uint64_t ticket);
-/**
- * @brief 读取基础运行健康及试启动确认资格的一致值。
- * @param supervisor_epoch 接收监督调度进展计数，调用方必须比较新进展而非反复消费旧值。
- * @param confirmation_ready 接收自检通过、READY、无资源占用、关相和编码器在线资格。
- * @return 感测新鲜且未进入FATAL返回true；通信及保存健康由组合层补充。
- * @note 前台短临界区只读；完整标定仍是运动模式条件，不是固件试启动确认条件。
- */
-bool FocRunState_ReadBootHealth(uint32_t *supervisor_epoch, bool *confirmation_ready);
-/**
- * @brief 复核平台真实确认记录并解除试启动禁止。
- * @param boot_epoch 本次实际启动代号，必须非零。
- * @param image_token 本次镜像身份，必须非零。
- * @return 平台已确认且身份完全匹配返回true；否则保持禁止。
- * @note 仅前台交接服务在确认写入并回读成功后调用，不自动启动或恢复目标。
- */
-bool FocRunState_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image_token);
 
 typedef enum
 {

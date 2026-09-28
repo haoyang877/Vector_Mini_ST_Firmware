@@ -43,19 +43,17 @@ static void capture(const LoaderUpgrade *u, LoaderUpgradeStatus *out)
 
 bool LoaderUpgrade_Init(LoaderUpgrade *u,
                         const LoaderImageConfig *image,
-                        const LoaderUpgradePorts *ports,
-                        uint64_t boot_epoch)
+                        const LoaderUpgradePorts *ports)
 {
-    if (u == NULL || image == NULL || ports == NULL || boot_epoch == 0 || ports->now_ms == NULL ||
+    if (u == NULL || image == NULL || ports == NULL || ports->now_ms == NULL ||
         ports->outputs_off_and_link_ready == NULL || ports->watchdog == NULL ||
-        ports->lock == NULL || ports->unlock == NULL || ports->publish_start == NULL)
+        ports->lock == NULL || ports->unlock == NULL || ports->boot == NULL)
     {
         return false;
     }
     memset(u, 0, sizeof(*u));
     u->config = *image;
     u->ports = *ports;
-    u->binding.boot_epoch = boot_epoch;
     u->config.owner = u;
     u->config.allowed = gate;
     u->config.watchdog = watchdog;
@@ -71,7 +69,7 @@ LoaderImageResult LoaderUpgrade_Begin(LoaderUpgrade *u,
 {
     LoaderImageResult result;
     if (u == NULL || !u->initialized || manifest == NULL || status == NULL || u->in_call ||
-        source_node == 255 || expected_boot == 0 || expected_boot != u->binding.boot_epoch)
+        source_node == 255 || expected_boot == 0)
     {
         return YI_ARGUMENT;
     }
@@ -94,6 +92,7 @@ LoaderImageResult LoaderUpgrade_Begin(LoaderUpgrade *u,
     {
         return result;
     }
+    u->binding.boot_epoch = expected_boot;
     u->binding.source_node = source_node;
     u->binding.session_id = ++u->sessions;
     u->active = true;
@@ -218,14 +217,13 @@ bool LoaderUpgrade_TxComplete(LoaderUpgrade *u, uint64_t ticket, bool success)
         return false;
     }
     u->in_call = true;
-    if (LoaderImage_Commit(&u->image) == YI_OK)
+    if (LoaderImage_Check(&u->config, &u->image.image))
     {
         key = u->ports.lock(u->ports.context);
         now_ms = u->ports.now_ms(u->ports.context);
         if (gate(u) && (uint32_t)(now_ms - u->ack_started_ms) < LOADER_UPGRADE_ACK_MS)
         {
-            result = u->ports.publish_start(
-                u->ports.context, u->image.image.token, u->binding.boot_epoch);
+            result = u->ports.boot(u->ports.context);
         }
         u->ports.unlock(u->ports.context, key);
     }
@@ -236,8 +234,7 @@ bool LoaderUpgrade_TxComplete(LoaderUpgrade *u, uint64_t ticket, bool success)
 
 LoaderImageResult LoaderUpgrade_Abort(LoaderUpgrade *u, const LoaderUpgradeBinding *binding)
 {
-    if (u == NULL || !u->initialized || u->in_call || !same(u, binding) ||
-        u->image.phase == YI_COMMITTED)
+    if (u == NULL || !u->initialized || u->in_call || !same(u, binding))
     {
         return YI_DENIED;
     }
@@ -276,10 +273,7 @@ void LoaderUpgrade_LinkLost(LoaderUpgrade *u)
     }
     u->active = false;
     u->pending_ticket = 0;
-    if (u->image.phase != YI_COMMITTED)
-    {
-        LoaderImage_Abort(&u->image);
-        u->written_bytes = 0;
-        u->image.reason = YI_DENIED;
-    }
+    LoaderImage_Abort(&u->image);
+    u->written_bytes = 0;
+    u->image.reason = YI_DENIED;
 }

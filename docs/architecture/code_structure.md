@@ -62,11 +62,11 @@ CubeMX 再生成后仍需审查用户代码区、输出目录和自定义源文�
 - [loader/](../../loader/README.md)：core、protocol、transport、port、MCU/Board/target 分离。
 - [host_app/](../../host_app/README.md)：GUI/CLI 复用 UpgradeService，CAN-FD/UART 后端独立。
 - [shared/](../../shared/README.md)：协议、镜像、启动交接、目标布局的单一契约来源。
-- APP 未来交接服务归 `firmware/services/boot_handoff/`，无需把 Loader 核心链接进 APP。
+- APP 进 Loader 服务归 `firmware/app/board_config.c`（唯一生命周期 owner 接点），无需把 Loader 核心链接进 APP。
 
-当前只是目录与接口归属约定；没有恢复历史 stash，也没有把设计中的升级功能标记为已实现。
-当前 APP 仍从 0x08000000 链接。后续接入 Loader 时再处理 0x08004000 APP 入口、
-保留 RAM 邮箱、参数区保护和版本/兼容性契约。
+2026-09-28 最简方案已实施：APP 从 0x08005000 链接，Loader 跳转前现场校验内嵌描述符与整包 CRC32；
+保留 RAM 顶 32B 进入邮箱与参数区保护，不保留持久启动记录或 boot epoch。详见
+[最简启动/升级方案 v1](../plans/completed/2026-09-28-simplified-boot-handoff.md)。
 
 ## USB 移除
 
@@ -140,12 +140,11 @@ CLEAR 保留原故障直到核心受理，故障不会因兼容值已经为零�
 共享帧/CRC/分片代码现归`shared/protocol/`，APP和Loader使用同一源码，不维护兼容副本。
 本批提交`d505acdc`，未测试、未构建；升级服务与D端口后续接线进度见[E4计划](../plans/active/2026-09-28-app-boundaries-e4.md)。
 
-APP交接状态归`services/boot_handoff/boot_handoff.c`，通过composition注入唯一运行所有者
-的停机、健康与真实确认接点。平台BootHw只提供本次已校验交接、记录确认、ENTER与看门狗能力。
-普通独立APP链接不可用端口，Loader感知APP链接真实端口与共享镜像库，两种实现互斥。
-Type3启动值投影归`app/yg_protocol_status_adapter.c`，与协议Service串行，完整u64代号保留。
-试启动确认前禁止新启动/维护/配置写入；确认成功只解除试启动禁止，不恢复旧目标。
-维护镜像只允许维护流程；ENTER事务即使失败也持续禁止输出，直至明确重新启动。
+2026-09-28 最简方案：56进Loader服务内联在`app/board_config.c`的composition层，通过唯一运行所有者
+复核停机、关相与精确TX完成后再写ENTER邮箱复位；无持久确认。平台BootHw只提供识别Loader启动、
+设置VTOR、ENTER复位与继承看门狗能力，普通独立APP链接不可用端口，两种实现互斥。
+Type3启动值投影归`app/yg_protocol_status_adapter.c`，与协议Service串行；去启动记录后恒报
+APP角色且无epoch（不伪造身份），线格式不变。ENTER事务即使失败也持续禁止输出，直至明确重新启动。
 
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：
 app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platform/api` 与

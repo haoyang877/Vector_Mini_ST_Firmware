@@ -292,7 +292,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>3</Optim>
+            <Optim>4</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -362,11 +362,6 @@
         <Group>
           <GroupName>Loader core</GroupName>
           <Files>
-            <File>
-              <FileName>boot_epoch.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\core\boot_epoch.c</FilePath>
-            </File>
             <File>
               <FileName>upgrade.c</FileName>
               <FileType>1</FileType>
@@ -507,16 +502,6 @@
         <Group>
           <GroupName>Shared image</GroupName>
           <Files>
-            <File>
-              <FileName>nv_record.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\shared\image\nv_record.c</FilePath>
-            </File>
-            <File>
-              <FileName>nv_sha256.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\shared\image\nv_sha256.c</FilePath>
-            </File>
             <File>
               <FileName>image_transfer.c</FileName>
               <FileType>1</FileType>

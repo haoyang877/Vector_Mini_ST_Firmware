@@ -8,9 +8,7 @@
 #include <string.h>
 
 static uint32_t last_ticks, milliseconds, remainder;
-static const LoaderFlashRegion image_domain = {TARGET_RECORD_BASE,
-                                               TARGET_ERASE_BYTES + TARGET_APP_BYTES};
-static const LoaderFlashRegion boot_domain = {TARGET_BOOT_BASE, TARGET_BOOT_BYTES};
+static const LoaderFlashRegion image_domain = {TARGET_APP_BASE, TARGET_APP_BYTES};
 
 static bool inside(const LoaderFlashRegion *region, uint32_t address, uint32_t bytes)
 {
@@ -127,13 +125,6 @@ void LoaderPlatform_ImageIo(LoaderFlashIo *io)
         bind_io(io, &image_domain);
     }
 }
-void LoaderPlatform_BootIo(LoaderFlashIo *io)
-{
-    if (io != NULL)
-    {
-        bind_io(io, &boot_domain);
-    }
-}
 void SysTick_Handler(void)
 {
     HAL_IncTick();
@@ -224,13 +215,6 @@ void LoaderPlatform_Reset(void)
 {
     NVIC_SystemReset();
 }
-void LoaderPlatform_Uid(uint8_t uid[12])
-{
-    if (uid != NULL)
-    {
-        memcpy(uid, (const void *)UID_BASE, 12);
-    }
-}
 LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
 {
     uint8_t block[64];
@@ -293,33 +277,6 @@ bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message)
     }
     __DMB();
     return BootMailbox_Decode(raw, message);
-}
-bool LoaderPlatform_PutMailbox(const BootMailboxMessage *message)
-{
-    uint8_t raw[YGIM_BYTES];
-    volatile uint8_t *mailbox = (volatile uint8_t *)TARGET_MAILBOX_ADDRESS;
-    unsigned i;
-    if (!BootMailbox_Encode(message, raw))
-    {
-        return false;
-    }
-    *(volatile uint32_t *)mailbox = 0;
-    __DMB();
-    for (i = 4; i < sizeof(raw); ++i)
-    {
-        mailbox[i] = raw[i];
-    }
-    __DMB();
-    *(volatile uint32_t *)mailbox = YGIM_MAGIC;
-    __DSB();
-    for (i = 0; i < sizeof(raw); ++i)
-    {
-        if (mailbox[i] != raw[i])
-        {
-            return false;
-        }
-    }
-    return true;
 }
 void LoaderPlatform_NmiDispatch(uint32_t *stack, uint32_t exc_return)
 {

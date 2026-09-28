@@ -59,13 +59,23 @@ typedef enum
 } CalibStep_TyepeDef;
 
 /* 当前标定阶段；前台与诊断只读，标定任务为唯一写者。 */
-extern CalibStep_TyepeDef CalibStep;
+/**
+ * @brief 读取标定阶段值。
+ * @return 当前观测器标定阶段，不返回可写状态。
+ */
+CalibStep_TyepeDef FocEncoderCalibration_GetStep(void);
 
 /**
  * @brief 退出观测器编码器标定并释放其工作区。
  * @note 只清理本模块的内存与阶段变量，不停相、不改模式、不写参数；可重复调用。
  */
 void FocEncoderCalibration_Cancel(void);
+/**
+ * @brief 确认两个标定任务及工作区已释放。
+ * @return 无采样工作区、无活动阶段时返回 true。
+ * @note 仅只读查询，取消由 owner 显式调用。
+ */
+bool FocEncoderCalibration_IsReleased(void);
 
 /**
  * @brief 观测器 LUT 标定周期任务（Mode 13）：无感闭环下重建 1024 点线性化 LUT。

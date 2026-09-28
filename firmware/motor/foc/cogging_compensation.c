@@ -9,8 +9,6 @@
 static bool compensation_admitted;
 static CoggingCompensationIdentity admitted_identity;
 
-volatile CoggingCompensationControl CoggingCompensation;
-
 bool CoggingCompensation_Admit(volatile CoggingCompensationControl *control,
                                const CoggingCompensationAdmitInfo *info)
 {

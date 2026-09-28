@@ -9,7 +9,6 @@
 #include "motor_hw.h"
 #include "motor_state.h"
 #include "param_comm_bridge.h"
-#include "param_store.h"
 #include "power_stage_hw.h"
 #include "yg_protocol_status_adapter.h"
 
@@ -55,10 +54,7 @@ static bool bind_motor_stop(void)
 
 void Board_Init(void)
 {
-    /* 从非易失参数区读取参数与标定；无效记录回退编译期默认值。 */
-    param_store_load();
-
-    /* 电机控制相关运行态初始化。 */
+    /* 电机所有者装载参数与标定并初始化；无效记录回退默认值。 */
     MotorControl_Init();
 
     /* 新协议复位态为失能；CH4 采样时钟保持运行，三相输出等待控制所有者授权。 */

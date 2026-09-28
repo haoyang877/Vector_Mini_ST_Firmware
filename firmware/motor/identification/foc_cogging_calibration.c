@@ -1,5 +1,6 @@
 #include "foc_cogging_calibration.h"
 #include <math.h>
+#include <string.h>
 #include "cogging_compensation.h"
 #include "foc_errhandle.h"
 #include "control_config.h"
@@ -10,18 +11,19 @@
 #include "bus_voltage_profile.h"
 
 /* 齿槽功能适配层：运行补偿采集、台架保护、标定会话。
- * 公共符号与参数 ABI 保持既有约定；标定完成/失败经结果协议上报
+ * 参数 ABI 保持既有约定；私有表与会话只通过显式边界交互，完成/失败经结果协议上报
  * （MotorWorkOutcome），停相与模式回退由运行状态机执行。 */
 
-extern MotorControl_TypeDef MotorControl;
-extern Encoder_TypeDef OnBoard_Encoder;
-CoggingCalibration CoggingCalib;
+static CoggingMapRecord CoggingMap;
+static CoggingCompensationControl CoggingCompensation;
+volatile uint32_t FocCoggingCompensationRequest;
+static CoggingCalibration CoggingCalib;
 volatile CoggingTorqueGuard TorqueGuard;
 volatile uint32_t TorqueTelemetryState;
 volatile CoggingTorqueFrame TorqueTelemetry;
 
 static bool session_started;
-static volatile bool finalize_pending, save_pending;
+static volatile bool finalize_pending, save_pending, finalize_claimed, finalize_cancelled;
 /* 台架保护跳闸挂起：置位后由模式调度转为结果协议（见 FocCogging_TakeTorqueTrip）。 */
 static volatile bool torque_trip_pending;
 static uint32_t divider;
@@ -36,7 +38,9 @@ static uint32_t torque_tick;
 
 /* ---------------------------------------------------------------- 运行补偿 */
 
-bool FocCogging_SetCompensation(bool enabled)
+bool FocCogging_SetCompensation(bool enabled,
+                                const MotorControl_TypeDef *MotorControl,
+                                const Encoder_TypeDef *OnBoard_Encoder)
 {
     CoggingCompensationAdmitInfo info;
     if (!enabled)
@@ -45,16 +49,23 @@ bool FocCogging_SetCompensation(bool enabled)
         return true;
     }
     info.mode_accepts_request =
-        MotorControl.ModeNow == Motor_Disable || MotorControl.ModeNow == Current_Mode;
-    info.error_clear = MotorControl.ErrorNow == No_Error;
-    info.sensorless_off = !MotorControl.isUseSensorless;
-    info.table_valid = FocCogging_TableValid();
+        MotorControl->ModeNow == Motor_Disable || MotorControl->ModeNow == Current_Mode;
+    info.error_clear = MotorControl->ErrorNow == No_Error;
+    info.sensorless_off = !MotorControl->isUseSensorless;
+    info.table_valid = FocCogging_TableValid(MotorControl, OnBoard_Encoder);
     info.scale_matches = CoggingMap.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A;
-    info.identity.reverse = Encoder_GetReverse(&OnBoard_Encoder);
-    info.identity.electrical_zero_q15 = OnBoard_Encoder.electrical_zero_q15;
-    info.identity.pole_pairs = MotorControl.motor_pole_pairs;
+    info.identity.reverse = Encoder_GetReverse(OnBoard_Encoder);
+    info.identity.electrical_zero_q15 = OnBoard_Encoder->electrical_zero_q15;
+    info.identity.pole_pairs = MotorControl->motor_pole_pairs;
     info.identity.table_crc = CoggingMap.crc32;
-    return CoggingCompensation_Admit(&CoggingCompensation, &info);
+    /* CRC 在开中断状态计算；提交前重读可被 STOP/FAULT 改变的资格。 */
+    uint32_t mask = critical_hw_enter();
+    info.mode_accepts_request =
+        MotorControl->ModeNow == Motor_Disable || MotorControl->ModeNow == Current_Mode;
+    info.error_clear = MotorControl->ErrorNow == No_Error;
+    bool accepted = CoggingCompensation_Admit(&CoggingCompensation, &info);
+    critical_hw_exit(mask);
+    return accepted;
 }
 
 float FocCogging_Apply(const MotorControl_TypeDef *m, const Encoder_TypeDef *e)
@@ -166,6 +177,12 @@ static void LocalStop(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_Typ
 
 void FocCogging_Abort(void)
 {
+    if (finalize_claimed)
+    {
+        finalize_cancelled = true;
+        return;
+    }
+    finalize_pending = save_pending = false;
     CoggingCalibration_Abort(&CoggingCalib, COGGING_CANCELLED);
     session_started = false;
 }
@@ -203,7 +220,7 @@ StartSession(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     {
         CoggingCalib.state = COGGING_FAILED;
         CoggingCalib.reason = COGGING_INVALID_INPUT;
-        Set_ErrorNow(CoggingCalibration_Error);
+        MotorFault_Report(m, CoggingCalibration_Error);
         LocalStop(f, m, pi);
         return false;
     }
@@ -261,7 +278,7 @@ static bool ServiceTick2kHz(FOC_TypeDef *f,
                               fabsf(m->iqRef) >= calibration_current * 0.98f);
     if (CoggingCalib.state == COGGING_FAILED)
     {
-        Set_ErrorNow(CoggingCalibration_Error);
+        MotorFault_Report(m, CoggingCalibration_Error);
         LocalStop(f, m, pi);
         return false;
     }
@@ -325,7 +342,7 @@ MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *f,
         CoggingCalibration_Abort(&CoggingCalib, COGGING_SAFETY_FAULT);
         if (m->ErrorNow == No_Error)
         {
-            Set_ErrorNow(CoggingCalibration_Error);
+            MotorFault_Report(m, CoggingCalibration_Error);
         }
         LocalStop(f, m, pi);
         outcome.result = MOTOR_WORK_FAULT;
@@ -353,24 +370,30 @@ MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *f,
     return outcome;
 }
 
-static uint32_t Signature(void)
+static uint32_t Signature(const MotorControl_TypeDef *MotorControl,
+                          const Encoder_TypeDef *OnBoard_Encoder)
 {
-    return Cogging_EncoderSignature(Encoder_GetReverse(&OnBoard_Encoder),
-                                    OnBoard_Encoder.electrical_zero_q15,
-                                    MotorControl.motor_pole_pairs,
-                                    OnBoard_Encoder.linearization_lut_q15);
+    return Cogging_EncoderSignature(Encoder_GetReverse(OnBoard_Encoder),
+                                    OnBoard_Encoder->electrical_zero_q15,
+                                    MotorControl->motor_pole_pairs,
+                                    OnBoard_Encoder->linearization_lut_q15);
 }
 
-bool FocCogging_TableValid(void)
+bool FocCogging_TableValid(const MotorControl_TypeDef *MotorControl,
+                           const Encoder_TypeDef *OnBoard_Encoder)
 {
-    return (Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
-           CoggingMap_Valid(&CoggingMap, Signature());
+    return (Encoder_GetCalibFlag(OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+           CoggingMap_Valid(&CoggingMap, Signature(MotorControl, OnBoard_Encoder));
 }
 
-void FocCogging_Service(void)
+void FocCogging_Service(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *OnBoard_Encoder)
 {
-    uint32_t primask;
-    if (MotorControl.ModeNow != Motor_Disable && MotorControl.ModeNow != Current_Mode)
+    if (FocCoggingCompensationRequest == 1U || FocCoggingCompensationRequest == 2U)
+    {
+        CoggingCompensation.request = FocCoggingCompensationRequest == 1U ? 1U : 0U;
+        FocCoggingCompensationRequest = 0U;
+    }
+    if (MotorControl->ModeNow != Motor_Disable && MotorControl->ModeNow != Current_Mode)
     {
         /* 离开允许模式立即关断补偿；停机预开启由 request 位保持。 */
         CoggingCompensation_Disable(&CoggingCompensation);
@@ -378,39 +401,15 @@ void FocCogging_Service(void)
     }
     else
     {
-        if (MotorControl.ModeNow == Motor_Disable)
+        if (MotorControl->ModeNow == Motor_Disable)
         {
             CoggingCompensation_ZeroBlend(&CoggingCompensation);
         }
         if (CoggingCompensation.request != CoggingCompensation.enabled)
         {
-            (void)FocCogging_SetCompensation(CoggingCompensation.request == 1U);
+            (void)FocCogging_SetCompensation(
+                CoggingCompensation.request == 1U, MotorControl, OnBoard_Encoder);
         }
-    }
-    if (!finalize_pending || MotorControl.ModeNow != Motor_Disable)
-    {
-        return;
-    }
-    /* 在长耗时 CRC/拷贝前占用非驱动保存状态，防止 CAN 启动新模式。
-     * 过渡例外（显式记录）：占位写仍由本模块在临界区内完成；完整迁移需要
-     * 状态机侧操作占位锁，列入运行状态机 2b 后续。 */
-    primask = critical_hw_enter();
-    if (!finalize_pending || MotorControl.ModeNow != Motor_Disable)
-    {
-        critical_hw_exit(primask);
-        return;
-    }
-    save_pending = true;
-    finalize_pending = false;
-    Set_ModeNow(Save_Param);
-    critical_hw_exit(primask);
-    if (MotorControl.ErrorNow != No_Error || CoggingCalib.state != COGGING_COMPLETE ||
-        !CoggingMap_Build(CoggingCalib.iq_q15, CoggingCalib.full_scale_a, Signature(), &CoggingMap))
-    {
-        CoggingCalib.state = COGGING_FAILED;
-        CoggingCalib.reason = COGGING_INVALID_INPUT;
-        save_pending = false;
-        Set_ModeNow(Motor_Disable);
     }
 }
 
@@ -431,4 +430,75 @@ void FocCogging_SaveResult(bool success)
         CoggingCalib.state = COGGING_FAILED;
         CoggingCalib.reason = COGGING_SAVE_FAILED;
     }
+}
+
+void FocCogging_ResetMap(void)
+{
+    memset(&CoggingMap, 0, sizeof(CoggingMap));
+}
+void FocCogging_ImportMap(const CoggingMapRecord *record)
+{
+    CoggingMap = *record;
+}
+void FocCogging_ExportMap(CoggingMapRecord *record,
+                          const MotorControl_TypeDef *motor,
+                          const Encoder_TypeDef *encoder)
+{
+    memset(record, 0, sizeof(*record));
+    if (FocCogging_TableValid(motor, encoder))
+    {
+        *record = CoggingMap;
+    }
+}
+
+bool FocCogging_NeedsFinalize(void)
+{
+    return finalize_pending;
+}
+bool FocCogging_IsReleased(void)
+{
+    return !session_started && !finalize_pending && !finalize_claimed;
+}
+bool FocCogging_BeginFinalize(void)
+{
+    if (!finalize_pending || finalize_claimed || session_started)
+    {
+        return false;
+    }
+    finalize_pending = false;
+    finalize_claimed = true;
+    finalize_cancelled = false;
+    return true;
+}
+bool FocCogging_BuildCandidate(CoggingMapRecord *record,
+                               const MotorControl_TypeDef *motor,
+                               const Encoder_TypeDef *encoder)
+{
+    return finalize_claimed && !finalize_cancelled && CoggingCalib.state == COGGING_COMPLETE &&
+           CoggingMap_Build(
+               CoggingCalib.iq_q15, CoggingCalib.full_scale_a, Signature(motor, encoder), record);
+}
+bool FocCogging_PublishCandidate(const CoggingMapRecord *record)
+{
+    if (!finalize_claimed || finalize_cancelled)
+    {
+        return false;
+    }
+    CoggingMap = *record;
+    save_pending = true;
+    return true;
+}
+void FocCogging_ReleaseFinalize(bool published)
+{
+    if (!finalize_claimed)
+    {
+        return;
+    }
+    if (!published || finalize_cancelled)
+    {
+        save_pending = false;
+        CoggingCalib.state = COGGING_FAILED;
+        CoggingCalib.reason = finalize_cancelled ? COGGING_CANCELLED : COGGING_INVALID_INPUT;
+    }
+    finalize_claimed = false;
 }

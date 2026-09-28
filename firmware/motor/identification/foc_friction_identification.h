@@ -82,17 +82,11 @@ float FocFrictionIdentification_GetProgressPercent(void);
  * @note 只读。
  */
 uint32_t FocFrictionIdentification_GetSampleCount(void);
-/**
- * @brief 查询辨识结果。
- * @return 内核结果只读指针；未完成时返回 NULL。
- * @note 指针所有权归内核，调用方不得修改。
- */
-const FrictionIdentificationResult_TypeDef *FocFrictionIdentification_GetResult(void);
-/**
- * @brief 查询原始样本数组。
- * @return 内核样本数组只读指针；上下文为空时返回 NULL。
- * @note 指针所有权归内核；容量由内核约定。
- */
-const FrictionIdentificationSample_TypeDef *FocFrictionIdentification_GetSamples(void);
 
+/**
+ * @brief 确认辨识任务没有持有活动工作状态。
+ * @return 本地任务释放后返回 true。
+ * @note 运行所有者取消后查询，不执行 I/O。
+ */
+bool FocFrictionIdentification_IsReleased(void);
 #endif

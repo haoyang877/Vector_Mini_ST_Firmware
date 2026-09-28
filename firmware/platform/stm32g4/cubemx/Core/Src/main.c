@@ -31,12 +31,7 @@
 #include <stdbool.h>
 
 #include "board_config.h"
-#include "control_config.h"
-#include "data_type.h"
-#include "foc_cogging_calibration.h"
-#include "foc_errhandle.h"
-#include "foc_run_state.h"
-#include "param_store.h"
+#include "motor_state.h"
 #include "SEGGER_RTT.h"
 #include "time_hw.h"
 #include "yg_protocol_runtime.h"
@@ -126,28 +121,10 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  
-	FocCogging_Service();
-	/* 新协议在后台解码、路由和组帧；FDCAN RX 中断只收帧入队。 */
-	YgProtocolStatusAdapter_Refresh();
-	YgProtocolRuntime_Service(time_hw_now_ms());
-	  
-	if(Get_ModeNow() == Save_Param)
-	{
-		bool saved;
-		/*disable global interrupt*/
-		__disable_irq();
-		/*write parameters to flash*/
-		saved = param_store_save();
-		/*enable global interrupt*/
-		__enable_irq();
-		FocCogging_SaveResult(saved);
-		if (!saved) Set_ErrorNow(MotorParam_Error);
-		/*report save result: fast loop completes the SAVE session*/
-		FocRunState_SaveFinished(saved);
-		                                                                   
-		Set_ModeNow(Motor_Disable);
-	}
+    MotorControl_ServiceBackground();
+    YgProtocolStatusAdapter_Refresh();
+    YgProtocolRuntime_Service(time_hw_now_ms());
+
   }
   /* USER CODE END 3 */
 }

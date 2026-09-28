@@ -299,3 +299,8 @@ void PhaseResistanceMode_Cancel(FOC_TypeDef *foc, MotorControl_TypeDef *motor)
     PhaseResistanceModeContext.started = false;
     PhaseResistanceModeContext.status = PHASE_RESISTANCE_MODE_RUNNING;
 }
+
+bool PhaseResistanceMode_IsReleased(void)
+{
+    return !PhaseResistanceModeContext.started;
+}

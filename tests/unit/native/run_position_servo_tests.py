@@ -54,6 +54,7 @@ def rtt_frame_fixture():
 #define RTT_SAMPLE_DIVIDER 10U
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
 #define Position_Mode 3
+typedef int ModeNow_TypeDef;
 static struct { int ModeNow; float iqRef; } MotorControl;
 typedef struct { float theta_mech, vel_mech; } EncoderTelemetry_TypeDef;
 static EncoderTelemetry_TypeDef OnBoard_Encoder;
@@ -69,7 +70,7 @@ static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned le
 """
         + encoding
         + r"""
-static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(); }
+static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(MotorControl.ModeNow, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); }
 static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
 int main(void) {
     unsigned before, i;
@@ -82,8 +83,8 @@ int main(void) {
     MotorControl.iqRef = NAN; FOC.Iq = INFINITY; OnBoard_Encoder.vel_mech = INFINITY;
     sample(); assert(wire[1] == 0 && wire[2] == 0 && wire[3] == 0);
     assert(RTT_EncodeInt16(NAN, 1) == 0 && RTT_EncodeInt16(INFINITY, 1) == 0);
-    before = writes; RTT_Sampling(); assert(writes == before);
-    for (i = 1; i < 10; ++i) RTT_Sampling();
+    before = writes; RTT_Sampling(MotorControl.ModeNow, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); assert(writes == before);
+    for (i = 1; i < 10; ++i) RTT_Sampling(MotorControl.ModeNow, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq);
     assert(writes == before + 1);
     ready = false; MotorControl.ModeNow = 3; before = writes; sample(); assert(writes == before);
     puts("PASS actual RTT 4-channel frame: units, single-turn wrap, clipping, non-finite values, divider");
@@ -515,7 +516,7 @@ static int order[8];
 static int order_len;
 static bool board_start_argument;
 static void log_step(int step) { order[order_len++] = step; }
-static void param_store_load(void) { log_step(2); }
+/* 参数装载归初始化所有者；板级组合只调用一次所有者入口。 */
 static void MotorControl_Init(void) { log_step(3); }
 static void board_hw_start(bool motor_phases_enabled) {
     log_step(4);
@@ -531,18 +532,18 @@ static void power_stage_hw_stop(void) { log_step(6); }
         + function_source(source, "Board_Init")
         + r"""
 int main(void) {
-    static const int expected[] = {2, 3, 4, 5, 7};
+    static const int expected[] = {3, 4, 5, 7};
     int index;
     Board_Init();
-    assert(order_len == 5 && !board_start_argument);
-    for (index = 0; index < 5; ++index) assert(order[index] == expected[index]);
+    assert(order_len == 4 && !board_start_argument);
+    for (index = 0; index < 4; ++index) assert(order[index] == expected[index]);
     order_len = 0;
     Board_Init();
-    assert(order_len == 5 && !board_start_argument);
+    assert(order_len == 4 && !board_start_argument);
     protocol_ready = false;
     order_len = 0;
     Board_Init();
-    assert(order_len == 5 && order[4] == 6);
+    assert(order_len == 4 && order[3] == 6);
     puts("PASS board startup: order, configuration and communication failure disables power");
     return 0;
 }

@@ -3,14 +3,23 @@
 
 #include <stdint.h>
 
-#define FOC_BENCH_SPEED_MAILBOX_VERSION 2U
+#define FOC_BENCH_SPEED_MAILBOX_VERSION 3U
 
 /** 显式台架命令；START 只申请零速度进入现有速度模式。 */
 enum
 {
     FOC_BENCH_SPEED_START = 1U,
     FOC_BENCH_SPEED_STOP = 2U,
-    FOC_BENCH_SPEED_UPDATE = 3U
+    FOC_BENCH_SPEED_UPDATE = 3U,
+    FOC_BENCH_ENCODER_LUT = 4U,
+    FOC_BENCH_ELECTRICAL_ZERO = 5U,
+    FOC_BENCH_SAVE = 6U,
+    FOC_BENCH_CLEAR = 7U,
+    FOC_BENCH_COGGING = 8U,
+    FOC_BENCH_PHASE_RESISTANCE = 9U,
+    FOC_BENCH_FRICTION = 10U,
+    FOC_BENCH_MECHANICAL_ZERO = 11U,
+    FOC_BENCH_DEFAULTS = 12U
 };
 /** 请求受理结果；ACCEPTED 不表示已经启相。 */
 enum
@@ -46,7 +55,8 @@ enum
  * 外部唯一生产者先写奇数 request_seq，随后写 command 至 target_speed_rad_s，最后
  * 提交下一个偶数 request_seq；序号非零、递增、不回绕。CPU 不等待写入者。
  * version 与 status_seq 后的字段只由固件写；读取回复须两次读 status_seq，相等且
- * 为偶数才接受。上电清空，version=2；不是 CAN 或 Flash ABI。
+ * 为偶数才接受。上电清空，version=3；不是 CAN 或 Flash ABI。维护命令 4..12 不复用速度会话的限值与期限；
+ * 仅显式选择原有标定/保存/清错流程，operation 字段及 calibration_flags 为只读。
  * START 的 duration_ms 为 1..5000，iq_limit_a 必须低于 phase_limit_a 且不高于
  * 已有 current_limit；phase_limit_a 最大 6 A，speed_limit_rad_s 最大 300 rpm
  * 对应的 rad/s，亦不得高于已有速度/轴限制。START 不接受非零速度目标。
@@ -72,6 +82,13 @@ typedef struct
     uint32_t stop_reason;
     uint32_t remaining_ms;
     uint32_t applied_seq;
+    uint32_t operation_epoch;
+    uint32_t operation_mode;
+    uint32_t operation_result;
+    uint32_t operation_effects;
+    uint32_t completed_mode;
+    uint32_t calibration_flags;
+    uint32_t calibration_step;
 } FocBenchSpeedMailbox;
 
 /** 唯一显式调试入口；只能按上述发布协议写请求区，禁止写回复区或电机对象。 */

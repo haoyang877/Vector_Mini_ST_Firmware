@@ -25,8 +25,6 @@ typedef struct
     int16_t iq_q15[COGGING_MAP_POINTS];
 } CoggingMapRecord;
 
-extern CoggingMapRecord CoggingMap;
-
 /**
  * @brief 由编码器方向、电零位、极对数和线性化 LUT 生成表身份签名。
  * @param reverse 编码器方向配置（0/1）。

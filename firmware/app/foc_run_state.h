@@ -4,21 +4,27 @@
 #include <stdbool.h>
 
 #include "motor_work.h"
+#include "foc_algorithm.h"
+#include "foc_pid.h"
+#include "angle_feedback.h"
+#include "foc_sensorless.h"
 #include "app_lifecycle.h"
 #include "motor_control_command.h"
 
 /**
+ * @param motor 组合层终身电机对象。
+ * @param foc 组合层终身 FOC 对象。
+ * @param pi 组合层终身速度 PI。
+ * @param encoder 组合层终身编码器对象。
+ * @param startup 组合层终身无感启动对象。
  * @brief 初始化运行所有者：核心进入 BOOT 态，清空命令和采样进展。
  * @note 由启动组合层在中断使能前调用一次；不访问硬件。
  */
-void FocRunState_Init(void);
-/**
- * @brief 上报前台 SAVE 会话结果：下一 2 kHz 慢拍完成或失败生命周期保存操作。
- * @param committed true 表示 Flash 写入成功（COMMITTED）；false 表示失败。
- * @note 供前台主循环在 flash 写完成后调用；结果只记录一次并由状态机消费。
- *       失败时核心按操作失败处理；兼容投影的 ErrorNow 仍由调用方按旧路径设置。
- */
-void FocRunState_SaveFinished(bool committed);
+void FocRunState_Init(MotorControl_TypeDef *motor,
+                      FOC_TypeDef *foc,
+                      PI_Controller_TypeDef *pi,
+                      Encoder_TypeDef *encoder,
+                      SensorlessStartup_TypeDef *startup);
 /**
  * @brief 快速环故障及显式台架截止检查：核对反馈、轴配置、期限和采样限制。
  * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。
@@ -33,11 +39,12 @@ void FocRunState_CheckFastFaults(void);
 void FocRunState_FastFaultStop(void);
 /**
  * @brief 上报本周期 worker 结果：20 kHz 快环写入，2 kHz 状态机消费。
+ * @param epoch worker 执行前捕获的原始身份。
  * @param outcome 本周期模式 worker 的结果；MOTOR_WORK_RUNNING 不入箱。
  * @note 仅由 ADC2 JEOS 的 20 kHz 快速中断末尾调用；每拍登记感测处理进展，
  *       非 RUNNING 结果与消费端通过短临界区交换，只保留最新一项。
  */
-void FocRunState_PostOutcome(MotorWorkOutcome_TypeDef outcome);
+void FocRunState_PostOutcome(MotorWorkOutcome_TypeDef outcome, uint32_t epoch);
 /**
  * @brief 执行一次运行状态机：消费 worker 结果，完成故障指示、功率级启停迁移与提交。
  * @note 仅由 2 kHz 监督中断调用；顺序为 worker 结果应用 → 故障反应 →
@@ -78,4 +85,47 @@ bool FocRunState_RequestRemoteStop(void);
  */
 MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command);
 
+typedef enum
+{
+    FOC_BACKGROUND_NONE,
+    FOC_BACKGROUND_SAVE,
+    FOC_BACKGROUND_COGGING
+} FocBackgroundKind;
+typedef struct
+{
+    uint32_t epoch;
+    FocBackgroundKind kind;
+} FocBackgroundClaim;
+/**
+ * @brief 认领当前维护会话的前台工作。
+ * @param claim 接收原始操作 epoch 和任务类型，调用方保留到完成。
+ * @return 已关相且认领成功返回 true。
+ * @note 前台调用；认领未归还时不得开始其他任务。
+ */
+bool FocRunState_BeginBackground(FocBackgroundClaim *claim);
+/**
+ * @brief 复核认领仍属于当前维护操作。
+ * @param claim 原始认领值，不得以当前 epoch 重建。
+ * @return 身份匹配、未取消、无故障且关相返回 true。
+ * @note 最终写入或发布前必须在同一临界区复核。
+ */
+bool FocRunState_BackgroundValid(const FocBackgroundClaim *claim);
+/**
+ * @brief 归还前台工作并提交原始会话结果。
+ * @param claim 原始认领，必须精确匹配已借出的资源。
+ * @param success SAVE 表示回读已验证；COGGING 表示已发布 RAM。
+ * @note 缓冲已释放后调用；迟到结果只归还资源，不复活目标。
+ */
+void FocRunState_FinishBackground(const FocBackgroundClaim *claim, bool success);
+/**
+ * @brief 读取 worker 开始执行时的会话身份。
+ * @return 当前操作 epoch，无维护操作时为生命周期 epoch。
+ * @note 在调用 worker 前读取，并原样传给 PostOutcome。
+ */
+uint32_t FocRunState_WorkEpoch(void);
+/**
+ * @brief 在稳定配置借用下处理前台补偿请求。
+ * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 READY 启动；STOP 可立即关相。
+ */
+void FocRunState_ServiceCompensation(void);
 #endif

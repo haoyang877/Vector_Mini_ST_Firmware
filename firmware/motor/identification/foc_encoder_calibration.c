@@ -29,7 +29,10 @@ typedef struct
 
 static EncoderCalibWorkspace_TypeDef *encoder_calib_workspace = NULL;
 
-CalibStep_TyepeDef CalibStep = CS_NULL;
+static CalibStep_TyepeDef CalibStep = CS_NULL;
+static uint32_t zero_loop_count, zero_sample_count;
+static uint16_t zero_sample_anchor;
+static int64_t zero_unwrapped_sum;
 
 #define ENC_ZERO_ALIGN_TIME (ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S + ENCODER_ELEC_ZERO_HOLD_TIME_S)
 #define ENC_ZERO_SAMPLE_TIME ENCODER_ELEC_ZERO_HOLD_TIME_S
@@ -45,11 +48,18 @@ static void Encoder_Calib_ReleaseSamples(void)
 
 void FocEncoderCalibration_Cancel(void)
 {
-    if (encoder_calib_workspace != NULL)
-    {
-        Encoder_Calib_ReleaseSamples();
-        CalibStep = CS_NULL;
-    }
+    Encoder_Calib_ReleaseSamples();
+    CalibStep = CS_NULL;
+    zero_loop_count = zero_sample_count = 0U;
+    zero_unwrapped_sum = 0;
+}
+bool FocEncoderCalibration_IsReleased(void)
+{
+    return encoder_calib_workspace == NULL && CalibStep == CS_NULL && zero_loop_count == 0U;
+}
+CalibStep_TyepeDef FocEncoderCalibration_GetStep(void)
+{
+    return CalibStep;
 }
 
 static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_q15)
@@ -57,9 +67,13 @@ static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_
     int32_t difference = (int32_t)target_q15 - (int32_t)source_q15;
 
     if (difference > ENCODER_Q15_HALF_TURN)
+    {
         difference -= (int32_t)ENCODER_Q15_CPR;
+    }
     else if (difference < -ENCODER_Q15_HALF_TURN)
+    {
         difference += (int32_t)ENCODER_Q15_CPR;
+    }
 
     return (int16_t)difference;
 }
@@ -67,7 +81,9 @@ static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_
 static bool Encoder_Calib_AllocateSamples(void)
 {
     if (encoder_calib_workspace == NULL)
+    {
         encoder_calib_workspace = HEAP_malloc(sizeof(*encoder_calib_workspace));
+    }
 
     if (encoder_calib_workspace == NULL)
     {
@@ -201,7 +217,9 @@ static bool Encoder_ObserverCalib_CanBrake(const MotorControl_TypeDef *MotorCont
         !(observer_speed > minimum_speed) ||
         observer_speed > SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S ||
         !(observer_phase >= 0.0f && observer_phase <= _2PI))
+    {
         return false;
+    }
     /* LUT commit restarts the encoder speed estimator. Use it once ready as
      * an independent early cutoff; electrical zero is not needed for speed. */
     return !Encoder->velocity_ready ||
@@ -254,7 +272,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
 
     if (!Encoder_IsOnline(Encoder))
     {
-        Set_ErrorNow(Encoder_Error);
+        MotorFault_Report(MotorControl, Encoder_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = Encoder_Error;
@@ -262,7 +280,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     }
     if (MotorControl->motor_pole_pairs <= 0)
     {
-        Set_ErrorNow(PolePairs_Error);
+        MotorFault_Report(MotorControl, PolePairs_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = PolePairs_Error;
@@ -272,7 +290,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         MotorControl->motor_q_inductance <= 0.0f || MotorControl->motor_flux <= 0.0f ||
         MotorControl->current_limit <= 0.0f)
     {
-        Set_ErrorNow(MotorParam_Error);
+        MotorFault_Report(MotorControl, MotorParam_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = MotorParam_Error;
@@ -280,7 +298,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     }
     if (MotorControl->current_limit < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
     {
-        Set_ErrorNow(MotorParam_Error);
+        MotorFault_Report(MotorControl, MotorParam_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = MotorParam_Error;
@@ -291,7 +309,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     {
         if (!Encoder_Calib_AllocateSamples())
         {
-            Set_ErrorNow(Encoder_Error);
+            MotorFault_Report(MotorControl, Encoder_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Encoder_Error;
@@ -356,9 +374,13 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     else
     {
         if (CalibStep == CS_OBS_STOP_DECEL)
+        {
             Startup->speed_pi_output_max = 0.0f;
+        }
         else
+        {
             Startup->speed_pi_output_max = 1.0f;
+        }
 
         if (CalibStep == CS_OBS_STOP_DECEL)
         {
@@ -408,7 +430,9 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
             int32_t unwrapped_q15;
 
             if (origin_sample_count == 0U)
+            {
                 origin_anchor_q15 = Encoder->directed_q15;
+            }
             unwrapped_q15 = (int32_t)origin_anchor_q15 +
                             Encoder_Calib_Q15Difference(Encoder->directed_q15, origin_anchor_q15);
             origin_sum_q15 += unwrapped_q15;
@@ -419,7 +443,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             if (origin_sample_count == 0U)
             {
-                Set_ErrorNow(Encoder_Error);
+                MotorFault_Report(MotorControl, Encoder_Error);
                 Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
                 outcome.result = MOTOR_WORK_FAULT;
                 outcome.error = Encoder_Error;
@@ -444,7 +468,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         else if (++stage_ticks >=
                  (uint32_t)(SENSORLESS_ENCODER_CALIB_STARTUP_TIMEOUT_S / Current_Ts))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -454,7 +478,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     case CS_OBS_SPEED_STABLE:
         if (Observer_GetPositionEpoch(Fluxobserver) != observer_position_epoch)
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -482,7 +506,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         if (++stage_ticks >=
             (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIMEOUT_S / Current_Ts))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -496,7 +520,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
 
         if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -504,7 +528,9 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         }
 
         if (current_relative < -64)
+        {
             origin_negative_seen = true;
+        }
 
         if (origin_negative_seen && previous_relative < 0 && current_relative >= 0)
         {
@@ -526,7 +552,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         if (++stage_ticks >=
             (uint32_t)(SENSORLESS_ENCODER_CALIB_FIND_ORIGIN_TIMEOUT_S / Current_Ts))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -538,7 +564,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         relative_theta = observer_position - observer_position_origin;
         if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -551,7 +577,9 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
             float observer_delta = observer_position - sample_previous_observer_position;
 
             if (observer_delta > 0.0f)
+            {
                 sample_valid_electrical_travel += observer_delta;
+            }
 
             if (relative_theta >= 0.0f)
             {
@@ -566,9 +594,13 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                     int32_t average_q15 = encoder_calib_workspace->error_sum[lut_index] /
                                           (int32_t)encoder_calib_workspace->bins.samples[lut_index];
                     while (correction_q15 - average_q15 > ENCODER_Q15_HALF_TURN)
+                    {
                         correction_q15 -= (int32_t)ENCODER_Q15_CPR;
+                    }
                     while (correction_q15 - average_q15 < -ENCODER_Q15_HALF_TURN)
+                    {
                         correction_q15 += (int32_t)ENCODER_Q15_CPR;
+                    }
                 }
 
                 if (encoder_calib_workspace->bins.samples[lut_index] < UINT16_MAX)
@@ -593,7 +625,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         }
         if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SAMPLE_TIMEOUT_S / Current_Ts))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -603,7 +635,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     case CS_OBS_BUILD_LUT:
         if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -622,7 +654,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 if (encoder_calib_workspace->bins.samples[candidate_lut_index] <
                     SENSORLESS_ENCODER_CALIB_MIN_SAMPLES_PER_BIN)
                 {
-                    Set_ErrorNow(Encoder_Error);
+                    MotorFault_Report(MotorControl, Encoder_Error);
                     Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
                     outcome.result = MOTOR_WORK_FAULT;
                     outcome.error = Encoder_Error;
@@ -652,9 +684,13 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 if (candidate_lut_index > 0U)
                 {
                     while (correction - candidate_lut_previous > ENCODER_Q15_HALF_TURN)
+                    {
                         correction -= (int32_t)ENCODER_Q15_CPR;
+                    }
                     while (correction - candidate_lut_previous < -ENCODER_Q15_HALF_TURN)
+                    {
                         correction += (int32_t)ENCODER_Q15_CPR;
+                    }
                 }
 
                 encoder_calib_workspace->error_sum[candidate_lut_index] = correction;
@@ -712,7 +748,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
 
                 if (correction < INT16_MIN || correction > INT16_MAX)
                 {
-                    Set_ErrorNow(Encoder_Error);
+                    MotorFault_Report(MotorControl, Encoder_Error);
                     Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
                     outcome.result = MOTOR_WORK_FAULT;
                     outcome.error = Encoder_Error;
@@ -739,7 +775,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         relative_theta = observer_position - observer_position_origin;
         if (!Encoder_ObserverCalib_IsTracking(Fluxobserver, Startup, observer_position_epoch))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -752,7 +788,9 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
             float observer_delta = observer_position - verify_previous_observer_position;
 
             if (observer_delta > 0.0f)
+            {
                 verify_valid_electrical_travel += observer_delta;
+            }
 
             if (relative_theta >= 0.0f)
             {
@@ -767,7 +805,9 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 residual_abs_q15 = residual_q15 >= 0 ? residual_q15 : -(int32_t)residual_q15;
                 residual_squared_sum += (uint64_t)((int64_t)residual_q15 * (int64_t)residual_q15);
                 if ((uint32_t)residual_abs_q15 > residual_peak_abs_q15)
+                {
                     residual_peak_abs_q15 = (uint32_t)residual_abs_q15;
+                }
                 residual_sample_count++;
             }
         }
@@ -783,7 +823,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 residual_peak_abs_q15 > SENSORLESS_ENCODER_CALIB_MAX_PEAK_RESIDUAL_Q15 ||
                 residual_squared_sum > (uint64_t)residual_sample_count * max_rms_squared)
             {
-                Set_ErrorNow(Encoder_Error);
+                MotorFault_Report(MotorControl, Encoder_Error);
                 Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
                 outcome.result = MOTOR_WORK_FAULT;
                 outcome.error = Encoder_Error;
@@ -794,14 +834,16 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
             Encoder_Calib_ReleaseSamples();
             stop_start_speed = MotorControl->speedShadow;
             if (stop_start_speed < Encoder_ObserverCalib_GetStopSpeed(MotorControl))
+            {
                 stop_start_speed = Encoder_ObserverCalib_GetStopSpeed(MotorControl);
+            }
             state_ticks = 0U;
             CalibStep = CS_OBS_STOP_DECEL;
             break;
         }
         if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_VERIFY_TIMEOUT_S / Current_Ts))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -828,7 +870,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         else if (state_ticks >=
                  (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIMEOUT_S / Current_Ts))
         {
-            Set_ErrorNow(Sensorless_Error);
+            MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Sensorless_Error;
@@ -845,7 +887,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         break;
 
     default:
-        Set_ErrorNow(Encoder_Error);
+        MotorFault_Report(MotorControl, Encoder_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = Encoder_Error;
@@ -861,54 +903,54 @@ MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
                                                    MotorControl_TypeDef *MotorControl,
                                                    Encoder_TypeDef *Encoder)
 {
-    static uint32_t loop_count;
-    static uint32_t sample_count;
-    static uint16_t sample_anchor;
-    static int64_t unwrapped_sum;
     MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
-    float time = (float)loop_count * Current_Ts;
+    float time = (float)zero_loop_count * Current_Ts;
     float align_current = MotorControl->calib_current;
 
     if (align_current < ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A)
+    {
         align_current = ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A;
+    }
 
     if (!Encoder_IsOnline(Encoder))
     {
-        Set_ErrorNow(Encoder_Error);
-        loop_count = 0U;
-        sample_count = 0U;
-        unwrapped_sum = 0;
+        MotorFault_Report(MotorControl, Encoder_Error);
+        zero_loop_count = 0U;
+        zero_sample_count = 0U;
+        zero_unwrapped_sum = 0;
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = Encoder_Error;
         return outcome;
     }
     if ((Encoder->calib_flag & ENC_CALIB_LINEARIZED) == 0U)
     {
-        Set_ErrorNow(Encoder_NotCalibrated);
+        MotorFault_Report(MotorControl, Encoder_NotCalibrated);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = Encoder_NotCalibrated;
         return outcome;
     }
     if (align_current <= 0.0f)
     {
-        Set_ErrorNow(MotorParam_Error);
+        MotorFault_Report(MotorControl, MotorParam_Error);
         outcome.result = MOTOR_WORK_FAULT;
         outcome.error = MotorParam_Error;
         return outcome;
     }
     if (MotorControl->current_limit > 0.0f && align_current > MotorControl->current_limit)
-        align_current = MotorControl->current_limit;
-
-    if (loop_count == 0U)
     {
-        sample_count = 0U;
-        sample_anchor = Encoder->linearized_q15;
-        unwrapped_sum = 0;
+        align_current = MotorControl->current_limit;
+    }
+
+    if (zero_loop_count == 0U)
+    {
+        zero_sample_count = 0U;
+        zero_sample_anchor = Encoder->linearized_q15;
+        zero_unwrapped_sum = 0;
         Encoder->calib_flag &= (uint8_t)~ENC_CALIB_ELECTRICAL_ZERO;
         FOC_CurrentController_Reset(FOC);
     }
 
-    MotorControl->idRef = align_current * constrain(((float)loop_count + 1.0f) * Current_Ts /
+    MotorControl->idRef = align_current * constrain(((float)zero_loop_count + 1.0f) * Current_Ts /
                                                         ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S,
                                                     0.0f,
                                                     1.0f);
@@ -918,33 +960,34 @@ MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
     if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) &&
         Encoder->read_status == ENCODER_READ_OK)
     {
-        int32_t unwrapped_q15 =
-            (int32_t)sample_anchor + (int16_t)(uint16_t)(Encoder->linearized_q15 - sample_anchor);
-        unwrapped_sum += unwrapped_q15;
-        sample_count++;
+        int32_t unwrapped_q15 = (int32_t)zero_sample_anchor +
+                                (int16_t)(uint16_t)(Encoder->linearized_q15 - zero_sample_anchor);
+        zero_unwrapped_sum += unwrapped_q15;
+        zero_sample_count++;
     }
 
     if (time >= ENC_ZERO_ALIGN_TIME)
     {
         bool calibrated = false;
-        if (sample_count > 0U)
+        if (zero_sample_count > 0U)
         {
-            uint16_t electrical_zero_q15 = (uint16_t)(unwrapped_sum / (int64_t)sample_count);
+            uint16_t electrical_zero_q15 =
+                (uint16_t)(zero_unwrapped_sum / (int64_t)zero_sample_count);
             calibrated = Encoder_SetElectricalZeroQ15(Encoder, electrical_zero_q15);
         }
 
         MotorControl->idRef = 0.0f;
         MotorControl->iqRef = 0.0f;
         FOC_CurrentController_Reset(FOC);
-        loop_count = 0U;
-        sample_count = 0U;
-        unwrapped_sum = 0;
+        zero_loop_count = 0U;
+        zero_sample_count = 0U;
+        zero_unwrapped_sum = 0;
         /* 停相与模式迁移由运行状态机执行（power_off=true）；旧实现的"高边短接保持"
          * 不再由模块直接操作功率级。 */
 
         if (!calibrated)
         {
-            Set_ErrorNow(Encoder_Error);
+            MotorFault_Report(MotorControl, Encoder_Error);
             outcome.result = MOTOR_WORK_FAULT;
             outcome.error = Encoder_Error;
             return outcome;
@@ -955,6 +998,6 @@ MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
         return outcome;
     }
 
-    loop_count++;
+    zero_loop_count++;
     return outcome;
 }

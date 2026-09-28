@@ -6,7 +6,7 @@
 
 /**
  * @file foc_phase_resistance.h
- * @brief FOC adapter for the hardware-independent phase-resistance core.
+ * @brief 相电阻纯核心与电流环之间的适配边界。
  *
  * 功能说明：本文件是相电阻算法和现有 FOC 控制之间的唯一适配层。
  * - 从每电机参数 profile 读取双电流测试配置，并受 MotorControl 电流上限保护；
@@ -17,51 +17,65 @@
  * - 本模块不访问编码器或位置环；不同电机通过参数 profile 调整测试电流和时序。
  *
  * 调度层每个 FOC 周期调用 PhaseResistanceMode_Run()；函数返回运行、完成
- * 或具体失败状态。foc_task.c 负责把这些状态映射为模式切换和现有故障码。
- * RTT 的数据输出保持在 foc_task.c，本模块不处理 RTT 或任何通信。
- *
- * The adapter is the only layer that accesses FOC_TypeDef and
- * MotorControl_TypeDef. It translates the core command into FOC_Current()
- * and PWM calls, then translates d/q electrical quantities back into
- * PhaseResistanceSample_TypeDef. Mode switching and error mapping stay in
- * foc_task.c, while RTT remains unchanged.
+ * 或具体失败状态。APP 模式分发将其转换为结果，运行所有者提交模式与故障。
+ * 本模块不处理 RTT 或任何通信。
  */
 
 typedef enum
 {
-	PHASE_RESISTANCE_MODE_RUNNING = 0,
-	PHASE_RESISTANCE_MODE_DONE,
-	PHASE_RESISTANCE_MODE_SETTLE_TIMEOUT,
-	PHASE_RESISTANCE_MODE_INVALID_RESULT,
-	PHASE_RESISTANCE_MODE_UNDER_VOLTAGE,
-	PHASE_RESISTANCE_MODE_OVER_VOLTAGE
+    PHASE_RESISTANCE_MODE_RUNNING = 0,
+    PHASE_RESISTANCE_MODE_DONE,
+    PHASE_RESISTANCE_MODE_SETTLE_TIMEOUT,
+    PHASE_RESISTANCE_MODE_INVALID_RESULT,
+    PHASE_RESISTANCE_MODE_UNDER_VOLTAGE,
+    PHASE_RESISTANCE_MODE_OVER_VOLTAGE
 } PhaseResistanceModeStatus_TypeDef;
 
 /**
- * Live values paired exactly as the resistance core receives them. The FOC
- * adapter owns this snapshot; callers may only read it for diagnostics.
+ * 与辨识核心输入一致的电流电压值；适配层拥有状态，查询只复制诊断快照。
  */
 typedef struct
 {
-	float electrical_angle;
-	float id_ref;
-	float id;
-	float iq;
-	float vd;
-	float vq;
-	float current_magnitude;
-	float parallel_voltage;
-	float vbus;
+    float electrical_angle;
+    float id_ref;
+    float id;
+    float iq;
+    float vd;
+    float vq;
+    float current_magnitude;
+    float parallel_voltage;
+    float vbus;
 } PhaseResistanceModeTelemetry_TypeDef;
 
-/** Execute one 20 kHz resistance-identification cycle. */
+/**
+ * @brief 执行一次相电阻辨识周期。
+ * @param foc 电流环状态，写入本次调制命令。
+ * @param motor 电机状态，保存已验证辨识结果。
+ * @return 运行、完成或具体失败原因。
+ * @note 20 kHz 调度；模式提交由 APP 所有者负责。
+ */
 PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
-	MotorControl_TypeDef *motor);
+                                                          MotorControl_TypeDef *motor);
 
-/** Read the latest active current/voltage sample used by the resistance fit. */
+/**
+ * @brief 复制辨识使用的最近电流电压样本。
+ * @param telemetry 调用方快照空间，不保留指针。
+ * @return 任务活动且样本可用时返回 true。
+ */
 bool PhaseResistanceMode_GetTelemetry(PhaseResistanceModeTelemetry_TypeDef *telemetry);
 
-/** Stop the adapter output and discard any unfinished identification state. */
+/**
+ * @brief 停止辨识输出并归还未完成工作状态。
+ * @param foc 待复位的电流环状态。
+ * @param motor 待清零的电流命令所有者。
+ * @note APP 取消路径调用；停相失败仍由 APP 守卫判定。
+ */
 void PhaseResistanceMode_Cancel(FOC_TypeDef *foc, MotorControl_TypeDef *motor);
 
+/**
+ * @brief 确认辨识任务没有持有活动工作状态。
+ * @return 本地任务释放后返回 true。
+ * @note 运行所有者取消后查询，不执行 I/O。
+ */
+bool PhaseResistanceMode_IsReleased(void);
 #endif

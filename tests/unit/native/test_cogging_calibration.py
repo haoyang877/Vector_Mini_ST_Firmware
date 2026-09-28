@@ -29,7 +29,7 @@ static unsigned enabled;
 void power_stage_hw_stop(void) { pwm=false; }
 void power_stage_hw_start(void) { pwm=true; ++enabled; }
 void Set_ModeNow(ModeNow_TypeDef m) { if(m==Save_Param) assert(!pwm); MotorControl.ModeNow=m; }
-void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
+void MotorFault_Report(MotorControl_TypeDef *m,ErrorNow_TypeDef e) { m->ErrorNow=e; }
 bool Encoder_IsOnline(const Encoder_TypeDef *e) { return e->has_valid_sample; }
 uint32_t critical_hw_enter(void) { return 0U; }
 void critical_hw_exit(uint32_t state) { (void)state; }
@@ -44,6 +44,8 @@ void FOC_CurrentController_Reset(FOC_TypeDef *f) { (void)f; }
 void FOC_Current(FOC_TypeDef *f,MotorControl_TypeDef *m,float p,float v) {
     (void)f;(void)p;(void)v; assert(isfinite(m->iqRef) && fabsf(m->iqRef)<=1.001f);
 }
+/* 直接编译生产适配层，允许离线检查私有状态，不增加运行时 getter。 */
+#include "foc_cogging_calibration.c"
 static CoggingCalibration c;
 static CoggingMapRecord record, before;
 static void run_point(float iq) {
@@ -58,7 +60,7 @@ static void consume(MotorWorkOutcome_TypeDef o) {
         if(o.power_off) power_stage_hw_stop();
         MotorControl.ModeNow=o.next_mode;
     } else if(o.result==MOTOR_WORK_FAULT) {
-        Set_ErrorNow(o.error);
+        MotorFault_Report(&MotorControl,o.error);
         if(pwm) power_stage_hw_stop();
         MotorControl.ModeNow=Motor_Disable;
     }
@@ -201,9 +203,14 @@ static void adapter_tests(void) {
     assert(CoggingCalib.state==COGGING_COMPLETE && CoggingCalib.points_done==2048);
     assert(FocCogging_GetState()==COGGING_SAVING);
     assert(!pwm && MotorControl.ModeNow==Motor_Disable && OnBoard_Encoder.reverse==0);
-    FocCogging_Service();assert(MotorControl.ModeNow==Save_Param && FocCogging_TableValid());
+    assert(FocCogging_BeginFinalize());
+    assert(FocCogging_BuildCandidate(&record,&MotorControl,&OnBoard_Encoder));
+    assert(FocCogging_PublishCandidate(&record));
+    FocCogging_ReleaseFinalize(true);
+    MotorControl.ModeNow=Save_Param;
+    assert(FocCogging_TableValid(&MotorControl,&OnBoard_Encoder));
     FocCogging_SaveResult(false);assert(CoggingCalib.reason==COGGING_SAVE_FAILED);
-    OnBoard_Encoder.electrical_zero_q15++;assert(!FocCogging_TableValid());
+    OnBoard_Encoder.electrical_zero_q15++;assert(!FocCogging_TableValid(&MotorControl,&OnBoard_Encoder));
     puts("PASS production FOC adapter result protocol: unsafe-start fault, encoder loss fault, complete-then-save, failed-save status, unchanged direction and stale-map rejection");
 }
 static void compensation_tests(void) {
@@ -211,7 +218,7 @@ static void compensation_tests(void) {
     memset(&c,0,sizeof(c));c.state=COGGING_COMPLETE;c.points_done=2048;c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
     c.iq_q15[0]=100;c.iq_q15[1023]=-100;
     assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,Cogging_EncoderSignature(0,0,21,OnBoard_Encoder.linearization_lut_q15),&CoggingMap));
-    assert(FocCogging_SetCompensation(true));MotorControl.ModeNow=Current_Mode;MotorControl.iqRef=.2f;
+    assert(FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));MotorControl.ModeNow=Current_Mode;MotorControl.iqRef=.2f;
     for(unsigned i=0;i<4001;i++) FocCogging_Apply(&MotorControl,&OnBoard_Encoder);
     float scale=82.5f/32768;
     assert(fabsf(CoggingCompensation.blend-1)<1e-6f);
@@ -222,20 +229,20 @@ static void compensation_tests(void) {
     assert(fabsf(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)-.2f)<1e-6f);
     OnBoard_Encoder.linearized_q15=65472;MotorControl.current_limit=.3f;MotorControl.iqRef=-.2f;
     assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==-.3f);
-    MotorControl.iqRef=0;assert(FocCogging_SetCompensation(false));
+    MotorControl.iqRef=0;assert(FocCogging_SetCompensation(false,&MotorControl,&OnBoard_Encoder));
     assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)<-.2f); /* smooth off */
     for(unsigned i=0;i<4001;i++) FocCogging_Apply(&MotorControl,&OnBoard_Encoder);
     assert(CoggingCompensation.total_a==0);
-    assert(FocCogging_SetCompensation(true));OnBoard_Encoder.electrical_zero_q15++;
+    assert(FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));OnBoard_Encoder.electrical_zero_q15++;
     assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==0 && CoggingCompensation.enabled==0);
-    assert(!FocCogging_SetCompensation(true));OnBoard_Encoder.electrical_zero_q15--;
-    CoggingMap.iq_q15[3]++;assert(!FocCogging_SetCompensation(true));
+    assert(!FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));OnBoard_Encoder.electrical_zero_q15--;
+    CoggingMap.iq_q15[3]++;assert(!FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));
     CoggingMap.iq_q15[3]--; /* restore CRC-valid table, first request while running */
     CoggingCompensation.request=1;
     assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==0);
     assert(CoggingCompensation.request==1 && CoggingCompensation.enabled==0);
-    FocCogging_Service();assert(CoggingCompensation.enabled==1);
-    CoggingCompensation.request=0;FocCogging_Service();assert(CoggingCompensation.enabled==0);
+    FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==1);
+    CoggingCompensation.request=0;FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==0);
     TorqueGuard.enabled=1;TorqueGuard.lease_ticks=2;TorqueGuard.speed_limit_rad_s=2;
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
@@ -313,7 +320,6 @@ def main():
         for p in [
             "firmware/motor/identification/cogging_calibration.c",
             "firmware/motor/identification/cogging_map.c",
-            "firmware/motor/identification/foc_cogging_calibration.c",
             "firmware/motor/foc/cogging_compensation.c",
             "firmware/motor/foc/foc_pid.c",
             "firmware/common/utils.c",

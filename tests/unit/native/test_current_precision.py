@@ -37,7 +37,7 @@ static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 static MotorControl_TypeDef MotorControl;
 static FOC_TypeDef foc;
-static void Set_ErrorNow(ErrorNow_TypeDef x) {MotorControl.ErrorNow=x;}
+static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef x) {m->ErrorNow=x;}
 uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
     switch(phase) {
         case MOTOR_HW_CURRENT_PHASE_A: return (uint16_t)adc.JDR1;
@@ -47,6 +47,7 @@ uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
     }
 }
 """
+        + function_source(sensing, "MotorCurrentOffsets_Valid")
         + function_source(sensing, "Current_Cal")
         + r"""
 int main(void) {

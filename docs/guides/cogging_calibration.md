@@ -12,9 +12,10 @@
 - `motor/identification/cogging_map.{c,h}`：表格式、身份签名、CRC 校验、跨圈查表与成表（纯数据，无硬件）。
 - `motor/identification/cogging_calibration.{c,h}`：标定过程状态机（网格定位、稳定/采样窗口、双向遍历），不含表格式。
 - `motor/foc/cogging_compensation.{c,h}`：运行补偿纯核心（准入、查表、200 ms 渐变、±1 A 钳位与遥测台账），不包含平台头。
-- `motor/identification/foc_cogging_calibration.{c,h}`：唯一硬件适配层，保留全部 `FocCogging_*` 公共接口与既有全局符号；台架保护（约 10 行租约/测速判定）与力矩遥测帧内联于此。
+- `motor/identification/foc_cogging_calibration.{c,h}`：适配层，显式传入控制对象，表、采样与补偿状态私有；台架保护（约 10 行租约/测速判定）与力矩遥测帧内联于此。
 
-全局变量的 RAM 地址随构建变化，J-Link 调试需使用配套 AXF；变量与字段名未变。
+2026-09-28 E3 已收回可写控制对象与旧模式 setter。J-Link 使用配套 AXF 的显式请求邮箱，
+不复用旧全局变量地址。实际接入见 [Watch 指南](watch_motor_commands.md)。
 
 
 ## 力矩模式运行补偿
@@ -66,38 +67,29 @@ iq_q15[i] = round(Iq_A / full_scale_a * 32768)
 
 需要先完成编码器线性化和电零位标定（标志位包含 `0x03`），电机停稳、编码器在线且速度估计就绪。模式只接收允许整圈转动的无边界轴配置（当前轮电机使用 `axis_profile.magic=0`），拒绝带行程约束的轴。编码器方向不会被修改。
 
-从 mode 0 设置 `ModeNow=6`，或者用现有 CAN 模式命令切换到 6。设置 mode 0 可以中止。J-Link 可查看：
+从 READY 发布 Watch command=8 进入原 Mode6，command=2 请求停止。
+标定完成后先关相，由 APP 认领采样并在前台构建完整候选；提交前再次复核原始身份、
+无故障及数字关相。取消期间不改写已借出的样本，不发布半张表。
+RAM 表发布之后另行进入 SAVE，Flash 回读成功才登记 COMMITTED；保存失败不假报完成。
+具体序号与 operation 字段见 [Watch 指南](watch_motor_commands.md)。
 
-- `CoggingCalib.state/reason/index/direction_pass/points_done`：状态、原因、当前索引、方向和完成点数。
-- `CoggingCalib.iq_q15`：标定中的暂存表，不是可用的最终表。
-- `CoggingMap.iq_q15[1024]` 和 `CoggingMap.full_scale_a`：发布的完整表及量程。
-
-CAN 新增只读参数，请求和回复均为 **4 字节大端 float32**，沿用现有标准帧地址 `(node << 8) | param_id`：
-
-| ID | 请求载荷 | 回复 |
-| --- | --- | --- |
-| 0x68 | 0 | 状态：0 空闲、1 定位稳定、2 采样、3 换向定位、4 完成且保存成功、5 失败、6 待保存/保存中 |
-| 0x69 | 0 | 原因：0 正常、1 取消、2 配置/采样无效、3 超时、4 持续限流、5 保护退出、6 保存失败 |
-| 0x6A | 0 | 完成百分比（2048 次方向采样）；100% 不替代保存成功状态 |
-| 0x6B | 整数索引 0…1023 | 该点原始 Q15 有符号整数值，以 float32 传输 |
-| 0x6C | 0 | 表中满量程，单位 A |
-| 0x6D | 0 | 完整表是否有效：0/1 |
-
-无效表的点值、量程读取返回 float32 NaN；越界或非整数索引不回复。逐个发送索引请求并等待回复，避免现有单回复缓存被后续请求覆盖。建议停止后读取整张表。可先查询 0x6D，确认有效后读取 0x6C 和 1024 点。
+旧标准 CAN `0x68..0x6D` 齿槽查询接口已随标准 CAN 退役，当前 CAN FD 尚未新增其替代。
+生产代码不返回私有表或采样的地址；离线测试直接编译实际实现检查其私有不变量。
 
 ## 力矩模式应用补偿
 
 已实现编码器力矩模式（mode 1）的运行补偿，1024点按绝对线性化机械角度跨圈插值，再按保持电流的原符号加入用户Iq。用户原始`iqRef`不被改写。补偿表输出限制在±1 A内，总指令受运行电流限制；开关约200 ms渐变。默认关闭，开关只保存在RAM，重启后需重新启用。
 
-CAN参数`0x26`写大端float32的0或1，`0x27`读当前启用状态；左轮node1对应帧ID`0x126/0x127`。可在停机时预先开启，也可在力矩模式中切换。CAN中断只排队请求，前台校验表CRC、量程、编码器身份和模式后启用。GET的1表示已启用，不表示渐变已经完成。
+当前补偿请求邮箱为 `FocCoggingCompensationRequest`：写1请求开启，写2请求关闭。
+前台校验表 CRC、量程、编码器身份和模式后提交；CRC 期间中断保持开启，提交时再次
+复核模式及故障。该请求不启相，开关仍不持久化。旧标准 CAN `0x26/0x27` 已退役，
+当前不宣称存在 CAN FD 替代。`CoggingCompensation` 是私有实现，禁止直接写其 request。
 
-`CoggingCompensation`包含request、enabled、rejected、blend、table_a、applied_a、total_a。速度、位置、标定和无感模式不应用补偿。改变编码器方向、电零位、极对数或表身份时拒绝继续使用失配表；不通过翻转编码器方向调整补偿效果。
+`TorqueTelemetryState`写1请求同一ISR采样，等于2时读取36字节`TorqueTelemetry`，读完写0。内容依次为uint32 tick及8个float：机械位置rad、速度rad/s、用户Iq、实际补偿Iq、总Iq指令、反馈Iq、母线电压、blend。原RTT仍为4个int16通道（8字节），用户Iq通道不含补偿。
 
-`TorqueTelemetryState`写1请求同一ISR采样，等于2时读取36字节`TorqueTelemetry`，读完写0。内容依次为uint32 tick及8个float：机械位置rad、速度rad/s、用户Iq、实际补偿Iq、总Iq指令、反馈Iq、母线电压、blend。原RTT仍为8通道，用户Iq通道不含补偿。
+可选的`TorqueGuard`仅供有界测试，默认关闭。enabled=1时，lease_ticks按20 kHz倒计时，测试主机必须续租；租约到期trip1、超速trip2均停PWM并回mode0。测试电流包络沿用已受理配置的电流上限；它不是速度闭环，不能维持恒力矩空载电机的恒速。
 
-可选的`TorqueGuard`仅供有界测试，默认关闭。enabled=1时，lease_ticks按20 kHz倒计时，测试主机必须续租；租约到期trip1、超速trip2均停PWM并回mode0。测试电流包络由`MotorControl.current_limit`设置；它不是速度闭环，不能维持恒力矩空载电机的恒速。
-
-已完成CAN运行中开关、零Iq验证、正反向小力矩OFF/ON对比及失联停机验证。当前证据证明功能生效，尚不能证明动态平滑度改善。实际结果、最终HEX/AXF和匹配RTT地址见[力矩补偿实机报告](../reports/2026-09/cogging_compensation_20260918.md)。下文精度标定镜像的地址仅适用于该历史镜像。
+历史版本已完成标准CAN运行中开关、零Iq验证、正反向小力矩OFF/ON对比及失联停机验证。当前证据证明功能生效，尚不能证明动态平滑度改善。实际结果、最终HEX/AXF和匹配RTT地址见[力矩补偿实机报告](../reports/2026-09/cogging_compensation_20260918.md)。下文精度标定镜像的地址仅适用于该历史镜像。
 
 ## 持久化与兼容性
 

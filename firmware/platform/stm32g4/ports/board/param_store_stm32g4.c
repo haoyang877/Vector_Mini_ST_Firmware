@@ -1,15 +1,12 @@
 #include "param_store.h"
-
 #include "flash.h"
 
-/* 参数区端口：薄封装板级参数记录读写；擦写顺序与校验语义保持不变。 */
-
-void param_store_load(void)
+/* 字节存储能力不依赖电机对象或业务参数服务。 */
+bool param_store_read(void *record, uint32_t size_bytes)
 {
-    flash_read_param();
+    return flash_read_param(record, size_bytes);
 }
-
-bool param_store_save(void)
+bool param_store_write(const void *record, uint32_t size_bytes)
 {
-    return flash_write_param();
+    return flash_write_param(record, size_bytes);
 }

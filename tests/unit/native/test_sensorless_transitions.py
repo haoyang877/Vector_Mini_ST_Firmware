@@ -37,7 +37,7 @@ static Encoder_TypeDef encoder;
 static unsigned current_calls, stop_calls;
 static bool pwm_enabled;
 static float applied_observer_iq, applied_observer_id, applied_phase, applied_velocity;
-void Set_ErrorNow(ErrorNow_TypeDef e) { motor.ErrorNow=e; }
+void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef e) { m->ErrorNow=e; }
 void Set_ModeNow(ModeNow_TypeDef m) {
     if(m==Save_Param) assert(!pwm_enabled && stop_calls);
     motor.ModeNow=m;

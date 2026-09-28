@@ -6,12 +6,8 @@
 #include "foc_pid.h"
 #include "cogging_calibration.h"
 #include "motor_work.h"
-/* 齿槽功能对外公共接口：本文件承载标定适配、运行补偿适配与台架保护；
- * 补偿纯核心由以下模块提供，并在此汇总导出，使既有调用方
- * （foc_run.c、main.c）无需改动。 */
+/* 齿槽适配边界：表、补偿状态与采样会话私有；调用方传入明确控制对象。 */
 #include "cogging_compensation.h"
-
-extern CoggingCalibration CoggingCalib;
 
 /**
  * @brief 检查标定启动前置条件：无边界轴、无故障、编码器在线且已标定、运动量在限。
@@ -47,18 +43,22 @@ MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *foc,
 void FocCogging_Abort(void);
 
 /**
- * @brief 前台服务：协调补偿请求与运行模式，并在标定完成后接管参数保存流程。
+ * @brief 前台消费补偿请求；成表与保存由 APP 维护所有者调度。
+ * @param motor 电机状态，认领期间配置稳定。
+ * @param encoder 编码器状态，认领期间安装校准稳定。
  * @return 无返回值。
  * @note 仅前台主循环调用；包含 CRC 与表拷贝等长耗时工作，禁止在中断调用。
  */
-void FocCogging_Service(void);
+void FocCogging_Service(MotorControl_TypeDef *motor, Encoder_TypeDef *encoder);
 
 /**
  * @brief 校验已发布表与当前编码器身份、CRC 是否一致。
+ * @param motor 稳定的电机配置。
+ * @param encoder 稳定的编码器安装校准。
  * @return 有效返回 true；否则返回 false。
  * @note 包含整表 CRC 复算，禁止在 20 kHz 电流环调用。
  */
-bool FocCogging_TableValid(void);
+bool FocCogging_TableValid(const MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
 
 /**
  * @brief 读取标定对外状态，保存阶段统一报告为 COGGING_SAVING。
@@ -78,10 +78,14 @@ void FocCogging_SaveResult(bool success);
 /**
  * @brief 请求开启或平滑关闭运行补偿；开启需前台完整校验并快照硬件身份。
  * @param enabled true 请求开启；false 平滑关闭并保留 200 ms 渐出。
+ * @param motor 稳定的电机配置，提交时复核模式和故障。
+ * @param encoder 稳定的编码器安装校准。
  * @return 请求被接受返回 true；校验拒绝返回 false 并置 rejected=1。
  * @note 仅前台调用；开启路径包含整表 CRC 复核。
  */
-bool FocCogging_SetCompensation(bool enabled);
+bool FocCogging_SetCompensation(bool enabled,
+                                const MotorControl_TypeDef *motor,
+                                const Encoder_TypeDef *encoder);
 
 /**
  * @brief 20 kHz 补偿入口：采集硬件事实并调用补偿核心，返回叠加后的总 Iq。
@@ -142,4 +146,68 @@ bool FocCogging_TakeTorqueTrip(void);
 void FocCogging_TorqueObserve(const FOC_TypeDef *foc,
                               const MotorControl_TypeDef *motor,
                               const Encoder_TypeDef *encoder);
+
+/**
+ * @brief 清空所属齿槽表。
+ * @note 仅启动或停机且无前台认领时调用。
+ */
+void FocCogging_ResetMap(void);
+/**
+ * @brief 导入已验证齿槽记录。
+ * @param record 调用方独占的有效记录，只复制值。
+ * @note 仅启动调用。
+ */
+void FocCogging_ImportMap(const CoggingMapRecord *record);
+/**
+ * @brief 按当前校准身份导出有效表。
+ * @param record 接收记录，失效时清零。
+ * @param motor 稳定的电机配置。
+ * @param encoder 稳定的编码器配置。
+ * @note 停机前台调用，包含 CRC，不返回内部指针。
+ */
+void FocCogging_ExportMap(CoggingMapRecord *record,
+                          const MotorControl_TypeDef *motor,
+                          const Encoder_TypeDef *encoder);
+/**
+ * @brief 查询自然完成后的待整理表。
+ * @return 需要前台认领时返回 true。
+ */
+bool FocCogging_NeedsFinalize(void);
+/**
+ * @brief 确认标定与前台会话已归还。
+ * @return 无活动标定、待整理或前台借用时返回 true。
+ */
+bool FocCogging_IsReleased(void);
+/**
+ * @brief 认领已结束的齿槽采样会话。
+ * @return 认领成功返回 true。
+ * @note APP 维护 owner 在短临界区调用；必须由 ReleaseFinalize 归还。
+ */
+bool FocCogging_BeginFinalize(void);
+/**
+ * @brief 在调用方候选空间构建完整表。
+ * @param record 前台独占候选空间。
+ * @param motor 认领期间稳定的配置。
+ * @param encoder 认领期间稳定的安装校准。
+ * @return 表构建成功返回 true。
+ * @note 仅前台调用，CRC 保持中断开启；取消不改写正在读取的样本。
+ */
+bool FocCogging_BuildCandidate(CoggingMapRecord *record,
+                               const MotorControl_TypeDef *motor,
+                               const Encoder_TypeDef *encoder);
+/**
+ * @brief 发布已构建的完整候选表。
+ * @param record 完整候选，仅复制值。
+ * @return 会话未取消且仍由前台认领时返回 true。
+ * @note APP 在同一临界区复核原始身份、无故障与关相后调用。
+ */
+bool FocCogging_PublishCandidate(const CoggingMapRecord *record);
+/**
+ * @brief 归还前台会话并记录发布结果。
+ * @param published 候选是否已提交到 RAM，不表示写入 Flash。
+ * @note 候选已释放后在 owner 临界区调用；取消不能撤回已发布 RAM。
+ */
+void FocCogging_ReleaseFinalize(bool published);
+/* 显式 SWD 补偿请求邮箱：1 请求开启，2 请求关闭，0 空闲；CPU 消费，不直接使能功率。 */
+extern volatile uint32_t FocCoggingCompensationRequest;
 #endif

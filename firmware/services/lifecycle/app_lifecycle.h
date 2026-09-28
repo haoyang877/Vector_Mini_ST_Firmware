@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /* 仅内部类型：取值既不是 CAN Mode/Error，也不是持久化 ABI 编号。
- * 本核心不接入生产路径；每个上下文由唯一调用方串行化事件、执行动作并发布
+ * 生产路径由 APP 唯一调用方串行化事件、执行动作并发布
  * 真实硬件/资源 guards。返回 DISABLE_POWER 只是请求，不是门极已关断的证据。 */
 typedef enum
 {

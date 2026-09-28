@@ -93,6 +93,7 @@ typedef struct { unsigned calls; } FOC_TypeDef;
 enum { MotorParam_Error = 12 };
 static unsigned error;
 static void Set_ErrorNow(unsigned value) { error = value; }
+static void MotorFault_Report(MotorControl_TypeDef *m, unsigned value) { (void)m; error = value; }
 static float Encoder_GetElePhase(Encoder_TypeDef *e) { return e->position * 7.0f; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
 static float Encoder_GetEleVel(Encoder_TypeDef *e) { return e->velocity * 7.0f; }

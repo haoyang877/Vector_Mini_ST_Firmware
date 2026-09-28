@@ -282,7 +282,7 @@ static void PositionMode_RejectRequest(MotorControl_TypeDef *MotorControl)
 {
     MotorControl->idRef = 0.0f;
     MotorControl->iqRef = 0.0f;
-    Set_ErrorNow(MotorParam_Error);
+    MotorFault_Report(MotorControl, MotorParam_Error);
 }
 
 /**
@@ -403,7 +403,7 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC,
     {
         MotorControl->idRef = 0.0f;
         MotorControl->iqRef = 0.0f;
-        Set_ErrorNow(MotorParam_Error);
+        MotorFault_Report(MotorControl, MotorParam_Error);
         return;
     }
 
@@ -547,7 +547,7 @@ void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
     }
     if (!MotorOuterLoop_InputsValid(m, position, speed))
     {
-        Set_ErrorNow(MotorParam_Error);
+        MotorFault_Report(m, MotorParam_Error);
         m->idRef = 0.0f;
         m->iqRef = 0.0f;
         outer.ready = false;
@@ -570,7 +570,7 @@ void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
         valid = valid && isfinite(output.iq_reference);
         if (!valid)
         {
-            Set_ErrorNow(MotorParam_Error);
+            MotorFault_Report(m, MotorParam_Error);
             m->idRef = 0.0f;
             m->iqRef = 0.0f;
             outer.ready = false;
@@ -632,12 +632,12 @@ void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_
 {
     if (!Encoder_IsOnline(Encoder))
     {
-        Set_ErrorNow(Encoder_Error);
+        MotorFault_Report(MotorControl, Encoder_Error);
         return;
     }
     if ((Encoder_GetCalibFlag(Encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
     {
-        Set_ErrorNow(Encoder_NotCalibrated);
+        MotorFault_Report(MotorControl, Encoder_NotCalibrated);
         return;
     }
 

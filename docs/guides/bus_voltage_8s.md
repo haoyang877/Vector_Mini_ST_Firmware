@@ -34,7 +34,7 @@
 
 ## 验证
 
-`tests/unit/native/test_bus_voltage_protection.py` 从生产源码提取实际 `Vbus_Update` 和 `ModeSwitch_Handle`，使用模拟 ADC 执行 C 测试：满充运行、连续过/欠压、快速过压、短脉冲、停机清计数、各输出模式覆盖、启动恢复区、非有限值、首故障保持和显式故障恢复。
+`tests/unit/native/test_bus_voltage_protection.py` 从生产源码提取实际 `Vbus_Update` 和 `FocMode_Admit`，使用模拟 ADC 执行 C 测试：满充运行、连续过/欠压、快速过压、短脉冲、停机清计数、各输出模式覆盖、启动恢复区、非有限值及首故障保持。STOP/CLEAR 的受理与恢复由完整生产 owner 测试覆盖，见 `tests/unit/native/test_run_state.py`。
 测试不向实物施加危险电压。执行方式：
 
 ```text

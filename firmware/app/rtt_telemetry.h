@@ -1,13 +1,18 @@
-#ifndef __RTT_TELEMETRY_H__
-#define __RTT_TELEMETRY_H__
-
-#include <stdbool.h>
-
+#ifndef RTT_TELEMETRY_H
+#define RTT_TELEMETRY_H
+#include "data_type.h"
 /**
- * @brief 采样一帧 4 通道 RTT 遥测：机械位置、机械转速、Iq 指令与 Iq 反馈。
- * @note 仅由 20 kHz 快速中断调用；非阻塞、有界，不修改控制状态或运行模式。
- *       帧布局固定为 8 字节小端 int16，换算与量程见 rtt_telemetry.c。
+ * @brief 发布既有四通道 RTT 值帧。
+ * @param mode 本拍运行模式。
+ * @param position_rad 机械位置，rad。
+ * @param speed_rad_s 机械角速度，rad/s。
+ * @param iq_reference_a Iq 参考，A。
+ * @param iq_feedback_a Iq 测量，A。
+ * @note 20 kHz 上下文调用，非阻塞，不读取电机内部对象。
  */
-void RTT_Sampling(void);
-
+void RTT_Sampling(ModeNow_TypeDef mode,
+                  float position_rad,
+                  float speed_rad_s,
+                  float iq_reference_a,
+                  float iq_feedback_a);
 #endif

@@ -84,31 +84,33 @@ typedef struct
 } InterfaceParam_TypeDef;
 
 /**
- * @brief 将参数恢复为本固件的编译期默认值。
- * @note 只改运行态与持久化候选值，不写 Flash；保存由显式保存流程执行。
+ * @brief 将编译期默认配置应用到指定对象。
+ * @param motor 启动或受理 DEFAULTS 的电机对象。
+ * @param encoder 所属编码器配置。
+ * @note 调用方保证停机和独占配置；不写 Flash、不修改模式。
  */
-void Param_Return_Default(void);
+void Param_Return_Default(MotorControl_TypeDef *motor, Encoder_TypeDef *encoder);
 
 /**
- * @brief 把当前运行态参数导出到接口结构。
- * @param param 输出结构，缓冲区归调用方所有。
- * @note 导出的是当前生效值，不触发 Flash 访问。
+ * @brief 导出 schema11 参数值记录。
+ * @param param 调用方独占的记录空间。
+ * @param motor 稳定的电机配置。
+ * @param encoder 稳定的编码器配置。
+ * @note 仅启动或停机前台使用；不保留指针，包含表校验。
  */
-void Param_Upload(InterfaceParam_TypeDef *param);
+void Param_Upload(InterfaceParam_TypeDef *param,
+                  const MotorControl_TypeDef *motor,
+                  const Encoder_TypeDef *encoder);
 
 /**
- * @brief 设置运行速度上限，按当前节点的上限截断。
- * @param limit_rad_s 速度上限，单位 rad/s。
- * @return 数值有限且已写入返回 true；非法值返回 false 且不改写。
+ * @brief 校验并装载既有参数记录。
+ * @param param 只读 Flash 记录副本。
+ * @param motor 中断启动前的电机配置。
+ * @param encoder 中断启动前的编码器配置。
+ * @return 有效旧版本需要回写迁移时返回 true；否则 false。
+ * @note 仅启动调用；无效记录沿用默认回退，不执行 Flash I/O。
  */
-bool Param_SetSpeedLimit(float limit_rad_s);
-
-/**
- * @brief 载入参数并报告是否需要重写旧的兼容记录。
- * @param param 待载入的结构，只读。
- * @return 载入成功且需要写回升级后的记录时返回 true。
- * @note 校验失败整条拒绝，不部分覆盖运行参数。
- */
-bool Param_Download(const InterfaceParam_TypeDef *param);
-
+bool Param_Download(const InterfaceParam_TypeDef *param,
+                    MotorControl_TypeDef *motor,
+                    Encoder_TypeDef *encoder);
 #endif

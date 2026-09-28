@@ -331,7 +331,7 @@ static void Sensorless_RunSpeedLock(SensorlessStartupRun_TypeDef *Run)
 
     if (Run->direction != Startup->direction || !Sensorless_ObserverIsUsable(Fluxobserver))
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 
@@ -375,7 +375,7 @@ static void Sensorless_RunSpeedLock(SensorlessStartupRun_TypeDef *Run)
 
     if (Startup->state_ticks >= (uint32_t)(Config->lock_timeout_s / Current_Ts))
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 }
@@ -402,7 +402,7 @@ static void Sensorless_RunHandoff(SensorlessStartupRun_TypeDef *Run)
 
     if (Run->direction != Startup->direction || !Sensorless_ObserverIsUsable(Fluxobserver))
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 
@@ -458,7 +458,7 @@ static void Sensorless_RunClosedLoop(SensorlessStartupRun_TypeDef *Run)
 
     if (!Sensorless_ObserverIsUsable(Fluxobserver))
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 
@@ -495,7 +495,7 @@ static void Sensorless_RunClosedLoop(SensorlessStartupRun_TypeDef *Run)
 
     if (Startup->loss_ticks >= (uint32_t)(Config->observer_loss_time_s / Current_Ts))
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 
@@ -528,7 +528,7 @@ void SensorlessStartup_Run(FOC_TypeDef *FOC,
         MotorControl->motor_q_inductance <= 0.0f || MotorControl->motor_flux <= 0.0f ||
         MotorControl->current_limit <= 0.0f)
     {
-        Set_ErrorNow(MotorParam_Error);
+        MotorFault_Report(MotorControl, MotorParam_Error);
         return;
     }
 
@@ -546,13 +546,13 @@ void SensorlessStartup_Run(FOC_TypeDef *FOC,
     min_mech_vel = Config->minimum_electrical_velocity_rad_s / pole_pairs;
     if (fast_abs(MotorControl->speedRef) < min_mech_vel)
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 
     if (!Sensorless_StartupCurrentsAreValid(MotorControl, Config))
     {
-        Set_ErrorNow(Sensorless_Error);
+        MotorFault_Report(MotorControl, Sensorless_Error);
         return;
     }
 

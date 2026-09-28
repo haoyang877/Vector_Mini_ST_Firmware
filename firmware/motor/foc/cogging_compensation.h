@@ -23,8 +23,6 @@ typedef struct
     float blend, table_a, applied_a, total_a;
 } CoggingCompensationControl;
 
-extern volatile CoggingCompensationControl CoggingCompensation;
-
 /** 准入时锁定的硬件身份快照；运行中任一字段变化立即退出补偿。 */
 typedef struct
 {

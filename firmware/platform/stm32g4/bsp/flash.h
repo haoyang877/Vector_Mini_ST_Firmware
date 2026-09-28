@@ -72,18 +72,18 @@
 #define ADDR_FLASH_PAGE_63 ((uint32_t)0x0801F800) /* Base @ of Page 63, 2 Kbytes */
 
 /**
- * @brief 把当前运行参数写入 Flash 参数区。
- * @return 擦写并校验成功返回 true；堆分配失败或写入校验失败返回 false。
- * @note 内部完成导出、识别字写入、擦除与回读校验；调用方负责保存流程与
- *       中断/并发的时序约束。
+ * @brief 读取板载参数区字节记录。
+ * @param record 调用方缓冲。
+ * @param size_bytes 读取字节数，1..16384。
+ * @return 范围和指针有效返回 true。
  */
-bool flash_write_param(void);
-
+bool flash_read_param(void *record, uint32_t size_bytes);
 /**
- * @brief 从 Flash 参数区读取记录并装载运行参数。
- * @note 记录无效或校验失败时回退编译期默认值；旧 schema 记录在迁移后立即回写，
- *       回写窗口短暂关中断；不阻塞电机快速路径。
+ * @brief 擦写并回读校验板载参数区记录。
+ * @param record 调用方稳定缓冲。
+ * @param size_bytes 记录字节数，1..16384。
+ * @return 数字关相、擦写及回读均成功返回 true。
+ * @note 前台调用，调用方屏蔽中断；不理解参数字段。
  */
-void flash_read_param(void);
-
+bool flash_write_param(const void *record, uint32_t size_bytes);
 #endif

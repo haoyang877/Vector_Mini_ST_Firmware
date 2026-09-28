@@ -19,7 +19,7 @@ void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup);
  * @param  Fluxobserver 磁链观测器状态指针。
  * @param  Startup 无感启动状态机指针。
  * @param  Config 启动参数集，默认配置或编码器标定配置。
- * @note 在 20kHz 快速环上下文调用；故障经 Set_ErrorNow 上报并停止本 tick 输出。
+ * @note 在 20kHz 快速环上下文调用；故障经 MotorFault_Report 上报并停止本 tick 输出。
  */
 void SensorlessStartup_Run(FOC_TypeDef *FOC,
                            MotorControl_TypeDef *MotorControl,

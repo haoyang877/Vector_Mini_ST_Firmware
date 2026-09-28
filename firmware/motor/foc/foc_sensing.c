@@ -19,9 +19,7 @@
 #define CURRENT_OFFSET_MIN_COUNTS 1948.0f
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 
-extern MotorControl_TypeDef MotorControl;
-extern FOC_TypeDef FOC;
-volatile McuTemperatureTelemetry McuTemperature;
+static McuTemperatureTelemetry McuTemperature;
 
 /* 母线电压采样、滤波与过压/欠压确认计数。 */
 void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
@@ -53,7 +51,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
         }
         if (!isfinite(FOC->Vbus) || !isfinite(FOC->Vbus_filt))
         {
-            Set_ErrorNow(Over_Voltage);
+            MotorFault_Report(MotorControl, Over_Voltage);
             return;
         }
         if (FOC->Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V)
@@ -64,7 +62,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
             }
             if (hard_overvoltage_count >= BUS_VOLTAGE_HARD_CONFIRM_CYCLES)
             {
-                Set_ErrorNow(Over_Voltage);
+                MotorFault_Report(MotorControl, Over_Voltage);
                 return;
             }
         }
@@ -80,7 +78,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
             }
             if (overvoltage_count >= (FOC_FREQ * BUS_VOLTAGE_OVERVOLTAGE_MS / 1000U))
             {
-                Set_ErrorNow(Over_Voltage);
+                MotorFault_Report(MotorControl, Over_Voltage);
             }
         }
         else
@@ -97,7 +95,7 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
             }
             if (undervoltage_count >= (FOC_FREQ * BUS_VOLTAGE_UNDERVOLTAGE_MS / 1000U))
             {
-                Set_ErrorNow(Under_Voltage);
+                MotorFault_Report(MotorControl, Under_Voltage);
             }
         }
         else
@@ -118,15 +116,9 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
     static uint8_t overcurrent_count;
 
-    if (!isfinite(MotorControl->A_Offset) || !isfinite(MotorControl->B_Offset) ||
-        !isfinite(MotorControl->C_Offset) || MotorControl->A_Offset < CURRENT_OFFSET_MIN_COUNTS ||
-        MotorControl->A_Offset > CURRENT_OFFSET_MAX_COUNTS ||
-        MotorControl->B_Offset < CURRENT_OFFSET_MIN_COUNTS ||
-        MotorControl->B_Offset > CURRENT_OFFSET_MAX_COUNTS ||
-        MotorControl->C_Offset < CURRENT_OFFSET_MIN_COUNTS ||
-        MotorControl->C_Offset > CURRENT_OFFSET_MAX_COUNTS)
+    if (!MotorCurrentOffsets_Valid(MotorControl))
     {
-        Set_ErrorNow(CurrentOffset_Error);
+        MotorFault_Report(MotorControl, CurrentOffset_Error);
     }
     else
     {
@@ -154,7 +146,7 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
         }
         if (overcurrent_count >= OVERCURRENT_CONFIRM_CYCLES)
         {
-            Set_ErrorNow(Over_Current);
+            MotorFault_Report(MotorControl, Over_Current);
         }
     }
     else
@@ -164,7 +156,7 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 }
 
 /* 内部温度轮询、结果发布、失效超时与过温跳闸。 */
-void Temperature_Update(FOC_TypeDef *FOC)
+void Temperature_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
     MotorHwTemperaturePoll_TypeDef poll;
     bool good = false;
@@ -190,9 +182,9 @@ void Temperature_Update(FOC_TypeDef *FOC)
             ++McuTemperature.sample_count;
             /* 90°C 比后缀 6 器件的 105°C 结温上限低 15°C，为校准公差与测量
              * 误差留余量；不覆盖绕组/MOSFET 温度。 */
-            if (poll.celsius >= MCU_TEMPERATURE_TRIP_C && MotorControl.ErrorNow == No_Error)
+            if (poll.celsius >= MCU_TEMPERATURE_TRIP_C && MotorControl->ErrorNow == No_Error)
             {
-                Set_ErrorNow(High_Temprature);
+                MotorFault_Report(MotorControl, High_Temprature);
             }
         }
         else
@@ -213,9 +205,27 @@ void Temperature_Update(FOC_TypeDef *FOC)
             FOC->temp = NAN;
         }
         if (McuTemperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
-            MotorControl.ErrorNow == No_Error)
+            MotorControl->ErrorNow == No_Error)
         {
-            Set_ErrorNow(TemperatureSensor_Error);
+            MotorFault_Report(MotorControl, TemperatureSensor_Error);
         }
     }
+}
+
+bool MotorTemperature_IsFresh(void)
+{
+    return McuTemperature.valid != 0U &&
+           McuTemperature.missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS;
+}
+
+bool MotorCurrentOffsets_Valid(const MotorControl_TypeDef *MotorControl)
+{
+    return !(!isfinite(MotorControl->A_Offset) || !isfinite(MotorControl->B_Offset) ||
+             !isfinite(MotorControl->C_Offset) ||
+             MotorControl->A_Offset < CURRENT_OFFSET_MIN_COUNTS ||
+             MotorControl->A_Offset > CURRENT_OFFSET_MAX_COUNTS ||
+             MotorControl->B_Offset < CURRENT_OFFSET_MIN_COUNTS ||
+             MotorControl->B_Offset > CURRENT_OFFSET_MAX_COUNTS ||
+             MotorControl->C_Offset < CURRENT_OFFSET_MIN_COUNTS ||
+             MotorControl->C_Offset > CURRENT_OFFSET_MAX_COUNTS);
 }

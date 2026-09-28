@@ -3,8 +3,6 @@
 #include <stddef.h>
 #include "crc32.h"
 
-CoggingMapRecord CoggingMap;
-
 uint32_t Cogging_EncoderSignature(uint8_t reverse,
                                   uint16_t electrical_zero,
                                   int32_t pole_pairs,

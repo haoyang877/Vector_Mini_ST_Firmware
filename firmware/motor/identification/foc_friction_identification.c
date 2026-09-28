@@ -48,7 +48,9 @@ static FrictionIdentificationConfig_TypeDef BuildConfig(void)
 static void StopOutput(MotorControl_TypeDef *motor, PI_Controller_TypeDef *speed_controller)
 {
     if (motor == NULL || speed_controller == NULL)
+    {
         return;
+    }
     motor->speedRef = 0.0f;
     motor->speedShadow = 0.0f;
     motor->idRef = 0.0f;
@@ -74,7 +76,9 @@ static void Fail(MotorControl_TypeDef *motor,
     FrictionIdentification_Fail(&identification, reason);
     StopOutput(motor, speed_controller);
     if (report_module_error)
-        Set_ErrorNow(FrictionIdentification_Error);
+    {
+        MotorFault_Report(motor, FrictionIdentification_Error);
+    }
 }
 
 void FocFrictionIdentification_Init(void)
@@ -129,29 +133,35 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
     }
     if (!Encoder_IsOnline(encoder))
     {
-        Set_ErrorNow(Encoder_Error);
+        MotorFault_Report(motor, Encoder_Error);
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
         return outcome;
     }
     if ((Encoder_GetCalibFlag(encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
     {
-        Set_ErrorNow(Encoder_NotCalibrated);
+        MotorFault_Report(motor, Encoder_NotCalibrated);
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
         return outcome;
     }
-    /* 本层自行持有会话生命周期，兼容绕过 ModeSwitch_Handle 的模式赋值。 */
+    /* 本层持有辨识工作状态，只有已受理的维护调度才能进入。 */
     if (!session_started && !FocFrictionIdentification_Start(motor, encoder, speed_controller))
     {
-        Set_ErrorNow(FrictionIdentification_Error);
+        MotorFault_Report(motor, FrictionIdentification_Error);
         return outcome;
     }
 
     if (foc->Vbus_filt >= BUS_VOLTAGE_OVERVOLTAGE_V)
-        Set_ErrorNow(Over_Voltage);
+    {
+        MotorFault_Report(motor, Over_Voltage);
+    }
     else if (foc->Vbus_filt <= BUS_VOLTAGE_UNDERVOLTAGE_V)
-        Set_ErrorNow(Under_Voltage);
+    {
+        MotorFault_Report(motor, Under_Voltage);
+    }
     else if (foc->temp >= 100.0f)
-        Set_ErrorNow(High_Temprature);
+    {
+        MotorFault_Report(motor, High_Temprature);
+    }
     if (motor->ErrorNow != No_Error)
     {
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
@@ -165,7 +175,9 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
                   Encoder_GetEleVel(encoder),
                   Encoder_GetMecVel(encoder));
     if (++speed_loop_divider < SPEED_LOOP_DIVIDER)
+    {
         return outcome;
+    }
     speed_loop_divider = 0U;
 
     input.measured_speed_rad_s = Encoder_GetMecVel(encoder);
@@ -182,7 +194,9 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
     {
         StopOutput(motor, speed_controller);
         if (motor->ErrorNow == No_Error)
-            Set_ErrorNow(FrictionIdentification_Error);
+        {
+            MotorFault_Report(motor, FrictionIdentification_Error);
+        }
     }
     else if (state == FRICTION_IDENT_COMPLETE)
     {
@@ -202,7 +216,9 @@ bool FocFrictionIdentification_ApplyCandidate(MotorControl_TypeDef *motor)
     if (motor == NULL || result == NULL || !result->valid ||
         FrictionIdentification_GetState(&identification) != FRICTION_IDENT_COMPLETE ||
         motor->ModeNow != Motor_Disable)
+    {
         return false;
+    }
 
     motor->friction_coulomb_pos_a = result->coulomb_pos_a;
     motor->friction_coulomb_neg_a = result->coulomb_neg_a;
@@ -237,12 +253,7 @@ uint32_t FocFrictionIdentification_GetSampleCount(void)
     return FrictionIdentification_GetSampleCount(&identification);
 }
 
-const FrictionIdentificationResult_TypeDef *FocFrictionIdentification_GetResult(void)
+bool FocFrictionIdentification_IsReleased(void)
 {
-    return FrictionIdentification_GetResult(&identification);
-}
-
-const FrictionIdentificationSample_TypeDef *FocFrictionIdentification_GetSamples(void)
-{
-    return FrictionIdentification_GetSamples(&identification);
+    return !session_started;
 }

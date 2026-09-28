@@ -6,7 +6,7 @@
 #include "angle_feedback.h"
 #include "control_config.h"
 #include "foc_run.h"
-#include "motor_state.h"
+#include "data_type.h"
 #include "utils.h"
 
 /* 定标：物理量乘以尺度后饱和编码为 int16 计数，不是测量精度。 */
@@ -55,7 +55,11 @@ static float RTT_WrapSingleTurn(float angle)
 }
 
 /* 分频计数跨调用保持；本函数不修改任何控制状态。 */
-void RTT_Sampling(void)
+void RTT_Sampling(ModeNow_TypeDef mode,
+                  float position_rad,
+                  float speed_rad_s,
+                  float iq_reference_a,
+                  float iq_feedback_a)
 {
     static uint32_t rtt_divider_count;
     RTT_TelemetryFrame_TypeDef frame;
@@ -67,18 +71,17 @@ void RTT_Sampling(void)
     /* 2 kHz 伺服已在 TIM7 监督上下文执行：本帧不再与慢估计叠加，
      * 仅保留"位置模式外环未就绪时延后一帧"的保护。 */
 #if CASCADE_POSITION_LOOP_DIVIDER > 1U
-    if (MotorControl.ModeNow == Position_Mode && !MotorOuterLoop_IsReady())
+    if (mode == Position_Mode && !MotorOuterLoop_IsReady())
     {
         return;
     }
 #endif
     rtt_divider_count = 0;
 
-    frame.position = RTT_EncodeInt16(RTT_WrapSingleTurn(Encoder_GetMecPos(&OnBoard_Encoder)),
-                                     RTT_POSITION_SCALE_COUNTS_PER_RAD);
-    frame.speed =
-        RTT_EncodeInt16(Encoder_GetMecVel(&OnBoard_Encoder), RTT_SPEED_SCALE_COUNTS_PER_RPM10);
-    frame.iq_reference = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
-    frame.iq_feedback = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.position =
+        RTT_EncodeInt16(RTT_WrapSingleTurn(position_rad), RTT_POSITION_SCALE_COUNTS_PER_RAD);
+    frame.speed = RTT_EncodeInt16(speed_rad_s, RTT_SPEED_SCALE_COUNTS_PER_RPM10);
+    frame.iq_reference = RTT_EncodeInt16(iq_reference_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.iq_feedback = RTT_EncodeInt16(iq_feedback_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
     (void)SEGGER_RTT_Write(1, &frame, sizeof(frame));
 }

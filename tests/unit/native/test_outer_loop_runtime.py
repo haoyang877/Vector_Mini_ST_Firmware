@@ -86,7 +86,7 @@ static Encoder_TypeDef enc;
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
 static float Encoder_GetMecVel(Encoder_TypeDef *e) { return e->speed; }
 static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->speed; }
-static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
+static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef error) { m->ErrorNow = error; }
 """
         + param
         + funcs

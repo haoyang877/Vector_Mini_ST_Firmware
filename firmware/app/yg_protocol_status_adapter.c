@@ -109,40 +109,6 @@ static uint8_t protocol_state(AppLifecycleState state, uint8_t mode)
     }
 }
 
-static void sample_motor_status(MotorStatus *sample)
-{
-    sample->fault = (uint16_t)MotorControl.ErrorNow;
-    sample->mode = (uint16_t)MotorControl.ModeNow;
-    sample->position_target = MotorControl.posRef;
-    sample->position_feedback = Encoder_GetMecPos(&OnBoard_Encoder);
-    sample->speed_target = MotorControl.speedRef;
-    sample->speed_feedback =
-        (MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Position_Impedance_Mode)
-            ? MotorControl.pos_vel_filtered
-            : Encoder_GetMecVel(&OnBoard_Encoder);
-    sample->current_reference = MotorControl.iqRef;
-    sample->current_feedback = FOC.Iq;
-    sample->temperature = FOC.temp;
-    sample->bus_voltage = FOC.Vbus_filt;
-    sample->bus_current = FOC.Ibus_filt;
-    sample->position_planned = NAN;
-    sample->speed_planned = NAN;
-    if (MotorControl.ModeNow == Position_Mode)
-    {
-        sample->position_planned = MotorControl.posShadow;
-        sample->speed_planned = MotorControl.pos_trajectory_speed_rad_s;
-    }
-    else if (MotorControl.ModeNow == Position_Impedance_Mode)
-    {
-        sample->position_planned = MotorControl.posShadow;
-        sample->speed_planned = MotorControl.speedShadow;
-    }
-    else if (MotorControl.ModeNow == Speed_Mode)
-    {
-        sample->speed_planned = MotorControl.speedShadow;
-    }
-}
-
 bool YgProtocolStatusAdapter_Init(void)
 {
     source = (yg_protocol_motor_status_source_t){0};
@@ -157,23 +123,12 @@ void YgProtocolStatusAdapter_Refresh(void)
         return;
     }
     /* 前台独占 source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
-    uint32_t mask = critical_hw_enter();
-    sample_motor_status(&source.sample);
-    source.faults = fault_bits(MotorControl.ErrorNow);
-    source.mode = protocol_mode(MotorControl.ModeNow);
-    source.state = MotorControl.ErrorNow != No_Error
-                       ? 8U
-                       : protocol_state(FocRunState_GetState(), source.mode);
-    source.measurement_valid_bits = 0x54U;
-    if (MotorControl.axis_profile_valid && Encoder_GetBadFrameStreak(&OnBoard_Encoder) == 0U &&
-        Encoder_GetCalibFlag(&OnBoard_Encoder) != 0U)
-    {
-        source.measurement_valid_bits |= 0x03U;
-    }
-    if (McuTemperature.valid != 0U)
-    {
-        source.measurement_valid_bits |= 0x20U;
-    }
+    AppLifecycleState state =
+        MotorControl_ReadStatus(&source.sample, &source.measurement_valid_bits);
+    source.faults = fault_bits((ErrorNow_TypeDef)source.sample.fault);
+    source.mode = protocol_mode((ModeNow_TypeDef)source.sample.mode);
+    source.state = state == APP_FATAL                ? 9U
+                   : source.sample.fault != No_Error ? 8U
+                                                     : protocol_state(state, source.mode);
     source.sample_available = true;
-    critical_hw_exit(mask);
 }

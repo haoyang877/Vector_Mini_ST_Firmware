@@ -41,7 +41,7 @@ static bool busy;
 static MotorControl_TypeDef MotorControl;
 static FOC_TypeDef foc;
 volatile McuTemperatureTelemetry McuTemperature;
-static void Set_ErrorNow(ErrorNow_TypeDef e) {MotorControl.ErrorNow=e;}
+static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef e) {m->ErrorNow=e;}
 void motor_hw_temperature_poll(MotorHwTemperaturePoll_TypeDef *result) {
     result->sample_ready=false; result->conversion_ok=false;
     if(adc.flags & ADC_FLAG_JEOS) {
@@ -57,7 +57,7 @@ void motor_hw_temperature_poll(MotorHwTemperaturePoll_TypeDef *result) {
         + function_source(production, "Temperature_Update")
         + r"""
 static void fresh(uint32_t ts,uint32_t vr) {
- adc.JDR1=ts;adc.JDR2=vr;adc.flags=3;busy=false;Temperature_Update(&foc);
+ adc.JDR1=ts;adc.JDR2=vr;adc.flags=3;busy=false;Temperature_Update(&foc,&MotorControl);
  assert(adc.flags==0 && busy);
 }
 static void reset(void) {
@@ -77,15 +77,15 @@ int main(void) {
  assert(!McuTemperature_Convert(1000,1500,1000,1000,1500,&c,&v));
  assert(!McuTemperature_Convert(1000,1500,0,65535,1500,&c,&v));
  assert(!McuTemperature_Convert(1000,100,1000,1400,1500,&c,&v));
- reset();Temperature_Update(&foc);assert(isnan(foc.temp) && starts==1 && !McuTemperature.valid);
+ reset();Temperature_Update(&foc,&MotorControl);assert(isnan(foc.temp) && starts==1 && !McuTemperature.valid);
  fresh(1000,1500);assert(foc.temp==30 && McuTemperature.valid && McuTemperature.sample_count==1);
  fresh(1040,1500);assert(fabsf(foc.temp-30.1f)<.0001f && McuTemperature.raw_celsius==40);
  /* A pending conversion is never restarted and stale samples expire exactly at 100 ms
     (200 supervision ticks at 2 kHz). */
  unsigned n=starts;
- for(unsigned i=0;i<199;i++) Temperature_Update(&foc);
+ for(unsigned i=0;i<199;i++) Temperature_Update(&foc,&MotorControl);
  assert(McuTemperature.valid && starts==n && MotorControl.ErrorNow==No_Error);
- Temperature_Update(&foc);assert(!McuTemperature.valid && isnan(foc.temp) && MotorControl.ErrorNow==TemperatureSensor_Error);
+ Temperature_Update(&foc,&MotorControl);assert(!McuTemperature.valid && isnan(foc.temp) && MotorControl.ErrorNow==TemperatureSensor_Error);
  fresh(1000,1500);assert(McuTemperature.valid && foc.temp==30 && MotorControl.ErrorNow==TemperatureSensor_Error);
  reset();fresh(1239,1500);assert(MotorControl.ErrorNow==No_Error);
  fresh(1240,1500);assert(MotorControl.ErrorNow==High_Temprature && foc.temp<90); /* unfiltered trip */
@@ -93,7 +93,7 @@ int main(void) {
  reset();fresh(1000,1500);fresh(0,1500);assert(!McuTemperature.valid && isnan(foc.temp));
  for(unsigned i=1;i<200;i++)fresh(0,1500);
  assert(MotorControl.ErrorNow==TemperatureSensor_Error);
- reset();for(unsigned i=0;i<200;i++)Temperature_Update(&foc);
+ reset();for(unsigned i=0;i<200;i++)Temperature_Update(&foc,&MotorControl);
  assert(MotorControl.ErrorNow==TemperatureSensor_Error); /* startup with no ADC */
  puts("PASS MCU 30/130C calibration, supply correction, invalid trim/ADC, filtering, raw hot trip, stale/startup timeout and fault preservation");
  return 0;

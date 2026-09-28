@@ -93,15 +93,45 @@ USB 独有的 LUT/原始摩擦采样导出目前缺少 CAN 替代 API，已明�
 证据目录：`outputs/layout_v2_20260917/`；原输入快照为 before，目录迁移的含 USB 镜像为
 relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outputs/build/keil。
 
-## 下一阶段代码优化
+## 内部所有权（2026-09-28 E3）
+
+目录继续使用本页当前布局；这一轮不迁移产品名称，也不新增双编码器、Loader 或 PC 功能。
+代码边界已进一步落实到实际调用：
+
+| 所有者 | 状态与调用边界 |
+| --- | --- |
+| `app/motor_state.c` | 私有 MotorControl、FOC、速度 PI、Encoder、Observer、Startup；执行快慢调度，生成值快照，启动参数装载与前台维护 |
+| `app/foc_run_state.c` | 唯一请求/模式提交所有者；Watch/CAN 共用命令邮箱，串行生命周期事件，保存认领与取消身份 |
+| `app/foc_mode_dispatch.c` | 显式参数的模式准入与 worker 分发，返回结果，不接收外部任意模式写入 |
+| `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |
+| `motor/foc/foc_sensing.c` | 显式采样目标，温度诊断私有，提供窄新鲜度查询 |
+| `motor/identification/foc_cogging_calibration.c` | 私有标定采样、表和补偿状态；候选构建与发布分开，取消不改写前台正在读取的样本 |
+| `services/parameters/foc_param.c` | 默认、记录解释、迁移与导出，实际控制对象由 APP 显式传入 |
+| `platform/api/param_store.h` | 仅字节读写能力；STM32 Flash 实现不解释参数、不分配堆、不引用控制对象 |
+
+`foc_task.c` 是 ISR 入口薄层；状态/RTT 输出使用值快照或显式标量，不返回内部对象地址。
+生成 main 只调用前台服务；合法 schema11 装载不重写，旧 schema 迁移写入由 APP 明确执行。
+本轮没有新增持久化 ABI、CAN 编号或大型常驻参数副本。
+
+维护完成与保存提交独立记录，前台使用 `{epoch, kind}` 认领；保存前再次核对身份、
+无故障和关相。取消等待编码器堆工作区、齿槽借用、摩擦和相电阻会话实际释放。
+内部 FAULT/FATAL 映射为非零既有故障，FATAL 在线状态优先，CLEAR 后需重新发起命令。
+过流恢复计数保留原实际 2 kHz 的 2000 拍（1 s），未按旧注释改成 100 ms。
+
+仍存在模块私有静态状态和显式 SWD 邮箱：FocBenchSpeed、FocCoggingCompensationRequest、
+TorqueGuard、TorqueTelemetryState、TorqueTelemetry；不能将本轮描述成“全仓无全局变量”。
+具体接口、验收和回退见 [E3 计划](../plans/active/2026-09-28-internal-decoupling-e3.md)，
+操作入口见 [Watch 指南](../guides/watch_motor_commands.md)。
+
+## 历史 E1 与后续优化
 
 2026-09-28 E1：运行所有者删除 `power_on` 副本，关相条件直接使用平台数字使能回读。
 ADC2 JEOS 快环末尾登记感测处理进展，监督拍统一读取有限电流/电压值和温度有效期；
 基础自检不要求编码器标定，模式启动继续检查其反馈和标定依赖。维护 worker 等待会话
 受理后执行；恢复默认参数不再直接改模式，完成由结果协议请求保存。
 CLEAR 保留原故障直到核心受理，故障不会因兼容值已经为零自动清除。
-数字回读不代表物理栅极验证；维护资源释放与原始 worker/保存结果代际仍未全部接入，
-不能把本批称为完整生命周期验收。来源、删减和验证见
+数字回读不代表物理栅极验证；该历史批次尚未接入完整资源释放与结果代际，现已由 E3 补齐。
+来源、删减和验证见
 [E1 批次说明](../plans/active/2026-09-28-lifecycle-guards-e1.md)。
 
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：

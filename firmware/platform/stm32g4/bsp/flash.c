@@ -1,145 +1,92 @@
 #include "flash.h"
 
 #include <string.h>
-#include "foc_param.h"
-#include "heap.h"
+#include "power_stage_hw.h"
 
 #define PARAM_FLASH_ADDR ADDR_FLASH_PAGE_56
-typedef char ParamRecordFitsReservedFlash[(sizeof(InterfaceParam_TypeDef) <= 0x4000U) ? 1 : -1];
 
 /**
-	* @brief  Get flash page number from address
-	* @param  addr: flash address
-	* @retval flash page number
+    * @brief  按地址计算 Flash 页号
+    * @param  addr Flash 地址
+    * @return 页号
  **/
 static uint32_t get_page(uint32_t addr)
 {
-	return (addr - FLASH_BASE) / FLASH_PAGE_SIZE;
+    return (addr - FLASH_BASE) / FLASH_PAGE_SIZE;
 }
 
 /**
-	* @brief  Erase one flash page
-	* @param  page: page number
-	* @retval erase result, true if success
+    * @brief  擦除覆盖起止地址的 Flash 页
+    * @param  start_addr 起始 Flash 地址
+    * @param  end_addr 结束 Flash 地址
+    * @return 擦除成功返回 true
  **/
-bool flash_erase_page(uint8_t page)
+static bool flash_erase_pages(uint32_t start_addr, uint32_t end_addr)
 {
-	uint32_t page_error = 0U;
-	FLASH_EraseInitTypeDef erase_init;
+    uint32_t page_error = 0U;
+    FLASH_EraseInitTypeDef erase_init;
+    uint32_t first_page = get_page(start_addr);
+    uint32_t page_count = get_page(end_addr) - first_page + 1U;
 
-	HAL_FLASH_Unlock();
-	__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
-	erase_init.Banks = FLASH_BANK_1;
-	erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
-	erase_init.Page = page;
-	erase_init.NbPages = 1U;
-	bool result = HAL_FLASHEx_Erase(&erase_init, &page_error) == HAL_OK;
-	HAL_FLASH_Lock();
-	return result;
+    HAL_FLASH_Unlock();
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
+    erase_init.Banks = FLASH_BANK_1;
+    erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
+    erase_init.Page = first_page;
+    erase_init.NbPages = page_count;
+    bool result = HAL_FLASHEx_Erase(&erase_init, &page_error) == HAL_OK;
+    HAL_FLASH_Lock();
+    return result;
 }
 
 /**
-	* @brief  Erase flash pages between start and end addresses
-	* @param  start_addr: start flash address
-	* @param  end_addr: end flash address
-	* @retval erase result, true if success
- **/
-bool flash_erase_pages(uint32_t start_addr, uint32_t end_addr)
-{
-	uint32_t page_error = 0U;
-	FLASH_EraseInitTypeDef erase_init;
-	uint32_t first_page = get_page(start_addr);
-	uint32_t page_count = get_page(end_addr) - first_page + 1U;
-
-	HAL_FLASH_Unlock();
-	__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
-	erase_init.Banks = FLASH_BANK_1;
-	erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
-	erase_init.Page = first_page;
-	erase_init.NbPages = page_count;
-	bool result = HAL_FLASHEx_Erase(&erase_init, &page_error) == HAL_OK;
-	HAL_FLASH_Lock();
-	return result;
-}
-
-/**
-	* @brief  Write data to flash
-	* @param  addr: flash address
-	* @param  data: data buffer pointer
-	* @param  size_bytes: byte count to write
+    * @brief  写入并回读校验 Flash 字节
+    * @param  addr Flash 地址
+    * @param  data 稳定输入缓冲
+    * @param  size_bytes 写入字节数
  **/
 static bool flash_write_data(uint32_t addr, const void *data, uint32_t size_bytes)
 {
-	const uint8_t *bytes = (const uint8_t *)data;
-	uint32_t doubleword_count = (size_bytes + 7U) / 8U;
+    const uint8_t *bytes = (const uint8_t *)data;
+    uint32_t doubleword_count = (size_bytes + 7U) / 8U;
 
-	HAL_FLASH_Unlock();
-	for (uint32_t i = 0U; i < doubleword_count; ++i)
-	{
-		uint64_t value = UINT64_MAX;
-		uint32_t offset = i * 8U;
-		uint32_t copy_size = size_bytes - offset;
-		if (copy_size > 8U)
-			copy_size = 8U;
-		memcpy(&value, &bytes[offset], copy_size);
-		if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr + offset, value) != HAL_OK)
-		{
-			HAL_FLASH_Lock();
-			return false;
-		}
-	}
-	HAL_FLASH_Lock();
-	return memcmp((const void *)addr, data, size_bytes) == 0;
+    HAL_FLASH_Unlock();
+    for (uint32_t i = 0U; i < doubleword_count; ++i)
+    {
+        uint64_t value = UINT64_MAX;
+        uint32_t offset = i * 8U;
+        uint32_t copy_size = size_bytes - offset;
+        if (copy_size > 8U)
+        {
+            copy_size = 8U;
+        }
+        memcpy(&value, &bytes[offset], copy_size);
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr + offset, value) != HAL_OK)
+        {
+            HAL_FLASH_Lock();
+            return false;
+        }
+    }
+    HAL_FLASH_Lock();
+    return memcmp((const void *)addr, data, size_bytes) == 0;
 }
 
-/**
-	* @brief  Write interface parameters to flash
- **/
-bool flash_write_param(void)
+bool flash_read_param(void *record, uint32_t size_bytes)
 {
-	bool written = false;
-	InterfaceParam_TypeDef *param = HEAP_malloc(sizeof(*param));
-	if (param == NULL)
-		return false;
-
-	Param_Upload(param);
-	param->magic_word = MAGIC_WORD;
-	if (flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + sizeof(*param) - 1U))
-		written = flash_write_data(PARAM_FLASH_ADDR, param, sizeof(*param));
-
-	HEAP_free(param);
-	return written;
+    if (record == NULL || size_bytes == 0U || size_bytes > 0x4000U)
+    {
+        return false;
+    }
+    memcpy(record, (const void *)PARAM_FLASH_ADDR, size_bytes);
+    return true;
 }
-
-/**
-	* @brief  Read interface parameters from flash
- **/
-void flash_read_param(void)
+bool flash_write_param(const void *record, uint32_t size_bytes)
 {
-	InterfaceParam_TypeDef *param = HEAP_malloc(sizeof(*param));
-	bool rewrite_legacy_param;
-	if (param == NULL)
-	{
-		Param_Return_Default();
-		return;
-	}
-
-	memcpy(param, (const void *)PARAM_FLASH_ADDR, sizeof(*param));
-	rewrite_legacy_param = Param_Download(param);
-	if (rewrite_legacy_param)
-	{
-		uint32_t primask;
-
-		/* Persist the validated migration before motor control is enabled. */
-		Param_Upload(param);
-		param->magic_word = MAGIC_WORD;
-		primask = __get_PRIMASK();
-		__disable_irq();
-		if (flash_erase_pages(PARAM_FLASH_ADDR,
-			PARAM_FLASH_ADDR + sizeof(*param) - 1U))
-			flash_write_data(PARAM_FLASH_ADDR, param, sizeof(*param));
-		if (primask == 0U)
-			__enable_irq();
-	}
-	HEAP_free(param);
+    if (record == NULL || size_bytes == 0U || size_bytes > 0x4000U ||
+        !power_stage_hw_phases_disabled())
+    {
+        return false;
+    }
+    return flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + size_bytes - 1U) &&
+           flash_write_data(PARAM_FLASH_ADDR, record, size_bytes);
 }

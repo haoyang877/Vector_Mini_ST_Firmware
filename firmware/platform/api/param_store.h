@@ -1,20 +1,21 @@
 #ifndef PARAM_STORE_H
 #define PARAM_STORE_H
-
 #include <stdbool.h>
-
+#include <stdint.h>
 /**
- * @brief 从非易失参数区读取记录并装载运行参数。
- * @note 记录无效或校验失败时回退编译期默认值；不写回、不阻塞电机路径。
- *       语义与迁移前的板级参数区读取一致。
+ * @brief 读取非易失参数区的完整字节记录。
+ * @param record 调用方独占缓冲。
+ * @param size_bytes 读取字节数，必须在参数区容量内。
+ * @return 读取成功返回 true；失败不提供有效记录。
+ * @note 仅启动前台调用；不应用参数、不写回迁移。
  */
-void param_store_load(void);
-
+bool param_store_read(void *record, uint32_t size_bytes);
 /**
- * @brief 将当前参数写入非易失参数区。
- * @return 写入并校验成功返回 true；失败返回 false，由调用方负责故障上报。
- * @note 只在参数保存流程调用；擦写顺序与校验语义保持不变。
+ * @brief 写入并回读验证非易失参数记录。
+ * @param record 调用方稳定缓冲，端口不保留地址。
+ * @param size_bytes 记录字节数。
+ * @return 关相、擦写及回读均成功返回 true；失败效果未知。
+ * @note 仅停机前台调用，调用方保持中断屏蔽及配置独占。
  */
-bool param_store_save(void);
-
+bool param_store_write(const void *record, uint32_t size_bytes);
 #endif

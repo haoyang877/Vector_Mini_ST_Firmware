@@ -23,8 +23,18 @@ def fixture():
 #include "foc_param_profile.h"
 #include "param_comm_bridge.h"
 #include "utils.h"
+#include "foc_cogging_calibration.h"
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
+/* 参数服务只传值：夹具持有表，模拟齿槽边界并使用真实签名与 CRC。 */
+static CoggingMapRecord CoggingMap;
+void FocCogging_ResetMap(void) { memset(&CoggingMap,0,sizeof(CoggingMap)); }
+void FocCogging_ImportMap(const CoggingMapRecord *record) { CoggingMap=*record; }
+void FocCogging_ExportMap(CoggingMapRecord *record, const MotorControl_TypeDef *m, const Encoder_TypeDef *e) {
+    uint32_t signature=Cogging_EncoderSignature(e->reverse,e->electrical_zero_q15,m->motor_pole_pairs,e->linearization_lut_q15);
+    memset(record,0,sizeof(*record));
+    if((e->calib_flag&ENC_CALIB_ALL)==ENC_CALIB_ALL && CoggingMap_Valid(&CoggingMap,signature)) { *record=CoggingMap; }
+}
 uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
 static uint8_t node_id;
 static uint32_t heartbeat_ms;
@@ -43,7 +53,7 @@ void Protocol_HeartbeatMs_Set(uint32_t value) { heartbeat_ms = value; }
 int main(void) {
     InterfaceParam_TypeDef p, saved;
     unsigned node;
-    Param_Return_Default(); Param_Upload(&p); p.magic_word=MAGIC_WORD;
+    Param_Return_Default(&MotorControl,&OnBoard_Encoder); Param_Upload(&p,&MotorControl,&OnBoard_Encoder); p.magic_word=MAGIC_WORD;
     p.encoder_electrical_zero_q15=3155; p.encoder_calib_flag=3;
     p.encoder_linearization_lut_q15[71]=-42; p.speed_kp=.02f;
     saved=p;
@@ -51,44 +61,33 @@ int main(void) {
         float cap=(node==1 || node==2) ? 20 : .5f*_2PI;
         assert(Param_SpeedLimitRadS(node)==cap);
         p=saved; p.node_id=(float)node; p.speed_limit=21;
-        assert(!Param_Download(&p)); assert(MotorControl.speed_limit==cap);
+        assert(!Param_Download(&p,&MotorControl,&OnBoard_Encoder)); assert(MotorControl.speed_limit==cap);
         assert(node_id==node && MotorControl.axis_profile_valid);
         assert(OnBoard_Encoder.electrical_zero_q15==3155);
         assert(OnBoard_Encoder.linearization_lut_q15[71]==-42);
         assert(MotorControl.speed_Kp==.02f);
-        p.speed_limit=1.25f; Param_Download(&p); assert(MotorControl.speed_limit==1.25f);
-        p.speed_limit=NAN; Param_Download(&p); assert(MotorControl.speed_limit==cap);
-        p.speed_limit=0; Param_Download(&p); assert(MotorControl.speed_limit==cap);
+        p.speed_limit=1.25f; Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(MotorControl.speed_limit==1.25f);
+        p.speed_limit=NAN; Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(MotorControl.speed_limit==cap);
+        p.speed_limit=0; Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(MotorControl.speed_limit==cap);
     }
     puts("PASS all node ceilings, stored lower limits, invalid fallback, calibration preserved");
     /* Axis record wins over stale legacy node ID before selecting the cap. */
     p=saved; p.node_id=1; p.speed_limit=20;
     assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
-    Param_Download(&p);
+    Param_Download(&p,&MotorControl,&OnBoard_Encoder);
     assert(node_id==3 && MotorControl.speed_limit==.5f*_2PI);
     puts("PASS resolved joint identity selects the ceiling before parameter loading");
-    for(node=1; node<=2; node++) {
-        node_id=node; MotorControl.speedRef=25; MotorControl.pos_maxspeed=24;
-        assert(Param_SetSpeedLimit(20));
-        assert(MotorControl.speed_limit==20 && MotorControl.speedRef==20 && MotorControl.pos_maxspeed==20);
-        assert(!Param_SetSpeedLimit(20.01f)); assert(MotorControl.speed_limit==20);
-        assert(!Param_SetSpeedLimit(NAN) && !Param_SetSpeedLimit(INFINITY));
-        assert(!Param_SetSpeedLimit(0) && !Param_SetSpeedLimit(-1));
-        MotorControl.speedRef=-20;
-        assert(Param_SetSpeedLimit(10) && MotorControl.speedRef==-10);
-    }
-    puts("PASS parameter service rad/s boundaries; reduced limits clamp both command signs");
     /* Schema 10 -> 11 preserves tuned gains and encoder calibration, never
      * interprets the erased old tail as a valid cogging map. */
     p=saved; p.schema_version=10; p.node_id=1; p.speed_limit=20;
     p.pos_kp=1.3f; p.pos_ki=.7f; p.pos_kd=.15f; p.speed_kp=.023f;
     memset(&p.cogging,0xff,sizeof(p.cogging));
-    assert(Param_Download(&p));
+    assert(Param_Download(&p,&MotorControl,&OnBoard_Encoder));
     assert(MotorControl.pos_Kp==1.3f && MotorControl.pos_Ki==.7f && MotorControl.pos_Kd==.15f);
     assert(MotorControl.speed_Kp==.023f && MotorControl.speed_limit==20);
     assert(OnBoard_Encoder.electrical_zero_q15==3155 && OnBoard_Encoder.reverse==0);
     assert(CoggingMap.magic==0);
-    Param_Upload(&p); p.magic_word=MAGIC_WORD;
+    Param_Upload(&p,&MotorControl,&OnBoard_Encoder); p.magic_word=MAGIC_WORD;
     {
         CoggingCalibration c={0};
         uint32_t signature=Cogging_EncoderSignature(p.encoder_reverse,p.encoder_electrical_zero_q15,
@@ -97,14 +96,14 @@ int main(void) {
         c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
         for(unsigned i=0;i<1024;i++) c.iq_q15[i]=(i&1) ? 123 : -123;
         assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,signature,&CoggingMap));
-        Param_Upload(&p); p.magic_word=MAGIC_WORD;
+        Param_Upload(&p,&MotorControl,&OnBoard_Encoder); p.magic_word=MAGIC_WORD;
         memset(&CoggingMap,0,sizeof(CoggingMap));
-        assert(!Param_Download(&p) && CoggingMap_Valid(&CoggingMap,signature));
+        assert(!Param_Download(&p,&MotorControl,&OnBoard_Encoder) && CoggingMap_Valid(&CoggingMap,signature));
         assert(CoggingMap.iq_q15[17]==123);
         p.cogging.iq_q15[5]^=1;
-        Param_Download(&p); assert(CoggingMap.magic==0);
+        Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(CoggingMap.magic==0);
         p.cogging.iq_q15[5]^=1; p.encoder_electrical_zero_q15++;
-        Param_Download(&p); assert(CoggingMap.magic==0);
+        Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(CoggingMap.magic==0);
     }
     puts("PASS schema migration, Q15 map round trip, corrupt/stale map rejection");
     return 0;

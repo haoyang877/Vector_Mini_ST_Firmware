@@ -29,8 +29,7 @@ communication/protocol/yg_protocol_*
 
 ```text
 Board_Init
-  ├─ param_store_load
-  ├─ MotorControl_Init
+  ├─ MotorControl_Init（APP 私有参数装载、迁移与状态初始化）
   ├─ board_hw_start
   ├─ YgProtocolRuntime_Init
   │    ├─ YgProtocolLink_Init
@@ -42,6 +41,7 @@ FDCAN RX FIFO0 中断
        └─ YgProtocolLink_OnRxFrame（只入 RX 队列）
 
 while(1)
+  ├─ MotorControl_ServiceBackground（维护认领、成表与保存）
   ├─ YgProtocolStatusAdapter_Refresh
   └─ YgProtocolRuntime_Service(now_ms)
        └─ YgProtocolLink_Service(now_ms)
@@ -53,6 +53,10 @@ while(1)
 ```
 
 ISR 不执行 CRC、分片、Flash、日志或电机业务。后台服务每次调用限制输入和输出处理数量，队列满时丢弃最新帧并保留统计。
+
+2026-09-28 E3：状态适配器经 `MotorControl_ReadStatus` 读取一致值快照，CAN 116 与
+Watch 目标经 `FocRunState_SubmitControl` 同一邮箱进入运行所有者；通信层无电机对象
+可写 extern。wire/schema11 保持原契约，详见 [内部所有权](code_structure.md)。
 
 ## 3. 文件职责
 

@@ -1,6 +1,152 @@
 /* parameter 服务边界：显式注入后端，不读取全局状态或访问硬件。 */
 #include "yg_protocol_parameter.h"
 
+#include <string.h>
+
+static uint32_t read_u32(const uint8_t *payload)
+{
+    return (uint32_t)payload[0] | ((uint32_t)payload[1] << 8U) | ((uint32_t)payload[2] << 16U) |
+           ((uint32_t)payload[3] << 24U);
+}
+
+static void put_u16(uint8_t *payload, uint16_t value)
+{
+    payload[0] = (uint8_t)value;
+    payload[1] = (uint8_t)(value >> 8U);
+}
+
+static void put_u32(uint8_t *payload, uint32_t value)
+{
+    for (size_t index = 0U; index < 4U; ++index)
+    {
+        payload[index] = (uint8_t)(value >> (8U * index));
+    }
+}
+
+yg_protocol_result_t yg_protocol_parameter_decode(const yg_protocol_message_t *message,
+                                                  yg_protocol_parameter_request_t *request)
+{
+    yg_protocol_parameter_request_t decoded = {0};
+    uint32_t raw;
+    if (message == NULL || request == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    decoded.source_node = message->source_node;
+    decoded.sequence = message->sequence;
+    switch (message->message_type)
+    {
+    case YG_PROTOCOL_PARAMETER_TYPE_READ:
+        decoded.operation = YG_PROTOCOL_PARAMETER_READ;
+        break;
+    case YG_PROTOCOL_PARAMETER_TYPE_WRITE:
+        decoded.operation = YG_PROTOCOL_PARAMETER_WRITE;
+        break;
+    case YG_PROTOCOL_PARAMETER_TYPE_SAVE:
+        decoded.operation = YG_PROTOCOL_PARAMETER_SAVE;
+        break;
+    default:
+        return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+    }
+    if (message->payload == NULL ||
+        message->payload_length != (decoded.operation == YG_PROTOCOL_PARAMETER_WRITE ? 12U : 4U))
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    if (decoded.operation == YG_PROTOCOL_PARAMETER_SAVE)
+    {
+        decoded.expected_revision = read_u32(message->payload);
+    }
+    else
+    {
+        decoded.parameter_id = message->payload[0];
+        if (decoded.operation == YG_PROTOCOL_PARAMETER_READ)
+        {
+            if (message->payload[1] != 0U || message->payload[2] != 0U || message->payload[3] != 0U)
+            {
+                return YG_PROTOCOL_INVALID_FIELD;
+            }
+        }
+        else
+        {
+            decoded.value_type = message->payload[1];
+            if ((decoded.value_type != YG_PROTOCOL_PARAMETER_VALUE_I32 &&
+                 decoded.value_type != YG_PROTOCOL_PARAMETER_VALUE_U32) ||
+                message->payload[2] != 4U || message->payload[3] != 0U)
+            {
+                return YG_PROTOCOL_INVALID_FIELD;
+            }
+            decoded.expected_revision = read_u32(message->payload + 4U);
+            raw = read_u32(message->payload + 8U);
+            /* 保留u32高位，不做实现相关的无符号到有符号数值裁剪。 */
+            memcpy(&decoded.value, &raw, sizeof(raw));
+        }
+    }
+    *request = decoded;
+    return YG_PROTOCOL_OK;
+}
+
+yg_protocol_result_t
+yg_protocol_parameter_encode_reply(const yg_protocol_parameter_request_t *request,
+                                   const yg_protocol_service_reply_t *reply,
+                                   uint8_t *payload,
+                                   size_t capacity,
+                                   size_t *written)
+{
+    size_t length = 4U;
+    bool completed;
+    if (request == NULL || reply == NULL || payload == NULL || written == NULL ||
+        request->parameter_id > UINT8_MAX ||
+        (unsigned)request->operation > (unsigned)YG_PROTOCOL_PARAMETER_SAVE)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    completed = reply->status == YG_PROTOCOL_SERVICE_OK;
+    if (completed || (request->operation == YG_PROTOCOL_PARAMETER_SAVE &&
+                      reply->status == YG_PROTOCOL_SERVICE_ACCEPTED))
+    {
+        length = request->operation == YG_PROTOCOL_PARAMETER_SAVE ? 8U : 16U;
+    }
+    if (completed && request->operation != YG_PROTOCOL_PARAMETER_SAVE &&
+        ((reply->value_type != YG_PROTOCOL_PARAMETER_VALUE_I32 &&
+          reply->value_type != YG_PROTOCOL_PARAMETER_VALUE_U32) ||
+         (request->operation == YG_PROTOCOL_PARAMETER_WRITE &&
+          reply->value_type != request->value_type) ||
+         (request->operation == YG_PROTOCOL_PARAMETER_READ &&
+          ((reply->access & YG_PROTOCOL_PARAMETER_ACCESS_READ) == 0U ||
+           (reply->access & (uint8_t)~0x07U) != 0U))))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (request->operation == YG_PROTOCOL_PARAMETER_READ &&
+        reply->status == YG_PROTOCOL_SERVICE_ACCEPTED)
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (capacity < length)
+    {
+        return YG_PROTOCOL_BUFFER_TOO_SMALL;
+    }
+    memset(payload, 0, length);
+    put_u16(payload, yg_protocol_service_result_code(reply->status));
+    put_u16(payload + 2U, reply->detail);
+    if (length == 8U)
+    {
+        put_u32(payload + 4U, reply->revision);
+    }
+    else if (length == 16U)
+    {
+        payload[4] = (uint8_t)request->parameter_id;
+        payload[5] = reply->value_type;
+        payload[6] = 4U;
+        payload[7] = request->operation == YG_PROTOCOL_PARAMETER_READ ? reply->access : 0U;
+        put_u32(payload + 8U, reply->revision);
+        put_u32(payload + 12U, (uint32_t)reply->value);
+    }
+    *written = length;
+    return YG_PROTOCOL_OK;
+}
+
 yg_protocol_service_status_t
 yg_protocol_parameter_call(const yg_protocol_parameter_service_t *service,
                            const yg_protocol_parameter_request_t *request,

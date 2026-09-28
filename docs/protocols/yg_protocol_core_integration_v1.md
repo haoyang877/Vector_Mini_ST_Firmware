@@ -1,6 +1,9 @@
 # yg_protocol 核心接入与受控启动契约 v1
 
 日期：2026-09-28。H1 文档包。核对基线：`9226df154c1f6bc8eef9ecdd2be920d5a7d0c847`。
+后续H3已新增107及120/121/122通信路由/服务绑定，当前行为以
+[参数及清故障接入v1](yg_protocol_parameter_wire_v1.md)为补充；以下表格保留H1阶段边界，
+不能据此否定新增路由，也不能把新增通信入口视为已完成APP所有者接线。
 本文件保持 [wire v1](yg_protocol_motor_wire_v1.md) 与参数 schema11，
 不新增 CMD、payload、模式编号或参数 ABI。E1 的真实 guards 接线仍待独立审查，
 本文不把其计划能力写成已实现能力。H1 交付时 F/D 暂停；后续 F1 已获准最小离线接入，

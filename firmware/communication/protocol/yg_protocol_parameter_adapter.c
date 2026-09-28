@@ -47,8 +47,10 @@ void yg_protocol_parameter_adapter_handle(void *context,
     reply->status = map_read_status(status);
     if (status == PARAMETER_READ_OK)
     {
-        /* value_type 未进入内部 reply；由上层按 parameter_id 推导，另行评审接口扩展。 */
+        /* 类型来自实际读服务，仅读绑定不宣称拥有写权限。 */
         reply->value = result.value;
         reply->revision = handler->source.config_revision;
+        reply->value_type = result.value_type;
+        reply->access = YG_PROTOCOL_PARAMETER_ACCESS_READ;
     }
 }

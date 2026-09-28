@@ -7,13 +7,15 @@
 #include "comm_hw.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_status.h"
+#include "yg_protocol_parameter.h"
 #include "yg_protocol_wire_types.h"
 
 /**
  * @brief 初始化 CAN FD 链路端点和独占队列。
  * @param node_id 本机节点号，不能为广播地址。
  * @return 初始化成功返回 true；参数或静态资源不满足返回 false。
- * @note 注册信息、能力、状态查询及 101/110/116 路由，不绑定生产电机服务。必须在 CAN RX 启动前调用；
+ * @note 注册信息、能力、状态、101/107/110/116及120/121/122路由，不自动绑定业务服务。
+ *       必须在CAN RX启动前调用；
  *       link 独占路由、队列、去重历史与待发回复；初始化会撤销旧业务和快照绑定。
  *       运行中重置须先停止 RX 和后台服务；runtime 管理硬件启动，不由 link 启动外设。
  */
@@ -26,6 +28,15 @@ bool YgProtocolLink_Init(uint8_t node_id);
  * @note 仅由后台调用且不得与 Service 并发；只复制指针和上下文，未绑定时停机返回 UNSUPPORTED。
  */
 bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service);
+
+/**
+ * @brief 绑定活动参数、版本及异步保存的业务所有者。
+ * @param service 调用方持有的服务绑定，传入NULL解除绑定。
+ * @return 链路已初始化且绑定成功时返回true，否则false。
+ * @note 后台串行调用，只复制绑定值；不复制参数记录，不在通信调用栈擦写Flash。
+ *       所有者须按完整请求身份实现写/保存幂等，未绑定明确返回UNSUPPORTED。
+ */
+bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *service);
 
 /**
  * @brief 绑定只读电机状态快照源。

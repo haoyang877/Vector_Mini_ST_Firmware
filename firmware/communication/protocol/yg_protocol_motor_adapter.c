@@ -94,11 +94,7 @@ void yg_protocol_motor_adapter_handle(void *context,
         return;
     }
     /* 稳定初始化：任何早退路径都给出确定结果，绝不沿用调用方旧值。 */
-    reply->status = YG_PROTOCOL_SERVICE_FAILED;
-    reply->token = 0U;
-    reply->revision = 0U;
-    reply->value = 0;
-    reply->detail = 0U;
+    *reply = (yg_protocol_service_reply_t){.status = YG_PROTOCOL_SERVICE_FAILED};
     if (handler == NULL || request == NULL)
     {
         reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
@@ -118,8 +114,14 @@ void yg_protocol_motor_adapter_handle(void *context,
         reply->detail = (uint16_t)stop_result;
         return;
     case YG_PROTOCOL_MOTOR_ENABLE:
-        /* 低侧制动的功率行为尚未通过板级验证。 */
-        reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
+    case YG_PROTOCOL_MOTOR_CLEAR_FAULT:
+        /* 只有APP注入的生命周期映射可以请求动作；此处不操作功率或故障对象。 */
+        if (handler->lifecycle_handler == NULL)
+        {
+            reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
+            return;
+        }
+        handler->lifecycle_handler(handler->lifecycle_context, request, reply);
         return;
     case YG_PROTOCOL_MOTOR_SET_CONTROL:
         reply->status = submit_control(handler, request);

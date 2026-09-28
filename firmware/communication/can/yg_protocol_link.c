@@ -12,6 +12,7 @@
 #include "yg_protocol_readonly_payload.h"
 #include "yg_protocol_transfer.h"
 #include "yg_protocol_motor.h"
+#include "yg_protocol_parameter.h"
 
 /* 队列一次覆盖最大 1767B 逻辑消息的 39 个 46B 分片，并保留一个空槽。
  * 重组区与协议上限一致，避免声明支持长消息却在组合层静默截短。 */
@@ -36,6 +37,7 @@ typedef struct
     yg_protocol_readonly_info_page0_t info;
     yg_protocol_readonly_caps_page0_t capabilities;
     yg_protocol_motor_service_t motor_service;
+    yg_protocol_parameter_service_t parameter_service;
     yg_protocol_motor_status_source_t empty_motor_status;
     const yg_protocol_motor_status_source_t *motor_status_source;
     yg_link_control_history_t control_history[YG_LINK_CONTROL_HISTORY_SIZE];
@@ -59,9 +61,8 @@ static yg_protocol_readonly_service_t readonly_service;
 static yg_protocol_endpoint_t endpoint;
 static bool ready;
 
-static bool motor_request_valid(const yg_protocol_message_t *request);
-static void
-write_motor_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail);
+static bool request_is_valid(const yg_protocol_message_t *request);
+static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail);
 
 static yg_protocol_result_t provide_info(void *context,
                                          const yg_protocol_message_t *request,
@@ -111,9 +112,9 @@ static yg_protocol_result_t provide_capabilities(void *context,
     return YG_PROTOCOL_OK;
 }
 
-static yg_protocol_result_t handle_motor_power(void *context,
-                                               const yg_protocol_message_t *request,
-                                               yg_protocol_service_result_t *result)
+static yg_protocol_result_t handle_motor_action(void *context,
+                                                const yg_protocol_message_t *request,
+                                                yg_protocol_service_result_t *result)
 {
     yg_protocol_motor_request_t command = {.operation = YG_PROTOCOL_MOTOR_STOP};
     yg_protocol_service_reply_t reply;
@@ -122,14 +123,14 @@ static yg_protocol_result_t handle_motor_power(void *context,
     bool enabled;
 
     /* STOP 的非空请求在来源检查前拒绝，保留既有线路处理顺序。 */
-    if (link == NULL || request == NULL || result == NULL || !motor_request_valid(request) ||
-        (request->message_type == YG_PROTOCOL_MOTOR_TYPE_STOP && request->payload_length != 0U))
+    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request) ||
+        (request->message_type != YG_PROTOCOL_MOTOR_TYPE_ENABLE && request->payload_length != 0U))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
     if (request->source_node != YG_LINK_MASTER_NODE_ID)
     {
-        write_motor_result(result, 7U, 0U);
+        write_result(result, 7U, 0U);
         return YG_PROTOCOL_OK;
     }
     if (request->message_type == YG_PROTOCOL_MOTOR_TYPE_ENABLE)
@@ -137,10 +138,14 @@ static yg_protocol_result_t handle_motor_power(void *context,
         decoded = yg_protocol_motor_decode_enable(request, &enabled);
         if (decoded != YG_PROTOCOL_OK)
         {
-            write_motor_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
+            write_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
             return YG_PROTOCOL_OK;
         }
         command.operation = enabled ? YG_PROTOCOL_MOTOR_ENABLE : YG_PROTOCOL_MOTOR_DISABLE;
+    }
+    else if (request->message_type == YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT)
+    {
+        command.operation = YG_PROTOCOL_MOTOR_CLEAR_FAULT;
     }
     command.source_node = request->source_node;
     command.sequence = request->sequence;
@@ -156,8 +161,7 @@ static yg_protocol_result_t handle_motor_power(void *context,
     return YG_PROTOCOL_OK;
 }
 
-static void
-write_motor_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail)
+static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail)
 {
     response->response_payload[0] = (uint8_t)code;
     response->response_payload[1] = (uint8_t)(code >> 8U);
@@ -166,7 +170,7 @@ write_motor_result(yg_protocol_service_result_t *response, uint16_t code, uint16
     response->response_payload_length = YG_PROTOCOL_MOTOR_REPLY_SIZE;
 }
 
-static bool motor_request_valid(const yg_protocol_message_t *request)
+static bool request_is_valid(const yg_protocol_message_t *request)
 {
     return request->version == YG_PROTOCOL_VERSION && request->reserved == 0U &&
            request->source_node != YG_PROTOCOL_BROADCAST_NODE_ID &&
@@ -186,7 +190,7 @@ static yg_protocol_result_t handle_motor_control(void *context,
     yg_link_control_history_t *entry;
     yg_protocol_result_t decoded;
     uint16_t code, detail = 0U, digest = 0U;
-    if (link == NULL || request == NULL || result == NULL || !motor_request_valid(request))
+    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -230,7 +234,7 @@ static yg_protocol_result_t handle_motor_control(void *context,
     }
     link->feedback_destination = request->source_node;
     link->feedback_pending = true;
-    write_motor_result(result, code, detail);
+    write_result(result, code, detail);
     return YG_PROTOCOL_OK;
 }
 
@@ -249,15 +253,61 @@ static yg_protocol_result_t provide_motor_status(void *context,
         (void *)link->motor_status_source, request, payload, payload_length);
 }
 
+static yg_protocol_result_t handle_parameter(void *context,
+                                             const yg_protocol_message_t *request,
+                                             yg_protocol_service_result_t *result)
+{
+    yg_protocol_link_context_t *link = context;
+    yg_protocol_parameter_request_t command;
+    yg_protocol_service_reply_t reply;
+    yg_protocol_result_t decoded;
+    size_t written;
+    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (request->source_node != YG_LINK_MASTER_NODE_ID)
+    {
+        write_result(result, 7U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    decoded = yg_protocol_parameter_decode(request, &command);
+    if (decoded != YG_PROTOCOL_OK)
+    {
+        write_result(
+            result,
+            decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U,
+            decoded == YG_PROTOCOL_INVALID_LENGTH ? 0U : YG_PROTOCOL_PARAMETER_DETAIL_BAD_FIELD);
+        return YG_PROTOCOL_OK;
+    }
+    /* 幂等与持久作业由参数所有者掌握，通信不缓存一个尚未完成的“成功”。 */
+    (void)yg_protocol_parameter_call(&link->parameter_service, &command, &reply);
+    if (yg_protocol_parameter_encode_reply(&command,
+                                           &reply,
+                                           result->response_payload,
+                                           sizeof(result->response_payload),
+                                           &written) != YG_PROTOCOL_OK)
+    {
+        write_result(result, 8U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    result->response_payload_length = (uint32_t)written;
+    return YG_PROTOCOL_OK;
+}
+
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     static const yg_protocol_route_t routes[] = {
         {YG_PROTOCOL_READONLY_TYPE_GET_INFO, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_READONLY_TYPE_GET_CAPS, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, yg_protocol_readonly_handle, &readonly_service},
-        {YG_PROTOCOL_MOTOR_TYPE_ENABLE, handle_motor_power, &link_context},
-        {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_power, &link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_ENABLE, handle_motor_action, &link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT, handle_motor_action, &link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_action, &link_context},
         {YG_PROTOCOL_MOTOR_TYPE_CONTROL, handle_motor_control, &link_context},
+        {YG_PROTOCOL_PARAMETER_TYPE_READ, handle_parameter, &link_context},
+        {YG_PROTOCOL_PARAMETER_TYPE_WRITE, handle_parameter, &link_context},
+        {YG_PROTOCOL_PARAMETER_TYPE_SAVE, handle_parameter, &link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
     yg_protocol_endpoint_config_t endpoint_config;
@@ -322,6 +372,17 @@ bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
         return false;
     }
     link_context.motor_service = service != NULL ? *service : (yg_protocol_motor_service_t){0};
+    return true;
+}
+
+bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *service)
+{
+    if (!ready)
+    {
+        return false;
+    }
+    link_context.parameter_service =
+        service != NULL ? *service : (yg_protocol_parameter_service_t){0};
     return true;
 }
 

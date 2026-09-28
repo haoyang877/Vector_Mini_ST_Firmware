@@ -51,7 +51,7 @@ typedef struct
  * @note 不校验运行状态、产品范围、revision或写权限；这些由参数所有者执行。
  */
 yg_protocol_result_t yg_protocol_parameter_decode(const yg_protocol_message_t *message,
-                                                 yg_protocol_parameter_request_t *request);
+                                                  yg_protocol_parameter_request_t *request);
 
 /**
  * @brief 编码参数服务的标量回复或4字节明确错误。
@@ -63,12 +63,12 @@ yg_protocol_result_t yg_protocol_parameter_decode(const yg_protocol_message_t *m
  * @return 编码结果；无效服务元数据不得伪装为成功。
  * @note SAVE的OK只允许在持久化提交验证完成后产生，ACCEPTED不是保存完成。
  */
-yg_protocol_result_t yg_protocol_parameter_encode_reply(
-    const yg_protocol_parameter_request_t *request,
-    const yg_protocol_service_reply_t *reply,
-    uint8_t *payload,
-    size_t capacity,
-    size_t *written);
+yg_protocol_result_t
+yg_protocol_parameter_encode_reply(const yg_protocol_parameter_request_t *request,
+                                   const yg_protocol_service_reply_t *reply,
+                                   uint8_t *payload,
+                                   size_t capacity,
+                                   size_t *written);
 
 /**
  * @brief 业务所有者实现的非阻塞处理入口。

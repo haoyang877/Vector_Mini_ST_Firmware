@@ -2,6 +2,7 @@
 #include "yg_protocol_message_registry.h"
 
 #include "yg_protocol_motor.h"
+#include "yg_protocol_parameter.h"
 #include "yg_protocol_readonly.h"
 
 yg_protocol_result_t
@@ -54,8 +55,12 @@ yg_protocol_result_t yg_protocol_product_registry_init(yg_protocol_message_regis
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, false, false},
         {YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK, false, true},
         {YG_PROTOCOL_MOTOR_TYPE_ENABLE, false, false},
+        {YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT, false, false},
         {YG_PROTOCOL_MOTOR_TYPE_STOP, false, false},
         {YG_PROTOCOL_MOTOR_TYPE_CONTROL, false, false},
+        {YG_PROTOCOL_PARAMETER_TYPE_READ, false, false},
+        {YG_PROTOCOL_PARAMETER_TYPE_WRITE, false, false},
+        {YG_PROTOCOL_PARAMETER_TYPE_SAVE, false, false},
     };
     return yg_protocol_message_registry_init(
         registry, descriptors, sizeof(descriptors) / sizeof(descriptors[0]));

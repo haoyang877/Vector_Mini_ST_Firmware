@@ -1,5 +1,9 @@
 # 电调读写参数表 v0.1（评审稿）
 
+2026-09-28 H3更新：目录字段沿用，本轮新增120/121/122通信路由/服务绑定，逐字节结果、
+detail及revision收口见[线路接入v1](yg_protocol_parameter_wire_v1.md)。本文下面的“未注册”
+描述记录历史候选基线；实际参数所有者/存储和统一测试仍须完成，不能宣称全目录已实现。
+
 日期：2026-09-23。状态：**基于飞书参数清单与当前固件整理的项目候选；Param ID、读写权限、缩放与线上 payload 尚未获公司登记，固件未开放 120/121/122 路由**。本文细化[CMD 功能契约](yg_protocol_cmd_function_contract_v0_1.md)的 `120 READ_PARAM`、`121 WRITE_PARAM`、`122 SAVE_PARAM`。飞书[《电调通信协议》“生产相关”](https://wcnxj7iyqdkp.feishu.cn/wiki/M5KJwCZApilqfjk251XcktAPnxa)列出了参数名称及 `Param ID uint8`，但 ID 数值和读写权限栏尚未填写；以下具体编号、单位、权限均为本项目提案，不是飞书原文。
 
 ## 1. 统一规则

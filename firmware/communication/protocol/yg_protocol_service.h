@@ -32,4 +32,35 @@ typedef struct
     uint8_t access;
 } yg_protocol_service_reply_t;
 
+/**
+ * @brief 将内部业务结果显式映射为公司应用层的公共结果码。
+ * @param status 服务结果，不允许直接序列化C枚举值。
+ * @return 公共线路结果码；未知状态返回8（内部失败）。
+ */
+static inline uint16_t yg_protocol_service_result_code(yg_protocol_service_status_t status)
+{
+    switch (status)
+    {
+    case YG_PROTOCOL_SERVICE_OK:
+        return 0U;
+    case YG_PROTOCOL_SERVICE_ACCEPTED:
+        return 1U;
+    case YG_PROTOCOL_SERVICE_UNSUPPORTED:
+        return 2U;
+    case YG_PROTOCOL_SERVICE_INVALID_ARGUMENT:
+        return 4U;
+    case YG_PROTOCOL_SERVICE_BUSY:
+        return 6U;
+    case YG_PROTOCOL_SERVICE_DENIED:
+        return 5U;
+    case YG_PROTOCOL_SERVICE_OUT_OF_RANGE:
+        return 11U;
+    case YG_PROTOCOL_SERVICE_FAULT:
+        return 17U;
+    case YG_PROTOCOL_SERVICE_FAILED:
+    default:
+        return 8U;
+    }
+}
+
 #endif

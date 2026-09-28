@@ -90,7 +90,7 @@ yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_serv
     }
     *reply = (yg_protocol_service_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
     if (service == NULL || request == NULL ||
-        (unsigned)request->operation > (unsigned)YG_PROTOCOL_MOTOR_SET_CONTROL)
+        (unsigned)request->operation > (unsigned)YG_PROTOCOL_MOTOR_CLEAR_FAULT)
     {
         return reply->status;
     }
@@ -128,24 +128,5 @@ yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_re
 
 uint16_t yg_protocol_motor_result_code(yg_protocol_service_status_t status)
 {
-    switch (status)
-    {
-    case YG_PROTOCOL_SERVICE_OK:
-    case YG_PROTOCOL_SERVICE_ACCEPTED:
-    case YG_PROTOCOL_SERVICE_UNSUPPORTED:
-        return (uint16_t)status;
-    case YG_PROTOCOL_SERVICE_INVALID_ARGUMENT:
-        return 4U;
-    case YG_PROTOCOL_SERVICE_BUSY:
-        return 6U;
-    case YG_PROTOCOL_SERVICE_DENIED:
-        return 5U;
-    case YG_PROTOCOL_SERVICE_OUT_OF_RANGE:
-        return 11U;
-    case YG_PROTOCOL_SERVICE_FAULT:
-        return 17U;
-    case YG_PROTOCOL_SERVICE_FAILED:
-    default:
-        return 8U;
-    }
+    return yg_protocol_service_result_code(status);
 }

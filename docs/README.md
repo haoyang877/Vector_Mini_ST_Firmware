@@ -50,3 +50,5 @@ Per-command motor feedback revision: [电机逐命令反馈契约 v0.2](protocol
 Motor parameter read/write catalog: [电调读写参数表 v0.1](protocols/yg_protocol_parameter_catalog_v0_1.md).
 
 Single-board hardware verification: [yg_protocol 单板 CAN FD 实机验证 2026-09-28](reports/2026-09/yg_protocol_canfd_bench_20260928.md).
+
+Loader implementation: [独立产品、内存与失败救援 v1](architecture/loader/loader_product_v1.md).

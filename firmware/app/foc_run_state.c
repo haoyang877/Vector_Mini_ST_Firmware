@@ -520,10 +520,7 @@ static void RunState_ConfirmStart(void)
 /* 母线电压处于重新使能窗口 [25.6, 33.8] V：过/欠压故障的源恢复判据。 */
 static bool RunState_VbusInEnableWindow(void)
 {
-    if (!isfinite(FOC->Vbus_filt))
-    {
-        return false;
-    }
+    /* 两端均为有限阈值；NaN 与无穷也无法同时满足闭区间比较。 */
     return FOC->Vbus_filt >= BUS_VOLTAGE_ENABLE_MIN_V && FOC->Vbus_filt <= BUS_VOLTAGE_ENABLE_MAX_V;
 }
 

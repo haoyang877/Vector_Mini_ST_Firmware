@@ -59,8 +59,46 @@ static void reset(float v) {
 }
 static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl); }
 static void running(float v) { reset(v);MotorControl.ModeNow=Speed_Mode; }
+/* 正有限 float 的位模式有序；独立整数区间作参考，不复用待测浮点判定。 */
+static void test_enable_window(void) {
+    float lower = BUS_VOLTAGE_ENABLE_MIN_V, upper = BUS_VOLTAGE_ENABLE_MAX_V;
+    uint32_t lower_bits, upper_bits, bits, random_bits = 0x1b497625U;
+    unsigned i, exponent, sign, fraction, compared = 0;
+    const uint32_t fractions[] = {0, 1, 0x3fffffU, 0x400000U, 0x7fffffU};
+    memcpy(&lower_bits, &lower, sizeof(lower_bits));
+    memcpy(&upper_bits, &upper, sizeof(upper_bits));
+    for (i = 0; i < 2; ++i) {
+        uint32_t center = i == 0 ? lower_bits : upper_bits;
+        for (bits = center - 4096; bits <= center + 4096; ++bits) {
+            memcpy(&FOC.Vbus_filt, &bits, sizeof(bits));
+            assert(RunState_VbusInEnableWindow() == (bits >= lower_bits && bits <= upper_bits));
+            ++compared;
+        }
+    }
+    for (sign = 0; sign < 2; ++sign) {
+        for (exponent = 0; exponent < 256; ++exponent) {
+            for (fraction = 0; fraction < sizeof(fractions) / sizeof(fractions[0]); ++fraction) {
+                bits = (sign << 31) | (exponent << 23) | fractions[fraction];
+                memcpy(&FOC.Vbus_filt, &bits, sizeof(bits));
+                assert(RunState_VbusInEnableWindow() == (bits >= lower_bits && bits <= upper_bits));
+                ++compared;
+            }
+        }
+    }
+    for (i = 0; i < 1000000; ++i) {
+        random_bits ^= random_bits << 13;
+        random_bits ^= random_bits >> 17;
+        random_bits ^= random_bits << 5;
+        bits = random_bits;
+        memcpy(&FOC.Vbus_filt, &bits, sizeof(bits));
+        assert(RunState_VbusInEnableWindow() == (bits >= lower_bits && bits <= upper_bits));
+        ++compared;
+    }
+    printf("PASS %u enable-window values, all exponent/sign classes and endpoint neighbors\n", compared);
+}
 int main(void) {
     unsigned k;
+    test_enable_window();
     ModeNow_TypeDef modes[]={Current_Mode,Speed_Mode,Position_Mode,
         Calib_PhaseResistance,Vq_Mode,Calib_EncoderObserver,Calib_EleAngelOffset,
         Calib_Friction,Calib_Anticogging};
@@ -153,6 +191,11 @@ def main():
             (ROOT / "firmware/app/foc_mode_dispatch.c").read_text(encoding="utf-8"),
             "FocMode_Admit",
         )
+        + "\n"
+        + function_source(
+            (ROOT / "firmware/app/foc_run_state.c").read_text(encoding="utf-8"),
+            "RunState_VbusInEnableWindow",
+        ).replace("FOC->", "FOC.")
         + CASES
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]

@@ -37,7 +37,7 @@ def main() -> None:
             "-Wextra",
             "-Werror",
             str(ROOT / "tests/unit/yg_protocol_fragment_test.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_fragment.c"),
+            str(ROOT / "shared/protocol/yg_protocol_fragment.c"),
             "-o",
             str(executable),
         ]

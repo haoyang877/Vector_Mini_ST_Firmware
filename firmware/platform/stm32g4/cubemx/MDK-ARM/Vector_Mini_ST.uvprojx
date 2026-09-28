@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1778,6 +1778,31 @@
           </Files>
         </Group>
         <Group>
+          <GroupName>Shared Protocol</GroupName>
+          <Files>
+            <File>
+              <FileName>yg_protocol_crc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_crc.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_frame_codec.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_frame_codec.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_can_id.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_can_id.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_fragment.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_fragment.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
           <GroupName>Communication YG Protocol</GroupName>
           <Files>
             <File>
@@ -1796,29 +1821,9 @@
               <FilePath>..\..\..\..\communication\can\yg_protocol_endpoint.c</FilePath>
             </File>
             <File>
-              <FileName>yg_protocol_crc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_crc.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_frame_codec.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_frame_codec.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_can_id.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_can_id.c</FilePath>
-            </File>
-            <File>
               <FileName>yg_protocol_message_registry.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\communication\protocol\yg_protocol_message_registry.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_fragment.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_fragment.c</FilePath>
             </File>
             <File>
               <FileName>yg_protocol_router.c</FileName>
@@ -1844,6 +1849,11 @@
               <FileName>yg_protocol_readonly_payload.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly_payload.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_parameter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_parameter.c</FilePath>
             </File>
             <File>
               <FileName>yg_protocol_transfer.c</FileName>

@@ -57,6 +57,10 @@ checks = ["format", "lint", "project-layout", "python-native-tests", "architectu
 paths = ["firmware/common"]
 allows = ["common"]
 
+[architecture.layers.shared]
+paths = ["shared"]
+allows = ["shared"]
+
 [architecture.layers.platform_api]
 paths = ["firmware/platform/api"]
 allows = ["common", "platform_api"]
@@ -67,19 +71,19 @@ allows = ["common", "platform_api", "motor"]
 
 [architecture.layers.services]
 paths = ["firmware/services"]
-allows = ["common", "platform_api", "motor", "services"]
+allows = ["common", "platform_api", "motor", "services", "shared"]
 
 [architecture.layers.protocol]
 paths = ["firmware/communication/protocol"]
-allows = ["common", "motor", "services", "protocol"]
+allows = ["common", "motor", "services", "protocol", "shared"]
 
 [architecture.layers.communication]
 paths = ["firmware/communication/can"]
-allows = ["common", "platform_api", "motor", "services", "protocol", "communication"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "shared"]
 
 [architecture.layers.app]
 paths = ["firmware/app"]
-allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app"]
+allows = ["common", "platform_api", "motor", "services", "protocol", "communication", "app", "shared"]
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]

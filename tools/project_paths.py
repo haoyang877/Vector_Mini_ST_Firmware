@@ -21,6 +21,7 @@ for relative in (
         sys.path.append(directory)
 
 NATIVE_INCLUDE_DIRS = (
+    "shared/protocol",
     "firmware/app",
     "firmware/common",
     "firmware/motor",

@@ -398,3 +398,16 @@ HAL Flash（`hal_flash.o` 400 + `hal_flash_ex.o` 372）。
 未烧录、未做硬件验证；新布局对所有镜像生效，需发布方按新地址重烧 Loader/Record/APP。
 证据 `outputs/capacity-fit/deepseek/loader-build.log`、
 `outputs/build/loader/vector_mini_st_g431/`。
+
+## 等价批次：APP 侧改为寄存器级 Flash
+
+APP 内 HAL Flash 只用于 `bsp/flash.c`（参数存储）与 `ports/boot/boot_hw_stm32g4.c`（记录页）。
+两处擦/写改为寄存器级（单 bank、2 KiB 页、双字、写前后关/复位数据缓存），但**保留
+`HAL_FLASH_MODULE_ENABLED`**：关闭模块会使 `FLASH_LATENCY_4`/`FLASH_PAGE_SIZE` 及 rcc 的
+latency 宏在 vendor/CubeMX 代码中失效（实测报错）。保留使能后 HAL Flash 函数无人调用，
+由链接器回收 `hal_flash.o`/`hal_flash_ex.o`。
+
+结果：普通 APP ROM 89808→**89156 B**（−652）；Loader 配套 APP 诊断跨度 97552→**97004 B**
+（−548），0 错误/0 警告。新布局下 APP 缺口 9488→**约 8940 B**。寄存器级 Flash 属安全相关，
+本机仅离线验证，未烧录。证据 `outputs/capacity-fit/batch1/deepseek-10b-appflash-format/`、
+`outputs/runs/deepseek-appflash-20260928/summary.json`。

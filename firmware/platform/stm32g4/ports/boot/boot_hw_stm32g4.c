@@ -41,23 +41,50 @@ static void watchdog(void *context)
     (void)context;
     /* 完整镜像扫描不喂狗：坏APP不能靠反复确认延长试启动期限。 */
 }
+/* 寄存器级 Flash：G431 单 bank、2 KiB 页、双字写；不依赖 HAL Flash，省其链接开销。 */
+#define FLASH_ERR_MASK                                                                             \
+    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR)
+#define FLASH_KEY1_VALUE 0x45670123U
+#define FLASH_KEY2_VALUE 0xCDEF89ABU
+static bool flash_unlock(void)
+{
+    if ((FLASH->CR & FLASH_CR_LOCK) != 0U)
+    {
+        FLASH->KEYR = FLASH_KEY1_VALUE;
+        FLASH->KEYR = FLASH_KEY2_VALUE;
+    }
+    return (FLASH->CR & FLASH_CR_LOCK) == 0U;
+}
+static void flash_lock(void)
+{
+    FLASH->CR |= FLASH_CR_LOCK;
+}
+static bool flash_ready(void)
+{
+    while ((FLASH->SR & FLASH_SR_BSY) != 0U)
+    {
+    }
+    bool ok = (FLASH->SR & FLASH_ERR_MASK) == 0U;
+    FLASH->SR = FLASH_SR_EOP | FLASH_ERR_MASK | FLASH_SR_OPTVERR;
+    return ok;
+}
 static bool erase_record(void *context, uint32_t address, uint32_t bytes)
 {
-    FLASH_EraseInitTypeDef erase = {0};
-    uint32_t error, acr;
+    uint32_t acr;
     bool ok;
     if (!allowed(context) || address != TARGET_RECORD_BASE || bytes != TARGET_ERASE_BYTES ||
-        HAL_FLASH_Unlock() != HAL_OK)
+        !flash_unlock())
     {
         return false;
     }
-    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
-    erase.Banks = FLASH_BANK_1;
-    erase.TypeErase = FLASH_TYPEERASE_PAGES;
-    erase.Page = (address - TARGET_FLASH_BASE) / TARGET_ERASE_BYTES;
-    erase.NbPages = 1;
-    ok = HAL_FLASHEx_Erase(&erase, &error) == HAL_OK;
-    (void)HAL_FLASH_Lock();
+    FLASH->SR = FLASH_SR_OPTVERR;
+    (void)flash_ready();
+    FLASH->CR = (FLASH->CR & ~FLASH_CR_PNB_Msk) | FLASH_CR_PER |
+                (((address - TARGET_FLASH_BASE) / TARGET_ERASE_BYTES) << FLASH_CR_PNB_Pos);
+    FLASH->CR |= FLASH_CR_STRT;
+    ok = flash_ready();
+    FLASH->CR &= ~FLASH_CR_PER;
+    flash_lock();
     acr = FLASH->ACR;
     FLASH->ACR = acr & ~FLASH_ACR_DCEN;
     __DSB();
@@ -76,13 +103,17 @@ static bool program_record(void *context, uint32_t address, const void *data, ui
     bool ok;
     if (!data || bytes != 8 || address % 8 || address < TARGET_RECORD_BASE ||
         address - TARGET_RECORD_BASE > TARGET_ERASE_BYTES - 8 || !allowed(context) ||
-        HAL_FLASH_Unlock() != HAL_OK)
+        !flash_unlock())
     {
         return false;
     }
     memcpy(&value, data, 8);
-    ok = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, address, value) == HAL_OK;
-    (void)HAL_FLASH_Lock();
+    FLASH->CR |= FLASH_CR_PG;
+    *(volatile uint32_t *)address = (uint32_t)value;
+    *(volatile uint32_t *)(address + 4U) = (uint32_t)(value >> 32U);
+    ok = flash_ready();
+    FLASH->CR &= ~FLASH_CR_PG;
+    flash_lock();
     return ok && read_image(context, address, &check, 8) && check == value;
 }
 static void configure(void)

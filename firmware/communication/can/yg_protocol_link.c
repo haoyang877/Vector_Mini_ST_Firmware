@@ -43,6 +43,7 @@ typedef struct
     yg_link_control_history_t control_history[YG_LINK_CONTROL_HISTORY_SIZE];
     uint16_t last_control_sequence;
     uint16_t feedback_sequence;
+    bool device_description_available;
     bool control_sequence_seen;
     bool feedback_pending;
     uint8_t feedback_destination;
@@ -79,6 +80,10 @@ static yg_protocol_result_t provide_info(void *context,
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
+    if (!link->device_description_available)
+    {
+        return YG_PROTOCOL_DATA_UNAVAILABLE;
+    }
     if (yg_protocol_readonly_encode_info_page0(
             &link->info, payload, YG_PROTOCOL_MAX_PAYLOAD_SIZE, &written) != YG_PROTOCOL_OK)
     {
@@ -102,6 +107,10 @@ static yg_protocol_result_t provide_capabilities(void *context,
         page_request.page != 0U)
     {
         return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (!link->device_description_available)
+    {
+        return YG_PROTOCOL_DATA_UNAVAILABLE;
     }
     if (yg_protocol_readonly_encode_caps_page0(
             &link->capabilities, payload, YG_PROTOCOL_MAX_PAYLOAD_SIZE, &written) != YG_PROTOCOL_OK)
@@ -325,14 +334,6 @@ bool YgProtocolLink_Init(uint8_t node_id)
     memset(&link_context, 0, sizeof(link_context));
     link_context.node_id = node_id;
     link_context.motor_status_source = &link_context.empty_motor_status;
-    link_context.info.product_id = 0x5947U;
-    link_context.info.hardware_revision = 1U;
-    link_context.info.boot_api = 1U;
-    link_context.info.application_version = 1U;
-    link_context.capabilities.features = 0x00000001U;
-    link_context.capabilities.max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE;
-    link_context.capabilities.max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE;
-    link_context.capabilities.write_alignment = 1U;
 
     configuration.context = &link_context;
     configuration.protocol_info_type = YG_PROTOCOL_READONLY_TYPE_GET_INFO;
@@ -362,6 +363,20 @@ bool YgProtocolLink_Init(uint8_t node_id)
         return false;
     }
     ready = true;
+    return true;
+}
+
+bool YgProtocolLink_SetDeviceDescription(const yg_protocol_readonly_info_page0_t *info,
+                                         const yg_protocol_readonly_caps_page0_t *capabilities)
+{
+    if (!ready || (info == NULL) != (capabilities == NULL))
+    {
+        return false;
+    }
+    link_context.info = info != NULL ? *info : (yg_protocol_readonly_info_page0_t){0};
+    link_context.capabilities =
+        capabilities != NULL ? *capabilities : (yg_protocol_readonly_caps_page0_t){0};
+    link_context.device_description_available = info != NULL;
     return true;
 }
 

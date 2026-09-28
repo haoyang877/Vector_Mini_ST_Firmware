@@ -38,3 +38,12 @@ ROOT裁决冻结空请求、4B result/detail回复，不引入掩码或新增控
   [迁移清单 v1](../../protocols/yg_protocol_shared_codec_migration_v1.md) 列出全部路径变化和边界。
 
 以上均为代码进度，不代表生产接线、构建、测试或硬件验证通过。
+
+## 真实设备描述接线
+
+通信不再在初始化时填充占位产品号、硬件/软件版本和能力位。组合层通过
+`YgProtocolLink_SetDeviceDescription(info, capabilities)` 复制真实身份与已实现能力；
+两个参数同时为NULL撤销绑定，一空一非空拒绝且保持原值。初始化后与撤销后
+1/2查询明确DATA_UNAVAILABLE。1/2既有请求和回复字节布局不变。
+信息由平台UID/产品版本与业务所有者提供，通信不新增硬件访问或参数副本。
+需要ROOT/E在产品初始化并完成真实服务绑定后接入；旧测试占位期望留统一测试阶段更新。

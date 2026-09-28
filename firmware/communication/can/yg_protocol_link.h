@@ -8,6 +8,7 @@
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_status.h"
 #include "yg_protocol_parameter.h"
+#include "yg_protocol_readonly_payload.h"
 #include "yg_protocol_wire_types.h"
 
 /**
@@ -20,6 +21,18 @@
  *       运行中重置须先停止 RX 和后台服务；runtime 管理硬件启动，不由 link 启动外设。
  */
 bool YgProtocolLink_Init(uint8_t node_id);
+
+/**
+ * @brief 设置由产品组合层确认的真实设备身份和已实现能力。
+ * @param info 身份和版本值；与capabilities同时为NULL时撤销描述。
+ * @param capabilities 真实可用能力值，不以候选Type或编码器存在推断功能。
+ * @return 已初始化且两个输入同时有效或同时为NULL时返回true，否则false。
+ * @note 后台串行调用，不与Service并发；复制现有值缓冲，不保留输入指针。
+ *       初始化或撤销后1/2查询返回DATA_UNAVAILABLE，不提供占位版本或虚构能力。
+ *       不访问UID寄存器，不探测硬件；组合层从平台端口和业务所有者收集数据。
+ */
+bool YgProtocolLink_SetDeviceDescription(const yg_protocol_readonly_info_page0_t *info,
+                                         const yg_protocol_readonly_caps_page0_t *capabilities);
 
 /**
  * @brief 绑定电机业务服务。

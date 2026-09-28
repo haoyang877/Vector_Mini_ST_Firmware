@@ -31,6 +31,7 @@ static SensorlessStartup_TypeDef startup;
 static bool output_off, stop_fails, temperature_fresh, encoder_released;
 static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
 static bool outer_ready;
+static bool check_borrowed_requests;
 static uint32_t critical_depth, seq, requested_duration_ms;
 
 /* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
@@ -196,6 +197,16 @@ void FocCogging_Service(MotorControl_TypeDef *m, Encoder_TypeDef *e)
 {
     (void)m;
     (void)e;
+    if (check_borrowed_requests)
+    {
+        uint32_t ticket = UINT32_MAX;
+        assert(FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_BUSY);
+        assert(FocRunState_RequestClear() == MOTOR_CONTROL_BUSY);
+        assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
+               MOTOR_CONTROL_BUSY);
+        assert(ticket == 0U);
+        check_borrowed_requests = false;
+    }
 }
 
 static void tick(void)
@@ -415,8 +426,128 @@ static void test_borrow_cancel(void)
          "release");
 }
 
+/* 公共入口验证拒绝优先级；不注入运行所有者的私有状态。 */
+static void expect_busy_requests(void)
+{
+    uint32_t ticket = UINT32_MAX;
+    ModeNow_TypeDef mode = motor.ModeNow;
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_BUSY);
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_BUSY);
+    assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) == MOTOR_CONTROL_BUSY);
+    assert(ticket == 0U && motor.ModeNow == mode);
+    assert(!FocRunState_ConfigurationAllowed());
+
+    /* Enable/Maintenance 先报故障；Clear 仍先等待占用释放。 */
+    motor.ErrorNow = Encoder_Error;
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_FAULT);
+    assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) == MOTOR_CONTROL_FAULT);
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_BUSY);
+    assert(FocRunState_RequestEnable((MotorControlMode)UINT32_MAX) == MOTOR_CONTROL_INVALID);
+    assert(FocRunState_RequestMaintenance((MotorMaintenanceKind)UINT32_MAX, &ticket) ==
+           MOTOR_CONTROL_INVALID);
+    assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, NULL) == MOTOR_CONTROL_INVALID);
+    assert(ticket == 0U && motor.ModeNow == mode);
+}
+
+static void test_request_admission(void)
+{
+    static const ModeNow_TypeDef modes[] = {Current_Mode, Speed_Mode, Position_Mode, Vq_Mode};
+    for (unsigned i = 0U; i < sizeof(modes) / sizeof(modes[0]); ++i)
+    {
+        reset();
+        assert(FocRunState_RequestEnable((MotorControlMode)i) == MOTOR_CONTROL_ACCEPTED);
+        assert(motor.ModeNow == modes[i] && output_off);
+        tick();
+        tick();
+        assert(FocRunState_GetState() == APP_RUNNING && !output_off);
+        MotorControlCommand goal = {.mode = (MotorControlMode)i};
+        assert(FocRunState_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
+        expect_busy_requests();
+    }
+    reset();
+    assert(FocRunState_RequestEnable((MotorControlMode)4) == MOTOR_CONTROL_INVALID);
+    assert(FocRunState_RequestEnable((MotorControlMode)UINT32_MAX) == MOTOR_CONTROL_INVALID);
+    assert(motor.ModeNow == Motor_Disable && output_off);
+
+    reset();
+    assert(FocRunState_RequestBootStop(UINT64_C(0x100000001)) == MOTOR_CONTROL_ACCEPTED);
+    expect_busy_requests();
+
+    reset();
+    FocRunState_PostOutcome(
+        (MotorWorkOutcome_TypeDef){MOTOR_WORK_STOP, Motor_Disable, No_Error, false},
+        FocRunState_WorkEpoch());
+    expect_busy_requests();
+
+    reset();
+    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
+    expect_busy_requests();
+
+    reset();
+    uint32_t ticket;
+    assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(ticket != 0U);
+    expect_busy_requests();
+
+    reset();
+    FocBackgroundClaim claim;
+    assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(FocRunState_BeginBackground(&claim));
+    expect_busy_requests();
+
+    reset();
+    check_borrowed_requests = true;
+    FocRunState_ServiceCompensation();
+    assert(!check_borrowed_requests && FocRunState_ConfigurationAllowed());
+
+    reset();
+    encoder_released = false;
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_DENIED);
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_BUSY);
+    assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) == MOTOR_CONTROL_BUSY);
+    assert(ticket == 0U && output_off);
+    puts("PASS four control mappings, seven busy sources, fault/invalid priority and release "
+         "guards");
+}
+
+static void test_maintenance_identity(void)
+{
+    reset();
+    MotorMaintenanceRequest request = {MOTOR_MAINTENANCE_ELECTRICAL_ZERO, 2U, 1U, 0U};
+    uint32_t origin, retry, save;
+    assert(FocRunState_RequestIdentifiedMaintenance(&request, &origin) == MOTOR_CONTROL_ACCEPTED);
+    assert(FocRunState_RequestIdentifiedMaintenance(&request, &retry) == MOTOR_CONTROL_ACCEPTED);
+    assert(origin != 0U && retry == origin);
+    request.kind = MOTOR_MAINTENANCE_ENCODER_LUT;
+    assert(FocRunState_RequestIdentifiedMaintenance(&request, &retry) ==
+           MOTOR_CONTROL_CONFLICTING_RETRY);
+    assert(retry == 0U);
+    FocRunState_PostOutcome(
+        (MotorWorkOutcome_TypeDef){MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, true}, origin);
+    tick();
+    tick();
+    save = FocRunState_WorkEpoch();
+    assert(save != origin && FocRunState_IsMaintenanceActive(Save_Param));
+    FocBackgroundClaim claim;
+    assert(FocRunState_BeginBackground(&claim));
+    FocRunState_FinishBackground(&claim, true);
+    tick();
+    MotorMaintenanceProgress progress;
+    assert(FocRunState_ReadMaintenance(origin, &progress));
+    assert(progress.kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO &&
+           progress.result == APP_OPERATION_COMPLETED &&
+           progress.effects == APP_EFFECT_UNCOMMITTED);
+    assert(FocRunState_ReadMaintenance(save, &progress));
+    assert(progress.kind == MOTOR_MAINTENANCE_SAVE && progress.effects == APP_EFFECT_COMMITTED);
+    puts("PASS identified retry and original calibration terminal survive derived SAVE completion");
+}
+
 int main(void)
 {
+    test_request_admission();
+    test_maintenance_identity();
     test_control();
     test_calibration_save();
     test_borrow_cancel();

@@ -459,8 +459,6 @@ static bool RunState_Send(uint32_t events,
                           bool apply_power_actions)
 {
     AppLifecycleEvent event;
-    AppLifecycleGuards guards;
-    AppLifecycleResult result;
     uint32_t state = critical_hw_enter();
 
     memset(&event, 0, sizeof(event));
@@ -469,8 +467,8 @@ static bool RunState_Send(uint32_t events,
     event.control_mode = control_mode;
     event.completion_epoch = lifecycle.snapshot.epoch;
     event.request_epoch = lifecycle.snapshot.epoch;
-    guards = RunState_BuildGuards();
-    result = AppLifecycle_Step(&lifecycle, &event, &guards);
+    AppLifecycleGuards guards = RunState_BuildGuards();
+    AppLifecycleResult result = AppLifecycle_Step(&lifecycle, &event, &guards);
     project_lifecycle_fault();
     if (defer_start_action)
     {
@@ -534,9 +532,7 @@ static bool RunState_TryClearFault(void)
 {
     uint32_t state = critical_hw_enter();
     ErrorNow_TypeDef error = MotorControl->ErrorNow;
-    AppLifecycleGuards guards;
     AppLifecycleEvent event;
-    AppLifecycleResult result;
 
     if (lifecycle.snapshot.state != APP_FAULT ||
         (error != No_Error &&
@@ -552,14 +548,14 @@ static bool RunState_TryClearFault(void)
         critical_hw_exit(state);
         return false;
     }
-    guards = RunState_BuildGuards();
+    AppLifecycleGuards guards = RunState_BuildGuards();
     /* 仅覆盖本次已经按恢复矩阵或操作员确认策略获准的锁存源，不先改 ErrorNow。 */
     guards.active_faults = 0U;
     guards.fault_sources_clear = true;
     memset(&event, 0, sizeof(event));
     event.events = APP_EVENT_CLEAR;
     event.request_epoch = lifecycle.snapshot.epoch;
-    result = AppLifecycle_Step(&lifecycle, &event, &guards);
+    AppLifecycleResult result = AppLifecycle_Step(&lifecycle, &event, &guards);
     project_lifecycle_fault();
     if (result.rejection == APP_ACCEPTED && result.snapshot.state == APP_SELF_TEST)
     {
@@ -600,8 +596,6 @@ static bool RunState_SendOperation(uint32_t events,
                                    uint32_t faults)
 {
     AppLifecycleEvent event;
-    AppLifecycleGuards guards;
-    AppLifecycleResult result;
     uint32_t state = critical_hw_enter();
 
     memset(&event, 0, sizeof(event));
@@ -612,8 +606,8 @@ static bool RunState_SendOperation(uint32_t events,
     event.control_mode = APP_CONTROL_NONE;
     event.completion_epoch = events == APP_EVENT_CANCEL_DONE ? cancel_epoch : operation_epoch;
     event.request_epoch = lifecycle.snapshot.epoch;
-    guards = RunState_BuildGuards();
-    result = AppLifecycle_Step(&lifecycle, &event, &guards);
+    AppLifecycleGuards guards = RunState_BuildGuards();
+    AppLifecycleResult result = AppLifecycle_Step(&lifecycle, &event, &guards);
     if (result.rejection == APP_ACCEPTED &&
         (events == APP_EVENT_OPERATION_DONE || events == APP_EVENT_OPERATION_FAILED ||
          events == APP_EVENT_CANCEL_DONE))
@@ -823,6 +817,14 @@ bool FocRunState_ConfigurationAllowed(void)
     return !boot_confirmation_pending && configuration_idle();
 }
 
+/* 调用方已持有临界区；只读共同占用标志，故障优先级和资源释放由各入口判断。 */
+static bool request_busy(void)
+{
+    return boot_stop_ticket != 0U || background_busy || configuration_reading || outcome_latched ||
+           control_pending || bench_speed.active ||
+           lifecycle.snapshot.operation != APP_OPERATION_NONE;
+}
+
 MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
 {
     if (boot_maintenance_only)
@@ -853,9 +855,7 @@ MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (boot_stop_ticket != 0U || background_busy || configuration_reading ||
-             outcome_latched || control_pending || bench_speed.active ||
-             lifecycle.snapshot.operation != APP_OPERATION_NONE)
+    else if (request_busy())
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -880,10 +880,7 @@ MotorControlResult FocRunState_RequestClear(void)
 {
     uint32_t mask = critical_hw_enter();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (boot_stop_ticket != 0U || background_busy || configuration_reading || outcome_latched ||
-        control_pending || bench_speed.active ||
-        lifecycle.snapshot.operation != APP_OPERATION_NONE ||
-        !RunState_BuildGuards().maintenance_released)
+    if (request_busy() || !RunState_BuildGuards().maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -918,10 +915,7 @@ MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uin
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (boot_stop_ticket != 0U || background_busy || configuration_reading ||
-             outcome_latched || control_pending || bench_speed.active ||
-             lifecycle.snapshot.operation != APP_OPERATION_NONE ||
-             !RunState_BuildGuards().maintenance_released)
+    else if (request_busy() || !RunState_BuildGuards().maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }

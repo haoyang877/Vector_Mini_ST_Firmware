@@ -46,20 +46,21 @@ typedef struct
     float posAcc;
     float posDec;
     float pos_maxspeed;
-    float pos_kp;
-    float pos_kd;
+    /* 退役位置增益保留槽：不参与配置，保持当前存储偏移。 */
+    uint32_t reserved_pos_kp;
+    uint32_t reserved_pos_kd;
     float calib_current;
     float current_limit;
     float speed_limit;
     float can_hb;
     uint32_t schema_version;
     uint32_t magic_word;
-    /* Appended in schema v5 so the v4 schema/magic offsets remain readable. */
-    float pos_ki;
+    /* 退役位置积分字段保留槽：读取忽略，导出清零。 */
+    uint32_t reserved_pos_ki;
     /* Appended in schema v6; identifies the current-sense scaling in Flash. */
     uint32_t current_sense_shunt_milliohm;
-    /* Appended in schema v7; position-integrator output limit in amperes. */
-    float pos_integral_limit;
+    /* 退役积分限值保留槽：读取忽略，导出清零。 */
+    uint32_t reserved_pos_integral_limit;
     /* Appended in schema v8; legacy cascade outer-loop gains. */
     float cascade_pos_kp;
     float cascade_pos_kd;

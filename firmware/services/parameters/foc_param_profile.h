@@ -93,18 +93,11 @@ static inline float Param_SpeedLimitRadS(unsigned int node_id)
 #define PARAM_APP_SPEED_KP 0.05f
 #define PARAM_APP_SPEED_KI 0.5f
 
-/* Low-speed (8 s/rev) position-impedance defaults. */
+/* 低速位置轨迹默认值。 */
 #define PARAM_APP_POSITION_ACCEL_RPS2 0.125f
 #define PARAM_APP_POSITION_DECEL_RPS2 0.125f
 #define PARAM_APP_POSITION_MAX_SPEED_RPS 0.125f
-/* Iq = Kp * position_error + Kd * velocity_error + integral_current. */
-#define PARAM_APP_POSITION_KP 8.0f  /* A/rad */
-#define PARAM_APP_POSITION_KD 0.50f /* A/(rad/s) */
-#define PARAM_APP_POSITION_KI 10.0f /* A/(rad*s) */
-
-#define PARAM_APP_POSITION_INTEGRAL_LIMIT_A 5.0f
-
-/* Legacy position -> speed -> current cascade outer-loop gains. */
+/* 当前位置、速度、电流级联的外环增益。 */
 #define PARAM_APP_CASCADE_POSITION_KP 0.05f
 #define PARAM_APP_CASCADE_POSITION_KD 0.50f
 

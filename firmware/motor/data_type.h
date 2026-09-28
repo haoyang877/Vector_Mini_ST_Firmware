@@ -107,10 +107,6 @@ typedef struct
     float pos_maxspeed;
     float posRef;
     float posShadow;
-    float pos_Kp;
-    float pos_Kd;
-    float pos_Ki;
-    float pos_integral_limit;
     float cascade_pos_Kp;
     float cascade_pos_Kd;
 
@@ -121,7 +117,7 @@ typedef struct
     float friction_viscous_neg_a_per_rad_s;
     bool friction_model_valid;
 
-    /* Position-impedance telemetry; controller state is private to its module. */
+    /* 位置级联遥测；控制器状态由所属模块私有持有。 */
     float pos_vel_filtered;
 
     /*voltage open-loop mode*/

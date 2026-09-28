@@ -1,9 +1,6 @@
 #include "foc_param.h"
 
-/* 当前 schema11 位置字段的装载边界；保留数值和单位，不改变记录布局。 */
-#define PARAM_POSITION_KP_MAX_A_PER_RAD 50.0f
-#define PARAM_POSITION_KD_MAX_A_PER_RAD_S 10.0f
-#define PARAM_POSITION_KI_MAX_A_PER_RAD_S 10.0f
+/* 当前级联位置速度上限；存储布局中的退役字段不再装载。 */
 #define PARAM_POSITION_MAX_SPEED_RPS 0.50f
 
 #include <math.h>
@@ -94,10 +91,6 @@ void Param_Return_Default(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *O
     MotorControl->posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
     MotorControl->posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
     MotorControl->pos_maxspeed = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
-    MotorControl->pos_Kp = PARAM_APP_POSITION_KP;
-    MotorControl->pos_Kd = PARAM_APP_POSITION_KD;
-    MotorControl->pos_Ki = PARAM_APP_POSITION_KI;
-    MotorControl->pos_integral_limit = PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
     MotorControl->cascade_pos_Kp = PARAM_APP_CASCADE_POSITION_KP;
     MotorControl->cascade_pos_Kd = PARAM_APP_CASCADE_POSITION_KD;
     MotorControl->friction_coulomb_pos_a = 0.0f;
@@ -147,11 +140,7 @@ void Param_Upload(InterfaceParam_TypeDef *param,
     param->posAcc = MotorControl->posAcc;
     param->posDec = MotorControl->posDec;
     param->pos_maxspeed = MotorControl->pos_maxspeed;
-    param->pos_kp = MotorControl->pos_Kp;
-    param->pos_kd = MotorControl->pos_Kd;
-    param->pos_ki = MotorControl->pos_Ki;
     param->current_sense_shunt_milliohm = CURRENT_SENSE_SHUNT_MILLIOHM;
-    param->pos_integral_limit = MotorControl->pos_integral_limit;
     param->cascade_pos_kp = MotorControl->cascade_pos_Kp;
     param->cascade_pos_kd = MotorControl->cascade_pos_Kd;
     param->friction_coulomb_pos_a = MotorControl->friction_coulomb_pos_a;
@@ -250,19 +239,6 @@ void Param_Download(const InterfaceParam_TypeDef *param,
         isfinite(param->pos_maxspeed) && param->pos_maxspeed > 0.0f
             ? constrain(param->pos_maxspeed, 0.0f, position_speed_limit)
             : fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
-    MotorControl->pos_Kp = isfinite(param->pos_kp) && param->pos_kp >= 0.0f
-                               ? constrain(param->pos_kp, 0.0f, PARAM_POSITION_KP_MAX_A_PER_RAD)
-                               : PARAM_APP_POSITION_KP;
-    MotorControl->pos_Kd = isfinite(param->pos_kd) && param->pos_kd >= 0.0f
-                               ? constrain(param->pos_kd, 0.0f, PARAM_POSITION_KD_MAX_A_PER_RAD_S)
-                               : PARAM_APP_POSITION_KD;
-    MotorControl->pos_Ki = isfinite(param->pos_ki) && param->pos_ki >= 0.0f
-                               ? constrain(param->pos_ki, 0.0f, PARAM_POSITION_KI_MAX_A_PER_RAD_S)
-                               : PARAM_APP_POSITION_KI;
-    MotorControl->pos_integral_limit =
-        isfinite(param->pos_integral_limit) && param->pos_integral_limit >= 0.0f
-            ? constrain(param->pos_integral_limit, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
-            : PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
     MotorControl->cascade_pos_Kp =
         isfinite(param->cascade_pos_kp) && param->cascade_pos_kp >= 0.0f
             ? constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)

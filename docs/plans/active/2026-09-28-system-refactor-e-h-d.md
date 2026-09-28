@@ -57,14 +57,17 @@ Loader 复用既有 `ef5abfc179019bd70661ba0b194aff20ec9eb342` 实现及后续�
 
 ## 当前需收口的限制
 
-D主体`17dc8528`已选择性集成：独立Loader工程、50～55运行路由、固定写域、
-SHA/读回/试启动、APP窄BootHw端口及shared/image单份实现。ROOT在APP主工程加入
-BootHw、mailbox、image_transfer、nv_record、nv_sha256源与共享包含路径；平台层仅新增
-指向纯shared的单向依赖，不允许shared反向访问平台。未启动编译、测试或格式检查。
+D主体`17dc8528`与兼容标识说明`fc6a3444`已选择性集成：独立Loader工程、50～55运行路由、
+固定写域、SHA/读回/试启动、APP窄BootHw端口及shared/image单份实现。H截止`12b06de8`，
+E最终源码`d505acdc`、`9581374f`已分别集成为`82e94822`、`a30e9ce4`。
+平台层仅新增指向纯shared的单向依赖，不允许shared反向访问平台。
 
-当前normal仍保持独立APP链接位置和用户调试设置；该目标BootHw返回无Loader交接。
-Loader布局APP需要使用D的app.sct和显式版本/角色描述符，待E完整源码接入后统一登记独立
-工程输入，不能把normal误报成可在线升级镜像。历史容量缺口继续阻止发布适配声明。
+normal保持独立APP位置和用户调试设置，只链接`boot_hw_unavailable.c`，不链接镜像库。
+ROOT另登记`Vector_Mini_ST_LoaderApp.uvprojx`，复用普通APP源码清单，链接真实BootHw、
+boot_handoff、共享镜像/邮箱及描述符，使用D的app.sct、显式开发版本0/正常角色1。
+生成器仅写工程输入，不执行构建。三包源码与工程接线已收口，历史容量缺口仍阻止发布适配声明。
+未启动编译、测试或格式检查；准确入口、状态图、Watch及未完成项见
+[集成交付导航](../../guides/system_refactor_candidate_20260928.md)。
 
 ### ROOT：升级回复的物理发送边界
 

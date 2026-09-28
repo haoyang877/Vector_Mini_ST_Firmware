@@ -25,6 +25,8 @@ this map or to the closest indexed sub-area.
 
 Watch command entry: [Watch 电机请求入口](guides/watch_motor_commands.md).
 
+E/H/D integrated candidate: [整体重构工程、状态图与未测清单（2026-09-28）](guides/system_refactor_candidate_20260928.md).
+
 Protection design: [故障保护模块、接口与参数设计 v1.0](architecture/fault_protection_design_v1.md)
 and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
@@ -46,7 +47,7 @@ def main() -> None:
     set_value(common + "ListingPath", output)
     set_value(
         common + "Cpu",
-        f'IRAM(0x{ram:X}-0x{end - 1:X}) IROM(0x{app:X}-0x{app + size - 1:X}) '
+        f"IRAM(0x{ram:X}-0x{end - 1:X}) IROM(0x{app:X}-0x{app + size - 1:X}) "
         'CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4")',
     )
     # 新工程不继承普通APP的自动执行钩子或下载设置；普通工程自身保持不变。
@@ -89,6 +90,14 @@ def main() -> None:
     group = ET.SubElement(groups, "Group")
     ET.SubElement(group, "GroupName").text = "APP Boot Handoff"
     files = ET.SubElement(group, "Files")
+    # 沿用已验证的参数冷路径 O2/空间选项；显式副本不改变原工程或共享源的 Loader 构建。
+    space_options = next(
+        file.find("FileOption")
+        for file in groups.findall("Group/Files/File")
+        if file.findtext("FileName") == "foc_param.c"
+    )
+    if space_options is None:
+        raise ValueError("参数模块缺少已验证的空间优化配置")
     for source in (
         "firmware/services/boot_handoff/boot_handoff.c",
         "shared/boot/image_mailbox.c",
@@ -101,6 +110,13 @@ def main() -> None:
         ET.SubElement(file, "FileName").text = Path(source).name
         ET.SubElement(file, "FileType").text = "1"
         ET.SubElement(file, "FilePath").text = relative(source)
+        if Path(source).name in {
+            "boot_handoff.c",
+            "image_transfer.c",
+            "nv_record.c",
+            "nv_sha256.c",
+        }:
+            file.append(copy.deepcopy(space_options))
     for info in tree.getroot().findall("RTE/packages/package/targetInfos/targetInfo"):
         info.set("name", name)
     layer = tree.getroot().find("LayerInfo/Layers/Layer/LayName")

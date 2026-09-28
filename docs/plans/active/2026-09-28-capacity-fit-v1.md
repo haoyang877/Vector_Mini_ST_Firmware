@@ -288,3 +288,32 @@ format/lint/interfaces/docs 日志与上一批逐字一致，1 项 Python 单元
 候选隔离尺寸与映射差）和构建目录 `outputs/capacity-fit/batch1/deepseek-01-baseline/`、
 `deepseek-02-final/`；完整 PR 清单为
 `outputs/runs/deepseek-runstate-lifecycle-20260928/summary.json`。没有硬件操作。
+
+## 逐函数批次：参数读写/保存请求身份冲突合同
+
+交接顺序 C：`motor_state.c` 与 `parameter_value_service.c` 的请求来源、序号冲突与重试。
+本批只处理 `motor_state.c`，基准为上一批提交 `c8aca9f1`（Loader APP 诊断跨度 101608 B）。
+
+`MotorControl_ReadParameter`、`MotorControl_WriteParameter`、`MotorControl_RequestSave`
+各自用来源+序号判据识别"命中已缓存票据"的身份冲突，但三处重复展开同一合同、且各自
+包含的缓存集合不同。提取文件内 `matches_cached_request(source_node, sequence)`，返回是否
+命中 `last_read`/`last_write`/`save_job` 任一缓存；三个入口在各自的主缓存重放分支之后
+调用它。由于调用点均处于"主缓存已判定未命中"的 `else` 分支，判据集合加入主缓存在逻辑
+上无变化；返回优先级、原结果重放、配置修订号与持久化修订号、`stale_sequence` 顺序均保持。
+`parameter_value_service.c` 本批未改。
+
+`MotorControl_ReadParameter` 段 276→240 B、`WriteParameter` 388→332 B、`RequestSave`
+276→228 B，新增辅助 72 B，函数段合计减少 68 B；整包普通与 Loader APP 各净减 **64 B**。
+
+新增原生特征测试 `tests/unit/native/motor_state_request_test.c`（runner
+`test_motor_state_request.py`，从生产源码切片真实函数体）：读身份重放与换参数冲突、
+写身份重放与不同值冲突且不重复应用、保存受理后读/写冲突、同身份保存重放原结果与票据、
+不同身份保存 BUSY 且无票据。该测试先在旧实现通过，再对最终实现通过。
+
+验收：新测试、`test_run_state.py` 14 项、23 项原生、17 项集成与架构/布局/卫生通过。
+当次重建后普通 APP ROM **93808 B** / RAM 31896 B；Loader APP 诊断 ROM **101504 B**、
+跨度 **101544 B** / RAM 32128 B 不变，真实 78 KiB 分区仍缺 **21672 B**。完整 PR 仍 FAIL，
+format/lint/interfaces/docs 日志与上一批逐字一致，1 项 Python 单元仍为历史产物断链。
+证据：`outputs/capacity-fit/deepseek/summary-motor-state.json`、构建目录
+`deepseek-02-final/`、`deepseek-03-final/`；PR 清单
+`outputs/runs/deepseek-motor-state-20260928/summary.json`。没有硬件操作。

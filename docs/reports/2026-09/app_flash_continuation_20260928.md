@@ -266,3 +266,56 @@ interfaces、docs 失败日志与上一批逐字一致，39 项 Python 单元中
 构建目录 `outputs/capacity-fit/batch1/deepseek-01-baseline/`、`deepseek-02-final/`；
 完整 PR 清单为 `outputs/runs/deepseek-runstate-lifecycle-20260928/summary.json`。
 按模块提交逆向回退，保留原有 `angle_feedback.c` 尾空格与 Keil GUI 用户修改。
+
+## 逐函数 004：参数读写/保存请求身份冲突合同
+
+交接顺序 C。基准上一批提交 `c8aca9f1`（Loader APP 诊断跨度 101608 B）。`motor_state.c`
+按目标默认 `-O1` 编译（工程 `Optim=2`）；先以记录的实际编译参数做单文件隔离替换链接
+校准到当前基准，再逐一测量。
+
+### 问题与改动
+
+`MotorControl_ReadParameter`、`MotorControl_WriteParameter`、`MotorControl_RequestSave`
+都用"来源节点+序号"识别同一请求身份，但三处各自展开相同的判据，且覆盖的缓存集合不同：
+读入口排除 `last_write`/`save_job`，写入口排除 `save_job`/`last_read`，保存入口排除
+`last_write`/`last_read`。新增文件内：
+
+```c
+static bool matches_cached_request(uint8_t source_node, uint16_t sequence);
+```
+
+返回是否命中 `last_read`/`last_write`/`save_job` 任一已缓存票据。三个入口保留各自的主缓存
+结果重放分支（读→last_read、写→last_write、保存→save_job），其后统一调用该判据返回
+`PARAMETER_CONFLICTING_RETRY`。因为调用点都在"主缓存已判定未命中"的 `else` 分支内，
+判据集合包含主缓存不改变结果；各入口的返回优先级、原结果重放、配置修订号/持久化修订号
+以及 `stale_sequence` 的位置都保持。`parameter_value_service.c` 本批未改。
+
+### 段落与整包
+
+| 函数 | 基准段 / B | 本批段 / B |
+| --- | ---: | ---: |
+| MotorControl_ReadParameter | 276 | 240 |
+| MotorControl_WriteParameter | 388 | 332 |
+| MotorControl_RequestSave | 276 | 228 |
+| matches_cached_request（新增） | 0 | 72 |
+
+函数段合计减少 68 B。当次普通 APP ROM **93808 B**（-64 B）/ RAM 31896 B；Loader 配套
+APP 诊断 ROM **101504 B**、跨度 **101544 B**（-64 B）/ RAM 32128 B 不变。78 KiB 正式
+分区仍缺 **21672 B**，真实配套 APP 链接仍失败。
+
+### 验证与限制
+
+新增 `tests/unit/native/motor_state_request_test.c`：夹具复刻 `motor_state.c` 私有状态，
+由 runner `tests/unit/native/test_motor_state_request.py` 从生产源码逐函数切片真实实现
+（旧实现无 `matches_cached_request` 时自动跳过），桩化临界区、运行所有者与参数值服务。
+用例覆盖：读身份同参数重放、同身份换参数冲突；写身份成功应用并缓存、读复用写身份冲突、
+同字段重放、不同值冲突且不重复应用；保存受理后读/写身份冲突、同身份保存重放原结果与
+票据、不同身份保存 BUSY 且无票据。该测试先在旧实现（`git stash` 后）通过，再对最终实现
+通过；`test_run_state.py` 14 项、23 项原生、17 项集成与架构/布局/卫生通过。完整 PR 仍
+FAIL：format/lint/interfaces/docs 日志与上一批逐字一致，1 项 Python 单元仍为 10 个历史
+产物断链，无新增门禁问题。仍只有离线证据，无 MCU 周期、栈水位或实机电流。
+
+证据：`outputs/capacity-fit/deepseek/summary-motor-state.json`、构建目录
+`deepseek-02-final/`、`deepseek-03-final/`；PR 清单
+`outputs/runs/deepseek-motor-state-20260928/summary.json`。按本批差异逆向回退，保留
+两处用户修改。没有硬件操作。

@@ -12,10 +12,11 @@
 | `firmware/motor/trajectory/` | 平滑轨迹及梯形轨迹 |
 | `firmware/motor/identification/` | 电机、编码器与摩擦辨识/校准 |
 | `firmware/motor/protection/` | 故障处理与母线保护配置 |
-| `firmware/services/parameters/` | 参数读写、默认配置、轴身份与范围 |
-| `firmware/services/telemetry/` | 电机状态快照、快速环诊断接口 |
+| `firmware/motor/axis_config.h` | 轴身份、控制基线及运行范围的值契约 |
+| `firmware/services/parameters/` | 参数读写、默认配置、轴记录 CRC 与身份解析 |
+| `firmware/services/telemetry/` | 电机状态快照 |
 | `firmware/communication/can/`、`protocol/` | CAN 接入与协议编码 |
-| `firmware/platform/api/` | 硬件接口 |
+| `firmware/platform/api/` | 硬件能力接口，包括可选快环计时钩子 |
 | `firmware/platform/stm32g4/bsp/`、`ports/` | 板级驱动、板级启动/指示器、CAN/时间/外环调度实现 |
 | `firmware/platform/stm32g4/cubemx/` | .ioc、.mxproject、Core、Drivers、MDK-ARM |
 | `firmware/common/` | 数学工具、内存池 |
@@ -107,11 +108,11 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 | `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |
 | `motor/foc/foc_sensing.c` | 显式采样目标，温度诊断私有，提供窄新鲜度查询 |
 | `motor/identification/foc_cogging_calibration.c` | 私有标定采样、表和补偿状态；候选构建与发布分开，取消不改写前台正在读取的样本 |
-| `services/parameters/foc_param.c` | 默认、记录解释、迁移与导出，实际控制对象由 APP 显式传入 |
+| `services/parameters/foc_param.c` | 默认、schema 11 记录解释与导出，实际控制对象由 APP 显式传入 |
 | `platform/api/param_store.h` | 仅字节读写能力；STM32 Flash 实现不解释参数、不分配堆、不引用控制对象 |
 
 `foc_task.c` 是 ISR 入口薄层；状态/RTT 输出使用值快照或显式标量，不返回内部对象地址。
-生成 main 只调用前台服务；合法 schema11 装载不重写，旧 schema 迁移写入由 APP 明确执行。
+生成 main 只调用前台服务；合法 schema11 装载不重写，旧 schema 拒绝并回退默认值，不自动写 Flash。
 本轮没有新增持久化 ABI、CAN 编号或大型常驻参数副本。
 
 维护完成与保存提交独立记录，前台使用 `{epoch, kind}` 认领；保存前再次核对身份、
@@ -125,6 +126,14 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 具体接口、验收和回退见 [E3 计划](../plans/active/2026-09-28-internal-decoupling-e3.md)。
 本次状态收口见[齿槽状态所有权计划](../plans/completed/2026-09-29-cogging-state-owner-v1.md)。
 原 `FocBenchSpeed` 台架邮箱已退役，见 [退役记录](../guides/watch_motor_commands.md)。
+
+2026-09-29 框架边界收尾：`motor/data_type.h` 只依赖电机域轴值类型，
+不再引用参数服务。轴记录服务保留 CRC、记录构造与启动身份解析。
+摩擦及相电阻辨识配置由 `app/motor_maintenance.c` 装配为私有只读常量，
+每次任务调用显式传入；算法启动时复制核心配置，不持有服务对象或配置全局指针。
+快环计时接口归 `platform/api/fast_loop_profile.h`，板级实现仍拥有时钟和统计，
+关闭计时时仍为空操作。五项已登记反向依赖全部删除，具体证据见
+[框架收尾计划](../plans/completed/2026-09-29-framework-closure-v1.md)。
 
 ## 历史 E1 与后续优化
 

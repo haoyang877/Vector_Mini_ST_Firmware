@@ -7,7 +7,7 @@ This is the stable top-level map. Detailed design and historical evidence live u
 ## Products and contracts
 
 - `firmware/` is the current STM32G4 motor-control APP.
-- `loader/` and `host_app/` are independent future products, not libraries linked into APP.
+- `loader/` is the independently built G431 upgrade product; `host_app/` reserves the future PC boundary. Neither is linked into APP.
 - `shared/` owns only stable cross-product protocol, image, boot, and target-layout contracts.
 
 ## Firmware dependency direction
@@ -25,8 +25,8 @@ STM32G4 BSP/ports implement platform API.
 CubeMX Core is the generated hardware entry and composition boundary.
 ```
 
-New dependencies must follow this direction. Existing reverse dependencies are recorded
-in the machine-readable architecture debt baseline and may be removed but not expanded.
+New dependencies must follow this direction. The 2026-09-29 closure removes all recorded
+reverse dependencies; the machine-readable architecture debt baseline is empty and must not expand.
 The architecture checker resolves local quoted includes and rejects new violations.
 
 ## Runtime boundaries

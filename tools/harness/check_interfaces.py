@@ -105,6 +105,23 @@ def _prototypes(source: str) -> list[dict]:
             current = [stripped]
             start_line = number
             start_offset = offset + len(original_line) - len(original_line.lstrip())
+            # clang-format 可能把较长返回类型单独换行；契约必须紧邻完整声明。
+            previous = number - 2
+            while previous >= 0:
+                type_line = clean_lines[previous].strip()
+                if not re.fullmatch(r"[A-Za-z_]\w*(?:[\w\s*]*\w|[\w\s*]*\*)?", type_line):
+                    break
+                if type_line.startswith(("typedef", "static inline")):
+                    break
+                current.insert(0, type_line)
+                start_line = previous + 1
+                prior_line = original_lines[previous]
+                start_offset = (
+                    sum(map(len, original_lines[:previous]))
+                    + len(prior_line)
+                    - len(prior_line.lstrip())
+                )
+                previous -= 1
         else:
             current.append(stripped)
         offset += len(original_line)
@@ -118,7 +135,7 @@ def _prototypes(source: str) -> list[dict]:
         if match:
             declarations.append(
                 {
-                    "prefix": match.group("prefix"),
+                    "prefix": match.group("prefix").strip(),
                     "name": match.group("name"),
                     "params": match.group("params"),
                     "line": start_line,

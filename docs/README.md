@@ -79,3 +79,5 @@ APP capacity continuation: [标定、平台与配置校验空间优化](reports/
 Motor state machine: [功能任务驱动的主状态机 v1](architecture/motor_state_machine_v1.md).
 
 Motor state machine validation: [重构验收与未验证项](reports/2026-09/motor_state_machine_refactor_20260928.md).
+
+Current framework closure: [边界、门禁、容量与离线验收（2026-09-29）](plans/completed/2026-09-29-framework-closure-v1.md)。

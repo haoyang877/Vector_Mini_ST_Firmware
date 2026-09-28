@@ -23,7 +23,7 @@
 | ±5° / 0.1 Hz 正弦 | RMSE 0.521°，最大 1.149° | RMSE 0.579°，最大 1.243° | 通过 |
 | ±5° / 0.2 Hz 正弦 | RMSE 1.126°，最大 1.927° | RMSE 1.209°，最大 2.354° | 精度未达标 |
 
-![双轴实测轨迹](../../../outputs/dual_axis_status_20260910/tracking_overview.png)
+双轴实测轨迹（历史文件：`../../../outputs/dual_axis_status_20260910/tracking_overview.png`）
 
 ±5°同向用例中，roll 进入并持续保持 ±0.3°约需 0.79～0.90 s，pitch 约需 0.78～1.78 s。pitch 部分方向仍有较慢收尾，不能将“能到位”解释为两轴动态完全一致。
 
@@ -66,3 +66,6 @@
 - 下载核验：`roll_queue_fix_download/verification.json`、`pitch_queue_fix_download/verification.json`，保留前后完整 Flash。
 - 执行：`tools/dual_axis_status_test.py`；分析：`tools/analyze_dual_axis_status.py`；设计：[双轴 CAN 测试用例](dual_axis_can_test_20260910.md)。
 - 较早失败的预检目录也保留；这些失败发生在运动开始之前，不混入本报告的六项运动结果。
+
+> 历史证据说明（2026-09-29）：上述 ignored 输出未随 Git 保存，当前 checkout 缺少对应文件。
+> 本报告结论仅适用于记载的历史源码和台架，不能作为当前镜像的验收凭据。

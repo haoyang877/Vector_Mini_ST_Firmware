@@ -22,6 +22,38 @@ import doctor
 
 
 class HarnessTests(unittest.TestCase):
+    def test_interface_contract_covers_split_return_type(self):
+        """换行返回类型不能跳过契约检查，void 也不能误判需要 return。"""
+        source = """/**
+ * @brief 借用调用方拥有的计数器。
+ * @param counter 非空只读计数器。
+ * @return 借用只读地址，不转移所有权。
+ */
+const VeryLongCounterType *
+Counter_Read(const VeryLongCounterType *counter);
+void
+Counter_Reset(void);
+"""
+        with tempfile.TemporaryDirectory() as folder:
+            header = _Path(folder) / "counter.h"
+            header.write_text(source, encoding="utf-8")
+            with patch.object(check_interfaces, "relative", lambda path: path.name):
+                declarations = check_interfaces._prototypes(source)
+                self.assertEqual(
+                    [d["name"] for d in declarations], ["Counter_Read", "Counter_Reset"]
+                )
+                self.assertEqual(declarations[0]["prefix"], "const VeryLongCounterType *")
+                self.assertEqual(declarations[0]["line"], 6)
+                problems = check_interfaces.scan([header])
+                self.assertEqual([p["interface"] for p in problems], ["Counter_Reset"])
+                self.assertNotIn("@return", problems[0]["missing"])
+                header.write_text(
+                    source.replace(" * @return 借用只读地址，不转移所有权。\n", ""),
+                    encoding="utf-8",
+                )
+                problems = check_interfaces.scan([header])
+                self.assertIn("@return", problems[0]["missing"])
+
     def test_quick_doctor_never_contacts_hardware(self):
         result = doctor.collect("quick")
         self.assertFalse(result["hardware_contacted"])

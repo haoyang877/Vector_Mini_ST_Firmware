@@ -1,5 +1,9 @@
 # Active Plans
 
+当前架构收尾以 [2026-09-29 完成记录](../completed/2026-09-29-framework-closure-v1.md) 和
+[主状态机契约](../../architecture/motor_state_machine_v1.md) 为准。下方保留各阶段原始计划索引，
+其中阶段描述是历史登记状态，不作为当前待办或完成证明。实机验收与新增产品功能另行计划。
+
 
 
 Create one dated Markdown file per significant active change. Include intent, acceptance

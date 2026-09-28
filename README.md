@@ -11,9 +11,9 @@ firmware/                         电机 APP
   platform/                       硬件接口、STM32G4 BSP/端口/CubeMX
   common/                         通用数学与内存工具
   third_party/                    SEGGER RTT
-loader/                           独立 Loader 工程入口（后续实现）
+loader/                           独立 G431 Loader、升级事务与 CAN FD 端口
 host_app/                         PC 上位机工程入口（后续实现）
-shared/                           APP/Loader/PC 契约规划
+shared/                           APP/Loader 共用协议、镜像及交接契约
 tools/                           build、bench、analysis
 tests/                           unit、integration
 docs/                            architecture、protocols、guides、hardware、reports
@@ -45,7 +45,7 @@ python tests/run.py
 CI 检查的 [templates](templates/README.md) 示例开始，再按模块职责进行重命名和裁剪。
 
 详细目录与验证结果见 [代码框架与目录规范](docs/architecture/code_structure.md)，
-后续 Loader 与 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/README.md)、
+Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/README.md)、
 [共享契约](shared/README.md)。
 
 ## 功能介绍
@@ -61,7 +61,7 @@ CI 检查的 [templates](templates/README.md) 示例开始，再按模块职责�
 * 基础有感FOC算法 电流 速度 位置 可控
 * 模式3连续加速度位置伺服（[优化过程](docs/reports/2026-09/mode3_optimization_20260908.md)、[参数适配](docs/guides/mode3_parameter_guide.md)、[执行测试](docs/guides/mode3_test_plan.md)）
 * 磁编码器偏心补偿
-* 电机相电阻+dq轴电感+永磁体磁链辨识
+* 电机相电阻辨识；旧电感/磁链扫描入口已退役
 * 空载正反向库仑/粘性摩擦辨识（见 [docs/friction_identification.md](docs/guides/friction_identification.md)）
 * FDCAN通信控制+超时保护
 * 绝对式 SPI 编码器：板载 TLE5012B（传感器通道已解耦，其他型号按 driver 接入）

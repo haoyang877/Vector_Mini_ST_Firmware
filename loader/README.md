@@ -23,5 +23,5 @@
 Loader不含USB/UART，UART仍待后续实现。设备参数16KiB只读，首版不增加SN或改写已有校准。
 
 目标输入修改后运行 `python loader/tools/generate_target.py`，只更新生成源码，不构建或下载。
-正式构建/发布必须恢复仓库format/lint与release验证，产物放 `outputs/build/loader/`；文件命名按
+正式构建/发布必须通过仓库format/lint与release验证，产物放 `outputs/build/loader/`；文件命名按
 [固件发布规范](../docs/guides/firmware_release_standard.md)。旧独立APP不可直接当成此布局镜像。

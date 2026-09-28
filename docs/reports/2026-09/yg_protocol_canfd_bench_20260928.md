@@ -91,10 +91,13 @@ USB 缓冲；发送存在追赶节拍，不能视为 MCU 的硬实时周期或 1
 
 ## 本轮证据
 
-- [release summary](../../../outputs/bench/20260928_protocol_connected/release-summary.json)
-- [原始收发、回归及速率统计](../../../outputs/bench/20260928_protocol_connected/regression.json)
-- [镜像读回及参数保留](../../../outputs/bench/20260928_protocol_connected/flash_verification.json)
-- [最终软件关断与参数检查](../../../outputs/bench/20260928_protocol_connected/final_safety.json)
+- release summary（历史文件：`../../../outputs/bench/20260928_protocol_connected/release-summary.json`）
+- 原始收发、回归及速率统计（历史文件：`../../../outputs/bench/20260928_protocol_connected/regression.json`）
+- 镜像读回及参数保留（历史文件：`../../../outputs/bench/20260928_protocol_connected/flash_verification.json`）
+- 最终软件关断与参数检查（历史文件：`../../../outputs/bench/20260928_protocol_connected/final_safety.json`）
 
 日志、备份、测试脚本及镜像位于同一 ignored 输出目录。证据用于本次测试追溯，
 以后运行必须重新生成；不得使用本报告证明后续镜像或恢复动力后的试验已通过。
+
+> 历史证据说明（2026-09-29）：上述 ignored 输出未随 Git 保存，当前 checkout 缺少对应文件。
+> 本报告结论仅适用于记载的历史源码和台架，不能作为当前镜像的验收凭据。

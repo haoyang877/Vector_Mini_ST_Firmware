@@ -43,16 +43,19 @@ ISR 累计包含后来被重试窗口内的合格周期，所以最大值覆盖�
 
 原始记录：`outputs/cogging_precision_20260917/full_001032`。该目录保留采样 JSONL、表 CSV/BIN、Flash 前后备份与 report.json；analysis 子目录包含曲线、完整同步 CSV 和频谱指标。
 
-![原始标定表比较](../../../outputs/cogging_precision_20260917/full_001032/analysis/cogging_comparison.png)
+原始标定表比较（历史文件：`../../../outputs/cogging_precision_20260917/full_001032/analysis/cogging_comparison.png`）
 
-![同步位置跟随](../../../outputs/cogging_precision_20260917/full_001032/analysis/position_tracking.png)
+同步位置跟随（历史文件：`../../../outputs/cogging_precision_20260917/full_001032/analysis/position_tracking.png`）
 
 索引 569 的反向定位在 Kp=20、Ki=160 时出现振荡并 5 s 超时；最终 Kp=60、Ki=240 参数约 0.36 s 完成该点。下图中的初始误差包含一个网格步长的目标变化，不是有效采样误差。
 
-![原问题点的定位对比](../../../outputs/cogging_precision_20260917/full_001032/analysis/holding_stability.png)
+原问题点的定位对比（历史文件：`../../../outputs/cogging_precision_20260917/full_001032/analysis/holding_stability.png`）
 
 ## 软件与固件
 
 40 项单元测试、36 项集成测试、14 组原生测试通过。原生测试包含惯性电机模型、四计数边界跨圈、异常采样剔除/重试、完整双向索引、电流块平均、冻结遥测、两种采样电阻、旧表保护与保存失败。
 
 普通与 HIL 编译均 0 错误、0 警告；RAM 含预留堆栈分别 31904 / 32160 字节。固件与配套 scope：`outputs/cogging_precision_20260917/firmware/`，RTT 地址 `0x20006984`，SHA256 见 candidate.json。HIL 仅编译及主机回归，未声称完成该版 HIL 实机运行。代码未提交。
+
+> 历史证据说明（2026-09-29）：上述 ignored 输出未随 Git 保存，当前 checkout 缺少对应文件。
+> 本报告结论仅适用于记载的历史源码和台架，不能作为当前镜像的验收凭据。

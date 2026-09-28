@@ -4,6 +4,7 @@
 #include "data_type.h"
 #include "motor_status.h"
 #include "app_lifecycle.h"
+#include "parameter_value_service.h"
 /**
  * @brief 装载参数并初始化唯一电机执行对象。
  * @note 仅启动组合层在中断启用前调用一次，不自动使能。
@@ -33,4 +34,44 @@ AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample, uint8_t *valid_bi
  * @note 主循环调用；表整理和 Flash 操作禁止在 ISR 执行。
  */
 void MotorControl_ServiceBackground(void);
+/**
+ * @brief 读取单个一致的活动参数值与修订号。
+ * @param request 参数 ID 与来源/序号；返回后不保留指针。
+ * @param value 接收类型、权限、活动 revision 和原始整数值；失败清零。
+ * @return 成功、忙、无来源或编码错误。
+ * @note 短临界区，不创建完整参数副本，不返回内部地址。
+ */
+ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
+                                           ParameterValue *value);
+/**
+ * @brief 原子应用受理的停机单标量，并重放最近相同身份请求。
+ * @param request 原始请求值，返回后不保留指针。
+ * @param applied 接收原始应用值与新 revision；失败清零。
+ * @return 已应用、忙、状态、类型、范围或 revision 错误。
+ * @note 同身份不同内容拒绝；写成功只增加一次 revision，不自动保存。
+ */
+ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request,
+                                            ParameterValue *applied);
+/**
+ * @brief 认领指定活动版本的持久保存任务。
+ * @param request 请求身份与 expected_revision，返回后不保留指针。
+ * @param ticket 接收创建时身份，失败清零；相同请求返回原身份。
+ * @return ACCEPTED 仅表示任务受理；真实提交完成后才为 OK。
+ * @note 前台有界调用，不在入口擦写 Flash，不允许运行或资源借用中保存。
+ */
+ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket);
+/**
+ * @brief 查询原始保存任务的持久结果。
+ * @param ticket 受理时返回的原身份。
+ * @param persisted_revision 成功时接收已经写入并回读验证的活动版本；失败清零。
+ * @return ACCEPTED 进行中、OK 已提交、保存失败、取消或陈旧身份。
+ * @note 不重复创建任务，不以当前 epoch 冒充原身份，不宣称 ACK 等于持久成功。
+ */
+ParameterStatus MotorControl_PollSave(uint32_t ticket, uint32_t *persisted_revision);
+/**
+ * @brief 收敛已取消保存的业务结果并查询是否仍有未完成保存。
+ * @return 没有进行中的保存返回true；真实前台资源是否归还还须由运行所有者确认。
+ * @note 前台有界调用，只查询原ticket，不写Flash、不恢复目标。
+ */
+bool MotorControl_SaveIdle(void);
 #endif

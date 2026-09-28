@@ -2,6 +2,9 @@
 #define BOARD_HW_H
 
 #include <stdbool.h>
+#include <stdint.h>
+
+#define BOARD_HW_UID_BYTES 12U
 
 /**
  * @brief 在 CubeMX 外设初始化之后执行板级启动序列。
@@ -12,5 +15,13 @@
  *       顺序属于行为契约，禁止重排；非阻塞、无动态分配，不得从 ISR 调用。
  */
 void board_hw_start(bool motor_phases_enabled);
+
+/**
+ * @brief 读取芯片实际唯一标识，按三个小端32位字组成12字节值。
+ * @param uid 调用方提供的12字节输出缓冲，返回后不保留。
+ * @return 非空输出且读取完成返回true；空指针返回false。
+ * @note 前台启动组合层调用，有界只读，不分配内存，不代表板卡硬件版本。
+ */
+bool board_hw_read_uid(uint8_t uid[BOARD_HW_UID_BYTES]);
 
 #endif

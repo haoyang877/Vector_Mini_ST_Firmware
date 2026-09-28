@@ -11,6 +11,7 @@
 #include "param_comm_bridge.h"
 #include "power_stage_hw.h"
 #include "yg_protocol_status_adapter.h"
+#include "yg_protocol_owner_adapter.h"
 
 /* 启动编排：参数装载 → 应用状态初始化 → 板级采样时钟 → CAN FD 端点。
  * 硬件细节全部位于 platform 契约实现内；本文件不再包含任何硬件头。 */
@@ -47,9 +48,23 @@ static bool bind_motor_stop(void)
     motor_adapter.stop_service = &stop_service;
     motor_adapter.submit_control = submit_control;
     motor_adapter.control_context = NULL;
+    motor_adapter.lifecycle_handler = YgProtocolOwner_HandleLifecycle;
+    motor_adapter.lifecycle_context = NULL;
     service.context = &motor_adapter;
     service.handler = yg_protocol_motor_adapter_handle;
     return YgProtocolLink_BindMotorService(&service);
+}
+
+static bool bind_device_description(void)
+{
+    /* 0表示尚无权威产品/板卡/发布版本来源；不把协议版本冒充应用版本。 */
+    yg_protocol_readonly_info_page0_t info = {0};
+    yg_protocol_readonly_caps_page0_t capabilities = {
+        .features = (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
+        .supported_modes = 0U,
+        .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
+        .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
+    return board_hw_read_uid(info.uid) && YgProtocolLink_SetDeviceDescription(&info, &capabilities);
 }
 
 void Board_Init(void)
@@ -62,7 +77,7 @@ void Board_Init(void)
 
     /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
     if (!YgProtocolRuntime_Init(Protocol_NodeId_Get()) || !YgProtocolStatusAdapter_Init() ||
-        !bind_motor_stop())
+        !bind_motor_stop() || !YgProtocolOwner_BindServices() || !bind_device_description())
     {
         /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
         power_stage_hw_stop();

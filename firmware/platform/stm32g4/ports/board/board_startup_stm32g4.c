@@ -1,8 +1,11 @@
 #include "board_hw.h"
 
+#include <stddef.h>
+
 #include "adc.h"
 #include "delay.h"
 #include "tim.h"
+#include "stm32g4xx_hal.h"
 
 /* 板级启动序列：顺序、条件与时序与迁移前的 app 组合层逐字一致。
  * 本文件是"顺序即契约"的落点：只搬运调用位置，不改变任何寄存器写入、
@@ -41,4 +44,21 @@ void board_hw_start(bool motor_phases_enabled)
 
     /* 启动 TIM7 2 kHz 监督中断（节拍契约见 control_config.h，周期覆写见 MX_TIM7_Init）。 */
     HAL_TIM_Base_Start_IT(&htim7);
+}
+
+bool board_hw_read_uid(uint8_t uid[BOARD_HW_UID_BYTES])
+{
+    if (uid == NULL)
+    {
+        return false;
+    }
+    const uint32_t words[3] = {HAL_GetUIDw0(), HAL_GetUIDw1(), HAL_GetUIDw2()};
+    for (uint32_t word = 0U; word < 3U; ++word)
+    {
+        for (uint32_t byte = 0U; byte < 4U; ++byte)
+        {
+            uid[word * 4U + byte] = (uint8_t)(words[word] >> (byte * 8U));
+        }
+    }
+    return true;
 }

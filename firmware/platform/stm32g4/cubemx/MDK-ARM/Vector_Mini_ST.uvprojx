@@ -834,6 +834,11 @@
               <FilePath>..\..\..\..\services\parameters\foc_param.c</FilePath>
             </File>
             <File>
+              <FileName>parameter_value_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\parameters\parameter_value_service.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_pid.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\foc\foc_pid.c</FilePath>
@@ -1127,6 +1132,11 @@
               <FileName>motor_state.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\app\motor_state.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_owner_adapter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\app\yg_protocol_owner_adapter.c</FilePath>
             </File>
             <File>
               <FileName>foc_mode_dispatch.c</FileName>

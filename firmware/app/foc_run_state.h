@@ -10,6 +10,7 @@
 #include "foc_sensorless.h"
 #include "app_lifecycle.h"
 #include "motor_control_command.h"
+#include "motor_lifecycle_request.h"
 
 /**
  * @param motor 组合层终身电机对象。
@@ -84,6 +85,74 @@ bool FocRunState_RequestRemoteStop(void);
  *       不隐式使能、不切换模式、不清故障；STOP 会取消尚未应用的目标。
  */
 MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command);
+/**
+ * @brief 请求以零目标或当前位置启动明确控制模式。
+ * @param mode 业务模式，不接受线上或历史编号。
+ * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。
+ * @note 前台或 Watch 消费调用，有界非阻塞；功率迁移仍在监督调度提交。
+ */
+MotorControlResult FocRunState_RequestEnable(MotorControlMode mode);
+/**
+ * @brief 请求原有维护任务并分配创建时身份。
+ * @param kind 明确业务任务。
+ * @param ticket 接收原始身份，失败清零。
+ * @return 受理、错误、忙、故障或守卫拒绝。
+ * @note 不保留调用方指针；不执行 Flash 或长耗时工作。
+ */
+MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uint32_t *ticket);
+/**
+ * @brief 按来源和原始请求序号幂等受理维护，复用同一维护所有者。
+ * @param request 只读值身份，保留字节必须为零；返回后不保留指针。
+ * @param ticket 成功接收原始任务身份，失败清零。
+ * @return 受理、非法/冲突/陈旧身份、忙、故障或守卫拒绝。
+ * @note 同来源序号和任务重试返回原 ticket，不重新执行；同序号不同任务拒绝。
+ *       同来源序号按 16 位半范围窗口递进，复位后清空；前台调用，不执行长任务。
+ */
+MotorControlResult FocRunState_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *request,
+                                                            uint32_t *ticket);
+/**
+ * @brief 精确取消原 ticket 对应的维护，不影响其他任务。
+ * @param ticket 受理时返回的非零身份。
+ * @return 已登记取消或终态重复取消返回受理；陈旧身份非法，其他状态拒绝。
+ * @note 受理不代表资源已经归还，须查询同 ticket 的 CANCELLED 终态；不恢复旧目标。
+ */
+MotorControlResult FocRunState_CancelMaintenance(uint32_t ticket);
+/**
+ * @brief 核对恢复资格并同步清除当前可恢复锁存故障。
+ * @return 受理表示锁存已清或 READY 本来无故障；忙或拒绝保持锁存，FATAL 不可清。
+ * @note 临界区内完成 CLEAR 提交；故障清除后进入 SELF_TEST，不表示自检完成或可启动。
+ *       只清错，不恢复模式或旧目标。
+ */
+MotorControlResult FocRunState_RequestClear(void);
+/**
+ * @brief 读取原始维护身份的进展。
+ * @param ticket 请求受理时返回的身份。
+ * @param progress 接收一致结果值，失败清零。
+ * @return 当前、最近维护或最近带来源请求的终态身份匹配返回 true；陈旧身份返回 false。
+ * @note 前台查询；完成不代表持久化，须同时检查 effects。
+ */
+bool FocRunState_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress);
+/**
+ * @brief 查询停机参数应用是否具备所有者与资源资格。
+ * @return READY、关相、无命令/维护/配置借用和故障时返回 true。
+ * @note 读资格与实际应用须处于同一调用方临界区，不能作为延后写入许可证。
+ */
+bool FocRunState_ConfigurationAllowed(void);
+
+/**
+ * @brief 为唯一升级交接票据保留停机所有权并撤销当前目标。
+ * @param ticket 前台交接所有者提供的非零票据，复位前不得复用其他身份。
+ * @return 同票据重复或首次登记返回受理，其他票据忙，FATAL拒绝。
+ * @note 不表示已关相；保留后拒绝启动、维护和配置写入，失败也不自动释放或恢复运动。
+ */
+MotorControlResult FocRunState_RequestBootStop(uint64_t ticket);
+/**
+ * @brief 核对升级票据仍拥有停机且所有实际资源均已归还。
+ * @param ticket 原始非零票据。
+ * @return READY或FAULT、数字关相、无控制/维护/借用/后台时返回true。
+ * @note 必须在最终邮箱写入与复位的同一短临界区复核；不表示保存业务已完成。
+ */
+bool FocRunState_BootHandoffReady(uint64_t ticket);
 
 typedef enum
 {

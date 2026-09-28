@@ -7,6 +7,7 @@
 #include "power_stage_hw.h"
 #include "foc_sensing.h"
 #include "foc_param.h"
+#include "param_comm_bridge.h"
 #include "param_store.h"
 #include "heap.h"
 #include "rtt_telemetry.h"
@@ -29,6 +30,36 @@ static Fluxobserver_TypeDef Fluxobserver;
 static SensorlessStartup_TypeDef SensorlessStartup;
 
 static FOC_TypeDef FOC;
+
+/* 活动修订与最近变更身份；不常驻 InterfaceParam 副本，不复用 schema 版本。 */
+static uint32_t config_revision, revision_work_epoch;
+static struct
+{
+    ParameterReadRequest request;
+    ParameterValue value;
+    bool valid;
+} last_read;
+static struct
+{
+    ParameterWriteRequest request;
+    ParameterValue applied;
+    bool valid;
+} last_write;
+static struct
+{
+    ParameterSaveRequest request;
+    uint32_t ticket, persisted_revision;
+    ParameterStatus result;
+    bool valid;
+} save_job;
+
+static void advance_config_revision(void)
+{
+    if (config_revision != UINT32_MAX)
+    {
+        ++config_revision;
+    }
+}
 
 /* 启动时只借用一份既有大小的堆记录，不额外常驻配置副本。 */
 static void load_parameters(void)
@@ -54,6 +85,9 @@ static void load_parameters(void)
 
 void MotorControl_Init(void)
 {
+    config_revision = 1U;
+    revision_work_epoch = UINT32_MAX;
+    last_read.valid = last_write.valid = save_job.valid = false;
     load_parameters();
     FocRunState_Init(&MotorControl, &FOC, &PI_Speed, &OnBoard_Encoder, &SensorlessStartup);
     Encoder_ParamInit(&OnBoard_Encoder);
@@ -136,10 +170,18 @@ void MotorControl_FastTick(void)
     /* 8. 模式分发：按 ModeNow 执行对应 worker（禁用态零矢量预载、控制、
      *    标定与参数命令），回传周期结果；本函数不写 ModeNow 或功率级。 */
     uint32_t work_epoch = FocRunState_WorkEpoch();
+    bool configuration_work = FocRunState_IsMaintenanceActive(MotorControl.ModeNow);
     work_outcome = FocMode_Dispatch(
         &FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver, &SensorlessStartup);
 
     /* 9. worker 结果入箱：由 2 kHz 主状态机在下一慢拍消费。 */
+    if (configuration_work && MotorControl.ErrorNow == No_Error &&
+        (work_outcome.result == MOTOR_WORK_SWITCH_MODE || work_outcome.result == MOTOR_WORK_STOP) &&
+        work_epoch != revision_work_epoch)
+    {
+        revision_work_epoch = work_epoch;
+        advance_config_revision();
+    }
     FocRunState_PostOutcome(work_outcome, work_epoch);
 
     /* 10. 遥测：采样一帧 4 通道 RTT（机械位置/机械转速/Iq 指令/Iq 反馈），
@@ -244,5 +286,292 @@ void MotorControl_ServiceBackground(void)
             HEAP_free(candidate);
         }
     }
+    uint32_t mask = critical_hw_enter();
+    bool current = FocRunState_BackgroundValid(&claim);
     FocRunState_FinishBackground(&claim, success);
+    if (save_job.valid && save_job.ticket == claim.epoch && claim.kind == FOC_BACKGROUND_SAVE)
+    {
+        save_job.result = !current  ? PARAMETER_CANCELLED
+                          : success ? PARAMETER_OK
+                                    : PARAMETER_PERSIST_FAILED;
+        if (current && success)
+        {
+            save_job.persisted_revision = save_job.request.expected_revision;
+        }
+    }
+    critical_hw_exit(mask);
+}
+
+/* 比较实际字段而非含 padding 的结构内存；幂等身份包含原始整数位模式。 */
+static bool same_write(const ParameterWriteRequest *left, const ParameterWriteRequest *right)
+{
+    return left->parameter_id == right->parameter_id && left->value_type == right->value_type &&
+           left->expected_revision == right->expected_revision &&
+           left->raw_value == right->raw_value;
+}
+static bool stale_sequence(uint8_t source, uint16_t sequence)
+{
+    /* 单一受权主站的半圈窗口；相同身份重放在调用方先匹配缓存，避免再执行。 */
+    if (last_write.valid && source == last_write.request.source_node &&
+        (uint16_t)(sequence - last_write.request.sequence) >= 0x8000U)
+    {
+        return true;
+    }
+    if (save_job.valid && source == save_job.request.source_node &&
+        (uint16_t)(sequence - save_job.request.sequence) >= 0x8000U)
+    {
+        return true;
+    }
+    return false;
+}
+
+ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
+                                           ParameterValue *value)
+{
+    if (value == NULL)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    *value = (ParameterValue){0};
+    if (request == NULL)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    uint32_t mask = critical_hw_enter();
+    ParameterStatus result;
+    if (last_read.valid && request->source_node == last_read.request.source_node &&
+        request->sequence == last_read.request.sequence)
+    {
+        result = request->parameter_id == last_read.request.parameter_id
+                     ? PARAMETER_OK
+                     : PARAMETER_CONFLICTING_RETRY;
+        if (result == PARAMETER_OK)
+        {
+            *value = last_read.value;
+        }
+    }
+    else if ((last_write.valid && request->source_node == last_write.request.source_node &&
+              request->sequence == last_write.request.sequence) ||
+             (save_job.valid && request->source_node == save_job.request.source_node &&
+              request->sequence == save_job.request.sequence))
+    {
+        result = PARAMETER_CONFLICTING_RETRY;
+    }
+    else
+    {
+        AppLifecycleState state = FocRunState_GetState();
+        result = state == APP_MAINTENANCE || state == APP_STARTING || state == APP_STOPPING
+                     ? PARAMETER_BUSY
+                     : ParameterValue_Read(&MotorControl,
+                                           &OnBoard_Encoder,
+                                           config_revision,
+                                           Protocol_NodeId_Get(),
+                                           request->parameter_id,
+                                           value);
+        if (result == PARAMETER_OK)
+        {
+            if (!FocRunState_ConfigurationAllowed())
+            {
+                value->access &= (uint8_t)~PARAMETER_ACCESS_WRITE_IDLE;
+            }
+            last_read.request = *request;
+            last_read.value = *value;
+            last_read.valid = true;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request,
+                                            ParameterValue *applied)
+{
+    if (applied == NULL)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    *applied = (ParameterValue){0};
+    if (request == NULL || request->reserved != 0U || request->reserved_sequence != 0U)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    uint32_t mask = critical_hw_enter();
+    ParameterStatus result;
+    if (last_write.valid && request->source_node == last_write.request.source_node &&
+        request->sequence == last_write.request.sequence)
+    {
+        result =
+            same_write(request, &last_write.request) ? PARAMETER_OK : PARAMETER_CONFLICTING_RETRY;
+        if (result == PARAMETER_OK)
+        {
+            *applied = last_write.applied;
+        }
+    }
+    else if (save_job.valid && request->source_node == save_job.request.source_node &&
+             request->sequence == save_job.request.sequence)
+    {
+        result = PARAMETER_CONFLICTING_RETRY;
+    }
+    else if (last_read.valid && request->source_node == last_read.request.source_node &&
+             request->sequence == last_read.request.sequence)
+    {
+        result = PARAMETER_CONFLICTING_RETRY;
+    }
+    else if (stale_sequence(request->source_node, request->sequence))
+    {
+        result = PARAMETER_STALE_SEQUENCE;
+    }
+    else if (MotorControl.ErrorNow != No_Error)
+    {
+        result = PARAMETER_FAULT;
+    }
+    else if (!FocRunState_ConfigurationAllowed() ||
+             (save_job.valid && save_job.result == PARAMETER_ACCEPTED))
+    {
+        result = PARAMETER_WRONG_STATE;
+    }
+    else if (request->expected_revision != config_revision || config_revision == UINT32_MAX)
+    {
+        result = PARAMETER_REVISION_CONFLICT;
+    }
+    else
+    {
+        result = ParameterValue_Apply(&MotorControl, Protocol_NodeId_Get(), request);
+        if (result == PARAMETER_OK)
+        {
+            advance_config_revision();
+            /* 原有控制器复位边界，不在这里重写控制数学或增益公式。 */
+            Task_Position_Mode_Reset();
+            FOC_CurrentController_Reset(&FOC);
+            PI_Controller_Reset(&PI_Speed);
+            result = ParameterValue_Read(&MotorControl,
+                                         &OnBoard_Encoder,
+                                         config_revision,
+                                         Protocol_NodeId_Get(),
+                                         request->parameter_id,
+                                         applied);
+            if (result == PARAMETER_OK)
+            {
+                last_write.request = *request;
+                last_write.applied = *applied;
+                last_write.valid = true;
+            }
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket)
+{
+    if (ticket == NULL)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    *ticket = 0U;
+    if (request == NULL || request->reserved != 0U)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    uint32_t mask = critical_hw_enter();
+    ParameterStatus result;
+    if (save_job.valid && request->source_node == save_job.request.source_node &&
+        request->sequence == save_job.request.sequence)
+    {
+        result = request->expected_revision == save_job.request.expected_revision
+                     ? save_job.result
+                     : PARAMETER_CONFLICTING_RETRY;
+        if (result != PARAMETER_CONFLICTING_RETRY)
+        {
+            *ticket = save_job.ticket;
+        }
+    }
+    else if (last_write.valid && request->source_node == last_write.request.source_node &&
+             request->sequence == last_write.request.sequence)
+    {
+        result = PARAMETER_CONFLICTING_RETRY;
+    }
+    else if (last_read.valid && request->source_node == last_read.request.source_node &&
+             request->sequence == last_read.request.sequence)
+    {
+        result = PARAMETER_CONFLICTING_RETRY;
+    }
+    else if (stale_sequence(request->source_node, request->sequence))
+    {
+        result = PARAMETER_STALE_SEQUENCE;
+    }
+    else if (save_job.valid && save_job.result == PARAMETER_ACCEPTED)
+    {
+        result = PARAMETER_BUSY;
+    }
+    else if (request->expected_revision != config_revision)
+    {
+        result = PARAMETER_REVISION_CONFLICT;
+    }
+    else
+    {
+        MotorControlResult accepted =
+            FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, ticket);
+        result = accepted == MOTOR_CONTROL_ACCEPTED ? PARAMETER_ACCEPTED
+                 : accepted == MOTOR_CONTROL_BUSY   ? PARAMETER_BUSY
+                 : accepted == MOTOR_CONTROL_FAULT  ? PARAMETER_FAULT
+                                                    : PARAMETER_WRONG_STATE;
+        if (result == PARAMETER_ACCEPTED)
+        {
+            save_job.request = *request;
+            save_job.ticket = *ticket;
+            save_job.persisted_revision = 0U;
+            save_job.result = result;
+            save_job.valid = true;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+ParameterStatus MotorControl_PollSave(uint32_t ticket, uint32_t *persisted_revision)
+{
+    if (persisted_revision == NULL)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    *persisted_revision = 0U;
+    uint32_t mask = critical_hw_enter();
+    ParameterStatus result = PARAMETER_STALE_TICKET;
+    if (save_job.valid && ticket != 0U && ticket == save_job.ticket)
+    {
+        if (save_job.result == PARAMETER_ACCEPTED)
+        {
+            MotorMaintenanceProgress progress;
+            if (!FocRunState_ReadMaintenance(ticket, &progress) ||
+                progress.result == APP_OPERATION_CANCELLED)
+            {
+                save_job.result = PARAMETER_CANCELLED;
+            }
+            else if (progress.result == APP_OPERATION_FAILED)
+            {
+                save_job.result = PARAMETER_PERSIST_FAILED;
+            }
+        }
+        result = save_job.result;
+        if (result == PARAMETER_OK)
+        {
+            *persisted_revision = save_job.persisted_revision;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+bool MotorControl_SaveIdle(void)
+{
+    uint32_t mask = critical_hw_enter();
+    if (save_job.valid && save_job.result == PARAMETER_ACCEPTED)
+    {
+        uint32_t persisted_revision;
+        (void)MotorControl_PollSave(save_job.ticket, &persisted_revision);
+    }
+    bool idle = !save_job.valid || save_job.result != PARAMETER_ACCEPTED;
+    critical_hw_exit(mask);
+    return idle;
 }

@@ -74,8 +74,18 @@ enum
 static volatile uint8_t save_finish;
 static uint32_t operation_epoch, outcome_epoch, request_epoch, cancel_epoch;
 static ModeNow_TypeDef completed_mode;
+static MotorMaintenanceProgress last_maintenance;
+static struct
+{
+    MotorMaintenanceRequest request;
+    MotorMaintenanceProgress terminal;
+    uint32_t ticket;
+    bool valid;
+} last_maintenance_request;
 static FocBackgroundClaim background_claim;
 static bool background_busy, stop_pending, configuration_reading;
+/* 前台升级交接独占票据；失败后继续禁止运动，只有重新启动初始化才能清空。 */
+static uint64_t boot_stop_ticket;
 /* Over_Current 回落驻留计数；饱和于 RUN_STATE_OC_RECOVER_TICKS。 */
 static MotorFaultRecovery recovery;
 /* 快环结果邮箱：20 kHz 写入、2 kHz 消费；只保留最新的非 RUNNING 结果。 */
@@ -90,6 +100,7 @@ static volatile uint32_t fast_sample_epoch;
 static uint32_t observed_fast_sample_epoch;
 static bool fast_samples_fresh;
 static bool RunState_VbusInEnableWindow(void);
+static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode);
 static void clear_running_data(void)
 {
     if (ModeLast == Calib_Anticogging)
@@ -145,6 +156,10 @@ static void RunState_BenchCancel(uint32_t reason)
 static MotorControlResult validate_control(const MotorControlCommand *command)
 {
     ModeNow_TypeDef mode;
+    if (boot_stop_ticket != 0U)
+    {
+        return MOTOR_CONTROL_DENIED;
+    }
     if (command == NULL || !isfinite(command->position_rad) || !isfinite(command->speed_rad_s) ||
         !isfinite(command->iq_a) || !isfinite(command->vq_v))
     {
@@ -495,9 +510,10 @@ static void RunState_ConfirmStart(void)
 {
     uint32_t state = critical_hw_enter();
     AppLifecycleGuards guards = RunState_BuildGuards();
-    if (lifecycle.snapshot.state == APP_STARTING && guards.start_permitted &&
-        guards.samples_fresh && guards.fault_sources_clear && guards.startup_confirmed &&
-        RunState_ModeNeedsPreparation(MotorControl->ModeNow) && power_stage_hw_phases_disabled())
+    if (boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_STARTING &&
+        guards.start_permitted && guards.samples_fresh && guards.fault_sources_clear &&
+        guards.startup_confirmed && RunState_ModeNeedsPreparation(MotorControl->ModeNow) &&
+        power_stage_hw_phases_disabled())
     {
         power_stage_hw_start();
     }
@@ -610,6 +626,20 @@ static bool RunState_SendOperation(uint32_t events,
         guards.active_faults = 0U;
     }
     result = AppLifecycle_Step(&lifecycle, &event, &guards);
+    if (result.rejection == APP_ACCEPTED &&
+        (events == APP_EVENT_OPERATION_DONE || events == APP_EVENT_OPERATION_FAILED ||
+         events == APP_EVENT_CANCEL_DONE))
+    {
+        last_maintenance = (MotorMaintenanceProgress){operation_epoch,
+                                                      maintenance_kind(operation_mode),
+                                                      result.snapshot.operation_result,
+                                                      result.snapshot.operation_effects};
+        if (last_maintenance_request.valid && last_maintenance_request.ticket == operation_epoch)
+        {
+            /* 派生 SAVE 有新身份，不得覆盖原始标定请求的终态。 */
+            last_maintenance_request.terminal = last_maintenance;
+        }
+    }
     project_lifecycle_fault();
     RunState_ApplyActions(result.actions, false);
     critical_hw_exit(state);
@@ -694,6 +724,11 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
 {
     AppOperation operation = RunState_OperationFor(target);
 
+    if (boot_stop_ticket != 0U)
+    {
+        return;
+    }
+
     if (lifecycle.snapshot.operation != APP_OPERATION_NONE)
     {
         return;
@@ -733,66 +768,371 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
     }
 }
 
-static ModeNow_TypeDef maintenance_mode(uint32_t command)
+static ModeNow_TypeDef maintenance_mode(MotorMaintenanceKind kind)
 {
-    switch (command)
+    switch (kind)
     {
-    case FOC_BENCH_ENCODER_LUT:
+    case MOTOR_MAINTENANCE_ENCODER_LUT:
         return Calib_EncoderObserver;
-    case FOC_BENCH_ELECTRICAL_ZERO:
+    case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
         return Calib_EleAngelOffset;
-    case FOC_BENCH_SAVE:
+    case MOTOR_MAINTENANCE_SAVE:
         return Save_Param;
-    case FOC_BENCH_COGGING:
+    case MOTOR_MAINTENANCE_COGGING:
         return Calib_Anticogging;
-    case FOC_BENCH_PHASE_RESISTANCE:
+    case MOTOR_MAINTENANCE_PHASE_RESISTANCE:
         return Calib_PhaseResistance;
-    case FOC_BENCH_FRICTION:
+    case MOTOR_MAINTENANCE_FRICTION:
         return Calib_Friction;
-    case FOC_BENCH_MECHANICAL_ZERO:
+    case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
         return Set_ZeroPosition;
-    case FOC_BENCH_DEFAULTS:
+    case MOTOR_MAINTENANCE_DEFAULTS:
         return Default_Param;
     default:
         return Motor_Disable;
     }
 }
-static uint32_t submit_maintenance(uint32_t command, uint32_t seq)
+static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode)
 {
-    if (bench_speed.active || background_busy || configuration_reading || outcome_latched ||
-        control_pending || lifecycle.snapshot.operation != APP_OPERATION_NONE ||
+    switch (mode)
+    {
+    case Calib_EncoderObserver:
+        return MOTOR_MAINTENANCE_ENCODER_LUT;
+    case Calib_EleAngelOffset:
+        return MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
+    case Calib_Anticogging:
+        return MOTOR_MAINTENANCE_COGGING;
+    case Calib_PhaseResistance:
+        return MOTOR_MAINTENANCE_PHASE_RESISTANCE;
+    case Calib_Friction:
+        return MOTOR_MAINTENANCE_FRICTION;
+    case Set_ZeroPosition:
+        return MOTOR_MAINTENANCE_MECHANICAL_ZERO;
+    case Default_Param:
+        return MOTOR_MAINTENANCE_DEFAULTS;
+    default:
+        return MOTOR_MAINTENANCE_SAVE;
+    }
+}
+
+bool FocRunState_ConfigurationAllowed(void)
+{
+    AppLifecycleGuards guards = RunState_BuildGuards();
+    return boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_READY &&
+           MotorControl->ModeNow == Motor_Disable && MotorControl->ErrorNow == No_Error &&
+           !stop_pending && !bench_speed.active && !control_pending && !configuration_reading &&
+           !background_busy && !outcome_latched &&
+           lifecycle.snapshot.operation == APP_OPERATION_NONE && guards.phases_disabled &&
+           guards.control_idle && guards.operation_idle && guards.maintenance_released;
+}
+
+MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
+{
+    ModeNow_TypeDef target;
+    switch (mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        target = Current_Mode;
+        break;
+    case MOTOR_CONTROL_SPEED:
+        target = Speed_Mode;
+        break;
+    case MOTOR_CONTROL_POSITION:
+        target = Position_Mode;
+        break;
+    case MOTOR_CONTROL_VQ:
+        target = Vq_Mode;
+        break;
+    default:
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result = MOTOR_CONTROL_DENIED;
+    if (MotorControl->ErrorNow != No_Error)
+    {
+        result = MOTOR_CONTROL_FAULT;
+    }
+    else if (boot_stop_ticket != 0U || background_busy || configuration_reading ||
+             outcome_latched || control_pending || bench_speed.active ||
+             lifecycle.snapshot.operation != APP_OPERATION_NONE)
+    {
+        result = MOTOR_CONTROL_BUSY;
+    }
+    else if (FocRunState_ConfigurationAllowed())
+    {
+        AppLifecycleGuards guards = RunState_BuildGuards();
+        if (guards.self_test_passed && guards.start_permitted && guards.samples_fresh &&
+            guards.fault_sources_clear && !MotorControl->isUseSensorless)
+        {
+            clear_running_data();
+            request_epoch = lifecycle.snapshot.epoch;
+            result = FocMode_Admit(MotorControl, FOC, OnBoard_Encoder, target)
+                         ? MOTOR_CONTROL_ACCEPTED
+                         : MOTOR_CONTROL_DENIED;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+MotorControlResult FocRunState_RequestClear(void)
+{
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result = MOTOR_CONTROL_DENIED;
+    if (boot_stop_ticket != 0U || background_busy || configuration_reading || outcome_latched ||
+        control_pending || bench_speed.active ||
+        lifecycle.snapshot.operation != APP_OPERATION_NONE ||
         !RunState_BuildGuards().maintenance_released)
+    {
+        result = MOTOR_CONTROL_BUSY;
+    }
+    else
+    {
+        request_epoch = lifecycle.snapshot.epoch;
+        if ((lifecycle.snapshot.state == APP_READY && MotorControl->ErrorNow == No_Error) ||
+            RunState_TryClearFault())
+        {
+            result = MOTOR_CONTROL_ACCEPTED;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uint32_t *ticket)
+{
+    if (ticket == NULL)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    *ticket = 0U;
+    ModeNow_TypeDef mode = maintenance_mode(kind);
+    if (mode == Motor_Disable)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result = MOTOR_CONTROL_DENIED;
+    if (MotorControl->ErrorNow != No_Error)
+    {
+        result = MOTOR_CONTROL_FAULT;
+    }
+    else if (boot_stop_ticket != 0U || background_busy || configuration_reading ||
+             outcome_latched || control_pending || bench_speed.active ||
+             lifecycle.snapshot.operation != APP_OPERATION_NONE ||
+             !RunState_BuildGuards().maintenance_released)
+    {
+        result = MOTOR_CONTROL_BUSY;
+    }
+    else if (FocRunState_ConfigurationAllowed() && RunState_BuildGuards().self_test_passed)
+    {
+        request_epoch = lifecycle.snapshot.epoch;
+        clear_running_data();
+        if (FocMode_Admit(MotorControl, FOC, OnBoard_Encoder, mode))
+        {
+            RunState_BeginOperationIfRequested(mode);
+            if (FocRunState_IsMaintenanceActive(mode))
+            {
+                *ticket = operation_epoch;
+                completed_mode = Motor_Disable;
+                result = MOTOR_CONTROL_ACCEPTED;
+            }
+            else
+            {
+                MotorControl->ModeNow = Motor_Disable;
+            }
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+bool FocRunState_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress)
+{
+    if (progress == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    *progress = (MotorMaintenanceProgress){0};
+    bool found = ticket != 0U && ticket == last_maintenance.ticket;
+    if (found)
+    {
+        *progress = last_maintenance;
+    }
+    else if (last_maintenance_request.valid && ticket == last_maintenance_request.terminal.ticket &&
+             ticket != 0U)
+    {
+        *progress = last_maintenance_request.terminal;
+        found = true;
+    }
+    else if (ticket != 0U && ticket == operation_epoch)
+    {
+        progress->ticket = ticket;
+        progress->kind = maintenance_kind(operation_mode);
+        progress->result = lifecycle.snapshot.operation_result;
+        progress->effects = lifecycle.snapshot.operation_effects;
+        found = true;
+    }
+    critical_hw_exit(mask);
+    return found;
+}
+
+MotorControlResult FocRunState_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *request,
+                                                            uint32_t *ticket)
+{
+    if (ticket == NULL)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    *ticket = 0U;
+    if (request == NULL || request->reserved != 0U || request->source_node == UINT8_MAX ||
+        maintenance_mode(request->kind) == Motor_Disable)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result;
+    if (last_maintenance_request.valid &&
+        request->source_node == last_maintenance_request.request.source_node)
+    {
+        uint16_t delta = (uint16_t)(request->sequence - last_maintenance_request.request.sequence);
+        if (delta == 0U)
+        {
+            result = request->kind == last_maintenance_request.request.kind
+                         ? MOTOR_CONTROL_ACCEPTED
+                         : MOTOR_CONTROL_CONFLICTING_RETRY;
+            if (result == MOTOR_CONTROL_ACCEPTED)
+            {
+                *ticket = last_maintenance_request.ticket;
+            }
+            critical_hw_exit(mask);
+            return result;
+        }
+        if (delta >= UINT16_C(0x8000))
+        {
+            critical_hw_exit(mask);
+            return MOTOR_CONTROL_STALE_SEQUENCE;
+        }
+    }
+    result = FocRunState_RequestMaintenance(request->kind, ticket);
+    if (result == MOTOR_CONTROL_ACCEPTED)
+    {
+        last_maintenance_request.request = *request;
+        last_maintenance_request.terminal = (MotorMaintenanceProgress){0};
+        last_maintenance_request.ticket = *ticket;
+        last_maintenance_request.valid = true;
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+MotorControlResult FocRunState_CancelMaintenance(uint32_t ticket)
+{
+    if (ticket == 0U)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result = MOTOR_CONTROL_INVALID;
+    if (ticket == last_maintenance.ticket ||
+        (last_maintenance_request.valid && ticket == last_maintenance_request.terminal.ticket))
+    {
+        /* 最近终态的重复取消只确认身份，绝不停止当前其他任务。 */
+        result = MOTOR_CONTROL_ACCEPTED;
+    }
+    else if (ticket == operation_epoch && lifecycle.snapshot.operation != APP_OPERATION_NONE)
+    {
+        if (lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED)
+        {
+            result = MOTOR_CONTROL_ACCEPTED;
+        }
+        else if (lifecycle.snapshot.state == APP_MAINTENANCE)
+        {
+            control_pending = false;
+            if (outcome_latched)
+            {
+                if (pending_outcome.result == MOTOR_WORK_FAULT && outcome_epoch == operation_epoch)
+                {
+                    /* 同代故障先锁存，再取消；不能让CANCEL递增代号后丢弃故障。 */
+                    MotorFault_Report(MotorControl, pending_outcome.error);
+                }
+                outcome_latched = false;
+            }
+            bool accepted = RunState_SendOperation(
+                APP_EVENT_CANCEL, lifecycle.snapshot.operation, APP_EFFECT_UNKNOWN, 0U);
+            MotorControl->ModeNow = Motor_Disable;
+            result = accepted ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_FAULT;
+        }
+        else
+        {
+            result = MOTOR_CONTROL_DENIED;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+static uint32_t bench_result(MotorControlResult result)
+{
+    if (result == MOTOR_CONTROL_ACCEPTED)
+    {
+        return FOC_BENCH_SPEED_ACCEPTED;
+    }
+    if (result == MOTOR_CONTROL_BUSY)
     {
         return FOC_BENCH_SPEED_BUSY;
     }
+    if (result == MOTOR_CONTROL_INVALID || result == MOTOR_CONTROL_OUT_OF_RANGE)
+    {
+        return FOC_BENCH_SPEED_INVALID;
+    }
+    return FOC_BENCH_SPEED_DENIED;
+}
+
+static uint32_t submit_maintenance(uint32_t command, uint32_t seq)
+{
     if (command == FOC_BENCH_CLEAR)
     {
-        request_epoch = lifecycle.snapshot.epoch;
-        bool accepted = lifecycle.snapshot.state == APP_READY || RunState_TryClearFault();
-        return accepted ? FOC_BENCH_SPEED_ACCEPTED : FOC_BENCH_SPEED_DENIED;
+        return bench_result(FocRunState_RequestClear());
     }
-    ModeNow_TypeDef mode = maintenance_mode(command);
-    if (mode == Motor_Disable || lifecycle.snapshot.state != APP_READY ||
-        MotorControl->ModeNow != Motor_Disable || !power_stage_hw_phases_disabled() ||
-        !RunState_BuildGuards().self_test_passed)
+    MotorMaintenanceKind kind;
+    switch (command)
     {
-        return FOC_BENCH_SPEED_DENIED;
+    case FOC_BENCH_ENCODER_LUT:
+        kind = MOTOR_MAINTENANCE_ENCODER_LUT;
+        break;
+    case FOC_BENCH_ELECTRICAL_ZERO:
+        kind = MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
+        break;
+    case FOC_BENCH_SAVE:
+        kind = MOTOR_MAINTENANCE_SAVE;
+        break;
+    case FOC_BENCH_COGGING:
+        kind = MOTOR_MAINTENANCE_COGGING;
+        break;
+    case FOC_BENCH_PHASE_RESISTANCE:
+        kind = MOTOR_MAINTENANCE_PHASE_RESISTANCE;
+        break;
+    case FOC_BENCH_FRICTION:
+        kind = MOTOR_MAINTENANCE_FRICTION;
+        break;
+    case FOC_BENCH_MECHANICAL_ZERO:
+        kind = MOTOR_MAINTENANCE_MECHANICAL_ZERO;
+        break;
+    case FOC_BENCH_DEFAULTS:
+        kind = MOTOR_MAINTENANCE_DEFAULTS;
+        break;
+    default:
+        return FOC_BENCH_SPEED_INVALID;
     }
-    request_epoch = lifecycle.snapshot.epoch;
-    clear_running_data();
-    if (!FocMode_Admit(MotorControl, FOC, OnBoard_Encoder, mode))
+    uint32_t ticket;
+    MotorControlResult result = FocRunState_RequestMaintenance(kind, &ticket);
+    if (result == MOTOR_CONTROL_ACCEPTED)
     {
-        return FOC_BENCH_SPEED_DENIED;
+        bench_speed.session_seq = seq;
     }
-    RunState_BeginOperationIfRequested(mode);
-    if (!FocRunState_IsMaintenanceActive(mode))
-    {
-        MotorControl->ModeNow = Motor_Disable;
-        return FOC_BENCH_SPEED_DENIED;
-    }
-    completed_mode = Motor_Disable;
-    bench_speed.session_seq = seq;
-    return FOC_BENCH_SPEED_ACCEPTED;
+    return bench_result(result);
 }
 
 /* 单次复制发布完成的 SWD 请求；全程有界，不等待外部写入者。 */
@@ -895,7 +1235,7 @@ static void RunState_ServiceBenchRequest(bool worker_idle)
             /* 沿用现有准入函数，登记仍发生在 owner；启动不继承旧 PI/目标。 */
             clear_running_data();
             request_epoch = lifecycle.snapshot.epoch;
-            if (FocMode_Admit(MotorControl, FOC, OnBoard_Encoder, Speed_Mode))
+            if (FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED)
             {
                 bench_speed.saved_current_limit_a = MotorControl->current_limit;
                 bench_speed.saved_speed_limit_rad_s = MotorControl->speed_limit;
@@ -1028,8 +1368,11 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
     AppLifecycle_Init(&lifecycle);
     operation_epoch = outcome_epoch = cancel_epoch = 0U;
     completed_mode = Motor_Disable;
+    last_maintenance = (MotorMaintenanceProgress){0};
+    memset(&last_maintenance_request, 0, sizeof(last_maintenance_request));
     request_epoch = lifecycle.snapshot.epoch;
     background_busy = stop_pending = configuration_reading = false;
+    boot_stop_ticket = 0U;
     background_claim = (FocBackgroundClaim){0};
     operation_mode = Motor_Disable;
     save_finish = (uint8_t)SAVE_FINISH_NONE;
@@ -1060,14 +1403,60 @@ bool FocRunState_RequestRemoteStop(void)
     uint32_t state = critical_hw_enter();
     RunState_BenchCancel(FOC_BENCH_SPEED_MANUAL_STOP);
     control_pending = false;
-    if (outcome_latched && pending_outcome.result != MOTOR_WORK_FAULT)
+    if (outcome_latched)
     {
+        if (pending_outcome.result == MOTOR_WORK_FAULT && outcome_epoch == FocRunState_WorkEpoch())
+        {
+            /* STOP撤销目标，但不能撤销当前worker已报告的故障。 */
+            MotorFault_Report(MotorControl, pending_outcome.error);
+        }
         outcome_latched = false;
     }
     MotorControl->ModeNow = Motor_Disable;
     stop_pending = true;
     critical_hw_exit(state);
     return true;
+}
+
+MotorControlResult FocRunState_RequestBootStop(uint64_t ticket)
+{
+    if (ticket == 0U)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result;
+    if (boot_stop_ticket != 0U)
+    {
+        result = boot_stop_ticket == ticket ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_BUSY;
+    }
+    else if (lifecycle.snapshot.state == APP_FATAL)
+    {
+        result = MOTOR_CONTROL_FAULT;
+    }
+    else
+    {
+        boot_stop_ticket = ticket;
+        (void)FocRunState_RequestRemoteStop();
+        result = MOTOR_CONTROL_ACCEPTED;
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+bool FocRunState_BootHandoffReady(uint64_t ticket)
+{
+    uint32_t mask = critical_hw_enter();
+    AppLifecycleGuards guards = RunState_BuildGuards();
+    bool ready = ticket != 0U && ticket == boot_stop_ticket &&
+                 (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_FAULT) &&
+                 MotorControl->ModeNow == Motor_Disable && !stop_pending && !bench_speed.active &&
+                 !control_pending && !configuration_reading && !background_busy &&
+                 !outcome_latched && lifecycle.snapshot.operation == APP_OPERATION_NONE &&
+                 guards.phases_disabled && guards.control_idle && guards.operation_idle &&
+                 guards.maintenance_released;
+    critical_hw_exit(mask);
+    return ready;
 }
 
 MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
@@ -1423,7 +1812,7 @@ void FocRunState_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();
     bool permitted =
-        !background_busy && !stop_pending && !outcome_latched &&
+        boot_stop_ticket == 0U && !background_busy && !stop_pending && !outcome_latched &&
         MotorControl->ErrorNow == No_Error &&
         (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_RUNNING);
     if (permitted)

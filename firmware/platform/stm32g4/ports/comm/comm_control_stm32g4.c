@@ -28,17 +28,3 @@ void comm_hw_can_start_fd(void)
     }
 }
 
-/* 保留原有 bus-off 恢复能力，但调度归前台 CAN FD 运行时，不依赖旧波特率命令。 */
-bool comm_hw_can_service_bus_off(void)
-{
-    if ((hfdcan1.Instance->PSR & FDCAN_PSR_BO) == 0U &&
-        (hfdcan1.Instance->CCCR & FDCAN_CCCR_INIT) == 0U)
-    {
-        return false;
-    }
-    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    return true;
-}

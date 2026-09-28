@@ -21,6 +21,32 @@ typedef struct
  */
 bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame);
 
+/** @brief 指定帧的物理发送结果；ticket完整保留调用方的64位身份。 */
+typedef struct
+{
+    uint64_t ticket;
+    bool success;
+} CommHwCanTxCompletion;
+
+/**
+ * @brief 非阻塞提交唯一待跟踪帧，发送结果通过take接口消费。
+ * @param frame 与普通发送相同的完整帧，调用期间读取，不保存指针。
+ * @param ticket 非零且由调用方分配的事务身份，不截断为硬件标记。
+ * @return 已提交返回true；非法、忙或硬件失败返回false，不产生完成记录。
+ * @note 仅前台调用；跟踪期间暂停后续硬件提交，避免槽位复用覆盖完成位。
+ *       必须持续调用take；100ms未完成、取消或bus-off报告失败，不自动复位。
+ */
+bool comm_hw_can_try_send_tracked_frame(const CommHwCanFrame *frame, uint64_t ticket);
+
+/**
+ * @brief 按确切硬件槽完成位消费一次物理发送结果，不以入队或队列空代替成功。
+ * @param completion 成功取到记录时写入，否则保持原内容。
+ * @return 取到一次终态返回true，无终态或空指针返回false。
+ * @note 仅前台非阻塞调用；失败时请求撤销未发帧，槽未释放前仍拒绝新提交。
+ *       本接口不执行协议回调、邮箱写入或复位。
+ */
+bool comm_hw_can_take_tx_completion(CommHwCanTxCompletion *completion);
+
 /**
  * @brief 非阻塞地取出一帧已完成接收的 CAN FD 报文。
  * @param frame 调用方提供的输出缓冲区；成功时写入完整帧，失败时保持内容不变。

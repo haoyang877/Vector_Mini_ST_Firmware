@@ -2,6 +2,32 @@
 #define YG_PROTOCOL_JOB_H
 
 #include "yg_protocol_service.h"
+#include "yg_protocol_wire_types.h"
+
+#define YG_PROTOCOL_JOB_TYPE_START 160U
+#define YG_PROTOCOL_JOB_TYPE_STATUS 161U
+#define YG_PROTOCOL_JOB_TYPE_CANCEL 162U
+#define YG_PROTOCOL_JOB_REQUEST_SIZE 4U
+#define YG_PROTOCOL_JOB_REPLY_SIZE 12U
+#define YG_PROTOCOL_JOB_KIND_ENCODER_LUT 1U
+#define YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO 2U
+#define YG_PROTOCOL_JOB_KIND_COGGING 3U
+#define YG_PROTOCOL_JOB_PHASE_NONE 0U
+#define YG_PROTOCOL_JOB_PHASE_IN_PROGRESS 1U
+#define YG_PROTOCOL_JOB_PHASE_COMPLETED 2U
+#define YG_PROTOCOL_JOB_PHASE_CANCEL_REQUESTED 3U
+#define YG_PROTOCOL_JOB_PHASE_CANCELLED 4U
+#define YG_PROTOCOL_JOB_PHASE_FAILED 5U
+#define YG_PROTOCOL_JOB_EFFECT_UNKNOWN 0U
+#define YG_PROTOCOL_JOB_EFFECT_UNCOMMITTED 1U
+#define YG_PROTOCOL_JOB_EFFECT_COMMITTED 2U
+#define YG_PROTOCOL_JOB_DETAIL_UNSUPPORTED_KIND 1U
+#define YG_PROTOCOL_JOB_DETAIL_STALE_TOKEN 2U
+#define YG_PROTOCOL_JOB_DETAIL_WRONG_STATE 3U
+#define YG_PROTOCOL_JOB_DETAIL_CONFLICTING_RETRY 4U
+#define YG_PROTOCOL_JOB_DETAIL_STALE_SEQUENCE 5U
+#define YG_PROTOCOL_JOB_DETAIL_BAD_FIELD 6U
+#define YG_PROTOCOL_JOB_DETAIL_OPERATION_FAILED 7U
 
 /** @brief job 内部操作，不分配线上 type，不等同于电机模式枚举。 */
 typedef enum
@@ -9,18 +35,52 @@ typedef enum
     YG_PROTOCOL_JOB_START = 0,
     YG_PROTOCOL_JOB_CANCEL,
     YG_PROTOCOL_JOB_QUERY,
-    YG_PROTOCOL_JOB_READ_RESULT,
 } yg_protocol_job_operation_t;
 
-/** @brief kind 表示标定/辨识等业务类别；data 仅在调用期间有效，异步后端须复制到有界存储。 */
+/** @brief 任务值请求；kind独立于内部模式，job_id隔离取消与查询，不含工作区指针。 */
 typedef struct
 {
     yg_protocol_job_operation_t operation;
     uint16_t kind;
     uint32_t job_id;
-    const uint8_t *data;
-    size_t data_length;
+    uint16_t sequence;
+    uint8_t source_node;
 } yg_protocol_job_request_t;
+
+/** @brief 任务专用结果；phase/effects为固定线路值，不复用参数revision/value字段。 */
+typedef struct
+{
+    yg_protocol_service_status_t status;
+    uint32_t token;
+    uint16_t kind;
+    uint16_t detail;
+    uint8_t phase;
+    uint8_t effects;
+} yg_protocol_job_reply_t;
+
+/**
+ * @brief 解码单帧160～162的任务类别或非零任务号。
+ * @param message 已完成帧校验的消息，元数据仍由产品路由校验。
+ * @param request 成功时写入值请求，失败保持原内容。
+ * @return 4B字段合法返回OK，否则返回参数、Type、长度或字段错误。
+ * @note 不解释旧Mode编号、不启动任务；未知非零kind由业务所有者拒绝。
+ */
+yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message,
+                                            yg_protocol_job_request_t *request);
+
+/**
+ * @brief 编码12B任务结果，查询完成不等于标定成功或已持久化。
+ * @param reply 真实任务所有者填充的结果；受理/成功须有非零token与有效kind/phase。
+ * @param payload 输出缓冲，不得与reply重叠。
+ * @param capacity 输出容量，至少12B。
+ * @param written 成功时写入12，可为NULL。
+ * @return 编码结果；非法元数据不会写输出或written。
+ * @note 数值显式小端，失败可无任务元数据；COMMITTED只由持久所有者确认。
+ */
+yg_protocol_result_t yg_protocol_job_encode_reply(const yg_protocol_job_reply_t *reply,
+                                                  uint8_t *payload,
+                                                  size_t capacity,
+                                                  size_t *written);
 
 /**
  * @brief 业务所有者实现的非阻塞处理入口。
@@ -31,7 +91,7 @@ typedef struct
  */
 typedef void (*yg_protocol_job_handler_t)(void *context,
                                           const yg_protocol_job_request_t *request,
-                                          yg_protocol_service_reply_t *reply);
+                                          yg_protocol_job_reply_t *reply);
 
 /** @brief 由组合层注入的后端绑定；handler 为 NULL 表示该能力未实现。 */
 typedef struct
@@ -50,6 +110,6 @@ typedef struct
  */
 yg_protocol_service_status_t yg_protocol_job_call(const yg_protocol_job_service_t *service,
                                                   const yg_protocol_job_request_t *request,
-                                                  yg_protocol_service_reply_t *reply);
+                                                  yg_protocol_job_reply_t *reply);
 
 #endif

@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "status": "供后续统一验证；本轮未执行测试",
+  "requests": [
+    {
+      "name": "start_lut",
+      "type": 160,
+      "payload_hex": "01000000",
+      "expected": "OK",
+      "kind": 1
+    },
+    {
+      "name": "start_electrical_zero",
+      "type": 160,
+      "payload_hex": "02000000",
+      "expected": "OK",
+      "kind": 2
+    },
+    {
+      "name": "start_cogging",
+      "type": 160,
+      "payload_hex": "03000000",
+      "expected": "OK",
+      "kind": 3
+    },
+    {
+      "name": "unknown_kind_wire_valid_owner_unsupported",
+      "type": 160,
+      "payload_hex": "04000000",
+      "expected": "OK",
+      "owner_result": "UNSUPPORTED"
+    },
+    {
+      "name": "start_reserved_nonzero",
+      "type": 160,
+      "payload_hex": "01000100",
+      "expected": "INVALID_FIELD"
+    },
+    {
+      "name": "status_ticket",
+      "type": 161,
+      "payload_hex": "78563412",
+      "expected": "OK",
+      "ticket": "0x12345678"
+    },
+    {
+      "name": "cancel_ticket",
+      "type": 162,
+      "payload_hex": "78563412",
+      "expected": "OK",
+      "ticket": "0x12345678"
+    },
+    {
+      "name": "zero_ticket",
+      "type": 162,
+      "payload_hex": "00000000",
+      "expected": "INVALID_FIELD"
+    },
+    {
+      "name": "wrong_length",
+      "type": 160,
+      "payload_hex": "010000",
+      "expected": "INVALID_LENGTH"
+    }
+  ],
+  "replies": [
+    {
+      "name": "start_accepted",
+      "payload_hex": "010000007856341201000101",
+      "result": 1,
+      "ticket": "0x12345678",
+      "kind": 1,
+      "phase": 1,
+      "effects": 1
+    },
+    {
+      "name": "query_algorithm_complete_not_saved",
+      "payload_hex": "000000007856341202000201",
+      "result": 0,
+      "ticket": "0x12345678",
+      "kind": 2,
+      "phase": 2,
+      "effects": 1
+    },
+    {
+      "name": "query_cancel_waits_resource_release",
+      "payload_hex": "000000007856341203000300",
+      "result": 0,
+      "ticket": "0x12345678",
+      "kind": 3,
+      "phase": 3,
+      "effects": 0
+    },
+    {
+      "name": "query_task_failed",
+      "payload_hex": "000007007856341203000500",
+      "result": 0,
+      "detail": 7,
+      "ticket": "0x12345678",
+      "kind": 3,
+      "phase": 5,
+      "effects": 0
+    },
+    {
+      "name": "owner_not_bound",
+      "payload_hex": "020000000000000000000000",
+      "result": 2,
+      "ticket": 0,
+      "kind": 0,
+      "phase": 0,
+      "effects": 0
+    },
+    {
+      "name": "stale_ticket",
+      "payload_hex": "040002000000000000000000",
+      "result": 4,
+      "detail": 2,
+      "ticket": 0,
+      "kind": 0,
+      "phase": 0,
+      "effects": 0
+    }
+  ]
+}
+

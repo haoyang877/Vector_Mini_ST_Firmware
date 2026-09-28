@@ -54,3 +54,9 @@ ROOT批准50～55的最小字段及分片序号澄清；实现shared纯请求解
 升级seq仅关联本次回复；业务幂等使用真实source/boot/session/offset/operation及内容，
 不能对不同块的相同分片尾seq全局拒绝。详情见[升级v1](../../protocols/yg_protocol_upgrade_wire_v1.md)。
 D接入实际Loader命令分支、存储及精确TX票据；56等待真实APP静默与handoff后再注册。
+
+## 标定任务v1
+
+ROOT批准160～162单帧kind/ticket最小布局；H实现专用任务reply、4B请求codec、12B结果与link绑定/路由。
+取消身份、START重放及结果均由E维护所有者决定，163与未定义任务不注册。
+[任务v1](../../protocols/yg_protocol_calibration_wire_v1.md)列出内部枚举映射及统一测试前的旧contract调用适配。

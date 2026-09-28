@@ -38,6 +38,7 @@ typedef struct
     yg_protocol_readonly_caps_page0_t capabilities;
     yg_protocol_motor_service_t motor_service;
     yg_protocol_parameter_service_t parameter_service;
+    yg_protocol_job_service_t job_service;
     yg_protocol_motor_status_source_t empty_motor_status;
     const yg_protocol_motor_status_source_t *motor_status_source;
     yg_link_control_history_t control_history[YG_LINK_CONTROL_HISTORY_SIZE];
@@ -304,6 +305,50 @@ static yg_protocol_result_t handle_parameter(void *context,
     return YG_PROTOCOL_OK;
 }
 
+static void write_job_error(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail)
+{
+    write_result(response, code, detail);
+    memset(response->response_payload + 4U, 0, YG_PROTOCOL_JOB_REPLY_SIZE - 4U);
+    response->response_payload_length = YG_PROTOCOL_JOB_REPLY_SIZE;
+}
+
+static yg_protocol_result_t handle_job(void *context,
+                                       const yg_protocol_message_t *request,
+                                       yg_protocol_service_result_t *result)
+{
+    yg_protocol_link_context_t *link = context;
+    yg_protocol_job_request_t command;
+    yg_protocol_job_reply_t reply;
+    yg_protocol_result_t decoded;
+    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (request->source_node != YG_LINK_MASTER_NODE_ID)
+    {
+        write_job_error(result, 7U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    decoded = yg_protocol_job_decode(request, &command);
+    if (decoded != YG_PROTOCOL_OK)
+    {
+        write_job_error(result,
+                        decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U,
+                        YG_PROTOCOL_JOB_DETAIL_BAD_FIELD);
+        return YG_PROTOCOL_OK;
+    }
+    (void)yg_protocol_job_call(&link->job_service, &command, &reply);
+    if (yg_protocol_job_encode_reply(
+            &reply, result->response_payload, sizeof(result->response_payload), NULL) !=
+        YG_PROTOCOL_OK)
+    {
+        write_job_error(result, 8U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    result->response_payload_length = YG_PROTOCOL_JOB_REPLY_SIZE;
+    return YG_PROTOCOL_OK;
+}
+
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     static const yg_protocol_route_t routes[] = {
@@ -317,6 +362,9 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_PROTOCOL_PARAMETER_TYPE_READ, handle_parameter, &link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_WRITE, handle_parameter, &link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_SAVE, handle_parameter, &link_context},
+        {YG_PROTOCOL_JOB_TYPE_START, handle_job, &link_context},
+        {YG_PROTOCOL_JOB_TYPE_STATUS, handle_job, &link_context},
+        {YG_PROTOCOL_JOB_TYPE_CANCEL, handle_job, &link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
     yg_protocol_endpoint_config_t endpoint_config;
@@ -398,6 +446,16 @@ bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *
     }
     link_context.parameter_service =
         service != NULL ? *service : (yg_protocol_parameter_service_t){0};
+    return true;
+}
+
+bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service)
+{
+    if (!ready)
+    {
+        return false;
+    }
+    link_context.job_service = service != NULL ? *service : (yg_protocol_job_service_t){0};
     return true;
 }
 

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "comm_hw.h"
+#include "yg_protocol_job.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_status.h"
 #include "yg_protocol_parameter.h"
@@ -15,7 +16,7 @@
  * @brief 初始化 CAN FD 链路端点和独占队列。
  * @param node_id 本机节点号，不能为广播地址。
  * @return 初始化成功返回 true；参数或静态资源不满足返回 false。
- * @note 注册信息、能力、状态、101/107/110/116及120/121/122路由，不自动绑定业务服务。
+ * @note 注册信息、能力、状态、101/107/110/116、120～122与160～162路由，不自动绑定业务服务。
  *       必须在CAN RX启动前调用；
  *       link 独占路由、队列、去重历史与待发回复；初始化会撤销旧业务和快照绑定。
  *       运行中重置须先停止 RX 和后台服务；runtime 管理硬件启动，不由 link 启动外设。
@@ -50,6 +51,15 @@ bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
  *       所有者须按完整请求身份实现写/保存幂等，未绑定明确返回UNSUPPORTED。
  */
 bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *service);
+
+/**
+ * @brief 绑定标定任务所有者，通信只传递任务类别、请求身份及原始任务号。
+ * @param service 产品提供的任务绑定，NULL撤销绑定。
+ * @return 已初始化且绑定成功返回true，否则false。
+ * @note 后台串行调用；START重试须返回原ticket，取消须核对ticket，不能全局取消新任务。
+ *       不复制标定工作区、不执行算法或Flash，未绑定返回UNSUPPORTED。
+ */
+bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service);
 
 /**
  * @brief 绑定只读电机状态快照源。

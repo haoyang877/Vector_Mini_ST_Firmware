@@ -85,9 +85,12 @@ Flash 错误掩码、有界等待及 APP 健康/监督进展看门狗检查通�
 仍有 547 项未改动文件的历史 lint 豁免，不将全量门禁通过表述为历史风格债全部清零。
 初次候选的漏 include、接口 scanner 空白问题及首次 LoaderApp 的隐式声明警告均已修复，
 失败日志保留，后续编译和检查重新通过。
+首次 release 因当前 shell 未配置 KEIL_UV4，doctor 阶段即失败，没有运行编译；
+原始 `framework-closure-release-20260929` 日志保留。设置本进程环境变量后，
+受支持的 Keil 5.36.0.0 doctor 已通过，不向 tracked 文件写入工作站路径。
 
 最终提交与主线合并后，必须运行干净源码 release，证据位置为
-`outputs/runs/framework-closure-release-20260929/summary.json`；其实际状态为验收依据，
+`outputs/runs/framework-closure-release-final-20260929/summary.json`；其实际状态为验收依据，
 失败时本轮不得宣布完成。构建、输入及实际包哈希与比较详情归
 `outputs/framework-closure-20260929/summary.json`，生成内容不提交。
 

@@ -662,19 +662,14 @@ static bool RunState_ServiceOperations(ModeNow_TypeDef target, bool worker_stopp
                                              (uint32_t)MotorParam_Error);
             }
         }
-        else if (lifecycle.snapshot.operation == APP_OPERATION_ZERO && target == Save_Param)
+        else if ((lifecycle.snapshot.operation == APP_OPERATION_ZERO ||
+                  lifecycle.snapshot.operation == APP_OPERATION_DEFAULTS) &&
+                 target == Save_Param)
         {
-            /* 零位写入成功由 worker 切往 Save_Param 表达：先完成 ZERO 会话。 */
+            /* ZERO/DEFAULTS 由受理后的 worker 应用，再以结果请求保存；两者终态相同。 */
             sent = true;
             (void)RunState_SendOperation(
-                APP_EVENT_OPERATION_DONE, APP_OPERATION_ZERO, APP_EFFECT_UNCOMMITTED, 0U);
-        }
-        else if (lifecycle.snapshot.operation == APP_OPERATION_DEFAULTS && target == Save_Param)
-        {
-            /* 默认值由受理后的 worker 应用，再以结果请求保存。 */
-            sent = true;
-            (void)RunState_SendOperation(
-                APP_EVENT_OPERATION_DONE, APP_OPERATION_DEFAULTS, APP_EFFECT_UNCOMMITTED, 0U);
+                APP_EVENT_OPERATION_DONE, lifecycle.snapshot.operation, APP_EFFECT_UNCOMMITTED, 0U);
         }
         else if (lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION &&
                  ((operation_mode == Calib_Anticogging && target == Save_Param) ||
@@ -801,15 +796,21 @@ static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode)
     }
 }
 
+/* 运行所有者已静止：模式已失能、无目标/占用、资源已释放；调用方负责状态与角色前提。 */
+static bool RunState_OwnerQuiescent(const AppLifecycleGuards *guards)
+{
+    return MotorControl->ModeNow == Motor_Disable && !stop_pending && !bench_speed.active &&
+           !control_pending && !configuration_reading && !background_busy && !outcome_latched &&
+           lifecycle.snapshot.operation == APP_OPERATION_NONE && guards->phases_disabled &&
+           guards->control_idle && guards->operation_idle && guards->maintenance_released;
+}
+
 static bool configuration_idle(void)
 {
     AppLifecycleGuards guards = RunState_BuildGuards();
+    /* 纯布尔合取：ModeNow 在辅助函数内部检查，交换与 ErrorNow 的读取次序不影响结果。 */
     return boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_READY &&
-           MotorControl->ModeNow == Motor_Disable && MotorControl->ErrorNow == No_Error &&
-           !stop_pending && !bench_speed.active && !control_pending && !configuration_reading &&
-           !background_busy && !outcome_latched &&
-           lifecycle.snapshot.operation == APP_OPERATION_NONE && guards.phases_disabled &&
-           guards.control_idle && guards.operation_idle && guards.maintenance_released;
+           MotorControl->ErrorNow == No_Error && RunState_OwnerQuiescent(&guards);
 }
 
 bool FocRunState_ConfigurationAllowed(void)
@@ -1174,11 +1175,7 @@ static void RunState_ServiceBenchRequest(bool worker_idle)
         MotorControlResult submitted = bench_speed.active && !bench_speed.stop_requested
                                            ? FocRunState_SubmitControl(&goal)
                                            : MOTOR_CONTROL_DENIED;
-        result = submitted == MOTOR_CONTROL_ACCEPTED ? FOC_BENCH_SPEED_ACCEPTED
-                 : submitted == MOTOR_CONTROL_BUSY   ? FOC_BENCH_SPEED_BUSY
-                 : submitted == MOTOR_CONTROL_INVALID || submitted == MOTOR_CONTROL_OUT_OF_RANGE
-                     ? FOC_BENCH_SPEED_INVALID
-                     : FOC_BENCH_SPEED_DENIED;
+        result = bench_result(submitted);
         if (submitted == MOTOR_CONTROL_ACCEPTED)
         {
             pending_control_watch_seq = seq;
@@ -1451,11 +1448,7 @@ bool FocRunState_BootHandoffReady(uint64_t ticket)
     AppLifecycleGuards guards = RunState_BuildGuards();
     bool ready = ticket != 0U && ticket == boot_stop_ticket &&
                  (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_FAULT) &&
-                 MotorControl->ModeNow == Motor_Disable && !stop_pending && !bench_speed.active &&
-                 !control_pending && !configuration_reading && !background_busy &&
-                 !outcome_latched && lifecycle.snapshot.operation == APP_OPERATION_NONE &&
-                 guards.phases_disabled && guards.control_idle && guards.operation_idle &&
-                 guards.maintenance_released;
+                 RunState_OwnerQuiescent(&guards);
     critical_hw_exit(mask);
     return ready;
 }

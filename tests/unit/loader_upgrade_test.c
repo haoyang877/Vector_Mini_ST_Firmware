@@ -1,6 +1,7 @@
 /* 纯内存模型：不加载设备DLL、不访问CAN/J-Link；验证升级事务与跳前校验。 */
 #include "upgrade.h"
 #include "image_mailbox.h"
+#include "yg_protocol_upgrade_wire.h"
 #include <assert.h>
 #include <string.h>
 #define MODEL_BASE 0x1000U
@@ -117,7 +118,7 @@ static void build_image(void)
     be32(image + 512, YGI_DESCRIPTOR_MAGIC);
     be32(image + 516, YGI_DESCRIPTOR_VERSION);
     be32(image + 520, YGI_PROFILE);
-    be32(image + 524, 3);
+    be32(image + 524, 4);
     be32(image + 528, 1);
     be32(image + 532, 2);
     be32(image + 536, 1);
@@ -130,7 +131,7 @@ static void build_image(void)
     be32(image + 560, 0);
     be32(manifest, YGI_MANIFEST_MAGIC);
     be32(manifest + 4, YGI_PROFILE);
-    be32(manifest + 8, 3);
+    be32(manifest + 8, 4);
     be32(manifest + 12, 1);
     be32(manifest + 16, 2);
     be32(manifest + 20, 1);
@@ -164,7 +165,7 @@ static void initialize(void)
     config.io.program = program_bytes;
     config.app.base = MODEL_BASE + MODEL_PAGE;
     config.app.bytes = MODEL_PAGE;
-    config.layout = 3;
+    config.layout = 4;
     config.mcu = 1;
     config.product = 2;
     config.hardware = 1;
@@ -277,10 +278,96 @@ static void mailbox_golden(void)
     message.node = 255;
     assert(!BootMailbox_Encode(&message, actual));
 }
+
+static void begin_identity_and_image_compatibility(void)
+{
+    LoaderUpgradeStatus status;
+    LoaderImageIdentity parsed;
+    uint8_t old[96];
+    initialize();
+    (void)begin();
+    uint32_t erased = upgrade.image.erased;
+    assert(LoaderUpgrade_Begin(&upgrade, 2, 9, manifest, &status) == YI_OK);
+    assert(status.binding.session_id == 1U && upgrade.image.erased == erased);
+    assert(LoaderUpgrade_Begin(&upgrade, 2, 10, manifest, &status) == YI_BUSY);
+    assert(LoaderUpgrade_Begin(&upgrade, 3, 9, manifest, &status) == YI_BUSY);
+    memcpy(old, manifest, sizeof(old));
+    old[31] ^= 1U;
+    assert(LoaderUpgrade_Begin(&upgrade, 2, 9, old, &status) == YI_BUSY);
+    memcpy(old, manifest, sizeof(old));
+    be32(old + 4, 0x53593349U);
+    assert(!LoaderImage_DecodeManifest(&config, old, &parsed));
+    memcpy(old, manifest, sizeof(old));
+    be32(old + 8, 3U);
+    assert(!LoaderImage_DecodeManifest(&config, old, &parsed));
+    memcpy(old, manifest, sizeof(old));
+    be32(old + 36, YGI_ROLE_MAINTENANCE);
+    assert(!LoaderImage_DecodeManifest(&config, old, &parsed));
+}
+
+static void descriptor_versions_and_role_are_rejected(void)
+{
+    static const uint32_t offsets[] = {516U, 520U, 524U, 544U};
+    static const uint32_t values[] = {1U, 0x53593349U, 3U, YGI_ROLE_MAINTENANCE};
+    initialize();
+    memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
+    assert(LoaderImage_CheckImage(&config));
+    for (unsigned i = 0U; i < sizeof(offsets) / sizeof(offsets[0]); ++i)
+    {
+        memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
+        uint8_t *candidate = flash_bytes + MODEL_PAGE;
+        be32(candidate + offsets[i], values[i]);
+        be32(candidate + 560U, 0U);
+        be32(candidate + 560U, crc32(candidate, sizeof(image)));
+        /* CRC仍正确，必须由版本/角色判据拒绝，不能只靠破坏摘要。 */
+        assert(!LoaderImage_CheckImage(&config));
+    }
+}
+
+static void activation_rechecks_flash(void)
+{
+    uint32_t i;
+    uint64_t ticket;
+    initialize();
+    LoaderUpgradeBinding binding = begin();
+    for (i = 0; i < sizeof(image); i += 128U)
+    {
+        assert(LoaderUpgrade_Write(&upgrade, &binding, i, image + i, 128U) == YI_OK);
+    }
+    assert(LoaderUpgrade_Finish(&upgrade, &binding) == YI_OK);
+    for (i = 0; i < 10U; ++i)
+    {
+        LoaderUpgrade_Poll(&upgrade);
+    }
+    assert(LoaderUpgrade_Activate(&upgrade, &binding, &ticket) == YI_OK);
+    flash_bytes[MODEL_PAGE + 100U] ^= 1U;
+    assert(!LoaderUpgrade_TxComplete(&upgrade, ticket, true));
+    assert(resets == 0U && upgrade.image.phase == YI_ERROR && upgrade.image.reason == YI_DIGEST);
+}
+
+static void host_nonce_status_golden(void)
+{
+    static const uint8_t expected[40] = {0U, 0U, 0U, 0U, 0U,   0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+                                         0U, 0U, 0U, 6U, 128U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+                                         0U, 0U, 0U, 0U, 0U,   0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    YgProtocolUpgradeReply reply = {.flags = YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY |
+                                             YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE,
+                                    .max_block_bytes = 128U};
+    uint8_t actual[40];
+    assert(YgProtocolUpgrade_EncodeReply(&reply, actual, sizeof(actual), NULL) == YG_PROTOCOL_OK);
+    assert(!memcmp(actual, expected, sizeof(actual)));
+    reply.flags |= 8U;
+    assert(YgProtocolUpgrade_EncodeReply(&reply, actual, sizeof(actual), NULL) ==
+           YG_PROTOCOL_INVALID_FIELD);
+}
 int main(void)
 {
     mailbox_golden();
     complete_and_boot();
     expiry_and_old_session();
+    begin_identity_and_image_compatibility();
+    descriptor_versions_and_role_are_rejected();
+    activation_rechecks_flash();
+    host_nonce_status_golden();
     return 0;
 }

@@ -1,9 +1,15 @@
 # YG2026-ESC-LOADER
 
 当前源码实现：独立 G431 Loader、公司协议 50～55、CAN-FD 1M/5M、单槽整包写入与跳前 CRC32 校验。
-本轮离线构建三工程 0 错误 0 警告；未烧录、未接探针、未操作硬件。详见
-[最简启动/升级方案 v1](../docs/architecture/loader/loader_product_v1.md)和
+2026-09-28审查发现的看门狗、维护角色与协议兼容问题已完成源码修复，仍待发布与台架验收，详见
+[Loader 设计 v2](../docs/architecture/loader/loader_product_v1.md)和
 [实施计划](../docs/plans/completed/2026-09-28-simplified-boot-handoff.md)。
+
+[简化审查与修复计划](../docs/plans/active/2026-09-28-loader-simplification-review-v1.md)
+记录修复与本次离线证据；跳前CRC不能证明APP可正常运行。
+[升级载荷 v2](../docs/protocols/yg_protocol_upgrade_wire_v2.md)采用主机随机nonce及CRC32新profile，
+旧v1主机/SHA包不兼容，维护角色暂不支持。APP仅在监督有进展和本地健康时喂继承看门狗，
+看门狗复位驻留Loader。
 
 - `core/`：唯一升级事务、租约与精确 ACK 票据；不使用持久启动记录。
 - `runtime/`：公司协议与产品启动流程组合；上电读邮箱、现场校验 APP 后跳转。

@@ -20,6 +20,7 @@ NATIVE = (
     "test_fast_loop_math",
     "test_numeric_encoding",
     "test_loader_upgrade",
+    "test_loader_runtime",
     "test_heap_capacity",
     "test_position_config_cache",
     "test_position_config_validation",

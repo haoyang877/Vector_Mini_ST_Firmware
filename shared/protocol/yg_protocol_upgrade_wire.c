@@ -157,8 +157,9 @@ yg_protocol_result_t YgProtocolUpgrade_EncodeReply(const YgProtocolUpgradeReply 
                                                    size_t capacity,
                                                    size_t *written)
 {
-    const uint8_t flag_mask =
-        YG_PROTOCOL_UPGRADE_FLAG_ACTIVATION_PENDING | YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY;
+    const uint8_t flag_mask = YG_PROTOCOL_UPGRADE_FLAG_ACTIVATION_PENDING |
+                              YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY |
+                              YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE;
     if (reply == NULL || payload == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;

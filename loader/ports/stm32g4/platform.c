@@ -21,7 +21,9 @@ static bool read_flash(void *context, uint32_t address, void *out, uint32_t byte
 }
 /* 寄存器级 Flash 编程：G431 单 bank、2 KiB 页、双字写入；不依赖 HAL Flash，省其链接开销。 */
 #define FLASH_ERR_MASK                                                                             \
-    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR)
+    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR |     \
+     FLASH_SR_SIZERR | FLASH_SR_MISERR | FLASH_SR_FASTERR | FLASH_SR_RDERR | FLASH_SR_OPTVERR)
+#define FLASH_TIMEOUT_MS 1000U
 #define FLASH_KEY1_VALUE 0x45670123U
 #define FLASH_KEY2_VALUE 0xCDEF89ABU
 
@@ -41,8 +43,13 @@ static void flash_lock(void)
 /* 等待操作完成并判错误位；完成后清 EOP 与全部错误标志。 */
 static bool flash_ready(void)
 {
+    uint32_t started = LoaderPlatform_NowMs();
     while ((FLASH->SR & FLASH_SR_BSY) != 0U)
     {
+        if ((uint32_t)(LoaderPlatform_NowMs() - started) >= FLASH_TIMEOUT_MS)
+        {
+            return false;
+        }
     }
     bool ok = (FLASH->SR & FLASH_ERR_MASK) == 0U;
     FLASH->SR = FLASH_SR_EOP | FLASH_ERR_MASK | FLASH_SR_OPTVERR;
@@ -56,7 +63,11 @@ static bool flash_erase_page(uint32_t page)
         return false;
     }
     FLASH->SR = FLASH_SR_OPTVERR;
-    (void)flash_ready();
+    if (!flash_ready())
+    {
+        flash_lock();
+        return false;
+    }
     FLASH->CR = (FLASH->CR & ~FLASH_CR_PNB_Msk) | FLASH_CR_PER | (page << FLASH_CR_PNB_Pos);
     FLASH->CR |= FLASH_CR_STRT;
     ok = flash_ready();
@@ -67,21 +78,34 @@ static bool flash_erase_page(uint32_t page)
 static bool flash_program_doubleword(uint32_t address, uint64_t value)
 {
     uint32_t acr = FLASH->ACR;
+    uint32_t key;
     bool ok;
     if (!flash_unlock())
     {
         return false;
     }
-    /* 写前关数据缓存、写后复位再恢复，避免读回不一致。 */
+    FLASH->SR = FLASH_SR_OPTVERR;
+    if (!flash_ready())
+    {
+        flash_lock();
+        return false;
+    }
+    /* 两次32位写不可被普通中断分开；写前关缓存，写后复位并恢复。 */
     FLASH->ACR = acr & ~FLASH_ACR_DCEN;
-    (void)flash_ready();
+    __DSB();
+    key = __get_PRIMASK();
+    __disable_irq();
     FLASH->CR |= FLASH_CR_PG;
     *(volatile uint32_t *)address = (uint32_t)value;
+    __ISB();
     *(volatile uint32_t *)(address + 4U) = (uint32_t)(value >> 32U);
+    __set_PRIMASK(key);
     ok = flash_ready();
     FLASH->CR &= ~FLASH_CR_PG;
     FLASH->ACR = (acr & ~FLASH_ACR_DCEN) | FLASH_ACR_DCRST;
+    __DSB();
     FLASH->ACR = acr;
+    __DSB();
     flash_lock();
     return ok;
 }
@@ -147,16 +171,18 @@ void LoaderPlatform_Fatal(void)
     { /* 未确认安全恢复条件，不自动恢复升级或功率输出。 */
     }
 }
-bool LoaderPlatform_Init(bool *software_reset)
+bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset)
 {
     uint32_t cause = RCC->CSR, remaining = 4000000U;
-    if (software_reset == NULL)
+    if (software_reset == NULL || watchdog_reset == NULL)
     {
         return false;
     }
     *software_reset = (cause & RCC_CSR_SFTRSTF) != 0 &&
                       !(cause & (RCC_CSR_BORRSTF | RCC_CSR_IWDGRSTF | RCC_CSR_WWDGRSTF |
                                  RCC_CSR_OBLRSTF | RCC_CSR_LPWRRSTF));
+    *watchdog_reset = (cause & (RCC_CSR_IWDGRSTF | RCC_CSR_WWDGRSTF)) != 0 &&
+                      !(cause & (RCC_CSR_BORRSTF | RCC_CSR_OBLRSTF | RCC_CSR_LPWRRSTF));
     LoaderBoard_Safe();
     if ((DBGMCU->IDCODE & 0xFFFU) != 0x468U || *(const uint16_t *)FLASHSIZE_BASE != 128U)
     {

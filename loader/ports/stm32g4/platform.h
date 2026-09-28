@@ -5,10 +5,11 @@
 /**
  * @brief 初始化独立 Loader 平台并核对芯片和 Flash 容量。
  * @param software_reset 输出是否为无冷启动/看门狗标志的纯软件复位。
+ * @param watchdog_reset 输出是否为无冷启动标志的看门狗复位，必须驻留救援。
  * @return 硬件符合固定目标且安全输出已关闭返回 true。
  * @note 启动看门狗和独立时钟，不配置 APP 的 PWM/ADC。
  */
-bool LoaderPlatform_Init(bool *software_reset);
+bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset);
 /** @brief 读取包含 Flash 停顿的单调毫秒时钟。 @return 模32位毫秒值。 */
 uint32_t LoaderPlatform_NowMs(void);
 /** @brief 喂独立看门狗；前台有界工作之间调用。 */

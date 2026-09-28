@@ -123,7 +123,7 @@ static void status_reply(YgProtocolUpgradeReply *reply)
     /* 启动记录已移除；这里回显本次会话由主机提供的不透明标识，不代表持久启动号。 */
     reply->boot_epoch = upgrade.binding.boot_epoch;
     reply->max_block_bytes = LOADER_UPGRADE_MAX_BLOCK_BYTES;
-    reply->flags = YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY;
+    reply->flags = YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY | YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE;
     if (!upgrade.initialized || LoaderUpgrade_Status(&upgrade, NULL, &status) != YI_OK)
     {
         reply->phase = YG_PROTOCOL_UPGRADE_PHASE_ERROR;
@@ -346,8 +346,8 @@ int main(void)
 {
     LoaderCanTxEvent event;
     BootMailboxMessage message = {0};
-    bool software_reset, mailbox_valid;
-    if (!LoaderPlatform_Init(&software_reset))
+    bool software_reset, watchdog_reset, mailbox_valid;
+    if (!LoaderPlatform_Init(&software_reset, &watchdog_reset))
     {
         LoaderPlatform_Fatal();
     }
@@ -358,7 +358,8 @@ int main(void)
         LoaderPlatform_Fatal();
     }
     (void)initialize_image();
-    resident = software_reset && mailbox_valid && message.command == YG_BOOT_ENTER;
+    resident =
+        watchdog_reset || (software_reset && mailbox_valid && message.command == YG_BOOT_ENTER);
     (void)yg_protocol_fragment_init(&fragments, assembly, sizeof(assembly));
     started_ms = LoaderPlatform_NowMs();
     for (;;)

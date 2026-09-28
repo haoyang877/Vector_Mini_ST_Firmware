@@ -27,7 +27,7 @@ def main() -> None:
     command = [str(compiler)]
     if compiler.stem.lower() == "zig":
         command.append("cc")
-    for directory in ("shared/image", "shared/boot", "loader/core"):
+    for directory in ("shared/image", "shared/boot", "shared/protocol", "loader/core"):
         command += ["-I", str(ROOT / directory)]
     command += ["-std=c99", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [
@@ -37,6 +37,7 @@ def main() -> None:
             "loader/core/upgrade.c",
             "shared/boot/image_mailbox.c",
             "shared/image/image_transfer.c",
+            "shared/protocol/yg_protocol_upgrade_wire.c",
         )
     ]
     command += ["-o", str(executable)]

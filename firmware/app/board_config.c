@@ -75,10 +75,12 @@ static bool bind_device_description(void)
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
 /* 56 进 Loader 的最小所有者：停机→关相→精确TX完成后写ENTER邮箱复位；无持久确认。 */
 #define BOOT_ENTRY_TIMEOUT_MS 1000U
+#define BOOT_HEALTH_INTERVAL_MS 100U
 static BootEntryRequest entry_request;
 static BootEntryResult entry_result;
 static uint64_t entry_ticket;
 static uint32_t entry_started_ms;
+static uint32_t health_checked_ms, observed_supervisor_epoch;
 static bool entry_requested, boot_supported;
 
 static bool same_request(const BootEntryRequest *left, const BootEntryRequest *right)
@@ -161,7 +163,7 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
     entry_result = BOOT_ENTRY_FAILED;
     if (permitted)
     {
-        (void)BootHw_EnterLoader(entry_request.source_node);
+        (void)BootHw_EnterLoader(Protocol_NodeId_Get());
     }
     critical_hw_exit(mask);
 }
@@ -201,6 +203,16 @@ void Board_ServiceBoot(uint32_t now_ms)
 {
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     poll_entry(now_ms);
+    if ((uint32_t)(now_ms - health_checked_ms) >= BOOT_HEALTH_INTERVAL_MS)
+    {
+        uint32_t progress = 0U;
+        health_checked_ms = now_ms;
+        bool healthy = FocRunState_ReadBootHealth(&progress);
+        healthy = healthy && progress != observed_supervisor_epoch && communication_ready &&
+                  YgProtocolLink_IsReady() && comm_hw_can_is_healthy();
+        observed_supervisor_epoch = progress;
+        BootHw_Watchdog(healthy);
+    }
 #else
     (void)now_ms;
 #endif

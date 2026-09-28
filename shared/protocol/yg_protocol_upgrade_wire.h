@@ -19,6 +19,8 @@
 #define YG_PROTOCOL_UPGRADE_REPLY_BYTES 40U
 #define YG_PROTOCOL_UPGRADE_FLAG_ACTIVATION_PENDING 0x01U
 #define YG_PROTOCOL_UPGRADE_FLAG_INTEGRITY_ONLY 0x02U
+/* 载荷v2：boot字段为主机随机事务nonce，空STATUS可以返回0，旧v1主机须拒绝。 */
+#define YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE 0x04U
 
 /* 与既定公司应用结果显式对齐，产品适配不能直接发送内部枚举值。 */
 #define YG_PROTOCOL_UPGRADE_RESULT_OK 0U
@@ -110,7 +112,7 @@ yg_protocol_result_t YgProtocolUpgrade_DecodeRequest(const yg_protocol_message_t
  * @param written 成功时写入40，可为NULL；失败保持原值。
  * @return 编码成功返回OK；非法阶段/标志/容量或参数返回对应协议错误。
  * @note 不处理ACK票据。激活必须把完整u64内部票据绑定到具体回复帧的物理完成事件。
- *       v1仅声明SHA完整性校验；INTEGRITY_ONLY必须设置，不能宣称签名认证。
+ *       INTEGRITY_ONLY必须设置；HOST_NONCE标识v2身份语义，均不表示签名认证。
  */
 yg_protocol_result_t YgProtocolUpgrade_EncodeReply(const YgProtocolUpgradeReply *reply,
                                                    uint8_t *payload,

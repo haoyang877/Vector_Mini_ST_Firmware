@@ -78,6 +78,8 @@ static volatile bool control_pending;
 static volatile uint32_t fast_sample_epoch;
 static uint32_t observed_fast_sample_epoch;
 static bool fast_samples_fresh;
+/* 监督拍完成计数，只由2kHz所有者推进，前台不能伪造存活证据。 */
+static uint32_t supervisor_epoch;
 static bool RunState_VbusInEnableWindow(void);
 static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode);
 /* 停机清理：按上一模式中止自管辨识，并清零全部参考/影子/滤波量与控制器状态。 */
@@ -1118,6 +1120,7 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
     fast_sample_epoch = 0U;
     observed_fast_sample_epoch = 0U;
     fast_samples_fresh = false;
+    supervisor_epoch = 0U;
 }
 
 /**
@@ -1203,6 +1206,19 @@ bool FocRunState_BootHandoffReady(uint64_t ticket)
                  RunState_OwnerQuiescent(&guards);
     critical_hw_exit(mask);
     return ready;
+}
+
+bool FocRunState_ReadBootHealth(uint32_t *progress)
+{
+    if (progress == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    *progress = supervisor_epoch;
+    bool healthy = RunState_BuildGuards().samples_fresh && lifecycle.snapshot.state != APP_FATAL;
+    critical_hw_exit(mask);
+    return healthy;
 }
 
 /**
@@ -1470,6 +1486,7 @@ void FocRunState_Tick(void)
 
     MotorControl->ModeNow_f = MotorControl->ModeNow;
     MotorControl->ErrorNow_f = MotorControl->ErrorNow;
+    ++supervisor_epoch;
 }
 
 /**

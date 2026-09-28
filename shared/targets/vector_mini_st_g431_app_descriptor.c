@@ -8,8 +8,8 @@
 #ifndef YG_APP_IMAGE_ROLE
 #error Loader APP target requires explicit YG_APP_IMAGE_ROLE
 #endif
-#if YG_APP_IMAGE_ROLE != YGI_ROLE_NORMAL && YG_APP_IMAGE_ROLE != YGI_ROLE_MAINTENANCE
-#error Unsupported APP image role
+#if YG_APP_IMAGE_ROLE != YGI_ROLE_NORMAL
+#error CRC32 profile supports normal APP only
 #endif
 #define BE32_BYTES(v) (uint8_t)((v) >> 24), (uint8_t)((v) >> 16), (uint8_t)((v) >> 8), (uint8_t)(v)
 #define BE16_BYTES(v) (uint8_t)((v) >> 8), (uint8_t)(v)

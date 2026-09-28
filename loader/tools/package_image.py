@@ -40,8 +40,8 @@ def main() -> None:
     words = struct.unpack(">10I2HI16s", bytes(image[offset : offset + 64]))
     expected = (
         0x59494431,
-        1,
-        0x53593349,
+        2,
+        0x53593449,
         value("TARGET_LAYOUT"),
         value("TARGET_MCU"),
         value("TARGET_PRODUCT"),
@@ -51,8 +51,8 @@ def main() -> None:
         parser.error("内嵌描述符目标不匹配；重新用Loader布局工程构建，不在打包时修补")
     role = words[8]
     # 44..47长度与48..63（含CRC占位）在链接后必须保持零，由本工具回填。
-    if role not in (1, 2) or words[12] != 0 or words[13] != bytes(16):
-        parser.error("描述符长度/CRC占位非零或角色不合法；仅支持完整性v1配置")
+    if role != 1 or words[12] != 0 or words[13] != bytes(16):
+        parser.error("描述符长度/CRC占位非零或角色不合法；v2仅支持普通APP")
     if not words[10] <= value("TARGET_SCHEMA") <= words[11]:
         parser.error("描述符不接受当前参数schema")
     while len(image) % 8 != 0:
@@ -78,7 +78,7 @@ def main() -> None:
     manifest = struct.pack(
         ">11I2H32sI12s",
         0x494D3331,
-        0x53593349,
+        0x53593449,
         value("TARGET_LAYOUT"),
         value("TARGET_MCU"),
         value("TARGET_PRODUCT"),
@@ -101,7 +101,7 @@ def main() -> None:
     (output / "image.bin").write_bytes(bytes(image))
     (output / "manifest.bin").write_bytes(manifest)
     metadata = {
-        "format": "loader-image-v1",
+        "format": "loader-image-v2-crc32",
         "target": target["target"],
         "image_bytes": image_bytes,
         "image_crc32": f"{crc:08x}",

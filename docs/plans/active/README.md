@@ -3,6 +3,8 @@
 Create one dated Markdown file per significant active change. Include intent, acceptance
 criteria, progress, decisions, and final evidence. Move the file to `../completed/` when done.
 
+- [Loader简化审查与修复 v1](2026-09-28-loader-simplification-review-v1.md)：95f1aa0a源码审查；看门狗、故障救援、维护角色与协议/profile兼容待修复，纯内存复现已执行。
+
 - [通信、主状态机与 Loader 整体重构 v1](2026-09-28-system-refactor-e-h-d.md)：当前执行裁决；E/H/D 并行完成代码，后期统一测试。
 - [Loader独立产品重构 v1](2026-09-28-loader-product-refactor.md)：公司CAN-FD单协议、raw11保留、独立工程与APP交接；仅代码，待统一验证。
 

@@ -153,6 +153,14 @@ MotorControlResult FocRunState_RequestBootStop(uint64_t ticket);
  */
 bool FocRunState_BootHandoffReady(uint64_t ticket);
 
+/**
+ * @brief 读取监督拍进展与基础采样健康，不要求主机在线或电机已使能。
+ * @param progress 输出已完成监督拍计数；调用方必须比较新进展。
+ * @return 采样新鲜且未进入FATAL返回true；空指针返回false。
+ * @note 前台短临界区只读；通信健康由组合层补充，不授权运动或Flash。
+ */
+bool FocRunState_ReadBootHealth(uint32_t *progress);
+
 typedef enum
 {
     FOC_BACKGROUND_NONE,

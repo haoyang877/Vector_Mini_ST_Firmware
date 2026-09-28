@@ -69,9 +69,8 @@ static bool descriptor_decode(const LoaderImageConfig *c,
     crc = be32(p + YGI_DESCRIPTOR_CRC_OFFSET);
     low = (uint16_t)((uint16_t)p[40] << 8 | p[41]);
     high = (uint16_t)((uint16_t)p[42] << 8 | p[43]);
-    if ((role != YGI_ROLE_NORMAL && role != YGI_ROLE_MAINTENANCE) || low > c->schema ||
-        high < c->schema || low > high || bytes < c->descriptor_offset + 64U ||
-        bytes > c->app.bytes || bytes % 8)
+    if (role != YGI_ROLE_NORMAL || low > c->schema || high < c->schema || low > high ||
+        bytes < c->descriptor_offset + 64U || bytes > c->app.bytes || bytes % 8)
     {
         return false;
     }
@@ -177,8 +176,7 @@ bool LoaderImage_DecodeManifest(const LoaderImageConfig *c,
     low = (uint16_t)((uint16_t)p[44] << 8 | p[45]);
     high = (uint16_t)((uint16_t)p[46] << 8 | p[47]);
     if (!m.token || m.bytes < c->descriptor_offset + 64U || m.bytes > c->app.bytes || m.bytes % 8 ||
-        low > c->schema || high < c->schema || low > high ||
-        (m.role != YGI_ROLE_NORMAL && m.role != YGI_ROLE_MAINTENANCE))
+        low > c->schema || high < c->schema || low > high || m.role != YGI_ROLE_NORMAL)
     {
         return false;
     }

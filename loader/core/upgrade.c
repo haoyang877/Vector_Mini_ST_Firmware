@@ -76,7 +76,8 @@ LoaderImageResult LoaderUpgrade_Begin(LoaderUpgrade *u,
     LoaderUpgrade_Poll(u);
     if (u->active)
     {
-        if (u->binding.source_node != source_node || memcmp(u->image.manifest, manifest, 96) != 0)
+        if (u->binding.source_node != source_node || u->binding.boot_epoch != expected_boot ||
+            memcmp(u->image.manifest, manifest, 96) != 0)
         {
             return YI_BUSY;
         }
@@ -226,6 +227,11 @@ bool LoaderUpgrade_TxComplete(LoaderUpgrade *u, uint64_t ticket, bool success)
             result = u->ports.boot(u->ports.context);
         }
         u->ports.unlock(u->ports.context, key);
+    }
+    else
+    {
+        u->image.phase = YI_ERROR;
+        u->image.reason = YI_DIGEST;
     }
     u->active = false;
     u->in_call = false;

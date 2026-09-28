@@ -603,6 +603,15 @@ static void test_revoke_preserves_worker_fault(void)
 
 int main(void)
 {
+    uint32_t progress, next;
+    reset();
+    assert(FocRunState_ReadBootHealth(&progress) && progress != 0U);
+    assert(FocRunState_ReadBootHealth(&next) && next == progress);
+    tick();
+    assert(FocRunState_ReadBootHealth(&next) && next != progress);
+    FocRunState_Tick();
+    assert(!FocRunState_ReadBootHealth(&next));
+    assert(!FocRunState_ReadBootHealth(NULL));
     test_request_admission();
     test_maintenance_identity();
     test_clear_recovery_contract();

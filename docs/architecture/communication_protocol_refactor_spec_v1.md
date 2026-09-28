@@ -2,13 +2,22 @@
 
 日期：2026-09-20  
 用途：作为 AI、固件开发者和评审人员执行通信协议重构的统一输入。  
-状态：顶层设计与迁移规范；新公司 CAN FD 协议尚未替换当前固件运行路径。
+状态：顶层设计与迁移规范；公司CAN FD已进入APP路径，本轮收口业务与Loader边界，统一测试后进行验收。
 
 命名约定（2026-09-21）：新协议模块、函数和类型统一采用 `yg_protocol_` 前缀，
 例如 `yg_protocol_frame_codec`、`yg_protocol_frame_t` 和 `yg_protocol_header_t`。
 已有来源记录和历史示例的文件名保留，引用指向实际文件。
 
 ## 0. 文档使用说明
+
+2026-09-28当前代码索引：[通信H3计划](../plans/active/2026-09-28-communication-services-h3.md)、
+[公共帧迁移](../protocols/yg_protocol_shared_codec_migration_v1.md)、
+[参数v1](../protocols/yg_protocol_parameter_wire_v1.md)、
+[标定任务v1](../protocols/yg_protocol_calibration_wire_v1.md)、
+[升级v1](../protocols/yg_protocol_upgrade_wire_v1.md)、
+[APP进入Loader v1](../protocols/yg_protocol_boot_entry_wire_v1.md)。
+此轮不构建、不测试；代码已提交不代表生产接线或资源/时序验收通过。
+下文9月21日描述属于历史基线，冲突时以本轮上述版本化字段和真实代码边界为准。
 
 2026-09-21 核心接口以 [核心接口契约 v0.1](../protocols/yg_protocol_core_interfaces_v0_1.md)
 为当前实现索引：包含实际文件、调用顺序、所有权及待完成项；下文目标图不代表已完成实机迁移。
@@ -149,16 +158,18 @@ flowchart TB
     APP[上位机 / RV1126B / 其他节点]
     PORT[平台端口\nFDCAN HAL / UART / Ethernet]
     LINK[yg_protocol_canfd\nCAN FD 链路适配]
-    TRANS[yg_protocol_transfer\n收发队列 / 超时 / 重传]
-    CODEC[yg_protocol_frame_codec\n帧头 / 小端序列化 / CRC]
-    FRAG[yg_protocol_fragment\n分片 / 重组]
+    TRANS[yg_protocol_transfer\n收发队列 / 计数]
+    CODEC[shared/protocol/yg_protocol_frame_codec\n帧头 / 小端序列化 / CRC]
+    FRAG[shared/protocol/yg_protocol_fragment\n分片 / 重组]
     ROUTER[yg_protocol_router\n按 type 路由消息]
     REG[yg_protocol_message_registry\n消息注册和属性]
     SERVICES[协议服务层]
     MOTOR[yg_protocol_motor\n电机控制和状态适配]
     PARAM[yg_protocol_parameter\n参数适配]
     JOB[yg_protocol_job\n辨识 / 标定 / 诊断任务]
-    UPDATE[yg_protocol_update\n升级会话适配]
+    BOOT[yg_protocol_boot\nAPP进入Loader / 精确TX关联]
+    UPGRADE[shared/protocol/yg_protocol_upgrade_wire\n50～55纯载荷]
+    BOOT_OWNER[APP静默交接所有者]
     CONTROL[电机状态机 / FOC / 外环]
     STORE[参数存储 / 标定数据]
     LOADER[Loader / Flash 存储]
@@ -174,11 +185,14 @@ flowchart TB
     SERVICES --> MOTOR
     SERVICES --> PARAM
     SERVICES --> JOB
-    SERVICES --> UPDATE
+    SERVICES --> BOOT
     MOTOR <--> CONTROL
     PARAM <--> STORE
     JOB <--> CONTROL
-    UPDATE <--> LOADER
+    BOOT <--> BOOT_OWNER
+    BOOT_OWNER -.受控进入.-> LOADER
+    LOADER <--> UPGRADE
+    LOADER <--> CODEC
 ```
 
 图中最重要的依赖方向是：
@@ -193,12 +207,12 @@ flowchart TB
 
 | 模块 | 推荐文件 | 主要职责 |
 | --- | --- | --- |
-| 统一类型 | `yg_protocol_wire_types.h/.c` | 版本、flags、错误码、长度上限 |
+| 统一类型 | `shared/protocol/yg_protocol_wire_types.h` | 版本、flags、错误码、长度上限 |
 | CRC | `yg_protocol_crc.h/.c` | CRC8、CRC16 |
 | 帧编解码 | `yg_protocol_frame_codec.h/.c` | 16B 头、payload、CRC、长度和版本 |
 | CAN ID | `yg_protocol_can_id.h/.c` | 29 位 CAN ID 的编解码和优先级 |
 | 分片 | `yg_protocol_fragment.h/.c` | 固定缓存、分片重组和超时 |
-| 传输 | `yg_protocol_transfer.h/.c` | RX/TX 队列、ACK、重试和统计 |
+| 传输 | `yg_protocol_transfer.h/.c` | RX/TX队列和计数；重试由主机与业务所有者负责 |
 | 消息注册 | `yg_protocol_message_registry.h/.c` | type、方向、周期、是否允许分片 |
 | 消息路由 | `yg_protocol_router.h/.c` | 将完整消息送到对应服务 |
 | CAN FD 适配 | `yg_protocol_canfd.h/.c` | FD、BRS、DLC、过滤和硬件帧转换 |
@@ -208,8 +222,12 @@ flowchart TB
 | 服务契约 | `yg_protocol_service.h` | 内部业务结果和异步 token，不直接映射线上枚举 |
 | 电机服务 | `yg_protocol_motor.h/.c` | MotorCommand、MotorStatusSnapshot 转换 |
 | 参数服务 | `yg_protocol_parameter.h/.c` | 参数读写、事务和保存请求 |
-| 任务服务 | `yg_protocol_job.h/.c` | 辨识、标定、诊断任务 |
-| 升级服务 | `yg_protocol_update.h/.c` | 升级会话和 loader 接口 |
+| 任务服务 | `yg_protocol_job.h/.c` | 160～162标定kind/ticket及专用结果 |
+| 升级载荷 | `shared/protocol/yg_protocol_upgrade_wire.h/.c` | 50～55纯编解码；真实镜像事务属于独立Loader |
+| APP进入Loader | `yg_protocol_boot.h/.c`、`shared/boot/loader_entry.h` | 56共享值契约、实际静默所有者及精确TX完成 |
+
+CRC、frame_codec、can_id、fragment也已移到`shared/protocol/`，函数和头文件名不变。
+旧APP泛型`yg_protocol_update`没有生产调用，已删除，不留第二份升级状态机或兼容包装。
 
 第一阶段不必一次创建全部文件。建议先实现 `wire_types`、`crc`、`frame_codec`、`canfd`、`router` 和
 对应测试，确认真实调用关系后再增加只读服务、参数、Job 和升级模块。

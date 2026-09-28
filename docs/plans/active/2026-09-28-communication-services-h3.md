@@ -68,3 +68,10 @@ ROOT批准160～162单帧kind/ticket最小布局；H实现专用任务reply、4B
 Service先消费真实完成、匹配完整u64票据，再交E所有者；不扩普通帧队列。
 E实际APP静默/启动身份/ENTER复位仍由E交付，不能把codec或回调存在当成已安装Loader。
 字段和依赖见[进入Loader v1](../../protocols/yg_protocol_boot_entry_wire_v1.md)。
+
+## 移除旧升级空接口
+
+旧`yg_protocol_update.c/.h`只有legacy contract测试调用，没有APP生产调用或Keil源码项。
+它的OPEN/MANIFEST/QUERY等泛型接口被本轮50～55共享codec与D独立Loader事务取代，删除且不保留包装。
+ROOT需在统一测试前移除native core旧源码项，并将contract中的旧泛型update边界检查迁至真实共享codec；
+这批没有运行旧测试，也不能把旧stub测试作为新升级验收。

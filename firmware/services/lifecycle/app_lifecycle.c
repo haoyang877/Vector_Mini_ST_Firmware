@@ -74,6 +74,18 @@ static void cancel_operation(AppLifecycle *a)
         a->snapshot.operation_effects = APP_EFFECT_UNKNOWN;
     }
 }
+/* 进入停止/故障态：取消操作、撤销作业、推进代际；代际用尽转 FATAL 时不再改状态。 */
+static void enter_stopped_state(AppLifecycle *a, AppLifecycleState state, uint32_t *actions)
+{
+    cancel_operation(a);
+    *actions |= CANCEL_ACTIONS;
+    if (!advance(a, actions))
+    {
+        return;
+    }
+    a->snapshot.state = state;
+    a->snapshot.control_mode = APP_CONTROL_NONE;
+}
 /* 故障入口：立即关相、撤销作业；已处 FAULT 时只累计锁存。 */
 static void fault(AppLifecycle *a, uint32_t faults, uint32_t *actions)
 {
@@ -81,14 +93,7 @@ static void fault(AppLifecycle *a, uint32_t faults, uint32_t *actions)
     *actions |= APP_ACTION_DISABLE_POWER;
     if (a->snapshot.state != APP_FAULT)
     {
-        cancel_operation(a);
-        *actions |= CANCEL_ACTIONS;
-        if (!advance(a, actions))
-        {
-            return;
-        }
-        a->snapshot.state = APP_FAULT;
-        a->snapshot.control_mode = APP_CONTROL_NONE;
+        enter_stopped_state(a, APP_FAULT, actions);
     }
 }
 /* 进入自检：推进代际后请求关相与自检。 */
@@ -115,14 +120,7 @@ static void stopping(AppLifecycle *a, uint32_t *actions)
     }
     if (a->snapshot.state != APP_STOPPING)
     {
-        cancel_operation(a);
-        *actions |= CANCEL_ACTIONS;
-        if (!advance(a, actions))
-        {
-            return;
-        }
-        a->snapshot.state = APP_STOPPING;
-        a->snapshot.control_mode = APP_CONTROL_NONE;
+        enter_stopped_state(a, APP_STOPPING, actions);
     }
 }
 /* 停止确认：资源静默且无待收取消时，按锁存/自检状态收口。 */

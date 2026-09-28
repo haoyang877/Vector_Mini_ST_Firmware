@@ -57,4 +57,6 @@ Loader implementation: [独立产品、内存与失败救援 v1](architecture/lo
 
 APP capacity baseline: [新 APP 编译占用与缩减方向（2026-09-28）](reports/2026-09/app_capacity_baseline_20260928.md).
 
+APP Flash investigation: [超限原因、旧模式调用链与隔离编译对照（2026-09-28）](reports/2026-09/app_flash_root_cause_20260928.md).
+
 Current parameter loading: [仅接受 schema 11，移除历史参数迁移 v1](protocols/parameter_schema11_loading_policy_v1.md).

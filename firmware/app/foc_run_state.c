@@ -627,11 +627,6 @@ static bool RunState_SendOperation(uint32_t events,
     event.completion_epoch = events == APP_EVENT_CANCEL_DONE ? cancel_epoch : operation_epoch;
     event.request_epoch = lifecycle.snapshot.epoch;
     guards = RunState_BuildGuards();
-    if (events == APP_EVENT_CANCEL_DONE && lifecycle.snapshot.state == APP_FAULT)
-    {
-        /* 原故障保持锁存，释放确认不能再次被同一活动故障事件遮蔽。 */
-        guards.active_faults = 0U;
-    }
     result = AppLifecycle_Step(&lifecycle, &event, &guards);
     if (result.rejection == APP_ACCEPTED &&
         (events == APP_EVENT_OPERATION_DONE || events == APP_EVENT_OPERATION_FAILED ||

@@ -165,6 +165,7 @@ bool AppLifecycle_Read(const AppLifecycle *app, AppLifecycleSnapshot *snapshot);
  * @note 优先级 FATAL > FAULT > STOP > CANCEL > 完成通知 > 新请求；完成与新请求同拍
  *       报 INTERRUPTED。LINK_RECOVERED 永不清除锁存；空事件轮询 guards 与停止确认。
  *       当前操作失败按故障处理，不被同拍 STOP 吞掉；陈旧完成不能污染新会话。
+ *       已处 FAULT 可单独确认 CANCEL_DONE，继续锁存全部活动故障；不得伪造 guards 清零。
  *       请求需 request_epoch 且 request_fresh；完成需阶段 epoch。停止/取消不回滚 Flash，
  *       也不承诺效果未提交。被取消的操作必须用新取消 epoch 的 CANCEL_DONE 确认，
  *       且匹配操作、资源静默与实际效果；UNKNOWN 表示提交结果仍需外部查询。

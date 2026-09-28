@@ -213,9 +213,14 @@ AppLifecycle_Step(AppLifecycle *a, const AppLifecycleEvent *e, const AppLifecycl
     }
     if (detected)
     {
+        /* 已锁存FAULT仍允许单独的归还确认；不清故障，也不受理同拍新请求。 */
+        bool releasing_fault = a->snapshot.state == APP_FAULT && events == APP_EVENT_CANCEL_DONE;
         fault(a, detected, &r.actions);
-        r.rejection = APP_REJECT_FAULT;
-        goto done;
+        if (!releasing_fault)
+        {
+            r.rejection = APP_REJECT_FAULT;
+            goto done;
+        }
     }
     if (((a->snapshot.state == APP_STARTING || a->snapshot.state == APP_RUNNING) &&
          !start_allowed(g)) ||

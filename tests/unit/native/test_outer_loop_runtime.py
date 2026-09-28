@@ -30,7 +30,7 @@ def main():
         (ROOT / "firmware/motor/position/angle_feedback.h").read_text(encoding="utf-8"),
         re.M,
     )[1]
-    src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
+    src = (ROOT / "firmware/app/motor_execution.c").read_text(encoding="utf-8")
     speed_src = (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8")
     block = src.split("/* OUTER_RUNTIME_BEGIN", 1)[1].split("/* OUTER_RUNTIME_END */", 1)[0]
     block = "/* OUTER_RUNTIME_BEGIN" + block
@@ -92,13 +92,13 @@ static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef error) {
         + block
         + r"""
 static void slow_tick(void) { MotorOuterLoop_SlowTick(&live, &live_pi, &enc); }
-static void setup(ModeNow_TypeDef mode) {
+static void setup(MotorControlMode mode) {
     memset(&outer, 0, sizeof(outer));
     memset(&live, 0, sizeof(live));
     memset(&live_pi, 0, sizeof(live_pi));
     enc.position = .3f; enc.speed = 0;
     PositionCascade_Reset();
-    live.ModeNow = mode; live.axis_profile_valid = true;
+    live.control_mode = mode; live.axis_profile_valid = true;
     live.pos_error_window = .001f; live.posAcc = .785398f; live.posDec = .523599f;
     live.pos_maxspeed = .6f; live.speed_limit = .8f;
     live.cascade_pos_Kp = 8; live.cascade_pos_Kd = 2;
@@ -120,8 +120,8 @@ int main(void) {
     }
     printf("heap capacity passed: calibration=6144 parameter=%zu pool=%zu minimum_free=%zu\n",
         sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
-    for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
-        setup((ModeNow_TypeDef)mode);
+    for (unsigned mode = MOTOR_CONTROL_SPEED; mode <= MOTOR_CONTROL_POSITION; mode++) {
+        setup((MotorControlMode)mode);
         for (unsigned i = 0; i < 20000; i++) {
             if (i % 1000 == 0)
             {
@@ -133,9 +133,9 @@ int main(void) {
         }
         assert(MotorOuterLoop_IsReady());
         /* Tuning/config invalidity is rejected on the next slow tick with zero output. */
-        setup((ModeNow_TypeDef)mode); slow_tick();
+        setup((MotorControlMode)mode); slow_tick();
         assert(MotorOuterLoop_IsReady());
-        if (mode == Position_Mode)
+        if (mode == MOTOR_CONTROL_POSITION)
         {
             live.posRef = NAN;
         }
@@ -146,18 +146,18 @@ int main(void) {
         slow_tick();
         assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0 && !MotorOuterLoop_IsReady());
         /* Mode change clears readiness; disabled modes publish nothing. */
-        setup((ModeNow_TypeDef)mode); slow_tick();
-        live.ModeNow = Motor_Disable; live.iqRef = 0;
+        setup((MotorControlMode)mode); slow_tick();
+        live.control_mode = MOTOR_CONTROL_NONE; live.iqRef = 0;
         slow_tick();
         assert(!MotorOuterLoop_IsReady() && live.iqRef == 0);
         /* Reset requests are consumed inside the slow tick; the controller rebuilds and republishes. */
-        setup((ModeNow_TypeDef)mode); slow_tick();
+        setup((MotorControlMode)mode); slow_tick();
         MotorOuterLoop_RequestReset();
         assert(!MotorOuterLoop_IsReady());
         slow_tick();
         assert(MotorOuterLoop_IsReady());
         /* Existing faults block output publication. */
-        setup((ModeNow_TypeDef)mode); slow_tick();
+        setup((MotorControlMode)mode); slow_tick();
         live.ErrorNow = Over_Current; live.iqRef = 0; slow_tick();
         assert(live.iqRef == 0);
     }
@@ -174,7 +174,7 @@ int main(void) {
         };
         for (unsigned i = 0; i < sizeof(fields)/sizeof(fields[0]); i++) {
             float invalid = NAN;
-            setup(Position_Mode); live.friction_model_valid = true;
+            setup(MOTOR_CONTROL_POSITION); live.friction_model_valid = true;
             slow_tick(); slow_tick();
             assert(MotorOuterLoop_IsReady());
             memcpy((char *)&live + fields[i], &invalid, sizeof(invalid));
@@ -182,7 +182,7 @@ int main(void) {
         }
     }
     /* PI/ramp arithmetic must match the shared sequential implementation exactly. */
-    setup(Speed_Mode);
+    setup(MOTOR_CONTROL_SPEED);
     slow_tick();
     MotorControl_TypeDef expected = live;
     PI_Controller_TypeDef expected_pi = live_pi;

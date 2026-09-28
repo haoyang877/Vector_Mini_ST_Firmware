@@ -6,7 +6,7 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `firmware/app/` | board_config、bsp_task、foc_task、foc_run、motor_state、foc_mode_dispatch、foc_run_state、rtt_telemetry 等启动与运行组装 |
+| `firmware/app/` | board_config、bsp_task、foc_task、motor_execution、motor_state、motor_maintenance、motor_state_machine、rtt_telemetry 等启动与运行组装 |
 | `firmware/motor/foc/` | FOC、PID、采样及观测器 |
 | `firmware/motor/position/` | 位置伺服与阻抗控制 |
 | `firmware/motor/trajectory/` | 平滑轨迹及梯形轨迹 |
@@ -101,8 +101,9 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 | 所有者 | 状态与调用边界 |
 | --- | --- |
 | `app/motor_state.c` | 私有 MotorControl、FOC、速度 PI、Encoder、Observer、Startup；执行快慢调度，生成值快照，启动参数装载与前台维护 |
-| `app/foc_run_state.c` | 唯一请求/模式提交所有者；Watch/CAN 共用命令邮箱，串行生命周期事件，保存认领与取消身份 |
-| `app/foc_mode_dispatch.c` | 显式参数的模式准入与 worker 分发，返回结果，不接收外部任意模式写入 |
+| `app/motor_state_machine.c` | 唯一请求、正常启相关断和任务衔接所有者；Watch/CAN 共用命令邮箱，串行生命周期事件，保存认领与取消身份 |
+| `app/motor_maintenance.c` | 按维护 kind 调用实际功能和取消；返回功能事实及准入原因，不使用控制模式反推任务 |
+| `app/motor_execution.c` | 有界电流/速度/位置/Vq 控制调度；维护和控制分开选择 |
 | `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |
 | `motor/foc/foc_sensing.c` | 显式采样目标，温度诊断私有，提供窄新鲜度查询 |
 | `motor/identification/foc_cogging_calibration.c` | 私有标定采样、表和补偿状态；候选构建与发布分开，取消不改写前台正在读取的样本 |
@@ -150,7 +151,9 @@ Type3启动值投影归`app/yg_protocol_status_adapter.c`，与协议Service串�
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：
 app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platform/api` 与
 `param_comm_bridge.h` 窄桥访问通信运行态；`motor/data_type.h` 已改用 `<stdint.h>`。后续优先
-拆小接口与纯类型，再提取公共命令服务，最后细化 foc_run 中的模式执行与异步外环上下文。
+拆小接口与纯类型，再提取公共命令服务，控制执行与异步外环上下文现归 motor_execution。
 每步独立验证实时性和状态一致性。
 
 新增 Loader/PC 业务时遵守既定边界；不要重新建立 System 杂项目录，也不要让主机 UI 直接处理 Flash 升级状态机。
+
+当前主状态机完整契约见[功能任务驱动的主状态机 v1](motor_state_machine_v1.md)。

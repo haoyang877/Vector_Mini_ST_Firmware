@@ -1397,9 +1397,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_run.c</FileName>
+              <FileName>motor_execution.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\foc_run.c</FilePath>
+              <FilePath>..\..\..\..\app\motor_execution.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1682,9 +1682,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_mode_dispatch.c</FileName>
+              <FileName>motor_maintenance.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\foc_mode_dispatch.c</FilePath>
+              <FilePath>..\..\..\..\app\motor_maintenance.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1738,9 +1738,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_run_state.c</FileName>
+              <FileName>motor_state_machine.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\foc_run_state.c</FilePath>
+              <FilePath>..\..\..\..\app\motor_state_machine.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>

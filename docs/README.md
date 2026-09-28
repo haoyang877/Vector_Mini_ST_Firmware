@@ -72,3 +72,5 @@ Latest APP capacity: [第一批容量优化结果及验证限制](reports/2026-0
 Unified trigonometry: [统一正余弦查表与容量验证（2026-09-28）](reports/2026-09/unified_trig_20260928.md).
 
 APP capacity continuation: [标定、平台与配置校验空间优化](reports/2026-09/app_flash_continuation_20260928.md).
+
+Motor state machine: [功能任务驱动的主状态机 v1](architecture/motor_state_machine_v1.md).

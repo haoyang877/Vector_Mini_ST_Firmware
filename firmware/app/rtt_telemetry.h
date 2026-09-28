@@ -10,7 +10,7 @@
  * @param iq_feedback_a Iq 测量，A。
  * @note 20 kHz 上下文调用，非阻塞，不读取电机内部对象。
  */
-void RTT_Sampling(ModeNow_TypeDef mode,
+void RTT_Sampling(MotorControlMode mode,
                   float position_rad,
                   float speed_rad_s,
                   float iq_reference_a,

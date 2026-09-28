@@ -6,7 +6,7 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "friction_identification.h"
-#include "motor_work.h"
+#include "motor_task_result.h"
 
 /**
  * @brief 初始化摩擦辨识适配器状态与分频计数。
@@ -38,13 +38,13 @@ void FocFrictionIdentification_Abort(MotorControl_TypeDef *motor,
  * @param motor 电机与控制状态。
  * @param speed_controller 速度环控制器状态。
  * @param encoder 编码器状态。
- * @return 采集中返回 MOTOR_WORK_RUNNING；内核完成时返回 MOTOR_WORK_STOP。
+ * @return 采集中返回 MOTOR_TASK_RUNNING；内核完成时返回 MOTOR_TASK_COMPLETED。
  * @note 仅由 20 kHz 快速中断调用；本任务不写模式或功率级，转换由运行状态机执行。
  */
-MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
-                                                        MotorControl_TypeDef *motor,
-                                                        PI_Controller_TypeDef *speed_controller,
-                                                        Encoder_TypeDef *encoder);
+MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *foc,
+                                               MotorControl_TypeDef *motor,
+                                               PI_Controller_TypeDef *speed_controller,
+                                               Encoder_TypeDef *encoder);
 /**
  * @brief 把辨识结果写入电机参数台账。
  * @param motor 电机与控制状态；成功时写入库仑/粘性摩擦系数并置有效标志。

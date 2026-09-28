@@ -27,7 +27,7 @@ Loader 容量仍未闭合，不能宣称可安装、升级成功或可发布。
 ```text
 firmware/app/                     组合、唯一运行所有者、值命令适配与观测
   board_config.c                 初始化 → 服务绑定 → 协议硬件启动
-  foc_run_state.c                 生命周期调度、统一命令准入、Watch、故障与代际撤销
+  motor_state_machine.c         生命周期调度、统一命令准入、Watch、故障与代际撤销
   motor_state.c                  私有电机对象、参数活动版本、维护资源与保存实际结果
   yg_protocol_owner_adapter.c    参数/维护/生命周期服务适配
 firmware/services/
@@ -132,3 +132,6 @@ D 为 17dc8528 与说明 fc6a344。E 在本树集成提交为 82e94822、a30e9ce
 `e8293007651aa89d34f33b2860c263733eb6b549`，工程输入提交为 `8a813808`。
 本批自动协调至此暂停，等待用户统一测试指令；容量与本页未完成项继续保留。
 后续按本批提交逆序回退；不得 reset/clean 用户现场、历史实机工程或其他工作树。
+
+本页记录集成时的开发候选；当前主状态机实现与离线验收范围见
+[功能任务驱动的主状态机 v1](../architecture/motor_state_machine_v1.md)。

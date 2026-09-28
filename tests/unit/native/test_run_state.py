@@ -17,15 +17,15 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     fixture = (ROOT / "tests/unit/native/run_state_owner_test.c").read_text(encoding="utf-8")
     # 准入与两项确定性计算沿用生产体；完整状态所有者独立编译，不替换内部状态。
-    mode = (ROOT / "firmware/app/foc_mode_dispatch.c").read_text(encoding="utf-8")
     algorithm = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
-    fixture += "\n" + function_source(mode, "FocMode_Admit")
     fixture += "\n" + function_source(algorithm, "FOC_MaximumVoltage")
     fixture += (
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
     fixture += function_source(sensing, "MotorCurrentOffsets_Valid")
+    adapter = (ROOT / "firmware/app/yg_protocol_status_adapter.c").read_text(encoding="utf-8")
+    fixture += "\n" + function_source(adapter, "protocol_mode")
     source = output / "run_state_owner.c"
     source.write_text(fixture, encoding="utf-8")
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
@@ -44,7 +44,8 @@ def main() -> None:
             "-Werror",
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(source),
-            str(ROOT / "firmware/app/foc_run_state.c"),
+            str(ROOT / "firmware/app/motor_state_machine.c"),
+            str(ROOT / "firmware/app/motor_maintenance.c"),
             str(ROOT / "firmware/services/lifecycle/app_lifecycle.c"),
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
@@ -82,6 +83,34 @@ def main() -> None:
         ]
     )
     for invocation in (cogging_command, [str(cogging)]):
+        result = subprocess.run(invocation, capture_output=True, text=True)
+        logs.append(result.stdout + result.stderr)
+        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        print(logs[-1], end="")
+        result.check_returncode()
+
+    completion = output / "maintenance_completion.exe"
+    completion_command = (
+        compiler
+        + NATIVE_INCLUDE_FLAGS
+        + [
+            "-std=c99",
+            "-O1",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
+            str(ROOT / "tests/unit/native/maintenance_completion_test.c"),
+            str(ROOT / "firmware/motor/identification/foc_phase_resistance.c"),
+            str(ROOT / "firmware/motor/identification/phase_resistance.c"),
+            str(ROOT / "firmware/motor/identification/foc_friction_identification.c"),
+            str(ROOT / "firmware/motor/identification/friction_identification.c"),
+            "-o",
+            str(completion),
+        ]
+    )
+    for invocation in (completion_command, [str(completion)]):
         result = subprocess.run(invocation, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
         (output / "test.log").write_text("\n".join(logs), encoding="utf-8")

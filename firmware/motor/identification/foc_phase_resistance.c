@@ -165,8 +165,8 @@ PhaseResistanceMode_MapCoreStatus(PhaseResistanceCoreStatus_TypeDef status)
     return PHASE_RESISTANCE_MODE_INVALID_RESULT;
 }
 
-PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
-                                                          MotorControl_TypeDef *motor)
+static PhaseResistanceModeStatus_TypeDef phase_resistance_step(FOC_TypeDef *foc,
+                                                               MotorControl_TypeDef *motor)
 {
     PhaseResistanceCommand_TypeDef command;
     PhaseResistanceSample_TypeDef sample;
@@ -303,4 +303,29 @@ void PhaseResistanceMode_Cancel(FOC_TypeDef *foc, MotorControl_TypeDef *motor)
 bool PhaseResistanceMode_IsReleased(void)
 {
     return !PhaseResistanceModeContext.started;
+}
+
+MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *foc, MotorControl_TypeDef *motor)
+{
+    PhaseResistanceModeStatus_TypeDef status = phase_resistance_step(foc, motor);
+    if (status != PHASE_RESISTANCE_MODE_RUNNING)
+    {
+        /* 终态自行归还执行状态，不依赖下一禁用周期的外部取消。 */
+        PhaseResistanceModeContext.started = false;
+    }
+    switch (status)
+    {
+    case PHASE_RESISTANCE_MODE_DONE:
+        return (MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error};
+    case PHASE_RESISTANCE_MODE_SETTLE_TIMEOUT:
+        return (MotorTaskResult){MOTOR_TASK_FAILED, Large_Phase_Resistance};
+    case PHASE_RESISTANCE_MODE_INVALID_RESULT:
+        return (MotorTaskResult){MOTOR_TASK_FAILED, MotorParam_Error};
+    case PHASE_RESISTANCE_MODE_UNDER_VOLTAGE:
+        return (MotorTaskResult){MOTOR_TASK_FAILED, Under_Voltage};
+    case PHASE_RESISTANCE_MODE_OVER_VOLTAGE:
+        return (MotorTaskResult){MOTOR_TASK_FAILED, Over_Voltage};
+    default:
+        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    }
 }

@@ -193,7 +193,7 @@
         <Ww>
           <count>7</count>
           <WinNumber>1</WinNumber>
-          <ItemText>\\Vector_Mini_ST\../../../../app/foc_task.c\MotorControl.ModeNow</ItemText>
+          <ItemText>\\Vector_Mini_ST\../../../../app/foc_task.c\MotorControl.control_mode</ItemText>
         </Ww>
         <Ww>
           <count>8</count>
@@ -745,8 +745,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\..\app\foc_run.c</PathWithFileName>
-      <FilenameWithoutPath>foc_run.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\..\app\motor_execution.c</PathWithFileName>
+      <FilenameWithoutPath>motor_execution.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -829,8 +829,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\..\app\foc_mode_dispatch.c</PathWithFileName>
-      <FilenameWithoutPath>foc_mode_dispatch.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\..\app\motor_maintenance.c</PathWithFileName>
+      <FilenameWithoutPath>motor_maintenance.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -841,8 +841,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\..\app\foc_run_state.c</PathWithFileName>
-      <FilenameWithoutPath>foc_run_state.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\..\app\motor_state_machine.c</PathWithFileName>
+      <FilenameWithoutPath>motor_state_machine.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

@@ -1,5 +1,5 @@
 #include "fast_loop_profile.h"
-#include "foc_run.h"
+#include "motor_execution.h"
 #include <math.h>
 #include <string.h>
 
@@ -13,6 +13,9 @@
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "utils.h"
+#include "motor_state_machine.h"
+#include "motor_maintenance.h"
+#include "motor_hw.h"
 
 /* 运行模式任务入口：电流/速度/位置/Vq 模式的快速环执行，
  * 以及延迟外环运行时的发布与保护接口。本文件只做任务编排与状态适配，
@@ -334,7 +337,7 @@ static struct
 {
     volatile bool reset_requested;
     bool ready, telemetry_valid;
-    ModeNow_TypeDef mode;
+    MotorControlMode mode;
     PositionCascadeTelemetry_TypeDef published_telemetry;
 } outer;
 
@@ -355,7 +358,7 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float posi
     {
         return false;
     }
-    if (m->ModeNow == Speed_Mode)
+    if (m->control_mode == MOTOR_CONTROL_SPEED)
     {
         return isfinite(m->speedRef) && isfinite(m->speedAcc) && isfinite(m->speedDec) &&
                isfinite(m->current_limit) && m->current_limit > 0.0f && isfinite(m->speed_Kp) &&
@@ -424,15 +427,16 @@ void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
                              Encoder_TypeDef *encoder)
 {
     PositionCascadeControlOutput_TypeDef output;
-    bool active = m->ModeNow == Position_Mode || m->ModeNow == Speed_Mode;
+    bool active =
+        m->control_mode == MOTOR_CONTROL_POSITION || m->control_mode == MOTOR_CONTROL_SPEED;
     float position = Encoder_GetMecPos(encoder);
-    float speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder)
-                                           : Encoder_GetMecVelContinuous(encoder);
+    float speed = m->control_mode == MOTOR_CONTROL_SPEED ? Encoder_GetMecVel(encoder)
+                                                         : Encoder_GetMecVelContinuous(encoder);
 
-    if (m->ModeNow != outer.mode)
+    if (m->control_mode != outer.mode)
     {
         MotorOuterLoop_RequestReset();
-        outer.mode = m->ModeNow;
+        outer.mode = m->control_mode;
         if (active)
         {
             m->idRef = 0.0f;
@@ -459,7 +463,7 @@ void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
         return;
     }
 
-    if (m->ModeNow == Position_Mode)
+    if (m->control_mode == MOTOR_CONTROL_POSITION)
     {
         bool valid;
         if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), m))
@@ -532,4 +536,53 @@ void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_
     MotorControl->iqRef = 0.0f;
 
     FOC_Vq_Mode(FOC, MotorControl, Encoder_GetElePhase(Encoder), Encoder_GetEleVel(Encoder));
+}
+
+/* 同一快速周期只执行一个已获准功能，维护与控制不共享模式编号。 */
+MotorTaskResult MotorExecution_FastStep(FOC_TypeDef *foc,
+                                        MotorControl_TypeDef *motor,
+                                        PI_Controller_TypeDef *pi,
+                                        Encoder_TypeDef *encoder,
+                                        Fluxobserver_TypeDef *observer,
+                                        SensorlessStartup_TypeDef *startup)
+{
+    if (motor->ErrorNow != No_Error)
+    {
+        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    }
+    if (MotorStateMachine_MaintenanceRunnable())
+    {
+        return MotorMaintenance_Step(
+            MotorStateMachine_GetMaintenanceKind(), foc, motor, pi, encoder, observer, startup);
+    }
+    AppLifecycleState state = MotorStateMachine_GetState();
+    if (state != APP_STARTING && state != APP_RUNNING)
+    {
+        motor_hw_pwm_set_duty(0.5f, 0.5f, 0.5f);
+        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    }
+    switch (motor->control_mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        Task_Current_Mode(foc, motor, encoder, observer);
+        if (FocCogging_TakeTorqueTrip())
+        {
+            return (MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, No_Error};
+        }
+        break;
+    case MOTOR_CONTROL_SPEED:
+        FOC_Current(foc, motor, Encoder_GetElePhase(encoder), Encoder_GetEleVel(encoder));
+        break;
+    case MOTOR_CONTROL_POSITION:
+        FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_WITH_CURRENT);
+        FOC_Current(foc, motor, Encoder_GetElePhase(encoder), Encoder_GetEleVel(encoder));
+        FAST_PROFILE_END(FAST_PROFILE_POSITION_WITH_CURRENT);
+        break;
+    case MOTOR_CONTROL_VQ:
+        Task_Vq_Mode(foc, motor, encoder);
+        break;
+    default:
+        break;
+    }
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
 }

@@ -10,7 +10,7 @@ from project_paths import ROOT
 
 SERVO_HEADER = ROOT / "firmware/motor/position/position_cascade.h"
 SERVO_SOURCE = ROOT / "firmware/motor/position/position_cascade.c"
-FOC_ADAPTER = ROOT / "firmware/app/foc_run.c"
+FOC_ADAPTER = ROOT / "firmware/app/motor_execution.c"
 
 
 class PositionServoBoundaryTests(unittest.TestCase):

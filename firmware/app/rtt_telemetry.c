@@ -5,7 +5,7 @@
 #include "SEGGER_RTT.h"
 #include "angle_feedback.h"
 #include "control_config.h"
-#include "foc_run.h"
+#include "motor_execution.h"
 #include "data_type.h"
 #include "utils.h"
 
@@ -55,7 +55,7 @@ static float RTT_WrapSingleTurn(float angle)
 }
 
 /* 分频计数跨调用保持；本函数不修改任何控制状态。 */
-void RTT_Sampling(ModeNow_TypeDef mode,
+void RTT_Sampling(MotorControlMode mode,
                   float position_rad,
                   float speed_rad_s,
                   float iq_reference_a,
@@ -71,7 +71,7 @@ void RTT_Sampling(ModeNow_TypeDef mode,
     /* 2 kHz 伺服已在 TIM7 监督上下文执行：本帧不再与慢估计叠加，
      * 仅保留"位置模式外环未就绪时延后一帧"的保护。 */
 #if CASCADE_POSITION_LOOP_DIVIDER > 1U
-    if (mode == Position_Mode && !MotorOuterLoop_IsReady())
+    if (mode == MOTOR_CONTROL_POSITION && !MotorOuterLoop_IsReady())
     {
         return;
     }

@@ -6,7 +6,7 @@ void FOC20kHzIRQHandler(void)
 {
     MotorControl_FastTick();
 }
-ModeNow_TypeDef FOC2kHzSupervisor(void)
+MotorControlMode FOC2kHzSupervisor(void)
 {
     return MotorControl_SlowTick();
 }

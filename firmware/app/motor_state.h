@@ -4,6 +4,7 @@
 #include "data_type.h"
 #include "motor_status.h"
 #include "app_lifecycle.h"
+#include "motor_lifecycle_request.h"
 #include "parameter_value_service.h"
 /**
  * @brief 装载参数并初始化唯一电机执行对象。
@@ -20,15 +21,18 @@ void MotorControl_FastTick(void);
  * @return 本次提交后的模式，仅用于指示器。
  * @note 2 kHz TIM7 上下文。
  */
-ModeNow_TypeDef MotorControl_SlowTick(void);
+MotorControlMode MotorControl_SlowTick(void);
 /**
  * @brief 采集一致的只读电机测量值。
  * @param sample 调用方快照空间，不保留指针。
  * @param valid_bits 接收既有测量有效位。
+ * @param maintenance_kind 接收同一临界区内的维护任务类型，空闲为 NONE。
  * @return 关联的生命周期状态。
  * @note 前台调用；内部短临界区，不暴露控制对象地址。
  */
-AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample, uint8_t *valid_bits);
+AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample,
+                                          uint8_t *valid_bits,
+                                          MotorMaintenanceKind *maintenance_kind);
 /**
  * @brief 执行受理的停机前台维护。
  * @note 主循环调用；表整理和 Flash 操作禁止在 ISR 执行。

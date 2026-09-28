@@ -3,6 +3,7 @@
 
 #include "foc_algorithm.h"
 #include "phase_resistance.h"
+#include "motor_task_result.h"
 
 /**
  * @file foc_phase_resistance.h
@@ -54,8 +55,7 @@ typedef struct
  * @return 运行、完成或具体失败原因。
  * @note 20 kHz 调度；模式提交由 APP 所有者负责。
  */
-PhaseResistanceModeStatus_TypeDef PhaseResistanceMode_Run(FOC_TypeDef *foc,
-                                                          MotorControl_TypeDef *motor);
+MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *foc, MotorControl_TypeDef *motor);
 
 /**
  * @brief 复制辨识使用的最近电流电压样本。

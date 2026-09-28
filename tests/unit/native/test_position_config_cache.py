@@ -25,7 +25,7 @@ def main():
     args = p.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    source = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/motor_execution.c").read_text(encoding="utf-8")
     reference = subprocess.check_output(
         ["git", "show", args.reference_ref + ":Foc/foc_run.c"], cwd=ROOT
     ).decode("utf-8")

@@ -5,28 +5,7 @@
 #include <stdint.h>
 #include "motor_axis_profile.h"
 
-/* 内部模式号仍用于状态/台架记录；删除的 12/16/18 不再定义，也不重新分配。 */
-typedef enum
-{
-    Motor_Disable = 0,
-    Current_Mode,
-    Speed_Mode,
-    Position_Mode,
-    Calib_Motor_R_L_Flux,
-    Calib_EncoderOffset,
-    Calib_Anticogging,
-    Set_ZeroPosition,
-    Default_Param,
-    Save_Param,
-    Clear_Error,
-    Calib_CurrentOffset,
-    Calib_EncoderObserver = 13,
-    Vq_Mode = 14,
-    Calib_EleAngelOffset = 15,
-    Calib_PhaseResistance = 17,
-    Calib_Friction = 19,
-    MODE_NUM
-} ModeNow_TypeDef;
+#include "motor_control_mode.h"
 
 typedef enum
 {
@@ -52,10 +31,9 @@ typedef enum
 
 typedef struct
 {
-    ModeNow_TypeDef ModeNow;
+    MotorControlMode control_mode;
     ErrorNow_TypeDef ErrorNow;
 
-    float ModeNow_f;
     float ErrorNow_f;
 
     float A_Offset; /* fractional 12-bit ADC counts, same units as stored parameters */
@@ -89,7 +67,7 @@ typedef struct
     float iqRef;
     float iq_Kp;
     float iq_Ki;
-    /*q-axis voltage command (V), used by Vq_Mode*/
+    /*q-axis voltage command (V), used by MOTOR_CONTROL_VQ*/
     float vqRef;
 
     bool isUseSpeedRamp;

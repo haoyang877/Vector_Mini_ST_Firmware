@@ -38,11 +38,7 @@ uint16_t motor_hw_vbus_sample_raw(void) {
 static MotorControl_TypeDef MotorControl;
 static FOC_TypeDef FOC;
 static Encoder_TypeDef OnBoard_Encoder;
-static bool FocCogging_CanStart(const MotorControl_TypeDef *m,const Encoder_TypeDef *e) { (void)m;(void)e; return true; }
 static void MotorFault_Report(MotorControl_TypeDef *m,ErrorNow_TypeDef e) { m->ErrorNow=e; }
-static bool Encoder_IsOnline(const Encoder_TypeDef *e) { (void)e; return true; }
-static uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
-static float Encoder_GetMecPos(const Encoder_TypeDef *e) { (void)e; return 0; }
 """
 
 CASES = r"""
@@ -52,13 +48,14 @@ static void input(float v) {
 }
 static void reset(float v) {
     memset(&MotorControl,0,sizeof(MotorControl));
+    MotorControl.control_mode=MOTOR_CONTROL_NONE;
     input(v); FOC.Vbus_filt=v;
-    Vbus_Update(&FOC,&MotorControl); /* Disabled sample resets all counters. */
+    Vbus_Update(&FOC,&MotorControl,MotorControl.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
     MotorControl.axis_profile_valid=true;
     OnBoard_Encoder.calib_flag=3;
 }
-static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl); }
-static void running(float v) { reset(v);MotorControl.ModeNow=Speed_Mode; }
+static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl,MotorControl.control_mode!=MOTOR_CONTROL_NONE); }
+static void running(float v) { reset(v);MotorControl.control_mode=MOTOR_CONTROL_SPEED; }
 /* 正有限 float 的位模式有序；独立整数区间作参考，不复用待测浮点判定。 */
 static void test_enable_window(void) {
     float lower = BUS_VOLTAGE_ENABLE_MIN_V, upper = BUS_VOLTAGE_ENABLE_MAX_V;
@@ -99,9 +96,6 @@ static void test_enable_window(void) {
 int main(void) {
     unsigned k;
     test_enable_window();
-    ModeNow_TypeDef modes[]={Current_Mode,Speed_Mode,Position_Mode,
-        Calib_PhaseResistance,Vq_Mode,Calib_EncoderObserver,Calib_EleAngelOffset,
-        Calib_Friction,Calib_Anticogging};
     /* Full 8S charge must run beyond both the old 10000-cycle window and
      * the new delays, without inheriting the old 30 V false threshold. */
     running(33.6f);tick(40000);assert(MotorControl.ErrorNow==No_Error);
@@ -124,49 +118,18 @@ int main(void) {
     running(23.9f);tick(1900);input(30);tick(1000);
     input(23.9f);tick(1900);assert(MotorControl.ErrorNow==No_Error);
     puts("PASS isolated spikes and interrupted dips do not accumulate");
-    running(34.2f);tick(39);MotorControl.ModeNow=Motor_Disable;tick(1);
-    MotorControl.ModeNow=Speed_Mode;tick(39);assert(MotorControl.ErrorNow==No_Error);
+    running(34.2f);tick(39);MotorControl.control_mode=MOTOR_CONTROL_NONE;tick(1);
+    MotorControl.control_mode=MOTOR_CONTROL_SPEED;tick(39);assert(MotorControl.ErrorNow==No_Error);
     tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
-    running(23.9f);tick(1999);MotorControl.ModeNow=Motor_Disable;tick(1);
-    MotorControl.ModeNow=Speed_Mode;tick(1999);assert(MotorControl.ErrorNow==No_Error);
+    running(23.9f);tick(1999);MotorControl.control_mode=MOTOR_CONTROL_NONE;tick(1);
+    MotorControl.control_mode=MOTOR_CONTROL_SPEED;tick(1999);assert(MotorControl.ErrorNow==No_Error);
     tick(1);assert(MotorControl.ErrorNow==Under_Voltage);
     puts("PASS disable resets both confirmation counters");
-    for(k=0;k<sizeof(modes)/sizeof(modes[0]);k++) {
-        running(34.2f);MotorControl.ModeNow=modes[k];tick(40);
-        assert(MotorControl.ErrorNow==Over_Voltage);
-        reset(34.2f);assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,modes[k]));
-        assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==Over_Voltage);
-        reset(24.5f);assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,modes[k]));
-        assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==Under_Voltage);
-    }
-    puts("PASS all torque modes protected, unsafe start rejected");
-    /* 数值不能因删除枚举而重分配，内部入口也不能接受旧编号或未知值。 */
-    assert(Current_Mode == 1 && Speed_Mode == 2 && Position_Mode == 3);
-    assert(Calib_EncoderObserver == 13 && Vq_Mode == 14 && Calib_EleAngelOffset == 15);
-    assert(Calib_PhaseResistance == 17 && Calib_Friction == 19);
-    unsigned rejected[] = {4U, 5U, 11U, 12U, 16U, 18U, 20U, 255U};
-    for(k=0;k<sizeof(rejected)/sizeof(rejected[0]);k++) {
-        reset(33.0f);
-        MotorControl.posRef=1.25f;
-        assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,
-                              (ModeNow_TypeDef)rejected[k]));
-        assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==No_Error);
-        assert(MotorControl.posRef==1.25f);
-    }
-    puts("PASS retired and unknown mode IDs rejected without state changes");
-    reset(33.6f);assert(FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
-    reset(25.7f);assert(FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
-    reset(33.9f);assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
-    reset(25.5f);assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
-    reset(24.5f);MotorControl.ModeNow=Speed_Mode;
-    tick(3000);assert(MotorControl.ErrorNow==No_Error); /* recovery band is start-only */
-    MotorControl.ModeNow=Motor_Disable;
-    puts("PASS restart hysteresis does not interrupt legal running voltage");
-    reset(33);FOC.Vbus_filt=NAN;assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
-    running(33);FOC.Vbus_filt=NAN;tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
-    running(34.2f);MotorControl.ErrorNow=Encoder_Error;tick(100);
-    assert(MotorControl.ErrorNow==Encoder_Error);
-    puts("PASS nonfinite sensing fails closed and first fault is retained");
+    /* 维护执行器不再借用控制模式值；同一显式保护许可覆盖转矩维护。 */
+    reset(34.2f);
+    for(k=0;k<40;k++) Vbus_Update(&FOC,&MotorControl,true);
+    assert(MotorControl.ErrorNow==Over_Voltage);
+    puts("PASS explicit maintenance power expectation protected independently of control mode");
     return 0;
 }
 """
@@ -188,12 +151,7 @@ def main():
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/foc_mode_dispatch.c").read_text(encoding="utf-8"),
-            "FocMode_Admit",
-        )
-        + "\n"
-        + function_source(
-            (ROOT / "firmware/app/foc_run_state.c").read_text(encoding="utf-8"),
+            (ROOT / "firmware/app/motor_state_machine.c").read_text(encoding="utf-8"),
             "RunState_VbusInEnableWindow",
         ).replace("FOC->", "FOC.")
         + CASES

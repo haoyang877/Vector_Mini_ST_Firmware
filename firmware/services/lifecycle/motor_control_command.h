@@ -3,14 +3,7 @@
 
 #include <stdint.h>
 
-/** @brief 电机业务模式，独立于线路编号和历史 ModeNow 枚举。 */
-typedef enum
-{
-    MOTOR_CONTROL_CURRENT = 0,
-    MOTOR_CONTROL_SPEED,
-    MOTOR_CONTROL_POSITION,
-    MOTOR_CONTROL_VQ
-} MotorControlMode;
+#include "motor_control_mode.h"
 
 /** @brief 已转换到 SI 单位的单轴值命令；未使用的目标字段必须为零。 */
 typedef struct

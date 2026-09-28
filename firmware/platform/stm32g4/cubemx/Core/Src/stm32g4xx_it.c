@@ -27,7 +27,7 @@
 #include "dma.h"
 #include "fast_loop_profile.h"
 #include "fdcan.h"
-#include "foc_run.h"
+#include "motor_execution.h"
 #include "foc_task.h"
 #include "yg_protocol_canfd_irq.h"
 #include "tim.h"

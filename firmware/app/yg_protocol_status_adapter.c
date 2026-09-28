@@ -8,7 +8,7 @@
 #include "data_type.h"
 #include "foc_algorithm.h"
 #include "foc_sensing.h"
-#include "foc_run_state.h"
+#include "motor_state_machine.h"
 #include "motor_state.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_motor_status.h"
@@ -70,28 +70,28 @@ static uint32_t fault_bits(ErrorNow_TypeDef error)
     }
 }
 
-static uint8_t protocol_mode(ModeNow_TypeDef mode)
+/* 业务控制与维护类型只在协议边界映射为既有线上模式号。 */
+static uint8_t protocol_mode(MotorControlMode mode, MotorMaintenanceKind kind)
 {
+    if (kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO ||
+        kind == MOTOR_MAINTENANCE_COGGING)
+    {
+        return 7U;
+    }
+    if (kind == MOTOR_MAINTENANCE_PHASE_RESISTANCE || kind == MOTOR_MAINTENANCE_FRICTION)
+    {
+        return 8U;
+    }
     switch (mode)
     {
-    case Current_Mode:
+    case MOTOR_CONTROL_CURRENT:
         return 1U;
-    case Speed_Mode:
+    case MOTOR_CONTROL_SPEED:
         return 2U;
-    case Position_Mode:
+    case MOTOR_CONTROL_POSITION:
         return 3U;
-    case Vq_Mode:
+    case MOTOR_CONTROL_VQ:
         return 6U;
-    case Calib_EncoderOffset:
-    case Calib_CurrentOffset:
-    case Calib_Anticogging:
-    case Calib_EncoderObserver:
-    case Calib_EleAngelOffset:
-        return 7U;
-    case Calib_Motor_R_L_Flux:
-    case Calib_PhaseResistance:
-    case Calib_Friction:
-        return 8U;
     default:
         return 0U;
     }
@@ -139,10 +139,11 @@ void YgProtocolStatusAdapter_Refresh(void)
         return;
     }
     /* 前台独占 source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
+    MotorMaintenanceKind kind;
     AppLifecycleState state =
-        MotorControl_ReadStatus(&source.sample, &source.measurement_valid_bits);
+        MotorControl_ReadStatus(&source.sample, &source.measurement_valid_bits, &kind);
     source.faults = fault_bits((ErrorNow_TypeDef)source.sample.fault);
-    source.mode = protocol_mode((ModeNow_TypeDef)source.sample.mode);
+    source.mode = protocol_mode((MotorControlMode)source.sample.mode, kind);
     source.state = state == APP_FATAL                ? 9U
                    : source.sample.fault != No_Error ? 8U
                                                      : protocol_state(state, source.mode);

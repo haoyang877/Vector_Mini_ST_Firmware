@@ -5,7 +5,7 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "cogging_calibration.h"
-#include "motor_work.h"
+#include "motor_task_result.h"
 /* 齿槽适配边界：表、补偿状态与采样会话私有；调用方传入明确控制对象。 */
 #include "cogging_compensation.h"
 
@@ -24,16 +24,14 @@ bool FocCogging_CanStart(const MotorControl_TypeDef *motor, const Encoder_TypeDe
  * @param motor 电机控制状态。
  * @param pi 标定专用位置 PI（复用速度环控制器对象）。
  * @param encoder 编码器状态。
- * @return 结果协议：完成返回 SWITCH_MODE(Motor_Disable)+power_off；失败返回 FAULT；
- *         其余返回 RUNNING。
- * @note 由 20 kHz 电流环上下文调用；不再自行停相或写模式——停相与模式回退由运行
- *       状态机按结果协议执行；会话启动时仍由本函数按准入条件启相（自管启动边界，
- *       受 CanStart 与会话安全门守卫）。失败/中止在本函数内完成本地状态清理。
+ * @return 零矢量准备完成为 PREPARED，采集结束为 FINALIZE，失败为 FAILED，其余 RUNNING。
+ * @note 20 kHz 调用；不启相、不停相、不选择下一任务；所有者按 epoch/guards
+ *       授予功率许可，采集结束后关相并认领前台整理。失败只清理功能本地状态。
  */
-MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *foc,
-                                         MotorControl_TypeDef *motor,
-                                         PI_Controller_TypeDef *pi,
-                                         Encoder_TypeDef *encoder);
+MotorTaskResult FocCogging_Task(FOC_TypeDef *foc,
+                                MotorControl_TypeDef *motor,
+                                PI_Controller_TypeDef *pi,
+                                Encoder_TypeDef *encoder);
 
 /**
  * @brief 中止标定会话并复位标定步骤；不操作 PWM、不切换模式。

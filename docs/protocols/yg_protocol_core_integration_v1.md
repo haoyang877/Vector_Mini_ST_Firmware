@@ -35,19 +35,22 @@ D 仍暂停。H2 内部精简及验证见[通信职责收口](../plans/active/20
 
 内部枚举只能经明确映射成为线上值，不能通过强制转换或复制枚举整数接入主机。
 
-| 线上 116 mode | 含义与有效目标 | 服务 MotorControlMode | 旧 ModeNow_TypeDef | 生命周期 AppControlMode |
-| ---: | --- | --- | --- | --- |
-| 0 | 失能；使用 101 enable=0，不发 116 mode=0 | 无 | Motor_Disable=0 | APP_CONTROL_NONE |
-| 1 | Iq，iq_mA:i32 | MOTOR_CONTROL_CURRENT=0 | Current_Mode=1 | APP_CONTROL_CURRENT |
-| 2 | 速度，speed_mrad_s:i32 | MOTOR_CONTROL_SPEED=1 | Speed_Mode=2 | APP_CONTROL_SPEED |
-| 3 | 绝对位置，position_mrad:i32 | MOTOR_CONTROL_POSITION=2 | Position_Mode=3 | APP_CONTROL_POSITION |
-| 4 | MIT 候选，位置/速度/Iq；当前不支持 | 无 | Position_Impedance_Mode=18 只在现有状态投影中对应 4 | APP_CONTROL_IMPEDANCE |
-| 5 | 三相上管关、下管全开制动；当前不支持 | 无 | 无等价实现；旧编号 5 是编码器标定 | 无等价制动态 |
-| 6 | q 轴电压，v_q_mV:i32 | MOTOR_CONTROL_VQ=3 | Vq_Mode=14；旧编号 6 是齿槽补偿标定 | APP_CONTROL_VQ |
+| 线上 116 mode | 含义与有效目标 | MotorControlMode | 生命周期 AppControlMode |
+| ---: | --- | --- | --- |
+| 0 | 失能；使用 101 enable=0，不发 116 mode=0 | MOTOR_CONTROL_NONE=4 | APP_CONTROL_NONE |
+| 1 | Iq，iq_mA:i32 | MOTOR_CONTROL_CURRENT=0 | APP_CONTROL_CURRENT |
+| 2 | 速度，speed_mrad_s:i32 | MOTOR_CONTROL_SPEED=1 | APP_CONTROL_SPEED |
+| 3 | 绝对位置，position_mrad:i32 | MOTOR_CONTROL_POSITION=2 | APP_CONTROL_POSITION |
+| 4 | MIT 候选；当前不支持 | 无 | APP_CONTROL_IMPEDANCE 保留核心定义，APP 无入口 |
+| 5 | 三相短接制动；当前不支持 | 无 | 无 |
+| 6 | q 轴电压，v_q_mV:i32 | MOTOR_CONTROL_VQ=3 | APP_CONTROL_VQ |
+
+旧内部模式枚举已删除。维护类型单独由 MotorMaintenanceKind 表示，状态适配器根据
+同拍控制/任务快照映射线上 mode=7（编码器/电零位/齿槽）与 8（相阻/摩擦）；不改变 Payload。
 
 116 的其余目标必须为零；flags:u8 与 reserved:u16 必须为零。协议层把
 mrad、mrad/s、mA、mV 乘 0.001 转成 rad、rad/s、A、V，服务及算法只消费 SI 值。
-旧 Voltage_OpenLoop=12 不是线上 mode=6 的别名；sensorless 路径不由当前 116 开放。
+sensorless 路径不由当前 116 开放。
 线上反馈 mode=7/8 是项目标定状态投影，不能由 116 请求。
 
 | 内部生命周期 | 当前线上 motor_state 投影 | 主机应如何解释 |
@@ -141,12 +144,12 @@ LINK_RECOVERED 同样不清锁存；未确认取消的维护作业不能因旧�
 
 内部 APP_EVENT_CLEAR 需 FAULT、真实资源 quiet、采样健康、故障源已解除、无活动故障、
 无未确认取消，并校验请求时效/epoch；成功后进入自检，不直接 RUNNING。APP_FATAL 不由
-CLEAR 恢复。旧 Clear_Error=10 是内部模式/操作员入口，不是 CMD 10 或 107 的现有 CAN API。
+CLEAR 恢复。CLEAR 使用明确所有者请求，不是 CMD 10 或 107 的现有 CAN API。
 其恢复矩阵对部分参数/标定类故障仍有过渡性放行，不能据此对外承诺完整恢复策略；
 G1/E1 需审查真实故障恢复和维护释放条件。
 
 107 CLEAR_FAULT 当前只有候选功能描述，没有冻结掩码/回复格式和线上路由。本轮 F 只能
-显示故障与“远程清除未支持”，不能通过直接写 ModeNow、兼容命令或调试器绕过所有者。
+显示故障与“远程清除未支持”，不能通过直接写控制模式、兼容命令或调试器绕过所有者。
 
 ## 6. F 后续最小接入流程
 
@@ -202,7 +205,7 @@ F 主机编码/收包与关联（本轮暂停）
 状态源 → app 状态适配 → protocol 编码 → 108/124 → F
 ```
 
-协议层不触碰寄存器、HAL、ModeNow 或保护状态；F 不越过线上接口直接写控制对象。
+协议层不触碰寄存器、HAL、控制模式或保护状态；F 不越过线上接口直接写控制对象。
 E1 完成真实 guards 只构成启动接线的前置条件，不自动开放 101、107 或新模式。
 下一包需分别验收：低侧制动准入与动作、制动到目标模式转换、启动完成证据、
 故障清除线上契约，以及主机能力门禁和回复关联。没有证据的能力继续明确不支持。
@@ -215,7 +218,7 @@ E1 完成真实 guards 只构成启动接线的前置条件，不自动开放 10
 
 - [路由、能力和去重](../../firmware/communication/can/yg_protocol_link.c)
 - [电机业务适配](../../firmware/communication/protocol/yg_protocol_motor_adapter.c)
-- [运行所有者及目标复核](../../firmware/app/foc_run_state.c)
+- [运行所有者及目标复核](../../firmware/app/motor_state_machine.c)
 - [STOP 的输出禁止确认](../../firmware/services/lifecycle/motor_stop_service.c)
 - [生命周期纯核心](../../firmware/services/lifecycle/app_lifecycle.c)
 - [线路状态投影](../../firmware/app/yg_protocol_status_adapter.c)

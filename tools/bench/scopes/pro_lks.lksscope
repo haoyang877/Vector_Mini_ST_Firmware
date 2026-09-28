@@ -54,7 +54,7 @@
             <var showType="Real" color="" name="MotorControl.current_limit" unit="" desc="MotorControl.current_limit" interval="10" subvar="0" formula="" addr="0x20000eb4"/>
             <var showType="Real" color="" name="MotorControl.speedShadow" unit="" desc="MotorControl.speedShadow" interval="10" subvar="0" formula="" addr="0x20000ee8"/>
             <var showType="Enum" color="" name="MotorControl.ErrorNow" unit="" desc="MotorControl.ErrorNow" interval="10" subvar="0" formula="" addr="0x20000e69"/>
-            <var showType="Enum" color="" name="MotorControl.ModeNow" unit="" desc="MotorControl.ModeNow" interval="10" subvar="0" formula="" addr="0x20000e68"/>
+            <var showType="Enum" color="" name="MotorControl.control_mode" unit="" desc="MotorControl.control_mode" interval="10" subvar="0" formula="" addr="0x20000e68"/>
             <var showType="Unsigned" color="" name="External_Encoder.mt6701_crc_error_count" unit="" desc="External_Encoder.mt6701_crc_error_count" interval="10" subvar="0" formula="" addr=""/>
             <var showType="Real" color="" name="MotorControl.calib_current" unit="" desc="MotorControl.calib_current" interval="10" subvar="0" formula="" addr="0x20000eb0"/>
             <var showType="Real" color="" name="InterfaceParam.encoder_offset.[1]" unit="" desc="InterfaceParam.encoder_offset.[1]" interval="10" subvar="0" formula="" addr=""/>

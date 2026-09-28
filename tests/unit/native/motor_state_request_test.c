@@ -7,9 +7,9 @@
 
 #include "motor_state.h"
 #include "critical_hw.h"
-#include "foc_run_state.h"
+#include "motor_state_machine.h"
 #include "parameter_value_service.h"
-#include "foc_run.h"
+#include "motor_execution.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "param_comm_bridge.h"
@@ -79,15 +79,15 @@ static AppOperationResult stub_maintenance_result = APP_OPERATION_COMPLETED;
 static MotorControlResult stub_request_maintenance = MOTOR_CONTROL_ACCEPTED;
 static uint32_t stub_ticket = 4242U;
 
-AppLifecycleState FocRunState_GetState(void)
+AppLifecycleState MotorStateMachine_GetState(void)
 {
     return stub_state;
 }
-bool FocRunState_ConfigurationAllowed(void)
+bool MotorStateMachine_ConfigurationAllowed(void)
 {
     return stub_config_allowed;
 }
-bool FocRunState_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress)
+bool MotorStateMachine_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress)
 {
     (void)ticket;
     if (!stub_maintenance_found)
@@ -98,7 +98,7 @@ bool FocRunState_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *prog
     progress->result = stub_maintenance_result;
     return true;
 }
-MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uint32_t *ticket)
+MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kind, uint32_t *ticket)
 {
     (void)kind;
     *ticket = stub_ticket;

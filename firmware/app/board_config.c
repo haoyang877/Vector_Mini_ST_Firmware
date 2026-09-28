@@ -3,7 +3,7 @@
 #include "board_hw.h"
 #include "boot_handoff.h"
 #include "comm_hw.h"
-#include "foc_run_state.h"
+#include "motor_state_machine.h"
 #include "yg_protocol_runtime.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_motor_adapter.h"
@@ -26,7 +26,8 @@ static bool communication_ready;
 static motor_stop_owner_result_t request_stop(void *context)
 {
     (void)context;
-    return FocRunState_RequestRemoteStop() ? MOTOR_STOP_OWNER_ACCEPTED : MOTOR_STOP_OWNER_DENIED;
+    return MotorStateMachine_RequestRemoteStop() ? MOTOR_STOP_OWNER_ACCEPTED
+                                                 : MOTOR_STOP_OWNER_DENIED;
 }
 
 static bool phases_disabled(void *context)
@@ -38,7 +39,7 @@ static bool phases_disabled(void *context)
 static MotorControlResult submit_control(void *context, const MotorControlCommand *command)
 {
     (void)context;
-    return FocRunState_SubmitControl(command);
+    return MotorStateMachine_SubmitControl(command);
 }
 
 static bool bind_motor_stop(void)
@@ -75,13 +76,13 @@ static bool bind_device_description(void)
 static bool boot_request_stop(void *context, uint64_t ticket)
 {
     (void)context;
-    return FocRunState_RequestBootStop(ticket) == MOTOR_CONTROL_ACCEPTED;
+    return MotorStateMachine_RequestBootStop(ticket) == MOTOR_CONTROL_ACCEPTED;
 }
 
 static bool boot_stop_ready(void *context, uint64_t ticket)
 {
     (void)context;
-    return FocRunState_BootHandoffReady(ticket) && MotorControl_SaveIdle();
+    return MotorStateMachine_BootHandoffReady(ticket) && MotorControl_SaveIdle();
 }
 
 static void boot_read_health(void *context, BootHandoffHealth *health)
@@ -89,7 +90,7 @@ static void boot_read_health(void *context, BootHandoffHealth *health)
     (void)context;
     *health = (BootHandoffHealth){0};
     bool control_healthy =
-        FocRunState_ReadBootHealth(&health->supervisor_epoch, &health->confirmation_ready);
+        MotorStateMachine_ReadBootHealth(&health->supervisor_epoch, &health->confirmation_ready);
     health->healthy = control_healthy && communication_ready && YgProtocolLink_IsReady() &&
                       comm_hw_can_is_healthy();
     health->confirmation_ready =
@@ -99,7 +100,7 @@ static void boot_read_health(void *context, BootHandoffHealth *health)
 static bool boot_confirmation_complete(void *context, uint64_t boot_epoch, uint32_t image_token)
 {
     (void)context;
-    return FocRunState_AcknowledgeBootConfirmation(boot_epoch, image_token);
+    return MotorStateMachine_AcknowledgeBootConfirmation(boot_epoch, image_token);
 }
 
 static bool bind_boot_handoff(void)

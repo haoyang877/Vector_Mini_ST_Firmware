@@ -1,7 +1,7 @@
 #include "motor_state.h"
 #include <math.h>
 #include "critical_hw.h"
-#include "foc_mode_dispatch.h"
+#include "motor_maintenance.h"
 #include "foc_encoder_calibration.h"
 #include "foc_cogging_calibration.h"
 #include "power_stage_hw.h"
@@ -17,8 +17,8 @@
 #include "foc_errhandle.h"
 #include "foc_friction_identification.h"
 #include "foc_pid.h"
-#include "foc_run.h"
-#include "foc_run_state.h"
+#include "motor_execution.h"
+#include "motor_state_machine.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 
@@ -92,7 +92,7 @@ void MotorControl_Init(void)
     revision_work_epoch = UINT32_MAX;
     last_read.valid = last_write.valid = save_job.valid = false;
     load_parameters();
-    FocRunState_Init(&MotorControl, &FOC, &PI_Speed, &OnBoard_Encoder, &SensorlessStartup);
+    MotorStateMachine_Init(&MotorControl, &FOC, &PI_Speed, &OnBoard_Encoder, &SensorlessStartup);
     Encoder_ParamInit(&OnBoard_Encoder);
 
     Fluxobserver_ParamInit(&Fluxobserver);
@@ -108,14 +108,14 @@ void MotorControl_Init(void)
     /* 未配置轴记录的关节在启动后保持禁用。 */
     /* 启动默认保持禁用：CurrentOffset 标定启动已随 FOC-Calibration 功能移除，
      * 待标定重建后再定启动流程；避免以死模式进入自动使能而空开功率级。 */
-    MotorControl.ModeNow = Motor_Disable;
+    MotorControl.control_mode = MOTOR_CONTROL_NONE;
     if (!MotorControl.axis_profile_valid)
     {
         MotorFault_Report(&MotorControl, MotorParam_Error);
     }
 }
 
-ModeNow_TypeDef MotorControl_SlowTick(void)
+MotorControlMode MotorControl_SlowTick(void)
 {
     /* 1. 编码器慢估计：多圈/机械角/速度是慢状态唯一写者。 */
     Encoder_UpdateSlowEstimate(&MotorControl, &OnBoard_Encoder);
@@ -126,16 +126,16 @@ ModeNow_TypeDef MotorControl_SlowTick(void)
 
     /* 3. 主运行状态机：消费快环 worker 结果，完成故障指示、维护会话、
      *    功率级启停迁移与影子提交；故障的硬件关断由快环紧急快车道先行执行。 */
-    FocRunState_Tick();
+    MotorStateMachine_Tick();
 
     /* 4. MCU 温度与 VREFINT 换算属于 2 kHz 监督任务。 */
     Temperature_Update(&FOC, &MotorControl);
-    return MotorControl.ModeNow;
+    return MotorControl.control_mode;
 }
 void MotorControl_FastTick(void)
 {
     /* 本拍模式 worker 的周期结果，仅由运行状态机消费。 */
-    MotorWorkOutcome_TypeDef work_outcome;
+    MotorTaskResult work_outcome;
     /* 编码器帧采样是否已在本拍成功发起；false 时稍后走同步兜底读取。 */
     bool encoder_sample_started;
 
@@ -145,7 +145,7 @@ void MotorControl_FastTick(void)
 
     /* 2. 母线电压采样：换算 Vbus、更新低通滤波值，并推进过压/欠压确认计数；
      *    禁用模式清零计数。保护判定基于本拍电压，必须先于控制输出执行。 */
-    Vbus_Update(&FOC, &MotorControl);
+    Vbus_Update(&FOC, &MotorControl, MotorStateMachine_OutputExpected());
 
     /* 3. 相电流换算：ADC 原始值减零点偏置并折算为 Ia/Ib/Ic（A），
      *    同时校验偏置有效性，并按连续 5 拍确认过流。 */
@@ -157,39 +157,41 @@ void MotorControl_FastTick(void)
 
     /* 5. 观测器选择：位置模式（模式 3）由编码器与外环提供角度，跳过观测器；
      *    其余模式在模式分发前更新，首次切进电流/无感模式的这一拍即有估计可用。 */
-    if (MotorControl.ModeNow != Position_Mode)
+    if (MotorControl.control_mode != MOTOR_CONTROL_POSITION)
     {
         Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
     }
 
     /* 6. 快速环故障检查：编码器离线或轴配置失效时立即置故障并停机；
      *    不清除既有故障，且先于任何控制输出执行。 */
-    FocRunState_CheckFastFaults();
+    MotorStateMachine_CheckFastFaults();
 
     /* 7. 故障紧急关断快车道：故障锁存时立即切断功率级（无硬件 BKIN，软件是
      *    唯一关断路径）；状态机在下一 2 kHz 慢拍对齐记录并清理。 */
-    FocRunState_FastFaultStop();
+    MotorStateMachine_FastFaultStop();
 
-    /* 8. 模式分发：按 ModeNow 执行对应 worker（禁用态零矢量预载、控制、
-     *    标定与参数命令），回传周期结果；本函数不写 ModeNow 或功率级。 */
-    uint32_t work_epoch = FocRunState_WorkEpoch();
-    bool configuration_work = FocRunState_IsMaintenanceActive(MotorControl.ModeNow);
-    work_outcome = FocMode_Dispatch(
+    /* 8. 模式分发：按 control_mode 执行对应 worker（禁用态零矢量预载、控制、
+     *    标定与参数命令），回传周期结果；本函数不写 control_mode 或功率级。 */
+    uint32_t work_epoch = MotorStateMachine_WorkEpoch();
+    bool configuration_work = MotorStateMachine_MaintenanceRunnable();
+    work_outcome = MotorExecution_FastStep(
         &FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver, &SensorlessStartup);
 
     /* 9. worker 结果入箱：由 2 kHz 主状态机在下一慢拍消费。 */
     if (configuration_work && MotorControl.ErrorNow == No_Error &&
-        (work_outcome.result == MOTOR_WORK_SWITCH_MODE || work_outcome.result == MOTOR_WORK_STOP) &&
+        (work_outcome.result == MOTOR_TASK_COMPLETED ||
+         work_outcome.result == MOTOR_TASK_FINALIZE) &&
         work_epoch != revision_work_epoch)
     {
         revision_work_epoch = work_epoch;
         advance_config_revision();
     }
-    FocRunState_PostOutcome(work_outcome, work_epoch);
+    MotorStateMachine_PostOutcome(work_outcome, work_epoch);
+    MotorStateMachine_FastFaultStop();
 
     /* 10. 遥测：采样一帧 4 通道 RTT（机械位置/机械转速/Iq 指令/Iq 反馈），
      *     非阻塞、有界，不修改控制状态与运行模式。 */
-    RTT_Sampling(MotorControl.ModeNow,
+    RTT_Sampling(MotorControl.control_mode,
                  Encoder_GetMecPos(&OnBoard_Encoder),
                  Encoder_GetMecVel(&OnBoard_Encoder),
                  MotorControl.iqRef,
@@ -199,11 +201,11 @@ void MotorControl_FastTick(void)
 static void sample_motor_status(MotorStatus *sample)
 {
     sample->fault = (uint16_t)MotorControl.ErrorNow;
-    sample->mode = (uint16_t)MotorControl.ModeNow;
+    sample->mode = (uint16_t)MotorControl.control_mode;
     sample->position_target = MotorControl.posRef;
     sample->position_feedback = Encoder_GetMecPos(&OnBoard_Encoder);
     sample->speed_target = MotorControl.speedRef;
-    sample->speed_feedback = (MotorControl.ModeNow == Position_Mode)
+    sample->speed_feedback = (MotorControl.control_mode == MOTOR_CONTROL_POSITION)
                                  ? MotorControl.pos_vel_filtered
                                  : Encoder_GetMecVel(&OnBoard_Encoder);
     sample->current_reference = MotorControl.iqRef;
@@ -213,17 +215,19 @@ static void sample_motor_status(MotorStatus *sample)
     sample->bus_current = FOC.Ibus_filt;
     sample->position_planned = NAN;
     sample->speed_planned = NAN;
-    if (MotorControl.ModeNow == Position_Mode)
+    if (MotorControl.control_mode == MOTOR_CONTROL_POSITION)
     {
         sample->position_planned = MotorControl.posShadow;
         sample->speed_planned = MotorControl.pos_trajectory_speed_rad_s;
     }
-    else if (MotorControl.ModeNow == Speed_Mode)
+    else if (MotorControl.control_mode == MOTOR_CONTROL_SPEED)
     {
         sample->speed_planned = MotorControl.speedShadow;
     }
 }
-AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample, uint8_t *valid_bits)
+AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample,
+                                          uint8_t *valid_bits,
+                                          MotorMaintenanceKind *maintenance_kind)
 {
     uint32_t mask = critical_hw_enter();
     sample_motor_status(sample);
@@ -237,7 +241,8 @@ AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample, uint8_t *valid_bi
     {
         *valid_bits |= 0x20U;
     }
-    AppLifecycleState state = FocRunState_GetState();
+    *maintenance_kind = MotorStateMachine_GetMaintenanceKind();
+    AppLifecycleState state = MotorStateMachine_GetState();
     critical_hw_exit(mask);
     return state;
 }
@@ -246,8 +251,8 @@ void MotorControl_ServiceBackground(void)
 {
     FocBackgroundClaim claim;
     /* 补偿请求只读取稳定配置；维护占用时不运行整表 CRC。 */
-    FocRunState_ServiceCompensation();
-    if (!FocRunState_BeginBackground(&claim))
+    MotorStateMachine_ServiceCompensation();
+    if (!MotorStateMachine_BeginBackground(&claim))
     {
         return;
     }
@@ -260,7 +265,7 @@ void MotorControl_ServiceBackground(void)
             Param_Upload(record, &MotorControl, &OnBoard_Encoder);
             record->magic_word = MAGIC_WORD;
             uint32_t mask = critical_hw_enter();
-            if (FocRunState_BackgroundValid(&claim))
+            if (MotorStateMachine_BackgroundValid(&claim))
             {
                 success = param_store_write(record, sizeof(*record));
             }
@@ -275,7 +280,7 @@ void MotorControl_ServiceBackground(void)
         {
             bool built = FocCogging_BuildCandidate(candidate, &MotorControl, &OnBoard_Encoder);
             uint32_t mask = critical_hw_enter();
-            if (built && FocRunState_BackgroundValid(&claim))
+            if (built && MotorStateMachine_BackgroundValid(&claim))
             {
                 success = FocCogging_PublishCandidate(candidate);
             }
@@ -284,8 +289,8 @@ void MotorControl_ServiceBackground(void)
         }
     }
     uint32_t mask = critical_hw_enter();
-    bool current = FocRunState_BackgroundValid(&claim);
-    FocRunState_FinishBackground(&claim, success);
+    bool current = MotorStateMachine_BackgroundValid(&claim);
+    MotorStateMachine_FinishBackground(&claim, success);
     if (save_job.valid && save_job.ticket == claim.epoch && claim.kind == FOC_BACKGROUND_SAVE)
     {
         save_job.result = !current  ? PARAMETER_CANCELLED
@@ -341,7 +346,7 @@ static void refresh_save_result(void)
         return;
     }
     MotorMaintenanceProgress progress;
-    if (!FocRunState_ReadMaintenance(save_job.ticket, &progress) ||
+    if (!MotorStateMachine_ReadMaintenance(save_job.ticket, &progress) ||
         progress.result == APP_OPERATION_CANCELLED)
     {
         save_job.result = PARAMETER_CANCELLED;
@@ -383,7 +388,7 @@ ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
     }
     else
     {
-        AppLifecycleState state = FocRunState_GetState();
+        AppLifecycleState state = MotorStateMachine_GetState();
         result = state == APP_MAINTENANCE || state == APP_STARTING || state == APP_STOPPING
                      ? PARAMETER_BUSY
                      : ParameterValue_Read(&MotorControl,
@@ -394,7 +399,7 @@ ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
                                            value);
         if (result == PARAMETER_OK)
         {
-            if (!FocRunState_ConfigurationAllowed())
+            if (!MotorStateMachine_ConfigurationAllowed())
             {
                 value->access &= (uint8_t)~PARAMETER_ACCESS_WRITE_IDLE;
             }
@@ -444,7 +449,7 @@ ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request
     {
         result = PARAMETER_FAULT;
     }
-    else if (!FocRunState_ConfigurationAllowed() ||
+    else if (!MotorStateMachine_ConfigurationAllowed() ||
              (save_job.valid && save_job.result == PARAMETER_ACCEPTED))
     {
         result = PARAMETER_WRONG_STATE;
@@ -525,7 +530,7 @@ ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, ui
     else
     {
         MotorControlResult accepted =
-            FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, ticket);
+            MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, ticket);
         result = accepted == MOTOR_CONTROL_ACCEPTED ? PARAMETER_ACCEPTED
                  : accepted == MOTOR_CONTROL_BUSY   ? PARAMETER_BUSY
                  : accepted == MOTOR_CONTROL_FAULT  ? PARAMETER_FAULT

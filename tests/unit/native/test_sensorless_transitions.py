@@ -22,7 +22,7 @@ PRELUDE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "foc_run.h"
+#include "motor_execution.h"
 #include "foc_sensorless_run.h"
 #include "foc_speed.h"
 #include "hw_conf.h"
@@ -38,10 +38,6 @@ static unsigned current_calls, stop_calls;
 static bool pwm_enabled;
 static float applied_observer_iq, applied_observer_id, applied_phase, applied_velocity;
 void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef e) { m->ErrorNow=e; }
-void Set_ModeNow(ModeNow_TypeDef m) {
-    if(m==Save_Param) assert(!pwm_enabled && stop_calls);
-    motor.ModeNow=m;
-}
 void FOC_CurrentController_Reset(FOC_TypeDef *f) {
     PI_Controller_Reset(&f->id_pi); PI_Controller_Reset(&f->iq_pi);
 }
@@ -95,7 +91,7 @@ static void setup(void) {
     motor.motor_flux=.0175025f; motor.current_limit=6;
     motor.speed_Kp=.02f; motor.speed_Ki=.5f;
     motor.speedAcc=motor.speedDec=314.159f;
-    motor.ModeNow=Calib_EncoderObserver;
+    motor.control_mode=MOTOR_CONTROL_NONE;
     motor.speedRef=cfg->target_electrical_velocity_rad_s/21;
     motor.speedShadow=motor.speedRef;
     observer.omega_e=cfg->target_electrical_velocity_rad_s;

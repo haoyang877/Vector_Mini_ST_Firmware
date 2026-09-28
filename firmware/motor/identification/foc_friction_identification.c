@@ -74,6 +74,7 @@ static void Fail(MotorControl_TypeDef *motor,
                  bool report_module_error)
 {
     FrictionIdentification_Fail(&identification, reason);
+    session_started = false;
     StopOutput(motor, speed_controller);
     if (report_module_error)
     {
@@ -117,37 +118,37 @@ void FocFrictionIdentification_Abort(MotorControl_TypeDef *motor,
     session_started = false;
 }
 
-MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
-                                                        MotorControl_TypeDef *motor,
-                                                        PI_Controller_TypeDef *speed_controller,
-                                                        Encoder_TypeDef *encoder)
+MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *foc,
+                                               MotorControl_TypeDef *motor,
+                                               PI_Controller_TypeDef *speed_controller,
+                                               Encoder_TypeDef *encoder)
 {
     FrictionIdentificationInput_TypeDef input;
     FrictionIdentificationState_TypeDef state;
-    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+    MotorTaskResult outcome = {MOTOR_TASK_RUNNING, No_Error};
 
     if (foc == NULL || speed_controller == NULL || encoder == NULL || !RuntimeConfigIsValid(motor))
     {
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_INVALID_CONFIG, true);
-        return outcome;
+        return (MotorTaskResult){MOTOR_TASK_FAILED, FrictionIdentification_Error};
     }
     if (!Encoder_IsOnline(encoder))
     {
         MotorFault_Report(motor, Encoder_Error);
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
-        return outcome;
+        return (MotorTaskResult){MOTOR_TASK_FAILED, motor->ErrorNow};
     }
     if ((Encoder_GetCalibFlag(encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
     {
         MotorFault_Report(motor, Encoder_NotCalibrated);
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
-        return outcome;
+        return (MotorTaskResult){MOTOR_TASK_FAILED, motor->ErrorNow};
     }
     /* 本层持有辨识工作状态，只有已受理的维护调度才能进入。 */
     if (!session_started && !FocFrictionIdentification_Start(motor, encoder, speed_controller))
     {
         MotorFault_Report(motor, FrictionIdentification_Error);
-        return outcome;
+        return (MotorTaskResult){MOTOR_TASK_FAILED, FrictionIdentification_Error};
     }
 
     if (foc->Vbus_filt >= BUS_VOLTAGE_OVERVOLTAGE_V)
@@ -165,7 +166,7 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
     if (motor->ErrorNow != No_Error)
     {
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);
-        return outcome;
+        return (MotorTaskResult){MOTOR_TASK_FAILED, motor->ErrorNow};
     }
 
     SpeedMode_Run(foc,
@@ -192,17 +193,20 @@ MotorWorkOutcome_TypeDef FocFrictionIdentification_Task(FOC_TypeDef *foc,
     state = FrictionIdentification_GetState(&identification);
     if (state == FRICTION_IDENT_FAILED)
     {
+        session_started = false;
         StopOutput(motor, speed_controller);
         if (motor->ErrorNow == No_Error)
         {
             MotorFault_Report(motor, FrictionIdentification_Error);
         }
+        outcome = (MotorTaskResult){MOTOR_TASK_FAILED, motor->ErrorNow};
     }
     else if (state == FRICTION_IDENT_COMPLETE)
     {
+        session_started = false;
         StopOutput(motor, speed_controller);
         /* 停机迁移与功率级关断由运行状态机执行。 */
-        outcome.result = MOTOR_WORK_STOP;
+        outcome.result = MOTOR_TASK_COMPLETED;
     }
 
     return outcome;
@@ -215,7 +219,7 @@ bool FocFrictionIdentification_ApplyCandidate(MotorControl_TypeDef *motor)
 
     if (motor == NULL || result == NULL || !result->valid ||
         FrictionIdentification_GetState(&identification) != FRICTION_IDENT_COMPLETE ||
-        motor->ModeNow != Motor_Disable)
+        motor->control_mode != MOTOR_CONTROL_NONE)
     {
         return false;
     }

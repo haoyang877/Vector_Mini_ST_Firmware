@@ -128,12 +128,12 @@ static void Encoder_ObserverCalib_Abort(FOC_TypeDef *FOC,
     CalibStep = CS_NULL;
 }
 
-static MotorWorkOutcome_TypeDef Encoder_ObserverCalib_Finish(FOC_TypeDef *FOC,
-                                                             MotorControl_TypeDef *MotorControl,
-                                                             PI_Controller_TypeDef *SpeedController,
-                                                             SensorlessStartup_TypeDef *Startup)
+static MotorTaskResult Encoder_ObserverCalib_Finish(FOC_TypeDef *FOC,
+                                                    MotorControl_TypeDef *MotorControl,
+                                                    PI_Controller_TypeDef *SpeedController,
+                                                    SensorlessStartup_TypeDef *Startup)
 {
-    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, true};
+    MotorTaskResult outcome = {MOTOR_TASK_COMPLETED, No_Error};
 
     /* End active torque before saving. A low-speed flux observer must not
      * keep applying negative Iq after the rotor has crossed zero. */
@@ -145,7 +145,7 @@ static MotorWorkOutcome_TypeDef Encoder_ObserverCalib_Finish(FOC_TypeDef *FOC,
     MotorControl->idRef = 0.0f;
     MotorControl->iqRef = 0.0f;
     CalibStep = CS_NULL;
-    /* 功率级关断与模式迁移由运行状态机执行（power_off=true）。 */
+    /* 功率级关断与任务衔接由主状态机执行。 */
     return outcome;
 }
 
@@ -236,12 +236,12 @@ static bool Encoder_ObserverCalib_CanBrake(const MotorControl_TypeDef *MotorCont
  * @brief Mode 13: calibrate the encoder linearization LUT from the sensorless observer.
  *        The static phase=0 alignment provides the mechanical reference origin for this power cycle.
  */
-MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
-                                                    MotorControl_TypeDef *MotorControl,
-                                                    PI_Controller_TypeDef *SpeedController,
-                                                    Encoder_TypeDef *Encoder,
-                                                    Fluxobserver_TypeDef *Fluxobserver,
-                                                    SensorlessStartup_TypeDef *Startup)
+MotorTaskResult Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
+                                           MotorControl_TypeDef *MotorControl,
+                                           PI_Controller_TypeDef *SpeedController,
+                                           Encoder_TypeDef *Encoder,
+                                           Fluxobserver_TypeDef *Fluxobserver,
+                                           SensorlessStartup_TypeDef *Startup)
 {
     static uint32_t state_ticks;
     static uint32_t stage_ticks;
@@ -272,13 +272,13 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     float observer_position;
     float relative_theta;
     uint16_t reference_q15;
-    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+    MotorTaskResult outcome = {MOTOR_TASK_RUNNING, No_Error};
 
     if (!Encoder_IsOnline(Encoder))
     {
         MotorFault_Report(MotorControl, Encoder_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = Encoder_Error;
         return outcome;
     }
@@ -286,7 +286,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     {
         MotorFault_Report(MotorControl, PolePairs_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = PolePairs_Error;
         return outcome;
     }
@@ -296,7 +296,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     {
         MotorFault_Report(MotorControl, MotorParam_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = MotorParam_Error;
         return outcome;
     }
@@ -304,7 +304,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     {
         MotorFault_Report(MotorControl, MotorParam_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = MotorParam_Error;
         return outcome;
     }
@@ -315,7 +315,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Encoder_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Encoder_Error;
             return outcome;
         }
@@ -412,7 +412,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         if (MotorControl->ErrorNow != No_Error)
         {
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = MotorControl->ErrorNow;
             return outcome;
         }
@@ -449,7 +449,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
             {
                 MotorFault_Report(MotorControl, Encoder_Error);
                 Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-                outcome.result = MOTOR_WORK_FAULT;
+                outcome.result = MOTOR_TASK_FAILED;
                 outcome.error = Encoder_Error;
                 return outcome;
             }
@@ -474,7 +474,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
         }
         break;
@@ -484,7 +484,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
             return outcome;
         }
@@ -512,7 +512,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
         }
         break;
@@ -526,7 +526,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
             return outcome;
         }
@@ -558,7 +558,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
         }
         break;
@@ -570,7 +570,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
             return outcome;
         }
@@ -631,7 +631,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
         }
         break;
@@ -641,7 +641,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
             return outcome;
         }
@@ -660,7 +660,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 {
                     MotorFault_Report(MotorControl, Encoder_Error);
                     Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-                    outcome.result = MOTOR_WORK_FAULT;
+                    outcome.result = MOTOR_TASK_FAILED;
                     outcome.error = Encoder_Error;
                     return outcome;
                 }
@@ -754,7 +754,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
                 {
                     MotorFault_Report(MotorControl, Encoder_Error);
                     Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-                    outcome.result = MOTOR_WORK_FAULT;
+                    outcome.result = MOTOR_TASK_FAILED;
                     outcome.error = Encoder_Error;
                     return outcome;
                 }
@@ -781,7 +781,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
             return outcome;
         }
@@ -829,7 +829,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
             {
                 MotorFault_Report(MotorControl, Encoder_Error);
                 Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-                outcome.result = MOTOR_WORK_FAULT;
+                outcome.result = MOTOR_TASK_FAILED;
                 outcome.error = Encoder_Error;
                 return outcome;
             }
@@ -849,7 +849,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
         }
         break;
@@ -876,7 +876,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
         {
             MotorFault_Report(MotorControl, Sensorless_Error);
             Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Sensorless_Error;
         }
         break;
@@ -893,7 +893,7 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
     default:
         MotorFault_Report(MotorControl, Encoder_Error);
         Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = Encoder_Error;
         break;
     }
@@ -903,11 +903,11 @@ MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
 /**
  * @brief Calibrate electrical zero using the averaged linearized Q15 angle.
  */
-MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
-                                                   MotorControl_TypeDef *MotorControl,
-                                                   Encoder_TypeDef *Encoder)
+MotorTaskResult Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
+                                          MotorControl_TypeDef *MotorControl,
+                                          Encoder_TypeDef *Encoder)
 {
-    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+    MotorTaskResult outcome = {MOTOR_TASK_RUNNING, No_Error};
     float time = (float)zero_loop_count * Current_Ts;
     float align_current = MotorControl->calib_current;
 
@@ -922,21 +922,21 @@ MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
         zero_loop_count = 0U;
         zero_sample_count = 0U;
         zero_unwrapped_sum = 0;
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = Encoder_Error;
         return outcome;
     }
     if ((Encoder->calib_flag & ENC_CALIB_LINEARIZED) == 0U)
     {
         MotorFault_Report(MotorControl, Encoder_NotCalibrated);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = Encoder_NotCalibrated;
         return outcome;
     }
     if (align_current <= 0.0f)
     {
         MotorFault_Report(MotorControl, MotorParam_Error);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = MotorParam_Error;
         return outcome;
     }
@@ -986,19 +986,18 @@ MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
         zero_loop_count = 0U;
         zero_sample_count = 0U;
         zero_unwrapped_sum = 0;
-        /* 停相与模式迁移由运行状态机执行（power_off=true）；旧实现的"高边短接保持"
+        /* 停相与任务衔接由主状态机执行；旧实现的"高边短接保持"
          * 不再由模块直接操作功率级。 */
 
         if (!calibrated)
         {
             MotorFault_Report(MotorControl, Encoder_Error);
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = Encoder_Error;
             return outcome;
         }
-        outcome.result = MOTOR_WORK_SWITCH_MODE;
-        outcome.next_mode = Save_Param;
-        outcome.power_off = true;
+        outcome.result = MOTOR_TASK_COMPLETED;
+
         return outcome;
     }
 

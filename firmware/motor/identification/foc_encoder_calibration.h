@@ -7,7 +7,7 @@
 #include "foc_pid.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
-#include "motor_work.h"
+#include "motor_task_result.h"
 
 /* Mode 13/15 编码器标定任务（按裁决在原 foc_calibration 删除后重建）：
  * - Task_Calib_EncoderObserver：无感观测器闭环下重建编码器 1024 点线性化 LUT；
@@ -78,39 +78,39 @@ void FocEncoderCalibration_Cancel(void);
 bool FocEncoderCalibration_IsReleased(void);
 
 /**
- * @brief 观测器 LUT 标定周期任务（Mode 13）：无感闭环下重建 1024 点线性化 LUT。
+ * @brief 观测器 LUT 标定周期任务：无感闭环下重建 1024 点线性化 LUT。
  * @param FOC 电流控制与观测量。
  * @param MotorControl 电机与控制状态；任务只写指令类字段。
  * @param SpeedController 速度环控制器状态（无感启动复用）。
  * @param Encoder 编码器状态；验证通过后提交 LUT 并清除电/机械零位标志。
  * @param Fluxobserver 观测器状态；机械参考由静态对齐与过零插值建立。
  * @param Startup 无感启动状态机状态。
- * @return 采集中返回 MOTOR_WORK_RUNNING；标定完成返回
- *         MOTOR_WORK_SWITCH_MODE(Save_Param) 并携带 power_off；
- *         任一失败返回 MOTOR_WORK_FAULT（错误码已置位）。
+ * @return 采集中返回 MOTOR_TASK_RUNNING；标定完成返回
+ *         MOTOR_TASK_COMPLETED，所有者关相并独立衔接保存；
+ *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；本地中止只清理采样区与控制状态，
  *       停相与模式回退由运行状态机按结果协议执行。
  */
-MotorWorkOutcome_TypeDef Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
-                                                    MotorControl_TypeDef *MotorControl,
-                                                    PI_Controller_TypeDef *SpeedController,
-                                                    Encoder_TypeDef *Encoder,
-                                                    Fluxobserver_TypeDef *Fluxobserver,
-                                                    SensorlessStartup_TypeDef *Startup);
+MotorTaskResult Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
+                                           MotorControl_TypeDef *MotorControl,
+                                           PI_Controller_TypeDef *SpeedController,
+                                           Encoder_TypeDef *Encoder,
+                                           Fluxobserver_TypeDef *Fluxobserver,
+                                           SensorlessStartup_TypeDef *Startup);
 
 /**
- * @brief 电角度零位标定周期任务（Mode 15）：d 轴对齐平均线性化角并写电角度零位。
+ * @brief 电角度零位标定周期任务：d 轴对齐平均线性化角并写电角度零位。
  * @param FOC 电流控制与观测量。
  * @param MotorControl 电机与控制状态；idRef 由本任务驱动。
  * @param Encoder 编码器状态；要求已置 ENC_CALIB_LINEARIZED，结果写电零位。
- * @return 对齐中返回 MOTOR_WORK_RUNNING；成功返回
- *         MOTOR_WORK_SWITCH_MODE(Save_Param)（随后由保存流程提交）；
- *         任一失败返回 MOTOR_WORK_FAULT（错误码已置位）。
+ * @return 对齐中返回 MOTOR_TASK_RUNNING；成功返回
+ *         MOTOR_TASK_COMPLETED（随后由所有者受理独立保存）；
+ *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；完成/失败经结果协议上报，
- *       停相与模式回退由运行状态机执行（完成后请求 power_off）。
+ *       停相、任务衔接及保存由主状态机执行。
  */
-MotorWorkOutcome_TypeDef Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
-                                                   MotorControl_TypeDef *MotorControl,
-                                                   Encoder_TypeDef *Encoder);
+MotorTaskResult Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
+                                          MotorControl_TypeDef *MotorControl,
+                                          Encoder_TypeDef *Encoder);
 
 #endif

@@ -5,7 +5,6 @@
 #include "foc_errhandle.h"
 #include "control_config.h"
 #include "critical_hw.h"
-#include "power_stage_hw.h"
 #include "current_sense_profile.h"
 #include "utils.h"
 #include "bus_voltage_profile.h"
@@ -49,8 +48,8 @@ bool FocCogging_SetCompensation(bool enabled,
         CoggingCompensation_Disable(&CoggingCompensation);
         return true;
     }
-    info.mode_accepts_request =
-        MotorControl->ModeNow == Motor_Disable || MotorControl->ModeNow == Current_Mode;
+    info.mode_accepts_request = MotorControl->control_mode == MOTOR_CONTROL_NONE ||
+                                MotorControl->control_mode == MOTOR_CONTROL_CURRENT;
     info.error_clear = MotorControl->ErrorNow == No_Error;
     info.sensorless_off = !MotorControl->isUseSensorless;
     info.table_valid = FocCogging_TableValid(MotorControl, OnBoard_Encoder);
@@ -61,8 +60,8 @@ bool FocCogging_SetCompensation(bool enabled,
     info.identity.table_crc = CoggingMap.crc32;
     /* CRC 在开中断状态计算；提交前重读可被 STOP/FAULT 改变的资格。 */
     uint32_t mask = critical_hw_enter();
-    info.mode_accepts_request =
-        MotorControl->ModeNow == Motor_Disable || MotorControl->ModeNow == Current_Mode;
+    info.mode_accepts_request = MotorControl->control_mode == MOTOR_CONTROL_NONE ||
+                                MotorControl->control_mode == MOTOR_CONTROL_CURRENT;
     info.error_clear = MotorControl->ErrorNow == No_Error;
     bool accepted = CoggingCompensation_Admit(&CoggingCompensation, &info);
     critical_hw_exit(mask);
@@ -72,7 +71,7 @@ bool FocCogging_SetCompensation(bool enabled,
 float FocCogging_Apply(const MotorControl_TypeDef *m, const Encoder_TypeDef *e)
 {
     CoggingCompensationTick tick;
-    tick.mode_is_current = m->ModeNow == Current_Mode;
+    tick.mode_is_current = m->control_mode == MOTOR_CONTROL_CURRENT;
     tick.error_clear = m->ErrorNow == No_Error;
     tick.sensorless_off = !m->isUseSensorless;
     tick.encoder_usable = Encoder_IsOnline(e) && (e->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL;
@@ -242,7 +241,6 @@ StartSession(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     session_started = true;
     /* 本模式自行接管功率许可；通用模式边沿不包含它。 */
     FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
-    power_stage_hw_start();
     return true;
 }
 
@@ -322,17 +320,21 @@ static void HoldCurrentPoint(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                          calibration_current);
 }
 
-MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *f,
-                                         MotorControl_TypeDef *m,
-                                         PI_Controller_TypeDef *pi,
-                                         Encoder_TypeDef *e)
+MotorTaskResult FocCogging_Task(FOC_TypeDef *f,
+                                MotorControl_TypeDef *m,
+                                PI_Controller_TypeDef *pi,
+                                Encoder_TypeDef *e)
 {
-    MotorWorkOutcome_TypeDef outcome = {MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false};
+    MotorTaskResult outcome = {MOTOR_TASK_RUNNING, No_Error};
     float position, velocity;
 
-    if (!session_started && !StartSession(f, m, pi, e))
+    if (!session_started)
     {
-        outcome.result = MOTOR_WORK_FAULT;
+        if (StartSession(f, m, pi, e))
+        {
+            return (MotorTaskResult){MOTOR_TASK_PREPARED, No_Error};
+        }
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = (m->ErrorNow != No_Error) ? m->ErrorNow : CoggingCalibration_Error;
         return outcome;
     }
@@ -346,23 +348,21 @@ MotorWorkOutcome_TypeDef FocCogging_Task(FOC_TypeDef *f,
             MotorFault_Report(m, CoggingCalibration_Error);
         }
         LocalStop(f, m, pi);
-        outcome.result = MOTOR_WORK_FAULT;
+        outcome.result = MOTOR_TASK_FAILED;
         outcome.error = m->ErrorNow;
         return outcome;
     }
     if (!ServiceTick2kHz(f, m, pi, position, velocity))
     {
-        /* 会话已结束：完成时请求停相并回 Motor_Disable（等价旧直接写入）；
+        /* 会话已结束：完成报告前台整理需求；
          * 失败时经故障结果停机；本函数不再触碰功率级与模式。 */
         if (CoggingCalib.state == COGGING_COMPLETE)
         {
-            outcome.result = MOTOR_WORK_SWITCH_MODE;
-            outcome.next_mode = Motor_Disable;
-            outcome.power_off = true;
+            outcome.result = MOTOR_TASK_FINALIZE;
         }
         else
         {
-            outcome.result = MOTOR_WORK_FAULT;
+            outcome.result = MOTOR_TASK_FAILED;
             outcome.error = (m->ErrorNow != No_Error) ? m->ErrorNow : CoggingCalibration_Error;
         }
         return outcome;
@@ -394,7 +394,8 @@ void FocCogging_Service(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *OnB
         CoggingCompensation.request = FocCoggingCompensationRequest == 1U ? 1U : 0U;
         FocCoggingCompensationRequest = 0U;
     }
-    if (MotorControl->ModeNow != Motor_Disable && MotorControl->ModeNow != Current_Mode)
+    if (MotorControl->control_mode != MOTOR_CONTROL_NONE &&
+        MotorControl->control_mode != MOTOR_CONTROL_CURRENT)
     {
         /* 离开允许模式立即关断补偿；停机预开启由 request 位保持。 */
         CoggingCompensation_Disable(&CoggingCompensation);
@@ -402,7 +403,7 @@ void FocCogging_Service(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *OnB
     }
     else
     {
-        if (MotorControl->ModeNow == Motor_Disable)
+        if (MotorControl->control_mode == MOTOR_CONTROL_NONE)
         {
             CoggingCompensation_ZeroBlend(&CoggingCompensation);
         }

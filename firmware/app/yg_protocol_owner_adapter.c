@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "foc_run_state.h"
+#include "motor_state_machine.h"
 #include "critical_hw.h"
 #include "motor_state.h"
 #include "yg_protocol_link.h"
@@ -153,7 +153,7 @@ void YgProtocolOwner_HandleLifecycle(void *context,
     }
     if (request->operation == YG_PROTOCOL_MOTOR_CLEAR_FAULT)
     {
-        MotorControlResult result = FocRunState_RequestClear();
+        MotorControlResult result = MotorStateMachine_RequestClear();
         /* owner 已同步清锁存；SELF_TEST/READY 仍由后续监督拍与状态反馈确认。 */
         reply->status = result == MOTOR_CONTROL_ACCEPTED ? YG_PROTOCOL_SERVICE_OK
                         : result == MOTOR_CONTROL_BUSY   ? YG_PROTOCOL_SERVICE_BUSY
@@ -283,16 +283,16 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
             reply->detail = YG_PROTOCOL_JOB_DETAIL_UNSUPPORTED_KIND;
             return;
         }
-        result = FocRunState_RequestIdentifiedMaintenance(&command, &ticket);
+        result = MotorStateMachine_RequestIdentifiedMaintenance(&command, &ticket);
     }
     else if (request->operation == YG_PROTOCOL_JOB_CANCEL)
     {
         /* 162只开放三个标定种类；类别核对与按ticket取消共同串行化，不能取消参数SAVE。 */
         uint32_t mask = critical_hw_enter();
         MotorMaintenanceProgress candidate;
-        bool calibration =
-            FocRunState_ReadMaintenance(ticket, &candidate) && job_wire_kind(candidate.kind) != 0U;
-        result = calibration ? FocRunState_CancelMaintenance(ticket) : MOTOR_CONTROL_INVALID;
+        bool calibration = MotorStateMachine_ReadMaintenance(ticket, &candidate) &&
+                           job_wire_kind(candidate.kind) != 0U;
+        result = calibration ? MotorStateMachine_CancelMaintenance(ticket) : MOTOR_CONTROL_INVALID;
         critical_hw_exit(mask);
         if (result == MOTOR_CONTROL_INVALID)
         {
@@ -310,7 +310,7 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
         return;
     }
     MotorMaintenanceProgress progress;
-    if (!FocRunState_ReadMaintenance(ticket, &progress) || job_wire_kind(progress.kind) == 0U)
+    if (!MotorStateMachine_ReadMaintenance(ticket, &progress) || job_wire_kind(progress.kind) == 0U)
     {
         reply->detail = YG_PROTOCOL_JOB_DETAIL_STALE_TOKEN;
         return;

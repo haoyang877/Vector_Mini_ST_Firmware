@@ -13,6 +13,6 @@ void FOC20kHzIRQHandler(void);
  * @brief 执行一次 2 kHz 温度换算、保护监督和慢速维护任务。
  * @note 由 TIM7 监督中断上下文调用，不得替代快速环中的立即关断路径。
  */
-ModeNow_TypeDef FOC2kHzSupervisor(void);
+MotorControlMode FOC2kHzSupervisor(void);
 
 #endif

@@ -11,10 +11,11 @@
 /**
  * @brief  更新母线电压采样与滤波值。
  * @param  FOC FOC 状态指针，写入 Vbus 相关字段。
- * @param  MotorControl 电机控制状态指针，读取故障使能状态。
+ * @param  MotorControl 电机控制状态指针，写入电压故障。
+ * @param output_expected 所有者确认需要保护输出；关闭确认前保持 true。
  * @note 快速环周期调用；禁用状态下采样用于复位计数器。
  */
-void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
+void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, bool output_expected);
 
 /**
  * @brief  完成相电流采样换算与偏置补偿。

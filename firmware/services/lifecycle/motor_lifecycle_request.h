@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "app_lifecycle.h"
 
-/** 明确业务任务，独立于 CAN 和旧 ModeNow 编号。 */
+/** 明确业务任务，独立于 CAN 和控制模式编号。 */
 typedef enum
 {
     MOTOR_MAINTENANCE_ENCODER_LUT = 0,
@@ -14,7 +14,8 @@ typedef enum
     MOTOR_MAINTENANCE_PHASE_RESISTANCE = 4,
     MOTOR_MAINTENANCE_FRICTION = 5,
     MOTOR_MAINTENANCE_MECHANICAL_ZERO = 6,
-    MOTOR_MAINTENANCE_DEFAULTS = 7
+    MOTOR_MAINTENANCE_DEFAULTS = 7,
+    MOTOR_MAINTENANCE_NONE = 8
 } MotorMaintenanceKind;
 
 /** 原始来源与序号仅用于重试关联，任务枚举不是线上编号。 */

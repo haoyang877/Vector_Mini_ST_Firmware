@@ -53,9 +53,9 @@ def rtt_frame_fixture():
 #define _PI 3.14159265358979323846f
 #define RTT_SAMPLE_DIVIDER 10U
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
-#define Position_Mode 3
-typedef int ModeNow_TypeDef;
-static struct { int ModeNow; float iqRef; } MotorControl;
+#define MOTOR_CONTROL_POSITION 3
+typedef int MotorControlMode;
+static struct { int control_mode; float iqRef; } MotorControl;
 typedef struct { float theta_mech, vel_mech; } EncoderTelemetry_TypeDef;
 static EncoderTelemetry_TypeDef OnBoard_Encoder;
 static float Encoder_GetMecPos(const EncoderTelemetry_TypeDef *e) { return e->theta_mech; }
@@ -70,11 +70,11 @@ static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned le
 """
         + encoding
         + r"""
-static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(MotorControl.ModeNow, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); }
+static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(MotorControl.control_mode, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); }
 static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
 int main(void) {
     unsigned before, i;
-    MotorControl.ModeNow = 3; MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
+    MotorControl.control_mode = 3; MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
     OnBoard_Encoder.theta_mech = 10 * _PI / 180; OnBoard_Encoder.vel_mech = -20;
     sample(); assert(writes == 1);
     near_count(0,1820); near_count(1,-1909); near_count(2,1500); near_count(3,1400);
@@ -83,10 +83,10 @@ int main(void) {
     MotorControl.iqRef = NAN; FOC.Iq = INFINITY; OnBoard_Encoder.vel_mech = INFINITY;
     sample(); assert(wire[1] == 0 && wire[2] == 0 && wire[3] == 0);
     assert(RTT_EncodeInt16(NAN, 1) == 0 && RTT_EncodeInt16(INFINITY, 1) == 0);
-    before = writes; RTT_Sampling(MotorControl.ModeNow, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); assert(writes == before);
-    for (i = 1; i < 10; ++i) RTT_Sampling(MotorControl.ModeNow, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq);
+    before = writes; RTT_Sampling(MotorControl.control_mode, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); assert(writes == before);
+    for (i = 1; i < 10; ++i) RTT_Sampling(MotorControl.control_mode, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq);
     assert(writes == before + 1);
-    ready = false; MotorControl.ModeNow = 3; before = writes; sample(); assert(writes == before);
+    ready = false; MotorControl.control_mode = 3; before = writes; sample(); assert(writes == before);
     puts("PASS actual RTT 4-channel frame: units, single-turn wrap, clipping, non-finite values, divider");
     return 0;
 }

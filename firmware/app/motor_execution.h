@@ -2,8 +2,7 @@
 #define MOTOR_EXECUTION_H
 #include "motor_task_result.h"
 
-/* 运行模式任务与外环入口声明：实现位于 motor_execution.c / foc_outer_loop 等模块；
- * 快速环只经这些入口访问，不直接触碰模块内部状态。 */
+/* 控制任务与外环入口：调用方显式传入控制对象；不选择维护或读取生命周期。 */
 
 #include "position_cascade.h"
 
@@ -85,20 +84,17 @@ void Task_Position_Mode_Reset(void);
 void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
 
 /**
- * @brief 执行唯一获准的控制或维护功能。
+ * @brief 执行调用方已准入的电流、速度、位置或 Vq 控制功能。
  * @param foc 电流环对象。
  * @param motor 配置和控制对象。
- * @param pi 速度控制器。
  * @param encoder 编码器状态。
  * @param observer 磁链观测器。
- * @param startup 无感启动状态。
  * @return 当前功能事实，下一任务由主状态机决定。
- * @note 20 kHz 调用；不启相，准备与终态交给主状态机复核。
+ * @note 仅运行组装层在 20 kHz 调用；须先确认无故障且处于 STARTING/RUNNING。
+ *       不反查生命周期、不选择维护、不启相，终态交给主状态机复核。
  */
-MotorTaskResult MotorExecution_FastStep(FOC_TypeDef *foc,
-                                        MotorControl_TypeDef *motor,
-                                        PI_Controller_TypeDef *pi,
-                                        Encoder_TypeDef *encoder,
-                                        Fluxobserver_TypeDef *observer,
-                                        SensorlessStartup_TypeDef *startup);
+MotorTaskResult MotorExecution_ControlStep(FOC_TypeDef *foc,
+                                           MotorControl_TypeDef *motor,
+                                           Encoder_TypeDef *encoder,
+                                           Fluxobserver_TypeDef *observer);
 #endif

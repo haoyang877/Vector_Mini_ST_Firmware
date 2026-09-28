@@ -100,10 +100,10 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 
 | 所有者 | 状态与调用边界 |
 | --- | --- |
-| `app/motor_state.c` | 私有 MotorControl、FOC、速度 PI、Encoder、Observer、Startup；执行快慢调度，生成值快照，启动参数装载与前台维护 |
+| `app/motor_state.c` | 私有 MotorControl、FOC、速度 PI、Encoder、Observer、Startup；按获准生命周期选择维护、控制或空闲预载，执行快慢调度与前台维护，生成值快照 |
 | `app/motor_state_machine.c` | 唯一请求、正常启相关断和任务衔接所有者；Watch/CAN 共用命令邮箱，串行生命周期事件，保存认领与取消身份 |
 | `app/motor_maintenance.c` | 按维护 kind 调用实际功能和取消；返回功能事实及准入原因，不使用控制模式反推任务 |
-| `app/motor_execution.c` | 有界电流/速度/位置/Vq 控制调度；维护和控制分开选择 |
+| `app/motor_execution.c` | 有界电流/速度/位置/Vq 控制及外环；只使用显式传入对象，不反查状态机或调度维护 |
 | `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |
 | `motor/foc/foc_sensing.c` | 显式采样目标，温度诊断私有，提供窄新鲜度查询 |
 | `motor/identification/foc_cogging_calibration.c` | 私有标定采样、表和补偿状态；候选构建与发布分开，取消不改写前台正在读取的样本 |
@@ -156,3 +156,8 @@ app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platfo
 新增 Loader/PC 业务时遵守既定边界；不要重新建立 System 杂项目录，也不要让主机 UI 直接处理 Flash 升级状态机。
 
 当前主状态机完整契约见[功能任务驱动的主状态机 v1](motor_state_machine_v1.md)。
+
+2026-09-29：快环任务选择归运行组装，旧 `MotorExecution_FastStep` 删除，
+控制入口为 `MotorExecution_ControlStep`；维护仍直接调用 `MotorMaintenance_Step`。
+故障优先、执行前身份捕获、空闲零矢量预载与结果入箱位置保持，见
+[边界收口计划](../plans/completed/2026-09-29-execution-boundary-v1.md)。

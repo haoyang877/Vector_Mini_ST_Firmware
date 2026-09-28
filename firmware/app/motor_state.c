@@ -2,6 +2,7 @@
 #include <math.h>
 #include "critical_hw.h"
 #include "motor_maintenance.h"
+#include "motor_hw.h"
 #include "foc_encoder_calibration.h"
 #include "foc_cogging_calibration.h"
 #include "power_stage_hw.h"
@@ -132,6 +133,32 @@ MotorControlMode MotorControl_SlowTick(void)
     Temperature_Update(&FOC, &MotorControl);
     return MotorControl.control_mode;
 }
+/* 每拍仅选择一个已获准功能；故障不预载 PWM，空闲预载不改变功率使能。 */
+static MotorTaskResult run_fast_task(void)
+{
+    if (MotorControl.ErrorNow != No_Error)
+    {
+        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    }
+    if (MotorStateMachine_MaintenanceRunnable())
+    {
+        return MotorMaintenance_Step(MotorStateMachine_GetMaintenanceKind(),
+                                     &FOC,
+                                     &MotorControl,
+                                     &PI_Speed,
+                                     &OnBoard_Encoder,
+                                     &Fluxobserver,
+                                     &SensorlessStartup);
+    }
+    AppLifecycleState state = MotorStateMachine_GetState();
+    if (state != APP_STARTING && state != APP_RUNNING)
+    {
+        motor_hw_pwm_set_duty(0.5f, 0.5f, 0.5f);
+        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    }
+    return MotorExecution_ControlStep(&FOC, &MotorControl, &OnBoard_Encoder, &Fluxobserver);
+}
+
 void MotorControl_FastTick(void)
 {
     /* 本拍模式 worker 的周期结果，仅由运行状态机消费。 */
@@ -170,12 +197,11 @@ void MotorControl_FastTick(void)
      *    唯一关断路径）；状态机在下一 2 kHz 慢拍对齐记录并清理。 */
     MotorStateMachine_FastFaultStop();
 
-    /* 8. 模式分发：按 control_mode 执行对应 worker（禁用态零矢量预载、控制、
-     *    标定与参数命令），回传周期结果；本函数不写 control_mode 或功率级。 */
+    /* 8. 本拍调度：先核对故障，再选择维护、控制或空闲预载；身份在执行前捕获。
+     *    本函数不写 control_mode 或功率使能，功能仅返回结果事实。 */
     uint32_t work_epoch = MotorStateMachine_WorkEpoch();
     bool configuration_work = MotorStateMachine_MaintenanceRunnable();
-    work_outcome = MotorExecution_FastStep(
-        &FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder, &Fluxobserver, &SensorlessStartup);
+    work_outcome = run_fast_task();
 
     /* 9. worker 结果入箱：由 2 kHz 主状态机在下一慢拍消费。 */
     if (configuration_work && MotorControl.ErrorNow == No_Error &&

@@ -13,9 +13,6 @@
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "utils.h"
-#include "motor_state_machine.h"
-#include "motor_maintenance.h"
-#include "motor_hw.h"
 
 /* 运行模式任务入口：电流/速度/位置/Vq 模式的快速环执行，
  * 以及延迟外环运行时的发布与保护接口。本文件只做任务编排与状态适配，
@@ -538,29 +535,12 @@ void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_
     FOC_Vq_Mode(FOC, MotorControl, Encoder_GetElePhase(Encoder), Encoder_GetEleVel(Encoder));
 }
 
-/* 同一快速周期只执行一个已获准功能，维护与控制不共享模式编号。 */
-MotorTaskResult MotorExecution_FastStep(FOC_TypeDef *foc,
-                                        MotorControl_TypeDef *motor,
-                                        PI_Controller_TypeDef *pi,
-                                        Encoder_TypeDef *encoder,
-                                        Fluxobserver_TypeDef *observer,
-                                        SensorlessStartup_TypeDef *startup)
+/* 调用方已完成故障与生命周期准入；控制功能不反查状态机或选择维护任务。 */
+MotorTaskResult MotorExecution_ControlStep(FOC_TypeDef *foc,
+                                           MotorControl_TypeDef *motor,
+                                           Encoder_TypeDef *encoder,
+                                           Fluxobserver_TypeDef *observer)
 {
-    if (motor->ErrorNow != No_Error)
-    {
-        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
-    }
-    if (MotorStateMachine_MaintenanceRunnable())
-    {
-        return MotorMaintenance_Step(
-            MotorStateMachine_GetMaintenanceKind(), foc, motor, pi, encoder, observer, startup);
-    }
-    AppLifecycleState state = MotorStateMachine_GetState();
-    if (state != APP_STARTING && state != APP_RUNNING)
-    {
-        motor_hw_pwm_set_duty(0.5f, 0.5f, 0.5f);
-        return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
-    }
     switch (motor->control_mode)
     {
     case MOTOR_CONTROL_CURRENT:

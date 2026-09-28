@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [快环调度与控制执行边界收口 v1](2026-09-29-execution-boundary-v1.md)：控制执行去状态机/维护依赖，38,880组特征与基线一致，APP容量与RAM未增加；完整门禁的既有失败仍记录。
+
 Completed execution plans are retained here as searchable design history. Their recorded
 outputs are historical evidence; rerun the current harness before making a release claim.
 

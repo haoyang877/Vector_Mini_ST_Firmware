@@ -1,0 +1,76 @@
+"""编译真实快环调度体，核对功能独占、故障优先及零矢量预载；可与旧源码差分。"""
+
+import argparse
+import subprocess
+from pathlib import Path
+
+from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
+
+
+def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) -> str:
+    """在相同桩输入下编译旧版或新版生产体，返回可比较的调用轨迹摘要。"""
+    execution = (source_dir / "motor_execution.c").read_text(encoding="utf-8")
+    state = (source_dir / "motor_state.c").read_text(encoding="utf-8")
+    fixture = (ROOT / "tests/unit/native/execution_dispatch_test.c").read_text(encoding="utf-8")
+    if "MotorExecution_ControlStep(" in execution:
+        fixture += "\n" + function_source(execution, "MotorExecution_ControlStep")
+        fixture += "\n" + function_source(state, "run_fast_task")
+        call = "run_fast_task()"
+    else:
+        fixture += "\n" + function_source(execution, "MotorExecution_FastStep")
+        call = (
+            "MotorExecution_FastStep(&FOC, &MotorControl, &PI_Speed, "
+            "&OnBoard_Encoder, &Fluxobserver, &SensorlessStartup)"
+        )
+    fixture += "\nstatic MotorTaskResult dispatch_step(void) { return " + call + "; }\n"
+    output.mkdir(parents=True, exist_ok=True)
+    source = output / "dispatch.c"
+    source.write_text(fixture, encoding="utf-8")
+    executable = output / "dispatch.exe"
+    command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
+    command += NATIVE_INCLUDE_FLAGS + [
+        "-I",
+        str(ROOT / "firmware/services/lifecycle"),
+        "-std=c99",
+        "-O1",
+        "-UNDEBUG",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        f"-DFAST_LOOP_STAGE_PROFILE={profile}",
+        str(source),
+        "-o",
+        str(executable),
+    ]
+    logs = []
+    for invocation in (command, [str(executable)]):
+        result = subprocess.run(invocation, capture_output=True, text=True, check=False)
+        logs.append(result.stdout + result.stderr)
+        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        result.check_returncode()
+    return logs[-1]
+
+
+def main() -> None:
+    """执行诊断开关两种构建；提供基线时要求完整特征矩阵结果一致。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cc", required=True, type=Path)
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/execution_dispatch_tests")
+    parser.add_argument("--reference-dir", type=Path)
+    args = parser.parse_args()
+    for profile in (0, 1):
+        current = run_variant(
+            args.cc, ROOT / "firmware/app", args.out / f"current-{profile}", profile
+        )
+        print(current, end="")
+        if args.reference_dir:
+            reference = run_variant(
+                args.cc, args.reference_dir, args.out / f"reference-{profile}", profile
+            )
+            if current != reference:
+                raise RuntimeError(f"Dispatch behavior differs with profiling={profile}.")
+            print(f"PASS baseline equivalence with profiling={profile}")
+
+
+if __name__ == "__main__":
+    main()

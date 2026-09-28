@@ -302,9 +302,8 @@ static AppLifecycleGuards RunState_BuildGuards(void)
 }
 
 /* 功率事实来自平台回读；取消控制数据与数字关相请求分别处理。 */
-static void RunState_ApplyActions(uint32_t actions, bool clear_control)
+static void RunState_ApplyActions(uint32_t actions)
 {
-    (void)clear_control;
     /* 关断先于功能取消；即使取消函数失效也不延后关相请求。 */
     if ((actions & APP_ACTION_DISABLE_POWER) && !power_stage_hw_phases_disabled())
     {
@@ -372,8 +371,7 @@ static void project_lifecycle_fault(void)
 static bool RunState_Send(uint32_t events,
                           uint32_t faults,
                           AppControlMode control_mode,
-                          bool defer_start_action,
-                          bool apply_power_actions)
+                          bool defer_start_action)
 {
     AppLifecycleEvent event;
     uint32_t state = critical_hw_enter();
@@ -391,7 +389,7 @@ static bool RunState_Send(uint32_t events,
     {
         result.actions &= ~(uint32_t)APP_ACTION_START_CONTROL;
     }
-    RunState_ApplyActions(result.actions, apply_power_actions);
+    RunState_ApplyActions(result.actions);
     critical_hw_exit(state);
     return result.rejection == APP_ACCEPTED;
 }
@@ -401,19 +399,19 @@ static void RunState_RunBootChain(void)
 {
     if (lifecycle.snapshot.state == APP_BOOT)
     {
-        (void)RunState_Send(APP_EVENT_BOOT_DONE, 0U, APP_CONTROL_NONE, false, false);
+        (void)RunState_Send(APP_EVENT_BOOT_DONE, 0U, APP_CONTROL_NONE, false);
     }
     if (lifecycle.snapshot.state == APP_SELF_TEST && RunState_BuildGuards().self_test_passed)
     {
-        (void)RunState_Send(APP_EVENT_SELF_TEST_DONE, 0U, APP_CONTROL_NONE, false, false);
+        (void)RunState_Send(APP_EVENT_SELF_TEST_DONE, 0U, APP_CONTROL_NONE, false);
     }
 }
 
 /* 停止请求：关相并尝试确认；确认可能延后一拍（quiet 需要功率级真实关闭）。 */
-static void RunState_RequestStop(bool apply_power_actions)
+static void RunState_RequestStop(void)
 {
-    (void)RunState_Send(APP_EVENT_STOP, 0U, APP_CONTROL_NONE, false, apply_power_actions);
-    (void)RunState_Send(0U, 0U, APP_CONTROL_NONE, false, false);
+    (void)RunState_Send(APP_EVENT_STOP, 0U, APP_CONTROL_NONE, false);
+    (void)RunState_Send(0U, 0U, APP_CONTROL_NONE, false);
 }
 
 /* 母线电压处于重新使能窗口 [25.6, 33.8] V：过/欠压故障的源恢复判据。 */
@@ -463,7 +461,7 @@ static bool RunState_TryClearFault(void)
         MotorControl->ErrorNow = No_Error;
         MotorControl->control_mode = MOTOR_CONTROL_NONE;
     }
-    RunState_ApplyActions(result.actions, false);
+    RunState_ApplyActions(result.actions);
     critical_hw_exit(state);
     return result.rejection == APP_ACCEPTED;
 }
@@ -518,7 +516,7 @@ static bool RunState_SendOperation(uint32_t events,
         }
     }
     project_lifecycle_fault();
-    RunState_ApplyActions(result.actions, false);
+    RunState_ApplyActions(result.actions);
     critical_hw_exit(state);
     return result.rejection == APP_ACCEPTED;
 }
@@ -598,7 +596,7 @@ static bool begin_operation(MotorMaintenanceKind kind)
         }
         MotorFault_Report(MotorControl, ControlOverrun_Error);
         (void)RunState_Send(
-            APP_EVENT_FAULT, (uint32_t)MotorControl->ErrorNow, APP_CONTROL_NONE, false, true);
+            APP_EVENT_FAULT, (uint32_t)MotorControl->ErrorNow, APP_CONTROL_NONE, false);
         return false;
     }
     return true;
@@ -1261,7 +1259,7 @@ void MotorStateMachine_Tick(void)
     if (stopped)
     {
         stop_pending = false;
-        RunState_RequestStop(true);
+        RunState_RequestStop();
     }
     MotorTaskResult outcome = MotorStateMachine_TakeOutcome();
     if (outcome.result == MOTOR_TASK_FAILED)
@@ -1272,11 +1270,11 @@ void MotorStateMachine_Tick(void)
     {
         save_requested = false;
         (void)RunState_Send(
-            APP_EVENT_FAULT, (uint32_t)MotorControl->ErrorNow, APP_CONTROL_NONE, false, true);
+            APP_EVENT_FAULT, (uint32_t)MotorControl->ErrorNow, APP_CONTROL_NONE, false);
     }
     else if (!stopped && outcome.result == MOTOR_TASK_STOP_REQUESTED)
     {
-        RunState_RequestStop(true);
+        RunState_RequestStop();
     }
     else if (!stopped && lifecycle.snapshot.state == APP_MAINTENANCE &&
              (outcome.result == MOTOR_TASK_COMPLETED || outcome.result == MOTOR_TASK_FINALIZE))
@@ -1300,7 +1298,7 @@ void MotorStateMachine_Tick(void)
     if (lifecycle.snapshot.state == APP_STARTING || lifecycle.snapshot.state == APP_RUNNING ||
         lifecycle.snapshot.state == APP_STOPPING)
     {
-        (void)RunState_Send(0U, 0U, APP_CONTROL_NONE, false, false);
+        (void)RunState_Send(0U, 0U, APP_CONTROL_NONE, false);
     }
     if (!stopped && !operation_event && save_requested && lifecycle.snapshot.state == APP_READY)
     {
@@ -1313,11 +1311,8 @@ void MotorStateMachine_Tick(void)
     {
         enable_pending = false;
         request_epoch = lifecycle.snapshot.epoch;
-        (void)RunState_Send(APP_EVENT_ENABLE,
-                            0U,
-                            RunState_ProjectControlMode(MotorControl->control_mode),
-                            true,
-                            false);
+        (void)RunState_Send(
+            APP_EVENT_ENABLE, 0U, RunState_ProjectControlMode(MotorControl->control_mode), true);
     }
     if (lifecycle.snapshot.state == APP_STARTING && RunState_BuildGuards().startup_confirmed)
     {
@@ -1327,7 +1322,7 @@ void MotorStateMachine_Tick(void)
             guards.samples_fresh && guards.fault_sources_clear)
         {
             power_stage_hw_start();
-            (void)RunState_Send(APP_EVENT_START_DONE, 0U, APP_CONTROL_NONE, false, false);
+            (void)RunState_Send(APP_EVENT_START_DONE, 0U, APP_CONTROL_NONE, false);
         }
         critical_hw_exit(mask);
     }

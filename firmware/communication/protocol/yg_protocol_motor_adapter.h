@@ -14,6 +14,9 @@ typedef struct
     motor_stop_service_t *stop_service;
     MotorControlSubmit submit_control;
     void *control_context;
+    /* APP组合层把ENABLE/CLEAR翻译为生命周期所有者命令，不让服务依赖协议头。 */
+    yg_protocol_motor_handler_t lifecycle_handler;
+    void *lifecycle_context;
 } yg_protocol_motor_adapter_t;
 
 /**

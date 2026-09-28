@@ -7,6 +7,7 @@
 /* 已按项目决策冻结的首批电机 Type；公司消息表待同步登记。 */
 #define YG_PROTOCOL_MOTOR_TYPE_STOP 110U
 #define YG_PROTOCOL_MOTOR_TYPE_ENABLE 101U
+#define YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT 107U
 #define YG_PROTOCOL_MOTOR_TYPE_CONTROL 116U
 #define YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE 4U
 #define YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE 20U
@@ -19,6 +20,7 @@ typedef enum
     YG_PROTOCOL_MOTOR_DISABLE,
     YG_PROTOCOL_MOTOR_ENABLE,
     YG_PROTOCOL_MOTOR_SET_CONTROL,
+    YG_PROTOCOL_MOTOR_CLEAR_FAULT,
 } yg_protocol_motor_operation_t;
 
 /** @brief 单轴控制值对象；位置、速度、电流、电压单位依次为 mrad、mrad/s、mA、mV。 */

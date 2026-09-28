@@ -27,6 +27,9 @@ typedef struct
     uint32_t revision;
     int32_t value;
     uint16_t detail;
+    /* 参数标量的实际类型与权限；其他服务保持0，不推断尚未实现的写权限。 */
+    uint8_t value_type;
+    uint8_t access;
 } yg_protocol_service_reply_t;
 
 #endif

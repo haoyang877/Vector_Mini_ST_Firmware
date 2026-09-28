@@ -4,7 +4,6 @@
 #include <string.h>
 
 #include "foc_run_state.h"
-#include "foc_bench_speed.h"
 #include "foc_mode_dispatch.h"
 #include "foc_cogging_calibration.h"
 #include "foc_encoder_calibration.h"
@@ -32,7 +31,7 @@ static bool output_off, stop_fails, temperature_fresh, encoder_released;
 static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
 static bool outer_ready;
 static bool check_borrowed_requests;
-static uint32_t critical_depth, seq, requested_duration_ms;
+static uint32_t critical_depth;
 
 /* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
 void BootHw_GetInfo(BootHwInfo *info)
@@ -235,102 +234,92 @@ static void reset(void)
     foc.temp = 25.0f;
     output_off = outer_ready = temperature_fresh = encoder_released = true;
     stop_fails = cogging_active = cogging_pending = cogging_claimed = cogging_cancelled = false;
-    seq = 0U;
-    requested_duration_ms = 1000U;
     FocRunState_Init(&motor, &foc, &pi, &encoder, &startup);
     tick();
     assert(FocRunState_GetState() == APP_READY);
-    assert(FocBenchSpeed.version == 3U && sizeof(FocBenchSpeed) == 92U);
 }
 
-static uint32_t command(uint32_t kind)
+/* 以公共维护入口开启会话并返回创建时 ticket；不再经由 SWD 台架邮箱。 */
+static uint32_t begin_maintenance(MotorMaintenanceKind kind)
 {
-    seq += 2U;
-    FocBenchSpeed.request_seq = seq - 1U;
-    FocBenchSpeed.command = kind;
-    FocBenchSpeed.duration_ms = requested_duration_ms;
-    FocBenchSpeed.iq_limit_a = 1.0f;
-    FocBenchSpeed.phase_limit_a = 6.0f;
-    FocBenchSpeed.speed_limit_rad_s = 8.0f;
-    FocBenchSpeed.target_speed_rad_s = 0.0f;
-    FocBenchSpeed.request_seq = seq;
-    tick();
-    assert(FocBenchSpeed.ack_seq == seq);
-    return FocBenchSpeed.ack_result;
+    uint32_t ticket = 0U;
+    assert(FocRunState_RequestMaintenance(kind, &ticket) == MOTOR_CONTROL_ACCEPTED);
+    assert(ticket != 0U);
+    return ticket;
 }
 
 static void test_control(void)
 {
     reset();
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    tick();
     tick();
     assert(FocRunState_GetState() == APP_RUNNING && !output_off);
-    seq += 2U;
-    FocBenchSpeed.request_seq = seq - 1U;
-    FocBenchSpeed.command = FOC_BENCH_SPEED_UPDATE;
-    FocBenchSpeed.target_speed_rad_s = -2.0f;
-    FocBenchSpeed.request_seq = seq;
-    tick();
-    assert(motor.speedRef == -2.0f && FocBenchSpeed.applied_seq == seq);
-    MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = 3.0f};
+    MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = -2.0f};
     assert(FocRunState_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     assert(FocRunState_SubmitControl(&goal) == MOTOR_CONTROL_BUSY);
+    tick();
+    assert(motor.speedRef == -2.0f);
     assert(FocRunState_RequestRemoteStop());
     tick();
     assert(output_off && FocRunState_GetState() == APP_READY && motor.speedRef == 0.0f);
     assert(motor.current_limit == 6.0f && motor.speed_limit == 20.0f);
-    puts("PASS Watch/CAN same owner, applied sequence, STOP revocation and restored caps");
+    puts("PASS same-mode target owner, single-slot busy, STOP revocation and unchanged caps");
 
     reset();
     encoder.calib_flag = ENC_CALIB_LINEARIZED;
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_DENIED);
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_DENIED);
     assert(output_off && encoder.calib_flag == ENC_CALIB_LINEARIZED);
     puts("PASS partial calibration cannot start closed loop; flags unchanged");
 
     reset();
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
-    FocRunState_Tick();
-    assert(FocRunState_GetState() == APP_FAULT && motor.ErrorNow == ControlOverrun_Error &&
-           output_off);
-    assert(command(FOC_BENCH_CLEAR) == FOC_BENCH_SPEED_ACCEPTED);
     tick();
-    assert(FocRunState_GetState() == APP_READY && motor.ModeNow == Motor_Disable &&
-           motor.speedRef == 0.0f);
-    puts(
-        "PASS lifecycle guard fault projects nonzero error; fresh recovery CLEAR does not restart");
+    assert(FocRunState_GetState() == APP_RUNNING);
+    FocRunState_PostOutcome(
+        (MotorWorkOutcome_TypeDef){MOTOR_WORK_FAULT, Motor_Disable, Encoder_Error, false},
+        FocRunState_WorkEpoch());
+    tick();
+    assert(FocRunState_GetState() == APP_FAULT && motor.ErrorNow == Encoder_Error && output_off);
+    assert(FocRunState_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    assert(FocRunState_GetState() == APP_READY && motor.ErrorNow == No_Error &&
+           motor.ModeNow == Motor_Disable && motor.speedRef == 0.0f);
+    puts("PASS worker fault latches error; fresh recovery CLEAR does not restart");
 }
 
 static void test_calibration_save(void)
 {
+    MotorMaintenanceProgress progress;
+    uint32_t ticket, origin, save;
     reset();
     encoder.calib_flag = ENC_CALIB_LINEARIZED;
-    assert(command(FOC_BENCH_ELECTRICAL_ZERO) == FOC_BENCH_SPEED_ACCEPTED);
+    ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
     assert(FocRunState_IsMaintenanceActive(Calib_EleAngelOffset) && !output_off);
-    uint32_t origin = FocRunState_WorkEpoch();
+    origin = FocRunState_WorkEpoch();
     encoder.calib_flag = ENC_CALIB_ALL;
     FocRunState_PostOutcome(
         (MotorWorkOutcome_TypeDef){MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, true}, origin);
     tick();
-    assert(output_off && FocBenchSpeed.completed_mode == Calib_EleAngelOffset);
-    assert(FocBenchSpeed.operation_effects == APP_EFFECT_UNCOMMITTED);
+    assert(output_off && FocRunState_ReadMaintenance(ticket, &progress));
+    assert(progress.effects == APP_EFFECT_UNCOMMITTED);
     tick();
     assert(FocRunState_IsMaintenanceActive(Save_Param));
+    save = FocRunState_WorkEpoch();
     FocBackgroundClaim claim;
     assert(FocRunState_BeginBackground(&claim) && claim.kind == FOC_BACKGROUND_SAVE);
     assert(FocRunState_BackgroundValid(&claim));
     FocRunState_FinishBackground(&claim, true);
     tick();
     assert(FocRunState_GetState() == APP_READY);
-    assert(FocBenchSpeed.operation_result == APP_OPERATION_COMPLETED &&
-           FocBenchSpeed.operation_effects == APP_EFFECT_COMMITTED);
-    assert(FocBenchSpeed.completed_mode == Calib_EleAngelOffset &&
-           FocBenchSpeed.calibration_flags == ENC_CALIB_ALL);
-    puts(
-        "PASS Mode15 completion distinct from SAVE COMMITTED, original epoch and flags observable");
+    assert(FocRunState_ReadMaintenance(save, &progress));
+    assert(progress.result == APP_OPERATION_COMPLETED && progress.effects == APP_EFFECT_COMMITTED);
+    assert(encoder.calib_flag == ENC_CALIB_ALL);
+    puts("PASS Mode15 completion distinct from SAVE COMMITTED; derived ticket observable");
 
     reset();
-    assert(command(FOC_BENCH_ENCODER_LUT) == FOC_BENCH_SPEED_ACCEPTED);
+    ticket = begin_maintenance(MOTOR_MAINTENANCE_ENCODER_LUT);
     assert(FocRunState_IsMaintenanceActive(Calib_EncoderObserver));
     origin = FocRunState_WorkEpoch();
     assert(FocRunState_RequestRemoteStop());
@@ -342,56 +331,44 @@ static void test_calibration_save(void)
     puts("PASS Mode13 explicit entry remains; stale completion after STOP cannot request SAVE");
 }
 
-static void test_fast_shutdown(void)
+static void test_stop_and_fault(void)
 {
     reset();
-    requested_duration_ms = 1U;
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
-    for (unsigned i = 0U; i < 20U; ++i)
-    {
-        FocRunState_CheckFastFaults();
-    }
-    assert(output_off && motor.ErrorNow == No_Error);
     tick();
-    assert(FocRunState_GetState() == APP_READY &&
-           FocBenchSpeed.stop_reason == FOC_BENCH_SPEED_TIMEOUT);
-    puts("PASS deadline closes outputs without fabricating a guard fault");
-
-    reset();
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
-    tick();
-    foc.Ia = 6.0f;
+    assert(FocRunState_GetState() == APP_RUNNING && !output_off);
+    encoder.bad_frame_streak = ENCODER_BAD_FRAME_OFFLINE_COUNT;
     FocRunState_CheckFastFaults();
     FocRunState_FastFaultStop();
-    assert(output_off && motor.ErrorNow == Over_Current);
-    tick();
-    assert(FocRunState_GetState() == APP_FAULT &&
-           FocBenchSpeed.stop_reason == FOC_BENCH_SPEED_PHASE_CURRENT);
-    puts("PASS 6 A sampled phase cutoff immediately closes outputs and latches fault");
+    assert(output_off && motor.ErrorNow == Encoder_Error);
+    puts("PASS encoder offline fast check latches error and closes outputs");
 
     reset();
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
+    assert(FocRunState_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    tick();
     tick();
     stop_fails = true;
     assert(FocRunState_RequestRemoteStop());
     tick();
     assert(!output_off && FocRunState_GetState() == APP_STOPPING);
-    assert(FocBenchSpeed.state == FOC_BENCH_SPEED_STOPPING);
-    assert(motor.current_limit == 1.0f && motor.speed_limit == 8.0f);
+    assert(motor.current_limit == 6.0f && motor.speed_limit == 20.0f);
     puts("PASS failed output shutdown cannot restore READY or relaxed limits");
 }
 
 static void test_borrow_cancel(void)
 {
     FocBackgroundClaim claim, forged;
+    MotorMaintenanceProgress progress;
+    uint32_t ticket, origin;
     reset();
-    assert(command(FOC_BENCH_SAVE) == FOC_BENCH_SPEED_ACCEPTED);
+    ticket = begin_maintenance(MOTOR_MAINTENANCE_SAVE);
     assert(FocRunState_BeginBackground(&claim));
     assert(FocRunState_RequestRemoteStop());
     tick();
     assert(FocRunState_GetState() == APP_STOPPING &&
-           FocBenchSpeed.operation_result == APP_OPERATION_CANCEL_REQUESTED);
+           FocRunState_ReadMaintenance(ticket, &progress) &&
+           progress.result == APP_OPERATION_CANCEL_REQUESTED);
     assert(!FocRunState_BeginBackground(&forged));
     forged = claim;
     ++forged.epoch;
@@ -400,16 +377,15 @@ static void test_borrow_cancel(void)
     assert(FocRunState_GetState() == APP_STOPPING);
     FocRunState_FinishBackground(&claim, true);
     tick();
-    assert(FocRunState_GetState() == APP_READY &&
-           FocBenchSpeed.operation_result == APP_OPERATION_CANCELLED);
-    assert(motor.ModeNow == Motor_Disable &&
-           FocBenchSpeed.operation_effects != APP_EFFECT_COMMITTED);
+    assert(FocRunState_GetState() == APP_READY && FocRunState_ReadMaintenance(ticket, &progress) &&
+           progress.result == APP_OPERATION_CANCELLED);
+    assert(motor.ModeNow == Motor_Disable && progress.effects != APP_EFFECT_COMMITTED);
     puts("PASS SAVE borrow blocks cancellation ACK; forged/late results cannot claim COMMITTED");
 
     reset();
-    assert(command(FOC_BENCH_COGGING) == FOC_BENCH_SPEED_ACCEPTED);
+    ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
     cogging_pending = true;
-    uint32_t origin = FocRunState_WorkEpoch();
+    origin = FocRunState_WorkEpoch();
     FocRunState_PostOutcome(
         (MotorWorkOutcome_TypeDef){MOTOR_WORK_SWITCH_MODE, Motor_Disable, No_Error, true}, origin);
     tick();
@@ -480,10 +456,6 @@ static void test_request_admission(void)
     expect_busy_requests();
 
     reset();
-    assert(command(FOC_BENCH_SPEED_START) == FOC_BENCH_SPEED_ACCEPTED);
-    expect_busy_requests();
-
-    reset();
     uint32_t ticket;
     assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
            MOTOR_CONTROL_ACCEPTED);
@@ -508,8 +480,7 @@ static void test_request_admission(void)
     assert(FocRunState_RequestClear() == MOTOR_CONTROL_BUSY);
     assert(FocRunState_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) == MOTOR_CONTROL_BUSY);
     assert(ticket == 0U && output_off);
-    puts("PASS four control mappings, seven busy sources, fault/invalid priority and release "
-         "guards");
+    puts("PASS four control mappings, busy sources, fault/invalid priority and release guards");
 }
 
 static void test_maintenance_identity(void)
@@ -551,7 +522,7 @@ int main(void)
     test_control();
     test_calibration_save();
     test_borrow_cancel();
-    test_fast_shutdown();
+    test_stop_and_fault();
     assert(critical_depth == 0U);
     return 0;
 }

@@ -14,8 +14,9 @@
 - `motor/foc/cogging_compensation.{c,h}`：运行补偿纯核心（准入、查表、200 ms 渐变、±1 A 钳位与遥测台账），不包含平台头。
 - `motor/identification/foc_cogging_calibration.{c,h}`：适配层，显式传入控制对象，表、采样与补偿状态私有；台架保护（约 10 行租约/测速判定）与力矩遥测帧内联于此。
 
-2026-09-28 E3 已收回可写控制对象与旧模式 setter。J-Link 使用配套 AXF 的显式请求邮箱，
-不复用旧全局变量地址。实际接入见 [Watch 指南](watch_motor_commands.md)。
+2026-09-28 E3 已收回可写控制对象与旧模式 setter。原 J-Link `FocBenchSpeed` 台架邮箱
+已随容量批次退役，台架齿槽入口不再可用；编程维护改经运行所有者的维护受理入口，
+见 [退役记录](watch_motor_commands.md)。
 
 
 ## 力矩模式运行补偿
@@ -67,11 +68,11 @@ iq_q15[i] = round(Iq_A / full_scale_a * 32768)
 
 需要先完成编码器线性化和电零位标定（标志位包含 `0x03`），电机停稳、编码器在线且速度估计就绪。模式只接收允许整圈转动的无边界轴配置（当前轮电机使用 `axis_profile.magic=0`），拒绝带行程约束的轴。编码器方向不会被修改。
 
-从 READY 发布 Watch command=8 进入原 Mode6，command=2 请求停止。
+维护入口以业务任务 `MOTOR_MAINTENANCE_COGGING` 受理原 Mode6，停止用既有停机入口。
 标定完成后先关相，由 APP 认领采样并在前台构建完整候选；提交前再次复核原始身份、
 无故障及数字关相。取消期间不改写已借出的样本，不发布半张表。
 RAM 表发布之后另行进入 SAVE，Flash 回读成功才登记 COMMITTED；保存失败不假报完成。
-具体序号与 operation 字段见 [Watch 指南](watch_motor_commands.md)。
+原 SWD 命令序号与 operation 字段见 [退役记录](watch_motor_commands.md)。
 
 旧标准 CAN `0x68..0x6D` 齿槽查询接口已随标准 CAN 退役，当前 CAN FD 尚未新增其替代。
 生产代码不返回私有表或采样的地址；离线测试直接编译实际实现检查其私有不变量。

@@ -23,7 +23,7 @@ they are not substitutes for current `verify` evidence.
 All local Markdown links are checked by the PR profile. Add new durable documents to
 this map or to the closest indexed sub-area.
 
-Watch command entry: [Watch 电机请求入口](guides/watch_motor_commands.md).
+SWD bench mailbox retirement: [SWD 台架请求邮箱退役记录](guides/watch_motor_commands.md).
 
 E/H/D integrated candidate: [整体重构工程、状态图与未测清单（2026-09-28）](guides/system_refactor_candidate_20260928.md).
 

@@ -27,9 +27,8 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
                       Encoder_TypeDef *encoder,
                       SensorlessStartup_TypeDef *startup);
 /**
- * @brief 快速环故障及显式台架截止检查：核对反馈、轴配置、期限和采样限制。
- * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。
- *       台架期限到达可直接关相；采样电流截止只在显式会话内生效。不清错、不写 Flash。
+ * @brief 快速环故障检查：核对编码器反馈与轴配置。
+ * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。不清错、不写 Flash。
  */
 void FocRunState_CheckFastFaults(void);
 /**
@@ -77,10 +76,10 @@ bool FocRunState_IsMaintenanceActive(ModeNow_TypeDef mode);
 bool FocRunState_RequestRemoteStop(void);
 
 /**
- * @brief 向运行所有者提交同模式目标，CAN 与 Watch 共用受理和应用路径。
+ * @brief 向运行所有者提交同模式目标，前台共用受理和应用路径。
  * @param command SI 单位值命令；成功时复制，不保留指针。
  * @return 已受理、参数错误、状态拒绝、忙、越限或故障；不报告物理已执行。
- * @note 前台或 2 kHz Watch 消费调用；单槽邮箱不覆盖未应用目标。
+ * @note 前台消费调用；单槽邮箱不覆盖未应用目标。
  *       下一监督拍复核；只允许已 RUNNING 的相同模式，
  *       不隐式使能、不切换模式、不清故障；STOP 会取消尚未应用的目标。
  */
@@ -89,7 +88,7 @@ MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
  * @brief 请求以零目标或当前位置启动明确控制模式。
  * @param mode 业务模式，不接受线上或历史编号。
  * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。
- * @note 前台或 Watch 消费调用，有界非阻塞；功率迁移仍在监督调度提交。
+ * @note 前台消费调用，有界非阻塞；功率迁移仍在监督调度提交。
  */
 MotorControlResult FocRunState_RequestEnable(MotorControlMode mode);
 /**

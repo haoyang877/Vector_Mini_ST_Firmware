@@ -39,10 +39,10 @@ Watch v1 邮箱只能零速启动/停止，速度目标仍依赖 116；这在 E3
 基线 normal 宏为 6 mΩ、原独立相电流跳闸 18 A；台架截止是另一个显式会话约束。
 
 E3.1：公共提交函数更名为 `FocRunState_SubmitControl`，没有保留旧 Remote 别名。
-Watch UPDATE 经同一值命令/单槽邮箱，CAN 组合调用已迁移；不直接赋 speedRef。
-增加目标字段和只读 applied_seq，邮箱 v2、64 B，所有新增序号为标量，不复制控制对象。
-启动仍强制零目标；UPDATE 不续租，越限/BUSY/STOP 撤销有直接反例。步骤见
-[Watch 指南](../../guides/watch_motor_commands.md)。原生证据在 `outputs/e3/watch-final/`。
+目标经同一值命令/单槽邮箱，CAN/前台组合调用已迁移；不直接赋 speedRef。
+后续容量批次退役了原 `FocBenchSpeed` SWD 台架邮箱与只读 applied_seq，见
+[退役记录](../../guides/watch_motor_commands.md)。启动仍强制零目标；越限/BUSY/STOP
+撤销有直接反例。原生证据在 `outputs/e3/watch-final/`。
 
 ## 回退与证据
 

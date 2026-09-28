@@ -9,7 +9,6 @@
 #include "boot_hw.h"
 #include "image_format.h"
 #include "critical_hw.h"
-#include "foc_bench_speed.h"
 #include "foc_errhandle.h"
 #include "foc_algorithm.h"
 #include "foc_mode_dispatch.h"
@@ -27,27 +26,6 @@
 #include "foc_sensorless_run.h"
 #include "power_stage_hw.h"
 #include "utils.h"
-
-/* BENCH_SPEED_CONTEXT_BEGIN */
-#define BENCH_SPEED_MAX_DURATION_MS 5000U
-#define BENCH_SPEED_MAX_PHASE_A 6.0f
-#define BENCH_SPEED_MAX_RAD_S 31.4159265f
-#define BENCH_SPEED_FAST_TICKS_PER_MS (FOC_FREQ / 1000U)
-
-/* 显式请求区可由 SWD 写入；其余状态仍由运行所有者私有持有。 */
-volatile FocBenchSpeedMailbox FocBenchSpeed;
-static struct
-{
-    volatile bool active, stop_requested;
-    volatile uint32_t remaining_fast_ticks, stop_reason;
-    uint32_t session_seq, last_request_seq, applied_seq;
-    volatile uint32_t blocked_seq;
-    float phase_limit_a, speed_limit_rad_s;
-    float saved_current_limit_a, saved_speed_limit_rad_s;
-} bench_speed;
-/* 与目标邮箱同所有者；0 表示 CAN 提交，非零表示 Watch 请求关联序号。 */
-static uint32_t pending_control_watch_seq;
-/* BENCH_SPEED_CONTEXT_END */
 
 /* 运行状态机适配器：
  * - READY/STARTING/RUNNING/STOPPING/FAULT 由 AppLifecycle 纯核心拥有；
@@ -75,7 +53,6 @@ enum
 };
 static volatile uint8_t save_finish;
 static uint32_t operation_epoch, outcome_epoch, request_epoch, cancel_epoch;
-static ModeNow_TypeDef completed_mode;
 static MotorMaintenanceProgress last_maintenance;
 static struct
 {
@@ -106,6 +83,7 @@ static bool fast_samples_fresh;
 static uint32_t supervisor_epoch;
 static bool RunState_VbusInEnableWindow(void);
 static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode);
+/* 停机清理：按上一模式中止自管辨识，并清零全部参考/影子/滤波量与控制器状态。 */
 static void clear_running_data(void)
 {
     if (ModeLast == Calib_Anticogging)
@@ -131,30 +109,7 @@ static void clear_running_data(void)
     SensorlessStartup_Reset(SensorlessStartup);
 }
 
-/* STOP/FAULT 撤销已提交或正在写入的台架请求；不因迟到提交重新启动。 */
-static void RunState_BenchCancel(uint32_t reason)
-{
-    uint32_t seq = FocBenchSpeed.request_seq;
-    uint32_t committed_seq = (seq & 1U) != 0U && seq != UINT32_MAX ? seq + 1U : seq;
-    if (committed_seq > bench_speed.blocked_seq &&
-        (reason != FOC_BENCH_SPEED_FAULT ||
-         (lifecycle.snapshot.state != APP_FAULT && lifecycle.snapshot.state != APP_FATAL)))
-    {
-        bench_speed.blocked_seq = committed_seq;
-    }
-    if (bench_speed.active)
-    {
-        bench_speed.stop_requested = true;
-        if (bench_speed.stop_reason == FOC_BENCH_SPEED_NO_STOP ||
-            (reason == FOC_BENCH_SPEED_FAULT &&
-             bench_speed.stop_reason != FOC_BENCH_SPEED_PHASE_CURRENT &&
-             bench_speed.stop_reason != FOC_BENCH_SPEED_OVERSPEED))
-        {
-            bench_speed.stop_reason = reason;
-        }
-    }
-}
-
+/* 前台目标校验：锁定期、参数有限性、模式编号、运行前提与限值，返回受理或拒绝原因。 */
 static MotorControlResult validate_control(const MotorControlCommand *command)
 {
     ModeNow_TypeDef mode;
@@ -237,6 +192,7 @@ static MotorControlResult validate_control(const MotorControlCommand *command)
     }
 }
 
+/* 监督拍消费单槽目标邮箱：会话失效、STOP 或复核失败即丢弃，受理后写入对应参考。 */
 static void apply_pending_control(void)
 {
     /* 防止快环在状态复核与目标写入之间锁存故障；临界区只做有界值检查和一次赋值。 */
@@ -269,10 +225,6 @@ static void apply_pending_control(void)
         break;
     default:
         break;
-    }
-    if (pending_control_watch_seq != 0U)
-    {
-        bench_speed.applied_seq = pending_control_watch_seq;
     }
     critical_hw_exit(state);
 }
@@ -423,6 +375,7 @@ static void RunState_ApplyActions(uint32_t actions, bool clear_control)
     }
 }
 
+/* 核心已锁入 FAULT/FATAL 但兼容 ErrorNow 仍为零时，投影一个可诊断的故障码。 */
 static void project_lifecycle_fault(void)
 {
     if ((lifecycle.snapshot.state == APP_FAULT || lifecycle.snapshot.state == APP_FATAL) &&
@@ -749,6 +702,7 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
     }
 }
 
+/* 业务维护任务 → 内部模式；未登记任务返回 Motor_Disable。 */
 static ModeNow_TypeDef maintenance_mode(MotorMaintenanceKind kind)
 {
     switch (kind)
@@ -773,6 +727,7 @@ static ModeNow_TypeDef maintenance_mode(MotorMaintenanceKind kind)
         return Motor_Disable;
     }
 }
+/* 内部模式 → 业务维护任务；用于上报维护会话进度。 */
 static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode)
 {
     switch (mode)
@@ -799,12 +754,13 @@ static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode)
 /* 运行所有者已静止：模式已失能、无目标/占用、资源已释放；调用方负责状态与角色前提。 */
 static bool RunState_OwnerQuiescent(const AppLifecycleGuards *guards)
 {
-    return MotorControl->ModeNow == Motor_Disable && !stop_pending && !bench_speed.active &&
-           !control_pending && !configuration_reading && !background_busy && !outcome_latched &&
+    return MotorControl->ModeNow == Motor_Disable && !stop_pending && !control_pending &&
+           !configuration_reading && !background_busy && !outcome_latched &&
            lifecycle.snapshot.operation == APP_OPERATION_NONE && guards->phases_disabled &&
            guards->control_idle && guards->operation_idle && guards->maintenance_released;
 }
 
+/* READY 且无票据、无故障、无占用：停机配置写入的静态前提。 */
 static bool configuration_idle(void)
 {
     AppLifecycleGuards guards = RunState_BuildGuards();
@@ -813,6 +769,11 @@ static bool configuration_idle(void)
            MotorControl->ErrorNow == No_Error && RunState_OwnerQuiescent(&guards);
 }
 
+/**
+ * @brief 查询停机参数应用是否具备所有者与资源资格。
+ * @return READY、无待确认试启动、关相、无命令/维护/配置借用和故障时返回 true。
+ * @note 资格读取与实际应用须处于同一调用方临界区，不能作为延后写入许可证。
+ */
 bool FocRunState_ConfigurationAllowed(void)
 {
     return !boot_confirmation_pending && configuration_idle();
@@ -822,10 +783,15 @@ bool FocRunState_ConfigurationAllowed(void)
 static bool request_busy(void)
 {
     return boot_stop_ticket != 0U || background_busy || configuration_reading || outcome_latched ||
-           control_pending || bench_speed.active ||
-           lifecycle.snapshot.operation != APP_OPERATION_NONE;
+           control_pending || lifecycle.snapshot.operation != APP_OPERATION_NONE;
 }
 
+/**
+ * @brief 请求以零目标或当前位置进入明确控制模式。
+ * @param mode 业务模式，不接受线上或历史编号。
+ * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。
+ * @note 前台消费调用，有界非阻塞；功率迁移仍在监督拍提交。
+ */
 MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
 {
     if (boot_maintenance_only)
@@ -877,6 +843,11 @@ MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
     return result;
 }
 
+/**
+ * @brief 核对恢复资格并同步清除当前可恢复锁存故障。
+ * @return 受理表示锁存已清或 READY 本来无故障；忙或拒绝保持锁存，FATAL 不可清。
+ * @note 临界区内完成 CLEAR 提交；清除后进入 SELF_TEST，不表示自检完成或可启动。
+ */
 MotorControlResult FocRunState_RequestClear(void)
 {
     uint32_t mask = critical_hw_enter();
@@ -898,6 +869,13 @@ MotorControlResult FocRunState_RequestClear(void)
     return result;
 }
 
+/**
+ * @brief 请求原有维护任务并分配创建时身份。
+ * @param kind 明确业务任务。
+ * @param ticket 接收原始身份，失败清零。
+ * @return 受理、参数错误、忙、故障或守卫拒绝。
+ * @note 不保留调用方指针；不执行 Flash 或长耗时工作。
+ */
 MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uint32_t *ticket)
 {
     if (ticket == NULL)
@@ -931,7 +909,6 @@ MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uin
             if (FocRunState_IsMaintenanceActive(mode))
             {
                 *ticket = operation_epoch;
-                completed_mode = Motor_Disable;
                 result = MOTOR_CONTROL_ACCEPTED;
             }
             else
@@ -944,6 +921,13 @@ MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uin
     return result;
 }
 
+/**
+ * @brief 读取原始维护身份的进展。
+ * @param ticket 请求受理时返回的身份。
+ * @param progress 接收一致结果值，失败清零。
+ * @return 当前、最近维护或最近带来源请求的终态身份匹配返回 true；陈旧身份返回 false。
+ * @note 前台查询；完成不代表持久化，须同时检查 effects。
+ */
 bool FocRunState_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress)
 {
     if (progress == NULL)
@@ -975,6 +959,13 @@ bool FocRunState_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *prog
     return found;
 }
 
+/**
+ * @brief 按来源和原始请求序号幂等受理维护，复用同一维护所有者。
+ * @param request 只读值身份，保留字节必须为零；返回后不保留指针。
+ * @param ticket 成功接收原始任务身份，失败清零。
+ * @return 受理、非法/冲突/陈旧身份、忙、故障或守卫拒绝。
+ * @note 同来源序号和任务重试返回原 ticket；同序号不同任务拒绝；按 16 位半范围窗口递进。
+ */
 MotorControlResult FocRunState_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *request,
                                                             uint32_t *ticket)
 {
@@ -1024,6 +1015,12 @@ MotorControlResult FocRunState_RequestIdentifiedMaintenance(const MotorMaintenan
     return result;
 }
 
+/**
+ * @brief 精确取消原 ticket 对应的维护，不影响其他任务。
+ * @param ticket 受理时返回的非零身份。
+ * @return 已登记取消或终态重复取消返回受理；陈旧身份非法，其他状态拒绝。
+ * @note 受理不代表资源已归还，须查询同 ticket 的 CANCELLED 终态；不恢复旧目标。
+ */
 MotorControlResult FocRunState_CancelMaintenance(uint32_t ticket)
 {
     if (ticket == 0U)
@@ -1070,282 +1067,15 @@ MotorControlResult FocRunState_CancelMaintenance(uint32_t ticket)
     return result;
 }
 
-static uint32_t bench_result(MotorControlResult result)
-{
-    if (result == MOTOR_CONTROL_ACCEPTED)
-    {
-        return FOC_BENCH_SPEED_ACCEPTED;
-    }
-    if (result == MOTOR_CONTROL_BUSY)
-    {
-        return FOC_BENCH_SPEED_BUSY;
-    }
-    if (result == MOTOR_CONTROL_INVALID || result == MOTOR_CONTROL_OUT_OF_RANGE)
-    {
-        return FOC_BENCH_SPEED_INVALID;
-    }
-    return FOC_BENCH_SPEED_DENIED;
-}
-
-static uint32_t submit_maintenance(uint32_t command, uint32_t seq)
-{
-    if (command == FOC_BENCH_CLEAR)
-    {
-        return bench_result(FocRunState_RequestClear());
-    }
-    MotorMaintenanceKind kind;
-    switch (command)
-    {
-    case FOC_BENCH_ENCODER_LUT:
-        kind = MOTOR_MAINTENANCE_ENCODER_LUT;
-        break;
-    case FOC_BENCH_ELECTRICAL_ZERO:
-        kind = MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
-        break;
-    case FOC_BENCH_SAVE:
-        kind = MOTOR_MAINTENANCE_SAVE;
-        break;
-    case FOC_BENCH_COGGING:
-        kind = MOTOR_MAINTENANCE_COGGING;
-        break;
-    case FOC_BENCH_PHASE_RESISTANCE:
-        kind = MOTOR_MAINTENANCE_PHASE_RESISTANCE;
-        break;
-    case FOC_BENCH_FRICTION:
-        kind = MOTOR_MAINTENANCE_FRICTION;
-        break;
-    case FOC_BENCH_MECHANICAL_ZERO:
-        kind = MOTOR_MAINTENANCE_MECHANICAL_ZERO;
-        break;
-    case FOC_BENCH_DEFAULTS:
-        kind = MOTOR_MAINTENANCE_DEFAULTS;
-        break;
-    default:
-        return FOC_BENCH_SPEED_INVALID;
-    }
-    uint32_t ticket;
-    MotorControlResult result = FocRunState_RequestMaintenance(kind, &ticket);
-    if (result == MOTOR_CONTROL_ACCEPTED)
-    {
-        bench_speed.session_seq = seq;
-    }
-    return bench_result(result);
-}
-
-/* 单次复制发布完成的 SWD 请求；全程有界，不等待外部写入者。 */
-static void RunState_ServiceBenchRequest(bool worker_idle)
-{
-    uint32_t state = critical_hw_enter();
-    uint32_t seq = FocBenchSpeed.request_seq;
-    uint32_t command, duration_ms;
-    float iq_limit_a, phase_limit_a, speed_limit_rad_s, target_speed_rad_s;
-    AppLifecycleGuards guards;
-    uint32_t result = FOC_BENCH_SPEED_DENIED;
-
-    if (seq == 0U || (seq & 1U) != 0U || seq <= bench_speed.last_request_seq)
-    {
-        critical_hw_exit(state);
-        return;
-    }
-    command = FocBenchSpeed.command;
-    duration_ms = FocBenchSpeed.duration_ms;
-    iq_limit_a = FocBenchSpeed.iq_limit_a;
-    phase_limit_a = FocBenchSpeed.phase_limit_a;
-    speed_limit_rad_s = FocBenchSpeed.speed_limit_rad_s;
-    target_speed_rad_s = FocBenchSpeed.target_speed_rad_s;
-    if (FocBenchSpeed.request_seq != seq)
-    {
-        critical_hw_exit(state);
-        return;
-    }
-    bench_speed.last_request_seq = seq;
-    if (seq <= bench_speed.blocked_seq)
-    {
-        result = FOC_BENCH_SPEED_INTERRUPTED;
-    }
-    else if (command == FOC_BENCH_SPEED_STOP)
-    {
-        (void)FocRunState_RequestRemoteStop();
-        RunState_RequestStop(true);
-        result = FOC_BENCH_SPEED_ACCEPTED;
-    }
-    else if (command == FOC_BENCH_SPEED_UPDATE)
-    {
-        MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = target_speed_rad_s};
-        MotorControlResult submitted = bench_speed.active && !bench_speed.stop_requested
-                                           ? FocRunState_SubmitControl(&goal)
-                                           : MOTOR_CONTROL_DENIED;
-        result = bench_result(submitted);
-        if (submitted == MOTOR_CONTROL_ACCEPTED)
-        {
-            pending_control_watch_seq = seq;
-        }
-    }
-    else if (command >= FOC_BENCH_ENCODER_LUT && command <= FOC_BENCH_DEFAULTS)
-    {
-        result = worker_idle ? submit_maintenance(command, seq) : FOC_BENCH_SPEED_BUSY;
-    }
-    else if (command != FOC_BENCH_SPEED_START || duration_ms == 0U ||
-             duration_ms > BENCH_SPEED_MAX_DURATION_MS || !isfinite(iq_limit_a) ||
-             !isfinite(phase_limit_a) || !isfinite(speed_limit_rad_s) || iq_limit_a <= 0.0f ||
-             phase_limit_a <= iq_limit_a || phase_limit_a > BENCH_SPEED_MAX_PHASE_A ||
-             speed_limit_rad_s <= 0.0f || speed_limit_rad_s > BENCH_SPEED_MAX_RAD_S ||
-             !isfinite(target_speed_rad_s) || target_speed_rad_s != 0.0f)
-    {
-        result = FOC_BENCH_SPEED_INVALID;
-    }
-    else if (bench_speed.active)
-    {
-        result = FOC_BENCH_SPEED_BUSY;
-    }
-    else
-    {
-        guards = RunState_BuildGuards();
-        if (worker_idle && lifecycle.snapshot.state == APP_READY &&
-            lifecycle.snapshot.operation == APP_OPERATION_NONE &&
-            lifecycle.snapshot.operation_result != APP_OPERATION_CANCEL_REQUESTED &&
-            operation_mode == Motor_Disable && save_finish == SAVE_FINISH_NONE &&
-            MotorControl->ModeNow == Motor_Disable && ModeLast == Motor_Disable &&
-            guards.phases_disabled && guards.control_idle && guards.operation_idle &&
-            guards.maintenance_released && guards.self_test_passed && guards.start_permitted &&
-            !MotorControl->isUseSensorless && Encoder_IsOnline(OnBoard_Encoder) &&
-            (Encoder_GetCalibFlag(OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
-            isfinite(MotorControl->current_limit) && iq_limit_a <= MotorControl->current_limit &&
-            isfinite(MotorControl->speed_limit) && speed_limit_rad_s <= MotorControl->speed_limit &&
-            isfinite(MotorControl->speedAcc) && MotorControl->speedAcc > 0.0f &&
-            isfinite(MotorControl->speedDec) && MotorControl->speedDec > 0.0f &&
-            isfinite(MotorControl->speed_Kp) && MotorControl->speed_Kp >= 0.0f &&
-            isfinite(MotorControl->speed_Ki) && MotorControl->speed_Ki >= 0.0f &&
-            isfinite(Encoder_GetMecVel(OnBoard_Encoder)) &&
-            fabsf(Encoder_GetMecVel(OnBoard_Encoder)) <= speed_limit_rad_s &&
-            fabsf(FOC->Ia) < phase_limit_a && fabsf(FOC->Ib) < phase_limit_a &&
-            fabsf(FOC->Ic) < phase_limit_a &&
-            (MotorControl->axis_profile.magic == 0U ||
-             (isfinite(MotorControl->axis_profile.maximum_speed_rad_s) &&
-              speed_limit_rad_s <= MotorControl->axis_profile.maximum_speed_rad_s)) &&
-            RunState_VbusInEnableWindow())
-        {
-            /* 沿用现有准入函数，登记仍发生在 owner；启动不继承旧 PI/目标。 */
-            clear_running_data();
-            request_epoch = lifecycle.snapshot.epoch;
-            if (FocRunState_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED)
-            {
-                bench_speed.saved_current_limit_a = MotorControl->current_limit;
-                bench_speed.saved_speed_limit_rad_s = MotorControl->speed_limit;
-                bench_speed.phase_limit_a = phase_limit_a;
-                bench_speed.speed_limit_rad_s = speed_limit_rad_s;
-                bench_speed.remaining_fast_ticks = duration_ms * BENCH_SPEED_FAST_TICKS_PER_MS;
-                bench_speed.session_seq = seq;
-                bench_speed.applied_seq = 0U;
-                bench_speed.stop_reason = FOC_BENCH_SPEED_NO_STOP;
-                bench_speed.stop_requested = false;
-                MotorControl->current_limit = iq_limit_a;
-                MotorControl->speed_limit = speed_limit_rad_s;
-                MotorControl->speedRef = 0.0f;
-                MotorControl->speedShadow = 0.0f;
-                MotorControl->idRef = 0.0f;
-                MotorControl->iqRef = 0.0f;
-                bench_speed.active = true;
-                result = FOC_BENCH_SPEED_ACCEPTED;
-            }
-        }
-    }
-    /* 输出区只有 2 kHz 写者；读者用 status_seq 检查一次完整发布。 */
-    ++FocBenchSpeed.status_seq;
-    FocBenchSpeed.ack_seq = seq;
-    FocBenchSpeed.ack_result = result;
-    ++FocBenchSpeed.status_seq;
-    critical_hw_exit(state);
-}
-
-/* 独立于 PC 的快环计时和采样式测试截止，仅在显式台架会话内运行。 */
-static void RunState_BenchFastGuard(void)
-{
-    if (!bench_speed.active)
-    {
-        return;
-    }
-    if (MotorControl->ErrorNow == No_Error &&
-        (!isfinite(FOC->Ia) || !isfinite(FOC->Ib) || !isfinite(FOC->Ic) ||
-         fabsf(FOC->Ia) >= bench_speed.phase_limit_a ||
-         fabsf(FOC->Ib) >= bench_speed.phase_limit_a ||
-         fabsf(FOC->Ic) >= bench_speed.phase_limit_a))
-    {
-        bench_speed.stop_reason = FOC_BENCH_SPEED_PHASE_CURRENT;
-        MotorFault_Report(MotorControl, Over_Current);
-    }
-    if (MotorControl->ErrorNow == No_Error &&
-        (!isfinite(Encoder_GetMecVel(OnBoard_Encoder)) ||
-         fabsf(Encoder_GetMecVel(OnBoard_Encoder)) > bench_speed.speed_limit_rad_s))
-    {
-        bench_speed.stop_reason = FOC_BENCH_SPEED_OVERSPEED;
-        MotorFault_Report(MotorControl, MotorParam_Error);
-    }
-    if (bench_speed.remaining_fast_ticks > 0U)
-    {
-        --bench_speed.remaining_fast_ticks;
-    }
-    if (bench_speed.remaining_fast_ticks == 0U)
-    {
-        RunState_BenchCancel(FOC_BENCH_SPEED_TIMEOUT);
-        control_pending = false;
-        power_stage_hw_stop();
-    }
-}
-
-/* 仅实际关相并退出运行后恢复 RAM 限值；没有确认时保留更严格限制与 busy。 */
-static void RunState_PublishBenchState(void)
-{
-    uint32_t state = critical_hw_enter();
-    uint32_t session_state = FocBenchSpeed.state;
-    if (bench_speed.active)
-    {
-        if (MotorControl->ModeNow == Motor_Disable && power_stage_hw_phases_disabled() &&
-            (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_FAULT ||
-             lifecycle.snapshot.state == APP_FATAL))
-        {
-            MotorControl->current_limit = bench_speed.saved_current_limit_a;
-            MotorControl->speed_limit = bench_speed.saved_speed_limit_rad_s;
-            bench_speed.active = false;
-            session_state = FOC_BENCH_SPEED_STOPPED;
-        }
-        else
-        {
-            session_state = bench_speed.stop_requested                ? FOC_BENCH_SPEED_STOPPING
-                            : lifecycle.snapshot.state == APP_RUNNING ? FOC_BENCH_SPEED_RUNNING
-                                                                      : FOC_BENCH_SPEED_STARTING;
-        }
-    }
-    ++FocBenchSpeed.status_seq;
-    if (pending_control_watch_seq != 0U && !control_pending)
-    {
-        if (bench_speed.applied_seq != pending_control_watch_seq &&
-            FocBenchSpeed.ack_seq == pending_control_watch_seq)
-        {
-            FocBenchSpeed.ack_result = FOC_BENCH_SPEED_INTERRUPTED;
-        }
-        pending_control_watch_seq = 0U;
-    }
-    FocBenchSpeed.session_seq = bench_speed.session_seq;
-    FocBenchSpeed.applied_seq = bench_speed.applied_seq;
-    FocBenchSpeed.state = session_state;
-    FocBenchSpeed.stop_reason = bench_speed.stop_reason;
-    FocBenchSpeed.remaining_ms =
-        bench_speed.active
-            ? (bench_speed.remaining_fast_ticks + BENCH_SPEED_FAST_TICKS_PER_MS - 1U) /
-                  BENCH_SPEED_FAST_TICKS_PER_MS
-            : 0U;
-    FocBenchSpeed.operation_epoch = operation_epoch;
-    FocBenchSpeed.operation_mode = operation_mode;
-    FocBenchSpeed.operation_result = lifecycle.snapshot.operation_result;
-    FocBenchSpeed.operation_effects = lifecycle.snapshot.operation_effects;
-    FocBenchSpeed.completed_mode = completed_mode;
-    FocBenchSpeed.calibration_flags = Encoder_GetCalibFlag(OnBoard_Encoder);
-    FocBenchSpeed.calibration_step = FocEncoderCalibration_GetStep();
-    ++FocBenchSpeed.status_seq;
-    critical_hw_exit(state);
-}
-
+/**
+ * @brief 初始化运行所有者：核心进入 BOOT 态，清空命令和采样进展。
+ * @param motor 组合层终身电机对象。
+ * @param foc 组合层终身 FOC 对象。
+ * @param pi 组合层终身速度 PI。
+ * @param encoder 组合层终身编码器对象。
+ * @param startup 组合层终身无感启动对象。
+ * @note 由启动组合层在中断使能前调用一次；不访问硬件。
+ */
 void FocRunState_Init(MotorControl_TypeDef *motor,
                       FOC_TypeDef *foc,
                       PI_Controller_TypeDef *pi,
@@ -1360,7 +1090,6 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
     ModeLast = Motor_Disable;
     AppLifecycle_Init(&lifecycle);
     operation_epoch = outcome_epoch = cancel_epoch = 0U;
-    completed_mode = Motor_Disable;
     last_maintenance = (MotorMaintenanceProgress){0};
     memset(&last_maintenance_request, 0, sizeof(last_maintenance_request));
     request_epoch = lifecycle.snapshot.epoch;
@@ -1377,29 +1106,40 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
     recovery.overcurrent_ticks = 0U;
     outcome_latched = false;
     control_pending = false;
-    pending_control_watch_seq = 0U;
     fast_sample_epoch = 0U;
     observed_fast_sample_epoch = 0U;
     fast_samples_fresh = false;
-    memset(&bench_speed, 0, sizeof(bench_speed));
-    memset((void *)&FocBenchSpeed, 0, sizeof(FocBenchSpeed));
-    FocBenchSpeed.version = FOC_BENCH_SPEED_MAILBOX_VERSION;
 }
 
+/**
+ * @brief 查询指定维护模式是否已由生命周期所有者受理。
+ * @param mode 维护模式，仅与当前会话匹配时才获准执行。
+ * @return 会话已进入 MAINTENANCE 且模式匹配返回 true。
+ * @note 快环只读查询，用于阻止自管功率的标定在维护准入前启相。
+ */
 bool FocRunState_IsMaintenanceActive(ModeNow_TypeDef mode)
 {
     return lifecycle.snapshot.state == APP_MAINTENANCE && operation_mode == mode;
 }
 
+/**
+ * @brief 读取运行所有者的生命周期状态。
+ * @return 当前内部状态，数值不能直接用作线上枚举。
+ * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
+ */
 AppLifecycleState FocRunState_GetState(void)
 {
     return lifecycle.snapshot.state;
 }
 
+/**
+ * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。
+ * @return 请求已登记返回 true；不表示功率输出已经关闭。
+ * @note 与监督中断通过短临界区交接；故障快车道仍可优先关断。
+ */
 bool FocRunState_RequestRemoteStop(void)
 {
     uint32_t state = critical_hw_enter();
-    RunState_BenchCancel(FOC_BENCH_SPEED_MANUAL_STOP);
     control_pending = false;
     if (outcome_latched)
     {
@@ -1416,6 +1156,12 @@ bool FocRunState_RequestRemoteStop(void)
     return true;
 }
 
+/**
+ * @brief 为唯一升级交接票据保留停机所有权并撤销当前目标。
+ * @param ticket 前台交接所有者提供的非零票据，复位前不得复用其他身份。
+ * @return 同票据重复或首次登记返回受理，其他票据忙，FATAL 拒绝。
+ * @note 不表示已关相；保留后拒绝启动、维护和配置写入，失败也不自动释放或恢复运动。
+ */
 MotorControlResult FocRunState_RequestBootStop(uint64_t ticket)
 {
     if (ticket == 0U)
@@ -1442,6 +1188,12 @@ MotorControlResult FocRunState_RequestBootStop(uint64_t ticket)
     return result;
 }
 
+/**
+ * @brief 核对升级票据仍拥有停机且所有实际资源均已归还。
+ * @param ticket 原始非零票据。
+ * @return READY 或 FAULT、数字关相、无控制/维护/借用/后台时返回 true。
+ * @note 必须在最终邮箱写入与复位的同一短临界区复核；不表示保存业务已完成。
+ */
 bool FocRunState_BootHandoffReady(uint64_t ticket)
 {
     uint32_t mask = critical_hw_enter();
@@ -1453,6 +1205,13 @@ bool FocRunState_BootHandoffReady(uint64_t ticket)
     return ready;
 }
 
+/**
+ * @brief 读取基础运行健康及试启动确认资格的一致值。
+ * @param progress 接收监督调度进展计数，调用方必须比较新进展而非反复消费旧值。
+ * @param confirmation_ready 接收自检通过、READY、无资源占用、关相和编码器在线资格。
+ * @return 感测新鲜且未进入 FATAL 返回 true；通信及保存健康由组合层补充。
+ * @note 前台短临界区只读；完整标定仍是运动模式条件，不是试启动确认条件。
+ */
 bool FocRunState_ReadBootHealth(uint32_t *progress, bool *confirmation_ready)
 {
     if (progress == NULL || confirmation_ready == NULL)
@@ -1469,6 +1228,13 @@ bool FocRunState_ReadBootHealth(uint32_t *progress, bool *confirmation_ready)
     return healthy;
 }
 
+/**
+ * @brief 复核平台真实确认记录并解除试启动禁止。
+ * @param boot_epoch 本次实际启动代号，必须非零。
+ * @param image_token 本次镜像身份，必须非零。
+ * @return 平台已确认且身份完全匹配返回 true；否则保持禁止。
+ * @note 仅前台交接服务在确认写入并回读成功后调用，不自动启动或恢复目标。
+ */
 bool FocRunState_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image_token)
 {
     uint32_t mask = critical_hw_enter();
@@ -1485,6 +1251,12 @@ bool FocRunState_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image
     return confirmed;
 }
 
+/**
+ * @brief 向运行所有者提交同模式目标，前台共用受理和应用路径。
+ * @param command SI 单位值命令；成功时复制，不保留指针。
+ * @return 已受理、参数错误、状态拒绝、忙、越限或故障；不报告物理已执行。
+ * @note 前台消费调用；单槽邮箱不覆盖未应用目标；STOP 会取消尚未应用的目标。
+ */
 MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
 {
     uint32_t state = critical_hw_enter();
@@ -1499,7 +1271,6 @@ MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
         {
             pending_control = *command;
             control_epoch = lifecycle.snapshot.epoch;
-            pending_control_watch_seq = 0U;
             control_pending = true;
         }
     }
@@ -1507,9 +1278,12 @@ MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
     return result;
 }
 
+/**
+ * @brief 快速环故障检查：核对编码器反馈与轴配置。
+ * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。不清错、不写 Flash。
+ */
 void FocRunState_CheckFastFaults(void)
 {
-    RunState_BenchFastGuard();
     if (Encoder_FeedbackRequired(MotorControl) &&
         Encoder_GetBadFrameStreak(OnBoard_Encoder) >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
     {
@@ -1560,7 +1334,6 @@ void FocRunState_FastFaultStop(void)
 {
     if (MotorControl->ErrorNow != No_Error)
     {
-        RunState_BenchCancel(FOC_BENCH_SPEED_FAULT);
         control_pending = false;
     }
     if (MotorControl->ErrorNow != No_Error && !power_stage_hw_phases_disabled())
@@ -1587,6 +1360,11 @@ static MotorWorkOutcome_TypeDef FocRunState_TakeOutcome(void)
     return outcome;
 }
 
+/**
+ * @brief 执行一次运行状态机：消费 worker 结果，完成故障指示、功率级启停迁移与提交。
+ * @note 仅由 2 kHz 监督中断调用；顺序为 worker 结果应用 → 故障反应 →
+ *       维护会话服务 → 停机/使能迁移 → 变化检测与影子提交。
+ */
 void FocRunState_Tick(void)
 {
     MotorWorkOutcome_TypeDef outcome = FocRunState_TakeOutcome();
@@ -1602,22 +1380,12 @@ void FocRunState_Tick(void)
         stop_pending = false;
         RunState_RequestStop(true);
     }
-    if (bench_speed.active && bench_speed.stop_requested)
-    {
-        (void)FocRunState_RequestRemoteStop();
-        RunState_RequestStop(true);
-        if (outcome.result != MOTOR_WORK_FAULT)
-        {
-            outcome.result = MOTOR_WORK_RUNNING;
-        }
-    }
 
     /* 1. worker 结果 → 目标模式与前置动作（与旧实现同序）。 */
     target = MotorControl->ModeNow;
     switch (outcome.result)
     {
     case MOTOR_WORK_SWITCH_MODE:
-        completed_mode = operation_mode;
         if (outcome.power_off)
         {
             power_stage_hw_stop();
@@ -1626,7 +1394,6 @@ void FocRunState_Tick(void)
         target = outcome.next_mode;
         break;
     case MOTOR_WORK_STOP:
-        RunState_BenchCancel(FOC_BENCH_SPEED_MANUAL_STOP);
         MotorControl->ModeNow = Motor_Disable;
         target = Motor_Disable;
         break;
@@ -1677,12 +1444,10 @@ void FocRunState_Tick(void)
     }
     if (lifecycle.snapshot.state == APP_FAULT || lifecycle.snapshot.state == APP_FATAL)
     {
-        RunState_BenchCancel(FOC_BENCH_SPEED_FAULT);
         MotorControl->ModeNow = Motor_Disable;
         target = Motor_Disable;
     }
 
-    RunState_ServiceBenchRequest(outcome.result == MOTOR_WORK_RUNNING);
     target = MotorControl->ModeNow;
 
     /* 故障、worker 停机与外部失能先处理，随后消费目标；复核失败直接丢弃，不重试。 */
@@ -1751,14 +1516,24 @@ void FocRunState_Tick(void)
 
     MotorControl->ModeNow_f = MotorControl->ModeNow;
     MotorControl->ErrorNow_f = MotorControl->ErrorNow;
-    RunState_PublishBenchState();
     ++supervisor_epoch;
 }
 
+/**
+ * @brief 读取 worker 开始执行时的会话身份。
+ * @return 当前操作 epoch，无维护操作时为生命周期 epoch。
+ * @note 在调用 worker 前读取，并原样传给 PostOutcome。
+ */
 uint32_t FocRunState_WorkEpoch(void)
 {
     return lifecycle.snapshot.state == APP_MAINTENANCE ? operation_epoch : lifecycle.snapshot.epoch;
 }
+/**
+ * @brief 复核认领仍属于当前维护操作。
+ * @param claim 原始认领值，不得以当前 epoch 重建。
+ * @return 身份匹配、未取消、无故障且关相返回 true。
+ * @note 最终写入或发布前必须在同一临界区复核。
+ */
 bool FocRunState_BackgroundValid(const FocBackgroundClaim *claim)
 {
     return claim != NULL && background_busy && claim->epoch == background_claim.epoch &&
@@ -1767,6 +1542,12 @@ bool FocRunState_BackgroundValid(const FocBackgroundClaim *claim)
            lifecycle.snapshot.state == APP_MAINTENANCE && !stop_pending &&
            MotorControl->ErrorNow == No_Error && power_stage_hw_phases_disabled();
 }
+/**
+ * @brief 认领当前维护会话的前台工作。
+ * @param claim 接收原始操作 epoch 和任务类型，调用方保留到完成。
+ * @return 已关相且认领成功返回 true。
+ * @note 前台调用；认领未归还时不得开始其他任务。
+ */
 bool FocRunState_BeginBackground(FocBackgroundClaim *claim)
 {
     uint32_t mask = critical_hw_enter();
@@ -1792,6 +1573,12 @@ bool FocRunState_BeginBackground(FocBackgroundClaim *claim)
     critical_hw_exit(mask);
     return accepted;
 }
+/**
+ * @brief 归还前台工作并提交原始会话结果。
+ * @param claim 原始认领，必须精确匹配已借出的资源。
+ * @param success SAVE 表示回读已验证；COGGING 表示已发布 RAM。
+ * @note 缓冲已释放后调用；迟到结果只归还资源，不复活目标。
+ */
 void FocRunState_FinishBackground(const FocBackgroundClaim *claim, bool success)
 {
     uint32_t mask = critical_hw_enter();
@@ -1835,6 +1622,10 @@ void FocRunState_FinishBackground(const FocBackgroundClaim *claim, bool success)
     critical_hw_exit(mask);
 }
 
+/**
+ * @brief 在稳定配置借用下处理前台补偿请求。
+ * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 READY 启动；STOP 可立即关相。
+ */
 void FocRunState_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();

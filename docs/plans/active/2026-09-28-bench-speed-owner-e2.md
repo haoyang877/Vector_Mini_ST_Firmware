@@ -1,7 +1,7 @@
-# 受控台架速度入口 E2 v1
+# 受控台架速度入口 E2 v1（已退役）
 
-日期：2026-09-28。状态：离线候选实施；不接触硬件，normal 最终构建由集成方执行。
-本文保留 E2 的 v1 邮箱说明；当前 v2 Watch 目标入口见[Watch 指南](../../guides/watch_motor_commands.md)。
+日期：2026-09-28。状态：**已退役**——本计划描述的 `FocBenchSpeed` SWD 台架邮箱已随容量
+批次删除，见[退役记录](../../guides/watch_motor_commands.md)。以下保留为设计历史。
 基线：`88a10bede30ac191777212982cd5056e5c0f29bb`。仅 APP 运行所有者、直接测试和文档。
 
 ## 目标、不变项和回退
@@ -28,8 +28,8 @@ Iq 参考初始选 1 A；请求必须不高于当前值并严格低于相电流�
 
 ## 所有权与准入
 
-唯一外部入口是 [foc_bench_speed.h](../../../firmware/app/foc_bench_speed.h) 定义的
-`FocBenchSpeed` 调试邮箱，56 B；仅请求区允许 SWD 写，回复区由 2 kHz 发布。
+唯一外部入口原是 `foc_bench_speed.h` 定义的 `FocBenchSpeed` 调试邮箱（已删除）；
+请求区曾由 SWD 写，回复区由 2 kHz 发布。
 私有会话由 foc_run_state 持有，20 kHz 只计时、检查和提出停止，前台 STOP 只提出撤销。
 没有新电机对象 extern、通用 getter/setter、模式框架、驱动包装或持久化数据。
 

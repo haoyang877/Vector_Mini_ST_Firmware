@@ -118,10 +118,10 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 内部 FAULT/FATAL 映射为非零既有故障，FATAL 在线状态优先，CLEAR 后需重新发起命令。
 过流恢复计数保留原实际 2 kHz 的 2000 拍（1 s），未按旧注释改成 100 ms。
 
-仍存在模块私有静态状态和显式 SWD 邮箱：FocBenchSpeed、FocCoggingCompensationRequest、
-TorqueGuard、TorqueTelemetryState、TorqueTelemetry；不能将本轮描述成“全仓无全局变量”。
-具体接口、验收和回退见 [E3 计划](../plans/active/2026-09-28-internal-decoupling-e3.md)，
-操作入口见 [Watch 指南](../guides/watch_motor_commands.md)。
+仍存在模块私有静态状态和显式 SWD 邮箱：FocCoggingCompensationRequest、TorqueGuard、
+TorqueTelemetryState、TorqueTelemetry；不能将本轮描述成“全仓无全局变量”。
+具体接口、验收和回退见 [E3 计划](../plans/active/2026-09-28-internal-decoupling-e3.md)。
+原 `FocBenchSpeed` 台架邮箱已退役，见 [退役记录](../guides/watch_motor_commands.md)。
 
 ## 历史 E1 与后续优化
 

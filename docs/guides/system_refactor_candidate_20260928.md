@@ -99,11 +99,9 @@ Loader 配套 APP 的交接调用链为：56 请求当前完整 boot_epoch → A
 [升级协议](../protocols/yg_protocol_upgrade_wire_v1.md)、
 [启动交接协议](../protocols/yg_protocol_boot_entry_wire_v1.md)。
 
-**当前 Watch 入口是 `FocBenchSpeed`（版本 3），不是历史 `MotorDebugCommand` 或 ModeNow。**
-先将 `request_seq` 写为奇数，填写请求区，再提交下一个偶数；只读回复区。
-command 1 为零速度 START、3 为 rad/s UPDATE、2 为 STOP、4/5 为 Mode13/15 请求、
-6 为 SAVE、7 为 CLEAR。受理不是实际完成，具体字段与结果见
-[Watch 指南](watch_motor_commands.md)。本说明不授权本轮执行运动。
+**原 `FocBenchSpeed`（版本 3）SWD 台架邮箱已随容量批次退役**，不再是 Watch 入口，
+也不再提供 command 1..12 直达。控制、维护与清错改由运行所有者公开 API（CAN 或前台）
+提交，退役记录见 [台架邮箱退役记录](watch_motor_commands.md)。本说明不授权本轮执行运动。
 
 ## 已完成、限制和后续统一测试
 

@@ -317,3 +317,32 @@ format/lint/interfaces/docs 日志与上一批逐字一致，1 项 Python 单元
 证据：`outputs/capacity-fit/deepseek/summary-motor-state.json`、构建目录
 `deepseek-02-final/`、`deepseek-03-final/`；PR 清单
 `outputs/runs/deepseek-motor-state-20260928/summary.json`。没有硬件操作。
+
+## 功能取舍批次：退役 SWD 台架邮箱
+
+用户要求删除固件内的台架/调试代码以回收 Flash。原 `foc_bench_speed.h` 定义的
+`FocBenchSpeed` SWD 邮箱（版本 3、92 B）及其在运行所有者内的请求受理、序号回放、
+状态发布、快环期限/相电流/超速截止，以及各入口钩子全部删除；`foc_bench_speed.h`
+文件删除。公开请求入口（使能、目标、维护、清空、升级交接）与生命周期核心保持不变，
+维护/标定/保存改由 CAN 适配器与前台调用。这是功能取舍而非等价重构：速度台架
+START/UPDATE/STOP、command 4..12 直达、独立试验期限与采样式相电流截止不再可用；
+产品相电流/过流保护不依赖本邮箱。
+
+`tests/unit/native/run_state_owner_test.c` 同步改为经公开 API 驱动会话（新增
+`begin_maintenance`），保留控制受理、同模式目标、维护完成/派生 SAVE、借用取消、
+故障锁存与 CLEAR、编码器离线快检等行为；台架专属用例（期限截止、采样式相电流
+截止、RAM 限值切换、applied_seq）随功能移除。定向 `test_run_state.py` 13/13 通过。
+
+文档：`docs/guides/watch_motor_commands.md` 改为退役记录；`docs/README.md`、
+`docs/architecture/code_structure.md`、`docs/guides/system_refactor_candidate_20260928.md`、
+`docs/guides/cogging_calibration.md`、`docs/plans/active/README.md` 与 E2/E3 计划同步更新。
+
+验收边界：本批只做代码/测试/文档的离线修改，未进行 Keil 构建、未烧录、未操作硬件；
+实际 Flash 收益需集成方用当前 normal 工程重建后以 map 核对，本计划不预填字节数。
+
+集成结果（本机重建，`deepseek-04/05-bench-*`）：删除后台架退役残留的死变量
+`completed_mode`（原仅供已删邮箱发布读取），消除唯一编译警告；普通 APP 0 错误/0 警告。
+普通 APP ROM 93808→**91816 B**、RAM 31896→31752 B；Loader 配套 APP 诊断 ROM
+101504→**99512 B**、加载跨度 101544→**99552 B**、RAM 32128→31984 B。两个镜像各回收
+**1992 B Flash / 144 B RAM**；78 KiB 分区仍缺 **19680 B**。`test_run_state.py` 13/13 通过。
+这是功能取舍批次，不并入等价优化口径。证据在 `outputs/capacity-fit/batch1/deepseek-05-bench-clean/`。

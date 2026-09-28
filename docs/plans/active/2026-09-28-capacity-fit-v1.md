@@ -249,3 +249,42 @@ MCU 周期、栈水位和电流没有实机证据，不宣称时序验收。只�
 真实分区仍缺 **21824 B**，仍不能发布。源/产物哈希及保留用户修改的核对结果见
 证据目录 `summary.json`；逐函数说明与汇编资源见
 [继续优化报告](../../reports/2026-09/app_flash_continuation_20260928.md)。
+
+## 逐函数批次：运行所有者残留重复与生命周期停止/故障入口合并
+
+用户要求继续按交接顺序推进：先审查 `foc_run_state.c` 剩余协调逻辑，没有可证明收益
+再转入 `app_lifecycle.c`。本批基准 `eef6e3ca`：普通 APP ROM 93904 B / RAM 31896 B；
+Loader APP 诊断 ROM 101656 B、跨度 101696 B / RAM 32128 B，真实 78 KiB 分区仍缺
+21824 B。仅离线构建与测试，保留两处用户修改；默认目录不参与。
+
+`foc_run_state.c` 采用三个可证明的重复去除，先单独隔离测量再合并，均为整包净收益：
+
+1. `RunState_ServiceBenchRequest` 内联的台架结果映射与文件内既有 `bench_result()` 的
+   四分支完全一致，改为调用该函数，函数体减少 20 B。
+2. `RunState_ServiceOperations` 的 ZERO 与 DEFAULTS 分支除目标常量外处理体相同，合并后
+   传入当前 `lifecycle.snapshot.operation`；`sent`、`save_finish`、派生 SAVE 身份与
+   短路顺序保持，函数体减少 12 B。
+3. 提取文件内 `RunState_OwnerQuiescent()`，供 `configuration_idle` 与
+   `FocRunState_BootHandoffReady` 复用同一组"模式失能 / 无占用 / 资源释放"判据，
+   净减少 32 B。`configuration_idle` 中 `ErrorNow` 与 `ModeNow` 的读取次序交换不影响
+   纯布尔合取结果，已在代码注释说明。对照实验：把 `ModeNow` 留在调用方或重复检查
+   分别再少省 8 B，均未采用。
+
+`app_lifecycle.c`：交接建议的 STOP/CANCEL 相同分支合并经 `-O2` 实测为 0 B，ARMCC 已
+自行合并，未采用。改取提取文件内 `enter_stopped_state()`，供 `fault()` 与 `stopping()`
+复用"取消操作 → 撤销作业 → 推进代际 → 置状态并清控制模式"序列，目标状态作为参数；
+`advance()` 代际用尽转 FATAL 时两者都不再改状态的原有行为保持，净减少 24 B。
+
+不得改动项：请求返回优先级、守卫短路顺序、故障恢复矩阵的多次读取、原始/取消/操作
+epoch、派生 SAVE 不覆盖原标定终态、Watch/台架限时与快速保护、20 kHz/2 kHz 调度；
+两模块 RAM 与 ABI 不变，未修改生命周期公开契约。按模块分别提交，可独立回退。
+
+验收：`test_run_state.py` 14 项特征用例、23 项原生、17 项集成通过；当次重建普通 APP
+与真实 Loader APP，超限时用 NONDEPLOYABLE 诊断链接。普通 APP ROM **93872 B**；Loader
+APP 诊断 ROM **101568 B**、跨度 **101608 B**，RAM 分别 31896 / 32128 B 不变。Loader
+整包减少 **88 B**（普通 APP 32 B），真实分区仍缺 **21736 B**。完整 PR 仍 FAIL：
+format/lint/interfaces/docs 日志与上一批逐字一致，1 项 Python 单元仍为 10 个历史产物
+断链，无新增门禁问题。证据见 `outputs/capacity-fit/deepseek/`（`summary.json`、
+候选隔离尺寸与映射差）和构建目录 `outputs/capacity-fit/batch1/deepseek-01-baseline/`、
+`deepseek-02-final/`；完整 PR 清单为
+`outputs/runs/deepseek-runstate-lifecycle-20260928/summary.json`。没有硬件操作。

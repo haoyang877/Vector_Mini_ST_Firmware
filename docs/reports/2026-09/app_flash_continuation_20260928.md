@@ -202,3 +202,67 @@ ADC 三文件 `--multifile` 额外实验先遇到 CMSIS 内嵌汇编符号冲突
 最终清单为该目录 `summary.json`。完整 PR 清单为
 `outputs/runs/run-state-refactor-20260928/summary.json`。按本批差异逆向回退，保留
 两处原有用户修改。未进行硬件操作。
+
+## 逐函数 003：运行所有者残留重复与生命周期停止/故障入口合并
+
+基准 `eef6e3ca`。先当次重建普通 APP 与 Loader APP，普通 APP ROM 93904 B、
+Loader APP 诊断 ROM 101656 B / 跨度 101696 B，与交接值逐位一致。用记录的实际编译参数
+对单文件做隔离替换链接（`foc_run_state.c` 为 `-O3`，`app_lifecycle.c` 为 `-O2`，
+与工程 `Optim=4/3` 对应），先验证未改源码可复现基准，再逐一测量候选；只有整包净收益
+明确才采用。诊断链接仍只是 NONDEPLOYABLE 测量，不可部署、无 HEX。
+
+### foc_run_state.c：三处可证明重复
+
+- `RunState_ServiceBenchRequest` 曾内联一段台架结果映射，四分支与文件内
+  `bench_result()` 完全相同（ACCEPTED→ACCEPTED、BUSY→BUSY、INVALID/OUT_OF_RANGE→
+  INVALID，其余 DENIED），改为调用该函数，函数体 984→964 B。
+- `RunState_ServiceOperations` 的 ZERO 与 DEFAULTS 分支除目标常量外处理体相同，
+  合并为一次 `RunState_SendOperation(..., lifecycle.snapshot.operation, ...)`，
+  248→236 B。`sent`、`save_finish`、派生 SAVE 不覆盖原标定终态、短路顺序均保持。
+- 提取文件内 `RunState_OwnerQuiescent()`（模式失能、无目标/占用、资源释放判据），
+  供 `configuration_idle`（112→60 B）与 `FocRunState_BootHandoffReady`（140→84 B）
+  复用，新增 76 B，净减 32 B。`configuration_idle` 中 `ErrorNow` 与 `ModeNow`
+  读取次序交换，对纯布尔合取结果无影响，已在注释标明。对照：`ModeNow` 留在调用方
+  或重复检查各少省 8 B，未采用。
+
+### app_lifecycle.c：STOP/CANCEL 合并无收益，改合并停止/故障入口
+
+交接建议的 STOP 与 CANCEL 相同处理体合并，在 `-O2` 下整包差值 0 B——ARMCC 已把两段
+相同调用序列合并，故不采用该改法。改取提取 `enter_stopped_state(a, state, actions)`，
+供 `fault()`（60→40 B）与 `stopping()`（68→34 B）复用"cancel_operation → 撤销作业 →
+advance → 置目标状态并清 control_mode"序列；`advance` 耗尽代际转 FATAL 时两者都不再
+改状态的原有分支保持。`cancel_operation`（24 B）并入该辅助函数后不再单独保留，
+新增辅助 50 B，净减 24 B。
+
+### 段落与整包
+
+下表为本批两模块函数段大小（含常量池），不是各项独立的整包收益。
+
+| 函数 | 基准段 / B | 本批段 / B |
+| --- | ---: | ---: |
+| FocRunState_ServiceBenchRequest | 984 | 964 |
+| RunState_ServiceOperations | 248 | 236 |
+| configuration_idle | 112 | 60 |
+| FocRunState_BootHandoffReady | 140 | 84 |
+| RunState_OwnerQuiescent（新增） | 0 | 76 |
+| fault | 60 | 40 |
+| stopping | 68 | 34 |
+| cancel_operation | 24 | 0（并入辅助） |
+| enter_stopped_state（新增） | 0 | 50 |
+
+当次普通 APP ROM **93872 B**（-32 B）/ RAM 31896 B；Loader 配套 APP 诊断
+ROM **101568 B**、跨度 **101608 B**（-88 B）/ RAM 32128 B，两者 RAM 不变。函数段合计
+减少 92 B，整包对齐后 Loader 净减 88 B。78 KiB 正式分区仍缺 **21736 B**，真实配套
+APP 链接仍失败，诊断镜像不可部署。独立 Loader 未改共享实现，本批未重建。
+
+### 验证与限制
+
+`test_run_state.py` 14 项特征用例（四种控制模式、七类占用、故障/非法优先级、恢复
+不回启、派生 SAVE 身份、取消释放与限时关断等）通过；23 项原生、17 项集成及架构/
+布局/卫生检查通过；两个修改文件局部格式/lint 通过。完整 PR 仍 FAIL：format、lint、
+interfaces、docs 失败日志与上一批逐字一致，39 项 Python 单元中 1 项仍为 10 个历史
+产物断链，无新增门禁问题。本轮只覆盖离线逻辑与空间；MCU 周期、实机栈水位和电流
+仍未验收。证据见 `outputs/capacity-fit/deepseek/summary.json`、候选隔离尺寸目录与
+构建目录 `outputs/capacity-fit/batch1/deepseek-01-baseline/`、`deepseek-02-final/`；
+完整 PR 清单为 `outputs/runs/deepseek-runstate-lifecycle-20260928/summary.json`。
+按模块提交逆向回退，保留原有 `angle_feedback.c` 尾空格与 Keil GUI 用户修改。

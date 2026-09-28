@@ -1,9 +1,9 @@
 ; APP专用Loader布局，工程必须同时编入app_descriptor.c和显式版本/角色宏。
-LR_APP 0x08008800 0x13800
+LR_APP 0x08005000 0x17000
 {
-    ER_VECTORS 0x08008800 0x200 { *.o (RESET, +First) }
-    ER_DESCRIPTOR 0x08008A00 FIXED 0x40 { * (.app_descriptor) }
-    ER_APP 0x08008A40 FIXED 0x135C0
+    ER_VECTORS 0x08005000 0x200 { *.o (RESET, +First) }
+    ER_DESCRIPTOR 0x08005200 FIXED 0x40 { * (.app_descriptor) }
+    ER_APP 0x08005240 FIXED 0x16DC0
     {
         *(InRoot$$Sections)
         .ANY (+RO)

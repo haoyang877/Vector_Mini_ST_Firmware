@@ -15,7 +15,7 @@
           <Vendor>STMicroelectronics</Vendor>
           <PackID>Keil.STM32G4xx_DFP.2.2.0</PackID>
           <PackURL>https://www.keil.com/pack/</PackURL>
-          <Cpu>IRAM(0x20000000-0x20007FDF) IROM(0x8000000-0x8006FFF) CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4")</Cpu>
+          <Cpu>IRAM(0x20000000-0x20007FDF) IROM(0x8000000-0x8004FFF) CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4")</Cpu>
           <FlashUtilSpec />
           <StartupFile />
           <FlashDriverDll />
@@ -230,7 +230,7 @@
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x7000</Size>
+                <Size>0x5000</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -255,7 +255,7 @@
               <OCR_RVCT4>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x7000</Size>
+                <Size>0x5000</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
@@ -362,11 +362,6 @@
         <Group>
           <GroupName>Loader core</GroupName>
           <Files>
-            <File>
-              <FileName>boot_epoch.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\core\boot_epoch.c</FilePath>
-            </File>
             <File>
               <FileName>upgrade.c</FileName>
               <FileType>1</FileType>
@@ -507,16 +502,6 @@
         <Group>
           <GroupName>Shared image</GroupName>
           <Files>
-            <File>
-              <FileName>nv_record.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\shared\image\nv_record.c</FilePath>
-            </File>
-            <File>
-              <FileName>nv_sha256.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\shared\image\nv_sha256.c</FilePath>
-            </File>
             <File>
               <FileName>image_transfer.c</FileName>
               <FileType>1</FileType>

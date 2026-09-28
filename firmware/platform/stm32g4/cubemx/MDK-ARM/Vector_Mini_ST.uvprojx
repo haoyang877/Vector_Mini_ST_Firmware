@@ -336,7 +336,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../services/boot_handoff;../../../../third_party/segger_rtt</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>

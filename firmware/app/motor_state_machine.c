@@ -6,8 +6,6 @@
 #include "angle_feedback.h"
 #include "app_lifecycle.h"
 #include "bus_voltage_profile.h"
-#include "boot_hw.h"
-#include "image_format.h"
 #include "critical_hw.h"
 #include "foc_errhandle.h"
 #include "foc_algorithm.h"
@@ -65,7 +63,6 @@ static FocBackgroundClaim background_claim;
 static bool background_busy, stop_pending, configuration_reading;
 /* 前台升级交接独占票据；失败后继续禁止运动，只有重新启动初始化才能清空。 */
 static uint64_t boot_stop_ticket;
-static bool boot_confirmation_pending;
 static bool boot_maintenance_only;
 /* Over_Current 回落驻留计数；饱和于 RUN_STATE_OC_RECOVER_TICKS。 */
 static MotorFaultRecovery recovery;
@@ -104,7 +101,7 @@ static void clear_running_data(void)
 /* 前台目标校验：锁定期、参数有限性、模式编号、运行前提与限值，返回受理或拒绝原因。 */
 static MotorControlResult validate_control(const MotorControlCommand *command)
 {
-    if (boot_stop_ticket != 0U || boot_confirmation_pending || boot_maintenance_only)
+    if (boot_stop_ticket != 0U || boot_maintenance_only)
     {
         return MOTOR_CONTROL_DENIED;
     }
@@ -274,8 +271,7 @@ static AppLifecycleGuards RunState_BuildGuards(void)
     guards.fault_sources_clear = MotorControl->ErrorNow == No_Error;
     guards.self_test_passed =
         MotorControl->axis_profile_valid && guards.samples_fresh && guards.fault_sources_clear;
-    guards.start_permitted =
-        MotorControl->axis_profile_valid && !boot_confirmation_pending && !boot_maintenance_only;
+    guards.start_permitted = MotorControl->axis_profile_valid && !boot_maintenance_only;
     if (lifecycle.snapshot.state != APP_RUNNING)
     {
         guards.start_permitted = guards.start_permitted && RunState_VbusInEnableWindow() &&
@@ -561,8 +557,7 @@ static bool RunState_ServiceOperations(void)
 /* READY 受理实际任务；每次显式请求创建独立身份。 */
 static bool begin_operation(MotorMaintenanceKind kind)
 {
-    if (lifecycle.snapshot.state != APP_READY || boot_stop_ticket != 0U ||
-        boot_confirmation_pending)
+    if (lifecycle.snapshot.state != APP_READY || boot_stop_ticket != 0U)
     {
         return false;
     }
@@ -629,12 +624,12 @@ static bool configuration_idle(void)
 
 /**
  * @brief 查询停机参数应用是否具备所有者与资源资格。
- * @return READY、无待确认试启动、关相、无命令/维护/配置借用和故障时返回 true。
+ * @return READY、关相、无命令/维护/配置借用和故障时返回 true。
  * @note 资格读取与实际应用须处于同一调用方临界区，不能作为延后写入许可证。
  */
 bool MotorStateMachine_ConfigurationAllowed(void)
 {
-    return !boot_confirmation_pending && configuration_idle();
+    return configuration_idle();
 }
 
 /* 调用方已持有临界区；只读共同占用标志，故障优先级和资源释放由各入口判断。 */
@@ -959,10 +954,7 @@ void MotorStateMachine_Init(MotorControl_TypeDef *motor,
     request_epoch = lifecycle.snapshot.epoch;
     background_busy = stop_pending = configuration_reading = false;
     boot_stop_ticket = 0U;
-    BootHwInfo boot_info = {0};
-    BootHw_GetInfo(&boot_info);
-    boot_confirmation_pending = boot_info.available && !boot_info.confirmed;
-    boot_maintenance_only = boot_info.available && boot_info.image_role == YGI_ROLE_MAINTENANCE;
+    boot_maintenance_only = false;
     supervisor_epoch = 0U;
     background_claim = (FocBackgroundClaim){0};
     operation_kind = MOTOR_MAINTENANCE_NONE;
@@ -1090,49 +1082,22 @@ bool MotorStateMachine_BootHandoffReady(uint64_t ticket)
 }
 
 /**
- * @brief 读取基础运行健康及试启动确认资格的一致值。
- * @param progress 接收监督调度进展计数，调用方必须比较新进展而非反复消费旧值。
- * @param confirmation_ready 接收自检通过、READY、无资源占用、关相和编码器在线资格。
- * @return 感测新鲜且未进入 FATAL 返回 true；通信及保存健康由组合层补充。
- * @note 前台短临界区只读；完整标定仍是运动模式条件，不是试启动确认条件。
+ * @brief 读取监督拍进展与基础采样健康，不要求主机在线或电机已使能。
+ * @param progress 输出已完成监督拍计数；调用方必须比较新进展。
+ * @return 采样新鲜且未进入FATAL返回true；空指针返回false。
+ * @note 前台短临界区只读；通信健康由组合层补充，不授权运动或Flash。
  */
-bool MotorStateMachine_ReadBootHealth(uint32_t *progress, bool *confirmation_ready)
+bool MotorStateMachine_ReadBootHealth(uint32_t *progress)
 {
-    if (progress == NULL || confirmation_ready == NULL)
+    if (progress == NULL)
     {
         return false;
     }
     uint32_t mask = critical_hw_enter();
-    AppLifecycleGuards guards = RunState_BuildGuards();
     *progress = supervisor_epoch;
-    bool healthy = guards.samples_fresh && lifecycle.snapshot.state != APP_FATAL;
-    *confirmation_ready = healthy && configuration_idle() && guards.self_test_passed &&
-                          Encoder_IsOnline(OnBoard_Encoder);
+    bool healthy = RunState_BuildGuards().samples_fresh && lifecycle.snapshot.state != APP_FATAL;
     critical_hw_exit(mask);
     return healthy;
-}
-
-/**
- * @brief 复核平台真实确认记录并解除试启动禁止。
- * @param boot_epoch 本次实际启动代号，必须非零。
- * @param image_token 本次镜像身份，必须非零。
- * @return 平台已确认且身份完全匹配返回 true；否则保持禁止。
- * @note 仅前台交接服务在确认写入并回读成功后调用，不自动启动或恢复目标。
- */
-bool MotorStateMachine_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image_token)
-{
-    uint32_t mask = critical_hw_enter();
-    BootHwInfo info = {0};
-    BootHw_GetInfo(&info);
-    bool confirmed = info.available && info.confirmed && !info.trial &&
-                     info.boot_epoch == boot_epoch && info.image_token == image_token &&
-                     boot_epoch != 0U && image_token != 0U;
-    if (confirmed)
-    {
-        boot_confirmation_pending = false;
-    }
-    critical_hw_exit(mask);
-    return confirmed;
 }
 
 /**
@@ -1358,8 +1323,8 @@ void MotorStateMachine_Tick(void)
     {
         uint32_t mask = critical_hw_enter();
         AppLifecycleGuards guards = RunState_BuildGuards();
-        if (!stop_pending && !boot_confirmation_pending && boot_stop_ticket == 0U &&
-            guards.start_permitted && guards.samples_fresh && guards.fault_sources_clear)
+        if (!stop_pending && boot_stop_ticket == 0U && guards.start_permitted &&
+            guards.samples_fresh && guards.fault_sources_clear)
         {
             power_stage_hw_start();
             (void)RunState_Send(APP_EVENT_START_DONE, 0U, APP_CONTROL_NONE, false, false);
@@ -1489,8 +1454,8 @@ void MotorStateMachine_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();
     bool permitted =
-        boot_stop_ticket == 0U && !boot_confirmation_pending && !background_busy && !stop_pending &&
-        !outcome_latched && MotorControl->ErrorNow == No_Error &&
+        boot_stop_ticket == 0U && !background_busy && !stop_pending && !outcome_latched &&
+        MotorControl->ErrorNow == No_Error &&
         (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_RUNNING);
     if (permitted)
     {

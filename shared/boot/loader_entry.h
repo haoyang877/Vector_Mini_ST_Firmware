@@ -2,7 +2,7 @@
 #define BOOT_LOADER_ENTRY_H
 #include <stdbool.h>
 #include <stdint.h>
-/** 请求身份独立于线上布局；只有当前Loader分配的boot_epoch有效。 */
+/** v2的boot_epoch为主机生成的非零随机事务nonce；不是设备持久启动代号。 */
 typedef struct
 {
     uint64_t boot_epoch;
@@ -26,7 +26,7 @@ typedef struct
 /**
  * @brief 向APP唯一生命周期所有者提交或查询进入Loader请求。
  * @param context 组合层注入的所有者，通信层不得直接访问硬件。
- * @param request 精确来源、启动代号和请求序号，调用结束不得保留指针。
+ * @param request 精确来源、v2事务nonce和请求序号，调用结束不得保留指针。
  * @param reply 完整值结果，READY必须带非零64位ACK票据。
  * @note 同身份幂等；其他身份不可窃取既有停机事务。PENDING等待STOP、worker归还、
  *       保存空闲及真实关相；未安装支持该布局的Loader必须返回UNAVAILABLE。

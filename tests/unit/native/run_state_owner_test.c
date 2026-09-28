@@ -17,7 +17,6 @@
 #include "critical_hw.h"
 #include "indicator_hw.h"
 #include "bus_voltage_profile.h"
-#include "boot_hw.h"
 #include "utils.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
@@ -36,10 +35,6 @@ static uint32_t critical_depth;
 static uint8_t protocol_mode(MotorControlMode mode, MotorMaintenanceKind kind);
 
 /* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
-void BootHw_GetInfo(BootHwInfo *info)
-{
-    *info = (BootHwInfo){0};
-}
 bool MotorControl_ConfigurationRevisionAvailable(void)
 {
     return true;
@@ -737,6 +732,15 @@ static void test_wire_projection(void)
 
 int main(void)
 {
+    reset();
+    uint32_t progress, next;
+    assert(MotorStateMachine_ReadBootHealth(&progress) && progress != 0U);
+    assert(MotorStateMachine_ReadBootHealth(&next) && next == progress);
+    tick();
+    assert(MotorStateMachine_ReadBootHealth(&next) && next != progress);
+    MotorStateMachine_Tick();
+    assert(!MotorStateMachine_ReadBootHealth(&next));
+    assert(!MotorStateMachine_ReadBootHealth(NULL));
     test_wire_projection();
     test_request_admission();
     test_maintenance_guards();

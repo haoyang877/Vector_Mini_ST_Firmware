@@ -3,7 +3,6 @@
 #include <math.h>
 
 #include "angle_feedback.h"
-#include "boot_hw.h"
 #include "critical_hw.h"
 #include "data_type.h"
 #include "foc_algorithm.h"
@@ -20,17 +19,8 @@ static bool initialized;
 
 static void refresh_boot_source(void)
 {
-    BootHwInfo info = {0};
-    BootHw_GetInfo(&info);
+    /* 启动记录已移除；APP 恒报无持久启动身份，不伪造 epoch 或试启动阶段。 */
     boot_source = (yg_protocol_readonly_device_status_t){.role = YG_PROTOCOL_DEVICE_ROLE_APP};
-    if (info.available && info.boot_epoch != 0U)
-    {
-        boot_source.boot_epoch = info.boot_epoch;
-        boot_source.epoch_valid = true;
-        boot_source.boot_state = info.trial && !info.confirmed
-                                     ? YG_PROTOCOL_BOOT_STATE_TRIAL_APP
-                                     : YG_PROTOCOL_BOOT_STATE_CONFIRMED_APP;
-    }
 }
 
 static uint32_t fault_bits(ErrorNow_TypeDef error)

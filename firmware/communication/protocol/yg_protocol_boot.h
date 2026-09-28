@@ -9,7 +9,7 @@
 #define YG_PROTOCOL_BOOT_REPLY_SIZE 4U
 
 /**
- * @brief 将56的非零boot64与公司头身份转换为共享Loader进入请求。
+ * @brief 将56的非零v2事务nonce与公司头身份转换为共享Loader进入请求。
  * @param message 已校验的单帧公司消息；主站授权与目标检查由组合层负责。
  * @param request 成功时写入共享值请求，失败保持原值。
  * @return 字段合法返回OK；参数、Type、长度或零启动代号返回对应错误。

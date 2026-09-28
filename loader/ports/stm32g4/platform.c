@@ -8,9 +8,7 @@
 #include <string.h>
 
 static uint32_t last_ticks, milliseconds, remainder;
-static const LoaderFlashRegion image_domain = {TARGET_RECORD_BASE,
-                                               TARGET_ERASE_BYTES + TARGET_APP_BYTES};
-static const LoaderFlashRegion boot_domain = {TARGET_BOOT_BASE, TARGET_BOOT_BYTES};
+static const LoaderFlashRegion image_domain = {TARGET_APP_BASE, TARGET_APP_BYTES};
 
 static bool inside(const LoaderFlashRegion *region, uint32_t address, uint32_t bytes)
 {
@@ -21,39 +19,117 @@ static bool read_flash(void *context, uint32_t address, void *out, uint32_t byte
 {
     return inside(context, address, bytes) && LoaderFlash_Read(address, out, bytes);
 }
-static bool erase_flash(void *context, uint32_t address, uint32_t bytes)
+/* 寄存器级 Flash 编程：G431 单 bank、2 KiB 页、双字写入；不依赖 HAL Flash，省其链接开销。 */
+#define FLASH_ERR_MASK                                                                             \
+    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR |     \
+     FLASH_SR_SIZERR | FLASH_SR_MISERR | FLASH_SR_FASTERR | FLASH_SR_RDERR | FLASH_SR_OPTVERR)
+#define FLASH_TIMEOUT_MS 1000U
+#define FLASH_KEY1_VALUE 0x45670123U
+#define FLASH_KEY2_VALUE 0xCDEF89ABU
+
+static bool flash_unlock(void)
 {
-    FLASH_EraseInitTypeDef erase = {0};
-    uint32_t error;
-    bool result;
-    if (bytes != TARGET_ERASE_BYTES || address % TARGET_ERASE_BYTES != 0 ||
-        !inside(context, address, bytes) || !LoaderPlatform_OutputsOff() ||
-        HAL_FLASH_Unlock() != HAL_OK)
+    if ((FLASH->CR & FLASH_CR_LOCK) != 0U)
+    {
+        FLASH->KEYR = FLASH_KEY1_VALUE;
+        FLASH->KEYR = FLASH_KEY2_VALUE;
+    }
+    return (FLASH->CR & FLASH_CR_LOCK) == 0U;
+}
+static void flash_lock(void)
+{
+    FLASH->CR |= FLASH_CR_LOCK;
+}
+/* 等待操作完成并判错误位；完成后清 EOP 与全部错误标志。 */
+static bool flash_ready(void)
+{
+    uint32_t started = LoaderPlatform_NowMs();
+    while ((FLASH->SR & FLASH_SR_BSY) != 0U)
+    {
+        if ((uint32_t)(LoaderPlatform_NowMs() - started) >= FLASH_TIMEOUT_MS)
+        {
+            return false;
+        }
+    }
+    bool ok = (FLASH->SR & FLASH_ERR_MASK) == 0U;
+    FLASH->SR = FLASH_SR_EOP | FLASH_ERR_MASK | FLASH_SR_OPTVERR;
+    return ok;
+}
+static bool flash_erase_page(uint32_t page)
+{
+    bool ok;
+    if (!flash_unlock())
     {
         return false;
     }
-    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
-    erase.Banks = FLASH_BANK_1;
-    erase.TypeErase = FLASH_TYPEERASE_PAGES;
-    erase.Page = (address - TARGET_FLASH_BASE) / TARGET_ERASE_BYTES;
-    erase.NbPages = 1;
-    result = HAL_FLASHEx_Erase(&erase, &error) == HAL_OK;
-    (void)HAL_FLASH_Lock();
-    return result && LoaderFlash_EraseCompleted(address);
+    FLASH->SR = FLASH_SR_OPTVERR;
+    if (!flash_ready())
+    {
+        flash_lock();
+        return false;
+    }
+    FLASH->CR = (FLASH->CR & ~FLASH_CR_PNB_Msk) | FLASH_CR_PER | (page << FLASH_CR_PNB_Pos);
+    FLASH->CR |= FLASH_CR_STRT;
+    ok = flash_ready();
+    FLASH->CR &= ~FLASH_CR_PER;
+    flash_lock();
+    return ok;
+}
+static bool flash_program_doubleword(uint32_t address, uint64_t value)
+{
+    uint32_t acr = FLASH->ACR;
+    uint32_t key;
+    bool ok;
+    if (!flash_unlock())
+    {
+        return false;
+    }
+    FLASH->SR = FLASH_SR_OPTVERR;
+    if (!flash_ready())
+    {
+        flash_lock();
+        return false;
+    }
+    /* 两次32位写不可被普通中断分开；写前关缓存，写后复位并恢复。 */
+    FLASH->ACR = acr & ~FLASH_ACR_DCEN;
+    __DSB();
+    key = __get_PRIMASK();
+    __disable_irq();
+    FLASH->CR |= FLASH_CR_PG;
+    *(volatile uint32_t *)address = (uint32_t)value;
+    __ISB();
+    *(volatile uint32_t *)(address + 4U) = (uint32_t)(value >> 32U);
+    __set_PRIMASK(key);
+    ok = flash_ready();
+    FLASH->CR &= ~FLASH_CR_PG;
+    FLASH->ACR = (acr & ~FLASH_ACR_DCEN) | FLASH_ACR_DCRST;
+    __DSB();
+    FLASH->ACR = acr;
+    __DSB();
+    flash_lock();
+    return ok;
+}
+static bool erase_flash(void *context, uint32_t address, uint32_t bytes)
+{
+    if (bytes != TARGET_ERASE_BYTES || address % TARGET_ERASE_BYTES != 0 ||
+        !inside(context, address, bytes) || !LoaderPlatform_OutputsOff())
+    {
+        return false;
+    }
+    return flash_erase_page((address - TARGET_FLASH_BASE) / TARGET_ERASE_BYTES) &&
+           LoaderFlash_EraseCompleted(address);
 }
 static bool program_flash(void *context, uint32_t address, const void *data, uint32_t bytes)
 {
     uint64_t value, check;
-    bool result;
     if (data == NULL || bytes != 8 || address % 8 != 0 || !inside(context, address, bytes) ||
-        !LoaderPlatform_OutputsOff() || HAL_FLASH_Unlock() != HAL_OK)
+        !LoaderPlatform_OutputsOff())
     {
         return false;
     }
     memcpy(&value, data, 8);
-    result = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, address, value) == HAL_OK;
-    (void)HAL_FLASH_Lock();
-    return result && LoaderFlash_Read(address, &check, 8) && check == value;
+    return flash_program_doubleword(address, value) && LoaderFlash_Read(address, &check, 8) &&
+           check == value;
 }
 static void bind_io(LoaderFlashIo *io, const LoaderFlashRegion *domain)
 {
@@ -71,13 +147,6 @@ void LoaderPlatform_ImageIo(LoaderFlashIo *io)
     if (io != NULL)
     {
         bind_io(io, &image_domain);
-    }
-}
-void LoaderPlatform_BootIo(LoaderFlashIo *io)
-{
-    if (io != NULL)
-    {
-        bind_io(io, &boot_domain);
     }
 }
 void SysTick_Handler(void)
@@ -102,16 +171,18 @@ void LoaderPlatform_Fatal(void)
     { /* 未确认安全恢复条件，不自动恢复升级或功率输出。 */
     }
 }
-bool LoaderPlatform_Init(bool *software_reset)
+bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset)
 {
     uint32_t cause = RCC->CSR, remaining = 4000000U;
-    if (software_reset == NULL)
+    if (software_reset == NULL || watchdog_reset == NULL)
     {
         return false;
     }
     *software_reset = (cause & RCC_CSR_SFTRSTF) != 0 &&
                       !(cause & (RCC_CSR_BORRSTF | RCC_CSR_IWDGRSTF | RCC_CSR_WWDGRSTF |
                                  RCC_CSR_OBLRSTF | RCC_CSR_LPWRRSTF));
+    *watchdog_reset = (cause & (RCC_CSR_IWDGRSTF | RCC_CSR_WWDGRSTF)) != 0 &&
+                      !(cause & (RCC_CSR_BORRSTF | RCC_CSR_OBLRSTF | RCC_CSR_LPWRRSTF));
     LoaderBoard_Safe();
     if ((DBGMCU->IDCODE & 0xFFFU) != 0x468U || *(const uint16_t *)FLASHSIZE_BASE != 128U)
     {
@@ -169,13 +240,6 @@ void LoaderPlatform_Unlock(uint32_t key)
 void LoaderPlatform_Reset(void)
 {
     NVIC_SystemReset();
-}
-void LoaderPlatform_Uid(uint8_t uid[12])
-{
-    if (uid != NULL)
-    {
-        memcpy(uid, (const void *)UID_BASE, 12);
-    }
 }
 LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
 {
@@ -239,33 +303,6 @@ bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message)
     }
     __DMB();
     return BootMailbox_Decode(raw, message);
-}
-bool LoaderPlatform_PutMailbox(const BootMailboxMessage *message)
-{
-    uint8_t raw[YGIM_BYTES];
-    volatile uint8_t *mailbox = (volatile uint8_t *)TARGET_MAILBOX_ADDRESS;
-    unsigned i;
-    if (!BootMailbox_Encode(message, raw))
-    {
-        return false;
-    }
-    *(volatile uint32_t *)mailbox = 0;
-    __DMB();
-    for (i = 4; i < sizeof(raw); ++i)
-    {
-        mailbox[i] = raw[i];
-    }
-    __DMB();
-    *(volatile uint32_t *)mailbox = YGIM_MAGIC;
-    __DSB();
-    for (i = 0; i < sizeof(raw); ++i)
-    {
-        if (mailbox[i] != raw[i])
-        {
-            return false;
-        }
-    }
-    return true;
 }
 void LoaderPlatform_NmiDispatch(uint32_t *stack, uint32_t exc_return)
 {

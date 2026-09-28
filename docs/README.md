@@ -53,7 +53,10 @@ Motor parameter read/write catalog: [电调读写参数表 v0.1](protocols/yg_pr
 
 Single-board hardware verification: [yg_protocol 单板 CAN FD 实机验证 2026-09-28](reports/2026-09/yg_protocol_canfd_bench_20260928.md).
 
-Loader implementation: [独立产品、内存与失败救援 v1](architecture/loader/loader_product_v1.md).
+Loader implementation: [简化候选设计 v2（独立分区 + 跳前 CRC32 校验）](architecture/loader/loader_product_v1.md)
+and [简化审查与修复计划 v1](plans/active/2026-09-28-loader-simplification-review-v1.md).
+
+Current loader wire contract: [升级载荷 v2：主机 nonce 与 CRC32 镜像](protocols/yg_protocol_upgrade_wire_v2.md).
 
 APP capacity baseline: [新 APP 编译占用与缩减方向（2026-09-28）](reports/2026-09/app_capacity_baseline_20260928.md).
 

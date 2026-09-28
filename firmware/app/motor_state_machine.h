@@ -155,21 +155,12 @@ MotorControlResult MotorStateMachine_RequestBootStop(uint64_t ticket);
  */
 bool MotorStateMachine_BootHandoffReady(uint64_t ticket);
 /**
- * @brief 读取基础运行健康及试启动确认资格的一致值。
- * @param supervisor_epoch 接收监督调度进展计数，调用方必须比较新进展而非反复消费旧值。
- * @param confirmation_ready 接收自检通过、READY、无资源占用、关相和编码器在线资格。
- * @return 感测新鲜且未进入FATAL返回true；通信及保存健康由组合层补充。
- * @note 前台短临界区只读；完整标定仍是运动模式条件，不是固件试启动确认条件。
+ * @brief 读取监督拍进展与基础采样健康，不要求主机在线或电机已使能。
+ * @param progress 输出已完成监督拍计数；调用方必须比较新进展。
+ * @return 采样新鲜且未进入FATAL返回true；空指针返回false。
+ * @note 前台短临界区只读；通信健康由组合层补充，不授权运动或Flash。
  */
-bool MotorStateMachine_ReadBootHealth(uint32_t *supervisor_epoch, bool *confirmation_ready);
-/**
- * @brief 复核平台真实确认记录并解除试启动禁止。
- * @param boot_epoch 本次实际启动代号，必须非零。
- * @param image_token 本次镜像身份，必须非零。
- * @return 平台已确认且身份完全匹配返回true；否则保持禁止。
- * @note 仅前台交接服务在确认写入并回读成功后调用，不自动启动或恢复目标。
- */
-bool MotorStateMachine_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image_token);
+bool MotorStateMachine_ReadBootHealth(uint32_t *progress);
 
 typedef enum
 {

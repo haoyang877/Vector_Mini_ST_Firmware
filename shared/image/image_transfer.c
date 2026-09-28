@@ -1,5 +1,7 @@
+/* 镜像事务与跳前校验：只用描述符声明的长度与整包 CRC32，不保留持久提交记录。 */
 #include "image_transfer.h"
 #include <string.h>
+
 static uint32_t be32(const uint8_t *p)
 {
     return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
@@ -8,37 +10,34 @@ static uint32_t le32(const uint8_t *p)
 {
     return (uint32_t)p[3] << 24 | (uint32_t)p[2] << 16 | (uint32_t)p[1] << 8 | p[0];
 }
-static uint32_t crc32(const uint8_t *p, uint32_t n)
+static uint32_t crc_more(uint32_t crc, const uint8_t *p, uint32_t n)
 {
-    uint32_t c = ~0U;
     unsigned i;
     while (n--)
     {
-        c ^= *p++;
+        crc ^= *p++;
         for (i = 0; i < 8; i++)
         {
-            c = (c >> 1) ^ ((0U - (c & 1U)) & 0xEDB88320U);
+            crc = (crc >> 1) ^ ((0U - (crc & 1U)) & 0xEDB88320U);
         }
     }
-    return ~c;
+    return crc;
+}
+static uint32_t crc32(const uint8_t *p, uint32_t n)
+{
+    return ~crc_more(~0U, p, n);
 }
 static bool inside(uint32_t a, uint32_t n, LoaderFlashRegion s)
 {
     return n && a >= s.base && n <= s.bytes && a - s.base <= s.bytes - n;
-}
-static bool overlap(LoaderFlashRegion a, LoaderFlashRegion b)
-{
-    return (uint64_t)a.base + a.bytes > (uint64_t)b.base &&
-           (uint64_t)b.base + b.bytes > (uint64_t)a.base;
 }
 static bool geometry(const LoaderImageConfig *c)
 {
     LoaderFlashRegion all;
     if (!c || !c->io.read || !c->io.erase || !c->io.program || !c->allowed || !c->watchdog ||
         c->io.program_bytes != 8 || !c->io.erase_bytes || c->io.erase_bytes % 8 ||
-        c->record.bytes != c->io.erase_bytes || c->record.bytes < 160 || c->app.bytes > 131072 ||
-        c->app.bytes < 8 || c->app.bytes % c->io.erase_bytes || c->app.base % c->io.erase_bytes ||
-        c->record.base % c->io.erase_bytes || c->schema != 11 || c->ram_start >= c->ram_end ||
+        c->app.bytes > 131072 || c->app.bytes < 8 || c->app.bytes % c->io.erase_bytes ||
+        c->app.base % c->io.erase_bytes || c->schema != 11 || c->ram_start >= c->ram_end ||
         c->descriptor_offset < 8 || (uint64_t)c->descriptor_offset + 64U > c->app.bytes ||
         c->descriptor_offset % 8 || !c->layout || !c->mcu || !c->product || !c->hardware ||
         !c->param_abi)
@@ -48,17 +47,121 @@ static bool geometry(const LoaderImageConfig *c)
     all.base = c->io.base;
     all.bytes = c->io.bytes;
     return (uint64_t)all.base + all.bytes <= 0x100000000ULL &&
-           inside(c->app.base, c->app.bytes, all) && inside(c->record.base, c->record.bytes, all) &&
-           !overlap(c->app, c->record);
+           inside(c->app.base, c->app.bytes, all);
+}
+static bool descriptor_decode(const LoaderImageConfig *c,
+                              const uint8_t *p,
+                              LoaderImageIdentity *out,
+                              const LoaderImageIdentity *manifest)
+{
+    uint32_t version, role, bytes, crc;
+    uint16_t low, high;
+    unsigned i;
+    if (be32(p) != YGI_DESCRIPTOR_MAGIC || be32(p + 4) != YGI_DESCRIPTOR_VERSION ||
+        be32(p + 8) != YGI_PROFILE || be32(p + 12) != c->layout || be32(p + 16) != c->mcu ||
+        be32(p + 20) != c->product || be32(p + 24) != c->hardware || be32(p + 36) != c->param_abi)
+    {
+        return false;
+    }
+    version = be32(p + 28);
+    role = be32(p + 32);
+    bytes = be32(p + YGI_DESCRIPTOR_BYTES_OFFSET);
+    crc = be32(p + YGI_DESCRIPTOR_CRC_OFFSET);
+    low = (uint16_t)((uint16_t)p[40] << 8 | p[41]);
+    high = (uint16_t)((uint16_t)p[42] << 8 | p[43]);
+    if (role != YGI_ROLE_NORMAL || low > c->schema || high < c->schema || low > high ||
+        bytes < c->descriptor_offset + 64U || bytes > c->app.bytes || bytes % 8)
+    {
+        return false;
+    }
+    for (i = YGI_DESCRIPTOR_CRC_OFFSET + 4U; i < YGI_DESCRIPTOR_BYTES; ++i)
+    {
+        if (p[i])
+        {
+            return false;
+        }
+    }
+    if (manifest != NULL && (manifest->version != version || manifest->role != role ||
+                             manifest->bytes != bytes || manifest->crc32 != crc))
+    {
+        return false;
+    }
+    if (out != NULL)
+    {
+        out->version = version;
+        out->token = manifest != NULL ? manifest->token : 0U;
+        out->bytes = bytes;
+        out->role = role;
+        out->crc32 = crc;
+    }
+    return true;
+}
+static bool read_descriptor(const LoaderImageConfig *c,
+                            LoaderImageIdentity *out,
+                            const LoaderImageIdentity *manifest)
+{
+    uint8_t p[YGI_DESCRIPTOR_BYTES];
+    return c->io.read(c->io.context, c->app.base + c->descriptor_offset, p, sizeof(p)) &&
+           descriptor_decode(c, p, out, manifest);
+}
+static bool vectors(const LoaderImageConfig *c, uint32_t bytes)
+{
+    uint8_t p[8];
+    uint32_t sp, pc;
+    if (!c->io.read(c->io.context, c->app.base, p, sizeof(p)))
+    {
+        return false;
+    }
+    sp = le32(p);
+    pc = le32(p + 4);
+    return sp > c->ram_start && sp <= c->ram_end && !(sp & 7U) && (pc & 1U) &&
+           (uint64_t)(pc & ~1U) >= (uint64_t)c->app.base + c->descriptor_offset + 64U &&
+           (uint64_t)(pc & ~1U) < (uint64_t)c->app.base + bytes;
+}
+/* 整包 CRC32；描述符自身的4B CRC字段按0参与，以便打包时回填后仍可复算。 */
+static bool compute_crc(const LoaderImageConfig *c, uint32_t bytes, uint32_t *out)
+{
+    uint8_t p[64];
+    uint32_t off = 0, crc = ~0U, crc_at = c->descriptor_offset + YGI_DESCRIPTOR_CRC_OFFSET;
+    while (off < bytes)
+    {
+        uint32_t n = bytes - off, k;
+        if (n > sizeof(p))
+        {
+            n = sizeof(p);
+        }
+        if (!c->io.read(c->io.context, c->app.base + off, p, n))
+        {
+            return false;
+        }
+        for (k = 0; k < n; ++k)
+        {
+            uint32_t a = off + k;
+            if (a >= crc_at && a < crc_at + 4U)
+            {
+                p[k] = 0U;
+            }
+        }
+        crc = crc_more(crc, p, n);
+        c->watchdog(c->owner);
+        off += n;
+    }
+    *out = ~crc;
+    return true;
+}
+static LoaderImageResult fail(LoaderImageTransfer *t, LoaderImageResult r)
+{
+    t->phase = YI_ERROR;
+    t->reason = r;
+    return r;
 }
 bool LoaderImage_DecodeManifest(const LoaderImageConfig *c,
                                 const uint8_t p[96],
                                 LoaderImageIdentity *out)
 {
     LoaderImageIdentity m;
-    unsigned i;
-    uint32_t flags;
     uint16_t low, high;
+    unsigned i;
     if (!geometry(c) || !p || !out || be32(p) != YGI_MANIFEST_MAGIC || be32(p + 4) != YGI_PROFILE ||
         be32(p + 8) != c->layout || be32(p + 12) != c->mcu || be32(p + 16) != c->product ||
         be32(p + 20) != c->hardware || be32(p + 40) != c->param_abi)
@@ -69,77 +172,23 @@ bool LoaderImage_DecodeManifest(const LoaderImageConfig *c,
     m.token = be32(p + 28);
     m.bytes = be32(p + 32);
     m.role = be32(p + 36);
-    flags = be32(p + 80);
+    m.crc32 = be32(p + YGI_MANIFEST_CRC_OFFSET);
     low = (uint16_t)((uint16_t)p[44] << 8 | p[45]);
     high = (uint16_t)((uint16_t)p[46] << 8 | p[47]);
-    if (!m.token || m.bytes < c->descriptor_offset + 64 || m.bytes > c->app.bytes || m.bytes % 8 ||
-        low > c->schema || high < c->schema || low > high ||
-        (m.role != YGI_ROLE_NORMAL && m.role != YGI_ROLE_MAINTENANCE) ||
-        flags != (m.role == YGI_ROLE_MAINTENANCE ? 1U : 0U))
+    if (!m.token || m.bytes < c->descriptor_offset + 64U || m.bytes > c->app.bytes || m.bytes % 8 ||
+        low > c->schema || high < c->schema || low > high || m.role != YGI_ROLE_NORMAL)
     {
         return false;
     }
-    for (i = 84; i < 96; i++)
+    for (i = YGI_MANIFEST_CRC_OFFSET + 4U; i < YGI_MANIFEST_BYTES; ++i)
     {
         if (p[i])
         {
             return false;
         }
     }
-    memcpy(m.sha, p + 48, 32);
     *out = m;
     return true;
-}
-static bool vectors(const LoaderImageConfig *c, const LoaderImageIdentity *m)
-{
-    uint8_t p[8];
-    uint32_t sp, pc;
-    if (!c->io.read(c->io.context, c->app.base, p, 8))
-    {
-        return false;
-    }
-    sp = le32(p);
-    pc = le32(p + 4);
-    return sp > c->ram_start && sp <= c->ram_end && !(sp & 7U) && (pc & 1U) &&
-           (uint64_t)(pc & ~1U) >= (uint64_t)c->app.base + c->descriptor_offset + 64U &&
-           (uint64_t)(pc & ~1U) < (uint64_t)c->app.base + m->bytes;
-}
-static bool
-descriptor(const LoaderImageConfig *c, const LoaderImageIdentity *m, const uint8_t *manifest)
-{
-    uint8_t p[64];
-    unsigned i;
-    uint16_t low, high;
-    if (!c->io.read(c->io.context, c->app.base + c->descriptor_offset, p, 64) ||
-        be32(p) != YGI_DESCRIPTOR_MAGIC || be32(p + 4) != YGI_DESCRIPTOR_VERSION ||
-        be32(p + 8) != YGI_PROFILE || be32(p + 12) != c->layout || be32(p + 16) != c->mcu ||
-        be32(p + 20) != c->product || be32(p + 24) != c->hardware || be32(p + 28) != m->version ||
-        be32(p + 32) != m->role || be32(p + 36) != c->param_abi ||
-        be32(p + 44) != (m->role == YGI_ROLE_MAINTENANCE ? YGI_MAINTENANCE_WORKFLOW_ONLY : 0U))
-    {
-        return false;
-    }
-    low = (uint16_t)((uint16_t)p[40] << 8 | p[41]);
-    high = (uint16_t)((uint16_t)p[42] << 8 | p[43]);
-    if (low > c->schema || high < c->schema || low > high ||
-        (manifest && memcmp(p + 40, manifest + 44, 4)))
-    {
-        return false;
-    }
-    for (i = 48; i < 64; i++)
-    {
-        if (p[i])
-        {
-            return false;
-        }
-    }
-    return true;
-}
-static LoaderImageResult fail(LoaderImageTransfer *t, LoaderImageResult r)
-{
-    t->phase = YI_ERROR;
-    t->reason = r;
-    return r;
 }
 bool LoaderImage_Init(LoaderImageTransfer *t, const LoaderImageConfig *c)
 {
@@ -171,7 +220,7 @@ LoaderImageResult LoaderImage_Begin(LoaderImageTransfer *t, const uint8_t manife
     {
         return YI_ARGUMENT;
     }
-    if (t->phase == YI_ERASING || t->phase == YI_VERIFYING || t->phase == YI_COMMITTED)
+    if (t->phase == YI_ERASING || t->phase == YI_VERIFYING)
     {
         return YI_BUSY;
     }
@@ -184,6 +233,7 @@ LoaderImageResult LoaderImage_Begin(LoaderImageTransfer *t, const uint8_t manife
     t->manifest_crc = crc32(manifest, 96);
     t->next = 0;
     t->erased = 0;
+    t->hash = ~0U;
     t->reason = YI_OK;
     t->phase = YI_READY;
     return YI_OK;
@@ -276,15 +326,15 @@ LoaderImageResult LoaderImage_Verify(LoaderImageTransfer *t)
         return YI_STATE;
     }
     t->next = 0;
+    t->hash = ~0U;
     t->phase = YI_VERIFYING;
-    LoaderSha256_Init(&t->hash);
     return YI_OK;
 }
 LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *t)
 {
     const LoaderImageConfig *c = t ? t->config : NULL;
-    uint32_t a, n, i;
-    uint8_t p[64], digest[32];
+    uint32_t a, n, i, crc_at;
+    uint8_t p[64];
     LoaderImageResult r = YI_OK;
     if (!t || !c || t->in_call)
     {
@@ -303,7 +353,7 @@ LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *t)
     c->watchdog(c->owner);
     if (t->phase == YI_ERASING)
     {
-        a = t->erased ? c->app.base + t->erased - c->io.erase_bytes : c->record.base;
+        a = c->app.base + t->erased;
         if (!c->io.erase(c->io.context, a, c->io.erase_bytes))
         {
             r = fail(t, YI_FLASH);
@@ -331,7 +381,7 @@ LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *t)
             }
         }
         t->erased += c->io.erase_bytes;
-        if (t->erased - c->io.erase_bytes == c->app.bytes)
+        if (t->erased >= c->app.bytes)
         {
             t->phase = YI_RECEIVING;
             t->next = 0;
@@ -344,17 +394,26 @@ LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *t)
         {
             n = sizeof(p);
         }
-        if (!c->io.read(c->io.context, c->app.base + t->next, p, n) ||
-            !LoaderSha256_Update(&t->hash, p, n))
+        if (!c->io.read(c->io.context, c->app.base + t->next, p, n))
         {
             r = fail(t, YI_FLASH);
             goto done;
         }
+        crc_at = c->descriptor_offset + YGI_DESCRIPTOR_CRC_OFFSET;
+        for (i = 0; i < n; ++i)
+        {
+            uint32_t position = t->next + i;
+            if (position >= crc_at && position < crc_at + 4U)
+            {
+                p[i] = 0U;
+            }
+        }
+        t->hash = crc_more(t->hash, p, n);
         t->next += n;
         if (t->next == t->image.bytes)
         {
-            if (!LoaderSha256_Finish(&t->hash, digest) || memcmp(digest, t->image.sha, 32) ||
-                !vectors(c, &t->image) || !descriptor(c, &t->image, t->manifest))
+            if (~t->hash != t->image.crc32 || !vectors(c, t->image.bytes) ||
+                !read_descriptor(c, NULL, &t->image))
             {
                 r = fail(t, YI_DIGEST);
             }
@@ -368,178 +427,23 @@ done:
     t->in_call = false;
     return r;
 }
-static LoaderRecordFormat format(const LoaderImageConfig *c)
-{
-    LoaderRecordFormat f = {0x59495231U, 0x59494331U, YGI_PROFILE, 0, 1, 96};
-    f.layout = c->layout;
-    return f;
-}
-static bool gate_read(void *v, uint32_t a, void *p, uint32_t n)
-{
-    const LoaderImageConfig *c = v;
-    return inside(a, n, c->record) && c->io.read(c->io.context, a, p, n);
-}
-static bool gate_erase(void *v, uint32_t a, uint32_t n)
-{
-    const LoaderImageConfig *c = v;
-    return a == c->record.base && n == c->record.bytes && c->allowed(c->owner) &&
-           c->io.erase(c->io.context, a, n);
-}
-static bool gate_program(void *v, uint32_t a, const void *p, uint32_t n)
-{
-    const LoaderImageConfig *c = v;
-    return inside(a, n, c->record) && c->allowed(c->owner) && c->io.program(c->io.context, a, p, n);
-}
-static bool record_write(const LoaderImageConfig *c, const uint8_t p[96], uint32_t context)
-{
-    LoaderFlashIo io = c->io;
-    LoaderRecordFormat f = format(c);
-    io.context = (void *)c;
-    io.read = gate_read;
-    io.erase = gate_erase;
-    io.program = gate_program;
-    return LoaderRecord_Replace(&io, &c->record, &f, be32(p + 28), context, p) == NVR_OK;
-}
-bool LoaderImage_ReadRecord(const LoaderImageConfig *c, uint8_t p[96], uint32_t *context)
-{
-    uint8_t raw[96];
-    LoaderRecordInfo info;
-    LoaderImageIdentity image;
-    LoaderRecordFormat f;
-    if (!geometry(c) || !p || !context)
-    {
-        return false;
-    }
-    f = format(c);
-    if (LoaderRecord_Read(&c->io, &c->record, &f, raw, 96, &info) != NVR_OK || info.context < 1 ||
-        info.context > 3 || !LoaderImage_DecodeManifest(c, raw, &image) ||
-        info.sequence != image.token)
-    {
-        return false;
-    }
-    memcpy(p, raw, 96);
-    *context = info.context;
-    return true;
-}
 bool LoaderImage_Check(const LoaderImageConfig *c, const LoaderImageIdentity *m)
 {
-    LoaderSha256 h;
-    uint8_t p[64], digest[32];
-    uint32_t n, offset = 0;
+    uint32_t crc;
     if (!geometry(c) || !m || m->bytes < 8 || m->bytes > c->app.bytes || m->bytes % 8)
     {
         return false;
     }
-    LoaderSha256_Init(&h);
-    while (offset < m->bytes)
-    {
-        n = m->bytes - offset;
-        if (n > 64)
-        {
-            n = 64;
-        }
-        c->watchdog(c->owner);
-        if (!c->io.read(c->io.context, c->app.base + offset, p, n) ||
-            !LoaderSha256_Update(&h, p, n))
-        {
-            return false;
-        }
-        offset += n;
-    }
-    return LoaderSha256_Finish(&h, digest) && !memcmp(digest, m->sha, 32) && vectors(c, m) &&
-           descriptor(c, m, 0);
+    return compute_crc(c, m->bytes, &crc) && crc == m->crc32 && vectors(c, m->bytes) &&
+           read_descriptor(c, NULL, m);
 }
-LoaderImageResult LoaderImage_Commit(LoaderImageTransfer *t)
+bool LoaderImage_CheckImage(const LoaderImageConfig *c)
 {
-    LoaderImageResult r;
-    LoaderImageIdentity checked;
-    if (!t || !t->config || t->in_call || t->phase != YI_VERIFIED)
+    LoaderImageIdentity id;
+    uint32_t crc;
+    if (!geometry(c) || !read_descriptor(c, &id, NULL))
     {
-        return YI_STATE;
+        return false;
     }
-    t->in_call = true;
-    if (!t->config->allowed(t->config->owner))
-    {
-        r = fail(t, YI_DENIED);
-    }
-    else if (crc32(t->manifest, 96) != t->manifest_crc ||
-             !LoaderImage_DecodeManifest(t->config, t->manifest, &checked) ||
-             checked.version != t->image.version || checked.token != t->image.token ||
-             checked.bytes != t->image.bytes || checked.role != t->image.role ||
-             memcmp(checked.sha, t->image.sha, 32) || !LoaderImage_Check(t->config, &t->image) ||
-             !descriptor(t->config, &t->image, t->manifest))
-    {
-        r = fail(t, YI_DIGEST);
-    }
-    else if (!record_write(t->config, t->manifest, 1))
-    {
-        r = fail(t, YI_FLASH);
-    }
-    else
-    {
-        t->phase = YI_COMMITTED;
-        r = YI_OK;
-    }
-    t->in_call = false;
-    return r;
-}
-static LoaderBootDecision admission(const LoaderImageIdentity *m, LoaderParameterState p)
-{
-    if (m->role == YGI_ROLE_NORMAL)
-    {
-        return p == YI_PARAMS_RAW11 ? YI_BOOT_NORMAL : YI_RESCUE;
-    }
-    if (m->role == YGI_ROLE_MAINTENANCE && (p == YI_PARAMS_RAW11 || p == YI_PARAMS_BLANK))
-    {
-        return YI_BOOT_MAINTENANCE_INHIBITED;
-    }
-    return YI_RESCUE;
-}
-LoaderBootDecision LoaderImage_PrepareBoot(const LoaderImageConfig *c,
-                                           LoaderParameterState p,
-                                           bool forced,
-                                           LoaderImageIdentity *out)
-{
-    uint8_t raw[96];
-    uint32_t state;
-    LoaderImageIdentity m;
-    LoaderBootDecision result;
-    if (forced || !out || !LoaderImage_ReadRecord(c, raw, &state) || state == 2 ||
-        !LoaderImage_DecodeManifest(c, raw, &m) || !LoaderImage_Check(c, &m) ||
-        !descriptor(c, &m, raw))
-    {
-        return YI_RESCUE;
-    }
-    result = admission(&m, p);
-    if (result == YI_RESCUE)
-    {
-        return result;
-    }
-    if (state == 1 && !record_write(c, raw, 2))
-    {
-        return YI_RESCUE;
-    }
-    *out = m;
-    return result;
-}
-LoaderImageResult LoaderImage_Confirm(const LoaderImageConfig *c,
-                                      LoaderParameterState p,
-                                      const LoaderImageIdentity *expected)
-{
-    uint8_t raw[96];
-    uint32_t state;
-    LoaderImageIdentity m;
-    if (!expected || !LoaderImage_ReadRecord(c, raw, &state) ||
-        !LoaderImage_DecodeManifest(c, raw, &m) || state == 1 || m.token != expected->token ||
-        m.version != expected->version || m.bytes != expected->bytes || m.role != expected->role ||
-        memcmp(m.sha, expected->sha, 32) || admission(&m, p) == YI_RESCUE ||
-        !LoaderImage_Check(c, &m) || !descriptor(c, &m, raw))
-    {
-        return YI_DENIED;
-    }
-    if (state == 3)
-    {
-        return YI_OK;
-    }
-    return record_write(c, raw, 3) ? YI_OK : YI_FLASH;
+    return compute_crc(c, id.bytes, &crc) && crc == id.crc32 && vectors(c, id.bytes);
 }

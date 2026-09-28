@@ -3,8 +3,14 @@
 Create one dated Markdown file per significant active change. Include intent, acceptance
 criteria, progress, decisions, and final evidence. Move the file to `../completed/` when done.
 
+- [Loader简化审查与修复 v1](2026-09-28-loader-simplification-review-v1.md)：95f1aa0a源码审查；看门狗、故障救援、维护角色与协议/profile兼容待修复，纯内存复现已执行。
+
 - [通信、主状态机与 Loader 整体重构 v1](2026-09-28-system-refactor-e-h-d.md)：当前执行裁决；E/H/D 并行完成代码，后期统一测试。
 - [Loader独立产品重构 v1](2026-09-28-loader-product-refactor.md)：公司CAN-FD单协议、raw11保留、独立工程与APP交接；仅代码，待统一验证。
+
+- [Loader修复合入system-refactor v1](2026-09-28-loader-system-merge-v1.md)：保留目标功能状态机，迁移v2交接与健康接口，按合并后源码重新验证。
+
+- [运行所有者功能分析与局部快照优化 v1](2026-09-28-foc-run-state-analysis-v1.md)：分析请求、功率动作、维护身份与故障恢复；仅在同一临界区且状态未变时共享局部守卫，保留执行前复核。
 - [生命周期真实条件接线 E1 v1](2026-09-28-lifecycle-guards-e1.md)：数字关相回读、基础健康与模式准入、清错提交顺序、维护 worker 准入与默认参数结果交接；取消释放及原始结果身份仍待后续收口。
 - [受控台架速度入口 E2 v1（已退役）](2026-09-28-bench-speed-owner-e2.md)：显式调试邮箱零速度启动、独立期限、三相采样截止与停止确认；**随容量批次删除邮箱与钩子**，保留为设计历史。
 - [内部所有权与异步结果解耦 E3 v1](2026-09-28-internal-decoupling-e3.md)：Watch/CAN 命令、私有电机对象、真实维护保存取消和故障投影；连续批次实施。

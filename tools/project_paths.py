@@ -22,6 +22,7 @@ for relative in (
 
 NATIVE_INCLUDE_DIRS = (
     "shared/protocol",
+    "shared/boot",
     "firmware/app",
     "firmware/common",
     "firmware/motor",

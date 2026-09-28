@@ -794,24 +794,34 @@ MotorTaskResult FocCogging_Task(FOC_TypeDef *f,
     ++leaf_calls[MOTOR_MAINTENANCE_COGGING];
     return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
 }
-MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *f, MotorControl_TypeDef *m)
+MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *f,
+                                        MotorControl_TypeDef *m,
+                                        const PhaseResistanceConfig_TypeDef *config)
 {
     (void)f;
     (void)m;
+    assert(config != NULL && config->test_current_low == 1.0f && config->test_current_high == 2.0f);
     ++leaf_calls[MOTOR_MAINTENANCE_PHASE_RESISTANCE];
     return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
 }
 MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *f,
                                                MotorControl_TypeDef *m,
                                                PI_Controller_TypeDef *p,
-                                               Encoder_TypeDef *e)
+                                               Encoder_TypeDef *e,
+                                               const FocFrictionIdentificationConfig *config)
 {
     (void)f;
     (void)m;
     (void)p;
     (void)e;
+    assert(config != NULL && config->core.speed_point_count == 4U &&
+           config->current_ratio_max == 0.90f);
     ++leaf_calls[MOTOR_MAINTENANCE_FRICTION];
     return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+}
+void FocFrictionIdentification_Init(const FocFrictionIdentificationConfig *config)
+{
+    assert(config != NULL);
 }
 bool Encoder_SetMechanicalZero(Encoder_TypeDef *e)
 {

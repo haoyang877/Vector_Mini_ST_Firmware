@@ -1,92 +1,71 @@
+/* 轴记录服务只处理验证、身份与基线解析；电机值契约在 axis_config.h。 */
 #ifndef MOTOR_AXIS_PROFILE_H
 #define MOTOR_AXIS_PROFILE_H
-#include <stdbool.h>
-#include <stdint.h>
-#include <math.h>
-#include <stddef.h>
+#include "axis_config.h"
 
-#define MOTOR_AXIS_PROFILE_MAGIC 0x31535841U /* AXS1, little-endian Flash record */
-#define MOTOR_AXIS_PROFILE_VERSION 1U
-#define MOTOR_AXIS_PROFILE_NUMERIC_MAGIC 0x32535841U /* AXS2 */
-#define MOTOR_AXIS_PROFILE_NUMERIC_VERSION 2U
-#define MOTOR_JOINT_CONFIG_REVISION 1U
-
-/* Stable protocol/storage IDs. Never renumber or reuse a published ID.
- * Store as uint32_t, not as a compiler-sized enum. */
-typedef enum {
-    MOTOR_JOINT_UNKNOWN = 0,
-    MOTOR_JOINT_ROLL = 1,
-    MOTOR_JOINT_PITCH = 2,
-    MOTOR_JOINT_YAW = 3,
-    MOTOR_JOINT_WHEEL_RIGHT = 4,
-    MOTOR_JOINT_WHEEL_LEFT = 5
-} MotorJointType;
-
-/* Optional, independently versioned tail of the existing parameter record.
- * Exactly 32 bytes on supported IEEE-754 binary32, little-endian targets.
- * An all-zero or all-erased record denotes an unconfigured legacy motor. */
-typedef struct {
-    uint32_t magic, version;
-    union {
-        char legacy_name[8];
-        struct { uint32_t joint_type, config_revision; } numeric;
-    } identity;
-    float minimum_position_rad, maximum_position_rad, maximum_speed_rad_s;
-    uint32_t crc32;
-} MotorAxisProfile;
-
-/* Versioned mode-3 baseline; independent of board and individual calibration. */
-typedef struct {
-    float position_kp, position_kd, speed_kp, speed_ki;
-    float acceleration_rad_s2, deceleration_rad_s2, maximum_current_a;
-} MotorJointControlConfig;
-
-/** Display mapping only; unknown IDs return "unknown". No hardware access. */
+/**
+ * @brief 把稳定轴编号映射为显示名。
+ * @param joint_type 协议/存储使用的稳定轴编号。
+ * @return 静态只读名称；未知编号返回 unknown。
+ */
 const char *MotorJointType_Name(uint32_t joint_type);
-/** Resolve the product CAN node address from a CRC-valid AXS1/AXS2 identity.
- * wheel_left=1, wheel_right=2, roll=3, pitch=4, yaw=5. These addresses are
- * independent of stable storage IDs. Unknown/invalid records retain fallback.
- * Startup/parameter restore only; does not change the record or enable motion. */
+/**
+ * @brief 从 CRC 有效轴记录解析产品 CAN 地址。
+ * @param profile 只读 AXS1/AXS2 记录，启动时读取。
+ * @param fallback 记录无效或轴未知时保留的节点地址。
+ * @return left/right/roll/pitch/yaw 映射 1/2/3/4/5，否则返回 fallback。
+ * @note 只在启动或参数恢复调用，包含 CRC；不修改记录或启相。
+ */
 uint8_t MotorAxisProfile_CanNodeId(const MotorAxisProfile *profile, uint8_t fallback);
-/** Decode identity from an already validated record, including AXS1. */
-uint32_t MotorAxisProfile_JointType(const MotorAxisProfile *profile);
-/** Create AXS2. Revision zero stores identity only and requires zero bounds;
- * it cannot enable a motor. Revision one currently supports roll/pitch only. */
-bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output, uint32_t joint_type,
-    uint32_t config_revision, float minimum_position_rad,
-    float maximum_position_rad, float maximum_speed_rad_s);
-/** Validate and select an AXS2 baseline at startup, never in the fast loop.
- * Stored limits may narrow the baseline envelope, never widen it.
- * False leaves output untouched; AXS1 retains its separately saved gains. */
+
+/**
+ * @brief 建立带 CRC 的 AXS2 轴记录并检查配置范围。
+ * @param output 调用方非空记录空间；不转移所有权。
+ * @param joint_type 稳定轴类型编号。
+ * @param config_revision 零表示仅身份且所有范围须为零；一仅支持 roll/pitch。
+ * @param minimum_position_rad 位置下界，单位 rad。
+ * @param maximum_position_rad 位置上界，单位 rad。
+ * @param maximum_speed_rad_s 正速度上限，单位 rad/s。
+ * @return 配置有效返回 true，否则返回 false，output 不变。
+ * @note 前台/启动使用；不写 Flash、不使能电机。
+ */
+bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output,
+                                  uint32_t joint_type,
+                                  uint32_t config_revision,
+                                  float minimum_position_rad,
+                                  float maximum_position_rad,
+                                  float maximum_speed_rad_s);
+/**
+ * @brief 验证 AXS2 并解析关节控制基线，限制只能收窄包络。
+ * @param profile 只读轴记录。
+ * @param output 调用方基线空间；失败保持不变。
+ * @return AXS2 修订一且范围合法返回 true，否则返回 false。
+ * @note 包含 CRC，只在启动/恢复使用；AXS1 保留独立保存的增益。
+ */
 bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControlConfig *output);
 
-/** Validate and load once at parameter restore; false means a corrupt record.
- * Caller owns both output and validity; corrupt records must block mode 3. */
+/**
+ * @brief 校验轴记录并复制到调用方空间。
+ * @param stored 只读记录；全零/全擦除表示未配置。
+ * @param output 非空调用方输出；校验失败时内容可能已经复制，不可使用。
+ * @return 记录有效或未配置返回 true；损坏/未知布局返回 false。
+ * @note 启动/恢复执行 CRC；调用方持有有效性并拒绝损坏配置。
+ */
 bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *output);
-/** Create a checked roll/pitch record for an explicitly configured mechanism. */
-bool MotorAxisProfile_Create(MotorAxisProfile *output, const char *name,
-    float minimum_position_rad, float maximum_position_rad, float maximum_speed_rad_s);
-/** Select the startup single-turn branch relative to a calibrated zero.
- * Only validated roll/pitch envelopes wholly inside (-pi, pi) qualify.
- * Input/output units are 65536 counts/revolution. No clamping to travel limits:
- * out-of-range positions must still fail AllowsPosition. Unconfigured or
- * multi-turn envelopes retain the input; continuous tracking must not call this.
- * Caller must establish mechanical-zero calibration before using this helper. */
-int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile,
-    bool valid, int32_t single_turn_difference);
-/** Fast bounds check after a successful load. No CRC work occurs in the ISR.
- * Actual position must remain strictly within limits; targets may equal them.
- * This is a software stop boundary, not a guarantee against physical overshoot. */
-static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profile,
-    bool valid, float actual, float target)
-{
-    return profile != NULL && valid && isfinite(actual) && isfinite(target) &&
-        (profile->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
-         (profile->identity.numeric.config_revision == MOTOR_JOINT_CONFIG_REVISION &&
-          (profile->identity.numeric.joint_type == MOTOR_JOINT_ROLL ||
-           profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH))) &&
-        (profile->magic == 0U ||
-         (actual > profile->minimum_position_rad && actual < profile->maximum_position_rad &&
-          target >= profile->minimum_position_rad && target <= profile->maximum_position_rad));
-}
+/**
+ * @brief 创建带 CRC 的 roll/pitch 名称记录。
+ * @param output 调用方非空记录空间；不转移所有权。
+ * @param name 只读零结尾名称，仅允许 roll 或 pitch。
+ * @param minimum_position_rad 位置下界，单位 rad。
+ * @param maximum_position_rad 位置上界，单位 rad。
+ * @param maximum_speed_rad_s 正速度上限，单位 rad/s。
+ * @return 输入及记录有效返回 true，否则返回 false。
+ * @note AXS1 记录构造，不写 Flash；失败时 output 可能写入候选，不可作为有效配置。
+ */
+bool MotorAxisProfile_Create(MotorAxisProfile *output,
+                             const char *name,
+                             float minimum_position_rad,
+                             float maximum_position_rad,
+                             float maximum_speed_rad_s);
+
 #endif

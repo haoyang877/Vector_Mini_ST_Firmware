@@ -2,10 +2,5 @@
   "schema_version": 1,
   "reason": "Existing reverse dependencies; remove entries as boundaries are repaired.",
   "violations": [
-    "firmware/motor/data_type.h -> firmware/services/parameters/motor_axis_profile.h",
-    "firmware/motor/foc/foc_algorithm.c -> firmware/services/telemetry/fast_loop_profile.h",
-    "firmware/motor/identification/foc_friction_identification.c -> firmware/services/parameters/foc_param_profile.h",
-    "firmware/motor/identification/foc_phase_resistance.c -> firmware/services/parameters/foc_param_profile.h",
-    "firmware/motor/position/position_cascade.c -> firmware/services/telemetry/fast_loop_profile.h"
   ]
 }

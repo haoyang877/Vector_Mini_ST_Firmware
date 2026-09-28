@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "motor_axis_profile.h"
+#include "axis_config.h"
 
 #include "motor_control_mode.h"
 

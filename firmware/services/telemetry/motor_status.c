@@ -1,21 +1,36 @@
+/* 状态快照由调用方明确传入，协议投影不暴露内部可写对象。 */
 #include "motor_status.h"
 #include <stddef.h>
 
 /* Single-core ISR/foreground mailbox. Every shared payload access and state
  * access is volatile and sequenced. Producer cannot overwrite READY data;
  * consumer cannot access REQUESTED data. No spin, interrupt lock or allocation. */
-enum { EMPTY, REQUESTED, READY };
+enum
+{
+    EMPTY,
+    REQUESTED,
+    READY
+};
 static volatile uint32_t state;
 static volatile MotorStatus published;
 
 void MotorStatus_Request(void)
 {
-    if (state == EMPTY) state = REQUESTED;
+    if (state == EMPTY)
+    {
+        state = REQUESTED;
+    }
 }
-bool MotorStatus_IsRequested(void) { return state == REQUESTED; }
+bool MotorStatus_IsRequested(void)
+{
+    return state == REQUESTED;
+}
 void MotorStatus_Publish(const MotorStatus *sample)
 {
-    if (sample == NULL || state != REQUESTED) return;
+    if (sample == NULL || state != REQUESTED)
+    {
+        return;
+    }
     published.fault = sample->fault;
     published.mode = sample->mode;
     published.position_target = sample->position_target;
@@ -33,7 +48,10 @@ void MotorStatus_Publish(const MotorStatus *sample)
 }
 bool MotorStatus_Take(MotorStatus *sample)
 {
-    if (sample == NULL || state != READY) return false;
+    if (sample == NULL || state != READY)
+    {
+        return false;
+    }
     sample->fault = published.fault;
     sample->mode = published.mode;
     sample->position_target = published.position_target;

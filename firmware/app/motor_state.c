@@ -104,7 +104,7 @@ void MotorControl_Init(void)
     MotorControl.pos_error_window = 0.001f;
     MotorControl.pos_vel_filtered = 0.0f;
     Task_Position_Mode_Reset();
-    FocFrictionIdentification_Init();
+    MotorMaintenance_Init();
 
     /* 未配置轴记录的关节在启动后保持禁用。 */
     /* 启动默认保持禁用：CurrentOffset 标定启动已随 FOC-Calibration 功能移除，

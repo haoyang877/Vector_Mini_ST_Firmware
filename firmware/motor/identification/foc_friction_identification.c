@@ -4,46 +4,14 @@
 #include <string.h>
 
 #include "foc_errhandle.h"
-#include "foc_param_profile.h"
 #include "foc_speed.h"
 #include "control_config.h"
 #include "utils.h"
 #include "bus_voltage_profile.h"
 
-#if PARAM_FRICTION_IDENT_SPEED_POINT_COUNT != 4U
-#error "Update the FOC friction adapter when changing the profile point count"
-#endif
-
 static FrictionIdentification_TypeDef identification;
 static uint32_t speed_loop_divider;
 static bool session_started;
-
-static FrictionIdentificationConfig_TypeDef BuildConfig(void)
-{
-    FrictionIdentificationConfig_TypeDef config;
-
-    memset(&config, 0, sizeof(config));
-    config.update_period_s = Speed_Ts;
-    config.speed_point_count = PARAM_FRICTION_IDENT_SPEED_POINT_COUNT;
-    config.speed_points_rad_s[0] = PARAM_FRICTION_IDENT_SPEED_0_RPS * _2PI;
-    config.speed_points_rad_s[1] = PARAM_FRICTION_IDENT_SPEED_1_RPS * _2PI;
-    config.speed_points_rad_s[2] = PARAM_FRICTION_IDENT_SPEED_2_RPS * _2PI;
-    config.speed_points_rad_s[3] = PARAM_FRICTION_IDENT_SPEED_3_RPS * _2PI;
-    config.stable_time_s = PARAM_FRICTION_IDENT_STABLE_TIME_S;
-    config.track_timeout_s = PARAM_FRICTION_IDENT_TRACK_TIMEOUT_S;
-    config.sample_timeout_s = PARAM_FRICTION_IDENT_SAMPLE_TIMEOUT_S;
-    config.stop_hold_time_s = PARAM_FRICTION_IDENT_STOP_HOLD_TIME_S;
-    config.stop_timeout_s = PARAM_FRICTION_IDENT_STOP_TIMEOUT_S;
-    config.speed_tolerance_ratio = PARAM_FRICTION_IDENT_SPEED_TOLERANCE_RATIO;
-    config.minimum_speed_tolerance_rad_s = PARAM_FRICTION_IDENT_MIN_SPEED_TOL_RAD_S;
-    config.stop_speed_rad_s = PARAM_FRICTION_IDENT_STOP_SPEED_RAD_S;
-    config.sample_turns = PARAM_FRICTION_IDENT_SAMPLE_TURNS;
-    config.minimum_sample_time_s = PARAM_FRICTION_IDENT_MIN_SAMPLE_TIME_S;
-    config.saturation_time_s = PARAM_FRICTION_IDENT_SATURATION_TIME_S;
-    config.rmse_floor_a = PARAM_FRICTION_IDENT_RMSE_FLOOR_A;
-    config.rmse_ratio_max = PARAM_FRICTION_IDENT_RMSE_RATIO_MAX;
-    return config;
-}
 
 static void StopOutput(MotorControl_TypeDef *motor, PI_Controller_TypeDef *speed_controller)
 {
@@ -58,9 +26,18 @@ static void StopOutput(MotorControl_TypeDef *motor, PI_Controller_TypeDef *speed
     PI_Controller_Reset(speed_controller);
 }
 
-static bool RuntimeConfigIsValid(const MotorControl_TypeDef *motor)
+static bool RuntimeConfigIsValid(const MotorControl_TypeDef *motor,
+                                 const FocFrictionIdentificationConfig *config)
 {
-    const float maximum_speed = PARAM_FRICTION_IDENT_SPEED_3_RPS * _2PI;
+    if (config == NULL || config->core.speed_point_count == 0U ||
+        config->core.speed_point_count > FRICTION_IDENTIFICATION_MAX_SPEED_POINTS ||
+        !isfinite(config->current_ratio_max) || config->current_ratio_max <= 0.0f ||
+        config->current_ratio_max > 1.0f)
+    {
+        return false;
+    }
+    const float maximum_speed =
+        config->core.speed_points_rad_s[config->core.speed_point_count - 1U];
 
     return motor != NULL && isfinite(motor->current_limit) && motor->current_limit > 0.0f &&
            isfinite(motor->speed_limit) && motor->speed_limit >= maximum_speed &&
@@ -82,21 +59,20 @@ static void Fail(MotorControl_TypeDef *motor,
     }
 }
 
-void FocFrictionIdentification_Init(void)
+void FocFrictionIdentification_Init(const FocFrictionIdentificationConfig *config)
 {
-    FrictionIdentificationConfig_TypeDef config = BuildConfig();
-
-    (void)FrictionIdentification_Init(&identification, &config);
+    (void)FrictionIdentification_Init(&identification, config != NULL ? &config->core : NULL);
     speed_loop_divider = 0U;
     session_started = false;
 }
 
-bool FocFrictionIdentification_Start(MotorControl_TypeDef *motor,
-                                     Encoder_TypeDef *encoder,
-                                     PI_Controller_TypeDef *speed_controller)
+static bool start_identification(MotorControl_TypeDef *motor,
+                                 Encoder_TypeDef *encoder,
+                                 PI_Controller_TypeDef *speed_controller,
+                                 const FocFrictionIdentificationConfig *config)
 {
-    FocFrictionIdentification_Init();
-    if (encoder == NULL || speed_controller == NULL || !RuntimeConfigIsValid(motor) ||
+    FocFrictionIdentification_Init(config);
+    if (encoder == NULL || speed_controller == NULL || !RuntimeConfigIsValid(motor, config) ||
         !Encoder_IsOnline(encoder) ||
         (Encoder_GetCalibFlag(encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL ||
         !FrictionIdentification_Start(&identification))
@@ -121,13 +97,15 @@ void FocFrictionIdentification_Abort(MotorControl_TypeDef *motor,
 MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *foc,
                                                MotorControl_TypeDef *motor,
                                                PI_Controller_TypeDef *speed_controller,
-                                               Encoder_TypeDef *encoder)
+                                               Encoder_TypeDef *encoder,
+                                               const FocFrictionIdentificationConfig *config)
 {
     FrictionIdentificationInput_TypeDef input;
     FrictionIdentificationState_TypeDef state;
     MotorTaskResult outcome = {MOTOR_TASK_RUNNING, No_Error};
 
-    if (foc == NULL || speed_controller == NULL || encoder == NULL || !RuntimeConfigIsValid(motor))
+    if (foc == NULL || speed_controller == NULL || encoder == NULL ||
+        !RuntimeConfigIsValid(motor, config))
     {
         Fail(motor, speed_controller, FRICTION_IDENT_REASON_INVALID_CONFIG, true);
         return (MotorTaskResult){MOTOR_TASK_FAILED, FrictionIdentification_Error};
@@ -145,7 +123,7 @@ MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *foc,
         return (MotorTaskResult){MOTOR_TASK_FAILED, motor->ErrorNow};
     }
     /* 本层持有辨识工作状态，只有已受理的维护调度才能进入。 */
-    if (!session_started && !FocFrictionIdentification_Start(motor, encoder, speed_controller))
+    if (!session_started && !start_identification(motor, encoder, speed_controller, config))
     {
         MotorFault_Report(motor, FrictionIdentification_Error);
         return (MotorTaskResult){MOTOR_TASK_FAILED, FrictionIdentification_Error};
@@ -186,7 +164,7 @@ MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *foc,
     input.iq_a = foc->Iq_filt;
     input.mechanical_position_rad = Encoder_GetMecPos(encoder);
     input.current_saturated =
-        fast_abs(motor->iqRef) >= motor->current_limit * PARAM_FRICTION_IDENT_CURRENT_RATIO_MAX;
+        fast_abs(motor->iqRef) >= motor->current_limit * config->current_ratio_max;
     FrictionIdentification_Update(&identification, &input);
     motor->speedRef = FrictionIdentification_GetTargetSpeed(&identification);
 
@@ -230,31 +208,6 @@ bool FocFrictionIdentification_ApplyCandidate(MotorControl_TypeDef *motor)
     motor->friction_viscous_neg_a_per_rad_s = result->viscous_neg_a_per_rad_s;
     motor->friction_model_valid = true;
     return true;
-}
-
-FrictionIdentificationState_TypeDef FocFrictionIdentification_GetState(void)
-{
-    return FrictionIdentification_GetState(&identification);
-}
-
-FrictionIdentificationReason_TypeDef FocFrictionIdentification_GetReason(void)
-{
-    return FrictionIdentification_GetReason(&identification);
-}
-
-uint32_t FocFrictionIdentification_GetPointIndex(void)
-{
-    return FrictionIdentification_GetPointIndex(&identification);
-}
-
-float FocFrictionIdentification_GetProgressPercent(void)
-{
-    return FrictionIdentification_GetProgressPercent(&identification);
-}
-
-uint32_t FocFrictionIdentification_GetSampleCount(void)
-{
-    return FrictionIdentification_GetSampleCount(&identification);
 }
 
 bool FocFrictionIdentification_IsReleased(void)

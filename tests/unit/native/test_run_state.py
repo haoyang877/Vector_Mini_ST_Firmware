@@ -90,6 +90,16 @@ def main() -> None:
         result.check_returncode()
 
     completion = output / "maintenance_completion.exe"
+    composition = (ROOT / "firmware/app/motor_maintenance.c").read_text(encoding="utf-8")
+    # 使用真实组合配置编译 worker；不链接其他维护任务，也不复制默认值。
+    profiles = composition[
+        composition.index("/* 产品默认值") : composition.index("void MotorMaintenance_Init")
+    ]
+    (output / "maintenance_profiles.h").write_text(
+        '#include "foc_param_profile.h"\n#include "control_config.h"\n#include "utils.h"\n'
+        + profiles,
+        encoding="utf-8",
+    )
     completion_command = (
         compiler
         + NATIVE_INCLUDE_FLAGS
@@ -101,6 +111,8 @@ def main() -> None:
             "-Wextra",
             "-Werror",
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
+            "-I",
+            str(output),
             str(ROOT / "tests/unit/native/maintenance_completion_test.c"),
             str(ROOT / "firmware/motor/identification/foc_phase_resistance.c"),
             str(ROOT / "firmware/motor/identification/phase_resistance.c"),

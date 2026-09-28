@@ -29,53 +29,53 @@
 
 typedef enum
 {
-	PHASE_RESISTANCE_CORE_RUNNING = 0,
-	PHASE_RESISTANCE_CORE_DONE,
-	PHASE_RESISTANCE_CORE_SETTLE_TIMEOUT,
-	PHASE_RESISTANCE_CORE_INVALID_RESULT
+    PHASE_RESISTANCE_CORE_RUNNING = 0,
+    PHASE_RESISTANCE_CORE_DONE,
+    PHASE_RESISTANCE_CORE_SETTLE_TIMEOUT,
+    PHASE_RESISTANCE_CORE_INVALID_RESULT
 } PhaseResistanceCoreStatus_TypeDef;
 
 /** Configuration supplied once before a measurement starts. */
 typedef struct
 {
-	float test_current_low;
-	float test_current_high;
-	float maximum_test_current;
-	float minimum_test_current;
-	uint32_t ramp_ticks;
-	uint32_t settle_ticks;
-	uint32_t sample_ticks;
-	uint32_t pause_ticks;
-	uint32_t timeout_ticks;
-	float current_tolerance;
-	float q_current_tolerance;
-	float voltage_tolerance;
-	float voltage_min_delta;
-	float voltage_filter;
-	float path_compensation_ohm;
-	float balance_warning_pct;
-	float balance_fault_pct;
+    float test_current_low;
+    float test_current_high;
+    float maximum_test_current;
+    float minimum_test_current;
+    uint32_t ramp_ticks;
+    uint32_t settle_ticks;
+    uint32_t sample_ticks;
+    uint32_t pause_ticks;
+    uint32_t timeout_ticks;
+    float current_tolerance;
+    float q_current_tolerance;
+    float voltage_tolerance;
+    float voltage_min_delta;
+    float voltage_filter;
+    float path_compensation_ohm;
+    float balance_warning_pct;
+    float balance_fault_pct;
 } PhaseResistanceConfig_TypeDef;
 
 /** One completed FOC control-cycle measurement supplied by the adapter. */
 typedef struct
 {
-	float id;
-	float iq;
-	float id_filt;
-	float iq_filt;
-	float vd;
-	float vq;
+    float id;
+    float iq;
+    float id_filt;
+    float iq_filt;
+    float vd;
+    float vq;
 } PhaseResistanceSample_TypeDef;
 
 /** Current-vector command returned to the FOC adapter for the next cycle. */
 typedef struct
 {
-	bool inject_current;
-	bool reset_current_controller;
-	float id_ref;
-	float iq_ref;
-	float electrical_angle;
+    bool inject_current;
+    bool reset_current_controller;
+    float id_ref;
+    float iq_ref;
+    float electrical_angle;
 } PhaseResistanceCommand_TypeDef;
 
 /**
@@ -85,16 +85,16 @@ typedef struct
  */
 typedef struct
 {
-	float vector_resistance[PHASE_RESISTANCE_VECTOR_COUNT];
-	float direction_resistance[PHASE_RESISTANCE_DIRECTION_COUNT];
-	float direction_voltage_offset[PHASE_RESISTANCE_DIRECTION_COUNT];
-	float phase_resistance_a;
-	float phase_resistance_b;
-	float phase_resistance_c;
-	float spread_pct;
-	bool valid;
-	bool warning;
-	bool balanced;
+    float vector_resistance[PHASE_RESISTANCE_VECTOR_COUNT];
+    float direction_resistance[PHASE_RESISTANCE_DIRECTION_COUNT];
+    float direction_voltage_offset[PHASE_RESISTANCE_DIRECTION_COUNT];
+    float phase_resistance_a;
+    float phase_resistance_b;
+    float phase_resistance_c;
+    float spread_pct;
+    bool valid;
+    bool warning;
+    bool balanced;
 } PhaseResistanceResult_TypeDef;
 
 /**
@@ -103,55 +103,76 @@ typedef struct
  */
 typedef struct
 {
-	PhaseResistanceConfig_TypeDef config;
-	PhaseResistanceResult_TypeDef result;
-	uint8_t step;
-	uint8_t direction_index;
-	uint8_t current_point_index;
-	uint32_t ramp_count;
-	uint32_t stable_count;
-	uint32_t sample_count;
-	uint32_t timeout_count;
-	uint32_t pause_count;
-	float filtered_voltage_d;
-	float filtered_voltage_q;
-	float previous_voltage_d;
-	float previous_voltage_q;
-	float sample_current_sum;
-	float sample_voltage_sum;
-	float direction_current[PHASE_RESISTANCE_DIRECTION_COUNT]
-		[PHASE_RESISTANCE_CURRENT_LEVEL_COUNT];
-	float direction_voltage[PHASE_RESISTANCE_DIRECTION_COUNT]
-		[PHASE_RESISTANCE_CURRENT_LEVEL_COUNT];
+    PhaseResistanceConfig_TypeDef config;
+    PhaseResistanceResult_TypeDef result;
+    uint8_t step;
+    uint8_t direction_index;
+    uint8_t current_point_index;
+    uint32_t ramp_count;
+    uint32_t stable_count;
+    uint32_t sample_count;
+    uint32_t timeout_count;
+    uint32_t pause_count;
+    float filtered_voltage_d;
+    float filtered_voltage_q;
+    float previous_voltage_d;
+    float previous_voltage_q;
+    float sample_current_sum;
+    float sample_voltage_sum;
+    float direction_current[PHASE_RESISTANCE_DIRECTION_COUNT][PHASE_RESISTANCE_CURRENT_LEVEL_COUNT];
+    float direction_voltage[PHASE_RESISTANCE_DIRECTION_COUNT][PHASE_RESISTANCE_CURRENT_LEVEL_COUNT];
 } PhaseResistanceContext_TypeDef;
 
-/** Reset all internal state without touching any motor-control or PWM object. */
+/**
+ * @brief 清零相电阻辨识状态，不操作控制器或 PWM。
+ * @param context 调用方拥有的非空辨识状态；同一实例须串行访问。
+ */
 void PhaseResistance_Init(PhaseResistanceContext_TypeDef *context);
 
-/** Validate and start a new six-direction, two-current resistance measurement. */
+/**
+ * @brief 验证配置并开始六方向、双电流测量。
+ * @param context 调用方拥有的非空辨识状态；同一实例须串行访问。
+ * @param config 只读配置，电流 A、阻值 Ω、时间为调用周期数；启动时复制。
+ * @return 配置通过返回 true；不通过返回 false。
+ * @note 不接触硬件；实际限流及停机由适配器负责。
+ */
 bool PhaseResistance_Start(PhaseResistanceContext_TypeDef *context,
-	const PhaseResistanceConfig_TypeDef *config);
+                           const PhaseResistanceConfig_TypeDef *config);
 
 /**
- * Get the d/q current and electrical-angle command for the current FOC cycle.
- * A false inject_current command requests that the adapter release PWM output.
+ * @brief 读取本周期电流矢量或暂停命令。
+ * @param context 调用方拥有的非空辨识状态；同一实例须串行访问。
+ * @param command 非空调用方输出，电流 A、电角度 rad。
+ * @note inject_current 为 false 时由适配器释放 PWM，核心不操作输出。
  */
 void PhaseResistance_GetCommand(const PhaseResistanceContext_TypeDef *context,
-	PhaseResistanceCommand_TypeDef *command);
+                                PhaseResistanceCommand_TypeDef *command);
 
 /**
- * Submit the measurement captured after the command has been applied. Pass
- * NULL only while the command requests no current injection during the pause.
+ * @brief 提交与上一实际 PWM 输出配对的采样并推进测量。
+ * @param context 调用方拥有的非空辨识状态；同一实例须串行访问。
+ * @param sample 电流 A、电压 V；仅非注入间隔允许 NULL。
+ * @return 运行、完成、稳定超时或无效结果状态。
+ * @note 每个控制周期提交一次，不执行 I/O。
  */
-PhaseResistanceCoreStatus_TypeDef PhaseResistance_InputSample(
-	PhaseResistanceContext_TypeDef *context,
-	const PhaseResistanceSample_TypeDef *sample);
+PhaseResistanceCoreStatus_TypeDef
+PhaseResistance_InputSample(PhaseResistanceContext_TypeDef *context,
+                            const PhaseResistanceSample_TypeDef *sample);
 
-/** Copy the finished result. Returns false until a valid measurement completes. */
+/**
+ * @brief 复制已完成且有效的辨识结果。
+ * @param context 调用方拥有的非空辨识状态；同一实例须串行访问。
+ * @param result 非空调用方结果空间，阻值 Ω、不平衡率 %。
+ * @return 测量完成且结果有效返回 true，否则返回 false。
+ */
 bool PhaseResistance_GetResult(const PhaseResistanceContext_TypeDef *context,
-	PhaseResistanceResult_TypeDef *result);
+                               PhaseResistanceResult_TypeDef *result);
 
-/** Cancel the current measurement and reset the algorithm to its idle state. */
+/**
+ * @brief 复位相电阻测量为初始状态。
+ * @param context 调用方拥有的非空辨识状态；同一实例须串行访问。
+ * @note 不关断 PWM，实际输出关闭由适配器负责。
+ */
 void PhaseResistance_Cancel(PhaseResistanceContext_TypeDef *context);
 
 #endif

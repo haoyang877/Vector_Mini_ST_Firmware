@@ -84,7 +84,7 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
-#include "firmware/services/telemetry/fast_loop_profile.h"
+#include "firmware/platform/api/fast_loop_profile.h"
 #include "position_cascade.h"
 #include "hw_conf.h"
 #include "position_cascade_config.h"

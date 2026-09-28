@@ -5,25 +5,9 @@
 #include <math.h>
 
 #include "control_config.h"
-#include "foc_param_profile.h"
 #include "motor_hw.h"
 #include "bus_voltage_profile.h"
 
-#define PHASE_RESISTANCE_RAMP_TICKS ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_RAMP_TIME_MS) / 1000U)
-#define PHASE_RESISTANCE_SETTLE_TICKS                                                              \
-    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_SETTLE_TIME_MS) / 1000U)
-#define PHASE_RESISTANCE_SAMPLE_TICKS                                                              \
-    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_SAMPLE_TIME_MS) / 1000U)
-#define PHASE_RESISTANCE_PAUSE_TICKS                                                               \
-    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_PAUSE_TIME_MS) / 1000U)
-#define PHASE_RESISTANCE_TIMEOUT_TICKS                                                             \
-    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_TIMEOUT_MS) / 1000U)
-#define PHASE_RESISTANCE_TEST_CURRENT_MIN 0.5f
-#define PHASE_RESISTANCE_CURRENT_TOLERANCE 0.10f
-#define PHASE_RESISTANCE_Q_CURRENT_TOLERANCE 0.10f
-#define PHASE_RESISTANCE_VOLTAGE_TOLERANCE 0.01f
-#define PHASE_RESISTANCE_VOLTAGE_MIN_DELTA 0.005f
-#define PHASE_RESISTANCE_VOLTAGE_FILTER 0.02f
 #define PHASE_RESISTANCE_VBUS_MIN BUS_VOLTAGE_UNDERVOLTAGE_V
 #define PHASE_RESISTANCE_VBUS_MAX BUS_VOLTAGE_OVERVOLTAGE_V
 
@@ -77,38 +61,29 @@ static void PhaseResistanceMode_ClearResult(MotorControl_TypeDef *motor)
 }
 
 static float PhaseResistanceMode_LimitCurrent(const MotorControl_TypeDef *motor,
-                                              float requested_current)
+                                              float requested_current,
+                                              float configured_maximum_a)
 {
-    float maximum_current = PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_MAX_A;
+    float maximum_current = configured_maximum_a;
 
     maximum_current = PhaseResistanceMode_Min(maximum_current, motor->current_limit);
     return PhaseResistanceMode_Min(requested_current, maximum_current);
 }
 
-static bool PhaseResistanceMode_Start(MotorControl_TypeDef *motor)
+static bool PhaseResistanceMode_Start(MotorControl_TypeDef *motor,
+                                      const PhaseResistanceConfig_TypeDef *configured)
 {
-    PhaseResistanceConfig_TypeDef config;
-
-    config.test_current_low =
-        PhaseResistanceMode_LimitCurrent(motor, PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_LOW_A);
-    config.test_current_high =
-        PhaseResistanceMode_LimitCurrent(motor, PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_HIGH_A);
-    config.maximum_test_current =
-        PhaseResistanceMode_LimitCurrent(motor, PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_MAX_A);
-    config.minimum_test_current = PHASE_RESISTANCE_TEST_CURRENT_MIN;
-    config.ramp_ticks = PHASE_RESISTANCE_RAMP_TICKS;
-    config.settle_ticks = PHASE_RESISTANCE_SETTLE_TICKS;
-    config.sample_ticks = PHASE_RESISTANCE_SAMPLE_TICKS;
-    config.pause_ticks = PHASE_RESISTANCE_PAUSE_TICKS;
-    config.timeout_ticks = PHASE_RESISTANCE_TIMEOUT_TICKS;
-    config.current_tolerance = PHASE_RESISTANCE_CURRENT_TOLERANCE;
-    config.q_current_tolerance = PHASE_RESISTANCE_Q_CURRENT_TOLERANCE;
-    config.voltage_tolerance = PHASE_RESISTANCE_VOLTAGE_TOLERANCE;
-    config.voltage_min_delta = PHASE_RESISTANCE_VOLTAGE_MIN_DELTA;
-    config.voltage_filter = PHASE_RESISTANCE_VOLTAGE_FILTER;
-    config.path_compensation_ohm = PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM;
-    config.balance_warning_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_WARNING_PCT;
-    config.balance_fault_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_FAULT_PCT;
+    if (configured == NULL)
+    {
+        return false;
+    }
+    PhaseResistanceConfig_TypeDef config = *configured;
+    config.test_current_low = PhaseResistanceMode_LimitCurrent(
+        motor, configured->test_current_low, configured->maximum_test_current);
+    config.test_current_high = PhaseResistanceMode_LimitCurrent(
+        motor, configured->test_current_high, configured->maximum_test_current);
+    config.maximum_test_current = PhaseResistanceMode_LimitCurrent(
+        motor, configured->maximum_test_current, configured->maximum_test_current);
 
     PhaseResistance_Init(&PhaseResistanceModeContext.core);
     PhaseResistanceModeContext.applied_mod_d = 0.0f;
@@ -165,8 +140,8 @@ PhaseResistanceMode_MapCoreStatus(PhaseResistanceCoreStatus_TypeDef status)
     return PHASE_RESISTANCE_MODE_INVALID_RESULT;
 }
 
-static PhaseResistanceModeStatus_TypeDef phase_resistance_step(FOC_TypeDef *foc,
-                                                               MotorControl_TypeDef *motor)
+static PhaseResistanceModeStatus_TypeDef phase_resistance_step(
+    FOC_TypeDef *foc, MotorControl_TypeDef *motor, const PhaseResistanceConfig_TypeDef *config)
 {
     PhaseResistanceCommand_TypeDef command;
     PhaseResistanceSample_TypeDef sample;
@@ -194,7 +169,7 @@ static PhaseResistanceModeStatus_TypeDef phase_resistance_step(FOC_TypeDef *foc,
     if (!PhaseResistanceModeContext.started)
     {
         PhaseResistanceMode_ClearResult(motor);
-        if (!PhaseResistanceMode_Start(motor))
+        if (!PhaseResistanceMode_Start(motor, config))
         {
             return PhaseResistanceMode_Fail(foc, motor, PHASE_RESISTANCE_MODE_INVALID_RESULT);
         }
@@ -305,9 +280,11 @@ bool PhaseResistanceMode_IsReleased(void)
     return !PhaseResistanceModeContext.started;
 }
 
-MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *foc, MotorControl_TypeDef *motor)
+MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *foc,
+                                        MotorControl_TypeDef *motor,
+                                        const PhaseResistanceConfig_TypeDef *config)
 {
-    PhaseResistanceModeStatus_TypeDef status = phase_resistance_step(foc, motor);
+    PhaseResistanceModeStatus_TypeDef status = phase_resistance_step(foc, motor, config);
     if (status != PHASE_RESISTANCE_MODE_RUNNING)
     {
         /* 终态自行归还执行状态，不依赖下一禁用周期的外部取消。 */

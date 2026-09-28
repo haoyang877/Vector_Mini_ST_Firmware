@@ -1,4 +1,5 @@
 #include "parameter_value_service.h"
+#include "motor_axis_profile.h"
 
 #include <math.h>
 #include <stddef.h>

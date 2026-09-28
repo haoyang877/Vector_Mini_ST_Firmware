@@ -39,8 +39,7 @@ bool comm_hw_can_is_healthy(void)
 
 static bool tracked_slot_busy(void)
 {
-    if (tracked_tx.ticket != 0U ||
-        (hfdcan1.Instance->TXBRP & tracked_tx.buffer_mask) != 0U)
+    if (tracked_tx.ticket != 0U || (hfdcan1.Instance->TXBRP & tracked_tx.buffer_mask) != 0U)
     {
         return true;
     }
@@ -145,8 +144,7 @@ bool comm_hw_can_take_tx_completion(CommHwCanTxCompletion *completion)
     bool failed = tracked_tx.failed || controller_unavailable();
     bool sent = (hfdcan1.Instance->TXBTO & tracked_tx.buffer_mask) != 0U;
     bool cancelled = (hfdcan1.Instance->TXBCF & tracked_tx.buffer_mask) != 0U;
-    bool expired = (uint32_t)(HAL_GetTick() - tracked_tx.started_ms) >=
-                   COMM_TRACKED_TX_TIMEOUT_MS;
+    bool expired = (uint32_t)(HAL_GetTick() - tracked_tx.started_ms) >= COMM_TRACKED_TX_TIMEOUT_MS;
     if (!failed && !sent && !cancelled && !expired)
     {
         critical_hw_exit(state);

@@ -28,25 +28,6 @@ const char *MotorJointType_Name(uint32_t joint_type)
     }
 }
 
-uint32_t MotorAxisProfile_JointType(const MotorAxisProfile *profile)
-{
-    if (profile == NULL)
-        return MOTOR_JOINT_UNKNOWN;
-    if (profile->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
-        profile->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION &&
-        profile->identity.numeric.joint_type <= MOTOR_JOINT_WHEEL_LEFT)
-        return profile->identity.numeric.joint_type;
-    if (profile->magic == MOTOR_AXIS_PROFILE_MAGIC &&
-        profile->version == MOTOR_AXIS_PROFILE_VERSION)
-    {
-        if (memcmp(profile->identity.legacy_name, "roll\0\0\0", 8) == 0)
-            return MOTOR_JOINT_ROLL;
-        if (memcmp(profile->identity.legacy_name, "pitch\0\0", 8) == 0)
-            return MOTOR_JOINT_PITCH;
-    }
-    return MOTOR_JOINT_UNKNOWN;
-}
-
 /** 记录 CRC 与齿槽表共用 common/crc32 的单一实现；只覆盖 crc32 字段之前的字节。 */
 static uint32_t record_crc(const MotorAxisProfile *p)
 {
@@ -59,7 +40,9 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
     bool zero = true, erased = true;
     unsigned i;
     if (stored == NULL || output == NULL)
+    {
         return false;
+    }
     for (i = 0; i < sizeof(*stored); ++i)
     {
         zero = zero && bytes[i] == 0;
@@ -72,24 +55,34 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
     }
     *output = *stored;
     if (stored->crc32 != record_crc(stored))
+    {
         return false;
+    }
     if (stored->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         stored->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION)
     {
         if (stored->identity.numeric.joint_type > MOTOR_JOINT_WHEEL_LEFT ||
             stored->identity.numeric.config_revision > MOTOR_JOINT_CONFIG_REVISION)
+        {
             return false;
+        }
         if (stored->identity.numeric.config_revision == 0U)
+        {
             return stored->minimum_position_rad == 0.0f && stored->maximum_position_rad == 0.0f &&
                    stored->maximum_speed_rad_s == 0.0f;
+        }
         if (stored->identity.numeric.joint_type != MOTOR_JOINT_ROLL &&
             stored->identity.numeric.joint_type != MOTOR_JOINT_PITCH)
+        {
             return false;
+        }
     }
     else if (stored->magic != MOTOR_AXIS_PROFILE_MAGIC ||
              stored->version != MOTOR_AXIS_PROFILE_VERSION ||
              MotorAxisProfile_JointType(stored) == MOTOR_JOINT_UNKNOWN)
+    {
         return false;
+    }
     return isfinite(stored->minimum_position_rad) && isfinite(stored->maximum_position_rad) &&
            stored->minimum_position_rad < stored->maximum_position_rad &&
            isfinite(stored->maximum_speed_rad_s) && stored->maximum_speed_rad_s > 0;
@@ -99,7 +92,9 @@ uint8_t MotorAxisProfile_CanNodeId(const MotorAxisProfile *profile, uint8_t fall
 {
     MotorAxisProfile checked;
     if (!MotorAxisProfile_Load(profile, &checked))
+    {
         return fallback;
+    }
     switch (MotorAxisProfile_JointType(&checked))
     {
     case MOTOR_JOINT_WHEEL_LEFT:
@@ -125,9 +120,13 @@ bool MotorAxisProfile_Create(MotorAxisProfile *output,
 {
     MotorAxisProfile candidate;
     if (output == NULL || name == NULL)
+    {
         return false;
+    }
     if (strcmp(name, "roll") != 0 && strcmp(name, "pitch") != 0)
+    {
         return false;
+    }
     memset(&candidate, 0, sizeof(candidate));
     candidate.magic = MOTOR_AXIS_PROFILE_MAGIC;
     candidate.version = MOTOR_AXIS_PROFILE_VERSION;
@@ -149,7 +148,9 @@ bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output,
     MotorAxisProfile candidate;
     MotorJointControlConfig config;
     if (output == NULL)
+    {
         return false;
+    }
     memset(&candidate, 0, sizeof(candidate));
     candidate.magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
     candidate.version = MOTOR_AXIS_PROFILE_NUMERIC_VERSION;
@@ -160,9 +161,13 @@ bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output,
     candidate.maximum_speed_rad_s = maximum_speed_rad_s;
     candidate.crc32 = record_crc(&candidate);
     if (!MotorAxisProfile_Load(&candidate, &candidate))
+    {
         return false;
+    }
     if (config_revision != 0U && !MotorAxisProfile_Resolve(&candidate, &config))
+    {
         return false;
+    }
     *output = candidate;
     return true;
 }
@@ -175,7 +180,9 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
     if (output == NULL || !MotorAxisProfile_Load(profile, &checked) ||
         checked.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
         checked.identity.numeric.config_revision != MOTOR_JOINT_CONFIG_REVISION)
+    {
         return false;
+    }
     switch (checked.identity.numeric.joint_type)
     {
     case MOTOR_JOINT_ROLL:
@@ -192,28 +199,9 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
     }
     if (checked.minimum_position_rad < minimum || checked.maximum_position_rad > maximum ||
         checked.maximum_speed_rad_s > 0.785398163f)
+    {
         return false;
+    }
     *output = config;
     return true;
-}
-
-int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile,
-                                                 bool valid,
-                                                 int32_t single_turn_difference)
-{
-    uint32_t joint_type;
-    if (profile == NULL || !valid || single_turn_difference < -65535 ||
-        single_turn_difference > 65535)
-        return single_turn_difference;
-    joint_type = MotorAxisProfile_JointType(profile);
-    if ((joint_type != MOTOR_JOINT_ROLL && joint_type != MOTOR_JOINT_PITCH) ||
-        !(profile->minimum_position_rad > -3.141592654f &&
-          profile->maximum_position_rad < 3.141592654f &&
-          profile->minimum_position_rad < profile->maximum_position_rad))
-        return single_turn_difference;
-    if (single_turn_difference > 32768)
-        return single_turn_difference - 65536;
-    if (single_turn_difference < -32768)
-        return single_turn_difference + 65536;
-    return single_turn_difference;
 }

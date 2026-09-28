@@ -27,4 +27,3 @@ void comm_hw_can_start_fd(void)
         Error_Handler();
     }
 }
-

@@ -8,6 +8,81 @@
 #include "foc_phase_resistance.h"
 #include "foc_param.h"
 #include "motor_execution.h"
+#include "foc_param_profile.h"
+#include "control_config.h"
+#include "utils.h"
+
+/* 产品默认值只在组合层装配，算法接收只读显式输入。 */
+#define PHASE_RESISTANCE_RAMP_TICKS ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_RAMP_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_SETTLE_TICKS                                                              \
+    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_SETTLE_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_SAMPLE_TICKS                                                              \
+    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_SAMPLE_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_PAUSE_TICKS                                                               \
+    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_PAUSE_TIME_MS) / 1000U)
+#define PHASE_RESISTANCE_TIMEOUT_TICKS                                                             \
+    ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_TIMEOUT_MS) / 1000U)
+#define PHASE_RESISTANCE_TEST_CURRENT_MIN 0.5f
+#define PHASE_RESISTANCE_CURRENT_TOLERANCE 0.10f
+#define PHASE_RESISTANCE_Q_CURRENT_TOLERANCE 0.10f
+#define PHASE_RESISTANCE_VOLTAGE_TOLERANCE 0.01f
+#define PHASE_RESISTANCE_VOLTAGE_MIN_DELTA 0.005f
+#define PHASE_RESISTANCE_VOLTAGE_FILTER 0.02f
+
+#if PARAM_FRICTION_IDENT_SPEED_POINT_COUNT != 4U
+#error "Update the friction composition when changing the profile point count"
+#endif
+
+static const FocFrictionIdentificationConfig friction_config = {
+    .core =
+        {
+            .update_period_s = Speed_Ts,
+            .speed_point_count = PARAM_FRICTION_IDENT_SPEED_POINT_COUNT,
+            .speed_points_rad_s = {PARAM_FRICTION_IDENT_SPEED_0_RPS * _2PI,
+                                   PARAM_FRICTION_IDENT_SPEED_1_RPS *_2PI,
+                                   PARAM_FRICTION_IDENT_SPEED_2_RPS *_2PI,
+                                   PARAM_FRICTION_IDENT_SPEED_3_RPS *_2PI},
+            .stable_time_s = PARAM_FRICTION_IDENT_STABLE_TIME_S,
+            .track_timeout_s = PARAM_FRICTION_IDENT_TRACK_TIMEOUT_S,
+            .sample_timeout_s = PARAM_FRICTION_IDENT_SAMPLE_TIMEOUT_S,
+            .stop_hold_time_s = PARAM_FRICTION_IDENT_STOP_HOLD_TIME_S,
+            .stop_timeout_s = PARAM_FRICTION_IDENT_STOP_TIMEOUT_S,
+            .speed_tolerance_ratio = PARAM_FRICTION_IDENT_SPEED_TOLERANCE_RATIO,
+            .minimum_speed_tolerance_rad_s = PARAM_FRICTION_IDENT_MIN_SPEED_TOL_RAD_S,
+            .stop_speed_rad_s = PARAM_FRICTION_IDENT_STOP_SPEED_RAD_S,
+            .sample_turns = PARAM_FRICTION_IDENT_SAMPLE_TURNS,
+            .minimum_sample_time_s = PARAM_FRICTION_IDENT_MIN_SAMPLE_TIME_S,
+            .saturation_time_s = PARAM_FRICTION_IDENT_SATURATION_TIME_S,
+            .rmse_floor_a = PARAM_FRICTION_IDENT_RMSE_FLOOR_A,
+            .rmse_ratio_max = PARAM_FRICTION_IDENT_RMSE_RATIO_MAX,
+        },
+    .current_ratio_max = PARAM_FRICTION_IDENT_CURRENT_RATIO_MAX,
+};
+
+static const PhaseResistanceConfig_TypeDef phase_resistance_config = {
+    .test_current_low = PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_LOW_A,
+    .test_current_high = PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_HIGH_A,
+    .maximum_test_current = PARAM_MOTOR_PHASE_RESISTANCE_TEST_CURRENT_MAX_A,
+    .minimum_test_current = PHASE_RESISTANCE_TEST_CURRENT_MIN,
+    .ramp_ticks = PHASE_RESISTANCE_RAMP_TICKS,
+    .settle_ticks = PHASE_RESISTANCE_SETTLE_TICKS,
+    .sample_ticks = PHASE_RESISTANCE_SAMPLE_TICKS,
+    .pause_ticks = PHASE_RESISTANCE_PAUSE_TICKS,
+    .timeout_ticks = PHASE_RESISTANCE_TIMEOUT_TICKS,
+    .current_tolerance = PHASE_RESISTANCE_CURRENT_TOLERANCE,
+    .q_current_tolerance = PHASE_RESISTANCE_Q_CURRENT_TOLERANCE,
+    .voltage_tolerance = PHASE_RESISTANCE_VOLTAGE_TOLERANCE,
+    .voltage_min_delta = PHASE_RESISTANCE_VOLTAGE_MIN_DELTA,
+    .voltage_filter = PHASE_RESISTANCE_VOLTAGE_FILTER,
+    .path_compensation_ohm = PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM,
+    .balance_warning_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_WARNING_PCT,
+    .balance_fault_pct = PARAM_MOTOR_PHASE_RESISTANCE_BALANCE_FAULT_PCT,
+};
+
+void MotorMaintenance_Init(void)
+{
+    FocFrictionIdentification_Init(&friction_config);
+}
 
 /* 维护调度只调用实际功能；生命周期、输出许可、保存衔接由唯一主状态机拥有。 */
 ErrorNow_TypeDef MotorMaintenance_Admit(MotorMaintenanceKind kind,
@@ -75,9 +150,9 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
     case MOTOR_MAINTENANCE_COGGING:
         return FocCogging_Task(foc, motor, pi, encoder);
     case MOTOR_MAINTENANCE_PHASE_RESISTANCE:
-        return PhaseResistanceMode_Run(foc, motor);
+        return PhaseResistanceMode_Run(foc, motor, &phase_resistance_config);
     case MOTOR_MAINTENANCE_FRICTION:
-        return FocFrictionIdentification_Task(foc, motor, pi, encoder);
+        return FocFrictionIdentification_Task(foc, motor, pi, encoder, &friction_config);
     case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
         if (!Encoder_SetMechanicalZero(encoder))
         {

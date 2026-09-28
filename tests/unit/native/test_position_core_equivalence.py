@@ -1,4 +1,4 @@
-"""Run the position scenarios against old/new cores and compare every state byte.
+"""离线对照冻结的旧/新位置核心，逐拍比较私有状态和控制输出。
 
 Reference sources and instrumented wrappers exist only under --out. No test
 accessors or reference implementation are linked into firmware.
@@ -6,43 +6,66 @@ accessors or reference implementation are linked into firmware.
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--cc', required=True)
-    parser.add_argument('--reference-ref', default='3980f92')
-    parser.add_argument('--reference-source', type=Path,
-                        help='Optional frozen pre-change core, instead of the Git reference')
-    parser.add_argument('--out', type=Path, default=ROOT / 'outputs/position_core_equivalence')
+    parser.add_argument("--cc", required=True)
+    parser.add_argument("--reference-ref", default="3980f92")
+    parser.add_argument(
+        "--reference-source",
+        type=Path,
+        help="Optional frozen pre-change core, instead of the Git reference",
+    )
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/position_core_equivalence")
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    header = (ROOT / 'firmware/motor/position/position_cascade.h').read_text()
-    names = sorted(set(re.findall(r'\bPositionCascade_\w+(?=\()', header)))
+    header = (ROOT / "firmware/motor/position/position_cascade.h").read_text(encoding="utf-8-sig")
+    names = sorted(set(re.findall(r"\bPositionCascade_\w+(?=\()", header)))
     old_header = header
-    old = (args.reference_source.read_text() if args.reference_source else
-           subprocess.check_output(['git', 'show', args.reference_ref + ':Foc/position_cascade.c'],
-                                   cwd=ROOT).decode())
-    old = old.replace('../System/fast_loop_profile.h', 'fast_loop_profile.h').replace('../system/fast_loop_profile.h', 'fast_loop_profile.h')
+    old = (
+        args.reference_source.read_text(encoding="utf-8-sig")
+        if args.reference_source
+        else subprocess.check_output(
+            ["git", "show", args.reference_ref + ":Foc/position_cascade.c"], cwd=ROOT
+        ).decode()
+    )
+    old = old.replace("../System/fast_loop_profile.h", "fast_loop_profile.h").replace(
+        "../system/fast_loop_profile.h", "fast_loop_profile.h"
+    )
     for name in names:
-        old = re.sub(r'\b' + name + r'\b', name + '_Reference', old)
-        old_header = re.sub(r'\b' + name + r'\b', name + '_Reference', old_header)
+        old = re.sub(r"\b" + name + r"\b", name + "_Reference", old)
+        old_header = re.sub(r"\b" + name + r"\b", name + "_Reference", old_header)
     # Use the original type declarations once, followed by reference prototypes.
-    prototypes = old_header[old_header.index('/** Reset'):old_header.rindex('#endif')]
-    old = old.replace('#include "position_cascade.h"', '#include "position_cascade.h"\n' + prototypes)
-    old += '\nconst void *PositionCore_ReferenceState(void) { return &state; }\n'
-    old += 'size_t PositionCore_ReferenceSize(void) { return sizeof(state); }\n'
-    actual = (ROOT / 'firmware/motor/position/position_cascade.c').read_text()
-    for name in ['Reset', 'Update', 'UpdateTarget', 'UpdateControl', 'UpdateTargetControl']:
-        actual = actual.replace('PositionCascade_' + name + '(', 'PositionCascade_' + name + '_Actual(')
-    actual += '\n' + prototypes + r'''
+    # 定位真实声明，避免把可翻译的契约注释作为源码切分标记。
+    prototypes = old_header[
+        old_header.index("bool PositionCascade_UpdateControl_Reference(") : old_header.rindex(
+            "#endif"
+        )
+    ]
+    old = old.replace(
+        '#include "position_cascade.h"', '#include "position_cascade.h"\n' + prototypes
+    )
+    old += "\nconst void *PositionCore_ReferenceState(void) { return &state; }\n"
+    old += "size_t PositionCore_ReferenceSize(void) { return sizeof(state); }\n"
+    actual = (ROOT / "firmware/motor/position/position_cascade.c").read_text(encoding="utf-8-sig")
+    for name in ["Reset", "Update", "UpdateTarget", "UpdateControl", "UpdateTargetControl"]:
+        actual = actual.replace(
+            "PositionCascade_" + name + "(", "PositionCascade_" + name + "_Actual("
+        )
+    actual += (
+        "\n"
+        + prototypes
+        + r"""
 #include <stdio.h>
 #include <stdlib.h>
 extern const void *PositionCore_ReferenceState(void);
@@ -123,9 +146,14 @@ bool PositionCore_CompactBridge(const PositionCascadeConfig_TypeDef *config,
     if(ok && output) PositionCascade_CopyOutput(output);
     return ok;
 }
-'''
-    fixture = (ROOT / 'tests/unit/position_servo_test.c').read_text().replace('int main(', 'int scenarios_main(')
-    fixture += r'''
+"""
+    )
+    fixture = (
+        (ROOT / "tests/unit/position_servo_test.c")
+        .read_text(encoding="utf-8-sig")
+        .replace("int main(", "int scenarios_main(")
+    )
+    fixture += r"""
 extern unsigned long PositionCore_ComparedTicks;
 int main(int argc,char **argv) {
     int result=scenarios_main(argc,argv);
@@ -150,33 +178,45 @@ int main(int argc,char **argv) {
         PositionCore_ComparedTicks);
     return result;
 }
-'''
+"""
     paths = []
-    for name, source in [('reference.c', old), ('actual.c', actual), ('scenarios.c', fixture)]:
+    for name, source in [("reference.c", old), ("actual.c", actual), ("scenarios.c", fixture)]:
         path = out / name
-        path.write_text(source)
+        path.write_text(source, encoding="utf-8")
         paths.append(str(path))
-    cc = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else []) + NATIVE_INCLUDE_FLAGS
-    exe = out / 'equivalence.exe'
-    command = cc + ['-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-I', 'firmware/motor/foc'] + paths
-    command += ['firmware/motor/trajectory/position_smooth_trajectory.c', 'firmware/motor/foc/foc_pid.c', '-o', str(exe)]
+    cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
+    exe = out / "equivalence.exe"
+    command = (
+        cc + ["-std=c99", "-O2", "-Wall", "-Wextra", "-Werror", "-I", "firmware/motor/foc"] + paths
+    )
+    command += [
+        "firmware/motor/trajectory/position_smooth_trajectory.c",
+        "firmware/motor/foc/foc_pid.c",
+        "-o",
+        str(exe),
+    ]
     logs = []
-    compact_fixture = fixture.replace('PositionCascade_Update(', 'PositionCore_CompactBridge(')
-    compact_fixture = compact_fixture.replace('#include "position_cascade.h"', '''#include "position_cascade.h"
+    compact_fixture = fixture.replace("PositionCascade_Update(", "PositionCore_CompactBridge(")
+    compact_fixture = compact_fixture.replace(
+        '#include "position_cascade.h"',
+        """#include "position_cascade.h"
 bool PositionCore_CompactBridge(const PositionCascadeConfig_TypeDef *,float,float,
-    PositionCascadeOutput_TypeDef *);''')
-    compact_path = out / 'compact_scenarios.c'
-    compact_path.write_text(compact_fixture)
-    compact_exe = out / 'compact_equivalence.exe'
-    compact_command = [str(compact_path) if x == paths[-1] else
-                       str(compact_exe) if x == str(exe) else x for x in command]
+    PositionCascadeOutput_TypeDef *);""",
+    )
+    compact_path = out / "compact_scenarios.c"
+    compact_path.write_text(compact_fixture, encoding="utf-8")
+    compact_exe = out / "compact_equivalence.exe"
+    compact_command = [
+        str(compact_path) if x == paths[-1] else str(compact_exe) if x == str(exe) else x
+        for x in command
+    ]
     for cmd in [command, [str(exe)], compact_command, [str(compact_exe)]]:
         result = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
         logs.append(result.stdout + result.stderr)
-        (out / 'test.log').write_text('\n'.join(logs))
-        print(logs[-1], end='')
+        (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        print(logs[-1], end="")
         result.check_returncode()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

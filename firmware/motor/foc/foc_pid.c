@@ -1,16 +1,26 @@
+/* PI 状态由调用方拥有；只计算条件积分与输出跟踪，不访问硬件。 */
 #include "foc_pid.h"
 
 /* Keep the reusable PI independent of board/vendor utility headers. */
 static float PI_Clamp(float value, float minimum, float maximum)
 {
     if (value < minimum)
+    {
         return minimum;
+    }
     if (value > maximum)
+    {
         return maximum;
+    }
     return value;
 }
 
-void PI_Controller_Configure(PI_Controller_TypeDef *controller, float proportional_gain, float integral_gain, float sample_period, float output_min, float output_max)
+void PI_Controller_Configure(PI_Controller_TypeDef *controller,
+                             float proportional_gain,
+                             float integral_gain,
+                             float sample_period,
+                             float output_min,
+                             float output_max)
 {
     controller->Kp = proportional_gain;
     controller->Ki = integral_gain;

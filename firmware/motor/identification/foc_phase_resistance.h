@@ -10,7 +10,7 @@
  * @brief 相电阻纯核心与电流环之间的适配边界。
  *
  * 功能说明：本文件是相电阻算法和现有 FOC 控制之间的唯一适配层。
- * - 从每电机参数 profile 读取双电流测试配置，并受 MotorControl 电流上限保护；
+ * - 接收组合层显式双电流测试配置，并受 MotorControl 电流上限保护；
  * - 将核心模块给出的 Id/Iq/电角度命令交给 FOC_Current() 执行；
  * - 将本周期电流与上一 PWM 周期实际输出的调制电压配对并回传核心；
  * - 在间隔、完成或失败时复位电流环并释放 PWM；
@@ -52,10 +52,13 @@ typedef struct
  * @brief 执行一次相电阻辨识周期。
  * @param foc 电流环状态，写入本次调制命令。
  * @param motor 电机状态，保存已验证辨识结果。
+ * @param config 组合层只读配置；启动时复制并受实时电流上限约束，不保留指针。
  * @return 运行、完成或具体失败原因。
  * @note 20 kHz 调度；模式提交由 APP 所有者负责。
  */
-MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *foc, MotorControl_TypeDef *motor);
+MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *foc,
+                                        MotorControl_TypeDef *motor,
+                                        const PhaseResistanceConfig_TypeDef *config);
 
 /**
  * @brief 复制辨识使用的最近电流电压样本。

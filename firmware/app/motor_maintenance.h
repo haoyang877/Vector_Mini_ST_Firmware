@@ -9,6 +9,12 @@
 #include "motor_lifecycle_request.h"
 
 /**
+ * @brief 装配辨识默认配置并复位摩擦任务状态。
+ * @note 启动时调用，不使能输出；产品配置由本组合层拥有。
+ */
+void MotorMaintenance_Init(void);
+
+/**
  * @brief 检查指定维护任务的功能前提，不提交状态或启相。
  * @param kind 实际维护任务类型。
  * @param motor 电机配置及当前故障。

@@ -32,6 +32,7 @@
 
 #include "board_config.h"
 #include "boot_hw.h"
+#include "control_config.h"
 #include "motor_state.h"
 #include "SEGGER_RTT.h"
 #include "time_hw.h"

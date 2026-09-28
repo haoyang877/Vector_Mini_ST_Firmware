@@ -61,7 +61,7 @@ int main(void) {
         float cap=(node==1 || node==2) ? 20 : .5f*_2PI;
         assert(Param_SpeedLimitRadS(node)==cap);
         p=saved; p.node_id=(float)node; p.speed_limit=21;
-        assert(!Param_Download(&p,&MotorControl,&OnBoard_Encoder)); assert(MotorControl.speed_limit==cap);
+        Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(MotorControl.speed_limit==cap);
         assert(node_id==node && MotorControl.axis_profile_valid);
         assert(OnBoard_Encoder.electrical_zero_q15==3155);
         assert(OnBoard_Encoder.linearization_lut_q15[71]==-42);
@@ -77,15 +77,41 @@ int main(void) {
     Param_Download(&p,&MotorControl,&OnBoard_Encoder);
     assert(node_id==3 && MotorControl.speed_limit==.5f*_2PI);
     puts("PASS resolved joint identity selects the ceiling before parameter loading");
-    /* Schema 10 -> 11 preserves tuned gains and encoder calibration, never
-     * interprets the erased old tail as a valid cogging map. */
-    p=saved; p.schema_version=10; p.node_id=1; p.speed_limit=20;
+    /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
+    {
+        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,12,UINT32_MAX};
+        for(unsigned i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
+            p=saved; p.schema_version=rejected[i];
+            InterfaceParam_TypeDef before=p;
+            Param_Download(&p,&MotorControl,&OnBoard_Encoder);
+            assert(memcmp(&p,&before,sizeof(p))==0);
+            assert(node_id==(uint8_t)PARAM_HW_CAN_NODE_ID);
+            assert(OnBoard_Encoder.calib_flag==0 && OnBoard_Encoder.electrical_zero_q15==0);
+            assert(OnBoard_Encoder.linearization_lut_q15[71]==0 && CoggingMap.magic==0);
+            assert(MotorControl.pos_Kp==PARAM_APP_POSITION_KP);
+            assert(MotorControl.speed_Kp==PARAM_APP_SPEED_KP);
+        }
+        p=saved; p.magic_word=0;
+        Param_Download(&p,&MotorControl,&OnBoard_Encoder);
+        assert(OnBoard_Encoder.calib_flag==0 && CoggingMap.magic==0);
+    }
+    puts("PASS old/unknown schema rejection, defaults and immutable input");
+    /* 当前布局的黄金字节与偏移保持；加载保留既有整定和标定数据。 */
+    p=saved; p.node_id=1; p.speed_limit=20;
     p.pos_kp=1.3f; p.pos_ki=.7f; p.pos_kd=.15f; p.speed_kp=.023f;
-    memset(&p.cogging,0xff,sizeof(p.cogging));
-    assert(Param_Download(&p,&MotorControl,&OnBoard_Encoder));
+    {
+        const uint8_t schema_bytes[] = {0x0b,0,0,0};
+        const uint8_t magic_bytes[] = {0x32,0x43,0x4e,0x45};
+        assert(sizeof(p)==4304 && offsetof(InterfaceParam_TypeDef,schema_version)==2160);
+        assert(offsetof(InterfaceParam_TypeDef,magic_word)==2164);
+        assert(memcmp((const uint8_t *)&p+2160,schema_bytes,sizeof(schema_bytes))==0);
+        assert(memcmp((const uint8_t *)&p+2164,magic_bytes,sizeof(magic_bytes))==0);
+    }
+    Param_Download(&p,&MotorControl,&OnBoard_Encoder);
     assert(MotorControl.pos_Kp==1.3f && MotorControl.pos_Ki==.7f && MotorControl.pos_Kd==.15f);
     assert(MotorControl.speed_Kp==.023f && MotorControl.speed_limit==20);
     assert(OnBoard_Encoder.electrical_zero_q15==3155 && OnBoard_Encoder.reverse==0);
+    assert(OnBoard_Encoder.calib_flag==3 && OnBoard_Encoder.linearization_lut_q15[71]==-42);
     assert(CoggingMap.magic==0);
     Param_Upload(&p,&MotorControl,&OnBoard_Encoder); p.magic_word=MAGIC_WORD;
     {
@@ -98,14 +124,26 @@ int main(void) {
         assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,signature,&CoggingMap));
         Param_Upload(&p,&MotorControl,&OnBoard_Encoder); p.magic_word=MAGIC_WORD;
         memset(&CoggingMap,0,sizeof(CoggingMap));
-        assert(!Param_Download(&p,&MotorControl,&OnBoard_Encoder) && CoggingMap_Valid(&CoggingMap,signature));
+        Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(CoggingMap_Valid(&CoggingMap,signature));
         assert(CoggingMap.iq_q15[17]==123);
         p.cogging.iq_q15[5]^=1;
         Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(CoggingMap.magic==0);
         p.cogging.iq_q15[5]^=1; p.encoder_electrical_zero_q15++;
         Param_Download(&p,&MotorControl,&OnBoard_Encoder); assert(CoggingMap.magic==0);
     }
-    puts("PASS schema migration, Q15 map round trip, corrupt/stale map rejection");
+    puts("PASS schema11 golden layout, Q15 map round trip, corrupt/stale map rejection");
+    /* 当前硬件配置变化仍使电流域参数失效，不属于已删除的版本迁移。 */
+    p=saved;
+    p.current_sense_shunt_milliohm=CURRENT_SENSE_SHUNT_MILLIOHM==2U ? 6U : 2U;
+    p.calib_current=.1f; p.current_limit=.1f;
+    p.friction_model_valid=1U;
+    p.friction_coulomb_pos_a=.2f; p.friction_coulomb_neg_a=.2f;
+    Param_Download(&p,&MotorControl,&OnBoard_Encoder);
+    assert(MotorControl.calib_current==PARAM_MOTOR_CALIB_CURRENT_A);
+    assert(MotorControl.current_limit==PARAM_MOTOR_CURRENT_LIMIT_A);
+    assert(!MotorControl.friction_model_valid && CoggingMap.magic==0);
+    assert(OnBoard_Encoder.calib_flag==3 && OnBoard_Encoder.linearization_lut_q15[71]==-42);
+    puts("PASS current-sense mismatch invalidates current-domain settings only");
     return 0;
 }
 """

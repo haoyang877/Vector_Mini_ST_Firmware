@@ -29,7 +29,7 @@ static void write_le32(uint8_t *data, uint32_t value)
 yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message,
                                             yg_protocol_job_request_t *request)
 {
-    yg_protocol_job_request_t candidate = {0};
+    yg_protocol_job_request_t candidate = {.operation = YG_PROTOCOL_JOB_START};
     if (message == NULL || request == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
@@ -116,10 +116,9 @@ yg_protocol_service_status_t yg_protocol_job_call(const yg_protocol_job_service_
     {
         return YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
     }
-    *reply = (yg_protocol_job_reply_t){0};
-    reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-    if (service == NULL || request == NULL || request->operation < YG_PROTOCOL_JOB_START ||
-        request->operation > YG_PROTOCOL_JOB_QUERY ||
+    *reply = (yg_protocol_job_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
+    if (service == NULL || request == NULL ||
+        (unsigned)request->operation > (unsigned)YG_PROTOCOL_JOB_QUERY ||
         (request->operation == YG_PROTOCOL_JOB_START &&
          (request->kind == 0U || request->job_id != 0U)) ||
         (request->operation != YG_PROTOCOL_JOB_START &&

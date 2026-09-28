@@ -27,6 +27,10 @@ typedef struct
     } bins;
 } EncoderCalibWorkspace_TypeDef;
 
+/* 借用容量含独立元数据余量；点数或字段增长时必须重新确认池预算。 */
+typedef char EncoderCalibWorkspace_FitsHeap
+    [(sizeof(EncoderCalibWorkspace_TypeDef) <= HEAP_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+
 static EncoderCalibWorkspace_TypeDef *encoder_calib_workspace = NULL;
 
 static CalibStep_TyepeDef CalibStep = CS_NULL;

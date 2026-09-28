@@ -26,7 +26,7 @@ static void put_u32(uint8_t *payload, uint32_t value)
 yg_protocol_result_t yg_protocol_parameter_decode(const yg_protocol_message_t *message,
                                                   yg_protocol_parameter_request_t *request)
 {
-    yg_protocol_parameter_request_t decoded = {0};
+    yg_protocol_parameter_request_t decoded = {.operation = YG_PROTOCOL_PARAMETER_READ};
     uint32_t raw;
     if (message == NULL || request == NULL)
     {
@@ -156,10 +156,9 @@ yg_protocol_parameter_call(const yg_protocol_parameter_service_t *service,
     {
         return YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
     }
-    *reply = (yg_protocol_service_reply_t){0};
-    reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-    if (service == NULL || request == NULL || request->operation < YG_PROTOCOL_PARAMETER_READ ||
-        request->operation > YG_PROTOCOL_PARAMETER_RESTORE_DEFAULTS)
+    *reply = (yg_protocol_service_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
+    if (service == NULL || request == NULL ||
+        (unsigned)request->operation > (unsigned)YG_PROTOCOL_PARAMETER_RESTORE_DEFAULTS)
     {
         return reply->status;
     }

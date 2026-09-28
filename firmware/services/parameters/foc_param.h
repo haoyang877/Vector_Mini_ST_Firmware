@@ -18,13 +18,6 @@
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
 #define PARAM_SCHEMA_VERSION 11U
-#define PARAM_SCHEMA_VERSION_LEGACY_COGGING 10U
-#define PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING 9U
-#define PARAM_SCHEMA_VERSION_LEGACY_FRICTION 8U
-#define PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT 7U
-#define PARAM_SCHEMA_VERSION_LEGACY_CURRENT_SENSE 6U
-#define PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE 5U
-#define PARAM_SCHEMA_VERSION_LEGACY_CASCADE 4U
 
 typedef struct
 {
@@ -103,14 +96,13 @@ void Param_Upload(InterfaceParam_TypeDef *param,
                   const Encoder_TypeDef *encoder);
 
 /**
- * @brief 校验并装载既有参数记录。
+ * @brief 仅装载当前 schema 11 参数，其他版本或无效记录恢复编译期默认值。
  * @param param 只读 Flash 记录副本。
  * @param motor 中断启动前的电机配置。
  * @param encoder 中断启动前的编码器配置。
- * @return 有效旧版本需要回写迁移时返回 true；否则 false。
- * @note 仅启动调用；无效记录沿用默认回退，不执行 Flash I/O。
+ * @note 仅启动调用；拒绝旧版本时清除运行态标定标志，不转换记录或执行 Flash I/O。
  */
-bool Param_Download(const InterfaceParam_TypeDef *param,
+void Param_Download(const InterfaceParam_TypeDef *param,
                     MotorControl_TypeDef *motor,
                     Encoder_TypeDef *encoder);
 #endif

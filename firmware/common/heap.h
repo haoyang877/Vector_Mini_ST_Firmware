@@ -21,8 +21,10 @@
 
 /* 应用内存池：固定容量、纯软件实现，不依赖硬件头文件。 */
 
-/* 标定工作区与参数暂存区不会同时存活；容量含分配器块头并保留余量。 */
-#define TOTAL_HEAP_SIZE ((size_t)(1024 * 7))
+/* 三类借用互斥；最大编码器工作区6KiB，另留128B覆盖块头、尾标记和对齐。
+ * 各实际调用方编译期检查payload大小，不能随记录增长静默挤占元数据余量。 */
+#define HEAP_WORKSPACE_CAPACITY_BYTES ((size_t)(1024U * 6U))
+#define TOTAL_HEAP_SIZE (HEAP_WORKSPACE_CAPACITY_BYTES + (size_t)128U)
 
 /**
  * @brief  从固定容量内存池分配一块内存。

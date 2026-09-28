@@ -162,50 +162,25 @@ void Param_Upload(InterfaceParam_TypeDef *param,
     FocCogging_ExportMap(&param->cogging, MotorControl, OnBoard_Encoder);
 }
 
-bool Param_Download(const InterfaceParam_TypeDef *param,
+void Param_Download(const InterfaceParam_TypeDef *param,
                     MotorControl_TypeDef *MotorControl,
                     Encoder_TypeDef *OnBoard_Encoder)
 {
     uint32_t lut_index;
-    uint32_t stored_shunt_milliohm;
-    bool legacy_cascade_parameters;
-    bool position_tuning_requires_migration;
     bool current_sense_profile_changed;
     float position_speed_limit;
 
-    if (param->magic_word != MAGIC_WORD ||
-        (param->schema_version != PARAM_SCHEMA_VERSION &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_COGGING &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_INTEGRAL_LIMIT &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_CURRENT_SENSE &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE &&
-         param->schema_version != PARAM_SCHEMA_VERSION_LEGACY_CASCADE))
+    if (param->magic_word != MAGIC_WORD || param->schema_version != PARAM_SCHEMA_VERSION)
     {
         Param_Return_Default(MotorControl, OnBoard_Encoder);
-        return false;
+        return;
     }
-    legacy_cascade_parameters = param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE;
-    position_tuning_requires_migration =
-        param->schema_version < PARAM_SCHEMA_VERSION_LEGACY_COGGING;
-    if (param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_CASCADE)
-    {
-        stored_shunt_milliohm = CURRENT_SENSE_SHUNT_2_MILLIOHM;
-    }
-    else if (param->schema_version == PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE)
-    {
-        stored_shunt_milliohm = CURRENT_SENSE_SHUNT_6_MILLIOHM;
-    }
-    else
-    {
-        stored_shunt_milliohm = param->current_sense_shunt_milliohm;
-    }
-    current_sense_profile_changed = stored_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
+    current_sense_profile_changed =
+        param->current_sense_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
     if (param->encoder_reverse > 1U)
     {
         Param_Return_Default(MotorControl, OnBoard_Encoder);
-        return false;
+        return;
     }
 
     /* Resolve axis identity before selecting the node-specific speed ceiling. */
@@ -263,86 +238,40 @@ bool Param_Download(const InterfaceParam_TypeDef *param,
     MotorControl->speedDec = param->speedDec;
     MotorControl->speed_Kp = param->speed_kp;
     MotorControl->speed_Ki = param->speed_ki;
-    /*
-     * Schema v4 gains drove the speed PI and have incompatible units. Preserve
-     * motor/encoder calibration, but migrate the position settings to the safe
-     * low-speed impedance defaults.
-     */
-    if (legacy_cascade_parameters)
-    {
-        MotorControl->posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
-        MotorControl->posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
-        MotorControl->pos_maxspeed =
-            fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
-        MotorControl->pos_Kp = PARAM_APP_POSITION_KP;
-        MotorControl->pos_Kd = PARAM_APP_POSITION_KD;
-        MotorControl->pos_Ki = PARAM_APP_POSITION_KI;
-        MotorControl->pos_integral_limit = PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
-        MotorControl->cascade_pos_Kp =
-            isfinite(param->pos_kp) && param->pos_kp >= 0.0f
-                ? constrain(param->pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)
-                : PARAM_APP_CASCADE_POSITION_KP;
-        MotorControl->cascade_pos_Kd = isfinite(param->pos_kd) && param->pos_kd >= 0.0f
-                                           ? constrain(param->pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
-                                           : PARAM_APP_CASCADE_POSITION_KD;
-    }
-    else
-    {
-        MotorControl->posAcc = isfinite(param->posAcc) && param->posAcc > 0.0f
-                                   ? constrain(param->posAcc, 0.0f, 200.0f * _2PI)
-                                   : PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
-        MotorControl->posDec = isfinite(param->posDec) && param->posDec > 0.0f
-                                   ? constrain(param->posDec, 0.0f, 200.0f * _2PI)
-                                   : PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
-        MotorControl->pos_maxspeed =
-            isfinite(param->pos_maxspeed) && param->pos_maxspeed > 0.0f
-                ? constrain(param->pos_maxspeed, 0.0f, position_speed_limit)
-                : fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
-        if (position_tuning_requires_migration)
-        {
-            /*
-             * Schema v10 accompanies the revised 2 kHz landing controller. Do not
-             * carry legacy impedance tuning into the updated control law.
-             */
-            MotorControl->pos_Kp = PARAM_APP_POSITION_KP;
-            MotorControl->pos_Kd = PARAM_APP_POSITION_KD;
-            MotorControl->pos_Ki = PARAM_APP_POSITION_KI;
-            MotorControl->pos_integral_limit = PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
-        }
-        else
-        {
-            MotorControl->pos_Kp =
-                isfinite(param->pos_kp) && param->pos_kp >= 0.0f
-                    ? constrain(param->pos_kp, 0.0f, POSITION_IMPEDANCE_KP_MAX_A_PER_RAD)
-                    : PARAM_APP_POSITION_KP;
-            MotorControl->pos_Kd =
-                isfinite(param->pos_kd) && param->pos_kd >= 0.0f
-                    ? constrain(param->pos_kd, 0.0f, POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S)
-                    : PARAM_APP_POSITION_KD;
-            MotorControl->pos_Ki =
-                isfinite(param->pos_ki) && param->pos_ki >= 0.0f
-                    ? constrain(param->pos_ki, 0.0f, POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S)
-                    : PARAM_APP_POSITION_KI;
-            MotorControl->pos_integral_limit =
-                isfinite(param->pos_integral_limit) && param->pos_integral_limit >= 0.0f
-                    ? constrain(param->pos_integral_limit,
-                                0.0f,
-                                CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
-                    : PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
-        }
-        MotorControl->cascade_pos_Kp =
-            param->schema_version >= PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
-                    isfinite(param->cascade_pos_kp) && param->cascade_pos_kp >= 0.0f
-                ? constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)
-                : PARAM_APP_CASCADE_POSITION_KP;
-        MotorControl->cascade_pos_Kd =
-            param->schema_version >= PARAM_SCHEMA_VERSION_LEGACY_FRICTION &&
-                    isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f
-                ? constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
-                : PARAM_APP_CASCADE_POSITION_KD;
-    }
-    if (param->schema_version >= PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING &&
-        !current_sense_profile_changed && param->friction_model_valid == 1U &&
+    MotorControl->posAcc = isfinite(param->posAcc) && param->posAcc > 0.0f
+                               ? constrain(param->posAcc, 0.0f, 200.0f * _2PI)
+                               : PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+    MotorControl->posDec = isfinite(param->posDec) && param->posDec > 0.0f
+                               ? constrain(param->posDec, 0.0f, 200.0f * _2PI)
+                               : PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+    MotorControl->pos_maxspeed =
+        isfinite(param->pos_maxspeed) && param->pos_maxspeed > 0.0f
+            ? constrain(param->pos_maxspeed, 0.0f, position_speed_limit)
+            : fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
+    MotorControl->pos_Kp = isfinite(param->pos_kp) && param->pos_kp >= 0.0f
+                               ? constrain(param->pos_kp, 0.0f, POSITION_IMPEDANCE_KP_MAX_A_PER_RAD)
+                               : PARAM_APP_POSITION_KP;
+    MotorControl->pos_Kd =
+        isfinite(param->pos_kd) && param->pos_kd >= 0.0f
+            ? constrain(param->pos_kd, 0.0f, POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S)
+            : PARAM_APP_POSITION_KD;
+    MotorControl->pos_Ki =
+        isfinite(param->pos_ki) && param->pos_ki >= 0.0f
+            ? constrain(param->pos_ki, 0.0f, POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S)
+            : PARAM_APP_POSITION_KI;
+    MotorControl->pos_integral_limit =
+        isfinite(param->pos_integral_limit) && param->pos_integral_limit >= 0.0f
+            ? constrain(param->pos_integral_limit, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)
+            : PARAM_APP_POSITION_INTEGRAL_LIMIT_A;
+    MotorControl->cascade_pos_Kp =
+        isfinite(param->cascade_pos_kp) && param->cascade_pos_kp >= 0.0f
+            ? constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)
+            : PARAM_APP_CASCADE_POSITION_KP;
+    MotorControl->cascade_pos_Kd =
+        isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f
+            ? constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
+            : PARAM_APP_CASCADE_POSITION_KD;
+    if (!current_sense_profile_changed && param->friction_model_valid == 1U &&
         isfinite(param->friction_coulomb_pos_a) && param->friction_coulomb_pos_a >= 0.0f &&
         isfinite(param->friction_coulomb_neg_a) && param->friction_coulomb_neg_a >= 0.0f &&
         isfinite(param->friction_viscous_pos_a_per_rad_s) &&
@@ -369,7 +298,7 @@ bool Param_Download(const InterfaceParam_TypeDef *param,
         MotorAxisProfile_Load(&param->axis_profile, &MotorControl->axis_profile);
     MotorControl->axis_profile_valid = Param_ApplyJointProfile(MotorControl);
     FocCogging_ResetMap();
-    if (param->schema_version == PARAM_SCHEMA_VERSION && !current_sense_profile_changed &&
+    if (!current_sense_profile_changed &&
         param->cogging.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A &&
         (OnBoard_Encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
         CoggingMap_Valid(&param->cogging,
@@ -380,10 +309,4 @@ bool Param_Download(const InterfaceParam_TypeDef *param,
     {
         FocCogging_ImportMap(&param->cogging);
     }
-    /* Unsupported identity/configuration must not trigger a migration rewrite. */
-    if (!MotorControl->axis_profile_valid)
-    {
-        return false;
-    }
-    return param->schema_version != PARAM_SCHEMA_VERSION;
 }

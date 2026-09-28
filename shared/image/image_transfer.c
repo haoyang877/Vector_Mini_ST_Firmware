@@ -212,9 +212,8 @@ LoaderImage_Write(LoaderImageTransfer *t, uint32_t offset, const uint8_t *data, 
     uint8_t old[8];
     uint32_t i;
     LoaderImageResult result = YI_OK;
-    const LoaderImageConfig *c;
-    if (!t || !(c = t->config) || !data || t->in_call || !bytes || bytes > 128 || bytes % 8 ||
-        offset % 8)
+    const LoaderImageConfig *c = t ? t->config : NULL;
+    if (!t || !c || !data || t->in_call || !bytes || bytes > 128 || bytes % 8 || offset % 8)
     {
         return YI_ARGUMENT;
     }
@@ -283,11 +282,11 @@ LoaderImageResult LoaderImage_Verify(LoaderImageTransfer *t)
 }
 LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *t)
 {
-    const LoaderImageConfig *c;
+    const LoaderImageConfig *c = t ? t->config : NULL;
     uint32_t a, n, i;
     uint8_t p[64], digest[32];
     LoaderImageResult r = YI_OK;
-    if (!t || !(c = t->config) || t->in_call)
+    if (!t || !c || t->in_call)
     {
         return YI_ARGUMENT;
     }

@@ -22,6 +22,12 @@
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 
+/* 参数与齿槽候选和编码器采样互斥借用同一池；记录增长必须显式更新容量预算。 */
+typedef char ParamRecord_FitsWorkspace
+    [(sizeof(InterfaceParam_TypeDef) <= HEAP_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+typedef char CoggingCandidate_FitsWorkspace
+    [(sizeof(CoggingMapRecord) <= HEAP_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+
 /* 电机与控制对象实例：全部私有定义在此，仅受控调度时传给实际计算调用方。 */
 static MotorControl_TypeDef MotorControl;
 static PI_Controller_TypeDef PI_Speed;
@@ -70,13 +76,9 @@ static void load_parameters(void)
     {
         Param_Return_Default(&MotorControl, &OnBoard_Encoder);
     }
-    else if (Param_Download(record, &MotorControl, &OnBoard_Encoder))
+    else
     {
-        Param_Upload(record, &MotorControl, &OnBoard_Encoder);
-        record->magic_word = MAGIC_WORD;
-        uint32_t mask = critical_hw_enter();
-        (void)param_store_write(record, sizeof(*record));
-        critical_hw_exit(mask);
+        Param_Download(record, &MotorControl, &OnBoard_Encoder);
     }
     if (record != NULL)
     {

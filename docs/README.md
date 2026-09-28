@@ -54,3 +54,7 @@ Motor parameter read/write catalog: [电调读写参数表 v0.1](protocols/yg_pr
 Single-board hardware verification: [yg_protocol 单板 CAN FD 实机验证 2026-09-28](reports/2026-09/yg_protocol_canfd_bench_20260928.md).
 
 Loader implementation: [独立产品、内存与失败救援 v1](architecture/loader/loader_product_v1.md).
+
+APP capacity baseline: [新 APP 编译占用与缩减方向（2026-09-28）](reports/2026-09/app_capacity_baseline_20260928.md).
+
+Current parameter loading: [仅接受 schema 11，移除历史参数迁移 v1](protocols/parameter_schema11_loading_policy_v1.md).

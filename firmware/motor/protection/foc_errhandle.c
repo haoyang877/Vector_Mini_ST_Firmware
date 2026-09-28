@@ -10,7 +10,6 @@
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
 #include "bus_voltage_profile.h"
-#include "power_stage_hw.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -23,8 +22,8 @@ extern SensorlessStartup_TypeDef SensorlessStartup;
 bool is_Mode_Error_Change;
 
 /**
-    * @brief  Get current motor mode
-    * @retval current mode
+    * @brief  读取当前电机模式
+    * @retval 当前电机模式
  **/
 ModeNow_TypeDef Get_ModeNow(void)
 {
@@ -32,8 +31,8 @@ ModeNow_TypeDef Get_ModeNow(void)
 }
 
 /**
-    * @brief  Set current motor mode
-    * @param  tModeNow: mode to set
+    * @brief  设置当前电机模式
+    * @param  tModeNow: 目标模式
  **/
 void Set_ModeNow(ModeNow_TypeDef tModeNow)
 {
@@ -41,17 +40,8 @@ void Set_ModeNow(ModeNow_TypeDef tModeNow)
 }
 
 /**
-    * @brief  Get current motor error
-    * @retval current error
- **/
-ErrorNow_TypeDef Get_ErroNow(void)
-{
-    return MotorControl.ErrorNow;
-}
-
-/**
-    * @brief  Set current motor error
-    * @param  tErrorNow: error to set
+    * @brief  登记当前电机故障
+    * @param  tErrorNow: 故障编号
  **/
 void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 {
@@ -59,7 +49,7 @@ void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 }
 
 /**
-    * @brief  Clear running control data
+    * @brief  清理运行控制数据
  **/
 void Clear_RunningData(void)
 {
@@ -90,12 +80,10 @@ void Clear_RunningData(void)
 }
 
 /**
-    * @brief  Handle motor mode switching
-    *         motor identification is removed, motor body parameters
-    *         are filled externally; closed-loop modes require encoder
-    *         linearization and electrical angle zero position calibration
-    * @param  mode_set: target mode
-    * @retval true if mode switched
+    * @brief  校验并登记电机模式请求
+    *         电机本体参数由外部配置，编码器闭环要求线性化和电角度零位标定
+    * @param  mode_set: 目标模式
+    * @retval 受理模式返回 true
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
@@ -106,8 +94,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
     {
         return false;
     }
-    /* Reject an unsafe restart before any phase output can be enabled.
-     * The normal supervisor owns voltage fault latching during operation. */
+    /* 启相前拒绝电压不安全的请求，运行期间电压故障仍由监督路径锁存。 */
     if (MotorControl.ModeNow == Motor_Disable &&
         (mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode ||
          mode_set == Position_Impedance_Mode || mode_set == Calib_PhaseResistance ||
@@ -134,8 +121,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
             return false;
         }
     }
-    /* Unknown/unconfigured numeric joints cannot fall through to another
-     * torque-producing mode. Diagnostics and explicit storage remain usable. */
+    /* 未知或未配置轴禁止输出转矩，诊断与显式存储请求仍可使用。 */
     if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable && mode_set != Clear_Error &&
         mode_set != Save_Param)
     {
@@ -162,7 +148,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
         return false;
     }
 
-    /* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
+    /* 使用编码器反馈的模式必须以有效传感器帧启动。 */
     if ((mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
          ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
           MotorControl.isUseSensorless == false) ||
@@ -186,7 +172,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
         }
     }
 
-    /*encoder-based closed-loop control requires calibration*/
+    /* 编码器闭环要求必要标定已经完成。 */
     if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
         mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
         ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
@@ -201,7 +187,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 
     if (MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
     {
-        /* Entering either position mode must hold the present position, not a stale target. */
+        /* 位置模式以当前位置开始，禁止沿用历史目标。 */
         if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
         {
             float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
@@ -237,8 +223,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
         {
             if (MotorControl.ModeNow == Calib_Anticogging)
             {
-                /* ADC control may preempt CAN: publish STOP before clearing the
-                 * session so the owner cannot interpret the cleared state as restart. */
+                /* ADC 可抢占请求处理：先登记 STOP，防止清理后被旧目标重新启动。 */
                 MotorControl.ModeNow = mode_set;
                 FocCogging_Abort();
                 return true;
@@ -266,7 +251,7 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 }
 
 /**
-    * @brief  Detect mode or error state change
+    * @brief  检测模式或故障变化
  **/
 void Detect_Mode_Error_Change(void)
 {
@@ -277,8 +262,8 @@ void Detect_Mode_Error_Change(void)
 }
 
 /**
-    * @brief  Return mode or error change flag
-    * @retval change flag
+    * @brief  读取模式或故障变化标志
+    * @retval 变化标志
  **/
 bool Return_Mode_Error_Change(void)
 {
@@ -286,22 +271,9 @@ bool Return_Mode_Error_Change(void)
 }
 
 /**
-    * @brief  Clear mode or error change flag
+    * @brief  清除模式或故障变化标志
  **/
 void Clear_Mode_Error_Change(void)
 {
     is_Mode_Error_Change = false;
-}
-
-/* 过渡兼容层：功率级启停的历史入口。硬件调用已移至
- * platform/stm32g4/ports/motor/power_stage_stm32g4.c；调用方迁移到
- * power_stage_hw_* 契约后删除本节。 */
-void Stop_PWM_Generate(void)
-{
-    power_stage_hw_stop();
-}
-
-void Start_PWM_Generate(void)
-{
-    power_stage_hw_start();
 }

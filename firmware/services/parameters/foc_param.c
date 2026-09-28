@@ -106,8 +106,6 @@ void Param_Return_Default(void)
     MotorControl.friction_viscous_neg_a_per_rad_s = 0.0f;
     MotorControl.friction_model_valid = false;
     Protocol_HeartbeatMs_Set((uint32_t)PARAM_HW_CAN_HEARTBEAT_MS);
-
-    MotorControl.ModeNow = Save_Param;
 }
 
 void Param_Upload(InterfaceParam_TypeDef *param)

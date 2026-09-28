@@ -8,7 +8,7 @@
 #include "motor_control_command.h"
 
 /**
- * @brief 初始化运行状态机适配器：核心进入 BOOT 态，功率级记录为关闭。
+ * @brief 初始化运行所有者：核心进入 BOOT 态，清空命令和采样进展。
  * @note 由启动组合层在中断使能前调用一次；不访问硬件。
  */
 void FocRunState_Init(void);
@@ -33,8 +33,8 @@ void FocRunState_FastFaultStop(void);
 /**
  * @brief 上报本周期 worker 结果：20 kHz 快环写入，2 kHz 状态机消费。
  * @param outcome 本周期模式 worker 的结果；MOTOR_WORK_RUNNING 不入箱。
- * @note 仅由 20 kHz 快速中断调用；与消费端通过短临界区交换，只保留最新的
- *       非 RUNNING 结果。
+ * @note 仅由 ADC2 JEOS 的 20 kHz 快速中断末尾调用；每拍登记感测处理进展，
+ *       非 RUNNING 结果与消费端通过短临界区交换，只保留最新一项。
  */
 void FocRunState_PostOutcome(MotorWorkOutcome_TypeDef outcome);
 /**
@@ -51,6 +51,14 @@ void FocRunState_Tick(void);
  * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
  */
 AppLifecycleState FocRunState_GetState(void);
+
+/**
+ * @brief 查询指定维护模式是否已由生命周期所有者受理。
+ * @param mode 维护模式；只有与当前维护会话匹配时才获准执行。
+ * @return 会话已经进入 MAINTENANCE 且模式匹配返回 true。
+ * @note 快环只读查询，用于阻止自管功率的标定在维护准入前启相。
+ */
+bool FocRunState_IsMaintenanceActive(ModeNow_TypeDef mode);
 
 /**
  * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。

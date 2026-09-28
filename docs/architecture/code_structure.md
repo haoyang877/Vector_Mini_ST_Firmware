@@ -95,6 +95,15 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 
 ## 下一阶段代码优化
 
+2026-09-28 E1：运行所有者删除 `power_on` 副本，关相条件直接使用平台数字使能回读。
+ADC2 JEOS 快环末尾登记感测处理进展，监督拍统一读取有限电流/电压值和温度有效期；
+基础自检不要求编码器标定，模式启动继续检查其反馈和标定依赖。维护 worker 等待会话
+受理后执行；恢复默认参数不再直接改模式，完成由结果协议请求保存。
+CLEAR 保留原故障直到核心受理，故障不会因兼容值已经为零自动清除。
+数字回读不代表物理栅极验证；维护资源释放与原始 worker/保存结果代际仍未全部接入，
+不能把本批称为完整生命周期验收。来源、删减和验证见
+[E1 批次说明](../plans/active/2026-09-28-lifecycle-guards-e1.md)。
+
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：
 app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platform/api` 与
 `param_comm_bridge.h` 窄桥访问通信运行态；`motor/data_type.h` 已改用 `<stdint.h>`。后续优先

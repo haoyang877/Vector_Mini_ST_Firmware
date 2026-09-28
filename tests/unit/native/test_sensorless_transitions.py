@@ -42,7 +42,6 @@ void Set_ModeNow(ModeNow_TypeDef m) {
     if(m==Save_Param) assert(!pwm_enabled && stop_calls);
     motor.ModeNow=m;
 }
-void Stop_PWM_Generate(void) { pwm_enabled=false; ++stop_calls; }
 void FOC_CurrentController_Reset(FOC_TypeDef *f) {
     PI_Controller_Reset(&f->id_pi); PI_Controller_Reset(&f->iq_pi);
 }

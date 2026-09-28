@@ -8,6 +8,7 @@
 #include "foc_param.h"
 #include "foc_phase_resistance.h"
 #include "foc_run.h"
+#include "foc_run_state.h"
 #include "fast_loop_profile.h"
 #include "motor_hw.h"
 #include "motor_state.h"
@@ -45,6 +46,25 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
     if (MotorControl.ModeNow != Calib_EncoderObserver)
     {
         FocEncoderCalibration_Cancel();
+    }
+
+    /* 所有维护 worker 先受理再执行，参数修改和标定不能抢在生命周期准入前。 */
+    switch (MotorControl.ModeNow)
+    {
+    case Calib_Anticogging:
+    case Calib_Friction:
+    case Calib_PhaseResistance:
+    case Calib_EncoderObserver:
+    case Calib_EleAngelOffset:
+    case Set_ZeroPosition:
+    case Default_Param:
+        if (!FocRunState_IsMaintenanceActive(MotorControl.ModeNow))
+        {
+            return outcome;
+        }
+        break;
+    default:
+        break;
     }
 
     switch (MotorControl.ModeNow)
@@ -159,6 +179,8 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(void)
     case Default_Param:
         /* 恢复默认参数不再隐式清除故障：清除统一走恢复矩阵（阶段 D）。 */
         Param_Return_Default();
+        outcome.result = MOTOR_WORK_SWITCH_MODE;
+        outcome.next_mode = Save_Param;
         break;
 
     case Clear_Error:

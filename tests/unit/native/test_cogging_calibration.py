@@ -26,8 +26,8 @@ static FOC_TypeDef foc;
 static PI_Controller_TypeDef pi;
 static bool pwm;
 static unsigned enabled;
-void Stop_PWM_Generate(void) { pwm=false; }
-void Start_PWM_Generate(void) { pwm=true; ++enabled; }
+void power_stage_hw_stop(void) { pwm=false; }
+void power_stage_hw_start(void) { pwm=true; ++enabled; }
 void Set_ModeNow(ModeNow_TypeDef m) { if(m==Save_Param) assert(!pwm); MotorControl.ModeNow=m; }
 void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 bool Encoder_IsOnline(const Encoder_TypeDef *e) { return e->has_valid_sample; }
@@ -55,11 +55,11 @@ static void run_point(float iq) {
  * FAULT 锁存故障、停相并回 Motor_Disable（等价旧模块内联动作的归属方）。 */
 static void consume(MotorWorkOutcome_TypeDef o) {
     if(o.result==MOTOR_WORK_SWITCH_MODE) {
-        if(o.power_off) Stop_PWM_Generate();
+        if(o.power_off) power_stage_hw_stop();
         MotorControl.ModeNow=o.next_mode;
     } else if(o.result==MOTOR_WORK_FAULT) {
         Set_ErrorNow(o.error);
-        if(pwm) Stop_PWM_Generate();
+        if(pwm) power_stage_hw_stop();
         MotorControl.ModeNow=Motor_Disable;
     }
 }

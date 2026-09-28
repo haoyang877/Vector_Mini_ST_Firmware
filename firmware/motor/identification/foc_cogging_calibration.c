@@ -4,6 +4,7 @@
 #include "foc_errhandle.h"
 #include "control_config.h"
 #include "critical_hw.h"
+#include "power_stage_hw.h"
 #include "current_sense_profile.h"
 #include "utils.h"
 #include "bus_voltage_profile.h"
@@ -223,7 +224,7 @@ StartSession(FOC_TypeDef *f, MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     session_started = true;
     /* 本模式自行接管功率许可；通用模式边沿不包含它。 */
     FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
-    Start_PWM_Generate();
+    power_stage_hw_start();
     return true;
 }
 

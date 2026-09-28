@@ -1,88 +1,10 @@
-"""运行状态机差分等价测试：旧实现与 AppLifecycle 适配器逐 tick 对拍；不访问硬件。"""
+"""运行状态机接线检查：维护结果、真实关相、健康条件与目标撤销；不访问硬件。"""
 
 import argparse
 import subprocess
 from pathlib import Path
 
 from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
-
-OLD_LOGIC = r"""
-/* ===== 旧实现（拆分前的三个函数，重命名对拍用） ===== */
-static bool old_position_start_prepared;
-
-static void Old_HandleFaultIndication(void)
-{
-    if (MotorControl.ErrorNow == No_Error)
-    {
-        indicator_hw_set_led(false, (uint8_t)MotorControl.ModeNow);
-    }
-    else
-    {
-        if (MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Default_Param)
-        {
-            MotorControl.ModeNow = Motor_Disable;
-        }
-
-        indicator_hw_set_led(true, (uint8_t)MotorControl.ErrorNow);
-    }
-}
-
-static bool Old_ManagePowerStage(void)
-{
-    bool defer_position_power_start = false;
-
-    if (ModeLast != Motor_Disable && MotorControl.ModeNow == Motor_Disable)
-    {
-        Clear_RunningData();
-        Stop_PWM_Generate();
-    }
-
-    if (ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable &&
-        MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Default_Param &&
-        MotorControl.ModeNow != Clear_Error && MotorControl.ModeNow != Set_ZeroPosition &&
-        MotorControl.ModeNow != Calib_Anticogging && MotorControl.axis_profile_valid)
-    {
-        if ((MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Speed_Mode) &&
-            (!old_position_start_prepared || !MotorOuterLoop_IsReady()))
-        {
-            old_position_start_prepared = true;
-            defer_position_power_start = true;
-        }
-        else
-        {
-            Start_PWM_Generate();
-        }
-    }
-    if (!defer_position_power_start)
-    {
-        old_position_start_prepared = false;
-    }
-
-    return defer_position_power_start;
-}
-
-static void Old_CommitModeAndError(bool defer_position_power_start)
-{
-    Detect_Mode_Error_Change();
-
-    if (!defer_position_power_start)
-    {
-        ModeLast = MotorControl.ModeNow;
-    }
-    ErrorLast = MotorControl.ErrorNow;
-
-    MotorControl.ModeNow_f = MotorControl.ModeNow;
-    MotorControl.ErrorNow_f = MotorControl.ErrorNow;
-}
-
-static void Old_Tick(void)
-{
-    bool defer;
-    Old_HandleFaultIndication();
-    defer = Old_ManagePowerStage();
-    Old_CommitModeAndError(defer);
-}
-"""
 
 FIXTURE_HEAD = r"""
 #include <assert.h>
@@ -134,6 +56,7 @@ typedef struct
 #define Calib_Friction 14
 #define Calib_EncoderObserver 15
 #define Calib_EleAngelOffset 16
+#define Calib_EncoderOffset 17
 #define No_Error 0
 #define CurrentOffset_Error 1
 #define Encoder_Error 2
@@ -156,6 +79,7 @@ typedef struct
 /* 阶段 D 恢复矩阵常量与外部信号桩（真实模块为全局，这里由夹具提供）。 */
 #define RUN_STATE_OC_RECOVER_TICKS 2000U
 #define RUN_STATE_TEMP_RECOVER_C 80.0f
+#define MCU_TEMPERATURE_TIMEOUT_TICKS 200U
 #define BUS_VOLTAGE_ENABLE_MIN_V 25.6f
 #define BUS_VOLTAGE_ENABLE_MAX_V 33.8f
 #define BUS_VOLTAGE_HARD_OVERVOLTAGE_V 35.0f
@@ -198,7 +122,8 @@ static float fast_abs(float x) { return x < 0.0f ? -x : x; }
 
 /* 适配器内部状态（真实模块为文件级 static，这里由夹具提供）。 */
 static AppLifecycle lifecycle;
-static bool power_on;
+static bool hardware_phases_disabled;
+static bool hardware_stop_fails;
 static ModeNow_TypeDef operation_mode;
 enum
 {
@@ -210,9 +135,11 @@ static volatile uint8_t save_finish;
 static uint16_t overcurrent_recover_ticks;
 static MotorWorkOutcome_TypeDef pending_outcome;
 static volatile bool outcome_latched;
-static volatile bool fast_power_stopped;
 static MotorControlCommand pending_control;
 static volatile bool control_pending;
+static volatile uint32_t fast_sample_epoch;
+static uint32_t observed_fast_sample_epoch;
+static bool fast_samples_fresh;
 static bool RunState_VbusInEnableWindow(void);
 static uint32_t critical_hw_enter(void) { return critical_depth++; }
 static void critical_hw_exit(uint32_t state)
@@ -259,72 +186,15 @@ void indicator_hw_set_led(bool error_channel, uint8_t blink_num)
     log_event(1 + (int)error_channel, (int)blink_num);
 }
 void Clear_RunningData(void) { log_event(3, 0); }
-void Stop_PWM_Generate(void) { log_event(4, 0); }
-void Start_PWM_Generate(void) { log_event(5, 0); }
+void power_stage_hw_stop(void) { if(!hardware_stop_fails) hardware_phases_disabled=true; log_event(4, 0); }
+void power_stage_hw_start(void) { hardware_phases_disabled=false; log_event(5, 0); }
+static bool power_stage_hw_phases_disabled(void) { return hardware_phases_disabled; }
 void Detect_Mode_Error_Change(void) { log_event(6, 0); }
 /* 就绪查询是纯查询：适配器与旧实现的调用时机不同，不计入行为对拍。 */
 bool MotorOuterLoop_IsReady(void) { return ready; }
 """
 
 DRIVER = r"""
-/* ===== 差分驱动 =====
- * 对拍两组：
- * A) 旧三函数（自行写模式/故障） vs 新适配器 Tick(MOTOR_WORK_RUNNING)；
- * B) 旧"worker 直接写模式/故障 + 旧三函数" vs 新" Tick(worker 结果)"。
- * 覆盖 LED/停机清理/停 PWM/启 PWM/变化检测与每 tick 后的状态。 */
-
-static const ModeNow_TypeDef modes[] = {
-    Motor_Disable, Save_Param, Default_Param, Clear_Error, Set_ZeroPosition,
-    Calib_Anticogging, Calib_PhaseResistance, Position_Mode, Speed_Mode, Current_Mode, Vq_Mode,
-};
-
-static const MotorWorkOutcome_TypeDef outcomes[] = {
-    { MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false },
-    { MOTOR_WORK_STOP, Motor_Disable, No_Error, false },
-    { MOTOR_WORK_FAULT, Motor_Disable, Test_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Motor_Disable, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Default_Param, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Clear_Error, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Set_ZeroPosition, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Calib_Anticogging, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Position_Mode, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Speed_Mode, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Current_Mode, No_Error, false },
-    { MOTOR_WORK_SWITCH_MODE, Vq_Mode, No_Error, false },
-    /* power_off：等价于模块自行 Stop_PWM 后再写模式（标定完成路径）。 */
-    { MOTOR_WORK_SWITCH_MODE, Save_Param, No_Error, true },
-    { MOTOR_WORK_SWITCH_MODE, Motor_Disable, No_Error, true },
-    { MOTOR_WORK_SWITCH_MODE, Current_Mode, No_Error, true },
-};
-
-#define TICKS 3
-#define MODES_COUNT ((int)(sizeof(modes) / sizeof(modes[0])))
-#define OUTCOMES_COUNT ((int)(sizeof(outcomes) / sizeof(outcomes[0])))
-
-/* 旧 worker 的直接写入：等价于迁移前模块自行调用 Set_ModeNow/Set_ErrorNow。 */
-static void ApplyDirect(MotorWorkOutcome_TypeDef outcome)
-{
-    switch (outcome.result)
-    {
-    case MOTOR_WORK_SWITCH_MODE:
-        if (outcome.power_off)
-        {
-            Stop_PWM_Generate();
-        }
-        MotorControl.ModeNow = outcome.next_mode;
-        break;
-    case MOTOR_WORK_STOP:
-        MotorControl.ModeNow = Motor_Disable;
-        break;
-    case MOTOR_WORK_FAULT:
-        MotorControl.ErrorNow = outcome.error;
-        break;
-    default:
-        break;
-    }
-}
-
 static void ResetWorld(ModeNow_TypeDef mode_last, ModeNow_TypeDef mode_now,
     ErrorNow_TypeDef error, uint8_t valid, bool is_ready)
 {
@@ -335,80 +205,23 @@ static void ResetWorld(ModeNow_TypeDef mode_last, ModeNow_TypeDef mode_now,
     MotorControl.ModeNow_f = 0;
     MotorControl.ErrorNow_f = 0;
     ready = is_ready;
-    old_position_start_prepared = false;
+    hardware_phases_disabled = true;
+    hardware_stop_fails = false;
+    OnBoard_Encoder.bad_frame_streak = 0U;
+    OnBoard_Encoder.calibrated = ENC_CALIB_ALL;
+    MotorControl.isUseSensorless = false;
+    FOC = (FOCStub_TypeDef){.Vbus=30.0f, .Vbus_filt=30.0f, .temp=25.0f};
+    McuTemperature.valid = 1U;
+    McuTemperature.missed_ticks = 0U;
     FocRunState_Init();
     log_len = 0;
 }
 
-typedef struct
+static void healthy_tick(void)
 {
-    int codes[TICKS][LOG_CAP];
-    int args[TICKS][LOG_CAP];
-    int lens[TICKS];
-    ModeNow_TypeDef mode[TICKS], mode_last[TICKS], mode_f[TICKS];
-    ErrorNow_TypeDef error[TICKS], error_f[TICKS];
-} Trace;
-
-static void CaptureTick(Trace *trace, int tick, int start)
-{
-    trace->lens[tick] = log_len - start;
-    memcpy(trace->codes[tick], log_codes + start, sizeof(int) * (size_t)trace->lens[tick]);
-    memcpy(trace->args[tick], log_args + start, sizeof(int) * (size_t)trace->lens[tick]);
-    trace->mode[tick] = MotorControl.ModeNow;
-    trace->error[tick] = MotorControl.ErrorNow;
-    trace->mode_last[tick] = ModeLast;
-    trace->mode_f[tick] = MotorControl.ModeNow_f;
-    trace->error_f[tick] = MotorControl.ErrorNow_f;
-}
-
-static int TraceEqual(const Trace *a, const Trace *b, int tick)
-{
-    return a->lens[tick] == b->lens[tick] &&
-        memcmp(a->codes[tick], b->codes[tick], sizeof(int) * (size_t)a->lens[tick]) == 0 &&
-        memcmp(a->args[tick], b->args[tick], sizeof(int) * (size_t)a->lens[tick]) == 0 &&
-        a->mode[tick] == b->mode[tick] && a->error[tick] == b->error[tick] &&
-        a->mode_last[tick] == b->mode_last[tick] &&
-        a->mode_f[tick] == b->mode_f[tick] && a->error_f[tick] == b->error_f[tick];
-}
-
-static long CompareCase(ModeNow_TypeDef mode_last, ModeNow_TypeDef mode_now,
-    ErrorNow_TypeDef error, uint8_t valid, bool is_ready,
-    MotorWorkOutcome_TypeDef outcome, int *failed)
-{
-    Trace old_trace, new_trace;
-    int tick, start;
-
-    ResetWorld(mode_last, mode_now, error, valid, is_ready);
-    for (tick = 0; tick < TICKS; ++tick)
-    {
-        start = log_len;
-        ApplyDirect(outcome);
-        Old_Tick();
-        CaptureTick(&old_trace, tick, start);
-    }
-
-    ResetWorld(mode_last, mode_now, error, valid, is_ready);
-    for (tick = 0; tick < TICKS; ++tick)
-    {
-        start = log_len;
-        FocRunState_PostOutcome(outcome); FocRunState_Tick();
-        CaptureTick(&new_trace, tick, start);
-    }
-
-    for (tick = 0; tick < TICKS; ++tick)
-    {
-        if (!TraceEqual(&old_trace, &new_trace, tick))
-        {
-            printf("MISMATCH last=%d now=%d error=%d valid=%d ready=%d"
-                   " result=%d next=%d tick=%d actions_old=%d actions_new=%d\n",
-                   mode_last, mode_now, error, valid, is_ready,
-                   (int)outcome.result, (int)outcome.next_mode, tick,
-                   old_trace.lens[tick], new_trace.lens[tick]);
-            *failed = 1;
-            return 0;
-        }
-    }
-    return TICKS;
+    FocRunState_PostOutcome((MotorWorkOutcome_TypeDef){MOTOR_WORK_RUNNING, Motor_Disable,
+                                                     No_Error, false});
+    FocRunState_Tick();
 }
 
 static void prepare_remote_mode(ModeNow_TypeDef mode)
@@ -426,9 +239,9 @@ static void prepare_remote_mode(ModeNow_TypeDef mode)
     OnBoard_Encoder.bad_frame_streak = 0U;
     OnBoard_Encoder.calibrated = ENC_CALIB_ALL;
     OnBoard_Encoder.position_rad = 0.0f;
-    FocRunState_Tick();
-    FocRunState_Tick();
-    assert(lifecycle.snapshot.state == APP_RUNNING && power_on);
+    healthy_tick();
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_RUNNING && !hardware_phases_disabled);
 }
 
 static void test_remote_targets(void)
@@ -440,7 +253,7 @@ static void test_remote_targets(void)
     command.iq_a = 1.5f;
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_BUSY);
     assert(MotorControl.iqRef == 0.0f);
-    FocRunState_Tick();
+    healthy_tick();
     assert(MotorControl.iqRef == 1.25f && !control_pending);
     command.iq_a = 2.1f;
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
@@ -452,28 +265,28 @@ static void test_remote_targets(void)
     command.position_rad = 0.0f;
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
     assert(FocRunState_RequestRemoteStop());
-    FocRunState_Tick();
-    assert(!control_pending && !power_on && MotorControl.iqRef == 1.25f);
+    healthy_tick();
+    assert(!control_pending && hardware_phases_disabled && MotorControl.iqRef == 1.25f);
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_DENIED);
 
     prepare_remote_mode(Current_Mode);
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
     MotorControl.current_limit = 0.1f;
-    FocRunState_Tick();
+    healthy_tick();
     assert(!control_pending && MotorControl.iqRef == 0.0f);
     MotorControl.current_limit = 2.0f;
-    FocRunState_Tick();
+    healthy_tick();
     assert(MotorControl.iqRef == 0.0f);
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
     MotorControl.ErrorNow = Over_Current;
-    FocRunState_Tick();
-    assert(!control_pending && MotorControl.iqRef == 0.0f && !power_on);
+    healthy_tick();
+    assert(!control_pending && MotorControl.iqRef == 0.0f && hardware_phases_disabled);
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_FAULT);
 
     prepare_remote_mode(Speed_Mode);
     command = (MotorControlCommand){.mode=MOTOR_CONTROL_SPEED, .speed_rad_s=-3.0f};
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
-    FocRunState_Tick();
+    healthy_tick();
     assert(MotorControl.speedRef == -3.0f);
     command.speed_rad_s = 4.01f;
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
@@ -488,12 +301,12 @@ static void test_remote_targets(void)
     MotorControl.axis_profile.maximum_position_rad = 1.0f;
     command = (MotorControlCommand){.mode=MOTOR_CONTROL_POSITION, .position_rad=0.5f};
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
-    FocRunState_Tick();
+    healthy_tick();
     assert(MotorControl.posRef == 0.5f && MotorControl.ModeNow == Position_Mode);
     command.position_rad = 0.75f;
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
     OnBoard_Encoder.position_rad = 1.0f;
-    FocRunState_Tick();
+    healthy_tick();
     assert(!control_pending && MotorControl.posRef == 0.5f);
     OnBoard_Encoder.position_rad = 0.0f;
     command.position_rad = 1.1f;
@@ -504,7 +317,7 @@ static void test_remote_targets(void)
     prepare_remote_mode(Vq_Mode);
     command = (MotorControlCommand){.mode=MOTOR_CONTROL_VQ, .vq_v=-2.0f};
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
-    FocRunState_Tick();
+    healthy_tick();
     assert(MotorControl.vqRef == -2.0f);
     command.vq_v = 20.0f;
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
@@ -515,35 +328,66 @@ static void test_remote_targets(void)
     assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
     FocRunState_PostOutcome((MotorWorkOutcome_TypeDef){MOTOR_WORK_STOP, Motor_Disable,
                                                      No_Error, false});
-    FocRunState_Tick();
-    assert(!control_pending && !power_on && MotorControl.vqRef == -2.0f);
+    healthy_tick();
+    assert(!control_pending && hardware_phases_disabled && MotorControl.vqRef == -2.0f);
     assert(FOC_MaximumVoltage(NAN) == 0.0f && FOC_MaximumVoltage(-1.0f) == 0.0f);
     assert(critical_depth == 0U);
     printf("PASS remote targets: SI, mailbox, bounds, STOP/fault/limit races, no enable\n");
 }
 
+static void test_real_guards(void)
+{
+    ResetWorld(Motor_Disable, Motor_Disable, No_Error, 1, true);
+    McuTemperature.valid = 0U;
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_SELF_TEST && hardware_phases_disabled);
+    assert(MotorControl.ErrorNow == No_Error);
+    McuTemperature.valid = 1U;
+    OnBoard_Encoder.calibrated = 0U;
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_READY);
+    assert(FocRunState_RequestRemoteStop());
+    assert(!FocRunState_IsMaintenanceActive(Calib_Anticogging));
+
+    prepare_remote_mode(Current_Mode);
+    MotorControlCommand command = {.mode=MOTOR_CONTROL_CURRENT, .iq_a=0.5f};
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    FocRunState_Tick();
+    assert(lifecycle.snapshot.state == APP_FAULT && hardware_phases_disabled);
+    assert(!control_pending && MotorControl.iqRef == 0.0f);
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_FAULT);
+    MotorControl.ModeNow = Clear_Error;
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_READY && hardware_phases_disabled);
+
+    ResetWorld(Motor_Disable, Motor_Disable, Encoder_Error, 1, true);
+    OnBoard_Encoder.bad_frame_streak = 0U;
+    hardware_phases_disabled = false;
+    hardware_stop_fails = true;
+    MotorControl.ModeNow = Clear_Error;
+    healthy_tick();
+    assert(MotorControl.ErrorNow == Encoder_Error);
+    assert(lifecycle.snapshot.state == APP_FAULT);
+    hardware_stop_fails = false;
+    hardware_phases_disabled = true;
+    MotorControl.ModeNow = Clear_Error;
+    healthy_tick();
+    assert(MotorControl.ErrorNow == No_Error && lifecycle.snapshot.state == APP_READY);
+
+    prepare_remote_mode(Current_Mode);
+    FocRunState_PostOutcome((MotorWorkOutcome_TypeDef){MOTOR_WORK_SWITCH_MODE, Current_Mode,
+                                                     No_Error, false});
+    assert(FocRunState_RequestRemoteStop());
+    healthy_tick();
+    assert(MotorControl.ModeNow == Motor_Disable && hardware_phases_disabled);
+    assert(!outcome_latched && !control_pending);
+    printf("PASS real guards: cold self-test, calibration not globally required, stale ADC,"
+           " fault holds, real shutdown before CLEAR, STOP revokes queued mode\n");
+}
+
 int main(void)
 {
-    int i_last, i_now, i_error, i_valid, i_ready, i_outcome;
-    long comparisons = 0;
-
-    for (i_outcome = 0; i_outcome < OUTCOMES_COUNT; ++i_outcome)
-    for (i_last = 0; i_last < MODES_COUNT; ++i_last)
-    for (i_now = 0; i_now < MODES_COUNT; ++i_now)
-    for (i_error = 0; i_error < 2; ++i_error)
-    for (i_valid = 0; i_valid < 2; ++i_valid)
-    for (i_ready = 0; i_ready < 2; ++i_ready)
-    {
-        int failed = 0;
-        comparisons += CompareCase(modes[i_last], modes[i_now],
-            i_error ? Test_Error : No_Error, (uint8_t)i_valid, i_ready != 0,
-            outcomes[i_outcome], &failed);
-        if (failed)
-        {
-            return 1;
-        }
-    }
-
     /* ===== 维护会话用例（阶段 C）：Save/Default/Zero ===== */
     {
         MotorWorkOutcome_TypeDef running = { MOTOR_WORK_RUNNING, Motor_Disable, No_Error, false };
@@ -551,11 +395,11 @@ int main(void)
 
         /* SAVE 成功：COMMITTED 完成后回 READY。 */
         ResetWorld(Motor_Disable, Save_Param, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.state == APP_MAINTENANCE);
         assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
         FocRunState_SaveFinished(true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.state == APP_READY);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
@@ -563,61 +407,64 @@ int main(void)
 
         /* SAVE 失败：FAILED + 故障锁存；清除后回 READY。 */
         ResetWorld(Motor_Disable, Save_Param, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         FocRunState_SaveFinished(false);
         Set_ErrorNow(Test_Error);
         MotorControl.ModeNow = Motor_Disable;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.state == APP_FAULT);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_FAILED);
         assert(lifecycle.snapshot.latched_faults != 0U);
         Set_ErrorNow(No_Error);
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.state == APP_READY);
         assert(lifecycle.snapshot.latched_faults == 0U);
 
         /* ZERO → SAVE 链：ZERO 以 UNCOMMITTED 完成，随后开启 SAVE 会话。 */
         ResetWorld(Motor_Disable, Set_ZeroPosition, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_ZERO);
-        FocRunState_PostOutcome(zero_done); FocRunState_Tick();
+        FocRunState_PostOutcome(zero_done); healthy_tick();
         assert(lifecycle.snapshot.last_operation == APP_OPERATION_ZERO);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
         FocRunState_SaveFinished(true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_COMMITTED);
 
-        /* DEFAULTS：UNCOMMITTED 完成；同值持续不重复开启。 */
+        /* DEFAULTS：等待 worker 请求保存后才完成，不能靠监督拍数猜测完成。 */
         ResetWorld(Motor_Disable, Default_Param, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_DEFAULTS);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        healthy_tick();
+        assert(lifecycle.snapshot.operation == APP_OPERATION_DEFAULTS);
+        FocRunState_PostOutcome(zero_done); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
-        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        FocRunState_PostOutcome(running); healthy_tick();
+        assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
 
-        /* 会话被故障打断：故障未清除前 CANCEL_DONE 被健康 guard 拒绝；
-         * 清除 ErrorNow 的同一拍先确认取消再放行 CLEAR，回到 READY。 */
+        /* 取消确认可在故障保持时收口，原故障直到显式 CLEAR 受理才清除。 */
         ResetWorld(Motor_Disable, Save_Param, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
         Set_ErrorNow(Test_Error);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.state == APP_FAULT);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
-        assert(lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED);
-        assert(lifecycle.snapshot.operation == APP_OPERATION_SAVE);
-        Set_ErrorNow(No_Error);
+        FocRunState_PostOutcome(running); healthy_tick();
+        assert(lifecycle.snapshot.operation_result == APP_OPERATION_CANCELLED);
+        assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
+        assert(MotorControl.ErrorNow == Test_Error);
+        Set_ErrorNow(Encoder_Error);
+        OnBoard_Encoder.bad_frame_streak = 0U;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.state == APP_READY);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_CANCELLED);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
@@ -636,9 +483,9 @@ int main(void)
 
         /* 齿槽标定：完成切往 Save_Param → CALIBRATION 未提交完成，随后由 SAVE 提交。 */
         ResetWorld(Motor_Disable, Calib_Anticogging, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
-        FocRunState_PostOutcome(to_save); FocRunState_Tick();
+        FocRunState_PostOutcome(to_save); healthy_tick();
         assert(lifecycle.snapshot.last_operation == APP_OPERATION_CALIBRATION);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
@@ -646,48 +493,48 @@ int main(void)
 
         /* 相电阻标定：入口自动启相（修复阶段 B 回归）；停机结果完成会话并关相。 */
         ResetWorld(Motor_Disable, Calib_PhaseResistance, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
-        assert(power_on);
-        FocRunState_PostOutcome(stop_tick); FocRunState_Tick();
+        assert(!hardware_phases_disabled);
+        FocRunState_PostOutcome(stop_tick); healthy_tick();
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
-        assert(!power_on);
+        assert(hardware_phases_disabled);
 
         /* 摩擦辨识：入口自动启相（自自动使能迁移到会话）；停机结果完成会话并关相。 */
         ResetWorld(Motor_Disable, Calib_Friction, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
-        assert(power_on);
-        FocRunState_PostOutcome(stop_tick); FocRunState_Tick();
+        assert(!hardware_phases_disabled);
+        FocRunState_PostOutcome(stop_tick); healthy_tick();
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
-        assert(!power_on);
+        assert(hardware_phases_disabled);
 
         /* 观测器 LUT 标定（Mode 13）：会话入口启相；完成关相并切往 Save_Param → 未提交完成。 */
         ResetWorld(Motor_Disable, Calib_EncoderObserver, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
-        assert(power_on);
-        FocRunState_PostOutcome(to_save_off); FocRunState_Tick();
+        assert(!hardware_phases_disabled);
+        FocRunState_PostOutcome(to_save_off); healthy_tick();
         assert(lifecycle.snapshot.last_operation == APP_OPERATION_CALIBRATION);
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
-        assert(!power_on);
+        assert(hardware_phases_disabled);
 
         /* 电角度零位标定（Mode 15）：同构（完成关相并切往 Save_Param → 未提交完成）。 */
         ResetWorld(Motor_Disable, Calib_EleAngelOffset, No_Error, 1, true);
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(lifecycle.snapshot.operation == APP_OPERATION_CALIBRATION);
-        assert(power_on);
-        FocRunState_PostOutcome(to_save_off); FocRunState_Tick();
+        assert(!hardware_phases_disabled);
+        FocRunState_PostOutcome(to_save_off); healthy_tick();
         assert(lifecycle.snapshot.operation_result == APP_OPERATION_COMPLETED);
         assert(lifecycle.snapshot.operation_effects == APP_EFFECT_UNCOMMITTED);
         assert(lifecycle.snapshot.operation == APP_OPERATION_NONE);
-        assert(!power_on);
+        assert(hardware_phases_disabled);
 
         printf("PASS calibration sessions: anticogging then save, phase resistance and"
                " friction start/stop, encoder LUT/ele-zero save chains\n");
@@ -702,11 +549,11 @@ int main(void)
         ResetWorld(Motor_Disable, Motor_Disable, Encoder_Error, 1, true);
         OnBoard_Encoder.bad_frame_streak = 40U;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == Encoder_Error);
         OnBoard_Encoder.bad_frame_streak = 0U;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == No_Error);
         assert(lifecycle.snapshot.state == APP_READY);
 
@@ -715,22 +562,22 @@ int main(void)
         McuTemperature.valid = 1U;
         FOC.temp = 95.0f;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == High_Temprature);
         FOC.temp = 75.0f;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == No_Error);
 
         /* 过压：窗口外拒绝，窗口内准入。 */
         ResetWorld(Motor_Disable, Motor_Disable, Over_Voltage, 1, true);
         FOC.Vbus_filt = 34.2f;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == Over_Voltage);
         FOC.Vbus_filt = 32.0f;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == No_Error);
 
         /* 过流：回落不足 100 ms 拒绝；驻留满后准入。 */
@@ -739,30 +586,29 @@ int main(void)
         FOC.Ib = 1.0f;
         FOC.Ic = 1.0f;
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == Over_Current);
         for (i = 0; i < 2100; ++i)
         {
             log_len = 0; /* 场景只累计恢复证据：丢弃指示灯日志避免溢出。 */
-            FocRunState_PostOutcome(running); FocRunState_Tick();
+            FocRunState_PostOutcome(running); healthy_tick();
         }
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == No_Error);
 
         /* 未知故障值一律拒绝，避免隐式清错。 */
         ResetWorld(Motor_Disable, Motor_Disable, Test_Error, 1, true);
         MotorControl.ModeNow = Clear_Error;
-        FocRunState_PostOutcome(running); FocRunState_Tick();
+        FocRunState_PostOutcome(running); healthy_tick();
         assert(MotorControl.ErrorNow == Test_Error);
 
         printf("PASS recovery matrix: encoder, temperature, voltage, overcurrent dwell,"
                " unknown denied\n");
     }
 
-    printf("PASS run state differential: %ld tick comparisons identical"
-           " (legacy trio vs AppLifecycle adapter)\n", comparisons);
     test_remote_targets();
+    test_real_guards();
     return 0;
 }
 """
@@ -777,9 +623,11 @@ def run_state_fixture():
         )
         + function_source(source, "validate_remote_control")
         + function_source(source, "apply_pending_control")
+        + function_source(source, "Encoder_FeedbackRequired")
         + function_source(source, "RunState_ModeIsAutoStartable")
         + function_source(source, "RunState_ModeNeedsPreparation")
         + function_source(source, "RunState_ProjectControlMode")
+        + function_source(source, "RunState_UpdateSampleProgress")
         + function_source(source, "RunState_BuildGuards")
         + function_source(source, "RunState_ApplyActions")
         + function_source(source, "RunState_Send")
@@ -789,6 +637,7 @@ def run_state_fixture():
         + function_source(source, "RunState_VbusInEnableWindow")
         + function_source(source, "RunState_UpdateRecoveryEvidence")
         + function_source(source, "RunState_FaultSourceRecovered")
+        + function_source(source, "RunState_TryClearFault")
         + function_source(source, "RunState_OperationFor")
         + function_source(source, "RunState_SendOperation")
         + function_source(source, "RunState_ServiceOperations")
@@ -798,10 +647,12 @@ def run_state_fixture():
         + function_source(source, "FocRunState_RequestRemoteStop")
         + function_source(source, "FocRunState_SaveFinished")
         + function_source(source, "FocRunState_PostOutcome")
+        + function_source(source, "FocRunState_IsMaintenanceActive")
+        + function_source(source, "FocRunState_FastFaultStop")
         + function_source(source, "FocRunState_TakeOutcome")
         + function_source(source, "FocRunState_Tick")
     )
-    return FIXTURE_HEAD + OLD_LOGIC + new_logic + DRIVER
+    return FIXTURE_HEAD + new_logic + DRIVER
 
 
 def main():
@@ -811,7 +662,7 @@ def main():
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    source = out / "run_state_diff.c"
+    source = out / "run_state_guards.c"
     source.write_text(run_state_fixture(), encoding="utf-8")
     compiler = (
         [args.cc]
@@ -828,7 +679,7 @@ def main():
             "-Werror",
         ]
     )
-    executable = out / "run_state_diff.exe"
+    executable = out / "run_state_guards.exe"
     subprocess.run(
         compiler
         + [

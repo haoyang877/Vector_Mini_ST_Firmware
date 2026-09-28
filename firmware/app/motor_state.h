@@ -74,4 +74,10 @@ ParameterStatus MotorControl_PollSave(uint32_t ticket, uint32_t *persisted_revis
  * @note 前台有界调用，只查询原ticket，不写Flash、不恢复目标。
  */
 bool MotorControl_SaveIdle(void);
+/**
+ * @brief 查询维护是否仍能分配新的活动配置修订。
+ * @return 已初始化且修订未耗尽返回true；否则禁止会修改配置的维护。
+ * @note 维护准入与本查询须在同一短临界区；允许读取或保存当前版本，不返回对象地址。
+ */
+bool MotorControl_ConfigurationRevisionAvailable(void);
 #endif

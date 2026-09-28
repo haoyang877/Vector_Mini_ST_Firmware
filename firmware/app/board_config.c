@@ -1,6 +1,8 @@
 #include "board_config.h"
 
 #include "board_hw.h"
+#include "boot_handoff.h"
+#include "comm_hw.h"
 #include "foc_run_state.h"
 #include "yg_protocol_runtime.h"
 #include "yg_protocol_link.h"
@@ -12,12 +14,14 @@
 #include "power_stage_hw.h"
 #include "yg_protocol_status_adapter.h"
 #include "yg_protocol_owner_adapter.h"
+#include "time_hw.h"
 
 /* 启动编排：参数装载 → 应用状态初始化 → 板级采样时钟 → CAN FD 端点。
  * 硬件细节全部位于 platform 契约实现内；本文件不再包含任何硬件头。 */
 
 static motor_stop_service_t stop_service;
 static yg_protocol_motor_adapter_t motor_adapter;
+static bool communication_ready;
 
 static motor_stop_owner_result_t request_stop(void *context)
 {
@@ -67,6 +71,47 @@ static bool bind_device_description(void)
     return board_hw_read_uid(info.uid) && YgProtocolLink_SetDeviceDescription(&info, &capabilities);
 }
 
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+static bool boot_request_stop(void *context, uint64_t ticket)
+{
+    (void)context;
+    return FocRunState_RequestBootStop(ticket) == MOTOR_CONTROL_ACCEPTED;
+}
+
+static bool boot_stop_ready(void *context, uint64_t ticket)
+{
+    (void)context;
+    return FocRunState_BootHandoffReady(ticket) && MotorControl_SaveIdle();
+}
+
+static void boot_read_health(void *context, BootHandoffHealth *health)
+{
+    (void)context;
+    *health = (BootHandoffHealth){0};
+    bool control_healthy =
+        FocRunState_ReadBootHealth(&health->supervisor_epoch, &health->confirmation_ready);
+    health->healthy = control_healthy && communication_ready && YgProtocolLink_IsReady() &&
+                      comm_hw_can_is_healthy();
+    health->confirmation_ready =
+        health->confirmation_ready && health->healthy && MotorControl_SaveIdle();
+}
+
+static bool boot_confirmation_complete(void *context, uint64_t boot_epoch, uint32_t image_token)
+{
+    (void)context;
+    return FocRunState_AcknowledgeBootConfirmation(boot_epoch, image_token);
+}
+
+static bool bind_boot_handoff(void)
+{
+    const BootHandoffOwner owner = {
+        boot_request_stop, boot_stop_ready, boot_read_health, boot_confirmation_complete};
+    BootEntryService service;
+    return BootHandoff_Init(&owner, NULL, time_hw_now_ms()) && BootHandoff_GetService(&service) &&
+           YgProtocolLink_BindBootService(&service);
+}
+#endif
+
 void Board_Init(void)
 {
     /* 电机所有者装载参数与标定并初始化；无效记录回退默认值。 */
@@ -76,10 +121,25 @@ void Board_Init(void)
     board_hw_start(false);
 
     /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
-    if (!YgProtocolRuntime_Init(Protocol_NodeId_Get()) || !YgProtocolStatusAdapter_Init() ||
-        !bind_motor_stop() || !YgProtocolOwner_BindServices() || !bind_device_description())
+    communication_ready = YgProtocolRuntime_Init(Protocol_NodeId_Get()) &&
+                          YgProtocolStatusAdapter_Init() && bind_motor_stop() &&
+                          YgProtocolOwner_BindServices() && bind_device_description();
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    communication_ready = communication_ready && bind_boot_handoff();
+#endif
+    communication_ready = communication_ready && YgProtocolRuntime_Start();
+    if (!communication_ready)
     {
         /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
         power_stage_hw_stop();
     }
+}
+
+void Board_ServiceBoot(uint32_t now_ms)
+{
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    BootHandoff_Service(now_ms);
+#else
+    (void)now_ms;
+#endif
 }

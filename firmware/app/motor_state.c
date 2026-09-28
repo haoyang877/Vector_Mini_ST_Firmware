@@ -32,7 +32,8 @@ static SensorlessStartup_TypeDef SensorlessStartup;
 static FOC_TypeDef FOC;
 
 /* 活动修订与最近变更身份；不常驻 InterfaceParam 副本，不复用 schema 版本。 */
-static uint32_t config_revision, revision_work_epoch;
+static volatile uint32_t config_revision;
+static uint32_t revision_work_epoch;
 static struct
 {
     ParameterReadRequest request;
@@ -574,4 +575,9 @@ bool MotorControl_SaveIdle(void)
     bool idle = !save_job.valid || save_job.result != PARAMETER_ACCEPTED;
     critical_hw_exit(mask);
     return idle;
+}
+
+bool MotorControl_ConfigurationRevisionAvailable(void)
+{
+    return config_revision != 0U && config_revision != UINT32_MAX;
 }

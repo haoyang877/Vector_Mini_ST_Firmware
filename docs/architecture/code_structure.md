@@ -134,6 +134,19 @@ CLEAR 保留原故障直到核心受理，故障不会因兼容值已经为零�
 来源、删减和验证见
 [E1 批次说明](../plans/active/2026-09-28-lifecycle-guards-e1.md)。
 
+2026-09-28 E4：参数写入核对停机资格和活动revision，成功不自动保存；SAVE按原始身份
+等待Flash回读与实际提交。160～162按明确种类受理/查询/取消，不把内部枚举直接投到线路。
+同来源序号重放原ticket，不重复执行；标定终态不被派生SAVE覆盖；取消等待实际归还。
+共享帧/CRC/分片代码现归`shared/protocol/`，APP和Loader使用同一源码，不维护兼容副本。
+本批提交`d505acdc`，未测试、未构建；升级服务与D端口后续接线进度见[E4计划](../plans/active/2026-09-28-app-boundaries-e4.md)。
+
+APP交接状态归`services/boot_handoff/boot_handoff.c`，通过composition注入唯一运行所有者
+的停机、健康与真实确认接点。平台BootHw只提供本次已校验交接、记录确认、ENTER与看门狗能力。
+普通独立APP链接不可用端口，Loader感知APP链接真实端口与共享镜像库，两种实现互斥。
+Type3启动值投影归`app/yg_protocol_status_adapter.c`，与协议Service串行，完整u64代号保留。
+试启动确认前禁止新启动/维护/配置写入；确认成功只解除试启动禁止，不恢复旧目标。
+维护镜像只允许维护流程；ENTER事务即使失败也持续禁止输出，直至明确重新启动。
+
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：
 app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platform/api` 与
 `param_comm_bridge.h` 窄桥访问通信运行态；`motor/data_type.h` 已改用 `<stdint.h>`。后续优先

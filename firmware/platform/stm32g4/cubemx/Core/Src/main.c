@@ -31,6 +31,7 @@
 #include <stdbool.h>
 
 #include "board_config.h"
+#include "boot_hw.h"
 #include "motor_state.h"
 #include "SEGGER_RTT.h"
 #include "time_hw.h"
@@ -78,7 +79,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  /* 先辨别独立APP或真实Loader交接，再由平台设置重定位向量；这里不确认试启动。 */
+  (void)BootHw_Init();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -124,6 +126,7 @@ int main(void)
     MotorControl_ServiceBackground();
     YgProtocolStatusAdapter_Refresh();
     YgProtocolRuntime_Service(time_hw_now_ms());
+    Board_ServiceBoot(time_hw_now_ms());
 
   }
   /* USER CODE END 3 */

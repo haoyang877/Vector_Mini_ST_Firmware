@@ -6,6 +6,8 @@
 #include "angle_feedback.h"
 #include "app_lifecycle.h"
 #include "bus_voltage_profile.h"
+#include "boot_hw.h"
+#include "image_format.h"
 #include "critical_hw.h"
 #include "foc_bench_speed.h"
 #include "foc_errhandle.h"
@@ -16,6 +18,7 @@
 #include "indicator_hw.h"
 #include "mcu_temperature.h"
 #include "motor_sensing.h"
+#include "motor_state.h"
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
 #include "position_impedance.h"
@@ -86,6 +89,8 @@ static FocBackgroundClaim background_claim;
 static bool background_busy, stop_pending, configuration_reading;
 /* 前台升级交接独占票据；失败后继续禁止运动，只有重新启动初始化才能清空。 */
 static uint64_t boot_stop_ticket;
+static bool boot_confirmation_pending;
+static bool boot_maintenance_only;
 /* Over_Current 回落驻留计数；饱和于 RUN_STATE_OC_RECOVER_TICKS。 */
 static MotorFaultRecovery recovery;
 /* 快环结果邮箱：20 kHz 写入、2 kHz 消费；只保留最新的非 RUNNING 结果。 */
@@ -99,6 +104,7 @@ static volatile bool control_pending;
 static volatile uint32_t fast_sample_epoch;
 static uint32_t observed_fast_sample_epoch;
 static bool fast_samples_fresh;
+static uint32_t supervisor_epoch;
 static bool RunState_VbusInEnableWindow(void);
 static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode);
 static void clear_running_data(void)
@@ -156,7 +162,7 @@ static void RunState_BenchCancel(uint32_t reason)
 static MotorControlResult validate_control(const MotorControlCommand *command)
 {
     ModeNow_TypeDef mode;
-    if (boot_stop_ticket != 0U)
+    if (boot_stop_ticket != 0U || boot_confirmation_pending || boot_maintenance_only)
     {
         return MOTOR_CONTROL_DENIED;
     }
@@ -362,7 +368,8 @@ static AppLifecycleGuards RunState_BuildGuards(void)
     guards.fault_sources_clear = MotorControl->ErrorNow == No_Error;
     guards.self_test_passed =
         MotorControl->axis_profile_valid && guards.samples_fresh && guards.fault_sources_clear;
-    guards.start_permitted = MotorControl->axis_profile_valid;
+    guards.start_permitted =
+        MotorControl->axis_profile_valid && !boot_confirmation_pending && !boot_maintenance_only;
     if (lifecycle.snapshot.state != APP_RUNNING)
     {
         guards.start_permitted = guards.start_permitted && RunState_VbusInEnableWindow() &&
@@ -510,10 +517,10 @@ static void RunState_ConfirmStart(void)
 {
     uint32_t state = critical_hw_enter();
     AppLifecycleGuards guards = RunState_BuildGuards();
-    if (boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_STARTING &&
-        guards.start_permitted && guards.samples_fresh && guards.fault_sources_clear &&
-        guards.startup_confirmed && RunState_ModeNeedsPreparation(MotorControl->ModeNow) &&
-        power_stage_hw_phases_disabled())
+    if (boot_stop_ticket == 0U && !boot_confirmation_pending &&
+        lifecycle.snapshot.state == APP_STARTING && guards.start_permitted &&
+        guards.samples_fresh && guards.fault_sources_clear && guards.startup_confirmed &&
+        RunState_ModeNeedsPreparation(MotorControl->ModeNow) && power_stage_hw_phases_disabled())
     {
         power_stage_hw_start();
     }
@@ -709,9 +716,13 @@ static bool RunState_ServiceOperations(ModeNow_TypeDef target, bool worker_stopp
         }
     }
     else if ((state == APP_STOPPING || state == APP_FAULT) &&
-             lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED &&
+             lifecycle.snapshot.operation != APP_OPERATION_NONE &&
+             (lifecycle.snapshot.operation_result == APP_OPERATION_CANCEL_REQUESTED ||
+              (state == APP_FAULT &&
+               lifecycle.snapshot.operation_result == APP_OPERATION_FAILED)) &&
              RunState_BuildGuards().maintenance_released && !background_busy)
     {
+        /* FAILED仍需确认真实归还；核心保留FAILED终态并清除操作占用，才能显式CLEAR。 */
         sent = true;
         (void)RunState_SendOperation(
             APP_EVENT_CANCEL_DONE, lifecycle.snapshot.operation, APP_EFFECT_UNKNOWN, 0U);
@@ -724,7 +735,7 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
 {
     AppOperation operation = RunState_OperationFor(target);
 
-    if (boot_stop_ticket != 0U)
+    if (boot_stop_ticket != 0U || boot_confirmation_pending)
     {
         return;
     }
@@ -815,7 +826,7 @@ static MotorMaintenanceKind maintenance_kind(ModeNow_TypeDef mode)
     }
 }
 
-bool FocRunState_ConfigurationAllowed(void)
+static bool configuration_idle(void)
 {
     AppLifecycleGuards guards = RunState_BuildGuards();
     return boot_stop_ticket == 0U && lifecycle.snapshot.state == APP_READY &&
@@ -826,8 +837,17 @@ bool FocRunState_ConfigurationAllowed(void)
            guards.control_idle && guards.operation_idle && guards.maintenance_released;
 }
 
+bool FocRunState_ConfigurationAllowed(void)
+{
+    return !boot_confirmation_pending && configuration_idle();
+}
+
 MotorControlResult FocRunState_RequestEnable(MotorControlMode mode)
 {
+    if (boot_maintenance_only)
+    {
+        return MOTOR_CONTROL_DENIED;
+    }
     ModeNow_TypeDef target;
     switch (mode)
     {
@@ -924,7 +944,8 @@ MotorControlResult FocRunState_RequestMaintenance(MotorMaintenanceKind kind, uin
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else if (FocRunState_ConfigurationAllowed() && RunState_BuildGuards().self_test_passed)
+    else if (FocRunState_ConfigurationAllowed() && RunState_BuildGuards().self_test_passed &&
+             (kind == MOTOR_MAINTENANCE_SAVE || MotorControl_ConfigurationRevisionAvailable()))
     {
         request_epoch = lifecycle.snapshot.epoch;
         clear_running_data();
@@ -1373,6 +1394,11 @@ void FocRunState_Init(MotorControl_TypeDef *motor,
     request_epoch = lifecycle.snapshot.epoch;
     background_busy = stop_pending = configuration_reading = false;
     boot_stop_ticket = 0U;
+    BootHwInfo boot_info = {0};
+    BootHw_GetInfo(&boot_info);
+    boot_confirmation_pending = boot_info.available && !boot_info.confirmed;
+    boot_maintenance_only = boot_info.available && boot_info.image_role == YGI_ROLE_MAINTENANCE;
+    supervisor_epoch = 0U;
     background_claim = (FocBackgroundClaim){0};
     operation_mode = Motor_Disable;
     save_finish = (uint8_t)SAVE_FINISH_NONE;
@@ -1457,6 +1483,38 @@ bool FocRunState_BootHandoffReady(uint64_t ticket)
                  guards.maintenance_released;
     critical_hw_exit(mask);
     return ready;
+}
+
+bool FocRunState_ReadBootHealth(uint32_t *progress, bool *confirmation_ready)
+{
+    if (progress == NULL || confirmation_ready == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    AppLifecycleGuards guards = RunState_BuildGuards();
+    *progress = supervisor_epoch;
+    bool healthy = guards.samples_fresh && lifecycle.snapshot.state != APP_FATAL;
+    *confirmation_ready = healthy && configuration_idle() && guards.self_test_passed &&
+                          Encoder_IsOnline(OnBoard_Encoder);
+    critical_hw_exit(mask);
+    return healthy;
+}
+
+bool FocRunState_AcknowledgeBootConfirmation(uint64_t boot_epoch, uint32_t image_token)
+{
+    uint32_t mask = critical_hw_enter();
+    BootHwInfo info = {0};
+    BootHw_GetInfo(&info);
+    bool confirmed = info.available && info.confirmed && !info.trial &&
+                     info.boot_epoch == boot_epoch && info.image_token == image_token &&
+                     boot_epoch != 0U && image_token != 0U;
+    if (confirmed)
+    {
+        boot_confirmation_pending = false;
+    }
+    critical_hw_exit(mask);
+    return confirmed;
 }
 
 MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
@@ -1726,6 +1784,7 @@ void FocRunState_Tick(void)
     MotorControl->ModeNow_f = MotorControl->ModeNow;
     MotorControl->ErrorNow_f = MotorControl->ErrorNow;
     RunState_PublishBenchState();
+    ++supervisor_epoch;
 }
 
 uint32_t FocRunState_WorkEpoch(void)
@@ -1812,8 +1871,8 @@ void FocRunState_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();
     bool permitted =
-        boot_stop_ticket == 0U && !background_busy && !stop_pending && !outcome_latched &&
-        MotorControl->ErrorNow == No_Error &&
+        boot_stop_ticket == 0U && !boot_confirmation_pending && !background_busy && !stop_pending &&
+        !outcome_latched && MotorControl->ErrorNow == No_Error &&
         (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_RUNNING);
     if (permitted)
     {

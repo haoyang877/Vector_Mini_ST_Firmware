@@ -326,6 +326,25 @@ static bool stale_sequence(uint8_t source, uint16_t sequence)
     return false;
 }
 
+/* 调用方持有临界区；新请求也收敛旧SAVE，不能依赖主机继续轮询已取消任务。 */
+static void refresh_save_result(void)
+{
+    if (!save_job.valid || save_job.result != PARAMETER_ACCEPTED)
+    {
+        return;
+    }
+    MotorMaintenanceProgress progress;
+    if (!FocRunState_ReadMaintenance(save_job.ticket, &progress) ||
+        progress.result == APP_OPERATION_CANCELLED)
+    {
+        save_job.result = PARAMETER_CANCELLED;
+    }
+    else if (progress.result == APP_OPERATION_FAILED)
+    {
+        save_job.result = PARAMETER_PERSIST_FAILED;
+    }
+}
+
 ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
                                            ParameterValue *value)
 {
@@ -397,6 +416,7 @@ ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request
         return PARAMETER_INVALID_ARGUMENT;
     }
     uint32_t mask = critical_hw_enter();
+    refresh_save_result();
     ParameterStatus result;
     if (last_write.valid && request->source_node == last_write.request.source_node &&
         request->sequence == last_write.request.sequence)
@@ -475,6 +495,7 @@ ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, ui
         return PARAMETER_INVALID_ARGUMENT;
     }
     uint32_t mask = critical_hw_enter();
+    refresh_save_result();
     ParameterStatus result;
     if (save_job.valid && request->source_node == save_job.request.source_node &&
         request->sequence == save_job.request.sequence)
@@ -541,19 +562,7 @@ ParameterStatus MotorControl_PollSave(uint32_t ticket, uint32_t *persisted_revis
     ParameterStatus result = PARAMETER_STALE_TICKET;
     if (save_job.valid && ticket != 0U && ticket == save_job.ticket)
     {
-        if (save_job.result == PARAMETER_ACCEPTED)
-        {
-            MotorMaintenanceProgress progress;
-            if (!FocRunState_ReadMaintenance(ticket, &progress) ||
-                progress.result == APP_OPERATION_CANCELLED)
-            {
-                save_job.result = PARAMETER_CANCELLED;
-            }
-            else if (progress.result == APP_OPERATION_FAILED)
-            {
-                save_job.result = PARAMETER_PERSIST_FAILED;
-            }
-        }
+        refresh_save_result();
         result = save_job.result;
         if (result == PARAMETER_OK)
         {
@@ -567,11 +576,7 @@ ParameterStatus MotorControl_PollSave(uint32_t ticket, uint32_t *persisted_revis
 bool MotorControl_SaveIdle(void)
 {
     uint32_t mask = critical_hw_enter();
-    if (save_job.valid && save_job.result == PARAMETER_ACCEPTED)
-    {
-        uint32_t persisted_revision;
-        (void)MotorControl_PollSave(save_job.ticket, &persisted_revision);
-    }
+    refresh_save_result();
     bool idle = !save_job.valid || save_job.result != PARAMETER_ACCEPTED;
     critical_hw_exit(mask);
     return idle;

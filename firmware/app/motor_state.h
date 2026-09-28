@@ -49,6 +49,7 @@ ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
  * @param applied 接收原始应用值与新 revision；失败清零。
  * @return 已应用、忙、状态、类型、范围或 revision 错误。
  * @note 同身份不同内容拒绝；写成功只增加一次 revision，不自动保存。
+ *       入口查询旧保存终态；取消尚未确认归还时仍拒绝写入。
  */
 ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request,
                                             ParameterValue *applied);
@@ -58,6 +59,7 @@ ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request
  * @param ticket 接收创建时身份，失败清零；相同请求返回原身份。
  * @return ACCEPTED 仅表示任务受理；真实提交完成后才为 OK。
  * @note 前台有界调用，不在入口擦写 Flash，不允许运行或资源借用中保存。
+ *       新请求主动查询旧保存终态，不要求主机继续轮询旧任务。
  */
 ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket);
 /**

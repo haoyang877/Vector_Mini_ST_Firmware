@@ -56,3 +56,43 @@ MCU 快环时间、栈水位和实机电流仍未验收，按本批提交逆向�
 `outputs/capacity-fit/continuation/compiler/`、`outputs/capacity-fit/continuation/loader.log`；
 源码与产物哈希为 `outputs/capacity-fit/continuation/summary-cold.json`，完整验证为
 `outputs/runs/capacity-continuation-cold-20260928/summary.json`。
+
+## 配置有限值校验集中扫描
+
+以 `a41ac00` 为基准，将位置配置 33 个 float 字段的有限值检查集中为有界偏移表
+扫描。表使用 `offsetof`，通过 `memcpy` 读取真实 float 字段，忽略结构填充；
+编译期检查结构大小，防止 byte 偏移截断。阈值、字段间大小关系、积分率与周期
+乘积的溢出检查全部保留。只在原有完整配置验证分支运行，缓存命中与逐拍目标
+检查不变。没有引入跨层接口或额外可变全局状态，原配置/状态结构与 ABI 不变。
+
+源码同时按仓库要求统一格式、补齐控制流花括号和中文注释。测试不再匹配英文
+注释原文，改为检查原有方向锁存表达式；现有逐拍测试继续保护真实行为。
+
+- 2464409 次配置判定与冻结旧实现一致：33 字段分别覆盖 ±0、次正规数、最大
+  有限值、±Inf、正负 quiet/signaling NaN、阈值及相邻位模式、随机值和多字段污染。
+- 两组位置 API 各 790068 拍的完整私有状态和输出逐字节一致；缓存填充、调参
+  变化、失效输入、20 kHz/2 kHz 分频、HOLD/恢复/饱和/反转用例通过。
+- 23 项原生、17 项集成、逐拍对照、架构、项目布局通过；修改文件局部格式/lint
+  通过。完整 PR 仍因原有格式/lint/接口和历史文档断链失败，不宣称全库通过。
+
+当次普通 APP 0 错误/0 警告，ROM **94024 B**；Loader APP 诊断 ROM **101776 B**、
+跨度 **101816 B**。本步两个 APP 均净减少 **448 B**，RAM 分别保持 31896/32128 B。
+本会话累计回收 Loader APP **2856 B**，真实分区仍缺 **21944 B（21.43 KiB）**。
+正式 Loader APP 链接仍失败，NONDEPLOYABLE 测量不输出 HEX。校验首次/变更路径
+的 MCU 时间与栈仍待实机测量；没有更改快环调度或宣称实时性已经验收。
+
+证据在 `outputs/capacity-fit/continuation/config-validation/`、`config-equivalence/`、
+`scoped-style.json`、`summary-config.json`；构建在
+`outputs/capacity-fit/batch1/continuation-config-final/`；最新 PR 清单为
+`outputs/runs/capacity-continuation-config-final-20260928/summary.json`。
+第一次 PR 中依赖英文注释的集成误报已修复并完整重跑，保留原失败日志。
+
+## 未采用的编译实验与后续范围
+
+八个大对象逐一禁用内联的实验没有净收益（0 至增加 208 B），未改正式选项。
+ARMCC 的 `--ltcg` 探测被现有许可证拒绝（C3921U），没有将其作为容量方案。
+原始实验在 `outputs/capacity-fit/continuation/no-inline/` 与 `ltcg-probe/`。
+
+用户再次明确要求保留 APP 全部功能，继续等价优化；不将标定移入维护 APP，
+不裁剪当前协议、标定和保护，不扩大正式分区。后续继续对平台与状态协调做
+隔离测量和等价验证。当前剩余缺口真实存在，不能把后续潜在收益算入已完成结果。

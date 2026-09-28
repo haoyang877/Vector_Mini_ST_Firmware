@@ -76,8 +76,12 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("target_error = config->target_position - measured_position", source)
         self.assertIn("speed_toward_target * speed_toward_target", source)
         self.assertIn("state.settle_recovery_active = true", source)
-        self.assertIn("Latch direction so crossing the target starts landing", source)
-        self.assertIn("inside_braking_envelope = remaining_distance <=", source)
+        self.assertRegex(
+            source,
+            r"desired_direction\s*=\s*state\.friction_direction\s*!=\s*0\s*\?\s*"
+            r"state\.friction_direction\s*:\s*\(target_error\s*>\s*0\.0f\s*\?\s*1\s*:\s*-1\)",
+        )
+        self.assertRegex(source, r"inside_braking_envelope\s*=\s*remaining_distance\s*<=")
         self.assertRegex(
             source,
             r"(?s)controller_requests_braking\s*=.*?inside_braking_envelope;",

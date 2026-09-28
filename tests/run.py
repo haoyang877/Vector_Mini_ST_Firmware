@@ -22,6 +22,7 @@ NATIVE = (
     "test_loader_upgrade",
     "test_heap_capacity",
     "test_position_config_cache",
+    "test_position_config_validation",
     "test_run_state",
     "test_sensorless_transitions",
     "test_cogging_calibration",

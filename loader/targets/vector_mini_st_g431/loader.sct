@@ -1,7 +1,7 @@
 ; 由单一目标生成；保留RAM顶32B邮箱，不初始化、不分配到普通RW。
-LR_LOADER 0x08000000 0x7000
+LR_LOADER 0x08000000 0x5000
 {
-    ER_LOADER 0x08000000 0x7000
+    ER_LOADER 0x08000000 0x5000
     {
         *.o (RESET, +First)
         *(InRoot$$Sections)

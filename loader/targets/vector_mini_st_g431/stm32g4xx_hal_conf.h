@@ -1,10 +1,9 @@
 #ifndef STM32G4XX_HAL_CONF_H
 #define STM32G4XX_HAL_CONF_H
-/* Loader独立HAL配置：只用时钟、GPIO、Flash和Cortex；CAN/TIM2/IWDG为受限寄存器端口。 */
+/* Loader独立HAL配置：只用时钟、GPIO、Cortex和PWR；Flash寄存器级、CAN/TIM2/IWDG为受限寄存器端口。 */
 #define HAL_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
 #define HAL_GPIO_MODULE_ENABLED
-#define HAL_FLASH_MODULE_ENABLED
 #define HAL_PWR_MODULE_ENABLED
 #define HAL_CORTEX_MODULE_ENABLED
 #define HSE_VALUE 8000000UL

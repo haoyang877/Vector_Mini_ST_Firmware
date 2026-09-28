@@ -378,3 +378,23 @@ RAM 31752→31600 B；Loader 诊断 ROM 99520→**97512 B**、跨度 99552→**9
 RAM 31984→31840 B。两个镜像各回收 **1968 B Flash / 144–152 B RAM**；78 KiB 分区仍缺
 **17680 B**。构建输入变化需 CubeMX 复核与 release profile。证据
 `outputs/capacity-fit/batch1/deepseek-08-uart-final/`。
+
+## 布局批次：Loader 分区 28K→20K 与 Loader 寄存器级 Flash
+
+用户要求把 Loader 分区改为 20K，并将 Loader 代码优化到 <19KB。布局唯一来源
+`shared/targets/vector_mini_st_g431.json` 改为：Loader `0x08000000/0x5000`（20 KiB）、
+Boot `0x08005000`、Record `0x08006000`、APP `0x08006800/0x15800`（86 KiB）、Param 不变；
+用 `loader/tools/generate_target.py` 与 `tools/build/generate_loader_app_project.py`
+重新生成 `.h`、`loader.sct`、`app.sct` 及两个 Keil 工程。
+
+Loader 原 20036 B。全局改 `-O2` 实测 20060 B（反而 +24 B，已回退 O3）；源码去重无
+可观项。改 `loader/ports/stm32g4/platform.c` 的擦/写为寄存器级（G431 单 bank、2 KiB 页、
+双字写、写前后关/复位数据缓存），并注释 Loader 的 `HAL_FLASH_MODULE_ENABLED`，丢掉
+HAL Flash（`hal_flash.o` 400 + `hal_flash_ex.o` 372）。
+
+结果：独立 Loader ROM 20036→**19396 B（18.94 KiB）**，0 错误/0 警告，装入 20 KiB 分区
+（余 1084 B）。Loader 配套 APP 槽 78K→**86K（88064 B）**；正式链接仍超限，聚合缺口
+17680→**约 9468 B**。**注意**：寄存器级 Flash 擦写属安全相关，本机仅离线验证，
+未烧录、未做硬件验证；新布局对所有镜像生效，需发布方按新地址重烧 Loader/Record/APP。
+证据 `outputs/capacity-fit/deepseek/loader-build.log`、
+`outputs/build/loader/vector_mini_st_g431/`。

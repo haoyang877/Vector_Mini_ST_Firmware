@@ -21,39 +21,93 @@ static bool read_flash(void *context, uint32_t address, void *out, uint32_t byte
 {
     return inside(context, address, bytes) && LoaderFlash_Read(address, out, bytes);
 }
-static bool erase_flash(void *context, uint32_t address, uint32_t bytes)
+/* 寄存器级 Flash 编程：G431 单 bank、2 KiB 页、双字写入；不依赖 HAL Flash，省其链接开销。 */
+#define FLASH_ERR_MASK                                                                             \
+    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR)
+#define FLASH_KEY1_VALUE 0x45670123U
+#define FLASH_KEY2_VALUE 0xCDEF89ABU
+
+static bool flash_unlock(void)
 {
-    FLASH_EraseInitTypeDef erase = {0};
-    uint32_t error;
-    bool result;
-    if (bytes != TARGET_ERASE_BYTES || address % TARGET_ERASE_BYTES != 0 ||
-        !inside(context, address, bytes) || !LoaderPlatform_OutputsOff() ||
-        HAL_FLASH_Unlock() != HAL_OK)
+    if ((FLASH->CR & FLASH_CR_LOCK) != 0U)
+    {
+        FLASH->KEYR = FLASH_KEY1_VALUE;
+        FLASH->KEYR = FLASH_KEY2_VALUE;
+    }
+    return (FLASH->CR & FLASH_CR_LOCK) == 0U;
+}
+static void flash_lock(void)
+{
+    FLASH->CR |= FLASH_CR_LOCK;
+}
+/* 等待操作完成并判错误位；完成后清 EOP 与全部错误标志。 */
+static bool flash_ready(void)
+{
+    while ((FLASH->SR & FLASH_SR_BSY) != 0U)
+    {
+    }
+    bool ok = (FLASH->SR & FLASH_ERR_MASK) == 0U;
+    FLASH->SR = FLASH_SR_EOP | FLASH_ERR_MASK | FLASH_SR_OPTVERR;
+    return ok;
+}
+static bool flash_erase_page(uint32_t page)
+{
+    bool ok;
+    if (!flash_unlock())
     {
         return false;
     }
-    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
-    erase.Banks = FLASH_BANK_1;
-    erase.TypeErase = FLASH_TYPEERASE_PAGES;
-    erase.Page = (address - TARGET_FLASH_BASE) / TARGET_ERASE_BYTES;
-    erase.NbPages = 1;
-    result = HAL_FLASHEx_Erase(&erase, &error) == HAL_OK;
-    (void)HAL_FLASH_Lock();
-    return result && LoaderFlash_EraseCompleted(address);
+    FLASH->SR = FLASH_SR_OPTVERR;
+    (void)flash_ready();
+    FLASH->CR = (FLASH->CR & ~FLASH_CR_PNB_Msk) | FLASH_CR_PER | (page << FLASH_CR_PNB_Pos);
+    FLASH->CR |= FLASH_CR_STRT;
+    ok = flash_ready();
+    FLASH->CR &= ~FLASH_CR_PER;
+    flash_lock();
+    return ok;
+}
+static bool flash_program_doubleword(uint32_t address, uint64_t value)
+{
+    uint32_t acr = FLASH->ACR;
+    bool ok;
+    if (!flash_unlock())
+    {
+        return false;
+    }
+    /* 写前关数据缓存、写后复位再恢复，避免读回不一致。 */
+    FLASH->ACR = acr & ~FLASH_ACR_DCEN;
+    (void)flash_ready();
+    FLASH->CR |= FLASH_CR_PG;
+    *(volatile uint32_t *)address = (uint32_t)value;
+    *(volatile uint32_t *)(address + 4U) = (uint32_t)(value >> 32U);
+    ok = flash_ready();
+    FLASH->CR &= ~FLASH_CR_PG;
+    FLASH->ACR = (acr & ~FLASH_ACR_DCEN) | FLASH_ACR_DCRST;
+    FLASH->ACR = acr;
+    flash_lock();
+    return ok;
+}
+static bool erase_flash(void *context, uint32_t address, uint32_t bytes)
+{
+    if (bytes != TARGET_ERASE_BYTES || address % TARGET_ERASE_BYTES != 0 ||
+        !inside(context, address, bytes) || !LoaderPlatform_OutputsOff())
+    {
+        return false;
+    }
+    return flash_erase_page((address - TARGET_FLASH_BASE) / TARGET_ERASE_BYTES) &&
+           LoaderFlash_EraseCompleted(address);
 }
 static bool program_flash(void *context, uint32_t address, const void *data, uint32_t bytes)
 {
     uint64_t value, check;
-    bool result;
     if (data == NULL || bytes != 8 || address % 8 != 0 || !inside(context, address, bytes) ||
-        !LoaderPlatform_OutputsOff() || HAL_FLASH_Unlock() != HAL_OK)
+        !LoaderPlatform_OutputsOff())
     {
         return false;
     }
     memcpy(&value, data, 8);
-    result = HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, address, value) == HAL_OK;
-    (void)HAL_FLASH_Lock();
-    return result && LoaderFlash_Read(address, &check, 8) && check == value;
+    return flash_program_doubleword(address, value) && LoaderFlash_Read(address, &check, 8) &&
+           check == value;
 }
 static void bind_io(LoaderFlashIo *io, const LoaderFlashRegion *domain)
 {

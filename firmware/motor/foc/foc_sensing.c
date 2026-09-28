@@ -19,7 +19,8 @@
 #define CURRENT_OFFSET_MIN_COUNTS 1948.0f
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 
-static McuTemperatureTelemetry McuTemperature;
+/* 监督 ISR 更新、前台快照读取；私有化不改变原有 volatile 访问。 */
+static volatile McuTemperatureTelemetry McuTemperature;
 
 /* 母线电压采样、滤波与过压/欠压确认计数。 */
 void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)

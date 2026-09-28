@@ -15,7 +15,8 @@
  * （MotorWorkOutcome），停相与模式回退由运行状态机执行。 */
 
 static CoggingMapRecord CoggingMap;
-static CoggingCompensationControl CoggingCompensation;
+/* 前台与快速 ISR 共享该私有控制状态，保留原有 volatile 访问语义。 */
+static volatile CoggingCompensationControl CoggingCompensation;
 volatile uint32_t FocCoggingCompensationRequest;
 static CoggingCalibration CoggingCalib;
 volatile CoggingTorqueGuard TorqueGuard;

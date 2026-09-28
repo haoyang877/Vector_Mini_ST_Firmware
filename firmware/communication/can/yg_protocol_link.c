@@ -89,6 +89,14 @@ static bool ready;
 static bool request_is_valid(const yg_protocol_message_t *request);
 static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail);
 
+/* 业务入口公共守卫：上下文/请求/结果指针非空且线格式有效，否则按无效字段拒绝。 */
+static bool request_context_valid(const yg_protocol_link_context_t *link,
+                                  const yg_protocol_message_t *request,
+                                  const yg_protocol_service_result_t *result)
+{
+    return link != NULL && request != NULL && result != NULL && request_is_valid(request);
+}
+
 static yg_protocol_result_t provide_unavailable(uint8_t *payload, uint32_t *payload_length)
 {
     /* 缺少真实身份/能力也须给业务错误回复，不能让端点将内部错误当作丢帧。 */
@@ -161,7 +169,7 @@ static yg_protocol_result_t handle_device_status(void *context,
                                                  yg_protocol_service_result_t *result)
 {
     yg_protocol_link_context_t *link = context;
-    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    if (!request_context_valid(link, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -193,7 +201,7 @@ static yg_protocol_result_t handle_motor_action(void *context,
     bool enabled;
 
     /* STOP 的非空请求在来源检查前拒绝，保留既有线路处理顺序。 */
-    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request) ||
+    if (!request_context_valid(link, request, result) ||
         (request->message_type != YG_PROTOCOL_MOTOR_TYPE_ENABLE && request->payload_length != 0U))
     {
         return YG_PROTOCOL_INVALID_FIELD;
@@ -260,7 +268,7 @@ static yg_protocol_result_t handle_motor_control(void *context,
     yg_link_control_history_t *entry;
     yg_protocol_result_t decoded;
     uint16_t code, detail = 0U, digest = 0U;
-    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    if (!request_context_valid(link, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -332,7 +340,7 @@ static yg_protocol_result_t handle_parameter(void *context,
     yg_protocol_service_reply_t reply;
     yg_protocol_result_t decoded;
     size_t written;
-    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    if (!request_context_valid(link, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -380,7 +388,7 @@ static yg_protocol_result_t handle_job(void *context,
     yg_protocol_job_request_t command;
     yg_protocol_job_reply_t reply;
     yg_protocol_result_t decoded;
-    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    if (!request_context_valid(link, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -417,7 +425,7 @@ static yg_protocol_result_t handle_boot(void *context,
     BootEntryRequest command;
     BootEntryReply reply = {.result = BOOT_ENTRY_FAILED};
     yg_protocol_result_t decoded;
-    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    if (!request_context_valid(link, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }

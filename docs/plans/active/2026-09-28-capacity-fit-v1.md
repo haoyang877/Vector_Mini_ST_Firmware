@@ -346,3 +346,19 @@ START/UPDATE/STOP、command 4..12 直达、独立试验期限与采样式相电�
 101504→**99512 B**、加载跨度 101544→**99552 B**、RAM 32128→31984 B。两个镜像各回收
 **1992 B Flash / 144 B RAM**；78 KiB 分区仍缺 **19680 B**。`test_run_state.py` 13/13 通过。
 这是功能取舍批次，不并入等价优化口径。证据在 `outputs/capacity-fit/batch1/deepseek-05-bench-clean/`。
+
+## 逐函数批次：协议链路业务入口守卫
+
+交接顺序 D。基准上一批提交 `f3915b1`（Loader 诊断跨度 99552 B）。`yg_protocol_link.c`
+的六个业务入口（device_status、motor_action、motor_control、parameter、job、boot）重复
+展开同一入口守卫：link/request/result 指针非空且线格式有效。提取文件内
+`request_context_valid()`，判据与短路顺序保持；`handle_motor_action` 的附加非空负载
+检查仍在其后。该文件按 `-O2`（工程 Optim=3）编译；`request_is_valid` 并入新辅助函数
+（40→46 B），六个入口各缩小，函数段合计减少 40 B，整包普通 APP 减少 40 B、Loader 诊断
+跨度减少 32 B。这是等价去重。
+
+验收：`test_yg_protocol_link.py` 与既有协议/所有者测试通过；当次重建普通/真实 Loader
+APP，普通 0 错误/0 警告。普通 APP ROM 91816→91776 B；Loader 诊断 ROM 99512→99480 B、
+跨度 99552→99520 B，RAM 不变；78 KiB 分区仍缺 19648 B。完整 PR 仍 FAIL，format/lint/
+interfaces/docs 日志与上一批逐字一致。证据 `outputs/capacity-fit/deepseek/cand-link-guard/`、
+构建目录 `deepseek-06-link-guard/`。

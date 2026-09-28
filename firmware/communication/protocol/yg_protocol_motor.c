@@ -140,6 +140,10 @@ uint16_t yg_protocol_motor_result_code(yg_protocol_service_status_t status)
         return 6U;
     case YG_PROTOCOL_SERVICE_DENIED:
         return 5U;
+    case YG_PROTOCOL_SERVICE_OUT_OF_RANGE:
+        return 11U;
+    case YG_PROTOCOL_SERVICE_FAULT:
+        return 17U;
     case YG_PROTOCOL_SERVICE_FAILED:
     default:
         return 8U;

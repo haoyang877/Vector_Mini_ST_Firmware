@@ -31,6 +31,12 @@ static bool phases_disabled(void *context)
     return power_stage_hw_phases_disabled();
 }
 
+static MotorControlResult submit_control(void *context, const MotorControlCommand *command)
+{
+    (void)context;
+    return FocRunState_SubmitRemoteControl(command);
+}
+
 static bool bind_motor_stop(void)
 {
     static const motor_stop_owner_port_t owner = {request_stop, phases_disabled};
@@ -40,6 +46,8 @@ static bool bind_motor_stop(void)
         return false;
     }
     motor_adapter.stop_service = &stop_service;
+    motor_adapter.submit_control = submit_control;
+    motor_adapter.control_context = NULL;
     service.context = &motor_adapter;
     service.handler = yg_protocol_motor_adapter_handle;
     return YgProtocolLink_BindMotorService(&service);

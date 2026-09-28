@@ -24,6 +24,63 @@ map_stop_result(motor_stop_result_t result, uint32_t token, yg_protocol_service_
     }
 }
 
+static yg_protocol_service_status_t map_control_result(MotorControlResult result)
+{
+    switch (result)
+    {
+    case MOTOR_CONTROL_ACCEPTED:
+        return YG_PROTOCOL_SERVICE_ACCEPTED;
+    case MOTOR_CONTROL_INVALID:
+        return YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
+    case MOTOR_CONTROL_DENIED:
+        return YG_PROTOCOL_SERVICE_DENIED;
+    case MOTOR_CONTROL_BUSY:
+        return YG_PROTOCOL_SERVICE_BUSY;
+    case MOTOR_CONTROL_OUT_OF_RANGE:
+        return YG_PROTOCOL_SERVICE_OUT_OF_RANGE;
+    case MOTOR_CONTROL_FAULT:
+        return YG_PROTOCOL_SERVICE_FAULT;
+    default:
+        return YG_PROTOCOL_SERVICE_FAILED;
+    }
+}
+
+static yg_protocol_service_status_t submit_control(yg_protocol_motor_adapter_t *adapter,
+                                                   const yg_protocol_motor_request_t *request)
+{
+    MotorControlCommand command = {.mode = MOTOR_CONTROL_CURRENT};
+    if (adapter->submit_control == NULL)
+    {
+        return YG_PROTOCOL_SERVICE_UNSUPPORTED;
+    }
+    switch (request->mode)
+    {
+    case 1U:
+        command.mode = MOTOR_CONTROL_CURRENT;
+        break;
+    case 2U:
+        command.mode = MOTOR_CONTROL_SPEED;
+        break;
+    case 3U:
+        command.mode = MOTOR_CONTROL_POSITION;
+        break;
+    case 4U:
+    case 5U:
+        /* MIT 增益与低侧制动尚未验证，不映射到历史同编号模式。 */
+        return YG_PROTOCOL_SERVICE_UNSUPPORTED;
+    case 6U:
+        command.mode = MOTOR_CONTROL_VQ;
+        break;
+    default:
+        return YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
+    }
+    command.position_rad = (float)request->position_mrad * 0.001f;
+    command.speed_rad_s = (float)request->speed_mrad_s * 0.001f;
+    command.iq_a = (float)request->iq_mA * 0.001f;
+    command.vq_v = (float)request->v_q_mV * 0.001f;
+    return map_control_result(adapter->submit_control(adapter->control_context, &command));
+}
+
 void yg_protocol_motor_adapter_handle(void *context,
                                       const yg_protocol_motor_request_t *request,
                                       yg_protocol_service_reply_t *reply)
@@ -61,9 +118,11 @@ void yg_protocol_motor_adapter_handle(void *context,
         reply->detail = (uint16_t)stop_result;
         return;
     case YG_PROTOCOL_MOTOR_ENABLE:
-    case YG_PROTOCOL_MOTOR_SET_CONTROL:
-        /* 功率级所有者尚未提供安全使能与目标提交接口。 */
+        /* 低侧制动的功率行为尚未通过板级验证。 */
         reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
+        return;
+    case YG_PROTOCOL_MOTOR_SET_CONTROL:
+        reply->status = submit_control(handler, request);
         return;
     default:
         reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;

@@ -93,6 +93,10 @@ FIXTURE_HEAD = r"""
 #include <string.h>
 
 #include "app_lifecycle.h"
+#include "motor_control_command.h"
+#include "motor_axis_profile.h"
+
+static uint32_t critical_depth;
 
 typedef int ModeNow_TypeDef;
 typedef int ErrorNow_TypeDef;
@@ -154,23 +158,35 @@ typedef struct
 #define RUN_STATE_TEMP_RECOVER_C 80.0f
 #define BUS_VOLTAGE_ENABLE_MIN_V 25.6f
 #define BUS_VOLTAGE_ENABLE_MAX_V 33.8f
+#define BUS_VOLTAGE_HARD_OVERVOLTAGE_V 35.0f
+#define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 #define MOTOR_SENSING_OVERCURRENT_TRIP_A 18.0f
 
 typedef struct
 {
-    float Ia, Ib, Ic, Vbus_filt, temp;
+    float Ia, Ib, Ic, Vbus, Vbus_filt, temp;
 } FOCStub_TypeDef;
 static FOCStub_TypeDef FOC;
 
 typedef struct
 {
     uint16_t bad_frame_streak;
+    uint8_t calibrated;
+    float position_rad;
 } EncoderStub_TypeDef;
 static EncoderStub_TypeDef OnBoard_Encoder;
 static uint16_t Encoder_GetBadFrameStreak(const EncoderStub_TypeDef *e)
 {
     return e->bad_frame_streak;
 }
+#define ENC_CALIB_ALL 3U
+static bool Encoder_IsOnline(const EncoderStub_TypeDef *e)
+{
+    assert(critical_depth > 0U);
+    return e->bad_frame_streak == 0U;
+}
+static uint8_t Encoder_GetCalibFlag(const EncoderStub_TypeDef *e) { return e->calibrated; }
+static float Encoder_GetMecPos(const EncoderStub_TypeDef *e) { return e->position_rad; }
 
 typedef struct
 {
@@ -195,14 +211,25 @@ static uint16_t overcurrent_recover_ticks;
 static MotorWorkOutcome_TypeDef pending_outcome;
 static volatile bool outcome_latched;
 static volatile bool fast_power_stopped;
-static uint32_t critical_hw_enter(void) { return 0U; }
-static void critical_hw_exit(uint32_t state) { (void)state; }
+static MotorControlCommand pending_control;
+static volatile bool control_pending;
+static bool RunState_VbusInEnableWindow(void);
+static uint32_t critical_hw_enter(void) { return critical_depth++; }
+static void critical_hw_exit(uint32_t state)
+{
+    assert(critical_depth == state + 1U);
+    critical_depth = state;
+}
 
 typedef struct
 {
     ModeNow_TypeDef ModeNow;
     ErrorNow_TypeDef ErrorNow;
     uint8_t axis_profile_valid;
+    MotorAxisProfile axis_profile;
+    bool isUseSensorless;
+    float current_limit, speed_limit;
+    float iqRef, speedRef, posRef, vqRef;
     ModeNow_TypeDef ModeNow_f;
     ErrorNow_TypeDef ErrorNow_f;
 } MotorControl_TypeDef;
@@ -382,6 +409,117 @@ static long CompareCase(ModeNow_TypeDef mode_last, ModeNow_TypeDef mode_now,
         }
     }
     return TICKS;
+}
+
+static void prepare_remote_mode(ModeNow_TypeDef mode)
+{
+    ResetWorld(Motor_Disable, mode, No_Error, 1, true);
+    MotorControl.isUseSensorless = false;
+    MotorControl.current_limit = 2.0f;
+    MotorControl.speed_limit = 4.0f;
+    MotorControl.axis_profile = (MotorAxisProfile){0};
+    MotorControl.iqRef = 0.0f;
+    MotorControl.speedRef = 0.0f;
+    MotorControl.posRef = 0.0f;
+    MotorControl.vqRef = 0.0f;
+    FOC.Vbus = FOC.Vbus_filt = 30.0f;
+    OnBoard_Encoder.bad_frame_streak = 0U;
+    OnBoard_Encoder.calibrated = ENC_CALIB_ALL;
+    OnBoard_Encoder.position_rad = 0.0f;
+    FocRunState_Tick();
+    FocRunState_Tick();
+    assert(lifecycle.snapshot.state == APP_RUNNING && power_on);
+}
+
+static void test_remote_targets(void)
+{
+    MotorControlCommand command = {.mode=MOTOR_CONTROL_CURRENT, .iq_a=1.25f};
+    prepare_remote_mode(Current_Mode);
+    assert(FocRunState_SubmitRemoteControl(NULL) == MOTOR_CONTROL_INVALID);
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    command.iq_a = 1.5f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_BUSY);
+    assert(MotorControl.iqRef == 0.0f);
+    FocRunState_Tick();
+    assert(MotorControl.iqRef == 1.25f && !control_pending);
+    command.iq_a = 2.1f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
+    command.iq_a = NAN;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_INVALID);
+    command.iq_a = 0.5f;
+    command.position_rad = 0.01f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_INVALID);
+    command.position_rad = 0.0f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    assert(FocRunState_RequestRemoteStop());
+    FocRunState_Tick();
+    assert(!control_pending && !power_on && MotorControl.iqRef == 1.25f);
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_DENIED);
+
+    prepare_remote_mode(Current_Mode);
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    MotorControl.current_limit = 0.1f;
+    FocRunState_Tick();
+    assert(!control_pending && MotorControl.iqRef == 0.0f);
+    MotorControl.current_limit = 2.0f;
+    FocRunState_Tick();
+    assert(MotorControl.iqRef == 0.0f);
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    MotorControl.ErrorNow = Over_Current;
+    FocRunState_Tick();
+    assert(!control_pending && MotorControl.iqRef == 0.0f && !power_on);
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_FAULT);
+
+    prepare_remote_mode(Speed_Mode);
+    command = (MotorControlCommand){.mode=MOTOR_CONTROL_SPEED, .speed_rad_s=-3.0f};
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    FocRunState_Tick();
+    assert(MotorControl.speedRef == -3.0f);
+    command.speed_rad_s = 4.01f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
+    MotorControl.axis_profile.magic = MOTOR_AXIS_PROFILE_MAGIC;
+    MotorControl.axis_profile.maximum_speed_rad_s = 2.0f;
+    command.speed_rad_s = 3.0f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
+
+    prepare_remote_mode(Position_Mode);
+    MotorControl.axis_profile.magic = MOTOR_AXIS_PROFILE_MAGIC;
+    MotorControl.axis_profile.minimum_position_rad = -1.0f;
+    MotorControl.axis_profile.maximum_position_rad = 1.0f;
+    command = (MotorControlCommand){.mode=MOTOR_CONTROL_POSITION, .position_rad=0.5f};
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    FocRunState_Tick();
+    assert(MotorControl.posRef == 0.5f && MotorControl.ModeNow == Position_Mode);
+    command.position_rad = 0.75f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    OnBoard_Encoder.position_rad = 1.0f;
+    FocRunState_Tick();
+    assert(!control_pending && MotorControl.posRef == 0.5f);
+    OnBoard_Encoder.position_rad = 0.0f;
+    command.position_rad = 1.1f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
+    command = (MotorControlCommand){.mode=MOTOR_CONTROL_CURRENT, .iq_a=0.5f};
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_DENIED);
+
+    prepare_remote_mode(Vq_Mode);
+    command = (MotorControlCommand){.mode=MOTOR_CONTROL_VQ, .vq_v=-2.0f};
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    FocRunState_Tick();
+    assert(MotorControl.vqRef == -2.0f);
+    command.vq_v = 20.0f;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_OUT_OF_RANGE);
+    command.vq_v = 1.0f;
+    OnBoard_Encoder.calibrated = 0U;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_DENIED);
+    OnBoard_Encoder.calibrated = ENC_CALIB_ALL;
+    assert(FocRunState_SubmitRemoteControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    FocRunState_PostOutcome((MotorWorkOutcome_TypeDef){MOTOR_WORK_STOP, Motor_Disable,
+                                                     No_Error, false});
+    FocRunState_Tick();
+    assert(!control_pending && !power_on && MotorControl.vqRef == -2.0f);
+    assert(FOC_MaximumVoltage(NAN) == 0.0f && FOC_MaximumVoltage(-1.0f) == 0.0f);
+    assert(critical_depth == 0U);
+    printf("PASS remote targets: SI, mailbox, bounds, STOP/fault/limit races, no enable\n");
 }
 
 int main(void)
@@ -624,6 +762,7 @@ int main(void)
 
     printf("PASS run state differential: %ld tick comparisons identical"
            " (legacy trio vs AppLifecycle adapter)\n", comparisons);
+    test_remote_targets();
     return 0;
 }
 """
@@ -632,7 +771,13 @@ int main(void)
 def run_state_fixture():
     source = (ROOT / "firmware/app/foc_run_state.c").read_text(encoding="utf-8")
     new_logic = (
-        function_source(source, "RunState_ModeIsAutoStartable")
+        function_source(
+            (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8"),
+            "FOC_MaximumVoltage",
+        )
+        + function_source(source, "validate_remote_control")
+        + function_source(source, "apply_pending_control")
+        + function_source(source, "RunState_ModeIsAutoStartable")
         + function_source(source, "RunState_ModeNeedsPreparation")
         + function_source(source, "RunState_ProjectControlMode")
         + function_source(source, "RunState_BuildGuards")
@@ -649,6 +794,8 @@ def run_state_fixture():
         + function_source(source, "RunState_ServiceOperations")
         + function_source(source, "RunState_BeginOperationIfRequested")
         + function_source(source, "FocRunState_Init")
+        + function_source(source, "FocRunState_SubmitRemoteControl")
+        + function_source(source, "FocRunState_RequestRemoteStop")
         + function_source(source, "FocRunState_SaveFinished")
         + function_source(source, "FocRunState_PostOutcome")
         + function_source(source, "FocRunState_TakeOutcome")

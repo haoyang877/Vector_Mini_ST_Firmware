@@ -39,6 +39,14 @@ typedef struct
 } FOC_TypeDef;
 
 /**
+ * @brief 计算当前母线允许的 d/q 电压幅值上限，复用控制器调制深度限制。
+ * @param bus_voltage_v 母线电压，单位 V。
+ * @return 有限正母线电压对应的最大幅值 V；无效或非正输入返回零。
+ * @note 纯计算、非阻塞；这是算法限幅，不替代产品功率与温度保护。
+ */
+float FOC_MaximumVoltage(float bus_voltage_v);
+
+/**
  * @brief  Clarke 变换：三相 → 静止 α/β。
  * @param  a 三相 A 相值。
  * @param  b 三相 B 相值。

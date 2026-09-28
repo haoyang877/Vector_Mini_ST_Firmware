@@ -3,6 +3,7 @@
  * 且只有所有者确认功率输出禁止才报告 OK。不访问硬件、不接线 CAN 入口。 */
 
 #include <stdbool.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -420,6 +421,73 @@ static void test_unconfirmable_shutdown_never_ok(void)
     printf("PASS unconfirmable shutdown stays ACCEPTED and never reports OK\n");
 }
 
+typedef struct
+{
+    MotorControlCommand command;
+    MotorControlResult result;
+    unsigned calls;
+} ControlOwner;
+
+static MotorControlResult submit_control(void *context, const MotorControlCommand *command)
+{
+    ControlOwner *owner = context;
+    owner->command = *command;
+    ++owner->calls;
+    return owner->result;
+}
+
+static void test_control_boundary(void)
+{
+    ControlOwner owner = {.result = MOTOR_CONTROL_ACCEPTED};
+    yg_protocol_motor_adapter_t adapter = {.submit_control = submit_control,
+                                           .control_context = &owner};
+    yg_protocol_motor_request_t request = {
+        .operation = YG_PROTOCOL_MOTOR_SET_CONTROL, .mode = 3U, .position_mrad = -1250};
+    yg_protocol_service_reply_t reply;
+    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+    CHECK(reply.status == YG_PROTOCOL_SERVICE_ACCEPTED && owner.calls == 1U);
+    CHECK(owner.command.mode == MOTOR_CONTROL_POSITION &&
+          fabsf(owner.command.position_rad + 1.25f) < 0.00001f);
+    CHECK(request.position_mrad == -1250 && reply.token == 0U);
+
+    static const MotorControlResult results[] = {MOTOR_CONTROL_INVALID,
+                                                 MOTOR_CONTROL_DENIED,
+                                                 MOTOR_CONTROL_BUSY,
+                                                 MOTOR_CONTROL_OUT_OF_RANGE,
+                                                 MOTOR_CONTROL_FAULT};
+    static const uint16_t codes[] = {4U, 5U, 6U, 11U, 17U};
+    for (unsigned index = 0U; index < sizeof(results) / sizeof(results[0]); ++index)
+    {
+        owner.result = results[index];
+        yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+        CHECK(yg_protocol_motor_result_code(reply.status) == codes[index]);
+    }
+    request.position_mrad = 0;
+    request.mode = 1U;
+    request.iq_mA = -500;
+    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+    CHECK(owner.command.mode == MOTOR_CONTROL_CURRENT &&
+          fabsf(owner.command.iq_a + 0.5f) < 0.00001f);
+    request.iq_mA = 0;
+    request.mode = 2U;
+    request.speed_mrad_s = 2000;
+    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+    CHECK(owner.command.mode == MOTOR_CONTROL_SPEED && owner.command.speed_rad_s == 2.0f);
+    request.speed_mrad_s = 0;
+    request.mode = 6U;
+    request.v_q_mV = 1000;
+    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+    CHECK(owner.command.mode == MOTOR_CONTROL_VQ && owner.command.vq_v == 1.0f);
+    unsigned calls = owner.calls;
+    request.mode = 4U;
+    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+    CHECK(reply.status == YG_PROTOCOL_SERVICE_UNSUPPORTED && owner.calls == calls);
+    request.mode = 5U;
+    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
+    CHECK(reply.status == YG_PROTOCOL_SERVICE_UNSUPPORTED && owner.calls == calls);
+    printf("PASS control boundary: mode/SI conversion and explicit owner results\n");
+}
+
 int main(void)
 {
     test_early_returns();
@@ -429,6 +497,7 @@ int main(void)
     test_async_accept_then_confirm();
     test_first_denied_then_accepted();
     test_unconfirmable_shutdown_never_ok();
+    test_control_boundary();
 
     if (failures != 0)
     {

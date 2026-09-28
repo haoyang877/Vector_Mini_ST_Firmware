@@ -14,7 +14,9 @@ typedef enum
     YG_PROTOCOL_SERVICE_INVALID_ARGUMENT,
     YG_PROTOCOL_SERVICE_BUSY,
     YG_PROTOCOL_SERVICE_DENIED,
-    YG_PROTOCOL_SERVICE_FAILED
+    YG_PROTOCOL_SERVICE_FAILED,
+    YG_PROTOCOL_SERVICE_OUT_OF_RANGE,
+    YG_PROTOCOL_SERVICE_FAULT
 } yg_protocol_service_status_t;
 
 /** @brief 后端结果值对象；异步受理通过 token 关联后续查询，value 单位由具体服务定义。 */

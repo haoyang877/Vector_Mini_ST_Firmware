@@ -8,6 +8,7 @@
 #include "bus_voltage_profile.h"
 #include "critical_hw.h"
 #include "foc_errhandle.h"
+#include "foc_algorithm.h"
 #include "foc_run.h"
 #include "foc_sensing.h"
 #include "indicator_hw.h"
@@ -45,6 +46,123 @@ static MotorWorkOutcome_TypeDef pending_outcome;
 static volatile bool outcome_latched;
 /* 故障紧急关断标记：快车道已直接关断硬件，由 2 kHz 状态机对齐功率级记录。 */
 static volatile bool fast_power_stopped;
+/* 前台写入、监督周期消费的单槽目标邮箱；STOP 与故障优先于目标。 */
+static MotorControlCommand pending_control;
+static volatile bool control_pending;
+static bool RunState_VbusInEnableWindow(void);
+
+static MotorControlResult validate_remote_control(const MotorControlCommand *command)
+{
+    ModeNow_TypeDef mode;
+    if (command == NULL || !isfinite(command->position_rad) || !isfinite(command->speed_rad_s) ||
+        !isfinite(command->iq_a) || !isfinite(command->vq_v))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    switch (command->mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        mode = Current_Mode;
+        break;
+    case MOTOR_CONTROL_SPEED:
+        mode = Speed_Mode;
+        break;
+    case MOTOR_CONTROL_POSITION:
+        mode = Position_Mode;
+        break;
+    case MOTOR_CONTROL_VQ:
+        mode = Vq_Mode;
+        break;
+    default:
+        return MOTOR_CONTROL_INVALID;
+    }
+    if ((command->mode != MOTOR_CONTROL_POSITION && command->position_rad != 0.0f) ||
+        (command->mode != MOTOR_CONTROL_SPEED && command->speed_rad_s != 0.0f) ||
+        (command->mode != MOTOR_CONTROL_CURRENT && command->iq_a != 0.0f) ||
+        (command->mode != MOTOR_CONTROL_VQ && command->vq_v != 0.0f))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    if (MotorControl.ErrorNow != No_Error || fast_power_stopped)
+    {
+        return MOTOR_CONTROL_FAULT;
+    }
+    if (!power_on || lifecycle.snapshot.state != APP_RUNNING || MotorControl.ModeNow != mode ||
+        !MotorControl.axis_profile_valid || MotorControl.isUseSensorless ||
+        !Encoder_IsOnline(&OnBoard_Encoder) ||
+        (Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL ||
+        !RunState_VbusInEnableWindow() || !isfinite(FOC.Vbus) ||
+        FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V)
+    {
+        return MOTOR_CONTROL_DENIED;
+    }
+    switch (command->mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        return isfinite(MotorControl.current_limit) && MotorControl.current_limit > 0.0f &&
+                       fabsf(command->iq_a) <= MotorControl.current_limit
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    case MOTOR_CONTROL_SPEED:
+        return isfinite(MotorControl.speed_limit) && MotorControl.speed_limit > 0.0f &&
+                       fabsf(command->speed_rad_s) <= MotorControl.speed_limit &&
+                       (MotorControl.axis_profile.magic == 0U ||
+                        (isfinite(MotorControl.axis_profile.maximum_speed_rad_s) &&
+                         MotorControl.axis_profile.maximum_speed_rad_s > 0.0f &&
+                         fabsf(command->speed_rad_s) <=
+                             MotorControl.axis_profile.maximum_speed_rad_s))
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    case MOTOR_CONTROL_POSITION:
+        return MotorAxisProfile_AllowsPosition(&MotorControl.axis_profile,
+                                               MotorControl.axis_profile_valid,
+                                               Encoder_GetMecPos(&OnBoard_Encoder),
+                                               command->position_rad)
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    case MOTOR_CONTROL_VQ:
+        return fabsf(command->vq_v) <= FOC_MaximumVoltage(FOC.Vbus_filt)
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    default:
+        return MOTOR_CONTROL_INVALID;
+    }
+}
+
+static void apply_pending_control(void)
+{
+    /* 防止快环在状态复核与目标写入之间锁存故障；临界区只做有界值检查和一次赋值。 */
+    uint32_t state = critical_hw_enter();
+    if (!control_pending)
+    {
+        critical_hw_exit(state);
+        return;
+    }
+    control_pending = false;
+    if (validate_remote_control(&pending_control) != MOTOR_CONTROL_ACCEPTED)
+    {
+        critical_hw_exit(state);
+        return;
+    }
+    switch (pending_control.mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        MotorControl.iqRef = pending_control.iq_a;
+        break;
+    case MOTOR_CONTROL_SPEED:
+        MotorControl.speedRef = pending_control.speed_rad_s;
+        break;
+    case MOTOR_CONTROL_POSITION:
+        MotorControl.posRef = pending_control.position_rad;
+        break;
+    case MOTOR_CONTROL_VQ:
+        MotorControl.vqRef = pending_control.vq_v;
+        break;
+    default:
+        break;
+    }
+    critical_hw_exit(state);
+}
 
 /* 需要编码器反馈的模式在坏帧超限后立即置编码器故障。 */
 static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
@@ -420,6 +538,9 @@ void FocRunState_Init(void)
     operation_mode = Motor_Disable;
     save_finish = (uint8_t)SAVE_FINISH_NONE;
     overcurrent_recover_ticks = 0U;
+    outcome_latched = false;
+    fast_power_stopped = false;
+    control_pending = false;
 }
 
 void FocRunState_SaveFinished(bool committed)
@@ -435,9 +556,30 @@ AppLifecycleState FocRunState_GetState(void)
 bool FocRunState_RequestRemoteStop(void)
 {
     uint32_t state = critical_hw_enter();
+    control_pending = false;
     MotorControl.ModeNow = Motor_Disable;
     critical_hw_exit(state);
     return true;
+}
+
+MotorControlResult FocRunState_SubmitRemoteControl(const MotorControlCommand *command)
+{
+    uint32_t state = critical_hw_enter();
+    MotorControlResult result = validate_remote_control(command);
+    if (result == MOTOR_CONTROL_ACCEPTED)
+    {
+        if (control_pending)
+        {
+            result = MOTOR_CONTROL_BUSY;
+        }
+        else
+        {
+            pending_control = *command;
+            control_pending = true;
+        }
+    }
+    critical_hw_exit(state);
+    return result;
 }
 
 void FocRunState_CheckFastFaults(void)
@@ -591,6 +733,9 @@ void FocRunState_Tick(void)
     {
         (void)RunState_Send(0U, 0U, APP_CONTROL_NONE, false, false);
     }
+
+    /* 故障、worker 停机与外部失能先处理，随后消费目标；复核失败直接丢弃，不重试。 */
+    apply_pending_control();
 
     /* 4. 目标迁移：停止、使能或退出运行态。 */
     needs_preparation = RunState_ModeNeedsPreparation(target);

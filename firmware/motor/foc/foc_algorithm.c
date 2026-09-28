@@ -12,6 +12,13 @@
 
 #define FOC_MAX_MODULATION (0.95f * SQRT_3_BY_2)
 
+float FOC_MaximumVoltage(float bus_voltage_v)
+{
+    return isfinite(bus_voltage_v) && bus_voltage_v > 0.0f
+               ? FOC_MAX_MODULATION * bus_voltage_v / 1.5f
+               : 0.0f;
+}
+
 /* 计算 d/q 轴调制比并按最大调制深度限幅；母线电压无效时清零输出。
  * 返回值只表示本次是否产生有效调制，不表示功率级已使能。 */
 static bool FOC_SetVoltageModulation(FOC_TypeDef *FOC, float voltage_d, float voltage_q)
@@ -263,7 +270,7 @@ void FOC_CurrentWithReference(FOC_TypeDef *FOC,
 
     if (FOC->Vbus_filt > 0.0f)
     {
-        max_voltage = FOC_MAX_MODULATION * FOC->Vbus_filt / 1.5f;
+        max_voltage = FOC_MaximumVoltage(FOC->Vbus_filt);
         PI_Controller_Configure(&FOC->id_pi,
                                 MotorControl->id_Kp,
                                 MotorControl->id_Ki,
@@ -327,7 +334,7 @@ void FOC_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
 
     if (FOC->Vbus_filt > 0.0f)
     {
-        max_voltage = FOC_MAX_MODULATION * FOC->Vbus_filt / 1.5f;
+        max_voltage = FOC_MaximumVoltage(FOC->Vbus_filt);
         PI_Controller_Configure(&FOC->id_pi,
                                 MotorControl->id_Kp,
                                 MotorControl->id_Ki,

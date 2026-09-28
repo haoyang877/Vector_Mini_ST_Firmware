@@ -2,6 +2,7 @@
 #include "yg_protocol_message_registry.h"
 
 #include "yg_protocol_job.h"
+#include "yg_protocol_boot.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_parameter.h"
 #include "yg_protocol_readonly.h"
@@ -65,6 +66,8 @@ yg_protocol_result_t yg_protocol_product_registry_init(yg_protocol_message_regis
         {YG_PROTOCOL_JOB_TYPE_START, false, false},
         {YG_PROTOCOL_JOB_TYPE_STATUS, false, false},
         {YG_PROTOCOL_JOB_TYPE_CANCEL, false, false},
+        /* 描述不开放业务；56只有两个真实回调绑定后才进入产品路由。 */
+        {YG_PROTOCOL_BOOT_TYPE_ENTER, false, false},
     };
     return yg_protocol_message_registry_init(
         registry, descriptors, sizeof(descriptors) / sizeof(descriptors[0]));

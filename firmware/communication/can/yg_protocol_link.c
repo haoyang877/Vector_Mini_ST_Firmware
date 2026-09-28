@@ -13,6 +13,7 @@
 #include "yg_protocol_transfer.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_parameter.h"
+#include "yg_protocol_boot.h"
 
 /* 队列一次覆盖最大 1767B 逻辑消息的 39 个 46B 分片，并保留一个空槽。
  * 重组区与协议上限一致，避免声明支持长消息却在组合层静默截短。 */
@@ -21,6 +22,15 @@
 #define YG_LINK_FRAGMENT_CAPACITY YG_PROTOCOL_MAX_MESSAGE_PAYLOAD
 #define YG_LINK_MASTER_NODE_ID 2U
 #define YG_LINK_CONTROL_HISTORY_SIZE 256U
+
+/* 仅56需要精确发送身份，旁记录不扩大每一条普通CAN帧。 */
+typedef enum
+{
+    YG_BOOT_TX_NONE,
+    YG_BOOT_TX_PREPARED,
+    YG_BOOT_TX_QUEUED,
+    YG_BOOT_TX_IN_FLIGHT
+} yg_link_boot_tx_state_t;
 
 typedef struct
 {
@@ -39,6 +49,13 @@ typedef struct
     yg_protocol_motor_service_t motor_service;
     yg_protocol_parameter_service_t parameter_service;
     yg_protocol_job_service_t job_service;
+    BootEntryService boot_service;
+    uint64_t boot_ticket;
+    size_t boot_tx_slot;
+    size_t base_route_count;
+    yg_link_boot_tx_state_t boot_tx_state;
+    uint16_t boot_reply_sequence;
+    uint8_t boot_reply_destination;
     yg_protocol_motor_status_source_t empty_motor_status;
     const yg_protocol_motor_status_source_t *motor_status_source;
     yg_link_control_history_t control_history[YG_LINK_CONTROL_HISTORY_SIZE];
@@ -349,6 +366,63 @@ static yg_protocol_result_t handle_job(void *context,
     return YG_PROTOCOL_OK;
 }
 
+static yg_protocol_result_t handle_boot(void *context,
+                                        const yg_protocol_message_t *request,
+                                        yg_protocol_service_result_t *result)
+{
+    yg_protocol_link_context_t *link = context;
+    BootEntryRequest command;
+    BootEntryReply reply = {.result = BOOT_ENTRY_FAILED};
+    yg_protocol_result_t decoded;
+    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (request->source_node != YG_LINK_MASTER_NODE_ID)
+    {
+        write_result(result, 7U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    decoded = yg_protocol_boot_decode(request, &command);
+    if (decoded != YG_PROTOCOL_OK)
+    {
+        write_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (link->boot_tx_state != YG_BOOT_TX_NONE)
+    {
+        /* 一次只发送一个带票据的READY；重发不能替换原票据或续长其截止。 */
+        write_result(result, 6U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (link->boot_service.request == NULL || link->boot_service.tx_complete == NULL)
+    {
+        write_result(result, 2U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    link->boot_service.request(link->boot_service.context, &command, &reply);
+    if (yg_protocol_boot_encode_reply(
+            &reply, result->response_payload, sizeof(result->response_payload), NULL) !=
+        YG_PROTOCOL_OK)
+    {
+        if (reply.ack_ticket != 0U)
+        {
+            link->boot_service.tx_complete(link->boot_service.context, reply.ack_ticket, false);
+        }
+        write_result(result, 8U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (reply.result == BOOT_ENTRY_READY)
+    {
+        link->boot_ticket = reply.ack_ticket;
+        link->boot_reply_sequence = request->sequence;
+        link->boot_reply_destination = request->source_node;
+        link->boot_tx_state = YG_BOOT_TX_PREPARED;
+    }
+    result->response_payload_length = YG_PROTOCOL_BOOT_REPLY_SIZE;
+    return YG_PROTOCOL_OK;
+}
+
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     static const yg_protocol_route_t routes[] = {
@@ -365,10 +439,16 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_PROTOCOL_JOB_TYPE_START, handle_job, &link_context},
         {YG_PROTOCOL_JOB_TYPE_STATUS, handle_job, &link_context},
         {YG_PROTOCOL_JOB_TYPE_CANCEL, handle_job, &link_context},
+        {YG_PROTOCOL_BOOT_TYPE_ENTER, handle_boot, &link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
     yg_protocol_endpoint_config_t endpoint_config;
 
+    if (ready && link_context.boot_tx_state != YG_BOOT_TX_NONE)
+    {
+        /* 初始化不能丢弃尚未完成的物理票据；由所有者/平台先确认失败或完成。 */
+        return false;
+    }
     ready = false;
     if (node_id == YG_PROTOCOL_BROADCAST_NODE_ID ||
         !yg_protocol_transfer_queue_init(&rx_queue, rx_storage, YG_LINK_RX_QUEUE_CAPACITY) ||
@@ -382,6 +462,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
     memset(&link_context, 0, sizeof(link_context));
     link_context.node_id = node_id;
     link_context.motor_status_source = &link_context.empty_motor_status;
+    link_context.base_route_count = sizeof(routes) / sizeof(routes[0]) - 1U;
 
     configuration.context = &link_context;
     configuration.protocol_info_type = YG_PROTOCOL_READONLY_TYPE_GET_INFO;
@@ -392,7 +473,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
     configuration.capabilities = provide_capabilities;
     configuration.motor_status = provide_motor_status;
     if (yg_protocol_readonly_init(&readonly_service, &configuration) != YG_PROTOCOL_OK ||
-        yg_protocol_router_init(&router, &registry, routes, sizeof(routes) / sizeof(routes[0])) !=
+        yg_protocol_router_init(&router, &registry, routes, link_context.base_route_count) !=
             YG_PROTOCOL_OK)
     {
         return false;
@@ -459,6 +540,24 @@ bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service)
     return true;
 }
 
+bool YgProtocolLink_BindBootService(const BootEntryService *service)
+{
+    if (!ready || link_context.boot_tx_state != YG_BOOT_TX_NONE || endpoint.response_pending ||
+        yg_protocol_transfer_queue_count(&rx_queue) != 0U ||
+        yg_protocol_transfer_queue_count(&tx_queue) != 0U ||
+        (service != NULL && (service->request == NULL || service->tx_complete == NULL)))
+    {
+        return false;
+    }
+    const size_t count = link_context.base_route_count + (service != NULL ? 1U : 0U);
+    if (yg_protocol_router_init(&router, &registry, router.routes, count) != YG_PROTOCOL_OK)
+    {
+        return false;
+    }
+    link_context.boot_service = service != NULL ? *service : (BootEntryService){0};
+    return true;
+}
+
 bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_t *source)
 {
     if (!ready)
@@ -508,6 +607,96 @@ static yg_protocol_result_t send_pending_feedback(void)
     return result;
 }
 
+static void finish_boot_ticket(bool success)
+{
+    const uint64_t ticket = link_context.boot_ticket;
+    link_context.boot_ticket = 0U;
+    link_context.boot_tx_state = YG_BOOT_TX_NONE;
+    if (ticket != 0U && link_context.boot_service.tx_complete != NULL)
+    {
+        link_context.boot_service.tx_complete(link_context.boot_service.context, ticket, success);
+    }
+}
+
+static void service_boot_completion(void)
+{
+    CommHwCanTxCompletion completion;
+    for (uint8_t received = 0U; received < 8U; ++received)
+    {
+        if (!comm_hw_can_take_tx_completion(&completion))
+        {
+            break;
+        }
+        if (link_context.boot_tx_state == YG_BOOT_TX_IN_FLIGHT &&
+            completion.ticket == link_context.boot_ticket && completion.ticket != 0U)
+        {
+            finish_boot_ticket(completion.success);
+        }
+        /* 旧票据或其他帧事件不能使当前交接完成。 */
+    }
+}
+
+static void capture_boot_reply_slot(size_t previous_tail, yg_protocol_result_t result)
+{
+    if (link_context.boot_tx_state != YG_BOOT_TX_PREPARED || endpoint.response_pending)
+    {
+        return;
+    }
+    if (result != YG_PROTOCOL_OK || tx_queue.tail == previous_tail)
+    {
+        finish_boot_ticket(false);
+        return;
+    }
+    /* endpoint每次只排一个4B回复，此位置即当前READY，不搜索相似ID/seq的旧帧。 */
+    link_context.boot_tx_slot = previous_tail;
+    link_context.boot_tx_state = YG_BOOT_TX_QUEUED;
+}
+
+static yg_protocol_result_t send_one(void)
+{
+    yg_protocol_transfer_frame_t frame;
+    yg_protocol_message_t response;
+    CommHwCanFrame hardware = {0};
+    if (link_context.boot_tx_state != YG_BOOT_TX_QUEUED ||
+        tx_queue.head != link_context.boot_tx_slot)
+    {
+        return yg_protocol_canfd_send_one(&tx_queue);
+    }
+    if (!yg_protocol_transfer_queue_peek(&tx_queue, &frame))
+    {
+        finish_boot_ticket(false);
+        return YG_PROTOCOL_QUEUE_EMPTY;
+    }
+    /* 复用既有承载校验，避免位置关联被后续队列改动错误指向普通回复。 */
+    if (yg_protocol_canfd_unpack(&frame, link_context.boot_reply_destination, &response) !=
+            YG_PROTOCOL_OK ||
+        response.message_type != YG_PROTOCOL_BOOT_TYPE_ENTER ||
+        response.flags != YG_PROTOCOL_FLAGS_RESPONSE ||
+        response.source_node != link_context.node_id ||
+        response.sequence != link_context.boot_reply_sequence ||
+        response.payload_length != YG_PROTOCOL_BOOT_REPLY_SIZE || response.payload[0] != 1U ||
+        response.payload[1] != 0U || response.payload[2] != 0U || response.payload[3] != 0U)
+    {
+        (void)yg_protocol_transfer_queue_pop(&tx_queue, &frame);
+        finish_boot_ticket(false);
+        return YG_PROTOCOL_INVALID_CAN_FRAME;
+    }
+    hardware.identifier = frame.identifier;
+    hardware.length = frame.length;
+    hardware.extended = frame.extended;
+    hardware.remote = frame.remote;
+    hardware.fd = frame.fd;
+    hardware.bitrate_switch = frame.bitrate_switch;
+    memcpy(hardware.data, frame.data, frame.length);
+    if (!comm_hw_can_try_send_tracked_frame(&hardware, link_context.boot_ticket))
+    {
+        return YG_PROTOCOL_TRANSPORT_BUSY;
+    }
+    (void)yg_protocol_transfer_queue_pop(&tx_queue, &frame);
+    link_context.boot_tx_state = YG_BOOT_TX_IN_FLIGHT;
+    return YG_PROTOCOL_OK;
+}
+
 void YgProtocolLink_Service(uint32_t now_ms)
 {
     uint8_t processed = 0U;
@@ -517,16 +706,19 @@ void YgProtocolLink_Service(uint32_t now_ms)
     {
         return;
     }
+    service_boot_completion();
     while (processed < 8U)
     {
         yg_protocol_transfer_frame_t frame;
         yg_protocol_result_t result;
+        size_t previous_tail;
         if (!endpoint.response_pending && send_pending_feedback() != YG_PROTOCOL_OK)
         {
             break;
         }
         if (endpoint.response_pending)
         {
+            previous_tail = tx_queue.tail;
             result = yg_protocol_endpoint_process_frame(&endpoint, NULL, now_ms);
         }
         else
@@ -544,8 +736,10 @@ void YgProtocolLink_Service(uint32_t now_ms)
                 break;
             }
             /* 临界区只复制帧；CRC、路由和业务处理始终允许电机中断抢占。 */
+            previous_tail = tx_queue.tail;
             result = yg_protocol_endpoint_process_frame(&endpoint, &frame, now_ms);
         }
+        capture_boot_reply_slot(previous_tail, result);
         if (result == YG_PROTOCOL_QUEUE_FULL)
         {
             break;
@@ -556,7 +750,7 @@ void YgProtocolLink_Service(uint32_t now_ms)
         }
         ++processed;
     }
-    while (sent < 8U && yg_protocol_canfd_send_one(&tx_queue) == YG_PROTOCOL_OK)
+    while (sent < 8U && send_one() == YG_PROTOCOL_OK)
     {
         ++sent;
     }

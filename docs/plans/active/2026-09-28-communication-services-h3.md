@@ -64,5 +64,7 @@ ROOT批准160～162单帧kind/ticket最小布局；H实现专用任务reply、4B
 ## APP进入Loader
 
 选用D固定`1109361d`的共享BootEntryService，新增56窄载荷编解码。
-生产注册还须接ROOT平台tracked TX真实完成与E所有者，不能把codec或回调声明当完成。
+复用ROOT固定`6592f64f`的三个platform文件，完成56的link路由及精确TX旁记录关联，
+Service先消费真实完成、匹配完整u64票据，再交E所有者；不扩普通帧队列。
+E实际APP静默/启动身份/ENTER复位仍由E交付，不能把codec或回调存在当成已安装Loader。
 字段和依赖见[进入Loader v1](../../protocols/yg_protocol_boot_entry_wire_v1.md)。

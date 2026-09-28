@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "comm_hw.h"
+#include "loader_entry.h"
 #include "yg_protocol_job.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_status.h"
@@ -60,6 +61,16 @@ bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *
  *       不复制标定工作区、不执行算法或Flash，未绑定返回UNSUPPORTED。
  */
 bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service);
+
+/**
+ * @brief 在静默配置阶段绑定真实APP进入Loader所有者并开放56。
+ * @param service 共享业务契约，request与tx_complete必须都有实现；NULL撤销。
+ * @return 已初始化、队列无在途回复且绑定有效返回true，否则false且保持旧绑定。
+ * @note 只在RX启动前或停止RX并清空队列后调用，不与Service并发。
+ *       有在途票据不能撤销或替换；不探测Loader，也不将回调存在当成已安装能力。
+ *       物理发送完成由comm_hw tracked接口提供，普通提交成功不能触发复位。
+ */
+bool YgProtocolLink_BindBootService(const BootEntryService *service);
 
 /**
  * @brief 绑定只读电机状态快照源。

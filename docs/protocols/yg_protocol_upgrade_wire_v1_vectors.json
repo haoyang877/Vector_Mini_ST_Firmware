@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "status": "供后续统一验证的黄金载荷；本轮未执行测试",
+  "envelope_endianness": "little",
+  "manifest_endianness": "opaque original big",
+  "requests": [
+    {
+      "name": "status_discovery",
+      "type": 53,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "",
+      "expected_decode": "YG_PROTOCOL_OK",
+      "discover": true
+    },
+    {
+      "name": "finish_binding_boot64",
+      "type": 52,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211",
+      "expected_decode": "YG_PROTOCOL_OK"
+    },
+    {
+      "name": "status_bound",
+      "type": 53,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211",
+      "expected_decode": "YG_PROTOCOL_OK"
+    },
+    {
+      "name": "activate_bound",
+      "type": 54,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211",
+      "expected_decode": "YG_PROTOCOL_OK"
+    },
+    {
+      "name": "abort_bound",
+      "type": 55,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211",
+      "expected_decode": "YG_PROTOCOL_OK"
+    },
+    {
+      "name": "begin_opaque_96B",
+      "type": 50,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 2,
+      "payload_hex": "0807060504030201000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "expected_decode": "YG_PROTOCOL_OK",
+      "note": "仅为载荷结构与清单原样保留示例。该96B内容不是有效镜像清单，业务核心必须拒绝。",
+      "fragment_payload_bytes": [
+        46,
+        46,
+        12
+      ]
+    },
+    {
+      "name": "write_8B_single",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "0807060504030201443322118000000008000001020304050607",
+      "expected_decode": "YG_PROTOCOL_OK"
+    },
+    {
+      "name": "write_24B_single",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211800000001800000102030405060708090a0b0c0d0e0f1011121314151617",
+      "expected_decode": "YG_PROTOCOL_OK"
+    },
+    {
+      "name": "write_128B_fragmented",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 3,
+      "payload_hex": "080706050403020144332211800000008000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_decode": "YG_PROTOCOL_OK",
+      "fragment_payload_bytes": [
+        46,
+        46,
+        46,
+        8
+      ]
+    },
+    {
+      "name": "finish_zero_boot",
+      "type": 52,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "000000000000000044332211",
+      "expected_decode": "YG_PROTOCOL_INVALID_FIELD"
+    },
+    {
+      "name": "finish_zero_session",
+      "type": 52,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020100000000",
+      "expected_decode": "YG_PROTOCOL_INVALID_FIELD"
+    },
+    {
+      "name": "write_length_not_aligned",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211800000000a00ffffffffffffffffffff",
+      "expected_decode": "YG_PROTOCOL_INVALID_FIELD"
+    },
+    {
+      "name": "write_offset_not_aligned",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211810000000800ffffffffffffffff",
+      "expected_decode": "YG_PROTOCOL_INVALID_FIELD"
+    },
+    {
+      "name": "write_offset_wrap",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211f8ffffff0800ffffffffffffffff",
+      "expected_decode": "YG_PROTOCOL_INVALID_FIELD"
+    },
+    {
+      "name": "write_declared_length_mismatch",
+      "type": 51,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "080706050403020144332211800000000800ffffffffffffff",
+      "expected_decode": "YG_PROTOCOL_INVALID_LENGTH"
+    },
+    {
+      "name": "status_wrong_length",
+      "type": 53,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "00",
+      "expected_decode": "YG_PROTOCOL_INVALID_LENGTH"
+    },
+    {
+      "name": "unknown_type56",
+      "type": 56,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 32,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "",
+      "expected_decode": "YG_PROTOCOL_INVALID_MESSAGE_TYPE"
+    },
+    {
+      "name": "reply_flag_is_not_request",
+      "type": 53,
+      "source_node": 2,
+      "destination_node": 3,
+      "version": 1,
+      "flags": 16,
+      "reserved": 0,
+      "sequence": 7,
+      "payload_hex": "",
+      "expected_decode": "YG_PROTOCOL_INVALID_FIELD"
+    }
+  ],
+  "replies": [
+    {
+      "name": "write_persisted",
+      "fields": {
+        "result": 0,
+        "detail": 0,
+        "boot_epoch": "0x0102030405060708",
+        "session_id": "0x11223344",
+        "phase": 3,
+        "flags": 2,
+        "max_block_bytes": 128,
+        "next_offset_bytes": 256,
+        "image_bytes": 8192,
+        "image_token": "0x10203040",
+        "image_version": 1,
+        "image_role": 1
+      },
+      "payload_hex": "00000000080706050403020144332211030280000001000000200000403020100100000001000000",
+      "physical_canfd_bytes": 64
+    },
+    {
+      "name": "activate_accepted_not_rebooted",
+      "fields": {
+        "result": 1,
+        "detail": 0,
+        "boot_epoch": "0x0102030405060708",
+        "session_id": "0x11223344",
+        "phase": 5,
+        "flags": 3,
+        "max_block_bytes": 128,
+        "next_offset_bytes": 8192,
+        "image_bytes": 8192,
+        "image_token": "0x10203040",
+        "image_version": 1,
+        "image_role": 1
+      },
+      "payload_hex": "01000000080706050403020144332211050380000020000000200000403020100100000001000000",
+      "physical_canfd_bytes": 64
+    },
+    {
+      "name": "flash_failure_preserves_offset",
+      "fields": {
+        "result": 8,
+        "detail": 7,
+        "boot_epoch": "0x0102030405060708",
+        "session_id": "0x11223344",
+        "phase": 7,
+        "flags": 2,
+        "max_block_bytes": 128,
+        "next_offset_bytes": 256,
+        "image_bytes": 8192,
+        "image_token": "0x10203040",
+        "image_version": 1,
+        "image_role": 1
+      },
+      "payload_hex": "08000700080706050403020144332211070280000001000000200000403020100100000001000000",
+      "physical_canfd_bytes": 64
+    },
+    {
+      "name": "idle_discovery",
+      "fields": {
+        "result": 0,
+        "detail": 0,
+        "boot_epoch": "0x0102030405060708",
+        "session_id": 0,
+        "phase": 0,
+        "flags": 2,
+        "max_block_bytes": 128,
+        "next_offset_bytes": 0,
+        "image_bytes": 0,
+        "image_token": 0,
+        "image_version": 0,
+        "image_role": 0
+      },
+      "payload_hex": "00000000080706050403020100000000000280000000000000000000000000000000000000000000",
+      "physical_canfd_bytes": 64
+    }
+  ]
+}
+

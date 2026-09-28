@@ -47,3 +47,10 @@ ROOT裁决冻结空请求、4B result/detail回复，不引入掩码或新增控
 1/2查询明确DATA_UNAVAILABLE。1/2既有请求和回复字节布局不变。
 信息由平台UID/产品版本与业务所有者提供，通信不新增硬件访问或参数副本。
 需要ROOT/E在产品初始化并完成真实服务绑定后接入；旧测试占位期望留统一测试阶段更新。
+
+## 升级v1接线
+
+ROOT批准50～55的最小字段及分片序号澄清；实现shared纯请求解码、40B回复编码和版本化黄金载荷。
+升级seq仅关联本次回复；业务幂等使用真实source/boot/session/offset/operation及内容，
+不能对不同块的相同分片尾seq全局拒绝。详情见[升级v1](../../protocols/yg_protocol_upgrade_wire_v1.md)。
+D接入实际Loader命令分支、存储及精确TX票据；56等待真实APP静默与handoff后再注册。

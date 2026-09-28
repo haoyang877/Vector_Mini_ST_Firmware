@@ -10,6 +10,7 @@ APP 与独立 Loader 复用本目录的唯一实现。迁移说明见
 | `yg_protocol_frame_codec.c/.h` | 显式小端字段编码、长度与双 CRC 校验 |
 | `yg_protocol_can_id.c/.h` | 29 位扩展 ID 编解码，PF 固定为 0xEF |
 | `yg_protocol_fragment.c/.h` | 调用方提供缓冲区的单会话分片重组 |
+| `yg_protocol_upgrade_wire.c/.h` | 50～55载荷字段校验与40B回复编码，见[升级v1](../../docs/protocols/yg_protocol_upgrade_wire_v1.md) |
 
 无 HAL、APP 状态、Loader 状态、动态分配、队列或外设初始化。
 消息视图引用输入缓冲区；只有在其生命周期内才可使用载荷指针。

@@ -11,16 +11,16 @@
 
 /* 齿槽功能适配层：运行补偿采集、台架保护、标定会话。
  * 参数 ABI 保持既有约定；私有表与会话只通过显式边界交互，完成/失败经结果协议上报
- * （MotorWorkOutcome），停相与模式回退由运行状态机执行。 */
+ * （MotorTaskResult），停相与模式回退由运行状态机执行。 */
 
 static CoggingMapRecord CoggingMap;
 /* 前台与快速 ISR 共享该私有控制状态，保留原有 volatile 访问语义。 */
 static volatile CoggingCompensationControl CoggingCompensation;
-volatile uint32_t FocCoggingCompensationRequest;
+static volatile uint8_t compensation_request;
 static CoggingCalibration CoggingCalib;
-volatile CoggingTorqueGuard TorqueGuard;
-volatile uint32_t TorqueTelemetryState;
-volatile CoggingTorqueFrame TorqueTelemetry;
+static volatile CoggingTorqueGuard torque_guard;
+static volatile uint32_t torque_sample_state;
+static volatile CoggingTorqueFrame torque_sample;
 
 static bool session_started;
 static volatile bool finalize_pending, save_pending, finalize_claimed, finalize_cancelled;
@@ -88,26 +88,81 @@ float FocCogging_Apply(const MotorControl_TypeDef *m, const Encoder_TypeDef *e)
 
 /* ---------------------------------------------------------------- 台架保护 */
 
+bool FocCogging_SetTorqueGuard(uint32_t lease_ticks, float speed_limit_rad_s)
+{
+    if (lease_ticks != 0U && (!isfinite(speed_limit_rad_s) || speed_limit_rad_s <= 0.0f))
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    torque_guard.lease_ticks = lease_ticks;
+    torque_guard.speed_limit_rad_s = lease_ticks != 0U ? speed_limit_rad_s : 0.0f;
+    torque_guard.enabled = lease_ticks != 0U;
+    critical_hw_exit(mask);
+    return true;
+}
+
+bool FocCogging_ReadTorqueGuard(CoggingTorqueGuard *snapshot)
+{
+    if (snapshot == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    *snapshot = torque_guard;
+    critical_hw_exit(mask);
+    return true;
+}
+
+bool FocCogging_RequestTorqueSample(void)
+{
+    uint32_t mask = critical_hw_enter();
+    bool accepted = torque_sample_state == 0U;
+    if (accepted)
+    {
+        torque_sample_state = 1U;
+    }
+    critical_hw_exit(mask);
+    return accepted;
+}
+
+bool FocCogging_ReadTorqueSample(CoggingTorqueFrame *sample)
+{
+    if (sample == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    bool ready = torque_sample_state == 2U;
+    if (ready)
+    {
+        *sample = torque_sample;
+        torque_sample_state = 0U;
+    }
+    critical_hw_exit(mask);
+    return ready;
+}
+
 bool FocCogging_TorqueGuard(MotorControl_TypeDef *m, const Encoder_TypeDef *e)
 {
     uint32_t trip = 0U;
-    if (!TorqueGuard.enabled)
+    if (!torque_guard.enabled)
     {
         return true;
     }
     /* 租约：主机必须持续续租，进程失联即到期停机。 */
-    if (TorqueGuard.lease_ticks == 0U)
+    if (torque_guard.lease_ticks == 0U)
     {
         trip = 1U;
     }
     else
     {
-        --TorqueGuard.lease_ticks;
+        --torque_guard.lease_ticks;
     }
     /* 测速上限：覆盖主机存活但脚本下发错误指令的情形。 */
-    if (!isfinite(TorqueGuard.speed_limit_rad_s) || TorqueGuard.speed_limit_rad_s <= 0.0f ||
+    if (!isfinite(torque_guard.speed_limit_rad_s) || torque_guard.speed_limit_rad_s <= 0.0f ||
         !isfinite(e->vel_mech_continuous) ||
-        fabsf(e->vel_mech_continuous) > TorqueGuard.speed_limit_rad_s)
+        fabsf(e->vel_mech_continuous) > torque_guard.speed_limit_rad_s)
     {
         trip = 2U;
     }
@@ -115,7 +170,7 @@ bool FocCogging_TorqueGuard(MotorControl_TypeDef *m, const Encoder_TypeDef *e)
     {
         return true;
     }
-    TorqueGuard.trip = trip;
+    torque_guard.trip = trip;
     torque_trip_pending = true;
     m->iqRef = m->idRef = 0.0f;
     CoggingCompensation_Disable(&CoggingCompensation);
@@ -135,20 +190,20 @@ void FocCogging_TorqueObserve(const FOC_TypeDef *f,
                               const Encoder_TypeDef *e)
 {
     ++torque_tick;
-    if (TorqueTelemetryState != 1U)
+    if (torque_sample_state != 1U)
     {
         return;
     }
-    TorqueTelemetry.tick = torque_tick;
-    TorqueTelemetry.position_rad = Encoder_GetMecPos(e);
-    TorqueTelemetry.velocity_rad_s = e->vel_mech_continuous;
-    TorqueTelemetry.command_a = m->iqRef;
-    TorqueTelemetry.compensation_a = CoggingCompensation.applied_a;
-    TorqueTelemetry.total_a = CoggingCompensation.total_a;
-    TorqueTelemetry.feedback_a = f->Iq;
-    TorqueTelemetry.vbus_v = f->Vbus_filt;
-    TorqueTelemetry.blend = CoggingCompensation.blend;
-    TorqueTelemetryState = 2U;
+    torque_sample.tick = torque_tick;
+    torque_sample.position_rad = Encoder_GetMecPos(e);
+    torque_sample.velocity_rad_s = e->vel_mech_continuous;
+    torque_sample.command_a = m->iqRef;
+    torque_sample.compensation_a = CoggingCompensation.applied_a;
+    torque_sample.total_a = CoggingCompensation.total_a;
+    torque_sample.feedback_a = f->Iq;
+    torque_sample.vbus_v = f->Vbus_filt;
+    torque_sample.blend = CoggingCompensation.blend;
+    torque_sample_state = 2U;
 }
 
 /* ---------------------------------------------------------------- 标定会话 */
@@ -387,13 +442,22 @@ bool FocCogging_TableValid(const MotorControl_TypeDef *MotorControl,
            CoggingMap_Valid(&CoggingMap, Signature(MotorControl, OnBoard_Encoder));
 }
 
+void FocCogging_RequestCompensation(bool enabled)
+{
+    uint32_t mask = critical_hw_enter();
+    compensation_request = enabled ? 1U : 2U;
+    critical_hw_exit(mask);
+}
+
 void FocCogging_Service(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *OnBoard_Encoder)
 {
-    if (FocCoggingCompensationRequest == 1U || FocCoggingCompensationRequest == 2U)
+    uint32_t mask = critical_hw_enter();
+    if (compensation_request != 0U)
     {
-        CoggingCompensation.request = FocCoggingCompensationRequest == 1U ? 1U : 0U;
-        FocCoggingCompensationRequest = 0U;
+        CoggingCompensation.request = compensation_request == 1U ? 1U : 0U;
+        compensation_request = 0U;
     }
+    critical_hw_exit(mask);
     if (MotorControl->control_mode != MOTOR_CONTROL_NONE &&
         MotorControl->control_mode != MOTOR_CONTROL_CURRENT)
     {

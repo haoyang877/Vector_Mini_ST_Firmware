@@ -241,24 +241,53 @@ static void compensation_tests(void) {
     assert(!FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));OnBoard_Encoder.electrical_zero_q15--;
     CoggingMap.iq_q15[3]++;assert(!FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));
     CoggingMap.iq_q15[3]--; /* restore CRC-valid table, first request while running */
-    CoggingCompensation.request=1;
+    FocCogging_RequestCompensation(true);
     assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==0);
-    assert(CoggingCompensation.request==1 && CoggingCompensation.enabled==0);
+    assert(CoggingCompensation.enabled==0);
     FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==1);
-    CoggingCompensation.request=0;FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==0);
-    TorqueGuard.enabled=1;TorqueGuard.lease_ticks=2;TorqueGuard.speed_limit_rad_s=2;
+    FocCogging_RequestCompensation(true);FocCogging_RequestCompensation(false);
+    FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==0);
+    CoggingTorqueGuard guard;
+    assert(!FocCogging_ReadTorqueGuard(NULL));
+    assert(FocCogging_SetTorqueGuard(2,2));
+    assert(!FocCogging_SetTorqueGuard(100,NAN));
+    assert(!FocCogging_SetTorqueGuard(100,0));
+    assert(!FocCogging_SetTorqueGuard(100,-1));
+    assert(FocCogging_ReadTorqueGuard(&guard) && guard.enabled==1 && guard.lease_ticks==2);
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     pwm=true;assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
     /* 跳闸只置挂起标志；停相与模式回退由调度层转为结果协议后执行（此处模拟消费）。 */
-    assert(FocCogging_TakeTorqueTrip() && TorqueGuard.trip==1);
+    assert(FocCogging_ReadTorqueGuard(&guard) && guard.trip==1 && guard.lease_ticks==0);
+    assert(FocCogging_SetTorqueGuard(0,0));
+    assert(FocCogging_TakeTorqueTrip()); /* 关闭保护不能撤回已经挂起的STOP。 */
     consume((MotorTaskResult){MOTOR_TASK_FINALIZE, No_Error});
     assert(!pwm && MotorControl.control_mode==MOTOR_CONTROL_NONE);
-    TorqueGuard.lease_ticks=100;OnBoard_Encoder.vel_mech_continuous=3;
-    assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder) && TorqueGuard.trip==2);
+    assert(FocCogging_SetTorqueGuard(100,2));OnBoard_Encoder.vel_mech_continuous=3;
+    assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
+    assert(FocCogging_ReadTorqueGuard(&guard) && guard.trip==2);
     assert(FocCogging_TakeTorqueTrip());
-    OnBoard_Encoder.vel_mech_continuous=0;TorqueGuard.enabled=0;
+    OnBoard_Encoder.vel_mech_continuous=0;assert(FocCogging_SetTorqueGuard(0,0));
     assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
+    CoggingTorqueFrame sample, previous;
+    assert(sizeof(sample)==36 && !FocCogging_ReadTorqueSample(NULL));
+    assert(!FocCogging_ReadTorqueSample(&sample));
+    assert(FocCogging_RequestTorqueSample());
+    assert(!FocCogging_RequestTorqueSample() && !FocCogging_ReadTorqueSample(&sample));
+    MotorControl.iqRef=.25f;foc.Iq=.2f;foc.Vbus_filt=30;
+    FocCogging_TorqueObserve(&foc,&MotorControl,&OnBoard_Encoder);
+    assert(!FocCogging_ReadTorqueSample(NULL) && !FocCogging_RequestTorqueSample());
+    /* 未消费的帧不覆盖，空指针不丢帧，消费后调用方拥有独立副本。 */
+    MotorControl.iqRef=.5f;foc.Iq=.4f;foc.Vbus_filt=31;
+    FocCogging_TorqueObserve(&foc,&MotorControl,&OnBoard_Encoder);
+    assert(FocCogging_ReadTorqueSample(&sample));
+    assert(sample.command_a==.25f && sample.feedback_a==.2f && sample.vbus_v==30);
+    assert(!FocCogging_ReadTorqueSample(&sample));
+    previous=sample;
+    assert(FocCogging_RequestTorqueSample());
+    FocCogging_TorqueObserve(&foc,&MotorControl,&OnBoard_Encoder);
+    assert(FocCogging_ReadTorqueSample(&sample));
+    assert(sample.tick>previous.tick && sample.command_a==.5f && previous.command_a==.25f);
     puts("PASS compensation interpolation/wrap/sign, command ownership, ramp, total clamp, stale/corrupt rejection and independent torque watchdog trip flag");
 }
 static void lookup_tests(void) {

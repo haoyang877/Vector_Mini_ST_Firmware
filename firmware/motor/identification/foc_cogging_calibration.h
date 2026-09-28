@@ -94,16 +94,14 @@ bool FocCogging_SetCompensation(bool enabled,
  */
 float FocCogging_Apply(const MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
 
-/** 台架保护状态：lease_ticks 由测试主机续租，trip 记录最近一次跳闸原因。 */
+/** 台架保护值快照：lease_ticks 为剩余快速拍，trip 记录最近一次跳闸原因。 */
 typedef struct
 {
     uint32_t enabled, lease_ticks, trip;
     float speed_limit_rad_s;
 } CoggingTorqueGuard;
 
-extern volatile CoggingTorqueGuard TorqueGuard;
-
-/** 同一 ISR 时刻的力矩遥测帧；主机经 TorqueTelemetryState 请求后读取。 */
+/** 同一 ISR 时刻的力矩遥测值快照，所有字段由模块复制给调用方。 */
 typedef struct
 {
     uint32_t tick;
@@ -111,8 +109,34 @@ typedef struct
     float feedback_a, vbus_v, blend;
 } CoggingTorqueFrame;
 
-extern volatile uint32_t TorqueTelemetryState;
-extern volatile CoggingTorqueFrame TorqueTelemetry;
+/**
+ * @brief 原子设置台架保护租约和测速上限，不修改控制目标或功率使能。
+ * @param lease_ticks 租约快速拍数，20 kHz；零表示关闭保护。
+ * @param speed_limit_rad_s 开启时必须有限且大于零，单位 rad/s；关闭时忽略。
+ * @return 请求有效并已复制返回 true；无效上限返回 false，旧保护保持。
+ * @note 前台调用；不清除既有跳闸及挂起 STOP，不持久化，不能代替生产断连保护。
+ */
+bool FocCogging_SetTorqueGuard(uint32_t lease_ticks, float speed_limit_rad_s);
+/**
+ * @brief 复制当前台架保护状态，不返回内部可写地址。
+ * @param snapshot 调用方值快照空间。
+ * @return 参数有效且复制成功返回 true；空指针返回 false。
+ * @note 前台短临界区读取；不消耗跳闸，不授权启相。
+ */
+bool FocCogging_ReadTorqueGuard(CoggingTorqueGuard *snapshot);
+/**
+ * @brief 请求下一电流快环冻结一帧力矩遥测。
+ * @return 空闲且请求已登记返回 true；已有请求或未消费帧返回 false。
+ * @note 前台调用；不采样硬件、不修改控制目标，等待真实电流任务发布。
+ */
+bool FocCogging_RequestTorqueSample(void);
+/**
+ * @brief 复制并消费已经冻结的同拍力矩遥测。
+ * @param sample 调用方帧空间，复制后独立于下一帧。
+ * @return 已有完整帧且复制成功返回 true；空指针或尚未发布返回 false。
+ * @note 前台短临界区复制36B；失败不消费帧，不返回内部可写地址。
+ */
+bool FocCogging_ReadTorqueSample(CoggingTorqueFrame *sample);
 
 /**
  * @brief 台架保护入口：租约倒计时与测速上限判定；跳闸时置挂起标志、退出补偿并清零指令。
@@ -207,5 +231,10 @@ bool FocCogging_PublishCandidate(const CoggingMapRecord *record);
  */
 void FocCogging_ReleaseFinalize(bool published);
 /* 显式 SWD 补偿请求邮箱：1 请求开启，2 请求关闭，0 空闲；CPU 消费，不直接使能功率。 */
-extern volatile uint32_t FocCoggingCompensationRequest;
+/**
+ * @brief 提交补偿开关值，由稳定配置借用下的前台服务校验并应用。
+ * @param enabled true 请求开启，false 请求平滑关闭；最新请求覆盖未消费请求。
+ * @note 前台短临界区只登记请求，不做CRC、不启相、不表示校验已经通过。
+ */
+void FocCogging_RequestCompensation(bool enabled);
 #endif

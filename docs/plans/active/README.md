@@ -1,6 +1,7 @@
 # Active Plans
 
 
+
 Create one dated Markdown file per significant active change. Include intent, acceptance
 criteria, progress, decisions, and final evidence. Move the file to `../completed/` when done.
 

@@ -119,9 +119,11 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 内部 FAULT/FATAL 映射为非零既有故障，FATAL 在线状态优先，CLEAR 后需重新发起命令。
 过流恢复计数保留原实际 2 kHz 的 2000 拍（1 s），未按旧注释改成 100 ms。
 
-仍存在模块私有静态状态和显式 SWD 邮箱：FocCoggingCompensationRequest、TorqueGuard、
-TorqueTelemetryState、TorqueTelemetry；不能将本轮描述成“全仓无全局变量”。
+2026-09-29 收回齿槽四个公开可写对象：补偿通过值请求受理，台架租约原子设置，
+保护与同拍遥测通过独立值快照读取；旧SWD符号与写字段入口删除，不提供兼容。
+模块私有静态状态仍由其所属模块拥有，不将私有状态改成可跨层写入的大上下文。
 具体接口、验收和回退见 [E3 计划](../plans/active/2026-09-28-internal-decoupling-e3.md)。
+本次状态收口见[齿槽状态所有权计划](../plans/completed/2026-09-29-cogging-state-owner-v1.md)。
 原 `FocBenchSpeed` 台架邮箱已退役，见 [退役记录](../guides/watch_motor_commands.md)。
 
 ## 历史 E1 与后续优化

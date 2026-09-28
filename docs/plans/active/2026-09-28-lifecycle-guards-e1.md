@@ -107,8 +107,9 @@ RW 372、ZI 32140 B，ROM 按 map 中压缩后结果记录。没有同输入基�
 - `MotorControl.current_limit` 为 A，速度 PI 归一化输出限制在 ±1，乘该值生成
   `iqRef`；`idRef=0`。`FOC.Iq` 为测量相电流经 Clarke/Park 变换的 q 轴分量，
   与 `iqRef` 同单位；在平衡正弦、Id=0 时该幅值对应相电流峰值，不是相 RMS 或母线电流。
-  6 A 参考限制不能证明实际三相采样永不超过 6 A。现有 2 mΩ 配置的独立相电流
-  跳闸仍是 40 A、连续 5 个快拍，未为试验更改；没有本批新增的 3 A Ibus 控制限制。
+  6 A 参考限制不能证明实际三相采样永不超过 6 A。纠正：normal Keil 工程显式定义
+  `CURRENT_SENSE_SHUNT_MILLIOHM=6U`，本镜像的独立相电流跳闸为 18 A、连续
+  5 个快拍；40 A 仅为未选中的头文件 2 mΩ 默认路径。没有本批新增的 3 A Ibus 控制限制。
 - `speedRef`、`speed_limit` 为 rad/s；300 rpm 为约 31.416 rad/s。已有节点/轴限制
   更低时继续取低值，节点 1/2 的默认上限 20 rad/s 不能因本次运动上限自动升高。
 - 维护资源释放和保存/worker 原始身份欠项，针对从无维护占用的 READY 进入并退出

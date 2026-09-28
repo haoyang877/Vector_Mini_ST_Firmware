@@ -20,8 +20,9 @@ void FocRunState_Init(void);
  */
 void FocRunState_SaveFinished(bool committed);
 /**
- * @brief 快速环故障检查：编码器离线或轴配置失效时置故障并停机。
- * @note 仅由 20 kHz 快速中断调用；不清除既有故障，也不写参数。
+ * @brief 快速环故障及显式台架截止检查：核对反馈、轴配置、期限和采样限制。
+ * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。
+ *       台架期限到达可直接关相；采样电流截止只在显式会话内生效。不清错、不写 Flash。
  */
 void FocRunState_CheckFastFaults(void);
 /**

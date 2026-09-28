@@ -17,6 +17,8 @@ FIXTURE_HEAD = r"""
 #include "app_lifecycle.h"
 #include "motor_control_command.h"
 #include "motor_axis_profile.h"
+#include "control_config.h"
+#include "foc_bench_speed.h"
 
 static uint32_t critical_depth;
 
@@ -97,6 +99,7 @@ typedef struct
     uint16_t bad_frame_streak;
     uint8_t calibrated;
     float position_rad;
+    float speed_rad_s;
 } EncoderStub_TypeDef;
 static EncoderStub_TypeDef OnBoard_Encoder;
 static uint16_t Encoder_GetBadFrameStreak(const EncoderStub_TypeDef *e)
@@ -111,6 +114,7 @@ static bool Encoder_IsOnline(const EncoderStub_TypeDef *e)
 }
 static uint8_t Encoder_GetCalibFlag(const EncoderStub_TypeDef *e) { return e->calibrated; }
 static float Encoder_GetMecPos(const EncoderStub_TypeDef *e) { return e->position_rad; }
+static float Encoder_GetMecVel(const EncoderStub_TypeDef *e) { return e->speed_rad_s; }
 
 typedef struct
 {
@@ -156,7 +160,8 @@ typedef struct
     MotorAxisProfile axis_profile;
     bool isUseSensorless;
     float current_limit, speed_limit;
-    float iqRef, speedRef, posRef, vqRef;
+    float iqRef, speedRef, posRef, vqRef, idRef, speedShadow;
+    float speedAcc, speedDec, speed_Kp, speed_Ki;
     ModeNow_TypeDef ModeNow_f;
     ErrorNow_TypeDef ErrorNow_f;
 } MotorControl_TypeDef;
@@ -192,6 +197,13 @@ static bool power_stage_hw_phases_disabled(void) { return hardware_phases_disabl
 void Detect_Mode_Error_Change(void) { log_event(6, 0); }
 /* 就绪查询是纯查询：适配器与旧实现的调用时机不同，不计入行为对拍。 */
 bool MotorOuterLoop_IsReady(void) { return ready; }
+static bool ModeSwitch_Handle(ModeNow_TypeDef mode)
+{
+    assert(critical_depth > 0U);
+    MotorControl.ModeNow = mode;
+    return true;
+}
+bool FocRunState_RequestRemoteStop(void);
 """
 
 DRIVER = r"""
@@ -384,6 +396,138 @@ static void test_real_guards(void)
     assert(!outcome_latched && !control_pending);
     printf("PASS real guards: cold self-test, calibration not globally required, stale ADC,"
            " fault holds, real shutdown before CLEAR, STOP revokes queued mode\n");
+}
+
+static void prepare_bench(void)
+{
+    ResetWorld(Motor_Disable, Motor_Disable, No_Error, 1U, true);
+    MotorControl.axis_profile = (MotorAxisProfile){0};
+    MotorControl.current_limit = 2.0f;
+    MotorControl.speed_limit = 10.0f;
+    MotorControl.speedAcc = 20.0f;
+    MotorControl.speedDec = 20.0f;
+    MotorControl.speed_Kp = 0.05f;
+    MotorControl.speed_Ki = 0.5f;
+    OnBoard_Encoder.speed_rad_s = 0.0f;
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_READY && hardware_phases_disabled);
+    FocBenchSpeed.command = FOC_BENCH_SPEED_START;
+    FocBenchSpeed.duration_ms = 1U;
+    FocBenchSpeed.iq_limit_a = 1.0f;
+    FocBenchSpeed.phase_limit_a = 6.0f;
+    FocBenchSpeed.speed_limit_rad_s = 5.0f;
+}
+
+static void start_bench(void)
+{
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_seq == 2U);
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_ACCEPTED);
+    assert(lifecycle.snapshot.state == APP_STARTING && hardware_phases_disabled);
+    assert(MotorControl.speedRef == 0.0f && MotorControl.iqRef == 0.0f);
+    assert(MotorControl.current_limit == 1.0f && MotorControl.speed_limit == 5.0f);
+    healthy_tick();
+    assert(lifecycle.snapshot.state == APP_RUNNING && !hardware_phases_disabled);
+}
+
+static void test_bench_speed(void)
+{
+    prepare_bench();
+    FocBenchSpeed.request_seq = 1U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_seq == 0U && !bench_speed.active);
+    FocBenchSpeed.duration_ms = 0U;
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_INVALID && hardware_phases_disabled);
+
+    prepare_bench();
+    FocBenchSpeed.iq_limit_a = NAN;
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_INVALID && !bench_speed.active);
+
+    prepare_bench();
+    FocBenchSpeed.iq_limit_a = 3.0f;
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_DENIED && !bench_speed.active);
+    prepare_bench();
+    FocBenchSpeed.speed_limit_rad_s = 11.0f;
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_DENIED && !bench_speed.active);
+
+    prepare_bench();
+    McuTemperature.valid = 0U;
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_DENIED && hardware_phases_disabled);
+    prepare_bench();
+    OnBoard_Encoder.calibrated = 0U;
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_DENIED && hardware_phases_disabled);
+
+    prepare_bench();
+    FocBenchSpeed.request_seq = 1U;
+    FocRunState_RequestRemoteStop();
+    FocBenchSpeed.request_seq = 2U;
+    healthy_tick();
+    assert(FocBenchSpeed.ack_result == FOC_BENCH_SPEED_INTERRUPTED && !bench_speed.active);
+
+    prepare_bench();
+    start_bench();
+    MotorControlCommand target = {.mode=MOTOR_CONTROL_SPEED, .speed_rad_s=1.0f};
+    assert(FocRunState_SubmitRemoteControl(&target) == MOTOR_CONTROL_ACCEPTED);
+    FocRunState_RequestRemoteStop();
+    healthy_tick();
+    assert(!control_pending && !bench_speed.active && hardware_phases_disabled);
+    assert(FocBenchSpeed.state == FOC_BENCH_SPEED_STOPPED);
+    assert(MotorControl.current_limit == 2.0f && MotorControl.speed_limit == 10.0f);
+    assert(MotorControl.ErrorNow == No_Error);
+
+    prepare_bench();
+    start_bench();
+    for (uint32_t i=0U; i<FOC_FREQ/1000U; ++i)
+    {
+        RunState_BenchFastGuard();
+        FocRunState_FastFaultStop();
+    }
+    assert(hardware_phases_disabled && bench_speed.stop_requested);
+    healthy_tick();
+    assert(FocBenchSpeed.stop_reason == FOC_BENCH_SPEED_TIMEOUT);
+    assert(FocBenchSpeed.state == FOC_BENCH_SPEED_STOPPED && !bench_speed.active);
+    assert(MotorControl.ErrorNow == No_Error);
+    healthy_tick();
+    assert(hardware_phases_disabled && MotorControl.ModeNow == Motor_Disable);
+
+    for (uint32_t phase=0U; phase<3U; ++phase)
+    {
+        prepare_bench();
+        start_bench();
+        if (phase == 0U)
+        {
+            FOC.Ia = 6.0f;
+        }
+        else if (phase == 1U)
+        {
+            FOC.Ib = -6.0f;
+        }
+        else
+        {
+            FOC.Ic = 6.0f;
+        }
+        RunState_BenchFastGuard();
+        FocRunState_FastFaultStop();
+        assert(MotorControl.ErrorNow == Over_Current && hardware_phases_disabled);
+        healthy_tick();
+        assert(FocBenchSpeed.stop_reason == FOC_BENCH_SPEED_PHASE_CURRENT);
+        assert(lifecycle.snapshot.state == APP_FAULT && !bench_speed.active);
+        assert((FocBenchSpeed.status_seq & 1U) == 0U);
+    }
+    printf("PASS bench speed: explicit zero start, bounds/health, STOP priority, timeout, phase trip\n");
 }
 
 int main(void)
@@ -609,6 +753,7 @@ int main(void)
 
     test_remote_targets();
     test_real_guards();
+    test_bench_speed();
     return 0;
 }
 """
@@ -622,6 +767,7 @@ def run_state_fixture():
             "FOC_MaximumVoltage",
         )
         + function_source(source, "validate_remote_control")
+        + function_source(source, "RunState_BenchCancel")
         + function_source(source, "apply_pending_control")
         + function_source(source, "Encoder_FeedbackRequired")
         + function_source(source, "RunState_ModeIsAutoStartable")
@@ -642,6 +788,9 @@ def run_state_fixture():
         + function_source(source, "RunState_SendOperation")
         + function_source(source, "RunState_ServiceOperations")
         + function_source(source, "RunState_BeginOperationIfRequested")
+        + function_source(source, "RunState_ServiceBenchRequest")
+        + function_source(source, "RunState_BenchFastGuard")
+        + function_source(source, "RunState_PublishBenchState")
         + function_source(source, "FocRunState_Init")
         + function_source(source, "FocRunState_SubmitRemoteControl")
         + function_source(source, "FocRunState_RequestRemoteStop")
@@ -652,7 +801,10 @@ def run_state_fixture():
         + function_source(source, "FocRunState_TakeOutcome")
         + function_source(source, "FocRunState_Tick")
     )
-    return FIXTURE_HEAD + new_logic + DRIVER
+    bench_context = source.split("/* BENCH_SPEED_CONTEXT_BEGIN */", 1)[1].split(
+        "/* BENCH_SPEED_CONTEXT_END */", 1
+    )[0]
+    return FIXTURE_HEAD + bench_context + new_logic + DRIVER
 
 
 def main():

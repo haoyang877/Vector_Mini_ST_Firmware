@@ -7,6 +7,7 @@
 #include "app_lifecycle.h"
 #include "bus_voltage_profile.h"
 #include "critical_hw.h"
+#include "foc_bench_speed.h"
 #include "foc_errhandle.h"
 #include "foc_algorithm.h"
 #include "foc_run.h"
@@ -21,6 +22,24 @@
 /* 阶段 D 恢复矩阵参数：过流回落驻留 100 ms（20 kHz 快环 2000 拍），高温恢复滞回 80 °C。 */
 #define RUN_STATE_OC_RECOVER_TICKS 2000U
 #define RUN_STATE_TEMP_RECOVER_C 80.0f
+/* BENCH_SPEED_CONTEXT_BEGIN */
+#define BENCH_SPEED_MAX_DURATION_MS 5000U
+#define BENCH_SPEED_MAX_PHASE_A 6.0f
+#define BENCH_SPEED_MAX_RAD_S 31.4159265f
+#define BENCH_SPEED_FAST_TICKS_PER_MS (FOC_FREQ / 1000U)
+
+/* 显式请求区可由 SWD 写入；其余状态仍由运行所有者私有持有。 */
+volatile FocBenchSpeedMailbox FocBenchSpeed;
+static struct
+{
+    volatile bool active, stop_requested;
+    volatile uint32_t remaining_fast_ticks, stop_reason;
+    uint32_t session_seq, last_request_seq;
+    volatile uint32_t blocked_seq;
+    float phase_limit_a, speed_limit_rad_s;
+    float saved_current_limit_a, saved_speed_limit_rad_s;
+} bench_speed;
+/* BENCH_SPEED_CONTEXT_END */
 
 /* 运行状态机适配器：
  * - READY/STARTING/RUNNING/STOPPING/FAULT 由 AppLifecycle 纯核心拥有；
@@ -53,6 +72,28 @@ static volatile uint32_t fast_sample_epoch;
 static uint32_t observed_fast_sample_epoch;
 static bool fast_samples_fresh;
 static bool RunState_VbusInEnableWindow(void);
+
+/* STOP/FAULT 撤销已提交或正在写入的台架请求；不因迟到提交重新启动。 */
+static void RunState_BenchCancel(uint32_t reason)
+{
+    uint32_t seq = FocBenchSpeed.request_seq;
+    uint32_t committed_seq = (seq & 1U) != 0U && seq != UINT32_MAX ? seq + 1U : seq;
+    if (committed_seq > bench_speed.blocked_seq)
+    {
+        bench_speed.blocked_seq = committed_seq;
+    }
+    if (bench_speed.active)
+    {
+        bench_speed.stop_requested = true;
+        if (bench_speed.stop_reason == FOC_BENCH_SPEED_NO_STOP ||
+            (reason == FOC_BENCH_SPEED_FAULT &&
+             bench_speed.stop_reason != FOC_BENCH_SPEED_PHASE_CURRENT &&
+             bench_speed.stop_reason != FOC_BENCH_SPEED_OVERSPEED))
+        {
+            bench_speed.stop_reason = reason;
+        }
+    }
+}
 
 static MotorControlResult validate_remote_control(const MotorControlCommand *command)
 {
@@ -627,6 +668,182 @@ static void RunState_BeginOperationIfRequested(ModeNow_TypeDef target)
     }
 }
 
+/* 单次复制发布完成的 SWD 请求；全程有界，不等待外部写入者。 */
+static void RunState_ServiceBenchRequest(bool worker_idle)
+{
+    uint32_t state = critical_hw_enter();
+    uint32_t seq = FocBenchSpeed.request_seq;
+    uint32_t command, duration_ms;
+    float iq_limit_a, phase_limit_a, speed_limit_rad_s;
+    AppLifecycleGuards guards;
+    uint32_t result = FOC_BENCH_SPEED_DENIED;
+
+    if (seq == 0U || (seq & 1U) != 0U || seq <= bench_speed.last_request_seq)
+    {
+        critical_hw_exit(state);
+        return;
+    }
+    command = FocBenchSpeed.command;
+    duration_ms = FocBenchSpeed.duration_ms;
+    iq_limit_a = FocBenchSpeed.iq_limit_a;
+    phase_limit_a = FocBenchSpeed.phase_limit_a;
+    speed_limit_rad_s = FocBenchSpeed.speed_limit_rad_s;
+    if (FocBenchSpeed.request_seq != seq)
+    {
+        critical_hw_exit(state);
+        return;
+    }
+    bench_speed.last_request_seq = seq;
+    if (seq <= bench_speed.blocked_seq)
+    {
+        result = FOC_BENCH_SPEED_INTERRUPTED;
+    }
+    else if (command == FOC_BENCH_SPEED_STOP)
+    {
+        (void)FocRunState_RequestRemoteStop();
+        RunState_RequestStop(true);
+        result = FOC_BENCH_SPEED_ACCEPTED;
+    }
+    else if (command != FOC_BENCH_SPEED_START || duration_ms == 0U ||
+             duration_ms > BENCH_SPEED_MAX_DURATION_MS || !isfinite(iq_limit_a) ||
+             !isfinite(phase_limit_a) || !isfinite(speed_limit_rad_s) || iq_limit_a <= 0.0f ||
+             phase_limit_a <= iq_limit_a || phase_limit_a > BENCH_SPEED_MAX_PHASE_A ||
+             speed_limit_rad_s <= 0.0f || speed_limit_rad_s > BENCH_SPEED_MAX_RAD_S)
+    {
+        result = FOC_BENCH_SPEED_INVALID;
+    }
+    else if (bench_speed.active)
+    {
+        result = FOC_BENCH_SPEED_BUSY;
+    }
+    else
+    {
+        guards = RunState_BuildGuards();
+        if (worker_idle && lifecycle.snapshot.state == APP_READY &&
+            lifecycle.snapshot.operation == APP_OPERATION_NONE &&
+            lifecycle.snapshot.operation_result != APP_OPERATION_CANCEL_REQUESTED &&
+            operation_mode == Motor_Disable && save_finish == SAVE_FINISH_NONE &&
+            MotorControl.ModeNow == Motor_Disable && ModeLast == Motor_Disable &&
+            guards.phases_disabled && guards.control_idle && guards.self_test_passed &&
+            guards.start_permitted && !MotorControl.isUseSensorless &&
+            Encoder_IsOnline(&OnBoard_Encoder) &&
+            (Encoder_GetCalibFlag(&OnBoard_Encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+            isfinite(MotorControl.current_limit) && iq_limit_a <= MotorControl.current_limit &&
+            isfinite(MotorControl.speed_limit) && speed_limit_rad_s <= MotorControl.speed_limit &&
+            isfinite(MotorControl.speedAcc) && MotorControl.speedAcc > 0.0f &&
+            isfinite(MotorControl.speedDec) && MotorControl.speedDec > 0.0f &&
+            isfinite(MotorControl.speed_Kp) && MotorControl.speed_Kp >= 0.0f &&
+            isfinite(MotorControl.speed_Ki) && MotorControl.speed_Ki >= 0.0f &&
+            isfinite(Encoder_GetMecVel(&OnBoard_Encoder)) &&
+            fabsf(Encoder_GetMecVel(&OnBoard_Encoder)) <= speed_limit_rad_s &&
+            fabsf(FOC.Ia) < phase_limit_a && fabsf(FOC.Ib) < phase_limit_a &&
+            fabsf(FOC.Ic) < phase_limit_a &&
+            (MotorControl.axis_profile.magic == 0U ||
+             (isfinite(MotorControl.axis_profile.maximum_speed_rad_s) &&
+              speed_limit_rad_s <= MotorControl.axis_profile.maximum_speed_rad_s)) &&
+            RunState_VbusInEnableWindow())
+        {
+            /* 沿用现有准入函数，登记仍发生在 owner；启动不继承旧 PI/目标。 */
+            Clear_RunningData();
+            if (ModeSwitch_Handle(Speed_Mode))
+            {
+                bench_speed.saved_current_limit_a = MotorControl.current_limit;
+                bench_speed.saved_speed_limit_rad_s = MotorControl.speed_limit;
+                bench_speed.phase_limit_a = phase_limit_a;
+                bench_speed.speed_limit_rad_s = speed_limit_rad_s;
+                bench_speed.remaining_fast_ticks = duration_ms * BENCH_SPEED_FAST_TICKS_PER_MS;
+                bench_speed.session_seq = seq;
+                bench_speed.stop_reason = FOC_BENCH_SPEED_NO_STOP;
+                bench_speed.stop_requested = false;
+                MotorControl.current_limit = iq_limit_a;
+                MotorControl.speed_limit = speed_limit_rad_s;
+                MotorControl.speedRef = 0.0f;
+                MotorControl.speedShadow = 0.0f;
+                MotorControl.idRef = 0.0f;
+                MotorControl.iqRef = 0.0f;
+                bench_speed.active = true;
+                result = FOC_BENCH_SPEED_ACCEPTED;
+            }
+        }
+    }
+    /* 输出区只有 2 kHz 写者；读者用 status_seq 检查一次完整发布。 */
+    ++FocBenchSpeed.status_seq;
+    FocBenchSpeed.ack_seq = seq;
+    FocBenchSpeed.ack_result = result;
+    ++FocBenchSpeed.status_seq;
+    critical_hw_exit(state);
+}
+
+/* 独立于 PC 的快环计时和采样式测试截止，仅在显式台架会话内运行。 */
+static void RunState_BenchFastGuard(void)
+{
+    if (!bench_speed.active)
+    {
+        return;
+    }
+    if (MotorControl.ErrorNow == No_Error &&
+        (!isfinite(FOC.Ia) || !isfinite(FOC.Ib) || !isfinite(FOC.Ic) ||
+         fabsf(FOC.Ia) >= bench_speed.phase_limit_a || fabsf(FOC.Ib) >= bench_speed.phase_limit_a ||
+         fabsf(FOC.Ic) >= bench_speed.phase_limit_a))
+    {
+        bench_speed.stop_reason = FOC_BENCH_SPEED_PHASE_CURRENT;
+        Set_ErrorNow(Over_Current);
+    }
+    if (MotorControl.ErrorNow == No_Error &&
+        (!isfinite(Encoder_GetMecVel(&OnBoard_Encoder)) ||
+         fabsf(Encoder_GetMecVel(&OnBoard_Encoder)) > bench_speed.speed_limit_rad_s))
+    {
+        bench_speed.stop_reason = FOC_BENCH_SPEED_OVERSPEED;
+        Set_ErrorNow(MotorParam_Error);
+    }
+    if (bench_speed.remaining_fast_ticks > 0U)
+    {
+        --bench_speed.remaining_fast_ticks;
+    }
+    if (bench_speed.remaining_fast_ticks == 0U)
+    {
+        RunState_BenchCancel(FOC_BENCH_SPEED_TIMEOUT);
+        control_pending = false;
+        power_stage_hw_stop();
+    }
+}
+
+/* 仅实际关相并退出运行后恢复 RAM 限值；没有确认时保留更严格限制与 busy。 */
+static void RunState_PublishBenchState(void)
+{
+    uint32_t state = critical_hw_enter();
+    uint32_t session_state = FocBenchSpeed.state;
+    if (bench_speed.active)
+    {
+        if (MotorControl.ModeNow == Motor_Disable && power_stage_hw_phases_disabled() &&
+            (lifecycle.snapshot.state == APP_READY || lifecycle.snapshot.state == APP_FAULT ||
+             lifecycle.snapshot.state == APP_FATAL))
+        {
+            MotorControl.current_limit = bench_speed.saved_current_limit_a;
+            MotorControl.speed_limit = bench_speed.saved_speed_limit_rad_s;
+            bench_speed.active = false;
+            session_state = FOC_BENCH_SPEED_STOPPED;
+        }
+        else
+        {
+            session_state = bench_speed.stop_requested                ? FOC_BENCH_SPEED_STOPPING
+                            : lifecycle.snapshot.state == APP_RUNNING ? FOC_BENCH_SPEED_RUNNING
+                                                                      : FOC_BENCH_SPEED_STARTING;
+        }
+    }
+    ++FocBenchSpeed.status_seq;
+    FocBenchSpeed.session_seq = bench_speed.session_seq;
+    FocBenchSpeed.state = session_state;
+    FocBenchSpeed.stop_reason = bench_speed.stop_reason;
+    FocBenchSpeed.remaining_ms =
+        bench_speed.active
+            ? (bench_speed.remaining_fast_ticks + BENCH_SPEED_FAST_TICKS_PER_MS - 1U) /
+                  BENCH_SPEED_FAST_TICKS_PER_MS
+            : 0U;
+    ++FocBenchSpeed.status_seq;
+    critical_hw_exit(state);
+}
+
 void FocRunState_Init(void)
 {
     AppLifecycle_Init(&lifecycle);
@@ -638,6 +855,9 @@ void FocRunState_Init(void)
     fast_sample_epoch = 0U;
     observed_fast_sample_epoch = 0U;
     fast_samples_fresh = false;
+    memset(&bench_speed, 0, sizeof(bench_speed));
+    memset((void *)&FocBenchSpeed, 0, sizeof(FocBenchSpeed));
+    FocBenchSpeed.version = FOC_BENCH_SPEED_MAILBOX_VERSION;
 }
 
 bool FocRunState_IsMaintenanceActive(ModeNow_TypeDef mode)
@@ -658,6 +878,7 @@ AppLifecycleState FocRunState_GetState(void)
 bool FocRunState_RequestRemoteStop(void)
 {
     uint32_t state = critical_hw_enter();
+    RunState_BenchCancel(FOC_BENCH_SPEED_MANUAL_STOP);
     control_pending = false;
     if (outcome_latched && pending_outcome.result != MOTOR_WORK_FAULT)
     {
@@ -690,6 +911,7 @@ MotorControlResult FocRunState_SubmitRemoteControl(const MotorControlCommand *co
 
 void FocRunState_CheckFastFaults(void)
 {
+    RunState_BenchFastGuard();
     if (Encoder_FeedbackRequired(&MotorControl) &&
         Encoder_GetBadFrameStreak(&OnBoard_Encoder) >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
     {
@@ -734,6 +956,7 @@ void FocRunState_FastFaultStop(void)
 {
     if (MotorControl.ErrorNow != No_Error)
     {
+        RunState_BenchCancel(FOC_BENCH_SPEED_FAULT);
         control_pending = false;
     }
     if (MotorControl.ErrorNow != No_Error && !power_stage_hw_phases_disabled())
@@ -767,6 +990,15 @@ void FocRunState_Tick(void)
     bool clear_requested;
 
     RunState_UpdateSampleProgress();
+    if (bench_speed.active && bench_speed.stop_requested)
+    {
+        (void)FocRunState_RequestRemoteStop();
+        RunState_RequestStop(true);
+        if (outcome.result != MOTOR_WORK_FAULT)
+        {
+            outcome.result = MOTOR_WORK_RUNNING;
+        }
+    }
 
     /* 1. worker 结果 → 目标模式与前置动作（与旧实现同序）。 */
     target = MotorControl.ModeNow;
@@ -781,6 +1013,7 @@ void FocRunState_Tick(void)
         target = outcome.next_mode;
         break;
     case MOTOR_WORK_STOP:
+        RunState_BenchCancel(FOC_BENCH_SPEED_MANUAL_STOP);
         MotorControl.ModeNow = Motor_Disable;
         target = Motor_Disable;
         break;
@@ -833,9 +1066,13 @@ void FocRunState_Tick(void)
     }
     if (lifecycle.snapshot.state == APP_FAULT || lifecycle.snapshot.state == APP_FATAL)
     {
+        RunState_BenchCancel(FOC_BENCH_SPEED_FAULT);
         MotorControl.ModeNow = Motor_Disable;
         target = Motor_Disable;
     }
+
+    RunState_ServiceBenchRequest(outcome.result == MOTOR_WORK_RUNNING);
+    target = MotorControl.ModeNow;
 
     /* 故障、worker 停机与外部失能先处理，随后消费目标；复核失败直接丢弃，不重试。 */
     apply_pending_control();
@@ -903,4 +1140,5 @@ void FocRunState_Tick(void)
 
     MotorControl.ModeNow_f = MotorControl.ModeNow;
     MotorControl.ErrorNow_f = MotorControl.ErrorNow;
+    RunState_PublishBenchState();
 }

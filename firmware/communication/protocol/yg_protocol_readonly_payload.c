@@ -29,6 +29,49 @@ static void write_u32(uint8_t *bytes, uint32_t value)
 }
 
 yg_protocol_result_t
+yg_protocol_readonly_encode_device_status(const yg_protocol_readonly_device_status_t *status,
+                                          uint8_t *payload,
+                                          size_t capacity,
+                                          size_t *written)
+{
+    if (status == NULL || payload == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if ((status->role != YG_PROTOCOL_DEVICE_ROLE_APP &&
+         status->role != YG_PROTOCOL_DEVICE_ROLE_LOADER) ||
+        status->boot_state > YG_PROTOCOL_BOOT_STATE_LOADER ||
+        (status->role == YG_PROTOCOL_DEVICE_ROLE_APP &&
+         status->boot_state == YG_PROTOCOL_BOOT_STATE_LOADER) ||
+        (status->role == YG_PROTOCOL_DEVICE_ROLE_LOADER &&
+         status->boot_state != YG_PROTOCOL_BOOT_STATE_LOADER) ||
+        (status->epoch_valid &&
+         (status->boot_epoch == 0U || status->boot_state == YG_PROTOCOL_BOOT_STATE_UNAVAILABLE)) ||
+        (!status->epoch_valid &&
+         (status->boot_epoch != 0U || (status->role == YG_PROTOCOL_DEVICE_ROLE_APP &&
+                                       status->boot_state != YG_PROTOCOL_BOOT_STATE_UNAVAILABLE))))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (capacity < YG_PROTOCOL_READONLY_DEVICE_STATUS_SIZE)
+    {
+        return YG_PROTOCOL_BUFFER_TOO_SMALL;
+    }
+    write_u16(payload, status->epoch_valid ? 0U : 6U);
+    write_u16(payload + 2U, 0U);
+    payload[4] = status->role;
+    payload[5] = status->boot_state;
+    write_u16(payload + 6U, status->epoch_valid ? 1U : 0U);
+    write_u32(payload + 8U, (uint32_t)status->boot_epoch);
+    write_u32(payload + 12U, (uint32_t)(status->boot_epoch >> 32U));
+    if (written != NULL)
+    {
+        *written = YG_PROTOCOL_READONLY_DEVICE_STATUS_SIZE;
+    }
+    return YG_PROTOCOL_OK;
+}
+
+yg_protocol_result_t
 yg_protocol_readonly_decode_page_request(const yg_protocol_message_t *message,
                                          yg_protocol_readonly_page_request_t *request)
 {

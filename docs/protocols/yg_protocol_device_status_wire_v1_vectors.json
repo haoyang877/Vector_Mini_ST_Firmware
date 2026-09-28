@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "status": "供后续统一验证；本轮未执行测试",
+  "type": 3,
+  "request_payload_hex": "",
+  "replies": [
+    {
+      "name": "app_confirmed_boot64",
+      "payload_hex": "00000000010101000807060504030201",
+      "result": 0,
+      "role": 1,
+      "boot_state": 1,
+      "flags": 1,
+      "boot_epoch": "0x0102030405060708"
+    },
+    {
+      "name": "app_trial_boot64",
+      "payload_hex": "00000000010201000807060504030201",
+      "result": 0,
+      "role": 1,
+      "boot_state": 2,
+      "flags": 1,
+      "boot_epoch": "0x0102030405060708"
+    },
+    {
+      "name": "loader_resident_boot64",
+      "payload_hex": "00000000020301000807060504030201",
+      "result": 0,
+      "role": 2,
+      "boot_state": 3,
+      "flags": 1,
+      "boot_epoch": "0x0102030405060708"
+    },
+    {
+      "name": "app_unavailable",
+      "payload_hex": "06000000010000000000000000000000",
+      "result": 6,
+      "role": 1,
+      "boot_state": 0,
+      "flags": 0,
+      "boot_epoch": "0"
+    }
+  ]
+}
+

@@ -54,6 +54,7 @@ yg_protocol_result_t yg_protocol_product_registry_init(yg_protocol_message_regis
     static const yg_protocol_message_descriptor_t descriptors[] = {
         {YG_PROTOCOL_READONLY_TYPE_GET_INFO, true, false},
         {YG_PROTOCOL_READONLY_TYPE_GET_CAPS, false, false},
+        {YG_PROTOCOL_READONLY_TYPE_GET_DEVICE_STATUS, false, false},
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, false, false},
         {YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK, false, true},
         {YG_PROTOCOL_MOTOR_TYPE_ENABLE, false, false},

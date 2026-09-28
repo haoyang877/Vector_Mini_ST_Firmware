@@ -75,3 +75,10 @@ E实际APP静默/启动身份/ENTER复位仍由E交付，不能把codec或回调
 它的OPEN/MANIFEST/QUERY等泛型接口被本轮50～55共享codec与D独立Loader事务取代，删除且不保留包装。
 ROOT需在统一测试前移除native core旧源码项，并将contract中的旧泛型update边界检查迁至真实共享codec；
 这批没有运行旧测试，也不能把旧stub测试作为新升级验收。
+
+## 真实启动身份发现
+
+ROOT冻结Type3空请求/16B角色、阶段、有效位及boot64回复；H在既有readonly_payload模块实现，
+link借用稳定APP快照，无新服务、无硬件访问。未绑定仍16B返回当前数据不可用，不猜补高位。
+[发现v1](../../protocols/yg_protocol_device_status_wire_v1.md)连接主机Type3→56的实际流程；
+E须用真实BootHwInfo来源接线，Loader可继续用53，不要求重复实现。

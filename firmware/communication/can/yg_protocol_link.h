@@ -37,6 +37,15 @@ bool YgProtocolLink_SetDeviceDescription(const yg_protocol_readonly_info_page0_t
                                          const yg_protocol_readonly_caps_page0_t *capabilities);
 
 /**
+ * @brief 绑定Type3所需的真实启动交接快照。
+ * @param source APP所有者的稳定只读值，NULL恢复APP角色且epoch不可用的快照。
+ * @return 已初始化且绑定成功返回true，否则false。
+ * @note 后台串行调用，不与Service并发；借用指针，调用方须保持生命周期与查询期间不可变。
+ *       不自行分配epoch，不把硬件UID或u32计数升级为u64启动身份。
+ */
+bool YgProtocolLink_BindDeviceStatusSource(const yg_protocol_readonly_device_status_t *source);
+
+/**
  * @brief 绑定电机业务服务。
  * @param service 业务所有者提供的服务；传入 NULL 表示解除绑定。
  * @return 已初始化且绑定成功返回 true，否则返回 false。

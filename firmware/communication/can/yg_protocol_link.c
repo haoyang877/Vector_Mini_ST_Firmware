@@ -47,6 +47,7 @@ typedef struct
     uint8_t node_id;
     yg_protocol_readonly_info_page0_t info;
     yg_protocol_readonly_caps_page0_t capabilities;
+    const yg_protocol_readonly_device_status_t *device_status_source;
     yg_protocol_motor_service_t motor_service;
     yg_protocol_parameter_service_t parameter_service;
     yg_protocol_job_service_t job_service;
@@ -72,6 +73,8 @@ typedef struct
 } yg_protocol_link_context_t;
 
 static yg_protocol_link_context_t link_context;
+static const yg_protocol_readonly_device_status_t empty_device_status = {
+    .role = YG_PROTOCOL_DEVICE_ROLE_APP};
 static yg_protocol_transfer_frame_t rx_storage[YG_LINK_RX_QUEUE_CAPACITY];
 static yg_protocol_transfer_frame_t tx_storage[YG_LINK_TX_QUEUE_CAPACITY];
 static uint8_t fragment_storage[YG_LINK_FRAGMENT_CAPACITY];
@@ -139,6 +142,32 @@ static yg_protocol_result_t provide_capabilities(void *context,
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
     *payload_length = (uint32_t)written;
+    return YG_PROTOCOL_OK;
+}
+
+static yg_protocol_result_t handle_device_status(void *context,
+                                                 const yg_protocol_message_t *request,
+                                                 yg_protocol_service_result_t *result)
+{
+    yg_protocol_link_context_t *link = context;
+    if (link == NULL || request == NULL || result == NULL || !request_is_valid(request))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (request->payload_length != 0U)
+    {
+        write_result(result, 3U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (yg_protocol_readonly_encode_device_status(link->device_status_source,
+                                                  result->response_payload,
+                                                  sizeof(result->response_payload),
+                                                  NULL) != YG_PROTOCOL_OK)
+    {
+        write_result(result, 8U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    result->response_payload_length = YG_PROTOCOL_READONLY_DEVICE_STATUS_SIZE;
     return YG_PROTOCOL_OK;
 }
 
@@ -432,6 +461,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
     static const yg_protocol_route_t routes[] = {
         {YG_PROTOCOL_READONLY_TYPE_GET_INFO, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_READONLY_TYPE_GET_CAPS, yg_protocol_readonly_handle, &readonly_service},
+        {YG_PROTOCOL_READONLY_TYPE_GET_DEVICE_STATUS, handle_device_status, &link_context},
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_MOTOR_TYPE_ENABLE, handle_motor_action, &link_context},
         {YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT, handle_motor_action, &link_context},
@@ -466,6 +496,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
     memset(&link_context, 0, sizeof(link_context));
     link_context.node_id = node_id;
     link_context.motor_status_source = &link_context.empty_motor_status;
+    link_context.device_status_source = &empty_device_status;
     link_context.base_route_count = sizeof(routes) / sizeof(routes[0]) - 1U;
 
     configuration.context = &link_context;
@@ -510,6 +541,16 @@ bool YgProtocolLink_SetDeviceDescription(const yg_protocol_readonly_info_page0_t
     link_context.capabilities =
         capabilities != NULL ? *capabilities : (yg_protocol_readonly_caps_page0_t){0};
     link_context.device_description_available = info != NULL;
+    return true;
+}
+
+bool YgProtocolLink_BindDeviceStatusSource(const yg_protocol_readonly_device_status_t *source)
+{
+    if (!ready)
+    {
+        return false;
+    }
+    link_context.device_status_source = source != NULL ? source : &empty_device_status;
     return true;
 }
 

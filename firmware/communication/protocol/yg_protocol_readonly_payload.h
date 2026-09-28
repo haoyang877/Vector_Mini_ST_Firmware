@@ -9,6 +9,37 @@
 #define YG_PROTOCOL_READONLY_PAGE_REQUEST_SIZE 12U
 #define YG_PROTOCOL_READONLY_INFO_PAGE0_SIZE 32U
 #define YG_PROTOCOL_READONLY_CAPS_PAGE0_SIZE 16U
+#define YG_PROTOCOL_READONLY_DEVICE_STATUS_SIZE 16U
+#define YG_PROTOCOL_DEVICE_ROLE_APP 1U
+#define YG_PROTOCOL_DEVICE_ROLE_LOADER 2U
+#define YG_PROTOCOL_BOOT_STATE_UNAVAILABLE 0U
+#define YG_PROTOCOL_BOOT_STATE_CONFIRMED_APP 1U
+#define YG_PROTOCOL_BOOT_STATE_TRIAL_APP 2U
+#define YG_PROTOCOL_BOOT_STATE_LOADER 3U
+
+/** @brief Type3真实启动身份快照，boot_epoch不能由GET_INFO的u32计数补造。 */
+typedef struct
+{
+    uint64_t boot_epoch;
+    uint8_t role;
+    uint8_t boot_state;
+    bool epoch_valid;
+} yg_protocol_readonly_device_status_t;
+
+/**
+ * @brief 显式编码Type3的16B角色/启动状态与完整u64身份。
+ * @param status 产品所有者提供的稳定快照，epoch_valid与真实交接资格一致。
+ * @param payload 输出缓冲，不得与status重叠。
+ * @param capacity 输出容量，至少16B。
+ * @param written 成功时写入16，可为NULL；失败保持原值。
+ * @return 编码成功返回OK；角色、阶段或身份不一致时返回INVALID_FIELD，不写输出。
+ * @note epoch无效时线路result6，epoch与有效位为0；不触发确认、停机或复位。
+ */
+yg_protocol_result_t
+yg_protocol_readonly_encode_device_status(const yg_protocol_readonly_device_status_t *status,
+                                          uint8_t *payload,
+                                          size_t capacity,
+                                          size_t *written);
 
 /** @brief GET_INFO/GET_CAPS 的页查询前缀，数值均为小端。 */
 typedef struct

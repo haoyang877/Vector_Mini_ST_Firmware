@@ -8,6 +8,7 @@
 公司16B头/CRC、CAN FD扩展ID、1M/5M不变。56仅主站2单播，ACK_REQ或ACK_REQ|RETRY。
 请求恰好8B：expected_boot_epoch:u64小端且非零；source与sequence来自公司头。
 这是当前Loader交给APP的真实启动代号，不能使用APP本地计数或公司GET_INFO的boot_id:u32补造。
+APP主机先通过[Type3发现接口](yg_protocol_device_status_wire_v1.md)读取完整真实epoch，再发56。
 回复恰好4B：result:u16、detail:u16，均小端，同Type/seq、源目标交换。
 
 | APP共享结果 | 线路result/detail | 含义 |

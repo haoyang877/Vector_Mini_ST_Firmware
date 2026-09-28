@@ -322,6 +322,17 @@ static bool stale_sequence(uint8_t source, uint16_t sequence)
     return false;
 }
 
+/* 调用方持有临界区；身份冲突：来源与序号命中任一已缓存票据。各入口先各自重放主缓存结果。 */
+static bool matches_cached_request(uint8_t source_node, uint16_t sequence)
+{
+    return (last_read.valid && source_node == last_read.request.source_node &&
+            sequence == last_read.request.sequence) ||
+           (last_write.valid && source_node == last_write.request.source_node &&
+            sequence == last_write.request.sequence) ||
+           (save_job.valid && source_node == save_job.request.source_node &&
+            sequence == save_job.request.sequence);
+}
+
 /* 调用方持有临界区；新请求也收敛旧SAVE，不能依赖主机继续轮询已取消任务。 */
 static void refresh_save_result(void)
 {
@@ -366,10 +377,7 @@ ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
             *value = last_read.value;
         }
     }
-    else if ((last_write.valid && request->source_node == last_write.request.source_node &&
-              request->sequence == last_write.request.sequence) ||
-             (save_job.valid && request->source_node == save_job.request.source_node &&
-              request->sequence == save_job.request.sequence))
+    else if (matches_cached_request(request->source_node, request->sequence))
     {
         result = PARAMETER_CONFLICTING_RETRY;
     }
@@ -424,13 +432,7 @@ ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request
             *applied = last_write.applied;
         }
     }
-    else if (save_job.valid && request->source_node == save_job.request.source_node &&
-             request->sequence == save_job.request.sequence)
-    {
-        result = PARAMETER_CONFLICTING_RETRY;
-    }
-    else if (last_read.valid && request->source_node == last_read.request.source_node &&
-             request->sequence == last_read.request.sequence)
+    else if (matches_cached_request(request->source_node, request->sequence))
     {
         result = PARAMETER_CONFLICTING_RETRY;
     }
@@ -504,13 +506,7 @@ ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, ui
             *ticket = save_job.ticket;
         }
     }
-    else if (last_write.valid && request->source_node == last_write.request.source_node &&
-             request->sequence == last_write.request.sequence)
-    {
-        result = PARAMETER_CONFLICTING_RETRY;
-    }
-    else if (last_read.valid && request->source_node == last_read.request.source_node &&
-             request->sequence == last_read.request.sequence)
+    else if (matches_cached_request(request->source_node, request->sequence))
     {
         result = PARAMETER_CONFLICTING_RETRY;
     }

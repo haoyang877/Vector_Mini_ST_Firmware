@@ -24,6 +24,7 @@ NATIVE = (
     "test_position_config_cache",
     "test_position_config_validation",
     "test_run_state",
+    "test_motor_state_request",
     "test_sensorless_transitions",
     "test_cogging_calibration",
     "test_mcu_temperature",

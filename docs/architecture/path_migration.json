@@ -379,7 +379,6 @@
     "docs/position_branch_timing_20260909.md": "docs/reports/2026-09/position_branch_timing_20260909.md",
     "docs/position_fast_path_optimization_20260910.md": "docs/reports/2026-09/position_fast_path_optimization_20260910.md",
     "docs/position_hold_noise_20260910.md": "docs/reports/2026-09/position_hold_noise_20260910.md",
-    "docs/position_impedance_control.md": "docs/guides/position_impedance_control.md",
     "docs/position_servo_control.md": "docs/guides/position_servo_control.md",
     "docs/rtt_control_telemetry.md": "docs/guides/rtt_control_telemetry.md",
     "docs/schema10_firmware_recovery_20260914.md": "docs/reports/2026-09/schema10_firmware_recovery_20260914.md",

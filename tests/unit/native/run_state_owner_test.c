@@ -17,8 +17,8 @@
 #include "power_stage_hw.h"
 #include "critical_hw.h"
 #include "indicator_hw.h"
-#include "position_impedance.h"
 #include "bus_voltage_profile.h"
+#include "boot_hw.h"
 #include "utils.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
@@ -32,6 +32,16 @@ static bool output_off, stop_fails, temperature_fresh, encoder_released;
 static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
 static bool outer_ready;
 static uint32_t critical_depth, seq, requested_duration_ms;
+
+/* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
+void BootHw_GetInfo(BootHwInfo *info)
+{
+    *info = (BootHwInfo){0};
+}
+bool MotorControl_ConfigurationRevisionAvailable(void)
+{
+    return true;
+}
 
 uint32_t critical_hw_enter(void)
 {
@@ -102,9 +112,6 @@ void PI_Controller_Reset(PI_Controller_TypeDef *p)
 void SensorlessStartup_Reset(SensorlessStartup_TypeDef *s)
 {
     memset(s, 0, sizeof(*s));
-}
-void PositionImpedance_Reset(void)
-{
 }
 void MotorOuterLoop_RequestReset(void)
 {

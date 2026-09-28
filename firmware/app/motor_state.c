@@ -203,10 +203,9 @@ static void sample_motor_status(MotorStatus *sample)
     sample->position_target = MotorControl.posRef;
     sample->position_feedback = Encoder_GetMecPos(&OnBoard_Encoder);
     sample->speed_target = MotorControl.speedRef;
-    sample->speed_feedback =
-        (MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Position_Impedance_Mode)
-            ? MotorControl.pos_vel_filtered
-            : Encoder_GetMecVel(&OnBoard_Encoder);
+    sample->speed_feedback = (MotorControl.ModeNow == Position_Mode)
+                                 ? MotorControl.pos_vel_filtered
+                                 : Encoder_GetMecVel(&OnBoard_Encoder);
     sample->current_reference = MotorControl.iqRef;
     sample->current_feedback = FOC.Iq;
     sample->temperature = FOC.temp;
@@ -218,11 +217,6 @@ static void sample_motor_status(MotorStatus *sample)
     {
         sample->position_planned = MotorControl.posShadow;
         sample->speed_planned = MotorControl.pos_trajectory_speed_rad_s;
-    }
-    else if (MotorControl.ModeNow == Position_Impedance_Mode)
-    {
-        sample->position_planned = MotorControl.posShadow;
-        sample->speed_planned = MotorControl.speedShadow;
     }
     else if (MotorControl.ModeNow == Speed_Mode)
     {

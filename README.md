@@ -59,7 +59,7 @@ CI 检查的 [templates](templates/README.md) 示例开始，再按模块职责�
 底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
 
 * 基础有感FOC算法 电流 速度 位置 可控
-* 模式3连续加速度位置伺服与模式18电流域位置阻抗控制（[优化过程](docs/reports/2026-09/mode3_optimization_20260908.md)、[参数适配](docs/guides/mode3_parameter_guide.md)、[执行测试](docs/guides/mode3_test_plan.md)）
+* 模式3连续加速度位置伺服（[优化过程](docs/reports/2026-09/mode3_optimization_20260908.md)、[参数适配](docs/guides/mode3_parameter_guide.md)、[执行测试](docs/guides/mode3_test_plan.md)）
 * 磁编码器偏心补偿
 * 电机相电阻+dq轴电感+永磁体磁链辨识
 * 空载正反向库仑/粘性摩擦辨识（见 [docs/friction_identification.md](docs/guides/friction_identification.md)）

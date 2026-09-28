@@ -53,7 +53,6 @@
             <var showType="Real" color="" name="MotorControl.speed_Ki" unit="" desc="MotorControl.speed_Ki" interval="10" subvar="0" formula="" addr="0x20000ef0"/>
             <var showType="Real" color="" name="MotorControl.current_limit" unit="" desc="MotorControl.current_limit" interval="10" subvar="0" formula="" addr="0x20000eb4"/>
             <var showType="Real" color="" name="MotorControl.speedShadow" unit="" desc="MotorControl.speedShadow" interval="10" subvar="0" formula="" addr="0x20000ee8"/>
-            <var showType="Real" color="" name="MotorControl.ol_elec_vel" unit="" desc="MotorControl.ol_elec_vel" interval="10" subvar="0" formula="" addr="0x20000f44"/>
             <var showType="Enum" color="" name="MotorControl.ErrorNow" unit="" desc="MotorControl.ErrorNow" interval="10" subvar="0" formula="" addr="0x20000e69"/>
             <var showType="Enum" color="" name="MotorControl.ModeNow" unit="" desc="MotorControl.ModeNow" interval="10" subvar="0" formula="" addr="0x20000e68"/>
             <var showType="Unsigned" color="" name="External_Encoder.mt6701_crc_error_count" unit="" desc="External_Encoder.mt6701_crc_error_count" interval="10" subvar="0" formula="" addr=""/>
@@ -68,8 +67,6 @@
         <form page="0" floating="0" trigValue="0" visible="0" scrollType="0" type="8" xCount="1000" xTag="0" autoRange="1" min="-500" trigType="0" filterType="1" title="曲线0" refName="" refValue="0" scatterStyle="1" subMode="0" max="500" lineStyle="1" refType="0" subCols="1" trigName=""/>
         <form page="0" title="速度调试" visible="1" floating="0" type="11" lv-width="321,112,99,125,316,100,100,100">
             <var lower="-15" color="" name="MotorControl.vqRef" upper="15" desc="MotorControl.vqRef" step="0.1"/>
-            <var lower="0" color="" name="MotorControl.ol_elec_vel" upper="500" desc="MotorControl.ol_elec_vel" step="0.1"/>
-            <var lower="0" color="" name="MotorControl.ol_voltage" upper="15" desc="MotorControl.ol_voltage" step="0.1"/>
             <var lower="-40" color="" name="MotorControl.speedRef" upper="40" desc="MotorControl.speedRef" step="0.1"/>
         </form>
     </forms>

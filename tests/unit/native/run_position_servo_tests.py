@@ -524,26 +524,30 @@ static void board_hw_start(bool motor_phases_enabled) {
 }
 static unsigned Protocol_NodeId_Get(void) { return 1U; }
 static bool protocol_ready = true;
+static bool communication_ready;
 static bool YgProtocolRuntime_Init(unsigned node) { assert(node == 1U); log_step(5); return protocol_ready; }
 static bool YgProtocolStatusAdapter_Init(void) { return protocol_ready; }
 static bool bind_motor_stop(void) { log_step(7); return protocol_ready; }
+static bool YgProtocolOwner_BindServices(void) { log_step(8); return protocol_ready; }
+static bool bind_device_description(void) { log_step(9); return protocol_ready; }
+static bool YgProtocolRuntime_Start(void) { log_step(10); return protocol_ready; }
 static void power_stage_hw_stop(void) { log_step(6); }
 """
         + function_source(source, "Board_Init")
         + r"""
 int main(void) {
-    static const int expected[] = {3, 4, 5, 7};
+    static const int expected[] = {3, 4, 5, 7, 8, 9, 10};
     int index;
     Board_Init();
-    assert(order_len == 4 && !board_start_argument);
-    for (index = 0; index < 4; ++index) assert(order[index] == expected[index]);
+    assert(order_len == 7 && !board_start_argument && communication_ready);
+    for (index = 0; index < 7; ++index) assert(order[index] == expected[index]);
     order_len = 0;
     Board_Init();
-    assert(order_len == 4 && !board_start_argument);
+    assert(order_len == 7 && !board_start_argument && communication_ready);
     protocol_ready = false;
     order_len = 0;
     Board_Init();
-    assert(order_len == 4 && order[3] == 6);
+    assert(order_len == 4 && order[3] == 6 && !communication_ready);
     puts("PASS board startup: order, configuration and communication failure disables power");
     return 0;
 }

@@ -21,7 +21,6 @@
 #include "motor_state.h"
 #include "foc_friction_identification.h"
 #include "foc_cogging_calibration.h"
-#include "position_impedance.h"
 #include "foc_pid.h"
 #include "foc_encoder_calibration.h"
 #include "foc_phase_resistance.h"
@@ -125,9 +124,6 @@ static void clear_running_data(void)
     MotorControl->posShadow = 0.0f;
     MotorControl->isReachTargetPos = false;
     MotorControl->pos_vel_filtered = 0.0f;
-    /* 位置控制器状态复位；外环邮箱失效由 app 故障/模式提交点统一处理。 */
-    PositionImpedance_Reset();
-
     FOC->Id = 0.0f;
     FOC->Iq = 0.0f;
     FOC_CurrentController_Reset(FOC);
@@ -290,8 +286,7 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
     }
 
     return MotorControl->ModeNow == Speed_Mode || MotorControl->ModeNow == Position_Mode ||
-           MotorControl->ModeNow == Position_Impedance_Mode || MotorControl->ModeNow == Vq_Mode ||
-           MotorControl->ModeNow == Calib_EncoderOffset ||
+           MotorControl->ModeNow == Vq_Mode || MotorControl->ModeNow == Calib_EncoderOffset ||
            MotorControl->ModeNow == Calib_EncoderObserver ||
            MotorControl->ModeNow == Calib_EleAngelOffset ||
            MotorControl->ModeNow == Calib_Friction || MotorControl->ModeNow == Calib_Anticogging ||
@@ -323,12 +318,6 @@ static AppControlMode RunState_ProjectControlMode(ModeNow_TypeDef mode)
         return APP_CONTROL_SPEED;
     case Position_Mode:
         return APP_CONTROL_POSITION;
-    case Position_Impedance_Mode:
-        return APP_CONTROL_IMPEDANCE;
-    case Sensorless_Speed_Mode:
-        return APP_CONTROL_SENSORLESS;
-    case Voltage_OpenLoop:
-        return APP_CONTROL_OPEN_VOLTAGE;
     case Vq_Mode:
         return APP_CONTROL_VQ;
     default:
@@ -379,8 +368,8 @@ static AppLifecycleGuards RunState_BuildGuards(void)
     {
         guards.start_permitted = guards.start_permitted && Encoder_IsOnline(OnBoard_Encoder);
     }
-    if (mode == Speed_Mode || mode == Position_Mode || mode == Position_Impedance_Mode ||
-        mode == Vq_Mode || mode == Calib_Anticogging || mode == Calib_Friction ||
+    if (mode == Speed_Mode || mode == Position_Mode || mode == Vq_Mode ||
+        mode == Calib_Anticogging || mode == Calib_Friction ||
         (mode == Current_Mode && !MotorControl->isUseSensorless))
     {
         guards.start_permitted = guards.start_permitted && (Encoder_GetCalibFlag(OnBoard_Encoder) &

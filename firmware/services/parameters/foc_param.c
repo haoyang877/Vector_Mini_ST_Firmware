@@ -1,5 +1,11 @@
 #include "foc_param.h"
 
+/* 当前 schema11 位置字段的装载边界；保留数值和单位，不改变记录布局。 */
+#define PARAM_POSITION_KP_MAX_A_PER_RAD 50.0f
+#define PARAM_POSITION_KD_MAX_A_PER_RAD_S 10.0f
+#define PARAM_POSITION_KI_MAX_A_PER_RAD_S 10.0f
+#define PARAM_POSITION_MAX_SPEED_RPS 0.50f
+
 #include <math.h>
 #include <string.h>
 
@@ -69,9 +75,6 @@ void Param_Return_Default(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *O
         MotorControl->motor_phase_resistance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
     MotorControl->iq_Ki =
         MotorControl->motor_phase_resistance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    MotorControl->ol_voltage = PARAM_APP_OPEN_LOOP_VOLTAGE_V;
-    MotorControl->ol_elec_vel = PARAM_APP_OPEN_LOOP_ELEC_VEL_RAD_S;
-    MotorControl->ol_theta = PARAM_APP_OPEN_LOOP_THETA_RAD;
 
     OnBoard_Encoder->electrical_zero_q15 = PARAM_APP_ENCODER_ELECTRICAL_ZERO_Q15;
     OnBoard_Encoder->mechanical_zero_q15 = PARAM_APP_ENCODER_MECHANICAL_ZERO_Q15;
@@ -232,8 +235,7 @@ void Param_Download(const InterfaceParam_TypeDef *param,
         isfinite(param->speed_limit) && param->speed_limit > 0.0f
             ? constrain(param->speed_limit, 0.0f, Param_SpeedLimitRadS(Protocol_NodeId_Get()))
             : Param_SpeedLimitRadS(Protocol_NodeId_Get());
-    position_speed_limit =
-        fast_min(MotorControl->speed_limit, POSITION_IMPEDANCE_MAX_SPEED_RPS * _2PI);
+    position_speed_limit = fast_min(MotorControl->speed_limit, PARAM_POSITION_MAX_SPEED_RPS * _2PI);
     MotorControl->speedAcc = param->speedAcc;
     MotorControl->speedDec = param->speedDec;
     MotorControl->speed_Kp = param->speed_kp;
@@ -249,16 +251,14 @@ void Param_Download(const InterfaceParam_TypeDef *param,
             ? constrain(param->pos_maxspeed, 0.0f, position_speed_limit)
             : fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
     MotorControl->pos_Kp = isfinite(param->pos_kp) && param->pos_kp >= 0.0f
-                               ? constrain(param->pos_kp, 0.0f, POSITION_IMPEDANCE_KP_MAX_A_PER_RAD)
+                               ? constrain(param->pos_kp, 0.0f, PARAM_POSITION_KP_MAX_A_PER_RAD)
                                : PARAM_APP_POSITION_KP;
-    MotorControl->pos_Kd =
-        isfinite(param->pos_kd) && param->pos_kd >= 0.0f
-            ? constrain(param->pos_kd, 0.0f, POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S)
-            : PARAM_APP_POSITION_KD;
-    MotorControl->pos_Ki =
-        isfinite(param->pos_ki) && param->pos_ki >= 0.0f
-            ? constrain(param->pos_ki, 0.0f, POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S)
-            : PARAM_APP_POSITION_KI;
+    MotorControl->pos_Kd = isfinite(param->pos_kd) && param->pos_kd >= 0.0f
+                               ? constrain(param->pos_kd, 0.0f, PARAM_POSITION_KD_MAX_A_PER_RAD_S)
+                               : PARAM_APP_POSITION_KD;
+    MotorControl->pos_Ki = isfinite(param->pos_ki) && param->pos_ki >= 0.0f
+                               ? constrain(param->pos_ki, 0.0f, PARAM_POSITION_KI_MAX_A_PER_RAD_S)
+                               : PARAM_APP_POSITION_KI;
     MotorControl->pos_integral_limit =
         isfinite(param->pos_integral_limit) && param->pos_integral_limit >= 0.0f
             ? constrain(param->pos_integral_limit, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A)

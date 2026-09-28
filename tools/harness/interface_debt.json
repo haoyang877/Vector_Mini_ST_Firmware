@@ -61,14 +61,6 @@
         "PositionCascade_UpdateTargetControl"
       ]
     },
-    "firmware/motor/position/position_impedance.h": {
-      "sha256": "a86405ca45457340c8ecb324ecfd35b19157482ab033dc1d70529b514d044033",
-      "interfaces": [
-        "PositionImpedance_GetTelemetry",
-        "PositionImpedance_Reset",
-        "PositionImpedance_Update"
-      ]
-    },
     "firmware/motor/protection/foc_errhandle.h": {
       "sha256": "b49d078ab2aa144501beb038df364870c0bd250a0de9ff0fa20f2aeb2460abbe",
       "interfaces": [

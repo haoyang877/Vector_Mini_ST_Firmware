@@ -43,7 +43,6 @@ static void MotorFault_Report(MotorControl_TypeDef *m,ErrorNow_TypeDef e) { m->E
 static bool Encoder_IsOnline(const Encoder_TypeDef *e) { (void)e; return true; }
 static uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
 static float Encoder_GetMecPos(const Encoder_TypeDef *e) { (void)e; return 0; }
-static void PositionImpedance_Reset(void) {}
 """
 
 CASES = r"""
@@ -61,12 +60,10 @@ static void reset(float v) {
 static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl); }
 static void running(float v) { reset(v);MotorControl.ModeNow=Speed_Mode; }
 int main(void) {
-    unsigned k;     /* FOC-Calibration 删除（2026-09-19）：EncoderOffset/Observer/EleAngelOffset
-     * 已被入口拒绝，不再纳入电压门矩阵。 */
+    unsigned k;
     ModeNow_TypeDef modes[]={Current_Mode,Speed_Mode,Position_Mode,
-        Position_Impedance_Mode,Calib_PhaseResistance,
-        Voltage_OpenLoop,Vq_Mode,
-        Sensorless_Speed_Mode,Calib_Friction,Calib_Anticogging};
+        Calib_PhaseResistance,Vq_Mode,Calib_EncoderObserver,Calib_EleAngelOffset,
+        Calib_Friction,Calib_Anticogging};
     /* Full 8S charge must run beyond both the old 10000-cycle window and
      * the new delays, without inheriting the old 30 V false threshold. */
     running(33.6f);tick(40000);assert(MotorControl.ErrorNow==No_Error);
@@ -105,6 +102,20 @@ int main(void) {
         assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==Under_Voltage);
     }
     puts("PASS all torque modes protected, unsafe start rejected");
+    /* 数值不能因删除枚举而重分配，内部入口也不能接受旧编号或未知值。 */
+    assert(Current_Mode == 1 && Speed_Mode == 2 && Position_Mode == 3);
+    assert(Calib_EncoderObserver == 13 && Vq_Mode == 14 && Calib_EleAngelOffset == 15);
+    assert(Calib_PhaseResistance == 17 && Calib_Friction == 19);
+    unsigned rejected[] = {4U, 5U, 11U, 12U, 16U, 18U, 20U, 255U};
+    for(k=0;k<sizeof(rejected)/sizeof(rejected[0]);k++) {
+        reset(33.0f);
+        MotorControl.posRef=1.25f;
+        assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,
+                              (ModeNow_TypeDef)rejected[k]));
+        assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==No_Error);
+        assert(MotorControl.posRef==1.25f);
+    }
+    puts("PASS retired and unknown mode IDs rejected without state changes");
     reset(33.6f);assert(FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
     reset(25.7f);assert(FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));
     reset(33.9f);assert(!FocMode_Admit(&MotorControl,&FOC,&OnBoard_Encoder,Speed_Mode));

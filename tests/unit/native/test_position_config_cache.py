@@ -32,6 +32,12 @@ def main():
     reference = function_source(reference, "Task_Position_Mode").replace(
         "Task_Position_Mode(", "Task_Position_Mode_Reference("
     )
+    # 仅将冻结基线中的常量名映射到现有等值常量；不恢复已删除的固件头文件。
+    reference = reference.replace(
+        "POSITION_IMPEDANCE_FRICTION_POSITIVE_A", "POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A"
+    ).replace(
+        "POSITION_IMPEDANCE_FRICTION_NEGATIVE_A", "POSITION_SERVO_FALLBACK_FRICTION_NEGATIVE_A"
+    )
     actual = "\n".join(
         function_source(source, n)
         for n in [
@@ -80,9 +86,8 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include <stdint.h>
 #include "firmware/services/telemetry/fast_loop_profile.h"
 #include "position_cascade.h"
-#include "position_cascade_config.h"
 #include "hw_conf.h"
-#include "position_impedance_config.h"
+#include "position_cascade_config.h"
 #include "firmware/services/parameters/motor_axis_profile.h"
 #define FOC_CONFIG_NOINLINE
 """

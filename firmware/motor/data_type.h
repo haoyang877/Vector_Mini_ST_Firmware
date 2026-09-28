@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "motor_axis_profile.h"
 
+/* 内部模式号仍用于状态/台架记录；删除的 12/16/18 不再定义，也不重新分配。 */
 typedef enum
 {
     Motor_Disable = 0,
@@ -19,13 +20,10 @@ typedef enum
     Save_Param,
     Clear_Error,
     Calib_CurrentOffset,
-    Voltage_OpenLoop,
-    Calib_EncoderObserver,
+    Calib_EncoderObserver = 13,
     Vq_Mode = 14,
     Calib_EleAngelOffset = 15,
-    Sensorless_Speed_Mode = 16,
     Calib_PhaseResistance = 17,
-    Position_Impedance_Mode = 18,
     Calib_Friction = 19,
     MODE_NUM
 } ModeNow_TypeDef;
@@ -127,9 +125,6 @@ typedef struct
     float pos_vel_filtered;
 
     /*voltage open-loop mode*/
-    float ol_voltage;  /*open-loop voltage amplitude (V, d-axis)*/
-    float ol_elec_vel; /*open-loop electrical angular velocity (rad/s)*/
-    float ol_theta;    /*open-loop electrical angle (rad)*/
 
     /* Append to preserve existing diagnostic member offsets. */
     MotorAxisProfile axis_profile;

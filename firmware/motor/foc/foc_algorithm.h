@@ -105,15 +105,6 @@ void SVM_ZeroInjection(float a, float b, float c, float *tA, float *tB, float *t
 void SVM_SectorJudge(float alpha, float beta, float *tA, float *tB, float *tC, int32_t *sector);
 
 /**
- * @brief  电压环：按 d/q 电压设定生成调制与三相占空比（电流开环）。
- * @param  FOC FOC 状态。
- * @param  Vd_set d 轴电压设定。
- * @param  Vq_set q 轴电压设定。
- * @param  phase 输出电角度，单位 rad。
- * @note   仅快速环调用；依赖母线电压与角度反馈有效。
- */
-void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase);
-/**
  * @brief  电流环：执行一拍 d/q 电流闭环并更新三相 PWM。
  * @param  FOC FOC 状态。
  * @param  MotorControl 电机控制状态（含电流指令与限制）。

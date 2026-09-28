@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 #include "angle_feedback.h"
-#include "position_impedance_config.h"
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
 #include "cogging_calibration.h"

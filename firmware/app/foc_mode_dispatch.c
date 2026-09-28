@@ -1,7 +1,6 @@
 #include "foc_mode_dispatch.h"
 #include <math.h>
 #include "bus_voltage_profile.h"
-#include "position_impedance.h"
 
 #include "angle_feedback.h"
 #include "foc_cogging_calibration.h"
@@ -96,15 +95,6 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(FOC_TypeDef *FOC,
                     Encoder_GetEleVel(OnBoard_Encoder));
         break;
 
-    case Sensorless_Speed_Mode:
-        Task_Sensorless_Speed_Mode(FOC,
-                                   MotorControl,
-                                   PI_Speed,
-                                   Fluxobserver,
-                                   SensorlessStartup,
-                                   &SensorlessStartup_DefaultConfig);
-        break;
-
     case Position_Mode:
         FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_WITH_CURRENT);
         FOC_Current(FOC,
@@ -112,10 +102,6 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(FOC_TypeDef *FOC,
                     Encoder_GetElePhase(OnBoard_Encoder),
                     Encoder_GetEleVel(OnBoard_Encoder));
         FAST_PROFILE_END(FAST_PROFILE_POSITION_WITH_CURRENT);
-        break;
-
-    case Position_Impedance_Mode:
-        Task_Position_Impedance_Mode(FOC, MotorControl, OnBoard_Encoder);
         break;
 
     case Calib_Anticogging:
@@ -166,10 +152,6 @@ MotorWorkOutcome_TypeDef FocMode_Dispatch(FOC_TypeDef *FOC,
         outcome = Task_Calib_EleAngelOffset(FOC, MotorControl, OnBoard_Encoder);
         break;
 
-    case Voltage_OpenLoop:
-        Task_Voltage_Mode(FOC, MotorControl);
-        break;
-
     case Vq_Mode:
         Task_Vq_Mode(FOC, MotorControl, OnBoard_Encoder);
         break;
@@ -200,21 +182,33 @@ bool FocMode_Admit(MotorControl_TypeDef *MotorControl,
                    const Encoder_TypeDef *OnBoard_Encoder,
                    ModeNow_TypeDef mode_set)
 {
-    /* Mode 13/15（观测器 LUT、电角度零位）已重建；其余 FOC-Calibration 任务
-     * （R_L_Flux/EncoderOffset/CurrentOffset）仍待重建，模式编号保留 ABI。 */
-    if (mode_set == Calib_Motor_R_L_Flux || mode_set == Calib_EncoderOffset ||
-        mode_set == Calib_CurrentOffset)
+    /* 只允许当前实现的模式；删除的编号与未知值不能经内部调用绕过准入。 */
+    switch (mode_set)
     {
+    case Motor_Disable:
+    case Current_Mode:
+    case Speed_Mode:
+    case Position_Mode:
+    case Calib_Anticogging:
+    case Set_ZeroPosition:
+    case Default_Param:
+    case Save_Param:
+    case Clear_Error:
+    case Calib_EncoderObserver:
+    case Vq_Mode:
+    case Calib_EleAngelOffset:
+    case Calib_PhaseResistance:
+    case Calib_Friction:
+        break;
+    default:
         return false;
     }
     /* 启相前拒绝电压不安全的请求，运行期间电压故障仍由监督路径锁存。 */
     if (MotorControl->ModeNow == Motor_Disable &&
         (mode_set == Current_Mode || mode_set == Speed_Mode || mode_set == Position_Mode ||
-         mode_set == Position_Impedance_Mode || mode_set == Calib_PhaseResistance ||
-         mode_set == Calib_EncoderOffset || mode_set == Calib_EncoderObserver ||
-         mode_set == Calib_EleAngelOffset || mode_set == Voltage_OpenLoop || mode_set == Vq_Mode ||
-         mode_set == Sensorless_Speed_Mode || mode_set == Calib_Anticogging ||
-         mode_set == Calib_Friction))
+         mode_set == Calib_PhaseResistance || mode_set == Calib_EncoderOffset ||
+         mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
+         mode_set == Vq_Mode || mode_set == Calib_Anticogging || mode_set == Calib_Friction))
     {
         if (!isfinite(FOC->Vbus) || !isfinite(FOC->Vbus_filt) ||
             FOC->Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
@@ -256,12 +250,6 @@ bool FocMode_Admit(MotorControl_TypeDef *MotorControl,
         MotorFault_Report(MotorControl, CoggingCalibration_Error);
         return false;
     }
-    /* 电机本体辨识（R/L/磁链）已不再使用。 */
-    if (mode_set == Calib_Motor_R_L_Flux)
-    {
-        return false;
-    }
-
     if (mode_set == Calib_EleAngelOffset &&
         (Encoder_GetCalibFlag(OnBoard_Encoder) & ENC_CALIB_LINEARIZED) == 0U)
     {
@@ -269,7 +257,7 @@ bool FocMode_Admit(MotorControl_TypeDef *MotorControl,
         return false;
     }
     /* 使用编码器反馈的模式必须以有效传感器帧启动。 */
-    if ((mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
+    if ((mode_set == Position_Mode || mode_set == Vq_Mode ||
          ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
           MotorControl->isUseSensorless == false) ||
          mode_set == Calib_EncoderOffset || mode_set == Calib_EncoderObserver ||
@@ -281,20 +269,9 @@ bool FocMode_Admit(MotorControl_TypeDef *MotorControl,
         return false;
     }
 
-    if (mode_set == Sensorless_Speed_Mode)
-    {
-        if (MotorControl->motor_pole_pairs <= 0 || MotorControl->motor_phase_resistance <= 0.0f ||
-            MotorControl->motor_d_inductance <= 0.0f || MotorControl->motor_q_inductance <= 0.0f ||
-            MotorControl->motor_flux <= 0.0f || MotorControl->current_limit <= 0.0f)
-        {
-            MotorFault_Report(MotorControl, MotorParam_Error);
-            return false;
-        }
-    }
-
     /* 编码器闭环要求必要标定已经完成。 */
-    if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode || mode_set == Vq_Mode ||
-        mode_set == Calib_Anticogging || mode_set == Calib_Friction ||
+    if (mode_set == Position_Mode || mode_set == Vq_Mode || mode_set == Calib_Anticogging ||
+        mode_set == Calib_Friction ||
         ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
          MotorControl->isUseSensorless == false))
     {
@@ -308,7 +285,7 @@ bool FocMode_Admit(MotorControl_TypeDef *MotorControl,
     if (MotorControl->ModeNow == Motor_Disable && MotorControl->ErrorNow == No_Error)
     {
         /* 位置模式以当前位置开始，禁止沿用历史目标。 */
-        if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
+        if (mode_set == Position_Mode)
         {
             float current_position = Encoder_GetMecPos(OnBoard_Encoder);
 
@@ -321,7 +298,6 @@ bool FocMode_Admit(MotorControl_TypeDef *MotorControl,
             MotorControl->posShadow = current_position;
             MotorControl->speedShadow = 0.0f;
             MotorControl->isReachTargetPos = false;
-            PositionImpedance_Reset();
         }
         MotorControl->ModeNow = mode_set;
         return true;

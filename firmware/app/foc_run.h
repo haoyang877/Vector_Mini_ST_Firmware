@@ -59,25 +59,6 @@ void Task_Speed_Mode(FOC_TypeDef *FOC,
                      MotorControl_TypeDef *MotorControl,
                      PI_Controller_TypeDef *controller,
                      Encoder_TypeDef *Encoder);
-/** 默认无感启动参数集；板级取值见 hw_conf.h。 */
-extern const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig;
-
-/**
- * @brief  无感速度模式任务：推进无感启动状态机并按状态输出。
- * @param  FOC FOC 状态。
- * @param  MotorControl 电机控制状态。
- * @param  controller 速度 PI 控制器。
- * @param  Fluxobserver 磁链观测器状态。
- * @param  Startup 无感启动状态。
- * @param  Config 无感启动参数集。
- * @note 仅快速环调用；状态迁移细节在 foc_sensorless_run.c。
- */
-void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
-                                MotorControl_TypeDef *MotorControl,
-                                PI_Controller_TypeDef *controller,
-                                Fluxobserver_TypeDef *Fluxobserver,
-                                SensorlessStartup_TypeDef *Startup,
-                                const SensorlessStartupConfig_TypeDef *Config);
 /**
  * @brief  位置模式适配任务：外环就绪前锁定当前位置并完成入口准备。
  * @param  FOC FOC 状态。
@@ -89,27 +70,10 @@ void Task_Position_Mode(FOC_TypeDef *FOC,
                         MotorControl_TypeDef *MotorControl,
                         Encoder_TypeDef *Encoder);
 /**
- * @brief  位置阻抗模式任务：执行一拍电流域位置阻抗控制。
- * @param  FOC FOC 状态。
- * @param  MotorControl 电机控制状态。
- * @param  Encoder 编码器状态。
- * @note 仅快速环调用。
- */
-void Task_Position_Impedance_Mode(FOC_TypeDef *FOC,
-                                  MotorControl_TypeDef *MotorControl,
-                                  Encoder_TypeDef *Encoder);
-/**
- * @brief  复位位置模式适配状态：请求外环在下一慢拍重建，并清零位置/阻抗状态。
+ * @brief  复位位置模式适配状态：请求外环在下一慢拍重建，并清零位置状态。
  * @note 模式切换与故障入口调用；可在非快速环上下文调用。
  */
 void Task_Position_Mode_Reset(void);
-/**
- * @brief  电压开环模式任务：按给定电压幅值开环输出。
- * @param  FOC FOC 状态。
- * @param  MotorControl 电机控制状态。
- * @note 仅快速环调用；用于低速调试与辨识。
- */
-void Task_Voltage_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 /**
  * @brief  Vq 开环电压模式任务：固定电角度施加 q 轴电压。
  * @param  FOC FOC 状态。

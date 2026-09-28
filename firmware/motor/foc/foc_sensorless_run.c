@@ -53,28 +53,8 @@ static float Sensorless_AngleDifference(float target, float source)
     return difference;
 }
 
-const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig = {
-    SENSORLESS_ALIGN_CURRENT_RAMP_TIME_S,
-    SENSORLESS_ALIGN_HOLD_TIME_S,
-    SENSORLESS_ALIGN_CURRENT_A,
-    SENSORLESS_STARTUP_IQ_INITIAL_A,
-    SENSORLESS_STARTUP_IQ_A,
-    SENSORLESS_STARTUP_IQ_RAMP_TIME_S,
-    SENSORLESS_STARTUP_ID_A,
-    0.0f,
-    SENSORLESS_STARTUP_MIN_ELEC_VEL_RAD_S,
-    SENSORLESS_STARTUP_TARGET_ELEC_VEL_RAD_S,
-    SENSORLESS_STARTUP_RAMP_TIME_S,
-    SENSORLESS_STARTUP_SPEED_LOCK_TIME_S,
-    SENSORLESS_SPEED_LOCK_FILTER_ALPHA,
-    SENSORLESS_OBSERVER_LOCK_RATIO,
-    SENSORLESS_ANGLE_HANDOFF_TIME_S,
-    SENSORLESS_STARTUP_LOCK_TIMEOUT_S,
-    SENSORLESS_ID_RAMP_DOWN_TIME_S,
-    SENSORLESS_OBSERVER_LOSS_TIME_S};
-
 /* 编码器标定（Mode 13）观测器启动参数集：更强的对准/启动电流与低频稳定目标，
- * 由 foc_encoder_calibration 模块使用；与默认集共用同一结构契约。 */
+ * 由 foc_encoder_calibration 模块使用；保留现有启动结构契约。 */
 const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig = {
     SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
     SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,

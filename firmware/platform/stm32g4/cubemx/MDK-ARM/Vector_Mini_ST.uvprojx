@@ -951,11 +951,6 @@
               </FileOption>
             </File>
             <File>
-              <FileName>position_impedance.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\position\position_impedance.c</FilePath>
-            </File>
-            <File>
               <FileName>position_cascade.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\position\position_cascade.c</FilePath>
@@ -1066,11 +1061,6 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
-            <File>
-              <FileName>foc_traptraj.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\trajectory\foc_traptraj.c</FilePath>
             </File>
             <File>
               <FileName>foc_task.c</FileName>
@@ -1219,7 +1209,7 @@
                   <Cads>
                     <interw>2</interw>
                     <Optim>4</Optim>
-                    <oTime>1</oTime>
+                    <oTime>0</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
                     <Strict>2</Strict>

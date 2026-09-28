@@ -33,15 +33,11 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
     UTILS_LP_FAST(FOC->Vbus_filt, FOC->Vbus, 0.05f);
 
     if (MotorControl->ModeNow == Current_Mode || MotorControl->ModeNow == Speed_Mode ||
-        MotorControl->ModeNow == Position_Mode ||
-        MotorControl->ModeNow == Position_Impedance_Mode ||
-        MotorControl->ModeNow == Calib_Motor_R_L_Flux ||
+        MotorControl->ModeNow == Position_Mode || MotorControl->ModeNow == Calib_Motor_R_L_Flux ||
         MotorControl->ModeNow == Calib_PhaseResistance ||
         MotorControl->ModeNow == Calib_EncoderOffset ||
         MotorControl->ModeNow == Calib_EncoderObserver ||
         MotorControl->ModeNow == Calib_EleAngelOffset || MotorControl->ModeNow == Vq_Mode ||
-        MotorControl->ModeNow == Voltage_OpenLoop ||
-        MotorControl->ModeNow == Sensorless_Speed_Mode ||
         MotorControl->ModeNow == Calib_Anticogging || MotorControl->ModeNow == Calib_Friction)
     {
         /* 首个故障保持锁存；接近硬件电压上限时原始采样绕过低通，

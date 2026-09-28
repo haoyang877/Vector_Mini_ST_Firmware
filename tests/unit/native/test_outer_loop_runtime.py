@@ -74,7 +74,6 @@ def main():
 #include "foc_pid.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
-#include "position_impedance_config.h"
 #include "heap.h"
 #include "cogging_calibration.h"
 #define FOC_CONFIG_NOINLINE

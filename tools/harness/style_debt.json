@@ -149,27 +149,6 @@
                 "c-format"
             ]
         },
-        "firmware/motor/position/position_impedance.c": {
-            "sha256": "7cfd806c73200b90899d28da39cb7f6c8e577057043d3f01c24c68f4a5b3e88a",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/position/position_impedance.h": {
-            "sha256": "a86405ca45457340c8ecb324ecfd35b19157482ab033dc1d70529b514d044033",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/position/position_impedance_config.h": {
-            "sha256": "2b91fc589b9d5ed8f9224b2eaaa0a43e02ffc516d06186a93ecf640af0c549e5",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
         "firmware/motor/protection/bus_voltage_profile.h": {
             "sha256": "8efb2d80a3b6faaadc9e7cd453878d5276502cffd6665bca3e7df35edca72cbe",
             "checks": [
@@ -180,19 +159,6 @@
             "sha256": "b49d078ab2aa144501beb038df364870c0bd250a0de9ff0fa20f2aeb2460abbe",
             "checks": [
                 "comment-language"
-            ]
-        },
-        "firmware/motor/trajectory/foc_traptraj.c": {
-            "sha256": "34b7062677a7b93136117512cee3364310d6a5e75ccb53c5f258975798711054",
-            "checks": [
-                "c-format",
-                "c-readability"
-            ]
-        },
-        "firmware/motor/trajectory/foc_traptraj.h": {
-            "sha256": "6951253bc92993bed232556bf85199e0bb1d483337c8cf9e496f075c2244e65b",
-            "checks": [
-                "c-format"
             ]
         },
         "firmware/motor/trajectory/position_smooth_trajectory.c": {

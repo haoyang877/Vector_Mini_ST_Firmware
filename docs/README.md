@@ -59,4 +59,6 @@ APP capacity baseline: [新 APP 编译占用与缩减方向（2026-09-28）](rep
 
 APP Flash investigation: [超限原因、旧模式调用链与隔离编译对照（2026-09-28）](reports/2026-09/app_flash_root_cause_20260928.md).
 
+Retired modes: [无当前入口的旧电机模式退役契约 v1](protocols/retired_motor_modes_v1.md).
+
 Current parameter loading: [仅接受 schema 11，移除历史参数迁移 v1](protocols/parameter_schema11_loading_policy_v1.md).

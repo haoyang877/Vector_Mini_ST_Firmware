@@ -1,13 +1,12 @@
-
+# 位置伺服边界检查：保持配置与算法层独立，验证当前前馈回退入口。
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
 import re
 import unittest
-from pathlib import Path
 
+from project_paths import ROOT
 
 SERVO_HEADER = ROOT / "firmware/motor/position/position_cascade.h"
 SERVO_SOURCE = ROOT / "firmware/motor/position/position_cascade.c"
@@ -55,12 +54,10 @@ class PositionServoBoundaryTests(unittest.TestCase):
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
         self.assertIn("MotorControl->friction_model_valid", adapter)
         self.assertIn("MotorControl->friction_coulomb_pos_a", adapter)
-        self.assertIn("POSITION_IMPEDANCE_FRICTION_POSITIVE_A", adapter)
+        self.assertIn("POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A", adapter)
         self.assertIn("POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2", adapter)
         self.assertIn("friction_fast_release_slew_rate", public_api)
-        self.assertIn(
-            "POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S", adapter
-        )
+        self.assertIn("POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S", adapter)
 
     def test_servo_exports_coherent_diagnostics(self) -> None:
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
@@ -76,15 +73,11 @@ class PositionServoBoundaryTests(unittest.TestCase):
 
     def test_landing_and_settle_recovery_use_measured_state(self) -> None:
         source = SERVO_SOURCE.read_text(encoding="utf-8")
-        self.assertIn(
-            "target_error = config->target_position - measured_position", source
-        )
+        self.assertIn("target_error = config->target_position - measured_position", source)
         self.assertIn("speed_toward_target * speed_toward_target", source)
         self.assertIn("state.settle_recovery_active = true", source)
         self.assertIn("Latch direction so crossing the target starts landing", source)
-        self.assertIn(
-            "inside_braking_envelope = remaining_distance <=", source
-        )
+        self.assertIn("inside_braking_envelope = remaining_distance <=", source)
         self.assertRegex(
             source,
             r"(?s)controller_requests_braking\s*=.*?inside_braking_envelope;",

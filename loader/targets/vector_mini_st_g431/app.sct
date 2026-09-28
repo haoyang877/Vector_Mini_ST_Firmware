@@ -2,8 +2,8 @@
 LR_APP 0x08008800 0x13800
 {
     ER_VECTORS 0x08008800 0x200 { *.o (RESET, +First) }
-    ER_DESCRIPTOR 0x08008A00 0x40 { * (.app_descriptor) }
-    ER_APP 0x08008A40 0x135C0
+    ER_DESCRIPTOR 0x08008A00 FIXED 0x40 { * (.app_descriptor) }
+    ER_APP 0x08008A40 FIXED 0x135C0
     {
         *(InRoot$$Sections)
         .ANY (+RO)

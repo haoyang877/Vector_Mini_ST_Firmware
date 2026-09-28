@@ -7,17 +7,14 @@
 #include "foc_cogging_calibration.h"
 #include "foc_errhandle.h"
 #include "foc_sensorless.h"
-#include "foc_sensorless_run.h"
 #include "foc_speed.h"
 #include "motor_axis_profile.h"
 #include "motor_hardware_profile.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
-#include "position_impedance.h"
-#include "position_impedance_config.h"
 #include "utils.h"
 
-/* 运行模式任务入口：电流/速度/无感/位置/阻抗/电压模式的快速环执行，
+/* 运行模式任务入口：电流/速度/位置/Vq 模式的快速环执行，
  * 以及延迟外环运行时的发布与保护接口。本文件只做任务编排与状态适配，
  * 具体控制算法位于 motor 层。 */
 
@@ -82,26 +79,6 @@ void Task_Speed_Mode(FOC_TypeDef *FOC,
                   Encoder_GetMecVel(Encoder));
 }
 
-/**
- * @brief  无感速度控制任务：转发到 motor 层启动序列。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  controller 速度 PI 控制器指针。
- * @param  Fluxobserver 磁链观测器状态指针。
- * @param  Startup 无感启动状态机指针。
- * @param  Config 启动参数集，默认配置或编码器标定配置。
- * @note 在 20kHz 快速环上下文调用；序列实现见 motor/foc/foc_sensorless.c。
- */
-void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
-                                MotorControl_TypeDef *MotorControl,
-                                PI_Controller_TypeDef *controller,
-                                Fluxobserver_TypeDef *Fluxobserver,
-                                SensorlessStartup_TypeDef *Startup,
-                                const SensorlessStartupConfig_TypeDef *Config)
-{
-    SensorlessStartup_Run(FOC, MotorControl, controller, Fluxobserver, Startup, Config);
-}
-
 /* 冷配置帧不进入调参不变的快速路径；此处仅为编译器提示，其他编译器行为相同。 */
 #if defined(__GNUC__) || defined(__clang__) || defined(__CC_ARM)
 #define FOC_CONFIG_NOINLINE __attribute__((noinline))
@@ -125,8 +102,8 @@ static void PositionMode_ApplyFrictionConfiguration(MotorControl_TypeDef *MotorC
     else
     {
         /* 未辨识前使用板级阻尼环参数。 */
-        config->friction_coulomb_positive = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
-        config->friction_coulomb_negative = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
+        config->friction_coulomb_positive = POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A;
+        config->friction_coulomb_negative = POSITION_SERVO_FALLBACK_FRICTION_NEGATIVE_A;
         config->friction_viscous_positive = 0.0f;
         config->friction_viscous_negative = 0.0f;
     }
@@ -270,9 +247,9 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
                                             MotorControl->friction_viscous_neg_a_per_rad_s);
     }
     return PositionMode_SameTuningValue(config->friction_coulomb_positive,
-                                        POSITION_IMPEDANCE_FRICTION_POSITIVE_A) &&
+                                        POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A) &&
            PositionMode_SameTuningValue(config->friction_coulomb_negative,
-                                        POSITION_IMPEDANCE_FRICTION_NEGATIVE_A) &&
+                                        POSITION_SERVO_FALLBACK_FRICTION_NEGATIVE_A) &&
            PositionMode_SameTuningValue(config->friction_viscous_positive, 0.0f) &&
            PositionMode_SameTuningValue(config->friction_viscous_negative, 0.0f);
 }
@@ -343,84 +320,10 @@ void Task_Position_Mode(FOC_TypeDef *FOC,
     FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
-/* 阻抗模式配置帧：实时控制状态映射为控制器输入，固定参数来自板级配置。 */
-static void PositionImpedance_BuildConfiguration(MotorControl_TypeDef *MotorControl,
-                                                 PositionImpedanceConfig_TypeDef *config)
-{
-    config->target_position = MotorControl->posRef;
-    config->position_error_window = MotorControl->pos_error_window;
-    config->acceleration = MotorControl->posAcc;
-    config->deceleration = MotorControl->posDec;
-    config->maximum_speed = MotorControl->pos_maxspeed;
-    config->speed_limit = MotorControl->speed_limit;
-    config->kp = MotorControl->pos_Kp;
-    config->kd = MotorControl->pos_Kd;
-    config->ki = MotorControl->pos_Ki;
-    config->integral_limit = MotorControl->pos_integral_limit;
-    config->output_limit = MotorControl->current_limit;
-    config->friction_feedforward_enabled =
-        MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
-    config->friction_positive_current = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
-    config->friction_negative_current = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
-    config->breakaway_positive_current = POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A;
-    config->breakaway_negative_current = POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A;
-    config->friction_attack_slew_rate = POSITION_IMPEDANCE_FRICTION_ATTACK_SLEW_A_PER_S;
-    config->friction_fast_release_slew_rate = POSITION_IMPEDANCE_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
-    config->friction_release_slew_rate = POSITION_IMPEDANCE_FRICTION_RELEASE_SLEW_A_PER_S;
-    config->friction_position_enter = POSITION_IMPEDANCE_FRICTION_POSITION_ENTER_RAD;
-    config->friction_position_exit = POSITION_IMPEDANCE_FRICTION_POSITION_EXIT_RAD;
-    config->friction_reference_speed = POSITION_IMPEDANCE_FRICTION_REFERENCE_SPEED_RAD_S;
-    config->friction_stop_speed = POSITION_IMPEDANCE_FRICTION_STOP_SPEED_RAD_S;
-    config->friction_move_speed = POSITION_IMPEDANCE_FRICTION_MOVE_SPEED_RAD_S;
-    config->friction_stuck_time = POSITION_IMPEDANCE_FRICTION_STUCK_TIME_S;
-    config->friction_landing_position = POSITION_IMPEDANCE_FRICTION_LANDING_POSITION_RAD;
-    config->friction_landing_speed = POSITION_IMPEDANCE_FRICTION_LANDING_SPEED_RAD_S;
-    config->friction_recovery_delay = POSITION_IMPEDANCE_FRICTION_RECOVERY_DELAY_S;
-    config->friction_recovery_pulse_time = POSITION_IMPEDANCE_FRICTION_RECOVERY_PULSE_S;
-    config->friction_recovery_cooldown = POSITION_IMPEDANCE_FRICTION_RECOVERY_COOLDOWN_S;
-}
-
-/**
- * @brief  位置阻抗控制任务。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  Encoder 编码器状态指针。
- * @note 在 20kHz 快速环上下文调用；配置帧每 tick 重建，失败时清零输出并置参数故障。
- */
-void Task_Position_Impedance_Mode(FOC_TypeDef *FOC,
-                                  MotorControl_TypeDef *MotorControl,
-                                  Encoder_TypeDef *Encoder)
-{
-    PositionImpedanceConfig_TypeDef config;
-    PositionImpedanceOutput_TypeDef output;
-    float theta_elec = Encoder_GetElePhase(Encoder);
-    float theta_mech = Encoder_GetMecPos(Encoder);
-    float vel_elec = Encoder_GetEleVel(Encoder);
-
-    PositionImpedance_BuildConfiguration(MotorControl, &config);
-
-    if (!PositionImpedance_Update(&config, theta_mech, &output))
-    {
-        MotorControl->idRef = 0.0f;
-        MotorControl->iqRef = 0.0f;
-        MotorFault_Report(MotorControl, MotorParam_Error);
-        return;
-    }
-
-    MotorControl->posShadow = output.position_reference;
-    MotorControl->speedShadow = output.speed_reference;
-    MotorControl->pos_vel_filtered = output.velocity_feedback;
-    MotorControl->isReachTargetPos = output.target_reached;
-    MotorControl->idRef = 0.0f;
-    MotorControl->iqRef = output.iq_reference;
-    FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
-}
-
-/* 位置模式复位：请求外环在下一 2 kHz 慢拍重建，并复位阻抗控制器状态。 */
+/* 位置模式复位：请求外环在下一 2 kHz 慢拍重建，由唯一外环所有者消费复位请求。 */
 void Task_Position_Mode_Reset(void)
 {
     MotorOuterLoop_RequestReset();
-    PositionImpedance_Reset();
 }
 
 /* OUTER_RUNTIME_BEGIN
@@ -604,22 +507,6 @@ void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
     }
 }
 /* OUTER_RUNTIME_END */
-
-/**
- * @brief  电压开环模式：按开环角速度积分电角度并在 d 轴施加开环电压。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @note 在 20kHz 快速环上下文调用；不做电流闭环。
- */
-void Task_Voltage_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
-{
-    /* 由开环角速度积分电角度。 */
-    MotorControl->ol_theta =
-        normalizeAngle(MotorControl->ol_theta + MotorControl->ol_elec_vel * Current_Ts);
-
-    /* d 轴开环电压驱动。 */
-    FOC_Voltage(FOC, MotorControl->ol_voltage, 0.0f, MotorControl->ol_theta);
-}
 
 /**
  * @brief  Q 轴电压模式：d 轴电流闭环到零，q 轴直接给定电压。

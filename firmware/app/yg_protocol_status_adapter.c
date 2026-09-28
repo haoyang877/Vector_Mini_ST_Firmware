@@ -77,12 +77,9 @@ static uint8_t protocol_mode(ModeNow_TypeDef mode)
     case Current_Mode:
         return 1U;
     case Speed_Mode:
-    case Sensorless_Speed_Mode:
         return 2U;
     case Position_Mode:
         return 3U;
-    case Position_Impedance_Mode:
-        return 4U;
     case Vq_Mode:
         return 6U;
     case Calib_EncoderOffset:

@@ -23,12 +23,8 @@ static IndicatorHwColor Mode_Color(ModeNow_TypeDef mode)
         return INDICATOR_HW_COLOR_GREEN;
     case Speed_Mode:
         return INDICATOR_HW_COLOR_CYAN;
-    case Sensorless_Speed_Mode:
-        return INDICATOR_HW_COLOR_YELLOW;
     case Position_Mode:
         return INDICATOR_HW_COLOR_BLUE;
-    case Position_Impedance_Mode:
-        return INDICATOR_HW_COLOR_WHITE;
     case Calib_Motor_R_L_Flux:
     case Calib_EncoderOffset:
     case Calib_EncoderObserver:

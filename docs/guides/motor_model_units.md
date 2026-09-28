@@ -130,7 +130,7 @@ posAcc/Dec   = 0.125 × 2π  rad/s²
 
 `speed_limit`同时作为运行默认值和硬上限：Flash中更大的旧值在加载时会被限制到`0.5 rev/s`，USB/CAN也拒绝设置超过该值。位置轨迹的`pos_maxspeed`默认仍为`0.125 rev/s`，但允许在运行时配置到`0.5 rev/s`；例如内部值`2 rad/s`约等于`0.318 rev/s`，属于有效范围。
 
-位置模式的 `pos_Kp`、`pos_Kd`、`pos_Ki` 分别使用 A/rad、A/(rad/s)、A/(rad*s)，详细控制结构和整定方法见 [position_impedance_control.md](position_impedance_control.md)。
+schema11 中的 `pos_Kp`、`pos_Kd`、`pos_Ki` 保留原字段与单位；旧模式18已经删除，不应将这些字段当作当前级联位置环的有效调参入口。当前参数入口见 [模式3参数指南](mode3_parameter_guide.md)，删除范围见 [模式退役契约 v1](../protocols/retired_motor_modes_v1.md)。
 
 > 注意：当前 CAN 参数协议不再暴露 rev/s 或圈数 API。速度载荷为 `int32`、
 > 1 LSB=`0.01 rad/s`，位置载荷为 `int32`、1 LSB=`0.001 rad`；协议层解码后
@@ -219,5 +219,5 @@ L  [H]  = (V − R·I) / (ωe·I) × 2.25
 | --- | --- | --- |
 | Current_Ts | 50 µs（20 kHz） | 电流环 / 观测器积分 |
 | Speed_Ts | 500 µs（2 kHz） | 速度环 / 编码器通用测速 |
-| Position_Ts | 1 ms（1 kHz） | 位置阻抗环 / 轨迹发生器 |
+| Cascade_Position_Ts | 0.5 ms（2 kHz） | 当前级联位置外环与连续加速度轨迹 |
 | Cascade_Position_Ts | 500 µs（2 kHz） | 模式3位置伺服 / jerk限制轨迹发生器 |

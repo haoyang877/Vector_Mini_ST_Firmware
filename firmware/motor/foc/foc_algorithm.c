@@ -229,23 +229,6 @@ void SVM_SectorJudge(float alpha, float beta, float *tA, float *tB, float *tC, i
     }
 }
 
-/* 电压环：按设定 d/q 电压直接生成调制与三相占空比，不做电流闭环。 */
-void FOC_Voltage(FOC_TypeDef *FOC, float Vd_set, float Vq_set, float phase)
-{
-    Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
-    Park_Transform(FOC->Ialpha, FOC->Ibeta, phase, &FOC->Id, &FOC->Iq);
-
-    UTILS_LP_FAST(FOC->Id_filt, FOC->Id, 0.01f);
-    UTILS_LP_FAST(FOC->Iq_filt, FOC->Iq, 0.01f);
-
-    FOC_SetVoltageModulation(FOC, Vd_set, Vq_set);
-
-    Inverse_Park_Transform(FOC->mod_d, FOC->mod_q, phase, &FOC->mod_alpha, &FOC->mod_beta);
-    SVM_SectorJudge(
-        FOC->mod_alpha, FOC->mod_beta, &FOC->dtc_a, &FOC->dtc_b, &FOC->dtc_c, &FOC->sector);
-    motor_hw_pwm_set_duty(FOC->dtc_a, FOC->dtc_b, FOC->dtc_c);
-}
-
 /* 电流环：使用 MotorControl->iqRef 作为 q 轴参考执行一次 d/q 电流闭环。 */
 void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float phase, float phase_vel)
 {

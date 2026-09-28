@@ -61,4 +61,6 @@ APP Flash investigation: [超限原因、旧模式调用链与隔离编译对照
 
 Retired modes: [无当前入口的旧电机模式退役契约 v1](protocols/retired_motor_modes_v1.md).
 
+APP Flash details: [按功能、驱动和函数拆分的 Flash 占用（2026-09-28）](reports/2026-09/app_flash_by_function_20260928.md).
+
 Current parameter loading: [仅接受 schema 11，移除历史参数迁移 v1](protocols/parameter_schema11_loading_policy_v1.md).

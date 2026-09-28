@@ -104,6 +104,7 @@ float fast_min(float x, float y);
  * @brief  查表正弦。
  * @param  theta 角度，单位 rad（函数内先归一化）。
  * @return 表值；粗表精度，亚分度小角度请用有界展开而非本函数。
+ * @note 半表镜像保持原表位模式；归一化舍入到周期右端点时返回正零。
  */
 float fast_sin(float theta);
 

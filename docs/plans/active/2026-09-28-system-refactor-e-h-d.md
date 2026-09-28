@@ -57,6 +57,15 @@ Loader 复用既有 `ef5abfc179019bd70661ba0b194aff20ec9eb342` 实现及后续�
 
 ## 当前需收口的限制
 
+D主体`17dc8528`已选择性集成：独立Loader工程、50～55运行路由、固定写域、
+SHA/读回/试启动、APP窄BootHw端口及shared/image单份实现。ROOT在APP主工程加入
+BootHw、mailbox、image_transfer、nv_record、nv_sha256源与共享包含路径；平台层仅新增
+指向纯shared的单向依赖，不允许shared反向访问平台。未启动编译、测试或格式检查。
+
+当前normal仍保持独立APP链接位置和用户调试设置；该目标BootHw返回无Loader交接。
+Loader布局APP需要使用D的app.sct和显式版本/角色描述符，待E完整源码接入后统一登记独立
+工程输入，不能把normal误报成可在线升级镜像。历史容量缺口继续阻止发布适配声明。
+
 ### ROOT：升级回复的物理发送边界
 
 H 的维护路由 `aa9a3acb` 已集成：160/161/162 使用任务专用值回复，E 继续实现业务绑定。

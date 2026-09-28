@@ -87,7 +87,7 @@ allows = ["common", "platform_api", "motor", "services", "protocol", "communicat
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
-allows = ["common", "platform_api", "motor", "services", "platform_stm32", "cubemx"]
+allows = ["common", "platform_api", "motor", "services", "platform_stm32", "cubemx", "shared"]
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/stm32g4/cubemx/Core"]

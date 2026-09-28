@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/protocol;../../../../../shared/boot;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1771,9 +1771,39 @@
               <FilePath>..\..\ports\board\indicator_stm32g4.c</FilePath>
             </File>
             <File>
+              <FileName>boot_hw_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\boot\boot_hw_stm32g4.c</FilePath>
+            </File>
+            <File>
               <FileName>param_store_stm32g4.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\ports\board\param_store_stm32g4.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Shared Boot Image</GroupName>
+          <Files>
+            <File>
+              <FileName>image_mailbox.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\boot\image_mailbox.c</FilePath>
+            </File>
+            <File>
+              <FileName>image_transfer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\image\image_transfer.c</FilePath>
+            </File>
+            <File>
+              <FileName>nv_record.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\image\nv_record.c</FilePath>
+            </File>
+            <File>
+              <FileName>nv_sha256.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\image\nv_sha256.c</FilePath>
             </File>
           </Files>
         </Group>

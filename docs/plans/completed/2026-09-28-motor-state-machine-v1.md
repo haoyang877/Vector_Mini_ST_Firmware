@@ -42,4 +42,17 @@ STOP/FAULT/CLEAR 优先级、真实资源归还、原始票据及过期结果丢
 
 ## 执行记录
 
-正在执行任务结果和唯一所有者迁移。
+七项迁移已完成，实现提交 aaff067cb956cc766e67edd091d2e0e09d903220。
+旧状态协议与文件已删除；正常启相集中于唯一所有者；功能自行归还终态状态，
+维护与保存票据分别确认，原 ABI/黄金向量通过。24 项原生、19 项集成通过，
+43 个改动自有源码的格式/lint 0 问题；普通 APP ROM −592 B，RAM 不变。
+
+当前正式 release summary 为 outputs/runs/state-machine-final-release/summary.json，
+实现提交 clean。正式结果 FAIL：全局 format/lint/接口/历史报告链接诊断与基准逐字
+相同，release 前置门禁阻塞其内置构建；没有扩大债务、添加豁免或声称发布通过。
+另行对实现提交重建普通 APP 0 错误/警告；Loader APP 容量仍超限，诊断镜像不可部署。
+实际台架时序、栈与关断证据在本轮授权范围外，未执行。
+
+详见[验收报告](../../reports/2026-09/motor_state_machine_refactor_20260928.md)及
+[最终设计](../../architecture/motor_state_machine_v1.md)。本计划完成的是上述离线
+重构范围；全局发布门禁和实机验收作为明确未完成项记录，不静默豁免。

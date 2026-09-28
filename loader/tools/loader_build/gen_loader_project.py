@@ -8,10 +8,11 @@ The loader target links at 0x08000000 (12 KiB, pages 0-5). The remaining
 (0x08003000) and page 7 spare (0x08003800).
 """
 from pathlib import Path
+import os
 import xml.etree.ElementTree as ET
 
 REPO = Path(__file__).resolve().parents[3]
-SRC = REPO / "MDK-ARM" / "Vector_Mini_ST.uvprojx"
+SRC = REPO / "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx"
 DST = REPO / "loader" / "mdk" / "Vector_Mini_ST_Loader.uvprojx"
 SCT_DIR = REPO / "loader" / "mdk" / "Vector_Mini_ST_Loader"
 SCT = SCT_DIR / "Vector_Mini_ST_Loader.sct"
@@ -90,7 +91,7 @@ def main() -> int:
     assert common is not None
     out_dir = common.find("OutputDirectory")
     if out_dir is not None:
-        out_dir.text = "Vector_Mini_ST_Loader\\"
+        out_dir.text = "../../outputs/build/keil/Vector_Mini_ST_Loader/"
     out_name = common.find("OutputName")
     if out_name is not None:
         out_name.text = TARGET_NAME
@@ -126,16 +127,17 @@ def main() -> int:
     inc = vc.find("IncludePath")
     if inc is not None:
         parts = [p.strip() for p in (inc.text or "").split(";") if p.strip()]
-        rebased = []
-        for p in parts:
-            if p.startswith("../") and not p.startswith("../../"):
-                p = "../" + p
-            elif p.startswith("..\\") and not p.startswith("..\\..\\"):
-                p = "..\\" + p
-            rebased.append(p)
-        if "..\\..\\shared" not in rebased:
-            rebased.append("..\\..\\shared")
+        rebased = [os.path.relpath((SRC.parent / p.replace("\\", "/")).resolve(), DST.parent)
+                   for p in parts]
         inc.text = ";".join(rebased)
+
+    listing = common.find("ListingPath")
+    if listing is not None:
+        listing.text = "../../outputs/build/keil/Vector_Mini_ST_Loader/"
+    after = common.find("AfterMake/UserProg1Name")
+    if after is not None:
+        after.text = ('python "../../host_app/tools/check_app_layout.py" --target loader '
+                      '--map "../../outputs/build/keil/Vector_Mini_ST_Loader/Vector_Mini_ST_Loader.map"')
 
     groups_el = target.find("Groups")
     assert groups_el is not None
@@ -158,9 +160,9 @@ def main() -> int:
     # Startup + system
     startup = clones.get("startup_stm32g431xx.s")
     if startup is None:
-        startup = make_file("startup_stm32g431xx.s", "2", r"..\..\MDK-ARM\startup_stm32g431xx.s")
+        startup = make_file("startup_stm32g431xx.s", "2", r"..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s")
     else:
-        startup.find("FilePath").text = r"..\..\MDK-ARM\startup_stm32g431xx.s"
+        startup.find("FilePath").text = r"..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s"
     add_group("Startup", [startup])
 
     system = clones.get("system_stm32g4xx.c")
@@ -179,13 +181,18 @@ def main() -> int:
         hal_files.append(f)
     add_group("HAL", hal_files)
 
-    # Rebase cloned app-relative file paths for the deeper project location.
-    for fpath in root.iter("FilePath"):
-        fp = fpath.text or ""
-        if fp.startswith("../") and not fp.startswith("../../"):
-            fpath.text = "../" + fp
-        elif fp.startswith("..\\") and not fp.startswith("..\\..\\") and not fp.startswith("..\\firmware\\"):
-            fpath.text = "..\\" + fp
+    # 按实际源目录迁移公共 MCU 文件，不依赖旧工程目录层级。
+    for f in root.iter("File"):
+        name = f.findtext("FileName")
+        if name == "startup_stm32g431xx.s":
+            source = SRC.parent / name
+        elif name == "system_stm32g4xx.c":
+            source = SRC.parent.parent / "Core/Src" / name
+        elif name in HAL_WHITELIST:
+            source = SRC.parent.parent / "Drivers/STM32G4xx_HAL_Driver/Src" / name
+        else:
+            continue
+        f.find("FilePath").text = os.path.relpath(source, DST.parent)
 
     SCT_DIR.mkdir(parents=True, exist_ok=True)
     SCT.write_text(SCATTER_TEXT, encoding="ascii")

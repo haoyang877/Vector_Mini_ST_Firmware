@@ -123,7 +123,7 @@ def canonical_name(image_type: str, variant: str, board: str, mcu: str, version:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", type=Path, default=REPO / "MDK-ARM" / "Vector_Mini_ST.uvprojx")
+    parser.add_argument("--project", type=Path, default=REPO / "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx")
     parser.add_argument("--target", default="Vector_Mini_ST")
     parser.add_argument("--image-type", choices=IMAGE_TYPES, default="app")
     parser.add_argument("--variant", choices=VARIANTS, default="product")

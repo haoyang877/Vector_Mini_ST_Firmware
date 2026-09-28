@@ -1,0 +1,370 @@
+#include "foc_errhandle.h"
+
+#include <math.h>
+#include "tim.h"
+#include "foc_algorithm.h"
+#include "foc_pid.h"
+#include "encoder.h"
+#include "foc_sensorless.h"
+#include "foc_run.h"
+#include "foc_friction_identification.h"
+#include "bus_voltage_profile.h"
+
+extern MotorControl_TypeDef MotorControl;
+extern FOC_TypeDef FOC;
+extern PI_Controller_TypeDef PI_Speed;
+extern ModeNow_TypeDef  ModeLast;
+extern ErrorNow_TypeDef ErrorLast;
+extern Encoder_TypeDef OnBoard_Encoder;
+extern SensorlessStartup_TypeDef SensorlessStartup;
+
+bool is_Mode_Error_Change;
+
+/**
+	* @brief  Get current motor mode
+	* @retval current mode
+ **/
+ModeNow_TypeDef Get_ModeNow(void)
+{
+	return MotorControl.ModeNow;
+}
+
+/**
+	* @brief  Set current motor mode
+	* @param  tModeNow: mode to set
+ **/
+void Set_ModeNow(ModeNow_TypeDef tModeNow)
+{
+	MotorControl.ModeNow = tModeNow;
+}
+
+/**
+	* @brief  Get current motor error
+	* @retval current error
+ **/
+ErrorNow_TypeDef Get_ErroNow(void)
+{
+	return MotorControl.ErrorNow;
+}
+
+/**
+	* @brief  Set current motor error
+	* @param  tErrorNow: error to set
+ **/
+void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
+{
+	MotorControl.ErrorNow = tErrorNow;
+}
+
+/**
+	* @brief  Clear running control data
+ **/
+void Clear_RunningData(void)
+{
+	if (ModeLast == Calib_Friction)
+		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+	MotorControl.idRef		 = 0.0f;
+	MotorControl.iqRef		 = 0.0f;
+	MotorControl.vqRef		 = 0.0f;
+	MotorControl.speedRef    = 0.0f;
+	MotorControl.speedShadow = 0.0f;
+	MotorControl.posShadow   = 0.0f;
+	MotorControl.isReachTargetPos = false;
+	MotorControl.pos_vel_filtered = 0.0f;
+	Task_Position_Mode_Reset();
+	
+	FOC.Id = 0.0f;
+	FOC.Iq = 0.0f;
+	FOC_CurrentController_Reset(&FOC);
+	PI_Controller_Reset(&PI_Speed);
+	SensorlessStartup_Reset(&SensorlessStartup);
+}
+
+/**
+	* @brief  Handle motor mode switching
+	*         motor identification is removed, motor body parameters
+	*         are filled externally; closed-loop modes require encoder
+	*         linearization and electrical angle zero position calibration
+	* @param  mode_set: target mode
+	* @retval true if mode switched
+ **/
+bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
+{
+	/* Reject an unsafe restart before any phase output can be enabled.
+	 * The normal supervisor owns voltage fault latching during operation. */
+	if (MotorControl.ModeNow == Motor_Disable &&
+		(mode_set == Current_Mode || mode_set == Speed_Mode ||
+		mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
+		mode_set == Calib_PhaseResistance || mode_set == Calib_EncoderOffset ||
+		mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
+		mode_set == Voltage_OpenLoop || mode_set == Vq_Mode ||
+		mode_set == Sensorless_Speed_Mode || mode_set == Calib_Friction))
+	{
+		if (!isfinite(FOC.Vbus) || !isfinite(FOC.Vbus_filt) ||
+			FOC.Vbus >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
+			FOC.Vbus_filt > BUS_VOLTAGE_ENABLE_MAX_V)
+		{
+			if (MotorControl.ErrorNow == No_Error) Set_ErrorNow(Over_Voltage);
+			return false;
+		}
+		if (FOC.Vbus_filt < BUS_VOLTAGE_ENABLE_MIN_V)
+		{
+			if (MotorControl.ErrorNow == No_Error) Set_ErrorNow(Under_Voltage);
+			return false;
+		}
+	}
+	/* Unknown/unconfigured numeric joints cannot fall through to another
+	 * torque-producing mode. Diagnostics and explicit storage remain usable. */
+	if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable &&
+		mode_set != Clear_Error && mode_set != Save_Param)
+	{
+		Set_ErrorNow(MotorParam_Error);
+		return false;
+	}
+	if (mode_set == Position_Mode && !MotorAxisProfile_AllowsPosition(
+		&MotorControl.axis_profile, MotorControl.axis_profile_valid,
+		Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecPos(&OnBoard_Encoder)))
+	{
+		Set_ErrorNow(MotorParam_Error);
+		return false;
+	}
+	/*motor identification (R/L/flux) is not used any more*/
+	if(mode_set == Calib_Motor_R_L_Flux)
+		return false;
+	
+	/* Modes that directly consume encoder feedback must start with a valid TLE5012B frame. */
+	if ((mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
+		 mode_set == Vq_Mode ||
+		 ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
+		  MotorControl.isUseSensorless == false) ||
+		 mode_set == Calib_EncoderOffset ||
+		 mode_set == Calib_EncoderObserver || mode_set == Calib_EleAngelOffset ||
+		 mode_set == Calib_Friction ||
+		 mode_set == Set_ZeroPosition) && !Encoder_IsOnline(&OnBoard_Encoder))
+	{
+		Set_ErrorNow(Encoder_Error);
+		return false;
+	}
+
+	if(mode_set == Sensorless_Speed_Mode)
+	{
+		if(MotorControl.motor_pole_pairs <= 0 || MotorControl.motor_phase_resistance <= 0.0f ||
+		   MotorControl.motor_d_inductance <= 0.0f || MotorControl.motor_q_inductance <= 0.0f ||
+		   MotorControl.motor_flux <= 0.0f || MotorControl.current_limit <= 0.0f)
+		{
+			Set_ErrorNow(MotorParam_Error);
+			return false;
+		}
+	}
+
+	/*encoder-based closed-loop control requires calibration*/
+	if(mode_set == Position_Mode || mode_set == Position_Impedance_Mode ||
+	   mode_set == Vq_Mode ||
+	   mode_set == Calib_Friction ||
+	  ((mode_set == Current_Mode || mode_set == Speed_Mode) &&
+	   MotorControl.isUseSensorless == false))
+	{
+		if((OnBoard_Encoder.calib_flag & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+		{
+			Set_ErrorNow(Encoder_NotCalibrated);
+			return false;
+		}
+	}
+	
+	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
+	{
+		/* Entering either position mode must hold the present position, not a stale target. */
+		if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
+		{
+			float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
+
+			if (!isfinite(current_position))
+			{
+				Set_ErrorNow(Encoder_Error);
+				return false;
+			}
+			MotorControl.posRef = current_position;
+			MotorControl.posShadow = current_position;
+			MotorControl.speedShadow = 0.0f;
+			MotorControl.isReachTargetPos = false;
+			Task_Position_Mode_Reset();
+		}
+		MotorControl.ModeNow = mode_set;
+		return true;
+	}
+	
+	if((MotorControl.ModeNow  == Current_Mode || 
+	    MotorControl.ModeNow  == Speed_Mode   || 
+	    MotorControl.ModeNow  == Position_Mode ||
+	    MotorControl.ModeNow  == Position_Impedance_Mode ||
+	    MotorControl.ModeNow == Calib_Motor_R_L_Flux ||
+	    MotorControl.ModeNow == Calib_PhaseResistance ||
+	    MotorControl.ModeNow == Calib_EncoderOffset ||
+	    MotorControl.ModeNow == Calib_EncoderObserver ||
+	    MotorControl.ModeNow == Calib_EleAngelOffset ||
+	    MotorControl.ModeNow == Calib_CurrentOffset ||
+	    MotorControl.ModeNow == Voltage_OpenLoop ||
+	    MotorControl.ModeNow == Vq_Mode ||
+	    MotorControl.ModeNow == Sensorless_Speed_Mode ||
+	    MotorControl.ModeNow == Calib_Friction) &&
+	    MotorControl.ErrorNow == No_Error)
+	{
+		if(mode_set == Motor_Disable)
+		{
+			if (MotorControl.ModeNow == Calib_Friction)
+				FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+			MotorControl.ModeNow = mode_set;
+			return true;
+		}
+	}
+	
+	if(mode_set == Clear_Error)
+	{
+		if(MotorControl.ErrorNow != No_Error)
+		{
+			MotorControl.ErrorNow = No_Error;
+			MotorControl.ModeNow = Motor_Disable;
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+/**
+	* @brief  Detect mode or error state change
+ **/
+void Detect_Mode_Error_Change(void)
+{
+	if(ModeLast != MotorControl.ModeNow || ErrorLast != MotorControl.ErrorNow)
+		is_Mode_Error_Change = true;
+}
+
+/**
+	* @brief  Return mode or error change flag
+	* @retval change flag
+ **/
+bool Return_Mode_Error_Change(void)
+{
+	return is_Mode_Error_Change;
+}
+
+/**
+	* @brief  Clear mode or error change flag
+ **/
+void Clear_Mode_Error_Change(void)
+{
+	is_Mode_Error_Change = false;
+}
+
+/**
+	* @brief  Release the six gate-driver inputs to high impedance
+	* @note   Free release: the PWM is stopped and the pins become analog
+	*         inputs (highest impedance, no pull) so the motor coasts.
+ **/
+void PWM_Outputs_HiZ(void)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
+	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+}
+
+/**
+	* @brief  Short the three low-side switches for high-damping braking
+	* @note   Static three-phase low-side short: low-side gate inputs high,
+	*         high sides low. No switching, no bus pumping, bootstrap safe.
+ **/
+static void PWM_Outputs_LowSideShort(void)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	/* High-side inputs low (off). */
+	HAL_GPIO_WritePin(PWM_AH_GPIO_Port, PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin,
+	                  GPIO_PIN_RESET);
+	GPIO_InitStruct.Pin = PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(PWM_AH_GPIO_Port, &GPIO_InitStruct);
+	/* Low-side inputs high (three-phase short). */
+	HAL_GPIO_WritePin(PWM_AL_GPIO_Port, PWM_AL_Pin, GPIO_PIN_SET);
+	GPIO_InitStruct.Pin = PWM_AL_Pin;
+	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_WritePin(PWM_BL_GPIO_Port, PWM_BL_Pin | PWM_CL_Pin, GPIO_PIN_SET);
+	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
+	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+}
+
+/**
+	* @brief  Hand the six gate-driver pins back to TIM1
+ **/
+static void PWM_Outputs_ToTimer(void)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	GPIO_InitStruct.Alternate = GPIO_AF6_TIM1;
+	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
+	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+}
+
+/**
+	* @brief  Stop PWM generation
+	* @note   Mode 0 free release: the outputs are stopped and the pins are
+	*         released to high impedance so the motor coasts. MOE stays set
+	*         because the CH4 compare clocks the injected ADC conversions.
+ **/
+void Stop_PWM_Generate(void)
+{
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+	
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
+	
+	PWM_Outputs_HiZ();
+}
+
+/**
+	* @brief  Enter the high-damping mode (three-phase low-side short)
+ **/
+void Start_Damping_Brake(void)
+{
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+	
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_2);
+	HAL_TIMEx_OCN_Stop(&htim1, TIM_CHANNEL_3);
+	
+	PWM_Outputs_LowSideShort();
+}
+
+/**
+	* @brief  Start PWM generation
+ **/
+void Start_PWM_Generate(void)
+{
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+	
+	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
+	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
+	HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+	
+	/* Channel enables and MOE are set; hand the pins back to TIM1. */
+	PWM_Outputs_ToTimer();
+}

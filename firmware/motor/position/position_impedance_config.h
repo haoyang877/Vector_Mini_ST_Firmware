@@ -1,0 +1,76 @@
+#ifndef __POSITION_IMPEDANCE_CONFIG_H__
+#define __POSITION_IMPEDANCE_CONFIG_H__
+
+#include "hw_conf.h"
+
+/* Public parameter bounds. */
+#define POSITION_IMPEDANCE_KP_MAX_A_PER_RAD       50.0f
+#define POSITION_IMPEDANCE_KD_MAX_A_PER_RAD_S     10.0f
+#define POSITION_IMPEDANCE_KI_MAX_A_PER_RAD_S     10.0f
+#define POSITION_IMPEDANCE_MAX_SPEED_RPS          0.50f
+
+/* Internal shaping for the low-speed (8 s/rev) controller. */
+#define POSITION_IMPEDANCE_VELOCITY_FILTER_HZ     20.0f
+#define POSITION_IMPEDANCE_INTEGRAL_ZONE_RAD      0.08726646f /* 5 deg */
+#define POSITION_IMPEDANCE_INTEGRAL_SPEED_RAD_S   0.03f
+#define POSITION_IMPEDANCE_INTEGRAL_DECAY_DISTANCE_RAD       0.08726646f /* 5 deg */
+#define POSITION_IMPEDANCE_INTEGRAL_DECAY_MIN_SPEED_RAD_S    0.02f
+#define POSITION_IMPEDANCE_INTEGRAL_OPPOSING_DECAY_RATE_PER_S 10.0f
+#define POSITION_IMPEDANCE_INTEGRAL_DECAY_MAX_RATE_PER_S      10.0f
+#define POSITION_IMPEDANCE_INTEGRAL_DECAY_MAX_STEP_A_PER_S     5.0f
+#define POSITION_IMPEDANCE_INTEGRAL_OPPOSING_DECAY_RATIO_PER_TICK \
+	(POSITION_IMPEDANCE_INTEGRAL_OPPOSING_DECAY_RATE_PER_S * Position_Ts)
+#define POSITION_IMPEDANCE_INTEGRAL_DECAY_MAX_RATIO_PER_TICK \
+	(POSITION_IMPEDANCE_INTEGRAL_DECAY_MAX_RATE_PER_S * Position_Ts)
+#define POSITION_IMPEDANCE_INTEGRAL_DECAY_MAX_STEP_A \
+	(POSITION_IMPEDANCE_INTEGRAL_DECAY_MAX_STEP_A_PER_S * Position_Ts)
+#define POSITION_IMPEDANCE_INTEGRAL_ZERO_THRESHOLD_A         0.0005f
+#define POSITION_IMPEDANCE_INTEGRAL_FRICTION_MAX_A           0.05f
+#define POSITION_IMPEDANCE_HOLD_ENTER_SPEED_RAD_S 0.03f
+#define POSITION_IMPEDANCE_HOLD_EXIT_SPEED_RAD_S  0.08f
+#define POSITION_IMPEDANCE_HOLD_TIME_S            0.05f
+
+/*
+ * Damping-ring friction compensation. Values are currents in amperes as
+ * magnitudes; direction is selected from the continuous target error and
+ * trajectory velocity.
+ *
+ * Re-measured on the damping-ring motor 2026-09-22 (see
+ * docs/reports/2026-09/damping_ring_friction_20260922.md): mode 17 gave a real
+ * phase resistance of 2.2035 ohm, and a bidirectional closed-loop sweep from
+ * motion gave 3.26/3.18 A in the >=14 rpm plateau and 3.59/3.54 A in the
+ * Stribeck zone below 14 rpm, where the position loops actually work. Breakaway
+ * from a long standstill measured about 4.5 A forward and beyond 5.1 A reverse,
+ * so 4.3/4.2 A is a lower bound on the reverse side at a 28 V bus. The previous
+ * 1.55/1.50/1.85/1.80 A was only ~43% of the measured kinetic friction and left
+ * a +4.3 deg residual on a 180 deg mode-3 move, versus -0.2 deg with these
+ * values (A/B captured in the same report).
+ */
+#if MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED
+#define POSITION_IMPEDANCE_FRICTION_POSITIVE_A            3.6f
+#define POSITION_IMPEDANCE_FRICTION_NEGATIVE_A            3.5f
+#define POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A           4.3f
+#define POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A           4.2f
+#else
+#define POSITION_IMPEDANCE_FRICTION_POSITIVE_A            0.0f
+#define POSITION_IMPEDANCE_FRICTION_NEGATIVE_A            0.0f
+#define POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A           0.0f
+#define POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A           0.0f
+#endif
+#define POSITION_IMPEDANCE_FRICTION_ATTACK_SLEW_A_PER_S  200.0f
+#define POSITION_IMPEDANCE_FRICTION_FAST_RELEASE_SLEW_A_PER_S 50.0f
+#define POSITION_IMPEDANCE_FRICTION_RELEASE_SLEW_A_PER_S  15.0f
+#define POSITION_IMPEDANCE_FRICTION_OVERSPEED_MARGIN_RAD_S 0.05f
+#define POSITION_IMPEDANCE_FRICTION_POSITION_ENTER_RAD    0.001f
+#define POSITION_IMPEDANCE_FRICTION_POSITION_EXIT_RAD     0.003f
+#define POSITION_IMPEDANCE_FRICTION_REFERENCE_SPEED_RAD_S 0.03f
+#define POSITION_IMPEDANCE_FRICTION_STOP_SPEED_RAD_S      0.02f
+#define POSITION_IMPEDANCE_FRICTION_MOVE_SPEED_RAD_S      0.05f
+#define POSITION_IMPEDANCE_FRICTION_STUCK_TIME_S          0.05f
+#define POSITION_IMPEDANCE_FRICTION_LANDING_POSITION_RAD  0.006f
+#define POSITION_IMPEDANCE_FRICTION_LANDING_SPEED_RAD_S   0.10f
+#define POSITION_IMPEDANCE_FRICTION_RECOVERY_DELAY_S      0.20f
+#define POSITION_IMPEDANCE_FRICTION_RECOVERY_PULSE_S      0.05f
+#define POSITION_IMPEDANCE_FRICTION_RECOVERY_COOLDOWN_S   0.20f
+
+#endif

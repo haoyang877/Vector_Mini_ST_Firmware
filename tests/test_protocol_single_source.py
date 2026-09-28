@@ -60,10 +60,10 @@ HANDOFF_H = ROOT / "shared" / "protocol" / "boot_handoff.h"
 MAILBOX_H = ROOT / "shared" / "boot_mailbox.h"
 LOADER_CFG_H = ROOT / "loader" / "firmware" / "loader_cfg.h"
 LOADER_SCT = ROOT / "loader" / "mdk" / "Vector_Mini_ST_Loader" / "Vector_Mini_ST_Loader.sct"
-APP_SCT = ROOT / "MDK-ARM" / "Vector_Mini_ST" / "Vector_Mini_ST.sct"
-APP_UVPROJX = ROOT / "MDK-ARM" / "Vector_Mini_ST.uvprojx"
-INTERFACE_CAN_H = ROOT / "Communication" / "interface_can.h"
-BSP_FLASH_H = ROOT / "Bsp" / "flash.h"
+APP_SCT = ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.sct"
+APP_UVPROJX = ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx"
+INTERFACE_CAN_H = ROOT / "firmware/communication/can/interface_can.h"
+BSP_FLASH_H = ROOT / "firmware/platform/stm32g4/bsp/flash.h"
 
 # shared/protocol/loader_can_v1.h  <->  loader/tools/loader_proto.py
 PROTOCOL_VALUE_MAP = {

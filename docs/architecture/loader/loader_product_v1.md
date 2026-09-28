@@ -33,6 +33,13 @@ flowchart TB
 
 几何的唯一输入为 `shared/targets/vector_mini_st_g431.json`；生成共享头、Loader/APP scatter和独立Keil工程。
 
+`TARGET_HARDWARE=1` 的语义是**镜像目标的硬件兼容 profile 标识**，沿用历史目标配置中的
+`identity.hardware=1`。可追溯来源为提交 `0f617a5af4e2043793e2f724778e6ca8fb6443b2` 的
+`loader/targets/vector_mini_st_g431/target.json`；该历史文件的其他布局与参数版本并非本版配置。
+目前没有证据将这个值认定为实测或已登记的PCB revision；它仅参与清单/描述符的兼容性比较。
+APP设备信息中的PCB revision须取明确登记的板卡数据；缺少来源时按协议报告未知/不可用，
+不得直接将 `TARGET_HARDWARE` 报作物理板卡版本。此说明不改变常量值或线上字节。
+
 | 区域 | 起始地址 | 大小 | 写者/用途 |
 | --- | --- | --- | --- |
 | Loader | 0x08000000 | 28KiB | 离线安装；线上不可写 |

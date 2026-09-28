@@ -23,7 +23,7 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *motor, PI_Controller_TypeDef 
 void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver);
 void Task_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI_Controller_TypeDef *controller, Encoder_TypeDef *Encoder);
 extern const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig;
-extern const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig;
+/* 编码器标定的两配置由 MotorLoadProfile_Calibration() 选择。 */
 
 void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, PI_Controller_TypeDef *controller, Fluxobserver_TypeDef *Fluxobserver, SensorlessStartup_TypeDef *Startup, const SensorlessStartupConfig_TypeDef *Config);
 void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);

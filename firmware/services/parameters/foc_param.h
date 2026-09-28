@@ -6,6 +6,7 @@
 #include "position_impedance_config.h"
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
+#include "motor_load_profile.h"
 
 #define PARAM_SCHEMA_VERSION 10U
 #define PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING 9U
@@ -68,6 +69,8 @@ typedef struct
 	uint32_t friction_model_valid;
 	/* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
 	MotorAxisProfile axis_profile;
+    /* DMP1 v1 独立扩展；schema10 既有字段偏移保持不变。 */
+    MotorLoadRecord load_profile;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

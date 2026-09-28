@@ -5,6 +5,16 @@
 #include "motor_hw.h"
 #include "stm32g4xx.h"
 
+bool motor_hw_phase_outputs_disabled(void)
+{
+    const uint32_t phase_mask = TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                                TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                                TIM_CCER_CC3E | TIM_CCER_CC3NE;
+    const uint32_t gpioa_mask = (3U << 14) | (3U << 16) | (3U << 18) | (3U << 20);
+    return (TIM1->CCER & phase_mask) == 0U &&
+           (GPIOA->MODER & gpioa_mask) == gpioa_mask && (GPIOB->MODER & 15U) == 15U;
+}
+
 unsigned motor_hw_current_sample_sector(void)
 {
     const uint32_t phase_enable_mask = TIM_CCER_CC1E | TIM_CCER_CC1NE |

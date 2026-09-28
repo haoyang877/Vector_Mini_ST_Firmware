@@ -37,7 +37,7 @@ static bool pwm_enabled;
 static float applied_observer_iq, applied_observer_id, applied_phase, applied_velocity;
 void Set_ErrorNow(ErrorNow_TypeDef e) { motor.ErrorNow=e; }
 void Set_ModeNow(ModeNow_TypeDef m) {
-    if(m==Save_Param) assert(!pwm_enabled && stop_calls);
+    if(m==Save_Param && motor.ModeNow==Calib_EncoderObserver) assert(!pwm_enabled && stop_calls);
     motor.ModeNow=m;
 }
 void Stop_PWM_Generate(void) { pwm_enabled=false; ++stop_calls; }
@@ -65,17 +65,19 @@ static void HEAP_free(void *p) { free(p); }
 '''
 
 CASES = r'''
-static const SensorlessStartupConfig_TypeDef *cfg=&SensorlessStartup_EncoderCalibConfig;
+static uint32_t active_flags;
+static const SensorlessStartupConfig_TypeDef *cfg;
 static void setup(void) {
     memset(&motor,0,sizeof(motor)); memset(&foc,0,sizeof(foc));
     memset(&observer,0,sizeof(observer)); memset(&encoder,0,sizeof(encoder));
-    PI_Controller_Reset(&pi); SensorlessStartup_Reset(&startup);
+    PI_Controller_Reset(&pi); SensorlessStartup_Reset(&startup); EncoderCalibration_Reset();
     motor.motor_pole_pairs=21; motor.motor_phase_resistance=1.905f;
     motor.motor_d_inductance=motor.motor_q_inductance=.001635f;
     motor.motor_flux=.0175025f;
     /* Use the production default: the encoder-calibration profile refuses to
      * start when the configured limit cannot deliver its own startup vector. */
-    motor.current_limit=PARAM_MOTOR_CURRENT_LIMIT_A;
+    motor.load_profile_flags=active_flags;
+    motor.current_limit=8.0f;
     motor.speed_Kp=.02f; motor.speed_Ki=.5f;
     motor.speedAcc=motor.speedDec=314.159f;
     motor.ModeNow=Calib_EncoderObserver;
@@ -189,9 +191,39 @@ static void check_calibration_stop(void) {
     }
     assert(motor.ModeNow==Save_Param && !pwm_enabled);
 }
+
+static void check_calibration_limits_and_reset(void) {
+    setup(); CalibStep=CS_NULL; motor.current_limit=active_flags ? 6.5f : .6f;
+    calibration_tick();
+    assert(motor.ErrorNow==(active_flags ? MotorParam_Error : Sensorless_Error) &&
+        current_calls==0 && !pwm_enabled);
+    setup(); motor.ModeNow=Calib_EleAngelOffset; motor.calib_current=3;
+    motor.current_limit=active_flags ? 7.99f : 0;
+    Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
+    assert(motor.ErrorNow==MotorParam_Error && current_calls==0);
+    setup(); motor.ModeNow=Calib_EleAngelOffset; motor.calib_current=3;
+    encoder.linearized_q15=12345; encoder.read_status=ENCODER_READ_OK;
+    for(unsigned i=0;i<200;i++) Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
+    assert(electrical_zero_loop_count==200 && motor.idRef>0);
+    EncoderCalibration_Reset();
+    assert(electrical_zero_loop_count==0 && CalibStep==CS_NULL);
+    Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
+    assert(fabsf(motor.idRef-(active_flags ? 8.0f : 3.0f)*Current_Ts/.5f)<1e-6f);
+    for(unsigned i=0;i<31000 && motor.ModeNow!=Save_Param;i++) {
+        Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
+    }
+    assert(motor.ModeNow==Save_Param && encoder.calib_flag==ENC_CALIB_ALL);
+    assert(encoder.electrical_zero_q15==12345);
+    assert(motor.idRef==0 && motor.iqRef==0);
+    EncoderCalibration_Reset();
+    assert(encoder.calib_flag==ENC_CALIB_ALL && encoder.electrical_zero_q15==12345);
+}
 int main(void) {
-    check_handoff(1); check_handoff(-1); check_voltage_rotation();
-    check_braking_cap(); check_calibration_stop();
+    for (active_flags=0; active_flags<=1; ++active_flags) {
+        cfg=&MotorLoadProfile_Calibration(active_flags)->startup;
+        check_handoff(1); check_handoff(-1); check_voltage_rotation();
+        check_braking_cap(); check_calibration_stop(); check_calibration_limits_and_reset();
+    }
     puts("PASS observer-frame current continuity, state-4 speed feedback, PI cap, low-speed/reverse/invalid-feedback cutoff, PWM-off before save, encoder direction preserved");
 }
 '''
@@ -203,20 +235,21 @@ def main():
     ap.add_argument('--out', type=Path, default=ROOT/'outputs/sensorless_transition_tests')
     a=ap.parse_args(); out=a.out.resolve(); out.mkdir(parents=True,exist_ok=True)
     (out/'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
-    run=(ROOT/'firmware/app/foc_run.c').read_text()
+    run=(ROOT/'firmware/app/foc_run.c').read_text(encoding="utf-8")
     run=run[run.index('static float Sensorless_AngleDifference'):run.index('/**\n\t* @brief  Mode-3')]
-    cal=(ROOT/'firmware/motor/identification/foc_calibration.c').read_text()
+    cal=(ROOT/'firmware/motor/identification/foc_calibration.c').read_text(encoding="utf-8")
     helpers=cal[cal.index('static int32_t *p_error_sum'):cal.index('/**\n\t* @brief  Calibrate Rs')]
-    reset=function_source((ROOT/'firmware/motor/foc/foc_sensorless.c').read_text(),'SensorlessStartup_Reset')
-    fixture=PRELUDE+reset+run+helpers+function_source(cal,'Task_Calib_EncoderObserver')+CASES
+    reset=function_source((ROOT/'firmware/motor/foc/foc_sensorless.c').read_text(encoding="utf-8"),'SensorlessStartup_Reset')
+    encoder_source=(ROOT/'firmware/platform/stm32g4/bsp/encoder.c').read_text(encoding='utf-8')
+    fixture=PRELUDE+reset+run+helpers+function_source(encoder_source,'Encoder_SetElectricalZeroQ15')+function_source(cal,'Task_Calib_EncoderObserver')+function_source(cal,'Task_Calib_EleAngelOffset')+CASES
     source=out/'transitions.c'; source.write_text(fixture,encoding='utf-8')
     compiler=[a.cc]+(['cc'] if Path(a.cc).stem=='zig' else [])
     logs=[]
-    for damping in (0,1):
-        exe=out/f'transitions_{damping}.exe'
+    for label in ("both_profiles",):
+        exe=out/f'transitions_{label}.exe'
         cmd=compiler+['-I',str(out)]+NATIVE_INCLUDE_FLAGS+[
             '-std=c99','-O1','-UNDEBUG','-Wall','-Wextra','-Werror','-Wno-unused-function',
-            '-DMOTOR_HAS_DAMPING_RING='+str(damping),str(source),
+            str(source), str(ROOT/'firmware/motor/motor_load_profile.c'),
             str(ROOT/'firmware/motor/foc/foc_pid.c'),str(ROOT/'firmware/common/utils.c'),
             '-o',str(exe),'-lm']
         for command in (cmd,[str(exe)]):

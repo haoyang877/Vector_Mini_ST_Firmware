@@ -59,6 +59,7 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
+#include "motor_load_profile.h"
 #include "firmware/services/parameters/motor_axis_profile.h"
 #define FOC_CONFIG_NOINLINE
 ''' + typedef + r'''
@@ -86,6 +87,7 @@ static Sample expected[1200];
 static void setup(MotorControl_TypeDef *m) {
     memset(m, 0, sizeof(*m));
     m->axis_profile_valid = true;
+    m->load_profile_flags = 3;
     m->pos_error_window = .001f; m->posAcc = .785398f; m->posDec = .523599f;
     m->pos_maxspeed = .6f; m->speed_limit = .8f;
     m->cascade_pos_Kp = 8; m->cascade_pos_Kd = 2;
@@ -163,7 +165,7 @@ int main(void) {
     cc = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else [])
     log = []
     for command in [cc + ['-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(out), *NATIVE_INCLUDE_FLAGS,
-                         '-I', 'firmware/motor/foc', '-I', '.', str(src), 'firmware/motor/position/position_cascade.c',
+                         '-I', 'firmware/motor/foc', '-I', '.', str(src), 'firmware/motor/motor_load_profile.c', 'firmware/motor/position/position_cascade.c',
                          'firmware/motor/trajectory/position_smooth_trajectory.c', 'firmware/motor/foc/foc_pid.c', '-o', str(exe)], [str(exe)]]:
         r = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
         log.append(r.stdout + r.stderr)

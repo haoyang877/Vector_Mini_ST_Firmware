@@ -1,3 +1,4 @@
+#include "motor_load_control.h"
 #include "interface_can.h"
 
 #include <limits.h>
@@ -274,6 +275,26 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+    /* 精确枚举先于 float 转 int；非法值、NaN 和运行态请求均不修改配置。 */
+    if (param_id == CAN_SET_LOAD_PROFILE)
+    {
+        if ((data != 0.0f && data != 1.0f && data != 3.0f) ||
+            !MotorControl_RequestLoadProfile((uint32_t)data))
+        {
+            CAN_SendMessage_Update(CAN_GET_LOAD_PROFILE, -1.0f);
+        }
+        return;
+    }
+    if (param_id == CAN_GET_LOAD_PROFILE)
+    {
+        CAN_SendMessage_Update(CAN_GET_LOAD_PROFILE, (float)MotorControl_GetLoadProfile());
+        return;
+    }
+    if (param_id == CAN_GET_LOAD_PROFILE_REVISION)
+    {
+        CAN_SendMessage_Update(CAN_GET_LOAD_PROFILE_REVISION, 1.0f);
+        return;
+    }
 	/* Read-only handshake; this query never arms or changes motor settings. */
 	if (param_id == CAN_GET_PROTOCOL_REVISION) {
 		CAN_SendMessage_Update(CAN_GET_PROTOCOL_REVISION,

@@ -42,6 +42,8 @@ python tests/run.py
 
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
 
+同一电机增减阻尼环：[roll / wheel 共用固件与运行时切换](docs/guides/roll_wheel_runtime_profile.md)。
+
 底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
 
 * 基础有感FOC算法 电流 速度 位置 可控

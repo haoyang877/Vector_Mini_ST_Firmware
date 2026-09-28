@@ -114,7 +114,7 @@ def main():
     includes = [str(out)] + [str(ROOT / p) for p in ("firmware/common", "firmware/motor/foc", "firmware/platform/stm32g4/bsp", "firmware/communication")]
     command = cc + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [item for p in includes for item in ("-I", p)]
-    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), "-o", str(exe)]
+    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), str(ROOT / "firmware/motor/motor_load_profile.c"), "-o", str(exe)]
     logs = []
     for cmd in (command, [str(exe)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

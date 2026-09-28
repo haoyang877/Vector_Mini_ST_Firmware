@@ -794,6 +794,11 @@
               <FilePath>..\..\..\..\services\parameters\motor_axis_profile.c</FilePath>
             </File>
             <File>
+              <FileName>motor_load_profile.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\motor_load_profile.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_param.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\services\parameters\foc_param.c</FilePath>

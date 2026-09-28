@@ -25,6 +25,11 @@ PRELUDE = r'''
 #include "utils.h"
 static TIM_TypeDef timer;
 static ADC_TypeDef adc;
+static GPIO_TypeDef gpioa, gpiob;
+#undef GPIOA
+#undef GPIOB
+#define GPIOA (&gpioa)
+#define GPIOB (&gpiob)
 #undef TIM1
 #define TIM1 (&timer)
 #undef ADC2
@@ -63,6 +68,23 @@ int main(void) {
     };
     const uint32_t enable_bits[] = {TIM_CCER_CC1E, TIM_CCER_CC1NE,
         TIM_CCER_CC2E, TIM_CCER_CC2NE, TIM_CCER_CC3E, TIM_CCER_CC3NE};
+    /* 真实关相端口：每路 PWM/非高阻 GPIO 都必须拒绝切换。 */
+    gpioa.MODER=(3U<<14)|(3U<<16)|(3U<<18)|(3U<<20); gpiob.MODER=15;
+    timer.CCER=0x1000; timer.BDTR=TIM_BDTR_MOE;
+    assert(motor_hw_phase_outputs_disabled());
+    for(bit=0;bit<6;bit++) {
+        timer.CCER=0x1000|enable_bits[bit]; assert(!motor_hw_phase_outputs_disabled());
+    }
+    timer.CCER=0x1000;
+    for(bit=7;bit<=10;bit++) {
+        gpioa.MODER^=1U<<(2*bit); assert(!motor_hw_phase_outputs_disabled());
+        gpioa.MODER^=1U<<(2*bit);
+    }
+    for(bit=0;bit<2;bit++) {
+        gpiob.MODER^=1U<<(2*bit); assert(!motor_hw_phase_outputs_disabled());
+        gpiob.MODER^=1U<<(2*bit);
+    }
+    assert(motor_hw_phase_outputs_disabled());
     m.A_Offset = m.B_Offset = m.C_Offset = 2048;
     m.ModeNow = Speed_Mode;
 
@@ -186,6 +208,7 @@ def main():
         raise RuntimeError('电流重构必须先于观测器和当拍 PWM 计算')
     fixture = PRELUDE + '\n'.join([
         function_source(platform, 'motor_hw_current_sample_sector'),
+        function_source(platform, 'motor_hw_phase_outputs_disabled'),
         function_source(sensing, 'Current_Reconstruct'),
         next(line for line in sensing.splitlines()
              if line.startswith('#define OVERCURRENT_CONFIRM_CYCLES ')),

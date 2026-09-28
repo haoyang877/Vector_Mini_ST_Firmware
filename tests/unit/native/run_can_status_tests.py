@@ -245,11 +245,16 @@ typedef unsigned CAN_PARAM_ID;
 #define CAN_SET_STATUS_STREAM 0x64
 #define CAN_GET_STATUS_STREAM 0x65
 #define CAN_GET_PROTOCOL_REVISION 0x67
+#define CAN_SET_LOAD_PROFILE 0x68
+#define CAN_GET_LOAD_PROFILE 0x69
+#define CAN_GET_LOAD_PROFILE_REVISION 0x6A
+static bool MotorControl_RequestLoadProfile(uint32_t flags) { (void)flags; return false; }
+static int32_t MotorControl_GetLoadProfile(void) { return 0; }
 #include "firmware/communication/protocol/can_parameter_format.h"
 static float reply;
 static unsigned replies;
 static unsigned reply_id;
-static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67);reply_id=id;reply=value;++replies;}
+static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67 || id==0x69 || id==0x6A);reply_id=id;reply=value;++replies;}
 '''+function_source(source,'CAN_ReceiveMessage_Update').split('\tif (!isfinite(data))')[0]+'}\n'+r'''
 #include <math.h>
 int main(void) {

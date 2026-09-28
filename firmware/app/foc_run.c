@@ -128,28 +128,6 @@ const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig =
 	SENSORLESS_OBSERVER_LOSS_TIME_S
 };
 
-const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig =
-{
-	SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
-	SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
-	SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
-	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
-	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
-	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
-	SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
-	SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
-	SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
-	SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
-	SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
-	SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
-	SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
-	SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
-	SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
-	SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
-	SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
-	SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S
-};
-
 static bool Sensorless_ObserverIsUsable(const Fluxobserver_TypeDef *Fluxobserver)
 {
 	return Fluxobserver->theta_e == Fluxobserver->theta_e &&
@@ -586,7 +564,7 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 		POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
 	config.current_limit = MotorControl->current_limit;
 	config.friction_feedforward_enabled =
-		MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
+		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
 	if (MotorControl->friction_model_valid)
 	{
 		config.friction_coulomb_positive = MotorControl->friction_coulomb_pos_a;
@@ -644,6 +622,11 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     float deceleration = MotorControl->posDec;
     float maximum_speed = MotorControl->pos_maxspeed;
     if (config == NULL) return false;
+    if (config->friction_feedforward_enabled !=
+        MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags))
+    {
+        return false;
+    }
     if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
         deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
     if (MotorControl->axis_profile.magic != 0U &&
@@ -748,7 +731,7 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorC
 	config.integral_limit = MotorControl->pos_integral_limit;
 	config.output_limit = MotorControl->current_limit;
 	config.friction_feedforward_enabled =
-		MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
+		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
 	config.friction_positive_current = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
 	config.friction_negative_current = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
 	config.breakaway_positive_current = POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A;
@@ -827,6 +810,7 @@ static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
         SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
         SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) &&
         SAME_INPUT(cascade_pos_Kp) && SAME_INPUT(cascade_pos_Kd) &&
+        m->load_profile_flags == saved->load_profile_flags &&
         m->friction_model_valid == saved->friction_model_valid &&
         (!m->friction_model_valid ||
          (SAME_INPUT(friction_coulomb_pos_a) && SAME_INPUT(friction_coulomb_neg_a) &&

@@ -45,6 +45,8 @@ void Param_Return_Default(void)
 {
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
 	MotorControl.axis_profile_valid = true;
+    MotorControl.load_profile_flags = 0U;
+    MotorControl.load_profile_valid = true;
 	CANMsg.node_id = PARAM_HW_CAN_NODE_ID;
 
 	MotorControl.A_Offset = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
@@ -148,6 +150,12 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
 	param->axis_profile = MotorControl.axis_profile;
+    if (!MotorControl.load_profile_valid ||
+        !MotorLoadRecord_Create(MotorControl.load_profile_flags, &param->load_profile))
+    {
+        /* 不把损坏运行配置保存成合法的全零默认记录。 */
+        param->load_profile.magic = MOTOR_LOAD_RECORD_MAGIC;
+    }
 }
 
 bool Param_Download(const InterfaceParam_TypeDef *param)
@@ -329,6 +337,13 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
 		&MotorControl.axis_profile);
 	MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);
+    MotorControl.load_profile_flags = 0U;
+    MotorControl.load_profile_valid = MotorLoadRecord_Load(&param->load_profile,
+        &MotorControl.load_profile_flags);
+    if (!MotorControl.load_profile_valid)
+    {
+        return false;
+    }
 	/* Unsupported identity/configuration must not trigger a migration rewrite. */
 	if (!MotorControl.axis_profile_valid) return false;
 	return position_tuning_requires_migration;

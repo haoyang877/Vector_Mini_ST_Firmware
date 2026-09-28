@@ -26,15 +26,15 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
     lut_size = re.search(r'^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U',
-                         (ROOT / 'firmware/platform/stm32g4/bsp/encoder.h').read_text(), re.M)[1]
-    src = (ROOT / 'firmware/app/foc_run.c').read_text()
+                         (ROOT / 'firmware/platform/stm32g4/bsp/encoder.h').read_text(encoding="utf-8"), re.M)[1]
+    src = (ROOT / 'firmware/app/foc_run.c').read_text(encoding="utf-8")
     block = src.split('/* OUTER_RUNTIME_BEGIN', 1)[1].split('/* OUTER_RUNTIME_END */', 1)[0]
     block = '/* OUTER_RUNTIME_BEGIN' + block
     funcs = '\n'.join(function_source(src, n) for n in [
         'SpeedMode_UpdateControl', 'PositionMode_UpdateConfiguration',
         'PositionMode_SameTuningValue', 'PositionMode_ConfigurationMatches'])
     # Use the real parameter structure to guard the full current allocation set.
-    param = (ROOT / 'firmware/services/parameters/foc_param.h').read_text()
+    param = (ROOT / 'firmware/services/parameters/foc_param.h').read_text(encoding="utf-8")
     param = param[param.index('typedef struct'):param.index('} InterfaceParam_TypeDef;') + len('} InterfaceParam_TypeDef;')]
     fixture = r'''
 #ifdef NDEBUG
@@ -47,6 +47,7 @@ def main():
 #include <stdio.h>
 #include <string.h>
 #include "data_type.h"
+#include "motor_load_profile.h"
 #include "hw_conf.h"
 #include "foc_pid.h"
 #include "position_cascade.h"
@@ -202,7 +203,7 @@ int main(void) {
     fixture = fixture.replace('#define ENCODER_OFFSET_LUT_SIZE 1024U',
                               '#define ENCODER_OFFSET_LUT_SIZE ' + lut_size + 'U')
     (out / 'fixture.c').write_text(fixture)
-    sources = [out / 'fixture.c', ROOT / 'firmware/motor/position/position_cascade.c',
+    sources = [out / 'fixture.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/position/position_cascade.c',
                ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c', ROOT / 'firmware/common/heap.c']
     cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
            '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),

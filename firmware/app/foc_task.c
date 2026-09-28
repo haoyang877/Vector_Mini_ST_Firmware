@@ -8,6 +8,8 @@
 #include "servo_hil.h"
 #include "fast_loop_profile.h"
 #include "motor_status.h"
+#include "motor_load_control.h"
+#include "motor_hw.h"
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -19,6 +21,60 @@ ModeNow_TypeDef  ModeLast  = Motor_Disable;
 ErrorNow_TypeDef ErrorLast = No_Error;
 
 FOC_TypeDef FOC;
+
+/* CAN 单字发布，快环独占消费和运行态修改；UINT32_MAX 表示无请求。 */
+static volatile uint32_t pending_load_profile = UINT32_MAX;
+
+bool MotorControl_RequestLoadProfile(uint32_t flags)
+{
+    if (!MotorLoadProfile_IsValid(flags) || MotorControl.ModeNow != Motor_Disable ||
+        ModeLast != Motor_Disable || MotorControl.ErrorNow != No_Error ||
+        pending_load_profile != UINT32_MAX || !motor_hw_phase_outputs_disabled())
+    {
+        return false;
+    }
+    motor_hw_outer_barrier();
+    pending_load_profile = flags;
+    return true;
+}
+
+int32_t MotorControl_GetLoadProfile(void)
+{
+    if (pending_load_profile != UINT32_MAX || !MotorControl.load_profile_valid ||
+        !MotorLoadProfile_IsValid(MotorControl.load_profile_flags))
+    {
+        return -1;
+    }
+    return (int32_t)MotorControl.load_profile_flags;
+}
+
+static void MotorControl_ApplyLoadProfile(void)
+{
+    uint32_t flags = pending_load_profile;
+    if (flags == UINT32_MAX)
+    {
+        return;
+    }
+    pending_load_profile = UINT32_MAX;
+    motor_hw_outer_barrier();
+    /* 提交与消费之间可能收到 START；再次检查后才修改控制参数。 */
+    if (MotorControl.ModeNow != Motor_Disable || ModeLast != Motor_Disable ||
+        MotorControl.ErrorNow != No_Error || !motor_hw_phase_outputs_disabled() ||
+        !MotorLoadProfile_IsValid(flags))
+    {
+        return;
+    }
+    Clear_RunningData();
+    Fluxobserver_ParamInit(&Fluxobserver);
+    if (!MotorControl.load_profile_valid ||
+        ((MotorControl.load_profile_flags ^ flags) & MOTOR_LOAD_DAMPING_RING) != 0U)
+    {
+        MotorControl.friction_model_valid = false;
+        FocFrictionIdentification_Init();
+    }
+    MotorControl.load_profile_flags = flags;
+    MotorControl.load_profile_valid = true;
+}
 
 #define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	(18000.0f / _PI)
 #define RTT_POSITION_SCALE_COUNTS_PER_RAD	(18000.0f / _PI)
@@ -135,7 +191,7 @@ static void MotorStatus_Sampling(void)
  **/
 bool MotorControl_IsConfigurationValid(void)
 {
-	return MotorControl.axis_profile_valid;
+	return MotorControl.axis_profile_valid && MotorControl.load_profile_valid;
 }
 
 void MotorControl_Init(void)
@@ -152,8 +208,8 @@ void MotorControl_Init(void)
 	FocFrictionIdentification_Init();
 	
 	/* Unconfigured joint records remain disabled at boot. */
-	MotorControl.ModeNow = MotorControl.axis_profile_valid ? Calib_CurrentOffset : Motor_Disable;
-	if (!MotorControl.axis_profile_valid)
+	MotorControl.ModeNow = MotorControl_IsConfigurationValid() ? Calib_CurrentOffset : Motor_Disable;
+	if (!MotorControl_IsConfigurationValid())
 		Set_ErrorNow(MotorParam_Error);
 }
 
@@ -219,6 +275,7 @@ void FOC20kHzIRQHandler(void)
 	Encoder_CompleteSample(&MotorControl, &OnBoard_Encoder, encoder_sample_started);
 	FAST_PROFILE_END(FAST_PROFILE_ENCODER);
 	FAST_PROFILE_BEGIN(FAST_PROFILE_COMMANDS);
+    MotorControl_ApplyLoadProfile();
 #if SERVO_HIL_ENABLE
 	{
 		/* Debug mailbox at 10 kHz; count both fast ticks for the watchdog.
@@ -265,7 +322,9 @@ void FOC20kHzIRQHandler(void)
 		Set_ErrorNow(Encoder_Error);
 
 	/* Also cover internal mode assignments, not only communication requests. */
-	if (!MotorControl.axis_profile_valid && MotorControl.ModeNow != Motor_Disable &&
+	if ((!MotorControl_IsConfigurationValid() ||
+         !MotorLoadProfile_IsValid(MotorControl.load_profile_flags)) &&
+        MotorControl.ModeNow != Motor_Disable &&
 		MotorControl.ModeNow != Save_Param && MotorControl.ModeNow != Clear_Error)
 	{
 		Set_ErrorNow(MotorParam_Error);
@@ -295,8 +354,13 @@ void FOC20kHzIRQHandler(void)
 		break;
 
 		case Sensorless_Speed_Mode:
+		{
+            const MotorCalibrationProfile *profile =
+                MotorLoadProfile_Calibration(MotorControl.load_profile_flags);
 			Task_Sensorless_Speed_Mode(&FOC, &MotorControl, &PI_Speed, &Fluxobserver,
-				&SensorlessStartup, &SensorlessStartup_DefaultConfig);
+				&SensorlessStartup, (MotorControl.load_profile_flags & MOTOR_LOAD_DAMPING_RING) != 0U ?
+                    &profile->startup : &SensorlessStartup_DefaultConfig);
+		}
 		break;
 		
 		case Position_Mode:

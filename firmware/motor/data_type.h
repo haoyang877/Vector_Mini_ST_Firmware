@@ -137,6 +137,9 @@ typedef struct
     bool position_hold_filter_bypass;
     bool position_hold_filter_half_cutoff; /* RAM-only comparison against default cutoff. */
     bool position_velocity_filter_half_cutoff; /* RAM-only base velocity filter trial. */
+    /* 快环拥有；CAN 只能提交切换请求。电气标定与装配状态相互独立。 */
+    uint32_t load_profile_flags;
+    bool load_profile_valid;
 }MotorControl_TypeDef;
 
 #endif

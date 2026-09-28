@@ -7,6 +7,11 @@
 #include "encoder.h"
 #include "foc_sensorless.h"
 
+/** @brief 取消未完成的编码器标定并释放候选缓冲，保留已提交的 LUT 和零位。
+ * @note 电机快环在停机清理或装配切换时调用，不操作 PWM，不写 Flash。
+ */
+void EncoderCalibration_Reset(void);
+
 #define OFFSET_LUT_NUM              ENCODER_OFFSET_LUT_SIZE
 #define MAX_MOTOR_POLE_PAIRS        20U
 #define COGGING_MAP_NUM             5000U

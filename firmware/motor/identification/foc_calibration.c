@@ -17,6 +17,10 @@ static uint16_t *calibration_samples = NULL;
 static int16_t *candidate_linearization_lut = NULL;
 
 CalibStep_TyepeDef CalibStep = CS_NULL;
+static uint32_t electrical_zero_loop_count;
+static uint32_t electrical_zero_sample_count;
+static uint16_t electrical_zero_sample_anchor;
+static int64_t electrical_zero_unwrapped_sum;
 
 #define OBS_CALIB_ALIGN_TIME        1.5f
 #define ENC_ZERO_ALIGN_TIME         (ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S + \
@@ -43,6 +47,16 @@ static void Encoder_Calib_ReleaseSamples(void)
 		HEAP_free(candidate_linearization_lut);
 		candidate_linearization_lut = NULL;
 	}
+}
+
+void EncoderCalibration_Reset(void)
+{
+    Encoder_Calib_ReleaseSamples();
+    CalibStep = CS_NULL;
+    electrical_zero_loop_count = 0U;
+    electrical_zero_sample_count = 0U;
+    electrical_zero_sample_anchor = 0U;
+    electrical_zero_unwrapped_sum = 0;
 }
 
 static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_q15)
@@ -203,7 +217,9 @@ static bool Encoder_ObserverCalib_IsStable(MotorControl_TypeDef *MotorControl,
 	Fluxobserver_TypeDef *Fluxobserver,
 	SensorlessStartup_TypeDef *Startup, uint32_t position_epoch)
 {
-	float target_electrical_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S *
+    const MotorCalibrationProfile *profile =
+        MotorLoadProfile_Calibration(MotorControl->load_profile_flags);
+	float target_electrical_speed = profile->speed_mechanical_rad_s *
 		(float)MotorControl->motor_pole_pairs;
 	float filtered_electrical_speed = Startup->speed_feedback *
 		(float)MotorControl->motor_pole_pairs;
@@ -212,8 +228,8 @@ static bool Encoder_ObserverCalib_IsStable(MotorControl_TypeDef *MotorControl,
 		Observer_GetPositionEpoch(Fluxobserver) == position_epoch &&
 		fast_abs(filtered_electrical_speed - target_electrical_speed) <=
 			fast_abs(target_electrical_speed) * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO &&
-		fast_abs(MotorControl->speedShadow - SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S) <=
-			SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO;
+		fast_abs(MotorControl->speedShadow - profile->speed_mechanical_rad_s) <=
+			profile->speed_mechanical_rad_s * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO;
 }
 
 static bool Encoder_ObserverCalib_IsTracking(Fluxobserver_TypeDef *Fluxobserver,
@@ -225,19 +241,23 @@ static bool Encoder_ObserverCalib_IsTracking(Fluxobserver_TypeDef *Fluxobserver,
 
 static float Encoder_ObserverCalib_GetStopSpeed(const MotorControl_TypeDef *MotorControl)
 {
-	float minimum_mechanical_speed = SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s /
+    const MotorCalibrationProfile *profile =
+        MotorLoadProfile_Calibration(MotorControl->load_profile_flags);
+	float minimum_mechanical_speed = profile->startup.minimum_electrical_velocity_rad_s /
 		(float)MotorControl->motor_pole_pairs;
 	float stop_speed = minimum_mechanical_speed * SENSORLESS_ENCODER_CALIB_STOP_SPEED_MARGIN;
 
-	return stop_speed < SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S ?
-		stop_speed : SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+	return stop_speed < profile->speed_mechanical_rad_s ?
+		stop_speed : profile->speed_mechanical_rad_s;
 }
 
 static bool Encoder_ObserverCalib_CanBrake(const MotorControl_TypeDef *MotorControl,
 	const Encoder_TypeDef *Encoder, Fluxobserver_TypeDef *Fluxobserver,
 	SensorlessStartup_TypeDef *Startup, uint32_t position_epoch)
 {
-	float minimum_speed = SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s;
+    const MotorCalibrationProfile *profile =
+        MotorLoadProfile_Calibration(MotorControl->load_profile_flags);
+	float minimum_speed = profile->startup.minimum_electrical_velocity_rad_s;
 	float observer_speed = Observer_GetEleVel(Fluxobserver);
 	float observer_phase = Observer_GetElePhase(Fluxobserver);
 	float encoder_speed = Encoder_GetMecVelContinuous(Encoder);
@@ -889,6 +909,8 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	PI_Controller_TypeDef *SpeedController, Encoder_TypeDef *Encoder,
 	Fluxobserver_TypeDef *Fluxobserver, SensorlessStartup_TypeDef *Startup)
 {
+    const MotorCalibrationProfile *profile =
+        MotorLoadProfile_Calibration(MotorControl->load_profile_flags);
 	static uint32_t state_ticks;
 	static uint32_t stage_ticks;
 	static uint32_t observer_position_epoch;
@@ -919,6 +941,12 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	float relative_theta;
 	uint16_t reference_q15;
 
+    if (profile == NULL)
+    {
+        Set_ErrorNow(MotorParam_Error);
+        return;
+    }
+
 	if (!Encoder_IsOnline(Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
@@ -940,7 +968,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
 		return;
 	}
-	if (MotorControl->current_limit < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
+	if (MotorControl->current_limit < profile->startup.minimum_current_limit_a)
 	{
 		Set_ErrorNow(MotorParam_Error);
 		Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
@@ -973,7 +1001,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		sample_valid_electrical_travel = 0.0f;
 		verify_previous_observer_position = 0.0f;
 		verify_valid_electrical_travel = 0.0f;
-		stop_start_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+		stop_start_speed = profile->speed_mechanical_rad_s;
 		stop_current_ref = 0.0f;
 		origin_negative_seen = false;
 		residual_squared_sum = 0U;
@@ -1002,7 +1030,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		float current_ratio;
 
 		current_ratio = constrain(((float)state_ticks + 1.0f) * Current_Ts /
-			SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S, 0.0f, 1.0f);
+			profile->stop_current_ramp_time_s, 0.0f, 1.0f);
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = stop_current_ref * (1.0f - current_ratio);
 		FOC_Current(FOC, MotorControl, Observer_GetElePhase(Fluxobserver),
@@ -1027,11 +1055,11 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		}
 		else
 		{
-			MotorControl->speedRef = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+			MotorControl->speedRef = profile->speed_mechanical_rad_s;
 		}
 
 		Task_Sensorless_Speed_Mode(FOC, MotorControl, SpeedController, Fluxobserver, Startup,
-			&SensorlessStartup_EncoderCalibConfig);
+			&profile->startup);
 		if (MotorControl->ErrorNow != No_Error)
 		{
 			Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
@@ -1046,8 +1074,8 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 	{
 		case CS_OBS_ALIGN_ORIGIN:
 			if (Startup->state == SENSORLESS_STARTUP_ALIGN &&
-				Startup->state_ticks >= (uint32_t)(((SensorlessStartup_EncoderCalibConfig.align_current_ramp_time_s +
-					SensorlessStartup_EncoderCalibConfig.align_hold_time_s) -
+				Startup->state_ticks >= (uint32_t)(((profile->startup.align_current_ramp_time_s +
+					profile->startup.align_hold_time_s) -
 					SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) / Current_Ts))
 			{
 				int32_t unwrapped_q15;
@@ -1084,7 +1112,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 				stage_ticks = 0U;
 				CalibStep = CS_OBS_SPEED_STABLE;
 			}
-			else if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STARTUP_TIMEOUT_S / Current_Ts))
+			else if (++stage_ticks >= (uint32_t)(profile->startup_timeout_s / Current_Ts))
 			{
 				Set_ErrorNow(Sensorless_Error);
 				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
@@ -1116,7 +1144,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			{
 				state_ticks = 0U;
 			}
-			if (++stage_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIMEOUT_S / Current_Ts))
+			if (++stage_ticks >= (uint32_t)(profile->speed_stable_timeout_s / Current_Ts))
 			{
 				Set_ErrorNow(Sensorless_Error);
 				Encoder_ObserverCalib_Abort(FOC, MotorControl, SpeedController, Startup);
@@ -1207,7 +1235,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 			sample_previous_observer_position = observer_position;
 
 			if (sample_valid_electrical_travel >=
-				(float)SENSORLESS_ENCODER_CALIB_MECH_TURNS * required_electrical_theta)
+				(float)profile->scan_turns * required_electrical_theta)
 			{
 				candidate_lut_index = 0U;
 				candidate_lut_stage = 0U;
@@ -1445,7 +1473,7 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
 		}
 
 		case CS_OBS_STOP_CURRENT:
-			if (++state_ticks >= (uint32_t)(SENSORLESS_ENCODER_CALIB_STOP_CURRENT_RAMP_TIME_S /
+			if (++state_ticks >= (uint32_t)(profile->stop_current_ramp_time_s /
 				Current_Ts))
 			{
 				Encoder_ObserverCalib_Finish(FOC, MotorControl, SpeedController, Startup);
@@ -1465,22 +1493,26 @@ void Task_Calib_EncoderObserver(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCon
  */
 void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
 {
-	static uint32_t loop_count;
-	static uint32_t sample_count;
-	static uint16_t sample_anchor;
-	static int64_t unwrapped_sum;
-	float time = (float)loop_count * Current_Ts;
+    const MotorCalibrationProfile *profile =
+        MotorLoadProfile_Calibration(MotorControl->load_profile_flags);
+	float time = (float)electrical_zero_loop_count * Current_Ts;
 	float align_current = MotorControl->calib_current;
 
-	if (align_current < ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A)
-		align_current = ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A;
+    if (profile == NULL)
+    {
+        Set_ErrorNow(MotorParam_Error);
+        return;
+    }
+
+	if (align_current < profile->electrical_zero_current_a)
+		align_current = profile->electrical_zero_current_a;
 
 	if (!Encoder_IsOnline(Encoder))
 	{
 		Set_ErrorNow(Encoder_Error);
-		loop_count = 0U;
-		sample_count = 0U;
-		unwrapped_sum = 0;
+		electrical_zero_loop_count = 0U;
+		electrical_zero_sample_count = 0U;
+		electrical_zero_unwrapped_sum = 0;
 		PWM_TurnOnHighSides();
 		return;
 	}
@@ -1489,6 +1521,13 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 		Set_ErrorNow(Encoder_NotCalibrated);
 		return;
 	}
+    if (!isfinite(align_current) || !isfinite(MotorControl->current_limit) ||
+        MotorControl->current_limit <= 0.0f ||
+        MotorControl->current_limit < profile->electrical_zero_current_a)
+    {
+        Set_ErrorNow(MotorParam_Error);
+        return;
+    }
 	if (align_current <= 0.0f)
 	{
 		Set_ErrorNow(MotorParam_Error);
@@ -1497,16 +1536,16 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 	if (MotorControl->current_limit > 0.0f && align_current > MotorControl->current_limit)
 		align_current = MotorControl->current_limit;
 
-	if (loop_count == 0U)
+	if (electrical_zero_loop_count == 0U)
 	{
-		sample_count = 0U;
-		sample_anchor = Encoder->linearized_q15;
-		unwrapped_sum = 0;
+		electrical_zero_sample_count = 0U;
+		electrical_zero_sample_anchor = Encoder->linearized_q15;
+		electrical_zero_unwrapped_sum = 0;
 		Encoder->calib_flag &= (uint8_t)~ENC_CALIB_ELECTRICAL_ZERO;
 		FOC_CurrentController_Reset(FOC);
 	}
 
-	MotorControl->idRef = align_current * constrain(((float)loop_count + 1.0f) * Current_Ts /
+	MotorControl->idRef = align_current * constrain(((float)electrical_zero_loop_count + 1.0f) * Current_Ts /
 		ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S, 0.0f, 1.0f);
 	MotorControl->iqRef = 0.0f;
 	FOC_Current(FOC, MotorControl, 0.0f, 0.0f);
@@ -1514,26 +1553,26 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 	if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) &&
 		Encoder->read_status == ENCODER_READ_OK)
 	{
-		int32_t unwrapped_q15 = (int32_t)sample_anchor + (int16_t)(uint16_t)(Encoder->linearized_q15 - sample_anchor);
-		unwrapped_sum += unwrapped_q15;
-		sample_count++;
+		int32_t unwrapped_q15 = (int32_t)electrical_zero_sample_anchor + (int16_t)(uint16_t)(Encoder->linearized_q15 - electrical_zero_sample_anchor);
+		electrical_zero_unwrapped_sum += unwrapped_q15;
+		electrical_zero_sample_count++;
 	}
 
 	if (time >= ENC_ZERO_ALIGN_TIME)
 	{
 		bool calibrated = false;
-		if (sample_count > 0U)
+		if (electrical_zero_sample_count > 0U)
 		{
-			uint16_t electrical_zero_q15 = (uint16_t)(unwrapped_sum / (int64_t)sample_count);
+			uint16_t electrical_zero_q15 = (uint16_t)(electrical_zero_unwrapped_sum / (int64_t)electrical_zero_sample_count);
 			calibrated = Encoder_SetElectricalZeroQ15(Encoder, electrical_zero_q15);
 		}
 
 		MotorControl->idRef = 0.0f;
 		MotorControl->iqRef = 0.0f;
 		FOC_CurrentController_Reset(FOC);
-		loop_count = 0U;
-		sample_count = 0U;
-		unwrapped_sum = 0;
+		electrical_zero_loop_count = 0U;
+		electrical_zero_sample_count = 0U;
+		electrical_zero_unwrapped_sum = 0;
 		PWM_TurnOnHighSides();
 
 		if (!calibrated)
@@ -1545,7 +1584,7 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 		return;
 	}
 
-	loop_count++;
+	electrical_zero_loop_count++;
 }
 
 /**

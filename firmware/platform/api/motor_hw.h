@@ -1,6 +1,14 @@
 #ifndef MOTOR_HW_H
 #define MOTOR_HW_H
 
+#include <stdbool.h>
+
+/** @brief 检查六路功率输出已按本板停机方式关断。
+ * @return PWM 通道关闭且六路引脚均为高阻时为 true。
+ * @note 只读硬件状态，不等同于独立测量物理门极电压。
+ */
+bool motor_hw_phase_outputs_disabled(void);
+
 /** Initialize the deferred outer-control execution context before sampling starts.
  * The fast motor interrupt must preempt this context. No motor algorithm lives here. */
 void motor_hw_outer_init(void);

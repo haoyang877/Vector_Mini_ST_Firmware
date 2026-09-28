@@ -7,6 +7,7 @@
 #include "encoder.h"
 #include "foc_sensorless.h"
 #include "foc_run.h"
+#include "foc_calibration.h"
 #include "foc_friction_identification.h"
 #include "bus_voltage_profile.h"
 
@@ -61,6 +62,7 @@ void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
  **/
 void Clear_RunningData(void)
 {
+    EncoderCalibration_Reset();
 	if (ModeLast == Calib_Friction)
 		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
 	MotorControl.idRef		 = 0.0f;

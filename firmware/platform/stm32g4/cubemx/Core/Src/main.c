@@ -23,7 +23,6 @@
 #include "fdcan.h"
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -112,7 +111,6 @@ int main(void)
   MX_ADC1_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   Board_Init();
   /* USER CODE END 2 */

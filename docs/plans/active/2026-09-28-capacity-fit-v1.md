@@ -362,3 +362,19 @@ APP，普通 0 错误/0 警告。普通 APP ROM 91816→91776 B；Loader 诊断 
 跨度 99552→99520 B，RAM 不变；78 KiB 分区仍缺 19648 B。完整 PR 仍 FAIL，format/lint/
 interfaces/docs 日志与上一批逐字一致。证据 `outputs/capacity-fit/deepseek/cand-link-guard/`、
 构建目录 `deepseek-06-link-guard/`。
+
+## 功能取舍批次：退役 USART1 外设
+
+用户要求删除 UART 功能。`main.c` 的 `MX_USART1_UART_Init()` 是固件内唯一引用，其余
+代码无串口收发。按 CubeMX 一致方式退役：`Vector_Mini_ST.ioc` 关闭 USART1（移除
+`Mcu.IP12`、`USART1.*`、PB6/PB7 信号、`RCC.USART1Freq_Value` 与 function list 条目，
+`Mcu.IPsNb/IPNb` 递减）；删除 `usart.c`/`usart.h`；`main.c` 移除 include 与初始化调用；
+`stm32g4xx_hal_conf.h` 注释 `HAL_UART_MODULE_ENABLED`；普通与生成 Loader 工程的
+`uvprojx` 同步移除 `usart.c`。这是功能取舍：USART1 不再初始化；UART 升级链路仍属
+未实现的规划能力。README 与 `usb_removal.md` 同步更新。
+
+验收：当次重建普通/真实 Loader APP，普通 0 错误/0 警告。普通 APP ROM 91776→**89808 B**、
+RAM 31752→31600 B；Loader 诊断 ROM 99520→**97512 B**、跨度 99552→**97552 B**、
+RAM 31984→31840 B。两个镜像各回收 **1968 B Flash / 144–152 B RAM**；78 KiB 分区仍缺
+**17680 B**。构建输入变化需 CubeMX 复核与 release profile。证据
+`outputs/capacity-fit/batch1/deepseek-08-uart-final/`。

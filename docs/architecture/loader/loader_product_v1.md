@@ -61,6 +61,41 @@ CAN软件环8个物理帧槽（环算法可用7个），3个TX票据槽；协议
 
 ## 升级与故障流程
 
+```mermaid
+flowchart TB
+    subgraph APP_REQ[APP申请进入Loader]
+        direction LR
+        A[Type 56请求] --> B[停机并等待资源归还]
+        B --> C{关相、保存空闲、状态就绪?}
+        C -- 否 --> D[继续等待或拒绝]
+        C -- 是 --> E[READY回复]
+        E --> F{对应CAN回复实际发送成功?}
+        F -- 否 --> G[留在APP]
+        F -- 是 --> H[写交接邮箱并复位]
+    end
+
+    subgraph LOADER[Loader下载和激活]
+        direction LR
+        I[启动与约50ms窗口] --> J[CAN FD下载]
+        J --> K[校验镜像、向量和描述符]
+        K --> L{激活提交成功?}
+        L -- 否 --> M[留在Loader等待重传]
+        L -- 是 --> N[标记试运行并跳转]
+    end
+
+    subgraph TRIAL[APP试运行确认]
+        direction LR
+        O[核对启动身份并自检] --> P{本机健康门槛通过?}
+        P -- 是 --> Q[持久确认为正常镜像]
+        P -- 否或确认前复位 --> R[Loader救援路径]
+    end
+
+    H --> I
+    N --> O
+```
+
+图中READY只表示APP已具备交接条件；只有对应CAN回复完成发送，APP才复位进入Loader。下载写入中断或校验失败时不启动新镜像；新APP首次启动按试运行处理，确认前再次复位会回到Loader救援路径。当前为单APP槽，不提供旧镜像自动回滚。
+
 1. 冷启动先将六路门极输出拉低；确认G431 DEV_ID=0x468、Flash=128KiB，启动IWDG。
 2. 消费并清除邮箱；识别raw11外形和CAN节点。参数不可信时用登记的救援节点1，不改参数。
 3. 从双页分配本次boot epoch。双页历史未知或损坏则只允许诊断回复，不猜floor或自动格式化。

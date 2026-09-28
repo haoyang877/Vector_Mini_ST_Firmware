@@ -16,8 +16,6 @@
 #define TWO_BY_SQRT_3 1.154700538f
 #define SQRT_3_BY_2 0.866025403f
 
-#define LUT_MULT 162.97466172f
-
 #define UTILS_LP_FAST(value, sample, filter_constant)                                              \
     (value -= (filter_constant) * ((value) - (sample)))
 
@@ -101,19 +99,15 @@ float fast_max(float x, float y);
 float fast_min(float x, float y);
 
 /**
- * @brief  查表正弦。
- * @param  theta 角度，单位 rad（函数内先归一化）。
- * @return 表值；粗表精度，亚分度小角度请用有界展开而非本函数。
- * @note 半表镜像保持原表位模式；归一化舍入到周期右端点时返回正零。
+ * @brief 同表三次插值计算正弦与余弦，单圈最大绝对误差不超过 1e-6。
+ * @param theta_rad 输入角度，单位 rad；控制调用者应保持在 [-2pi, 2pi]。
+ * @param sin_out 正弦输出；调用方提供非空、可写的独立 float 对象。
+ * @param cos_out 余弦输出；调用方提供非空、可写的独立 float 对象，不得与 sin_out 重叠。
+ * @note 无分配、无共享可变状态，可在 ISR 使用；单圈内工作量固定。
+ * 多圈按 float 周期取模，极大角度不保证相对真实三角函数的精度；
+ * 非有限输入的两个输出均为 NaN，正负零的正弦保留输入符号。
  */
-float fast_sin(float theta);
-
-/**
- * @brief  查表余弦。
- * @param  theta 角度，单位 rad。
- * @return cos(theta) 的表近似。
- */
-float fast_cos(float theta);
+void Math_SinCos(float theta_rad, float *sin_out, float *cos_out);
 
 /**
  * @brief  atan2 近似。

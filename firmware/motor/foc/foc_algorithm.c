@@ -77,8 +77,9 @@ void Inverse_Clarke_Transform(float alpha, float beta, float *a, float *b, float
 /* Park 变换：alpha-beta 坐标到随电角度 theta 旋转的 d-q 坐标。 */
 void Park_Transform(float alpha, float beta, float theta, float *d, float *q)
 {
-    float sin = fast_sin(theta);
-    float cos = fast_cos(theta);
+    float sin;
+    float cos;
+    Math_SinCos(theta, &sin, &cos);
 
     *d = alpha * cos + beta * sin;
     *q = -alpha * sin + beta * cos;
@@ -87,8 +88,9 @@ void Park_Transform(float alpha, float beta, float theta, float *d, float *q)
 /* 逆 Park 变换：d-q 坐标到 alpha-beta 坐标。 */
 void Inverse_Park_Transform(float d, float q, float theta, float *alpha, float *beta)
 {
-    float sin = fast_sin(theta);
-    float cos = fast_cos(theta);
+    float sin;
+    float cos;
+    Math_SinCos(theta, &sin, &cos);
 
     *alpha = d * cos - q * sin;
     *beta = d * sin + q * cos;

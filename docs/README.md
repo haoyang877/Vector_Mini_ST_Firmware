@@ -68,3 +68,5 @@ Current parameter loading: [仅接受 schema 11，移除历史参数迁移 v1](p
 Numeric encoding: [CAN 与参数整数编码的等价实现 v1](protocols/numeric_encoding_v1.md).
 
 Latest APP capacity: [第一批容量优化结果及验证限制](reports/2026-09/app_flash_batch1_20260928.md).
+
+Unified trigonometry: [统一正余弦查表与容量验证（2026-09-28）](reports/2026-09/unified_trig_20260928.md).

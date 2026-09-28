@@ -16,89 +16,13 @@ from run_position_servo_tests import function_source
 
 
 def sine_fixture() -> str:
-    """用独立冻结的整表位模式核对生产查表，单独覆盖旧越界周期端点。"""
-    golden = ROOT / "tests/fixtures/sine_table_f32_bits.txt"
-    words = [
-        word
-        for line in golden.read_text(encoding="utf-8").splitlines()
-        if not line.startswith("#")
-        for word in line.split()
-    ]
-    if len(words) != 1024:
-        raise ValueError("正弦黄金表必须保留全部 1024 个 float32 位模式")
+    """对生产查表及坐标变换使用独立 double 参考验证数值精度。"""
+    fixture = (ROOT / "tests/unit/trig_table_test.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
     return (
-        r"""
-#include <assert.h>
-#include <math.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include "utils.h"
-static const uint32_t golden[1024] = {
-"""
-        + ",\n".join("0x" + word + "U" for word in words)
-        + r"""
-};
-static unsigned seam_repairs, samples;
-static unsigned seen[1024];
-static uint32_t bits(float value)
-{
-    uint32_t result;
-    memcpy(&result, &value, sizeof(result));
-    return result;
-}
-static uint32_t reference(float angle)
-{
-    /* 冻结基准归一化和缩放；不调用生产函数来计算期望值。 */
-    int turns = (int)(angle * 0.1591549431f);
-    float a = angle - turns * 6.2831853072f;
-    a = a >= 0.0f ? a : a + 6.2831853072f;
-    int index = (int)(162.97466172f * a);
-    assert(index >= 0 && index <= 1024);
-    if (index == 1024)
-    {
-        seam_repairs++;
-        return 0U;
-    }
-    seen[index]++;
-    return golden[index];
-}
-static void check(float angle)
-{
-    assert(bits(fast_sin(angle)) == reference(angle));
-    assert(bits(fast_cos(angle)) == reference(1.5707963268f - angle));
-    samples++;
-}
-int main(void)
-{
-    for (int i = 0; i < 1024; ++i)
-    {
-        float center = ((float)i + 0.25f) / 162.97466172f;
-        check(center);
-        float edge = (float)i / 162.97466172f;
-        check(edge);
-        check(nextafterf(edge, -INFINITY));
-        check(nextafterf(edge, INFINITY));
-    }
-    for (int i = -100000; i <= 100000; ++i)
-    {
-        check((float)i * 0.0031f);
-    }
-    check(0.0f);
-    check(-0.0f);
-    check(-1.0e-8f);
-    check(6.2831853072f);
-    check(-6.2831853072f);
-    for (unsigned i = 0; i < 1024; ++i)
-    {
-        assert(seen[i] != 0U);
-    }
-    assert(golden[0] == 0U && golden[1023] == 0U && seam_repairs != 0U);
-    printf("PASS sine/cosine: all 1024 golden entries; %u angles; %u seam repairs; bit exact\n",
-           samples, seam_repairs);
-    return 0;
-}
-"""
+        fixture
+        + function_source(source, "Park_Transform")
+        + function_source(source, "Inverse_Park_Transform")
     )
 
 

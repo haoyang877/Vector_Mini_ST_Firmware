@@ -139,24 +139,6 @@ static float Sensorless_UpdateSpeedLoop(MotorControl_TypeDef *MotorControl,
            MotorControl->current_limit;
 }
 
-/* 有界小角度 sin/cos：粗正弦表会把亚分度步长舍入为零，
- * 平方超过 0.01 时回退标准库实现。 */
-static void Sensorless_SmallAngleSinCos(float angle, float *sin_out, float *cos_out)
-{
-    float squared = angle * angle;
-
-    if (squared <= 0.01f)
-    {
-        *sin_out = angle * (1.0f - squared / 6.0f + squared * squared / 120.0f);
-        *cos_out = 1.0f - squared * 0.5f + squared * squared / 24.0f;
-    }
-    else
-    {
-        *sin_out = sinf(angle);
-        *cos_out = cosf(angle);
-    }
-}
-
 /* 正向旋转 dq 参考到观测器坐标系（+delta）。 */
 static void Sensorless_RotateToObserverFrame(
     float id, float iq, float phase_sin, float phase_cos, float *id_out, float *iq_out)
@@ -198,8 +180,7 @@ static void Sensorless_BeginHandoff(SensorlessStartupRun_TypeDef *Run)
 
     Startup->handoff_phase_delta = Sensorless_AngleDifference(
         Startup->open_loop_theta, Observer_GetElePhase(Run->Fluxobserver));
-    phase_sin = sinf(Startup->handoff_phase_delta);
-    phase_cos = cosf(Startup->handoff_phase_delta);
+    Math_SinCos(Startup->handoff_phase_delta, &phase_sin, &phase_cos);
     /* 开环 dq 系可能带载角；若直接在观测器系复用其 Iq，对准电流会变成转矩。 */
     Sensorless_RotateToObserverFrame(MotorControl->idRef,
                                      MotorControl->iqRef,
@@ -401,16 +382,13 @@ static void Sensorless_RunHandoff(SensorlessStartupRun_TypeDef *Run)
         MotorControl, Run->controller, Startup, Observer_GetEleVel(Fluxobserver) / Run->pole_pairs);
     observer_id = Startup->handoff_id_reference +
                   blend * (Config->startup_id_a - Startup->handoff_id_reference);
-    Sensorless_RotateFromObserverFrame(observer_id,
-                                       observer_iq,
-                                       sinf(phase_offset),
-                                       cosf(phase_offset),
-                                       &MotorControl->idRef,
-                                       &MotorControl->iqRef);
+    Math_SinCos(phase_offset, &frame_sin, &frame_cos);
+    Sensorless_RotateFromObserverFrame(
+        observer_id, observer_iq, frame_sin, frame_cos, &MotorControl->idRef, &MotorControl->iqRef);
 
     /* 只旋转刻意的坐标系修正量，不旋转转子正常行进，使电流环存电压无交接阶跃。
-     * 粗正弦表会把亚分度步长舍入为零，用有界小角度展开避免旋转误差累积。 */
-    Sensorless_SmallAngleSinCos(frame_step, &frame_sin, &frame_cos);
+     * 统一插值查表保留亚分度步长，避免粗表量化造成旋转误差累积。 */
+    Math_SinCos(frame_step, &frame_sin, &frame_cos);
     Sensorless_RotateFromObserverFrame(
         FOC->id_pi.Ui, FOC->iq_pi.Ui, frame_sin, frame_cos, &FOC->id_pi.Ui, &FOC->iq_pi.Ui);
     FOC_Current(Run->FOC, MotorControl, phase, phase_vel);

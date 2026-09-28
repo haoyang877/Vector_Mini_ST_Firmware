@@ -46,3 +46,5 @@ CMD behavior review: [yg_protocol CMD 功能契约 v0.1](protocols/yg_protocol_c
 Per-command motor feedback revision: [电机逐命令反馈契约 v0.2](protocols/yg_protocol_motor_feedback_v0_2.md).
 
 Motor parameter read/write catalog: [电调读写参数表 v0.1](protocols/yg_protocol_parameter_catalog_v0_1.md).
+
+Single-board hardware verification: [yg_protocol 单板 CAN FD 实机验证 2026-09-28](reports/2026-09/yg_protocol_canfd_bench_20260928.md).

@@ -23,6 +23,8 @@ they are not substitutes for current `verify` evidence.
 All local Markdown links are checked by the PR profile. Add new durable documents to
 this map or to the closest indexed sub-area.
 
+Watch command entry: [Watch 电机请求入口](guides/watch_motor_commands.md).
+
 Protection design: [故障保护模块、接口与参数设计 v1.0](architecture/fault_protection_design_v1.md)
 and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
 

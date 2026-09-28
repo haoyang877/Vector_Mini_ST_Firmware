@@ -34,11 +34,13 @@ static struct
 {
     volatile bool active, stop_requested;
     volatile uint32_t remaining_fast_ticks, stop_reason;
-    uint32_t session_seq, last_request_seq;
+    uint32_t session_seq, last_request_seq, applied_seq;
     volatile uint32_t blocked_seq;
     float phase_limit_a, speed_limit_rad_s;
     float saved_current_limit_a, saved_speed_limit_rad_s;
 } bench_speed;
+/* 与目标邮箱同所有者；0 表示 CAN 提交，非零表示 Watch 请求关联序号。 */
+static uint32_t pending_control_watch_seq;
 /* BENCH_SPEED_CONTEXT_END */
 
 /* 运行状态机适配器：
@@ -95,7 +97,7 @@ static void RunState_BenchCancel(uint32_t reason)
     }
 }
 
-static MotorControlResult validate_remote_control(const MotorControlCommand *command)
+static MotorControlResult validate_control(const MotorControlCommand *command)
 {
     ModeNow_TypeDef mode;
     if (command == NULL || !isfinite(command->position_rad) || !isfinite(command->speed_rad_s) ||
@@ -183,7 +185,7 @@ static void apply_pending_control(void)
         return;
     }
     control_pending = false;
-    if (validate_remote_control(&pending_control) != MOTOR_CONTROL_ACCEPTED)
+    if (validate_control(&pending_control) != MOTOR_CONTROL_ACCEPTED)
     {
         critical_hw_exit(state);
         return;
@@ -204,6 +206,10 @@ static void apply_pending_control(void)
         break;
     default:
         break;
+    }
+    if (pending_control_watch_seq != 0U)
+    {
+        bench_speed.applied_seq = pending_control_watch_seq;
     }
     critical_hw_exit(state);
 }
@@ -674,7 +680,7 @@ static void RunState_ServiceBenchRequest(bool worker_idle)
     uint32_t state = critical_hw_enter();
     uint32_t seq = FocBenchSpeed.request_seq;
     uint32_t command, duration_ms;
-    float iq_limit_a, phase_limit_a, speed_limit_rad_s;
+    float iq_limit_a, phase_limit_a, speed_limit_rad_s, target_speed_rad_s;
     AppLifecycleGuards guards;
     uint32_t result = FOC_BENCH_SPEED_DENIED;
 
@@ -688,6 +694,7 @@ static void RunState_ServiceBenchRequest(bool worker_idle)
     iq_limit_a = FocBenchSpeed.iq_limit_a;
     phase_limit_a = FocBenchSpeed.phase_limit_a;
     speed_limit_rad_s = FocBenchSpeed.speed_limit_rad_s;
+    target_speed_rad_s = FocBenchSpeed.target_speed_rad_s;
     if (FocBenchSpeed.request_seq != seq)
     {
         critical_hw_exit(state);
@@ -704,11 +711,28 @@ static void RunState_ServiceBenchRequest(bool worker_idle)
         RunState_RequestStop(true);
         result = FOC_BENCH_SPEED_ACCEPTED;
     }
+    else if (command == FOC_BENCH_SPEED_UPDATE)
+    {
+        MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = target_speed_rad_s};
+        MotorControlResult submitted = bench_speed.active && !bench_speed.stop_requested
+                                           ? FocRunState_SubmitControl(&goal)
+                                           : MOTOR_CONTROL_DENIED;
+        result = submitted == MOTOR_CONTROL_ACCEPTED ? FOC_BENCH_SPEED_ACCEPTED
+                 : submitted == MOTOR_CONTROL_BUSY   ? FOC_BENCH_SPEED_BUSY
+                 : submitted == MOTOR_CONTROL_INVALID || submitted == MOTOR_CONTROL_OUT_OF_RANGE
+                     ? FOC_BENCH_SPEED_INVALID
+                     : FOC_BENCH_SPEED_DENIED;
+        if (submitted == MOTOR_CONTROL_ACCEPTED)
+        {
+            pending_control_watch_seq = seq;
+        }
+    }
     else if (command != FOC_BENCH_SPEED_START || duration_ms == 0U ||
              duration_ms > BENCH_SPEED_MAX_DURATION_MS || !isfinite(iq_limit_a) ||
              !isfinite(phase_limit_a) || !isfinite(speed_limit_rad_s) || iq_limit_a <= 0.0f ||
              phase_limit_a <= iq_limit_a || phase_limit_a > BENCH_SPEED_MAX_PHASE_A ||
-             speed_limit_rad_s <= 0.0f || speed_limit_rad_s > BENCH_SPEED_MAX_RAD_S)
+             speed_limit_rad_s <= 0.0f || speed_limit_rad_s > BENCH_SPEED_MAX_RAD_S ||
+             !isfinite(target_speed_rad_s) || target_speed_rad_s != 0.0f)
     {
         result = FOC_BENCH_SPEED_INVALID;
     }
@@ -753,6 +777,7 @@ static void RunState_ServiceBenchRequest(bool worker_idle)
                 bench_speed.speed_limit_rad_s = speed_limit_rad_s;
                 bench_speed.remaining_fast_ticks = duration_ms * BENCH_SPEED_FAST_TICKS_PER_MS;
                 bench_speed.session_seq = seq;
+                bench_speed.applied_seq = 0U;
                 bench_speed.stop_reason = FOC_BENCH_SPEED_NO_STOP;
                 bench_speed.stop_requested = false;
                 MotorControl.current_limit = iq_limit_a;
@@ -832,7 +857,17 @@ static void RunState_PublishBenchState(void)
         }
     }
     ++FocBenchSpeed.status_seq;
+    if (pending_control_watch_seq != 0U && !control_pending)
+    {
+        if (bench_speed.applied_seq != pending_control_watch_seq &&
+            FocBenchSpeed.ack_seq == pending_control_watch_seq)
+        {
+            FocBenchSpeed.ack_result = FOC_BENCH_SPEED_INTERRUPTED;
+        }
+        pending_control_watch_seq = 0U;
+    }
     FocBenchSpeed.session_seq = bench_speed.session_seq;
+    FocBenchSpeed.applied_seq = bench_speed.applied_seq;
     FocBenchSpeed.state = session_state;
     FocBenchSpeed.stop_reason = bench_speed.stop_reason;
     FocBenchSpeed.remaining_ms =
@@ -852,6 +887,7 @@ void FocRunState_Init(void)
     overcurrent_recover_ticks = 0U;
     outcome_latched = false;
     control_pending = false;
+    pending_control_watch_seq = 0U;
     fast_sample_epoch = 0U;
     observed_fast_sample_epoch = 0U;
     fast_samples_fresh = false;
@@ -889,10 +925,10 @@ bool FocRunState_RequestRemoteStop(void)
     return true;
 }
 
-MotorControlResult FocRunState_SubmitRemoteControl(const MotorControlCommand *command)
+MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command)
 {
     uint32_t state = critical_hw_enter();
-    MotorControlResult result = validate_remote_control(command);
+    MotorControlResult result = validate_control(command);
     if (result == MOTOR_CONTROL_ACCEPTED)
     {
         if (control_pending)
@@ -902,6 +938,7 @@ MotorControlResult FocRunState_SubmitRemoteControl(const MotorControlCommand *co
         else
         {
             pending_control = *command;
+            pending_control_watch_seq = 0U;
             control_pending = true;
         }
     }

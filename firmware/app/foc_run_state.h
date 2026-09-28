@@ -69,12 +69,13 @@ bool FocRunState_IsMaintenanceActive(ModeNow_TypeDef mode);
 bool FocRunState_RequestRemoteStop(void);
 
 /**
- * @brief 向运行所有者提交同模式目标，下一 2 kHz 监督拍再次校验后应用。
+ * @brief 向运行所有者提交同模式目标，CAN 与 Watch 共用受理和应用路径。
  * @param command SI 单位值命令；成功时复制，不保留指针。
  * @return 已受理、参数错误、状态拒绝、忙、越限或故障；不报告物理已执行。
- * @note 仅前台串行调用；单槽邮箱不覆盖未应用目标。只允许已 RUNNING 的相同模式，
+ * @note 前台或 2 kHz Watch 消费调用；单槽邮箱不覆盖未应用目标。
+ *       下一监督拍复核；只允许已 RUNNING 的相同模式，
  *       不隐式使能、不切换模式、不清故障；STOP 会取消尚未应用的目标。
  */
-MotorControlResult FocRunState_SubmitRemoteControl(const MotorControlCommand *command);
+MotorControlResult FocRunState_SubmitControl(const MotorControlCommand *command);
 
 #endif

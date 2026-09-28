@@ -5,6 +5,7 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 
 - [生命周期真实条件接线 E1 v1](2026-09-28-lifecycle-guards-e1.md)：数字关相回读、基础健康与模式准入、清错提交顺序、维护 worker 准入与默认参数结果交接；取消释放及原始结果身份仍待后续收口。
 - [受控台架速度入口 E2 v1](2026-09-28-bench-speed-owner-e2.md)：显式调试邮箱零速度启动、独立期限、三相采样截止与停止确认；不开放远程使能，不替代硬件钳位。
+- [内部所有权与异步结果解耦 E3 v1](2026-09-28-internal-decoupling-e3.md)：Watch/CAN 命令、私有电机对象、真实维护保存取消和故障投影；连续批次实施。
 
 - [故障保护解耦设计与实施计划 v1.0](2026-09-18-fault-protection-v1.md)：接口、检测逻辑、参数及标定归属；固件实施待启动。
 - [公共接口中文契约补全](2026-09-18-interface-contracts.md)：建立机械门禁并优先补齐跨层接口。

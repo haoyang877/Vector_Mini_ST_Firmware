@@ -3,13 +3,14 @@
 
 #include <stdint.h>
 
-#define FOC_BENCH_SPEED_MAILBOX_VERSION 1U
+#define FOC_BENCH_SPEED_MAILBOX_VERSION 2U
 
 /** 显式台架命令；START 只申请零速度进入现有速度模式。 */
 enum
 {
     FOC_BENCH_SPEED_START = 1U,
-    FOC_BENCH_SPEED_STOP = 2U
+    FOC_BENCH_SPEED_STOP = 2U,
+    FOC_BENCH_SPEED_UPDATE = 3U
 };
 /** 请求受理结果；ACCEPTED 不表示已经启相。 */
 enum
@@ -42,14 +43,16 @@ enum
 
 /**
  * 专用 SWD 台架邮箱，不是电机内部状态导出。每个字段均为一个对齐的 32 位字。
- * 外部唯一生产者先写奇数 request_seq，随后写 command 至 speed_limit_rad_s，最后
+ * 外部唯一生产者先写奇数 request_seq，随后写 command 至 target_speed_rad_s，最后
  * 提交下一个偶数 request_seq；序号非零、递增、不回绕。CPU 不等待写入者。
  * version 与 status_seq 后的字段只由固件写；读取回复须两次读 status_seq，相等且
- * 为偶数才接受。上电清空，version=1；不是 CAN 或 Flash ABI。
+ * 为偶数才接受。上电清空，version=2；不是 CAN 或 Flash ABI。
  * START 的 duration_ms 为 1..5000，iq_limit_a 必须低于 phase_limit_a 且不高于
  * 已有 current_limit；phase_limit_a 最大 6 A，speed_limit_rad_s 最大 300 rpm
  * 对应的 rad/s，亦不得高于已有速度/轴限制。START 不接受非零速度目标。
- * 启动后可经既有 116 更新同模式速度目标，定时不会因此延期；STOP/FAULT 优先撤销。
+ * RUNNING 后可发 UPDATE 更新 target_speed_rad_s，或经既有 116 提交同模式目标；
+ * 两者共用运行所有者邮箱，定时不会延期。applied_seq 只报告 Watch 已应用的序号，
+ * 不等于物理到位。普通请求先等回复再发下一条；STOP/FAULT 优先撤销。
  */
 typedef struct
 {
@@ -60,6 +63,7 @@ typedef struct
     float iq_limit_a;
     float phase_limit_a;
     float speed_limit_rad_s;
+    float target_speed_rad_s;
     uint32_t status_seq;
     uint32_t ack_seq;
     uint32_t ack_result;
@@ -67,6 +71,7 @@ typedef struct
     uint32_t state;
     uint32_t stop_reason;
     uint32_t remaining_ms;
+    uint32_t applied_seq;
 } FocBenchSpeedMailbox;
 
 /** 唯一显式调试入口；只能按上述发布协议写请求区，禁止写回复区或电机对象。 */

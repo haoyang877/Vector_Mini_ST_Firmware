@@ -34,7 +34,7 @@ static bool phases_disabled(void *context)
 static MotorControlResult submit_control(void *context, const MotorControlCommand *command)
 {
     (void)context;
-    return FocRunState_SubmitRemoteControl(command);
+    return FocRunState_SubmitControl(command);
 }
 
 static bool bind_motor_stop(void)

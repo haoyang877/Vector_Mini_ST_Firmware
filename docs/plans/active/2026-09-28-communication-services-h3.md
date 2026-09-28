@@ -60,3 +60,9 @@ D接入实际Loader命令分支、存储及精确TX票据；56等待真实APP静
 ROOT批准160～162单帧kind/ticket最小布局；H实现专用任务reply、4B请求codec、12B结果与link绑定/路由。
 取消身份、START重放及结果均由E维护所有者决定，163与未定义任务不注册。
 [任务v1](../../protocols/yg_protocol_calibration_wire_v1.md)列出内部枚举映射及统一测试前的旧contract调用适配。
+
+## APP进入Loader
+
+选用D固定`1109361d`的共享BootEntryService，新增56窄载荷编解码。
+生产注册还须接ROOT平台tracked TX真实完成与E所有者，不能把codec或回调声明当完成。
+字段和依赖见[进入Loader v1](../../protocols/yg_protocol_boot_entry_wire_v1.md)。

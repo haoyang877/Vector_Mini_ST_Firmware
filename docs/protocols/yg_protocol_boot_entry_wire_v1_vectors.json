@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "status": "供后续统一验证，本轮未执行测试",
+  "request": {
+    "type": 56,
+    "source_node": 2,
+    "destination_node": 3,
+    "sequence": 7,
+    "payload_hex": "0807060504030201",
+    "boot_epoch": "0x0102030405060708"
+  },
+  "replies": [
+    {
+      "name": "unavailable",
+      "result": "BOOT_ENTRY_UNAVAILABLE",
+      "ticket": "0",
+      "payload_hex": "02000000"
+    },
+    {
+      "name": "pending",
+      "result": "BOOT_ENTRY_PENDING",
+      "ticket": "0",
+      "payload_hex": "01000100"
+    },
+    {
+      "name": "ready_not_rebooted",
+      "result": "BOOT_ENTRY_READY",
+      "ticket": "0x0102030405060708",
+      "payload_hex": "01000000"
+    },
+    {
+      "name": "denied",
+      "result": "BOOT_ENTRY_DENIED",
+      "ticket": "0",
+      "payload_hex": "05000000"
+    },
+    {
+      "name": "failed",
+      "result": "BOOT_ENTRY_FAILED",
+      "ticket": "0",
+      "payload_hex": "08000000"
+    }
+  ],
+  "rejected": [
+    {
+      "name": "zero_boot",
+      "type": 56,
+      "payload_hex": "0000000000000000",
+      "expected": "INVALID_FIELD"
+    },
+    {
+      "name": "wrong_length",
+      "type": 56,
+      "payload_hex": "08070605040302",
+      "expected": "INVALID_LENGTH"
+    },
+    {
+      "name": "ready_zero_ticket",
+      "result": "BOOT_ENTRY_READY",
+      "ticket": "0",
+      "expected": "INVALID_FIELD"
+    },
+    {
+      "name": "pending_nonzero_ticket",
+      "result": "BOOT_ENTRY_PENDING",
+      "ticket": "1",
+      "expected": "INVALID_FIELD"
+    }
+  ]
+}
+

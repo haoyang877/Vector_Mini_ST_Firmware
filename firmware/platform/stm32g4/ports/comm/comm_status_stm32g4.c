@@ -24,6 +24,19 @@ static bool controller_unavailable(void)
            (hfdcan1.Instance->CCCR & FDCAN_CCCR_INIT) != 0U;
 }
 
+bool comm_hw_can_is_healthy(void)
+{
+    uint32_t state = critical_hw_enter();
+    bool healthy = hfdcan1.Instance != NULL && hfdcan1.State == HAL_FDCAN_STATE_BUSY;
+    if (healthy)
+    {
+        healthy = (hfdcan1.Instance->CCCR & FDCAN_CCCR_INIT) == 0U &&
+                  (hfdcan1.Instance->PSR & (FDCAN_PSR_BO | FDCAN_PSR_EP | FDCAN_PSR_EW)) == 0U;
+    }
+    critical_hw_exit(state);
+    return healthy;
+}
+
 static bool tracked_slot_busy(void)
 {
     if (tracked_tx.ticket != 0U ||

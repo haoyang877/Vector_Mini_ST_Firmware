@@ -67,4 +67,11 @@ void comm_hw_can_start_fd(void);
  * @note 前台每秒限频调用；不更改滤波、位时序或协议队列，失败进入平台错误处理。
  */
 bool comm_hw_can_service_bus_off(void);
+
+/**
+ * @brief 读取CAN控制器当前运行且无bus-off、错误被动或错误警告的状态。
+ * @return 控制器已启动且当前错误状态正常返回true，否则false。
+ * @note 前台非阻塞只读，不启动或恢复硬件；不证明主机在线、已收到命令或物理连线畅通。
+ */
+bool comm_hw_can_is_healthy(void);
 #endif

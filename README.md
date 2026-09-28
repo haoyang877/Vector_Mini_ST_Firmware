@@ -44,6 +44,8 @@ python tests/run.py
 
 同一电机增减阻尼环：[roll / wheel 共用固件与运行时切换](docs/guides/roll_wheel_runtime_profile.md)。
 
+硬件检查方法：[电流采样、三相通路、相序和电阻检查 v0.1](docs/guides/motor_electrical_health_test_v1.md)。
+
 底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
 
 * 基础有感FOC算法 电流 速度 位置 可控

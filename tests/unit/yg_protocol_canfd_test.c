@@ -23,7 +23,7 @@ static yg_protocol_result_t handle_test(void *context,
     (void)context;
     ++handler_calls;
     assert(message->payload_length == 8U);
-    result->applied_sequence = message->sequence;
+    result->response_sequence = message->sequence;
     return YG_PROTOCOL_OK;
 }
 
@@ -178,7 +178,7 @@ static void queued_round_trip(void)
     assert(yg_protocol_transfer_queue_pop(&rx, &received));
     assert(yg_protocol_canfd_unpack(&received, 3U, &decoded) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_handle(&router, &decoded, &result) == YG_PROTOCOL_OK);
-    assert(handler_calls == 1U && result.applied_sequence == 2U);
+    assert(handler_calls == 1U && result.response_sequence == 2U);
     assert(yg_protocol_canfd_send_one(&tx) == YG_PROTOCOL_OK);
     assert(sent.data[8] == 3U && yg_protocol_transfer_queue_count(&tx) == 0U);
     assert(yg_protocol_canfd_send_one(&tx) == YG_PROTOCOL_QUEUE_EMPTY && send_calls == 4U);

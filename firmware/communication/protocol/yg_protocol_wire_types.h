@@ -67,11 +67,11 @@ typedef struct
 /** @brief 协议消息名称，语义上表示已完成帧校验的业务消息。 */
 typedef yg_protocol_frame_view_t yg_protocol_message_t;
 
-/** @brief 服务执行结果；不表示物理帧已经被对端接收。 */
+/** @brief 服务回复值；response_sequence 仅关联请求，不表示目标已应用或对端已收到。 */
 typedef struct
 {
     yg_protocol_result_t result;
-    uint16_t applied_sequence;
+    uint16_t response_sequence;
     uint16_t response_type;
     uint8_t response_flags;
     uint8_t response_source_node;

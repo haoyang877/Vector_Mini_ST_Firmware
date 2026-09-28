@@ -7,6 +7,8 @@
 #include "critical_hw.h"
 #include "yg_protocol_canfd.h"
 #include "yg_protocol_link.h"
+#include "yg_protocol_runtime.h"
+#include "param_comm_bridge.h"
 #include "yg_protocol_readonly.h"
 #include "yg_protocol_readonly_payload.h"
 
@@ -19,6 +21,21 @@ static CommHwCanFrame injected_frame;
 static bool inject_on_unlock;
 static uint16_t sent_sequences[32];
 static size_t sent_count;
+static unsigned can_starts;
+static unsigned bus_off_services;
+static yg_protocol_motor_operation_t power_operation;
+
+/* 运行时测试用的硬件替身：只计数，不接触真实外设。 */
+void comm_hw_can_start_fd(void)
+{
+    ++can_starts;
+}
+
+bool comm_hw_can_service_bus_off(void)
+{
+    ++bus_off_services;
+    return true;
+}
 
 uint32_t critical_hw_enter(void)
 {
@@ -239,6 +256,167 @@ static void enable_route(void)
            sent_frame.data[8] == 40U && sent_frame.data[16] == 2U);
 }
 
+static void power_handler(void *context,
+                          const yg_protocol_motor_request_t *request,
+                          yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    ++motor_calls;
+    power_operation = request->operation;
+    reply->status = request->operation == YG_PROTOCOL_MOTOR_ENABLE ? YG_PROTOCOL_SERVICE_UNSUPPORTED
+                                                                   : YG_PROTOCOL_SERVICE_OK;
+    reply->detail = 0x1234U;
+}
+
+static void enqueue_request(const yg_protocol_message_t *request)
+{
+    yg_protocol_transfer_frame_t packed;
+    CommHwCanFrame received = {0};
+    assert(yg_protocol_canfd_pack(request, 2U, &packed) == YG_PROTOCOL_OK);
+    received.identifier = packed.identifier;
+    received.length = packed.length;
+    received.extended = true;
+    received.fd = true;
+    received.bitrate_switch = true;
+    memcpy(received.data, packed.data, packed.length);
+    assert(YgProtocolLink_OnRxFrame(&received));
+}
+
+/* 固定合并前的权限/长度检查顺序及结果；使能只返回模拟服务值，不产生功率动作。 */
+static void power_route_contract(void)
+{
+    static const uint8_t enabled[] = {1U, 0U, 0U, 0U};
+    static const uint8_t disabled[] = {0U, 0U, 0U, 0U};
+    static const uint8_t invalid[] = {2U, 0U, 0U, 0U};
+    static const struct
+    {
+        uint16_t type;
+        uint8_t source;
+        const uint8_t *payload;
+        uint32_t length;
+        bool response;
+        uint8_t result;
+        bool dispatched;
+        yg_protocol_motor_operation_t operation;
+    } cases[] = {
+        {101U, 2U, disabled, 4U, true, 0U, true, YG_PROTOCOL_MOTOR_DISABLE},
+        {101U, 2U, enabled, 4U, true, 2U, true, YG_PROTOCOL_MOTOR_ENABLE},
+        {110U, 2U, NULL, 0U, true, 0U, true, YG_PROTOCOL_MOTOR_STOP},
+        {101U, 1U, enabled, 1U, true, 7U, false, YG_PROTOCOL_MOTOR_STOP},
+        {101U, 2U, enabled, 1U, true, 3U, false, YG_PROTOCOL_MOTOR_STOP},
+        {101U, 2U, invalid, 4U, true, 4U, false, YG_PROTOCOL_MOTOR_STOP},
+        {110U, 1U, NULL, 0U, true, 7U, false, YG_PROTOCOL_MOTOR_STOP},
+        {110U, 1U, enabled, 1U, false, 0U, false, YG_PROTOCOL_MOTOR_STOP},
+        {110U, 2U, enabled, 1U, false, 0U, false, YG_PROTOCOL_MOTOR_STOP},
+    };
+    const yg_protocol_motor_service_t service = {NULL, power_handler};
+    for (size_t index = 0U; index < sizeof(cases) / sizeof(cases[0]); ++index)
+    {
+        yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                         .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                         .source_node = cases[index].source,
+                                         .destination_node = 7U,
+                                         .message_type = cases[index].type,
+                                         .sequence = (uint16_t)(100U + index),
+                                         .payload_length = cases[index].length,
+                                         .payload = cases[index].payload};
+        assert(YgProtocolLink_Init(7U));
+        assert(YgProtocolLink_BindMotorService(&service));
+        motor_calls = 0U;
+        sent_count = 0U;
+        sent = false;
+        enqueue_request(&request);
+        YgProtocolLink_Service(0U);
+        assert(sent == cases[index].response);
+        assert(motor_calls == (cases[index].dispatched ? 1U : 0U));
+        if (cases[index].dispatched)
+        {
+            assert(power_operation == cases[index].operation);
+        }
+        if (sent)
+        {
+            assert(sent_frame.length == 24U && sent_frame.data[3] == YG_PROTOCOL_FLAGS_RESPONSE);
+            assert(sent_frame.data[4] == 7U && sent_frame.data[5] == cases[index].source);
+            assert(sent_frame.data[6] == cases[index].type &&
+                   sent_frame.data[8] == request.sequence);
+            assert(sent_frame.data[10] == 4U && sent_frame.data[16] == cases[index].result);
+            assert(sent_frame.data[18] == (cases[index].dispatched ? 0x34U : 0U));
+            assert(sent_frame.data[19] == (cases[index].dispatched ? 0x12U : 0U));
+        }
+    }
+}
+
+/* 解绑或重新初始化后不得保留旧快照，查询必须回退为无新鲜数据。 */
+static void status_binding_reset(void)
+{
+    const yg_protocol_motor_status_source_t source = {
+        .sample_available = true, .state = 6U, .mode = 3U};
+    const yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                           .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                           .source_node = 2U,
+                                           .destination_node = 7U,
+                                           .message_type =
+                                               YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE,
+                                           .sequence = 199U};
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindMotorStatusSource(&source));
+    sent_count = 0U;
+    sent = false;
+    enqueue_request(&request);
+    YgProtocolLink_Service(0U);
+    assert(sent && sent_frame.data[16] == 0U && sent_frame.data[59] == 6U);
+    for (unsigned reset = 0U; reset < 2U; ++reset)
+    {
+        assert(YgProtocolLink_BindMotorStatusSource(&source));
+        if (reset == 0U)
+        {
+            assert(YgProtocolLink_BindMotorStatusSource(NULL));
+        }
+        else
+        {
+            assert(YgProtocolLink_Init(7U));
+        }
+        sent = false;
+        enqueue_request(&request);
+        YgProtocolLink_Service(0U);
+        assert(sent && sent_frame.data[16] == 6U && sent_frame.data[40] == 0U &&
+               sent_frame.data[59] == 0U && sent_frame.data[60] == 0U);
+    }
+}
+
+/* 运行时只启动一次；参数桥更新不改变冻结地址，重复初始化不丢弃在途请求。 */
+static void runtime_start_boundary(void)
+{
+    yg_protocol_message_t stop = {.version = YG_PROTOCOL_VERSION,
+                                  .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                  .source_node = 2U,
+                                  .destination_node = 7U,
+                                  .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP,
+                                  .sequence = 200U};
+    YgProtocolRuntime_Service(1000U);
+    assert(can_starts == 0U && bus_off_services == 0U);
+    assert(!YgProtocolRuntime_Init(255U));
+    assert(can_starts == 0U && !YgProtocolLink_IsReady());
+    assert(YgProtocolRuntime_Init(7U));
+    Protocol_NodeId_Set(9U);
+    Protocol_HeartbeatMs_Set(500U);
+    assert(Protocol_NodeId_Get() == 9U && Protocol_HeartbeatMs_Get() == 500U);
+    enqueue_request(&stop);
+    assert(!YgProtocolRuntime_Init(9U));
+    sent = false;
+    sent_count = 0U;
+    YgProtocolRuntime_Service(999U);
+    assert(can_starts == 1U && bus_off_services == 0U && sent);
+    /* 重新初始化撤销旧服务；仍从冻结的节点 7 返回未绑定结果。 */
+    assert(sent_frame.data[4] == 7U && sent_frame.data[16] == 2U);
+    sent = false;
+    YgProtocolRuntime_Service(1000U);
+    YgProtocolRuntime_Service(1999U);
+    assert(bus_off_services == 1U);
+    YgProtocolRuntime_Service(2000U);
+    assert(bus_off_services == 2U);
+}
+
 int main(void)
 {
     uint8_t payload[YG_PROTOCOL_READONLY_PAGE_REQUEST_SIZE] = {0};
@@ -373,5 +551,8 @@ int main(void)
     enable_route();
     control_reply_and_feedback();
     backlog_and_interrupt_handoff();
+    power_route_contract();
+    status_binding_reset();
+    runtime_start_boundary();
     return 0;
 }

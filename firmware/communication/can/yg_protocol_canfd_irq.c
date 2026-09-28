@@ -15,9 +15,7 @@ void YgProtocolCanfd_RxIrqHandler(void)
             /* 空 FIFO 或被端口层丢弃的非 CAN FD 帧都计入本次上限；继续清理剩余槽位。 */
             continue;
         }
-        if (frame.extended && frame.fd && frame.bitrate_switch && !frame.remote)
-        {
-            (void)YgProtocolLink_OnRxFrame(&frame);
-        }
+        /* 格式验证由 link 唯一负责；ISR 只提供帧值，不重复维护准入条件。 */
+        (void)YgProtocolLink_OnRxFrame(&frame);
     }
 }

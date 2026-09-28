@@ -45,7 +45,7 @@ yg_protocol_result_t yg_protocol_router_handle(const yg_protocol_router_t *route
     }
 
     result->result = YG_PROTOCOL_ROUTE_NOT_FOUND;
-    result->applied_sequence = message->sequence;
+    result->response_sequence = message->sequence;
     result->response_type = message->message_type;
     result->response_flags = YG_PROTOCOL_FLAGS_RESPONSE;
     result->response_source_node = message->destination_node;
@@ -95,7 +95,7 @@ yg_protocol_router_build_response(const yg_protocol_message_t *request,
     response->source_node = service_result->response_source_node;
     response->destination_node = service_result->response_destination_node;
     response->message_type = service_result->response_type;
-    response->sequence = service_result->applied_sequence;
+    response->sequence = service_result->response_sequence;
     response->payload_length = service_result->response_payload_length;
     response->reserved = service_result->response_reserved;
     response->payload = service_result->response_payload;

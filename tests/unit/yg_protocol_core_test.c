@@ -21,7 +21,7 @@ static yg_protocol_result_t handle_position(void *context,
     assert(message->payload_length == 2U);
     assert(message->payload[0] == 0xE8U);
     assert(message->payload[1] == 0x03U);
-    result->applied_sequence = message->sequence;
+    result->response_sequence = message->sequence;
     return YG_PROTOCOL_OK;
 }
 
@@ -31,7 +31,7 @@ static yg_protocol_result_t handle_status(void *context,
 {
     (void)context;
     (void)message;
-    result->applied_sequence = message->sequence;
+    result->response_sequence = message->sequence;
     return YG_PROTOCOL_OK;
 }
 
@@ -101,7 +101,7 @@ static void router_routes_by_type(void)
     assert(yg_protocol_message_registry_init(&registry, descriptors, 2U) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_init(&router, &registry, routes, 2U) == YG_PROTOCOL_OK);
     assert(yg_protocol_router_handle(&router, &message, &result) == YG_PROTOCOL_OK);
-    assert(result.applied_sequence == 7U);
+    assert(result.response_sequence == 7U);
     message.message_type = 999U;
     assert(yg_protocol_router_handle(&router, &message, &result) == YG_PROTOCOL_ROUTE_NOT_FOUND);
 }

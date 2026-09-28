@@ -8,7 +8,9 @@
  * @brief 初始化唯一 CAN FD 协议运行时。
  * @param node_id 本机节点号；不得使用广播地址。
  * @return 协议端点初始化成功返回 true。
- * @note 先初始化协议端点，再启动 CAN FD 硬件；失败时不启动业务调度。
+ * @note 仅在前台启动阶段调用一次，先初始化 link，再启动 CAN FD；失败可重试。
+ *       已成功初始化后再次调用返回 false，不清除队列或重新启动硬件。
+ *       参数桥保存的是配置值；启动后修改参数桥不会改变 link 已冻结的地址。
  */
 bool YgProtocolRuntime_Init(uint8_t node_id);
 

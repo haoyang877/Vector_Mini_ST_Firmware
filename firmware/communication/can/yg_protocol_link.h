@@ -14,7 +14,8 @@
  * @param node_id 本机节点号，不能为广播地址。
  * @return 初始化成功返回 true；参数或静态资源不满足返回 false。
  * @note 注册信息、能力、状态查询及 101/110/116 路由，不绑定生产电机服务。必须在 CAN RX 启动前调用；
- *       运行中重置须先停止 RX 和后台服务。
+ *       link 独占路由、队列、去重历史与待发回复；初始化会撤销旧业务和快照绑定。
+ *       运行中重置须先停止 RX 和后台服务；runtime 管理硬件启动，不由 link 启动外设。
  */
 bool YgProtocolLink_Init(uint8_t node_id);
 

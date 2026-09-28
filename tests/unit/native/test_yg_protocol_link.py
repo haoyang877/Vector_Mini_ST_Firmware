@@ -37,6 +37,7 @@ def main() -> None:
             "-Werror",
             str(ROOT / "tests/unit/yg_protocol_link_test.c"),
             str(ROOT / "firmware/communication/can/yg_protocol_link.c"),
+            str(ROOT / "firmware/communication/can/yg_protocol_runtime.c"),
             str(ROOT / "firmware/communication/can/yg_protocol_canfd.c"),
             str(ROOT / "firmware/communication/can/yg_protocol_endpoint.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_crc.c"),

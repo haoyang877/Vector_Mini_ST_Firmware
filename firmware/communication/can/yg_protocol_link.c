@@ -18,8 +18,6 @@
 #define YG_LINK_RX_QUEUE_CAPACITY 8U
 #define YG_LINK_TX_QUEUE_CAPACITY 40U
 #define YG_LINK_FRAGMENT_CAPACITY YG_PROTOCOL_MAX_MESSAGE_PAYLOAD
-#define YG_LINK_PROTOCOL_INFO_TYPE 1U
-#define YG_LINK_CAPABILITIES_TYPE 2U
 #define YG_LINK_MASTER_NODE_ID 2U
 #define YG_LINK_CONTROL_HISTORY_SIZE 256U
 
@@ -113,16 +111,19 @@ static yg_protocol_result_t provide_capabilities(void *context,
     return YG_PROTOCOL_OK;
 }
 
-static yg_protocol_result_t handle_motor_stop(void *context,
-                                              const yg_protocol_message_t *request,
-                                              yg_protocol_service_result_t *result)
+static yg_protocol_result_t handle_motor_power(void *context,
+                                               const yg_protocol_message_t *request,
+                                               yg_protocol_service_result_t *result)
 {
-    yg_protocol_motor_request_t motor_request = {.operation = YG_PROTOCOL_MOTOR_STOP};
-    yg_protocol_service_reply_t motor_reply;
+    yg_protocol_motor_request_t command = {.operation = YG_PROTOCOL_MOTOR_STOP};
+    yg_protocol_service_reply_t reply;
     yg_protocol_link_context_t *link = context;
+    yg_protocol_result_t decoded;
+    bool enabled;
 
-    if (link == NULL || request == NULL || result == NULL || request->payload_length != 0U ||
-        !motor_request_valid(request))
+    /* STOP 的非空请求在来源检查前拒绝，保留既有线路处理顺序。 */
+    if (link == NULL || request == NULL || result == NULL || !motor_request_valid(request) ||
+        (request->message_type == YG_PROTOCOL_MOTOR_TYPE_STOP && request->payload_length != 0U))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -131,11 +132,21 @@ static yg_protocol_result_t handle_motor_stop(void *context,
         write_motor_result(result, 7U, 0U);
         return YG_PROTOCOL_OK;
     }
-    motor_request.source_node = request->source_node;
-    motor_request.sequence = request->sequence;
-    (void)yg_protocol_motor_call(&link->motor_service, &motor_request, &motor_reply);
+    if (request->message_type == YG_PROTOCOL_MOTOR_TYPE_ENABLE)
+    {
+        decoded = yg_protocol_motor_decode_enable(request, &enabled);
+        if (decoded != YG_PROTOCOL_OK)
+        {
+            write_motor_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        command.operation = enabled ? YG_PROTOCOL_MOTOR_ENABLE : YG_PROTOCOL_MOTOR_DISABLE;
+    }
+    command.source_node = request->source_node;
+    command.sequence = request->sequence;
+    (void)yg_protocol_motor_call(&link->motor_service, &command, &reply);
     if (yg_protocol_motor_encode_reply(
-            &motor_reply, result->response_payload, sizeof(result->response_payload), NULL) !=
+            &reply, result->response_payload, sizeof(result->response_payload), NULL) !=
         YG_PROTOCOL_OK)
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
@@ -162,38 +173,6 @@ static bool motor_request_valid(const yg_protocol_message_t *request)
            request->destination_node != YG_PROTOCOL_BROADCAST_NODE_ID &&
            (request->flags == YG_PROTOCOL_FLAGS_ACK_REQUEST ||
             request->flags == (YG_PROTOCOL_FLAGS_ACK_REQUEST | YG_PROTOCOL_FLAGS_RETRY));
-}
-
-static yg_protocol_result_t handle_motor_enable(void *context,
-                                                const yg_protocol_message_t *request,
-                                                yg_protocol_service_result_t *result)
-{
-    yg_protocol_link_context_t *link = context;
-    yg_protocol_motor_request_t command = {.operation = YG_PROTOCOL_MOTOR_STOP};
-    yg_protocol_service_reply_t reply;
-    yg_protocol_result_t decoded;
-    bool enabled;
-    if (link == NULL || request == NULL || result == NULL || !motor_request_valid(request))
-    {
-        return YG_PROTOCOL_INVALID_FIELD;
-    }
-    if (request->source_node != YG_LINK_MASTER_NODE_ID)
-    {
-        write_motor_result(result, 7U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    decoded = yg_protocol_motor_decode_enable(request, &enabled);
-    if (decoded != YG_PROTOCOL_OK)
-    {
-        write_motor_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    command.operation = enabled ? YG_PROTOCOL_MOTOR_ENABLE : YG_PROTOCOL_MOTOR_DISABLE;
-    command.source_node = request->source_node;
-    command.sequence = request->sequence;
-    (void)yg_protocol_motor_call(&link->motor_service, &command, &reply);
-    write_motor_result(result, yg_protocol_motor_result_code(reply.status), reply.detail);
-    return YG_PROTOCOL_OK;
 }
 
 static yg_protocol_result_t handle_motor_control(void *context,
@@ -261,25 +240,23 @@ static yg_protocol_result_t provide_motor_status(void *context,
                                                  uint32_t *payload_length)
 {
     yg_protocol_link_context_t *link = context;
-    const yg_protocol_motor_status_source_t *source;
 
     if (link == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    source =
-        link->motor_status_source != NULL ? link->motor_status_source : &link->empty_motor_status;
-    return yg_protocol_motor_status_provider((void *)source, request, payload, payload_length);
+    return yg_protocol_motor_status_provider(
+        (void *)link->motor_status_source, request, payload, payload_length);
 }
 
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     static const yg_protocol_route_t routes[] = {
-        {YG_LINK_PROTOCOL_INFO_TYPE, yg_protocol_readonly_handle, &readonly_service},
-        {YG_LINK_CAPABILITIES_TYPE, yg_protocol_readonly_handle, &readonly_service},
+        {YG_PROTOCOL_READONLY_TYPE_GET_INFO, yg_protocol_readonly_handle, &readonly_service},
+        {YG_PROTOCOL_READONLY_TYPE_GET_CAPS, yg_protocol_readonly_handle, &readonly_service},
         {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, yg_protocol_readonly_handle, &readonly_service},
-        {YG_PROTOCOL_MOTOR_TYPE_ENABLE, handle_motor_enable, &link_context},
-        {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_stop, &link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_ENABLE, handle_motor_power, &link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_power, &link_context},
         {YG_PROTOCOL_MOTOR_TYPE_CONTROL, handle_motor_control, &link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
@@ -294,32 +271,22 @@ bool YgProtocolLink_Init(uint8_t node_id)
         return false;
     }
 
+    /* 初始化一次撤销全部旧绑定、历史和待发状态；此时 RX 尚未启动。 */
+    memset(&link_context, 0, sizeof(link_context));
     link_context.node_id = node_id;
-    link_context.motor_service = (yg_protocol_motor_service_t){0};
-    memset(&link_context.empty_motor_status, 0, sizeof(link_context.empty_motor_status));
-    link_context.motor_status_source = NULL;
-    memset(link_context.control_history, 0, sizeof(link_context.control_history));
-    link_context.control_sequence_seen = false;
-    link_context.feedback_sequence = 0U;
-    link_context.feedback_pending = false;
-    memset(&link_context.info, 0, sizeof(link_context.info));
+    link_context.motor_status_source = &link_context.empty_motor_status;
     link_context.info.product_id = 0x5947U;
     link_context.info.hardware_revision = 1U;
     link_context.info.boot_api = 1U;
     link_context.info.application_version = 1U;
-    link_context.info.boot_version = 0U;
-    link_context.info.boot_id = 0U;
     link_context.capabilities.features = 0x00000001U;
-    link_context.capabilities.supported_modes = 0U;
     link_context.capabilities.max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE;
     link_context.capabilities.max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE;
     link_context.capabilities.write_alignment = 1U;
-    link_context.capabilities.default_watchdog_ms = 0U;
-    link_context.capabilities.max_watchdog_ms = 0U;
 
     configuration.context = &link_context;
-    configuration.protocol_info_type = YG_LINK_PROTOCOL_INFO_TYPE;
-    configuration.capabilities_type = YG_LINK_CAPABILITIES_TYPE;
+    configuration.protocol_info_type = YG_PROTOCOL_READONLY_TYPE_GET_INFO;
+    configuration.capabilities_type = YG_PROTOCOL_READONLY_TYPE_GET_CAPS;
     configuration.device_info_type = YG_PROTOCOL_READONLY_TYPE_DISABLED;
     configuration.motor_status_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE;
     configuration.protocol_info = provide_info;
@@ -364,7 +331,7 @@ bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_
     {
         return false;
     }
-    link_context.motor_status_source = source;
+    link_context.motor_status_source = source != NULL ? source : &link_context.empty_motor_status;
     return true;
 }
 

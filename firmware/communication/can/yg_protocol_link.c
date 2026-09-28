@@ -89,6 +89,17 @@ static bool ready;
 static bool request_is_valid(const yg_protocol_message_t *request);
 static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail);
 
+static yg_protocol_result_t provide_unavailable(uint8_t *payload, uint32_t *payload_length)
+{
+    /* 缺少真实身份/能力也须给业务错误回复，不能让端点将内部错误当作丢帧。 */
+    payload[0] = 6U;
+    payload[1] = 0U;
+    payload[2] = 0U;
+    payload[3] = 0U;
+    *payload_length = 4U;
+    return YG_PROTOCOL_OK;
+}
+
 static yg_protocol_result_t provide_info(void *context,
                                          const yg_protocol_message_t *request,
                                          uint8_t *payload,
@@ -106,7 +117,7 @@ static yg_protocol_result_t provide_info(void *context,
     }
     if (!link->device_description_available)
     {
-        return YG_PROTOCOL_DATA_UNAVAILABLE;
+        return provide_unavailable(payload, payload_length);
     }
     if (yg_protocol_readonly_encode_info_page0(
             &link->info, payload, YG_PROTOCOL_MAX_PAYLOAD_SIZE, &written) != YG_PROTOCOL_OK)
@@ -134,7 +145,7 @@ static yg_protocol_result_t provide_capabilities(void *context,
     }
     if (!link->device_description_available)
     {
-        return YG_PROTOCOL_DATA_UNAVAILABLE;
+        return provide_unavailable(payload, payload_length);
     }
     if (yg_protocol_readonly_encode_caps_page0(
             &link->capabilities, payload, YG_PROTOCOL_MAX_PAYLOAD_SIZE, &written) != YG_PROTOCOL_OK)

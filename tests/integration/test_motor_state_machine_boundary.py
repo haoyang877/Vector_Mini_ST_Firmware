@@ -34,7 +34,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
                 if re.search(r"\bpower_stage_hw_start\s*\(", production_text(path)):
                     callers.add(path.relative_to(ROOT).as_posix())
-        self.assertEqual(callers, {"firmware/app/motor_state_machine.c"})
+        self.assertEqual(callers, {"firmware/app/motor_state_machine/motor_state_machine.c"})
 
 
 if __name__ == "__main__":

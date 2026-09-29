@@ -255,7 +255,7 @@ static void reset(void)
     {
         tick();
     }
-    assert(MotorStateMachine_GetState() == APP_READY);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY);
 }
 
 /* 以公共维护入口开启会话并返回创建时 ticket；不再经由 SWD 台架邮箱。 */
@@ -273,7 +273,7 @@ static void test_control(void)
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     tick();
     tick();
-    assert(MotorStateMachine_GetState() == APP_RUNNING && !output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off);
     MotorControlCommand goal = {
         .mode = MOTOR_CONTROL_SPEED, .speed_rad_s = -2.0f, .source_node = 2U, .sequence = 41U};
     MotorControlProgress progress;
@@ -294,7 +294,7 @@ static void test_control(void)
     assert(progress.state == MOTOR_CONTROL_PROGRESS_REJECTED &&
            progress.result == MOTOR_CONTROL_DENIED && progress.sequence == 42U);
     tick();
-    assert(output_off && MotorStateMachine_GetState() == APP_READY &&
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY &&
            motor.speed_target_rad_s == 0.0f);
     assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
     puts("PASS same-mode target owner, single-slot busy, STOP revocation and unchanged caps");
@@ -309,15 +309,15 @@ static void test_control(void)
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
     tick();
-    assert(MotorStateMachine_GetState() == APP_RUNNING);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING);
     goal = (MotorControlCommand){
         .mode = MOTOR_CONTROL_CURRENT, .iq_a = 1.0f, .source_node = 2U, .sequence = 43U};
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
                                   MotorStateMachine_WorkEpoch());
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT && motor.fault_code == MOTOR_FAULT_ENCODER &&
-           output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
+           motor.fault_code == MOTOR_FAULT_ENCODER && output_off);
     MotorStateMachine_ReadControlProgress(&progress);
     assert(progress.state == MOTOR_CONTROL_PROGRESS_REJECTED &&
            progress.result == MOTOR_CONTROL_FAULT && progress.sequence == 43U);
@@ -326,8 +326,9 @@ static void test_control(void)
     {
         tick();
     }
-    assert(MotorStateMachine_GetState() == APP_READY && motor.fault_code == MOTOR_FAULT_NONE &&
-           motor.control_mode == MOTOR_CONTROL_NONE && motor.speed_target_rad_s == 0.0f);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY &&
+           motor.fault_code == MOTOR_FAULT_NONE && motor.control_mode == MOTOR_CONTROL_NONE &&
+           motor.speed_target_rad_s == 0.0f);
     puts("PASS worker fault latches error; fresh recovery CLEAR does not restart");
 }
 
@@ -345,7 +346,7 @@ static void test_calibration_save(void)
                                   origin);
     tick();
     assert(output_off && MotorStateMachine_ReadMaintenance(ticket, &progress));
-    assert(progress.effects == APP_EFFECT_UNCOMMITTED);
+    assert(progress.effects == MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED);
     tick();
     assert(MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
     save = MotorStateMachine_WorkEpoch();
@@ -354,9 +355,10 @@ static void test_calibration_save(void)
     assert(MotorStateMachine_BackgroundValid(&claim));
     MotorStateMachine_FinishBackground(&claim, true);
     tick();
-    assert(MotorStateMachine_GetState() == APP_READY);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY);
     assert(MotorStateMachine_ReadMaintenance(save, &progress));
-    assert(progress.result == APP_OPERATION_COMPLETED && progress.effects == APP_EFFECT_COMMITTED);
+    assert(progress.result == MOTOR_MAINTENANCE_COMPLETED &&
+           progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
     assert(encoder.calib_flag == ENC_CALIB_ALL);
     puts("PASS electrical-zero completion distinct from SAVE COMMITTED; derived ticket observable");
 
@@ -370,7 +372,7 @@ static void test_calibration_save(void)
                                   origin);
     tick();
     assert(motor.control_mode == MOTOR_CONTROL_NONE && output_off &&
-           MotorStateMachine_GetState() == APP_READY);
+           MotorStateMachine_GetState() == MOTOR_STATE_READY);
     puts(
         "PASS encoder-LUT explicit entry remains; stale completion after STOP cannot request SAVE");
 }
@@ -381,7 +383,7 @@ static void test_stop_and_fault(void)
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
     tick();
-    assert(MotorStateMachine_GetState() == APP_RUNNING && !output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off);
     encoder.bad_frame_streak = ENCODER_BAD_FRAME_OFFLINE_COUNT;
     MotorStateMachine_CheckFastFaults();
     MotorStateMachine_FastFaultStop();
@@ -395,7 +397,7 @@ static void test_stop_and_fault(void)
     stop_fails = true;
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    assert(!output_off && MotorStateMachine_GetState() == APP_STOPPING);
+    assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
     assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
     puts("PASS failed output shutdown cannot restore READY or relaxed limits");
 }
@@ -410,21 +412,22 @@ static void test_borrow_cancel(void)
     assert(MotorStateMachine_BeginBackground(&claim));
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    assert(MotorStateMachine_GetState() == APP_STOPPING &&
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_STOPPING &&
            MotorStateMachine_ReadMaintenance(ticket, &progress) &&
-           progress.result == APP_OPERATION_CANCEL_REQUESTED);
+           progress.result == MOTOR_MAINTENANCE_CANCEL_REQUESTED);
     assert(!MotorStateMachine_BeginBackground(&forged));
     forged = claim;
     ++forged.epoch;
     MotorStateMachine_FinishBackground(&forged, true);
     tick();
-    assert(MotorStateMachine_GetState() == APP_STOPPING);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
     MotorStateMachine_FinishBackground(&claim, true);
     tick();
-    assert(MotorStateMachine_GetState() == APP_READY &&
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY &&
            MotorStateMachine_ReadMaintenance(ticket, &progress) &&
-           progress.result == APP_OPERATION_CANCELLED);
-    assert(motor.control_mode == MOTOR_CONTROL_NONE && progress.effects != APP_EFFECT_COMMITTED);
+           progress.result == MOTOR_MAINTENANCE_CANCELLED);
+    assert(motor.control_mode == MOTOR_CONTROL_NONE &&
+           progress.effects != MOTOR_MAINTENANCE_EFFECT_COMMITTED);
     puts("PASS SAVE borrow blocks cancellation ACK; forged/late results cannot claim COMMITTED");
 
     reset();
@@ -433,14 +436,14 @@ static void test_borrow_cancel(void)
     origin = MotorStateMachine_WorkEpoch();
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, origin);
     tick();
-    assert(MotorStateMachine_GetState() == APP_MAINTENANCE && output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_MAINTENANCE && output_off);
     assert(MotorStateMachine_BeginBackground(&claim) && claim.kind == FOC_BACKGROUND_COGGING);
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    assert(cogging_cancelled && MotorStateMachine_GetState() == APP_STOPPING);
+    assert(cogging_cancelled && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
     MotorStateMachine_FinishBackground(&claim, false);
     tick();
-    assert(!cogging_claimed && MotorStateMachine_GetState() == APP_READY &&
+    assert(!cogging_claimed && MotorStateMachine_GetState() == MOTOR_STATE_READY &&
            motor.control_mode == MOTOR_CONTROL_NONE);
     puts("PASS cogging natural completion stays in maintenance; STOP waits for original foreground "
          "release");
@@ -457,7 +460,7 @@ static void test_cogging_finalize(void)
         MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE},
                                       origin);
         tick();
-        assert(output_off && MotorStateMachine_GetState() == APP_MAINTENANCE);
+        assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_MAINTENANCE);
         FocBackgroundClaim claim;
         assert(MotorStateMachine_BeginBackground(&claim) &&
                MotorStateMachine_BackgroundValid(&claim));
@@ -472,13 +475,13 @@ static void test_cogging_finalize(void)
             tick();
             MotorMaintenanceProgress progress;
             assert(MotorStateMachine_ReadMaintenance(save, &progress));
-            assert(progress.result == APP_OPERATION_COMPLETED &&
-                   progress.effects == APP_EFFECT_COMMITTED);
-            assert(MotorStateMachine_GetState() == APP_READY && output_off);
+            assert(progress.result == MOTOR_MAINTENANCE_COMPLETED &&
+                   progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
+            assert(MotorStateMachine_GetState() == MOTOR_STATE_READY && output_off);
         }
         else
         {
-            assert(MotorStateMachine_GetState() == APP_FAULT &&
+            assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
                    motor.fault_code == MOTOR_FAULT_COGGING_CALIBRATION);
             assert(!MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
         }
@@ -524,7 +527,7 @@ static void test_request_admission(void)
         assert(motor.control_mode == modes[i] && output_off);
         tick();
         tick();
-        assert(MotorStateMachine_GetState() == APP_RUNNING && !output_off);
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off);
         MotorControlCommand goal = {.mode = (MotorControlMode)i};
         assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
         expect_busy_requests();
@@ -599,10 +602,11 @@ static void test_maintenance_identity(void)
     MotorMaintenanceProgress progress;
     assert(MotorStateMachine_ReadMaintenance(origin, &progress));
     assert(progress.kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO &&
-           progress.result == APP_OPERATION_COMPLETED &&
-           progress.effects == APP_EFFECT_UNCOMMITTED);
+           progress.result == MOTOR_MAINTENANCE_COMPLETED &&
+           progress.effects == MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED);
     assert(MotorStateMachine_ReadMaintenance(save, &progress));
-    assert(progress.kind == MOTOR_MAINTENANCE_SAVE && progress.effects == APP_EFFECT_COMMITTED);
+    assert(progress.kind == MOTOR_MAINTENANCE_SAVE &&
+           progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
     puts("PASS identified retry and original calibration terminal survive derived SAVE completion");
 }
 
@@ -684,10 +688,10 @@ static void test_task_results(void)
         tick();
         tick();
         MotorMaintenanceProgress progress;
-        assert(output_off && MotorStateMachine_GetState() == APP_READY);
+        assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY);
         assert(MotorStateMachine_ReadMaintenance(ticket, &progress));
-        assert(progress.result == APP_OPERATION_COMPLETED &&
-               progress.effects == APP_EFFECT_UNCOMMITTED);
+        assert(progress.result == MOTOR_MAINTENANCE_COMPLETED &&
+               progress.effects == MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED);
         assert(!MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
     }
     reset();
@@ -699,7 +703,7 @@ static void test_task_results(void)
                                   ticket);
     assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off);
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
     assert(!MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
     puts("PASS explicit task dispatch, RAM-only completion and same-epoch fault priority");
 }
@@ -719,7 +723,7 @@ static void test_power_permission(void)
     MotorStateMachine_RequestRemoteStop();
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     tick();
-    assert(output_off && start_count == 1U && MotorStateMachine_GetState() == APP_READY);
+    assert(output_off && start_count == 1U && MotorStateMachine_GetState() == MOTOR_STATE_READY);
 
     reset();
     ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
@@ -727,24 +731,25 @@ static void test_power_permission(void)
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     assert(output_off && start_count == 0U && motor.fault_code != MOTOR_FAULT_NONE);
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT && !MotorStateMachine_MaintenanceRunnable());
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
+           !MotorStateMachine_MaintenanceRunnable());
 
     reset();
     ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
     start_fails = true;
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     tick();
-    assert(output_off && MotorStateMachine_GetState() == APP_FAULT);
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
     reset();
     start_fails = true;
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_PHASE_RESISTANCE, &ticket) !=
            MOTOR_CONTROL_ACCEPTED);
-    assert(ticket == 0U && output_off && MotorStateMachine_GetState() == APP_FAULT);
+    assert(ticket == 0U && output_off && MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
     reset();
     start_fails = true;
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     tick();
-    assert(output_off && MotorStateMachine_GetState() == APP_FAULT);
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
 
     reset();
     ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
@@ -753,7 +758,7 @@ static void test_power_permission(void)
                                   ticket);
     tick();
     tick();
-    assert(!output_off && MotorStateMachine_GetState() == APP_STOPPING);
+    assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
     assert(!MotorStateMachine_ConfigurationAllowed());
     assert(!MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
     assert(MotorStateMachine_OutputExpected());
@@ -792,7 +797,8 @@ static void test_preparation_readiness(void)
         }
         MotorReadiness readiness;
         MotorStateMachine_ReadReadiness(&readiness);
-        assert(MotorStateMachine_GetState() == APP_READY && output_off && start_count == 0U);
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_READY && output_off &&
+               start_count == 0U);
         assert(motor.fault_code == MOTOR_FAULT_NONE && MotorStateMachine_ConfigurationAllowed());
         assert(readiness.self_test_checks == MOTOR_SELF_TEST_ALL);
         assert(readiness.start_blockers & MOTOR_START_CONFIGURATION_REQUIRED);
@@ -817,7 +823,8 @@ static void test_preparation_readiness(void)
         {
             assert(readiness.start_blockers == 0U && readiness.startable_modes == 15U);
         }
-        assert(output_off && MotorStateMachine_GetState() == APP_READY && start_count == 0U);
+        assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY &&
+               start_count == 0U);
     }
     reset();
     encoder.calib_flag = 0U;
@@ -827,10 +834,10 @@ static void test_preparation_readiness(void)
     assert(motor.fault_code == MOTOR_FAULT_NONE && ticket == 0U);
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
            MOTOR_CONTROL_ACCEPTED);
-    assert(MotorStateMachine_GetState() == APP_MAINTENANCE);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_MAINTENANCE);
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    assert(MotorStateMachine_GetState() == APP_READY && output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY && output_off);
     reset();
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 0.0f;
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
@@ -840,7 +847,8 @@ static void test_preparation_readiness(void)
     }
     MotorReadiness readiness;
     MotorStateMachine_ReadReadiness(&readiness);
-    assert(MotorStateMachine_GetState() == APP_READY && motor.fault_code == MOTOR_FAULT_NONE);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY &&
+           motor.fault_code == MOTOR_FAULT_NONE);
     assert(readiness.start_blockers & MOTOR_START_BUS_UNAVAILABLE);
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
            MOTOR_CONTROL_ACCEPTED);
@@ -856,14 +864,14 @@ static void test_self_test_deadline(void)
     tick();
     tick();
     tick();
-    assert(MotorStateMachine_GetState() == APP_SELF_TEST);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_SELF_TEST);
     MotorStateMachine_Tick();
     tick();
     tick();
     tick();
-    assert(MotorStateMachine_GetState() == APP_SELF_TEST);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_SELF_TEST);
     tick();
-    assert(MotorStateMachine_GetState() == APP_READY && start_count == 0U);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY && start_count == 0U);
     /* 第四个健康完成拍已到期限，必须先拒绝过期成功。 */
     reset();
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
@@ -872,17 +880,17 @@ static void test_self_test_deadline(void)
     tick();
     now_ms = 500U;
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT &&
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     /* BOOT 资源未释放与必需编码器不健康也不能无限等待。 */
     reset();
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
     encoder_released = false;
     tick();
-    assert(MotorStateMachine_GetState() == APP_BOOT);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_BOOT);
     now_ms = 500U;
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT &&
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     reset();
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
@@ -890,7 +898,7 @@ static void test_self_test_deadline(void)
     tick();
     now_ms = 500U;
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT &&
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     reset();
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
@@ -899,10 +907,10 @@ static void test_self_test_deadline(void)
     MotorStateMachine_Tick();
     now_ms = began + 499U;
     MotorStateMachine_Tick();
-    assert(MotorStateMachine_GetState() == APP_SELF_TEST && output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_SELF_TEST && output_off);
     now_ms = began + 500U;
     MotorStateMachine_Tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT &&
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     tick();
     assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
@@ -910,13 +918,13 @@ static void test_self_test_deadline(void)
     {
         tick();
     }
-    assert(MotorStateMachine_GetState() == APP_READY && output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY && output_off);
     reset();
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
     output_off = false;
     stop_fails = true;
     tick();
-    assert(MotorStateMachine_GetState() == APP_FATAL && start_count == 0U);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FATAL && start_count == 0U);
     assert(MotorStateMachine_RequestClear() != MOTOR_CONTROL_ACCEPTED);
     reset();
     foc.bus_voltage_v = BUS_VOLTAGE_HARD_OVERVOLTAGE_V;
@@ -924,7 +932,7 @@ static void test_self_test_deadline(void)
     MotorStateMachine_FastFaultStop();
     tick();
     assert(motor.fault_code == MOTOR_FAULT_OVERVOLTAGE &&
-           MotorStateMachine_GetState() == APP_FAULT && output_off);
+           MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
     puts("PASS continuous self-test window, wrap-safe deadline, explicit recovery and failed "
          "shutdown FATAL");
 }

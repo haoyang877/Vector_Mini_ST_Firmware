@@ -17,7 +17,7 @@ static PiController s_speed_pi;
 static EncoderState s_rotor_encoder;
 static FluxObserverState s_flux_observer;
 static SensorlessStartupState s_sensorless_startup;
-static AppLifecycleState lifecycle_state;
+static MotorState lifecycle_state;
 static MotorMaintenanceKind maintenance_kind;
 static MotorTaskResult maintenance_result;
 static bool maintenance_runnable, torque_trip;
@@ -51,7 +51,7 @@ MotorMaintenanceKind MotorStateMachine_GetMaintenanceKind(void)
     return maintenance_kind;
 }
 
-AppLifecycleState MotorStateMachine_GetState(void)
+MotorState MotorStateMachine_GetState(void)
 {
     trace |= TRACE_STATE;
     return lifecycle_state;
@@ -149,7 +149,7 @@ static void check_result(MotorTaskResult actual)
         else
         {
             expected_trace |= TRACE_STATE;
-            if (lifecycle_state != APP_STARTING && lifecycle_state != APP_RUNNING)
+            if (lifecycle_state != MOTOR_STATE_STARTING && lifecycle_state != MOTOR_STATE_RUNNING)
             {
                 expected_trace |= TRACE_IDLE;
             }
@@ -196,9 +196,9 @@ int main(void)
 {
     unsigned cases = 0U;
     memset(&s_motor_state, 0, sizeof(s_motor_state));
-    for (unsigned state = APP_BOOT; state <= APP_FATAL; ++state)
+    for (unsigned state = MOTOR_STATE_BOOT; state <= MOTOR_STATE_FATAL; ++state)
     {
-        lifecycle_state = (AppLifecycleState)state;
+        lifecycle_state = (MotorState)state;
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)
         {
             s_motor_state.control_mode = (MotorControlMode)mode;

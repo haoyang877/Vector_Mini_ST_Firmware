@@ -1,5 +1,5 @@
 /* 电机 STOP/DISABLE 通信适配器离线测试：适配器 + 平台无关停机服务。
- * 所有者替身直接使用 AppLifecycle 纯核心，证明处理器复用现有生命周期语义、不会恒返回成功，
+ * 所有者替身直接使用 MotorStateRulesContext 纯核心，证明处理器复用现有生命周期语义、不会恒返回成功，
  * 且只有所有者确认功率输出禁止才报告 OK。不访问硬件、不接线 CAN 入口。 */
 
 #include <stdbool.h>
@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app_lifecycle.h"
+#include "motor_state_internal.h"
 #include "motor_stop_service.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_adapter.h"
@@ -25,17 +25,17 @@ static int failures;
         }                                                                                          \
     } while (0)
 
-/* ===== 所有者替身 1：直接复用 AppLifecycle 纯核心的真实语义 ===== */
+/* ===== 所有者替身 1：直接复用 MotorStateRulesContext 纯核心的真实语义 ===== */
 
 typedef struct
 {
-    AppLifecycle lifecycle;
+    MotorStateRulesContext lifecycle;
     bool power_disabled;
 } LifecycleOwner;
 
-static AppLifecycleGuards LifecycleOwner_Guards(const LifecycleOwner *owner)
+static MotorStateFacts LifecycleOwner_Guards(const LifecycleOwner *owner)
 {
-    AppLifecycleGuards guards;
+    MotorStateFacts guards;
 
     guards.active_faults = 0U;
     guards.phases_disabled = owner->power_disabled;
@@ -55,21 +55,21 @@ static AppLifecycleGuards LifecycleOwner_Guards(const LifecycleOwner *owner)
 /* 与真实适配器一致的动作语义：核心只请求，所有者记录功率级状态。 */
 static void LifecycleOwner_Apply(LifecycleOwner *owner, uint32_t actions)
 {
-    if (actions & APP_ACTION_DISABLE_POWER)
+    if (actions & MOTOR_STATE_ACTION_DISABLE_POWER)
     {
         owner->power_disabled = true;
     }
-    if (actions & APP_ACTION_START_CONTROL)
+    if (actions & MOTOR_STATE_ACTION_START_CONTROL)
     {
         owner->power_disabled = false;
     }
 }
 
-static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, AppControlMode mode)
+static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, MotorControlMode mode)
 {
-    AppLifecycleEvent event;
-    AppLifecycleGuards guards;
-    AppLifecycleResult result;
+    MotorStateEvent event;
+    MotorStateFacts guards;
+    MotorStateDecision result;
 
     memset(&event, 0, sizeof(event));
     event.events = events;
@@ -77,13 +77,13 @@ static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, AppContr
     event.request_epoch = owner->lifecycle.snapshot.epoch;
     event.completion_epoch = owner->lifecycle.snapshot.epoch;
     guards = LifecycleOwner_Guards(owner);
-    result = AppLifecycle_Step(&owner->lifecycle, &event, &guards);
+    result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
     LifecycleOwner_Apply(owner, result.actions);
 }
 
 static void LifecycleOwner_Init(LifecycleOwner *owner)
 {
-    AppLifecycle_Init(&owner->lifecycle);
+    MotorStateRules_Init(&owner->lifecycle);
     owner->power_disabled = true;
 }
 
@@ -91,38 +91,38 @@ static void LifecycleOwner_Init(LifecycleOwner *owner)
 static void LifecycleOwner_PowerOn(LifecycleOwner *owner)
 {
     LifecycleOwner_Init(owner);
-    LifecycleOwner_Send(owner, APP_EVENT_BOOT_DONE, APP_CONTROL_NONE);
-    LifecycleOwner_Send(owner, APP_EVENT_SELF_TEST_DONE, APP_CONTROL_NONE);
-    LifecycleOwner_Send(owner, APP_EVENT_ENABLE, APP_CONTROL_CURRENT);
-    LifecycleOwner_Send(owner, APP_EVENT_START_DONE, APP_CONTROL_NONE);
+    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_BOOT_DONE, MOTOR_CONTROL_NONE);
+    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_CONTROL_NONE);
+    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_ENABLE, MOTOR_CONTROL_CURRENT);
+    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_START_DONE, MOTOR_CONTROL_NONE);
 }
 
 static void LifecycleOwner_Fatal(LifecycleOwner *owner)
 {
-    AppLifecycleEvent event;
-    AppLifecycleGuards guards;
+    MotorStateEvent event;
+    MotorStateFacts guards;
 
     memset(&event, 0, sizeof(event));
-    event.events = APP_EVENT_FATAL;
-    event.faults = APP_FAULT_INTERNAL;
+    event.events = MOTOR_STATE_EVENT_FATAL;
+    event.faults = MOTOR_STATE_FAULT_INTERNAL;
     guards = LifecycleOwner_Guards(owner);
-    (void)AppLifecycle_Step(&owner->lifecycle, &event, &guards);
+    (void)MotorStateRules_Step(&owner->lifecycle, &event, &guards);
 }
 
 /* 所有者窄端口：请求停机即向核心发送 STOP；只有核心请求关相时才回报确认。 */
 static motor_stop_owner_result_t LifecycleOwner_RequestStop(void *owner_context)
 {
     LifecycleOwner *owner = owner_context;
-    AppLifecycleEvent event;
-    AppLifecycleGuards guards;
-    AppLifecycleResult result;
+    MotorStateEvent event;
+    MotorStateFacts guards;
+    MotorStateDecision result;
 
     memset(&event, 0, sizeof(event));
-    event.events = APP_EVENT_STOP;
+    event.events = MOTOR_STATE_EVENT_STOP;
     guards = LifecycleOwner_Guards(owner);
-    result = AppLifecycle_Step(&owner->lifecycle, &event, &guards);
+    result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
     LifecycleOwner_Apply(owner, result.actions);
-    if (result.rejection == APP_ACCEPTED)
+    if (result.rejection == MOTOR_STATE_ACCEPTED)
     {
         return MOTOR_STOP_OWNER_ACCEPTED;
     }
@@ -271,7 +271,7 @@ static void test_lifecycle_owner_stop_confirmed(void)
     uint32_t first_token;
 
     LifecycleOwner_PowerOn(&owner);
-    CHECK(owner.lifecycle.snapshot.state == APP_RUNNING);
+    CHECK(owner.lifecycle.snapshot.state == MOTOR_STATE_RUNNING);
     CHECK(!owner.power_disabled);
 
     CHECK(MotorStopService_Init(&stop, &LIFECYCLE_PORT, &owner));
@@ -285,7 +285,7 @@ static void test_lifecycle_owner_stop_confirmed(void)
     CHECK(reply.status == YG_PROTOCOL_SERVICE_OK);
     CHECK(reply.token != 0U);
     CHECK(owner.power_disabled);
-    CHECK(owner.lifecycle.snapshot.state == APP_STOPPING);
+    CHECK(owner.lifecycle.snapshot.state == MOTOR_STATE_STOPPING);
 
     /* 请求对象只借用：适配器与所有者都不得改动调用方数据。 */
     CHECK(memcmp(&request_before, &request, sizeof(request)) == 0);
@@ -309,7 +309,7 @@ static void test_lifecycle_owner_denied(void)
 
     LifecycleOwner_PowerOn(&owner);
     LifecycleOwner_Fatal(&owner);
-    CHECK(owner.lifecycle.snapshot.state == APP_FATAL);
+    CHECK(owner.lifecycle.snapshot.state == MOTOR_STATE_FATAL);
 
     CHECK(MotorStopService_Init(&stop, &LIFECYCLE_PORT, &owner));
     handler.stop_service = &stop;

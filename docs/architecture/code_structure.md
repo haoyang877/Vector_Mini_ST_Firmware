@@ -7,6 +7,8 @@
 | 路径 | 职责 |
 | --- | --- |
 | `firmware/app/` | board_config、bsp_task、foc_task、motor_execution、motor_axis、motor_maintenance、motor_state_machine、rtt_telemetry 等启动与运行组装 |
+| `firmware/app/motor_state_machine/` | 唯一电机主状态所有者、请求和动作；转换规则在模块内部 |
+| `firmware/services/lifecycle/` | 控制/维护值请求、停机窄端口；不含通用状态机实现 |
 | `firmware/motor/foc/` | foc、PID、采样及观测器 |
 | `firmware/motor/position/` | 位置伺服与阻抗控制 |
 | `firmware/motor/trajectory/` | 平滑轨迹及梯形轨迹 |

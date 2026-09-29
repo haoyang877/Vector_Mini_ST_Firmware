@@ -78,14 +78,14 @@ void PiController_Reset(PiController *controller)
 }
 
 /* ---- 桩：运行所有者；保存作业默认视为已完成，便于核对结果重放 ---- */
-static AppLifecycleState stub_state = APP_READY;
+static MotorState stub_state = MOTOR_STATE_READY;
 static bool stub_config_allowed = true;
 static bool stub_maintenance_found = true;
-static AppOperationResult stub_maintenance_result = APP_OPERATION_COMPLETED;
+static MotorMaintenanceResult stub_maintenance_result = MOTOR_MAINTENANCE_COMPLETED;
 static MotorControlResult stub_request_maintenance = MOTOR_CONTROL_ACCEPTED;
 static uint32_t stub_ticket = 4242U;
 
-AppLifecycleState MotorStateMachine_GetState(void)
+MotorState MotorStateMachine_GetState(void)
 {
     return stub_state;
 }
@@ -208,7 +208,7 @@ int main(void)
     CHECK(ticket == 0U);
 
     /* 准备资格可在 SELF_TEST 查询；原身份重试仍保持参数身份冲突契约。 */
-    stub_state = APP_SELF_TEST;
+    stub_state = MOTOR_STATE_SELF_TEST;
     read = (ParameterReadRequest){.parameter_id = 0x4FU, .source_node = node, .sequence = 50U};
     CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
     CHECK(value.raw_value == 3U && value.access == PARAMETER_ACCESS_READ);

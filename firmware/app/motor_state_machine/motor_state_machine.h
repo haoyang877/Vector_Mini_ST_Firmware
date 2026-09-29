@@ -9,7 +9,7 @@
 #include "foc_pid.h"
 #include "angle_feedback.h"
 #include "foc_sensorless.h"
-#include "app_lifecycle.h"
+#include "motor_state_types.h"
 #include "motor_control_command.h"
 #include "motor_lifecycle_request.h"
 
@@ -59,7 +59,7 @@ void MotorStateMachine_Tick(void);
  * @return 当前内部状态，数值不能直接用作线上枚举。
  * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
  */
-AppLifecycleState MotorStateMachine_GetState(void);
+MotorState MotorStateMachine_GetState(void);
 
 /**
  * @brief 查询指定维护模式是否已由生命周期所有者受理。

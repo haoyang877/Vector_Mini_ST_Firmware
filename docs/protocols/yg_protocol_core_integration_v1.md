@@ -218,9 +218,9 @@ E1 完成真实 guards 只构成启动接线的前置条件，不自动开放 10
 
 - [路由、能力和去重](../../firmware/communication/can/yg_protocol_link.c)
 - [电机业务适配](../../firmware/communication/protocol/yg_protocol_motor_adapter.c)
-- [运行所有者及目标复核](../../firmware/app/motor_state_machine.c)
+- [运行所有者及目标复核](../../firmware/app/motor_state_machine/motor_state_machine.c)
 - [STOP 的输出禁止确认](../../firmware/services/lifecycle/motor_stop_service.c)
-- [生命周期纯核心](../../firmware/services/lifecycle/app_lifecycle.c)
+- [生命周期纯核心](../../firmware/app/motor_state_machine/motor_state_rules.c)
 - [线路状态投影](../../firmware/app/yg_protocol_status_adapter.c)
 - [参数 schema 定义](../../firmware/services/parameters/foc_param.h)
 

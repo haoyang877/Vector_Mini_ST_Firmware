@@ -87,27 +87,27 @@ static uint8_t protocol_mode(MotorControlMode mode, MotorMaintenanceKind kind)
     }
 }
 
-static uint8_t protocol_state(AppLifecycleState state, uint8_t mode)
+static uint8_t protocol_state(MotorState state, uint8_t mode)
 {
     switch (state)
     {
-    case APP_BOOT:
+    case MOTOR_STATE_BOOT:
         return 0U;
-    case APP_SELF_TEST:
+    case MOTOR_STATE_SELF_TEST:
         return 3U;
-    case APP_READY:
+    case MOTOR_STATE_READY:
         return 5U;
-    case APP_STARTING:
+    case MOTOR_STATE_STARTING:
         return 2U;
-    case APP_RUNNING:
+    case MOTOR_STATE_RUNNING:
         return 6U;
-    case APP_STOPPING:
+    case MOTOR_STATE_STOPPING:
         return 7U;
-    case APP_MAINTENANCE:
+    case MOTOR_STATE_MAINTENANCE:
         return mode == 7U || mode == 8U ? 4U : 5U;
-    case APP_FAULT:
+    case MOTOR_STATE_FAULT:
         return 8U;
-    case APP_FATAL:
+    case MOTOR_STATE_FATAL:
     default:
         return 9U;
     }
@@ -130,11 +130,11 @@ void YgProtocolStatusAdapter_Refresh(void)
     }
     /* 前台独占 s_source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
     MotorMaintenanceKind kind;
-    AppLifecycleState state = MotorAxis_ReadStatus(
+    MotorState state = MotorAxis_ReadStatus(
         &s_source.sample, &s_source.measurement_valid_bits, &kind, &s_source.control_progress);
     s_source.faults = fault_bits((MotorFaultCode)s_source.sample.fault);
     s_source.mode = protocol_mode((MotorControlMode)s_source.sample.mode, kind);
-    s_source.state = state == APP_FATAL ? 9U
+    s_source.state = state == MOTOR_STATE_FATAL ? 9U
                      : s_source.sample.fault != MOTOR_FAULT_NONE
                          ? 8U
                          : protocol_state(state, s_source.mode);

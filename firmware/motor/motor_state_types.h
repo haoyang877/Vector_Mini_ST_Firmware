@@ -1,0 +1,18 @@
+#ifndef MOTOR_STATE_TYPES_H
+#define MOTOR_STATE_TYPES_H
+
+/* 电机主状态值契约；数值不是 CAN 编号或参数 ABI，不包含可变上下文。 */
+typedef enum
+{
+    MOTOR_STATE_BOOT,
+    MOTOR_STATE_SELF_TEST,
+    MOTOR_STATE_READY,
+    MOTOR_STATE_STARTING,
+    MOTOR_STATE_RUNNING,
+    MOTOR_STATE_MAINTENANCE,
+    MOTOR_STATE_STOPPING,
+    MOTOR_STATE_FAULT,
+    MOTOR_STATE_FATAL
+} MotorState;
+
+#endif

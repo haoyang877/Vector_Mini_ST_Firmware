@@ -1,14 +1,15 @@
 # 功能任务驱动的主状态机 v1
 
 2026-09-28，基准 fda84c2c。当前实现删除旧模式体系，生命周期使用已验证的
-AppLifecycle 纯转换核心，唯一实际所有者为 APP 的 motor_state_machine。
+电机主状态机的内部纯转换规则，唯一实际所有者为 APP 的 motor_state_machine。
+2026-09-29 模块收敛：规则和动作位于同一 APP 模块，services 不再公开通用生命周期核心。
 本轮不新增受控停止、双编码器或上位机功能，CAN Payload 布局不变；2026-09-29 自检/就绪扩展将参数升级为 schema12。
 
 ## 四类状态与代码归属
 
 | 维度 | 状态与所有者 | 作用 |
 | --- | --- | --- |
-| 生命周期 | AppLifecycle：BOOT、SELF_TEST、READY、STARTING、RUNNING、STOPPING、MAINTENANCE、FAULT、FATAL | 纯规则计算迁移和动作，无硬件访问 |
+| 生命周期 | motor_state_machine：BOOT、SELF_TEST、READY、STARTING、RUNNING、STOPPING、MAINTENANCE、FAULT、FATAL | 纯规则计算迁移和动作，无硬件访问 |
 | 控制模式 | motor_state_machine 选择 CURRENT、SPEED、POSITION、VQ、NONE | motor_execution 按已受理模式执行控制 |
 | 维护任务 | motor_state_machine 持有 kind、原始 epoch、执行资格和后台认领 | SAVE、DEFAULTS、机械零位、编码器 LUT、电零位、相阻、摩擦、齿槽串行执行 |
 | 功能内部阶段 | 各标定或辨识模块私有 | 对齐、采样、拟合等算法阶段，不决定主状态或下一任务 |
@@ -16,15 +17,18 @@ AppLifecycle 纯转换核心，唯一实际所有者为 APP 的 motor_state_mach
 ```text
 firmware/app/
   motor_axis.c             私有电机对象、快慢环组合、参数活动版本、前台服务
-  motor_state_machine.c/h   请求、真实守卫、正常功率许可、结果消费和保存衔接
+  motor_state_machine/
+    motor_state_machine.c/h 请求、真实事实、正常功率许可、结果消费和保存衔接
+    motor_state_rules.c     模块内部纯转换规则，不保存独立状态
+    motor_state_internal.h  私有上下文、事件和动作；业务模块不得引用
   motor_execution.c/h       电流/速度/位置/vq_v 执行和有界外环
   motor_maintenance.c/h     实际维护功能调用、准入原因和定向取消
   yg_protocol_*_adapter.c   线上值与一致快照边界
 firmware/services/lifecycle/
-  app_lifecycle.c/h         唯一纯生命周期转换规则
   motor_control_command.h   SI 单位目标值命令
   motor_lifecycle_request.h 维护类型、来源序号、原始票据和进展
 firmware/motor/
+  motor_state_types.h       主状态值类型，不含可变上下文或转换接口
   motor_control_mode.h      四种控制与 NONE，不包含维护或清错命令
   motor_task_result.h       功能事实；不携带下一模式、功率动作或保存指令
   identification/           具体功能和私有内部阶段
@@ -36,8 +40,8 @@ firmware/motor/
 
 ## 状态转换关系与条件
 
-2026-09-29 补齐转换关系；依据 [AppLifecycle 纯核心](../../firmware/services/lifecycle/app_lifecycle.c)
-和 [状态及事件定义](../../firmware/services/lifecycle/app_lifecycle.h)。
+2026-09-29 补齐转换关系；依据 [模块内部转换规则](../../firmware/app/motor_state_machine/motor_state_rules.c)
+和 [状态及事件定义](../../firmware/app/motor_state_machine/motor_state_internal.h)。
 下表描述核心允许的迁移，APP 的公开请求入口还会按模式、维护种类和资源状态进一步拒绝请求。
 控制模式和维护种类均不是额外的主状态。
 
@@ -96,7 +100,7 @@ READY 的新请求准入不通过通常只是拒绝，APP 如上报了具体故�
 | 任意非 FATAL 状态 | FAULT | FAULT 或活动故障 | 故障优先；若已在 FAULT，只累积锁存并继续要求关相 |
 | STARTING、RUNNING、MAINTENANCE | FAULT | 执行守卫失效 | 健康、运行许可或任务守卫失效；RUNNING 无停止事件却回读为关相也视为异常 |
 | 任意状态 | FATAL | FATAL 事件、内部上下文缺失或代际耗尽 | 关闭输出并撤销控制/维护；普通 CLEAR 无法退出 |
-| FATAL | BOOT | 外部复位后重新初始化 | 属于重新启动，不是 AppLifecycle_Step 的普通事件迁移 |
+| FATAL | BOOT | 外部复位后重新初始化 | 属于重新启动，不是 MotorStateRules_Step 的普通事件迁移 |
 
 STOPPING 可以是短暂状态：同一次核心调用会先进入 STOPPING，再检查停止确认；
 如果资源已经静默且无待确认取消，返回快照可能直接是 READY、SELF_TEST 或 FAULT。
@@ -187,3 +191,10 @@ STOP、快环故障与监督复核拒绝均终结待应用身份，来源 0 的�
 2026-09-29 起，未确认参数或未完成标定不是主状态或故障，基础健康后留在 READY。
 配置确认、标定和保存均不自动启动；准入拒绝不再锁存准备条件故障。
 详细检查、期限、诊断位和参数流程见[基础自检与模式就绪 v1](motor_readiness_v1.md)。
+
+## 模块内部边界
+
+转换规则只操作所有者传入的状态与事实，不访问硬件、Flash 或时间接口。
+事件与动作不是公共服务契约；生产路径只有 motor_state_machine.c 可以调用规则。
+通信依赖既有窄请求服务，状态值依赖 motor_state_types.h；不包含私有转换头。
+原生测试可以直接编译内部规则作为测试接缝，不产生第二个生产状态所有者。

@@ -2,7 +2,23 @@
 #define MOTOR_LIFECYCLE_REQUEST_H
 
 #include <stdint.h>
-#include "app_lifecycle.h"
+
+/** 维护终态与提交效果是独立事实；取消不等于撤销已提交的 Flash。 */
+typedef enum
+{
+    MOTOR_MAINTENANCE_NO_RESULT,
+    MOTOR_MAINTENANCE_COMPLETED,
+    MOTOR_MAINTENANCE_CANCEL_REQUESTED,
+    MOTOR_MAINTENANCE_CANCELLED,
+    MOTOR_MAINTENANCE_FAILED
+} MotorMaintenanceResult;
+
+typedef enum
+{
+    MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+    MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED,
+    MOTOR_MAINTENANCE_EFFECT_COMMITTED
+} MotorMaintenanceEffect;
 
 /** 明确业务任务，独立于 CAN 和控制模式编号。 */
 typedef enum
@@ -32,8 +48,8 @@ typedef struct
 {
     uint32_t ticket;
     MotorMaintenanceKind kind;
-    AppOperationResult result;
-    AppOperationEffect effects;
+    MotorMaintenanceResult result;
+    MotorMaintenanceEffect effects;
 } MotorMaintenanceProgress;
 
 #endif

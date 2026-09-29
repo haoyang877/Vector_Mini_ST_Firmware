@@ -151,7 +151,9 @@ def main():
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/motor_state_machine.c").read_text(encoding="utf-8"),
+            (ROOT / "firmware/app/motor_state_machine/motor_state_machine.c").read_text(
+                encoding="utf-8"
+            ),
             "run_state_vbus_in_enable_window",
         ).replace("s_foc_state->", "s_foc_state.")
         + CASES

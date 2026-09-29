@@ -27,6 +27,7 @@ NATIVE_INCLUDE_DIRS = (
     "shared/image",
     "shared/targets",
     "firmware/app",
+    "firmware/app/motor_state_machine",
     "firmware/common",
     "firmware/motor",
     "firmware/motor/foc",

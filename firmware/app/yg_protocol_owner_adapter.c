@@ -184,19 +184,19 @@ static void job_progress_reply(const MotorMaintenanceProgress *progress,
     reply->kind = job_wire_kind(progress->kind);
     switch (progress->result)
     {
-    case APP_OPERATION_NO_RESULT:
+    case MOTOR_MAINTENANCE_NO_RESULT:
         reply->phase = YG_PROTOCOL_JOB_PHASE_IN_PROGRESS;
         break;
-    case APP_OPERATION_COMPLETED:
+    case MOTOR_MAINTENANCE_COMPLETED:
         reply->phase = YG_PROTOCOL_JOB_PHASE_COMPLETED;
         break;
-    case APP_OPERATION_CANCEL_REQUESTED:
+    case MOTOR_MAINTENANCE_CANCEL_REQUESTED:
         reply->phase = YG_PROTOCOL_JOB_PHASE_CANCEL_REQUESTED;
         break;
-    case APP_OPERATION_CANCELLED:
+    case MOTOR_MAINTENANCE_CANCELLED:
         reply->phase = YG_PROTOCOL_JOB_PHASE_CANCELLED;
         break;
-    case APP_OPERATION_FAILED:
+    case MOTOR_MAINTENANCE_FAILED:
         reply->phase = YG_PROTOCOL_JOB_PHASE_FAILED;
         reply->detail = YG_PROTOCOL_JOB_DETAIL_OPERATION_FAILED;
         break;
@@ -206,10 +206,10 @@ static void job_progress_reply(const MotorMaintenanceProgress *progress,
     }
     switch (progress->effects)
     {
-    case APP_EFFECT_UNCOMMITTED:
+    case MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED:
         reply->effects = YG_PROTOCOL_JOB_EFFECT_UNCOMMITTED;
         break;
-    case APP_EFFECT_COMMITTED:
+    case MOTOR_MAINTENANCE_EFFECT_COMMITTED:
         reply->effects = YG_PROTOCOL_JOB_EFFECT_COMMITTED;
         break;
     default:
@@ -318,12 +318,12 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
     reply->detail = 0U;
     job_progress_reply(&progress, reply);
     /* QUERY的OK仅表示读到进展；phase/effects仍描述原任务实际结果。 */
-    reply->status =
-        request->operation == YG_PROTOCOL_JOB_QUERY ? YG_PROTOCOL_SERVICE_OK
-        : progress.result == APP_OPERATION_FAILED   ? YG_PROTOCOL_SERVICE_FAILED
-        : progress.result == APP_OPERATION_COMPLETED || progress.result == APP_OPERATION_CANCELLED
-            ? YG_PROTOCOL_SERVICE_OK
-            : YG_PROTOCOL_SERVICE_ACCEPTED;
+    reply->status = request->operation == YG_PROTOCOL_JOB_QUERY   ? YG_PROTOCOL_SERVICE_OK
+                    : progress.result == MOTOR_MAINTENANCE_FAILED ? YG_PROTOCOL_SERVICE_FAILED
+                    : progress.result == MOTOR_MAINTENANCE_COMPLETED ||
+                            progress.result == MOTOR_MAINTENANCE_CANCELLED
+                        ? YG_PROTOCOL_SERVICE_OK
+                        : YG_PROTOCOL_SERVICE_ACCEPTED;
 }
 
 bool YgProtocolOwner_BindServices(void)

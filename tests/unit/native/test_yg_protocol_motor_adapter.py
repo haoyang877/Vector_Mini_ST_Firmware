@@ -42,7 +42,7 @@ def main() -> None:
             "-Werror",
             str(ROOT / "tests/unit/yg_protocol_motor_adapter_test.c"),
             str(ROOT / "firmware/services/lifecycle/motor_stop_service.c"),
-            str(ROOT / "firmware/services/lifecycle/app_lifecycle.c"),
+            str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor_adapter.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor.c"),
             "-o",

@@ -1,110 +1,80 @@
-#ifndef YG_APP_LIFECYCLE_H
-#define YG_APP_LIFECYCLE_H
+#ifndef MOTOR_STATE_INTERNAL_H
+#define MOTOR_STATE_INTERNAL_H
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "motor_state_types.h"
+#include "motor_control_mode.h"
+#include "motor_lifecycle_request.h"
 
 /* 仅内部类型：取值既不是 CAN Mode/Error，也不是持久化 ABI 编号。
  * 生产路径由 APP 唯一调用方串行化事件、执行动作并发布
  * 真实硬件/资源 guards。返回 DISABLE_POWER 只是请求，不是门极已关断的证据。 */
 typedef enum
 {
-    APP_BOOT,
-    APP_SELF_TEST,
-    APP_READY,
-    APP_STARTING,
-    APP_RUNNING,
-    APP_MAINTENANCE,
-    APP_STOPPING,
-    APP_FAULT,
-    APP_FATAL
-} AppLifecycleState;
+    MOTOR_MAINTENANCE_CLASS_NONE,
+    MOTOR_MAINTENANCE_CLASS_CALIBRATION,
+    MOTOR_MAINTENANCE_CLASS_SAVE,
+    MOTOR_MAINTENANCE_CLASS_DEFAULTS,
+    MOTOR_MAINTENANCE_CLASS_ZERO
+} MotorMaintenanceClass;
 typedef enum
 {
-    APP_CONTROL_NONE,
-    APP_CONTROL_CURRENT,
-    APP_CONTROL_SPEED,
-    APP_CONTROL_POSITION,
-    APP_CONTROL_VQ
-} AppControlMode;
-typedef enum
-{
-    APP_OPERATION_NONE,
-    APP_OPERATION_CALIBRATION,
-    APP_OPERATION_SAVE,
-    APP_OPERATION_DEFAULTS,
-    APP_OPERATION_ZERO
-} AppOperation;
-typedef enum
-{
-    APP_OPERATION_NO_RESULT,
-    APP_OPERATION_COMPLETED,
-    APP_OPERATION_CANCEL_REQUESTED,
-    APP_OPERATION_CANCELLED,
-    APP_OPERATION_FAILED
-} AppOperationResult;
-typedef enum
-{
-    APP_EFFECT_UNKNOWN,
-    APP_EFFECT_UNCOMMITTED,
-    APP_EFFECT_COMMITTED
-} AppOperationEffect;
-typedef enum
-{
-    APP_ACCEPTED,
-    APP_REJECT_ARGUMENT,
-    APP_REJECT_EVENT,
-    APP_REJECT_STATE,
-    APP_REJECT_BUSY,
-    APP_REJECT_STALE_EPOCH,
-    APP_REJECT_MODE,
-    APP_REJECT_OPERATION,
-    APP_REJECT_GUARD,
-    APP_REJECT_FAULT,
-    APP_REJECT_INTERRUPTED,
-    APP_REJECT_FATAL
-} AppLifecycleRejection;
+    MOTOR_STATE_ACCEPTED,
+    MOTOR_STATE_REJECT_ARGUMENT,
+    MOTOR_STATE_REJECT_EVENT,
+    MOTOR_STATE_REJECT_STATE,
+    MOTOR_STATE_REJECT_BUSY,
+    MOTOR_STATE_REJECT_STALE_EPOCH,
+    MOTOR_STATE_REJECT_MODE,
+    MOTOR_STATE_REJECT_OPERATION,
+    MOTOR_STATE_REJECT_GUARD,
+    MOTOR_STATE_REJECT_FAULT,
+    MOTOR_STATE_REJECT_INTERRUPTED,
+    MOTOR_STATE_REJECT_FATAL
+} MotorStateRejection;
 
 enum
 {
-    APP_EVENT_BOOT_DONE = 1U,
-    APP_EVENT_SELF_TEST_DONE = 2U,
-    APP_EVENT_ENABLE = 4U,
-    APP_EVENT_START_DONE = 8U,
-    APP_EVENT_STOP = 16U,
-    APP_EVENT_FAULT = 32U,
-    APP_EVENT_FATAL = 64U,
-    APP_EVENT_CLEAR = 128U,
-    APP_EVENT_BEGIN_OPERATION = 256U,
-    APP_EVENT_OPERATION_DONE = 512U,
-    APP_EVENT_OPERATION_FAILED = 1024U,
-    APP_EVENT_LINK_RECOVERED = 2048U,
-    APP_EVENT_CANCEL = 4096U,
-    APP_EVENT_CANCEL_DONE = 8192U
+    MOTOR_STATE_EVENT_BOOT_DONE = 1U,
+    MOTOR_STATE_EVENT_SELF_TEST_DONE = 2U,
+    MOTOR_STATE_EVENT_ENABLE = 4U,
+    MOTOR_STATE_EVENT_START_DONE = 8U,
+    MOTOR_STATE_EVENT_STOP = 16U,
+    MOTOR_STATE_EVENT_FAULT = 32U,
+    MOTOR_STATE_EVENT_FATAL = 64U,
+    MOTOR_STATE_EVENT_CLEAR = 128U,
+    MOTOR_STATE_EVENT_BEGIN_OPERATION = 256U,
+    MOTOR_STATE_EVENT_OPERATION_DONE = 512U,
+    MOTOR_STATE_EVENT_OPERATION_FAILED = 1024U,
+    MOTOR_STATE_EVENT_LINK_RECOVERED = 2048U,
+    MOTOR_STATE_EVENT_CANCEL = 4096U,
+    MOTOR_STATE_EVENT_CANCEL_DONE = 8192U
 };
 enum
 {
-    APP_ACTION_DISABLE_POWER = 1U,
-    APP_ACTION_REVOKE_REQUESTS = 2U,
-    APP_ACTION_CANCEL_CONTROL = 4U,
-    APP_ACTION_CANCEL_OPERATION = 8U,
-    APP_ACTION_SELF_TEST = 16U,
-    APP_ACTION_START_CONTROL = 32U,
-    APP_ACTION_BEGIN_OPERATION = 64U,
-    APP_ACTION_FAULT_CLEARED = 128U
+    MOTOR_STATE_ACTION_DISABLE_POWER = 1U,
+    MOTOR_STATE_ACTION_REVOKE_REQUESTS = 2U,
+    MOTOR_STATE_ACTION_CANCEL_CONTROL = 4U,
+    MOTOR_STATE_ACTION_CANCEL_OPERATION = 8U,
+    MOTOR_STATE_ACTION_SELF_TEST = 16U,
+    MOTOR_STATE_ACTION_START_CONTROL = 32U,
+    MOTOR_STATE_ACTION_BEGIN_OPERATION = 64U,
+    MOTOR_STATE_ACTION_FAULT_CLEARED = 128U
 };
 /* 来源适配器可以使用低 29 位存放内部故障源。 */
-#define APP_FAULT_GUARD UINT32_C(0x20000000)
-#define APP_FAULT_OPERATION UINT32_C(0x40000000)
-#define APP_FAULT_INTERNAL UINT32_C(0x80000000)
+#define MOTOR_STATE_FAULT_GUARD UINT32_C(0x20000000)
+#define MOTOR_STATE_FAULT_OPERATION UINT32_C(0x40000000)
+#define MOTOR_STATE_FAULT_INTERNAL UINT32_C(0x80000000)
 
 typedef struct
 {
     uint32_t events, faults, completion_epoch, request_epoch;
-    AppControlMode control_mode;
-    AppOperation operation;
-    AppOperationEffect effects;
-} AppLifecycleEvent;
+    MotorControlMode control_mode;
+    MotorMaintenanceClass operation;
+    MotorMaintenanceEffect effects;
+} MotorStateEvent;
 typedef struct
 {
     uint32_t active_faults;
@@ -116,35 +86,35 @@ typedef struct
     bool start_permitted, operation_permitted, startup_confirmed;
     /* 适配器还需自行校验来源与队列时效，不能只信任 request_epoch。 */
     bool request_fresh;
-} AppLifecycleGuards;
+} MotorStateFacts;
 typedef struct
 {
-    AppLifecycleState state;
-    AppControlMode control_mode;
-    AppOperation operation, last_operation;
-    AppOperationResult operation_result;
-    AppOperationEffect operation_effects;
+    MotorState state;
+    MotorControlMode control_mode;
+    MotorMaintenanceClass operation, last_operation;
+    MotorMaintenanceResult operation_result;
+    MotorMaintenanceEffect operation_effects;
     uint32_t epoch, first_fault, latched_faults;
-} AppLifecycleSnapshot;
+} MotorStateData;
 typedef struct
 {
     /* 存储公开以便分配；只有 Init/Step 可以修改其内容。 */
-    AppLifecycleSnapshot snapshot;
+    MotorStateData snapshot;
     bool tested;
-} AppLifecycle;
+} MotorStateRulesContext;
 typedef struct
 {
-    AppLifecycleSnapshot snapshot;
+    MotorStateData snapshot;
     uint32_t actions;
-    AppLifecycleRejection rejection;
-} AppLifecycleResult;
+    MotorStateRejection rejection;
+} MotorStateDecision;
 
 /**
  * @brief 初始化生命周期实例为 BOOT 态，epoch 置 1。
  * @param app 调用方持有的生命周期实例；为 NULL 时不做任何事。
  * @note 只做赋值，不触发动作、不访问硬件。
  */
-void AppLifecycle_Init(AppLifecycle *app);
+void MotorStateRules_Init(MotorStateRulesContext *app);
 /**
  * @brief 读取只读状态快照。
  * @param app 生命周期实例。
@@ -152,7 +122,7 @@ void AppLifecycle_Init(AppLifecycle *app);
  * @return 参数有效返回 true；任一参数为空返回 false 且不写输出。
  * @note 快照不是硬件回读；任何上下文只读调用。
  */
-bool AppLifecycle_Read(const AppLifecycle *app, AppLifecycleSnapshot *snapshot);
+bool MotorStateRules_Read(const MotorStateRulesContext *app, MotorStateData *snapshot);
 /**
  * @brief 执行一次生命周期状态迁移，返回动作请求与拒绝原因。
  * @param app 生命周期实例；由唯一调用方串行调用。
@@ -171,8 +141,8 @@ bool AppLifecycle_Read(const AppLifecycle *app, AppLifecycleSnapshot *snapshot);
  *       （API 误用）。动作执行方必须在启相短临界区原子复核紧急禁止与 epoch，
  *       本纯核心无法代替该硬件门。READY/SELF_TEST 且无故障时重复 CLEAR 是幂等 no-op。
  */
-AppLifecycleResult AppLifecycle_Step(AppLifecycle *app,
-                                     const AppLifecycleEvent *event,
-                                     const AppLifecycleGuards *guards);
+MotorStateDecision MotorStateRules_Step(MotorStateRulesContext *app,
+                                        const MotorStateEvent *event,
+                                        const MotorStateFacts *guards);
 
 #endif

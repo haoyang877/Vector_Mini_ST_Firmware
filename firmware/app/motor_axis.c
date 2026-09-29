@@ -151,8 +151,8 @@ static MotorTaskResult run_fast_task(void)
                                      &s_flux_observer,
                                      &s_sensorless_startup);
     }
-    AppLifecycleState state = MotorStateMachine_GetState();
-    if (state != APP_STARTING && state != APP_RUNNING)
+    MotorState state = MotorStateMachine_GetState();
+    if (state != MOTOR_STATE_STARTING && state != MOTOR_STATE_RUNNING)
     {
         motor_hw_pwm_set_duty(0.5f, 0.5f, 0.5f);
         return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
@@ -253,10 +253,10 @@ static void sample_motor_status(MotorStatus *sample)
         sample->speed_planned = s_motor_state.speed_ramped_rad_s;
     }
 }
-AppLifecycleState MotorAxis_ReadStatus(MotorStatus *sample,
-                                       uint8_t *valid_bits,
-                                       MotorMaintenanceKind *maintenance_kind,
-                                       MotorControlProgress *control_progress)
+MotorState MotorAxis_ReadStatus(MotorStatus *sample,
+                                uint8_t *valid_bits,
+                                MotorMaintenanceKind *maintenance_kind,
+                                MotorControlProgress *control_progress)
 {
     uint32_t mask = critical_hw_enter();
     sample_motor_status(sample);
@@ -272,7 +272,7 @@ AppLifecycleState MotorAxis_ReadStatus(MotorStatus *sample,
     }
     *maintenance_kind = MotorStateMachine_GetMaintenanceKind();
     MotorStateMachine_ReadControlProgress(control_progress);
-    AppLifecycleState state = MotorStateMachine_GetState();
+    MotorState state = MotorStateMachine_GetState();
     critical_hw_exit(mask);
     return state;
 }
@@ -376,11 +376,11 @@ static void refresh_save_result(void)
     }
     MotorMaintenanceProgress progress;
     if (!MotorStateMachine_ReadMaintenance(s_save_job.ticket, &progress) ||
-        progress.result == APP_OPERATION_CANCELLED)
+        progress.result == MOTOR_MAINTENANCE_CANCELLED)
     {
         s_save_job.result = PARAMETER_CANCELLED;
     }
-    else if (progress.result == APP_OPERATION_FAILED)
+    else if (progress.result == MOTOR_MAINTENANCE_FAILED)
     {
         s_save_job.result = PARAMETER_PERSIST_FAILED;
     }
@@ -416,8 +416,9 @@ ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, Par
     }
     else
     {
-        AppLifecycleState state = MotorStateMachine_GetState();
-        result = state == APP_MAINTENANCE || state == APP_STARTING || state == APP_STOPPING
+        MotorState state = MotorStateMachine_GetState();
+        result = state == MOTOR_STATE_MAINTENANCE || state == MOTOR_STATE_STARTING ||
+                         state == MOTOR_STATE_STOPPING
                      ? PARAMETER_BUSY
                      : ParameterValue_Read(&s_motor_state,
                                            &s_rotor_encoder,

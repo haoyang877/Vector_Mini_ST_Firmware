@@ -35,6 +35,8 @@ The architecture checker resolves local quoted includes and rejects new violatio
 - The fast motor loop owns deterministic sensing, foc, protection, and actuation paths.
 - Services expose parameters and telemetry without owning platform peripherals.
 - Communication validates wire data at the boundary and invokes explicit services.
+- The motor main state machine and its private transition rules form one APP module at
+  `firmware/app/motor_state_machine/`; services publish requests, not a second lifecycle core.
 - Application code assembles tasks and modes; it must not become a second protocol layer.
 - Hardware bench tools are outside normal verification and require explicit physical context.
 

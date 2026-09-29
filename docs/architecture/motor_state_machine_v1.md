@@ -259,4 +259,5 @@ RequestEnable 和 RequestMaintenance 复用各自临界区内的事实，清理�
 参数写入、Loader 交接和停止完成仍要求实际关相、功能静默及资源归还。
 
 远程重试、维护终态和后台借用有生产调用，不能按闲置功能删除；无感算法仍被编码器
-LUT 标定使用。删减范围和回退见[执行计划](../plans/active/2026-09-29-motor-state-core-v1.md)。
+LUT 标定使用。删减范围和回退见[执行计划](../plans/completed/2026-09-29-motor-state-core-v1.md)，
+实际容量和行为对照见[验收记录](../reports/2026-09/motor_state_core_20260929.md)。

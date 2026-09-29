@@ -59,7 +59,7 @@ uint8_t Protocol_NodeId_Get(void)
 {
     return 1U;
 }
-void Task_Position_Mode_Reset(void)
+void MotorOuterLoop_RequestReset(void)
 {
 }
 void FOC_CurrentController_Reset(FocState *foc)

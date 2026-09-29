@@ -90,6 +90,7 @@ def main() -> None:
         "loader/core/upgrade.c",
         "shared/image/image_transfer.c",
         "shared/boot/image_mailbox.c",
+        "shared/checksum/crc32.c",
         "shared/protocol/yg_protocol_upgrade_wire.c",
         "shared/protocol/yg_protocol_can_id.c",
         "shared/protocol/yg_protocol_frame_codec.c",

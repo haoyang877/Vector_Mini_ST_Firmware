@@ -1,30 +1,6 @@
 /* job 服务边界：显式注入后端，不读取全局状态或访问硬件。 */
 #include "yg_protocol_job.h"
-
-static uint16_t read_le16(const uint8_t *data)
-{
-    return (uint16_t)data[0] | ((uint16_t)data[1] << 8U);
-}
-
-static uint32_t read_le32(const uint8_t *data)
-{
-    return (uint32_t)data[0] | ((uint32_t)data[1] << 8U) | ((uint32_t)data[2] << 16U) |
-           ((uint32_t)data[3] << 24U);
-}
-
-static void write_le16(uint8_t *data, uint16_t value)
-{
-    data[0] = (uint8_t)value;
-    data[1] = (uint8_t)(value >> 8U);
-}
-
-static void write_le32(uint8_t *data, uint32_t value)
-{
-    for (uint8_t i = 0U; i < 4U; ++i)
-    {
-        data[i] = (uint8_t)(value >> (8U * i));
-    }
-}
+#include "yg_protocol_byte_order.h"
 
 yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message,
                                             yg_protocol_job_request_t *request)
@@ -46,8 +22,8 @@ yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message
     {
     case YG_PROTOCOL_JOB_TYPE_START:
         candidate.operation = YG_PROTOCOL_JOB_START;
-        candidate.kind = read_le16(message->payload);
-        if (candidate.kind == 0U || read_le16(message->payload + 2U) != 0U)
+        candidate.kind = YgProtocol_ReadU16Le(message->payload);
+        if (candidate.kind == 0U || YgProtocol_ReadU16Le(message->payload + 2U) != 0U)
         {
             return YG_PROTOCOL_INVALID_FIELD;
         }
@@ -57,7 +33,7 @@ yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message
         candidate.operation = message->message_type == YG_PROTOCOL_JOB_TYPE_STATUS
                                   ? YG_PROTOCOL_JOB_QUERY
                                   : YG_PROTOCOL_JOB_CANCEL;
-        candidate.job_id = read_le32(message->payload);
+        candidate.job_id = YgProtocol_ReadU32Le(message->payload);
         if (candidate.job_id == 0U)
         {
             return YG_PROTOCOL_INVALID_FIELD;
@@ -95,10 +71,10 @@ yg_protocol_result_t yg_protocol_job_encode_reply(const yg_protocol_job_reply_t 
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
-    write_le16(payload, yg_protocol_service_result_code(reply->status));
-    write_le16(payload + 2U, reply->detail);
-    write_le32(payload + 4U, reply->token);
-    write_le16(payload + 8U, reply->kind);
+    YgProtocol_WriteU16Le(payload, yg_protocol_service_result_code(reply->status));
+    YgProtocol_WriteU16Le(payload + 2U, reply->detail);
+    YgProtocol_WriteU32Le(payload + 4U, reply->token);
+    YgProtocol_WriteU16Le(payload + 8U, reply->kind);
     payload[10] = reply->phase;
     payload[11] = reply->effects;
     if (written != NULL)

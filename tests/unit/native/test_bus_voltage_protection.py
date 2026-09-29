@@ -175,7 +175,7 @@ def main():
         "-I",
         str(ROOT / "firmware/motor/foc"),
         str(fixture),
-        str(ROOT / "firmware/common/crc32.c"),
+        str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
         "-o",
         str(exe),

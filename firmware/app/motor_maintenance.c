@@ -158,7 +158,7 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
         {
             return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
         }
-        Task_Position_Mode_Reset();
+        MotorOuterLoop_RequestReset();
         return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
     case MOTOR_MAINTENANCE_DEFAULTS:
         Param_Return_Default(motor, encoder);

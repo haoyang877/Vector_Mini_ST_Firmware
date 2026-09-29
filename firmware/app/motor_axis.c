@@ -104,7 +104,7 @@ void MotorAxis_Init(void)
 
     s_motor_state.position_error_window_rad = 0.001f;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
-    Task_Position_Mode_Reset();
+    MotorOuterLoop_RequestReset();
     MotorMaintenance_Init();
 
     /* 未配置轴记录的关节在启动后保持禁用。 */
@@ -492,7 +492,7 @@ ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
         {
             advance_config_revision();
             /* 原有控制器复位边界，不在这里重写控制数学或增益公式。 */
-            Task_Position_Mode_Reset();
+            MotorOuterLoop_RequestReset();
             FOC_CurrentController_Reset(&s_foc_state);
             PiController_Reset(&s_speed_pi);
             result = ParameterValue_Read(&s_motor_state,

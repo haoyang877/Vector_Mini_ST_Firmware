@@ -67,7 +67,7 @@ allows = ["common", "platform_api"]
 
 [architecture.layers.motor]
 paths = ["firmware/motor"]
-allows = ["common", "platform_api", "motor"]
+allows = ["common", "platform_api", "motor", "shared"]
 
 [architecture.layers.services]
 paths = ["firmware/services"]

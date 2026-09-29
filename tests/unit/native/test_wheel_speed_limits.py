@@ -194,7 +194,7 @@ def main():
         str(source),
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
         str(ROOT / "firmware/motor/identification/cogging_map.c"),
-        str(ROOT / "firmware/common/crc32.c"),
+        str(ROOT / "shared/checksum/crc32.c"),
         "-o",
         str(exe),
     ]

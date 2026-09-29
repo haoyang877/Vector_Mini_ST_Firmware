@@ -10,6 +10,50 @@
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 
+typedef struct
+{
+    float position_reference;
+    float speed_reference;
+    float acceleration_reference;
+    float speed_feedback_rad_s;
+    float iq_reference;
+    float feedback_current;
+    float acceleration_feedforward_current;
+    float friction_feedforward_current;
+    float hold_current;
+    PositionServoPhase phase;
+    bool target_reached;
+} PositionTestOutput;
+/* 场景断言组合公开控制结果和遥测；不读取核心私有状态。 */
+static bool position_test_update(const PositionCascadeConfig *config,
+                                 float position_rad,
+                                 float speed_rad_s,
+                                 PositionTestOutput *output)
+{
+    PositionCascadeControlOutput control;
+    PositionCascadeTelemetry telemetry;
+    if (!PositionCascade_UpdateControl(config, position_rad, speed_rad_s, output ? &control : NULL))
+    {
+        return false;
+    }
+    if (!PositionCascade_GetTelemetry(&telemetry))
+    {
+        return false;
+    }
+    output->position_reference = control.position_reference;
+    output->speed_reference = control.speed_reference;
+    output->speed_feedback_rad_s = control.speed_feedback_rad_s;
+    output->iq_reference = control.iq_reference;
+    output->target_reached = control.target_reached;
+    output->acceleration_reference = telemetry.acceleration_reference;
+    output->feedback_current = telemetry.feedback_current;
+    output->acceleration_feedforward_current = telemetry.acceleration_feedforward_current;
+    output->friction_feedforward_current = telemetry.friction_feedforward_current;
+    output->hold_current = telemetry.hold_current;
+    output->phase = telemetry.phase;
+    return true;
+}
+
 static PositionCascadeConfig config(void)
 {
     PositionCascadeConfig c;
@@ -47,10 +91,10 @@ static PositionCascadeConfig config(void)
     return c;
 }
 
-static PositionCascadeOutput step(PositionCascadeConfig *c, float position, float speed)
+static PositionTestOutput step(PositionCascadeConfig *c, float position, float speed)
 {
-    PositionCascadeOutput o;
-    assert(PositionCascade_Update(c, position, speed, &o));
+    PositionTestOutput o;
+    assert(position_test_update(c, position, speed, &o));
     assert(isfinite(o.iq_reference));
     assert(fabsf(o.iq_reference) <= c->current_limit_a + 0.00001f);
     assert(fabsf(o.iq_reference - o.feedback_current - o.acceleration_feedforward_current -
@@ -62,44 +106,44 @@ static PositionCascadeOutput step(PositionCascadeConfig *c, float position, floa
 static void test_invalid_config(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascade_Reset();
     c.hold_exit_position = c.hold_enter_position;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c = config();
     c.following_error_limit = -1;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c = config();
     c.velocity_filter_hz = NAN;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c = config();
     c.stiction_integral_rate = -1;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c = config();
     c.stiction_integral_rate = INFINITY;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c = config();
-    assert(!PositionCascade_Update(&c, NAN, 0, &o));
-    assert(!PositionCascade_Update(&c, 0, INFINITY, &o));
-    assert(!PositionCascade_Update(&c, 0, 0, NULL));
-    assert(PositionCascade_Update(&c, 0, 0, &o));
-    assert(PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, NAN, 0, &o));
+    assert(!position_test_update(&c, 0, INFINITY, &o));
+    assert(!position_test_update(&c, 0, 0, NULL));
+    assert(position_test_update(&c, 0, 0, &o));
+    assert(position_test_update(&c, 0, 0, &o));
     c.target_position = NAN;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c.target_position = 0.1f;
-    assert(PositionCascade_Update(&c, 0, 0, &o));
+    assert(position_test_update(&c, 0, 0, &o));
     c.current_limit_a = NAN;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
     c = config();
-    assert(PositionCascade_Update(&c, 0, 0, &o));
+    assert(position_test_update(&c, 0, 0, &o));
     c.hold_exit_position = c.hold_enter_position;
-    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    assert(!position_test_update(&c, 0, 0, &o));
 }
 
 static void test_low_speed_feedback(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i;
     c.target_position = 1;
@@ -116,7 +160,7 @@ static void test_low_speed_feedback(void)
 static void test_quiet_hold_with_recorded_noise_range(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     int i;
     PositionCascade_Reset();
     /* Recorded final errors: approximately 0.03-0.09 deg, no macro movement. */
@@ -139,7 +183,7 @@ static void test_hold_velocity_noise_transfer(void)
         for (frequency = 40; frequency <= 80; frequency += 40)
         {
             PositionCascadeConfig c = config();
-            PositionCascadeOutput o = {0};
+            PositionTestOutput o = {0};
             float base_velocity = 0, ratio, alpha;
             double baseline_energy = 0, actual_energy = 0;
             c.update_period_s = 1.0f / (float)rate;
@@ -188,7 +232,7 @@ static void test_hold_velocity_noise_transfer(void)
 static void test_hold_filter_keeps_stiffness_and_exit_sensing(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i, sign;
     c.position_kp = 8;
@@ -225,7 +269,7 @@ static void test_hold_filter_keeps_stiffness_and_exit_sensing(void)
 static void test_live_hold_filter_switch_preserves_state(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float support;
     int i, toggle;
     c.friction_feedforward_enabled = 0;
@@ -251,15 +295,15 @@ static void test_live_hold_filter_switch_preserves_state(void)
                c.hold_velocity_filter_hz);
     }
     c.hold_velocity_filter_hz = NAN;
-    assert(!PositionCascade_Update(&c, c.target_position, 0, &o));
+    assert(!position_test_update(&c, c.target_position, 0, &o));
     c.hold_velocity_filter_hz = -1;
-    assert(!PositionCascade_Update(&c, c.target_position, 0, &o));
+    assert(!position_test_update(&c, c.target_position, 0, &o));
 }
 
 static void test_hold_retains_support_and_recovers_disturbance(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float support;
     int i;
     PositionCascade_Reset();
@@ -297,7 +341,7 @@ static void test_hold_exit_restarts_opposing_integral_transport(void)
     for (sign = -1; sign <= 1; sign += 2)
     {
         PositionCascadeConfig c = config();
-        PositionCascadeOutput o;
+        PositionTestOutput o;
         float support, previous;
         c.target_position = sign * 0.05f;
         c.position_kp = 8;
@@ -339,7 +383,7 @@ static void test_hold_exit_restarts_opposing_integral_transport(void)
 static void test_recover_stalled_landing_before_trajectory_ends(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i;
     PositionCascade_Reset();
@@ -365,7 +409,7 @@ static void test_deceleration_keeps_friction_until_capture(void)
     for (sign = -1; sign <= 1; sign += 2)
     {
         PositionCascadeConfig c = config();
-        PositionCascadeOutput o;
+        PositionTestOutput o;
         PositionCascadeTelemetry t;
         float full = sign > 0 ? c.friction_coulomb_positive : c.friction_coulomb_negative;
         c.target_position = (float)sign;
@@ -395,7 +439,7 @@ static void test_deceleration_keeps_friction_until_capture(void)
 static void test_reversal_and_saturation(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float previous;
     int i, crossed = 0;
     PositionCascade_Reset();
@@ -425,7 +469,7 @@ static void test_reversal_and_saturation(void)
 static void test_braking_preserves_learned_load_until_reversal(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float learned;
     int i;
     c.target_position = 1.0f;
@@ -453,7 +497,7 @@ static void test_braking_preserves_learned_load_until_reversal(void)
 static void test_nearly_finished_reference_retains_approach(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i, observed = 0;
     c.target_position = .1f;
@@ -485,7 +529,7 @@ static void test_trajectory_decelerates_without_second_speed_rise(void)
             for (k = 0; k < 3; ++k)
             {
                 PositionCascadeConfig c = config();
-                PositionCascadeOutput o;
+                PositionTestOutput o;
                 PositionCascadeTelemetry t;
                 float previous_speed = 0, previous_acceleration = 0, previous_position = 0;
                 int braking = 0;
@@ -530,7 +574,7 @@ static void test_trajectory_decelerates_without_second_speed_rise(void)
 static float stalled_reference_peak(float following_limit, int *limited)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     float peak = 0;
     float previous_acceleration = 0;
@@ -565,7 +609,7 @@ static void test_reference_governor(void)
 static void test_residual_load_can_accumulate_after_boost(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float initial_integral;
     int i;
     c.target_position = 0.2f;
@@ -581,7 +625,7 @@ static void test_residual_load_can_accumulate_after_boost(void)
 static void test_divider_and_small_retarget(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i;
     c.call_divider = 10U;
@@ -609,7 +653,7 @@ static void test_divider_and_small_retarget(void)
 static void test_pid4_noise_plateau_can_hold(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i;
     /* Capture _4 stopped around 0.18 deg, with tails reaching 0.203 deg.
@@ -639,7 +683,7 @@ static void test_stiction_growth_and_motion_exit(void)
     for (direction = -1; direction <= 1; direction += 2)
     {
         PositionCascadeConfig c = config();
-        PositionCascadeOutput o;
+        PositionTestOutput o;
         PositionCascadeTelemetry t;
         float before;
         c.target_position = (float)direction * 0.15f;
@@ -677,7 +721,7 @@ static void test_stiction_growth_and_motion_exit(void)
 static void test_capture_survives_feedforward_release(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     int i;
     PositionCascade_Reset();
     for (i = 0; i < 4000; ++i)
@@ -697,7 +741,7 @@ static void test_capture_survives_feedforward_release(void)
 static void test_stiction_disabled_and_default_governor_off(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     int i;
     assert(c.following_error_limit == 0);
@@ -719,7 +763,7 @@ static void test_stiction_disabled_and_default_governor_off(void)
 static void test_uncaptured_hysteresis_band_keeps_correcting(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry t;
     float initial;
     int i;
@@ -749,7 +793,7 @@ static void test_uncaptured_hysteresis_band_keeps_correcting(void)
 static int replay(const char *input_path, const char *output_path)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     PositionCascadeTelemetry telemetry;
     FILE *input = fopen(input_path, "r");
     FILE *output = fopen(output_path, "w");
@@ -790,7 +834,7 @@ static void test_bounded_speed_correction_headroom(void)
     for (direction = -1; direction <= 1; direction += 2)
     {
         PositionCascadeConfig c = config();
-        PositionCascadeOutput o;
+        PositionTestOutput o;
         PositionCascadeTelemetry t;
         c.target_position = (float)direction;
         c.maximum_speed = .1f;
@@ -843,7 +887,7 @@ static void test_configuration_padding_does_not_trigger_revalidation(void)
 static void test_retarget_preserves_reference_state(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o, previous;
+    PositionTestOutput o, previous;
     PositionCascadeTelemetry t;
     float old_speed;
     int i;
@@ -897,7 +941,7 @@ static void test_capture_release_is_soft_until_target_crossing(void)
     for (sign = -1; sign <= 1; sign += 2)
     {
         PositionCascadeConfig c = config();
-        PositionCascadeOutput o;
+        PositionTestOutput o;
         float before;
         c.target_position = sign * .1f;
         c.velocity_filter_hz = 0;
@@ -953,7 +997,7 @@ static void test_operating_envelopes(void)
                 for (sign = -1; sign <= 1; sign += 2)
                 {
                     PositionCascadeConfig c = config();
-                    PositionCascadeOutput o;
+                    PositionTestOutput o;
                     PositionCascadeTelemetry t;
                     float q = 0, v = 0;
                     c.current_limit_a = currents[ci];
@@ -998,7 +1042,7 @@ static void test_operating_envelopes(void)
 static void test_single_filter_across_phases(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float filtered = 0, ratio, alpha;
     bool saw_move = false, saw_hold = false;
     int i;
@@ -1025,7 +1069,7 @@ static void test_single_filter_across_phases(void)
 static void test_live_filter_reconfiguration(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     float before, expected, ratio;
     PositionCascade_Reset();
     o = step(&c, 0, 0);
@@ -1051,7 +1095,7 @@ static void test_live_filter_reconfiguration(void)
 static void test_live_hold_period_reconfiguration(void)
 {
     PositionCascadeConfig c = config();
-    PositionCascadeOutput o;
+    PositionTestOutput o;
     int i;
     c.velocity_filter_hz = 0;
     PositionCascade_Reset();

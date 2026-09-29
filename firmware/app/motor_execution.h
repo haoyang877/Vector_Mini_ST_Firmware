@@ -46,30 +46,10 @@ void Task_Current_Mode(FocState *foc,
                        EncoderState *encoder,
                        FluxObserverState *flux_observer);
 /**
- * @brief  速度模式任务：执行一拍速度外环（含斜坡、限幅与电流指令）。
- * @param  foc foc 状态。
- * @param  motor_state 电机控制状态。
- * @param  controller 速度 PI 控制器。
- * @param  encoder 编码器状态。
- * @note 仅快速环调用；控制器就绪由运行状态机在准入时把关。
- */
-void Task_Speed_Mode(FocState *foc,
-                     MotorControlState *motor_state,
-                     PiController *controller,
-                     EncoderState *encoder);
-/**
- * @brief  位置模式适配任务：外环就绪前锁定当前位置并完成入口准备。
- * @param  foc foc 状态。
- * @param  motor_state 电机控制状态。
- * @param  encoder 编码器状态。
- * @note 生产路径由外环执行本适配器；外部入口供调试与夹具使用。
- */
-void Task_Position_Mode(FocState *foc, MotorControlState *motor_state, EncoderState *encoder);
-/**
- * @brief  复位位置模式适配状态：请求外环在下一慢拍重建，并清零位置状态。
+ * @brief  请求外环在下一慢拍复位控制、配置缓存与遥测就绪状态。
  * @note 模式切换与故障入口调用；可在非快速环上下文调用。
  */
-void Task_Position_Mode_Reset(void);
+void MotorOuterLoop_RequestReset(void);
 /**
  * @brief  vq_v 开环电压模式任务：固定电角度施加 q 轴电压。
  * @param  foc foc 状态。

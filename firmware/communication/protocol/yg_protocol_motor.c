@@ -1,13 +1,8 @@
 /* motor 服务边界：显式注入后端，不读取全局状态或访问硬件。 */
 #include "yg_protocol_motor.h"
+#include "yg_protocol_byte_order.h"
 
 #include <stddef.h>
-
-static uint32_t read_u32(const uint8_t *payload)
-{
-    return (uint32_t)payload[0] | ((uint32_t)payload[1] << 8U) | ((uint32_t)payload[2] << 16U) |
-           ((uint32_t)payload[3] << 24U);
-}
 
 yg_protocol_result_t yg_protocol_motor_decode_enable(const yg_protocol_message_t *message,
                                                      bool *enabled)
@@ -57,10 +52,10 @@ yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_
     decoded.source_node = message->source_node;
     decoded.sequence = message->sequence;
     decoded.mode = payload[0];
-    decoded.position_mrad = (int32_t)read_u32(payload + 4U);
-    decoded.speed_mrad_s = (int32_t)read_u32(payload + 8U);
-    decoded.iq_mA = (int32_t)read_u32(payload + 12U);
-    decoded.v_q_mV = (int32_t)read_u32(payload + 16U);
+    decoded.position_mrad = (int32_t)YgProtocol_ReadU32Le(payload + 4U);
+    decoded.speed_mrad_s = (int32_t)YgProtocol_ReadU32Le(payload + 8U);
+    decoded.iq_mA = (int32_t)YgProtocol_ReadU32Le(payload + 12U);
+    decoded.v_q_mV = (int32_t)YgProtocol_ReadU32Le(payload + 16U);
     if (decoded.mode < 1U || decoded.mode > 6U || payload[1] != 0U || payload[2] != 0U ||
         payload[3] != 0U ||
         (decoded.mode != 3U && decoded.mode != 4U && decoded.position_mrad != 0) ||
@@ -72,12 +67,6 @@ yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_
     }
     *request = decoded;
     return YG_PROTOCOL_OK;
-}
-
-static void put_u16(uint8_t *payload, uint16_t value)
-{
-    payload[0] = (uint8_t)value;
-    payload[1] = (uint8_t)(value >> 8U);
 }
 
 yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_service_t *service,
@@ -117,8 +106,8 @@ yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_re
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
-    put_u16(payload, yg_protocol_motor_result_code(reply->status));
-    put_u16(payload + 2U, reply->detail);
+    YgProtocol_WriteU16Le(payload, yg_protocol_motor_result_code(reply->status));
+    YgProtocol_WriteU16Le(payload + 2U, reply->detail);
     if (written != NULL)
     {
         *written = YG_PROTOCOL_MOTOR_REPLY_SIZE;

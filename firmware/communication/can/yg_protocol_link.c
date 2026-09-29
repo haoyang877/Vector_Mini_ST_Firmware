@@ -1,5 +1,7 @@
 /* CAN FD 组合层：后台路由，电机业务经显式绑定注入；不直接访问电机控制。 */
 #include "yg_protocol_link.h"
+#include "yg_protocol_request.h"
+#include "yg_protocol_byte_order.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -86,7 +88,6 @@ static yg_protocol_readonly_service_t s_readonly_service;
 static yg_protocol_endpoint_t s_endpoint;
 static bool s_ready;
 
-static bool request_is_valid(const yg_protocol_message_t *request);
 static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail);
 
 /* 业务入口公共守卫：上下文/请求/结果指针非空且线格式有效，否则按无效字段拒绝。 */
@@ -94,7 +95,8 @@ static bool request_context_valid(const yg_protocol_link_context_t *link,
                                   const yg_protocol_message_t *request,
                                   const yg_protocol_service_result_t *result)
 {
-    return link != NULL && request != NULL && result != NULL && request_is_valid(request);
+    return link != NULL && request != NULL && result != NULL &&
+           YgProtocol_IsAckUnicastRequest(request);
 }
 
 static yg_protocol_result_t provide_unavailable(uint8_t *payload, uint32_t *payload_length)
@@ -241,20 +243,9 @@ static yg_protocol_result_t handle_motor_action(void *context,
 
 static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail)
 {
-    response->response_payload[0] = (uint8_t)code;
-    response->response_payload[1] = (uint8_t)(code >> 8U);
-    response->response_payload[2] = (uint8_t)detail;
-    response->response_payload[3] = (uint8_t)(detail >> 8U);
+    YgProtocol_WriteU16Le(response->response_payload, code);
+    YgProtocol_WriteU16Le(response->response_payload + 2U, detail);
     response->response_payload_length = YG_PROTOCOL_MOTOR_REPLY_SIZE;
-}
-
-static bool request_is_valid(const yg_protocol_message_t *request)
-{
-    return request->version == YG_PROTOCOL_VERSION && request->reserved == 0U &&
-           request->source_node != YG_PROTOCOL_BROADCAST_NODE_ID &&
-           request->destination_node != YG_PROTOCOL_BROADCAST_NODE_ID &&
-           (request->flags == YG_PROTOCOL_FLAGS_ACK_REQUEST ||
-            request->flags == (YG_PROTOCOL_FLAGS_ACK_REQUEST | YG_PROTOCOL_FLAGS_RETRY));
 }
 
 static yg_protocol_result_t handle_motor_control(void *context,

@@ -33,6 +33,7 @@ def main():
     header = (ROOT / "firmware/motor/position/position_cascade.h").read_text(encoding="utf-8-sig")
     names = sorted(set(re.findall(r"\bPositionCascade_\w+(?=\()", header)))
     old_header = header
+    names += ["PositionCascade_Update", "PositionCascade_UpdateTarget"]
     old = (
         args.reference_source.read_text(encoding="utf-8-sig")
         if args.reference_source
@@ -44,6 +45,16 @@ def main():
         "../system/fast_loop_profile.h", "fast_loop_profile.h"
     )
     old = project_reference(old, "firmware/motor/position/position_cascade.c")
+    legacy_header = subprocess.check_output(
+        ["git", "show", "05d98016:firmware/motor/position/position_cascade.h"], cwd=ROOT
+    ).decode("utf-8")
+    legacy_end = legacy_header.index("} PositionCascadeOutput;") + len("} PositionCascadeOutput;")
+    legacy_start = legacy_header.rfind("typedef struct", 0, legacy_end)
+    rich_type = legacy_header[legacy_start:legacy_end]
+    legacy_prototypes = """
+bool PositionCascade_Update_Reference(const PositionCascadeConfig *,float,float,PositionCascadeOutput *);
+bool PositionCascade_UpdateTarget_Reference(float,float,float,PositionCascadeOutput *);
+"""
     for name in names:
         old = re.sub(r"\b" + name + r"\b", name + "_Reference", old)
         old_header = re.sub(r"\b" + name + r"\b", name + "_Reference", old_header)
@@ -54,8 +65,10 @@ def main():
             "#endif"
         )
     ]
+    prototypes += legacy_prototypes
     old = old.replace(
-        '#include "position_cascade.h"', '#include "position_cascade.h"\n' + prototypes
+        '#include "position_cascade.h"',
+        '#include "position_cascade.h"\n' + rich_type + "\n" + prototypes,
     )
     old += "\nconst void *PositionCore_ReferenceState(void) { return &s_state; }\n"
     old += "size_t PositionCore_ReferenceSize(void) { return sizeof(s_state); }\n"
@@ -66,6 +79,8 @@ def main():
         )
     actual += (
         "\n"
+        + rich_type
+        + "\n"
         + prototypes
         + r"""
 #include <stdio.h>
@@ -85,31 +100,6 @@ static void compare_state(void) {
 }
 void PositionCascade_Reset(void) {
     PositionCascade_Reset_Actual(); PositionCascade_Reset_Reference(); compare_state();
-}
-static bool compare_result(bool a, bool b, PositionCascadeOutput *output,
-    const PositionCascadeOutput *actual_output,
-    const PositionCascadeOutput *reference_output) {
-    ++PositionCore_ComparedTicks;
-    if (a != b || (output && memcmp(actual_output,reference_output,sizeof(*output)))) {
-        fprintf(stderr,"Output mismatch tick %lu\n",PositionCore_ComparedTicks); abort();
-    }
-    compare_state();
-    if (output) *output=*actual_output;
-    return a;
-}
-bool PositionCascade_Update(const PositionCascadeConfig *config,
-    float position, float speed, PositionCascadeOutput *output) {
-    PositionCascadeOutput a={0},b={0};
-    bool x=PositionCascade_Update_Actual(config,position,speed,output ? &a : NULL);
-    bool y=PositionCascade_Update_Reference(config,position,speed,output ? &b : NULL);
-    return compare_result(x,y,output,&a,&b);
-}
-bool PositionCascade_UpdateTarget(float target,float position,float speed,
-    PositionCascadeOutput *output) {
-    PositionCascadeOutput a={0},b={0};
-    bool x=PositionCascade_UpdateTarget_Actual(target,position,speed,output ? &a : NULL);
-    bool y=PositionCascade_UpdateTarget_Reference(target,position,speed,output ? &b : NULL);
-    return compare_result(x,y,output,&a,&b);
 }
 static bool compare_control(bool x,bool y,PositionCascadeControlOutput *output,
     const PositionCascadeControlOutput *a,const PositionCascadeOutput *b) {
@@ -138,15 +128,6 @@ bool PositionCascade_UpdateTargetControl(float target,float position,float speed
     bool x=PositionCascade_UpdateTargetControl_Actual(target,position,speed,output ? &a : NULL);
     bool y=PositionCascade_UpdateTarget_Reference(target,position,speed,output ? &b : NULL);
     return compare_control(x,y,output,&a,&b);
-}
-/* Run the original scenario assertions through the compact production API too.
- * Restore rich outputs only in this host bridge, from the same private state. */
-bool PositionCore_CompactBridge(const PositionCascadeConfig *config,
-    float position,float speed,PositionCascadeOutput *output) {
-    PositionCascadeControlOutput compact;
-    bool ok=PositionCascade_UpdateControl(config,position,speed,output ? &compact : NULL);
-    if(ok && output) position_cascade_copy_output(output);
-    return ok;
 }
 """
     )
@@ -198,21 +179,7 @@ int main(int argc,char **argv) {
         str(exe),
     ]
     logs = []
-    compact_fixture = fixture.replace("PositionCascade_Update(", "PositionCore_CompactBridge(")
-    compact_fixture = compact_fixture.replace(
-        '#include "position_cascade.h"',
-        """#include "position_cascade.h"
-bool PositionCore_CompactBridge(const PositionCascadeConfig *,float,float,
-    PositionCascadeOutput *);""",
-    )
-    compact_path = out / "compact_scenarios.c"
-    compact_path.write_text(compact_fixture, encoding="utf-8")
-    compact_exe = out / "compact_equivalence.exe"
-    compact_command = [
-        str(compact_path) if x == paths[-1] else str(compact_exe) if x == str(exe) else x
-        for x in command
-    ]
-    for cmd in [command, [str(exe)], compact_command, [str(compact_exe)]]:
+    for cmd in [command, [str(exe)]]:
         result = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
         logs.append(result.stdout + result.stderr)
         (out / "test.log").write_text("\n".join(logs), encoding="utf-8")

@@ -318,7 +318,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32G431xx</Define>
               <Undefine />
-              <IncludePath>.;..\..\core;..\..\ports\stm32g4;..\..\boards\vector_mini_st;..\..\..\shared\targets;..\..\..\shared\image;..\..\..\shared\boot;..\..\..\shared\protocol;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Include;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Device\ST\STM32G4xx\Include</IncludePath>
+              <IncludePath>.;..\..\core;..\..\ports\stm32g4;..\..\boards\vector_mini_st;..\..\..\shared\targets;..\..\..\shared\image;..\..\..\shared\boot;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Include;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Device\ST\STM32G4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -407,6 +407,11 @@
         <Group>
           <GroupName>Shared contracts</GroupName>
           <Files>
+            <File>
+              <FileName>crc32.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\shared\checksum\crc32.c</FilePath>
+            </File>
             <File>
               <FileName>image_mailbox.c</FileName>
               <FileType>1</FileType>

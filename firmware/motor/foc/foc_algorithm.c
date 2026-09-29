@@ -232,6 +232,35 @@ void SVM_SectorJudge(
     }
 }
 
+/* 两种控制策略共享采样变换，保持各自 PI 与电压给定。 */
+static inline void foc_measure_currents(FocState *foc, float phase)
+{
+    Clarke_Transform(foc->phase_a_current_a,
+                     foc->phase_b_current_a,
+                     foc->phase_c_current_a,
+                     &foc->current_alpha_a,
+                     &foc->current_beta_a);
+    Park_Transform(foc->current_alpha_a, foc->current_beta_a, phase, &foc->id_a, &foc->iq_a);
+}
+
+/* 滤波、遥测及 PWM 的计算与输出顺序不可改变。 */
+static inline void foc_apply_modulation(FocState *foc, float phase, float phase_vel)
+{
+    Inverse_Park_Transform(
+        foc->mod_d, foc->mod_q, phase + phase_vel * Current_Ts, &foc->mod_alpha, &foc->mod_beta);
+
+    UTILS_LP_FAST(foc->id_filtered_a, foc->id_a, 0.01f);
+    UTILS_LP_FAST(foc->iq_filtered_a, foc->iq_a, 0.01f);
+
+    foc->bus_current_a = foc->mod_d * foc->id_a + foc->mod_q * foc->iq_a;
+    UTILS_LP_FAST(foc->bus_current_filtered_a, foc->bus_current_a, 0.01f);
+    foc->power_filtered_w = foc->bus_voltage_filtered_v * foc->bus_current_filtered_a;
+
+    SVM_SectorJudge(
+        foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
+    motor_hw_pwm_set_duty(foc->duty_a, foc->duty_b, foc->duty_c);
+}
+
 /* 电流环：使用 motor_state->iq_target_a 作为 q 轴参考执行一次 d/q 电流闭环。 */
 void FOC_Current(FocState *foc, MotorControlState *motor_state, float phase, float phase_vel)
 {
@@ -248,12 +277,7 @@ void FOC_CurrentWithReference(
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
 
-    Clarke_Transform(foc->phase_a_current_a,
-                     foc->phase_b_current_a,
-                     foc->phase_c_current_a,
-                     &foc->current_alpha_a,
-                     &foc->current_beta_a);
-    Park_Transform(foc->current_alpha_a, foc->current_beta_a, phase, &foc->id_a, &foc->iq_a);
+    foc_measure_currents(foc, phase);
 
     if (foc->bus_voltage_filtered_v > 0.0f)
     {
@@ -286,19 +310,7 @@ void FOC_CurrentWithReference(
         foc->duty = 0.0f;
     }
 
-    Inverse_Park_Transform(
-        foc->mod_d, foc->mod_q, phase + phase_vel * Current_Ts, &foc->mod_alpha, &foc->mod_beta);
-
-    UTILS_LP_FAST(foc->id_filtered_a, foc->id_a, 0.01f);
-    UTILS_LP_FAST(foc->iq_filtered_a, foc->iq_a, 0.01f);
-
-    foc->bus_current_a = foc->mod_d * foc->id_a + foc->mod_q * foc->iq_a;
-    UTILS_LP_FAST(foc->bus_current_filtered_a, foc->bus_current_a, 0.01f);
-    foc->power_filtered_w = foc->bus_voltage_filtered_v * foc->bus_current_filtered_a;
-
-    SVM_SectorJudge(
-        foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
-    motor_hw_pwm_set_duty(foc->duty_a, foc->duty_b, foc->duty_c);
+    foc_apply_modulation(foc, phase, phase_vel);
     FAST_PROFILE_END(FAST_PROFILE_CURRENT);
 }
 
@@ -316,12 +328,7 @@ void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, flo
     float voltage_d;
     float voltage_q;
 
-    Clarke_Transform(foc->phase_a_current_a,
-                     foc->phase_b_current_a,
-                     foc->phase_c_current_a,
-                     &foc->current_alpha_a,
-                     &foc->current_beta_a);
-    Park_Transform(foc->current_alpha_a, foc->current_beta_a, phase, &foc->id_a, &foc->iq_a);
+    foc_measure_currents(foc, phase);
 
     if (foc->bus_voltage_filtered_v > 0.0f)
     {
@@ -346,17 +353,5 @@ void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, flo
         foc->duty = 0.0f;
     }
 
-    Inverse_Park_Transform(
-        foc->mod_d, foc->mod_q, phase + phase_vel * Current_Ts, &foc->mod_alpha, &foc->mod_beta);
-
-    UTILS_LP_FAST(foc->id_filtered_a, foc->id_a, 0.01f);
-    UTILS_LP_FAST(foc->iq_filtered_a, foc->iq_a, 0.01f);
-
-    foc->bus_current_a = foc->mod_d * foc->id_a + foc->mod_q * foc->iq_a;
-    UTILS_LP_FAST(foc->bus_current_filtered_a, foc->bus_current_a, 0.01f);
-    foc->power_filtered_w = foc->bus_voltage_filtered_v * foc->bus_current_filtered_a;
-
-    SVM_SectorJudge(
-        foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
-    motor_hw_pwm_set_duty(foc->duty_a, foc->duty_b, foc->duty_c);
+    foc_apply_modulation(foc, phase, phase_vel);
 }

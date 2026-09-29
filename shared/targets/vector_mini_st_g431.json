@@ -39,6 +39,7 @@
     "shared/targets",
     "shared/image",
     "shared/boot",
+    "shared/checksum",
     "shared/protocol",
     "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc",
     "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Include",
@@ -58,6 +59,7 @@
       "loader/boards/vector_mini_st/board.c"
     ],
     "Shared contracts": [
+      "shared/checksum/crc32.c",
       "shared/boot/image_mailbox.c",
       "shared/protocol/yg_protocol_can_id.c",
       "shared/protocol/yg_protocol_crc.c",

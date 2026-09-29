@@ -53,21 +53,6 @@ typedef struct
 typedef struct
 {
     float position_reference;
-    float speed_reference;
-    float acceleration_reference;
-    float speed_feedback_rad_s;
-    float iq_reference;
-    float feedback_current;
-    float acceleration_feedforward_current;
-    float friction_feedforward_current;
-    float hold_current;
-    PositionServoPhase phase;
-    bool target_reached;
-} PositionCascadeOutput;
-
-typedef struct
-{
-    float position_reference;
     float trajectory_speed_reference;
     float speed_command;
     float speed_feedback_rad_s; /* Actual control velocity, including optional HOLD filter.
@@ -87,8 +72,7 @@ typedef struct
     bool stiction_integrating; /* Bounded static-error integral applied this update. */
 } PositionCascadeTelemetry;
 
-/* Minimal current-command/feedback view for the high-rate motor adapter.
- * Rich diagnostics remain available through GetTelemetry / the existing API. */
+/* 控制结果仅包含执行所需的参考与反馈；诊断由 GetTelemetry 提供。 */
 typedef struct
 {
     float position_reference;
@@ -118,7 +102,7 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
  * @param measured_speed 有限机械速度，单位 rad/s。
  * @param output 调用方非空结果空间；只在计算成功时填充。
  * @return 已有有效配置且本次计算有效返回 true，否则返回 false。
- * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。调参变化必须先通过完整 Update 入口验证。
+ * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。调参变化须先通过 UpdateControl 验证。
  */
 bool PositionCascade_UpdateTargetControl(float target_position,
                                          float measured_position,
@@ -131,37 +115,11 @@ bool PositionCascade_UpdateTargetControl(float target_position,
  */
 void PositionCascade_Reset(void);
 /**
- * @brief 验证完整配置并执行一个位置级联调用，保持既有分频。
- * @param config 只读完整配置，位置 rad、速度 rad/s、时间 s、电流 A；内部保存验证值。
- * @param measured_position 有限机械位置，单位 rad。
- * @param measured_speed 有限机械速度，单位 rad/s。
- * @param output 调用方非空结果空间；只在计算成功时填充。
- * @return 配置、反馈和计算有效返回 true，否则返回 false。
- * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。
- */
-bool PositionCascade_Update(const PositionCascadeConfig *config,
-                            float measured_position,
-                            float measured_speed,
-                            PositionCascadeOutput *output);
-/**
  * @brief 借用最近验证成功的只读配置。
  * @return 已配置时返回借用地址；复位后或未配置时返回 NULL。
- * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。地址内容仅在下一 Update/Reset 前有效，不可修改。
+ * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。地址内容仅在下一控制更新或 Reset 前有效，不可修改。
  */
 const PositionCascadeConfig *PositionCascade_GetConfiguration(void);
-/**
- * @brief 复用已验证调参，仅更新目标并执行位置级联调用。
- * @param target_position 有限目标位置，单位 rad。
- * @param measured_position 有限机械位置，单位 rad。
- * @param measured_speed 有限机械速度，单位 rad/s。
- * @param output 调用方非空结果空间；只在计算成功时填充。
- * @return 已有有效配置且本次计算有效返回 true，否则返回 false。
- * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。调参变化必须先通过完整 Update 入口验证。
- */
-bool PositionCascade_UpdateTarget(float target_position,
-                                  float measured_position,
-                                  float measured_speed,
-                                  PositionCascadeOutput *output);
 /**
  * @brief 复制一致的位置级联诊断快照。
  * @param telemetry 调用方非空输出空间；位置 rad、速度 rad/s、电流 A。

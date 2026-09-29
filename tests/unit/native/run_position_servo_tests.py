@@ -631,7 +631,7 @@ def main():
         [
             startup_fixture,
             "firmware/services/parameters/motor_axis_profile.c",
-            "firmware/common/crc32.c",
+            "shared/checksum/crc32.c",
         ],
     )
     irq_fixture = args.out / "adc_irq_dispatch_test.c"
@@ -645,7 +645,7 @@ def main():
         [
             "tests/unit/motor_axis_profile_test.c",
             "firmware/services/parameters/motor_axis_profile.c",
-            "firmware/common/crc32.c",
+            "shared/checksum/crc32.c",
         ],
     )
     joint_fixture = args.out / "joint_startup_test.c"
@@ -655,7 +655,7 @@ def main():
         [
             joint_fixture,
             "firmware/services/parameters/motor_axis_profile.c",
-            "firmware/common/crc32.c",
+            "shared/checksum/crc32.c",
         ],
     )
     board_fixture = args.out / "board_startup_test.c"

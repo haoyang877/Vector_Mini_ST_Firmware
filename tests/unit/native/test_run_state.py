@@ -49,7 +49,7 @@ def main() -> None:
             str(ROOT / "firmware/services/lifecycle/app_lifecycle.c"),
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
-            str(ROOT / "firmware/common/crc32.c"),
+            str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(executable),
         ]
@@ -77,7 +77,7 @@ def main() -> None:
             str(ROOT / "firmware/motor/foc/cogging_compensation.c"),
             str(ROOT / "firmware/motor/identification/cogging_calibration.c"),
             str(ROOT / "firmware/motor/identification/cogging_map.c"),
-            str(ROOT / "firmware/common/crc32.c"),
+            str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(cogging),
         ]

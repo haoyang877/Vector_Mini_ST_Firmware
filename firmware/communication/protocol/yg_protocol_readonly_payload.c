@@ -1,32 +1,8 @@
 /* 只读查询 payload 的显式小端编解码，不访问设备状态或硬件。 */
 #include "yg_protocol_readonly_payload.h"
+#include "yg_protocol_byte_order.h"
 
 #include <string.h>
-
-static uint16_t read_u16(const uint8_t *bytes)
-{
-    return (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8U);
-}
-
-static uint32_t read_u32(const uint8_t *bytes)
-{
-    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) | ((uint32_t)bytes[2] << 16U) |
-           ((uint32_t)bytes[3] << 24U);
-}
-
-static void write_u16(uint8_t *bytes, uint16_t value)
-{
-    bytes[0] = (uint8_t)value;
-    bytes[1] = (uint8_t)(value >> 8U);
-}
-
-static void write_u32(uint8_t *bytes, uint32_t value)
-{
-    bytes[0] = (uint8_t)value;
-    bytes[1] = (uint8_t)(value >> 8U);
-    bytes[2] = (uint8_t)(value >> 16U);
-    bytes[3] = (uint8_t)(value >> 24U);
-}
 
 yg_protocol_result_t
 yg_protocol_readonly_encode_device_status(const yg_protocol_readonly_device_status_t *status,
@@ -57,13 +33,13 @@ yg_protocol_readonly_encode_device_status(const yg_protocol_readonly_device_stat
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
-    write_u16(payload, status->epoch_valid ? 0U : 6U);
-    write_u16(payload + 2U, 0U);
+    YgProtocol_WriteU16Le(payload, status->epoch_valid ? 0U : 6U);
+    YgProtocol_WriteU16Le(payload + 2U, 0U);
     payload[4] = status->role;
     payload[5] = status->boot_state;
-    write_u16(payload + 6U, status->epoch_valid ? 1U : 0U);
-    write_u32(payload + 8U, (uint32_t)status->boot_epoch);
-    write_u32(payload + 12U, (uint32_t)(status->boot_epoch >> 32U));
+    YgProtocol_WriteU16Le(payload + 6U, status->epoch_valid ? 1U : 0U);
+    YgProtocol_WriteU32Le(payload + 8U, (uint32_t)status->boot_epoch);
+    YgProtocol_WriteU32Le(payload + 12U, (uint32_t)(status->boot_epoch >> 32U));
     if (written != NULL)
     {
         *written = YG_PROTOCOL_READONLY_DEVICE_STATUS_SIZE;
@@ -86,13 +62,13 @@ yg_protocol_readonly_decode_page_request(const yg_protocol_message_t *message,
         return YG_PROTOCOL_INVALID_LENGTH;
     }
     payload = message->payload;
-    if (read_u16(payload + 10U) != 0U)
+    if (YgProtocol_ReadU16Le(payload + 10U) != 0U)
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    request->session_id = read_u32(payload);
-    request->request_id = read_u32(payload + 4U);
-    request->page = read_u16(payload + 8U);
+    request->session_id = YgProtocol_ReadU32Le(payload);
+    request->request_id = YgProtocol_ReadU32Le(payload + 4U);
+    request->page = YgProtocol_ReadU16Le(payload + 8U);
     return YG_PROTOCOL_OK;
 }
 
@@ -111,12 +87,12 @@ yg_protocol_readonly_encode_info_page0(const yg_protocol_readonly_info_page0_t *
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
     memcpy(payload, page->uid, sizeof(page->uid));
-    write_u32(payload + 12U, page->product_id);
-    write_u16(payload + 16U, page->hardware_revision);
-    write_u16(payload + 18U, page->boot_api);
-    write_u32(payload + 20U, page->application_version);
-    write_u32(payload + 24U, page->boot_version);
-    write_u32(payload + 28U, page->boot_id);
+    YgProtocol_WriteU32Le(payload + 12U, page->product_id);
+    YgProtocol_WriteU16Le(payload + 16U, page->hardware_revision);
+    YgProtocol_WriteU16Le(payload + 18U, page->boot_api);
+    YgProtocol_WriteU32Le(payload + 20U, page->application_version);
+    YgProtocol_WriteU32Le(payload + 24U, page->boot_version);
+    YgProtocol_WriteU32Le(payload + 28U, page->boot_id);
     if (written != NULL)
     {
         *written = YG_PROTOCOL_READONLY_INFO_PAGE0_SIZE;
@@ -138,13 +114,13 @@ yg_protocol_readonly_encode_caps_page0(const yg_protocol_readonly_caps_page0_t *
     {
         return YG_PROTOCOL_BUFFER_TOO_SMALL;
     }
-    write_u32(payload, page->features);
-    write_u16(payload + 4U, page->supported_modes);
-    write_u16(payload + 6U, page->max_full_frame);
-    write_u16(payload + 8U, page->max_block_data);
-    write_u16(payload + 10U, page->write_alignment);
-    write_u16(payload + 12U, page->default_watchdog_ms);
-    write_u16(payload + 14U, page->max_watchdog_ms);
+    YgProtocol_WriteU32Le(payload, page->features);
+    YgProtocol_WriteU16Le(payload + 4U, page->supported_modes);
+    YgProtocol_WriteU16Le(payload + 6U, page->max_full_frame);
+    YgProtocol_WriteU16Le(payload + 8U, page->max_block_data);
+    YgProtocol_WriteU16Le(payload + 10U, page->write_alignment);
+    YgProtocol_WriteU16Le(payload + 12U, page->default_watchdog_ms);
+    YgProtocol_WriteU16Le(payload + 14U, page->max_watchdog_ms);
     if (written != NULL)
     {
         *written = YG_PROTOCOL_READONLY_CAPS_PAGE0_SIZE;

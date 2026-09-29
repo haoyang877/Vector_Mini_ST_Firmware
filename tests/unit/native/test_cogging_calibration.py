@@ -355,7 +355,7 @@ def main():
             "firmware/motor/foc/cogging_compensation.c",
             "firmware/motor/foc/foc_pid.c",
             "firmware/common/utils.c",
-            "firmware/common/crc32.c",
+            "shared/checksum/crc32.c",
         ]
     ]
     cmd += ["-o", str(exe), "-lm"]

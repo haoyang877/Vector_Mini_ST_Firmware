@@ -40,7 +40,7 @@ def main() -> None:
             str(ROOT / "tests/unit/parameter_value_service_test.c"),
             str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
-            str(ROOT / "firmware/common/crc32.c"),
+            str(ROOT / "shared/checksum/crc32.c"),
             "-lm",
             "-o",
             str(executable),

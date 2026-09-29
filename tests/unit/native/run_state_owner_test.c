@@ -837,7 +837,7 @@ bool Encoder_SetMechanicalZero(EncoderState *e)
     ++leaf_calls[MOTOR_MAINTENANCE_MECHANICAL_ZERO];
     return true;
 }
-void Task_Position_Mode_Reset(void)
+void MotorOuterLoop_RequestReset(void)
 {
 }
 void Param_Return_Default(MotorControlState *m, EncoderState *e)

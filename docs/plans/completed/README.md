@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [APP/Loader 重复实现收敛 v1](2026-09-29-duplicate-removal-v1.md)：删除旧控制入口，CRC/字节序/请求条件集中，FOC 文件内复用；逐拍对照、ARM ABI、三工程资源与最终门禁。
+
 - [Keil APP 精简分组 v2](2026-09-29-keil-app-groups-v2.md)：主/配套 APP 统一八组，移除头文件导航项，保留实际源码与编译、调试设置；未编译、未测试。
 
 - [Keil APP 职责分组 v1（历史）](2026-09-29-keil-app-groups-v1.md)：最初细分组与头文件导航，已由 v2 替代；未编译、未测试。

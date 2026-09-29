@@ -18,6 +18,8 @@ NATIVE = (
     "test_adc_fast_dispatch",
     "test_encoder_sample_overlap",
     "test_fast_loop_math",
+    "test_shared_contracts",
+    "test_foc_equivalence",
     "test_numeric_encoding",
     "test_loader_upgrade",
     "test_loader_runtime",

@@ -36,6 +36,7 @@ def main() -> None:
             "tests/unit/loader_upgrade_test.c",
             "loader/core/upgrade.c",
             "shared/boot/image_mailbox.c",
+            "shared/checksum/crc32.c",
             "shared/image/image_transfer.c",
             "shared/protocol/yg_protocol_upgrade_wire.c",
         )

@@ -1,32 +1,20 @@
 /* 镜像事务与跳前校验：只用描述符声明的长度与整包 CRC32，不保留持久提交记录。 */
 #include "image_transfer.h"
+#include "../checksum/crc32.h"
+#include "../protocol/yg_protocol_byte_order.h"
 #include <string.h>
 
 static uint32_t be32(const uint8_t *p)
 {
     return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
 }
-static uint32_t le32(const uint8_t *p)
-{
-    return (uint32_t)p[3] << 24 | (uint32_t)p[2] << 16 | (uint32_t)p[1] << 8 | p[0];
-}
+
+/* 事务保存未取反的内部状态；共享 CRC 接口使用已取反的续算结果。 */
 static uint32_t crc_more(uint32_t crc, const uint8_t *p, uint32_t n)
 {
-    unsigned i;
-    while (n--)
-    {
-        crc ^= *p++;
-        for (i = 0; i < 8; i++)
-        {
-            crc = (crc >> 1) ^ ((0U - (crc & 1U)) & 0xEDB88320U);
-        }
-    }
-    return crc;
+    return ~Crc32_Compute(p, n, ~crc);
 }
-static uint32_t crc32(const uint8_t *p, uint32_t n)
-{
-    return ~crc_more(~0U, p, n);
-}
+
 static bool inside(uint32_t a, uint32_t n, LoaderFlashRegion s)
 {
     return n && a >= s.base && n <= s.bytes && a - s.base <= s.bytes - n;
@@ -112,8 +100,8 @@ static bool vectors(const LoaderImageConfig *c, uint32_t bytes)
     {
         return false;
     }
-    sp = le32(p);
-    pc = le32(p + 4);
+    sp = YgProtocol_ReadU32Le(p);
+    pc = YgProtocol_ReadU32Le(p + 4);
     return sp > c->ram_start && sp <= c->ram_end && !(sp & 7U) && (pc & 1U) &&
            (uint64_t)(pc & ~1U) >= (uint64_t)c->app.base + c->descriptor_offset + 64U &&
            (uint64_t)(pc & ~1U) < (uint64_t)c->app.base + bytes;
@@ -230,7 +218,7 @@ LoaderImageResult LoaderImage_Begin(LoaderImageTransfer *t, const uint8_t manife
     }
     t->image = parsed;
     memcpy(t->manifest, manifest, 96);
-    t->manifest_crc = crc32(manifest, 96);
+    t->manifest_crc = Crc32_Compute(manifest, 96U, 0U);
     t->next = 0;
     t->erased = 0;
     t->hash = ~0U;

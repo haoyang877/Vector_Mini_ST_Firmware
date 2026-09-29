@@ -60,28 +60,6 @@ void Task_Current_Mode(FocState *foc,
     FocCogging_TorqueObserve(foc, motor_state, encoder);
 }
 
-/**
- * @brief  速度模式控制任务（对外顺序入口）。
- * @param  foc foc 状态指针。
- * @param  motor_state 电机控制状态指针。
- * @param  controller 速度 PI 控制器指针。
- * @param  encoder 编码器状态指针。
- * @note 在 20kHz 快速环上下文调用；速度环按 SPEED_LOOP_DIVIDER 分频。
- *       分频与速度环实现在 motor/foc/foc_speed.c；摩擦辨识与外部调用共用该核心。
- */
-void Task_Speed_Mode(FocState *foc,
-                     MotorControlState *motor_state,
-                     PiController *controller,
-                     EncoderState *encoder)
-{
-    SpeedMode_Run(foc,
-                  motor_state,
-                  controller,
-                  Encoder_GetElePhase(encoder),
-                  Encoder_GetEleVel(encoder),
-                  Encoder_GetMecVel(encoder));
-}
-
 /* 冷配置帧不进入调参不变的快速路径；此处仅为编译器提示，其他编译器行为相同。 */
 #if defined(__GNUC__) || defined(__clang__) || defined(__CC_ARM)
 #define FOC_CONFIG_NOINLINE __attribute__((noinline))
@@ -249,77 +227,8 @@ static bool position_mode_configuration_matches(const PositionCascadeConfig *con
            position_mode_same_tuning_value(config->friction_viscous_negative, 0.0f);
 }
 
-/* 位置请求被拒绝：清零电流参考并上报参数故障，等待上层复位。 */
-static void position_mode_reject_request(MotorControlState *motor_state)
-{
-    motor_state->id_target_a = 0.0f;
-    motor_state->iq_target_a = 0.0f;
-    MotorFault_Report(motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
-}
-
-/**
- * @brief  模式 3：带加加速度限制的连续加速度位置伺服任务（顺序入口）。
- * @param  foc foc 状态指针。
- * @param  motor_state 电机控制状态指针。
- * @param  encoder 编码器状态指针。
- * @note 在 20kHz 快速环上下文调用；配置未变化时复用缓存控制器，否则重建配置帧。
- *       生产运行由外环 worker 执行本适配器，本入口保留供外部/调试顺序调用。
- */
-void Task_Position_Mode(FocState *foc, MotorControlState *motor_state, EncoderState *encoder)
-{
-    bool updated;
-    PositionCascadeControlOutput output;
-    FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_ONLY);
-    float electrical_angle_rad = Encoder_GetElePhase(encoder);
-    float mechanical_position_rad = Encoder_GetMecPos(encoder);
-    float electrical_velocity_rad_s = Encoder_GetEleVel(encoder);
-    float mechanical_velocity_rad_s = Encoder_GetMecVelContinuous(encoder);
-
-    if (!MotorAxisProfile_AllowsPosition(&motor_state->axis_profile,
-                                         motor_state->axis_profile_valid,
-                                         mechanical_position_rad,
-                                         motor_state->position_target_rad))
-    {
-        position_mode_reject_request(motor_state);
-        FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
-        return;
-    }
-
-    if (position_mode_configuration_matches(PositionCascade_GetConfiguration(), motor_state))
-    {
-        updated = PositionCascade_UpdateTargetControl(motor_state->position_target_rad,
-                                                      mechanical_position_rad,
-                                                      mechanical_velocity_rad_s,
-                                                      &output);
-    }
-    else
-    {
-        updated = position_mode_update_configuration(motor_state,
-                                                     mechanical_position_rad,
-                                                     mechanical_velocity_rad_s,
-                                                     &output,
-                                                     CASCADE_POSITION_LOOP_DIVIDER);
-    }
-
-    if (!updated)
-    {
-        position_mode_reject_request(motor_state);
-        FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
-        return;
-    }
-
-    motor_state->position_reference_rad = output.position_reference;
-    motor_state->speed_ramped_rad_s = output.speed_reference;
-    motor_state->position_velocity_filtered_rad_s = output.speed_feedback_rad_s;
-    motor_state->position_target_reached = output.target_reached;
-    motor_state->id_target_a = 0.0f;
-    motor_state->iq_target_a = output.iq_reference;
-    FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
-    FOC_Current(foc, motor_state, electrical_angle_rad, electrical_velocity_rad_s);
-}
-
 /* 位置模式复位：请求外环在下一 2 kHz 慢拍重建，由唯一外环所有者消费复位请求。 */
-void Task_Position_Mode_Reset(void)
+void MotorOuterLoop_RequestReset(void)
 {
     motor_outer_loop_request_reset();
 }

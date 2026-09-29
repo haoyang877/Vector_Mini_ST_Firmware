@@ -32,7 +32,7 @@ def main() -> None:
         "-Werror",
         str(ROOT / "tests/unit/numeric_encoding_test.c"),
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
-        str(ROOT / "firmware/common/crc32.c"),
+        str(ROOT / "shared/checksum/crc32.c"),
         "-o",
         str(executable),
     ]

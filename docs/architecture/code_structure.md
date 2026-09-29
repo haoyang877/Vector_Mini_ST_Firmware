@@ -181,3 +181,22 @@ app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platfo
 控制入口为 `MotorExecution_ControlStep`；维护仍直接调用 `MotorMaintenance_Step`。
 故障优先、执行前身份捕获、空闲零矢量预载与结果入箱位置保持，见
 [边界收口计划](../plans/completed/2026-09-29-execution-boundary-v1.md)。
+
+## 2026-09-29 重复实现收敛
+
+生产位置/速度控制只由 MotorOuterLoop_SlowTick 执行，20 kHz 入口消费其电流参考。
+旧 Task_Position_Mode、Task_Speed_Mode 已删除；外环复位请求为
+MotorOuterLoop_RequestReset。摩擦辨识仍使用有实际调用的 SpeedMode_Run。
+
+位置核心只公开 UpdateControl、UpdateTargetControl 和独立遥测接口；
+场景夹具中的丰富视图由公开结果组合，不进入固件。缓存对照测试验证真实 2 kHz 外环。
+
+shared/checksum/crc32.c/.h 是 APP/Loader 的唯一标准 CRC32 核心：
+持久记录、邮箱和镜像共用，镜像事务继续保存原始续算状态并保留读取/喂狗/字段置零。
+shared/protocol/yg_protocol_byte_order.h 与 yg_protocol_request.h 分别拥有
+小端固定宽度读写和要求确认的单播请求规则；长度、业务权限和安全校验仍由原边界负责。
+
+标量数学统一头文件经 ARMCC 构建出现多份非内联实例，未带来容量收益，已回退此项。
+公共数学仍归 common/utils；不同 NaN/负零或高速内联语义的局部小函数保持文件私有。
+FOC 电流与 Vq 策略在同一文件共享采样及调制输出，保持两个控制策略与诊断钩子顺序。
+详细验收见[去重计划](../plans/completed/2026-09-29-duplicate-removal-v1.md)。

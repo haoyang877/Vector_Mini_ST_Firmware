@@ -1,5 +1,6 @@
 /* 电机快照到线路状态的单向适配；不消费旧邮箱，不改变控制状态或发送节拍。 */
 #include "yg_protocol_motor_status.h"
+#include "yg_protocol_byte_order.h"
 
 #include <limits.h>
 #include <math.h>
@@ -71,20 +72,6 @@ feedback_i16(float sample, uint32_t scale, bool available, uint16_t *valid_bits,
     return (int16_t)value;
 }
 
-static void write_u16(uint8_t *bytes, uint16_t value)
-{
-    bytes[0] = (uint8_t)value;
-    bytes[1] = (uint8_t)(value >> 8U);
-}
-
-static void write_u32(uint8_t *bytes, uint32_t value)
-{
-    bytes[0] = (uint8_t)value;
-    bytes[1] = (uint8_t)(value >> 8U);
-    bytes[2] = (uint8_t)(value >> 16U);
-    bytes[3] = (uint8_t)(value >> 24U);
-}
-
 yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_feedback_t *feedback,
                                                        uint8_t *payload,
                                                        size_t capacity)
@@ -103,22 +90,22 @@ yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_f
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    write_u16(encoded, feedback->result);
-    write_u16(encoded + 2U, feedback->correlated_seq);
-    write_u32(encoded + 4U, feedback->fault_code);
-    write_u32(encoded + 8U, (uint32_t)feedback->reference_position_mrad);
-    write_u32(encoded + 12U, (uint32_t)feedback->actual_position_mrad);
-    write_u32(encoded + 16U, (uint32_t)feedback->reference_speed_mrad_s);
-    write_u32(encoded + 20U, (uint32_t)feedback->actual_speed_mrad_s);
-    write_u16(encoded + 24U, feedback->valid_bits);
-    write_u16(encoded + 26U, (uint16_t)feedback->bus_voltage_cV);
-    write_u16(encoded + 28U, (uint16_t)feedback->bus_current_mA);
-    write_u16(encoded + 30U, (uint16_t)feedback->reference_iq_mA);
-    write_u16(encoded + 32U, (uint16_t)feedback->actual_iq_mA);
-    write_u16(encoded + 34U, (uint16_t)feedback->mcu_temperature_centi_c);
-    write_u16(encoded + 36U, (uint16_t)feedback->motor_temperature_centi_c);
-    write_u16(encoded + 38U, (uint16_t)feedback->v_q_mV);
-    write_u16(encoded + 40U, (uint16_t)feedback->v_d_mV);
+    YgProtocol_WriteU16Le(encoded, feedback->result);
+    YgProtocol_WriteU16Le(encoded + 2U, feedback->correlated_seq);
+    YgProtocol_WriteU32Le(encoded + 4U, feedback->fault_code);
+    YgProtocol_WriteU32Le(encoded + 8U, (uint32_t)feedback->reference_position_mrad);
+    YgProtocol_WriteU32Le(encoded + 12U, (uint32_t)feedback->actual_position_mrad);
+    YgProtocol_WriteU32Le(encoded + 16U, (uint32_t)feedback->reference_speed_mrad_s);
+    YgProtocol_WriteU32Le(encoded + 20U, (uint32_t)feedback->actual_speed_mrad_s);
+    YgProtocol_WriteU16Le(encoded + 24U, feedback->valid_bits);
+    YgProtocol_WriteU16Le(encoded + 26U, (uint16_t)feedback->bus_voltage_cV);
+    YgProtocol_WriteU16Le(encoded + 28U, (uint16_t)feedback->bus_current_mA);
+    YgProtocol_WriteU16Le(encoded + 30U, (uint16_t)feedback->reference_iq_mA);
+    YgProtocol_WriteU16Le(encoded + 32U, (uint16_t)feedback->actual_iq_mA);
+    YgProtocol_WriteU16Le(encoded + 34U, (uint16_t)feedback->mcu_temperature_centi_c);
+    YgProtocol_WriteU16Le(encoded + 36U, (uint16_t)feedback->motor_temperature_centi_c);
+    YgProtocol_WriteU16Le(encoded + 38U, (uint16_t)feedback->v_q_mV);
+    YgProtocol_WriteU16Le(encoded + 40U, (uint16_t)feedback->v_d_mV);
     encoded[42] = feedback->node_id;
     encoded[43] = feedback->motor_state;
     encoded[44] = feedback->control_mode;

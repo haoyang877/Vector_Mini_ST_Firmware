@@ -188,21 +188,6 @@ static bool position_cascade_config_is_valid(const PositionCascadeConfig *config
            config->friction_breakaway_distance > 0.0f && config->friction_stuck_time >= 0.0f;
 }
 
-static void position_cascade_copy_output(PositionCascadeOutput *output)
-{
-    output->position_reference = s_state.position_reference;
-    output->speed_reference = s_state.speed_reference;
-    output->acceleration_reference = s_state.trajectory_acceleration;
-    output->speed_feedback_rad_s = s_state.control_velocity;
-    output->iq_reference = s_state.iq_reference;
-    output->feedback_current = s_state.feedback_current;
-    output->acceleration_feedforward_current = s_state.acceleration_feedforward_current;
-    output->friction_feedforward_current = s_state.friction_feedforward_current;
-    output->hold_current = s_state.speed_controller.integral_output;
-    output->phase = s_state.phase;
-    output->target_reached = s_state.target_reached;
-}
-
 static bool position_cascade_check_config(const PositionCascadeConfig *config)
 {
     const PositionCascadeConfig *saved = &s_state.validated_config;
@@ -1106,49 +1091,9 @@ static bool position_cascade_run_validated(const PositionCascadeConfig *config,
     return position_cascade_run_control(config, measured_position, measured_speed);
 }
 
-bool PositionCascade_Update(const PositionCascadeConfig *config,
-                            float measured_position,
-                            float measured_speed,
-                            PositionCascadeOutput *output)
-{
-    s_state.defer_telemetry = false;
-    if (output == NULL || !isfinite(measured_position) || !isfinite(measured_speed) ||
-        !position_cascade_check_config(config))
-    {
-        return false;
-    }
-    if (!position_cascade_run_validated(config, measured_position, measured_speed))
-    {
-        return false;
-    }
-    position_cascade_copy_output(output);
-    return true;
-}
-
 const PositionCascadeConfig *PositionCascade_GetConfiguration(void)
 {
     return s_state.config_valid ? &s_state.validated_config : NULL;
-}
-
-bool PositionCascade_UpdateTarget(float target_position,
-                                  float measured_position,
-                                  float measured_speed,
-                                  PositionCascadeOutput *output)
-{
-    s_state.defer_telemetry = false;
-    if (!s_state.config_valid || output == NULL || !isfinite(target_position) ||
-        !isfinite(measured_position) || !isfinite(measured_speed))
-    {
-        return false;
-    }
-    s_state.validated_config.target_position = target_position;
-    if (!position_cascade_run_validated(
-            &s_state.validated_config, measured_position, measured_speed))
-    {
-        return false;
-    }
-    position_cascade_copy_output(output);
-    return true;
 }
 
 static void position_cascade_copy_control_output(PositionCascadeControlOutput *output)

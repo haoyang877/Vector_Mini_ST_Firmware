@@ -21,6 +21,7 @@ for relative in (
         sys.path.append(directory)
 
 NATIVE_INCLUDE_DIRS = (
+    "shared/checksum",
     "shared/protocol",
     "shared/boot",
     "shared/image",

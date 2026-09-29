@@ -11,4 +11,6 @@ composition 绑定端口和选择实现，不计算电机算法；runtime 调度
 其他模块通过请求与值快照交流，不公开可写实例。
 
 motor_execution 仍含外环协调，RTT 适配仍读取外环就绪事实，因此属于 APP 运行组装。
-后续参数解耦不在这里增加硬件/电机/应用/生产配置的多份副本。
+参数已按 model/application/device 分组，硬件配置编译期只读。
+通信只接收所有者传出的节点值，不作为参数存储；不增加完整记录或 LUT 副本。
+入口与兼容边界见[参数所有权](../../docs/architecture/parameter_ownership_v1.md)。

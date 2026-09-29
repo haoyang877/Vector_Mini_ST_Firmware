@@ -1,5 +1,8 @@
 # Active Plans
 
+- [主状态机条件与职责精简 v1](2026-09-29-motor-state-conditions-v1.md)：已适配参数分组并集成；固件测试与 normal 编译通过，全仓库格式门禁待并行上位机源码收口。
+- [参数所有权解耦 v1](../completed/2026-09-29-parameter-ownership-v1.md)：四类默认值和 RAM 分组已完成，删除参数节点通信桥；持久层角色/制造身份的完整分离尚未实施。
+
 - [目录职责收口 v1](../completed/2026-09-29-directory-ownership-v1.md)：物理归属与工程路径已完成；参数解耦为下一阶段。
 - [固件实机验证 v1](2026-09-29-firmware-machine-validation-v1.md)：专用测试会话独占硬件，保留备份并重新配置 schema12。
 

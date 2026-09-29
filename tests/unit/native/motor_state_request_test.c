@@ -18,7 +18,6 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 #include "motor_execution.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
-#include "param_comm_bridge.h"
 
 /* ---- 复刻 motor_axis.c 的私有状态与对象实例；函数体由 runner 从真实源码切片追加 ---- */
 static MotorControlState s_motor_state;
@@ -61,10 +60,6 @@ void critical_hw_exit(uint32_t state)
     }
 }
 
-uint8_t Protocol_NodeId_Get(void)
-{
-    return 1U;
-}
 void MotorOuterLoop_RequestReset(void)
 {
 }
@@ -120,25 +115,20 @@ static uint32_t stub_read_calls;
 ParameterStatus ParameterValue_Read(const MotorControlState *motor,
                                     const EncoderState *encoder,
                                     uint32_t revision,
-                                    uint8_t node_id,
                                     uint8_t parameter_id,
                                     ParameterValue *value)
 {
     (void)motor;
     (void)encoder;
-    (void)node_id;
     ++stub_read_calls;
     *value = (ParameterValue){0};
     value->parameter_id = parameter_id;
     value->revision = revision;
     return stub_read_status;
 }
-ParameterStatus ParameterValue_Apply(MotorControlState *motor,
-                                     uint8_t node_id,
-                                     const ParameterWriteRequest *request)
+ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWriteRequest *request)
 {
     (void)motor;
-    (void)node_id;
     (void)request;
     ++stub_apply_calls;
     return stub_apply_status;

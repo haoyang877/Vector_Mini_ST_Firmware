@@ -13,6 +13,12 @@
  */
 void MotorAxis_Init(void);
 /**
+ * @brief 读取参数所有者持有的设备节点地址值。
+ * @return 当前设备配置地址；初始化前为零，不返回内部对象。
+ * @note 启动组合层在 Init 后使用；不修改正在运行的通信端点。
+ */
+uint8_t MotorAxis_NodeId(void);
+/**
  * @brief 执行快速采样、控制和结果发布。
  * @note 20 kHz ADC2 JEOS 上下文，执行有界。
  */

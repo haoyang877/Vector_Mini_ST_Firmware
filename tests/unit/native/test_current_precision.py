@@ -52,8 +52,8 @@ uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
         + r"""
 int main(void) {
     /* 零点偏置标定已从固件移除，本测试直接使用已验证的标定值。 */
-    motor_state.phase_a_offset_counts=2032.625f; motor_state.phase_b_offset_counts=2051.25f;
-    motor_state.phase_c_offset_counts=2036.5f;
+    motor_state.device.phase_a_offset_counts=2032.625f; motor_state.device.phase_b_offset_counts=2051.25f;
+    motor_state.device.phase_c_offset_counts=2036.5f;
     adc.JDR1=8131;adc.JDR2=8205;adc.JDR3=8146;
     Current_Cal(&foc,&motor_state);
     assert(motor_state.fault_code==MOTOR_FAULT_NONE);
@@ -62,9 +62,9 @@ int main(void) {
     adc.JDR1+=1;Current_Cal(&foc,&motor_state);
     assert(fabsf(foc.phase_a_current_a+.375f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
     /* Actual 1 A input is not inadvertently rescaled by four. */
-    adc.JDR2=(uint32_t)roundf(4*(motor_state.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
+    adc.JDR2=(uint32_t)roundf(4*(motor_state.device.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
     Current_Cal(&foc,&motor_state);assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
-    motor_state.phase_c_offset_counts=NAN;Current_Cal(&foc,&motor_state);
+    motor_state.device.phase_c_offset_counts=NAN;Current_Cal(&foc,&motor_state);
     assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET);
     puts("PASS quarter-code current resolution, actual current scale, invalid-offset protection");
     return 0;

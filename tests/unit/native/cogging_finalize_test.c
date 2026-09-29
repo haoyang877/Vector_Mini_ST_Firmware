@@ -110,8 +110,8 @@ int main(void)
     MotorControlState motor = {0};
     EncoderState encoder = {0};
     CoggingMapRecord original, candidate, exported;
-    motor.axis_profile_valid = true;
-    motor.motor_pole_pairs = 21;
+    motor.application.axis_profile_valid = true;
+    motor.model.motor_pole_pairs = 21;
     encoder.calib_flag = ENC_CALIB_ALL;
     encoder.electrical_zero_q15 = 3155U;
     completed_samples(123);

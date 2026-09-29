@@ -70,10 +70,12 @@ bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
     case MOTOR_FAULT_CURRENT_OFFSET:
         return MotorCurrentOffsets_Valid(motor_state);
     case MOTOR_FAULT_POLE_PAIRS:
-        return motor_state->motor_pole_pairs > 0;
+        return motor_state->model.motor_pole_pairs > 0;
     case MOTOR_FAULT_INVALID_PARAMETERS:
-        return motor_state->axis_profile_valid && motor_state->motor_pole_pairs > 0 &&
-               isfinite(motor_state->current_limit_a) && motor_state->current_limit_a > 0.0f;
+        return motor_state->application.axis_profile_valid &&
+               motor_state->model.motor_pole_pairs > 0 &&
+               isfinite(motor_state->application.current_limit_a) &&
+               motor_state->application.current_limit_a > 0.0f;
     case MOTOR_FAULT_CONTROL_OVERRUN:
     case MOTOR_FAULT_SELF_TEST_TIMEOUT:
         return samples_fresh;
@@ -84,7 +86,7 @@ bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
     case MOTOR_FAULT_FRICTION_IDENTIFICATION:
     case MOTOR_FAULT_COGGING_CALIBRATION:
         /* 终止型辨识故障由显式 CLEAR 确认；资源已释放才允许重试，各模式标定准入不变。 */
-        return motor_state->axis_profile_valid && maintenance_released;
+        return motor_state->application.axis_profile_valid && maintenance_released;
     default:
         return false;
     }

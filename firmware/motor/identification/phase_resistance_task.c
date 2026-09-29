@@ -66,7 +66,8 @@ static float phase_resistance_mode_limit_current(const MotorControlState *motor,
 {
     float maximum_current = configured_maximum_a;
 
-    maximum_current = phase_resistance_mode_min(maximum_current, motor->current_limit_a);
+    maximum_current =
+        phase_resistance_mode_min(maximum_current, motor->application.current_limit_a);
     return phase_resistance_mode_min(requested_current, maximum_current);
 }
 

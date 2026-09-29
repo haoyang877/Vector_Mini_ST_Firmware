@@ -1,5 +1,5 @@
-/* 983abeaf 规则黄金摘要：覆盖优先级、身份、取消、提交效果和代际耗尽。
- * 仅比较保留的状态/动作/故障契约；已删除的模式镜像和 last_operation 无生产读取者。 */
+/* ccd8d8a8 真实事实归一化规则黄金摘要：覆盖优先级、身份、取消、提交效果和代际耗尽。
+ * 无故障事实由 active_faults 推导，删除旧夹具互相矛盾的故障布尔组合。 */
 #include <stdio.h>
 #include <stdint.h>
 #include "motor_state_internal.h"
@@ -109,9 +109,9 @@ int main(void)
                              .control_idle = (bits & 2U) != 0U,
                              .operation_idle = (bits & 4U) != 0U,
                              .maintenance_released = (bits & 8U) != 0U,
-                             .samples_fresh = (bits & 16U) != 0U,
-                             .fault_sources_clear = (bits & 32U) != 0U,
-                             .self_test_passed = (bits & 64U) != 0U,
+                             .inputs_valid = (bits & 16U) != 0U,
+                             .configuration_valid = true,
+                             .self_test_ready = (bits & 64U) != 0U,
                              .start_permitted = (bits & 128U) != 0U,
                              .operation_permitted = (bits & 256U) != 0U,
                              .startup_confirmed = (bits & 512U) != 0U,
@@ -143,7 +143,7 @@ int main(void)
         record(r.rejection);
     }
     printf("262144 cases, digest %016llx\n", (unsigned long long)digest);
-    if (digest != UINT64_C(0xf98662bc6ed8b902))
+    if (digest != UINT64_C(0x14acc14ec440764b))
     {
         fprintf(stderr, "FAIL frozen motor-state behavior digest\n");
         return 1;

@@ -269,8 +269,8 @@ static void encoder_rebase_multi_turn_position(const MotorControlState *motor_st
         /* 只解析首样本的圈数；便携轴策略保留已标定零位并保持行程检查有效。 */
         encoder->shadow_q15 =
             encoder->mechanical_zero_shadow_q15 +
-            MotorAxisProfile_InitialEncoderOffsetQ15(&motor_state->axis_profile,
-                                                     motor_state->axis_profile_valid,
+            MotorAxisProfile_InitialEncoderOffsetQ15(&motor_state->application.axis_profile,
+                                                     motor_state->application.axis_profile_valid,
                                                      (int32_t)encoder->linearized_q15 -
                                                          (int32_t)encoder->mechanical_zero_q15);
     }
@@ -432,7 +432,9 @@ void Encoder_CompleteSample(MotorControlState *motor_state,
     encoder->raw_q15 = raw_q15;
     encoder->directed_q15 = directed_q15;
     encoder->linearized_q15 = linearized_q15;
-    pole_pairs = motor_state->motor_pole_pairs > 0 ? (uint32_t)motor_state->motor_pole_pairs : 1U;
+    pole_pairs = motor_state->model.motor_pole_pairs > 0
+                     ? (uint32_t)motor_state->model.motor_pole_pairs
+                     : 1U;
 
     if (encoder->velocity_restart_requested)
     {

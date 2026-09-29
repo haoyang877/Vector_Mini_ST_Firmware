@@ -9,14 +9,15 @@
  * 速度模式与无感启动共用；两者对时基、单位与所有权的要求一致。 */
 void MotorAxis_UpdateSpeedRamp(MotorControlState *motor_state)
 {
-    motor_state->uses_speed_ramp = motor_state->speed_acceleration_rad_s2 > 0.0f &&
-                                   motor_state->speed_deceleration_rad_s2 > 0.0f;
+    motor_state->uses_speed_ramp = motor_state->application.speed_acceleration_rad_s2 > 0.0f &&
+                                   motor_state->application.speed_deceleration_rad_s2 > 0.0f;
 
     if (motor_state->uses_speed_ramp)
     {
         if (motor_state->speed_target_rad_s > motor_state->speed_ramped_rad_s)
         {
-            motor_state->speed_ramped_rad_s += motor_state->speed_acceleration_rad_s2 * Speed_Ts;
+            motor_state->speed_ramped_rad_s +=
+                motor_state->application.speed_acceleration_rad_s2 * Speed_Ts;
             if (motor_state->speed_ramped_rad_s > motor_state->speed_target_rad_s)
             {
                 motor_state->speed_ramped_rad_s = motor_state->speed_target_rad_s;
@@ -24,7 +25,8 @@ void MotorAxis_UpdateSpeedRamp(MotorControlState *motor_state)
         }
         else if (motor_state->speed_target_rad_s < motor_state->speed_ramped_rad_s)
         {
-            motor_state->speed_ramped_rad_s -= motor_state->speed_deceleration_rad_s2 * Speed_Ts;
+            motor_state->speed_ramped_rad_s -=
+                motor_state->application.speed_deceleration_rad_s2 * Speed_Ts;
             if (motor_state->speed_ramped_rad_s < motor_state->speed_target_rad_s)
             {
                 motor_state->speed_ramped_rad_s = motor_state->speed_target_rad_s;
@@ -50,12 +52,16 @@ void SpeedMode_UpdateControl(MotorControlState *motor_state,
 {
     MotorAxis_UpdateSpeedRamp(motor_state);
 
-    PiController_Configure(
-        controller, motor_state->speed_kp, motor_state->speed_ki, Speed_Ts, -1.0f, 1.0f);
+    PiController_Configure(controller,
+                           motor_state->application.speed_kp,
+                           motor_state->application.speed_ki,
+                           Speed_Ts,
+                           -1.0f,
+                           1.0f);
     motor_state->id_target_a = 0.0f;
     motor_state->iq_target_a =
         PiController_Run(controller, motor_state->speed_ramped_rad_s, mechanical_velocity_rad_s) *
-        motor_state->current_limit_a;
+        motor_state->application.current_limit_a;
 }
 
 /**

@@ -90,7 +90,7 @@ static void check_catalog(void)
             uint32_t expected = 0U;
             bool valid = ref_parameter(samples[j], (float)s_fields[i].scale, &expected) != 0;
             ParameterStatus result =
-                ParameterValue_Read(&motor, &encoder, 42U, 1U, s_fields[i].id, &value);
+                ParameterValue_Read(&motor, &encoder, 42U, s_fields[i].id, &value);
             if ((result == PARAMETER_OK) != valid ||
                 (valid &&
                  (value.raw_value != expected || value.revision != 42U ||

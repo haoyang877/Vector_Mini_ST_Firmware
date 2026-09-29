@@ -24,6 +24,8 @@ def main() -> None:
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
     fixture += function_source(sensing, "MotorCurrentOffsets_Valid")
+    execution = (ROOT / "firmware/app/runtime/motor_execution.c").read_text(encoding="utf-8")
+    fixture += "\n" + function_source(execution, "MotorExecution_ValidateTarget")
     adapter = (ROOT / "firmware/app/composition/yg_protocol_status_adapter.c").read_text(
         encoding="utf-8"
     )
@@ -121,7 +123,7 @@ def main() -> None:
         composition.index("/* 产品默认值") : composition.index("void MotorMaintenance_Init")
     ]
     (output / "maintenance_profiles.h").write_text(
-        '#include "foc_param_profile.h"\n#include "control_config.h"\n#include "utils.h"\n'
+        '#include "motor_profile_defaults.h"\n#include "board_profile_defaults.h"\n#include "application_profile_defaults.h"\n#include "device_profile_defaults.h"\n#include "control_config.h"\n#include "utils.h"\n'
         + profiles,
         encoding="utf-8",
     )

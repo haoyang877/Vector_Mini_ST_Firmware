@@ -161,7 +161,7 @@ bool FrictionIdentificationTask_IsReleased(void)
 }
 bool FocCogging_CanStart(const MotorControlState *m, const EncoderState *e)
 {
-    return m->axis_profile_valid && e->calib_flag == ENC_CALIB_ALL;
+    return m->application.axis_profile_valid && e->calib_flag == ENC_CALIB_ALL;
 }
 void FocCogging_Abort(void)
 {
@@ -230,20 +230,21 @@ static void reset(void)
     memset(&motor, 0, sizeof(motor));
     memset(&foc, 0, sizeof(foc));
     memset(&encoder, 0, sizeof(encoder));
-    motor.axis_profile_valid = true;
-    motor.motor_pole_pairs = 21;
+    motor.application.axis_profile_valid = true;
+    motor.model.motor_pole_pairs = 21;
     motor.configuration_confirmed = true;
-    motor.motor_phase_resistance_ohm = 1.0f;
-    motor.motor_d_inductance_h = motor.motor_q_inductance_h = 0.001f;
-    motor.motor_flux_wb = 0.01f;
-    motor.calibration_current_a = 3.0f;
-    motor.current_limit_a = 6.0f;
-    motor.speed_limit_rad_s = 20.0f;
-    motor.speed_acceleration_rad_s2 = motor.speed_deceleration_rad_s2 = 1.0f;
-    motor.speed_kp = 0.1f;
-    motor.speed_ki = 0.2f;
-    motor.phase_a_offset_counts = motor.phase_b_offset_counts = motor.phase_c_offset_counts =
-        2048.0f;
+    motor.model.motor_phase_resistance_ohm = 1.0f;
+    motor.model.motor_d_inductance_h = motor.model.motor_q_inductance_h = 0.001f;
+    motor.model.motor_flux_wb = 0.01f;
+    motor.model.calibration_current_a = 3.0f;
+    motor.application.current_limit_a = 6.0f;
+    motor.application.speed_limit_rad_s = 20.0f;
+    motor.application.speed_acceleration_rad_s2 = motor.application.speed_deceleration_rad_s2 =
+        1.0f;
+    motor.application.speed_kp = 0.1f;
+    motor.application.speed_ki = 0.2f;
+    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
+        motor.device.phase_c_offset_counts = 2048.0f;
     encoder.calib_flag = ENC_CALIB_ALL;
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 30.0f;
     foc.temperature_c = 25.0f;
@@ -298,7 +299,8 @@ static void test_control(void)
     tick();
     assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY &&
            motor.speed_target_rad_s == 0.0f);
-    assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
+    assert(motor.application.current_limit_a == 6.0f &&
+           motor.application.speed_limit_rad_s == 20.0f);
     puts("PASS same-mode target owner, single-slot busy, STOP revocation and unchanged caps");
 
     reset();
@@ -401,7 +403,8 @@ static void test_stop_and_fault(void)
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
     assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
-    assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
+    assert(motor.application.current_limit_a == 6.0f &&
+           motor.application.speed_limit_rad_s == 20.0f);
     puts("PASS failed output shutdown cannot restore READY or relaxed limits");
 }
 
@@ -883,7 +886,7 @@ static void test_readiness_admission_matrix(void)
                 foc.bus_voltage_v = foc.bus_voltage_filtered_v = 0.0f;
             }
             temperature_fresh = (gaps & 16U) == 0U;
-            motor.axis_profile_valid = (gaps & 32U) == 0U;
+            motor.application.axis_profile_valid = (gaps & 32U) == 0U;
             motor.uses_sensorless_feedback = (gaps & 64U) != 0U;
             if (gaps & 128U)
             {
@@ -1019,8 +1022,148 @@ static void test_completed_maintenance_cleanup(void)
     puts("PASS completed maintenance releases admission and preserves later fault cleanup kind");
 }
 
+/* 跨状态/故障/输出与数值边界比较拒绝原因，保护校验职责拆分后的优先级。 */
+static void test_target_admission_boundaries(void)
+{
+    static const float values[] = {NAN,
+                                   INFINITY,
+                                   -INFINITY,
+                                   -100.0f,
+                                   -20.001f,
+                                   -20.0f,
+                                   -6.001f,
+                                   -6.0f,
+                                   -1.001f,
+                                   -1.0f,
+                                   0.0f,
+                                   1.0f,
+                                   1.001f,
+                                   6.0f,
+                                   6.001f,
+                                   20.0f,
+                                   20.001f,
+                                   100.0f};
+    uint64_t digest = UINT64_C(14695981039346656037);
+    for (unsigned mode = 0U; mode < 4U; ++mode)
+    {
+        for (unsigned scenario = 0U; scenario < 16U; ++scenario)
+        {
+            for (unsigned sample = 0U; sample < 20U; ++sample)
+            {
+                reset();
+                if (scenario != 1U)
+                {
+                    assert(MotorStateMachine_RequestEnable((MotorControlMode)mode) ==
+                           MOTOR_CONTROL_ACCEPTED);
+                    tick();
+                    tick();
+                }
+                switch (scenario)
+                {
+                case 2U:
+                    motor.fault_code = MOTOR_FAULT_ENCODER;
+                    break;
+                case 3U:
+                    output_off = true;
+                    break;
+                case 4U:
+                    motor.control_mode = (MotorControlMode)((mode + 1U) % 4U);
+                    break;
+                case 5U:
+                    encoder.bad_frame_streak = 1U;
+                    break;
+                case 6U:
+                    encoder.calib_flag = 0U;
+                    break;
+                case 7U:
+                    motor.uses_sensorless_feedback = true;
+                    break;
+                case 8U:
+                    motor.application.axis_profile_valid = false;
+                    break;
+                case 9U:
+                    foc.bus_voltage_filtered_v = 25.5f;
+                    break;
+                case 10U:
+                    motor.application.current_limit_a = NAN;
+                    break;
+                case 11U:
+                    motor.application.speed_limit_rad_s = NAN;
+                    break;
+                case 12U:
+                    motor.application.axis_profile.magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
+                    motor.application.axis_profile.minimum_position_rad = -1.0f;
+                    motor.application.axis_profile.maximum_position_rad = 1.0f;
+                    motor.application.axis_profile.maximum_speed_rad_s = 2.0f;
+                    break;
+                case 13U:
+                    encoder.mechanical_position_rad = NAN;
+                    break;
+                case 14U:
+                    assert(MotorStateMachine_RequestBootStop(UINT64_C(17)) ==
+                           MOTOR_CONTROL_ACCEPTED);
+                    break;
+                default:
+                    break;
+                }
+                MotorControlCommand command = {.mode = (MotorControlMode)mode};
+                float value = values[sample < 18U ? sample : 10U];
+                switch (mode)
+                {
+                case MOTOR_CONTROL_CURRENT:
+                    command.iq_a = value;
+                    break;
+                case MOTOR_CONTROL_SPEED:
+                    command.speed_rad_s = value;
+                    break;
+                case MOTOR_CONTROL_POSITION:
+                    command.position_rad = value;
+                    break;
+                case MOTOR_CONTROL_VQ:
+                    command.vq_v = value;
+                    break;
+                }
+                if (sample == 18U)
+                {
+                    /* 非当前模式字段非零是格式错误，不能被故障或越界结果掩盖。 */
+                    if (mode == MOTOR_CONTROL_CURRENT)
+                    {
+                        command.speed_rad_s = 1.0f;
+                    }
+                    else
+                    {
+                        command.iq_a = 1.0f;
+                    }
+                }
+                else if (sample == 19U)
+                {
+                    command.mode = (MotorControlMode)UINT32_MAX;
+                }
+                MotorControlResult result =
+                    MotorStateMachine_SubmitControl(scenario == 15U ? NULL : &command);
+                const uint32_t observations[] = {result,
+                                                 MotorStateMachine_GetState(),
+                                                 motor.fault_code,
+                                                 output_off,
+                                                 start_count};
+                for (unsigned item = 0U; item < 5U; ++item)
+                {
+                    for (unsigned byte = 0U; byte < 4U; ++byte)
+                    {
+                        digest = (digest ^ (uint8_t)(observations[item] >> (8U * byte))) *
+                                 UINT64_C(1099511628211);
+                    }
+                }
+            }
+        }
+    }
+    assert(digest == UINT64_C(0x9f89d0ff40a00225));
+    printf("PASS 1280 target admission boundaries, digest %016llx\n", (unsigned long long)digest);
+}
+
 int main(void)
 {
+    test_target_admission_boundaries();
     test_completed_maintenance_cleanup();
     test_preparation_readiness();
     test_readiness_admission_matrix();

@@ -39,10 +39,12 @@ static bool runtime_config_is_valid(const MotorControlState *motor,
     const float maximum_speed =
         config->core.speed_points_rad_s[config->core.speed_point_count - 1U];
 
-    return motor != NULL && isfinite(motor->current_limit_a) && motor->current_limit_a > 0.0f &&
-           isfinite(motor->speed_limit_rad_s) && motor->speed_limit_rad_s >= maximum_speed &&
-           isfinite(motor->speed_kp) && motor->speed_kp > 0.0f && isfinite(motor->speed_ki) &&
-           motor->speed_ki >= 0.0f;
+    return motor != NULL && isfinite(motor->application.current_limit_a) &&
+           motor->application.current_limit_a > 0.0f &&
+           isfinite(motor->application.speed_limit_rad_s) &&
+           motor->application.speed_limit_rad_s >= maximum_speed &&
+           isfinite(motor->application.speed_kp) && motor->application.speed_kp > 0.0f &&
+           isfinite(motor->application.speed_ki) && motor->application.speed_ki >= 0.0f;
 }
 
 static void fail(MotorControlState *motor,
@@ -162,8 +164,8 @@ MotorTaskResult FrictionIdentificationTask_Task(FocState *foc,
     input.ramped_speed_reference_rad_s = motor->speed_ramped_rad_s;
     input.iq_a = foc->iq_filtered_a;
     input.mechanical_position_rad = Encoder_GetMecPos(encoder);
-    input.current_saturated =
-        Math_Abs(motor->iq_target_a) >= motor->current_limit_a * config->current_ratio_max;
+    input.current_saturated = Math_Abs(motor->iq_target_a) >=
+                              motor->application.current_limit_a * config->current_ratio_max;
     FrictionIdentification_Update(&s_identification, &input);
     motor->speed_target_rad_s = FrictionIdentification_GetTargetSpeed(&s_identification);
 
@@ -201,11 +203,11 @@ bool FrictionIdentificationTask_ApplyCandidate(MotorControlState *motor)
         return false;
     }
 
-    motor->friction_coulomb_pos_a = result->coulomb_pos_a;
-    motor->friction_coulomb_neg_a = result->coulomb_neg_a;
-    motor->friction_viscous_pos_a_per_rad_s = result->viscous_pos_a_per_rad_s;
-    motor->friction_viscous_neg_a_per_rad_s = result->viscous_neg_a_per_rad_s;
-    motor->friction_model_valid = true;
+    motor->device.friction_coulomb_pos_a = result->coulomb_pos_a;
+    motor->device.friction_coulomb_neg_a = result->coulomb_neg_a;
+    motor->device.friction_viscous_pos_a_per_rad_s = result->viscous_pos_a_per_rad_s;
+    motor->device.friction_viscous_neg_a_per_rad_s = result->viscous_neg_a_per_rad_s;
+    motor->device.friction_model_valid = true;
     return true;
 }
 

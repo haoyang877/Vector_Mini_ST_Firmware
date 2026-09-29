@@ -313,49 +313,46 @@ static void state_update_sample_progress(void)
 }
 
 /* 基础健康不要求编码器标定；各模式的标定准入仍由既有模式校验拥有。 */
-static MotorStateFacts state_build_guards(void)
+static MotorStateFacts state_read_facts(void)
 {
-    MotorStateFacts guards;
+    MotorStateFacts facts;
     uint32_t state = critical_hw_enter();
     MotorControlMode mode = s_context.motor->control_mode;
 
-    guards.active_faults = (uint32_t)s_context.motor->fault_code;
-    guards.phases_disabled = power_stage_hw_phases_disabled();
-    guards.control_idle = !s_context.has_pending_control && !s_context.has_latched_outcome;
+    facts.active_faults = (uint32_t)s_context.motor->fault_code;
+    facts.phases_disabled = power_stage_hw_phases_disabled();
+    facts.control_idle = !s_context.has_pending_control && !s_context.has_latched_outcome;
     /* 取消确认必须同时取得每个 worker 和前台的实际释放证明。 */
-    guards.operation_idle = !s_context.background_busy && !s_context.has_latched_outcome;
-    guards.maintenance_released =
+    facts.operation_idle = !s_context.background_busy && !s_context.has_latched_outcome;
+    facts.maintenance_released =
         !s_context.background_busy &&
         (!s_context.configuration_reading || s_context.rules.state == MOTOR_STATE_RUNNING) &&
         MotorMaintenance_IsReleased();
-    guards.samples_fresh = s_context.fast_samples_fresh && isfinite(s_context.foc->bus_voltage_v) &&
-                           isfinite(s_context.foc->bus_voltage_filtered_v) &&
-                           isfinite(s_context.foc->phase_a_current_a) &&
-                           isfinite(s_context.foc->phase_b_current_a) &&
-                           isfinite(s_context.foc->phase_c_current_a) &&
-                           MotorTemperature_IsFresh() && isfinite(s_context.foc->temperature_c);
-    guards.fault_sources_clear = s_context.motor->fault_code == MOTOR_FAULT_NONE;
-    guards.self_test_passed = s_context.self_test_complete &&
-                              ParameterValue_ConfigurationValid(s_context.motor) &&
-                              guards.samples_fresh && guards.fault_sources_clear;
-    guards.start_permitted =
-        s_context.motor->axis_profile_valid && !s_context.boot_maintenance_only;
+    facts.samples_fresh = s_context.fast_samples_fresh && isfinite(s_context.foc->bus_voltage_v) &&
+                          isfinite(s_context.foc->bus_voltage_filtered_v) &&
+                          isfinite(s_context.foc->phase_a_current_a) &&
+                          isfinite(s_context.foc->phase_b_current_a) &&
+                          isfinite(s_context.foc->phase_c_current_a) &&
+                          MotorTemperature_IsFresh() && isfinite(s_context.foc->temperature_c);
+    facts.fault_sources_clear = s_context.motor->fault_code == MOTOR_FAULT_NONE;
+    facts.self_test_passed = s_context.self_test_complete &&
+                             ParameterValue_ConfigurationValid(s_context.motor) &&
+                             facts.samples_fresh && facts.fault_sources_clear;
+    facts.start_permitted = s_context.motor->axis_profile_valid && !s_context.boot_maintenance_only;
     if (mode != MOTOR_CONTROL_NONE)
     {
-        guards.start_permitted = guards.start_permitted &&
-                                 s_context.motor->configuration_confirmed &&
-                                 ParameterValue_ConfigurationValid(s_context.motor);
+        facts.start_permitted = facts.start_permitted && s_context.motor->configuration_confirmed &&
+                                ParameterValue_ConfigurationValid(s_context.motor);
     }
     if (s_context.rules.state != MOTOR_STATE_RUNNING)
     {
-        guards.start_permitted = guards.start_permitted && state_vbus_in_enable_window() &&
-                                 isfinite(s_context.foc->bus_voltage_v) &&
-                                 s_context.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V;
+        facts.start_permitted = facts.start_permitted && state_vbus_in_enable_window() &&
+                                isfinite(s_context.foc->bus_voltage_v) &&
+                                s_context.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V;
     }
     if (encoder_feedback_required(s_context.motor))
     {
-        guards.start_permitted =
-            guards.start_permitted && Encoder_IsOnline(s_context.rotor_encoder);
+        facts.start_permitted = facts.start_permitted && Encoder_IsOnline(s_context.rotor_encoder);
     }
     if (mode == MOTOR_CONTROL_SPEED || mode == MOTOR_CONTROL_POSITION || mode == MOTOR_CONTROL_VQ ||
         (s_context.rules.state == MOTOR_STATE_MAINTENANCE &&
@@ -363,22 +360,22 @@ static MotorStateFacts state_build_guards(void)
           s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_FRICTION)) ||
         (mode == MOTOR_CONTROL_CURRENT && !s_context.motor->uses_sensorless_feedback))
     {
-        guards.start_permitted =
-            guards.start_permitted &&
+        facts.start_permitted =
+            facts.start_permitted &&
             (Encoder_GetCalibFlag(s_context.rotor_encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL;
     }
-    guards.operation_permitted = s_context.motor->axis_profile_valid &&
-                                 ((s_context.rules.maintenance_active &&
-                                   MotorStateRules_Classify(s_context.rules.maintenance_kind) ==
-                                       MOTOR_MAINTENANCE_CLASS_CALIBRATION) ||
-                                  power_stage_hw_phases_disabled());
+    facts.operation_permitted = s_context.motor->axis_profile_valid &&
+                                ((s_context.rules.maintenance_active &&
+                                  MotorStateRules_Classify(s_context.rules.maintenance_kind) ==
+                                      MOTOR_MAINTENANCE_CLASS_CALIBRATION) ||
+                                 power_stage_hw_phases_disabled());
     /* 位置/速度模式需要外环控制器就绪后才确认启动，其余模式可同拍确认。 */
-    guards.startup_confirmed =
+    facts.startup_confirmed =
         !state_mode_needs_preparation(s_context.motor->control_mode) || MotorOuterLoop_IsReady();
-    guards.request_fresh =
+    facts.request_fresh =
         s_context.request_epoch == s_context.rules.epoch && !s_context.stop_pending;
     critical_hw_exit(state);
-    return guards;
+    return facts;
 }
 
 /* 功率事实来自平台回读；取消控制数据与数字关相请求分别处理。 */
@@ -483,7 +480,7 @@ static bool state_commit_event(uint32_t events,
                              .control_mode = s_context.motor->control_mode,
                              .maintenance_kind = s_context.rules.maintenance_kind,
                              .effects = effects};
-    MotorStateFacts facts = recovery_facts != NULL ? *recovery_facts : state_build_guards();
+    MotorStateFacts facts = recovery_facts != NULL ? *recovery_facts : state_read_facts();
     MotorMaintenanceKind previous_kind = s_context.rules.maintenance_kind;
     MotorStateDecision decision = MotorStateRules_Step(&s_context.rules, &event, &facts);
 
@@ -613,19 +610,19 @@ static bool state_try_clear_fault(void)
                                      s_context.rotor_encoder,
                                      error,
                                      s_context.fast_samples_fresh &&
-                                         state_build_guards().samples_fresh,
-                                     state_build_guards().maintenance_released,
+                                         state_read_facts().samples_fresh,
+                                     state_read_facts().maintenance_released,
                                      MotorTemperature_IsFresh())))
     {
         critical_hw_exit(state);
         return false;
     }
-    MotorStateFacts guards = state_build_guards();
+    MotorStateFacts facts = state_read_facts();
     /* 仅覆盖本次已经按恢复矩阵或操作员确认策略获准的锁存源，不先改 fault_code。 */
-    guards.active_faults = 0U;
-    guards.fault_sources_clear = true;
+    facts.active_faults = 0U;
+    facts.fault_sources_clear = true;
     bool accepted =
-        state_commit_event(MOTOR_STATE_EVENT_CLEAR, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &guards);
+        state_commit_event(MOTOR_STATE_EVENT_CLEAR, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &facts);
     critical_hw_exit(state);
     return accepted;
 }
@@ -654,7 +651,7 @@ static bool state_service_operations(void)
              s_context.rules.maintenance_active &&
              (s_context.rules.operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED ||
               s_context.rules.operation_result == MOTOR_MAINTENANCE_FAILED) &&
-             state_build_guards().maintenance_released && !s_context.background_busy)
+             state_read_facts().maintenance_released && !s_context.background_busy)
     {
         return state_commit_event(
             MOTOR_STATE_EVENT_CANCEL_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
@@ -694,9 +691,9 @@ static bool begin_operation(MotorMaintenanceKind kind)
     if (kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO ||
         kind == MOTOR_MAINTENANCE_PHASE_RESISTANCE || kind == MOTOR_MAINTENANCE_FRICTION)
     {
-        MotorStateFacts guards = state_build_guards();
-        if (!s_context.stop_pending && guards.start_permitted && guards.samples_fresh &&
-            guards.fault_sources_clear)
+        MotorStateFacts facts = state_read_facts();
+        if (!s_context.stop_pending && facts.start_permitted && facts.samples_fresh &&
+            facts.fault_sources_clear)
         {
             power_stage_hw_start();
             if (!power_stage_hw_phases_disabled())
@@ -715,22 +712,22 @@ static bool begin_operation(MotorMaintenanceKind kind)
 }
 
 /* 运行所有者已静止：模式已失能、无目标/占用、资源已释放；调用方负责状态与角色前提。 */
-static bool state_owner_quiescent(const MotorStateFacts *guards)
+static bool state_owner_quiescent(const MotorStateFacts *facts)
 {
     return s_context.motor->control_mode == MOTOR_CONTROL_NONE && !s_context.stop_pending &&
            !s_context.has_pending_control && !s_context.configuration_reading &&
            !s_context.background_busy && !s_context.has_latched_outcome &&
-           !s_context.rules.maintenance_active && guards->phases_disabled && guards->control_idle &&
-           guards->operation_idle && guards->maintenance_released;
+           !s_context.rules.maintenance_active && facts->phases_disabled && facts->control_idle &&
+           facts->operation_idle && facts->maintenance_released;
 }
 
 /* READY 且无票据、无故障、无占用：停机配置写入的静态前提。 */
 static bool configuration_idle(void)
 {
-    MotorStateFacts guards = state_build_guards();
+    MotorStateFacts facts = state_read_facts();
     /* 纯布尔合取：control_mode 在辅助函数内部检查，交换与 fault_code 的读取次序不影响结果。 */
     return s_context.boot_stop_ticket == 0U && s_context.rules.state == MOTOR_STATE_READY &&
-           s_context.motor->fault_code == MOTOR_FAULT_NONE && state_owner_quiescent(&guards);
+           s_context.motor->fault_code == MOTOR_FAULT_NONE && state_owner_quiescent(&facts);
 }
 
 /**
@@ -784,7 +781,7 @@ static uint32_t state_start_blockers(MotorControlMode mode)
     {
         reasons |= MOTOR_START_BUS_UNAVAILABLE;
     }
-    if (!state_build_guards().self_test_passed)
+    if (!state_read_facts().self_test_passed)
     {
         reasons |= MOTOR_START_HEALTH_UNAVAILABLE;
     }
@@ -881,7 +878,7 @@ MotorControlResult MotorStateMachine_RequestClear(void)
 {
     uint32_t mask = critical_hw_enter();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (request_busy() || s_context.enable_pending || !state_build_guards().maintenance_released)
+    if (request_busy() || s_context.enable_pending || !state_read_facts().maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -923,12 +920,11 @@ MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kin
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (request_busy() || s_context.enable_pending ||
-             !state_build_guards().maintenance_released)
+    else if (request_busy() || s_context.enable_pending || !state_read_facts().maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else if (MotorStateMachine_ConfigurationAllowed() && state_build_guards().self_test_passed &&
+    else if (MotorStateMachine_ConfigurationAllowed() && state_read_facts().self_test_passed &&
              (kind == MOTOR_MAINTENANCE_SAVE || MotorAxis_ConfigurationRevisionAvailable()))
     {
         clear_running_data();
@@ -1251,11 +1247,11 @@ MotorControlResult MotorStateMachine_RequestBootStop(uint64_t ticket)
 bool MotorStateMachine_BootHandoffReady(uint64_t ticket)
 {
     uint32_t mask = critical_hw_enter();
-    MotorStateFacts guards = state_build_guards();
+    MotorStateFacts facts = state_read_facts();
     bool ready = ticket != 0U && ticket == s_context.boot_stop_ticket &&
                  (s_context.rules.state == MOTOR_STATE_READY ||
                   s_context.rules.state == MOTOR_STATE_FAULT) &&
-                 state_owner_quiescent(&guards);
+                 state_owner_quiescent(&facts);
     critical_hw_exit(mask);
     return ready;
 }
@@ -1274,7 +1270,7 @@ bool MotorStateMachine_ReadBootHealth(uint32_t *progress)
     }
     uint32_t mask = critical_hw_enter();
     *progress = s_context.supervisor_epoch;
-    bool healthy = state_build_guards().samples_fresh && s_context.rules.state != MOTOR_STATE_FATAL;
+    bool healthy = state_read_facts().samples_fresh && s_context.rules.state != MOTOR_STATE_FATAL;
     critical_hw_exit(mask);
     return healthy;
 }
@@ -1390,8 +1386,8 @@ void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
             critical_hw_exit(primask);
             return;
         }
-        MotorStateFacts guards = state_build_guards();
-        if (guards.start_permitted && guards.samples_fresh && guards.fault_sources_clear)
+        MotorStateFacts facts = state_read_facts();
+        if (facts.start_permitted && facts.samples_fresh && facts.fault_sources_clear)
         {
             power_stage_hw_start();
             if (!power_stage_hw_phases_disabled())
@@ -1460,20 +1456,21 @@ static MotorTaskResult motor_state_machine_take_outcome(void)
     return outcome;
 }
 
-/**
- * @brief 执行一次运行状态机：消费 worker 结果，完成故障指示、功率级启停迁移与提交。
- * @note 仅由 2 kHz 监督中断调用；顺序为 worker 结果应用 → 故障反应 →
- *       维护会话服务 → 停机/使能迁移 → 目标消费与故障镜像。
- */
-void MotorStateMachine_Tick(void)
+/* 消费监督拍开始时可见的 STOP；本拍后续仍必须接收更高优先级故障。 */
+static bool state_consume_stop_request(void)
 {
-    state_update_sample_progress();
     bool stopped = s_context.stop_pending;
     if (stopped)
     {
         s_context.stop_pending = false;
         state_request_stop();
     }
+    return stopped;
+}
+
+/* 结果消费保持故障优先；完成先关相，再发布任务终态及派生保存意图。 */
+static void state_process_task_outcome(bool stopped)
+{
     MotorTaskResult outcome = motor_state_machine_take_outcome();
     if (outcome.result == MOTOR_TASK_FAILED)
     {
@@ -1508,15 +1505,22 @@ void MotorStateMachine_Tick(void)
                 MOTOR_STATE_EVENT_OPERATION_DONE, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL);
         }
     }
-    bool operation_event = state_service_operations();
-    MotorFault_UpdateRecovery(&s_context.recovery, s_context.foc, s_context.motor->fault_code);
-    state_run_boot_chain();
+}
+
+/* 动作后重新读取事实：持续运行守卫与停止确认不能使用本拍早先的旧快照。 */
+static void state_poll_active_state(void)
+{
     if (s_context.rules.state == MOTOR_STATE_STARTING ||
         s_context.rules.state == MOTOR_STATE_RUNNING ||
         s_context.rules.state == MOTOR_STATE_STOPPING)
     {
         (void)state_commit_event(0U, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
+}
+
+/* 维护终结/取消确认当拍不启动派生保存；保存受理后再检查显式使能。 */
+static void state_start_requested_work(bool stopped, bool operation_event)
+{
     if (!stopped && !operation_event && s_context.save_requested &&
         s_context.rules.state == MOTOR_STATE_READY)
     {
@@ -1532,12 +1536,17 @@ void MotorStateMachine_Tick(void)
         (void)state_commit_event(
             MOTOR_STATE_EVENT_ENABLE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
-    if (s_context.rules.state == MOTOR_STATE_STARTING && state_build_guards().startup_confirmed)
+}
+
+/* 实际启相前在原临界区再次读取许可；准备就绪本身不能作为延迟启相授权。 */
+static void state_confirm_control_start(void)
+{
+    if (s_context.rules.state == MOTOR_STATE_STARTING && state_read_facts().startup_confirmed)
     {
         uint32_t mask = critical_hw_enter();
-        MotorStateFacts guards = state_build_guards();
-        if (!s_context.stop_pending && s_context.boot_stop_ticket == 0U && guards.start_permitted &&
-            guards.samples_fresh && guards.fault_sources_clear)
+        MotorStateFacts facts = state_read_facts();
+        if (!s_context.stop_pending && s_context.boot_stop_ticket == 0U && facts.start_permitted &&
+            facts.samples_fresh && facts.fault_sources_clear)
         {
             power_stage_hw_start();
             (void)state_commit_event(
@@ -1545,7 +1554,27 @@ void MotorStateMachine_Tick(void)
         }
         critical_hw_exit(mask);
     }
+}
+
+/**
+ * @brief 执行一次有序监督拍，消费任务结果并提交功率、维护和目标迁移。
+ * @note 仅由 2 kHz 监督中断调用；每阶段保持原顺序与临界区边界。
+ *       同拍允许多次迁移，动作后的事实重新读取；STOP 不跳过故障消费。
+ */
+void MotorStateMachine_Tick(void)
+{
+    state_update_sample_progress();
+    bool stopped = state_consume_stop_request();
+    state_process_task_outcome(stopped);
+    bool operation_event = state_service_operations();
+    MotorFault_UpdateRecovery(&s_context.recovery, s_context.foc, s_context.motor->fault_code);
+
+    state_run_boot_chain();
+    state_poll_active_state();
+    state_start_requested_work(stopped, operation_event);
+    state_confirm_control_start();
     apply_pending_control();
+
     indicator_hw_set_led(s_context.motor->fault_code != MOTOR_FAULT_NONE,
                          (uint8_t)(s_context.motor->fault_code != MOTOR_FAULT_NONE
                                        ? s_context.motor->fault_code

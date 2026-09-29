@@ -15,6 +15,11 @@ def production_text(path: Path) -> str:
 
 
 class MotorStateMachineBoundaryTests(unittest.TestCase):
+    def test_state_module_has_no_goto(self) -> None:
+        """状态机使用结构化分支，禁止跳转逻辑重新进入生产模块。"""
+        for path in (ROOT / "firmware/app/motor_state_machine").glob("*.[ch]"):
+            self.assertIsNone(re.search(r"\bgoto\b", production_text(path)), path.as_posix())
+
     def test_no_legacy_state_contract(self) -> None:
         retired = (
             r"\b(?:ModeNow|ModeLast|ModeNow_TypeDef|MotorWorkOutcome_TypeDef|next_mode|power_off)\b"

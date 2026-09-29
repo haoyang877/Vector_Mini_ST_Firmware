@@ -117,15 +117,15 @@ MotorMaintenanceClass MotorStateRules_Classify(MotorMaintenanceKind kind);
 
 /**
  * @brief 初始化生命周期实例为 BOOT 态，epoch 置 1。
- * @param app 调用方持有的生命周期实例；为 NULL 时不做任何事。
+ * @param context 唯一所有者持有的规则字段；为 NULL 时不做任何事。
  * @note 只做赋值，不触发动作、不访问硬件。
  */
-void MotorStateRules_Init(MotorStateRulesContext *app);
+void MotorStateRules_Init(MotorStateRulesContext *context);
 /**
  * @brief 执行一次生命周期状态迁移，返回动作请求与拒绝原因。
- * @param app 生命周期实例；由唯一调用方串行调用。
+ * @param context 唯一所有者持有的规则字段；调用方串行化访问。
  * @param event 本拍事件集与载荷（events/faults/epoch/control_mode/maintenance_kind/effects）。
- * @param guards 调用方提供的当前健康与资源 guards。
+ * @param facts 调用方提供的当前健康、许可与资源事实。
  * @return 迁移结果：动作位与拒绝原因；不复制上下文，动作不是硬件证据。
  * @note 优先级 FATAL > FAULT > STOP > CANCEL > 完成通知 > 新请求；完成与新请求同拍
  *       报 INTERRUPTED。LINK_RECOVERED 永不清除锁存；空事件轮询 guards 与停止确认。
@@ -139,8 +139,8 @@ void MotorStateRules_Init(MotorStateRulesContext *app);
  *       （API 误用）。动作执行方必须在启相短临界区原子复核紧急禁止与 epoch，
  *       本纯核心无法代替该硬件门。READY/SELF_TEST 且无故障时重复 CLEAR 是幂等 no-op。
  */
-MotorStateDecision MotorStateRules_Step(MotorStateRulesContext *app,
+MotorStateDecision MotorStateRules_Step(MotorStateRulesContext *context,
                                         const MotorStateEvent *event,
-                                        const MotorStateFacts *guards);
+                                        const MotorStateFacts *facts);
 
 #endif

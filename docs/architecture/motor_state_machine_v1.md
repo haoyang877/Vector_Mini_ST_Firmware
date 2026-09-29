@@ -103,7 +103,7 @@ READY 的新请求准入不通过通常只是拒绝，APP 如上报了具体故�
 | FATAL | BOOT | 外部复位后重新初始化 | 属于重新启动，不是 MotorStateRules_Step 的普通事件迁移 |
 
 STOPPING 可以是短暂状态：同一次核心调用会先进入 STOPPING，再检查停止确认；
-如果资源已经静默且无待确认取消，返回快照可能直接是 READY、SELF_TEST 或 FAULT。
+如果资源已经静默且无待确认取消，调用结束后的状态可能直接是 READY、SELF_TEST 或 FAULT。
 因此“不曾在遥测中看到 STOPPING”不能用于推断跳过了关相和资源检查。
 
 ### 保持状态、拒绝请求与同拍优先级
@@ -212,3 +212,31 @@ STOP、快环故障与监督复核拒绝均终结待应用身份，来源 0 的�
 
 本轮计划见[状态机模块收敛 v1](../plans/completed/2026-09-29-motor-state-unification-v1.md)，
 差分、容量和验收限制见[验收记录](../reports/2026-09/motor_state_unification_20260929.md)。
+
+## 转换与监督的阅读顺序
+
+2026-09-29 可读性调整：转换规则使用结构化分支与提前返回，不使用 goto。
+这次调整保持上述迁移表、拒绝原因、同拍优先级、任务身份和提交效果。
+
+阅读 `motor_state_rules.c` 时先看 `MotorStateRules_Step`：
+
+1. 校验指针；上下文有效但事件或事实缺失时进入 FATAL。
+2. `handle_priority_events` 处理 FATAL、有效故障、持续执行守卫以及 STOP/CANCEL。
+   FAULT 中单独的取消归还确认仍能通过，锁存保持。
+3. `handle_normal_event` 校验事件组合与身份，再进入 `handle_state_event`。
+   后者按当前状态展开，集中列出该状态的普通入口、守卫和出口。
+4. 公开入口统一施加 `output_must_be_disabled` 约束；内部提前返回不能绕过关相要求。
+
+`MotorStateMachine_Tick` 只显示有序监督阶段，实际工作仍在同文件私有函数：
+
+```text
+更新采样进展 → 消费 STOP → 消费功能结果/故障 → 维护完成与归还服务
+→ 更新故障恢复 → 启动自检 → 运行守卫与停止确认
+→ 派生保存/待受理使能 → 最终启相复核 → 应用目标 → 指示与监督计数
+```
+
+阶段顺序与原版本一致。STOP 消费后仍检查同拍故障；维护终结/取消确认当拍不启动派生保存。
+每次动作后需要重新读取 `state_read_facts`，不能以整拍一次采集替代真实关相和资源释放确认。
+前台准入与最终启相的临界区复核承担不同职责，均保留。
+
+执行与回退见[可读性优化 v1](../plans/active/2026-09-29-motor-state-readability-v1.md)。

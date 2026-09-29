@@ -18,8 +18,12 @@ struct ParameterDefinition
 class ParameterSandbox
 {
   public:
-    /** @brief 初始化明确标记的示例参数；不访问设备或修改文件。 */
-    ParameterSandbox();
+    /**
+     * @brief 初始化明确标记的示例参数，不访问设备或修改文件。
+     * @param node 演示节点，供只读节点字段显示；范围 1..254。
+     * @param writable 是否提供演示字段写权限；只读场景清除 WRITE access。
+     */
+    explicit ParameterSandbox(quint8 node = 3, bool writable = true);
     /**
      * @brief 返回本模型有真实演示来源的页面字段。
      * @return 描述副本，数值必须通过 Read 取得。

@@ -33,13 +33,17 @@ ParameterReply save_reply(quint16 result, quint32 revision)
 }
 } // namespace
 
-ParameterSandbox::ParameterSandbox()
+ParameterSandbox::ParameterSandbox(quint8 node, bool writable)
 {
+    if (node == 0 || node == 255)
+    {
+        throw std::invalid_argument("演示节点必须为 1..254");
+    }
     // 这些值只用于页面交互，不宣称是产品默认值或设备读取结果。
     values_.insert(0, {0, 2, 1, revision_, revision_});
     values_.insert(1, {1, 1, 3, revision_, 10000});
     values_.insert(2, {2, 1, 3, revision_, 3000});
-    values_.insert(3, {3, 2, 1, revision_, 3});
+    values_.insert(3, {3, 2, 1, revision_, node});
     values_.insert(5, {5, 2, 1, revision_, 7});
     values_.insert(21, {21, 1, 3, revision_, 1000000});
     values_.insert(22, {22, 1, 3, revision_, 100000});
@@ -47,6 +51,22 @@ ParameterSandbox::ParameterSandbox()
     values_.insert(0x4d, {0x4d, 2, 3, revision_, 0});
     values_.insert(0x4f, {0x4f, 2, 1, revision_, 3});
     values_.insert(0x51, {0x51, 2, 1, revision_, 0});
+    values_.insert(7, {7, 1, 1, revision_, 120000});
+    values_.insert(8, {8, 1, 1, revision_, 180000});
+    values_.insert(9, {9, 1, 1, revision_, 220000});
+    values_.insert(16, {16, 1, 1, revision_, 400000});
+    values_.insert(17, {17, 1, 1, revision_, 100000});
+    values_.insert(11, {11, 1, 1, revision_, 100});
+    values_.insert(12, {12, 1, 1, revision_, 1200});
+    values_.insert(13, {13, 1, 1, revision_, 100});
+    values_.insert(14, {14, 1, 1, revision_, 1200});
+    if (!writable)
+    {
+        for (auto &value : values_)
+        {
+            value.access &= ~2U;
+        }
+    }
 }
 
 QVector<ParameterDefinition> ParameterSandbox::Sandbox_Definitions() const
@@ -61,7 +81,16 @@ QVector<ParameterDefinition> ParameterSandbox::Sandbox_Definitions() const
             {23, "位置环最大速度", "rad/s", 1000},
             {0x4d, "停机配置确认", "0 / 1", 1},
             {0x4f, "启动受限位", "bitmask", 1},
-            {0x51, "可启动模式位", "bitmask", 1}};
+            {0x51, "可启动模式位", "bitmask", 1},
+            {7, "相电阻 Rs", "Ω", 1000000},
+            {8, "d 轴电感 Ld", "H", 1000000000},
+            {9, "q 轴电感 Lq", "H", 1000000000},
+            {16, "速度环 Kp", "内部系数", 1000000},
+            {17, "速度环 Ki", "内部系数", 1000000},
+            {11, "d 轴电流环 Kp", "系数", 1000},
+            {12, "d 轴电流环 Ki", "系数", 1000},
+            {13, "q 轴电流环 Kp", "系数", 1000},
+            {14, "q 轴电流环 Ki", "系数", 1000}};
 }
 
 ParameterReply ParameterSandbox::Sandbox_Read(quint8 id) const

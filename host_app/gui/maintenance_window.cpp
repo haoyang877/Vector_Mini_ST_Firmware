@@ -87,127 +87,7 @@ QString reason(const ParameterReply &reply)
 
 MaintenanceWindow::MaintenanceWindow(QWidget *parent) : QMainWindow(parent)
 {
-    setWindowTitle("YG_MC_HOST · 升级与参数");
-    resize(1380, 940);
-    setMinimumSize(1120, 820);
-    auto *root = new QWidget;
-    root->setObjectName("workspace");
-    auto *outer = new QHBoxLayout(root);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
-    auto *sidebar = new QFrame;
-    sidebar->setObjectName("sidebar");
-    sidebar->setFixedWidth(215);
-    auto *navigation = new QVBoxLayout(sidebar);
-    navigation->setContentsMargins(19, 30, 19, 25);
-    navigation->setSpacing(10);
-    navigation->addWidget(label("YG_MC_HOST", "brand"));
-    navigation->addWidget(label("MOTOR DRIVE WORKSPACE", "sidebarHint"));
-    navigation->addSpacing(35);
-    auto *upgrade_nav = button("固件升级", "upgradeNav", "nav");
-    auto *parameter_nav = button("参数管理", "parameterNav", "nav");
-    auto *group = new QButtonGroup(this);
-    for (auto *item : {upgrade_nav, parameter_nav})
-    {
-        item->setCheckable(true);
-        group->addButton(item);
-        navigation->addWidget(item);
-    }
-    upgrade_nav->setChecked(true);
-    navigation->addStretch();
-    navigation->addWidget(label("目标配置\nSTM32G431CBUx\nCAN FD · 1M / 5M", "sidebarHint"));
-    navigation->addSpacing(18);
-    navigation->addWidget(label("SYSTEM REFACTOR\n离线开发版", "sidebarHint"));
-    outer->addWidget(sidebar);
-    auto *workspace = new QWidget;
-    auto *layout = new QVBoxLayout(workspace);
-    layout->setContentsMargins(29, 24, 29, 23);
-    layout->setSpacing(15);
-    auto *heading = new QHBoxLayout;
-    auto *heading_text = new QVBoxLayout;
-    heading_text->addWidget(label("DEVICE MAINTENANCE", "eyebrow"));
-    title_ = label("固件升级", "pageTitle");
-    subtitle_ = label("选择升级范围，先校验镜像，再准备安装任务。", "subtitle");
-    heading_text->addWidget(title_);
-    heading_text->addWidget(subtitle_);
-    heading->addLayout(heading_text);
-    heading->addStretch();
-    heading->addWidget(label("离线演示", "badge"));
-    layout->addLayout(heading);
-    auto *device = card(layout, "设备与目标配置");
-    auto *device_row = new QHBoxLayout;
-    device_row->addWidget(label("连接方式", "subtitle"));
-    connection_ = new QComboBox;
-    connection_->setObjectName("connectionMode");
-    connection_->addItems({"离线演示 · 不连接设备", "CAN FD · 待接线", "SWD · 待接线"});
-    connection_->setMinimumWidth(230);
-    device_row->addWidget(connection_);
-    device_row->addSpacing(15);
-    device_row->addWidget(label("目标节点", "subtitle"));
-    auto *node = new QSpinBox;
-    node->setObjectName("targetNode");
-    node->setRange(1, 254);
-    node->setValue(3);
-    node->setToolTip("实际接线时必须按设备配置明确选择；当前不会发送任何帧。");
-    device_row->addWidget(node);
-    device_row->addStretch();
-    device_row->addWidget(label("实际设备：未连接", "subtitle"));
-    static_cast<QVBoxLayout *>(device->layout())->addLayout(device_row);
-    const auto target = Upgrade_Target();
-    auto constants = target["constants"].toObject();
-    static_cast<QVBoxLayout *>(device->layout())
-        ->addWidget(
-            label(QString("目标 %1    |    layout %2    |    schema %3    |    参数区受保护")
-                      .arg(target["device"].toString(),
-                           constants["TARGET_LAYOUT"].toString().remove('U'),
-                           constants["TARGET_SCHEMA"].toString().remove('U')),
-                  "subtitle"));
-    auto *notice =
-        label("当前为离线开发版。镜像校验与任务导出可用；演示读写仅改变示例数据。", "notice");
-    notice->setWordWrap(true);
-    layout->addWidget(notice);
-    pages_ = new QStackedWidget;
-    pages_->addWidget(build_upgrade_page());
-    pages_->addWidget(build_parameter_page());
-    layout->addWidget(pages_, 1);
-    outer->addWidget(workspace, 1);
-    setCentralWidget(root);
-    connect(upgrade_nav,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                pages_->setCurrentIndex(0);
-                title_->setText("固件升级");
-                subtitle_->setText("选择升级范围，先校验镜像，再准备安装任务。");
-            });
-    connect(parameter_nav,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                pages_->setCurrentIndex(1);
-                title_->setText("参数管理");
-                subtitle_->setText("读取活动参数，核对修订号，写入与掉电保存分别确认。");
-            });
-    connect(connection_,
-            &QComboBox::currentIndexChanged,
-            this,
-            [this](int index)
-            {
-                cancel_demo();
-                const bool offline = index == 0;
-                const bool writable =
-                    offline && !sandbox_.Sandbox_SavePending() && !parameter_snapshots_.isEmpty();
-                read_button_->setEnabled(offline);
-                write_button_->setEnabled(writable);
-                save_button_->setEnabled(writable);
-                demo_button_->setEnabled(offline && plan_ && plan_->valid);
-                upgrade_status_->setText(offline ? "仅演示安装步骤，不操作设备"
-                                                 : "设备执行尚未接线，可先校验文件和导出任务");
-                set_parameter_status(offline ? "离线示例已选中；请读取参数"
-                                             : "参数设备传输尚未接线，没有设备读写结果");
-            });
+    build_shell();
 }
 
 QWidget *MaintenanceWindow::build_upgrade_page()
@@ -615,13 +495,27 @@ QWidget *MaintenanceWindow::build_parameter_page()
 void MaintenanceWindow::set_parameter_status(const QString &text)
 {
     parameter_status_->setText(text);
+    if (quick_status_)
+    {
+        quick_status_->setText(text);
+    }
 }
 
 void MaintenanceWindow::read_parameters()
 {
-    if (connection_->currentIndex() != 0)
+    if (connection_->currentIndex() != 0 || !session_.Session_View().connected ||
+        session_.Session_View().scenario == DemoScenario::Loader)
     {
         return;
+    }
+    QMap<int, QString> dirty_drafts;
+    for (int row = 0; row < parameter_table_->rowCount(); ++row)
+    {
+        const auto draft = parameter_table_->item(row, 4)->text();
+        if (!draft.isEmpty() && draft != parameter_table_->item(row, 2)->text())
+        {
+            dirty_drafts[row] = draft;
+        }
     }
     parameter_snapshots_.clear();
     const auto definitions = sandbox_.Sandbox_Definitions();
@@ -637,7 +531,7 @@ void MaintenanceWindow::read_parameters()
         parameter_snapshots_[row] = value;
         const auto text = QString::number(scalar(value) / definitions[row].scale, 'g', 10);
         parameter_table_->item(row, 2)->setText(text);
-        parameter_table_->item(row, 4)->setText(text);
+        parameter_table_->item(row, 4)->setText(dirty_drafts.value(row, text));
         auto flags = parameter_table_->item(row, 4)->flags();
         if (value.access & 2)
         {
@@ -656,18 +550,19 @@ void MaintenanceWindow::read_parameters()
             .arg(revision)
             .arg(sandbox_.Sandbox_PersistedRevision()));
     const bool pending = sandbox_.Sandbox_SavePending();
-    write_button_->setEnabled(!pending);
-    save_button_->setEnabled(!pending);
+    write_button_->setEnabled(parameter_writable());
+    save_button_->setEnabled(parameter_writable());
     set_parameter_status(pending ? "示例参数读取完成；保存作业仍在等待完成。"
                                  : "示例参数读取完成；没有设备数据。");
+    refresh_workbench();
 }
 
 void MaintenanceWindow::write_parameter()
 {
     const int row = parameter_table_->currentRow();
-    if (connection_->currentIndex() != 0 || !parameter_snapshots_.contains(row))
+    if (!parameter_writable() || !parameter_snapshots_.contains(row))
     {
-        set_parameter_status("请先读取并选中一个参数。");
+        set_parameter_status("请先读取并选中参数；写入要求演示 APP 已解锁、失能且无待办任务。");
         return;
     }
     auto value = parameter_snapshots_.value(row);
@@ -703,13 +598,22 @@ void MaintenanceWindow::write_parameter()
         set_parameter_status("读回不一致，写入结果未知。");
         return;
     }
+    parameter_table_->item(row, 4)->setText(parameter_table_->item(row, 2)->text());
     read_parameters();
+    const DemoMotionParameters parameters{sandbox_.Sandbox_Read(1).value->raw / 1000.0,
+                                          sandbox_.Sandbox_Read(2).value->raw / 1000.0,
+                                          sandbox_.Sandbox_Read(21).value->raw / 1000000.0};
+    if (!session_.Session_MotionParameters(parameters))
+    {
+        set_parameter_status("活动值已写入；演示运动模型拒绝同步，尚未保存。");
+        return;
+    }
     set_parameter_status("活动值已写入并读回（演示）；尚未保存到 Flash。");
 }
 
 void MaintenanceWindow::save_parameters()
 {
-    if (connection_->currentIndex() != 0 || parameter_snapshots_.isEmpty())
+    if (!parameter_writable() || parameter_snapshots_.isEmpty())
     {
         return;
     }

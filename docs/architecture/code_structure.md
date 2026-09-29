@@ -40,10 +40,10 @@ APP 当前模块、对象所有权、函数与物理量名称以
 
 ## 工程入口
 
-2026-09-29 起 Keil 按 APP、Motor、Service、Communication、Platform、Shared、Common
-与厂商代码编号分组；普通和 Loader 配套 APP 使用同一职责映射，关键模块 `.h/.c`
-相邻显示。实际目录与编译选项保持，分组及维护规则见
-[Keil APP 职责分组 v1](../plans/completed/2026-09-29-keil-app-groups-v1.md)。
+2026-09-29 起 Keil 按 APP、Motor、Services、Communication、Platform、Shared、Common
+与 Vendor 合并为八组；普通和 Loader 配套 APP 一致，不在工程树登记 `.h`。
+头文件仍位于原目录并通过既有 include 路径使用。实际目录与编译、调试设置保留，规则见
+[Keil APP 精简分组 v2](../plans/completed/2026-09-29-keil-app-groups-v2.md)。
 
 Keil 主工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`。
 CubeMX 的内部 Core/Drivers 相对关系保持一致，用户源码通过相对 include 路径接入。

@@ -5,6 +5,7 @@
 #include "motor_status.h"
 #include "app_lifecycle.h"
 #include "motor_lifecycle_request.h"
+#include "motor_control_command.h"
 #include "parameter_value_service.h"
 /**
  * @brief 装载参数并初始化唯一电机执行对象。
@@ -27,12 +28,14 @@ MotorControlMode MotorAxis_SupervisorTick(void);
  * @param sample 调用方快照空间，不保留指针。
  * @param valid_bits 接收既有测量有效位。
  * @param maintenance_kind 接收同一临界区内的维护任务类型，空闲为 NONE。
+ * @param control_progress 接收同一临界区内的控制请求进展。
  * @return 关联的生命周期状态。
  * @note 前台调用；内部短临界区，不暴露控制对象地址。
  */
 AppLifecycleState MotorAxis_ReadStatus(MotorStatus *sample,
                                        uint8_t *valid_bits,
-                                       MotorMaintenanceKind *maintenance_kind);
+                                       MotorMaintenanceKind *maintenance_kind,
+                                       MotorControlProgress *control_progress);
 /**
  * @brief 执行受理的停机前台维护。
  * @note 主循环调用；表整理和 Flash 操作禁止在 ISR 执行。

@@ -442,13 +442,18 @@ static void test_control_boundary(void)
     yg_protocol_motor_adapter_t adapter = {.submit_control = submit_control,
                                            .control_context = &owner};
     yg_protocol_motor_request_t request = {
-        .operation = YG_PROTOCOL_MOTOR_SET_CONTROL, .mode = 3U, .position_mrad = -1250};
+        .operation = YG_PROTOCOL_MOTOR_SET_CONTROL,
+        .mode = 3U,
+        .position_mrad = -1250,
+        .source_node = 2U,
+        .sequence = 41U};
     yg_protocol_service_reply_t reply;
     yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
     CHECK(reply.status == YG_PROTOCOL_SERVICE_ACCEPTED && owner.calls == 1U);
     CHECK(owner.command.mode == MOTOR_CONTROL_POSITION &&
           fabsf(owner.command.position_rad + 1.25f) < 0.00001f);
     CHECK(request.position_mrad == -1250 && reply.token == 0U);
+    CHECK(owner.command.source_node == 2U && owner.command.sequence == 41U);
 
     static const MotorControlResult results[] = {MOTOR_CONTROL_INVALID,
                                                  MOTOR_CONTROL_DENIED,

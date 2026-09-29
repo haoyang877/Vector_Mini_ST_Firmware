@@ -85,6 +85,13 @@ bool MotorStateMachine_RequestRemoteStop(void);
  */
 MotorControlResult MotorStateMachine_SubmitControl(const MotorControlCommand *command);
 /**
+ * @brief 复制最近带来源控制请求的实际进展。
+ * @param progress 调用方值空间，不保留指针；空指针不执行。
+ * @note 前台只读，内部短临界区；需要关联测量时与测量采集置于同一临界区。
+ *       来源 0 的本地请求不覆盖远程进展；APPLIED 不表示机械到位。
+ */
+void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress);
+/**
  * @brief 请求以零目标或当前位置启动明确控制模式。
  * @param mode 业务模式，不接受线上或历史编号。
  * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。

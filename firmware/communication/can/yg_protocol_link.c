@@ -40,6 +40,7 @@ typedef struct
     uint16_t sequence;
     uint16_t request_crc;
     uint16_t result;
+    /* result=1 时复用为该请求的最终反馈结果；ACK 的 detail 仍为 0。 */
     uint16_t detail;
     bool valid;
 } yg_link_control_history_t;
@@ -70,6 +71,9 @@ typedef struct
     bool device_description_available;
     bool control_sequence_seen;
     bool feedback_pending;
+    bool control_completion_pending;
+    uint8_t control_completion_source;
+    uint16_t control_completion_sequence;
     uint8_t feedback_destination;
     uint8_t feedback_payload[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
 } yg_protocol_link_context_t;
@@ -89,6 +93,82 @@ static yg_protocol_endpoint_t s_endpoint;
 static bool s_ready;
 
 static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail);
+
+/* 只编码已经关联的值快照；与原始请求身份一起保留到 TX 队列接收。 */
+static yg_protocol_result_t prepare_control_feedback(yg_protocol_link_context_t *link,
+                                                    uint8_t destination,
+                                                    uint16_t sequence,
+                                                    uint16_t code)
+{
+    yg_protocol_motor_feedback_t feedback;
+    if (yg_protocol_motor_feedback_from_source(
+            link->motor_status_source, link->node_id, code, sequence, &feedback) != YG_PROTOCOL_OK ||
+        yg_protocol_motor_feedback_encode(
+            &feedback, link->feedback_payload, sizeof(link->feedback_payload)) != YG_PROTOCOL_OK)
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    link->feedback_destination = destination;
+    link->feedback_pending = true;
+    return YG_PROTOCOL_OK;
+}
+
+/* 终态来自同一前台快照中的所有者进展，不能以 ACK 或接收时刻猜测。 */
+static void prepare_completed_control(yg_protocol_link_context_t *link)
+{
+    if (!link->control_completion_pending || link->feedback_pending)
+    {
+        return;
+    }
+    const MotorControlProgress *progress = &link->motor_status_source->control_progress;
+    if (progress->source_node != link->control_completion_source ||
+        progress->sequence != link->control_completion_sequence ||
+        (progress->state != MOTOR_CONTROL_PROGRESS_APPLIED &&
+         progress->state != MOTOR_CONTROL_PROGRESS_REJECTED))
+    {
+        return;
+    }
+    uint16_t code = 8U;
+    if (progress->state == MOTOR_CONTROL_PROGRESS_APPLIED)
+    {
+        code = 0U;
+    }
+    else
+    {
+        switch (progress->result)
+        {
+        case MOTOR_CONTROL_INVALID:
+            code = 4U;
+            break;
+        case MOTOR_CONTROL_DENIED:
+            code = 5U;
+            break;
+        case MOTOR_CONTROL_BUSY:
+            code = 6U;
+            break;
+        case MOTOR_CONTROL_OUT_OF_RANGE:
+            code = 11U;
+            break;
+        case MOTOR_CONTROL_FAULT:
+            code = 17U;
+            break;
+        default:
+            break;
+        }
+    }
+    if (prepare_control_feedback(link, progress->source_node, progress->sequence, code) !=
+        YG_PROTOCOL_OK)
+    {
+        return;
+    }
+    yg_link_control_history_t *entry =
+        &link->control_history[progress->sequence % YG_LINK_CONTROL_HISTORY_SIZE];
+    if (entry->valid && entry->sequence == progress->sequence && entry->result == 1U)
+    {
+        entry->detail = code;
+    }
+    link->control_completion_pending = false;
+}
 
 /* 业务入口公共守卫：上下文/请求/结果指针非空且线格式有效，否则按无效字段拒绝。 */
 static bool request_context_valid(const yg_protocol_link_context_t *link,
@@ -254,20 +334,22 @@ static yg_protocol_result_t handle_motor_control(void *context,
 {
     yg_protocol_link_context_t *link = context;
     yg_protocol_motor_request_t command;
-    yg_protocol_motor_feedback_t feedback;
     yg_protocol_service_reply_t reply;
     yg_link_control_history_t *entry;
     yg_protocol_result_t decoded;
-    uint16_t code, detail = 0U, digest = 0U;
+    uint16_t code, feedback_code, detail = 0U, digest = 0U;
+    bool defer_feedback = false;
     if (!request_context_valid(link, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
     code = 7U;
+    feedback_code = code;
     if (request->source_node == YG_LINK_MASTER_NODE_ID)
     {
         decoded = yg_protocol_motor_decode_control(request, &command);
         code = decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U;
+        feedback_code = code;
         if (decoded == YG_PROTOCOL_OK)
         {
             digest = yg_protocol_crc16(request->payload, request->payload_length);
@@ -275,34 +357,59 @@ static yg_protocol_result_t handle_motor_control(void *context,
             if (entry->valid && entry->sequence == request->sequence)
             {
                 code = entry->request_crc == digest ? entry->result : 4U;
-                detail = entry->request_crc == digest ? entry->detail : 0U;
+                detail = entry->request_crc == digest && code != 1U ? entry->detail : 0U;
+                feedback_code = entry->request_crc == digest && code == 1U ? entry->detail : code;
             }
             else if (link->control_sequence_seen &&
-                     (uint16_t)(request->sequence - link->last_control_sequence) >= 0x8000U)
+                     (request->sequence == link->last_control_sequence ||
+                      (uint16_t)(request->sequence - link->last_control_sequence) >= 0x8000U))
             {
-                code = 4U; /* 历史窗口外的旧序号不得重新执行。 */
+                code = 4U; /* 未缓存的相同或旧序号不得在终态发布后重新执行。 */
+                feedback_code = code;
             }
             else
             {
-                (void)yg_protocol_motor_call(&link->motor_service, &command, &reply);
-                code = yg_protocol_motor_result_code(reply.status);
-                detail = reply.detail;
-                *entry = (yg_link_control_history_t){request->sequence, digest, code, detail, true};
+                if (link->control_completion_pending)
+                {
+                    code = 6U;
+                }
+                else
+                {
+                    (void)yg_protocol_motor_call(&link->motor_service, &command, &reply);
+                    code = yg_protocol_motor_result_code(reply.status);
+                    detail = reply.detail;
+                }
+                feedback_code = code;
+                /* 不能让拥塞拒绝覆盖仍待发布终态的历史槽。 */
+                if (!link->control_completion_pending ||
+                    request->sequence % YG_LINK_CONTROL_HISTORY_SIZE !=
+                        link->control_completion_sequence % YG_LINK_CONTROL_HISTORY_SIZE)
+                {
+                    *entry = (yg_link_control_history_t){request->sequence,
+                                                        digest,
+                                                        code,
+                                                        code == 1U ? 1U : detail,
+                                                        true};
+                }
+                if (code == 1U)
+                {
+                    link->control_completion_pending = true;
+                    link->control_completion_source = request->source_node;
+                    link->control_completion_sequence = request->sequence;
+                    defer_feedback = true;
+                    detail = 0U;
+                }
                 link->last_control_sequence = request->sequence;
                 link->control_sequence_seen = true;
             }
         }
     }
-    if (yg_protocol_motor_feedback_from_source(
-            link->motor_status_source, link->node_id, code, request->sequence, &feedback) !=
-            YG_PROTOCOL_OK ||
-        yg_protocol_motor_feedback_encode(
-            &feedback, link->feedback_payload, sizeof(link->feedback_payload)) != YG_PROTOCOL_OK)
+    if (!defer_feedback && prepare_control_feedback(
+                               link, request->source_node, request->sequence, feedback_code) !=
+                               YG_PROTOCOL_OK)
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    link->feedback_destination = request->source_node;
-    link->feedback_pending = true;
     write_result(result, code, detail);
     return YG_PROTOCOL_OK;
 }
@@ -645,6 +752,7 @@ static yg_protocol_result_t send_pending_feedback(void)
 {
     yg_protocol_message_t feedback = {0};
     yg_protocol_result_t result;
+    prepare_completed_control(&s_link_context);
     if (!s_link_context.feedback_pending)
     {
         return YG_PROTOCOL_OK;

@@ -2,6 +2,10 @@
 
 日期：2026-09-23，2026-09-24 更新。状态：45B 反馈布局已在[单轴线路契约 v1](yg_protocol_motor_wire_v1.md)冻结并实现 116/124 配对路由；电机实际使能和目标应用仍未开放。本文件修正[简化电调协议 v0.1](yg_protocol_simplified_motor_v0_1.md)与[CMD 功能契约 v0.1](yg_protocol_cmd_function_contract_v0_1.md)中“124 仅周期发送、12B 摘要”的提案。用户已确认：单轴控制使用全量反馈，五轴 1 kHz 使用精简反馈。
 
+2026-09-29：目标终态已按[当前单轴契约](yg_protocol_motor_wire_v1.md#2026-09-29-终态反馈接线源码完成未验证)
+接入实际所有者快照。本文保留原评审过程；以下关于“应用序号未接线”的内容属于历史。
+首次受理 124 改为等待真实 APPLIED/REJECTED，载荷和黄金字节不变；本批未构建或测试。
+
 ## 1. 原文与新增要求
 
 [飞书《电调通信协议》“状态反馈”](https://wcnxj7iyqdkp.feishu.cn/wiki/M5KJwCZApilqfjk251XcktAPnxa)列出：当前 node ID、电机状态 `uint8`、故障码 `uint32`、控制模式 `uint8`、母线电压/电流 `int16`、参考/当前位置 `int32`、参考/当前速度 `int32`、参考/当前扭矩电流 `int16`、MCU/电机温度 `int16`、Vq/Vd 电压 `int16`。页面的状态名称为 boot、upgrading、init、selftest、cali、idel、run、stop、fault_now、fault_over；原文拼写 `idel` 保留为来源记录，正式枚举需校正。页面**没有**规定反馈 CMD ID、单位/比例、字节偏移、有效值表示或命令与反馈的关联规则；下述补充均为项目设计。

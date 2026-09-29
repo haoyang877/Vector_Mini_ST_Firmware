@@ -73,12 +73,24 @@ static volatile bool s_has_latched_outcome;
 static MotorControlCommand s_pending_control;
 static uint32_t s_control_epoch;
 static volatile bool s_has_pending_control;
+static MotorControlProgress s_control_progress;
 /* 唯一生产调用方位于 ADC2 JEOS 快环末尾，计数表示本次感测处理已经完成。 */
 static volatile uint32_t s_fast_sample_epoch;
 static uint32_t s_observed_fast_sample_epoch;
 static bool s_fast_samples_fresh;
 static uint32_t s_supervisor_epoch;
 static bool run_state_vbus_in_enable_window(void);
+
+/* 只能终结尚未提交的远程身份；STOP/故障不能把旧终态改写成新成功。 */
+static void reject_pending_control(MotorControlResult reason)
+{
+    s_has_pending_control = false;
+    if (s_control_progress.state == MOTOR_CONTROL_PROGRESS_PENDING)
+    {
+        s_control_progress.state = MOTOR_CONTROL_PROGRESS_REJECTED;
+        s_control_progress.result = reason;
+    }
+}
 
 /* 停机清理：清零参考、影子和滤波量；任务取消独立按当前身份执行。 */
 static void clear_running_data(void)
@@ -178,13 +190,23 @@ static void apply_pending_control(void)
         critical_hw_exit(state);
         return;
     }
-    s_has_pending_control = false;
-    if (s_control_epoch != s_lifecycle.snapshot.epoch || s_stop_pending ||
-        validate_control(&s_pending_control) != MOTOR_CONTROL_ACCEPTED)
+    MotorControlResult result;
+    if (s_control_epoch != s_lifecycle.snapshot.epoch || s_stop_pending)
     {
+        result = s_motor_state->fault_code != MOTOR_FAULT_NONE ? MOTOR_CONTROL_FAULT
+                                                              : MOTOR_CONTROL_DENIED;
+    }
+    else
+    {
+        result = validate_control(&s_pending_control);
+    }
+    if (result != MOTOR_CONTROL_ACCEPTED)
+    {
+        reject_pending_control(result);
         critical_hw_exit(state);
         return;
     }
+    s_has_pending_control = false;
     switch (s_pending_control.mode)
     {
     case MOTOR_CONTROL_CURRENT:
@@ -201,6 +223,11 @@ static void apply_pending_control(void)
         break;
     default:
         break;
+    }
+    if (s_pending_control.source_node != 0U)
+    {
+        s_control_progress.state = MOTOR_CONTROL_PROGRESS_APPLIED;
+        s_control_progress.result = MOTOR_CONTROL_ACCEPTED;
     }
     critical_hw_exit(state);
 }
@@ -335,7 +362,9 @@ static void run_state_apply_actions(uint32_t actions)
     }
     if (actions & APP_ACTION_REVOKE_REQUESTS)
     {
-        s_has_pending_control = false;
+        reject_pending_control(s_motor_state->fault_code != MOTOR_FAULT_NONE
+                                   ? MOTOR_CONTROL_FAULT
+                                   : MOTOR_CONTROL_DENIED);
     }
     if (actions & APP_ACTION_START_CONTROL)
     {
@@ -917,7 +946,7 @@ MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket)
         }
         else if (s_lifecycle.snapshot.state == APP_MAINTENANCE)
         {
-            s_has_pending_control = false;
+            reject_pending_control(MOTOR_CONTROL_DENIED);
             if (s_has_latched_outcome)
             {
                 if (s_pending_outcome.result == MOTOR_TASK_FAILED &&
@@ -979,6 +1008,7 @@ void MotorStateMachine_Init(MotorControlState *motor,
     s_recovery.overcurrent_ticks = 0U;
     s_has_latched_outcome = false;
     s_has_pending_control = false;
+    s_control_progress = (MotorControlProgress){0};
     s_fast_sample_epoch = 0U;
     s_observed_fast_sample_epoch = 0U;
     s_fast_samples_fresh = false;
@@ -1033,7 +1063,9 @@ AppLifecycleState MotorStateMachine_GetState(void)
 bool MotorStateMachine_RequestRemoteStop(void)
 {
     uint32_t state = critical_hw_enter();
-    s_has_pending_control = false;
+    reject_pending_control(s_motor_state->fault_code != MOTOR_FAULT_NONE
+                               ? MOTOR_CONTROL_FAULT
+                               : MOTOR_CONTROL_DENIED);
     if (s_has_latched_outcome)
     {
         if (s_pending_outcome.result == MOTOR_TASK_FAILED &&
@@ -1142,10 +1174,34 @@ MotorControlResult MotorStateMachine_SubmitControl(const MotorControlCommand *co
             s_pending_control = *command;
             s_control_epoch = s_lifecycle.snapshot.epoch;
             s_has_pending_control = true;
+            if (command->source_node != 0U)
+            {
+                s_control_progress = (MotorControlProgress){
+                    .state = MOTOR_CONTROL_PROGRESS_PENDING,
+                    .result = MOTOR_CONTROL_ACCEPTED,
+                    .source_node = command->source_node,
+                    .sequence = command->sequence};
+            }
         }
     }
     critical_hw_exit(state);
     return result;
+}
+
+/**
+ * @brief 复制最近带来源控制请求的实际进展。
+ * @param progress 调用方值空间；空指针不执行。
+ * @note 短临界区只读，不改变请求、目标或功率。
+ */
+void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress)
+{
+    if (progress == NULL)
+    {
+        return;
+    }
+    uint32_t mask = critical_hw_enter();
+    *progress = s_control_progress;
+    critical_hw_exit(mask);
 }
 
 /**
@@ -1241,7 +1297,7 @@ void MotorStateMachine_FastFaultStop(void)
 {
     if (s_motor_state->fault_code != MOTOR_FAULT_NONE)
     {
-        s_has_pending_control = false;
+        reject_pending_control(MOTOR_CONTROL_FAULT);
     }
     if (s_motor_state->fault_code != MOTOR_FAULT_NONE && !power_stage_hw_phases_disabled())
     {

@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #include "motor_status.h"
+#include "motor_control_command.h"
 #include "yg_protocol_wire_types.h"
 
 #define YG_PROTOCOL_MOTOR_MEASUREMENT_MASK 0x77U
@@ -13,13 +14,14 @@
 
 /**
  * @brief 调用方拥有的只读快照与线上元数据，不含硬件句柄。
- * @note sample 的 SI 测量来自同一次采样；state/mode/faults 必须由所有者映射到线上枚举，
+ * @note sample 与 control_progress 来自同一短临界区；state/mode/faults 必须由所有者映射到线上枚举，
  *       不能直接复制 sample.mode/fault。measurement_valid_bits 使用详细状态的位 0/1/2/4/5。
  *       sample_available 由调度者检查新鲜度后设置；本模块不读时钟或消费 MotorStatus 邮箱。
  */
 typedef struct
 {
     MotorStatus sample;
+    MotorControlProgress control_progress;
     uint32_t faults;
     uint8_t state;
     uint8_t mode;

@@ -259,12 +259,27 @@ static void test_control(void)
     tick();
     tick();
     assert(MotorStateMachine_GetState() == APP_RUNNING && !output_off);
-    MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = -2.0f};
+    MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED,
+                                .speed_rad_s = -2.0f,
+                                .source_node = 2U,
+                                .sequence = 41U};
+    MotorControlProgress progress;
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_BUSY);
+    MotorStateMachine_ReadControlProgress(&progress);
+    assert(progress.state == MOTOR_CONTROL_PROGRESS_PENDING && progress.source_node == 2U &&
+           progress.sequence == 41U);
     tick();
     assert(motor.speed_target_rad_s == -2.0f);
+    MotorStateMachine_ReadControlProgress(&progress);
+    assert(progress.state == MOTOR_CONTROL_PROGRESS_APPLIED && progress.sequence == 41U);
+    goal.sequence = 42U;
+    goal.speed_rad_s = 3.0f;
+    assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     assert(MotorStateMachine_RequestRemoteStop());
+    MotorStateMachine_ReadControlProgress(&progress);
+    assert(progress.state == MOTOR_CONTROL_PROGRESS_REJECTED &&
+           progress.result == MOTOR_CONTROL_DENIED && progress.sequence == 42U);
     tick();
     assert(output_off && MotorStateMachine_GetState() == APP_READY &&
            motor.speed_target_rad_s == 0.0f);
@@ -282,11 +297,19 @@ static void test_control(void)
     tick();
     tick();
     assert(MotorStateMachine_GetState() == APP_RUNNING);
+    goal = (MotorControlCommand){.mode = MOTOR_CONTROL_CURRENT,
+                                .iq_a = 1.0f,
+                                .source_node = 2U,
+                                .sequence = 43U};
+    assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
                                   MotorStateMachine_WorkEpoch());
     tick();
     assert(MotorStateMachine_GetState() == APP_FAULT && motor.fault_code == MOTOR_FAULT_ENCODER &&
            output_off);
+    MotorStateMachine_ReadControlProgress(&progress);
+    assert(progress.state == MOTOR_CONTROL_PROGRESS_REJECTED &&
+           progress.result == MOTOR_CONTROL_FAULT && progress.sequence == 43U);
     assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
     tick();
     assert(MotorStateMachine_GetState() == APP_READY && motor.fault_code == MOTOR_FAULT_NONE &&

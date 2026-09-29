@@ -226,20 +226,42 @@ static void control_reply_and_feedback(void)
     /* 同序号重传重发回复与反馈，但不得再次提交目标。 */
     {
         yg_protocol_motor_service_t service = {NULL, control_handler};
+        yg_protocol_motor_status_source_t source = {
+            .control_progress = {.state = MOTOR_CONTROL_PROGRESS_PENDING,
+                                 .result = MOTOR_CONTROL_ACCEPTED,
+                                 .source_node = 2U,
+                                 .sequence = 41U}};
         assert(YgProtocolLink_Init(7U));
         assert(YgProtocolLink_BindMotorService(&service));
+        assert(YgProtocolLink_BindMotorStatusSource(&source));
         motor_calls = 0U;
         sent = false;
         assert(YgProtocolLink_OnRxFrame(&received));
         YgProtocolLink_Service(3U);
         assert(motor_calls == 1U);
+        assert(sent && sent_frame.data[6] == YG_PROTOCOL_MOTOR_TYPE_CONTROL &&
+               sent_frame.data[16] == 1U);
+        sent = false;
+        YgProtocolLink_Service(4U);
+        assert(!sent); /* ACK 已受理，所有者尚未应用，不提前发送成功反馈。 */
+        source.control_progress.state = MOTOR_CONTROL_PROGRESS_APPLIED;
+        YgProtocolLink_Service(5U);
+        assert(sent && sent_frame.data[6] == YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK &&
+               sent_frame.data[16] == 0U && sent_frame.data[18] == 41U);
+        sent = false;
         request.flags |= YG_PROTOCOL_FLAGS_RETRY;
         assert(yg_protocol_canfd_pack(&request, 2U, &packed) == YG_PROTOCOL_OK);
         received.length = packed.length;
         memcpy(received.data, packed.data, packed.length);
         assert(YgProtocolLink_OnRxFrame(&received));
-        YgProtocolLink_Service(4U);
+        YgProtocolLink_Service(6U);
         assert(motor_calls == 1U);
+        assert(sent && sent_frame.data[6] == YG_PROTOCOL_MOTOR_TYPE_CONTROL &&
+               sent_frame.data[16] == 1U && sent_frame.data[18] == 0U);
+        sent = false;
+        YgProtocolLink_Service(7U);
+        assert(sent && sent_frame.data[6] == YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK &&
+               sent_frame.data[16] == 0U && sent_frame.data[18] == 41U);
     }
 }
 

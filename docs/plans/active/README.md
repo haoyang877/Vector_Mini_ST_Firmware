@@ -1,5 +1,6 @@
 # Active Plans
 
+- [远程控制闭环收口 v2](2026-09-29-remote-control-closure-v2.md)：实际应用回执已接入，未运行验证；普通使能的线路语义待用户确认。
 - [历史实现与过期入口清理 v1](2026-09-29-legacy-cleanup-v1.md)：旧实现与无消费者状态删除；源码清理完成后统一验证。
 
 当前架构收尾以 [2026-09-29 完成记录](../completed/2026-09-29-framework-closure-v1.md) 和

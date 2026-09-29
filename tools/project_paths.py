@@ -34,6 +34,7 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/motor/trajectory",
     "firmware/motor/identification",
     "firmware/motor/protection",
+    "firmware/services/lifecycle",
     "firmware/services/parameters",
     "firmware/services/telemetry",
     "firmware/communication/can",

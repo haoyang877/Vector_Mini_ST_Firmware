@@ -255,7 +255,8 @@ static void sample_motor_status(MotorStatus *sample)
 }
 AppLifecycleState MotorAxis_ReadStatus(MotorStatus *sample,
                                        uint8_t *valid_bits,
-                                       MotorMaintenanceKind *maintenance_kind)
+                                       MotorMaintenanceKind *maintenance_kind,
+                                       MotorControlProgress *control_progress)
 {
     uint32_t mask = critical_hw_enter();
     sample_motor_status(sample);
@@ -270,6 +271,7 @@ AppLifecycleState MotorAxis_ReadStatus(MotorStatus *sample,
         *valid_bits |= 0x20U;
     }
     *maintenance_kind = MotorStateMachine_GetMaintenanceKind();
+    MotorStateMachine_ReadControlProgress(control_progress);
     AppLifecycleState state = MotorStateMachine_GetState();
     critical_hw_exit(mask);
     return state;

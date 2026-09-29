@@ -13,6 +13,9 @@ typedef struct
     float speed_rad_s;
     float iq_a;
     float vq_v;
+    /* 来源 0 表示本地调用；身份不参与控制计算，也不是存储 ABI。 */
+    uint8_t source_node;
+    uint16_t sequence;
 } MotorControlCommand;
 
 /** @brief 目标提交结果；ACCEPTED 仅表示已复制到控制所有者的邮箱。 */
@@ -27,6 +30,24 @@ typedef enum
     MOTOR_CONTROL_STALE_SEQUENCE,
     MOTOR_CONTROL_CONFLICTING_RETRY
 } MotorControlResult;
+
+/** @brief 单槽控制请求的实际进展；APPLIED 仅证明目标已进入控制参考。 */
+typedef enum
+{
+    MOTOR_CONTROL_PROGRESS_NONE = 0,
+    MOTOR_CONTROL_PROGRESS_PENDING,
+    MOTOR_CONTROL_PROGRESS_APPLIED,
+    MOTOR_CONTROL_PROGRESS_REJECTED
+} MotorControlProgressState;
+
+/** @brief 控制所有者发布的只读身份与终态，不代表机械到位或功率波形验证。 */
+typedef struct
+{
+    MotorControlProgressState state;
+    MotorControlResult result;
+    uint8_t source_node;
+    uint16_t sequence;
+} MotorControlProgress;
 
 /**
  * @brief 控制所有者目标提交端口；返回前必须复制命令，不得保留指针。

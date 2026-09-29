@@ -78,6 +78,8 @@ static yg_protocol_service_status_t submit_control(yg_protocol_motor_adapter_t *
     command.speed_rad_s = (float)request->speed_mrad_s * 0.001f;
     command.iq_a = (float)request->iq_mA * 0.001f;
     command.vq_v = (float)request->v_q_mV * 0.001f;
+    command.source_node = request->source_node;
+    command.sequence = request->sequence;
     return map_control_result(adapter->submit_control(adapter->control_context, &command));
 }
 

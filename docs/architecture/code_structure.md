@@ -115,7 +115,7 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 | 所有者 | 状态与调用边界 |
 | --- | --- |
 | `app/motor_axis.c` | 私有 motor_state、foc、速度 PI、encoder、Observer、startup；按获准生命周期选择维护、控制或空闲预载，执行快慢调度与前台维护，生成值快照 |
-| `app/motor_state_machine.c` | 唯一请求、正常启相关断和任务衔接所有者；Watch/CAN 共用命令邮箱，串行生命周期事件，保存认领与取消身份 |
+| `app/motor_state_machine/` | 唯一请求、正常启相关断和任务衔接所有者；内部规则、私有上下文、请求邮箱、保存认领与取消身份集中管理 |
 | `app/motor_maintenance.c` | 按维护 kind 调用实际功能和取消；返回功能事实及准入原因，不使用控制模式反推任务 |
 | `app/motor_execution.c` | 有界电流/速度/位置/vq_v 控制及外环；只使用显式传入对象，不反查状态机或调度维护 |
 | `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |

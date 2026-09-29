@@ -198,3 +198,17 @@ STOP、快环故障与监督复核拒绝均终结待应用身份，来源 0 的�
 事件与动作不是公共服务契约；生产路径只有 motor_state_machine.c 可以调用规则。
 通信依赖既有窄请求服务，状态值依赖 motor_state_types.h；不包含私有转换头。
 原生测试可以直接编译内部规则作为测试接缝，不产生第二个生产状态所有者。
+
+所有状态机私有数据由一个 `s_context` 拥有，转换结果只返回动作和拒绝原因，
+不再复制完整状态快照；控制模式只使用 MotorControlMode，不保存规则侧模式镜像。
+具体维护 kind 是分类来源，maintenance_active 表示会话是否仍有效。任务完成后
+保留最近 kind，维持旧 STOP/故障的定向清理行为，但不把已完成任务作为活动占用。
+
+普通事件、维护完成与 CLEAR 共用 state_commit_event：在短临界区构造元数据、
+提供事实、执行规则、记录终态并按原顺序执行动作。CLEAR 使用已核对的恢复事实；
+维护完成使用创建时保存的 operation_epoch，取消确认使用 cancel_epoch。
+快环邮箱和前台认领仍在提交前检查原始身份，不使用当前代际重建迟到结果。
+正常使能只受理为 STARTING，实际启相仍在监督拍既有准备确认与复核位置执行。
+
+本轮计划见[状态机模块收敛 v1](../plans/completed/2026-09-29-motor-state-unification-v1.md)，
+差分、容量和验收限制见[验收记录](../reports/2026-09/motor_state_unification_20260929.md)。

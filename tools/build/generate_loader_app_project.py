@@ -86,17 +86,25 @@ def main() -> None:
             file.find("FilePath").text = relative(
                 "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c"
             )
-    group = ET.SubElement(groups, "Group")
-    ET.SubElement(group, "GroupName").text = "APP Boot Entry"
+    group = ET.Element("Group")
+    group_name = "51_Shared_Boot"
+    ET.SubElement(group, "GroupName").text = group_name
+    for index, existing in enumerate(groups):
+        if (existing.findtext("GroupName") or "") > group_name:
+            groups.insert(index, group)
+            break
+    else:
+        groups.append(group)
     files = ET.SubElement(group, "Files")
     # APP 只保留进 Loader 的 RAM 邮箱与内嵌描述符；镜像校验与启动判据归 Loader。
     for source in (
+        "shared/boot/image_mailbox.h",
         "shared/boot/image_mailbox.c",
         "shared/targets/vector_mini_st_g431_app_descriptor.c",
     ):
         file = ET.SubElement(files, "File")
         ET.SubElement(file, "FileName").text = Path(source).name
-        ET.SubElement(file, "FileType").text = "1"
+        ET.SubElement(file, "FileType").text = "5" if source.endswith(".h") else "1"
         ET.SubElement(file, "FilePath").text = relative(source)
     for info in tree.getroot().findall("RTE/packages/package/targetInfos/targetInfo"):
         info.set("name", name)

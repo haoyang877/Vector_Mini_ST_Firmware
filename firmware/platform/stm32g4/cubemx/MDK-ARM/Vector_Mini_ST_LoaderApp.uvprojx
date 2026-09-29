@@ -360,453 +360,37 @@
       </TargetOption>
       <Groups>
         <Group>
-          <GroupName>Application/MDK-ARM</GroupName>
+          <GroupName>00_App</GroupName>
           <Files>
             <File>
-              <FileName>startup_stm32g431xx.s</FileName>
-              <FileType>2</FileType>
-              <FilePath>startup_stm32g431xx.s</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Application/User/Core</GroupName>
-          <Files>
-            <File>
-              <FileName>main.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\main.c</FilePath>
-            </File>
-            <File>
-              <FileName>gpio.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\gpio.c</FilePath>
-            </File>
-            <File>
-              <FileName>adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\adc.c</FilePath>
-            </File>
-            <File>
-              <FileName>dma.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\dma.c</FilePath>
-            </File>
-            <File>
-              <FileName>fdcan.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\fdcan.c</FilePath>
-            </File>
-            <File>
-              <FileName>spi.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\spi.c</FilePath>
-            </File>
-            <File>
-              <FileName>tim.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\tim.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_it.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32g4xx_it.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_msp.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32g4xx_hal_msp.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>STM32G4 board</GroupName>
-          <Files>
-            <File>
-              <FileName>delay.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\bsp\delay.c</FilePath>
-            </File>
-            <File>
-              <FileName>led.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\bsp\led.c</FilePath>
-            </File>
-            <File>
-              <FileName>critical.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\bsp\critical.c</FilePath>
-            </File>
-            <File>
-              <FileName>angle_feedback.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\position\angle_feedback.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>rgb.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\bsp\rgb.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>flash.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\bsp\flash.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\bsp_task.c</FilePath>
-            </File>
-            <File>
-              <FileName>hw_conf.h</FileName>
+              <FileName>board_config.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\..\bsp\hw_conf.h</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Motor and application</GroupName>
-          <Files>
-            <File>
-              <FileName>foc_algorithm.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\foc_algorithm.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FilePath>..\..\..\..\app\board_config.h</FilePath>
             </File>
             <File>
-              <FileName>foc_sensing.c</FileName>
+              <FileName>board_config.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\foc_sensing.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FilePath>..\..\..\..\app\board_config.c</FilePath>
             </File>
             <File>
-              <FileName>foc_sensorless.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\foc_sensorless.c</FilePath>
+              <FileName>motor_axis.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\motor_axis.h</FilePath>
             </File>
             <File>
-              <FileName>foc_sensorless_run.c</FileName>
+              <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\foc_sensorless_run.c</FilePath>
+              <FilePath>..\..\..\..\app\motor_axis.c</FilePath>
             </File>
             <File>
-              <FileName>foc_speed.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\foc_speed.c</FilePath>
+              <FileName>motor_state_machine.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\motor_state_machine.h</FilePath>
             </File>
             <File>
-              <FileName>phase_resistance.c</FileName>
+              <FileName>motor_state_machine.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\phase_resistance.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>phase_resistance_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\phase_resistance_task.c</FilePath>
+              <FilePath>..\..\..\..\app\motor_state_machine.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -860,523 +444,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>friction_identification.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\friction_identification.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>cogging_calibration.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\cogging_calibration.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>cogging_map.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\cogging_map.c</FilePath>
-            </File>
-            <File>
-              <FileName>foc_cogging_calibration.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\foc_cogging_calibration.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>encoder_calibration_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\encoder_calibration_task.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>cogging_compensation.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\cogging_compensation.c</FilePath>
-            </File>
-            <File>
-              <FileName>friction_identification_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\friction_identification_task.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>foc_errhandle.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\protection\foc_errhandle.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_axis_profile.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\services\parameters\motor_axis_profile.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>foc_param.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\services\parameters\foc_param.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>parameter_value_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\services\parameters\parameter_value_service.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>foc_pid.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\foc\foc_pid.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FileName>motor_execution.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\motor_execution.h</FilePath>
             </File>
             <File>
               <FileName>motor_execution.c</FileName>
@@ -1435,233 +505,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>position_cascade.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\position\position_cascade.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>position_smooth_trajectory.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\trajectory\position_smooth_trajectory.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>foc_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\foc_task.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>1</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>motor_axis.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\motor_axis.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_owner_adapter.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\yg_protocol_owner_adapter.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FileName>motor_maintenance.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\motor_maintenance.h</FilePath>
             </File>
             <File>
               <FileName>motor_maintenance.c</FileName>
@@ -1720,9 +566,14 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_state_machine.c</FileName>
+              <FileName>foc_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\foc_task.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\motor_state_machine.c</FilePath>
+              <FilePath>..\..\..\..\app\foc_task.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1744,7 +595,7 @@
                   <Cads>
                     <interw>2</interw>
                     <Optim>4</Optim>
-                    <oTime>0</oTime>
+                    <oTime>1</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
                     <Strict>2</Strict>
@@ -1775,71 +626,20 @@
                 </FileArmAds>
               </FileOption>
             </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Communication and telemetry</GroupName>
-          <Files>
             <File>
-              <FileName>motor_status.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\services\telemetry\motor_status.c</FilePath>
+              <FileName>bsp_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\bsp_task.h</FilePath>
             </File>
             <File>
-              <FileName>app_lifecycle.c</FileName>
+              <FileName>bsp_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\services\lifecycle\app_lifecycle.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FilePath>..\..\..\..\app\bsp_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>rtt_telemetry.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\rtt_telemetry.h</FilePath>
             </File>
             <File>
               <FileName>rtt_telemetry.c</FileName>
@@ -1898,19 +698,14 @@
               </FileOption>
             </File>
             <File>
-              <FileName>yg_protocol_runtime.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\can\yg_protocol_runtime.c</FilePath>
+              <FileName>yg_protocol_owner_adapter.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\yg_protocol_owner_adapter.h</FilePath>
             </File>
             <File>
-              <FileName>yg_protocol_canfd_irq.c</FileName>
+              <FileName>yg_protocol_owner_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd_irq.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_motor_adapter.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_adapter.c</FilePath>
+              <FilePath>..\..\..\..\app\yg_protocol_owner_adapter.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1931,7 +726,7 @@
                 <FileArmAds>
                   <Cads>
                     <interw>2</interw>
-                    <Optim>3</Optim>
+                    <Optim>4</Optim>
                     <oTime>0</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
@@ -1964,60 +759,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_stop_service.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\services\lifecycle\motor_stop_service.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FileName>yg_protocol_status_adapter.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\app\yg_protocol_status_adapter.h</FilePath>
             </File>
             <File>
               <FileName>yg_protocol_status_adapter.c</FileName>
@@ -2078,22 +822,2184 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Application support</GroupName>
+          <GroupName>10_Motor_FOC</GroupName>
           <Files>
+            <File>
+              <FileName>cogging_compensation.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\cogging_compensation.h</FilePath>
+            </File>
+            <File>
+              <FileName>cogging_compensation.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\cogging_compensation.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_algorithm.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_algorithm.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_algorithm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_algorithm.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>foc_pid.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_pid.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_pid.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_pid.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>foc_sensing.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensing.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_sensing.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensing.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>foc_sensorless.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensorless.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_sensorless.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensorless.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_sensorless_run.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensorless_run.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_sensorless_run.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_sensorless_run.c</FilePath>
+            </File>
+            <File>
+              <FileName>foc_speed.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_speed.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_speed.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\foc_speed.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>11_Motor_Position</GroupName>
+          <Files>
+            <File>
+              <FileName>angle_feedback.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\position\angle_feedback.h</FilePath>
+            </File>
+            <File>
+              <FileName>angle_feedback.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\position\angle_feedback.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>position_cascade.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\position\position_cascade.h</FilePath>
+            </File>
+            <File>
+              <FileName>position_cascade.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\position\position_cascade.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>position_smooth_trajectory.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\trajectory\position_smooth_trajectory.h</FilePath>
+            </File>
+            <File>
+              <FileName>position_smooth_trajectory.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\trajectory\position_smooth_trajectory.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>12_Motor_Calibration</GroupName>
+          <Files>
+            <File>
+              <FileName>cogging_calibration.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\cogging_calibration.h</FilePath>
+            </File>
+            <File>
+              <FileName>cogging_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\cogging_calibration.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>cogging_map.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\cogging_map.h</FilePath>
+            </File>
+            <File>
+              <FileName>cogging_map.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\cogging_map.c</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_calibration_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\encoder_calibration_task.h</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_calibration_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\encoder_calibration_task.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>foc_cogging_calibration.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\foc_cogging_calibration.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_cogging_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\foc_cogging_calibration.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>friction_identification.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\friction_identification.h</FilePath>
+            </File>
+            <File>
+              <FileName>friction_identification.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\friction_identification.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>friction_identification_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\friction_identification_task.h</FilePath>
+            </File>
+            <File>
+              <FileName>friction_identification_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\friction_identification_task.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>phase_resistance.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\phase_resistance.h</FilePath>
+            </File>
+            <File>
+              <FileName>phase_resistance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\phase_resistance.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>phase_resistance_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\identification\phase_resistance_task.h</FilePath>
+            </File>
+            <File>
+              <FileName>phase_resistance_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\identification\phase_resistance_task.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>13_Motor_Protection</GroupName>
+          <Files>
+            <File>
+              <FileName>foc_errhandle.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\protection\foc_errhandle.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_errhandle.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\protection\foc_errhandle.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>14_Motor_Contracts</GroupName>
+          <Files>
+            <File>
+              <FileName>axis_config.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\axis_config.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_control_mode.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\motor_control_mode.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_hardware_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\motor_hardware_profile.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_startup_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\motor_startup_profile.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_task_result.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\motor_task_result.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_types.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\motor\motor_types.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>20_Service_Lifecycle</GroupName>
+          <Files>
+            <File>
+              <FileName>app_lifecycle.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\app_lifecycle.h</FilePath>
+            </File>
+            <File>
+              <FileName>app_lifecycle.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\app_lifecycle.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>motor_control_command.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\motor_control_command.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_lifecycle_request.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\motor_lifecycle_request.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_stop_service.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\motor_stop_service.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_stop_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\lifecycle\motor_stop_service.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>21_Service_Parameters</GroupName>
+          <Files>
+            <File>
+              <FileName>foc_param.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\parameters\foc_param.h</FilePath>
+            </File>
+            <File>
+              <FileName>foc_param.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\parameters\foc_param.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>foc_param_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\parameters\foc_param_profile.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_axis_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\parameters\motor_axis_profile.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_axis_profile.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\parameters\motor_axis_profile.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>param_comm_bridge.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\parameters\param_comm_bridge.h</FilePath>
+            </File>
+            <File>
+              <FileName>parameter_value_service.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\parameters\parameter_value_service.h</FilePath>
+            </File>
+            <File>
+              <FileName>parameter_value_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\parameters\parameter_value_service.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>22_Service_Telemetry</GroupName>
+          <Files>
+            <File>
+              <FileName>motor_status.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\services\telemetry\motor_status.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_status.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\services\telemetry\motor_status.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>30_Comm_CAN</GroupName>
+          <Files>
+            <File>
+              <FileName>yg_protocol_canfd.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_canfd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_canfd_irq.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd_irq.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_canfd_irq.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd_irq.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_endpoint.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_endpoint.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_endpoint.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_endpoint.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_link.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_link.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_link.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_link.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>yg_protocol_runtime.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_runtime.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\can\yg_protocol_runtime.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>31_Comm_Protocol</GroupName>
+          <Files>
+            <File>
+              <FileName>yg_protocol_boot.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_boot.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_boot.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_boot.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_job.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_job.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_job.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_job.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>yg_protocol_message_registry.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_message_registry.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_message_registry.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_message_registry.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor_adapter.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_adapter.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor_adapter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_adapter.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor_status.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_status.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_motor_status.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_status.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>yg_protocol_parameter.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_parameter.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_parameter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_parameter.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_readonly.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_readonly.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_readonly_payload.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly_payload.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_readonly_payload.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly_payload.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_router.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_router.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_router.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_router.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_transfer.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_transfer.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_transfer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\communication\protocol\yg_protocol_transfer.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>40_Platform_Ports</GroupName>
+          <Files>
+            <File>
+              <FileName>board_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\board_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>board_startup_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\board_startup_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>boot_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\boot_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>boot_hw_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\boot\boot_hw_stm32g4.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>comm_control_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\comm\comm_control_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>comm_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\comm_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>comm_status_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\comm\comm_status_stm32g4.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>control_config.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\control_config.h</FilePath>
+            </File>
+            <File>
+              <FileName>critical_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\critical_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>current_sense_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\current_sense_profile.h</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_sensor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\encoder_sensor.h</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_spi.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\encoder_spi.h</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_spi_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\encoder_spi_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_tle5012b.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\encoder_tle5012b.c</FilePath>
+            </File>
+            <File>
+              <FileName>fast_loop_profile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\fast_loop_profile.h</FilePath>
+            </File>
+            <File>
+              <FileName>indicator_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\indicator_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>indicator_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\indicator_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>mcu_temperature.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\mcu_temperature.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\motor_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_pwm_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\motor_pwm_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_sensing.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\motor_sensing.h</FilePath>
+            </File>
+            <File>
+              <FileName>motor_sensing_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\motor_sensing_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>param_store.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\param_store.h</FilePath>
+            </File>
+            <File>
+              <FileName>param_store_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\param_store_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>power_stage_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\power_stage_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>power_stage_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\motor\power_stage_stm32g4.c</FilePath>
+            </File>
+            <File>
+              <FileName>time_hw.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\api\time_hw.h</FilePath>
+            </File>
+            <File>
+              <FileName>time_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\time\time_stm32g4.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>41_Platform_BSP</GroupName>
+          <Files>
+            <File>
+              <FileName>critical.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\bsp\critical.c</FilePath>
+            </File>
+            <File>
+              <FileName>delay.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\bsp\delay.h</FilePath>
+            </File>
+            <File>
+              <FileName>delay.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\bsp\delay.c</FilePath>
+            </File>
+            <File>
+              <FileName>flash.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\bsp\flash.h</FilePath>
+            </File>
+            <File>
+              <FileName>flash.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\bsp\flash.c</FilePath>
+            </File>
+            <File>
+              <FileName>hw_conf.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\bsp\hw_conf.h</FilePath>
+            </File>
+            <File>
+              <FileName>led.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\bsp\led.h</FilePath>
+            </File>
+            <File>
+              <FileName>led.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\bsp\led.c</FilePath>
+            </File>
+            <File>
+              <FileName>rgb.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\bsp\rgb.h</FilePath>
+            </File>
+            <File>
+              <FileName>rgb.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\bsp\rgb.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>50_Shared_Protocol</GroupName>
+          <Files>
+            <File>
+              <FileName>yg_protocol_can_id.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_can_id.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_can_id.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_can_id.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_crc.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_crc.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_crc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_crc.c</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_fragment.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_fragment.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_fragment.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_fragment.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>yg_protocol_frame_codec.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_frame_codec.h</FilePath>
+            </File>
+            <File>
+              <FileName>yg_protocol_frame_codec.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_frame_codec.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>51_Shared_Boot</GroupName>
+          <Files>
+            <File>
+              <FileName>image_mailbox.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\..\shared\boot\image_mailbox.h</FilePath>
+            </File>
+            <File>
+              <FileName>image_mailbox.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\boot\image_mailbox.c</FilePath>
+            </File>
+            <File>
+              <FileName>vector_mini_st_g431_app_descriptor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\targets\vector_mini_st_g431_app_descriptor.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>60_Common</GroupName>
+          <Files>
+            <File>
+              <FileName>crc32.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\common\crc32.h</FilePath>
+            </File>
+            <File>
+              <FileName>crc32.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\common\crc32.c</FilePath>
+            </File>
+            <File>
+              <FileName>heap.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\common\heap.h</FilePath>
+            </File>
             <File>
               <FileName>heap.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\common\heap.c</FilePath>
             </File>
             <File>
-              <FileName>board_config.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\board_config.c</FilePath>
-            </File>
-            <File>
-              <FileName>crc32.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\common\crc32.c</FilePath>
+              <FileName>utils.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\..\common\utils.h</FilePath>
             </File>
             <File>
               <FileName>utils.c</FileName>
@@ -2151,25 +3057,55 @@
                 </FileArmAds>
               </FileOption>
             </File>
-            <File>
-              <FileName>motor_types.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\..\..\..\motor\motor_types.h</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Drivers/STM32G4xx_HAL_Driver</GroupName>
+          <GroupName>90_CubeMX_Core</GroupName>
           <Files>
             <File>
-              <FileName>stm32g4xx_hal.c</FileName>
+              <FileName>adc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal.c</FilePath>
+              <FilePath>..\Core\Src\adc.c</FilePath>
             </File>
             <File>
-              <FileName>stm32g4xx_hal_rcc.c</FileName>
+              <FileName>dma.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_rcc.c</FilePath>
+              <FilePath>..\Core\Src\dma.c</FilePath>
+            </File>
+            <File>
+              <FileName>fdcan.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\fdcan.c</FilePath>
+            </File>
+            <File>
+              <FileName>gpio.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\gpio.c</FilePath>
+            </File>
+            <File>
+              <FileName>main.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\main.c</FilePath>
+            </File>
+            <File>
+              <FileName>spi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\spi.c</FilePath>
+            </File>
+            <File>
+              <FileName>startup_stm32g431xx.s</FileName>
+              <FileType>2</FileType>
+              <FilePath>startup_stm32g431xx.s</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_msp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\stm32g4xx_hal_msp.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_it.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\stm32g4xx_it.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -2190,8 +3126,8 @@
                 <FileArmAds>
                   <Cads>
                     <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
                     <Strict>2</Strict>
@@ -2223,59 +3159,19 @@
               </FileOption>
             </File>
             <File>
-              <FileName>stm32g4xx_hal_rcc_ex.c</FileName>
+              <FileName>tim.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_rcc_ex.c</FilePath>
+              <FilePath>..\Core\Src\tim.c</FilePath>
             </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>91_STM32_HAL</GroupName>
+          <Files>
             <File>
-              <FileName>stm32g4xx_hal_flash.c</FileName>
+              <FileName>stm32g4xx_hal.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_flash_ex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash_ex.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_flash_ramfunc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash_ramfunc.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_gpio.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_gpio.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_exti.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_exti.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_dma.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_dma.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_dma_ex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_dma_ex.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_pwr.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_pwr.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_pwr_ex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_pwr_ex.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32g4xx_hal_cortex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_cortex.c</FilePath>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_adc.c</FileName>
@@ -2390,9 +3286,24 @@
               </FileOption>
             </File>
             <File>
-              <FileName>stm32g4xx_ll_adc.c</FileName>
+              <FileName>stm32g4xx_hal_cortex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_ll_adc.c</FilePath>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_cortex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_dma.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_dma_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_dma_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_exti.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_exti.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_fdcan.c</FileName>
@@ -2449,6 +3360,97 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_flash.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_flash_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_flash_ramfunc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash_ramfunc.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_gpio.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_gpio.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_pwr.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_pwr.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_pwr_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_pwr_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_rcc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_rcc.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>3</Optim>
+                    <oTime>0</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>stm32g4xx_hal_rcc_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_rcc_ex.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_spi.c</FileName>
@@ -2633,10 +3635,15 @@
                 </FileArmAds>
               </FileOption>
             </File>
+            <File>
+              <FileName>stm32g4xx_ll_adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_ll_adc.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Drivers/CMSIS</GroupName>
+          <GroupName>92_CMSIS</GroupName>
           <Files>
             <File>
               <FileName>system_stm32g4xx.c</FileName>
@@ -2646,7 +3653,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>SEGGER RTT</GroupName>
+          <GroupName>93_SEGGER_RTT</GroupName>
           <Files>
             <File>
               <FileName>SEGGER_RTT.c</FileName>
@@ -2657,538 +3664,6 @@
               <FileName>SEGGER_RTT_printf.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\third_party\segger_rtt\SEGGER_RTT_printf.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>STM32G4 ports</GroupName>
-          <Files>
-            <File>
-              <FileName>comm_status_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\comm\comm_status_stm32g4.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>comm_control_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\comm\comm_control_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>time_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\time\time_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_pwm_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\motor\motor_pwm_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>power_stage_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\motor\power_stage_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_sensing_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\motor\motor_sensing_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_spi_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\motor\encoder_spi_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_tle5012b.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\motor\encoder_tle5012b.c</FilePath>
-            </File>
-            <File>
-              <FileName>board_startup_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\board\board_startup_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>indicator_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\board\indicator_stm32g4.c</FilePath>
-            </File>
-            <File>
-              <FileName>boot_hw_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\boot\boot_hw_stm32g4.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>param_store_stm32g4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\ports\board\param_store_stm32g4.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Shared Protocol</GroupName>
-          <Files>
-            <File>
-              <FileName>yg_protocol_crc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_crc.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_frame_codec.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_frame_codec.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>yg_protocol_can_id.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_can_id.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_fragment.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\shared\protocol\yg_protocol_fragment.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Communication YG Protocol</GroupName>
-          <Files>
-            <File>
-              <FileName>yg_protocol_link.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\can\yg_protocol_link.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>yg_protocol_canfd.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\can\yg_protocol_canfd.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_endpoint.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\can\yg_protocol_endpoint.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_message_registry.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_message_registry.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_router.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_router.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_motor.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_motor_status.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_motor_status.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>yg_protocol_readonly.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_readonly_payload.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_readonly_payload.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_job.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_job.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>yg_protocol_boot.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_boot.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_parameter.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_parameter.c</FilePath>
-            </File>
-            <File>
-              <FileName>yg_protocol_transfer.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\communication\protocol\yg_protocol_transfer.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>APP Boot Entry</GroupName>
-          <Files>
-            <File>
-              <FileName>image_mailbox.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\shared\boot\image_mailbox.c</FilePath>
-            </File>
-            <File>
-              <FileName>vector_mini_st_g431_app_descriptor.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\..\..\shared\targets\vector_mini_st_g431_app_descriptor.c</FilePath>
             </File>
           </Files>
         </Group>

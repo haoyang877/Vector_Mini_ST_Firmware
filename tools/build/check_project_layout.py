@@ -79,7 +79,7 @@ def check_project(project):
 
 def main():
     failed = False
-    for name in ("Vector_Mini_ST",):
+    for name in ("YG_ESC_APP",):
         project = ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM" / f"{name}.uvprojx"
         errors, sources, includes = check_project(project)
         for error in errors:

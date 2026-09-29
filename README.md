@@ -20,8 +20,9 @@ docs/                            architecture、protocols、guides、hardware、
 outputs/                         构建、测试与分析产物（忽略提交）
 ```
 
-Keil 工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`，
-构建产物输出到 `outputs/build/keil/`。
+Keil 主工程为
+[`YG_ESC_APP.uvprojx`](firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx)，
+目标和输出名统一为 `YG_ESC_APP`；构建产物输出到 `outputs/build/keil/YG_ESC_APP/`。
 
 ```powershell
 python -m pip install uv==0.12.16

@@ -20,7 +20,7 @@ def main():
         parser.error("Keil executable not found; set KEIL_UV4 or specify --uv4 /path/to/UV4.exe")
     log_dir = ROOT / "outputs/build/logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    targets = {"normal": "Vector_Mini_ST"}
+    targets = {"normal": "YG_ESC_APP"}
     for kind, name in targets.items():
         if args.target not in (kind, "all"):
             continue

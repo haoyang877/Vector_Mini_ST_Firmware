@@ -67,7 +67,7 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
 }}
 """
     (TARGET_DIR / "app.sct").write_text(app_scatter, encoding="utf-8")
-    tree = ET.parse(ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx")
+    tree = ET.parse(ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx")
     targets = tree.getroot().find("Targets")
     target = targets.find("Target")
     for other in list(targets)[1:]:

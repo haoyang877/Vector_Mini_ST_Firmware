@@ -204,7 +204,7 @@ STOP、快环故障与监督复核拒绝均终结待应用身份，来源 0 的�
 具体维护 kind 是分类来源，maintenance_active 表示会话是否仍有效。任务完成后
 保留最近 kind，维持旧 STOP/故障的定向清理行为，但不把已完成任务作为活动占用。
 
-普通事件、维护完成与 CLEAR 共用 state_commit_event：在短临界区构造元数据、
+普通事件、维护完成与 CLEAR 共用 dispatch_state_event：在短临界区构造元数据、
 提供事实、执行规则、记录终态并按原顺序执行动作。CLEAR 使用已核对的恢复事实；
 维护完成使用创建时保存的 operation_epoch，取消确认使用 cancel_epoch。
 快环邮箱和前台认领仍在提交前检查原始身份，不使用当前代际重建迟到结果。
@@ -236,7 +236,7 @@ STOP、快环故障与监督复核拒绝均终结待应用身份，来源 0 的�
 ```
 
 阶段顺序与原版本一致。STOP 消费后仍检查同拍故障；维护终结/取消确认当拍不启动派生保存。
-每次动作后需要重新读取 `state_read_facts`，不能以整拍一次采集替代真实关相和资源释放确认。
+每次动作后需要重新读取 `read_state_conditions`，不能以整拍一次采集替代真实关相和资源释放确认。
 前台准入与最终启相的临界区复核承担不同职责，均保留。
 
 执行与回退见[可读性优化 v1](../plans/completed/2026-09-29-motor-state-readability-v1.md)，
@@ -261,3 +261,33 @@ RequestEnable 和 RequestMaintenance 复用各自临界区内的事实，清理�
 远程重试、维护终态和后台借用有生产调用，不能按闲置功能删除；无感算法仍被编码器
 LUT 标定使用。删减范围和回退见[执行计划](../plans/completed/2026-09-29-motor-state-core-v1.md)，
 实际容量和行为对照见[验收记录](../reports/2026-09/motor_state_core_20260929.md)。
+
+## 条件与职责精简后的阅读入口
+
+2026-09-29：主状态与功能不变，按下列顺序阅读，不再把采样进展、参数确认、启相
+和持续运行混为同一个检查。没有新增模块或第二个状态所有者。
+
+| 入口 | 明确职责 |
+| --- | --- |
+| `MotorStateMachine_Tick` | 采样进展、STOP/故障/任务结果、维护归还、状态进展、保存/使能、目标应用的固定顺序 |
+| `advance_current_state` | 九状态 switch；BOOT/SELF_TEST 做启动链，STARTING/RUNNING/STOPPING 执行守卫及停止确认；其余由请求/结果阶段处理 |
+| `build_self_test_checks` | 感测、配置、停机三组事实汇总成原八个诊断位，不运动、不保存 |
+| `read_state_conditions` | 临界区读取事实；配置完整数值校验每次只调用一次，不长期缓存 |
+| `state_start_blockers` | 配置确认、标定、反馈、启动电压、状态/资源的拒绝原因；位置另加轴范围 |
+| `admit_control_target` | 生命周期与实际输出准入，保持格式错误、故障、拒绝、数值越界的原结果优先级 |
+| `MotorExecution_ValidateTarget` | 现有控制模块拥有格式与 SI 数值范围，不访问生命周期、不启相、不修改对象 |
+| `finish_maintenance_or_release` | SAVE 结果、前台终结和取消实际归还；原任务与派生 SAVE 身份不混用 |
+| `start_requested_save` / `begin_requested_control` | 分开派生保存与显式使能；完成/取消当拍仍不启动派生保存 |
+| `enable_prepared_control` | 准备完成后在短临界区重新检查 STOP、故障、当前许可并启相；动作后再确认 |
+
+facts 的 `inputs_valid` 表示快速采样有进展、母线/三相电流有限、温度新鲜且有限。
+它不表示编码器已标定，也不含启相电压窗口。`configuration_valid` 是本次参数验证
+结果，供准入和自检诊断复用；没有长期有效缓存。无故障由 `active_faults == 0`
+唯一推导，删除 `fault_sources_clear`。`rules.tested` 是唯一的自检完成记录，稳定
+计数只在 SELF_TEST_DONE 提交时提供窗口证据，不保存另一份完成标志。
+
+基本感测检查仍保留 NaN/无穷、零偏、温度、编码器等原条件。状态机不重新实现参数
+校验或目标限值。请求受理、延迟目标应用、真正启相、取消归还的动态复核是不同边界；
+不能删除后者或用旧快照替代。原同拍优先级、动作顺序、期限、错误编号与持久化不变。
+
+执行、基线差分与回退见[条件精简计划](../plans/active/2026-09-29-motor-state-conditions-v1.md)。

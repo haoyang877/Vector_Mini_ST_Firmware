@@ -49,7 +49,7 @@ static bool resources_quiescent(const MotorStateFacts *facts)
 
 static bool inputs_healthy(const MotorStateFacts *facts)
 {
-    return facts->samples_fresh && facts->fault_sources_clear && !facts->active_faults;
+    return facts->inputs_valid && facts->active_faults == 0U;
 }
 
 static bool running_permitted(const MotorStateFacts *facts)
@@ -214,9 +214,9 @@ static bool execution_guard_failed(const MotorStateRulesContext *context,
                (facts->phases_disabled &&
                 !(event->events & (MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_CANCEL)));
     case MOTOR_STATE_MAINTENANCE:
-        return !facts->operation_permitted || !facts->fault_sources_clear ||
+        return !facts->operation_permitted || facts->active_faults != 0U ||
                (active_maintenance_class(context) == MOTOR_MAINTENANCE_CLASS_CALIBRATION
-                    ? !facts->samples_fresh
+                    ? !facts->inputs_valid
                     : !facts->phases_disabled);
     default:
         return false;
@@ -366,7 +366,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         {
             break;
         }
-        if (!facts->self_test_passed || !inputs_healthy(facts) || !resources_quiescent(facts))
+        if (!facts->self_test_ready || !inputs_healthy(facts) || !resources_quiescent(facts))
         {
             enter_fault(context, MOTOR_STATE_FAULT_GUARD, actions);
             return MOTOR_STATE_REJECT_GUARD;

@@ -80,7 +80,10 @@ typedef struct
 {
     uint32_t active_faults;
     bool phases_disabled, control_idle, operation_idle, maintenance_released;
-    bool samples_fresh, fault_sources_clear, self_test_passed;
+    /* inputs_valid 含快速采样进展、测量有限性与温度新鲜度，不含启动电压窗口。
+     * configuration_valid 是本次读取的数值校验结果，不是持久有效缓存。
+     * self_test_ready 含稳定窗口/既有完成资格以及当前基础健康。 */
+    bool inputs_valid, configuration_valid, self_test_ready;
     /* 由适配器根据当前角色、模式/操作依赖、参数有效性与健康计算。
      * 缺少恢复证据时为 false。READY 允许缺少某项标定：start_permitted
      * 只拒绝受影响模式；基础参数错误则自检失败。 */

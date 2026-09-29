@@ -18,6 +18,64 @@
  * 以及延迟外环运行时的发布与保护接口。本文件只做任务编排与状态适配，
  * 具体控制算法位于 motor 层。 */
 
+/* 只验证 SI 目标格式与控制范围，不读取生命周期、不修改对象或输出。 */
+MotorControlResult MotorExecution_ValidateTarget(const MotorControlCommand *command,
+                                                 const MotorControlState *motor,
+                                                 const FocState *foc,
+                                                 const EncoderState *encoder)
+{
+    if (command == NULL || !isfinite(command->position_rad) || !isfinite(command->speed_rad_s) ||
+        !isfinite(command->iq_a) || !isfinite(command->vq_v))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    if ((unsigned)command->mode > MOTOR_CONTROL_VQ)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    if ((command->mode != MOTOR_CONTROL_POSITION && command->position_rad != 0.0f) ||
+        (command->mode != MOTOR_CONTROL_SPEED && command->speed_rad_s != 0.0f) ||
+        (command->mode != MOTOR_CONTROL_CURRENT && command->iq_a != 0.0f) ||
+        (command->mode != MOTOR_CONTROL_VQ && command->vq_v != 0.0f))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    if (motor == NULL || foc == NULL || encoder == NULL)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    switch (command->mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        return isfinite(motor->current_limit_a) && motor->current_limit_a > 0.0f &&
+                       fabsf(command->iq_a) <= motor->current_limit_a
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    case MOTOR_CONTROL_SPEED:
+        return isfinite(motor->speed_limit_rad_s) && motor->speed_limit_rad_s > 0.0f &&
+                       fabsf(command->speed_rad_s) <= motor->speed_limit_rad_s &&
+                       (motor->axis_profile.magic == 0U ||
+                        (isfinite(motor->axis_profile.maximum_speed_rad_s) &&
+                         motor->axis_profile.maximum_speed_rad_s > 0.0f &&
+                         fabsf(command->speed_rad_s) <= motor->axis_profile.maximum_speed_rad_s))
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    case MOTOR_CONTROL_POSITION:
+        return MotorAxisProfile_AllowsPosition(&motor->axis_profile,
+                                               motor->axis_profile_valid,
+                                               Encoder_GetMecPos(encoder),
+                                               command->position_rad)
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    case MOTOR_CONTROL_VQ:
+        return fabsf(command->vq_v) <= FOC_MaximumVoltage(foc->bus_voltage_filtered_v)
+                   ? MOTOR_CONTROL_ACCEPTED
+                   : MOTOR_CONTROL_OUT_OF_RANGE;
+    default:
+        return MOTOR_CONTROL_INVALID;
+    }
+}
+
 static void motor_outer_loop_request_reset(void);
 
 /**

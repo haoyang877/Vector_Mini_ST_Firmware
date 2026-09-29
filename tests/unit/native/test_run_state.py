@@ -24,6 +24,8 @@ def main() -> None:
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
     fixture += function_source(sensing, "MotorCurrentOffsets_Valid")
+    execution = (ROOT / "firmware/app/motor_execution.c").read_text(encoding="utf-8")
+    fixture += "\n" + function_source(execution, "MotorExecution_ValidateTarget")
     adapter = (ROOT / "firmware/app/yg_protocol_status_adapter.c").read_text(encoding="utf-8")
     fixture += "\n" + function_source(adapter, "protocol_mode")
     source = output / "run_state_owner.c"

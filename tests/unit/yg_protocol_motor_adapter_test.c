@@ -42,9 +42,9 @@ static MotorStateFacts LifecycleOwner_Guards(const LifecycleOwner *owner)
     guards.control_idle = true;
     guards.operation_idle = true;
     guards.maintenance_released = true;
-    guards.samples_fresh = true;
-    guards.fault_sources_clear = true;
-    guards.self_test_passed = true;
+    guards.inputs_valid = true;
+    guards.configuration_valid = true;
+    guards.self_test_ready = true;
     guards.start_permitted = true;
     guards.operation_permitted = true;
     guards.startup_confirmed = true;

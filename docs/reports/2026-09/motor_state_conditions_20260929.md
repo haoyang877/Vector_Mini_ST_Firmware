@@ -79,3 +79,20 @@ Loader、shared、host 源码相对同步主线未改变；本轮只改变 APP �
 ISR 时延、抖动或栈峰值验收。新镜像只有离线资格，没有量产/台架发布批准。
 
 阅读入口见[主状态机当前设计](../../architecture/motor_state_machine_v1.md)。
+
+## 参数所有权批次适配
+
+2026-09-29 将参数批次 f6fadad49aa30acfdef5c6426a2c5436207e2b67 合入独立分支，
+适配提交 ab6aab7。状态机、控制目标校验和真实 owner 夹具的配置访问改为
+model/application/device；还原这些成员路径后，三份文件的代码 token 与 81dc01e
+完全一致，不修改分支、常量或调用次序。纯规则源码与前次通过版本完全相同。
+
+真实 owner 使用当前生产参数/维护/故障模块重新编译；1280/2048 摘要和完整日志与
+冻结基线一致，format/lint 通过。结果见 outputs/state-conditions/parameter-adaptation/
+summary.json、projection.json 和 owner/test.log。没有重跑 262144 组纯规则矩阵、
+完整 release、多目标构建或实机检查；依赖不变部分复用上文证据。
+
+上表资源属于参数分组前的状态机交付，不能当作适配后新镜像的实测资源。
+适配相对 f6fadad 只增加本轮状态机、目标校验、直接测试及文档共 14 个文件差异，
+不包含其自身参数或 host_app 改动。主线由“00- 软件架构管理”独占集成，
+最终集成仍须通过仓库要求的 PR 门禁后才能完成交付。

@@ -30,7 +30,7 @@ def main():
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    actual = (ROOT / "firmware/app/motor_execution.c").read_text(encoding="utf-8")
+    actual = (ROOT / "firmware/app/runtime/motor_execution.c").read_text(encoding="utf-8")
     reference = subprocess.check_output(
         ["git", "show", args.reference_ref + ":firmware/app/motor_execution.c"], cwd=ROOT
     ).decode("utf-8")

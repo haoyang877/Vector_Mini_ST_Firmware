@@ -236,7 +236,7 @@ def main():
     command += [
         str(source),
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
-        str(ROOT / "firmware/motor/identification/cogging_map.c"),
+        str(ROOT / "firmware/motor/calibration/cogging_map.c"),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
         "-o",

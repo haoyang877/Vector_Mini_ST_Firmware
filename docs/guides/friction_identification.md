@@ -29,7 +29,7 @@ worker 检查正电流限制、足够的速度限制及有效速度 PI；台架�
 | 模块 | 职责 |
 | --- | --- |
 | `firmware/app/motor_state_machine.c` | 唯一受理者，维护 ticket、准入、输出许可、取消及资源释放确认 |
-| `firmware/app/motor_maintenance.c` | 装配私有 `static const` 配置，按 `MOTOR_MAINTENANCE_FRICTION` 调度真实功能 |
+| `firmware/app/runtime/motor_maintenance.c` | 装配私有 `static const` 配置，按 `MOTOR_MAINTENANCE_FRICTION` 调度真实功能 |
 | `firmware/motor/identification/foc_friction_identification.*` | 用显式电机、PI、编码器与配置输入执行任务，返回 `MotorTaskResult` |
 | `firmware/motor/identification/friction_identification.*` | 确定性采样、状态推进及拟合，不访问硬件或参数服务 |
 

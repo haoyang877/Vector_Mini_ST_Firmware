@@ -66,7 +66,7 @@ def main() -> None:
     args = parser.parse_args()
     for profile in (0, 1):
         current = run_variant(
-            args.cc, ROOT / "firmware/app", args.out / f"current-{profile}", profile
+            args.cc, ROOT / "firmware/app/runtime", args.out / f"current-{profile}", profile
         )
         print(current, end="")
         if args.reference_dir:

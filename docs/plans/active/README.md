@@ -1,5 +1,8 @@
 # Active Plans
 
+- [目录职责收口 v1](../completed/2026-09-29-directory-ownership-v1.md)：物理归属与工程路径已完成；参数解耦为下一阶段。
+- [固件实机验证 v1](2026-09-29-firmware-machine-validation-v1.md)：专用测试会话独占硬件，保留备份并重新配置 schema12。
+
 - [远程控制闭环收口 v2](2026-09-29-remote-control-closure-v2.md)：实际应用回执已接入；普通使能的线路语义待用户确认。首次未测记录是历史阶段边界，后续证据按匹配提交判定。
 - [历史实现与过期入口清理 v1](2026-09-29-legacy-cleanup-v1.md)：源码清理已经完成；保留初次交付记录，不作为新的开发任务。
 

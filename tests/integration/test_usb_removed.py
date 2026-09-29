@@ -24,7 +24,7 @@ class UsbRemovalTests(unittest.TestCase):
 
     def test_startup_and_supervisor_keep_can_without_usb_calls(self):
         main = (CUBEMX / "Core/Src/main.c").read_text(encoding="utf-8")
-        task = (ROOT / "firmware/app/bsp_task.c").read_text(encoding="utf-8")
+        task = (ROOT / "firmware/app/composition/bsp_task.c").read_text(encoding="utf-8")
         self.assertIn("MX_FDCAN1_Init();", main)
         self.assertNotIn("CAN_Service();", task)
         self.assertIn("FOC2kHzSupervisor();", task)

@@ -27,10 +27,10 @@ def main():
     (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
     lut_size = re.search(
         r"^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U",
-        (ROOT / "firmware/motor/position/angle_feedback.h").read_text(encoding="utf-8"),
+        (ROOT / "firmware/motor/feedback/angle_feedback.h").read_text(encoding="utf-8"),
         re.M,
     )[1]
-    src = (ROOT / "firmware/app/motor_execution.c").read_text(encoding="utf-8")
+    src = (ROOT / "firmware/app/runtime/motor_execution.c").read_text(encoding="utf-8")
     speed_src = (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8")
     block = src.split("/* OUTER_RUNTIME_BEGIN", 1)[1].split("/* OUTER_RUNTIME_END */", 1)[0]
     block = "/* OUTER_RUNTIME_BEGIN" + block

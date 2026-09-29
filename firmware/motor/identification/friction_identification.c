@@ -6,24 +6,24 @@
 
 #define FRICTION_TWO_PI 6.28318530717958647692f
 
-static float AbsValue(float value)
+static float abs_value(float value)
 {
     return value >= 0.0f ? value : -value;
 }
 
-static float MaxValue(float first, float second)
+static float max_value(float first, float second)
 {
     return first >= second ? first : second;
 }
 
-static bool IsActive(const FrictionIdentification_TypeDef *identification)
+static bool is_active(const FrictionIdentification *identification)
 {
     return identification->state == FRICTION_IDENT_TRACKING ||
            identification->state == FRICTION_IDENT_SAMPLING ||
            identification->state == FRICTION_IDENT_STOPPING;
 }
 
-static bool ConfigIsValid(const FrictionIdentificationConfig_TypeDef *config)
+static bool config_is_valid(const FrictionIdentificationConfig *config)
 {
     uint32_t index;
 
@@ -61,7 +61,7 @@ static bool ConfigIsValid(const FrictionIdentificationConfig_TypeDef *config)
     return true;
 }
 
-static uint32_t SecondsToTicks(const FrictionIdentification_TypeDef *identification, float seconds)
+static uint32_t seconds_to_ticks(const FrictionIdentification *identification, float seconds)
 {
     float ticks = seconds / identification->config.update_period_s;
 
@@ -76,26 +76,24 @@ static uint32_t SecondsToTicks(const FrictionIdentification_TypeDef *identificat
     return (uint32_t)(ticks + 0.5f);
 }
 
-static float TargetForPoint(const FrictionIdentification_TypeDef *identification,
-                            uint32_t point_index)
+static float target_for_point(const FrictionIdentification *identification, uint32_t point_index)
 {
     float direction = (point_index & 1U) == 0U ? 1.0f : -1.0f;
 
     return direction * identification->config.speed_points_rad_s[point_index / 2U];
 }
 
-static float SpeedTolerance(const FrictionIdentification_TypeDef *identification,
-                            float target_speed)
+static float speed_tolerance(const FrictionIdentification *identification, float target_speed)
 {
-    return MaxValue(AbsValue(target_speed) * identification->config.speed_tolerance_ratio,
-                    identification->config.minimum_speed_tolerance_rad_s);
+    return max_value(abs_value(target_speed) * identification->config.speed_tolerance_ratio,
+                     identification->config.minimum_speed_tolerance_rad_s);
 }
 
-static bool FitDirection(FrictionIdentification_TypeDef *identification,
-                         bool positive,
-                         float *coulomb_a,
-                         float *viscous_a_per_rad_s,
-                         float *rmse_a)
+static bool fit_direction(FrictionIdentification *identification,
+                          bool positive,
+                          float *coulomb_a,
+                          float *viscous_a_per_rad_s,
+                          float *rmse_a)
 {
     float sum_x = 0.0f;
     float sum_y = 0.0f;
@@ -112,7 +110,7 @@ static bool FitDirection(FrictionIdentification_TypeDef *identification,
 
     for (index = positive ? 0U : 1U; index < sample_count; index += 2U)
     {
-        float x = AbsValue(identification->samples[index].mean_speed_rad_s);
+        float x = abs_value(identification->samples[index].mean_speed_rad_s);
         float y = positive ? identification->samples[index].mean_iq_a
                            : -identification->samples[index].mean_iq_a;
 
@@ -161,7 +159,7 @@ static bool FitDirection(FrictionIdentification_TypeDef *identification,
 
     for (index = positive ? 0U : 1U; index < sample_count; index += 2U)
     {
-        float x = AbsValue(identification->samples[index].mean_speed_rad_s);
+        float x = abs_value(identification->samples[index].mean_speed_rad_s);
         float y = positive ? identification->samples[index].mean_iq_a
                            : -identification->samples[index].mean_iq_a;
         float error = y - (intercept + slope * x);
@@ -170,8 +168,8 @@ static bool FitDirection(FrictionIdentification_TypeDef *identification,
     }
     *rmse_a = sqrtf(error_squared_sum / (float)count);
     mean_y = sum_y / (float)count;
-    if (!isfinite(*rmse_a) || *rmse_a > MaxValue(identification->config.rmse_floor_a,
-                                                 identification->config.rmse_ratio_max * mean_y))
+    if (!isfinite(*rmse_a) || *rmse_a > max_value(identification->config.rmse_floor_a,
+                                                  identification->config.rmse_ratio_max * mean_y))
     {
         return false;
     }
@@ -181,32 +179,32 @@ static bool FitDirection(FrictionIdentification_TypeDef *identification,
     return true;
 }
 
-static bool Fit(FrictionIdentification_TypeDef *identification)
+static bool fit(FrictionIdentification *identification)
 {
-    bool positive_valid = FitDirection(identification,
-                                       true,
-                                       &identification->result.coulomb_pos_a,
-                                       &identification->result.viscous_pos_a_per_rad_s,
-                                       &identification->result.rmse_pos_a);
-    bool negative_valid = FitDirection(identification,
-                                       false,
-                                       &identification->result.coulomb_neg_a,
-                                       &identification->result.viscous_neg_a_per_rad_s,
-                                       &identification->result.rmse_neg_a);
+    bool positive_valid = fit_direction(identification,
+                                        true,
+                                        &identification->result.coulomb_pos_a,
+                                        &identification->result.viscous_pos_a_per_rad_s,
+                                        &identification->result.rmse_pos_a);
+    bool negative_valid = fit_direction(identification,
+                                        false,
+                                        &identification->result.coulomb_neg_a,
+                                        &identification->result.viscous_neg_a_per_rad_s,
+                                        &identification->result.rmse_neg_a);
 
     identification->result.valid = positive_valid && negative_valid;
     return identification->result.valid;
 }
 
-bool FrictionIdentification_Init(FrictionIdentification_TypeDef *identification,
-                                 const FrictionIdentificationConfig_TypeDef *config)
+bool FrictionIdentification_Init(FrictionIdentification *identification,
+                                 const FrictionIdentificationConfig *config)
 {
     if (identification == NULL)
     {
         return false;
     }
     memset(identification, 0, sizeof(*identification));
-    if (!ConfigIsValid(config))
+    if (!config_is_valid(config))
     {
         identification->state = FRICTION_IDENT_FAILED;
         identification->reason = FRICTION_IDENT_REASON_INVALID_CONFIG;
@@ -217,9 +215,9 @@ bool FrictionIdentification_Init(FrictionIdentification_TypeDef *identification,
     return true;
 }
 
-void FrictionIdentification_Reset(FrictionIdentification_TypeDef *identification)
+void FrictionIdentification_Reset(FrictionIdentification *identification)
 {
-    FrictionIdentificationConfig_TypeDef config;
+    FrictionIdentificationConfig config;
 
     if (identification == NULL)
     {
@@ -228,16 +226,16 @@ void FrictionIdentification_Reset(FrictionIdentification_TypeDef *identification
     config = identification->config;
     memset(identification, 0, sizeof(*identification));
     identification->config = config;
-    identification->state = ConfigIsValid(&config) ? FRICTION_IDENT_IDLE : FRICTION_IDENT_FAILED;
+    identification->state = config_is_valid(&config) ? FRICTION_IDENT_IDLE : FRICTION_IDENT_FAILED;
     if (identification->state == FRICTION_IDENT_FAILED)
     {
         identification->reason = FRICTION_IDENT_REASON_INVALID_CONFIG;
     }
 }
 
-bool FrictionIdentification_Start(FrictionIdentification_TypeDef *identification)
+bool FrictionIdentification_Start(FrictionIdentification *identification)
 {
-    if (identification == NULL || !ConfigIsValid(&identification->config))
+    if (identification == NULL || !config_is_valid(&identification->config))
     {
         if (identification != NULL)
         {
@@ -247,20 +245,20 @@ bool FrictionIdentification_Start(FrictionIdentification_TypeDef *identification
     }
     FrictionIdentification_Reset(identification);
     identification->state = FRICTION_IDENT_TRACKING;
-    identification->target_speed_rad_s = TargetForPoint(identification, 0U);
+    identification->target_speed_rad_s = target_for_point(identification, 0U);
     return true;
 }
 
-void FrictionIdentification_Abort(FrictionIdentification_TypeDef *identification)
+void FrictionIdentification_Abort(FrictionIdentification *identification)
 {
-    if (identification != NULL && IsActive(identification))
+    if (identification != NULL && is_active(identification))
     {
         FrictionIdentification_Fail(identification, FRICTION_IDENT_REASON_CANCELLED);
     }
 }
 
-void FrictionIdentification_Fail(FrictionIdentification_TypeDef *identification,
-                                 FrictionIdentificationReason_TypeDef reason)
+void FrictionIdentification_Fail(FrictionIdentification *identification,
+                                 FrictionIdentificationReason reason)
 {
     if (identification == NULL)
     {
@@ -272,15 +270,15 @@ void FrictionIdentification_Fail(FrictionIdentification_TypeDef *identification,
     identification->target_speed_rad_s = 0.0f;
 }
 
-void FrictionIdentification_Update(FrictionIdentification_TypeDef *identification,
-                                   const FrictionIdentificationInput_TypeDef *input)
+void FrictionIdentification_Update(FrictionIdentification *identification,
+                                   const FrictionIdentificationInput *input)
 {
     float target_speed;
     float tolerance;
     uint32_t minimum_sample_ticks;
     uint32_t total_sample_count;
 
-    if (identification == NULL || input == NULL || !IsActive(identification))
+    if (identification == NULL || input == NULL || !is_active(identification))
     {
         return;
     }
@@ -295,7 +293,7 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
     identification->saturation_ticks =
         input->current_saturated ? identification->saturation_ticks + 1U : 0U;
     if (identification->saturation_ticks >=
-        SecondsToTicks(identification, identification->config.saturation_time_s))
+        seconds_to_ticks(identification, identification->config.saturation_time_s))
     {
         FrictionIdentification_Fail(identification, FRICTION_IDENT_REASON_CURRENT_SATURATION);
         return;
@@ -303,8 +301,8 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
 
     if (identification->state == FRICTION_IDENT_STOPPING)
     {
-        if (AbsValue(input->measured_speed_rad_s) <= identification->config.stop_speed_rad_s &&
-            AbsValue(input->ramped_speed_reference_rad_s) <=
+        if (abs_value(input->measured_speed_rad_s) <= identification->config.stop_speed_rad_s &&
+            abs_value(input->ramped_speed_reference_rad_s) <=
                 identification->config.stop_speed_rad_s)
         {
             identification->stable_ticks++;
@@ -315,7 +313,7 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
         }
 
         if (identification->stable_ticks >=
-            SecondsToTicks(identification, identification->config.stop_hold_time_s))
+            seconds_to_ticks(identification, identification->config.stop_hold_time_s))
         {
             identification->stable_ticks = 0U;
             identification->state_ticks = 0U;
@@ -324,7 +322,7 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
             if (++identification->point_index >= total_sample_count)
             {
                 identification->target_speed_rad_s = 0.0f;
-                if (!Fit(identification))
+                if (!fit(identification))
                 {
                     FrictionIdentification_Fail(identification, FRICTION_IDENT_REASON_FIT_REJECTED);
                     return;
@@ -335,11 +333,11 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
             }
             identification->state = FRICTION_IDENT_TRACKING;
             identification->target_speed_rad_s =
-                TargetForPoint(identification, identification->point_index);
+                target_for_point(identification, identification->point_index);
             return;
         }
         if (identification->state_ticks >=
-            SecondsToTicks(identification, identification->config.stop_timeout_s))
+            seconds_to_ticks(identification, identification->config.stop_timeout_s))
         {
             FrictionIdentification_Fail(identification, FRICTION_IDENT_REASON_STOP_TIMEOUT);
         }
@@ -347,13 +345,13 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
     }
 
     target_speed = identification->target_speed_rad_s;
-    tolerance = SpeedTolerance(identification, target_speed);
+    tolerance = speed_tolerance(identification, target_speed);
     if (identification->state == FRICTION_IDENT_TRACKING)
     {
-        /* Encoder quantisation, cogging and low-speed PI ripple make a
+        /* encoder quantisation, cogging and low-speed PI ripple make a
          * consecutive-sample band test unnecessarily brittle. Validate the
          * average of one complete dwell window instead. */
-        if (AbsValue(input->ramped_speed_reference_rad_s - target_speed) <= tolerance)
+        if (abs_value(input->ramped_speed_reference_rad_s - target_speed) <= tolerance)
         {
             identification->stable_ticks++;
             identification->tracking_mean_speed +=
@@ -366,9 +364,9 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
             identification->tracking_mean_speed = 0.0f;
         }
         if (identification->stable_ticks >=
-            SecondsToTicks(identification, identification->config.stable_time_s))
+            seconds_to_ticks(identification, identification->config.stable_time_s))
         {
-            if (AbsValue(identification->tracking_mean_speed - target_speed) <= tolerance)
+            if (abs_value(identification->tracking_mean_speed - target_speed) <= tolerance)
             {
                 identification->state = FRICTION_IDENT_SAMPLING;
                 identification->state_ticks = 0U;
@@ -384,7 +382,7 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
             }
         }
         else if (identification->state_ticks >=
-                 SecondsToTicks(identification, identification->config.track_timeout_s))
+                 seconds_to_ticks(identification, identification->config.track_timeout_s))
         {
             FrictionIdentification_Fail(identification, FRICTION_IDENT_REASON_TRACK_TIMEOUT);
         }
@@ -401,14 +399,14 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
         (input->iq_a - identification->sample_mean_iq) / (float)identification->sample_count;
 
     minimum_sample_ticks =
-        SecondsToTicks(identification, identification->config.minimum_sample_time_s);
+        seconds_to_ticks(identification, identification->config.minimum_sample_time_s);
     if (identification->sample_count >= minimum_sample_ticks &&
-        AbsValue(input->mechanical_position_rad - identification->sample_start_position) >=
+        abs_value(input->mechanical_position_rad - identification->sample_start_position) >=
             identification->config.sample_turns * FRICTION_TWO_PI)
     {
-        FrictionIdentificationSample_TypeDef *sample =
+        FrictionIdentificationSample *sample =
             &identification->samples[identification->point_index];
-        if (AbsValue(identification->sample_mean_speed - target_speed) > tolerance)
+        if (abs_value(identification->sample_mean_speed - target_speed) > tolerance)
         {
             identification->sample_count = 0U;
             identification->sample_mean_speed = 0.0f;
@@ -429,19 +427,18 @@ void FrictionIdentification_Update(FrictionIdentification_TypeDef *identificatio
         return;
     }
     if (identification->state_ticks >=
-        SecondsToTicks(identification, identification->config.sample_timeout_s))
+        seconds_to_ticks(identification, identification->config.sample_timeout_s))
     {
         FrictionIdentification_Fail(identification, FRICTION_IDENT_REASON_SAMPLE_TIMEOUT);
     }
 }
 
-float FrictionIdentification_GetTargetSpeed(const FrictionIdentification_TypeDef *identification)
+float FrictionIdentification_GetTargetSpeed(const FrictionIdentification *identification)
 {
     return identification != NULL ? identification->target_speed_rad_s : 0.0f;
 }
 
-float FrictionIdentification_GetProgressPercent(
-    const FrictionIdentification_TypeDef *identification)
+float FrictionIdentification_GetProgressPercent(const FrictionIdentification *identification)
 {
     uint32_t sample_count;
 
@@ -459,7 +456,7 @@ float FrictionIdentification_GetProgressPercent(
                              : 0.0f;
 }
 
-uint32_t FrictionIdentification_GetSampleCount(const FrictionIdentification_TypeDef *identification)
+uint32_t FrictionIdentification_GetSampleCount(const FrictionIdentification *identification)
 {
     if (identification == NULL ||
         identification->config.speed_point_count > FRICTION_IDENTIFICATION_MAX_SPEED_POINTS)
@@ -469,31 +466,31 @@ uint32_t FrictionIdentification_GetSampleCount(const FrictionIdentification_Type
     return 2U * identification->config.speed_point_count;
 }
 
-FrictionIdentificationState_TypeDef
-FrictionIdentification_GetState(const FrictionIdentification_TypeDef *identification)
+FrictionIdentificationState
+FrictionIdentification_GetState(const FrictionIdentification *identification)
 {
     return identification != NULL ? identification->state : FRICTION_IDENT_FAILED;
 }
 
-FrictionIdentificationReason_TypeDef
-FrictionIdentification_GetReason(const FrictionIdentification_TypeDef *identification)
+FrictionIdentificationReason
+FrictionIdentification_GetReason(const FrictionIdentification *identification)
 {
     return identification != NULL ? identification->reason : FRICTION_IDENT_REASON_INVALID_CONFIG;
 }
 
-uint32_t FrictionIdentification_GetPointIndex(const FrictionIdentification_TypeDef *identification)
+uint32_t FrictionIdentification_GetPointIndex(const FrictionIdentification *identification)
 {
     return identification != NULL ? identification->point_index : 0U;
 }
 
-const FrictionIdentificationResult_TypeDef *
-FrictionIdentification_GetResult(const FrictionIdentification_TypeDef *identification)
+const FrictionIdentificationResult *
+FrictionIdentification_GetResult(const FrictionIdentification *identification)
 {
     return identification != NULL ? &identification->result : NULL;
 }
 
-const FrictionIdentificationSample_TypeDef *
-FrictionIdentification_GetSamples(const FrictionIdentification_TypeDef *identification)
+const FrictionIdentificationSample *
+FrictionIdentification_GetSamples(const FrictionIdentification *identification)
 {
     return identification != NULL ? identification->samples : NULL;
 }

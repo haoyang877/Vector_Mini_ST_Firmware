@@ -52,7 +52,7 @@ bool PositionSmooth_Begin(PositionSmoothTrajectory *s,
     s->target = target;
     s->distance = fabsf(target - start);
     s->direction = target >= start ? 1.0f : -1.0f;
-    s->speed_limit = speed;
+    s->speed_limit_rad_s = speed;
     s->upper_speed = speed;
     s->acceleration = acceleration;
     s->deceleration = deceleration;
@@ -77,10 +77,10 @@ bool PositionSmooth_Prepare(PositionSmoothTrajectory *s)
     }
     if (s->iterations == 0U)
     {
-        distance = ramp_distance(s, s->speed_limit, &ta, &td);
+        distance = ramp_distance(s, s->speed_limit_rad_s, &ta, &td);
         if (distance <= s->distance)
         {
-            s->lower_speed = s->speed_limit;
+            s->lower_speed = s->speed_limit_rad_s;
             s->iterations = SMOOTH_SEARCH_ITERATIONS;
         }
     }

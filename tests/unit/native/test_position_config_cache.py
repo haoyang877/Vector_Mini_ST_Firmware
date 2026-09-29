@@ -13,6 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from _naming_reference import project_reference
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
 
@@ -32,6 +33,14 @@ def main():
     reference = function_source(reference, "Task_Position_Mode").replace(
         "Task_Position_Mode(", "Task_Position_Mode_Reference("
     )
+    reference = project_reference(reference)
+    # 历史核心没有独立保持速度滤波字段；新契约显式补足相同产品默认值。
+    # 否则历史栈上的未初始化字段会触发现行核心的配置拒绝，无法比较缓存行为。
+    reference = reference.replace(
+        "config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;",
+        "config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;\n"
+        "config.hold_velocity_filter_hz = POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ;",
+    )
     # 仅将冻结基线中的常量名映射到现有等值常量；不恢复已删除的固件头文件。
     reference = reference.replace(
         "POSITION_IMPEDANCE_FRICTION_POSITIVE_A", "POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A"
@@ -41,27 +50,27 @@ def main():
     actual = "\n".join(
         function_source(source, n)
         for n in [
-            "PositionMode_ApplyFrictionConfiguration",
-            "PositionMode_EffectiveDeceleration",
-            "PositionMode_EffectiveMaximumSpeed",
-            "PositionMode_UpdateConfiguration",
-            "PositionMode_SameTuningValue",
-            "PositionMode_ConfigurationMatches",
-            "PositionMode_RejectRequest",
+            "position_mode_apply_friction_configuration",
+            "position_mode_effective_deceleration",
+            "position_mode_effective_maximum_speed",
+            "position_mode_update_configuration",
+            "position_mode_same_tuning_value",
+            "position_mode_configuration_matches",
+            "position_mode_reject_request",
             "Task_Position_Mode",
         ]
     )
     fields = sorted(
-        set(re.findall(r"MotorControl->(\w+)", actual + reference))
-        - {"axis_profile", "axis_profile_valid", "friction_model_valid", "isReachTargetPos"}
+        set(re.findall(r"motor_state->(\w+)", actual + reference))
+        - {"axis_profile", "axis_profile_valid", "friction_model_valid", "position_target_reached"}
     )
     typedef = (
         "typedef struct {\n"
         + "\n".join("float " + f + ";" for f in fields)
         + """
 MotorAxisProfile axis_profile;
-bool axis_profile_valid, friction_model_valid, isReachTargetPos;
-} MotorControl_TypeDef;
+bool axis_profile_valid, friction_model_valid, position_target_reached;
+} MotorControlState;
 """
     )
     # Only the hardware definitions consumed by the adapter's tuning header.
@@ -93,18 +102,18 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 """
         + typedef
         + r"""
-typedef struct { float position, velocity; } Encoder_TypeDef;
-typedef struct { unsigned calls; } FOC_TypeDef;
-enum { MotorParam_Error = 12 };
+typedef struct { float position, velocity; } EncoderState;
+typedef struct { unsigned calls; } FocState;
+enum { MOTOR_FAULT_INVALID_PARAMETERS = 12 };
 static unsigned error;
 static void Set_ErrorNow(unsigned value) { error = value; }
-static void MotorFault_Report(MotorControl_TypeDef *m, unsigned value) { (void)m; error = value; }
-static float Encoder_GetElePhase(Encoder_TypeDef *e) { return e->position * 7.0f; }
-static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
-static float Encoder_GetEleVel(Encoder_TypeDef *e) { return e->velocity * 7.0f; }
-static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->velocity; }
+static void MotorFault_Report(MotorControlState *m, unsigned value) { (void)m; error = value; }
+static float Encoder_GetElePhase(EncoderState *e) { return e->position * 7.0f; }
+static float Encoder_GetMecPos(EncoderState *e) { return e->position; }
+static float Encoder_GetEleVel(EncoderState *e) { return e->velocity * 7.0f; }
+static float Encoder_GetMecVelContinuous(EncoderState *e) { return e->velocity; }
 /* Deliberately no register/PWM writes in the host fixture. */
-static void FOC_Current(FOC_TypeDef *f, MotorControl_TypeDef *m, float a, float v) {
+static void FOC_Current(FocState *f, MotorControlState *m, float a, float v) {
     (void)m; (void)a; (void)v; f->calls++;
 }
 """
@@ -113,27 +122,27 @@ static void FOC_Current(FOC_TypeDef *f, MotorControl_TypeDef *m, float a, float 
         + actual
         + r"""
 typedef struct {
-    MotorControl_TypeDef motor;
-    PositionCascadeTelemetry_TypeDef telemetry;
+    MotorControlState motor;
+    PositionCascadeTelemetry telemetry;
     unsigned error, calls;
     bool defer;
 } Sample;
 static Sample expected[1200];
-static void setup(MotorControl_TypeDef *m) {
+static void setup(MotorControlState *m) {
     memset(m, 0, sizeof(*m));
     m->axis_profile_valid = true;
-    m->pos_error_window = .001f; m->posAcc = .785398f; m->posDec = .523599f;
-    m->pos_maxspeed = .6f; m->speed_limit = .8f;
-    m->cascade_pos_Kp = 8; m->cascade_pos_Kd = 2;
-    m->speed_Kp = .5f; m->speed_Ki = 2; m->current_limit = 6;
+    m->position_error_window_rad = .001f; m->position_acceleration_rad_s2 = .785398f; m->position_deceleration_rad_s2 = .523599f;
+    m->position_maximum_speed_rad_s = .6f; m->speed_limit_rad_s = .8f;
+    m->cascade_position_kp = 8; m->cascade_position_kd = 2;
+    m->speed_kp = .5f; m->speed_ki = 2; m->current_limit_a = 6;
     m->friction_coulomb_pos_a = 1.4f; m->friction_coulomb_neg_a = 1.3f;
     m->friction_viscous_pos_a_per_rad_s = .1f;
     m->friction_viscous_neg_a_per_rad_s = .2f;
 }
-static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
+static void change(MotorControlState *m, unsigned scenario, unsigned tick) {
     if (tick == 127 || tick == 253 || tick == 411)
     {
-        m->posRef += tick == 253 ? -.18f : .09f;
+        m->position_target_rad += tick == 253 ? -.18f : .09f;
     }
     if (tick != 131 && tick != 271)
     {
@@ -145,16 +154,16 @@ static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
             f"case {i}: m->{field} = tick == 131 ? {value} : NAN; break;"
             for i, (field, value) in enumerate(
                 [
-                    ("pos_error_window", ".0011f"),
-                    ("posAcc", ".5f"),
-                    ("posDec", ".3f"),
-                    ("pos_maxspeed", ".4f"),
-                    ("speed_limit", ".7f"),
-                    ("cascade_pos_Kp", "9.0f"),
-                    ("cascade_pos_Kd", "1.0f"),
-                    ("speed_Kp", ".3f"),
-                    ("speed_Ki", "1.0f"),
-                    ("current_limit", "4.0f"),
+                    ("position_error_window_rad", ".0011f"),
+                    ("position_acceleration_rad_s2", ".5f"),
+                    ("position_deceleration_rad_s2", ".3f"),
+                    ("position_maximum_speed_rad_s", ".4f"),
+                    ("speed_limit_rad_s", ".7f"),
+                    ("cascade_position_kp", "9.0f"),
+                    ("cascade_position_kd", "1.0f"),
+                    ("speed_kp", ".3f"),
+                    ("speed_ki", "1.0f"),
+                    ("current_limit_a", "4.0f"),
                     ("friction_coulomb_pos_a", "1.2f"),
                     ("friction_coulomb_neg_a", "1.1f"),
                     ("friction_viscous_pos_a_per_rad_s", ".3f"),
@@ -168,20 +177,20 @@ static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
         m->axis_profile.maximum_position_rad=1;
         m->axis_profile.maximum_speed_rad_s=tick==131 ? .3f : .2f; break;
     case 16: m->axis_profile_valid=false; break;
-    case 17: m->posRef=NAN; break;
-    case 18: m->speed_Ki=tick==131 ? 0.0f : -0.0f; break;
-    case 19: m->posDec=tick==131 ? 1.0f : 2.0f; break;
+    case 17: m->position_target_rad=NAN; break;
+    case 18: m->speed_ki=tick==131 ? 0.0f : -0.0f; break;
+    case 19: m->position_deceleration_rad_s2=tick==131 ? 1.0f : 2.0f; break;
     default: break;
     }
 }
 int main(void) {
     unsigned scenario, pass, tick;
-    PositionCascadeOutput_TypeDef o;
+    PositionCascadeOutput o;
     PositionCascade_Reset();
     assert(PositionCascade_GetConfiguration()==NULL);
     assert(!PositionCascade_UpdateTarget(0,0,0,&o));
     for(scenario=0;scenario<21;scenario++) for(pass=0;pass<2;pass++) {
-        MotorControl_TypeDef m; FOC_TypeDef f={0}; Encoder_TypeDef e;
+        MotorControlState m; FocState f={0}; EncoderState e;
         setup(&m); m.friction_model_valid=true;
         PositionCascade_Reset();
         for(tick=0;tick<1200;tick++) {

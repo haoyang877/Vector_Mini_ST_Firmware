@@ -15,9 +15,9 @@ AppLifecycle 纯转换核心，唯一实际所有者为 APP 的 motor_state_mach
 
 ```text
 firmware/app/
-  motor_state.c             私有电机对象、快慢环组合、参数活动版本、前台服务
+  motor_axis.c             私有电机对象、快慢环组合、参数活动版本、前台服务
   motor_state_machine.c/h   请求、真实守卫、正常功率许可、结果消费和保存衔接
-  motor_execution.c/h       电流/速度/位置/Vq 执行和有界外环
+  motor_execution.c/h       电流/速度/位置/vq_v 执行和有界外环
   motor_maintenance.c/h     实际维护功能调用、准入原因和定向取消
   yg_protocol_*_adapter.c   线上值与一致快照边界
 firmware/services/lifecycle/
@@ -47,7 +47,7 @@ firmware/motor/
 
 20 kHz 快环只运行一个获准控制或维护功能。2 kHz 监督拍消费结果、提供真实守卫、
 执行迁移。Flash 和表整理在前台执行。各算法计算、抽点频率和外环准备策略保留。
-2026-09-29 起，实际快环选择归 `motor_state.c`：故障时跳过功能和预载；可执行维护
+2026-09-29 起，实际快环选择归 `motor_axis.c`：故障时跳过功能和预载；可执行维护
 直接进入 `MotorMaintenance_Step`；STARTING/RUNNING 调用 `MotorExecution_ControlStep`；
 其余无故障状态预载三相 0.5 占空比。执行模块不读取生命周期或选择维护任务，
 零矢量预载不授权功率使能。

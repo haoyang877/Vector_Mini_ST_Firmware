@@ -32,7 +32,7 @@
 #include "board_config.h"
 #include "boot_hw.h"
 #include "control_config.h"
-#include "motor_state.h"
+#include "motor_axis.h"
 #include "SEGGER_RTT.h"
 #include "time_hw.h"
 #include "yg_protocol_runtime.h"
@@ -122,7 +122,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    MotorControl_ServiceBackground();
+    MotorAxis_ServiceBackground();
     YgProtocolStatusAdapter_Refresh();
     YgProtocolRuntime_Service(time_hw_now_ms());
     Board_ServiceBoot(time_hw_now_ms());

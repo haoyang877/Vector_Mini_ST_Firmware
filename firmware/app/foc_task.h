@@ -1,7 +1,7 @@
-#ifndef __FOC_TASK_H__
-#define __FOC_TASK_H__
+#ifndef FOC_TASK_H
+#define FOC_TASK_H
 
-#include "data_type.h"
+#include "motor_types.h"
 
 /**
  * @brief 执行一次 20 kHz 电机快速控制周期。

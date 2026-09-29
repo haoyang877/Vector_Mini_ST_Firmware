@@ -3,7 +3,7 @@
 > 当前固件已移除 MCU USB CDC 服务。本文中 USB/VOFA 指令及采集流程仅作历史参考；当前 CAN 能力与未迁移功能见 [USB 移除说明](usb_removal.md)。
 
 
-本文档整理 Vector_Mini_ST_Firmware 工程中 FOC 与电机模型计算所使用的物理单位及换算关系。工程内部模型统一使用 **SI 单位（浮点）**，仅在 USB/CAN 上位机交互与调试打印时换算为 mΩ、µH、mWb、r/s 等显示单位。
+本文档整理 Vector_Mini_ST_Firmware 工程中 foc 与电机模型计算所使用的物理单位及换算关系。工程内部模型统一使用 **SI 单位（浮点）**，仅在 USB/CAN 上位机交互与调试打印时换算为 mΩ、µH、mWb、r/s 等显示单位。
 
 ## 1. 总览
 
@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 相电流 / dq 电流 | A（安培） | 由 ADC 原始值乘以电流传感系数得到 |
 | 母线电压 | V（伏特） | 由 ADC 原始值乘以电压分压系数得到 |
-| 调制量 mod_d/mod_q/mod_alpha/mod_beta | p.u.（标幺值） | 相对母线电压归一化，实际电压 = mod × Vbus / 1.5 |
+| 调制量 mod_d/mod_q/mod_alpha/mod_beta | p.u.（标幺值） | 相对母线电压归一化，实际电压 = mod × bus_voltage_v / 1.5 |
 | 电气角度 | rad（弧度） | 归一化到 [0, 2π) |
 | 机械角度 | rad（弧度） | 圈数 × 2π |
 | 电气/机械角速度 | rad/s | 电气 = 机械 × 极对数 |
@@ -51,12 +51,12 @@ SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 `firmware/motor/foc/foc_sensing.c` 中：
 
 ```c
-FOC->Ia = -((int16_t)ADC值 - A_Offset) * SENSING_CURR_FACTOR;  // A
+foc->phase_a_current_a = -((int16_t)ADC值 - phase_a_offset_counts) * SENSING_CURR_FACTOR;  // A
 ```
 
-因此 `calib_current`、`current_limit`、`idRef/iqRef`、`Ia/Ib/Ic/Id/Iq`、`Ibus` 全部以 **A** 为单位。默认 6 mΩ 配置的 `calib_current = 3 A`，`current_limit = 6 A`。
+因此 `calibration_current_a`、`current_limit_a`、`id_target_a/iq_target_a`、`phase_a_current_a/phase_b_current_a/phase_c_current_a/id_a/iq_a`、`bus_current_a` 全部以 **A** 为单位。默认 6 mΩ 配置的 `calibration_current_a = 3 A`，`current_limit_a = 6 A`。
 
-Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置与编译配置不一致时，仅恢复 `calib_current` 和 `current_limit` 的档位默认值；编码器 LUT、电机参数及位置环参数继续保留。旧 schema v4 按 2 mΩ 识别，schema v5 按 6 mΩ 识别。
+Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置与编译配置不一致时，仅恢复 `calibration_current_a` 和 `current_limit_a` 的档位默认值；编码器 LUT、电机参数及位置环参数继续保留。旧 schema v4 按 2 mΩ 识别，schema v5 按 6 mΩ 识别。
 
 ## 3. 电压单位与换算
 
@@ -70,34 +70,34 @@ Flash 参数 schema v6 会保存采样电阻配置。固件检测到保存配置
 
 ```
 SENSING_VBUS_FACTOR = 3.3 / 4095 × 11 ≈ 0.008866 V/LSB
-FOC->Vbus = ADC值 × SENSING_VBUS_FACTOR;   // V
+foc->bus_voltage_v = ADC值 × SENSING_VBUS_FACTOR;   // V
 ```
 
-过压/欠压保护阈值（`firmware/motor/foc/foc_sensing.c`）同样以 V 为单位：Vbus > 30 V 报过压，< 10 V 报欠压。
+过压/欠压保护阈值（`firmware/motor/foc/foc_sensing.c`）同样以 V 为单位：bus_voltage_v > 30 V 报过压，< 10 V 报欠压。
 
 ### 3.2 调制量（p.u.）与实际电压的关系
 
 `firmware/motor/foc/foc_algorithm.c` 中，电压给定先归一化为标幺值调制量：
 
 ```c
-V_to_mod = 1.5f / FOC->Vbus_filt;   // V → p.u.
-FOC->mod_d = V_to_mod * Vd_set;
-FOC->mod_q = V_to_mod * Vq_set;
+V_to_mod = 1.5f / foc->bus_voltage_filtered_v;   // V → p.u.
+foc->mod_d = V_to_mod * Vd_set;
+foc->mod_q = V_to_mod * Vq_set;
 ```
 
 反向关系即：
 
 ```
-V_phase = mod × Vbus / 1.5        // p.u. → V
+V_phase = mod × bus_voltage_v / 1.5        // p.u. → V
 ```
 
 1.5 是工程上的归一化基准，调制矢量被限幅在 `0.95 × √3/2 ≈ 0.823`。磁链观测器正是用该关系把调制量还原为真实相电压：
 
 ```c
 // firmware/motor/foc/foc_sensorless.c
-float mod_to_V = FOC->Vbus_filt / 1.5f;
-Fluxobserver->Ualpha = FOC->mod_alpha * mod_to_V;  // V
-Fluxobserver->Ubeta  = FOC->mod_beta  * mod_to_V;  // V
+float mod_to_V = foc->bus_voltage_filtered_v / 1.5f;
+flux_observer->voltage_alpha_v = foc->mod_alpha * mod_to_V;  // V
+flux_observer->voltage_beta_v  = foc->mod_beta  * mod_to_V;  // V
 ```
 
 ## 4. 角度与角速度单位
@@ -105,10 +105,10 @@ Fluxobserver->Ubeta  = FOC->mod_beta  * mod_to_V;  // V
 编码器输出换算见 `firmware/platform/stm32g4/bsp/encoder.c`：
 
 ```c
-Encoder->theta_elec = normalizeAngle((interpolated_enc * _2PI * pole_pairs) / cpr);  // rad，电气角 [0, 2π)
-Encoder->vel_elec   = Encoder->vel * _2PI * pole_pairs;                              // rad/s，电气角速度
-Encoder->theta_mech = Encoder->pos * _2PI;                                           // rad，机械角
-Encoder->vel_mech   = Encoder->vel * _2PI;                                           // rad/s，机械角速度
+encoder->electrical_angle_rad = Math_NormalizeAngle((interpolated_enc * _2PI * pole_pairs) / cpr);  // rad，电气角 [0, 2π)
+encoder->electrical_velocity_rad_s   = encoder->vel * _2PI * pole_pairs;                              // rad/s，电气角速度
+encoder->mechanical_position_rad = encoder->pos * _2PI;                                           // rad，机械角
+encoder->mechanical_velocity_rad_s   = encoder->vel * _2PI;                                           // rad/s，机械角速度
 ```
 
 换算关系：
@@ -122,13 +122,13 @@ Encoder->vel_mech   = Encoder->vel * _2PI;                                      
 默认极对数为 21。速度/位置相关参数内部均为 rad/s 或 rad：
 
 ```
-speed_limit  = 0.5 × 2π  rad/s
-speedAcc/Dec = 50  × 2π  rad/s²
-pos_maxspeed = 0.125 × 2π  rad/s
-posAcc/Dec   = 0.125 × 2π  rad/s²
+speed_limit_rad_s  = 0.5 × 2π  rad/s
+speed_acceleration_rad_s2/Dec = 50  × 2π  rad/s²
+position_maximum_speed_rad_s = 0.125 × 2π  rad/s
+position_acceleration_rad_s2/Dec   = 0.125 × 2π  rad/s²
 ```
 
-`speed_limit`同时作为运行默认值和硬上限：Flash中更大的旧值在加载时会被限制到`0.5 rev/s`，USB/CAN也拒绝设置超过该值。位置轨迹的`pos_maxspeed`默认仍为`0.125 rev/s`，但允许在运行时配置到`0.5 rev/s`；例如内部值`2 rad/s`约等于`0.318 rev/s`，属于有效范围。
+`speed_limit_rad_s`同时作为运行默认值和硬上限：Flash中更大的旧值在加载时会被限制到`0.5 rev/s`，USB/CAN也拒绝设置超过该值。位置轨迹的`position_maximum_speed_rad_s`默认仍为`0.125 rev/s`，但允许在运行时配置到`0.5 rev/s`；例如内部值`2 rad/s`约等于`0.318 rev/s`，属于有效范围。
 
 schema11 中的 `pos_Kp`、`pos_Kd`、`pos_Ki` 保留原字段与单位；旧模式18已经删除，不应将这些字段当作当前级联位置环的有效调参入口。当前参数入口见 [模式3参数指南](mode3_parameter_guide.md)，删除范围见 [模式退役契约 v1](../protocols/retired_motor_modes_v1.md)。
 
@@ -173,10 +173,10 @@ L = (V − R·I) / (ωe·I) × 2.25
 y1 = -Rs·Iα + Uα                        // V（电压）
 η1 = x1_last − Ls·Iα                     // Wb（磁链误差）
 φerr = ψ² − (η1² + η2²)                  // Wb²
-x1 += Ts·(y1 + γ·η1·φerr)                // Wb（积分，Ts 单位 s）
+x1 += sample_period_s·(y1 + γ·η1·φerr)                // Wb（积分，sample_period_s 单位 s）
 cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 θe  = atan2(sin, cos) + π                // rad（电气角）
-ωe  = Δθ / Ts                            // rad/s（电气角速度，经低通滤波）
+ωe  = Δθ / sample_period_s                            // rad/s（电气角速度，经低通滤波）
 ```
 
 投影增益 γ = 1e9，量纲为 `1/(Wb²·s)`，使 `γ·η·φerr` 与 y 同为 V。
@@ -191,7 +191,7 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 | ia / ib / ic / id / iq / ibus | A | A |
 | spd1/2_filt | r/s | 内部控制用 rad/s |
 | pos1/2_filt | r | 内部控制用 rad |
-| temp | °C | °C |
+| temperature_c | °C | °C |
 | Rs | mΩ | Ω |
 | Ld / Lq | µH | H |
 | Flux | mWb | Wb |
@@ -200,8 +200,8 @@ cos = (x1 − Ls·Iα) / ψ                   // 无量纲
 
 ```
 I [A]     = (ADC − Offset) × 3.3 / 4095 / CURRENT_AMP_GAIN / SENSING_RES
-Vbus [V]  = ADC × 3.3 / 4095 × 11
-V_phase   = mod × Vbus / 1.5
+bus_voltage_v [V]  = ADC × 3.3 / 4095 × 11
+V_phase   = mod × bus_voltage_v / 1.5
 θe [rad]  = count / cpr × 2π × pole_pairs      （归一化到 [0, 2π)）
 θm [rad]  = pos[turns] × 2π
 ωe [rad/s] = ωm × pole_pairs

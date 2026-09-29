@@ -8,16 +8,16 @@
 
 /* 参数读写与默认值：限值取自平台感测契约，数值换算不访问硬件。 */
 #include "current_sense_profile.h"
-#include "data_type.h"
+#include "motor_types.h"
 #include "foc_param_profile.h"
 #include "param_comm_bridge.h"
 #include "utils.h"
 
 #include "foc_cogging_calibration.h"
 
-/* Startup adapter only: the portable module owns joint IDs and baselines.
+/* startup adapter only: the portable module owns joint IDs and baselines.
  * Individual motor/current calibration and stored axis bounds are untouched. */
-static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
+static bool param_apply_joint_profile(MotorControlState *motor)
 {
     MotorJointControlConfig config;
     if (motor == NULL || !motor->axis_profile_valid)
@@ -28,8 +28,8 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
     {
         return true;
     }
-    if (!isfinite(motor->speed_limit) || motor->speed_limit <= 0.0f ||
-        !isfinite(motor->current_limit) || motor->current_limit <= 0.0f)
+    if (!isfinite(motor->speed_limit_rad_s) || motor->speed_limit_rad_s <= 0.0f ||
+        !isfinite(motor->current_limit_a) || motor->current_limit_a <= 0.0f)
     {
         return false;
     }
@@ -37,124 +37,124 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
     {
         return false;
     }
-    motor->cascade_pos_Kp = config.position_kp;
-    motor->cascade_pos_Kd = config.position_kd;
-    motor->speed_Kp = config.speed_kp;
-    motor->speed_Ki = config.speed_ki;
-    motor->posAcc = config.acceleration_rad_s2;
-    motor->posDec = config.deceleration_rad_s2;
-    motor->pos_maxspeed = fminf(motor->axis_profile.maximum_speed_rad_s, motor->speed_limit);
-    motor->current_limit = fminf(motor->current_limit, config.maximum_current_a);
+    motor->cascade_position_kp = config.position_kp;
+    motor->cascade_position_kd = config.position_kd;
+    motor->speed_kp = config.speed_kp;
+    motor->speed_ki = config.speed_ki;
+    motor->position_acceleration_rad_s2 = config.acceleration_rad_s2;
+    motor->position_deceleration_rad_s2 = config.deceleration_rad_s2;
+    motor->position_maximum_speed_rad_s =
+        fminf(motor->axis_profile.maximum_speed_rad_s, motor->speed_limit_rad_s);
+    motor->current_limit_a = fminf(motor->current_limit_a, config.maximum_current_a);
     return true;
 }
 
-void Param_Return_Default(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *OnBoard_Encoder)
+void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_encoder)
 {
     FocCogging_ResetMap();
-    memset(&MotorControl->axis_profile, 0, sizeof(MotorControl->axis_profile));
-    MotorControl->axis_profile_valid = true;
+    memset(&motor_state->axis_profile, 0, sizeof(motor_state->axis_profile));
+    motor_state->axis_profile_valid = true;
     Protocol_NodeId_Set((uint8_t)PARAM_HW_CAN_NODE_ID);
 
-    MotorControl->A_Offset = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
-    MotorControl->B_Offset = PARAM_HW_CURRENT_OFFSET_B_COUNTS;
-    MotorControl->C_Offset = PARAM_HW_CURRENT_OFFSET_C_COUNTS;
+    motor_state->phase_a_offset_counts = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
+    motor_state->phase_b_offset_counts = PARAM_HW_CURRENT_OFFSET_B_COUNTS;
+    motor_state->phase_c_offset_counts = PARAM_HW_CURRENT_OFFSET_C_COUNTS;
 
-    MotorControl->motor_pole_pairs = PARAM_MOTOR_POLE_PAIRS;
-    MotorControl->motor_phase_resistance = PARAM_MOTOR_PHASE_RESISTANCE_OHM;
-    MotorControl->motor_d_inductance = PARAM_MOTOR_D_INDUCTANCE_H;
-    MotorControl->motor_q_inductance = PARAM_MOTOR_Q_INDUCTANCE_H;
-    MotorControl->motor_flux = PARAM_MOTOR_FLUX_WB;
-    MotorControl->id_Kp =
-        MotorControl->motor_d_inductance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    MotorControl->iq_Kp =
-        MotorControl->motor_q_inductance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    MotorControl->id_Ki =
-        MotorControl->motor_phase_resistance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    MotorControl->iq_Ki =
-        MotorControl->motor_phase_resistance * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+    motor_state->motor_pole_pairs = PARAM_MOTOR_POLE_PAIRS;
+    motor_state->motor_phase_resistance_ohm = PARAM_MOTOR_PHASE_RESISTANCE_OHM;
+    motor_state->motor_d_inductance_h = PARAM_MOTOR_D_INDUCTANCE_H;
+    motor_state->motor_q_inductance_h = PARAM_MOTOR_Q_INDUCTANCE_H;
+    motor_state->motor_flux_wb = PARAM_MOTOR_FLUX_WB;
+    motor_state->id_kp =
+        motor_state->motor_d_inductance_h * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+    motor_state->iq_kp =
+        motor_state->motor_q_inductance_h * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+    motor_state->id_ki =
+        motor_state->motor_phase_resistance_ohm * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+    motor_state->iq_ki =
+        motor_state->motor_phase_resistance_ohm * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
 
-    OnBoard_Encoder->electrical_zero_q15 = PARAM_APP_ENCODER_ELECTRICAL_ZERO_Q15;
-    OnBoard_Encoder->mechanical_zero_q15 = PARAM_APP_ENCODER_MECHANICAL_ZERO_Q15;
-    OnBoard_Encoder->calib_flag = PARAM_APP_ENCODER_CALIB_FLAG;
-    OnBoard_Encoder->reverse = PARAM_APP_ENCODER_REVERSE;
-    memset(
-        OnBoard_Encoder->linearization_lut_q15, 0, sizeof(OnBoard_Encoder->linearization_lut_q15));
+    rotor_encoder->electrical_zero_q15 = PARAM_APP_ENCODER_ELECTRICAL_ZERO_Q15;
+    rotor_encoder->mechanical_zero_q15 = PARAM_APP_ENCODER_MECHANICAL_ZERO_Q15;
+    rotor_encoder->calib_flag = PARAM_APP_ENCODER_CALIB_FLAG;
+    rotor_encoder->reverse = PARAM_APP_ENCODER_REVERSE;
+    memset(rotor_encoder->linearization_lut_q15, 0, sizeof(rotor_encoder->linearization_lut_q15));
 
-    MotorControl->calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
-    MotorControl->current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
-    MotorControl->vqRef = 0.0f;
-    MotorControl->speed_limit = Param_SpeedLimitRadS(Protocol_NodeId_Get());
-    MotorControl->speedAcc = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
-    MotorControl->speedDec = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
-    MotorControl->speed_Kp = PARAM_APP_SPEED_KP;
-    MotorControl->speed_Ki = PARAM_APP_SPEED_KI;
-    MotorControl->posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
-    MotorControl->posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
-    MotorControl->pos_maxspeed = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
-    MotorControl->cascade_pos_Kp = PARAM_APP_CASCADE_POSITION_KP;
-    MotorControl->cascade_pos_Kd = PARAM_APP_CASCADE_POSITION_KD;
-    MotorControl->friction_coulomb_pos_a = 0.0f;
-    MotorControl->friction_coulomb_neg_a = 0.0f;
-    MotorControl->friction_viscous_pos_a_per_rad_s = 0.0f;
-    MotorControl->friction_viscous_neg_a_per_rad_s = 0.0f;
-    MotorControl->friction_model_valid = false;
+    motor_state->calibration_current_a = PARAM_MOTOR_CALIB_CURRENT_A;
+    motor_state->current_limit_a = PARAM_MOTOR_CURRENT_LIMIT_A;
+    motor_state->vq_target_v = 0.0f;
+    motor_state->speed_limit_rad_s = Param_SpeedLimitRadS(Protocol_NodeId_Get());
+    motor_state->speed_acceleration_rad_s2 = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
+    motor_state->speed_deceleration_rad_s2 = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
+    motor_state->speed_kp = PARAM_APP_SPEED_KP;
+    motor_state->speed_ki = PARAM_APP_SPEED_KI;
+    motor_state->position_acceleration_rad_s2 = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+    motor_state->position_deceleration_rad_s2 = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+    motor_state->position_maximum_speed_rad_s = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
+    motor_state->cascade_position_kp = PARAM_APP_CASCADE_POSITION_KP;
+    motor_state->cascade_position_kd = PARAM_APP_CASCADE_POSITION_KD;
+    motor_state->friction_coulomb_pos_a = 0.0f;
+    motor_state->friction_coulomb_neg_a = 0.0f;
+    motor_state->friction_viscous_pos_a_per_rad_s = 0.0f;
+    motor_state->friction_viscous_neg_a_per_rad_s = 0.0f;
+    motor_state->friction_model_valid = false;
 }
 
-void Param_Upload(InterfaceParam_TypeDef *param,
-                  const MotorControl_TypeDef *MotorControl,
-                  const Encoder_TypeDef *OnBoard_Encoder)
+void Param_Upload(InterfaceParam *param,
+                  const MotorControlState *motor_state,
+                  const EncoderState *rotor_encoder)
 {
     uint32_t lut_index;
 
     memset(param, 0, sizeof(*param));
     param->node_id = (float)Protocol_NodeId_Get();
-    param->currentoffset_a = (float)MotorControl->A_Offset;
-    param->currentoffset_b = (float)MotorControl->B_Offset;
-    param->currentoffset_c = (float)MotorControl->C_Offset;
-    param->motor_pole_pairs = (float)MotorControl->motor_pole_pairs;
-    param->motor_phase_resistance = MotorControl->motor_phase_resistance;
-    param->motor_d_inductance = MotorControl->motor_d_inductance;
-    param->motor_q_inductance = MotorControl->motor_q_inductance;
-    param->motor_flux = MotorControl->motor_flux;
-    param->encoder_electrical_zero_q15 = OnBoard_Encoder->electrical_zero_q15;
-    param->encoder_mechanical_zero_q15 = OnBoard_Encoder->mechanical_zero_q15;
-    param->encoder_calib_flag = OnBoard_Encoder->calib_flag;
-    param->encoder_reverse = OnBoard_Encoder->reverse;
+    param->currentoffset_a = (float)motor_state->phase_a_offset_counts;
+    param->currentoffset_b = (float)motor_state->phase_b_offset_counts;
+    param->currentoffset_c = (float)motor_state->phase_c_offset_counts;
+    param->motor_pole_pairs = (float)motor_state->motor_pole_pairs;
+    param->motor_phase_resistance_ohm = motor_state->motor_phase_resistance_ohm;
+    param->motor_d_inductance_h = motor_state->motor_d_inductance_h;
+    param->motor_q_inductance_h = motor_state->motor_q_inductance_h;
+    param->motor_flux_wb = motor_state->motor_flux_wb;
+    param->encoder_electrical_zero_q15 = rotor_encoder->electrical_zero_q15;
+    param->encoder_mechanical_zero_q15 = rotor_encoder->mechanical_zero_q15;
+    param->encoder_calib_flag = rotor_encoder->calib_flag;
+    param->encoder_reverse = rotor_encoder->reverse;
     for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
     {
         param->encoder_linearization_lut_q15[lut_index] =
-            OnBoard_Encoder->linearization_lut_q15[lut_index];
+            rotor_encoder->linearization_lut_q15[lut_index];
     }
-    param->calib_current = MotorControl->calib_current;
-    param->current_limit = MotorControl->current_limit;
-    param->id_kp = MotorControl->id_Kp;
-    param->id_ki = MotorControl->id_Ki;
-    param->iq_kp = MotorControl->iq_Kp;
-    param->iq_ki = MotorControl->iq_Ki;
-    param->speed_limit = MotorControl->speed_limit;
-    param->speedAcc = MotorControl->speedAcc;
-    param->speedDec = MotorControl->speedDec;
-    param->speed_kp = MotorControl->speed_Kp;
-    param->speed_ki = MotorControl->speed_Ki;
-    param->posAcc = MotorControl->posAcc;
-    param->posDec = MotorControl->posDec;
-    param->pos_maxspeed = MotorControl->pos_maxspeed;
+    param->calibration_current_a = motor_state->calibration_current_a;
+    param->current_limit_a = motor_state->current_limit_a;
+    param->id_kp = motor_state->id_kp;
+    param->id_ki = motor_state->id_ki;
+    param->iq_kp = motor_state->iq_kp;
+    param->iq_ki = motor_state->iq_ki;
+    param->speed_limit_rad_s = motor_state->speed_limit_rad_s;
+    param->speed_acceleration_rad_s2 = motor_state->speed_acceleration_rad_s2;
+    param->speed_deceleration_rad_s2 = motor_state->speed_deceleration_rad_s2;
+    param->speed_kp = motor_state->speed_kp;
+    param->speed_ki = motor_state->speed_ki;
+    param->position_acceleration_rad_s2 = motor_state->position_acceleration_rad_s2;
+    param->position_deceleration_rad_s2 = motor_state->position_deceleration_rad_s2;
+    param->position_maximum_speed_rad_s = motor_state->position_maximum_speed_rad_s;
     param->current_sense_shunt_milliohm = CURRENT_SENSE_SHUNT_MILLIOHM;
-    param->cascade_pos_kp = MotorControl->cascade_pos_Kp;
-    param->cascade_pos_kd = MotorControl->cascade_pos_Kd;
-    param->friction_coulomb_pos_a = MotorControl->friction_coulomb_pos_a;
-    param->friction_coulomb_neg_a = MotorControl->friction_coulomb_neg_a;
-    param->friction_viscous_pos_a_per_rad_s = MotorControl->friction_viscous_pos_a_per_rad_s;
-    param->friction_viscous_neg_a_per_rad_s = MotorControl->friction_viscous_neg_a_per_rad_s;
-    param->friction_model_valid = MotorControl->friction_model_valid ? 1U : 0U;
+    param->cascade_pos_kp = motor_state->cascade_position_kp;
+    param->cascade_pos_kd = motor_state->cascade_position_kd;
+    param->friction_coulomb_pos_a = motor_state->friction_coulomb_pos_a;
+    param->friction_coulomb_neg_a = motor_state->friction_coulomb_neg_a;
+    param->friction_viscous_pos_a_per_rad_s = motor_state->friction_viscous_pos_a_per_rad_s;
+    param->friction_viscous_neg_a_per_rad_s = motor_state->friction_viscous_neg_a_per_rad_s;
+    param->friction_model_valid = motor_state->friction_model_valid ? 1U : 0U;
     param->schema_version = PARAM_SCHEMA_VERSION;
-    param->axis_profile = MotorControl->axis_profile;
-    FocCogging_ExportMap(&param->cogging, MotorControl, OnBoard_Encoder);
+    param->axis_profile = motor_state->axis_profile;
+    FocCogging_ExportMap(&param->cogging, motor_state, rotor_encoder);
 }
 
-void Param_Download(const InterfaceParam_TypeDef *param,
-                    MotorControl_TypeDef *MotorControl,
-                    Encoder_TypeDef *OnBoard_Encoder)
+void Param_Download(const InterfaceParam *param,
+                    MotorControlState *motor_state,
+                    EncoderState *rotor_encoder)
 {
     uint32_t lut_index;
     bool current_sense_profile_changed;
@@ -162,88 +162,92 @@ void Param_Download(const InterfaceParam_TypeDef *param,
 
     if (param->magic_word != MAGIC_WORD || param->schema_version != PARAM_SCHEMA_VERSION)
     {
-        Param_Return_Default(MotorControl, OnBoard_Encoder);
+        Param_Return_Default(motor_state, rotor_encoder);
         return;
     }
     current_sense_profile_changed =
         param->current_sense_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
     if (param->encoder_reverse > 1U)
     {
-        Param_Return_Default(MotorControl, OnBoard_Encoder);
+        Param_Return_Default(motor_state, rotor_encoder);
         return;
     }
 
     /* Resolve axis identity before selecting the node-specific speed ceiling. */
     Protocol_NodeId_Set(MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id));
-    MotorControl->A_Offset = param->currentoffset_a;
-    MotorControl->B_Offset = param->currentoffset_b;
-    MotorControl->C_Offset = param->currentoffset_c;
-    MotorControl->motor_pole_pairs = (int32_t)param->motor_pole_pairs;
-    MotorControl->motor_phase_resistance = param->motor_phase_resistance;
-    MotorControl->motor_d_inductance = param->motor_d_inductance;
-    MotorControl->motor_q_inductance = param->motor_q_inductance;
-    MotorControl->motor_flux = param->motor_flux;
-    OnBoard_Encoder->electrical_zero_q15 = param->encoder_electrical_zero_q15;
-    OnBoard_Encoder->mechanical_zero_q15 = param->encoder_mechanical_zero_q15;
-    OnBoard_Encoder->calib_flag = param->encoder_calib_flag;
-    OnBoard_Encoder->reverse = param->encoder_reverse;
+    motor_state->phase_a_offset_counts = param->currentoffset_a;
+    motor_state->phase_b_offset_counts = param->currentoffset_b;
+    motor_state->phase_c_offset_counts = param->currentoffset_c;
+    motor_state->motor_pole_pairs = (int32_t)param->motor_pole_pairs;
+    motor_state->motor_phase_resistance_ohm = param->motor_phase_resistance_ohm;
+    motor_state->motor_d_inductance_h = param->motor_d_inductance_h;
+    motor_state->motor_q_inductance_h = param->motor_q_inductance_h;
+    motor_state->motor_flux_wb = param->motor_flux_wb;
+    rotor_encoder->electrical_zero_q15 = param->encoder_electrical_zero_q15;
+    rotor_encoder->mechanical_zero_q15 = param->encoder_mechanical_zero_q15;
+    rotor_encoder->calib_flag = param->encoder_calib_flag;
+    rotor_encoder->reverse = param->encoder_reverse;
     for (lut_index = 0U; lut_index < ENCODER_OFFSET_LUT_SIZE; ++lut_index)
     {
-        OnBoard_Encoder->linearization_lut_q15[lut_index] =
+        rotor_encoder->linearization_lut_q15[lut_index] =
             param->encoder_linearization_lut_q15[lut_index];
     }
     /* A scaling change invalidates saved current-domain defaults, but not calibration data. */
-    if (current_sense_profile_changed || !isfinite(param->calib_current) ||
-        param->calib_current < 0.0f)
+    if (current_sense_profile_changed || !isfinite(param->calibration_current_a) ||
+        param->calibration_current_a < 0.0f)
     {
-        MotorControl->calib_current = PARAM_MOTOR_CALIB_CURRENT_A;
+        motor_state->calibration_current_a = PARAM_MOTOR_CALIB_CURRENT_A;
     }
     else
     {
-        MotorControl->calib_current =
-            constrain(param->calib_current, 0.0f, CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A);
+        motor_state->calibration_current_a = Math_Constrain(
+            param->calibration_current_a, 0.0f, CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A);
     }
 
-    if (current_sense_profile_changed || !isfinite(param->current_limit) ||
-        param->current_limit <= 0.0f)
+    if (current_sense_profile_changed || !isfinite(param->current_limit_a) ||
+        param->current_limit_a <= 0.0f)
     {
-        MotorControl->current_limit = PARAM_MOTOR_CURRENT_LIMIT_A;
+        motor_state->current_limit_a = PARAM_MOTOR_CURRENT_LIMIT_A;
     }
     else
     {
-        MotorControl->current_limit =
-            constrain(param->current_limit, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A);
+        motor_state->current_limit_a =
+            Math_Constrain(param->current_limit_a, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A);
     }
-    MotorControl->id_Kp = param->id_kp;
-    MotorControl->id_Ki = param->id_ki;
-    MotorControl->iq_Kp = param->iq_kp;
-    MotorControl->iq_Ki = param->iq_ki;
-    MotorControl->speed_limit =
-        isfinite(param->speed_limit) && param->speed_limit > 0.0f
-            ? constrain(param->speed_limit, 0.0f, Param_SpeedLimitRadS(Protocol_NodeId_Get()))
+    motor_state->id_kp = param->id_kp;
+    motor_state->id_ki = param->id_ki;
+    motor_state->iq_kp = param->iq_kp;
+    motor_state->iq_ki = param->iq_ki;
+    motor_state->speed_limit_rad_s =
+        isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f
+            ? Math_Constrain(
+                  param->speed_limit_rad_s, 0.0f, Param_SpeedLimitRadS(Protocol_NodeId_Get()))
             : Param_SpeedLimitRadS(Protocol_NodeId_Get());
-    position_speed_limit = fast_min(MotorControl->speed_limit, PARAM_POSITION_MAX_SPEED_RPS * _2PI);
-    MotorControl->speedAcc = param->speedAcc;
-    MotorControl->speedDec = param->speedDec;
-    MotorControl->speed_Kp = param->speed_kp;
-    MotorControl->speed_Ki = param->speed_ki;
-    MotorControl->posAcc = isfinite(param->posAcc) && param->posAcc > 0.0f
-                               ? constrain(param->posAcc, 0.0f, 200.0f * _2PI)
-                               : PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
-    MotorControl->posDec = isfinite(param->posDec) && param->posDec > 0.0f
-                               ? constrain(param->posDec, 0.0f, 200.0f * _2PI)
-                               : PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
-    MotorControl->pos_maxspeed =
-        isfinite(param->pos_maxspeed) && param->pos_maxspeed > 0.0f
-            ? constrain(param->pos_maxspeed, 0.0f, position_speed_limit)
-            : fast_min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
-    MotorControl->cascade_pos_Kp =
+    position_speed_limit =
+        Math_Min(motor_state->speed_limit_rad_s, PARAM_POSITION_MAX_SPEED_RPS * _2PI);
+    motor_state->speed_acceleration_rad_s2 = param->speed_acceleration_rad_s2;
+    motor_state->speed_deceleration_rad_s2 = param->speed_deceleration_rad_s2;
+    motor_state->speed_kp = param->speed_kp;
+    motor_state->speed_ki = param->speed_ki;
+    motor_state->position_acceleration_rad_s2 =
+        isfinite(param->position_acceleration_rad_s2) && param->position_acceleration_rad_s2 > 0.0f
+            ? Math_Constrain(param->position_acceleration_rad_s2, 0.0f, 200.0f * _2PI)
+            : PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+    motor_state->position_deceleration_rad_s2 =
+        isfinite(param->position_deceleration_rad_s2) && param->position_deceleration_rad_s2 > 0.0f
+            ? Math_Constrain(param->position_deceleration_rad_s2, 0.0f, 200.0f * _2PI)
+            : PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+    motor_state->position_maximum_speed_rad_s =
+        isfinite(param->position_maximum_speed_rad_s) && param->position_maximum_speed_rad_s > 0.0f
+            ? Math_Constrain(param->position_maximum_speed_rad_s, 0.0f, position_speed_limit)
+            : Math_Min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
+    motor_state->cascade_position_kp =
         isfinite(param->cascade_pos_kp) && param->cascade_pos_kp >= 0.0f
-            ? constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)
+            ? Math_Constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)
             : PARAM_APP_CASCADE_POSITION_KP;
-    MotorControl->cascade_pos_Kd =
+    motor_state->cascade_position_kd =
         isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f
-            ? constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
+            ? Math_Constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
             : PARAM_APP_CASCADE_POSITION_KD;
     if (!current_sense_profile_changed && param->friction_model_valid == 1U &&
         isfinite(param->friction_coulomb_pos_a) && param->friction_coulomb_pos_a >= 0.0f &&
@@ -253,32 +257,32 @@ void Param_Download(const InterfaceParam_TypeDef *param,
         isfinite(param->friction_viscous_neg_a_per_rad_s) &&
         param->friction_viscous_neg_a_per_rad_s >= 0.0f)
     {
-        MotorControl->friction_coulomb_pos_a = param->friction_coulomb_pos_a;
-        MotorControl->friction_coulomb_neg_a = param->friction_coulomb_neg_a;
-        MotorControl->friction_viscous_pos_a_per_rad_s = param->friction_viscous_pos_a_per_rad_s;
-        MotorControl->friction_viscous_neg_a_per_rad_s = param->friction_viscous_neg_a_per_rad_s;
-        MotorControl->friction_model_valid = true;
+        motor_state->friction_coulomb_pos_a = param->friction_coulomb_pos_a;
+        motor_state->friction_coulomb_neg_a = param->friction_coulomb_neg_a;
+        motor_state->friction_viscous_pos_a_per_rad_s = param->friction_viscous_pos_a_per_rad_s;
+        motor_state->friction_viscous_neg_a_per_rad_s = param->friction_viscous_neg_a_per_rad_s;
+        motor_state->friction_model_valid = true;
     }
     else
     {
-        MotorControl->friction_coulomb_pos_a = 0.0f;
-        MotorControl->friction_coulomb_neg_a = 0.0f;
-        MotorControl->friction_viscous_pos_a_per_rad_s = 0.0f;
-        MotorControl->friction_viscous_neg_a_per_rad_s = 0.0f;
-        MotorControl->friction_model_valid = false;
+        motor_state->friction_coulomb_pos_a = 0.0f;
+        motor_state->friction_coulomb_neg_a = 0.0f;
+        motor_state->friction_viscous_pos_a_per_rad_s = 0.0f;
+        motor_state->friction_viscous_neg_a_per_rad_s = 0.0f;
+        motor_state->friction_model_valid = false;
     }
-    MotorControl->axis_profile_valid =
-        MotorAxisProfile_Load(&param->axis_profile, &MotorControl->axis_profile);
-    MotorControl->axis_profile_valid = Param_ApplyJointProfile(MotorControl);
+    motor_state->axis_profile_valid =
+        MotorAxisProfile_Load(&param->axis_profile, &motor_state->axis_profile);
+    motor_state->axis_profile_valid = param_apply_joint_profile(motor_state);
     FocCogging_ResetMap();
     if (!current_sense_profile_changed &&
         param->cogging.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A &&
-        (OnBoard_Encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+        (rotor_encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
         CoggingMap_Valid(&param->cogging,
-                         Cogging_EncoderSignature(OnBoard_Encoder->reverse,
-                                                  OnBoard_Encoder->electrical_zero_q15,
-                                                  MotorControl->motor_pole_pairs,
-                                                  OnBoard_Encoder->linearization_lut_q15)))
+                         Cogging_EncoderSignature(rotor_encoder->reverse,
+                                                  rotor_encoder->electrical_zero_q15,
+                                                  motor_state->motor_pole_pairs,
+                                                  rotor_encoder->linearization_lut_q15)))
     {
         FocCogging_ImportMap(&param->cogging);
     }

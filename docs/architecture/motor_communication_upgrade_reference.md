@@ -125,7 +125,7 @@ STM32G431CB 的容量可见 [ST 产品资料](https://www.st.com/en/microcontrol
 | 0x02 | 0x01/0x02 | ENABLE / DISABLE | 显式使能与失能 |
 | 0x02 | 0x03 | SET_MODE | 电流、速度、位置、电流域阻抗等能力支持的模式 |
 | 0x02 | 0x10/0x11/0x12 | SET_CURRENT / SET_SPEED / SET_POSITION | 目标及可选前馈；不隐式切换模式 |
-| 0x02 | 0x13 | SET_IMPEDANCE | 位置、速度、Kp、Kd、Iq 前馈一次提交 |
+| 0x02 | 0x13 | SET_IMPEDANCE | 位置、速度、proportional_gain、Kd、iq_a 前馈一次提交 |
 | 0x02 | 0x20/0x21 | CONTROLLED_STOP / CLEAR_FAULT | 受控停止；故障条件消失后清故障 |
 | 0x03 | 0x01/0x02 | READ_OBJECT / WRITE_OBJECT | 参数对象访问 |
 | 0x03 | 0x03/0x04 | COMMIT_CONFIG / RESTORE_DEFAULTS | 校验并持久化配置；恢复默认需限定对象集合 |
@@ -172,7 +172,7 @@ stateDiagram-v2
 
 | 对象 | 类型 | 单位/约定 |
 | --- | --- | --- |
-| 电流目标与 Iq | float32 | A，明确为 q 轴控制电流，固定正方向 |
+| 电流目标与 iq_a | float32 | A，明确为 q 轴控制电流，固定正方向 |
 | 位置与速度 | float32 | 电机机械轴 rad、rad/s；位置注明多圈累计/单圈与零点 |
 | 加速度 | float32 | rad/s² |
 | 电压、温度 | float32 | V、°C |
@@ -180,17 +180,17 @@ stateDiagram-v2
 | 故障、功能位图 | uint32 | 位含义固定；不通过 float 传位图 |
 | 时间 | uint32 | ms 或 µs，字段名带单位并定义回绕比较 |
 
-float 数据拒绝 NaN/Inf；超范围请求返回错误。实际运行时仍执行本地限幅，并在反馈中报告限幅状态。不能把 Iq 直接标成“测量力矩”。
+float 数据拒绝 NaN/Inf；超范围请求返回错误。实际运行时仍执行本地限幅，并在反馈中报告限幅状态。不能把 iq_a 直接标成“测量力矩”。
 
-当前工程的阻抗是电流域：`Iq = Kp*(pos_ref-pos) + Kd*(vel_ref-vel) + Iq_ff`，所以 Kp 单位为 A/rad，Kd 为 A·s/rad。若提供 N·m 域阻抗，必须定义独立 profile 和转换规则。
+当前工程的阻抗是电流域：`iq_a = proportional_gain*(pos_ref-pos) + Kd*(vel_ref-vel) + Iq_ff`，所以 proportional_gain 单位为 A/rad，Kd 为 A·s/rad。若提供 N·m 域阻抗，必须定义独立 profile 和转换规则。
 
-SET_IMPEDANCE 示例 payload 为 5 个大端 float32，共 20 B：pos_ref_rad、vel_ref_rad_s、kp_a_per_rad、kd_a_s_per_rad、iq_ff_a。收到后整体校验、整体应用；不得跨多个帧逐个修改实时 Kp/Kd/目标。
+SET_IMPEDANCE 示例 payload 为 5 个大端 float32，共 20 B：pos_ref_rad、vel_ref_rad_s、kp_a_per_rad、kd_a_s_per_rad、iq_ff_a。收到后整体校验、整体应用；不得跨多个帧逐个修改实时 proportional_gain/Kd/目标。
 
 参数字典建议分区：0x0000～0x0FFF 设备信息；0x1000～0x1FFF 控制与目标；0x2000～0x2FFF 电机及编码器；0x3000～0x3FFF 保护；0x4000～0x4FFF 诊断；0x5000～0x5FFF 升级状态。每个对象至少登记 ID、类型、单位、范围、默认值、权限、允许运行状态、是否持久化、引入版本。配置写入 RAM 候选副本，COMMIT 时检查跨参数约束并原子切换，显式保存 Flash，避免每次控制设定都触发擦写。
 
 ### 4.4 状态反馈与错误码
 
-周期反馈至少包含：state、mode、last_applied_sequence、position、velocity、Iq、bus_voltage、temperature、fault_bitmap、limit_flags。若需分帧，快反馈放位置/速度/Iq/序号，慢反馈放温度/电压/计数；给快照加 sample_counter，避免拼接不同时刻的数据。
+周期反馈至少包含：state、mode、last_applied_sequence、position、velocity、iq_a、bus_voltage、temperature、fault_bitmap、limit_flags。若需分帧，快反馈放位置/速度/iq_a/序号，慢反馈放温度/电压/计数；给快照加 sample_counter，避免拼接不同时刻的数据。
 
 候选频率：控制目标及快反馈 100～1000 Hz，慢反馈 10～50 Hz，在线心跳 10 Hz。它们是预算起点，不能同时默认开启最高值。按节点数量、实际 DLC、仲裁速率/数据速率、填充位、重传和突发故障计算负载；优先实测，正常平均占用先以不超过约 50% 为设计目标。多轴同步另加同步时钟与执行时间，不把依次收到等同于同步执行。
 
@@ -383,7 +383,7 @@ ST 的 [AN5405 FDCAN Bootloader 协议](https://www.st.com/resource/en/applicati
 当前代码扩展前优先处理：
 
 1. CAN 接收缓冲只有 4 B，且接收路径没有先根据长度拒绝较长帧。启用新长帧前，必须保证 HAL 接收目标至少容纳外设最大接收数据，再检查实际 DLC、帧类型、ID 和返回值。
-2. 当前任意匹配节点的帧都会清零 can_hb_count，并清除 CAN_DisConnect；应改为有效目标与控制租约驱动看门狗，故障恢复走明确状态迁移。
+2. 当前任意匹配节点的帧都会清零 can_hb_count，并清除 MOTOR_FAULT_CAN_DISCONNECTED；应改为有效目标与控制租约驱动看门狗，故障恢复走明确状态迁移。
 3. 现有设置电流/速度路径会切换模式；新协议通过统一控制接口显式管理模式与使能，保留旧语义的部分应受控制源仲裁限制。
 4. CAN_SendMessage_Update 只有一个待发送槽；突发请求可能覆盖响应，需要队列和失败处理。
 5. CAN_GET_CAN_BR 当前返回时使用 CAN_GET_CAN_HB 标识，需在兼容性核查时修正并测试。

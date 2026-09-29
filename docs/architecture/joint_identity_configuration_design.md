@@ -5,8 +5,8 @@
 | 固定编号 | 类型 | 配置版本 1 |
 | ---: | --- | --- |
 | 0 | UNKNOWN | 不可使能 |
-| 1 | ROLL | 位置 Kp/Kd=8/2，速度 Kp/Ki=0.5/1 |
-| 2 | PITCH | 位置 Kp/Kd=8/2，速度 Kp/Ki=0.5/2 |
+| 1 | ROLL | 位置 proportional_gain/Kd=8/2，速度 proportional_gain/integral_gain=0.5/1 |
+| 2 | PITCH | 位置 proportional_gain/Kd=8/2，速度 proportional_gain/integral_gain=0.5/2 |
 | 3 | YAW | 未配置，不可使能 |
 | 4 | WHEEL_RIGHT | 未配置，不可使能 |
 | 5 | WHEEL_LEFT | 未配置，不可使能 |
@@ -68,7 +68,7 @@ roll、pitch、yaw、wheel_right、wheel_left 共用固件。装配时赋予关�
 | 类型 | 已知边界 | 已知速度 | 参数状态 |
 | --- | --- | --- | --- |
 | roll | −90°～+90° | 45°/s（8 s/rev） | 已有持久化配置（原 roll.json 随 HIL 退役删除） |
-| pitch | −0.3～+0.9 rad | 45°/s | 当前候选位置 Kp/Kd=8/2、速度 Kp/Ki=0.5/2；仍须区分候选与 Flash 基线 |
+| pitch | −0.3～+0.9 rad | 45°/s | 当前候选位置 proportional_gain/Kd=8/2、速度 proportional_gain/integral_gain=0.5/2；仍须区分候选与 Flash 基线 |
 | yaw | UNKNOWN | UNKNOWN | 未整定，暂不可使能 |
 | wheel_right | 连续旋转或有限角度待确认 | UNKNOWN | 控制模式、方向、速度/电流约束待确认 |
 | wheel_left | 连续旋转或有限角度待确认 | UNKNOWN | 控制模式、方向、速度/电流约束待确认 |
@@ -116,7 +116,7 @@ python tools/bench/motor_axis_record.py --parameters <当前参数区备份.bin>
 
 保留 AXS1 旧记录的读取方式，将已确认的 roll/pitch 映射为新身份。新增记录采用独立版本；禁止直接改变旧字段偏移。新旧记录冲突时显式报错，不能静默优先选择其中之一。全零/全 FF 的旧记录表示未配置，不能推断出关节类型。
 
-先实现纯 C 身份/配置解析模块及测试，通过现有参数加载的受控适配点接入。身份识别不放进 FOC ISR，不新增 Vendor 依赖；持久化通过存储服务与硬件边界执行。现有 Flash 默认重写策略需在迁移前审查，防止身份错误引起校准或边界被默认值替换。
+先实现纯 C 身份/配置解析模块及测试，通过现有参数加载的受控适配点接入。身份识别不放进 foc ISR，不新增 Vendor 依赖；持久化通过存储服务与硬件边界执行。现有 Flash 默认重写策略需在迁移前审查，防止身份错误引起校准或边界被默认值替换。
 
 验收至少覆盖：
 

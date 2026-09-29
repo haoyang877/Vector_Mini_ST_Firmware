@@ -50,7 +50,7 @@ GET_STATE、READ_RESULT 可 session=0，仅查询不刷新看门狗；沿用只�
 
 | payload 偏移 | 类型 | 字段 | 规定 |
 | --- | --- | --- | --- |
-| 0 | u8 | target_mode | 1=Iq，2=速度，3=位置，4=基础阻抗位置 |
+| 0 | u8 | target_mode | 1=iq_a，2=速度，3=位置，4=基础阻抗位置 |
 | 1 | u8 | command_seq | 沿用 8 位新鲜度规则 |
 | 2 | u16 | lease_tag | 当前控制会话短标识 |
 | 4 | i32 | target | 按 target_mode 解释单位 |

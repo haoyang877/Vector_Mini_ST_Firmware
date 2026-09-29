@@ -25,17 +25,17 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     source = (ROOT / "firmware/motor/position/position_cascade.c").read_text(encoding="utf-8")
     header = (ROOT / "firmware/motor/position/position_cascade.h").read_text(encoding="utf-8")
-    config_body = header[: header.index("} PositionCascadeConfig_TypeDef;")]
+    config_body = header[: header.index("} PositionCascadeConfig;")]
     fields = re.findall(r"\bfloat\s+(\w+)\s*;", config_body)
     # 从公开结构独立枚举字段，生产有限值表漏项时测试仍覆盖该项。
     offsets = (
         "static const size_t test_offsets[] = {\n"
-        + ",\n".join(f"offsetof(PositionCascadeConfig_TypeDef, {field})" for field in fields)
+        + ",\n".join(f"offsetof(PositionCascadeConfig, {field})" for field in fields)
         + "};\n"
     )
     scenario = (ROOT / "tests/unit/position_servo_test.c").read_text(encoding="utf-8")
     defaults = function_source(scenario, "config").replace("config(void)", "valid_config(void)")
-    actual = function_source(source, "PositionCascade_ConfigIsValid")
+    actual = function_source(source, "position_cascade_config_is_valid")
     (out / "validation_actual.inc").write_text(offsets + defaults + actual, encoding="utf-8")
     compiler = Path(args.cc)
     command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])

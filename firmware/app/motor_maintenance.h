@@ -20,12 +20,12 @@ void MotorMaintenance_Init(void);
  * @param motor 电机配置及当前故障。
  * @param foc 母线和控制测量。
  * @param encoder 编码器健康与标定信息。
- * @return 输入和功能前提全部满足返回 No_Error，否则返回拒绝原因；不锁存故障。
+ * @return 输入和功能前提全部满足返回 MOTOR_FAULT_NONE，否则返回拒绝原因；不锁存故障。
  */
-ErrorNow_TypeDef MotorMaintenance_Admit(MotorMaintenanceKind kind,
-                                        const MotorControl_TypeDef *motor,
-                                        const FOC_TypeDef *foc,
-                                        const Encoder_TypeDef *encoder);
+MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
+                                      const MotorControlState *motor,
+                                      const FocState *foc,
+                                      const EncoderState *encoder);
 /**
  * @brief 执行已受理任务的一个有界快速周期。
  * @param kind 所有者选择的实际任务。
@@ -39,12 +39,12 @@ ErrorNow_TypeDef MotorMaintenance_Admit(MotorMaintenanceKind kind,
  * @note 20 kHz 调用，所有者须已校验 epoch、故障及取消；保存只在前台执行。
  */
 MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
-                                      FOC_TypeDef *foc,
-                                      MotorControl_TypeDef *motor,
-                                      PI_Controller_TypeDef *pi,
-                                      Encoder_TypeDef *encoder,
-                                      Fluxobserver_TypeDef *observer,
-                                      SensorlessStartup_TypeDef *startup);
+                                      FocState *foc,
+                                      MotorControlState *motor,
+                                      PiController *pi,
+                                      EncoderState *encoder,
+                                      FluxObserverState *observer,
+                                      SensorlessStartupState *startup);
 /**
  * @brief 仅取消当前功能，不遍历无关任务。
  * @param kind 当前实际任务。
@@ -54,9 +54,9 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
  * @note 所有者先关相再调用；归还仍须由 IsReleased 取得事实。
  */
 void MotorMaintenance_Cancel(MotorMaintenanceKind kind,
-                             FOC_TypeDef *foc,
-                             MotorControl_TypeDef *motor,
-                             PI_Controller_TypeDef *pi);
+                             FocState *foc,
+                             MotorControlState *motor,
+                             PiController *pi);
 /**
  * @brief 核对所有功能工作区均已释放。
  * @return 全部工作区静默返回 true，不代表后台借用归还或硬件关闭。

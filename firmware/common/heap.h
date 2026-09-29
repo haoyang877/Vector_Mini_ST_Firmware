@@ -14,8 +14,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef __HEAP_H__
-#define __HEAP_H__
+#ifndef HEAP_H
+#define HEAP_H
 
 #include <stddef.h>
 
@@ -28,31 +28,31 @@
 
 /**
  * @brief  从固定容量内存池分配一块内存。
- * @param  xWantedSize 请求字节数。
+ * @param  requested_bytes 请求字节数。
  * @return 成功返回对齐后的块指针；容量不足或参数为 0 返回 NULL。
  * @note 不阻塞；分配器状态为单所有者，禁止中断与前台并发调用。
  */
-void *HEAP_malloc(size_t xWantedSize);
+void *Heap_Allocate(size_t requested_bytes);
 
 /**
- * @brief  释放由 HEAP_malloc 返回的内存块。
+ * @brief  释放由 Heap_Allocate 返回的内存块。
  * @param  pv 待释放指针；NULL 调用无效果。
  * @note 不阻塞；重复释放或释放非本池指针属未定义行为。
  */
-void HEAP_free(void *pv);
+void Heap_Free(void *pv);
 
 /**
  * @brief  查询内存池当前剩余可用字节数。
  * @return 当前空闲字节数（含块头开销）。
  * @note 诊断用途；结果随每次分配/释放变化。
  */
-size_t HEAP_get_free_size(void);
+size_t Heap_GetFreeBytes(void);
 
 /**
  * @brief  查询内存池历史最小空闲字节数。
  * @return 自启动以来的最小空闲字节数。
  * @note 用于容量回归验证（见 test_outer_loop_runtime.py）。
  */
-size_t HEAP_get_minimumEver_free_size(void);
+size_t Heap_GetMinimumFreeBytes(void);
 
 #endif

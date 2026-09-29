@@ -179,7 +179,7 @@ yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *
                                               1U);
     value.reference_speed_mrad_s =
         feedback_i32(source->sample.speed_target, true, &value.valid_bits, 2U);
-    value.actual_speed_mrad_s = feedback_i32(source->sample.speed_feedback,
+    value.actual_speed_mrad_s = feedback_i32(source->sample.speed_feedback_rad_s,
                                              (source->measurement_valid_bits & 0x02U) != 0U,
                                              &value.valid_bits,
                                              3U);

@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "data_type.h"
+#include "motor_types.h"
 
 /* 角度反馈（motor 层拥有）：传感器采样 -> 方向/线性化/电零位/多圈/速度。
  * 传感器型号由板级 hw_conf.h 的 ENCODER_SENSOR_TYPE 选择，驱动负责把各自位宽
@@ -19,8 +19,8 @@
 /* 机械速度估计：20 kHz 快路径的二阶角度跟踪观测器（PLL）。
  * 带宽 ENCODER_PLL_OMEGA_N_HZ、阻尼比 ENCODER_PLL_ZETA；输出机械角速度 rad/s。
  * ENCODER_PLL_OMEGA_MAX_RAD_S 为输出限幅（防坏帧/极端输入发散）；
- * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 vel_mech 归零，
- * vel_mech_continuous 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
+ * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 mechanical_velocity_rad_s 归零，
+ * mechanical_velocity_continuous_rad_s 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
 #define ENCODER_PLL_OMEGA_N_HZ 300.0f
 #define ENCODER_PLL_ZETA 0.707f
 #define ENCODER_PLL_OMEGA_MAX_RAD_S 2000.0f
@@ -40,7 +40,7 @@ typedef enum
     ENCODER_READ_TLE_SYSTEM_ERROR = 8,
     ENCODER_READ_TLE_INTERFACE_ERROR = 9,
     ENCODER_READ_TLE_INVALID_ANGLE = 10
-} Encoder_ReadStatus;
+} EncoderReadStatus;
 
 /* 写入 Flash 的标定标志；机械零位属于可选反馈状态。 */
 #define ENC_CALIB_LINEARIZED (1U << 0)
@@ -64,7 +64,7 @@ typedef struct
     uint16_t directed_q15;
     uint16_t linearized_q15;
     bool has_valid_sample;
-    float theta_elec;
+    float electrical_angle_rad;
     /* 快路径每产生一帧有效样本递增；慢估计据此判断是否有新样本。 */
     volatile uint32_t sample_epoch;
 
@@ -83,14 +83,14 @@ typedef struct
     bool velocity_ready;
 
     /* 对外提供的机械/电角度与角速度反馈。 */
-    float theta_mech;
-    float vel_elec;
-    float vel_mech;
-    float vel_mech_continuous;
+    float mechanical_position_rad;
+    float electrical_velocity_rad_s;
+    float mechanical_velocity_rad_s;
+    float mechanical_velocity_continuous_rad_s;
 
     /* 传感器帧诊断与在线状态。 */
-    Encoder_ReadStatus read_status;
-    Encoder_ReadStatus read_status_latched;
+    EncoderReadStatus read_status;
+    EncoderReadStatus read_status_latched;
     uint16_t frame_word;
     uint16_t safety_word;
     uint8_t crc_received;
@@ -98,22 +98,22 @@ typedef struct
     uint32_t crc_error_count;
     uint32_t read_error_count;
     uint16_t bad_frame_streak;
-} Encoder_TypeDef;
+} EncoderState;
 
 /**
  * @brief 上电初始化编码器状态与 SPI 外设。
- * @param Encoder 编码器状态指针；持久化字段（方向/零位/LUT）须在调用前由参数服务填充。
+ * @param encoder 编码器状态指针；持久化字段（方向/零位/LUT）须在调用前由参数服务填充。
  * @note 初始化一次；SPI 初始化失败走致命错误路径，不返回。
  */
-void Encoder_ParamInit(Encoder_TypeDef *Encoder);
+void Encoder_ParamInit(EncoderState *encoder);
 
 /**
  * @brief 同步读取一帧角度并更新电角度（20 kHz 快路径）。
- * @param MotorControl 电机控制状态指针，读取极对数与轴配置。
- * @param Encoder 编码器状态指针。
+ * @param motor_state 电机控制状态指针，读取极对数与轴配置。
+ * @param encoder 编码器状态指针。
  * @note 20 kHz 快速环的兼容入口；新代码使用 BeginSample/CompleteSample 分离采样。
  */
-void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
+void Encoder_Update(MotorControlState *motor_state, EncoderState *encoder);
 
 /**
  * @brief 非阻塞地发起下一帧角度采样。
@@ -124,131 +124,131 @@ bool Encoder_BeginSample(void);
 
 /**
  * @brief 完成本周期角度采样：方向/LUT 校正与电角度更新（20 kHz 快路径）。
- * @param MotorControl 电机控制状态指针，读取极对数。
- * @param Encoder 编码器状态指针。
+ * @param motor_state 电机控制状态指针，读取极对数。
+ * @param encoder 编码器状态指针。
  * @param sample_started Encoder_BeginSample() 的返回值；false 时走同步兜底读取。
  * @note 与 BeginSample 由同一调用方配对执行，故障路径也必须调用；本函数不更新
  *       多圈/机械角/速度，这些慢状态由 Encoder_UpdateSlowEstimate() 独占写入。
  */
-void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl,
-                            Encoder_TypeDef *Encoder,
+void Encoder_CompleteSample(MotorControlState *motor_state,
+                            EncoderState *encoder,
                             bool sample_started);
 
 /**
  * @brief 执行一次 2 kHz 编码器慢估计：多圈累积与机械角。
- * @param MotorControl 电机控制状态指针，读取轴配置与机械零位，用于重定多圈基准。
- * @param Encoder 编码器状态指针。
+ * @param motor_state 电机控制状态指针，读取轴配置与机械零位，用于重定多圈基准。
+ * @param encoder 编码器状态指针。
  * @note 仅由 2 kHz 监督 tick 调用；本函数是慢位置状态的唯一写者，快路径只能通过
  *       rebase_requested/zero_requested 请求变更。角速度不在此计算，见快路径 PLL。
  */
-void Encoder_UpdateSlowEstimate(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
+void Encoder_UpdateSlowEstimate(MotorControlState *motor_state, EncoderState *encoder);
 
 /**
  * @brief 判断编码器是否在线。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 已有有效样本且连续坏帧少于 ENCODER_BAD_FRAME_OFFLINE_COUNT 时返回 true。
  */
-bool Encoder_IsOnline(const Encoder_TypeDef *Encoder);
+bool Encoder_IsOnline(const EncoderState *encoder);
 
 /**
  * @brief 以当前线性化角度作为电零位（mode 15 电零位标定的落点）。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 设置成功返回 true；编码器离线时返回 false 且不改写。
  */
-bool Encoder_SetElectricalZero(Encoder_TypeDef *Encoder);
+bool Encoder_SetElectricalZero(EncoderState *encoder);
 
 /**
  * @brief 写入指定的 Q15 电零位并置位电零位标定标志。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @param electrical_zero_q15 电零位，Q15（0..65535）。
  * @return 设置成功返回 true；编码器离线时返回 false 且不改写。
  */
-bool Encoder_SetElectricalZeroQ15(Encoder_TypeDef *Encoder, uint16_t electrical_zero_q15);
+bool Encoder_SetElectricalZeroQ15(EncoderState *encoder, uint16_t electrical_zero_q15);
 
 /**
  * @brief 以当前线性化角度作为机械零位（位置原点）。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 设置成功返回 true；编码器离线时返回 false 且不改写。
  * @note 只影响位置原点，不等价于电零位标定。
  */
-bool Encoder_SetMechanicalZero(Encoder_TypeDef *Encoder);
+bool Encoder_SetMechanicalZero(EncoderState *encoder);
 
 /**
  * @brief 设置编码器方向；改变方向会清空 LUT、电零位与机械零位标定。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @param reverse true 表示反向。
  * @note 在临界区内完成，避免 20 kHz 环读到中间状态。
  */
-void Encoder_SetReverse(Encoder_TypeDef *Encoder, bool reverse);
+void Encoder_SetReverse(EncoderState *encoder, bool reverse);
 
 /**
  * @brief 请求复位速度估计窗口（停机、模式切换或首个有效样本后调用）。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @note 请求在下一 2 kHz 慢估计时生效；可从任意中断上下文调用。
  */
-void Encoder_ResetVelocity(Encoder_TypeDef *Encoder);
+void Encoder_ResetVelocity(EncoderState *encoder);
 
 /**
  * @brief 读取电角速度。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 电角速度，单位 rad/s。
  */
-float Encoder_GetEleVel(const Encoder_TypeDef *Encoder);
+float Encoder_GetEleVel(const EncoderState *encoder);
 
 /**
  * @brief 读取机械角速度。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 机械角速度，单位 rad/s；观测器未就绪或低于软零速死区时为 0。
  */
-float Encoder_GetMecVel(const Encoder_TypeDef *Encoder);
+float Encoder_GetMecVel(const EncoderState *encoder);
 
 /**
  * @brief 读取连续机械角速度，不含零速死区。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 机械角速度，单位 rad/s；观测器未就绪时为 0。
  */
-float Encoder_GetMecVelContinuous(const Encoder_TypeDef *Encoder);
+float Encoder_GetMecVelContinuous(const EncoderState *encoder);
 
 /**
  * @brief 读取电角度。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 电角度，单位 rad。
  */
-float Encoder_GetElePhase(const Encoder_TypeDef *Encoder);
+float Encoder_GetElePhase(const EncoderState *encoder);
 
 /**
  * @brief 读取机械角度（相对机械零位的多圈位置）。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 机械角度，单位 rad。
  */
-float Encoder_GetMecPos(const Encoder_TypeDef *Encoder);
+float Encoder_GetMecPos(const EncoderState *encoder);
 
 /**
  * @brief 读取线性化后角度占整圈的比例。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return [0,1) 的比例值，供调试与诊断使用。
  */
-float Encoder_GetCountInCPR_Ratio(const Encoder_TypeDef *Encoder);
+float Encoder_GetCountInCPR_Ratio(const EncoderState *encoder);
 
 /**
  * @brief 读取标定标志位。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 标定位图，取值为 ENC_CALIB_* 的组合。
  */
-uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *Encoder);
+uint8_t Encoder_GetCalibFlag(const EncoderState *encoder);
 
 /**
  * @brief 读取连续坏帧计数。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 自最近一次有效帧以来的连续坏帧数。
  */
-uint16_t Encoder_GetBadFrameStreak(const Encoder_TypeDef *Encoder);
+uint16_t Encoder_GetBadFrameStreak(const EncoderState *encoder);
 
 /**
  * @brief 读取编码器方向配置。
- * @param Encoder 编码器状态指针。
+ * @param encoder 编码器状态指针。
  * @return 1 表示反向，0 表示正向。
  */
-uint8_t Encoder_GetReverse(const Encoder_TypeDef *Encoder);
+uint8_t Encoder_GetReverse(const EncoderState *encoder);
 
 #endif

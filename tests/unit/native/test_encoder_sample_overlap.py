@@ -192,7 +192,7 @@ def _mapping_source() -> str:
 #include <stdint.h>
 #include <stdio.h>
 #include "encoder_sensor.h"
-typedef unsigned Encoder_ReadStatus;
+typedef unsigned EncoderReadStatus;
 #define ENCODER_READ_OK 0U
 #define ENCODER_READ_SPI_TIMEOUT 1U
 #define ENCODER_READ_CRC_MISMATCH 2U
@@ -200,9 +200,9 @@ typedef unsigned Encoder_ReadStatus;
 typedef struct {
     uint16_t frame_word, safety_word;
     uint8_t crc_received, crc_calculated;
-    Encoder_ReadStatus status;
-} Encoder_TypeDef;
-static void Encoder_MarkReadStatus(Encoder_TypeDef *e, Encoder_ReadStatus status) {
+    EncoderReadStatus status;
+} EncoderState;
+static void encoder_mark_read_status(EncoderState *e, EncoderReadStatus status) {
     e->status = status;
 }
 static unsigned begin_calls;
@@ -217,12 +217,12 @@ EncoderSensorStatus encoder_sensor_complete(bool started, EncoderSensorSample *o
 """
         + function_source(source, "Encoder_BeginSample")
         + "\n"
-        + function_source(source, "Encoder_MapSensorStatus")
+        + function_source(source, "encoder_map_sensor_status")
         + "\n"
-        + function_source(source, "Encoder_ReadFrame")
+        + function_source(source, "encoder_read_frame")
         + r"""
-static void expect(EncoderSensorStatus status, Encoder_ReadStatus expected, bool ok) {
-    Encoder_TypeDef e;
+static void expect(EncoderSensorStatus status, EncoderReadStatus expected, bool ok) {
+    EncoderState e;
     uint16_t raw = 0x2468U;
     complete_status = status;
     complete_sample.status = status;
@@ -231,7 +231,7 @@ static void expect(EncoderSensorStatus status, Encoder_ReadStatus expected, bool
     complete_sample.safety_word = 0x0001U;
     complete_sample.crc_ok = true;
     e.frame_word = 0U; e.safety_word = 0U; e.crc_received = 1U; e.crc_calculated = 1U;
-    assert(Encoder_ReadFrame(&e, &raw, false) == ok);
+    assert(encoder_read_frame(&e, &raw, false) == ok);
     assert(e.status == expected);
     if (ok) {
         assert(raw == 0x1234U && e.frame_word == 0xBEEFU && e.safety_word == 0x0001U);

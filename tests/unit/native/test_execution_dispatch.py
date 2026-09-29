@@ -4,13 +4,19 @@ import argparse
 import subprocess
 from pathlib import Path
 
+from _naming_reference import project_reference
 from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 
 def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) -> str:
     """在相同桩输入下编译旧版或新版生产体，返回可比较的调用轨迹摘要。"""
     execution = (source_dir / "motor_execution.c").read_text(encoding="utf-8")
-    state = (source_dir / "motor_state.c").read_text(encoding="utf-8")
+    state_path = source_dir / "motor_axis.c"
+    if not state_path.exists():
+        state_path = source_dir / "motor_state.c"
+    state = state_path.read_text(encoding="utf-8")
+    execution = project_reference(execution, "firmware/app/motor_execution.c")
+    state = project_reference(state, "firmware/app/motor_state.c")
     fixture = (ROOT / "tests/unit/native/execution_dispatch_test.c").read_text(encoding="utf-8")
     if "MotorExecution_ControlStep(" in execution:
         fixture += "\n" + function_source(execution, "MotorExecution_ControlStep")
@@ -19,8 +25,8 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
     else:
         fixture += "\n" + function_source(execution, "MotorExecution_FastStep")
         call = (
-            "MotorExecution_FastStep(&FOC, &MotorControl, &PI_Speed, "
-            "&OnBoard_Encoder, &Fluxobserver, &SensorlessStartup)"
+            "MotorExecution_FastStep(&foc, &motor_state, &speed_pi, "
+            "&rotor_encoder, &flux_observer, &startup)"
         )
     fixture += "\nstatic MotorTaskResult dispatch_step(void) { return " + call + "; }\n"
     output.mkdir(parents=True, exist_ok=True)

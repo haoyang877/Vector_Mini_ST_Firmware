@@ -68,8 +68,8 @@ static void check(float value)
 /* 从真实目录读回所有标量，覆盖描述符缩放和私有结构偏移，而非只测转换函数。 */
 static void check_catalog(void)
 {
-    MotorControl_TypeDef motor = {0};
-    Encoder_TypeDef encoder = {0};
+    MotorControlState motor = {0};
+    EncoderState encoder = {0};
     const float samples[] = {0.0f,
                              -0.0f,
                              0.0625f,
@@ -81,22 +81,22 @@ static void check_catalog(void)
                              NAN,
                              INFINITY,
                              -INFINITY};
-    for (unsigned i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i)
+    for (unsigned i = 0; i < sizeof(s_fields) / sizeof(s_fields[0]); ++i)
     {
         for (unsigned j = 0; j < sizeof(samples) / sizeof(samples[0]); ++j)
         {
-            memcpy((uint8_t *)&motor + fields[i].offset, &samples[j], sizeof(float));
+            memcpy((uint8_t *)&motor + s_fields[i].offset, &samples[j], sizeof(float));
             ParameterValue value;
             uint32_t expected = 0U;
-            bool valid = ref_parameter(samples[j], (float)fields[i].scale, &expected) != 0;
+            bool valid = ref_parameter(samples[j], (float)s_fields[i].scale, &expected) != 0;
             ParameterStatus result =
-                ParameterValue_Read(&motor, &encoder, 42U, 1U, fields[i].id, &value);
+                ParameterValue_Read(&motor, &encoder, 42U, 1U, s_fields[i].id, &value);
             if ((result == PARAMETER_OK) != valid ||
                 (valid &&
                  (value.raw_value != expected || value.revision != 42U ||
-                  value.parameter_id != fields[i].id || value.value_type != PARAMETER_VALUE_I32)))
+                  value.parameter_id != s_fields[i].id || value.value_type != PARAMETER_VALUE_I32)))
             {
-                printf("CATALOG mismatch: field %u sample %u\n", fields[i].id, j);
+                printf("CATALOG mismatch: field %u sample %u\n", s_fields[i].id, j);
                 exit(1);
             }
         }

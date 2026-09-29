@@ -804,9 +804,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_phase_resistance.c</FileName>
+              <FileName>phase_resistance_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\foc_phase_resistance.c</FilePath>
+              <FilePath>..\..\..\..\motor\identification\phase_resistance_task.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1033,9 +1033,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_encoder_calibration.c</FileName>
+              <FileName>encoder_calibration_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\foc_encoder_calibration.c</FilePath>
+              <FilePath>..\..\..\..\motor\identification\encoder_calibration_task.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1094,9 +1094,9 @@
               <FilePath>..\..\..\..\motor\foc\cogging_compensation.c</FilePath>
             </File>
             <File>
-              <FileName>foc_friction_identification.c</FileName>
+              <FileName>friction_identification_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\foc_friction_identification.c</FilePath>
+              <FilePath>..\..\..\..\motor\identification\friction_identification_task.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1603,9 +1603,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_state.c</FileName>
+              <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\motor_state.c</FilePath>
+              <FilePath>..\..\..\..\app\motor_axis.c</FilePath>
             </File>
             <File>
               <FileName>yg_protocol_owner_adapter.c</FileName>
@@ -2152,9 +2152,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>data_type.h</FileName>
+              <FileName>motor_types.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\..\..\..\motor\data_type.h</FilePath>
+              <FilePath>..\..\..\..\motor\motor_types.h</FilePath>
             </File>
           </Files>
         </Group>

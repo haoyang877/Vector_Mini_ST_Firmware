@@ -30,6 +30,12 @@ debt never needs to be restored.
 - Every `if`, `else`, `for`, `while`, and `do` body uses braces.
 - Public functions use `Module_Action`; private functions and variables use `snake_case`; types use
   `PascalCase`; macros and compile-time constants use `UPPER_SNAKE_CASE`.
+- File-private objects use `s_` plus a meaningful snake_case name; externally visible mutable objects,
+  when unavoidable, use `g_` plus their owning module. Parameters, local variables, and members have
+  no storage prefix. Private const configuration/lookup objects also use `s_`; const is the qualifier.
+- Repository-owned types omit redundant `_TypeDef` suffixes. Use role names for sensors, explicit
+  target/measured/filtered/applied vocabulary for values, and requested/active/valid vocabulary for
+  flags. Do not change external HAL/third-party or frozen cross-product identifiers to match this rule.
 - Put the unit or representation in physical-value names, such as `_rad`, `_rad_s`, `_a`, `_v`,
   `_us`, `_q15`, or `_counts`. Convert units at boundaries rather than in the control core.
 - Prefer small, single-purpose functions, early validation, explicit failure paths, and bounded

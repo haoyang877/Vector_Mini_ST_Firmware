@@ -17,19 +17,19 @@ rpm_max = 60 * n_max = 190.9859317 rpm
 `PARAM_WHEEL_MAX_LINEAR_SPEED_M_S` 定义几何与线速度；`Param_SpeedLimitRadS(node_id)`
 统一返回节点上限。节点 1、2 返回 20 rad/s，其他节点仍使用原电机档位的 0.5 r/s（30 rpm）。
 
-参数加载先解析最终 CAN 节点，再限制 Flash 中的 `speed_limit`。已保存的较低限速保留；
+参数加载先解析最终 CAN 节点，再限制 Flash 中的 `speed_limit_rad_s`。已保存的较低限速保留；
 非正值或非有限值回退到该节点上限。CAN 与 USB 均通过 `Param_SetSpeedLimit()` 检查。
 修改节点会向下限制当前限速；降低限速也会限制已有速度目标，由现有加减速配置过渡。
 本次不改变参数结构，schema 仍为 10，也不改变电机或编码器校准。
 
-启用最大限速时，需要将运行参数 `speed_limit` 设置为 20 rad/s，再保存参数。
+启用最大限速时，需要将运行参数 `speed_limit_rad_s` 设置为 20 rad/s，再保存参数。
 仅升级固件会保留旧的 30 rpm 运行限速。
 
 | 接口 | 设置最大限速 |
 | --- | --- |
 | CAN 协议修订 2 | `CAN_SET_SPEED_LIMIT = 0x12`，节点 1 ID `0x112`，节点 2 ID `0x212`；大端有符号整数，0.01 rad/s 单位，4 字节载荷 `00 00 07 D0` |
 | USB | `slm` 参数单位 r/s；可发送 `3.1830988`（略低于理论值，避免十进制向上取整被拒绝） |
-| 固件内部 | `speed_limit = 20.0f`，单位 rad/s |
+| 固件内部 | `speed_limit_rad_s = 20.0f`，单位 rad/s |
 
 主机回归测试：
 
@@ -43,13 +43,13 @@ python tests/unit/native/test_wheel_speed_limits.py --cc <C99编译器或zig路�
 ## 2026-09-17 双轮烧录与空载验证
 
 两轮均烧录同一固件，包含 [8S 母线保护](bus_voltage_8s.md)，重启读回均为
-schema 10、`speed_limit = 20 rad/s`。右轮原 schema 10 参数仅修改限速；左轮从
+schema 10、`speed_limit_rad_s = 20 rad/s`。右轮原 schema 10 参数仅修改限速；左轮从
 schema 5 按既有规则迁移，实际参数与生产加载/保存函数生成的预期记录逐字节一致。
 两轮各自的电机参数、编码器零点和完整 LUT、电流校准及速度环 PI 保留。
 
 | 项目 | 左轮 node 1 | 右轮 node 2 |
 | --- | --- | --- |
-| 速度环 Kp / Ki | 0.05 / 0.5 | 0.02 / 0.5 |
+| 速度环 proportional_gain / integral_gain | 0.05 / 0.5 | 0.02 / 0.5 |
 | 30 rpm 档平均转速 | 29.977 rpm | 29.988 rpm |
 | 100 rpm 上升档平均转速 | 99.904 rpm | 99.903 rpm |
 | 190.986 rpm 档平均转速 | 190.834 rpm | 190.761 rpm |

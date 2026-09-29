@@ -11,7 +11,7 @@
 #define FOC_FREQ 20000U
 #define FOC_PERIOD (1.0f / (float)FOC_FREQ)
 
-/* Current loop executes at the PWM/FOC rate. */
+/* Current loop executes at the PWM/foc rate. */
 #define Current_Ts (FOC_PERIOD)
 
 /* All speed PI controllers and encoder velocity estimation run at 2 kHz. */
@@ -70,7 +70,7 @@
 #endif
 #define RTT_SAMPLE_DIVIDER (FOC_FREQ / RTT_SAMPLE_RATE_HZ)
 
-/* 固定 4 通道 int16 帧：位置/转速/Iq 指令/Iq 反馈，布局见 rtt_telemetry.c。 */
+/* 固定 4 通道 int16 帧：位置/转速/iq_a 指令/iq_a 反馈，布局见 rtt_telemetry.c。 */
 #define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2"
 
 #endif

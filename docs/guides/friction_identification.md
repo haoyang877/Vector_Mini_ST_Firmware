@@ -7,11 +7,11 @@
 算法在空载、允许连续正反转的电机上辨识电流域等效摩擦：
 
 ```text
-omega > 0: Iq =  Ic_pos + B_pos * omega
-omega < 0: Iq = -Ic_neg + B_neg * omega
+omega > 0: iq_a =  Ic_pos + B_pos * omega
+omega < 0: iq_a = -Ic_neg + B_neg * omega
 ```
 
-`omega` 为机械角速度 rad/s，`Ic` 为 A，`B` 为 A/(rad/s)。辨识本身不执行摩擦补偿。
+`omega` 为机械角速度 rad/s，`phase_c_current_a` 为 A，`B` 为 A/(rad/s)。辨识本身不执行摩擦补偿。
 轴承、密封、铁耗、风阻及逆变器误差都会进入模型；机构上的重力、弹簧或外部负载
 也可能进入结果，没有外部力矩测量时不能将它们完全分离。
 
@@ -44,7 +44,7 @@ worker 归零控制参考并报告结果，主状态机负责功率关断及生�
 尚未映射摩擦辨识；不要发送旧模式号或将内部 kind 直接作为线路值。
 原始八点导出及候选应用的产品通信入口尚未实现，不提供旧 USB 命令兼容。
 
-辨识成功只产生候选，`FocFrictionIdentification_ApplyCandidate()` 是内部停机应用函数，
+辨识成功只产生候选，`FrictionIdentificationTask_ApplyCandidate()` 是内部停机应用函数，
 当前没有产品调用方。应用 RAM 模型与写入 Flash 是不同步骤；不得把完成状态当成已保存。
 当前只装载 schema 11，不自动迁移旧参数。
 

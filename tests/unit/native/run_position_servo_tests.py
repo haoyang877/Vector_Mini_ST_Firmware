@@ -55,12 +55,12 @@ def rtt_frame_fixture():
 #define CASCADE_POSITION_LOOP_DIVIDER 10U
 #define MOTOR_CONTROL_POSITION 3
 typedef int MotorControlMode;
-static struct { int control_mode; float iqRef; } MotorControl;
-typedef struct { float theta_mech, vel_mech; } EncoderTelemetry_TypeDef;
-static EncoderTelemetry_TypeDef OnBoard_Encoder;
-static float Encoder_GetMecPos(const EncoderTelemetry_TypeDef *e) { return e->theta_mech; }
-static float Encoder_GetMecVel(const EncoderTelemetry_TypeDef *e) { return e->vel_mech; }
-static struct { float Iq; } FOC;
+static struct { int control_mode; float iq_target_a; } motor_state;
+typedef struct { float mechanical_position_rad, mechanical_velocity_rad_s; } EncoderTelemetry_TypeDef;
+static EncoderTelemetry_TypeDef rotor_encoder;
+static float Encoder_GetMecPos(const EncoderTelemetry_TypeDef *e) { return e->mechanical_position_rad; }
+static float Encoder_GetMecVel(const EncoderTelemetry_TypeDef *e) { return e->mechanical_velocity_rad_s; }
+static struct { float iq_a; } foc;
 static bool ready = true;
 static unsigned writes;
 static int16_t wire[4];
@@ -70,23 +70,23 @@ static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned le
 """
         + encoding
         + r"""
-static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(MotorControl.control_mode, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); }
+static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(motor_state.control_mode, Encoder_GetMecPos(&rotor_encoder), Encoder_GetMecVel(&rotor_encoder), motor_state.iq_target_a, foc.iq_a); }
 static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
 int main(void) {
     unsigned before, i;
-    MotorControl.control_mode = 3; MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
-    OnBoard_Encoder.theta_mech = 10 * _PI / 180; OnBoard_Encoder.vel_mech = -20;
+    motor_state.control_mode = 3; motor_state.iq_target_a = 1.5f; foc.iq_a = 1.4f;
+    rotor_encoder.mechanical_position_rad = 10 * _PI / 180; rotor_encoder.mechanical_velocity_rad_s = -20;
     sample(); assert(writes == 1);
     near_count(0,1820); near_count(1,-1909); near_count(2,1500); near_count(3,1400);
-    OnBoard_Encoder.theta_mech = 200 * _PI / 180; sample(); near_count(0,-29127);
-    MotorControl.iqRef = 50; FOC.Iq = -50; sample(); assert(wire[2] == 32767 && wire[3] == -32768);
-    MotorControl.iqRef = NAN; FOC.Iq = INFINITY; OnBoard_Encoder.vel_mech = INFINITY;
+    rotor_encoder.mechanical_position_rad = 200 * _PI / 180; sample(); near_count(0,-29127);
+    motor_state.iq_target_a = 50; foc.iq_a = -50; sample(); assert(wire[2] == 32767 && wire[3] == -32768);
+    motor_state.iq_target_a = NAN; foc.iq_a = INFINITY; rotor_encoder.mechanical_velocity_rad_s = INFINITY;
     sample(); assert(wire[1] == 0 && wire[2] == 0 && wire[3] == 0);
-    assert(RTT_EncodeInt16(NAN, 1) == 0 && RTT_EncodeInt16(INFINITY, 1) == 0);
-    before = writes; RTT_Sampling(MotorControl.control_mode, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq); assert(writes == before);
-    for (i = 1; i < 10; ++i) RTT_Sampling(MotorControl.control_mode, Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecVel(&OnBoard_Encoder), MotorControl.iqRef, FOC.Iq);
+    assert(rtt_encode_int16(NAN, 1) == 0 && rtt_encode_int16(INFINITY, 1) == 0);
+    before = writes; RTT_Sampling(motor_state.control_mode, Encoder_GetMecPos(&rotor_encoder), Encoder_GetMecVel(&rotor_encoder), motor_state.iq_target_a, foc.iq_a); assert(writes == before);
+    for (i = 1; i < 10; ++i) RTT_Sampling(motor_state.control_mode, Encoder_GetMecPos(&rotor_encoder), Encoder_GetMecVel(&rotor_encoder), motor_state.iq_target_a, foc.iq_a);
     assert(writes == before + 1);
-    ready = false; MotorControl.control_mode = 3; before = writes; sample(); assert(writes == before);
+    ready = false; motor_state.control_mode = 3; before = writes; sample(); assert(writes == before);
     puts("PASS actual RTT 4-channel frame: units, single-turn wrap, clipping, non-finite values, divider");
     return 0;
 }
@@ -120,7 +120,7 @@ typedef struct {
     MotorAxisProfile axis_profile;
     bool axis_profile_valid;
     int motor_pole_pairs;
-} MotorControl_TypeDef;
+} MotorControlState;
 typedef struct {
     uint16_t raw_q15, directed_q15, linearized_q15, electrical_zero_q15, mechanical_zero_q15;
     uint16_t previous_linearized_q15;
@@ -132,32 +132,32 @@ typedef struct {
     int64_t shadow_q15, mechanical_zero_shadow_q15;
     float pll_theta_rad, pll_omega_rad_s;
     bool velocity_ready;
-    float theta_elec, theta_mech, vel_mech, vel_elec, vel_mech_continuous;
-} Encoder_TypeDef;
+    float electrical_angle_rad, mechanical_position_rad, mechanical_velocity_rad_s, electrical_velocity_rad_s, mechanical_velocity_continuous_rad_s;
+} EncoderState;
 static uint16_t sample;
 static bool sample_ok = true;
-static bool Encoder_ReadFrame(Encoder_TypeDef *e, uint16_t *out, bool started)
+static bool encoder_read_frame(EncoderState *e, uint16_t *out, bool started)
 { (void)e; (void)started; *out = sample; return sample_ok; }
-static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e, uint16_t v)
+static uint16_t encoder_apply_direction_q15(EncoderState *e, uint16_t v)
 { (void)e; return v; }
-static uint16_t Encoder_ApplyLinearizationQ15(Encoder_TypeDef *e, uint16_t v)
+static uint16_t encoder_apply_linearization_q15(EncoderState *e, uint16_t v)
 { (void)e; return v; }
 """
         + "\n".join(
             function_source(source, name)
             for name in [
-                "Encoder_UpdateElecAngle",
-                "Encoder_UpdateShadow",
-                "Encoder_UpdateVelocityPll",
-                "Encoder_RebaseMultiTurnPosition",
+                "encoder_update_elec_angle",
+                "encoder_update_shadow",
+                "encoder_update_velocity_pll",
+                "encoder_rebase_multi_turn_position",
                 "Encoder_CompleteSample",
                 "Encoder_UpdateSlowEstimate",
             ]
         )
         + r"""
 int main(void) {
-    MotorControl_TypeDef m = {0};
-    Encoder_TypeDef e = {0};
+    MotorControlState m = {0};
+    EncoderState e = {0};
     m.motor_pole_pairs = 7;
     assert(MotorAxisProfile_Create(&m.axis_profile, "roll", -1.57079633f, 1.57079633f, .785398163f));
     m.axis_profile_valid = true;
@@ -171,9 +171,9 @@ int main(void) {
     /* 首个有效帧在 2 kHz 慢估计中重定多圈基准。 */
     Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 4536);
-    assert(e.velocity_ready && e.vel_mech == 0.0f && e.vel_mech_continuous == 0.0f);
+    assert(e.velocity_ready && e.mechanical_velocity_rad_s == 0.0f && e.mechanical_velocity_continuous_rad_s == 0.0f);
     assert(e.mechanical_zero_q15 == 65000 && e.electrical_zero_q15 == 1234);
-    assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, e.theta_mech));
+    assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.mechanical_position_rad, e.mechanical_position_rad));
     sample = 65530; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 == 65530);
     sample = 10; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
@@ -194,7 +194,7 @@ int main(void) {
     e.has_valid_sample = false; e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
     e.mechanical_zero_q15 = 0; sample = 30000;
     Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
-    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
+    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.mechanical_position_rad, 0));
     puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
     return 0;
 }
@@ -215,7 +215,7 @@ def encoder_fixture():
     ]:
         macros.append(re.search(r"^#define\s+" + name + r"\s+[^\r\n]+", text, re.M)[0])
     # Only peripheral-independent estimator functions are compiled here. The
-    # hardware build separately checks the actual full Encoder_TypeDef layout.
+    # hardware build separately checks the actual full EncoderState layout.
     return (
         """
 #ifdef NDEBUG
@@ -238,21 +238,21 @@ typedef struct {
     bool velocity_ready;
     volatile bool velocity_restart_requested;
     float pll_theta_rad, pll_omega_rad_s;
-    float vel_mech, vel_elec, vel_mech_continuous;
+    float mechanical_velocity_rad_s, electrical_velocity_rad_s, mechanical_velocity_continuous_rad_s;
     uint16_t linearized_q15;
-} Encoder_TypeDef;
+} EncoderState;
 """
         + "\n".join(
             function_source(source, name)
             for name in [
-                "Encoder_ResetVelocityEstimate",
-                "Encoder_UpdateVelocityPll",
+                "encoder_reset_velocity_estimate",
+                "encoder_update_velocity_pll",
                 "Encoder_GetMecVel",
                 "Encoder_GetMecVelContinuous",
             ]
         )
         + """
-static void run_ramp(Encoder_TypeDef *e, float target_rad_s, int ticks)
+static void run_ramp(EncoderState *e, float target_rad_s, int ticks)
 {
     float delta_counts = target_rad_s * FOC_PERIOD * (65536.0f / _2PI);
     float angle = 0.0f;
@@ -260,15 +260,15 @@ static void run_ramp(Encoder_TypeDef *e, float target_rad_s, int ticks)
     for (k = 0; k < ticks; ++k) {
         angle += delta_counts;
         e->linearized_q15 = (uint16_t)((int32_t)angle & 0xFFFF);
-        Encoder_UpdateVelocityPll(e, 7);
+        encoder_update_velocity_pll(e, 7);
     }
 }
 
 int main(void) {
-    Encoder_TypeDef e = {0};
+    EncoderState e = {0};
     int k;
     /* Reset: clears observer, ready flag and all speed outputs. */
-    Encoder_ResetVelocityEstimate(&e);
+    encoder_reset_velocity_estimate(&e);
     assert(!e.velocity_ready && e.pll_omega_rad_s == 0.0f);
     assert(Encoder_GetMecVel(&e) == 0.0f && Encoder_GetMecVelContinuous(&e) == 0.0f);
     /* Constant speed: type-2 tracking loop reaches zero steady-state error (no lag). */
@@ -276,30 +276,30 @@ int main(void) {
     assert(e.velocity_ready);
     assert(fabsf(Encoder_GetMecVelContinuous(&e) - 20.0f) < 0.05f);
     assert(fabsf(Encoder_GetMecVel(&e) - 20.0f) < 0.05f);
-    assert(fabsf(e.vel_elec - e.vel_mech * 7.0f) < 1e-3f);
+    assert(fabsf(e.electrical_velocity_rad_s - e.mechanical_velocity_rad_s * 7.0f) < 1e-3f);
     /* Reverse direction. */
-    Encoder_ResetVelocityEstimate(&e);
+    encoder_reset_velocity_estimate(&e);
     run_ramp(&e, -35.0f, 4000);
     assert(fabsf(Encoder_GetMecVelContinuous(&e) + 35.0f) < 0.05f);
-    /* Standstill deadband: soft threshold zeroes vel_mech; continuous stays small. */
-    Encoder_ResetVelocityEstimate(&e);
+    /* Standstill deadband: soft threshold zeroes mechanical_velocity_rad_s; continuous stays small. */
+    encoder_reset_velocity_estimate(&e);
     e.linearized_q15 = 12345U;
-    for (k = 0; k < 4000; ++k) { Encoder_UpdateVelocityPll(&e, 7); }
+    for (k = 0; k < 4000; ++k) { encoder_update_velocity_pll(&e, 7); }
     assert(Encoder_GetMecVel(&e) == 0.0f);
     assert(fabsf(Encoder_GetMecVelContinuous(&e)) < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S);
     /* Output saturation: an over-limit velocity state is clamped to the configured limit. */
-    Encoder_ResetVelocityEstimate(&e);
+    encoder_reset_velocity_estimate(&e);
     e.velocity_ready = true;
     e.pll_theta_rad = 0.0f;
     e.pll_omega_rad_s = ENCODER_PLL_OMEGA_MAX_RAD_S * 3.0f;
     e.linearized_q15 = 0U;
-    Encoder_UpdateVelocityPll(&e, 7);
+    encoder_update_velocity_pll(&e, 7);
     assert(fabsf(e.pll_omega_rad_s - ENCODER_PLL_OMEGA_MAX_RAD_S) < 1e-3f);
-    assert(fabsf(e.vel_mech_continuous) <= ENCODER_PLL_OMEGA_MAX_RAD_S + 1e-3f);
+    assert(fabsf(e.mechanical_velocity_continuous_rad_s) <= ENCODER_PLL_OMEGA_MAX_RAD_S + 1e-3f);
     /* First update initializes from the measured angle without a velocity kick. */
-    Encoder_ResetVelocityEstimate(&e);
+    encoder_reset_velocity_estimate(&e);
     e.linearized_q15 = 40000U;
-    Encoder_UpdateVelocityPll(&e, 7);
+    encoder_update_velocity_pll(&e, 7);
     assert(fabsf(Encoder_GetMecVelContinuous(&e)) < 1e-3f);
     puts("PASS actual encoder PLL: ramp tracking both signs, deadband, saturation, self-init");
     return 0;
@@ -410,44 +410,44 @@ def joint_startup_fixture():
 typedef struct {
     MotorAxisProfile axis_profile;
     bool axis_profile_valid;
-    float cascade_pos_Kp, cascade_pos_Kd, speed_Kp, speed_Ki;
-    float posAcc, posDec, pos_maxspeed, current_limit, speed_limit;
+    float cascade_position_kp, cascade_position_kd, speed_kp, speed_ki;
+    float position_acceleration_rad_s2, position_deceleration_rad_s2, position_maximum_speed_rad_s, current_limit_a, speed_limit_rad_s;
     unsigned calibration_sentinel;
-} MotorControl_TypeDef;
+} MotorControlState;
 """
-        + function_source(source, "Param_ApplyJointProfile")
+        + function_source(source, "param_apply_joint_profile")
         + r"""
 int main(void) {
-    MotorControl_TypeDef m = {0}, before;
+    MotorControlState m = {0}, before;
     unsigned id;
     m.axis_profile_valid = true;
     m.calibration_sentinel = 0xdeadbeef;
-    m.current_limit = 4; m.speed_limit = .3f;
-    m.speed_Ki = .123f;
+    m.current_limit_a = 4; m.speed_limit_rad_s = .3f;
+    m.speed_ki = .123f;
     assert(MotorAxisProfile_Create(&m.axis_profile, "pitch", -.3f, .9f, .785398163f));
     before = m;
-    assert(Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
+    assert(param_apply_joint_profile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
     for (id = 1; id <= 2; ++id) {
         assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 1, -.3f, .9f, .785398163f));
         before = m;
-        assert(Param_ApplyJointProfile(&m));
-        assert(m.speed_Ki == (id == 1 ? 1 : 2));
-        assert(m.cascade_pos_Kp == 8 && m.cascade_pos_Kd == 2 && m.speed_Kp == .5f);
-        assert(m.current_limit == 4 && m.pos_maxspeed == .3f);
+        assert(param_apply_joint_profile(&m));
+        assert(m.speed_ki == (id == 1 ? 1 : 2));
+        assert(m.cascade_position_kp == 8 && m.cascade_position_kd == 2 && m.speed_kp == .5f);
+        assert(m.current_limit_a == 4 && m.position_maximum_speed_rad_s == .3f);
         assert(m.calibration_sentinel == 0xdeadbeef);
         assert(memcmp(&m.axis_profile, &before.axis_profile, sizeof(m.axis_profile)) == 0);
     }
-    m.current_limit = NAN;
+    m.current_limit_a = NAN;
     before = m;
-    assert(!Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
-    m.current_limit = 8;
-    assert(Param_ApplyJointProfile(&m) && m.current_limit == 6);
+    assert(!param_apply_joint_profile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
+    m.current_limit_a = 8;
+    assert(param_apply_joint_profile(&m) && m.current_limit_a == 6);
     for (id = 0; id <= 5; ++id) {
         assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 0, 0, 0, 0));
         before = m;
-        assert(!Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
+        assert(!param_apply_joint_profile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
     }
-    assert(!Param_ApplyJointProfile(NULL));
+    assert(!param_apply_joint_profile(NULL));
     puts("PASS actual joint startup adapter: selected gains, preserved calibration/limits, legacy and unknown");
     return 0;
 }
@@ -517,14 +517,14 @@ static int order_len;
 static bool board_start_argument;
 static void log_step(int step) { order[order_len++] = step; }
 /* 参数装载归初始化所有者；板级组合只调用一次所有者入口。 */
-static void MotorControl_Init(void) { log_step(3); }
+static void MotorAxis_Init(void) { log_step(3); }
 static void board_hw_start(bool motor_phases_enabled) {
     log_step(4);
     board_start_argument = motor_phases_enabled;
 }
 static unsigned Protocol_NodeId_Get(void) { return 1U; }
 static bool protocol_ready = true;
-static bool communication_ready;
+static bool s_communication_ready;
 static bool YgProtocolRuntime_Init(unsigned node) { assert(node == 1U); log_step(5); return protocol_ready; }
 static bool YgProtocolStatusAdapter_Init(void) { return protocol_ready; }
 static bool bind_motor_stop(void) { log_step(7); return protocol_ready; }
@@ -539,15 +539,15 @@ int main(void) {
     static const int expected[] = {3, 4, 5, 7, 8, 9, 10};
     int index;
     Board_Init();
-    assert(order_len == 7 && !board_start_argument && communication_ready);
+    assert(order_len == 7 && !board_start_argument && s_communication_ready);
     for (index = 0; index < 7; ++index) assert(order[index] == expected[index]);
     order_len = 0;
     Board_Init();
-    assert(order_len == 7 && !board_start_argument && communication_ready);
+    assert(order_len == 7 && !board_start_argument && s_communication_ready);
     protocol_ready = false;
     order_len = 0;
     Board_Init();
-    assert(order_len == 4 && order[3] == 6 && !communication_ready);
+    assert(order_len == 4 && order[3] == 6 && !s_communication_ready);
     puts("PASS board startup: order, configuration and communication failure disables power");
     return 0;
 }

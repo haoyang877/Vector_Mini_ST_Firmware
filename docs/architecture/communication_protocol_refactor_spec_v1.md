@@ -170,7 +170,7 @@ flowchart TB
     BOOT[yg_protocol_boot\nAPP进入Loader / 精确TX关联]
     UPGRADE[shared/protocol/yg_protocol_upgrade_wire\n50～55纯载荷]
     BOOT_OWNER[APP静默交接所有者]
-    CONTROL[电机状态机 / FOC / 外环]
+    CONTROL[电机状态机 / foc / 外环]
     STORE[参数存储 / 标定数据]
     LOADER[Loader / Flash 存储]
 
@@ -297,7 +297,7 @@ sequenceDiagram
     participant C as yg_protocol_frame_codec
     participant R as yg_protocol_router
     participant M as yg_protocol_motor
-    participant F as 电机状态机/FOC
+    participant F as 电机状态机/foc
 
     P->>H: CAN FD 扩展帧
     H->>T: CommHwCanFrame
@@ -537,7 +537,7 @@ CONTROL_WATCHDOG / LEASE
         ↓
 Motor state machine
         ↓
-FOC / position / velocity loop
+foc / position / velocity loop
 ```
 
 安全规则：
@@ -552,7 +552,7 @@ FOC / position / velocity loop
 ### 3.3 状态反馈程序流
 
 ```text
-FOC / 位置环 / 速度环
+foc / 位置环 / 速度环
         ↓
 MotorStatusSnapshot
         ↓
@@ -637,7 +637,7 @@ CONFIRM_IMAGE 或 ROLLBACK
 - `FDCAN_HandleTypeDef`；
 - `hfdcan1`；
 - GPIO、寄存器、DMA、NVIC；
-- `MotorControl`、FOC 全局变量；
+- `motor_state`、foc 全局变量；
 - 某个具体板卡的节点配置；
 - 阻塞式 delay 或任意地址 Flash 写入。
 
@@ -794,7 +794,7 @@ AI 不得：
 - 把候选 type 当成公司正式编号；
 - 把 CAN PF 当成应用 command ID；
 - 在协议层包含 STM32 HAL 或 CubeMX 头文件；
-- 从通信层直接修改 FOC 全局变量；
+- 从通信层直接修改 foc 全局变量；
 - 在 ISR 中执行长解析、Flash 操作、阻塞发送或动态分配；
 - 通过 packed struct 直接解释线路数据；
 - 为了让测试通过而放宽 CRC、长度或状态机断言；

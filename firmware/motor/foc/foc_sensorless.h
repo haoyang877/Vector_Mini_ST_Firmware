@@ -1,13 +1,13 @@
-#ifndef __FOC_SENSORLESS_H__
-#define __FOC_SENSORLESS_H__
+#ifndef FOC_SENSORLESS_H
+#define FOC_SENSORLESS_H
 
-#include "data_type.h"
+#include "motor_types.h"
 #include "foc_algorithm.h"
 
 typedef struct
 {
-    float Ualpha, Ubeta;
-    float Ialpha, Ibeta;
+    float voltage_alpha_v, voltage_beta_v;
+    float current_alpha_a, current_beta_a;
 
     float sin, cos;
 
@@ -15,14 +15,14 @@ typedef struct
 
     float y1_last, y2_last;
     float etax1, etax2;
-    float phi_err;
+    float flux_error_wb2;
     float x1_last, x2_last;
     float x1, x2;
-    float theta_e, omega_e;
-    float theta_last, omega_last;
-    float theta_e_unwrapped;
+    float electrical_angle_rad, electrical_velocity_rad_s;
+    float previous_electrical_angle_rad, previous_electrical_velocity_rad_s;
+    float electrical_position_rad;
     uint32_t position_epoch;
-} Fluxobserver_TypeDef;
+} FluxObserverState;
 
 typedef enum
 {
@@ -32,7 +32,7 @@ typedef enum
     SENSORLESS_STARTUP_SPEED_LOCK,
     SENSORLESS_STARTUP_HANDOFF,
     SENSORLESS_STARTUP_CLOSED_LOOP
-} SensorlessStartupState_TypeDef;
+} SensorlessStartupPhase;
 
 typedef struct
 {
@@ -54,17 +54,17 @@ typedef struct
     float lock_timeout_s;
     float id_ramp_down_time_s;
     float observer_loss_time_s;
-} SensorlessStartupConfig_TypeDef;
+} SensorlessStartupConfig;
 
 typedef struct
 {
-    SensorlessStartupState_TypeDef state;
-    float open_loop_theta;
-    float open_loop_omega;
-    float handoff_phase_delta;
-    float handoff_id_reference;
-    float speed_feedback;
-    float lock_speed_feedback;
+    SensorlessStartupPhase state;
+    float open_loop_angle_rad;
+    float open_loop_velocity_rad_s;
+    float handoff_phase_delta_rad;
+    float handoff_id_reference_a;
+    float speed_feedback_rad_s;
+    float lock_speed_feedback_rad_s;
     float direction;
     float speed_pi_output_max;
     uint32_t state_ticks;
@@ -73,50 +73,50 @@ typedef struct
     uint32_t lock_ticks;
     uint32_t id_ramp_ticks;
     uint32_t loss_ticks;
-} SensorlessStartup_TypeDef;
+} SensorlessStartupState;
 
 /**
  * @brief  初始化磁链观测器参数。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  */
-void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver);
+void FluxObserver_ParamInit(FluxObserverState *flux_observer);
 
 /**
  * @brief  执行一次磁链观测器更新。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  foc foc 状态指针。
+ * @param  motor_state 电机控制状态指针。
+ * @param  flux_observer 观测器状态指针。
  */
-void Fluxobserver_Update(FOC_TypeDef *FOC,
-                         MotorControl_TypeDef *MotorControl,
-                         Fluxobserver_TypeDef *Fluxobserver);
+void FluxObserver_Update(FocState *foc,
+                         MotorControlState *motor_state,
+                         FluxObserverState *flux_observer);
 
 /**
  * @brief  读取观测器电角度。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  * @return 电角度，单位 rad。
  */
-float Observer_GetElePhase(Fluxobserver_TypeDef *Fluxobserver);
+float Observer_GetElePhase(FluxObserverState *flux_observer);
 
 /**
  * @brief  读取观测器电角速度。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  * @return 电角速度，单位 rad/s。
  */
-float Observer_GetEleVel(Fluxobserver_TypeDef *Fluxobserver);
+float Observer_GetEleVel(FluxObserverState *flux_observer);
 
 /**
  * @brief  读取观测器连续电角度（未归一化）。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  * @return 连续电角度，单位 rad。
  */
-float Observer_GetElePosition(Fluxobserver_TypeDef *Fluxobserver);
+float Observer_GetElePosition(FluxObserverState *flux_observer);
 
 /**
  * @brief  读取观测器位置纪元计数。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  * @return 位置纪元计数，用于判定样本是否更新。
  */
-uint32_t Observer_GetPositionEpoch(Fluxobserver_TypeDef *Fluxobserver);
+uint32_t Observer_GetPositionEpoch(FluxObserverState *flux_observer);
 
 #endif

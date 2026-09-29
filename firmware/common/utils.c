@@ -2,7 +2,7 @@
 #include <math.h>
 
 /* 四分之一周期 256 等分；表值为 sin(i * pi / 512)，端点为 0 和 1。 */
-static const float sin_quarter_tab[257] = {
+static const float s_sin_quarter_tab[257] = {
     0.0f,           0.006135884649f, 0.01227153829f, 0.01840672991f, 0.02454122852f, 0.03067480318f,
     0.03680722294f, 0.04293825693f,  0.04906767433f, 0.05519524435f, 0.0613207363f,  0.06744391956f,
     0.0735645636f,  0.07968243797f,  0.08579731234f, 0.0919089565f,  0.09801714033f, 0.1041216339f,
@@ -57,7 +57,7 @@ static const float sin_quarter_tab[257] = {
     * @param  high: upper limit
     * @retval constrained value
  **/
-float constrain(float amt, float low, float high)
+float Math_Constrain(float amt, float low, float high)
 {
     return ((amt < low) ? (low) : ((amt > high) ? high : amt));
 }
@@ -67,7 +67,7 @@ float constrain(float amt, float low, float high)
     * @param  angle: raw angle
     * @retval normalized angle
  **/
-float normalizeAngle(float angle)
+float Math_NormalizeAngle(float angle)
 {
     float a;
     int a_int;
@@ -83,11 +83,11 @@ float normalizeAngle(float angle)
     * @param  float_val: float value to be transformed
     * @retval uint32 value
  **/
-uint32_t FloatToIntBit(float float_val)
+uint32_t Math_FloatToBits(float float_val)
 {
-    uint32_t *pInt;
-    pInt = (uint32_t *)(&float_val);
-    return *pInt;
+    uint32_t *integer_bits;
+    integer_bits = (uint32_t *)(&float_val);
+    return *integer_bits;
 }
 
 /**
@@ -95,34 +95,36 @@ uint32_t FloatToIntBit(float float_val)
     * @param  int_val: uint32 value to be transformed
     * @retval float value
  **/
-float IntBitToFloat(uint32_t int_val)
+float Math_BitsToFloat(uint32_t int_val)
 {
-    float *pFloat;
-    pFloat = (float *)(&int_val);
-    return *pFloat;
+    float *float_value;
+    float_value = (float *)(&int_val);
+    return *float_value;
 }
 
 /**
     * @brief  IIR Butterworth low-pass filter
               2 order
     * @param  input: value to be filtered
-    * @param  *IIR_Butterworth: IIR_Butterworth struct pointer
+    * @param  *Math_FilterButterworth: Math_FilterButterworth struct pointer
     * @retval filtered value
  **/
-float IIR_Butterworth(float input, IIR_Butterworth_TypeDef *IIR_Butterworth)
+float Math_FilterButterworth(float input, IirButterworthState *Math_FilterButterworth)
 {
     float output;
 
-    IIR_Butterworth->state_n = IIR_Butterworth->gain0 * input -
-                               IIR_Butterworth->a1 * IIR_Butterworth->state_n_1 -
-                               IIR_Butterworth->a2 * IIR_Butterworth->state_n_2;
+    Math_FilterButterworth->state_n =
+        Math_FilterButterworth->gain0 * input -
+        Math_FilterButterworth->a1 * Math_FilterButterworth->state_n_1 -
+        Math_FilterButterworth->a2 * Math_FilterButterworth->state_n_2;
 
-    output = IIR_Butterworth->gain1 * (IIR_Butterworth->b0 * IIR_Butterworth->state_n +
-                                       IIR_Butterworth->b1 * IIR_Butterworth->state_n_1 +
-                                       IIR_Butterworth->b2 * IIR_Butterworth->state_n_2);
+    output = Math_FilterButterworth->gain1 *
+             (Math_FilterButterworth->b0 * Math_FilterButterworth->state_n +
+              Math_FilterButterworth->b1 * Math_FilterButterworth->state_n_1 +
+              Math_FilterButterworth->b2 * Math_FilterButterworth->state_n_2);
 
-    IIR_Butterworth->state_n_2 = IIR_Butterworth->state_n_1;
-    IIR_Butterworth->state_n_1 = IIR_Butterworth->state_n;
+    Math_FilterButterworth->state_n_2 = Math_FilterButterworth->state_n_1;
+    Math_FilterButterworth->state_n_1 = Math_FilterButterworth->state_n;
 
     return output;
 }
@@ -132,7 +134,7 @@ float IIR_Butterworth(float input, IIR_Butterworth_TypeDef *IIR_Butterworth)
     * @param  x: input value
     * @retval absolute value
  **/
-float fast_abs(float x)
+float Math_Abs(float x)
 {
     return x >= 0 ? x : -x;
 }
@@ -142,7 +144,7 @@ float fast_abs(float x)
     * @param  x: input value
     * @retval square value
  **/
-float fast_sq(float x)
+float Math_Square(float x)
 {
     return x * x;
 }
@@ -153,7 +155,7 @@ float fast_sq(float x)
     * @param  y: second input value
     * @retval maximum value
  **/
-float fast_max(float x, float y)
+float Math_Max(float x, float y)
 {
     return (((x) > (y)) ? (x) : (y));
 }
@@ -178,7 +180,7 @@ float fast_max_3(float x, float y, float z)
     * @param  y: second input value
     * @retval minimum value
  **/
-float fast_min(float x, float y)
+float Math_Min(float x, float y)
 {
     return (((x) < (y)) ? (x) : (y));
 }
@@ -205,7 +207,7 @@ static float sin_table_sample(unsigned index)
     {
         offset = 512U - offset;
     }
-    return (index & 512U) != 0U ? -sin_quarter_tab[offset] : sin_quarter_tab[offset];
+    return (index & 512U) != 0U ? -s_sin_quarter_tab[offset] : s_sin_quarter_tab[offset];
 }
 
 void Math_SinCos(float theta_rad, float *sin_out, float *cos_out)
@@ -265,9 +267,9 @@ void Math_SinCos(float theta_rad, float *sin_out, float *cos_out)
     * @param  x: x input value
     * @retval angle value
  **/
-float fast_atan2(float y, float x)
+float Math_Atan2(float y, float x)
 {
-    float abs_y = fast_abs(y) + 1e-20f; // kludge to prevent 0/0 condition
+    float abs_y = Math_Abs(y) + 1e-20f; // kludge to prevent 0/0 condition
     float angle;
 
     if (x >= 0)
@@ -298,7 +300,7 @@ float fast_atan2(float y, float x)
     * @param  val: input value
     * @retval square root value
  **/
-float fast_sqrt(float val)
+float Math_Sqrt(float val)
 {
     if (val < 1.19209290e-7f)
     {
@@ -317,7 +319,7 @@ float fast_sqrt(float val)
     * @param  y: exponent value
     * @retval power value
  **/
-float fast_pow(float x, int y)
+float Math_Power(float x, int y)
 {
     float result = 1.0f;
     for (int i = 0; i < y; i++)
@@ -332,7 +334,7 @@ float fast_pow(float x, int y)
     * @param  x: input value
     * @retval sign value
  **/
-float sign_hard(float x)
+float Math_Sign(float x)
 {
     if (x < 0)
     {
@@ -350,7 +352,7 @@ float sign_hard(float x)
     * @param  y: sign source value
     * @retval signed value
  **/
-float copy_sign(float x, float y)
+float Math_CopySign(float x, float y)
 {
     if (y >= 0)
     {

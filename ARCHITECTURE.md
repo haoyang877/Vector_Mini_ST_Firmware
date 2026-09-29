@@ -31,7 +31,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
 
 ## Runtime boundaries
 
-- The fast motor loop owns deterministic sensing, FOC, protection, and actuation paths.
+- The fast motor loop owns deterministic sensing, foc, protection, and actuation paths.
 - Services expose parameters and telemetry without owning platform peripherals.
 - Communication validates wire data at the boundary and invokes explicit services.
 - Application code assembles tasks and modes; it must not become a second protocol layer.

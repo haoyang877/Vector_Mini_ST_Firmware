@@ -34,7 +34,7 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     actual = function_source(
-        (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8"), "fast_sqrt"
+        (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8"), "Math_Sqrt"
     )
     fixture = (
         r"""
@@ -68,17 +68,17 @@ int main(void) {
     unsigned samples = 0;
     float max_change = 0.0f;
     float cutoff = 1.19209290e-7f;
-    assert(fast_sqrt(0.0f) == 0.0f);
-    assert(fast_sqrt(-1.0f) == 0.0f);
-    assert(fast_sqrt(nextafterf(cutoff, 0.0f)) == 0.0f);
-    assert(fast_sqrt(cutoff) > 0.0f);
-    assert(isnan(fast_sqrt(NAN)));
-    assert(isinf(fast_sqrt(INFINITY)));
+    assert(Math_Sqrt(0.0f) == 0.0f);
+    assert(Math_Sqrt(-1.0f) == 0.0f);
+    assert(Math_Sqrt(nextafterf(cutoff, 0.0f)) == 0.0f);
+    assert(Math_Sqrt(cutoff) > 0.0f);
+    assert(isnan(Math_Sqrt(NAN)));
+    assert(isinf(Math_Sqrt(INFINITY)));
     /* Sweep positive normal floats across the entire exponent range. */
     for (bits = 0x00800000U; bits < 0x7f800000U; bits += 997U) {
         float x, result, before, expected, change;
         memcpy(&x, &bits, sizeof(x));
-        result = fast_sqrt(x);
+        result = Math_Sqrt(x);
         before = legacy(x);
         expected = x < cutoff ? 0.0f : (float)sqrt((double)x);
         assert(result == expected);
@@ -90,7 +90,7 @@ int main(void) {
         assert(change < 0.000003f);
         samples++;
     }
-    printf("PASS fast_sqrt: %u samples, max relative change %.9g; cutoff and nonfinite inputs checked\n",
+    printf("PASS Math_Sqrt: %u samples, max relative change %.9g; cutoff and nonfinite inputs checked\n",
            samples, (double)max_change);
     return 0;
 }

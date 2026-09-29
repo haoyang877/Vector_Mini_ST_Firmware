@@ -1,5 +1,5 @@
-#ifndef __LED_H__
-#define __LED_H__
+#ifndef LED_H
+#define LED_H
 
 #include "main.h"
 #include <stdbool.h>
@@ -52,7 +52,7 @@ typedef struct
     uint8_t blink_num;
     uint8_t blink_num_last;
     uint8_t cnt;
-} LED_TypeDef;
+} LedState;
 
 /**
  * @brief 设置下次指示灯任务使用的模式或故障信息。

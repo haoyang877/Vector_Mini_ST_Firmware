@@ -27,14 +27,14 @@ class RttTelemetryTests(unittest.TestCase):
     def test_firmware_frame_has_fixed_documented_layout(self) -> None:
         source = RTT_TELEMETRY.read_text(encoding="utf-8")
         frame = re.search(
-            r"typedef struct\s*\{(?P<body>.*?)\}\s*RTT_TelemetryFrame_TypeDef;",
+            r"typedef struct\s*\{(?P<body>.*?)\}\s*RttTelemetryFrame;",
             source,
             flags=re.DOTALL,
         )
         self.assertIsNotNone(frame)
         fields = re.findall(r"\bint16_t\s+(\w+)\s*;", frame.group("body"))
         self.assertEqual(fields, EXPECTED_FIELDS)
-        self.assertIn("sizeof(RTT_TelemetryFrame_TypeDef) == 8U", source)
+        self.assertIn("sizeof(RttTelemetryFrame) == 8U", source)
         self.assertNotIn("PositionImpedance_GetTelemetry", source)
         self.assertNotIn("RTT_SERVO_STATUS", source)
 

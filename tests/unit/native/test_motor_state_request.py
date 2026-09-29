@@ -1,4 +1,4 @@
-"""使用真实 motor_state.c 验证参数读写/保存请求的身份冲突合同；不访问硬件。"""
+"""使用真实 motor_axis.c 验证参数读写/保存请求的身份冲突合同；不访问硬件。"""
 
 import argparse
 import subprocess
@@ -13,9 +13,9 @@ REQUEST_FUNCTIONS = (
     "stale_sequence",
     "matches_cached_request",
     "refresh_save_result",
-    "MotorControl_ReadParameter",
-    "MotorControl_WriteParameter",
-    "MotorControl_RequestSave",
+    "MotorAxis_ReadParameter",
+    "MotorAxis_WriteParameter",
+    "MotorAxis_RequestSave",
 )
 
 
@@ -28,7 +28,7 @@ def main() -> None:
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
-    source = (ROOT / "firmware/app/motor_state.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/motor_axis.c").read_text(encoding="utf-8")
     fixture = (ROOT / "tests/unit/native/motor_state_request_test.c").read_text(encoding="utf-8")
     for name in REQUEST_FUNCTIONS:
         try:

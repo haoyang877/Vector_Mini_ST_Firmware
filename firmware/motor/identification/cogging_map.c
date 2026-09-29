@@ -14,7 +14,7 @@ uint32_t Cogging_EncoderSignature(uint8_t reverse,
     return Crc32_Compute(encoder_lut, COGGING_MAP_POINTS * sizeof(int16_t), crc);
 }
 
-static uint32_t RecordCrc(const CoggingMapRecord *r)
+static uint32_t record_crc(const CoggingMapRecord *r)
 {
     /* CRC 覆盖 magic、encoder_signature、full_scale_a，再覆盖整张表。 */
     uint32_t crc = Crc32_Compute(r, (uint32_t)offsetof(CoggingMapRecord, crc32), 0U);
@@ -35,7 +35,7 @@ float CoggingMap_LookupA(const CoggingMapRecord *record, uint16_t position_q15)
 bool CoggingMap_Valid(const CoggingMapRecord *r, uint32_t signature)
 {
     return r != NULL && r->magic == COGGING_MAP_MAGIC && r->encoder_signature == signature &&
-           isfinite(r->full_scale_a) && r->full_scale_a > 0.0f && r->crc32 == RecordCrc(r);
+           isfinite(r->full_scale_a) && r->full_scale_a > 0.0f && r->crc32 == record_crc(r);
 }
 
 bool CoggingMap_Build(const int16_t *fresh_q15,
@@ -71,6 +71,6 @@ bool CoggingMap_Build(const int16_t *fresh_q15,
         record->iq_q15[i] = (int16_t)roundf((float)fresh_q15[i] - mean);
     }
     record->magic = COGGING_MAP_MAGIC;
-    record->crc32 = RecordCrc(record);
+    record->crc32 = record_crc(record);
     return true;
 }

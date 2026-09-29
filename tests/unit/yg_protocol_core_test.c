@@ -235,7 +235,7 @@ static void motor_status_adapter(void)
     uint32_t payload_length = sizeof(payload);
 
     source.sample.position_feedback = 1.2345F;
-    source.sample.speed_feedback = -40.0F;
+    source.sample.speed_feedback_rad_s = -40.0F;
     source.sample.current_feedback = 1.2F;
     source.sample.bus_voltage = 24.0F;
     source.sample.bus_current = 1.5F;

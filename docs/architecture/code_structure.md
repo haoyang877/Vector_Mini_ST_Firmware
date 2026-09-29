@@ -6,8 +6,8 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `firmware/app/` | board_config、bsp_task、foc_task、motor_execution、motor_state、motor_maintenance、motor_state_machine、rtt_telemetry 等启动与运行组装 |
-| `firmware/motor/foc/` | FOC、PID、采样及观测器 |
+| `firmware/app/` | board_config、bsp_task、foc_task、motor_execution、motor_axis、motor_maintenance、motor_state_machine、rtt_telemetry 等启动与运行组装 |
+| `firmware/motor/foc/` | foc、PID、采样及观测器 |
 | `firmware/motor/position/` | 位置伺服与阻抗控制 |
 | `firmware/motor/trajectory/` | 平滑轨迹及梯形轨迹 |
 | `firmware/motor/identification/` | 电机、编码器与摩擦辨识/校准 |
@@ -30,6 +30,10 @@
 初始化归 app，参数归 parameters，工具归 common，共享电机类型归 motor（原 HIL 支持目录已随
 2026-09-19 HIL 退役删除）。
 源码与头文件在所属模块内相邻存放。完整文件迁移清单见 [path_migration.json](path_migration.json)。
+
+APP 当前模块、对象所有权、函数与物理量名称以
+[APP 命名规范 v1](app_naming_v1.md) 为准；`motor_axis` 是单轴组装所有者，
+`motor_state_machine` 是主生命周期，辨识功能适配位于 `*_task` 模块。
 
 `outputs/` 为生成内容；原有 `data_recoder/`、`tmp/` 和本机工具缓存保留原位置，避免破坏历史实验引用。
 新构建和验证结果进入 outputs，现有数据未清空。
@@ -101,10 +105,10 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 
 | 所有者 | 状态与调用边界 |
 | --- | --- |
-| `app/motor_state.c` | 私有 MotorControl、FOC、速度 PI、Encoder、Observer、Startup；按获准生命周期选择维护、控制或空闲预载，执行快慢调度与前台维护，生成值快照 |
+| `app/motor_axis.c` | 私有 motor_state、foc、速度 PI、encoder、Observer、startup；按获准生命周期选择维护、控制或空闲预载，执行快慢调度与前台维护，生成值快照 |
 | `app/motor_state_machine.c` | 唯一请求、正常启相关断和任务衔接所有者；Watch/CAN 共用命令邮箱，串行生命周期事件，保存认领与取消身份 |
 | `app/motor_maintenance.c` | 按维护 kind 调用实际功能和取消；返回功能事实及准入原因，不使用控制模式反推任务 |
-| `app/motor_execution.c` | 有界电流/速度/位置/Vq 控制及外环；只使用显式传入对象，不反查状态机或调度维护 |
+| `app/motor_execution.c` | 有界电流/速度/位置/vq_v 控制及外环；只使用显式传入对象，不反查状态机或调度维护 |
 | `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |
 | `motor/foc/foc_sensing.c` | 显式采样目标，温度诊断私有，提供窄新鲜度查询 |
 | `motor/identification/foc_cogging_calibration.c` | 私有标定采样、表和补偿状态；候选构建与发布分开，取消不改写前台正在读取的样本 |
@@ -127,7 +131,7 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 本次状态收口见[齿槽状态所有权计划](../plans/completed/2026-09-29-cogging-state-owner-v1.md)。
 原 `FocBenchSpeed` 台架邮箱已退役，见 [退役记录](../guides/watch_motor_commands.md)。
 
-2026-09-29 框架边界收尾：`motor/data_type.h` 只依赖电机域轴值类型，
+2026-09-29 框架边界收尾：`motor/motor_types.h` 只依赖电机域轴值类型，
 不再引用参数服务。轴记录服务保留 CRC、记录构造与启动身份解析。
 摩擦及相电阻辨识配置由 `app/motor_maintenance.c` 装配为私有只读常量，
 每次任务调用显式传入；算法启动时复制核心配置，不持有服务对象或配置全局指针。
@@ -160,7 +164,7 @@ APP角色且无epoch（不伪造身份），线格式不变。ENTER事务即使�
 
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 聚合头已于 2026-09-19 删除：
 app/cubemx 消费者全部改为最小显式 include，`foc_param.c` 经 `platform/api` 与
-`param_comm_bridge.h` 窄桥访问通信运行态；`motor/data_type.h` 已改用 `<stdint.h>`。后续优先
+`param_comm_bridge.h` 窄桥访问通信运行态；`motor/motor_types.h` 已改用 `<stdint.h>`。后续优先
 拆小接口与纯类型，再提取公共命令服务，控制执行与异步外环上下文现归 motor_execution。
 每步独立验证实时性和状态一致性。
 

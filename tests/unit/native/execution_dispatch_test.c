@@ -11,12 +11,12 @@
 
 /* 只替换算法、平台和所有者查询；调度体与控制分发体从生产源码原样编译。
  * 枚举交叉覆盖故障优先、维护独占、空闲预载及控制终态，不模拟物理电机。 */
-static MotorControl_TypeDef MotorControl;
-static FOC_TypeDef FOC;
-static PI_Controller_TypeDef PI_Speed;
-static Encoder_TypeDef OnBoard_Encoder;
-static Fluxobserver_TypeDef Fluxobserver;
-static SensorlessStartup_TypeDef SensorlessStartup;
+static MotorControlState s_motor_state;
+static FocState s_foc_state;
+static PiController s_speed_pi;
+static EncoderState s_rotor_encoder;
+static FluxObserverState s_flux_observer;
+static SensorlessStartupState s_sensorless_startup;
 static AppLifecycleState lifecycle_state;
 static MotorMaintenanceKind maintenance_kind;
 static MotorTaskResult maintenance_result;
@@ -64,27 +64,27 @@ void motor_hw_pwm_set_duty(float a, float b, float c)
 }
 
 MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
-                                      FOC_TypeDef *foc,
-                                      MotorControl_TypeDef *motor,
-                                      PI_Controller_TypeDef *pi,
-                                      Encoder_TypeDef *encoder,
-                                      Fluxobserver_TypeDef *observer,
-                                      SensorlessStartup_TypeDef *startup)
+                                      FocState *foc,
+                                      MotorControlState *motor,
+                                      PiController *pi,
+                                      EncoderState *encoder,
+                                      FluxObserverState *observer,
+                                      SensorlessStartupState *startup)
 {
-    assert(kind == maintenance_kind && foc == &FOC && motor == &MotorControl);
-    assert(pi == &PI_Speed && encoder == &OnBoard_Encoder);
-    assert(observer == &Fluxobserver && startup == &SensorlessStartup);
+    assert(kind == maintenance_kind && foc == &s_foc_state && motor == &s_motor_state);
+    assert(pi == &s_speed_pi && encoder == &s_rotor_encoder);
+    assert(observer == &s_flux_observer && startup == &s_sensorless_startup);
     trace |= TRACE_MAINTENANCE;
     return maintenance_result;
 }
 
-void Task_Current_Mode(FOC_TypeDef *foc,
-                       MotorControl_TypeDef *motor,
-                       Encoder_TypeDef *encoder,
-                       Fluxobserver_TypeDef *observer)
+void Task_Current_Mode(FocState *foc,
+                       MotorControlState *motor,
+                       EncoderState *encoder,
+                       FluxObserverState *observer)
 {
-    assert(foc == &FOC && motor == &MotorControl);
-    assert(encoder == &OnBoard_Encoder && observer == &Fluxobserver);
+    assert(foc == &s_foc_state && motor == &s_motor_state);
+    assert(encoder == &s_rotor_encoder && observer == &s_flux_observer);
     trace |= TRACE_CURRENT_TASK;
 }
 
@@ -94,28 +94,28 @@ bool FocCogging_TakeTorqueTrip(void)
     return torque_trip;
 }
 
-float Encoder_GetElePhase(const Encoder_TypeDef *encoder)
+float Encoder_GetElePhase(const EncoderState *encoder)
 {
-    assert(encoder == &OnBoard_Encoder);
+    assert(encoder == &s_rotor_encoder);
     return 0.75f;
 }
 
-float Encoder_GetEleVel(const Encoder_TypeDef *encoder)
+float Encoder_GetEleVel(const EncoderState *encoder)
 {
-    assert(encoder == &OnBoard_Encoder);
+    assert(encoder == &s_rotor_encoder);
     return 2.5f;
 }
 
-void FOC_Current(FOC_TypeDef *foc, MotorControl_TypeDef *motor, float phase, float velocity)
+void FOC_Current(FocState *foc, MotorControlState *motor, float phase, float velocity)
 {
-    assert(foc == &FOC && motor == &MotorControl);
+    assert(foc == &s_foc_state && motor == &s_motor_state);
     assert(phase == 0.75f && velocity == 2.5f);
     trace |= TRACE_CURRENT_LOOP;
 }
 
-void Task_Vq_Mode(FOC_TypeDef *foc, MotorControl_TypeDef *motor, Encoder_TypeDef *encoder)
+void Task_Vq_Mode(FocState *foc, MotorControlState *motor, EncoderState *encoder)
 {
-    assert(foc == &FOC && motor == &MotorControl && encoder == &OnBoard_Encoder);
+    assert(foc == &s_foc_state && motor == &s_motor_state && encoder == &s_rotor_encoder);
     trace |= TRACE_VQ;
 }
 
@@ -137,8 +137,8 @@ void FastLoopProfile_End(unsigned stage)
 static void check_result(MotorTaskResult actual)
 {
     unsigned expected_trace = 0U;
-    MotorTaskResult expected = {MOTOR_TASK_RUNNING, No_Error};
-    if (MotorControl.ErrorNow == No_Error)
+    MotorTaskResult expected = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+    if (s_motor_state.fault_code == MOTOR_FAULT_NONE)
     {
         expected_trace = TRACE_RUNNABLE;
         if (maintenance_runnable)
@@ -155,7 +155,7 @@ static void check_result(MotorTaskResult actual)
             }
             else
             {
-                switch (MotorControl.control_mode)
+                switch (s_motor_state.control_mode)
                 {
                 case MOTOR_CONTROL_CURRENT:
                     expected_trace |= TRACE_CURRENT_TASK | TRACE_TRIP;
@@ -195,13 +195,13 @@ static MotorTaskResult dispatch_step(void);
 int main(void)
 {
     unsigned cases = 0U;
-    memset(&MotorControl, 0, sizeof(MotorControl));
+    memset(&s_motor_state, 0, sizeof(s_motor_state));
     for (unsigned state = APP_BOOT; state <= APP_FATAL; ++state)
     {
         lifecycle_state = (AppLifecycleState)state;
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)
         {
-            MotorControl.control_mode = (MotorControlMode)mode;
+            s_motor_state.control_mode = (MotorControlMode)mode;
             for (unsigned kind = 0U; kind <= MOTOR_MAINTENANCE_NONE; ++kind)
             {
                 maintenance_kind = (MotorMaintenanceKind)kind;
@@ -209,13 +209,15 @@ int main(void)
                 {
                     maintenance_runnable = (flags & 1U) != 0U;
                     torque_trip = (flags & 2U) != 0U;
-                    MotorControl.ErrorNow = (flags & 4U) ? Encoder_Error : No_Error;
+                    s_motor_state.fault_code =
+                        (flags & 4U) ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
                     for (unsigned result = MOTOR_TASK_RUNNING; result <= MOTOR_TASK_FAILED;
                          ++result)
                     {
-                        maintenance_result = (MotorTaskResult){
-                            (MotorTaskState)result,
-                            result == MOTOR_TASK_FAILED ? MotorParam_Error : No_Error};
+                        maintenance_result = (MotorTaskResult){(MotorTaskState)result,
+                                                               result == MOTOR_TASK_FAILED
+                                                                   ? MOTOR_FAULT_INVALID_PARAMETERS
+                                                                   : MOTOR_FAULT_NONE};
                         trace = 0U;
                         check_result(dispatch_step());
                         ++cases;

@@ -86,7 +86,7 @@ void CoggingCompensation_ZeroBlend(volatile CoggingCompensationControl *control)
  * @param control 补偿台账。
  * @param record 已发布表；仅在被准入且身份一致时读取。
  * @param tick 本拍事实与输入量，由适配层采集。
- * @return 叠加补偿后的总 Iq 指令，单位 A；不合格时为用户指令的直接限幅结果。
+ * @return 叠加补偿后的总 iq_a 指令，单位 A；不合格时为用户指令的直接限幅结果。
  * @note 仅电流环（20 kHz）上下文调用；身份复核只比较缓存 CRC 字段，不重算整表。
  */
 float CoggingCompensation_Update(volatile CoggingCompensationControl *control,

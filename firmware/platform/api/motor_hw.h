@@ -11,12 +11,12 @@ typedef enum
 
 /**
  * @brief 同时更新三相互补 PWM 占空比。
- * @param dtc_a A 相占空比，范围 0.0~1.0。
- * @param dtc_b B 相占空比，范围 0.0~1.0。
- * @param dtc_c C 相占空比，范围 0.0~1.0。
+ * @param duty_a A 相占空比，范围 0.0~1.0。
+ * @param duty_b B 相占空比，范围 0.0~1.0。
+ * @param duty_c C 相占空比，范围 0.0~1.0。
  * @note 只写定时器比较寄存器，不改变定时器与功率级使能状态；数值有限性由调用方保证。
  */
-void motor_hw_pwm_set_duty(float dtc_a, float dtc_b, float dtc_c);
+void motor_hw_pwm_set_duty(float duty_a, float duty_b, float duty_c);
 
 /**
  * @brief 更新单相 PWM 占空比，其他两相保持不变。

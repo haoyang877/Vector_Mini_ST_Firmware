@@ -1,5 +1,5 @@
-#ifndef __FLASH_H__
-#define __FLASH_H__
+#ifndef FLASH_H
+#define FLASH_H
 
 #include "main.h"
 #include <stdbool.h>

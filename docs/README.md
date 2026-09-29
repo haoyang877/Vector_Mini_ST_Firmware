@@ -83,3 +83,5 @@ Motor state machine validation: [重构验收与未验证项](reports/2026-09/mo
 Current framework closure: [边界、门禁、容量与离线验收（2026-09-29）](plans/completed/2026-09-29-framework-closure-v1.md)。
 
 Legacy cleanup: [删除重复实现、退役运行字段与过期入口（源码已清理，统一验证待进行）](plans/active/2026-09-29-legacy-cleanup-v1.md)。
+
+APP naming: [模块、类型、变量、单位与对象组织 v1](architecture/app_naming_v1.md)。

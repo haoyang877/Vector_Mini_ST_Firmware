@@ -18,11 +18,11 @@
 | `motor/foc/foc_sensing.c`：电流、电压、MCU 温度保护 | 分离采样转换与条件检测；逐项迁移，不一次重写采样调度 |
 | 默认 2mΩ、40A、连续 5 次软件过流 | 记录为当前代码值；实际构建宏覆盖及实物匹配另行确认 |
 | MCU 90℃跳闸、采样超时100ms | 明确温度来源为 MCU die，不能作为绕组或 MOS 测温 |
-| `ControlOverrun_Error`、`CoggingCalibration_Error`、`TemperatureSensor_Error` | 保留旧故障编号，增加独立子原因和内部类型 |
+| `MOTOR_FAULT_CONTROL_OVERRUN`、`MOTOR_FAULT_COGGING_CALIBRATION`、`MOTOR_FAULT_TEMPERATURE_SENSOR` | 保留旧故障编号，增加独立子原因和内部类型 |
 | 异步外环任务与配置缓存 | 复用 epoch 失效机制，故障、配置切换和重新使能均不能消费旧结果 |
 | `services/telemetry/motor_status.*`、CAN 48B 状态流 | 保持旧帧布局，增加版本化诊断接口；快照和事件分别传输 |
 | `PARAM_SCHEMA_VERSION=11`，轴配置及齿槽图记录 | 不直接扩张或重新解释旧结构；新记录需独立版本、迁移和容量评估 |
-| 单个 ErrorNow、直接清除、CAN 接收自动解除断联 | 作为迁移目标；全局搜索清除旁路并逐一替换 |
+| 单个 fault_code、直接清除、CAN 接收自动解除断联 | 作为迁移目标；全局搜索清除旁路并逐一替换 |
 
 当前源码入口：
 [采样](../../firmware/motor/foc/foc_sensing.c)、
@@ -51,7 +51,7 @@ CPU异常路径：异常入口 -> 最小平台关断；故障核心不可用时�
 
 | 建议位置/模块 | 负责 | 禁止依赖或承担 |
 | --- | --- | --- |
-| `motor/protection/protection_types.h` | 纯类型、单位、证据枚举、位图操作 | HAL、main.h、CAN、Flash、全局 MotorControl |
+| `motor/protection/protection_types.h` | 纯类型、单位、证据枚举、位图操作 | HAL、main.h、CAN、Flash、全局 motor_state |
 | `motor/protection/detectors/` | 单项算法、计时、恢复证据 | 改模式、操作PWM、清总故障、发送报文 |
 | `motor/protection/fault_core.*` | 状态归并、锁存、首发、策略裁决、条件清除 | 读寄存器、采样、运动轨迹计算、存储和协议 |
 | `motor/protection/protection_policy.*` | 校验后的故障策略与模式能力表 | 运行中接受未经校验的动态阈值 |
@@ -66,7 +66,7 @@ CPU异常路径：异常入口 -> 最小平台关断；故障核心不可用时�
 所有路径均相对 `firmware/`。新增文件是建议，不是本次创建的代码。
 `motor` 不得 include `services`；共享参数输入类型归 motor 纯头，参数服务构造它们。
 `services` 不得 include app；通过服务自有邮箱，由 app 在周期边界取请求并回填完成结果。
-不复制 `MotorControl_TypeDef` 为新的万能结构，不扩大历史架构债务。
+不复制 `MotorControlState` 为新的万能结构，不扩大历史架构债务。
 
 ## 3. 数据契约
 
@@ -212,8 +212,8 @@ HardFault发生后不返回正常使能路径；新启动保持禁止。禁止�
 | `HomingMonitor_Step` | 阶段、原点/index、绝对累计行程、时间、位置有效位 | 退出/搜索/退回/精定位逐阶段限时限程；仅完成并验证后设置基准有效 | M：行程方向；D：速度/时间/重复性；C：原点偏移 |
 | `SafetyInputMonitor_Step` | 独立安全回路反馈、通道状态 | 只记录停止请求和通道故障；实际安全动作由独立路径执行，不等待APP | B：实际安全硬件；D：经验证的通道差异预算；不存在此硬件就声明不支持 |
 
-旧 `Large_Phase_Resistance` 可对应“稳态等待超时”，不能以名字推断阻值超限；
-旧 `Sensorless_Error`、`Encoder_Error` 等按任务/运行/通信子原因拆分观测。
+旧 `MOTOR_FAULT_PHASE_RESISTANCE` 可对应“稳态等待超时”，不能以名字推断阻值超限；
+旧 `MOTOR_FAULT_SENSORLESS`、`MOTOR_FAULT_ENCODER` 等按任务/运行/通信子原因拆分观测。
 相电阻不平衡标志变成跳闸前必须明确适用阶段和质量标准，不能悄悄改变现有运行行为。
 
 ## 6. 参数分层、所有权与发布
@@ -239,7 +239,7 @@ HardFault发生后不返回正常使能路径；新启动保持禁止。禁止�
 | Bus | `uv_trip_v, ov_trip_v, hard_ov_v, enable_min_v, enable_max_v, uv_us, ov_us, hard_us, stable_us` | 恢复/使能窗口在允许工作区内；阈值＋误差＋动态过冲小于系统允许边界；滤波延迟纳入总预算 |
 | Temperature[source] | `warn_c, derate_c, trip_c, recover_c, max_age_us, stable_us` | 来源独立；通常recover低于trip；无传感器不能填0℃冒充有效 |
 | Thermal[object] | `i_cont_a, peak_curve, tau_s/model, warn_load, trip_load, recover_load` | 电流单位一致；模型版本/适用温速区间有效；初始热状态未知采用保守策略 |
-| Encoder | `max_age_us, max_bad_streak, max_elec_uncertainty_rad, angle_margin_rad` | 依据最高机械速度与极对数反推失效预算；坏帧计数与年龄任一越限即失效 |
+| encoder | `max_age_us, max_bad_streak, max_elec_uncertainty_rad, angle_margin_rad` | 依据最高机械速度与极对数反推失效预算；坏帧计数与年龄任一越限即失效 |
 | Motion | `max_speed_rad_s, pos_error_rad, speed_error_rad_s, confirm_us, stop_timeout_us, stop_margin_rad` | 与AxisProfile和模式匹配；停止预算包含检测/调度/执行及机械响应 |
 | Communication | `target_period_us, target_timeout_us, keepalive_timeout_us, max_queue_age_us` | 正常最坏间隔＋裕量小于超时；超时＋停车不超过系统允许响应 |
 | Execution | `fast_deadline_us, outer_deadline_us, health_window_us` | 与实际PWM截止点及外环调度一致；看门狗最坏误差不能超过允许失控时间 |

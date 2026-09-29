@@ -1,7 +1,7 @@
-#ifndef FOC_ENCODER_CALIBRATION_H
-#define FOC_ENCODER_CALIBRATION_H
+#ifndef ENCODER_CALIBRATION_TASK_H
+#define ENCODER_CALIBRATION_TASK_H
 
-#include "data_type.h"
+#include "motor_types.h"
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
@@ -10,8 +10,8 @@
 #include "motor_task_result.h"
 
 /* Mode 13/15 编码器标定任务（按裁决在原 foc_calibration 删除后重建）：
- * - Task_Calib_EncoderObserver：无感观测器闭环下重建编码器 1024 点线性化 LUT；
- * - Task_Calib_EleAngelOffset：d 轴对齐并写入电角度零位（需先完成 LUT 标定）。
+ * - EncoderCalibrationTask_StepLut：无感观测器闭环下重建编码器 1024 点线性化 LUT；
+ * - EncoderCalibrationTask_StepElectricalZero：d 轴对齐并写入电角度零位（需先完成 LUT 标定）。
  * 原五任务中的 R_L_Flux/EncoderOffset/CurrentOffset 仍待重建，不在本模块。
  * 迁移约定：任务不自行停相或写模式；完成/失败经 MotorWorkOutcome 上报，
  * 功率级与模式迁移由运行状态机执行；本地中止只清理控制状态。 */
@@ -56,61 +56,61 @@ typedef enum
     CS_ENC_OFFSET_RAMP_CW,
     CS_ENC_OFFSET_SAMPLE_CW,
     CS_ENC_OFFSET_END
-} CalibStep_TyepeDef;
+} EncoderCalibrationPhase;
 
 /* 当前标定阶段；前台与诊断只读，标定任务为唯一写者。 */
 /**
  * @brief 读取标定阶段值。
  * @return 当前观测器标定阶段，不返回可写状态。
  */
-CalibStep_TyepeDef FocEncoderCalibration_GetStep(void);
+EncoderCalibrationPhase EncoderCalibrationTask_GetStep(void);
 
 /**
  * @brief 退出观测器编码器标定并释放其工作区。
  * @note 只清理本模块的内存与阶段变量，不停相、不改模式、不写参数；可重复调用。
  */
-void FocEncoderCalibration_Cancel(void);
+void EncoderCalibrationTask_Cancel(void);
 /**
  * @brief 确认两个标定任务及工作区已释放。
  * @return 无采样工作区、无活动阶段时返回 true。
  * @note 仅只读查询，取消由 owner 显式调用。
  */
-bool FocEncoderCalibration_IsReleased(void);
+bool EncoderCalibrationTask_IsReleased(void);
 
 /**
  * @brief 观测器 LUT 标定周期任务：无感闭环下重建 1024 点线性化 LUT。
- * @param FOC 电流控制与观测量。
- * @param MotorControl 电机与控制状态；任务只写指令类字段。
- * @param SpeedController 速度环控制器状态（无感启动复用）。
- * @param Encoder 编码器状态；验证通过后提交 LUT 并清除电/机械零位标志。
- * @param Fluxobserver 观测器状态；机械参考由静态对齐与过零插值建立。
- * @param Startup 无感启动状态机状态。
+ * @param foc 电流控制与观测量。
+ * @param motor_state 电机与控制状态；任务只写指令类字段。
+ * @param speed_pi 速度环控制器状态（无感启动复用）。
+ * @param encoder 编码器状态；验证通过后提交 LUT 并清除电/机械零位标志。
+ * @param flux_observer 观测器状态；机械参考由静态对齐与过零插值建立。
+ * @param startup 无感启动状态机状态。
  * @return 采集中返回 MOTOR_TASK_RUNNING；标定完成返回
  *         MOTOR_TASK_COMPLETED，所有者关相并独立衔接保存；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；本地中止只清理采样区与控制状态，
  *       停相与模式回退由运行状态机按结果协议执行。
  */
-MotorTaskResult Task_Calib_EncoderObserver(FOC_TypeDef *FOC,
-                                           MotorControl_TypeDef *MotorControl,
-                                           PI_Controller_TypeDef *SpeedController,
-                                           Encoder_TypeDef *Encoder,
-                                           Fluxobserver_TypeDef *Fluxobserver,
-                                           SensorlessStartup_TypeDef *Startup);
+MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
+                                               MotorControlState *motor_state,
+                                               PiController *speed_pi,
+                                               EncoderState *encoder,
+                                               FluxObserverState *flux_observer,
+                                               SensorlessStartupState *startup);
 
 /**
  * @brief 电角度零位标定周期任务：d 轴对齐平均线性化角并写电角度零位。
- * @param FOC 电流控制与观测量。
- * @param MotorControl 电机与控制状态；idRef 由本任务驱动。
- * @param Encoder 编码器状态；要求已置 ENC_CALIB_LINEARIZED，结果写电零位。
+ * @param foc 电流控制与观测量。
+ * @param motor_state 电机与控制状态；id_target_a 由本任务驱动。
+ * @param encoder 编码器状态；要求已置 ENC_CALIB_LINEARIZED，结果写电零位。
  * @return 对齐中返回 MOTOR_TASK_RUNNING；成功返回
  *         MOTOR_TASK_COMPLETED（随后由所有者受理独立保存）；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；完成/失败经结果协议上报，
  *       停相、任务衔接及保存由主状态机执行。
  */
-MotorTaskResult Task_Calib_EleAngelOffset(FOC_TypeDef *FOC,
-                                          MotorControl_TypeDef *MotorControl,
-                                          Encoder_TypeDef *Encoder);
+MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
+                                                          MotorControlState *motor_state,
+                                                          EncoderState *encoder);
 
 #endif

@@ -8,10 +8,10 @@
 
 | 通道 | 信号 | 换算 | 来源 |
 |---|---|---|---|
-| data0 | 机械位置 | raw × 180/32768 °（Q15 单圈） | `OnBoard_Encoder.theta_mech`，折到 [-180°, 180°) |
-| data1 | 机械转速 | raw / 10 rpm | `OnBoard_Encoder.vel_mech` |
-| data2 | Iq 指令 | raw / 1000 A | 限幅后的 `MotorControl.iqRef` |
-| data3 | Iq 反馈 | raw / 1000 A | FOC 实测 `FOC.Iq` |
+| data0 | 机械位置 | raw × 180/32768 °（Q15 单圈） | `rotor_encoder.mechanical_position_rad`，折到 [-180°, 180°) |
+| data1 | 机械转速 | raw / 10 rpm | `rotor_encoder.mechanical_velocity_rad_s` |
+| data2 | iq_a 指令 | raw / 1000 A | 限幅后的 `motor_state.iq_target_a` |
+| data3 | iq_a 反馈 | raw / 1000 A | foc 实测 `foc.iq_a` |
 
 - 位置只表示单圈角度，超出 ±180° 直接折返，不承诺多圈绝对位置。
 - 转速量程 ±3276.7 rpm，电流量程 ±32.767 A；超量程饱和而不回绕。

@@ -16,55 +16,54 @@ void critical_hw_exit(uint32_t mask)
     assert(critical_depth == mask + 1U);
     critical_depth = mask;
 }
-bool Encoder_IsOnline(const Encoder_TypeDef *e)
+bool Encoder_IsOnline(const EncoderState *e)
 {
     return e->bad_frame_streak == 0U;
 }
-uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e)
+uint8_t Encoder_GetCalibFlag(const EncoderState *e)
 {
     return e->calib_flag;
 }
-uint8_t Encoder_GetReverse(const Encoder_TypeDef *e)
+uint8_t Encoder_GetReverse(const EncoderState *e)
 {
     return e->reverse;
 }
-float Encoder_GetMecPos(const Encoder_TypeDef *e)
+float Encoder_GetMecPos(const EncoderState *e)
 {
-    return e->theta_mech;
+    return e->mechanical_position_rad;
 }
-float Encoder_GetMecVel(const Encoder_TypeDef *e)
+float Encoder_GetMecVel(const EncoderState *e)
 {
-    return e->vel_mech;
+    return e->mechanical_velocity_rad_s;
 }
-float Encoder_GetMecVelContinuous(const Encoder_TypeDef *e)
+float Encoder_GetMecVelContinuous(const EncoderState *e)
 {
-    return e->vel_mech_continuous;
+    return e->mechanical_velocity_continuous_rad_s;
 }
-float Encoder_GetElePhase(const Encoder_TypeDef *e)
+float Encoder_GetElePhase(const EncoderState *e)
 {
-    return e->theta_elec;
+    return e->electrical_angle_rad;
 }
-float Encoder_GetEleVel(const Encoder_TypeDef *e)
+float Encoder_GetEleVel(const EncoderState *e)
 {
-    return e->vel_elec;
+    return e->electrical_velocity_rad_s;
 }
-void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef error)
+void MotorFault_Report(MotorControlState *m, MotorFaultCode error)
 {
-    if (m->ErrorNow == No_Error)
+    if (m->fault_code == MOTOR_FAULT_NONE)
     {
-        m->ErrorNow = error;
+        m->fault_code = error;
     }
 }
-void FOC_CurrentController_Reset(FOC_TypeDef *f)
+void FOC_CurrentController_Reset(FocState *f)
 {
     (void)f;
 }
-void PI_Controller_Reset(PI_Controller_TypeDef *p)
+void PiController_Reset(PiController *p)
 {
     (void)p;
 }
-void PI_Controller_Configure(
-    PI_Controller_TypeDef *p, float kp, float ki, float ts, float low, float high)
+void PiController_Configure(PiController *p, float kp, float ki, float ts, float low, float high)
 {
     (void)p;
     (void)kp;
@@ -73,12 +72,12 @@ void PI_Controller_Configure(
     (void)low;
     (void)high;
 }
-float PI_Controller_Run(PI_Controller_TypeDef *p, float reference, float feedback)
+float PiController_Run(PiController *p, float reference, float feedback)
 {
     (void)p;
     return reference - feedback;
 }
-void FOC_Current(FOC_TypeDef *f, MotorControl_TypeDef *m, float phase, float speed)
+void FOC_Current(FocState *f, MotorControlState *m, float phase, float speed)
 {
     (void)f;
     (void)m;
@@ -88,36 +87,38 @@ void FOC_Current(FOC_TypeDef *f, MotorControl_TypeDef *m, float phase, float spe
 void power_stage_hw_start(void)
 {
 }
-float constrain(float value, float low, float high)
+float Math_Constrain(float value, float low, float high)
 {
     return fminf(fmaxf(value, low), high);
 }
 
 static void completed_samples(int16_t magnitude)
 {
-    memset(&CoggingCalib, 0, sizeof(CoggingCalib));
-    CoggingCalib.state = COGGING_COMPLETE;
-    CoggingCalib.full_scale_a = CURRENT_SENSE_PROFILE_FULL_SCALE_A;
+    memset(&s_cogging_calib, 0, sizeof(s_cogging_calib));
+    s_cogging_calib.state = COGGING_COMPLETE;
+    s_cogging_calib.full_scale_a = CURRENT_SENSE_PROFILE_FULL_SCALE_A;
     for (unsigned i = 0U; i < COGGING_MAP_POINTS; ++i)
     {
-        CoggingCalib.iq_q15[i] = (i & 1U) != 0U ? magnitude : -magnitude;
+        s_cogging_calib.iq_q15[i] = (i & 1U) != 0U ? magnitude : -magnitude;
     }
-    finalize_pending = true;
-    session_started = false;
+    s_finalize_pending = true;
+    s_session_active = false;
 }
 
 int main(void)
 {
-    MotorControl_TypeDef motor = {0};
-    Encoder_TypeDef encoder = {0};
+    MotorControlState motor = {0};
+    EncoderState encoder = {0};
     CoggingMapRecord original, candidate, exported;
     motor.axis_profile_valid = true;
     motor.motor_pole_pairs = 21;
     encoder.calib_flag = ENC_CALIB_ALL;
     encoder.electrical_zero_q15 = 3155U;
     completed_samples(123);
-    assert(CoggingMap_Build(
-        CoggingCalib.iq_q15, CoggingCalib.full_scale_a, Signature(&motor, &encoder), &original));
+    assert(CoggingMap_Build(s_cogging_calib.iq_q15,
+                            s_cogging_calib.full_scale_a,
+                            signature(&motor, &encoder),
+                            &original));
     FocCogging_ImportMap(&original);
 
     completed_samples(321);
@@ -125,11 +126,11 @@ int main(void)
     assert(FocCogging_BuildCandidate(&candidate, &motor, &encoder));
     assert(candidate.crc32 != original.crc32);
     FocCogging_Abort();
-    assert(CoggingCalib.state == COGGING_COMPLETE && CoggingCalib.iq_q15[1] == 321);
+    assert(s_cogging_calib.state == COGGING_COMPLETE && s_cogging_calib.iq_q15[1] == 321);
     assert(!FocCogging_PublishCandidate(&candidate));
     assert(!FocCogging_IsReleased());
     FocCogging_ReleaseFinalize(false);
-    assert(FocCogging_IsReleased() && CoggingCalib.reason == COGGING_CANCELLED);
+    assert(FocCogging_IsReleased() && s_cogging_calib.reason == COGGING_CANCELLED);
     FocCogging_ExportMap(&exported, &motor, &encoder);
     assert(memcmp(&exported, &original, sizeof(original)) == 0);
     puts("PASS real cogging candidate cancellation preserves borrowed samples and previous valid "
@@ -142,7 +143,8 @@ int main(void)
     FocCogging_ReleaseFinalize(true);
     assert(FocCogging_IsReleased() && FocCogging_GetState() == COGGING_SAVING);
     FocCogging_SaveResult(false);
-    assert(FocCogging_GetState() == COGGING_FAILED && CoggingCalib.reason == COGGING_SAVE_FAILED);
+    assert(FocCogging_GetState() == COGGING_FAILED &&
+           s_cogging_calib.reason == COGGING_SAVE_FAILED);
     FocCogging_ExportMap(&exported, &motor, &encoder);
     assert(memcmp(&exported, &candidate, sizeof(candidate)) == 0);
     encoder.calib_flag = ENC_CALIB_LINEARIZED;

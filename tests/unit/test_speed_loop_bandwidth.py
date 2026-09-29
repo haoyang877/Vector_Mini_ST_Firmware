@@ -33,7 +33,7 @@ def secant_velocity(theta_slow):
 
 
 def pll_velocity(theta_fast, wn_hz=PLL_WN_HZ):
-    """新估计器：与固件 Encoder_UpdateVelocityPll 相同的二阶角度跟踪观测器。"""
+    """新估计器：与固件 encoder_update_velocity_pll 相同的二阶角度跟踪观测器。"""
     wn = 2.0 * np.pi * wn_hz
     kp = 2.0 * PLL_ZETA * wn * T_FAST
     ki = wn * wn * T_FAST

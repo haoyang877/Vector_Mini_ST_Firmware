@@ -75,7 +75,7 @@ yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_f
  * @param correlated_seq 本条 116 的公司帧序号。
  * @param feedback 输出反馈值；参数错误时保持不变。
  * @return 成功或节点/参数错误。
- * @note 不读取硬件或控制目标；无电机温度、Vq/Vd 测量源时相应位保持无效。
+ * @note 不读取硬件或控制目标；无电机温度、vq_v/vd_v 测量源时相应位保持无效。
  */
 yg_protocol_result_t
 yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *source,

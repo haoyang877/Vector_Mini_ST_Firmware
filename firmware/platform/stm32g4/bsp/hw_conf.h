@@ -1,5 +1,5 @@
-#ifndef __HW_CONF_H__
-#define __HW_CONF_H__
+#ifndef HW_CONF_H
+#define HW_CONF_H
 
 #include "main.h"
 #include "control_config.h"

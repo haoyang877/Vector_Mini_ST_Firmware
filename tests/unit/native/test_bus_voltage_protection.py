@@ -20,7 +20,7 @@ PRELUDE = r"""
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "data_type.h"
+#include "motor_types.h"
 #include "bus_voltage_profile.h"
 #include "motor_sensing.h"
 #define FOC_FREQ 20000U
@@ -29,16 +29,16 @@ PRELUDE = r"""
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
 #define ENC_CALIB_ALL 3U
 #define ENC_CALIB_LINEARIZED 1U
-typedef struct { float Vbus, Vbus_filt; } FOC_TypeDef;
-typedef struct { unsigned calib_flag; } Encoder_TypeDef;
+typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } FocState;
+typedef struct { unsigned calib_flag; } EncoderState;
 static struct { uint32_t JDR4; } adc;
 uint16_t motor_hw_vbus_sample_raw(void) {
     return (uint16_t)adc.JDR4;
 }
-static MotorControl_TypeDef MotorControl;
-static FOC_TypeDef FOC;
-static Encoder_TypeDef OnBoard_Encoder;
-static void MotorFault_Report(MotorControl_TypeDef *m,ErrorNow_TypeDef e) { m->ErrorNow=e; }
+static MotorControlState motor_state;
+static FocState s_foc_state;
+static EncoderState rotor_encoder;
+static void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
 """
 
 CASES = r"""
@@ -47,15 +47,15 @@ static void input(float v) {
     assert(adc.JDR4<=4*4095);
 }
 static void reset(float v) {
-    memset(&MotorControl,0,sizeof(MotorControl));
-    MotorControl.control_mode=MOTOR_CONTROL_NONE;
-    input(v); FOC.Vbus_filt=v;
-    Vbus_Update(&FOC,&MotorControl,MotorControl.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
-    MotorControl.axis_profile_valid=true;
-    OnBoard_Encoder.calib_flag=3;
+    memset(&motor_state,0,sizeof(motor_state));
+    motor_state.control_mode=MOTOR_CONTROL_NONE;
+    input(v); s_foc_state.bus_voltage_filtered_v=v;
+    Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
+    motor_state.axis_profile_valid=true;
+    rotor_encoder.calib_flag=3;
 }
-static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl,MotorControl.control_mode!=MOTOR_CONTROL_NONE); }
-static void running(float v) { reset(v);MotorControl.control_mode=MOTOR_CONTROL_SPEED; }
+static void tick(unsigned n) { while(n--) Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); }
+static void running(float v) { reset(v);motor_state.control_mode=MOTOR_CONTROL_SPEED; }
 /* 正有限 float 的位模式有序；独立整数区间作参考，不复用待测浮点判定。 */
 static void test_enable_window(void) {
     float lower = BUS_VOLTAGE_ENABLE_MIN_V, upper = BUS_VOLTAGE_ENABLE_MAX_V;
@@ -67,8 +67,8 @@ static void test_enable_window(void) {
     for (i = 0; i < 2; ++i) {
         uint32_t center = i == 0 ? lower_bits : upper_bits;
         for (bits = center - 4096; bits <= center + 4096; ++bits) {
-            memcpy(&FOC.Vbus_filt, &bits, sizeof(bits));
-            assert(RunState_VbusInEnableWindow() == (bits >= lower_bits && bits <= upper_bits));
+            memcpy(&s_foc_state.bus_voltage_filtered_v, &bits, sizeof(bits));
+            assert(run_state_vbus_in_enable_window() == (bits >= lower_bits && bits <= upper_bits));
             ++compared;
         }
     }
@@ -76,8 +76,8 @@ static void test_enable_window(void) {
         for (exponent = 0; exponent < 256; ++exponent) {
             for (fraction = 0; fraction < sizeof(fractions) / sizeof(fractions[0]); ++fraction) {
                 bits = (sign << 31) | (exponent << 23) | fractions[fraction];
-                memcpy(&FOC.Vbus_filt, &bits, sizeof(bits));
-                assert(RunState_VbusInEnableWindow() == (bits >= lower_bits && bits <= upper_bits));
+                memcpy(&s_foc_state.bus_voltage_filtered_v, &bits, sizeof(bits));
+                assert(run_state_vbus_in_enable_window() == (bits >= lower_bits && bits <= upper_bits));
                 ++compared;
             }
         }
@@ -87,8 +87,8 @@ static void test_enable_window(void) {
         random_bits ^= random_bits >> 17;
         random_bits ^= random_bits << 5;
         bits = random_bits;
-        memcpy(&FOC.Vbus_filt, &bits, sizeof(bits));
-        assert(RunState_VbusInEnableWindow() == (bits >= lower_bits && bits <= upper_bits));
+        memcpy(&s_foc_state.bus_voltage_filtered_v, &bits, sizeof(bits));
+        assert(run_state_vbus_in_enable_window() == (bits >= lower_bits && bits <= upper_bits));
         ++compared;
     }
     printf("PASS %u enable-window values, all exponent/sign classes and endpoint neighbors\n", compared);
@@ -98,37 +98,37 @@ int main(void) {
     test_enable_window();
     /* Full 8S charge must run beyond both the old 10000-cycle window and
      * the new delays, without inheriting the old 30 V false threshold. */
-    running(33.6f);tick(40000);assert(MotorControl.ErrorNow==No_Error);
+    running(33.6f);tick(40000);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
     puts("PASS 33.6 V full-charge operation");
-    running(34.2f);tick(39);assert(MotorControl.ErrorNow==No_Error);
-    tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
-    input(32);tick(100);assert(MotorControl.ErrorNow==Over_Voltage);
+    running(34.2f);tick(39);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
+    input(32);tick(100);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
     puts("PASS 2 ms sustained overvoltage and fault latch");
-    running(23.9f);tick(1999);assert(MotorControl.ErrorNow==No_Error);
-    tick(1);assert(MotorControl.ErrorNow==Under_Voltage);
+    running(23.9f);tick(1999);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_UNDERVOLTAGE);
     puts("PASS 100 ms sustained undervoltage");
-    running(33);input(34.8f);tick(2);assert(MotorControl.ErrorNow==No_Error);
-    tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
-    assert(FOC.Vbus_filt<34.0f);
+    running(33);input(34.8f);tick(2);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
+    assert(s_foc_state.bus_voltage_filtered_v<34.0f);
     puts("PASS three-sample hard overvoltage bypasses filter lag");
     running(33);for(k=0;k<100;k++) {
         input(34.8f);tick(2);input(33);tick(20);
-        assert(MotorControl.ErrorNow==No_Error);
+        assert(motor_state.fault_code==MOTOR_FAULT_NONE);
     }
     running(23.9f);tick(1900);input(30);tick(1000);
-    input(23.9f);tick(1900);assert(MotorControl.ErrorNow==No_Error);
+    input(23.9f);tick(1900);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
     puts("PASS isolated spikes and interrupted dips do not accumulate");
-    running(34.2f);tick(39);MotorControl.control_mode=MOTOR_CONTROL_NONE;tick(1);
-    MotorControl.control_mode=MOTOR_CONTROL_SPEED;tick(39);assert(MotorControl.ErrorNow==No_Error);
-    tick(1);assert(MotorControl.ErrorNow==Over_Voltage);
-    running(23.9f);tick(1999);MotorControl.control_mode=MOTOR_CONTROL_NONE;tick(1);
-    MotorControl.control_mode=MOTOR_CONTROL_SPEED;tick(1999);assert(MotorControl.ErrorNow==No_Error);
-    tick(1);assert(MotorControl.ErrorNow==Under_Voltage);
+    running(34.2f);tick(39);motor_state.control_mode=MOTOR_CONTROL_NONE;tick(1);
+    motor_state.control_mode=MOTOR_CONTROL_SPEED;tick(39);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
+    running(23.9f);tick(1999);motor_state.control_mode=MOTOR_CONTROL_NONE;tick(1);
+    motor_state.control_mode=MOTOR_CONTROL_SPEED;tick(1999);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_UNDERVOLTAGE);
     puts("PASS disable resets both confirmation counters");
     /* 维护执行器不再借用控制模式值；同一显式保护许可覆盖转矩维护。 */
     reset(34.2f);
-    for(k=0;k<40;k++) Vbus_Update(&FOC,&MotorControl,true);
-    assert(MotorControl.ErrorNow==Over_Voltage);
+    for(k=0;k<40;k++) Vbus_Update(&s_foc_state,&motor_state,true);
+    assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
     puts("PASS explicit maintenance power expectation protected independently of control mode");
     return 0;
 }
@@ -152,8 +152,8 @@ def main():
         + "\n"
         + function_source(
             (ROOT / "firmware/app/motor_state_machine.c").read_text(encoding="utf-8"),
-            "RunState_VbusInEnableWindow",
-        ).replace("FOC->", "FOC.")
+            "run_state_vbus_in_enable_window",
+        ).replace("s_foc_state->", "s_foc_state.")
         + CASES
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]

@@ -4,7 +4,7 @@
 
 #include "motor_state_machine.h"
 #include "critical_hw.h"
-#include "motor_state.h"
+#include "motor_axis.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_parameter.h"
 #include "yg_protocol_job.h"
@@ -91,7 +91,7 @@ static void handle_parameter(void *context,
     {
         ParameterReadRequest command = {
             (uint8_t)request->parameter_id, request->source_node, request->sequence};
-        result = MotorControl_ReadParameter(&command, &value);
+        result = MotorAxis_ReadParameter(&command, &value);
         break;
     }
     case YG_PROTOCOL_PARAMETER_WRITE:
@@ -104,7 +104,7 @@ static void handle_parameter(void *context,
                                          0U,
                                          request->expected_revision,
                                          raw_value};
-        result = MotorControl_WriteParameter(&command, &value);
+        result = MotorAxis_WriteParameter(&command, &value);
         break;
     }
     case YG_PROTOCOL_PARAMETER_SAVE:
@@ -112,10 +112,10 @@ static void handle_parameter(void *context,
         ParameterSaveRequest command = {
             request->source_node, 0U, request->sequence, request->expected_revision};
         uint32_t ticket = 0U, persisted_revision = 0U;
-        result = MotorControl_RequestSave(&command, &ticket);
+        result = MotorAxis_RequestSave(&command, &ticket);
         if (result == PARAMETER_ACCEPTED || result == PARAMETER_OK)
         {
-            result = MotorControl_PollSave(ticket, &persisted_revision);
+            result = MotorAxis_PollSave(ticket, &persisted_revision);
             reply->token = ticket;
             reply->revision = result == PARAMETER_OK ? persisted_revision : 0U;
         }

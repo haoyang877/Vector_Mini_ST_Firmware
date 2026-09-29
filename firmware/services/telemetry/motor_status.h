@@ -11,7 +11,7 @@ typedef struct
 {
     uint16_t fault, mode;
     float position_target, position_feedback;
-    float speed_target, speed_feedback;
+    float speed_target, speed_feedback_rad_s;
     float current_reference, current_feedback;
     float position_planned, speed_planned;
     float temperature, bus_voltage;

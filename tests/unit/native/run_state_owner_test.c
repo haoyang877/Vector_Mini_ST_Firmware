@@ -6,9 +6,9 @@
 #include "motor_state_machine.h"
 #include "motor_maintenance.h"
 #include "foc_cogging_calibration.h"
-#include "foc_encoder_calibration.h"
-#include "foc_friction_identification.h"
-#include "foc_phase_resistance.h"
+#include "encoder_calibration_task.h"
+#include "friction_identification_task.h"
+#include "phase_resistance_task.h"
 #include "foc_errhandle.h"
 #include "motor_execution.h"
 #include "foc_sensing.h"
@@ -21,11 +21,11 @@
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
-static MotorControl_TypeDef motor;
-static FOC_TypeDef foc;
-static PI_Controller_TypeDef pi;
-static Encoder_TypeDef encoder;
-static SensorlessStartup_TypeDef startup;
+static MotorControlState motor;
+static FocState foc;
+static PiController pi;
+static EncoderState encoder;
+static SensorlessStartupState startup;
 static bool output_off, stop_fails, start_fails, temperature_fresh, encoder_released;
 static unsigned start_count, leaf_calls[8];
 static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
@@ -35,7 +35,7 @@ static uint32_t critical_depth;
 static uint8_t protocol_mode(MotorControlMode mode, MotorMaintenanceKind kind);
 
 /* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
-bool MotorControl_ConfigurationRevisionAvailable(void)
+bool MotorAxis_ConfigurationRevisionAvailable(void)
 {
     return true;
 }
@@ -74,84 +74,84 @@ void indicator_hw_set_led(bool error, uint8_t count)
     (void)error;
     (void)count;
 }
-bool Encoder_IsOnline(const Encoder_TypeDef *e)
+bool Encoder_IsOnline(const EncoderState *e)
 {
     return e->bad_frame_streak == 0U;
 }
-uint16_t Encoder_GetBadFrameStreak(const Encoder_TypeDef *e)
+uint16_t Encoder_GetBadFrameStreak(const EncoderState *e)
 {
     return e->bad_frame_streak;
 }
-uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e)
+uint8_t Encoder_GetCalibFlag(const EncoderState *e)
 {
     return e->calib_flag;
 }
-float Encoder_GetMecPos(const Encoder_TypeDef *e)
+float Encoder_GetMecPos(const EncoderState *e)
 {
-    return e->theta_mech;
+    return e->mechanical_position_rad;
 }
-float Encoder_GetMecVel(const Encoder_TypeDef *e)
+float Encoder_GetMecVel(const EncoderState *e)
 {
-    return e->vel_mech;
+    return e->mechanical_velocity_rad_s;
 }
 bool MotorTemperature_IsFresh(void)
 {
     return temperature_fresh;
 }
-float fast_abs(float value)
+float Math_Abs(float value)
 {
     return fabsf(value);
 }
-void FOC_CurrentController_Reset(FOC_TypeDef *f)
+void FOC_CurrentController_Reset(FocState *f)
 {
-    f->Id = f->Iq = 0.0f;
+    f->id_a = f->iq_a = 0.0f;
 }
-void PI_Controller_Reset(PI_Controller_TypeDef *p)
+void PiController_Reset(PiController *p)
 {
     memset(p, 0, sizeof(*p));
 }
-void SensorlessStartup_Reset(SensorlessStartup_TypeDef *s)
+void SensorlessStartup_Reset(SensorlessStartupState *s)
 {
     memset(s, 0, sizeof(*s));
 }
-void MotorOuterLoop_RequestReset(void)
+void motor_outer_loop_request_reset(void)
 {
 }
 bool MotorOuterLoop_IsReady(void)
 {
     return outer_ready;
 }
-void FocEncoderCalibration_Cancel(void)
+void EncoderCalibrationTask_Cancel(void)
 {
     encoder_released = true;
 }
-bool FocEncoderCalibration_IsReleased(void)
+bool EncoderCalibrationTask_IsReleased(void)
 {
     return encoder_released;
 }
-CalibStep_TyepeDef FocEncoderCalibration_GetStep(void)
+EncoderCalibrationPhase EncoderCalibrationTask_GetStep(void)
 {
     return encoder_released ? CS_NULL : CS_OBS_ALIGN_ORIGIN;
 }
-void PhaseResistanceMode_Cancel(FOC_TypeDef *f, MotorControl_TypeDef *m)
+void PhaseResistanceTask_Cancel(FocState *f, MotorControlState *m)
 {
     (void)f;
     (void)m;
 }
-bool PhaseResistanceMode_IsReleased(void)
+bool PhaseResistanceTask_IsReleased(void)
 {
     return true;
 }
-void FocFrictionIdentification_Abort(MotorControl_TypeDef *m, PI_Controller_TypeDef *p)
+void FrictionIdentificationTask_Abort(MotorControlState *m, PiController *p)
 {
     (void)m;
     (void)p;
 }
-bool FocFrictionIdentification_IsReleased(void)
+bool FrictionIdentificationTask_IsReleased(void)
 {
     return true;
 }
-bool FocCogging_CanStart(const MotorControl_TypeDef *m, const Encoder_TypeDef *e)
+bool FocCogging_CanStart(const MotorControlState *m, const EncoderState *e)
 {
     return m->axis_profile_valid && e->calib_flag == ENC_CALIB_ALL;
 }
@@ -193,7 +193,7 @@ void FocCogging_SaveResult(bool success)
 {
     (void)success;
 }
-void FocCogging_Service(MotorControl_TypeDef *m, Encoder_TypeDef *e)
+void FocCogging_Service(MotorControlState *m, EncoderState *e)
 {
     (void)m;
     (void)e;
@@ -211,7 +211,7 @@ void FocCogging_Service(MotorControl_TypeDef *m, Encoder_TypeDef *e)
 
 static void tick(void)
 {
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, No_Error},
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
                                   MotorStateMachine_WorkEpoch());
     MotorStateMachine_Tick();
 }
@@ -223,15 +223,16 @@ static void reset(void)
     memset(&encoder, 0, sizeof(encoder));
     motor.axis_profile_valid = true;
     motor.motor_pole_pairs = 21;
-    motor.current_limit = 6.0f;
-    motor.speed_limit = 20.0f;
-    motor.speedAcc = motor.speedDec = 1.0f;
-    motor.speed_Kp = 0.1f;
-    motor.speed_Ki = 0.2f;
-    motor.A_Offset = motor.B_Offset = motor.C_Offset = 2048.0f;
+    motor.current_limit_a = 6.0f;
+    motor.speed_limit_rad_s = 20.0f;
+    motor.speed_acceleration_rad_s2 = motor.speed_deceleration_rad_s2 = 1.0f;
+    motor.speed_kp = 0.1f;
+    motor.speed_ki = 0.2f;
+    motor.phase_a_offset_counts = motor.phase_b_offset_counts = motor.phase_c_offset_counts =
+        2048.0f;
     encoder.calib_flag = ENC_CALIB_ALL;
-    foc.Vbus = foc.Vbus_filt = 30.0f;
-    foc.temp = 25.0f;
+    foc.bus_voltage_v = foc.bus_voltage_filtered_v = 30.0f;
+    foc.temperature_c = 25.0f;
     output_off = outer_ready = temperature_fresh = encoder_released = true;
     start_fails = false;
     start_count = 0U;
@@ -262,11 +263,12 @@ static void test_control(void)
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_BUSY);
     tick();
-    assert(motor.speedRef == -2.0f);
+    assert(motor.speed_target_rad_s == -2.0f);
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    assert(output_off && MotorStateMachine_GetState() == APP_READY && motor.speedRef == 0.0f);
-    assert(motor.current_limit == 6.0f && motor.speed_limit == 20.0f);
+    assert(output_off && MotorStateMachine_GetState() == APP_READY &&
+           motor.speed_target_rad_s == 0.0f);
+    assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
     puts("PASS same-mode target owner, single-slot busy, STOP revocation and unchanged caps");
 
     reset();
@@ -280,15 +282,15 @@ static void test_control(void)
     tick();
     tick();
     assert(MotorStateMachine_GetState() == APP_RUNNING);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, Encoder_Error},
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
                                   MotorStateMachine_WorkEpoch());
     tick();
-    assert(MotorStateMachine_GetState() == APP_FAULT && motor.ErrorNow == Encoder_Error &&
+    assert(MotorStateMachine_GetState() == APP_FAULT && motor.fault_code == MOTOR_FAULT_ENCODER &&
            output_off);
     assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
     tick();
-    assert(MotorStateMachine_GetState() == APP_READY && motor.ErrorNow == No_Error &&
-           motor.control_mode == MOTOR_CONTROL_NONE && motor.speedRef == 0.0f);
+    assert(MotorStateMachine_GetState() == APP_READY && motor.fault_code == MOTOR_FAULT_NONE &&
+           motor.control_mode == MOTOR_CONTROL_NONE && motor.speed_target_rad_s == 0.0f);
     puts("PASS worker fault latches error; fresh recovery CLEAR does not restart");
 }
 
@@ -302,7 +304,8 @@ static void test_calibration_save(void)
     assert(MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_ELECTRICAL_ZERO) && !output_off);
     origin = MotorStateMachine_WorkEpoch();
     encoder.calib_flag = ENC_CALIB_ALL;
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error}, origin);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  origin);
     tick();
     assert(output_off && MotorStateMachine_ReadMaintenance(ticket, &progress));
     assert(progress.effects == APP_EFFECT_UNCOMMITTED);
@@ -326,7 +329,8 @@ static void test_calibration_save(void)
     origin = MotorStateMachine_WorkEpoch();
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error}, origin);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  origin);
     tick();
     assert(motor.control_mode == MOTOR_CONTROL_NONE && output_off &&
            MotorStateMachine_GetState() == APP_READY);
@@ -344,7 +348,7 @@ static void test_stop_and_fault(void)
     encoder.bad_frame_streak = ENCODER_BAD_FRAME_OFFLINE_COUNT;
     MotorStateMachine_CheckFastFaults();
     MotorStateMachine_FastFaultStop();
-    assert(output_off && motor.ErrorNow == Encoder_Error);
+    assert(output_off && motor.fault_code == MOTOR_FAULT_ENCODER);
     puts("PASS encoder offline fast check latches error and closes outputs");
 
     reset();
@@ -355,7 +359,7 @@ static void test_stop_and_fault(void)
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
     assert(!output_off && MotorStateMachine_GetState() == APP_STOPPING);
-    assert(motor.current_limit == 6.0f && motor.speed_limit == 20.0f);
+    assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
     puts("PASS failed output shutdown cannot restore READY or relaxed limits");
 }
 
@@ -390,7 +394,7 @@ static void test_borrow_cancel(void)
     ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
     cogging_pending = true;
     origin = MotorStateMachine_WorkEpoch();
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, No_Error}, origin);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, origin);
     tick();
     assert(MotorStateMachine_GetState() == APP_MAINTENANCE && output_off);
     assert(MotorStateMachine_BeginBackground(&claim) && claim.kind == FOC_BACKGROUND_COGGING);
@@ -413,7 +417,8 @@ static void test_cogging_finalize(void)
         reset();
         uint32_t origin = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
         cogging_pending = true;
-        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, No_Error}, origin);
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE},
+                                      origin);
         tick();
         assert(output_off && MotorStateMachine_GetState() == APP_MAINTENANCE);
         FocBackgroundClaim claim;
@@ -437,7 +442,7 @@ static void test_cogging_finalize(void)
         else
         {
             assert(MotorStateMachine_GetState() == APP_FAULT &&
-                   motor.ErrorNow == CoggingCalibration_Error);
+                   motor.fault_code == MOTOR_FAULT_COGGING_CALIBRATION);
             assert(!MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
         }
     }
@@ -458,7 +463,7 @@ static void expect_busy_requests(void)
     assert(!MotorStateMachine_ConfigurationAllowed());
 
     /* Enable/Maintenance 先报故障；Clear 仍先等待占用释放。 */
-    motor.ErrorNow = Encoder_Error;
+    motor.fault_code = MOTOR_FAULT_ENCODER;
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_FAULT);
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
            MOTOR_CONTROL_FAULT);
@@ -497,7 +502,7 @@ static void test_request_admission(void)
     expect_busy_requests();
 
     reset();
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, No_Error},
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, MOTOR_FAULT_NONE},
                                   MotorStateMachine_WorkEpoch());
     expect_busy_requests();
 
@@ -544,7 +549,8 @@ static void test_maintenance_identity(void)
     assert(MotorStateMachine_RequestIdentifiedMaintenance(&request, &retry) ==
            MOTOR_CONTROL_CONFLICTING_RETRY);
     assert(retry == 0U);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error}, origin);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  origin);
     tick();
     tick();
     save = MotorStateMachine_WorkEpoch();
@@ -577,20 +583,21 @@ static void test_maintenance_guards(void)
                 continue;
             }
             reset();
-            foc.Vbus = foc.Vbus_filt = values[v];
+            foc.bus_voltage_v = foc.bus_voltage_filtered_v = values[v];
             uint32_t ticket = UINT32_MAX;
             assert(MotorStateMachine_RequestMaintenance((MotorMaintenanceKind)kind, &ticket) !=
                    MOTOR_CONTROL_ACCEPTED);
             assert(ticket == 0U && output_off && start_count == 0U);
             if (isfinite(values[v]))
             {
-                assert(motor.ErrorNow == (values[v] < 25.6f ? Under_Voltage : Over_Voltage));
+                assert(motor.fault_code ==
+                       (values[v] < 25.6f ? MOTOR_FAULT_UNDERVOLTAGE : MOTOR_FAULT_OVERVOLTAGE));
             }
         }
         for (unsigned mode = 0U; mode <= MOTOR_CONTROL_VQ; ++mode)
         {
             reset();
-            foc.Vbus = foc.Vbus_filt = values[v];
+            foc.bus_voltage_v = foc.bus_voltage_filtered_v = values[v];
             assert(MotorStateMachine_RequestEnable((MotorControlMode)mode) !=
                    MOTOR_CONTROL_ACCEPTED);
             assert(output_off && start_count == 0U);
@@ -601,12 +608,12 @@ static void test_maintenance_guards(void)
     uint32_t ticket = UINT32_MAX;
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO, &ticket) ==
            MOTOR_CONTROL_DENIED);
-    assert(motor.ErrorNow == Encoder_NotCalibrated && output_off && ticket == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_ENCODER_NOT_CALIBRATED && output_off && ticket == 0U);
     reset();
     encoder.bad_frame_streak = 1U;
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
            MOTOR_CONTROL_DENIED);
-    assert(motor.ErrorNow == Encoder_Error && output_off && ticket == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off && ticket == 0U);
     puts(
         "PASS real-owner torque admission rejects unsafe bus and invalid encoder without enabling");
 }
@@ -622,7 +629,7 @@ static void test_task_results(void)
         assert(MotorStateMachine_MaintenanceRunnable());
         MotorTaskResult result = MotorMaintenance_Step(
             (MotorMaintenanceKind)kind, &foc, &motor, &pi, &encoder, NULL, &startup);
-        assert(result.error == No_Error);
+        assert(result.error == MOTOR_FAULT_NONE);
         if (kind != MOTOR_MAINTENANCE_SAVE)
         {
             assert(leaf_calls[kind] == 1U);
@@ -635,7 +642,8 @@ static void test_task_results(void)
     {
         reset();
         uint32_t ticket = begin_maintenance(ram_only[i]);
-        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error}, ticket);
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                      ticket);
         assert(!MotorStateMachine_MaintenanceRunnable());
         tick();
         tick();
@@ -648,10 +656,12 @@ static void test_task_results(void)
     }
     reset();
     uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error}, ticket);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, No_Error}, ticket);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, Encoder_Error}, ticket);
-    assert(motor.ErrorNow == Encoder_Error && output_off);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
+                                  ticket);
+    assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off);
     tick();
     assert(MotorStateMachine_GetState() == APP_FAULT);
     assert(!MotorStateMachine_IsMaintenanceActive(MOTOR_MAINTENANCE_SAVE));
@@ -663,29 +673,30 @@ static void test_power_permission(void)
     reset();
     uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
     assert(output_off && start_count == 0U);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, No_Error}, ticket - 1U);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE},
+                                  ticket - 1U);
     assert(output_off && start_count == 0U);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, No_Error}, ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     assert(!output_off && start_count == 1U);
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, No_Error}, ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     assert(start_count == 1U);
     MotorStateMachine_RequestRemoteStop();
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, No_Error}, ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     tick();
     assert(output_off && start_count == 1U && MotorStateMachine_GetState() == APP_READY);
 
     reset();
     ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
-    foc.Vbus = foc.Vbus_filt = 24.0f;
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, No_Error}, ticket);
-    assert(output_off && start_count == 0U && motor.ErrorNow != No_Error);
+    foc.bus_voltage_v = foc.bus_voltage_filtered_v = 24.0f;
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
+    assert(output_off && start_count == 0U && motor.fault_code != MOTOR_FAULT_NONE);
     tick();
     assert(MotorStateMachine_GetState() == APP_FAULT && !MotorStateMachine_MaintenanceRunnable());
 
     reset();
     ticket = begin_maintenance(MOTOR_MAINTENANCE_COGGING);
     start_fails = true;
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, No_Error}, ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, ticket);
     tick();
     assert(output_off && MotorStateMachine_GetState() == APP_FAULT);
     reset();
@@ -702,7 +713,8 @@ static void test_power_permission(void)
     reset();
     ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
     stop_fails = true;
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, No_Error}, ticket);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  ticket);
     tick();
     tick();
     assert(!output_off && MotorStateMachine_GetState() == APP_STOPPING);
@@ -757,12 +769,12 @@ int main(void)
 }
 
 /* 调度真实维护分发，只有叶功能替换为桩；任务结果没有全局模式副作用。 */
-MotorTaskResult Task_Calib_EncoderObserver(FOC_TypeDef *f,
-                                           MotorControl_TypeDef *m,
-                                           PI_Controller_TypeDef *p,
-                                           Encoder_TypeDef *e,
-                                           Fluxobserver_TypeDef *o,
-                                           SensorlessStartup_TypeDef *s)
+MotorTaskResult EncoderCalibrationTask_StepLut(FocState *f,
+                                               MotorControlState *m,
+                                               PiController *p,
+                                               EncoderState *e,
+                                               FluxObserverState *o,
+                                               SensorlessStartupState *s)
 {
     (void)f;
     (void)m;
@@ -771,44 +783,40 @@ MotorTaskResult Task_Calib_EncoderObserver(FOC_TypeDef *f,
     (void)o;
     (void)s;
     ++leaf_calls[MOTOR_MAINTENANCE_ENCODER_LUT];
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
 MotorTaskResult
-Task_Calib_EleAngelOffset(FOC_TypeDef *f, MotorControl_TypeDef *m, Encoder_TypeDef *e)
+EncoderCalibrationTask_StepElectricalZero(FocState *f, MotorControlState *m, EncoderState *e)
 {
     (void)f;
     (void)m;
     (void)e;
     ++leaf_calls[MOTOR_MAINTENANCE_ELECTRICAL_ZERO];
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-MotorTaskResult FocCogging_Task(FOC_TypeDef *f,
-                                MotorControl_TypeDef *m,
-                                PI_Controller_TypeDef *p,
-                                Encoder_TypeDef *e)
+MotorTaskResult FocCogging_Task(FocState *f, MotorControlState *m, PiController *p, EncoderState *e)
 {
     (void)f;
     (void)m;
     (void)p;
     (void)e;
     ++leaf_calls[MOTOR_MAINTENANCE_COGGING];
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-MotorTaskResult PhaseResistanceMode_Run(FOC_TypeDef *f,
-                                        MotorControl_TypeDef *m,
-                                        const PhaseResistanceConfig_TypeDef *config)
+MotorTaskResult
+PhaseResistanceTask_Run(FocState *f, MotorControlState *m, const PhaseResistanceConfig *config)
 {
     (void)f;
     (void)m;
     assert(config != NULL && config->test_current_low == 1.0f && config->test_current_high == 2.0f);
     ++leaf_calls[MOTOR_MAINTENANCE_PHASE_RESISTANCE];
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *f,
-                                               MotorControl_TypeDef *m,
-                                               PI_Controller_TypeDef *p,
-                                               Encoder_TypeDef *e,
-                                               const FocFrictionIdentificationConfig *config)
+MotorTaskResult FrictionIdentificationTask_Task(FocState *f,
+                                                MotorControlState *m,
+                                                PiController *p,
+                                                EncoderState *e,
+                                                const FrictionIdentificationTaskConfig *config)
 {
     (void)f;
     (void)m;
@@ -817,13 +825,13 @@ MotorTaskResult FocFrictionIdentification_Task(FOC_TypeDef *f,
     assert(config != NULL && config->core.speed_point_count == 4U &&
            config->current_ratio_max == 0.90f);
     ++leaf_calls[MOTOR_MAINTENANCE_FRICTION];
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-void FocFrictionIdentification_Init(const FocFrictionIdentificationConfig *config)
+void FrictionIdentificationTask_Init(const FrictionIdentificationTaskConfig *config)
 {
     assert(config != NULL);
 }
-bool Encoder_SetMechanicalZero(Encoder_TypeDef *e)
+bool Encoder_SetMechanicalZero(EncoderState *e)
 {
     (void)e;
     ++leaf_calls[MOTOR_MAINTENANCE_MECHANICAL_ZERO];
@@ -832,7 +840,7 @@ bool Encoder_SetMechanicalZero(Encoder_TypeDef *e)
 void Task_Position_Mode_Reset(void)
 {
 }
-void Param_Return_Default(MotorControl_TypeDef *m, Encoder_TypeDef *e)
+void Param_Return_Default(MotorControlState *m, EncoderState *e)
 {
     (void)m;
     (void)e;

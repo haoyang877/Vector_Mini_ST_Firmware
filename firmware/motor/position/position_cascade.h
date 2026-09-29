@@ -1,5 +1,5 @@
-#ifndef __POSITION_CASCADE_H__
-#define __POSITION_CASCADE_H__
+#ifndef POSITION_CASCADE_H
+#define POSITION_CASCADE_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,7 +9,7 @@ typedef enum
     POSITION_SERVO_PHASE_MOVE = 0,
     POSITION_SERVO_PHASE_SETTLE,
     POSITION_SERVO_PHASE_HOLD
-} PositionServoPhase_TypeDef;
+} PositionServoPhase;
 
 typedef struct
 {
@@ -26,14 +26,14 @@ typedef struct
     float acceleration;
     float deceleration;
     float maximum_speed;
-    float speed_limit;
+    float speed_limit_rad_s;
     float jerk_limit;
     float position_kp;
     float position_kd;
     float speed_kp;
     float speed_ki;
     float acceleration_feedforward_gain;
-    float current_limit;
+    float current_limit_a;
     bool friction_feedforward_enabled;
     float friction_coulomb_positive;
     float friction_coulomb_negative;
@@ -48,36 +48,36 @@ typedef struct
     float friction_move_speed;
     float friction_breakaway_distance;
     float friction_stuck_time;
-} PositionCascadeConfig_TypeDef;
+} PositionCascadeConfig;
 
 typedef struct
 {
     float position_reference;
     float speed_reference;
     float acceleration_reference;
-    float speed_feedback;
+    float speed_feedback_rad_s;
     float iq_reference;
     float feedback_current;
     float acceleration_feedforward_current;
     float friction_feedforward_current;
     float hold_current;
-    PositionServoPhase_TypeDef phase;
+    PositionServoPhase phase;
     bool target_reached;
-} PositionCascadeOutput_TypeDef;
+} PositionCascadeOutput;
 
 typedef struct
 {
     float position_reference;
     float trajectory_speed_reference;
     float speed_command;
-    float speed_feedback; /* Actual control velocity, including optional HOLD filter.
+    float speed_feedback_rad_s; /* Actual control velocity, including optional HOLD filter.
                            * HOLD exit uses the original feedback before that filter. */
     float acceleration_reference;
     float feedback_current;
     float acceleration_feedforward_current;
     float friction_feedforward_current;
     float hold_current;
-    PositionServoPhase_TypeDef phase;
+    PositionServoPhase phase;
     bool target_reached;
     bool current_saturated;
     bool friction_landing_active;
@@ -85,7 +85,7 @@ typedef struct
     bool hold_candidate_active;
     bool trajectory_limited;
     bool stiction_integrating; /* Bounded static-error integral applied this update. */
-} PositionCascadeTelemetry_TypeDef;
+} PositionCascadeTelemetry;
 
 /* Minimal current-command/feedback view for the high-rate motor adapter.
  * Rich diagnostics remain available through GetTelemetry / the existing API. */
@@ -93,10 +93,10 @@ typedef struct
 {
     float position_reference;
     float speed_reference;
-    float speed_feedback;
+    float speed_feedback_rad_s;
     float iq_reference;
     bool target_reached;
-} PositionCascadeControlOutput_TypeDef;
+} PositionCascadeControlOutput;
 
 /**
  * @brief 验证完整配置并执行一个位置级联调用，保持既有分频。
@@ -107,10 +107,10 @@ typedef struct
  * @return 配置、反馈和计算有效返回 true，否则返回 false。
  * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。
  */
-bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
+bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
                                    float measured_position,
                                    float measured_speed,
-                                   PositionCascadeControlOutput_TypeDef *output);
+                                   PositionCascadeControlOutput *output);
 /**
  * @brief 复用已验证调参，仅更新目标并执行位置级联调用。
  * @param target_position 有限目标位置，单位 rad。
@@ -123,7 +123,7 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
 bool PositionCascade_UpdateTargetControl(float target_position,
                                          float measured_position,
                                          float measured_speed,
-                                         PositionCascadeControlOutput_TypeDef *output);
+                                         PositionCascadeControlOutput *output);
 
 /**
  * @brief 清零私有控制与轨迹状态，撤销配置有效性。
@@ -139,16 +139,16 @@ void PositionCascade_Reset(void);
  * @return 配置、反馈和计算有效返回 true，否则返回 false。
  * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。
  */
-bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
+bool PositionCascade_Update(const PositionCascadeConfig *config,
                             float measured_position,
                             float measured_speed,
-                            PositionCascadeOutput_TypeDef *output);
+                            PositionCascadeOutput *output);
 /**
  * @brief 借用最近验证成功的只读配置。
  * @return 已配置时返回借用地址；复位后或未配置时返回 NULL。
  * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。地址内容仅在下一 Update/Reset 前有效，不可修改。
  */
-const PositionCascadeConfig_TypeDef *PositionCascade_GetConfiguration(void);
+const PositionCascadeConfig *PositionCascade_GetConfiguration(void);
 /**
  * @brief 复用已验证调参，仅更新目标并执行位置级联调用。
  * @param target_position 有限目标位置，单位 rad。
@@ -161,14 +161,14 @@ const PositionCascadeConfig_TypeDef *PositionCascade_GetConfiguration(void);
 bool PositionCascade_UpdateTarget(float target_position,
                                   float measured_position,
                                   float measured_speed,
-                                  PositionCascadeOutput_TypeDef *output);
+                                  PositionCascadeOutput *output);
 /**
  * @brief 复制一致的位置级联诊断快照。
  * @param telemetry 调用方非空输出空间；位置 rad、速度 rad/s、电流 A。
  * @return 参数非空且控制器已初始化时返回 true，否则返回 false。
  * @note 所有入口共享一个私有控制器，须由同一调度所有者串行调用；无硬件访问。
  */
-bool PositionCascade_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
+bool PositionCascade_GetTelemetry(PositionCascadeTelemetry *telemetry);
 /**
  * @brief 查询本周期是否应推迟可选遥测。
  * @return 完整配置校验或控制更新占用当前周期时返回 true。

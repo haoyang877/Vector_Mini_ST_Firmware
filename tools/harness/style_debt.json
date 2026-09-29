@@ -1,55 +1,6 @@
 {
   "schema_version": 1,
   "files": {
-    "firmware/motor/identification/phase_resistance.c": {
-      "sha256": "2eef65c0b81f11a862934784942027dfa5a53aa233feaae6cdcb09c7326097d0",
-      "checks": [
-        "c-format",
-        "c-readability"
-      ]
-    },
-    "firmware/platform/stm32g4/bsp/delay.c": {
-      "sha256": "37b0541158dadbb417f0841850f816512ea8c6553e0ca7bbca2f80514d11b21a",
-      "checks": [
-        "c-format",
-        "c-readability"
-      ]
-    },
-    "firmware/platform/stm32g4/bsp/led.c": {
-      "sha256": "c71d9d34b111248444fb2b16e874108864ae47835fd8b5482758c2d17070e570",
-      "checks": [
-        "c-format",
-        "c-readability"
-      ]
-    },
-    "firmware/platform/stm32g4/bsp/rgb.c": {
-      "sha256": "5d6b101c88b6e2deea3f27e2b7987d75e9b4f5e719df0ad0ac9666c9610f8248",
-      "checks": [
-        "c-format",
-        "c-readability"
-      ]
-    },
-    "tests/integration/test_friction_module_boundary.py": {
-      "sha256": "31a51f5b9e9b6a4b1e29ece52b0ad8cccbdbded54b8c5cc5b12b747a7e7755ab",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tests/unit/native/test_position_core_equivalence.py": {
-      "sha256": "9789dcf62fe50931daa24a452a58cdd5ba5a763b79687f338d7a2ff4e8e7a888",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tests/unit/position_servo_test.c": {
-      "sha256": "1520ca83462f9a5b904cf508e3343580ed8742a3985e608b01f25a8bbe28d411",
-      "checks": [
-        "c-format",
-        "c-readability"
-      ]
-    },
     "tests/unit/test_canfd_diagnostics.py": {
       "sha256": "62677e2863b43391f14e878265c48a8bffaeb26efc15ecc1aad8e19dfd1b4f5e",
       "checks": [
@@ -85,64 +36,8 @@
         "python-lint"
       ]
     },
-    "tests/unit/test_motor_axis_record.py": {
-      "sha256": "9c87ebe4ba4fee3150cb7e3ab95745e0467f8ed871cc0fc80e6d74cbddfad26a",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
     "tests/unit/test_rtt_control_frame.py": {
       "sha256": "563284f8c9ca2bf42cceff44196486b93940c40da811ad4f3a8ae1bd0a5e73d1",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/analysis/analyze_hold_noise.py": {
-      "sha256": "47f5a0ccb3ad240f79a181831d664c92bfb616a798dca7262262105f3ff6fc0b",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/analysis/canfd_sync_budget_reference.py": {
-      "sha256": "00297b87ca489c85c416e3e8f49bebf0f72088009db29baafb3867016c26be30",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/analysis/friction_identification.py": {
-      "sha256": "96ed17ac92726de6b8dd5576b729a27b5fdf4dd8a021409570dc92ad18754cf4",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/analysis/protocol_vectors_reference.py": {
-      "sha256": "d2160a9dbfa62cc3136e3e3903a6a151bab507747d3568adf48cfeadaedf1036",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/analysis/rtt_control_frame.py": {
-      "sha256": "29ba450dad921df052772cf938d6dd603abf0e068e8dc4532d144f3c7195b914",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/bench/canfd_diagnostics.py": {
-      "sha256": "ba8042cd563e07b5aa2f2dc6239e35ff477561463f6ec2351f4d4ea67302eb04",
-      "checks": [
-        "python-format",
-        "python-lint"
-      ]
-    },
-    "tools/bench/motor_axis_record.py": {
-      "sha256": "37cbb2bc66bab6489f0b6230eee861208ef1b1547c47b611b0c00b168f7a1a21",
       "checks": [
         "python-format",
         "python-lint"

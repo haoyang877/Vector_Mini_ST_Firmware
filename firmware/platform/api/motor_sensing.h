@@ -43,7 +43,7 @@ typedef struct
     uint32_t raw_vref;  /* VREFINT 原始计数；仅 sample_ready 时有效。 */
     float celsius;      /* 芯片结温，单位 °C；仅 conversion_ok 时有效。 */
     float vdda_mv;      /* 估算 VDDA，单位 mV；仅 conversion_ok 时有效。 */
-} MotorHwTemperaturePoll_TypeDef;
+} MotorHwTemperaturePoll;
 
 /**
  * @brief  读取相电流注入采样原始计数（四次和域）。
@@ -66,6 +66,6 @@ uint16_t motor_hw_vbus_sample_raw(void);
  * @note 1 kHz 监督任务上下文调用；内部包含寄存器访问与下一次转换的启动，
  *       不在快速环调用。结果字段的有效性见其注释。
  */
-void motor_hw_temperature_poll(MotorHwTemperaturePoll_TypeDef *result);
+void motor_hw_temperature_poll(MotorHwTemperaturePoll *result);
 
 #endif

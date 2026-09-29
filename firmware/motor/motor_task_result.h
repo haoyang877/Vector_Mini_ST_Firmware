@@ -1,7 +1,7 @@
 #ifndef MOTOR_TASK_RESULT_H
 #define MOTOR_TASK_RESULT_H
 
-#include "data_type.h"
+#include "motor_types.h"
 
 /* 功能只报告事实，下一任务和功率许可由 APP 所有者决定；无全局模式字段。 */
 typedef enum
@@ -17,7 +17,7 @@ typedef enum
 typedef struct
 {
     MotorTaskState result;
-    ErrorNow_TypeDef error; /* 仅 FAILED 有效 */
+    MotorFaultCode error; /* 仅 FAILED 有效 */
 } MotorTaskResult;
 
 #endif

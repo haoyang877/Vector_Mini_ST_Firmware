@@ -1,5 +1,5 @@
-#ifndef __BSP_TASK_H__
-#define __BSP_TASK_H__
+#ifndef BSP_TASK_H
+#define BSP_TASK_H
 
 /**
  * @brief 2 kHz 板级监督任务：推进指示器、CAN 维护与监督组合。

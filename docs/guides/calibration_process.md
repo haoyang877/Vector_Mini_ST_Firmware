@@ -9,7 +9,7 @@
 
 ## 1. 角度与速度数据流
 
-1. `Encoder_Update()` 每个 FOC 周期（20 kHz）读取一帧 TLE5012B SSC 数据。
+1. `Encoder_Update()` 每个 foc 周期（20 kHz）读取一帧 TLE5012B SSC 数据。
 2. 帧必须通过 SPI、CRC6、磁场状态和超速状态检查；连续 `100` 帧失败（5 ms）时编码器离线。
 3. TLE5012B 的 15 位角度左移一位，得到无符号 Q15 环形角度 `raw_q15`：`0..65535`。
 4. 方向参数 `encoder_reverse`（USB 参数 `erv`）决定 LUT 输入坐标：`0` 保持原始方向，`1` 将角度反向；当前硬件默认 `1`，使编码器正方向与三相定义一致。
@@ -21,7 +21,7 @@ electrical_q15 = (linearized_q15 - electrical_zero_q15) * pole_pairs;
 ```
 
 7. 机械位置使用多圈 `shadow_q15`；机械零位只改变机械位置原点，不影响电角度。
-8. 机械速度每 `10` 个 FOC 周期更新一次，即 `2 kHz`。最近 `16` 个速度增量做滑动平均，等效窗口 `8 ms`；若累积增量绝对值不超过 `8 Q15`，输出速度为 `0`。没有 PLL 或角度插值。
+8. 机械速度每 `10` 个 foc 周期更新一次，即 `2 kHz`。最近 `16` 个速度增量做滑动平均，等效窗口 `8 ms`；若累积增量绝对值不超过 `8 Q15`，输出速度为 `0`。没有 PLL 或角度插值。
 
 内部环形表示为 `uint16_t 0..65535`；对外诊断可按 `int16_t -32768..32767` 解释。位置控制使用连续多圈机械弧度值。
 
@@ -66,11 +66,11 @@ Flash 格式已升级并更换魔术字；旧格式的编码器标定数据会�
 
 ## 5. 电零位标定（模式 15）
 
-任务函数：`Task_Calib_EleAngelOffset()`。
+任务函数：`EncoderCalibrationTask_StepElectricalZero()`。
 
 1. 先完成线性化标定。
-2. 在 `0.5 s` 内将 `Id` 从零平滑上升至 `calib_current`，保持 `Iq = 0`。
-3. 维持 `Id = calib_current`、`Iq = 0` 继续 `1 s`。
+2. 在 `0.5 s` 内将 `id_a` 从零平滑上升至 `calibration_current_a`，保持 `iq_a = 0`。
+3. 维持 `id_a = calibration_current_a`、`iq_a = 0` 继续 `1 s`。
 4. 仅在满预定位电流的这 `1 s` 内平均 `linearized_q15`，跨零点时按环形角度解卷绕。
 5. 平均值写入 `electrical_zero_q15`，置位电零位标志并保存 Flash。
 
@@ -94,4 +94,4 @@ Flash 格式已升级并更换魔术字；旧格式的编码器标定数据会�
 8. 需要位置坐标原点时，再写入模式 7。
 9. 最后进入电流、转速或位置闭环验证。
 
-连续错误帧达到 100 帧时，当前需要编码器反馈的模式会报 `Encoder_Error`；SPI 传输诊断状态保留在 `Encoder_TypeDef` 中供调试读取。
+连续错误帧达到 100 帧时，当前需要编码器反馈的模式会报 `MOTOR_FAULT_ENCODER`；SPI 传输诊断状态保留在 `EncoderState` 中供调试读取。

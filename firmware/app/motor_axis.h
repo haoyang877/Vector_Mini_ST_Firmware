@@ -1,7 +1,7 @@
-#ifndef MOTOR_STATE_H
-#define MOTOR_STATE_H
+#ifndef MOTOR_AXIS_H
+#define MOTOR_AXIS_H
 #include <stdbool.h>
-#include "data_type.h"
+#include "motor_types.h"
 #include "motor_status.h"
 #include "app_lifecycle.h"
 #include "motor_lifecycle_request.h"
@@ -10,18 +10,18 @@
  * @brief 装载参数并初始化唯一电机执行对象。
  * @note 仅启动组合层在中断启用前调用一次，不自动使能。
  */
-void MotorControl_Init(void);
+void MotorAxis_Init(void);
 /**
  * @brief 执行快速采样、控制和结果发布。
  * @note 20 kHz ADC2 JEOS 上下文，执行有界。
  */
-void MotorControl_FastTick(void);
+void MotorAxis_FastTick(void);
 /**
  * @brief 执行慢估计、外环和生命周期监督。
  * @return 本次提交后的模式，仅用于指示器。
  * @note 2 kHz TIM7 上下文。
  */
-MotorControlMode MotorControl_SlowTick(void);
+MotorControlMode MotorAxis_SupervisorTick(void);
 /**
  * @brief 采集一致的只读电机测量值。
  * @param sample 调用方快照空间，不保留指针。
@@ -30,14 +30,14 @@ MotorControlMode MotorControl_SlowTick(void);
  * @return 关联的生命周期状态。
  * @note 前台调用；内部短临界区，不暴露控制对象地址。
  */
-AppLifecycleState MotorControl_ReadStatus(MotorStatus *sample,
-                                          uint8_t *valid_bits,
-                                          MotorMaintenanceKind *maintenance_kind);
+AppLifecycleState MotorAxis_ReadStatus(MotorStatus *sample,
+                                       uint8_t *valid_bits,
+                                       MotorMaintenanceKind *maintenance_kind);
 /**
  * @brief 执行受理的停机前台维护。
  * @note 主循环调用；表整理和 Flash 操作禁止在 ISR 执行。
  */
-void MotorControl_ServiceBackground(void);
+void MotorAxis_ServiceBackground(void);
 /**
  * @brief 读取单个一致的活动参数值与修订号。
  * @param request 参数 ID 与来源/序号；返回后不保留指针。
@@ -45,8 +45,7 @@ void MotorControl_ServiceBackground(void);
  * @return 成功、忙、无来源或编码错误。
  * @note 短临界区，不创建完整参数副本，不返回内部地址。
  */
-ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
-                                           ParameterValue *value);
+ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, ParameterValue *value);
 /**
  * @brief 原子应用受理的停机单标量，并重放最近相同身份请求。
  * @param request 原始请求值，返回后不保留指针。
@@ -55,8 +54,8 @@ ParameterStatus MotorControl_ReadParameter(const ParameterReadRequest *request,
  * @note 同身份不同内容拒绝；写成功只增加一次 revision，不自动保存。
  *       入口查询旧保存终态；取消尚未确认归还时仍拒绝写入。
  */
-ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request,
-                                            ParameterValue *applied);
+ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
+                                         ParameterValue *applied);
 /**
  * @brief 认领指定活动版本的持久保存任务。
  * @param request 请求身份与 expected_revision，返回后不保留指针。
@@ -65,7 +64,7 @@ ParameterStatus MotorControl_WriteParameter(const ParameterWriteRequest *request
  * @note 前台有界调用，不在入口擦写 Flash，不允许运行或资源借用中保存。
  *       新请求主动查询旧保存终态，不要求主机继续轮询旧任务。
  */
-ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket);
+ParameterStatus MotorAxis_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket);
 /**
  * @brief 查询原始保存任务的持久结果。
  * @param ticket 受理时返回的原身份。
@@ -73,17 +72,17 @@ ParameterStatus MotorControl_RequestSave(const ParameterSaveRequest *request, ui
  * @return ACCEPTED 进行中、OK 已提交、保存失败、取消或陈旧身份。
  * @note 不重复创建任务，不以当前 epoch 冒充原身份，不宣称 ACK 等于持久成功。
  */
-ParameterStatus MotorControl_PollSave(uint32_t ticket, uint32_t *persisted_revision);
+ParameterStatus MotorAxis_PollSave(uint32_t ticket, uint32_t *persisted_revision);
 /**
  * @brief 收敛已取消保存的业务结果并查询是否仍有未完成保存。
  * @return 没有进行中的保存返回true；真实前台资源是否归还还须由运行所有者确认。
  * @note 前台有界调用，只查询原ticket，不写Flash、不恢复目标。
  */
-bool MotorControl_SaveIdle(void);
+bool MotorAxis_SaveIdle(void);
 /**
  * @brief 查询维护是否仍能分配新的活动配置修订。
  * @return 已初始化且修订未耗尽返回true；否则禁止会修改配置的维护。
  * @note 维护准入与本查询须在同一短临界区；允许读取或保存当前版本，不返回对象地址。
  */
-bool MotorControl_ConfigurationRevisionAvailable(void);
+bool MotorAxis_ConfigurationRevisionAvailable(void);
 #endif

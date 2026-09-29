@@ -32,7 +32,7 @@ STOP/FAULT撤销执行资格，取消等实际工作区归还；陈旧结果不�
 ## 运行补偿请求
 
 仅编码器反馈的电流模式使用补偿；速度、位置、无感与标定任务不叠加。
-`Iq_total = clamp(Iq_command + blend * Iq_table, -current_limit, current_limit)`。
+`Iq_total = clamp(Iq_command + blend * Iq_table, -current_limit_a, current_limit_a)`。
 使用1024点相邻线性插值，查表电流限制为±1 A，开关使用200 ms渐入/渐出；不改写用户iqRef。
 
 前台调用 `FocCogging_RequestCompensation(enabled)` 只复制开关请求，最新值覆盖未消费值。

@@ -71,7 +71,8 @@ int main(int argc, char **argv)
                 assert(sign * o.position >= sign * previous.position - 0.000003f);
                 assert(sign * o.position >= -.000003f &&
                        sign * o.position <= distances[k] + .000003f);
-                assert(sign * o.speed >= -.000002f && fabsf(o.speed) <= s.speed_limit + .000002f);
+                assert(sign * o.speed >= -.000002f &&
+                       fabsf(o.speed) <= s.speed_limit_rad_s + .000002f);
                 assert(sign * o.acceleration <= s.acceleration + .000002f);
                 assert(sign * o.acceleration >= -s.deceleration - .000002f);
                 assert(fabsf(o.jerk) <= s.jerk_limit + .00002f);

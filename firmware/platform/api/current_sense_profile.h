@@ -1,5 +1,5 @@
-#ifndef __CURRENT_SENSE_PROFILE_H__
-#define __CURRENT_SENSE_PROFILE_H__
+#ifndef CURRENT_SENSE_PROFILE_H
+#define CURRENT_SENSE_PROFILE_H
 
 /* 相电流感测板级 profile：分流电阻、放大增益与各电流限值的编译期选择。 */
 

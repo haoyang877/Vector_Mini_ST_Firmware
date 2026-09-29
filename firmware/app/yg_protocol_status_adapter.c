@@ -4,56 +4,56 @@
 
 #include "angle_feedback.h"
 #include "critical_hw.h"
-#include "data_type.h"
+#include "motor_types.h"
 #include "foc_algorithm.h"
 #include "foc_sensing.h"
 #include "motor_state_machine.h"
-#include "motor_state.h"
+#include "motor_axis.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_motor_status.h"
 
 /* 状态适配器只组装 SI 快照；线路缩放、哨兵和小端编码由 protocol 层统一完成。 */
-static yg_protocol_motor_status_source_t source;
-static yg_protocol_readonly_device_status_t boot_source;
-static bool initialized;
+static yg_protocol_motor_status_source_t s_source;
+static yg_protocol_readonly_device_status_t s_boot_source;
+static bool s_initialized;
 
 static void refresh_boot_source(void)
 {
     /* 启动记录已移除；APP 恒报无持久启动身份，不伪造 epoch 或试启动阶段。 */
-    boot_source = (yg_protocol_readonly_device_status_t){.role = YG_PROTOCOL_DEVICE_ROLE_APP};
+    s_boot_source = (yg_protocol_readonly_device_status_t){.role = YG_PROTOCOL_DEVICE_ROLE_APP};
 }
 
-static uint32_t fault_bits(ErrorNow_TypeDef error)
+static uint32_t fault_bits(MotorFaultCode error)
 {
     switch (error)
     {
-    case Over_Current:
+    case MOTOR_FAULT_OVERCURRENT:
         return 1U << 0U;
-    case Over_Voltage:
+    case MOTOR_FAULT_OVERVOLTAGE:
         return 1U << 1U;
-    case Under_Voltage:
+    case MOTOR_FAULT_UNDERVOLTAGE:
         return 1U << 2U;
-    case High_Temprature:
+    case MOTOR_FAULT_OVERTEMPERATURE:
         /* 现有温度来自 MCU，而非电机绕组。 */
         return 1U << 4U;
-    case TemperatureSensor_Error:
+    case MOTOR_FAULT_TEMPERATURE_SENSOR:
         return 1U << 12U;
-    case Encoder_Error:
+    case MOTOR_FAULT_ENCODER:
         return 1U << 5U;
-    case CAN_DisConnect:
+    case MOTOR_FAULT_CAN_DISCONNECTED:
         return 1U << 6U;
-    case MotorParam_Error:
-    case PolePairs_Error:
-    case Encoder_NotCalibrated:
+    case MOTOR_FAULT_INVALID_PARAMETERS:
+    case MOTOR_FAULT_POLE_PAIRS:
+    case MOTOR_FAULT_ENCODER_NOT_CALIBRATED:
         return 1U << 9U;
-    case CurrentOffset_Error:
-    case CoggingCalibration_Error:
+    case MOTOR_FAULT_CURRENT_OFFSET:
+    case MOTOR_FAULT_COGGING_CALIBRATION:
         return 1U << 14U;
-    case Large_Phase_Resistance:
-    case Large_Phase_Inductance:
-    case FrictionIdentification_Error:
+    case MOTOR_FAULT_PHASE_RESISTANCE:
+    case MOTOR_FAULT_PHASE_INDUCTANCE:
+    case MOTOR_FAULT_FRICTION_IDENTIFICATION:
         return 1U << 15U;
-    case No_Error:
+    case MOTOR_FAULT_NONE:
         return 0U;
     default:
         return 1U << 12U;
@@ -115,29 +115,30 @@ static uint8_t protocol_state(AppLifecycleState state, uint8_t mode)
 
 bool YgProtocolStatusAdapter_Init(void)
 {
-    source = (yg_protocol_motor_status_source_t){0};
+    s_source = (yg_protocol_motor_status_source_t){0};
     refresh_boot_source();
-    initialized = YgProtocolLink_BindMotorStatusSource(&source) &&
-                  YgProtocolLink_BindDeviceStatusSource(&boot_source);
-    return initialized;
+    s_initialized = YgProtocolLink_BindMotorStatusSource(&s_source) &&
+                    YgProtocolLink_BindDeviceStatusSource(&s_boot_source);
+    return s_initialized;
 }
 
 void YgProtocolStatusAdapter_Refresh(void)
 {
-    if (!initialized)
+    if (!s_initialized)
     {
         return;
     }
-    /* 前台独占 source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
+    /* 前台独占 s_source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
     MotorMaintenanceKind kind;
     AppLifecycleState state =
-        MotorControl_ReadStatus(&source.sample, &source.measurement_valid_bits, &kind);
-    source.faults = fault_bits((ErrorNow_TypeDef)source.sample.fault);
-    source.mode = protocol_mode((MotorControlMode)source.sample.mode, kind);
-    source.state = state == APP_FATAL                ? 9U
-                   : source.sample.fault != No_Error ? 8U
-                                                     : protocol_state(state, source.mode);
-    source.sample_available = true;
+        MotorAxis_ReadStatus(&s_source.sample, &s_source.measurement_valid_bits, &kind);
+    s_source.faults = fault_bits((MotorFaultCode)s_source.sample.fault);
+    s_source.mode = protocol_mode((MotorControlMode)s_source.sample.mode, kind);
+    s_source.state = state == APP_FATAL ? 9U
+                     : s_source.sample.fault != MOTOR_FAULT_NONE
+                         ? 8U
+                         : protocol_state(state, s_source.mode);
+    s_source.sample_available = true;
     /* 与协议前台串行，完整64位来源只取本次已验证交接，不从主机或旧记录重建。 */
     refresh_boot_source();
 }

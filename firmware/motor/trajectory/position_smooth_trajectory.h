@@ -9,7 +9,7 @@
 typedef struct
 {
     float start, target, distance, direction;
-    float acceleration, deceleration, speed_limit, jerk_limit;
+    float acceleration, deceleration, speed_limit_rad_s, jerk_limit;
     /* Precomputed per-move search coefficients: ta = accel_time_per_speed*speed,
      * td = decel_time_per_speed*speed, tj = sqrtf(jerk_time_sq_per_speed*speed). */
     float accel_time_per_speed, decel_time_per_speed, jerk_time_sq_per_speed;
@@ -31,7 +31,7 @@ typedef struct
  * @param state 调用方拥有的非空轨迹状态；同一实例串行调用。
  * @param start 有限起点，单位 rad。
  * @param target 有限终点，单位 rad。
- * @param speed_limit 有限正速度上限，单位 rad/s。
+ * @param speed_limit_rad_s 有限正速度上限，单位 rad/s。
  * @param acceleration 有限正加速度上限，单位 rad/s²。
  * @param deceleration 有限正减速度幅值，单位 rad/s²。
  * @param jerk_limit 有限正加加速度上限，单位 rad/s³。
@@ -41,7 +41,7 @@ typedef struct
 bool PositionSmooth_Begin(PositionSmoothTrajectory *state,
                           float start,
                           float target,
-                          float speed_limit,
+                          float speed_limit_rad_s,
                           float acceleration,
                           float deceleration,
                           float jerk_limit);

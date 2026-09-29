@@ -83,7 +83,7 @@ static yg_protocol_motor_status_source_t status_source(void)
 {
     yg_protocol_motor_status_source_t source = {0};
     source.sample.position_feedback = 0.0625F;
-    source.sample.speed_feedback = -0.0625F;
+    source.sample.speed_feedback_rad_s = -0.0625F;
     source.sample.current_feedback = 1.25F;
     source.sample.bus_voltage = 24.0F;
     source.sample.bus_current = 1.5F;
@@ -99,7 +99,7 @@ static void numeric_boundaries(void)
     yg_protocol_motor_status_source_t source = status_source();
     yg_protocol_motor_feedback_t feedback;
     source.sample.position_feedback = NAN;
-    source.sample.speed_feedback = INFINITY;
+    source.sample.speed_feedback_rad_s = INFINITY;
     source.sample.current_feedback = -INFINITY;
     source.sample.bus_voltage = 400.0F;
     source.sample.bus_current = NAN;
@@ -112,7 +112,7 @@ static void numeric_boundaries(void)
            feedback.mcu_temperature_centi_c == INT16_MIN);
     source = status_source();
     source.sample.position_feedback = 2147483.75F;
-    source.sample.speed_feedback = 32.767F;
+    source.sample.speed_feedback_rad_s = 32.767F;
     source.sample.current_feedback = -32.768F;
     source.measurement_valid_bits = 0U;
     assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==

@@ -1,5 +1,5 @@
-#ifndef __FOC_PARAM_H__
-#define __FOC_PARAM_H__
+#ifndef FOC_PARAM_H
+#define FOC_PARAM_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,10 +9,10 @@
 #include "motor_axis_profile.h"
 #include "cogging_calibration.h"
 
-/* 参数持久化契约：InterfaceParam_TypeDef 是 Flash 参数区的存储布局，
+/* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。 */
 
-/* Flash 参数记录识别字，与 InterfaceParam_TypeDef.magic_word 配对；
+/* Flash 参数记录识别字，与 InterfaceParam.magic_word 配对；
  * 属于已发布 schema 的一部分，数值禁止更改。 */
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
@@ -25,10 +25,10 @@ typedef struct
     float currentoffset_b;
     float currentoffset_c;
     float motor_pole_pairs;
-    float motor_phase_resistance;
-    float motor_d_inductance;
-    float motor_q_inductance;
-    float motor_flux;
+    float motor_phase_resistance_ohm;
+    float motor_d_inductance_h;
+    float motor_q_inductance_h;
+    float motor_flux_wb;
     uint16_t encoder_electrical_zero_q15;
     uint16_t encoder_mechanical_zero_q15;
     uint8_t encoder_calib_flag;
@@ -39,19 +39,19 @@ typedef struct
     float id_ki;
     float iq_kp;
     float iq_ki;
-    float speedAcc;
-    float speedDec;
+    float speed_acceleration_rad_s2;
+    float speed_deceleration_rad_s2;
     float speed_kp;
     float speed_ki;
-    float posAcc;
-    float posDec;
-    float pos_maxspeed;
+    float position_acceleration_rad_s2;
+    float position_deceleration_rad_s2;
+    float position_maximum_speed_rad_s;
     /* 退役位置增益保留槽：不参与配置，保持当前存储偏移。 */
     uint32_t reserved_pos_kp;
     uint32_t reserved_pos_kd;
-    float calib_current;
-    float current_limit;
-    float speed_limit;
+    float calibration_current_a;
+    float current_limit_a;
+    float speed_limit_rad_s;
     /* 退役心跳保留槽：装载忽略，导出清零，不参与控制租约。 */
     float can_hb;
     uint32_t schema_version;
@@ -73,9 +73,9 @@ typedef struct
     uint32_t friction_model_valid;
     /* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
     MotorAxisProfile axis_profile;
-    /* Schema v11: complete, independently CRC-checked 1024-point Q15 Iq map. */
+    /* Schema v11: complete, independently CRC-checked 1024-point Q15 iq_a map. */
     CoggingMapRecord cogging;
-} InterfaceParam_TypeDef;
+} InterfaceParam;
 
 /**
  * @brief 将编译期默认配置应用到指定对象。
@@ -83,7 +83,7 @@ typedef struct
  * @param encoder 所属编码器配置。
  * @note 调用方保证停机和独占配置；不写 Flash、不修改模式。
  */
-void Param_Return_Default(MotorControl_TypeDef *motor, Encoder_TypeDef *encoder);
+void Param_Return_Default(MotorControlState *motor, EncoderState *encoder);
 
 /**
  * @brief 导出 schema11 参数值记录。
@@ -92,9 +92,9 @@ void Param_Return_Default(MotorControl_TypeDef *motor, Encoder_TypeDef *encoder)
  * @param encoder 稳定的编码器配置。
  * @note 仅启动或停机前台使用；不保留指针，包含表校验。
  */
-void Param_Upload(InterfaceParam_TypeDef *param,
-                  const MotorControl_TypeDef *motor,
-                  const Encoder_TypeDef *encoder);
+void Param_Upload(InterfaceParam *param,
+                  const MotorControlState *motor,
+                  const EncoderState *encoder);
 
 /**
  * @brief 仅装载当前 schema 11 参数，其他版本或无效记录恢复编译期默认值。
@@ -103,7 +103,5 @@ void Param_Upload(InterfaceParam_TypeDef *param,
  * @param encoder 中断启动前的编码器配置。
  * @note 仅启动调用；拒绝旧版本时清除运行态标定标志，不转换记录或执行 Flash I/O。
  */
-void Param_Download(const InterfaceParam_TypeDef *param,
-                    MotorControl_TypeDef *motor,
-                    Encoder_TypeDef *encoder);
+void Param_Download(const InterfaceParam *param, MotorControlState *motor, EncoderState *encoder);
 #endif

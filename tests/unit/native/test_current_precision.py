@@ -26,7 +26,7 @@ def main():
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
-#include "data_type.h"
+#include "motor_types.h"
 #include "foc_algorithm.h"
 #include "motor_sensing.h"
 #include "utils.h"
@@ -35,9 +35,9 @@ static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 #define OVERCURRENT_CONFIRM_CYCLES 5U
 #define CURRENT_OFFSET_MIN_COUNTS 1948.0f
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
-static MotorControl_TypeDef MotorControl;
-static FOC_TypeDef foc;
-static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef x) {m->ErrorNow=x;}
+static MotorControlState motor_state;
+static FocState foc;
+static void MotorFault_Report(MotorControlState *m, MotorFaultCode x) {m->fault_code=x;}
 uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
     switch(phase) {
         case MOTOR_HW_CURRENT_PHASE_A: return (uint16_t)adc.JDR1;
@@ -52,20 +52,20 @@ uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
         + r"""
 int main(void) {
     /* 零点偏置标定已从固件移除，本测试直接使用已验证的标定值。 */
-    MotorControl.A_Offset=2032.625f; MotorControl.B_Offset=2051.25f;
-    MotorControl.C_Offset=2036.5f;
+    motor_state.phase_a_offset_counts=2032.625f; motor_state.phase_b_offset_counts=2051.25f;
+    motor_state.phase_c_offset_counts=2036.5f;
     adc.JDR1=8131;adc.JDR2=8205;adc.JDR3=8146;
-    Current_Cal(&foc,&MotorControl);
-    assert(MotorControl.ErrorNow==No_Error);
-    assert(foc.Ib==0 && foc.Ic==0);
-    assert(fabsf(foc.Ia+.125f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
-    adc.JDR1+=1;Current_Cal(&foc,&MotorControl);
-    assert(fabsf(foc.Ia+.375f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
+    Current_Cal(&foc,&motor_state);
+    assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    assert(foc.phase_b_current_a==0 && foc.phase_c_current_a==0);
+    assert(fabsf(foc.phase_a_current_a+.125f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
+    adc.JDR1+=1;Current_Cal(&foc,&motor_state);
+    assert(fabsf(foc.phase_a_current_a+.375f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
     /* Actual 1 A input is not inadvertently rescaled by four. */
-    adc.JDR2=(uint32_t)roundf(4*(MotorControl.B_Offset-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
-    Current_Cal(&foc,&MotorControl);assert(fabsf(foc.Ib-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
-    MotorControl.C_Offset=NAN;Current_Cal(&foc,&MotorControl);
-    assert(MotorControl.ErrorNow==CurrentOffset_Error);
+    adc.JDR2=(uint32_t)roundf(4*(motor_state.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
+    Current_Cal(&foc,&motor_state);assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
+    motor_state.phase_c_offset_counts=NAN;Current_Cal(&foc,&motor_state);
+    assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET);
     puts("PASS quarter-code current resolution, actual current scale, invalid-offset protection");
     return 0;
 }

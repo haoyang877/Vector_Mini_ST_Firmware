@@ -7,8 +7,8 @@
 #include "comm_hw.h"
 #include "yg_protocol_link.h"
 
-static uint32_t health_checked_ms, observed_supervisor_epoch;
-static bool communication_ready;
+static uint32_t s_health_checked_ms, s_observed_supervisor_epoch;
+static bool s_communication_ready;
 static void poll_entry(uint32_t now_ms)
 {
     (void)now_ms;
@@ -27,7 +27,7 @@ bool MotorStateMachine_BootHandoffReady(uint64_t ticket)
     (void)ticket;
     return false;
 }
-bool MotorControl_SaveIdle(void)
+bool MotorAxis_SaveIdle(void)
 {
     return true;
 }
@@ -47,7 +47,7 @@ void BootHw_Watchdog(bool healthy)
 }
 int main(void)
 {
-    communication_ready = model_healthy = model_link = true;
+    s_communication_ready = model_healthy = model_link = true;
     model_progress = 1U;
     Board_ServiceBoot(99U);
     assert(calls == 0U);
@@ -65,8 +65,8 @@ int main(void)
     Board_ServiceBoot(400U);
     assert(feeds == 1U && !last_healthy);
     model_healthy = true;
-    health_checked_ms = UINT32_MAX - 50U;
-    observed_supervisor_epoch = UINT32_MAX;
+    s_health_checked_ms = UINT32_MAX - 50U;
+    s_observed_supervisor_epoch = UINT32_MAX;
     model_progress = 0U;
     Board_ServiceBoot(49U);
     assert(feeds == 2U && last_healthy);

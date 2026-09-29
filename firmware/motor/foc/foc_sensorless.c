@@ -10,161 +10,168 @@
 #define FLUX_OBSERVER_MAX_CORRECTION_STEP 0.2f
 #define FLUX_OBSERVER_MIN_FLUX 1e-6f
 
-static int Fluxobserver_IsFinite(float value)
+static int fluxobserver_is_finite(float value)
 {
     return value == value && value <= FLT_MAX && value >= -FLT_MAX;
 }
 
-static void Fluxobserver_ResetState(Fluxobserver_TypeDef *Fluxobserver)
+static void fluxobserver_reset_state(FluxObserverState *flux_observer)
 {
-    Fluxobserver->sin = 0.0f;
-    Fluxobserver->cos = 1.0f;
-    Fluxobserver->y1_last = 0.0f;
-    Fluxobserver->y2_last = 0.0f;
-    Fluxobserver->etax1 = 0.0f;
-    Fluxobserver->etax2 = 0.0f;
-    Fluxobserver->phi_err = 0.0f;
-    Fluxobserver->x1_last = 0.0f;
-    Fluxobserver->x2_last = 0.0f;
-    Fluxobserver->x1 = 0.0f;
-    Fluxobserver->x2 = 0.0f;
-    Fluxobserver->theta_e = 0.0f;
-    Fluxobserver->omega_e = 0.0f;
-    Fluxobserver->theta_last = 0.0f;
-    Fluxobserver->omega_last = 0.0f;
-    Fluxobserver->theta_e_unwrapped = 0.0f;
-    Fluxobserver->position_epoch++;
+    flux_observer->sin = 0.0f;
+    flux_observer->cos = 1.0f;
+    flux_observer->y1_last = 0.0f;
+    flux_observer->y2_last = 0.0f;
+    flux_observer->etax1 = 0.0f;
+    flux_observer->etax2 = 0.0f;
+    flux_observer->flux_error_wb2 = 0.0f;
+    flux_observer->x1_last = 0.0f;
+    flux_observer->x2_last = 0.0f;
+    flux_observer->x1 = 0.0f;
+    flux_observer->x2 = 0.0f;
+    flux_observer->electrical_angle_rad = 0.0f;
+    flux_observer->electrical_velocity_rad_s = 0.0f;
+    flux_observer->previous_electrical_angle_rad = 0.0f;
+    flux_observer->previous_electrical_velocity_rad_s = 0.0f;
+    flux_observer->electrical_position_rad = 0.0f;
+    flux_observer->position_epoch++;
 }
 
 /**
  * @brief  初始化磁链观测器参数。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  */
-void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver)
+void FluxObserver_ParamInit(FluxObserverState *flux_observer)
 {
-    Fluxobserver_ResetState(Fluxobserver);
-    Fluxobserver->gamma = FLUX_OBSERVER_DEFAULT_GAMMA;
+    fluxobserver_reset_state(flux_observer);
+    flux_observer->gamma = FLUX_OBSERVER_DEFAULT_GAMMA;
 }
 
 /**
  * @brief  执行一次磁链观测器更新。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  foc foc 状态指针。
+ * @param  motor_state 电机控制状态指针。
+ * @param  flux_observer 观测器状态指针。
  */
-void Fluxobserver_Update(FOC_TypeDef *FOC,
-                         MotorControl_TypeDef *MotorControl,
-                         Fluxobserver_TypeDef *Fluxobserver)
+void FluxObserver_Update(FocState *foc,
+                         MotorControlState *motor_state,
+                         FluxObserverState *flux_observer)
 {
-    float mod_to_V = FOC->Vbus_filt / 1.5f;
-    float Rs = MotorControl->motor_phase_resistance;
-    float Ls = (MotorControl->motor_d_inductance + MotorControl->motor_q_inductance) * 0.5f;
-    float flux = MotorControl->motor_flux;
+    float mod_to_V = foc->bus_voltage_filtered_v / 1.5f;
+    float Rs = motor_state->motor_phase_resistance_ohm;
+    float Ls = (motor_state->motor_d_inductance_h + motor_state->motor_q_inductance_h) * 0.5f;
+    float flux = motor_state->motor_flux_wb;
     float flux_sq;
     float gamma_limit;
     float gamma;
     float delta_theta = 0.0f;
 
-    if (!Fluxobserver_IsFinite(Rs) || !Fluxobserver_IsFinite(Ls) || !Fluxobserver_IsFinite(flux) ||
-        flux <= FLUX_OBSERVER_MIN_FLUX)
+    if (!fluxobserver_is_finite(Rs) || !fluxobserver_is_finite(Ls) ||
+        !fluxobserver_is_finite(flux) || flux <= FLUX_OBSERVER_MIN_FLUX)
     {
-        Fluxobserver_ResetState(Fluxobserver);
+        fluxobserver_reset_state(flux_observer);
         return;
     }
 
-    if (!Fluxobserver_IsFinite(Fluxobserver->x1_last) ||
-        !Fluxobserver_IsFinite(Fluxobserver->x2_last))
-        Fluxobserver_ResetState(Fluxobserver);
+    if (!fluxobserver_is_finite(flux_observer->x1_last) ||
+        !fluxobserver_is_finite(flux_observer->x2_last))
+        fluxobserver_reset_state(flux_observer);
 
-    flux_sq = fast_sq(flux);
+    flux_sq = Math_Square(flux);
     gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (Current_Ts * flux_sq);
-    gamma = fast_min(Fluxobserver->gamma, gamma_limit);
+    gamma = Math_Min(flux_observer->gamma, gamma_limit);
 
     /*Use phase currents sampled in the current ADC interrupt.*/
-    Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
+    Clarke_Transform(foc->phase_a_current_a,
+                     foc->phase_b_current_a,
+                     foc->phase_c_current_a,
+                     &foc->current_alpha_a,
+                     &foc->current_beta_a);
 
     /*update input parameters*/
-    Fluxobserver->Ialpha = FOC->Ialpha;
-    Fluxobserver->Ibeta = FOC->Ibeta;
-    Fluxobserver->Ualpha = FOC->mod_alpha * mod_to_V;
-    Fluxobserver->Ubeta = FOC->mod_beta * mod_to_V;
+    flux_observer->current_alpha_a = foc->current_alpha_a;
+    flux_observer->current_beta_a = foc->current_beta_a;
+    flux_observer->voltage_alpha_v = foc->mod_alpha * mod_to_V;
+    flux_observer->voltage_beta_v = foc->mod_beta * mod_to_V;
 
     /*flux observer*/
-    Fluxobserver->y1_last = -Rs * Fluxobserver->Ialpha + Fluxobserver->Ualpha;
-    Fluxobserver->y2_last = -Rs * Fluxobserver->Ibeta + Fluxobserver->Ubeta;
+    flux_observer->y1_last = -Rs * flux_observer->current_alpha_a + flux_observer->voltage_alpha_v;
+    flux_observer->y2_last = -Rs * flux_observer->current_beta_a + flux_observer->voltage_beta_v;
 
-    Fluxobserver->etax1 = Fluxobserver->x1_last - Ls * Fluxobserver->Ialpha;
-    Fluxobserver->etax2 = Fluxobserver->x2_last - Ls * Fluxobserver->Ibeta;
+    flux_observer->etax1 = flux_observer->x1_last - Ls * flux_observer->current_alpha_a;
+    flux_observer->etax2 = flux_observer->x2_last - Ls * flux_observer->current_beta_a;
 
-    Fluxobserver->phi_err = flux_sq - (fast_sq(Fluxobserver->etax1) + fast_sq(Fluxobserver->etax2));
+    flux_observer->flux_error_wb2 =
+        flux_sq - (Math_Square(flux_observer->etax1) + Math_Square(flux_observer->etax2));
 
-    Fluxobserver->x1 =
-        Current_Ts * (Fluxobserver->y1_last + gamma * Fluxobserver->etax1 * Fluxobserver->phi_err) +
-        Fluxobserver->x1_last;
-    Fluxobserver->x2 =
-        Current_Ts * (Fluxobserver->y2_last + gamma * Fluxobserver->etax2 * Fluxobserver->phi_err) +
-        Fluxobserver->x2_last;
+    flux_observer->x1 = Current_Ts * (flux_observer->y1_last + gamma * flux_observer->etax1 *
+                                                                   flux_observer->flux_error_wb2) +
+                        flux_observer->x1_last;
+    flux_observer->x2 = Current_Ts * (flux_observer->y2_last + gamma * flux_observer->etax2 *
+                                                                   flux_observer->flux_error_wb2) +
+                        flux_observer->x2_last;
 
-    if (!Fluxobserver_IsFinite(Fluxobserver->x1) || !Fluxobserver_IsFinite(Fluxobserver->x2))
+    if (!fluxobserver_is_finite(flux_observer->x1) || !fluxobserver_is_finite(flux_observer->x2))
     {
-        Fluxobserver_ResetState(Fluxobserver);
+        fluxobserver_reset_state(flux_observer);
         return;
     }
 
     /*iteration*/
-    Fluxobserver->x1_last = Fluxobserver->x1;
-    Fluxobserver->x2_last = Fluxobserver->x2;
+    flux_observer->x1_last = flux_observer->x1;
+    flux_observer->x2_last = flux_observer->x2;
 
-    Fluxobserver->cos = (Fluxobserver->x1 - Ls * Fluxobserver->Ialpha) / flux;
-    Fluxobserver->sin = (Fluxobserver->x2 - Ls * Fluxobserver->Ibeta) / flux;
+    flux_observer->cos = (flux_observer->x1 - Ls * flux_observer->current_alpha_a) / flux;
+    flux_observer->sin = (flux_observer->x2 - Ls * flux_observer->current_beta_a) / flux;
 
     /*calculate angle with atan*/
-    Fluxobserver->theta_e = normalizeAngle(fast_atan2(Fluxobserver->sin, Fluxobserver->cos));
-    if (!Fluxobserver_IsFinite(Fluxobserver->theta_e))
+    flux_observer->electrical_angle_rad =
+        Math_NormalizeAngle(Math_Atan2(flux_observer->sin, flux_observer->cos));
+    if (!fluxobserver_is_finite(flux_observer->electrical_angle_rad))
     {
-        Fluxobserver_ResetState(Fluxobserver);
+        fluxobserver_reset_state(flux_observer);
         return;
     }
 
-    delta_theta = Fluxobserver->theta_e - Fluxobserver->theta_last;
+    delta_theta =
+        flux_observer->electrical_angle_rad - flux_observer->previous_electrical_angle_rad;
 
-    Fluxobserver->theta_last = Fluxobserver->theta_e;
+    flux_observer->previous_electrical_angle_rad = flux_observer->electrical_angle_rad;
 
     if (delta_theta < -4.0f)
         delta_theta += _2PI;
     else if (delta_theta > 4.0f)
         delta_theta -= _2PI;
 
-    Fluxobserver->theta_e_unwrapped += delta_theta;
-    UTILS_LP_FAST(Fluxobserver->omega_e, delta_theta / Current_Ts, 0.1f);
+    flux_observer->electrical_position_rad += delta_theta;
+    UTILS_LP_FAST(flux_observer->electrical_velocity_rad_s, delta_theta / Current_Ts, 0.1f);
 }
 
 /**
  * @brief  读取观测器电角度。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  * @return 电角度，单位 rad。
  */
-float Observer_GetElePhase(Fluxobserver_TypeDef *Fluxobserver)
+float Observer_GetElePhase(FluxObserverState *flux_observer)
 {
-    return Fluxobserver->theta_e;
+    return flux_observer->electrical_angle_rad;
 }
 
 /**
  * @brief  读取观测器电角速度。
- * @param  Fluxobserver 观测器状态指针。
+ * @param  flux_observer 观测器状态指针。
  * @return 电角速度，单位 rad/s。
  */
-float Observer_GetEleVel(Fluxobserver_TypeDef *Fluxobserver)
+float Observer_GetEleVel(FluxObserverState *flux_observer)
 {
-    return Fluxobserver->omega_e;
+    return flux_observer->electrical_velocity_rad_s;
 }
 
-float Observer_GetElePosition(Fluxobserver_TypeDef *Fluxobserver)
+float Observer_GetElePosition(FluxObserverState *flux_observer)
 {
-    return Fluxobserver->theta_e_unwrapped;
+    return flux_observer->electrical_position_rad;
 }
 
-uint32_t Observer_GetPositionEpoch(Fluxobserver_TypeDef *Fluxobserver)
+uint32_t Observer_GetPositionEpoch(FluxObserverState *flux_observer)
 {
-    return Fluxobserver->position_epoch;
+    return flux_observer->position_epoch;
 }

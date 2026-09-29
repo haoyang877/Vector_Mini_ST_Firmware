@@ -1,6 +1,6 @@
 /* 参数默认值契约：数值带物理单位，不包含已删除模式的运行配置。 */
-#ifndef __FOC_PARAM_PROFILE_H__
-#define __FOC_PARAM_PROFILE_H__
+#ifndef FOC_PARAM_PROFILE_H
+#define FOC_PARAM_PROFILE_H
 
 #include "current_sense_profile.h"
 
@@ -67,7 +67,7 @@ static inline float Param_SpeedLimitRadS(unsigned int node_id)
                                             : PARAM_MOTOR_SPEED_LIMIT_RPS * 6.2831853072f;
 }
 
-/* Hardware-dependent defaults. Encoder symbols are resolved at macro use. */
+/* Hardware-dependent defaults. encoder symbols are resolved at macro use. */
 #if FOC_ACTIVE_HW_PROFILE == FOC_HW_PROFILE_VECTOR_MINI_ST
 
 #define PARAM_HW_CURRENT_OFFSET_A_COUNTS 2048U

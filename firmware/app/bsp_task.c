@@ -1,7 +1,7 @@
 #include "bsp_task.h"
 
 #include "control_config.h"
-#include "data_type.h"
+#include "motor_types.h"
 #include "foc_task.h"
 #include "motor_state_machine.h"
 #include "indicator_hw.h"
@@ -12,11 +12,11 @@
 #define LED_DIVIDER (SUPERVISOR_FREQ / 5U)
 #define RGB_DIVIDER (SUPERVISOR_FREQ / 20U)
 
-static uint16_t Led_Cnt;
-static uint16_t RGB_Cnt;
+static uint16_t s_led_cnt;
+static uint16_t s_rgb_cnt;
 
 /* 模式→呼吸色映射：应用策略，保持既有颜色语义不变。 */
-static IndicatorHwColor Mode_Color(MotorControlMode mode)
+static IndicatorHwColor mode_color(MotorControlMode mode)
 {
     MotorMaintenanceKind kind = MotorStateMachine_GetMaintenanceKind();
     if (kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_COGGING ||
@@ -47,15 +47,15 @@ void BSP2kHzIRQHandler(void)
     /* 电机监督：编码器慢估计、外环控制、主状态机与温度。 */
     MotorControlMode mode = FOC2kHzSupervisor();
 
-    if (++Led_Cnt >= LED_DIVIDER)
+    if (++s_led_cnt >= LED_DIVIDER)
     {
         indicator_hw_led_task();
-        Led_Cnt = 0;
+        s_led_cnt = 0;
     }
 
-    if (++RGB_Cnt >= RGB_DIVIDER)
+    if (++s_rgb_cnt >= RGB_DIVIDER)
     {
-        indicator_hw_set_color(Mode_Color(mode));
-        RGB_Cnt = 0;
+        indicator_hw_set_color(mode_color(mode));
+        s_rgb_cnt = 0;
     }
 }

@@ -21,29 +21,29 @@ void indicator_hw_set_color(IndicatorHwColor color)
     switch (color)
     {
     case INDICATOR_HW_COLOR_RED:
-        Set_RGB_BreathingColor(RED);
+        Rgb_UpdateBreathingColor(RGB_COLOR_RED);
         break;
     case INDICATOR_HW_COLOR_GREEN:
-        Set_RGB_BreathingColor(GREEN);
+        Rgb_UpdateBreathingColor(RGB_COLOR_GREEN);
         break;
     case INDICATOR_HW_COLOR_BLUE:
-        Set_RGB_BreathingColor(BLUE);
+        Rgb_UpdateBreathingColor(RGB_COLOR_BLUE);
         break;
     case INDICATOR_HW_COLOR_YELLOW:
-        Set_RGB_BreathingColor(YELLOW);
+        Rgb_UpdateBreathingColor(RGB_COLOR_YELLOW);
         break;
     case INDICATOR_HW_COLOR_PURPLE:
-        Set_RGB_BreathingColor(PURPLE);
+        Rgb_UpdateBreathingColor(RGB_COLOR_PURPLE);
         break;
     case INDICATOR_HW_COLOR_CYAN:
-        Set_RGB_BreathingColor(CYAN);
+        Rgb_UpdateBreathingColor(RGB_COLOR_CYAN);
         break;
     case INDICATOR_HW_COLOR_WHITE:
-        Set_RGB_BreathingColor(WHITE);
+        Rgb_UpdateBreathingColor(RGB_COLOR_WHITE);
         break;
     case INDICATOR_HW_COLOR_NULL:
     default:
-        Set_RGB_BreathingColor(COLOR_NULL);
+        Rgb_UpdateBreathingColor(RGB_COLOR_NONE);
         break;
     }
 }

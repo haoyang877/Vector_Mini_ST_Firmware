@@ -38,9 +38,9 @@ class PositionServoBoundaryTests(unittest.TestCase):
     def test_public_api_has_no_firmware_or_mcu_types(self) -> None:
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
         for forbidden in (
-            "MotorControl_TypeDef",
-            "FOC_TypeDef",
-            "Encoder_TypeDef",
+            "MotorControlState",
+            "FocState",
+            "EncoderState",
             "TIM1",
             "ADC1",
             "HAL_",
@@ -52,8 +52,8 @@ class PositionServoBoundaryTests(unittest.TestCase):
     def test_adapter_selects_identified_model_and_safe_fallback(self) -> None:
         adapter = FOC_ADAPTER.read_text(encoding="utf-8")
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
-        self.assertIn("MotorControl->friction_model_valid", adapter)
-        self.assertIn("MotorControl->friction_coulomb_pos_a", adapter)
+        self.assertIn("motor_state->friction_model_valid", adapter)
+        self.assertIn("motor_state->friction_coulomb_pos_a", adapter)
         self.assertIn("POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A", adapter)
         self.assertIn("POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2", adapter)
         self.assertIn("friction_fast_release_slew_rate", public_api)
@@ -62,14 +62,14 @@ class PositionServoBoundaryTests(unittest.TestCase):
     def test_servo_exports_coherent_diagnostics(self) -> None:
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
         source = SERVO_SOURCE.read_text(encoding="utf-8")
-        self.assertIn("PositionCascadeTelemetry_TypeDef", public_api)
+        self.assertIn("PositionCascadeTelemetry", public_api)
         self.assertIn("PositionCascade_GetTelemetry", public_api)
         self.assertIn("trajectory_speed_reference", public_api)
         self.assertIn("current_saturated", public_api)
         self.assertIn("friction_landing_active", public_api)
         self.assertIn("settle_recovery_active", public_api)
         self.assertIn("hold_candidate_active", public_api)
-        self.assertIn("feedforward_candidate > config->current_limit", source)
+        self.assertIn("feedforward_candidate > config->current_limit_a", source)
 
     def test_landing_and_settle_recovery_use_measured_state(self) -> None:
         source = SERVO_SOURCE.read_text(encoding="utf-8")
@@ -78,8 +78,8 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("state.settle_recovery_active = true", source)
         self.assertRegex(
             source,
-            r"desired_direction\s*=\s*state\.friction_direction\s*!=\s*0\s*\?\s*"
-            r"state\.friction_direction\s*:\s*\(target_error\s*>\s*0\.0f\s*\?\s*1\s*:\s*-1\)",
+            r"desired_direction\s*=\s*s_state\.friction_direction\s*!=\s*0\s*\?\s*"
+            r"s_state\.friction_direction\s*:\s*\(target_error\s*>\s*0\.0f\s*\?\s*1\s*:\s*-1\)",
         )
         self.assertRegex(source, r"inside_braking_envelope\s*=\s*remaining_distance\s*<=")
         self.assertRegex(
@@ -88,13 +88,13 @@ class PositionServoBoundaryTests(unittest.TestCase):
         )
         self.assertRegex(
             source,
-            r"state\.friction_landing_active = true;\s*"
-            r"state\.settle_recovery_active = false;",
+            r"s_state\.friction_landing_active = true;\s*"
+            r"s_state\.settle_recovery_active = false;",
         )
         self.assertIn("opposes_speed_correction", source)
         self.assertIn("state.hold_counter > 0U", source)
         self.assertIn("hold_exit_position", source)
-        self.assertIn("PositionCascade_UpdateIntegralTransport", source)
+        self.assertIn("position_cascade_update_integral_transport", source)
         self.assertIn("state.target_transition_active", source)
 
 

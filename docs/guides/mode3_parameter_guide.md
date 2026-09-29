@@ -8,7 +8,7 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 
 | 类别 | 位置 | 生效方式 |
 | --- | --- | --- |
-| 电机、运行限制、速度PI及模式3位置增益 | `MotorControl`，保存/恢复见 [foc_param.c](../../firmware/services/parameters/foc_param.c) | 通过现有参数接口设置；RAM生效不等于已保存Flash |
+| 电机、运行限制、速度PI及模式3位置增益 | `motor_state`，保存/恢复见 [foc_param.c](../../firmware/services/parameters/foc_param.c) | 通过现有参数接口设置；RAM生效不等于已保存Flash |
 | 模式3轨迹、捕获、滤波、摩擦整形 | [position_cascade_config.h](../../firmware/motor/position/position_cascade_config.h) | 修改后重新编译；当前没有覆盖全部宏的运行时参数协议 |
 | 实际装配机构摩擦模型 | `friction_model_valid` 和正反向库仑/粘性参数 | 有效模型优先；以读回值确认，不能仅根据存在保存文件判断有效 |
 | 编码器、电流采样、电机极对数等 | 既有电机/硬件配置与标定 | 换电机先确认；不是位置环整定参数 |
@@ -22,22 +22,22 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 
 | 参数 | 单位 / 台架值 | 作用与调整关联 |
 | --- | --- | --- |
-| `current_limit` | A / 6 | 总Iq限幅与抗饱和约束；来自电机、驱动和热能力，不能为消除误差任意增大 |
-| `speed_limit` | rad/s / 按实际读回 | 电机运行速度上限；必须不小于轨迹巡航速度，不能与巡航速度混为一谈 |
-| `pos_maxspeed` | rad/s / 0.785398，即45°/s | 最大巡航速度；短行程会自动降低峰值，8 s/rev不是每次动作都跑满速度 |
-| `posAcc` | rad/s² / 0.785398，即45°/s² | 轨迹加速度上限；高惯量或启动抖动时先结合可用力矩和数据核对 |
-| `posDec` | rad/s² / 保存值0.785398 | 模式3有效值还受30°/s²编译上限限制。只把posDec从45改到60不会增加实际减速度 |
-| `cascade_pos_Kp` | 1/s / 8 | 位置误差到速度修正；固件校验0～50，合法范围不代表稳定范围 |
-| `cascade_pos_Kd` | 无量纲 / 2 | 参考速度与实际速度差的修正；固件校验0～10；加大也会放大测速噪声影响 |
-| `speed_Kp` | 既有归一化参数 / 0.5 | 内层速度比例增益，实际电流域系数为 `speed_Kp × current_limit` |
-| `speed_Ki` | 既有归一化参数 / 1 | 内层速度积分增益，实际电流域系数为 `speed_Ki × current_limit` |
-| `pos_error_window` | rad / 0.001，约0.0573° | 在 `foc_task.c` 初始化；原在线轨迹的结束容差，不等于定位精度或HOLD窗口，也不在当前Flash参数结构中 |
+| `current_limit_a` | A / 6 | 总Iq限幅与抗饱和约束；来自电机、驱动和热能力，不能为消除误差任意增大 |
+| `speed_limit_rad_s` | rad/s / 按实际读回 | 电机运行速度上限；必须不小于轨迹巡航速度，不能与巡航速度混为一谈 |
+| `position_maximum_speed_rad_s` | rad/s / 0.785398，即45°/s | 最大巡航速度；短行程会自动降低峰值，8 s/rev不是每次动作都跑满速度 |
+| `position_acceleration_rad_s2` | rad/s² / 0.785398，即45°/s² | 轨迹加速度上限；高惯量或启动抖动时先结合可用力矩和数据核对 |
+| `position_deceleration_rad_s2` | rad/s² / 保存值0.785398 | 模式3有效值还受30°/s²编译上限限制。只把posDec从45改到60不会增加实际减速度 |
+| `cascade_position_kp` | 1/s / 8 | 位置误差到速度修正；固件校验0～50，合法范围不代表稳定范围 |
+| `cascade_position_kd` | 无量纲 / 2 | 参考速度与实际速度差的修正；固件校验0～10；加大也会放大测速噪声影响 |
+| `speed_kp` | 既有归一化参数 / 0.5 | 内层速度比例增益，实际电流域系数为 `speed_kp × current_limit_a` |
+| `speed_ki` | 既有归一化参数 / 1 | 内层速度积分增益，实际电流域系数为 `speed_ki × current_limit_a` |
+| `position_error_window_rad` | rad / 0.001，约0.0573° | 在 `foc_task.c` 初始化；原在线轨迹的结束容差，不等于定位精度或HOLD窗口，也不在当前Flash参数结构中 |
 
-模式3使用的是 `cascade_pos_Kp/Kd`。`pos_Kp/pos_Kd/pos_Ki/pos_integral_limit` 属于另一位置控制路径，不能拿它们当作模式3的三环PID调节项。模式3静止纠偏复用速度PI积分，没有独立的位置Ki。
+模式3使用的是 `cascade_position_kp/Kd`。`pos_Kp/pos_Kd/pos_Ki/pos_integral_limit` 属于另一位置控制路径，不能拿它们当作模式3的三环PID调节项。模式3静止纠偏复用速度PI积分，没有独立的位置Ki。
 
 **换电流上限会同时改变速度PI增益。** 例如原限流6 A、速度参数0.5/1，对应电流域比例3、积分6；改成3 A并保留参数时，两项系数都减半。若目的是只改变限流，应先评估是否需要保持电流域增益，再根据新电机重新整定，不能机械照搬历史参数。
 
-速度修正指令上限为 `min(speed_limit, 1.5 × pos_maxspeed)`，台架轨迹巡航45°/s时，可有至67.5°/s的有限追赶指令。它不是提高轨迹巡航速度，也不是机械超速保护阈值。
+速度修正指令上限为 `min(speed_limit_rad_s, 1.5 × position_maximum_speed_rad_s)`，台架轨迹巡航45°/s时，可有至67.5°/s的有限追赶指令。它不是提高轨迹巡航速度，也不是机械超速保护阈值。
 
 ## 轨迹与到位保持参数
 
@@ -82,7 +82,7 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 | `INTEGRAL_OPPOSING_DECAY_RATE_PER_S` / `INTEGRAL_OPPOSING_MAX_SLEW_A_PER_S` | 10 / 5 | 目标切换时，与位置和速度纠偏均相反的积分卸载 |
 | `INTEGRAL_ZERO_THRESHOLD_A` | 0.001 A | 积分接近零判据 |
 
-摩擦模型 `Ic + B × |速度|` 不能完整表达齿槽转矩、偏心、重力负载或结构共振。HOLD保留支撑电流；不要为了让停机电流看起来小而无条件清空它。
+摩擦模型 `phase_c_current_a + B × |速度|` 不能完整表达齿槽转矩、偏心、重力负载或结构共振。HOLD保留支撑电流；不要为了让停机电流看起来小而无条件清空它。
 
 ## 针对工况的整定顺序
 
@@ -101,6 +101,6 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 
 ## 新工况记录方式
 
-原 `new_motor.template.json` 模板已随 HIL 台架于 2026-09-19 退役删除；新工况记录仍应注明电机标识、实际可用角度、目标留量、运行参数和验收电流阈值。未知J/Kt及摩擦值保留null；运动与增益字段必须有依据地填全。修改JSON不会修改头文件编译配置。实际 `speed_limit`、编译宏、有效摩擦模型和固件schema仍需读回/构建核验。
+原 `new_motor.template.json` 模板已随 HIL 台架于 2026-09-19 退役删除；新工况记录仍应注明电机标识、实际可用角度、目标留量、运行参数和验收电流阈值。未知J/Kt及摩擦值保留null；运动与增益字段必须有依据地填全。修改JSON不会修改头文件编译配置。实际 `speed_limit_rad_s`、编译宏、有效摩擦模型和固件schema仍需读回/构建核验。
 
 每份实机记录还应注明负载装配、方向、温度/NTC状态、固件镜像哈希、Flash参数版本及是否保存参数。当前板卡的schema10工作区固件与已提交schema9固件不同；不要直接把旧参数区当成新固件参数结构使用。

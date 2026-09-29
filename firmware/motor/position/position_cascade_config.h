@@ -1,5 +1,5 @@
-#ifndef __POSITION_CASCADE_CONFIG_H__
-#define __POSITION_CASCADE_CONFIG_H__
+#ifndef POSITION_CASCADE_CONFIG_H
+#define POSITION_CASCADE_CONFIG_H
 
 #include "motor_hardware_profile.h"
 

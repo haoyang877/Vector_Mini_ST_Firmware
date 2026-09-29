@@ -28,41 +28,41 @@ PRELUDE = r"""
 #include "hw_conf.h"
 #include "motor_startup_profile.h"
 #include "utils.h"
-static MotorControl_TypeDef motor;
-static FOC_TypeDef foc;
-static PI_Controller_TypeDef pi;
-static Fluxobserver_TypeDef observer;
-static SensorlessStartup_TypeDef startup;
-static Encoder_TypeDef encoder;
+static MotorControlState motor;
+static FocState foc;
+static PiController pi;
+static FluxObserverState observer;
+static SensorlessStartupState startup;
+static EncoderState encoder;
 static unsigned current_calls, stop_calls;
 static bool pwm_enabled;
 static float applied_observer_iq, applied_observer_id, applied_phase, applied_velocity;
-void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef e) { m->ErrorNow=e; }
-void FOC_CurrentController_Reset(FOC_TypeDef *f) {
-    PI_Controller_Reset(&f->id_pi); PI_Controller_Reset(&f->iq_pi);
+void MotorFault_Report(MotorControlState *m, MotorFaultCode e) { m->fault_code=e; }
+void FOC_CurrentController_Reset(FocState *f) {
+    PiController_Reset(&f->id_pi); PiController_Reset(&f->iq_pi);
 }
-void FOC_Current(FOC_TypeDef *f, MotorControl_TypeDef *m, float phase, float velocity) {
+void FOC_Current(FocState *f, MotorControlState *m, float phase, float velocity) {
     (void)f;
-    float offset=phase-observer.theta_e;
-    applied_observer_iq=m->idRef*sinf(offset)+m->iqRef*cosf(offset);
-    applied_observer_id=m->idRef*cosf(offset)-m->iqRef*sinf(offset);
+    float offset=phase-observer.electrical_angle_rad;
+    applied_observer_iq=m->id_target_a*sinf(offset)+m->iq_target_a*cosf(offset);
+    applied_observer_id=m->id_target_a*cosf(offset)-m->iq_target_a*sinf(offset);
     applied_phase=phase; applied_velocity=velocity; ++current_calls;
 }
-void Fluxobserver_ParamInit(Fluxobserver_TypeDef *o) { memset(o,0,sizeof(*o)); }
-float Observer_GetElePhase(Fluxobserver_TypeDef *o) { return o->theta_e; }
-float Observer_GetEleVel(Fluxobserver_TypeDef *o) { return o->omega_e; }
-float Observer_GetElePosition(Fluxobserver_TypeDef *o) { return o->theta_e_unwrapped; }
-uint32_t Observer_GetPositionEpoch(Fluxobserver_TypeDef *o) { return o->position_epoch; }
-bool Encoder_IsOnline(const Encoder_TypeDef *e) { return e->has_valid_sample; }
-float Encoder_GetMecVelContinuous(const Encoder_TypeDef *e) { return e->vel_mech_continuous; }
-void Encoder_ResetVelocity(Encoder_TypeDef *e) { e->velocity_ready=false; }
-static void *HEAP_malloc(size_t n) { return malloc(n); }
-static void HEAP_free(void *p) { free(p); }
+void FluxObserver_ParamInit(FluxObserverState *o) { memset(o,0,sizeof(*o)); }
+float Observer_GetElePhase(FluxObserverState *o) { return o->electrical_angle_rad; }
+float Observer_GetEleVel(FluxObserverState *o) { return o->electrical_velocity_rad_s; }
+float Observer_GetElePosition(FluxObserverState *o) { return o->electrical_position_rad; }
+uint32_t Observer_GetPositionEpoch(FluxObserverState *o) { return o->position_epoch; }
+bool Encoder_IsOnline(const EncoderState *e) { return e->has_valid_sample; }
+float Encoder_GetMecVelContinuous(const EncoderState *e) { return e->mechanical_velocity_continuous_rad_s; }
+void Encoder_ResetVelocity(EncoderState *e) { e->velocity_ready=false; }
+static void *Heap_Allocate(size_t n) { return malloc(n); }
+static void Heap_Free(void *p) { free(p); }
 """
 
 CASES = r"""
-/* 编码器标定配置已随 FOC-Calibration 功能移除：夹具内联同参配置供无感用例使用。 */
-static const SensorlessStartupConfig_TypeDef test_startup_config = {
+/* 编码器标定配置已随 foc-Calibration 功能移除：夹具内联同参配置供无感用例使用。 */
+static const SensorlessStartupConfig test_startup_config = {
     SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
     SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
     SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
@@ -81,34 +81,34 @@ static const SensorlessStartupConfig_TypeDef test_startup_config = {
     SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
     SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
     SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S};
-static const SensorlessStartupConfig_TypeDef *cfg=&test_startup_config;
+static const SensorlessStartupConfig *cfg=&test_startup_config;
 static void setup(void) {
     memset(&motor,0,sizeof(motor)); memset(&foc,0,sizeof(foc));
     memset(&observer,0,sizeof(observer)); memset(&encoder,0,sizeof(encoder));
-    PI_Controller_Reset(&pi); SensorlessStartup_Reset(&startup);
-    motor.motor_pole_pairs=21; motor.motor_phase_resistance=1.905f;
-    motor.motor_d_inductance=motor.motor_q_inductance=.001635f;
-    motor.motor_flux=.0175025f; motor.current_limit=6;
-    motor.speed_Kp=.02f; motor.speed_Ki=.5f;
-    motor.speedAcc=motor.speedDec=314.159f;
+    PiController_Reset(&pi); SensorlessStartup_Reset(&startup);
+    motor.motor_pole_pairs=21; motor.motor_phase_resistance_ohm=1.905f;
+    motor.motor_d_inductance_h=motor.motor_q_inductance_h=.001635f;
+    motor.motor_flux_wb=.0175025f; motor.current_limit_a=6;
+    motor.speed_kp=.02f; motor.speed_ki=.5f;
+    motor.speed_acceleration_rad_s2=motor.speed_deceleration_rad_s2=314.159f;
     motor.control_mode=MOTOR_CONTROL_NONE;
-    motor.speedRef=cfg->target_electrical_velocity_rad_s/21;
-    motor.speedShadow=motor.speedRef;
-    observer.omega_e=cfg->target_electrical_velocity_rad_s;
+    motor.speed_target_rad_s=cfg->target_electrical_velocity_rad_s/21;
+    motor.speed_ramped_rad_s=motor.speed_target_rad_s;
+    observer.electrical_velocity_rad_s=cfg->target_electrical_velocity_rad_s;
     encoder.has_valid_sample=true; encoder.velocity_ready=true;
-    encoder.vel_mech_continuous=motor.speedRef; encoder.calib_flag=ENC_CALIB_LINEARIZED;
-    startup.speed_feedback=motor.speedRef;
+    encoder.mechanical_velocity_continuous_rad_s=motor.speed_target_rad_s; encoder.calib_flag=ENC_CALIB_LINEARIZED;
+    startup.speed_feedback_rad_s=motor.speed_target_rad_s;
     current_calls=stop_calls=0; pwm_enabled=true;
 }
 static void tick(void) { SensorlessStartup_Run(&foc,&motor,&pi,&observer,&startup,cfg); }
 static void enter_handoff(float direction, float phase_delta) {
-    setup(); motor.speedRef*=direction; motor.speedShadow=motor.speedRef;
-    observer.omega_e*=direction;
-    observer.theta_e=6.27f;
+    setup(); motor.speed_target_rad_s*=direction; motor.speed_ramped_rad_s=motor.speed_target_rad_s;
+    observer.electrical_velocity_rad_s*=direction;
+    observer.electrical_angle_rad=6.27f;
     startup.state=SENSORLESS_STARTUP_SPEED_LOCK;
     startup.direction=direction;
-    startup.open_loop_omega=observer.omega_e;
-    startup.open_loop_theta=normalizeAngle(observer.theta_e+phase_delta-observer.omega_e*Current_Ts);
+    startup.open_loop_velocity_rad_s=observer.electrical_velocity_rad_s;
+    startup.open_loop_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+phase_delta-observer.electrical_velocity_rad_s*Current_Ts);
     startup.lock_ticks=(uint32_t)(cfg->speed_lock_time_s/Current_Ts)-1U;
     tick(); assert(startup.state==SENSORLESS_STARTUP_HANDOFF);
 }
@@ -116,50 +116,50 @@ static void check_handoff(float direction) {
     float delta=-direction*.7f;
     enter_handoff(direction,delta);
     float iq_before=applied_observer_iq;
-    assert(fabsf(pi.Out*motor.current_limit-iq_before)<.002f);
-    assert(fabsf(startup.speed_feedback-motor.speedRef)<.0001f);
+    assert(fabsf(pi.output*motor.current_limit_a-iq_before)<.002f);
+    assert(fabsf(startup.speed_feedback_rad_s-motor.speed_target_rad_s)<.0001f);
     /* Keep a constant observer velocity: changing coordinate frame alone must
-     * not turn the fixed open-loop Iq into a new torque demand. */
+     * not turn the fixed open-loop iq_a into a new torque demand. */
     float max_error=0;
     unsigned steps=0;
     while(startup.state==SENSORLESS_STARTUP_HANDOFF) {
-        observer.theta_e=normalizeAngle(observer.theta_e+observer.omega_e*Current_Ts);
+        observer.electrical_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+observer.electrical_velocity_rad_s*Current_Ts);
         tick();
         max_error=fmaxf(max_error,fabsf(applied_observer_iq-iq_before));
-        assert(fabsf(applied_observer_iq-pi.Out*motor.current_limit)<.005f);
+        assert(fabsf(applied_observer_iq-pi.output*motor.current_limit_a)<.005f);
         assert(++steps<10000);
     }
-    assert(max_error<.005f && motor.ErrorNow==No_Error);
-    assert(fabsf(motor.idRef-cfg->startup_id_a)<.001f);
-    float last_iq=motor.iqRef, last_ui=pi.Ui;
-    tick(); assert(fabsf(motor.iqRef-last_iq)<.0001f && fabsf(pi.Ui-last_ui)<.0001f);
+    assert(max_error<.005f && motor.fault_code==MOTOR_FAULT_NONE);
+    assert(fabsf(motor.id_target_a-cfg->startup_id_a)<.001f);
+    float last_iq=motor.iq_target_a, last_ui=pi.integral_output;
+    tick(); assert(fabsf(motor.iq_target_a-last_iq)<.0001f && fabsf(pi.integral_output-last_ui)<.0001f);
 
     /* An overspeed must already reduce torque in state 4, not wait 100 ms. */
-    enter_handoff(direction,delta); iq_before=pi.Out*motor.current_limit;
-    observer.omega_e*=1.2f;
+    enter_handoff(direction,delta); iq_before=pi.output*motor.current_limit_a;
+    observer.electrical_velocity_rad_s*=1.2f;
     for(unsigned i=0;i<100;++i) tick();
     assert(startup.state==SENSORLESS_STARTUP_HANDOFF);
-    assert(direction*(pi.Out*motor.current_limit-iq_before)<-.05f);
+    assert(direction*(pi.output*motor.current_limit_a-iq_before)<-.05f);
 }
 static void check_voltage_rotation(void) {
     enter_handoff(1,-.7f);
-    foc.id_pi.Ui=2; foc.iq_pi.Ui=3;
-    float initial_offset=startup.handoff_phase_delta;
+    foc.id_pi.integral_output=2; foc.iq_pi.integral_output=3;
+    float initial_offset=startup.handoff_phase_delta_rad;
     float d=2*cosf(initial_offset)-3*sinf(initial_offset);
     float q=2*sinf(initial_offset)+3*cosf(initial_offset);
     while(startup.state==SENSORLESS_STARTUP_HANDOFF) tick();
-    assert(fabsf(foc.id_pi.Ui-d)<.04f && fabsf(foc.iq_pi.Ui-q)<.04f);
+    assert(fabsf(foc.id_pi.integral_output-d)<.04f && fabsf(foc.iq_pi.integral_output-q)<.04f);
 }
 static void check_braking_cap(void) {
     setup(); startup.state=SENSORLESS_STARTUP_CLOSED_LOOP;
     startup.speed_pi_output_max=0;
-    pi.Out=pi.Ui=.5f; /* A previous positive PI output cannot leak between ticks. */
-    tick(); assert(motor.iqRef<=0);
+    pi.output=pi.integral_output=.5f; /* A previous positive PI output cannot leak between ticks. */
+    tick(); assert(motor.iq_target_a<=0);
     for(unsigned i=0;i<100;++i) tick();
-    assert(pi.Umax==0 && motor.iqRef<=0);
+    assert(pi.output_max==0 && motor.iq_target_a<=0);
     startup.speed_pi_output_max=1;
     for(unsigned i=0;i<10;++i) tick();
-    assert(motor.iqRef>0); /* Ordinary mode retains its positive torque authority. */
+    assert(motor.iq_target_a>0); /* Ordinary mode retains its positive torque authority. */
 }
 int main(void) {
     check_handoff(1); check_handoff(-1); check_voltage_rotation();
@@ -188,7 +188,7 @@ def main():
     )
     ramp = function_source(
         (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8"),
-        "MotorControl_UpdateSpeedRamp",
+        "MotorAxis_UpdateSpeedRamp",
     )
     fixture = PRELUDE + reset + ramp + run + CASES
     source = out / "transitions.c"

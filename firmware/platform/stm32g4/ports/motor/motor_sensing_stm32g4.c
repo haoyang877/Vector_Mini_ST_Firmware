@@ -28,7 +28,7 @@ uint16_t motor_hw_vbus_sample_raw(void)
     return (uint16_t)VBUS_ADC->VBUS_ADC_CHANNEL;
 }
 
-void motor_hw_temperature_poll(MotorHwTemperaturePoll_TypeDef *result)
+void motor_hw_temperature_poll(MotorHwTemperaturePoll *result)
 {
     result->sample_ready = false;
     result->conversion_ok = false;

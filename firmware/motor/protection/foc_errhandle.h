@@ -1,6 +1,6 @@
 #ifndef FOC_ERRHANDLE_H
 #define FOC_ERRHANDLE_H
-#include "data_type.h"
+#include "motor_types.h"
 #include "foc_algorithm.h"
 #include "angle_feedback.h"
 
@@ -11,10 +11,10 @@ typedef struct
 /**
  * @brief 向所属电机对象报告故障，保留首个控制故障。
  * @param motor 调用方拥有的电机状态；NULL 不产生写入。
- * @param error 非零故障编号；No_Error 不清除锁存。
+ * @param error 非零故障编号；MOTOR_FAULT_NONE 不清除锁存。
  * @note 控制上下文调用；不启动、不清错，调用方随后执行快速关断。
  */
-void MotorFault_Report(MotorControl_TypeDef *motor, ErrorNow_TypeDef error);
+void MotorFault_Report(MotorControlState *motor, MotorFaultCode error);
 /**
  * @brief 推进所属故障恢复的驻留证据。
  * @param recovery APP 独占的恢复计数。
@@ -23,8 +23,8 @@ void MotorFault_Report(MotorControl_TypeDef *motor, ErrorNow_TypeDef error);
  * @note 2 kHz 监督调用，保留原计数和阈值。
  */
 void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
-                               const FOC_TypeDef *foc,
-                               ErrorNow_TypeDef error);
+                               const FocState *foc,
+                               MotorFaultCode error);
 /**
  * @brief 按源恢复矩阵确认显式 CLEAR 的条件。
  * @param recovery 所属驻留证据，只读。
@@ -39,10 +39,10 @@ void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
  * @note 无 I/O，不清错；模式准入仍独立检查全部校准标志。
  */
 bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
-                                const MotorControl_TypeDef *motor,
-                                const FOC_TypeDef *foc,
-                                const Encoder_TypeDef *encoder,
-                                ErrorNow_TypeDef error,
+                                const MotorControlState *motor,
+                                const FocState *foc,
+                                const EncoderState *encoder,
+                                MotorFaultCode error,
                                 bool samples_fresh,
                                 bool maintenance_released,
                                 bool temperature_fresh);

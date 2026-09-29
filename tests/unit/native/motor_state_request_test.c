@@ -1,11 +1,11 @@
-/* 使用真实 motor_state.c 验证参数读/写/保存请求的来源+序号身份冲突合同；不访问硬件。 */
+/* 使用真实 motor_axis.c 验证参数读/写/保存请求的来源+序号身份冲突合同；不访问硬件。 */
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "motor_state.h"
+#include "motor_axis.h"
 #include "critical_hw.h"
 #include "motor_state_machine.h"
 #include "parameter_value_service.h"
@@ -14,31 +14,31 @@
 #include "foc_pid.h"
 #include "param_comm_bridge.h"
 
-/* ---- 复刻 motor_state.c 的私有状态与对象实例；函数体由 runner 从真实源码切片追加 ---- */
-static MotorControl_TypeDef MotorControl;
-static PI_Controller_TypeDef PI_Speed;
-static Encoder_TypeDef OnBoard_Encoder;
-static FOC_TypeDef FOC;
-static volatile uint32_t config_revision;
+/* ---- 复刻 motor_axis.c 的私有状态与对象实例；函数体由 runner 从真实源码切片追加 ---- */
+static MotorControlState s_motor_state;
+static PiController s_speed_pi;
+static EncoderState s_rotor_encoder;
+static FocState s_foc_state;
+static volatile uint32_t s_config_revision;
 static struct
 {
     ParameterReadRequest request;
     ParameterValue value;
     bool valid;
-} last_read;
+} s_last_read;
 static struct
 {
     ParameterWriteRequest request;
     ParameterValue applied;
     bool valid;
-} last_write;
+} s_last_write;
 static struct
 {
     ParameterSaveRequest request;
     uint32_t ticket, persisted_revision;
     ParameterStatus result;
     bool valid;
-} save_job;
+} s_save_job;
 
 /* ---- 桩：临界区、通信节点与控制器复位 ---- */
 static uint32_t critical_depth;
@@ -62,11 +62,11 @@ uint8_t Protocol_NodeId_Get(void)
 void Task_Position_Mode_Reset(void)
 {
 }
-void FOC_CurrentController_Reset(FOC_TypeDef *foc)
+void FOC_CurrentController_Reset(FocState *foc)
 {
     (void)foc;
 }
-void PI_Controller_Reset(PI_Controller_TypeDef *controller)
+void PiController_Reset(PiController *controller)
 {
     (void)controller;
 }
@@ -111,8 +111,8 @@ static ParameterStatus stub_apply_status = PARAMETER_OK;
 static uint32_t stub_apply_calls;
 static uint32_t stub_read_calls;
 
-ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
-                                    const Encoder_TypeDef *encoder,
+ParameterStatus ParameterValue_Read(const MotorControlState *motor,
+                                    const EncoderState *encoder,
                                     uint32_t revision,
                                     uint8_t node_id,
                                     uint8_t parameter_id,
@@ -127,7 +127,7 @@ ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
     value->revision = revision;
     return stub_read_status;
 }
-ParameterStatus ParameterValue_Apply(MotorControl_TypeDef *motor,
+ParameterStatus ParameterValue_Apply(MotorControlState *motor,
                                      uint8_t node_id,
                                      const ParameterWriteRequest *request)
 {
@@ -155,50 +155,50 @@ int main(void)
     uint32_t ticket;
     const uint8_t node = 1U;
 
-    /* 1. 读身份：同来源+序号同参数重放；同身份换参数命中 last_read 冲突。 */
+    /* 1. 读身份：同来源+序号同参数重放；同身份换参数命中 s_last_read 冲突。 */
     ParameterReadRequest read = {.parameter_id = 7U, .source_node = node, .sequence = 10U};
-    CHECK(MotorControl_ReadParameter(&read, &value) == PARAMETER_OK);
-    CHECK(MotorControl_ReadParameter(&read, &value) == PARAMETER_OK);
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
     read.parameter_id = 8U;
-    CHECK(MotorControl_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
 
-    /* 2. 写身份：成功应用并缓存 last_write；读复用写身份必须冲突，且不重复应用。 */
+    /* 2. 写身份：成功应用并缓存 s_last_write；读复用写身份必须冲突，且不重复应用。 */
     ParameterWriteRequest write = {.parameter_id = 7U,
                                    .value_type = PARAMETER_VALUE_I32,
                                    .source_node = node,
                                    .sequence = 20U,
                                    .expected_revision = 0U,
                                    .raw_value = 1234U};
-    CHECK(MotorControl_WriteParameter(&write, &value) == PARAMETER_OK);
+    CHECK(MotorAxis_WriteParameter(&write, &value) == PARAMETER_OK);
     read.source_node = node;
     read.sequence = 20U;
     read.parameter_id = 7U;
-    CHECK(MotorControl_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
-    CHECK(MotorControl_WriteParameter(&write, &value) == PARAMETER_OK); /* 同字段重放原结果 */
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(MotorAxis_WriteParameter(&write, &value) == PARAMETER_OK); /* 同字段重放原结果 */
     uint32_t apply_before = stub_apply_calls;
     ParameterWriteRequest write_other = write;
     write_other.raw_value = 9999U;
-    CHECK(MotorControl_WriteParameter(&write_other, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(MotorAxis_WriteParameter(&write_other, &value) == PARAMETER_CONFLICTING_RETRY);
     CHECK(stub_apply_calls == apply_before); /* 冲突重试不重复应用 */
 
-    /* 3. 保存身份：受理后读/写命中 save_job 冲突；同身份保存重放原结果与票据。 */
+    /* 3. 保存身份：受理后读/写命中 s_save_job 冲突；同身份保存重放原结果与票据。 */
     ParameterSaveRequest save = {.source_node = node, .sequence = 30U, .expected_revision = 1U};
     ticket = 0U;
-    CHECK(MotorControl_RequestSave(&save, &ticket) == PARAMETER_ACCEPTED);
+    CHECK(MotorAxis_RequestSave(&save, &ticket) == PARAMETER_ACCEPTED);
     CHECK(ticket == stub_ticket);
     read.sequence = 30U;
-    CHECK(MotorControl_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
     write.sequence = 30U;
-    CHECK(MotorControl_WriteParameter(&write, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(MotorAxis_WriteParameter(&write, &value) == PARAMETER_CONFLICTING_RETRY);
     ticket = 0U;
-    CHECK(MotorControl_RequestSave(&save, &ticket) == PARAMETER_ACCEPTED);
+    CHECK(MotorAxis_RequestSave(&save, &ticket) == PARAMETER_ACCEPTED);
     CHECK(ticket == stub_ticket);
 
     /* 4. 不同身份的保存请求在旧 SAVE 未完成时 BUSY，且不返回票据。 */
     ParameterSaveRequest save_other = save;
     save_other.sequence = 40U;
     ticket = 0U;
-    CHECK(MotorControl_RequestSave(&save_other, &ticket) == PARAMETER_BUSY);
+    CHECK(MotorAxis_RequestSave(&save_other, &ticket) == PARAMETER_BUSY);
     CHECK(ticket == 0U);
 
     if (failures == 0U)

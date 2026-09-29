@@ -21,24 +21,24 @@
 
 /* 应用内存池实现：固定容量、纯软件，不依赖硬件头文件。 */
 
-#define portBYTE_ALIGNMENT 8
-#define portBYTE_ALIGNMENT_MASK (0x0007)
+#define HEAP_ALIGNMENT_BYTES 8
+#define HEAP_ALIGNMENT_MASK (0x0007)
 
 /* Block sizes must not get too small. */
-#define heapMINIMUM_BLOCK_SIZE ((size_t)(xHeapStructSize << 1))
+#define HEAP_MINIMUM_BLOCK_BYTES ((size_t)(s_block_header_bytes << 1))
 
 /* Assumes 8bit bytes! */
-#define heapBITS_PER_BYTE ((size_t)8)
+#define HEAP_BITS_PER_BYTE ((size_t)8)
 
-static uint8_t ucHeap[TOTAL_HEAP_SIZE];
+static uint8_t s_workspace_storage[TOTAL_HEAP_SIZE];
 
 /* Define the linked list structure.  This is used to link free blocks in order
 of their memory address. */
-typedef struct A_BLOCK_LINK
+typedef struct HeapBlockTag
 {
-    struct A_BLOCK_LINK *pxNextFreeBlock; /*<< The next free block in the list. */
-    size_t xBlockSize;                    /*<< The size of the free block. */
-} BlockLink_t;
+    struct HeapBlockTag *next_free_block; /*<< The next free block in the list. */
+    size_t block_size_bytes;              /*<< The size of the free block. */
+} HeapBlock;
 
 /*-----------------------------------------------------------*/
 
@@ -48,135 +48,135 @@ typedef struct A_BLOCK_LINK
  * the block in front it and/or the block behind it if the memory blocks are
  * adjacent to each other.
  */
-static void prvInsertBlockIntoFreeList(BlockLink_t *pxBlockToInsert);
+static void insert_block_into_free_list(HeapBlock *block_to_insert);
 
 /*
  * Called automatically to setup the required heap structures the first time
  * pvPortMalloc() is called.
  */
-static void prvHeapInit(void);
+static void initialize_heap(void);
 
 /*-----------------------------------------------------------*/
 
 /* The size of the structure placed at the beginning of each allocated memory
 block must by correctly byte aligned. */
-static const size_t xHeapStructSize =
-    (sizeof(BlockLink_t) + ((size_t)(portBYTE_ALIGNMENT - 1))) & ~((size_t)portBYTE_ALIGNMENT_MASK);
+static const size_t s_block_header_bytes =
+    (sizeof(HeapBlock) + ((size_t)(HEAP_ALIGNMENT_BYTES - 1))) & ~((size_t)HEAP_ALIGNMENT_MASK);
 
 /* Create a couple of list links to mark the start and end of the list. */
-static BlockLink_t xStart, *pxEnd = NULL;
+static HeapBlock s_free_list_start, *s_free_list_end = NULL;
 
 /* Keeps track of the number of free bytes remaining, but says nothing about
 fragmentation. */
-static size_t xFreeBytesRemaining = 0U;
-static size_t xMinimumEverFreeBytesRemaining = 0U;
+static size_t s_free_bytes_remaining = 0U;
+static size_t s_minimum_free_bytes = 0U;
 
-/* Gets set to the top bit of an size_t type.  When this bit in the xBlockSize
-member of an BlockLink_t structure is set then the block belongs to the
+/* Gets set to the top bit of an size_t type.  When this bit in the block_size_bytes
+member of an HeapBlock structure is set then the block belongs to the
 application.  When the bit is free the block is still part of the free heap
 space. */
-static size_t xBlockAllocatedBit = 0;
+static size_t s_allocated_block_bit = 0;
 
 /*-----------------------------------------------------------*/
 
 /**
     * @brief  Allocate memory from internal heap
-    * @param  xWantedSize: requested allocation size in bytes
+    * @param  requested_bytes: requested allocation size in bytes
     * @retval allocated memory pointer
  **/
-void *HEAP_malloc(size_t xWantedSize)
+void *Heap_Allocate(size_t requested_bytes)
 {
-    BlockLink_t *pxBlock, *pxPreviousBlock, *pxNewBlockLink;
-    void *pvReturn = NULL;
+    HeapBlock *block, *previous_block, *new_block;
+    void *result = NULL;
 
     /* If this is the first call to malloc then the heap will require
     initialisation to setup the list of free blocks. */
-    if (pxEnd == NULL)
+    if (s_free_list_end == NULL)
     {
-        prvHeapInit();
+        initialize_heap();
     }
 
     /* Check the requested block size is not so large that the top bit is
-    set.  The top bit of the block size member of the BlockLink_t structure
+    set.  The top bit of the block size member of the HeapBlock structure
     is used to determine who owns the block - the application or the
     kernel, so it must be free. */
-    if ((xWantedSize & xBlockAllocatedBit) == 0)
+    if ((requested_bytes & s_allocated_block_bit) == 0)
     {
-        /* The wanted size is increased so it can contain a BlockLink_t
+        /* The wanted size is increased so it can contain a HeapBlock
         structure in addition to the requested amount of bytes. */
-        if (xWantedSize > 0)
+        if (requested_bytes > 0)
         {
-            xWantedSize += xHeapStructSize;
+            requested_bytes += s_block_header_bytes;
 
             /* Ensure that blocks are always aligned to the required number
             of bytes. */
-            if ((xWantedSize & portBYTE_ALIGNMENT_MASK) != 0x00)
+            if ((requested_bytes & HEAP_ALIGNMENT_MASK) != 0x00)
             {
                 /* Byte alignment required. */
-                xWantedSize += (portBYTE_ALIGNMENT - (xWantedSize & portBYTE_ALIGNMENT_MASK));
+                requested_bytes += (HEAP_ALIGNMENT_BYTES - (requested_bytes & HEAP_ALIGNMENT_MASK));
             }
         }
 
-        if ((xWantedSize > 0) && (xWantedSize <= xFreeBytesRemaining))
+        if ((requested_bytes > 0) && (requested_bytes <= s_free_bytes_remaining))
         {
             /* Traverse the list from the start    (lowest address) block until
             one    of adequate size is found. */
-            pxPreviousBlock = &xStart;
-            pxBlock = xStart.pxNextFreeBlock;
-            while ((pxBlock->xBlockSize < xWantedSize) && (pxBlock->pxNextFreeBlock != NULL))
+            previous_block = &s_free_list_start;
+            block = s_free_list_start.next_free_block;
+            while ((block->block_size_bytes < requested_bytes) && (block->next_free_block != NULL))
             {
-                pxPreviousBlock = pxBlock;
-                pxBlock = pxBlock->pxNextFreeBlock;
+                previous_block = block;
+                block = block->next_free_block;
             }
 
             /* If the end marker was reached then a block of adequate size
             was    not found. */
-            if (pxBlock != pxEnd)
+            if (block != s_free_list_end)
             {
                 /* Return the memory space pointed to - jumping over the
-                BlockLink_t structure at its start. */
-                pvReturn =
-                    (void *)(((uint8_t *)pxPreviousBlock->pxNextFreeBlock) + xHeapStructSize);
+                HeapBlock structure at its start. */
+                result =
+                    (void *)(((uint8_t *)previous_block->next_free_block) + s_block_header_bytes);
 
                 /* This block is being returned for use so must be taken out
                 of the list of free blocks. */
-                pxPreviousBlock->pxNextFreeBlock = pxBlock->pxNextFreeBlock;
+                previous_block->next_free_block = block->next_free_block;
 
                 /* If the block is larger than required it can be split into
                 two. */
-                if ((pxBlock->xBlockSize - xWantedSize) > heapMINIMUM_BLOCK_SIZE)
+                if ((block->block_size_bytes - requested_bytes) > HEAP_MINIMUM_BLOCK_BYTES)
                 {
                     /* This block is to be split into two.  Create a new
                     block following the number of bytes requested. The void
                     cast is used to prevent byte alignment warnings from the
                     compiler. */
-                    pxNewBlockLink = (void *)(((uint8_t *)pxBlock) + xWantedSize);
+                    new_block = (void *)(((uint8_t *)block) + requested_bytes);
 
                     /* Calculate the sizes of two blocks split from the
                     single block. */
-                    pxNewBlockLink->xBlockSize = pxBlock->xBlockSize - xWantedSize;
-                    pxBlock->xBlockSize = xWantedSize;
+                    new_block->block_size_bytes = block->block_size_bytes - requested_bytes;
+                    block->block_size_bytes = requested_bytes;
 
                     /* Insert the new block into the list of free blocks. */
-                    prvInsertBlockIntoFreeList(pxNewBlockLink);
+                    insert_block_into_free_list(new_block);
                 }
 
-                xFreeBytesRemaining -= pxBlock->xBlockSize;
+                s_free_bytes_remaining -= block->block_size_bytes;
 
-                if (xFreeBytesRemaining < xMinimumEverFreeBytesRemaining)
+                if (s_free_bytes_remaining < s_minimum_free_bytes)
                 {
-                    xMinimumEverFreeBytesRemaining = xFreeBytesRemaining;
+                    s_minimum_free_bytes = s_free_bytes_remaining;
                 }
 
                 /* The block is being returned - it is allocated and owned
                 by the application and has no "next" block. */
-                pxBlock->xBlockSize |= xBlockAllocatedBit;
-                pxBlock->pxNextFreeBlock = NULL;
+                block->block_size_bytes |= s_allocated_block_bit;
+                block->next_free_block = NULL;
             }
         }
     }
 
-    return pvReturn;
+    return result;
 }
 /*-----------------------------------------------------------*/
 
@@ -184,31 +184,31 @@ void *HEAP_malloc(size_t xWantedSize)
     * @brief  Free memory back to internal heap
     * @param  *pv: allocated memory pointer
  **/
-void HEAP_free(void *pv)
+void Heap_Free(void *pv)
 {
     uint8_t *puc = (uint8_t *)pv;
-    BlockLink_t *pxLink;
+    HeapBlock *link;
 
     if (pv != NULL)
     {
-        /* The memory being freed will have an BlockLink_t structure immediately
+        /* The memory being freed will have an HeapBlock structure immediately
         before it. */
-        puc -= xHeapStructSize;
+        puc -= s_block_header_bytes;
 
         /* This casting is to keep the compiler from issuing warnings. */
-        pxLink = (void *)puc;
+        link = (void *)puc;
 
-        if ((pxLink->xBlockSize & xBlockAllocatedBit) != 0)
+        if ((link->block_size_bytes & s_allocated_block_bit) != 0)
         {
-            if (pxLink->pxNextFreeBlock == NULL)
+            if (link->next_free_block == NULL)
             {
                 /* The block is being returned to the heap - it is no longer
                 allocated. */
-                pxLink->xBlockSize &= ~xBlockAllocatedBit;
+                link->block_size_bytes &= ~s_allocated_block_bit;
 
                 /* Add this block to the list of free blocks. */
-                xFreeBytesRemaining += pxLink->xBlockSize;
-                prvInsertBlockIntoFreeList(((BlockLink_t *)pxLink));
+                s_free_bytes_remaining += link->block_size_bytes;
+                insert_block_into_free_list(((HeapBlock *)link));
             }
         }
     }
@@ -219,9 +219,9 @@ void HEAP_free(void *pv)
     * @brief  Get current free heap size
     * @retval free heap size in bytes
  **/
-size_t HEAP_get_free_size(void)
+size_t Heap_GetFreeBytes(void)
 {
-    return xFreeBytesRemaining;
+    return s_free_bytes_remaining;
 }
 /*-----------------------------------------------------------*/
 
@@ -229,116 +229,116 @@ size_t HEAP_get_free_size(void)
     * @brief  Get minimum ever free heap size
     * @retval minimum ever free heap size in bytes
  **/
-size_t HEAP_get_minimumEver_free_size(void)
+size_t Heap_GetMinimumFreeBytes(void)
 {
-    return xMinimumEverFreeBytesRemaining;
+    return s_minimum_free_bytes;
 }
 /*-----------------------------------------------------------*/
 
 /**
     * @brief  Initialize internal heap structures
  **/
-static void prvHeapInit(void)
+static void initialize_heap(void)
 {
-    BlockLink_t *pxFirstFreeBlock;
-    uint8_t *pucAlignedHeap;
-    size_t uxAddress;
-    size_t xTotalHeapSize = TOTAL_HEAP_SIZE;
+    HeapBlock *first_free_block;
+    uint8_t *aligned_storage;
+    size_t address;
+    size_t total_heap_bytes = TOTAL_HEAP_SIZE;
 
     /* Ensure the heap starts on a correctly aligned boundary. */
-    uxAddress = (size_t)ucHeap;
+    address = (size_t)s_workspace_storage;
 
-    if ((uxAddress & portBYTE_ALIGNMENT_MASK) != 0)
+    if ((address & HEAP_ALIGNMENT_MASK) != 0)
     {
-        uxAddress += (portBYTE_ALIGNMENT - 1);
-        uxAddress &= ~((size_t)portBYTE_ALIGNMENT_MASK);
-        xTotalHeapSize -= uxAddress - (size_t)ucHeap;
+        address += (HEAP_ALIGNMENT_BYTES - 1);
+        address &= ~((size_t)HEAP_ALIGNMENT_MASK);
+        total_heap_bytes -= address - (size_t)s_workspace_storage;
     }
 
-    pucAlignedHeap = (uint8_t *)uxAddress;
+    aligned_storage = (uint8_t *)address;
 
-    /* xStart is used to hold a pointer to the first item in the list of free
+    /* s_free_list_start is used to hold a pointer to the first item in the list of free
     blocks.  The void cast is used to prevent compiler warnings. */
-    xStart.pxNextFreeBlock = (void *)pucAlignedHeap;
-    xStart.xBlockSize = (size_t)0;
+    s_free_list_start.next_free_block = (void *)aligned_storage;
+    s_free_list_start.block_size_bytes = (size_t)0;
 
-    /* pxEnd is used to mark the end of the list of free blocks and is inserted
+    /* s_free_list_end is used to mark the end of the list of free blocks and is inserted
     at the end of the heap space. */
-    uxAddress = ((size_t)pucAlignedHeap) + xTotalHeapSize;
-    uxAddress -= xHeapStructSize;
-    uxAddress &= ~((size_t)portBYTE_ALIGNMENT_MASK);
-    pxEnd = (void *)uxAddress;
-    pxEnd->xBlockSize = 0;
-    pxEnd->pxNextFreeBlock = NULL;
+    address = ((size_t)aligned_storage) + total_heap_bytes;
+    address -= s_block_header_bytes;
+    address &= ~((size_t)HEAP_ALIGNMENT_MASK);
+    s_free_list_end = (void *)address;
+    s_free_list_end->block_size_bytes = 0;
+    s_free_list_end->next_free_block = NULL;
 
     /* To start with there is a single free block that is sized to take up the
-    entire heap space, minus the space taken by pxEnd. */
-    pxFirstFreeBlock = (void *)pucAlignedHeap;
-    pxFirstFreeBlock->xBlockSize = uxAddress - (size_t)pxFirstFreeBlock;
-    pxFirstFreeBlock->pxNextFreeBlock = pxEnd;
+    entire heap space, minus the space taken by s_free_list_end. */
+    first_free_block = (void *)aligned_storage;
+    first_free_block->block_size_bytes = address - (size_t)first_free_block;
+    first_free_block->next_free_block = s_free_list_end;
 
     /* Only one block exists - and it covers the entire usable heap space. */
-    xMinimumEverFreeBytesRemaining = pxFirstFreeBlock->xBlockSize;
-    xFreeBytesRemaining = pxFirstFreeBlock->xBlockSize;
+    s_minimum_free_bytes = first_free_block->block_size_bytes;
+    s_free_bytes_remaining = first_free_block->block_size_bytes;
 
     /* Work out the position of the top bit in a size_t variable. */
-    xBlockAllocatedBit = ((size_t)1) << ((sizeof(size_t) * heapBITS_PER_BYTE) - 1);
+    s_allocated_block_bit = ((size_t)1) << ((sizeof(size_t) * HEAP_BITS_PER_BYTE) - 1);
 }
 /*-----------------------------------------------------------*/
 
 /**
     * @brief  Insert a free block into heap free list
-    * @param  *pxBlockToInsert: free block pointer
+    * @param  *block_to_insert: free block pointer
  **/
-static void prvInsertBlockIntoFreeList(BlockLink_t *pxBlockToInsert)
+static void insert_block_into_free_list(HeapBlock *block_to_insert)
 {
-    BlockLink_t *pxIterator;
+    HeapBlock *iterator;
     uint8_t *puc;
 
     /* Iterate through the list until a block is found that has a higher address
     than the block being inserted. */
-    for (pxIterator = &xStart; pxIterator->pxNextFreeBlock < pxBlockToInsert;
-         pxIterator = pxIterator->pxNextFreeBlock)
+    for (iterator = &s_free_list_start; iterator->next_free_block < block_to_insert;
+         iterator = iterator->next_free_block)
     {
         /* Nothing to do here, just iterate to the right position. */
     }
 
     /* Do the block being inserted, and the block it is being inserted after
     make a contiguous block of memory? */
-    puc = (uint8_t *)pxIterator;
-    if ((puc + pxIterator->xBlockSize) == (uint8_t *)pxBlockToInsert)
+    puc = (uint8_t *)iterator;
+    if ((puc + iterator->block_size_bytes) == (uint8_t *)block_to_insert)
     {
-        pxIterator->xBlockSize += pxBlockToInsert->xBlockSize;
-        pxBlockToInsert = pxIterator;
+        iterator->block_size_bytes += block_to_insert->block_size_bytes;
+        block_to_insert = iterator;
     }
 
     /* Do the block being inserted, and the block it is being inserted before
     make a contiguous block of memory? */
-    puc = (uint8_t *)pxBlockToInsert;
-    if ((puc + pxBlockToInsert->xBlockSize) == (uint8_t *)pxIterator->pxNextFreeBlock)
+    puc = (uint8_t *)block_to_insert;
+    if ((puc + block_to_insert->block_size_bytes) == (uint8_t *)iterator->next_free_block)
     {
-        if (pxIterator->pxNextFreeBlock != pxEnd)
+        if (iterator->next_free_block != s_free_list_end)
         {
             /* Form one big block from the two blocks. */
-            pxBlockToInsert->xBlockSize += pxIterator->pxNextFreeBlock->xBlockSize;
-            pxBlockToInsert->pxNextFreeBlock = pxIterator->pxNextFreeBlock->pxNextFreeBlock;
+            block_to_insert->block_size_bytes += iterator->next_free_block->block_size_bytes;
+            block_to_insert->next_free_block = iterator->next_free_block->next_free_block;
         }
         else
         {
-            pxBlockToInsert->pxNextFreeBlock = pxEnd;
+            block_to_insert->next_free_block = s_free_list_end;
         }
     }
     else
     {
-        pxBlockToInsert->pxNextFreeBlock = pxIterator->pxNextFreeBlock;
+        block_to_insert->next_free_block = iterator->next_free_block;
     }
 
     /* If the block being inserted plugged a gab, so was merged with the block
-    before and the block after, then it's pxNextFreeBlock pointer will have
+    before and the block after, then it's next_free_block pointer will have
     already been set, and should not be set here as that would make it point
     to itself. */
-    if (pxIterator != pxBlockToInsert)
+    if (iterator != block_to_insert)
     {
-        pxIterator->pxNextFreeBlock = pxBlockToInsert;
+        iterator->next_free_block = block_to_insert;
     }
 }

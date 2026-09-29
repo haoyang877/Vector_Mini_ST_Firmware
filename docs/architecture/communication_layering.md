@@ -39,7 +39,7 @@ FDCAN RX ISR 不执行 CRC、分片、Flash、日志或电机业务。
 
 CAN 116 与前台目标使用 `MotorStateMachine_SubmitControl()`，只提交值命令；
 通信层不暴露电机对象可写 extern，不直接操作 HAL 或更改模式。
-状态通过 `MotorControl_ReadStatus()` 获取一致快照，反馈单位及布局以线路契约为准。
+状态通过 `MotorAxis_ReadStatus()` 获取一致快照，反馈单位及布局以线路契约为准。
 
 ## 当前已接入范围
 

@@ -37,26 +37,25 @@ def main():
     funcs = (
         "\n".join(
             function_source(speed_src, n)
-            for n in ["MotorControl_UpdateSpeedRamp", "SpeedMode_UpdateControl"]
+            for n in ["MotorAxis_UpdateSpeedRamp", "SpeedMode_UpdateControl"]
         )
         + "\n"
         + "\n".join(
             function_source(src, n)
             for n in [
-                "PositionMode_ApplyFrictionConfiguration",
-                "PositionMode_EffectiveDeceleration",
-                "PositionMode_EffectiveMaximumSpeed",
-                "PositionMode_UpdateConfiguration",
-                "PositionMode_SameTuningValue",
-                "PositionMode_ConfigurationMatches",
+                "position_mode_apply_friction_configuration",
+                "position_mode_effective_deceleration",
+                "position_mode_effective_maximum_speed",
+                "position_mode_update_configuration",
+                "position_mode_same_tuning_value",
+                "position_mode_configuration_matches",
             ]
         )
     )
     # Use the real parameter structure to guard the mutually exclusive heap users.
     param = (ROOT / "firmware/services/parameters/foc_param.h").read_text(encoding="utf-8")
     param = param[
-        param.index("typedef struct") : param.index("} InterfaceParam_TypeDef;")
-        + len("} InterfaceParam_TypeDef;")
+        param.index("typedef struct") : param.index("} InterfaceParam;") + len("} InterfaceParam;")
     ]
     fixture = (
         r"""
@@ -69,7 +68,7 @@ def main():
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "data_type.h"
+#include "motor_types.h"
 #include "hw_conf.h"
 #include "foc_pid.h"
 #include "position_cascade.h"
@@ -78,14 +77,14 @@ def main():
 #include "cogging_calibration.h"
 #define FOC_CONFIG_NOINLINE
 #define ENCODER_OFFSET_LUT_SIZE 1024U
-typedef struct { float position, speed; } Encoder_TypeDef;
-static MotorControl_TypeDef live;
-static PI_Controller_TypeDef live_pi;
-static Encoder_TypeDef enc;
-static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
-static float Encoder_GetMecVel(Encoder_TypeDef *e) { return e->speed; }
-static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->speed; }
-static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef error) { m->ErrorNow = error; }
+typedef struct { float position, speed; } EncoderState;
+static MotorControlState live;
+static PiController live_pi;
+static EncoderState enc;
+static float Encoder_GetMecPos(EncoderState *e) { return e->position; }
+static float Encoder_GetMecVel(EncoderState *e) { return e->speed; }
+static float Encoder_GetMecVelContinuous(EncoderState *e) { return e->speed; }
+static void MotorFault_Report(MotorControlState *m, MotorFaultCode error) { m->fault_code = error; }
 """
         + param
         + funcs
@@ -93,43 +92,43 @@ static void MotorFault_Report(MotorControl_TypeDef *m, ErrorNow_TypeDef error) {
         + r"""
 static void slow_tick(void) { MotorOuterLoop_SlowTick(&live, &live_pi, &enc); }
 static void setup(MotorControlMode mode) {
-    memset(&outer, 0, sizeof(outer));
+    memset(&s_outer, 0, sizeof(s_outer));
     memset(&live, 0, sizeof(live));
     memset(&live_pi, 0, sizeof(live_pi));
     enc.position = .3f; enc.speed = 0;
     PositionCascade_Reset();
     live.control_mode = mode; live.axis_profile_valid = true;
-    live.pos_error_window = .001f; live.posAcc = .785398f; live.posDec = .523599f;
-    live.pos_maxspeed = .6f; live.speed_limit = .8f;
-    live.cascade_pos_Kp = 8; live.cascade_pos_Kd = 2;
-    live.speed_Kp = .5f; live.speed_Ki = 2; live.current_limit = 4;
-    live.posRef = enc.position; live.speedRef = .2f;
-    live.speedAcc = .8f; live.speedDec = .5f;
+    live.position_error_window_rad = .001f; live.position_acceleration_rad_s2 = .785398f; live.position_deceleration_rad_s2 = .523599f;
+    live.position_maximum_speed_rad_s = .6f; live.speed_limit_rad_s = .8f;
+    live.cascade_position_kp = 8; live.cascade_position_kd = 2;
+    live.speed_kp = .5f; live.speed_ki = 2; live.current_limit_a = 4;
+    live.position_target_rad = enc.position; live.speed_target_rad_s = .2f;
+    live.speed_acceleration_rad_s2 = .8f; live.speed_deceleration_rad_s2 = .5f;
 }
 int main(void) {
     /* Calibration and parameter I/O are serialized; the pool must fit either peak. */
     for (unsigned trial = 0; trial < 100; trial++) {
-        void *calibration = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t) +
+        void *calibration = Heap_Allocate(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t) +
                                         ENCODER_OFFSET_LUT_SIZE * sizeof(uint16_t));
         assert(calibration);
-        assert(HEAP_malloc(sizeof(InterfaceParam_TypeDef)) == NULL);
-        HEAP_free(calibration);
-        void *parameter = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
+        assert(Heap_Allocate(sizeof(InterfaceParam)) == NULL);
+        Heap_Free(calibration);
+        void *parameter = Heap_Allocate(sizeof(InterfaceParam));
         assert(parameter);
-        HEAP_free(parameter);
+        Heap_Free(parameter);
     }
     printf("heap capacity passed: calibration=6144 parameter=%zu pool=%zu minimum_free=%zu\n",
-        sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
+        sizeof(InterfaceParam), TOTAL_HEAP_SIZE, Heap_GetMinimumFreeBytes());
     for (unsigned mode = MOTOR_CONTROL_SPEED; mode <= MOTOR_CONTROL_POSITION; mode++) {
         setup((MotorControlMode)mode);
         for (unsigned i = 0; i < 20000; i++) {
             if (i % 1000 == 0)
             {
-                live.posRef = .3f + (i % 2000 ? .05f : -.05f);
+                live.position_target_rad = .3f + (i % 2000 ? .05f : -.05f);
             }
             slow_tick();
-            assert(live.ErrorNow == No_Error);
-            assert(isfinite(live.iqRef) && fabsf(live.iqRef) <= live.current_limit);
+            assert(live.fault_code == MOTOR_FAULT_NONE);
+            assert(isfinite(live.iq_target_a) && fabsf(live.iq_target_a) <= live.current_limit_a);
         }
         assert(MotorOuterLoop_IsReady());
         /* Tuning/config invalidity is rejected on the next slow tick with zero output. */
@@ -137,40 +136,40 @@ int main(void) {
         assert(MotorOuterLoop_IsReady());
         if (mode == MOTOR_CONTROL_POSITION)
         {
-            live.posRef = NAN;
+            live.position_target_rad = NAN;
         }
         else
         {
-            live.speedRef = NAN;
+            live.speed_target_rad_s = NAN;
         }
         slow_tick();
-        assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0 && !MotorOuterLoop_IsReady());
+        assert(live.fault_code == MOTOR_FAULT_INVALID_PARAMETERS && live.iq_target_a == 0 && !MotorOuterLoop_IsReady());
         /* Mode change clears readiness; disabled modes publish nothing. */
         setup((MotorControlMode)mode); slow_tick();
-        live.control_mode = MOTOR_CONTROL_NONE; live.iqRef = 0;
+        live.control_mode = MOTOR_CONTROL_NONE; live.iq_target_a = 0;
         slow_tick();
-        assert(!MotorOuterLoop_IsReady() && live.iqRef == 0);
+        assert(!MotorOuterLoop_IsReady() && live.iq_target_a == 0);
         /* Reset requests are consumed inside the slow tick; the controller rebuilds and republishes. */
         setup((MotorControlMode)mode); slow_tick();
-        MotorOuterLoop_RequestReset();
+        motor_outer_loop_request_reset();
         assert(!MotorOuterLoop_IsReady());
         slow_tick();
         assert(MotorOuterLoop_IsReady());
         /* Existing faults block output publication. */
         setup((MotorControlMode)mode); slow_tick();
-        live.ErrorNow = Over_Current; live.iqRef = 0; slow_tick();
-        assert(live.iqRef == 0);
+        live.fault_code = MOTOR_FAULT_OVERCURRENT; live.iq_target_a = 0; slow_tick();
+        assert(live.iq_target_a == 0);
     }
     /* No stale validation cache may conceal a changed live tuning field. */
     {
         const size_t fields[] = {
-            offsetof(MotorControl_TypeDef, current_limit), offsetof(MotorControl_TypeDef, speed_Kp),
-            offsetof(MotorControl_TypeDef, speed_Ki), offsetof(MotorControl_TypeDef, pos_error_window),
-            offsetof(MotorControl_TypeDef, posAcc), offsetof(MotorControl_TypeDef, posDec),
-            offsetof(MotorControl_TypeDef, pos_maxspeed), offsetof(MotorControl_TypeDef, speed_limit),
-            offsetof(MotorControl_TypeDef, cascade_pos_Kp), offsetof(MotorControl_TypeDef, cascade_pos_Kd),
-            offsetof(MotorControl_TypeDef, friction_coulomb_pos_a), offsetof(MotorControl_TypeDef, friction_coulomb_neg_a),
-            offsetof(MotorControl_TypeDef, friction_viscous_pos_a_per_rad_s), offsetof(MotorControl_TypeDef, friction_viscous_neg_a_per_rad_s)
+            offsetof(MotorControlState, current_limit_a), offsetof(MotorControlState, speed_kp),
+            offsetof(MotorControlState, speed_ki), offsetof(MotorControlState, position_error_window_rad),
+            offsetof(MotorControlState, position_acceleration_rad_s2), offsetof(MotorControlState, position_deceleration_rad_s2),
+            offsetof(MotorControlState, position_maximum_speed_rad_s), offsetof(MotorControlState, speed_limit_rad_s),
+            offsetof(MotorControlState, cascade_position_kp), offsetof(MotorControlState, cascade_position_kd),
+            offsetof(MotorControlState, friction_coulomb_pos_a), offsetof(MotorControlState, friction_coulomb_neg_a),
+            offsetof(MotorControlState, friction_viscous_pos_a_per_rad_s), offsetof(MotorControlState, friction_viscous_neg_a_per_rad_s)
         };
         for (unsigned i = 0; i < sizeof(fields)/sizeof(fields[0]); i++) {
             float invalid = NAN;
@@ -178,25 +177,25 @@ int main(void) {
             slow_tick(); slow_tick();
             assert(MotorOuterLoop_IsReady());
             memcpy((char *)&live + fields[i], &invalid, sizeof(invalid));
-            slow_tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+            slow_tick(); assert(live.fault_code == MOTOR_FAULT_INVALID_PARAMETERS && live.iq_target_a == 0);
         }
     }
     /* PI/ramp arithmetic must match the shared sequential implementation exactly. */
     setup(MOTOR_CONTROL_SPEED);
     slow_tick();
-    MotorControl_TypeDef expected = live;
-    PI_Controller_TypeDef expected_pi = live_pi;
+    MotorControlState expected = live;
+    PiController expected_pi = live_pi;
     for (unsigned step = 0; step < 20000; step++) {
         if (step % 700 == 0)
         {
-            live.speedRef = expected.speedRef = -live.speedRef;
+            live.speed_target_rad_s = expected.speed_target_rad_s = -live.speed_target_rad_s;
         }
         SpeedMode_UpdateControl(&expected, &expected_pi, enc.speed);
         slow_tick();
-        if (live.speedShadow != expected.speedShadow || live.iqRef != expected.iqRef) {
+        if (live.speed_ramped_rad_s != expected.speed_ramped_rad_s || live.iq_target_a != expected.iq_target_a) {
             fprintf(stderr, "step %u shadow %.9g/%.9g iq %.9g/%.9g error %u\n",
-                step, live.speedShadow, expected.speedShadow, live.iqRef, expected.iqRef,
-                live.ErrorNow);
+                step, live.speed_ramped_rad_s, expected.speed_ramped_rad_s, live.iq_target_a, expected.iq_target_a,
+                live.fault_code);
             assert(0);
         }
         assert(memcmp(&live_pi, &expected_pi, sizeof(live_pi)) == 0);

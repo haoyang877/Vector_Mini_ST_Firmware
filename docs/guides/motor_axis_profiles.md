@@ -36,7 +36,7 @@ AXS1采用独立版本，不改变外层schema9/10的控制参数解释。全零
 
 - 名称roll、范围约±90.0000025°、最大速度约45.0000013°/s；误差来自float32表示。
 - AXS1有效标志为true，CRC32=3400232026。
-- `pos_maxspeed=0.785398185 rad/s`。
+- `position_maximum_speed_rad_s=0.785398185 rad/s`。
 - mode0/error0、HIL未使能、三相输出关闭。
 - 完整Flash SHA-256：`be2c496d41cd5884daecc0666431268ce810c16a3531349086cc64a3b62fa91e`。
 - 实机HIL AXF SHA-256：`a5a74a06ac02e21a9438ff6d79d914791d688fdb8b0bf34ee1f14a9c84b17ac1`。

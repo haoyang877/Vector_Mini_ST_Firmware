@@ -15,7 +15,7 @@
 #define COGGING_MAP_MAGIC 0x31475143U /* CQG1：有符号满量程 Q15、1024 个机械位置 */
 
 /* 表索引 i 对应经过方向设置与线性化的单圈编码器角 i * 2π/1024，
- * 不依赖用户机械零位；正值表示需要正 Iq 保持。
+ * 不依赖用户机械零位；正值表示需要正 iq_a 保持。
  * CRC 覆盖 magic、encoder_signature、full_scale_a，再覆盖 iq_q15（小端目标）。 */
 typedef struct
 {

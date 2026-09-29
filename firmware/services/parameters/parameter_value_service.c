@@ -17,41 +17,41 @@ typedef struct
 } ScalarField;
 
 #define READ_FIELD(id, field, scale)                                                               \
-    {id, PARAMETER_ACCESS_READ, offsetof(MotorControl_TypeDef, field), scale}
+    {id, PARAMETER_ACCESS_READ, offsetof(MotorControlState, field), scale}
 #define WRITE_FIELD(id, field, scale)                                                              \
     {id,                                                                                           \
      PARAMETER_ACCESS_READ | PARAMETER_ACCESS_WRITE_IDLE,                                          \
-     offsetof(MotorControl_TypeDef, field),                                                        \
+     offsetof(MotorControlState, field),                                                           \
      scale}
 #define CAL_FIELD(id, field, scale)                                                                \
     {id,                                                                                           \
      PARAMETER_ACCESS_READ | PARAMETER_ACCESS_CALIBRATION,                                         \
-     offsetof(MotorControl_TypeDef, field),                                                        \
+     offsetof(MotorControlState, field),                                                           \
      scale}
-static const ScalarField fields[] = {
-    WRITE_FIELD(1U, speed_limit, 1000U),
-    WRITE_FIELD(2U, current_limit, 1000U),
-    READ_FIELD(6U, motor_flux, 1000000000U),
-    READ_FIELD(7U, motor_phase_resistance, 1000000U),
-    READ_FIELD(8U, motor_d_inductance, 1000000000U),
-    READ_FIELD(9U, motor_q_inductance, 1000000000U),
-    READ_FIELD(11U, id_Kp, 1000U),
-    READ_FIELD(12U, id_Ki, 1000U),
-    READ_FIELD(13U, iq_Kp, 1000U),
-    READ_FIELD(14U, iq_Ki, 1000U),
-    READ_FIELD(16U, speed_Kp, 1000000U),
-    READ_FIELD(17U, speed_Ki, 1000000U),
-    READ_FIELD(19U, speedAcc, 1000U),
-    READ_FIELD(20U, speedDec, 1000U),
-    WRITE_FIELD(21U, cascade_pos_Kp, 1000000U),
-    WRITE_FIELD(22U, cascade_pos_Kd, 1000000U),
-    WRITE_FIELD(23U, pos_maxspeed, 1000U),
-    READ_FIELD(24U, posAcc, 1000U),
-    READ_FIELD(25U, posDec, 1000U),
-    READ_FIELD(26U, pos_error_window, 1000U),
-    CAL_FIELD(0x44U, A_Offset, 1000U),
-    CAL_FIELD(0x45U, B_Offset, 1000U),
-    CAL_FIELD(0x46U, C_Offset, 1000U),
+static const ScalarField s_fields[] = {
+    WRITE_FIELD(1U, speed_limit_rad_s, 1000U),
+    WRITE_FIELD(2U, current_limit_a, 1000U),
+    READ_FIELD(6U, motor_flux_wb, 1000000000U),
+    READ_FIELD(7U, motor_phase_resistance_ohm, 1000000U),
+    READ_FIELD(8U, motor_d_inductance_h, 1000000000U),
+    READ_FIELD(9U, motor_q_inductance_h, 1000000000U),
+    READ_FIELD(11U, id_kp, 1000U),
+    READ_FIELD(12U, id_ki, 1000U),
+    READ_FIELD(13U, iq_kp, 1000U),
+    READ_FIELD(14U, iq_ki, 1000U),
+    READ_FIELD(16U, speed_kp, 1000000U),
+    READ_FIELD(17U, speed_ki, 1000000U),
+    READ_FIELD(19U, speed_acceleration_rad_s2, 1000U),
+    READ_FIELD(20U, speed_deceleration_rad_s2, 1000U),
+    WRITE_FIELD(21U, cascade_position_kp, 1000000U),
+    WRITE_FIELD(22U, cascade_position_kd, 1000000U),
+    WRITE_FIELD(23U, position_maximum_speed_rad_s, 1000U),
+    READ_FIELD(24U, position_acceleration_rad_s2, 1000U),
+    READ_FIELD(25U, position_deceleration_rad_s2, 1000U),
+    READ_FIELD(26U, position_error_window_rad, 1000U),
+    CAL_FIELD(0x44U, phase_a_offset_counts, 1000U),
+    CAL_FIELD(0x45U, phase_b_offset_counts, 1000U),
+    CAL_FIELD(0x46U, phase_c_offset_counts, 1000U),
     CAL_FIELD(0x47U, friction_coulomb_pos_a, 1000U),
     CAL_FIELD(0x48U, friction_coulomb_neg_a, 1000U),
     CAL_FIELD(0x49U, friction_viscous_pos_a_per_rad_s, 1000000U),
@@ -61,11 +61,11 @@ static const ScalarField fields[] = {
 /* 返回的描述符属于只读常量表，不含可变控制对象地址。 */
 static const ScalarField *find_field(uint8_t id)
 {
-    for (unsigned index = 0U; index < sizeof(fields) / sizeof(fields[0]); ++index)
+    for (unsigned index = 0U; index < sizeof(s_fields) / sizeof(s_fields[0]); ++index)
     {
-        if (fields[index].id == id)
+        if (s_fields[index].id == id)
         {
-            return &fields[index];
+            return &s_fields[index];
         }
     }
     return NULL;
@@ -117,8 +117,8 @@ static ParameterStatus encode_float(float value, uint32_t scale, uint32_t *raw)
     return PARAMETER_OK;
 }
 
-ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
-                                    const Encoder_TypeDef *encoder,
+ParameterStatus ParameterValue_Read(const MotorControlState *motor,
+                                    const EncoderState *encoder,
                                     uint32_t revision,
                                     uint8_t node_id,
                                     uint8_t parameter_id,
@@ -176,7 +176,7 @@ ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
             break;
         case 10U:
             candidate.value_type = PARAMETER_VALUE_I32;
-            if (encode_float((motor->motor_d_inductance + motor->motor_q_inductance) * 0.5f,
+            if (encode_float((motor->motor_d_inductance_h + motor->motor_q_inductance_h) * 0.5f,
                              1000000000.0f,
                              &candidate.raw_value) != PARAMETER_OK)
             {
@@ -214,7 +214,7 @@ ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
     return PARAMETER_OK;
 }
 
-static float speed_ceiling(const MotorControl_TypeDef *motor, uint8_t node_id)
+static float speed_ceiling(const MotorControlState *motor, uint8_t node_id)
 {
     float limit = Param_SpeedLimitRadS(node_id);
     if (motor->axis_profile.magic != 0U)
@@ -224,7 +224,7 @@ static float speed_ceiling(const MotorControl_TypeDef *motor, uint8_t node_id)
     return limit;
 }
 
-ParameterStatus ParameterValue_Apply(MotorControl_TypeDef *motor,
+ParameterStatus ParameterValue_Apply(MotorControlState *motor,
                                      uint8_t node_id,
                                      const ParameterWriteRequest *request)
 {
@@ -277,8 +277,8 @@ ParameterStatus ParameterValue_Apply(MotorControl_TypeDef *motor,
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->speed_limit = si_value;
-        motor->pos_maxspeed = fminf(motor->pos_maxspeed, si_value);
+        motor->speed_limit_rad_s = si_value;
+        motor->position_maximum_speed_rad_s = fminf(motor->position_maximum_speed_rad_s, si_value);
         break;
     case 2U:
     {
@@ -296,7 +296,7 @@ ParameterStatus ParameterValue_Apply(MotorControl_TypeDef *motor,
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->current_limit = si_value;
+        motor->current_limit_a = si_value;
         break;
     }
     case 21U:
@@ -304,22 +304,22 @@ ParameterStatus ParameterValue_Apply(MotorControl_TypeDef *motor,
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->cascade_pos_Kp = si_value;
+        motor->cascade_position_kp = si_value;
         break;
     case 22U:
         if (si_value < 0.0f || si_value > CASCADE_POSITION_KD_MAX)
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->cascade_pos_Kd = si_value;
+        motor->cascade_position_kd = si_value;
         break;
     case 23U:
-        if (si_value <= 0.0f || si_value > motor->speed_limit ||
+        if (si_value <= 0.0f || si_value > motor->speed_limit_rad_s ||
             si_value > speed_ceiling(motor, node_id))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->pos_maxspeed = si_value;
+        motor->position_maximum_speed_rad_s = si_value;
         break;
     default:
         return PARAMETER_READ_ONLY;

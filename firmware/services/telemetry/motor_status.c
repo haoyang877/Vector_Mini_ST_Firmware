@@ -2,7 +2,7 @@
 #include "motor_status.h"
 #include <stddef.h>
 
-/* Single-core ISR/foreground mailbox. Every shared payload access and state
+/* Single-core ISR/foreground mailbox. Every shared payload access and s_state
  * access is volatile and sequenced. Producer cannot overwrite READY data;
  * consumer cannot access REQUESTED data. No spin, interrupt lock or allocation. */
 enum
@@ -11,60 +11,60 @@ enum
     REQUESTED,
     READY
 };
-static volatile uint32_t state;
-static volatile MotorStatus published;
+static volatile uint32_t s_state;
+static volatile MotorStatus s_published;
 
 void MotorStatus_Request(void)
 {
-    if (state == EMPTY)
+    if (s_state == EMPTY)
     {
-        state = REQUESTED;
+        s_state = REQUESTED;
     }
 }
 bool MotorStatus_IsRequested(void)
 {
-    return state == REQUESTED;
+    return s_state == REQUESTED;
 }
 void MotorStatus_Publish(const MotorStatus *sample)
 {
-    if (sample == NULL || state != REQUESTED)
+    if (sample == NULL || s_state != REQUESTED)
     {
         return;
     }
-    published.fault = sample->fault;
-    published.mode = sample->mode;
-    published.position_target = sample->position_target;
-    published.position_feedback = sample->position_feedback;
-    published.speed_target = sample->speed_target;
-    published.speed_feedback = sample->speed_feedback;
-    published.current_reference = sample->current_reference;
-    published.current_feedback = sample->current_feedback;
-    published.position_planned = sample->position_planned;
-    published.speed_planned = sample->speed_planned;
-    published.temperature = sample->temperature;
-    published.bus_voltage = sample->bus_voltage;
-    published.bus_current = sample->bus_current;
-    state = READY;
+    s_published.fault = sample->fault;
+    s_published.mode = sample->mode;
+    s_published.position_target = sample->position_target;
+    s_published.position_feedback = sample->position_feedback;
+    s_published.speed_target = sample->speed_target;
+    s_published.speed_feedback_rad_s = sample->speed_feedback_rad_s;
+    s_published.current_reference = sample->current_reference;
+    s_published.current_feedback = sample->current_feedback;
+    s_published.position_planned = sample->position_planned;
+    s_published.speed_planned = sample->speed_planned;
+    s_published.temperature = sample->temperature;
+    s_published.bus_voltage = sample->bus_voltage;
+    s_published.bus_current = sample->bus_current;
+    s_state = READY;
 }
 bool MotorStatus_Take(MotorStatus *sample)
 {
-    if (sample == NULL || state != READY)
+    if (sample == NULL || s_state != READY)
     {
         return false;
     }
-    sample->fault = published.fault;
-    sample->mode = published.mode;
-    sample->position_target = published.position_target;
-    sample->position_feedback = published.position_feedback;
-    sample->speed_target = published.speed_target;
-    sample->speed_feedback = published.speed_feedback;
-    sample->current_reference = published.current_reference;
-    sample->current_feedback = published.current_feedback;
-    sample->position_planned = published.position_planned;
-    sample->speed_planned = published.speed_planned;
-    sample->temperature = published.temperature;
-    sample->bus_voltage = published.bus_voltage;
-    sample->bus_current = published.bus_current;
-    state = EMPTY;
+    sample->fault = s_published.fault;
+    sample->mode = s_published.mode;
+    sample->position_target = s_published.position_target;
+    sample->position_feedback = s_published.position_feedback;
+    sample->speed_target = s_published.speed_target;
+    sample->speed_feedback_rad_s = s_published.speed_feedback_rad_s;
+    sample->current_reference = s_published.current_reference;
+    sample->current_feedback = s_published.current_feedback;
+    sample->position_planned = s_published.position_planned;
+    sample->speed_planned = s_published.speed_planned;
+    sample->temperature = s_published.temperature;
+    sample->bus_voltage = s_published.bus_voltage;
+    sample->bus_current = s_published.bus_current;
+    s_state = EMPTY;
     return true;
 }

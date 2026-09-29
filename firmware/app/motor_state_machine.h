@@ -14,18 +14,18 @@
 
 /**
  * @param motor 组合层终身电机对象。
- * @param foc 组合层终身 FOC 对象。
+ * @param foc 组合层终身 foc 对象。
  * @param pi 组合层终身速度 PI。
  * @param encoder 组合层终身编码器对象。
  * @param startup 组合层终身无感启动对象。
  * @brief 初始化运行所有者：核心进入 BOOT 态，清空命令和采样进展。
  * @note 由启动组合层在中断使能前调用一次；不访问硬件。
  */
-void MotorStateMachine_Init(MotorControl_TypeDef *motor,
-                            FOC_TypeDef *foc,
-                            PI_Controller_TypeDef *pi,
-                            Encoder_TypeDef *encoder,
-                            SensorlessStartup_TypeDef *startup);
+void MotorStateMachine_Init(MotorControlState *motor,
+                            FocState *foc,
+                            PiController *pi,
+                            EncoderState *encoder,
+                            SensorlessStartupState *startup);
 /**
  * @brief 快速环故障检查：核对编码器反馈与轴配置。
  * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。不清错、不写 Flash。

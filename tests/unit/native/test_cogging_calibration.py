@@ -1,4 +1,4 @@
-"""使用合成编码器/电流数据执行生产齿槽核心与 FOC 适配层。
+"""使用合成编码器/电流数据执行生产齿槽核心与 foc 适配层。
 
 覆盖整圈双向采样、符号/量程、双向平均、拒绝样本、有界失败、先停机后保存、
 旧记录保持，以及补偿纯核心的插值/准入/渐变/限幅与台架保护判定。
@@ -20,28 +20,28 @@ FIXTURE = r"""
 #include <string.h>
 #include "foc_cogging_calibration.h"
 #include "hw_conf.h"
-MotorControl_TypeDef MotorControl;
-Encoder_TypeDef OnBoard_Encoder;
-static FOC_TypeDef foc;
-static PI_Controller_TypeDef pi;
+MotorControlState motor_state;
+EncoderState rotor_encoder;
+static FocState foc;
+static PiController pi;
 static bool pwm, calibration_running;
 static unsigned enabled;
 void power_stage_hw_stop(void) { pwm=false; }
 void power_stage_hw_start(void) { pwm=true; ++enabled; }
-void MotorFault_Report(MotorControl_TypeDef *m,ErrorNow_TypeDef e) { m->ErrorNow=e; }
-bool Encoder_IsOnline(const Encoder_TypeDef *e) { return e->has_valid_sample; }
+void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
+bool Encoder_IsOnline(const EncoderState *e) { return e->has_valid_sample; }
 uint32_t critical_hw_enter(void) { return 0U; }
 void critical_hw_exit(uint32_t state) { (void)state; }
-float Encoder_GetMecVelContinuous(const Encoder_TypeDef *e) { return e->vel_mech_continuous; }
-float Encoder_GetMecPos(const Encoder_TypeDef *e)
+float Encoder_GetMecVelContinuous(const EncoderState *e) { return e->mechanical_velocity_continuous_rad_s; }
+float Encoder_GetMecPos(const EncoderState *e)
 { return (float)(e->shadow_q15 - e->mechanical_zero_shadow_q15) * (6.283185307f / 65536.0f); }
-float Encoder_GetElePhase(const Encoder_TypeDef *e) { return e->theta_elec; }
-float Encoder_GetEleVel(const Encoder_TypeDef *e) { return e->vel_elec; }
-uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
-uint8_t Encoder_GetReverse(const Encoder_TypeDef *e) { return e->reverse; }
-void FOC_CurrentController_Reset(FOC_TypeDef *f) { (void)f; }
-void FOC_Current(FOC_TypeDef *f,MotorControl_TypeDef *m,float p,float v) {
-    (void)f;(void)p;(void)v; assert(isfinite(m->iqRef) && fabsf(m->iqRef)<=1.001f);
+float Encoder_GetElePhase(const EncoderState *e) { return e->electrical_angle_rad; }
+float Encoder_GetEleVel(const EncoderState *e) { return e->electrical_velocity_rad_s; }
+uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
+uint8_t Encoder_GetReverse(const EncoderState *e) { return e->reverse; }
+void FOC_CurrentController_Reset(FocState *f) { (void)f; }
+void FOC_Current(FocState *f,MotorControlState *m,float p,float v) {
+    (void)f;(void)p;(void)v; assert(isfinite(m->iq_target_a) && fabsf(m->iq_target_a)<=1.001f);
 }
 /* 直接编译生产适配层，允许离线检查私有状态，不增加运行时 getter。 */
 #include "foc_cogging_calibration.c"
@@ -60,12 +60,12 @@ static void consume(MotorTaskResult o) {
         power_stage_hw_start();
     } else if(o.result==MOTOR_TASK_FINALIZE || o.result==MOTOR_TASK_STOP_REQUESTED) {
         power_stage_hw_stop(); calibration_running=false;
-        MotorControl.control_mode=MOTOR_CONTROL_NONE;
+        motor_state.control_mode=MOTOR_CONTROL_NONE;
     } else if(o.result==MOTOR_TASK_FAILED) {
-        MotorFault_Report(&MotorControl,o.error);
+        MotorFault_Report(&motor_state,o.error);
         if(pwm) power_stage_hw_stop();
         calibration_running=false;
-        MotorControl.control_mode=MOTOR_CONTROL_NONE;
+        motor_state.control_mode=MOTOR_CONTROL_NONE;
     }
 }
 static void core_tests(void) {
@@ -162,91 +162,91 @@ static void core_tests(void) {
     puts("PASS full 1024-point two-pass coverage, phase-wrap, both shunt scales, signed endpoints, DC/friction removal, CRC, unstable samples, timeout, saturation, cancel");
 }
 static void setup(void) {
-    FocCogging_Abort(); memset(&MotorControl,0,sizeof(MotorControl));
-    memset(&OnBoard_Encoder,0,sizeof(OnBoard_Encoder)); memset(&foc,0,sizeof(foc));
-    MotorControl.control_mode=MOTOR_CONTROL_NONE; calibration_running=true; MotorControl.axis_profile_valid=true;
-    MotorControl.current_limit=6;MotorControl.calib_current=3;MotorControl.speed_limit=20;
-    MotorControl.speed_Kp=.05f;MotorControl.speed_Ki=.5f;MotorControl.motor_pole_pairs=21;
-    OnBoard_Encoder.has_valid_sample=true;OnBoard_Encoder.calib_flag=3;OnBoard_Encoder.velocity_ready=true;
-    foc.Vbus=foc.Vbus_filt=30;foc.temp=25;pwm=false;enabled=0;
+    FocCogging_Abort(); memset(&motor_state,0,sizeof(motor_state));
+    memset(&rotor_encoder,0,sizeof(rotor_encoder)); memset(&foc,0,sizeof(foc));
+    motor_state.control_mode=MOTOR_CONTROL_NONE; calibration_running=true; motor_state.axis_profile_valid=true;
+    motor_state.current_limit_a=6;motor_state.calibration_current_a=3;motor_state.speed_limit_rad_s=20;
+    motor_state.speed_kp=.05f;motor_state.speed_ki=.5f;motor_state.motor_pole_pairs=21;
+    rotor_encoder.has_valid_sample=true;rotor_encoder.calib_flag=3;rotor_encoder.velocity_ready=true;
+    foc.bus_voltage_v=foc.bus_voltage_filtered_v=30;foc.temperature_c=25;pwm=false;enabled=0;
 }
 static void adapter_tests(void) {
-    setup();foc.Vbus=foc.Vbus_filt=20;
-    MotorTaskResult out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
-    assert(out.result==MOTOR_TASK_FAILED && out.error==CoggingCalibration_Error);
+    setup();foc.bus_voltage_v=foc.bus_voltage_filtered_v=20;
+    MotorTaskResult out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
+    assert(out.result==MOTOR_TASK_FAILED && out.error==MOTOR_FAULT_COGGING_CALIBRATION);
     consume(out);
-    assert(!pwm && !enabled && MotorControl.control_mode==MOTOR_CONTROL_NONE);
-    setup();MotorControl.axis_profile.magic=MOTOR_AXIS_PROFILE_MAGIC;
-    assert(!FocCogging_CanStart(&MotorControl,&OnBoard_Encoder));
-    setup();OnBoard_Encoder.calib_flag=1;
-    assert(!FocCogging_CanStart(&MotorControl,&OnBoard_Encoder));
-    setup();before=CoggingMap;
-    out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);consume(out);assert(pwm);
-    OnBoard_Encoder.has_valid_sample=false;
-    out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
-    assert(out.result==MOTOR_TASK_FAILED && out.error==CoggingCalibration_Error);
+    assert(!pwm && !enabled && motor_state.control_mode==MOTOR_CONTROL_NONE);
+    setup();motor_state.axis_profile.magic=MOTOR_AXIS_PROFILE_MAGIC;
+    assert(!FocCogging_CanStart(&motor_state,&rotor_encoder));
+    setup();rotor_encoder.calib_flag=1;
+    assert(!FocCogging_CanStart(&motor_state,&rotor_encoder));
+    setup();before=s_cogging_map;
+    out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);consume(out);assert(pwm);
+    rotor_encoder.has_valid_sample=false;
+    out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
+    assert(out.result==MOTOR_TASK_FAILED && out.error==MOTOR_FAULT_COGGING_CALIBRATION);
     consume(out);
-    assert(!pwm && CoggingCalib.state==COGGING_FAILED);
-    assert(!memcmp(&CoggingMap,&before,sizeof(before)));
+    assert(!pwm && s_cogging_calib.state==COGGING_FAILED);
+    assert(!memcmp(&s_cogging_map,&before,sizeof(before)));
     setup();
-    consume(FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder));
+    consume(FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder));
     double synthetic_position=0.0,synthetic_velocity=0.0;
     for(unsigned ticks=0;calibration_running && ticks<36000000;ticks++) {
         /* Independent inertial plant, driven by actual controller output. */
         double load=.03*sin(synthetic_position*21.0)+.10*synthetic_velocity;
-        synthetic_velocity+=(MotorControl.iqRef-load)/.005*Current_Ts;
+        synthetic_velocity+=(motor_state.iq_target_a-load)/.005*Current_Ts;
         synthetic_position+=synthetic_velocity*Current_Ts;
-        OnBoard_Encoder.vel_mech_continuous=(float)synthetic_velocity;
-        OnBoard_Encoder.shadow_q15=(int64_t)llround(synthetic_position*65536.0/6.283185307);
-        OnBoard_Encoder.linearized_q15=(uint16_t)OnBoard_Encoder.shadow_q15;
-        foc.Iq=MotorControl.iqRef;
-        out=FocCogging_Task(&foc,&MotorControl,&pi,&OnBoard_Encoder);
+        rotor_encoder.mechanical_velocity_continuous_rad_s=(float)synthetic_velocity;
+        rotor_encoder.shadow_q15=(int64_t)llround(synthetic_position*65536.0/6.283185307);
+        rotor_encoder.linearized_q15=(uint16_t)rotor_encoder.shadow_q15;
+        foc.iq_a=motor_state.iq_target_a;
+        out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
         if(out.result!=MOTOR_TASK_RUNNING) consume(out);
     }
-    assert(CoggingCalib.state==COGGING_COMPLETE && CoggingCalib.points_done==2048);
+    assert(s_cogging_calib.state==COGGING_COMPLETE && s_cogging_calib.points_done==2048);
     assert(FocCogging_GetState()==COGGING_SAVING);
-    assert(!pwm && MotorControl.control_mode==MOTOR_CONTROL_NONE && OnBoard_Encoder.reverse==0);
+    assert(!pwm && motor_state.control_mode==MOTOR_CONTROL_NONE && rotor_encoder.reverse==0);
     assert(FocCogging_BeginFinalize());
-    assert(FocCogging_BuildCandidate(&record,&MotorControl,&OnBoard_Encoder));
+    assert(FocCogging_BuildCandidate(&record,&motor_state,&rotor_encoder));
     assert(FocCogging_PublishCandidate(&record));
     FocCogging_ReleaseFinalize(true);
-    MotorControl.control_mode=MOTOR_CONTROL_NONE;
-    assert(FocCogging_TableValid(&MotorControl,&OnBoard_Encoder));
-    FocCogging_SaveResult(false);assert(CoggingCalib.reason==COGGING_SAVE_FAILED);
-    OnBoard_Encoder.electrical_zero_q15++;assert(!FocCogging_TableValid(&MotorControl,&OnBoard_Encoder));
-    puts("PASS production FOC adapter result protocol: unsafe-start fault, encoder loss fault, complete-then-save, failed-save status, unchanged direction and stale-map rejection");
+    motor_state.control_mode=MOTOR_CONTROL_NONE;
+    assert(FocCogging_TableValid(&motor_state,&rotor_encoder));
+    FocCogging_SaveResult(false);assert(s_cogging_calib.reason==COGGING_SAVE_FAILED);
+    rotor_encoder.electrical_zero_q15++;assert(!FocCogging_TableValid(&motor_state,&rotor_encoder));
+    puts("PASS production foc adapter result protocol: unsafe-start fault, encoder loss fault, complete-then-save, failed-save status, unchanged direction and stale-map rejection");
 }
 static void compensation_tests(void) {
-    setup();MotorControl.control_mode=MOTOR_CONTROL_NONE;
+    setup();motor_state.control_mode=MOTOR_CONTROL_NONE;
     memset(&c,0,sizeof(c));c.state=COGGING_COMPLETE;c.points_done=2048;c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
     c.iq_q15[0]=100;c.iq_q15[1023]=-100;
-    assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,Cogging_EncoderSignature(0,0,21,OnBoard_Encoder.linearization_lut_q15),&CoggingMap));
-    assert(FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));MotorControl.control_mode=MOTOR_CONTROL_CURRENT;MotorControl.iqRef=.2f;
-    for(unsigned i=0;i<4001;i++) FocCogging_Apply(&MotorControl,&OnBoard_Encoder);
+    assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,Cogging_EncoderSignature(0,0,21,rotor_encoder.linearization_lut_q15),&s_cogging_map));
+    assert(FocCogging_SetCompensation(true,&motor_state,&rotor_encoder));motor_state.control_mode=MOTOR_CONTROL_CURRENT;motor_state.iq_target_a=.2f;
+    for(unsigned i=0;i<4001;i++) FocCogging_Apply(&motor_state,&rotor_encoder);
     float scale=82.5f/32768;
-    assert(fabsf(CoggingCompensation.blend-1)<1e-6f);
-    assert(fabsf(CoggingCompensation.total_a-(.2f+100*scale))<1e-6f && MotorControl.iqRef==.2f);
-    OnBoard_Encoder.linearized_q15=32;
-    assert(fabsf(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)-(.2f+50*scale))<1e-6f);
-    OnBoard_Encoder.linearized_q15=65504; /* halfway across the last-to-first wrap */
-    assert(fabsf(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)-.2f)<1e-6f);
-    OnBoard_Encoder.linearized_q15=65472;MotorControl.current_limit=.3f;MotorControl.iqRef=-.2f;
-    assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==-.3f);
-    MotorControl.iqRef=0;assert(FocCogging_SetCompensation(false,&MotorControl,&OnBoard_Encoder));
-    assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)<-.2f); /* smooth off */
-    for(unsigned i=0;i<4001;i++) FocCogging_Apply(&MotorControl,&OnBoard_Encoder);
-    assert(CoggingCompensation.total_a==0);
-    assert(FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));OnBoard_Encoder.electrical_zero_q15++;
-    assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==0 && CoggingCompensation.enabled==0);
-    assert(!FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));OnBoard_Encoder.electrical_zero_q15--;
-    CoggingMap.iq_q15[3]++;assert(!FocCogging_SetCompensation(true,&MotorControl,&OnBoard_Encoder));
-    CoggingMap.iq_q15[3]--; /* restore CRC-valid table, first request while running */
+    assert(fabsf(s_cogging_compensation.blend-1)<1e-6f);
+    assert(fabsf(s_cogging_compensation.total_a-(.2f+100*scale))<1e-6f && motor_state.iq_target_a==.2f);
+    rotor_encoder.linearized_q15=32;
+    assert(fabsf(FocCogging_Apply(&motor_state,&rotor_encoder)-(.2f+50*scale))<1e-6f);
+    rotor_encoder.linearized_q15=65504; /* halfway across the last-to-first wrap */
+    assert(fabsf(FocCogging_Apply(&motor_state,&rotor_encoder)-.2f)<1e-6f);
+    rotor_encoder.linearized_q15=65472;motor_state.current_limit_a=.3f;motor_state.iq_target_a=-.2f;
+    assert(FocCogging_Apply(&motor_state,&rotor_encoder)==-.3f);
+    motor_state.iq_target_a=0;assert(FocCogging_SetCompensation(false,&motor_state,&rotor_encoder));
+    assert(FocCogging_Apply(&motor_state,&rotor_encoder)<-.2f); /* smooth off */
+    for(unsigned i=0;i<4001;i++) FocCogging_Apply(&motor_state,&rotor_encoder);
+    assert(s_cogging_compensation.total_a==0);
+    assert(FocCogging_SetCompensation(true,&motor_state,&rotor_encoder));rotor_encoder.electrical_zero_q15++;
+    assert(FocCogging_Apply(&motor_state,&rotor_encoder)==0 && s_cogging_compensation.enabled==0);
+    assert(!FocCogging_SetCompensation(true,&motor_state,&rotor_encoder));rotor_encoder.electrical_zero_q15--;
+    s_cogging_map.iq_q15[3]++;assert(!FocCogging_SetCompensation(true,&motor_state,&rotor_encoder));
+    s_cogging_map.iq_q15[3]--; /* restore CRC-valid table, first request while running */
     FocCogging_RequestCompensation(true);
-    assert(FocCogging_Apply(&MotorControl,&OnBoard_Encoder)==0);
-    assert(CoggingCompensation.enabled==0);
-    FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==1);
+    assert(FocCogging_Apply(&motor_state,&rotor_encoder)==0);
+    assert(s_cogging_compensation.enabled==0);
+    FocCogging_Service(&motor_state,&rotor_encoder);assert(s_cogging_compensation.enabled==1);
     FocCogging_RequestCompensation(true);FocCogging_RequestCompensation(false);
-    FocCogging_Service(&MotorControl,&OnBoard_Encoder);assert(CoggingCompensation.enabled==0);
+    FocCogging_Service(&motor_state,&rotor_encoder);assert(s_cogging_compensation.enabled==0);
     CoggingTorqueGuard guard;
     assert(!FocCogging_ReadTorqueGuard(NULL));
     assert(FocCogging_SetTorqueGuard(2,2));
@@ -254,38 +254,38 @@ static void compensation_tests(void) {
     assert(!FocCogging_SetTorqueGuard(100,0));
     assert(!FocCogging_SetTorqueGuard(100,-1));
     assert(FocCogging_ReadTorqueGuard(&guard) && guard.enabled==1 && guard.lease_ticks==2);
-    assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
-    assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
-    pwm=true;assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
+    assert(FocCogging_TorqueGuard(&motor_state,&rotor_encoder));
+    assert(FocCogging_TorqueGuard(&motor_state,&rotor_encoder));
+    pwm=true;assert(!FocCogging_TorqueGuard(&motor_state,&rotor_encoder));
     /* 跳闸只置挂起标志；停相与模式回退由调度层转为结果协议后执行（此处模拟消费）。 */
     assert(FocCogging_ReadTorqueGuard(&guard) && guard.trip==1 && guard.lease_ticks==0);
     assert(FocCogging_SetTorqueGuard(0,0));
     assert(FocCogging_TakeTorqueTrip()); /* 关闭保护不能撤回已经挂起的STOP。 */
-    consume((MotorTaskResult){MOTOR_TASK_FINALIZE, No_Error});
-    assert(!pwm && MotorControl.control_mode==MOTOR_CONTROL_NONE);
-    assert(FocCogging_SetTorqueGuard(100,2));OnBoard_Encoder.vel_mech_continuous=3;
-    assert(!FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
+    consume((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE});
+    assert(!pwm && motor_state.control_mode==MOTOR_CONTROL_NONE);
+    assert(FocCogging_SetTorqueGuard(100,2));rotor_encoder.mechanical_velocity_continuous_rad_s=3;
+    assert(!FocCogging_TorqueGuard(&motor_state,&rotor_encoder));
     assert(FocCogging_ReadTorqueGuard(&guard) && guard.trip==2);
     assert(FocCogging_TakeTorqueTrip());
-    OnBoard_Encoder.vel_mech_continuous=0;assert(FocCogging_SetTorqueGuard(0,0));
-    assert(FocCogging_TorqueGuard(&MotorControl,&OnBoard_Encoder));
+    rotor_encoder.mechanical_velocity_continuous_rad_s=0;assert(FocCogging_SetTorqueGuard(0,0));
+    assert(FocCogging_TorqueGuard(&motor_state,&rotor_encoder));
     CoggingTorqueFrame sample, previous;
     assert(sizeof(sample)==36 && !FocCogging_ReadTorqueSample(NULL));
     assert(!FocCogging_ReadTorqueSample(&sample));
     assert(FocCogging_RequestTorqueSample());
     assert(!FocCogging_RequestTorqueSample() && !FocCogging_ReadTorqueSample(&sample));
-    MotorControl.iqRef=.25f;foc.Iq=.2f;foc.Vbus_filt=30;
-    FocCogging_TorqueObserve(&foc,&MotorControl,&OnBoard_Encoder);
+    motor_state.iq_target_a=.25f;foc.iq_a=.2f;foc.bus_voltage_filtered_v=30;
+    FocCogging_TorqueObserve(&foc,&motor_state,&rotor_encoder);
     assert(!FocCogging_ReadTorqueSample(NULL) && !FocCogging_RequestTorqueSample());
     /* 未消费的帧不覆盖，空指针不丢帧，消费后调用方拥有独立副本。 */
-    MotorControl.iqRef=.5f;foc.Iq=.4f;foc.Vbus_filt=31;
-    FocCogging_TorqueObserve(&foc,&MotorControl,&OnBoard_Encoder);
+    motor_state.iq_target_a=.5f;foc.iq_a=.4f;foc.bus_voltage_filtered_v=31;
+    FocCogging_TorqueObserve(&foc,&motor_state,&rotor_encoder);
     assert(FocCogging_ReadTorqueSample(&sample));
     assert(sample.command_a==.25f && sample.feedback_a==.2f && sample.vbus_v==30);
     assert(!FocCogging_ReadTorqueSample(&sample));
     previous=sample;
     assert(FocCogging_RequestTorqueSample());
-    FocCogging_TorqueObserve(&foc,&MotorControl,&OnBoard_Encoder);
+    FocCogging_TorqueObserve(&foc,&motor_state,&rotor_encoder);
     assert(FocCogging_ReadTorqueSample(&sample));
     assert(sample.tick>previous.tick && sample.command_a==.5f && previous.command_a==.25f);
     puts("PASS compensation interpolation/wrap/sign, command ownership, ramp, total clamp, stale/corrupt rejection and independent torque watchdog trip flag");

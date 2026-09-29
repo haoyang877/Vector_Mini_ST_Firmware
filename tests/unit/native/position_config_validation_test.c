@@ -9,7 +9,7 @@
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "validation_actual.inc"
-static bool reference_valid(const PositionCascadeConfig_TypeDef *config)
+static bool reference_valid(const PositionCascadeConfig *config)
 {
     return config != NULL && isfinite(config->update_period_s) && config->update_period_s > 0.0f &&
            config->call_divider > 0U && isfinite(config->target_position) &&
@@ -28,16 +28,16 @@ static bool reference_valid(const PositionCascadeConfig_TypeDef *config)
            isfinite(config->acceleration) && config->acceleration > 0.0f &&
            isfinite(config->deceleration) && config->deceleration > 0.0f &&
            isfinite(config->maximum_speed) && config->maximum_speed > 0.0f &&
-           isfinite(config->speed_limit) && config->speed_limit > 0.0f &&
-           config->maximum_speed <= config->speed_limit && isfinite(config->jerk_limit) &&
+           isfinite(config->speed_limit_rad_s) && config->speed_limit_rad_s > 0.0f &&
+           config->maximum_speed <= config->speed_limit_rad_s && isfinite(config->jerk_limit) &&
            config->jerk_limit > 0.0f && isfinite(config->position_kp) &&
            config->position_kp >= 0.0f && config->position_kp <= CASCADE_POSITION_KP_MAX_PER_S &&
            isfinite(config->position_kd) && config->position_kd >= 0.0f &&
            config->position_kd <= CASCADE_POSITION_KD_MAX && isfinite(config->speed_kp) &&
            config->speed_kp >= 0.0f && isfinite(config->speed_ki) && config->speed_ki >= 0.0f &&
            isfinite(config->acceleration_feedforward_gain) &&
-           config->acceleration_feedforward_gain >= 0.0f && isfinite(config->current_limit) &&
-           config->current_limit > 0.0f && isfinite(config->friction_coulomb_positive) &&
+           config->acceleration_feedforward_gain >= 0.0f && isfinite(config->current_limit_a) &&
+           config->current_limit_a > 0.0f && isfinite(config->friction_coulomb_positive) &&
            config->friction_coulomb_positive >= 0.0f &&
            isfinite(config->friction_coulomb_negative) &&
            config->friction_coulomb_negative >= 0.0f &&
@@ -70,10 +70,10 @@ static uint32_t next_bits(void)
     rng_state ^= rng_state << 5;
     return rng_state;
 }
-static void compare(const PositionCascadeConfig_TypeDef *config)
+static void compare(const PositionCascadeConfig *config)
 {
     bool expected = reference_valid(config);
-    bool actual = PositionCascade_ConfigIsValid(config);
+    bool actual = position_cascade_config_is_valid(config);
     ++compared;
     if (actual != expected)
     {
@@ -81,7 +81,7 @@ static void compare(const PositionCascadeConfig_TypeDef *config)
         exit(1);
     }
 }
-static void set_bits(PositionCascadeConfig_TypeDef *config, size_t field, uint32_t bits)
+static void set_bits(PositionCascadeConfig *config, size_t field, uint32_t bits)
 {
     memcpy((unsigned char *)config + test_offsets[field], &bits, sizeof(bits));
 }
@@ -105,8 +105,8 @@ int main(void)
                                        0xbf800000U};
     static const float boundaries[] = {
         0, 0.5f, 1, 10, 50, 1000, 0.001f, 0.003141593f, 0.004537856f, 0.02f, 0.05f, 0.785398f};
-    PositionCascadeConfig_TypeDef base = valid_config();
-    PositionCascadeConfig_TypeDef c;
+    PositionCascadeConfig base = valid_config();
+    PositionCascadeConfig c;
     size_t field, index;
     unsigned trial;
     compare(NULL);

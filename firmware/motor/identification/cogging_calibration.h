@@ -6,7 +6,7 @@
 #include "cogging_map.h"
 
 /* 齿槽标定过程状态机：网格定位、稳定/采样窗口与双向遍历。
- * 只处理采样过程，表格式与成表见 cogging_map；硬件交互见 FOC 适配层。 */
+ * 只处理采样过程，表格式与成表见 cogging_map；硬件交互见 foc 适配层。 */
 
 #define COGGING_STEP_RAD (6.283185307179586f / (float)COGGING_MAP_POINTS)
 #define COGGING_POSITION_TOL_RAD (6.283185307179586f / 16384.0f) /* 0.0219727 度 */
@@ -65,11 +65,11 @@ typedef struct
 bool CoggingCalibration_Start(CoggingCalibration *c, float position_rad, float full_scale_a);
 
 /**
- * @brief 标定单拍：超时、饱和、稳定性与合格覆盖率判定，合格时累加 Iq 均值。
+ * @brief 标定单拍：超时、饱和、稳定性与合格覆盖率判定，合格时累加 iq_a 均值。
  * @param c 标定状态机。
  * @param position_rad 当前机械角，单位 rad。
  * @param velocity_rad_s 连续机械速度，单位 rad/s。
- * @param iq_a 本拍块平均 Iq 反馈，单位 A。
+ * @param iq_a 本拍块平均 iq_a 反馈，单位 A。
  * @param saturated 本拍电流是否饱和。
  * @note 固定 2 kHz 所有者调用；不做浮点以外的阻塞操作。
  */

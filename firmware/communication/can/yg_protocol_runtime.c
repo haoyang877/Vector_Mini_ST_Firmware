@@ -6,48 +6,48 @@
 
 /* runtime 拥有节点身份桥值与硬件调度；link 独占冻结的地址、队列及业务状态。
  * 参数桥更新只供参数装载/保存，不在线重配端点，也不启用通信看门狗。 */
-static uint8_t configured_node_id;
-static uint32_t last_recovery_ms;
-static bool initialized;
-static bool started;
+static uint8_t s_configured_node_id;
+static uint32_t s_last_recovery_ms;
+static bool s_initialized;
+static bool s_started;
 
 bool YgProtocolRuntime_Init(uint8_t node_id)
 {
     /* 不允许前台重复初始化与已经运行的 RX ISR 竞争同一队列。 */
-    if (initialized || !YgProtocolLink_Init(node_id))
+    if (s_initialized || !YgProtocolLink_Init(node_id))
     {
         return false;
     }
-    configured_node_id = node_id;
-    last_recovery_ms = 0U;
-    initialized = true;
+    s_configured_node_id = node_id;
+    s_last_recovery_ms = 0U;
+    s_initialized = true;
     return true;
 }
 
 bool YgProtocolRuntime_Start(void)
 {
-    if (!initialized || !YgProtocolLink_IsReady())
+    if (!s_initialized || !YgProtocolLink_IsReady())
     {
         return false;
     }
-    if (started)
+    if (s_started)
     {
         return true;
     }
     comm_hw_can_start_fd();
-    started = true;
+    s_started = true;
     return true;
 }
 
 void YgProtocolRuntime_Service(uint32_t now_ms)
 {
-    if (!started)
+    if (!s_started)
     {
         return;
     }
-    if ((uint32_t)(now_ms - last_recovery_ms) >= 1000U)
+    if ((uint32_t)(now_ms - s_last_recovery_ms) >= 1000U)
     {
-        last_recovery_ms = now_ms;
+        s_last_recovery_ms = now_ms;
         (void)comm_hw_can_service_bus_off();
     }
     YgProtocolLink_Service(now_ms);
@@ -55,10 +55,10 @@ void YgProtocolRuntime_Service(uint32_t now_ms)
 
 uint8_t Protocol_NodeId_Get(void)
 {
-    return configured_node_id;
+    return s_configured_node_id;
 }
 
 void Protocol_NodeId_Set(uint8_t node_id)
 {
-    configured_node_id = node_id;
+    s_configured_node_id = node_id;
 }

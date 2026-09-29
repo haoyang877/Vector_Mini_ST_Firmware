@@ -2,7 +2,7 @@
 #define PARAMETER_VALUE_SERVICE_H
 
 #include <stdint.h>
-#include "data_type.h"
+#include "motor_types.h"
 #include "angle_feedback.h"
 
 /** 内部业务结果，通信层显式映射，不直接作为线上 result 编号。 */
@@ -76,8 +76,8 @@ typedef struct
  * @return 成功、未支持来源、编码越界或错误。
  * @note 纯有界计算，不分配、不执行 CRC 或 I/O；外部必须保证一致读取。
  */
-ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
-                                    const Encoder_TypeDef *encoder,
+ParameterStatus ParameterValue_Read(const MotorControlState *motor,
+                                    const EncoderState *encoder,
                                     uint32_t revision,
                                     uint8_t node_id,
                                     uint8_t parameter_id,
@@ -90,7 +90,7 @@ ParameterStatus ParameterValue_Read(const MotorControl_TypeDef *motor,
  * @return 已应用返回 OK；只读、类型或范围错误不修改配置。
  * @note 仅所有者停机独占时调用；耦合模型和未冻结范围的项保持只读。
  */
-ParameterStatus ParameterValue_Apply(MotorControl_TypeDef *motor,
+ParameterStatus ParameterValue_Apply(MotorControlState *motor,
                                      uint8_t node_id,
                                      const ParameterWriteRequest *request);
 

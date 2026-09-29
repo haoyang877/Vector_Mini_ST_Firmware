@@ -1,6 +1,6 @@
 #ifndef FOC_COGGING_CALIBRATION_H
 #define FOC_COGGING_CALIBRATION_H
-#include "data_type.h"
+#include "motor_types.h"
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
@@ -16,11 +16,11 @@
  * @return 允许进入标定模式返回 true；否则返回 false。
  * @note 前台调用；不启动 PWM、不修改任何状态。
  */
-bool FocCogging_CanStart(const MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
+bool FocCogging_CanStart(const MotorControlState *motor, const EncoderState *encoder);
 
 /**
  * @brief 标定模式主任务：会话启动、安全闸门、2 kHz 抽点、位置保持与外环整形。
- * @param foc FOC 状态。
+ * @param foc foc 状态。
  * @param motor 电机控制状态。
  * @param pi 标定专用位置 PI（复用速度环控制器对象）。
  * @param encoder 编码器状态。
@@ -28,10 +28,8 @@ bool FocCogging_CanStart(const MotorControl_TypeDef *motor, const Encoder_TypeDe
  * @note 20 kHz 调用；不启相、不停相、不选择下一任务；所有者按 epoch/guards
  *       授予功率许可，采集结束后关相并认领前台整理。失败只清理功能本地状态。
  */
-MotorTaskResult FocCogging_Task(FOC_TypeDef *foc,
-                                MotorControl_TypeDef *motor,
-                                PI_Controller_TypeDef *pi,
-                                Encoder_TypeDef *encoder);
+MotorTaskResult
+FocCogging_Task(FocState *foc, MotorControlState *motor, PiController *pi, EncoderState *encoder);
 
 /**
  * @brief 中止标定会话并复位标定步骤；不操作 PWM、不切换模式。
@@ -47,7 +45,7 @@ void FocCogging_Abort(void);
  * @return 无返回值。
  * @note 仅前台主循环调用；包含 CRC 与表拷贝等长耗时工作，禁止在中断调用。
  */
-void FocCogging_Service(MotorControl_TypeDef *motor, Encoder_TypeDef *encoder);
+void FocCogging_Service(MotorControlState *motor, EncoderState *encoder);
 
 /**
  * @brief 校验已发布表与当前编码器身份、CRC 是否一致。
@@ -56,7 +54,7 @@ void FocCogging_Service(MotorControl_TypeDef *motor, Encoder_TypeDef *encoder);
  * @return 有效返回 true；否则返回 false。
  * @note 包含整表 CRC 复算，禁止在 20 kHz 电流环调用。
  */
-bool FocCogging_TableValid(const MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
+bool FocCogging_TableValid(const MotorControlState *motor, const EncoderState *encoder);
 
 /**
  * @brief 读取标定对外状态，保存阶段统一报告为 COGGING_SAVING。
@@ -82,17 +80,17 @@ void FocCogging_SaveResult(bool success);
  * @note 仅前台调用；开启路径包含整表 CRC 复核。
  */
 bool FocCogging_SetCompensation(bool enabled,
-                                const MotorControl_TypeDef *motor,
-                                const Encoder_TypeDef *encoder);
+                                const MotorControlState *motor,
+                                const EncoderState *encoder);
 
 /**
- * @brief 20 kHz 补偿入口：采集硬件事实并调用补偿核心，返回叠加后的总 Iq。
+ * @brief 20 kHz 补偿入口：采集硬件事实并调用补偿核心，返回叠加后的总 iq_a。
  * @param motor 电机控制状态，只读。
  * @param encoder 编码器状态，只读。
- * @return 叠加补偿并限幅后的总 Iq 指令，单位 A；未启用时为用户指令的限幅结果。
- * @note 仅电流环上下文调用；不修改 motor->iqRef，指令所有权仍属用户。
+ * @return 叠加补偿并限幅后的总 iq_a 指令，单位 A；未启用时为用户指令的限幅结果。
+ * @note 仅电流环上下文调用；不修改 motor->iq_target_a，指令所有权仍属用户。
  */
-float FocCogging_Apply(const MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
+float FocCogging_Apply(const MotorControlState *motor, const EncoderState *encoder);
 
 /** 台架保护值快照：lease_ticks 为剩余快速拍，trip 记录最近一次跳闸原因。 */
 typedef struct
@@ -140,15 +138,15 @@ bool FocCogging_ReadTorqueSample(CoggingTorqueFrame *sample);
 
 /**
  * @brief 台架保护入口：租约倒计时与测速上限判定；跳闸时置挂起标志、退出补偿并清零指令。
- * @param motor 电机控制状态；跳闸时清零 idRef/iqRef。
+ * @param motor 电机控制状态；跳闸时清零 id_target_a/iq_target_a。
  * @param encoder 编码器状态，只读。
  * @return 未跳闸返回 true；跳闸返回 false（停相与模式回退由调度层转为结果协议后，
  *         由运行状态机执行）。
  * @note 仅电流环上下文调用；默认关闭且不持久化，不是量产主机断连保护。
- *       trip=1 租约到期，trip=2 测速超限或无效；电流包络由 MotorControl.current_limit 保证。
+ *       trip=1 租约到期，trip=2 测速超限或无效；电流包络由 motor_state.current_limit_a 保证。
  *       跳闸标志经 FocCogging_TakeTorqueTrip 由模式调度消费。
  */
-bool FocCogging_TorqueGuard(MotorControl_TypeDef *motor, const Encoder_TypeDef *encoder);
+bool FocCogging_TorqueGuard(MotorControlState *motor, const EncoderState *encoder);
 
 /**
  * @brief 读取并清除台架保护跳闸挂起标志。
@@ -159,15 +157,15 @@ bool FocCogging_TakeTorqueTrip(void);
 
 /**
  * @brief 力矩遥测：主机请求时冻结同一 ISR 时刻的指令、补偿与反馈。
- * @param foc FOC 状态，只读。
+ * @param foc foc 状态，只读。
  * @param motor 电机控制状态，只读。
  * @param encoder 编码器状态，只读。
  * @return 无返回值。
  * @note 仅电流环上下文调用；未请求时只递增计数，不做拷贝。
  */
-void FocCogging_TorqueObserve(const FOC_TypeDef *foc,
-                              const MotorControl_TypeDef *motor,
-                              const Encoder_TypeDef *encoder);
+void FocCogging_TorqueObserve(const FocState *foc,
+                              const MotorControlState *motor,
+                              const EncoderState *encoder);
 
 /**
  * @brief 清空所属齿槽表。
@@ -188,8 +186,8 @@ void FocCogging_ImportMap(const CoggingMapRecord *record);
  * @note 停机前台调用，包含 CRC，不返回内部指针。
  */
 void FocCogging_ExportMap(CoggingMapRecord *record,
-                          const MotorControl_TypeDef *motor,
-                          const Encoder_TypeDef *encoder);
+                          const MotorControlState *motor,
+                          const EncoderState *encoder);
 /**
  * @brief 查询自然完成后的待整理表。
  * @return 需要前台认领时返回 true。
@@ -215,8 +213,8 @@ bool FocCogging_BeginFinalize(void);
  * @note 仅前台调用，CRC 保持中断开启；取消不改写正在读取的样本。
  */
 bool FocCogging_BuildCandidate(CoggingMapRecord *record,
-                               const MotorControl_TypeDef *motor,
-                               const Encoder_TypeDef *encoder);
+                               const MotorControlState *motor,
+                               const EncoderState *encoder);
 /**
  * @brief 发布已构建的完整候选表。
  * @param record 完整候选，仅复制值。

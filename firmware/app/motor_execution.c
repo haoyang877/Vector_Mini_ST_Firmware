@@ -14,69 +14,72 @@
 #include "position_cascade_config.h"
 #include "utils.h"
 
-/* 运行模式任务入口：电流/速度/位置/Vq 模式的快速环执行，
+/* 运行模式任务入口：电流/速度/位置/vq_v 模式的快速环执行，
  * 以及延迟外环运行时的发布与保护接口。本文件只做任务编排与状态适配，
  * 具体控制算法位于 motor 层。 */
 
-static void MotorOuterLoop_RequestReset(void);
+static void motor_outer_loop_request_reset(void);
 
 /**
  * @brief  电流模式控制任务。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  Encoder 编码器状态指针。
- * @param  Fluxobserver 磁链观测器状态指针。
+ * @param  foc foc 状态指针。
+ * @param  motor_state 电机控制状态指针。
+ * @param  encoder 编码器状态指针。
+ * @param  flux_observer 磁链观测器状态指针。
  * @note 在 20kHz 快速环上下文调用；齿槽转矩补偿与观测只作用于转矩闭环。
  */
-void Task_Current_Mode(FOC_TypeDef *FOC,
-                       MotorControl_TypeDef *MotorControl,
-                       Encoder_TypeDef *Encoder,
-                       Fluxobserver_TypeDef *Fluxobserver)
+void Task_Current_Mode(FocState *foc,
+                       MotorControlState *motor_state,
+                       EncoderState *encoder,
+                       FluxObserverState *flux_observer)
 {
-    float theta_elec;
-    float vel_elec;
+    float electrical_angle_rad;
+    float electrical_velocity_rad_s;
 
-    if (!FocCogging_TorqueGuard(MotorControl, Encoder))
+    if (!FocCogging_TorqueGuard(motor_state, encoder))
     {
         return;
     }
 
-    if (MotorControl->isUseSensorless == true)
+    if (motor_state->uses_sensorless_feedback == true)
     {
-        theta_elec = Observer_GetElePhase(Fluxobserver);
-        vel_elec = Observer_GetEleVel(Fluxobserver);
+        electrical_angle_rad = Observer_GetElePhase(flux_observer);
+        electrical_velocity_rad_s = Observer_GetEleVel(flux_observer);
     }
     else
     {
-        theta_elec = Encoder_GetElePhase(Encoder);
-        vel_elec = Encoder_GetEleVel(Encoder);
+        electrical_angle_rad = Encoder_GetElePhase(encoder);
+        electrical_velocity_rad_s = Encoder_GetEleVel(encoder);
     }
 
-    FOC_CurrentWithReference(
-        FOC, MotorControl, theta_elec, vel_elec, FocCogging_Apply(MotorControl, Encoder));
-    FocCogging_TorqueObserve(FOC, MotorControl, Encoder);
+    FOC_CurrentWithReference(foc,
+                             motor_state,
+                             electrical_angle_rad,
+                             electrical_velocity_rad_s,
+                             FocCogging_Apply(motor_state, encoder));
+    FocCogging_TorqueObserve(foc, motor_state, encoder);
 }
 
 /**
  * @brief  速度模式控制任务（对外顺序入口）。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
+ * @param  foc foc 状态指针。
+ * @param  motor_state 电机控制状态指针。
  * @param  controller 速度 PI 控制器指针。
- * @param  Encoder 编码器状态指针。
+ * @param  encoder 编码器状态指针。
  * @note 在 20kHz 快速环上下文调用；速度环按 SPEED_LOOP_DIVIDER 分频。
  *       分频与速度环实现在 motor/foc/foc_speed.c；摩擦辨识与外部调用共用该核心。
  */
-void Task_Speed_Mode(FOC_TypeDef *FOC,
-                     MotorControl_TypeDef *MotorControl,
-                     PI_Controller_TypeDef *controller,
-                     Encoder_TypeDef *Encoder)
+void Task_Speed_Mode(FocState *foc,
+                     MotorControlState *motor_state,
+                     PiController *controller,
+                     EncoderState *encoder)
 {
-    SpeedMode_Run(FOC,
-                  MotorControl,
+    SpeedMode_Run(foc,
+                  motor_state,
                   controller,
-                  Encoder_GetElePhase(Encoder),
-                  Encoder_GetEleVel(Encoder),
-                  Encoder_GetMecVel(Encoder));
+                  Encoder_GetElePhase(encoder),
+                  Encoder_GetEleVel(encoder),
+                  Encoder_GetMecVel(encoder));
 }
 
 /* 冷配置帧不进入调参不变的快速路径；此处仅为编译器提示，其他编译器行为相同。 */
@@ -87,17 +90,17 @@ void Task_Speed_Mode(FOC_TypeDef *FOC,
 #endif
 
 /* 已辨识摩擦模型与板级阻尼环回退的固定参数。 */
-static void PositionMode_ApplyFrictionConfiguration(MotorControl_TypeDef *MotorControl,
-                                                    PositionCascadeConfig_TypeDef *config)
+static void position_mode_apply_friction_configuration(MotorControlState *motor_state,
+                                                       PositionCascadeConfig *config)
 {
     config->friction_feedforward_enabled =
         MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
-    if (MotorControl->friction_model_valid)
+    if (motor_state->friction_model_valid)
     {
-        config->friction_coulomb_positive = MotorControl->friction_coulomb_pos_a;
-        config->friction_coulomb_negative = MotorControl->friction_coulomb_neg_a;
-        config->friction_viscous_positive = MotorControl->friction_viscous_pos_a_per_rad_s;
-        config->friction_viscous_negative = MotorControl->friction_viscous_neg_a_per_rad_s;
+        config->friction_coulomb_positive = motor_state->friction_coulomb_pos_a;
+        config->friction_coulomb_negative = motor_state->friction_coulomb_neg_a;
+        config->friction_viscous_positive = motor_state->friction_viscous_pos_a_per_rad_s;
+        config->friction_viscous_negative = motor_state->friction_viscous_neg_a_per_rad_s;
     }
     else
     {
@@ -119,9 +122,9 @@ static void PositionMode_ApplyFrictionConfiguration(MotorControl_TypeDef *MotorC
 }
 
 /* 有效减速度：配置适配与热路径比较共用；NaN 原样传播，与旧实现一致。 */
-static float PositionMode_EffectiveDeceleration(const MotorControl_TypeDef *MotorControl)
+static float position_mode_effective_deceleration(const MotorControlState *motor_state)
 {
-    float deceleration = MotorControl->posDec;
+    float deceleration = motor_state->position_deceleration_rad_s2;
 
     if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
     {
@@ -131,14 +134,14 @@ static float PositionMode_EffectiveDeceleration(const MotorControl_TypeDef *Moto
 }
 
 /* 有效最大速度：轴配置生效时取更严格的轴上限。 */
-static float PositionMode_EffectiveMaximumSpeed(const MotorControl_TypeDef *MotorControl)
+static float position_mode_effective_maximum_speed(const MotorControlState *motor_state)
 {
-    float maximum_speed = MotorControl->pos_maxspeed;
+    float maximum_speed = motor_state->position_maximum_speed_rad_s;
 
-    if (MotorControl->axis_profile.magic != 0U &&
-        maximum_speed > MotorControl->axis_profile.maximum_speed_rad_s)
+    if (motor_state->axis_profile.magic != 0U &&
+        maximum_speed > motor_state->axis_profile.maximum_speed_rad_s)
     {
-        maximum_speed = MotorControl->axis_profile.maximum_speed_rad_s;
+        maximum_speed = motor_state->axis_profile.maximum_speed_rad_s;
     }
     return maximum_speed;
 }
@@ -146,44 +149,45 @@ static float PositionMode_EffectiveMaximumSpeed(const MotorControl_TypeDef *Moto
 /* 该适配器是唯一提供此控制器固定调参的调用方：每个快速 tick 全量比较实时输入，
  * 变化时重建并校验；不使用第二份 RAM 缓存或可能漏掉写入方的事件计数。 */
 FOC_CONFIG_NOINLINE
-static bool PositionMode_UpdateConfiguration(MotorControl_TypeDef *MotorControl,
-                                             float theta_mech,
-                                             float vel_mech,
-                                             PositionCascadeControlOutput_TypeDef *output,
-                                             uint16_t call_divider)
+static bool position_mode_update_configuration(MotorControlState *motor_state,
+                                               float mechanical_position_rad,
+                                               float mechanical_velocity_rad_s,
+                                               PositionCascadeControlOutput *output,
+                                               uint16_t call_divider)
 {
-    PositionCascadeConfig_TypeDef config;
+    PositionCascadeConfig config;
 
     config.update_period_s = Cascade_Position_Ts;
     config.call_divider = call_divider;
-    config.target_position = MotorControl->posRef;
-    config.position_error_window = MotorControl->pos_error_window;
+    config.target_position = motor_state->position_target_rad;
+    config.position_error_window = motor_state->position_error_window_rad;
     config.hold_enter_position = POSITION_SERVO_HOLD_ENTER_POSITION_RAD;
     config.hold_exit_position = POSITION_SERVO_HOLD_EXIT_POSITION_RAD;
     config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;
     config.hold_velocity_filter_hz = POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ;
     config.following_error_limit = POSITION_SERVO_FOLLOWING_ERROR_LIMIT_RAD;
     config.stiction_integral_rate = POSITION_SERVO_STICTION_INTEGRAL_RATE_A_PER_S;
-    config.acceleration = MotorControl->posAcc;
-    config.deceleration = PositionMode_EffectiveDeceleration(MotorControl);
-    config.maximum_speed = PositionMode_EffectiveMaximumSpeed(MotorControl);
-    config.speed_limit = MotorControl->speed_limit;
+    config.acceleration = motor_state->position_acceleration_rad_s2;
+    config.deceleration = position_mode_effective_deceleration(motor_state);
+    config.maximum_speed = position_mode_effective_maximum_speed(motor_state);
+    config.speed_limit_rad_s = motor_state->speed_limit_rad_s;
     config.jerk_limit =
         (config.acceleration > config.deceleration ? config.acceleration : config.deceleration) /
         POSITION_SERVO_JERK_RAMP_TIME_S;
-    config.position_kp = MotorControl->cascade_pos_Kp;
-    config.position_kd = MotorControl->cascade_pos_Kd;
-    config.speed_kp = MotorControl->speed_Kp;
-    config.speed_ki = MotorControl->speed_Ki;
+    config.position_kp = motor_state->cascade_position_kp;
+    config.position_kd = motor_state->cascade_position_kd;
+    config.speed_kp = motor_state->speed_kp;
+    config.speed_ki = motor_state->speed_ki;
     config.acceleration_feedforward_gain = POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
-    config.current_limit = MotorControl->current_limit;
-    PositionMode_ApplyFrictionConfiguration(MotorControl, &config);
+    config.current_limit_a = motor_state->current_limit_a;
+    position_mode_apply_friction_configuration(motor_state, &config);
 
-    return PositionCascade_UpdateControl(&config, theta_mech, vel_mech, output);
+    return PositionCascade_UpdateControl(
+        &config, mechanical_position_rad, mechanical_velocity_rad_s, output);
 }
 
 /* 浮点位级比较：调参缓存判定必须把 NaN、+0/-0 视为不同值。 */
-static bool PositionMode_SameTuningValue(float first, float second)
+static bool position_mode_same_tuning_value(float first, float second)
 {
     uint32_t first_bits, second_bits;
     typedef char FloatMustBe32Bits[(sizeof(float) == sizeof(uint32_t)) ? 1 : -1];
@@ -194,8 +198,8 @@ static bool PositionMode_SameTuningValue(float first, float second)
 }
 
 /* 与上一帧配置逐字段比较，含摩擦模型切换与轴上限；任何实时输入变化都使缓存失效。 */
-static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDef *config,
-                                              const MotorControl_TypeDef *MotorControl)
+static bool position_mode_configuration_matches(const PositionCascadeConfig *config,
+                                                const MotorControlState *motor_state)
 {
     float deceleration;
     float maximum_speed;
@@ -204,138 +208,143 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     {
         return false;
     }
-    deceleration = PositionMode_EffectiveDeceleration(MotorControl);
-    maximum_speed = PositionMode_EffectiveMaximumSpeed(MotorControl);
-    if (!PositionMode_SameTuningValue(config->velocity_filter_hz,
-                                      POSITION_SERVO_VELOCITY_FILTER_HZ) ||
-        !PositionMode_SameTuningValue(config->hold_velocity_filter_hz,
-                                      POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ) ||
-        !PositionMode_SameTuningValue(config->position_error_window,
-                                      MotorControl->pos_error_window) ||
-        !PositionMode_SameTuningValue(config->acceleration, MotorControl->posAcc) ||
-        !PositionMode_SameTuningValue(config->deceleration, deceleration) ||
-        !PositionMode_SameTuningValue(config->maximum_speed, maximum_speed) ||
-        !PositionMode_SameTuningValue(config->speed_limit, MotorControl->speed_limit) ||
-        !PositionMode_SameTuningValue(config->position_kp, MotorControl->cascade_pos_Kp) ||
-        !PositionMode_SameTuningValue(config->position_kd, MotorControl->cascade_pos_Kd) ||
-        !PositionMode_SameTuningValue(config->speed_kp, MotorControl->speed_Kp) ||
-        !PositionMode_SameTuningValue(config->speed_ki, MotorControl->speed_Ki) ||
-        !PositionMode_SameTuningValue(config->current_limit, MotorControl->current_limit))
+    deceleration = position_mode_effective_deceleration(motor_state);
+    maximum_speed = position_mode_effective_maximum_speed(motor_state);
+    if (!position_mode_same_tuning_value(config->velocity_filter_hz,
+                                         POSITION_SERVO_VELOCITY_FILTER_HZ) ||
+        !position_mode_same_tuning_value(config->hold_velocity_filter_hz,
+                                         POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ) ||
+        !position_mode_same_tuning_value(config->position_error_window,
+                                         motor_state->position_error_window_rad) ||
+        !position_mode_same_tuning_value(config->acceleration,
+                                         motor_state->position_acceleration_rad_s2) ||
+        !position_mode_same_tuning_value(config->deceleration, deceleration) ||
+        !position_mode_same_tuning_value(config->maximum_speed, maximum_speed) ||
+        !position_mode_same_tuning_value(config->speed_limit_rad_s,
+                                         motor_state->speed_limit_rad_s) ||
+        !position_mode_same_tuning_value(config->position_kp, motor_state->cascade_position_kp) ||
+        !position_mode_same_tuning_value(config->position_kd, motor_state->cascade_position_kd) ||
+        !position_mode_same_tuning_value(config->speed_kp, motor_state->speed_kp) ||
+        !position_mode_same_tuning_value(config->speed_ki, motor_state->speed_ki) ||
+        !position_mode_same_tuning_value(config->current_limit_a, motor_state->current_limit_a))
     {
         return false;
     }
-    if (MotorControl->friction_model_valid)
+    if (motor_state->friction_model_valid)
     {
-        return PositionMode_SameTuningValue(config->friction_coulomb_positive,
-                                            MotorControl->friction_coulomb_pos_a) &&
-               PositionMode_SameTuningValue(config->friction_coulomb_negative,
-                                            MotorControl->friction_coulomb_neg_a) &&
-               PositionMode_SameTuningValue(config->friction_viscous_positive,
-                                            MotorControl->friction_viscous_pos_a_per_rad_s) &&
-               PositionMode_SameTuningValue(config->friction_viscous_negative,
-                                            MotorControl->friction_viscous_neg_a_per_rad_s);
+        return position_mode_same_tuning_value(config->friction_coulomb_positive,
+                                               motor_state->friction_coulomb_pos_a) &&
+               position_mode_same_tuning_value(config->friction_coulomb_negative,
+                                               motor_state->friction_coulomb_neg_a) &&
+               position_mode_same_tuning_value(config->friction_viscous_positive,
+                                               motor_state->friction_viscous_pos_a_per_rad_s) &&
+               position_mode_same_tuning_value(config->friction_viscous_negative,
+                                               motor_state->friction_viscous_neg_a_per_rad_s);
     }
-    return PositionMode_SameTuningValue(config->friction_coulomb_positive,
-                                        POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A) &&
-           PositionMode_SameTuningValue(config->friction_coulomb_negative,
-                                        POSITION_SERVO_FALLBACK_FRICTION_NEGATIVE_A) &&
-           PositionMode_SameTuningValue(config->friction_viscous_positive, 0.0f) &&
-           PositionMode_SameTuningValue(config->friction_viscous_negative, 0.0f);
+    return position_mode_same_tuning_value(config->friction_coulomb_positive,
+                                           POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A) &&
+           position_mode_same_tuning_value(config->friction_coulomb_negative,
+                                           POSITION_SERVO_FALLBACK_FRICTION_NEGATIVE_A) &&
+           position_mode_same_tuning_value(config->friction_viscous_positive, 0.0f) &&
+           position_mode_same_tuning_value(config->friction_viscous_negative, 0.0f);
 }
 
 /* 位置请求被拒绝：清零电流参考并上报参数故障，等待上层复位。 */
-static void PositionMode_RejectRequest(MotorControl_TypeDef *MotorControl)
+static void position_mode_reject_request(MotorControlState *motor_state)
 {
-    MotorControl->idRef = 0.0f;
-    MotorControl->iqRef = 0.0f;
-    MotorFault_Report(MotorControl, MotorParam_Error);
+    motor_state->id_target_a = 0.0f;
+    motor_state->iq_target_a = 0.0f;
+    MotorFault_Report(motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
 }
 
 /**
  * @brief  模式 3：带加加速度限制的连续加速度位置伺服任务（顺序入口）。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  Encoder 编码器状态指针。
+ * @param  foc foc 状态指针。
+ * @param  motor_state 电机控制状态指针。
+ * @param  encoder 编码器状态指针。
  * @note 在 20kHz 快速环上下文调用；配置未变化时复用缓存控制器，否则重建配置帧。
  *       生产运行由外环 worker 执行本适配器，本入口保留供外部/调试顺序调用。
  */
-void Task_Position_Mode(FOC_TypeDef *FOC,
-                        MotorControl_TypeDef *MotorControl,
-                        Encoder_TypeDef *Encoder)
+void Task_Position_Mode(FocState *foc, MotorControlState *motor_state, EncoderState *encoder)
 {
     bool updated;
-    PositionCascadeControlOutput_TypeDef output;
+    PositionCascadeControlOutput output;
     FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_ONLY);
-    float theta_elec = Encoder_GetElePhase(Encoder);
-    float theta_mech = Encoder_GetMecPos(Encoder);
-    float vel_elec = Encoder_GetEleVel(Encoder);
-    float vel_mech = Encoder_GetMecVelContinuous(Encoder);
+    float electrical_angle_rad = Encoder_GetElePhase(encoder);
+    float mechanical_position_rad = Encoder_GetMecPos(encoder);
+    float electrical_velocity_rad_s = Encoder_GetEleVel(encoder);
+    float mechanical_velocity_rad_s = Encoder_GetMecVelContinuous(encoder);
 
-    if (!MotorAxisProfile_AllowsPosition(&MotorControl->axis_profile,
-                                         MotorControl->axis_profile_valid,
-                                         theta_mech,
-                                         MotorControl->posRef))
+    if (!MotorAxisProfile_AllowsPosition(&motor_state->axis_profile,
+                                         motor_state->axis_profile_valid,
+                                         mechanical_position_rad,
+                                         motor_state->position_target_rad))
     {
-        PositionMode_RejectRequest(MotorControl);
+        position_mode_reject_request(motor_state);
         FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
         return;
     }
 
-    if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), MotorControl))
+    if (position_mode_configuration_matches(PositionCascade_GetConfiguration(), motor_state))
     {
-        updated = PositionCascade_UpdateTargetControl(
-            MotorControl->posRef, theta_mech, vel_mech, &output);
+        updated = PositionCascade_UpdateTargetControl(motor_state->position_target_rad,
+                                                      mechanical_position_rad,
+                                                      mechanical_velocity_rad_s,
+                                                      &output);
     }
     else
     {
-        updated = PositionMode_UpdateConfiguration(
-            MotorControl, theta_mech, vel_mech, &output, CASCADE_POSITION_LOOP_DIVIDER);
+        updated = position_mode_update_configuration(motor_state,
+                                                     mechanical_position_rad,
+                                                     mechanical_velocity_rad_s,
+                                                     &output,
+                                                     CASCADE_POSITION_LOOP_DIVIDER);
     }
 
     if (!updated)
     {
-        PositionMode_RejectRequest(MotorControl);
+        position_mode_reject_request(motor_state);
         FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
         return;
     }
 
-    MotorControl->posShadow = output.position_reference;
-    MotorControl->speedShadow = output.speed_reference;
-    MotorControl->pos_vel_filtered = output.speed_feedback;
-    MotorControl->isReachTargetPos = output.target_reached;
-    MotorControl->idRef = 0.0f;
-    MotorControl->iqRef = output.iq_reference;
+    motor_state->position_reference_rad = output.position_reference;
+    motor_state->speed_ramped_rad_s = output.speed_reference;
+    motor_state->position_velocity_filtered_rad_s = output.speed_feedback_rad_s;
+    motor_state->position_target_reached = output.target_reached;
+    motor_state->id_target_a = 0.0f;
+    motor_state->iq_target_a = output.iq_reference;
     FAST_PROFILE_END(FAST_PROFILE_POSITION_ONLY);
-    FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
+    FOC_Current(foc, motor_state, electrical_angle_rad, electrical_velocity_rad_s);
 }
 
 /* 位置模式复位：请求外环在下一 2 kHz 慢拍重建，由唯一外环所有者消费复位请求。 */
 void Task_Position_Mode_Reset(void)
 {
-    MotorOuterLoop_RequestReset();
+    motor_outer_loop_request_reset();
 }
 
 /* OUTER_RUNTIME_BEGIN
  * 2 kHz 慢拍外环：位置级联/轨迹与速度 PI 在 TIM7 监督上下文直接执行，是位置/速度
- * 外环输出的唯一写者；20 kHz 快环只读取 MotorControl.iqRef。复位与模式变化由
+ * 外环输出的唯一写者；20 kHz 快环只读取 motor_state.iq_target_a。复位与模式变化由
  * 请求标志在本函数内消费，跨上下文只交换标志与单字状态。 */
 static struct
 {
     volatile bool reset_requested;
     bool ready, telemetry_valid;
     MotorControlMode mode;
-    PositionCascadeTelemetry_TypeDef published_telemetry;
-} outer;
+    PositionCascadeTelemetry published_telemetry;
+} s_outer;
 
-static void MotorOuterLoop_RequestReset(void)
+static void motor_outer_loop_request_reset(void)
 {
-    outer.reset_requested = true;
-    outer.ready = false;
-    outer.telemetry_valid = false;
+    s_outer.reset_requested = true;
+    s_outer.ready = false;
+    s_outer.telemetry_valid = false;
 }
 
 /* 输入有效性：与配置适配器同一组钳位与 NaN 拒绝规则，每个慢拍全量比较。 */
-static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float position, float speed)
+static bool motor_outer_loop_inputs_valid(const MotorControlState *m, float position, float speed)
 {
     float deceleration;
     float maximum_speed;
@@ -346,32 +355,36 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float posi
     }
     if (m->control_mode == MOTOR_CONTROL_SPEED)
     {
-        return isfinite(m->speedRef) && isfinite(m->speedAcc) && isfinite(m->speedDec) &&
-               isfinite(m->current_limit) && m->current_limit > 0.0f && isfinite(m->speed_Kp) &&
-               m->speed_Kp >= 0.0f && isfinite(m->speed_Ki) && m->speed_Ki >= 0.0f;
+        return isfinite(m->speed_target_rad_s) && isfinite(m->speed_acceleration_rad_s2) &&
+               isfinite(m->speed_deceleration_rad_s2) && isfinite(m->current_limit_a) &&
+               m->current_limit_a > 0.0f && isfinite(m->speed_kp) && m->speed_kp >= 0.0f &&
+               isfinite(m->speed_ki) && m->speed_ki >= 0.0f;
     }
     if (!MotorAxisProfile_AllowsPosition(
-            &m->axis_profile, m->axis_profile_valid, position, m->posRef))
+            &m->axis_profile, m->axis_profile_valid, position, m->position_target_rad))
     {
         return false;
     }
-    if (!isfinite(m->current_limit) || m->current_limit <= 0.0f || !isfinite(m->speed_Kp) ||
-        m->speed_Kp < 0.0f || !isfinite(m->speed_Ki) || m->speed_Ki < 0.0f)
+    if (!isfinite(m->current_limit_a) || m->current_limit_a <= 0.0f || !isfinite(m->speed_kp) ||
+        m->speed_kp < 0.0f || !isfinite(m->speed_ki) || m->speed_ki < 0.0f)
     {
         return false;
     }
-    deceleration = PositionMode_EffectiveDeceleration(m);
-    maximum_speed = PositionMode_EffectiveMaximumSpeed(m);
-    if (!isfinite(m->pos_error_window) || m->pos_error_window <= 0.0f ||
-        m->pos_error_window > POSITION_SERVO_HOLD_ENTER_POSITION_RAD || !isfinite(m->posAcc) ||
-        m->posAcc <= 0.0f || !isfinite(deceleration) || deceleration <= 0.0f ||
-        !isfinite(maximum_speed) || maximum_speed <= 0.0f || !isfinite(m->speed_limit) ||
-        m->speed_limit < maximum_speed ||
-        !isfinite((m->posAcc > deceleration ? m->posAcc : deceleration) /
+    deceleration = position_mode_effective_deceleration(m);
+    maximum_speed = position_mode_effective_maximum_speed(m);
+    if (!isfinite(m->position_error_window_rad) || m->position_error_window_rad <= 0.0f ||
+        m->position_error_window_rad > POSITION_SERVO_HOLD_ENTER_POSITION_RAD ||
+        !isfinite(m->position_acceleration_rad_s2) || m->position_acceleration_rad_s2 <= 0.0f ||
+        !isfinite(deceleration) || deceleration <= 0.0f || !isfinite(maximum_speed) ||
+        maximum_speed <= 0.0f || !isfinite(m->speed_limit_rad_s) ||
+        m->speed_limit_rad_s < maximum_speed ||
+        !isfinite((m->position_acceleration_rad_s2 > deceleration ? m->position_acceleration_rad_s2
+                                                                  : deceleration) /
                   POSITION_SERVO_JERK_RAMP_TIME_S) ||
-        !isfinite(m->cascade_pos_Kp) || m->cascade_pos_Kp < 0.0f ||
-        m->cascade_pos_Kp > CASCADE_POSITION_KP_MAX_PER_S || !isfinite(m->cascade_pos_Kd) ||
-        m->cascade_pos_Kd < 0.0f || m->cascade_pos_Kd > CASCADE_POSITION_KD_MAX)
+        !isfinite(m->cascade_position_kp) || m->cascade_position_kp < 0.0f ||
+        m->cascade_position_kp > CASCADE_POSITION_KP_MAX_PER_S ||
+        !isfinite(m->cascade_position_kd) || m->cascade_position_kd < 0.0f ||
+        m->cascade_position_kd > CASCADE_POSITION_KD_MAX)
     {
         return false;
     }
@@ -386,17 +399,17 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m, float posi
 
 bool MotorOuterLoop_IsReady(void)
 {
-    return outer.ready;
+    return s_outer.ready;
 }
 
-bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
+bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry *telemetry)
 {
     /* 慢拍写、快速上下文读；只在有效期返回已发布快照。 */
-    if (!outer.telemetry_valid || telemetry == NULL)
+    if (!s_outer.telemetry_valid || telemetry == NULL)
     {
         return false;
     }
-    *telemetry = outer.published_telemetry;
+    *telemetry = s_outer.published_telemetry;
     return true;
 }
 
@@ -406,45 +419,43 @@ bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
  * @param  pi 速度环控制器指针（速度模式使用）。
  * @param  encoder 编码器状态指针。
  * @note 仅由 2 kHz 监督 tick 调用；本函数是外环输出的唯一写者，快环只读取
- *       MotorControl.iqRef；模式变化、故障与复位请求在当前慢拍内消费。
+ *       motor_state.iq_target_a；模式变化、故障与复位请求在当前慢拍内消费。
  */
-void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
-                             PI_Controller_TypeDef *pi,
-                             Encoder_TypeDef *encoder)
+void MotorOuterLoop_SlowTick(MotorControlState *m, PiController *pi, EncoderState *encoder)
 {
-    PositionCascadeControlOutput_TypeDef output;
+    PositionCascadeControlOutput output;
     bool active =
         m->control_mode == MOTOR_CONTROL_POSITION || m->control_mode == MOTOR_CONTROL_SPEED;
     float position = Encoder_GetMecPos(encoder);
     float speed = m->control_mode == MOTOR_CONTROL_SPEED ? Encoder_GetMecVel(encoder)
                                                          : Encoder_GetMecVelContinuous(encoder);
 
-    if (m->control_mode != outer.mode)
+    if (m->control_mode != s_outer.mode)
     {
-        MotorOuterLoop_RequestReset();
-        outer.mode = m->control_mode;
+        motor_outer_loop_request_reset();
+        s_outer.mode = m->control_mode;
         if (active)
         {
-            m->idRef = 0.0f;
-            m->iqRef = 0.0f;
+            m->id_target_a = 0.0f;
+            m->iq_target_a = 0.0f;
         }
     }
-    if (outer.reset_requested)
+    if (s_outer.reset_requested)
     {
         PositionCascade_Reset();
-        outer.reset_requested = false;
+        s_outer.reset_requested = false;
     }
-    if (!active || m->ErrorNow != No_Error)
+    if (!active || m->fault_code != MOTOR_FAULT_NONE)
     {
         return;
     }
-    if (!MotorOuterLoop_InputsValid(m, position, speed))
+    if (!motor_outer_loop_inputs_valid(m, position, speed))
     {
-        MotorFault_Report(m, MotorParam_Error);
-        m->idRef = 0.0f;
-        m->iqRef = 0.0f;
-        outer.ready = false;
-        outer.telemetry_valid = false;
+        MotorFault_Report(m, MOTOR_FAULT_INVALID_PARAMETERS);
+        m->id_target_a = 0.0f;
+        m->iq_target_a = 0.0f;
+        s_outer.ready = false;
+        s_outer.telemetry_valid = false;
         PositionCascade_Reset();
         return;
     }
@@ -452,83 +463,85 @@ void MotorOuterLoop_SlowTick(MotorControl_TypeDef *m,
     if (m->control_mode == MOTOR_CONTROL_POSITION)
     {
         bool valid;
-        if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), m))
+        if (position_mode_configuration_matches(PositionCascade_GetConfiguration(), m))
         {
-            valid = PositionCascade_UpdateTargetControl(m->posRef, position, speed, &output);
+            valid = PositionCascade_UpdateTargetControl(
+                m->position_target_rad, position, speed, &output);
         }
         else
         {
-            valid = PositionMode_UpdateConfiguration(m, position, speed, &output, 1U);
+            valid = position_mode_update_configuration(m, position, speed, &output, 1U);
         }
         valid = valid && isfinite(output.iq_reference);
         if (!valid)
         {
-            MotorFault_Report(m, MotorParam_Error);
-            m->idRef = 0.0f;
-            m->iqRef = 0.0f;
-            outer.ready = false;
-            outer.telemetry_valid = false;
+            MotorFault_Report(m, MOTOR_FAULT_INVALID_PARAMETERS);
+            m->id_target_a = 0.0f;
+            m->iq_target_a = 0.0f;
+            s_outer.ready = false;
+            s_outer.telemetry_valid = false;
             return;
         }
-        m->idRef = 0.0f;
+        m->id_target_a = 0.0f;
         /* 实时电流限制下调立即生效。 */
-        m->iqRef = fminf(fmaxf(output.iq_reference, -m->current_limit), m->current_limit);
-        m->posShadow = output.position_reference;
-        m->speedShadow = output.speed_reference;
-        m->pos_vel_filtered = output.speed_feedback;
-        m->isReachTargetPos = output.target_reached;
-        if (PositionCascade_GetTelemetry(&outer.published_telemetry))
+        m->iq_target_a = fminf(fmaxf(output.iq_reference, -m->current_limit_a), m->current_limit_a);
+        m->position_reference_rad = output.position_reference;
+        m->speed_ramped_rad_s = output.speed_reference;
+        m->position_velocity_filtered_rad_s = output.speed_feedback_rad_s;
+        m->position_target_reached = output.target_reached;
+        if (PositionCascade_GetTelemetry(&s_outer.published_telemetry))
         {
-            m->pos_trajectory_speed_rad_s = outer.published_telemetry.trajectory_speed_reference;
-            outer.telemetry_valid = true;
+            m->position_trajectory_speed_rad_s =
+                s_outer.published_telemetry.trajectory_speed_reference;
+            s_outer.telemetry_valid = true;
         }
         else
         {
             /* 模式 3 规划量发布：无效窗口写 NaN。 */
-            m->pos_trajectory_speed_rad_s = NAN;
-            outer.telemetry_valid = false;
+            m->position_trajectory_speed_rad_s = NAN;
+            s_outer.telemetry_valid = false;
         }
-        outer.ready = true;
+        s_outer.ready = true;
     }
     else
     {
         SpeedMode_UpdateControl(m, pi, speed);
-        outer.ready = true;
+        s_outer.ready = true;
     }
 }
 /* OUTER_RUNTIME_END */
 
 /**
  * @brief  Q 轴电压模式：d 轴电流闭环到零，q 轴直接给定电压。
- * @param  FOC FOC 状态指针。
- * @param  MotorControl 电机控制状态指针。
- * @param  Encoder 编码器状态指针。
+ * @param  foc foc 状态指针。
+ * @param  motor_state 电机控制状态指针。
+ * @param  encoder 编码器状态指针。
  * @note 在 20kHz 快速环上下文调用；编码器离线或未标定时置故障并返回。
  */
-void Task_Vq_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
+void Task_Vq_Mode(FocState *foc, MotorControlState *motor_state, EncoderState *encoder)
 {
-    if (!Encoder_IsOnline(Encoder))
+    if (!Encoder_IsOnline(encoder))
     {
-        MotorFault_Report(MotorControl, Encoder_Error);
+        MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER);
         return;
     }
-    if ((Encoder_GetCalibFlag(Encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+    if ((Encoder_GetCalibFlag(encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
     {
-        MotorFault_Report(MotorControl, Encoder_NotCalibrated);
+        MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
         return;
     }
 
-    MotorControl->idRef = 0.0f;
-    MotorControl->iqRef = 0.0f;
+    motor_state->id_target_a = 0.0f;
+    motor_state->iq_target_a = 0.0f;
 
-    FOC_Vq_Mode(FOC, MotorControl, Encoder_GetElePhase(Encoder), Encoder_GetEleVel(Encoder));
+    FOC_Vq_Mode(foc, motor_state, Encoder_GetElePhase(encoder), Encoder_GetEleVel(encoder));
 }
 
 /* 调用方已完成故障与生命周期准入；控制功能不反查状态机或选择维护任务。 */
-MotorTaskResult MotorExecution_ControlStep(FOC_TypeDef *foc,
-                                           MotorControl_TypeDef *motor,
-                                           Encoder_TypeDef *encoder,
-                                           Fluxobserver_TypeDef *observer)
+MotorTaskResult MotorExecution_ControlStep(FocState *foc,
+                                           MotorControlState *motor,
+                                           EncoderState *encoder,
+                                           FluxObserverState *observer)
 {
     switch (motor->control_mode)
     {
@@ -536,7 +549,7 @@ MotorTaskResult MotorExecution_ControlStep(FOC_TypeDef *foc,
         Task_Current_Mode(foc, motor, encoder, observer);
         if (FocCogging_TakeTorqueTrip())
         {
-            return (MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, No_Error};
+            return (MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, MOTOR_FAULT_NONE};
         }
         break;
     case MOTOR_CONTROL_SPEED:
@@ -553,5 +566,5 @@ MotorTaskResult MotorExecution_ControlStep(FOC_TypeDef *foc,
     default:
         break;
     }
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, No_Error};
+    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }

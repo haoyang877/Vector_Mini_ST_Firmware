@@ -8,7 +8,7 @@
 /* 验证实际维护借用大小、写满边界和释放后的最大连续容量，不访问硬件。 */
 static int exercise_borrow(size_t bytes)
 {
-    uint8_t *buffer = HEAP_malloc(bytes);
+    uint8_t *buffer = Heap_Allocate(bytes);
     if (buffer == NULL)
     {
         return 1;
@@ -21,7 +21,7 @@ static int exercise_borrow(size_t bytes)
             return 2;
         }
     }
-    HEAP_free(buffer);
+    Heap_Free(buffer);
     return 0;
 }
 
@@ -33,7 +33,7 @@ int main(void)
 {
     const size_t sizes[] = {
         1024U * (sizeof(int32_t) + sizeof(uint16_t)),
-        sizeof(InterfaceParam_TypeDef),
+        sizeof(InterfaceParam),
         sizeof(CoggingMapRecord),
     };
     for (unsigned pass = 0U; pass < 4U; ++pass)
@@ -47,17 +47,17 @@ int main(void)
             }
         }
     }
-    size_t free_bytes = HEAP_get_free_size();
-    void *first = HEAP_malloc(512U), *middle = HEAP_malloc(1024U), *last = HEAP_malloc(512U);
+    size_t free_bytes = Heap_GetFreeBytes();
+    void *first = Heap_Allocate(512U), *middle = Heap_Allocate(1024U), *last = Heap_Allocate(512U);
     if (first == NULL || middle == NULL || last == NULL)
     {
         return 2;
     }
-    HEAP_free(middle);
-    HEAP_free(first);
-    HEAP_free(last);
-    if (HEAP_get_free_size() != free_bytes || exercise_borrow(sizes[0]) ||
-        HEAP_malloc(TOTAL_HEAP_SIZE) != NULL)
+    Heap_Free(middle);
+    Heap_Free(first);
+    Heap_Free(last);
+    if (Heap_GetFreeBytes() != free_bytes || exercise_borrow(sizes[0]) ||
+        Heap_Allocate(TOTAL_HEAP_SIZE) != NULL)
     {
         return 3;
     }

@@ -13,6 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from _naming_reference import project_reference
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
@@ -42,6 +43,7 @@ def main():
     old = old.replace("../System/fast_loop_profile.h", "fast_loop_profile.h").replace(
         "../system/fast_loop_profile.h", "fast_loop_profile.h"
     )
+    old = project_reference(old, "firmware/motor/position/position_cascade.c")
     for name in names:
         old = re.sub(r"\b" + name + r"\b", name + "_Reference", old)
         old_header = re.sub(r"\b" + name + r"\b", name + "_Reference", old_header)
@@ -55,8 +57,8 @@ def main():
     old = old.replace(
         '#include "position_cascade.h"', '#include "position_cascade.h"\n' + prototypes
     )
-    old += "\nconst void *PositionCore_ReferenceState(void) { return &state; }\n"
-    old += "size_t PositionCore_ReferenceSize(void) { return sizeof(state); }\n"
+    old += "\nconst void *PositionCore_ReferenceState(void) { return &s_state; }\n"
+    old += "size_t PositionCore_ReferenceSize(void) { return sizeof(s_state); }\n"
     actual = (ROOT / "firmware/motor/position/position_cascade.c").read_text(encoding="utf-8-sig")
     for name in ["Reset", "Update", "UpdateTarget", "UpdateControl", "UpdateTargetControl"]:
         actual = actual.replace(
@@ -72,11 +74,11 @@ extern const void *PositionCore_ReferenceState(void);
 extern size_t PositionCore_ReferenceSize(void);
 unsigned long PositionCore_ComparedTicks;
 static void compare_state(void) {
-    const unsigned char *a = (const unsigned char *)&state;
+    const unsigned char *a = (const unsigned char *)&s_state;
     const unsigned char *b = (const unsigned char *)PositionCore_ReferenceState();
     size_t i;
-    if (sizeof(state) != PositionCore_ReferenceSize()) abort();
-    for (i=0; i<sizeof(state); ++i) if (a[i] != b[i]) {
+    if (sizeof(s_state) != PositionCore_ReferenceSize()) abort();
+    for (i=0; i<sizeof(s_state); ++i) if (a[i] != b[i]) {
         fprintf(stderr,"State mismatch tick %lu byte %zu: %02x / %02x\n",
             PositionCore_ComparedTicks,i,a[i],b[i]); abort();
     }
@@ -84,9 +86,9 @@ static void compare_state(void) {
 void PositionCascade_Reset(void) {
     PositionCascade_Reset_Actual(); PositionCascade_Reset_Reference(); compare_state();
 }
-static bool compare_result(bool a, bool b, PositionCascadeOutput_TypeDef *output,
-    const PositionCascadeOutput_TypeDef *actual_output,
-    const PositionCascadeOutput_TypeDef *reference_output) {
+static bool compare_result(bool a, bool b, PositionCascadeOutput *output,
+    const PositionCascadeOutput *actual_output,
+    const PositionCascadeOutput *reference_output) {
     ++PositionCore_ComparedTicks;
     if (a != b || (output && memcmp(actual_output,reference_output,sizeof(*output)))) {
         fprintf(stderr,"Output mismatch tick %lu\n",PositionCore_ComparedTicks); abort();
@@ -95,26 +97,26 @@ static bool compare_result(bool a, bool b, PositionCascadeOutput_TypeDef *output
     if (output) *output=*actual_output;
     return a;
 }
-bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
-    float position, float speed, PositionCascadeOutput_TypeDef *output) {
-    PositionCascadeOutput_TypeDef a={0},b={0};
+bool PositionCascade_Update(const PositionCascadeConfig *config,
+    float position, float speed, PositionCascadeOutput *output) {
+    PositionCascadeOutput a={0},b={0};
     bool x=PositionCascade_Update_Actual(config,position,speed,output ? &a : NULL);
     bool y=PositionCascade_Update_Reference(config,position,speed,output ? &b : NULL);
     return compare_result(x,y,output,&a,&b);
 }
 bool PositionCascade_UpdateTarget(float target,float position,float speed,
-    PositionCascadeOutput_TypeDef *output) {
-    PositionCascadeOutput_TypeDef a={0},b={0};
+    PositionCascadeOutput *output) {
+    PositionCascadeOutput a={0},b={0};
     bool x=PositionCascade_UpdateTarget_Actual(target,position,speed,output ? &a : NULL);
     bool y=PositionCascade_UpdateTarget_Reference(target,position,speed,output ? &b : NULL);
     return compare_result(x,y,output,&a,&b);
 }
-static bool compare_control(bool x,bool y,PositionCascadeControlOutput_TypeDef *output,
-    const PositionCascadeControlOutput_TypeDef *a,const PositionCascadeOutput_TypeDef *b) {
-    PositionCascadeControlOutput_TypeDef expected={0};
+static bool compare_control(bool x,bool y,PositionCascadeControlOutput *output,
+    const PositionCascadeControlOutput *a,const PositionCascadeOutput *b) {
+    PositionCascadeControlOutput expected={0};
     expected.position_reference=b->position_reference;
     expected.speed_reference=b->speed_reference;
-    expected.speed_feedback=b->speed_feedback;
+    expected.speed_feedback_rad_s=b->speed_feedback_rad_s;
     expected.iq_reference=b->iq_reference;
     expected.target_reached=b->target_reached;
     ++PositionCore_ComparedTicks;
@@ -123,27 +125,27 @@ static bool compare_control(bool x,bool y,PositionCascadeControlOutput_TypeDef *
     if(output && x) *output=*a;
     return x;
 }
-bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
-    float position,float speed,PositionCascadeControlOutput_TypeDef *output) {
-    PositionCascadeControlOutput_TypeDef a={0}; PositionCascadeOutput_TypeDef b={0};
+bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
+    float position,float speed,PositionCascadeControlOutput *output) {
+    PositionCascadeControlOutput a={0}; PositionCascadeOutput b={0};
     bool x=PositionCascade_UpdateControl_Actual(config,position,speed,output ? &a : NULL);
     bool y=PositionCascade_Update_Reference(config,position,speed,output ? &b : NULL);
     return compare_control(x,y,output,&a,&b);
 }
 bool PositionCascade_UpdateTargetControl(float target,float position,float speed,
-    PositionCascadeControlOutput_TypeDef *output) {
-    PositionCascadeControlOutput_TypeDef a={0}; PositionCascadeOutput_TypeDef b={0};
+    PositionCascadeControlOutput *output) {
+    PositionCascadeControlOutput a={0}; PositionCascadeOutput b={0};
     bool x=PositionCascade_UpdateTargetControl_Actual(target,position,speed,output ? &a : NULL);
     bool y=PositionCascade_UpdateTarget_Reference(target,position,speed,output ? &b : NULL);
     return compare_control(x,y,output,&a,&b);
 }
 /* Run the original scenario assertions through the compact production API too.
  * Restore rich outputs only in this host bridge, from the same private state. */
-bool PositionCore_CompactBridge(const PositionCascadeConfig_TypeDef *config,
-    float position,float speed,PositionCascadeOutput_TypeDef *output) {
-    PositionCascadeControlOutput_TypeDef compact;
+bool PositionCore_CompactBridge(const PositionCascadeConfig *config,
+    float position,float speed,PositionCascadeOutput *output) {
+    PositionCascadeControlOutput compact;
     bool ok=PositionCascade_UpdateControl(config,position,speed,output ? &compact : NULL);
-    if(ok && output) PositionCascade_CopyOutput(output);
+    if(ok && output) position_cascade_copy_output(output);
     return ok;
 }
 """
@@ -157,8 +159,8 @@ bool PositionCore_CompactBridge(const PositionCascadeConfig_TypeDef *config,
 extern unsigned long PositionCore_ComparedTicks;
 int main(int argc,char **argv) {
     int result=scenarios_main(argc,argv);
-    PositionCascadeControlOutput_TypeDef output;
-    PositionCascadeConfig_TypeDef tuning=config();
+    PositionCascadeControlOutput output;
+    PositionCascadeConfig tuning=config();
     unsigned tick;
     PositionCascade_Reset();
     assert(!PositionCascade_UpdateTargetControl(0,0,0,&output));
@@ -200,8 +202,8 @@ int main(int argc,char **argv) {
     compact_fixture = compact_fixture.replace(
         '#include "position_cascade.h"',
         """#include "position_cascade.h"
-bool PositionCore_CompactBridge(const PositionCascadeConfig_TypeDef *,float,float,
-    PositionCascadeOutput_TypeDef *);""",
+bool PositionCore_CompactBridge(const PositionCascadeConfig *,float,float,
+    PositionCascadeOutput *);""",
     )
     compact_path = out / "compact_scenarios.c"
     compact_path.write_text(compact_fixture, encoding="utf-8")

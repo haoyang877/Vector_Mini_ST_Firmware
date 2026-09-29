@@ -5,7 +5,7 @@
 ```text
 firmware/                         电机 APP
   app/                            启动组装、模式与任务调度
-  motor/                          FOC、位置控制、轨迹、辨识、保护
+  motor/                          foc、位置控制、轨迹、辨识、保护
   services/                       参数与遥测
   communication/                  CAN 接入与协议
   platform/                       硬件接口、STM32G4 BSP/端口/CubeMX

@@ -59,7 +59,7 @@ def main() -> None:
                 "tests/unit/foc_equivalence_test.c",
                 "firmware/motor/foc/foc_algorithm.c",
                 "firmware/motor/foc/foc_pid.c",
-                "firmware/common/utils.c",
+                "firmware/motor/math/control_math.c",
                 str(out / "reference_foc.c"),
                 str(out / "reference_pi.c"),
                 "-o",

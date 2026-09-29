@@ -19,12 +19,13 @@
 | 目录 | 内容与边界 |
 | --- | --- |
 | app/composition | board_config：启动/端口绑定/启动交接；bsp_task、foc_task：任务入口；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
-| app/runtime | motor_axis：唯一电机对象组装及调度；motor_execution：控制执行与外环协调；motor_maintenance：维护协调；rtt_telemetry：当前 RTT 输出适配 |
+| app/runtime | motor_axis：唯一电机对象组装及调度；motor_execution：控制执行与外环协调；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区；rtt_telemetry：当前 RTT 输出适配 |
 | app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |
 | motor/foc | 电流、速度、无感控制计算、采样换算与补偿应用 |
 | motor/feedback | angle_feedback：编码器采样、角度校正、多圈与速度估计；所有模式共同使用 |
 | motor/position | position_cascade 与其配置：位置伺服控制 |
 | motor/trajectory | 平滑轨迹计算 |
+| motor/math | control_math：既有数学、角度与滤波计算，无硬件或 APP 依赖 |
 | motor/calibration | 编码器与齿槽标定、标定任务适配及补偿表记录计算 |
 | motor/identification | 相电阻、摩擦辨识的纯计算及任务适配 |
 | motor/protection | 电机故障与母线保护策略 |
@@ -38,7 +39,6 @@
 | platform/stm32g4/bsp | 芯片/板卡原语与驱动 |
 | platform/stm32g4/ports | 板级、CAN、编码器、电机、时间及启动能力的实现 |
 | platform/stm32g4/cubemx | 生成入口、Core、HAL/CMSIS、IOC 和 Keil 工程；不搬业务到生成区 |
-| common | 已有数学与内存工作区能力，不作为杂项收容目录 |
 | third_party | 保持原样的 SEGGER RTT 等外部源码 |
 
 源码与对应头文件相邻。目录按职责分组，不为单个函数新建目录，不创建空的未来配置目录。
@@ -53,6 +53,9 @@ MotorAxis 私有运行对象内的 model/application/device 子对象持有单�
 命令目标、模式、故障与测量留在易失状态中。
 schema12 保持现有混合存储布局，由装载/导出边界映射，不能当作控制对象使用。
 参数所有者给启动组合层传节点值，通信不再作为参数节点的存储所有者。
+参数记录、齿槽候选和编码器标定复用一份 6 KiB 固定联合工作区，APP 管理占用与归还。
+编码器任务显式借用采样对象，取消/完成清除引用；实际归还后 APP 才允许复用。
+没有 heap 分配器、空闲链表或三份常驻大数组。
 具体读写规则与持久层尚未拆开的兼容限制见[参数所有权](parameter_ownership_v1.md)。
 
 ## 工程与工具接线
@@ -61,7 +64,7 @@ schema12 保持现有混合存储布局，由装载/导出边界映射，不能�
 Loader 配套 APP 为同目录 Vector_Mini_ST_LoaderApp.uvprojx；两者复用同一业务源码。
 普通 APP 独立从 Flash 起始地址链接；只有配套工程使用 Loader APP 槽，不能混称两者布局。
 
-Keil 保持八组：App、Motor、Services、Communication、Platform、Shared、Common、Vendor。
+Keil 保持七组：App、Motor、Services、Communication、Platform、Shared、Vendor。
 物理子目录不扩展为更多 Keil 分组，工程树只登记源文件，不登记 .h。
 用户逐文件优化、源码顺序与调试配置保留。CubeMX Core/Drivers 内部相对位置不变。
 VS Code 按实际目录浏览；原生测试 include 路径统一由 tools/project_paths.py 提供。

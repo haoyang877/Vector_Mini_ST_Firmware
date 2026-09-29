@@ -5,7 +5,7 @@
 #include "control_config.h"
 #include "critical_hw.h"
 #include "encoder_sensor.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* 角度反馈（motor 层拥有）：帧读取编排与电角度（20 kHz 快路径）、机械/电角速度
  * （20 kHz 快路径二阶角度跟踪观测器）、多圈/机械角慢估计（2 kHz 独占写）。

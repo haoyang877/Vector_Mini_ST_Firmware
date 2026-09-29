@@ -50,7 +50,7 @@ def check_project(project):
     # header, and a moved header can contain another relative include.
     owned = (
         "firmware/app",
-        "firmware/common",
+        "firmware/motor/math",
         "firmware/motor",
         "firmware/services",
         "firmware/communication",

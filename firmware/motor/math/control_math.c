@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "control_math.h"
 #include <math.h>
 
 /* 四分之一周期 256 等分；表值为 sin(i * pi / 512)，端点为 0 和 1。 */

@@ -6,7 +6,7 @@
 #include "control_config.h"
 #include "critical_hw.h"
 #include "current_sense_profile.h"
-#include "utils.h"
+#include "control_math.h"
 #include "bus_voltage_profile.h"
 
 /* 齿槽功能适配层：运行补偿采集、台架保护、标定会话。

@@ -4,7 +4,7 @@
 #include <math.h>
 
 #include "control_config.h"
-#include "utils.h"
+#include "control_math.h"
 
 #define FLUX_OBSERVER_DEFAULT_GAMMA 800000.0f
 #define FLUX_OBSERVER_MAX_CORRECTION_STEP 0.2f

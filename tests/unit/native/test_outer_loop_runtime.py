@@ -52,11 +52,6 @@ def main():
             ]
         )
     )
-    # Use the real parameter structure to guard the mutually exclusive heap users.
-    param = (ROOT / "firmware/services/parameters/foc_param.h").read_text(encoding="utf-8")
-    param = param[
-        param.index("typedef struct") : param.index("} InterfaceParam;") + len("} InterfaceParam;")
-    ]
     fixture = (
         r"""
 #ifdef NDEBUG
@@ -73,7 +68,6 @@ def main():
 #include "foc_pid.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
-#include "heap.h"
 #include "cogging_calibration.h"
 #define FOC_CONFIG_NOINLINE
 #define ENCODER_OFFSET_LUT_SIZE 1024U
@@ -86,7 +80,6 @@ static float Encoder_GetMecVel(EncoderState *e) { return e->speed; }
 static float Encoder_GetMecVelContinuous(EncoderState *e) { return e->speed; }
 static void MotorFault_Report(MotorControlState *m, MotorFaultCode error) { m->fault_code = error; }
 """
-        + param
         + funcs
         + block
         + r"""
@@ -106,19 +99,6 @@ static void setup(MotorControlMode mode) {
     live.application.speed_acceleration_rad_s2 = .8f; live.application.speed_deceleration_rad_s2 = .5f;
 }
 int main(void) {
-    /* Calibration and parameter I/O are serialized; the pool must fit either peak. */
-    for (unsigned trial = 0; trial < 100; trial++) {
-        void *calibration = Heap_Allocate(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t) +
-                                        ENCODER_OFFSET_LUT_SIZE * sizeof(uint16_t));
-        assert(calibration);
-        assert(Heap_Allocate(sizeof(InterfaceParam)) == NULL);
-        Heap_Free(calibration);
-        void *parameter = Heap_Allocate(sizeof(InterfaceParam));
-        assert(parameter);
-        Heap_Free(parameter);
-    }
-    printf("heap capacity passed: calibration=6144 parameter=%zu pool=%zu minimum_free=%zu\n",
-        sizeof(InterfaceParam), TOTAL_HEAP_SIZE, Heap_GetMinimumFreeBytes());
     for (unsigned mode = MOTOR_CONTROL_SPEED; mode <= MOTOR_CONTROL_POSITION; mode++) {
         setup((MotorControlMode)mode);
         for (unsigned i = 0; i < 20000; i++) {
@@ -213,7 +193,6 @@ int main(void) {
         ROOT / "firmware/motor/position/position_cascade.c",
         ROOT / "firmware/motor/trajectory/position_smooth_trajectory.c",
         ROOT / "firmware/motor/foc/foc_pid.c",
-        ROOT / "firmware/common/heap.c",
     ]
     cmd = [
         args.cc,
@@ -227,7 +206,7 @@ int main(void) {
         "-Werror",
         "-I" + str(out),
         "-I" + str(ROOT / "firmware/motor/foc"),
-        "-I" + str(ROOT / "firmware/common"),
+        "-I" + str(ROOT / "firmware/motor/math"),
         "-I" + str(ROOT / "firmware/platform/stm32g4/bsp"),
         "-I" + str(ROOT),
     ]

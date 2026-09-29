@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "utils.h"
+#include "control_math.h"
 #include "foc_algorithm.h"
 
 static double max_error;

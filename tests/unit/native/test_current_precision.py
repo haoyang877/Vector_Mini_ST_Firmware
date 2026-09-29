@@ -29,7 +29,7 @@ def main():
 #include "motor_types.h"
 #include "foc_algorithm.h"
 #include "motor_sensing.h"
-#include "utils.h"
+#include "control_math.h"
 static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 
 #define OVERCURRENT_CONFIRM_CYCLES 5U
@@ -90,7 +90,7 @@ int main(void) {
             str(out),
         ]
         + NATIVE_INCLUDE_FLAGS
-        + [str(fixture), str(ROOT / "firmware/common/utils.c"), "-lm", "-o", str(exe)]
+        + [str(fixture), str(ROOT / "firmware/motor/math/control_math.c"), "-lm", "-o", str(exe)]
     )
     for shunt in (2, 6):
         for step in (command + [f"-DCURRENT_SENSE_SHUNT_MILLIOHM={shunt}"], [str(exe)]):

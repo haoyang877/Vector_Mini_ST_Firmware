@@ -27,7 +27,7 @@ PRELUDE = r"""
 #include "foc_speed.h"
 #include "hw_conf.h"
 #include "motor_startup_profile.h"
-#include "utils.h"
+#include "control_math.h"
 static MotorControlState motor;
 static FocState foc;
 static PiController pi;
@@ -56,8 +56,6 @@ uint32_t Observer_GetPositionEpoch(FluxObserverState *o) { return o->position_ep
 bool Encoder_IsOnline(const EncoderState *e) { return e->has_valid_sample; }
 float Encoder_GetMecVelContinuous(const EncoderState *e) { return e->mechanical_velocity_continuous_rad_s; }
 void Encoder_ResetVelocity(EncoderState *e) { e->velocity_ready=false; }
-static void *Heap_Allocate(size_t n) { return malloc(n); }
-static void Heap_Free(void *p) { free(p); }
 """
 
 CASES = r"""
@@ -212,7 +210,7 @@ def main():
                 "-DMOTOR_HAS_DAMPING_RING=" + str(damping),
                 str(source),
                 str(ROOT / "firmware/motor/foc/foc_pid.c"),
-                str(ROOT / "firmware/common/utils.c"),
+                str(ROOT / "firmware/motor/math/control_math.c"),
                 "-o",
                 str(exe),
                 "-lm",

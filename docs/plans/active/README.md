@@ -2,6 +2,8 @@
 
 - [Loader P0/P1 v1](2026-09-29-loader-p0-p1-v1.md)：CAN FD 客户端、配套构建、生产身份和持久试运行门槛；本轮仅代码与离线验证，实机验收待执行。
 
+- [取消 common 与通用堆分配器 v1](../completed/2026-09-29-common-heap-retirement-v1.md)：common/heap 已移除，数学归位，固定工作区收口；PR 与 normal 编译通过，新镜像未实机验证。
+
 - [主状态机条件与职责精简 v1](2026-09-29-motor-state-conditions-v1.md)：已适配参数分组并集成；固件测试与 normal 编译通过，全仓库格式门禁待并行上位机源码收口。
 - [参数所有权解耦 v1](../completed/2026-09-29-parameter-ownership-v1.md)：四类默认值和 RAM 分组已完成，删除参数节点通信桥；持久层角色/制造身份的完整分离尚未实施。
 

@@ -29,7 +29,7 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/app/composition",
     "firmware/app/runtime",
     "firmware/app/motor_state_machine",
-    "firmware/common",
+    "firmware/motor/math",
     "firmware/motor",
     "firmware/motor/foc",
     "firmware/motor/position",

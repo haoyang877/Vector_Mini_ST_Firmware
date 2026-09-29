@@ -16,8 +16,8 @@
 | `motor/identification/encoder_calibration_task.c/.h` | 编码器标定任务；公开前缀 `EncoderCalibrationTask_` |
 | `motor/identification/phase_resistance_task.c/.h` | 相电阻辨识的电机任务；纯计算仍在 `phase_resistance.c/.h` |
 | `motor/identification/friction_identification_task.c/.h` | 摩擦辨识的电机任务；纯计算仍在 `friction_identification.c/.h` |
-| `common/utils.c/.h` | 既有纯数学实现，统一 `Math_` 入口；没有增加通用杂项模块 |
-| `common/heap.c/.h` | 固定工作区分配，统一 `Heap_` 入口；分配状态全部文件私有 |
+| `motor/math/control_math.c/.h` | 既有纯数学实现，统一 `Math_` 入口；没有增加通用杂项模块 |
+| `app/runtime/maintenance_workspace.c/.h` | 单份固定维护工作区，APP 管理类型借用和实际归还；无通用分配器 |
 
 旧文件名和 typedef 不保留转发头、别名或兼容包装。Keil 两个 APP 工程、生成工具、
 测试源切片和现行文档使用实际新路径。线路 ID、参数 schema、保存记录与共享产品契约不改。
@@ -27,7 +27,7 @@
 | 类别 | 规则 | 当前示例 |
 | --- | --- | --- |
 | 类型 | PascalCase，省略 `_TypeDef` | `MotorControlState`、`FocState`、`PiController`、`EncoderState` |
-| 公开函数 | 模块前缀加动作 | `MotorAxis_Init`、`PiController_Run`、`Math_SinCos`、`Heap_Allocate` |
+| 公开函数 | 模块前缀加动作 | `MotorAxis_Init`、`PiController_Run`、`Math_SinCos`、`MaintenanceWorkspace_BorrowParameter` |
 | 私有函数 | snake_case | `run_fast_task`、`position_mode_update_configuration` |
 | 文件私有对象 | `s_` 加职责名称 | `s_motor_state`、`s_foc_state`、`s_rotor_encoder` |
 | 文件私有配置/表 | 同样 `s_`，由 const 限定只读 | `s_friction_config`、`s_sin_quarter_tab` |

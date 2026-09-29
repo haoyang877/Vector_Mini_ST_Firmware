@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stddef.h>
 
-#include "utils.h"
+#include "control_math.h"
 
 /* 已准入身份快照：Admit 成功时写入，Update 在 20 kHz 路径只做字段比较。 */
 static bool s_compensation_admitted;

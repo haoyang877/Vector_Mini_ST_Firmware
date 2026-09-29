@@ -6,6 +6,7 @@
 | feedback | 编码器采样、角度校正、多圈与速度估计，供各模式共用 |
 | position | 位置级联控制 |
 | trajectory | 平滑轨迹计算 |
+| math | 确定性的数学、角度与滤波计算，无硬件或应用状态依赖 |
 | calibration | 编码器装配标定、齿槽标定和补偿表生成 |
 | identification | 相电阻及摩擦辨识 |
 | protection | 故障与母线保护策略 |

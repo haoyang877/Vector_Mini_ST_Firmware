@@ -7,7 +7,7 @@
 #include "foc_errhandle.h"
 #include "mcu_temperature.h"
 #include "motor_sensing.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* 母线电压、相电流与 MCU 温度的判定、滤波与遥测。
  * 原始采样与板级换算在 platform/stm32g4/ports/motor/motor_sensing_stm32g4.c

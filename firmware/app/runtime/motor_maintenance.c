@@ -13,8 +13,9 @@
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
 #include "control_config.h"
-#include "utils.h"
+#include "control_math.h"
 #include "parameter_value_service.h"
+#include "maintenance_workspace.h"
 
 /* 产品默认值只在组合层装配，算法接收只读显式输入。 */
 #define PHASE_RESISTANCE_RAMP_TICKS ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_RAMP_TIME_MS) / 1000U)
@@ -152,7 +153,16 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
     switch (kind)
     {
     case MOTOR_MAINTENANCE_ENCODER_LUT:
-        return EncoderCalibrationTask_StepLut(foc, motor, pi, encoder, observer, startup);
+    {
+        EncoderCalibrationWorkspace *workspace = MaintenanceWorkspace_BorrowEncoder();
+        MotorTaskResult result =
+            EncoderCalibrationTask_StepLut(foc, motor, pi, encoder, observer, startup, workspace);
+        if (EncoderCalibrationTask_IsReleased())
+        {
+            MaintenanceWorkspace_ReleaseEncoder();
+        }
+        return result;
+    }
     case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
         return EncoderCalibrationTask_StepElectricalZero(foc, motor, encoder);
     case MOTOR_MAINTENANCE_COGGING:
@@ -188,6 +198,10 @@ void MotorMaintenance_Cancel(MotorMaintenanceKind kind,
     case MOTOR_MAINTENANCE_ENCODER_LUT:
     case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
         EncoderCalibrationTask_Cancel();
+        if (EncoderCalibrationTask_IsReleased())
+        {
+            MaintenanceWorkspace_ReleaseEncoder();
+        }
         break;
     case MOTOR_MAINTENANCE_COGGING:
         FocCogging_Abort();
@@ -205,6 +219,7 @@ void MotorMaintenance_Cancel(MotorMaintenanceKind kind,
 
 bool MotorMaintenance_IsReleased(void)
 {
-    return EncoderCalibrationTask_IsReleased() && FocCogging_IsReleased() &&
-           FrictionIdentificationTask_IsReleased() && PhaseResistanceTask_IsReleased();
+    return MaintenanceWorkspace_IsReleased() && EncoderCalibrationTask_IsReleased() &&
+           FocCogging_IsReleased() && FrictionIdentificationTask_IsReleased() &&
+           PhaseResistanceTask_IsReleased();
 }

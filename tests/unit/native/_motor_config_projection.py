@@ -25,4 +25,5 @@ _PATTERN = re.compile(r"\b(motor_state|m)->(" + "|".join(_FIELDS) + r")\b")
 
 def project_reference_motor_config(source: str) -> str:
     """将旧 MotorControlState 参数成员投影到新子对象，保持冻结控制体不变。"""
+    source = source.replace('#include "utils.h"', '#include "control_math.h"')
     return _PATTERN.sub(lambda match: f"{match[1]}->{_FIELDS[match[2]]}.{match[2]}", source)

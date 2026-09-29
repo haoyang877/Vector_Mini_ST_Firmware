@@ -6,7 +6,7 @@
 #include "foc_errhandle.h"
 #include "foc_speed.h"
 #include "control_config.h"
-#include "utils.h"
+#include "control_math.h"
 #include "bus_voltage_profile.h"
 
 static FrictionIdentification s_identification;

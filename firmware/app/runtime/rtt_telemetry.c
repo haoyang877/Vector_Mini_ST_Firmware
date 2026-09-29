@@ -7,7 +7,7 @@
 #include "control_config.h"
 #include "motor_execution.h"
 #include "motor_types.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* 定标：物理量乘以尺度后饱和编码为 int16 计数，不是测量精度。 */
 #define RTT_POSITION_SCALE_COUNTS_PER_RAD (32768.0f / _PI)

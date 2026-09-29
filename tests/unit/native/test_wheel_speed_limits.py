@@ -28,7 +28,7 @@ def fixture():
 #include "board_profile_defaults.h"
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
-#include "utils.h"
+#include "control_math.h"
 #include "foc_cogging_calibration.h"
 MotorControlState motor_state;
 EncoderState rotor_encoder;
@@ -47,7 +47,7 @@ uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
         (ROOT / "docs/protocols/parameter_schema12_vectors.json").read_text(encoding="utf-8")
     )
     prelude += f"\n#define PARAM_RECORD_GOLDEN_CRC {vectors['vectors'][0]['crc32']}U\n"
-    utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
+    utils = (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
     prelude += (
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
@@ -224,7 +224,7 @@ def main():
     includes = [str(out)] + [
         str(ROOT / p)
         for p in (
-            "firmware/common",
+            "firmware/motor/math",
             "firmware/motor/foc",
             "firmware/platform/stm32g4/bsp",
             "firmware/communication",

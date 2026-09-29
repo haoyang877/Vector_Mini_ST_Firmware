@@ -8,7 +8,7 @@
 #include "foc_errhandle.h"
 #include "foc_speed.h"
 #include "motor_hw.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* 理想相阻与摩擦模型仅替换电流/速度执行和传感器；实际功能及辨识核心参与。 */
 static MotorControlState motor;

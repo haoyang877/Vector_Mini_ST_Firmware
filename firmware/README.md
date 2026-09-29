@@ -7,7 +7,6 @@
 | services | 参数、只读状态、控制/维护值请求 |
 | communication | CAN 接入与 APP 业务协议 |
 | platform | 硬件能力接口，以及 STM32G4 实现和生成工程 |
-| common | 已有数学与内存工作区 |
 | third_party | 第三方源码，保持原有布局 |
 
 APP/Loader 共同契约只在仓库 shared 目录实现。

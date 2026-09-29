@@ -34,7 +34,7 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     actual = function_source(
-        (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8"), "Math_Sqrt"
+        (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8"), "Math_Sqrt"
     )
     fixture = (
         r"""
@@ -136,7 +136,7 @@ int main(void) {
             "-Wextra",
             "-Werror",
             str(sine_source),
-            str(ROOT / "firmware/common/utils.c"),
+            str(ROOT / "firmware/motor/math/control_math.c"),
             "-o",
             str(sine_exe),
         ],

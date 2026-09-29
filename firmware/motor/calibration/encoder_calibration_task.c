@@ -7,29 +7,13 @@
 
 #include "control_config.h"
 #include "foc_errhandle.h"
-#include "heap.h"
 #include "motor_startup_profile.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* Mode 13/15 编码器标定重建（契约见头文件）。
  * 原 foc_calibration 五任务中的 R_L_Flux/EncoderOffset/CurrentOffset 仍待重建：
  * 其辅助函数（分相电阻/电感/磁链扫描、开环扫角偏移、ADC 零偏）未随本模块恢复。
  * 迁移约定：任务不自行停相或写模式；本地中止只清理采样区与控制状态。 */
-
-/* 采样计数在构建候选 LUT 前已不再使用，与候选 LUT 复用同一块空间。 */
-typedef struct
-{
-    int32_t error_sum[ENCODER_OFFSET_LUT_SIZE];
-    union
-    {
-        uint16_t samples[ENCODER_OFFSET_LUT_SIZE];
-        int16_t candidate[ENCODER_OFFSET_LUT_SIZE];
-    } bins;
-} EncoderCalibrationWorkspace;
-
-/* 借用容量含独立元数据余量；点数或字段增长时必须重新确认池预算。 */
-typedef char EncoderCalibWorkspace_FitsHeap
-    [(sizeof(EncoderCalibrationWorkspace) <= HEAP_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 
 static EncoderCalibrationWorkspace *s_encoder_calib_workspace = NULL;
 
@@ -45,7 +29,6 @@ static void encoder_calib_release_samples(void)
 {
     if (s_encoder_calib_workspace != NULL)
     {
-        Heap_Free(s_encoder_calib_workspace);
         s_encoder_calib_workspace = NULL;
     }
 }
@@ -83,19 +66,14 @@ static int16_t encoder_calib_q15_difference(uint16_t target_q15, uint16_t source
     return (int16_t)difference;
 }
 
-static bool encoder_calib_allocate_samples(void)
+static bool encoder_calib_prepare_samples(EncoderCalibrationWorkspace *workspace)
 {
-    if (s_encoder_calib_workspace == NULL)
-    {
-        s_encoder_calib_workspace = Heap_Allocate(sizeof(*s_encoder_calib_workspace));
-    }
-
-    if (s_encoder_calib_workspace == NULL)
+    if (workspace == NULL)
     {
         encoder_calib_release_samples();
         return false;
     }
-
+    s_encoder_calib_workspace = workspace;
     memset(s_encoder_calib_workspace, 0, sizeof(*s_encoder_calib_workspace));
     return true;
 }
@@ -242,7 +220,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
                                                PiController *speed_pi,
                                                EncoderState *encoder,
                                                FluxObserverState *flux_observer,
-                                               SensorlessStartupState *startup)
+                                               SensorlessStartupState *startup,
+                                               EncoderCalibrationWorkspace *workspace)
 {
     static uint32_t state_ticks;
     static uint32_t stage_ticks;
@@ -274,6 +253,13 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
     float relative_theta;
     uint16_t reference_q15;
     MotorTaskResult outcome = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+
+    if (s_encoder_calib_workspace != NULL && workspace != s_encoder_calib_workspace)
+    {
+        MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER);
+        encoder_observer_calib_abort(foc, motor_state, speed_pi, startup);
+        return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
+    }
 
     if (!Encoder_IsOnline(encoder))
     {
@@ -314,7 +300,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 
     if (s_calibration_phase == CS_NULL)
     {
-        if (!encoder_calib_allocate_samples())
+        if (!encoder_calib_prepare_samples(workspace))
         {
             MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER);
             encoder_observer_calib_abort(foc, motor_state, speed_pi, startup);

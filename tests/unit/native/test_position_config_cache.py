@@ -38,7 +38,7 @@ def main():
     reference = project_reference_motor_config(reference)
     speed = (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8")
     (out / "speed.c").write_text(
-        '#include "motor_types.h"\n#include "utils.h"\n#include "control_config.h"\n'
+        '#include "motor_types.h"\n#include "control_math.h"\n#include "control_config.h"\n'
         '#include "foc_pid.h"\n'
         + "\n".join(
             function_source(speed, n)
@@ -55,7 +55,7 @@ def main():
 #include <math.h>
 #include <string.h>
 #include "motor_types.h"
-#include "utils.h"
+#include "control_math.h"
 #include "control_config.h"
 #include "foc_pid.h"
 #include "position_cascade.h"

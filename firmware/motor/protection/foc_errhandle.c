@@ -4,7 +4,7 @@
 #include "foc_sensing.h"
 #include "motor_sensing.h"
 #include "bus_voltage_profile.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* 保留既有 2 kHz 监督恢复计数 2000 拍（1 s），温度恢复阈值 80 °C。 */
 #define RUN_STATE_OC_RECOVER_TICKS 2000U

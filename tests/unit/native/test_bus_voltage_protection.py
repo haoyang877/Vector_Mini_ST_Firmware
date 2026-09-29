@@ -173,7 +173,7 @@ def main():
         "-I",
         str(out),
         "-I",
-        str(ROOT / "firmware/common"),
+        str(ROOT / "firmware/motor/math"),
         "-I",
         str(ROOT / "firmware/motor/foc"),
         str(fixture),

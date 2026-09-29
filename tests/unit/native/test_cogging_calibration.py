@@ -354,7 +354,7 @@ def main():
             "firmware/motor/calibration/cogging_map.c",
             "firmware/motor/foc/cogging_compensation.c",
             "firmware/motor/foc/foc_pid.c",
-            "firmware/common/utils.c",
+            "firmware/motor/math/control_math.c",
             "shared/checksum/crc32.c",
         ]
     ]

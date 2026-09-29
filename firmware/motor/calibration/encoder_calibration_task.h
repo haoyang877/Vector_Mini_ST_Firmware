@@ -9,6 +9,17 @@
 #include "foc_sensorless_run.h"
 #include "motor_task_result.h"
 
+/** @brief 调用方独占的 LUT 标定采样区；采样计数与候选 LUT 在不同时段复用。 */
+typedef struct
+{
+    int32_t error_sum[ENCODER_OFFSET_LUT_SIZE];
+    union
+    {
+        uint16_t samples[ENCODER_OFFSET_LUT_SIZE];
+        int16_t candidate[ENCODER_OFFSET_LUT_SIZE];
+    } bins;
+} EncoderCalibrationWorkspace;
+
 /* Mode 13/15 编码器标定任务（按裁决在原 foc_calibration 删除后重建）：
  * - EncoderCalibrationTask_StepLut：无感观测器闭环下重建编码器 1024 点线性化 LUT；
  * - EncoderCalibrationTask_StepElectricalZero：d 轴对齐并写入电角度零位（需先完成 LUT 标定）。
@@ -85,18 +96,21 @@ bool EncoderCalibrationTask_IsReleased(void);
  * @param encoder 编码器状态；验证通过后提交 LUT 并清除电/机械零位标志。
  * @param flux_observer 观测器状态；机械参考由静态对齐与过零插值建立。
  * @param startup 无感启动状态机状态。
+ * @param workspace 调用方独占采样区，活动任务期间地址须不变；NULL 表示不可借用。
  * @return 采集中返回 MOTOR_TASK_RUNNING；标定完成返回
  *         MOTOR_TASK_COMPLETED，所有者关相并独立衔接保存；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；本地中止只清理采样区与控制状态，
- *       停相与模式回退由运行状态机按结果协议执行。
+ *       停相与模式回退由运行状态机按结果协议执行。取消/完成仅清除借用，
+ *       调用方确认 IsReleased 后才可复用空间；不分配或释放内存。
  */
 MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
                                                MotorControlState *motor_state,
                                                PiController *speed_pi,
                                                EncoderState *encoder,
                                                FluxObserverState *flux_observer,
-                                               SensorlessStartupState *startup);
+                                               SensorlessStartupState *startup,
+                                               EncoderCalibrationWorkspace *workspace);
 
 /**
  * @brief 电角度零位标定周期任务：d 轴对齐平均线性化角并写电角度零位。

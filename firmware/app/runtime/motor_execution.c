@@ -12,7 +12,7 @@
 #include "motor_hardware_profile.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
-#include "utils.h"
+#include "control_math.h"
 
 /* 运行模式任务入口：电流/速度/位置/vq_v 模式的快速环执行，
  * 以及延迟外环运行时的发布与保护接口。本文件只做任务编排与状态适配，

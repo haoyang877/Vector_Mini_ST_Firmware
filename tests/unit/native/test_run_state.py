@@ -54,6 +54,7 @@ def main() -> None:
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
             str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
+            str(ROOT / "firmware/app/runtime/maintenance_workspace.c"),
             str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(executable),
@@ -123,7 +124,7 @@ def main() -> None:
         composition.index("/* 产品默认值") : composition.index("void MotorMaintenance_Init")
     ]
     (output / "maintenance_profiles.h").write_text(
-        '#include "motor_profile_defaults.h"\n#include "board_profile_defaults.h"\n#include "application_profile_defaults.h"\n#include "device_profile_defaults.h"\n#include "control_config.h"\n#include "utils.h"\n'
+        '#include "motor_profile_defaults.h"\n#include "board_profile_defaults.h"\n#include "application_profile_defaults.h"\n#include "device_profile_defaults.h"\n#include "control_config.h"\n#include "control_math.h"\n'
         + profiles,
         encoding="utf-8",
     )

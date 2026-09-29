@@ -17,7 +17,7 @@
 #include "board_profile_defaults.h"
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
-#include "utils.h"
+#include "control_math.h"
 
 #include "foc_cogging_calibration.h"
 

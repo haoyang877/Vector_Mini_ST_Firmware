@@ -1,5 +1,5 @@
-#ifndef FOC_UTILS_H
-#define FOC_UTILS_H
+#ifndef CONTROL_MATH_H
+#define CONTROL_MATH_H
 
 /* 通用数学工具：纯函数，无硬件依赖与可变全局。 */
 #include <stdint.h>

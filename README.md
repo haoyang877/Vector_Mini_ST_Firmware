@@ -9,7 +9,6 @@ firmware/                         电机 APP
   services/                       参数与遥测
   communication/                  CAN 接入与协议
   platform/                       硬件接口、STM32G4 BSP/端口/CubeMX
-  common/                         通用数学与内存工具
   third_party/                    SEGGER RTT
 loader/                           独立 G431 Loader、升级事务与 CAN FD 端口
 host_app/                         Qt6 维护页面、离线升级规划与参数模型（设备执行后端待接线）

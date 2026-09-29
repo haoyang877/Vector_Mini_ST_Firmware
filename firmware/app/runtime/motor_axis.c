@@ -9,7 +9,7 @@
 #include "foc_sensing.h"
 #include "foc_param.h"
 #include "param_store.h"
-#include "heap.h"
+#include "maintenance_workspace.h"
 #include "rtt_telemetry.h"
 
 #include "angle_feedback.h"
@@ -22,11 +22,11 @@
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 
-/* 参数与齿槽候选和编码器采样互斥借用同一池；记录增长必须显式更新容量预算。 */
-typedef char
-    ParamRecord_FitsWorkspace[(sizeof(InterfaceParam) <= HEAP_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+/* 参数与齿槽候选和编码器采样互斥借用同一工作区；记录增长必须显式更新容量预算。 */
+typedef char ParamRecord_FitsWorkspace
+    [(sizeof(InterfaceParam) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 typedef char CoggingCandidate_FitsWorkspace
-    [(sizeof(CoggingMapRecord) <= HEAP_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+    [(sizeof(CoggingMapRecord) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 
 /* 电机与控制对象实例：全部私有定义在此，仅受控调度时传给实际计算调用方。 */
 static MotorControlState s_motor_state;
@@ -68,10 +68,10 @@ static void advance_config_revision(void)
     }
 }
 
-/* 启动时只借用一份既有大小的堆记录，不额外常驻配置副本。 */
+/* 启动时只借用一份既有大小的固定工作区记录，不额外常驻配置副本。 */
 static void load_parameters(void)
 {
-    InterfaceParam *record = Heap_Allocate(sizeof(*record));
+    InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
     if (record == NULL || !param_store_read(record, sizeof(*record)))
     {
         Param_Return_Default(&s_motor_state, &s_rotor_encoder);
@@ -82,7 +82,7 @@ static void load_parameters(void)
     }
     if (record != NULL)
     {
-        Heap_Free(record);
+        MaintenanceWorkspace_ReleaseParameter(record);
     }
 }
 
@@ -294,7 +294,7 @@ void MotorAxis_ServiceBackground(void)
     bool success = false;
     if (claim.kind == FOC_BACKGROUND_SAVE)
     {
-        InterfaceParam *record = Heap_Allocate(sizeof(*record));
+        InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
         if (record != NULL)
         {
             Param_Upload(record, &s_motor_state, &s_rotor_encoder);
@@ -304,12 +304,12 @@ void MotorAxis_ServiceBackground(void)
                 success = param_store_write(record, sizeof(*record));
             }
             critical_hw_exit(mask);
-            Heap_Free(record);
+            MaintenanceWorkspace_ReleaseParameter(record);
         }
     }
     else if (claim.kind == FOC_BACKGROUND_COGGING)
     {
-        CoggingMapRecord *candidate = Heap_Allocate(sizeof(*candidate));
+        CoggingMapRecord *candidate = MaintenanceWorkspace_BorrowCogging();
         if (candidate != NULL)
         {
             bool built = FocCogging_BuildCandidate(candidate, &s_motor_state, &s_rotor_encoder);
@@ -319,7 +319,7 @@ void MotorAxis_ServiceBackground(void)
                 success = FocCogging_PublishCandidate(candidate);
             }
             critical_hw_exit(mask);
-            Heap_Free(candidate);
+            MaintenanceWorkspace_ReleaseCogging(candidate);
         }
     }
     uint32_t mask = critical_hw_enter();

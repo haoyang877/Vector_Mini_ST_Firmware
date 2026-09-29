@@ -17,7 +17,7 @@
 #include "critical_hw.h"
 #include "indicator_hw.h"
 #include "bus_voltage_profile.h"
-#include "utils.h"
+#include "control_math.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
@@ -1198,8 +1198,10 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *f,
                                                PiController *p,
                                                EncoderState *e,
                                                FluxObserverState *o,
-                                               SensorlessStartupState *s)
+                                               SensorlessStartupState *s,
+                                               EncoderCalibrationWorkspace *workspace)
 {
+    (void)workspace;
     (void)f;
     (void)m;
     (void)p;

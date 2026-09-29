@@ -22,7 +22,7 @@
 #include "phase_resistance_task.h"
 #include "foc_sensorless_run.h"
 #include "power_stage_hw.h"
-#include "utils.h"
+#include "control_math.h"
 #include "time_hw.h"
 #include "parameter_value_service.h"
 

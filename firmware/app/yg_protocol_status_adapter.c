@@ -130,10 +130,8 @@ void YgProtocolStatusAdapter_Refresh(void)
     }
     /* 前台独占 s_source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
     MotorMaintenanceKind kind;
-    AppLifecycleState state = MotorAxis_ReadStatus(&s_source.sample,
-                                                  &s_source.measurement_valid_bits,
-                                                  &kind,
-                                                  &s_source.control_progress);
+    AppLifecycleState state = MotorAxis_ReadStatus(
+        &s_source.sample, &s_source.measurement_valid_bits, &kind, &s_source.control_progress);
     s_source.faults = fault_bits((MotorFaultCode)s_source.sample.fault);
     s_source.mode = protocol_mode((MotorControlMode)s_source.sample.mode, kind);
     s_source.state = state == APP_FATAL ? 9U

@@ -441,12 +441,11 @@ static void test_control_boundary(void)
     ControlOwner owner = {.result = MOTOR_CONTROL_ACCEPTED};
     yg_protocol_motor_adapter_t adapter = {.submit_control = submit_control,
                                            .control_context = &owner};
-    yg_protocol_motor_request_t request = {
-        .operation = YG_PROTOCOL_MOTOR_SET_CONTROL,
-        .mode = 3U,
-        .position_mrad = -1250,
-        .source_node = 2U,
-        .sequence = 41U};
+    yg_protocol_motor_request_t request = {.operation = YG_PROTOCOL_MOTOR_SET_CONTROL,
+                                           .mode = 3U,
+                                           .position_mrad = -1250,
+                                           .source_node = 2U,
+                                           .sequence = 41U};
     yg_protocol_service_reply_t reply;
     yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
     CHECK(reply.status == YG_PROTOCOL_SERVICE_ACCEPTED && owner.calls == 1U);

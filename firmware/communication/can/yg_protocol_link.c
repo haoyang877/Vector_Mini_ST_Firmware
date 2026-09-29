@@ -96,13 +96,14 @@ static void write_result(yg_protocol_service_result_t *response, uint16_t code, 
 
 /* 只编码已经关联的值快照；与原始请求身份一起保留到 TX 队列接收。 */
 static yg_protocol_result_t prepare_control_feedback(yg_protocol_link_context_t *link,
-                                                    uint8_t destination,
-                                                    uint16_t sequence,
-                                                    uint16_t code)
+                                                     uint8_t destination,
+                                                     uint16_t sequence,
+                                                     uint16_t code)
 {
     yg_protocol_motor_feedback_t feedback;
     if (yg_protocol_motor_feedback_from_source(
-            link->motor_status_source, link->node_id, code, sequence, &feedback) != YG_PROTOCOL_OK ||
+            link->motor_status_source, link->node_id, code, sequence, &feedback) !=
+            YG_PROTOCOL_OK ||
         yg_protocol_motor_feedback_encode(
             &feedback, link->feedback_payload, sizeof(link->feedback_payload)) != YG_PROTOCOL_OK)
     {
@@ -385,11 +386,8 @@ static yg_protocol_result_t handle_motor_control(void *context,
                     request->sequence % YG_LINK_CONTROL_HISTORY_SIZE !=
                         link->control_completion_sequence % YG_LINK_CONTROL_HISTORY_SIZE)
                 {
-                    *entry = (yg_link_control_history_t){request->sequence,
-                                                        digest,
-                                                        code,
-                                                        code == 1U ? 1U : detail,
-                                                        true};
+                    *entry = (yg_link_control_history_t){
+                        request->sequence, digest, code, code == 1U ? 1U : detail, true};
                 }
                 if (code == 1U)
                 {
@@ -404,9 +402,9 @@ static yg_protocol_result_t handle_motor_control(void *context,
             }
         }
     }
-    if (!defer_feedback && prepare_control_feedback(
-                               link, request->source_node, request->sequence, feedback_code) !=
-                               YG_PROTOCOL_OK)
+    if (!defer_feedback &&
+        prepare_control_feedback(link, request->source_node, request->sequence, feedback_code) !=
+            YG_PROTOCOL_OK)
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }

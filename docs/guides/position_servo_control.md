@@ -73,7 +73,7 @@ HIL 的 DWT 计时（已随 HIL 退役删除）只存在于硬件IRQ的USER CODE
 
 ## 构建与复现
 
-Keil 主工程 `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx` 为唯一构建目标。（原专用 `Vector_Mini_ST_HIL.uvprojx`、配套 Scope 工程与采集工装已于 2026-09-19 随 HIL 退役删除，见 [HIL 退役计划](../plans/active/2026-09-19-hil-retirement.md)。）自动采集期间只允许一个RTT消费者。
+Keil 主工程 `firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx` 为唯一构建目标。（原专用 `Vector_Mini_ST_HIL.uvprojx`、配套 Scope 工程与采集工装已于 2026-09-19 随 HIL 退役删除，见 [HIL 退役计划](../plans/active/2026-09-19-hil-retirement.md)。）自动采集期间只允许一个RTT消费者。
 
 `tests/unit/native/run_position_servo_tests.py` 编译实际控制器和实际编码器测速函数进行主机回归。运行示例：
 

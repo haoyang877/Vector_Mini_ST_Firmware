@@ -17,7 +17,7 @@ def main() -> None:
     config = json.loads(
         (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
     )["constants"]
-    tree = ET.parse(KEIL / "Vector_Mini_ST.uvprojx")
+    tree = ET.parse(KEIL / "YG_ESC_APP.uvprojx")
     target = tree.getroot().find("Targets/Target")
     if target is None:
         raise ValueError("普通APP工程缺少Target")

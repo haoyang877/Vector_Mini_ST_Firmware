@@ -29,7 +29,7 @@ Loader 使用自己的小队列和固定命令分支，不引入 APP 的运行�
 
 ROOT 更新 APP 构建及测试工具输入，D 更新独立 Loader 工程；本次迁移提交不代改其工程文件。
 
-1. `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx`：
+1. `firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx`：
    四个 C 文件改为 `..\..\..\..\..\shared\protocol\<文件名>`；新增
    `..\..\..\..\..\shared\protocol` 包含目录。不要把新旧实现同时加入工程。
 2. `tools/project_paths.py`：`NATIVE_INCLUDE_DIRS` 加 `shared/protocol`。

@@ -9,8 +9,8 @@
 
 修改前 release 全门禁 PASS：`outputs/runs/duplicate-baseline-20260929/summary.json`。
 源码冻结与三工程构建留在 `outputs/duplicate-removal-20260929/baseline-*`。
-三工程资源对照使用冻结的 05d98016 功能源码，并覆盖已提交的 ce867243 APP 工程分组。
-实施分支已纳入 ce867243，基线与候选均为相同八组布局；不将分组变化算作本轮收益。
+三工程资源对照使用冻结的 05d98016 功能源码，并覆盖已提交的 ce867243 APP 工程分组与 5ce5c5a5 主工程更名。
+实施分支已纳入 ce867243/5ce5c5a5，基线与候选均为相同八组布局；不将分组变化算作本轮收益。
 
 ## 不变边界与验收
 
@@ -56,7 +56,8 @@ PositionCascadeOutput 及空 data_type.c；外环复位入口改为 MotorOuterLo
 本轮不增加兼容头、状态所有者或可写全局。
 
 原目录出现 Keil v2 并行整理时，本轮修改转入新隔离工作树；纳入已提交 ce867243，
-保留并行整理的八组布局和调试偏好。无关用户修改不进入本轮提交。
+保留并行整理的八组布局和调试偏好。随后纳入主工程 YG_ESC_APP 更名，并重新检查组合构建。
+Loader 生成器同时将继承的 RTE/层名称写为实际 Loader 名称，保持独立工程身份；两生成器重跑无差异。无关用户修改不进入本轮提交。
 
 ## 验收证据
 
@@ -86,8 +87,10 @@ FOC 两个共同步骤均被 ARMCC 内联，没有增加外部调用，两个策
 试验回退，不新增豁免；保留失败日志。基线 LoaderApp 因 Windows 路径长度失败后，以
 outputs/ref 短路径重新完整构建，三工程基线全部以成功的当次构建为准。
 
-最终干净提交必须通过 release：
+去重提交 df67416 的干净源码 release 已 PASS：
 outputs/runs/duplicate-release-final-20260929/summary.json。
+更名合并后的最终干净提交必须通过 release：
+outputs/runs/duplicate-release-merged-20260929/summary.json。
 release 门禁本身只构建普通 APP；Loader 配套 APP 和 Loader 另行完整构建，
 不把 --target all 当作三工程证据。最终源码、产物哈希和全部结果统一归
 outputs/duplicate-removal-20260929/summary.json，以其实际状态作为完成依据。

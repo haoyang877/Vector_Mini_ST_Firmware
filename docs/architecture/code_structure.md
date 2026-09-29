@@ -44,6 +44,8 @@ APP 当前模块、对象所有权、函数与物理量名称以
 与 Vendor 合并为八组；普通和 Loader 配套 APP 一致，不在工程树登记 `.h`。
 头文件仍位于原目录并通过既有 include 路径使用。实际目录与编译、调试设置保留，规则见
 [Keil APP 精简分组 v2](../plans/completed/2026-09-29-keil-app-groups-v2.md)。
+主工程文件、目标与输出名现为 `YG_ESC_APP`；工程与树缓存都不登记头文件，见
+[APP 工程更名与导航修正 v3](../plans/completed/2026-09-29-keil-app-name-v3.md)。
 
 Keil 主工程位于 `firmware/platform/stm32g4/cubemx/MDK-ARM/`。
 CubeMX 的内部 Core/Drivers 相对关系保持一致，用户源码通过相对 include 路径接入。

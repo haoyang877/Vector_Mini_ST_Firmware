@@ -67,7 +67,7 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
 }}
 """
     (TARGET_DIR / "app.sct").write_text(app_scatter, encoding="utf-8")
-    tree = ET.parse(ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx")
+    tree = ET.parse(ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx")
     targets = tree.getroot().find("Targets")
     target = targets.find("Target")
     for other in list(targets)[1:]:
@@ -138,6 +138,12 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
             ET.SubElement(item, "FileName").text = Path(source).name
             ET.SubElement(item, "FileType").text = "2" if source.endswith(".s") else "1"
             ET.SubElement(item, "FilePath").text = relative(source)
+    # 模板的 RTE/层名称也归 Loader，不能继承普通 APP 的工程身份。
+    for info in tree.getroot().findall("RTE/packages/package/targetInfos/targetInfo"):
+        info.set("name", config["name"])
+    layer = tree.getroot().find("LayerInfo/Layers/Layer/LayName")
+    if layer is not None:
+        layer.text = config["name"]
     ET.indent(tree, space="  ")
     tree.write(TARGET_DIR / "YG2026_ESC_LOADER.uvprojx", encoding="utf-8", xml_declaration=True)
 

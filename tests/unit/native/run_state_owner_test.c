@@ -864,6 +864,34 @@ static void test_self_test_deadline(void)
     assert(MotorStateMachine_GetState() == APP_SELF_TEST);
     tick();
     assert(MotorStateMachine_GetState() == APP_READY && start_count == 0U);
+    /* 第四个健康完成拍已到期限，必须先拒绝过期成功。 */
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    tick();
+    tick();
+    tick();
+    now_ms = 500U;
+    tick();
+    assert(MotorStateMachine_GetState() == APP_FAULT &&
+           motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
+    /* BOOT 资源未释放与必需编码器不健康也不能无限等待。 */
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    encoder_released = false;
+    tick();
+    assert(MotorStateMachine_GetState() == APP_BOOT);
+    now_ms = 500U;
+    tick();
+    assert(MotorStateMachine_GetState() == APP_FAULT &&
+           motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    encoder.bad_frame_streak = 1U;
+    tick();
+    now_ms = 500U;
+    tick();
+    assert(MotorStateMachine_GetState() == APP_FAULT &&
+           motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     reset();
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
     now_ms = UINT32_MAX - 100U;

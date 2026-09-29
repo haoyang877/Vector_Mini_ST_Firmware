@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 from project_paths import ROOT
 
-RTT_TELEMETRY = ROOT / "firmware/app/rtt_telemetry.c"
+RTT_TELEMETRY = ROOT / "firmware/app/runtime/rtt_telemetry.c"
 MAIN_SOURCE = ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/main.c"
 CONTROL_CONFIG = ROOT / "firmware/platform/api/control_config.h"
 SCOPES = (

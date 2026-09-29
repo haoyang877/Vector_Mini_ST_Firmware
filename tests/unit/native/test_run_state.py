@@ -24,7 +24,9 @@ def main() -> None:
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
     fixture += function_source(sensing, "MotorCurrentOffsets_Valid")
-    adapter = (ROOT / "firmware/app/yg_protocol_status_adapter.c").read_text(encoding="utf-8")
+    adapter = (ROOT / "firmware/app/composition/yg_protocol_status_adapter.c").read_text(
+        encoding="utf-8"
+    )
     fixture += "\n" + function_source(adapter, "protocol_mode")
     source = output / "run_state_owner.c"
     source.write_text(fixture, encoding="utf-8")
@@ -45,7 +47,7 @@ def main() -> None:
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(source),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_machine.c"),
-            str(ROOT / "firmware/app/motor_maintenance.c"),
+            str(ROOT / "firmware/app/runtime/motor_maintenance.c"),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
@@ -98,8 +100,8 @@ def main() -> None:
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(ROOT / "tests/unit/native/cogging_finalize_test.c"),
             str(ROOT / "firmware/motor/foc/cogging_compensation.c"),
-            str(ROOT / "firmware/motor/identification/cogging_calibration.c"),
-            str(ROOT / "firmware/motor/identification/cogging_map.c"),
+            str(ROOT / "firmware/motor/calibration/cogging_calibration.c"),
+            str(ROOT / "firmware/motor/calibration/cogging_map.c"),
             str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(cogging),
@@ -113,7 +115,7 @@ def main() -> None:
         result.check_returncode()
 
     completion = output / "maintenance_completion.exe"
-    composition = (ROOT / "firmware/app/motor_maintenance.c").read_text(encoding="utf-8")
+    composition = (ROOT / "firmware/app/runtime/motor_maintenance.c").read_text(encoding="utf-8")
     # 使用真实组合配置编译 worker；不链接其他维护任务，也不复制默认值。
     profiles = composition[
         composition.index("/* 产品默认值") : composition.index("void MotorMaintenance_Init")

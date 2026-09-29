@@ -350,8 +350,8 @@ def main():
     cmd += [str(src)] + [
         str(ROOT / p)
         for p in [
-            "firmware/motor/identification/cogging_calibration.c",
-            "firmware/motor/identification/cogging_map.c",
+            "firmware/motor/calibration/cogging_calibration.c",
+            "firmware/motor/calibration/cogging_map.c",
             "firmware/motor/foc/cogging_compensation.c",
             "firmware/motor/foc/foc_pid.c",
             "firmware/common/utils.c",

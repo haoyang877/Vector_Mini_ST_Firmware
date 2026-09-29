@@ -66,7 +66,7 @@ static bool bind_device_description(void)
 {
     /* 产品和硬件修订取共同目标清单；未知发布版本仍为 0，不以协议版本替代。 */
     yg_protocol_readonly_info_page0_t info = {.product_id = TARGET_PRODUCT,
-                                            .hardware_revision = TARGET_HARDWARE};
+                                              .hardware_revision = TARGET_HARDWARE};
     yg_protocol_readonly_caps_page0_t capabilities = {
         .features = (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
         .supported_modes = 0U, /* 普通远程启动未开放，不能按内部控制枚举宣称能力。 */

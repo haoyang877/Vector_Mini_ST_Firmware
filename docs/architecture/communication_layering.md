@@ -35,7 +35,7 @@ FDCAN RX ISR 不执行 CRC、分片、Flash、日志或电机业务。
 | `firmware/app/yg_protocol_owner_adapter.*` | 参数、清错及标定请求到领域值的显式映射 |
 | `firmware/app/yg_protocol_status_adapter.*` | 同一时刻状态快照到线路 state/mode/fault 的投影 |
 | `firmware/app/motor_state_machine.*` | 生命周期、功率输出许可、维护身份及故障恢复的唯一所有者 |
-| `firmware/app/board_config.c` | 组合 APP 进 Loader 服务与实际停机、TX 完成、ENTER 交接 |
+| `firmware/app/composition/board_config.c` | 组合 APP 进 Loader 服务与实际停机、TX 完成、ENTER 交接 |
 
 CAN 116 与前台目标使用 `MotorStateMachine_SubmitControl()`，只提交值命令；
 通信层不暴露电机对象可写 extern，不直接操作 HAL 或更改模式。

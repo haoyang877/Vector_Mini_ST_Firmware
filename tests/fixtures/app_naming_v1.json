@@ -2,15 +2,15 @@
   "schema_version": 1,
   "baseline_ref": "66606dd9d59f5a71401a4cee8b6122045f7f7b7c",
   "files": {
-    "firmware/app/motor_state.c": "firmware/app/motor_axis.c",
-    "firmware/app/motor_state.h": "firmware/app/motor_axis.h",
+    "firmware/app/motor_state.c": "firmware/app/runtime/motor_axis.c",
+    "firmware/app/motor_state.h": "firmware/app/runtime/motor_axis.h",
     "firmware/motor/data_type.h": "firmware/motor/motor_types.h",
     "firmware/motor/identification/foc_friction_identification.c": "firmware/motor/identification/friction_identification_task.c",
     "firmware/motor/identification/foc_friction_identification.h": "firmware/motor/identification/friction_identification_task.h",
     "firmware/motor/identification/foc_phase_resistance.c": "firmware/motor/identification/phase_resistance_task.c",
     "firmware/motor/identification/foc_phase_resistance.h": "firmware/motor/identification/phase_resistance_task.h",
-    "firmware/motor/identification/foc_encoder_calibration.c": "firmware/motor/identification/encoder_calibration_task.c",
-    "firmware/motor/identification/foc_encoder_calibration.h": "firmware/motor/identification/encoder_calibration_task.h"
+    "firmware/motor/identification/foc_encoder_calibration.c": "firmware/motor/calibration/encoder_calibration_task.c",
+    "firmware/motor/identification/foc_encoder_calibration.h": "firmware/motor/calibration/encoder_calibration_task.h"
   },
   "identifiers": {
     "MotorControl_TypeDef": "MotorControlState",

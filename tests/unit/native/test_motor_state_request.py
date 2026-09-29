@@ -28,7 +28,7 @@ def main() -> None:
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
-    source = (ROOT / "firmware/app/motor_axis.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
     fixture = (ROOT / "tests/unit/native/motor_state_request_test.c").read_text(encoding="utf-8")
     for name in REQUEST_FUNCTIONS:
         try:

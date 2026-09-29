@@ -339,7 +339,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../app/motor_state_machine;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/checksum;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app/composition;../../../../app/runtime;../../../../app/motor_state_machine;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../../shared/checksum;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/calibration;../../../../motor/feedback;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;../../../../third_party/segger_rtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -386,12 +386,12 @@
             <File>
               <FileName>board_config.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\board_config.c</FilePath>
+              <FilePath>..\..\..\..\app\composition\board_config.c</FilePath>
             </File>
             <File>
               <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\motor_axis.c</FilePath>
+              <FilePath>..\..\..\..\app\runtime\motor_axis.c</FilePath>
             </File>
             <File>
               <FileName>motor_state_machine.c</FileName>
@@ -508,7 +508,7 @@
             <File>
               <FileName>motor_execution.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\motor_execution.c</FilePath>
+              <FilePath>..\..\..\..\app\runtime\motor_execution.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -564,7 +564,7 @@
             <File>
               <FileName>motor_maintenance.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\motor_maintenance.c</FilePath>
+              <FilePath>..\..\..\..\app\runtime\motor_maintenance.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -620,7 +620,7 @@
             <File>
               <FileName>foc_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\foc_task.c</FilePath>
+              <FilePath>..\..\..\..\app\composition\foc_task.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -676,12 +676,12 @@
             <File>
               <FileName>bsp_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\bsp_task.c</FilePath>
+              <FilePath>..\..\..\..\app\composition\bsp_task.c</FilePath>
             </File>
             <File>
               <FileName>rtt_telemetry.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\rtt_telemetry.c</FilePath>
+              <FilePath>..\..\..\..\app\runtime\rtt_telemetry.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -737,7 +737,7 @@
             <File>
               <FileName>yg_protocol_owner_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\yg_protocol_owner_adapter.c</FilePath>
+              <FilePath>..\..\..\..\app\composition\yg_protocol_owner_adapter.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -793,7 +793,7 @@
             <File>
               <FileName>yg_protocol_status_adapter.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\app\yg_protocol_status_adapter.c</FilePath>
+              <FilePath>..\..\..\..\app\composition\yg_protocol_status_adapter.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1042,7 +1042,7 @@
             <File>
               <FileName>angle_feedback.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\position\angle_feedback.c</FilePath>
+              <FilePath>..\..\..\..\motor\feedback\angle_feedback.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1210,7 +1210,7 @@
             <File>
               <FileName>cogging_calibration.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\cogging_calibration.c</FilePath>
+              <FilePath>..\..\..\..\motor\calibration\cogging_calibration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1266,12 +1266,12 @@
             <File>
               <FileName>cogging_map.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\cogging_map.c</FilePath>
+              <FilePath>..\..\..\..\motor\calibration\cogging_map.c</FilePath>
             </File>
             <File>
               <FileName>encoder_calibration_task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\encoder_calibration_task.c</FilePath>
+              <FilePath>..\..\..\..\motor\calibration\encoder_calibration_task.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1327,7 +1327,7 @@
             <File>
               <FileName>foc_cogging_calibration.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\..\motor\identification\foc_cogging_calibration.c</FilePath>
+              <FilePath>..\..\..\..\motor\calibration\foc_cogging_calibration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>

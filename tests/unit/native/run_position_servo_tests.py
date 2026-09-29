@@ -39,7 +39,7 @@ def function_source(source, name):
 
 def rtt_frame_fixture():
     # 从定标宏切片到文件末尾，使夹具编译的正是固件里的真实编码实现。
-    source = (ROOT / "firmware/app/rtt_telemetry.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/runtime/rtt_telemetry.c").read_text(encoding="utf-8")
     encoding = source[source.index("#define RTT_POSITION_SCALE") :]
     return (
         r"""
@@ -95,7 +95,7 @@ int main(void) {
 
 
 def encoder_startup_fixture():
-    source = (ROOT / "firmware/motor/position/angle_feedback.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/feedback/angle_feedback.c").read_text(encoding="utf-8")
     return (
         r"""
 #include <assert.h>
@@ -203,8 +203,8 @@ int main(void) {
 
 
 def encoder_fixture():
-    source = (ROOT / "firmware/motor/position/angle_feedback.c").read_text(encoding="utf-8")
-    header = (ROOT / "firmware/motor/position/angle_feedback.h").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/feedback/angle_feedback.c").read_text(encoding="utf-8")
+    header = (ROOT / "firmware/motor/feedback/angle_feedback.h").read_text(encoding="utf-8")
     macros = []
     for name, text in [
         ("ENCODER_Q15_CPR", header),
@@ -503,7 +503,7 @@ int main(void) {
 
 
 def board_orchestration_fixture():
-    source = (ROOT / "firmware/app/board_config.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/composition/board_config.c").read_text(encoding="utf-8")
     return (
         r"""
 #ifdef NDEBUG

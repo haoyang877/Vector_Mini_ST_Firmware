@@ -35,7 +35,7 @@ def main() -> None:
         image = bytes.fromhex(vector["image_hex"])
     header = "static const uint8_t LoaderV2Image[] = {" + ",".join(map(str, image)) + "};\n"
     (output / "loader_image_v2_vector.h").write_text(header, encoding="utf-8")
-    board = (ROOT / "firmware/app/board_config.c").read_text(encoding="utf-8")
+    board = (ROOT / "firmware/app/composition/board_config.c").read_text(encoding="utf-8")
     health_fixture = (ROOT / "tests/unit/loader_app_health_test.c").read_text(encoding="utf-8")
     interval = next(
         line for line in board.splitlines() if line.startswith("#define BOOT_HEALTH_INTERVAL_MS")

@@ -294,3 +294,4 @@ facts 的 `inputs_valid` 表示快速采样有进展、母线/三相电流有限
 不能删除后者或用旧快照替代。原同拍优先级、动作顺序、期限、错误编号与持久化不变。
 
 执行、基线差分与回退见[条件精简计划](../plans/active/2026-09-29-motor-state-conditions-v1.md)。
+本轮离线行为对照、资源变化与限制见[验收报告](../reports/2026-09/motor_state_conditions_20260929.md)。

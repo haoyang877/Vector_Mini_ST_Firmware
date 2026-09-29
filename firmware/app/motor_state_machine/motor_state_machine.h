@@ -47,10 +47,9 @@ void MotorStateMachine_FastFaultStop(void);
  */
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch);
 /**
- * @brief 执行一次运行状态机：消费 worker 结果，完成故障指示、功率级启停迁移与提交。
- * @note 仅由 2 kHz 监督中断调用；顺序为 worker 结果应用 → 故障反应 →
- *       维护会话服务（SAVE 结果上报/派生完成/取消确认）→ 停机/使能迁移 →
- *       目标消费与故障镜像。
+ * @brief 执行一次有序监督拍，消费任务结果并提交功率、维护和目标迁移。
+ * @note 仅由 2 kHz 监督中断调用；同拍允许多次迁移，动作后重新读取事实。
+ *       STOP 不跳过故障消费，维护收尾当拍不启动派生保存；阶段顺序见实现。
  */
 void MotorStateMachine_Tick(void);
 
@@ -60,14 +59,6 @@ void MotorStateMachine_Tick(void);
  * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
  */
 MotorState MotorStateMachine_GetState(void);
-
-/**
- * @brief 查询指定维护模式是否已由生命周期所有者受理。
- * @param kind 维护任务；只有与当前维护会话匹配时才获准执行。
- * @return 会话已经进入 MAINTENANCE 且模式匹配返回 true。
- * @note 快环只读查询，不等于快环可执行或功率许可。
- */
-bool MotorStateMachine_IsMaintenanceActive(MotorMaintenanceKind kind);
 
 /**
  * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。

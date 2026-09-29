@@ -16,7 +16,6 @@
 #include "mcu_temperature.h"
 #include "motor_sensing.h"
 #include "motor_axis.h"
-#include "friction_identification_task.h"
 #include "foc_cogging_calibration.h"
 #include "foc_pid.h"
 #include "encoder_calibration_task.h"
@@ -43,14 +42,13 @@ typedef struct
     SensorlessStartupState *sensorless_startup;
     bool enable_pending, maintenance_runnable, save_requested;
     volatile uint8_t save_finish;
-    uint32_t operation_epoch, outcome_epoch, request_epoch, cancel_epoch;
+    uint32_t operation_epoch, outcome_epoch, cancel_epoch;
     MotorMaintenanceProgress last_maintenance;
     struct
     {
         MotorMaintenanceRequest request;
         MotorMaintenanceProgress terminal;
         uint32_t ticket;
-        bool valid;
     } last_maintenance_request;
     FocBackgroundClaim background_claim;
     bool background_busy, stop_pending, configuration_reading;
@@ -372,8 +370,8 @@ static MotorStateFacts state_read_facts(void)
     /* 位置/速度模式需要外环控制器就绪后才确认启动，其余模式可同拍确认。 */
     facts.startup_confirmed =
         !state_mode_needs_preparation(s_context.motor->control_mode) || MotorOuterLoop_IsReady();
-    facts.request_fresh =
-        s_context.request_epoch == s_context.rules.epoch && !s_context.stop_pending;
+    /* 本地事件在提交临界区使用当前代际；异步结果仍保留创建时的身份。 */
+    facts.request_fresh = !s_context.stop_pending;
     critical_hw_exit(state);
     return facts;
 }
@@ -493,7 +491,7 @@ static bool state_commit_event(uint32_t events,
                                                                 previous_kind,
                                                                 s_context.rules.operation_result,
                                                                 s_context.rules.operation_effects};
-        if (s_context.last_maintenance_request.valid &&
+        if (s_context.last_maintenance_request.ticket != 0U &&
             s_context.last_maintenance_request.ticket == s_context.operation_epoch)
         {
             s_context.last_maintenance_request.terminal = s_context.last_maintenance;
@@ -590,43 +588,6 @@ static bool state_vbus_in_enable_window(void)
            s_context.foc->bus_voltage_filtered_v <= BUS_VOLTAGE_ENABLE_MAX_V;
 }
 
-/* 恢复证据在故障模块维护；保留原实际监督频率及计数。 */
-
-/* 恢复矩阵（阶段 D1）：逐故障源恢复判据。参数/标定/操作类故障暂无在线判据，
- * 保留操作员确认语义（过渡，随故障保护解耦计划细化）；未知故障一律拒绝。 */
-
-/* 清除资格与模式提交分开；整个判定到提交间禁止快环插入新的故障。 */
-static bool state_try_clear_fault(void)
-{
-    uint32_t state = critical_hw_enter();
-    MotorFaultCode error = s_context.motor->fault_code;
-    if (s_context.rules.state != MOTOR_STATE_FAULT ||
-        (error == MOTOR_FAULT_SELF_TEST_TIMEOUT &&
-         state_self_test_checks() != MOTOR_SELF_TEST_ALL) ||
-        (error != MOTOR_FAULT_NONE &&
-         !MotorFault_SourceRecovered(&s_context.recovery,
-                                     s_context.motor,
-                                     s_context.foc,
-                                     s_context.rotor_encoder,
-                                     error,
-                                     s_context.fast_samples_fresh &&
-                                         state_read_facts().samples_fresh,
-                                     state_read_facts().maintenance_released,
-                                     MotorTemperature_IsFresh())))
-    {
-        critical_hw_exit(state);
-        return false;
-    }
-    MotorStateFacts facts = state_read_facts();
-    /* 仅覆盖本次已经按恢复矩阵或操作员确认策略获准的锁存源，不先改 fault_code。 */
-    facts.active_faults = 0U;
-    facts.fault_sources_clear = true;
-    bool accepted =
-        state_commit_event(MOTOR_STATE_EVENT_CLEAR, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &facts);
-    critical_hw_exit(state);
-    return accepted;
-}
-
 /* 会话服务：SAVE 结果上报、ZERO/DEFAULTS/标定派生完成、被打断会话的实际释放确认。
  * 完成使用创建时身份，取消确认等待全部 worker 和前台资源归还。
  * 返回 true 表示本拍已上报会话事件（完成/失败/取消确认），调用方推迟一拍再开新会话。 */
@@ -672,7 +633,6 @@ static bool begin_operation(MotorMaintenanceKind kind)
     {
         return false;
     }
-    s_context.request_epoch = s_context.rules.epoch;
     s_context.rules.maintenance_kind = kind;
     if (!state_commit_event(
             MOTOR_STATE_EVENT_BEGIN_OPERATION, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL))
@@ -715,29 +675,22 @@ static bool begin_operation(MotorMaintenanceKind kind)
 static bool state_owner_quiescent(const MotorStateFacts *facts)
 {
     return s_context.motor->control_mode == MOTOR_CONTROL_NONE && !s_context.stop_pending &&
-           !s_context.has_pending_control && !s_context.configuration_reading &&
-           !s_context.background_busy && !s_context.has_latched_outcome &&
-           !s_context.rules.maintenance_active && facts->phases_disabled && facts->control_idle &&
-           facts->operation_idle && facts->maintenance_released;
+           !s_context.configuration_reading && !s_context.rules.maintenance_active &&
+           facts->phases_disabled && facts->control_idle && facts->operation_idle &&
+           facts->maintenance_released;
 }
 
 /* READY 且无票据、无故障、无占用：停机配置写入的静态前提。 */
-static bool configuration_idle(void)
+static bool configuration_idle(const MotorStateFacts *facts)
 {
-    MotorStateFacts facts = state_read_facts();
-    /* 纯布尔合取：control_mode 在辅助函数内部检查，交换与 fault_code 的读取次序不影响结果。 */
     return s_context.boot_stop_ticket == 0U && s_context.rules.state == MOTOR_STATE_READY &&
-           s_context.motor->fault_code == MOTOR_FAULT_NONE && state_owner_quiescent(&facts);
+           s_context.motor->fault_code == MOTOR_FAULT_NONE && state_owner_quiescent(facts);
 }
 
-/**
- * @brief 查询停机参数应用是否具备所有者与资源资格。
- * @return READY、关相、无命令/维护/配置借用和故障时返回 true。
- * @note 资格读取与实际应用须处于同一调用方临界区，不能作为延后写入许可证。
- */
 bool MotorStateMachine_ConfigurationAllowed(void)
 {
-    return configuration_idle();
+    MotorStateFacts facts = state_read_facts();
+    return configuration_idle(&facts);
 }
 
 /* 调用方已持有临界区；只读共同占用标志，故障优先级和资源释放由各入口判断。 */
@@ -749,17 +702,11 @@ static bool request_busy(void)
            s_context.rules.maintenance_active;
 }
 
-/**
- * @brief 请求以零目标或当前位置进入明确控制模式。
- * @param mode 业务模式，不接受线上或历史编号。
- * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。
- * @note 前台消费调用，有界非阻塞；功率迁移仍在监督拍提交。
- */
 /* 公开入口与状态反馈共用准入；拒绝只是准备未满足，不清目标、不锁故障。 */
-static uint32_t state_start_blockers(MotorControlMode mode)
+static uint32_t state_start_blockers(const MotorStateFacts *facts)
 {
     uint32_t reasons = 0U;
-    if ((unsigned)mode > MOTOR_CONTROL_VQ || s_context.motor->uses_sensorless_feedback)
+    if (s_context.motor->uses_sensorless_feedback)
     {
         reasons |= MOTOR_START_MODE_UNSUPPORTED;
     }
@@ -781,7 +728,7 @@ static uint32_t state_start_blockers(MotorControlMode mode)
     {
         reasons |= MOTOR_START_BUS_UNAVAILABLE;
     }
-    if (!state_read_facts().self_test_passed)
+    if (!facts->self_test_passed)
     {
         reasons |= MOTOR_START_HEALTH_UNAVAILABLE;
     }
@@ -789,22 +736,19 @@ static uint32_t state_start_blockers(MotorControlMode mode)
     {
         reasons |= MOTOR_START_STATE_UNAVAILABLE;
     }
-    if (!MotorStateMachine_ConfigurationAllowed() || request_busy() || s_context.enable_pending)
+    if (!configuration_idle(facts) || request_busy() || s_context.enable_pending)
     {
         reasons |= MOTOR_START_OWNER_BUSY;
     }
-    if (mode == MOTOR_CONTROL_POSITION)
-    {
-        float position = Encoder_GetMecPos(s_context.rotor_encoder);
-        if (!MotorAxisProfile_AllowsPosition(&s_context.motor->axis_profile,
-                                             s_context.motor->axis_profile_valid,
-                                             position,
-                                             position))
-        {
-            reasons |= MOTOR_START_POSITION_UNAVAILABLE;
-        }
-    }
     return reasons;
+}
+
+/* 位置边界是模式附加条件，其他模式共用同一组启动资格。 */
+static bool state_position_start_allowed(void)
+{
+    float position = Encoder_GetMecPos(s_context.rotor_encoder);
+    return MotorAxisProfile_AllowsPosition(
+        &s_context.motor->axis_profile, s_context.motor->axis_profile_valid, position, position);
 }
 
 void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
@@ -814,13 +758,15 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
         return;
     }
     uint32_t mask = critical_hw_enter();
+    MotorStateFacts facts = state_read_facts();
     *readiness = (MotorReadiness){0};
-    readiness->start_blockers = state_start_blockers(MOTOR_CONTROL_CURRENT);
+    readiness->start_blockers = state_start_blockers(&facts);
     readiness->self_test_checks = state_self_test_checks();
     readiness->calibration_flags = Encoder_GetCalibFlag(s_context.rotor_encoder);
     for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_VQ; ++mode)
     {
-        if (state_start_blockers((MotorControlMode)mode) == 0U)
+        if (readiness->start_blockers == 0U &&
+            (mode != MOTOR_CONTROL_POSITION || state_position_start_allowed()))
         {
             readiness->startable_modes |= (uint8_t)(1U << mode);
         }
@@ -839,6 +785,7 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
         return MOTOR_CONTROL_DENIED;
     }
     uint32_t mask = critical_hw_enter();
+    MotorStateFacts facts = state_read_facts();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
@@ -848,61 +795,60 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else if (MotorStateMachine_ConfigurationAllowed())
+    else if (state_start_blockers(&facts) == 0U &&
+             (mode != MOTOR_CONTROL_POSITION || state_position_start_allowed()))
     {
-        float position = Encoder_GetMecPos(s_context.rotor_encoder);
-        if (state_start_blockers(mode) == 0U)
+        clear_running_data();
+        if (mode == MOTOR_CONTROL_POSITION)
         {
-            clear_running_data();
-            if (mode == MOTOR_CONTROL_POSITION)
-            {
-                s_context.motor->position_target_rad = s_context.motor->position_reference_rad =
-                    position;
-            }
-            s_context.motor->control_mode = mode;
-            s_context.enable_pending = true;
-            s_context.request_epoch = s_context.rules.epoch;
-            result = MOTOR_CONTROL_ACCEPTED;
+            s_context.motor->position_target_rad = s_context.motor->position_reference_rad =
+                Encoder_GetMecPos(s_context.rotor_encoder);
         }
+        s_context.motor->control_mode = mode;
+        s_context.enable_pending = true;
+        result = MOTOR_CONTROL_ACCEPTED;
     }
     critical_hw_exit(mask);
     return result;
 }
 
-/**
- * @brief 核对恢复资格并同步清除当前可恢复锁存故障。
- * @return 受理表示锁存已清或 READY 本来无故障；忙或拒绝保持锁存，FATAL 不可清。
- * @note 临界区内完成 CLEAR 提交；清除后进入 SELF_TEST，不表示自检完成或可启动。
- */
 MotorControlResult MotorStateMachine_RequestClear(void)
 {
     uint32_t mask = critical_hw_enter();
+    MotorStateFacts facts = state_read_facts();
+    MotorFaultCode error = s_context.motor->fault_code;
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (request_busy() || s_context.enable_pending || !state_read_facts().maintenance_released)
+    if (request_busy() || s_context.enable_pending || !facts.maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else
+    else if (s_context.rules.state == MOTOR_STATE_READY && error == MOTOR_FAULT_NONE)
     {
-        s_context.request_epoch = s_context.rules.epoch;
-        if ((s_context.rules.state == MOTOR_STATE_READY &&
-             s_context.motor->fault_code == MOTOR_FAULT_NONE) ||
-            state_try_clear_fault())
-        {
-            result = MOTOR_CONTROL_ACCEPTED;
-        }
+        result = MOTOR_CONTROL_ACCEPTED;
+    }
+    else if (s_context.rules.state == MOTOR_STATE_FAULT &&
+             (error != MOTOR_FAULT_SELF_TEST_TIMEOUT ||
+              state_self_test_checks() == MOTOR_SELF_TEST_ALL) &&
+             (error == MOTOR_FAULT_NONE || MotorFault_SourceRecovered(&s_context.recovery,
+                                                                      s_context.motor,
+                                                                      s_context.foc,
+                                                                      s_context.rotor_encoder,
+                                                                      error,
+                                                                      facts.samples_fresh,
+                                                                      facts.maintenance_released,
+                                                                      MotorTemperature_IsFresh())))
+    {
+        /* 恢复事实与 CLEAR 同处一个临界区；提交前不提前清除故障。 */
+        facts.active_faults = 0U;
+        facts.fault_sources_clear = true;
+        bool accepted = state_commit_event(
+            MOTOR_STATE_EVENT_CLEAR, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &facts);
+        result = accepted ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_DENIED;
     }
     critical_hw_exit(mask);
     return result;
 }
 
-/**
- * @brief 请求原有维护任务并分配创建时身份。
- * @param kind 明确业务任务。
- * @param ticket 接收原始身份，失败清零。
- * @return 受理、参数错误、忙、故障或守卫拒绝。
- * @note 不保留调用方指针；不执行 Flash 或长耗时工作。
- */
 MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kind, uint32_t *ticket)
 {
     if (ticket == NULL)
@@ -915,16 +861,17 @@ MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kin
         return MOTOR_CONTROL_INVALID;
     }
     uint32_t mask = critical_hw_enter();
+    MotorStateFacts facts = state_read_facts();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (request_busy() || s_context.enable_pending || !state_read_facts().maintenance_released)
+    else if (request_busy() || s_context.enable_pending || !facts.maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
-    else if (MotorStateMachine_ConfigurationAllowed() && state_read_facts().self_test_passed &&
+    else if (configuration_idle(&facts) && facts.self_test_passed &&
              (kind == MOTOR_MAINTENANCE_SAVE || MotorAxis_ConfigurationRevisionAvailable()))
     {
         clear_running_data();
@@ -938,13 +885,6 @@ MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kin
     return result;
 }
 
-/**
- * @brief 读取原始维护身份的进展。
- * @param ticket 请求受理时返回的身份。
- * @param progress 接收一致结果值，失败清零。
- * @return 当前、最近维护或最近带来源请求的终态身份匹配返回 true；陈旧身份返回 false。
- * @note 前台查询；完成不代表持久化，须同时检查 effects。
- */
 bool MotorStateMachine_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress)
 {
     if (progress == NULL)
@@ -958,7 +898,7 @@ bool MotorStateMachine_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress
     {
         *progress = s_context.last_maintenance;
     }
-    else if (s_context.last_maintenance_request.valid &&
+    else if (s_context.last_maintenance_request.ticket != 0U &&
              ticket == s_context.last_maintenance_request.terminal.ticket && ticket != 0U)
     {
         *progress = s_context.last_maintenance_request.terminal;
@@ -976,13 +916,6 @@ bool MotorStateMachine_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress
     return found;
 }
 
-/**
- * @brief 按来源和原始请求序号幂等受理维护，复用同一维护所有者。
- * @param request 只读值身份，保留字节必须为零；返回后不保留指针。
- * @param ticket 成功接收原始任务身份，失败清零。
- * @return 受理、非法/冲突/陈旧身份、忙、故障或守卫拒绝。
- * @note 同来源序号和任务重试返回原 ticket；同序号不同任务拒绝；按 16 位半范围窗口递进。
- */
 MotorControlResult
 MotorStateMachine_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *request,
                                                uint32_t *ticket)
@@ -999,7 +932,7 @@ MotorStateMachine_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *re
     }
     uint32_t mask = critical_hw_enter();
     MotorControlResult result;
-    if (s_context.last_maintenance_request.valid &&
+    if (s_context.last_maintenance_request.ticket != 0U &&
         request->source_node == s_context.last_maintenance_request.request.source_node)
     {
         uint16_t delta =
@@ -1028,18 +961,11 @@ MotorStateMachine_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *re
         s_context.last_maintenance_request.request = *request;
         s_context.last_maintenance_request.terminal = (MotorMaintenanceProgress){0};
         s_context.last_maintenance_request.ticket = *ticket;
-        s_context.last_maintenance_request.valid = true;
     }
     critical_hw_exit(mask);
     return result;
 }
 
-/**
- * @brief 精确取消原 ticket 对应的维护，不影响其他任务。
- * @param ticket 受理时返回的非零身份。
- * @return 已登记取消或终态重复取消返回受理；陈旧身份非法，其他状态拒绝。
- * @note 受理不代表资源已归还，须查询同 ticket 的 CANCELLED 终态；不恢复旧目标。
- */
 MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket)
 {
     if (ticket == 0U)
@@ -1049,7 +975,7 @@ MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket)
     uint32_t mask = critical_hw_enter();
     MotorControlResult result = MOTOR_CONTROL_INVALID;
     if (ticket == s_context.last_maintenance.ticket ||
-        (s_context.last_maintenance_request.valid &&
+        (s_context.last_maintenance_request.ticket != 0U &&
          ticket == s_context.last_maintenance_request.terminal.ticket))
     {
         /* 最近终态的重复取消只确认身份，绝不停止当前其他任务。 */
@@ -1088,62 +1014,21 @@ MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket)
     return result;
 }
 
-/**
- * @brief 初始化运行所有者：核心进入 BOOT 态，清空命令和采样进展。
- * @param motor 组合层终身电机对象。
- * @param foc 组合层终身 s_context.foc 对象。
- * @param pi 组合层终身速度 PI。
- * @param encoder 组合层终身编码器对象。
- * @param startup 组合层终身无感启动对象。
- * @note 由启动组合层在中断使能前调用一次；不访问硬件。
- */
 void MotorStateMachine_Init(MotorControlState *motor,
                             FocState *foc,
                             PiController *pi,
                             EncoderState *encoder,
                             SensorlessStartupState *startup)
 {
+    /* 初始化发生在中断使能前，统一清空避免新增字段遗漏复位。 */
+    memset(&s_context, 0, sizeof(s_context));
     s_context.motor = motor;
     s_context.foc = foc;
     s_context.speed_pi = pi;
     s_context.rotor_encoder = encoder;
     s_context.sensorless_startup = startup;
     s_context.motor->control_mode = MOTOR_CONTROL_NONE;
-    s_context.enable_pending = s_context.maintenance_runnable = s_context.save_requested = false;
     MotorStateRules_Init(&s_context.rules);
-    s_context.operation_epoch = s_context.outcome_epoch = s_context.cancel_epoch = 0U;
-    s_context.last_maintenance = (MotorMaintenanceProgress){0};
-    memset(&s_context.last_maintenance_request, 0, sizeof(s_context.last_maintenance_request));
-    s_context.request_epoch = s_context.rules.epoch;
-    s_context.background_busy = s_context.stop_pending = s_context.configuration_reading = false;
-    s_context.boot_stop_ticket = 0U;
-    s_context.boot_maintenance_only = false;
-    s_context.supervisor_epoch = 0U;
-    s_context.background_claim = (FocBackgroundClaim){0};
-    s_context.save_finish = (uint8_t)SAVE_FINISH_NONE;
-    s_context.recovery.overcurrent_ticks = 0U;
-    s_context.has_latched_outcome = false;
-    s_context.has_pending_control = false;
-    s_context.control_progress = (MotorControlProgress){.state = MOTOR_CONTROL_PROGRESS_NONE,
-                                                        .result = MOTOR_CONTROL_ACCEPTED};
-    s_context.fast_sample_epoch = 0U;
-    s_context.observed_fast_sample_epoch = 0U;
-    s_context.fast_samples_fresh = false;
-    s_context.self_test_started_ms = 0U;
-    s_context.self_test_stable_ticks = 0U;
-    s_context.self_test_timing_started = s_context.self_test_complete = false;
-}
-
-/**
- * @brief 查询指定维护模式是否已由生命周期所有者受理。
- * @param kind 维护任务，仅与当前会话匹配时才获准执行。
- * @return 会话已进入 MAINTENANCE 且模式匹配返回 true。
- * @note 快环只读查询，用于阻止自管功率的标定在维护准入前启相。
- */
-bool MotorStateMachine_IsMaintenanceActive(MotorMaintenanceKind kind)
-{
-    return s_context.rules.state == MOTOR_STATE_MAINTENANCE &&
-           s_context.rules.maintenance_kind == kind;
 }
 
 MotorMaintenanceKind MotorStateMachine_GetMaintenanceKind(void)
@@ -1169,21 +1054,11 @@ bool MotorStateMachine_OutputExpected(void)
                 MOTOR_MAINTENANCE_CLASS_CALIBRATION);
 }
 
-/**
- * @brief 读取运行所有者的生命周期状态。
- * @return 当前内部状态，数值不能直接用作线上枚举。
- * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
- */
 MotorState MotorStateMachine_GetState(void)
 {
     return s_context.rules.state;
 }
 
-/**
- * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。
- * @return 请求已登记返回 true；不表示功率输出已经关闭。
- * @note 与监督中断通过短临界区交接；故障快车道仍可优先关断。
- */
 bool MotorStateMachine_RequestRemoteStop(void)
 {
     uint32_t state = critical_hw_enter();
@@ -1206,12 +1081,6 @@ bool MotorStateMachine_RequestRemoteStop(void)
     return true;
 }
 
-/**
- * @brief 为唯一升级交接票据保留停机所有权并撤销当前目标。
- * @param ticket 前台交接所有者提供的非零票据，复位前不得复用其他身份。
- * @return 同票据重复或首次登记返回受理，其他票据忙，FATAL 拒绝。
- * @note 不表示已关相；保留后拒绝启动、维护和配置写入，失败也不自动释放或恢复运动。
- */
 MotorControlResult MotorStateMachine_RequestBootStop(uint64_t ticket)
 {
     if (ticket == 0U)
@@ -1238,12 +1107,6 @@ MotorControlResult MotorStateMachine_RequestBootStop(uint64_t ticket)
     return result;
 }
 
-/**
- * @brief 核对升级票据仍拥有停机且所有实际资源均已归还。
- * @param ticket 原始非零票据。
- * @return READY 或 FAULT、数字关相、无控制/维护/借用/后台时返回 true。
- * @note 必须在最终邮箱写入与复位的同一短临界区复核；不表示保存业务已完成。
- */
 bool MotorStateMachine_BootHandoffReady(uint64_t ticket)
 {
     uint32_t mask = critical_hw_enter();
@@ -1256,12 +1119,6 @@ bool MotorStateMachine_BootHandoffReady(uint64_t ticket)
     return ready;
 }
 
-/**
- * @brief 读取监督拍进展与基础采样健康，不要求主机在线或电机已使能。
- * @param progress 输出已完成监督拍计数；调用方必须比较新进展。
- * @return 采样新鲜且未进入FATAL返回true；空指针返回false。
- * @note 前台短临界区只读；通信健康由组合层补充，不授权运动或Flash。
- */
 bool MotorStateMachine_ReadBootHealth(uint32_t *progress)
 {
     if (progress == NULL)
@@ -1275,12 +1132,6 @@ bool MotorStateMachine_ReadBootHealth(uint32_t *progress)
     return healthy;
 }
 
-/**
- * @brief 向运行所有者提交同模式目标，前台共用受理和应用路径。
- * @param command SI 单位值命令；成功时复制，不保留指针。
- * @return 已受理、参数错误、状态拒绝、忙、越限或故障；不报告物理已执行。
- * @note 前台消费调用；单槽邮箱不覆盖未应用目标；STOP 会取消尚未应用的目标。
- */
 MotorControlResult MotorStateMachine_SubmitControl(const MotorControlCommand *command)
 {
     uint32_t state = critical_hw_enter();
@@ -1310,11 +1161,6 @@ MotorControlResult MotorStateMachine_SubmitControl(const MotorControlCommand *co
     return result;
 }
 
-/**
- * @brief 复制最近带来源控制请求的实际进展。
- * @param progress 调用方值空间；空指针不执行。
- * @note 短临界区只读，不改变请求、目标或功率。
- */
 void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress)
 {
     if (progress == NULL)
@@ -1326,10 +1172,6 @@ void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress)
     critical_hw_exit(mask);
 }
 
-/**
- * @brief 快速环故障检查：核对编码器反馈与轴配置。
- * @note 仅由 20 kHz 快速中断调用；随后必须调用 FastFaultStop 完成故障关断。不清错、不写 Flash。
- */
 void MotorStateMachine_CheckFastFaults(void)
 {
     if (s_context.motor->control_mode == MOTOR_CONTROL_NONE &&
@@ -1352,11 +1194,6 @@ void MotorStateMachine_CheckFastFaults(void)
     }
 }
 
-/**
- * @brief  上报本周期 worker 结果（20 kHz 快环调用，2 kHz 状态机消费）。
- * @param  outcome 模式 worker 的周期结果；MOTOR_TASK_RUNNING 不入箱。
- * @note 与消费端通过短临界区交换；保留首个终态，故障优先。
- */
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
 {
     uint32_t primask;
@@ -1416,12 +1253,6 @@ void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
     critical_hw_exit(primask);
 }
 
-/**
- * @brief  故障紧急关断快车道：故障已锁存且功率级记录为开时立即关断硬件。
- * @note 仅由 20 kHz 快速中断调用。本板无 TIM1 BKIN 与驱动器故障引脚，软件是
- *       唯一关断路径：该动作把"故障 → 功率级关断"保持在快速环时延内；状态机
- *       在下一 2 kHz 慢拍对齐记录并执行停机清理。
- */
 void MotorStateMachine_FastFaultStop(void)
 {
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
@@ -1532,7 +1363,6 @@ static void state_start_requested_work(bool stopped, bool operation_event)
     if (s_context.enable_pending && s_context.rules.state == MOTOR_STATE_READY && !stopped)
     {
         s_context.enable_pending = false;
-        s_context.request_epoch = s_context.rules.epoch;
         (void)state_commit_event(
             MOTOR_STATE_EVENT_ENABLE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
@@ -1556,11 +1386,6 @@ static void state_confirm_control_start(void)
     }
 }
 
-/**
- * @brief 执行一次有序监督拍，消费任务结果并提交功率、维护和目标迁移。
- * @note 仅由 2 kHz 监督中断调用；每阶段保持原顺序与临界区边界。
- *       同拍允许多次迁移，动作后的事实重新读取；STOP 不跳过故障消费。
- */
 void MotorStateMachine_Tick(void)
 {
     state_update_sample_progress();
@@ -1582,22 +1407,11 @@ void MotorStateMachine_Tick(void)
     ++s_context.supervisor_epoch;
 }
 
-/**
- * @brief 读取 worker 开始执行时的会话身份。
- * @return 当前操作 epoch，无维护操作时为生命周期 epoch。
- * @note 在调用 worker 前读取，并原样传给 PostOutcome。
- */
 uint32_t MotorStateMachine_WorkEpoch(void)
 {
     return s_context.rules.state == MOTOR_STATE_MAINTENANCE ? s_context.operation_epoch
                                                             : s_context.rules.epoch;
 }
-/**
- * @brief 复核认领仍属于当前维护操作。
- * @param claim 原始认领值，不得以当前 epoch 重建。
- * @return 身份匹配、未取消、无故障且关相返回 true。
- * @note 最终写入或发布前必须在同一临界区复核。
- */
 bool MotorStateMachine_BackgroundValid(const FocBackgroundClaim *claim)
 {
     return claim != NULL && s_context.background_busy &&
@@ -1607,12 +1421,6 @@ bool MotorStateMachine_BackgroundValid(const FocBackgroundClaim *claim)
            s_context.rules.state == MOTOR_STATE_MAINTENANCE && !s_context.stop_pending &&
            s_context.motor->fault_code == MOTOR_FAULT_NONE && power_stage_hw_phases_disabled();
 }
-/**
- * @brief 认领当前维护会话的前台工作。
- * @param claim 接收原始操作 epoch 和任务类型，调用方保留到完成。
- * @return 已关相且认领成功返回 true。
- * @note 前台调用；认领未归还时不得开始其他任务。
- */
 bool MotorStateMachine_BeginBackground(FocBackgroundClaim *claim)
 {
     uint32_t mask = critical_hw_enter();
@@ -1640,12 +1448,6 @@ bool MotorStateMachine_BeginBackground(FocBackgroundClaim *claim)
     critical_hw_exit(mask);
     return accepted;
 }
-/**
- * @brief 归还前台工作并提交原始会话结果。
- * @param claim 原始认领，必须精确匹配已借出的资源。
- * @param success SAVE 表示回读已验证；COGGING 表示已发布 RAM。
- * @note 缓冲已释放后调用；迟到结果只归还资源，不复活目标。
- */
 void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool success)
 {
     uint32_t mask = critical_hw_enter();
@@ -1693,10 +1495,6 @@ void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool su
     critical_hw_exit(mask);
 }
 
-/**
- * @brief 在稳定配置借用下处理前台补偿请求。
- * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 READY 启动；STOP 可立即关相。
- */
 void MotorStateMachine_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();

@@ -283,14 +283,14 @@ void FOC_CurrentWithReference(
     {
         max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
         PiController_Configure(&foc->id_pi,
-                               motor_state->id_kp,
-                               motor_state->id_ki,
+                               motor_state->model.id_kp,
+                               motor_state->model.id_ki,
                                Current_Ts,
                                -max_voltage,
                                max_voltage);
         PiController_Configure(&foc->iq_pi,
-                               motor_state->iq_kp,
-                               motor_state->iq_ki,
+                               motor_state->model.iq_kp,
+                               motor_state->model.iq_ki,
                                Current_Ts,
                                -max_voltage,
                                max_voltage);
@@ -334,8 +334,8 @@ void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, flo
     {
         max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
         PiController_Configure(&foc->id_pi,
-                               motor_state->id_kp,
-                               motor_state->id_ki,
+                               motor_state->model.id_kp,
+                               motor_state->model.id_ki,
                                Current_Ts,
                                -max_voltage,
                                max_voltage);

@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "foc_param_profile.h"
+#include "current_sense_profile.h"
 #include "position_cascade_config.h"
 
 /* 只登记有真实字段和已冻结缩放的项；单位缩放不等于允许的产品范围。 */
@@ -29,55 +29,61 @@ typedef struct
      offsetof(MotorControlState, field),                                                           \
      scale}
 static const ScalarField s_fields[] = {
-    WRITE_FIELD(1U, speed_limit_rad_s, 1000U),
-    WRITE_FIELD(2U, current_limit_a, 1000U),
-    READ_FIELD(6U, motor_flux_wb, 1000000000U),
-    READ_FIELD(7U, motor_phase_resistance_ohm, 1000000U),
-    READ_FIELD(8U, motor_d_inductance_h, 1000000000U),
-    READ_FIELD(9U, motor_q_inductance_h, 1000000000U),
-    READ_FIELD(11U, id_kp, 1000U),
-    READ_FIELD(12U, id_ki, 1000U),
-    READ_FIELD(13U, iq_kp, 1000U),
-    READ_FIELD(14U, iq_ki, 1000U),
-    READ_FIELD(16U, speed_kp, 1000000U),
-    READ_FIELD(17U, speed_ki, 1000000U),
-    READ_FIELD(19U, speed_acceleration_rad_s2, 1000U),
-    READ_FIELD(20U, speed_deceleration_rad_s2, 1000U),
-    WRITE_FIELD(21U, cascade_position_kp, 1000000U),
-    WRITE_FIELD(22U, cascade_position_kd, 1000000U),
-    WRITE_FIELD(23U, position_maximum_speed_rad_s, 1000U),
-    READ_FIELD(24U, position_acceleration_rad_s2, 1000U),
-    READ_FIELD(25U, position_deceleration_rad_s2, 1000U),
-    READ_FIELD(26U, position_error_window_rad, 1000U),
-    CAL_FIELD(0x44U, phase_a_offset_counts, 1000U),
-    CAL_FIELD(0x45U, phase_b_offset_counts, 1000U),
-    CAL_FIELD(0x46U, phase_c_offset_counts, 1000U),
-    CAL_FIELD(0x47U, friction_coulomb_pos_a, 1000U),
-    CAL_FIELD(0x48U, friction_coulomb_neg_a, 1000U),
-    CAL_FIELD(0x49U, friction_viscous_pos_a_per_rad_s, 1000000U),
-    CAL_FIELD(0x4AU, friction_viscous_neg_a_per_rad_s, 1000000U),
+    WRITE_FIELD(1U, application.speed_limit_rad_s, 1000U),
+    WRITE_FIELD(2U, application.current_limit_a, 1000U),
+    READ_FIELD(6U, model.motor_flux_wb, 1000000000U),
+    READ_FIELD(7U, model.motor_phase_resistance_ohm, 1000000U),
+    READ_FIELD(8U, model.motor_d_inductance_h, 1000000000U),
+    READ_FIELD(9U, model.motor_q_inductance_h, 1000000000U),
+    READ_FIELD(11U, model.id_kp, 1000U),
+    READ_FIELD(12U, model.id_ki, 1000U),
+    READ_FIELD(13U, model.iq_kp, 1000U),
+    READ_FIELD(14U, model.iq_ki, 1000U),
+    READ_FIELD(16U, application.speed_kp, 1000000U),
+    READ_FIELD(17U, application.speed_ki, 1000000U),
+    READ_FIELD(19U, application.speed_acceleration_rad_s2, 1000U),
+    READ_FIELD(20U, application.speed_deceleration_rad_s2, 1000U),
+    WRITE_FIELD(21U, application.cascade_position_kp, 1000000U),
+    WRITE_FIELD(22U, application.cascade_position_kd, 1000000U),
+    WRITE_FIELD(23U, application.position_maximum_speed_rad_s, 1000U),
+    READ_FIELD(24U, application.position_acceleration_rad_s2, 1000U),
+    READ_FIELD(25U, application.position_deceleration_rad_s2, 1000U),
+    READ_FIELD(26U, application.position_error_window_rad, 1000U),
+    CAL_FIELD(0x44U, device.phase_a_offset_counts, 1000U),
+    CAL_FIELD(0x45U, device.phase_b_offset_counts, 1000U),
+    CAL_FIELD(0x46U, device.phase_c_offset_counts, 1000U),
+    CAL_FIELD(0x47U, device.friction_coulomb_pos_a, 1000U),
+    CAL_FIELD(0x48U, device.friction_coulomb_neg_a, 1000U),
+    CAL_FIELD(0x49U, device.friction_viscous_pos_a_per_rad_s, 1000000U),
+    CAL_FIELD(0x4AU, device.friction_viscous_neg_a_per_rad_s, 1000000U),
 };
 
 bool ParameterValue_ConfigurationValid(const MotorControlState *motor)
 {
-    return motor != NULL && motor->axis_profile_valid && motor->motor_pole_pairs > 0 &&
-           isfinite(motor->motor_phase_resistance_ohm) &&
-           motor->motor_phase_resistance_ohm > 0.0f && isfinite(motor->motor_d_inductance_h) &&
-           motor->motor_d_inductance_h > 0.0f && isfinite(motor->motor_q_inductance_h) &&
-           motor->motor_q_inductance_h > 0.0f && isfinite(motor->motor_flux_wb) &&
-           motor->motor_flux_wb > 0.0f && isfinite(motor->current_limit_a) &&
-           motor->current_limit_a > 0.0f &&
-           motor->current_limit_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
-           isfinite(motor->calibration_current_a) && motor->calibration_current_a > 0.0f &&
-           motor->calibration_current_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
-           isfinite(motor->speed_limit_rad_s) && motor->speed_limit_rad_s > 0.0f &&
-           isfinite(motor->id_kp) && motor->id_kp >= 0.0f && isfinite(motor->id_ki) &&
-           motor->id_ki >= 0.0f && isfinite(motor->iq_kp) && motor->iq_kp >= 0.0f &&
-           isfinite(motor->iq_ki) && motor->iq_ki >= 0.0f &&
-           isfinite(motor->speed_acceleration_rad_s2) && motor->speed_acceleration_rad_s2 > 0.0f &&
-           isfinite(motor->speed_deceleration_rad_s2) && motor->speed_deceleration_rad_s2 > 0.0f &&
-           isfinite(motor->speed_kp) && motor->speed_kp >= 0.0f && isfinite(motor->speed_ki) &&
-           motor->speed_ki >= 0.0f;
+    return motor != NULL && motor->application.axis_profile_valid &&
+           motor->model.motor_pole_pairs > 0 && isfinite(motor->model.motor_phase_resistance_ohm) &&
+           motor->model.motor_phase_resistance_ohm > 0.0f &&
+           isfinite(motor->model.motor_d_inductance_h) &&
+           motor->model.motor_d_inductance_h > 0.0f &&
+           isfinite(motor->model.motor_q_inductance_h) &&
+           motor->model.motor_q_inductance_h > 0.0f && isfinite(motor->model.motor_flux_wb) &&
+           motor->model.motor_flux_wb > 0.0f && isfinite(motor->application.current_limit_a) &&
+           motor->application.current_limit_a > 0.0f &&
+           motor->application.current_limit_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
+           isfinite(motor->model.calibration_current_a) &&
+           motor->model.calibration_current_a > 0.0f &&
+           motor->model.calibration_current_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
+           isfinite(motor->application.speed_limit_rad_s) &&
+           motor->application.speed_limit_rad_s > 0.0f && isfinite(motor->model.id_kp) &&
+           motor->model.id_kp >= 0.0f && isfinite(motor->model.id_ki) &&
+           motor->model.id_ki >= 0.0f && isfinite(motor->model.iq_kp) &&
+           motor->model.iq_kp >= 0.0f && isfinite(motor->model.iq_ki) &&
+           motor->model.iq_ki >= 0.0f && isfinite(motor->application.speed_acceleration_rad_s2) &&
+           motor->application.speed_acceleration_rad_s2 > 0.0f &&
+           isfinite(motor->application.speed_deceleration_rad_s2) &&
+           motor->application.speed_deceleration_rad_s2 > 0.0f &&
+           isfinite(motor->application.speed_kp) && motor->application.speed_kp >= 0.0f &&
+           isfinite(motor->application.speed_ki) && motor->application.speed_ki >= 0.0f;
 }
 
 /* 返回的描述符属于只读常量表，不含可变控制对象地址。 */
@@ -142,7 +148,6 @@ static ParameterStatus encode_float(float value, uint32_t scale, uint32_t *raw)
 ParameterStatus ParameterValue_Read(const MotorControlState *motor,
                                     const EncoderState *encoder,
                                     uint32_t revision,
-                                    uint8_t node_id,
                                     uint8_t parameter_id,
                                     ParameterValue *value)
 {
@@ -169,7 +174,7 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
         }
         candidate.value_type = PARAMETER_VALUE_I32;
         candidate.access = field->access;
-        if (motor->axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+        if (motor->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
             (parameter_id == 21U || parameter_id == 22U || parameter_id == 23U))
         {
             /* 启动 joint profile 会覆盖这些字段，不能承诺单值改写的掉电持久语义。 */
@@ -184,23 +189,24 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
             candidate.raw_value = revision;
             break;
         case 3U:
-            candidate.raw_value = node_id;
+            candidate.raw_value = motor->device.node_id;
             break;
         case 4U:
             candidate.raw_value = 1U;
             break;
         case 5U:
-            if (motor->motor_pole_pairs <= 0)
+            if (motor->model.motor_pole_pairs <= 0)
             {
                 return PARAMETER_OUT_OF_RANGE;
             }
-            candidate.raw_value = (uint32_t)motor->motor_pole_pairs;
+            candidate.raw_value = (uint32_t)motor->model.motor_pole_pairs;
             break;
         case 10U:
             candidate.value_type = PARAMETER_VALUE_I32;
-            if (encode_float((motor->motor_d_inductance_h + motor->motor_q_inductance_h) * 0.5f,
-                             1000000000.0f,
-                             &candidate.raw_value) != PARAMETER_OK)
+            if (encode_float(
+                    (motor->model.motor_d_inductance_h + motor->model.motor_q_inductance_h) * 0.5f,
+                    1000000000.0f,
+                    &candidate.raw_value) != PARAMETER_OK)
             {
                 return PARAMETER_OUT_OF_RANGE;
             }
@@ -219,7 +225,7 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
             candidate.raw_value = (encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL ? 1U : 0U;
             break;
         case 0x4BU:
-            candidate.raw_value = motor->friction_model_valid ? 1U : 0U;
+            candidate.raw_value = motor->device.friction_model_valid ? 1U : 0U;
             break;
         case 0x4CU:
             candidate.raw_value = CURRENT_SENSE_SHUNT_MILLIOHM;
@@ -243,19 +249,21 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
     return PARAMETER_OK;
 }
 
-static float speed_ceiling(const MotorControlState *motor, uint8_t node_id)
+static float speed_ceiling(const MotorControlState *motor)
 {
-    float limit = Param_SpeedLimitRadS(node_id);
-    if (motor->axis_profile.magic != 0U)
+    float limit = motor->application.speed_ceiling_rad_s;
+    if (!isfinite(limit) || limit <= 0.0f)
     {
-        limit = fminf(limit, motor->axis_profile.maximum_speed_rad_s);
+        return 0.0f;
+    }
+    if (motor->application.axis_profile.magic != 0U)
+    {
+        limit = fminf(limit, motor->application.axis_profile.maximum_speed_rad_s);
     }
     return limit;
 }
 
-ParameterStatus ParameterValue_Apply(MotorControlState *motor,
-                                     uint8_t node_id,
-                                     const ParameterWriteRequest *request)
+ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWriteRequest *request)
 {
     if (motor == NULL || request == NULL)
     {
@@ -305,7 +313,7 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
     {
         return PARAMETER_READ_ONLY;
     }
-    if (motor->axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+    if (motor->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         (request->parameter_id == 21U || request->parameter_id == 22U ||
          request->parameter_id == 23U))
     {
@@ -321,20 +329,21 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
     switch (request->parameter_id)
     {
     case 1U:
-        if (si_value <= 0.0f || si_value > speed_ceiling(motor, node_id))
+        if (si_value <= 0.0f || si_value > speed_ceiling(motor))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->speed_limit_rad_s = si_value;
-        motor->position_maximum_speed_rad_s = fminf(motor->position_maximum_speed_rad_s, si_value);
+        motor->application.speed_limit_rad_s = si_value;
+        motor->application.position_maximum_speed_rad_s =
+            fminf(motor->application.position_maximum_speed_rad_s, si_value);
         break;
     case 2U:
     {
         float limit = CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A;
-        if (motor->axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC)
+        if (motor->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC)
         {
             MotorJointControlConfig config;
-            if (!MotorAxisProfile_Resolve(&motor->axis_profile, &config))
+            if (!MotorAxisProfile_Resolve(&motor->application.axis_profile, &config))
             {
                 return PARAMETER_OUT_OF_RANGE;
             }
@@ -344,7 +353,7 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->current_limit_a = si_value;
+        motor->application.current_limit_a = si_value;
         break;
     }
     case 21U:
@@ -352,22 +361,22 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->cascade_position_kp = si_value;
+        motor->application.cascade_position_kp = si_value;
         break;
     case 22U:
         if (si_value < 0.0f || si_value > CASCADE_POSITION_KD_MAX)
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->cascade_position_kd = si_value;
+        motor->application.cascade_position_kd = si_value;
         break;
     case 23U:
-        if (si_value <= 0.0f || si_value > motor->speed_limit_rad_s ||
-            si_value > speed_ceiling(motor, node_id))
+        if (si_value <= 0.0f || si_value > motor->application.speed_limit_rad_s ||
+            si_value > speed_ceiling(motor))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->position_maximum_speed_rad_s = si_value;
+        motor->application.position_maximum_speed_rad_s = si_value;
         break;
     default:
         return PARAMETER_READ_ONLY;

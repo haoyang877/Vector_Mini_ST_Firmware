@@ -69,10 +69,10 @@ int main(void)
         {
             FocState actual = {0}, reference = {0};
             MotorControlState motor = {0};
-            motor.id_kp = .03f * (scenario % 5);
-            motor.iq_kp = .05f * (scenario % 7);
-            motor.id_ki = .3f * (scenario % 6);
-            motor.iq_ki = .2f * (scenario % 8);
+            motor.model.id_kp = .03f * (scenario % 5);
+            motor.model.iq_kp = .05f * (scenario % 7);
+            motor.model.id_ki = .3f * (scenario % 6);
+            motor.model.iq_ki = .2f * (scenario % 8);
             for (unsigned tick = 0; tick < 512; tick++)
             {
                 memset(captures, 0, sizeof(captures));

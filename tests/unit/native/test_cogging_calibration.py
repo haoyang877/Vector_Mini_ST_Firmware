@@ -164,9 +164,9 @@ static void core_tests(void) {
 static void setup(void) {
     FocCogging_Abort(); memset(&motor_state,0,sizeof(motor_state));
     memset(&rotor_encoder,0,sizeof(rotor_encoder)); memset(&foc,0,sizeof(foc));
-    motor_state.control_mode=MOTOR_CONTROL_NONE; calibration_running=true; motor_state.axis_profile_valid=true;
-    motor_state.current_limit_a=6;motor_state.calibration_current_a=3;motor_state.speed_limit_rad_s=20;
-    motor_state.speed_kp=.05f;motor_state.speed_ki=.5f;motor_state.motor_pole_pairs=21;
+    motor_state.control_mode=MOTOR_CONTROL_NONE; calibration_running=true; motor_state.application.axis_profile_valid=true;
+    motor_state.application.current_limit_a=6;motor_state.model.calibration_current_a=3;motor_state.application.speed_limit_rad_s=20;
+    motor_state.application.speed_kp=.05f;motor_state.application.speed_ki=.5f;motor_state.model.motor_pole_pairs=21;
     rotor_encoder.has_valid_sample=true;rotor_encoder.calib_flag=3;rotor_encoder.velocity_ready=true;
     foc.bus_voltage_v=foc.bus_voltage_filtered_v=30;foc.temperature_c=25;pwm=false;enabled=0;
 }
@@ -176,7 +176,7 @@ static void adapter_tests(void) {
     assert(out.result==MOTOR_TASK_FAILED && out.error==MOTOR_FAULT_COGGING_CALIBRATION);
     consume(out);
     assert(!pwm && !enabled && motor_state.control_mode==MOTOR_CONTROL_NONE);
-    setup();motor_state.axis_profile.magic=MOTOR_AXIS_PROFILE_MAGIC;
+    setup();motor_state.application.axis_profile.magic=MOTOR_AXIS_PROFILE_MAGIC;
     assert(!FocCogging_CanStart(&motor_state,&rotor_encoder));
     setup();rotor_encoder.calib_flag=1;
     assert(!FocCogging_CanStart(&motor_state,&rotor_encoder));
@@ -230,7 +230,7 @@ static void compensation_tests(void) {
     assert(fabsf(FocCogging_Apply(&motor_state,&rotor_encoder)-(.2f+50*scale))<1e-6f);
     rotor_encoder.linearized_q15=65504; /* halfway across the last-to-first wrap */
     assert(fabsf(FocCogging_Apply(&motor_state,&rotor_encoder)-.2f)<1e-6f);
-    rotor_encoder.linearized_q15=65472;motor_state.current_limit_a=.3f;motor_state.iq_target_a=-.2f;
+    rotor_encoder.linearized_q15=65472;motor_state.application.current_limit_a=.3f;motor_state.iq_target_a=-.2f;
     assert(FocCogging_Apply(&motor_state,&rotor_encoder)==-.3f);
     motor_state.iq_target_a=0;assert(FocCogging_SetCompensation(false,&motor_state,&rotor_encoder));
     assert(FocCogging_Apply(&motor_state,&rotor_encoder)<-.2f); /* smooth off */

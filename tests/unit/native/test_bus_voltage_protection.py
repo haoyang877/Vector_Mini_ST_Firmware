@@ -51,7 +51,7 @@ static void reset(float v) {
     motor_state.control_mode=MOTOR_CONTROL_NONE;
     input(v); s_foc_state.bus_voltage_filtered_v=v;
     Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
-    motor_state.axis_profile_valid=true;
+    motor_state.application.axis_profile_valid=true;
     rotor_encoder.calib_flag=3;
 }
 static void tick(unsigned n) { while(n--) Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); }

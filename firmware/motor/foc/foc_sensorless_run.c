@@ -106,12 +106,13 @@ static bool sensorless_startup_config_is_valid(const SensorlessStartupConfig *Co
 static bool sensorless_startup_currents_are_valid(const MotorControlState *motor_state,
                                                   const SensorlessStartupConfig *Config)
 {
-    float current_limit_squared = motor_state->current_limit_a * motor_state->current_limit_a;
+    float current_limit_squared =
+        motor_state->application.current_limit_a * motor_state->application.current_limit_a;
     float startup_current_squared =
         Config->startup_iq_a * Config->startup_iq_a + Config->startup_id_a * Config->startup_id_a;
 
-    return motor_state->current_limit_a >= Config->minimum_current_limit_a &&
-           motor_state->current_limit_a >= Config->align_current_a &&
+    return motor_state->application.current_limit_a >= Config->minimum_current_limit_a &&
+           motor_state->application.current_limit_a >= Config->align_current_a &&
            startup_current_squared <= current_limit_squared;
 }
 
@@ -128,8 +129,8 @@ static float sensorless_update_speed_loop(MotorControlState *motor_state,
                                          (observer_mech_vel - startup->speed_feedback_rad_s);
         MotorAxis_UpdateSpeedRamp(motor_state);
         PiController_Configure(controller,
-                               motor_state->speed_kp,
-                               motor_state->speed_ki,
+                               motor_state->application.speed_kp,
+                               motor_state->application.speed_ki,
                                Speed_Ts,
                                -1.0f,
                                startup->speed_pi_output_max);
@@ -138,7 +139,7 @@ static float sensorless_update_speed_loop(MotorControlState *motor_state,
         startup->speed_loop_ticks = 0U;
     }
     return Math_Constrain(controller->output, -1.0f, startup->speed_pi_output_max) *
-           motor_state->current_limit_a;
+           motor_state->application.current_limit_a;
 }
 
 /* 正向旋转 dq 参考到观测器坐标系（+delta）。 */
@@ -195,13 +196,13 @@ static void sensorless_begin_handoff(SensorlessStartupRunState *Run)
     startup->speed_loop_ticks = 0U;
     PiController_Reset(Run->controller);
     PiController_Configure(Run->controller,
-                           motor_state->speed_kp,
-                           motor_state->speed_ki,
+                           motor_state->application.speed_kp,
+                           motor_state->application.speed_ki,
                            Speed_Ts,
                            -1.0f,
                            startup->speed_pi_output_max);
     PiController_TrackOutput(Run->controller,
-                             Math_Constrain(observer_iq / motor_state->current_limit_a,
+                             Math_Constrain(observer_iq / motor_state->application.current_limit_a,
                                             -1.0f,
                                             startup->speed_pi_output_max));
     startup->state = SENSORLESS_STARTUP_HANDOFF;
@@ -492,14 +493,16 @@ void SensorlessStartup_Run(FocState *foc,
                            SensorlessStartupState *startup,
                            const SensorlessStartupConfig *Config)
 {
-    float pole_pairs = (float)motor_state->motor_pole_pairs;
+    float pole_pairs = (float)motor_state->model.motor_pole_pairs;
     float min_mech_vel;
     SensorlessStartupRunState run;
 
     if (!sensorless_startup_config_is_valid(Config) || pole_pairs <= 0.0f ||
-        motor_state->motor_phase_resistance_ohm <= 0.0f ||
-        motor_state->motor_d_inductance_h <= 0.0f || motor_state->motor_q_inductance_h <= 0.0f ||
-        motor_state->motor_flux_wb <= 0.0f || motor_state->current_limit_a <= 0.0f)
+        motor_state->model.motor_phase_resistance_ohm <= 0.0f ||
+        motor_state->model.motor_d_inductance_h <= 0.0f ||
+        motor_state->model.motor_q_inductance_h <= 0.0f ||
+        motor_state->model.motor_flux_wb <= 0.0f ||
+        motor_state->application.current_limit_a <= 0.0f)
     {
         MotorFault_Report(motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
         return;

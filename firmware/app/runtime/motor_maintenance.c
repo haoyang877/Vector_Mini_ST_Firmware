@@ -8,7 +8,10 @@
 #include "phase_resistance_task.h"
 #include "foc_param.h"
 #include "motor_execution.h"
-#include "foc_param_profile.h"
+#include "motor_profile_defaults.h"
+#include "board_profile_defaults.h"
+#include "application_profile_defaults.h"
+#include "device_profile_defaults.h"
 #include "control_config.h"
 #include "utils.h"
 #include "parameter_value_service.h"
@@ -91,7 +94,7 @@ MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
                                       const FocState *foc,
                                       const EncoderState *encoder)
 {
-    if ((unsigned)kind >= MOTOR_MAINTENANCE_NONE || !motor->axis_profile_valid)
+    if ((unsigned)kind >= MOTOR_MAINTENANCE_NONE || !motor->application.axis_profile_valid)
     {
         return MOTOR_FAULT_INVALID_PARAMETERS;
     }

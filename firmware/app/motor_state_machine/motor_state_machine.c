@@ -194,7 +194,8 @@ static MotorControlResult admit_control_target(const MotorControlCommand *comman
         return MOTOR_CONTROL_FAULT;
     }
     if (power_stage_hw_phases_disabled() || s_context.rules.state != MOTOR_STATE_RUNNING ||
-        s_context.motor->control_mode != command->mode || !s_context.motor->axis_profile_valid ||
+        s_context.motor->control_mode != command->mode ||
+        !s_context.motor->application.axis_profile_valid ||
         s_context.motor->uses_sensorless_feedback || !Encoder_IsOnline(s_context.rotor_encoder) ||
         (Encoder_GetCalibFlag(s_context.rotor_encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL ||
         !state_vbus_in_enable_window() || !isfinite(s_context.foc->bus_voltage_v) ||
@@ -306,7 +307,8 @@ static MotorStateFacts read_state_conditions(void)
     facts.self_test_ready = (s_context.rules.tested || stable_self_test) &&
                             facts.configuration_valid && facts.inputs_valid &&
                             facts.active_faults == 0U;
-    facts.start_permitted = s_context.motor->axis_profile_valid && !s_context.boot_maintenance_only;
+    facts.start_permitted =
+        s_context.motor->application.axis_profile_valid && !s_context.boot_maintenance_only;
     if (mode != MOTOR_CONTROL_NONE)
     {
         facts.start_permitted = facts.start_permitted && s_context.motor->configuration_confirmed &&
@@ -332,7 +334,7 @@ static MotorStateFacts read_state_conditions(void)
             facts.start_permitted &&
             (Encoder_GetCalibFlag(s_context.rotor_encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL;
     }
-    facts.operation_permitted = s_context.motor->axis_profile_valid &&
+    facts.operation_permitted = s_context.motor->application.axis_profile_valid &&
                                 ((s_context.rules.maintenance_active &&
                                   MotorStateRules_Classify(s_context.rules.maintenance_kind) ==
                                       MOTOR_MAINTENANCE_CLASS_CALIBRATION) ||
@@ -400,7 +402,7 @@ static void publish_transition_fault(void)
         {
             error = MOTOR_FAULT_TEMPERATURE_SENSOR;
         }
-        else if (!s_context.motor->axis_profile_valid)
+        else if (!s_context.motor->application.axis_profile_valid)
         {
             error = MOTOR_FAULT_INVALID_PARAMETERS;
         }
@@ -711,8 +713,10 @@ static uint32_t state_start_blockers(const MotorStateFacts *facts)
 static bool state_position_start_allowed(void)
 {
     float position = Encoder_GetMecPos(s_context.rotor_encoder);
-    return MotorAxisProfile_AllowsPosition(
-        &s_context.motor->axis_profile, s_context.motor->axis_profile_valid, position, position);
+    return MotorAxisProfile_AllowsPosition(&s_context.motor->application.axis_profile,
+                                           s_context.motor->application.axis_profile_valid,
+                                           position,
+                                           position);
 }
 
 void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
@@ -1152,7 +1156,7 @@ void MotorStateMachine_CheckFastFaults(void)
     }
 
     /* 检查实际输出和已受理控制，不依赖通信入口。 */
-    if (!s_context.motor->axis_profile_valid && MotorStateMachine_OutputExpected())
+    if (!s_context.motor->application.axis_profile_valid && MotorStateMachine_OutputExpected())
     {
         MotorFault_Report(s_context.motor, MOTOR_FAULT_INVALID_PARAMETERS);
     }

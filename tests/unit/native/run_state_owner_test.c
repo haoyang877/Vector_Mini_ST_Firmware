@@ -161,7 +161,7 @@ bool FrictionIdentificationTask_IsReleased(void)
 }
 bool FocCogging_CanStart(const MotorControlState *m, const EncoderState *e)
 {
-    return m->axis_profile_valid && e->calib_flag == ENC_CALIB_ALL;
+    return m->application.axis_profile_valid && e->calib_flag == ENC_CALIB_ALL;
 }
 void FocCogging_Abort(void)
 {
@@ -230,20 +230,21 @@ static void reset(void)
     memset(&motor, 0, sizeof(motor));
     memset(&foc, 0, sizeof(foc));
     memset(&encoder, 0, sizeof(encoder));
-    motor.axis_profile_valid = true;
-    motor.motor_pole_pairs = 21;
+    motor.application.axis_profile_valid = true;
+    motor.model.motor_pole_pairs = 21;
     motor.configuration_confirmed = true;
-    motor.motor_phase_resistance_ohm = 1.0f;
-    motor.motor_d_inductance_h = motor.motor_q_inductance_h = 0.001f;
-    motor.motor_flux_wb = 0.01f;
-    motor.calibration_current_a = 3.0f;
-    motor.current_limit_a = 6.0f;
-    motor.speed_limit_rad_s = 20.0f;
-    motor.speed_acceleration_rad_s2 = motor.speed_deceleration_rad_s2 = 1.0f;
-    motor.speed_kp = 0.1f;
-    motor.speed_ki = 0.2f;
-    motor.phase_a_offset_counts = motor.phase_b_offset_counts = motor.phase_c_offset_counts =
-        2048.0f;
+    motor.model.motor_phase_resistance_ohm = 1.0f;
+    motor.model.motor_d_inductance_h = motor.model.motor_q_inductance_h = 0.001f;
+    motor.model.motor_flux_wb = 0.01f;
+    motor.model.calibration_current_a = 3.0f;
+    motor.application.current_limit_a = 6.0f;
+    motor.application.speed_limit_rad_s = 20.0f;
+    motor.application.speed_acceleration_rad_s2 = motor.application.speed_deceleration_rad_s2 =
+        1.0f;
+    motor.application.speed_kp = 0.1f;
+    motor.application.speed_ki = 0.2f;
+    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
+        motor.device.phase_c_offset_counts = 2048.0f;
     encoder.calib_flag = ENC_CALIB_ALL;
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 30.0f;
     foc.temperature_c = 25.0f;
@@ -298,7 +299,8 @@ static void test_control(void)
     tick();
     assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY &&
            motor.speed_target_rad_s == 0.0f);
-    assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
+    assert(motor.application.current_limit_a == 6.0f &&
+           motor.application.speed_limit_rad_s == 20.0f);
     puts("PASS same-mode target owner, single-slot busy, STOP revocation and unchanged caps");
 
     reset();
@@ -401,7 +403,8 @@ static void test_stop_and_fault(void)
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
     assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
-    assert(motor.current_limit_a == 6.0f && motor.speed_limit_rad_s == 20.0f);
+    assert(motor.application.current_limit_a == 6.0f &&
+           motor.application.speed_limit_rad_s == 20.0f);
     puts("PASS failed output shutdown cannot restore READY or relaxed limits");
 }
 
@@ -883,7 +886,7 @@ static void test_readiness_admission_matrix(void)
                 foc.bus_voltage_v = foc.bus_voltage_filtered_v = 0.0f;
             }
             temperature_fresh = (gaps & 16U) == 0U;
-            motor.axis_profile_valid = (gaps & 32U) == 0U;
+            motor.application.axis_profile_valid = (gaps & 32U) == 0U;
             motor.uses_sensorless_feedback = (gaps & 64U) != 0U;
             if (gaps & 128U)
             {
@@ -1076,22 +1079,22 @@ static void test_target_admission_boundaries(void)
                     motor.uses_sensorless_feedback = true;
                     break;
                 case 8U:
-                    motor.axis_profile_valid = false;
+                    motor.application.axis_profile_valid = false;
                     break;
                 case 9U:
                     foc.bus_voltage_filtered_v = 25.5f;
                     break;
                 case 10U:
-                    motor.current_limit_a = NAN;
+                    motor.application.current_limit_a = NAN;
                     break;
                 case 11U:
-                    motor.speed_limit_rad_s = NAN;
+                    motor.application.speed_limit_rad_s = NAN;
                     break;
                 case 12U:
-                    motor.axis_profile.magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
-                    motor.axis_profile.minimum_position_rad = -1.0f;
-                    motor.axis_profile.maximum_position_rad = 1.0f;
-                    motor.axis_profile.maximum_speed_rad_s = 2.0f;
+                    motor.application.axis_profile.magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
+                    motor.application.axis_profile.minimum_position_rad = -1.0f;
+                    motor.application.axis_profile.maximum_position_rad = 1.0f;
+                    motor.application.axis_profile.maximum_speed_rad_s = 2.0f;
                     break;
                 case 13U:
                     encoder.mechanical_position_rad = NAN;

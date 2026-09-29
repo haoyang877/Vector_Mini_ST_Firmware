@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+from _motor_config_projection import project_reference_motor_config
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
@@ -28,7 +29,7 @@ def main() -> None:
             ["git", "show", args.reference_ref + ":" + path], cwd=ROOT
         ).decode("utf-8")
 
-    foc = frozen("firmware/motor/foc/foc_algorithm.c")
+    foc = project_reference_motor_config(frozen("firmware/motor/foc/foc_algorithm.c"))
     pi = frozen("firmware/motor/foc/foc_pid.c")
     names = set(re.findall(r"^(?:float|void|bool)\s+(\w+)\s*\(", foc + "\n" + pi, re.M))
     # 仅投影函数名，常量、算术次序、控制分支及结构保持冻结内容。

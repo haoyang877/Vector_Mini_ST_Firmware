@@ -11,7 +11,6 @@
 #include "motor_stop_service.h"
 #include "motor_hw.h"
 #include "motor_axis.h"
-#include "param_comm_bridge.h"
 #include "power_stage_hw.h"
 #include "yg_protocol_status_adapter.h"
 #include "yg_protocol_owner_adapter.h"
@@ -166,7 +165,7 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
     s_entry_result = BOOT_ENTRY_FAILED;
     if (permitted)
     {
-        (void)BootHw_EnterLoader(Protocol_NodeId_Get());
+        (void)BootHw_EnterLoader(MotorAxis_NodeId());
     }
     critical_hw_exit(mask);
 }
@@ -188,7 +187,7 @@ void Board_Init(void)
     board_hw_start(false);
 
     /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
-    s_communication_ready = YgProtocolRuntime_Init(Protocol_NodeId_Get()) &&
+    s_communication_ready = YgProtocolRuntime_Init(MotorAxis_NodeId()) &&
                             YgProtocolStatusAdapter_Init() && bind_motor_stop() &&
                             YgProtocolOwner_BindServices() && bind_device_description();
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE

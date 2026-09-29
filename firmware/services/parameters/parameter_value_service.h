@@ -70,7 +70,6 @@ typedef struct
  * @param motor APP 所有者提供的稳定电机配置。
  * @param encoder APP 所有者提供的稳定校准配置。
  * @param revision 当前活动版本，不是 Flash schema。
- * @param node_id 当前通信节点，仅复制值。
  * @param parameter_id 参数目录 v0.1 的单字节 ID。
  * @param value 接收值，失败保持全零，不保留指针。
  * @return 成功、未支持来源、编码越界或错误。
@@ -79,19 +78,16 @@ typedef struct
 ParameterStatus ParameterValue_Read(const MotorControlState *motor,
                                     const EncoderState *encoder,
                                     uint32_t revision,
-                                    uint8_t node_id,
                                     uint8_t parameter_id,
                                     ParameterValue *value);
 /**
  * @brief 校验并应用具备既有产品范围的停机单标量。
  * @param motor APP 独占电机配置，任何失败均保持原值。
- * @param node_id 当前节点，用于既有电机限速 profile。
  * @param request 原始值请求，仅读取 ID/类型和值；身份与 revision 由 APP 核对。
  * @return 已应用返回 OK；只读、类型或范围错误不修改配置。
  * @note 仅所有者停机独占时调用；耦合模型和未冻结范围的项保持只读。
  */
 ParameterStatus ParameterValue_Apply(MotorControlState *motor,
-                                     uint8_t node_id,
                                      const ParameterWriteRequest *request);
 
 /**

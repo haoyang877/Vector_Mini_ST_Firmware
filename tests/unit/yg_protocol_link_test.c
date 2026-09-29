@@ -8,7 +8,6 @@
 #include "yg_protocol_canfd.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_runtime.h"
-#include "param_comm_bridge.h"
 #include "yg_protocol_readonly.h"
 #include "yg_protocol_readonly_payload.h"
 
@@ -435,8 +434,6 @@ static void runtime_start_boundary(void)
     assert(!YgProtocolRuntime_Init(255U));
     assert(can_starts == 0U && !YgProtocolLink_IsReady());
     assert(YgProtocolRuntime_Init(7U));
-    Protocol_NodeId_Set(9U);
-    assert(Protocol_NodeId_Get() == 9U);
     enqueue_request(&stop);
     assert(!YgProtocolRuntime_Init(9U));
     sent = false;

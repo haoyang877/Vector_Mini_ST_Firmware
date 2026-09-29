@@ -47,22 +47,25 @@ MotorControlResult MotorExecution_ValidateTarget(const MotorControlCommand *comm
     switch (command->mode)
     {
     case MOTOR_CONTROL_CURRENT:
-        return isfinite(motor->current_limit_a) && motor->current_limit_a > 0.0f &&
-                       fabsf(command->iq_a) <= motor->current_limit_a
+        return isfinite(motor->application.current_limit_a) &&
+                       motor->application.current_limit_a > 0.0f &&
+                       fabsf(command->iq_a) <= motor->application.current_limit_a
                    ? MOTOR_CONTROL_ACCEPTED
                    : MOTOR_CONTROL_OUT_OF_RANGE;
     case MOTOR_CONTROL_SPEED:
-        return isfinite(motor->speed_limit_rad_s) && motor->speed_limit_rad_s > 0.0f &&
-                       fabsf(command->speed_rad_s) <= motor->speed_limit_rad_s &&
-                       (motor->axis_profile.magic == 0U ||
-                        (isfinite(motor->axis_profile.maximum_speed_rad_s) &&
-                         motor->axis_profile.maximum_speed_rad_s > 0.0f &&
-                         fabsf(command->speed_rad_s) <= motor->axis_profile.maximum_speed_rad_s))
+        return isfinite(motor->application.speed_limit_rad_s) &&
+                       motor->application.speed_limit_rad_s > 0.0f &&
+                       fabsf(command->speed_rad_s) <= motor->application.speed_limit_rad_s &&
+                       (motor->application.axis_profile.magic == 0U ||
+                        (isfinite(motor->application.axis_profile.maximum_speed_rad_s) &&
+                         motor->application.axis_profile.maximum_speed_rad_s > 0.0f &&
+                         fabsf(command->speed_rad_s) <=
+                             motor->application.axis_profile.maximum_speed_rad_s))
                    ? MOTOR_CONTROL_ACCEPTED
                    : MOTOR_CONTROL_OUT_OF_RANGE;
     case MOTOR_CONTROL_POSITION:
-        return MotorAxisProfile_AllowsPosition(&motor->axis_profile,
-                                               motor->axis_profile_valid,
+        return MotorAxisProfile_AllowsPosition(&motor->application.axis_profile,
+                                               motor->application.axis_profile_valid,
                                                Encoder_GetMecPos(encoder),
                                                command->position_rad)
                    ? MOTOR_CONTROL_ACCEPTED
@@ -131,12 +134,12 @@ static void position_mode_apply_friction_configuration(MotorControlState *motor_
 {
     config->friction_feedforward_enabled =
         MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
-    if (motor_state->friction_model_valid)
+    if (motor_state->device.friction_model_valid)
     {
-        config->friction_coulomb_positive = motor_state->friction_coulomb_pos_a;
-        config->friction_coulomb_negative = motor_state->friction_coulomb_neg_a;
-        config->friction_viscous_positive = motor_state->friction_viscous_pos_a_per_rad_s;
-        config->friction_viscous_negative = motor_state->friction_viscous_neg_a_per_rad_s;
+        config->friction_coulomb_positive = motor_state->device.friction_coulomb_pos_a;
+        config->friction_coulomb_negative = motor_state->device.friction_coulomb_neg_a;
+        config->friction_viscous_positive = motor_state->device.friction_viscous_pos_a_per_rad_s;
+        config->friction_viscous_negative = motor_state->device.friction_viscous_neg_a_per_rad_s;
     }
     else
     {
@@ -160,7 +163,7 @@ static void position_mode_apply_friction_configuration(MotorControlState *motor_
 /* 有效减速度：配置适配与热路径比较共用；NaN 原样传播，与旧实现一致。 */
 static float position_mode_effective_deceleration(const MotorControlState *motor_state)
 {
-    float deceleration = motor_state->position_deceleration_rad_s2;
+    float deceleration = motor_state->application.position_deceleration_rad_s2;
 
     if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
     {
@@ -172,12 +175,12 @@ static float position_mode_effective_deceleration(const MotorControlState *motor
 /* 有效最大速度：轴配置生效时取更严格的轴上限。 */
 static float position_mode_effective_maximum_speed(const MotorControlState *motor_state)
 {
-    float maximum_speed = motor_state->position_maximum_speed_rad_s;
+    float maximum_speed = motor_state->application.position_maximum_speed_rad_s;
 
-    if (motor_state->axis_profile.magic != 0U &&
-        maximum_speed > motor_state->axis_profile.maximum_speed_rad_s)
+    if (motor_state->application.axis_profile.magic != 0U &&
+        maximum_speed > motor_state->application.axis_profile.maximum_speed_rad_s)
     {
-        maximum_speed = motor_state->axis_profile.maximum_speed_rad_s;
+        maximum_speed = motor_state->application.axis_profile.maximum_speed_rad_s;
     }
     return maximum_speed;
 }
@@ -196,26 +199,26 @@ static bool position_mode_update_configuration(MotorControlState *motor_state,
     config.update_period_s = Cascade_Position_Ts;
     config.call_divider = call_divider;
     config.target_position = motor_state->position_target_rad;
-    config.position_error_window = motor_state->position_error_window_rad;
+    config.position_error_window = motor_state->application.position_error_window_rad;
     config.hold_enter_position = POSITION_SERVO_HOLD_ENTER_POSITION_RAD;
     config.hold_exit_position = POSITION_SERVO_HOLD_EXIT_POSITION_RAD;
     config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;
     config.hold_velocity_filter_hz = POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ;
     config.following_error_limit = POSITION_SERVO_FOLLOWING_ERROR_LIMIT_RAD;
     config.stiction_integral_rate = POSITION_SERVO_STICTION_INTEGRAL_RATE_A_PER_S;
-    config.acceleration = motor_state->position_acceleration_rad_s2;
+    config.acceleration = motor_state->application.position_acceleration_rad_s2;
     config.deceleration = position_mode_effective_deceleration(motor_state);
     config.maximum_speed = position_mode_effective_maximum_speed(motor_state);
-    config.speed_limit_rad_s = motor_state->speed_limit_rad_s;
+    config.speed_limit_rad_s = motor_state->application.speed_limit_rad_s;
     config.jerk_limit =
         (config.acceleration > config.deceleration ? config.acceleration : config.deceleration) /
         POSITION_SERVO_JERK_RAMP_TIME_S;
-    config.position_kp = motor_state->cascade_position_kp;
-    config.position_kd = motor_state->cascade_position_kd;
-    config.speed_kp = motor_state->speed_kp;
-    config.speed_ki = motor_state->speed_ki;
+    config.position_kp = motor_state->application.cascade_position_kp;
+    config.position_kd = motor_state->application.cascade_position_kd;
+    config.speed_kp = motor_state->application.speed_kp;
+    config.speed_ki = motor_state->application.speed_ki;
     config.acceleration_feedforward_gain = POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
-    config.current_limit_a = motor_state->current_limit_a;
+    config.current_limit_a = motor_state->application.current_limit_a;
     position_mode_apply_friction_configuration(motor_state, &config);
 
     return PositionCascade_UpdateControl(
@@ -251,31 +254,36 @@ static bool position_mode_configuration_matches(const PositionCascadeConfig *con
         !position_mode_same_tuning_value(config->hold_velocity_filter_hz,
                                          POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ) ||
         !position_mode_same_tuning_value(config->position_error_window,
-                                         motor_state->position_error_window_rad) ||
+                                         motor_state->application.position_error_window_rad) ||
         !position_mode_same_tuning_value(config->acceleration,
-                                         motor_state->position_acceleration_rad_s2) ||
+                                         motor_state->application.position_acceleration_rad_s2) ||
         !position_mode_same_tuning_value(config->deceleration, deceleration) ||
         !position_mode_same_tuning_value(config->maximum_speed, maximum_speed) ||
         !position_mode_same_tuning_value(config->speed_limit_rad_s,
-                                         motor_state->speed_limit_rad_s) ||
-        !position_mode_same_tuning_value(config->position_kp, motor_state->cascade_position_kp) ||
-        !position_mode_same_tuning_value(config->position_kd, motor_state->cascade_position_kd) ||
-        !position_mode_same_tuning_value(config->speed_kp, motor_state->speed_kp) ||
-        !position_mode_same_tuning_value(config->speed_ki, motor_state->speed_ki) ||
-        !position_mode_same_tuning_value(config->current_limit_a, motor_state->current_limit_a))
+                                         motor_state->application.speed_limit_rad_s) ||
+        !position_mode_same_tuning_value(config->position_kp,
+                                         motor_state->application.cascade_position_kp) ||
+        !position_mode_same_tuning_value(config->position_kd,
+                                         motor_state->application.cascade_position_kd) ||
+        !position_mode_same_tuning_value(config->speed_kp, motor_state->application.speed_kp) ||
+        !position_mode_same_tuning_value(config->speed_ki, motor_state->application.speed_ki) ||
+        !position_mode_same_tuning_value(config->current_limit_a,
+                                         motor_state->application.current_limit_a))
     {
         return false;
     }
-    if (motor_state->friction_model_valid)
+    if (motor_state->device.friction_model_valid)
     {
         return position_mode_same_tuning_value(config->friction_coulomb_positive,
-                                               motor_state->friction_coulomb_pos_a) &&
+                                               motor_state->device.friction_coulomb_pos_a) &&
                position_mode_same_tuning_value(config->friction_coulomb_negative,
-                                               motor_state->friction_coulomb_neg_a) &&
-               position_mode_same_tuning_value(config->friction_viscous_positive,
-                                               motor_state->friction_viscous_pos_a_per_rad_s) &&
-               position_mode_same_tuning_value(config->friction_viscous_negative,
-                                               motor_state->friction_viscous_neg_a_per_rad_s);
+                                               motor_state->device.friction_coulomb_neg_a) &&
+               position_mode_same_tuning_value(
+                   config->friction_viscous_positive,
+                   motor_state->device.friction_viscous_pos_a_per_rad_s) &&
+               position_mode_same_tuning_value(
+                   config->friction_viscous_negative,
+                   motor_state->device.friction_viscous_neg_a_per_rad_s);
     }
     return position_mode_same_tuning_value(config->friction_coulomb_positive,
                                            POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A) &&
@@ -322,46 +330,58 @@ static bool motor_outer_loop_inputs_valid(const MotorControlState *m, float posi
     }
     if (m->control_mode == MOTOR_CONTROL_SPEED)
     {
-        return isfinite(m->speed_target_rad_s) && isfinite(m->speed_acceleration_rad_s2) &&
-               isfinite(m->speed_deceleration_rad_s2) && isfinite(m->current_limit_a) &&
-               m->current_limit_a > 0.0f && isfinite(m->speed_kp) && m->speed_kp >= 0.0f &&
-               isfinite(m->speed_ki) && m->speed_ki >= 0.0f;
+        return isfinite(m->speed_target_rad_s) &&
+               isfinite(m->application.speed_acceleration_rad_s2) &&
+               isfinite(m->application.speed_deceleration_rad_s2) &&
+               isfinite(m->application.current_limit_a) && m->application.current_limit_a > 0.0f &&
+               isfinite(m->application.speed_kp) && m->application.speed_kp >= 0.0f &&
+               isfinite(m->application.speed_ki) && m->application.speed_ki >= 0.0f;
     }
-    if (!MotorAxisProfile_AllowsPosition(
-            &m->axis_profile, m->axis_profile_valid, position, m->position_target_rad))
+    if (!MotorAxisProfile_AllowsPosition(&m->application.axis_profile,
+                                         m->application.axis_profile_valid,
+                                         position,
+                                         m->position_target_rad))
     {
         return false;
     }
-    if (!isfinite(m->current_limit_a) || m->current_limit_a <= 0.0f || !isfinite(m->speed_kp) ||
-        m->speed_kp < 0.0f || !isfinite(m->speed_ki) || m->speed_ki < 0.0f)
+    if (!isfinite(m->application.current_limit_a) || m->application.current_limit_a <= 0.0f ||
+        !isfinite(m->application.speed_kp) || m->application.speed_kp < 0.0f ||
+        !isfinite(m->application.speed_ki) || m->application.speed_ki < 0.0f)
     {
         return false;
     }
     deceleration = position_mode_effective_deceleration(m);
     maximum_speed = position_mode_effective_maximum_speed(m);
-    if (!isfinite(m->position_error_window_rad) || m->position_error_window_rad <= 0.0f ||
-        m->position_error_window_rad > POSITION_SERVO_HOLD_ENTER_POSITION_RAD ||
-        !isfinite(m->position_acceleration_rad_s2) || m->position_acceleration_rad_s2 <= 0.0f ||
-        !isfinite(deceleration) || deceleration <= 0.0f || !isfinite(maximum_speed) ||
-        maximum_speed <= 0.0f || !isfinite(m->speed_limit_rad_s) ||
-        m->speed_limit_rad_s < maximum_speed ||
-        !isfinite((m->position_acceleration_rad_s2 > deceleration ? m->position_acceleration_rad_s2
-                                                                  : deceleration) /
+    if (!isfinite(m->application.position_error_window_rad) ||
+        m->application.position_error_window_rad <= 0.0f ||
+        m->application.position_error_window_rad > POSITION_SERVO_HOLD_ENTER_POSITION_RAD ||
+        !isfinite(m->application.position_acceleration_rad_s2) ||
+        m->application.position_acceleration_rad_s2 <= 0.0f || !isfinite(deceleration) ||
+        deceleration <= 0.0f || !isfinite(maximum_speed) || maximum_speed <= 0.0f ||
+        !isfinite(m->application.speed_limit_rad_s) ||
+        m->application.speed_limit_rad_s < maximum_speed ||
+        !isfinite((m->application.position_acceleration_rad_s2 > deceleration
+                       ? m->application.position_acceleration_rad_s2
+                       : deceleration) /
                   POSITION_SERVO_JERK_RAMP_TIME_S) ||
-        !isfinite(m->cascade_position_kp) || m->cascade_position_kp < 0.0f ||
-        m->cascade_position_kp > CASCADE_POSITION_KP_MAX_PER_S ||
-        !isfinite(m->cascade_position_kd) || m->cascade_position_kd < 0.0f ||
-        m->cascade_position_kd > CASCADE_POSITION_KD_MAX)
+        !isfinite(m->application.cascade_position_kp) ||
+        m->application.cascade_position_kp < 0.0f ||
+        m->application.cascade_position_kp > CASCADE_POSITION_KP_MAX_PER_S ||
+        !isfinite(m->application.cascade_position_kd) ||
+        m->application.cascade_position_kd < 0.0f ||
+        m->application.cascade_position_kd > CASCADE_POSITION_KD_MAX)
     {
         return false;
     }
-    return !m->friction_model_valid ||
-           (isfinite(m->friction_coulomb_pos_a) && m->friction_coulomb_pos_a >= 0.0f &&
-            isfinite(m->friction_coulomb_neg_a) && m->friction_coulomb_neg_a >= 0.0f &&
-            isfinite(m->friction_viscous_pos_a_per_rad_s) &&
-            m->friction_viscous_pos_a_per_rad_s >= 0.0f &&
-            isfinite(m->friction_viscous_neg_a_per_rad_s) &&
-            m->friction_viscous_neg_a_per_rad_s >= 0.0f);
+    return !m->device.friction_model_valid ||
+           (isfinite(m->device.friction_coulomb_pos_a) &&
+            m->device.friction_coulomb_pos_a >= 0.0f &&
+            isfinite(m->device.friction_coulomb_neg_a) &&
+            m->device.friction_coulomb_neg_a >= 0.0f &&
+            isfinite(m->device.friction_viscous_pos_a_per_rad_s) &&
+            m->device.friction_viscous_pos_a_per_rad_s >= 0.0f &&
+            isfinite(m->device.friction_viscous_neg_a_per_rad_s) &&
+            m->device.friction_viscous_neg_a_per_rad_s >= 0.0f);
 }
 
 bool MotorOuterLoop_IsReady(void)
@@ -451,7 +471,8 @@ void MotorOuterLoop_SlowTick(MotorControlState *m, PiController *pi, EncoderStat
         }
         m->id_target_a = 0.0f;
         /* 实时电流限制下调立即生效。 */
-        m->iq_target_a = fminf(fmaxf(output.iq_reference, -m->current_limit_a), m->current_limit_a);
+        m->iq_target_a = fminf(fmaxf(output.iq_reference, -m->application.current_limit_a),
+                               m->application.current_limit_a);
         m->position_reference_rad = output.position_reference;
         m->speed_ramped_rad_s = output.speed_reference;
         m->position_velocity_filtered_rad_s = output.speed_feedback_rad_s;

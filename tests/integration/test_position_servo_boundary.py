@@ -52,8 +52,8 @@ class PositionServoBoundaryTests(unittest.TestCase):
     def test_adapter_selects_identified_model_and_safe_fallback(self) -> None:
         adapter = FOC_ADAPTER.read_text(encoding="utf-8")
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
-        self.assertIn("motor_state->friction_model_valid", adapter)
-        self.assertIn("motor_state->friction_coulomb_pos_a", adapter)
+        self.assertIn("motor_state->device.friction_model_valid", adapter)
+        self.assertIn("motor_state->device.friction_coulomb_pos_a", adapter)
         self.assertIn("POSITION_SERVO_FALLBACK_FRICTION_POSITIVE_A", adapter)
         self.assertIn("POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2", adapter)
         self.assertIn("friction_fast_release_slew_rate", public_api)

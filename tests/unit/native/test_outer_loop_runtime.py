@@ -97,13 +97,13 @@ static void setup(MotorControlMode mode) {
     memset(&live_pi, 0, sizeof(live_pi));
     enc.position = .3f; enc.speed = 0;
     PositionCascade_Reset();
-    live.control_mode = mode; live.axis_profile_valid = true;
-    live.position_error_window_rad = .001f; live.position_acceleration_rad_s2 = .785398f; live.position_deceleration_rad_s2 = .523599f;
-    live.position_maximum_speed_rad_s = .6f; live.speed_limit_rad_s = .8f;
-    live.cascade_position_kp = 8; live.cascade_position_kd = 2;
-    live.speed_kp = .5f; live.speed_ki = 2; live.current_limit_a = 4;
+    live.control_mode = mode; live.application.axis_profile_valid = true;
+    live.application.position_error_window_rad = .001f; live.application.position_acceleration_rad_s2 = .785398f; live.application.position_deceleration_rad_s2 = .523599f;
+    live.application.position_maximum_speed_rad_s = .6f; live.application.speed_limit_rad_s = .8f;
+    live.application.cascade_position_kp = 8; live.application.cascade_position_kd = 2;
+    live.application.speed_kp = .5f; live.application.speed_ki = 2; live.application.current_limit_a = 4;
     live.position_target_rad = enc.position; live.speed_target_rad_s = .2f;
-    live.speed_acceleration_rad_s2 = .8f; live.speed_deceleration_rad_s2 = .5f;
+    live.application.speed_acceleration_rad_s2 = .8f; live.application.speed_deceleration_rad_s2 = .5f;
 }
 int main(void) {
     /* Calibration and parameter I/O are serialized; the pool must fit either peak. */
@@ -128,7 +128,7 @@ int main(void) {
             }
             slow_tick();
             assert(live.fault_code == MOTOR_FAULT_NONE);
-            assert(isfinite(live.iq_target_a) && fabsf(live.iq_target_a) <= live.current_limit_a);
+            assert(isfinite(live.iq_target_a) && fabsf(live.iq_target_a) <= live.application.current_limit_a);
         }
         assert(MotorOuterLoop_IsReady());
         /* Tuning/config invalidity is rejected on the next slow tick with zero output. */
@@ -163,17 +163,17 @@ int main(void) {
     /* No stale validation cache may conceal a changed live tuning field. */
     {
         const size_t fields[] = {
-            offsetof(MotorControlState, current_limit_a), offsetof(MotorControlState, speed_kp),
-            offsetof(MotorControlState, speed_ki), offsetof(MotorControlState, position_error_window_rad),
-            offsetof(MotorControlState, position_acceleration_rad_s2), offsetof(MotorControlState, position_deceleration_rad_s2),
-            offsetof(MotorControlState, position_maximum_speed_rad_s), offsetof(MotorControlState, speed_limit_rad_s),
-            offsetof(MotorControlState, cascade_position_kp), offsetof(MotorControlState, cascade_position_kd),
-            offsetof(MotorControlState, friction_coulomb_pos_a), offsetof(MotorControlState, friction_coulomb_neg_a),
-            offsetof(MotorControlState, friction_viscous_pos_a_per_rad_s), offsetof(MotorControlState, friction_viscous_neg_a_per_rad_s)
+            offsetof(MotorControlState, application.current_limit_a), offsetof(MotorControlState, application.speed_kp),
+            offsetof(MotorControlState, application.speed_ki), offsetof(MotorControlState, application.position_error_window_rad),
+            offsetof(MotorControlState, application.position_acceleration_rad_s2), offsetof(MotorControlState, application.position_deceleration_rad_s2),
+            offsetof(MotorControlState, application.position_maximum_speed_rad_s), offsetof(MotorControlState, application.speed_limit_rad_s),
+            offsetof(MotorControlState, application.cascade_position_kp), offsetof(MotorControlState, application.cascade_position_kd),
+            offsetof(MotorControlState, device.friction_coulomb_pos_a), offsetof(MotorControlState, device.friction_coulomb_neg_a),
+            offsetof(MotorControlState, device.friction_viscous_pos_a_per_rad_s), offsetof(MotorControlState, device.friction_viscous_neg_a_per_rad_s)
         };
         for (unsigned i = 0; i < sizeof(fields)/sizeof(fields[0]); i++) {
             float invalid = NAN;
-            setup(MOTOR_CONTROL_POSITION); live.friction_model_valid = true;
+            setup(MOTOR_CONTROL_POSITION); live.device.friction_model_valid = true;
             slow_tick(); slow_tick();
             assert(MotorOuterLoop_IsReady());
             memcpy((char *)&live + fields[i], &invalid, sizeof(invalid));

@@ -56,7 +56,7 @@ bool FocCogging_SetCompensation(bool enabled,
     info.scale_matches = s_cogging_map.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A;
     info.identity.reverse = Encoder_GetReverse(rotor_encoder);
     info.identity.electrical_zero_q15 = rotor_encoder->electrical_zero_q15;
-    info.identity.pole_pairs = motor_state->motor_pole_pairs;
+    info.identity.pole_pairs = motor_state->model.motor_pole_pairs;
     info.identity.table_crc = s_cogging_map.crc32;
     /* CRC 在开中断状态计算；提交前重读可被 STOP/FAULT 改变的资格。 */
     uint32_t mask = critical_hw_enter();
@@ -76,12 +76,12 @@ float FocCogging_Apply(const MotorControlState *m, const EncoderState *e)
     tick.sensorless_off = !m->uses_sensorless_feedback;
     tick.encoder_usable = Encoder_IsOnline(e) && (e->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL;
     tick.command_a = m->iq_target_a;
-    tick.limit_a = m->current_limit_a;
+    tick.limit_a = m->application.current_limit_a;
     tick.tick_s = Current_Ts;
     tick.position_q15 = e->linearized_q15;
     tick.identity.reverse = e->reverse;
     tick.identity.electrical_zero_q15 = e->electrical_zero_q15;
-    tick.identity.pole_pairs = m->motor_pole_pairs;
+    tick.identity.pole_pairs = m->model.motor_pole_pairs;
     tick.identity.table_crc = s_cogging_map.crc32;
     return CoggingCompensation_Update(&s_cogging_compensation, &s_cogging_map, &tick);
 }
@@ -209,13 +209,15 @@ void FocCogging_TorqueObserve(const FocState *f, const MotorControlState *m, con
 bool FocCogging_CanStart(const MotorControlState *m, const EncoderState *e)
 {
     /* 整圈旋转绝不能在带行程约束的 roll/pitch 轴上尝试。 */
-    return m != NULL && e != NULL && m->axis_profile_valid && m->axis_profile.magic == 0U &&
-           m->fault_code == MOTOR_FAULT_NONE && Encoder_IsOnline(e) && e->velocity_ready &&
-           (e->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL && isfinite(m->current_limit_a) &&
-           m->current_limit_a > 0.0f && isfinite(m->calibration_current_a) &&
-           m->calibration_current_a > 0.0f && isfinite(m->speed_limit_rad_s) &&
-           m->speed_limit_rad_s > 0.0f && isfinite(m->speed_kp) && m->speed_kp > 0.0f &&
-           isfinite(m->speed_ki) && m->speed_ki > 0.0f &&
+    return m != NULL && e != NULL && m->application.axis_profile_valid &&
+           m->application.axis_profile.magic == 0U && m->fault_code == MOTOR_FAULT_NONE &&
+           Encoder_IsOnline(e) && e->velocity_ready &&
+           (e->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+           isfinite(m->application.current_limit_a) && m->application.current_limit_a > 0.0f &&
+           isfinite(m->model.calibration_current_a) && m->model.calibration_current_a > 0.0f &&
+           isfinite(m->application.speed_limit_rad_s) && m->application.speed_limit_rad_s > 0.0f &&
+           isfinite(m->application.speed_kp) && m->application.speed_kp > 0.0f &&
+           isfinite(m->application.speed_ki) && m->application.speed_ki > 0.0f &&
            isfinite(Encoder_GetMecVelContinuous(e)) &&
            fabsf(Encoder_GetMecVelContinuous(e)) < 0.05f && !s_finalize_pending && !s_save_pending;
 }
@@ -250,7 +252,7 @@ static bool session_is_safe(const FocState *f,
 {
     return Encoder_IsOnline(e) && (e->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
            e->reverse == s_start_reverse && e->electrical_zero_q15 == s_start_zero &&
-           m->motor_pole_pairs == s_start_pole_pairs && isfinite(Encoder_GetElePhase(e)) &&
+           m->model.motor_pole_pairs == s_start_pole_pairs && isfinite(Encoder_GetElePhase(e)) &&
            isfinite(Encoder_GetEleVel(e)) && isfinite(position_rad) && isfinite(velocity_rad_s) &&
            fabsf(velocity_rad_s) <= 1.5f && isfinite(f->bus_voltage_v) &&
            isfinite(f->bus_voltage_filtered_v) &&
@@ -258,10 +260,13 @@ static bool session_is_safe(const FocState *f,
            f->bus_voltage_filtered_v <= BUS_VOLTAGE_ENABLE_MAX_V &&
            f->bus_voltage_filtered_v >= BUS_VOLTAGE_ENABLE_MIN_V && isfinite(f->temperature_c) &&
            f->temperature_c < 100.0f && isfinite(f->iq_a) &&
-           fabsf(f->iq_a) <= s_calibration_current + 0.5f && isfinite(m->current_limit_a) &&
-           m->current_limit_a >= s_calibration_current && isfinite(m->speed_limit_rad_s) &&
-           m->speed_limit_rad_s > 0.0f && isfinite(m->speed_kp) && m->speed_kp > 0.0f &&
-           isfinite(m->speed_ki) && m->speed_ki > 0.0f && m->fault_code == MOTOR_FAULT_NONE;
+           fabsf(f->iq_a) <= s_calibration_current + 0.5f &&
+           isfinite(m->application.current_limit_a) &&
+           m->application.current_limit_a >= s_calibration_current &&
+           isfinite(m->application.speed_limit_rad_s) && m->application.speed_limit_rad_s > 0.0f &&
+           isfinite(m->application.speed_kp) && m->application.speed_kp > 0.0f &&
+           isfinite(m->application.speed_ki) && m->application.speed_ki > 0.0f &&
+           m->fault_code == MOTOR_FAULT_NONE;
 }
 
 /* 启动会话：安全门 + 状态初始化 + 接管功率许可；失败时已停机并置错。 */
@@ -288,8 +293,9 @@ static bool start_session(FocState *f, MotorControlState *m, PiController *pi, E
     s_reference_velocity = s_iq_block_sum = 0.0f;
     s_start_reverse = e->reverse;
     s_start_zero = e->electrical_zero_q15;
-    s_start_pole_pairs = m->motor_pole_pairs;
-    s_calibration_current = fminf(1.0f, fminf(m->calibration_current_a, m->current_limit_a));
+    s_start_pole_pairs = m->model.motor_pole_pairs;
+    s_calibration_current =
+        fminf(1.0f, fminf(m->model.calibration_current_a, m->application.current_limit_a));
     (void)CoggingCalibration_Start(
         &s_cogging_calib, s_start_angle, CURRENT_SENSE_PROFILE_FULL_SCALE_A);
     s_divider = 0U;
@@ -351,7 +357,7 @@ static void hold_current_point(MotorControlState *m, PiController *pi, float pos
     const float distance = s_cogging_calib.target_rad - s_hold_position;
     const float braking_speed = sqrtf(4.0f * fabsf(distance)); /* a = 2 rad/s^2 */
     const float speed_target =
-        copysignf(fminf(braking_speed, fminf(0.1f, m->speed_limit_rad_s)), distance);
+        copysignf(fminf(braking_speed, fminf(0.1f, m->application.speed_limit_rad_s)), distance);
     s_reference_velocity +=
         Math_Constrain(speed_target - s_reference_velocity, -2.0f * Speed_Ts, 2.0f * Speed_Ts);
     const float step = s_reference_velocity * Speed_Ts;
@@ -433,7 +439,7 @@ static uint32_t signature(const MotorControlState *motor_state, const EncoderSta
 {
     return Cogging_EncoderSignature(Encoder_GetReverse(rotor_encoder),
                                     rotor_encoder->electrical_zero_q15,
-                                    motor_state->motor_pole_pairs,
+                                    motor_state->model.motor_pole_pairs,
                                     rotor_encoder->linearization_lut_q15);
 }
 

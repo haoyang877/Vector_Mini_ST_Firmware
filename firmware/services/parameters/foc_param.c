@@ -97,7 +97,9 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     motor_state->calibration_current_a = PARAM_MOTOR_CALIB_CURRENT_A;
     motor_state->current_limit_a = PARAM_MOTOR_CURRENT_LIMIT_A;
     motor_state->vq_target_v = 0.0f;
-    motor_state->speed_limit_rad_s = Param_SpeedLimitRadS(Protocol_NodeId_Get());
+    /* 默认节点变化不能把未确认电机的默认速度从 0.5 rev/s 提高到轮子硬上限。 */
+    motor_state->speed_limit_rad_s =
+        Math_Min(Param_SpeedLimitRadS(Protocol_NodeId_Get()), PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI);
     motor_state->speed_acceleration_rad_s2 = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
     motor_state->speed_deceleration_rad_s2 = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
     motor_state->speed_kp = PARAM_APP_SPEED_KP;
@@ -189,7 +191,7 @@ void Param_Download(const InterfaceParam *param,
     if (param->record_crc32 != Param_RecordCrc(param) || param->configuration_flags > 1U ||
         !isfinite(param->motor_pole_pairs) || param->motor_pole_pairs < 1.0f ||
         param->motor_pole_pairs >= 2147483648.0f || !isfinite(param->node_id) ||
-        param->node_id < 0.0f || param->node_id > 255.0f)
+        param->node_id < 1.0f || param->node_id >= 255.0f)
     {
         Param_Return_Default(motor_state, rotor_encoder);
         motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;

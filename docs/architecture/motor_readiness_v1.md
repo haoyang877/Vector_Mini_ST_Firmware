@@ -83,6 +83,10 @@ SAVE 可以持久化未确认/部分标定记录，重载后保持同样限制�
 配置确认持久化与整条 CRC 见[schema12 契约](../protocols/parameter_schema12_loading_policy_v1.md)。
 黄金字节见[参数线路向量](../protocols/yg_protocol_parameter_wire_v1_vectors.json)。
 
+未配置设备使用节点 1，与 Loader 救援节点一致；完整电机状态的节点合法范围为 1～254。
+默认速度保持原 0.5 rev/s，不因节点 1 的轮子硬上限自动提高。批量配置仍需使用各板既有
+编译 profile/完整记录指定节点；本轮未增加运行时节点重配接口。
+
 ## 所有权与验证
 
 Param 服务应用默认/装载/确认，状态存于 APP 私有电机对象；没有新增可写全局导出。

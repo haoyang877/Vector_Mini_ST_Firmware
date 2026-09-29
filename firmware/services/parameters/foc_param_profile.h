@@ -75,7 +75,8 @@ static inline float Param_SpeedLimitRadS(unsigned int node_id)
 #define PARAM_HW_CURRENT_OFFSET_C_COUNTS 2048U
 #define PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM CURRENT_SENSE_PROFILE_PATH_COMPENSATION_OHM
 
-#define PARAM_HW_CAN_NODE_ID 0x00U
+/* 首次装配采用有效设备节点，与 Loader 救援节点一致；不授权电机启动。 */
+#define PARAM_HW_CAN_NODE_ID 0x01U
 
 #else
 #error "Unsupported FOC_ACTIVE_HW_PROFILE"

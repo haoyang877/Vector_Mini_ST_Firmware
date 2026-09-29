@@ -67,7 +67,7 @@ int main(void) {
     p.encoder_electrical_zero_q15=3155; p.encoder_calib_flag=3;
     p.encoder_linearization_lut_q15[71]=-42; p.speed_kp=.02f;
     saved=p;
-    for(node=0; node<=7; node++) {
+    for(node=1; node<=7; node++) {
         float cap=(node==1 || node==2) ? 20 : .5f*_2PI;
         assert(Param_SpeedLimitRadS(node)==cap);
         p=saved; p.node_id=(float)node; p.speed_limit_rad_s=21;
@@ -178,6 +178,7 @@ int main(void) {
     p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
+    assert(node_id==1U && motor_state.speed_limit_rad_s==PARAM_MOTOR_SPEED_LIMIT_RPS*_2PI);
     Param_Upload(&p,&motor_state,&rotor_encoder);
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
@@ -196,6 +197,9 @@ int main(void) {
     p=saved; p.motor_flux_wb=NAN; p.record_crc32=Param_RecordCrc(&p);
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    p=saved; p.node_id=0.0f; p.record_crc32=Param_RecordCrc(&p);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(!motor_state.configuration_confirmed && node_id==1U && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     puts("PASS independent schema12 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
     return 0;
 }

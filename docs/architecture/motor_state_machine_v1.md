@@ -34,6 +34,95 @@ firmware/motor/
 兼容头、别名或基于模式变化推断事件的路径。SWD 必须使用同版 ELF 字段。
 正常启相只在 motor_state_machine；功能任务没有正常输出使能权。快速故障关断保留。
 
+## 状态转换关系与条件
+
+2026-09-29 补齐转换关系；依据 [AppLifecycle 纯核心](../../firmware/services/lifecycle/app_lifecycle.c)
+和 [状态及事件定义](../../firmware/services/lifecycle/app_lifecycle.h)。
+下表描述核心允许的迁移，APP 的公开请求入口还会按模式、维护种类和资源状态进一步拒绝请求。
+控制模式和维护种类均不是额外的主状态。
+
+正常启动、运行及维护路径：
+
+```mermaid
+stateDiagram-v2
+    [*] --> BOOT
+    BOOT --> SELF_TEST: 初始化完成且输出关闭、资源静默
+    SELF_TEST --> READY: 自检通过、采样健康、资源静默
+    READY --> STARTING: 有效使能请求且启动准入通过
+    STARTING --> RUNNING: 控制器准备就绪且启相回读成功
+    STARTING --> STOPPING: STOP 或 CANCEL
+    RUNNING --> STOPPING: STOP 或 CANCEL
+    READY --> MAINTENANCE: 有效维护请求且任务准入通过
+    MAINTENANCE --> STOPPING: 完成或取消
+    STOPPING --> READY: 已自检、无锁存故障、关相及资源归还确认
+    STOPPING --> SELF_TEST: 停止已确认但尚未完成自检
+```
+
+故障和不可恢复路径单独画出；图中两个中文说明节点表示适用范围，不是新增主状态：
+
+```mermaid
+flowchart LR
+    A[任意非 FATAL 状态] -->|活动故障、任务失败或执行守卫失效| FAULT
+    FAULT -->|明确 CLEAR，恢复资格与资源静默均通过| SELF_TEST
+    SELF_TEST -->|自检完成且全部条件通过| READY
+    B[任意状态] -->|FATAL 事件、内部上下文缺失或代际耗尽| FATAL
+    FATAL -.->|外部复位并重新初始化| BOOT
+```
+
+### 完整迁移表
+
+“资源静默”要求同时满足：数字关相回读、控制邮箱/结果已清空、维护功能已释放、
+前台借用已归还。“健康”要求采样新鲜、故障源已恢复且没有活动故障。
+请求还须通过当前代际与时效校验；完成通知须匹配创建时代际和维护身份。
+执行守卫失效转故障只适用于 STARTING、RUNNING 和 MAINTENANCE；
+READY 的新请求准入不通过通常只是拒绝，APP 如上报了具体故障则另走故障路径。
+
+| 原状态 | 目标状态 | 事件或触发 | 必须满足的条件与动作 |
+| --- | --- | --- | --- |
+| BOOT | SELF_TEST | BOOT_DONE | 当前完成身份有效且资源静默；推进代际，保持关相并开始自检 |
+| SELF_TEST | READY | SELF_TEST_DONE | 自检通过、健康、资源静默；只就绪，不启相 |
+| SELF_TEST | FAULT | SELF_TEST_DONE 校验失败 | 锁存守卫故障，执行关相与取消；尚无完成通知时可继续等待自检 |
+| READY | STARTING | ENABLE | 请求有效、健康、资源静默、无锁存故障、模式有效且启动获准；选择模式并开始准备 |
+| STARTING | RUNNING | START_DONE | 启动守卫持续有效、控制准备已确认且数字回读显示已启相 |
+| STARTING | FAULT | START_DONE 校验失败 | 未准备就绪或仍为关相状态，不得宣称启动成功；关相并锁存故障 |
+| READY | MAINTENANCE | BEGIN_OPERATION | 请求及操作种类有效、健康、资源静默、无锁存故障、维护获准；创建独立任务身份 |
+| MAINTENANCE | STOPPING | OPERATION_DONE | 完成身份/种类/效果有效；SAVE 必须 COMMITTED；记录任务结果，关相并收尾 |
+| MAINTENANCE | FAULT | 当前任务 OPERATION_FAILED | 保留失败事实与提交效果，锁存故障，撤销执行资格并取消任务 |
+| BOOT、SELF_TEST、READY、STARTING、RUNNING、MAINTENANCE | STOPPING | 已受理的 STOP 或 CANCEL | 无同拍更高优先级故障；先请求关相，撤销目标与执行资格，取消当前操作 |
+| STOPPING | READY | 空事件轮询或取消确认 | 资源静默、无待确认取消、无锁存故障，且此前已经通过自检 |
+| STOPPING | SELF_TEST | 空事件轮询或取消确认 | 资源静默、无待确认取消、无锁存故障，但尚未通过自检；停止不能跳过自检 |
+| STOPPING | FAULT | 停止确认或新故障 | 停止确认时仍有锁存故障，或收尾期间出现活动故障；不得回 READY |
+| FAULT | SELF_TEST | CLEAR | APP 已核对故障源恢复资格；核心确认健康、资源静默且无待确认取消，再清锁存并重新自检 |
+| 任意非 FATAL 状态 | FAULT | FAULT 或活动故障 | 故障优先；若已在 FAULT，只累积锁存并继续要求关相 |
+| STARTING、RUNNING、MAINTENANCE | FAULT | 执行守卫失效 | 健康、运行许可或任务守卫失效；RUNNING 无停止事件却回读为关相也视为异常 |
+| 任意状态 | FATAL | FATAL 事件、内部上下文缺失或代际耗尽 | 关闭输出并撤销控制/维护；普通 CLEAR 无法退出 |
+| FATAL | BOOT | 外部复位后重新初始化 | 属于重新启动，不是 AppLifecycle_Step 的普通事件迁移 |
+
+STOPPING 可以是短暂状态：同一次核心调用会先进入 STOPPING，再检查停止确认；
+如果资源已经静默且无待确认取消，返回快照可能直接是 READY、SELF_TEST 或 FAULT。
+因此“不曾在遥测中看到 STOPPING”不能用于推断跳过了关相和资源检查。
+
+### 保持状态、拒绝请求与同拍优先级
+
+- READY 等待请求时保持 READY；STARTING 等待控制准备时保持 STARTING；
+  RUNNING 更新当前模式目标时保持 RUNNING。位置到位由位置算法内部处理，不自动关相。
+- MAINTENANCE 在功能未结束或前台整理未完成时保持；齿槽 FINALIZE 先关相，
+  仍保持 MAINTENANCE，等待前台发布结果后才提交完成事件。
+- STOPPING 等待实际关相、取消确认或资源归还；FAULT 等待恢复和明确 CLEAR；
+  FATAL 对普通事件保持 FATAL。断线后重新连接不会清错或恢复旧目标。
+- 核心事件优先级为 FATAL > FAULT > STOP > CANCEL > 完成通知 > 新请求。
+  当前维护失败按故障处理，不能被同拍 STOP 吞掉；陈旧失败不能污染新任务。
+- 同拍完成和新请求不能连成一次自动启动；完成可被处理，但新请求被拒绝。
+  陈旧身份、非法事件、未满足准入的请求被拒绝，不因此进入 STARTING 或 MAINTENANCE。
+- 纯核心对无故障 READY/SELF_TEST 的重复 CLEAR 为无动作；公开入口仍按自己的状态规则受理。
+  已处 FAULT 时 STOP/CANCEL 不清锁存；匹配的 CANCEL_DONE 只能确认归还。
+- 不允许 RUNNING 直接切入维护，也不允许 FAULT 直接恢复 RUNNING。
+  切换运行模式必须按当前入口规则停机回 READY，再重新请求启动。
+
+维护后的自动保存是新任务：标定/零位/默认参数按既定策略完成后，先经过停止确认返回 READY，
+再创建新的 SAVE 身份进入 MAINTENANCE；SAVE 回读验证完成后再次收尾回 READY。
+这条衔接不会恢复运行模式或运动目标。STOP 仍表示关闭输出；受控减速停车模式尚未加入。
+
 ## 结果与调度契约
 
 | MotorTaskResult | 功能报告 | 主状态机处理 |

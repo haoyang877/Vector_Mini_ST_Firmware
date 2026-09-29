@@ -76,7 +76,7 @@ Unified trigonometry: [统一正余弦查表与容量验证（2026-09-28）](rep
 
 APP capacity continuation: [标定、平台与配置校验空间优化](reports/2026-09/app_flash_continuation_20260928.md).
 
-Motor state machine: [功能任务驱动的主状态机 v1](architecture/motor_state_machine_v1.md).
+Motor state machine: [主状态机设计 v1：状态转换图、迁移条件和任务边界](architecture/motor_state_machine_v1.md).
 
 Motor state machine validation: [重构验收与未验证项](reports/2026-09/motor_state_machine_refactor_20260928.md).
 

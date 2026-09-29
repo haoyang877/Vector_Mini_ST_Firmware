@@ -12,6 +12,7 @@
 #include "yg_protocol_readonly_payload.h"
 #include "yg_protocol_router.h"
 #include "yg_protocol_transfer.h"
+#include "vector_mini_st_g431.h"
 
 static yg_protocol_result_t handle_position(void *context,
                                             const yg_protocol_message_t *message,
@@ -217,6 +218,19 @@ static void readonly_payload_codecs(void)
            YG_PROTOCOL_OK);
     assert(written == YG_PROTOCOL_READONLY_CAPS_PAGE0_SIZE);
     assert(payload[0] == 0x04U && payload[15] == 0x0FU);
+
+    /* APP 与升级包使用同一目标身份；UID 在黄金字节中置零，不冒充真实设备。 */
+    info = (yg_protocol_readonly_info_page0_t){.product_id = TARGET_PRODUCT,
+                                             .hardware_revision = TARGET_HARDWARE};
+    static const uint8_t target_info_golden[YG_PROTOCOL_READONLY_INFO_PAGE0_SIZE] = {
+        0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+        0U, 0U, 0U, 0U, 0x36U, 0x32U, 0x47U, 0x59U,
+        1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+        0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    assert(yg_protocol_readonly_encode_info_page0(&info, payload, sizeof(payload), &written) ==
+           YG_PROTOCOL_OK);
+    assert(written == sizeof(target_info_golden) &&
+           memcmp(payload, target_info_golden, sizeof(target_info_golden)) == 0);
 }
 
 static void motor_status_adapter(void)

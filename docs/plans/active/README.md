@@ -1,10 +1,14 @@
 # Active Plans
 
-- [远程控制闭环收口 v2](2026-09-29-remote-control-closure-v2.md)：实际应用回执已接入，未运行验证；普通使能的线路语义待用户确认。
-- [历史实现与过期入口清理 v1](2026-09-29-legacy-cleanup-v1.md)：旧实现与无消费者状态删除；源码清理完成后统一验证。
+- [远程控制闭环收口 v2](2026-09-29-remote-control-closure-v2.md)：实际应用回执已接入；普通使能的线路语义待用户确认。首次未测记录是历史阶段边界，后续证据按匹配提交判定。
+- [历史实现与过期入口清理 v1](2026-09-29-legacy-cleanup-v1.md)：源码清理已经完成；保留初次交付记录，不作为新的开发任务。
 
-当前架构收尾以 [2026-09-29 完成记录](../completed/2026-09-29-framework-closure-v1.md) 和
-[主状态机契约](../../architecture/motor_state_machine_v1.md) 为准。下方保留各阶段原始计划索引，
+当前入口为[设备发现与支持范围](../../protocols/yg_protocol_device_discovery_v1.md)、
+[主状态机契约](../../architecture/motor_state_machine_v1.md)和
+[状态机最新精简记录](../completed/2026-09-29-motor-state-core-v1.md)。
+参数遵循[schema12 装载政策](../../protocols/parameter_schema12_loading_policy_v1.md)，
+设备发现本批收口见[独立交付记录](../completed/2026-09-29-discovery-contract-closeout-v1.md)。
+下方保留各阶段原始计划索引，
 其中阶段描述是历史登记状态，不作为当前待办或完成证明。实机验收与新增产品功能另行计划。
 
 Create one dated Markdown file per significant active change. Include intent, acceptance

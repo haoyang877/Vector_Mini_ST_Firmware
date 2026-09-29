@@ -68,7 +68,7 @@ SAVE的OK只在实际持久记录写入并校验提交完成后产生。通信�
 长度错误result=3，忙result=6，未授权主站result=7，范围错误result=11，故障result=17。
 没有绑定该业务的UNSUPPORTED使用result=2/detail=0，和未知参数区分。
 
-活动revision由E参数所有者单独持有，不是schema11。首次新WRITE完成后恰好递增一次；
+活动revision由E参数所有者单独持有，不是持久参数 schema 版本。首次新WRITE完成后恰好递增一次；
 验证失败/仅受理不递增；同seq重试不再次应用、不增加revision。
 同(source,seq)还必须比较operation、id、type、value位模式和expected_revision，内容不同
 必须拒绝。READ不改revision。新seq携带旧revision返回冲突，不能绕过并发校验。

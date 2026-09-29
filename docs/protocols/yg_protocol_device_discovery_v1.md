@@ -1,0 +1,70 @@
+# 当前设备发现与支持范围 v1
+
+日期：2026-09-29。适用于 `codex/system-refactor` 本批源码；身份字段新增接线尚未验证。
+这是当前接入入口；历史提案和 H1 快照不作为现行支持清单。
+
+## 设备身份与能力
+
+1/2 请求保持 12 B 页查询：session_id:u32、request_id:u32、page:u16、reserved=0:u16。
+page=0；小端。请求身份按既有编码处理，不代表控制授权或生命周期代际。
+
+| GET_INFO 偏移 | 字段 | 当前来源 |
+| ---: | --- | --- |
+| 0 | uid[12] | board_hw_read_uid，真实 MCU UID；读取失败不启动通信 |
+| 12 | product_id:u32 | shared/targets 共同清单 TARGET_PRODUCT=0x59473236，与升级包一致 |
+| 16 | hardware_revision:u16 | TARGET_HARDWARE=1，声明编译目标修订，不表示自动识别实际板卡 |
+| 18 | boot_api:u16 | 0，尚未提供可信发现来源 |
+| 20 | application_version:u32 | 0，尚未接入发布版本来源 |
+| 24 | boot_version:u32 | 0，不能由 APP 的协议版本推断 Loader 版本 |
+| 28 | boot_id:u32 | 0，不代表持久启动身份、试启动或升级交接票据 |
+
+GET_INFO 为 32 B，保持原字段偏移；零版本是未知值，不是对版本匹配的承诺。
+原主机如把零产品编号作为匹配条件，需要改用共同目标身份。
+
+GET_CAPS 为 16 B：features:u32、supported_modes:u16、max_full_frame:u16、
+max_block_data:u16、write_alignment:u16、default_watchdog_ms:u16、max_watchdog_ms:u16。
+本批沿用 features=0x00001C00；supported_modes=0，最大完整帧 64 B、载荷 46 B。
+其余三字段仍为 0，未声明的看门狗/写入约束不能解读为可关闭保护或任意 Flash 写入。
+已有同模式目标更新不等于已具备从失能到运行的远程启动链路。
+
+## 当前业务路径
+
+| Type | 已接线行为 | 限制 |
+| ---: | --- | --- |
+| 1/2/3 | 身份、能力、角色查询 | 角色与身份有效位分别编码；不伪造启动代际 |
+| 101/110 | 失能、STOP 请求与输出禁止确认 | 101(enable=1) 不支持，普通使能语义待定；确认不等于转子静止 |
+| 107 | CLEAR 请求，经所有者检查恢复资格 | 不启动，不恢复旧目标；清错后重新自检 |
+| 108 | 真实状态快照 | 不提供无来源传感器值 |
+| 116/124 | 同模式 RUNNING 目标更新、受理与实际应用终态 | 不隐式使能/跨模式；APPLIED 不等于到位，详见 motor wire v1 |
+| 120/121/122 | 标量读写、活动 revision、异步保存 | 实际存储提交后才成功；不开放校准完成位任意写入 |
+| 160/161/162 | 明确维护种类的受理、查询、取消 | 依据配置/标定资格和实际资源归还，不自动启动控制 |
+| 56 | 配套 LoaderApp 的升级交接 | 普通 APP 不开放；硬件布局支持及数字关相等由既有所有者复核 |
+
+MIT、低侧制动、普通远程启动、跨模式启动、动态参数表和周期运动状态流未开放。
+不能根据存在枚举或编码函数推断业务已实现，也不能将源码完成表述为实机通过。
+
+## 参数与版本兼容
+
+当前参数为 schema12，4304 B 及 16 KiB 分区保持，ABI=0x000C10D0。
+只装载完整 CRC 正确的当前记录；schema11 和更旧记录回退未确认默认值，
+不转换、不自动擦写，旧 LUT/标定不会自动获得新版本有效性。
+现场需在匹配 APP/Loader 下重新配置、标定并显式保存；回退旧镜像需匹配参数备份。
+完整细节以[schema12 装载政策](parameter_schema12_loading_policy_v1.md)为准。
+
+线路契约分别见[电机命令](yg_protocol_motor_wire_v1.md)、
+[参数与 CLEAR](yg_protocol_parameter_wire_v1.md)、[升级 v2](yg_protocol_upgrade_wire_v2.md)。
+
+## 身份黄金字节
+
+测试 UID 置零，当前编译目标 GET_INFO payload 的 32 B 小端字节如下。
+生产 UID 来自设备；不将此测试值写入固件身份。
+
+```text
+00 00 00 00 00 00 00 00
+00 00 00 00 36 32 47 59
+01 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+```
+
+既有 `yg_protocol_core_test.c` 补充该向量；本批仅编辑，未编译或运行。
+实施边界见[收口记录](../plans/completed/2026-09-29-discovery-contract-closeout-v1.md)。

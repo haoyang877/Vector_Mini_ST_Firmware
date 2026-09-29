@@ -16,6 +16,7 @@
 #include "yg_protocol_status_adapter.h"
 #include "yg_protocol_owner_adapter.h"
 #include "time_hw.h"
+#include "vector_mini_st_g431.h"
 
 /* 启动编排：参数装载 → 应用状态初始化 → 板级采样时钟 → CAN FD 端点。
  * 硬件细节全部位于 platform 契约实现内；本文件不再包含任何硬件头。 */
@@ -63,11 +64,12 @@ static bool bind_motor_stop(void)
 
 static bool bind_device_description(void)
 {
-    /* 0表示尚无权威产品/板卡/发布版本来源；不把协议版本冒充应用版本。 */
-    yg_protocol_readonly_info_page0_t info = {0};
+    /* 产品和硬件修订取共同目标清单；未知发布版本仍为 0，不以协议版本替代。 */
+    yg_protocol_readonly_info_page0_t info = {.product_id = TARGET_PRODUCT,
+                                            .hardware_revision = TARGET_HARDWARE};
     yg_protocol_readonly_caps_page0_t capabilities = {
         .features = (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
-        .supported_modes = 0U,
+        .supported_modes = 0U, /* 普通远程启动未开放，不能按内部控制枚举宣称能力。 */
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
     return board_hw_read_uid(info.uid) && YgProtocolLink_SetDeviceDescription(&info, &capabilities);

@@ -40,7 +40,11 @@ Motor payload design: [yg_protocol 电机控制、参数与反馈 Payload 细化
 
 Speed estimation optimization: [编码器测速估计优化：20 kHz PLL 替换 8 ms 滑窗](reports/2026-09/encoder_speed_pll_optimization_20260923.md).
 
-Current motor redesign proposal: [yg_protocol 简化电调协议 v0.1](protocols/yg_protocol_simplified_motor_v0_1.md)
+Current protocol entry: [当前设备发现与支持范围](protocols/yg_protocol_device_discovery_v1.md),
+[参数 schema12 装载政策](protocols/parameter_schema12_loading_policy_v1.md), and
+[电机线路契约](protocols/yg_protocol_motor_wire_v1.md).
+
+Historical motor redesign proposal: [yg_protocol 简化电调协议 v0.1](protocols/yg_protocol_simplified_motor_v0_1.md)
 and its [implementation decision](plans/active/2026-09-23-yg-protocol-simplification.md).
 
 CMD ID audit before implementation: [yg_protocol CMD ID 核对表 v0.1](protocols/yg_protocol_cmd_id_review_v0_1.md).

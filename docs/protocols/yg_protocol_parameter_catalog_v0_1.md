@@ -61,9 +61,9 @@
 | `29` | 电机类型 `motor_type` | `u32` 产品枚举 | R 候选 | 当前编译期 `FOC_ACTIVE_MOTOR_PROFILE`，与轴关节类型 `MotorJointType` 不同；需定义稳定产品枚举。 |
 | `30` | 电机 SN `motor_sn` | `BYTES`，≤32B | —，将来 R | 当前没有可信存储来源；生产写号不能通过普通 `121` 任意改写。 |
 | `31` | 硬件 SN `hardware_sn` | `BYTES`，≤32B | —，将来 R | 当前没有可信存储来源；由制造流程提供，不能复制电机 SN。 |
-| `32` | 硬件版本 `hardware_version` | `u32` 版本编码 | R 候选 | `GET_INFO` 当前 `hardware_revision=1` 为组合层常量；须接真实板卡版本后才可声明准确值。 |
+| `32` | 硬件版本 `hardware_version` | `u32` 版本编码 | R 候选 | `GET_INFO.hardware_revision` 取共同目标清单的修订号 1；是编译目标声明，不是实际板卡自动识别。 |
 | `33` | Loader 版本 `loader_version` | `u32` 版本编码 | —，将来 R | 当前 `GET_INFO` 填 0，不代表真实 Loader 版本；接入 Loader 元数据后开放。 |
-| `34` | APP 版本 `app_version` | `u32` 版本编码 | R 候选 | 当前 `GET_INFO` 填 1，正式应从构建版本元数据统一读取，不能两处独立维护。 |
+| `34` | APP 版本 `app_version` | `u32` 版本编码 | R 候选 | 当前 `GET_INFO` 填 0，表示未提供可信发布版本；正式须与镜像元数据同源，不能两处独立维护。 |
 
 飞书“电流环 Kp/Ki”“位置环 Kp/Kd”等是一组名称，并未给独立 ID；本表把 d/q 轴与串级环拆成独立标量 ID，是为了使 `READ_PARAM/WRITE_PARAM` 每次只操作一个值。`Rs/Ld/Lq/flux` 改写后不能静默保持旧电流环增益：要么在一个受控参数事务中重算并增加 revision，要么拒绝不完整的组合更改；方案在写路由前冻结。
 

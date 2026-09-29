@@ -37,3 +37,25 @@
 实现提交可整体 revert；schema12 不能由 schema11 APP/Loader 使用，回退须恢复匹配镜像，
 不在固件中增加旧参数迁移路径。现场参数未触碰。
 基准、最终测试日志、summary.json 和资源记录置于 outputs/，完成后更新本节并移动到 completed。
+
+
+## 完成结果
+
+实现提交 9b6568b1；格式门禁修正 2ffac952；首次配置通信/默认限速修正 9ea2b014。
+全部子任务已完成，基准真实所有者/参数/电压原生测试通过。
+最终 release profile 通过（源码 9ea2b014，源码干净、0错误0告警）；Python unit/integration、
+全部原生功能、架构、接口、文档、风格及卫生检查通过。三套工程均构建成功。
+普通 APP ROM 90772 B、RAM 31592 B；Loader APP ROM 92400 B、RAM 31632 B；
+Loader ROM 13468 B、RAM 4952 B。实际 Loader APP 包 91992 B，94208 B 槽剩 2216 B。
+真实镜像的 Loader 内存模型、冷启动/升级交接/损坏镜像/看门狗驻留检查通过。
+
+记录长度与偏移黄金、独立 CRC、未确认持久化、部分标定重载、请求拒绝无故障、
+无功率母线 READY、连续健康窗口、时钟回绕、超时恢复和关断失败 FATAL 已验证。
+默认节点 1 与 Loader 救援一致，默认速度仍为 0.5 rev/s，未放宽原默认限速。
+维护算法相阻 trace a4a0c376、摩擦 trace 38c8c9cf 与基准一致。
+
+证据：outputs/runs/self-test-readiness-accepted-20260929/summary.json；
+outputs/self-test-readiness/summary.json（含三套产物哈希、真实包与剩余容量）。
+初次验证发现跨端 schema 黄金清单未同步及既有格式/枚举告警，均修复并重新验证；
+失败日志保留，不将旧构建作为最终证据。现场固件/参数和原工作区电机实验均未修改。
+详见[完成报告](../../reports/2026-09/self_test_readiness_20260929.md)。

@@ -458,10 +458,31 @@ static void report_transition_fault(void)
 
 /* 唯一事件提交路径；调用者显式保留完成身份，CLEAR 只接收已核对的恢复事实。
  * 普通受理只进入 STARTING；真实启相仍由监督拍末尾按原顺序复核后执行。 */
-static bool state_commit_event(MotorStateEvent event, const MotorStateFacts *recovery_facts)
+static bool state_commit_event(uint32_t events,
+                               MotorMaintenanceEffect effects,
+                               uint32_t faults,
+                               const MotorStateFacts *recovery_facts)
 {
     uint32_t mask = critical_hw_enter();
-    event.request_epoch = s_context.rules.epoch;
+    /* 完成使用创建时保存的身份；禁止用当前规则 epoch 重建维护完成身份。
+     * worker/前台结果在进入本路径前仍须通过原始邮箱或认领身份复核。 */
+    uint32_t completion_epoch = s_context.rules.epoch;
+    if (events == MOTOR_STATE_EVENT_CANCEL_DONE)
+    {
+        completion_epoch = s_context.cancel_epoch;
+    }
+    else if (events & (MOTOR_STATE_EVENT_BEGIN_OPERATION | MOTOR_STATE_EVENT_OPERATION_DONE |
+                       MOTOR_STATE_EVENT_OPERATION_FAILED | MOTOR_STATE_EVENT_CANCEL))
+    {
+        completion_epoch = s_context.operation_epoch;
+    }
+    MotorStateEvent event = {.events = events,
+                             .faults = faults,
+                             .request_epoch = s_context.rules.epoch,
+                             .completion_epoch = completion_epoch,
+                             .control_mode = s_context.motor->control_mode,
+                             .maintenance_kind = s_context.rules.maintenance_kind,
+                             .effects = effects};
     MotorStateFacts facts = recovery_facts != NULL ? *recovery_facts : state_build_guards();
     MotorMaintenanceKind previous_kind = s_context.rules.maintenance_kind;
     MotorStateDecision decision = MotorStateRules_Step(&s_context.rules, &event, &facts);
@@ -511,30 +532,25 @@ static void state_run_boot_chain(void)
         power_stage_hw_stop();
         if (!power_stage_hw_phases_disabled())
         {
-            (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_FATAL,
-                                                       .faults = MOTOR_STATE_FAULT_INTERNAL,
-                                                       .control_mode = MOTOR_CONTROL_NONE,
-                                                       .completion_epoch = s_context.rules.epoch},
+            (void)state_commit_event(MOTOR_STATE_EVENT_FATAL,
+                                     MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                                     MOTOR_STATE_FAULT_INTERNAL,
                                      NULL);
             return;
         }
     }
     if (s_context.rules.state == MOTOR_STATE_BOOT)
     {
-        (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_BOOT_DONE,
-                                                   .faults = 0U,
-                                                   .control_mode = MOTOR_CONTROL_NONE,
-                                                   .completion_epoch = s_context.rules.epoch},
-                                 NULL);
+        (void)state_commit_event(
+            MOTOR_STATE_EVENT_BOOT_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
     now_ms = time_hw_now_ms();
     if ((uint32_t)(now_ms - s_context.self_test_started_ms) >= MOTOR_SELF_TEST_TIMEOUT_MS)
     {
         MotorFault_Report(s_context.motor, MOTOR_FAULT_SELF_TEST_TIMEOUT);
-        (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_FAULT,
-                                                   .faults = (uint32_t)s_context.motor->fault_code,
-                                                   .control_mode = MOTOR_CONTROL_NONE,
-                                                   .completion_epoch = s_context.rules.epoch},
+        (void)state_commit_event(MOTOR_STATE_EVENT_FAULT,
+                                 MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                                 (uint32_t)s_context.motor->fault_code,
                                  NULL);
         return;
     }
@@ -551,11 +567,7 @@ static void state_run_boot_chain(void)
             {
                 s_context.self_test_complete = true;
                 (void)state_commit_event(
-                    (MotorStateEvent){.events = MOTOR_STATE_EVENT_SELF_TEST_DONE,
-                                      .faults = 0U,
-                                      .control_mode = MOTOR_CONTROL_NONE,
-                                      .completion_epoch = s_context.rules.epoch},
-                    NULL);
+                    MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
                 return;
             }
         }
@@ -569,16 +581,8 @@ static void state_run_boot_chain(void)
 /* 停止请求：关相并尝试确认；确认可能延后一拍（quiet 需要功率级真实关闭）。 */
 static void state_request_stop(void)
 {
-    (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_STOP,
-                                               .faults = 0U,
-                                               .control_mode = MOTOR_CONTROL_NONE,
-                                               .completion_epoch = s_context.rules.epoch},
-                             NULL);
-    (void)state_commit_event((MotorStateEvent){.events = 0U,
-                                               .faults = 0U,
-                                               .control_mode = MOTOR_CONTROL_NONE,
-                                               .completion_epoch = s_context.rules.epoch},
-                             NULL);
+    (void)state_commit_event(MOTOR_STATE_EVENT_STOP, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+    (void)state_commit_event(0U, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
 }
 
 /* 母线电压处于重新使能窗口 [25.6, 33.8] V：过/欠压故障的源恢复判据。 */
@@ -621,7 +625,7 @@ static bool state_try_clear_fault(void)
     guards.active_faults = 0U;
     guards.fault_sources_clear = true;
     bool accepted =
-        state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_CLEAR}, &guards);
+        state_commit_event(MOTOR_STATE_EVENT_CLEAR, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &guards);
     critical_hw_exit(state);
     return accepted;
 }
@@ -640,13 +644,9 @@ static bool state_service_operations(void)
             bool success = s_context.save_finish == SAVE_FINISH_COMMITTED;
             s_context.save_finish = SAVE_FINISH_NONE;
             return state_commit_event(
-                (MotorStateEvent){.events = success ? MOTOR_STATE_EVENT_OPERATION_DONE
-                                                    : MOTOR_STATE_EVENT_OPERATION_FAILED,
-                                  .faults = success ? 0U : (uint32_t)MOTOR_FAULT_INVALID_PARAMETERS,
-                                  .maintenance_kind = MOTOR_MAINTENANCE_SAVE,
-                                  .effects = success ? MOTOR_MAINTENANCE_EFFECT_COMMITTED
-                                                     : MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
-                                  .completion_epoch = s_context.operation_epoch},
+                success ? MOTOR_STATE_EVENT_OPERATION_DONE : MOTOR_STATE_EVENT_OPERATION_FAILED,
+                success ? MOTOR_MAINTENANCE_EFFECT_COMMITTED : MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                success ? 0U : (uint32_t)MOTOR_FAULT_INVALID_PARAMETERS,
                 NULL);
         }
     }
@@ -657,12 +657,7 @@ static bool state_service_operations(void)
              state_build_guards().maintenance_released && !s_context.background_busy)
     {
         return state_commit_event(
-            (MotorStateEvent){.events = MOTOR_STATE_EVENT_CANCEL_DONE,
-                              .faults = 0U,
-                              .maintenance_kind = s_context.rules.maintenance_kind,
-                              .effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
-                              .completion_epoch = s_context.cancel_epoch},
-            NULL);
+            MOTOR_STATE_EVENT_CANCEL_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
     return false;
 }
@@ -682,12 +677,8 @@ static bool begin_operation(MotorMaintenanceKind kind)
     }
     s_context.request_epoch = s_context.rules.epoch;
     s_context.rules.maintenance_kind = kind;
-    if (!state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
-                                              .faults = 0U,
-                                              .maintenance_kind = kind,
-                                              .effects = MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED,
-                                              .completion_epoch = s_context.operation_epoch},
-                            NULL))
+    if (!state_commit_event(
+            MOTOR_STATE_EVENT_BEGIN_OPERATION, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL))
     {
         s_context.rules.maintenance_kind = MOTOR_MAINTENANCE_NONE;
         return false;
@@ -714,10 +705,9 @@ static bool begin_operation(MotorMaintenanceKind kind)
             }
         }
         MotorFault_Report(s_context.motor, MOTOR_FAULT_CONTROL_OVERRUN);
-        (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_FAULT,
-                                                   .faults = (uint32_t)s_context.motor->fault_code,
-                                                   .control_mode = MOTOR_CONTROL_NONE,
-                                                   .completion_epoch = s_context.rules.epoch},
+        (void)state_commit_event(MOTOR_STATE_EVENT_FAULT,
+                                 MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                                 (uint32_t)s_context.motor->fault_code,
                                  NULL);
         return false;
     }
@@ -1089,12 +1079,7 @@ MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket)
                 s_context.has_latched_outcome = false;
             }
             bool accepted = state_commit_event(
-                (MotorStateEvent){.events = MOTOR_STATE_EVENT_CANCEL,
-                                  .faults = 0U,
-                                  .maintenance_kind = s_context.rules.maintenance_kind,
-                                  .effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
-                                  .completion_epoch = s_context.operation_epoch},
-                NULL);
+                MOTOR_STATE_EVENT_CANCEL, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
             s_context.motor->control_mode = MOTOR_CONTROL_NONE;
             result = accepted ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_FAULT;
         }
@@ -1497,10 +1482,9 @@ void MotorStateMachine_Tick(void)
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
         s_context.save_requested = false;
-        (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_FAULT,
-                                                   .faults = (uint32_t)s_context.motor->fault_code,
-                                                   .control_mode = MOTOR_CONTROL_NONE,
-                                                   .completion_epoch = s_context.rules.epoch},
+        (void)state_commit_event(MOTOR_STATE_EVENT_FAULT,
+                                 MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                                 (uint32_t)s_context.motor->fault_code,
                                  NULL);
     }
     else if (!stopped && outcome.result == MOTOR_TASK_STOP_REQUESTED)
@@ -1521,12 +1505,7 @@ void MotorStateMachine_Tick(void)
                 s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_MECHANICAL_ZERO ||
                 s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_DEFAULTS;
             (void)state_commit_event(
-                (MotorStateEvent){.events = MOTOR_STATE_EVENT_OPERATION_DONE,
-                                  .faults = 0U,
-                                  .maintenance_kind = s_context.rules.maintenance_kind,
-                                  .effects = MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED,
-                                  .completion_epoch = s_context.operation_epoch},
-                NULL);
+                MOTOR_STATE_EVENT_OPERATION_DONE, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL);
         }
     }
     bool operation_event = state_service_operations();
@@ -1536,11 +1515,7 @@ void MotorStateMachine_Tick(void)
         s_context.rules.state == MOTOR_STATE_RUNNING ||
         s_context.rules.state == MOTOR_STATE_STOPPING)
     {
-        (void)state_commit_event((MotorStateEvent){.events = 0U,
-                                                   .faults = 0U,
-                                                   .control_mode = MOTOR_CONTROL_NONE,
-                                                   .completion_epoch = s_context.rules.epoch},
-                                 NULL);
+        (void)state_commit_event(0U, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
     if (!stopped && !operation_event && s_context.save_requested &&
         s_context.rules.state == MOTOR_STATE_READY)
@@ -1554,11 +1529,8 @@ void MotorStateMachine_Tick(void)
     {
         s_context.enable_pending = false;
         s_context.request_epoch = s_context.rules.epoch;
-        (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
-                                                   .faults = 0U,
-                                                   .control_mode = s_context.motor->control_mode,
-                                                   .completion_epoch = s_context.rules.epoch},
-                                 NULL);
+        (void)state_commit_event(
+            MOTOR_STATE_EVENT_ENABLE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
     if (s_context.rules.state == MOTOR_STATE_STARTING && state_build_guards().startup_confirmed)
     {
@@ -1568,11 +1540,8 @@ void MotorStateMachine_Tick(void)
             guards.samples_fresh && guards.fault_sources_clear)
         {
             power_stage_hw_start();
-            (void)state_commit_event((MotorStateEvent){.events = MOTOR_STATE_EVENT_START_DONE,
-                                                       .faults = 0U,
-                                                       .control_mode = MOTOR_CONTROL_NONE,
-                                                       .completion_epoch = s_context.rules.epoch},
-                                     NULL);
+            (void)state_commit_event(
+                MOTOR_STATE_EVENT_START_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
         }
         critical_hw_exit(mask);
     }
@@ -1681,12 +1650,7 @@ void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool su
             s_context.maintenance_runnable = false;
             s_context.save_requested = true;
             (void)state_commit_event(
-                (MotorStateEvent){.events = MOTOR_STATE_EVENT_OPERATION_DONE,
-                                  .faults = 0U,
-                                  .maintenance_kind = s_context.rules.maintenance_kind,
-                                  .effects = MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED,
-                                  .completion_epoch = s_context.operation_epoch},
-                NULL);
+                MOTOR_STATE_EVENT_OPERATION_DONE, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL);
         }
         else
         {

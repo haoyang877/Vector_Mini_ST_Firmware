@@ -96,3 +96,25 @@ summary.json、projection.json 和 owner/test.log。没有重跑 262144 组纯�
 适配相对 f6fadad 只增加本轮状态机、目标校验、直接测试及文档共 14 个文件差异，
 不包含其自身参数或 host_app 改动。主线由“00- 软件架构管理”独占集成，
 最终集成仍须通过仓库要求的 PR 门禁后才能完成交付。
+
+## ROOT 参数与状态机集成
+
+ROOT 将适配交付 680d0ce3659c8291ff706fa41cbe274f973432e0 合入
+codex/system-refactor，集成源码为 00590e3d002ce319725db8d26583175e9fb3dc93。
+参数分组与状态机职责修改共同编译；没有再次运行冻结基线对照或多目标构建。
+
+本次 PR 的 tests、architecture、interfaces、lint、project-layout、docs、hygiene
+均通过，证据位于 outputs/runs/state-parameter-integration-pr-20260929。
+全仓库 PR 仍为 FAIL：format 扫描到了并行上位机会话尚未完成的未跟踪源码。
+保留原始失败结果，固件集成不据此声明全仓库 PR 通过；上位机收口由其所有者负责。
+随后对全部非 host_app 的仓库自有源码补查格式，通过；报告更新后的文档检查通过。
+这两项证据位于 outputs/state-parameter-integration-20260929/followup_checks.json，
+不替换原 PR 的失败记录。
+
+normal 主工程本次编译 0 错误、0 警告。ROM 为 90828 B，静态 RAM 为 31600 B；
+相对参数批次 ROM 增加 468 B，RAM 未变。HEX SHA256 为
+ac5e56295cb9fe3567a8500a17c6106aa8cfdc88b93918e354e4904189762531。
+以上为普通 APP 的当前结果，不能沿用前表声明当前 LoaderApp 的容量。
+
+冻结实机候选没有替换。ROOT 未连接硬件、烧录、复位或运动；新的参数 RAM 布局
+不适用于冻结候选的调试脚本。后续持久化角色/设备身份分离不属于本次实现。

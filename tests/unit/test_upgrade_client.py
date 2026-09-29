@@ -183,6 +183,17 @@ class UpgradeClientTests(unittest.TestCase):
         self.assertFalse(any(item["type"] == 54 for item in client.trace))
         self.assertTrue(any(item["type"] == 57 for item in client.trace))
 
+    def test_lost_enter_ack_recovers_only_through_loader_identity(self) -> None:
+        """旧APP交接桩的READY被丢弃，必须重新读到相同UID的配套Loader才继续。"""
+        device = NativeDevice(self.dll)
+        self.dll.Device_StartApp()
+        device.drop_kind[56] = 1
+        client = UpgradeClient(device, 3, b"\x01" * 12)
+        with patch("host_app.upgrade_client.time.sleep"):
+            self.assertTrue(client.run(self.package)["success"])
+        self.assertFalse(any(item["type"] == 56 for item in client.trace))
+        self.assertEqual(client.trace[0]["type"], 1)
+
     def test_rescue_hold_never_writes_before_identity_check(self) -> None:
         """救援捕获仅查询 STATUS，错误 UID 在驻留后仍不能开始擦写。"""
         device = NativeDevice(self.dll)

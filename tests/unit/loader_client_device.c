@@ -156,6 +156,11 @@ __declspec(dllexport) void Device_Reset(void)
     (void)initialize_image();
     (void)yg_protocol_fragment_init(&fragments, assembly, sizeof(assembly));
 }
+/** @brief 将模型切为旧APP查询/交接桩，Loader下载仍运行生产源码。 */
+__declspec(dllexport) void Device_StartApp(void)
+{
+    s_app = true;
+}
 /**
  * @brief 把一帧送入真实Loader接收/重组/升级路径，返回对应实际编码回复。
  * @param identifier 输入CAN ID。
@@ -208,6 +213,12 @@ __declspec(dllexport) uint32_t Device_Exchange(
                                   : 2U;
                 send_payload(&message, payload, 32U, 0U);
             }
+        }
+        else if (message.message_type == 56U && payload_bytes == 8U)
+        {
+            const uint8_t payload[4] = {1U, 0U, 0U, 0U};
+            send_payload(&message, payload, 4U, 0U);
+            s_app = false;
         }
         else if (message.message_type == 57U && payload_bytes == 8U)
         {

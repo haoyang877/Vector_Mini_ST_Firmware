@@ -287,6 +287,12 @@ class UpgradeClient:
     def run(self, package: UpgradePackage) -> dict:
         """核对设备后全擦下载，激活后核对新APP并显式确认；成功不发送电机使能。"""
         self.package = package
+        # 先用无副作用STATUS固定Loader驻留，避免三页查询跨越50ms窗口后角色发生变化。
+        # APP未开放53时只等待短窗口，然后走56停机交接。
+        try:
+            self.request(53, timeout_s=0.025)
+        except TimeoutError:
+            pass
         page0, page1, target = self.identify()
         self.check_target(page0, page1, target)
         nonce = secrets.randbits(64) or 1
@@ -296,7 +302,15 @@ class UpgradeClient:
             enter_sequence = self.sequence
             deadline = time.monotonic() + 1.0
             while True:
-                response = self.request(56, struct.pack("<Q", nonce), sequence=enter_sequence)
+                try:
+                    response = self.request(56, struct.pack("<Q", nonce), sequence=enter_sequence)
+                except TimeoutError:
+                    # READY已经物理发送并复位，但主机丢失回复；只凭相同UID的配套Loader恢复。
+                    page0, page1, target = self.identify()
+                    self.check_target(page0, page1, target)
+                    if page1[22] != 2:
+                        raise
+                    break
                 if len(response) != 4 or struct.unpack_from("<H", response)[0] != 1:
                     raise RuntimeError("APP拒绝Loader交接；保持停机，禁止继续")
                 if struct.unpack_from("<H", response, 2)[0] == 0:

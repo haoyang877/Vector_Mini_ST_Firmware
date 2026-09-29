@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QPalette>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QTimer>
 #include <iostream>
 
@@ -30,7 +31,7 @@ int main(int argc, char **argv)
         app.setStyleSheet(QString::fromUtf8(theme.readAll()));
     }
     QCommandLineParser parser;
-    parser.setApplicationDescription("YG_MC_HOST 升级与参数页面 · 离线开发版");
+    parser.setApplicationDescription("YG_MC_HOST 电机调试工作台 · 离线开发版");
     parser.addHelpOption();
     const QCommandLineOption preview(
         "preview-dir", "保存升级与参数页面截图后退出，不连接设备。", "directory");
@@ -49,19 +50,55 @@ int main(int argc, char **argv)
                            &window,
                            [&app, &window, directory]
                            {
-                               window.resize(1380, 1260);
+                               window.resize(1366, 768);
+                               bool saved = true;
+                               auto save = [&](const char *filename)
+                               {
+                                   QApplication::processEvents();
+                                   saved = window.grab().save(QDir(directory).filePath(filename)) &&
+                                           saved;
+                               };
+                               save("connection.png");
+                               window.findChild<QPushButton *>("connectDevice")->click();
+                               save("home.png");
+                               window.findChild<QPushButton *>("workbenchNav")->click();
+                               window.findChild<QCheckBox *>("unlockWrites")->setChecked(true);
+                               window.findChild<QPushButton *>("streamStart")->click();
+                               window.findChild<QPushButton *>("recordStart")->click();
+                               window.findChild<QPushButton *>("enableMotor")->click();
+                               window.findChild<QPushButton *>("executeMotion")->click();
+                               for (int i = 0; i < 50; ++i)
+                               {
+                                   window.Window_AdvanceDemo(0.2);
+                               }
+                               window.findChild<QCheckBox *>("freezeScope")->setChecked(true);
+                               window.findChild<QPushButton *>("stopMotor")->click();
+                               window.findChild<QPushButton *>("quickRead")->click();
+                               save("workbench.png");
+                               window.findChild<QPushButton *>("calibrationNav")->click();
+                               window.findChild<QPushButton *>("startCalibration")->click();
+                               for (int i = 0; i < 10; ++i)
+                               {
+                                   window.Window_AdvanceDemo(0.2);
+                               }
+                               save("calibration.png");
+                               window.findChild<QPushButton *>("cancelCalibration")->click();
+                               window.findChild<QPushButton *>("identificationNav")->click();
+                               save("identification.png");
+                               window.findChild<QPushButton *>("diagnosticsNav")->click();
+                               save("diagnostics.png");
+                               window.findChild<QPushButton *>("upgradeNav")->click();
+                               window.resize(1380, 940);
                                window.findChild<QPushButton *>("mode2")->click();
                                window.findChild<QPushButton *>("loadSamples")->click();
                                QApplication::processEvents();
-                               const bool upgrade_saved =
-                                   window.grab().save(QDir(directory).filePath("upgrade.png"));
+                               save("upgrade.png");
                                window.findChild<QPushButton *>("parameterNav")->click();
-                               window.resize(1380, 940);
+                               window.resize(1366, 768);
                                window.findChild<QPushButton *>("readParameters")->click();
                                QApplication::processEvents();
-                               const bool parameters_saved =
-                                   window.grab().save(QDir(directory).filePath("parameters.png"));
-                               app.exit(upgrade_saved && parameters_saved ? 0 : 2);
+                               save("parameters.png");
+                               app.exit(saved ? 0 : 2);
                            });
     }
     return app.exec();

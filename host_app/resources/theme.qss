@@ -34,3 +34,14 @@ QHeaderView::section { background: #f3f6fb; color: #647791; border: none; border
 QProgressBar { border: none; border-radius: 5px; background: #e9eef6; min-height: 9px; max-height: 9px; }
 QProgressBar::chunk { background: #3977d4; border-radius: 5px; }
 QScrollArea { border: none; background: transparent; }
+QLabel#brandCompact { color: #183251; font-size: 21px; font-weight: 700; }
+QLabel#globalStatus { color: #425775; }
+QLabel#telemetryStrip { background: #e8eff8; color: #244666; border-radius: 5px; padding: 8px; }
+QLabel#footer { color: #657891; font-size: 12px; }
+QGroupBox { background: #ffffff; border: 1px solid #dce5f1; border-radius: 8px; margin-top: 12px; padding: 14px 12px 12px; font-weight: 600; }
+QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 13px; padding: 0 5px; color: #345473; }
+QPushButton[role="tab"] { background: transparent; border: none; color: #59708d; padding: 8px 13px; }
+QPushButton[role="tab"]:checked { background: #e2edff; color: #255baa; }
+QPushButton[role="danger"] { background: #c84646; color: #ffffff; border: none; font-weight: 600; }
+QPushButton[role="danger"]:disabled { background: #e4b7b7; color: #fff6f6; }
+QCheckBox { spacing: 7px; font-weight: normal; }

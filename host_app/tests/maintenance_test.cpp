@@ -3,6 +3,8 @@
 #include "protocol/parameter_wire.h"
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QStackedWidget>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
@@ -161,6 +163,9 @@ void gui_checks()
     find_button("cancelDemo")->click();
     check(window.findChild<QLabel *>("upgradeStatus")->text().contains("取消"),
           "demo cancel not explicit");
+    find_button("parameterNav")->click();
+    find_button("connectDevice")->click();
+    window.findChild<QCheckBox *>("unlockWrites")->setChecked(true);
     find_button("parameterNav")->click();
     find_button("readParameters")->click();
     auto *table = window.findChild<QTableWidget *>("parameterTable");

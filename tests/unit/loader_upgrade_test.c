@@ -402,6 +402,23 @@ static void persistent_gates_and_power_loss(void)
         assert(!LoaderImage_PrepareBoot(&config));
         tear_address = 0U;
     }
+    for (uint32_t cut = 0U; cut < 8U; ++cut)
+    {
+        initialize();
+        memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
+        assert(LoaderImage_DecodeManifest(&config, manifest, &identity));
+        assert(LoaderImage_Activate(&config, &identity));
+        tear_address = marker + YGI_ATTEMPT_OFFSET;
+        tear_bytes = cut;
+        assert(!LoaderImage_PrepareBoot(&config));
+        /* 返回失败的编程操作不能被当作完整首次试运行；半写单元不得补写。 */
+        if (cut != 0U)
+        {
+            tear_address = 0U;
+            assert(!LoaderImage_PrepareBoot(&config));
+        }
+        tear_address = 0U;
+    }
     initialize();
     memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
     assert(LoaderImage_DecodeManifest(&config, manifest, &identity));

@@ -22,6 +22,10 @@ CRC32：EDB88320反射、初值/末异或FFFFFFFF，覆盖8B对齐的完整镜�
 单槽激活门槛、尝试消费与确认规则见[当前设计](../architecture/loader/loader_product_v3.md)。
 50..55回复flags仍为0x06或0x07；不能仅靠flags推断v3，必须检查GET_INFO的boot_api/profile/layout。
 
+空 Type 53 STATUS 是只读发现请求，同时让 Loader 留在救援状态，关闭自动跳转。
+它不擦除、不创建 session；GET_INFO 本身不关闭 50ms 启动窗口。救援客户端可在复位前
+反复发空 STATUS 捕获该窗口，随后严格检查实际 UID、配套版本和几何才发 BEGIN。
+
 ## GET_INFO（Type1）
 
 请求仍为12B小端：session:u32、request_id:u32、page:u16、reserved:u16=0；必须单播并要求ACK。

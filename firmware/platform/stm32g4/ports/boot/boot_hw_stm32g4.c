@@ -15,7 +15,7 @@ static uint32_t read_be32(const volatile uint8_t *p)
 static bool marker_valid(uint32_t offset, uint32_t magic)
 {
     const volatile uint8_t *p =
-        (const volatile uint8_t *)(TARGET_APP_BASE + TARGET_DESCRIPTOR_OFFSET + offset);
+        (const volatile uint8_t *)(uintptr_t)(TARGET_APP_BASE + TARGET_DESCRIPTOR_OFFSET + offset);
     return read_be32(p) == magic && read_be32(p + 4) == ~magic;
 }
 static bool outputs_off(void)
@@ -129,8 +129,8 @@ bool BootHw_Confirm(uint32_t version, uint32_t crc32)
         return true;
     }
     if ((uint32_t)(HAL_GetTick() - trial_started_ms) >= 5000U ||
-        read_be32((const volatile uint8_t *)address) != UINT32_MAX ||
-        read_be32((const volatile uint8_t *)(address + 4U)) != UINT32_MAX)
+        read_be32((const volatile uint8_t *)(uintptr_t)address) != UINT32_MAX ||
+        read_be32((const volatile uint8_t *)(uintptr_t)(address + 4U)) != UINT32_MAX)
     {
         return false;
     }
@@ -160,9 +160,9 @@ bool BootHw_Confirm(uint32_t version, uint32_t crc32)
         uint32_t words[2], remaining = 1000000U;
         memcpy(words, raw, sizeof(words));
         FLASH->CR |= FLASH_CR_PG;
-        *(volatile uint32_t *)address = words[0];
+        *(volatile uint32_t *)(uintptr_t)address = words[0];
         __ISB();
-        *(volatile uint32_t *)(address + 4U) = words[1];
+        *(volatile uint32_t *)(uintptr_t)(address + 4U) = words[1];
         while ((FLASH->SR & FLASH_SR_BSY) != 0U && remaining != 0U)
         {
             --remaining;

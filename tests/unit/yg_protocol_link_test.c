@@ -10,6 +10,7 @@
 #include "yg_protocol_runtime.h"
 #include "yg_protocol_readonly.h"
 #include "yg_protocol_readonly_payload.h"
+#include "yg_protocol_boot.h"
 
 static CommHwCanFrame sent_frame;
 static bool sent;
@@ -454,6 +455,91 @@ static void runtime_start_boundary(void)
     assert(bus_off_services == 2U);
 }
 
+static unsigned confirm_calls;
+static bool confirm_allowed;
+static void boot_request(void *context, const BootEntryRequest *request, BootEntryReply *reply)
+{
+    (void)context;
+    (void)request;
+    (void)reply;
+    assert(false); /* 本夹具只允许57，不得转为停机交接。 */
+}
+static void boot_tx(void *context, uint64_t ticket, bool success)
+{
+    (void)context;
+    (void)ticket;
+    (void)success;
+    assert(false);
+}
+static bool boot_confirm(void *context, uint32_t version, uint32_t crc)
+{
+    (void)context;
+    ++confirm_calls;
+    assert(version == 0x10000U && crc == 7U);
+    return confirm_allowed;
+}
+/* 57只接收主机节点的8B身份，维护页面保持只读与初始化清空。 */
+static void boot_confirm_and_info_contract(void)
+{
+    const BootEntryService service = {NULL, boot_request, boot_tx, boot_confirm};
+    uint8_t identity[8] = {0U}, page[32] = {0U}, page_request[12] = {0U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_BOOT_TYPE_CONFIRM,
+                                     .sequence = 211U,
+                                     .payload = identity,
+                                     .payload_length = 8U};
+    put_u32(identity, 0x10000U);
+    put_u32(identity + 4U, 7U);
+    for (unsigned scenario = 0U; scenario < 5U; ++scenario)
+    {
+        BootEntryService bound = service;
+        assert(YgProtocolLink_Init(7U));
+        bound.confirm = scenario == 4U ? NULL : boot_confirm;
+        assert(YgProtocolLink_BindBootService(&bound));
+        confirm_calls = sent_count = 0U;
+        sent = false;
+        confirm_allowed = scenario == 0U;
+        request.source_node = scenario == 2U ? 1U : 2U;
+        request.payload_length = scenario == 3U ? 7U : 8U;
+        enqueue_request(&request);
+        YgProtocolLink_Service(1U);
+        const uint8_t results[5] = {0U, 5U, 7U, 3U, 2U};
+        assert(sent && sent_frame.data[16] == results[scenario]);
+        assert(confirm_calls == (scenario < 2U ? 1U : 0U));
+    }
+    yg_protocol_readonly_info_page0_t info = {0};
+    yg_protocol_readonly_caps_page0_t caps = {0};
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_SetDeviceDescription(&info, &caps));
+    request.source_node = 2U;
+    request.message_type = 1U;
+    request.payload = page_request;
+    request.payload_length = 12U;
+    assert(!YgProtocolLink_SetMaintenanceInfoPage(0U, page));
+    assert(!YgProtocolLink_SetMaintenanceInfoPage(3U, page));
+    for (unsigned index = 1U; index <= 2U; ++index)
+    {
+        memset(page, (int)index, sizeof(page));
+        assert(YgProtocolLink_SetMaintenanceInfoPage((uint16_t)index, page));
+        put_u16(page_request + 8U, (uint16_t)index);
+        sent = false;
+        sent_count = 0U;
+        enqueue_request(&request);
+        YgProtocolLink_Service(index);
+        assert(sent && sent_frame.data[10] == 32U && memcmp(sent_frame.data + 16U, page, 32U) == 0);
+    }
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_SetDeviceDescription(&info, &caps));
+    memset(page, 0, sizeof(page));
+    sent = false;
+    enqueue_request(&request);
+    YgProtocolLink_Service(3U);
+    assert(sent && memcmp(sent_frame.data + 16U, page, 32U) == 0);
+}
+
 int main(void)
 {
     uint8_t payload[YG_PROTOCOL_READONLY_PAGE_REQUEST_SIZE] = {0};
@@ -595,6 +681,7 @@ int main(void)
     backlog_and_interrupt_handoff();
     power_route_contract();
     status_binding_reset();
+    boot_confirm_and_info_contract();
     runtime_start_boundary();
     return 0;
 }

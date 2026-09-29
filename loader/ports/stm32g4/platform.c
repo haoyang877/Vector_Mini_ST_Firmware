@@ -261,7 +261,8 @@ LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
     uint32_t offset, i, words[2], node_bits, candidate, shift;
     bool blank = true;
     /* raw11 无整记录CRC；完整扫描只确认可读/空白，不能代替APP参数合法性检查。 */
-    for (offset = 0; offset < TARGET_PARAM_BYTES; offset += sizeof(block))
+    /* 生产身份页独立；不能把已烧SN当作存在校准，也不能因该页ECC错误拒绝参数域。 */
+    for (offset = 0; offset < TARGET_IDENTITY_BASE - TARGET_PARAM_BASE; offset += sizeof(block))
     {
         LoaderPlatform_Watchdog();
         if (!LoaderFlash_Read(TARGET_PARAM_BASE + offset, block, sizeof(block)))

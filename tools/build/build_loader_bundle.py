@@ -45,6 +45,7 @@ def main() -> int:
         "source": source,
         "target_sha256": hashlib.sha256(target_file.read_bytes()).hexdigest(),
         "artifacts": [],
+        "resources": {},
         "parameter_schema": 12,
         "parameter_bytes": 4304,
         "profile": "loader-image-v3-crc32",
@@ -130,6 +131,34 @@ def main() -> int:
                     "path": binary.name,
                     "bytes": binary.stat().st_size,
                     "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+                }
+            )
+            map_text = (output / f"{prefix}.map").read_text(encoding="utf-8", errors="replace")
+            flash_region = re.search(r"Load Region LR_\w+ \(.*?Size: (0x[0-9a-fA-F]+)", map_text)
+            ram_region = re.search(r"Execution Region RW_\w+ \(.*?Size: (0x[0-9a-fA-F]+)", map_text)
+            if flash_region is None or ram_region is None:
+                raise RuntimeError("MAP缺少固定Flash/RAM区域，无法冻结资源证据")
+            report["resources"][product] = {
+                "flash_region_bytes": int(flash_region[1], 16),
+                "download_bytes": binary.stat().st_size,
+                "ram_region_bytes": int(ram_region[1], 16),
+            }
+        for artifact in sorted((output / "app-package").iterdir()):
+            if artifact.is_file():
+                report["artifacts"].append(
+                    {
+                        "path": artifact.relative_to(output).as_posix(),
+                        "bytes": artifact.stat().st_size,
+                        "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                    }
+                )
+        shutil.copyfile(target_file, output / "target.json")
+        for artifact in [output / "target.json", *output.glob("*.unpackaged.bin")]:
+            report["artifacts"].append(
+                {
+                    "path": artifact.name,
+                    "bytes": artifact.stat().st_size,
+                    "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
                 }
             )
         report["success"] = True

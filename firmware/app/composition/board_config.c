@@ -35,7 +35,7 @@ static void publish_identity(void)
     state = BootHw_IsConfirmed() ? 1U : 2U;
 #endif
     DeviceIdentity_EncodeInfo(
-        &s_identity, Protocol_NodeId_Get(), 1U, state, BootHw_ImageCrc32(), payload);
+        &s_identity, MotorAxis_NodeId(), 1U, state, BootHw_ImageCrc32(), payload);
     (void)YgProtocolLink_SetMaintenanceInfoPage(1U, payload);
 }
 

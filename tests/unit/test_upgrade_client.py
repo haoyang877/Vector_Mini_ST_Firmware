@@ -34,6 +34,7 @@ class NativeDevice:
         self.dll = dll
         self.queue: list[tuple[int, bytes]] = []
         self.drop = 0
+        self.drop_kind: dict[int, int] = {}
         self.writes = 0
         dll.Device_Reset()
 
@@ -45,7 +46,10 @@ class NativeDevice:
         raw = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
         count = self.dll.Device_Exchange(identifier, raw, len(data), ctypes.byref(reply_id), output)
         if count:
-            if self.drop:
+            kind = struct.unpack_from("<H", data, 6)[0]
+            if self.drop_kind.get(kind, 0):
+                self.drop_kind[kind] -= 1
+            elif self.drop:
                 self.drop -= 1
             else:
                 self.queue.append((reply_id.value, bytes(output[:count])))
@@ -153,6 +157,40 @@ class UpgradeClientTests(unittest.TestCase):
         device = NativeDevice(self.dll)
         with self.assertRaisesRegex(ValueError, "UID"):
             UpgradeClient(device, 3, bytes(12)).run(self.package)
+        self.assertEqual(device.writes, 0)
+
+    def test_write_ack_loss_and_progress(self) -> None:
+        """已编程块的回复丢失后只重发同一块，进度仍按持久偏移递增。"""
+        device = NativeDevice(self.dll)
+        device.drop_kind[51] = 1
+        progress: list[tuple[int, int]] = []
+        client = UpgradeClient(
+            device, 3, b"\x01" * 12, lambda n, total: progress.append((n, total))
+        )
+        with patch("host_app.upgrade_client.time.sleep"):
+            self.assertTrue(client.run(self.package)["success"])
+        self.assertTrue(any(item["type"] == 51 and item["attempt"] == 1 for item in client.trace))
+        self.assertEqual(progress[-1], (len(self.package.image), len(self.package.image)))
+        self.assertEqual(progress, sorted(set(progress)))
+
+    def test_lost_activation_ack_requires_new_app_confirmation(self) -> None:
+        """ACTIVATE 回复已发却被主机丢弃，必须凭新 APP 版本/CRC/持久确认恢复。"""
+        device = NativeDevice(self.dll)
+        device.drop_kind[54] = 1
+        client = UpgradeClient(device, 3, b"\x01" * 12)
+        with patch("host_app.upgrade_client.time.sleep"):
+            self.assertTrue(client.run(self.package)["success"])
+        self.assertFalse(any(item["type"] == 54 for item in client.trace))
+        self.assertTrue(any(item["type"] == 57 for item in client.trace))
+
+    def test_rescue_hold_never_writes_before_identity_check(self) -> None:
+        """救援捕获仅查询 STATUS，错误 UID 在驻留后仍不能开始擦写。"""
+        device = NativeDevice(self.dll)
+        client = UpgradeClient(device, 3, bytes(12))
+        client.hold_rescue_window()
+        self.assertEqual(device.writes, 0)
+        with self.assertRaisesRegex(ValueError, "UID"):
+            client.run(self.package)
         self.assertEqual(device.writes, 0)
 
     def test_tampered_package_is_rejected(self) -> None:

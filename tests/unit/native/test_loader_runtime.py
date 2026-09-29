@@ -42,7 +42,13 @@ def main() -> None:
     )
     health_source = output / "app_health.c"
     health_source.write_text(
-        interval + "\n" + health_fixture + "\n" + function_source(board, "Board_ServiceBoot"),
+        interval
+        + "\n"
+        + health_fixture
+        + "\n"
+        + function_source(board, "Board_ServiceBoot")
+        + "\n"
+        + function_source(board, "confirm_image"),
         encoding="utf-8",
     )
     platform = (ROOT / "loader/ports/stm32g4/platform.c").read_text(encoding="utf-8")
@@ -65,6 +71,41 @@ def main() -> None:
         + (ROOT / "tests/unit/loader_flash_wait_test.c").read_text(encoding="utf-8")
         + "\n"
         + function_source(platform, "flash_ready"),
+        encoding="utf-8",
+    )
+    boot = (ROOT / "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c").read_text(
+        encoding="utf-8"
+    )
+    confirm_source = output / "app_confirm.c"
+    register_defines = "\n".join(
+        line
+        for line in device.splitlines()
+        if line.startswith(("#define FLASH_", "#define TIM_CCER_"))
+    )
+    confirm_source.write_text(
+        register_defines
+        + "\n"
+        + (ROOT / "tests/unit/loader_app_confirm_test.c").read_text(encoding="utf-8")
+        + "\n"
+        + "\n".join(
+            function_source(boot, name)
+            for name in (
+                "read_be32",
+                "marker_valid",
+                "outputs_off",
+                "BootHw_Watchdog",
+                "BootHw_IsConfirmed",
+                "BootHw_ImageCrc32",
+                "BootHw_Confirm",
+            )
+        ),
+        encoding="utf-8",
+    )
+    parameter_source = output / "parameters.c"
+    parameter_source.write_text(
+        (ROOT / "tests/unit/loader_parameter_test.c").read_text(encoding="utf-8")
+        + "\n"
+        + function_source(platform, "LoaderPlatform_Parameters"),
         encoding="utf-8",
     )
     base = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
@@ -103,6 +144,8 @@ def main() -> None:
         ("runtime", "tests/unit/loader_runtime_test.c", [str(ROOT / f) for f in sources]),
         ("app_health", str(health_source), ["-DYG_APP_LOADER_IMAGE=1"]),
         ("flash_wait", str(flash_source), []),
+        ("app_confirm", str(confirm_source), []),
+        ("parameters", str(parameter_source), []),
     ):
         executable = output / (name + ".exe")
         for command in (

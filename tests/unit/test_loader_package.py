@@ -44,7 +44,7 @@ class LoaderPackageTests(unittest.TestCase):
         )
         return result, output
 
-    def test_v2_golden_package(self) -> None:
+    def test_v3_golden_package(self) -> None:
         """比较合成镜像的真实打包结果及独立CRC计算。"""
         vector = json.loads(GOLDEN.read_text(encoding="utf-8"))
         source = bytes.fromhex(vector["source_hex"])
@@ -59,7 +59,7 @@ class LoaderPackageTests(unittest.TestCase):
         normalized[560:564] = bytes(4)
         self.assertEqual(zlib.crc32(normalized), struct.unpack_from(">I", image, 560)[0])
 
-    def test_v2_wire_vectors_match_package(self) -> None:
+    def test_v3_wire_vectors_match_package(self) -> None:
         """跨端黄金向量必须引用同一清单，nonce以载荷小端传输。"""
         image = json.loads(GOLDEN.read_text(encoding="utf-8"))
         wire = json.loads(
@@ -79,11 +79,27 @@ class LoaderPackageTests(unittest.TestCase):
         self.assertEqual(reply[17], 0x06)
         self.assertEqual(struct.unpack_from("<Q", reply, 4)[0], 0)
         self.assertEqual(struct.unpack_from("<H", reply, 18)[0], 128)
+        self.assertEqual(wire["manifest_fixture"], "tests/fixtures/loader_image_v3.json")
+        self.assertEqual(
+            bytes.fromhex(wire["confirm_request_hex"]),
+            struct.pack("<II", 0x10000, int(image["crc32"], 16)),
+        )
+        self.assertEqual(bytes.fromhex(wire["confirm_ok_reply_hex"]), bytes(4))
 
     def test_old_profile_and_maintenance_are_rejected(self) -> None:
         """旧描述符及尚无安全角色交接的维护镜像不能生成部署包。"""
         vector = json.loads(GOLDEN.read_text(encoding="utf-8"))
-        for offset, value in ((516, 1), (520, 0x53593349), (524, 3), (544, 2)):
+        for offset, value in (
+            (516, 1),
+            (516, 2),
+            (520, 0x53593349),
+            (520, 0x53593449),
+            (524, 3),
+            (524, 4),
+            (544, 2),
+            (540, 0x10001),
+            (576, 0),
+        ):
             with self.subTest(offset=offset):
                 source = bytearray.fromhex(vector["source_hex"])
                 struct.pack_into(">I", source, offset, value)

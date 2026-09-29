@@ -173,6 +173,6 @@ int main(void)
     YgProtocolUpgradeReply reply;
     status_reply(&reply);
     assert(reply.boot_epoch == 0U && (reply.flags & YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE) != 0U);
-    puts("PASS cold boot, ENTER, watchdog rescue, corrupt image, link loss and v2 discovery");
+    puts("PASS cold boot, ENTER, watchdog rescue, corrupt image, link loss and v3 discovery");
     return 0;
 }

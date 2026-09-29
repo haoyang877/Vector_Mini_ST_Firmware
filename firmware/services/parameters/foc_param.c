@@ -5,6 +5,10 @@
 
 #include <math.h>
 #include <string.h>
+#include <stddef.h>
+#include "crc32.h"
+#include "parameter_value_service.h"
+#include "foc_sensing.h"
 
 /* 参数读写与默认值：限值取自平台感测契约，数值换算不访问硬件。 */
 #include "current_sense_profile.h"
@@ -14,6 +18,14 @@
 #include "utils.h"
 
 #include "foc_cogging_calibration.h"
+
+uint32_t Param_RecordCrc(const InterfaceParam *param)
+{
+    uint32_t offset = (uint32_t)offsetof(InterfaceParam, record_crc32);
+    uint32_t crc = Crc32_Compute(param, offset, 0U);
+    uint32_t tail = offset + sizeof(param->record_crc32);
+    return Crc32_Compute((const uint8_t *)param + tail, sizeof(*param) - tail, crc);
+}
 
 /* startup adapter only: the portable module owns joint IDs and baselines.
  * Individual motor/current calibration and stored axis bounds are untouched. */
@@ -54,6 +66,8 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     FocCogging_ResetMap();
     memset(&motor_state->axis_profile, 0, sizeof(motor_state->axis_profile));
     motor_state->axis_profile_valid = true;
+    motor_state->configuration_confirmed = false;
+    motor_state->configuration_source = MOTOR_CONFIGURATION_DEFAULTS;
     Protocol_NodeId_Set((uint8_t)PARAM_HW_CAN_NODE_ID);
 
     motor_state->phase_a_offset_counts = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
@@ -148,8 +162,11 @@ void Param_Upload(InterfaceParam *param,
     param->friction_viscous_neg_a_per_rad_s = motor_state->friction_viscous_neg_a_per_rad_s;
     param->friction_model_valid = motor_state->friction_model_valid ? 1U : 0U;
     param->schema_version = PARAM_SCHEMA_VERSION;
+    param->magic_word = MAGIC_WORD;
+    param->configuration_flags = motor_state->configuration_confirmed ? 1U : 0U;
     param->axis_profile = motor_state->axis_profile;
     FocCogging_ExportMap(&param->cogging, motor_state, rotor_encoder);
+    param->record_crc32 = Param_RecordCrc(param);
 }
 
 void Param_Download(const InterfaceParam *param,
@@ -163,13 +180,27 @@ void Param_Download(const InterfaceParam *param,
     if (param->magic_word != MAGIC_WORD || param->schema_version != PARAM_SCHEMA_VERSION)
     {
         Param_Return_Default(motor_state, rotor_encoder);
+        motor_state->configuration_source =
+            param->magic_word == UINT32_MAX && param->schema_version == UINT32_MAX
+                ? MOTOR_CONFIGURATION_DEFAULTS
+                : MOTOR_CONFIGURATION_UNSUPPORTED;
+        return;
+    }
+    if (param->record_crc32 != Param_RecordCrc(param) || param->configuration_flags > 1U ||
+        !isfinite(param->motor_pole_pairs) || param->motor_pole_pairs < 1.0f ||
+        param->motor_pole_pairs >= 2147483648.0f || !isfinite(param->node_id) ||
+        param->node_id < 0.0f || param->node_id > 255.0f)
+    {
+        Param_Return_Default(motor_state, rotor_encoder);
+        motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
         return;
     }
     current_sense_profile_changed =
         param->current_sense_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
-    if (param->encoder_reverse > 1U)
+    if (param->encoder_reverse > 1U || (param->encoder_calib_flag & ~ENC_CALIB_ALL) != 0U)
     {
         Param_Return_Default(motor_state, rotor_encoder);
+        motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
         return;
     }
 
@@ -285,5 +316,13 @@ void Param_Download(const InterfaceParam *param,
                                                   rotor_encoder->linearization_lut_q15)))
     {
         FocCogging_ImportMap(&param->cogging);
+    }
+    motor_state->configuration_source = MOTOR_CONFIGURATION_STORED;
+    motor_state->configuration_confirmed =
+        param->configuration_flags == 1U && !current_sense_profile_changed;
+    if (!ParameterValue_ConfigurationValid(motor_state) || !MotorCurrentOffsets_Valid(motor_state))
+    {
+        Param_Return_Default(motor_state, rotor_encoder);
+        motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
     }
 }

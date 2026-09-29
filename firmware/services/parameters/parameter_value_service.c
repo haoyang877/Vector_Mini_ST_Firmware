@@ -58,6 +58,28 @@ static const ScalarField s_fields[] = {
     CAL_FIELD(0x4AU, friction_viscous_neg_a_per_rad_s, 1000000U),
 };
 
+bool ParameterValue_ConfigurationValid(const MotorControlState *motor)
+{
+    return motor != NULL && motor->axis_profile_valid && motor->motor_pole_pairs > 0 &&
+           isfinite(motor->motor_phase_resistance_ohm) &&
+           motor->motor_phase_resistance_ohm > 0.0f && isfinite(motor->motor_d_inductance_h) &&
+           motor->motor_d_inductance_h > 0.0f && isfinite(motor->motor_q_inductance_h) &&
+           motor->motor_q_inductance_h > 0.0f && isfinite(motor->motor_flux_wb) &&
+           motor->motor_flux_wb > 0.0f && isfinite(motor->current_limit_a) &&
+           motor->current_limit_a > 0.0f &&
+           motor->current_limit_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
+           isfinite(motor->calibration_current_a) && motor->calibration_current_a > 0.0f &&
+           motor->calibration_current_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
+           isfinite(motor->speed_limit_rad_s) && motor->speed_limit_rad_s > 0.0f &&
+           isfinite(motor->id_kp) && motor->id_kp >= 0.0f && isfinite(motor->id_ki) &&
+           motor->id_ki >= 0.0f && isfinite(motor->iq_kp) && motor->iq_kp >= 0.0f &&
+           isfinite(motor->iq_ki) && motor->iq_ki >= 0.0f &&
+           isfinite(motor->speed_acceleration_rad_s2) && motor->speed_acceleration_rad_s2 > 0.0f &&
+           isfinite(motor->speed_deceleration_rad_s2) && motor->speed_deceleration_rad_s2 > 0.0f &&
+           isfinite(motor->speed_kp) && motor->speed_kp >= 0.0f && isfinite(motor->speed_ki) &&
+           motor->speed_ki >= 0.0f;
+}
+
 /* 返回的描述符属于只读常量表，不含可变控制对象地址。 */
 static const ScalarField *find_field(uint8_t id)
 {
@@ -202,6 +224,13 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
         case 0x4CU:
             candidate.raw_value = CURRENT_SENSE_SHUNT_MILLIOHM;
             break;
+        case 0x4DU:
+            candidate.raw_value = motor->configuration_confirmed ? 1U : 0U;
+            candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
+            break;
+        case 0x4EU:
+            candidate.raw_value = (uint32_t)motor->configuration_source;
+            break;
         default:
             return PARAMETER_UNSUPPORTED;
         }
@@ -232,6 +261,21 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
+    if (request->parameter_id == 0x4DU)
+    {
+        if (request->value_type != PARAMETER_VALUE_U32)
+        {
+            return PARAMETER_BAD_TYPE;
+        }
+        if (request->raw_value > 1U ||
+            (request->raw_value == 1U && !ParameterValue_ConfigurationValid(motor)))
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        motor->configuration_confirmed = request->raw_value == 1U;
+        motor->configuration_source = MOTOR_CONFIGURATION_ACTIVE;
+        return PARAMETER_OK;
+    }
     const ScalarField *field = find_field(request->parameter_id);
     if (field == NULL)
     {
@@ -248,6 +292,10 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
         case 0x43U:
         case 0x4BU:
         case 0x4CU:
+        case 0x4EU:
+        case 0x4FU:
+        case 0x50U:
+        case 0x51U:
             return PARAMETER_READ_ONLY;
         default:
             return PARAMETER_UNSUPPORTED;

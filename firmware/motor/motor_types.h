@@ -27,7 +27,18 @@ typedef enum
     MOTOR_FAULT_CONTROL_OVERRUN,
     MOTOR_FAULT_COGGING_CALIBRATION,
     MOTOR_FAULT_TEMPERATURE_SENSOR,
+    MOTOR_FAULT_SELF_TEST_TIMEOUT,
 } MotorFaultCode;
+
+/** @brief 活动配置来源；回退默认值不等于用户已确认电机配置。 */
+typedef enum
+{
+    MOTOR_CONFIGURATION_DEFAULTS = 0,
+    MOTOR_CONFIGURATION_STORED,
+    MOTOR_CONFIGURATION_UNSUPPORTED,
+    MOTOR_CONFIGURATION_CORRUPT,
+    MOTOR_CONFIGURATION_ACTIVE
+} MotorConfigurationSource;
 
 typedef struct
 {
@@ -99,6 +110,8 @@ typedef struct
     /* 私有运行配置；诊断成员偏移由当前 ELF 描述。 */
     MotorAxisProfile axis_profile;
     bool axis_profile_valid;
+    bool configuration_confirmed;
+    MotorConfigurationSource configuration_source;
     /* 模式 3 规划轨迹速度参考（rad/s）；由外环发布，遥测无效窗口为 NaN。 */
     float position_trajectory_speed_rad_s;
 } MotorControlState;

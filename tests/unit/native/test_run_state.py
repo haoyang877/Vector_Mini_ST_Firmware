@@ -49,6 +49,7 @@ def main() -> None:
             str(ROOT / "firmware/services/lifecycle/app_lifecycle.c"),
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+            str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
             str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(executable),

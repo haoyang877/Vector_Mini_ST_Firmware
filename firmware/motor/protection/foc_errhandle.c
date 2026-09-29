@@ -75,6 +75,7 @@ bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
         return motor_state->axis_profile_valid && motor_state->motor_pole_pairs > 0 &&
                isfinite(motor_state->current_limit_a) && motor_state->current_limit_a > 0.0f;
     case MOTOR_FAULT_CONTROL_OVERRUN:
+    case MOTOR_FAULT_SELF_TEST_TIMEOUT:
         return samples_fresh;
     case MOTOR_FAULT_PHASE_RESISTANCE:
     case MOTOR_FAULT_PHASE_INDUCTANCE:

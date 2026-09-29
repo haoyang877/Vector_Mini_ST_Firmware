@@ -5,6 +5,7 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -20,6 +21,9 @@ def fixture():
 #include <stdio.h>
 #include <string.h>
 #include "foc_param.h"
+#include "crc32.h"
+#include "parameter_value_service.h"
+#include "foc_sensing.h"
 #include "foc_param_profile.h"
 #include "param_comm_bridge.h"
 #include "utils.h"
@@ -40,7 +44,16 @@ static uint8_t node_id;
 uint8_t Protocol_NodeId_Get(void) { return node_id; }
 void Protocol_NodeId_Set(uint8_t value) { node_id = value; }
 """
+    vectors = json.loads(
+        (ROOT / "docs/protocols/parameter_schema12_vectors.json").read_text(encoding="utf-8")
+    )
+    prelude += f"\n#define PARAM_RECORD_GOLDEN_CRC {vectors['vectors'][0]['crc32']}U\n"
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
+    sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+    prelude += (
+        "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
+    )
+    prelude += function_source(sensing, "MotorCurrentOffsets_Valid")
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
@@ -58,29 +71,29 @@ int main(void) {
         float cap=(node==1 || node==2) ? 20 : .5f*_2PI;
         assert(Param_SpeedLimitRadS(node)==cap);
         p=saved; p.node_id=(float)node; p.speed_limit_rad_s=21;
-        Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
         assert(node_id==node && motor_state.axis_profile_valid);
         assert(rotor_encoder.electrical_zero_q15==3155);
         assert(rotor_encoder.linearization_lut_q15[71]==-42);
         assert(motor_state.speed_kp==.02f);
-        p.speed_limit_rad_s=1.25f; Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==1.25f);
-        p.speed_limit_rad_s=NAN; Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
-        p.speed_limit_rad_s=0; Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
+        p.speed_limit_rad_s=1.25f; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==1.25f);
+        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
+        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
     }
     puts("PASS all node ceilings, stored lower limits, invalid fallback, calibration preserved");
     /* Axis record wins over stale legacy node ID before selecting the cap. */
     p=saved; p.node_id=1; p.speed_limit_rad_s=20;
     assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
     assert(node_id==3 && motor_state.speed_limit_rad_s==.5f*_2PI);
     puts("PASS resolved joint identity selects the ceiling before parameter loading");
     /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
     {
-        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,12,UINT32_MAX};
+        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,13,UINT32_MAX};
         for(unsigned i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
             p=saved; p.schema_version=rejected[i];
-            InterfaceParam before=p;
-            Param_Download(&p,&motor_state,&rotor_encoder);
+            p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
+            p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
             assert(memcmp(&p,&before,sizeof(p))==0);
             assert(node_id==(uint8_t)PARAM_HW_CAN_NODE_ID);
             assert(rotor_encoder.calib_flag==0 && rotor_encoder.electrical_zero_q15==0);
@@ -89,32 +102,32 @@ int main(void) {
             assert(motor_state.speed_kp==PARAM_APP_SPEED_KP);
         }
         p=saved; p.magic_word=0;
-        Param_Download(&p,&motor_state,&rotor_encoder);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
         assert(rotor_encoder.calib_flag==0 && CoggingMap.magic==0);
     }
     puts("PASS old/unknown schema rejection, defaults and immutable input");
     /* 当前布局的黄金字节与偏移保持；加载保留既有整定和标定数据。 */
     p=saved; p.node_id=1; p.speed_limit_rad_s=20;
-    p.reserved_pos_kp=0x7fc00000U; p.reserved_pos_ki=0xffffffffU;
-    p.reserved_pos_kd=0x7f800000U; p.reserved_pos_integral_limit=0x80000000U;
+    p.configuration_flags=1U; p.reserved_pos_ki=0xffffffffU;
+    p.record_crc32=0U; p.reserved_pos_integral_limit=0x80000000U;
     p.can_hb=NAN;
     p.cascade_pos_kp=.07f; p.cascade_pos_kd=.6f; p.speed_kp=.023f;
     {
-        const uint8_t schema_bytes[] = {0x0b,0,0,0};
+        const uint8_t schema_bytes[] = {0x0c,0,0,0};
         const uint8_t magic_bytes[] = {0x32,0x43,0x4e,0x45};
         assert(sizeof(p)==4304 && offsetof(InterfaceParam,schema_version)==2160);
         assert(offsetof(InterfaceParam,magic_word)==2164);
         assert(offsetof(InterfaceParam,can_hb)==2156);
-        assert(offsetof(InterfaceParam,reserved_pos_kp)==2136);
-        assert(offsetof(InterfaceParam,reserved_pos_kd)==2140);
+        assert(offsetof(InterfaceParam,configuration_flags)==2136);
+        assert(offsetof(InterfaceParam,record_crc32)==2140);
         assert(offsetof(InterfaceParam,reserved_pos_ki)==2168);
         assert(offsetof(InterfaceParam,reserved_pos_integral_limit)==2176);
         assert(memcmp((const uint8_t *)&p+2160,schema_bytes,sizeof(schema_bytes))==0);
         assert(memcmp((const uint8_t *)&p+2164,magic_bytes,sizeof(magic_bytes))==0);
     }
     {
-        InterfaceParam before=p;
-        Param_Download(&p,&motor_state,&rotor_encoder);
+        p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
         assert(memcmp(&p,&before,sizeof(p))==0);
     }
     assert(motor_state.cascade_position_kp==.07f && motor_state.cascade_position_kd==.6f);
@@ -123,7 +136,7 @@ int main(void) {
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     assert(CoggingMap.magic==0);
     Param_Upload(&p,&motor_state,&rotor_encoder); p.magic_word=MAGIC_WORD;
-    assert(p.reserved_pos_kp==0 && p.reserved_pos_kd==0 && p.reserved_pos_ki==0 && p.reserved_pos_integral_limit==0);
+    assert(p.configuration_flags==1U && p.record_crc32==Param_RecordCrc(&p) && p.reserved_pos_ki==0 && p.reserved_pos_integral_limit==0);
     {
         const uint8_t zero_bytes[] = {0,0,0,0};
         assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
@@ -138,26 +151,52 @@ int main(void) {
         assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,signature,&CoggingMap));
         Param_Upload(&p,&motor_state,&rotor_encoder); p.magic_word=MAGIC_WORD;
         memset(&CoggingMap,0,sizeof(CoggingMap));
-        Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap_Valid(&CoggingMap,signature));
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap_Valid(&CoggingMap,signature));
         assert(CoggingMap.iq_q15[17]==123);
         p.cogging.iq_q15[5]^=1;
-        Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap.magic==0);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap.magic==0);
         p.cogging.iq_q15[5]^=1; p.encoder_electrical_zero_q15++;
-        Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap.magic==0);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap.magic==0);
     }
-    puts("PASS schema11 golden layout, Q15 map round trip, corrupt/stale map rejection");
+    puts("PASS schema12 golden layout, Q15 map round trip, corrupt/stale map rejection");
     /* 当前硬件配置变化仍使电流域参数失效，不属于已删除的版本迁移。 */
     p=saved;
     p.current_sense_shunt_milliohm=CURRENT_SENSE_SHUNT_MILLIOHM==2U ? 6U : 2U;
     p.calibration_current_a=.1f; p.current_limit_a=.1f;
     p.friction_model_valid=1U;
     p.friction_coulomb_pos_a=.2f; p.friction_coulomb_neg_a=.2f;
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
     assert(motor_state.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
     assert(motor_state.current_limit_a==PARAM_MOTOR_CURRENT_LIMIT_A);
     assert(!motor_state.friction_model_valid && CoggingMap.magic==0);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     puts("PASS current-sense mismatch invalidates current-domain settings only");
+
+    /* 独立 zlib 黄金值固定整条 CRC 契约；记录 CRC 槽不参与计算。 */
+    memset(&p,0,sizeof(p)); p.schema_version=12U; p.magic_word=MAGIC_WORD;
+    assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
+    p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
+    Param_Return_Default(&motor_state,&rotor_encoder);
+    assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
+    Param_Upload(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
+    motor_state.configuration_confirmed=true; rotor_encoder.calib_flag=ENC_CALIB_LINEARIZED;
+    Param_Upload(&p,&motor_state,&rotor_encoder); saved=p;
+    Param_Return_Default(&motor_state,&rotor_encoder);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(motor_state.configuration_confirmed && rotor_encoder.calib_flag==ENC_CALIB_LINEARIZED);
+    p.current_limit_a+=1.0f;
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    assert(rotor_encoder.calib_flag==0U && motor_state.axis_profile_valid);
+    p=saved; p.configuration_flags=2U; p.record_crc32=Param_RecordCrc(&p);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    p=saved; p.motor_flux_wb=NAN; p.record_crc32=Param_RecordCrc(&p);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    puts("PASS independent schema12 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
     return 0;
 }
 """
@@ -195,6 +234,7 @@ def main():
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
         str(ROOT / "firmware/motor/identification/cogging_map.c"),
         str(ROOT / "shared/checksum/crc32.c"),
+        str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
         "-o",
         str(exe),
     ]

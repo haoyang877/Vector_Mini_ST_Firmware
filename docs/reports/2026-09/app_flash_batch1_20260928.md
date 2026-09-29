@@ -28,7 +28,7 @@ Loader APP 的 ROM 与加载跨度相差 40 B，为向量表到固定镜像描�
 提交 `afe1920` 删除没有控制调用者的四个位置增益/积分限值运行字段、赋值和校验。
 schema11 原槽位改名为 reserved，读取忽略、导出清零；有效参数及标定偏移不变。
 不提供旧 API 别名、转换或自动 Flash 回写。私有运行结构缩小 16 B，SWD 必须使用
-同版 ELF。见 [schema11 退役槽位约定](../../protocols/parameter_schema11_loading_policy_v1.md)。
+同版 ELF。见 [schema11 退役槽位约定](../../protocols/parameter_schema12_loading_policy_v1.md)。
 
 ### 软件双精度依赖
 

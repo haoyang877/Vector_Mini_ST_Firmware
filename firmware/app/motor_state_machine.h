@@ -1,5 +1,6 @@
 #ifndef MOTOR_STATE_MACHINE_H
 #define MOTOR_STATE_MACHINE_H
+#include "motor_readiness.h"
 
 #include <stdbool.h>
 
@@ -168,6 +169,13 @@ bool MotorStateMachine_BootHandoffReady(uint64_t ticket);
  * @note 前台短临界区只读；通信健康由组合层补充，不授权运动或Flash。
  */
 bool MotorStateMachine_ReadBootHealth(uint32_t *progress);
+
+/**
+ * @brief 复制基础自检事实及各模式当前启动资格。
+ * @param readiness 调用方值空间；空指针不执行。
+ * @note 前台短临界区只读；资格随采样、配置和状态变化，不能作为延迟使能许可。
+ */
+void MotorStateMachine_ReadReadiness(MotorReadiness *readiness);
 
 typedef enum
 {

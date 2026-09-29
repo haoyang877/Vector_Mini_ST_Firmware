@@ -1,16 +1,91 @@
 {
   "version": 1,
   "byte_order": "little",
-  "scope": "payload golden vectors; no tests executed in this batch",
+  "scope": "parameter wire v1 plus readiness extension v1; current native verification required",
   "vectors": [
-    {"name": "read_speed_limit", "type": 120, "request": "01 00 00 00", "response": "00 00 00 00 01 01 04 03 05 00 00 00 E2 04 00 00"},
-    {"name": "write_speed_limit", "type": 121, "request": "01 01 04 00 05 00 00 00 E2 04 00 00", "response": "00 00 00 00 01 01 04 00 06 00 00 00 E2 04 00 00"},
-    {"name": "read_revision_high_bit", "type": 120, "request": "00 00 00 00", "response": "00 00 00 00 00 02 04 01 01 00 00 80 01 00 00 80"},
-    {"name": "save_accepted", "type": 122, "request": "06 00 00 00", "response": "01 00 00 00 05 00 00 00"},
-    {"name": "save_completed", "type": 122, "request": "06 00 00 00", "response": "00 00 00 00 06 00 00 00"},
-    {"name": "revision_conflict", "type": 121, "request": "01 01 04 00 05 00 00 00 E2 04 00 00", "response": "04 00 03 00"},
-    {"name": "read_only", "type": 121, "request": "43 02 04 00 06 00 00 00 03 00 00 00", "response": "05 00 02 00"},
-    {"name": "persist_failed", "type": 122, "request": "06 00 00 00", "response": "08 00 04 00"},
-    {"name": "clear_fault", "type": 107, "request": "", "response": "00 00 00 00"}
+    {
+      "name": "read_speed_limit",
+      "type": 120,
+      "request": "01 00 00 00",
+      "response": "00 00 00 00 01 01 04 03 05 00 00 00 E2 04 00 00"
+    },
+    {
+      "name": "write_speed_limit",
+      "type": 121,
+      "request": "01 01 04 00 05 00 00 00 E2 04 00 00",
+      "response": "00 00 00 00 01 01 04 00 06 00 00 00 E2 04 00 00"
+    },
+    {
+      "name": "read_revision_high_bit",
+      "type": 120,
+      "request": "00 00 00 00",
+      "response": "00 00 00 00 00 02 04 01 01 00 00 80 01 00 00 80"
+    },
+    {
+      "name": "save_accepted",
+      "type": 122,
+      "request": "06 00 00 00",
+      "response": "01 00 00 00 05 00 00 00"
+    },
+    {
+      "name": "save_completed",
+      "type": 122,
+      "request": "06 00 00 00",
+      "response": "00 00 00 00 06 00 00 00"
+    },
+    {
+      "name": "revision_conflict",
+      "type": 121,
+      "request": "01 01 04 00 05 00 00 00 E2 04 00 00",
+      "response": "04 00 03 00"
+    },
+    {
+      "name": "read_only",
+      "type": 121,
+      "request": "43 02 04 00 06 00 00 00 03 00 00 00",
+      "response": "05 00 02 00"
+    },
+    {
+      "name": "persist_failed",
+      "type": 122,
+      "request": "06 00 00 00",
+      "response": "08 00 04 00"
+    },
+    {
+      "name": "clear_fault",
+      "type": 107,
+      "request": "",
+      "response": "00 00 00 00"
+    },
+    {
+      "name": "read_configuration_unconfirmed",
+      "type": 120,
+      "request": "4D 00 00 00",
+      "response": "00 00 00 00 4D 02 04 03 05 00 00 00 00 00 00 00"
+    },
+    {
+      "name": "confirm_configuration",
+      "type": 121,
+      "request": "4D 02 04 00 05 00 00 00 01 00 00 00",
+      "response": "00 00 00 00 4D 02 04 00 06 00 00 00 01 00 00 00"
+    },
+    {
+      "name": "read_preparation_blockers",
+      "type": 120,
+      "request": "4F 00 00 00",
+      "response": "00 00 00 00 4F 02 04 01 06 00 00 00 03 00 00 00"
+    },
+    {
+      "name": "read_self_test_facts",
+      "type": 120,
+      "request": "50 00 00 00",
+      "response": "00 00 00 00 50 02 04 01 06 00 00 00 FF 00 00 00"
+    },
+    {
+      "name": "read_all_modes_startable",
+      "type": 120,
+      "request": "51 00 00 00",
+      "response": "00 00 00 00 51 02 04 01 06 00 00 00 0F 00 00 00"
+    }
   ]
 }

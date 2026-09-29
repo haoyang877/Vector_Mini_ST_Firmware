@@ -16,7 +16,7 @@
  * 属于已发布 schema 的一部分，数值禁止更改。 */
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
-#define PARAM_SCHEMA_VERSION 11U
+#define PARAM_SCHEMA_VERSION 12U
 
 typedef struct
 {
@@ -46,9 +46,10 @@ typedef struct
     float position_acceleration_rad_s2;
     float position_deceleration_rad_s2;
     float position_maximum_speed_rad_s;
-    /* 退役位置增益保留槽：不参与配置，保持当前存储偏移。 */
-    uint32_t reserved_pos_kp;
-    uint32_t reserved_pos_kd;
+    /* schema12 复用退役槽；bit0 为用户配置确认，其他位必须为零。 */
+    uint32_t configuration_flags;
+    /* schema12 整条记录 CRC32，计算时跳过此四字节槽。 */
+    uint32_t record_crc32;
     float calibration_current_a;
     float current_limit_a;
     float speed_limit_rad_s;
@@ -86,7 +87,7 @@ typedef struct
 void Param_Return_Default(MotorControlState *motor, EncoderState *encoder);
 
 /**
- * @brief 导出 schema11 参数值记录。
+ * @brief 导出含配置确认、识别字与整条 CRC32 的 schema12 参数记录。
  * @param param 调用方独占的记录空间。
  * @param motor 稳定的电机配置。
  * @param encoder 稳定的编码器配置。
@@ -97,11 +98,19 @@ void Param_Upload(InterfaceParam *param,
                   const EncoderState *encoder);
 
 /**
- * @brief 仅装载当前 schema 11 参数，其他版本或无效记录恢复编译期默认值。
+ * @brief 仅装载当前 schema12 完整记录，其他版本或损坏记录恢复未确认默认值。
  * @param param 只读 Flash 记录副本。
  * @param motor 中断启动前的电机配置。
  * @param encoder 中断启动前的编码器配置。
  * @note 仅启动调用；拒绝旧版本时清除运行态标定标志，不转换记录或执行 Flash I/O。
  */
 void Param_Download(const InterfaceParam *param, MotorControlState *motor, EncoderState *encoder);
+
+/**
+ * @brief 计算当前参数记录完整性 CRC32，跳过 record_crc32 槽。
+ * @param param 调用方独占的完整记录，不能为空。
+ * @return 标准反射 CRC32，首块种子为零。
+ * @note 启动或停机前台调用；不修改输入，不在快慢环计算。
+ */
+uint32_t Param_RecordCrc(const InterfaceParam *param);
 #endif

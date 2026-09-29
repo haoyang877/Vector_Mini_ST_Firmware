@@ -94,4 +94,12 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor,
                                      uint8_t node_id,
                                      const ParameterWriteRequest *request);
 
+/**
+ * @brief 检查当前电机配置的基础数值、轴与控制限值是否可用。
+ * @param motor 所有者提供的稳定配置；空指针无效。
+ * @return 关键数值有限、范围有效且轴配置有效返回 true；不要求确认或标定。
+ * @note 纯有界计算；不证明参数与实际电机匹配，不访问硬件。
+ */
+bool ParameterValue_ConfigurationValid(const MotorControlState *motor);
+
 #endif

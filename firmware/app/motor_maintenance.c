@@ -11,6 +11,7 @@
 #include "foc_param_profile.h"
 #include "control_config.h"
 #include "utils.h"
+#include "parameter_value_service.h"
 
 /* 产品默认值只在组合层装配，算法接收只读显式输入。 */
 #define PHASE_RESISTANCE_RAMP_TICKS ((FOC_FREQ * PARAM_MOTOR_PHASE_RESISTANCE_RAMP_TIME_MS) / 1000U)
@@ -100,6 +101,10 @@ MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
         kind == MOTOR_MAINTENANCE_FRICTION;
     if (torque_task)
     {
+        if (!motor->configuration_confirmed || !ParameterValue_ConfigurationValid(motor))
+        {
+            return MOTOR_FAULT_INVALID_PARAMETERS;
+        }
         if (!isfinite(foc->bus_voltage_v) || !isfinite(foc->bus_voltage_filtered_v) ||
             foc->bus_voltage_v >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
             foc->bus_voltage_filtered_v > BUS_VOLTAGE_ENABLE_MAX_V)

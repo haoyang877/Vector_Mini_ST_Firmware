@@ -17,7 +17,7 @@ FDCAN HAL → platform/api/comm_hw.h
           → APP 所有者适配器 → 状态机 / 参数服务
 ```
 
-Board_Init 先初始化电机对象及 schema 11 参数，再启动平台和协议运行态，并绑定状态源。
+Board_Init 先初始化电机对象及 schema 12 参数，再启动平台和协议运行态，并绑定状态源。
 旧 schema 或无效参数回退默认值，启动不迁移或回写参数区。
 FDCAN RX ISR 不执行 CRC、分片、Flash、日志或电机业务。
 前台循环服务维护认领与保存、刷新状态快照、处理协议队列；每次收发数量有界，

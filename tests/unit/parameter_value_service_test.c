@@ -85,8 +85,48 @@ static void write_rejection_preserves_configuration(void)
     assert(memcmp(&motor, &before, sizeof(motor)) == 0);
 }
 
+static void configuration_confirmation(void)
+{
+    MotorControlState motor = {.axis_profile_valid = true,
+                               .motor_pole_pairs = 21,
+                               .motor_phase_resistance_ohm = 1.0f,
+                               .motor_d_inductance_h = 0.001f,
+                               .motor_q_inductance_h = 0.001f,
+                               .motor_flux_wb = 0.01f,
+                               .current_limit_a = 1.0f,
+                               .calibration_current_a = 1.0f,
+                               .speed_limit_rad_s = 1.0f,
+                               .speed_acceleration_rad_s2 = 1.0f,
+                               .speed_deceleration_rad_s2 = 1.0f};
+    EncoderState encoder = {0};
+    ParameterWriteRequest request = {
+        .parameter_id = 0x4DU, .value_type = PARAMETER_VALUE_U32, .raw_value = 1U};
+    ParameterValue value;
+    assert(ParameterValue_ConfigurationValid(&motor));
+    assert(ParameterValue_Read(&motor, &encoder, 1U, 3U, 0x4DU, &value) == PARAMETER_OK);
+    assert(value.raw_value == 0U && value.access == 3U);
+    request.raw_value = 2U;
+    MotorControlState before = motor;
+    assert(ParameterValue_Apply(&motor, 3U, &request) == PARAMETER_OUT_OF_RANGE);
+    assert(memcmp(&motor, &before, sizeof(motor)) == 0);
+    request.raw_value = 1U;
+    motor.motor_flux_wb = NAN;
+    before = motor;
+    assert(ParameterValue_Apply(&motor, 3U, &request) == PARAMETER_OUT_OF_RANGE);
+    assert(memcmp(&motor, &before, sizeof(motor)) == 0);
+    motor.motor_flux_wb = 0.01f;
+    assert(ParameterValue_Apply(&motor, 3U, &request) == PARAMETER_OK);
+    assert(motor.configuration_confirmed && encoder.calib_flag == 0U);
+    assert(ParameterValue_Read(&motor, &encoder, 2U, 3U, 0x4EU, &value) == PARAMETER_OK);
+    assert(value.raw_value == MOTOR_CONFIGURATION_ACTIVE && value.access == 1U);
+    request.raw_value = 0U;
+    assert(ParameterValue_Apply(&motor, 3U, &request) == PARAMETER_OK);
+    assert(!motor.configuration_confirmed);
+}
+
 int main(void)
 {
+    configuration_confirmation();
     read_units_and_identity();
     read_errors_clear_output();
     write_rejection_preserves_configuration();

@@ -32,6 +32,12 @@ static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
 static bool outer_ready;
 static bool check_borrowed_requests;
 static uint32_t critical_depth;
+static uint32_t now_ms;
+
+uint32_t time_hw_now_ms(void)
+{
+    return now_ms;
+}
 static uint8_t protocol_mode(MotorControlMode mode, MotorMaintenanceKind kind);
 
 /* 本夹具模拟普通 APP 的无 Loader 端口，配置修订号仍有可用空间。 */
@@ -218,11 +224,17 @@ static void tick(void)
 
 static void reset(void)
 {
+    now_ms = 0U;
     memset(&motor, 0, sizeof(motor));
     memset(&foc, 0, sizeof(foc));
     memset(&encoder, 0, sizeof(encoder));
     motor.axis_profile_valid = true;
     motor.motor_pole_pairs = 21;
+    motor.configuration_confirmed = true;
+    motor.motor_phase_resistance_ohm = 1.0f;
+    motor.motor_d_inductance_h = motor.motor_q_inductance_h = 0.001f;
+    motor.motor_flux_wb = 0.01f;
+    motor.calibration_current_a = 3.0f;
     motor.current_limit_a = 6.0f;
     motor.speed_limit_rad_s = 20.0f;
     motor.speed_acceleration_rad_s2 = motor.speed_deceleration_rad_s2 = 1.0f;
@@ -239,7 +251,10 @@ static void reset(void)
     memset(leaf_calls, 0, sizeof(leaf_calls));
     stop_fails = cogging_active = cogging_pending = cogging_claimed = cogging_cancelled = false;
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
-    tick();
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        tick();
+    }
     assert(MotorStateMachine_GetState() == APP_READY);
 }
 
@@ -259,10 +274,8 @@ static void test_control(void)
     tick();
     tick();
     assert(MotorStateMachine_GetState() == APP_RUNNING && !output_off);
-    MotorControlCommand goal = {.mode = MOTOR_CONTROL_SPEED,
-                                .speed_rad_s = -2.0f,
-                                .source_node = 2U,
-                                .sequence = 41U};
+    MotorControlCommand goal = {
+        .mode = MOTOR_CONTROL_SPEED, .speed_rad_s = -2.0f, .source_node = 2U, .sequence = 41U};
     MotorControlProgress progress;
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_BUSY);
@@ -297,10 +310,8 @@ static void test_control(void)
     tick();
     tick();
     assert(MotorStateMachine_GetState() == APP_RUNNING);
-    goal = (MotorControlCommand){.mode = MOTOR_CONTROL_CURRENT,
-                                .iq_a = 1.0f,
-                                .source_node = 2U,
-                                .sequence = 43U};
+    goal = (MotorControlCommand){
+        .mode = MOTOR_CONTROL_CURRENT, .iq_a = 1.0f, .source_node = 2U, .sequence = 43U};
     assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
                                   MotorStateMachine_WorkEpoch());
@@ -311,7 +322,10 @@ static void test_control(void)
     assert(progress.state == MOTOR_CONTROL_PROGRESS_REJECTED &&
            progress.result == MOTOR_CONTROL_FAULT && progress.sequence == 43U);
     assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
-    tick();
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        tick();
+    }
     assert(MotorStateMachine_GetState() == APP_READY && motor.fault_code == MOTOR_FAULT_NONE &&
            motor.control_mode == MOTOR_CONTROL_NONE && motor.speed_target_rad_s == 0.0f);
     puts("PASS worker fault latches error; fresh recovery CLEAR does not restart");
@@ -613,8 +627,7 @@ static void test_maintenance_guards(void)
             assert(ticket == 0U && output_off && start_count == 0U);
             if (isfinite(values[v]))
             {
-                assert(motor.fault_code ==
-                       (values[v] < 25.6f ? MOTOR_FAULT_UNDERVOLTAGE : MOTOR_FAULT_OVERVOLTAGE));
+                assert(motor.fault_code == MOTOR_FAULT_NONE);
             }
         }
         for (unsigned mode = 0U; mode <= MOTOR_CONTROL_VQ; ++mode)
@@ -631,12 +644,12 @@ static void test_maintenance_guards(void)
     uint32_t ticket = UINT32_MAX;
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO, &ticket) ==
            MOTOR_CONTROL_DENIED);
-    assert(motor.fault_code == MOTOR_FAULT_ENCODER_NOT_CALIBRATED && output_off && ticket == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_NONE && output_off && ticket == 0U);
     reset();
     encoder.bad_frame_streak = 1U;
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
            MOTOR_CONTROL_DENIED);
-    assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off && ticket == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_NONE && output_off && ticket == 0U);
     puts(
         "PASS real-owner torque admission rejects unsafe bus and invalid encoder without enabling");
 }
@@ -765,8 +778,133 @@ static void test_wire_projection(void)
     puts("PASS fixed CAN status mode numbers preserved across control/task split");
 }
 
+static void test_preparation_readiness(void)
+{
+    for (unsigned flags = 0U; flags <= ENC_CALIB_ALL; ++flags)
+    {
+        reset();
+        motor.configuration_confirmed = false;
+        encoder.calib_flag = (uint8_t)flags;
+        MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+        for (unsigned i = 0U; i < 4U; ++i)
+        {
+            tick();
+        }
+        MotorReadiness readiness;
+        MotorStateMachine_ReadReadiness(&readiness);
+        assert(MotorStateMachine_GetState() == APP_READY && output_off && start_count == 0U);
+        assert(motor.fault_code == MOTOR_FAULT_NONE && MotorStateMachine_ConfigurationAllowed());
+        assert(readiness.self_test_checks == MOTOR_SELF_TEST_ALL);
+        assert(readiness.start_blockers & MOTOR_START_CONFIGURATION_REQUIRED);
+        assert(readiness.startable_modes == 0U);
+        for (unsigned mode = 0U; mode <= MOTOR_CONTROL_VQ; ++mode)
+        {
+            assert(MotorStateMachine_RequestEnable((MotorControlMode)mode) == MOTOR_CONTROL_DENIED);
+        }
+        uint32_t ticket;
+        assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
+               MOTOR_CONTROL_DENIED);
+        assert(ticket == 0U && motor.fault_code == MOTOR_FAULT_NONE && output_off);
+        motor.configuration_confirmed = true;
+        MotorStateMachine_ReadReadiness(&readiness);
+        assert(!(readiness.start_blockers & MOTOR_START_CONFIGURATION_REQUIRED));
+        if (flags != ENC_CALIB_ALL)
+        {
+            assert(readiness.start_blockers & MOTOR_START_CALIBRATION_REQUIRED);
+            assert(readiness.startable_modes == 0U);
+        }
+        else
+        {
+            assert(readiness.start_blockers == 0U && readiness.startable_modes == 15U);
+        }
+        assert(output_off && MotorStateMachine_GetState() == APP_READY && start_count == 0U);
+    }
+    reset();
+    encoder.calib_flag = 0U;
+    uint32_t ticket;
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO, &ticket) ==
+           MOTOR_CONTROL_DENIED);
+    assert(motor.fault_code == MOTOR_FAULT_NONE && ticket == 0U);
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_GetState() == APP_MAINTENANCE);
+    assert(MotorStateMachine_RequestRemoteStop());
+    tick();
+    assert(MotorStateMachine_GetState() == APP_READY && output_off);
+    reset();
+    foc.bus_voltage_v = foc.bus_voltage_filtered_v = 0.0f;
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        tick();
+    }
+    MotorReadiness readiness;
+    MotorStateMachine_ReadReadiness(&readiness);
+    assert(MotorStateMachine_GetState() == APP_READY && motor.fault_code == MOTOR_FAULT_NONE);
+    assert(readiness.start_blockers & MOTOR_START_BUS_UNAVAILABLE);
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(output_off);
+    puts("PASS unconfigured/partial-calibration READY, explicit mode admission and maintenance "
+         "prerequisites");
+}
+
+static void test_self_test_deadline(void)
+{
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    tick();
+    tick();
+    tick();
+    assert(MotorStateMachine_GetState() == APP_SELF_TEST);
+    MotorStateMachine_Tick();
+    tick();
+    tick();
+    tick();
+    assert(MotorStateMachine_GetState() == APP_SELF_TEST);
+    tick();
+    assert(MotorStateMachine_GetState() == APP_READY && start_count == 0U);
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    now_ms = UINT32_MAX - 100U;
+    uint32_t began = now_ms;
+    MotorStateMachine_Tick();
+    now_ms = began + 499U;
+    MotorStateMachine_Tick();
+    assert(MotorStateMachine_GetState() == APP_SELF_TEST && output_off);
+    now_ms = began + 500U;
+    MotorStateMachine_Tick();
+    assert(MotorStateMachine_GetState() == APP_FAULT &&
+           motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
+    tick();
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        tick();
+    }
+    assert(MotorStateMachine_GetState() == APP_READY && output_off);
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    output_off = false;
+    stop_fails = true;
+    tick();
+    assert(MotorStateMachine_GetState() == APP_FATAL && start_count == 0U);
+    assert(MotorStateMachine_RequestClear() != MOTOR_CONTROL_ACCEPTED);
+    reset();
+    foc.bus_voltage_v = BUS_VOLTAGE_HARD_OVERVOLTAGE_V;
+    MotorStateMachine_CheckFastFaults();
+    MotorStateMachine_FastFaultStop();
+    tick();
+    assert(motor.fault_code == MOTOR_FAULT_OVERVOLTAGE &&
+           MotorStateMachine_GetState() == APP_FAULT && output_off);
+    puts("PASS continuous self-test window, wrap-safe deadline, explicit recovery and failed "
+         "shutdown FATAL");
+}
+
 int main(void)
 {
+    test_preparation_readiness();
+    test_self_test_deadline();
     reset();
     uint32_t progress, next;
     assert(MotorStateMachine_ReadBootHealth(&progress) && progress != 0U);

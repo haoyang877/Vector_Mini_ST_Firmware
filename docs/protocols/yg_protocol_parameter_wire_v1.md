@@ -86,3 +86,10 @@ STOP撤销/故障取消后不能把旧作业结果充当新请求完成；此状
 黄金payload见`yg_protocol_parameter_wire_v1_vectors.json`。统一验证以后覆盖：字段非法、
 u32高位保持、主站拒绝、未绑定、同seq重传冲突、版本冲突、停止取消和Flash保存失败。
 参数ID/缩放以参数目录为准；当前无真实实现的ID明确不支持，不增加新模式或参数ABI。
+
+## 准备资格增量契约 v1（2026-09-29）
+
+新增 ID 0x4D～0x51，现有请求/响应字节布局与结果码不变。0x4D 为停机配置确认，
+写入仍受身份、revision、类型和配置数值校验约束；确认不自动标定、保存或启动。
+其余项为只读准备资格诊断，未确认或部分标定时主状态保持 READY、ENABLE 被拒绝。
+[完整定义](../architecture/motor_readiness_v1.md)及[黄金向量](yg_protocol_parameter_wire_v1_vectors.json)。

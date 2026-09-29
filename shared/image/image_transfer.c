@@ -25,7 +25,7 @@ static bool geometry(const LoaderImageConfig *c)
     if (!c || !c->io.read || !c->io.erase || !c->io.program || !c->allowed || !c->watchdog ||
         c->io.program_bytes != 8 || !c->io.erase_bytes || c->io.erase_bytes % 8 ||
         c->app.bytes > 131072 || c->app.bytes < 8 || c->app.bytes % c->io.erase_bytes ||
-        c->app.base % c->io.erase_bytes || c->schema != 11 || c->ram_start >= c->ram_end ||
+        c->app.base % c->io.erase_bytes || !c->schema || c->ram_start >= c->ram_end ||
         c->descriptor_offset < 8 || (uint64_t)c->descriptor_offset + 64U > c->app.bytes ||
         c->descriptor_offset % 8 || !c->layout || !c->mcu || !c->product || !c->hardware ||
         !c->param_abi)

@@ -6,6 +6,12 @@
 #include <string.h>
 
 #include "motor_axis.h"
+#include "motor_state_machine.h"
+
+void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
+{
+    *readiness = (MotorReadiness){.start_blockers = 3U, .self_test_checks = MOTOR_SELF_TEST_ALL};
+}
 #include "critical_hw.h"
 #include "motor_state_machine.h"
 #include "parameter_value_service.h"
@@ -200,6 +206,18 @@ int main(void)
     ticket = 0U;
     CHECK(MotorAxis_RequestSave(&save_other, &ticket) == PARAMETER_BUSY);
     CHECK(ticket == 0U);
+
+    /* 准备资格可在 SELF_TEST 查询；原身份重试仍保持参数身份冲突契约。 */
+    stub_state = APP_SELF_TEST;
+    read = (ParameterReadRequest){.parameter_id = 0x4FU, .source_node = node, .sequence = 50U};
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
+    CHECK(value.raw_value == 3U && value.access == PARAMETER_ACCESS_READ);
+    CHECK(value.value_type == PARAMETER_VALUE_U32 && value.revision == 1U);
+    read.parameter_id = 0x50U;
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
+    read.sequence = 51U;
+    CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
+    CHECK(value.raw_value == MOTOR_SELF_TEST_ALL);
 
     if (failures == 0U)
     {

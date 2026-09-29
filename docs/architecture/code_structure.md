@@ -119,11 +119,11 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 | `motor/protection/foc_errhandle.c` | 显式故障锁存和恢复资格；不拥有输出使能或清错提交权 |
 | `motor/foc/foc_sensing.c` | 显式采样目标，温度诊断私有，提供窄新鲜度查询 |
 | `motor/identification/foc_cogging_calibration.c` | 私有标定采样、表和补偿状态；候选构建与发布分开，取消不改写前台正在读取的样本 |
-| `services/parameters/foc_param.c` | 默认、schema 11 记录解释与导出，实际控制对象由 APP 显式传入 |
+| `services/parameters/foc_param.c` | 默认、schema 12 记录解释与导出，实际控制对象由 APP 显式传入 |
 | `platform/api/param_store.h` | 仅字节读写能力；STM32 Flash 实现不解释参数、不分配堆、不引用控制对象 |
 
 `foc_task.c` 是 ISR 入口薄层；状态/RTT 输出使用值快照或显式标量，不返回内部对象地址。
-生成 main 只调用前台服务；合法 schema11 装载不重写，旧 schema 拒绝并回退默认值，不自动写 Flash。
+生成 main 只调用前台服务；合法 schema12 装载不重写，旧 schema 拒绝并回退默认值，不自动写 Flash。
 本轮没有新增持久化 ABI、CAN 编号或大型常驻参数副本。
 
 维护完成与保存提交独立记录，前台使用 `{epoch, kind}` 认领；保存前再次核对身份、

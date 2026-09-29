@@ -293,7 +293,6 @@ void MotorAxis_ServiceBackground(void)
         if (record != NULL)
         {
             Param_Upload(record, &s_motor_state, &s_rotor_encoder);
-            record->magic_word = MAGIC_WORD;
             uint32_t mask = critical_hw_enter();
             if (MotorStateMachine_BackgroundValid(&claim))
             {
@@ -426,6 +425,21 @@ ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, Par
                                            Protocol_NodeId_Get(),
                                            request->parameter_id,
                                            value);
+        if (request->parameter_id >= 0x4FU && request->parameter_id <= 0x51U)
+        {
+            MotorReadiness readiness;
+            MotorStateMachine_ReadReadiness(&readiness);
+            uint32_t raw = request->parameter_id == 0x4FU   ? readiness.start_blockers
+                           : request->parameter_id == 0x50U ? readiness.self_test_checks
+                                                            : readiness.startable_modes;
+            *value = (ParameterValue){request->parameter_id,
+                                      PARAMETER_VALUE_U32,
+                                      PARAMETER_ACCESS_READ,
+                                      0U,
+                                      s_config_revision,
+                                      raw};
+            result = PARAMETER_OK;
+        }
         if (result == PARAMETER_OK)
         {
             if (!MotorStateMachine_ConfigurationAllowed())

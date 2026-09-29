@@ -82,7 +82,7 @@ Flash 区域仍链接失败，采用与基线相同的临时 FIXED/虚拟容量�
 格式和接口契约问题；项目布局、架构与本批参数测试通过。没有恢复被删的旧头文件
 来使历史测试通过，也不把局部通过描述成全库通过。当前证据位于
 `outputs/capacity-fit/remove-legacy/`，PR 清单位于相应 `outputs/runs/` 目录。
-旧参数接受策略见 [schema11 加载策略 v1](../../protocols/parameter_schema11_loading_policy_v1.md)。
+旧参数接受策略见 [schema11 加载策略 v1](../../protocols/parameter_schema12_loading_policy_v1.md)。
 
 ## 容量根因复核与隔离实验
 

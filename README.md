@@ -12,7 +12,7 @@ firmware/                         电机 APP
   common/                         通用数学与内存工具
   third_party/                    SEGGER RTT
 loader/                           独立 G431 Loader、升级事务与 CAN FD 端口
-host_app/                         PC 上位机工程入口（后续实现）
+host_app/                         Qt6 维护页面、离线升级规划与参数模型（设备执行后端待接线）
 shared/                           APP/Loader 共用协议、镜像及交接契约
 tools/                           build、bench、analysis
 tests/                           unit、integration

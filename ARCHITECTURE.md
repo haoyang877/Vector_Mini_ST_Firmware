@@ -7,7 +7,9 @@ This is the stable top-level map. Detailed design and historical evidence live u
 ## Products and contracts
 
 - `firmware/` is the current STM32G4 motor-control APP.
-- `loader/` is the independently built G431 upgrade product; `host_app/` reserves the future PC boundary. Neither is linked into APP.
+- `loader/` is the independently built G431 upgrade product.
+- `host_app/` provides native Qt6 maintenance pages with offline upgrade planning and parameter models;
+  device CAN/SWD execution is not connected. Neither product is linked into APP.
 - `shared/` owns only cross-product protocol, image, boot, target-layout contracts, and the pure CRC32 core.
   Motor code may consume the shared CRC32 contract; shared never depends on firmware or hardware.
 

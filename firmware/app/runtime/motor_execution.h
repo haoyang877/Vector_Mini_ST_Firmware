@@ -1,16 +1,29 @@
 #ifndef MOTOR_EXECUTION_H
 #define MOTOR_EXECUTION_H
 #include "motor_task_result.h"
+#include "motor_control_command.h"
 
 /* 控制任务与外环入口：调用方显式传入控制对象；不选择维护或读取生命周期。 */
-
 #include "position_cascade.h"
-
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_sensorless.h"
 #include "foc_pid.h"
 #include "motor_types.h"
+
+/**
+ * @brief 验证控制目标格式及当前参数允许的数值范围，不决定运行许可。
+ * @param command SI 值命令；未使用字段须为零，所有浮点字段须有限。
+ * @param motor 只读限值和轴配置，电流 A、速度 rad/s、位置 rad。
+ * @param foc 只读母线滤波电压，单位 V。
+ * @param encoder 只读当前机械位置，单位 rad。
+ * @return 格式错误返回 INVALID，越界返回 OUT_OF_RANGE，否则 ACCEPTED。
+ * @note 不修改对象、不访问硬件；调用者同步配置和测量，另行检查故障、状态与启相许可。
+ */
+MotorControlResult MotorExecution_ValidateTarget(const MotorControlCommand *command,
+                                                 const MotorControlState *motor,
+                                                 const FocState *foc,
+                                                 const EncoderState *encoder);
 
 /**
  * @brief  外环 2 kHz 慢拍：位置级联/轨迹与速度 PI 直接执行并发布电流参考。

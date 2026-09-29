@@ -4,10 +4,9 @@
 #include "param_comm_bridge.h"
 #include "yg_protocol_link.h"
 
-/* runtime 拥有参数桥值与硬件调度；link 独占冻结的地址、队列及业务状态。
+/* runtime 拥有节点身份桥值与硬件调度；link 独占冻结的地址、队列及业务状态。
  * 参数桥更新只供参数装载/保存，不在线重配端点，也不启用通信看门狗。 */
 static uint8_t configured_node_id;
-static uint32_t configured_heartbeat_ms;
 static uint32_t last_recovery_ms;
 static bool initialized;
 static bool started;
@@ -62,14 +61,4 @@ uint8_t Protocol_NodeId_Get(void)
 void Protocol_NodeId_Set(uint8_t node_id)
 {
     configured_node_id = node_id;
-}
-
-uint32_t Protocol_HeartbeatMs_Get(void)
-{
-    return configured_heartbeat_ms;
-}
-
-void Protocol_HeartbeatMs_Set(uint32_t heartbeat_ms)
-{
-    configured_heartbeat_ms = heartbeat_ms;
 }

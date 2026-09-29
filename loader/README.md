@@ -5,7 +5,7 @@
 [Loader 设计 v2](../docs/architecture/loader/loader_product_v1.md)和
 [实施计划](../docs/plans/completed/2026-09-28-simplified-boot-handoff.md)。
 
-[简化审查与修复计划](../docs/plans/active/2026-09-28-loader-simplification-review-v1.md)
+[简化审查与修复计划](../docs/plans/completed/2026-09-28-loader-simplification-review-v1.md)
 记录修复与本次离线证据；跳前CRC不能证明APP可正常运行。
 [升级载荷 v2](../docs/protocols/yg_protocol_upgrade_wire_v2.md)采用主机随机nonce及CRC32新profile，
 旧v1主机/SHA包不兼容，维护角色暂不支持。APP仅在监督有进展和本地健康时喂继承看门狗，

@@ -137,7 +137,7 @@ SHA256 为 1110 B、启动硬件端口为 1426 B、交接服务为 962 B。
 `outputs/capacity-fit/causal-audit/summary.json` 记录源提交、尺寸及产物哈希；
 `current-objects.json` 保存当前对象分类。此前基线见
 [新 APP 容量基线](app_capacity_baseline_20260928.md)，执行计划见
-[容量适配 v1](../../plans/active/2026-09-28-capacity-fit-v1.md)。
+[容量适配 v1](../../plans/completed/2026-09-28-capacity-fit-v1.md)。
 
 文档完成后执行 quick 检查：doctor、项目布局和集成测试通过；格式、lint 及
 文档检查未通过，包含既有源码风格问题与历史报告图片失效链接。清单为

@@ -1,3 +1,5 @@
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](../../plans/completed/2026-09-29-framework-closure-v1.md)与[历史清理](../../plans/active/2026-09-29-legacy-cleanup-v1.md)。
+
 # E/H/D 整体重构开发候选（2026-09-28）
 
 本批完成三方源码与工程输入的集成，状态是**未构建、未测试的开发候选**。
@@ -95,13 +97,13 @@ Loader 配套 APP 的交接调用链为：56 请求当前完整 boot_epoch → A
 
 线上协议使用共享 codec，没有恢复旧 YI 线协议。升级为单槽方案，SHA 用于完整性，
 不声称签名认证、旧版本回滚或断点续传。逐字节协议见
-[参数协议](../protocols/yg_protocol_parameter_wire_v1.md)、
-[升级协议](../protocols/yg_protocol_upgrade_wire_v1.md)、
-[启动交接协议](../protocols/yg_protocol_boot_entry_wire_v1.md)。
+[参数协议](../../protocols/yg_protocol_parameter_wire_v1.md)、
+[升级协议](../../protocols/yg_protocol_upgrade_wire_v1.md)、
+[启动交接协议](../../protocols/yg_protocol_boot_entry_wire_v1.md)。
 
 **原 `FocBenchSpeed`（版本 3）SWD 台架邮箱已随容量批次退役**，不再是 Watch 入口，
 也不再提供 command 1..12 直达。控制、维护与清错改由运行所有者公开 API（CAN 或前台）
-提交，退役记录见 [台架邮箱退役记录](watch_motor_commands.md)。本说明不授权本轮执行运动。
+提交，退役记录见 [台架邮箱退役记录](../../guides/watch_motor_commands.md)。本说明不授权本轮执行运动。
 
 ## 已完成、限制和后续统一测试
 
@@ -125,7 +127,7 @@ ROOT：选择性集成、实际 CAN 发送完成边界、普通与配套 APP 工
 
 代码基线为 a174e00d；E 主体源提交 d505acdc、9581374f，H 截止 12b06de8，
 D 为 17dc8528 与说明 fc6a344。E 在本树集成提交为 82e94822、a30e9ce4，
-其余记录见[整体计划](../plans/active/2026-09-28-system-refactor-e-h-d.md)。
+其余记录见[整体计划](../../plans/completed/2026-09-28-system-refactor-e-h-d.md)。
 最终两项窄修复 5d2b3deb、c9a1bbe0 分别集成为 0bce3ad6、e8293007：新参数请求主动
 收敛旧 SAVE 取消/失败结果；FAULT 中资源归还继续锁存实际故障，不再由适配层清零 guards。
 两项仅作源码差异审阅，未测试。完整源码候选 SHA 为
@@ -134,4 +136,4 @@ D 为 17dc8528 与说明 fc6a344。E 在本树集成提交为 82e94822、a30e9ce
 后续按本批提交逆序回退；不得 reset/clean 用户现场、历史实机工程或其他工作树。
 
 本页记录集成时的开发候选；当前主状态机实现与离线验收范围见
-[功能任务驱动的主状态机 v1](../architecture/motor_state_machine_v1.md)。
+[功能任务驱动的主状态机 v1](../../architecture/motor_state_machine_v1.md)。

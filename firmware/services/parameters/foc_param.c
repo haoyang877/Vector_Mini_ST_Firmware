@@ -98,7 +98,6 @@ void Param_Return_Default(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *O
     MotorControl->friction_viscous_pos_a_per_rad_s = 0.0f;
     MotorControl->friction_viscous_neg_a_per_rad_s = 0.0f;
     MotorControl->friction_model_valid = false;
-    Protocol_HeartbeatMs_Set((uint32_t)PARAM_HW_CAN_HEARTBEAT_MS);
 }
 
 void Param_Upload(InterfaceParam_TypeDef *param,
@@ -148,7 +147,6 @@ void Param_Upload(InterfaceParam_TypeDef *param,
     param->friction_viscous_pos_a_per_rad_s = MotorControl->friction_viscous_pos_a_per_rad_s;
     param->friction_viscous_neg_a_per_rad_s = MotorControl->friction_viscous_neg_a_per_rad_s;
     param->friction_model_valid = MotorControl->friction_model_valid ? 1U : 0U;
-    param->can_hb = (float)Protocol_HeartbeatMs_Get();
     param->schema_version = PARAM_SCHEMA_VERSION;
     param->axis_profile = MotorControl->axis_profile;
     FocCogging_ExportMap(&param->cogging, MotorControl, OnBoard_Encoder);
@@ -269,7 +267,6 @@ void Param_Download(const InterfaceParam_TypeDef *param,
         MotorControl->friction_viscous_neg_a_per_rad_s = 0.0f;
         MotorControl->friction_model_valid = false;
     }
-    Protocol_HeartbeatMs_Set((uint32_t)param->can_hb);
     MotorControl->axis_profile_valid =
         MotorAxisProfile_Load(&param->axis_profile, &MotorControl->axis_profile);
     MotorControl->axis_profile_valid = Param_ApplyJointProfile(MotorControl);

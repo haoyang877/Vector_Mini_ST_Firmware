@@ -1,3 +1,5 @@
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../active/2026-09-29-legacy-cleanup-v1.md)。
+
 # 通信、主状态机与 Loader 整体重构 v1
 
 日期：2026-09-28。状态：开发中，尚未统一测试。
@@ -67,7 +69,7 @@ ROOT另登记`Vector_Mini_ST_LoaderApp.uvprojx`，复用普通APP源码清单，
 boot_handoff、共享镜像/邮箱及描述符，使用D的app.sct、显式开发版本0/正常角色1。
 生成器仅写工程输入，不执行构建。三包源码与工程接线已收口，历史容量缺口仍阻止发布适配声明。
 未启动编译、测试或格式检查；准确入口、状态图、Watch及未完成项见
-[集成交付导航](../../guides/system_refactor_candidate_20260928.md)。
+[集成交付导航](../../reports/2026-09/system_refactor_candidate_20260928.md)。
 
 ### ROOT：升级回复的物理发送边界
 

@@ -2,9 +2,9 @@
 
 版本日期：2026-09-28。本文按 codex/capacity-fit 的简化提交 95f1aa0a 更新，比较基线 abc3b45a。
 文件名保留为现有文档入口。审查发现已完成源码修复，当前仍为**待发布验收的候选实现**。
-发现、修复顺序与离线证据见[简化审查记录 v1](../../plans/active/2026-09-28-loader-simplification-review-v1.md)。
+发现、修复顺序与离线证据见[简化审查记录 v1](../../plans/completed/2026-09-28-loader-simplification-review-v1.md)。
 合并到 codex/system-refactor 后，APP 运行所有者为 motor_state_machine.c，
-接口采用 MotorStateMachine 前缀；[合并记录](../../plans/active/2026-09-28-loader-system-merge-v1.md)
+接口采用 MotorStateMachine 前缀；[合并记录](../../plans/completed/2026-09-28-loader-system-merge-v1.md)
 说明冲突处理及目标分支的重新验证；本文容量数字以合并后的离线构建为准。
 
 ## 设计目标与本次取舍
@@ -207,7 +207,7 @@ Flash 端口补齐全部 SR 错误位、1s 软件等待上限、写前失败退�
 UART 后续适配应复用会话和镜像层，并定义准确发送完成与链路错误契约。
 
 本轮修复覆盖升级内核、真实 runtime 启动路径、监督所有者、APP 喂狗调度、Flash 等待和实际打包 CLI。
-具体 PR/release、Keil 构建及资源结果见[修复验收记录](../../plans/active/2026-09-28-loader-simplification-review-v1.md)。
+具体 PR/release、Keil 构建及资源结果见[修复验收记录](../../plans/completed/2026-09-28-loader-simplification-review-v1.md)。
 尚未烧录、CAN/J-Link 或电机操作，不把离线模型当作实机通过。
 
 发布前闭合仓库 PR/release 门禁，完成明确授权的掉电、故障 APP、ECC、CAN FD 测试。

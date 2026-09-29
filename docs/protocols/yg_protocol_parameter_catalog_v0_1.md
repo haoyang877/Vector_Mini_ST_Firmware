@@ -1,28 +1,37 @@
-# 电调读写参数表 v0.1（评审稿）
+# 电调读写参数表 v0.1（项目编号与当前登记范围）
 
-2026-09-28 H3更新：目录字段沿用，本轮新增120/121/122通信路由/服务绑定，逐字节结果、
-detail及revision收口见[线路接入v1](yg_protocol_parameter_wire_v1.md)。本文下面的“未注册”
-描述记录历史候选基线；实际参数所有者/存储和统一测试仍须完成，不能宣称全目录已实现。
+2026-09-29 更新：120/121/122 已接入通信路由、APP 参数所有者和真实存储提交。
+逐字节结果、detail 及 revision 见[线路接入 v1](yg_protocol_parameter_wire_v1.md)。
+旧离线只读适配器已删除，当前登记由 `parameter_value_service` 的实际来源决定：
 
-日期：2026-09-23。状态：**基于飞书参数清单与当前固件整理的项目候选；Param ID、读写权限、缩放与线上 payload 尚未获公司登记，固件未开放 120/121/122 路由**。本文细化[CMD 功能契约](yg_protocol_cmd_function_contract_v0_1.md)的 `120 READ_PARAM`、`121 WRITE_PARAM`、`122 SAVE_PARAM`。飞书[《电调通信协议》“生产相关”](https://wcnxj7iyqdkp.feishu.cn/wiki/M5KJwCZApilqfjk251XcktAPnxa)列出了参数名称及 `Param ID uint8`，但 ID 数值和读写权限栏尚未填写；以下具体编号、单位、权限均为本项目提案，不是飞书原文。
+- 可读：基础 ID `0～14、16、17、19～26`，标定 ID `0x40～0x4C`。
+- 通用可写：`1、2、21、22、23`；数值轴 profile 下 `21/22/23` 只读。
+  写入还受停机、身份、revision、类型、产品范围和耦合约束限制。
+- 未登记：`15、18、27～34` 及其他未知编号，返回 `UNSUPPORTED`。
+- `122` 异步保存，真实存储提交成功后才回复 OK；活动 revision 不等于 schema 版本。
+
+以下完整表仍包含候选权限和未来项，以以上实际登记范围为准，不代表全目录已实现。
+本次删除旧实现、同步文档后未运行验证，不沿用旧适配器结果。
+
+初版日期：2026-09-23。本文细化[CMD 功能契约](yg_protocol_cmd_function_contract_v0_1.md)的 `120 READ_PARAM`、`121 WRITE_PARAM`、`122 SAVE_PARAM`。编号、单位和权限是本项目约定；飞书[《电调通信协议》“生产相关”](https://wcnxj7iyqdkp.feishu.cn/wiki/M5KJwCZApilqfjk251XcktAPnxa)的原始清单不作为这些具体数值已获公司登记的证明。
 
 ## 1. 统一规则
 
 - 参数命令的 `type` 仍是公司帧头中的 `120/121/122`，**参数 ID 是 payload 中的 `u8`**，两者不是同一编号。现有内部 `yg_protocol_parameter_request_t.parameter_id` 为 `u16`，接线时可以无损承载 `u8`，但不能据此把线上字段改成 `u16`。旧[电机 payload v0.1](yg_protocol_motor_payload_design_v0_1.md)的 `parameter_id:u16` 是已被本表替代的历史候选。
 - 飞书“生产相关”写明只在 `idel` 状态进入；本表按 **IDLE 且功率输出失能** 处理 `120/121/122`。运行中身份/版本查询使用 `1 GET_INFO`，状态使用 `108/124`，不通过参数写入改控制目标。未实现或无可信来源的参数，读写都返回 `UNSUPPORTED`，不得填默认常数冒充当前值。
 - 所有标量在线路上用小端 `i32/u32` 原始值。表中 `×10³` 表示 `raw = round(SI 值 × 1000)`；实际换算、范围和溢出必须先验证。字符串/SN 用长度明确的 `BYTES`，不含隐式 NUL。`READ_PARAM` 返回**活动运行值**，不是 Flash 原始记录；`SAVE_PARAM` 才持久化已确认的活动配置。读取持久值如确有需要再扩展，不混用同一回复。
-- `R`=可读；`W-IDLE`=候选可写，仅 IDLE、授权主控、完整校验后应用；`C`=由标定流程拥有，通用 `121` 不可写；`—`=暂不注册。**有固件字段不等于线上已实现**：目前只有 ID `0/1/2` 在离线只读服务中登记，且未绑定 `120` CAN 路由。
+- `R`=可读；`W-IDLE`=候选可写，仅 IDLE、授权主控、完整校验后应用；`C`=由标定流程拥有，通用 `121` 不可写；`—`=暂不注册。有固件字段不等于线上已实现，实际登记和权限见本文开头。
 
 ## 2. 参数 ID 与字段映射
 
 保留现有离线只读 ID `0/1/2` 的含义，新增编号从 `3` 递增。空缺项先保留候选号，不在运行注册表/GET_CAPS 中声明。列出的“上限”是验证来源，不意味着当前已有逐参数写入处理器。
-本表有 `0～34` 共 35 个基础候选号、`0x40～0x4C` 共 13 个标定结果候选号；它们不等于已经实现 48 个参数。当前只有基础 ID `0/1/2` 具备离线读取实现。
+本表有 `0～34` 共 35 个基础候选号、`0x40～0x4C` 共 13 个标定结果候选号；它们不等于已经实现 48 个参数。
 
 | ID | 飞书项目 / 线路名称 | 值与单位 | 建议权限 | 当前固件来源及必须验证的条件 |
 | ---: | --- | --- | --- | --- |
-| `0` | 活动配置修订号 `config_revision`（项目补充） | `u32` 次数 | R | 离线只读服务已有；用于 `121` 乐观并发检查，与 Flash `schema_version` 不同。 |
-| `1` | 最大速度 `speed_limit` | `i32` mrad/s | R，W-IDLE 候选 | `MotorControl.speed_limit`，离线只读已有；必须为正，不能超过轴型、编码器与电机配置共同上限。 |
-| `2` | 最大扭矩电流 `iq_max_limit` | `i32` mA | R，W-IDLE 候选 | `MotorControl.current_limit`，离线只读已有；它是 Iq 限流值，**不是 N·m**。上限由电流采样/功率硬件与轴型配置共同决定。 |
+| `0` | 活动配置修订号 `config_revision`（项目补充） | `u32` 次数 | R | APP 参数所有者提供；用于 `121` 乐观并发检查，与 Flash `schema_version` 不同。 |
+| `1` | 最大速度 `speed_limit` | `i32` mrad/s | R，W-IDLE | `MotorControl.speed_limit`；必须为正，不能超过轴型、编码器与电机配置共同上限。 |
+| `2` | 最大扭矩电流 `iq_max_limit` | `i32` mA | R，W-IDLE | `MotorControl.current_limit`；它是 Iq 限流值，**不是 N·m**。上限由电流采样/功率硬件与轴型配置共同决定。 |
 | `3` | 通信节点 `node_id` | `u8` 节点号 | R；写仅生产配置流程 | `Protocol_NodeId_Get()` 与 `axis_profile` 映射。公司节点为电机 `0x03～0x07`；当前轴型代码仍含 `1～5` 的旧映射，解决冲突前不得开放写入或重启切换。 |
 | `4` | 通信波特率 `can_bitrate_profile` | `u8` 枚举；候选 `1=1M/5M CAN FD` | R | 当前固定 CAN FD 仲裁 1 Mbit/s、数据 5 Mbit/s；单个“波特率”不能表达两个速率，因此读一个完整时序 profile。首版不提供动态写入。 |
 | `5` | 电机极对数 `pole_pairs` | `u32` 对 | R，W-IDLE 候选 | `MotorControl.motor_pole_pairs`；必须为正且适配编码器/产品。更改后使电角度、标定有效性重新评估。 |
@@ -88,10 +97,13 @@ detail及revision收口见[线路接入v1](yg_protocol_parameter_wire_v1.md)。�
 
 错误回复统一为 `result:u16 + detail:u16`，其中至少区分 `UNSUPPORTED_ID`、`READ_ONLY`、`BAD_TYPE/LENGTH`、`OUT_OF_RANGE`、`WRONG_STATE`、`REVISION_CONFLICT`、`PERSIST_FAILED`。错误回复不得附伪造值。`121` 不自动保存；写成功后 `120` 可读到新活动值与新 revision。一次只写一个标量；跨参数一致性检查失败时整次拒绝、旧值不变。重试沿用公司头 `seq_id`，对同序号写入去重；新序号但旧 `expected_revision` 必须返回冲突。
 
-例：在 IDLE 下把 ID `1` 最大速度改为 `1.250 rad/s`，线上原始值 `1250 = E2 04 00 00`，`121` payload（假定活动 revision=5）为 `01 01 04 00 05 00 00 00 E2 04 00 00`。成功后读回 ID 1，并在需要掉电保留时发 `122`；这只是 payload 示例，**不是当前固件可执行命令**。
+例：在 IDLE 下把 ID `1` 最大速度改为 `1.250 rad/s`，线上原始值 `1250 = E2 04 00 00`，`121` payload（假定活动 revision=5）为 `01 01 04 00 05 00 00 00 E2 04 00 00`。身份和产品范围满足后才能应用；成功后读回 ID 1，并在需要掉电保留时发 `122`。示例不构成实机执行证据。
 
 ## 5. 实施门槛与兼容说明
 
-当前 `ParameterRead_Get` 仅能读 ID 0/1/2，`yg_protocol_parameter_adapter` 只转发 READ；`120/121/122` 未加入 `yg_protocol_link` 路由，`GET_CAPS` 不得声明可用。实施时先冻结公司 Type 与本表 Param ID/状态枚举/比例，统一 GET_INFO 与参数身份来源；随后先接只读，再接单参数写入和 Flash 保存，每步建立正常、非法 ID、越界、修订冲突与保存失败的黄金向量及主机解码测试。
+当前调用链为 `yg_protocol_link` → `yg_protocol_owner_adapter` → APP 参数所有者 →
+`parameter_value_service`；保存经维护流程提交真实参数存储。状态、身份、去重与 revision
+由 APP 所有者负责，值服务只做确定性换算和约束应用。没有来源或产品范围未冻结的项
+不得登记或声明能力；禁止恢复旧 `ParameterRead_Get` 或只读快照适配器兼容层。
 
 旧草案中的 `u16 Param ID`、`Q/R` 固定格式、`1/2` 以外的设想，均不能与本表混用。正式上线若采用本表，主机和固件须一起切换协议版本；不要求保留旧候选兼容。具体安全范围不能用整数类型最大值充当产品界限，须由当前硬件 profile、轴型、标定状态与电机额定值共同确定。

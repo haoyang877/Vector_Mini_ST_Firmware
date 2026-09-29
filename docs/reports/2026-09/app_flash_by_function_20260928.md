@@ -148,4 +148,4 @@
 NONDEPLOYABLE，无 HEX 输出，不可部署。普通 APP 独立构建成功不代表配套 APP
 容量或全库 release 验收成功。没有进行硬件操作。
 
-执行记录见 [容量适配计划](../../plans/active/2026-09-28-capacity-fit-v1.md)。
+执行记录见 [容量适配计划](../../plans/completed/2026-09-28-capacity-fit-v1.md)。

@@ -76,7 +76,6 @@ static inline float Param_SpeedLimitRadS(unsigned int node_id)
 #define PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM CURRENT_SENSE_PROFILE_PATH_COMPENSATION_OHM
 
 #define PARAM_HW_CAN_NODE_ID 0x00U
-#define PARAM_HW_CAN_HEARTBEAT_MS 500
 
 #else
 #error "Unsupported FOC_ACTIVE_HW_PROFILE"

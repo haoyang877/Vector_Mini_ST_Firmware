@@ -33,7 +33,7 @@ NATIVE = (
     "test_yg_protocol_core",
     "test_yg_protocol_fragment",
     "test_yg_protocol_motor_adapter",
-    "test_yg_protocol_parameter_adapter",
+    "test_parameter_value_service",
     "test_yg_protocol_link",
 )
 

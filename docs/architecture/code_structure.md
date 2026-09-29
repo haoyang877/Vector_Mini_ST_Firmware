@@ -123,7 +123,7 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 2026-09-29 收回齿槽四个公开可写对象：补偿通过值请求受理，台架租约原子设置，
 保护与同拍遥测通过独立值快照读取；旧SWD符号与写字段入口删除，不提供兼容。
 模块私有静态状态仍由其所属模块拥有，不将私有状态改成可跨层写入的大上下文。
-具体接口、验收和回退见 [E3 计划](../plans/active/2026-09-28-internal-decoupling-e3.md)。
+具体接口、验收和回退见 [E3 计划](../plans/completed/2026-09-28-internal-decoupling-e3.md)。
 本次状态收口见[齿槽状态所有权计划](../plans/completed/2026-09-29-cogging-state-owner-v1.md)。
 原 `FocBenchSpeed` 台架邮箱已退役，见 [退役记录](../guides/watch_motor_commands.md)。
 
@@ -144,13 +144,13 @@ ADC2 JEOS 快环末尾登记感测处理进展，监督拍统一读取有限电�
 CLEAR 保留原故障直到核心受理，故障不会因兼容值已经为零自动清除。
 数字回读不代表物理栅极验证；该历史批次尚未接入完整资源释放与结果代际，现已由 E3 补齐。
 来源、删减和验证见
-[E1 批次说明](../plans/active/2026-09-28-lifecycle-guards-e1.md)。
+[E1 批次说明](../plans/completed/2026-09-28-lifecycle-guards-e1.md)。
 
 2026-09-28 E4：参数写入核对停机资格和活动revision，成功不自动保存；SAVE按原始身份
 等待Flash回读与实际提交。160～162按明确种类受理/查询/取消，不把内部枚举直接投到线路。
 同来源序号重放原ticket，不重复执行；标定终态不被派生SAVE覆盖；取消等待实际归还。
 共享帧/CRC/分片代码现归`shared/protocol/`，APP和Loader使用同一源码，不维护兼容副本。
-本批提交`d505acdc`，未测试、未构建；升级服务与D端口后续接线进度见[E4计划](../plans/active/2026-09-28-app-boundaries-e4.md)。
+本批提交`d505acdc`，未测试、未构建；升级服务与D端口后续接线进度见[E4计划](../plans/completed/2026-09-28-app-boundaries-e4.md)。
 
 2026-09-28 最简方案：56进Loader服务内联在`app/board_config.c`的composition层，通过唯一运行所有者
 复核停机、关相与精确TX完成后再写ENTER邮箱复位；无持久确认。平台BootHw只提供识别Loader启动、

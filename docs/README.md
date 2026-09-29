@@ -25,7 +25,7 @@ this map or to the closest indexed sub-area.
 
 SWD bench mailbox retirement: [SWD 台架请求邮箱退役记录](guides/watch_motor_commands.md).
 
-E/H/D integrated candidate: [整体重构工程、状态图与未测清单（2026-09-28）](guides/system_refactor_candidate_20260928.md).
+E/H/D historical snapshot: [整体重构初始候选（2026-09-28，历史）](reports/2026-09/system_refactor_candidate_20260928.md).
 
 Protection design: [故障保护模块、接口与参数设计 v1.0](architecture/fault_protection_design_v1.md)
 and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
@@ -54,7 +54,7 @@ Motor parameter read/write catalog: [电调读写参数表 v0.1](protocols/yg_pr
 Single-board hardware verification: [yg_protocol 单板 CAN FD 实机验证 2026-09-28](reports/2026-09/yg_protocol_canfd_bench_20260928.md).
 
 Loader implementation: [简化候选设计 v2（独立分区 + 跳前 CRC32 校验）](architecture/loader/loader_product_v1.md)
-and [简化审查与修复计划 v1](plans/active/2026-09-28-loader-simplification-review-v1.md).
+and [历史简化审查与修复记录 v1](plans/completed/2026-09-28-loader-simplification-review-v1.md).
 
 Current loader wire contract: [升级载荷 v2：主机 nonce 与 CRC32 镜像](protocols/yg_protocol_upgrade_wire_v2.md).
 
@@ -81,3 +81,5 @@ Motor state machine: [功能任务驱动的主状态机 v1](architecture/motor_s
 Motor state machine validation: [重构验收与未验证项](reports/2026-09/motor_state_machine_refactor_20260928.md).
 
 Current framework closure: [边界、门禁、容量与离线验收（2026-09-29）](plans/completed/2026-09-29-framework-closure-v1.md)。
+
+Legacy cleanup: [删除重复实现、退役运行字段与过期入口（源码已清理，统一验证待进行）](plans/active/2026-09-29-legacy-cleanup-v1.md)。

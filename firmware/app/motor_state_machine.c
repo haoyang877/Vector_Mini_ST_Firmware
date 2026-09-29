@@ -1331,7 +1331,6 @@ void MotorStateMachine_Tick(void)
                          (uint8_t)(MotorControl->ErrorNow != No_Error
                                        ? MotorControl->ErrorNow
                                        : (unsigned)MotorControl->control_mode));
-    MotorControl->ErrorNow_f = MotorControl->ErrorNow;
     ++supervisor_epoch;
 }
 

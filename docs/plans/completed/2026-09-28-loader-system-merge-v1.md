@@ -1,3 +1,5 @@
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../active/2026-09-29-legacy-cleanup-v1.md)。
+
 # Loader 修复合入 system-refactor v1
 
 日期：2026-09-28。目标：按用户要求将 codex/capacity-fit 合入 codex/system-refactor，

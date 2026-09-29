@@ -34,8 +34,6 @@ typedef struct
     MotorControlMode control_mode;
     ErrorNow_TypeDef ErrorNow;
 
-    float ErrorNow_f;
-
     float A_Offset; /* fractional 12-bit ADC counts, same units as stored parameters */
     float B_Offset;
     float C_Offset;
@@ -98,15 +96,9 @@ typedef struct
     /* 位置级联遥测；控制器状态由所属模块私有持有。 */
     float pos_vel_filtered;
 
-    /*voltage open-loop mode*/
-
-    /* Append to preserve existing diagnostic member offsets. */
+    /* 私有运行配置；诊断成员偏移由当前 ELF 描述。 */
     MotorAxisProfile axis_profile;
     bool axis_profile_valid;
-    /* RAM-only mode-3 A/B request, copied with the motor configuration snapshot. */
-    bool position_hold_filter_bypass;
-    bool position_hold_filter_half_cutoff;     /* RAM-only comparison against default cutoff. */
-    bool position_velocity_filter_half_cutoff; /* RAM-only base velocity filter trial. */
     /* 模式 3 规划轨迹速度参考（rad/s）；由外环发布，遥测无效窗口为 NaN。 */
     float pos_trajectory_speed_rad_s;
 } MotorControl_TypeDef;

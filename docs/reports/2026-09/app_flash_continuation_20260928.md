@@ -1,7 +1,7 @@
 # APP 容量继续优化（2026-09-28）
 
 基准 `cb21b25d`，ARMCC 5.06 update 7 build 960。仅离线构建与测试，未访问硬件。
-遵循 [容量计划](../../plans/active/2026-09-28-capacity-fit-v1.md)，保持统一正余弦查表。
+遵循 [容量计划](../../plans/completed/2026-09-28-capacity-fit-v1.md)，保持统一正余弦查表。
 
 ## 标定与平台编译选项
 

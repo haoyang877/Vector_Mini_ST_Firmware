@@ -129,4 +129,4 @@ Loader HEX SHA256：
 完整 PR/release、功能回归、栈水位和实机实时性验证尚未执行，仍按此前统一测试安排。
 当前不能声明可发布或可安装的 Loader 配套 APP。
 
-执行计划见 [容量适配 v1](../../plans/active/2026-09-28-capacity-fit-v1.md)。
+执行计划见 [容量适配 v1](../../plans/completed/2026-09-28-capacity-fit-v1.md)。

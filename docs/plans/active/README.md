@@ -1,25 +1,13 @@
 # Active Plans
 
+- [历史实现与过期入口清理 v1](2026-09-29-legacy-cleanup-v1.md)：旧实现与无消费者状态删除；源码清理完成后统一验证。
+
 当前架构收尾以 [2026-09-29 完成记录](../completed/2026-09-29-framework-closure-v1.md) 和
 [主状态机契约](../../architecture/motor_state_machine_v1.md) 为准。下方保留各阶段原始计划索引，
 其中阶段描述是历史登记状态，不作为当前待办或完成证明。实机验收与新增产品功能另行计划。
 
-
-
 Create one dated Markdown file per significant active change. Include intent, acceptance
 criteria, progress, decisions, and final evidence. Move the file to `../completed/` when done.
-
-- [Loader简化审查与修复 v1](2026-09-28-loader-simplification-review-v1.md)：95f1aa0a源码审查；看门狗、故障救援、维护角色与协议/profile兼容待修复，纯内存复现已执行。
-
-- [通信、主状态机与 Loader 整体重构 v1](2026-09-28-system-refactor-e-h-d.md)：当前执行裁决；E/H/D 并行完成代码，后期统一测试。
-- [Loader独立产品重构 v1](2026-09-28-loader-product-refactor.md)：公司CAN-FD单协议、raw11保留、独立工程与APP交接；仅代码，待统一验证。
-
-- [Loader修复合入system-refactor v1](2026-09-28-loader-system-merge-v1.md)：保留目标功能状态机，迁移v2交接与健康接口，按合并后源码重新验证。
-
-- [运行所有者功能分析与局部快照优化 v1](2026-09-28-foc-run-state-analysis-v1.md)：分析请求、功率动作、维护身份与故障恢复；仅在同一临界区且状态未变时共享局部守卫，保留执行前复核。
-- [生命周期真实条件接线 E1 v1](2026-09-28-lifecycle-guards-e1.md)：数字关相回读、基础健康与模式准入、清错提交顺序、维护 worker 准入与默认参数结果交接；取消释放及原始结果身份仍待后续收口。
-- [受控台架速度入口 E2 v1（已退役）](2026-09-28-bench-speed-owner-e2.md)：显式调试邮箱零速度启动、独立期限、三相采样截止与停止确认；**随容量批次删除邮箱与钩子**，保留为设计历史。
-- [内部所有权与异步结果解耦 E3 v1](2026-09-28-internal-decoupling-e3.md)：Watch/CAN 命令、私有电机对象、真实维护保存取消和故障投影；连续批次实施。
 
 - [故障保护解耦设计与实施计划 v1.0](2026-09-18-fault-protection-v1.md)：接口、检测逻辑、参数及标定归属；固件实施待启动。
 - [公共接口中文契约补全](2026-09-18-interface-contracts.md)：建立机械门禁并优先补齐跨层接口。
@@ -46,6 +34,5 @@ criteria, progress, decisions, and final evidence. Move the file to `../complete
 - [电机通信协议重构技术实现规范 v1.0](../../architecture/communication_protocol_refactor_spec_v1.md)：供 AI 和开发者执行重构的顶层规范，统一来源层级、目标架构、程序流、硬件解耦、文件边界、迁移阶段和验收规则。
 - [yg_protocol 模块开发交接单 v0.1](2026-09-21-yg-protocol-module-handoff.md)：共同基线、业务所有者分工、文件所有权、可复制任务模板和集成验收；第一轮 DeepSeek v4.1-flash 并行开发已完成电机 STOP/DISABLE 适配器与参数只读适配器，分片可靠性任务待审。
 - [电机 STOP/DISABLE 适配器第一步 v0.1](2026-09-21-yg-motor-adapter.md)：通过窄停机所有者接口实现幂等、异步确认和拒绝语义；尚未接入真实 FocRunState/CAN 入口。
-- [参数只读适配器 v0.1](2026-09-21-yg-parameter-read-adapter.md)：基于调用方只读快照映射已明确的速度/电流限值与配置版本；写入、保存和运行入口接线留待后续。
 - [参数描述符模型与 ID 分区设计 v1.0](2026-09-20-parameter-descriptor-model.md)：把逐 case 参数处理收敛为单一描述符表（分组 + `apply_policy` + ID 分区）；冻结"未实现不登记枚举"纪律，不改既有 106 个 ID；仅设计，P0 之外不实施。
 - [编码器测速估计优化：低延迟估计器替换 8 ms 滑窗 v1.0](2026-09-23-encoder-speed-estimation-optimization.md)：Phase 0 只读确认 TLE5012B 内部更新率/滤波（延迟地板，前置阻塞）；Phase 1 用 20 kHz 角度样本的低延迟估计器（最小二乘斜率/α-β）替换 2 kHz 割线；Phase 2 可选角度跟踪观测器。原"2 阶 IIR 替换"经量化复核否决（等噪声下不降延迟）；Phase 0 只读采集已实施（PR 档全绿），寄存器台架读取待执行。

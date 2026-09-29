@@ -37,11 +37,8 @@ void FocCogging_ExportMap(CoggingMapRecord *record, const MotorControl_TypeDef *
 }
 uint8_t Encoder_GetCalibFlag(const Encoder_TypeDef *e) { return e->calib_flag; }
 static uint8_t node_id;
-static uint32_t heartbeat_ms;
 uint8_t Protocol_NodeId_Get(void) { return node_id; }
 void Protocol_NodeId_Set(uint8_t value) { node_id = value; }
-uint32_t Protocol_HeartbeatMs_Get(void) { return heartbeat_ms; }
-void Protocol_HeartbeatMs_Set(uint32_t value) { heartbeat_ms = value; }
 """
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
@@ -100,12 +97,14 @@ int main(void) {
     p=saved; p.node_id=1; p.speed_limit=20;
     p.reserved_pos_kp=0x7fc00000U; p.reserved_pos_ki=0xffffffffU;
     p.reserved_pos_kd=0x7f800000U; p.reserved_pos_integral_limit=0x80000000U;
+    p.can_hb=NAN;
     p.cascade_pos_kp=.07f; p.cascade_pos_kd=.6f; p.speed_kp=.023f;
     {
         const uint8_t schema_bytes[] = {0x0b,0,0,0};
         const uint8_t magic_bytes[] = {0x32,0x43,0x4e,0x45};
         assert(sizeof(p)==4304 && offsetof(InterfaceParam_TypeDef,schema_version)==2160);
         assert(offsetof(InterfaceParam_TypeDef,magic_word)==2164);
+        assert(offsetof(InterfaceParam_TypeDef,can_hb)==2156);
         assert(offsetof(InterfaceParam_TypeDef,reserved_pos_kp)==2136);
         assert(offsetof(InterfaceParam_TypeDef,reserved_pos_kd)==2140);
         assert(offsetof(InterfaceParam_TypeDef,reserved_pos_ki)==2168);
@@ -113,7 +112,11 @@ int main(void) {
         assert(memcmp((const uint8_t *)&p+2160,schema_bytes,sizeof(schema_bytes))==0);
         assert(memcmp((const uint8_t *)&p+2164,magic_bytes,sizeof(magic_bytes))==0);
     }
-    Param_Download(&p,&MotorControl,&OnBoard_Encoder);
+    {
+        InterfaceParam_TypeDef before=p;
+        Param_Download(&p,&MotorControl,&OnBoard_Encoder);
+        assert(memcmp(&p,&before,sizeof(p))==0);
+    }
     assert(MotorControl.cascade_pos_Kp==.07f && MotorControl.cascade_pos_Kd==.6f);
     assert(MotorControl.speed_Kp==.023f && MotorControl.speed_limit==20);
     assert(OnBoard_Encoder.electrical_zero_q15==3155 && OnBoard_Encoder.reverse==0);
@@ -121,6 +124,10 @@ int main(void) {
     assert(CoggingMap.magic==0);
     Param_Upload(&p,&MotorControl,&OnBoard_Encoder); p.magic_word=MAGIC_WORD;
     assert(p.reserved_pos_kp==0 && p.reserved_pos_kd==0 && p.reserved_pos_ki==0 && p.reserved_pos_integral_limit==0);
+    {
+        const uint8_t zero_bytes[] = {0,0,0,0};
+        assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
+    }
     {
         CoggingCalibration c={0};
         uint32_t signature=Cogging_EncoderSignature(p.encoder_reverse,p.encoder_electrical_zero_q15,

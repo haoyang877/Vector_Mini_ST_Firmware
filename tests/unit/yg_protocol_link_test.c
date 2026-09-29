@@ -414,8 +414,7 @@ static void runtime_start_boundary(void)
     assert(can_starts == 0U && !YgProtocolLink_IsReady());
     assert(YgProtocolRuntime_Init(7U));
     Protocol_NodeId_Set(9U);
-    Protocol_HeartbeatMs_Set(500U);
-    assert(Protocol_NodeId_Get() == 9U && Protocol_HeartbeatMs_Get() == 500U);
+    assert(Protocol_NodeId_Get() == 9U);
     enqueue_request(&stop);
     assert(!YgProtocolRuntime_Init(9U));
     sent = false;

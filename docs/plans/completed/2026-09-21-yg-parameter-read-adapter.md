@@ -1,9 +1,11 @@
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../active/2026-09-29-legacy-cleanup-v1.md)。
+
 # 参数只读适配器（yg_protocol P 任务）v0.1
 
 日期：2026-09-21。状态：离线实现与 native 测试完成；未接入运行入口，未做硬件验证。
 
 上游依据：[yg_protocol 核心接口契约 v0.1](../../protocols/yg_protocol_core_interfaces_v0_1.md)、
-[模块开发交接单](2026-09-21-yg-protocol-module-handoff.md)（P 任务）、
+[模块开发交接单](../active/2026-09-21-yg-protocol-module-handoff.md)（P 任务）、
 [电机通信协议评审稿 §8.4](../../protocols/motor_protocol_v1.md)。
 旧 CAN 参数仅作为字段来源参考，不复用其编号或编码。
 

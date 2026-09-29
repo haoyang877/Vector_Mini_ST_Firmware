@@ -1,4 +1,4 @@
-"""验证参数只读业务服务与 yg_protocol READ 适配器；纯 C 逻辑，不访问硬件。"""
+"""参数夹具使用真实活动值服务，替代退役的离线只读适配器；不访问硬件。"""
 
 import argparse
 import subprocess
@@ -12,6 +12,7 @@ from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
 def main() -> None:
+    """编译并运行参数标量契约夹具；本函数仅由显式验证入口调用。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", default=None)
     parser.add_argument("--out", type=Path, default=None)
@@ -20,12 +21,10 @@ def main() -> None:
     compiler = Path(args.cc) if args.cc else zig_path()
     if compiler is None:
         parser.error("未找到 Zig 或 C 编译器，请通过 --cc 指定")
-    output_dir = (args.out or ROOT / "outputs/tests/yg_protocol_parameter_adapter").resolve()
+    output_dir = (args.out or ROOT / "outputs/tests/parameter_value_service").resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     executable = output_dir / (
-        "yg_protocol_parameter_adapter.exe"
-        if sys.platform == "win32"
-        else "yg_protocol_parameter_adapter"
+        "parameter_value_service.exe" if sys.platform == "win32" else "parameter_value_service"
     )
     command = [str(compiler)]
     if compiler.stem.lower() == "zig":
@@ -38,10 +37,11 @@ def main() -> None:
             "-Wall",
             "-Wextra",
             "-Werror",
-            str(ROOT / "tests/unit/yg_protocol_parameter_adapter_test.c"),
-            str(ROOT / "firmware/services/parameters/parameter_read_service.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_parameter_adapter.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_parameter.c"),
+            str(ROOT / "tests/unit/parameter_value_service_test.c"),
+            str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
+            str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+            str(ROOT / "firmware/common/crc32.c"),
+            "-lm",
             "-o",
             str(executable),
         ]

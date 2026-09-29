@@ -1,3 +1,5 @@
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../active/2026-09-29-legacy-cleanup-v1.md)。
+
 # Loader 简化审查与修复计划 v1
 
 日期：2026-09-28。对象：codex/capacity-fit 的简化提交 **95f1aa0a**，比较基线 abc3b45a；
@@ -5,7 +7,7 @@
 状态：初审未通过；用户要求“检查并修改”后已实施源码修复，待发布与台架验收。
 下文 R1～R7 保留初审发现；当前修复状态与证据见末尾执行记录。本轮不操作硬件。
 关联：[候选设计](../../architecture/loader/loader_product_v1.md)、
-[简化实施记录](../completed/2026-09-28-simplified-boot-handoff.md)。
+[简化实施记录](2026-09-28-simplified-boot-handoff.md)。
 
 ## 结论与保留能力
 

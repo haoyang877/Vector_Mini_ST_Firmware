@@ -52,6 +52,7 @@ typedef struct
     float calib_current;
     float current_limit;
     float speed_limit;
+    /* 退役心跳保留槽：装载忽略，导出清零，不参与控制租约。 */
     float can_hb;
     uint32_t schema_version;
     uint32_t magic_word;

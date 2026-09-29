@@ -14,3 +14,20 @@ outputs are historical evidence; rerun the current harness before making a relea
 - [最简启动/升级方案（去 Boot/Record）v1](2026-09-28-simplified-boot-handoff.md)：
   删除 Boot/Record、boot_epoch、试启动确认与 SHA；APP 扩到 92K，Loader 跳前整包 CRC32 校验；
   三工程离线构建 0 错误 0 警告。
+
+## 已被当前架构替代的阶段记录
+
+以下归档表示阶段计划已被替代，保留原始内容；未实施和未测项没有因此变为 PASS。
+
+- [2026-09-28-system-refactor-e-h-d](2026-09-28-system-refactor-e-h-d.md)
+- [2026-09-28-loader-product-refactor](2026-09-28-loader-product-refactor.md)
+- [2026-09-28-loader-simplification-review-v1](2026-09-28-loader-simplification-review-v1.md)
+- [2026-09-28-loader-system-merge-v1](2026-09-28-loader-system-merge-v1.md)
+- [2026-09-28-foc-run-state-analysis-v1](2026-09-28-foc-run-state-analysis-v1.md)
+- [2026-09-28-lifecycle-guards-e1](2026-09-28-lifecycle-guards-e1.md)
+- [2026-09-28-bench-speed-owner-e2](2026-09-28-bench-speed-owner-e2.md)
+- [2026-09-28-internal-decoupling-e3](2026-09-28-internal-decoupling-e3.md)
+- [2026-09-28-app-boundaries-e4](2026-09-28-app-boundaries-e4.md)
+- [2026-09-28-app-closeout-e5](2026-09-28-app-closeout-e5.md)
+- [2026-09-28-capacity-fit-v1](2026-09-28-capacity-fit-v1.md)
+- [2026-09-21-yg-parameter-read-adapter](2026-09-21-yg-parameter-read-adapter.md)

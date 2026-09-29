@@ -27,4 +27,4 @@
 - 升级交接：`MotorStateMachine_RequestBootStop` / `MotorStateMachine_BootHandoffReady`。
 - 受理不是物理关断或资源释放证明，须按 [主状态机契约](../architecture/motor_state_machine_v1.md) 确认。
 
-容量批次记录见 [APP / Loader 容量适配 v1](../plans/active/2026-09-28-capacity-fit-v1.md)。
+容量批次记录见 [APP / Loader 容量适配 v1](../plans/completed/2026-09-28-capacity-fit-v1.md)。

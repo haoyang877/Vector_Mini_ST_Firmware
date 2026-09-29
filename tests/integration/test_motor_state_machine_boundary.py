@@ -17,8 +17,9 @@ def production_text(path: Path) -> str:
 class MotorStateMachineBoundaryTests(unittest.TestCase):
     def test_unused_maintenance_query_is_retired(self) -> None:
         """维护类型使用现有查询，不保留只有测试调用的重复接口。"""
-        for path in (ROOT / "firmware").rglob("*.[ch]"):
-            self.assertNotIn("MotorStateMachine_IsMaintenanceActive", production_text(path))
+        for directory in ("app", "motor", "services"):
+            for path in (ROOT / "firmware" / directory).rglob("*.[ch]"):
+                self.assertNotIn("MotorStateMachine_IsMaintenanceActive", production_text(path))
 
     def test_state_module_has_no_goto(self) -> None:
         """状态机使用结构化分支，禁止跳转逻辑重新进入生产模块。"""

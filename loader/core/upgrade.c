@@ -224,7 +224,15 @@ bool LoaderUpgrade_TxComplete(LoaderUpgrade *u, uint64_t ticket, bool success)
         now_ms = u->ports.now_ms(u->ports.context);
         if (gate(u) && (uint32_t)(now_ms - u->ack_started_ms) < LOADER_UPGRADE_ACK_MS)
         {
-            result = u->ports.boot(u->ports.context);
+            if (LoaderImage_Activate(&u->config, &u->image.image) && gate(u))
+            {
+                result = u->ports.boot(u->ports.context);
+            }
+            else
+            {
+                u->image.phase = YI_ERROR;
+                u->image.reason = YI_FLASH;
+            }
         }
         u->ports.unlock(u->ports.context, key);
     }

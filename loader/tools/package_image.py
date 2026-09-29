@@ -35,13 +35,13 @@ def main() -> None:
     image = bytearray(args.app_bin.read_bytes())
     source_sha256 = hashlib.sha256(bytes(image)).hexdigest()
     offset = value("TARGET_DESCRIPTOR_OFFSET")
-    if len(image) < offset + 64 or len(image) > value("TARGET_APP_BYTES"):
+    if len(image) < offset + 96 or len(image) > value("TARGET_APP_BYTES"):
         parser.error("APP长度不在当前槽范围内；不能截断固件适配容量")
     words = struct.unpack(">10I2HI16s", bytes(image[offset : offset + 64]))
     expected = (
         0x59494431,
-        2,
-        0x53593449,
+        3,
+        0x53593549,
         value("TARGET_LAYOUT"),
         value("TARGET_MCU"),
         value("TARGET_PRODUCT"),
@@ -52,7 +52,11 @@ def main() -> None:
     role = words[8]
     # 44..47长度与48..63（含CRC占位）在链接后必须保持零，由本工具回填。
     if role != 1 or words[12] != 0 or words[13] != bytes(16):
-        parser.error("描述符长度/CRC占位非零或角色不合法；v2仅支持普通APP")
+        parser.error("描述符长度/CRC占位非零或角色不合法；v3仅支持普通APP")
+    if image[offset + 64 : offset + 96] != b"\xff" * 24 + bytes(8):
+        parser.error("持久标记不是原始擦除态；禁止重新打包已激活固件")
+    if words[7] != value("TARGET_APP_VERSION"):
+        parser.error("APP版本与冻结目标不一致；重新构建配套APP")
     if not words[10] <= value("TARGET_SCHEMA") <= words[11]:
         parser.error("描述符不接受当前参数schema")
     while len(image) % 8 != 0:
@@ -69,7 +73,7 @@ def main() -> None:
         value("TARGET_RAM_BASE") < sp <= value("TARGET_RAM_END")
         and sp % 8 == 0
         and entry & 1
-        and value("TARGET_APP_BASE") + offset + 64
+        and value("TARGET_APP_BASE") + offset + 96
         <= (entry & ~1)
         < value("TARGET_APP_BASE") + image_bytes
     ):
@@ -78,7 +82,7 @@ def main() -> None:
     manifest = struct.pack(
         ">11I2H32sI12s",
         0x494D3331,
-        0x53593449,
+        0x53593549,
         value("TARGET_LAYOUT"),
         value("TARGET_MCU"),
         value("TARGET_PRODUCT"),
@@ -101,12 +105,16 @@ def main() -> None:
     (output / "image.bin").write_bytes(bytes(image))
     (output / "manifest.bin").write_bytes(manifest)
     metadata = {
-        "format": "loader-image-v2-crc32",
+        "format": "loader-image-v3-crc32",
         "target": target["target"],
         "image_bytes": image_bytes,
         "image_crc32": f"{crc:08x}",
         "source_sha256": source_sha256,
         "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+        "image_sha256": hashlib.sha256(image).hexdigest(),
+        "loader_version": value("TARGET_LOADER_VERSION"),
+        "layout": value("TARGET_LAYOUT"),
+        "parameter_schema": value("TARGET_SCHEMA"),
         "image_version": words[7],
         "image_token": args.token,
         "image_role": role,

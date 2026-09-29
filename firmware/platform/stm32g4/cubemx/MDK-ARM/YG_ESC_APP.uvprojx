@@ -2608,6 +2608,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\shared\checksum\crc32.c</FilePath>
             </File>
+            <File>
+              <FileName>device_identity.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\shared\boot\device_identity.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

@@ -1,5 +1,7 @@
 # Loader 独立产品设计与实现 v2（简化候选）
 
+> 历史v2快照：当前实现已升级，见[Loader v3当前契约](loader_product_v3.md)。
+
 版本日期：2026-09-28。本文按 codex/capacity-fit 的简化提交 95f1aa0a 更新，比较基线 abc3b45a。
 文件名保留为现有文档入口。审查发现已完成源码修复，当前仍为**待发布验收的候选实现**。
 发现、修复顺序与离线证据见[简化审查记录 v1](../../plans/completed/2026-09-28-loader-simplification-review-v1.md)。

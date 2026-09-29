@@ -1,11 +1,13 @@
 #include "board_hw.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #include "adc.h"
 #include "delay.h"
 #include "tim.h"
 #include "stm32g4xx_hal.h"
+#include "vector_mini_st_g431.h"
 
 /* 板级启动序列：顺序、条件与时序与迁移前的 app 组合层逐字一致。
  * 本文件是"顺序即契约"的落点：只搬运调用位置，不改变任何寄存器写入、
@@ -60,5 +62,14 @@ bool board_hw_read_uid(uint8_t uid[BOARD_HW_UID_BYTES])
             uid[word * 4U + byte] = (uint8_t)(words[word] >> (byte * 8U));
         }
     }
+    return true;
+}
+bool board_hw_read_identity(uint8_t record[64])
+{
+    if (record == NULL)
+    {
+        return false;
+    }
+    memcpy(record, (const void *)TARGET_IDENTITY_BASE, 64U);
     return true;
 }

@@ -5,6 +5,7 @@
 #include "yg_protocol_wire_types.h"
 
 #define YG_PROTOCOL_BOOT_TYPE_ENTER 56U
+#define YG_PROTOCOL_BOOT_TYPE_CONFIRM 57U
 #define YG_PROTOCOL_BOOT_REQUEST_SIZE 8U
 #define YG_PROTOCOL_BOOT_REPLY_SIZE 4U
 

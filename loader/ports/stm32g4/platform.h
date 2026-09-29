@@ -1,6 +1,7 @@
 #ifndef LOADER_PLATFORM_H
 #define LOADER_PLATFORM_H
 #include "image_transfer.h"
+#include "device_identity.h"
 #include "image_mailbox.h"
 /**
  * @brief 初始化独立 Loader 平台并核对芯片和 Flash 容量。
@@ -29,6 +30,13 @@ void LoaderPlatform_Fatal(void);
  * @param io 输出端口，指向平台固定范围而非主机地址。
  */
 void LoaderPlatform_ImageIo(LoaderFlashIo *io);
+/**
+ * @brief 读取芯片实际UID和独立生产身份，不访问APP运行态。
+ * @param uid 调用方提供的12B输出。
+ * @param identity CRC与格式合法时输出生产身份，否则为无效值。
+ * @note 前台调用；ECC损坏只使身份无效，不能改变生产权限。
+ */
+void LoaderPlatform_ReadIdentity(uint8_t uid[12], DeviceIdentity *identity);
 /**
  * @brief 只读识别raw11存储外形并解析CAN节点。
  * @param node 成功识别后输出0..254节点，否则保持原值。

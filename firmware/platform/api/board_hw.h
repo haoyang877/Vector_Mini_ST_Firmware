@@ -23,5 +23,12 @@ void board_hw_start(bool motor_phases_enabled);
  * @note 前台启动组合层调用，有界只读，不分配内存，不代表板卡硬件版本。
  */
 bool board_hw_read_uid(uint8_t uid[BOARD_HW_UID_BYTES]);
+/**
+ * @brief 只读复制独立生产身份记录；解释与CRC校验由组合层委托共享契约执行。
+ * @param record 调用方拥有的64B输出。
+ * @return 输出非空且读取完成返回true；不代表身份有效。
+ * @note 前台启动调用；不更改电机参数、CAN ID或生产权限。
+ */
+bool board_hw_read_identity(uint8_t record[64]);
 
 #endif

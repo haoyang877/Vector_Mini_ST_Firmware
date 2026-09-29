@@ -9,6 +9,7 @@
 
 static uint32_t s_health_checked_ms, s_observed_supervisor_epoch;
 static bool s_communication_ready;
+static uint8_t s_healthy_intervals;
 static void poll_entry(uint32_t now_ms)
 {
     (void)now_ms;

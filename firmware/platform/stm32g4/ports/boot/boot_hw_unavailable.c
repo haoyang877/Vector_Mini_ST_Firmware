@@ -16,3 +16,17 @@ void BootHw_Watchdog(bool healthy)
 {
     (void)healthy;
 }
+bool BootHw_Confirm(uint32_t version, uint32_t crc32)
+{
+    (void)version;
+    (void)crc32;
+    return false;
+}
+bool BootHw_IsConfirmed(void)
+{
+    return false;
+}
+uint32_t BootHw_ImageCrc32(void)
+{
+    return 0U;
+}

@@ -49,6 +49,7 @@ typedef struct
 {
     uint8_t node_id;
     yg_protocol_readonly_info_page0_t info;
+    uint8_t maintenance_pages[2][32];
     yg_protocol_readonly_caps_page0_t capabilities;
     const yg_protocol_readonly_device_status_t *device_status_source;
     yg_protocol_motor_service_t motor_service;
@@ -202,13 +203,19 @@ static yg_protocol_result_t provide_info(void *context,
 
     if (link == NULL ||
         yg_protocol_readonly_decode_page_request(request, &page_request) != YG_PROTOCOL_OK ||
-        page_request.page != 0U)
+        page_request.page > 2U)
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
     if (!link->device_description_available)
     {
         return provide_unavailable(payload, payload_length);
+    }
+    if (page_request.page != 0U)
+    {
+        memcpy(payload, link->maintenance_pages[page_request.page - 1U], 32U);
+        *payload_length = 32U;
+        return YG_PROTOCOL_OK;
     }
     if (yg_protocol_readonly_encode_info_page0(
             &link->info, payload, YG_PROTOCOL_MAX_PAYLOAD_SIZE, &written) != YG_PROTOCOL_OK)
@@ -530,6 +537,26 @@ static yg_protocol_result_t handle_boot(void *context,
         write_result(result, 7U, 0U);
         return YG_PROTOCOL_OK;
     }
+    if (request->message_type == YG_PROTOCOL_BOOT_TYPE_CONFIRM)
+    {
+        if (request->payload_length != 8U)
+        {
+            write_result(result, 3U, 0U);
+        }
+        else if (link->boot_service.confirm == NULL)
+        {
+            write_result(result, 2U, 0U);
+        }
+        else
+        {
+            bool confirmed =
+                link->boot_service.confirm(link->boot_service.context,
+                                           YgProtocol_ReadU32Le(request->payload),
+                                           YgProtocol_ReadU32Le(request->payload + 4U));
+            write_result(result, confirmed ? 0U : 5U, 0U);
+        }
+        return YG_PROTOCOL_OK;
+    }
     decoded = yg_protocol_boot_decode(request, &command);
     if (decoded != YG_PROTOCOL_OK)
     {
@@ -591,6 +618,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_PROTOCOL_JOB_TYPE_STATUS, handle_job, &s_link_context},
         {YG_PROTOCOL_JOB_TYPE_CANCEL, handle_job, &s_link_context},
         {YG_PROTOCOL_BOOT_TYPE_ENTER, handle_boot, &s_link_context},
+        {YG_PROTOCOL_BOOT_TYPE_CONFIRM, handle_boot, &s_link_context},
     };
     yg_protocol_readonly_service_t configuration = {0};
     yg_protocol_endpoint_config_t endpoint_config;
@@ -614,7 +642,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
     s_link_context.node_id = node_id;
     s_link_context.motor_status_source = &s_link_context.empty_motor_status;
     s_link_context.device_status_source = &s_empty_device_status;
-    s_link_context.base_route_count = sizeof(routes) / sizeof(routes[0]) - 1U;
+    s_link_context.base_route_count = sizeof(routes) / sizeof(routes[0]) - 2U;
 
     configuration.context = &s_link_context;
     configuration.protocol_info_type = YG_PROTOCOL_READONLY_TYPE_GET_INFO;
@@ -644,6 +672,16 @@ bool YgProtocolLink_Init(uint8_t node_id)
         return false;
     }
     s_ready = true;
+    return true;
+}
+
+bool YgProtocolLink_SetMaintenanceInfoPage(uint16_t page, const uint8_t payload[32])
+{
+    if (!s_ready || payload == NULL || page < 1U || page > 2U)
+    {
+        return false;
+    }
+    memcpy(s_link_context.maintenance_pages[page - 1U], payload, 32U);
     return true;
 }
 
@@ -711,7 +749,7 @@ bool YgProtocolLink_BindBootService(const BootEntryService *service)
     {
         return false;
     }
-    const size_t count = s_link_context.base_route_count + (service != NULL ? 1U : 0U);
+    const size_t count = s_link_context.base_route_count + (service != NULL ? 2U : 0U);
     if (yg_protocol_router_init(&s_router, &s_registry, s_router.routes, count) != YG_PROTOCOL_OK)
     {
         return false;

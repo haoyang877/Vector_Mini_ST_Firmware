@@ -89,7 +89,7 @@ bool LoaderImage_Init(LoaderImageTransfer *transfer, const LoaderImageConfig *co
 /**
  * @brief 解析完整清单并检查目标、角色、长度和参数 ABI。
  * @param config 固定目标配置。
- * @param manifest 完整 96B 大端清单，48..51 为整包 CRC32，其后保留必须为零。
+ * @param manifest 完整96B大端清单，48..51为整包CRC32，其后保留必须为零；v3描述符为96B。
  * @param identity 成功后写入身份，失败不修改。
  * @return 清单符合本目标返回 true。
  */
@@ -150,10 +150,33 @@ void LoaderImage_Abort(LoaderImageTransfer *transfer);
  */
 bool LoaderImage_Check(const LoaderImageConfig *config, const LoaderImageIdentity *identity);
 /**
- * @brief 现场读取 APP 内嵌描述符并整包核对，作为每次跳转前的唯一判据。
+ * @brief 现场读取 APP 内嵌描述符并整包核对，核对整包与持久激活门槛。
  * @param config 只读目标配置。
  * @return 描述符合法且向量、长度、CRC32 全部满足返回 true。
- * @note 不依赖任何持久提交记录；损坏或半写镜像返回 false，调用方留在 Loader。
+ * @note 损坏、半写或未激活镜像返回false；跳转还必须通过PrepareBoot的一次试运行门槛。
  */
 bool LoaderImage_CheckImage(const LoaderImageConfig *config);
+/**
+ * @brief 读取持久双字状态；半写、ECC或非法偏移均返回损坏。
+ * @param config 只读目标配置。
+ * @param offset 描述符内三个固定提交单元的偏移。
+ * @param magic 对应单元识别字。
+ * @return 擦除态0、完整提交1、损坏或读取失败-1。
+ */
+int LoaderImage_ReadMarker(const LoaderImageConfig *config, uint32_t offset, uint32_t magic);
+/**
+ * @brief 对整包复核后一次写入激活门槛，不启动APP。
+ * @param config 当前租约和输出权限配置。
+ * @param identity 已验证的清单身份。
+ * @return 三个单元原先擦除且提交读回成功返回true。
+ * @note 仅对应ACTIVATE物理回复发送完成后调用；失败必须整槽重传。
+ */
+bool LoaderImage_Activate(const LoaderImageConfig *config, const LoaderImageIdentity *identity);
+/**
+ * @brief 复核激活镜像并持久消费唯一试运行机会。
+ * @param config 冷启动镜像配置与关相权限。
+ * @return 已确认镜像或首次尝试提交成功返回true；未确认重启及半写返回false。
+ * @note 前台调用，成功后立即跳转；跳转前掉电也视为试运行已消费。
+ */
+bool LoaderImage_PrepareBoot(const LoaderImageConfig *config);
 #endif

@@ -95,3 +95,6 @@ APP naming: [模块、类型、变量、单位与对象组织 v1](architecture/a
 状态机可读性：[按状态分支、无 goto 的优化与验收](reports/2026-09/motor_state_readability_20260929.md)。
 
 状态机冗余删减：[保留全部电机功能的精简与容量验收](reports/2026-09/motor_state_core_20260929.md)。
+
+Loader current implementation: [Loader软件设计v3](architecture/loader/loader_product_v3.md) and
+[升级线路v3](protocols/yg_protocol_upgrade_wire_v3.md).

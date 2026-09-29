@@ -7,6 +7,8 @@
 #include "yg_protocol_can_id.h"
 #include "yg_protocol_fragment.h"
 #include "yg_protocol_upgrade_wire.h"
+#include "yg_protocol_byte_order.h"
+#include "yg_protocol_request.h"
 #include <string.h>
 static LoaderUpgrade upgrade;
 static LoaderImageConfig image_config;
@@ -143,14 +145,14 @@ static void status_reply(YgProtocolUpgradeReply *reply)
     }
     result_code(status.reason, reply);
 }
-static void send_reply(const yg_protocol_message_t *request,
-                       const YgProtocolUpgradeReply *reply,
-                       uint64_t ticket)
+static void send_payload(const yg_protocol_message_t *request,
+                         const uint8_t *payload,
+                         uint32_t bytes,
+                         uint64_t ticket)
 {
     LoaderCanFrame frame = {0};
     yg_protocol_message_t response = {0};
     yg_protocol_can_id_fields_t fields = {3, 0, 0};
-    uint8_t payload[YG_PROTOCOL_UPGRADE_REPLY_BYTES];
     size_t written;
     fields.source_node = node;
     fields.destination_node = request->source_node;
@@ -160,11 +162,15 @@ static void send_reply(const yg_protocol_message_t *request,
     response.destination_node = request->source_node;
     response.message_type = request->message_type;
     response.sequence = request->sequence;
-    response.payload_length = sizeof(payload);
+    response.payload_length = bytes;
     response.payload = payload;
-    frame.bytes = 64; /* 16+40+2=58，尾6B严格补0。 */
-    if (YgProtocolUpgrade_EncodeReply(reply, payload, sizeof(payload), NULL) != YG_PROTOCOL_OK ||
-        yg_protocol_can_id_encode(&fields, &frame.identifier) != YG_PROTOCOL_OK ||
+    uint32_t length = YG_PROTOCOL_HEADER_SIZE + bytes + YG_PROTOCOL_TRAILER_SIZE;
+    frame.bytes = length <= 20   ? 20
+                  : length <= 24 ? 24
+                  : length <= 32 ? 32
+                  : length <= 48 ? 48
+                                 : 64;
+    if (yg_protocol_can_id_encode(&fields, &frame.identifier) != YG_PROTOCOL_OK ||
         yg_protocol_frame_encode(&response, frame.data, sizeof(frame.data), &written) !=
             YG_PROTOCOL_OK ||
         !LoaderCan_Send(&frame, ticket))
@@ -175,8 +181,83 @@ static void send_reply(const yg_protocol_message_t *request,
         }
     }
 }
+static void send_reply(const yg_protocol_message_t *request,
+                       const YgProtocolUpgradeReply *reply,
+                       uint64_t ticket)
+{
+    uint8_t payload[YG_PROTOCOL_UPGRADE_REPLY_BYTES];
+    if (YgProtocolUpgrade_EncodeReply(reply, payload, sizeof(payload), NULL) == YG_PROTOCOL_OK)
+    {
+        send_payload(request, payload, sizeof(payload), ticket);
+    }
+}
+static void query_info(const yg_protocol_message_t *message)
+{
+    uint8_t payload[32] = {0}, uid[12], raw[4];
+    DeviceIdentity identity;
+    uint16_t page;
+    uint32_t app_version = 0U, image_crc32 = 0U;
+    if (!YgProtocol_IsAckUnicastRequest(message) || message->payload_length != 12U ||
+        YgProtocol_ReadU16Le(message->payload + 10U) != 0U)
+    {
+        return;
+    }
+    page = YgProtocol_ReadU16Le(message->payload + 8U);
+    if (page > 2U)
+    {
+        return;
+    }
+    LoaderPlatform_ReadIdentity(uid, &identity);
+    if (LoaderImage_CheckImage(&image_config) &&
+        image_config.io.read(
+            image_config.io.context, TARGET_APP_BASE + TARGET_DESCRIPTOR_OFFSET + 28U, raw, 4U))
+    {
+        app_version =
+            (uint32_t)raw[0] << 24 | (uint32_t)raw[1] << 16 | (uint32_t)raw[2] << 8 | raw[3];
+        if (image_config.io.read(
+                image_config.io.context, TARGET_APP_BASE + TARGET_DESCRIPTOR_OFFSET + 48U, raw, 4U))
+        {
+            image_crc32 =
+                (uint32_t)raw[0] << 24 | (uint32_t)raw[1] << 16 | (uint32_t)raw[2] << 8 | raw[3];
+        }
+    }
+    if (page == 0U)
+    {
+        memcpy(payload, uid, 12U);
+        YgProtocol_WriteU32Le(payload + 12U, TARGET_PRODUCT);
+        YgProtocol_WriteU16Le(payload + 16U, TARGET_HARDWARE);
+        YgProtocol_WriteU16Le(payload + 18U, TARGET_BOOT_API);
+        YgProtocol_WriteU32Le(payload + 20U, app_version);
+        YgProtocol_WriteU32Le(payload + 24U, TARGET_LOADER_VERSION);
+    }
+    else if (page == 1U)
+    {
+        DeviceIdentity_EncodeInfo(&identity, node, 2U, 3U, image_crc32, payload);
+    }
+    else
+    {
+        const uint32_t target[8] = {TARGET_MCU,
+                                    TARGET_LAYOUT,
+                                    TARGET_PARAM_ABI,
+                                    TARGET_SCHEMA,
+                                    TARGET_APP_BASE,
+                                    TARGET_APP_BYTES,
+                                    TARGET_LOADER_BYTES,
+                                    TARGET_IDENTITY_BASE};
+        for (uint32_t i = 0; i < 8U; ++i)
+        {
+            YgProtocol_WriteU32Le(payload + i * 4U, target[i]);
+        }
+    }
+    send_payload(message, payload, sizeof(payload), 0U);
+}
 static void dispatch(const yg_protocol_message_t *message)
 {
+    if (message->message_type == 1U)
+    {
+        query_info(message);
+        return;
+    }
     YgProtocolUpgradeRequest request;
     YgProtocolUpgradeReply reply;
     LoaderUpgradeStatus status;
@@ -224,6 +305,10 @@ static void dispatch(const yg_protocol_message_t *message)
             break;
         case YG_PROTOCOL_UPGRADE_TYPE_STATUS:
             result = LoaderUpgrade_Status(&upgrade, request.discover ? NULL : &binding, &status);
+            if (request.discover && result == YI_OK)
+            {
+                resident = true;
+            }
             break;
         case YG_PROTOCOL_UPGRADE_TYPE_ACTIVATE:
             result = LoaderUpgrade_Activate(&upgrade, &binding, &ticket);
@@ -275,7 +360,7 @@ static void receive(void)
         (message.flags & YG_PROTOCOL_FLAGS_RESPONSE) || message.reserved != 0 ||
         (message.flags & ~(YG_PROTOCOL_FLAGS_FRAGMENT_MASK | YG_PROTOCOL_FLAGS_ACK_REQUEST |
                            YG_PROTOCOL_FLAGS_RETRY)) ||
-        message.message_type < 50 || message.message_type > 55)
+        (message.message_type != 1U && (message.message_type < 50 || message.message_type > 55)))
     {
         return;
     }
@@ -336,7 +421,7 @@ static void try_boot(void)
         return;
     }
     resident = true; /* 每次真实启动最多尝试一次；校验失败留在Loader。 */
-    if (!LoaderImage_CheckImage(&image_config) || !safe(NULL))
+    if (!LoaderImage_PrepareBoot(&image_config) || !safe(NULL))
     {
         return;
     }

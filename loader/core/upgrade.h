@@ -42,7 +42,7 @@ typedef struct
     bool (*boot)(void *context);
 } LoaderUpgradePorts;
 
-/** 组合层独占；不使用持久启动记录，仅绑定本次会话的几何与端口。 */
+/** 组合层独占RAM事务；持久激活双字属于共享镜像内核，不分配持久启动号。 */
 typedef struct
 {
     LoaderImageTransfer image;
@@ -128,7 +128,7 @@ LoaderImageResult LoaderUpgrade_Status(LoaderUpgrade *upgrade,
  * @param ack_ticket 输出不可截断的 64 位平台发送票据。
  * @return 接受返回 YI_OK；重复请求只返回同一票据，不延长截止。
  * @note 票据必须随对应 54 回复帧进入硬件队列；只有同帧完成事件才能回传。
- *       不再持久提交；成功后由完成事件复核镜像并复位，下次启动现场校验。
+ *       完成事件复核后一次写入激活双字再复位，下次启动现场校验并消费试运行机会。
  */
 LoaderImageResult LoaderUpgrade_Activate(LoaderUpgrade *upgrade,
                                          const LoaderUpgradeBinding *binding,

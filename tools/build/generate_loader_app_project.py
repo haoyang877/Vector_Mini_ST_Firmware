@@ -63,9 +63,9 @@ def main() -> None:
         options.remove(utilities)
     ads = "TargetOption/TargetArmAds/"
     defines = target.find(ads + "Cads/VariousControls/Define")
-    # 0是明确的未发布开发镜像版本，角色1为正常控制APP；打包时必须匹配描述符。
+    # 配套APP版本来自共同目标清单，禁止运行时与描述符独立赋值。
     defines.text = (defines.text or "") + (
-        ",YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=0U,YG_APP_IMAGE_ROLE=1U"
+        ",YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U"
     )
     set_value(ads + "LDads/umfTarg", "0")
     set_value(ads + "LDads/useFile", "1")

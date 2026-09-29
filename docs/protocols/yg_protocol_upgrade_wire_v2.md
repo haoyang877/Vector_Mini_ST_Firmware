@@ -1,5 +1,7 @@
 # 公司统一帧升级载荷 v2：主机 nonce 与 CRC32 镜像
 
+> 历史v2快照：当前实现已升级，见[Loader v3当前契约](yg_protocol_upgrade_wire_v3.md)。
+
 日期：2026-09-28。适用：本轮简化 Loader 与配套偏移 APP。外层公司帧仍为 v1，
 仲裁 1 Mbit/s、数据 5 Mbit/s、扩展 CAN FD、PF=0xEF，来源主站 2。
 本页替代[升级载荷 v1](yg_protocol_upgrade_wire_v1.md)中的启动身份、镜像和角色定义；

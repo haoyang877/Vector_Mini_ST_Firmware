@@ -442,6 +442,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\shared\protocol\yg_protocol_upgrade_wire.c</FilePath>
             </File>
+            <File>
+              <FileName>device_identity.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\shared\boot\device_identity.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

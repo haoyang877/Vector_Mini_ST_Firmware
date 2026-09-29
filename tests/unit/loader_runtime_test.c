@@ -34,10 +34,18 @@ static bool erase_model(void *context, uint32_t address, uint32_t bytes)
 static bool program_model(void *context, uint32_t address, const void *data, uint32_t bytes)
 {
     (void)context;
-    (void)address;
-    (void)data;
-    (void)bytes;
-    return false;
+    if (bytes != 8U || address < TARGET_APP_BASE ||
+        address - TARGET_APP_BASE > sizeof(model_image) - bytes)
+    {
+        return false;
+    }
+    memcpy(model_image + address - TARGET_APP_BASE, data, bytes);
+    return true;
+}
+void LoaderPlatform_ReadIdentity(uint8_t uid[12], DeviceIdentity *identity)
+{
+    memset(uid, 1, 12U);
+    memset(identity, 0, sizeof(*identity));
 }
 bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset)
 {
@@ -134,6 +142,13 @@ static int boot(bool software, bool watchdog, bool mailbox, bool valid_image, bo
     model_link = link;
     ticks = 0U;
     memcpy(model_image, LoaderV2Image, sizeof(model_image));
+    for (uint32_t i = 0U; i < 4U; ++i)
+    {
+        model_image[TARGET_DESCRIPTOR_OFFSET + YGI_ACTIVATION_OFFSET + i] =
+            (uint8_t)(YGI_ACTIVATION_MAGIC >> (24U - i * 8U));
+        model_image[TARGET_DESCRIPTOR_OFFSET + YGI_ACTIVATION_OFFSET + i + 4U] =
+            (uint8_t)(~YGI_ACTIVATION_MAGIC >> (24U - i * 8U));
+    }
     if (!valid_image)
     {
         model_image[100] ^= 1U;

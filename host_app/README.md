@@ -15,3 +15,15 @@
 这些职责当前仅是待实现边界，不能宣称已经接通。
 
 虚拟环境、构建缓存和历史打包产物不是产品实现，生成结果归 `outputs/`。
+
+## CAN FD最小升级客户端
+
+`upgrade_client.py`独立于GUI，默认`inspect`仅完整检查v3包。
+`upgrade`通过`ports/controlcanfd.py`显式打开Windows SDK；入口要求12B实际UID、目标节点、
+独占无动力台架和outputs证据目录。升级前检查MCU、三端版本、布局、schema与CRC；
+一次一个请求、至多四次原身份重试，激活后核对新APP并通过57确认，再读持久状态。
+无法确认停止或关相时中止交接；任何失败不恢复电机运行。
+
+当前契约见[升级v3](../docs/protocols/yg_protocol_upgrade_wire_v3.md)。
+已提供真实Loader C内核的离线模型及丢回复/错UID/损坏包测试；硬件SDK未在本轮执行。
+GUI可复用相同镜像与维护契约，不能继续使用v2包，也不能用模拟成功作为实机证据。

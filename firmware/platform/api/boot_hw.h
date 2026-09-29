@@ -21,4 +21,23 @@ bool BootHw_EnterLoader(uint8_t node);
  * @note 未由 Loader 启动时不操作 IWDG；健康失败停止喂狗以退回 Loader。
  */
 void BootHw_Watchdog(bool healthy);
+/**
+ * @brief 数字关相时一次写入当前试运行镜像的确认双字。
+ * @param version 主机已核对的发布版本。
+ * @param crc32 主机已核对的整包CRC32。
+ * @return 身份匹配且确认标记读回有效返回true；半写不补写。
+ * @note 前台调用；短暂屏蔽中断，不擦除APP或参数。
+ */
+bool BootHw_Confirm(uint32_t version, uint32_t crc32);
+/**
+ * @brief 查询当前APP持久确认状态。
+ * @return 配套APP确认双字完整返回true；独立APP或未确认返回false。
+ */
+bool BootHw_IsConfirmed(void);
+/**
+ * @brief 返回配套APP描述符声明的整包CRC32，供维护身份查询。
+ * @return 配套APP的CRC32；独立APP或启动端口不可用时为0。
+ * @note 只读元数据，不代替Loader的整包校验。
+ */
+uint32_t BootHw_ImageCrc32(void);
 #endif

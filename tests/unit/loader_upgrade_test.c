@@ -1,13 +1,16 @@
 /* 纯内存模型：不加载设备DLL、不访问CAN/J-Link；验证升级事务与跳前校验。 */
 #include "upgrade.h"
 #include "image_mailbox.h"
+#include "device_identity.h"
 #include "yg_protocol_upgrade_wire.h"
+#include "yg_protocol_byte_order.h"
 #include <assert.h>
 #include <string.h>
 #define MODEL_BASE 0x1000U
 #define MODEL_PAGE 2048U
 static uint8_t flash_bytes[MODEL_PAGE * 2], programmed[512], image[640], manifest[96];
 static uint32_t now_ms, programs, resets;
+static uint32_t tear_address, tear_bytes;
 static bool physical_safe = true, cross_deadline;
 static LoaderImageConfig config;
 static LoaderUpgrade upgrade;
@@ -70,8 +73,12 @@ static bool program_bytes(void *context, uint32_t a, const void *p, uint32_t n)
         return false;
     }
     programmed[unit] = 1;
-    memcpy(flash_bytes + (a - MODEL_BASE), p, 8);
+    memcpy(flash_bytes + (a - MODEL_BASE), p, a == tear_address ? tear_bytes : 8U);
     ++programs;
+    if (a == tear_address)
+    {
+        return false;
+    }
     if (cross_deadline)
     {
         now_ms = LOADER_UPGRADE_LEASE_MS;
@@ -110,7 +117,7 @@ static bool boot_now(void *context)
 }
 static void build_image(void)
 {
-    uint32_t sp = 0x20000800U, entry = MODEL_BASE + MODEL_PAGE + 0x241U, crc;
+    uint32_t sp = 0x20000800U, entry = MODEL_BASE + MODEL_PAGE + 0x261U, crc;
     memset(image, 0, sizeof(image));
     memset(manifest, 0, sizeof(manifest));
     memcpy(image, &sp, 4);
@@ -142,6 +149,7 @@ static void build_image(void)
     be32(manifest + 40, 11);
     manifest[45] = 11;
     manifest[47] = 11;
+    memset(image + 512U + YGI_ACTIVATION_OFFSET, 255, 24U);
     crc = crc32(image, sizeof(image));
     be32(image + 560, crc);
     be32(manifest + 48, crc);
@@ -213,7 +221,8 @@ static void complete_and_boot(void)
     assert(LoaderUpgrade_Write(&upgrade, &binding, 0, corrupt, 128) == YI_CONFLICT);
     assert(programs == before);
     /* 跳前校验读的就是已写入 Flash，而不是 RAM 副本。 */
-    assert(LoaderImage_CheckImage(&config));
+    assert(!LoaderImage_CheckImage(&config));
+    assert(LoaderImage_Check(&config, &upgrade.image.image));
     assert(LoaderUpgrade_Finish(&upgrade, &binding) == YI_OK);
     for (i = 0; i < 10; ++i)
     {
@@ -311,7 +320,10 @@ static void descriptor_versions_and_role_are_rejected(void)
     static const uint32_t values[] = {1U, 0x53593349U, 3U, YGI_ROLE_MAINTENANCE};
     initialize();
     memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
-    assert(LoaderImage_CheckImage(&config));
+    assert(LoaderImage_Activate(&config, &upgrade.image.image) == false);
+    LoaderImageIdentity parsed;
+    assert(LoaderImage_DecodeManifest(&config, manifest, &parsed));
+    assert(LoaderImage_Check(&config, &parsed));
     for (unsigned i = 0U; i < sizeof(offsets) / sizeof(offsets[0]); ++i)
     {
         memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
@@ -320,7 +332,7 @@ static void descriptor_versions_and_role_are_rejected(void)
         be32(candidate + 560U, 0U);
         be32(candidate + 560U, crc32(candidate, sizeof(image)));
         /* CRC仍正确，必须由版本/角色判据拒绝，不能只靠破坏摘要。 */
-        assert(!LoaderImage_CheckImage(&config));
+        assert(!LoaderImage_Check(&config, &parsed));
     }
 }
 
@@ -360,6 +372,89 @@ static void host_nonce_status_golden(void)
     assert(YgProtocolUpgrade_EncodeReply(&reply, actual, sizeof(actual), NULL) ==
            YG_PROTOCOL_INVALID_FIELD);
 }
+static void persistent_gates_and_power_loss(void)
+{
+    LoaderImageIdentity identity;
+    uint32_t marker = MODEL_BASE + MODEL_PAGE + 512U;
+    uint8_t confirmation[8];
+    for (uint32_t cut = 0U; cut <= sizeof(image); cut += 8U)
+    {
+        initialize();
+        tear_address = 0U;
+        LoaderUpgradeBinding binding = begin();
+        for (uint32_t offset = 0U; offset < cut; offset += 8U)
+        {
+            assert(LoaderUpgrade_Write(&upgrade, &binding, offset, image + offset, 8U) == YI_OK);
+        }
+        /* 即使整包完整，冷启动也不能越过未激活门槛。 */
+        assert(!LoaderImage_CheckImage(&config));
+        assert(!LoaderImage_PrepareBoot(&config));
+    }
+    for (uint32_t cut = 0U; cut < 8U; ++cut)
+    {
+        initialize();
+        memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
+        assert(LoaderImage_DecodeManifest(&config, manifest, &identity));
+        tear_address = marker + YGI_ACTIVATION_OFFSET;
+        tear_bytes = cut;
+        assert(!LoaderImage_Activate(&config, &identity));
+        assert(!LoaderImage_CheckImage(&config));
+        assert(!LoaderImage_PrepareBoot(&config));
+        tear_address = 0U;
+    }
+    initialize();
+    memcpy(flash_bytes + MODEL_PAGE, image, sizeof(image));
+    assert(LoaderImage_DecodeManifest(&config, manifest, &identity));
+    assert(LoaderImage_Activate(&config, &identity));
+    assert(LoaderImage_CheckImage(&config));
+    assert(LoaderImage_PrepareBoot(&config));
+    assert(!LoaderImage_PrepareBoot(&config));
+    /* 试运行开始后的掉电不可再试；只有APP确认完整才允许后续冷启动。 */
+    be32(confirmation, YGI_CONFIRM_MAGIC);
+    be32(confirmation + 4U, ~YGI_CONFIRM_MAGIC);
+    for (uint32_t cut = 0U; cut < 8U; ++cut)
+    {
+        memset(flash_bytes + MODEL_PAGE + 512U + YGI_CONFIRM_OFFSET, 255, 8U);
+        memcpy(flash_bytes + MODEL_PAGE + 512U + YGI_CONFIRM_OFFSET, confirmation, cut);
+        assert(!LoaderImage_PrepareBoot(&config));
+    }
+    memcpy(flash_bytes + MODEL_PAGE + 512U + YGI_CONFIRM_OFFSET, confirmation, 8U);
+    assert(LoaderImage_PrepareBoot(&config));
+    assert(LoaderImage_PrepareBoot(&config));
+    assert(LoaderImage_CheckImage(&config));
+}
+
+static void production_identity_contract(void)
+{
+    uint8_t record[64] = {0}, payload[32];
+    DeviceIdentity identity;
+    YgProtocol_WriteU32Le(record, DEVICE_IDENTITY_MAGIC);
+    YgProtocol_WriteU32Le(record + 4U, 1U);
+    memcpy(record + 8U, "YG2026-ESC-001", 14U);
+    YgProtocol_WriteU32Le(record + 24U, 7U);
+    YgProtocol_WriteU32Le(record + 56U, crc32(record, 56U));
+    assert(YgProtocol_ReadU32Le(record + 56U) == 0x5B451A70U);
+    YgProtocol_WriteU32Le(record + 60U, ~DEVICE_IDENTITY_MAGIC);
+    assert(DeviceIdentity_Decode(record, &identity));
+    DeviceIdentity_EncodeInfo(&identity, 3U, 2U, 3U, 0x1234U, payload);
+    assert(memcmp(payload, record + 8U, 16U) == 0);
+    assert(YgProtocol_ReadU32Le(payload + 16U) == 7U);
+    assert(payload[20] == 1U && payload[21] == 3U && payload[22] == 2U);
+    for (uint32_t i = 0U; i < sizeof(record); ++i)
+    {
+        record[i] ^= 1U;
+        assert(!DeviceIdentity_Decode(record, &identity));
+        assert(!identity.valid);
+        record[i] ^= 1U;
+    }
+    for (uint32_t cut = 0U; cut < sizeof(record); ++cut)
+    {
+        uint8_t partial[64];
+        memset(partial, 255, 64U);
+        memcpy(partial, record, cut);
+        assert(!DeviceIdentity_Decode(partial, &identity));
+    }
+}
 int main(void)
 {
     mailbox_golden();
@@ -369,5 +464,7 @@ int main(void)
     descriptor_versions_and_role_are_rejected();
     activation_rechecks_flash();
     host_nonce_status_golden();
+    persistent_gates_and_power_loss();
+    production_identity_contract();
     return 0;
 }

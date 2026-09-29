@@ -43,11 +43,21 @@ typedef void (*BootEntryRequestHandler)(void *context,
  *       失败必须撤销票据，保持功率禁止；不得自动重新使能。
  */
 typedef void (*BootEntryTxHandler)(void *context, uint64_t ticket, bool success);
-/** 由APP组合层注入H通信适配；两个函数均有实现时才开放56。 */
+/**
+ * @brief 请求确认当前试运行镜像；所有者复核健康与停机状态。
+ * @param context APP组合层唯一所有者。
+ * @param version 当前发布版本。
+ * @param crc32 当前整包CRC32。
+ * @return 已确认或本次持久确认成功返回true；错误身份或不健康返回false。
+ * @note 前台调用；不授权功率输出，失败不自动使能。
+ */
+typedef bool (*BootConfirmHandler)(void *context, uint32_t version, uint32_t crc32);
+/** 由APP组合层注入通信适配；request/tx_complete开放56，confirm开放57。 */
 typedef struct
 {
     void *context;
     BootEntryRequestHandler request;
     BootEntryTxHandler tx_complete;
+    BootConfirmHandler confirm;
 } BootEntryService;
 #endif

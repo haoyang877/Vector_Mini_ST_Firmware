@@ -12,7 +12,7 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-GOLDEN = ROOT / "tests/fixtures/loader_image_v2.json"
+GOLDEN = ROOT / "tests/fixtures/loader_image_v3.json"
 
 
 class LoaderPackageTests(unittest.TestCase):
@@ -54,7 +54,7 @@ class LoaderPackageTests(unittest.TestCase):
         self.assertEqual(image.hex(), vector["image_hex"])
         self.assertEqual((output / "manifest.bin").read_bytes().hex(), vector["manifest_hex"])
         metadata = json.loads((output / "package.json").read_text(encoding="utf-8"))
-        self.assertEqual(metadata["format"], "loader-image-v2-crc32")
+        self.assertEqual(metadata["format"], "loader-image-v3-crc32")
         normalized = bytearray(image)
         normalized[560:564] = bytes(4)
         self.assertEqual(zlib.crc32(normalized), struct.unpack_from(">I", image, 560)[0])
@@ -63,7 +63,7 @@ class LoaderPackageTests(unittest.TestCase):
         """跨端黄金向量必须引用同一清单，nonce以载荷小端传输。"""
         image = json.loads(GOLDEN.read_text(encoding="utf-8"))
         wire = json.loads(
-            (ROOT / "docs/protocols/yg_protocol_upgrade_wire_v2_vectors.json").read_text(
+            (ROOT / "docs/protocols/yg_protocol_upgrade_wire_v3_vectors.json").read_text(
                 encoding="utf-8"
             )
         )

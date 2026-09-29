@@ -1,4 +1,4 @@
-/* 镜像事务与跳前校验：只用描述符声明的长度与整包 CRC32，不保留持久提交记录。 */
+/* 镜像事务与跳前校验：三个独立双字提供激活、一次试运行及确认门槛。 */
 #include "image_transfer.h"
 #include "../checksum/crc32.h"
 #include "../protocol/yg_protocol_byte_order.h"
@@ -26,7 +26,8 @@ static bool geometry(const LoaderImageConfig *c)
         c->io.program_bytes != 8 || !c->io.erase_bytes || c->io.erase_bytes % 8 ||
         c->app.bytes > 131072 || c->app.bytes < 8 || c->app.bytes % c->io.erase_bytes ||
         c->app.base % c->io.erase_bytes || !c->schema || c->ram_start >= c->ram_end ||
-        c->descriptor_offset < 8 || (uint64_t)c->descriptor_offset + 64U > c->app.bytes ||
+        c->descriptor_offset < 8 ||
+        (uint64_t)c->descriptor_offset + YGI_DESCRIPTOR_BYTES > c->app.bytes ||
         c->descriptor_offset % 8 || !c->layout || !c->mcu || !c->product || !c->hardware ||
         !c->param_abi)
     {
@@ -58,12 +59,16 @@ static bool descriptor_decode(const LoaderImageConfig *c,
     low = (uint16_t)((uint16_t)p[40] << 8 | p[41]);
     high = (uint16_t)((uint16_t)p[42] << 8 | p[43]);
     if (role != YGI_ROLE_NORMAL || low > c->schema || high < c->schema || low > high ||
-        bytes < c->descriptor_offset + 64U || bytes > c->app.bytes || bytes % 8)
+        bytes < c->descriptor_offset + YGI_DESCRIPTOR_BYTES || bytes > c->app.bytes || bytes % 8)
     {
         return false;
     }
     for (i = YGI_DESCRIPTOR_CRC_OFFSET + 4U; i < YGI_DESCRIPTOR_BYTES; ++i)
     {
+        if (i >= YGI_ACTIVATION_OFFSET && i < YGI_MARKERS_END)
+        {
+            continue;
+        }
         if (p[i])
         {
             return false;
@@ -103,7 +108,8 @@ static bool vectors(const LoaderImageConfig *c, uint32_t bytes)
     sp = YgProtocol_ReadU32Le(p);
     pc = YgProtocol_ReadU32Le(p + 4);
     return sp > c->ram_start && sp <= c->ram_end && !(sp & 7U) && (pc & 1U) &&
-           (uint64_t)(pc & ~1U) >= (uint64_t)c->app.base + c->descriptor_offset + 64U &&
+           (uint64_t)(pc & ~1U) >=
+               (uint64_t)c->app.base + c->descriptor_offset + YGI_DESCRIPTOR_BYTES &&
            (uint64_t)(pc & ~1U) < (uint64_t)c->app.base + bytes;
 }
 /* 整包 CRC32；描述符自身的4B CRC字段按0参与，以便打包时回填后仍可复算。 */
@@ -128,6 +134,11 @@ static bool compute_crc(const LoaderImageConfig *c, uint32_t bytes, uint32_t *ou
             if (a >= crc_at && a < crc_at + 4U)
             {
                 p[k] = 0U;
+            }
+            if (a >= c->descriptor_offset + YGI_ACTIVATION_OFFSET &&
+                a < c->descriptor_offset + YGI_MARKERS_END)
+            {
+                p[k] = 255U;
             }
         }
         crc = crc_more(crc, p, n);
@@ -163,8 +174,9 @@ bool LoaderImage_DecodeManifest(const LoaderImageConfig *c,
     m.crc32 = be32(p + YGI_MANIFEST_CRC_OFFSET);
     low = (uint16_t)((uint16_t)p[44] << 8 | p[45]);
     high = (uint16_t)((uint16_t)p[46] << 8 | p[47]);
-    if (!m.token || m.bytes < c->descriptor_offset + 64U || m.bytes > c->app.bytes || m.bytes % 8 ||
-        low > c->schema || high < c->schema || low > high || m.role != YGI_ROLE_NORMAL)
+    if (!m.token || m.bytes < c->descriptor_offset + YGI_DESCRIPTOR_BYTES ||
+        m.bytes > c->app.bytes || m.bytes % 8 || low > c->schema || high < c->schema ||
+        low > high || m.role != YGI_ROLE_NORMAL)
     {
         return false;
     }
@@ -271,6 +283,24 @@ LoaderImage_Write(LoaderImageTransfer *t, uint32_t offset, const uint8_t *data, 
         {
             result = fail(t, YI_DENIED);
             break;
+        }
+        if (position >= c->descriptor_offset + YGI_ACTIVATION_OFFSET &&
+            position < c->descriptor_offset + YGI_MARKERS_END)
+        {
+            uint8_t erased[8];
+            memset(erased, 255, sizeof(erased));
+            if (memcmp(data + i, erased, 8) != 0 ||
+                !c->io.read(c->io.context, c->app.base + position, old, 8) ||
+                memcmp(old, erased, 8) != 0)
+            {
+                result = fail(t, YI_CONFLICT);
+                break;
+            }
+            if (position == t->next)
+            {
+                t->next += 8;
+            }
+            continue;
         }
         if (position < t->next)
         {
@@ -395,6 +425,11 @@ LoaderImageResult LoaderImage_Poll(LoaderImageTransfer *t)
             {
                 p[i] = 0U;
             }
+            if (position >= c->descriptor_offset + YGI_ACTIVATION_OFFSET &&
+                position < c->descriptor_offset + YGI_MARKERS_END)
+            {
+                p[i] = 255U;
+            }
         }
         t->hash = crc_more(t->hash, p, n);
         t->next += n;
@@ -423,7 +458,10 @@ bool LoaderImage_Check(const LoaderImageConfig *c, const LoaderImageIdentity *m)
         return false;
     }
     return compute_crc(c, m->bytes, &crc) && crc == m->crc32 && vectors(c, m->bytes) &&
-           read_descriptor(c, NULL, m);
+           read_descriptor(c, NULL, m) &&
+           LoaderImage_ReadMarker(c, YGI_ACTIVATION_OFFSET, YGI_ACTIVATION_MAGIC) == 0 &&
+           LoaderImage_ReadMarker(c, YGI_ATTEMPT_OFFSET, YGI_ATTEMPT_MAGIC) == 0 &&
+           LoaderImage_ReadMarker(c, YGI_CONFIRM_OFFSET, YGI_CONFIRM_MAGIC) == 0;
 }
 bool LoaderImage_CheckImage(const LoaderImageConfig *c)
 {
@@ -433,5 +471,64 @@ bool LoaderImage_CheckImage(const LoaderImageConfig *c)
     {
         return false;
     }
-    return compute_crc(c, id.bytes, &crc) && crc == id.crc32 && vectors(c, id.bytes);
+    return compute_crc(c, id.bytes, &crc) && crc == id.crc32 && vectors(c, id.bytes) &&
+           LoaderImage_ReadMarker(c, YGI_ACTIVATION_OFFSET, YGI_ACTIVATION_MAGIC) == 1;
+}
+
+int LoaderImage_ReadMarker(const LoaderImageConfig *c, uint32_t offset, uint32_t magic)
+{
+    uint8_t p[8];
+    if (!geometry(c) ||
+        (offset != YGI_ACTIVATION_OFFSET && offset != YGI_ATTEMPT_OFFSET &&
+         offset != YGI_CONFIRM_OFFSET) ||
+        !c->io.read(c->io.context, c->app.base + c->descriptor_offset + offset, p, 8))
+    {
+        return -1;
+    }
+    if (be32(p) == magic && be32(p + 4) == ~magic)
+    {
+        return 1;
+    }
+    return be32(p) == UINT32_MAX && be32(p + 4) == UINT32_MAX ? 0 : -1;
+}
+
+static bool write_marker(const LoaderImageConfig *c, uint32_t offset, uint32_t magic)
+{
+    uint8_t p[8];
+    uint32_t i;
+    if (!c->allowed(c->owner) || LoaderImage_ReadMarker(c, offset, magic) != 0)
+    {
+        return false;
+    }
+    for (i = 0; i < 4; ++i)
+    {
+        p[i] = (uint8_t)(magic >> (24U - i * 8U));
+        p[i + 4] = (uint8_t)(~magic >> (24U - i * 8U));
+    }
+    return c->io.program(c->io.context, c->app.base + c->descriptor_offset + offset, p, 8) &&
+           LoaderImage_ReadMarker(c, offset, magic) == 1;
+}
+
+bool LoaderImage_Activate(const LoaderImageConfig *c, const LoaderImageIdentity *identity)
+{
+    return LoaderImage_Check(c, identity) &&
+           LoaderImage_ReadMarker(c, YGI_ATTEMPT_OFFSET, YGI_ATTEMPT_MAGIC) == 0 &&
+           LoaderImage_ReadMarker(c, YGI_CONFIRM_OFFSET, YGI_CONFIRM_MAGIC) == 0 &&
+           write_marker(c, YGI_ACTIVATION_OFFSET, YGI_ACTIVATION_MAGIC);
+}
+
+bool LoaderImage_PrepareBoot(const LoaderImageConfig *c)
+{
+    int attempt, confirmed;
+    if (!LoaderImage_CheckImage(c) || !c->allowed(c->owner))
+    {
+        return false;
+    }
+    attempt = LoaderImage_ReadMarker(c, YGI_ATTEMPT_OFFSET, YGI_ATTEMPT_MAGIC);
+    confirmed = LoaderImage_ReadMarker(c, YGI_CONFIRM_OFFSET, YGI_CONFIRM_MAGIC);
+    if (attempt == 1 && confirmed == 1)
+    {
+        return true;
+    }
+    return attempt == 0 && confirmed == 0 && write_marker(c, YGI_ATTEMPT_OFFSET, YGI_ATTEMPT_MAGIC);
 }

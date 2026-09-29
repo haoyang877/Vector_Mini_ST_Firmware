@@ -17,6 +17,8 @@
 #include "yg_protocol_owner_adapter.h"
 #include "time_hw.h"
 #include "vector_mini_st_g431.h"
+#include "yg_protocol_byte_order.h"
+#include "device_identity.h"
 
 /* 启动编排：参数装载 → 应用状态初始化 → 板级采样时钟 → CAN FD 端点。
  * 硬件细节全部位于 platform 契约实现内；本文件不再包含任何硬件头。 */
@@ -24,6 +26,19 @@
 static motor_stop_service_t s_stop_service;
 static yg_protocol_motor_adapter_t s_motor_adapter;
 static bool s_communication_ready;
+static DeviceIdentity s_identity;
+
+static void publish_identity(void)
+{
+    uint8_t payload[32];
+    uint8_t state = 0U;
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    state = BootHw_IsConfirmed() ? 1U : 2U;
+#endif
+    DeviceIdentity_EncodeInfo(
+        &s_identity, Protocol_NodeId_Get(), 1U, state, BootHw_ImageCrc32(), payload);
+    (void)YgProtocolLink_SetMaintenanceInfoPage(1U, payload);
+}
 
 static motor_stop_owner_result_t request_stop(void *context)
 {
@@ -66,17 +81,44 @@ static bool bind_device_description(void)
 {
     /* 产品和硬件修订取共同目标清单；未知发布版本仍为 0，不以协议版本替代。 */
     yg_protocol_readonly_info_page0_t info = {.product_id = TARGET_PRODUCT,
-                                              .hardware_revision = TARGET_HARDWARE};
+                                              .hardware_revision = TARGET_HARDWARE,
+                                              .application_version = TARGET_APP_VERSION,
+                                              .boot_version = TARGET_LOADER_VERSION,
+                                              .boot_api = TARGET_BOOT_API};
     yg_protocol_readonly_caps_page0_t capabilities = {
         .features = (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
         .supported_modes = 0U, /* 普通远程启动未开放，不能按内部控制枚举宣称能力。 */
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
-    return board_hw_read_uid(info.uid) && YgProtocolLink_SetDeviceDescription(&info, &capabilities);
+    uint8_t payload[32], record[64];
+    const uint32_t target[8] = {TARGET_MCU,
+                                TARGET_LAYOUT,
+                                TARGET_PARAM_ABI,
+                                TARGET_SCHEMA,
+                                TARGET_APP_BASE,
+                                TARGET_APP_BYTES,
+                                TARGET_LOADER_BYTES,
+                                TARGET_IDENTITY_BASE};
+#if !defined(YG_APP_LOADER_IMAGE) || !YG_APP_LOADER_IMAGE
+    info.boot_api = 0U;
+    info.boot_version = 0U;
+#endif
+    if (board_hw_read_identity(record))
+    {
+        (void)DeviceIdentity_Decode(record, &s_identity);
+    }
+    for (uint32_t i = 0; i < 8U; ++i)
+    {
+        YgProtocol_WriteU32Le(payload + i * 4U, target[i]);
+    }
+    publish_identity();
+    return board_hw_read_uid(info.uid) &&
+           YgProtocolLink_SetDeviceDescription(&info, &capabilities) &&
+           YgProtocolLink_SetMaintenanceInfoPage(2U, payload);
 }
 
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-/* 56 进 Loader 的最小所有者：停机→关相→精确TX完成后写ENTER邮箱复位；无持久确认。 */
+/* 56负责停机交接；57仅在持续健康且关相时持久确认当前试运行镜像。 */
 #define BOOT_ENTRY_TIMEOUT_MS 1000U
 #define BOOT_HEALTH_INTERVAL_MS 100U
 static BootEntryRequest s_entry_request;
@@ -85,6 +127,19 @@ static uint64_t s_entry_ticket;
 static uint32_t s_entry_started_ms;
 static uint32_t s_health_checked_ms, s_observed_supervisor_epoch;
 static bool s_entry_requested, s_boot_supported;
+static uint8_t s_healthy_intervals;
+
+static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
+{
+    (void)context;
+    uint32_t progress;
+    bool confirmed = s_boot_supported && !s_entry_requested && s_healthy_intervals >= 11U &&
+                     MotorStateMachine_ReadBootHealth(&progress) && s_communication_ready &&
+                     YgProtocolLink_IsReady() && comm_hw_can_is_healthy() && MotorAxis_SaveIdle() &&
+                     power_stage_hw_phases_disabled() && BootHw_Confirm(version, crc32);
+    publish_identity();
+    return confirmed;
+}
 
 static bool same_request(const BootEntryRequest *left, const BootEntryRequest *right)
 {
@@ -173,8 +228,9 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
 
 static bool bind_boot_entry(void)
 {
-    const BootEntryService service = {NULL, handle_entry, handle_tx_complete};
+    const BootEntryService service = {NULL, handle_entry, handle_tx_complete, confirm_image};
     s_boot_supported = BootHw_Init();
+    publish_identity();
     return YgProtocolLink_BindBootService(&service);
 }
 #endif
@@ -214,6 +270,8 @@ void Board_ServiceBoot(uint32_t now_ms)
         healthy = healthy && progress != s_observed_supervisor_epoch && s_communication_ready &&
                   YgProtocolLink_IsReady() && comm_hw_can_is_healthy();
         s_observed_supervisor_epoch = progress;
+        s_healthy_intervals =
+            healthy ? (s_healthy_intervals < 11U ? s_healthy_intervals + 1U : 11U) : 0U;
         BootHw_Watchdog(healthy);
     }
 #else

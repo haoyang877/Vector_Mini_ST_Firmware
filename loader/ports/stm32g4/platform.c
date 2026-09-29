@@ -149,6 +149,20 @@ void LoaderPlatform_ImageIo(LoaderFlashIo *io)
         bind_io(io, &image_domain);
     }
 }
+void LoaderPlatform_ReadIdentity(uint8_t uid[12], DeviceIdentity *identity)
+{
+    uint8_t record[64];
+    const uint32_t words[3] = {HAL_GetUIDw0(), HAL_GetUIDw1(), HAL_GetUIDw2()};
+    for (uint32_t i = 0; i < 3U; ++i)
+    {
+        memcpy(uid + i * 4U, words + i, 4U);
+    }
+    memset(identity, 0, sizeof(*identity));
+    if (LoaderFlash_Read(TARGET_IDENTITY_BASE, record, sizeof(record)))
+    {
+        (void)DeviceIdentity_Decode(record, identity);
+    }
+}
 void SysTick_Handler(void)
 {
     HAL_IncTick();
@@ -342,7 +356,8 @@ void LoaderPlatform_Jump(void)
     unsigned i;
     if (!LoaderPlatform_OutputsOff() || !LoaderFlash_Read(TARGET_APP_BASE, vectors, 8) ||
         vectors[0] <= TARGET_RAM_BASE || vectors[0] > TARGET_RAM_END || (vectors[0] & 7U) ||
-        !(vectors[1] & 1U) || (vectors[1] & ~1U) < TARGET_APP_BASE + 0x240U ||
+        !(vectors[1] & 1U) ||
+        (vectors[1] & ~1U) < TARGET_APP_BASE + TARGET_DESCRIPTOR_OFFSET + YGI_DESCRIPTOR_BYTES ||
         (vectors[1] & ~1U) >= TARGET_APP_BASE + TARGET_APP_BYTES)
     {
         LoaderPlatform_Fatal();

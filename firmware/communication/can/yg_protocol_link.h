@@ -35,6 +35,14 @@ bool YgProtocolLink_Init(uint8_t node_id);
  */
 bool YgProtocolLink_SetDeviceDescription(const yg_protocol_readonly_info_page0_t *info,
                                          const yg_protocol_readonly_caps_page0_t *capabilities);
+/**
+ * @brief 发布GET_INFO维护页快照。
+ * @param page 1为生产身份与启动状态，2为目标与Flash布局。
+ * @param payload 组合层编码的32B只读页，返回后不保留指针。
+ * @return 端点已初始化且输入非空返回true。
+ * @note 前台串行调用；通信层不访问Flash或参数所有者。
+ */
+bool YgProtocolLink_SetMaintenanceInfoPage(uint16_t page, const uint8_t payload[32]);
 
 /**
  * @brief 绑定Type3所需的真实启动交接快照。

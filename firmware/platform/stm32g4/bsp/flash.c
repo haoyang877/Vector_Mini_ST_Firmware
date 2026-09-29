@@ -130,7 +130,7 @@ bool flash_read_param(void *record, uint32_t size_bytes)
 }
 bool flash_write_param(const void *record, uint32_t size_bytes)
 {
-    if (record == NULL || size_bytes == 0U || size_bytes > 0x4000U ||
+    if (record == NULL || size_bytes == 0U || size_bytes > 0x3800U ||
         !power_stage_hw_phases_disabled())
     {
         return false;

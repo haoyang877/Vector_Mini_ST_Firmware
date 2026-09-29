@@ -15,7 +15,7 @@
     "TARGET_RAM_BASE": "0x20000000U",
     "TARGET_RAM_END": "0x20007FE0U",
     "TARGET_MAILBOX_ADDRESS": "TARGET_RAM_END",
-    "TARGET_LAYOUT": "4U",
+    "TARGET_LAYOUT": "5U",
     "TARGET_MCU": "0x04310080U",
     "TARGET_PRODUCT": "0x59473236U",
     "TARGET_HARDWARE": "1U",
@@ -29,7 +29,12 @@
     "TARGET_RAW_MAGIC_OFFSET": "2164U",
     "TARGET_RAW_MAGIC": "0x454E4332U",
     "TARGET_RAW_BYTES": "4304U",
-    "TARGET_PROGRAM_BYTES": "8U"
+    "TARGET_PROGRAM_BYTES": "8U",
+    "TARGET_APP_VERSION": "0x00010000U",
+    "TARGET_LOADER_VERSION": "0x00010000U",
+    "TARGET_BOOT_API": "3U",
+    "TARGET_IDENTITY_BASE": "0x0801F800U",
+    "TARGET_IDENTITY_BYTES": "0x800U"
   },
   "includes": [
     "loader/targets/vector_mini_st_g431",
@@ -65,7 +70,8 @@
       "shared/protocol/yg_protocol_crc.c",
       "shared/protocol/yg_protocol_fragment.c",
       "shared/protocol/yg_protocol_frame_codec.c",
-      "shared/protocol/yg_protocol_upgrade_wire.c"
+      "shared/protocol/yg_protocol_upgrade_wire.c",
+      "shared/boot/device_identity.c"
     ],
     "ST support": [
       "firmware/platform/stm32g4/cubemx/MDK-ARM/startup_stm32g431xx.s",

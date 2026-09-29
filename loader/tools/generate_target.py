@@ -57,8 +57,8 @@ LR_LOADER 0x{flash:08X} 0x{size:X}
 LR_APP 0x{app:08X} 0x{app_bytes:X}
 {{
     ER_VECTORS 0x{app:08X} 0x{descriptor:X} {{ *.o (RESET, +First) }}
-    ER_DESCRIPTOR 0x{app + descriptor:08X} FIXED 0x40 {{ * (.app_descriptor) }}
-    ER_APP 0x{app + descriptor + 64:08X} FIXED 0x{app_bytes - descriptor - 64:X}
+    ER_DESCRIPTOR 0x{app + descriptor:08X} FIXED 0x60 {{ * (.app_descriptor) }}
+    ER_APP 0x{app + descriptor + 96:08X} FIXED 0x{app_bytes - descriptor - 96:X}
     {{
         *(InRoot$$Sections)
         .ANY (+RO)

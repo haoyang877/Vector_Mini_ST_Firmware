@@ -30,7 +30,7 @@ def main() -> None:
         image = args.image_bin.read_bytes()
     else:
         vector = json.loads(
-            (ROOT / "tests/fixtures/loader_image_v2.json").read_text(encoding="utf-8")
+            (ROOT / "tests/fixtures/loader_image_v3.json").read_text(encoding="utf-8")
         )
         image = bytes.fromhex(vector["image_hex"])
     header = "static const uint8_t LoaderV2Image[] = {" + ",".join(map(str, image)) + "};\n"
@@ -90,6 +90,7 @@ def main() -> None:
         "loader/core/upgrade.c",
         "shared/image/image_transfer.c",
         "shared/boot/image_mailbox.c",
+        "shared/boot/device_identity.c",
         "shared/checksum/crc32.c",
         "shared/protocol/yg_protocol_upgrade_wire.c",
         "shared/protocol/yg_protocol_can_id.c",

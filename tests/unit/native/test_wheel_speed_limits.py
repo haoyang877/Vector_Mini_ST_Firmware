@@ -24,8 +24,10 @@ def fixture():
 #include "crc32.h"
 #include "parameter_value_service.h"
 #include "foc_sensing.h"
-#include "foc_param_profile.h"
-#include "param_comm_bridge.h"
+#include "motor_profile_defaults.h"
+#include "board_profile_defaults.h"
+#include "application_profile_defaults.h"
+#include "device_profile_defaults.h"
 #include "utils.h"
 #include "foc_cogging_calibration.h"
 MotorControlState motor_state;
@@ -35,14 +37,11 @@ static CoggingMapRecord CoggingMap;
 void FocCogging_ResetMap(void) { memset(&CoggingMap,0,sizeof(CoggingMap)); }
 void FocCogging_ImportMap(const CoggingMapRecord *record) { CoggingMap=*record; }
 void FocCogging_ExportMap(CoggingMapRecord *record, const MotorControlState *m, const EncoderState *e) {
-    uint32_t signature=Cogging_EncoderSignature(e->reverse,e->electrical_zero_q15,m->motor_pole_pairs,e->linearization_lut_q15);
+    uint32_t signature=Cogging_EncoderSignature(e->reverse,e->electrical_zero_q15,m->model.motor_pole_pairs,e->linearization_lut_q15);
     memset(record,0,sizeof(*record));
     if((e->calib_flag&ENC_CALIB_ALL)==ENC_CALIB_ALL && CoggingMap_Valid(&CoggingMap,signature)) { *record=CoggingMap; }
 }
 uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
-static uint8_t node_id;
-uint8_t Protocol_NodeId_Get(void) { return node_id; }
-void Protocol_NodeId_Set(uint8_t value) { node_id = value; }
 """
     vectors = json.loads(
         (ROOT / "docs/protocols/parameter_schema12_vectors.json").read_text(encoding="utf-8")
@@ -69,23 +68,23 @@ int main(void) {
     saved=p;
     for(node=1; node<=7; node++) {
         float cap=(node==1 || node==2) ? 20 : .5f*_2PI;
-        assert(Param_SpeedLimitRadS(node)==cap);
+
         p=saved; p.node_id=(float)node; p.speed_limit_rad_s=21;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
-        assert(node_id==node && motor_state.axis_profile_valid);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==cap); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        assert(motor_state.device.node_id==node && motor_state.application.axis_profile_valid);
         assert(rotor_encoder.electrical_zero_q15==3155);
         assert(rotor_encoder.linearization_lut_q15[71]==-42);
-        assert(motor_state.speed_kp==.02f);
-        p.speed_limit_rad_s=1.25f; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==1.25f);
-        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
-        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.speed_limit_rad_s==cap);
+        assert(motor_state.application.speed_kp==.02f);
+        p.speed_limit_rad_s=1.25f; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==1.25f);
+        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==cap); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==cap); assert(motor_state.application.speed_ceiling_rad_s==cap);
     }
     puts("PASS all node ceilings, stored lower limits, invalid fallback, calibration preserved");
     /* Axis record wins over stale legacy node ID before selecting the cap. */
     p=saved; p.node_id=1; p.speed_limit_rad_s=20;
     assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
     p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
-    assert(node_id==3 && motor_state.speed_limit_rad_s==.5f*_2PI);
+    assert(motor_state.device.node_id==3 && motor_state.application.speed_limit_rad_s==.5f*_2PI);
     puts("PASS resolved joint identity selects the ceiling before parameter loading");
     /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
     {
@@ -95,11 +94,11 @@ int main(void) {
             p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
             p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
             assert(memcmp(&p,&before,sizeof(p))==0);
-            assert(node_id==(uint8_t)PARAM_HW_CAN_NODE_ID);
+            assert(motor_state.device.node_id==(uint8_t)PARAM_DEVICE_CAN_NODE_ID);
             assert(rotor_encoder.calib_flag==0 && rotor_encoder.electrical_zero_q15==0);
             assert(rotor_encoder.linearization_lut_q15[71]==0 && CoggingMap.magic==0);
-            assert(motor_state.cascade_position_kp==PARAM_APP_CASCADE_POSITION_KP);
-            assert(motor_state.speed_kp==PARAM_APP_SPEED_KP);
+            assert(motor_state.application.cascade_position_kp==PARAM_APP_CASCADE_POSITION_KP);
+            assert(motor_state.application.speed_kp==PARAM_APP_SPEED_KP);
         }
         p=saved; p.magic_word=0;
         p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
@@ -130,8 +129,8 @@ int main(void) {
         p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
         assert(memcmp(&p,&before,sizeof(p))==0);
     }
-    assert(motor_state.cascade_position_kp==.07f && motor_state.cascade_position_kd==.6f);
-    assert(motor_state.speed_kp==.023f && motor_state.speed_limit_rad_s==20);
+    assert(motor_state.application.cascade_position_kp==.07f && motor_state.application.cascade_position_kd==.6f);
+    assert(motor_state.application.speed_kp==.023f && motor_state.application.speed_limit_rad_s==20);
     assert(rotor_encoder.electrical_zero_q15==3155 && rotor_encoder.reverse==0);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     assert(CoggingMap.magic==0);
@@ -166,9 +165,9 @@ int main(void) {
     p.friction_model_valid=1U;
     p.friction_coulomb_pos_a=.2f; p.friction_coulomb_neg_a=.2f;
     p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
-    assert(motor_state.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
-    assert(motor_state.current_limit_a==PARAM_MOTOR_CURRENT_LIMIT_A);
-    assert(!motor_state.friction_model_valid && CoggingMap.magic==0);
+    assert(motor_state.model.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
+    assert(motor_state.application.current_limit_a==PARAM_MOTOR_CURRENT_LIMIT_A);
+    assert(!motor_state.device.friction_model_valid && CoggingMap.magic==0);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     puts("PASS current-sense mismatch invalidates current-domain settings only");
 
@@ -178,7 +177,7 @@ int main(void) {
     p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
-    assert(node_id==1U && motor_state.speed_limit_rad_s==PARAM_MOTOR_SPEED_LIMIT_RPS*_2PI);
+    assert(motor_state.device.node_id==1U && motor_state.application.speed_limit_rad_s==PARAM_MOTOR_SPEED_LIMIT_RPS*_2PI);
     Param_Upload(&p,&motor_state,&rotor_encoder);
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
@@ -190,7 +189,7 @@ int main(void) {
     p.current_limit_a+=1.0f;
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
-    assert(rotor_encoder.calib_flag==0U && motor_state.axis_profile_valid);
+    assert(rotor_encoder.calib_flag==0U && motor_state.application.axis_profile_valid);
     p=saved; p.configuration_flags=2U; p.record_crc32=Param_RecordCrc(&p);
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
@@ -199,7 +198,7 @@ int main(void) {
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     p=saved; p.node_id=0.0f; p.record_crc32=Param_RecordCrc(&p);
     Param_Download(&p,&motor_state,&rotor_encoder);
-    assert(!motor_state.configuration_confirmed && node_id==1U && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    assert(!motor_state.configuration_confirmed && motor_state.device.node_id==1U && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     puts("PASS independent schema12 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
     return 0;
 }

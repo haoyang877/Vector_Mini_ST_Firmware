@@ -186,7 +186,8 @@ static MotorControlResult validate_control(const MotorControlCommand *command)
         return MOTOR_CONTROL_FAULT;
     }
     if (power_stage_hw_phases_disabled() || s_context.rules.state != MOTOR_STATE_RUNNING ||
-        s_context.motor->control_mode != command->mode || !s_context.motor->axis_profile_valid ||
+        s_context.motor->control_mode != command->mode ||
+        !s_context.motor->application.axis_profile_valid ||
         s_context.motor->uses_sensorless_feedback || !Encoder_IsOnline(s_context.rotor_encoder) ||
         (Encoder_GetCalibFlag(s_context.rotor_encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL ||
         !state_vbus_in_enable_window() || !isfinite(s_context.foc->bus_voltage_v) ||
@@ -197,25 +198,26 @@ static MotorControlResult validate_control(const MotorControlCommand *command)
     switch (command->mode)
     {
     case MOTOR_CONTROL_CURRENT:
-        return isfinite(s_context.motor->current_limit_a) &&
-                       s_context.motor->current_limit_a > 0.0f &&
-                       fabsf(command->iq_a) <= s_context.motor->current_limit_a
+        return isfinite(s_context.motor->application.current_limit_a) &&
+                       s_context.motor->application.current_limit_a > 0.0f &&
+                       fabsf(command->iq_a) <= s_context.motor->application.current_limit_a
                    ? MOTOR_CONTROL_ACCEPTED
                    : MOTOR_CONTROL_OUT_OF_RANGE;
     case MOTOR_CONTROL_SPEED:
-        return isfinite(s_context.motor->speed_limit_rad_s) &&
-                       s_context.motor->speed_limit_rad_s > 0.0f &&
-                       fabsf(command->speed_rad_s) <= s_context.motor->speed_limit_rad_s &&
-                       (s_context.motor->axis_profile.magic == 0U ||
-                        (isfinite(s_context.motor->axis_profile.maximum_speed_rad_s) &&
-                         s_context.motor->axis_profile.maximum_speed_rad_s > 0.0f &&
+        return isfinite(s_context.motor->application.speed_limit_rad_s) &&
+                       s_context.motor->application.speed_limit_rad_s > 0.0f &&
+                       fabsf(command->speed_rad_s) <=
+                           s_context.motor->application.speed_limit_rad_s &&
+                       (s_context.motor->application.axis_profile.magic == 0U ||
+                        (isfinite(s_context.motor->application.axis_profile.maximum_speed_rad_s) &&
+                         s_context.motor->application.axis_profile.maximum_speed_rad_s > 0.0f &&
                          fabsf(command->speed_rad_s) <=
-                             s_context.motor->axis_profile.maximum_speed_rad_s))
+                             s_context.motor->application.axis_profile.maximum_speed_rad_s))
                    ? MOTOR_CONTROL_ACCEPTED
                    : MOTOR_CONTROL_OUT_OF_RANGE;
     case MOTOR_CONTROL_POSITION:
-        return MotorAxisProfile_AllowsPosition(&s_context.motor->axis_profile,
-                                               s_context.motor->axis_profile_valid,
+        return MotorAxisProfile_AllowsPosition(&s_context.motor->application.axis_profile,
+                                               s_context.motor->application.axis_profile_valid,
                                                Encoder_GetMecPos(s_context.rotor_encoder),
                                                command->position_rad)
                    ? MOTOR_CONTROL_ACCEPTED
@@ -336,7 +338,8 @@ static MotorStateFacts state_read_facts(void)
     facts.self_test_passed = s_context.self_test_complete &&
                              ParameterValue_ConfigurationValid(s_context.motor) &&
                              facts.samples_fresh && facts.fault_sources_clear;
-    facts.start_permitted = s_context.motor->axis_profile_valid && !s_context.boot_maintenance_only;
+    facts.start_permitted =
+        s_context.motor->application.axis_profile_valid && !s_context.boot_maintenance_only;
     if (mode != MOTOR_CONTROL_NONE)
     {
         facts.start_permitted = facts.start_permitted && s_context.motor->configuration_confirmed &&
@@ -362,7 +365,7 @@ static MotorStateFacts state_read_facts(void)
             facts.start_permitted &&
             (Encoder_GetCalibFlag(s_context.rotor_encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL;
     }
-    facts.operation_permitted = s_context.motor->axis_profile_valid &&
+    facts.operation_permitted = s_context.motor->application.axis_profile_valid &&
                                 ((s_context.rules.maintenance_active &&
                                   MotorStateRules_Classify(s_context.rules.maintenance_kind) ==
                                       MOTOR_MAINTENANCE_CLASS_CALIBRATION) ||
@@ -431,7 +434,7 @@ static void report_transition_fault(void)
         {
             error = MOTOR_FAULT_TEMPERATURE_SENSOR;
         }
-        else if (!s_context.motor->axis_profile_valid)
+        else if (!s_context.motor->application.axis_profile_valid)
         {
             error = MOTOR_FAULT_INVALID_PARAMETERS;
         }
@@ -747,8 +750,10 @@ static uint32_t state_start_blockers(const MotorStateFacts *facts)
 static bool state_position_start_allowed(void)
 {
     float position = Encoder_GetMecPos(s_context.rotor_encoder);
-    return MotorAxisProfile_AllowsPosition(
-        &s_context.motor->axis_profile, s_context.motor->axis_profile_valid, position, position);
+    return MotorAxisProfile_AllowsPosition(&s_context.motor->application.axis_profile,
+                                           s_context.motor->application.axis_profile_valid,
+                                           position,
+                                           position);
 }
 
 void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
@@ -1188,7 +1193,7 @@ void MotorStateMachine_CheckFastFaults(void)
     }
 
     /* 检查实际输出和已受理控制，不依赖通信入口。 */
-    if (!s_context.motor->axis_profile_valid && MotorStateMachine_OutputExpected())
+    if (!s_context.motor->application.axis_profile_valid && MotorStateMachine_OutputExpected())
     {
         MotorFault_Report(s_context.motor, MOTOR_FAULT_INVALID_PARAMETERS);
     }

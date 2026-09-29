@@ -8,7 +8,6 @@
 #include "power_stage_hw.h"
 #include "foc_sensing.h"
 #include "foc_param.h"
-#include "param_comm_bridge.h"
 #include "param_store.h"
 #include "heap.h"
 #include "rtt_telemetry.h"
@@ -87,6 +86,11 @@ static void load_parameters(void)
     }
 }
 
+uint8_t MotorAxis_NodeId(void)
+{
+    return s_motor_state.device.node_id;
+}
+
 void MotorAxis_Init(void)
 {
     s_config_revision = 1U;
@@ -102,7 +106,7 @@ void MotorAxis_Init(void)
     FOC_CurrentController_Reset(&s_foc_state);
     PiController_Reset(&s_speed_pi);
 
-    s_motor_state.position_error_window_rad = 0.001f;
+    s_motor_state.application.position_error_window_rad = 0.001f;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
     MotorOuterLoop_RequestReset();
     MotorMaintenance_Init();
@@ -111,7 +115,7 @@ void MotorAxis_Init(void)
     /* 启动默认保持禁用：CurrentOffset 标定启动已随 s_foc_state-Calibration 功能移除，
      * 待标定重建后再定启动流程；避免以死模式进入自动使能而空开功率级。 */
     s_motor_state.control_mode = MOTOR_CONTROL_NONE;
-    if (!s_motor_state.axis_profile_valid)
+    if (!s_motor_state.application.axis_profile_valid)
     {
         MotorFault_Report(&s_motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
     }
@@ -261,7 +265,8 @@ MotorState MotorAxis_ReadStatus(MotorStatus *sample,
     uint32_t mask = critical_hw_enter();
     sample_motor_status(sample);
     *valid_bits = 0x54U;
-    if (s_motor_state.axis_profile_valid && Encoder_GetBadFrameStreak(&s_rotor_encoder) == 0U &&
+    if (s_motor_state.application.axis_profile_valid &&
+        Encoder_GetBadFrameStreak(&s_rotor_encoder) == 0U &&
         Encoder_GetCalibFlag(&s_rotor_encoder) != 0U)
     {
         *valid_bits |= 0x03U;
@@ -423,7 +428,6 @@ ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, Par
                      : ParameterValue_Read(&s_motor_state,
                                            &s_rotor_encoder,
                                            s_config_revision,
-                                           Protocol_NodeId_Get(),
                                            request->parameter_id,
                                            value);
         if (request->parameter_id >= 0x4FU && request->parameter_id <= 0x51U)
@@ -504,7 +508,7 @@ ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
     }
     else
     {
-        result = ParameterValue_Apply(&s_motor_state, Protocol_NodeId_Get(), request);
+        result = ParameterValue_Apply(&s_motor_state, request);
         if (result == PARAMETER_OK)
         {
             advance_config_revision();
@@ -515,7 +519,6 @@ ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
             result = ParameterValue_Read(&s_motor_state,
                                          &s_rotor_encoder,
                                          s_config_revision,
-                                         Protocol_NodeId_Get(),
                                          request->parameter_id,
                                          applied);
             if (result == PARAMETER_OK)

@@ -30,7 +30,7 @@
 | motor/protection | 电机故障与母线保护策略 |
 | motor 根目录头文件 | 电机域值类型、模式、状态、任务结果及现有模型/启动 profile，不放应用运行实例 |
 | services/lifecycle | 控制/维护请求、readiness 值与停机服务，不再实现另一套状态机 |
-| services/parameters | 当前参数装载/导出、标量校验及轴记录解析，后续参数解耦的现有入口 |
+| services/parameters | schema12 装载/导出、纯标量校验、轴解析及应用/设备默认值；不拥有通信节点变量 |
 | services/telemetry | 只读电机状态值契约 |
 | communication/can | CAN 接入、队列、中断接入、链路及端点调度 |
 | communication/protocol | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
@@ -46,12 +46,14 @@ RTT 目前读取外环就绪事实并调用 SEGGER，因此仍归 app/runtime；
 数据流和所有权见 [APP 命名与所有权](app_naming_v1.md)、
 [主状态机契约](motor_state_machine_v1.md)。
 
-## 参数解耦的下一阶段
+## 参数与运行状态
 
-当前 services/parameters 仍含混合的 schema12 记录与默认 profile；本轮不宣称已经拆成四类配置。
-下一阶段分别明确硬件、电机、应用和生产设备配置，以及装配标定的归属/权限/有效性。
-届时根据真实所有者拆文件，避免先建立空目录或复制多份常驻参数对象。
-配置、测量和控制器运行状态的分离属于代码职责调整，不靠目录迁移完成。
+硬件默认值归 platform/api，电机模型默认值归 motor，应用/设备默认值归 services/parameters。
+MotorAxis 私有运行对象内的 model/application/device 子对象持有单份活动参数，
+命令目标、模式、故障与测量留在易失状态中。
+schema12 保持现有混合存储布局，由装载/导出边界映射，不能当作控制对象使用。
+参数所有者给启动组合层传节点值，通信不再作为参数节点的存储所有者。
+具体读写规则与持久层尚未拆开的兼容限制见[参数所有权](parameter_ownership_v1.md)。
 
 ## 工程与工具接线
 

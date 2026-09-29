@@ -8,6 +8,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
+from _motor_config_projection import project_reference_motor_config
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
 
@@ -34,6 +35,7 @@ def main():
     reference = subprocess.check_output(
         ["git", "show", args.reference_ref + ":firmware/app/motor_execution.c"], cwd=ROOT
     ).decode("utf-8")
+    reference = project_reference_motor_config(reference)
     speed = (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8")
     (out / "speed.c").write_text(
         '#include "motor_types.h"\n#include "utils.h"\n#include "control_config.h"\n'
@@ -115,14 +117,14 @@ typedef struct {
 static Sample expected[1200];
 static void setup(MotorControlState *m) {
     memset(m, 0, sizeof(*m));
-    m->axis_profile_valid = true;
-    m->position_error_window_rad = .001f; m->position_acceleration_rad_s2 = .785398f; m->position_deceleration_rad_s2 = .523599f;
-    m->position_maximum_speed_rad_s = .6f; m->speed_limit_rad_s = .8f;
-    m->cascade_position_kp = 8; m->cascade_position_kd = 2;
-    m->speed_kp = .5f; m->speed_ki = 2; m->current_limit_a = 6;
-    m->friction_coulomb_pos_a = 1.4f; m->friction_coulomb_neg_a = 1.3f;
-    m->friction_viscous_pos_a_per_rad_s = .1f;
-    m->friction_viscous_neg_a_per_rad_s = .2f;
+    m->application.axis_profile_valid = true;
+    m->application.position_error_window_rad = .001f; m->application.position_acceleration_rad_s2 = .785398f; m->application.position_deceleration_rad_s2 = .523599f;
+    m->application.position_maximum_speed_rad_s = .6f; m->application.speed_limit_rad_s = .8f;
+    m->application.cascade_position_kp = 8; m->application.cascade_position_kd = 2;
+    m->application.speed_kp = .5f; m->application.speed_ki = 2; m->application.current_limit_a = 6;
+    m->device.friction_coulomb_pos_a = 1.4f; m->device.friction_coulomb_neg_a = 1.3f;
+    m->device.friction_viscous_pos_a_per_rad_s = .1f;
+    m->device.friction_viscous_neg_a_per_rad_s = .2f;
 }
 static void change(MotorControlState *m, unsigned scenario, unsigned tick) {
     if (tick == 127 || tick == 253 || tick == 411)
@@ -157,21 +159,21 @@ static void change(MotorControlState *m, unsigned scenario, unsigned tick) {
             )
         )
         + r"""
-    case 14: m->friction_model_valid = !m->friction_model_valid; break;
-    case 15: m->axis_profile.magic=1; m->axis_profile.minimum_position_rad=-1;
-        m->axis_profile.maximum_position_rad=1;
-        m->axis_profile.maximum_speed_rad_s=tick==131 ? .3f : .2f; break;
-    case 16: m->axis_profile_valid=false; break;
+    case 14: m->device.friction_model_valid = !m->device.friction_model_valid; break;
+    case 15: m->application.axis_profile.magic=1; m->application.axis_profile.minimum_position_rad=-1;
+        m->application.axis_profile.maximum_position_rad=1;
+        m->application.axis_profile.maximum_speed_rad_s=tick==131 ? .3f : .2f; break;
+    case 16: m->application.axis_profile_valid=false; break;
     case 17: m->position_target_rad=NAN; break;
-    case 18: m->speed_ki=tick==131 ? 0.0f : -0.0f; break;
-    case 19: m->position_deceleration_rad_s2=tick==131 ? 1.0f : 2.0f; break;
+    case 18: m->application.speed_ki=tick==131 ? 0.0f : -0.0f; break;
+    case 19: m->application.position_deceleration_rad_s2=tick==131 ? 1.0f : 2.0f; break;
     default: break;
     }
 }
 int main(void) {
     for(unsigned scenario=0;scenario<21;scenario++) for(unsigned pass=0;pass<2;pass++) {
         MotorControlState m; PiController pi={0};
-        setup(&m); m.control_mode=MOTOR_CONTROL_POSITION; m.friction_model_valid=true;
+        setup(&m); m.control_mode=MOTOR_CONTROL_POSITION; m.device.friction_model_valid=true;
         if(pass==0) Cache_Reference_Reset(); else Cache_Actual_Reset();
         for(unsigned tick=0;tick<1200;tick++) {
             Sample s={0};
@@ -200,7 +202,7 @@ int main(void) {
 }
 """
     )
-    (out / "scenario.c").write_text(fixture, encoding="utf-8")
+    (out / "scenario.c").write_text(project_reference_motor_config(fixture), encoding="utf-8")
     cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     exe = out / "cache.exe"
     command = (

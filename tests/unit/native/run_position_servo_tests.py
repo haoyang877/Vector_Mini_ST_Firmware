@@ -116,10 +116,10 @@ def encoder_startup_fixture():
 #define ENCODER_PLL_OMEGA_MAX_RAD_S 2000.0f
 #define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 0.05f
 #define ENC_CALIB_MECHANICAL_ZERO 4U
+#include "motor_config.h"
 typedef struct {
-    MotorAxisProfile axis_profile;
-    bool axis_profile_valid;
-    int motor_pole_pairs;
+    MotorApplicationConfig application;
+    MotorModelConfig model;
 } MotorControlState;
 typedef struct {
     uint16_t raw_q15, directed_q15, linearized_q15, electrical_zero_q15, mechanical_zero_q15;
@@ -158,9 +158,9 @@ static uint16_t encoder_apply_linearization_q15(EncoderState *e, uint16_t v)
 int main(void) {
     MotorControlState m = {0};
     EncoderState e = {0};
-    m.motor_pole_pairs = 7;
-    assert(MotorAxisProfile_Create(&m.axis_profile, "roll", -1.57079633f, 1.57079633f, .785398163f));
-    m.axis_profile_valid = true;
+    m.model.motor_pole_pairs = 7;
+    assert(MotorAxisProfile_Create(&m.application.axis_profile, "roll", -1.57079633f, 1.57079633f, .785398163f));
+    m.application.axis_profile_valid = true;
     e.mechanical_zero_q15 = 65000; e.electrical_zero_q15 = 1234;
     e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
     sample = 4000;
@@ -173,7 +173,7 @@ int main(void) {
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 4536);
     assert(e.velocity_ready && e.mechanical_velocity_rad_s == 0.0f && e.mechanical_velocity_continuous_rad_s == 0.0f);
     assert(e.mechanical_zero_q15 == 65000 && e.electrical_zero_q15 == 1234);
-    assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.mechanical_position_rad, e.mechanical_position_rad));
+    assert(MotorAxisProfile_AllowsPosition(&m.application.axis_profile, true, e.mechanical_position_rad, e.mechanical_position_rad));
     sample = 65530; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 == 65530);
     sample = 10; Encoder_CompleteSample(&m, &e, true); Encoder_UpdateSlowEstimate(&m, &e);
@@ -184,17 +184,17 @@ int main(void) {
     Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == -1036);
     /* Invalid/unconfigured axes and uncalibrated encoders keep legacy behavior. */
-    e.has_valid_sample = false; m.axis_profile_valid = false;
+    e.has_valid_sample = false; m.application.axis_profile_valid = false;
     Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 - e.mechanical_zero_shadow_q15 == 64500);
-    e.has_valid_sample = false; m.axis_profile_valid = true; e.calib_flag = 0;
+    e.has_valid_sample = false; m.application.axis_profile_valid = true; e.calib_flag = 0;
     Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
     assert(e.shadow_q15 == 65000 && e.mechanical_zero_shadow_q15 == 0);
     /* Do not map a real out-of-travel position into the allowed range. */
     e.has_valid_sample = false; e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
     e.mechanical_zero_q15 = 0; sample = 30000;
     Encoder_CompleteSample(&m, &e, false); Encoder_UpdateSlowEstimate(&m, &e);
-    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.mechanical_position_rad, 0));
+    assert(!MotorAxisProfile_AllowsPosition(&m.application.axis_profile, true, e.mechanical_position_rad, 0));
     puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
     return 0;
 }
@@ -407,11 +407,9 @@ def joint_startup_fixture():
 #include <stdio.h>
 #include <string.h>
 #include "motor_axis_profile.h"
+#include "motor_config.h"
 typedef struct {
-    MotorAxisProfile axis_profile;
-    bool axis_profile_valid;
-    float cascade_position_kp, cascade_position_kd, speed_kp, speed_ki;
-    float position_acceleration_rad_s2, position_deceleration_rad_s2, position_maximum_speed_rad_s, current_limit_a, speed_limit_rad_s;
+    MotorApplicationConfig application;
     unsigned calibration_sentinel;
 } MotorControlState;
 """
@@ -420,30 +418,30 @@ typedef struct {
 int main(void) {
     MotorControlState m = {0}, before;
     unsigned id;
-    m.axis_profile_valid = true;
+    m.application.axis_profile_valid = true;
     m.calibration_sentinel = 0xdeadbeef;
-    m.current_limit_a = 4; m.speed_limit_rad_s = .3f;
-    m.speed_ki = .123f;
-    assert(MotorAxisProfile_Create(&m.axis_profile, "pitch", -.3f, .9f, .785398163f));
+    m.application.current_limit_a = 4; m.application.speed_limit_rad_s = .3f;
+    m.application.speed_ki = .123f;
+    assert(MotorAxisProfile_Create(&m.application.axis_profile, "pitch", -.3f, .9f, .785398163f));
     before = m;
     assert(param_apply_joint_profile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
     for (id = 1; id <= 2; ++id) {
-        assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 1, -.3f, .9f, .785398163f));
+        assert(MotorAxisProfile_CreateJoint(&m.application.axis_profile, id, 1, -.3f, .9f, .785398163f));
         before = m;
         assert(param_apply_joint_profile(&m));
-        assert(m.speed_ki == (id == 1 ? 1 : 2));
-        assert(m.cascade_position_kp == 8 && m.cascade_position_kd == 2 && m.speed_kp == .5f);
-        assert(m.current_limit_a == 4 && m.position_maximum_speed_rad_s == .3f);
+        assert(m.application.speed_ki == (id == 1 ? 1 : 2));
+        assert(m.application.cascade_position_kp == 8 && m.application.cascade_position_kd == 2 && m.application.speed_kp == .5f);
+        assert(m.application.current_limit_a == 4 && m.application.position_maximum_speed_rad_s == .3f);
         assert(m.calibration_sentinel == 0xdeadbeef);
-        assert(memcmp(&m.axis_profile, &before.axis_profile, sizeof(m.axis_profile)) == 0);
+        assert(memcmp(&m.application.axis_profile, &before.application.axis_profile, sizeof(m.application.axis_profile)) == 0);
     }
-    m.current_limit_a = NAN;
+    m.application.current_limit_a = NAN;
     before = m;
     assert(!param_apply_joint_profile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
-    m.current_limit_a = 8;
-    assert(param_apply_joint_profile(&m) && m.current_limit_a == 6);
+    m.application.current_limit_a = 8;
+    assert(param_apply_joint_profile(&m) && m.application.current_limit_a == 6);
     for (id = 0; id <= 5; ++id) {
-        assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 0, 0, 0, 0));
+        assert(MotorAxisProfile_CreateJoint(&m.application.axis_profile, id, 0, 0, 0, 0));
         before = m;
         assert(!param_apply_joint_profile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
     }
@@ -518,11 +516,11 @@ static bool board_start_argument;
 static void log_step(int step) { order[order_len++] = step; }
 /* 参数装载归初始化所有者；板级组合只调用一次所有者入口。 */
 static void MotorAxis_Init(void) { log_step(3); }
+static unsigned MotorAxis_NodeId(void) { return 1U; }
 static void board_hw_start(bool motor_phases_enabled) {
     log_step(4);
     board_start_argument = motor_phases_enabled;
 }
-static unsigned Protocol_NodeId_Get(void) { return 1U; }
 static bool protocol_ready = true;
 static bool s_communication_ready;
 static bool YgProtocolRuntime_Init(unsigned node) { assert(node == 1U); log_step(5); return protocol_ready; }

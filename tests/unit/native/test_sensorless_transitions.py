@@ -86,11 +86,11 @@ static void setup(void) {
     memset(&motor,0,sizeof(motor)); memset(&foc,0,sizeof(foc));
     memset(&observer,0,sizeof(observer)); memset(&encoder,0,sizeof(encoder));
     PiController_Reset(&pi); SensorlessStartup_Reset(&startup);
-    motor.motor_pole_pairs=21; motor.motor_phase_resistance_ohm=1.905f;
-    motor.motor_d_inductance_h=motor.motor_q_inductance_h=.001635f;
-    motor.motor_flux_wb=.0175025f; motor.current_limit_a=6;
-    motor.speed_kp=.02f; motor.speed_ki=.5f;
-    motor.speed_acceleration_rad_s2=motor.speed_deceleration_rad_s2=314.159f;
+    motor.model.motor_pole_pairs=21; motor.model.motor_phase_resistance_ohm=1.905f;
+    motor.model.motor_d_inductance_h=motor.model.motor_q_inductance_h=.001635f;
+    motor.model.motor_flux_wb=.0175025f; motor.application.current_limit_a=6;
+    motor.application.speed_kp=.02f; motor.application.speed_ki=.5f;
+    motor.application.speed_acceleration_rad_s2=motor.application.speed_deceleration_rad_s2=314.159f;
     motor.control_mode=MOTOR_CONTROL_NONE;
     motor.speed_target_rad_s=cfg->target_electrical_velocity_rad_s/21;
     motor.speed_ramped_rad_s=motor.speed_target_rad_s;
@@ -116,7 +116,7 @@ static void check_handoff(float direction) {
     float delta=-direction*.7f;
     enter_handoff(direction,delta);
     float iq_before=applied_observer_iq;
-    assert(fabsf(pi.output*motor.current_limit_a-iq_before)<.002f);
+    assert(fabsf(pi.output*motor.application.current_limit_a-iq_before)<.002f);
     assert(fabsf(startup.speed_feedback_rad_s-motor.speed_target_rad_s)<.0001f);
     /* Keep a constant observer velocity: changing coordinate frame alone must
      * not turn the fixed open-loop iq_a into a new torque demand. */
@@ -126,7 +126,7 @@ static void check_handoff(float direction) {
         observer.electrical_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+observer.electrical_velocity_rad_s*Current_Ts);
         tick();
         max_error=fmaxf(max_error,fabsf(applied_observer_iq-iq_before));
-        assert(fabsf(applied_observer_iq-pi.output*motor.current_limit_a)<.005f);
+        assert(fabsf(applied_observer_iq-pi.output*motor.application.current_limit_a)<.005f);
         assert(++steps<10000);
     }
     assert(max_error<.005f && motor.fault_code==MOTOR_FAULT_NONE);
@@ -135,11 +135,11 @@ static void check_handoff(float direction) {
     tick(); assert(fabsf(motor.iq_target_a-last_iq)<.0001f && fabsf(pi.integral_output-last_ui)<.0001f);
 
     /* An overspeed must already reduce torque in state 4, not wait 100 ms. */
-    enter_handoff(direction,delta); iq_before=pi.output*motor.current_limit_a;
+    enter_handoff(direction,delta); iq_before=pi.output*motor.application.current_limit_a;
     observer.electrical_velocity_rad_s*=1.2f;
     for(unsigned i=0;i<100;++i) tick();
     assert(startup.state==SENSORLESS_STARTUP_HANDOFF);
-    assert(direction*(pi.output*motor.current_limit_a-iq_before)<-.05f);
+    assert(direction*(pi.output*motor.application.current_limit_a-iq_before)<-.05f);
 }
 static void check_voltage_rotation(void) {
     enter_handoff(1,-.7f);

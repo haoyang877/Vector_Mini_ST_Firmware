@@ -229,7 +229,7 @@
     "software/system/data_type.c": "firmware/motor/data_type.c",
     "software/system/data_type.h": "firmware/motor/data_type.h",
     "software/system/fast_loop_profile.h": "firmware/services/telemetry/fast_loop_profile.h",
-    "software/system/foc_param_profile.h": "firmware/services/parameters/foc_param_profile.h",
+    "software/system/foc_param_profile.h": "firmware/motor/motor_profile_defaults.h",
     "software/system/heap.c": "firmware/common/heap.c",
     "software/system/heap.h": "firmware/common/heap.h",
     "software/system/servo_hil.c": "tests/hil/firmware/servo_hil.c",

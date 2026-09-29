@@ -96,10 +96,10 @@ static void reset(void)
     memset(&motor, 0, sizeof(motor));
     memset(&foc, 0, sizeof(foc));
     memset(&encoder, 0, sizeof(encoder));
-    motor.current_limit_a = 6.0f;
-    motor.speed_limit_rad_s = 20.0f;
-    motor.speed_kp = 1.0f;
-    motor.speed_ki = 1.0f;
+    motor.application.current_limit_a = 6.0f;
+    motor.application.speed_limit_rad_s = 20.0f;
+    motor.application.speed_kp = 1.0f;
+    motor.application.speed_ki = 1.0f;
     motor.control_mode = MOTOR_CONTROL_NONE;
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 30.0f;
     foc.temperature_c = 25.0f;
@@ -175,17 +175,18 @@ int main(void)
         }
         assert(r.result == MOTOR_TASK_COMPLETED && r.error == MOTOR_FAULT_NONE);
         assert(FrictionIdentificationTask_IsReleased());
-        assert(FrictionIdentificationTask_ApplyCandidate(&motor) && motor.friction_model_valid);
-        assert(fabsf(motor.friction_coulomb_pos_a - 0.2f) < 0.01f);
+        assert(FrictionIdentificationTask_ApplyCandidate(&motor) &&
+               motor.device.friction_model_valid);
+        assert(fabsf(motor.device.friction_coulomb_pos_a - 0.2f) < 0.01f);
         assert(motor.id_target_a == 0.0f && motor.iq_target_a == 0.0f);
         printf("friction trial=%u ticks=%u trace=%08x model=%a,%a,%a,%a\n",
                trial,
                trace_ticks,
                trace_hash,
-               (double)motor.friction_coulomb_pos_a,
-               (double)motor.friction_coulomb_neg_a,
-               (double)motor.friction_viscous_pos_a_per_rad_s,
-               (double)motor.friction_viscous_neg_a_per_rad_s);
+               (double)motor.device.friction_coulomb_pos_a,
+               (double)motor.device.friction_coulomb_neg_a,
+               (double)motor.device.friction_viscous_pos_a_per_rad_s,
+               (double)motor.device.friction_viscous_neg_a_per_rad_s);
     }
     reset();
     (void)FrictionIdentificationTask_Task(&foc, &motor, &pi, &encoder, &s_friction_config);

@@ -57,9 +57,10 @@ void FluxObserver_Update(FocState *foc,
                          FluxObserverState *flux_observer)
 {
     float mod_to_V = foc->bus_voltage_filtered_v / 1.5f;
-    float Rs = motor_state->motor_phase_resistance_ohm;
-    float Ls = (motor_state->motor_d_inductance_h + motor_state->motor_q_inductance_h) * 0.5f;
-    float flux = motor_state->motor_flux_wb;
+    float Rs = motor_state->model.motor_phase_resistance_ohm;
+    float Ls =
+        (motor_state->model.motor_d_inductance_h + motor_state->model.motor_q_inductance_h) * 0.5f;
+    float flux = motor_state->model.motor_flux_wb;
     float flux_sq;
     float gamma_limit;
     float gamma;

@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [参数所有权解耦 v1](2026-09-29-parameter-ownership-v1.md)：四类默认值归位，model/application/device 与运行目标分开，节点由参数所有者传值；schema12 不变，PR 与 normal 构建通过。
+
 - [目录职责收口 v1](2026-09-29-directory-ownership-v1.md)：28 个源码/头文件归位，APP 三部分、反馈/标定分开，八组 Keil 保持；PR 和 normal 编译通过，HEX 与原候选一致。
 
 - [设备发现与当前契约收口 v1](2026-09-29-discovery-contract-closeout-v1.md)：GET_INFO 身份与升级目标清单同源，当前契约和 schema12 兼容边界统一；本批未测试或编译。

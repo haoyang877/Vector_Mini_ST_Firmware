@@ -121,7 +121,7 @@ def main() -> None:
         composition.index("/* 产品默认值") : composition.index("void MotorMaintenance_Init")
     ]
     (output / "maintenance_profiles.h").write_text(
-        '#include "foc_param_profile.h"\n#include "control_config.h"\n#include "utils.h"\n'
+        '#include "motor_profile_defaults.h"\n#include "board_profile_defaults.h"\n#include "application_profile_defaults.h"\n#include "device_profile_defaults.h"\n#include "control_config.h"\n#include "utils.h"\n'
         + profiles,
         encoding="utf-8",
     )

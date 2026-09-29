@@ -143,7 +143,7 @@ bool FocCogging_ReadTorqueSample(CoggingTorqueFrame *sample);
  * @return 未跳闸返回 true；跳闸返回 false（停相与模式回退由调度层转为结果协议后，
  *         由运行状态机执行）。
  * @note 仅电流环上下文调用；默认关闭且不持久化，不是量产主机断连保护。
- *       trip=1 租约到期，trip=2 测速超限或无效；电流包络由 motor_state.current_limit_a 保证。
+ *       trip=1 租约到期，trip=2 测速超限或无效；电流包络由 motor_state.application.current_limit_a 保证。
  *       跳闸标志经 FocCogging_TakeTorqueTrip 由模式调度消费。
  */
 bool FocCogging_TorqueGuard(MotorControlState *motor, const EncoderState *encoder);

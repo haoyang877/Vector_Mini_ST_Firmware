@@ -10,6 +10,7 @@
 
 static jmp_buf finish;
 static bool model_software, model_watchdog, model_mailbox, model_link;
+static bool model_discover, discovery_sent;
 static uint32_t ticks;
 static uint8_t model_image[sizeof(LoaderV2Image)];
 
@@ -120,7 +121,22 @@ bool LoaderCan_Ready(void)
 }
 bool LoaderCan_Receive(LoaderCanFrame *frame)
 {
-    (void)frame;
+    if (model_discover && !discovery_sent)
+    {
+        const yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                               .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                               .source_node = 2U,
+                                               .destination_node = 3U,
+                                               .message_type = 53U,
+                                               .sequence = 77U};
+        const yg_protocol_can_id_fields_t id = {3U, 2U, 3U};
+        memset(frame, 0, sizeof(*frame));
+        frame->bytes = 20U;
+        assert(yg_protocol_can_id_encode(&id, &frame->identifier) == YG_PROTOCOL_OK);
+        assert(yg_protocol_frame_encode(&request, frame->data, 64U, NULL) == YG_PROTOCOL_OK);
+        discovery_sent = true;
+        return true;
+    }
     return false;
 }
 bool LoaderCan_TxEvent(LoaderCanTxEvent *event)
@@ -141,6 +157,7 @@ static int boot(bool software, bool watchdog, bool mailbox, bool valid_image, bo
     model_mailbox = mailbox;
     model_link = link;
     ticks = 0U;
+    discovery_sent = false;
     memcpy(model_image, LoaderV2Image, sizeof(model_image));
     for (uint32_t i = 0U; i < 4U; ++i)
     {
@@ -170,6 +187,8 @@ int main(void)
     assert(boot(false, true, false, true, true) == 1);
     assert(boot(false, false, false, false, true) == 1);
     assert(boot(false, false, false, true, false) == 1);
+    model_discover = true;
+    assert(boot(false, false, false, true, true) == 1 && discovery_sent && resident);
     YgProtocolUpgradeReply reply;
     status_reply(&reply);
     assert(reply.boot_epoch == 0U && (reply.flags & YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE) != 0U);

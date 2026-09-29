@@ -87,3 +87,5 @@ Legacy cleanup: [删除重复实现、退役运行字段与过期入口（源码
 APP naming: [模块、类型、变量、单位与对象组织 v1](architecture/app_naming_v1.md)。
 
 自检与准备资格：[基础自检与模式就绪 v1](architecture/motor_readiness_v1.md)。
+
+状态机可读性：[按状态分支、无 goto 的优化与验收](reports/2026-09/motor_state_readability_20260929.md)。

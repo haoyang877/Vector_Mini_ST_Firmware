@@ -239,4 +239,5 @@ STOP、快环故障与监督复核拒绝均终结待应用身份，来源 0 的�
 每次动作后需要重新读取 `state_read_facts`，不能以整拍一次采集替代真实关相和资源释放确认。
 前台准入与最终启相的临界区复核承担不同职责，均保留。
 
-执行与回退见[可读性优化 v1](../plans/active/2026-09-29-motor-state-readability-v1.md)。
+执行与回退见[可读性优化 v1](../plans/completed/2026-09-29-motor-state-readability-v1.md)，
+资源变化与离线限制见[本轮验收记录](../reports/2026-09/motor_state_readability_20260929.md)。

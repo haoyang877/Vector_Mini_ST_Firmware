@@ -47,14 +47,9 @@ static bool resources_quiescent(const MotorStateFacts *facts)
            facts->maintenance_released;
 }
 
-static bool inputs_healthy(const MotorStateFacts *facts)
-{
-    return facts->inputs_valid && facts->active_faults == 0U;
-}
-
 static bool running_permitted(const MotorStateFacts *facts)
 {
-    return inputs_healthy(facts) && facts->start_permitted && facts->operation_idle &&
+    return facts->inputs_valid && facts->start_permitted && facts->operation_idle &&
            facts->maintenance_released;
 }
 
@@ -200,7 +195,7 @@ static uint32_t detected_faults(MotorStateRulesContext *context,
     return faults;
 }
 
-/* 运行中的许可是持续约束；READY 的请求准入由对应状态分支处理。 */
+/* 运行中的许可是持续约束；活动故障已由公共优先级入口处理，不在此重复判断。 */
 static bool execution_guard_failed(const MotorStateRulesContext *context,
                                    const MotorStateEvent *event,
                                    const MotorStateFacts *facts)
@@ -214,7 +209,7 @@ static bool execution_guard_failed(const MotorStateRulesContext *context,
                (facts->phases_disabled &&
                 !(event->events & (MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_CANCEL)));
     case MOTOR_STATE_MAINTENANCE:
-        return !facts->operation_permitted || facts->active_faults != 0U ||
+        return !facts->operation_permitted ||
                (active_maintenance_class(context) == MOTOR_MAINTENANCE_CLASS_CALIBRATION
                     ? !facts->inputs_valid
                     : !facts->phases_disabled);
@@ -366,7 +361,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         {
             break;
         }
-        if (!facts->self_test_ready || !inputs_healthy(facts) || !resources_quiescent(facts))
+        if (!facts->self_test_ready || !facts->inputs_valid || !resources_quiescent(facts))
         {
             enter_fault(context, MOTOR_STATE_FAULT_GUARD, actions);
             return MOTOR_STATE_REJECT_GUARD;
@@ -385,7 +380,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         {
             break;
         }
-        if (!resources_quiescent(facts) || !inputs_healthy(facts) || context->latched_faults)
+        if (!resources_quiescent(facts) || !facts->inputs_valid || context->latched_faults)
         {
             return MOTOR_STATE_REJECT_GUARD;
         }
@@ -495,7 +490,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         {
             break;
         }
-        if (!resources_quiescent(facts) || !inputs_healthy(facts) ||
+        if (!resources_quiescent(facts) || !facts->inputs_valid ||
             context->operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
         {
             return MOTOR_STATE_REJECT_GUARD;

@@ -36,6 +36,29 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                     callers.add(path.relative_to(ROOT).as_posix())
         self.assertEqual(callers, {"firmware/app/motor_state_machine/motor_state_machine.c"})
 
+    def test_private_transition_rules_have_one_production_owner(self) -> None:
+        module = ROOT / "firmware/app/motor_state_machine"
+        self.assertFalse((ROOT / "firmware/services/lifecycle/app_lifecycle.c").exists())
+        self.assertFalse((ROOT / "firmware/services/lifecycle/app_lifecycle.h").exists())
+        owned_files = [
+            path
+            for directory in ("app", "motor", "services", "communication")
+            for path in (ROOT / "firmware" / directory).rglob("*")
+        ]
+        for path in owned_files:
+            if path.suffix not in (".c", ".h"):
+                continue
+            if path.parent != module:
+                self.assertNotIn('"motor_state_internal.h"', production_text(path), str(path))
+        callers = {
+            path.relative_to(ROOT).as_posix()
+            for path in owned_files
+            if path.suffix == ".c"
+            and path.name != "motor_state_rules.c"
+            and re.search(r"\bMotorStateRules_Step\s*\(", production_text(path))
+        }
+        self.assertEqual(callers, {"firmware/app/motor_state_machine/motor_state_machine.c"})
+
 
 if __name__ == "__main__":
     unittest.main()

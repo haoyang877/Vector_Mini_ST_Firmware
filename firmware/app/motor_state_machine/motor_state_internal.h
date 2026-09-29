@@ -17,7 +17,8 @@ typedef enum
     MOTOR_MAINTENANCE_CLASS_CALIBRATION,
     MOTOR_MAINTENANCE_CLASS_SAVE,
     MOTOR_MAINTENANCE_CLASS_DEFAULTS,
-    MOTOR_MAINTENANCE_CLASS_ZERO
+    MOTOR_MAINTENANCE_CLASS_ZERO,
+    MOTOR_MAINTENANCE_CLASS_INVALID
 } MotorMaintenanceClass;
 typedef enum
 {
@@ -72,7 +73,7 @@ typedef struct
 {
     uint32_t events, faults, completion_epoch, request_epoch;
     MotorControlMode control_mode;
-    MotorMaintenanceClass operation;
+    MotorMaintenanceKind maintenance_kind;
     MotorMaintenanceEffect effects;
 } MotorStateEvent;
 typedef struct
@@ -87,27 +88,32 @@ typedef struct
     /* 适配器还需自行校验来源与队列时效，不能只信任 request_epoch。 */
     bool request_fresh;
 } MotorStateFacts;
+/* 唯一所有者上下文中的规则字段；不含模式镜像、分类镜像或返回快照。 */
 typedef struct
 {
     MotorState state;
-    MotorControlMode control_mode;
-    MotorMaintenanceClass operation, last_operation;
+    /* 身份保留给既有定向清理；是否仍为当前会话与具体种类是不同事实。 */
+    MotorMaintenanceKind maintenance_kind;
+    bool maintenance_active;
     MotorMaintenanceResult operation_result;
     MotorMaintenanceEffect operation_effects;
     uint32_t epoch, first_fault, latched_faults;
-} MotorStateData;
-typedef struct
-{
-    /* 存储公开以便分配；只有 Init/Step 可以修改其内容。 */
-    MotorStateData snapshot;
     bool tested;
 } MotorStateRulesContext;
+
 typedef struct
 {
-    MotorStateData snapshot;
     uint32_t actions;
     MotorStateRejection rejection;
 } MotorStateDecision;
+
+/**
+ * @brief 从具体维护任务推导内部安全类别，不保存第二份任务状态。
+ * @param kind 具体任务或 NONE；非法值返回非法类别。
+ * @return 校准、保存、默认、零位、无任务或非法类别。
+ * @note 模块内部纯函数，无硬件访问；类别不是协议编号。
+ */
+MotorMaintenanceClass MotorStateRules_Classify(MotorMaintenanceKind kind);
 
 /**
  * @brief 初始化生命周期实例为 BOOT 态，epoch 置 1。
@@ -116,19 +122,11 @@ typedef struct
  */
 void MotorStateRules_Init(MotorStateRulesContext *app);
 /**
- * @brief 读取只读状态快照。
- * @param app 生命周期实例。
- * @param snapshot 输出快照；成功时写入当前状态副本。
- * @return 参数有效返回 true；任一参数为空返回 false 且不写输出。
- * @note 快照不是硬件回读；任何上下文只读调用。
- */
-bool MotorStateRules_Read(const MotorStateRulesContext *app, MotorStateData *snapshot);
-/**
  * @brief 执行一次生命周期状态迁移，返回动作请求与拒绝原因。
  * @param app 生命周期实例；由唯一调用方串行调用。
- * @param event 本拍事件集与载荷（events/faults/epoch/control_mode/operation/effects）。
+ * @param event 本拍事件集与载荷（events/faults/epoch/control_mode/maintenance_kind/effects）。
  * @param guards 调用方提供的当前健康与资源 guards。
- * @return 迁移结果：新快照、动作位与拒绝原因；快照不是硬件证据。
+ * @return 迁移结果：动作位与拒绝原因；不复制上下文，动作不是硬件证据。
  * @note 优先级 FATAL > FAULT > STOP > CANCEL > 完成通知 > 新请求；完成与新请求同拍
  *       报 INTERRUPTED。LINK_RECOVERED 永不清除锁存；空事件轮询 guards 与停止确认。
  *       当前操作失败按故障处理，不被同拍 STOP 吞掉；陈旧完成不能污染新会话。

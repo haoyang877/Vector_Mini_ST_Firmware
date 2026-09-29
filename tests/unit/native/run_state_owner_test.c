@@ -28,6 +28,7 @@ static EncoderState encoder;
 static SensorlessStartupState startup;
 static bool output_off, stop_fails, start_fails, temperature_fresh, encoder_released;
 static unsigned start_count, leaf_calls[8];
+static unsigned phase_cancel_count;
 static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
 static bool outer_ready;
 static bool check_borrowed_requests;
@@ -143,6 +144,7 @@ void PhaseResistanceTask_Cancel(FocState *f, MotorControlState *m)
 {
     (void)f;
     (void)m;
+    ++phase_cancel_count;
 }
 bool PhaseResistanceTask_IsReleased(void)
 {
@@ -937,8 +939,28 @@ static void test_self_test_deadline(void)
          "shutdown FATAL");
 }
 
+/* 完成后不把最近任务误当作活动会话，但保留旧故障路径的定向清理行为。 */
+static void test_completed_maintenance_cleanup(void)
+{
+    reset();
+    uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_PHASE_RESISTANCE);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  ticket);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY);
+    assert(MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_NONE);
+    assert(MotorStateMachine_ConfigurationAllowed());
+    unsigned completed_count = phase_cancel_count;
+    MotorFault_Report(&motor, MOTOR_FAULT_OVERCURRENT);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
+    assert(phase_cancel_count > completed_count);
+    puts("PASS completed maintenance releases admission and preserves later fault cleanup kind");
+}
+
 int main(void)
 {
+    test_completed_maintenance_cleanup();
     test_preparation_readiness();
     test_self_test_deadline();
     reset();

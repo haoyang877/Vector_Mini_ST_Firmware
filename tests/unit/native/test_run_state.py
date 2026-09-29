@@ -62,6 +62,28 @@ def main() -> None:
         (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
         print(logs[-1], end="")
         result.check_returncode()
+    rules_executable = output / "motor_state_rules.exe"
+    rules_command = (
+        compiler
+        + NATIVE_INCLUDE_FLAGS
+        + [
+            "-std=c99",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(ROOT / "tests/unit/native/motor_state_rules_test.c"),
+            str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
+            "-o",
+            str(rules_executable),
+        ]
+    )
+    for invocation in (rules_command, [str(rules_executable)]):
+        result = subprocess.run(invocation, capture_output=True, text=True)
+        logs.append(result.stdout + result.stderr)
+        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        print(logs[-1], end="")
+        result.check_returncode()
     cogging = output / "cogging_finalize.exe"
     cogging_command = (
         compiler

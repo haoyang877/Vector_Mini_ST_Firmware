@@ -16,6 +16,31 @@
 #define REQUESTS                                                                                   \
     (MOTOR_STATE_EVENT_ENABLE | MOTOR_STATE_EVENT_CLEAR | MOTOR_STATE_EVENT_BEGIN_OPERATION)
 
+/* 仅内部规则和事实收集共享；分类按具体任务推导，不形成可变镜像。 */
+MotorMaintenanceClass MotorStateRules_Classify(MotorMaintenanceKind kind)
+{
+    switch (kind)
+    {
+    case MOTOR_MAINTENANCE_SAVE:
+        return MOTOR_MAINTENANCE_CLASS_SAVE;
+    case MOTOR_MAINTENANCE_DEFAULTS:
+        return MOTOR_MAINTENANCE_CLASS_DEFAULTS;
+    case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
+        return MOTOR_MAINTENANCE_CLASS_ZERO;
+    case MOTOR_MAINTENANCE_NONE:
+        return MOTOR_MAINTENANCE_CLASS_NONE;
+    default:
+        return (unsigned)kind < MOTOR_MAINTENANCE_NONE ? MOTOR_MAINTENANCE_CLASS_CALIBRATION
+                                                       : MOTOR_MAINTENANCE_CLASS_INVALID;
+    }
+}
+
+/* 会话释放后仍保留最近身份用于既有定向清理，不作为当前操作分类。 */
+static MotorMaintenanceClass active_maintenance_class(const MotorStateRulesContext *context)
+{
+    return context->maintenance_active ? MotorStateRules_Classify(context->maintenance_kind)
+                                       : MOTOR_MAINTENANCE_CLASS_NONE;
+}
 /* 资源静默：相已关、控制空闲、操作空闲、维护资源已释放。 */
 static bool quiet(const MotorStateFacts *g)
 {
@@ -39,41 +64,40 @@ static bool one_bit(uint32_t value)
 /* 锁存故障：首故障取最低位，活动故障按位累计。 */
 static void latch(MotorStateRulesContext *a, uint32_t faults)
 {
-    if (!a->snapshot.first_fault)
+    if (!a->first_fault)
     {
-        a->snapshot.first_fault = faults & (0U - faults);
+        a->first_fault = faults & (0U - faults);
     }
-    a->snapshot.latched_faults |= faults;
+    a->latched_faults |= faults;
 }
 /* API 误用/不可恢复：锁内部故障并终止，仅复位可退出。 */
 static void fatal(MotorStateRulesContext *a, uint32_t *actions)
 {
     latch(a, MOTOR_STATE_FAULT_INTERNAL);
-    a->snapshot.state = MOTOR_STATE_FATAL;
-    a->snapshot.control_mode = MOTOR_CONTROL_NONE;
+    a->state = MOTOR_STATE_FATAL;
+
     *actions |= CANCEL_ACTIONS;
 }
 /* 推进代际：epoch 用尽锁 FATAL，不回绕。 */
 static bool advance(MotorStateRulesContext *a, uint32_t *actions)
 {
-    if (a->snapshot.epoch == UINT32_MAX)
+    if (a->epoch == UINT32_MAX)
     {
         fatal(a, actions);
         return false;
     }
-    ++a->snapshot.epoch;
+    ++a->epoch;
     *actions |= MOTOR_STATE_ACTION_REVOKE_REQUESTS;
     return true;
 }
 /* 请求取消当前操作：效果标记未知——取消无法撤销外部已提交写入。 */
 static void cancel_operation(MotorStateRulesContext *a)
 {
-    if (a->snapshot.operation != MOTOR_MAINTENANCE_CLASS_NONE &&
-        a->snapshot.operation_result == MOTOR_MAINTENANCE_NO_RESULT)
+    if (a->maintenance_active && a->operation_result == MOTOR_MAINTENANCE_NO_RESULT)
     {
-        a->snapshot.last_operation = a->snapshot.operation;
-        a->snapshot.operation_result = MOTOR_MAINTENANCE_CANCEL_REQUESTED;
-        a->snapshot.operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
+
+        a->operation_result = MOTOR_MAINTENANCE_CANCEL_REQUESTED;
+        a->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
     }
 }
 /* 进入停止/故障态：取消操作、撤销作业、推进代际；代际用尽转 FATAL 时不再改状态。 */
@@ -85,15 +109,14 @@ static void enter_stopped_state(MotorStateRulesContext *a, MotorState state, uin
     {
         return;
     }
-    a->snapshot.state = state;
-    a->snapshot.control_mode = MOTOR_CONTROL_NONE;
+    a->state = state;
 }
 /* 故障入口：立即关相、撤销作业；已处 FAULT 时只累计锁存。 */
 static void fault(MotorStateRulesContext *a, uint32_t faults, uint32_t *actions)
 {
     latch(a, faults);
     *actions |= MOTOR_STATE_ACTION_DISABLE_POWER;
-    if (a->snapshot.state != MOTOR_STATE_FAULT)
+    if (a->state != MOTOR_STATE_FAULT)
     {
         enter_stopped_state(a, MOTOR_STATE_FAULT, actions);
     }
@@ -106,21 +129,21 @@ static void self_test(MotorStateRulesContext *a, uint32_t *actions)
         return;
     }
     a->tested = false;
-    a->snapshot.state = MOTOR_STATE_SELF_TEST;
-    a->snapshot.control_mode = MOTOR_CONTROL_NONE;
-    a->snapshot.operation = MOTOR_MAINTENANCE_CLASS_NONE;
+    a->state = MOTOR_STATE_SELF_TEST;
+
+    a->maintenance_active = false;
     *actions |= MOTOR_STATE_ACTION_DISABLE_POWER | MOTOR_STATE_ACTION_SELF_TEST;
 }
 /* 进入停止：立即关相；FAULT 态只补充取消作业。 */
 static void stopping(MotorStateRulesContext *a, uint32_t *actions)
 {
     *actions |= MOTOR_STATE_ACTION_DISABLE_POWER;
-    if (a->snapshot.state == MOTOR_STATE_FAULT)
+    if (a->state == MOTOR_STATE_FAULT)
     {
         *actions |= MOTOR_STATE_ACTION_CANCEL_CONTROL | MOTOR_STATE_ACTION_CANCEL_OPERATION;
         return;
     }
-    if (a->snapshot.state != MOTOR_STATE_STOPPING)
+    if (a->state != MOTOR_STATE_STOPPING)
     {
         enter_stopped_state(a, MOTOR_STATE_STOPPING, actions);
     }
@@ -128,19 +151,19 @@ static void stopping(MotorStateRulesContext *a, uint32_t *actions)
 /* 停止确认：资源静默且无待收取消时，按锁存/自检状态收口。 */
 static void confirm_stopped(MotorStateRulesContext *a, const MotorStateFacts *g, uint32_t *actions)
 {
-    if (a->snapshot.state != MOTOR_STATE_STOPPING || !quiet(g) ||
-        a->snapshot.operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
+    if (a->state != MOTOR_STATE_STOPPING || !quiet(g) ||
+        a->operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
     {
         return;
     }
-    a->snapshot.operation = MOTOR_MAINTENANCE_CLASS_NONE;
-    if (a->snapshot.latched_faults)
+    a->maintenance_active = false;
+    if (a->latched_faults)
     {
-        a->snapshot.state = MOTOR_STATE_FAULT;
+        a->state = MOTOR_STATE_FAULT;
     }
     else if (a->tested)
     {
-        a->snapshot.state = MOTOR_STATE_READY;
+        a->state = MOTOR_STATE_READY;
     }
     else
     {
@@ -152,26 +175,15 @@ void MotorStateRules_Init(MotorStateRulesContext *app)
 {
     if (app)
     {
-        const MotorStateRulesContext initial = {.snapshot = {.state = MOTOR_STATE_BOOT,
-                                                             .control_mode = MOTOR_CONTROL_NONE,
-                                                             .epoch = 1U}};
+        const MotorStateRulesContext initial = {
+            .state = MOTOR_STATE_BOOT, .maintenance_kind = MOTOR_MAINTENANCE_NONE, .epoch = 1U};
         *app = initial;
     }
-}
-bool MotorStateRules_Read(const MotorStateRulesContext *app, MotorStateData *snapshot)
-{
-    if (!app || !snapshot)
-    {
-        return false;
-    }
-    *snapshot = app->snapshot;
-    return true;
 }
 MotorStateDecision
 MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const MotorStateFacts *g)
 {
-    MotorStateDecision r = {.snapshot = {.state = MOTOR_STATE_FATAL},
-                            .actions = MOTOR_STATE_ACTION_DISABLE_POWER,
+    MotorStateDecision r = {.actions = MOTOR_STATE_ACTION_DISABLE_POWER,
                             .rejection = MOTOR_STATE_REJECT_ARGUMENT};
     uint32_t events, detected, complete, request;
 
@@ -182,13 +194,12 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
     if (!e || !g)
     {
         fatal(a, &r.actions);
-        r.snapshot = a->snapshot;
         return r;
     }
     r.actions = 0;
     r.rejection = MOTOR_STATE_ACCEPTED;
     events = e->events;
-    if (a->snapshot.state == MOTOR_STATE_FATAL)
+    if (a->state == MOTOR_STATE_FATAL)
     {
         r.actions = CANCEL_ACTIONS;
         r.rejection = MOTOR_STATE_REJECT_FATAL;
@@ -205,22 +216,22 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
                                        : 0U);
     /* 有效失败是故障源而非可丢弃的完成；陈旧 worker 不能污染新操作；
      * 保留真实提交不确定性。 */
-    if ((events & MOTOR_STATE_EVENT_OPERATION_FAILED) &&
-        a->snapshot.state == MOTOR_STATE_MAINTENANCE && e->completion_epoch == a->snapshot.epoch &&
-        e->operation == a->snapshot.operation)
+    if ((events & MOTOR_STATE_EVENT_OPERATION_FAILED) && a->state == MOTOR_STATE_MAINTENANCE &&
+        e->completion_epoch == a->epoch &&
+        MotorStateRules_Classify(e->maintenance_kind) == active_maintenance_class(a))
     {
-        a->snapshot.last_operation = a->snapshot.operation;
-        a->snapshot.operation_result = MOTOR_MAINTENANCE_FAILED;
-        a->snapshot.operation_effects = (unsigned)e->effects <= MOTOR_MAINTENANCE_EFFECT_COMMITTED
-                                            ? e->effects
-                                            : MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
+
+        a->operation_result = MOTOR_MAINTENANCE_FAILED;
+        a->operation_effects = (unsigned)e->effects <= MOTOR_MAINTENANCE_EFFECT_COMMITTED
+                                   ? e->effects
+                                   : MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
         detected |= e->faults ? e->faults : MOTOR_STATE_FAULT_OPERATION;
     }
     if (detected)
     {
         /* 已锁存FAULT仍允许单独的归还确认；不清故障，也不受理同拍新请求。 */
         bool releasing_fault =
-            a->snapshot.state == MOTOR_STATE_FAULT && events == MOTOR_STATE_EVENT_CANCEL_DONE;
+            a->state == MOTOR_STATE_FAULT && events == MOTOR_STATE_EVENT_CANCEL_DONE;
         fault(a, detected, &r.actions);
         if (!releasing_fault)
         {
@@ -228,19 +239,20 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             goto done;
         }
     }
-    if (((a->snapshot.state == MOTOR_STATE_STARTING || a->snapshot.state == MOTOR_STATE_RUNNING) &&
+    if (((a->state == MOTOR_STATE_STARTING || a->state == MOTOR_STATE_RUNNING) &&
          !start_allowed(g)) ||
-        (a->snapshot.state == MOTOR_STATE_RUNNING && g->phases_disabled &&
+        (a->state == MOTOR_STATE_RUNNING && g->phases_disabled &&
          !(events & (MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_CANCEL))))
     {
         fault(a, MOTOR_STATE_FAULT_GUARD, &r.actions);
         r.rejection = MOTOR_STATE_REJECT_GUARD;
         goto done;
     }
-    if (a->snapshot.state == MOTOR_STATE_MAINTENANCE &&
+    if (a->state == MOTOR_STATE_MAINTENANCE &&
         (!g->operation_permitted || !g->fault_sources_clear ||
-         (a->snapshot.operation == MOTOR_MAINTENANCE_CLASS_CALIBRATION ? !g->samples_fresh
-                                                                       : !g->phases_disabled)))
+         (active_maintenance_class(a) == MOTOR_MAINTENANCE_CLASS_CALIBRATION
+              ? !g->samples_fresh
+              : !g->phases_disabled)))
     {
         fault(a, MOTOR_STATE_FAULT_GUARD, &r.actions);
         r.rejection = MOTOR_STATE_REJECT_GUARD;
@@ -280,7 +292,7 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
     }
     if (complete)
     {
-        if (e->completion_epoch != a->snapshot.epoch)
+        if (e->completion_epoch != a->epoch)
         {
             r.rejection = MOTOR_STATE_REJECT_STALE_EPOCH;
             goto done;
@@ -288,7 +300,7 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
         switch (complete)
         {
         case MOTOR_STATE_EVENT_BOOT_DONE:
-            if (a->snapshot.state != MOTOR_STATE_BOOT)
+            if (a->state != MOTOR_STATE_BOOT)
             {
                 r.rejection = MOTOR_STATE_REJECT_STATE;
             }
@@ -302,7 +314,7 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             }
             break;
         case MOTOR_STATE_EVENT_SELF_TEST_DONE:
-            if (a->snapshot.state != MOTOR_STATE_SELF_TEST)
+            if (a->state != MOTOR_STATE_SELF_TEST)
             {
                 r.rejection = MOTOR_STATE_REJECT_STATE;
             }
@@ -314,11 +326,11 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             else
             {
                 a->tested = true;
-                a->snapshot.state = MOTOR_STATE_READY;
+                a->state = MOTOR_STATE_READY;
             }
             break;
         case MOTOR_STATE_EVENT_START_DONE:
-            if (a->snapshot.state != MOTOR_STATE_STARTING)
+            if (a->state != MOTOR_STATE_STARTING)
             {
                 r.rejection = MOTOR_STATE_REJECT_STATE;
             }
@@ -329,33 +341,33 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             }
             else
             {
-                a->snapshot.state = MOTOR_STATE_RUNNING;
+                a->state = MOTOR_STATE_RUNNING;
             }
             break;
         case MOTOR_STATE_EVENT_OPERATION_DONE:
         case MOTOR_STATE_EVENT_OPERATION_FAILED:
-            if (a->snapshot.state != MOTOR_STATE_MAINTENANCE)
+            if (a->state != MOTOR_STATE_MAINTENANCE)
             {
                 r.rejection = MOTOR_STATE_REJECT_STATE;
             }
-            else if (e->operation != a->snapshot.operation ||
+            else if (MotorStateRules_Classify(e->maintenance_kind) != active_maintenance_class(a) ||
                      (unsigned)e->effects > MOTOR_MAINTENANCE_EFFECT_COMMITTED)
             {
                 r.rejection = MOTOR_STATE_REJECT_OPERATION;
             }
             else if (complete == MOTOR_STATE_EVENT_OPERATION_DONE &&
-                     e->operation == MOTOR_MAINTENANCE_CLASS_SAVE &&
+                     e->maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
                      e->effects != MOTOR_MAINTENANCE_EFFECT_COMMITTED)
             {
                 r.rejection = MOTOR_STATE_REJECT_OPERATION;
             }
             else
             {
-                a->snapshot.last_operation = a->snapshot.operation;
-                a->snapshot.operation_effects = e->effects;
-                a->snapshot.operation_result = complete == MOTOR_STATE_EVENT_OPERATION_DONE
-                                                   ? MOTOR_MAINTENANCE_COMPLETED
-                                                   : MOTOR_MAINTENANCE_FAILED;
+
+                a->operation_effects = e->effects;
+                a->operation_result = complete == MOTOR_STATE_EVENT_OPERATION_DONE
+                                          ? MOTOR_MAINTENANCE_COMPLETED
+                                          : MOTOR_MAINTENANCE_FAILED;
                 if (complete == MOTOR_STATE_EVENT_OPERATION_FAILED)
                 {
                     fault(a, e->faults ? e->faults : MOTOR_STATE_FAULT_OPERATION, &r.actions);
@@ -368,11 +380,11 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             }
             break;
         case MOTOR_STATE_EVENT_CANCEL_DONE:
-            if (a->snapshot.state != MOTOR_STATE_STOPPING && a->snapshot.state != MOTOR_STATE_FAULT)
+            if (a->state != MOTOR_STATE_STOPPING && a->state != MOTOR_STATE_FAULT)
             {
                 r.rejection = MOTOR_STATE_REJECT_STATE;
             }
-            else if (e->operation != a->snapshot.operation ||
+            else if (MotorStateRules_Classify(e->maintenance_kind) != active_maintenance_class(a) ||
                      (unsigned)e->effects > MOTOR_MAINTENANCE_EFFECT_COMMITTED)
             {
                 r.rejection = MOTOR_STATE_REJECT_OPERATION;
@@ -383,12 +395,12 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             }
             else
             {
-                if (a->snapshot.operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
+                if (a->operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
                 {
-                    a->snapshot.operation_result = MOTOR_MAINTENANCE_CANCELLED;
-                    a->snapshot.operation_effects = e->effects;
+                    a->operation_result = MOTOR_MAINTENANCE_CANCELLED;
+                    a->operation_effects = e->effects;
                 }
-                a->snapshot.operation = MOTOR_MAINTENANCE_CLASS_NONE;
+                a->maintenance_active = false;
                 confirm_stopped(a, g, &r.actions);
             }
             break;
@@ -407,7 +419,7 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
         r.rejection = MOTOR_STATE_REJECT_EVENT;
         goto done;
     }
-    if (request && e->request_epoch != a->snapshot.epoch)
+    if (request && e->request_epoch != a->epoch)
     {
         r.rejection = MOTOR_STATE_REJECT_STALE_EPOCH;
         goto done;
@@ -419,10 +431,10 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
     }
     if (request == MOTOR_STATE_EVENT_CLEAR)
     {
-        if (a->snapshot.state == MOTOR_STATE_FAULT)
+        if (a->state == MOTOR_STATE_FAULT)
         {
             if (!quiet(g) || !healthy(g) ||
-                a->snapshot.operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
+                a->operation_result == MOTOR_MAINTENANCE_CANCEL_REQUESTED)
             {
                 r.rejection = MOTOR_STATE_REJECT_GUARD;
             }
@@ -430,27 +442,25 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             {
                 /* 先推进代际：generation 用尽时必须保留全部故障。 */
                 self_test(a, &r.actions);
-                if (a->snapshot.state != MOTOR_STATE_FATAL)
+                if (a->state != MOTOR_STATE_FATAL)
                 {
-                    a->snapshot.first_fault = a->snapshot.latched_faults = 0U;
+                    a->first_fault = a->latched_faults = 0U;
                     r.actions |= MOTOR_STATE_ACTION_FAULT_CLEARED;
                 }
             }
         }
-        else if (a->snapshot.state != MOTOR_STATE_READY &&
-                 a->snapshot.state != MOTOR_STATE_SELF_TEST)
+        else if (a->state != MOTOR_STATE_READY && a->state != MOTOR_STATE_SELF_TEST)
         {
             r.rejection = MOTOR_STATE_REJECT_STATE;
         }
     }
     else if (request)
     {
-        if (a->snapshot.state != MOTOR_STATE_READY)
+        if (a->state != MOTOR_STATE_READY)
         {
-            r.rejection =
-                a->snapshot.latched_faults ? MOTOR_STATE_REJECT_FAULT : MOTOR_STATE_REJECT_STATE;
+            r.rejection = a->latched_faults ? MOTOR_STATE_REJECT_FAULT : MOTOR_STATE_REJECT_STATE;
         }
-        else if (!quiet(g) || !healthy(g) || a->snapshot.latched_faults)
+        else if (!quiet(g) || !healthy(g) || a->latched_faults)
         {
             r.rejection = MOTOR_STATE_REJECT_GUARD;
         }
@@ -466,15 +476,14 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             }
             else if (advance(a, &r.actions))
             {
-                a->snapshot.control_mode = e->control_mode;
-                a->snapshot.state = MOTOR_STATE_STARTING;
+
+                a->state = MOTOR_STATE_STARTING;
                 r.actions |= MOTOR_STATE_ACTION_START_CONTROL;
             }
         }
         else
         {
-            if (e->operation <= MOTOR_MAINTENANCE_CLASS_NONE ||
-                e->operation > MOTOR_MAINTENANCE_CLASS_ZERO)
+            if ((unsigned)e->maintenance_kind >= MOTOR_MAINTENANCE_NONE)
             {
                 r.rejection = MOTOR_STATE_REJECT_OPERATION;
             }
@@ -484,11 +493,12 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
             }
             else if (advance(a, &r.actions))
             {
-                a->snapshot.operation = e->operation;
-                a->snapshot.last_operation = MOTOR_MAINTENANCE_CLASS_NONE;
-                a->snapshot.operation_result = MOTOR_MAINTENANCE_NO_RESULT;
-                a->snapshot.operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
-                a->snapshot.state = MOTOR_STATE_MAINTENANCE;
+                a->maintenance_kind = e->maintenance_kind;
+                a->maintenance_active = true;
+
+                a->operation_result = MOTOR_MAINTENANCE_NO_RESULT;
+                a->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
+                a->state = MOTOR_STATE_MAINTENANCE;
                 r.actions |= MOTOR_STATE_ACTION_BEGIN_OPERATION;
             }
         }
@@ -498,14 +508,13 @@ MotorStateRules_Step(MotorStateRulesContext *a, const MotorStateEvent *e, const 
         confirm_stopped(a, g, &r.actions);
     }
 done:
-    if (a->snapshot.state == MOTOR_STATE_BOOT || a->snapshot.state == MOTOR_STATE_SELF_TEST ||
-        a->snapshot.state == MOTOR_STATE_READY || a->snapshot.state == MOTOR_STATE_STOPPING ||
-        a->snapshot.state == MOTOR_STATE_FAULT || a->snapshot.state == MOTOR_STATE_FATAL ||
-        (a->snapshot.state == MOTOR_STATE_MAINTENANCE &&
-         a->snapshot.operation != MOTOR_MAINTENANCE_CLASS_CALIBRATION))
+    if (a->state == MOTOR_STATE_BOOT || a->state == MOTOR_STATE_SELF_TEST ||
+        a->state == MOTOR_STATE_READY || a->state == MOTOR_STATE_STOPPING ||
+        a->state == MOTOR_STATE_FAULT || a->state == MOTOR_STATE_FATAL ||
+        (a->state == MOTOR_STATE_MAINTENANCE &&
+         active_maintenance_class(a) != MOTOR_MAINTENANCE_CLASS_CALIBRATION))
     {
         r.actions |= MOTOR_STATE_ACTION_DISABLE_POWER;
     }
-    r.snapshot = a->snapshot;
     return r;
 }

@@ -74,8 +74,8 @@ static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, MotorCon
     memset(&event, 0, sizeof(event));
     event.events = events;
     event.control_mode = mode;
-    event.request_epoch = owner->lifecycle.snapshot.epoch;
-    event.completion_epoch = owner->lifecycle.snapshot.epoch;
+    event.request_epoch = owner->lifecycle.epoch;
+    event.completion_epoch = owner->lifecycle.epoch;
     guards = LifecycleOwner_Guards(owner);
     result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
     LifecycleOwner_Apply(owner, result.actions);
@@ -271,7 +271,7 @@ static void test_lifecycle_owner_stop_confirmed(void)
     uint32_t first_token;
 
     LifecycleOwner_PowerOn(&owner);
-    CHECK(owner.lifecycle.snapshot.state == MOTOR_STATE_RUNNING);
+    CHECK(owner.lifecycle.state == MOTOR_STATE_RUNNING);
     CHECK(!owner.power_disabled);
 
     CHECK(MotorStopService_Init(&stop, &LIFECYCLE_PORT, &owner));
@@ -285,7 +285,7 @@ static void test_lifecycle_owner_stop_confirmed(void)
     CHECK(reply.status == YG_PROTOCOL_SERVICE_OK);
     CHECK(reply.token != 0U);
     CHECK(owner.power_disabled);
-    CHECK(owner.lifecycle.snapshot.state == MOTOR_STATE_STOPPING);
+    CHECK(owner.lifecycle.state == MOTOR_STATE_STOPPING);
 
     /* 请求对象只借用：适配器与所有者都不得改动调用方数据。 */
     CHECK(memcmp(&request_before, &request, sizeof(request)) == 0);
@@ -309,7 +309,7 @@ static void test_lifecycle_owner_denied(void)
 
     LifecycleOwner_PowerOn(&owner);
     LifecycleOwner_Fatal(&owner);
-    CHECK(owner.lifecycle.snapshot.state == MOTOR_STATE_FATAL);
+    CHECK(owner.lifecycle.state == MOTOR_STATE_FATAL);
 
     CHECK(MotorStopService_Init(&stop, &LIFECYCLE_PORT, &owner));
     handler.stop_service = &stop;

@@ -44,6 +44,9 @@ Current protocol entry: [当前设备发现与支持范围](protocols/yg_protoco
 [参数 schema12 装载政策](protocols/parameter_schema12_loading_policy_v1.md), and
 [电机线路契约](protocols/yg_protocol_motor_wire_v1.md).
 
+Bench candidate ordinary speed start: [CMD ID 0x0075 线路与黄金向量 v0.1](protocols/yg_protocol_ordinary_start_wire_v0_1.md)
+and [implementation plan](plans/active/2026-09-30-ordinary-start-wire-v1.md).
+
 Historical motor redesign proposal: [yg_protocol 简化电调协议 v0.1](protocols/yg_protocol_simplified_motor_v0_1.md)
 and its [implementation decision](plans/active/2026-09-23-yg-protocol-simplification.md).
 

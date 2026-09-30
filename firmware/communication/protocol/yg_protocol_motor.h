@@ -9,7 +9,9 @@
 #define YG_PROTOCOL_MOTOR_TYPE_ENABLE 101U
 #define YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT 107U
 #define YG_PROTOCOL_MOTOR_TYPE_CONTROL 116U
+#define YG_PROTOCOL_MOTOR_TYPE_START 117U
 #define YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE 4U
+#define YG_PROTOCOL_MOTOR_START_REQUEST_SIZE 4U
 #define YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE 20U
 #define YG_PROTOCOL_MOTOR_REPLY_SIZE 4U
 
@@ -19,6 +21,7 @@ typedef enum
     YG_PROTOCOL_MOTOR_STOP = 0,
     YG_PROTOCOL_MOTOR_DISABLE,
     YG_PROTOCOL_MOTOR_ENABLE,
+    YG_PROTOCOL_MOTOR_START_CONTROL,
     YG_PROTOCOL_MOTOR_SET_CONTROL,
     YG_PROTOCOL_MOTOR_CLEAR_FAULT,
 } yg_protocol_motor_operation_t;
@@ -44,6 +47,15 @@ typedef struct
  */
 yg_protocol_result_t yg_protocol_motor_decode_enable(const yg_protocol_message_t *message,
                                                      bool *enabled);
+
+/**
+ * @brief 解码候选 117 普通启动；仅解析 4B 模式和零保留字段，不使能功率。
+ * @param message 已通过统一帧校验的请求。
+ * @param request 成功时写入来源、序号和模式；失败保持不变。
+ * @return 长度、字段或类型检查结果。
+ */
+yg_protocol_result_t yg_protocol_motor_decode_start(const yg_protocol_message_t *message,
+                                                    yg_protocol_motor_request_t *request);
 
 /**
  * @brief 解码 116 模式与目标，按模式检查未使用字段必须为零。

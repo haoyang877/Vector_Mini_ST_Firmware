@@ -136,6 +136,61 @@ static void handle_parameter(void *context,
     }
 }
 
+static void handle_start(const yg_protocol_motor_request_t *request,
+                         yg_protocol_service_reply_t *reply)
+{
+    MotorControlStartRequest start = {.mode = MOTOR_CONTROL_SPEED,
+                                      .sequence = request->sequence,
+                                      .source_node = request->source_node};
+    MotorControlStartProgress progress;
+    MotorControlResult result;
+    if (request->mode != 2U)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
+        return;
+    }
+    result = MotorStateMachine_RequestIdentifiedEnable(&start);
+    if (result == MOTOR_CONTROL_STALE_SEQUENCE || result == MOTOR_CONTROL_CONFLICTING_RETRY)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
+        reply->detail = result == MOTOR_CONTROL_STALE_SEQUENCE ? 0x0101U : 0x0102U;
+        return;
+    }
+    bool found =
+        MotorStateMachine_ReadEnableProgress(request->source_node, request->sequence, &progress);
+    if (found && progress.state == MOTOR_CONTROL_START_STARTED)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_OK;
+        return;
+    }
+    if (found && progress.state == MOTOR_CONTROL_START_PENDING)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
+        return;
+    }
+    if (found && progress.state == MOTOR_CONTROL_START_REJECTED)
+    {
+        result = progress.result;
+    }
+    if (result == MOTOR_CONTROL_BUSY)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_BUSY;
+    }
+    else if (result == MOTOR_CONTROL_FAULT)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_FAULT;
+    }
+    else if (result == MOTOR_CONTROL_DENIED)
+    {
+        reply->status = YG_PROTOCOL_SERVICE_DENIED;
+        reply->detail = 0x0105U;
+    }
+    else
+    {
+        reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
+    }
+}
+
 void YgProtocolOwner_HandleLifecycle(void *context,
                                      const yg_protocol_motor_request_t *request,
                                      yg_protocol_service_reply_t *reply)
@@ -158,6 +213,10 @@ void YgProtocolOwner_HandleLifecycle(void *context,
         reply->status = result == MOTOR_CONTROL_ACCEPTED ? YG_PROTOCOL_SERVICE_OK
                         : result == MOTOR_CONTROL_BUSY   ? YG_PROTOCOL_SERVICE_BUSY
                                                          : YG_PROTOCOL_SERVICE_DENIED;
+    }
+    else if (request->operation == YG_PROTOCOL_MOTOR_START_CONTROL)
+    {
+        handle_start(request, reply);
     }
     /* 101 的 enable=1 是低侧制动候选，不能偷换成电流模式启动。 */
 }

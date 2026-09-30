@@ -329,6 +329,46 @@ static yg_protocol_result_t handle_motor_action(void *context,
     return YG_PROTOCOL_OK;
 }
 
+static yg_protocol_result_t handle_motor_start(void *context,
+                                               const yg_protocol_message_t *request,
+                                               yg_protocol_service_result_t *result)
+{
+    yg_protocol_link_context_t *link = context;
+    yg_protocol_motor_request_t command;
+    yg_protocol_service_reply_t reply;
+    yg_protocol_result_t decoded;
+    if (!request_context_valid(link, request, result))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (request->source_node != YG_LINK_MASTER_NODE_ID)
+    {
+        write_result(result, 7U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    decoded = yg_protocol_motor_decode_start(request, &command);
+    if (decoded != YG_PROTOCOL_OK)
+    {
+        write_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (command.mode != 2U)
+    {
+        write_result(result, 2U, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    (void)yg_protocol_motor_call(&link->motor_service, &command, &reply);
+    if (yg_protocol_motor_encode_reply(
+            &reply, result->response_payload, sizeof(result->response_payload), NULL) !=
+        YG_PROTOCOL_OK)
+    {
+        return YG_PROTOCOL_BUFFER_TOO_SMALL;
+    }
+    result->response_payload_length = YG_PROTOCOL_MOTOR_REPLY_SIZE;
+    result->response_flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    return YG_PROTOCOL_OK;
+}
+
 static void write_result(yg_protocol_service_result_t *response, uint16_t code, uint16_t detail)
 {
     YgProtocol_WriteU16Le(response->response_payload, code);
@@ -611,6 +651,7 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT, handle_motor_action, &s_link_context},
         {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_action, &s_link_context},
         {YG_PROTOCOL_MOTOR_TYPE_CONTROL, handle_motor_control, &s_link_context},
+        {YG_PROTOCOL_MOTOR_TYPE_START, handle_motor_start, &s_link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_READ, handle_parameter, &s_link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_WRITE, handle_parameter, &s_link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_SAVE, handle_parameter, &s_link_context},

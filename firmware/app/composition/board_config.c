@@ -39,11 +39,12 @@ static void publish_identity(void)
     (void)YgProtocolLink_SetMaintenanceInfoPage(1U, payload);
 }
 
-static motor_stop_owner_result_t request_stop(void *context)
+static motor_stop_owner_result_t request_stop(void *context, uint8_t source_node, uint16_t sequence)
 {
     (void)context;
-    return MotorStateMachine_RequestRemoteStop() ? MOTOR_STOP_OWNER_ACCEPTED
-                                                 : MOTOR_STOP_OWNER_DENIED;
+    return MotorStateMachine_RequestIdentifiedStop(source_node, sequence)
+               ? MOTOR_STOP_OWNER_ACCEPTED
+               : MOTOR_STOP_OWNER_DENIED;
 }
 
 static bool phases_disabled(void *context)

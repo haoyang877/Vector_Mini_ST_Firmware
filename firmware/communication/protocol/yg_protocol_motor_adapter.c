@@ -111,11 +111,13 @@ void yg_protocol_motor_adapter_handle(void *context,
             reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
             return;
         }
-        stop_result = MotorStopService_RequestStop(handler->stop_service, &token);
+        stop_result = MotorStopService_RequestStop(
+            handler->stop_service, request->source_node, request->sequence, &token);
         reply->status = map_stop_result(stop_result, token, reply);
         reply->detail = (uint16_t)stop_result;
         return;
     case YG_PROTOCOL_MOTOR_ENABLE:
+    case YG_PROTOCOL_MOTOR_START_CONTROL:
     case YG_PROTOCOL_MOTOR_CLEAR_FAULT:
         /* 只有APP注入的生命周期映射可以请求动作；此处不操作功率或故障对象。 */
         if (handler->lifecycle_handler == NULL)

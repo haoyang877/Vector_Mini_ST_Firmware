@@ -48,7 +48,10 @@ bool MotorStopService_Init(motor_stop_service_t *service,
     return true;
 }
 
-motor_stop_result_t MotorStopService_RequestStop(motor_stop_service_t *service, uint32_t *token_out)
+motor_stop_result_t MotorStopService_RequestStop(motor_stop_service_t *service,
+                                                 uint8_t source_node,
+                                                 uint16_t sequence,
+                                                 uint32_t *token_out)
 {
     motor_stop_owner_result_t owner_result;
 
@@ -65,6 +68,16 @@ motor_stop_result_t MotorStopService_RequestStop(motor_stop_service_t *service, 
     {
         return MOTOR_STOP_RESULT_UNAVAILABLE;
     }
+    /* PENDING/CONFIRMED 也须先交付每个原始 STOP 身份，阻断晚到的旧启动包。 */
+    owner_result = service->port->request_stop(service->owner_context, source_node, sequence);
+    if (owner_result == MOTOR_STOP_OWNER_DENIED)
+    {
+        return MOTOR_STOP_RESULT_DENIED;
+    }
+    if (owner_result != MOTOR_STOP_OWNER_ACCEPTED)
+    {
+        return MOTOR_STOP_RESULT_FAILED;
+    }
     /* 幂等只对仍然关闭的输出成立；旧确认不能掩盖所有者后来重新使能。 */
     if (service->phase == MOTOR_STOP_PHASE_CONFIRMED)
     {
@@ -78,16 +91,6 @@ motor_stop_result_t MotorStopService_RequestStop(motor_stop_service_t *service, 
     }
     if (service->phase == MOTOR_STOP_PHASE_IDLE)
     {
-        owner_result = service->port->request_stop(service->owner_context);
-        if (owner_result == MOTOR_STOP_OWNER_DENIED)
-        {
-            return MOTOR_STOP_RESULT_DENIED;
-        }
-        if (owner_result != MOTOR_STOP_OWNER_ACCEPTED)
-        {
-            /* 未知端口返回值按内部错误处理，不假定已停机。 */
-            return MOTOR_STOP_RESULT_FAILED;
-        }
         service->token = next_token(service);
         service->phase = MOTOR_STOP_PHASE_PENDING;
     }

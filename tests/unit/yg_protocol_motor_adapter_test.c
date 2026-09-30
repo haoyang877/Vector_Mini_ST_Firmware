@@ -110,12 +110,16 @@ static void LifecycleOwner_Fatal(LifecycleOwner *owner)
 }
 
 /* 所有者窄端口：请求停机即向核心发送 STOP；只有核心请求关相时才回报确认。 */
-static motor_stop_owner_result_t LifecycleOwner_RequestStop(void *owner_context)
+static motor_stop_owner_result_t
+LifecycleOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t sequence)
 {
     LifecycleOwner *owner = owner_context;
     MotorStateEvent event;
     MotorStateFacts guards;
     MotorStateDecision result;
+
+    (void)source_node;
+    (void)sequence;
 
     memset(&event, 0, sizeof(event));
     event.events = MOTOR_STATE_EVENT_STOP;
@@ -147,12 +151,17 @@ typedef struct
     motor_stop_owner_result_t request_result;
     bool disabled;
     int request_calls;
+    uint8_t last_source;
+    uint16_t last_sequence;
 } ScriptedOwner;
 
-static motor_stop_owner_result_t ScriptedOwner_RequestStop(void *owner_context)
+static motor_stop_owner_result_t
+ScriptedOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t sequence)
 {
     ScriptedOwner *owner = owner_context;
     ++owner->request_calls;
+    owner->last_source = source_node;
+    owner->last_sequence = sequence;
     return owner->request_result;
 }
 
@@ -243,10 +252,10 @@ static void test_service_api_misuse(void)
     motor_stop_owner_port_t incomplete = {ScriptedOwner_RequestStop, NULL};
 
     /* 未初始化服务：UNAVAILABLE，绝不假报停机。 */
-    CHECK(MotorStopService_RequestStop(NULL, &token) == MOTOR_STOP_RESULT_FAILED);
+    CHECK(MotorStopService_RequestStop(NULL, 1U, 7U, &token) == MOTOR_STOP_RESULT_FAILED);
     CHECK(token == 0U);
     memset(&service, 0, sizeof(service));
-    CHECK(MotorStopService_RequestStop(&service, &token) == MOTOR_STOP_RESULT_UNAVAILABLE);
+    CHECK(MotorStopService_RequestStop(&service, 1U, 7U, &token) == MOTOR_STOP_RESULT_UNAVAILABLE);
 
     /* 缺少确认通道的端口拒绝初始化。 */
     CHECK(!MotorStopService_Init(&service, &incomplete, NULL));
@@ -255,7 +264,7 @@ static void test_service_api_misuse(void)
 
     /* 空 token 输出按 API 误用处理。 */
     CHECK(MotorStopService_Init(&service, &SCRIPTED_PORT, NULL));
-    CHECK(MotorStopService_RequestStop(&service, NULL) == MOTOR_STOP_RESULT_FAILED);
+    CHECK(MotorStopService_RequestStop(&service, 1U, 7U, NULL) == MOTOR_STOP_RESULT_FAILED);
 
     printf("PASS service API misuse and missing confirmation channel\n");
 }
@@ -325,7 +334,7 @@ static void test_lifecycle_owner_denied(void)
 
 static void test_async_accept_then_confirm(void)
 {
-    ScriptedOwner owner = {MOTOR_STOP_OWNER_ACCEPTED, false, 0};
+    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_ACCEPTED};
     motor_stop_service_t stop;
     yg_protocol_motor_adapter_t handler;
     yg_protocol_service_reply_t reply;
@@ -341,23 +350,23 @@ static void test_async_accept_then_confirm(void)
     token = reply.token;
     CHECK(owner.request_calls == 1);
 
-    /* 重复请求只轮询确认，不重复下达停机请求，token 保持稳定。 */
+    /* 每个有效 STOP 都交给所有者更新序号屏障，服务仍复用 token。 */
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_DISABLE, &reply) ==
           YG_PROTOCOL_SERVICE_ACCEPTED);
     CHECK(reply.token == token);
-    CHECK(owner.request_calls == 1);
+    CHECK(owner.request_calls == 2);
 
     /* 所有者确认功率输出禁止后，同一 token 升级为 OK。 */
     owner.disabled = true;
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_STOP, &reply) == YG_PROTOCOL_SERVICE_OK);
     CHECK(reply.token == token);
-    CHECK(owner.request_calls == 1);
+    CHECK(owner.request_calls == 3);
 
     /* 旧 OK 不能掩盖后来重新使能；新的 STOP 必须重新请求并等待新确认。 */
     owner.disabled = false;
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_STOP, &reply) == YG_PROTOCOL_SERVICE_ACCEPTED);
     CHECK(reply.token != 0U && reply.token != token);
-    CHECK(owner.request_calls == 2);
+    CHECK(owner.request_calls == 4);
     token = reply.token;
     owner.disabled = true;
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_STOP, &reply) == YG_PROTOCOL_SERVICE_OK);
@@ -368,7 +377,7 @@ static void test_async_accept_then_confirm(void)
 
 static void test_first_denied_then_accepted(void)
 {
-    ScriptedOwner owner = {MOTOR_STOP_OWNER_DENIED, false, 0};
+    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_DENIED};
     motor_stop_service_t stop;
     yg_protocol_motor_adapter_t handler;
     yg_protocol_service_reply_t reply;
@@ -386,9 +395,28 @@ static void test_first_denied_then_accepted(void)
     printf("PASS denied stop can be retried and confirmed\n");
 }
 
+static void test_stop_identity_reaches_owner_in_every_phase(void)
+{
+    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_ACCEPTED};
+    motor_stop_service_t stop;
+    uint32_t token = 0U;
+    uint32_t original;
+    CHECK(MotorStopService_Init(&stop, &SCRIPTED_PORT, &owner));
+    CHECK(MotorStopService_RequestStop(&stop, 2U, 10U, &token) == MOTOR_STOP_RESULT_ACCEPTED);
+    original = token;
+    CHECK(owner.last_source == 2U && owner.last_sequence == 10U && owner.request_calls == 1);
+    CHECK(MotorStopService_RequestStop(&stop, 2U, 11U, &token) == MOTOR_STOP_RESULT_ACCEPTED);
+    CHECK(token == original && owner.last_sequence == 11U && owner.request_calls == 2);
+    owner.disabled = true;
+    CHECK(MotorStopService_RequestStop(&stop, 2U, 12U, &token) == MOTOR_STOP_RESULT_OK);
+    CHECK(token == original && owner.last_sequence == 12U && owner.request_calls == 3);
+    CHECK(MotorStopService_RequestStop(&stop, 2U, 9U, &token) == MOTOR_STOP_RESULT_OK);
+    CHECK(token == original && owner.last_sequence == 9U && owner.request_calls == 4);
+}
+
 static void test_unconfirmable_shutdown_never_ok(void)
 {
-    ScriptedOwner owner = {MOTOR_STOP_OWNER_ACCEPTED, false, 0};
+    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_ACCEPTED};
     motor_stop_service_t stop;
     yg_protocol_motor_adapter_t handler;
     yg_protocol_service_reply_t reply;
@@ -415,7 +443,7 @@ static void test_unconfirmable_shutdown_never_ok(void)
             CHECK(reply.token == token);
         }
     }
-    CHECK(owner.request_calls == 1);
+    CHECK(owner.request_calls == 1000);
     CHECK(!owner.disabled);
 
     printf("PASS unconfirmable shutdown stays ACCEPTED and never reports OK\n");
@@ -500,6 +528,7 @@ int main(void)
     test_lifecycle_owner_denied();
     test_async_accept_then_confirm();
     test_first_denied_then_accepted();
+    test_stop_identity_reaches_owner_in_every_phase();
     test_unconfirmable_shutdown_never_ok();
     test_control_boundary();
 

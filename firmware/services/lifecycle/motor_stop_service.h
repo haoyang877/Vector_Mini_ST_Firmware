@@ -43,7 +43,9 @@ typedef enum
  */
 typedef struct
 {
-    motor_stop_owner_result_t (*request_stop)(void *owner_context);
+    motor_stop_owner_result_t (*request_stop)(void *owner_context,
+                                              uint8_t source_node,
+                                              uint16_t sequence);
     bool (*is_power_disabled)(void *owner_context);
 } motor_stop_owner_port_t;
 
@@ -72,14 +74,18 @@ bool MotorStopService_Init(motor_stop_service_t *service,
 /**
  * @brief 幂等地请求停机，并在所有者确认后报告完成。
  * @param service 由 Init 成功初始化的服务状态。
+ * @param source_node 已校验请求来源；原样传给唯一所有者。
+ * @param sequence 原始请求序号；每次有效请求都传给所有者更新启动屏障。
  * @param token_out 输出请求 token；ACCEPTED/OK 时非零，未受理时为 0，不允许为空。
  * @return OK 表示所有者已确认功率输出禁止；ACCEPTED 表示已受理待确认；
  *         DENIED/UNAVAILABLE/FAILED 分别表示拒绝、缺少通道和 API 误用。
- * @note 在途重复调用复用同一 token 并轮询确认；已确认后仍逐次核查关断证据，
+ * @note 每次有效调用都先转交来源和序号；在途重复调用复用同一 token 并轮询确认；已确认后仍逐次核查关断证据，
  *       所有者后来重新使能时提交新的停机请求与 token，不能复用旧成功；
  *       未确认的关断始终停留在 ACCEPTED，绝不报告 OK。同一服务只允许单一上下文串行调用。
  */
 motor_stop_result_t MotorStopService_RequestStop(motor_stop_service_t *service,
+                                                 uint8_t source_node,
+                                                 uint16_t sequence,
                                                  uint32_t *token_out);
 
 #endif

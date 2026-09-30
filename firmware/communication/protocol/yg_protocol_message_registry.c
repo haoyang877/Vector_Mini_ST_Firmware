@@ -61,6 +61,7 @@ yg_protocol_result_t yg_protocol_product_registry_init(yg_protocol_message_regis
         {YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT, false, false},
         {YG_PROTOCOL_MOTOR_TYPE_STOP, false, false},
         {YG_PROTOCOL_MOTOR_TYPE_CONTROL, false, false},
+        {YG_PROTOCOL_MOTOR_TYPE_START, false, false},
         {YG_PROTOCOL_PARAMETER_TYPE_READ, false, false},
         {YG_PROTOCOL_PARAMETER_TYPE_WRITE, false, false},
         {YG_PROTOCOL_PARAMETER_TYPE_SAVE, false, false},

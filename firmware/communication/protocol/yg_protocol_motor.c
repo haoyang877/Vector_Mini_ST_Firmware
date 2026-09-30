@@ -69,6 +69,34 @@ yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_
     return YG_PROTOCOL_OK;
 }
 
+yg_protocol_result_t yg_protocol_motor_decode_start(const yg_protocol_message_t *message,
+                                                    yg_protocol_motor_request_t *request)
+{
+    yg_protocol_motor_request_t decoded = {0};
+    if (message == NULL || request == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (message->message_type != YG_PROTOCOL_MOTOR_TYPE_START)
+    {
+        return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+    }
+    if (message->payload_length != YG_PROTOCOL_MOTOR_START_REQUEST_SIZE || message->payload == NULL)
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    if (message->payload[1] != 0U || message->payload[2] != 0U || message->payload[3] != 0U)
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    decoded.operation = YG_PROTOCOL_MOTOR_START_CONTROL;
+    decoded.source_node = message->source_node;
+    decoded.sequence = message->sequence;
+    decoded.mode = message->payload[0];
+    *request = decoded;
+    return YG_PROTOCOL_OK;
+}
+
 yg_protocol_service_status_t yg_protocol_motor_call(const yg_protocol_motor_service_t *service,
                                                     const yg_protocol_motor_request_t *request,
                                                     yg_protocol_service_reply_t *reply)

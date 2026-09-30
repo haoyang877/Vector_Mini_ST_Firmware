@@ -336,6 +336,85 @@ static void test_control(void)
     puts("PASS worker fault latches error; fresh recovery CLEAR does not restart");
 }
 
+/* 同源序号和STOP屏障只使用真实所有者入口，断言不通过私有状态伪造启相。 */
+static void test_identified_speed_start(void)
+{
+    MotorControlStartRequest request = {
+        .mode = MOTOR_CONTROL_SPEED, .sequence = 101U, .source_node = 2U};
+    MotorControlStartProgress progress;
+
+    reset();
+    assert(MotorStateMachine_RequestIdentifiedStop(2U, 100U));
+    tick();
+    request.sequence = 99U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_STALE_SEQUENCE);
+    assert(output_off && start_count == 0U);
+
+    request.sequence = 101U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_ReadEnableProgress(2U, 101U, &progress));
+    assert(progress.state == MOTOR_CONTROL_START_PENDING &&
+           progress.result == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+    request.mode = MOTOR_CONTROL_CURRENT;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_CONFLICTING_RETRY);
+    request.mode = MOTOR_CONTROL_SPEED;
+    assert(start_count == 0U);
+
+    request.sequence = 102U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_BUSY);
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_BUSY);
+    assert(MotorStateMachine_ReadEnableProgress(2U, 101U, &progress) &&
+           progress.state == MOTOR_CONTROL_START_PENDING);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off && start_count == 1U);
+    assert(MotorStateMachine_ReadEnableProgress(2U, 101U, &progress) &&
+           progress.state == MOTOR_CONTROL_START_STARTED);
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_BUSY);
+
+    assert(MotorStateMachine_RequestIdentifiedStop(2U, 103U));
+    assert(MotorStateMachine_RequestIdentifiedStop(2U, 98U));
+    tick();
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY);
+    request.sequence = 102U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_BUSY);
+    request.sequence = 103U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_STALE_SEQUENCE);
+    request.sequence = 104U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestIdentifiedStop(2U, 105U));
+    assert(MotorStateMachine_ReadEnableProgress(2U, 104U, &progress) &&
+           progress.state == MOTOR_CONTROL_START_REJECTED &&
+           progress.result == MOTOR_CONTROL_DENIED);
+    tick();
+    assert(output_off && start_count == 1U);
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_DENIED);
+
+    request.sequence = 106U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+    motor.fault_code = MOTOR_FAULT_ENCODER;
+    MotorStateMachine_FastFaultStop();
+    assert(MotorStateMachine_ReadEnableProgress(2U, 106U, &progress) &&
+           progress.state == MOTOR_CONTROL_START_REJECTED &&
+           progress.result == MOTOR_CONTROL_FAULT);
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_FAULT);
+    assert(output_off && start_count == 1U);
+
+    reset();
+    request.sequence = UINT16_MAX;
+    assert(MotorStateMachine_RequestIdentifiedStop(2U, request.sequence));
+    tick();
+    request.sequence = 0U;
+    motor.configuration_confirmed = false;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_DENIED);
+    motor.configuration_confirmed = true;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_DENIED);
+    request.sequence = 1U;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+    assert(output_off && start_count == 0U);
+    puts("PASS identified speed start: retry, conflict, busy, STOP, fault, wrap, rejected retry");
+}
+
 static void test_calibration_save(void)
 {
     MotorMaintenanceProgress progress;
@@ -1183,6 +1262,7 @@ int main(void)
     test_task_results();
     test_power_permission();
     test_maintenance_identity();
+    test_identified_speed_start();
     test_control();
     test_calibration_save();
     test_borrow_cancel();

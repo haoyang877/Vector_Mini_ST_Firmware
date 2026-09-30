@@ -61,6 +61,10 @@ typedef struct
     uint32_t control_epoch;
     volatile bool has_pending_control;
     MotorControlProgress control_progress;
+    MotorControlStartProgress latest_start, active_start;
+    uint16_t stop_sequence;
+    uint8_t remote_source;
+    bool remote_source_valid, stop_sequence_valid;
     volatile uint32_t fast_sample_epoch;
     uint32_t observed_fast_sample_epoch;
     bool fast_samples_fresh;
@@ -155,6 +159,38 @@ static void reject_pending_control(MotorControlResult reason)
         s_context.control_progress.state = MOTOR_CONTROL_PROGRESS_REJECTED;
         s_context.control_progress.result = reason;
     }
+}
+
+/* 只改变尚未确认启相的原身份；已启动结果保留为历史，不表示当前仍有输出。 */
+static void reject_pending_start(MotorControlResult reason)
+{
+    if (s_context.active_start.state != MOTOR_CONTROL_START_PENDING)
+    {
+        return;
+    }
+    s_context.active_start.state = MOTOR_CONTROL_START_REJECTED;
+    s_context.active_start.result = reason;
+    if (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
+        s_context.latest_start.request.source_node == s_context.active_start.request.source_node &&
+        s_context.latest_start.request.sequence == s_context.active_start.request.sequence)
+    {
+        s_context.latest_start = s_context.active_start;
+    }
+}
+
+static bool same_start_identity(const MotorControlStartProgress *progress,
+                                const MotorControlStartRequest *request)
+{
+    return progress->state != MOTOR_CONTROL_START_NONE &&
+           progress->request.source_node == request->source_node &&
+           progress->request.sequence == request->sequence;
+}
+
+/* 16 位半范围序号：0 是相同身份，1..32767 是新请求，其余是陈旧请求。 */
+static bool start_sequence_newer(uint16_t sequence, uint16_t baseline)
+{
+    uint16_t delta = (uint16_t)(sequence - baseline);
+    return delta != 0U && delta < UINT16_C(0x8000);
 }
 
 /* 停机清理：清零参考、影子和滤波量；任务取消独立按当前身份执行。 */
@@ -780,6 +816,94 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
     return result;
 }
 
+MotorControlResult
+MotorStateMachine_RequestIdentifiedEnable(const MotorControlStartRequest *request)
+{
+    if (request == NULL || request->reserved != 0U || request->source_node == 0U ||
+        request->source_node == UINT8_MAX)
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result;
+    if (s_context.remote_source_valid && s_context.remote_source != request->source_node)
+    {
+        result = MOTOR_CONTROL_DENIED;
+    }
+    else if (same_start_identity(&s_context.latest_start, request))
+    {
+        result = s_context.latest_start.request.mode == request->mode
+                     ? s_context.latest_start.result
+                     : MOTOR_CONTROL_CONFLICTING_RETRY;
+    }
+    else if (same_start_identity(&s_context.active_start, request))
+    {
+        result = s_context.active_start.request.mode == request->mode
+                     ? s_context.active_start.result
+                     : MOTOR_CONTROL_CONFLICTING_RETRY;
+    }
+    else if ((s_context.stop_sequence_valid &&
+              !start_sequence_newer(request->sequence, s_context.stop_sequence)) ||
+             (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
+              !start_sequence_newer(request->sequence, s_context.latest_start.request.sequence)))
+    {
+        result = MOTOR_CONTROL_STALE_SEQUENCE;
+    }
+    else
+    {
+        if (!s_context.remote_source_valid)
+        {
+            s_context.remote_source = request->source_node;
+            s_context.remote_source_valid = true;
+        }
+        result = request->mode == MOTOR_CONTROL_SPEED
+                     ? MotorStateMachine_RequestEnable(request->mode)
+                     : MOTOR_CONTROL_INVALID;
+        s_context.latest_start = (MotorControlStartProgress){
+            .request = *request,
+            .state = result == MOTOR_CONTROL_ACCEPTED ? MOTOR_CONTROL_START_PENDING
+                                                      : MOTOR_CONTROL_START_REJECTED,
+            .result = result};
+        if (result == MOTOR_CONTROL_ACCEPTED)
+        {
+            s_context.active_start = s_context.latest_start;
+        }
+    }
+    critical_hw_exit(mask);
+    return result;
+}
+
+bool MotorStateMachine_ReadEnableProgress(uint8_t source_node,
+                                          uint16_t sequence,
+                                          MotorControlStartProgress *progress)
+{
+    if (progress == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = critical_hw_enter();
+    *progress = (MotorControlStartProgress){0};
+    const MotorControlStartProgress *found = NULL;
+    if (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
+        s_context.latest_start.request.source_node == source_node &&
+        s_context.latest_start.request.sequence == sequence)
+    {
+        found = &s_context.latest_start;
+    }
+    else if (s_context.active_start.state != MOTOR_CONTROL_START_NONE &&
+             s_context.active_start.request.source_node == source_node &&
+             s_context.active_start.request.sequence == sequence)
+    {
+        found = &s_context.active_start;
+    }
+    if (found != NULL)
+    {
+        *progress = *found;
+    }
+    critical_hw_exit(mask);
+    return found != NULL;
+}
+
 MotorControlResult MotorStateMachine_RequestClear(void)
 {
     uint32_t mask = critical_hw_enter();
@@ -1026,11 +1150,13 @@ MotorState MotorStateMachine_GetState(void)
     return s_context.rules.state;
 }
 
-bool MotorStateMachine_RequestRemoteStop(void)
+/* 前台持锁：STOP 总是撤销本代待启动与目标，序号只影响后续 START 准入。 */
+static void request_remote_stop_locked(void)
 {
-    uint32_t state = critical_hw_enter();
     reject_pending_control(s_context.motor->fault_code != MOTOR_FAULT_NONE ? MOTOR_CONTROL_FAULT
                                                                            : MOTOR_CONTROL_DENIED);
+    reject_pending_start(s_context.motor->fault_code != MOTOR_FAULT_NONE ? MOTOR_CONTROL_FAULT
+                                                                         : MOTOR_CONTROL_DENIED);
     if (s_context.has_latched_outcome)
     {
         if (s_context.pending_outcome.result == MOTOR_TASK_FAILED &&
@@ -1044,7 +1170,33 @@ bool MotorStateMachine_RequestRemoteStop(void)
     s_context.motor->control_mode = MOTOR_CONTROL_NONE;
     s_context.enable_pending = s_context.maintenance_runnable = s_context.save_requested = false;
     s_context.stop_pending = true;
-    critical_hw_exit(state);
+}
+
+bool MotorStateMachine_RequestRemoteStop(void)
+{
+    uint32_t mask = critical_hw_enter();
+    request_remote_stop_locked();
+    critical_hw_exit(mask);
+    return true;
+}
+
+bool MotorStateMachine_RequestIdentifiedStop(uint8_t source_node, uint16_t sequence)
+{
+    uint32_t mask = critical_hw_enter();
+    if (source_node != 0U && source_node != UINT8_MAX &&
+        (!s_context.remote_source_valid || s_context.remote_source == source_node))
+    {
+        s_context.remote_source = source_node;
+        s_context.remote_source_valid = true;
+        if (!s_context.stop_sequence_valid ||
+            start_sequence_newer(sequence, s_context.stop_sequence))
+        {
+            s_context.stop_sequence = sequence;
+            s_context.stop_sequence_valid = true;
+        }
+    }
+    request_remote_stop_locked();
+    critical_hw_exit(mask);
     return true;
 }
 
@@ -1226,6 +1378,7 @@ void MotorStateMachine_FastFaultStop(void)
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
         reject_pending_control(MOTOR_CONTROL_FAULT);
+        reject_pending_start(MOTOR_CONTROL_FAULT);
     }
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE && !power_stage_hw_phases_disabled())
     {
@@ -1372,6 +1525,36 @@ static void enable_prepared_control(void)
     }
 }
 
+/* 原代启相事实经监督拍确认；STOP/故障可在此之前同步撤销身份。 */
+static void update_start_progress(void)
+{
+    uint32_t mask = critical_hw_enter();
+    if (s_context.active_start.state == MOTOR_CONTROL_START_PENDING)
+    {
+        if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
+        {
+            reject_pending_start(MOTOR_CONTROL_FAULT);
+        }
+        else if (s_context.rules.state == MOTOR_STATE_RUNNING &&
+                 s_context.motor->control_mode == s_context.active_start.request.mode &&
+                 !s_context.stop_pending && !power_stage_hw_phases_disabled())
+        {
+            s_context.active_start.state = MOTOR_CONTROL_START_STARTED;
+            if (same_start_identity(&s_context.latest_start, &s_context.active_start.request))
+            {
+                s_context.latest_start = s_context.active_start;
+            }
+        }
+        else if ((s_context.rules.state == MOTOR_STATE_READY && !s_context.enable_pending) ||
+                 (s_context.rules.state != MOTOR_STATE_READY &&
+                  s_context.rules.state != MOTOR_STATE_STARTING))
+        {
+            reject_pending_start(MOTOR_CONTROL_DENIED);
+        }
+    }
+    critical_hw_exit(mask);
+}
+
 void MotorStateMachine_Tick(void)
 {
     state_update_sample_progress();
@@ -1385,6 +1568,7 @@ void MotorStateMachine_Tick(void)
     begin_requested_control(stopped);
     enable_prepared_control();
     apply_pending_control();
+    update_start_progress();
 
     indicator_hw_set_led(s_context.motor->fault_code != MOTOR_FAULT_NONE,
                          (uint8_t)(s_context.motor->fault_code != MOTOR_FAULT_NONE

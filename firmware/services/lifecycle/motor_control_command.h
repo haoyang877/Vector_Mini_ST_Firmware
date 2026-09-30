@@ -49,6 +49,32 @@ typedef struct
     uint16_t sequence;
 } MotorControlProgress;
 
+/** @brief 显式普通启动身份；mode 为内部控制枚举，首批仅开放速度模式。 */
+typedef struct
+{
+    MotorControlMode mode;
+    uint16_t sequence;
+    uint8_t source_node;
+    uint8_t reserved;
+} MotorControlStartRequest;
+
+/** @brief 启动进展：STARTED 仅证明本代运行并有数字输出，不表示转子运动。 */
+typedef enum
+{
+    MOTOR_CONTROL_START_NONE = 0,
+    MOTOR_CONTROL_START_PENDING,
+    MOTOR_CONTROL_START_STARTED,
+    MOTOR_CONTROL_START_REJECTED
+} MotorControlStartState;
+
+/** @brief 单个来源/序号的启动结果值；拒绝和取消仍保留原身份。 */
+typedef struct
+{
+    MotorControlStartRequest request;
+    MotorControlStartState state;
+    MotorControlResult result;
+} MotorControlStartProgress;
+
 /**
  * @brief 控制所有者目标提交端口；返回前必须复制命令，不得保留指针。
  * @param context 组合层注入的控制所有者上下文。

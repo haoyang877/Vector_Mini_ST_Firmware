@@ -68,6 +68,15 @@ MotorState MotorStateMachine_GetState(void);
 bool MotorStateMachine_RequestRemoteStop(void);
 
 /**
+ * @brief 以线上来源和序号执行远程 STOP，并阻止同源旧启动请求迟到后启相。
+ * @param source_node 已校验的远程来源；0 和 255 不推进序号屏障。
+ * @param sequence 原始 16 位序号；旧 STOP 仍执行关断，不回退屏障。
+ * @return 已登记停机返回 true，不表示功率输出已关闭。
+ * @note 与启动受理在同一短临界区排序；STOP 不能因序号陈旧而拒绝。
+ */
+bool MotorStateMachine_RequestIdentifiedStop(uint8_t source_node, uint16_t sequence);
+
+/**
  * @brief 向运行所有者提交同模式目标，前台共用受理和应用路径。
  * @param command SI 单位值命令；成功时复制，不保留指针。
  * @return 已受理、参数错误、状态拒绝、忙、越限或故障；不报告物理已执行。
@@ -90,6 +99,28 @@ void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress);
  * @note 前台消费调用，有界非阻塞；功率迁移仍在监督调度提交。
  */
 MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode);
+
+/**
+ * @brief 幂等受理带身份的速度零目标启动，复用唯一运行所有者的原启相路径。
+ * @param request 原始来源、序号和内部速度模式；函数返回后不保留指针。
+ * @return 受理或明确拒绝原因；受理不表示启相，结果由 ReadEnableProgress 查询。
+ * @note 同来源序号重试不再执行；新拒绝也消耗序号，STOP 后旧序号不能启动。
+ *       序号窗口仅在当前 APP 运行期内有效，跨复位防重放尚需线路契约。
+ */
+MotorControlResult
+MotorStateMachine_RequestIdentifiedEnable(const MotorControlStartRequest *request);
+
+/**
+ * @brief 读取一条带身份启动的进展，包括最近请求及仍保留的活动请求。
+ * @param source_node 原始来源。
+ * @param sequence 原始序号。
+ * @param progress 接收值结果；未找到时清零，不保留指针。
+ * @return 身份仍在有界记录内时返回 true。
+ * @note STARTED 是历史结果，当前是否仍运行须再读取状态；不代表物理运动。
+ */
+bool MotorStateMachine_ReadEnableProgress(uint8_t source_node,
+                                          uint16_t sequence,
+                                          MotorControlStartProgress *progress);
 /**
  * @brief 请求原有维护任务并分配创建时身份。
  * @param kind 明确业务任务。

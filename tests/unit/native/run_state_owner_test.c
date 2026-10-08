@@ -1314,6 +1314,19 @@ static void test_quiet_init_and_idle_stop(void)
         tick();
     }
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && start_count == 0U);
+    /* INIT 只有一个期限；晚归还不能恢复旧 BOOT 完成时的第二次计时。 */
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    encoder_released = false;
+    tick();
+    now_ms = 499U;
+    encoder_released = true;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_INIT);
+    now_ms = 500U;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
+    assert(motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT);
     puts("PASS quiet INIT/IDLE STOP preserves health window, 500/1500ms deadlines and sequence "
          "barrier; "
          "unreleased resources still STOPPING");

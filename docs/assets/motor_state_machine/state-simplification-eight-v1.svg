@@ -105,4 +105,3 @@
   <text x="70" y="895">STOP：关闭输出　　新故障优先于 STOP／完成　　STARTED：原身份曾确认启相</text>
   <text x="70" y="920" class="small">已定：八状态、独立 FATAL、静默 INIT STOP 不重启自检；待定：线码、串行 SAVE、代际与拍数</text>
 </svg>
-

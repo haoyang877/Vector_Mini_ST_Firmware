@@ -28,3 +28,10 @@
 - 受理不是物理关断或资源释放证明，须按 [主状态机契约](../architecture/motor_state_machine_v1.md) 确认。
 
 容量批次记录见 [APP / Loader 容量适配 v1](../plans/completed/2026-09-28-capacity-fit-v1.md)。
+
+## 2026-10-08 状态机合并更新
+
+主状态为 INIT、IDLE、STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT、FATAL。
+INIT／IDLE STOP 保持原状态；停止完成与 CLEAR 成功直接 IDLE；FATAL 没有软件恢复出口。
+不再观察已删除的 tested 字段；INIT 的期限和连续健康窗口不因 STOP 重启。
+Watch 内部状态数值不能当作 CAN 枚举，当前契约见[状态恢复 v1.2](../protocols/yg_protocol_motor_state_v1_2.md)。

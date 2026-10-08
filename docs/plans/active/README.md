@@ -1,6 +1,7 @@
 # Active Plans
 
 - [架构收口与发布候选 v1](2026-10-08-architecture-release-v1.md)：四项核心冻结、批准的状态出口接入、干净 release 证据与真实发布边界；未进行新镜像实机验证。
+- [主状态机八状态 v3](2026-10-08-motor-state-flow-simplification-v3.md)与[出口收敛 v4](2026-10-08-motor-state-flow-simplification-v4.md)：INIT/IDLE 原地 STOP，停止与显式健康 CLEAR 后只回 IDLE，FATAL 仅程序复位恢复。
 
 - [电机模块核心职责解耦 v2](2026-10-08-module-core-decoupling-v2.md)：四项核心已选择性集成，工程输入已接线；组合检查与编译结果见本批报告，未实机验证。
 - [位置核心实际解耦 v4](2026-10-08-position-core-implementation-v4.md)：核心/摩擦状态分离，保留运算顺序；独立资源代价如实登记。

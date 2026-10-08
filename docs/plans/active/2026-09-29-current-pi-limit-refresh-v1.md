@@ -59,13 +59,13 @@ NONE零目标、资源归还与Flash不变均确认，但没有完整LUT成功�
 
 限幅软件验证与新候选归档已完成；本轮修复仅离线，不访问J-Link/USB-CAN。
 直接生产体原生检查在2/6mΩ下均通过，既有PR门禁全部PASS，见
-[当前PR摘要](../../../outputs/runs/current-pi-limit-refresh-20260929-pr-final/summary.json)。
+当前PR摘要（历史证据：`outputs/runs/current-pi-limit-refresh-20260929-pr-final/summary.json`）。
 normal最终编译0错误/0警告，Code88820、RO3064、RW304、ZI31248 bytes；
 相对上一修复候选Code增加44、RO增加4，静态RAM不变，实际ISR时延未测。
 HEX/AXF离线程序字节一致，共91896字节；新HEX为
 fc54ae84b9a7812498bf2e024ac53e6b88dea6c90da77b94d2a014eb00679d6c。
 源码快照、HEAD/dirty、补丁、编译输入和产物哈希见
-[独立归档摘要](../../../outputs/startup-current-limits-fix-20260929/summary.json)。
+独立归档摘要（历史证据：`outputs/startup-current-limits-fix-20260929/summary.json`）。
 已从新AXF离线派生10个守卫输入、4次调用、合计200字节的运动布局方案，
 最大块128字节，未超过原144字节限制；布局覆盖不是实际SDK时延达标证据。
 既有运动、取消证据不覆盖本次新源码，完整LUT与新候选实机验证仍待独立授权。

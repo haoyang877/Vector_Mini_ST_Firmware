@@ -91,11 +91,9 @@ static uint8_t protocol_state(MotorState state, uint8_t mode)
 {
     switch (state)
     {
-    case MOTOR_STATE_BOOT:
-        return 0U;
-    case MOTOR_STATE_SELF_TEST:
+    case MOTOR_STATE_INIT:
         return 3U;
-    case MOTOR_STATE_READY:
+    case MOTOR_STATE_IDLE:
         return 5U;
     case MOTOR_STATE_STARTING:
         return 2U;

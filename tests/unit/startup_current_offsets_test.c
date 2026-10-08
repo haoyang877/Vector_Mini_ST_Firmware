@@ -35,7 +35,7 @@ static bool output_off = true;
 static float simulated_bus_voltage_v = 30.0f;
 static unsigned current_reads, state_initializations, maintenance_queries;
 static unsigned observer_calls, progress_calls, protection_calls, control_calls;
-static MotorState simulated_state = MOTOR_STATE_SELF_TEST;
+static MotorState simulated_state = MOTOR_STATE_INIT;
 
 static void load_parameters(MotorControlState *motor, EncoderState *encoder)
 {
@@ -207,7 +207,7 @@ static void initialize(void)
     current_reads = 0U;
     maintenance_queries = 0U;
     observer_calls = progress_calls = protection_calls = control_calls = 0U;
-    simulated_state = MOTOR_STATE_SELF_TEST;
+    simulated_state = MOTOR_STATE_INIT;
     samples[0] = 8131U;
     samples[1] = 8205U;
     samples[2] = 8146U;

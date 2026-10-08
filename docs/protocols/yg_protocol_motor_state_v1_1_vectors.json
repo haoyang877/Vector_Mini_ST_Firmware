@@ -1,0 +1,50 @@
+{
+  "contract_version": "1.1",
+  "payload_bytes": 45,
+  "state_offset": 43,
+  "retired_state_codes": [
+    0
+  ],
+  "vectors": [
+    {
+      "state": "INIT",
+      "wire_state": 3,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 03 03"
+    },
+    {
+      "state": "IDLE",
+      "wire_state": 5,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 05 03"
+    },
+    {
+      "state": "STARTING",
+      "wire_state": 2,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 02 03"
+    },
+    {
+      "state": "RUNNING",
+      "wire_state": 6,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 06 03"
+    },
+    {
+      "state": "MAINTENANCE",
+      "wire_state": 5,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 05 03"
+    },
+    {
+      "state": "STOPPING",
+      "wire_state": 7,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 07 03"
+    },
+    {
+      "state": "FAULT",
+      "wire_state": 8,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 08 03"
+    },
+    {
+      "state": "FATAL",
+      "wire_state": 9,
+      "payload_hex": "00 00 34 12 04 03 02 01 E8 03 00 00 30 F8 FF FF B8 0B 00 00 60 F0 FF FF FF 0D 60 09 DC 05 50 FB 4C 04 E6 09 00 80 88 13 06 FF 03 09 03"
+    }
+  ]
+}

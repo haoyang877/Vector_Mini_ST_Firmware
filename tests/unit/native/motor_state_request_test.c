@@ -110,7 +110,7 @@ void PiController_Reset(PiController *controller)
 }
 
 /* ---- 桩：运行所有者；保存作业默认视为已完成，便于核对结果重放 ---- */
-static MotorState stub_state = MOTOR_STATE_READY;
+static MotorState stub_state = MOTOR_STATE_IDLE;
 static bool stub_config_allowed = true;
 static bool stub_maintenance_found = true;
 static MotorMaintenanceResult stub_maintenance_result = MOTOR_MAINTENANCE_COMPLETED;
@@ -332,7 +332,7 @@ static void reset_case(void)
     memset(&s_motor_state, 0, sizeof(s_motor_state));
     s_config_revision = 5U;
     s_last_read.valid = s_last_write.valid = s_save_job.valid = false;
-    stub_state = MOTOR_STATE_READY;
+    stub_state = MOTOR_STATE_IDLE;
     stub_config_allowed = true;
     stub_maintenance_found = true;
     stub_maintenance_result = MOTOR_MAINTENANCE_COMPLETED;
@@ -488,7 +488,7 @@ static void test_read_and_invalid_contract(void)
     read.parameter_id = 0x4FU;
     CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
     CHECK(value.raw_value == 3U && value.revision == 5U);
-    stub_state = MOTOR_STATE_READY;
+    stub_state = MOTOR_STATE_IDLE;
     stub_config_allowed = false;
     read.parameter_id = 7U;
     ++read.sequence;
@@ -549,7 +549,7 @@ int main(void)
     CHECK(ticket == 0U);
 
     /* 准备资格可在 SELF_TEST 查询；原身份重试仍保持参数身份冲突契约。 */
-    stub_state = MOTOR_STATE_SELF_TEST;
+    stub_state = MOTOR_STATE_INIT;
     read = (ParameterReadRequest){.parameter_id = 0x4FU, .source_node = node, .sequence = 50U};
     CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_OK);
     CHECK(value.raw_value == 3U && value.access == PARAMETER_ACCESS_READ);

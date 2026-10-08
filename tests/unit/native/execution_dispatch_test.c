@@ -201,7 +201,7 @@ int main(void)
     s_current_offset_calibration.complete = false;
     maintenance_runnable = true;
     maintenance_kind = MOTOR_MAINTENANCE_ENCODER_LUT;
-    for (unsigned state = MOTOR_STATE_BOOT; state <= MOTOR_STATE_FATAL; ++state)
+    for (unsigned state = MOTOR_STATE_INIT; state <= MOTOR_STATE_FATAL; ++state)
     {
         lifecycle_state = (MotorState)state;
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)
@@ -215,7 +215,7 @@ int main(void)
     }
     s_current_offset_calibration.complete = true;
 #endif
-    for (unsigned state = MOTOR_STATE_BOOT; state <= MOTOR_STATE_FATAL; ++state)
+    for (unsigned state = MOTOR_STATE_INIT; state <= MOTOR_STATE_FATAL; ++state)
     {
         lifecycle_state = (MotorState)state;
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="940" viewBox="0 0 1000 940" role="img" aria-labelledby="title desc">
+  <title id="title">当前八状态出口 v1.2</title>
+  <desc id="desc">INIT、IDLE、STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT 和 FATAL 同时可见。故障不使 FATAL 降级；不可恢复错误从任意状态进入 FATAL。STOP 与取消进入收尾，已静默的初始化与待命可原地确认。明确 CLEAR 和完整恢复确认后回 IDLE；FATAL 没有软件出口。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#475569"/></marker>
+    <marker id="fault-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#b91c1c"/></marker>
+    <style>
+      text { font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; fill: #172033; font-size: 16px; }
+      .name { font-size: 21px; font-weight: 600; }
+      .small { font-size: 14px; }
+      .edge { fill: none; stroke: #475569; stroke-width: 2; marker-end: url(#arrow); }
+      .fault-edge { fill: none; stroke: #b91c1c; stroke-width: 2; marker-end: url(#fault-arrow); }
+      .restore { stroke-dasharray: 7 5; }
+      .label { paint-order: stroke; stroke: #ffffff; stroke-width: 7px; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1000" height="940" fill="#ffffff"/>
+  <text x="70" y="28" class="name">当前八状态 v1.2 · 出口收敛</text>
+  <text x="70" y="51" class="small">仅 STARTING／RUNNING／MAINTENANCE 进入 STOPPING；故障清除直接 IDLE</text>
+
+  <path class="edge" d="M280 155 H400"/>
+  <text class="label" x="297" y="143">2 健康通过</text>
+  <path class="edge" d="M610 155 H730"/>
+  <text class="label" x="632" y="143">3 显式启动</text>
+  <path class="edge" d="M835 210 V340"/>
+  <text class="label" x="848" y="267">4 准备完成、输出已开启</text>
+  <path class="edge" d="M505 210 V340"/>
+  <text class="label" x="515" y="272">5 维护／SAVE</text>
+  <path class="edge" d="M400 405 H280"/>
+  <text class="label small" x="287" y="386">7 STOP／取消</text>
+  <text class="label small" x="292" y="427">或任务完成</text>
+  <path class="edge" d="M835 470 V500 H175 V470"/>
+  <path class="edge" d="M940 155 H962 V500 H835"/>
+  <text class="label" x="652" y="522">6 STOP 撤销与关相</text>
+  <path class="edge" d="M280 365 H325 V250 H465 V210"/>
+  <text class="label small" x="365" y="242">8 停止动作完成</text>
+
+  <text class="label small" x="376" y="307">完成后：STOPPING → IDLE → 独立 SAVE</text>
+
+  <g>
+    <rect x="70" y="100" width="210" height="110" rx="14" fill="#dbeafe"/>
+    <text x="90" y="132" class="name">INIT 初始化／自检</text>
+    <text x="90" y="159">1 状态内初始化，输出关</text>
+    <text x="90" y="184" class="small">零点＋期限；STOP 保持 INIT</text>
+    <rect x="400" y="100" width="210" height="110" rx="14" fill="#e2e8f0"/>
+    <text x="420" y="132" class="name">IDLE 待命</text>
+    <text x="420" y="159">输出关，等待明确请求</text>
+    <text x="420" y="184" class="small">STOP 保持 IDLE；启动资格另核对</text>
+    <rect x="730" y="100" width="210" height="110" rx="14" fill="#dbeafe"/>
+    <text x="750" y="132" class="name">STARTING 准备</text>
+    <text x="750" y="159">保留真实控制准备边界</text>
+    <text x="750" y="184" class="small">启相前原临界区再次复核</text>
+    <rect x="730" y="340" width="210" height="130" rx="14" fill="#dcfce7"/>
+    <text x="750" y="372" class="name">RUNNING 控制</text>
+    <text x="750" y="400">电流／速度／位置／电压</text>
+    <text x="750" y="425">同模式目标更新不迁移</text>
+    <text x="750" y="450" class="small">零速度与位置保持仍启相</text>
+    <rect x="400" y="340" width="210" height="130" rx="14" fill="#f3e8ff"/>
+    <text x="416" y="372" class="name">MAINTENANCE</text>
+    <text x="420" y="400">本次任务＋前台整理</text>
+    <text x="420" y="425">任务／SAVE 票据分别保留</text>
+    <text x="420" y="450" class="small">FINALIZE／借用时继续等待</text>
+    <rect x="70" y="340" width="210" height="130" rx="14" fill="#ffedd5"/>
+    <text x="90" y="372" class="name">STOPPING 收尾</text>
+    <text x="90" y="400">持续关相、撤销和取消</text>
+    <text x="90" y="425">取消结束后仅回 IDLE</text>
+    <text x="90" y="450" class="small">关相、撤销、取消在此完成</text>
+  </g>
+
+  <text x="175" y="550" text-anchor="middle" class="small">故障 → FAULT；致命错误 → FATAL</text>
+  <text x="505" y="550" text-anchor="middle" class="small">故障 → FAULT；致命错误 → FATAL</text>
+  <text x="835" y="550" text-anchor="middle" class="small">故障 → FAULT；致命错误 → FATAL</text>
+  <path class="fault-edge" d="M175 470 V810 H300"/>
+  <text class="label small" x="95" y="557">15 收尾中故障</text>
+
+  <rect x="300" y="680" width="320" height="175" rx="14" fill="#fee2e2"/>
+  <text x="320" y="714" class="name">FAULT 可恢复故障</text>
+  <text x="320" y="744">11 源恢复＋基础健康＋CLEAR</text>
+  <text x="320" y="770">确认后直接 → IDLE</text>
+  <text x="320" y="800">锁存、关相并归还原资源</text>
+  <text x="320" y="831" class="small">新故障累积；不恢复旧目标</text>
+  <rect x="650" y="680" width="320" height="175" rx="14" fill="#fecaca"/>
+  <text x="670" y="714" class="name">FATAL 仅外部复位</text>
+  <text x="670" y="744">关相、撤销并取消原工作</text>
+  <text x="670" y="770">CLEAR／连接恢复不能解锁</text>
+  <text x="670" y="800">不降级为普通 FAULT</text>
+  <text x="670" y="831" class="small">保留独立状态，不新增等待标志</text>
+
+  <path class="edge restore" d="M300 737 H25 V235 H430 V210"/>
+  <text class="label small" x="38" y="648">11 CLEAR 成功 → IDLE</text>
+  <text x="70" y="895">STOP：关闭输出　　新故障优先于 STOP／完成　　STARTED：原身份曾确认启相</text>
+  <text x="70" y="920" class="small">INIT 仅整程序启动时建立；FATAL 无软件出口，程序复位后从启动入口重新开始</text>
+</svg>

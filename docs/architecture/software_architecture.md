@@ -1,6 +1,7 @@
 # 电机驱动软件架构说明
 
-更新日期：2026-10-08。范围：`codex/system-refactor` 集成树的当前实现。
+更新日期：2026-10-08。范围：`codex/architecture-release` 发布候选；
+由 system-refactor 的实际核心集成输入与独立状态机评审快照组成。
 
 整个软件由三个独立程序组成：APP 控制电机，Loader 负责升级和启动 APP，
 PC 上位机负责操作和观察设备。三者共用通信与镜像格式，但分别构建、分别运行。
@@ -65,8 +66,9 @@ PC 的独立 Python 升级客户端已经有显式打开 CAN SDK 的入口。这
 算法返回“还在执行、完成、需要前台整理或失败”；状态机决定随后进入哪个状态。
 维护模块可以判断自身功能的参数是否满足，最终进入维护和启相的许可仍由主状态机掌握。
 
-当前主状态仍是 BOOT、SELF_TEST、READY、STARTING、RUNNING、MAINTENANCE、
-STOPPING、FAULT、FATAL 九种。状态机简化方案单独讨论，不因本架构说明改变跳转条件。
+当前主状态为 INIT、IDLE、STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT、FATAL
+八种。INIT 合并原 BOOT/SELF_TEST；INIT/IDLE STOP 保持原状态，停止完成及健康 CLEAR
+直接回 IDLE，FATAL 仅整个程序复位后重建初始化。STARTING 与真实输出/资源确认保留。
 完整关系见 [主状态机说明](motor_state_machine_v1.md)。
 
 ### 电机模块负责具体控制与估计
@@ -228,13 +230,14 @@ APP 管理借用和归还，功能接收有类型的对象；任务实际归还�
 | 编码器标定 | encoder_calibration_core 独立计算，task 保留采样时序及应用结果 | 新组合工程尚待统一实机验证 |
 | 齿槽标定 | 复用已有计算核心，task 与 foc_cogging_runtime 分开 | 保留候选发布和实际保存边界 |
 | 参数事务 | motor_parameter_transaction 独占请求缓存、修订和保存票据 | 持久层应用角色/设备地址兼容映射尚未独立 |
-| 主状态机 | 当前九状态和相关事务协调 | 专项梳理跳转和函数职责；尚未采用七状态或六状态方案 |
+| 主状态机 | 当前八状态、唯一规则/动作所有者及用户批准出口 | 维护内部串行 SAVE 未实施；现有独立 SAVE 身份与安全收尾保持 |
 | PC 真实设备接入 | GUI 演示与独立真实客户端分开 | 将真实传输接入服务边界，不让 GUI 持有厂家 DLL 或硬件句柄 |
 
 截至本页更新，四项核心拆分已经选择性合入集成工作树，并登记普通 APP 与 LoaderApp
 所需的新源文件；保留现场修改与逐文件选项。各模块详设和删除依据统一见
-[模块核心职责](module_core_responsibilities.md)。当前工作树包含未提交现场输入，
-组合离线证据按本批报告登记，不把独立测试或工程登记称作整机 PASS。
+[模块核心职责](module_core_responsibilities.md)。集成基线原含未提交现场输入，
+本发布候选已独立冻结；组合离线证据按对应报告登记，不把独立测试或工程登记称作整机 PASS。
+本发布候选另接入已冻结评审的八状态及 v1.2 出口；源码、产物和未测项按候选包清单确定。
 范围、验收和回退由 [模块核心解耦计划](../plans/active/2026-10-08-module-core-decoupling-v2.md)
 管理；状态机事项由 [状态流程简化计划](../plans/active/2026-10-08-motor-state-flow-simplification-v1.md)
 管理。

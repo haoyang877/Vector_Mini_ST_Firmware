@@ -48,14 +48,14 @@ CLEAR后不重新校正，普通自检期限仍为500ms；初始化已具有效�
   小数均值、异常拒绝、快故障关相、pending期间保持保护/采样进度及隔离观测器/控制。
 - 真实状态所有者测试验证：pending不进入READY、不接受启动，1499ms仍等待，
   1500ms自检超时；校正资格恢复后的显式CLEAR仍在500ms超时，不自动启相。
-- 全量[PR v2报告](../../../outputs/runs/startup-current-offset-pi-fix-20260929-pr-v2/summary.json)
+- 全量PR v2报告（历史证据：`outputs/runs/startup-current-offset-pi-fix-20260929-pr-v2/summary.json`）
   所有门禁通过；29项原生测试加Python单元/集成通过。
   首轮PR失败是旧execution_dispatch夹具未声明新增状态，已补真实状态与pending拒绝测试；
   原失败证据保留，未改写为PASS。校正完成后的两种profiling调度轨迹保持原摘要。
 - normal Keil新编译0错误、0警告：Code88776、RO3060、RW304、ZI31248 bytes。
   HEX/AXF离线校验一致，程序字节91848；新HEX哈希
   a2a6e97c79735519fef40f5ab8be5f5739060c132dd0f44784e4adeb25fc901f。
-- [归档摘要](../../../outputs/startup-current-offset-pi-fix-20260929/summary.json)
+- 归档摘要（历史证据：`outputs/startup-current-offset-pi-fix-20260929/summary.json`）
   含准确HEAD/dirty、源码/HEX/AXF/MAP哈希、源码补丁与软件证据；不是release清单。
 
 未连接J-Link/USB-CAN，未下载、复位、GO、CLEAR或启动电机。

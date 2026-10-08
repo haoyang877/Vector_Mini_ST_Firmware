@@ -19,7 +19,7 @@
  * @param pi 组合层终身速度 PI。
  * @param encoder 组合层终身编码器对象。
  * @param startup 组合层终身无感启动对象。
- * @brief 初始化运行所有者：核心进入 BOOT 态，清空命令和采样进展。
+ * @brief 初始化运行所有者：核心进入 INIT 态，清空命令和采样进展。
  * @note 由启动组合层在中断使能前调用一次；不访问硬件。
  */
 void MotorStateMachine_Init(MotorControlState *motor,
@@ -63,7 +63,8 @@ MotorState MotorStateMachine_GetState(void);
 /**
  * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。
  * @return 请求已登记返回 true；不表示功率输出已经关闭。
- * @note 与监督中断通过短临界区交接；故障快车道仍可优先关断。
+ * @note INIT／IDLE 保持原状态并撤销排队意图；只有 STARTING／RUNNING／MAINTENANCE
+ *       进入 STOPPING，停止完成直接 IDLE。与监督中断通过短临界区交接。
  */
 bool MotorStateMachine_RequestRemoteStop(void);
 
@@ -150,7 +151,7 @@ MotorStateMachine_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *re
 MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket);
 /**
  * @brief 核对恢复资格并同步清除当前可恢复锁存故障。
- * @return 受理表示锁存已清或 READY 本来无故障；忙或拒绝保持锁存，FATAL 不可清。
+ * @return 受理表示锁存已清或 IDLE 本来无故障；忙或拒绝保持锁存，FATAL 不可清。
  * @note 临界区内确认故障源恢复、基础健康及收尾完成；CLEAR 成功直接 IDLE，仍需新启动请求。
  *       只清错，不恢复模式或旧目标。
  */
@@ -165,7 +166,7 @@ MotorControlResult MotorStateMachine_RequestClear(void);
 bool MotorStateMachine_ReadMaintenance(uint32_t ticket, MotorMaintenanceProgress *progress);
 /**
  * @brief 查询停机参数应用是否具备所有者与资源资格。
- * @return READY、关相、无命令/维护/配置借用和故障时返回 true。
+ * @return IDLE、关相、无命令/维护/配置借用和故障时返回 true。
  * @note 读资格与实际应用须处于同一调用方临界区，不能作为延后写入许可证。
  */
 bool MotorStateMachine_ConfigurationAllowed(void);
@@ -180,7 +181,7 @@ MotorControlResult MotorStateMachine_RequestBootStop(uint64_t ticket);
 /**
  * @brief 核对升级票据仍拥有停机且所有实际资源均已归还。
  * @param ticket 原始非零票据。
- * @return READY或FAULT、数字关相、无控制/维护/借用/后台时返回true。
+ * @return IDLE或FAULT、数字关相、无控制/维护/借用/后台时返回true。
  * @note 必须在最终邮箱写入与复位的同一短临界区复核；不表示保存业务已完成。
  */
 bool MotorStateMachine_BootHandoffReady(uint64_t ticket);
@@ -239,7 +240,7 @@ void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool su
 uint32_t MotorStateMachine_WorkEpoch(void);
 /**
  * @brief 在稳定配置借用下处理前台补偿请求。
- * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 READY 启动；STOP 可立即关相。
+ * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 IDLE 启动；STOP 可立即关相。
  */
 void MotorStateMachine_ServiceCompensation(void);
 /**

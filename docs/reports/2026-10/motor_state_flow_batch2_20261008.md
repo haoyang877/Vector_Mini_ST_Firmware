@@ -77,3 +77,20 @@ docs 的四处历史 `outputs` 链接缺失与冻结基线日志逐行一致，�
 实际时延证明，也未验证实机输出。独立 revert `3d7899b` 可撤销本批源码和测试；
 回退时仍保留原未提交集成功能，不能 reset／clean 其他工作区。
 集成前需核对冻结功能差异及同步未跟踪测试的枚举变化；托管树和输出保留供审阅。
+
+## 最终补充与集成交付
+
+`b6c8dbb8ebff2b76c057d27f55b2b91ada0d7658` 单独补充资源在 499 ms 归还、500 ms
+仍超时的测试与合并差异说明。最终 PR：
+`outputs/runs/motor-state-eight-final-20261008/summary.json`，SHA-256
+`55e86fcb97e0812fd4919b46978163315290540f626d737eab08c272523531ed`。
+检查结果与上表一致：全部 29 原生组及 integration PASS；完整汇总仍因原四处历史
+链接及其 unit 文档检查 FAIL。没有新增失败，规则和所有者生产代码哈希保持。
+
+专项提交补丁为 `outputs/motor-state-flow/own-commits.patch`；
+针对完整冻结工作区的增量补丁为 `outputs/motor-state-flow/approved-working-baseline.delta.patch`。
+后者包含未跟踪零点测试与未提交 Watch 指南中的专项枚举同步，排除导入的其他功能变更。
+共享集成树 771 个输入仍符合原冻结哈希，增量补丁在该树只读 `git apply --check
+--ignore-space-change` PASS；没有实际应用、提交、合并或改写共享树。
+交付 base/head、补丁哈希与文件表在 `outputs/motor-state-flow/delivery.json`，随交付头重新生成。
+工作树保留；维护内串行 SAVE、MCU 构建及硬件验收仍未实施。

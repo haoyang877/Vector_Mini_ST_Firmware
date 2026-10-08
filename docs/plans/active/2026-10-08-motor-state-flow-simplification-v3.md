@@ -56,3 +56,5 @@ PR 汇总：`outputs/runs/motor-state-eight-candidate-20261008/summary.json`，�
 doctor／format／lint／layout／architecture／interfaces／hygiene PASS；
 四处历史输出链接失败与 v2 基线完全相同，Python unit 的同一项文档检查失败，余 58 项 PASS。
 验收、哈希、工作区功能保留和补丁交付见[第二批报告](../../reports/2026-10/motor_state_flow_batch2_20261008.md)。
+最终补充测试提交 `b6c8dbb`；最终 PR 为 `outputs/runs/motor-state-eight-final-20261008/summary.json`，
+结果及基线失败不变。增量补丁已对未修改的共享基线只读检查通过，尚未合并。

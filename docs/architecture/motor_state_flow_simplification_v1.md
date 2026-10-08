@@ -33,6 +33,9 @@ STOPPING 保留给真实关相与异步资源归还。用户选择保留独立 F
 [可放大八状态总图](../assets/motor_state_machine/state-simplification-eight-v1.svg)；
 [原七状态候选图，历史未实施](../assets/motor_state_machine/state-simplification-draft-v1.svg)。
 
+此八状态候选图是实施前设计快照，包含尚未实施的维护内串行 SAVE；
+当前实际流转以[主说明的八状态总图](motor_state_machine_v1.md)为准。
+
 蓝色：初始化／控制准备；灰色：待命；绿色：控制；紫色：维护；橙色：停止归还；
 红色：FAULT 和 FATAL；FATAL 独立且只能外部复位。
 任意状态都有故障和外部复位出口；实线用于普通迁移，虚线用于 CLEAR／复位。

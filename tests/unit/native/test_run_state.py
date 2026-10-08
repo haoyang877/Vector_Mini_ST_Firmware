@@ -30,6 +30,7 @@ def main() -> None:
         encoding="utf-8"
     )
     fixture += "\n" + function_source(adapter, "protocol_mode")
+    fixture += "\n" + function_source(adapter, "protocol_state")
     source = output / "run_state_owner.c"
     source.write_text(fixture, encoding="utf-8")
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])

@@ -196,7 +196,7 @@ int main(void)
 {
     unsigned cases = 0U;
     memset(&s_motor_state, 0, sizeof(s_motor_state));
-    for (unsigned state = MOTOR_STATE_BOOT; state <= MOTOR_STATE_FATAL; ++state)
+    for (unsigned state = MOTOR_STATE_INIT; state <= MOTOR_STATE_FATAL; ++state)
     {
         lifecycle_state = (MotorState)state;
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)

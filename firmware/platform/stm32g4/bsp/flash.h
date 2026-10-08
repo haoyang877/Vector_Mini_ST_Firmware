@@ -81,9 +81,9 @@ bool flash_read_param(void *record, uint32_t size_bytes);
 /**
  * @brief 擦写并回读校验板载参数区记录。
  * @param record 调用方稳定缓冲。
- * @param size_bytes 记录字节数，1..16384。
+ * @param size_bytes 记录字节数，1..6144，写域仅RAW专属前三页。
  * @return 数字关相、擦写及回读均成功返回 true。
- * @note 前台调用，调用方屏蔽中断；不理解参数字段。
+ * @note 前台调用，调用方屏蔽中断；不理解参数字段，不覆盖保留、epoch或身份页。
  */
 bool flash_write_param(const void *record, uint32_t size_bytes);
 #endif

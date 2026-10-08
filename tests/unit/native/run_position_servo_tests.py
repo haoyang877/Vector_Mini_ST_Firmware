@@ -516,6 +516,9 @@ static bool board_start_argument;
 static void log_step(int step) { order[order_len++] = step; }
 /* 参数装载归初始化所有者；板级组合只调用一次所有者入口。 */
 static void MotorAxis_Init(void) { log_step(3); }
+#include "boot_epoch.h"
+static BootEpochStatus epoch_status = BOOT_EPOCH_READY;
+BootEpochStatus BootEpoch_Init(void) { log_step(11); return epoch_status; }
 static unsigned MotorAxis_NodeId(void) { return 1U; }
 static void board_hw_start(bool motor_phases_enabled) {
     log_step(4);
@@ -534,18 +537,20 @@ static void power_stage_hw_stop(void) { log_step(6); }
         + function_source(source, "Board_Init")
         + r"""
 int main(void) {
-    static const int expected[] = {3, 4, 5, 7, 8, 9, 10};
+    static const int expected[] = {3, 11, 4, 5, 7, 8, 9, 10};
     int index;
     Board_Init();
-    assert(order_len == 7 && !board_start_argument && s_communication_ready);
-    for (index = 0; index < 7; ++index) assert(order[index] == expected[index]);
+    assert(order_len == 8 && !board_start_argument && s_communication_ready);
+    for (index = 0; index < 8; ++index) assert(order[index] == expected[index]);
     order_len = 0;
+    epoch_status = BOOT_EPOCH_READ_FAILED;
     Board_Init();
-    assert(order_len == 7 && !board_start_argument && s_communication_ready);
+    assert(order_len == 8 && !board_start_argument && s_communication_ready);
+    for (index = 0; index < 8; ++index) assert(order[index] == expected[index]);
     protocol_ready = false;
     order_len = 0;
     Board_Init();
-    assert(order_len == 4 && order[3] == 6 && !s_communication_ready);
+    assert(order_len == 5 && order[4] == 6 && !s_communication_ready);
     puts("PASS board startup: order, configuration and communication failure disables power");
     return 0;
 }

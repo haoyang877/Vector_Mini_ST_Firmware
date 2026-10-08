@@ -90,6 +90,11 @@ MaintenanceWindow::MaintenanceWindow(QWidget *parent) : QMainWindow(parent)
     build_shell();
 }
 
+MaintenanceWindow::~MaintenanceWindow()
+{
+    disconnect_device();
+}
+
 QWidget *MaintenanceWindow::build_upgrade_page()
 {
     auto *page = new QWidget;

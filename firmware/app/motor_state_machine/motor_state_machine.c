@@ -987,17 +987,13 @@ static MotorControlResult request_identified_run(const MotorControlStartRequest 
     else if ((s_context.stop_sequence_valid &&
               !start_sequence_newer(request->sequence, s_context.stop_sequence)) ||
              (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
+              s_context.latest_start.request.source_node == request->source_node &&
               !start_sequence_newer(request->sequence, s_context.latest_start.request.sequence)))
     {
         result = MOTOR_CONTROL_STALE_SEQUENCE;
     }
     else
     {
-        if (!s_context.remote_source_valid)
-        {
-            s_context.remote_source = request->source_node;
-            s_context.remote_source_valid = true;
-        }
         if (!allow_switch && request->mode != MOTOR_CONTROL_SPEED)
         {
             result = MOTOR_CONTROL_INVALID;
@@ -1015,6 +1011,12 @@ static MotorControlResult request_identified_run(const MotorControlStartRequest 
             .result = result};
         if (result == MOTOR_CONTROL_ACCEPTED)
         {
+            /* 拒绝只保留原身份结果；首次实际受理才提交来源绑定。 */
+            if (!s_context.remote_source_valid)
+            {
+                s_context.remote_source = request->source_node;
+                s_context.remote_source_valid = true;
+            }
             s_context.active_start = s_context.latest_start;
         }
     }

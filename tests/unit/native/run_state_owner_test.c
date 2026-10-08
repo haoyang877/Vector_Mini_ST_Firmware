@@ -1759,8 +1759,76 @@ static void test_control_lease(void)
          "no replay");
 }
 
+/* 首次拒绝不绑定来源，也不能把来源 A 的序号拿来约束来源 B。 */
+static void test_rejected_start_does_not_bind_source(void)
+{
+    for (unsigned leased = 0U; leased < 2U; ++leased)
+    {
+        for (unsigned faulted = 0U; faulted < 2U; ++faulted)
+        {
+            reset();
+            uint32_t epoch = MotorStateMachine_WorkEpoch();
+            if (faulted)
+            {
+                MotorFault_Report(&motor, MOTOR_FAULT_ENCODER);
+                tick();
+                epoch = MotorStateMachine_WorkEpoch();
+            }
+            else
+            {
+                motor.configuration_confirmed = false;
+            }
+            MotorControlStartRequest rejected = {
+                .source_node = 2U, .sequence = 100U, .mode = MOTOR_CONTROL_SPEED};
+            MotorControlResult expected = faulted ? MOTOR_CONTROL_FAULT : MOTOR_CONTROL_DENIED;
+            MotorControlResult actual = leased
+                                            ? MotorStateMachine_RequestIdentifiedRun(&rejected, 10U)
+                                            : MotorStateMachine_RequestIdentifiedEnable(&rejected);
+            assert(actual == expected && output_off && start_count == 0U);
+            assert(MotorStateMachine_WorkEpoch() == epoch);
+            MotorControlStartProgress progress;
+            assert(MotorStateMachine_ReadEnableProgress(2U, 100U, &progress));
+            assert(progress.state == MOTOR_CONTROL_START_REJECTED && progress.result == expected);
+            actual = leased ? MotorStateMachine_RequestIdentifiedRun(&rejected, 10U)
+                            : MotorStateMachine_RequestIdentifiedEnable(&rejected);
+            assert(actual == expected && MotorStateMachine_WorkEpoch() == epoch);
+            motor.configuration_confirmed = true;
+            if (faulted)
+            {
+                assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+            }
+            MotorControlStartRequest legal = {
+                .source_node = 3U, .sequence = 1U, .mode = MOTOR_CONTROL_SPEED};
+            actual = leased ? MotorStateMachine_RequestIdentifiedRun(&legal, 10U)
+                            : MotorStateMachine_RequestIdentifiedEnable(&legal);
+            assert(actual == MOTOR_CONTROL_ACCEPTED);
+            tick();
+            tick();
+            assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
+            MotorFault_Report(&motor, MOTOR_FAULT_ENCODER);
+            tick();
+            legal.sequence = 2U;
+            actual = leased ? MotorStateMachine_RequestIdentifiedRun(&legal, 10U)
+                            : MotorStateMachine_RequestIdentifiedEnable(&legal);
+            assert(actual == MOTOR_CONTROL_FAULT);
+            assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+            rejected.sequence = 101U;
+            actual = leased ? MotorStateMachine_RequestIdentifiedRun(&rejected, 10U)
+                            : MotorStateMachine_RequestIdentifiedEnable(&rejected);
+            assert(actual == MOTOR_CONTROL_DENIED);
+            legal.sequence = 3U;
+            actual = leased ? MotorStateMachine_RequestIdentifiedRun(&legal, 10U)
+                            : MotorStateMachine_RequestIdentifiedEnable(&legal);
+            assert(actual == MOTOR_CONTROL_ACCEPTED);
+        }
+    }
+    puts("PASS rejected source A keeps identity result; lower-sequence source B can bind; fault "
+         "rejection preserves B");
+}
+
 int main(void)
 {
+    test_rejected_start_does_not_bind_source();
     test_calibration_plan();
     test_calibration_plan_cancel_and_failure();
     test_run_mode_switch();

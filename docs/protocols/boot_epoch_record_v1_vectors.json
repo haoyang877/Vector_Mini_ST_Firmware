@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "byte_order": "little",
+  "magic": "0x31455042",
+  "commit": "0x314D4F43",
+  "crc_bytes": 24,
+  "vectors": [
+    {"epoch": "0x1", "crc32": "0xD96CA977"},
+    {"epoch": "0x2", "crc32": "0x7E2B1A66"},
+    {"epoch": "0x100000001", "crc32": "0xFA75827D"},
+    {"epoch": "0xFFFFFFFFFFFFFFFF", "crc32": "0x68A6B537"}
+  ]
+}

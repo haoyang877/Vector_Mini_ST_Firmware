@@ -3,6 +3,47 @@
 #include "yg_protocol_byte_order.h"
 
 #include <stddef.h>
+#include <limits.h>
+
+yg_protocol_result_t yg_protocol_motor_decode_run(const yg_protocol_message_t *message,
+                                                  yg_protocol_run_request_t *request)
+{
+    yg_protocol_run_request_t decoded = {0};
+    const uint8_t *payload;
+    if (message == NULL || request == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (message->message_type != YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION)
+    {
+        return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+    }
+    if (message->payload_length != YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE || message->payload == NULL)
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    payload = message->payload;
+    decoded.operation = payload[1];
+    decoded.mode = payload[2];
+    decoded.timeout_ms = YgProtocol_ReadU32Le(payload + 4U);
+    decoded.origin_seq = YgProtocol_ReadU16Le(payload + 8U);
+    decoded.boot_epoch = YgProtocol_ReadU64Le(payload + 12U);
+    if (payload[0] != 1U || payload[3] != 0U || YgProtocol_ReadU16Le(payload + 10U) != 0U ||
+        decoded.timeout_ms == 0U || decoded.timeout_ms > INT32_MAX || decoded.boot_epoch == 0U ||
+        (decoded.operation == YG_PROTOCOL_RUN_SESSION_START &&
+         (decoded.origin_seq != 0U || (decoded.mode != 1U && decoded.mode != 2U &&
+                                       decoded.mode != 3U && decoded.mode != 6U))) ||
+        (decoded.operation == YG_PROTOCOL_RUN_SESSION_RENEW && decoded.mode != 0U) ||
+        (decoded.operation != YG_PROTOCOL_RUN_SESSION_START &&
+         decoded.operation != YG_PROTOCOL_RUN_SESSION_RENEW))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    decoded.source_node = message->source_node;
+    decoded.sequence = message->sequence;
+    *request = decoded;
+    return YG_PROTOCOL_OK;
+}
 
 yg_protocol_result_t yg_protocol_motor_decode_enable(const yg_protocol_message_t *message,
                                                      bool *enabled)

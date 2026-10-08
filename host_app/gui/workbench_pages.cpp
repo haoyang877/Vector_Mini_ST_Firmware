@@ -5,20 +5,25 @@
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QProgressBar>
+#include <QProcess>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStandardItemModel>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTableWidget>
@@ -75,7 +80,8 @@ void MaintenanceWindow::build_shell()
     top->addWidget(disconnect_button_);
     top->addWidget(stop_);
     layout->addLayout(top);
-    auto *notice = text_label("演示数据与真实设备隔离 · CAN FD / SWD 设备后端待接入", "notice");
+    auto *notice =
+        text_label("演示数据与真实设备隔离 · CAN FD 仅按需只读，SWD 与功率动作待接入", "notice");
     layout->addWidget(notice);
     auto *nav = new QHBoxLayout;
     auto *nav_group = new QButtonGroup(this);
@@ -132,6 +138,7 @@ void MaintenanceWindow::build_shell()
             [this]
             {
                 session_.Session_Disconnect();
+                disconnect_device();
                 cancel_demo();
                 unlock_->setChecked(false);
                 refresh_workbench();
@@ -150,10 +157,22 @@ void MaintenanceWindow::build_shell()
             [this]
             {
                 session_.Session_Disconnect();
+                disconnect_device();
                 cancel_demo();
                 unlock_->setChecked(false);
+                device_readback_.Device_Reset(quint8(node_->value()));
                 refresh_workbench();
             });
+    connect(node_,
+            &QSpinBox::valueChanged,
+            this,
+            [this]
+            {
+                disconnect_device();
+                device_readback_.Device_Reset(quint8(node_->value()));
+                refresh_workbench();
+            });
+    device_readback_.Device_Reset(quint8(node_->value()));
     connect(parameter_table_,
             &QTableWidget::itemChanged,
             this,
@@ -175,6 +194,17 @@ void MaintenanceWindow::build_shell()
                 const auto now_ms = elapsed_.elapsed();
                 session_.Session_Tick(std::min(0.2, double(now_ms - previous_ms_) / 1000.0));
                 previous_ms_ = now_ms;
+                if (device_reader_ && !device_ready_ && now_ms - device_connect_ms_ > 2000)
+                {
+                    device_error_ = "只读辅助进程未确认端口打开；连接超时。";
+                    disconnect_device();
+                }
+                if (device_pending_ && now_ms - device_request_ms_ > 250)
+                {
+                    device_error_ = "只读请求超时；端口已断开，旧值失效。";
+                    disconnect_device();
+                }
+                issue_device_query();
                 refresh_workbench();
             });
     timer->start();
@@ -214,7 +244,7 @@ QWidget *MaintenanceWindow::build_connection_page()
     form->setSpacing(15);
     connection_ = new QComboBox;
     connection_->setObjectName("connectionMode");
-    connection_->addItems({"离线演示 · 不连接设备", "CAN FD · 待接入", "SWD · 待接入"});
+    connection_->addItems({"离线演示 · 不连接设备", "CAN FD · 只读 GET", "SWD · 待接入"});
     scenario_ = new QComboBox;
     scenario_->setObjectName("demoScenario");
     scenario_->addItems({"正常 APP", "只读 APP", "活动故障 APP", "Loader"});
@@ -228,6 +258,45 @@ QWidget *MaintenanceWindow::build_connection_page()
     form->addWidget(node_);
     form->addWidget(text_label("演示场景"));
     form->addWidget(scenario_);
+    python_path_ = new QLineEdit;
+    python_path_->setObjectName("pythonRuntimePath");
+    python_path_->setPlaceholderText("选择本地 Python 3 运行时");
+    sdk_path_ = new QLineEdit;
+    sdk_path_->setObjectName("canSdkPath");
+    sdk_path_->setPlaceholderText("选择 ControlCANFD SDK DLL");
+    form->addWidget(text_label("CAN 只读连接 · Python 运行时"));
+    form->addWidget(python_path_);
+    form->addWidget(text_label("CAN 只读连接 · SDK DLL"));
+    form->addWidget(sdk_path_);
+    auto *browse_python = action("选择 Python", "browsePython");
+    auto *browse_sdk = action("选择 SDK DLL", "browseSdk");
+    auto *paths = new QHBoxLayout;
+    paths->addWidget(browse_python);
+    paths->addWidget(browse_sdk);
+    form->addLayout(paths);
+    connect(browse_python,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                const auto path = QFileDialog::getOpenFileName(this, "选择 Python 3 可执行文件");
+                if (!path.isEmpty())
+                {
+                    python_path_->setText(path);
+                }
+            });
+    connect(browse_sdk,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                const auto path = QFileDialog::getOpenFileName(
+                    this, "选择 ControlCANFD SDK DLL", {}, "DLL (*.dll)");
+                if (!path.isEmpty())
+                {
+                    sdk_path_->setText(path);
+                }
+            });
     const auto target = Upgrade_Target();
     const auto constants = target["constants"].toObject();
     auto *target_info =
@@ -245,7 +314,14 @@ QWidget *MaintenanceWindow::build_connection_page()
             this,
             [this]
             {
-                connect_demo();
+                if (connection_->currentIndex() == 0)
+                {
+                    connect_demo();
+                }
+                else if (connection_->currentIndex() == 1)
+                {
+                    connect_device();
+                }
             });
     layout->addWidget(config, 1);
     return page;
@@ -288,6 +364,211 @@ void MaintenanceWindow::connect_demo()
     refresh_workbench();
 }
 
+void MaintenanceWindow::connect_device()
+{
+    if (connection_->currentIndex() != 1 || device_reader_ || session_.Session_View().connected ||
+        sandbox_.Sandbox_SavePending())
+    {
+        return;
+    }
+    const auto helper = QCoreApplication::applicationDirPath() + "/device_reader.py";
+    if (!QFileInfo::exists(python_path_->text()) || !QFileInfo::exists(sdk_path_->text()) ||
+        !QFileInfo::exists(helper))
+    {
+        device_error_ = "缺少 Python 运行时、SDK DLL 或同目录只读辅助脚本；连接未启动。";
+        refresh_workbench();
+        return;
+    }
+    device_readback_.Device_Reset(quint8(node_->value()));
+    device_output_.clear();
+    device_error_.clear();
+    device_ready_ = device_pending_ = false;
+    device_sequence_ = 0;
+    device_step_ = 0;
+    device_connect_ms_ = device_discovery_ms_ = elapsed_.elapsed();
+    device_feedback_ms_ = -1000;
+    replay_samples_.clear();
+    scope_->Scope_SetSamples({});
+    auto *reader = new QProcess(this);
+    device_reader_ = reader;
+    reader->setProgram(python_path_->text());
+    reader->setArguments(
+        {"-u", helper, "--dll", sdk_path_->text(), "--node", QString::number(node_->value())});
+    reader->setWorkingDirectory(QCoreApplication::applicationDirPath());
+    connect(reader,
+            &QProcess::readyReadStandardOutput,
+            this,
+            [this]
+            {
+                consume_device_stdout();
+            });
+    connect(reader,
+            &QProcess::errorOccurred,
+            this,
+            [this, reader]
+            {
+                if (device_reader_ == reader)
+                {
+                    device_error_ = "CAN 辅助进程启动或通信失败；检查 Python、SDK 和独占占用。";
+                    disconnect_device();
+                    refresh_workbench();
+                }
+            });
+    connect(reader,
+            &QProcess::finished,
+            this,
+            [this, reader]
+            {
+                if (device_reader_ == reader)
+                {
+                    if (device_error_.isEmpty())
+                    {
+                        device_error_ = "只读辅助进程已退出；设备读数失效。";
+                    }
+                    disconnect_device();
+                    refresh_workbench();
+                }
+            });
+    reader->start();
+    refresh_workbench();
+}
+
+void MaintenanceWindow::disconnect_device()
+{
+    auto *reader = device_reader_;
+    if (!reader)
+    {
+        return;
+    }
+    device_reader_ = nullptr;
+    device_ready_ = device_pending_ = false;
+    reader->closeWriteChannel();
+    if (!reader->waitForFinished(500))
+    {
+        reader->kill();
+        reader->waitForFinished(500);
+    }
+    reader->deleteLater();
+    device_output_.clear();
+    device_readback_.Device_Reset(quint8(node_->value()));
+}
+
+void MaintenanceWindow::issue_device_query()
+{
+    if (!device_reader_ || !device_ready_ || device_pending_ ||
+        device_reader_->state() != QProcess::Running)
+    {
+        return;
+    }
+    const auto now_ms = elapsed_.elapsed();
+    if (device_step_ >= 5 && now_ms - device_discovery_ms_ >= 3000)
+    {
+        device_step_ = 0;
+        device_discovery_ms_ = now_ms;
+    }
+    if (device_step_ >= 5 && now_ms - device_feedback_ms_ < 200)
+    {
+        return;
+    }
+    const uint16_t type = device_step_ < 3    ? 1
+                          : device_step_ == 3 ? 2
+                          : device_step_ == 4 ? 3
+                                              : 108;
+    const uint16_t page = device_step_ < 3 ? uint16_t(device_step_) : 0;
+    device_sequence_ = device_sequence_ == 65535 ? 1 : device_sequence_ + 1;
+    if (!Window_BeginDeviceRead(type, device_sequence_, page))
+    {
+        device_error_ = "只读请求所有者拒绝新查询；连接已关闭。";
+        disconnect_device();
+        return;
+    }
+    const auto request = QJsonDocument(QJsonObject{{"type", int(type)},
+                                                   {"sequence", int(device_sequence_)},
+                                                   {"page", int(page)}})
+                             .toJson(QJsonDocument::Compact) +
+                         '\n';
+    if (device_reader_->write(request) != request.size())
+    {
+        device_error_ = "只读辅助进程请求写入失败；连接已关闭。";
+        disconnect_device();
+        return;
+    }
+    device_pending_ = true;
+    device_pending_type_ = type;
+    device_request_ms_ = now_ms;
+    if (device_step_ < 5)
+    {
+        ++device_step_;
+    }
+}
+
+void MaintenanceWindow::consume_device_stdout()
+{
+    if (!device_reader_)
+    {
+        return;
+    }
+    device_output_ += device_reader_->readAllStandardOutput();
+    if (device_output_.size() > 4096)
+    {
+        device_error_ = "只读辅助进程返回过长；连接已关闭。";
+        disconnect_device();
+        return;
+    }
+    while (device_reader_ && device_output_.contains('\n'))
+    {
+        const int end = device_output_.indexOf('\n');
+        const auto line = device_output_.left(end);
+        device_output_.remove(0, end + 1);
+        const auto document = QJsonDocument::fromJson(line);
+        if (!document.isObject())
+        {
+            device_error_ = "只读辅助进程输出非法 JSON；连接已关闭。";
+            disconnect_device();
+            return;
+        }
+        const auto message = document.object();
+        const auto event = message.value("event").toString();
+        if (event == "ready" && !device_ready_ && message.value("node").toInt() == node_->value())
+        {
+            device_ready_ = true;
+            show_page(1);
+        }
+        else if (event == "frame" && device_pending_ &&
+                 message.value("type").toInt() == device_pending_type_ &&
+                 message.value("sequence").toInt() == device_sequence_)
+        {
+            const auto hex = message.value("data").toString().toLatin1();
+            const auto frame = QByteArray::fromHex(hex);
+            if (hex.size() > 128 || frame.toHex() != hex.toLower() ||
+                !Window_ObserveDeviceFrame(uint32_t(message.value("can_id").toInt()), frame))
+            {
+                device_error_ = "只读回复未通过帧或请求关联校验；连接已关闭。";
+                disconnect_device();
+                return;
+            }
+            device_pending_ = false;
+            if (device_pending_type_ == 108)
+            {
+                device_feedback_ms_ = elapsed_.elapsed();
+            }
+        }
+        else if (event == "error")
+        {
+            device_error_ = message.value("message").toString().left(180);
+            disconnect_device();
+            return;
+        }
+        else
+        {
+            device_error_ = "只读辅助进程响应顺序或身份不符；连接已关闭。";
+            disconnect_device();
+            return;
+        }
+    }
+    refresh_workbench();
+}
+
 QWidget *MaintenanceWindow::build_home_page()
 {
     auto *page = new QWidget;
@@ -316,9 +597,19 @@ QWidget *MaintenanceWindow::build_home_page()
     auto *state_layout = new QVBoxLayout(state);
     auto *metrics = text_label("等待遥测", "homeTelemetry");
     state_layout->addWidget(metrics);
-    state_layout->addWidget(
-        text_label("真实设备身份和版本保持未知；本地 target 的 schema 不是设备读回值。"));
+    auto *device_status =
+        text_label("线路回读：未接入端口；无设备会话或功率操作权。", "deviceReadbackStatus");
+    device_status->setWordWrap(true);
+    state_layout->addWidget(device_status);
+    state_layout->addWidget(text_label(
+        "真实设备身份和版本保持未知；本地 target 的 schema 不是设备读回值。", "homeSourceNotice"));
     layout->addWidget(state);
+    auto *flow = text_label("实机流程：六类业务视图尚无 CAN 线路；108 仅报告原八态。"
+                            "CURRENT 单位 A，SPEED rad/s，POSITION rad，VQ V；Nm 模式不可用。"
+                            "电感、磁链自动辨识及电机型号映射未实现，不能标记完成。",
+                            "deviceFlowStatus");
+    flow->setWordWrap(true);
+    layout->addWidget(flow);
     auto *tasks = group("最近标定与辨识");
     auto *task_layout = new QVBoxLayout(tasks);
     task_summary_ = text_label("尚无任务", "taskSummary");
@@ -576,6 +867,12 @@ QWidget *MaintenanceWindow::build_task_page(bool identification)
     {
         widgets.kind->addItem(Task_Name(TaskKind(kind)), kind);
     }
+    if (identification)
+    {
+        auto *items = qobject_cast<QStandardItemModel *>(widgets.kind->model());
+        items->item(int(TaskKind::Inductance) - first)->setEnabled(false);
+        items->item(int(TaskKind::Inductance) - first)->setText("电感 · 实机算法缺失，暂不可用");
+    }
     form->addWidget(widgets.kind);
     widgets.phase =
         text_label("尚无演示任务", identification ? "identificationPhase" : "calibrationPhase");
@@ -608,14 +905,32 @@ QWidget *MaintenanceWindow::build_task_page(bool identification)
     details->addWidget(
         text_label("开始要求：演示 APP 已连接、操作已解锁、无故障、模型已失能；任务互斥。"));
     auto *description = text_label(
-        identification ? "电阻明确为相电阻；电感分别展示 "
-                         "Ld/Lq；惯量注明参照轴与负载；摩擦保留电流域模型，不凭空换算转矩。"
+        identification ? "电阻明确为相电阻；电感实机辨识未实现；惯量注明参照轴与负载；"
+                         "摩擦保留电流域模型，不凭空换算转矩。"
                        : "角度传感器、电角度零位、机械参考零位与齿槽任务分别建模；电角度偏置不等于"
                          "机械位置归零。");
     description->setWordWrap(true);
     details->addWidget(description);
     details->addWidget(
         text_label("本页进度和结果仅来自离线演示。实机任务、质量、应用和掉电保存均未确认。"));
+    if (identification)
+    {
+        auto *missing =
+            text_label("实机电感/磁链辨识尚无算法与结果；Nm 力矩换算未实现，CURRENT 只显示 A。"
+                       "电机型号尚无自动映射，不能据此套用参数。",
+                       "deviceMissingCapabilities");
+        missing->setWordWrap(true);
+        details->addWidget(missing);
+    }
+    if (!identification)
+    {
+        auto *plan = text_label(
+            "实机整计划未接线：父 ticket、子步骤 ticket、requested/completed_steps 和最终 "
+            "COMMITTED 均未知；旧 IDLE 或单项 ACK 不算整计划完成。",
+            "deviceCalibrationPlan");
+        plan->setWordWrap(true);
+        details->addWidget(plan);
+    }
     layout->addWidget(conditions);
     layout->addStretch();
     connect(widgets.start,
@@ -750,7 +1065,7 @@ void MaintenanceWindow::refresh_quick_parameter()
     const bool editable =
         parameter_snapshots_.contains(row) && (parameter_snapshots_[row].access & 2);
     quick_apply_->setEnabled(parameter_writable() && editable);
-    quick_edit_->setEnabled(editable &&
+    quick_edit_->setEnabled(connection_->currentIndex() == 0 && editable &&
                             session_.Session_View().scenario != DemoScenario::ReadOnly &&
                             session_.Session_View().scenario != DemoScenario::Loader);
 }
@@ -758,6 +1073,7 @@ void MaintenanceWindow::refresh_quick_parameter()
 void MaintenanceWindow::refresh_workbench()
 {
     const auto &state = session_.Session_View();
+    const auto device = device_readback_.Device_View(elapsed_.isValid() ? elapsed_.elapsed() : 0);
     const bool busy = state.task.phase == TaskPhase::Running || sandbox_.Sandbox_SavePending();
     global_status_->setText(
         state.connected ? QString("演示节点 %1  |  %2  |  故障 %3  |  %4")
@@ -770,12 +1086,29 @@ void MaintenanceWindow::refresh_workbench()
         : replay_samples_.empty() ? "未连接  |  实机状态未知"
                                   : QString("演示 CSV 回放 · 源节点 %1 | 设备未连接")
                                         .arg(replay_samples_.back().demo_node));
-    connect_button_->setEnabled(connection_->currentIndex() == 0 && !state.connected &&
-                                !sandbox_.Sandbox_SavePending());
-    connect_button_->setText(connection_->currentIndex() == 0 ? "连接演示设备" : "设备后端待接入");
+    if (!state.connected && connection_->currentIndex() == 1 &&
+        (device.identity_fresh || device.feedback_fresh))
+    {
+        global_status_->setText(QString("CAN FD %1 · 节点 %2 | 功率操作禁用")
+                                    .arg(device_ready_ ? "只读设备回读" : "离线线路回放")
+                                    .arg(node_->value()));
+    }
+    else if (device_reader_)
+    {
+        global_status_->setText(device_ready_ ? "CAN FD 只读端口已打开 · 身份待读"
+                                              : "CAN FD 正在打开端口 · 不发送功率命令");
+    }
+    connect_button_->setEnabled(connection_->currentIndex() != 2 && !state.connected &&
+                                !device_reader_ && !sandbox_.Sandbox_SavePending());
+    connect_button_->setText(connection_->currentIndex() == 0   ? "连接演示设备"
+                             : connection_->currentIndex() == 1 ? "连接 CAN 只读"
+                                                                : "设备后端待接入");
     scenario_->setEnabled(!state.connected && connection_->currentIndex() == 0);
-    node_->setEnabled(!state.connected);
-    disconnect_button_->setEnabled(state.connected);
+    node_->setEnabled(!state.connected && !device_reader_);
+    connection_->setEnabled(!device_reader_);
+    python_path_->setEnabled(!device_reader_);
+    sdk_path_->setEnabled(!device_reader_);
+    disconnect_button_->setEnabled(state.connected || device_reader_);
     stop_->setEnabled(state.connected);
     enable_->setEnabled(session_.Session_CanWrite() && !busy);
     execute_->setEnabled(session_.Session_CanWrite() && state.enabled && !busy);
@@ -822,7 +1155,72 @@ void MaintenanceWindow::refresh_workbench()
         parameter_snapshots_.isEmpty()
             ? "未读取"
             : QString::number(parameter_snapshots_.first().revision) + "（演示 revision）");
-    if (replay_samples_.empty())
+    auto *device_status = findChild<QLabel *>("deviceReadbackStatus");
+    if (!state.connected && connection_->currentIndex() == 1)
+    {
+        const auto number = [](const auto &value)
+        {
+            return value ? QString::number(*value) : QString("未知");
+        };
+        const auto version = [](const std::optional<uint32_t> &value)
+        {
+            return value && *value ? QString("%1.%2.%3")
+                                         .arg(*value >> 16U)
+                                         .arg((*value >> 8U) & 0xFFU)
+                                         .arg(*value & 0xFFU)
+                                   : QString("未知");
+        };
+        identity_["设备名称"]->setText(
+            device.role ? (*device.role == 1 ? "APP（帧回读）" : "Loader（帧回读）") : "未识别");
+        identity_["电机类型"]->setText(number(device.motor_type));
+        identity_["节点地址"]->setText(QString("%1（线路目标）").arg(node_->value()));
+        identity_["UID / SN"]->setText(
+            device.uid.isEmpty()
+                ? "未知"
+                : device.uid + (device.sn.isEmpty() ? " / SN 未提供" : " / " + device.sn));
+        identity_["硬件版本"]->setText(number(device.hardware_revision));
+        identity_["软件版本"]->setText(version(device.app_version));
+        identity_["Loader 版本"]->setText(version(device.loader_version));
+        identity_["参数结构版本"]->setText(number(device.parameter_schema));
+        findChild<QLabel *>("homeSourceNotice")
+            ->setText(device_ready_ ? "上方来自明确打开的只读 CAN 端口；本地 target 不作设备身份。"
+                                    : "上方为离线线路帧回放；没有打开适配器，不作实机结论。");
+        findChild<QLabel *>("deviceFlowStatus")
+            ->setText(QString("GET_CAPS supported_modes=%1；新六类业务视图与标定计划线路尚未接入。"
+                              "108 只报原八态；CURRENT 是 A，Nm/电感/磁链/型号映射未实现。")
+                          .arg(device.supported_modes ? QString::number(*device.supported_modes)
+                                                      : "未知/过期"));
+        const auto wire =
+            device.feedback_fresh
+                ? QString(
+                      "108 八态 %1 · 模式 %2 · 故障位 0x%3；位置 %4 rad，转速 %5 rad/s，Iq %6 A")
+                      .arg(number(device.motor_state),
+                           number(device.control_mode),
+                           QString::number(device.fault_bits.value_or(0), 16),
+                           device.position_rad ? QString::number(*device.position_rad) : "无效",
+                           device.speed_rad_s ? QString::number(*device.speed_rad_s) : "无效",
+                           device.iq_a ? QString::number(*device.iq_a) : "无效")
+                : "108 反馈缺失或已过期；实机状态未知";
+        findChild<QLabel *>("homeTelemetry")->setText("线路帧回读 · " + wire);
+        telemetry_->setText("CAN FD 只读 · " + wire);
+        device_status->setText(
+            QString("身份 %1；boot_epoch %2；STOP 最近确认 %3。不能推断持续关相或转子静止。")
+                .arg(device.identity_fresh ? "5 s 内已校验" : "缺失/过期",
+                     device.boot_epoch ? QString::number(*device.boot_epoch) : "无效/未知",
+                     device.stop_confirmed_recently ? "有" : "无/过期"));
+        scope_->Scope_SetSamples({});
+    }
+    else
+    {
+        device_status->setText("线路回读：未接入端口；无设备会话或功率操作权。");
+        findChild<QLabel *>("homeSourceNotice")
+            ->setText("真实设备身份和版本保持未知；本地 target 的 schema 不是设备读回值。");
+        findChild<QLabel *>("deviceFlowStatus")
+            ->setText("实机流程：六类业务视图尚无 CAN 线路；108 仅报告原八态。"
+                      "CURRENT 单位 A，SPEED rad/s，POSITION rad，VQ V；Nm 模式不可用。"
+                      "电感、磁链自动辨识及电机型号映射未实现，不能标记完成。");
+    }
+    if (replay_samples_.empty() && (state.connected || connection_->currentIndex() != 1))
     {
         scope_->Scope_SetSamples(session_.Session_Samples());
     }
@@ -867,11 +1265,15 @@ void MaintenanceWindow::refresh_workbench()
     {
         events_->setPlainText(log);
     }
-    footer_->setText(QString("%1   |   采集 %2   |   记录 %3 点   |   参数保存 %4")
-                         .arg(state.message)
-                         .arg(state.streaming ? "演示 50 Hz" : "停止")
-                         .arg(session_.Session_Recording().size())
-                         .arg(sandbox_.Sandbox_SavePending() ? "等待完成" : "无待办"));
+    footer_->setText(
+        QString("%1   |   采集 %2   |   记录 %3 点   |   参数保存 %4")
+            .arg(connection_->currentIndex() == 1 && !state.connected
+                     ? (device_error_.isEmpty() ? (device_ready_ ? "CAN 只读已打开" : "CAN 未连接")
+                                                : device_error_)
+                     : state.message)
+            .arg(state.streaming ? "演示 50 Hz" : "停止")
+            .arg(session_.Session_Recording().size())
+            .arg(sandbox_.Sandbox_SavePending() ? "等待完成" : "无待办"));
     refresh_quick_parameter();
 }
 
@@ -879,6 +1281,26 @@ void MaintenanceWindow::Window_AdvanceDemo(double seconds)
 {
     session_.Session_Tick(seconds);
     refresh_workbench();
+}
+
+bool MaintenanceWindow::Window_BeginDeviceRead(uint16_t type, uint16_t sequence, uint16_t page)
+{
+    if (connection_->currentIndex() != 1 || session_.Session_View().connected || type == 110)
+    {
+        return false;
+    }
+    return device_readback_.Device_Begin(type, sequence, page, elapsed_.elapsed());
+}
+
+bool MaintenanceWindow::Window_ObserveDeviceFrame(uint32_t can_id, const QByteArray &frame)
+{
+    if (connection_->currentIndex() != 1 || session_.Session_View().connected ||
+        !device_readback_.Device_Accept(can_id, frame, elapsed_.elapsed()))
+    {
+        return false;
+    }
+    refresh_workbench();
+    return true;
 }
 
 void MaintenanceWindow::export_capture()

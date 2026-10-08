@@ -25,6 +25,13 @@ static size_t sent_count;
 static unsigned can_starts;
 static unsigned bus_off_services;
 static yg_protocol_motor_operation_t power_operation;
+static unsigned run_calls;
+static unsigned run_progress_calls;
+static unsigned plan_calls;
+static bool clear_allowed;
+static uint8_t last_stop_source;
+static yg_protocol_message_t exchange_message(const yg_protocol_message_t *request,
+                                              uint32_t now_ms);
 
 /* 本夹具未绑定 boot 服务；普通响应不得进入跟踪发送通道，也不伪造发送完成。 */
 bool comm_hw_can_try_send_tracked_frame(const CommHwCanFrame *frame, uint64_t ticket)
@@ -175,6 +182,384 @@ static void put_u32(uint8_t *buffer, uint32_t value)
     buffer[1] = (uint8_t)(value >> 8U);
     buffer[2] = (uint8_t)(value >> 16U);
     buffer[3] = (uint8_t)(value >> 24U);
+}
+
+static void put_u64(uint8_t *buffer, uint64_t value)
+{
+    put_u32(buffer, (uint32_t)value);
+    put_u32(buffer + 4U, (uint32_t)(value >> 32U));
+}
+
+static void lifecycle_golden_frames(void)
+{
+    static const uint8_t expected_run[48] = {
+        0x5A, 0xA5, 0x01, 0x20, 0x02, 0x07, 0x76, 0x00, 0x2A, 0x00, 0x14, 0x00,
+        0x00, 0x00, 0x00, 0x90, 0x01, 0x01, 0x03, 0x00, 0xE8, 0x03, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
+        0x59, 0xF6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static const uint8_t expected_plan[48] = {
+        0x5A, 0xA5, 0x01, 0x20, 0x02, 0x07, 0xA6, 0x00, 0x2B, 0x00, 0x14, 0x00,
+        0x00, 0x00, 0x00, 0xC3, 0x01, 0x01, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
+        0xD5, 0xEE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static const uint8_t expected_run_reply[24] = {0x5A, 0xA5, 0x01, 0x10, 0x07, 0x02, 0x76, 0x00,
+                                                   0x2A, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x08,
+                                                   0x01, 0x00, 0x00, 0x00, 0x2D, 0x07, 0x00, 0x00};
+    static const uint8_t expected_plan_reply[48] = {
+        0x5A, 0xA5, 0x01, 0x10, 0x07, 0x02, 0xA6, 0x00, 0x2B, 0x00, 0x18, 0x00,
+        0x00, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12,
+        0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x01, 0x00, 0x00, 0xE6, 0xA4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    uint8_t run_payload[YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE] = {1U, 1U, 3U};
+    uint8_t plan_payload[YG_PROTOCOL_PLAN_START_SIZE] = {1U, 1U};
+    uint8_t run_reply[YG_PROTOCOL_MOTOR_REPLY_SIZE] = {1U};
+    uint8_t plan_reply[YG_PROTOCOL_PLAN_REPLY_SIZE] = {1U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION,
+                                     .sequence = 0x2AU,
+                                     .payload_length = sizeof(run_payload),
+                                     .payload = run_payload};
+    yg_protocol_transfer_frame_t frame;
+    put_u32(run_payload + 4U, 1000U);
+    put_u64(run_payload + 12U, UINT64_C(0x1122334455667788));
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x0CEF0702U && frame.length == 48U &&
+           memcmp(frame.data, expected_run, sizeof(expected_run)) == 0);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 0x2BU;
+    request.payload = plan_payload;
+    put_u32(plan_payload + 4U, 3U);
+    put_u64(plan_payload + 12U, UINT64_C(0x1122334455667788));
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x0CEF0702U && frame.length == 48U &&
+           memcmp(frame.data, expected_plan, sizeof(expected_plan)) == 0);
+    request.flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    request.source_node = 7U;
+    request.destination_node = 2U;
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION;
+    request.sequence = 0x2AU;
+    request.payload_length = sizeof(run_reply);
+    request.payload = run_reply;
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x0CEF0207U && frame.length == 24U &&
+           memcmp(frame.data, expected_run_reply, sizeof(expected_run_reply)) == 0);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 0x2BU;
+    request.payload_length = sizeof(plan_reply);
+    request.payload = plan_reply;
+    put_u32(plan_reply + 4U, 0x12345678U);
+    put_u32(plan_reply + 12U, 3U);
+    plan_reply[20] = 1U;
+    plan_reply[21] = 1U;
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(frame.identifier == 0x0CEF0207U && frame.length == 48U &&
+           memcmp(frame.data, expected_plan_reply, sizeof(expected_plan_reply)) == 0);
+}
+
+static void run_handler(void *context,
+                        const yg_protocol_run_request_t *request,
+                        yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    if (request->operation == YG_PROTOCOL_RUN_SESSION_PROGRESS)
+    {
+        ++run_progress_calls;
+        reply->status = YG_PROTOCOL_SERVICE_OK;
+        return;
+    }
+    ++run_calls;
+    reply->status = request->operation == YG_PROTOCOL_RUN_SESSION_RENEW
+                        ? YG_PROTOCOL_SERVICE_OK
+                        : YG_PROTOCOL_SERVICE_ACCEPTED;
+}
+
+static void plan_handler(void *context,
+                         const yg_protocol_plan_request_t *request,
+                         yg_protocol_plan_reply_t *reply)
+{
+    (void)context;
+    ++plan_calls;
+    reply->parent_ticket = 0x12345678U;
+    reply->requested_steps = 3U;
+    reply->completed_steps = request->operation == YG_PROTOCOL_PLAN_STATUS ? 3U : 0U;
+    reply->step = request->operation == YG_PROTOCOL_PLAN_STATUS ? 7U : 1U;
+    reply->phase = request->operation == YG_PROTOCOL_PLAN_STATUS ? 2U : 1U;
+    reply->effects = request->operation == YG_PROTOCOL_PLAN_STATUS ? 2U : 0U;
+    reply->status = request->operation == YG_PROTOCOL_PLAN_STATUS ? YG_PROTOCOL_SERVICE_OK
+                                                                  : YG_PROTOCOL_SERVICE_ACCEPTED;
+}
+
+static void safety_handler(void *context,
+                           const yg_protocol_motor_request_t *request,
+                           yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    ++motor_calls;
+    if (request->operation == YG_PROTOCOL_MOTOR_STOP)
+    {
+        last_stop_source = request->source_node;
+    }
+    reply->status = request->operation == YG_PROTOCOL_MOTOR_CLEAR_FAULT && !clear_allowed
+                        ? YG_PROTOCOL_SERVICE_DENIED
+                        : YG_PROTOCOL_SERVICE_OK;
+}
+
+static void bind_safety_fixture(yg_protocol_readonly_device_status_t *status)
+{
+    const yg_protocol_run_service_t runs = {NULL, run_handler};
+    const yg_protocol_plan_service_t plans = {NULL, plan_handler};
+    const yg_protocol_motor_service_t motors = {NULL, safety_handler};
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindDeviceStatusSource(status));
+    assert(YgProtocolLink_BindRunService(&runs));
+    assert(YgProtocolLink_BindPlanService(&plans));
+    assert(YgProtocolLink_BindMotorService(&motors));
+    sent_count = 0U;
+    motor_calls = 0U;
+    plan_calls = 0U;
+    run_calls = 0U;
+    clear_allowed = true;
+    last_stop_source = 0U;
+}
+
+static void safety_boundaries_revoke_old_starts(void)
+{
+    const uint64_t epoch = UINT64_C(0x1122334455667788);
+    uint8_t plan_payload[YG_PROTOCOL_PLAN_START_SIZE] = {1U, 1U};
+    uint8_t run_payload[YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE] = {1U, 1U, 2U};
+    uint8_t disable_payload[YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE] = {0};
+    yg_protocol_readonly_device_status_t status = {
+        .boot_epoch = epoch, .role = YG_PROTOCOL_DEVICE_ROLE_APP, .epoch_valid = true};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_JOB_TYPE_PLAN,
+                                     .sequence = 10U,
+                                     .payload_length = sizeof(plan_payload),
+                                     .payload = plan_payload};
+    yg_protocol_message_t reply;
+    put_u32(plan_payload + 4U, 3U);
+    put_u64(plan_payload + 12U, epoch);
+    put_u32(run_payload + 4U, 100U);
+    put_u64(run_payload + 12U, epoch);
+
+    bind_safety_fixture(&status);
+    reply = exchange_message(&request, 1U);
+    assert(reply.payload[0] == 1U && plan_calls == 1U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_STOP;
+    request.sequence = 11U;
+    request.payload_length = 0U;
+    request.payload = NULL;
+    reply = exchange_message(&request, 2U);
+    assert(reply.payload[0] == 0U && motor_calls == 1U);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 10U;
+    request.payload_length = sizeof(plan_payload);
+    request.payload = plan_payload;
+    reply = exchange_message(&request, 3U);
+    assert(reply.payload[0] == 4U && plan_calls == 1U);
+
+    bind_safety_fixture(&status);
+    request.sequence = 20U;
+    reply = exchange_message(&request, 4U);
+    assert(reply.payload[0] == 1U && plan_calls == 1U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_ENABLE;
+    request.sequence = 21U;
+    request.payload_length = sizeof(disable_payload);
+    request.payload = disable_payload;
+    reply = exchange_message(&request, 5U);
+    assert(reply.payload[0] == 0U && motor_calls == 1U);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 20U;
+    request.payload_length = sizeof(plan_payload);
+    request.payload = plan_payload;
+    reply = exchange_message(&request, 6U);
+    assert(reply.payload[0] == 4U && plan_calls == 1U);
+
+    bind_safety_fixture(&status);
+    request.sequence = 30U;
+    reply = exchange_message(&request, 7U);
+    assert(reply.payload[0] == 1U && plan_calls == 1U);
+    clear_allowed = false;
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT;
+    request.sequence = 31U;
+    request.payload_length = 0U;
+    request.payload = NULL;
+    reply = exchange_message(&request, 8U);
+    assert(reply.payload[0] == 5U);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 30U;
+    request.payload_length = sizeof(plan_payload);
+    request.payload = plan_payload;
+    reply = exchange_message(&request, 9U);
+    assert(reply.payload[0] == 1U && plan_calls == 1U);
+    clear_allowed = true;
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT;
+    request.sequence = 32U;
+    request.payload_length = 0U;
+    request.payload = NULL;
+    reply = exchange_message(&request, 10U);
+    assert(reply.payload[0] == 0U);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 30U;
+    request.payload_length = sizeof(plan_payload);
+    request.payload = plan_payload;
+    reply = exchange_message(&request, 11U);
+    assert(reply.payload[0] == 4U && plan_calls == 1U);
+
+    bind_safety_fixture(&status);
+    request.sequence = 40U;
+    reply = exchange_message(&request, 12U);
+    assert(reply.payload[0] == 1U && plan_calls == 1U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION;
+    request.payload_length = sizeof(run_payload);
+    request.payload = run_payload;
+    reply = exchange_message(&request, 13U);
+    assert(reply.payload[0] == 1U && run_calls == 1U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_STOP;
+    request.source_node = 3U;
+    request.sequence = 1000U;
+    request.payload_length = 0U;
+    request.payload = NULL;
+    reply = exchange_message(&request, 14U);
+    assert(reply.payload[0] == 0U && last_stop_source == 3U);
+    request.source_node = 2U;
+    request.sequence = 41U;
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.payload_length = sizeof(plan_payload);
+    request.payload = plan_payload;
+    reply = exchange_message(&request, 15U);
+    assert(reply.payload[0] == 1U && plan_calls == 2U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION;
+    request.payload_length = sizeof(run_payload);
+    request.payload = run_payload;
+    reply = exchange_message(&request, 16U);
+    assert(reply.payload[0] == 1U && run_calls == 2U);
+}
+
+static yg_protocol_message_t exchange_message(const yg_protocol_message_t *request, uint32_t now_ms)
+{
+    yg_protocol_transfer_frame_t frame;
+    static yg_protocol_transfer_frame_t reply_frame;
+    CommHwCanFrame received = {0};
+    yg_protocol_message_t reply;
+    assert(yg_protocol_canfd_pack(request, 3U, &frame) == YG_PROTOCOL_OK);
+    received.identifier = frame.identifier;
+    received.length = frame.length;
+    received.extended = true;
+    received.fd = true;
+    received.bitrate_switch = true;
+    memcpy(received.data, frame.data, frame.length);
+    sent = false;
+    assert(YgProtocolLink_OnRxFrame(&received));
+    YgProtocolLink_Service(now_ms);
+    assert(sent);
+    reply_frame = (yg_protocol_transfer_frame_t){.identifier = sent_frame.identifier,
+                                                 .length = sent_frame.length,
+                                                 .extended = true,
+                                                 .fd = true,
+                                                 .bitrate_switch = true};
+    memcpy(reply_frame.data, sent_frame.data, sent_frame.length);
+    assert(yg_protocol_canfd_unpack(&reply_frame, request->source_node, &reply) == YG_PROTOCOL_OK);
+    return reply;
+}
+
+static void lifecycle_epoch_and_retry_contract(void)
+{
+    const uint64_t epoch = UINT64_C(0x1122334455667788);
+    uint8_t run_payload[YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE] = {1U, 1U, 2U};
+    uint8_t plan_payload[YG_PROTOCOL_PLAN_START_SIZE] = {1U, 1U};
+    yg_protocol_readonly_device_status_t status = {
+        .boot_epoch = epoch, .role = YG_PROTOCOL_DEVICE_ROLE_APP, .epoch_valid = false};
+    yg_protocol_run_service_t runs = {NULL, run_handler};
+    yg_protocol_plan_service_t plans = {NULL, plan_handler};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION,
+                                     .sequence = 10U,
+                                     .payload_length = sizeof(run_payload),
+                                     .payload = run_payload};
+    yg_protocol_message_t reply;
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindRunService(&runs));
+    assert(YgProtocolLink_BindPlanService(&plans));
+    assert(YgProtocolLink_BindDeviceStatusSource(&status));
+    sent_count = 0U;
+    run_calls = 0U;
+    run_progress_calls = 0U;
+    plan_calls = 0U;
+    put_u32(run_payload + 4U, 100U);
+    put_u64(run_payload + 12U, epoch);
+    reply = exchange_message(&request, 1U);
+    assert(reply.payload[0] == 2U && run_calls == 0U);
+    status.epoch_valid = true;
+    reply = exchange_message(&request, 2U);
+    assert(reply.payload[0] == 1U && run_calls == 1U);
+    reply = exchange_message(&request, 3U);
+    assert(reply.payload[0] == 0U && run_calls == 1U && run_progress_calls == 1U);
+    put_u32(run_payload + 4U, 101U);
+    reply = exchange_message(&request, 4U);
+    assert(reply.payload[0] == 4U && run_calls == 1U);
+    put_u32(run_payload + 4U, 100U);
+    run_payload[1] = YG_PROTOCOL_RUN_SESSION_RENEW;
+    run_payload[2] = 0U;
+    put_u16(run_payload + 8U, 10U);
+    request.sequence = 11U;
+    reply = exchange_message(&request, 5U);
+    assert(reply.payload[0] == 0U && run_calls == 2U);
+    reply = exchange_message(&request, 6U);
+    assert(reply.payload[0] == 0U && run_calls == 2U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_STOP;
+    request.sequence = 12U;
+    request.payload_length = 0U;
+    request.payload = NULL;
+    reply = exchange_message(&request, 7U);
+    assert(reply.payload[0] == 2U);
+    request.message_type = YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION;
+    request.sequence = 10U;
+    request.payload_length = sizeof(run_payload);
+    request.payload = run_payload;
+    run_payload[1] = YG_PROTOCOL_RUN_SESSION_START;
+    run_payload[2] = 2U;
+    put_u16(run_payload + 8U, 0U);
+    reply = exchange_message(&request, 8U);
+    assert(reply.payload[0] == 4U && run_calls == 2U);
+    put_u32(plan_payload + 4U, 3U);
+    put_u64(plan_payload + 12U, epoch);
+    request.message_type = YG_PROTOCOL_JOB_TYPE_PLAN;
+    request.sequence = 20U;
+    request.payload_length = sizeof(plan_payload);
+    request.payload = plan_payload;
+    reply = exchange_message(&request, 9U);
+    assert(reply.payload_length == YG_PROTOCOL_PLAN_REPLY_SIZE && reply.payload[0] == 1U &&
+           plan_calls == 1U);
+    reply = exchange_message(&request, 10U);
+    assert(reply.payload[0] == 1U && plan_calls == 1U);
+    put_u32(plan_payload + 4U, 1U);
+    reply = exchange_message(&request, 11U);
+    assert(reply.payload[0] == 4U && plan_calls == 1U);
+    request.sequence = 23U;
+    put_u32(plan_payload + 4U, 1U << 6U);
+    reply = exchange_message(&request, 11U);
+    assert(reply.payload[0] == 2U && plan_calls == 1U);
+    status.epoch_valid = false;
+    plan_payload[1] = YG_PROTOCOL_PLAN_STATUS;
+    put_u32(plan_payload + 4U, 0x12345678U);
+    request.sequence = 21U;
+    request.payload_length = YG_PROTOCOL_PLAN_QUERY_SIZE;
+    reply = exchange_message(&request, 12U);
+    assert(reply.payload[0] == 0U && reply.payload[16] == 3U && reply.payload[20] == 7U &&
+           reply.payload[21] == 2U && reply.payload[22] == 2U && plan_calls == 2U);
+    plan_payload[1] = YG_PROTOCOL_PLAN_CANCEL;
+    request.sequence = 22U;
+    reply = exchange_message(&request, 13U);
+    assert(reply.payload[0] == 1U && plan_calls == 3U);
 }
 
 static void control_reply_and_feedback(void)
@@ -521,7 +906,7 @@ static void power_route_contract(void)
         {101U, 1U, enabled, 1U, true, 7U, false, YG_PROTOCOL_MOTOR_STOP},
         {101U, 2U, enabled, 1U, true, 3U, false, YG_PROTOCOL_MOTOR_STOP},
         {101U, 2U, invalid, 4U, true, 4U, false, YG_PROTOCOL_MOTOR_STOP},
-        {110U, 1U, NULL, 0U, true, 7U, false, YG_PROTOCOL_MOTOR_STOP},
+        {110U, 1U, NULL, 0U, true, 0U, true, YG_PROTOCOL_MOTOR_STOP},
         {110U, 1U, enabled, 1U, false, 0U, false, YG_PROTOCOL_MOTOR_STOP},
         {110U, 2U, enabled, 1U, false, 0U, false, YG_PROTOCOL_MOTOR_STOP},
     };
@@ -864,5 +1249,8 @@ int main(void)
     status_binding_reset();
     boot_confirm_and_info_contract();
     runtime_start_boundary();
+    lifecycle_epoch_and_retry_contract();
+    safety_boundaries_revoke_old_starts();
+    lifecycle_golden_frames();
     return 0;
 }

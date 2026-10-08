@@ -1,6 +1,6 @@
 # yg_protocol 业务 Type 分配提案 v0.3
 
-日期：2026-09-23。状态：**历史项目候选；电机控制流程和升级简化方向已由[简化版 v0.1](yg_protocol_simplified_motor_v0_1.md)替代，尚未经公司消息类型表登记或整机验证**。本文保留早期编号来源和比较，不表示表中功能已由固件实现。新业务接入前应先冻结该条目的 payload、回复、状态/权限规则与黄金向量。2026-09-30 补充：本表仍保留 117～119 的历史空位记录；另见[117 普通启动候选](yg_protocol_ordinary_start_proposal_v0_1.md)，尚未定版或占号。
+日期：2026-09-23。状态：**历史项目候选；电机控制流程和升级简化方向已由[简化版 v0.1](yg_protocol_simplified_motor_v0_1.md)替代，尚未经公司消息类型表登记或整机验证**。本文保留早期编号来源和比较，不表示表中功能已由固件实现。新业务接入前应先冻结该条目的 payload、回复、状态/权限规则与黄金向量。2026-10-08 补充：117 已是现有普通启动，118 和 166 已在项目内登记为新业务；外部公司消息表待同步，详见[运行与整计划线路 v1.4](yg_protocol_motor_lifecycle_wire_v1_4_proposal.md)。
 
 ## 1. 分配依据和命名空间
 
@@ -57,7 +57,9 @@
 | 114 / 0x0072 | MOTION_ARM | 请求→同 type 回复 | P | 预装目标后显式准备高级任务；不代替 MOTOR_ENABLE |
 | 115 | 保留 | — | P | 基础控制扩展余量 |
 | 116 / 0x0074 | SET_TARGET | 单播请求→同 type 回复或同周期反馈关联 | P | 一条命令覆盖 Iq、速度、位置、阻抗目标；payload 中显式 `target_kind`，模式不匹配则拒绝 |
-| 117～119 | 保留 | — | P | 不再拆出 SET_IQ/SET_SPEED/SET_POSITION 三个线上类型 |
+| 117 / 0x0075 | START_CONTROL | 请求→同 type 回复 | D | 现有速度零目标调试启动；不具有新命令的 epoch 字段 |
+| 118 / 0x0076 | RUN_SESSION | 请求→同 type 回复 | D | 项目内已登记；新启动/续租须核对可信非零 epoch，能力位暂不开放 |
+| 119 | 保留 | — | P | 基础控制扩展余量 |
 | 120 / 0x0078 | READ_PARAM | 请求→同 type 回复 | P | 参数 ID、类型、单位、有效值、revision；标定参数也经此读取 |
 | 121 / 0x0079 | WRITE_PARAM | 请求→同 type 回复 | P | 校验权限、范围和 apply policy；写运行态不自动写 Flash |
 | 122 / 0x007A | SAVE_PARAM | 请求→同 type 回复 | P | 显式持久化；异步时先受理再查询最终结果 |
@@ -95,7 +97,8 @@
 | 163 / 0x00A3 | READ_TASK_RESULT | 请求→同 type 回复 | P | 分页读取结果；允许管理分片 |
 | 164 / 0x00A4 | APPLY_TASK_RESULT | 请求→同 type 回复 | P | 显式应用结果；持久化仍需 122 |
 | 165 / 0x00A5 | GET_TASK_CAPS | 请求→同 type 回复 | P | 当前固件真正支持的 `task_kind`、参数范围与资源需求 |
-| 166～169 | 保留 | — | P | 任务扩展余量 |
+| 166 / 0x00A6 | CALIBRATION_PLAN | 请求→同 type 回复 | D | 项目内已登记；整计划 START 带 epoch，STATUS/CANCEL 不要求 epoch |
+| 167～169 | 保留 | — | P | 任务扩展余量 |
 | 170～174 | 退役：旧独立 IDENT 命令 | — | X | 辨识按 `task_kind` 并入 160～165，不复用旧含义 |
 | 175～179 | 保留 | — | P | 任务扩展余量 |
 | 180 / 0x00B4 | CLOCK_EXCHANGE | 请求→同 type 回复 | P | 时钟采样、误差估计 |

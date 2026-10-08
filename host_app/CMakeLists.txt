@@ -16,13 +16,19 @@ add_library(host_shared STATIC
     ../shared/protocol/yg_protocol_upgrade_wire.c)
 target_include_directories(host_shared PUBLIC .. ../shared/image ../shared/protocol)
 add_library(host_services STATIC services/upgrade_plan.cpp services/parameter_sandbox.cpp
-    protocol/parameter_wire.cpp services/workbench_session.cpp services/capture_csv.cpp)
+    protocol/parameter_wire.cpp services/workbench_session.cpp services/capture_csv.cpp
+    services/device_readback.cpp)
 target_include_directories(host_services PUBLIC .)
 target_link_libraries(host_services PUBLIC host_shared Qt6::Core)
 add_library(host_widgets STATIC gui/maintenance_window.cpp gui/workbench_pages.cpp gui/scope_widget.cpp)
 target_link_libraries(host_widgets PUBLIC host_services Qt6::Widgets)
 add_executable(YG_MC_HOST WIN32 main.cpp)
 target_link_libraries(YG_MC_HOST PRIVATE host_widgets)
+# 只复制源码适配器；SDK DLL 和 Python 运行时由用户在连接时明确提供。
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/ports")
+configure_file(device_reader.py "${CMAKE_CURRENT_BINARY_DIR}/device_reader.py" COPYONLY)
+configure_file(upgrade_client.py "${CMAKE_CURRENT_BINARY_DIR}/upgrade_client.py" COPYONLY)
+configure_file(ports/controlcanfd.py "${CMAKE_CURRENT_BINARY_DIR}/ports/controlcanfd.py" COPYONLY)
 
 function(host_resources target)
     qt_add_resources(${target} host_ui PREFIX "/ui" BASE resources FILES resources/theme.qss)

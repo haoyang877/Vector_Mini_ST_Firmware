@@ -2,6 +2,83 @@
 #include "yg_protocol_job.h"
 #include "yg_protocol_byte_order.h"
 
+yg_protocol_result_t yg_protocol_plan_decode(const yg_protocol_message_t *message,
+                                             yg_protocol_plan_request_t *request)
+{
+    yg_protocol_plan_request_t decoded = {0};
+    const uint8_t *payload;
+    if (message == NULL || request == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (message->message_type != YG_PROTOCOL_JOB_TYPE_PLAN)
+    {
+        return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+    }
+    if (message->payload == NULL || message->payload_length < YG_PROTOCOL_PLAN_QUERY_SIZE)
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    payload = message->payload;
+    decoded.operation = payload[1];
+    if ((decoded.operation == YG_PROTOCOL_PLAN_START &&
+         message->payload_length != YG_PROTOCOL_PLAN_START_SIZE) ||
+        (decoded.operation != YG_PROTOCOL_PLAN_START &&
+         message->payload_length != YG_PROTOCOL_PLAN_QUERY_SIZE))
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    decoded.steps_or_ticket = YgProtocol_ReadU32Le(payload + 4U);
+    if (decoded.operation == YG_PROTOCOL_PLAN_START)
+    {
+        decoded.boot_epoch = YgProtocol_ReadU64Le(payload + 12U);
+    }
+    if (payload[0] != 1U || YgProtocol_ReadU16Le(payload + 2U) != 0U ||
+        YgProtocol_ReadU32Le(payload + 8U) != 0U || decoded.steps_or_ticket == 0U ||
+        (decoded.operation != YG_PROTOCOL_PLAN_START &&
+         decoded.operation != YG_PROTOCOL_PLAN_STATUS &&
+         decoded.operation != YG_PROTOCOL_PLAN_CANCEL) ||
+        (decoded.operation == YG_PROTOCOL_PLAN_START &&
+         (decoded.boot_epoch == 0U || (decoded.steps_or_ticket & ~UINT32_C(0xFF)) != 0U)))
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    decoded.source_node = message->source_node;
+    decoded.sequence = message->sequence;
+    *request = decoded;
+    return YG_PROTOCOL_OK;
+}
+
+yg_protocol_result_t yg_protocol_plan_encode_reply(const yg_protocol_plan_reply_t *reply,
+                                                   uint8_t *payload,
+                                                   size_t capacity,
+                                                   size_t *written)
+{
+    if (reply == NULL || payload == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (capacity < YG_PROTOCOL_PLAN_REPLY_SIZE)
+    {
+        return YG_PROTOCOL_BUFFER_TOO_SMALL;
+    }
+    YgProtocol_WriteU16Le(payload, yg_protocol_service_result_code(reply->status));
+    YgProtocol_WriteU16Le(payload + 2U, reply->detail);
+    YgProtocol_WriteU32Le(payload + 4U, reply->parent_ticket);
+    YgProtocol_WriteU32Le(payload + 8U, reply->step_ticket);
+    YgProtocol_WriteU32Le(payload + 12U, reply->requested_steps);
+    YgProtocol_WriteU32Le(payload + 16U, reply->completed_steps);
+    payload[20] = reply->step;
+    payload[21] = reply->phase;
+    payload[22] = reply->effects;
+    payload[23] = 0U;
+    if (written != NULL)
+    {
+        *written = YG_PROTOCOL_PLAN_REPLY_SIZE;
+    }
+    return YG_PROTOCOL_OK;
+}
+
 yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message,
                                             yg_protocol_job_request_t *request)
 {

@@ -10,10 +10,16 @@
 #define YG_PROTOCOL_MOTOR_TYPE_CLEAR_FAULT 107U
 #define YG_PROTOCOL_MOTOR_TYPE_CONTROL 116U
 #define YG_PROTOCOL_MOTOR_TYPE_START 117U
+#define YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION 118U
 #define YG_PROTOCOL_MOTOR_ENABLE_REQUEST_SIZE 4U
 #define YG_PROTOCOL_MOTOR_START_REQUEST_SIZE 4U
 #define YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE 20U
 #define YG_PROTOCOL_MOTOR_REPLY_SIZE 4U
+#define YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE 20U
+#define YG_PROTOCOL_RUN_SESSION_START 1U
+#define YG_PROTOCOL_RUN_SESSION_RENEW 2U
+/* 仅组合层内部读取启动进展；线上请求不接受该操作值。 */
+#define YG_PROTOCOL_RUN_SESSION_PROGRESS 3U
 
 /** @brief motor 内部操作，不分配线上 type，不等同于电机模式枚举。 */
 typedef enum
@@ -38,6 +44,39 @@ typedef struct
     int32_t iq_mA;
     int32_t v_q_mV;
 } yg_protocol_motor_request_t;
+
+/** @brief 新运行请求；线上模式号与电机内部枚举分开，epoch 须由链路核对。 */
+typedef struct
+{
+    uint64_t boot_epoch;
+    uint32_t timeout_ms;
+    uint16_t sequence;
+    uint16_t origin_seq;
+    uint8_t source_node;
+    uint8_t operation;
+    uint8_t mode;
+} yg_protocol_run_request_t;
+
+/**
+ * @brief 解码20B运行会话请求，不读取设备状态或刷新租约。
+ * @param message 已通过统一帧校验的请求。
+ * @param request 成功时写入值对象，失败保持不变。
+ * @return 长度、类型和字段校验结果。
+ */
+yg_protocol_result_t yg_protocol_motor_decode_run(const yg_protocol_message_t *message,
+                                                  yg_protocol_run_request_t *request);
+
+/** @brief 运行所有者的非阻塞处理入口；只读请求指针不可保留。 */
+typedef void (*yg_protocol_run_handler_t)(void *context,
+                                          const yg_protocol_run_request_t *request,
+                                          yg_protocol_service_reply_t *reply);
+
+/** @brief 由组合层绑定的运行所有者。 */
+typedef struct
+{
+    void *context;
+    yg_protocol_run_handler_t handler;
+} yg_protocol_run_service_t;
 
 /**
  * @brief 解码 101 使能请求；只解析字段，不执行功率级动作。

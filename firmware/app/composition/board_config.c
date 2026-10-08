@@ -2,6 +2,7 @@
 
 #include "board_hw.h"
 #include "boot_hw.h"
+#include "boot_epoch.h"
 #include "comm_hw.h"
 #include "critical_hw.h"
 #include "motor_state_machine.h"
@@ -87,7 +88,7 @@ static bool bind_device_description(void)
                                               .boot_api = TARGET_BOOT_API};
     yg_protocol_readonly_caps_page0_t capabilities = {
         .features = (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
-        .supported_modes = 0U, /* 普通远程启动未开放，不能按内部控制枚举宣称能力。 */
+        .supported_modes = 0U, /* 新线路代码已接入，产品能力仍等待匹配镜像的安全验收。 */
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
     uint8_t payload[32], record[64];
@@ -239,6 +240,9 @@ void Board_Init(void)
 {
     /* 电机所有者装载参数与标定并初始化；无效记录回退默认值。 */
     MotorAxis_Init();
+
+    /* 持久启动身份先于采样中断和通信；失败保持零，新线路在协议边界拒绝START。 */
+    (void)BootEpoch_Init();
 
     /* 新协议复位态为失能；CH4 采样时钟保持运行，三相输出等待控制所有者授权。 */
     board_hw_start(false);

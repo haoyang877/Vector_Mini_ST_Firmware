@@ -2447,6 +2447,11 @@
               <FilePath>..\..\ports\board\param_store_stm32g4.c</FilePath>
             </File>
             <File>
+              <FileName>boot_epoch_stm32g4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\ports\board\boot_epoch_stm32g4.c</FilePath>
+            </File>
+            <File>
               <FileName>power_stage_stm32g4.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\ports\motor\power_stage_stm32g4.c</FilePath>

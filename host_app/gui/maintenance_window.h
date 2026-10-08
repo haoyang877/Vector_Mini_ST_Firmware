@@ -1,6 +1,7 @@
 #pragma once
 
 #include "services/parameter_sandbox.h"
+#include "services/device_readback.h"
 #include "services/upgrade_plan.h"
 #include "services/workbench_session.h"
 #include <QElapsedTimer>
@@ -11,6 +12,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QProgressBar;
+class QProcess;
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
@@ -34,11 +36,28 @@ class MaintenanceWindow : public QMainWindow
      * @note GUI 线程调用；关闭时停止演示定时器，不能触发设备操作。
      */
     explicit MaintenanceWindow(QWidget *parent = nullptr);
+    /** @brief 关闭显式打开的只读辅助进程并释放 CAN 适配器。 */
+    ~MaintenanceWindow() override;
     /**
      * @brief 为本地预览和离线交互检查推进演示会话。
      * @param seconds 模型间隔秒，范围 0..0.2；不操作设备。
      */
     void Window_AdvanceDemo(double seconds);
+    /**
+     * @brief 登记设备端口已发出的只读查询，供真实端口和离线帧回放共用。
+     * @param type 1、2、3、108 或 110；GUI 只发送前四种 GET，不发送 110。
+     * @param sequence 本连接的非零请求序号。
+     * @param page Type 1 的页号，其余为 0。
+     * @return 只读 CAN 页面且无演示连接时返回登记结果；不发 CAN 帧。
+     */
+    bool Window_BeginDeviceRead(uint16_t type, uint16_t sequence, uint16_t page);
+    /**
+     * @brief 接收完整 CAN FD 数据区并更新已关联的只读视图。
+     * @param can_id 经端口检查为扩展 FD/BRS 的 29 位标识符。
+     * @param frame 数据区，含 DLC 补零。
+     * @return 完整校验并匹配待办请求时返回 true。
+     */
+    bool Window_ObserveDeviceFrame(uint32_t can_id, const QByteArray &frame);
 
   private:
     void build_shell();
@@ -49,6 +68,10 @@ class MaintenanceWindow : public QMainWindow
     QWidget *build_diagnostics_page();
     void show_page(int page);
     void connect_demo();
+    void connect_device();
+    void disconnect_device();
+    void issue_device_query();
+    void consume_device_stdout();
     void refresh_workbench();
     void refresh_quick_parameter();
     bool parameter_writable() const;
@@ -103,11 +126,21 @@ class MaintenanceWindow : public QMainWindow
         QProgressBar *progress = nullptr;
     };
     WorkbenchSession session_;
+    DeviceReadback device_readback_;
     QElapsedTimer elapsed_;
     qint64 previous_ms_ = 0;
     ScopeWidget *scope_ = nullptr;
     QComboBox *scenario_ = nullptr, *motion_mode_ = nullptr, *quick_parameter_ = nullptr;
     QSpinBox *node_ = nullptr;
+    QLineEdit *python_path_ = nullptr, *sdk_path_ = nullptr;
+    QProcess *device_reader_ = nullptr;
+    QByteArray device_output_;
+    QString device_error_;
+    bool device_ready_ = false, device_pending_ = false;
+    uint16_t device_sequence_ = 0, device_pending_type_ = 0;
+    int device_step_ = 0;
+    qint64 device_connect_ms_ = 0, device_request_ms_ = 0, device_discovery_ms_ = 0,
+           device_feedback_ms_ = -1000;
     QDoubleSpinBox *motion_target_ = nullptr;
     QCheckBox *unlock_ = nullptr, *freeze_ = nullptr;
     QLineEdit *quick_edit_ = nullptr;

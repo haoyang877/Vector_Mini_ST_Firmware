@@ -1,6 +1,9 @@
 # Active Plans
 
 - [多模块与整机流程收口 v2](2026-10-08-architecture-closeout-v2.md)：模块精简与v7已接入待组合验证；新协议、启动身份和真实只读端口在收口，未开放新功率线路。
+- [可信启动身份 v1](2026-10-08-boot-epoch-provider-v1.md)：专属61/62页、未知或撕裂不擦、真实提交读回后发布；原本地开发入口保持。
+- [生命周期线路 v1.4](2026-10-08-motor-lifecycle-wire-review.md)：项目内0x0076/0x00A6真实业务接入、完整幂等与主站安全边界；外部公司登记未宣称完成。
+- [主机只读端口 v1](2026-10-08-host-get-only-port-v1.md)：用户显式打开端口、仅查询和严格回帧，未进行设备联调，写入入口保持关闭。
 - [整机主/子流程 v7](2026-10-08-motor-platform-lifecycle-v7.md)：已接已有标定串联最终SAVE、受控切换和显式租约；新线路与缺失算法边界单独登记。
 - [编码器最小实现 v4](2026-10-08-encoder-calibration-minimal-v4.md)及[调用边界 v3](2026-10-08-encoder-calibration-call-boundaries-v3.md)：共享互斥窗口、归并有界构表/采样及真实退出。
 

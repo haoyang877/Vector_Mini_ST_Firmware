@@ -12,6 +12,12 @@ provide the short entry map; details belong here.
 当前收口：[整机主流程与运行/标定子流程](architecture/motor_platform_lifecycle_v1.md)，
 按[收口 v2](plans/active/2026-10-08-architecture-closeout-v2.md)推进新线路与实际设备端口。
 
+新请求契约：[运行会话与整计划线路 v1.4](protocols/yg_protocol_motor_lifecycle_wire_v1_4_proposal.md)，
+[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。实际只读 GUI 调用链见
+[主机端口记录](plans/active/2026-10-08-host-get-only-port-v1.md)。
+
+下一候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
+
 架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。
 八状态恢复行为见[状态反馈 v1.2](protocols/yg_protocol_motor_state_v1_2.md)。
 

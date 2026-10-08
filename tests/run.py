@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from project_paths import ROOT
 
 NATIVE = (
+    "test_boot_epoch",
     "run_position_servo_tests",
     "test_outer_loop_runtime",
     "test_wheel_speed_limits",

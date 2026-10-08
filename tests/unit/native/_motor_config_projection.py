@@ -13,11 +13,7 @@ _GROUPS = {
         "position_deceleration_rad_s2 position_maximum_speed_rad_s "
         "cascade_position_kp cascade_position_kd axis_profile axis_profile_valid"
     ),
-    "device": (
-        "phase_a_offset_counts phase_b_offset_counts phase_c_offset_counts "
-        "friction_coulomb_pos_a friction_coulomb_neg_a friction_viscous_pos_a_per_rad_s "
-        "friction_viscous_neg_a_per_rad_s friction_model_valid"
-    ),
+    "device": ("phase_a_offset_counts phase_b_offset_counts phase_c_offset_counts"),
 }
 _FIELDS = {field: group for group, fields in _GROUPS.items() for field in fields.split()}
 _PATTERN = re.compile(r"\b(motor_state|m)->(" + "|".join(_FIELDS) + r")\b")

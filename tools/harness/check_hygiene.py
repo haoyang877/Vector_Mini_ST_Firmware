@@ -87,13 +87,12 @@ def problems() -> list[dict]:
         for path in (ROOT / "tests/unit/native").glob("*.py")
         if not path.name.startswith("_")
     }
-    optional = {"test_position_core_equivalence"}
-    if scripts != native | optional:
+    if scripts != native:
         issues.append(
             {
                 "file": "tests/run.py",
                 "line": 1,
-                "message": f"native test inventory drift: scripts={sorted(scripts)}, configured={sorted(native | optional)}",
+                "message": f"native test inventory drift: scripts={sorted(scripts)}, configured={sorted(native)}",
             }
         )
     return issues

@@ -285,6 +285,10 @@ static void motor_command_vectors(void)
 
 static void maintenance_kind_extension_vectors(void)
 {
+    static const uint8_t mechanical_reply[YG_PROTOCOL_JOB_REPLY_SIZE] = {
+        1U, 0U, 0U, 0U, 0x78U, 0x56U, 0x34U, 0x12U, 6U, 0U, 1U, 1U};
+    static const uint8_t unsupported_reply[YG_PROTOCOL_JOB_REPLY_SIZE] = {
+        2U, 0U, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
     uint8_t payload[YG_PROTOCOL_JOB_REQUEST_SIZE] = {0};
     uint8_t encoded[YG_PROTOCOL_JOB_REPLY_SIZE] = {0};
     const yg_protocol_message_t message = {.message_type = YG_PROTOCOL_JOB_TYPE_START,
@@ -298,8 +302,18 @@ static void maintenance_kind_extension_vectors(void)
                                      .phase = YG_PROTOCOL_JOB_PHASE_IN_PROGRESS,
                                      .effects = YG_PROTOCOL_JOB_EFFECT_UNCOMMITTED};
     size_t written = 0U;
-    for (uint16_t kind = YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE;
-         kind <= YG_PROTOCOL_JOB_KIND_FRICTION;
+    for (uint16_t kind = YG_PROTOCOL_JOB_KIND_COGGING; kind <= YG_PROTOCOL_JOB_KIND_FRICTION;
+         ++kind)
+    {
+        payload[0] = (uint8_t)kind;
+        reply.kind = kind;
+        assert(yg_protocol_job_decode(&message, &request) == YG_PROTOCOL_OK);
+        assert(request.kind == kind && request.source_node == 2U && request.sequence == 17U);
+        assert(yg_protocol_job_encode_reply(&reply, encoded, sizeof(encoded), &written) ==
+               YG_PROTOCOL_INVALID_FIELD);
+    }
+    for (uint16_t kind = YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO;
+         kind <= YG_PROTOCOL_JOB_KIND_DEFAULTS;
          ++kind)
     {
         payload[0] = (uint8_t)kind;
@@ -311,12 +325,21 @@ static void maintenance_kind_extension_vectors(void)
         assert(written == sizeof(encoded) && encoded[0] == 1U && encoded[4] == 0x78U &&
                encoded[8] == kind && encoded[10] == YG_PROTOCOL_JOB_PHASE_IN_PROGRESS &&
                encoded[11] == YG_PROTOCOL_JOB_EFFECT_UNCOMMITTED);
+        if (kind == YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO)
+        {
+            assert(memcmp(encoded, mechanical_reply, sizeof(mechanical_reply)) == 0);
+        }
     }
-    payload[0] = YG_PROTOCOL_JOB_KIND_FRICTION + 1U;
+    payload[0] = YG_PROTOCOL_JOB_KIND_DEFAULTS + 1U;
     assert(yg_protocol_job_decode(&message, &request) == YG_PROTOCOL_OK);
-    reply.kind = YG_PROTOCOL_JOB_KIND_FRICTION + 1U;
+    reply.kind = YG_PROTOCOL_JOB_KIND_DEFAULTS + 1U;
     assert(yg_protocol_job_encode_reply(&reply, encoded, sizeof(encoded), &written) ==
            YG_PROTOCOL_INVALID_FIELD);
+    reply = (yg_protocol_job_reply_t){.status = YG_PROTOCOL_SERVICE_UNSUPPORTED,
+                                      .detail = YG_PROTOCOL_JOB_DETAIL_UNSUPPORTED_KIND};
+    assert(yg_protocol_job_encode_reply(&reply, encoded, sizeof(encoded), &written) ==
+           YG_PROTOCOL_OK);
+    assert(memcmp(encoded, unsupported_reply, sizeof(unsupported_reply)) == 0);
 }
 
 static void endpoint_round_trip(void)

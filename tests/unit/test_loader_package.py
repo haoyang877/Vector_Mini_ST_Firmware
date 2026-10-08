@@ -82,7 +82,7 @@ class LoaderPackageTests(unittest.TestCase):
         self.assertEqual(wire["manifest_fixture"], "tests/fixtures/loader_image_v3.json")
         self.assertEqual(
             bytes.fromhex(wire["confirm_request_hex"]),
-            struct.pack("<II", 0x10200, int(image["crc32"], 16)),
+            struct.pack("<II", 0x10300, int(image["crc32"], 16)),
         )
         self.assertEqual(bytes.fromhex(wire["confirm_ok_reply_hex"]), bytes(4))
 

@@ -16,33 +16,11 @@
  * 任务不自行停相、写模式或保存；完成/失败经 MotorTaskResult 上报，
  * 功率级与模式迁移由运行状态机执行；本地中止只清理控制状态。 */
 
-/* 标定阶段机步骤：保留历史编号供 Keil Watch 与诊断按数值对照；
- * 未重建任务的步骤（ADC 偏置/R/L/磁链/编码器偏移等）不会出现。 */
+/* 仅保留实际LUT/电零位阶段；显式编号保持原Watch与诊断数值。 */
 typedef enum
 {
     CS_NULL = 0,
-    CS_ADC_OFFSET_START,
-    CS_ADC_OFFSET_LOOP,
-    CS_ADC_OFFSET_END,
-    CS_MOTOR_R_START,
-    CS_MOTOR_RA_LOOP,
-    CS_MOTOR_RB_LOOP,
-    CS_MOTOR_RC_LOOP,
-    CS_MOTOR_R_END,
-    CS_MOTOR_L_START,
-    CS_MOTOR_LD_LOOP,
-    CS_MOTOR_LQ_LOOP,
-    CS_MOTOR_L_END,
-    CS_MOTOR_FLUX_START,
-    CS_MOTOR_FLUX_LOOP,
-    CS_MOTOR_FLUX_END,
-    CS_ANTICOGGING_START,
-    CS_ANTICOGGING_CW_TEMP,
-    CS_ANTICOGGING_CW_SAMPLE,
-    CS_ANTICOGGING_CCW_TEMP,
-    CS_ANTICOGGING_CCW_SAMPLE,
-    CS_ANTICOGGING_END,
-    CS_OBS_ALIGN_ORIGIN,
+    CS_OBS_ALIGN_ORIGIN = 22,
     CS_OBS_WAIT_CLOSED_LOOP,
     CS_OBS_SPEED_STABLE,
     CS_OBS_FIND_ORIGIN,

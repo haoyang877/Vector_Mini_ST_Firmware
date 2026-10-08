@@ -19,15 +19,13 @@
 | 目录 | 内容与边界 |
 | --- | --- |
 | app/composition | board_config：启动/端口绑定/启动交接；bsp_task、foc_task：任务入口；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
-| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_execution：控制执行与外环协调；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区；rtt_telemetry：RTT 输出适配 |
+| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_execution：控制执行与外环协调；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
 | app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |
-| motor/foc | 电流、速度、无感控制计算、采样换算与补偿应用 |
+| motor/foc | 电流、速度、标定所需无感启动与采样换算 |
 | motor/feedback | angle_feedback：编码器采样、角度校正、多圈与速度估计；所有模式共同使用 |
-| motor/position | position_cascade 与其配置：位置伺服；文件内 core/friction 各有状态，组合层处理轨迹和 HOLD |
-| motor/trajectory | 平滑轨迹计算 |
+| motor/position | position_cascade：直接位置→速度→电流控制 |
 | motor/math | control_math：既有数学、角度与滤波计算，无硬件或 APP 依赖 |
-| motor/calibration | encoder_calibration_core：纯标定计算；encoder_calibration_task：采集/应用流程；cogging_calibration/cogging_map：采样归约/表计算；foc_cogging_calibration：任务；foc_cogging_runtime：活动表/运行补偿 |
-| motor/identification | 相电阻、摩擦辨识的纯计算及任务适配 |
+| motor/calibration | encoder_calibration_core：LUT/零位计算；encoder_calibration_task：采集/应用流程 |
 | motor/protection | 电机故障与母线保护策略 |
 | motor 根目录头文件 | 电机域值类型、模式、状态、任务结果及现有模型/启动 profile，不放应用运行实例 |
 | services/lifecycle | 控制/维护请求、readiness 值与停机服务，不再实现另一套状态机 |
@@ -39,10 +37,8 @@
 | platform/stm32g4/bsp | 芯片/板卡原语与驱动 |
 | platform/stm32g4/ports | 板级、CAN、编码器、电机、时间及启动能力的实现 |
 | platform/stm32g4/cubemx | 生成入口、Core、HAL/CMSIS、IOC 和 Keil 工程；不搬业务到生成区 |
-| third_party | 保持原样的 SEGGER RTT 等外部源码 |
 
 源码与对应头文件相邻。目录按职责分组，不为单个函数新建目录，不创建空的未来配置目录。
-RTT 目前读取外环就绪事实并调用 SEGGER，因此仍归 app/runtime；本轮不通过搬进 services 引入反向依赖。
 数据流和所有权见 [APP 命名与所有权](app_naming_v1.md)、
 [主状态机契约](motor_state_machine_v1.md)。
 

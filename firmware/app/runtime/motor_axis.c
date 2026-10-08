@@ -4,12 +4,9 @@
 #include "motor_maintenance.h"
 #include "motor_hw.h"
 #include "motor_sensing.h"
-#include "foc_cogging_calibration.h"
 #include "power_stage_hw.h"
 #include "foc_sensing.h"
 #include "motor_parameter_transaction.h"
-#include "maintenance_workspace.h"
-#include "rtt_telemetry.h"
 
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
@@ -19,10 +16,6 @@
 #include "motor_state_machine.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
-
-/* 齿槽候选与其它维护任务互斥借用同一工作区；增长必须显式更新容量预算。 */
-typedef char CoggingCandidate_FitsWorkspace
-    [(sizeof(CoggingMapRecord) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 
 /* 电机与控制对象全局符号供 Watch 观测；运行写入仍由 MotorAxis 组装和调度。 */
 MotorControlState s_motor_state;
@@ -177,7 +170,6 @@ void MotorAxis_Init(void)
     s_motor_state.application.position_error_window_rad = 0.001f;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
     MotorOuterLoop_RequestReset();
-    MotorMaintenance_Init();
 
     /* 未配置轴记录的关节在启动后保持禁用。 */
     /* 上电零点校正和基础自检只在关相状态推进，完成也不自动使能电机。 */
@@ -285,14 +277,6 @@ void MotorAxis_FastTick(void)
     }
     MotorStateMachine_PostOutcome(work_outcome, work_epoch);
     MotorStateMachine_FastFaultStop();
-
-    /* 10. 遥测：采样一帧 4 通道 RTT（机械位置/机械转速/iq_a 指令/iq_a 反馈），
-     *     非阻塞、有界，不修改控制状态与运行模式。 */
-    RTT_Sampling(s_motor_state.control_mode,
-                 Encoder_GetMecPos(&s_rotor_encoder),
-                 Encoder_GetMecVel(&s_rotor_encoder),
-                 s_motor_state.iq_target_a,
-                 s_foc_state.iq_a);
 }
 
 static void sample_motor_status(MotorStatus *sample)
@@ -312,15 +296,6 @@ static void sample_motor_status(MotorStatus *sample)
     sample->bus_current = s_foc_state.bus_current_filtered_a;
     sample->position_planned = NAN;
     sample->speed_planned = NAN;
-    if (s_motor_state.control_mode == MOTOR_CONTROL_POSITION)
-    {
-        sample->position_planned = s_motor_state.position_reference_rad;
-        sample->speed_planned = s_motor_state.position_trajectory_speed_rad_s;
-    }
-    else if (s_motor_state.control_mode == MOTOR_CONTROL_SPEED)
-    {
-        sample->speed_planned = s_motor_state.speed_ramped_rad_s;
-    }
 }
 MotorState MotorAxis_ReadStatus(MotorStatus *sample,
                                 uint8_t *valid_bits,
@@ -350,8 +325,6 @@ MotorState MotorAxis_ReadStatus(MotorStatus *sample,
 void MotorAxis_ServiceBackground(void)
 {
     FocBackgroundClaim claim;
-    /* 补偿请求只读取稳定配置；维护占用时不运行整表 CRC。 */
-    MotorStateMachine_ServiceCompensation();
     if (!MotorStateMachine_BeginBackground(&claim))
     {
         return;
@@ -360,21 +333,6 @@ void MotorAxis_ServiceBackground(void)
     if (claim.kind == FOC_BACKGROUND_SAVE)
     {
         success = MotorParameterTransaction_SaveRecord(&s_motor_state, &s_rotor_encoder, &claim);
-    }
-    else if (claim.kind == FOC_BACKGROUND_COGGING)
-    {
-        CoggingMapRecord *candidate = MaintenanceWorkspace_BorrowCogging();
-        if (candidate != NULL)
-        {
-            bool built = FocCogging_BuildCandidate(candidate, &s_motor_state, &s_rotor_encoder);
-            uint32_t mask = critical_hw_enter();
-            if (built && MotorStateMachine_BackgroundValid(&claim))
-            {
-                success = FocCogging_PublishCandidate(candidate);
-            }
-            critical_hw_exit(mask);
-            MaintenanceWorkspace_ReleaseCogging(candidate);
-        }
     }
     uint32_t mask = critical_hw_enter();
     bool current = MotorStateMachine_BackgroundValid(&claim);

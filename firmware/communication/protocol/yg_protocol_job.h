@@ -7,20 +7,17 @@
 #define YG_PROTOCOL_JOB_TYPE_START 160U
 #define YG_PROTOCOL_JOB_TYPE_STATUS 161U
 #define YG_PROTOCOL_JOB_TYPE_CANCEL 162U
-#define YG_PROTOCOL_JOB_TYPE_PLAN 166U
 #define YG_PROTOCOL_JOB_REQUEST_SIZE 4U
 #define YG_PROTOCOL_JOB_REPLY_SIZE 12U
-#define YG_PROTOCOL_PLAN_START_SIZE 20U
-#define YG_PROTOCOL_PLAN_QUERY_SIZE 12U
-#define YG_PROTOCOL_PLAN_REPLY_SIZE 24U
-#define YG_PROTOCOL_PLAN_START 1U
-#define YG_PROTOCOL_PLAN_STATUS 2U
-#define YG_PROTOCOL_PLAN_CANCEL 3U
 #define YG_PROTOCOL_JOB_KIND_ENCODER_LUT 1U
 #define YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO 2U
 #define YG_PROTOCOL_JOB_KIND_COGGING 3U
 #define YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE 4U
 #define YG_PROTOCOL_JOB_KIND_FRICTION 5U
+/* 3～5 保留旧编号，但当前产品不再提供相应任务。 */
+#define YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO 6U
+#define YG_PROTOCOL_JOB_KIND_SAVE 7U
+#define YG_PROTOCOL_JOB_KIND_DEFAULTS 8U
 #define YG_PROTOCOL_JOB_PHASE_NONE 0U
 #define YG_PROTOCOL_JOB_PHASE_IN_PROGRESS 1U
 #define YG_PROTOCOL_JOB_PHASE_COMPLETED 2U
@@ -66,64 +63,6 @@ typedef struct
     uint8_t phase;
     uint8_t effects;
 } yg_protocol_job_reply_t;
-
-/** @brief 整计划请求；START 的 boot_epoch 由链路核对，查询和取消不需要 epoch。 */
-typedef struct
-{
-    uint64_t boot_epoch;
-    uint32_t steps_or_ticket;
-    uint16_t sequence;
-    uint8_t source_node;
-    uint8_t operation;
-} yg_protocol_plan_request_t;
-
-/** @brief 整计划进展；步骤位与子步骤编号均采用线上编号。 */
-typedef struct
-{
-    yg_protocol_service_status_t status;
-    uint32_t parent_ticket;
-    uint32_t step_ticket;
-    uint32_t requested_steps;
-    uint32_t completed_steps;
-    uint16_t detail;
-    uint8_t step;
-    uint8_t phase;
-    uint8_t effects;
-} yg_protocol_plan_reply_t;
-
-/**
- * @brief 解码整计划请求；START 必须20B，STATUS/CANCEL必须12B。
- * @param message 已通过统一帧校验的请求。
- * @param request 成功时写入值对象，失败保持不变。
- * @return 类型、长度及字段校验结果。
- */
-yg_protocol_result_t yg_protocol_plan_decode(const yg_protocol_message_t *message,
-                                             yg_protocol_plan_request_t *request);
-
-/**
- * @brief 编码24B计划进展，失败也返回同样长度。
- * @param reply 业务所有者填写的值结果。
- * @param payload 输出缓冲。
- * @param capacity 输出容量，至少24B。
- * @param written 成功时写入24，可为NULL。
- * @return 编码结果。
- */
-yg_protocol_result_t yg_protocol_plan_encode_reply(const yg_protocol_plan_reply_t *reply,
-                                                   uint8_t *payload,
-                                                   size_t capacity,
-                                                   size_t *written);
-
-/** @brief 整计划业务入口；只读请求指针不可保留。 */
-typedef void (*yg_protocol_plan_handler_t)(void *context,
-                                           const yg_protocol_plan_request_t *request,
-                                           yg_protocol_plan_reply_t *reply);
-
-/** @brief 由组合层绑定的整计划所有者。 */
-typedef struct
-{
-    void *context;
-    yg_protocol_plan_handler_t handler;
-} yg_protocol_plan_service_t;
 
 /**
  * @brief 解码单帧160～162的任务类别或非零任务号。

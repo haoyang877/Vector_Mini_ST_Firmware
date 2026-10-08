@@ -177,7 +177,7 @@ static int check_task_cleanup(void)
             error = MOTOR_FAULT_SENSORLESS;
             break;
         case 9U:
-            s_calibration_phase = CS_ADC_OFFSET_START;
+            s_calibration_phase = CS_OBS_ALIGN_ORIGIN;
             break;
         case 10U:
             s_calibration_phase = CS_OBS_BUILD_LUT;
@@ -210,6 +210,17 @@ static int check_task_cleanup(void)
             s_calibration_phase = CS_OBS_SPEED_STABLE;
             startup.state = SENSORLESS_STARTUP_OPEN_LOOP;
             break;
+        }
+        if (scenario == 9U)
+        {
+            /* 用实际活动阶段检查取消：任务先归还引用，组合层再归还真实工作区。 */
+            EncoderCalibrationTask_Cancel();
+            if (!EncoderCalibrationTask_IsReleased() || MaintenanceWorkspace_IsReleased())
+            {
+                return 35;
+            }
+            MaintenanceWorkspace_ReleaseEncoder();
+            continue;
         }
         MotorTaskResult result = EncoderCalibrationTask_StepLut(
             &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
@@ -437,8 +448,7 @@ int main(void)
     {
         EncoderCalibrationWorkspace *encoder = MaintenanceWorkspace_BorrowEncoder();
         if (encoder == NULL || (uintptr_t)encoder % 8U != 0U ||
-            MaintenanceWorkspace_BorrowParameter() != NULL ||
-            MaintenanceWorkspace_BorrowCogging() != NULL)
+            MaintenanceWorkspace_BorrowParameter() != NULL)
         {
             return 2;
         }
@@ -449,7 +459,6 @@ int main(void)
         }
         memset(encoder, 0xA5, sizeof(*encoder));
         MaintenanceWorkspace_ReleaseParameter((InterfaceParam *)encoder);
-        MaintenanceWorkspace_ReleaseCogging((CoggingMapRecord *)encoder);
         if (MaintenanceWorkspace_IsReleased() || MaintenanceWorkspace_BorrowEncoder() != encoder ||
             encoder->bins.samples[ENCODER_OFFSET_LUT_SIZE - 1U] != 0xA5A5U)
         {
@@ -476,13 +485,6 @@ int main(void)
             return 5;
         }
         MaintenanceWorkspace_ReleaseParameter(parameter);
-        CoggingMapRecord *cogging = MaintenanceWorkspace_BorrowCogging();
-        if ((void *)cogging != (void *)encoder || MaintenanceWorkspace_BorrowCogging() != NULL ||
-            MaintenanceWorkspace_BorrowParameter() != NULL)
-        {
-            return 6;
-        }
-        MaintenanceWorkspace_ReleaseCogging(cogging);
     }
     s_mask = 1U;
     if (!MaintenanceWorkspace_IsReleased() || s_mask != 1U || s_depth != 0U)
@@ -499,9 +501,8 @@ int main(void)
     {
         return trace;
     }
-    printf("workspace PASS: encoder=%zu parameter=%zu cogging=%zu; one aligned shared storage\n",
+    printf("workspace PASS: encoder=%zu parameter=%zu; one aligned shared storage\n",
            sizeof(EncoderCalibrationWorkspace),
-           sizeof(InterfaceParam),
-           sizeof(CoggingMapRecord));
+           sizeof(InterfaceParam));
     return 0;
 }

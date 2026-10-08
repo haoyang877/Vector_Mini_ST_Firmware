@@ -1,0 +1,14 @@
+{
+  "version": "1.2",
+  "request_type": "0x00A0",
+  "request_length": 4,
+  "reply_length": 12,
+  "vectors": [
+    {"name": "start_mechanical_zero", "request_payload_hex": "06 00 00 00", "accepted_reply_payload_hex": "01 00 00 00 78 56 34 12 06 00 01 01"},
+    {"name": "start_maintenance_save", "request_payload_hex": "07 00 00 00", "accepted_reply_payload_hex": "01 00 00 00 78 56 34 12 07 00 01 01"},
+    {"name": "start_defaults", "request_payload_hex": "08 00 00 00", "accepted_reply_payload_hex": "01 00 00 00 78 56 34 12 08 00 01 01"},
+    {"name": "retired_cogging", "request_payload_hex": "03 00 00 00", "reply_payload_hex": "02 00 01 00 00 00 00 00 00 00 00 00"},
+    {"name": "retired_phase_resistance", "request_payload_hex": "04 00 00 00", "reply_payload_hex": "02 00 01 00 00 00 00 00 00 00 00 00"},
+    {"name": "retired_friction", "request_payload_hex": "05 00 00 00", "reply_payload_hex": "02 00 01 00 00 00 00 00 00 00 00 00"}
+  ]
+}

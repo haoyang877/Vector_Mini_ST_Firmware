@@ -15,7 +15,6 @@
 #include "control_math.h"
 #include "motor_state_machine.h"
 #include "motor_hw.h"
-#include "rtt_telemetry.h"
 #include "motor_parameter_transaction.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
@@ -187,14 +186,6 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
     assert(false);
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-void RTT_Sampling(MotorControlMode mode,
-                  float position_rad,
-                  float speed_rad_s,
-                  float iq_reference_a,
-                  float iq_feedback_a)
-{
-}
-
 /* STARTUP_CURRENT_OFFSET_PRODUCTION：脚本插入真实生产体。 */
 
 static void initialize(void)

@@ -1,8 +1,8 @@
 #ifndef CONTROL_CONFIG_H
 #define CONTROL_CONFIG_H
 
-/* 控制时基与遥测采样契约：电流环、速度环、位置环、级联位置环与监督 tick 的频率，
- * 以及 RTT 采样分频。platform/api 层拥有该契约；板级配置（hw_conf.h）引用并据此
+/* 控制时基契约：电流环、速度环、位置环与监督 tick 的频率。
+ * platform/api 层拥有该契约；板级配置（hw_conf.h）引用并据此
  * 派生定时器参数，motor 层算法直接包含本头文件。
  * 电机的启动/标定默认参数（无感启动、编码器标定、阻尼环变体）属于 motor 层，
  * 见 firmware/motor/motor_startup_profile.h 与 firmware/motor/motor_hardware_profile.h。 */
@@ -58,19 +58,5 @@
 #endif
 #define SUPERVISOR_TICKS_PER_MS (SUPERVISOR_FREQ / 1000U)
 #define Supervisor_Ts (1.0f / (float)SUPERVISOR_FREQ)
-
-/* RTT 遥测契约：上行 channel 1，采样频率必须整除 FOC_FREQ。 */
-#define RTT_SAMPLE_RATE_HZ 2000U
-#if RTT_SAMPLE_RATE_HZ == 0U
-#error "RTT_SAMPLE_RATE_HZ must be greater than zero"
-#elif RTT_SAMPLE_RATE_HZ > FOC_FREQ
-#error "RTT_SAMPLE_RATE_HZ must not exceed FOC_FREQ"
-#elif (FOC_FREQ % RTT_SAMPLE_RATE_HZ) != 0U
-#error "RTT_SAMPLE_RATE_HZ must divide FOC_FREQ exactly"
-#endif
-#define RTT_SAMPLE_DIVIDER (FOC_FREQ / RTT_SAMPLE_RATE_HZ)
-
-/* 固定 4 通道 int16 帧：位置/转速/iq_a 指令/iq_a 反馈，布局见 rtt_telemetry.c。 */
-#define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2"
 
 #endif

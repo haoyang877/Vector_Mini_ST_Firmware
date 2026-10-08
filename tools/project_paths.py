@@ -33,8 +33,6 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/motor",
     "firmware/motor/foc",
     "firmware/motor/position",
-    "firmware/motor/trajectory",
-    "firmware/motor/identification",
     "firmware/motor/calibration",
     "firmware/motor/feedback",
     "firmware/motor/protection",
@@ -45,7 +43,6 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/communication/protocol",
     "firmware/platform/api",
     "firmware/platform/stm32g4/bsp",
-    "firmware/third_party/segger_rtt",
 )
 NATIVE_INCLUDE_FLAGS = [
     item for directory in NATIVE_INCLUDE_DIRS for item in ("-I", str(ROOT / directory))

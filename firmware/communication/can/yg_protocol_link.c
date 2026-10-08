@@ -48,33 +48,14 @@ typedef struct
 
 typedef struct
 {
-    uint8_t payload[YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE];
-    uint16_t sequence;
-    uint16_t result;
-    uint16_t detail;
-    bool valid;
-} yg_link_run_history_t;
-
-typedef struct
-{
-    uint8_t payload[YG_PROTOCOL_PLAN_START_SIZE];
-    uint8_t reply[YG_PROTOCOL_PLAN_REPLY_SIZE];
-    uint16_t sequence;
-    bool valid;
-} yg_link_plan_history_t;
-
-typedef struct
-{
     uint8_t node_id;
     yg_protocol_readonly_info_page0_t info;
     uint8_t maintenance_pages[2][32];
     yg_protocol_readonly_caps_page0_t capabilities;
     const yg_protocol_readonly_device_status_t *device_status_source;
     yg_protocol_motor_service_t motor_service;
-    yg_protocol_run_service_t run_service;
     yg_protocol_parameter_service_t parameter_service;
     yg_protocol_job_service_t job_service;
-    yg_protocol_plan_service_t plan_service;
     BootEntryService boot_service;
     uint64_t boot_ticket;
     uint32_t service_now_ms;
@@ -87,13 +68,6 @@ typedef struct
     yg_protocol_motor_status_source_t empty_motor_status;
     const yg_protocol_motor_status_source_t *motor_status_source;
     yg_link_control_history_t control_history[YG_LINK_CONTROL_HISTORY_SIZE];
-    yg_link_run_history_t run_start_history;
-    yg_link_run_history_t run_renew_history;
-    yg_link_plan_history_t plan_start_history;
-    uint16_t last_run_sequence;
-    uint16_t last_plan_sequence;
-    bool run_sequence_seen;
-    bool plan_sequence_seen;
     uint16_t last_control_sequence;
     uint16_t feedback_sequence;
     bool device_description_available;
@@ -206,42 +180,6 @@ static bool request_context_valid(const yg_protocol_link_context_t *link,
 {
     return link != NULL && request != NULL && result != NULL &&
            YgProtocol_IsAckUnicastRequest(request);
-}
-
-static bool sequence_is_new(uint16_t sequence, uint16_t last, bool seen)
-{
-    uint16_t distance = (uint16_t)(sequence - last);
-    return !seen || (distance != 0U && distance < 0x8000U);
-}
-
-/* 安全边界总是撤销最近请求；只有主站自己的序号能推进主站水位。 */
-static void
-revoke_start_history(yg_protocol_link_context_t *link, uint8_t source_node, uint16_t sequence)
-{
-    link->run_start_history.valid = false;
-    link->run_renew_history.valid = false;
-    link->plan_start_history.valid = false;
-    if (source_node != YG_LINK_MASTER_NODE_ID)
-    {
-        return;
-    }
-    if (sequence_is_new(sequence, link->last_run_sequence, link->run_sequence_seen))
-    {
-        link->last_run_sequence = sequence;
-        link->run_sequence_seen = true;
-    }
-    if (sequence_is_new(sequence, link->last_plan_sequence, link->plan_sequence_seen))
-    {
-        link->last_plan_sequence = sequence;
-        link->plan_sequence_seen = true;
-    }
-}
-
-static bool epoch_matches(const yg_protocol_link_context_t *link, uint64_t epoch)
-{
-    const yg_protocol_readonly_device_status_t *status = link->device_status_source;
-    return status != NULL && status->epoch_valid && status->boot_epoch != 0U &&
-           status->boot_epoch == epoch;
 }
 
 static yg_protocol_result_t provide_unavailable(uint8_t *payload, uint32_t *payload_length)
@@ -359,8 +297,7 @@ static yg_protocol_result_t handle_motor_action(void *context,
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    if (request->source_node != YG_LINK_MASTER_NODE_ID &&
-        request->message_type != YG_PROTOCOL_MOTOR_TYPE_STOP)
+    if (request->source_node != YG_LINK_MASTER_NODE_ID)
     {
         write_result(result, 7U, 0U);
         return YG_PROTOCOL_OK;
@@ -382,15 +319,6 @@ static yg_protocol_result_t handle_motor_action(void *context,
     command.source_node = request->source_node;
     command.sequence = request->sequence;
     (void)yg_protocol_motor_call(&link->motor_service, &command, &reply);
-    if (command.operation == YG_PROTOCOL_MOTOR_STOP ||
-        (request->source_node == YG_LINK_MASTER_NODE_ID &&
-         (reply.status == YG_PROTOCOL_SERVICE_OK || reply.status == YG_PROTOCOL_SERVICE_ACCEPTED) &&
-         command.operation == YG_PROTOCOL_MOTOR_DISABLE) ||
-        (request->source_node == YG_LINK_MASTER_NODE_ID && reply.status == YG_PROTOCOL_SERVICE_OK &&
-         command.operation == YG_PROTOCOL_MOTOR_CLEAR_FAULT))
-    {
-        revoke_start_history(link, request->source_node, request->sequence);
-    }
     if (yg_protocol_motor_encode_reply(
             &reply, result->response_payload, sizeof(result->response_payload), NULL) !=
         YG_PROTOCOL_OK)
@@ -425,7 +353,7 @@ static yg_protocol_result_t handle_motor_start(void *context,
         write_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
         return YG_PROTOCOL_OK;
     }
-    if (command.mode != 2U)
+    if (command.mode != 1U && command.mode != 2U && command.mode != 3U && command.mode != 6U)
     {
         write_result(result, 2U, 0U);
         return YG_PROTOCOL_OK;
@@ -439,87 +367,6 @@ static yg_protocol_result_t handle_motor_start(void *context,
     }
     result->response_payload_length = YG_PROTOCOL_MOTOR_REPLY_SIZE;
     result->response_flags = YG_PROTOCOL_FLAGS_RESPONSE;
-    return YG_PROTOCOL_OK;
-}
-
-static yg_protocol_result_t handle_run_session(void *context,
-                                               const yg_protocol_message_t *request,
-                                               yg_protocol_service_result_t *result)
-{
-    yg_protocol_link_context_t *link = context;
-    yg_protocol_run_request_t command;
-    yg_protocol_service_reply_t reply = {.status = YG_PROTOCOL_SERVICE_UNSUPPORTED};
-    yg_link_run_history_t *history;
-    yg_protocol_result_t decoded;
-    if (!request_context_valid(link, request, result))
-    {
-        return YG_PROTOCOL_INVALID_FIELD;
-    }
-    if (request->source_node != YG_LINK_MASTER_NODE_ID)
-    {
-        write_result(result, 7U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    decoded = yg_protocol_motor_decode_run(request, &command);
-    if (decoded != YG_PROTOCOL_OK)
-    {
-        write_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    if (!link->device_status_source->epoch_valid || link->device_status_source->boot_epoch == 0U)
-    {
-        write_result(result, 2U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    if (!epoch_matches(link, command.boot_epoch))
-    {
-        write_result(result, 5U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    history = command.operation == YG_PROTOCOL_RUN_SESSION_START ? &link->run_start_history
-                                                                 : &link->run_renew_history;
-    if (history->valid && history->sequence == request->sequence)
-    {
-        if (memcmp(history->payload, request->payload, YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE) == 0)
-        {
-            if (command.operation == YG_PROTOCOL_RUN_SESSION_START &&
-                link->run_service.handler != NULL)
-            {
-                command.operation = YG_PROTOCOL_RUN_SESSION_PROGRESS;
-                link->run_service.handler(link->run_service.context, &command, &reply);
-                write_result(result, yg_protocol_motor_result_code(reply.status), reply.detail);
-            }
-            else
-            {
-                /* 续租重试只能重放原回复，绝不再次刷新租约。 */
-                write_result(result, history->result, history->detail);
-            }
-        }
-        else
-        {
-            write_result(result, 4U, 0U);
-        }
-        return YG_PROTOCOL_OK;
-    }
-    if (!sequence_is_new(request->sequence, link->last_run_sequence, link->run_sequence_seen))
-    {
-        write_result(result, 4U, 0U);
-        return YG_PROTOCOL_OK;
-    }
-    if (link->run_service.handler != NULL)
-    {
-        reply.status = YG_PROTOCOL_SERVICE_FAILED;
-        link->run_service.handler(link->run_service.context, &command, &reply);
-    }
-    uint16_t code = yg_protocol_motor_result_code(reply.status);
-    write_result(result, code, reply.detail);
-    memcpy(history->payload, request->payload, YG_PROTOCOL_RUN_SESSION_REQUEST_SIZE);
-    history->sequence = request->sequence;
-    history->result = code;
-    history->detail = reply.detail;
-    history->valid = true;
-    link->last_run_sequence = request->sequence;
-    link->run_sequence_seen = true;
     return YG_PROTOCOL_OK;
 }
 
@@ -714,100 +561,6 @@ static yg_protocol_result_t handle_job(void *context,
     return YG_PROTOCOL_OK;
 }
 
-static void write_plan_error(yg_protocol_service_result_t *result, uint16_t code)
-{
-    memset(result->response_payload, 0, YG_PROTOCOL_PLAN_REPLY_SIZE);
-    YgProtocol_WriteU16Le(result->response_payload, code);
-    result->response_payload_length = YG_PROTOCOL_PLAN_REPLY_SIZE;
-}
-
-static yg_protocol_result_t handle_calibration_plan(void *context,
-                                                    const yg_protocol_message_t *request,
-                                                    yg_protocol_service_result_t *result)
-{
-    yg_protocol_link_context_t *link = context;
-    yg_protocol_plan_request_t command;
-    yg_protocol_plan_reply_t reply = {.status = YG_PROTOCOL_SERVICE_UNSUPPORTED};
-    yg_protocol_result_t decoded;
-    if (!request_context_valid(link, request, result))
-    {
-        return YG_PROTOCOL_INVALID_FIELD;
-    }
-    if (request->source_node != YG_LINK_MASTER_NODE_ID)
-    {
-        write_plan_error(result, 7U);
-        return YG_PROTOCOL_OK;
-    }
-    decoded = yg_protocol_plan_decode(request, &command);
-    if (decoded != YG_PROTOCOL_OK)
-    {
-        write_plan_error(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U);
-        return YG_PROTOCOL_OK;
-    }
-    if (command.operation == YG_PROTOCOL_PLAN_START)
-    {
-        if ((command.steps_or_ticket & UINT32_C(0xC0)) != 0U)
-        {
-            write_plan_error(result, 2U);
-            return YG_PROTOCOL_OK;
-        }
-        if (!link->device_status_source->epoch_valid ||
-            link->device_status_source->boot_epoch == 0U)
-        {
-            write_plan_error(result, 2U);
-            return YG_PROTOCOL_OK;
-        }
-        if (!epoch_matches(link, command.boot_epoch))
-        {
-            write_plan_error(result, 5U);
-            return YG_PROTOCOL_OK;
-        }
-        yg_link_plan_history_t *history = &link->plan_start_history;
-        if (history->valid && history->sequence == request->sequence)
-        {
-            if (memcmp(history->payload, request->payload, YG_PROTOCOL_PLAN_START_SIZE) == 0)
-            {
-                memcpy(result->response_payload, history->reply, YG_PROTOCOL_PLAN_REPLY_SIZE);
-                result->response_payload_length = YG_PROTOCOL_PLAN_REPLY_SIZE;
-            }
-            else
-            {
-                write_plan_error(result, 4U);
-            }
-            return YG_PROTOCOL_OK;
-        }
-        if (!sequence_is_new(request->sequence, link->last_plan_sequence, link->plan_sequence_seen))
-        {
-            write_plan_error(result, 4U);
-            return YG_PROTOCOL_OK;
-        }
-    }
-    if (link->plan_service.handler != NULL)
-    {
-        reply.status = YG_PROTOCOL_SERVICE_FAILED;
-        link->plan_service.handler(link->plan_service.context, &command, &reply);
-    }
-    if (yg_protocol_plan_encode_reply(
-            &reply, result->response_payload, sizeof(result->response_payload), NULL) !=
-        YG_PROTOCOL_OK)
-    {
-        write_plan_error(result, 8U);
-        return YG_PROTOCOL_OK;
-    }
-    result->response_payload_length = YG_PROTOCOL_PLAN_REPLY_SIZE;
-    if (command.operation == YG_PROTOCOL_PLAN_START)
-    {
-        yg_link_plan_history_t *history = &link->plan_start_history;
-        memcpy(history->payload, request->payload, YG_PROTOCOL_PLAN_START_SIZE);
-        memcpy(history->reply, result->response_payload, YG_PROTOCOL_PLAN_REPLY_SIZE);
-        history->sequence = request->sequence;
-        history->valid = true;
-        link->last_plan_sequence = request->sequence;
-        link->plan_sequence_seen = true;
-    }
-    return YG_PROTOCOL_OK;
-}
-
 static yg_protocol_result_t handle_boot(void *context,
                                         const yg_protocol_message_t *request,
                                         yg_protocol_service_result_t *result)
@@ -900,14 +653,12 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_PROTOCOL_MOTOR_TYPE_STOP, handle_motor_action, &s_link_context},
         {YG_PROTOCOL_MOTOR_TYPE_CONTROL, handle_motor_control, &s_link_context},
         {YG_PROTOCOL_MOTOR_TYPE_START, handle_motor_start, &s_link_context},
-        {YG_PROTOCOL_MOTOR_TYPE_RUN_SESSION, handle_run_session, &s_link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_READ, handle_parameter, &s_link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_WRITE, handle_parameter, &s_link_context},
         {YG_PROTOCOL_PARAMETER_TYPE_SAVE, handle_parameter, &s_link_context},
         {YG_PROTOCOL_JOB_TYPE_START, handle_job, &s_link_context},
         {YG_PROTOCOL_JOB_TYPE_STATUS, handle_job, &s_link_context},
         {YG_PROTOCOL_JOB_TYPE_CANCEL, handle_job, &s_link_context},
-        {YG_PROTOCOL_JOB_TYPE_PLAN, handle_calibration_plan, &s_link_context},
         {YG_PROTOCOL_BOOT_TYPE_ENTER, handle_boot, &s_link_context},
         {YG_PROTOCOL_BOOT_TYPE_CONFIRM, handle_boot, &s_link_context},
     };
@@ -1010,16 +761,6 @@ bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
     return true;
 }
 
-bool YgProtocolLink_BindRunService(const yg_protocol_run_service_t *service)
-{
-    if (!s_ready)
-    {
-        return false;
-    }
-    s_link_context.run_service = service != NULL ? *service : (yg_protocol_run_service_t){0};
-    return true;
-}
-
 bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *service)
 {
     if (!s_ready)
@@ -1038,16 +779,6 @@ bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service)
         return false;
     }
     s_link_context.job_service = service != NULL ? *service : (yg_protocol_job_service_t){0};
-    return true;
-}
-
-bool YgProtocolLink_BindPlanService(const yg_protocol_plan_service_t *service)
-{
-    if (!s_ready)
-    {
-        return false;
-    }
-    s_link_context.plan_service = service != NULL ? *service : (yg_protocol_plan_service_t){0};
     return true;
 }
 

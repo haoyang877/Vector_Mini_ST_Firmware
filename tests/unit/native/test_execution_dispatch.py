@@ -4,7 +4,6 @@ import argparse
 import subprocess
 from pathlib import Path
 
-from _naming_reference import project_reference
 from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 
@@ -15,8 +14,6 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
     if not state_path.exists():
         state_path = source_dir / "motor_state.c"
     state = state_path.read_text(encoding="utf-8")
-    execution = project_reference(execution, "firmware/app/motor_execution.c")
-    state = project_reference(state, "firmware/app/motor_state.c")
     fixture = (ROOT / "tests/unit/native/execution_dispatch_test.c").read_text(encoding="utf-8")
     if "s_current_offset_calibration.complete" in state:
         context_end = state.index("CurrentOffsetCalibration s_current_offset_calibration;") + len(
@@ -76,13 +73,13 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
 
 
 def main() -> None:
-    """执行诊断开关两种构建；提供基线时要求完整特征矩阵结果一致。"""
+    """执行核心分发检查；功能退役后不与全功能历史轨迹混作等价证据。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True, type=Path)
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/execution_dispatch_tests")
     parser.add_argument("--reference-dir", type=Path)
     args = parser.parse_args()
-    for profile in (0, 1):
+    for profile in (0,):
         current = run_variant(
             args.cc, ROOT / "firmware/app/runtime", args.out / f"current-{profile}", profile
         )

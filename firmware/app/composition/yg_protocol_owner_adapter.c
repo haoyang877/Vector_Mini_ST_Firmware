@@ -139,16 +139,29 @@ static void handle_parameter(void *context,
 static void handle_start(const yg_protocol_motor_request_t *request,
                          yg_protocol_service_reply_t *reply)
 {
-    MotorControlStartRequest start = {.mode = MOTOR_CONTROL_SPEED,
-                                      .sequence = request->sequence,
-                                      .source_node = request->source_node};
-    MotorControlStartProgress progress;
-    MotorControlResult result;
-    if (request->mode != 2U)
+    MotorControlMode mode;
+    switch (request->mode)
     {
+    case 1U:
+        mode = MOTOR_CONTROL_CURRENT;
+        break;
+    case 2U:
+        mode = MOTOR_CONTROL_SPEED;
+        break;
+    case 3U:
+        mode = MOTOR_CONTROL_POSITION;
+        break;
+    case 6U:
+        mode = MOTOR_CONTROL_VQ;
+        break;
+    default:
         reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
         return;
     }
+    MotorControlStartRequest start = {
+        .mode = mode, .sequence = request->sequence, .source_node = request->source_node};
+    MotorControlStartProgress progress;
+    MotorControlResult result;
     result = MotorStateMachine_RequestIdentifiedEnable(&start);
     if (result == MOTOR_CONTROL_STALE_SEQUENCE || result == MOTOR_CONTROL_CONFLICTING_RETRY)
     {
@@ -221,243 +234,6 @@ void YgProtocolOwner_HandleLifecycle(void *context,
     /* 101 的 enable=1 是低侧制动候选，不能偷换成电流模式启动。 */
 }
 
-static void map_motor_control_result(MotorControlResult result, yg_protocol_service_reply_t *reply)
-{
-    switch (result)
-    {
-    case MOTOR_CONTROL_ACCEPTED:
-        reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
-        break;
-    case MOTOR_CONTROL_BUSY:
-        reply->status = YG_PROTOCOL_SERVICE_BUSY;
-        break;
-    case MOTOR_CONTROL_FAULT:
-        reply->status = YG_PROTOCOL_SERVICE_FAULT;
-        break;
-    case MOTOR_CONTROL_DENIED:
-        reply->status = YG_PROTOCOL_SERVICE_DENIED;
-        break;
-    case MOTOR_CONTROL_OUT_OF_RANGE:
-        reply->status = YG_PROTOCOL_SERVICE_OUT_OF_RANGE;
-        break;
-    case MOTOR_CONTROL_STALE_SEQUENCE:
-    case MOTOR_CONTROL_CONFLICTING_RETRY:
-        reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-        reply->detail = result == MOTOR_CONTROL_STALE_SEQUENCE ? 0x0101U : 0x0102U;
-        break;
-    default:
-        reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-        break;
-    }
-}
-
-static MotorControlMode run_mode(uint8_t wire_mode)
-{
-    switch (wire_mode)
-    {
-    case 1U:
-        return MOTOR_CONTROL_CURRENT;
-    case 2U:
-        return MOTOR_CONTROL_SPEED;
-    case 3U:
-        return MOTOR_CONTROL_POSITION;
-    case 6U:
-        return MOTOR_CONTROL_VQ;
-    default:
-        return MOTOR_CONTROL_NONE;
-    }
-}
-
-static void handle_run_session(void *context,
-                               const yg_protocol_run_request_t *request,
-                               yg_protocol_service_reply_t *reply)
-{
-    MotorControlResult result;
-    (void)context;
-    *reply = (yg_protocol_service_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
-    if (request == NULL)
-    {
-        return;
-    }
-    if (request->operation == YG_PROTOCOL_RUN_SESSION_PROGRESS)
-    {
-        MotorControlStartProgress progress;
-        if (!MotorStateMachine_ReadEnableProgress(
-                request->source_node, request->sequence, &progress))
-        {
-            reply->status = YG_PROTOCOL_SERVICE_DENIED;
-        }
-        else if (progress.state == MOTOR_CONTROL_START_STARTED)
-        {
-            reply->status = YG_PROTOCOL_SERVICE_OK;
-        }
-        else if (progress.state == MOTOR_CONTROL_START_PENDING)
-        {
-            reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
-        }
-        else
-        {
-            map_motor_control_result(progress.result, reply);
-        }
-        return;
-    }
-    if (request->operation == YG_PROTOCOL_RUN_SESSION_RENEW)
-    {
-        result = MotorStateMachine_RefreshControlLease(
-            request->source_node, request->origin_seq, request->timeout_ms);
-        map_motor_control_result(result, reply);
-        if (result == MOTOR_CONTROL_ACCEPTED)
-        {
-            reply->status = YG_PROTOCOL_SERVICE_OK;
-        }
-        return;
-    }
-    MotorControlStartRequest start = {.mode = run_mode(request->mode),
-                                      .sequence = request->sequence,
-                                      .source_node = request->source_node};
-    result = MotorStateMachine_RequestIdentifiedRun(&start, request->timeout_ms);
-    map_motor_control_result(result, reply);
-    if (result == MOTOR_CONTROL_ACCEPTED)
-    {
-        MotorControlStartProgress progress;
-        if (MotorStateMachine_ReadEnableProgress(
-                request->source_node, request->sequence, &progress) &&
-            progress.state == MOTOR_CONTROL_START_STARTED)
-        {
-            reply->status = YG_PROTOCOL_SERVICE_OK;
-        }
-    }
-}
-
-static uint32_t plan_internal_steps(uint32_t wire_steps)
-{
-    uint32_t steps = 0U;
-    if (wire_steps & (1U << 0U))
-    {
-        steps |= MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_PHASE_RESISTANCE);
-    }
-    if (wire_steps & (1U << 1U))
-    {
-        steps |= MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_ENCODER_LUT);
-    }
-    if (wire_steps & (1U << 2U))
-    {
-        steps |= MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
-    }
-    if (wire_steps & (1U << 3U))
-    {
-        steps |= MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_MECHANICAL_ZERO);
-    }
-    if (wire_steps & (1U << 4U))
-    {
-        steps |= MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_FRICTION);
-    }
-    if (wire_steps & (1U << 5U))
-    {
-        steps |= MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_COGGING);
-    }
-    return steps;
-}
-
-static uint8_t plan_wire_step(MotorMaintenanceKind kind)
-{
-    switch (kind)
-    {
-    case MOTOR_MAINTENANCE_PHASE_RESISTANCE:
-        return 1U;
-    case MOTOR_MAINTENANCE_ENCODER_LUT:
-        return 2U;
-    case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
-        return 3U;
-    case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
-        return 4U;
-    case MOTOR_MAINTENANCE_FRICTION:
-        return 5U;
-    case MOTOR_MAINTENANCE_COGGING:
-        return 6U;
-    case MOTOR_MAINTENANCE_SAVE:
-        return 7U;
-    default:
-        return 0U;
-    }
-}
-
-static uint32_t plan_wire_steps(uint32_t internal_steps)
-{
-    uint32_t wire_steps = 0U;
-    for (uint8_t bit = 0U; bit < 6U; ++bit)
-    {
-        if (internal_steps & plan_internal_steps(1U << bit))
-        {
-            wire_steps |= 1U << bit;
-        }
-    }
-    return wire_steps;
-}
-
-static void handle_calibration_plan(void *context,
-                                    const yg_protocol_plan_request_t *request,
-                                    yg_protocol_plan_reply_t *reply)
-{
-    MotorControlResult result = MOTOR_CONTROL_INVALID;
-    MotorCalibrationProgress progress;
-    uint32_t ticket = 0U;
-    (void)context;
-    *reply = (yg_protocol_plan_reply_t){.status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT};
-    if (request == NULL)
-    {
-        return;
-    }
-    if (request->operation == YG_PROTOCOL_PLAN_START)
-    {
-        result = MotorStateMachine_RequestCalibration(plan_internal_steps(request->steps_or_ticket),
-                                                      &ticket);
-    }
-    else
-    {
-        ticket = request->steps_or_ticket;
-        if (request->operation == YG_PROTOCOL_PLAN_CANCEL)
-        {
-            result = MotorStateMachine_CancelCalibration(ticket);
-        }
-        else
-        {
-            result = MOTOR_CONTROL_ACCEPTED;
-        }
-    }
-    yg_protocol_service_reply_t mapped = {.status = YG_PROTOCOL_SERVICE_OK};
-    map_motor_control_result(result, &mapped);
-    reply->status = mapped.status;
-    reply->detail = mapped.detail;
-    if (result != MOTOR_CONTROL_ACCEPTED || !MotorStateMachine_ReadCalibration(ticket, &progress))
-    {
-        if (result == MOTOR_CONTROL_ACCEPTED)
-        {
-            reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-        }
-        return;
-    }
-    reply->parent_ticket = progress.ticket;
-    reply->step_ticket = progress.step_ticket;
-    reply->requested_steps = plan_wire_steps(progress.requested_steps);
-    reply->completed_steps = plan_wire_steps(progress.completed_steps);
-    reply->step = plan_wire_step(progress.step);
-    reply->phase =
-        progress.result == MOTOR_MAINTENANCE_NO_RESULT   ? YG_PROTOCOL_JOB_PHASE_IN_PROGRESS
-        : progress.result == MOTOR_MAINTENANCE_COMPLETED ? YG_PROTOCOL_JOB_PHASE_COMPLETED
-        : progress.result == MOTOR_MAINTENANCE_CANCEL_REQUESTED
-            ? YG_PROTOCOL_JOB_PHASE_CANCEL_REQUESTED
-        : progress.result == MOTOR_MAINTENANCE_CANCELLED ? YG_PROTOCOL_JOB_PHASE_CANCELLED
-                                                         : YG_PROTOCOL_JOB_PHASE_FAILED;
-    reply->effects = (uint8_t)progress.effects;
-    reply->status = request->operation == YG_PROTOCOL_PLAN_STATUS ? YG_PROTOCOL_SERVICE_OK
-                    : progress.result == MOTOR_MAINTENANCE_FAILED ? YG_PROTOCOL_SERVICE_FAILED
-                    : progress.result == MOTOR_MAINTENANCE_COMPLETED ||
-                            progress.result == MOTOR_MAINTENANCE_CANCELLED
-                        ? YG_PROTOCOL_SERVICE_OK
-                        : YG_PROTOCOL_SERVICE_ACCEPTED;
-}
-
 static uint16_t job_wire_kind(MotorMaintenanceKind kind)
 {
     switch (kind)
@@ -466,12 +242,12 @@ static uint16_t job_wire_kind(MotorMaintenanceKind kind)
         return YG_PROTOCOL_JOB_KIND_ENCODER_LUT;
     case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
         return YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO;
-    case MOTOR_MAINTENANCE_COGGING:
-        return YG_PROTOCOL_JOB_KIND_COGGING;
-    case MOTOR_MAINTENANCE_PHASE_RESISTANCE:
-        return YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE;
-    case MOTOR_MAINTENANCE_FRICTION:
-        return YG_PROTOCOL_JOB_KIND_FRICTION;
+    case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
+        return YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO;
+    case MOTOR_MAINTENANCE_SAVE:
+        return YG_PROTOCOL_JOB_KIND_SAVE;
+    case MOTOR_MAINTENANCE_DEFAULTS:
+        return YG_PROTOCOL_JOB_KIND_DEFAULTS;
     default:
         return 0U;
     }
@@ -575,14 +351,14 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
         case YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO:
             command.kind = MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
             break;
-        case YG_PROTOCOL_JOB_KIND_COGGING:
-            command.kind = MOTOR_MAINTENANCE_COGGING;
+        case YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO:
+            command.kind = MOTOR_MAINTENANCE_MECHANICAL_ZERO;
             break;
-        case YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE:
-            command.kind = MOTOR_MAINTENANCE_PHASE_RESISTANCE;
+        case YG_PROTOCOL_JOB_KIND_SAVE:
+            command.kind = MOTOR_MAINTENANCE_SAVE;
             break;
-        case YG_PROTOCOL_JOB_KIND_FRICTION:
-            command.kind = MOTOR_MAINTENANCE_FRICTION;
+        case YG_PROTOCOL_JOB_KIND_DEFAULTS:
+            command.kind = MOTOR_MAINTENANCE_DEFAULTS;
             break;
         default:
             reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
@@ -593,7 +369,7 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
     }
     else if (request->operation == YG_PROTOCOL_JOB_CANCEL)
     {
-        /* 162只开放线路标定种类；类别核对与按ticket取消共同串行化，不能取消参数SAVE。 */
+        /* 162只取消本任务ticket；不能拿维护SAVE身份取消122参数保存。 */
         uint32_t mask = critical_hw_enter();
         MotorMaintenanceProgress candidate;
         bool calibration = MotorStateMachine_ReadMaintenance(ticket, &candidate) &&
@@ -636,9 +412,5 @@ bool YgProtocolOwner_BindServices(void)
 {
     const yg_protocol_parameter_service_t parameters = {NULL, handle_parameter};
     const yg_protocol_job_service_t jobs = {NULL, handle_job};
-    const yg_protocol_run_service_t runs = {NULL, handle_run_session};
-    const yg_protocol_plan_service_t plans = {NULL, handle_calibration_plan};
-    return YgProtocolLink_BindParameterService(&parameters) &&
-           YgProtocolLink_BindJobService(&jobs) && YgProtocolLink_BindRunService(&runs) &&
-           YgProtocolLink_BindPlanService(&plans);
+    return YgProtocolLink_BindParameterService(&parameters) && YgProtocolLink_BindJobService(&jobs);
 }

@@ -65,7 +65,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
   application code schedules and composes, and services own policy or persistence.
 - Mutable state has one owning module. Other modules use commands, immutable snapshots, or an
   explicitly passed state object instead of writing another module's globals.
-- APP owns one fixed maintenance workspace for parameter records, cogging candidates, and encoder
+- APP owns one fixed maintenance workspace for parameter records and encoder
   calibration samples. Algorithms borrow explicit typed objects; no firmware heap allocator remains.
 - Interrupt handlers acknowledge hardware, capture bounded inputs, and perform required immediate
   safety actions; encoding, logging, storage, and unbounded work remain outside the ISR.

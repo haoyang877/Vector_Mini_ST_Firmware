@@ -62,14 +62,6 @@ bool YgProtocolLink_BindDeviceStatusSource(const yg_protocol_readonly_device_sta
 bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service);
 
 /**
- * @brief 绑定新运行会话所有者，未绑定时新命令返回不支持。
- * @param service 非阻塞业务绑定；NULL撤销绑定。
- * @return 链路已初始化返回true，否则false。
- * @note 启动和续租还须通过已绑定的只读启动epoch核对；此绑定本身不开放能力位。
- */
-bool YgProtocolLink_BindRunService(const yg_protocol_run_service_t *service);
-
-/**
  * @brief 绑定活动参数、版本及异步保存的业务所有者。
  * @param service 调用方持有的服务绑定，传入NULL解除绑定。
  * @return 链路已初始化且绑定成功时返回true，否则false。
@@ -86,13 +78,6 @@ bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *
  *       不复制标定工作区、不执行算法或Flash，未绑定返回UNSUPPORTED。
  */
 bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service);
-
-/**
- * @brief 绑定整计划标定所有者，旧单项标定服务保持独立。
- * @param service 非阻塞业务绑定；NULL撤销绑定。
- * @return 链路已初始化返回true，否则false。
- */
-bool YgProtocolLink_BindPlanService(const yg_protocol_plan_service_t *service);
 
 /**
  * @brief 在静默配置阶段绑定真实APP进入Loader所有者并开放56。

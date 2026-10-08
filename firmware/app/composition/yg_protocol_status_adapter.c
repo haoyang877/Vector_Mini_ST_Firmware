@@ -4,8 +4,6 @@
 
 #include "angle_feedback.h"
 #include "critical_hw.h"
-#include "boot_epoch.h"
-#include "boot_hw.h"
 #include "motor_types.h"
 #include "foc_algorithm.h"
 #include "foc_sensing.h"
@@ -21,18 +19,8 @@ static bool s_initialized;
 
 static void refresh_boot_source(void)
 {
-    uint64_t epoch = BootEpoch_Value();
-    s_boot_source = (yg_protocol_readonly_device_status_t){
-        .boot_epoch = epoch, .role = YG_PROTOCOL_DEVICE_ROLE_APP, .epoch_valid = epoch != 0U};
-    if (epoch != 0U)
-    {
-#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-        s_boot_source.boot_state = BootHw_IsConfirmed() ? YG_PROTOCOL_BOOT_STATE_CONFIRMED_APP
-                                                        : YG_PROTOCOL_BOOT_STATE_TRIAL_APP;
-#else
-        s_boot_source.boot_state = YG_PROTOCOL_BOOT_STATE_CONFIRMED_APP;
-#endif
-    }
+    /* 启动记录已移除；APP 恒报无持久启动身份，不伪造 epoch 或试启动阶段。 */
+    s_boot_source = (yg_protocol_readonly_device_status_t){.role = YG_PROTOCOL_DEVICE_ROLE_APP};
 }
 
 static uint32_t fault_bits(MotorFaultCode error)
@@ -149,6 +137,6 @@ void YgProtocolStatusAdapter_Refresh(void)
                          ? 8U
                          : protocol_state(state, s_source.mode);
     s_source.sample_available = true;
-    /* 与协议前台串行，身份来自本次持久分配；镜像确认阶段另取BootHw事实。 */
+    /* 与协议前台串行，完整64位来源只取本次已验证交接，不从主机或旧记录重建。 */
     refresh_boot_source();
 }

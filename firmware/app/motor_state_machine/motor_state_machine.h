@@ -61,54 +61,6 @@ void MotorStateMachine_Tick(void);
 MotorState MotorStateMachine_GetState(void);
 
 /**
- * @brief 读取整机主流程，运行准备／切换与标定步骤均归入各自子流程。
- * @return INIT、IDLE、RUN、CALIBRATION、FAULT 或 FATAL；不是线上状态编号。
- * @note 前台只读短临界区；原 GetState 八状态反馈保持。
- */
-MotorFlowState MotorStateMachine_GetFlowState(void);
-/**
- * @brief 显式受理已有算法的标定计划，最后独立 SAVE 回读成功才完成。
- * @param steps 实际任务计划位；零、不支持的位及不可满足依赖均拒绝。
- * @param ticket 接收整计划身份，失败清零；与单项任务身份使用不同查询接口。
- * @return 受理、非法、忙、故障或准入拒绝；受理不表示已标定或保存。
- * @note 前台调用；不保留指针，不做 Flash；不辨识电感／磁链，不猜参数。
- */
-MotorControlResult MotorStateMachine_RequestCalibration(uint32_t steps, uint32_t *ticket);
-/**
- * @brief 读取整计划的实际步骤和保存结果。
- * @param ticket 受理时的非零计划身份。
- * @param progress 接收一致值结果，失败清零，不保留指针。
- * @return 最近计划身份匹配返回 true。
- * @note 前台短临界区；completed_steps 不表示全部电机模型已辨识。
- */
-bool MotorStateMachine_ReadCalibration(uint32_t ticket, MotorCalibrationProgress *progress);
-/**
- * @brief 按整计划身份取消后续步骤，等待当前任务和后台实际归还。
- * @param ticket 原始计划身份。
- * @return 已登记或终态重复取消返回受理，陈旧身份非法。
- * @note 前台调用；取消不回滚已经提交的 Flash，须查询最终效果。
- */
-MotorControlResult MotorStateMachine_CancelCalibration(uint32_t ticket);
-/**
- * @brief 在运行子流程中受理模式切换，实际关断后重新准备并确认启相。
- * @param mode CURRENT(A)、SPEED(rad/s)、POSITION(rad) 或 VQ(V)，不接受 NONE。
- * @return 受理、非法、忙、故障或准入拒绝；同一待切模式重试不重复停机。
- * @note 前台业务入口；STOP／故障撤销切换，零目标或当前位置启动，不重放旧目标。
- */
-MotorControlResult MotorStateMachine_RequestModeSwitch(MotorControlMode mode);
-/**
- * @brief 为已受理的远程启动登记或刷新来源绑定的控制租约。
- * @param source_node 原始启动来源，不能为 0 或 255。
- * @param sequence 原始启动身份序号，心跳本身不创建新启动。
- * @param timeout_ms 调用方明确给出的超时毫秒，范围 1..INT32_MAX，不设隐式阈值。
- * @return 已刷新返回受理；身份、状态或参数不符时拒绝。
- * @note 前台短临界区；过期产生 CAN_DISCONNECTED；恢复通信不清错或自动启相。
- *       旧协议未接本接口时不宣称存在通信超时保护；协议适配器须验证消息后调用。
- */
-MotorControlResult
-MotorStateMachine_RefreshControlLease(uint8_t source_node, uint16_t sequence, uint32_t timeout_ms);
-
-/**
  * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。
  * @return 请求已登记返回 true；不表示功率输出已经关闭。
  * @note INIT／IDLE 保持原状态并撤销排队意图；只有 STARTING／RUNNING／MAINTENANCE
@@ -150,25 +102,15 @@ void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress);
 MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode);
 
 /**
- * @brief 幂等受理带身份的速度零目标启动，复用唯一运行所有者的原启相路径。
- * @param request 原始来源、序号和内部速度模式；函数返回后不保留指针。
+ * @brief 幂等受理带身份的四模式零目标／当前位置启动，复用唯一运行所有者的原启相路径。
+ * @param request 原始来源、序号和 CURRENT／SPEED／POSITION／VQ 模式；函数返回后不保留指针。
  * @return 受理或明确拒绝原因；受理不表示启相，结果由 ReadEnableProgress 查询。
  * @note 同来源序号重试不再执行；新拒绝也消耗序号，STOP 后旧序号不能启动。
+ *       仅 IDLE 启动；切模式须先 STOP 回 IDLE；拒绝不提交来源绑定。
  *       序号窗口仅在当前 APP 运行期内有效，跨复位防重放尚需线路契约。
  */
 MotorControlResult
 MotorStateMachine_RequestIdentifiedEnable(const MotorControlStartRequest *request);
-
-/**
- * @brief 原子受理四种运行模式及远程租约，运行中新模式经受控关断再准备。
- * @param request 原始来源／序号／模式，保留字节必须为零，不保留指针。
- * @param timeout_ms 明确租约毫秒，范围 1..INT32_MAX；超时必须显式恢复和 CLEAR。
- * @return 受理或明确拒绝；重试不重做启相，同一身份不同模式拒绝。
- * @note 前台短临界区；IDLE 初次／异模式切换为零目标或当前位置，已运行同模式保持目标。
- *       旧 RequestIdentifiedEnable 的 SPEED 线上行为保持；新接口须由新版协议适配。
- */
-MotorControlResult MotorStateMachine_RequestIdentifiedRun(const MotorControlStartRequest *request,
-                                                          uint32_t timeout_ms);
 
 /**
  * @brief 读取一条带身份启动的进展，包括最近请求及仍保留的活动请求。
@@ -263,7 +205,7 @@ typedef enum
 {
     FOC_BACKGROUND_NONE,
     FOC_BACKGROUND_SAVE,
-    FOC_BACKGROUND_COGGING
+    FOC_BACKGROUND_COGGING /* 退役编号，不再可执行。 */
 } FocBackgroundKind;
 typedef struct
 {
@@ -287,7 +229,7 @@ bool MotorStateMachine_BackgroundValid(const FocBackgroundClaim *claim);
 /**
  * @brief 归还前台工作并提交原始会话结果。
  * @param claim 原始认领，必须精确匹配已借出的资源。
- * @param success SAVE 表示回读已验证；COGGING 表示已发布 RAM。
+ * @param success 仅 SAVE，true 表示回读已验证。
  * @note 缓冲已释放后调用；迟到结果只归还资源，不复活目标。
  */
 void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool success);
@@ -297,11 +239,6 @@ void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool su
  * @note 在调用 worker 前读取，并原样传给 PostOutcome。
  */
 uint32_t MotorStateMachine_WorkEpoch(void);
-/**
- * @brief 在稳定配置借用下处理前台补偿请求。
- * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 IDLE 启动；STOP 可立即关相。
- */
-void MotorStateMachine_ServiceCompensation(void);
 /**
  * @brief 读取当前实际维护类型，不投影到控制模式。
  * @return MAINTENANCE 时返回任务类型，其他状态返回 NONE。

@@ -9,14 +9,17 @@ provide the short entry map; details belong here.
 核心阅读入口：[模块核心职责与删减清单](architecture/module_core_responsibilities.md)，
 本批结果见[2026-10-08 核心解耦集成记录](reports/2026-10/module_core_integration_20261008.md)。
 
-当前收口：[整机主流程与运行/标定子流程](architecture/motor_platform_lifecycle_v1.md)，
-按[收口 v2](plans/active/2026-10-08-architecture-closeout-v2.md)推进新线路与实际设备端口。
+当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
+按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。
+核心线路：[普通控制启动 v0.2](protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
+[单项标定/保存 v1.2](protocols/yg_protocol_calibration_wire_v1_2.md)。
 
-新请求契约：[运行会话与整计划线路 v1.4](protocols/yg_protocol_motor_lifecycle_wire_v1_4_proposal.md)，
-[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。实际只读 GUI 调用链见
+运行会话与整计划线路v1.4已退役。历史设计：[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。实际只读 GUI 调用链见
 [主机端口记录](plans/active/2026-10-08-host-get-only-port-v1.md)。
 
-下一候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
+当前源码候选：[APP v1.3.0核心范围](releases/architecture-app-v1.3.0-candidate.md)。
+
+历史候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
 
 架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。
 八状态恢复行为见[状态反馈 v1.2](protocols/yg_protocol_motor_state_v1_2.md)。

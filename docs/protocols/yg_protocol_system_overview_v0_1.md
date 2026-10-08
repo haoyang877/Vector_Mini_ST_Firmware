@@ -116,7 +116,7 @@ APP 与 Loader 使用同一套帧格式和 CRC 计算方法，但分别处理自
 | `0x006C GET_MOTOR_STATE` | 读取电机当前状态 | 空请求；设备读取故障、控制模式、位置、速度、转矩电流、母线电压/电流和温度等 | 回复 45 B；根据 `result` 和 `valid_bits` 判断哪些测量值有效 | 没有真实测量来源的字段要标为无效；单帧业务数据最多 46 B |
 | `0x006E MOTOR_STOP` | 让电机停机并关闭输出 | 空请求；设备取消尚未执行的启动和控制目标，再关闭输出 | 回复 4 B；`result=0` 表示数字输出已关闭，不表示转子已经停稳 | 即使请求序号旧，也要执行 STOP；如需主动制动，要另外约定制动方式和完成条件 |
 | `0x0074 SET_CONTROL` | 给正在运行的电机更新目标 | 20 B，包含控制模式及位置、速度、电流或电压目标；只有已运行且模式相同才接收 | 回复 4 B 说明接收或拒绝；另发 `0x007C` 报告状态和目标应用情况 | 发目标不会顺便启动电机，也不会改变控制模式；反馈不保证已经到位 |
-| `0x0075 START_CONTROL` | 启动普通电机控制 | 4 B 模式号；目前只在台架路径中支持 mode 2，从零速度目标开始 | 先回复 4 B；`result=1` 表示正在启动。用原请求序号重试可查启动结果，再用 `0x006C` 确认运行状态 | 目前只供台架验证，`GET_CAPS.supported_modes=0`；正式开放前还需完成安全验收 |
+| `0x0075 START_CONTROL` | 启动普通电机控制 | 4 B 模式号；当前线路接受 mode 1 电流、2 速度、3 位置、6 q 轴电压，以零目标或当前位置开始 | 先回复 4 B；`result=1` 表示正在启动。用原请求序号重试可查启动结果，再用 `0x006C` 确认运行状态 | 目前只供台架验证，`GET_CAPS.supported_modes=0`；正式开放前还需完成安全验收 |
 | `0x007C MOTOR_FEEDBACK` | 回报上一条控制命令的处理情况 | 每收到一条通过帧校验的 `0x0074`，设备发送一次 45 B 电机状态 | 设备主动发送，主站不用回复；`correlated_seq` 标明它对应哪条 `0x0074` | 这是逐条控制命令的反馈，不是一直按 1 kHz 自行发送的状态流 |
 
 ### 3.3 参数
@@ -188,7 +188,7 @@ APP 与 Loader 使用同一套帧格式和 CRC 计算方法，但分别处理自
 ## 6. 详细契约
 
 - [公司原文与歧义](company_protocol_source_readback.md)、[通信分层](../architecture/communication_layering.md)、[设备发现](yg_protocol_device_discovery_v1.md)
-- [电机控制](yg_protocol_motor_wire_v1.md)、[45 B 反馈](yg_protocol_motor_feedback_v0_2.md)、[启动候选](yg_protocol_ordinary_start_wire_v0_1.md)
+- [电机控制](yg_protocol_motor_wire_v1.md)、[45 B 反馈](yg_protocol_motor_feedback_v0_2.md)、[启动候选 v0.2](yg_protocol_ordinary_start_wire_v0_2.md)
 - [参数](yg_protocol_parameter_wire_v1.md)、[标定 v1](yg_protocol_calibration_wire_v1.md)、[标定 v1.1](yg_protocol_calibration_wire_v1_1.md)
 - [升级 v3](yg_protocol_upgrade_wire_v3.md)、[进入 Loader](yg_protocol_boot_entry_wire_v1.md)、[五轴候选](canfd_1khz_sync_design_proposal.md)
 

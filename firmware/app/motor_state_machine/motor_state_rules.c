@@ -27,9 +27,11 @@ MotorMaintenanceClass MotorStateRules_Classify(MotorMaintenanceKind kind)
         return MOTOR_MAINTENANCE_CLASS_ZERO;
     case MOTOR_MAINTENANCE_NONE:
         return MOTOR_MAINTENANCE_CLASS_NONE;
+    case MOTOR_MAINTENANCE_ENCODER_LUT:
+    case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
+        return MOTOR_MAINTENANCE_CLASS_CALIBRATION;
     default:
-        return (unsigned)kind < MOTOR_MAINTENANCE_NONE ? MOTOR_MAINTENANCE_CLASS_CALIBRATION
-                                                       : MOTOR_MAINTENANCE_CLASS_INVALID;
+        return MOTOR_MAINTENANCE_CLASS_INVALID;
     }
 }
 
@@ -379,7 +381,9 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         }
         else
         {
-            if ((unsigned)event->maintenance_kind >= MOTOR_MAINTENANCE_NONE)
+            if ((unsigned)event->maintenance_kind >= MOTOR_MAINTENANCE_NONE ||
+                MotorStateRules_Classify(event->maintenance_kind) ==
+                    MOTOR_MAINTENANCE_CLASS_INVALID)
             {
                 return MOTOR_STATE_REJECT_OPERATION;
             }

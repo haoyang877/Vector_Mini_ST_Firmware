@@ -1,5 +1,5 @@
 #include "flash.h"
-#include "boot_epoch_flash.h"
+#include "vector_mini_st_g431.h"
 
 #include <string.h>
 #include "power_stage_hw.h"
@@ -132,75 +132,11 @@ bool flash_read_param(void *record, uint32_t size_bytes)
 }
 bool flash_write_param(const void *record, uint32_t size_bytes)
 {
-    if (record == NULL || size_bytes == 0U || size_bytes > TARGET_RAW_STORAGE_BYTES ||
+    if (record == NULL || size_bytes == 0U || size_bytes > TARGET_RAW_BYTES ||
         !power_stage_hw_phases_disabled())
     {
         return false;
     }
     return flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + size_bytes - 1U) &&
            flash_write_data(PARAM_FLASH_ADDR, record, size_bytes);
-}
-
-/* 专属写域必须按地址和长度核对；禁止借用参数的大范围接口写epoch或身份页。 */
-static bool epoch_range(uint32_t address, uint32_t size_bytes)
-{
-    return address >= TARGET_EPOCH_BASE && size_bytes != 0U && size_bytes <= TARGET_EPOCH_BYTES &&
-           address - TARGET_EPOCH_BASE <= TARGET_EPOCH_BYTES - size_bytes;
-}
-
-bool BootEpochFlash_Read(uint32_t address, void *record, uint32_t size_bytes)
-{
-    if (record == NULL || !epoch_range(address, size_bytes) ||
-        (FLASH->ECCR & (FLASH_ECCR_ECCC | FLASH_ECCR_ECCD)) != 0U)
-    {
-        return false;
-    }
-    memcpy(record, (const void *)address, size_bytes);
-    __DSB();
-    /* 不清未知ECC归属；ECCD沿NMI停在关相初始化，不能伪装成可用epoch。 */
-    return (FLASH->ECCR & (FLASH_ECCR_ECCC | FLASH_ECCR_ECCD)) == 0U;
-}
-
-bool BootEpochFlash_Program(uint32_t address, const void *record)
-{
-    uint32_t blank[8];
-    if (record == NULL || (address & 7U) != 0U || !power_stage_hw_phases_disabled() ||
-        !BootEpochFlash_Read(address, blank, sizeof(blank)))
-    {
-        return false;
-    }
-    for (unsigned i = 0U; i < 8U; ++i)
-    {
-        if (blank[i] != UINT32_MAX)
-        {
-            return false;
-        }
-    }
-    return flash_write_data(address, record, BOOT_EPOCH_RECORD_BYTES);
-}
-
-bool BootEpochFlash_Erase(uint32_t address)
-{
-    if ((address % TARGET_ERASE_BYTES) != 0U || !epoch_range(address, TARGET_ERASE_BYTES) ||
-        !power_stage_hw_phases_disabled() ||
-        !flash_erase_pages(address, address + TARGET_ERASE_BYTES - 1U))
-    {
-        return false;
-    }
-    uint32_t blank[8];
-    for (uint32_t offset = 0U; offset < TARGET_ERASE_BYTES; offset += sizeof(blank))
-    {
-        if (!BootEpochFlash_Read(address + offset, blank, sizeof(blank)))
-        {
-            return false;
-        }
-        for (unsigned i = 0U; i < 8U; ++i)
-        {
-            if (blank[i] != UINT32_MAX)
-            {
-                return false;
-            }
-        }
-    }
-    return true;
 }

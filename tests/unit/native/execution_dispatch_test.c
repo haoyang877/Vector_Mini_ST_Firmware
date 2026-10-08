@@ -2,8 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "fast_loop_profile.h"
-#include "foc_cogging_calibration.h"
 #include "motor_execution.h"
 #include "motor_hw.h"
 #include "motor_maintenance.h"
@@ -20,7 +18,7 @@ static SensorlessStartupState s_sensorless_startup;
 static MotorState lifecycle_state;
 static MotorMaintenanceKind maintenance_kind;
 static MotorTaskResult maintenance_result;
-static bool maintenance_runnable, torque_trip;
+static bool maintenance_runnable;
 static unsigned trace;
 static unsigned long trace_hash = 2166136261UL;
 
@@ -33,10 +31,7 @@ enum
     TRACE_CURRENT_TASK = 16U,
     TRACE_CURRENT_LOOP = 32U,
     TRACE_VQ = 64U,
-    TRACE_TRIP = 128U,
     TRACE_MAINTENANCE = 256U,
-    TRACE_PROFILE_BEGIN = 512U,
-    TRACE_PROFILE_END = 1024U
 };
 
 bool MotorStateMachine_MaintenanceRunnable(void)
@@ -88,12 +83,6 @@ void Task_Current_Mode(FocState *foc,
     trace |= TRACE_CURRENT_TASK;
 }
 
-bool FocCogging_TakeTorqueTrip(void)
-{
-    trace |= TRACE_TRIP;
-    return torque_trip;
-}
-
 float Encoder_GetElePhase(const EncoderState *encoder)
 {
     assert(encoder == &s_rotor_encoder);
@@ -118,20 +107,6 @@ void Task_Vq_Mode(FocState *foc, MotorControlState *motor, EncoderState *encoder
     assert(foc == &s_foc_state && motor == &s_motor_state && encoder == &s_rotor_encoder);
     trace |= TRACE_VQ;
 }
-
-#if defined(FAST_LOOP_STAGE_PROFILE) && FAST_LOOP_STAGE_PROFILE
-void FastLoopProfile_Begin(unsigned stage)
-{
-    assert(stage == FAST_PROFILE_POSITION_WITH_CURRENT);
-    trace |= TRACE_PROFILE_BEGIN;
-}
-
-void FastLoopProfile_End(unsigned stage)
-{
-    assert(stage == FAST_PROFILE_POSITION_WITH_CURRENT);
-    trace |= TRACE_PROFILE_END;
-}
-#endif
 
 /* 合成输入的行为期望独立于调度内部实现；不把受理状态当作物理输出事实。 */
 static void check_result(MotorTaskResult actual)
@@ -158,16 +133,9 @@ static void check_result(MotorTaskResult actual)
                 switch (s_motor_state.control_mode)
                 {
                 case MOTOR_CONTROL_CURRENT:
-                    expected_trace |= TRACE_CURRENT_TASK | TRACE_TRIP;
-                    if (torque_trip)
-                    {
-                        expected.result = MOTOR_TASK_STOP_REQUESTED;
-                    }
+                    expected_trace |= TRACE_CURRENT_TASK;
                     break;
                 case MOTOR_CONTROL_POSITION:
-#if defined(FAST_LOOP_STAGE_PROFILE) && FAST_LOOP_STAGE_PROFILE
-                    expected_trace |= TRACE_PROFILE_BEGIN | TRACE_PROFILE_END;
-#endif
                     expected_trace |= TRACE_CURRENT_LOOP;
                     break;
                 case MOTOR_CONTROL_SPEED:
@@ -221,15 +189,20 @@ int main(void)
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)
         {
             s_motor_state.control_mode = (MotorControlMode)mode;
-            for (unsigned kind = 0U; kind <= MOTOR_MAINTENANCE_NONE; ++kind)
+            const MotorMaintenanceKind kinds[] = {MOTOR_MAINTENANCE_ENCODER_LUT,
+                                                  MOTOR_MAINTENANCE_ELECTRICAL_ZERO,
+                                                  MOTOR_MAINTENANCE_MECHANICAL_ZERO,
+                                                  MOTOR_MAINTENANCE_SAVE,
+                                                  MOTOR_MAINTENANCE_DEFAULTS,
+                                                  MOTOR_MAINTENANCE_NONE};
+            for (unsigned kind = 0U; kind < sizeof(kinds) / sizeof(kinds[0]); ++kind)
             {
-                maintenance_kind = (MotorMaintenanceKind)kind;
-                for (unsigned flags = 0U; flags < 8U; ++flags)
+                maintenance_kind = kinds[kind];
+                for (unsigned flags = 0U; flags < 4U; ++flags)
                 {
                     maintenance_runnable = (flags & 1U) != 0U;
-                    torque_trip = (flags & 2U) != 0U;
                     s_motor_state.fault_code =
-                        (flags & 4U) ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
+                        (flags & 2U) ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
                     for (unsigned result = MOTOR_TASK_RUNNING; result <= MOTOR_TASK_FAILED;
                          ++result)
                     {

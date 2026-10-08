@@ -7,7 +7,6 @@ typedef union
     uint64_t alignment;
     EncoderCalibrationWorkspace encoder;
     InterfaceParam parameter;
-    CoggingMapRecord cogging;
 } MaintenanceWorkspaceStorage;
 
 typedef char MaintenanceWorkspace_FitsBudget
@@ -17,7 +16,6 @@ typedef enum
 {
     WORKSPACE_IDLE,
     WORKSPACE_PARAMETER,
-    WORKSPACE_COGGING,
     WORKSPACE_ENCODER
 } WorkspaceOwner;
 
@@ -41,29 +39,6 @@ void MaintenanceWorkspace_ReleaseParameter(InterfaceParam *record)
 {
     uint32_t mask = critical_hw_enter();
     if (s_owner == WORKSPACE_PARAMETER && record == &s_storage.parameter)
-    {
-        s_owner = WORKSPACE_IDLE;
-    }
-    critical_hw_exit(mask);
-}
-
-CoggingMapRecord *MaintenanceWorkspace_BorrowCogging(void)
-{
-    uint32_t mask = critical_hw_enter();
-    CoggingMapRecord *candidate = NULL;
-    if (s_owner == WORKSPACE_IDLE)
-    {
-        s_owner = WORKSPACE_COGGING;
-        candidate = &s_storage.cogging;
-    }
-    critical_hw_exit(mask);
-    return candidate;
-}
-
-void MaintenanceWorkspace_ReleaseCogging(CoggingMapRecord *candidate)
-{
-    uint32_t mask = critical_hw_enter();
-    if (s_owner == WORKSPACE_COGGING && candidate == &s_storage.cogging)
     {
         s_owner = WORKSPACE_IDLE;
     }

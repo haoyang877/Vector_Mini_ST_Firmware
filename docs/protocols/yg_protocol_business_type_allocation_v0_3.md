@@ -1,6 +1,6 @@
 # yg_protocol 业务 Type 分配提案 v0.3
 
-日期：2026-09-23。状态：**历史项目候选；电机控制流程和升级简化方向已由[简化版 v0.1](yg_protocol_simplified_motor_v0_1.md)替代，尚未经公司消息类型表登记或整机验证**。本文保留早期编号来源和比较，不表示表中功能已由固件实现。新业务接入前应先冻结该条目的 payload、回复、状态/权限规则与黄金向量。2026-10-08 补充：117 已是现有普通启动，118 和 166 已在项目内登记为新业务；外部公司消息表待同步，详见[运行与整计划线路 v1.4](yg_protocol_motor_lifecycle_wire_v1_4_proposal.md)。
+日期：2026-09-23。状态：**历史项目候选；电机控制流程和升级简化方向已由[简化版 v0.1](yg_protocol_simplified_motor_v0_1.md)替代，尚未经公司消息类型表登记或整机验证**。本文保留早期编号来源和比较，不表示表中功能已由固件实现。新业务接入前应先冻结该条目的 payload、回复、状态/权限规则与黄金向量。2026-10-08 收口：117 保留现有速度零目标启动；118 和 166 的扩展方案撤回，固件不注册这两个 CMD ID，编号暂不复用。公司外部消息表没有同步这两个项目编号。
 
 ## 1. 分配依据和命名空间
 
@@ -57,8 +57,8 @@
 | 114 / 0x0072 | MOTION_ARM | 请求→同 type 回复 | P | 预装目标后显式准备高级任务；不代替 MOTOR_ENABLE |
 | 115 | 保留 | — | P | 基础控制扩展余量 |
 | 116 / 0x0074 | SET_TARGET | 单播请求→同 type 回复或同周期反馈关联 | P | 一条命令覆盖 Iq、速度、位置、阻抗目标；payload 中显式 `target_kind`，模式不匹配则拒绝 |
-| 117 / 0x0075 | START_CONTROL | 请求→同 type 回复 | D | 现有速度零目标调试启动；不具有新命令的 epoch 字段 |
-| 118 / 0x0076 | RUN_SESSION | 请求→同 type 回复 | D | 项目内已登记；新启动/续租须核对可信非零 epoch，能力位暂不开放 |
+| 117 / 0x0075 | START_CONTROL | 请求→同 type 回复 | D | 支持电流、速度、位置、q 轴电压四种模式的安全初始目标；保留原速度模式线路字节与受理规则，见[线路 v0.2](yg_protocol_ordinary_start_wire_v0_2.md) |
+| 118 / 0x0076 | 撤回：RUN_SESSION | — | X | 扩展协议已删除；不注册、不发送，编号暂不复用 |
 | 119 | 保留 | — | P | 基础控制扩展余量 |
 | 120 / 0x0078 | READ_PARAM | 请求→同 type 回复 | P | 参数 ID、类型、单位、有效值、revision；标定参数也经此读取 |
 | 121 / 0x0079 | WRITE_PARAM | 请求→同 type 回复 | P | 校验权限、范围和 apply policy；写运行态不自动写 Flash |
@@ -91,13 +91,13 @@
 | 153 / 0x0099 | GET_HOME_STATE | 请求→同 type 回复 | P | 进度、状态、失败原因 |
 | 154 / 0x009A | SET_POSITION_ORIGIN | 请求→同 type 回复 | P | 仅允许安全状态更新机械零位；不等同完整回零 |
 | 155～159 | 保留 | — | P | 回零扩展余量 |
-| 160 / 0x00A0 | TASK_START | 请求→同 type 回复 | P | `task_kind` 选择电流零偏、编码器、电角度、齿槽、相电阻、摩擦等标定/辨识；参数随请求给出 |
-| 161 / 0x00A1 | TASK_ABORT | 请求→同 type 回复 | P | 按 token 取消可中断任务 |
-| 162 / 0x00A2 | GET_TASK_STATE | 请求→同 type 回复 | P | 统一返回标定/辨识进度与结果状态 |
+| 160 / 0x00A0 | CALIBRATION_START | 请求→同 type 回复 | R | 单项任务仅支持 kind 1/2/6/7/8；旧 3～5 返回不支持，见[载荷 v1.2](yg_protocol_calibration_wire_v1_2.md) |
+| 161 / 0x00A1 | CALIBRATION_STATUS | 请求→同 type 回复 | R | 按真实 ticket 查询单项任务进展 |
+| 162 / 0x00A2 | CALIBRATION_CANCEL | 请求→同 type 回复 | R | 只取消指定 ticket，不全局停机 |
 | 163 / 0x00A3 | READ_TASK_RESULT | 请求→同 type 回复 | P | 分页读取结果；允许管理分片 |
 | 164 / 0x00A4 | APPLY_TASK_RESULT | 请求→同 type 回复 | P | 显式应用结果；持久化仍需 122 |
 | 165 / 0x00A5 | GET_TASK_CAPS | 请求→同 type 回复 | P | 当前固件真正支持的 `task_kind`、参数范围与资源需求 |
-| 166 / 0x00A6 | CALIBRATION_PLAN | 请求→同 type 回复 | D | 项目内已登记；整计划 START 带 epoch，STATUS/CANCEL 不要求 epoch |
+| 166 / 0x00A6 | 撤回：CALIBRATION_PLAN | — | X | 扩展协议已删除；不注册、不发送，编号暂不复用 |
 | 167～169 | 保留 | — | P | 任务扩展余量 |
 | 170～174 | 退役：旧独立 IDENT 命令 | — | X | 辨识按 `task_kind` 并入 160～165，不复用旧含义 |
 | 175～179 | 保留 | — | P | 任务扩展余量 |

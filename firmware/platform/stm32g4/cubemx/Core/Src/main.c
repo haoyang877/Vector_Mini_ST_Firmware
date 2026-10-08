@@ -33,7 +33,6 @@
 #include "boot_hw.h"
 #include "control_config.h"
 #include "motor_axis.h"
-#include "SEGGER_RTT.h"
 #include "time_hw.h"
 #include "yg_protocol_runtime.h"
 #include "yg_protocol_status_adapter.h"
@@ -89,7 +88,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-    SEGGER_RTT_ConfigUpBuffer(1, RTT_JSCOPE_DESCRIPTOR, bRttBuf, sizeof(bRttBuf), SEGGER_RTT_MODE_NO_BLOCK_SKIP);
 
   /* USER CODE END Init */
 

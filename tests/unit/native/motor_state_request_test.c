@@ -20,7 +20,6 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 #include "foc_pid.h"
 #include "maintenance_workspace.h"
 #include "param_store.h"
-#include "foc_cogging_calibration.h"
 
 /* ---- 复刻 motor_axis.c 的私有状态与对象实例；函数体由 runner 从真实源码切片追加 ---- */
 static MotorControlState s_motor_state;
@@ -197,10 +196,7 @@ void Param_Upload(InterfaceParam *record,
         stub_background_current = false;
     }
 }
-void MotorStateMachine_ServiceCompensation(void)
-{
-    trace_call(13U);
-}
+
 bool MotorStateMachine_BeginBackground(FocBackgroundClaim *claim)
 {
     trace_call(14U);
@@ -223,33 +219,6 @@ void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool su
     {
         ++boundary_errors;
     }
-}
-CoggingMapRecord *MaintenanceWorkspace_BorrowCogging(void)
-{
-    return NULL;
-}
-void MaintenanceWorkspace_ReleaseCogging(CoggingMapRecord *record)
-{
-    (void)record;
-    ++boundary_errors;
-}
-bool FocCogging_BuildCandidate(CoggingMapRecord *candidate,
-                               const MotorControlState *motor,
-                               const EncoderState *encoder)
-{
-    (void)candidate;
-    if (motor != &s_motor_state || encoder != &s_rotor_encoder || critical_depth != 1U)
-    {
-        ++boundary_errors;
-    }
-    ++boundary_errors;
-    return false;
-}
-bool FocCogging_PublishCandidate(const CoggingMapRecord *candidate)
-{
-    (void)candidate;
-    ++boundary_errors;
-    return false;
 }
 
 MotorState MotorStateMachine_GetState(void)
@@ -431,7 +400,7 @@ static void test_save_contract(void)
         stub_cancel_during_upload = scenario == 3U;
         stub_cancel_during_release = scenario == 4U;
         stub_background_available = scenario != 5U;
-        stub_background_kind = scenario == 6U ? FOC_BACKGROUND_COGGING : FOC_BACKGROUND_SAVE;
+        stub_background_kind = scenario == 6U ? FOC_BACKGROUND_NONE : FOC_BACKGROUND_SAVE;
         MotorAxis_ServiceBackground();
         ParameterStatus expected = scenario == 0U   ? PARAMETER_OK
                                    : scenario <= 2U ? PARAMETER_PERSIST_FAILED

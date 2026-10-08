@@ -12,6 +12,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True)
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/run_state_tests")
+    parser.add_argument(
+        "--maintenance-source", type=Path, default=ROOT / "firmware/app/runtime/motor_maintenance.c"
+    )
     args = parser.parse_args()
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -34,9 +37,11 @@ def main() -> None:
     source = output / "run_state_owner.c"
     source.write_text(fixture, encoding="utf-8")
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
+    maintenance = args.maintenance_source.resolve()
     executable = output / "run_state_owner.exe"
     command = (
         compiler
+        + ["-I", str(maintenance.parent)]
         + NATIVE_INCLUDE_FLAGS
         + [
             "-I",
@@ -50,12 +55,12 @@ def main() -> None:
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(source),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_machine.c"),
-            str(ROOT / "firmware/app/runtime/motor_maintenance.c"),
+            str(maintenance),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
             str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
-            str(ROOT / "firmware/app/runtime/maintenance_workspace.c"),
+            str(maintenance.parent / "maintenance_workspace.c"),
             str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(executable),

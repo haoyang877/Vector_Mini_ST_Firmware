@@ -22,17 +22,20 @@ UID 由平台读回，产品/硬件修订取 shared 目标清单；没有新增�
 
 ## 状态和读写边界
 
-`app/runtime/motor_axis.c` 私有静态持有唯一 MotorControlState、EncoderState 和各控制对象。
-没有公开可写全局实例，也不创建第二份完整参数或 LUT。
+`app/runtime/motor_axis.c` 持有唯一 MotorControlState、EncoderState 和各控制对象。
+按 Watch 观测要求保留非静态符号；跨模块仍通过快照、请求与显式对象参数交互，
+不把全局可见地址作为公共写接口，也不创建第二份完整参数或 LUT。
+`motor_parameter_transaction.c` 独占请求缓存、活动修订及保存票据，Axis 保留转发与调度。
+事务模块不保存运行对象指针，不接管主状态机的准入或真实关相。
 模式、故障、速度/位置/电流目标、参考值和测量仍是运行状态，不能当作持久配置。
 确认状态、来源和活动 revision 是所有者元数据，不能用 Flash schema 代替。
 
 ```mermaid
 flowchart LR
-    Defaults[四类默认值] --> Owner[MotorAxis 私有活动对象]
+    Defaults[四类默认值] --> Owner[MotorAxis 单份活动对象]
     Store[schema12 记录] --> Adapter[foc_param 装载/导出]
     Adapter --> Owner
-    Command[CAN / Watch 请求] --> Gate[参数所有者 停机与身份门禁]
+    Command[CAN / Watch 请求] --> Gate[参数事务 停机与身份门禁]
     Gate --> Value[parameter_value_service 纯数值校验]
     Value --> Owner
     Owner --> Control[控制与标定任务 显式借用]

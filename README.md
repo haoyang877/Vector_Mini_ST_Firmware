@@ -23,6 +23,10 @@ Keil 主工程为
 [`YG_ESC_APP.uvprojx`](firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx)，
 目标和输出名统一为 `YG_ESC_APP`；构建产物输出到 `outputs/build/keil/YG_ESC_APP/`。
 
+人工调试的观测对象、变量清单、单位和枚举值见
+[Keil Watch 只读观测指南](docs/guides/watch_motor_commands.md)。
+Watch 只用于观察；符号必须匹配板上固件，不能直接修改内部模式、目标或 PWM 来启动电机。
+
 ```powershell
 python -m pip install uv==0.12.16
 uv sync --locked --extra dev

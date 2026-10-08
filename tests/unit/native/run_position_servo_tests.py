@@ -22,7 +22,7 @@ from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 def function_source(source, name):
     # A call may precede the definition (e.g. the board fast ADC adapter).
     match = re.search(
-        r"^[ \t]*(?:[A-Za-z_]\w*[ \t]+)+\**" + re.escape(name) + r"\s*\([^;{}]*\)\s*\{",
+        r"^[ \t]*(?:[A-Za-z_]\w*\s+)+\**" + re.escape(name) + r"\s*\([^;{}]*\)\s*\{",
         source,
         re.M,
     )

@@ -268,6 +268,42 @@ static void motor_command_vectors(void)
            memcmp(frame.data, status_query_frame, sizeof(status_query_frame)) == 0);
 }
 
+static void maintenance_kind_extension_vectors(void)
+{
+    uint8_t payload[YG_PROTOCOL_JOB_REQUEST_SIZE] = {0};
+    uint8_t encoded[YG_PROTOCOL_JOB_REPLY_SIZE] = {0};
+    const yg_protocol_message_t message = {.message_type = YG_PROTOCOL_JOB_TYPE_START,
+                                           .source_node = 2U,
+                                           .sequence = 17U,
+                                           .payload_length = sizeof(payload),
+                                           .payload = payload};
+    yg_protocol_job_request_t request = {0};
+    yg_protocol_job_reply_t reply = {.status = YG_PROTOCOL_SERVICE_ACCEPTED,
+                                     .token = 0x12345678U,
+                                     .phase = YG_PROTOCOL_JOB_PHASE_IN_PROGRESS,
+                                     .effects = YG_PROTOCOL_JOB_EFFECT_UNCOMMITTED};
+    size_t written = 0U;
+    for (uint16_t kind = YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE;
+         kind <= YG_PROTOCOL_JOB_KIND_FRICTION;
+         ++kind)
+    {
+        payload[0] = (uint8_t)kind;
+        reply.kind = kind;
+        assert(yg_protocol_job_decode(&message, &request) == YG_PROTOCOL_OK);
+        assert(request.kind == kind && request.source_node == 2U && request.sequence == 17U);
+        assert(yg_protocol_job_encode_reply(&reply, encoded, sizeof(encoded), &written) ==
+               YG_PROTOCOL_OK);
+        assert(written == sizeof(encoded) && encoded[0] == 1U && encoded[4] == 0x78U &&
+               encoded[8] == kind && encoded[10] == YG_PROTOCOL_JOB_PHASE_IN_PROGRESS &&
+               encoded[11] == YG_PROTOCOL_JOB_EFFECT_UNCOMMITTED);
+    }
+    payload[0] = YG_PROTOCOL_JOB_KIND_FRICTION + 1U;
+    assert(yg_protocol_job_decode(&message, &request) == YG_PROTOCOL_OK);
+    reply.kind = YG_PROTOCOL_JOB_KIND_FRICTION + 1U;
+    assert(yg_protocol_job_encode_reply(&reply, encoded, sizeof(encoded), &written) ==
+           YG_PROTOCOL_INVALID_FIELD);
+}
+
 static void endpoint_round_trip(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
@@ -373,5 +409,6 @@ void yg_protocol_contract_test(void)
     full_feedback_snapshot();
     full_feedback_vector();
     motor_command_vectors();
+    maintenance_kind_extension_vectors();
     endpoint_round_trip();
 }

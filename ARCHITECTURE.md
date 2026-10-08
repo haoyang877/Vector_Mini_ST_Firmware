@@ -4,6 +4,9 @@ This is the stable top-level map. Detailed design and historical evidence live u
 [`docs/`](docs/README.md); current directory ownership is documented in
 [`docs/architecture/code_structure.md`](docs/architecture/code_structure.md).
 
+For a plain-language walkthrough of products, control flow, scheduling, and data ownership,
+read [电机驱动软件架构说明](docs/architecture/software_architecture.md).
+
 ## Products and contracts
 
 - `firmware/` is the current STM32G4 motor-control APP.

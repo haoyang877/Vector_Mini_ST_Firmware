@@ -3,6 +3,12 @@
 This directory is the versioned system of record. `AGENTS.md` and `ARCHITECTURE.md`
 provide the short entry map; details belong here.
 
+软件架构阅读入口：[电机驱动软件架构说明](architecture/software_architecture.md)。
+按产品职责、APP 分工、命令流转、周期调度、参数与状态所有权组织，包含当前架构图片。
+
+核心阅读入口：[模块核心职责与删减清单](architecture/module_core_responsibilities.md)，
+本批结果见[2026-10-08 核心解耦集成记录](reports/2026-10/module_core_integration_20261008.md)。
+
 | Area | Purpose |
 | --- | --- |
 | [architecture/](architecture/) | Current structure, design decisions, and future architecture |
@@ -23,7 +29,7 @@ they are not substitutes for current `verify` evidence.
 All local Markdown links are checked by the PR profile. Add new durable documents to
 this map or to the closest indexed sub-area.
 
-SWD bench mailbox retirement: [SWD 台架请求邮箱退役记录](guides/watch_motor_commands.md).
+Keil debugging: [Watch 只读观测变量与 SWD 台架邮箱退役记录](guides/watch_motor_commands.md).
 
 E/H/D historical snapshot: [整体重构初始候选（2026-09-28，历史）](reports/2026-09/system_refactor_candidate_20260928.md).
 
@@ -32,9 +38,13 @@ and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
 
 Communication layering: [通信分层说明（CAN 接入）](architecture/communication_layering.md).
 
+Current protocol overview: [yg_protocol 通信协议总览与当前状态 v0.1](protocols/yg_protocol_system_overview_v0_1.md).
+
 CAN FD link smoke test: [yg_protocol CAN FD 硬件连通性冒烟测试 v0.1](protocols/yg_protocol_link_smoke_test_v0_1.md).
 
 Business type allocation proposal: [yg_protocol 业务 Type 分配提案 v0.3](protocols/yg_protocol_business_type_allocation_v0_3.md).
+
+Ordinary motor start proposal (Type 117 pending): [普通控制启动线路提案 v0.1](protocols/yg_protocol_ordinary_start_proposal_v0_1.md).
 
 Motor payload design: [yg_protocol 电机控制、参数与反馈 Payload 细化 v0.1](protocols/yg_protocol_motor_payload_design_v0_1.md).
 

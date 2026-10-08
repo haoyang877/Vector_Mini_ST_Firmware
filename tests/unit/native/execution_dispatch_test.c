@@ -196,6 +196,25 @@ int main(void)
 {
     unsigned cases = 0U;
     memset(&s_motor_state, 0, sizeof(s_motor_state));
+#if defined(STARTUP_CURRENT_OFFSETS_PRESENT)
+    /* 校正pending/failed均未complete，所有模式和维护请求都不得进入功能分发。 */
+    s_current_offset_calibration.complete = false;
+    maintenance_runnable = true;
+    maintenance_kind = MOTOR_MAINTENANCE_ENCODER_LUT;
+    for (unsigned state = MOTOR_STATE_BOOT; state <= MOTOR_STATE_FATAL; ++state)
+    {
+        lifecycle_state = (MotorState)state;
+        for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_NONE; ++mode)
+        {
+            s_motor_state.control_mode = (MotorControlMode)mode;
+            trace = 0U;
+            MotorTaskResult actual = dispatch_step();
+            assert(trace == 0U && actual.result == MOTOR_TASK_RUNNING &&
+                   actual.error == MOTOR_FAULT_NONE);
+        }
+    }
+    s_current_offset_calibration.complete = true;
+#endif
     for (unsigned state = MOTOR_STATE_BOOT; state <= MOTOR_STATE_FATAL; ++state)
     {
         lifecycle_state = (MotorState)state;

@@ -1,5 +1,16 @@
 # Active Plans
 
+- [架构收口与发布候选 v1](2026-10-08-architecture-release-v1.md)：四项核心冻结、批准的状态出口接入、干净 release 证据与真实发布边界；未进行新镜像实机验证。
+
+- [电机模块核心职责解耦 v2](2026-10-08-module-core-decoupling-v2.md)：四项核心已选择性集成，工程输入已接线；组合检查与编译结果见本批报告，未实机验证。
+- [位置核心实际解耦 v4](2026-10-08-position-core-implementation-v4.md)：核心/摩擦状态分离，保留运算顺序；独立资源代价如实登记。
+- [位置串级解耦 v1](2026-10-08-position-cascade-decoupling-v1.md)及[尺寸梳理 v1](2026-10-08-position-cascade-size-v1.md)：本批继承的窄范围简化。
+- [编码器核心提取 v2](2026-10-08-encoder-calibration-core-v2.md)及[任务简化 v1](2026-10-08-encoder-calibration-simplify-v1.md)：计算与任务分开，保持结果应用/退出语义。
+
+- [电流 PI 空闲电压限幅刷新 v1](2026-09-29-current-pi-limit-refresh-v1.md)：有效母线采样后只刷新 d/q PI 电压额度；PR及normal编译通过，新候选未下载；主机三段监视布局已离线接入，守卫及STOP模拟通过，真实时延待独立授权验证，不放宽预算。
+
+- [上电电流偏置与PI初始化修复 v1](2026-09-29-startup-current-offset-pi-fix-v1.md)：关相1秒采样校正与PI配置已修复，PR及normal编译通过；待授权实机验证，不自动下载或启相。
+
 - [Loader P0/P1 v1](2026-09-29-loader-p0-p1-v1.md)：CAN FD 客户端、配套构建、生产身份和持久试运行门槛；本轮仅代码与离线验证，实机验收待执行。
 
 - [取消 common 与通用堆分配器 v1](../completed/2026-09-29-common-heap-retirement-v1.md)：common/heap 已移除，数学归位，固定工作区收口；PR 与 normal 编译通过，新镜像未实机验证。
@@ -23,6 +34,10 @@
 
 Create one dated Markdown file per significant active change. Include intent, acceptance
 criteria, progress, decisions, and final evidence. Move the file to `../completed/` when done.
+
+- [轮电机分阶段实机回归 v2](2026-09-29-wheel-bench-regression-v2.md)：先固定候选，再逐步进行备份、下载、通信、校准与启停；普通速度启动入口仍为阻塞项。
+- [角度标定与速度闭环验收 v1](2026-09-30-angle-speed-acceptance-v1.md)：LUT 与电零位结果已核验保存，继续补齐普通启动入口并实测速度闭环。
+- [轮电机维护标定通路验证 v1](2026-09-30-maintenance-path-bench-v1.md)：顺序验证齿槽、相电阻和摩擦任务，补齐已有所有者的 CAN 类型映射并保存实机证据。
 
 - [故障保护解耦设计与实施计划 v1.0](2026-09-18-fault-protection-v1.md)：接口、检测逻辑、参数及标定归属；固件实施待启动。
 - [公共接口中文契约补全](2026-09-18-interface-contracts.md)：建立机械门禁并优先补齐跨层接口。

@@ -15,6 +15,7 @@ NATIVE = (
     "test_bus_voltage_protection",
     "test_current_oversampling",
     "test_current_precision",
+    "test_startup_current_offsets",
     "test_adc_fast_dispatch",
     "test_encoder_sample_overlap",
     "test_fast_loop_math",

@@ -26,6 +26,7 @@ static FocState foc;
 static PiController pi;
 static bool pwm, calibration_running;
 static unsigned enabled;
+static unsigned current_calls, current_resets;
 void power_stage_hw_stop(void) { pwm=false; }
 void power_stage_hw_start(void) { pwm=true; ++enabled; }
 void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
@@ -39,12 +40,14 @@ float Encoder_GetElePhase(const EncoderState *e) { return e->electrical_angle_ra
 float Encoder_GetEleVel(const EncoderState *e) { return e->electrical_velocity_rad_s; }
 uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
 uint8_t Encoder_GetReverse(const EncoderState *e) { return e->reverse; }
-void FOC_CurrentController_Reset(FocState *f) { (void)f; }
+void FOC_CurrentController_Reset(FocState *f) { (void)f; ++current_resets; }
 void FOC_Current(FocState *f,MotorControlState *m,float p,float v) {
+    ++current_calls;
     (void)f;(void)p;(void)v; assert(isfinite(m->iq_target_a) && fabsf(m->iq_target_a)<=1.001f);
 }
 /* 直接编译生产适配层，允许离线检查私有状态，不增加运行时 getter。 */
 #include "foc_cogging_calibration.c"
+#include "foc_cogging_runtime.c"
 static CoggingCalibration c;
 static CoggingMapRecord record, before;
 static void run_point(float iq) {
@@ -169,6 +172,34 @@ static void setup(void) {
     motor_state.application.speed_kp=.05f;motor_state.application.speed_ki=.5f;motor_state.model.motor_pole_pairs=21;
     rotor_encoder.has_valid_sample=true;rotor_encoder.calib_flag=3;rotor_encoder.velocity_ready=true;
     foc.bus_voltage_v=foc.bus_voltage_filtered_v=30;foc.temperature_c=25;pwm=false;enabled=0;
+    current_calls=current_resets=0;
+}
+static void terminal_tests(void) {
+    /* 用同一真实任务入口覆盖采样超时/饱和终止，不绕过每拍安全门。 */
+    for(unsigned failure=0;failure<2;failure++) {
+        setup();before=s_cogging_map;
+        consume(FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder));
+        assert(pwm && current_calls==1 && current_resets==1);
+        s_cogging_calib.points_done=1;
+        if(failure==0) {
+            s_cogging_calib.point_ticks=10000;
+        } else {
+            s_cogging_calib.saturation_ticks=399;
+        }
+        motor_state.iq_target_a=1;motor_state.id_target_a=.5f;
+        motor_state.speed_target_rad_s=motor_state.speed_ramped_rad_s=.1f;
+        pi.integral_output=pi.output=.3f;s_divider=SPEED_LOOP_DIVIDER-1;
+        MotorTaskResult out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
+        assert(out.result==MOTOR_TASK_FAILED && out.error==MOTOR_FAULT_COGGING_CALIBRATION);
+        assert(s_cogging_calib.reason==(failure==0 ? COGGING_POINT_TIMEOUT : COGGING_CURRENT_LIMIT));
+        assert(current_calls==1 && current_resets==2 && !s_session_active);
+        assert(motor_state.iq_target_a==0 && motor_state.id_target_a==0);
+        assert(motor_state.speed_target_rad_s==0 && motor_state.speed_ramped_rad_s==0);
+        assert(pi.integral_output==0 && pi.output==0 && FocCogging_IsReleased());
+        assert(!memcmp(&s_cogging_map,&before,sizeof(before)));
+        assert(pwm);consume(out);assert(!pwm);
+    }
+    puts("PASS adapter timeout/saturation cleanup and owner-only phase stop");
 }
 static void adapter_tests(void) {
     setup();foc.bus_voltage_v=foc.bus_voltage_filtered_v=20;
@@ -191,6 +222,7 @@ static void adapter_tests(void) {
     setup();
     consume(FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder));
     double synthetic_position=0.0,synthetic_velocity=0.0;
+    uint32_t trace=2166136261U,tick_count=0;
     for(unsigned ticks=0;calibration_running && ticks<36000000;ticks++) {
         /* Independent inertial plant, driven by actual controller output. */
         double load=.03*sin(synthetic_position*21.0)+.10*synthetic_velocity;
@@ -201,6 +233,16 @@ static void adapter_tests(void) {
         rotor_encoder.linearized_q15=(uint16_t)rotor_encoder.shadow_q15;
         foc.iq_a=motor_state.iq_target_a;
         out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
+        /* 每拍记录明确字段的位模式，不读结构填充；基线与简化输出须逐拍一致。 */
+        float values[]={motor_state.iq_target_a,motor_state.id_target_a,
+            motor_state.speed_target_rad_s,motor_state.speed_ramped_rad_s,
+            pi.integral_output,pi.output};
+        uint32_t words[12];memcpy(words,values,sizeof(values));
+        words[6]=out.result;words[7]=out.error;words[8]=s_cogging_calib.state;
+        words[9]=s_cogging_calib.reason;words[10]=s_cogging_calib.points_done;
+        words[11]=motor_state.fault_code;
+        for(unsigned i=0;i<12;i++) trace=(trace^words[i])*16777619U;
+        ++tick_count;
         if(out.result!=MOTOR_TASK_RUNNING) consume(out);
     }
     assert(s_cogging_calib.state==COGGING_COMPLETE && s_cogging_calib.points_done==2048);
@@ -210,6 +252,8 @@ static void adapter_tests(void) {
     assert(FocCogging_BuildCandidate(&record,&motor_state,&rotor_encoder));
     assert(FocCogging_PublishCandidate(&record));
     FocCogging_ReleaseFinalize(true);
+    assert(FocCogging_GetState()==COGGING_SAVING && s_save_pending && FocCogging_IsReleased());
+    printf("TRACE ticks=%u controls_states=%08x candidate_crc=%08x\n",tick_count,trace,record.crc32);
     motor_state.control_mode=MOTOR_CONTROL_NONE;
     assert(FocCogging_TableValid(&motor_state,&rotor_encoder));
     FocCogging_SaveResult(false);assert(s_cogging_calib.reason==COGGING_SAVE_FAILED);
@@ -321,7 +365,43 @@ static void update_core_tests(void) {
     assert(fabsf(CoggingCompensation_Update(&control,&map,&tick)+.3f)<1e-6f);
     puts("PASS compensation core supervision and command clamping");
 }
-int main(void) {lookup_tests();update_core_tests();core_tests();adapter_tests();compensation_tests();}
+int main(void) {lookup_tests();update_core_tests();core_tests();terminal_tests();adapter_tests();compensation_tests();}
+"""
+
+RUNTIME_FIXTURE = r"""
+#include <assert.h>
+#include <string.h>
+#include "foc_cogging_runtime.h"
+#include "current_sense_profile.h"
+/* 独立链接运行边界，不提供标定任务、采样状态机、PI 或电流环符号。 */
+uint32_t critical_hw_enter(void) { return 0U; }
+void critical_hw_exit(uint32_t mask) { (void)mask; }
+bool Encoder_IsOnline(const EncoderState *e) { return e->has_valid_sample; }
+uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
+uint8_t Encoder_GetReverse(const EncoderState *e) { return e->reverse; }
+float Encoder_GetMecPos(const EncoderState *e) { return e->mechanical_position_rad; }
+int main(void) {
+    MotorControlState motor={0};EncoderState encoder={0};
+    CoggingMapRecord record;int16_t samples[COGGING_MAP_POINTS]={0};samples[0]=128;
+    motor.model.motor_pole_pairs=21;motor.application.current_limit_a=2;
+    encoder.has_valid_sample=true;encoder.calib_flag=ENC_CALIB_ALL;
+    assert(sizeof(CoggingTorqueGuard)==16 && sizeof(CoggingTorqueFrame)==36);
+    assert(sizeof(CoggingCompensationControl)==28 && sizeof(record)==2064);
+    assert(CoggingMap_Build(samples,CURRENT_SENSE_PROFILE_FULL_SCALE_A,
+        Cogging_EncoderSignature(0,0,21,encoder.linearization_lut_q15),&record));
+    FocCogging_ImportMap(&record);
+    assert(FocCogging_TableValid(&motor,&encoder));
+    FocCogging_RequestCompensation(true);FocCogging_Service(&motor,&encoder);
+    motor.control_mode=MOTOR_CONTROL_CURRENT;motor.iq_target_a=.25f;
+    assert(FocCogging_Apply(&motor,&encoder)>.25f && motor.iq_target_a==.25f);
+    assert(FocCogging_SetTorqueGuard(1,2));
+    assert(FocCogging_TorqueGuard(&motor,&encoder));
+    assert(!FocCogging_TorqueGuard(&motor,&encoder) && motor.iq_target_a==0);
+    assert(FocCogging_TakeTorqueTrip());
+    FocCogging_ResetMap();FocCogging_ExportMap(&record,&motor,&encoder);
+    assert(record.magic==0);
+    return 0;
+}
 """
 
 
@@ -366,6 +446,34 @@ def main():
         print(logs[-1], end="")
         (out / "test.log").write_text("\n".join(logs))
         r.check_returncode()
+
+    runtime_src = out / "cogging_runtime_test.c"
+    runtime_src.write_text(RUNTIME_FIXTURE)
+    runtime_exe = out / "cogging_runtime_test.exe"
+    runtime_cmd = (
+        compiler
+        + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+        + NATIVE_INCLUDE_FLAGS
+        + [str(runtime_src)]
+        + [
+            str(ROOT / p)
+            for p in [
+                "firmware/motor/calibration/foc_cogging_runtime.c",
+                "firmware/motor/calibration/cogging_map.c",
+                "firmware/motor/foc/cogging_compensation.c",
+                "firmware/motor/math/control_math.c",
+                "shared/checksum/crc32.c",
+            ]
+        ]
+        + ["-o", str(runtime_exe), "-lm"]
+    )
+    for command in (runtime_cmd, [str(runtime_exe)]):
+        subprocess.run(command, check=True)
+    message = (
+        "PASS runtime public boundary links without calibration task/sampler or PI/current loop"
+    )
+    (out / "runtime_boundary.log").write_text(message + "\n")
+    print(message)
 
 
 if __name__ == "__main__":

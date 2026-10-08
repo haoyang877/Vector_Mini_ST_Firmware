@@ -3,100 +3,163 @@
 #include "critical_hw.h"
 #include "motor_maintenance.h"
 #include "motor_hw.h"
-#include "encoder_calibration_task.h"
+#include "motor_sensing.h"
 #include "foc_cogging_calibration.h"
 #include "power_stage_hw.h"
 #include "foc_sensing.h"
-#include "foc_param.h"
-#include "param_store.h"
+#include "motor_parameter_transaction.h"
 #include "maintenance_workspace.h"
 #include "rtt_telemetry.h"
 
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_errhandle.h"
-#include "friction_identification_task.h"
 #include "foc_pid.h"
 #include "motor_execution.h"
 #include "motor_state_machine.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
 
-/* 参数与齿槽候选和编码器采样互斥借用同一工作区；记录增长必须显式更新容量预算。 */
-typedef char ParamRecord_FitsWorkspace
-    [(sizeof(InterfaceParam) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+/* 齿槽候选与其它维护任务互斥借用同一工作区；增长必须显式更新容量预算。 */
 typedef char CoggingCandidate_FitsWorkspace
     [(sizeof(CoggingMapRecord) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 
-/* 电机与控制对象实例：全部私有定义在此，仅受控调度时传给实际计算调用方。 */
-static MotorControlState s_motor_state;
-static PiController s_speed_pi;
-static EncoderState s_rotor_encoder;
-static FluxObserverState s_flux_observer;
-static SensorlessStartupState s_sensorless_startup;
+/* 电机与控制对象全局符号供 Watch 观测；运行写入仍由 MotorAxis 组装和调度。 */
+MotorControlState s_motor_state;
+PiController s_speed_pi;
+EncoderState s_rotor_encoder;
+FluxObserverState s_flux_observer;
+SensorlessStartupState s_sensorless_startup;
 
-static FocState s_foc_state;
+FocState s_foc_state;
 
-/* 活动修订与最近变更身份；不常驻 InterfaceParam 副本，不复用 schema 版本。 */
-static volatile uint32_t s_config_revision;
-static uint32_t s_revision_work_epoch;
-static struct
+/* JEOS每帧推进一次；20kHz下累计1秒，最大四次和的总和仍可由uint32_t容纳。 */
+#define CURRENT_OFFSET_SAMPLE_COUNT (FOC_FREQ * MOTOR_CURRENT_OFFSET_SAMPLE_TIME_MS / 1000U)
+typedef struct
 {
-    ParameterReadRequest request;
-    ParameterValue value;
-    bool valid;
-} s_last_read;
-static struct
-{
-    ParameterWriteRequest request;
-    ParameterValue applied;
-    bool valid;
-} s_last_write;
-static struct
-{
-    ParameterSaveRequest request;
-    uint32_t ticket, persisted_revision;
-    ParameterStatus result;
-    bool valid;
-} s_save_job;
+    uint32_t phase_sum_raw[3];
+    uint32_t sample_count;
+    bool complete, failed;
+} CurrentOffsetCalibration;
 
-static void advance_config_revision(void)
-{
-    if (s_config_revision != UINT32_MAX)
-    {
-        ++s_config_revision;
-    }
-}
-
-/* 启动时只借用一份既有大小的固定工作区记录，不额外常驻配置副本。 */
-static void load_parameters(void)
-{
-    InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
-    if (record == NULL || !param_store_read(record, sizeof(*record)))
-    {
-        Param_Return_Default(&s_motor_state, &s_rotor_encoder);
-    }
-    else
-    {
-        Param_Download(record, &s_motor_state, &s_rotor_encoder);
-    }
-    if (record != NULL)
-    {
-        MaintenanceWorkspace_ReleaseParameter(record);
-    }
-}
+/* 仅MotorAxis写入；全局可见性用于与既有运行对象一致的只读Watch观测。 */
+CurrentOffsetCalibration s_current_offset_calibration;
 
 uint8_t MotorAxis_NodeId(void)
 {
     return s_motor_state.device.node_id;
 }
 
+/* PI运行对象立即反映活动参数；首个有效母线样本前电压额度为零，运行时照常更新。 */
+static void configure_controllers(void)
+{
+    float maximum_voltage =
+        isfinite(s_foc_state.bus_voltage_filtered_v) && s_foc_state.bus_voltage_filtered_v > 0.0f
+            ? FOC_MaximumVoltage(s_foc_state.bus_voltage_filtered_v)
+            : 0.0f;
+    PiController_Configure(&s_foc_state.id_pi,
+                           s_motor_state.model.id_kp,
+                           s_motor_state.model.id_ki,
+                           Current_Ts,
+                           -maximum_voltage,
+                           maximum_voltage);
+    PiController_Configure(&s_foc_state.iq_pi,
+                           s_motor_state.model.iq_kp,
+                           s_motor_state.model.iq_ki,
+                           Current_Ts,
+                           -maximum_voltage,
+                           maximum_voltage);
+    PiController_Configure(&s_speed_pi,
+                           s_motor_state.application.speed_kp,
+                           s_motor_state.application.speed_ki,
+                           Speed_Ts,
+                           -1.0f,
+                           1.0f);
+}
+
+/* 每个新鲜母线样本后只刷新电压额度，不改变增益、时基或积分状态；空闲也有效。 */
+static void update_current_controller_limits(void)
+{
+    float maximum_voltage_v = FOC_MaximumVoltage(s_foc_state.bus_voltage_filtered_v);
+    s_foc_state.id_pi.output_min = s_foc_state.iq_pi.output_min = -maximum_voltage_v;
+    s_foc_state.id_pi.output_max = s_foc_state.iq_pi.output_max = maximum_voltage_v;
+}
+
+/* 不把2048或上次存储零点当作本次上电校正资格；NAN阻止原自检/启动门禁通过。 */
+static void initialize_current_offsets(void)
+{
+    s_current_offset_calibration = (CurrentOffsetCalibration){0};
+    s_motor_state.device.phase_a_offset_counts = NAN;
+    s_motor_state.device.phase_b_offset_counts = NAN;
+    s_motor_state.device.phase_c_offset_counts = NAN;
+    s_foc_state.phase_a_current_a = NAN;
+    s_foc_state.phase_b_current_a = NAN;
+    s_foc_state.phase_c_current_a = NAN;
+}
+
+/* 只能由新鲜JEOS快速拍调用；不启相、不分配、不阻塞、不保存、不自动重试。 */
+static void sample_phase_currents(void)
+{
+    if (s_current_offset_calibration.complete)
+    {
+        Current_Cal(&s_foc_state, &s_motor_state);
+        return;
+    }
+    if (s_current_offset_calibration.failed)
+    {
+        return;
+    }
+    if (!power_stage_hw_phases_disabled() || s_motor_state.control_mode != MOTOR_CONTROL_NONE)
+    {
+        s_current_offset_calibration.failed = true;
+        MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+        return;
+    }
+    uint16_t raw[3];
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        raw[phase] = motor_hw_current_sample_raw((MotorHwCurrentPhase)phase);
+        if (raw[phase] > 4U * 4095U)
+        {
+            s_current_offset_calibration.failed = true;
+            MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+            return;
+        }
+    }
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        s_current_offset_calibration.phase_sum_raw[phase] += raw[phase];
+    }
+    if (++s_current_offset_calibration.sample_count < CURRENT_OFFSET_SAMPLE_COUNT)
+    {
+        return;
+    }
+    float scale =
+        MOTOR_SENSING_ADC_SUM_TO_COUNTS / (float)s_current_offset_calibration.sample_count;
+    s_motor_state.device.phase_a_offset_counts =
+        (float)s_current_offset_calibration.phase_sum_raw[0] * scale;
+    s_motor_state.device.phase_b_offset_counts =
+        (float)s_current_offset_calibration.phase_sum_raw[1] * scale;
+    s_motor_state.device.phase_c_offset_counts =
+        (float)s_current_offset_calibration.phase_sum_raw[2] * scale;
+    if (!MotorCurrentOffsets_Valid(&s_motor_state))
+    {
+        s_motor_state.device.phase_a_offset_counts = NAN;
+        s_motor_state.device.phase_b_offset_counts = NAN;
+        s_motor_state.device.phase_c_offset_counts = NAN;
+        s_current_offset_calibration.failed = true;
+        MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+        return;
+    }
+    s_current_offset_calibration.complete = true;
+    MotorParameterTransaction_AdvanceRevision();
+    Current_Cal(&s_foc_state, &s_motor_state);
+}
+
 void MotorAxis_Init(void)
 {
-    s_config_revision = 1U;
-    s_revision_work_epoch = UINT32_MAX;
-    s_last_read.valid = s_last_write.valid = s_save_job.valid = false;
-    load_parameters();
+    MotorParameterTransaction_Init(&s_motor_state, &s_rotor_encoder);
+    initialize_current_offsets();
     MotorStateMachine_Init(
         &s_motor_state, &s_foc_state, &s_speed_pi, &s_rotor_encoder, &s_sensorless_startup);
     Encoder_ParamInit(&s_rotor_encoder);
@@ -105,6 +168,7 @@ void MotorAxis_Init(void)
     SensorlessStartup_Reset(&s_sensorless_startup);
     FOC_CurrentController_Reset(&s_foc_state);
     PiController_Reset(&s_speed_pi);
+    configure_controllers();
 
     s_motor_state.application.position_error_window_rad = 0.001f;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
@@ -112,8 +176,7 @@ void MotorAxis_Init(void)
     MotorMaintenance_Init();
 
     /* 未配置轴记录的关节在启动后保持禁用。 */
-    /* 启动默认保持禁用：CurrentOffset 标定启动已随 s_foc_state-Calibration 功能移除，
-     * 待标定重建后再定启动流程；避免以死模式进入自动使能而空开功率级。 */
+    /* 上电零点校正和基础自检只在关相状态推进，完成也不自动使能电机。 */
     s_motor_state.control_mode = MOTOR_CONTROL_NONE;
     if (!s_motor_state.application.axis_profile_valid)
     {
@@ -138,14 +201,14 @@ MotorControlMode MotorAxis_SupervisorTick(void)
     Temperature_Update(&s_foc_state, &s_motor_state);
     return s_motor_state.control_mode;
 }
-/* 每拍仅选择一个已获准功能；故障不预载 PWM，空闲预载不改变功率使能。 */
-static MotorTaskResult run_fast_task(void)
+/* 使用本拍捕获的维护许可；故障不预载 PWM，空闲预载不改变功率使能。 */
+static MotorTaskResult run_fast_task(bool maintenance_runnable)
 {
-    if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
+    if (!s_current_offset_calibration.complete || s_motor_state.fault_code != MOTOR_FAULT_NONE)
     {
         return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     }
-    if (MotorStateMachine_MaintenanceRunnable())
+    if (maintenance_runnable)
     {
         return MotorMaintenance_Step(MotorStateMachine_GetMaintenanceKind(),
                                      &s_foc_state,
@@ -179,10 +242,10 @@ void MotorAxis_FastTick(void)
     /* 2. 母线电压采样：换算 bus_voltage_v、更新低通滤波值，并推进过压/欠压确认计数；
      *    禁用模式清零计数。保护判定基于本拍电压，必须先于控制输出执行。 */
     Vbus_Update(&s_foc_state, &s_motor_state, MotorStateMachine_OutputExpected());
+    update_current_controller_limits();
 
-    /* 3. 相电流换算：ADC 原始值减零点偏置并折算为 phase_a_current_a/phase_b_current_a/phase_c_current_a（A），
-     *    同时校验偏置有效性，并按连续 5 拍确认过流。 */
-    Current_Cal(&s_foc_state, &s_motor_state);
+    /* 3. 先用关相新鲜帧完成上电零点校正，再执行既有电流换算与过流保护。 */
+    sample_phase_currents();
 
     /* 4. 完成本拍角度采样：取回 SPI 帧，做方向/LUT 校正并更新电角度；
      *    多圈/机械角/速度由 2 kHz 慢估计维护。 */
@@ -190,7 +253,8 @@ void MotorAxis_FastTick(void)
 
     /* 5. 观测器选择：位置模式（模式 3）由编码器与外环提供角度，跳过观测器；
      *    其余模式在模式分发前更新，首次切进电流/无感模式的这一拍即有估计可用。 */
-    if (s_motor_state.control_mode != MOTOR_CONTROL_POSITION)
+    if (s_current_offset_calibration.complete &&
+        s_motor_state.control_mode != MOTOR_CONTROL_POSITION)
     {
         FluxObserver_Update(&s_foc_state, &s_motor_state, &s_flux_observer);
     }
@@ -207,16 +271,13 @@ void MotorAxis_FastTick(void)
      *    本函数不写 control_mode 或功率使能，功能仅返回结果事实。 */
     uint32_t work_epoch = MotorStateMachine_WorkEpoch();
     bool configuration_work = MotorStateMachine_MaintenanceRunnable();
-    work_outcome = run_fast_task();
+    work_outcome = run_fast_task(configuration_work);
 
     /* 9. worker 结果入箱：由 2 kHz 主状态机在下一慢拍消费。 */
     if (configuration_work && s_motor_state.fault_code == MOTOR_FAULT_NONE &&
-        (work_outcome.result == MOTOR_TASK_COMPLETED ||
-         work_outcome.result == MOTOR_TASK_FINALIZE) &&
-        work_epoch != s_revision_work_epoch)
+        (work_outcome.result == MOTOR_TASK_COMPLETED || work_outcome.result == MOTOR_TASK_FINALIZE))
     {
-        s_revision_work_epoch = work_epoch;
-        advance_config_revision();
+        MotorParameterTransaction_AdvanceMaintenanceRevision(work_epoch);
     }
     MotorStateMachine_PostOutcome(work_outcome, work_epoch);
     MotorStateMachine_FastFaultStop();
@@ -294,18 +355,7 @@ void MotorAxis_ServiceBackground(void)
     bool success = false;
     if (claim.kind == FOC_BACKGROUND_SAVE)
     {
-        InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
-        if (record != NULL)
-        {
-            Param_Upload(record, &s_motor_state, &s_rotor_encoder);
-            uint32_t mask = critical_hw_enter();
-            if (MotorStateMachine_BackgroundValid(&claim))
-            {
-                success = param_store_write(record, sizeof(*record));
-            }
-            critical_hw_exit(mask);
-            MaintenanceWorkspace_ReleaseParameter(record);
-        }
+        success = MotorParameterTransaction_SaveRecord(&s_motor_state, &s_rotor_encoder, &claim);
     }
     else if (claim.kind == FOC_BACKGROUND_COGGING)
     {
@@ -325,308 +375,42 @@ void MotorAxis_ServiceBackground(void)
     uint32_t mask = critical_hw_enter();
     bool current = MotorStateMachine_BackgroundValid(&claim);
     MotorStateMachine_FinishBackground(&claim, success);
-    if (s_save_job.valid && s_save_job.ticket == claim.epoch && claim.kind == FOC_BACKGROUND_SAVE)
+    if (claim.kind == FOC_BACKGROUND_SAVE)
     {
-        s_save_job.result = !current  ? PARAMETER_CANCELLED
-                            : success ? PARAMETER_OK
-                                      : PARAMETER_PERSIST_FAILED;
-        if (current && success)
-        {
-            s_save_job.persisted_revision = s_save_job.request.expected_revision;
-        }
+        MotorParameterTransaction_FinishSave(claim.epoch, current, success);
     }
     critical_hw_exit(mask);
 }
 
-/* 比较实际字段而非含 padding 的结构内存；幂等身份包含原始整数位模式。 */
-static bool same_write(const ParameterWriteRequest *left, const ParameterWriteRequest *right)
-{
-    return left->parameter_id == right->parameter_id && left->value_type == right->value_type &&
-           left->expected_revision == right->expected_revision &&
-           left->raw_value == right->raw_value;
-}
-static bool stale_sequence(uint8_t source, uint16_t sequence)
-{
-    /* 单一受权主站的半圈窗口；相同身份重放在调用方先匹配缓存，避免再执行。 */
-    if (s_last_write.valid && source == s_last_write.request.source_node &&
-        (uint16_t)(sequence - s_last_write.request.sequence) >= 0x8000U)
-    {
-        return true;
-    }
-    if (s_save_job.valid && source == s_save_job.request.source_node &&
-        (uint16_t)(sequence - s_save_job.request.sequence) >= 0x8000U)
-    {
-        return true;
-    }
-    return false;
-}
-
-/* 调用方持有临界区；身份冲突：来源与序号命中任一已缓存票据。各入口先各自重放主缓存结果。 */
-static bool matches_cached_request(uint8_t source_node, uint16_t sequence)
-{
-    return (s_last_read.valid && source_node == s_last_read.request.source_node &&
-            sequence == s_last_read.request.sequence) ||
-           (s_last_write.valid && source_node == s_last_write.request.source_node &&
-            sequence == s_last_write.request.sequence) ||
-           (s_save_job.valid && source_node == s_save_job.request.source_node &&
-            sequence == s_save_job.request.sequence);
-}
-
-/* 调用方持有临界区；新请求也收敛旧SAVE，不能依赖主机继续轮询已取消任务。 */
-static void refresh_save_result(void)
-{
-    if (!s_save_job.valid || s_save_job.result != PARAMETER_ACCEPTED)
-    {
-        return;
-    }
-    MotorMaintenanceProgress progress;
-    if (!MotorStateMachine_ReadMaintenance(s_save_job.ticket, &progress) ||
-        progress.result == MOTOR_MAINTENANCE_CANCELLED)
-    {
-        s_save_job.result = PARAMETER_CANCELLED;
-    }
-    else if (progress.result == MOTOR_MAINTENANCE_FAILED)
-    {
-        s_save_job.result = PARAMETER_PERSIST_FAILED;
-    }
-}
-
+/* 外部参数入口保留；事务状态与资格判断仅由参数事务模块推进。 */
 ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, ParameterValue *value)
 {
-    if (value == NULL)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    *value = (ParameterValue){0};
-    if (request == NULL)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    uint32_t mask = critical_hw_enter();
-    ParameterStatus result;
-    if (s_last_read.valid && request->source_node == s_last_read.request.source_node &&
-        request->sequence == s_last_read.request.sequence)
-    {
-        result = request->parameter_id == s_last_read.request.parameter_id
-                     ? PARAMETER_OK
-                     : PARAMETER_CONFLICTING_RETRY;
-        if (result == PARAMETER_OK)
-        {
-            *value = s_last_read.value;
-        }
-    }
-    else if (matches_cached_request(request->source_node, request->sequence))
-    {
-        result = PARAMETER_CONFLICTING_RETRY;
-    }
-    else
-    {
-        MotorState state = MotorStateMachine_GetState();
-        result = state == MOTOR_STATE_MAINTENANCE || state == MOTOR_STATE_STARTING ||
-                         state == MOTOR_STATE_STOPPING
-                     ? PARAMETER_BUSY
-                     : ParameterValue_Read(&s_motor_state,
-                                           &s_rotor_encoder,
-                                           s_config_revision,
-                                           request->parameter_id,
-                                           value);
-        if (request->parameter_id >= 0x4FU && request->parameter_id <= 0x51U)
-        {
-            MotorReadiness readiness;
-            MotorStateMachine_ReadReadiness(&readiness);
-            uint32_t raw = request->parameter_id == 0x4FU   ? readiness.start_blockers
-                           : request->parameter_id == 0x50U ? readiness.self_test_checks
-                                                            : readiness.startable_modes;
-            *value = (ParameterValue){request->parameter_id,
-                                      PARAMETER_VALUE_U32,
-                                      PARAMETER_ACCESS_READ,
-                                      0U,
-                                      s_config_revision,
-                                      raw};
-            result = PARAMETER_OK;
-        }
-        if (result == PARAMETER_OK)
-        {
-            if (!MotorStateMachine_ConfigurationAllowed())
-            {
-                value->access &= (uint8_t)~PARAMETER_ACCESS_WRITE_IDLE;
-            }
-            s_last_read.request = *request;
-            s_last_read.value = *value;
-            s_last_read.valid = true;
-        }
-    }
-    critical_hw_exit(mask);
-    return result;
+    return MotorParameterTransaction_Read(&s_motor_state, &s_rotor_encoder, request, value);
 }
 
 ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
                                          ParameterValue *applied)
 {
-    if (applied == NULL)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    *applied = (ParameterValue){0};
-    if (request == NULL || request->reserved != 0U || request->reserved_sequence != 0U)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    uint32_t mask = critical_hw_enter();
-    refresh_save_result();
-    ParameterStatus result;
-    if (s_last_write.valid && request->source_node == s_last_write.request.source_node &&
-        request->sequence == s_last_write.request.sequence)
-    {
-        result =
-            same_write(request, &s_last_write.request) ? PARAMETER_OK : PARAMETER_CONFLICTING_RETRY;
-        if (result == PARAMETER_OK)
-        {
-            *applied = s_last_write.applied;
-        }
-    }
-    else if (matches_cached_request(request->source_node, request->sequence))
-    {
-        result = PARAMETER_CONFLICTING_RETRY;
-    }
-    else if (stale_sequence(request->source_node, request->sequence))
-    {
-        result = PARAMETER_STALE_SEQUENCE;
-    }
-    else if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
-    {
-        result = PARAMETER_FAULT;
-    }
-    else if (!MotorStateMachine_ConfigurationAllowed() ||
-             (s_save_job.valid && s_save_job.result == PARAMETER_ACCEPTED))
-    {
-        result = PARAMETER_WRONG_STATE;
-    }
-    else if (request->expected_revision != s_config_revision || s_config_revision == UINT32_MAX)
-    {
-        result = PARAMETER_REVISION_CONFLICT;
-    }
-    else
-    {
-        result = ParameterValue_Apply(&s_motor_state, request);
-        if (result == PARAMETER_OK)
-        {
-            advance_config_revision();
-            /* 原有控制器复位边界，不在这里重写控制数学或增益公式。 */
-            MotorOuterLoop_RequestReset();
-            FOC_CurrentController_Reset(&s_foc_state);
-            PiController_Reset(&s_speed_pi);
-            result = ParameterValue_Read(&s_motor_state,
-                                         &s_rotor_encoder,
-                                         s_config_revision,
-                                         request->parameter_id,
-                                         applied);
-            if (result == PARAMETER_OK)
-            {
-                s_last_write.request = *request;
-                s_last_write.applied = *applied;
-                s_last_write.valid = true;
-            }
-        }
-    }
-    critical_hw_exit(mask);
-    return result;
+    return MotorParameterTransaction_Write(
+        &s_motor_state, &s_foc_state, &s_speed_pi, &s_rotor_encoder, request, applied);
 }
 
 ParameterStatus MotorAxis_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket)
 {
-    if (ticket == NULL)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    *ticket = 0U;
-    if (request == NULL || request->reserved != 0U)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    uint32_t mask = critical_hw_enter();
-    refresh_save_result();
-    ParameterStatus result;
-    if (s_save_job.valid && request->source_node == s_save_job.request.source_node &&
-        request->sequence == s_save_job.request.sequence)
-    {
-        result = request->expected_revision == s_save_job.request.expected_revision
-                     ? s_save_job.result
-                     : PARAMETER_CONFLICTING_RETRY;
-        if (result != PARAMETER_CONFLICTING_RETRY)
-        {
-            *ticket = s_save_job.ticket;
-        }
-    }
-    else if (matches_cached_request(request->source_node, request->sequence))
-    {
-        result = PARAMETER_CONFLICTING_RETRY;
-    }
-    else if (stale_sequence(request->source_node, request->sequence))
-    {
-        result = PARAMETER_STALE_SEQUENCE;
-    }
-    else if (s_save_job.valid && s_save_job.result == PARAMETER_ACCEPTED)
-    {
-        result = PARAMETER_BUSY;
-    }
-    else if (request->expected_revision != s_config_revision)
-    {
-        result = PARAMETER_REVISION_CONFLICT;
-    }
-    else
-    {
-        MotorControlResult accepted =
-            MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_SAVE, ticket);
-        result = accepted == MOTOR_CONTROL_ACCEPTED ? PARAMETER_ACCEPTED
-                 : accepted == MOTOR_CONTROL_BUSY   ? PARAMETER_BUSY
-                 : accepted == MOTOR_CONTROL_FAULT  ? PARAMETER_FAULT
-                                                    : PARAMETER_WRONG_STATE;
-        if (result == PARAMETER_ACCEPTED)
-        {
-            s_save_job.request = *request;
-            s_save_job.ticket = *ticket;
-            s_save_job.persisted_revision = 0U;
-            s_save_job.result = result;
-            s_save_job.valid = true;
-        }
-    }
-    critical_hw_exit(mask);
-    return result;
+    return MotorParameterTransaction_RequestSave(request, ticket);
 }
 
 ParameterStatus MotorAxis_PollSave(uint32_t ticket, uint32_t *persisted_revision)
 {
-    if (persisted_revision == NULL)
-    {
-        return PARAMETER_INVALID_ARGUMENT;
-    }
-    *persisted_revision = 0U;
-    uint32_t mask = critical_hw_enter();
-    ParameterStatus result = PARAMETER_STALE_TICKET;
-    if (s_save_job.valid && ticket != 0U && ticket == s_save_job.ticket)
-    {
-        refresh_save_result();
-        result = s_save_job.result;
-        if (result == PARAMETER_OK)
-        {
-            *persisted_revision = s_save_job.persisted_revision;
-        }
-    }
-    critical_hw_exit(mask);
-    return result;
+    return MotorParameterTransaction_PollSave(ticket, persisted_revision);
 }
 
 bool MotorAxis_SaveIdle(void)
 {
-    uint32_t mask = critical_hw_enter();
-    refresh_save_result();
-    bool idle = !s_save_job.valid || s_save_job.result != PARAMETER_ACCEPTED;
-    critical_hw_exit(mask);
-    return idle;
+    return MotorParameterTransaction_SaveIdle();
 }
 
 bool MotorAxis_ConfigurationRevisionAvailable(void)
 {
-    return s_config_revision != 0U && s_config_revision != UINT32_MAX;
+    return MotorParameterTransaction_RevisionAvailable();
 }

@@ -11,6 +11,120 @@
 #include "position_cascade_config.h"
 #include "position_smooth_trajectory.h"
 
+/* 闭环核心只拥有 PI 与最终电流；参考/反馈结果直接借用 PI 字段，不重复缓存。 */
+typedef struct
+{
+    PiController speed_controller;
+    float iq_reference_a;
+    bool current_saturated;
+} PositionCascadeCoreState;
+
+typedef struct
+{
+    float position_kp_per_s;
+    float position_kd;
+    float maximum_speed_rad_s;
+    float speed_limit_rad_s;
+} PositionCascadeCoreSpeedConfig;
+
+typedef struct
+{
+    float position_reference_rad;
+    float trajectory_speed_rad_s;
+    float measured_position_rad;
+    float control_velocity_rad_s;
+} PositionCascadeCoreMotion;
+
+typedef struct
+{
+    float speed_reference_rad_s;
+    float control_velocity_rad_s;
+    float proportional_gain_a_per_rad_s;
+    float integral_gain_a_per_rad;
+    float feedforward_candidate_a;
+    float feedforward_current_a;
+} PositionCascadeCoreCurrent;
+
+typedef struct
+{
+    float speed_reference_rad_s;
+    float feedback_current_a;
+    float integral_current_a;
+    float iq_reference_a;
+    bool current_saturated;
+} PositionCascadeCoreOutput;
+
+typedef struct
+{
+    float unload_step_a;
+    bool apply;
+} PositionCascadeIntegralTransport;
+
+typedef struct
+{
+    float increment_a;
+    bool apply;
+} PositionCascadeStaticIntegral;
+
+/* 摩擦状态只由本模块的复位、事件及更新入口写入，不借用 PI 或伺服状态。 */
+typedef struct
+{
+    float current_a;
+    float breakaway_start_position_rad;
+    uint32_t stuck_counter;
+    int8_t direction;
+    bool breakaway_active;
+    bool landing_active;
+    bool recovery_active;
+    bool current_ramping;
+} PositionCascadeFrictionState;
+
+/* 只读摩擦调参：rad、rad/s、s 和 A；不包含闭环增益或 PI 状态。 */
+typedef struct
+{
+    float current_limit_a;
+    float deceleration_rad_s2;
+    float attack_slew_a_per_s;
+    float breakaway_distance_rad;
+    float breakaway_ratio;
+    float coulomb_negative_a;
+    float coulomb_positive_a;
+    float fast_release_slew_a_per_s;
+    bool enabled;
+    float move_speed_rad_s;
+    float reference_speed_rad_s;
+    float release_slew_a_per_s;
+    float stop_speed_rad_s;
+    float viscous_negative_a_per_rad_s;
+    float viscous_positive_a_per_rad_s;
+    float capture_enter_rad;
+    float capture_exit_rad;
+    float reference_finish_window_rad;
+    float update_period_s;
+} PositionCascadeFrictionConfig;
+
+typedef struct
+{
+    float target_position_rad;
+    float position_reference_rad;
+    float trajectory_speed_rad_s;
+    float measured_position_rad;
+    float measured_speed_rad_s;
+    uint32_t stuck_ticks;
+    bool holding;
+    bool moving;
+    bool settling;
+    bool capture_active;
+} PositionCascadeFrictionInput;
+
+typedef struct
+{
+    float current_a;
+    bool landing_active;
+    bool recovery_active;
+    bool current_ramping;
+} PositionCascadeFrictionOutput;
+
 typedef struct
 {
     PositionCascadeConfig validated_config;
@@ -19,41 +133,30 @@ typedef struct
     uint32_t configured_stuck_ticks;
     float configured_velocity_filter_alpha;
     float configured_hold_velocity_filter_alpha;
-    PiController speed_controller;
     PositionSmoothTrajectory smooth_trajectory;
     bool smooth_active;
     bool smooth_planning;
     uint16_t loop_count;
     uint32_t hold_counter;
-    uint32_t friction_stuck_counter;
     uint32_t position_stuck_counter;
     float position_stuck_anchor;
     float last_target;
     float position_reference;
     float trajectory_speed;
     float trajectory_acceleration;
-    float speed_reference;
     float velocity_filtered;
     float control_velocity;
-    float iq_reference;
-    float feedback_current;
     float acceleration_feedforward_current;
-    float friction_feedforward_current;
-    float friction_breakaway_start_position;
-    int8_t friction_direction;
     PositionServoPhase phase;
-    bool friction_breakaway_active;
-    bool friction_landing_active;
-    bool settle_recovery_active;
     bool target_transition_active;
     bool target_reached;
-    bool current_saturated;
     bool settling_in_window;
     bool trajectory_limited;
-    bool friction_current_ramping;
     bool stiction_integrating;
     bool initialized;
     bool defer_telemetry;
+    PositionCascadeCoreState core;
+    PositionCascadeFrictionState friction;
 } PositionCascadeState;
 
 static PositionCascadeState s_state;
@@ -87,6 +190,143 @@ static inline float position_cascade_constrain(float value, float minimum, float
     return value;
 }
 
+/* 输入均来自已校验配置；核心不认识目标、轨迹阶段、摩擦模型或硬件。 */
+static void position_cascade_core_reset(PositionCascadeCoreState *state)
+{
+    memset(state, 0, sizeof(*state));
+}
+
+static PositionCascadeCoreOutput position_cascade_core_output(const PositionCascadeCoreState *state)
+{
+    PositionCascadeCoreOutput output;
+    output.speed_reference_rad_s = state->speed_controller.reference;
+    output.feedback_current_a = state->speed_controller.output;
+    output.integral_current_a = state->speed_controller.integral_output;
+    output.iq_reference_a = state->iq_reference_a;
+    output.current_saturated = state->current_saturated;
+    return output;
+}
+
+static float position_cascade_core_speed(const PositionCascadeCoreSpeedConfig *config,
+                                         const PositionCascadeCoreMotion *input)
+{
+    float position_error = input->position_reference_rad - input->measured_position_rad;
+    float velocity_error = input->trajectory_speed_rad_s - input->control_velocity_rad_s;
+    float speed_reference = input->trajectory_speed_rad_s +
+                            config->position_kp_per_s * position_error +
+                            config->position_kd * velocity_error;
+    float speed_command_limit = position_cascade_min(
+        config->speed_limit_rad_s,
+        config->maximum_speed_rad_s * POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO);
+    return position_cascade_constrain(speed_reference, -speed_command_limit, speed_command_limit);
+}
+
+static void position_cascade_core_apply_transport(PositionCascadeCoreState *state,
+                                                  PositionCascadeIntegralTransport request)
+{
+    if (!request.apply)
+    {
+        return;
+    }
+    if (state->speed_controller.integral_output > 0.0f)
+    {
+        state->speed_controller.integral_output -= request.unload_step_a;
+    }
+    else
+    {
+        state->speed_controller.integral_output += request.unload_step_a;
+    }
+    if (position_cascade_abs(state->speed_controller.integral_output) <=
+        POSITION_SERVO_INTEGRAL_ZERO_THRESHOLD_A)
+    {
+        state->speed_controller.integral_output = 0.0f;
+    }
+}
+
+static void position_cascade_core_apply_static_integral(PositionCascadeCoreState *state,
+                                                        PositionCascadeStaticIntegral request,
+                                                        float current_limit_a)
+{
+    if (!request.apply)
+    {
+        return;
+    }
+    state->speed_controller.integral_output =
+        position_cascade_constrain(state->speed_controller.integral_output + request.increment_a,
+                                   -current_limit_a,
+                                   current_limit_a);
+}
+
+/* 参数对象与状态不重叠；只组合安培域反馈与显式前馈。
+ * 跟踪限幅后的反馈份额，失败不覆盖旧 Iq/饱和标志。 */
+static bool position_cascade_core_run_current(PositionCascadeCoreState *restrict state,
+                                              const PositionCascadeCoreCurrent *restrict input,
+                                              float update_period_s,
+                                              float current_limit_a)
+{
+    float feedback_current;
+    float current_candidate;
+    float applied_feedback_current;
+    PiController_Configure(&state->speed_controller,
+                           input->proportional_gain_a_per_rad_s,
+                           input->integral_gain_a_per_rad,
+                           update_period_s,
+                           -current_limit_a,
+                           current_limit_a);
+    feedback_current = PiController_Run(
+        &state->speed_controller, input->speed_reference_rad_s, input->control_velocity_rad_s);
+    current_candidate = feedback_current + input->feedforward_current_a;
+    if (!isfinite(current_candidate))
+    {
+        return false;
+    }
+    state->current_saturated = input->feedforward_candidate_a > current_limit_a ||
+                               input->feedforward_candidate_a < -current_limit_a ||
+                               current_candidate > current_limit_a ||
+                               current_candidate < -current_limit_a;
+    state->iq_reference_a =
+        position_cascade_constrain(current_candidate, -current_limit_a, current_limit_a);
+    applied_feedback_current = position_cascade_constrain(
+        state->iq_reference_a - input->feedforward_current_a, -current_limit_a, current_limit_a);
+    PiController_TrackOutput(&state->speed_controller, applied_feedback_current);
+    return true;
+}
+
+static void position_cascade_friction_reset(PositionCascadeFrictionState *state)
+{
+    memset(state, 0, sizeof(*state));
+}
+
+static void position_cascade_friction_initialize(PositionCascadeFrictionState *state,
+                                                 float measured_position_rad)
+{
+    state->breakaway_start_position_rad = measured_position_rad;
+}
+
+static void position_cascade_friction_target_changed(PositionCascadeFrictionState *state)
+{
+    state->stuck_counter = 0U;
+    state->breakaway_active = false;
+    state->landing_active = false;
+    state->recovery_active = false;
+}
+
+static void position_cascade_friction_hold_entered(PositionCascadeFrictionState *state)
+{
+    state->recovery_active = false;
+}
+
+static PositionCascadeFrictionOutput
+position_cascade_friction_output(const PositionCascadeFrictionState *state)
+{
+    PositionCascadeFrictionOutput output;
+    output.current_a = state->current_a;
+    output.landing_active = state->landing_active;
+    output.recovery_active = state->recovery_active;
+    output.current_ramping = state->current_ramping;
+    return output;
+}
+
 static uint32_t position_cascade_time_to_ticks(const PositionCascadeConfig *config, float time_s)
 {
     float ticks;
@@ -111,81 +351,73 @@ typedef char PositionConfigOffsetFitsByte[sizeof(PositionCascadeConfig) <= UINT8
 
 static bool position_cascade_config_is_valid(const PositionCascadeConfig *config)
 {
-    static const uint8_t finite_offsets[] = {
-        offsetof(PositionCascadeConfig, update_period_s),
-        offsetof(PositionCascadeConfig, target_position),
-        offsetof(PositionCascadeConfig, position_error_window),
-        offsetof(PositionCascadeConfig, hold_enter_position),
-        offsetof(PositionCascadeConfig, hold_exit_position),
-        offsetof(PositionCascadeConfig, velocity_filter_hz),
-        offsetof(PositionCascadeConfig, hold_velocity_filter_hz),
-        offsetof(PositionCascadeConfig, following_error_limit),
-        offsetof(PositionCascadeConfig, stiction_integral_rate),
-        offsetof(PositionCascadeConfig, acceleration),
-        offsetof(PositionCascadeConfig, deceleration),
-        offsetof(PositionCascadeConfig, maximum_speed),
-        offsetof(PositionCascadeConfig, speed_limit_rad_s),
-        offsetof(PositionCascadeConfig, jerk_limit),
-        offsetof(PositionCascadeConfig, position_kp),
-        offsetof(PositionCascadeConfig, position_kd),
-        offsetof(PositionCascadeConfig, speed_kp),
-        offsetof(PositionCascadeConfig, speed_ki),
-        offsetof(PositionCascadeConfig, acceleration_feedforward_gain),
-        offsetof(PositionCascadeConfig, current_limit_a),
-        offsetof(PositionCascadeConfig, friction_coulomb_positive),
-        offsetof(PositionCascadeConfig, friction_coulomb_negative),
-        offsetof(PositionCascadeConfig, friction_viscous_positive),
-        offsetof(PositionCascadeConfig, friction_viscous_negative),
-        offsetof(PositionCascadeConfig, friction_breakaway_ratio),
-        offsetof(PositionCascadeConfig, friction_attack_slew_rate),
-        offsetof(PositionCascadeConfig, friction_fast_release_slew_rate),
-        offsetof(PositionCascadeConfig, friction_release_slew_rate),
-        offsetof(PositionCascadeConfig, friction_reference_speed),
-        offsetof(PositionCascadeConfig, friction_stop_speed),
-        offsetof(PositionCascadeConfig, friction_move_speed),
-        offsetof(PositionCascadeConfig, friction_breakaway_distance),
-        offsetof(PositionCascadeConfig, friction_stuck_time),
+    static const struct
+    {
+        uint8_t offset;
+        bool strictly_positive;
+    } field_rules[] = {
+        {offsetof(PositionCascadeConfig, update_period_s), true},
+        {offsetof(PositionCascadeConfig, position_error_window), true},
+        {offsetof(PositionCascadeConfig, hold_enter_position), false},
+        {offsetof(PositionCascadeConfig, hold_exit_position), false},
+        {offsetof(PositionCascadeConfig, velocity_filter_hz), false},
+        {offsetof(PositionCascadeConfig, hold_velocity_filter_hz), false},
+        {offsetof(PositionCascadeConfig, following_error_limit), false},
+        {offsetof(PositionCascadeConfig, stiction_integral_rate), false},
+        {offsetof(PositionCascadeConfig, acceleration), true},
+        {offsetof(PositionCascadeConfig, deceleration), true},
+        {offsetof(PositionCascadeConfig, maximum_speed), true},
+        {offsetof(PositionCascadeConfig, speed_limit_rad_s), true},
+        {offsetof(PositionCascadeConfig, jerk_limit), true},
+        {offsetof(PositionCascadeConfig, position_kp), false},
+        {offsetof(PositionCascadeConfig, position_kd), false},
+        {offsetof(PositionCascadeConfig, speed_kp), false},
+        {offsetof(PositionCascadeConfig, speed_ki), false},
+        {offsetof(PositionCascadeConfig, acceleration_feedforward_gain), false},
+        {offsetof(PositionCascadeConfig, current_limit_a), true},
+        {offsetof(PositionCascadeConfig, friction_coulomb_positive), false},
+        {offsetof(PositionCascadeConfig, friction_coulomb_negative), false},
+        {offsetof(PositionCascadeConfig, friction_viscous_positive), false},
+        {offsetof(PositionCascadeConfig, friction_viscous_negative), false},
+        {offsetof(PositionCascadeConfig, friction_breakaway_ratio), false},
+        {offsetof(PositionCascadeConfig, friction_attack_slew_rate), true},
+        {offsetof(PositionCascadeConfig, friction_fast_release_slew_rate), true},
+        {offsetof(PositionCascadeConfig, friction_release_slew_rate), true},
+        {offsetof(PositionCascadeConfig, friction_reference_speed), true},
+        {offsetof(PositionCascadeConfig, friction_stop_speed), false},
+        {offsetof(PositionCascadeConfig, friction_move_speed), false},
+        {offsetof(PositionCascadeConfig, friction_breakaway_distance), true},
+        {offsetof(PositionCascadeConfig, friction_stuck_time), false},
     };
     size_t index;
-    /* 仅在配置变化时扫描；只读取明确列出的 float，不检查结构填充字节。 */
+    /* 调参字段均要求有限且非负；严格正值同时拒绝 +0/-0。
+     * 仅在配置变化时扫描明确列出的 float，不检查结构填充字节。 */
     if (config == NULL)
     {
         return false;
     }
-    for (index = 0; index < sizeof(finite_offsets) / sizeof(finite_offsets[0]); ++index)
+    for (index = 0; index < sizeof(field_rules) / sizeof(field_rules[0]); ++index)
     {
         float value;
-        memcpy(&value, (const unsigned char *)config + finite_offsets[index], sizeof(value));
-        if (!isfinite(value))
+        memcpy(&value, (const unsigned char *)config + field_rules[index].offset, sizeof(value));
+        if (!isfinite(value) || value < 0.0f ||
+            (field_rules[index].strictly_positive && value == 0.0f))
         {
             return false;
         }
     }
-    return config->update_period_s > 0.0f && config->call_divider > 0U &&
-           config->position_error_window > 0.0f &&
+    /* 目标允许负值；字段间关系、上界和派生乘积仍显式检查。 */
+    return isfinite(config->target_position) && config->call_divider > 0U &&
            config->hold_enter_position >= config->position_error_window &&
            config->hold_exit_position > config->hold_enter_position &&
-           config->velocity_filter_hz >= 0.0f &&
            config->velocity_filter_hz * config->update_period_s <= 0.5f &&
-           config->hold_velocity_filter_hz >= 0.0f &&
            config->hold_velocity_filter_hz * config->update_period_s <= 0.5f &&
-           config->following_error_limit >= 0.0f && config->stiction_integral_rate >= 0.0f &&
            isfinite(config->stiction_integral_rate * config->update_period_s) &&
-           config->acceleration > 0.0f && config->deceleration > 0.0f &&
-           config->maximum_speed > 0.0f && config->speed_limit_rad_s > 0.0f &&
-           config->maximum_speed <= config->speed_limit_rad_s && config->jerk_limit > 0.0f &&
-           config->position_kp >= 0.0f && config->position_kp <= CASCADE_POSITION_KP_MAX_PER_S &&
-           config->position_kd >= 0.0f && config->position_kd <= CASCADE_POSITION_KD_MAX &&
-           config->speed_kp >= 0.0f && config->speed_ki >= 0.0f &&
-           config->acceleration_feedforward_gain >= 0.0f && config->current_limit_a > 0.0f &&
-           config->friction_coulomb_positive >= 0.0f && config->friction_coulomb_negative >= 0.0f &&
-           config->friction_viscous_positive >= 0.0f && config->friction_viscous_negative >= 0.0f &&
-           config->friction_breakaway_ratio >= 1.0f && config->friction_attack_slew_rate > 0.0f &&
-           config->friction_fast_release_slew_rate > 0.0f &&
-           config->friction_release_slew_rate > 0.0f && config->friction_reference_speed > 0.0f &&
-           config->friction_stop_speed >= 0.0f &&
-           config->friction_move_speed > config->friction_stop_speed &&
-           config->friction_breakaway_distance > 0.0f && config->friction_stuck_time >= 0.0f;
+           config->maximum_speed <= config->speed_limit_rad_s &&
+           config->position_kp <= CASCADE_POSITION_KP_MAX_PER_S &&
+           config->position_kd <= CASCADE_POSITION_KD_MAX &&
+           config->friction_breakaway_ratio >= 1.0f &&
+           config->friction_move_speed > config->friction_stop_speed;
 }
 
 static bool position_cascade_check_config(const PositionCascadeConfig *config)
@@ -237,20 +469,23 @@ bool PositionCascade_GetTelemetry(PositionCascadeTelemetry *telemetry)
         return false;
     }
 
+    PositionCascadeCoreOutput core = position_cascade_core_output(&s_state.core);
+    PositionCascadeFrictionOutput friction = position_cascade_friction_output(&s_state.friction);
+
     telemetry->position_reference = s_state.position_reference;
     telemetry->trajectory_speed_reference = s_state.trajectory_speed;
-    telemetry->speed_command = s_state.speed_reference;
+    telemetry->speed_command = core.speed_reference_rad_s;
     telemetry->speed_feedback_rad_s = s_state.control_velocity;
     telemetry->acceleration_reference = s_state.trajectory_acceleration;
-    telemetry->feedback_current = s_state.feedback_current;
+    telemetry->feedback_current = core.feedback_current_a;
     telemetry->acceleration_feedforward_current = s_state.acceleration_feedforward_current;
-    telemetry->friction_feedforward_current = s_state.friction_feedforward_current;
-    telemetry->hold_current = s_state.speed_controller.integral_output;
+    telemetry->friction_feedforward_current = friction.current_a;
+    telemetry->hold_current = core.integral_current_a;
     telemetry->phase = s_state.phase;
     telemetry->target_reached = s_state.target_reached;
-    telemetry->current_saturated = s_state.current_saturated;
-    telemetry->friction_landing_active = s_state.friction_landing_active;
-    telemetry->settle_recovery_active = s_state.settle_recovery_active;
+    telemetry->current_saturated = core.current_saturated;
+    telemetry->friction_landing_active = friction.landing_active;
+    telemetry->settle_recovery_active = friction.recovery_active;
     telemetry->hold_candidate_active =
         s_state.phase == POSITION_SERVO_PHASE_SETTLE && s_state.hold_counter > 0U;
     telemetry->trajectory_limited = s_state.trajectory_limited;
@@ -419,26 +654,38 @@ static bool position_cascade_update_trajectory(const PositionCascadeConfig *conf
     return done;
 }
 
-static float position_cascade_friction_magnitude(const PositionCascadeConfig *config,
+static float position_cascade_friction_magnitude(const PositionCascadeFrictionConfig *config,
+                                                 float trajectory_speed_rad_s,
                                                  int8_t direction)
 {
-    float speed = position_cascade_abs(s_state.trajectory_speed);
+    float speed = position_cascade_abs(trajectory_speed_rad_s);
 
     if (direction > 0)
     {
-        return config->friction_coulomb_positive + config->friction_viscous_positive * speed;
+        return config->coulomb_positive_a + config->viscous_positive_a_per_rad_s * speed;
     }
     if (direction < 0)
     {
-        return config->friction_coulomb_negative + config->friction_viscous_negative * speed;
+        return config->coulomb_negative_a + config->viscous_negative_a_per_rad_s * speed;
     }
     return 0.0f;
 }
 
-static void position_cascade_update_friction(const PositionCascadeConfig *config,
-                                             float measured_position,
-                                             float measured_speed)
+/* 状态与窄输入不重叠，输入只在当前控制拍借用；内联消除栈复制，状态边界保持独立。 */
+#if defined(__CC_ARM)
+#define POSITION_CASCADE_FRICTION_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define POSITION_CASCADE_FRICTION_INLINE inline __attribute__((always_inline))
+#else
+#define POSITION_CASCADE_FRICTION_INLINE inline
+#endif
+static POSITION_CASCADE_FRICTION_INLINE void
+position_cascade_friction_update(PositionCascadeFrictionState *restrict state,
+                                 const PositionCascadeFrictionConfig *restrict config,
+                                 const PositionCascadeFrictionInput *restrict input)
 {
+    float measured_position = input->measured_position_rad;
+    float measured_speed = input->measured_speed_rad_s;
     float target_current = 0.0f;
     float current_step;
     float current_delta;
@@ -451,167 +698,164 @@ static void position_cascade_update_friction(const PositionCascadeConfig *config
     float landing_zero_position;
     float landing_span;
     float landing_scale = 1.0f;
-    float previous_current = s_state.friction_feedforward_current;
+    float previous_current = state->current_a;
     uint32_t stuck_ticks;
     int8_t desired_direction = 0;
     bool feedback_is_stopped;
     bool request_breakaway = false;
-    bool controller_requests_braking = false;
     bool inside_braking_envelope = false;
     bool fast_release = false;
     bool waiting_for_recovery = false;
 
-    if (!config->friction_feedforward_enabled)
+    if (!config->enabled)
     {
-        s_state.friction_feedforward_current = 0.0f;
-        s_state.friction_direction = 0;
-        s_state.friction_stuck_counter = 0U;
-        s_state.friction_breakaway_active = false;
-        s_state.friction_landing_active = false;
-        s_state.settle_recovery_active = false;
-        s_state.friction_current_ramping = false;
+        state->current_a = 0.0f;
+        state->direction = 0;
+        state->stuck_counter = 0U;
+        state->breakaway_active = false;
+        state->landing_active = false;
+        state->recovery_active = false;
+        state->current_ramping = false;
         return;
     }
 
-    target_error = config->target_position - measured_position;
-    landing_position = config->hold_enter_position;
+    target_error = input->target_position_rad - measured_position;
+    landing_position = config->capture_enter_rad;
     landing_zero_position = landing_position * POSITION_SERVO_FRICTION_LANDING_ZERO_RATIO;
-    feedback_is_stopped = position_cascade_abs(measured_speed) <= config->friction_stop_speed;
-    stuck_ticks = s_state.configured_stuck_ticks;
+    feedback_is_stopped = position_cascade_abs(measured_speed) <= config->stop_speed_rad_s;
+    stuck_ticks = input->stuck_ticks;
 
-    if (s_state.phase == POSITION_SERVO_PHASE_HOLD || s_state.settling_in_window)
+    if (input->holding || input->capture_active)
     {
-        s_state.friction_stuck_counter = 0U;
-        s_state.friction_breakaway_active = false;
-        s_state.friction_landing_active = false;
-        s_state.settle_recovery_active = false;
+        state->stuck_counter = 0U;
+        state->breakaway_active = false;
+        state->landing_active = false;
+        state->recovery_active = false;
         fast_release = true;
     }
-    else if (s_state.friction_landing_active)
+    else if (state->landing_active)
     {
         /* 着陆衰减期间锁存运动方向。转子在目标窗口外停住时，以有界起步斜坡恢复，
          * 即使参考仍在运动，也不等待轨迹结束。 */
-        if (position_cascade_abs(target_error) > config->hold_exit_position && feedback_is_stopped)
+        if (position_cascade_abs(target_error) > config->capture_exit_rad && feedback_is_stopped)
         {
             waiting_for_recovery = true;
-            if (s_state.friction_stuck_counter < UINT32_MAX)
+            if (state->stuck_counter < UINT32_MAX)
             {
-                s_state.friction_stuck_counter++;
+                state->stuck_counter++;
             }
-            if (stuck_ticks == 0U || s_state.friction_stuck_counter >= stuck_ticks)
+            if (stuck_ticks == 0U || state->stuck_counter >= stuck_ticks)
             {
-                s_state.friction_landing_active = false;
-                s_state.settle_recovery_active = true;
+                state->landing_active = false;
+                state->recovery_active = true;
                 desired_direction = target_error > 0.0f ? 1 : -1;
                 request_breakaway = true;
             }
             else
             {
-                desired_direction = s_state.friction_direction;
+                desired_direction = state->direction;
             }
         }
         else
         {
-            s_state.friction_stuck_counter = 0U;
-            desired_direction = s_state.friction_direction;
+            state->stuck_counter = 0U;
+            desired_direction = state->direction;
         }
         fast_release = true;
     }
-    else if (s_state.phase == POSITION_SERVO_PHASE_MOVE)
+    else if (input->moving)
     {
-        if (position_cascade_abs(s_state.trajectory_speed) >= config->friction_reference_speed)
+        if (position_cascade_abs(input->trajectory_speed_rad_s) >= config->reference_speed_rad_s)
         {
-            desired_direction = s_state.trajectory_speed > 0.0f ? 1 : -1;
+            desired_direction = input->trajectory_speed_rad_s > 0.0f ? 1 : -1;
         }
-        else if (position_cascade_abs(config->target_position - s_state.position_reference) >
-                 config->position_error_window)
+        else if (position_cascade_abs(input->target_position_rad - input->position_reference_rad) >
+                 config->reference_finish_window_rad)
         {
-            desired_direction = config->target_position > s_state.position_reference ? 1 : -1;
+            desired_direction = input->target_position_rad > input->position_reference_rad ? 1 : -1;
         }
-        else if (position_cascade_abs(target_error) > config->hold_enter_position)
+        else if (position_cascade_abs(target_error) > config->capture_enter_rad)
         {
             /* 参考接近停止但转子仍落后时，保持 MOVE/SETTLE 间的靠近补偿。 */
             desired_direction = target_error > 0.0f ? 1 : -1;
         }
     }
-    else if (s_state.phase == POSITION_SERVO_PHASE_SETTLE)
+    else if (input->settling)
     {
-        if (s_state.settle_recovery_active)
+        if (state->recovery_active)
         {
-            if (position_cascade_abs(target_error) > config->hold_enter_position)
+            if (position_cascade_abs(target_error) > config->capture_enter_rad)
             {
                 /* 锁存方向，使越过目标时进入着陆。 */
-                desired_direction = s_state.friction_direction != 0
-                                        ? s_state.friction_direction
-                                        : (target_error > 0.0f ? 1 : -1);
+                desired_direction =
+                    state->direction != 0 ? state->direction : (target_error > 0.0f ? 1 : -1);
             }
             else
             {
-                s_state.settle_recovery_active = false;
-                s_state.friction_breakaway_active = false;
+                state->recovery_active = false;
+                state->breakaway_active = false;
                 fast_release = true;
             }
         }
-        else if (position_cascade_abs(target_error) > config->hold_exit_position &&
+        else if (position_cascade_abs(target_error) > config->capture_exit_rad &&
                  feedback_is_stopped)
         {
             waiting_for_recovery = true;
             fast_release = true;
-            if (s_state.friction_stuck_counter < UINT32_MAX)
+            if (state->stuck_counter < UINT32_MAX)
             {
-                s_state.friction_stuck_counter++;
+                state->stuck_counter++;
             }
-            if (stuck_ticks == 0U || s_state.friction_stuck_counter >= stuck_ticks)
+            if (stuck_ticks == 0U || state->stuck_counter >= stuck_ticks)
             {
-                s_state.settle_recovery_active = true;
+                state->recovery_active = true;
                 desired_direction = target_error > 0.0f ? 1 : -1;
                 request_breakaway = true;
             }
         }
         else
         {
-            s_state.friction_stuck_counter = 0U;
+            state->stuck_counter = 0U;
             fast_release = true;
         }
     }
 
-    if (desired_direction != s_state.friction_direction)
+    if (desired_direction != state->direction)
     {
-        s_state.friction_direction = desired_direction;
-        s_state.friction_stuck_counter = 0U;
-        s_state.friction_breakaway_active = false;
-        s_state.friction_breakaway_start_position = measured_position;
+        state->direction = desired_direction;
+        state->stuck_counter = 0U;
+        state->breakaway_active = false;
+        state->breakaway_start_position_rad = measured_position;
     }
     if (request_breakaway)
     {
-        s_state.friction_breakaway_active = true;
-        s_state.friction_breakaway_start_position = measured_position;
+        state->breakaway_active = true;
+        state->breakaway_start_position_rad = measured_position;
     }
 
     if (!waiting_for_recovery && desired_direction != 0 && feedback_is_stopped &&
-        !s_state.friction_landing_active)
+        !state->landing_active)
     {
-        if (s_state.friction_stuck_counter < UINT32_MAX)
+        if (state->stuck_counter < UINT32_MAX)
         {
-            s_state.friction_stuck_counter++;
+            state->stuck_counter++;
         }
-        if (!s_state.friction_breakaway_active &&
-            (stuck_ticks == 0U || s_state.friction_stuck_counter >= stuck_ticks))
+        if (!state->breakaway_active && (stuck_ticks == 0U || state->stuck_counter >= stuck_ticks))
         {
-            s_state.friction_breakaway_active = true;
-            s_state.friction_breakaway_start_position = measured_position;
+            state->breakaway_active = true;
+            state->breakaway_start_position_rad = measured_position;
         }
     }
     else if (!waiting_for_recovery &&
              (desired_direction == 0 ||
-              (!s_state.friction_breakaway_active &&
-               (float)desired_direction * measured_speed >= config->friction_move_speed) ||
+              (!state->breakaway_active &&
+               (float)desired_direction * measured_speed >= config->move_speed_rad_s) ||
               (float)desired_direction *
-                      (measured_position - s_state.friction_breakaway_start_position) >=
-                  config->friction_breakaway_distance))
+                      (measured_position - state->breakaway_start_position_rad) >=
+                  config->breakaway_distance_rad))
     {
-        s_state.friction_stuck_counter = 0U;
-        s_state.friction_breakaway_active = false;
+        state->stuck_counter = 0U;
+        state->breakaway_active = false;
     }
 
     if (desired_direction != 0)
@@ -621,31 +865,28 @@ static void position_cascade_update_friction(const PositionCascadeConfig *config
         if (speed_toward_target > 0.0f)
         {
             braking_distance =
-                speed_toward_target * speed_toward_target / (2.0f * config->deceleration);
+                speed_toward_target * speed_toward_target / (2.0f * config->deceleration_rad_s2);
         }
         inside_braking_envelope = remaining_distance <= landing_position + braking_distance;
-        controller_requests_braking = speed_toward_target > config->friction_stop_speed &&
-                                      (float)desired_direction * s_state.speed_reference <= 0.0f &&
-                                      inside_braking_envelope;
-
-        if (!s_state.friction_landing_active &&
-            (remaining_distance <= 0.0f || controller_requests_braking ||
-             (speed_toward_target > config->friction_stop_speed && inside_braking_envelope)))
+        if (!state->landing_active &&
+            (remaining_distance <= 0.0f ||
+             (speed_toward_target > config->stop_speed_rad_s && inside_braking_envelope)))
         {
-            s_state.friction_landing_active = true;
-            s_state.settle_recovery_active = false;
+            state->landing_active = true;
+            state->recovery_active = false;
             /* v²/(2a) 属于惯性制动距离。若在整个距离上削减库仑补偿，转子会提前停住并二次起步。 */
-            s_state.friction_breakaway_active = false;
-            s_state.friction_stuck_counter = 0U;
+            state->breakaway_active = false;
+            state->stuck_counter = 0U;
             fast_release = true;
         }
 
-        magnitude = position_cascade_friction_magnitude(config, desired_direction);
-        if (s_state.friction_breakaway_active)
+        magnitude = position_cascade_friction_magnitude(
+            config, input->trajectory_speed_rad_s, desired_direction);
+        if (state->breakaway_active)
         {
-            magnitude *= config->friction_breakaway_ratio;
+            magnitude *= config->breakaway_ratio;
         }
-        if (s_state.friction_landing_active)
+        if (state->landing_active)
         {
             /* 进入位置捕获窗口后才卸除动摩擦补偿；保持原电流斜率限制，由速度阻尼制动。 */
             landing_span = landing_position - landing_zero_position;
@@ -665,27 +906,26 @@ static void position_cascade_update_friction(const PositionCascadeConfig *config
     }
 
     /* 方向反转时先卸载到零，再施加起步补偿。 */
-    if (target_current * s_state.friction_feedforward_current < 0.0f)
+    if (target_current * state->current_a < 0.0f)
     {
         target_current = 0.0f;
         fast_release = true;
     }
-    current_delta = target_current - s_state.friction_feedforward_current;
-    if (position_cascade_abs(target_current) >
-        position_cascade_abs(s_state.friction_feedforward_current))
+    current_delta = target_current - state->current_a;
+    if (position_cascade_abs(target_current) > position_cascade_abs(state->current_a))
     {
-        current_step = (s_state.settle_recovery_active ? config->friction_release_slew_rate
-                                                       : config->friction_attack_slew_rate) *
-                       config->update_period_s;
+        current_step =
+            (state->recovery_active ? config->release_slew_a_per_s : config->attack_slew_a_per_s) *
+            config->update_period_s;
     }
     else if (fast_release)
     {
-        float release_rate = config->friction_fast_release_slew_rate;
+        float release_rate = config->fast_release_slew_a_per_s;
         /* 捕获窗口内缓释靠近转矩，避免在保持切换时产生电流跳变。 */
-        if ((s_state.settling_in_window ||
-             (s_state.friction_landing_active &&
-              position_cascade_abs(target_error) <= config->hold_enter_position)) &&
-            s_state.friction_feedforward_current * target_error > 0.0f)
+        if ((input->capture_active ||
+             (state->landing_active &&
+              position_cascade_abs(target_error) <= config->capture_enter_rad)) &&
+            state->current_a * target_error > 0.0f)
         {
             release_rate = position_cascade_min(
                 release_rate, POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S);
@@ -694,34 +934,36 @@ static void position_cascade_update_friction(const PositionCascadeConfig *config
     }
     else
     {
-        current_step = config->friction_release_slew_rate * config->update_period_s;
+        current_step = config->release_slew_a_per_s * config->update_period_s;
     }
-    s_state.friction_feedforward_current +=
-        position_cascade_constrain(current_delta, -current_step, current_step);
-    s_state.friction_feedforward_current = position_cascade_constrain(
-        s_state.friction_feedforward_current, -config->current_limit_a, config->current_limit_a);
-    if (!isfinite(s_state.friction_feedforward_current))
+    state->current_a += position_cascade_constrain(current_delta, -current_step, current_step);
+    state->current_a = position_cascade_constrain(
+        state->current_a, -config->current_limit_a, config->current_limit_a);
+    if (!isfinite(state->current_a))
     {
-        s_state.friction_feedforward_current = 0.0f;
+        state->current_a = 0.0f;
     }
-    s_state.friction_current_ramping = position_cascade_abs(s_state.friction_feedforward_current) >
-                                       position_cascade_abs(previous_current) + 0.000001f;
+    state->current_ramping =
+        position_cascade_abs(state->current_a) > position_cascade_abs(previous_current) + 0.000001f;
 
-    if (s_state.phase == POSITION_SERVO_PHASE_SETTLE && s_state.friction_landing_active &&
-        landing_scale <= 0.0f &&
-        position_cascade_abs(s_state.friction_feedforward_current) <= current_step)
+    if (input->settling && state->landing_active && landing_scale <= 0.0f &&
+        position_cascade_abs(state->current_a) <= current_step)
     {
-        s_state.friction_landing_active = false;
-        s_state.settle_recovery_active = false;
-        s_state.friction_direction = 0;
-        s_state.friction_stuck_counter = 0U;
+        state->landing_active = false;
+        state->recovery_active = false;
+        state->direction = 0;
+        state->stuck_counter = 0U;
     }
 }
 
-static void position_cascade_update_integral_transport(const PositionCascadeConfig *config,
-                                                       float target_error,
-                                                       float speed_error)
+static PositionCascadeIntegralTransport
+position_cascade_integral_transport_request(const PositionCascadeConfig *config,
+                                            float target_error,
+                                            float speed_error,
+                                            float integral_current_a,
+                                            bool target_transition_active)
 {
+    PositionCascadeIntegralTransport request = {0};
     float integral_magnitude;
     float unload_step;
     float proportional_step;
@@ -729,49 +971,43 @@ static void position_cascade_update_integral_transport(const PositionCascadeConf
     bool opposes_position_correction;
     bool opposes_speed_correction;
 
-    if (!s_state.target_transition_active)
+    if (!target_transition_active)
     {
-        return;
+        return request;
     }
     opposes_position_correction =
         position_cascade_abs(target_error) > config->hold_enter_position &&
-        s_state.speed_controller.integral_output * target_error < 0.0f;
+        integral_current_a * target_error < 0.0f;
     opposes_speed_correction = position_cascade_abs(speed_error) > config->friction_stop_speed &&
-                               s_state.speed_controller.integral_output * speed_error < 0.0f;
+                               integral_current_a * speed_error < 0.0f;
     /* 只有积分电流同时阻碍位置与速度纠正时才衰减；仅制动速度误差不清除负载支撑电流。 */
     if (!opposes_position_correction || !opposes_speed_correction)
     {
-        return;
+        return request;
     }
 
-    integral_magnitude = position_cascade_abs(s_state.speed_controller.integral_output);
+    integral_magnitude = position_cascade_abs(integral_current_a);
     proportional_step = integral_magnitude * POSITION_SERVO_INTEGRAL_OPPOSING_DECAY_RATE_PER_S *
                         config->update_period_s;
     maximum_step = POSITION_SERVO_INTEGRAL_OPPOSING_MAX_SLEW_A_PER_S * config->update_period_s;
     unload_step = position_cascade_min(integral_magnitude,
                                        position_cascade_min(proportional_step, maximum_step));
-    if (s_state.speed_controller.integral_output > 0.0f)
-    {
-        s_state.speed_controller.integral_output -= unload_step;
-    }
-    else
-    {
-        s_state.speed_controller.integral_output += unload_step;
-    }
-
-    if (position_cascade_abs(s_state.speed_controller.integral_output) <=
-        POSITION_SERVO_INTEGRAL_ZERO_THRESHOLD_A)
-    {
-        s_state.speed_controller.integral_output = 0.0f;
-    }
+    request.unload_step_a = unload_step;
+    request.apply = true;
+    return request;
 }
 
-static void position_cascade_update_stiction_integral(const PositionCascadeConfig *config,
-                                                      float measured_position,
-                                                      float measured_speed,
-                                                      float feedforward_current,
-                                                      float proportional_gain)
+static PositionCascadeStaticIntegral
+position_cascade_static_integral_request(const PositionCascadeConfig *config,
+                                         float measured_position,
+                                         float measured_speed,
+                                         float feedforward_current,
+                                         float proportional_gain,
+                                         float integral_current_a,
+                                         float speed_reference_rad_s,
+                                         bool friction_current_ramping)
 {
+    PositionCascadeStaticIntegral request = {0};
     float error = s_state.position_reference - measured_position;
     float target_error = config->target_position - measured_position;
     float current_candidate;
@@ -791,7 +1027,7 @@ static void position_cascade_update_stiction_integral(const PositionCascadeConfi
              config->friction_breakaway_distance))
     {
         s_state.position_stuck_counter = 0U;
-        return;
+        return request;
     }
     if (s_state.position_stuck_counter == 0U)
     {
@@ -801,17 +1037,17 @@ static void position_cascade_update_stiction_integral(const PositionCascadeConfi
     {
         s_state.position_stuck_counter++;
     }
-    if (s_state.position_stuck_counter < ticks || s_state.friction_current_ramping)
+    if (s_state.position_stuck_counter < ticks || friction_current_ramping)
     {
-        return;
+        return request;
     }
 
     /* 用现有 PI 学习残余静态负载，不另建累积前馈；恢复运动后由 PI 和反转迁移管理电流。
      * 可用裕量同时扣除前馈和比例项。 */
     increment =
         (error > 0.0f ? 1.0f : -1.0f) * config->stiction_integral_rate * config->update_period_s;
-    current_candidate = s_state.speed_controller.integral_output + feedforward_current +
-                        proportional_gain * (s_state.speed_reference - measured_speed);
+    current_candidate = integral_current_a + feedforward_current +
+                        proportional_gain * (speed_reference_rad_s - measured_speed);
     if (increment > 0.0f)
     {
         increment = position_cascade_max(
@@ -822,17 +1058,18 @@ static void position_cascade_update_stiction_integral(const PositionCascadeConfi
         increment = position_cascade_min(
             0.0f, position_cascade_max(increment, -config->current_limit_a - current_candidate));
     }
-    s_state.speed_controller.integral_output =
-        position_cascade_constrain(s_state.speed_controller.integral_output + increment,
-                                   -config->current_limit_a,
-                                   config->current_limit_a);
+    request.increment_a = increment;
+    request.apply = true;
     s_state.stiction_integrating = increment != 0.0f;
+    return request;
 }
 
 void PositionCascade_Reset(void)
 {
-    memset(&s_state, 0, sizeof(s_state));
-    PiController_Reset(&s_state.speed_controller);
+    /* 配置/调度区在 core 前；子对象由各自所有者复位，不重复清零 PI。 */
+    memset(&s_state, 0, offsetof(PositionCascadeState, core));
+    position_cascade_core_reset(&s_state.core);
+    position_cascade_friction_reset(&s_state.friction);
 }
 
 /* 将 2 kHz 控制的寄存器保存栈帧排除在中间快拍之外。 */
@@ -842,18 +1079,15 @@ void PositionCascade_Reset(void)
 #define POSITION_CONTROL_NOINLINE
 #endif
 static POSITION_CONTROL_NOINLINE bool position_cascade_run_control(
-    const PositionCascadeConfig *config, float measured_position, float measured_speed)
+    const PositionCascadeConfig *restrict config, float measured_position, float measured_speed)
 {
-    float position_error;
-    float velocity_error;
+    float speed_reference;
     float feedforward_current;
     float feedforward_candidate;
-    float current_candidate;
-    float applied_feedback_current;
     float hold_exit_position;
     float speed_kp_current_domain;
     float speed_ki_current_domain;
-    float speed_command_limit;
+    PositionCascadeFrictionOutput friction = position_cascade_friction_output(&s_state.friction);
     uint32_t hold_ticks;
     bool trajectory_done;
     bool was_holding = s_state.phase == POSITION_SERVO_PHASE_HOLD;
@@ -924,18 +1158,14 @@ static POSITION_CONTROL_NOINLINE bool position_cascade_run_control(
     else if (trajectory_done)
     {
         hold_ticks = s_state.configured_hold_ticks;
-        if ((s_state.hold_counter == 0U && s_state.settling_in_window &&
-             position_cascade_abs(config->target_position - measured_position) <=
-                 hold_exit_position &&
-             position_cascade_abs(measured_speed) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S &&
-             position_cascade_abs(s_state.friction_feedforward_current) <=
-                 config->friction_release_slew_rate * config->update_period_s) ||
-            (s_state.hold_counter > 0U &&
-             position_cascade_abs(config->target_position - measured_position) <=
-                 hold_exit_position &&
-             position_cascade_abs(measured_speed) <= POSITION_SERVO_HOLD_EXIT_SPEED_RAD_S &&
-             position_cascade_abs(s_state.friction_feedforward_current) <=
-                 config->friction_release_slew_rate * config->update_period_s))
+        if (position_cascade_abs(config->target_position - measured_position) <=
+                hold_exit_position &&
+            position_cascade_abs(friction.current_a) <=
+                config->friction_release_slew_rate * config->update_period_s &&
+            ((s_state.hold_counter == 0U && s_state.settling_in_window &&
+              position_cascade_abs(measured_speed) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S) ||
+             (s_state.hold_counter > 0U &&
+              position_cascade_abs(measured_speed) <= POSITION_SERVO_HOLD_EXIT_SPEED_RAD_S)))
         {
             if (s_state.hold_counter < hold_ticks)
             {
@@ -946,7 +1176,7 @@ static POSITION_CONTROL_NOINLINE bool position_cascade_run_control(
                 s_state.phase = POSITION_SERVO_PHASE_HOLD;
                 s_state.target_reached = true;
                 s_state.target_transition_active = false;
-                s_state.settle_recovery_active = false;
+                position_cascade_friction_hold_entered(&s_state.friction);
                 s_state.hold_counter = 0U;
             }
         }
@@ -972,81 +1202,110 @@ static POSITION_CONTROL_NOINLINE bool position_cascade_run_control(
     {
         s_state.control_velocity = measured_speed;
     }
-    position_error = s_state.position_reference - measured_position;
-    velocity_error = s_state.trajectory_speed - s_state.control_velocity;
-    s_state.speed_reference = s_state.trajectory_speed + config->position_kp * position_error +
-                              config->position_kd * velocity_error;
-    /* 落后轴允许略高于轨迹巡航的追赶速度；独立限制该裕量并遵守电机速度上限。 */
-    speed_command_limit = position_cascade_min(config->speed_limit_rad_s,
-                                               config->maximum_speed *
-                                                   POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO);
-    s_state.speed_reference = position_cascade_constrain(
-        s_state.speed_reference, -speed_command_limit, speed_command_limit);
+    {
+        PositionCascadeCoreSpeedConfig core_config = {config->position_kp,
+                                                      config->position_kd,
+                                                      config->maximum_speed,
+                                                      config->speed_limit_rad_s};
+        PositionCascadeCoreMotion motion = {s_state.position_reference,
+                                            s_state.trajectory_speed,
+                                            measured_position,
+                                            s_state.control_velocity};
+        speed_reference = position_cascade_core_speed(&core_config, &motion);
+    }
 
     if (!s_state.settling_in_window)
     {
-        position_cascade_update_integral_transport(config,
-                                                   config->target_position - measured_position,
-                                                   s_state.speed_reference - measured_speed);
+        PositionCascadeIntegralTransport request = position_cascade_integral_transport_request(
+            config,
+            config->target_position - measured_position,
+            speed_reference - measured_speed,
+            position_cascade_core_output(&s_state.core).integral_current_a,
+            s_state.target_transition_active);
+        position_cascade_core_apply_transport(&s_state.core, request);
     }
-    FAST_PROFILE_BEGIN(FAST_PROFILE_FRICTION);
-    position_cascade_update_friction(config, measured_position, measured_speed);
-    FAST_PROFILE_END(FAST_PROFILE_FRICTION);
+    {
+        PositionCascadeFrictionConfig friction_config = {config->current_limit_a,
+                                                         config->deceleration,
+                                                         config->friction_attack_slew_rate,
+                                                         config->friction_breakaway_distance,
+                                                         config->friction_breakaway_ratio,
+                                                         config->friction_coulomb_negative,
+                                                         config->friction_coulomb_positive,
+                                                         config->friction_fast_release_slew_rate,
+                                                         config->friction_feedforward_enabled,
+                                                         config->friction_move_speed,
+                                                         config->friction_reference_speed,
+                                                         config->friction_release_slew_rate,
+                                                         config->friction_stop_speed,
+                                                         config->friction_viscous_negative,
+                                                         config->friction_viscous_positive,
+                                                         config->hold_enter_position,
+                                                         config->hold_exit_position,
+                                                         config->position_error_window,
+                                                         config->update_period_s};
+        PositionCascadeFrictionInput motion = {config->target_position,
+                                               s_state.position_reference,
+                                               s_state.trajectory_speed,
+                                               measured_position,
+                                               measured_speed,
+                                               s_state.configured_stuck_ticks,
+                                               s_state.phase == POSITION_SERVO_PHASE_HOLD,
+                                               s_state.phase == POSITION_SERVO_PHASE_MOVE,
+                                               s_state.phase == POSITION_SERVO_PHASE_SETTLE,
+                                               s_state.settling_in_window};
+        FAST_PROFILE_BEGIN(FAST_PROFILE_FRICTION);
+        position_cascade_friction_update(&s_state.friction, &friction_config, &motion);
+        FAST_PROFILE_END(FAST_PROFILE_FRICTION);
+        friction = position_cascade_friction_output(&s_state.friction);
+    }
     s_state.acceleration_feedforward_current = position_cascade_constrain(
         config->acceleration_feedforward_gain * s_state.trajectory_acceleration,
         -config->current_limit_a,
         config->current_limit_a);
-    feedforward_candidate =
-        s_state.acceleration_feedforward_current + s_state.friction_feedforward_current;
+    feedforward_candidate = s_state.acceleration_feedforward_current + friction.current_a;
     feedforward_current = position_cascade_constrain(
         feedforward_candidate, -config->current_limit_a, config->current_limit_a);
 
     /* PI 使用安培域计算，保留原速度增益调参语义。 */
     speed_kp_current_domain = config->speed_kp * config->current_limit_a;
     speed_ki_current_domain = config->speed_ki * config->current_limit_a;
-    position_cascade_update_stiction_integral(
-        config, measured_position, measured_speed, feedforward_current, speed_kp_current_domain);
+    {
+        PositionCascadeStaticIntegral request = position_cascade_static_integral_request(
+            config,
+            measured_position,
+            measured_speed,
+            feedforward_current,
+            speed_kp_current_domain,
+            position_cascade_core_output(&s_state.core).integral_current_a,
+            speed_reference,
+            friction.current_ramping);
+        position_cascade_core_apply_static_integral(
+            &s_state.core, request, config->current_limit_a);
+    }
     /* 仅前馈建立期间暂停同方向积分；达到模型值后仍允许修正残余负载。 */
-    if ((s_state.friction_current_ramping &&
-         s_state.friction_feedforward_current * (s_state.speed_reference - measured_speed) >
-             0.0f) ||
+    if ((friction.current_ramping &&
+         friction.current_a * (speed_reference - measured_speed) > 0.0f) ||
         s_state.phase == POSITION_SERVO_PHASE_HOLD ||
         (s_state.settling_in_window &&
          position_cascade_abs(measured_speed) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S))
     {
         speed_ki_current_domain = 0.0f;
     }
-    FAST_PROFILE_BEGIN(FAST_PROFILE_SPEED_PI);
-    PiController_Configure(&s_state.speed_controller,
-                           speed_kp_current_domain,
-                           speed_ki_current_domain,
-                           config->update_period_s,
-                           -config->current_limit_a,
-                           config->current_limit_a);
-    s_state.feedback_current = PiController_Run(
-        &s_state.speed_controller, s_state.speed_reference, s_state.control_velocity);
-    current_candidate = s_state.feedback_current + feedforward_current;
-    if (!isfinite(current_candidate))
     {
+        PositionCascadeCoreCurrent current = {speed_reference,
+                                              s_state.control_velocity,
+                                              speed_kp_current_domain,
+                                              speed_ki_current_domain,
+                                              feedforward_candidate,
+                                              feedforward_current};
+        bool valid;
+        FAST_PROFILE_BEGIN(FAST_PROFILE_SPEED_PI);
+        valid = position_cascade_core_run_current(
+            &s_state.core, &current, config->update_period_s, config->current_limit_a);
         FAST_PROFILE_END(FAST_PROFILE_SPEED_PI);
-        return false;
+        return valid;
     }
-    s_state.current_saturated = feedforward_candidate > config->current_limit_a ||
-                                feedforward_candidate < -config->current_limit_a ||
-                                current_candidate > config->current_limit_a ||
-                                current_candidate < -config->current_limit_a;
-    s_state.iq_reference = position_cascade_constrain(
-        current_candidate, -config->current_limit_a, config->current_limit_a);
-
-    /* 总电流饱和纳入速度 PI 的抗饱和反馈。 */
-    applied_feedback_current =
-        position_cascade_constrain(s_state.iq_reference - feedforward_current,
-                                   -config->current_limit_a,
-                                   config->current_limit_a);
-    PiController_TrackOutput(&s_state.speed_controller, applied_feedback_current);
-    s_state.feedback_current = s_state.speed_controller.output;
-    FAST_PROFILE_END(FAST_PROFILE_SPEED_PI);
-    return true;
 }
 
 static bool position_cascade_run_validated(const PositionCascadeConfig *config,
@@ -1061,7 +1320,7 @@ static bool position_cascade_run_validated(const PositionCascadeConfig *config,
         s_state.position_reference = measured_position;
         s_state.velocity_filtered = measured_speed;
         s_state.control_velocity = measured_speed;
-        s_state.friction_breakaway_start_position = measured_position;
+        position_cascade_friction_initialize(&s_state.friction, measured_position);
         s_state.target_transition_active =
             position_cascade_abs(config->target_position - measured_position) >
             config->position_error_window;
@@ -1074,10 +1333,7 @@ static bool position_cascade_run_validated(const PositionCascadeConfig *config,
         s_state.phase = POSITION_SERVO_PHASE_MOVE;
         s_state.target_reached = false;
         s_state.hold_counter = 0U;
-        s_state.friction_stuck_counter = 0U;
-        s_state.friction_breakaway_active = false;
-        s_state.friction_landing_active = false;
-        s_state.settle_recovery_active = false;
+        position_cascade_friction_target_changed(&s_state.friction);
         s_state.target_transition_active = true;
         s_state.settling_in_window = false;
         s_state.position_stuck_counter = 0U;
@@ -1098,10 +1354,11 @@ const PositionCascadeConfig *PositionCascade_GetConfiguration(void)
 
 static void position_cascade_copy_control_output(PositionCascadeControlOutput *output)
 {
+    PositionCascadeCoreOutput core = position_cascade_core_output(&s_state.core);
     output->position_reference = s_state.position_reference;
-    output->speed_reference = s_state.speed_reference;
+    output->speed_reference = core.speed_reference_rad_s;
     output->speed_feedback_rad_s = s_state.control_velocity;
-    output->iq_reference = s_state.iq_reference;
+    output->iq_reference = core.iq_reference_a;
     output->target_reached = s_state.target_reached;
 }
 

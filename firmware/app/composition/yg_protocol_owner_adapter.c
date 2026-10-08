@@ -231,6 +231,10 @@ static uint16_t job_wire_kind(MotorMaintenanceKind kind)
         return YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO;
     case MOTOR_MAINTENANCE_COGGING:
         return YG_PROTOCOL_JOB_KIND_COGGING;
+    case MOTOR_MAINTENANCE_PHASE_RESISTANCE:
+        return YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE;
+    case MOTOR_MAINTENANCE_FRICTION:
+        return YG_PROTOCOL_JOB_KIND_FRICTION;
     default:
         return 0U;
     }
@@ -337,6 +341,12 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
         case YG_PROTOCOL_JOB_KIND_COGGING:
             command.kind = MOTOR_MAINTENANCE_COGGING;
             break;
+        case YG_PROTOCOL_JOB_KIND_PHASE_RESISTANCE:
+            command.kind = MOTOR_MAINTENANCE_PHASE_RESISTANCE;
+            break;
+        case YG_PROTOCOL_JOB_KIND_FRICTION:
+            command.kind = MOTOR_MAINTENANCE_FRICTION;
+            break;
         default:
             reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
             reply->detail = YG_PROTOCOL_JOB_DETAIL_UNSUPPORTED_KIND;
@@ -346,7 +356,7 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
     }
     else if (request->operation == YG_PROTOCOL_JOB_CANCEL)
     {
-        /* 162只开放三个标定种类；类别核对与按ticket取消共同串行化，不能取消参数SAVE。 */
+        /* 162只开放线路标定种类；类别核对与按ticket取消共同串行化，不能取消参数SAVE。 */
         uint32_t mask = critical_hw_enter();
         MotorMaintenanceProgress candidate;
         bool calibration = MotorStateMachine_ReadMaintenance(ticket, &candidate) &&

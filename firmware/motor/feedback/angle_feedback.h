@@ -21,7 +21,8 @@
  * ENCODER_PLL_OMEGA_MAX_RAD_S 为输出限幅（防坏帧/极端输入发散）；
  * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 mechanical_velocity_rad_s 归零，
  * mechanical_velocity_continuous_rad_s 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
-#define ENCODER_PLL_OMEGA_N_HZ 300.0f
+/* 默认取低纹波点；不叠加滤波器，延迟/噪声取舍见决策 0002。 */
+#define ENCODER_PLL_OMEGA_N_HZ 90.0f
 #define ENCODER_PLL_ZETA 0.707f
 #define ENCODER_PLL_OMEGA_MAX_RAD_S 2000.0f
 #define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 0.05f

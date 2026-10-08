@@ -51,7 +51,7 @@ uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
         + function_source(sensing, "Current_Cal")
         + r"""
 int main(void) {
-    /* 零点偏置标定已从固件移除，本测试直接使用已验证的标定值。 */
+    /* 本项专测换算精度；上电零点采样由test_startup_current_offsets独立覆盖。 */
     motor_state.device.phase_a_offset_counts=2032.625f; motor_state.device.phase_b_offset_counts=2051.25f;
     motor_state.device.phase_c_offset_counts=2036.5f;
     adc.JDR1=8131;adc.JDR2=8205;adc.JDR3=8146;

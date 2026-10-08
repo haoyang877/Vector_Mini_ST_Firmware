@@ -8,6 +8,9 @@
 /* 温度失效门限：监督 tick 数（2 kHz，0.5 ms/tick），保持 MCU_TEMPERATURE_TIMEOUT_MS 契约。 */
 #define MCU_TEMPERATURE_TIMEOUT_TICKS (MCU_TEMPERATURE_TIMEOUT_MS * SUPERVISOR_TICKS_PER_MS)
 
+/* 沿用已退役上电零点任务的1秒采样窗口，不恢复其其它标定模式。 */
+#define MOTOR_CURRENT_OFFSET_SAMPLE_TIME_MS 1000U
+
 /**
  * @brief  更新母线电压采样与滤波值。
  * @param  foc foc 状态指针，写入 bus_voltage_v 相关字段。

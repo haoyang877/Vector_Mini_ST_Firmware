@@ -18,10 +18,28 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
     execution = project_reference(execution, "firmware/app/motor_execution.c")
     state = project_reference(state, "firmware/app/motor_state.c")
     fixture = (ROOT / "tests/unit/native/execution_dispatch_test.c").read_text(encoding="utf-8")
+    if "s_current_offset_calibration.complete" in state:
+        context_end = state.index("CurrentOffsetCalibration s_current_offset_calibration;") + len(
+            "CurrentOffsetCalibration s_current_offset_calibration;"
+        )
+        context = state[state.index("#define CURRENT_OFFSET_SAMPLE_COUNT") : context_end]
+        fixture = (
+            '#include "foc_sensing.h"\n#define STARTUP_CURRENT_OFFSETS_PRESENT 1\n'
+            + context
+            + "\n"
+            + fixture
+        )
     if "MotorExecution_ControlStep(" in execution:
         fixture += "\n" + function_source(execution, "MotorExecution_ControlStep")
         fixture += "\n" + function_source(state, "run_fast_task")
         call = "run_fast_task()"
+        if "run_fast_task(bool maintenance_runnable)" in state:
+            # 夹具单测分发入口：按原故障/零点门禁捕获许可，便于比较功能调用轨迹。
+            call = (
+                "run_fast_task(s_current_offset_calibration.complete && "
+                "s_motor_state.fault_code == MOTOR_FAULT_NONE && "
+                "MotorStateMachine_MaintenanceRunnable())"
+            )
     else:
         fixture += "\n" + function_source(execution, "MotorExecution_FastStep")
         call = (

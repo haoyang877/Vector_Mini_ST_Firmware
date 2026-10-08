@@ -13,3 +13,24 @@ APP/Loader 共同契约只在仓库 shared 目录实现。
 完整文件归属、依赖方向和工程入口见[目录职责](../docs/architecture/code_structure.md)。
 主工程为 platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx。
 Keil 仅显示源码，实际目录中的头文件与实现相邻。
+
+## Keil Watch 调试观测
+
+主工程 `YG_ESC_APP` 的观测对象如下。按用户要求，MotorAxis 运行对象和主状态机上下文
+提供非静态全局符号，名称保持不变以兼容已有 Watch。运行写入仍由各所属模块负责，
+观测符号不作为绕过命令受理的操作接口。
+
+| 对象 | 所属源码 | 观测内容 |
+| --- | --- | --- |
+| `s_motor_state` | `app/runtime/motor_axis.c` | 模式、故障、配置确认、模型/应用参数、速度/电流/位置目标 |
+| `s_foc_state` | `app/runtime/motor_axis.c` | 母线电压/电流、三相电流、d/q 电流、温度 |
+| `s_rotor_encoder` | `app/runtime/motor_axis.c` | 机械位置/速度、采样有效性、校准标志、读帧错误 |
+| `s_context` | `app/motor_state_machine/motor_state_machine.c` | 主状态、自检、维护结果、后台工作及控制执行进度 |
+
+上电保持三相关闭，MotorAxis累计1秒新鲜ADC帧校正三相电流偏置；完成前自检不就绪。
+电流与速度PI实例在启动时配置已加载的活动参数，校正不自动保存或启相。
+源码修复不等于实机通过，见[初始化修复计划](../docs/plans/active/2026-09-29-startup-current-offset-pi-fix-v1.md)。
+
+具体 Watch 表达式、重构前后参数名称差异和安全操作步骤见
+[Keil Watch 只读观测指南](../docs/guides/watch_motor_commands.md)。
+进入调试前确认 AXF 与板上镜像匹配；电机出力时不使用断点、单步或 CPU 暂停来停车。

@@ -26,7 +26,7 @@
 #include "time_hw.h"
 #include "parameter_value_service.h"
 
-/* 软件启动默认期限：只约束监督任务仍在运行时的等待；未做实机启动时间验收。 */
+/* 普通自检仍为500ms；首次上电额外允许历史1秒零点采样，监督停摆不在此保证内。 */
 #define MOTOR_SELF_TEST_TIMEOUT_MS 500U
 #define MOTOR_SELF_TEST_STABLE_TICKS 4U
 
@@ -69,12 +69,13 @@ typedef struct
     uint32_t observed_fast_sample_epoch;
     bool fast_samples_fresh;
     uint32_t supervisor_epoch;
-    uint32_t self_test_started_ms;
+    uint32_t self_test_started_ms, self_test_timeout_ms;
     uint8_t self_test_stable_ticks;
     bool self_test_timing_started;
 } MotorStateContext;
 
-static MotorStateContext s_context;
+/* 主状态机全局符号供 Watch 观测；状态转换仍由本模块的受理和监督入口执行。 */
+MotorStateContext s_context;
 
 /* 前台保存结果由监督拍消费；COMMITTED 要求既有回读验证成功。 */
 enum
@@ -420,6 +421,10 @@ static void state_apply_actions(uint32_t actions, MotorMaintenanceKind cancelled
     }
     if (actions & MOTOR_STATE_ACTION_SELF_TEST)
     {
+        if (actions & MOTOR_STATE_ACTION_FAULT_CLEARED)
+        {
+            s_context.self_test_timeout_ms = MOTOR_SELF_TEST_TIMEOUT_MS;
+        }
         s_context.self_test_started_ms = time_hw_now_ms();
         s_context.self_test_timing_started = true;
         s_context.self_test_stable_ticks = 0U;
@@ -543,7 +548,7 @@ static void advance_boot_and_self_test(void)
             MOTOR_STATE_EVENT_BOOT_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
     now_ms = time_hw_now_ms();
-    if ((uint32_t)(now_ms - s_context.self_test_started_ms) >= MOTOR_SELF_TEST_TIMEOUT_MS)
+    if ((uint32_t)(now_ms - s_context.self_test_started_ms) >= s_context.self_test_timeout_ms)
     {
         MotorFault_Report(s_context.motor, MOTOR_FAULT_SELF_TEST_TIMEOUT);
         (void)dispatch_state_event(MOTOR_STATE_EVENT_FAULT,
@@ -882,7 +887,7 @@ bool MotorStateMachine_ReadEnableProgress(uint8_t source_node,
         return false;
     }
     uint32_t mask = critical_hw_enter();
-    *progress = (MotorControlStartProgress){0};
+    *progress = (MotorControlStartProgress){.state = MOTOR_CONTROL_START_NONE};
     const MotorControlStartProgress *found = NULL;
     if (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
         s_context.latest_start.request.source_node == source_node &&
@@ -1113,6 +1118,9 @@ void MotorStateMachine_Init(MotorControlState *motor,
 {
     /* 初始化发生在中断使能前，统一清空避免新增字段遗漏复位。 */
     memset(&s_context, 0, sizeof(s_context));
+    s_context.self_test_timeout_ms =
+        MOTOR_SELF_TEST_TIMEOUT_MS +
+        (MotorCurrentOffsets_Valid(motor) ? 0U : MOTOR_CURRENT_OFFSET_SAMPLE_TIME_MS);
     s_context.motor = motor;
     s_context.foc = foc;
     s_context.speed_pi = pi;
@@ -1669,7 +1677,8 @@ void MotorStateMachine_ServiceCompensation(void)
 {
     uint32_t mask = critical_hw_enter();
     bool permitted = s_context.boot_stop_ticket == 0U && !s_context.background_busy &&
-                     !s_context.stop_pending && !s_context.has_latched_outcome &&
+                     !s_context.enable_pending && !s_context.stop_pending &&
+                     !s_context.has_latched_outcome &&
                      s_context.motor->fault_code == MOTOR_FAULT_NONE &&
                      (s_context.rules.state == MOTOR_STATE_READY ||
                       s_context.rules.state == MOTOR_STATE_RUNNING);

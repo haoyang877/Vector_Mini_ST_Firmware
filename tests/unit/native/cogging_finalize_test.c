@@ -5,6 +5,7 @@
 
 /* 包含真实模块以注入已自然完成的采样状态，不对外增加可写测试接口。 */
 #include "foc_cogging_calibration.c"
+#include "foc_cogging_runtime.c"
 
 static uint32_t critical_depth;
 uint32_t critical_hw_enter(void)
@@ -117,7 +118,10 @@ int main(void)
     completed_samples(123);
     assert(CoggingMap_Build(s_cogging_calib.iq_q15,
                             s_cogging_calib.full_scale_a,
-                            signature(&motor, &encoder),
+                            Cogging_EncoderSignature(Encoder_GetReverse(&encoder),
+                                                     encoder.electrical_zero_q15,
+                                                     motor.model.motor_pole_pairs,
+                                                     encoder.linearization_lut_q15),
                             &original));
     FocCogging_ImportMap(&original);
 

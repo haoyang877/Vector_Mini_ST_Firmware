@@ -1,31 +1,19 @@
 #include "foc_cogging_calibration.h"
 #include <math.h>
-#include <string.h>
-#include "cogging_compensation.h"
 #include "foc_errhandle.h"
 #include "control_config.h"
-#include "critical_hw.h"
 #include "current_sense_profile.h"
 #include "control_math.h"
 #include "bus_voltage_profile.h"
 
-/* 齿槽功能适配层：运行补偿采集、台架保护、标定会话。
- * 参数 ABI 保持既有约定；私有表与会话只通过显式边界交互，完成/失败经结果协议上报
- * （MotorTaskResult），停相与模式回退由运行状态机执行。 */
+/* 标定任务适配：20 kHz 安全观察/块平均、2 kHz 采样推进与保持控制。
+ * 暂存表及认领/保存通知归本模块；活动记录与运行补偿归 foc_cogging_runtime。
+ * 功率许可、关相、工作区和真实存储提交始终归 APP 所有者。 */
 
-static CoggingMapRecord s_cogging_map;
-/* 前台与快速 ISR 共享该私有控制状态，保留原有 volatile 访问语义。 */
-static volatile CoggingCompensationControl s_cogging_compensation;
-static volatile uint8_t s_compensation_request;
 static CoggingCalibration s_cogging_calib;
-static volatile CoggingTorqueGuard s_torque_guard;
-static volatile uint32_t s_torque_sample_state;
-static volatile CoggingTorqueFrame s_torque_sample;
 
 static bool s_session_active;
 static volatile bool s_finalize_pending, s_save_pending, s_finalize_claimed, s_finalize_cancelled;
-/* 台架保护跳闸挂起：置位后由模式调度转为结果协议（见 FocCogging_TakeTorqueTrip）。 */
-static volatile bool s_torque_trip_pending;
 static uint32_t s_divider;
 static float s_start_mech_rad;
 static float s_start_angle, s_calibration_current;
@@ -34,175 +22,6 @@ static float s_reference_velocity, s_iq_block_sum;
 static uint8_t s_start_reverse;
 static uint16_t s_start_zero;
 static int32_t s_start_pole_pairs;
-static uint32_t s_torque_tick;
-
-/* ---------------------------------------------------------------- 运行补偿 */
-
-bool FocCogging_SetCompensation(bool enabled,
-                                const MotorControlState *motor_state,
-                                const EncoderState *rotor_encoder)
-{
-    CoggingCompensationAdmitInfo info;
-    if (!enabled)
-    {
-        CoggingCompensation_Disable(&s_cogging_compensation);
-        return true;
-    }
-    info.mode_accepts_request = motor_state->control_mode == MOTOR_CONTROL_NONE ||
-                                motor_state->control_mode == MOTOR_CONTROL_CURRENT;
-    info.error_clear = motor_state->fault_code == MOTOR_FAULT_NONE;
-    info.sensorless_off = !motor_state->uses_sensorless_feedback;
-    info.table_valid = FocCogging_TableValid(motor_state, rotor_encoder);
-    info.scale_matches = s_cogging_map.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A;
-    info.identity.reverse = Encoder_GetReverse(rotor_encoder);
-    info.identity.electrical_zero_q15 = rotor_encoder->electrical_zero_q15;
-    info.identity.pole_pairs = motor_state->model.motor_pole_pairs;
-    info.identity.table_crc = s_cogging_map.crc32;
-    /* CRC 在开中断状态计算；提交前重读可被 STOP/FAULT 改变的资格。 */
-    uint32_t mask = critical_hw_enter();
-    info.mode_accepts_request = motor_state->control_mode == MOTOR_CONTROL_NONE ||
-                                motor_state->control_mode == MOTOR_CONTROL_CURRENT;
-    info.error_clear = motor_state->fault_code == MOTOR_FAULT_NONE;
-    bool accepted = CoggingCompensation_Admit(&s_cogging_compensation, &info);
-    critical_hw_exit(mask);
-    return accepted;
-}
-
-float FocCogging_Apply(const MotorControlState *m, const EncoderState *e)
-{
-    CoggingCompensationTick tick;
-    tick.mode_is_current = m->control_mode == MOTOR_CONTROL_CURRENT;
-    tick.error_clear = m->fault_code == MOTOR_FAULT_NONE;
-    tick.sensorless_off = !m->uses_sensorless_feedback;
-    tick.encoder_usable = Encoder_IsOnline(e) && (e->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL;
-    tick.command_a = m->iq_target_a;
-    tick.limit_a = m->application.current_limit_a;
-    tick.tick_s = Current_Ts;
-    tick.position_q15 = e->linearized_q15;
-    tick.identity.reverse = e->reverse;
-    tick.identity.electrical_zero_q15 = e->electrical_zero_q15;
-    tick.identity.pole_pairs = m->model.motor_pole_pairs;
-    tick.identity.table_crc = s_cogging_map.crc32;
-    return CoggingCompensation_Update(&s_cogging_compensation, &s_cogging_map, &tick);
-}
-
-/* ---------------------------------------------------------------- 台架保护 */
-
-bool FocCogging_SetTorqueGuard(uint32_t lease_ticks, float speed_limit_rad_s)
-{
-    if (lease_ticks != 0U && (!isfinite(speed_limit_rad_s) || speed_limit_rad_s <= 0.0f))
-    {
-        return false;
-    }
-    uint32_t mask = critical_hw_enter();
-    s_torque_guard.lease_ticks = lease_ticks;
-    s_torque_guard.speed_limit_rad_s = lease_ticks != 0U ? speed_limit_rad_s : 0.0f;
-    s_torque_guard.enabled = lease_ticks != 0U;
-    critical_hw_exit(mask);
-    return true;
-}
-
-bool FocCogging_ReadTorqueGuard(CoggingTorqueGuard *snapshot)
-{
-    if (snapshot == NULL)
-    {
-        return false;
-    }
-    uint32_t mask = critical_hw_enter();
-    *snapshot = s_torque_guard;
-    critical_hw_exit(mask);
-    return true;
-}
-
-bool FocCogging_RequestTorqueSample(void)
-{
-    uint32_t mask = critical_hw_enter();
-    bool accepted = s_torque_sample_state == 0U;
-    if (accepted)
-    {
-        s_torque_sample_state = 1U;
-    }
-    critical_hw_exit(mask);
-    return accepted;
-}
-
-bool FocCogging_ReadTorqueSample(CoggingTorqueFrame *sample)
-{
-    if (sample == NULL)
-    {
-        return false;
-    }
-    uint32_t mask = critical_hw_enter();
-    bool ready = s_torque_sample_state == 2U;
-    if (ready)
-    {
-        *sample = s_torque_sample;
-        s_torque_sample_state = 0U;
-    }
-    critical_hw_exit(mask);
-    return ready;
-}
-
-bool FocCogging_TorqueGuard(MotorControlState *m, const EncoderState *e)
-{
-    uint32_t trip = 0U;
-    if (!s_torque_guard.enabled)
-    {
-        return true;
-    }
-    /* 租约：主机必须持续续租，进程失联即到期停机。 */
-    if (s_torque_guard.lease_ticks == 0U)
-    {
-        trip = 1U;
-    }
-    else
-    {
-        --s_torque_guard.lease_ticks;
-    }
-    /* 测速上限：覆盖主机存活但脚本下发错误指令的情形。 */
-    if (!isfinite(s_torque_guard.speed_limit_rad_s) || s_torque_guard.speed_limit_rad_s <= 0.0f ||
-        !isfinite(e->mechanical_velocity_continuous_rad_s) ||
-        fabsf(e->mechanical_velocity_continuous_rad_s) > s_torque_guard.speed_limit_rad_s)
-    {
-        trip = 2U;
-    }
-    if (trip == 0U)
-    {
-        return true;
-    }
-    s_torque_guard.trip = trip;
-    s_torque_trip_pending = true;
-    m->iq_target_a = m->id_target_a = 0.0f;
-    CoggingCompensation_Disable(&s_cogging_compensation);
-    CoggingCompensation_ZeroBlend(&s_cogging_compensation);
-    return false;
-}
-
-bool FocCogging_TakeTorqueTrip(void)
-{
-    bool pending = s_torque_trip_pending;
-    s_torque_trip_pending = false;
-    return pending;
-}
-
-void FocCogging_TorqueObserve(const FocState *f, const MotorControlState *m, const EncoderState *e)
-{
-    ++s_torque_tick;
-    if (s_torque_sample_state != 1U)
-    {
-        return;
-    }
-    s_torque_sample.tick = s_torque_tick;
-    s_torque_sample.position_rad = Encoder_GetMecPos(e);
-    s_torque_sample.velocity_rad_s = e->mechanical_velocity_continuous_rad_s;
-    s_torque_sample.command_a = m->iq_target_a;
-    s_torque_sample.compensation_a = s_cogging_compensation.applied_a;
-    s_torque_sample.total_a = s_cogging_compensation.total_a;
-    s_torque_sample.feedback_a = f->iq_a;
-    s_torque_sample.vbus_v = f->bus_voltage_filtered_v;
-    s_torque_sample.blend = s_cogging_compensation.blend;
-    s_torque_sample_state = 2U;
-}
 
 /* ---------------------------------------------------------------- 标定会话 */
 
@@ -269,7 +88,7 @@ static bool session_is_safe(const FocState *f,
            m->fault_code == MOTOR_FAULT_NONE;
 }
 
-/* 启动会话：安全门 + 状态初始化 + 接管功率许可；失败时已停机并置错。 */
+/* 启动会话：安全门、状态初始化与零矢量预载；失败由任务统一清理。 */
 static bool start_session(FocState *f, MotorControlState *m, PiController *pi, EncoderState *e)
 {
     if (!FocCogging_CanStart(m, e) || !isfinite(f->bus_voltage_v) ||
@@ -283,7 +102,6 @@ static bool start_session(FocState *f, MotorControlState *m, PiController *pi, E
         s_cogging_calib.state = COGGING_FAILED;
         s_cogging_calib.reason = COGGING_INVALID_INPUT;
         MotorFault_Report(m, MOTOR_FAULT_COGGING_CALIBRATION);
-        local_stop(f, m, pi);
         return false;
     }
     s_start_mech_rad = Encoder_GetMecPos(e);
@@ -303,13 +121,13 @@ static bool start_session(FocState *f, MotorControlState *m, PiController *pi, E
     FOC_CurrentController_Reset(f);
     m->id_target_a = m->iq_target_a = m->speed_target_rad_s = m->speed_ramped_rad_s = 0.0f;
     s_session_active = true;
-    /* 本模式自行接管功率许可；通用模式边沿不包含它。 */
+    /* 只预载零矢量；功率许可由所有者消费 PREPARED 后授予。 */
     FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
     return true;
 }
 
 /* 20 kHz 采样与 2 kHz 服务：抽点、标定更新与位置保持。
- * 返回 false 表示会话已结束（已停机），调用方不得再驱动电流环。 */
+ * 返回 false 表示采集已结束，任务必须清理控制状态且不得再驱动电流环。 */
 static void hold_current_point(MotorControlState *m, PiController *pi, float position_rad);
 
 static bool service_tick2k_hz(
@@ -338,13 +156,10 @@ static bool service_tick2k_hz(
     if (s_cogging_calib.state == COGGING_FAILED)
     {
         MotorFault_Report(m, MOTOR_FAULT_COGGING_CALIBRATION);
-        local_stop(f, m, pi);
         return false;
     }
     if (s_cogging_calib.state == COGGING_COMPLETE)
     {
-        local_stop(f, m, pi);
-        s_finalize_pending = true;
         return false;
     }
     hold_current_point(m, pi, position_rad);
@@ -387,8 +202,7 @@ static void hold_current_point(MotorControlState *m, PiController *pi, float pos
 MotorTaskResult
 FocCogging_Task(FocState *f, MotorControlState *m, PiController *pi, EncoderState *e)
 {
-    MotorTaskResult outcome = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
-    float position, velocity;
+    bool complete = false;
 
     if (!s_session_active)
     {
@@ -396,94 +210,39 @@ FocCogging_Task(FocState *f, MotorControlState *m, PiController *pi, EncoderStat
         {
             return (MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE};
         }
-        outcome.result = MOTOR_TASK_FAILED;
-        outcome.error =
-            (m->fault_code != MOTOR_FAULT_NONE) ? m->fault_code : MOTOR_FAULT_COGGING_CALIBRATION;
-        return outcome;
-    }
-    position = s_start_angle + (Encoder_GetMecPos(e) - s_start_mech_rad);
-    velocity = Encoder_GetMecVelContinuous(e);
-    if (!session_is_safe(f, m, e, position, velocity))
-    {
-        CoggingCalibration_Abort(&s_cogging_calib, COGGING_SAFETY_FAULT);
-        if (m->fault_code == MOTOR_FAULT_NONE)
-        {
-            MotorFault_Report(m, MOTOR_FAULT_COGGING_CALIBRATION);
-        }
-        local_stop(f, m, pi);
-        outcome.result = MOTOR_TASK_FAILED;
-        outcome.error = m->fault_code;
-        return outcome;
-    }
-    if (!service_tick2k_hz(f, m, pi, position, velocity))
-    {
-        /* 会话已结束：完成报告前台整理需求；
-         * 失败时经故障结果停机；本函数不再触碰功率级与模式。 */
-        if (s_cogging_calib.state == COGGING_COMPLETE)
-        {
-            outcome.result = MOTOR_TASK_FINALIZE;
-        }
-        else
-        {
-            outcome.result = MOTOR_TASK_FAILED;
-            outcome.error = (m->fault_code != MOTOR_FAULT_NONE) ? m->fault_code
-                                                                : MOTOR_FAULT_COGGING_CALIBRATION;
-        }
-        return outcome;
-    }
-    FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
-    return outcome;
-}
-
-static uint32_t signature(const MotorControlState *motor_state, const EncoderState *rotor_encoder)
-{
-    return Cogging_EncoderSignature(Encoder_GetReverse(rotor_encoder),
-                                    rotor_encoder->electrical_zero_q15,
-                                    motor_state->model.motor_pole_pairs,
-                                    rotor_encoder->linearization_lut_q15);
-}
-
-bool FocCogging_TableValid(const MotorControlState *motor_state, const EncoderState *rotor_encoder)
-{
-    return (Encoder_GetCalibFlag(rotor_encoder) & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
-           CoggingMap_Valid(&s_cogging_map, signature(motor_state, rotor_encoder));
-}
-
-void FocCogging_RequestCompensation(bool enabled)
-{
-    uint32_t mask = critical_hw_enter();
-    s_compensation_request = enabled ? 1U : 2U;
-    critical_hw_exit(mask);
-}
-
-void FocCogging_Service(MotorControlState *motor_state, EncoderState *rotor_encoder)
-{
-    uint32_t mask = critical_hw_enter();
-    if (s_compensation_request != 0U)
-    {
-        s_cogging_compensation.request = s_compensation_request == 1U ? 1U : 0U;
-        s_compensation_request = 0U;
-    }
-    critical_hw_exit(mask);
-    if (motor_state->control_mode != MOTOR_CONTROL_NONE &&
-        motor_state->control_mode != MOTOR_CONTROL_CURRENT)
-    {
-        /* 离开允许模式立即关断补偿；停机预开启由 request 位保持。 */
-        CoggingCompensation_Disable(&s_cogging_compensation);
-        CoggingCompensation_ZeroBlend(&s_cogging_compensation);
     }
     else
     {
-        if (motor_state->control_mode == MOTOR_CONTROL_NONE)
+        float position = s_start_angle + (Encoder_GetMecPos(e) - s_start_mech_rad);
+        float velocity = Encoder_GetMecVelContinuous(e);
+        if (!session_is_safe(f, m, e, position, velocity))
         {
-            CoggingCompensation_ZeroBlend(&s_cogging_compensation);
+            CoggingCalibration_Abort(&s_cogging_calib, COGGING_SAFETY_FAULT);
+            if (m->fault_code == MOTOR_FAULT_NONE)
+            {
+                MotorFault_Report(m, MOTOR_FAULT_COGGING_CALIBRATION);
+            }
         }
-        if (s_cogging_compensation.request != s_cogging_compensation.enabled)
+        else if (service_tick2k_hz(f, m, pi, position, velocity))
         {
-            (void)FocCogging_SetCompensation(
-                s_cogging_compensation.request == 1U, motor_state, rotor_encoder);
+            FOC_Current(f, m, Encoder_GetElePhase(e), Encoder_GetEleVel(e));
+            return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+        }
+        else
+        {
+            complete = s_cogging_calib.state == COGGING_COMPLETE;
         }
     }
+    /* 所有终止路径先清零目标与控制器，再报告结束；关相仍由主状态机执行。 */
+    local_stop(f, m, pi);
+    if (complete)
+    {
+        s_finalize_pending = true;
+        return (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE};
+    }
+    return (MotorTaskResult){MOTOR_TASK_FAILED,
+                             m->fault_code != MOTOR_FAULT_NONE ? m->fault_code
+                                                               : MOTOR_FAULT_COGGING_CALIBRATION};
 }
 
 CoggingState FocCogging_GetState(void)
@@ -502,25 +261,6 @@ void FocCogging_SaveResult(bool success)
     {
         s_cogging_calib.state = COGGING_FAILED;
         s_cogging_calib.reason = COGGING_SAVE_FAILED;
-    }
-}
-
-void FocCogging_ResetMap(void)
-{
-    memset(&s_cogging_map, 0, sizeof(s_cogging_map));
-}
-void FocCogging_ImportMap(const CoggingMapRecord *record)
-{
-    s_cogging_map = *record;
-}
-void FocCogging_ExportMap(CoggingMapRecord *record,
-                          const MotorControlState *motor,
-                          const EncoderState *encoder)
-{
-    memset(record, 0, sizeof(*record));
-    if (FocCogging_TableValid(motor, encoder))
-    {
-        *record = s_cogging_map;
     }
 }
 
@@ -551,7 +291,10 @@ bool FocCogging_BuildCandidate(CoggingMapRecord *record,
            s_cogging_calib.state == COGGING_COMPLETE &&
            CoggingMap_Build(s_cogging_calib.iq_q15,
                             s_cogging_calib.full_scale_a,
-                            signature(motor, encoder),
+                            Cogging_EncoderSignature(Encoder_GetReverse(encoder),
+                                                     encoder->electrical_zero_q15,
+                                                     motor->model.motor_pole_pairs,
+                                                     encoder->linearization_lut_q15),
                             record);
 }
 bool FocCogging_PublishCandidate(const CoggingMapRecord *record)
@@ -560,7 +303,7 @@ bool FocCogging_PublishCandidate(const CoggingMapRecord *record)
     {
         return false;
     }
-    s_cogging_map = *record;
+    FocCogging_ImportMap(record);
     s_save_pending = true;
     return true;
 }

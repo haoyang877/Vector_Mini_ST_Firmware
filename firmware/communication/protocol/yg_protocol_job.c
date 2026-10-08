@@ -62,7 +62,7 @@ yg_protocol_result_t yg_protocol_job_encode_reply(const yg_protocol_job_reply_t 
         ((reply->status == YG_PROTOCOL_SERVICE_OK ||
           reply->status == YG_PROTOCOL_SERVICE_ACCEPTED) &&
          (reply->token == 0U || reply->kind < YG_PROTOCOL_JOB_KIND_ENCODER_LUT ||
-          reply->kind > YG_PROTOCOL_JOB_KIND_COGGING ||
+          reply->kind > YG_PROTOCOL_JOB_KIND_FRICTION ||
           reply->phase == YG_PROTOCOL_JOB_PHASE_NONE)))
     {
         return YG_PROTOCOL_INVALID_FIELD;

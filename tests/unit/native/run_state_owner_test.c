@@ -32,8 +32,11 @@ static unsigned phase_cancel_count;
 static bool cogging_active, cogging_pending, cogging_claimed, cogging_cancelled;
 static bool outer_ready;
 static bool check_borrowed_requests;
+static bool tick_during_compensation;
+static unsigned compensation_calls;
 static uint32_t critical_depth;
 static uint32_t now_ms;
+static void tick(void);
 
 uint32_t time_hw_now_ms(void)
 {
@@ -205,6 +208,11 @@ void FocCogging_Service(MotorControlState *m, EncoderState *e)
 {
     (void)m;
     (void)e;
+    ++compensation_calls;
+    if (tick_during_compensation)
+    {
+        tick();
+    }
     if (check_borrowed_requests)
     {
         uint32_t ticket = UINT32_MAX;
@@ -251,6 +259,8 @@ static void reset(void)
     output_off = outer_ready = temperature_fresh = encoder_released = true;
     start_fails = false;
     start_count = 0U;
+    compensation_calls = 0U;
+    tick_during_compensation = false;
     memset(leaf_calls, 0, sizeof(leaf_calls));
     stop_fails = cogging_active = cogging_pending = cogging_claimed = cogging_cancelled = false;
     MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
@@ -413,6 +423,29 @@ static void test_identified_speed_start(void)
     assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
     assert(output_off && start_count == 0U);
     puts("PASS identified speed start: retry, conflict, busy, STOP, fault, wrap, rejected retry");
+}
+
+/* 启动已受理时，后台不得借用配置并让监督中断误判资源仍被占用。 */
+static void test_start_compensation_race(void)
+{
+    MotorControlStartRequest request = {
+        .mode = MOTOR_CONTROL_SPEED, .sequence = 101U, .source_node = 2U};
+    MotorControlStartProgress progress;
+    reset();
+    assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+    tick_during_compensation = true;
+    MotorStateMachine_ServiceCompensation();
+    tick();
+    assert(MotorStateMachine_ReadEnableProgress(2U, 101U, &progress));
+    assert(progress.state == MOTOR_CONTROL_START_STARTED);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
+    assert(compensation_calls == 0U);
+    MotorStateMachine_ServiceCompensation();
+    assert(compensation_calls == 1U && MotorStateMachine_GetState() == MOTOR_STATE_RUNNING);
+    assert(MotorStateMachine_RequestIdentifiedStop(2U, 102U));
+    tick();
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_READY);
+    puts("PASS accepted start excludes compensation borrow; running service and STOP preserved");
 }
 
 static void test_calibration_save(void)
@@ -1002,6 +1035,64 @@ static void test_readiness_admission_matrix(void)
            (unsigned long long)digest);
 }
 
+static void test_startup_offset_deadline(void)
+{
+    reset();
+    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
+        motor.device.phase_c_offset_counts = NAN;
+    foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = NAN;
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    tick();
+    now_ms = 500U;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_SELF_TEST && output_off);
+    assert(motor.fault_code == MOTOR_FAULT_NONE);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_DENIED);
+    MotorReadiness readiness;
+    MotorStateMachine_ReadReadiness(&readiness);
+    assert((readiness.self_test_checks & MOTOR_SELF_TEST_CURRENTS_VALID) == 0U);
+    assert(readiness.startable_modes == 0U && start_count == 0U);
+    now_ms = 1499U;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_SELF_TEST);
+    now_ms = 1500U;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
+           motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
+
+    /* 校正资格恢复后显式CLEAR仍只给原500ms，不自动重新校正或启相。 */
+    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
+        motor.device.phase_c_offset_counts = 2048.0f;
+    foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = 0.0f;
+    tick();
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    temperature_fresh = false;
+    now_ms = 1999U;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_SELF_TEST && output_off);
+    now_ms = 2000U;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
+           motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
+
+    reset();
+    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
+        motor.device.phase_c_offset_counts = NAN;
+    foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = NAN;
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    tick();
+    now_ms = 1000U;
+    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
+        motor.device.phase_c_offset_counts = 2048.0f;
+    foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = 0.0f;
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        tick();
+    }
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_READY && output_off && start_count == 0U);
+    puts("PASS offset-pending admission, 1500ms boot deadline and unchanged 500ms CLEAR deadline");
+}
+
 static void test_self_test_deadline(void)
 {
     reset();
@@ -1247,6 +1338,7 @@ int main(void)
     test_preparation_readiness();
     test_readiness_admission_matrix();
     test_self_test_deadline();
+    test_startup_offset_deadline();
     reset();
     uint32_t progress, next;
     assert(MotorStateMachine_ReadBootHealth(&progress) && progress != 0U);
@@ -1263,6 +1355,7 @@ int main(void)
     test_power_permission();
     test_maintenance_identity();
     test_identified_speed_start();
+    test_start_compensation_race();
     test_control();
     test_calibration_save();
     test_borrow_cancel();

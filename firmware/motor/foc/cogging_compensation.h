@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "cogging_calibration.h"
+#include "cogging_map.h"
 
 /* 齿槽转矩补偿纯核心：准入、查表、渐变与限幅。
  * 边界约定：

@@ -425,7 +425,7 @@ static void handle_calibration_plan(void *context,
             result = MOTOR_CONTROL_ACCEPTED;
         }
     }
-    yg_protocol_service_reply_t mapped = {0};
+    yg_protocol_service_reply_t mapped = {.status = YG_PROTOCOL_SERVICE_OK};
     map_motor_control_result(result, &mapped);
     reply->status = mapped.status;
     reply->detail = mapped.detail;

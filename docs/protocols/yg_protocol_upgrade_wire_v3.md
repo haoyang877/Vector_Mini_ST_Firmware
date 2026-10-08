@@ -40,6 +40,10 @@ APP与Loader支持page0..2，每页32B，无前置结果码。UID始终来自芯
 Loader只对完整且已激活镜像报告APP版本/CRC，否则为0。独立APP的boot_api和Loader版本为0，
 不可经56升级；page1启动状态0。page1/profile和page2几何都是维护契约，普通GET_CAPS仍仅page0。
 版本编码为major:u16/minor:u8/patch:u8（最高到最低位），1.0.0=0x00010000，来源是共同目标清单。
+
+2026-10-08 架构候选 APP 版本为 1.1.0（0x00010100），当前合成镜像和 BEGIN/CONFIRM
+黄金字节同步该版本及 CRC；profile/layout/schema 和线路布局不变。旧 1.0.0 向量仍可
+从对应历史提交追溯，不能用其描述符绕过当前打包版本核对。合成向量不代表真实升级已通过。
 boot_id=0及旧Type3缺少持久epoch的UNAVAILABLE语义保留；nonce不是可信设备启动次数。
 
 ## APP_CONFIRM（Type57）

@@ -181,6 +181,21 @@ static void full_feedback_vector(void)
     assert(yg_protocol_motor_feedback_encode(&feedback, encoded, sizeof(encoded)) ==
            YG_PROTOCOL_OK);
     assert(memcmp(encoded, golden, sizeof(golden)) == 0);
+    /* v1.1 八状态编码黄金向量：只变更第 43 字节，其余字段布局保持。 */
+    const uint8_t states_v1_1[] = {3U, 5U, 2U, 6U, 5U, 7U, 8U, 9U};
+    uint8_t state_golden[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
+    memcpy(state_golden, golden, sizeof(golden));
+    for (unsigned index = 0U; index < sizeof(states_v1_1); ++index)
+    {
+        feedback.motor_state = states_v1_1[index];
+        state_golden[43] = states_v1_1[index];
+        assert(yg_protocol_motor_feedback_encode(&feedback, encoded, sizeof(encoded)) ==
+               YG_PROTOCOL_OK);
+        assert(memcmp(encoded, state_golden, sizeof(state_golden)) == 0);
+    }
+    feedback.motor_state = golden[43];
+    assert(yg_protocol_motor_feedback_encode(&feedback, encoded, sizeof(encoded)) ==
+           YG_PROTOCOL_OK);
     yg_protocol_message_t message = {
         YG_PROTOCOL_VERSION, 0U, 3U, 2U, 124U, 7U, sizeof(encoded), 0U, encoded};
     yg_protocol_transfer_frame_t frame;

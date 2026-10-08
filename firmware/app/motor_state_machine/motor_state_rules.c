@@ -6,11 +6,11 @@
 #define SHUTDOWN_ACTIONS                                                                           \
     (MOTOR_STATE_ACTION_DISABLE_POWER | MOTOR_STATE_ACTION_REVOKE_REQUESTS |                       \
      MOTOR_STATE_ACTION_CANCEL_CONTROL | MOTOR_STATE_ACTION_CANCEL_OPERATION)
-#define ALL_EVENTS UINT32_C(0x3fff)
+#define ALL_EVENTS UINT32_C(0x3ffe)
 #define COMPLETION_EVENTS                                                                          \
-    (MOTOR_STATE_EVENT_BOOT_DONE | MOTOR_STATE_EVENT_SELF_TEST_DONE |                              \
-     MOTOR_STATE_EVENT_START_DONE | MOTOR_STATE_EVENT_OPERATION_DONE |                             \
-     MOTOR_STATE_EVENT_OPERATION_FAILED | MOTOR_STATE_EVENT_CANCEL_DONE)
+    (MOTOR_STATE_EVENT_SELF_TEST_DONE | MOTOR_STATE_EVENT_START_DONE |                             \
+     MOTOR_STATE_EVENT_OPERATION_DONE | MOTOR_STATE_EVENT_OPERATION_FAILED |                       \
+     MOTOR_STATE_EVENT_CANCEL_DONE)
 #define REQUEST_EVENTS                                                                             \
     (MOTOR_STATE_EVENT_ENABLE | MOTOR_STATE_EVENT_CLEAR | MOTOR_STATE_EVENT_BEGIN_OPERATION)
 
@@ -121,14 +121,14 @@ static void enter_fault(MotorStateRulesContext *context, uint32_t faults, uint32
     }
 }
 
-static void enter_self_test(MotorStateRulesContext *context, uint32_t *actions)
+static void enter_initialization(MotorStateRulesContext *context, uint32_t *actions)
 {
     if (!advance_epoch(context, actions))
     {
         return;
     }
     context->tested = false;
-    context->state = MOTOR_STATE_SELF_TEST;
+    context->state = MOTOR_STATE_INIT;
     context->maintenance_active = false;
     *actions |= MOTOR_STATE_ACTION_DISABLE_POWER | MOTOR_STATE_ACTION_SELF_TEST;
 }
@@ -164,11 +164,11 @@ confirm_stopped(MotorStateRulesContext *context, const MotorStateFacts *facts, u
     }
     else if (context->tested)
     {
-        context->state = MOTOR_STATE_READY;
+        context->state = MOTOR_STATE_IDLE;
     }
     else
     {
-        enter_self_test(context, actions);
+        enter_initialization(context, actions);
     }
 }
 
@@ -257,8 +257,21 @@ static bool handle_priority_events(MotorStateRulesContext *context,
     }
     if (event->events & (MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_CANCEL))
     {
-        enter_stopping(context, &decision->actions);
-        confirm_stopped(context, facts, &decision->actions);
+        /* 静默 STOP 仍撤销本代请求，但不重启 INIT 自检期限或连续窗口。 */
+        if ((event->events & MOTOR_STATE_EVENT_STOP) &&
+            (context->state == MOTOR_STATE_INIT || context->state == MOTOR_STATE_IDLE) &&
+            resources_quiescent(facts) && !context->maintenance_active &&
+            context->operation_result != MOTOR_MAINTENANCE_CANCEL_REQUESTED &&
+            !context->latched_faults)
+        {
+            decision->actions |= SHUTDOWN_ACTIONS;
+            (void)advance_epoch(context, &decision->actions);
+        }
+        else
+        {
+            enter_stopping(context, &decision->actions);
+            confirm_stopped(context, facts, &decision->actions);
+        }
         if (event->events & (COMPLETION_EVENTS | REQUEST_EVENTS))
         {
             decision->rejection = MOTOR_STATE_REJECT_INTERRUPTED;
@@ -340,19 +353,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
 {
     switch (context->state)
     {
-    case MOTOR_STATE_BOOT:
-        if (event_type != MOTOR_STATE_EVENT_BOOT_DONE)
-        {
-            break;
-        }
-        if (!resources_quiescent(facts))
-        {
-            return MOTOR_STATE_REJECT_GUARD;
-        }
-        enter_self_test(context, actions);
-        return MOTOR_STATE_ACCEPTED;
-
-    case MOTOR_STATE_SELF_TEST:
+    case MOTOR_STATE_INIT:
         if (event_type == MOTOR_STATE_EVENT_CLEAR)
         {
             return MOTOR_STATE_ACCEPTED;
@@ -367,10 +368,10 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
             return MOTOR_STATE_REJECT_GUARD;
         }
         context->tested = true;
-        context->state = MOTOR_STATE_READY;
+        context->state = MOTOR_STATE_IDLE;
         return MOTOR_STATE_ACCEPTED;
 
-    case MOTOR_STATE_READY:
+    case MOTOR_STATE_IDLE:
         if (event_type == MOTOR_STATE_EVENT_CLEAR)
         {
             return MOTOR_STATE_ACCEPTED;
@@ -489,7 +490,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
             return MOTOR_STATE_REJECT_GUARD;
         }
         /* 先推进代际，耗尽转 FATAL 时保留全部锁存。 */
-        enter_self_test(context, actions);
+        enter_initialization(context, actions);
         if (context->state != MOTOR_STATE_FATAL)
         {
             context->first_fault = context->latched_faults = 0U;
@@ -542,9 +543,8 @@ static bool output_must_be_disabled(const MotorStateRulesContext *context)
 {
     switch (context->state)
     {
-    case MOTOR_STATE_BOOT:
-    case MOTOR_STATE_SELF_TEST:
-    case MOTOR_STATE_READY:
+    case MOTOR_STATE_INIT:
+    case MOTOR_STATE_IDLE:
     case MOTOR_STATE_STOPPING:
     case MOTOR_STATE_FAULT:
     case MOTOR_STATE_FATAL:
@@ -561,7 +561,7 @@ void MotorStateRules_Init(MotorStateRulesContext *context)
     if (context)
     {
         const MotorStateRulesContext initial = {
-            .state = MOTOR_STATE_BOOT, .maintenance_kind = MOTOR_MAINTENANCE_NONE, .epoch = 1U};
+            .state = MOTOR_STATE_INIT, .maintenance_kind = MOTOR_MAINTENANCE_NONE, .epoch = 2U};
         *context = initial;
     }
 }

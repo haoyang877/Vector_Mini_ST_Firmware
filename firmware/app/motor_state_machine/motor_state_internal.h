@@ -38,7 +38,6 @@ typedef enum
 
 enum
 {
-    MOTOR_STATE_EVENT_BOOT_DONE = 1U,
     MOTOR_STATE_EVENT_SELF_TEST_DONE = 2U,
     MOTOR_STATE_EVENT_ENABLE = 4U,
     MOTOR_STATE_EVENT_START_DONE = 8U,
@@ -85,7 +84,7 @@ typedef struct
      * self_test_ready 含稳定窗口/既有完成资格以及当前基础健康。 */
     bool inputs_valid, configuration_valid, self_test_ready;
     /* 由适配器根据当前角色、模式/操作依赖、参数有效性与健康计算。
-     * 缺少恢复证据时为 false。READY 允许缺少某项标定：start_permitted
+     * 缺少恢复证据时为 false。IDLE 允许缺少某项标定：start_permitted
      * 只拒绝受影响模式；基础参数错误则自检失败。 */
     bool start_permitted, operation_permitted, startup_confirmed;
     /* 适配器还需自行校验来源与队列时效，不能只信任 request_epoch。 */
@@ -119,7 +118,7 @@ typedef struct
 MotorMaintenanceClass MotorStateRules_Classify(MotorMaintenanceKind kind);
 
 /**
- * @brief 初始化生命周期实例为 BOOT 态，epoch 置 1。
+ * @brief 初始化生命周期实例为 INIT 态，epoch 置 2，沿用原正常自检起始代际。
  * @param context 唯一所有者持有的规则字段；为 NULL 时不做任何事。
  * @note 只做赋值，不触发动作、不访问硬件。
  */
@@ -137,10 +136,10 @@ void MotorStateRules_Init(MotorStateRulesContext *context);
  *       请求需 request_epoch 且 request_fresh；完成需阶段 epoch。停止/取消不回滚 Flash，
  *       也不承诺效果未提交。被取消的操作必须用新取消 epoch 的 CANCEL_DONE 确认，
  *       且匹配操作、资源静默与实际效果；UNKNOWN 表示提交结果仍需外部查询。
- *       存在未确认取消时不得通过 CLEAR 或回到 READY。SAVE 完成必须 COMMITTED，
+ *       存在未确认取消时不得通过 CLEAR 或回到 IDLE。SAVE 完成必须 COMMITTED，
  *       UNKNOWN/UNCOMMITTED 不得宣称成功。有效上下文缺少事件/guards 会锁入 FATAL
  *       （API 误用）。动作执行方必须在启相短临界区原子复核紧急禁止与 epoch，
- *       本纯核心无法代替该硬件门。READY/SELF_TEST 且无故障时重复 CLEAR 是幂等 no-op。
+ *       本纯核心无法代替该硬件门。IDLE/INIT 且无故障时重复 CLEAR 是幂等 no-op。
  */
 MotorStateDecision MotorStateRules_Step(MotorStateRulesContext *context,
                                         const MotorStateEvent *event,

@@ -1,4 +1,4 @@
-/* ccd8d8a8 真实事实归一化规则黄金摘要：覆盖优先级、身份、取消、提交效果和代际耗尽。
+/* v1.1 八状态黄金摘要：覆盖优先级、身份、取消、提交效果和代际耗尽。
  * 无故障事实由 active_faults 推导，删除旧夹具互相矛盾的故障布尔组合。 */
 #include <stdio.h>
 #include <stdint.h>
@@ -111,8 +111,8 @@ int main(void)
     MotorStateRules_Init(&initial);
     MotorStateDecision misuse = MotorStateRules_Step(NULL, NULL, NULL);
     if (misuse.rejection != MOTOR_STATE_REJECT_ARGUMENT ||
-        misuse.actions != MOTOR_STATE_ACTION_DISABLE_POWER || initial.state != MOTOR_STATE_BOOT ||
-        initial.epoch != 1U || initial.tested || initial.maintenance_kind != MOTOR_MAINTENANCE_NONE)
+        misuse.actions != MOTOR_STATE_ACTION_DISABLE_POWER || initial.state != MOTOR_STATE_INIT ||
+        initial.epoch != 2U || initial.tested || initial.maintenance_kind != MOTOR_MAINTENANCE_NONE)
     {
         return 1;
     }
@@ -151,7 +151,7 @@ int main(void)
                                       MOTOR_CONTROL_VQ,
                                       (MotorControlMode)5};
     const uint32_t event_sets[] = {0U,
-                                   MOTOR_STATE_EVENT_BOOT_DONE,
+                                   UINT32_C(1), /* 已退役 BOOT 完成位按非法事件拒绝。 */
                                    MOTOR_STATE_EVENT_SELF_TEST_DONE,
                                    MOTOR_STATE_EVENT_ENABLE,
                                    MOTOR_STATE_EVENT_START_DONE,
@@ -177,7 +177,7 @@ int main(void)
     {
         MotorStateRulesContext a;
         MotorStateRules_Init(&a);
-        a.state = (MotorState)(i % 9U);
+        a.state = (MotorState)(MOTOR_STATE_INIT + i % 8U);
         a.tested = (random_value() & 1U) != 0U;
         a.epoch = i % 31U == 0U ? UINT32_MAX : 1U + random_value() % 5U;
         a.maintenance_kind = kinds[random_value() % 5U];
@@ -205,7 +205,7 @@ int main(void)
                 0U, true, true, true, true, true, true, true, true, true, true, true};
         }
         MotorStateEvent e = {
-            .events = event_sets[(i / 9U) % (sizeof(event_sets) / sizeof(event_sets[0]))],
+            .events = event_sets[(i / 8U) % (sizeof(event_sets) / sizeof(event_sets[0]))],
             .faults = i % 17U == 0U ? 8U : 0U,
             .completion_epoch = i % 5U == 0U ? 0U : a.epoch,
             .request_epoch = i % 7U == 0U ? 0U : a.epoch,
@@ -226,7 +226,7 @@ int main(void)
         record(r.rejection);
     }
     printf("262144 cases, digest %016llx\n", (unsigned long long)digest);
-    if (digest != UINT64_C(0x14acc14ec440764b))
+    if (digest != UINT64_C(0x0bf3e5aa3c3ea0e0))
     {
         fprintf(stderr, "FAIL frozen motor-state behavior digest\n");
         return 1;

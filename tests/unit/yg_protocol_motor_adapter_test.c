@@ -87,11 +87,10 @@ static void LifecycleOwner_Init(LifecycleOwner *owner)
     owner->power_disabled = true;
 }
 
-/* 走完 BOOT → READY → STARTING → RUNNING，功率级记录为开。 */
+/* 走完 INIT → IDLE → STARTING → RUNNING，功率级记录为开。 */
 static void LifecycleOwner_PowerOn(LifecycleOwner *owner)
 {
     LifecycleOwner_Init(owner);
-    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_BOOT_DONE, MOTOR_CONTROL_NONE);
     LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_CONTROL_NONE);
     LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_ENABLE, MOTOR_CONTROL_CURRENT);
     LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_START_DONE, MOTOR_CONTROL_NONE);

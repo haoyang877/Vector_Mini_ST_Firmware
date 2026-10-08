@@ -4,9 +4,8 @@
 /* 电机主状态值契约；数值不是 CAN 编号或参数 ABI，不包含可变上下文。 */
 typedef enum
 {
-    MOTOR_STATE_BOOT,
-    MOTOR_STATE_SELF_TEST,
-    MOTOR_STATE_READY,
+    MOTOR_STATE_INIT = 1,
+    MOTOR_STATE_IDLE,
     MOTOR_STATE_STARTING,
     MOTOR_STATE_RUNNING,
     MOTOR_STATE_MAINTENANCE,

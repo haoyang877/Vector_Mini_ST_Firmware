@@ -188,6 +188,8 @@ Flash 和表整理在前台执行。正常启相由主状态机拥有，功能�
 
 专项设计已补齐[旧新全部出口、伪代码、函数职责与变量归属](motor_state_flow_simplification_v1.md)。
 该设计仍是候选；首批等价删除及冻结证据见[实施计划 v2](../plans/active/2026-10-08-motor-state-flow-simplification-v2.md)。
+用户随后选定八状态方向，保留独立 FATAL；静默 INIT STOP 不重启自检期限或窗口。
+这些选择尚未改入生产状态流转；INIT 线上反馈已决定沿用 3，0 保留退役，文档升级 v1.1。
 
 STOPPING 保留异步资源归还的用途；减少状态数量不能变成把相同等待藏到更多布尔标志中。下一轮先冻结完整出口、伪代码和保存／取消策略，再决定实现。讨论、待决项和接受条件见[状态流转简化记录 v1](../plans/active/2026-10-08-motor-state-flow-simplification-v1.md)。
 

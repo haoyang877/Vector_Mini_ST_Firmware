@@ -1,13 +1,14 @@
 # 电机 APP 状态流转简化设计 v1
 
-日期：2026-10-08。状态：可审阅草案；九状态仍是生产契约。
+日期：2026-10-08。状态：已选八状态方向；九状态仍是生产契约。
 本文以[当前总图与 15 组出口](motor_state_machine_v1.md)为旧实现，
 给出完整对照、职责和伪代码。执行与证据见[专项计划 v2](../plans/active/2026-10-08-motor-state-flow-simplification-v2.md)。
 
 ## 1. 设计结论与范围
 
-先删同一事实在规则里的重复处理，再决定状态删减。七状态候选为 INIT、IDLE、
-STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT；它涉及可观察行为变化，尚未实施。
+先删同一事实在规则里的重复处理，再实施已决定的状态删减。用户已选择八状态：INIT、IDLE、
+STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT、FATAL；INIT 中实际静默的 STOP
+不重启自检期限或连续健康窗口。它涉及可观察行为变化，尚未实施。
 第一批等价删除只处理维护失败的重复出口，保留全部九状态、动作位和事件优先级。
 
 STARTING 目前必须保留。`MotorAxis_SupervisorTick` 先调用外环，再调用状态机；
@@ -17,8 +18,8 @@ STARTING 目前必须保留。`MotorAxis_SupervisorTick` 先调用外环，再�
 
 减少往返的重点是：已关相且无借用的初始化／待命 STOP 不再经过 STOPPING；
 维护任务与派生 SAVE 在同一 MAINTENANCE 内串行，整条流程最终只退出一次。
-STOPPING 保留给真实关相与异步资源归还。合并 FAULT/FATAL 仅移动恢复策略的表达位置，
-不会消除不可恢复故障；如果没有维护收益，保留 FATAL 的八状态方案更直接。
+STOPPING 保留给真实关相与异步资源归还。用户选择保留独立 FATAL；不把仅复位资格
+改成隐藏的等待标志或新恢复策略字段。原七状态合并方向仅作为设计演进保留。
 
 保留编码器 FOC，电流、速度、位置、电压控制，编码器 LUT、电零位、机械零位、
 齿槽、相电阻、摩擦、默认参数、补偿服务及 SAVE；保留 CAN 与 Loader 交接。
@@ -27,10 +28,13 @@ STOPPING 保留给真实关相与异步资源归还。合并 FAULT/FATAL 仅移�
 
 ## 2. 全部状态同时可见的候选总图
 
-![七状态候选，含故障两类恢复资格、CLEAR、取消、停止与外部复位](../assets/motor_state_machine/state-simplification-draft-v1.svg)
+![八状态方向，含独立 FAULT、FATAL、CLEAR、取消、停止与外部复位](../assets/motor_state_machine/state-simplification-eight-v1.png)
+
+[可放大八状态总图](../assets/motor_state_machine/state-simplification-eight-v1.svg)；
+[原七状态候选图，历史未实施](../assets/motor_state_machine/state-simplification-draft-v1.svg)。
 
 蓝色：初始化／控制准备；灰色：待命；绿色：控制；紫色：维护；橙色：停止归还；
-红色：故障。FAULT 框内两行是同一故障记录的恢复策略，不能当作另一个可运行子状态机。
+红色：FAULT 和 FATAL；FATAL 独立且只能外部复位。
 任意状态都有故障和外部复位出口；实线用于普通迁移，虚线用于 CLEAR／复位。
 箭头编号继续引用旧图，1 为状态内初始化，14 为有条件的原地 STOP。
 
@@ -38,7 +42,7 @@ STOPPING 保留给真实关相与异步资源归还。合并 FAULT/FATAL 仅移�
 
 “候选”均需设计决策及验证后实施；第一批等价删除保持本表的旧出口不变。
 
-| 旧编号与出口 | 七状态候选处理 | 必须保留的动作、确认和差异 |
+| 旧编号与出口 | 八状态方向处理 | 必须保留的动作、确认和差异 |
 | --- | --- | --- |
 | 1 BOOT → SELF_TEST | INIT 内建立上下文并开始自检，取消主状态边界 | 初始化在中断启用前仅执行一次；首次关相失败为仅复位故障；保留首次零点采样、1.5 s 初次期限及连续窗口。不得新增 `boot_done` 镜像来模拟旧状态 |
 | 2 SELF_TEST → READY | INIT → IDLE | 八项基础健康连续 4 个监督拍、输出关闭、资源释放；未确认参数／未完成标定可待命，不能启相 |
@@ -49,11 +53,11 @@ STOPPING 保留给真实关相与异步资源归还。合并 FAULT/FATAL 仅移�
 | 7 MAINTENANCE → STOPPING | STOP／匹配活动票据取消仍进入 STOPPING；自然完成先在 MAINTENANCE 关相归还，再串行 SAVE，最后进入 STOPPING | 原任务先发布 RAM 终态；SAVE 单独票据及结果。取消旧终态票据不能停止后继 SAVE；保存失败不能改写原任务成功；已提交 Flash 不回滚 |
 | 8 STOPPING → READY | STOPPING → IDLE | 输出、目标／结果、功能、前台、固定工作区均确认静默，取消已确认、无锁存故障；既有自检完成记录有效 |
 | 9 STOPPING → SELF_TEST | STOPPING → INIT | 未完成自检仍需自检；停止不能绕过健康检查。是否重新开始计时必须按第 7 节定案 |
-| 10 任意非 FATAL → FAULT；FAULT 内累积 | 任意状态 → FAULT；已处 FAULT 只累积，不能降低仅复位策略 | 故障优先于 STOP 和完成；维护失败先记实际效果、首故障及累积锁存；关相先于取消；继续接收合法资源归还 |
+| 10 任意非 FATAL → FAULT；FAULT 内累积 | 原出口保留；FATAL 不降级回 FAULT | 故障优先于 STOP 和完成；维护失败先记实际效果、首故障及累积锁存；关相先于取消；继续接收合法资源归还 |
 | 11 FAULT → SELF_TEST | 恢复允许的 FAULT → INIT | 明确 CLEAR、对应源恢复、采样有效、输出关闭、资源归还、取消已确认；代际耗尽仍不能清锁存；CLEAR 后普通期限 500 ms，不恢复目标 |
-| 12 任意状态 → FATAL | 任意状态 → FAULT，恢复策略永久提升为“仅外部复位” | API 缺少事实／事件、代际耗尽、显式 FATAL、初始化无法关相仍不可 CLEAR；不能仅用业务故障码推导该策略，内部故障位也可能来自可恢复 FAULT |
-| 13 FATAL → BOOT，外部复位 | 外部复位重新构造 INIT | 不是规则中的 CLEAR／LINK_RECOVERED 事件；复位清易失身份，参数重新按原政策装载；普通运行状态同样可能被外部复位 |
-| 14 BOOT／SELF_TEST／READY → STOPPING | INIT／IDLE 只有实际关相且无待归还资源时保持原状态；否则进入 STOPPING 或 FAULT | 仍撤销意图、目标、派生 SAVE、进展并更新 STOP 屏障；不能用状态名称证明已关相。INIT 原地 STOP 的期限／稳定窗口及票据数值会与旧路径不同，属于待定行为变化 |
+| 12 任意状态 → FATAL | 原出口保留，FATAL 独立 | API 缺少事实／事件、代际耗尽、显式 FATAL、初始化无法关相仍不可 CLEAR；无需新增恢复策略字段 |
+| 13 FATAL → BOOT，外部复位 | FATAL 经外部复位重新构造 INIT | 不是规则中的 CLEAR／LINK_RECOVERED 事件；复位清易失身份，参数重新按原政策装载；普通运行状态同样可能被外部复位 |
+| 14 BOOT／SELF_TEST／READY → STOPPING | INIT／IDLE 只有实际关相且无待归还资源时保持原状态；否则进入 STOPPING 或 FAULT | 仍撤销意图、目标、派生 SAVE、进展并更新 STOP 屏障；不能用状态名称证明已关相。用户已决定静默 INIT STOP 不重启期限／窗口；票据数值变化仍需对照 |
 | 15 STOPPING → FAULT | 原路径保留；按故障策略锁存 | 收尾中活动故障或停止确认时仍有锁存故障不能回 IDLE；无法确认输出关闭不得自动继续试验 |
 
 ### 不迁移、拒绝与资源归还
@@ -86,10 +90,11 @@ STOPPING 保留给真实关相与异步资源归还。合并 FAULT/FATAL 仅移�
 
 监督拍：
     记录本拍快采样进展；取出 STOP 和匹配原身份的功能结果
-    若已有故障或本代功能失败：记录效果与锁存，关相，撤销并取消，进入 FAULT
+    若已处 FATAL 或发生不可恢复错误：保持／进入 FATAL，关相、撤销并取消
+    否则若已有故障或本代功能失败：记录效果与锁存，关相，撤销并取消，进入 FAULT
     否则若 STOP：
         撤销请求与 SAVE 意图；序号屏障在受理入口已经更新
-        INIT／IDLE 且实际静默：原地确认，保留初始化检查义务
+        INIT／IDLE 且实际静默：原地确认，不重启自检期限或窗口，保留检查义务
         其他状态：进入 STOPPING，要求关相与实际归还
     处理独立维护／SAVE 结果及原取消身份的资源归还
     更新故障源恢复证据；此步骤不自动 CLEAR
@@ -101,7 +106,8 @@ STOPPING 保留给真实关相与异步资源归还。合并 FAULT/FATAL 仅移�
         RUNNING：持续运行守卫；原临界区复核并应用同模式单槽目标
         MAINTENANCE：按本次任务推进，见下段
         STOPPING：继续关相与取消；真实静默且取消确认后回 IDLE／INIT／FAULT
-        FAULT：继续关相与归还；仅显式 CLEAR＋可恢复策略＋当前源恢复才回 INIT
+        FAULT：继续关相与归还；仅显式 CLEAR＋当前源恢复才回 INIT
+        FATAL：关相并拒绝普通恢复；仅外部复位重新构造 INIT
 
     更新原身份的启动进展、指示与监督计数
 
@@ -166,7 +172,7 @@ MAINTENANCE：
 | `save_requested` | 当前 READY 往返期间的派生 SAVE 意图，状态机 | 串行候选按原任务成功＋保存政策决定后可删除；STOP／故障直接离开该流程 |
 | `save_finish` | 前台 Flash 回读结果的跨上下文邮箱，状态机 | 必须保留独立结果或复用明确的同语义邮箱；不能当作 `save_requested` 的等价替身 |
 | `configuration_reading` | 补偿前台借用，状态机与调用方 | 保留受理启动与后台服务互斥，不能只检查功率输出 |
-| `recovery`、业务故障、`first_fault/latched_faults` | 源恢复证据及锁存记录，各原所有者 | 不缓存 CLEAR 许可；合并 FATAL 必须在单一锁存故障记录保存“仅复位”策略，单调提升直到复位 |
+| `recovery`、业务故障、`first_fault/latched_faults` | 源恢复证据及锁存记录，各原所有者 | 不缓存 CLEAR 许可；保留 FATAL 独立状态，不新增“仅复位”镜像字段 |
 | `latest_start/active_start/remote_source/stop_sequence` 与 valid 字段 | 新近重试、原活动身份、来源及 STOP 序号屏障，状态机 | 不能用一个“started”布尔或当前主状态替代；历史 STARTED 不代表当前输出或机械运动 |
 | `boot_stop_ticket/boot_maintenance_only/supervisor_epoch` | 升级隔离票据、维护角色和健康进展，状态机 | 保留 Loader 停机及健康接口，不把升级变成新主状态 |
 | `fast_sample_epoch/observed_fast_sample_epoch/fast_samples_fresh` | 当前监督拍采样有进展，状态机 | 同拍多次提交复用采样进展；不是连续健康资格，不能与 tested 合并 |
@@ -175,15 +181,15 @@ MAINTENANCE：
 
 | 决策 | 建议与原因 | 实施边界 |
 | --- | --- | --- |
-| D1 INIT／IDLE 名称与状态反馈 | 接受合并前先定新版反馈契约。当前线码 BOOT=0、SELF_TEST=3、READY=5、FAULT=8、FATAL=9 | 不用旧枚举兼容头或隐藏初始化阶段伪造旧反馈；协议 golden vectors、状态消费方、Watch 和 Loader 全部对照 |
-| D2 INIT 原地 STOP | 建议 STOP 不重启上电零点、自检期限或稳定窗口；仅撤销命令并核对真实静默 | 这与旧 SELF_TEST→STOPPING→SELF_TEST 重启窗口不同，必须作为公开行为变化确认；异常输出／占用仍收尾 |
+| D1 INIT／IDLE 名称与状态反馈 | 用户已决定：合并 INIT、改 IDLE；INIT=3，0 保留为退役值，文档升级 v1.1。IDLE=5、FAULT=8、FATAL=9 保持 | 不用旧枚举兼容头或隐藏初始化阶段伪造旧反馈；新版协议文档、golden vectors、状态消费方、Watch 和 Loader 全部对照 |
+| D2 INIT 原地 STOP | 用户已决定：实际静默时 STOP 不重启自检期限或稳定窗口；仅撤销命令并核对真实静默 | 这与旧 SELF_TEST→STOPPING→SELF_TEST 重启窗口不同，作为已确认公开行为变化单独验证；异常输出／占用仍收尾 |
 | D3 维护内串行 SAVE | 建议保留当前自动 SAVE 种类、独立票据、原任务终态和前台回读，取消旧票据仍不取消 SAVE | 确定任务完成到 SAVE 之间的状态反馈及同拍仲裁；保留不早于旧条件的保存起点和 Loader 交接禁止 |
-| D4 FAULT/FATAL 合并 | 仅当故障记录中的恢复策略更清楚时合并；否则保留 FATAL，采用八状态 | 不能从现有 INTERNAL 位唯一判断 FATAL。恢复策略是锁存结果的一部分，不是额外的等待标志；不可降低为可 CLEAR |
+| D4 FAULT/FATAL 合并 | 用户已决定：保留独立 FATAL，采用八状态 | 不新增恢复策略字段，不放宽 CLEAR；七状态合并方向保留为未实施历史 |
 | D5 六状态／同步准备 | 本阶段不采用；保持 STARTING | 需先证明各模式准备可在当前监督调度同步、有界完成，ISR 顺序、零矢量、控制输出及 STARTED 均等价 |
 | D6 收尾时序与代际 | 建议减少主状态往返但保留代际、资源实际归还及 STOP 失效边界 | 删除迁移会改变票据序列、瞬时反馈及某些拍数；不能称为逐拍等价重构。另建差异验收矩阵 |
 
-上述待决项不会阻止本轮已经授权的等价重复删除；状态数、保存路径、清错资格、
-线上值或时序变化必须先有明确设计决策，再独立实现。
+用户决定已解决状态数、名称、线上反馈和静默 INIT STOP 政策；维护内 SAVE 和
+精确代际／拍数对照仍需完成。它们不阻止本轮已经授权的等价重复删除，后续独立实施。
 
 ## 8. 第一批等价删除的证明边界
 

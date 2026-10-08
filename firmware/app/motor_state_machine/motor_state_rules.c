@@ -440,34 +440,27 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         break;
 
     case MOTOR_STATE_MAINTENANCE:
-        if (event_type != MOTOR_STATE_EVENT_OPERATION_DONE &&
-            event_type != MOTOR_STATE_EVENT_OPERATION_FAILED)
+        /* 本代匹配失败已由故障优先级处理；此处只剩错误任务类别，不能记成功。 */
+        if (event_type == MOTOR_STATE_EVENT_OPERATION_FAILED)
+        {
+            return MOTOR_STATE_REJECT_OPERATION;
+        }
+        if (event_type != MOTOR_STATE_EVENT_OPERATION_DONE)
         {
             break;
         }
         if (MotorStateRules_Classify(event->maintenance_kind) !=
                 active_maintenance_class(context) ||
             (unsigned)event->effects > MOTOR_MAINTENANCE_EFFECT_COMMITTED ||
-            (event_type == MOTOR_STATE_EVENT_OPERATION_DONE &&
-             event->maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
+            (event->maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
              event->effects != MOTOR_MAINTENANCE_EFFECT_COMMITTED))
         {
             return MOTOR_STATE_REJECT_OPERATION;
         }
         context->operation_effects = event->effects;
-        context->operation_result = event_type == MOTOR_STATE_EVENT_OPERATION_DONE
-                                        ? MOTOR_MAINTENANCE_COMPLETED
-                                        : MOTOR_MAINTENANCE_FAILED;
-        if (event_type == MOTOR_STATE_EVENT_OPERATION_FAILED)
-        {
-            enter_fault(
-                context, event->faults ? event->faults : MOTOR_STATE_FAULT_OPERATION, actions);
-        }
-        else
-        {
-            enter_stopping(context, actions);
-            confirm_stopped(context, facts, actions);
-        }
+        context->operation_result = MOTOR_MAINTENANCE_COMPLETED;
+        enter_stopping(context, actions);
+        confirm_stopped(context, facts, actions);
         return MOTOR_STATE_ACCEPTED;
 
     case MOTOR_STATE_STOPPING:

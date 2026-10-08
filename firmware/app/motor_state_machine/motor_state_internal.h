@@ -58,7 +58,6 @@ enum
     MOTOR_STATE_ACTION_REVOKE_REQUESTS = 2U,
     MOTOR_STATE_ACTION_CANCEL_CONTROL = 4U,
     MOTOR_STATE_ACTION_CANCEL_OPERATION = 8U,
-    MOTOR_STATE_ACTION_SELF_TEST = 16U,
     MOTOR_STATE_ACTION_START_CONTROL = 32U,
     MOTOR_STATE_ACTION_BEGIN_OPERATION = 64U,
     MOTOR_STATE_ACTION_FAULT_CLEARED = 128U
@@ -81,7 +80,8 @@ typedef struct
     bool phases_disabled, control_idle, operation_idle, maintenance_released;
     /* inputs_valid 含快速采样进展、测量有限性与温度新鲜度，不含启动电压窗口。
      * configuration_valid 是本次读取的数值校验结果，不是持久有效缓存。
-     * self_test_ready 含稳定窗口/既有完成资格以及当前基础健康。 */
+     * self_test_ready 含 INIT 稳定窗口或已完成初始化状态，以及当前基础健康；
+     * FAULT CLEAR 的调用方须另核对完整基础健康后提供恢复资格。 */
     bool inputs_valid, configuration_valid, self_test_ready;
     /* 由适配器根据当前角色、模式/操作依赖、参数有效性与健康计算。
      * 缺少恢复证据时为 false。IDLE 允许缺少某项标定：start_permitted
@@ -100,7 +100,6 @@ typedef struct
     MotorMaintenanceResult operation_result;
     MotorMaintenanceEffect operation_effects;
     uint32_t epoch, first_fault, latched_faults;
-    bool tested;
 } MotorStateRulesContext;
 
 typedef struct
@@ -140,6 +139,9 @@ void MotorStateRules_Init(MotorStateRulesContext *context);
  *       UNKNOWN/UNCOMMITTED 不得宣称成功。有效上下文缺少事件/guards 会锁入 FATAL
  *       （API 误用）。动作执行方必须在启相短临界区原子复核紧急禁止与 epoch，
  *       本纯核心无法代替该硬件门。IDLE/INIT 且无故障时重复 CLEAR 是幂等 no-op。
+ *       INIT/IDLE 的 STOP 不跳转或推进代际；排队意图由所有者撤销。
+ *       只有 STARTING/RUNNING/MAINTENANCE 进入 STOPPING，完成仅回 IDLE。
+ *       FAULT CLEAR 需完整恢复资格，通过后直接 IDLE；FATAL 无软件恢复出口。
  */
 MotorStateDecision MotorStateRules_Step(MotorStateRulesContext *context,
                                         const MotorStateEvent *event,

@@ -57,7 +57,6 @@ static int test_operation_failure_matrix(void)
                         MotorStateRules_Init(&context);
                         context.state = MOTOR_STATE_MAINTENANCE;
                         context.epoch = variant & 1U ? UINT32_MAX : 7U;
-                        context.tested = true;
                         context.maintenance_kind = (MotorMaintenanceKind)kind;
                         context.maintenance_active = (variant & 2U) != 0U;
                         MotorStateFacts facts = {
@@ -86,7 +85,8 @@ static int test_operation_failure_matrix(void)
                         record(context.epoch);
                         record(context.first_fault);
                         record(context.latched_faults);
-                        record(context.tested);
+                        /* 维护来自已初始化状态，保留旧摘要的完成资格列作为比较投影。 */
+                        record(1U);
                         record(decision.actions);
                         record(decision.rejection);
                         ++cases;
@@ -103,8 +103,83 @@ static int test_operation_failure_matrix(void)
     }
     return 0;
 }
+/* 冻结本批状态职责：待命 STOP 无收尾、停止仅回待命、清错直达待命、FATAL 无出口。 */
+static int test_state_exit_contract(void)
+{
+    MotorStateFacts facts = {0U, false, true, true, true, true, true, true, true, true, true, true};
+    const MotorState expected[] = {MOTOR_STATE_INIT,
+                                   MOTOR_STATE_IDLE,
+                                   MOTOR_STATE_STOPPING,
+                                   MOTOR_STATE_STOPPING,
+                                   MOTOR_STATE_STOPPING,
+                                   MOTOR_STATE_STOPPING,
+                                   MOTOR_STATE_FAULT,
+                                   MOTOR_STATE_FATAL};
+    for (unsigned i = 0U; i < sizeof(expected) / sizeof(expected[0]); ++i)
+    {
+        MotorStateRulesContext context;
+        MotorStateRules_Init(&context);
+        context.state = (MotorState)(MOTOR_STATE_INIT + i);
+        context.epoch = 7U;
+        if (context.state == MOTOR_STATE_MAINTENANCE)
+        {
+            context.maintenance_kind = MOTOR_MAINTENANCE_ENCODER_LUT;
+            context.maintenance_active = true;
+        }
+        MotorStateEvent stop = {.events = MOTOR_STATE_EVENT_STOP};
+        MotorStateDecision decision = MotorStateRules_Step(&context, &stop, &facts);
+        if (context.state != expected[i] ||
+            (i < 2U &&
+             (context.epoch != 7U || decision.actions != MOTOR_STATE_ACTION_DISABLE_POWER)))
+        {
+            return 1;
+        }
+    }
+    MotorStateRulesContext context;
+    MotorStateRules_Init(&context);
+    context.state = MOTOR_STATE_STOPPING;
+    MotorStateEvent poll = {0};
+    facts.phases_disabled = true;
+    (void)MotorStateRules_Step(&context, &poll, &facts);
+    if (context.state != MOTOR_STATE_IDLE)
+    {
+        return 1;
+    }
+    context.state = MOTOR_STATE_FAULT;
+    context.first_fault = context.latched_faults = MOTOR_STATE_FAULT_GUARD;
+    MotorStateEvent clear = {.events = MOTOR_STATE_EVENT_CLEAR, .request_epoch = context.epoch};
+    facts.self_test_ready = false;
+    (void)MotorStateRules_Step(&context, &clear, &facts);
+    if (context.state != MOTOR_STATE_FAULT || !context.latched_faults)
+    {
+        return 1;
+    }
+    facts.self_test_ready = true;
+    (void)MotorStateRules_Step(&context, &clear, &facts);
+    if (context.state != MOTOR_STATE_IDLE || context.first_fault || context.latched_faults)
+    {
+        return 1;
+    }
+    context.state = MOTOR_STATE_FATAL;
+    clear.request_epoch = context.epoch;
+    (void)MotorStateRules_Step(&context, &clear, &facts);
+    MotorStateEvent linked = {.events = MOTOR_STATE_EVENT_LINK_RECOVERED};
+    (void)MotorStateRules_Step(&context, &linked, &facts);
+    if (context.state != MOTOR_STATE_FATAL)
+    {
+        return 1;
+    }
+    puts(
+        "PASS state exit contract: idle STOP, stopping IDLE, healthy CLEAR IDLE and latched FATAL");
+    return 0;
+}
+
 int main(void)
 {
+    if (test_state_exit_contract())
+    {
+        return 1;
+    }
     /* 空输入的关断语义，以及全部实际维护种类的安全分类，不靠摘要隐含覆盖。 */
     MotorStateRulesContext initial;
     MotorStateRules_Init(NULL);
@@ -112,7 +187,7 @@ int main(void)
     MotorStateDecision misuse = MotorStateRules_Step(NULL, NULL, NULL);
     if (misuse.rejection != MOTOR_STATE_REJECT_ARGUMENT ||
         misuse.actions != MOTOR_STATE_ACTION_DISABLE_POWER || initial.state != MOTOR_STATE_INIT ||
-        initial.epoch != 2U || initial.tested || initial.maintenance_kind != MOTOR_MAINTENANCE_NONE)
+        initial.epoch != 2U || initial.maintenance_kind != MOTOR_MAINTENANCE_NONE)
     {
         return 1;
     }
@@ -178,7 +253,8 @@ int main(void)
         MotorStateRulesContext a;
         MotorStateRules_Init(&a);
         a.state = (MotorState)(MOTOR_STATE_INIT + i % 8U);
-        a.tested = (random_value() & 1U) != 0U;
+        /* 保持旧输入序列；已删除的完成标志不再参与规则上下文。 */
+        (void)random_value();
         a.epoch = i % 31U == 0U ? UINT32_MAX : 1U + random_value() % 5U;
         a.maintenance_kind = kinds[random_value() % 5U];
         a.maintenance_active = a.maintenance_kind != MOTOR_MAINTENANCE_NONE;
@@ -221,12 +297,11 @@ int main(void)
         record(a.operation_effects);
         record(a.first_fault);
         record(a.latched_faults);
-        record(a.tested);
         record(r.actions);
         record(r.rejection);
     }
     printf("262144 cases, digest %016llx\n", (unsigned long long)digest);
-    if (digest != UINT64_C(0x0bf3e5aa3c3ea0e0))
+    if (digest != UINT64_C(0x9dd9307dcc7bb53f))
     {
         fprintf(stderr, "FAIL frozen motor-state behavior digest\n");
         return 1;

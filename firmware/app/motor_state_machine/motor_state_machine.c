@@ -337,12 +337,13 @@ static MotorStateFacts read_state_conditions(void)
     facts.inputs_valid = s_context.fast_samples_fresh && bus_measurements_finite() &&
                          phase_currents_finite() && temperature_measurement_fresh();
     facts.configuration_valid = ParameterValue_ConfigurationValid(s_context.motor);
-    /* tested 是唯一完成记录；稳定计数只供 SELF_TEST_DONE 提交时证明窗口。 */
+    /* 正常控制／维护及停止只从完成初始化的状态进入，不保存第二份完成标志。 */
     bool stable_self_test = s_context.rules.state == MOTOR_STATE_INIT &&
                             s_context.self_test_stable_ticks == MOTOR_SELF_TEST_STABLE_TICKS;
-    facts.self_test_ready = (s_context.rules.tested || stable_self_test) &&
-                            facts.configuration_valid && facts.inputs_valid &&
-                            facts.active_faults == 0U;
+    bool initialized_state =
+        s_context.rules.state >= MOTOR_STATE_IDLE && s_context.rules.state <= MOTOR_STATE_STOPPING;
+    facts.self_test_ready = (initialized_state || stable_self_test) && facts.configuration_valid &&
+                            facts.inputs_valid && facts.active_faults == 0U;
     facts.start_permitted =
         s_context.motor->application.axis_profile_valid && !s_context.boot_maintenance_only;
     if (mode != MOTOR_CONTROL_NONE)
@@ -417,12 +418,6 @@ static void state_apply_actions(uint32_t actions, MotorMaintenanceKind cancelled
         reject_pending_control(s_context.motor->fault_code != MOTOR_FAULT_NONE
                                    ? MOTOR_CONTROL_FAULT
                                    : MOTOR_CONTROL_DENIED);
-    }
-    if (actions & MOTOR_STATE_ACTION_SELF_TEST)
-    {
-        s_context.self_test_started_ms = time_hw_now_ms();
-        s_context.self_test_timing_started = true;
-        s_context.self_test_stable_ticks = 0U;
     }
 }
 
@@ -505,8 +500,7 @@ static bool dispatch_state_event(uint32_t events,
         }
     }
     publish_transition_fault();
-    if (event.events == MOTOR_STATE_EVENT_CLEAR && decision.rejection == MOTOR_STATE_ACCEPTED &&
-        s_context.rules.state == MOTOR_STATE_INIT)
+    if (decision.actions & MOTOR_STATE_ACTION_FAULT_CLEARED)
     {
         s_context.motor->fault_code = MOTOR_FAULT_NONE;
         s_context.motor->control_mode = MOTOR_CONTROL_NONE;
@@ -547,27 +541,21 @@ static void advance_initialization(void)
                                    NULL);
         return;
     }
-    if (s_context.rules.state == MOTOR_STATE_INIT)
+    MotorStateFacts facts = read_state_conditions();
+    uint32_t checks = build_self_test_checks(&facts);
+    if (checks != MOTOR_SELF_TEST_ALL || s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
-        MotorStateFacts facts = read_state_conditions();
-        uint32_t checks = build_self_test_checks(&facts);
-        if (checks == MOTOR_SELF_TEST_ALL && s_context.motor->fault_code == MOTOR_FAULT_NONE)
-        {
-            if (s_context.self_test_stable_ticks < MOTOR_SELF_TEST_STABLE_TICKS)
-            {
-                ++s_context.self_test_stable_ticks;
-            }
-            if (s_context.self_test_stable_ticks == MOTOR_SELF_TEST_STABLE_TICKS)
-            {
-                (void)dispatch_state_event(
-                    MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
-                return;
-            }
-        }
-        else
-        {
-            s_context.self_test_stable_ticks = 0U;
-        }
+        s_context.self_test_stable_ticks = 0U;
+        return;
+    }
+    if (s_context.self_test_stable_ticks < MOTOR_SELF_TEST_STABLE_TICKS)
+    {
+        ++s_context.self_test_stable_ticks;
+    }
+    if (s_context.self_test_stable_ticks == MOTOR_SELF_TEST_STABLE_TICKS)
+    {
+        (void)dispatch_state_event(
+            MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
     }
 }
 
@@ -914,8 +902,7 @@ MotorControlResult MotorStateMachine_RequestClear(void)
         result = MOTOR_CONTROL_ACCEPTED;
     }
     else if (s_context.rules.state == MOTOR_STATE_FAULT &&
-             (error != MOTOR_FAULT_SELF_TEST_TIMEOUT ||
-              build_self_test_checks(&facts) == MOTOR_SELF_TEST_ALL) &&
+             build_self_test_checks(&facts) == MOTOR_SELF_TEST_ALL &&
              (error == MOTOR_FAULT_NONE || MotorFault_SourceRecovered(&s_context.recovery,
                                                                       s_context.motor,
                                                                       s_context.foc,
@@ -927,6 +914,7 @@ MotorControlResult MotorStateMachine_RequestClear(void)
     {
         /* 恢复事实与 CLEAR 同处一个临界区；提交前不提前清除故障。 */
         facts.active_faults = 0U;
+        facts.self_test_ready = true;
         bool accepted = dispatch_state_event(
             MOTOR_STATE_EVENT_CLEAR, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &facts);
         result = accepted ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_DENIED;

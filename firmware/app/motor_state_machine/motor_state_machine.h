@@ -151,7 +151,7 @@ MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket);
 /**
  * @brief 核对恢复资格并同步清除当前可恢复锁存故障。
  * @return 受理表示锁存已清或 READY 本来无故障；忙或拒绝保持锁存，FATAL 不可清。
- * @note 临界区内完成 CLEAR 提交；故障清除后进入 SELF_TEST，不表示自检完成或可启动。
+ * @note 临界区内确认故障源恢复、基础健康及收尾完成；CLEAR 成功直接 IDLE，仍需新启动请求。
  *       只清错，不恢复模式或旧目标。
  */
 MotorControlResult MotorStateMachine_RequestClear(void);

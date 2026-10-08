@@ -1264,7 +1264,7 @@ static void test_quiet_init_and_idle_stop(void)
     assert(MotorStateMachine_RequestIdentifiedStop(2U, 104U));
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off);
-    assert(MotorStateMachine_WorkEpoch() == epoch + 1U);
+    assert(MotorStateMachine_WorkEpoch() == epoch);
     MotorControlStartRequest old = {
         .source_node = 2U, .sequence = 104U, .mode = MOTOR_CONTROL_SPEED};
     assert(MotorStateMachine_RequestIdentifiedEnable(&old) == MOTOR_CONTROL_STALE_SEQUENCE);
@@ -1303,9 +1303,9 @@ static void test_quiet_init_and_idle_stop(void)
     encoder_released = false;
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
-    assert(MotorStateMachine_GetState() == MOTOR_STATE_STOPPING && output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_INIT && output_off);
     tick();
-    assert(MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_INIT);
     encoder_released = true;
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_INIT && output_off);
@@ -1327,13 +1327,68 @@ static void test_quiet_init_and_idle_stop(void)
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
     assert(motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT);
-    puts("PASS quiet INIT/IDLE STOP preserves health window, 500/1500ms deadlines and sequence "
-         "barrier; "
-         "unreleased resources still STOPPING");
+    puts("PASS INIT/IDLE STOP stays in place with unchanged epoch, deadlines and sequence barrier; "
+         "INIT waits for resource release");
+}
+
+/* 恢复直接待命；未恢复与 FATAL 均不能清除。 */
+static void test_direct_fault_recovery_and_idle_stop(void)
+{
+    reset();
+    uint32_t epoch = MotorStateMachine_WorkEpoch();
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestRemoteStop());
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off && start_count == 0U);
+    assert(MotorStateMachine_WorkEpoch() == epoch);
+    encoder_released = false;
+    assert(MotorStateMachine_RequestRemoteStop());
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off);
+    assert(MotorStateMachine_WorkEpoch() == epoch);
+    encoder_released = true;
+    MotorFault_Report(&motor, MOTOR_FAULT_ENCODER);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
+    temperature_fresh = false;
+    tick();
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_DENIED);
+    temperature_fresh = true;
+    encoder.bad_frame_streak = 1U;
+    tick();
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_DENIED);
+    encoder.bad_frame_streak = 0U;
+    output_off = false;
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_DENIED);
+    output_off = true;
+    encoder_released = false;
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_BUSY);
+    encoder_released = true;
+    tick();
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off && start_count == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_NONE && motor.control_mode == MOTOR_CONTROL_NONE);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
+    reset();
+    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    output_off = false;
+    stop_fails = true;
+    assert(MotorStateMachine_RequestRemoteStop());
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FATAL && start_count == 0U);
+    assert(MotorStateMachine_RequestClear() != MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestRemoteStop());
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FATAL);
+    puts("PASS pending start and busy idle STOP stay IDLE; healthy CLEAR directly IDLE; FATAL "
+         "stays latched");
 }
 
 int main(void)
 {
+    test_direct_fault_recovery_and_idle_stop();
     test_target_admission_boundaries();
     test_completed_maintenance_cleanup();
     test_preparation_readiness();

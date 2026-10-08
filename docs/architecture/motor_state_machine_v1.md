@@ -186,6 +186,9 @@ Flash 和表整理在前台执行。正常启相由主状态机拥有，功能�
 
 较稳妥的第一阶段草案为七状态：INIT、IDLE、STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT。只有把控制准备收敛成可同步完成的步骤后，才讨论六状态版本。
 
+专项设计已补齐[旧新全部出口、伪代码、函数职责与变量归属](motor_state_flow_simplification_v1.md)。
+该设计仍是候选；首批等价删除及冻结证据见[实施计划 v2](../plans/active/2026-10-08-motor-state-flow-simplification-v2.md)。
+
 STOPPING 保留异步资源归还的用途；减少状态数量不能变成把相同等待藏到更多布尔标志中。下一轮先冻结完整出口、伪代码和保存／取消策略，再决定实现。讨论、待决项和接受条件见[状态流转简化记录 v1](../plans/active/2026-10-08-motor-state-flow-simplification-v1.md)。
 
 ## 9. 设计演进和验证记录

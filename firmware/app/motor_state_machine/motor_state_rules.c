@@ -466,13 +466,14 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
             return MOTOR_STATE_REJECT_GUARD;
         }
         /* 先推进代际，耗尽转 FATAL 时保留全部锁存。 */
-        if (advance_epoch(context, actions))
+        if (!advance_epoch(context, actions))
         {
-            context->state = MOTOR_STATE_IDLE;
-            context->maintenance_active = false;
-            context->first_fault = context->latched_faults = 0U;
-            *actions |= MOTOR_STATE_ACTION_DISABLE_POWER | MOTOR_STATE_ACTION_FAULT_CLEARED;
+            return MOTOR_STATE_REJECT_FATAL;
         }
+        context->state = MOTOR_STATE_IDLE;
+        context->maintenance_active = false;
+        context->first_fault = context->latched_faults = 0U;
+        *actions |= MOTOR_STATE_ACTION_DISABLE_POWER | MOTOR_STATE_ACTION_FAULT_CLEARED;
         return MOTOR_STATE_ACCEPTED;
 
     case MOTOR_STATE_FATAL:

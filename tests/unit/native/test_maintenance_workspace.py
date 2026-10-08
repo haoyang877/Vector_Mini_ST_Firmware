@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
 from harness.common import zig_path
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main() -> None:
@@ -17,6 +18,8 @@ def main() -> None:
     parser.add_argument("--cc", default=None)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--reference-source", type=Path, default=None)
+    parser.add_argument("--reference-core", type=Path, default=None)
+    parser.add_argument("--damping-profile", type=int, choices=(0, 1), default=0)
     args = parser.parse_args()
     compiler = Path(args.cc) if args.cc else zig_path()
     if compiler is None:
@@ -40,13 +43,28 @@ def main() -> None:
         result.check_returncode()
         return result.stdout
 
+    core_fixture = ROOT / "tests/unit/encoder_calibration_core_test.c"
+    if args.reference_core:
+        legacy = function_source(
+            args.reference_core.read_text(encoding="utf-8"), "EncoderCalibrationCore_Q15Difference"
+        ).replace("EncoderCalibrationCore_Q15Difference", "legacy_q15_difference")
+        core_source = output / "core_reference_fixture.c"
+        core_source.write_text(
+            '#include "encoder_calibration_core.h"\n'
+            "#define ENCODER_CALIBRATION_LEGACY_RING_REFERENCE\n"
+            + legacy
+            + "\n"
+            + core_fixture.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        core_fixture = core_source
     run(
         command
         + flags
         + [
             "-I",
             str(core_directory),
-            str(ROOT / "tests/unit/encoder_calibration_core_test.c"),
+            str(core_fixture),
             str(core),
             "-o",
             str(core_executable),
@@ -69,14 +87,22 @@ def main() -> None:
         )
         executable = output / (f"maintenance_workspace_{index}" + extension)
         # 保留既有多圈 float→uint16 表达式；此宿主比较不替代 ARM 转换或实机证明。
+        task_core = args.reference_core if index == 1 and args.reference_core else core
+        reference_header = (
+            ["-include", str(task_core.with_suffix(".h"))]
+            if index == 1 and args.reference_core
+            else []
+        )
         run(
             command
+            + reference_header
             + NATIVE_INCLUDE_FLAGS
             + flags
+            + ["-DMOTOR_HAS_DAMPING_RING=" + str(args.damping_profile)]
             + [
                 "-fno-sanitize=float-cast-overflow",
                 str(source),
-                str(core),
+                str(task_core),
                 str(ROOT / "firmware/app/runtime/maintenance_workspace.c"),
                 str(ROOT / "firmware/motor/foc/foc_pid.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),

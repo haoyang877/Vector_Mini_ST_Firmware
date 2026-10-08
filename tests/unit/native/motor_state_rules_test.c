@@ -160,6 +160,20 @@ static int test_state_exit_contract(void)
     {
         return 1;
     }
+    /* 代际耗尽只能锁入 FATAL，不能报告 CLEAR 成功或清除原故障。 */
+    context.state = MOTOR_STATE_FAULT;
+    context.epoch = UINT32_MAX;
+    context.first_fault = context.latched_faults = MOTOR_STATE_FAULT_GUARD;
+    clear.request_epoch = context.epoch;
+    MotorStateDecision exhausted = MotorStateRules_Step(&context, &clear, &facts);
+    if (context.state != MOTOR_STATE_FATAL || exhausted.rejection != MOTOR_STATE_REJECT_FATAL ||
+        context.first_fault != MOTOR_STATE_FAULT_GUARD ||
+        !(context.latched_faults & MOTOR_STATE_FAULT_GUARD) ||
+        (exhausted.actions & MOTOR_STATE_ACTION_FAULT_CLEARED))
+    {
+        fprintf(stderr, "FAIL exhausted CLEAR must reject and retain faults in FATAL\n");
+        return 1;
+    }
     context.state = MOTOR_STATE_FATAL;
     clear.request_epoch = context.epoch;
     (void)MotorStateRules_Step(&context, &clear, &facts);

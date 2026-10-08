@@ -1480,8 +1480,292 @@ static void test_direct_fault_recovery_and_idle_stop(void)
          "stays latched");
 }
 
+/* 模拟叶算法已经发布结果，验证真实所有者的串联、身份和最终保存边界。 */
+static void test_calibration_plan(void)
+{
+    reset();
+    uint32_t ticket = UINT32_MAX;
+    assert(MotorStateMachine_RequestCalibration(0U, &ticket) == MOTOR_CONTROL_INVALID &&
+           ticket == 0U);
+    assert(MotorStateMachine_RequestCalibration(1U << 8U, &ticket) == MOTOR_CONTROL_INVALID);
+    encoder.calib_flag = 0U;
+    assert(MotorStateMachine_RequestCalibration(
+               MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_ELECTRICAL_ZERO), &ticket) ==
+           MOTOR_CONTROL_DENIED);
+    encoder.calib_flag = ENC_CALIB_ALL;
+    assert(
+        MotorStateMachine_RequestCalibration(MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_ENCODER_LUT) |
+                                                 MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_COGGING),
+                                             &ticket) == MOTOR_CONTROL_DENIED);
+    motor.model.motor_flux_wb = NAN;
+    assert(MotorStateMachine_RequestCalibration(MOTOR_CALIBRATION_SUPPORTED_STEPS, &ticket) !=
+           MOTOR_CONTROL_ACCEPTED);
+    reset();
+    encoder.calib_flag = 0U;
+    assert(MotorStateMachine_RequestCalibration(MOTOR_CALIBRATION_SUPPORTED_STEPS, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    const MotorMaintenanceKind order[] = {MOTOR_MAINTENANCE_PHASE_RESISTANCE,
+                                          MOTOR_MAINTENANCE_ENCODER_LUT,
+                                          MOTOR_MAINTENANCE_ELECTRICAL_ZERO,
+                                          MOTOR_MAINTENANCE_MECHANICAL_ZERO,
+                                          MOTOR_MAINTENANCE_FRICTION,
+                                          MOTOR_MAINTENANCE_COGGING};
+    MotorCalibrationProgress flow;
+    uint32_t previous = 0U;
+    for (unsigned i = 0U; i < sizeof(order) / sizeof(order[0]); ++i)
+    {
+        assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+        assert(flow.step == order[i] && flow.step_ticket != previous);
+        assert(flow.result == MOTOR_MAINTENANCE_NO_RESULT &&
+               flow.effects != MOTOR_MAINTENANCE_EFFECT_COMMITTED);
+        assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_CALIBRATION);
+        assert(!MotorStateMachine_ConfigurationAllowed());
+        assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_BUSY);
+        if (order[i] == MOTOR_MAINTENANCE_ENCODER_LUT)
+        {
+            encoder.calib_flag = ENC_CALIB_LINEARIZED;
+        }
+        if (order[i] == MOTOR_MAINTENANCE_ELECTRICAL_ZERO)
+        {
+            encoder.calib_flag |= ENC_CALIB_ELECTRICAL_ZERO;
+        }
+        previous = flow.step_ticket;
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                      previous);
+        tick();
+        for (unsigned wait = 0U; wait < 2U; ++wait)
+        {
+            assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+            if (flow.step_ticket != previous)
+            {
+                break;
+            }
+            assert(output_off && MotorStateMachine_GetFlowState() == MOTOR_FLOW_CALIBRATION);
+            tick();
+        }
+        MotorMaintenanceProgress child;
+        assert(MotorStateMachine_ReadMaintenance(previous, &child));
+        assert(child.result == MOTOR_MAINTENANCE_COMPLETED && child.ticket == previous);
+        assert(MotorStateMachine_CancelMaintenance(previous) == MOTOR_CONTROL_ACCEPTED);
+    }
+    assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+    assert(flow.step == MOTOR_MAINTENANCE_SAVE && flow.step_ticket != previous);
+    assert(flow.completed_steps == MOTOR_CALIBRATION_SUPPORTED_STEPS);
+    assert(flow.result == MOTOR_MAINTENANCE_NO_RESULT && output_off);
+    FocBackgroundClaim claim;
+    assert(MotorStateMachine_BeginBackground(&claim));
+    assert(MotorStateMachine_ReadCalibration(ticket, &flow) &&
+           flow.result == MOTOR_MAINTENANCE_NO_RESULT);
+    MotorStateMachine_FinishBackground(&claim, true);
+    tick();
+    assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+    assert(flow.result == MOTOR_MAINTENANCE_COMPLETED &&
+           flow.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
+    assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_IDLE && output_off);
+    assert(MotorStateMachine_CancelCalibration(ticket) == MOTOR_CONTROL_ACCEPTED);
+    puts("PASS explicit calibration dependency order, independent child tickets and final verified "
+         "SAVE");
+}
+
+static void test_calibration_plan_cancel_and_failure(void)
+{
+    for (unsigned scenario = 0U; scenario < 3U; ++scenario)
+    {
+        reset();
+        uint32_t ticket;
+        assert(MotorStateMachine_RequestCalibration(
+                   MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_MECHANICAL_ZERO), &ticket) ==
+               MOTOR_CONTROL_ACCEPTED);
+        MotorCalibrationProgress flow;
+        assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                      flow.step_ticket);
+        tick();
+        assert(MotorStateMachine_ReadCalibration(ticket, &flow) &&
+               flow.step == MOTOR_MAINTENANCE_SAVE);
+        FocBackgroundClaim claim;
+        assert(MotorStateMachine_BeginBackground(&claim));
+        if (scenario < 2U)
+        {
+            if (scenario == 0U)
+            {
+                assert(MotorStateMachine_CancelCalibration(ticket) == MOTOR_CONTROL_ACCEPTED);
+            }
+            else
+            {
+                assert(MotorStateMachine_RequestRemoteStop());
+            }
+            tick();
+            assert(MotorStateMachine_ReadCalibration(ticket, &flow) &&
+                   flow.result == MOTOR_MAINTENANCE_CANCEL_REQUESTED);
+            assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_CALIBRATION);
+        }
+        MotorStateMachine_FinishBackground(&claim, scenario != 2U);
+        tick();
+        assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+        assert(flow.effects == MOTOR_MAINTENANCE_EFFECT_UNKNOWN);
+        assert(flow.result ==
+               (scenario == 2U ? MOTOR_MAINTENANCE_FAILED : MOTOR_MAINTENANCE_CANCELLED));
+        assert(output_off);
+        if (scenario == 2U)
+        {
+            assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FAULT);
+            assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+        }
+        tick();
+        assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_IDLE);
+    }
+    reset();
+    uint32_t ticket;
+    assert(MotorStateMachine_RequestCalibration(MOTOR_CALIBRATION_SUPPORTED_STEPS, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
+                                  MotorStateMachine_WorkEpoch());
+    assert(MotorStateMachine_CancelCalibration(ticket) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    MotorCalibrationProgress flow;
+    assert(MotorStateMachine_ReadCalibration(ticket, &flow));
+    assert(flow.result == MOTOR_MAINTENANCE_FAILED && flow.completed_steps == 0U);
+    assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FAULT && output_off);
+    puts("PASS plan cancellation waits for borrowed SAVE, failed save cannot succeed, fault "
+         "preempts cancel");
+}
+
+static void test_run_mode_switch(void)
+{
+    reset();
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_NONE) == MOTOR_CONTROL_INVALID);
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_DENIED);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    outer_ready = false;
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_POSITION) == MOTOR_CONTROL_ACCEPTED);
+    assert(output_off && MotorStateMachine_GetFlowState() == MOTOR_FLOW_RUN);
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_POSITION) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_BUSY);
+    MotorStateMachine_Tick();
+    assert(output_off && start_count == 1U && MotorStateMachine_GetFlowState() == MOTOR_FLOW_RUN);
+    tick();
+    tick();
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_STARTING && start_count == 1U);
+    outer_ready = true;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off && start_count == 2U);
+    assert(motor.control_mode == MOTOR_CONTROL_POSITION &&
+           motor.position_target_rad == Encoder_GetMecPos(&encoder));
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestRemoteStop());
+    tick();
+    assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_IDLE && output_off && start_count == 2U);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    stop_fails = true;
+    assert(MotorStateMachine_RequestModeSwitch(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_FAULT);
+    assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FATAL);
+    stop_fails = false;
+    tick();
+    assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FATAL);
+    puts("PASS RUN mode switch closes outputs, waits for preparation, STOP revokes and failed stop "
+         "is fatal");
+}
+
+static void test_identified_run_modes(void)
+{
+    for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_VQ; ++mode)
+    {
+        reset();
+        MotorControlStartRequest request = {
+            .source_node = 2U, .sequence = 100U, .mode = (MotorControlMode)mode};
+        assert(MotorStateMachine_RequestIdentifiedRun(&request, 10U) == MOTOR_CONTROL_ACCEPTED);
+        assert(MotorStateMachine_RequestIdentifiedRun(&request, 10U) == MOTOR_CONTROL_ACCEPTED);
+        MotorStateMachine_Tick();
+        assert(output_off && start_count == 0U &&
+               MotorStateMachine_GetFlowState() == MOTOR_FLOW_RUN);
+        tick();
+        assert(output_off && start_count == 0U);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
+        MotorControlStartProgress progress;
+        assert(MotorStateMachine_ReadEnableProgress(2U, 100U, &progress) &&
+               progress.state == MOTOR_CONTROL_START_STARTED);
+        request.sequence = 101U;
+        request.mode = mode == MOTOR_CONTROL_SPEED ? MOTOR_CONTROL_CURRENT : MOTOR_CONTROL_SPEED;
+        assert(MotorStateMachine_RequestIdentifiedRun(&request, 10U) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        assert(output_off && start_count == 1U);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 2U &&
+               motor.control_mode == request.mode);
+        assert(MotorStateMachine_RequestIdentifiedStop(2U, 102U));
+        tick();
+        assert(MotorStateMachine_RequestIdentifiedRun(&request, 10U) == MOTOR_CONTROL_DENIED);
+        assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_IDLE);
+    }
+    reset();
+    MotorControlStartRequest request = {
+        .source_node = 2U, .sequence = 100U, .mode = MOTOR_CONTROL_SPEED};
+    assert(MotorStateMachine_RequestIdentifiedRun(&request, 10U) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    tick();
+    now_ms = 10U;
+    ++request.sequence;
+    assert(MotorStateMachine_RequestIdentifiedRun(&request, 10U) == MOTOR_CONTROL_FAULT);
+    assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FAULT && output_off);
+    puts("PASS four identified RUN modes share retry and STOP barriers; new command cannot hide "
+         "expired lease");
+}
+
+static void test_control_lease(void)
+{
+    reset();
+    MotorControlStartRequest pending = {
+        .source_node = 2U, .sequence = 100U, .mode = MOTOR_CONTROL_SPEED};
+    assert(MotorStateMachine_RequestIdentifiedRun(&pending, 10U) == MOTOR_CONTROL_ACCEPTED);
+    now_ms = 10U;
+    MotorStateMachine_Tick();
+    assert(output_off && start_count == 0U && MotorStateMachine_GetFlowState() == MOTOR_FLOW_FAULT);
+    for (unsigned wrap = 0U; wrap < 2U; ++wrap)
+    {
+        reset();
+        now_ms = wrap ? UINT32_MAX - 5U : 0U;
+        MotorControlStartRequest start = {
+            .source_node = 2U, .sequence = 100U, .mode = MOTOR_CONTROL_SPEED};
+        assert(MotorStateMachine_RequestIdentifiedEnable(&start) == MOTOR_CONTROL_ACCEPTED);
+        assert(MotorStateMachine_RefreshControlLease(2U, 100U, 0U) == MOTOR_CONTROL_INVALID);
+        assert(MotorStateMachine_RefreshControlLease(3U, 100U, 10U) == MOTOR_CONTROL_DENIED);
+        assert(MotorStateMachine_RefreshControlLease(2U, 99U, 10U) == MOTOR_CONTROL_DENIED);
+        assert(MotorStateMachine_RefreshControlLease(2U, 100U, 10U) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        now_ms += 9U;
+        MotorStateMachine_CheckFastFaults();
+        assert(motor.fault_code == MOTOR_FAULT_NONE && !output_off);
+        ++now_ms;
+        assert(MotorStateMachine_RefreshControlLease(2U, 100U, 10U) == MOTOR_CONTROL_DENIED);
+        MotorStateMachine_CheckFastFaults();
+        MotorStateMachine_FastFaultStop();
+        assert(output_off && motor.fault_code == MOTOR_FAULT_CAN_DISCONNECTED);
+        tick();
+        assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FAULT);
+        assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_DENIED);
+        assert(MotorStateMachine_RefreshControlLease(2U, 100U, 10U) == MOTOR_CONTROL_ACCEPTED);
+        assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_FAULT && output_off);
+        assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        assert(MotorStateMachine_GetFlowState() == MOTOR_FLOW_IDLE && output_off &&
+               start_count == 1U);
+        assert(MotorStateMachine_RefreshControlLease(2U, 100U, 10U) == MOTOR_CONTROL_DENIED);
+    }
+    puts("PASS source-bound control lease, wrap-safe deadline, fresh link plus explicit CLEAR and "
+         "no replay");
+}
+
 int main(void)
 {
+    test_calibration_plan();
+    test_calibration_plan_cancel_and_failure();
+    test_run_mode_switch();
+    test_identified_run_modes();
+    test_control_lease();
     test_direct_fault_recovery_and_idle_stop();
     test_target_admission_boundaries();
     test_completed_maintenance_cleanup();

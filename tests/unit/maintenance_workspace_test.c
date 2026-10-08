@@ -114,7 +114,7 @@ void critical_hw_exit(uint32_t state)
 /* 检查所有失败收尾共享的可观察动作；各门禁仍由真实 StepLut 判定。 */
 static int check_task_cleanup(void)
 {
-    for (unsigned scenario = 0U; scenario < 10U; ++scenario)
+    for (unsigned scenario = 0U; scenario < 19U; ++scenario)
     {
         FocState foc = {0};
         MotorControlState motor = {0};
@@ -176,12 +176,56 @@ static int check_task_cleanup(void)
             observer.position_epoch = 1U;
             error = MOTOR_FAULT_SENSORLESS;
             break;
-        default:
+        case 9U:
             s_calibration_phase = CS_ADC_OFFSET_START;
+            break;
+        case 10U:
+            s_calibration_phase = CS_OBS_BUILD_LUT;
+            observer.position_epoch = 1U;
+            error = MOTOR_FAULT_SENSORLESS;
+            break;
+        case 11U:
+            s_calibration_phase = CS_OBS_SPEED_STABLE;
+            observer.position_epoch = 1U;
+            error = MOTOR_FAULT_SENSORLESS;
+            break;
+        case 12U:
+            motor.application.current_limit_a = 0.0f;
+            error = MOTOR_FAULT_INVALID_PARAMETERS;
+            break;
+        case 13U:
+            motor.application.current_limit_a =
+                SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A - 0.25f;
+            error = MOTOR_FAULT_INVALID_PARAMETERS;
+            break;
+        case 14U:
+        case 15U:
+        case 16U:
+        case 17U:
+            s_calibration_phase = (EncoderCalibrationPhase)(CS_OBS_FIND_ORIGIN + scenario - 14U);
+            startup.state = SENSORLESS_STARTUP_OPEN_LOOP;
+            error = MOTOR_FAULT_SENSORLESS;
+            break;
+        default:
+            s_calibration_phase = CS_OBS_SPEED_STABLE;
+            startup.state = SENSORLESS_STARTUP_OPEN_LOOP;
             break;
         }
         MotorTaskResult result = EncoderCalibrationTask_StepLut(
             &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+        if (scenario == 18U)
+        {
+            /* 稳速窗口允许尚未闭环，不能被统一跟踪拒绝误伤。 */
+            if (result.result != MOTOR_TASK_RUNNING || motor.fault_code != MOTOR_FAULT_NONE ||
+                s_report_before_cleanup || s_cleanup_order != 0U ||
+                EncoderCalibrationTask_IsReleased())
+            {
+                return 34;
+            }
+            EncoderCalibrationTask_Cancel();
+            MaintenanceWorkspace_ReleaseEncoder();
+            continue;
+        }
         if (result.result != MOTOR_TASK_FAILED || result.error != error ||
             motor.fault_code != error || !s_report_before_cleanup || s_cleanup_order != 2U ||
             !EncoderCalibrationTask_IsReleased() || startup.state != SENSORLESS_STARTUP_IDLE ||
@@ -200,7 +244,8 @@ static int check_task_cleanup(void)
         result =
             EncoderCalibrationTask_StepLut(&foc, &motor, &pi, &encoder, &observer, &startup, NULL);
         /* 离线/参数非法场景仍被入口门禁拒绝；正常参数下低速停止必须完成并撤销转矩。 */
-        if (scenario != 1U && scenario != 2U && scenario != 3U &&
+        if (scenario != 1U && scenario != 2U && scenario != 3U && scenario != 12U &&
+            scenario != 13U &&
             (result.result != MOTOR_TASK_COMPLETED || result.error != MOTOR_FAULT_NONE ||
              motor.id_target_a != 0.0f || motor.iq_target_a != 0.0f || s_cleanup_order != 2U ||
              !EncoderCalibrationTask_IsReleased()))
@@ -294,6 +339,7 @@ static int check_complete_task_trace(void)
     motor.speed_ramped_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
     observer.electrical_velocity_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * 21.0f;
     float required_theta = _2PI * 21.0f;
+    uint32_t samples_per_turn = 20480U / SENSORLESS_ENCODER_CALIB_MECH_TURNS;
     unsigned crossing_ticks = 0U, lut_ticks = 0U;
     for (; lut_ticks < 60000U; ++lut_ticks)
     {
@@ -307,7 +353,7 @@ static int check_complete_task_trace(void)
         }
         else if (phase == CS_OBS_SAMPLE_CW || phase == CS_OBS_VERIFY_CW)
         {
-            observer.electrical_position_rad += required_theta / 2048.0f;
+            observer.electrical_position_rad += required_theta / (float)samples_per_turn;
             float relative_theta = observer.electrical_position_rad - 0.02f;
             encoder.directed_q15 =
                 (uint16_t)(relative_theta * ((float)ENCODER_Q15_CPR / required_theta));

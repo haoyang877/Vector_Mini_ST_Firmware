@@ -2,6 +2,8 @@
 
 日期：2026-10-08。本页描述实际生产所有者；公开 `FocCogging_*` 入口及记录布局保持。
 
+任务顺序与交接状态的后续重写见[v3 最小任务](cogging_minimal_task_v3.md)。
+
 | 所有者 | 显式输入 → 输出 | 唯一可写状态 / 执行上下文 |
 | --- | --- | --- |
 | `cogging_calibration` | 位置 rad、连续速度 rad/s、块平均 iq A、饱和事实 → 点资格、双向 int16 Q15 表及结束原因 | 调用方 `CoggingCalibration` 对象；2 kHz，不读 FOC/电机全局、不访问 I/O |

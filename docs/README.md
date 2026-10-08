@@ -9,6 +9,9 @@ provide the short entry map; details belong here.
 核心阅读入口：[模块核心职责与删减清单](architecture/module_core_responsibilities.md)，
 本批结果见[2026-10-08 核心解耦集成记录](reports/2026-10/module_core_integration_20261008.md)。
 
+当前收口：[整机主流程与运行/标定子流程](architecture/motor_platform_lifecycle_v1.md)，
+按[收口 v2](plans/active/2026-10-08-architecture-closeout-v2.md)推进新线路与实际设备端口。
+
 架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。
 八状态恢复行为见[状态反馈 v1.2](protocols/yg_protocol_motor_state_v1_2.md)。
 

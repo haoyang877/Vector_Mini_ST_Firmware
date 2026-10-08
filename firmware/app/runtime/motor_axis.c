@@ -97,6 +97,13 @@ static void initialize_current_offsets(void)
     s_foc_state.phase_c_current_a = NAN;
 }
 
+/* 所有零点失败均锁存同一资格；保留采样证据和已经报告的首个故障。 */
+static void fail_current_offset_calibration(void)
+{
+    s_current_offset_calibration.failed = true;
+    MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+}
+
 /* 只能由新鲜JEOS快速拍调用；不启相、不分配、不阻塞、不保存、不自动重试。 */
 static void sample_phase_currents(void)
 {
@@ -111,8 +118,7 @@ static void sample_phase_currents(void)
     }
     if (!power_stage_hw_phases_disabled() || s_motor_state.control_mode != MOTOR_CONTROL_NONE)
     {
-        s_current_offset_calibration.failed = true;
-        MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+        fail_current_offset_calibration();
         return;
     }
     uint16_t raw[3];
@@ -121,8 +127,7 @@ static void sample_phase_currents(void)
         raw[phase] = motor_hw_current_sample_raw((MotorHwCurrentPhase)phase);
         if (raw[phase] > 4U * 4095U)
         {
-            s_current_offset_calibration.failed = true;
-            MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+            fail_current_offset_calibration();
             return;
         }
     }
@@ -147,8 +152,7 @@ static void sample_phase_currents(void)
         s_motor_state.device.phase_a_offset_counts = NAN;
         s_motor_state.device.phase_b_offset_counts = NAN;
         s_motor_state.device.phase_c_offset_counts = NAN;
-        s_current_offset_calibration.failed = true;
-        MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+        fail_current_offset_calibration();
         return;
     }
     s_current_offset_calibration.complete = true;

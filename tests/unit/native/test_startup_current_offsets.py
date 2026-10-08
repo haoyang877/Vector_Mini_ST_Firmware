@@ -47,6 +47,7 @@ def main() -> None:
         "configure_controllers",
         "update_current_controller_limits",
         "initialize_current_offsets",
+        "fail_current_offset_calibration",
         "sample_phase_currents",
         "MotorAxis_Init",
         "run_fast_task",

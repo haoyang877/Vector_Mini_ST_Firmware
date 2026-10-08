@@ -102,8 +102,8 @@ static void completed_samples(int16_t magnitude)
     {
         s_cogging_calib.iq_q15[i] = (i & 1U) != 0U ? magnitude : -magnitude;
     }
-    s_finalize_pending = true;
-    s_session_active = false;
+    s_task.pending = COGGING_PENDING_FINALIZE;
+    s_task.active = false;
 }
 
 int main(void)
@@ -156,6 +156,36 @@ int main(void)
     assert(exported.magic == 0U);
     puts("PASS RAM publication differs from Flash result; partial calibration cannot export a "
          "usable table");
+    encoder.calib_flag = ENC_CALIB_ALL;
+    /* 发布后取消不回滚 RAM，但必须清理保存挂起；认领归还前不能释放。 */
+    completed_samples(456);
+    assert(FocCogging_BeginFinalize());
+    assert(FocCogging_BuildCandidate(&candidate, &motor, &encoder));
+    assert(FocCogging_PublishCandidate(&candidate));
+    FocCogging_Abort();
+    assert(!FocCogging_IsReleased() && FocCogging_GetState() == COGGING_SAVING);
+    assert(!FocCogging_BuildCandidate(&exported, &motor, &encoder));
+    FocCogging_ReleaseFinalize(true);
+    assert(FocCogging_IsReleased() && s_cogging_calib.reason == COGGING_CANCELLED);
+    FocCogging_SaveResult(true);
+    assert(FocCogging_GetState() == COGGING_FAILED);
+    FocCogging_ExportMap(&exported, &motor, &encoder);
+    assert(memcmp(&exported, &candidate, sizeof(candidate)) == 0);
+
+    completed_samples(567);
+    assert(FocCogging_BeginFinalize());
+    FocCogging_ReleaseFinalize(false);
+    assert(FocCogging_IsReleased() && s_cogging_calib.reason == COGGING_INVALID_INPUT);
+
+    completed_samples(678);
+    assert(FocCogging_BeginFinalize());
+    assert(FocCogging_BuildCandidate(&candidate, &motor, &encoder));
+    assert(FocCogging_PublishCandidate(&candidate));
+    FocCogging_ReleaseFinalize(true);
+    assert(FocCogging_GetState() == COGGING_SAVING);
+    FocCogging_SaveResult(true);
+    assert(FocCogging_GetState() == COGGING_COMPLETE && FocCogging_IsReleased());
+    puts("PASS publish-then-cancel, failed finalization and committed-result notification");
     assert(critical_depth == 0U);
     return 0;
 }

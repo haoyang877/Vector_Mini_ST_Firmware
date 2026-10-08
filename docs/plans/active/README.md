@@ -1,5 +1,9 @@
 # Active Plans
 
+- [多模块与整机流程收口 v2](2026-10-08-architecture-closeout-v2.md)：模块精简与v7已接入待组合验证；新协议、启动身份和真实只读端口在收口，未开放新功率线路。
+- [整机主/子流程 v7](2026-10-08-motor-platform-lifecycle-v7.md)：已接已有标定串联最终SAVE、受控切换和显式租约；新线路与缺失算法边界单独登记。
+- [编码器最小实现 v4](2026-10-08-encoder-calibration-minimal-v4.md)及[调用边界 v3](2026-10-08-encoder-calibration-call-boundaries-v3.md)：共享互斥窗口、归并有界构表/采样及真实退出。
+
 - [架构收口与发布候选 v1](2026-10-08-architecture-release-v1.md)：四项核心冻结、批准的状态出口接入、干净 release 证据与真实发布边界；未进行新镜像实机验证。
 - [主状态机八状态 v3](2026-10-08-motor-state-flow-simplification-v3.md)与[出口收敛 v4](2026-10-08-motor-state-flow-simplification-v4.md)：INIT/IDLE 原地 STOP，停止与显式健康 CLEAR 后只回 IDLE，FATAL 仅程序复位恢复。
 

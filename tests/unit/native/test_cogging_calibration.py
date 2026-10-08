@@ -27,6 +27,7 @@ static PiController pi;
 static bool pwm, calibration_running;
 static unsigned enabled;
 static unsigned current_calls, current_resets;
+static bool require_busy_on_reset;
 void power_stage_hw_stop(void) { pwm=false; }
 void power_stage_hw_start(void) { pwm=true; ++enabled; }
 void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
@@ -40,7 +41,10 @@ float Encoder_GetElePhase(const EncoderState *e) { return e->electrical_angle_ra
 float Encoder_GetEleVel(const EncoderState *e) { return e->electrical_velocity_rad_s; }
 uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
 uint8_t Encoder_GetReverse(const EncoderState *e) { return e->reverse; }
-void FOC_CurrentController_Reset(FocState *f) { (void)f; ++current_resets; }
+void FOC_CurrentController_Reset(FocState *f) {
+    (void)f; ++current_resets;
+    if(require_busy_on_reset) assert(!FocCogging_IsReleased());
+}
 void FOC_Current(FocState *f,MotorControlState *m,float p,float v) {
     ++current_calls;
     (void)f;(void)p;(void)v; assert(isfinite(m->iq_target_a) && fabsf(m->iq_target_a)<=1.001f);
@@ -173,6 +177,7 @@ static void setup(void) {
     rotor_encoder.has_valid_sample=true;rotor_encoder.calib_flag=3;rotor_encoder.velocity_ready=true;
     foc.bus_voltage_v=foc.bus_voltage_filtered_v=30;foc.temperature_c=25;pwm=false;enabled=0;
     current_calls=current_resets=0;
+    require_busy_on_reset=false;
 }
 static void terminal_tests(void) {
     /* 用同一真实任务入口覆盖采样超时/饱和终止，不绕过每拍安全门。 */
@@ -188,11 +193,12 @@ static void terminal_tests(void) {
         }
         motor_state.iq_target_a=1;motor_state.id_target_a=.5f;
         motor_state.speed_target_rad_s=motor_state.speed_ramped_rad_s=.1f;
-        pi.integral_output=pi.output=.3f;s_divider=SPEED_LOOP_DIVIDER-1;
+        pi.integral_output=pi.output=.3f;s_task.fast_ticks=SPEED_LOOP_DIVIDER-1;
+        require_busy_on_reset=true;
         MotorTaskResult out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
         assert(out.result==MOTOR_TASK_FAILED && out.error==MOTOR_FAULT_COGGING_CALIBRATION);
         assert(s_cogging_calib.reason==(failure==0 ? COGGING_POINT_TIMEOUT : COGGING_CURRENT_LIMIT));
-        assert(current_calls==1 && current_resets==2 && !s_session_active);
+        assert(current_calls==1 && current_resets==2 && !s_task.active);
         assert(motor_state.iq_target_a==0 && motor_state.id_target_a==0);
         assert(motor_state.speed_target_rad_s==0 && motor_state.speed_ramped_rad_s==0);
         assert(pi.integral_output==0 && pi.output==0 && FocCogging_IsReleased());
@@ -200,6 +206,28 @@ static void terminal_tests(void) {
         assert(pwm);consume(out);assert(!pwm);
     }
     puts("PASS adapter timeout/saturation cleanup and owner-only phase stop");
+}
+static void guard_equivalence_tests(void) {
+    /* 比较每个安全输入的有限性/边界结果，旧实现是同输入的行为参考。 */
+    const float values[]={NAN,INFINITY,-INFINITY,-1,0,.001f,1,1.5f,20,25.6f,30,33.8f,34.5f,100};
+    uint32_t digest=2166136261U;
+    for(unsigned field=0;field<10;field++) {
+        for(unsigned i=0;i<sizeof(values)/sizeof(values[0]);i++) {
+            setup();consume(FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder));
+            float *input[]={&foc.bus_voltage_v,&foc.bus_voltage_filtered_v,&foc.temperature_c,
+                &foc.iq_a,&motor_state.application.current_limit_a,
+                &motor_state.application.speed_limit_rad_s,&motor_state.application.speed_kp,
+                &motor_state.application.speed_ki,&rotor_encoder.electrical_angle_rad,
+                &rotor_encoder.mechanical_velocity_continuous_rad_s};
+            *input[field]=values[i];require_busy_on_reset=true;
+            MotorTaskResult out=FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder);
+            uint32_t facts[]={out.result,out.error,FocCogging_GetState(),FocCogging_IsReleased(),
+                current_calls,current_resets};
+            for(unsigned n=0;n<6;n++) digest=(digest^facts[n])*16777619U;
+            consume(out);
+        }
+    }
+    printf("GUARD cases=140 digest=%08x\n",digest);
 }
 static void adapter_tests(void) {
     setup();foc.bus_voltage_v=foc.bus_voltage_filtered_v=20;
@@ -221,6 +249,7 @@ static void adapter_tests(void) {
     assert(!memcmp(&s_cogging_map,&before,sizeof(before)));
     setup();
     consume(FocCogging_Task(&foc,&motor_state,&pi,&rotor_encoder));
+    require_busy_on_reset=true;
     double synthetic_position=0.0,synthetic_velocity=0.0;
     uint32_t trace=2166136261U,tick_count=0;
     for(unsigned ticks=0;calibration_running && ticks<36000000;ticks++) {
@@ -252,7 +281,7 @@ static void adapter_tests(void) {
     assert(FocCogging_BuildCandidate(&record,&motor_state,&rotor_encoder));
     assert(FocCogging_PublishCandidate(&record));
     FocCogging_ReleaseFinalize(true);
-    assert(FocCogging_GetState()==COGGING_SAVING && s_save_pending && FocCogging_IsReleased());
+    assert(FocCogging_GetState()==COGGING_SAVING && s_task.pending==COGGING_PENDING_SAVE && FocCogging_IsReleased());
     printf("TRACE ticks=%u controls_states=%08x candidate_crc=%08x\n",tick_count,trace,record.crc32);
     motor_state.control_mode=MOTOR_CONTROL_NONE;
     assert(FocCogging_TableValid(&motor_state,&rotor_encoder));
@@ -365,7 +394,7 @@ static void update_core_tests(void) {
     assert(fabsf(CoggingCompensation_Update(&control,&map,&tick)+.3f)<1e-6f);
     puts("PASS compensation core supervision and command clamping");
 }
-int main(void) {lookup_tests();update_core_tests();core_tests();terminal_tests();adapter_tests();compensation_tests();}
+int main(void) {lookup_tests();update_core_tests();core_tests();terminal_tests();guard_equivalence_tests();adapter_tests();compensation_tests();}
 """
 
 RUNTIME_FIXTURE = r"""

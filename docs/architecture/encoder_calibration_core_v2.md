@@ -3,6 +3,13 @@
 日期：2026-10-08。J 的实际生产入口仍是 `MotorMaintenance_Step` →
 `EncoderCalibrationTask_StepLut/StepElectricalZero`；核心为 `encoder_calibration_core.c/.h`。
 
+本页保留 v2 初次提取的职责基线；当前 v4 进一步合并原点/零位累加接口，
+采样与验证互斥复用 `verify_state.window`，验证开始完整清零。
+当前调用/边界见[v3报告](../reports/2026-10/encoder_calibration_call_boundaries_20261008.md)，
+最小实现和不变约束见[v4报告](../reports/2026-10/encoder_calibration_minimal_20261008.md)。
+后续调用与边界的简化、保留理由见[v3 梳理](../reports/2026-10/encoder_calibration_call_boundaries_20261008.md)。
+后续单窗口与共用采样准入见[v4 最小实现](../reports/2026-10/encoder_calibration_minimal_20261008.md)。
+
 | 输入 → 核心计算 → 结果 | 状态与唯一写入所有者 | 外围任务保留的职责 |
 | --- | --- | --- |
 | directed Q15 → 原点解卷绕累加/均值 → origin Q15 | 原点 anchor/sum/count 由 20 kHz 任务持有，通过核心显式指针更新 | 静态对齐时窗、无感启动、过零查找及原点应用 |

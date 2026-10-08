@@ -32,14 +32,9 @@ static int64_t s_zero_unwrapped_sum;
 #define ENC_ZERO_ALIGN_TIME (ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S + ENCODER_ELEC_ZERO_HOLD_TIME_S)
 #define ENC_ZERO_SAMPLE_TIME ENCODER_ELEC_ZERO_HOLD_TIME_S
 
-static void encoder_calib_release_samples(void)
-{
-    s_encoder_calib_workspace = NULL;
-}
-
 void EncoderCalibrationTask_Cancel(void)
 {
-    encoder_calib_release_samples();
+    s_encoder_calib_workspace = NULL;
     s_calibration_phase = CS_NULL;
     s_zero_loop_count = s_zero_sample_count = 0U;
     s_zero_unwrapped_sum = 0;
@@ -58,7 +53,7 @@ static bool encoder_calib_prepare_samples(EncoderCalibrationWorkspace *workspace
 {
     if (workspace == NULL)
     {
-        encoder_calib_release_samples();
+        s_encoder_calib_workspace = NULL;
         return false;
     }
     s_encoder_calib_workspace = workspace;
@@ -72,7 +67,7 @@ static void encoder_observer_calib_reset(FocState *foc,
                                          PiController *speed_pi,
                                          SensorlessStartupState *startup)
 {
-    encoder_calib_release_samples();
+    s_encoder_calib_workspace = NULL;
     SensorlessStartup_Reset(startup);
     FOC_CurrentController_Reset(foc);
     PiController_Reset(speed_pi);
@@ -210,7 +205,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
     static uint16_t previous_directed_q15;
     static float previous_observer_position;
     static float observer_position_origin;
-    static EncoderCalibrationWindow sample_window;
+    /* 采样与验证互斥；复用窗口，进入验证前整体清零以隔离两段行程。 */
     static EncoderCalibrationVerifyState verify_state;
     static float stop_start_speed;
     static float stop_current_ref;
@@ -241,12 +236,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         motor_state->model.motor_d_inductance_h <= 0.0f ||
         motor_state->model.motor_q_inductance_h <= 0.0f ||
         motor_state->model.motor_flux_wb <= 0.0f ||
-        motor_state->application.current_limit_a <= 0.0f)
-    {
-        return encoder_observer_calib_fail(
-            foc, motor_state, speed_pi, startup, MOTOR_FAULT_INVALID_PARAMETERS);
-    }
-    if (motor_state->application.current_limit_a < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
+        motor_state->application.current_limit_a <= 0.0f ||
+        motor_state->application.current_limit_a < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
     {
         return encoder_observer_calib_fail(
             foc, motor_state, speed_pi, startup, MOTOR_FAULT_INVALID_PARAMETERS);
@@ -273,7 +264,6 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         previous_directed_q15 = 0U;
         previous_observer_position = 0.0f;
         observer_position_origin = 0.0f;
-        sample_window = (EncoderCalibrationWindow){0};
         verify_state = (EncoderCalibrationVerifyState){0};
         stop_start_speed = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
         stop_current_ref = 0.0f;
@@ -310,14 +300,6 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         if (s_calibration_phase == CS_OBS_STOP_DECEL)
         {
             startup->speed_pi_output_max = 0.0f;
-        }
-        else
-        {
-            startup->speed_pi_output_max = 1.0f;
-        }
-
-        if (s_calibration_phase == CS_OBS_STOP_DECEL)
-        {
             float decel_ratio = Math_Constrain((float)state_ticks * Current_Ts /
                                                    SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIME_S,
                                                0.0f,
@@ -330,6 +312,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         }
         else
         {
+            startup->speed_pi_output_max = 1.0f;
             motor_state->speed_target_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
         }
 
@@ -351,6 +334,14 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
     required_electrical_theta = _2PI * (float)motor_state->model.motor_pole_pairs;
     observer_position = Observer_GetElePosition(flux_observer);
 
+    /* 找原点、采样、构表、验证共享跟踪准入；稳速窗口和停止段仍保留各自判据。 */
+    if (s_calibration_phase >= CS_OBS_FIND_ORIGIN && s_calibration_phase <= CS_OBS_VERIFY_CW &&
+        !encoder_observer_calib_is_tracking(flux_observer, startup, observer_position_epoch))
+    {
+        return encoder_observer_calib_fail(
+            foc, motor_state, speed_pi, startup, MOTOR_FAULT_SENSORLESS);
+    }
+
     switch (s_calibration_phase)
     {
     case CS_OBS_ALIGN_ORIGIN:
@@ -361,8 +352,13 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
                             SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) /
                            Current_Ts))
         {
-            EncoderCalibrationCore_AddOriginSample(
-                encoder->directed_q15, &origin_anchor_q15, &origin_sum_q15, &origin_sample_count);
+            uint16_t directed_q15 = encoder->directed_q15;
+            if (origin_sample_count == 0U)
+            {
+                origin_anchor_q15 = directed_q15;
+            }
+            EncoderCalibrationCore_AddAngleSample(
+                directed_q15, origin_anchor_q15, &origin_sum_q15, &origin_sample_count);
         }
 
         if (startup->state != SENSORLESS_STARTUP_ALIGN)
@@ -435,12 +431,6 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         int16_t current_relative =
             EncoderCalibrationCore_Q15Difference(encoder->directed_q15, origin_q15);
 
-        if (!encoder_observer_calib_is_tracking(flux_observer, startup, observer_position_epoch))
-        {
-            return encoder_observer_calib_fail(
-                foc, motor_state, speed_pi, startup, MOTOR_FAULT_SENSORLESS);
-        }
-
         if (current_relative < -64)
         {
             origin_negative_seen = true;
@@ -454,8 +444,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
             observer_position_origin =
                 previous_observer_position +
                 crossing_fraction * (observer_position - previous_observer_position);
-            sample_window.previous_observer_position_rad = observer_position;
-            sample_window.valid_electrical_travel_rad = 0.0f;
+            verify_state.window.previous_observer_position_rad = observer_position;
+            verify_state.window.valid_electrical_travel_rad = 0.0f;
             stage_ticks = 0U;
             s_calibration_phase = CS_OBS_SAMPLE_CW;
             break;
@@ -475,12 +465,6 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
     case CS_OBS_SAMPLE_CW:
     {
         relative_theta = observer_position - observer_position_origin;
-        if (!encoder_observer_calib_is_tracking(flux_observer, startup, observer_position_epoch))
-        {
-            return encoder_observer_calib_fail(
-                foc, motor_state, speed_pi, startup, MOTOR_FAULT_SENSORLESS);
-        }
-
         EncoderCalibrationSample sample = {
             .observer_position_rad = observer_position,
             .relative_theta_rad = relative_theta,
@@ -489,9 +473,9 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
             .stable = encoder_observer_calib_is_stable(
                 motor_state, flux_observer, startup, observer_position_epoch),
         };
-        EncoderCalibrationCore_SampleLut(s_encoder_calib_workspace, &sample_window, &sample);
+        EncoderCalibrationCore_SampleLut(s_encoder_calib_workspace, &verify_state.window, &sample);
 
-        if (sample_window.valid_electrical_travel_rad >=
+        if (verify_state.window.valid_electrical_travel_rad >=
             (float)SENSORLESS_ENCODER_CALIB_MECH_TURNS * required_electrical_theta)
         {
             build_state = (EncoderCalibrationBuildState){0};
@@ -508,12 +492,6 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 
     case CS_OBS_BUILD_LUT:
     {
-        if (!encoder_observer_calib_is_tracking(flux_observer, startup, observer_position_epoch))
-        {
-            return encoder_observer_calib_fail(
-                foc, motor_state, speed_pi, startup, MOTOR_FAULT_SENSORLESS);
-        }
-
         EncoderCalibrationBuildResult build_result =
             EncoderCalibrationCore_BuildLutStep(s_encoder_calib_workspace,
                                                 &build_state,
@@ -537,12 +515,6 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
     case CS_OBS_VERIFY_CW:
     {
         relative_theta = observer_position - observer_position_origin;
-        if (!encoder_observer_calib_is_tracking(flux_observer, startup, observer_position_epoch))
-        {
-            return encoder_observer_calib_fail(
-                foc, motor_state, speed_pi, startup, MOTOR_FAULT_SENSORLESS);
-        }
-
         EncoderCalibrationSample verification_sample = {
             .observer_position_rad = observer_position,
             .relative_theta_rad = relative_theta,
@@ -566,11 +538,12 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
             }
 
             encoder_calib_commit_candidate_lut(encoder);
-            encoder_calib_release_samples();
+            s_encoder_calib_workspace = NULL;
             stop_start_speed = motor_state->speed_ramped_rad_s;
-            if (stop_start_speed < encoder_observer_calib_get_stop_speed(motor_state))
+            float stop_speed = encoder_observer_calib_get_stop_speed(motor_state);
+            if (stop_start_speed < stop_speed)
             {
-                stop_start_speed = encoder_observer_calib_get_stop_speed(motor_state);
+                stop_start_speed = stop_speed;
             }
             state_ticks = 0U;
             s_calibration_phase = CS_OBS_STOP_DECEL;
@@ -691,10 +664,10 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
     if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) &&
         encoder->read_status == ENCODER_READ_OK)
     {
-        EncoderCalibrationCore_AddZeroSample(encoder->linearized_q15,
-                                             s_zero_sample_anchor,
-                                             &s_zero_unwrapped_sum,
-                                             &s_zero_sample_count);
+        EncoderCalibrationCore_AddAngleSample(encoder->linearized_q15,
+                                              s_zero_sample_anchor,
+                                              &s_zero_unwrapped_sum,
+                                              &s_zero_sample_count);
     }
 
     if (time >= ENC_ZERO_ALIGN_TIME)

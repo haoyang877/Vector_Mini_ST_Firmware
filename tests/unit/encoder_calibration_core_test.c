@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -15,10 +16,23 @@ static int check_angles(void)
         for (uint32_t angle = 0U; angle < 65536U; ++angle)
         {
             int16_t expected = (int16_t)(uint16_t)(angle - anchors[anchor]);
-            if (EncoderCalibrationCore_Q15Difference((uint16_t)angle, anchors[anchor]) != expected)
+            int64_t accumulated = 0;
+            uint32_t samples = 0U;
+            EncoderCalibrationCore_AddAngleSample(
+                (uint16_t)angle, anchors[anchor], &accumulated, &samples);
+            if (EncoderCalibrationCore_Q15Difference((uint16_t)angle, anchors[anchor]) !=
+                    expected ||
+                accumulated != (int32_t)anchors[anchor] + expected || samples != 1U)
             {
                 return 1;
             }
+#ifdef ENCODER_CALIBRATION_LEGACY_RING_REFERENCE
+            if (EncoderCalibrationCore_Q15Difference((uint16_t)angle, anchors[anchor]) !=
+                legacy_q15_difference((uint16_t)angle, anchors[anchor]))
+            {
+                return 18;
+            }
+#endif
         }
     }
     uint16_t anchor = 0U, mean = 123U;
@@ -28,8 +42,9 @@ static int check_angles(void)
     {
         return 2;
     }
-    EncoderCalibrationCore_AddOriginSample(65530U, &anchor, &sum, &count);
-    EncoderCalibrationCore_AddOriginSample(10U, &anchor, &sum, &count);
+    anchor = 65530U;
+    EncoderCalibrationCore_AddAngleSample(65530U, anchor, &sum, &count);
+    EncoderCalibrationCore_AddAngleSample(10U, anchor, &sum, &count);
     if (anchor != 65530U || sum != 131076 || count != 2U ||
         !EncoderCalibrationCore_MeanQ15(sum, count, &mean) || mean != 2U)
     {
@@ -37,8 +52,8 @@ static int check_angles(void)
     }
     sum = 0;
     count = 0U;
-    EncoderCalibrationCore_AddZeroSample(65530U, anchor, &sum, &count);
-    EncoderCalibrationCore_AddZeroSample(10U, anchor, &sum, &count);
+    EncoderCalibrationCore_AddAngleSample(65530U, anchor, &sum, &count);
+    EncoderCalibrationCore_AddAngleSample(10U, anchor, &sum, &count);
     if (sum != 131076 || count != 2U || !EncoderCalibrationCore_MeanQ15(sum, count, &mean) ||
         mean != 2U)
     {
@@ -91,6 +106,17 @@ static int check_sampling(void)
         s_workspace.error_sum[0] != 7)
     {
         return 8;
+    }
+    sample.relative_theta_rad = NAN;
+    sample.observer_position_rad = 4.5f;
+    s_workspace.bins.samples[0] = 0U;
+    s_workspace.error_sum[0] = 0;
+    EncoderCalibrationCore_SampleLut(&s_workspace, &window, &sample);
+    if (window.valid_electrical_travel_rad != 3.0f ||
+        window.previous_observer_position_rad != 4.5f || s_workspace.bins.samples[0] != 0U ||
+        s_workspace.error_sum[0] != 0)
+    {
+        return 17;
     }
     return 0;
 }

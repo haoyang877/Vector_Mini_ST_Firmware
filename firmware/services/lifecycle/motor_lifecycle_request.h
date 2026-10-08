@@ -52,4 +52,34 @@ typedef struct
     MotorMaintenanceEffect effects;
 } MotorMaintenanceProgress;
 
+/** @brief 整机流程只读视图；八状态执行边界与线上编号仍沿原契约。 */
+typedef enum
+{
+    MOTOR_FLOW_INIT,
+    MOTOR_FLOW_IDLE,
+    MOTOR_FLOW_RUN,
+    MOTOR_FLOW_CALIBRATION,
+    MOTOR_FLOW_FAULT,
+    MOTOR_FLOW_FATAL
+} MotorFlowState;
+
+/* 计划位沿实际任务编号定义，仅为业务接口，不是参数或线上 ABI。 */
+#define MOTOR_CALIBRATION_STEP(kind) (UINT32_C(1) << (kind))
+#define MOTOR_CALIBRATION_SUPPORTED_STEPS                                                          \
+    (MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_PHASE_RESISTANCE) |                                  \
+     MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_ENCODER_LUT) |                                       \
+     MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_ELECTRICAL_ZERO) |                                   \
+     MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_MECHANICAL_ZERO) |                                   \
+     MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_FRICTION) |                                          \
+     MOTOR_CALIBRATION_STEP(MOTOR_MAINTENANCE_COGGING))
+
+/** @brief 整计划结果与当前独立任务身份；COMMITTED 仅表示最终 SAVE 已回读验证。 */
+typedef struct
+{
+    uint32_t ticket, requested_steps, completed_steps, step_ticket;
+    MotorMaintenanceKind step;
+    MotorMaintenanceResult result;
+    MotorMaintenanceEffect effects;
+} MotorCalibrationProgress;
+
 #endif

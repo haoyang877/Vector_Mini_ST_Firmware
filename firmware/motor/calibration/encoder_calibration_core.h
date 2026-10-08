@@ -48,7 +48,7 @@ typedef struct
     int64_t candidate_lut_sum;
 } EncoderCalibrationBuildState;
 
-/** 验证归约状态；任务持有，开始验证时整体置零并设置前次观测位置。 */
+/** 测量归约状态；采样/验证互斥复用窗口，开始验证时整体清零并重设previous。 */
 typedef struct
 {
     EncoderCalibrationWindow window;
@@ -66,7 +66,7 @@ typedef enum
 } EncoderCalibrationBuildResult;
 
 /**
- * @brief 求两个 Q15 环形角的有符号差，保留半圈边界的原 int16 转换。
+ * @brief 求两个 Q15 环形角的有符号差，使用既有16位模运算语义。
  * @param target_q15 目标环形角，0..65535 counts。
  * @param source_q15 源环形角，0..65535 counts。
  * @return 环形差，int16 counts；半圈返回 -32768。
@@ -84,30 +84,17 @@ int16_t EncoderCalibrationCore_Q15Difference(uint16_t target_q15, uint16_t sourc
 uint16_t EncoderCalibrationCore_ApplyLut(const int16_t *candidate, uint16_t directed_q15);
 
 /**
- * @brief 以首个样本作锚点累积静态原点角。
- * @param directed_q15 本帧方向修正角，counts。
- * @param anchor_q15 调用方持有的锚点；count 为零时写入首样本。
- * @param sum_q15 调用方持有的 int64 解卷绕累加值，counts。
- * @param count 调用方持有的样本计数，开始窗口前置零。
- * @note 指针有效且互不重叠，按既有有界窗口调用；不自行判断时序或新鲜度。
- */
-void EncoderCalibrationCore_AddOriginSample(uint16_t directed_q15,
-                                            uint16_t *anchor_q15,
-                                            int64_t *sum_q15,
-                                            uint32_t *count);
-
-/**
- * @brief 以任务在启动时冻结的锚点累积电零位角，保持原转换顺序。
- * @param linearized_q15 本帧线性化角，counts。
- * @param anchor_q15 启动锚点，counts；不改写。
+ * @brief 相对明确锚点累积环形角；原点与电零位窗口共用同一整数计算。
+ * @param angle_q15 本帧方向修正角或线性化角，counts。
+ * @param anchor_q15 窗口锚点，counts；首样本选择由任务完成，不改写。
  * @param sum_q15 调用方持有的 int64 解卷绕累加值，counts。
  * @param count 调用方持有的样本计数，开始前置零。
- * @note 指针有效且互不重叠，仅由任务在原 READ_OK/保持窗口准入后调用。
+ * @note 指针有效且互不重叠，窗口/READ_OK 准入归任务；固定有界窗口内调用。
  */
-void EncoderCalibrationCore_AddZeroSample(uint16_t linearized_q15,
-                                          uint16_t anchor_q15,
-                                          int64_t *sum_q15,
-                                          uint32_t *count);
+void EncoderCalibrationCore_AddAngleSample(uint16_t angle_q15,
+                                           uint16_t anchor_q15,
+                                           int64_t *sum_q15,
+                                           uint32_t *count);
 
 /**
  * @brief 求解卷绕累加角的截断均值，不发布原点或电零位。

@@ -58,3 +58,25 @@ doctor／format／lint／layout／architecture／interfaces／hygiene PASS；
 验收、哈希、工作区功能保留和补丁交付见[第二批报告](../../reports/2026-10/motor_state_flow_batch2_20261008.md)。
 最终补充测试提交 `b6c8dbb`；最终 PR 为 `outputs/runs/motor-state-eight-final-20261008/summary.json`，
 结果及基线失败不变。增量补丁已对未修改的共享基线只读检查通过，尚未合并。
+
+## INIT 输入逐项审查（2026-10-08 继续）
+
+当前状态：以下为历史讨论，已被[出口收敛 v4](2026-10-08-motor-state-flow-simplification-v4.md)替代。用户随后要求先完整列出所有跳转、由用户判断方案；
+暂停逐状态的固件修改。新增关注为 INIT／IDLE STOP 保持原状态、只有 STARTING／RUNNING／
+MAINTENANCE 进入 STOPPING，以及故障恢复直达 IDLE 的条件。源码仍为 dcaa9c5 工作区版本。
+
+用户要求按状态逐一检查输入与转换，先审 INIT。本次基线 `dcaa9c5` 加保留的集成功能，
+原规则、所有者、夹具及哈希存于 `outputs/motor-state-flow/init-review/`。
+当前公开入口为上电／外部复位、FAULT 明确 CLEAR，以及尚未自检的停止收尾。
+后者来自 INIT 非静默 STOP 的往返；公开维护取消只接受匹配的维护票据，不在 INIT 创建任务。
+
+用户已明确决定：INIT STOP 统一保持 INIT，持续关相、等待资源及基础健康，沿原期限推进，
+无法确认关相进入 FATAL。不再以暂时资源占用产生 INIT→STOPPING→INIT 和计时重启。
+IDLE STOP、普通停止、维护／SAVE、CLEAR、票据、参数／协议载荷与控制数学不改。
+内部通用 CANCEL 和不一致的构造上下文仍沿原规则，STOPPING 的防御返回分支留待该状态审查。
+本轮不顺带删除仍被就绪反馈使用的 tested，不增加阶段或等待变量。
+
+推进函数只有 INIT 一个真实调用点；关相失败／超时提交后立即返回，其后状态仍为 INIT。
+删除其中重复的 INIT 判断，并用提前返回表达健康未齐；保留完成提交临界区里的动态事实复核。
+接受：新增资源晚归还不重启计时／稳定窗口、占用直至期限仍超时、STOP 时关相失败 FATAL；
+既有全部所有者与对应 PR 回归。回退为独立提交 revert，恢复本次前的分流。

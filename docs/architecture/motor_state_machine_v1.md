@@ -1,18 +1,18 @@
-# 电机主状态机说明 v1.1
+# 电机主状态机说明 v1.2
 
-更新日期：2026-10-08。当前已实施八状态、静默 INIT／IDLE STOP；独立 STARTING 与 FATAL 保留。维护内串行 SAVE 仍未实施。
+更新日期：2026-10-08。当前八状态出口已收敛：INIT／IDLE STOP 保持原状态，停止完成与成功 CLEAR 直接 IDLE；独立 STARTING 与 FATAL 保留。维护内串行 SAVE 仍未实施。
 
 主状态机由 APP 的 `motor_state_machine` 唯一拥有。STOP 表示关闭输出；零速度、位置保持等仍属于运行控制。IDLE 表示输出关闭并等待命令，是否允许启动还要检查参数、标定和当前健康。
 
 ## 1. 完整状态转移总图
 
-![当前电机八状态总图，包含正常控制、维护、停止、故障、清错和复位](../assets/motor_state_machine/state-transition-eight-current-v1.png)
+![当前电机八状态总图，包含正常控制、维护、停止、故障、清错和复位](../assets/motor_state_machine/state-transition-exits-v1-2.png)
 
-[当前可缩放 SVG](../assets/motor_state_machine/state-transition-eight-current-v1.svg) · [旧九状态总图，历史](../assets/motor_state_machine/state-transition-map.svg) · [旧九状态交互图，历史](../assets/motor_state_machine/state-transition-map.html)
+[当前可缩放 SVG](../assets/motor_state_machine/state-transition-exits-v1-2.svg) · [旧九状态总图，历史](../assets/motor_state_machine/state-transition-map.svg) · [旧九状态交互图，历史](../assets/motor_state_machine/state-transition-map.html)
 
-蓝色表示初始化或控制准备，灰色表示待命，绿色表示运行，紫色表示维护，橙色表示停止收尾，红色表示故障。区域边界不是额外状态；图中 10 号连线适用于所有非 FATAL 状态，12 号连线适用于任意状态，包括 FAULT。
+蓝色表示初始化或控制准备，灰色表示待命，绿色表示运行，紫色表示维护，橙色表示停止收尾，红色表示故障。普通故障可从非 FATAL 状态进入 FAULT；致命错误可从任何状态进入 FATAL。故障说明文字不是额外状态。
 
-箭头编号对应第 3 节。虚线表示条件恢复或外部复位。一次监督拍可能经过多次迁移，STOPPING 也可能同拍完成；未在遥测中看到中间状态不等于跳过了检查。
+第 3 节逐条列出迁移条件。虚线表示 CLEAR 成功后的恢复。程序启动从入口建立 INIT，不画 FATAL 的复位箭头。一次监督拍可能经过多次迁移，STOPPING 也可能同拍完成；未在遥测中看到中间状态不等于跳过了检查。
 
 ## 2. 八个状态各自负责什么
 
@@ -23,9 +23,9 @@
 | STARTING 控制准备 | 已选定模式，等待控制器准备并执行启相 | 准备完成且数字启相回读成功进入 RUNNING；STOP 进入 STOPPING，异常进入 FAULT |
 | RUNNING 正常控制 | 输出开启，执行电流、速度、位置或电压控制 | 同模式目标更新保持 RUNNING；STOP 进入 STOPPING，故障或持续保护条件失效进入 FAULT |
 | MAINTENANCE 维护 | 串行执行标定、辨识、保存、默认参数或零位任务；输出按任务决定 | 未完成或后台整理期间保持；完成或取消进入 STOPPING，失败进入 FAULT |
-| STOPPING 停止收尾 | 持续要求关相，撤销目标、取消任务并等待实际归还 | 已自检且无故障回 IDLE，未自检继续 INIT，有故障进入 FAULT；条件未齐继续等待 |
-| FAULT 故障锁存 | 关闭输出，保留故障，完成控制与维护清理 | 故障源恢复、资源释放且明确 CLEAR 后进入 INIT；STOP 或重新连接不能清锁存 |
-| FATAL 不可恢复故障 | 关闭输出，拒绝普通启动和清错 | 只有外部复位重新初始化到 INIT |
+| STOPPING 停止收尾 | 持续要求关相，撤销目标、取消任务并等待实际归还 | 完成后回 IDLE，有故障进入 FAULT；条件未齐继续等待 |
+| FAULT 故障锁存 | 关闭输出，保留故障，完成控制与维护清理 | 完整基础健康、故障源恢复及收尾确认后，明确 CLEAR 直接 IDLE；STOP 或重新连接不能清锁存 |
+| FATAL 不可恢复故障 | 关闭输出，拒绝普通启动和清错 | 没有软件跳转出口，锁存至整程序复位 |
 
 RUNNING 不代表转子必然旋转：零速度、位置保持或零电流目标都可以处于 RUNNING。停止运动与关闭输出是不同操作；当前 STOP 使用后者。
 
@@ -36,19 +36,19 @@ RUNNING 不代表转子必然旋转：零速度、位置保持或零电流目标
 | 编号 | 从哪里到哪里 | 触发、条件和动作 |
 | --- | --- | --- |
 | 1 | 原 BOOT 完成出口已删除 | 上下文直接为 INIT，首次监督拍开始计时；无 BOOT 完成事件或隐藏阶段 |
-| 2 | INIT → IDLE | 八项基础自检连续通过、采样健康、资源静默且无活动故障；保持关相 |
+| 2 | INIT → IDLE | 八项基础自检连续通过、采样健康、资源已释放且无活动故障；保持关相 |
 | 3 | IDLE → STARTING | 明确启动请求通过模式、身份、参数确认、标定、反馈、电压和占用检查；建立零目标或当前位置参考 |
 | 4 | STARTING → RUNNING | 控制器准备完成，启相前重新复核许可，数字回读确认输出开启 |
 | 5 | IDLE → MAINTENANCE | 明确维护或 SAVE 请求通过该任务的参数、反馈及资源条件；创建独立任务身份 |
 | 6 | STARTING／RUNNING → STOPPING | STOP 请求；撤销待启动及控制目标，请求关闭输出，进入统一收尾 |
 | 7 | MAINTENANCE → STOPPING | 任务正常完成、STOP 或定向取消；关闭输出并保留结果。SAVE 成功必须已经写入及回读确认 |
-| 8 | STOPPING → IDLE | 输出关闭、目标和结果已清理、功能与后台资源已释放，无待确认取消和锁存故障；此前自检已完成 |
-| 9 | STOPPING → INIT | 停止已经确认且无故障，但此前尚未完成自检；STOP 不能绕过自检 |
+| 8 | STOPPING → IDLE | 输出关闭、目标和结果已清理、功能与后台资源已释放，无待确认取消和锁存故障；取消确认完成且无锁存故障 |
+| 9 | 已删除 STOPPING → INIT | INIT 不进入 STOPPING；普通停止完成仅回 IDLE |
 | 10 | 任意非 FATAL → FAULT | 活动故障、当前任务失败，或 STARTING／RUNNING／MAINTENANCE 的执行保护条件失效；锁存并关相。已处 FAULT 时继续累积锁存 |
-| 11 | FAULT → INIT | 明确 CLEAR，故障源恢复、采样有效、输出关闭，功能及后台资源已归还且无待确认取消；清锁存后重新自检 |
+| 11 | FAULT → IDLE | 明确 CLEAR，源恢复、八项基础健康、输出关闭、任务／后台归还及取消确认完成；成功直接待命 |
 | 12 | 任意状态 → FATAL | 明确 FATAL 事件、有效上下文缺少事件或事实等 API 误用、内部代际耗尽，或初始化阶段无法关闭输出 |
-| 13 | FATAL → INIT | 外部复位后重新初始化；不是状态规则中的普通事件迁移 |
-| 14 | INIT／IDLE 收到 STOP | 实际关相、无占用及锁存故障时原地撤销、推进代际并确认；INIT 不重启期限或健康窗口。非静默仍走 STOPPING |
+| 13 | FATAL 无软件出口 | 整程序复位后从程序入口重新初始化，不画作 FATAL 状态迁移 |
+| 14 | INIT／IDLE 收到 STOP | 保持状态与代际，撤销未执行请求；后台占用不进入 STOPPING，INIT 照常检查健康 |
 | 15 | STOPPING → FAULT | 收尾期间出现活动故障，或停止确认时仍有锁存故障；不能回正常待命 |
 
 新请求条件不满足通常只是拒绝，不因此启相。提交 SELF_TEST_DONE 或 START_DONE 时条件失效会转 FAULT；任务失败不能被同拍 STOP 吞掉。新故障和持续运行保护优先于普通停止，初始化、待命状态不套用运行中的持续守卫。
@@ -66,7 +66,7 @@ RUNNING 不代表转子必然旋转：零速度、位置保持或零电流目标
 | 停止确认 | 数字输出关闭，待处理目标／结果已清理，功能任务和前台借用实际释放 | STOP ACK 不代表已关相；取消不回滚已提交 Flash |
 | 故障恢复资格 | 对应故障源满足恢复条件，采样有效，输出关闭、资源释放，并收到明确 CLEAR | 重新连接不清错，清错不恢复旧目标 |
 
-基础自检连续满足 4 个 2 kHz 监督拍后完成。普通自检期限为 500 ms；当前上电路径先在关相状态进行 1 秒电流零点采样，初次期限相应增加到 1.5 秒。CLEAR 后使用普通自检期限。监督调度停摆时，本任务不能自行执行超时判断。
+基础自检连续满足 4 个 2 kHz 监督拍后完成。普通自检期限为 500 ms；当前上电路径先在关相状态进行 1 秒电流零点采样，初次期限相应增加到 1.5 秒。CLEAR 在 FAULT 内确认完整健康后直接 IDLE，不重新开始初始化期限。监督调度停摆时，本任务不能自行执行超时判断。
 
 启动滤波母线窗口为 25.6～33.8 V，原始母线还须低于 34.5 V 硬过压线。运行中的电压保护有独立采样与确认逻辑，不能把启动窗口当作整个运行期间的唯一电压规则。详细诊断位见[基础自检与模式就绪](motor_readiness_v1.md)，故障恢复见[保护实现](../../firmware/motor/protection/foc_errhandle.c)。
 
@@ -104,7 +104,7 @@ IDLE → MAINTENANCE〔执行任务〕 → STOPPING → IDLE
 
 ```text
 维护取消：MAINTENANCE → STOPPING → 等待资源释放 → IDLE
-故障恢复：当前状态 → FAULT → 明确 CLEAR → INIT → IDLE
+故障恢复：当前状态 → FAULT → 恢复确认＋明确 CLEAR → IDLE
 ```
 
 快环故障先请求关相，监督拍随后对齐 FAULT。后台已经认领的资源没有归还时，保持 STOPPING 或 FAULT；迟到结果可归还资源，但不能恢复任务或补造保存成功。恢复后必须用新的启动请求，不恢复旧模式和目标。
@@ -122,7 +122,7 @@ IDLE → MAINTENANCE〔执行任务〕 → STOPPING → IDLE
 | `rules.maintenance_kind`、`maintenance_active` | 当前或最近维护种类，以及会话是否仍有效 |
 | `enable_pending`、`stop_pending` | 等待监督处理的启动／停止意图 |
 | `motor->fault_code`、`rules.first_fault`、`latched_faults` | 业务故障及规则锁存，不是额外主状态 |
-| `rules.tested` | 唯一自检完成记录；稳定计数只证明本次连续窗口 |
+| 初始化资格 | 由当前正常状态推导；已删除 `rules.tested`，稳定计数仅用于 INIT |
 | `rules.epoch`、`operation_epoch`、`cancel_epoch` | 主状态代际、原任务身份与取消确认身份，不能互相替代迟到结果 |
 | 控制／启动进展、后台认领、保存完成标志 | 请求终态与资源交接记录；受理、已应用、已启动和已保存分别表达 |
 
@@ -174,17 +174,17 @@ Flash 和表整理在前台执行。正常启相由主状态机拥有，功能�
 
 已实施八状态：INIT、IDLE、STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT、FATAL。
 BOOT 完成事件和分支已删除；没有增加隐藏初始化阶段、控制模式或等待布尔。
-实际静默的 INIT／IDLE STOP 原地撤销请求并推进代际；INIT 的自检期限和健康窗口不重启。
-非静默仍经过 STOPPING，输出和资源必须真实归还。CLEAR 后 INIT 仍用普通 500 ms 期限。
+INIT／IDLE STOP 保持状态与代际并撤销排队意图；INIT 的期限和健康窗口不重启。
+只有 STARTING／RUNNING／MAINTENANCE 进入 STOPPING，完成只回 IDLE；CLEAR 成功也直接 IDLE。
 
 INIT 的线上状态为 3，0 保留退役；其余投影、模式、45B 布局、参数 schema12 保持。
-兼容与黄金向量见[状态反馈 v1.1](../protocols/yg_protocol_motor_state_v1_1.md)。
+兼容与黄金向量见[状态反馈与恢复 v1.2](../protocols/yg_protocol_motor_state_v1_2.md)。
 原任务和 SAVE 仍独立经过收尾／待命，维护内串行保存尚未实施；自动保存种类不改。
 STARTING 保留真实外环准备边界；FATAL 保留仅外部复位，不增加恢复策略镜像。
 
 完整[旧新出口、伪代码、职责与变量归属](motor_state_flow_simplification_v1.md)保留设计过程；
 首批等价删除见[计划 v2](../plans/active/2026-10-08-motor-state-flow-simplification-v2.md)，
-八状态及批准差异见[计划 v3](../plans/active/2026-10-08-motor-state-flow-simplification-v3.md)。
+八状态见[计划 v3](../plans/active/2026-10-08-motor-state-flow-simplification-v3.md)，当前出口收敛见[计划 v4](../plans/active/2026-10-08-motor-state-flow-simplification-v4.md)。
 原七状态方案仅为历史未实施草案；当前总图表达实际八状态和现有独立保存路径。
 
 ## 9. 设计演进和验证记录

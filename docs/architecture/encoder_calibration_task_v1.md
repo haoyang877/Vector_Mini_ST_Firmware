@@ -1,7 +1,7 @@
 # Mode13/Mode15 编码器标定任务职责 v1
 
 日期：2026-10-08。对应 `firmware/motor/calibration/encoder_calibration_task.c/.h`。
-本文保留第一批职责基线；后续实际核心边界见[核心/外围数据流 v2](encoder_calibration_core_v2.md)。
+本文保留第一批职责基线；v1.3.0现行职责先读[核心维护模块](motor_maintenance_core_v3.md)，计算边界见[核心/外围数据流 v2](encoder_calibration_core_v2.md)。
 
 任务只拥有标定阶段、计数、累积值和借用引用；不拥有电机主状态、功率许可或 Flash。
 `MotorAxis` 在 20 kHz 快任务调用 `MotorMaintenance_Step`，APP 显式借出固定 6 KiB 工作区。
@@ -25,7 +25,7 @@
 
 纯计算是环形差、候选插值、累积/均值/整圈平移及残差判断。任务适配是阶段计时、
 观测器准入、调用无感启动/电流环和组织 `MotorTaskResult`。保存不在这两者内。
-无需另建纯计算框架；既有文件内私有计算与单份任务状态足以表达边界。
+当前计算已提取到encoder_calibration_core，任务持有单份阶段和计算状态；不另建通用标定框架。
 
 Mode13 所有失败维持原错误码，先 `MotorFault_Report`，再释放采样引用、复位 startup/
 电流 PI/速度 PI、清速度与 id/iq 指令、阶段归零。完成执行同样的控制状态复位，返回无故障完成；
@@ -33,8 +33,8 @@ Mode13 所有失败维持原错误码，先 `MotorFault_Report`，再释放采�
 Mode15 某些早期失败只上报，控制状态清理由 owner 的取消路径执行；不能泛化合并以改变顺序。
 
 实际功率关断由主状态机先调用平台 stop，再取消任务并回读关相事实；任务自身不操作硬件。
-APP 确认 `IsReleased` 后才归还/复用工作区。20 kHz 编码器快路径拥有角度/速度，
-2 kHz 慢估计拥有多圈状态；LUT 发布只请求 rebase，不直接改慢估计所有的多圈影子。
+APP 确认 `IsReleased` 后才归还/复用工作区。20 kHz 编码器快路径拥有角度采样与校正，
+2 kHz 慢估计拥有多圈和速度状态；LUT 发布只请求 rebase，不直接改慢估计所有的多圈影子。
 Keil 阶段枚举保持历史编号，Mode15 依靠独立计数而非新增公共阶段机。
 
 本轮只合并同语义的 Mode13 失败收尾和复位重复，不合并 Mode15 不同语义的失败路径，

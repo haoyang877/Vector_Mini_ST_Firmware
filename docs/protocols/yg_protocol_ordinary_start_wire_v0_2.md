@@ -1,6 +1,6 @@
 # 普通电机启动通信 v0.2
 
-日期：2026-10-08。此版本把 `0x0075 START_CONTROL` 的可请求模式从速度扩展为电流、速度、位置和 q 轴电压。帧格式、速度模式编号与 [v0.1](yg_protocol_ordinary_start_wire_v0_1.md) 完全相同。当前能力页仍报告 `supported_modes=0`；此接口尚未作为产品功能开放。
+日期：2026-10-08。此版本把 `0x0075 START_CONTROL` 的可请求模式从速度扩展为电流、速度、位置和 q 轴电压。帧格式、速度模式编号与 [v0.1](yg_protocol_ordinary_start_wire_v0_1.md) 完全相同。当前源码已接入四种模式的候选启动入口；能力页仍报告 `supported_modes=0`，尚未发布为已实机验收的产品能力。
 
 ## 主站如何使用
 

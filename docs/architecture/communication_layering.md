@@ -1,69 +1,51 @@
-# CAN FD 通信分层说明
+# 核心工程通信分层
 
-日期：2026-09-29。当前 APP 只使用公司 `yg_protocol` CAN FD。共享编解码由 APP 与
-Loader 共用，产品运行态和业务所有者分别组合；旧标准 CAN 与 USB 服务已经删除。
+更新：2026-10-09。适用v1.3.0；APP与Loader共用yg_protocol纯codec。
+当前链路为CAN FD：29位扩展ID、FD+BRS、1M/5M；不兼容旧YI、UART或USB服务。
 
-## 线路与处理路径
-
-线路为 29 位扩展 ID、FD+BRS、仲裁段 1 Mbit/s、数据段 5 Mbit/s。
-旧 11 位参数帧、48 B 状态流、心跳调度及波特率切换不再提供兼容入口。
+## 帧到业务的路径
 
 ```text
-FDCAN HAL → platform/api/comm_hw.h
-          → communication/can/yg_protocol_canfd_irq（只复制入队）
-          → communication/can/yg_protocol_link（有界队列与端点服务）
-          → shared/protocol（CAN ID、公司帧、CRC、分片）
-          → communication/protocol（注册、路由与业务值对象）
-          → APP 所有者适配器 → 状态机 / 参数服务
+平台FDCAN → canfd_irq有界入队 → link前台收发
+  → shared/protocol帧校验/分片 → protocol注册/路由
+  → composition所有者适配器 → 主状态机/参数事务
+状态所有者 → 一致快照 → status_adapter → 编码回复
 ```
 
-Board_Init 先初始化电机对象及 schema 12 参数，再启动平台和协议运行态，并绑定状态源。
-旧 schema 或无效参数回退默认值，启动不迁移或回写参数区。
-FDCAN RX ISR 不执行 CRC、分片、Flash、日志或电机业务。
-前台循环服务维护认领与保存、刷新状态快照、处理协议队列；每次收发数量有界，
-队列满时丢弃最新帧并保留统计。
-APP RX/TX 各保留 8 帧；发送受阻时保留未处理的 RX 请求，避免业务执行后无处存放回复。
-控制命令的 32 条历史只用于近期结果重放，超出窗口的旧序号拒绝重新执行。
+RX ISR只复制输入；不处理业务、Flash或日志。前台有界处理队列与回复。
+通信不持有电机对象可写指针、不计算控制算法、不自行打开PWM。
 
-## 文件归属与所有权
-
-| 模块 | 职责 |
+| 入口 | 当前职责 |
 | --- | --- |
-| `firmware/platform/api/comm_hw.h` | CAN FD 能力、单位与失败契约，不含业务语义 |
-| `firmware/platform/stm32g4/ports/comm/` | HAL 收发、DLC、滤波、通知及硬件恢复 |
-| `shared/protocol/` | APP/Loader 共用 CAN ID、应用头、CRC、分片及升级线路契约 |
-| `firmware/communication/can/` | APP 节点运行态、中断入队、链路与参数桥 |
-| `firmware/communication/protocol/` | APP 类型注册、路由、请求/反馈编码，不持有可写电机对象 |
-| `firmware/app/yg_protocol_owner_adapter.*` | 参数、清错及标定请求到领域值的显式映射 |
-| `firmware/app/yg_protocol_status_adapter.*` | 同一时刻状态快照到线路 state/mode/fault 的投影 |
-| `firmware/app/motor_state_machine.*` | 生命周期、功率输出许可、维护身份及故障恢复的唯一所有者 |
-| `firmware/app/composition/board_config.c` | 组合 APP 进 Loader 服务与实际停机、TX 完成、ENTER 交接 |
+| [comm_hw.h](../../firmware/platform/api/comm_hw.h) | 硬件收发能力，HAL位于平台ports |
+| [CAN接入](../../firmware/communication/can/) | 节点运行态、队列、链路服务 |
+| [shared codec](../../shared/protocol/README.md) | CAN ID、公司头、CRC和分片；APP/Loader单份实现 |
+| [APP协议](../../firmware/communication/protocol/) | 命令注册及请求/结果值对象 |
+| [owner_adapter](../../firmware/app/composition/yg_protocol_owner_adapter.c) | 显式映射启动/清错/维护/参数请求 |
+| [status_adapter](../../firmware/app/composition/yg_protocol_status_adapter.c) | 将同一时刻快照编码为状态回复 |
+| [board_config](../../firmware/app/composition/board_config.c) | 绑定业务所有者、设备身份及Loader交接能力 |
 
-CAN 116 与前台目标使用 `MotorStateMachine_SubmitControl()`，只提交值命令；
-通信层不暴露电机对象可写 extern，不直接操作 HAL 或更改模式。
-状态通过 `MotorAxis_ReadStatus()` 获取一致快照，反馈单位及布局以线路契约为准。
+## 保留的核心线路
 
-## 当前已接入范围
+| 命令 | 行为与限制 |
+| --- | --- |
+| 101 ENABLE/DISABLE | 不用enable=1代替普通启动；原低侧制动候选不扩大语义 |
+| 107 CLEAR | 空payload，既有4B结果；条件恢复后回IDLE，不启动 |
+| 110 STOP | 真实关相/撤销目标；请求受理与关相完成不同 |
+| 116 SET_CONTROL | 只更新RUNNING同模式目标，不隐式使能或切模式 |
+| 117 START_CONTROL | 已实现候选电流/速度/位置/VQ入口；零目标或当前位置启动，切模式先STOP |
+| 120～122 参数 | 标量读取、停机写入及异步保存；revision和真实持久结果明确 |
+| 160～162 维护 | LUT、电/机械零位、SAVE、DEFAULTS；原ticket查询/取消 |
+| 56/57 升级交接/确认 | 仅配套LoaderApp；停机/资源归还/TX完成后交接，健康满足后确认 |
 
-- STOP 与 DISABLE 已绑定真实停机所有者；受理与确认关相不同，不自动重启。
-- CLEAR 经主状态机清锁存，随后仍需自检；不隐含使能。
-- Type 116 只更新已经 RUNNING 的相同模式目标，不隐式启动或切换模式。
-- 参数读写与保存已接入停机资格、revision 和保存 ticket，写 RAM 不等于已持久化。
-- Type 160～162 显式映射 LUT、电角零位及齿槽任务，并支持查询、取消及原始结果身份。
-- LoaderApp 的 Type 56 交接先禁止输出，确认停止及精确 TX 完成后写 ENTER 邮箱并复位；
-  普通独立 APP 使用不可用端口，不能宣称两种链接目标具备同样升级能力。
+117线路模式为1/2/3/6，不能直接强转内部枚举。
+GET_CAPS仍保守报告supported_modes=0，表示未发布已验收能力；不应据此称源码没有117接线。
+同身份重试按有界记录处理；拒绝请求不能改变功率、模式或活动目标。
+未提供跨复位电机启动重放保护；不要把Loader升级nonce/session当作电机启动身份。
+0x0076运行会话、0x00A6组合计划已退役；齿槽/摩擦/电阻任务不再可执行。
 
-远程普通使能尚未开放；Type 101 的 enable=1 是未开放的低侧制动候选，不是普通使能。
-GET_CAPS 的 supported_modes 当前为 0。摩擦任务及原始采样导出没有新的 CAN 入口。
-未支持的服务返回明确结果，不回落到旧协议。
-
-当前契约见 [电机线路](../protocols/yg_protocol_motor_wire_v1.md)、
-[标定线路](../protocols/yg_protocol_calibration_wire_v1.md)、
-[升级 v2](../protocols/yg_protocol_upgrade_wire_v2.md) 和
-[内部所有权](code_structure.md)。
-
-## 验证与限制
-
-单元/集成/native 检查与 release 编译均不接触硬件。当前证据必须绑定提交、工具和产物哈希，
-旧输出不能证明新版本可运行。离线 Loader 模型不替代实机升级、输出关断、执行时序与栈峰值验收。
-历史协议删除过程见 [删除计划](../plans/active/2026-09-22-remove-legacy-can-protocol.md)。
+字节权威见[启动v0.2](../protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
+[维护v1.2](../protocols/yg_protocol_calibration_wire_v1_2.md)、
+[参数目录](../protocols/yg_protocol_parameter_catalog_v0_1.md)、
+[升级v3](../protocols/yg_protocol_upgrade_wire_v3.md)。
+普通独立APP与LoaderApp的升级能力不同；源码接线和离线检查不能代替实机联调。

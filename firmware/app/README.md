@@ -1,18 +1,21 @@
-# APP 组装与运行
+# APP组装与运行
 
-| 目录 | 职责 | 从哪里读起 |
+当前v1.3.0核心范围；[完整模块导航](../../docs/architecture/module_core_responsibilities.md)。
+
+| 目录 | 职责 | 阅读入口 |
 | --- | --- | --- |
-| composition | 启动、任务入口、协议到业务的绑定 | [Board_Init](composition/board_config.c)、bsp_task、foc_task |
-| runtime | 单轴对象、快慢环执行、维护和当前 RTT 适配 | [motor_axis](runtime/motor_axis.c)、motor_execution、motor_maintenance |
-| motor_state_machine | 唯一主生命周期、请求与动作；规则是内部实现 | [motor_state_machine](motor_state_machine/motor_state_machine.c) |
+| composition | 初始化、快慢拍入口、协议与所有者绑定 | [board_config.c](composition/board_config.c) |
+| runtime | 单轴对象、控制/维护调度、参数事务和固定工作区 | [motor_axis.c](runtime/motor_axis.c) |
+| motor_state_machine | 唯一生命周期、启停准入、故障及资源归还 | [motor_state_machine.c](motor_state_machine/motor_state_machine.c) |
 
-composition 绑定端口和选择实现，不计算电机算法；runtime 调度真实功能并发布结果。
-运行对象由 motor_axis 私有持有，主状态机的状态和事务由其私有上下文持有。
-其他模块通过请求与值快照交流，不公开可写实例。
-maintenance_workspace 私有持有一份固定联合工作区，参数、齿槽候选与编码器采样互斥。
-标定任务显式借用采样对象；实际归还后才允许复用，不使用堆分配器。
+20kHz快拍执行采样、保护及一拍控制/标定；2kHz慢拍执行估计、外环和主状态监督。
+前台处理通信和停机SAVE，Flash不在ISR执行。
+单轴对象保留Watch可见全局符号，跨模块写入仍通过请求或显式借用对象。
+状态机上下文拥有迁移；控制器拥有积分/滤波；维护任务拥有标定内部阶段。
+固定工作区仅由编码器采样与参数记录互斥使用，不包含齿槽候选或heap。
+RTT、组合计划、运行租约、摩擦/电阻辨识和齿槽任务已删除。
 
-motor_execution 仍含外环协调，RTT 适配仍读取外环就绪事实，因此属于 APP 运行组装。
-参数已按 model/application/device 分组，硬件配置编译期只读。
-通信只接收所有者传出的节点值，不作为参数存储；不增加完整记录或 LUT 副本。
-入口与兼容边界见[参数所有权](../../docs/architecture/parameter_ownership_v1.md)。
+详见[主状态机](../../docs/architecture/motor_state_machine_v1.md)、
+[控制执行](../../docs/architecture/motor_execution_core_v3.md)、
+[维护](../../docs/architecture/motor_maintenance_core_v3.md)、
+[四类参数](../../docs/architecture/parameter_ownership_v1.md)。

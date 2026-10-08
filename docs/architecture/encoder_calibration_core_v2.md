@@ -1,14 +1,13 @@
 # 编码器标定核心/外围数据流 v2
 
-日期：2026-10-08。J 的实际生产入口仍是 `MotorMaintenance_Step` →
+更新：2026-10-09。v1.3.0当前生产入口是 `MotorMaintenance_Step` →
 `EncoderCalibrationTask_StepLut/StepElectricalZero`；核心为 `encoder_calibration_core.c/.h`。
 
 本页保留 v2 初次提取的职责基线；当前 v4 进一步合并原点/零位累加接口，
 采样与验证互斥复用 `verify_state.window`，验证开始完整清零。
 当前调用/边界见[v3报告](../reports/2026-10/encoder_calibration_call_boundaries_20261008.md)，
 最小实现和不变约束见[v4报告](../reports/2026-10/encoder_calibration_minimal_20261008.md)。
-后续调用与边界的简化、保留理由见[v3 梳理](../reports/2026-10/encoder_calibration_call_boundaries_20261008.md)。
-后续单窗口与共用采样准入见[v4 最小实现](../reports/2026-10/encoder_calibration_minimal_20261008.md)。
+维护准入、关相、工作区及保存职责见[核心维护模块](motor_maintenance_core_v3.md)。
 
 | 输入 → 核心计算 → 结果 | 状态与唯一写入所有者 | 外围任务保留的职责 |
 | --- | --- | --- |

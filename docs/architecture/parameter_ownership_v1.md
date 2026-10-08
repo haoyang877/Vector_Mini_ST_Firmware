@@ -1,6 +1,7 @@
 # 参数所有权与四类配置 v1
 
-本页描述实际 RAM 和文件归属。配置分组不是新增 Flash 格式，
+更新：2026-10-09。适用v1.3.0核心工程。本页描述实际 RAM 和文件归属。
+配置分组不是新增 Flash 格式，
 存储仍使用 [schema12](../protocols/parameter_schema12_loading_policy_v1.md)。
 
 ## 从哪里修改配置
@@ -9,8 +10,8 @@
 | --- | --- | --- |
 | 硬件 | `platform/api/board_profile_defaults.h`、`current_sense_profile.h`、各平台能力 profile | 编译期只读，平台实现使用；不能通过 CAN 改采样尺度或保护阈值 |
 | 电机 | `motor/motor_profile_defaults.h` | `MotorControlState.model`：极对数、R/L/磁链、电流环整定与标定电流 |
-| 应用 | `services/parameters/application_profile_defaults.h` | `MotorControlState.application`：运行包络、速度/位置外环、轨迹和轴范围 |
-| 设备个体 | `services/parameters/device_profile_defaults.h` | `MotorControlState.device`：节点、三相采样零偏与摩擦模型；编码器校准和 LUT 在 EncoderState，齿槽表由齿槽模块单份持有 |
+| 应用 | `services/parameters/application_profile_defaults.h` | `MotorControlState.application`：运行包络、速度/位置外环和轴范围 |
+| 设备个体 | `services/parameters/device_profile_defaults.h` | `MotorControlState.device`：节点与三相采样零偏；编码器校准和LUT在EncoderState，生产身份由独立身份页提供 |
 
 板卡与电机选择分别使用 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE`；
 当前各只有一份已实现 profile，未知 ID 编译报错。采样电阻另由
@@ -35,7 +36,7 @@ flowchart LR
     Defaults[四类默认值] --> Owner[MotorAxis 单份活动对象]
     Store[schema12 记录] --> Adapter[foc_param 装载/导出]
     Adapter --> Owner
-    Command[CAN / Watch 请求] --> Gate[参数事务 停机与身份门禁]
+    Command[CAN 请求] --> Gate[参数事务 停机与身份门禁]
     Gate --> Value[parameter_value_service 纯数值校验]
     Value --> Owner
     Owner --> Control[控制与标定任务 显式借用]
@@ -56,7 +57,9 @@ flowchart LR
 
 ## 兼容与尚未完成
 
-schema12 的 4304 字节、CRC、参数目录 ID/缩放/权限和 16 KiB 分区保持。
+schema12的4304字节、CRC和16KiB参数/身份区域保持。
+齿槽/摩擦旧字段只保留存储占位，装载不用于控制，导出清零；
+参数ID 0x47～0x4B退役且不复用，其余目录ID/缩放/权限保持。
 旧记录以节点表达轮子场景，`foc_param.c` 只在装载时把它解析为
 `application.speed_ceiling_rad_s`；参数值服务随后不再据通信地址选择应用上限。
 轴记录到节点的旧兼容映射仍在该边界保留。因此**持久层的应用角色和设备地址尚未完全独立**。
@@ -65,5 +68,5 @@ schema12 的 4304 字节、CRC、参数目录 ID/缩放/权限和 16 KiB 分区�
 必须另行定义版本化存储/协议和制造写入权限。当前不新增这些 ABI，也不自动迁移旧校准。
 
 内部 RAM 偏移已变化，调试和采样脚本必须使用该候选对应的 ELF。
-本轮实机测试继续使用独立冻结的旧 HEX/AXF，不能用本页新结构解读旧固件。
+调试必须使用实际下载候选匹配的HEX/AXF，不能用本页结构解读历史固件。上电会重新采集关相电流零偏，不将存储零偏当作本次启动资格。
 实施与证据见[参数所有权记录](../plans/completed/2026-09-29-parameter-ownership-v1.md)。

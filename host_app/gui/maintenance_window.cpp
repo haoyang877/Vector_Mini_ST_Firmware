@@ -198,8 +198,9 @@ QWidget *MaintenanceWindow::build_upgrade_page()
                     }
                 });
     }
-    validation_ =
-        label("尚未校验 · APP 必须使用配套 LoaderApp v3 image.bin/manifest.bin 包。", "subtitle");
+    validation_ = label(
+        "尚未校验 · APP 必须使用配套 LoaderApp v3 image.bin/manifest.bin；同名版本不代表布局匹配。",
+        "subtitle");
     validation_->setObjectName("validationStatus");
     validation_->setWordWrap(true);
     validation_->setMinimumHeight(45);

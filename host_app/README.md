@@ -5,6 +5,12 @@ Qt6/C++17 原生电机调试工作台，独立于 APP 和 Loader 构建。启动
 设备维护七个工作区。[基础工作区恢复记录](../docs/plans/active/2026-09-29-host-workbench-restore-v1.md)
 说明从两页维护入口恢复完整工作台的范围及验收。
 
+上位机自身版本为 `1.3.0`，独立于设备 APP/Loader 版本；单一版本入口是
+`host_app/CMakeLists.txt` 的 `project(... VERSION ...)`，窗口顶部与程序版本参数使用同一值。
+交付包的 `manifest.json` 记录完整源码 commit/tree SHA、工作树 dirty 状态及 EXE 哈希，
+`checksums.sha256` 逐文件校验。固件升级页另列固件包 MCU、layout、schema、基地址、
+CRC 和版本；同名 APP 版本不能代替布局与目标兼容性检查。
+
 升级是设备维护工作区的一项功能。当前交付本地镜像校验、升级任务导出及离线交互，
 维护设计与两张流程图见
 [升级与参数页面 v1](../docs/plans/active/2026-09-29-host-upgrade-parameters-v1.md)。
@@ -126,6 +132,8 @@ GUI 使用相同 v3 镜像契约；导出任务仍为 `prepared_only`。显式 A
 Type 1 页 0/1/2、Type 2、Type 3、Type 108 与 Type 110 回复。应用层核对状态、有效位和 SI 比例；
 身份最多显示 5 秒，反馈和 STOP 瞬时确认最多显示 500 毫秒。STOP result=1 只是
 受理；result=0 也不表示转子静止或此后一直关相。后续状态回读会撤销这条瞬时确认。
+GUI 在首次 STOP 受理后以新序号有界查询最终 0/0，并以随后的 108 IDLE 收敛；
+超时或拒绝须现场核对关相。启动被拒绝后也需新的 108 IDLE 才解除“可能运动”状态。
 生产 SN 按 ASCII 显示，UID 与有效启动编号变化会清除旧会话快照。
 
 连接页需用户显式选择节点、Python 3 可执行文件和厂家 SDK DLL，再点击 CAN FD 连接。

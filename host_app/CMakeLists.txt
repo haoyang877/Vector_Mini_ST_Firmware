@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(YG_MC_HOST LANGUAGES C CXX)
+project(YG_MC_HOST VERSION 1.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +22,7 @@ target_include_directories(host_services PUBLIC .)
 target_link_libraries(host_services PUBLIC host_shared Qt6::Core)
 add_library(host_widgets STATIC gui/maintenance_window.cpp gui/workbench_pages.cpp gui/scope_widget.cpp)
 target_link_libraries(host_widgets PUBLIC host_services Qt6::Widgets)
+target_compile_definitions(host_widgets PUBLIC YG_MC_HOST_VERSION=\"${PROJECT_VERSION}\")
 add_executable(YG_MC_HOST WIN32 main.cpp)
 target_link_libraries(YG_MC_HOST PRIVATE host_widgets)
 # 只复制源码适配器；SDK DLL 和 Python 运行时由用户在连接时明确提供。

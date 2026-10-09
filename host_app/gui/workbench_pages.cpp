@@ -63,7 +63,7 @@ QGroupBox *group(const QString &title)
 
 void MaintenanceWindow::build_shell()
 {
-    setWindowTitle("YG_MC_HOST · 电机调试工作台");
+    setWindowTitle(QStringLiteral("YG_MC_HOST v" YG_MC_HOST_VERSION " · 电机调试工作台"));
     resize(1366, 768);
     setMinimumSize(1080, 680);
     auto *root = new QWidget;
@@ -72,7 +72,7 @@ void MaintenanceWindow::build_shell()
     layout->setContentsMargins(16, 12, 16, 10);
     layout->setSpacing(9);
     auto *top = new QHBoxLayout;
-    top->addWidget(text_label("YG_MC_HOST", "brandCompact"));
+    top->addWidget(text_label(QStringLiteral("YG_MC_HOST v" YG_MC_HOST_VERSION), "brandCompact"));
     top->addSpacing(12);
     global_status_ = text_label("未连接", "globalStatus");
     top->addWidget(global_status_, 1);
@@ -226,7 +226,13 @@ void MaintenanceWindow::build_shell()
                 }
                 if (device_pending_ && now_ms - device_request_ms_ > 250)
                 {
-                    device_error_ = "只读请求超时；端口已断开，旧值失效。";
+                    device_error_ = "CAN 请求超时；若已请求运动或 STOP，须人工核对关相。";
+                    disconnect_device();
+                }
+                if (device_reader_ && device_stop_deadline_ms_ > 0 &&
+                    now_ms > device_stop_deadline_ms_)
+                {
+                    device_error_ = "STOP 最终确认超时；保持停机并人工核对关相。";
                     disconnect_device();
                 }
                 issue_device_query();
@@ -427,7 +433,8 @@ void MaintenanceWindow::connect_device()
     device_output_.clear();
     device_error_.clear();
     device_ready_ = device_pending_ = false;
-    device_motion_may_run_ = device_stop_ack_ = false;
+    device_motion_may_run_ = device_stop_ack_ = device_start_rejected_ = false;
+    device_stop_deadline_ms_ = device_stop_retry_ms_ = 0;
     device_command_queued_.clear();
     device_control_result_.clear();
     device_sequence_ = 0;
@@ -523,6 +530,8 @@ void MaintenanceWindow::disconnect_device()
     device_ready_ = device_pending_ = false;
     device_command_queued_.clear();
     device_stop_ack_ = false;
+    device_start_rejected_ = false;
+    device_stop_deadline_ms_ = device_stop_retry_ms_ = 0;
     reader->closeWriteChannel();
     if (!reader->waitForFinished(500))
     {
@@ -564,6 +573,10 @@ void MaintenanceWindow::queue_device_command(const QString &operation, int rpm)
     {
         device_command_queued_ = operation;
         device_command_rpm_ = 0;
+        if (device_stop_deadline_ms_ == 0)
+        {
+            device_stop_deadline_ms_ = elapsed_.elapsed() + 1500;
+        }
     }
     else if (device_command_queued_.isEmpty() && device_bench_ack_->isChecked() &&
              operation == "start_speed" && !device_motion_may_run_ && device_safe_idle())
@@ -598,6 +611,10 @@ void MaintenanceWindow::issue_device_query()
     const auto now_ms = elapsed_.elapsed();
     if (!device_command_queued_.isEmpty())
     {
+        if (device_command_queued_ == "stop" && now_ms < device_stop_retry_ms_)
+        {
+            return;
+        }
         const auto operation = device_command_queued_;
         const uint16_t type = operation == "start_speed" ? 117
                               : operation == "set_speed" ? 116
@@ -626,6 +643,7 @@ void MaintenanceWindow::issue_device_query()
         {
             device_motion_may_run_ = true;
             device_stop_ack_ = false;
+            device_start_rejected_ = false;
         }
         if (type == 110)
         {
@@ -734,10 +752,15 @@ void MaintenanceWindow::consume_device_stdout()
                 {
                     device_motion_may_run_ = true;
                     device_stop_ack_ = false;
+                    device_start_rejected_ = false;
                 }
-                else if (view.motor_state == 5 && device_stop_ack_)
+                else if (view.motor_state == 5 && (device_stop_ack_ || device_start_rejected_))
                 {
                     device_motion_may_run_ = false;
+                    device_control_result_ =
+                        device_start_rejected_ ? "启动被拒绝，108 确认 IDLE；未运行。"
+                                               : "STOP 结果 0/0 且108确认 IDLE；仍需现场核对转子。";
+                    device_start_rejected_ = false;
                 }
                 if (device_motion_may_run_ &&
                     (!view.feedback_fresh || !view.bus_voltage_v || *view.bus_voltage_v > 33.0 ||
@@ -773,11 +796,41 @@ void MaintenanceWindow::consume_device_stdout()
                                  {"sequence", int(device_sequence_)},
                                  {"result", result},
                                  {"detail", detail}});
+            device_pending_ = false;
+            if (device_pending_type_ == 117 && result != 0 && result != 1)
+            {
+                device_start_rejected_ = true;
+                device_control_result_ += " 启动被拒绝；等待108 IDLE确认。";
+                device_step_ = 5;
+                device_discovery_ms_ = elapsed_.elapsed();
+                device_feedback_ms_ = -1000;
+            }
             if (device_pending_type_ == 110)
             {
-                device_stop_ack_ = result == 0 && detail == 0;
+                if (result == 1 && detail == 1 && elapsed_.elapsed() < device_stop_deadline_ms_)
+                {
+                    device_stop_ack_ = false;
+                    device_command_queued_ = "stop";
+                    device_command_rpm_ = 0;
+                    device_stop_retry_ms_ = elapsed_.elapsed() + 50;
+                    device_control_result_ = "STOP 已受理，正在查询最终关相确认。";
+                }
+                else if (result == 0 && detail == 0)
+                {
+                    device_stop_ack_ = true;
+                    device_stop_deadline_ms_ = device_stop_retry_ms_ = 0;
+                    device_step_ = 5;
+                    device_discovery_ms_ = elapsed_.elapsed();
+                    device_feedback_ms_ = -1000;
+                    device_control_result_ = "STOP 结果 0/0；等待新的108 IDLE回读。";
+                }
+                else
+                {
+                    device_error_ = "STOP 未获最终关相确认；保持停机并人工检查。";
+                    disconnect_device();
+                    return;
+                }
             }
-            device_pending_ = false;
         }
         else if (event == "error")
         {

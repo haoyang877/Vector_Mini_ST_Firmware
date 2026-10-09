@@ -16,6 +16,7 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     app.setStyle("Fusion");
     app.setApplicationName("YG_MC_HOST");
+    app.setApplicationVersion(QStringLiteral(YG_MC_HOST_VERSION));
     app.setOrganizationName("YG");
     QPalette palette;
     palette.setColor(QPalette::Window, QColor("#f2f5fa"));
@@ -32,8 +33,9 @@ int main(int argc, char **argv)
         app.setStyleSheet(QString::fromUtf8(theme.readAll()));
     }
     QCommandLineParser parser;
-    parser.setApplicationDescription("YG_MC_HOST 电机调试工作台 · 离线开发版");
+    parser.setApplicationDescription("YG_MC_HOST 电机调试工作台 · 台架候选版");
     parser.addHelpOption();
+    parser.addVersionOption();
     const QCommandLineOption preview(
         "preview-dir", "保存升级与参数页面截图后退出，不连接设备。", "directory");
     parser.addOption(preview);

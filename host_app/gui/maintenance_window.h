@@ -152,12 +152,12 @@ class MaintenanceWindow : public QMainWindow
     QString device_error_;
     QString device_command_queued_, device_control_result_;
     bool device_ready_ = false, device_pending_ = false;
-    bool device_motion_may_run_ = false, device_stop_ack_ = false;
+    bool device_motion_may_run_ = false, device_stop_ack_ = false, device_start_rejected_ = false;
     int device_command_rpm_ = 0;
     uint16_t device_sequence_ = 0, device_pending_type_ = 0;
     int device_step_ = 0;
     qint64 device_connect_ms_ = 0, device_request_ms_ = 0, device_discovery_ms_ = 0,
-           device_feedback_ms_ = -1000;
+           device_feedback_ms_ = -1000, device_stop_deadline_ms_ = 0, device_stop_retry_ms_ = 0;
     QDoubleSpinBox *motion_target_ = nullptr;
     QSpinBox *device_speed_rpm_ = nullptr;
     QGroupBox *demo_motion_group_ = nullptr, *device_motion_group_ = nullptr,

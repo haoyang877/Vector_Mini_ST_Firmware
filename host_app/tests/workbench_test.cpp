@@ -11,7 +11,11 @@ extern "C"
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QProcess>
@@ -21,6 +25,8 @@ extern "C"
 #include <QStandardItemModel>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QThread>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 
@@ -59,6 +65,123 @@ QByteArray reply(uint8_t node, uint16_t type, uint16_t sequence, const QByteArra
         }
     }
     throw std::runtime_error("test reply too large");
+}
+
+int fake_reader()
+{
+    yg_protocol_can_id_fields_t address{3, 1, 2};
+    uint32_t can_id = 0;
+    check(yg_protocol_can_id_encode(&address, &can_id) == YG_PROTOCOL_OK,
+          "fake reader CAN ID encode");
+    int starts = 0;
+    int stops = 0;
+    bool running = false;
+    std::cout << "{\"event\":\"ready\",\"node\":1}\n" << std::flush;
+    std::string line;
+    while (std::getline(std::cin, line))
+    {
+        const auto request = QJsonDocument::fromJson(QByteArray::fromStdString(line)).object();
+        const int sequence = request.value("sequence").toInt();
+        QJsonObject result;
+        if (request.contains("type"))
+        {
+            const int type = request.value("type").toInt();
+            const int page = request.value("page").toInt();
+            QByteArray payload(type == 108 ? 45 : type == 1 ? 32 : 16, 0);
+            auto *data = reinterpret_cast<uint8_t *>(payload.data());
+            if (type == 1 && page == 0)
+            {
+                payload.replace(0, 12, QByteArray::fromHex("5700460010504e4831303320"));
+                data = reinterpret_cast<uint8_t *>(payload.data());
+                YgProtocol_WriteU32Le(data + 12, 0x59473236);
+                YgProtocol_WriteU16Le(data + 16, 1);
+                YgProtocol_WriteU32Le(data + 20, 0x00010300);
+                YgProtocol_WriteU32Le(data + 24, 0x00010000);
+            }
+            else if (type == 1 && page == 1)
+            {
+                payload.replace(0, 4, "FAKE");
+                data = reinterpret_cast<uint8_t *>(payload.data());
+                data[20] = 1;
+                data[21] = 1;
+                data[22] = 1;
+                data[23] = 1;
+            }
+            else if (type == 1 && page == 2)
+            {
+                YgProtocol_WriteU32Le(data + 8, 0x000C10D0);
+                YgProtocol_WriteU32Le(data + 12, 12);
+            }
+            else if (type == 2)
+            {
+                YgProtocol_WriteU16Le(data + 6, 64);
+            }
+            else if (type == 3)
+            {
+                YgProtocol_WriteU16Le(data, 6);
+                data[4] = 1;
+            }
+            else if (type == 108)
+            {
+                YgProtocol_WriteU16Le(data + 24, 0x0FFF);
+                YgProtocol_WriteU16Le(data + 26, 3300);
+                data[42] = 1;
+                data[43] = running ? 6 : 5;
+                data[44] = running ? 2 : 0;
+            }
+            else
+            {
+                return 2;
+            }
+            result = {{"event", "frame"},
+                      {"type", type},
+                      {"sequence", sequence},
+                      {"can_id", int(can_id)},
+                      {"data", QString::fromLatin1(reply(1, type, sequence, payload).toHex())}};
+        }
+        else
+        {
+            const auto operation = request.value("op").toString();
+            const int type = operation == "start_speed" ? 117 : operation == "stop" ? 110 : 116;
+            int code = 1;
+            int detail = 0;
+            if (type == 117)
+            {
+                code = ++starts == 1 ? 1 : 2;
+                running = code == 1;
+            }
+            else if (type == 110)
+            {
+                code = ++stops == 1 ? 1 : 0;
+                detail = code == 1 ? 1 : 0;
+                running = code == 1;
+            }
+            result = {{"event", "result"},
+                      {"type", type},
+                      {"sequence", sequence},
+                      {"result", code},
+                      {"detail", detail}};
+        }
+        std::cout << QJsonDocument(result).toJson(QJsonDocument::Compact).constData() << '\n'
+                  << std::flush;
+    }
+    return 0;
+}
+
+bool wait_for(const std::function<bool()> &condition, int timeout_ms)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeout_ms)
+    {
+        QApplication::processEvents();
+        if (condition())
+        {
+            return true;
+        }
+        QThread::msleep(10);
+    }
+    return false;
 }
 void device_readback_checks()
 {
@@ -423,9 +546,93 @@ void gui_checks()
               !window.findChild<QPushButton *>("stopMotor")->isEnabled(),
           "wire replay was shown as demo or gained power controls");
 }
+
+void fake_gui_stop_checks()
+{
+    QTemporaryDir directory;
+    check(directory.isValid(), "fake bench directory unavailable");
+    const auto dll = directory.filePath("unused.dll");
+    QFile file(dll);
+    check(file.open(QIODevice::WriteOnly), "fake SDK marker unavailable");
+    file.close();
+    MaintenanceWindow window;
+    window.show();
+    auto button = [&](const char *name)
+    {
+        return window.findChild<QPushButton *>(name);
+    };
+    window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
+    window.findChild<QSpinBox *>("targetNode")->setValue(1);
+    window.findChild<QLineEdit *>("pythonRuntimePath")
+        ->setText(QCoreApplication::applicationFilePath());
+    window.findChild<QLineEdit *>("canSdkPath")->setText(dll);
+    button("connectDevice")->click();
+    auto *bench = window.findChild<QCheckBox *>("deviceBenchReady");
+    check(wait_for(
+              [&]
+              {
+                  return bench->isEnabled();
+              },
+              1500),
+          "fake GUI port did not open");
+    bench->click();
+    check(wait_for(
+              [&]
+              {
+                  return button("deviceStartSpeed")->isEnabled();
+              },
+              1500),
+          "fake identity or IDLE feedback did not enable start");
+    button("deviceStartSpeed")->click();
+    check(wait_for(
+              [&]
+              {
+                  return button("deviceSetSpeed")->isEnabled();
+              },
+              1500),
+          "accepted fake start did not reach RUNNING");
+    button("deviceStopSpeed")->click();
+    auto *status = window.findChild<QLabel *>("deviceControlStatus");
+    check(wait_for(
+              [&]
+              {
+                  return button("deviceStartSpeed")->isEnabled() &&
+                         status->text().contains("STOP 结果 0/0 且108确认 IDLE");
+              },
+              2000),
+          "one STOP click did not converge from accepted to confirmed IDLE");
+    const auto trace = window.findChild<QLabel *>("globalStatus")
+                           ->toolTip()
+                           .mid(QString("本次真实 GUI 事件：").size());
+    QFile events(trace);
+    check(events.open(QIODevice::ReadOnly), "fake GUI trace absent");
+    int stop_clicks = 0;
+    int stop_commands = 0;
+    while (!events.atEnd())
+    {
+        const auto event = QJsonDocument::fromJson(events.readLine()).object();
+        stop_clicks += event.value("event") == "button" && event.value("operation") == "stop";
+        stop_commands += event.value("event") == "command_sent" && event.value("type") == 110;
+    }
+    check(stop_clicks == 1 && stop_commands == 2,
+          "STOP completion did not use one click and two correlated requests");
+    button("deviceStartSpeed")->click();
+    check(wait_for(
+              [&]
+              {
+                  return button("deviceStartSpeed")->isEnabled() &&
+                         status->text().contains("启动被拒绝，108 确认 IDLE");
+              },
+              1500),
+          "rejected start remained falsely active after IDLE feedback");
+}
 } // namespace
 int main(int argc, char **argv)
 {
+    if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "-u")
+    {
+        return fake_reader();
+    }
     QApplication app(argc, argv);
     app.setStyle("Fusion");
     try
@@ -433,6 +640,7 @@ int main(int argc, char **argv)
         device_readback_checks();
         service_checks();
         gui_checks();
+        fake_gui_stop_checks();
         std::cout << "workbench/session/record/shared-draft offline PASS; no hardware access\n";
         return 0;
     }

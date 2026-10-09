@@ -224,6 +224,18 @@ UpgradePlan Upgrade_Inspect(UpgradeMode mode,
                 throw std::runtime_error("APP 包不兼容或 CRC/向量/描述符损坏；请使用当前打包工具");
             }
             plan.regions.append({"APP", synthetic ? "内置合成样本" : app_path, app_base, bytes});
+            plan.checks << QString("固件包 APP v%1.%2.%3 · MCU 0x%4 · layout %5 · schema %6")
+                               .arg(identity.version >> 16U)
+                               .arg((identity.version >> 8U) & 0xFFU)
+                               .arg(identity.version & 0xFFU)
+                               .arg(constant(target, "TARGET_MCU"), 8, 16, QChar('0'))
+                               .arg(constant(target, "TARGET_LAYOUT"))
+                               .arg(constant(target, "TARGET_SCHEMA"));
+            plan.checks << QString("APP 基地址 0x%1 · %2 B · CRC32 0x%3 · 参数 ABI 0x%4")
+                               .arg(app_base, 8, 16, QChar('0'))
+                               .arg(identity.bytes)
+                               .arg(identity.crc32, 8, 16, QChar('0'))
+                               .arg(constant(target, "TARGET_PARAM_ABI"), 8, 16, QChar('0'));
             plan.checks << "APP 目标 / schema / ABI / 角色 / 长度 / 整包 CRC32 / 向量检查通过";
         }
         const auto parameter_base = constant(target, "TARGET_PARAM_BASE");

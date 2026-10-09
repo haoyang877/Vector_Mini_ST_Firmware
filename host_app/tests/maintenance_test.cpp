@@ -78,6 +78,11 @@ void service_checks()
             });
         if (mode != UpgradeMode::Loader)
         {
+            const auto details = plan.checks.join('\n');
+            check(details.contains("MCU 0x") && details.contains("layout ") &&
+                      details.contains("schema ") && details.contains("APP 基地址 0x") &&
+                      details.contains("CRC32 0x"),
+                  "APP package identity not shown for review");
             const auto app_path = QDir(output).filePath("image.bin");
             check(Upgrade_Inspect(UpgradeMode::App, {}, app_path).valid,
                   "exported APP revalidation failed");
@@ -143,6 +148,9 @@ void gui_checks()
     MaintenanceWindow window;
     window.show();
     QApplication::processEvents();
+    check(window.findChild<QLabel *>("brandCompact")->text() ==
+              QStringLiteral("YG_MC_HOST v" YG_MC_HOST_VERSION),
+          "host version not visible in GUI");
     auto find_button = [&](const char *name)
     {
         return window.findChild<QPushButton *>(name);

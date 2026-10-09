@@ -1,7 +1,7 @@
-/** 基础工作区回归：控制门禁、停止与任务终态、完整记录以及共享参数草稿。 */
+/** 单页核心离线检查：假 CAN 辅助进程、序号和 STOP 最终确认。 */
 #include "gui/maintenance_window.h"
-#include "services/capture_csv.h"
 #include "services/device_readback.h"
+#include "services/upgrade_plan.h"
 extern "C"
 {
 #include "shared/protocol/yg_protocol_byte_order.h"
@@ -10,8 +10,8 @@ extern "C"
 }
 #include <QApplication>
 #include <QCheckBox>
-#include <QComboBox>
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
@@ -21,9 +21,6 @@ extern "C"
 #include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QStackedWidget>
-#include <QStandardItemModel>
-#include <QTableWidget>
 #include <QTemporaryDir>
 #include <QThread>
 #include <functional>
@@ -40,6 +37,7 @@ void check(bool value, const char *message)
         throw std::runtime_error(message);
     }
 }
+
 QByteArray reply(uint8_t node, uint16_t type, uint16_t sequence, const QByteArray &payload)
 {
     yg_protocol_frame_view_t message{};
@@ -183,6 +181,7 @@ bool wait_for(const std::function<bool()> &condition, int timeout_ms)
     }
     return false;
 }
+
 void device_readback_checks()
 {
     DeviceReadback device;
@@ -333,221 +332,56 @@ void device_readback_checks()
               changed.Device_View(125).boot_epoch == 10,
           "changed epoch retained old-session readback");
 }
-void service_checks()
-{
-    WorkbenchSession session;
-    check(!session.Session_Enable(true) && !session.Session_Stream(true),
-          "disconnected actions accepted");
-    check(session.Session_Connect(3, DemoScenario::Normal), "connect failed");
-    check(!session.Session_View().enabled && !session.Session_View().streaming,
-          "connect performed implicit actions");
-    check(!session.Session_Enable(true), "locked model enabled");
-    session.Session_Unlock(true);
-    check(session.Session_Enable(true), "unlock did not allow explicit enable");
-    check(!session.Session_Move(MotionMode::Current, 4), "out of range current accepted");
-    check(session.Session_Move(MotionMode::Position, 1), "position command rejected");
-    check(session.Session_Stream(true) && session.Session_Record(true), "capture rejected");
-    session.Session_Tick(0.2);
-    check(session.Session_Recording().size() == 10, "model capture is not 50 Hz");
-    check(session.Session_Recording().back().position_rad > 0, "motion has no model response");
-    QTemporaryDir directory;
-    const auto path = directory.filePath("capture.csv");
-    Capture_Write(path, session.Session_Recording());
-    const auto replay = Capture_Read(path);
-    check(replay.size() == 10 && replay.back().demo_node == 3 &&
-              replay.back().position_rad == session.Session_Recording().back().position_rad &&
-              replay.back().iq_reference_a == session.Session_Recording().back().iq_reference_a,
-          "CSV SI roundtrip changed samples");
-    QFile bad(directory.filePath("bad.csv"));
-    check(bad.open(QIODevice::WriteOnly), "bad fixture open");
-    bad.write("time,position\n0,1\n");
-    bad.close();
-    bool rejected = false;
-    try
-    {
-        Capture_Read(bad.fileName());
-    }
-    catch (const std::exception &)
-    {
-        rejected = true;
-    }
-    check(rejected, "unknown CSV source accepted");
-    session.Session_Stop();
-    check(session.Session_MotionParameters({1, 0.5, 2}), "stopped model parameters rejected");
-    session.Session_Enable(true);
-    check(!session.Session_Move(MotionMode::Current, 0.6) &&
-              !session.Session_MotionParameters({2, 1, 3}),
-          "confirmed current limit or stopped-only model mutation bypassed");
-    session.Session_Stop();
-    check(!session.Session_View().moving && !session.Session_View().enabled &&
-              session.Session_View().target == 0,
-          "stop retained old motion target");
-    check(session.Session_Enable(true) && !session.Session_View().moving,
-          "reenable resumed old motion");
-    session.Session_Stop();
-    check(session.Session_StartTask(TaskKind::Sensor), "task rejected");
-    check(!session.Session_StartTask(TaskKind::Resistance) && !session.Session_Enable(true),
-          "busy task lost ownership");
-    const auto run_id = session.Session_View().task.run_id;
-    session.Session_CancelTask();
-    for (int i = 0; i < 30; ++i)
-    {
-        session.Session_Tick(0.2);
-    }
-    check(session.Session_View().task.phase == TaskPhase::Cancelled &&
-              session.Session_View().task.result.isEmpty(),
-          "cancelled task became completed");
-    check(session.Session_StartTask(TaskKind::Inductance), "second task rejected");
-    for (int i = 0; i < 21; ++i)
-    {
-        session.Session_Tick(0.2);
-    }
-    check(session.Session_View().task.run_id > run_id &&
-              session.Session_View().task.phase == TaskPhase::Completed &&
-              !session.Session_View().task.applied_to_demo,
-          "completion invented application or reused run");
-    check(session.Session_ApplyTask(), "candidate application rejected");
-    session.Session_Disconnect();
-    check(!session.Session_Recording().empty() && !session.Session_View().recording,
-          "disconnect discarded record");
-    for (const auto scenario : {DemoScenario::ReadOnly, DemoScenario::Loader, DemoScenario::Fault})
-    {
-        WorkbenchSession limited;
-        limited.Session_Connect(4, scenario);
-        limited.Session_Unlock(true);
-        check(!limited.Session_Enable(true) && !limited.Session_StartTask(TaskKind::Sensor),
-              "scenario gate bypassed");
-        if (scenario == DemoScenario::Fault)
-        {
-            check(limited.Session_ClearFault() && !limited.Session_View().enabled,
-                  "fault clear enabled model");
-        }
-    }
-    ParameterSandbox readonly(4, false);
-    check(readonly.Sandbox_Read(3).value->raw == 4 && readonly.Sandbox_Read(1).value->access == 1,
-          "readonly scenario exposes write access or wrong node");
-    check(readonly.Sandbox_Write(*readonly.Sandbox_Read(1).value).detail == 2,
-          "readonly model accepted write");
-    WorkbenchSession bounded;
-    bounded.Session_Connect(3, DemoScenario::Normal);
-    bounded.Session_Stream(true);
-    bounded.Session_Record(true);
-    for (int i = 0; i < 3002; ++i)
-    {
-        bounded.Session_Tick(0.2);
-    }
-    check(bounded.Session_Recording().size() == 30000 && !bounded.Session_View().recording &&
-              bounded.Session_Samples().size() == 3000,
-          "capture/display capacity not bounded");
-}
+
 void gui_checks()
 {
     MaintenanceWindow window;
-    window.resize(1366, 768);
     window.show();
     QApplication::processEvents();
-    const auto press = [&](const char *name)
+    auto button = [&](const char *name)
     {
-        auto *button = window.findChild<QPushButton *>(name);
-        check(button != nullptr, "missing original navigation/action");
-        button->click();
+        return window.findChild<QPushButton *>(name);
     };
-    auto *pages = window.findChild<QStackedWidget *>("workspacePages");
-    check(pages->count() == 8 && pages->currentIndex() == 0,
-          "connection plus seven workspaces not restored");
-    press("connectDevice");
-    check(pages->currentIndex() == 1 &&
-              !window.findChild<QPushButton *>("executeMotion")->isEnabled(),
-          "connection skipped home or enabled motion");
-    press("workbenchNav");
-    check(window.findChild<QWidget *>("scope")->isVisible() &&
-              window.findChild<QPushButton *>("stopMotor")->isVisible(),
-          "primary scope/stop invisible");
-    window.findChild<QCheckBox *>("unlockWrites")->setChecked(true);
-    press("streamStart");
-    press("recordStart");
-    press("enableMotor");
-    press("executeMotion");
-    for (int i = 0; i < 5; ++i)
-    {
-        window.Window_AdvanceDemo(0.2);
-    }
-    window.findChild<QCheckBox *>("freezeScope")->setChecked(true);
-    press("diagnosticsNav");
-    window.Window_AdvanceDemo(0.2);
-    check(window.findChild<QLabel *>("recordStatus")->text().contains("正在记录"),
-          "page switch/freeze ended capture");
-    press("stopMotor");
-    press("workbenchNav");
-    press("quickRead");
-    auto *table = window.findChild<QTableWidget *>("parameterTable");
-    table->item(1, 4)->setText("12");
-    table->item(2, 4)->setText("2.5");
-    check(window.findChild<QLineEdit *>("quickDraft")->text() == "12",
-          "quick/full drafts diverged");
-    press("quickApply");
-    check(table->item(1, 2)->text() == "12" && table->item(2, 4)->text() == "2.5",
-          "apply lost another parameter draft");
-    press("calibrationNav");
-    press("startCalibration");
-    window.Window_AdvanceDemo(0.2);
-    press("identificationNav");
-    check(!qobject_cast<QStandardItemModel *>(
-               window.findChild<QComboBox *>("identificationKind")->model())
-               ->item(int(TaskKind::Inductance) - 4)
-               ->isEnabled(),
-          "missing device inductance capability left enabled");
-    check(!window.findChild<QPushButton *>("startIdentification")->isEnabled(),
-          "task lost exclusivity across page switch");
-    press("stopMotor");
-    press("calibrationNav");
-    check(window.findChild<QLabel *>("calibrationPhase")->text().contains("已取消"),
-          "global stop did not cancel task");
-    press("disconnectDevice");
-    press("connectionSettings");
-    window.findChild<QComboBox *>("demoScenario")->setCurrentIndex(1);
-    press("connectDevice");
-    window.findChild<QCheckBox *>("unlockWrites")->setChecked(true);
-    press("parameterNav");
-    press("readParameters");
-    check(!window.findChild<QPushButton *>("writeParameter")->isEnabled() &&
-              !(table->item(1, 4)->flags() & Qt::ItemIsEditable),
-          "readonly scene allows parameter edit/write");
-    press("disconnectDevice");
-    press("connectionSettings");
-    window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
-    check(window.findChild<QProcess *>() == nullptr,
-          "selecting CAN opened a device helper without explicit connect");
-    check(!window.findChild<QPushButton *>("deviceStartSpeed")->isEnabled() &&
-              !window.findChild<QPushButton *>("deviceSetSpeed")->isEnabled() &&
-              !window.findChild<QPushButton *>("executeAppUpgrade")->isEnabled() &&
-              window.findChild<QSpinBox *>("deviceSpeedRpm")->maximum() == 300,
-          "real speed/upgrade controls escaped explicit bench gate");
-    check(!window.findChild<QLineEdit *>("quickDraft")->isEnabled(),
-          "CAN read-only page retained an editable parameter draft");
-    press("connectDevice");
-    check(window.findChild<QLabel *>("footer")->text().contains("缺少 Python") &&
-              window.findChild<QProcess *>() == nullptr,
-          "missing SDK configuration opened a device helper");
-    press("homeNav");
-    QByteArray feedback =
-        QByteArray::fromHex("0000000004030201E803000030F8FFFFB80B000060F0FFFFFF0D6009DC0550FB"
-                            "4C04E6090080881306FF030603");
-    yg_protocol_can_id_fields_t fields{3, 3, 2};
-    uint32_t can_id = 0;
-    check(yg_protocol_can_id_encode(&fields, &can_id) == YG_PROTOCOL_OK,
-          "GUI readback CAN ID encode");
-    check(window.Window_BeginDeviceRead(108, 35, 0) &&
-              window.Window_ObserveDeviceFrame(can_id, reply(3, 108, 35, feedback)),
-          "GUI readback seam rejected wire reply");
-    check(window.findChild<QLabel *>("homeTelemetry")->text().contains("八态 6") &&
-              !window.findChild<QPushButton *>("enableMotor")->isEnabled() &&
-              !window.findChild<QPushButton *>("deviceStartSpeed")->isEnabled() &&
-              !window.findChild<QPushButton *>("stopMotor")->isEnabled(),
-          "wire replay was shown as demo or gained power controls");
+    check(window.findChild<QProcess *>() == nullptr, "startup opened hardware");
+    check(window.findChild<QWidget *>("workspacePages") == nullptr, "old navigation remained");
+    check(window.findChild<QWidget *>("demoScenario") == nullptr, "demo scenario remained");
+    check(!button("deviceStartSpeed")->isEnabled() && !button("deviceSetSpeed")->isEnabled() &&
+              !button("executeAppUpgrade")->isEnabled(),
+          "disconnected control enabled");
+    check(window.findChild<QLabel *>("deviceUid")->text() == "未知", "invented device identity");
+    window.findChild<QLineEdit *>("appPath")->setText("missing.bin");
+    button("inspectFiles")->click();
+    check(window.findChild<QLabel *>("validationStatus")->text().contains("校验失败"),
+          "invalid APP package accepted");
+    button("connectDevice")->click();
+    check(window.findChild<QProcess *>() == nullptr, "missing SDK opened a device port");
 }
 
-void fake_gui_stop_checks()
+void app_package_checks()
+{
+    QFile fixture(":/fixtures/loader_image_v3.json");
+    check(fixture.open(QIODevice::ReadOnly), "APP fixture absent");
+    const auto image = QJsonDocument::fromJson(fixture.readAll()).object();
+    QTemporaryDir directory;
+    check(directory.isValid(), "APP temp directory unavailable");
+    const auto image_path = directory.filePath("image.bin");
+    const auto manifest_path = directory.filePath("manifest.bin");
+    auto write = [](const QString &path, const QByteArray &bytes)
+    {
+        QFile file(path);
+        check(file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size(),
+              "APP fixture write failed");
+    };
+    auto bytes = QByteArray::fromHex(image.value("image_hex").toString().toLatin1());
+    write(image_path, bytes);
+    write(manifest_path, QByteArray::fromHex(image.value("manifest_hex").toString().toLatin1()));
+    check(Upgrade_Inspect(image_path).valid, "valid APP package rejected");
+    bytes[bytes.size() - 1] ^= 1;
+    write(image_path, bytes);
+    check(!Upgrade_Inspect(image_path).valid, "damaged APP package accepted");
+}
+
+void fake_gui_checks()
 {
     QTemporaryDir directory;
     check(directory.isValid(), "fake bench directory unavailable");
@@ -561,25 +395,23 @@ void fake_gui_stop_checks()
     {
         return window.findChild<QPushButton *>(name);
     };
-    window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
-    window.findChild<QSpinBox *>("targetNode")->setValue(1);
     auto *sequence_start = window.findChild<QSpinBox *>("benchSequenceStart");
     check(sequence_start->value() == 0 && sequence_start->maximum() == 65534,
-          "bench sequence start changed its safe default or range");
+          "bench sequence start changed default/range");
     sequence_start->setValue(10000);
     window.findChild<QLineEdit *>("pythonRuntimePath")
         ->setText(QCoreApplication::applicationFilePath());
     window.findChild<QLineEdit *>("canSdkPath")->setText(dll);
     button("connectDevice")->click();
-    auto *bench = window.findChild<QCheckBox *>("deviceBenchReady");
+    auto *bench = window.findChild<QCheckBox *>("deviceBenchAcknowledged");
     check(wait_for(
               [&]
               {
                   return bench->isEnabled();
               },
               1500),
-          "fake GUI port did not open");
-    check(!sequence_start->isEnabled(), "connected bench sequence start remained editable");
+          "fake port did not open");
+    check(!sequence_start->isEnabled(), "connected sequence start editable");
     bench->click();
     check(wait_for(
               [&]
@@ -587,7 +419,9 @@ void fake_gui_stop_checks()
                   return button("deviceStartSpeed")->isEnabled();
               },
               1500),
-          "fake identity or IDLE feedback did not enable start");
+          "fake identity/IDLE did not enable start");
+    check(window.findChild<QLabel *>("deviceUid")->text().contains("5700460010504E4831303320"),
+          "real reply UID not displayed");
     button("deviceStartSpeed")->click();
     check(wait_for(
               [&]
@@ -595,8 +429,19 @@ void fake_gui_stop_checks()
                   return button("deviceSetSpeed")->isEnabled();
               },
               1500),
-          "accepted fake start did not reach RUNNING");
-    button("deviceStopSpeed")->click();
+          "accepted start did not reach RUNNING");
+    window.findChild<QSpinBox *>("deviceSpeedRpm")->setValue(30);
+    button("deviceSetSpeed")->click();
+    check(wait_for(
+              [&]
+              {
+                  return window.findChild<QLabel *>("deviceControlStatus")
+                      ->text()
+                      .contains("Type 116");
+              },
+              1500),
+          "116 result did not arrive");
+    button("stopMotor")->click();
     auto *status = window.findChild<QLabel *>("deviceControlStatus");
     check(wait_for(
               [&]
@@ -605,16 +450,12 @@ void fake_gui_stop_checks()
                          status->text().contains("STOP 结果 0/0 且108确认 IDLE");
               },
               2000),
-          "one STOP click did not converge from accepted to confirmed IDLE");
-    const auto trace = window.findChild<QLabel *>("globalStatus")
-                           ->toolTip()
-                           .mid(QString("本次真实 GUI 事件：").size());
+          "one STOP click did not reach 0/0 and IDLE");
+    const auto trace = window.findChild<QLabel *>("globalStatus")->toolTip().mid(3);
     QFile events(trace);
     check(events.open(QIODevice::ReadOnly), "fake GUI trace absent");
-    int stop_clicks = 0;
-    int stop_commands = 0;
-    int logged_start = -1;
-    int first_frame_sequence = -1;
+    int stop_clicks = 0, stop_commands = 0, set_commands = 0;
+    int logged_start = -1, first_frame_sequence = -1;
     while (!events.atEnd())
     {
         const auto event = QJsonDocument::fromJson(events.readLine()).object();
@@ -628,20 +469,12 @@ void fake_gui_stop_checks()
         }
         stop_clicks += event.value("event") == "button" && event.value("operation") == "stop";
         stop_commands += event.value("event") == "command_sent" && event.value("type") == 110;
+        set_commands += event.value("event") == "command_sent" && event.value("type") == 116;
     }
-    check(stop_clicks == 1 && stop_commands == 2,
-          "STOP completion did not use one click and two correlated requests");
+    check(stop_clicks == 1 && stop_commands == 2 && set_commands == 1,
+          "expected 116 and bounded two-request STOP sequence");
     check(logged_start == 10000 && first_frame_sequence == 10001,
-          "explicit bench sequence start did not seed the first request");
-    button("deviceStartSpeed")->click();
-    check(wait_for(
-              [&]
-              {
-                  return button("deviceStartSpeed")->isEnabled() &&
-                         status->text().contains("启动被拒绝，108 确认 IDLE");
-              },
-              1500),
-          "rejected start remained falsely active after IDLE feedback");
+          "manual sequence start did not seed first GET");
     button("disconnectDevice")->click();
     check(wait_for(
               [&]
@@ -649,7 +482,9 @@ void fake_gui_stop_checks()
                   return sequence_start->isEnabled();
               },
               1500),
-          "bench sequence start remained locked after disconnect");
+          "sequence start remained locked after disconnect");
+    check(window.findChild<QLabel *>("deviceUid")->text() == "未知",
+          "disconnected UI retained stale identity");
 }
 } // namespace
 int main(int argc, char **argv)
@@ -663,10 +498,10 @@ int main(int argc, char **argv)
     try
     {
         device_readback_checks();
-        service_checks();
+        app_package_checks();
         gui_checks();
-        fake_gui_stop_checks();
-        std::cout << "workbench/session/record/shared-draft offline PASS; no hardware access\n";
+        fake_gui_checks();
+        std::cout << "host core offline PASS; no hardware access\n";
         return 0;
     }
     catch (const std::exception &error)

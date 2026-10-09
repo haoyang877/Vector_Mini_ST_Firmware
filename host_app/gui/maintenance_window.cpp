@@ -1,58 +1,42 @@
-/** 维护页保留离线计划；实机 APP 升级仅由显式台架门禁启动独立客户端。 */
+/** 单页真实设备界面；设备 I/O 由既有辅助进程和升级客户端执行。 */
 #include "maintenance_window.h"
-#include <QButtonGroup>
 #include <QCheckBox>
 #include <QCloseEvent>
-#include <QComboBox>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFrame>
-#include <QHeaderView>
-#include <QJsonArray>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QJsonDocument>
-#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
-#include <QProgressBar>
 #include <QProcess>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSaveFile>
 #include <QScrollArea>
 #include <QSpinBox>
-#include <QStackedWidget>
-#include <QTableWidget>
 #include <QTextEdit>
+#include <QTextDocument>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <cmath>
-#include <limits>
 
 namespace yg::host
 {
 namespace
 {
-QLabel *label(const QString &text, const char *style, QWidget *parent = nullptr)
+QLabel *value_label(const char *name)
 {
-    auto *item = new QLabel(text, parent);
-    item->setObjectName(style);
-    return item;
-}
-
-QFrame *card(QVBoxLayout *layout, const QString &title)
-{
-    auto *frame = new QFrame;
-    frame->setObjectName("card");
-    auto *content = new QVBoxLayout(frame);
-    content->setContentsMargins(20, 17, 20, 19);
-    content->setSpacing(13);
-    content->addWidget(label(title, "cardTitle"));
-    layout->addWidget(frame);
-    return frame;
+    auto *label = new QLabel("未知");
+    label->setObjectName(name);
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    return label;
 }
 
 QPushButton *button(const QString &text, const char *name, const char *role = "secondary")
@@ -60,34 +44,26 @@ QPushButton *button(const QString &text, const char *name, const char *role = "s
     auto *item = new QPushButton(text);
     item->setObjectName(name);
     item->setProperty("role", role);
-    item->setCursor(Qt::PointingHandCursor);
     item->setMinimumHeight(36);
     return item;
 }
 
-double scalar(const ParameterValue &value)
+QString version(const std::optional<uint32_t> &value)
 {
-    return value.value_type == 2
-               ? double(value.raw)
-               : double(value.raw <= 0x7fffffff ? qint64(value.raw)
-                                                : qint64(value.raw) - 0x100000000LL);
+    if (!value || !*value)
+    {
+        return "未知";
+    }
+    return QString("%1.%2.%3").arg(*value >> 16U).arg((*value >> 8U) & 0xFFU).arg(*value & 0xFFU);
 }
 
-QString reason(const ParameterReply &reply)
+template <typename T> QString number(const std::optional<T> &value, int precision = -1)
 {
-    if (reply.detail == 3)
+    if (!value)
     {
-        return "revision 冲突，请重新读取后再编辑";
+        return "未知";
     }
-    if (reply.detail == 2)
-    {
-        return "该参数只读或由标定所有者管理";
-    }
-    if (reply.result == 6)
-    {
-        return "保存作业忙，请等待完成";
-    }
-    return QString("请求被拒绝：result=%1，detail=%2").arg(reply.result).arg(reply.detail);
+    return precision < 0 ? QString::number(*value) : QString::number(*value, 'f', precision);
 }
 } // namespace
 
@@ -105,122 +81,238 @@ void MaintenanceWindow::closeEvent(QCloseEvent *event)
 {
     if (upgrade_process_)
     {
-        upgrade_status_->setText("升级作业仍在运行；等待终态与证据写入后才能关闭窗口。");
+        upgrade_status_->setText("升级仍在运行；等待结果和证据写入。");
         event->ignore();
         return;
     }
     if (device_motion_may_run_ && device_reader_)
     {
         queue_device_command("stop");
-        device_control_result_ = "已请求 STOP；先确认 IDLE/关相，再关闭窗口。";
+        device_control_status_->setText("已请求 STOP；确认 108 IDLE 和输出关闭后再退出。");
         event->ignore();
         return;
     }
     event->accept();
 }
 
-QWidget *MaintenanceWindow::build_upgrade_page()
+void MaintenanceWindow::build_shell()
 {
-    auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(14);
-    layout->setSizeConstraint(QLayout::SetMinimumSize);
-    auto *range = card(layout, "01  选择升级范围");
-    auto *modes = new QHBoxLayout;
-    auto *group = new QButtonGroup(this);
-    const QStringList names{
-        "Loader\n离线安装 · 保留 APP", "APP\nCAN FD · 保留 Loader", "Loader + APP\n配套离线安装"};
-    for (int i = 0; i < names.size(); ++i)
+    setWindowTitle(QStringLiteral("YG_MC_HOST v" YG_MC_HOST_VERSION));
+    resize(1000, 760);
+    setMinimumSize(780, 600);
+    auto *root = new QWidget;
+    root->setObjectName("workspace");
+    auto *layout = new QVBoxLayout(root);
+    layout->setContentsMargins(16, 12, 16, 12);
+    layout->setSpacing(12);
+
+    auto *top = new QHBoxLayout;
+    auto *brand = new QLabel(QStringLiteral("YG_MC_HOST v" YG_MC_HOST_VERSION));
+    brand->setObjectName("brandCompact");
+    top->addWidget(brand);
+    global_status_ = new QLabel("未连接 · 读数未知");
+    global_status_->setObjectName("globalStatus");
+    top->addWidget(global_status_, 1);
+    disconnect_button_ = button("断开", "disconnectDevice");
+    stop_ = button("停止", "stopMotor", "danger");
+    top->addWidget(disconnect_button_);
+    top->addWidget(stop_);
+    layout->addLayout(top);
+
+    auto *scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    auto *content = new QWidget;
+    auto *sections = new QVBoxLayout(content);
+    sections->setSpacing(10);
+
+    auto *connection = new QGroupBox("连接");
+    auto *connect_form = new QFormLayout(connection);
+    node_ = new QSpinBox;
+    node_->setObjectName("targetNode");
+    node_->setRange(1, 254);
+    node_->setValue(1);
+    node_->setMaximumWidth(120);
+    connect_form->addRow("设备节点", node_);
+    auto *advanced_toggle = button("高级设置 ▸", "advancedSettings");
+    advanced_toggle->setCheckable(true);
+    auto *advanced_panel = new QWidget;
+    advanced_panel->setObjectName("advancedPanel");
+    auto *advanced_form = new QFormLayout(advanced_panel);
+    advanced_form->setContentsMargins(0, 0, 0, 0);
+    advanced_panel->setVisible(false);
+    device_sequence_start_ = new QSpinBox;
+    device_sequence_start_->setObjectName("benchSequenceStart");
+    device_sequence_start_->setRange(0, 65534);
+    device_sequence_start_->setToolTip(
+        "同一未重启设备须依据源节点 2 日志填写；下一请求使用起点 + 1。");
+    advanced_form->addRow("序号起点", device_sequence_start_);
+    python_path_ = new QLineEdit;
+    python_path_->setObjectName("pythonRuntimePath");
+    python_path_->setPlaceholderText("选择 Python 3 可执行文件");
+    auto *python_row = new QHBoxLayout;
+    python_row->addWidget(python_path_, 1);
+    auto *browse_python = button("浏览", "browsePython");
+    python_row->addWidget(browse_python);
+    advanced_form->addRow("Python", python_row);
+    sdk_path_ = new QLineEdit;
+    sdk_path_->setObjectName("canSdkPath");
+    sdk_path_->setPlaceholderText("选择 ControlCANFD.dll");
+    auto *sdk_row = new QHBoxLayout;
+    sdk_row->addWidget(sdk_path_, 1);
+    auto *browse_sdk = button("浏览", "browseSdk");
+    sdk_row->addWidget(browse_sdk);
+    advanced_form->addRow("SDK DLL", sdk_row);
+    connect_button_ = button("连接", "connectDevice", "primary");
+    auto *connect_row = new QHBoxLayout;
+    connect_row->addWidget(connect_button_);
+    connect_row->addWidget(advanced_toggle);
+    connect_row->addStretch();
+    connect_form->addRow({}, connect_row);
+    connect_form->addRow({}, advanced_panel);
+    sections->addWidget(connection);
+
+    auto *readback = new QGroupBox("设备回读");
+    auto *readback_grid = new QGridLayout(readback);
+    uid_value_ = value_label("deviceUid");
+    version_value_ = value_label("deviceAppVersion");
+    loader_value_ = value_label("deviceLoaderVersion");
+    mode_value_ = value_label("deviceMode");
+    fault_value_ = value_label("deviceFault");
+    speed_value_ = value_label("deviceSpeed");
+    iq_value_ = value_label("deviceIq");
+    bus_value_ = value_label("deviceBus");
+    auto add_readback = [readback_grid](int row, int column, const QString &title, QLabel *value)
     {
-        auto *item = button(names[i], qPrintable(QString("mode%1").arg(i)), "mode");
-        item->setCheckable(true);
-        group->addButton(item);
-        mode_buttons_.append(item);
-        modes->addWidget(item, 1);
-        connect(item,
-                &QPushButton::clicked,
-                this,
-                [this, i]
-                {
-                    select_mode(UpgradeMode(i));
-                });
-    }
-    mode_buttons_[1]->setChecked(true);
-    static_cast<QVBoxLayout *>(range->layout())->addLayout(modes);
-    route_ = label("APP 通过 CAN FD 升级；Loader 区保持保护。", "subtitle");
-    route_->setWordWrap(true);
-    static_cast<QVBoxLayout *>(range->layout())->addWidget(route_);
-    auto *files = card(layout, "02  选择镜像与本地校验");
-    auto *fields = static_cast<QVBoxLayout *>(files->layout());
-    for (int i = 0; i < 2; ++i)
-    {
-        auto *row = new QHBoxLayout;
-        auto *name = label(i == 0 ? "Loader BIN" : "APP image.bin", "subtitle");
-        name->setFixedWidth(115);
-        row->addWidget(name);
-        auto *input = new QLineEdit;
-        input->setObjectName(i == 0 ? "loaderPath" : "appPath");
-        input->setPlaceholderText(i == 0 ? "选择 Loader 链接 BIN"
-                                         : "选择打包 image.bin，同目录需有 manifest.bin");
-        row->addWidget(input, 1);
-        auto *choose = button("选择文件", i == 0 ? "chooseLoader" : "chooseApp");
-        row->addWidget(choose);
-        fields->addLayout(row);
-        if (i == 0)
-        {
-            loader_path_ = input;
-        }
-        else
-        {
-            app_path_ = input;
-        }
-        connect(input,
-                &QLineEdit::textEdited,
-                this,
-                [this]
-                {
-                    synthetic_ = false;
-                    invalidate_plan();
-                });
-        connect(choose,
-                &QPushButton::clicked,
-                this,
-                [this, input]
-                {
-                    const auto path =
-                        QFileDialog::getOpenFileName(this, "选择 BIN 镜像", {}, "固件镜像 (*.bin)");
-                    if (!path.isEmpty())
-                    {
-                        synthetic_ = false;
-                        input->setText(path);
-                        invalidate_plan();
-                    }
-                });
-    }
-    validation_ = label(
-        "尚未校验 · APP 必须使用配套 LoaderApp v3 image.bin/manifest.bin；同名版本不代表布局匹配。",
-        "subtitle");
-    validation_->setObjectName("validationStatus");
+        readback_grid->addWidget(new QLabel(title), row, column * 2);
+        readback_grid->addWidget(value, row, column * 2 + 1);
+    };
+    add_readback(0, 0, "UID / SN", uid_value_);
+    add_readback(1, 0, "APP 版本", version_value_);
+    add_readback(2, 0, "Loader 版本", loader_value_);
+    add_readback(3, 0, "状态 / 模式", mode_value_);
+    add_readback(0, 1, "故障", fault_value_);
+    add_readback(1, 1, "实际速度", speed_value_);
+    add_readback(2, 1, "Iq", iq_value_);
+    add_readback(3, 1, "母线", bus_value_);
+    device_status_ = value_label("deviceReadbackStatus");
+    readback_grid->addWidget(device_status_, 4, 0, 1, 4);
+    sections->addWidget(readback);
+
+    auto *control = new QGroupBox("速度控制");
+    auto *control_layout = new QVBoxLayout(control);
+    device_bench_ack_ = new QCheckBox("已确认架空台架及 33 V / 母线 3 A / 相 6 A 限值");
+    device_bench_ack_->setObjectName("deviceBenchAcknowledged");
+    control_layout->addWidget(device_bench_ack_);
+    auto *control_row = new QHBoxLayout;
+    device_start_button_ = button("启动（零速）", "deviceStartSpeed", "primary");
+    device_speed_rpm_ = new QSpinBox;
+    device_speed_rpm_->setObjectName("deviceSpeedRpm");
+    device_speed_rpm_->setRange(0, 300);
+    device_speed_rpm_->setSuffix(" rpm");
+    device_speed_button_ = button("设置速度", "deviceSetSpeed");
+    control_row->addWidget(device_start_button_);
+    control_row->addWidget(device_speed_rpm_);
+    control_row->addWidget(device_speed_button_);
+    control_row->addStretch();
+    control_layout->addLayout(control_row);
+    device_control_status_ = value_label("deviceControlStatus");
+    device_control_status_->setWordWrap(true);
+    control_layout->addWidget(device_control_status_);
+    sections->addWidget(control);
+
+    auto *upgrade = new QGroupBox("APP 升级");
+    auto *upgrade_layout = new QVBoxLayout(upgrade);
+    auto *package_row = new QHBoxLayout;
+    app_path_ = new QLineEdit;
+    app_path_->setObjectName("appPath");
+    app_path_->setPlaceholderText("选择 image.bin；同目录必须有 manifest.bin");
+    package_row->addWidget(app_path_, 1);
+    auto *choose_app = button("选择 APP 包", "chooseApp");
+    package_row->addWidget(choose_app);
+    upgrade_layout->addLayout(package_row);
+    validation_ = value_label("validationStatus");
+    validation_->setText("未选择 APP 包");
     validation_->setWordWrap(true);
-    validation_->setMinimumHeight(45);
-    fields->addWidget(validation_);
-    auto *actions = new QHBoxLayout;
-    auto *samples = button("载入演示样本", "loadSamples");
-    auto *inspect = button("校验文件", "inspectFiles", "primary");
-    export_job_button_ = button("导出升级任务", "exportJob");
-    export_job_button_->setEnabled(false);
-    actions->addWidget(samples);
-    actions->addStretch();
-    actions->addWidget(inspect);
-    actions->addWidget(export_job_button_);
-    fields->addLayout(actions);
-    connect(samples,
+    upgrade_layout->addWidget(validation_);
+    auto *upgrade_row = new QHBoxLayout;
+    auto *inspect = button("检查", "inspectFiles");
+    upgrade_run_button_ = button("升级", "executeAppUpgrade", "primary");
+    upgrade_row->addWidget(inspect);
+    upgrade_row->addWidget(upgrade_run_button_);
+    upgrade_row->addStretch();
+    upgrade_layout->addLayout(upgrade_row);
+    progress_ = new QProgressBar;
+    progress_->setRange(0, 100);
+    progress_->setValue(0);
+    upgrade_layout->addWidget(progress_);
+    upgrade_status_ = value_label("upgradeStatus");
+    upgrade_status_->setText("未连接；升级需要配套 LoaderApp。");
+    upgrade_status_->setWordWrap(true);
+    upgrade_layout->addWidget(upgrade_status_);
+    upgrade_log_ = new QTextEdit;
+    upgrade_log_->setObjectName("upgradeLog");
+    upgrade_log_->setReadOnly(true);
+    upgrade_log_->document()->setMaximumBlockCount(100);
+    upgrade_log_->setMaximumHeight(90);
+    upgrade_layout->addWidget(upgrade_log_);
+    sections->addWidget(upgrade);
+    sections->addStretch();
+    scroll->setWidget(content);
+    layout->addWidget(scroll, 1);
+    setCentralWidget(root);
+
+    connect(advanced_toggle,
+            &QPushButton::toggled,
+            this,
+            [advanced_toggle, advanced_panel](bool shown)
+            {
+                advanced_panel->setVisible(shown);
+                advanced_toggle->setText(shown ? "高级设置 ▾" : "高级设置 ▸");
+            });
+    connect(browse_python,
             &QPushButton::clicked,
             this,
             [this]
             {
-                load_samples();
+                const auto path = QFileDialog::getOpenFileName(this, "选择 Python 3");
+                if (!path.isEmpty())
+                {
+                    python_path_->setText(path);
+                }
+            });
+    connect(browse_sdk,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                const auto path = QFileDialog::getOpenFileName(
+                    this, "选择 ControlCANFD SDK DLL", {}, "DLL (*.dll)");
+                if (!path.isEmpty())
+                {
+                    sdk_path_->setText(path);
+                }
+            });
+    connect(choose_app,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                const auto path =
+                    QFileDialog::getOpenFileName(this, "选择 APP image.bin", {}, "BIN (*.bin)");
+                if (!path.isEmpty())
+                {
+                    app_path_->setText(path);
+                    inspect_files();
+                }
+            });
+    connect(app_path_,
+            &QLineEdit::textChanged,
+            this,
+            [this]
+            {
+                plan_.reset();
+                validation_->setText("未校验");
+                refresh_workbench();
             });
     connect(inspect,
             &QPushButton::clicked,
@@ -229,57 +321,6 @@ QWidget *MaintenanceWindow::build_upgrade_page()
             {
                 inspect_files();
             });
-    connect(export_job_button_,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                export_job();
-            });
-    auto *progress_card = card(layout, "03  安装步骤与结果");
-    auto *result = static_cast<QVBoxLayout *>(progress_card->layout());
-    upgrade_status_ =
-        label("离线演示可用；真实 APP 执行须配套 Loader、STOP/IDLE 与独占台架", "subtitle");
-    upgrade_status_->setObjectName("upgradeStatus");
-    result->addWidget(upgrade_status_);
-    progress_ = new QProgressBar;
-    progress_->setObjectName("upgradeProgress");
-    progress_->setTextVisible(false);
-    progress_->setValue(0);
-    result->addWidget(progress_);
-    upgrade_log_ = new QTextEdit;
-    upgrade_log_->setObjectName("upgradeLog");
-    upgrade_log_->setReadOnly(true);
-    upgrade_log_->setMinimumHeight(95);
-    upgrade_log_->setMaximumHeight(180);
-    result->addWidget(upgrade_log_, 1);
-    auto *run = new QHBoxLayout;
-    run->addWidget(label("实机安装结果：未知", "subtitle"));
-    run->addStretch();
-    cancel_button_ = button("取消演示", "cancelDemo");
-    cancel_button_->setEnabled(false);
-    demo_button_ = button("演示升级流程", "startDemo", "primary");
-    demo_button_->setEnabled(false);
-    upgrade_run_button_ = button("执行 APP CAN FD 升级", "executeAppUpgrade", "primary");
-    upgrade_run_button_->setEnabled(false);
-    run->addWidget(cancel_button_);
-    run->addWidget(demo_button_);
-    run->addWidget(upgrade_run_button_);
-    result->addLayout(run);
-    connect(demo_button_,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                start_demo();
-            });
-    connect(cancel_button_,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                cancel_demo();
-            });
     connect(upgrade_run_button_,
             &QPushButton::clicked,
             this,
@@ -287,138 +328,189 @@ QWidget *MaintenanceWindow::build_upgrade_page()
             {
                 start_real_upgrade();
             });
-    demo_timer_ = new QTimer(this);
-    demo_timer_->setInterval(220);
-    connect(demo_timer_,
+    connect(connect_button_,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                connect_device();
+            });
+    connect(disconnect_button_,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                if (device_motion_may_run_)
+                {
+                    queue_device_command("stop");
+                    return;
+                }
+                disconnect_device();
+                refresh_workbench();
+            });
+    connect(stop_,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                queue_device_command("stop");
+            });
+    connect(device_start_button_,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                queue_device_command("start_speed");
+            });
+    connect(device_speed_button_,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                queue_device_command("set_speed", device_speed_rpm_->value());
+            });
+    connect(device_bench_ack_,
+            &QCheckBox::toggled,
+            this,
+            [this]
+            {
+                refresh_workbench();
+            });
+    connect(node_,
+            &QSpinBox::valueChanged,
+            this,
+            [this]
+            {
+                device_readback_.Device_Reset(quint8(node_->value()));
+                refresh_workbench();
+            });
+    device_readback_.Device_Reset(quint8(node_->value()));
+    elapsed_.start();
+    auto *timer = new QTimer(this);
+    timer->setInterval(20);
+    connect(timer,
             &QTimer::timeout,
             this,
             [this]
             {
-                if (!plan_ || demo_step_ >= plan_->steps.size())
+                const auto now_ms = elapsed_.elapsed();
+                if (device_reader_ && !device_ready_ && now_ms - device_connect_ms_ > 2000)
                 {
-                    cancel_demo();
-                    return;
+                    device_error_ = "CAN 端口打开超时。";
+                    disconnect_device();
                 }
-                upgrade_log_->append(QString("[离线演示] %1").arg(plan_->steps[demo_step_]));
-                ++demo_step_;
-                progress_->setValue(demo_step_ * 100 / plan_->steps.size());
-                if (demo_step_ == plan_->steps.size())
+                if (device_pending_ && now_ms - device_request_ms_ > 250)
                 {
-                    cancel_demo();
-                    upgrade_status_->setText("演示结束 · 没有设备烧录、复位或升级结果");
+                    device_error_ = "CAN 请求超时；须人工核对 STOP 与关相。";
+                    disconnect_device();
                 }
+                if (device_reader_ && device_stop_deadline_ms_ > 0 &&
+                    now_ms > device_stop_deadline_ms_)
+                {
+                    device_error_ = "STOP 最终确认超时；须人工核对关相。";
+                    disconnect_device();
+                }
+                issue_device_query();
+                refresh_workbench();
             });
-    select_mode(UpgradeMode::App);
-    auto *scroll = new QScrollArea;
-    scroll->setObjectName("upgradeScroll");
-    scroll->setWidgetResizable(true);
-    scroll->setWidget(page);
-    return scroll;
-}
-
-void MaintenanceWindow::select_mode(UpgradeMode mode)
-{
-    mode_ = mode;
-    loader_path_->setEnabled(mode != UpgradeMode::App);
-    app_path_->setEnabled(mode != UpgradeMode::Loader);
-    loader_path_->parentWidget()
-        ->findChild<QPushButton *>("chooseLoader")
-        ->setEnabled(mode != UpgradeMode::App);
-    app_path_->parentWidget()
-        ->findChild<QPushButton *>("chooseApp")
-        ->setEnabled(mode != UpgradeMode::Loader);
-    route_->setText(mode == UpgradeMode::App ? "APP 通过 CAN FD 升级；Loader 与参数区保持保护。"
-                    : mode == UpgradeMode::Loader
-                        ? "Loader 使用 SWD 离线安装；保留当前 APP 和参数区。"
-                        : "Loader 与 APP 配套离线安装；分区分别校验，禁止全片擦除，保留参数区。");
-    invalidate_plan();
-}
-
-void MaintenanceWindow::invalidate_plan()
-{
-    if (demo_timer_)
-    {
-        cancel_demo();
-    }
-    plan_.reset();
-    export_job_button_->setEnabled(false);
-    demo_button_->setEnabled(false);
-    validation_->setText("尚未校验 · 更改模式或文件后需要重新检查。");
-}
-
-void MaintenanceWindow::load_samples()
-{
-    synthetic_ = true;
-    loader_path_->setText("内置合成 Loader · 不可烧录");
-    app_path_->setText("内置合成 APP · 不可烧录");
-    inspect_files();
+    timer->start();
+    refresh_workbench();
 }
 
 void MaintenanceWindow::inspect_files()
 {
-    cancel_demo();
-    plan_ = Upgrade_Inspect(mode_, loader_path_->text(), app_path_->text(), synthetic_);
-    export_job_button_->setEnabled(plan_->valid);
-    demo_button_->setEnabled(plan_->valid && connection_->currentIndex() == 0);
+    plan_ = Upgrade_Inspect(app_path_->text());
     progress_->setValue(0);
     upgrade_log_->clear();
-    if (!plan_->valid)
-    {
-        validation_->setText("校验失败：" + plan_->error);
-        upgrade_status_->setText("任务未准备，禁止继续");
-        return;
-    }
-    validation_->setText((synthetic_ ? "演示样本检查通过 · 不可用于设备安装"
-                                     : "本地文件检查通过 · 设备兼容性待核对") +
-                         QString("\n%1；%2 个安装区域，参数区不在写域内。")
-                             .arg(plan_->transport)
-                             .arg(plan_->regions.size()));
-    for (const auto &region : plan_->regions)
-    {
-        upgrade_log_->append(QString("%1    0x%2    %3 B")
-                                 .arg(region.component)
-                                 .arg(region.address, 8, 16, QChar('0'))
-                                 .arg(region.bytes.size()));
-    }
-    for (const auto &check : plan_->checks)
-    {
-        upgrade_log_->append(check);
-    }
-    upgrade_status_->setText("任务已准备 · 可以导出，或运行离线演示");
+    validation_->setText(plan_->valid ? plan_->checks.join("\n") : "校验失败：" + plan_->error);
+    upgrade_status_->setText(plan_->valid ? "本地包校验通过；设备兼容性仍需回读核对。"
+                                          : "未准备升级");
+    refresh_workbench();
 }
 
-void MaintenanceWindow::export_job()
+void MaintenanceWindow::refresh_workbench()
 {
-    if (!plan_ || !plan_->valid)
+    const auto view = device_readback_.Device_View(elapsed_.isValid() ? elapsed_.elapsed() : 0);
+    const bool connected = device_reader_ && device_ready_;
+    const bool readable = connected && view.identity_fresh;
+    const bool feedback = connected && view.feedback_fresh;
+    global_status_->setText(connected ? QString("CAN FD 已连接 · 节点 %1").arg(node_->value())
+                            : device_reader_ ? "CAN FD 正在连接"
+                                             : "未连接 · 读数未知");
+    global_status_->setToolTip(device_trace_path_.isEmpty() ? QString()
+                                                            : "事件：" + device_trace_path_);
+    connect_button_->setEnabled(!device_reader_ && !upgrade_process_);
+    disconnect_button_->setEnabled(device_reader_ && !upgrade_process_);
+    stop_->setEnabled(connected && !upgrade_process_);
+    node_->setEnabled(!device_reader_ && !upgrade_process_);
+    device_sequence_start_->setEnabled(!device_reader_ && !upgrade_process_);
+    python_path_->setEnabled(!device_reader_ && !upgrade_process_);
+    sdk_path_->setEnabled(!device_reader_ && !upgrade_process_);
+    device_bench_ack_->setEnabled(connected && !upgrade_process_);
+    const bool running = device_identity_matches() && feedback && view.motor_state == 6 &&
+                         view.control_mode == 2 && view.fault_bits == 0 && view.bus_voltage_v &&
+                         *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 &&
+                         view.bus_current_a && std::abs(*view.bus_current_a) <= 3.0 && view.iq_a &&
+                         std::abs(*view.iq_a) <= 6.0 && view.speed_rad_s &&
+                         std::abs(*view.speed_rad_s) <= 31.416;
+    device_start_button_->setEnabled(device_safe_idle() && !device_motion_may_run_ &&
+                                     device_bench_ack_->isChecked() &&
+                                     device_command_queued_.isEmpty());
+    device_speed_rpm_->setEnabled(running && device_motion_may_run_ &&
+                                  device_bench_ack_->isChecked());
+    device_speed_button_->setEnabled(device_speed_rpm_->isEnabled() &&
+                                     device_command_queued_.isEmpty());
+    uid_value_->setText(readable ? view.uid + (view.sn.isEmpty() ? "" : " / " + view.sn) : "未知");
+    version_value_->setText(readable ? version(view.app_version) : "未知");
+    loader_value_->setText(readable ? version(view.loader_version) : "未知");
+    mode_value_->setText(
+        feedback ? QString("%1 / %2").arg(view.motor_state == 5   ? "IDLE"
+                                          : view.motor_state == 6 ? "RUN"
+                                                                  : number(view.motor_state),
+                                          view.control_mode == 0   ? "无"
+                                          : view.control_mode == 2 ? "速度"
+                                                                   : number(view.control_mode))
+                 : "未知");
+    fault_value_->setText(feedback && view.fault_bits ? QString("0x%1").arg(*view.fault_bits, 0, 16)
+                                                      : "未知");
+    speed_value_->setText(
+        feedback && view.speed_rad_s
+            ? QString::number(*view.speed_rad_s * 60.0 / (2.0 * 3.141592653589793), 'f', 1) + " rpm"
+            : "未知");
+    iq_value_->setText(feedback ? number(view.iq_a, 2) + " A" : "未知");
+    bus_value_->setText(feedback ? number(view.bus_voltage_v, 1) + " V / " +
+                                       number(view.bus_current_a, 2) + " A"
+                                 : "未知");
+    device_status_->setText(connected
+                                ? (readable && feedback ? "身份与状态新鲜" : "身份或状态缺失/过期")
+                                : (device_error_.isEmpty() ? "未连接" : device_error_));
+    device_control_status_->setText(
+        connected ? (device_control_result_.isEmpty() ? "等待显式操作" : device_control_result_)
+                  : "未连接；运动状态未知");
+    upgrade_run_button_->setEnabled(!upgrade_process_ && device_safe_idle() &&
+                                    view.loader_version == 0x00010000U && device_stop_ack_ &&
+                                    !device_motion_may_run_ && device_bench_ack_->isChecked() &&
+                                    plan_ && plan_->valid);
+    if (!upgrade_process_ && view.loader_version && *view.loader_version != 0x00010000U)
     {
-        return;
-    }
-    const auto parent = QFileDialog::getExistingDirectory(this, "选择 outputs 下的任务输出父目录");
-    if (parent.isEmpty())
-    {
-        return;
-    }
-    try
-    {
-        const auto directory = QDir(parent).filePath(
-            "upgrade-job-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss-zzz"));
-        const auto path = Upgrade_Export(*plan_, directory);
-        upgrade_status_->setText("任务已导出，尚未执行设备安装");
-        upgrade_log_->append(path);
-    }
-    catch (const std::exception &error)
-    {
-        upgrade_status_->setText(QString::fromUtf8(error.what()));
+        upgrade_status_->setText("需先安装配套 LoaderApp，不能升级。");
     }
 }
 
 void MaintenanceWindow::start_real_upgrade()
 {
+    plan_ = Upgrade_Inspect(app_path_->text());
+    if (!plan_->valid)
+    {
+        validation_->setText("校验失败：" + plan_->error);
+        upgrade_status_->setText("APP 包已变化或损坏；未打开升级端口。");
+        refresh_workbench();
+        return;
+    }
     const auto view = device_readback_.Device_View(elapsed_.elapsed());
     if (upgrade_process_ || !device_safe_idle() || view.loader_version != 0x00010000U ||
-        !device_stop_ack_ || device_motion_may_run_ || demo_timer_->isActive() ||
-        sandbox_.Sandbox_SavePending() || mode_ != UpgradeMode::App || !plan_ || !plan_->valid ||
-        plan_->synthetic)
+        !device_stop_ack_ || device_motion_may_run_ || !device_bench_ack_->isChecked() || !plan_ ||
+        !plan_->valid)
     {
         upgrade_status_->setText(
             "升级门禁未满足：配套Loader、STOP/IDLE、零速与台架限值、独占和真实包均须核对。");
@@ -551,314 +643,5 @@ void MaintenanceWindow::consume_upgrade_stdout()
     {
         upgrade_output_ = upgrade_output_.right(4096);
     }
-}
-
-void MaintenanceWindow::start_demo()
-{
-    if (!plan_ || !plan_->valid || connection_->currentIndex() != 0)
-    {
-        return;
-    }
-    demo_step_ = 0;
-    progress_->setValue(0);
-    upgrade_status_->setText("正在演示步骤 · 没有设备操作");
-    demo_button_->setEnabled(false);
-    export_job_button_->setEnabled(false);
-    cancel_button_->setEnabled(true);
-    demo_timer_->start();
-}
-
-void MaintenanceWindow::cancel_demo()
-{
-    if (demo_timer_ && demo_timer_->isActive())
-    {
-        demo_timer_->stop();
-        upgrade_status_->setText("演示已取消 · 没有设备操作");
-    }
-    if (cancel_button_)
-    {
-        cancel_button_->setEnabled(false);
-        demo_button_->setEnabled(plan_ && plan_->valid && connection_->currentIndex() == 0);
-        export_job_button_->setEnabled(plan_ && plan_->valid);
-    }
-}
-
-QWidget *MaintenanceWindow::build_parameter_page()
-{
-    auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
-    auto *frame = card(layout, "活动参数 · 离线示例");
-    auto *content = static_cast<QVBoxLayout *>(frame->layout());
-    auto *actions = new QHBoxLayout;
-    read_button_ = button("读取参数", "readParameters", "primary");
-    write_button_ = button("写入选中参数", "writeParameter");
-    save_button_ = button("保存到 Flash（演示）", "saveParameters");
-    auto *export_snapshot = button("导出活动快照", "exportParameters");
-    write_button_->setEnabled(false);
-    save_button_->setEnabled(false);
-    for (auto *item : {read_button_, write_button_, save_button_, export_snapshot})
-    {
-        actions->addWidget(item);
-    }
-    actions->addStretch();
-    content->addLayout(actions);
-    revision_label_ = label("活动 revision：未知    |    已保存 revision：未知", "subtitle");
-    revision_label_->setObjectName("parameterRevision");
-    content->addWidget(revision_label_);
-    parameter_table_ = new QTableWidget;
-    parameter_table_->setObjectName("parameterTable");
-    const auto definitions = sandbox_.Sandbox_Definitions();
-    parameter_table_->setColumnCount(6);
-    parameter_table_->setRowCount(definitions.size());
-    parameter_table_->setHorizontalHeaderLabels({"ID", "参数", "活动值", "单位", "新值", "权限"});
-    parameter_table_->verticalHeader()->hide();
-    parameter_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    parameter_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    parameter_table_->setAlternatingRowColors(true);
-    parameter_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    parameter_table_->setSelectionMode(QAbstractItemView::SingleSelection);
-    parameter_table_->setMinimumHeight(330);
-    for (int row = 0; row < definitions.size(); ++row)
-    {
-        const auto &definition = definitions[row];
-        const QStringList values{QString("0x%1").arg(definition.id, 2, 16, QChar('0')),
-                                 definition.name,
-                                 "未读取",
-                                 definition.unit,
-                                 "",
-                                 "未知"};
-        for (int column = 0; column < values.size(); ++column)
-        {
-            auto *item = new QTableWidgetItem(values[column]);
-            item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-            parameter_table_->setItem(row, column, item);
-        }
-        parameter_table_->setRowHeight(row, 34);
-    }
-    content->addWidget(parameter_table_, 1);
-    parameter_status_ = label("请先读取示例参数，读取后才能按权限编辑。", "subtitle");
-    parameter_status_->setObjectName("parameterStatus");
-    parameter_status_->setWordWrap(true);
-    content->addWidget(parameter_status_);
-    content->addWidget(label("写入只改变活动值；单独保存完成后才更新已保存 "
-                             "revision。\n活动快照不是完整 Flash 参数区备份。",
-                             "subtitle"));
-    connect(read_button_,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                read_parameters();
-            });
-    connect(write_button_,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                write_parameter();
-            });
-    connect(save_button_,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                save_parameters();
-            });
-    connect(export_snapshot,
-            &QPushButton::clicked,
-            this,
-            [this]
-            {
-                export_parameters();
-            });
-    return page;
-}
-
-void MaintenanceWindow::set_parameter_status(const QString &text)
-{
-    parameter_status_->setText(text);
-    if (quick_status_)
-    {
-        quick_status_->setText(text);
-    }
-}
-
-void MaintenanceWindow::read_parameters()
-{
-    if (connection_->currentIndex() != 0 || !session_.Session_View().connected ||
-        session_.Session_View().scenario == DemoScenario::Loader)
-    {
-        return;
-    }
-    QMap<int, QString> dirty_drafts;
-    for (int row = 0; row < parameter_table_->rowCount(); ++row)
-    {
-        const auto draft = parameter_table_->item(row, 4)->text();
-        if (!draft.isEmpty() && draft != parameter_table_->item(row, 2)->text())
-        {
-            dirty_drafts[row] = draft;
-        }
-    }
-    parameter_snapshots_.clear();
-    const auto definitions = sandbox_.Sandbox_Definitions();
-    for (int row = 0; row < definitions.size(); ++row)
-    {
-        const auto reply = sandbox_.Sandbox_Read(definitions[row].id);
-        if (!reply.value)
-        {
-            parameter_table_->item(row, 2)->setText("不支持");
-            continue;
-        }
-        const auto value = *reply.value;
-        parameter_snapshots_[row] = value;
-        const auto text = QString::number(scalar(value) / definitions[row].scale, 'g', 10);
-        parameter_table_->item(row, 2)->setText(text);
-        parameter_table_->item(row, 4)->setText(dirty_drafts.value(row, text));
-        auto flags = parameter_table_->item(row, 4)->flags();
-        if (value.access & 2)
-        {
-            flags |= Qt::ItemIsEditable;
-        }
-        else
-        {
-            flags &= ~Qt::ItemIsEditable;
-        }
-        parameter_table_->item(row, 4)->setFlags(flags);
-        parameter_table_->item(row, 5)->setText(value.access & 2 ? "停机可写（示例）" : "只读");
-    }
-    const auto revision = sandbox_.Sandbox_Read(0).value->raw;
-    revision_label_->setText(
-        QString("活动 revision：%1    |    已保存 revision：%2    |    来源：离线示例")
-            .arg(revision)
-            .arg(sandbox_.Sandbox_PersistedRevision()));
-    const bool pending = sandbox_.Sandbox_SavePending();
-    write_button_->setEnabled(parameter_writable());
-    save_button_->setEnabled(parameter_writable());
-    set_parameter_status(pending ? "示例参数读取完成；保存作业仍在等待完成。"
-                                 : "示例参数读取完成；没有设备数据。");
-    refresh_workbench();
-}
-
-void MaintenanceWindow::write_parameter()
-{
-    const int row = parameter_table_->currentRow();
-    if (!parameter_writable() || !parameter_snapshots_.contains(row))
-    {
-        set_parameter_status("请先读取并选中参数；写入要求演示 APP 已解锁、失能且无待办任务。");
-        return;
-    }
-    auto value = parameter_snapshots_.value(row);
-    if (!(value.access & 2))
-    {
-        set_parameter_status("该参数只读，不能通过通用写入修改。");
-        return;
-    }
-    const auto definitions = sandbox_.Sandbox_Definitions();
-    bool valid = false;
-    const auto number = parameter_table_->item(row, 4)->text().toDouble(&valid);
-    const double raw = number * definitions[row].scale;
-    const double minimum = value.value_type == 1 ? std::numeric_limits<qint32>::min() : 0;
-    const double maximum = value.value_type == 1 ? std::numeric_limits<qint32>::max()
-                                                 : std::numeric_limits<quint32>::max();
-    if (!valid || !std::isfinite(raw) || raw < minimum || raw > maximum ||
-        std::abs(raw - std::round(raw)) > 0.00001)
-    {
-        set_parameter_status("数值无效、超出线路范围或精度不符合当前缩放。");
-        return;
-    }
-    value.raw = quint32(qint64(std::round(raw)));
-    const auto reply = sandbox_.Sandbox_Write(value);
-    if (reply.result != 0 || !reply.value)
-    {
-        set_parameter_status(reason(reply));
-        return;
-    }
-    const auto readback = sandbox_.Sandbox_Read(value.id);
-    if (!readback.value || readback.value->raw != reply.value->raw ||
-        readback.value->revision != reply.value->revision)
-    {
-        set_parameter_status("读回不一致，写入结果未知。");
-        return;
-    }
-    parameter_table_->item(row, 4)->setText(parameter_table_->item(row, 2)->text());
-    read_parameters();
-    const DemoMotionParameters parameters{sandbox_.Sandbox_Read(1).value->raw / 1000.0,
-                                          sandbox_.Sandbox_Read(2).value->raw / 1000.0,
-                                          sandbox_.Sandbox_Read(21).value->raw / 1000000.0};
-    if (!session_.Session_MotionParameters(parameters))
-    {
-        set_parameter_status("活动值已写入；演示运动模型拒绝同步，尚未保存。");
-        return;
-    }
-    set_parameter_status("活动值已写入并读回（演示）；尚未保存到 Flash。");
-}
-
-void MaintenanceWindow::save_parameters()
-{
-    if (!parameter_writable() || parameter_snapshots_.isEmpty())
-    {
-        return;
-    }
-    const auto expected = parameter_snapshots_.first().revision;
-    const auto reply = sandbox_.Sandbox_Save(expected);
-    if (reply.result != 1)
-    {
-        set_parameter_status(reason(reply));
-        return;
-    }
-    save_button_->setEnabled(false);
-    write_button_->setEnabled(false);
-    set_parameter_status("保存已受理（演示），尚未完成持久化。");
-    QTimer::singleShot(450,
-                       this,
-                       [this]
-                       {
-                           const auto completed = sandbox_.Sandbox_CompleteSave(true);
-                           if (connection_->currentIndex() == 0)
-                           {
-                               read_parameters();
-                               set_parameter_status(
-                                   completed.result == 0
-                                       ? "保存作业已完成（演示）；没有设备 Flash 操作。"
-                                       : reason(completed));
-                           }
-                       });
-}
-
-void MaintenanceWindow::export_parameters()
-{
-    if (parameter_snapshots_.isEmpty())
-    {
-        set_parameter_status("先读取活动值，再导出快照。");
-        return;
-    }
-    const auto path =
-        QFileDialog::getSaveFileName(this, "导出活动参数快照到 outputs", {}, "JSON (*.json)");
-    if (path.isEmpty())
-    {
-        return;
-    }
-    QJsonArray values;
-    for (const auto &value : parameter_snapshots_)
-    {
-        values.append(QJsonObject{{"id", value.id},
-                                  {"type", value.value_type},
-                                  {"raw_u32", qint64(value.raw)},
-                                  {"revision", qint64(value.revision)},
-                                  {"access", value.access}});
-    }
-    QSaveFile file(path);
-    const auto bytes = QJsonDocument(QJsonObject{{"source", "offline_sandbox"},
-                                                 {"device_read", false},
-                                                 {"raw_flash_backup", false},
-                                                 {"values", values}})
-                           .toJson();
-    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
-    {
-        set_parameter_status("快照导出失败，请检查输出目录。");
-        return;
-    }
-    set_parameter_status("已导出示例活动值快照；它不替代完整参数区备份。");
 }
 } // namespace yg::host

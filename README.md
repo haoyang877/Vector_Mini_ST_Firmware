@@ -46,6 +46,8 @@ python tests/run.py
 
 硬件检查方法：[电流采样、三相通路、相序和电阻检查 v0.1](docs/guides/motor_electrical_health_test_v1.md)。
 
+新电机完整交付流程：[硬件链路、角度/摩擦标定、速度及位置测试](docs/guides/new_motor_commissioning_workflow.md)。
+
 底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
 
 * 基础有感FOC算法 电流 速度 位置 可控

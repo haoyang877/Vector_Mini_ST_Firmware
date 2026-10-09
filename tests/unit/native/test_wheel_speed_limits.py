@@ -64,12 +64,20 @@ int main(void) {
         p.speed_limit=0; Param_Download(&p); assert(MotorControl.speed_limit==cap);
     }
     puts("PASS all node ceilings, stored lower limits, invalid fallback, calibration preserved");
-    /* Axis record wins over stale legacy node ID before selecting the cap. */
+    /* 临时联调时，合法 Flash 节点号优先于轴身份。 */
     p=saved; p.node_id=1; p.speed_limit=20;
     assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
     Param_Download(&p);
+    assert(CANMsg.node_id==1 && MotorControl.speed_limit==20);
+    p.node_id=NAN; Param_Download(&p);
     assert(CANMsg.node_id==3 && MotorControl.speed_limit==.5f*_2PI);
-    puts("PASS resolved joint identity selects the ceiling before parameter loading");
+    p=saved; p.node_id=3;
+    assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_YAW, 1,
+        -3.141592654f, 3.141592654f, .5f));
+    Param_Download(&p); assert(CANMsg.node_id==3 && MotorControl.axis_profile_valid);
+    Param_Upload(&p); p.magic_word=MAGIC_WORD; assert(p.node_id==3);
+    Param_Download(&p); assert(CANMsg.node_id==3);
+    puts("PASS stored node survives yaw save/load; invalid node falls back to identity");
     for(node=1; node<=2; node++) {
         CANMsg.node_id=node; MotorControl.speedRef=25; MotorControl.pos_maxspeed=24;
         can_set(CAN_SET_SPEED_LIMIT,20);

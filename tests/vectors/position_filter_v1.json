@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "magic": "PVF1",
+  "offset": 2256,
+  "size": 16,
+  "vectors": [
+    {"cutoff_hz": 10, "half_cutoff": 0, "hex": "505646310100000000000000ec28e1b1"},
+    {"cutoff_hz": 5, "half_cutoff": 1, "hex": "505646310100000001000000894f5d09"}
+  ]
+}

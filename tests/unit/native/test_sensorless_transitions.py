@@ -193,22 +193,39 @@ static void check_calibration_stop(void) {
 }
 
 static void check_calibration_limits_and_reset(void) {
-    setup(); CalibStep=CS_NULL; motor.current_limit=active_flags ? 6.5f : .6f;
+    setup(); CalibStep=CS_NULL;
+    motor.current_limit=active_flags ? cfg->minimum_current_limit_a-.01f : .6f;
     calibration_tick();
     assert(motor.ErrorNow==(active_flags ? MotorParam_Error : Sensorless_Error) &&
         current_calls==0 && !pwm_enabled);
     setup(); motor.ModeNow=Calib_EleAngelOffset; motor.calib_current=3;
-    motor.current_limit=active_flags ? 7.99f : 0;
+    motor.current_limit=active_flags ? 4.99f : 0;
     Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
     assert(motor.ErrorNow==MotorParam_Error && current_calls==0);
     setup(); motor.ModeNow=Calib_EleAngelOffset; motor.calib_current=3;
+    if(active_flags) { motor.current_limit=5.0f; }
     encoder.linearized_q15=12345; encoder.read_status=ENCODER_READ_OK;
     for(unsigned i=0;i<200;i++) Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
     assert(electrical_zero_loop_count==200 && motor.idRef>0);
     EncoderCalibration_Reset();
     assert(electrical_zero_loop_count==0 && CalibStep==CS_NULL);
+    if(active_flags) {
+        motor.current_limit=8.0f;
+        motor.calib_current=5.0f;
+    }
     Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
-    assert(fabsf(motor.idRef-(active_flags ? 8.0f : 3.0f)*Current_Ts/.5f)<1e-6f);
+    assert(fabsf(motor.idRef-(active_flags ? 5.0f : 3.0f)*Current_Ts/.5f)<1e-6f);
+    if(active_flags) {
+        for(unsigned i=0;i<11000;i++) {
+            Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
+            assert(motor.idRef<=5.0f && motor.iqRef==0.0f);
+        }
+        assert(motor.idRef==5.0f);
+        motor.current_limit=5.0f;
+        motor.calib_current=8.0f;
+        Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
+        assert(motor.idRef==5.0f);
+    }
     for(unsigned i=0;i<31000 && motor.ModeNow!=Save_Param;i++) {
         Task_Calib_EleAngelOffset(&foc,&motor,&encoder);
     }

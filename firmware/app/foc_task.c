@@ -98,31 +98,71 @@ static int16_t RTT_EncodeInt16(float value, float scale)
 
 typedef struct
 {
-	int16_t data0;
-	int16_t data1;
-	int16_t data2;
-	int16_t data3;
-	int16_t data4;
-	int16_t data5;
-	int16_t data6;
-	int16_t data7;
-	int16_t data8;
-	int16_t data9;
-	int16_t data10;
+    int16_t data0;
+    int16_t data1;
+    int16_t data2;
+    int16_t data3;
+    int16_t data4;
+    int16_t data5;
+    int16_t data6;
+    int16_t data7;
+    int16_t data8;
+    int16_t data9;
+#if RTT_TELEMETRY_PROFILE != RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    int16_t data10;
+#endif
 } RTT_Data_TypeDef;
 
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+typedef char RTT_DataFrame_SizeMustBe20Bytes[
+    (sizeof(RTT_Data_TypeDef) == 20U) ? 1 : -1];
+/* Scope 代码变量可读累计丢帧，不占用波形通道。 */
+static volatile uint32_t rtt_manual_dropped_frames;
+#else
 typedef char RTT_DataFrame_SizeMustBe22Bytes[
     (sizeof(RTT_Data_TypeDef) == 22U) ? 1 : -1];
+#endif
 
 static void RTT_Sampling(void)
 {
-	static uint32_t rtt_divider_count;
+    static uint32_t rtt_divider_count;
+    RTT_Data_TypeDef frame;
 
-	if (++rtt_divider_count < RTT_SAMPLE_DIVIDER)
-		return;
-	rtt_divider_count = 0U; /* 必须清零，否则达到门限后每次都通过 */
+    if (++rtt_divider_count < RTT_SAMPLE_DIVIDER)
+    {
+        return;
+    }
+    rtt_divider_count = 0U;
 
-	RTT_Data_TypeDef frame;
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    /* 只读快环数据及最近一次外环快照；停机时补偿电流明确清零。 */
+    {
+        PositionCascadeTelemetry_TypeDef planned;
+        float control_speed_rad_s = MotorControl.pos_vel_filtered;
+        float friction_current_a = 0.0f;
+
+        if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned))
+        {
+            control_speed_rad_s = planned.speed_feedback;
+            friction_current_a = planned.friction_feedforward_current;
+        }
+        frame.data0 = RTT_EncodeInt16(MotorControl.posRef, RTT_POSITION_SCALE_COUNTS_PER_RAD);
+        frame.data1 = RTT_EncodeInt16(OnBoard_Encoder.theta_mech,
+            RTT_POSITION_SCALE_COUNTS_PER_RAD);
+        frame.data2 = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+        frame.data3 = RTT_EncodeInt16(control_speed_rad_s, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+        frame.data4 = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
+        frame.data5 = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
+        frame.data6 = RTT_EncodeInt16(FOC.Id, RTT_CURRENT_SCALE_COUNTS_PER_A);
+        frame.data7 = RTT_EncodeInt16(FOC.Vq, 1000.0f);
+        frame.data8 = RTT_EncodeInt16(FOC.Vd, 1000.0f);
+        frame.data9 = RTT_EncodeInt16(friction_current_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    }
+    if (SEGGER_RTT_Write(1, &frame, sizeof(frame)) != sizeof(frame))
+    {
+        ++rtt_manual_dropped_frames;
+    }
+#else
 	const float ang_scale = 32767.0f / (2.0f * _PI);
 	float obs;
 	float diff;
@@ -148,7 +188,8 @@ static void RTT_Sampling(void)
 	frame.data8 = RTT_EncodeInt16(FOC.Ia, RTT_CURRENT_SCALE_COUNTS_PER_A);
 	frame.data9 = RTT_EncodeInt16(FOC.Ib, RTT_CURRENT_SCALE_COUNTS_PER_A);
 	frame.data10 = RTT_EncodeInt16(FOC.Ic, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	SEGGER_RTT_Write(1, &frame, sizeof(frame));
+    SEGGER_RTT_Write(1, &frame, sizeof(frame));
+#endif
 }
 
 
@@ -453,13 +494,22 @@ void FOC20kHzIRQHandler(void)
 		LED_SetState(1, (uint8_t)MotorControl.ErrorNow);
 	}
 	
-	if(ModeLast != Motor_Disable && MotorControl.ModeNow == Motor_Disable) 
+	/* 异步模式写入可能跨过边沿检查；Disable 每拍核验关相，避免漏停。 */
+	if (MotorControl.ModeNow == Motor_Disable &&
+		(ModeLast != Motor_Disable || !motor_hw_phase_outputs_disabled()))
 	{
 		Clear_RunningData();
 		Stop_PWM_Generate();
 	}
+	/* 设零与保存不需要功率输出；包括标定结束转入保存的同一快拍。 */
+	if ((MotorControl.ModeNow == Set_ZeroPosition || MotorControl.ModeNow == Save_Param) &&
+		!motor_hw_phase_outputs_disabled())
+	{
+		Stop_PWM_Generate();
+	}
 	
 	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable &&
+		MotorControl.ModeNow != Set_ZeroPosition && MotorControl.ModeNow != Save_Param &&
 		MotorControl.axis_profile_valid)
 	{
 		/* The first mode-3 tick validates/initializes the controller while

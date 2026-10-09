@@ -16,6 +16,17 @@
 #define PARAM_SCHEMA_VERSION_LEGACY_IMPEDANCE 5U
 #define PARAM_SCHEMA_VERSION_LEGACY_CASCADE 4U
 
+/** @brief PVF1/v1独立尾记录；标志0/1对应速度低通10/5 Hz，CRC覆盖前12字节。 */
+#define PARAM_POSITION_FILTER_MAGIC 0x31465650U
+#define PARAM_POSITION_FILTER_VERSION 1U
+typedef struct
+{
+    uint32_t magic;
+    uint32_t version;
+    uint32_t half_cutoff;
+    uint32_t crc32;
+} PositionFilterRecord;
+
 typedef struct
 {
 	float node_id;
@@ -71,6 +82,8 @@ typedef struct
 	MotorAxisProfile axis_profile;
     /* DMP1 v1 独立扩展；schema10 既有字段偏移保持不变。 */
     MotorLoadRecord load_profile;
+    /* schema10既有字段偏移保持；旧固件忽略PVF1扩展。 */
+    PositionFilterRecord position_filter;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

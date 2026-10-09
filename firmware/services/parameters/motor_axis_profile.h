@@ -50,8 +50,16 @@ const char *MotorJointType_Name(uint32_t joint_type);
 uint8_t MotorAxisProfile_CanNodeId(const MotorAxisProfile *profile, uint8_t fallback);
 /** Decode identity from an already validated record, including AXS1. */
 uint32_t MotorAxisProfile_JointType(const MotorAxisProfile *profile);
-/** Create AXS2. Revision zero stores identity only and requires zero bounds;
- * it cannot enable a motor. Revision one currently supports roll/pitch only. */
+/**
+ * @brief 创建 AXS2；版本 0 仅登记身份，版本 1 支持 roll/pitch/yaw。
+ * @param output 调用方持有的输出记录。
+ * @param joint_type 固定关节类型编号，独立于 CAN 节点地址。
+ * @param config_revision 配置版本；0 要求三个运动边界均为零且不可使能。
+ * @param minimum_position_rad 最小机械位置，rad。
+ * @param maximum_position_rad 最大机械位置，rad。
+ * @param maximum_speed_rad_s 最大轨迹速度，rad/s。
+ * @return 记录和配置边界有效时返回 true，否则不修改输出。
+ */
 bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output, uint32_t joint_type,
     uint32_t config_revision, float minimum_position_rad,
     float maximum_position_rad, float maximum_speed_rad_s);
@@ -66,12 +74,15 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
 /** Create a checked roll/pitch record for an explicitly configured mechanism. */
 bool MotorAxisProfile_Create(MotorAxisProfile *output, const char *name,
     float minimum_position_rad, float maximum_position_rad, float maximum_speed_rad_s);
-/** Select the startup single-turn branch relative to a calibrated zero.
- * Only validated roll/pitch envelopes wholly inside (-pi, pi) qualify.
- * Input/output units are 65536 counts/revolution. No clamping to travel limits:
- * out-of-range positions must still fail AllowsPosition. Unconfigured or
- * multi-turn envelopes retain the input; continuous tracking must not call this.
- * Caller must establish mechanical-zero calibration before using this helper. */
+/**
+ * @brief 启动时选择相对机械零位最近的单圈分支，不钳位实际位置。
+ * @param profile 已加载的轴记录；roll/pitch 要求范围严格位于 (-pi, pi)，yaw 可达 ±pi。
+ * @param valid 轴记录有效标志。
+ * @param single_turn_difference 编码器单圈位置减机械零位，65536 count/rev。
+ * @return 满足轴范围条件时返回最近分支，否则保留输入。
+ * @note 仅在机械零位已标定的启动路径使用，连续跟踪不得调用。
+ * 正负半圈端点保持输入符号，实际位置处于端点时仍禁止位置控制。
+ */
 int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile,
     bool valid, int32_t single_turn_difference);
 /** Fast bounds check after a successful load. No CRC work occurs in the ISR.
@@ -84,7 +95,8 @@ static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profi
         (profile->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
          (profile->identity.numeric.config_revision == MOTOR_JOINT_CONFIG_REVISION &&
           (profile->identity.numeric.joint_type == MOTOR_JOINT_ROLL ||
-           profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH))) &&
+           profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH ||
+           profile->identity.numeric.joint_type == MOTOR_JOINT_YAW))) &&
         (profile->magic == 0U ||
          (actual > profile->minimum_position_rad && actual < profile->maximum_position_rad &&
           target >= profile->minimum_position_rad && target <= profile->maximum_position_rad));

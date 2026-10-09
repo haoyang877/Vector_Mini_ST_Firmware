@@ -21,6 +21,7 @@ def fixture():
     # 仅抽取新增 CAN 分派段；不复制其校验实现。
     dispatch = function_source(can, "CAN_ReceiveMessage_Update")
     dispatch = dispatch[: dispatch.index("\t/* Read-only handshake;")] + "}\n"
+    power_boundary = task[task.index("\t/* 异步模式写入") : task.index("\n\tDetect_Mode_Error_Change();")]
     return (
         r"""
 #include <assert.h>
@@ -45,6 +46,12 @@ PI_Controller_TypeDef PI_Speed;
 ModeNow_TypeDef ModeLast;
 static volatile uint32_t pending_load_profile = UINT32_MAX;
 static bool gate_off=true;
+static bool position_start_prepared, defer_position_power_start, outer_ready;
+static unsigned power_starts, power_stops;
+void Start_PWM_Generate(void) { gate_off=false; ++power_starts; }
+void Start_Damping_Brake(void) { gate_off=false; ++power_starts; }
+void Stop_PWM_Generate(void) { gate_off=true; ++power_stops; }
+bool MotorOuterLoop_IsReady(void) { return outer_ready; }
 static unsigned position_resets, friction_resets, replies;
 static CAN_PARAM_ID reply_id;
 static float reply_value;
@@ -78,6 +85,7 @@ void CAN_SendMessage_Update(CAN_PARAM_ID id, float value) {
                 dispatch,
             ]
         )
+        + "\nstatic void actual_power_boundary(void) {\n" + power_boundary + "\n}\n"
         + r"""
 static void seed(InterfaceParam_TypeDef *baseline) {
     Param_Return_Default(); MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
@@ -110,7 +118,10 @@ int main(void) {
     assert(wheel && roll && wheel!=roll && MotorLoadProfile_Calibration(3)==roll);
     assert(!MotorLoadProfile_Calibration(2) && !MotorLoadProfile_Calibration(UINT32_MAX));
     assert(wheel->startup.startup_iq_a==.5f && wheel->speed_mechanical_rad_s==15);
-    assert(roll->startup.startup_iq_a==6.5f && roll->electrical_zero_current_a==8);
+    assert(roll->startup.startup_iq_initial_a==4.97f &&
+           roll->startup.startup_iq_a==5.75f &&
+           roll->startup.minimum_current_limit_a==6.0f &&
+           roll->electrical_zero_current_a==5);
     assert(roll->startup.minimum_current_limit_a >=
         hypotf(roll->startup.startup_iq_a,roll->startup.startup_id_a));
     assert(!MotorLoadProfile_FeedforwardEnabled(0) && !MotorLoadProfile_FeedforwardEnabled(1));
@@ -182,6 +193,23 @@ int main(void) {
     CAN_ReceiveMessage_Update(CAN_SET_LOAD_PROFILE,0); MotorControl_ApplyLoadProfile();
     assert(MotorControl_GetLoadProfile()==0 && !MotorControl.friction_model_valid);
     check_preserved(&baseline);
+    MotorControl.axis_profile_valid=true;
+    const ModeNow_TypeDef unpowered[]={Set_ZeroPosition,Save_Param};
+    for(unsigned i=0;i<2;i++) {
+        MotorControl.ModeNow=unpowered[i]; ModeLast=Motor_Disable;
+        gate_off=true; power_starts=power_stops=0; actual_power_boundary();
+        assert(gate_off && power_starts==0 && power_stops==0);
+        gate_off=false; ModeLast=Current_Mode; actual_power_boundary();
+        assert(gate_off && power_starts==0 && power_stops==1);
+    }
+    MotorControl.ModeNow=Current_Mode; ModeLast=Motor_Disable;
+    gate_off=true; power_starts=0; actual_power_boundary();
+    assert(!gate_off && power_starts==1);
+    MotorControl.ModeNow=Speed_Mode; gate_off=true; power_starts=0;
+    position_start_prepared=false; outer_ready=false; actual_power_boundary();
+    assert(gate_off && power_starts==0 && defer_position_power_start);
+    defer_position_power_start=false; outer_ready=true; actual_power_boundary();
+    assert(!gate_off && power_starts==1);
     puts("PASS dual runtime profiles, CRC/legacy, parameter preservation, switch ownership, stop guards, CAN values");
     return 0;
 }

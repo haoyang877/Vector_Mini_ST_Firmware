@@ -28,11 +28,12 @@
 /* Select the wire layout once per build; never change layouts during motion. */
 #define RTT_TELEMETRY_SERVO                 0U
 #define RTT_TELEMETRY_CALIBRATION           1U
+#define RTT_TELEMETRY_MANUAL_DIAGNOSTICS    2U
 #ifndef RTT_TELEMETRY_PROFILE
 #if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
 #define RTT_TELEMETRY_PROFILE               RTT_TELEMETRY_SERVO
 #else
-#define RTT_TELEMETRY_PROFILE               RTT_TELEMETRY_CALIBRATION
+#define RTT_TELEMETRY_PROFILE               RTT_TELEMETRY_MANUAL_DIAGNOSTICS
 #endif
 #endif
 #if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_SERVO
@@ -40,6 +41,9 @@
 #elif RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_CALIBRATION
 /* 精简档 11 路（22 B/帧）：Iq参考/Iq反馈/Id反馈/Vq/Vd/电角度/观测器电角度/观测器-编码器电角度差/Ia/Ib/Ic。 */
 #define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2i2i2i2"
+#elif RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+/* 手工位置/电流诊断 v1：10 路 int16，20 B/帧；必须配套使用诊断 Scope。 */
+#define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2i2i2"
 #else
 #error "Unsupported RTT_TELEMETRY_PROFILE"
 #endif

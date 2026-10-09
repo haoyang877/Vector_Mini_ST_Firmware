@@ -8,6 +8,49 @@ extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder;
 extern CANMsg_TypeDef CANMsg;
 
+/* 私有参数存储计算；与Flash I/O、控制时序分离，固定little-endian CRC契约。 */
+static uint32_t position_filter_crc(const PositionFilterRecord *record)
+{
+    uint32_t words[3];
+    uint32_t crc = 0xFFFFFFFFU;
+    uint32_t index;
+    words[0] = record->magic;
+    words[1] = record->version;
+    words[2] = record->half_cutoff;
+    for (index = 0U; index < 12U; ++index)
+    {
+        uint32_t bit;
+        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
+        for (bit = 0U; bit < 8U; ++bit)
+        {
+            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+/* 缺省旧尾部兼容10 Hz；非空损坏记录拒绝准入，不悄悄降低反馈延迟。 */
+static bool position_filter_load(const PositionFilterRecord *record, bool *half_cutoff)
+{
+    bool blank_zero = record->magic == 0U && record->version == 0U &&
+        record->half_cutoff == 0U && record->crc32 == 0U;
+    bool blank_erased = record->magic == UINT32_MAX && record->version == UINT32_MAX &&
+        record->half_cutoff == UINT32_MAX && record->crc32 == UINT32_MAX;
+    if (blank_zero || blank_erased)
+    {
+        *half_cutoff = false;
+        return true;
+    }
+    if (record->magic != PARAM_POSITION_FILTER_MAGIC ||
+        record->version != PARAM_POSITION_FILTER_VERSION || record->half_cutoff > 1U ||
+        record->crc32 != position_filter_crc(record))
+    {
+        return false;
+    }
+    *half_cutoff = record->half_cutoff == 1U;
+    return true;
+}
+
 bool Param_SetSpeedLimit(float limit_rad_s)
 {
     if (!isfinite(limit_rad_s) || limit_rad_s <= 0.0f ||
@@ -43,6 +86,7 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
 
 void Param_Return_Default(void)
 {
+    MotorControl.position_velocity_filter_half_cutoff = false;
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
 	MotorControl.axis_profile_valid = true;
     MotorControl.load_profile_flags = 0U;
@@ -150,6 +194,10 @@ void Param_Upload(InterfaceParam_TypeDef *param)
 	param->can_hb = (float)CANMsg.can_hb_set;
 	param->schema_version = PARAM_SCHEMA_VERSION;
 	param->axis_profile = MotorControl.axis_profile;
+    param->position_filter.magic = PARAM_POSITION_FILTER_MAGIC;
+    param->position_filter.version = PARAM_POSITION_FILTER_VERSION;
+    param->position_filter.half_cutoff = MotorControl.position_velocity_filter_half_cutoff ? 1U : 0U;
+    param->position_filter.crc32 = position_filter_crc(&param->position_filter);
     if (!MotorControl.load_profile_valid ||
         !MotorLoadRecord_Create(MotorControl.load_profile_flags, &param->load_profile))
     {
@@ -194,8 +242,18 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 		return false;
 	}
 
-	/* Resolve axis identity before selecting the node-specific speed ceiling. */
-	CANMsg.node_id = MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id);
+	/* ponytail: 临时优先使用 Flash 节点号；多机联调须保证 ID 唯一，结束后恢复轴绑定。 */
+	if (isfinite(param->node_id) && param->node_id >= 0.0f &&
+		param->node_id <= 7.0f &&
+		param->node_id == (float)(uint8_t)param->node_id)
+	{
+		CANMsg.node_id = (uint8_t)param->node_id;
+	}
+	else
+	{
+		CANMsg.node_id = MotorAxisProfile_CanNodeId(&param->axis_profile,
+			PARAM_HW_CAN_NODE_ID);
+	}
 	MotorControl.A_Offset = (uint16_t)param->currentoffset_a;
 	MotorControl.B_Offset = (uint16_t)param->currentoffset_b;
 	MotorControl.C_Offset = (uint16_t)param->currentoffset_c;
@@ -346,5 +404,11 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
     }
 	/* Unsupported identity/configuration must not trigger a migration rewrite. */
 	if (!MotorControl.axis_profile_valid) return false;
+    if (!position_filter_load(&param->position_filter, &MotorControl.position_velocity_filter_half_cutoff))
+    {
+        /* 复用参数准入闸；坏尾记录不能启用位置输出或触发迁移保存。 */
+        MotorControl.axis_profile_valid = false;
+        return false;
+    }
 	return position_tuning_requires_migration;
 }

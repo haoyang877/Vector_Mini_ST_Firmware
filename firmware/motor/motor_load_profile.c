@@ -33,19 +33,19 @@ static const MotorCalibrationProfile wheel_profile = {{0.50f,
                                                       0.0f,
                                                       10U};
 
-/* 阻尼档沿用已讨论的调试整定，6.52 A 覆盖 sqrt(6.5^2 + 0.5^2)。
- * 不提高调用方限流；8 A 电零位对齐需另行满足准入。 */
+/* 阻尼档开环 Iq 渐升至 5.75 A，矢量幅值约 5.77 A。
+ * 调用方须提供 6 A 限流；预定位和电零位对齐保持 5 A。 */
 static const MotorCalibrationProfile roll_profile = {{0.80f,
                                                       0.50f,
                                                       5.0f,
-                                                      5.0f,
-                                                      6.5f,
+                                                      4.97f,
+                                                      5.75f,
                                                       1.0f,
                                                       0.5f,
-                                                      6.52f,
+                                                      6.0f,
                                                       250.0f,
-                                                      420.0f,
-                                                      2.0f,
+                                                      315.0f,
+                                                      6.0f,
                                                       0.20f,
                                                       0.01f,
                                                       0.25f,
@@ -53,11 +53,11 @@ static const MotorCalibrationProfile roll_profile = {{0.80f,
                                                       5.0f,
                                                       0.50f,
                                                       0.20f},
-                                                     20.0f,
+                                                     15.0f,
                                                      10.0f,
-                                                     12.0f,
+                                                     16.0f,
                                                      0.10f,
-                                                     8.0f,
+                                                     5.0f,
                                                      5U};
 
 bool MotorLoadProfile_IsValid(uint32_t flags)

@@ -1,0 +1,61 @@
+<?xml version='1.0' encoding='utf-8'?>
+<lksscope appVersion="v1.5.0">
+    <params>
+        <param name="linkType" value="0" />
+        <param name="jClock" value="4000000" />
+        <param name="uClock" value="1000000" />
+        <param name="commPort" value="COM7" />
+        <param name="commBaud" value="9600" />
+        <param name="bleName" value="" />
+        <param name="localIP" value="" />
+        <param name="localPort" value="" />
+        <param name="remoteIP" value="" />
+        <param name="remotePort" value="" />
+        <param name="rttAddr" value="20000000" />
+        <param name="rttFreq" value="2000" />
+        <param name="rttInterval" value="5" />
+        <param name="sampleInterval" value="10" />
+        <param name="uiInterval" value="50" />
+        <param name="maxPoint" value="100" />
+        <param name="checkAxf" value="1" />
+    </params>
+    <layouts>
+        <param name="geometry" value="AdnQywADAAD/////////9QAADwAAAAgoAAAEKAAAAe0AAAiJAAAEtQAAAAACAAAADwAAAAAAAAAAIgAADv8AAAgn" />
+        <param name="state" value="AAAA/wAAAAD9AAAAAgAAAAAAAAGJAAADf/wCAAAAAvsAAAAIepdT41v8gioBAAAAUgAAAcAAAAAAAAAAAPwAAAIWAAABuwAAAAAA////+gAAAAACAAAAAvsAAAAIW/xRZVPYkc8BAAAAAP////8AAAAAAAAAAPsAAAAKgepbmk5JU9iRzwEAAAAA/////wAAAAAAAAAAAAAAAQAABfMAAAN//AIAAAAH+wAAAAZbxFtYVmgAAAAAAP////8AAAAAAAAAAPwAAABOAAADhQAAAAAA/////AEAAAAC+wAAAAZm8n6/ADABAAAByQAABAcAAAAAAAAAAPsAAAAGZXBQPAAwAQAABdQAAAGsAAAAAAAAAAD7AAAACGVwY25mPnk6AQAAAFIAAAN/AAAAAAAAAAD7AAAACHU1Zzpjp1I2AAAAAAD/////AAAAsQD////7AAAACI/QiExl5V/XAAAAAAD/////AAAAgQD////7AAAADABSAFQAVFR9TuSITAAAAAAA/////wAAAAAAAAAA+wAAAAoAUgBUAFRlcGNuAAAAAAD/////AAAAAAAAAAAAAA8AAAAHiQAAAAQAAAAEAAAACAAAAAj8AAAAAQAAAAIAAAADAAAADgB0AG8AbwBsAEIAYQByAQAAAAD/////AAAAAAAAAAAAAAASAHQAbwBvAGwAQgBhAHIAXwAyAQAAART/////AAAAAAAAAAAAAAAWAHQAbwBvAGwAQgBhAHIATABvAGcAbwEAAAPB/////wAAAAAAAAAA" />
+    </layouts>
+    <tabs curPage="0">
+        <tab geometry="AdnQywADAAAAAAAAAAAAAAAACygAAAdVAAAAAAAAAAD//////////wAAAAAAAAAADwAAAAAAAAAAAAAACygAAAdV" title="标签页0" state="AAAA/wAAAAD9AAAAAgAAAAAAAAOnAAAEo/wCAAAAAfsAAAAGZvJ+vwAwAAAAAAAAAASjAAAASAD///8AAAABAAALKQAAB1b8AgAAAAL8AAAAAAAAB1YAAAE9AP////wBAAAAAvwAAAAAAAAEyAAAAIoA/////AIAAAAC+wAAAAZlcFA8ADABAAAAAAAABJ0AAACBAP////sAAAAIkB9epowDi9UBAAAEoQAAArUAAACjAP////sAAAAKAFIAVABUZXBjbgEAAATMAAAGXQAAANQA////+wAAAAwAUgBUAFRUfU7kiEwAAAAF8gAAAWQAAAESAP///wAAAAAAAAdWAAAABAAAAAQAAAAIAAAACPwAAAAA" checked="1" />
+    </tabs>
+    <forms>
+        <form type="0" title="Form" />
+        <form type="1" title="自定义变量" lv-width="150,100,100,100,100,100,100,100,0,100,100,100" />
+        <form type="13" title="寄存器变量" chip="" lv-width="150,100,100,100,100,100,100,100,0,100,100,100" />
+        <form type="2" title="代码变量" lv-width="264,100,100,100,320,100,100,204,0,100,100,100" mapFile="../../../outputs/build/keil/Vector_Mini_ST/Vector_Mini_ST.axf" />
+        <form type="3" title="运行日志" visible="0" floating="0" page="-1" />
+        <form type="4" title="RTT命令行" syncFilePath="" visible="0" checkTStamp="0" floating="0" sync2File="0" encode="GBK" page="0" />
+        <form type="6" title="寄存器读写 - " chip="0" visible="0" floating="0" page="-1" />
+        <form subCols="1" type="8" lineStyle="1" title="曲线0" xTag="0" floating="0" subMode="0" refType="0" trigName="" autoRange="1" page="0" xCount="1000" visible="0" min="-500" refName="" refValue="0" max="500" scatterStyle="1" scrollType="0" trigType="0" trigValue="0" filterType="1" />
+        <form type="5" title="位置" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
+            <dynrttcrc value="0" />
+            <var name="rtt_channel1.data0" color="" showType="Signed" formula="" desc="位置目标" unit="0.01 deg" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data1" color="" showType="Signed" formula="" desc="位置反馈" unit="0.01 deg" addr="" interval="10" subvar="0" />
+        </form>
+        <form type="5" title="测速噪声" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
+            <dynrttcrc value="0" />
+            <var name="rtt_channel1.data2" color="" showType="Signed" formula="" desc="编码器PLL速度" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data3" color="" showType="Signed" formula="" desc="控制滤波速度" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
+        </form>
+        <form type="5" title="dq电流与补偿" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
+            <dynrttcrc value="0" />
+            <var name="rtt_channel1.data4" color="" showType="Signed" formula="" desc="Iq参考" unit="mA" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data5" color="" showType="Signed" formula="" desc="Iq反馈" unit="mA" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data6" color="" showType="Signed" formula="" desc="Id反馈" unit="mA" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data9" color="" showType="Signed" formula="" desc="摩擦前馈电流" unit="mA" addr="" interval="10" subvar="0" />
+        </form>
+        <form type="5" title="dq电压" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
+            <dynrttcrc value="0" />
+            <var name="rtt_channel1.data7" color="" showType="Signed" formula="" desc="Vq实际输出" unit="mV" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data8" color="" showType="Signed" formula="" desc="Vd实际输出" unit="mV" addr="" interval="10" subvar="0" />
+        </form>
+    </forms>
+</lksscope>

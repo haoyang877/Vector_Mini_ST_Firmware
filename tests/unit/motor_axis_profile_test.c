@@ -101,7 +101,7 @@ int main(void)
         assert(!MotorAxisProfile_AllowsPosition(&q, true, 0, 0));
     }
     assert(!MotorAxisProfile_CreateJoint(&p, 6, 0, 0, 0, 0));
-    assert(!MotorAxisProfile_CreateJoint(&p, 3, 1, -1, 1, .5f));
+    assert(!MotorAxisProfile_CreateJoint(&p, 4, 1, -1, 1, .5f));
     assert(!MotorAxisProfile_CreateJoint(&p, 1, 2, -1, 1, .5f));
     assert(!MotorAxisProfile_CreateJoint(&p, 1, 0, -1, 1, .5f));
     assert(!MotorAxisProfile_CreateJoint(&p, 2, 1, -.4f, .9f, .5f));
@@ -123,6 +123,28 @@ int main(void)
     assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, .91f));
     assert(MotorAxisProfile_CreateJoint(&p, 2, 1, -.1f, .3f, .2f));
     assert(MotorAxisProfile_Resolve(&p, &config)); /* narrower configured envelope */
+    assert(MotorAxisProfile_CreateJoint(&p, MOTOR_JOINT_YAW, 1,
+        -3.141592654f, 3.141592654f, .785398163f));
+    assert(p.crc32 == 979658490U); /* AXS2 yaw v1 独立 zlib 金向量。 */
+    assert(MotorAxisProfile_CanNodeId(&p, 0) == 5);
+    assert(MotorAxisProfile_Resolve(&p, &config));
+    assert(config.position_kp == 8 && config.position_kd == 2 &&
+        config.speed_kp == .5f && config.speed_ki == 1);
+    assert(config.acceleration_rad_s2 == .2f && config.deceleration_rad_s2 == .2f &&
+        config.maximum_current_a == 8);
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 0, 3.141592654f));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 0, -3.141592654f));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, 3.141592654f, 0));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, 3.15f));
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 60800) == -4736);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -60800) == 4736);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 32768) == 32768);
+    assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -32768) == -32768);
+    assert(!MotorAxisProfile_CreateJoint(&q, MOTOR_JOINT_YAW, 1, -3.15f, 3.14f, .5f));
+    for (i = 0; i < sizeof(p); ++i) {
+        q = p; ((unsigned char *)&q)[i] ^= 1;
+        assert(!MotorAxisProfile_Load(&q, &q));
+    }
     assert(!MotorAxisProfile_AllowsPosition(NULL, true, 0, 0));
     puts("PASS numeric joint IDs: legacy identity, disabled placeholders, versioned roll/pitch, range and CRC");
     puts("PASS axis profiles: legacy, roll/pitch, CRC corruption, limits and invalid inputs");

@@ -19,9 +19,23 @@ class MotorAxisRecordTests(unittest.TestCase):
                 bad = bytearray(record); bad[i] ^= 1
                 with self.assertRaises(ValueError): decode(bad)
         self.assertEqual(decode(encode_joint(1, 1, -90, 90, 45))["format_version"], 2)
-        for args in ((6, 0), (True, 0), (3, 1, -1, 1, 1), (1, 2),
+        for args in ((6, 0), (True, 0), (4, 1, -1, 1, 1), (1, 2),
                      (2, 1, -30, 30, 45), (1, 1, -90, 90, 46), (1, 0, -1, 1, 1)):
             with self.assertRaises(ValueError): encode_joint(*args)
+
+    def test_yaw_configuration_and_preserved_calibration(self):
+        record = encode_joint(3, 1, -180, 180, 45)
+        self.assertEqual(record.hex(), "41585332020000000300000001000000db0f49c0db0f4940db0f493ffa66643a")
+        self.assertEqual(decode(record)["name"], "yaw")
+        self.assertAlmostEqual(decode(record)["minimum_deg"], -180, places=4)
+        for args in ((3, 1, -181, 180, 45), (3, 1, -180, 181, 45), (3, 1, -180, 180, 46)):
+            with self.assertRaises(ValueError): encode_joint(*args)
+        source = bytes(range(256)) * 16 + bytes([255]) * 4096
+        profile = {"name": "yaw", "joint_type_id": 3, "config_revision": 1,
+                   "motion": {"minimum_deg": -180, "maximum_deg": 180, "cruise_deg_s": 45}}
+        result = prepare(source, {"axis_profile": 4096, "pos_maxspeed": 4000}, profile)
+        allowed = set(range(4096, 4128)) | set(range(4000, 4004))
+        self.assertTrue(all(a == b or i in allowed for i, (a, b) in enumerate(zip(source, result))))
 
     def test_numeric_patch_preserves_legacy_offsets_and_calibration(self):
         source = bytearray(bytes(range(256)) * 32)

@@ -2,11 +2,11 @@
   "format_version": 1,
   "name": "yaw",
   "joint_type_id": 3,
-  "config_revision": 0,
+  "config_revision": 1,
   "motion": {
-    "minimum_deg": 0,
-    "maximum_deg": 0,
-    "cruise_deg_s": 0
+    "minimum_deg": -180,
+    "maximum_deg": 180,
+    "cruise_deg_s": 45
   },
-  "notes": "Identity only: bounds are placeholders, not mechanical limits; this revision cannot enable the motor."
+  "notes": "yaw 台架候选配置 v1：CAN 节点 5，裸轴 ±180°；机械零位和本机摩擦需独立标定，实机验收状态见对应报告。"
 }

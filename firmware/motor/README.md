@@ -1,19 +1,21 @@
-# 电机域功能导航
+# 电机域核心功能导航
 
-| 目录 | 职责 |
+当前v1.3.0；本域不拥有APP生命周期，不直接保存Flash。
+
+| 目录 | 核心工作 |
 | --- | --- |
-| foc | 电流/速度控制、无感观测器与补偿应用 |
-| feedback | 编码器采样、角度校正、多圈与速度估计，供各模式共用 |
-| position | 位置级联控制 |
-| trajectory | 平滑轨迹计算 |
-| math | 确定性的数学、角度与滤波计算，无硬件或应用状态依赖 |
-| calibration | 编码器装配标定、齿槽标定和补偿表生成 |
-| identification | 相电阻及摩擦辨识 |
-| protection | 故障与母线保护策略 |
+| foc | d/q电流控制、PI、测量换算，以及LUT依赖的无感启动/观测器 |
+| feedback | 编码器采样、LUT/零位校正、多圈与速度估计 |
+| position | 直接位置PD→速度PI→电流参考；无轨迹和前馈 |
+| math | 确定性角度、滤波和数学计算 |
+| calibration | LUT及电零位任务，显式输入的纯标定核心 |
+| protection | 电流、母线、温度等故障判定和恢复条件 |
 
-根目录头文件提供电机域值契约及现有 profile，不持有 APP 实例。
-motor_config.h 区分电机模型、应用配置和设备标定值；motor_types.h 保留易失运行状态。
-motor_profile_defaults.h 只提供实际电机模型与识别默认值，不包含板卡或节点配置。
-feedback 不决定生命周期，calibration/identification 不直接保存 Flash 或取得通信所有权。
-APP 的运行与维护所有者调度任务，平台端口实现实际 I/O。
-源码和对应头文件存放在同一职责目录。
+motor_config.h定义model/application/device配置，motor_types.h定义易失运行值。
+motor_profile_defaults.h提供电机模型默认值，板卡与采样配置属于平台。
+算法通过显式对象获得输入、返回结果；APP选择何时执行和关相，平台执行实际I/O。
+源码与头文件同目录。齿槽标定/补偿、摩擦/电阻辨识及复杂位置轨迹已删除。
+
+详见[控制执行](../../docs/architecture/motor_execution_core_v3.md)、
+[维护和标定](../../docs/architecture/motor_maintenance_core_v3.md)、
+[参数所有权](../../docs/architecture/parameter_ownership_v1.md)。

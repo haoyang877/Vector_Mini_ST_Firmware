@@ -1,6 +1,7 @@
 #ifndef ENCODER_CALIBRATION_TASK_H
 #define ENCODER_CALIBRATION_TASK_H
 
+#include "encoder_calibration_core.h"
 #include "motor_types.h"
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
@@ -9,51 +10,17 @@
 #include "foc_sensorless_run.h"
 #include "motor_task_result.h"
 
-/** @brief 调用方独占的 LUT 标定采样区；采样计数与候选 LUT 在不同时段复用。 */
-typedef struct
-{
-    int32_t error_sum[ENCODER_OFFSET_LUT_SIZE];
-    union
-    {
-        uint16_t samples[ENCODER_OFFSET_LUT_SIZE];
-        int16_t candidate[ENCODER_OFFSET_LUT_SIZE];
-    } bins;
-} EncoderCalibrationWorkspace;
-
-/* Mode 13/15 编码器标定任务（按裁决在原 foc_calibration 删除后重建）：
+/* Mode13/15 编码器标定任务适配，纯计算契约见 encoder_calibration_core.h：
  * - EncoderCalibrationTask_StepLut：无感观测器闭环下重建编码器 1024 点线性化 LUT；
  * - EncoderCalibrationTask_StepElectricalZero：d 轴对齐并写入电角度零位（需先完成 LUT 标定）。
- * 原五任务中的 R_L_Flux/EncoderOffset/CurrentOffset 仍待重建，不在本模块。
- * 迁移约定：任务不自行停相或写模式；完成/失败经 MotorWorkOutcome 上报，
+ * 任务不自行停相、写模式或保存；完成/失败经 MotorTaskResult 上报，
  * 功率级与模式迁移由运行状态机执行；本地中止只清理控制状态。 */
 
-/* 标定阶段机步骤：保留历史编号供 Keil Watch 与诊断按数值对照；
- * 未重建任务的步骤（ADC 偏置/R/L/磁链/编码器偏移等）不会出现。 */
+/* 仅保留实际LUT/电零位阶段；显式编号保持原Watch与诊断数值。 */
 typedef enum
 {
     CS_NULL = 0,
-    CS_ADC_OFFSET_START,
-    CS_ADC_OFFSET_LOOP,
-    CS_ADC_OFFSET_END,
-    CS_MOTOR_R_START,
-    CS_MOTOR_RA_LOOP,
-    CS_MOTOR_RB_LOOP,
-    CS_MOTOR_RC_LOOP,
-    CS_MOTOR_R_END,
-    CS_MOTOR_L_START,
-    CS_MOTOR_LD_LOOP,
-    CS_MOTOR_LQ_LOOP,
-    CS_MOTOR_L_END,
-    CS_MOTOR_FLUX_START,
-    CS_MOTOR_FLUX_LOOP,
-    CS_MOTOR_FLUX_END,
-    CS_ANTICOGGING_START,
-    CS_ANTICOGGING_CW_TEMP,
-    CS_ANTICOGGING_CW_SAMPLE,
-    CS_ANTICOGGING_CCW_TEMP,
-    CS_ANTICOGGING_CCW_SAMPLE,
-    CS_ANTICOGGING_END,
-    CS_OBS_ALIGN_ORIGIN,
+    CS_OBS_ALIGN_ORIGIN = 22,
     CS_OBS_WAIT_CLOSED_LOOP,
     CS_OBS_SPEED_STABLE,
     CS_OBS_FIND_ORIGIN,

@@ -1,9 +1,6 @@
 # 电机 APP 状态流转简化设计 v1
 
-日期：2026-10-08。本文保留早期方案与出口对照；当前实施以[出口收敛 v4](../plans/active/2026-10-08-motor-state-flow-simplification-v4.md)和[当前总图](motor_state_machine_v1.md)为准。
-
-当前 INIT／IDLE STOP 保持原状态；停止完成及 CLEAR 成功直接 IDLE；FATAL 无软件出口。
-下文关于 STOPPING／FAULT 返回 INIT、条件区分静默 STOP 和 tested 的方案均已被 v4 替代。
+日期：2026-10-08。状态：八状态与静默 STOP 已在专项源码实施；维护内串行 SAVE 仍为候选。
 本文以[当前总图与 15 组出口](motor_state_machine_v1.md)为旧实现，
 给出完整对照、职责和伪代码。执行与证据见[专项计划 v2](../plans/active/2026-10-08-motor-state-flow-simplification-v2.md)。
 

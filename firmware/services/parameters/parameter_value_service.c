@@ -52,10 +52,6 @@ static const ScalarField s_fields[] = {
     CAL_FIELD(0x44U, device.phase_a_offset_counts, 1000U),
     CAL_FIELD(0x45U, device.phase_b_offset_counts, 1000U),
     CAL_FIELD(0x46U, device.phase_c_offset_counts, 1000U),
-    CAL_FIELD(0x47U, device.friction_coulomb_pos_a, 1000U),
-    CAL_FIELD(0x48U, device.friction_coulomb_neg_a, 1000U),
-    CAL_FIELD(0x49U, device.friction_viscous_pos_a_per_rad_s, 1000000U),
-    CAL_FIELD(0x4AU, device.friction_viscous_neg_a_per_rad_s, 1000000U),
 };
 
 bool ParameterValue_ConfigurationValid(const MotorControlState *motor)
@@ -223,9 +219,6 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
         case 0x43U:
             /* 参数目录定义的是完整有效布尔值，不能把部分标志 0x01 解释为有效。 */
             candidate.raw_value = (encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL ? 1U : 0U;
-            break;
-        case 0x4BU:
-            candidate.raw_value = motor->device.friction_model_valid ? 1U : 0U;
             break;
         case 0x4CU:
             candidate.raw_value = CURRENT_SENSE_SHUNT_MILLIOHM;

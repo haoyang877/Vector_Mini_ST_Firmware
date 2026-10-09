@@ -2,6 +2,14 @@
 #include "yg_protocol_job.h"
 #include "yg_protocol_byte_order.h"
 
+static bool active_job_kind(uint16_t kind)
+{
+    return kind == YG_PROTOCOL_JOB_KIND_ENCODER_LUT ||
+           kind == YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO ||
+           kind == YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO || kind == YG_PROTOCOL_JOB_KIND_SAVE ||
+           kind == YG_PROTOCOL_JOB_KIND_DEFAULTS;
+}
+
 yg_protocol_result_t yg_protocol_job_decode(const yg_protocol_message_t *message,
                                             yg_protocol_job_request_t *request)
 {
@@ -61,8 +69,7 @@ yg_protocol_result_t yg_protocol_job_encode_reply(const yg_protocol_job_reply_t 
         reply->effects > YG_PROTOCOL_JOB_EFFECT_COMMITTED ||
         ((reply->status == YG_PROTOCOL_SERVICE_OK ||
           reply->status == YG_PROTOCOL_SERVICE_ACCEPTED) &&
-         (reply->token == 0U || reply->kind < YG_PROTOCOL_JOB_KIND_ENCODER_LUT ||
-          reply->kind > YG_PROTOCOL_JOB_KIND_COGGING ||
+         (reply->token == 0U || !active_job_kind(reply->kind) ||
           reply->phase == YG_PROTOCOL_JOB_PHASE_NONE)))
     {
         return YG_PROTOCOL_INVALID_FIELD;

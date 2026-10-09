@@ -1,0 +1,15 @@
+{
+  "version": "1.1",
+  "extends": "yg_protocol_calibration_wire_v1_vectors.json",
+  "requests": [
+    {"name": "start_phase_resistance", "type": 160, "payload_hex": "04000000", "expected": "OK", "kind": 4},
+    {"name": "start_friction", "type": 160, "payload_hex": "05000000", "expected": "OK", "kind": 5},
+    {"name": "unknown_kind", "type": 160, "payload_hex": "06000000", "expected": "OK", "owner_result": "UNSUPPORTED"}
+  ],
+  "replies": [
+    {"name": "phase_resistance_accepted", "payload_hex": "010000007856341204000101", "result": 1, "ticket": "0x12345678", "kind": 4, "phase": 1, "effects": 1},
+    {"name": "friction_accepted", "payload_hex": "010000007856341205000101", "result": 1, "ticket": "0x12345678", "kind": 5, "phase": 1, "effects": 1},
+    {"name": "phase_resistance_complete_uncommitted", "payload_hex": "000000007856341204000201", "result": 0, "ticket": "0x12345678", "kind": 4, "phase": 2, "effects": 1},
+    {"name": "friction_complete_uncommitted", "payload_hex": "000000007856341205000201", "result": 0, "ticket": "0x12345678", "kind": 5, "phase": 2, "effects": 1}
+  ]
+}

@@ -61,7 +61,7 @@ doctor／format／lint／layout／architecture／interfaces／hygiene PASS；
 
 ## INIT 输入逐项审查（2026-10-08 继续）
 
-当前状态：以下为历史讨论，已被[出口收敛 v4](2026-10-08-motor-state-flow-simplification-v4.md)替代。用户随后要求先完整列出所有跳转、由用户判断方案；
+当前状态：以下为尚未实施的讨论。用户随后要求先完整列出所有跳转、由用户判断方案；
 暂停逐状态的固件修改。新增关注为 INIT／IDLE STOP 保持原状态、只有 STARTING／RUNNING／
 MAINTENANCE 进入 STOPPING，以及故障恢复直达 IDLE 的条件。源码仍为 dcaa9c5 工作区版本。
 

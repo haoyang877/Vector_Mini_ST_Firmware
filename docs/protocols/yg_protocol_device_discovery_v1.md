@@ -32,7 +32,7 @@ max_block_data:u16、write_alignment:u16、default_watchdog_ms:u16、max_watchdo
 | Type | 已接线行为 | 限制 |
 | ---: | --- | --- |
 | 1/2/3 | 身份、能力、角色查询 | 角色与身份有效位分别编码；不伪造启动代际 |
-| 101/110 | 失能、STOP 请求与输出禁止确认 | 101(enable=1) 不支持，普通使能语义待定；确认不等于转子静止 |
+| 101/110 | 失能、STOP 请求与输出禁止确认 | 101(enable=1) 是低侧制动候选且当前不支持；确认不等于转子静止 |
 | 107 | CLEAR 请求，经所有者检查恢复资格 | 不启动，不恢复旧目标；清错后重新自检 |
 | 108 | 真实状态快照 | 不提供无来源传感器值 |
 | 116/124 | 同模式 RUNNING 目标更新、受理与实际应用终态 | 不隐式使能/跨模式；APPLIED 不等于到位，详见 motor wire v1 |
@@ -43,6 +43,8 @@ max_block_data:u16、write_alignment:u16、default_watchdog_ms:u16、max_watchdo
 
 MIT、低侧制动、普通远程启动、跨模式启动、动态参数表和周期运动状态流未开放。
 不能根据存在枚举或编码函数推断业务已实现，也不能将源码完成表述为实机通过。
+普通启动的独立 117 候选及首批速度模式见[设计提案 v0.1](yg_protocol_ordinary_start_proposal_v0_1.md)；
+它未进入当前注册表，`supported_modes=0` 不变，也未分配新的 features 位。
 
 ## 参数与版本兼容
 

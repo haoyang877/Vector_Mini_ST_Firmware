@@ -19,8 +19,6 @@
 #include "device_profile_defaults.h"
 #include "control_math.h"
 
-#include "foc_cogging_calibration.h"
-
 uint32_t Param_RecordCrc(const InterfaceParam *param)
 {
     uint32_t offset = (uint32_t)offsetof(InterfaceParam, record_crc32);
@@ -74,7 +72,6 @@ static bool param_apply_joint_profile(MotorControlState *motor)
 
 void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_encoder)
 {
-    FocCogging_ResetMap();
     memset(
         &motor_state->application.axis_profile, 0, sizeof(motor_state->application.axis_profile));
     motor_state->application.axis_profile_valid = true;
@@ -123,11 +120,6 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     motor_state->application.position_maximum_speed_rad_s = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
     motor_state->application.cascade_position_kp = PARAM_APP_CASCADE_POSITION_KP;
     motor_state->application.cascade_position_kd = PARAM_APP_CASCADE_POSITION_KD;
-    motor_state->device.friction_coulomb_pos_a = 0.0f;
-    motor_state->device.friction_coulomb_neg_a = 0.0f;
-    motor_state->device.friction_viscous_pos_a_per_rad_s = 0.0f;
-    motor_state->device.friction_viscous_neg_a_per_rad_s = 0.0f;
-    motor_state->device.friction_model_valid = false;
 }
 
 void Param_Upload(InterfaceParam *param,
@@ -172,16 +164,17 @@ void Param_Upload(InterfaceParam *param,
     param->current_sense_shunt_milliohm = CURRENT_SENSE_SHUNT_MILLIOHM;
     param->cascade_pos_kp = motor_state->application.cascade_position_kp;
     param->cascade_pos_kd = motor_state->application.cascade_position_kd;
-    param->friction_coulomb_pos_a = motor_state->device.friction_coulomb_pos_a;
-    param->friction_coulomb_neg_a = motor_state->device.friction_coulomb_neg_a;
-    param->friction_viscous_pos_a_per_rad_s = motor_state->device.friction_viscous_pos_a_per_rad_s;
-    param->friction_viscous_neg_a_per_rad_s = motor_state->device.friction_viscous_neg_a_per_rad_s;
-    param->friction_model_valid = motor_state->device.friction_model_valid ? 1U : 0U;
+    param->friction_coulomb_pos_a = 0.0f;
+    param->friction_coulomb_neg_a = 0.0f;
+    param->friction_viscous_pos_a_per_rad_s = 0.0f;
+    param->friction_viscous_neg_a_per_rad_s = 0.0f;
+    param->friction_model_valid = 0U;
     param->schema_version = PARAM_SCHEMA_VERSION;
     param->magic_word = MAGIC_WORD;
     param->configuration_flags = motor_state->configuration_confirmed ? 1U : 0U;
     param->axis_profile = motor_state->application.axis_profile;
-    FocCogging_ExportMap(&param->cogging, motor_state, rotor_encoder);
+    /* 退役齿槽槽保持schema12字节布局；导出空记录，不再加载或应用补偿。 */
+    memset(&param->cogging, 0, sizeof(param->cogging));
     param->record_crc32 = Param_RecordCrc(param);
 }
 
@@ -299,45 +292,9 @@ void Param_Download(const InterfaceParam *param,
         isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f
             ? Math_Constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
             : PARAM_APP_CASCADE_POSITION_KD;
-    if (!current_sense_profile_changed && param->friction_model_valid == 1U &&
-        isfinite(param->friction_coulomb_pos_a) && param->friction_coulomb_pos_a >= 0.0f &&
-        isfinite(param->friction_coulomb_neg_a) && param->friction_coulomb_neg_a >= 0.0f &&
-        isfinite(param->friction_viscous_pos_a_per_rad_s) &&
-        param->friction_viscous_pos_a_per_rad_s >= 0.0f &&
-        isfinite(param->friction_viscous_neg_a_per_rad_s) &&
-        param->friction_viscous_neg_a_per_rad_s >= 0.0f)
-    {
-        motor_state->device.friction_coulomb_pos_a = param->friction_coulomb_pos_a;
-        motor_state->device.friction_coulomb_neg_a = param->friction_coulomb_neg_a;
-        motor_state->device.friction_viscous_pos_a_per_rad_s =
-            param->friction_viscous_pos_a_per_rad_s;
-        motor_state->device.friction_viscous_neg_a_per_rad_s =
-            param->friction_viscous_neg_a_per_rad_s;
-        motor_state->device.friction_model_valid = true;
-    }
-    else
-    {
-        motor_state->device.friction_coulomb_pos_a = 0.0f;
-        motor_state->device.friction_coulomb_neg_a = 0.0f;
-        motor_state->device.friction_viscous_pos_a_per_rad_s = 0.0f;
-        motor_state->device.friction_viscous_neg_a_per_rad_s = 0.0f;
-        motor_state->device.friction_model_valid = false;
-    }
     motor_state->application.axis_profile_valid =
         MotorAxisProfile_Load(&param->axis_profile, &motor_state->application.axis_profile);
     motor_state->application.axis_profile_valid = param_apply_joint_profile(motor_state);
-    FocCogging_ResetMap();
-    if (!current_sense_profile_changed &&
-        param->cogging.full_scale_a == CURRENT_SENSE_PROFILE_FULL_SCALE_A &&
-        (rotor_encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
-        CoggingMap_Valid(&param->cogging,
-                         Cogging_EncoderSignature(rotor_encoder->reverse,
-                                                  rotor_encoder->electrical_zero_q15,
-                                                  motor_state->model.motor_pole_pairs,
-                                                  rotor_encoder->linearization_lut_q15)))
-    {
-        FocCogging_ImportMap(&param->cogging);
-    }
     motor_state->configuration_source = MOTOR_CONFIGURATION_STORED;
     motor_state->configuration_confirmed =
         param->configuration_flags == 1U && !current_sense_profile_changed;

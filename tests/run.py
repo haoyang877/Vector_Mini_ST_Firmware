@@ -15,6 +15,7 @@ NATIVE = (
     "test_bus_voltage_protection",
     "test_current_oversampling",
     "test_current_precision",
+    "test_startup_current_offsets",
     "test_adc_fast_dispatch",
     "test_encoder_sample_overlap",
     "test_fast_loop_math",
@@ -24,13 +25,10 @@ NATIVE = (
     "test_loader_upgrade",
     "test_loader_runtime",
     "test_maintenance_workspace",
-    "test_position_config_cache",
-    "test_position_config_validation",
     "test_run_state",
     "test_motor_state_request",
     "test_execution_dispatch",
     "test_sensorless_transitions",
-    "test_cogging_calibration",
     "test_mcu_temperature",
     "test_yg_protocol_core",
     "test_yg_protocol_fragment",
@@ -43,13 +41,8 @@ NATIVE = (
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", help="Native compiler executable; Zig is supported")
-    parser.add_argument(
-        "--reference-source", type=Path, help="Pre-change position_cascade.c for equivalence checks"
-    )
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/tests")
     args = parser.parse_args()
-    if args.reference_source and not args.cc:
-        parser.error("--reference-source requires --cc")
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     commands = [
@@ -80,22 +73,6 @@ def main():
                         args.cc,
                         "--out",
                         str(out / name),
-                    ],
-                )
-            )
-        if args.reference_source:
-            commands.append(
-                (
-                    "equivalence",
-                    [
-                        sys.executable,
-                        str(ROOT / "tests/unit/native/test_position_core_equivalence.py"),
-                        "--cc",
-                        args.cc,
-                        "--reference-source",
-                        str(args.reference_source.resolve()),
-                        "--out",
-                        str(out / "equivalence"),
                     ],
                 )
             )

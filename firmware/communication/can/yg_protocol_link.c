@@ -17,13 +17,14 @@
 #include "yg_protocol_parameter.h"
 #include "yg_protocol_boot.h"
 
-/* 队列一次覆盖最大 1767B 逻辑消息的 39 个 46B 分片，并保留一个空槽。
- * 重组区与协议上限一致，避免声明支持长消息却在组合层静默截短。 */
+/* APP 当前只发送单帧回复/反馈；TX 保留突发余量和控制回复+反馈的两个位置。
+ * 通用端点仍可处理 1767B 消息，但 APP 不承诺一次排入 39 个发送分片。 */
 #define YG_LINK_RX_QUEUE_CAPACITY 8U
-#define YG_LINK_TX_QUEUE_CAPACITY 40U
+#define YG_LINK_TX_QUEUE_CAPACITY 8U
 #define YG_LINK_FRAGMENT_CAPACITY YG_PROTOCOL_MAX_MESSAGE_PAYLOAD
 #define YG_LINK_MASTER_NODE_ID 2U
-#define YG_LINK_CONTROL_HISTORY_SIZE 256U
+/* 只重放最近 32 个控制序号的原结果；更早的序号由水位拒绝，绝不重新执行。 */
+#define YG_LINK_CONTROL_HISTORY_SIZE 32U
 #define YG_LINK_BOOT_QUEUE_TIMEOUT_MS 100U
 
 /* 仅56需要精确发送身份，旁记录不扩大每一条普通CAN帧。 */
@@ -352,7 +353,7 @@ static yg_protocol_result_t handle_motor_start(void *context,
         write_result(result, decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U, 0U);
         return YG_PROTOCOL_OK;
     }
-    if (command.mode != 2U)
+    if (command.mode != 1U && command.mode != 2U && command.mode != 3U && command.mode != 6U)
     {
         write_result(result, 2U, 0U);
         return YG_PROTOCOL_OK;
@@ -921,7 +922,7 @@ static void discard_queued_boot_reply(void)
                 return;
             }
             const size_t last = (s_tx_queue.tail + s_tx_queue.capacity - 1U) % s_tx_queue.capacity;
-            /* 只有一条带票据回复；最多移39条普通帧，保持它们原顺序且不改丢帧计数。 */
+            /* 只有一条带票据回复；按当前队列容量有界移动，保持其余帧顺序。 */
             while (slot != last)
             {
                 size_t next = (slot + 1U) % s_tx_queue.capacity;

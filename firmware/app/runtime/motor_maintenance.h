@@ -9,12 +9,6 @@
 #include "motor_lifecycle_request.h"
 
 /**
- * @brief 装配辨识默认配置并复位摩擦任务状态。
- * @note 启动时调用，不使能输出；产品配置由本组合层拥有。
- */
-void MotorMaintenance_Init(void);
-
-/**
  * @brief 检查指定维护任务的功能前提，不提交状态或启相。
  * @param kind 实际维护任务类型。
  * @param motor 电机配置及当前故障。
@@ -48,15 +42,9 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
 /**
  * @brief 仅取消当前功能，不遍历无关任务。
  * @param kind 当前实际任务。
- * @param foc 电流环对象。
- * @param motor 电机对象。
- * @param pi 速度控制器。
  * @note 所有者先关相再调用；归还仍须由 IsReleased 取得事实。
  */
-void MotorMaintenance_Cancel(MotorMaintenanceKind kind,
-                             FocState *foc,
-                             MotorControlState *motor,
-                             PiController *pi);
+void MotorMaintenance_Cancel(MotorMaintenanceKind kind);
 /**
  * @brief 核对所有功能工作区均已释放。
  * @return 全部工作区静默返回 true，不代表后台借用归还或硬件关闭。

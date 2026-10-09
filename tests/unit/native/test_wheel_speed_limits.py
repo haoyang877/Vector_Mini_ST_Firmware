@@ -29,18 +29,8 @@ def fixture():
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
 #include "control_math.h"
-#include "foc_cogging_calibration.h"
 MotorControlState motor_state;
 EncoderState rotor_encoder;
-/* 参数服务只传值：夹具持有表，模拟齿槽边界并使用真实签名与 CRC。 */
-static CoggingMapRecord CoggingMap;
-void FocCogging_ResetMap(void) { memset(&CoggingMap,0,sizeof(CoggingMap)); }
-void FocCogging_ImportMap(const CoggingMapRecord *record) { CoggingMap=*record; }
-void FocCogging_ExportMap(CoggingMapRecord *record, const MotorControlState *m, const EncoderState *e) {
-    uint32_t signature=Cogging_EncoderSignature(e->reverse,e->electrical_zero_q15,m->model.motor_pole_pairs,e->linearization_lut_q15);
-    memset(record,0,sizeof(*record));
-    if((e->calib_flag&ENC_CALIB_ALL)==ENC_CALIB_ALL && CoggingMap_Valid(&CoggingMap,signature)) { *record=CoggingMap; }
-}
 uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
 """
     vectors = json.loads(
@@ -96,13 +86,13 @@ int main(void) {
             assert(memcmp(&p,&before,sizeof(p))==0);
             assert(motor_state.device.node_id==(uint8_t)PARAM_DEVICE_CAN_NODE_ID);
             assert(rotor_encoder.calib_flag==0 && rotor_encoder.electrical_zero_q15==0);
-            assert(rotor_encoder.linearization_lut_q15[71]==0 && CoggingMap.magic==0);
+            assert(rotor_encoder.linearization_lut_q15[71]==0);
             assert(motor_state.application.cascade_position_kp==PARAM_APP_CASCADE_POSITION_KP);
             assert(motor_state.application.speed_kp==PARAM_APP_SPEED_KP);
         }
         p=saved; p.magic_word=0;
         p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
-        assert(rotor_encoder.calib_flag==0 && CoggingMap.magic==0);
+        assert(rotor_encoder.calib_flag==0);
     }
     puts("PASS old/unknown schema rejection, defaults and immutable input");
     /* 当前布局的黄金字节与偏移保持；加载保留既有整定和标定数据。 */
@@ -133,31 +123,21 @@ int main(void) {
     assert(motor_state.application.speed_kp==.023f && motor_state.application.speed_limit_rad_s==20);
     assert(rotor_encoder.electrical_zero_q15==3155 && rotor_encoder.reverse==0);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
-    assert(CoggingMap.magic==0);
     Param_Upload(&p,&motor_state,&rotor_encoder); p.magic_word=MAGIC_WORD;
     assert(p.configuration_flags==1U && p.record_crc32==Param_RecordCrc(&p) && p.reserved_pos_ki==0 && p.reserved_pos_integral_limit==0);
     {
         const uint8_t zero_bytes[] = {0,0,0,0};
         assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
     }
-    {
-        CoggingCalibration c={0};
-        uint32_t signature=Cogging_EncoderSignature(p.encoder_reverse,p.encoder_electrical_zero_q15,
-            (int32_t)p.motor_pole_pairs,p.encoder_linearization_lut_q15);
-        c.state=COGGING_COMPLETE; c.points_done=2048;
-        c.full_scale_a=CURRENT_SENSE_PROFILE_FULL_SCALE_A;
-        for(unsigned i=0;i<1024;i++) c.iq_q15[i]=(i&1) ? 123 : -123;
-        assert(CoggingMap_Build(c.iq_q15,c.full_scale_a,signature,&CoggingMap));
-        Param_Upload(&p,&motor_state,&rotor_encoder); p.magic_word=MAGIC_WORD;
-        memset(&CoggingMap,0,sizeof(CoggingMap));
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap_Valid(&CoggingMap,signature));
-        assert(CoggingMap.iq_q15[17]==123);
-        p.cogging.iq_q15[5]^=1;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap.magic==0);
-        p.cogging.iq_q15[5]^=1; p.encoder_electrical_zero_q15++;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(CoggingMap.magic==0);
-    }
-    puts("PASS schema12 golden layout, Q15 map round trip, corrupt/stale map rejection");
+    /* 退役槽不应用到控制；导出清零，但schema12大小和CRC完整性保持。 */
+    p=saved; p.cogging.magic=0x31475143U; p.cogging.iq_q15[17]=123;
+    p.friction_model_valid=1U; p.friction_coulomb_pos_a=.2f;
+    p.record_crc32=Param_RecordCrc(&p);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
+    Param_Upload(&p,&motor_state,&rotor_encoder);
+    assert(p.cogging.magic==0 && p.cogging.iq_q15[17]==0 && p.friction_model_valid==0);
+    puts("PASS schema12 golden layout and retired fields ignored/zero export");
     /* 当前硬件配置变化仍使电流域参数失效，不属于已删除的版本迁移。 */
     p=saved;
     p.current_sense_shunt_milliohm=CURRENT_SENSE_SHUNT_MILLIOHM==2U ? 6U : 2U;
@@ -167,7 +147,6 @@ int main(void) {
     p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
     assert(motor_state.model.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
     assert(motor_state.application.current_limit_a==PARAM_MOTOR_CURRENT_LIMIT_A);
-    assert(!motor_state.device.friction_model_valid && CoggingMap.magic==0);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     puts("PASS current-sense mismatch invalidates current-domain settings only");
 
@@ -235,7 +214,6 @@ def main():
     command += [
         str(source),
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
-        str(ROOT / "firmware/motor/calibration/cogging_map.c"),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
         "-o",

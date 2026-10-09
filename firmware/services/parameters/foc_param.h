@@ -7,7 +7,14 @@
 #include "angle_feedback.h"
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
-#include "cogging_calibration.h"
+/* schema12退役记录槽，仅用于保持已部署参数的大小和偏移；无运行算法。 */
+typedef struct
+{
+    uint32_t magic, encoder_signature;
+    float full_scale_a;
+    uint32_t crc32;
+    int16_t iq_q15[1024];
+} CoggingMapRecord;
 
 /* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。 */
@@ -66,7 +73,7 @@ typedef struct
     /* Appended in schema v8; legacy cascade outer-loop gains. */
     float cascade_pos_kp;
     float cascade_pos_kd;
-    /* Appended in schema v9; current-domain model, compensation remains disabled. */
+    /* 退役摩擦模型占位：读取忽略，导出清零。 */
     float friction_coulomb_pos_a;
     float friction_coulomb_neg_a;
     float friction_viscous_pos_a_per_rad_s;
@@ -74,7 +81,7 @@ typedef struct
     uint32_t friction_model_valid;
     /* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
     MotorAxisProfile axis_profile;
-    /* Schema v11: complete, independently CRC-checked 1024-point Q15 iq_a map. */
+    /* 退役齿槽表占位：读取忽略，导出清零；schema12布局不变。 */
     CoggingMapRecord cogging;
 } InterfaceParam;
 

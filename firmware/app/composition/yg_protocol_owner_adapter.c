@@ -139,16 +139,29 @@ static void handle_parameter(void *context,
 static void handle_start(const yg_protocol_motor_request_t *request,
                          yg_protocol_service_reply_t *reply)
 {
-    MotorControlStartRequest start = {.mode = MOTOR_CONTROL_SPEED,
-                                      .sequence = request->sequence,
-                                      .source_node = request->source_node};
-    MotorControlStartProgress progress;
-    MotorControlResult result;
-    if (request->mode != 2U)
+    MotorControlMode mode;
+    switch (request->mode)
     {
+    case 1U:
+        mode = MOTOR_CONTROL_CURRENT;
+        break;
+    case 2U:
+        mode = MOTOR_CONTROL_SPEED;
+        break;
+    case 3U:
+        mode = MOTOR_CONTROL_POSITION;
+        break;
+    case 6U:
+        mode = MOTOR_CONTROL_VQ;
+        break;
+    default:
         reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
         return;
     }
+    MotorControlStartRequest start = {
+        .mode = mode, .sequence = request->sequence, .source_node = request->source_node};
+    MotorControlStartProgress progress;
+    MotorControlResult result;
     result = MotorStateMachine_RequestIdentifiedEnable(&start);
     if (result == MOTOR_CONTROL_STALE_SEQUENCE || result == MOTOR_CONTROL_CONFLICTING_RETRY)
     {
@@ -229,8 +242,12 @@ static uint16_t job_wire_kind(MotorMaintenanceKind kind)
         return YG_PROTOCOL_JOB_KIND_ENCODER_LUT;
     case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
         return YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO;
-    case MOTOR_MAINTENANCE_COGGING:
-        return YG_PROTOCOL_JOB_KIND_COGGING;
+    case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
+        return YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO;
+    case MOTOR_MAINTENANCE_SAVE:
+        return YG_PROTOCOL_JOB_KIND_SAVE;
+    case MOTOR_MAINTENANCE_DEFAULTS:
+        return YG_PROTOCOL_JOB_KIND_DEFAULTS;
     default:
         return 0U;
     }
@@ -334,8 +351,14 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
         case YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO:
             command.kind = MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
             break;
-        case YG_PROTOCOL_JOB_KIND_COGGING:
-            command.kind = MOTOR_MAINTENANCE_COGGING;
+        case YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO:
+            command.kind = MOTOR_MAINTENANCE_MECHANICAL_ZERO;
+            break;
+        case YG_PROTOCOL_JOB_KIND_SAVE:
+            command.kind = MOTOR_MAINTENANCE_SAVE;
+            break;
+        case YG_PROTOCOL_JOB_KIND_DEFAULTS:
+            command.kind = MOTOR_MAINTENANCE_DEFAULTS;
             break;
         default:
             reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
@@ -346,7 +369,7 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
     }
     else if (request->operation == YG_PROTOCOL_JOB_CANCEL)
     {
-        /* 162只开放三个标定种类；类别核对与按ticket取消共同串行化，不能取消参数SAVE。 */
+        /* 162只取消本任务ticket；不能拿维护SAVE身份取消122参数保存。 */
         uint32_t mask = critical_hw_enter();
         MotorMaintenanceProgress candidate;
         bool calibration = MotorStateMachine_ReadMaintenance(ticket, &candidate) &&

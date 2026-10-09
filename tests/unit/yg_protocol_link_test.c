@@ -140,8 +140,10 @@ static void backlog_and_interrupt_handoff(void)
     assert(!YgProtocolLink_OnRxFrame(&injected_frame));
     assert(motor_calls == 0U);
     YgProtocolLink_Service(10U);
-    assert(motor_calls == 8U && sent_count == 0U);
+    /* TX 仅容纳 8 帧，预留两个回复槽后第 8 条请求必须留在 RX。 */
+    assert(motor_calls == 7U && sent_count == 0U);
     YgProtocolLink_Service(12U);
+    assert(motor_calls == 7U);
     tx_blocked = false;
     for (unsigned i = 0U; i < 20U; ++i)
     {
@@ -320,6 +322,65 @@ static void enqueue_request(const yg_protocol_message_t *request)
     assert(YgProtocolLink_OnRxFrame(&received));
 }
 
+static void completed_control_handler(void *context,
+                                      const yg_protocol_motor_request_t *request,
+                                      yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    assert(request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL);
+    ++motor_calls;
+    reply->status = YG_PROTOCOL_SERVICE_OK;
+}
+
+/* 历史槽覆盖后旧序号只能拒绝；仍在窗口内的重发须重放原结果。 */
+static void control_history_window(void)
+{
+    uint8_t payload[YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE] = {3U, 0U, 0U, 0U, 0xE8U, 0x03U};
+    yg_protocol_motor_service_t service = {NULL, completed_control_handler};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_CONTROL,
+                                     .payload_length = sizeof(payload),
+                                     .payload = payload};
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindMotorService(&service));
+    motor_calls = 0U;
+    tx_blocked = false;
+    for (uint16_t index = 0U; index <= 32U; ++index)
+    {
+        request.sequence = (uint16_t)(100U + index);
+        sent = false;
+        sent_count = 0U;
+        enqueue_request(&request);
+        YgProtocolLink_Service((uint32_t)index * 2U);
+        assert(sent && sent_frame.data[16] == YG_PROTOCOL_SERVICE_OK);
+        sent = false;
+        YgProtocolLink_Service((uint32_t)index * 2U + 1U);
+        assert(sent);
+    }
+    assert(motor_calls == 33U);
+
+    request.sequence = 100U;
+    sent = false;
+    sent_count = 0U;
+    enqueue_request(&request);
+    YgProtocolLink_Service(100U);
+    assert(sent && sent_frame.data[16] == 4U);
+    assert(motor_calls == 33U);
+    sent = false;
+    YgProtocolLink_Service(101U);
+
+    request.sequence = 132U;
+    sent = false;
+    sent_count = 0U;
+    enqueue_request(&request);
+    YgProtocolLink_Service(102U);
+    assert(sent && sent_frame.data[16] == YG_PROTOCOL_SERVICE_OK);
+    assert(motor_calls == 33U);
+}
+
 static void start_handler(void *context,
                           const yg_protocol_motor_request_t *request,
                           yg_protocol_service_reply_t *reply)
@@ -404,7 +465,7 @@ static void start_route_contract(void)
 
     sent = false;
     payload[1] = 0U;
-    payload[0] = 3U;
+    payload[0] = 4U;
     enqueue_request(&request);
     YgProtocolLink_Service(5U);
     assert(sent && sent_frame.data[16] == 2U && motor_calls == 1U);
@@ -435,6 +496,67 @@ static void start_route_contract(void)
     YgProtocolLink_Service(7U);
     assert(sent && sent_frame.length == 24U);
     assert(memcmp(sent_frame.data, stale_bytes, sizeof(stale_bytes)) == 0);
+}
+
+static uint8_t accepted_start_mode;
+
+static void multimode_start_handler(void *context,
+                                    const yg_protocol_motor_request_t *request,
+                                    yg_protocol_service_reply_t *reply)
+{
+    (void)context;
+    assert(request->operation == YG_PROTOCOL_MOTOR_START_CONTROL);
+    accepted_start_mode = request->mode;
+    ++motor_calls;
+    reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
+}
+
+static void multimode_start_vectors(void)
+{
+    static const uint8_t modes[] = {1U, 3U, 6U};
+    static const uint8_t frames[][24] = {
+        {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x01, 0x75, 0x00, 0x01, 0x10, 0x04, 0x00,
+         0x00, 0x00, 0x00, 0x82, 0x01, 0x00, 0x00, 0x00, 0xA2, 0x46, 0x00, 0x00},
+        {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x01, 0x75, 0x00, 0x01, 0x10, 0x04, 0x00,
+         0x00, 0x00, 0x00, 0x82, 0x03, 0x00, 0x00, 0x00, 0x70, 0x99, 0x00, 0x00},
+        {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x01, 0x75, 0x00, 0x01, 0x10, 0x04, 0x00,
+         0x00, 0x00, 0x00, 0x82, 0x06, 0x00, 0x00, 0x00, 0x90, 0xF3, 0x00, 0x00}};
+    uint8_t payload[YG_PROTOCOL_MOTOR_START_REQUEST_SIZE] = {0};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 1U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_START,
+                                     .sequence = 0x1001U,
+                                     .payload_length = sizeof(payload),
+                                     .payload = payload};
+    const yg_protocol_motor_service_t service = {NULL, multimode_start_handler};
+    yg_protocol_transfer_frame_t packed;
+    for (size_t index = 0U; index < sizeof(modes); ++index)
+    {
+        assert(YgProtocolLink_Init(1U));
+        assert(YgProtocolLink_BindMotorService(&service));
+        motor_calls = 0U;
+        sent_count = 0U;
+        sent = false;
+        payload[0] = modes[index];
+        assert(yg_protocol_canfd_pack(&request, 2U, &packed) == YG_PROTOCOL_OK);
+        assert(packed.identifier == 0x08EF0102U && packed.length == 24U);
+        assert(memcmp(packed.data, frames[index], sizeof(frames[index])) == 0);
+        enqueue_request(&request);
+        YgProtocolLink_Service((uint32_t)index);
+        assert(sent && sent_frame.data[16] == 1U && motor_calls == 1U &&
+               accepted_start_mode == modes[index]);
+    }
+    assert(YgProtocolLink_Init(1U));
+    assert(YgProtocolLink_BindMotorService(&service));
+    motor_calls = 0U;
+    sent_count = 0U;
+    sent = false;
+    payload[0] = 4U;
+    enqueue_request(&request);
+    YgProtocolLink_Service(10U);
+    assert(sent && sent_frame.data[16] == 2U && motor_calls == 0U);
 }
 
 /* 固定合并前的权限/长度检查顺序及结果；使能只返回模拟服务值，不产生功率动作。 */
@@ -796,8 +918,10 @@ int main(void)
            response.payload[42] == 7U);
     enable_route();
     start_route_contract();
+    multimode_start_vectors();
     control_reply_and_feedback();
     backlog_and_interrupt_handoff();
+    control_history_window();
     power_route_contract();
     status_binding_reset();
     boot_confirm_and_info_contract();

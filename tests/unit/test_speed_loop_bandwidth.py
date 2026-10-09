@@ -2,7 +2,7 @@
 
 对照两代估计器（均按固件离散实现）：
 - 旧：2 kHz 16 点割线（8 ms 窗口），`v=(theta[k]-theta[k-16])/(16*0.5ms)`；
-- 新：20 kHz 二阶角度跟踪观测器（PLL），默认 ωn=150 Hz、ζ=0.707。
+- 新：20 kHz 二阶角度跟踪观测器（PLL），带宽读取生产头文件、ζ=0.707。
 
 方法：扫频测出"真实转速 -> 估计转速"的群延迟；以**同一连续噪声 PSD**（逐样本 σ 按
 sqrt(fs) 缩放）比较噪声；再按延迟预算（含 2 kHz 半拍与电流环滞后）估算转速环
@@ -12,13 +12,22 @@ crossover 与相位裕度的关系。给出"默认带宽点"和"与旧估计器�
 采样下的噪声，故本验收对 PLL 偏保守。
 """
 
+import re
 import unittest
+from pathlib import Path
 
 import numpy as np
 
 T_FAST = 1.0 / 20000.0
 T_SLOW = 1.0 / 2000.0
-PLL_WN_HZ = 300.0  # 与固件 ENCODER_PLL_OMEGA_N_HZ 一致（带宽优先默认点）
+PLL_WN_HZ = float(
+    re.search(
+        r"#define ENCODER_PLL_OMEGA_N_HZ ([0-9.]+)f",
+        (
+            Path(__file__).resolve().parents[2] / "firmware/motor/feedback/angle_feedback.h"
+        ).read_text(encoding="utf-8"),
+    ).group(1)
+)
 PLL_ZETA = 0.707
 SECANT_N = 16
 CURRENT_LOOP_LAG_S = 1.0e-4  # 近似：电流环等效滞后
@@ -106,6 +115,10 @@ def equal_noise_wn_hz():
 
 
 class SpeedLoopBandwidth(unittest.TestCase):
+    def test_default_noise_matches_low_noise_baseline(self):
+        # 低纹波默认点不以额外滤波层换取静稳；保留旧割线附近的噪声水平。
+        self.assertLess(noise_std("pll"), 1.2 * noise_std("secant"))
+
     def test_pll_has_lower_delay_than_secant(self):
         tau_old = group_delay_s("secant")
         tau_new = group_delay_s("pll")

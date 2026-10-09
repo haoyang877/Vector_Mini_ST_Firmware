@@ -39,9 +39,6 @@ typedef struct
 typedef struct
 {
     float phase_a_offset_counts, phase_b_offset_counts, phase_c_offset_counts;
-    float friction_coulomb_pos_a, friction_coulomb_neg_a;
-    float friction_viscous_pos_a_per_rad_s, friction_viscous_neg_a_per_rad_s;
-    bool friction_model_valid;
     uint8_t node_id;
 } MotorDeviceConfig;
 

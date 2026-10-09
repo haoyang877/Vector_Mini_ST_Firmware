@@ -5,11 +5,10 @@
 ```text
 firmware/                         电机 APP
   app/                            启动组装、模式与任务调度
-  motor/                          foc、位置控制、轨迹、辨识、保护
+  motor/                          FOC、位置控制、编码器标定与保护
   services/                       参数与遥测
   communication/                  CAN 接入与协议
   platform/                       硬件接口、STM32G4 BSP/端口/CubeMX
-  third_party/                    SEGGER RTT
 loader/                           独立 G431 Loader、升级事务与 CAN FD 端口
 host_app/                         Qt6 维护页面、离线升级规划与参数模型（设备执行后端待接线）
 shared/                           APP/Loader 共用协议、镜像及交接契约
@@ -22,6 +21,10 @@ outputs/                         构建、测试与分析产物（忽略提交�
 Keil 主工程为
 [`YG_ESC_APP.uvprojx`](firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx)，
 目标和输出名统一为 `YG_ESC_APP`；构建产物输出到 `outputs/build/keil/YG_ESC_APP/`。
+
+人工调试的观测对象、变量清单、单位和枚举值见
+[Keil Watch 只读观测指南](docs/guides/watch_motor_commands.md)。
+Watch 只用于观察；符号必须匹配板上固件，不能直接修改内部模式、目标或 PWM 来启动电机。
 
 ```powershell
 python -m pip install uv==0.12.16
@@ -50,7 +53,7 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 
 ## 功能介绍
 
-​        Vector 驱动器是一款中小型尺寸，基于矢量控制的永磁同步电机驱动，适用于轮毂电机，关节电机等。24V母线电压下，实测最高支持约400W的持续功率输入（需散热片）。内部算法可实现基础的电流，速度，位置闭环，同时具有一定的参数辨识能力。目前仅支持有感运行，板载了一块TLE5012B绝对式编码器，同时支持外部SPI编码器信号输入。当前应用通过 FDCAN 接收控制命令和回传状态；USART1 外设已随容量优化退役，不再初始化。MCU USB CDC 命令、遥测和协议栈已移除，PC 端 USB-CAN 分析仪仍可使用。FDCAN数据段最高波特率5Mbps，可通过外部主控向总线发送报文以实现一对多控制。驱动器具有母线过压和欠压，相线过流，过温等保护，最大程度地保障驱动能够稳定运行。
+​        Vector 驱动器是一款中小型尺寸，基于矢量控制的永磁同步电机驱动，适用于轮毂电机，关节电机等。24V母线电压下，实测最高支持约400W的持续功率输入（需散热片）。内部算法可实现基础的电流、速度、位置闭环，以及编码器LUT和零位标定。目前仅支持有感运行，板载了一块TLE5012B绝对式编码器，同时支持外部SPI编码器信号输入。当前应用通过 FDCAN 接收控制命令和回传状态；USART1 外设已随容量优化退役，不再初始化。MCU USB CDC 命令、遥测和协议栈已移除，PC 端 USB-CAN 分析仪仍可使用。FDCAN数据段最高波特率5Mbps，可通过外部主控向总线发送报文以实现一对多控制。驱动器具有母线过压和欠压，相线过流，过温等保护，最大程度地保障驱动能够稳定运行。
 
 ## 软件已有功能
 
@@ -59,14 +62,16 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
 
 * 基础有感FOC算法 电流 速度 位置 可控
-* 模式3连续加速度位置伺服（[优化过程](docs/reports/2026-09/mode3_optimization_20260908.md)、[参数适配](docs/guides/mode3_parameter_guide.md)、[执行测试](docs/guides/mode3_test_plan.md)）
+* 直接位置→速度→电流串级，保留原增益、限幅和抗饱和
 * 磁编码器偏心补偿
-* 电机相电阻辨识；旧电感/磁链扫描入口已退役
-* 空载正反向库仑/粘性摩擦辨识（见 [docs/friction_identification.md](docs/guides/friction_identification.md)）
-* FDCAN通信控制+超时保护
+* FDCAN基本启停、目标、反馈、参数读写与Loader交接
 * 绝对式 SPI 编码器：板载 TLE5012B（传感器通道已解耦，其他型号按 driver 接入）
 * 过压、欠压、过流、过温保护
 * 编码器断连识别
+
+当前以[核心功能删减v3](docs/plans/active/2026-10-08-core-only-v3.md)为准。
+轨迹、摩擦/相电阻辨识、齿槽标定/补偿、运行租约、持久启动计数和自动RTT已退役。
+历史报告与归档镜像保留，但不能作为当前功能或实机通过证据。
 
 ## 注意事项
 

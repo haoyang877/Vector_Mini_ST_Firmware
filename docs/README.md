@@ -3,6 +3,27 @@
 This directory is the versioned system of record. `AGENTS.md` and `ARCHITECTURE.md`
 provide the short entry map; details belong here.
 
+软件架构阅读入口：[电机驱动软件架构说明](architecture/software_architecture.md)。
+按产品职责、APP 分工、命令流转、周期调度、参数与状态所有权组织，包含当前架构图片。
+
+核心阅读入口：[模块核心职责与删减清单](architecture/module_core_responsibilities.md)，
+模块细节见[核心控制执行](architecture/motor_execution_core_v3.md)、[核心维护与标定](architecture/motor_maintenance_core_v3.md)和[参数所有权](architecture/parameter_ownership_v1.md)。历史提取结果见[2026-10-08 核心解耦集成记录](reports/2026-10/module_core_integration_20261008.md)。
+
+当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
+按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。
+核心线路：[普通控制启动 v0.2](protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
+[单项标定/保存 v1.2](protocols/yg_protocol_calibration_wire_v1_2.md)。
+
+运行会话与整计划线路v1.4已退役。历史设计：[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。实际只读 GUI 调用链见
+[主机端口记录](plans/active/2026-10-08-host-get-only-port-v1.md)。
+
+当前源码候选：[APP v1.3.0核心范围](releases/architecture-app-v1.3.0-candidate.md)。
+
+历史候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
+
+架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。
+八状态恢复行为见[状态反馈 v1.2](protocols/yg_protocol_motor_state_v1_2.md)。
+
 | Area | Purpose |
 | --- | --- |
 | [architecture/](architecture/) | Current structure, design decisions, and future architecture |
@@ -23,7 +44,7 @@ they are not substitutes for current `verify` evidence.
 All local Markdown links are checked by the PR profile. Add new durable documents to
 this map or to the closest indexed sub-area.
 
-SWD bench mailbox retirement: [SWD 台架请求邮箱退役记录](guides/watch_motor_commands.md).
+Keil debugging: [Watch 只读观测变量与 SWD 台架邮箱退役记录](guides/watch_motor_commands.md).
 
 E/H/D historical snapshot: [整体重构初始候选（2026-09-28，历史）](reports/2026-09/system_refactor_candidate_20260928.md).
 
@@ -32,9 +53,13 @@ and its [implementation plan](plans/active/2026-09-18-fault-protection-v1.md).
 
 Communication layering: [通信分层说明（CAN 接入）](architecture/communication_layering.md).
 
+Current protocol overview: [yg_protocol 通信协议总览与当前状态 v0.1](protocols/yg_protocol_system_overview_v0_1.md).
+
 CAN FD link smoke test: [yg_protocol CAN FD 硬件连通性冒烟测试 v0.1](protocols/yg_protocol_link_smoke_test_v0_1.md).
 
 Business type allocation proposal: [yg_protocol 业务 Type 分配提案 v0.3](protocols/yg_protocol_business_type_allocation_v0_3.md).
+
+Historical ordinary motor start proposal: [普通控制启动线路提案 v0.1](protocols/yg_protocol_ordinary_start_proposal_v0_1.md).
 
 Motor payload design: [yg_protocol 电机控制、参数与反馈 Payload 细化 v0.1](protocols/yg_protocol_motor_payload_design_v0_1.md).
 
@@ -44,7 +69,7 @@ Current protocol entry: [当前设备发现与支持范围](protocols/yg_protoco
 [参数 schema12 装载政策](protocols/parameter_schema12_loading_policy_v1.md), and
 [电机线路契约](protocols/yg_protocol_motor_wire_v1.md).
 
-Bench candidate ordinary speed start: [CMD ID 0x0075 线路与黄金向量 v0.1](protocols/yg_protocol_ordinary_start_wire_v0_1.md)
+Historical ordinary speed start candidate: [CMD ID 0x0075 线路与黄金向量 v0.1](protocols/yg_protocol_ordinary_start_wire_v0_1.md)
 and [implementation plan](plans/active/2026-09-30-ordinary-start-wire-v1.md).
 
 Historical motor redesign proposal: [yg_protocol 简化电调协议 v0.1](protocols/yg_protocol_simplified_motor_v0_1.md)
@@ -60,10 +85,10 @@ Motor parameter read/write catalog: [电调读写参数表 v0.1](protocols/yg_pr
 
 Single-board hardware verification: [yg_protocol 单板 CAN FD 实机验证 2026-09-28](reports/2026-09/yg_protocol_canfd_bench_20260928.md).
 
-Loader implementation: [简化候选设计 v2（独立分区 + 跳前 CRC32 校验）](architecture/loader/loader_product_v1.md)
+Historical loader implementation: [简化候选设计 v2（独立分区 + 跳前 CRC32 校验）](architecture/loader/loader_product_v1.md)
 and [历史简化审查与修复记录 v1](plans/completed/2026-09-28-loader-simplification-review-v1.md).
 
-Current loader wire contract: [升级载荷 v2：主机 nonce 与 CRC32 镜像](protocols/yg_protocol_upgrade_wire_v2.md).
+Historical loader wire contract: [升级载荷 v2：主机 nonce 与 CRC32 镜像](protocols/yg_protocol_upgrade_wire_v2.md).
 
 APP capacity baseline: [新 APP 编译占用与缩减方向（2026-09-28）](reports/2026-09/app_capacity_baseline_20260928.md).
 

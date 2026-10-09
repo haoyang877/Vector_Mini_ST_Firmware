@@ -40,8 +40,9 @@ worker 归零控制参考并报告结果，主状态机负责功率关断及生�
 
 ## 当前通信与保存范围
 
-内部维护 API 已支持摩擦任务。当前 CAN Type 160 仅映射编码器 LUT、电角零位和齿槽任务，
-尚未映射摩擦辨识；不要发送旧模式号或将内部 kind 直接作为线路值。
+内部维护 API 已支持摩擦任务。CAN Type 160 的线路 kind=5 映射摩擦辨识；
+不要发送旧模式号或将内部枚举直接作为线路值，详见
+`docs/protocols/yg_protocol_calibration_wire_v1_1.md`。
 原始八点导出及候选应用的产品通信入口尚未实现，不提供旧 USB 命令兼容。
 
 辨识成功只产生候选，`FrictionIdentificationTask_ApplyCandidate()` 是内部停机应用函数，

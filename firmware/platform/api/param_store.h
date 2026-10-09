@@ -13,7 +13,7 @@ bool param_store_read(void *record, uint32_t size_bytes);
 /**
  * @brief 写入并回读验证非易失参数记录。
  * @param record 调用方稳定缓冲，端口不保留地址。
- * @param size_bytes 记录字节数。
+ * @param size_bytes 记录字节数，必须位于目标RAW专属页容量内。
  * @return 关相、擦写及回读均成功返回 true；失败效果未知。
  * @note 仅停机前台调用，调用方保持中断屏蔽及配置独占。
  */

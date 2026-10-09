@@ -4,6 +4,9 @@ This is the stable top-level map. Detailed design and historical evidence live u
 [`docs/`](docs/README.md); current directory ownership is documented in
 [`docs/architecture/code_structure.md`](docs/architecture/code_structure.md).
 
+For a plain-language walkthrough of products, control flow, scheduling, and data ownership,
+read [电机驱动软件架构说明](docs/architecture/software_architecture.md).
+
 ## Products and contracts
 
 - `firmware/` is the current STM32G4 motor-control APP.
@@ -62,7 +65,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
   application code schedules and composes, and services own policy or persistence.
 - Mutable state has one owning module. Other modules use commands, immutable snapshots, or an
   explicitly passed state object instead of writing another module's globals.
-- APP owns one fixed maintenance workspace for parameter records, cogging candidates, and encoder
+- APP owns one fixed maintenance workspace for parameter records and encoder
   calibration samples. Algorithms borrow explicit typed objects; no firmware heap allocator remains.
 - Interrupt handlers acknowledge hardware, capture bounded inputs, and perform required immediate
   safety actions; encoding, logging, storage, and unbounded work remain outside the ISR.

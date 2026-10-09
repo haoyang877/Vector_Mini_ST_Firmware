@@ -1,4 +1,5 @@
 #include "flash.h"
+#include "vector_mini_st_g431.h"
 
 #include <string.h>
 #include "power_stage_hw.h"
@@ -7,7 +8,8 @@
 
 /* 寄存器级 Flash：G431 单 bank、2 KiB 页、双字写；不依赖 HAL Flash，省其链接开销。 */
 #define FLASH_ERR_MASK                                                                             \
-    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR)
+    (FLASH_SR_OPERR | FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGSERR |     \
+     FLASH_SR_SIZERR | FLASH_SR_MISERR | FLASH_SR_FASTERR | FLASH_SR_RDERR)
 #define FLASH_KEY1_VALUE 0x45670123U
 #define FLASH_KEY2_VALUE 0xCDEF89ABU
 
@@ -130,7 +132,7 @@ bool flash_read_param(void *record, uint32_t size_bytes)
 }
 bool flash_write_param(const void *record, uint32_t size_bytes)
 {
-    if (record == NULL || size_bytes == 0U || size_bytes > 0x3800U ||
+    if (record == NULL || size_bytes == 0U || size_bytes > TARGET_RAW_BYTES ||
         !power_stage_hw_phases_disabled())
     {
         return false;

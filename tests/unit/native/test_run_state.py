@@ -12,6 +12,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True)
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/run_state_tests")
+    parser.add_argument(
+        "--maintenance-source", type=Path, default=ROOT / "firmware/app/runtime/motor_maintenance.c"
+    )
     args = parser.parse_args()
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -34,9 +37,11 @@ def main() -> None:
     source = output / "run_state_owner.c"
     source.write_text(fixture, encoding="utf-8")
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
+    maintenance = args.maintenance_source.resolve()
     executable = output / "run_state_owner.exe"
     command = (
         compiler
+        + ["-I", str(maintenance.parent)]
         + NATIVE_INCLUDE_FLAGS
         + [
             "-I",
@@ -50,12 +55,12 @@ def main() -> None:
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(source),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_machine.c"),
-            str(ROOT / "firmware/app/runtime/motor_maintenance.c"),
+            str(maintenance),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
             str(ROOT / "firmware/motor/protection/foc_errhandle.c"),
             str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
             str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
-            str(ROOT / "firmware/app/runtime/maintenance_workspace.c"),
+            str(maintenance.parent / "maintenance_workspace.c"),
             str(ROOT / "shared/checksum/crc32.c"),
             "-o",
             str(executable),
@@ -85,73 +90,6 @@ def main() -> None:
         ]
     )
     for invocation in (rules_command, [str(rules_executable)]):
-        result = subprocess.run(invocation, capture_output=True, text=True)
-        logs.append(result.stdout + result.stderr)
-        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
-        print(logs[-1], end="")
-        result.check_returncode()
-    cogging = output / "cogging_finalize.exe"
-    cogging_command = (
-        compiler
-        + NATIVE_INCLUDE_FLAGS
-        + [
-            "-std=c99",
-            "-O1",
-            "-UNDEBUG",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
-            str(ROOT / "tests/unit/native/cogging_finalize_test.c"),
-            str(ROOT / "firmware/motor/foc/cogging_compensation.c"),
-            str(ROOT / "firmware/motor/calibration/cogging_calibration.c"),
-            str(ROOT / "firmware/motor/calibration/cogging_map.c"),
-            str(ROOT / "shared/checksum/crc32.c"),
-            "-o",
-            str(cogging),
-        ]
-    )
-    for invocation in (cogging_command, [str(cogging)]):
-        result = subprocess.run(invocation, capture_output=True, text=True)
-        logs.append(result.stdout + result.stderr)
-        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
-        print(logs[-1], end="")
-        result.check_returncode()
-
-    completion = output / "maintenance_completion.exe"
-    composition = (ROOT / "firmware/app/runtime/motor_maintenance.c").read_text(encoding="utf-8")
-    # 使用真实组合配置编译 worker；不链接其他维护任务，也不复制默认值。
-    profiles = composition[
-        composition.index("/* 产品默认值") : composition.index("void MotorMaintenance_Init")
-    ]
-    (output / "maintenance_profiles.h").write_text(
-        '#include "motor_profile_defaults.h"\n#include "board_profile_defaults.h"\n#include "application_profile_defaults.h"\n#include "device_profile_defaults.h"\n#include "control_config.h"\n#include "control_math.h"\n'
-        + profiles,
-        encoding="utf-8",
-    )
-    completion_command = (
-        compiler
-        + NATIVE_INCLUDE_FLAGS
-        + [
-            "-std=c99",
-            "-O1",
-            "-UNDEBUG",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
-            "-I",
-            str(output),
-            str(ROOT / "tests/unit/native/maintenance_completion_test.c"),
-            str(ROOT / "firmware/motor/identification/phase_resistance_task.c"),
-            str(ROOT / "firmware/motor/identification/phase_resistance.c"),
-            str(ROOT / "firmware/motor/identification/friction_identification_task.c"),
-            str(ROOT / "firmware/motor/identification/friction_identification.c"),
-            "-o",
-            str(completion),
-        ]
-    )
-    for invocation in (completion_command, [str(completion)]):
         result = subprocess.run(invocation, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
         (output / "test.log").write_text("\n".join(logs), encoding="utf-8")

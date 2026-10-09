@@ -1,0 +1,16 @@
+{
+  "version": "v0.2",
+  "can_id": "0x08EF0102",
+  "ide": 1,
+  "fdf": 1,
+  "brs": 1,
+  "dlc": 12,
+  "data_length_bytes": 24,
+  "sequence": "0x1001",
+  "frames": [
+    {"mode": 1, "control": "current", "data_hex": "5A A5 01 20 02 01 75 00 01 10 04 00 00 00 00 82 01 00 00 00 A2 46 00 00"},
+    {"mode": 2, "control": "speed", "data_hex": "5A A5 01 20 02 01 75 00 01 10 04 00 00 00 00 82 02 00 00 00 99 F6 00 00"},
+    {"mode": 3, "control": "position", "data_hex": "5A A5 01 20 02 01 75 00 01 10 04 00 00 00 00 82 03 00 00 00 70 99 00 00"},
+    {"mode": 6, "control": "q_voltage", "data_hex": "5A A5 01 20 02 01 75 00 01 10 04 00 00 00 00 82 06 00 00 00 90 F3 00 00"}
+  ]
+}

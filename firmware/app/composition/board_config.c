@@ -87,7 +87,7 @@ static bool bind_device_description(void)
                                               .boot_api = TARGET_BOOT_API};
     yg_protocol_readonly_caps_page0_t capabilities = {
         .features = (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
-        .supported_modes = 0U, /* 普通远程启动未开放，不能按内部控制枚举宣称能力。 */
+        .supported_modes = 0U, /* 仅保留核心线路；未验收能力不对外宣称。 */
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
     uint8_t payload[32], record[64];

@@ -26,7 +26,7 @@ MotorControlResult MotorExecution_ValidateTarget(const MotorControlCommand *comm
                                                  const EncoderState *encoder);
 
 /**
- * @brief  外环 2 kHz 慢拍：位置级联/轨迹与速度 PI 直接执行并发布电流参考。
+ * @brief  外环 2 kHz 慢拍：位置级联与速度 PI 直接执行并发布电流参考。
  * @param  motor 电机控制状态。
  * @param  pi 速度环控制器（速度模式使用）。
  * @param  encoder 编码器状态。
@@ -40,13 +40,6 @@ void MotorOuterLoop_SlowTick(MotorControlState *motor, PiController *pi, Encoder
  */
 bool MotorOuterLoop_IsReady(void);
 /**
- * @brief  读取外环遥测快照。
- * @param  telemetry 输出参数，调用方持有。
- * @return 快照有效返回 true；参数为空返回 false。
- */
-bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry *telemetry);
-
-/**
  * @brief  电流模式任务：执行一拍 d/q 电流闭环。
  * @param  foc foc 状态。
  * @param  motor_state 电机控制状态。
@@ -59,7 +52,7 @@ void Task_Current_Mode(FocState *foc,
                        EncoderState *encoder,
                        FluxObserverState *flux_observer);
 /**
- * @brief  请求外环在下一慢拍复位控制、配置缓存与遥测就绪状态。
+ * @brief  请求外环在下一慢拍复位控制与就绪状态。
  * @note 模式切换与故障入口调用；可在非快速环上下文调用。
  */
 void MotorOuterLoop_RequestReset(void);

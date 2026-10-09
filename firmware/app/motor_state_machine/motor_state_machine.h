@@ -102,10 +102,11 @@ void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress);
 MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode);
 
 /**
- * @brief 幂等受理带身份的速度零目标启动，复用唯一运行所有者的原启相路径。
- * @param request 原始来源、序号和内部速度模式；函数返回后不保留指针。
+ * @brief 幂等受理带身份的四模式零目标／当前位置启动，复用唯一运行所有者的原启相路径。
+ * @param request 原始来源、序号和 CURRENT／SPEED／POSITION／VQ 模式；函数返回后不保留指针。
  * @return 受理或明确拒绝原因；受理不表示启相，结果由 ReadEnableProgress 查询。
  * @note 同来源序号重试不再执行；新拒绝也消耗序号，STOP 后旧序号不能启动。
+ *       仅 IDLE 启动；切模式须先 STOP 回 IDLE；拒绝不提交来源绑定。
  *       序号窗口仅在当前 APP 运行期内有效，跨复位防重放尚需线路契约。
  */
 MotorControlResult
@@ -204,7 +205,7 @@ typedef enum
 {
     FOC_BACKGROUND_NONE,
     FOC_BACKGROUND_SAVE,
-    FOC_BACKGROUND_COGGING
+    FOC_BACKGROUND_COGGING /* 退役编号，不再可执行。 */
 } FocBackgroundKind;
 typedef struct
 {
@@ -228,7 +229,7 @@ bool MotorStateMachine_BackgroundValid(const FocBackgroundClaim *claim);
 /**
  * @brief 归还前台工作并提交原始会话结果。
  * @param claim 原始认领，必须精确匹配已借出的资源。
- * @param success SAVE 表示回读已验证；COGGING 表示已发布 RAM。
+ * @param success 仅 SAVE，true 表示回读已验证。
  * @note 缓冲已释放后调用；迟到结果只归还资源，不复活目标。
  */
 void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool success);
@@ -238,11 +239,6 @@ void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool su
  * @note 在调用 worker 前读取，并原样传给 PostOutcome。
  */
 uint32_t MotorStateMachine_WorkEpoch(void);
-/**
- * @brief 在稳定配置借用下处理前台补偿请求。
- * @note 仅前台调用；CRC 开中断，期间拒绝新维护和 IDLE 启动；STOP 可立即关相。
- */
-void MotorStateMachine_ServiceCompensation(void);
 /**
  * @brief 读取当前实际维护类型，不投影到控制模式。
  * @return MAINTENANCE 时返回任务类型，其他状态返回 NONE。

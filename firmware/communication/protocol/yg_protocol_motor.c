@@ -72,7 +72,7 @@ yg_protocol_result_t yg_protocol_motor_decode_control(const yg_protocol_message_
 yg_protocol_result_t yg_protocol_motor_decode_start(const yg_protocol_message_t *message,
                                                     yg_protocol_motor_request_t *request)
 {
-    yg_protocol_motor_request_t decoded = {0};
+    yg_protocol_motor_request_t decoded = {.operation = YG_PROTOCOL_MOTOR_START_CONTROL};
     if (message == NULL || request == NULL)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;

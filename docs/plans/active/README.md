@@ -1,5 +1,27 @@
 # Active Plans
 
+- [核心功能删减 v3](2026-10-08-core-only-v3.md)：当前最高优先级，覆盖扩展收口与全部辅助模式保留要求；各模块只留下核心控制、标定、保存、保护和升级。
+
+以下是历史参考，遇到范围冲突以核心删减v3为准。
+
+- [多模块与整机流程收口 v2](2026-10-08-architecture-closeout-v2.md)：模块精简与v7已接入待组合验证；新协议、启动身份和真实只读端口在收口，未开放新功率线路。
+- [可信启动身份 v1](2026-10-08-boot-epoch-provider-v1.md)：专属61/62页、未知或撕裂不擦、真实提交读回后发布；原本地开发入口保持。
+- [主机只读端口 v1](2026-10-08-host-get-only-port-v1.md)：用户显式打开端口、仅查询和严格回帧，未进行设备联调，写入入口保持关闭。
+- [整机主/子流程 v7](2026-10-08-motor-platform-lifecycle-v7.md)：已接已有标定串联最终SAVE、受控切换和显式租约；新线路与缺失算法边界单独登记。
+- [编码器最小实现 v4](2026-10-08-encoder-calibration-minimal-v4.md)及[调用边界 v3](2026-10-08-encoder-calibration-call-boundaries-v3.md)：共享互斥窗口、归并有界构表/采样及真实退出。
+
+- [架构收口与发布候选 v1](2026-10-08-architecture-release-v1.md)：四项核心冻结、批准的状态出口接入、干净 release 证据与真实发布边界；未进行新镜像实机验证。
+- [主状态机八状态 v3](2026-10-08-motor-state-flow-simplification-v3.md)与[出口收敛 v4](2026-10-08-motor-state-flow-simplification-v4.md)：INIT/IDLE 原地 STOP，停止与显式健康 CLEAR 后只回 IDLE，FATAL 仅程序复位恢复。
+
+- [电机模块核心职责解耦 v2](2026-10-08-module-core-decoupling-v2.md)：四项核心已选择性集成，工程输入已接线；组合检查与编译结果见本批报告，未实机验证。
+- [位置核心实际解耦 v4](2026-10-08-position-core-implementation-v4.md)：核心/摩擦状态分离，保留运算顺序；独立资源代价如实登记。
+- [位置串级解耦 v1](2026-10-08-position-cascade-decoupling-v1.md)及[尺寸梳理 v1](2026-10-08-position-cascade-size-v1.md)：本批继承的窄范围简化。
+- [编码器核心提取 v2](2026-10-08-encoder-calibration-core-v2.md)及[任务简化 v1](2026-10-08-encoder-calibration-simplify-v1.md)：计算与任务分开，保持结果应用/退出语义。
+
+- [电流 PI 空闲电压限幅刷新 v1](2026-09-29-current-pi-limit-refresh-v1.md)：有效母线采样后只刷新 d/q PI 电压额度；PR及normal编译通过，新候选未下载；主机三段监视布局已离线接入，守卫及STOP模拟通过，真实时延待独立授权验证，不放宽预算。
+
+- [上电电流偏置与PI初始化修复 v1](2026-09-29-startup-current-offset-pi-fix-v1.md)：关相1秒采样校正与PI配置已修复，PR及normal编译通过；待授权实机验证，不自动下载或启相。
+
 - [Loader P0/P1 v1](2026-09-29-loader-p0-p1-v1.md)：CAN FD 客户端、配套构建、生产身份和持久试运行门槛；本轮仅代码与离线验证，实机验收待执行。
 
 - [取消 common 与通用堆分配器 v1](../completed/2026-09-29-common-heap-retirement-v1.md)：common/heap 已移除，数学归位，固定工作区收口；PR 与 normal 编译通过，新镜像未实机验证。
@@ -23,6 +45,10 @@
 
 Create one dated Markdown file per significant active change. Include intent, acceptance
 criteria, progress, decisions, and final evidence. Move the file to `../completed/` when done.
+
+- [轮电机分阶段实机回归 v2](2026-09-29-wheel-bench-regression-v2.md)：先固定候选，再逐步进行备份、下载、通信、校准与启停；普通速度启动入口仍为阻塞项。
+- [角度标定与速度闭环验收 v1](2026-09-30-angle-speed-acceptance-v1.md)：LUT 与电零位结果已核验保存，继续补齐普通启动入口并实测速度闭环。
+- [轮电机维护标定通路验证 v1](2026-09-30-maintenance-path-bench-v1.md)：顺序验证齿槽、相电阻和摩擦任务，补齐已有所有者的 CAN 类型映射并保存实机证据。
 
 - [故障保护解耦设计与实施计划 v1.0](2026-09-18-fault-protection-v1.md)：接口、检测逻辑、参数及标定归属；固件实施待启动。
 - [公共接口中文契约补全](2026-09-18-interface-contracts.md)：建立机械门禁并优先补齐跨层接口。

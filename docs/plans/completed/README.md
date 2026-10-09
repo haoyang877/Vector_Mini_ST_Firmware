@@ -1,5 +1,11 @@
 # Completed Plans
 
+- [齿槽最小任务 v3](2026-10-08-cogging-minimal-task-v3.md)：启动、安全门、采集/保持和统一结束，独立候选已审并接入，待组合验证。
+- [MotorAxis 最小实现 v3](2026-10-08-motor-axis-minimal-implementation-v3.md)：合并零点失败处理，所有模式及调试能力保持，独立PR继承文档失败不改写为PASS。
+
+- [齿槽任务简化 v1](2026-10-08-cogging-core-simplification-v1.md)及[运行所有权解耦 v2](2026-10-08-cogging-core-decoupling-v2.md)：独立交付已选择性集成，任务和运行补偿分开；非整机验收。
+- [MotorAxis 简化 v1](2026-10-08-motor-axis-simplification-v1.md)及[参数事务所有权 v2](2026-10-08-motor-axis-parameter-owner-v2.md)：调度/事务职责分开；原有状态和符号未复制。
+
 - [取消 common 与通用堆分配器 v1](2026-09-29-common-heap-retirement-v1.md)：数学归 motor/math，单份固定维护工作区替代 heap；PR 与 normal 编译通过。
 
 - [参数所有权解耦 v1](2026-09-29-parameter-ownership-v1.md)：四类默认值归位，model/application/device 与运行目标分开，节点由参数所有者传值；schema12 不变，PR 与 normal 构建通过。

@@ -1,14 +1,23 @@
 /** 基础工作区回归：控制门禁、停止与任务终态、完整记录以及共享参数草稿。 */
 #include "gui/maintenance_window.h"
 #include "services/capture_csv.h"
+#include "services/device_readback.h"
+extern "C"
+{
+#include "shared/protocol/yg_protocol_byte_order.h"
+#include "shared/protocol/yg_protocol_can_id.h"
+#include "shared/protocol/yg_protocol_frame_codec.h"
+}
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFile>
 #include <QLabel>
 #include <QLineEdit>
+#include <QProcess>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QStandardItemModel>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <iostream>
@@ -23,6 +32,181 @@ void check(bool value, const char *message)
     {
         throw std::runtime_error(message);
     }
+}
+QByteArray reply(uint8_t node, uint16_t type, uint16_t sequence, const QByteArray &payload)
+{
+    yg_protocol_frame_view_t message{};
+    message.version = YG_PROTOCOL_VERSION;
+    message.flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    message.source_node = node;
+    message.destination_node = 2;
+    message.message_type = type;
+    message.sequence = sequence;
+    message.payload_length = uint32_t(payload.size());
+    message.payload = reinterpret_cast<const uint8_t *>(payload.constData());
+    QByteArray frame(64, 0);
+    size_t written = 0;
+    check(yg_protocol_frame_encode(
+              &message, reinterpret_cast<uint8_t *>(frame.data()), 64, &written) == YG_PROTOCOL_OK,
+          "test reply encode failed");
+    for (const int dlc : {20, 24, 32, 48, 64})
+    {
+        if (written <= size_t(dlc))
+        {
+            frame.resize(dlc);
+            return frame;
+        }
+    }
+    throw std::runtime_error("test reply too large");
+}
+void device_readback_checks()
+{
+    DeviceReadback device;
+    check(device.Device_Reset(3), "node reset rejected");
+    yg_protocol_can_id_fields_t fields{3, 3, 2};
+    uint32_t can_id = 0;
+    check(yg_protocol_can_id_encode(&fields, &can_id) == YG_PROTOCOL_OK, "CAN ID encode");
+    QByteArray info(32, 0);
+    info[0] = 0x57;
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(info.data() + 12), 0x59473236);
+    YgProtocol_WriteU16Le(reinterpret_cast<uint8_t *>(info.data() + 16), 1);
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(info.data() + 20), 0x00010100);
+    check(device.Device_Begin(1, 10, 0, 100), "info query registration failed");
+    auto info_frame = reply(3, 1, 10, info);
+    check(!device.Device_Accept(can_id, reply(3, 1, 10, QByteArray(32, 0)), 105),
+          "zero UID accepted as physical identity");
+    auto bad = info_frame;
+    bad[bad.size() - 1] = 1;
+    auto bad_crc = info_frame;
+    bad_crc[16] ^= 1;
+    yg_protocol_can_id_fields_t wrong_node{3, 4, 2};
+    uint32_t wrong_id = 0;
+    check(yg_protocol_can_id_encode(&wrong_node, &wrong_id) == YG_PROTOCOL_OK,
+          "wrong CAN ID encode");
+    check(!device.Device_Accept(can_id, bad, 110) && !device.Device_Accept(can_id, bad_crc, 110) &&
+              !device.Device_Accept(wrong_id, info_frame, 110) &&
+              !device.Device_Accept(can_id, reply(3, 1, 11, info), 110),
+          "bad padding, CRC, node or sequence accepted");
+    check(device.Device_Accept(can_id, info_frame, 110), "valid info rejected");
+    QByteArray identity(32, 0);
+    identity.replace(0, 7, "ABC-123");
+    identity[20] = 1;
+    identity[21] = 3;
+    identity[22] = 1;
+    identity[23] = 1;
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(identity.data() + 16), 7);
+    auto malformed_sn = identity;
+    malformed_sn[0] = '!';
+    check(device.Device_Begin(1, 11, 1, 120) &&
+              !device.Device_Accept(can_id, reply(3, 1, 11, malformed_sn), 125) &&
+              device.Device_Accept(can_id, reply(3, 1, 11, identity), 130),
+          "role and motor type rejected");
+    QByteArray caps(16, 0);
+    YgProtocol_WriteU16Le(reinterpret_cast<uint8_t *>(caps.data() + 6), 64);
+    check(device.Device_Begin(2, 12, 0, 140) &&
+              device.Device_Accept(can_id, reply(3, 2, 12, caps), 150),
+          "capabilities rejected");
+    const auto identified = device.Device_View(150);
+    check(identified.identity_fresh && identified.uid.startsWith("57") &&
+              identified.sn == "ABC-123" && identified.motor_type == 7 &&
+              identified.supported_modes == 0,
+          "identity or disabled capabilities fabricated");
+    QByteArray device_status(16, 0);
+    YgProtocol_WriteU16Le(reinterpret_cast<uint8_t *>(device_status.data()), 6);
+    device_status[4] = 1;
+    check(device.Device_Begin(3, 18, 0, 150) &&
+              device.Device_Accept(can_id, reply(3, 3, 18, device_status), 151) &&
+              !device.Device_View(151).boot_epoch,
+          "unavailable epoch fabricated a startup identity");
+    QByteArray geometry(32, 0);
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(geometry.data() + 8), 0x000C10D0);
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(geometry.data() + 12), 12);
+    check(device.Device_Begin(1, 16, 2, 151) &&
+              device.Device_Accept(can_id, reply(3, 1, 16, geometry), 152) &&
+              device.Device_View(152).parameter_schema == 12,
+          "parameter schema was inferred instead of read back");
+    QByteArray feedback =
+        QByteArray::fromHex("0000000004030201E803000030F8FFFFB80B000060F0FFFFFF0D6009DC0550FB"
+                            "4C04E6090080881306FF030603");
+    check(feedback.size() == 45 && device.Device_Begin(108, 13, 0, 160), "feedback query invalid");
+    auto invalid_feedback = feedback;
+    invalid_feedback[24] &= ~uint8_t(1U << 7U);
+    check(!device.Device_Accept(can_id, reply(3, 108, 13, invalid_feedback), 165),
+          "invalid measurement bit accepted");
+    check(device.Device_Accept(can_id, reply(3, 108, 13, feedback), 170),
+          "golden feedback rejected");
+    const auto view = device.Device_View(170);
+    check(view.feedback_fresh && view.motor_state == 6 && view.position_rad == -2 &&
+              view.speed_rad_s == -4 && view.iq_a == 1.1 && !device.Device_View(671).feedback_fresh,
+          "SI feedback or expiry wrong");
+    check(
+        device.Device_Begin(110, 14, 0, 680) &&
+            device.Device_Accept(can_id, reply(3, 110, 14, QByteArray::fromHex("01000000")), 690) &&
+            !device.Device_View(690).stop_confirmed_recently,
+        "STOP accepted was treated as output disabled");
+    check(device.Device_Begin(110, 15, 0, 700) &&
+              !device.Device_Accept(
+                  can_id, reply(3, 110, 15, QByteArray::fromHex("00000100")), 705) &&
+              device.Device_Accept(can_id, reply(3, 110, 15, QByteArray(4, 0)), 710) &&
+              device.Device_View(710).stop_confirmed_recently &&
+              !device.Device_View(1211).stop_confirmed_recently,
+          "STOP detail or confirmation expiry wrong");
+    check(device.Device_Begin(108, 17, 0, 720) &&
+              device.Device_Accept(can_id, reply(3, 108, 17, feedback), 730) &&
+              !device.Device_View(730).stop_confirmed_recently,
+          "later RUNNING feedback preserved obsolete STOP confirmation");
+    check(!device.Device_View(5151).identity_fresh && device.Device_View(5151).uid.isEmpty(),
+          "expired identity still advertised");
+
+    DeviceReadback changed;
+    check(changed.Device_Reset(3) && changed.Device_Begin(1, 21, 0, 100) &&
+              changed.Device_Accept(can_id, reply(3, 1, 21, info), 101) &&
+              changed.Device_Begin(1, 22, 1, 102) &&
+              changed.Device_Accept(can_id, reply(3, 1, 22, identity), 103) &&
+              changed.Device_Begin(2, 23, 0, 104) &&
+              changed.Device_Accept(can_id, reply(3, 2, 23, caps), 105) &&
+              changed.Device_Begin(1, 24, 2, 106) &&
+              changed.Device_Accept(can_id, reply(3, 1, 24, geometry), 107),
+          "session setup failed");
+    auto another_uid = info;
+    another_uid[0] = 0x58;
+    check(changed.Device_Begin(1, 25, 0, 108) &&
+              changed.Device_Accept(can_id, reply(3, 1, 25, another_uid), 109),
+          "new UID rejected");
+    const auto after_uid = changed.Device_View(109);
+    check(after_uid.uid.startsWith("58") && after_uid.sn.isEmpty() && !after_uid.parameter_schema &&
+              !after_uid.features && !after_uid.identity_fresh,
+          "new UID retained old identity or capabilities");
+    check(changed.Device_Begin(1, 26, 1, 110) &&
+              changed.Device_Accept(can_id, reply(3, 1, 26, identity), 111) &&
+              changed.Device_Begin(2, 27, 0, 112) &&
+              changed.Device_Accept(can_id, reply(3, 2, 27, caps), 113),
+          "new UID discovery failed");
+    QByteArray epoch_status(16, 0);
+    epoch_status[4] = 1;
+    epoch_status[5] = 1;
+    YgProtocol_WriteU16Le(reinterpret_cast<uint8_t *>(epoch_status.data() + 6), 1);
+    YgProtocol_WriteU64Le(reinterpret_cast<uint8_t *>(epoch_status.data() + 8), 9);
+    check(changed.Device_Begin(3, 28, 0, 114) &&
+              changed.Device_Accept(can_id, reply(3, 3, 28, epoch_status), 115) &&
+              !changed.Device_View(115).identity_fresh,
+          "first valid epoch retained uncorrelated discovery");
+    check(changed.Device_Begin(1, 29, 0, 116) &&
+              changed.Device_Accept(can_id, reply(3, 1, 29, another_uid), 117) &&
+              changed.Device_Begin(1, 30, 1, 118) &&
+              changed.Device_Accept(can_id, reply(3, 1, 30, identity), 119) &&
+              changed.Device_Begin(2, 31, 0, 120) &&
+              changed.Device_Accept(can_id, reply(3, 2, 31, caps), 121) &&
+              changed.Device_Begin(3, 32, 0, 122) &&
+              changed.Device_Accept(can_id, reply(3, 3, 32, epoch_status), 123) &&
+              changed.Device_View(123).identity_fresh,
+          "unchanged epoch lost discovery");
+    YgProtocol_WriteU64Le(reinterpret_cast<uint8_t *>(epoch_status.data() + 8), 10);
+    check(changed.Device_Begin(3, 33, 0, 124) &&
+              changed.Device_Accept(can_id, reply(3, 3, 33, epoch_status), 125) &&
+              !changed.Device_View(125).identity_fresh && changed.Device_View(125).uid.isEmpty() &&
+              changed.Device_View(125).boot_epoch == 10,
+          "changed epoch retained old-session readback");
 }
 void service_checks()
 {
@@ -183,6 +367,11 @@ void gui_checks()
     press("startCalibration");
     window.Window_AdvanceDemo(0.2);
     press("identificationNav");
+    check(!qobject_cast<QStandardItemModel *>(
+               window.findChild<QComboBox *>("identificationKind")->model())
+               ->item(int(TaskKind::Inductance) - 4)
+               ->isEnabled(),
+          "missing device inductance capability left enabled");
     check(!window.findChild<QPushButton *>("startIdentification")->isEnabled(),
           "task lost exclusivity across page switch");
     press("stopMotor");
@@ -199,6 +388,32 @@ void gui_checks()
     check(!window.findChild<QPushButton *>("writeParameter")->isEnabled() &&
               !(table->item(1, 4)->flags() & Qt::ItemIsEditable),
           "readonly scene allows parameter edit/write");
+    press("disconnectDevice");
+    press("connectionSettings");
+    window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
+    check(window.findChild<QProcess *>() == nullptr,
+          "selecting CAN opened a device helper without explicit connect");
+    check(!window.findChild<QLineEdit *>("quickDraft")->isEnabled(),
+          "CAN read-only page retained an editable parameter draft");
+    press("connectDevice");
+    check(window.findChild<QLabel *>("footer")->text().contains("缺少 Python") &&
+              window.findChild<QProcess *>() == nullptr,
+          "missing SDK configuration opened a device helper");
+    press("homeNav");
+    QByteArray feedback =
+        QByteArray::fromHex("0000000004030201E803000030F8FFFFB80B000060F0FFFFFF0D6009DC0550FB"
+                            "4C04E6090080881306FF030603");
+    yg_protocol_can_id_fields_t fields{3, 3, 2};
+    uint32_t can_id = 0;
+    check(yg_protocol_can_id_encode(&fields, &can_id) == YG_PROTOCOL_OK,
+          "GUI readback CAN ID encode");
+    check(window.Window_BeginDeviceRead(108, 35, 0) &&
+              window.Window_ObserveDeviceFrame(can_id, reply(3, 108, 35, feedback)),
+          "GUI readback seam rejected wire reply");
+    check(window.findChild<QLabel *>("homeTelemetry")->text().contains("八态 6") &&
+              !window.findChild<QPushButton *>("enableMotor")->isEnabled() &&
+              !window.findChild<QPushButton *>("stopMotor")->isEnabled(),
+          "wire replay was shown as demo or gained power controls");
 }
 } // namespace
 int main(int argc, char **argv)
@@ -207,6 +422,7 @@ int main(int argc, char **argv)
     app.setStyle("Fusion");
     try
     {
+        device_readback_checks();
         service_checks();
         gui_checks();
         std::cout << "workbench/session/record/shared-draft offline PASS; no hardware access\n";

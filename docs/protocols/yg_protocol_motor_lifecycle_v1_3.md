@@ -1,5 +1,11 @@
 # 整机流程业务接口与兼容 v1.3
 
+状态：历史设计，2026-10-09 按核心 APP v1.3.0 核对为已退役。
+以下六类视图、整计划、模式切换及租约入口均不属于当前固件能力；向量仅证明历史基线。
+当前行为见[八状态主说明](../architecture/motor_state_machine_v1.md)、
+[全部跳转](../architecture/motor_state_flow_simplification_v1.md)、
+[普通启动 v0.2](yg_protocol_ordinary_start_wire_v0_2.md)及[单项维护 v1.2](yg_protocol_calibration_wire_v1_2.md)。
+
 日期：2026-10-08。这是新增 APP 业务接口契约；新 CAN 命令／GUI 尚待独立适配，
 不是已发布线路声明。承接[状态恢复 v1.2](yg_protocol_motor_state_v1_2.md)，
 原统一帧版本 `0x01`、45B 反馈、schema12、现有请求和参数 ABI 均保持。

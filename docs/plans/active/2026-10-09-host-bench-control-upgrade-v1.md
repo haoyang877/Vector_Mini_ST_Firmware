@@ -1,0 +1,52 @@
+# YG_MC_HOST core v1.3.0 台架控制与 APP 升级入口 v1
+
+日期：2026-10-09；独立分支 `codex/host-control-upgrade-v130`，基线
+`8c422ef23d65eb8f2f3a1697ad822d6f1203afb4`。本批仅改 `host_app` 与专属文档，
+不改固件、Loader、共享 ABI、运动数学或参数阈值。
+
+## 目标和不变行为
+
+保留七工作区及显式离线演示、参数草稿、本地镜像校验、`prepared_only` 导出与既有
+APP v3 CLI。默认不打开 SDK。真实连接只允许当前架空轮电机台架的 UID
+`5700460010504e4831303320`、节点 1、主站 2、APP 1.3.0、schema12；
+从已确认 IDLE 和无故障状态显式用 Type117 mode2 零目标启动，Type116 更新
+0..300 rpm 速度目标，Type110 STOP，Type108 查看结果。受理回复不冒充已运行、
+已停稳或数字关相；丢线与错误不自动重启。用户确认架空、33 V、母线 3 A、相 6 A；
+GUI 只监视可从 108 读取的电压、母线电流、Iq、速度，真实相电流由 T 现场监视。
+GET_CAPS 的 supported_modes=0 保留为未开放产品能力，不改能力位。
+
+真实 APP 升级只接受同目录 image.bin/manifest.bin，经共享校验、配套 Loader
+版本与真实身份、STOP/IDLE、动力隔离核对后，释放读回端口并显式启动既有
+`upgrade_client.py upgrade`。CLI 独占端口、校验同 UID/目标/CRC、输出证据并确认
+新 APP；GUI 仅根据退出码和 summary.json 显示协议结果，现场物理状态仍由 T 复核。
+standalone normal 与 LoaderApp 包不可混用；GUI 不安装 Loader 本体或调用 SWD。
+
+真实参数 120～122、维护 160～162、其他控制模式、0x76 会话和 0xA6 整计划均
+不在本批接线。演示任务与真实设备隔离；旧 kind 3/4/5 已退役，不在真实连接下开放。
+Type3 epoch 无效是当前固件预期，不能伪造为可用或作为必备启动身份。
+
+## 验收、失败和回退
+
+- 假端口证明只发固定 GET/117/116/110，117 从零、116 mode2 及目标有界、
+  STOP 退出补偿；其它命令和超速在发送前拒绝。
+- Qt 检查默认不启动进程、无身份时功率和升级按钮关闭、演示与真实页面不混用；
+  构建、host CTest、格式、lint 和直接相关离线检查通过。离线结果不等于 GUI 实机通过。
+- 控制超时、无效回读、故障或越过台架限界请求 STOP 并提示人工复核；无法确认数字
+  输出关闭属于硬失败，不能继续试验或自动恢复。升级失败保留 CLI 证据，不声称成功。
+- T 独占硬件，在 ROOT 审核候选包后串行执行真实 GUI 控制和 APP 升级；不允许
+  F/D/ROOT 并发打开 CAN、J-Link 或电源。真实证据另存 `outputs/`。
+
+回退本批 GUI 与辅助进程改动即可恢复 GET-only 候选；不回滚 core v1.3.0 或改写
+现有 Flash 参数与校准记录。当前现场原记录 schema12、flag3、zero15622、CRC
+970568338，Flash SHA-256 为
+`da88a830e7de0bb1faaa6d76d768c8c52e18a1bc50714daf9dc3fc1b214b40d4`；
+升级前后必须由 T 另行复核，离线软件不假装已验证持久化。
+
+## 本批离线证据
+
+2026-10-09：Qt 原生构建成功；host CTest 2/2、辅助进程假端口测试 6/6、
+格式和 lint 检查通过。包内 EXE 在仅保留 Windows 系统 PATH 的环境中运行预览，
+输出十张页面截图；实机工作台无演示曲线，控制按钮在无设备时关闭。
+包为 `outputs/host_app/YG_MC_HOST-bench-v1.3.0-20261009/`，含运行库、
+`manifest.json` 和 `checksums.sha256`。未打开厂家 SDK、CAN、J-Link 或电源，
+所以真实 GUI 按钮操作、APP 升级、关相和参数保持均未在本批证明。

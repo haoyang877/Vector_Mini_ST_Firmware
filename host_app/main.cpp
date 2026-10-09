@@ -7,6 +7,7 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QTimer>
 #include <iostream>
 
@@ -98,6 +99,13 @@ int main(int argc, char **argv)
                                window.findChild<QPushButton *>("readParameters")->click();
                                QApplication::processEvents();
                                save("parameters.png");
+                               window.findChild<QPushButton *>("disconnectDevice")->click();
+                               window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
+                               window.findChild<QPushButton *>("workbenchNav")->click();
+                               save("device-workbench.png");
+                               window.findChild<QPushButton *>("upgradeNav")->click();
+                               window.resize(1380, 940);
+                               save("device-upgrade.png");
                                app.exit(saved ? 0 : 2);
                            });
     }

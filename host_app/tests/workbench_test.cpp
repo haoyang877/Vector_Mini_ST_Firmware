@@ -16,6 +16,7 @@ extern "C"
 #include <QLineEdit>
 #include <QProcess>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTableWidget>
@@ -137,7 +138,8 @@ void device_readback_checks()
           "golden feedback rejected");
     const auto view = device.Device_View(170);
     check(view.feedback_fresh && view.motor_state == 6 && view.position_rad == -2 &&
-              view.speed_rad_s == -4 && view.iq_a == 1.1 && !device.Device_View(671).feedback_fresh,
+              view.speed_rad_s == -4 && view.iq_a == 1.1 && view.bus_current_a == 1.5 &&
+              !device.Device_View(671).feedback_fresh,
           "SI feedback or expiry wrong");
     check(
         device.Device_Begin(110, 14, 0, 680) &&
@@ -393,6 +395,11 @@ void gui_checks()
     window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
     check(window.findChild<QProcess *>() == nullptr,
           "selecting CAN opened a device helper without explicit connect");
+    check(!window.findChild<QPushButton *>("deviceStartSpeed")->isEnabled() &&
+              !window.findChild<QPushButton *>("deviceSetSpeed")->isEnabled() &&
+              !window.findChild<QPushButton *>("executeAppUpgrade")->isEnabled() &&
+              window.findChild<QSpinBox *>("deviceSpeedRpm")->maximum() == 300,
+          "real speed/upgrade controls escaped explicit bench gate");
     check(!window.findChild<QLineEdit *>("quickDraft")->isEnabled(),
           "CAN read-only page retained an editable parameter draft");
     press("connectDevice");
@@ -412,6 +419,7 @@ void gui_checks()
           "GUI readback seam rejected wire reply");
     check(window.findChild<QLabel *>("homeTelemetry")->text().contains("八态 6") &&
               !window.findChild<QPushButton *>("enableMotor")->isEnabled() &&
+              !window.findChild<QPushButton *>("deviceStartSpeed")->isEnabled() &&
               !window.findChild<QPushButton *>("stopMotor")->isEnabled(),
           "wire replay was shown as demo or gained power controls");
 }

@@ -5,11 +5,13 @@
 #include "services/upgrade_plan.h"
 #include "services/workbench_session.h"
 #include <QElapsedTimer>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <optional>
 
 class QComboBox;
 class QLabel;
+class QGroupBox;
 class QLineEdit;
 class QProgressBar;
 class QProcess;
@@ -19,6 +21,7 @@ class QTableWidget;
 class QTextEdit;
 class QTimer;
 class QCheckBox;
+class QCloseEvent;
 class QDoubleSpinBox;
 class QSpinBox;
 class QSlider;
@@ -60,6 +63,7 @@ class MaintenanceWindow : public QMainWindow
     bool Window_ObserveDeviceFrame(uint32_t can_id, const QByteArray &frame);
 
   private:
+    void closeEvent(QCloseEvent *event) override;
     void build_shell();
     QWidget *build_connection_page();
     QWidget *build_home_page();
@@ -72,6 +76,12 @@ class MaintenanceWindow : public QMainWindow
     void disconnect_device();
     void issue_device_query();
     void consume_device_stdout();
+    bool device_identity_matches() const;
+    bool device_safe_idle() const;
+    void queue_device_command(const QString &operation, int rpm = 0);
+    void start_real_upgrade();
+    void consume_upgrade_stdout();
+    void append_device_trace(const QString &event, QJsonObject fields = {});
     void refresh_workbench();
     void refresh_quick_parameter();
     bool parameter_writable() const;
@@ -134,15 +144,26 @@ class MaintenanceWindow : public QMainWindow
     QSpinBox *node_ = nullptr;
     QLineEdit *python_path_ = nullptr, *sdk_path_ = nullptr;
     QProcess *device_reader_ = nullptr;
+    QProcess *upgrade_process_ = nullptr;
     QByteArray device_output_;
+    QByteArray upgrade_output_;
+    QString upgrade_output_dir_, upgrade_expected_uid_;
+    QString device_trace_path_;
     QString device_error_;
+    QString device_command_queued_, device_control_result_;
     bool device_ready_ = false, device_pending_ = false;
+    bool device_motion_may_run_ = false, device_stop_ack_ = false;
+    int device_command_rpm_ = 0;
     uint16_t device_sequence_ = 0, device_pending_type_ = 0;
     int device_step_ = 0;
     qint64 device_connect_ms_ = 0, device_request_ms_ = 0, device_discovery_ms_ = 0,
            device_feedback_ms_ = -1000;
     QDoubleSpinBox *motion_target_ = nullptr;
-    QCheckBox *unlock_ = nullptr, *freeze_ = nullptr;
+    QSpinBox *device_speed_rpm_ = nullptr;
+    QGroupBox *demo_motion_group_ = nullptr, *device_motion_group_ = nullptr,
+              *demo_quick_group_ = nullptr;
+    QCheckBox *unlock_ = nullptr, *freeze_ = nullptr, *device_bench_ack_ = nullptr,
+              *upgrade_power_ack_ = nullptr;
     QLineEdit *quick_edit_ = nullptr;
     QLabel *global_status_ = nullptr, *footer_ = nullptr, *telemetry_ = nullptr;
     QLabel *quick_active_ = nullptr, *quick_status_ = nullptr, *record_status_ = nullptr,
@@ -151,6 +172,9 @@ class MaintenanceWindow : public QMainWindow
     QPushButton *enable_ = nullptr, *execute_ = nullptr, *stream_start_ = nullptr,
                 *record_start_ = nullptr;
     QPushButton *quick_apply_ = nullptr;
+    QPushButton *device_start_button_ = nullptr, *device_speed_button_ = nullptr,
+                *device_stop_button_ = nullptr, *upgrade_run_button_ = nullptr;
+    QLabel *device_control_status_ = nullptr;
     QSlider *replay_slider_ = nullptr;
     QTextEdit *events_ = nullptr;
     QMap<QString, QLabel *> identity_;

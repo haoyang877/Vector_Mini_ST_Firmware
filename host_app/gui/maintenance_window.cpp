@@ -1,7 +1,10 @@
-/** 原生页面调用离线业务服务；任何按钮均不加载驱动、连接 CAN/SWD 或写设备。 */
+/** 维护页保留离线计划；实机 APP 升级仅由显式台架门禁启动独立客户端。 */
 #include "maintenance_window.h"
 #include <QButtonGroup>
+#include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileDialog>
@@ -10,11 +13,14 @@
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressBar>
+#include <QProcess>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -93,6 +99,24 @@ MaintenanceWindow::MaintenanceWindow(QWidget *parent) : QMainWindow(parent)
 MaintenanceWindow::~MaintenanceWindow()
 {
     disconnect_device();
+}
+
+void MaintenanceWindow::closeEvent(QCloseEvent *event)
+{
+    if (upgrade_process_)
+    {
+        upgrade_status_->setText("升级作业仍在运行；等待终态与证据写入后才能关闭窗口。");
+        event->ignore();
+        return;
+    }
+    if (device_motion_may_run_ && device_reader_)
+    {
+        queue_device_command("stop");
+        device_control_result_ = "已请求 STOP；先确认 IDLE/关相，再关闭窗口。";
+        event->ignore();
+        return;
+    }
+    event->accept();
 }
 
 QWidget *MaintenanceWindow::build_upgrade_page()
@@ -174,7 +198,8 @@ QWidget *MaintenanceWindow::build_upgrade_page()
                     }
                 });
     }
-    validation_ = label("尚未校验 · APP 必须使用当前 loader-image-v2-crc32 包。", "subtitle");
+    validation_ =
+        label("尚未校验 · APP 必须使用配套 LoaderApp v3 image.bin/manifest.bin 包。", "subtitle");
     validation_->setObjectName("validationStatus");
     validation_->setWordWrap(true);
     validation_->setMinimumHeight(45);
@@ -212,7 +237,8 @@ QWidget *MaintenanceWindow::build_upgrade_page()
             });
     auto *progress_card = card(layout, "03  安装步骤与结果");
     auto *result = static_cast<QVBoxLayout *>(progress_card->layout());
-    upgrade_status_ = label("仅演示安装步骤，不操作设备", "subtitle");
+    upgrade_status_ =
+        label("离线演示可用；真实 APP 执行须配套 Loader、STOP 和动力隔离", "subtitle");
     upgrade_status_->setObjectName("upgradeStatus");
     result->addWidget(upgrade_status_);
     progress_ = new QProgressBar;
@@ -226,6 +252,9 @@ QWidget *MaintenanceWindow::build_upgrade_page()
     upgrade_log_->setMinimumHeight(95);
     upgrade_log_->setMaximumHeight(180);
     result->addWidget(upgrade_log_, 1);
+    upgrade_power_ack_ = new QCheckBox("T 已确认电机动力隔离、独占 CAN，保留逻辑供电");
+    upgrade_power_ack_->setObjectName("upgradePowerIsolated");
+    result->addWidget(upgrade_power_ack_);
     auto *run = new QHBoxLayout;
     run->addWidget(label("实机安装结果：未知", "subtitle"));
     run->addStretch();
@@ -233,8 +262,11 @@ QWidget *MaintenanceWindow::build_upgrade_page()
     cancel_button_->setEnabled(false);
     demo_button_ = button("演示升级流程", "startDemo", "primary");
     demo_button_->setEnabled(false);
+    upgrade_run_button_ = button("执行 APP CAN FD 升级", "executeAppUpgrade", "primary");
+    upgrade_run_button_->setEnabled(false);
     run->addWidget(cancel_button_);
     run->addWidget(demo_button_);
+    run->addWidget(upgrade_run_button_);
     result->addLayout(run);
     connect(demo_button_,
             &QPushButton::clicked,
@@ -249,6 +281,13 @@ QWidget *MaintenanceWindow::build_upgrade_page()
             [this]
             {
                 cancel_demo();
+            });
+    connect(upgrade_run_button_,
+            &QPushButton::clicked,
+            this,
+            [this]
+            {
+                start_real_upgrade();
             });
     demo_timer_ = new QTimer(this);
     demo_timer_->setInterval(220);
@@ -304,6 +343,10 @@ void MaintenanceWindow::invalidate_plan()
         cancel_demo();
     }
     plan_.reset();
+    if (upgrade_power_ack_)
+    {
+        upgrade_power_ack_->setChecked(false);
+    }
     export_job_button_->setEnabled(false);
     demo_button_->setEnabled(false);
     validation_->setText("尚未校验 · 更改模式或文件后需要重新检查。");
@@ -372,6 +415,150 @@ void MaintenanceWindow::export_job()
     catch (const std::exception &error)
     {
         upgrade_status_->setText(QString::fromUtf8(error.what()));
+    }
+}
+
+void MaintenanceWindow::start_real_upgrade()
+{
+    const auto view = device_readback_.Device_View(elapsed_.elapsed());
+    if (upgrade_process_ || !device_identity_matches() || !view.feedback_fresh ||
+        view.motor_state != 5 || view.control_mode != 0 || view.fault_bits != 0 ||
+        view.loader_version != 0x00010000U || !device_stop_ack_ || device_motion_may_run_ ||
+        !upgrade_power_ack_->isChecked() || mode_ != UpgradeMode::App || !plan_ || !plan_->valid ||
+        plan_->synthetic)
+    {
+        upgrade_status_->setText(
+            "升级门禁未满足：身份、配套Loader、STOP/IDLE、动力隔离与真实包均须核对。");
+        return;
+    }
+    const auto app_dir = QCoreApplication::applicationDirPath();
+    const auto client = app_dir + "/upgrade_client.py";
+    if (!QFileInfo::exists(client) || !QFileInfo::exists(app_path_->text()))
+    {
+        upgrade_status_->setText("缺少同目录升级客户端或已校验 image.bin；未打开设备。");
+        return;
+    }
+    upgrade_expected_uid_ = view.uid;
+    upgrade_output_dir_ = QDir::cleanPath(QDir(app_dir).absoluteFilePath(
+        "../outputs/host-upgrade-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss-zzz")));
+    const auto python = python_path_->text();
+    const auto sdk = sdk_path_->text();
+    const auto node = node_->value();
+    const auto package_dir = QFileInfo(app_path_->text()).absolutePath();
+    append_device_trace("upgrade_click",
+                        {{"package", package_dir},
+                         {"output", upgrade_output_dir_},
+                         {"uid", upgrade_expected_uid_}});
+    disconnect_device();
+    auto *process = new QProcess(this);
+    upgrade_process_ = process;
+    upgrade_output_.clear();
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    process->setProgram(python);
+    process->setArguments({"-u",
+                           client,
+                           "upgrade",
+                           "--package",
+                           package_dir,
+                           "--sdk",
+                           sdk,
+                           "--node",
+                           QString::number(node),
+                           "--uid",
+                           upgrade_expected_uid_,
+                           "--output",
+                           upgrade_output_dir_,
+                           "--no-motor-power",
+                           "--exclusive-bench"});
+    process->setWorkingDirectory(app_dir);
+    connect(process,
+            &QProcess::readyReadStandardOutput,
+            this,
+            [this]
+            {
+                consume_upgrade_stdout();
+            });
+    connect(process,
+            &QProcess::errorOccurred,
+            this,
+            [this, process]
+            {
+                if (upgrade_process_ == process && process->error() == QProcess::FailedToStart)
+                {
+                    upgrade_process_ = nullptr;
+                    upgrade_status_->setText("升级客户端未启动；设备结果未知。");
+                    process->deleteLater();
+                    refresh_workbench();
+                }
+            });
+    connect(process,
+            &QProcess::finished,
+            this,
+            [this, process](int exit_code)
+            {
+                if (upgrade_process_ != process)
+                {
+                    return;
+                }
+                consume_upgrade_stdout();
+                QFile summary(QDir(upgrade_output_dir_).filePath("summary.json"));
+                const bool opened = summary.open(QIODevice::ReadOnly);
+                const auto report =
+                    opened ? QJsonDocument::fromJson(summary.readAll()).object() : QJsonObject{};
+                const bool confirmed = exit_code == 0 && report.value("success").toBool() &&
+                                       report.value("uid").toString().compare(
+                                           upgrade_expected_uid_, Qt::CaseInsensitive) == 0 &&
+                                       report.value("version").toInt() == 0x00010300;
+                append_device_trace("upgrade_finish",
+                                    {{"exit_code", exit_code},
+                                     {"protocol_confirmed", confirmed},
+                                     {"summary", upgrade_output_dir_ + "/summary.json"}});
+                upgrade_status_->setText(
+                    confirmed ? "APP 协议升级和激活确认完成；仍需 T 独立核对物理状态。"
+                              : "APP 升级失败或确认不完整；保持停机，人工检查 Loader/输出。");
+                upgrade_log_->append("证据：" + upgrade_output_dir_ + "/summary.json");
+                if (confirmed)
+                {
+                    progress_->setValue(100);
+                }
+                upgrade_process_ = nullptr;
+                upgrade_power_ack_->setChecked(false);
+                process->deleteLater();
+                refresh_workbench();
+            });
+    upgrade_status_->setText("APP 升级客户端已启动；不得关闭窗口或并发使用 CAN/J-Link。");
+    upgrade_log_->append("真实 APP 升级 · 目标 UID " + upgrade_expected_uid_);
+    progress_->setValue(0);
+    process->start();
+    refresh_workbench();
+}
+
+void MaintenanceWindow::consume_upgrade_stdout()
+{
+    if (!upgrade_process_)
+    {
+        return;
+    }
+    upgrade_output_ += upgrade_process_->readAllStandardOutput();
+    while (upgrade_output_.contains('\n'))
+    {
+        const int end = upgrade_output_.indexOf('\n');
+        const auto line = QString::fromUtf8(upgrade_output_.left(end)).trimmed();
+        upgrade_output_.remove(0, end + 1);
+        if (line.isEmpty())
+        {
+            continue;
+        }
+        upgrade_log_->append(line.left(180));
+        const auto match = QRegularExpression("下载 (\\d+)%").match(line);
+        if (match.hasMatch())
+        {
+            progress_->setValue(match.captured(1).toInt());
+        }
+    }
+    if (upgrade_output_.size() > 4096)
+    {
+        upgrade_output_ = upgrade_output_.right(4096);
     }
 }
 

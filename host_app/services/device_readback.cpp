@@ -264,6 +264,7 @@ bool DeviceReadback::Device_Accept(uint32_t can_id, const QByteArray &frame, int
         view_.speed_rad_s = signed_measurement(data + 20, bits, 3, true, 1000);
         view_.iq_a = signed_measurement(data + 32, bits, 7, false, 1000);
         view_.bus_voltage_v = signed_measurement(data + 26, bits, 4, false, 100);
+        view_.bus_current_a = signed_measurement(data + 28, bits, 5, false, 1000);
         view_.mcu_temperature_c = signed_measurement(data + 34, bits, 8, false, 100);
         view_.motor_state = data[43];
         view_.control_mode = data[44];
@@ -336,6 +337,7 @@ DeviceReadbackView DeviceReadback::Device_View(int64_t now_ms) const
         result.speed_rad_s.reset();
         result.iq_a.reset();
         result.bus_voltage_v.reset();
+        result.bus_current_a.reset();
         result.mcu_temperature_c.reset();
     }
     return result;

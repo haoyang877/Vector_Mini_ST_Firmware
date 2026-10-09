@@ -17,7 +17,8 @@ struct DeviceReadbackView
     std::optional<uint8_t> role, boot_state, motor_state, control_mode;
     std::optional<uint64_t> boot_epoch;
     std::optional<uint32_t> fault_bits;
-    std::optional<double> position_rad, speed_rad_s, iq_a, bus_voltage_v, mcu_temperature_c;
+    std::optional<double> position_rad, speed_rad_s, iq_a, bus_voltage_v, bus_current_a,
+        mcu_temperature_c;
     bool identity_fresh = false, feedback_fresh = false, stop_confirmed_recently = false;
 };
 

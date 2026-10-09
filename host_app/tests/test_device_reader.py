@@ -1,4 +1,4 @@
-"""只读辅助进程的假端口契约：默认测试绝不打开物理适配器。"""
+"""CAN 辅助进程的假端口契约：默认测试绝不打开物理适配器。"""
 
 from __future__ import annotations
 
@@ -63,6 +63,56 @@ class FakeDll:
 
 
 class ReaderChecks(unittest.TestCase):
+    def test_bounded_speed_and_stop_only(self) -> None:
+        port = FakePort(
+            [
+                reply(3, 117, 10, struct.pack("<HH", 1, 0)),
+                reply(3, 116, 11, struct.pack("<HH", 1, 0)),
+                reply(3, 110, 12, bytes(4)),
+            ]
+        )
+        self.assertEqual(reader.control_once(port, 3, "start_speed", 10), (1, 0))
+        self.assertEqual(reader.control_once(port, 3, "set_speed", 11, 150), (1, 0))
+        self.assertEqual(reader.control_once(port, 3, "stop", 12), (0, 0))
+        self.assertEqual(len(port.sent), 3)
+        start = port.sent[0][1][16:20]
+        self.assertEqual(start, b"\x02\x00\x00\x00")
+        target = port.sent[1][1][16:36]
+        self.assertEqual(struct.unpack("<BBHiiii", target), (2, 0, 0, 0, 15708, 0, 0))
+        self.assertEqual(struct.unpack_from("<I", port.sent[2][1], 10)[0], 0)
+        for operation, rpm in (
+            ("set_speed", 301),
+            ("set_speed", -1),
+            ("start_speed", 1),
+            ("write_parameter", 0),
+        ):
+            with self.assertRaises(ValueError):
+                reader.control_once(port, 3, operation, 13, rpm)
+        self.assertEqual(len(port.sent), 3)
+
+    def test_active_helper_stops_on_exit(self) -> None:
+        port = FakePort([reply(3, 117, 1, struct.pack("<HH", 1, 0)), reply(3, 110, 2, bytes(4))])
+        output = io.StringIO()
+        reader.serve(port, 3, io.StringIO('{"op":"start_speed","sequence":1,"rpm":0}\n'), output)
+        self.assertEqual(
+            [json.loads(line)["event"] for line in output.getvalue().splitlines()],
+            ["ready", "result", "exit_stop"],
+        )
+        self.assertEqual(len(port.sent), 2)
+
+    def test_uncertain_start_still_attempts_stop(self) -> None:
+        port = FakePort([])
+        output = io.StringIO()
+        with self.assertRaises(TimeoutError):
+            reader.serve(
+                port, 3, io.StringIO('{"op":"start_speed","sequence":1,"rpm":0}\n'), output
+            )
+        events = [json.loads(line)["event"] for line in output.getvalue().splitlines()]
+        self.assertEqual(events, ["ready", "exit_stop_failed"])
+        self.assertEqual(len(port.sent), 2)
+        self.assertEqual(struct.unpack_from("<H", port.sent[1][1], 6)[0], 110)
+        self.assertEqual(struct.unpack_from("<H", port.sent[1][1], 8)[0], 2)
+
     def test_get_only_and_request_correlation(self) -> None:
         valid = reply(3, 108, 7, bytes(45))
         wrong = reply(4, 108, 7, bytes(45))

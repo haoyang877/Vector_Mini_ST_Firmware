@@ -238,7 +238,7 @@ QWidget *MaintenanceWindow::build_upgrade_page()
     auto *progress_card = card(layout, "03  安装步骤与结果");
     auto *result = static_cast<QVBoxLayout *>(progress_card->layout());
     upgrade_status_ =
-        label("离线演示可用；真实 APP 执行须配套 Loader、STOP 和动力隔离", "subtitle");
+        label("离线演示可用；真实 APP 执行须配套 Loader、STOP/IDLE 与独占台架", "subtitle");
     upgrade_status_->setObjectName("upgradeStatus");
     result->addWidget(upgrade_status_);
     progress_ = new QProgressBar;
@@ -252,9 +252,6 @@ QWidget *MaintenanceWindow::build_upgrade_page()
     upgrade_log_->setMinimumHeight(95);
     upgrade_log_->setMaximumHeight(180);
     result->addWidget(upgrade_log_, 1);
-    upgrade_power_ack_ = new QCheckBox("T 已确认电机动力隔离、独占 CAN，保留逻辑供电");
-    upgrade_power_ack_->setObjectName("upgradePowerIsolated");
-    result->addWidget(upgrade_power_ack_);
     auto *run = new QHBoxLayout;
     run->addWidget(label("实机安装结果：未知", "subtitle"));
     run->addStretch();
@@ -343,10 +340,6 @@ void MaintenanceWindow::invalidate_plan()
         cancel_demo();
     }
     plan_.reset();
-    if (upgrade_power_ack_)
-    {
-        upgrade_power_ack_->setChecked(false);
-    }
     export_job_button_->setEnabled(false);
     demo_button_->setEnabled(false);
     validation_->setText("尚未校验 · 更改模式或文件后需要重新检查。");
@@ -421,14 +414,13 @@ void MaintenanceWindow::export_job()
 void MaintenanceWindow::start_real_upgrade()
 {
     const auto view = device_readback_.Device_View(elapsed_.elapsed());
-    if (upgrade_process_ || !device_identity_matches() || !view.feedback_fresh ||
-        view.motor_state != 5 || view.control_mode != 0 || view.fault_bits != 0 ||
-        view.loader_version != 0x00010000U || !device_stop_ack_ || device_motion_may_run_ ||
-        !upgrade_power_ack_->isChecked() || mode_ != UpgradeMode::App || !plan_ || !plan_->valid ||
+    if (upgrade_process_ || !device_safe_idle() || view.loader_version != 0x00010000U ||
+        !device_stop_ack_ || device_motion_may_run_ || demo_timer_->isActive() ||
+        sandbox_.Sandbox_SavePending() || mode_ != UpgradeMode::App || !plan_ || !plan_->valid ||
         plan_->synthetic)
     {
         upgrade_status_->setText(
-            "升级门禁未满足：身份、配套Loader、STOP/IDLE、动力隔离与真实包均须核对。");
+            "升级门禁未满足：配套Loader、STOP/IDLE、零速与台架限值、独占和真实包均须核对。");
         return;
     }
     const auto app_dir = QCoreApplication::applicationDirPath();
@@ -468,7 +460,6 @@ void MaintenanceWindow::start_real_upgrade()
                            upgrade_expected_uid_,
                            "--output",
                            upgrade_output_dir_,
-                           "--no-motor-power",
                            "--exclusive-bench"});
     process->setWorkingDirectory(app_dir);
     connect(process,
@@ -522,7 +513,6 @@ void MaintenanceWindow::start_real_upgrade()
                     progress_->setValue(100);
                 }
                 upgrade_process_ = nullptr;
-                upgrade_power_ack_->setChecked(false);
                 process->deleteLater();
                 refresh_workbench();
             });

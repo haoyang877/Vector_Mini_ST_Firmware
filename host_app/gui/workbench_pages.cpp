@@ -391,8 +391,8 @@ void MaintenanceWindow::connect_demo()
 
 void MaintenanceWindow::connect_device()
 {
-    if (connection_->currentIndex() != 1 || device_reader_ || session_.Session_View().connected ||
-        sandbox_.Sandbox_SavePending())
+    if (connection_->currentIndex() != 1 || device_reader_ || upgrade_process_ ||
+        session_.Session_View().connected || sandbox_.Sandbox_SavePending())
     {
         return;
     }
@@ -1433,10 +1433,9 @@ void MaintenanceWindow::refresh_workbench()
     if (upgrade_run_button_)
     {
         upgrade_run_button_->setEnabled(
-            !upgrade_process_ && device_identity_matches() && device.feedback_fresh &&
-            device.motor_state == 5 && device.control_mode == 0 && device.fault_bits == 0 &&
-            device.loader_version == 0x00010000U && device_stop_ack_ &&
-            upgrade_power_ack_->isChecked() && mode_ == UpgradeMode::App && plan_ && plan_->valid &&
+            !upgrade_process_ && device_safe_idle() && device.loader_version == 0x00010000U &&
+            device_stop_ack_ && !device_motion_may_run_ && !demo_timer_->isActive() &&
+            !sandbox_.Sandbox_SavePending() && mode_ == UpgradeMode::App && plan_ && plan_->valid &&
             !plan_->synthetic);
     }
     const auto &s = replay_samples_.empty() ? state.sample : replay_samples_.back();

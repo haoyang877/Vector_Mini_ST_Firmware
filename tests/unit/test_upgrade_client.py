@@ -152,6 +152,36 @@ class UpgradeClientTests(unittest.TestCase):
         self.assertTrue(any(item["attempt"] == 1 for item in client.trace))
         self.assertTrue(any(item["type"] == 57 for item in client.trace))
 
+    def test_cli_requires_exclusive_bench_without_power_isolation_flag(self) -> None:
+        """独占参数仍为必填；带电台架入口可进入SDK打开前的失败路径。"""
+        output = self.directory / "cli_live_bench"
+        command = [
+            sys.executable,
+            str(ROOT / "host_app/upgrade_client.py"),
+            "upgrade",
+            "--package",
+            str(self.directory / "package"),
+            "--sdk",
+            str(self.directory / "missing-sdk.dll"),
+            "--node",
+            "3",
+            "--uid",
+            "01" * 12,
+            "--output",
+            str(output),
+        ]
+        without_exclusive = subprocess.run(command, capture_output=True, check=False)
+        self.assertEqual(without_exclusive.returncode, 2)
+        self.assertFalse(output.exists())
+        with_exclusive = subprocess.run(
+            command + ["--exclusive-bench"], capture_output=True, check=False
+        )
+        self.assertEqual(with_exclusive.returncode, 1)
+        self.assertTrue((output / "summary.json").exists())
+        self.assertFalse(
+            json.loads((output / "summary.json").read_text(encoding="utf-8"))["success"]
+        )
+
     def test_wrong_uid_never_writes(self) -> None:
         """错误板卡身份必须在BEGIN之前拒绝。"""
         device = NativeDevice(self.dll)

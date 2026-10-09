@@ -162,8 +162,7 @@ class MaintenanceWindow : public QMainWindow
     QSpinBox *device_speed_rpm_ = nullptr;
     QGroupBox *demo_motion_group_ = nullptr, *device_motion_group_ = nullptr,
               *demo_quick_group_ = nullptr;
-    QCheckBox *unlock_ = nullptr, *freeze_ = nullptr, *device_bench_ack_ = nullptr,
-              *upgrade_power_ack_ = nullptr;
+    QCheckBox *unlock_ = nullptr, *freeze_ = nullptr, *device_bench_ack_ = nullptr;
     QLineEdit *quick_edit_ = nullptr;
     QLabel *global_status_ = nullptr, *footer_ = nullptr, *telemetry_ = nullptr;
     QLabel *quick_active_ = nullptr, *quick_status_ = nullptr, *record_status_ = nullptr,

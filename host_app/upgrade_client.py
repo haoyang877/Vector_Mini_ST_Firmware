@@ -402,7 +402,6 @@ def main() -> int:
     parser.add_argument("--node", type=int)
     parser.add_argument("--uid")
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--no-motor-power", action="store_true")
     parser.add_argument("--exclusive-bench", action="store_true")
     parser.add_argument(
         "--rescue-window", action="store_true", help="先抓住复位启动窗口，再检查身份"
@@ -423,14 +422,13 @@ def main() -> int:
         )
         return 0
     if (
-        not args.no_motor_power
-        or not args.exclusive_bench
+        not args.exclusive_bench
         or args.sdk is None
         or args.node is None
         or args.uid is None
         or args.output is None
     ):
-        parser.error("upgrade必须提供SDK、节点、UID、outputs证据目录及独占/无电机动力台架条件")
+        parser.error("upgrade必须提供SDK、节点、UID、outputs证据目录及独占台架条件")
     output = args.output.resolve()
     if not output.is_relative_to((ROOT / "outputs").resolve()):
         parser.error("证据目录必须在当前工作树outputs下")

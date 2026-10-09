@@ -40,7 +40,7 @@ APP 1.3.0、schema12 且 108 状态和台架限值齐备时显示速度候选操
 | 功能 | 当前可用 | 实机接线要求 |
 | --- | --- | --- |
 | 单独升级 Loader | BIN 范围/向量检查，独立 Loader 安装任务 | SWD 分区安装；审核 Loader 构建及布局信息，保留 APP/参数 |
-| 单独升级 APP | 当前 image.bin + manifest.bin 真实共享校验；配套 LoaderApp、STOP/IDLE 和动力隔离确认后显式调用 v3 客户端 | 独占无动力台架；完整下载、激活和健康确认仍需 T 实机验收 |
+| 单独升级 APP | 当前 image.bin + manifest.bin 真实共享校验；配套 LoaderApp、STOP/IDLE、近零速和台架回读限值通过后显式调用 v3 客户端 | 独占架空带电台架；完整下载、激活和健康确认仍需 T 实机验收 |
 | Loader + APP | 两个独立写域的校验与任务，不生成全片覆盖包 | SWD 分区安装；备份参数、逐域读回并重新发现 |
 | 读取参数 | 离线标量模型读取，显示类型、单位、权限及 revision | Type 120，消费实际 READ access 和活动值 |
 | 写入参数 | 示例模型校验、expected_revision、写后读回 | Type 121，权限/状态/范围由设备参数所有者裁决 |
@@ -111,7 +111,7 @@ Windows 字体视觉检查使用 Windows Qt 平台；CTest 使用 offscreen 平�
 
 `upgrade_client.py` 独立于 GUI，默认 `inspect` 仅完整检查 v3 包。
 `upgrade` 通过 `ports/controlcanfd.py` 显式打开 Windows SDK；入口要求 12B 实际 UID、目标节点、
-独占无动力台架和 outputs 证据目录。升级前检查 MCU、配套版本、布局、schema 与 CRC；
+独占架空台架和 outputs 证据目录。升级前检查 MCU、配套版本、布局、schema 与 CRC；
 一次一个请求，至多四次保持原身份重试，激活后核对新 APP 并通过 Type 57 确认，再读持久状态。
 `--rescue-window` 反复发送空 STATUS 捕获复位后的 50ms 窗口，只驻留；身份检查通过后才擦写。
 无法确认停止或关相时中止交接；任何失败不恢复电机运行。

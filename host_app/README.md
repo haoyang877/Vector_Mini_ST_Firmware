@@ -5,7 +5,7 @@ Qt6/C++17 原生电机调试工作台，独立于 APP 和 Loader 构建。启动
 设备维护七个工作区。[基础工作区恢复记录](../docs/plans/active/2026-09-29-host-workbench-restore-v1.md)
 说明从两页维护入口恢复完整工作台的范围及验收。
 
-上位机自身版本为 `1.3.0`，独立于设备 APP/Loader 版本；单一版本入口是
+上位机自身版本为 `1.3.1`，独立于设备 APP/Loader 版本；单一版本入口是
 `host_app/CMakeLists.txt` 的 `project(... VERSION ...)`，窗口顶部与程序版本参数使用同一值。
 交付包的 `manifest.json` 记录完整源码 commit/tree SHA、工作树 dirty 状态及 EXE 哈希，
 `checksums.sha256` 逐文件校验。固件升级页另列固件包 MCU、layout、schema、基地址、
@@ -78,7 +78,7 @@ uv run python tools/run.py verify --profile pr
 
 Windows 主程序为 `outputs/host_app/build/YG_MC_HOST.exe`。独立打包时使用匹配 Qt 的
 `windeployqt` 收集插件/运行库，并加入编译器运行库；本轮台架候选包位于
-`outputs/host_app/YG_MC_HOST-bench-v1.3.0-20261009/`，附带包内 SHA-256 清单。
+`outputs/host_app/YG_MC_HOST-bench-v1.3.1-20261009/`，附带包内 SHA-256 清单。
 普通启动显示连接页；连接演示 APP、进入工作台、解锁后，显式使能并提交目标。
 采集需单独开始；调参前停止并失能，先读取再编辑。设备维护选择“载入演示样本”可检查三种模式。
 升级页可滚动，在较小窗口中查看完整日志与操作按钮。下拉弹层使用显式浅色背景与深色文字。
@@ -137,6 +137,10 @@ GUI 在首次 STOP 受理后以新序号有界查询最终 0/0，并以随后的
 生产 SN 按 ASCII 显示，UID 与有效启动编号变化会清除旧会话快照。
 
 连接页需用户显式选择节点、Python 3 可执行文件和厂家 SDK DLL，再点击 CAN FD 连接。
+同一未重启设备若已接收源节点 2 的控制序号，需按该设备日志在连接前显式填写
+“台架序号起点”；下一请求使用起点加一，连接后不可修改。本轮设备已记录 STOP 序号
+6005，台架验收应填写 10000。默认起点 0 仅适用于没有更高历史序号的设备；
+程序不猜测设备序号，也不自动重放控制。连接事件记录起点和首个请求序号。
 `device_reader.py` 与现有 `upgrade_client.py`、`ports/controlcanfd.py` 在构建目录一同复制；
 Python 运行时和厂家 DLL 不随 EXE 打包。辅助进程独占打开现有端口，顺序查询
 Type 1 页 0/1/2、Type 2、Type 3，并按需轮询 Type 108；超时、错误帧、断线时关闭端口

@@ -4,7 +4,7 @@
 `8c422ef23d65eb8f2f3a1697ad822d6f1203afb4`。本批仅改 `host_app` 与专属文档，
 不改固件、Loader、共享 ABI、运动数学或参数阈值。
 
-上位机独立标识 `YG_MC_HOST v1.3.0`，与固件 APP v1.3.0 同号但不共用版本源。
+上位机独立标识 `YG_MC_HOST v1.3.1`，固件仍为 APP v1.3.0，两者不共用版本源。
 Qt 标题、可见品牌和包清单以 CMake `project(VERSION)` 为准；交付清单记录 host
 完整 commit SHA、host_app tree SHA、dirty 状态与文件 SHA-256。升级页显示固件包
 MCU、layout、schema、APP 基地址、CRC 和固件版本，设备匹配仍由共享清单与 v3 客户端核对。
@@ -59,3 +59,10 @@ Type3 epoch 无效是当前固件预期，不能伪造为可用或作为必备�
 包为 `outputs/host_app/YG_MC_HOST-bench-v1.3.0-20261009/`，含运行库、
 `manifest.json` 和 `checksums.sha256`。未打开厂家 SDK、CAN、J-Link 或电源，
 所以真实 GUI 按钮操作、APP 升级、关相和参数保持均未在本批证明。
+
+v1.3.1 增加连接前显式设置源节点 2 台架序号起点，连接事件留痕，连接期间锁定。
+现场已确认同一未重启设备的 STOP 序号 6005；T 在本轮验收前填写起点 10000，
+首个 GET 使用 10001。默认 0 保持离线和新设备行为，不自动推断或重放序号。
+此修复已重新构建，host CTest 2/2、相关 Python 离线测试 17/17、格式与 lint 通过；
+`outputs/host_app/YG_MC_HOST-bench-v1.3.1-20261009/` 的 26 个文件哈希已复核，
+包内 EXE 在仅保留系统 PATH 时离线预览成功并输出十张截图。真实 GUI 控制仍待 T 验收。

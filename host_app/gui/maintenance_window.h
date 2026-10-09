@@ -141,7 +141,7 @@ class MaintenanceWindow : public QMainWindow
     qint64 previous_ms_ = 0;
     ScopeWidget *scope_ = nullptr;
     QComboBox *scenario_ = nullptr, *motion_mode_ = nullptr, *quick_parameter_ = nullptr;
-    QSpinBox *node_ = nullptr;
+    QSpinBox *node_ = nullptr, *device_sequence_start_ = nullptr;
     QLineEdit *python_path_ = nullptr, *sdk_path_ = nullptr;
     QProcess *device_reader_ = nullptr;
     QProcess *upgrade_process_ = nullptr;

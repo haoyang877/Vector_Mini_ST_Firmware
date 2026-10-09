@@ -287,6 +287,14 @@ QWidget *MaintenanceWindow::build_connection_page()
     form->addWidget(connection_);
     form->addWidget(text_label("目标节点"));
     form->addWidget(node_);
+    device_sequence_start_ = new QSpinBox;
+    device_sequence_start_->setObjectName("benchSequenceStart");
+    device_sequence_start_->setRange(0, 65534);
+    device_sequence_start_->setValue(0);
+    device_sequence_start_->setToolTip(
+        "仅依据同一未重启设备的源节点2日志显式设置；下一请求使用起点+1。");
+    form->addWidget(text_label("台架序号起点（高级；下一请求为起点 + 1）"));
+    form->addWidget(device_sequence_start_);
     form->addWidget(text_label("演示场景"));
     form->addWidget(scenario_);
     python_path_ = new QLineEdit;
@@ -423,7 +431,10 @@ void MaintenanceWindow::connect_device()
     }
     device_trace_path_ = QDir(evidence_dir).filePath("events.jsonl");
     append_device_trace("connect_intent",
-                        {{"node", node_->value()}, {"expected_uid", "5700460010504e4831303320"}});
+                        {{"node", node_->value()},
+                         {"expected_uid", "5700460010504e4831303320"},
+                         {"sequence_start", device_sequence_start_->value()},
+                         {"first_sequence", device_sequence_start_->value() + 1}});
     if (!device_error_.isEmpty())
     {
         refresh_workbench();
@@ -437,7 +448,7 @@ void MaintenanceWindow::connect_device()
     device_stop_deadline_ms_ = device_stop_retry_ms_ = 0;
     device_command_queued_.clear();
     device_control_result_.clear();
-    device_sequence_ = 0;
+    device_sequence_ = uint16_t(device_sequence_start_->value());
     device_step_ = 0;
     device_connect_ms_ = device_discovery_ms_ = elapsed_.elapsed();
     device_feedback_ms_ = -1000;
@@ -1434,6 +1445,8 @@ void MaintenanceWindow::refresh_workbench()
                                                                 : "设备后端待接入");
     scenario_->setEnabled(!state.connected && connection_->currentIndex() == 0);
     node_->setEnabled(!state.connected && !device_reader_);
+    device_sequence_start_->setEnabled(connection_->currentIndex() == 1 && !device_reader_ &&
+                                       !upgrade_process_);
     connection_->setEnabled(!device_reader_ && !upgrade_process_);
     python_path_->setEnabled(!device_reader_ && !upgrade_process_);
     sdk_path_->setEnabled(!device_reader_ && !upgrade_process_);

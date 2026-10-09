@@ -563,6 +563,10 @@ void fake_gui_stop_checks()
     };
     window.findChild<QComboBox *>("connectionMode")->setCurrentIndex(1);
     window.findChild<QSpinBox *>("targetNode")->setValue(1);
+    auto *sequence_start = window.findChild<QSpinBox *>("benchSequenceStart");
+    check(sequence_start->value() == 0 && sequence_start->maximum() == 65534,
+          "bench sequence start changed its safe default or range");
+    sequence_start->setValue(10000);
     window.findChild<QLineEdit *>("pythonRuntimePath")
         ->setText(QCoreApplication::applicationFilePath());
     window.findChild<QLineEdit *>("canSdkPath")->setText(dll);
@@ -575,6 +579,7 @@ void fake_gui_stop_checks()
               },
               1500),
           "fake GUI port did not open");
+    check(!sequence_start->isEnabled(), "connected bench sequence start remained editable");
     bench->click();
     check(wait_for(
               [&]
@@ -608,14 +613,26 @@ void fake_gui_stop_checks()
     check(events.open(QIODevice::ReadOnly), "fake GUI trace absent");
     int stop_clicks = 0;
     int stop_commands = 0;
+    int logged_start = -1;
+    int first_frame_sequence = -1;
     while (!events.atEnd())
     {
         const auto event = QJsonDocument::fromJson(events.readLine()).object();
+        if (event.value("event") == "connect_intent")
+        {
+            logged_start = event.value("sequence_start").toInt(-1);
+        }
+        if (event.value("event") == "frame" && first_frame_sequence < 0)
+        {
+            first_frame_sequence = event.value("sequence").toInt(-1);
+        }
         stop_clicks += event.value("event") == "button" && event.value("operation") == "stop";
         stop_commands += event.value("event") == "command_sent" && event.value("type") == 110;
     }
     check(stop_clicks == 1 && stop_commands == 2,
           "STOP completion did not use one click and two correlated requests");
+    check(logged_start == 10000 && first_frame_sequence == 10001,
+          "explicit bench sequence start did not seed the first request");
     button("deviceStartSpeed")->click();
     check(wait_for(
               [&]
@@ -625,6 +642,14 @@ void fake_gui_stop_checks()
               },
               1500),
           "rejected start remained falsely active after IDLE feedback");
+    button("disconnectDevice")->click();
+    check(wait_for(
+              [&]
+              {
+                  return sequence_start->isEnabled();
+              },
+              1500),
+          "bench sequence start remained locked after disconnect");
 }
 } // namespace
 int main(int argc, char **argv)

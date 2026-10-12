@@ -39,23 +39,20 @@
             <dynrttcrc value="0" />
             <var name="rtt_channel1.data0" color="" showType="Signed" formula="" desc="位置目标" unit="0.01 deg" addr="" interval="10" subvar="0" />
             <var name="rtt_channel1.data1" color="" showType="Signed" formula="" desc="位置反馈" unit="0.01 deg" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data2" color="" showType="Signed" formula="" desc="位置误差" unit="0.01 deg" addr="" interval="10" subvar="0" />
         </form>
         <form type="5" title="测速噪声" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
             <dynrttcrc value="0" />
-            <var name="rtt_channel1.data2" color="" showType="Signed" formula="" desc="编码器PLL速度" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
-            <var name="rtt_channel1.data3" color="" showType="Signed" formula="" desc="控制滤波速度" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data3" color="" showType="Signed" formula="" desc="位置环速度参考" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data4" color="" showType="Signed" formula="" desc="控制滤波速度" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data5" color="" showType="Signed" formula="" desc="编码器PLL速度" unit="0.01 deg/s" addr="" interval="10" subvar="0" />
         </form>
         <form type="5" title="dq电流与补偿" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
             <dynrttcrc value="0" />
-            <var name="rtt_channel1.data4" color="" showType="Signed" formula="" desc="Iq参考" unit="mA" addr="" interval="10" subvar="0" />
-            <var name="rtt_channel1.data5" color="" showType="Signed" formula="" desc="Iq反馈" unit="mA" addr="" interval="10" subvar="0" />
-            <var name="rtt_channel1.data6" color="" showType="Signed" formula="" desc="Id反馈" unit="mA" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data6" color="" showType="Signed" formula="" desc="Iq参考" unit="mA" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data7" color="" showType="Signed" formula="" desc="Iq反馈" unit="mA" addr="" interval="10" subvar="0" />
+            <var name="rtt_channel1.data8" color="" showType="Signed" formula="" desc="Id反馈" unit="mA" addr="" interval="10" subvar="0" />
             <var name="rtt_channel1.data9" color="" showType="Signed" formula="" desc="摩擦前馈电流" unit="mA" addr="" interval="10" subvar="0" />
-        </form>
-        <form type="5" title="dq电压" subCols="1" lineStyle="1" xTag="0" floating="0" subMode="0" trigName="" autoRange="1" page="0" xCount="4000" visible="1" min="-500" max="500" scatterStyle="2" scrollType="0" trigType="0" trigValue="0">
-            <dynrttcrc value="0" />
-            <var name="rtt_channel1.data7" color="" showType="Signed" formula="" desc="Vq实际输出" unit="mV" addr="" interval="10" subvar="0" />
-            <var name="rtt_channel1.data8" color="" showType="Signed" formula="" desc="Vd实际输出" unit="mV" addr="" interval="10" subvar="0" />
         </form>
     </forms>
 </lksscope>

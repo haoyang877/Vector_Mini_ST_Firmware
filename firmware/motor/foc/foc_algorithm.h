@@ -27,7 +27,7 @@ typedef struct
 	float dtc_a,dtc_b,dtc_c;
 	int32_t sector;
 	/*temprature of power board*/
-	float temp;
+	float temp; /* MCU 内部温度，℃；不可用时 NaN，不代表绕组温度。 */
 }FOC_TypeDef;
 
 void Clarke_Transform(float a, float b, float c, float *alpha, float *beta);

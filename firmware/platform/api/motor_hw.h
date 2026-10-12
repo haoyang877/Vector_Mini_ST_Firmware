@@ -27,4 +27,11 @@ void motor_hw_outer_barrier(void);
  */
 unsigned motor_hw_current_sample_sector(void);
 
+/**
+ * @brief 读取 MCU 内部温度，使用出厂校准值及内部参考电压补偿。
+ * @return 最新温度，单位 ℃；无完整采样或校准数据无效时返回 NaN。
+ * @note 由 1 kHz 监督任务独占调用；不阻塞，不代表绕组或功率器件温度。
+ */
+float motor_hw_mcu_temperature_c(void);
+
 #endif

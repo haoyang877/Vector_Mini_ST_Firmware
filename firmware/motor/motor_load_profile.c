@@ -80,6 +80,12 @@ bool MotorLoadProfile_FeedforwardEnabled(uint32_t flags)
     return flags == (MOTOR_LOAD_DAMPING_RING | MOTOR_LOAD_FRICTION_FEEDFORWARD);
 }
 
+bool MotorLoadProfile_PassiveHoldEnabled(uint32_t flags)
+{
+    return flags == MOTOR_LOAD_DAMPING_RING ||
+           flags == (MOTOR_LOAD_DAMPING_RING | MOTOR_LOAD_FRICTION_FEEDFORWARD);
+}
+
 static uint32_t record_crc(const MotorLoadRecord *record)
 {
     const uint32_t words[3] = {record->magic, record->version, record->flags};

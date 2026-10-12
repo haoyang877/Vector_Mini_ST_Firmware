@@ -265,7 +265,7 @@ def main():
             assert phase_guard['exposure_limit_us'] == 30000000, 'wrong board burst-time guard'
         assert abs(x['position']) <= math.radians(85)
         specs = [('cascade_pos_Kp',4,args.kp), ('cascade_pos_Kd',8,args.kd),
-                 ('speed_Kp',5,args.speed_kp), ('speed_Ki',6,args.speed_ki),
+                 ('position_speed_Kp',5,args.speed_kp), ('position_speed_Ki',6,args.speed_ki),
                  ('pos_maxspeed',7,math.radians(args.max_speed_deg))]
         if not args.keep_parameters:
             for _, op, value in specs:

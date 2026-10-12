@@ -5,6 +5,7 @@
 #include "foc_friction_identification.h"
 #include "foc_phase_resistance.h"
 #include "position_cascade.h"
+#include "position_cascade_config.h"
 #include "servo_hil.h"
 #include "fast_loop_profile.h"
 #include "motor_status.h"
@@ -74,6 +75,9 @@ static void MotorControl_ApplyLoadProfile(void)
     }
     MotorControl.load_profile_flags = flags;
     MotorControl.load_profile_valid = true;
+    /* 装配切换恢复该档默认精度；测量噪声约±0.025°，阻尼档取±0.08°。 */
+    MotorControl.pos_error_window = MotorLoadProfile_PassiveHoldEnabled(flags) ?
+        POSITION_SERVO_DAMPED_ERROR_WINDOW_RAD : 0.001f;
 }
 
 #define RTT_SPEED_SCALE_COUNTS_PER_RAD_S	(18000.0f / _PI)
@@ -138,24 +142,28 @@ static void RTT_Sampling(void)
     /* 只读快环数据及最近一次外环快照；停机时补偿电流明确清零。 */
     {
         PositionCascadeTelemetry_TypeDef planned;
+        float position_speed_reference_rad_s = 0.0f;
         float control_speed_rad_s = MotorControl.pos_vel_filtered;
         float friction_current_a = 0.0f;
 
         if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned))
         {
+            position_speed_reference_rad_s = planned.speed_command;
             control_speed_rad_s = planned.speed_feedback;
             friction_current_a = planned.friction_feedforward_current;
         }
         frame.data0 = RTT_EncodeInt16(MotorControl.posRef, RTT_POSITION_SCALE_COUNTS_PER_RAD);
         frame.data1 = RTT_EncodeInt16(OnBoard_Encoder.theta_mech,
             RTT_POSITION_SCALE_COUNTS_PER_RAD);
-        frame.data2 = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-        frame.data3 = RTT_EncodeInt16(control_speed_rad_s, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-        frame.data4 = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
-        frame.data5 = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
-        frame.data6 = RTT_EncodeInt16(FOC.Id, RTT_CURRENT_SCALE_COUNTS_PER_A);
-        frame.data7 = RTT_EncodeInt16(FOC.Vq, 1000.0f);
-        frame.data8 = RTT_EncodeInt16(FOC.Vd, 1000.0f);
+        frame.data2 = RTT_EncodeInt16(MotorControl.posRef - OnBoard_Encoder.theta_mech,
+            RTT_POSITION_SCALE_COUNTS_PER_RAD);
+        frame.data3 = RTT_EncodeInt16(position_speed_reference_rad_s,
+            RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+        frame.data4 = RTT_EncodeInt16(control_speed_rad_s, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+        frame.data5 = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+        frame.data6 = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
+        frame.data7 = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
+        frame.data8 = RTT_EncodeInt16(FOC.Id, RTT_CURRENT_SCALE_COUNTS_PER_A);
         frame.data9 = RTT_EncodeInt16(friction_current_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
     }
     if (SEGGER_RTT_Write(1, &frame, sizeof(frame)) != sizeof(frame))
@@ -243,7 +251,8 @@ void MotorControl_Init(void)
 	FOC_CurrentController_Reset(&FOC);
 	PI_Controller_Reset(&PI_Speed);
 	
-	MotorControl.pos_error_window = 0.001f;
+	MotorControl.pos_error_window = MotorLoadProfile_PassiveHoldEnabled(
+		MotorControl.load_profile_flags) ? POSITION_SERVO_DAMPED_ERROR_WINDOW_RAD : 0.001f;
 	MotorControl.pos_vel_filtered = 0.0f;
 	Task_Position_Mode_Reset();
 	FocFrictionIdentification_Init();
@@ -288,7 +297,7 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 
 void FOC1kHzSupervisor(void)
 {
-	/* Temperature conversion includes logf and belongs to the slow supervisor. */
+	/* MCU 温度换算及保护由 1 kHz 监督任务执行。 */
 	Temperature_Update(&FOC);
 }
 
@@ -342,8 +351,8 @@ void FOC20kHzIRQHandler(void)
 			case SERVO_HIL_VELOCITY_FILTER:
 				MotorControl.position_velocity_filter_half_cutoff = command.value == 1.0f;
 				break;
-			case SERVO_HIL_SPEED_KP: MotorControl.speed_Kp = command.value; break;
-			case SERVO_HIL_SPEED_KI: MotorControl.speed_Ki = command.value; break;
+			case SERVO_HIL_SPEED_KP: MotorControl.position_speed_Kp = command.value; break;
+			case SERVO_HIL_SPEED_KI: MotorControl.position_speed_Ki = command.value; break;
 			case SERVO_HIL_MAX_SPEED:
 				accepted = command.value <= MotorControl.speed_limit;
 				if (accepted) MotorControl.pos_maxspeed = command.value;

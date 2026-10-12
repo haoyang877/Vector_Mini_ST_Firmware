@@ -27,6 +27,18 @@ typedef struct
     uint32_t crc32;
 } PositionFilterRecord;
 
+/** @brief PSP1/v1位置级联速度PI尾记录；CRC覆盖前16字节，旧字段偏移保持。 */
+#define PARAM_POSITION_SPEED_PI_MAGIC 0x31505350U
+#define PARAM_POSITION_SPEED_PI_VERSION 1U
+typedef struct
+{
+    uint32_t magic;
+    uint32_t version;
+    float kp_s_per_rad;
+    float ki_per_rad;
+    uint32_t crc32;
+} PositionSpeedPiRecord;
+
 typedef struct
 {
 	float node_id;
@@ -84,6 +96,7 @@ typedef struct
     MotorLoadRecord load_profile;
     /* schema10既有字段偏移保持；旧固件忽略PVF1扩展。 */
     PositionFilterRecord position_filter;
+    PositionSpeedPiRecord position_speed_pi;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

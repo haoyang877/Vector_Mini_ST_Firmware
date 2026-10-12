@@ -28,7 +28,8 @@ def diagnostic_fixture() -> str:
         .replace(
             "static struct { float Iq, Id, Vq, Vd, Ia, Ib, Ic; } FOC;",
             "static struct { float Iq, Id, Vq, Vd, Ia, Ib, Ic; } FOC;\n"
-            "typedef struct { float speed_feedback, friction_feedforward_current; } "
+            "typedef struct { float speed_command, trajectory_speed_reference, "
+            "speed_feedback, friction_feedforward_current; } "
             "PositionCascadeTelemetry_TypeDef;\n"
             "static PositionCascadeTelemetry_TypeDef planned;\nstatic bool valid = true;\n"
             "static bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *out) "
@@ -48,22 +49,36 @@ int main(void)
     FOC.Iq = 1.4f; FOC.Id = -.2f; FOC.Vq = 2.5f; FOC.Vd = -.6f;
     OnBoard_Encoder.theta_mech = -_PI / 4; OnBoard_Encoder.vel_mech = _PI;
     planned.speed_feedback = _PI / 4;
+    planned.speed_command = _PI / 2;
+    planned.trajectory_speed_reference = _PI / 12;
     planned.friction_feedforward_current = 2.5f;
     for (unsigned i = 0; i < 9; ++i) { RTT_Sampling(); }
     assert(writes == 0); RTT_Sampling(); assert(writes == 1);
     puts("GOLDEN");
     for (unsigned i = 0; i < 10; ++i) { printf("%d%s", wire[i], i == 9 ? "\n" : ","); }
-    near_count(0,9000); near_count(1,-4500); near_count(2,18000); near_count(3,4500);
-    assert(wire[4] == 1500 && wire[5] == 1400 && wire[6] == -200);
-    assert(wire[7] == 2500 && wire[8] == -600 && wire[9] == 2500);
+    near_count(0,9000); near_count(1,-4500); near_count(2,13500);
+    near_count(3,9000); near_count(4,4500); near_count(5,18000);
+    assert(wire[6] == 1500 && wire[7] == 1400 && wire[8] == -200);
+    assert(wire[9] == 2500);
+    /* 电压不占诊断通道；速度参考仍取实际速度 PI 指令。 */
+    FOC.Vd = 30.0f; FOC.Vq = -20.0f; sample();
+    assert(wire[9] == 2500); near_count(3,9000);
+    /* 位置误差先按物理量相减，再编码，不能用饱和后的两路计数相减。 */
+    MotorControl.posRef = -_PI / 4; OnBoard_Encoder.theta_mech = _PI / 2;
+    sample(); near_count(2,-13500);
+    OnBoard_Encoder.theta_mech = MotorControl.posRef; sample(); assert(wire[2] == 0);
+    MotorControl.posRef = 400.0f * _PI / 180.0f;
+    OnBoard_Encoder.theta_mech = 401.0f * _PI / 180.0f;
+    sample(); assert(wire[0] == 32767 && wire[1] == 32767); near_count(2,-100);
+    MotorControl.posRef = NAN; sample(); assert(wire[2] == 0);
     assert(rtt_manual_dropped_frames == 0);
     skip = true; sample(); assert(rtt_manual_dropped_frames == 1);
     skip = false; sample(); assert(rtt_manual_dropped_frames == 1);
-    valid = false; sample(); near_count(3,1718); assert(wire[9] == 0);
+    valid = false; sample(); near_count(4,1718); assert(wire[3] == 0 && wire[9] == 0);
     valid = true; MotorControl.ModeNow = 0; sample();
-    near_count(3,1718); assert(wire[9] == 0);
+    near_count(4,1718); assert(wire[3] == 0 && wire[9] == 0);
     MotorControl.posRef = 100; FOC.Iq = NAN; sample();
-    assert(wire[0] == 32767 && wire[5] == 0);
+    assert(wire[0] == 32767 && wire[2] == 32767 && wire[7] == 0);
     puts("PASS ten diagnostic channels, golden vector, idle validity and SKIP");
     return 0;
 }
@@ -97,7 +112,7 @@ def main() -> None:
     )
     print(result.stdout, end="")
     vector = json.loads(
-        (ROOT / "tests/vectors/rtt_manual_diagnostics_v1.json").read_text()
+        (ROOT / "tests/vectors/rtt_manual_diagnostics_v3.json").read_text(encoding="utf-8")
     )
     counts = [int(value) for value in result.stdout.splitlines()[1].split(",")]
     if counts != vector["counts"]:
@@ -106,11 +121,11 @@ def main() -> None:
 
     scope = ET.parse(ROOT / "tools/bench/scopes/pro_lks_manual_diagnostics.lksscope")
     channels = {
-        int(item.attrib["name"].split(".data")[1]): item.attrib["unit"]
+        int(item.attrib["name"].split(".data")[1]): (item.attrib["desc"], item.attrib["unit"])
         for item in scope.findall(".//form[@type='5']/var")
     }
-    if channels != {item["index"]: item["unit"] for item in vector["channels"]}:
-        raise ValueError("Scope 通道索引或单位与黄金向量不一致")
+    if channels != {item["index"]: (item["name"], item["unit"]) for item in vector["channels"]}:
+        raise ValueError("Scope 通道索引、含义或单位与黄金向量不一致")
     frequency = scope.find(".//param[@name='rttFreq']")
     if frequency is None or frequency.attrib["value"] != "2000":
         raise ValueError("Scope 采样率必须为 2000 Hz")

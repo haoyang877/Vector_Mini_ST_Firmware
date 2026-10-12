@@ -110,6 +110,7 @@ static void setup(ModeNow_TypeDef mode) {
     live.pos_maxspeed = .6f; live.speed_limit = .8f;
     live.cascade_pos_Kp = 8; live.cascade_pos_Kd = 2;
     live.speed_Kp = .5f; live.speed_Ki = 2; live.current_limit = 4;
+    live.position_speed_Kp = .5f; live.position_speed_Ki = 2;
     live.posRef = enc.position; live.speedRef = .2f;
     live.speedAcc = .8f; live.speedDec = .5f;
 }
@@ -164,8 +165,8 @@ int main(void) {
     /* No stale validation cache may conceal a changed live tuning field. */
     {
         const size_t fields[] = {
-            offsetof(MotorControl_TypeDef, current_limit), offsetof(MotorControl_TypeDef, speed_Kp),
-            offsetof(MotorControl_TypeDef, speed_Ki), offsetof(MotorControl_TypeDef, pos_error_window),
+            offsetof(MotorControl_TypeDef, current_limit), offsetof(MotorControl_TypeDef, position_speed_Kp),
+            offsetof(MotorControl_TypeDef, position_speed_Ki), offsetof(MotorControl_TypeDef, pos_error_window),
             offsetof(MotorControl_TypeDef, posAcc), offsetof(MotorControl_TypeDef, posDec),
             offsetof(MotorControl_TypeDef, pos_maxspeed), offsetof(MotorControl_TypeDef, speed_limit),
             offsetof(MotorControl_TypeDef, cascade_pos_Kp), offsetof(MotorControl_TypeDef, cascade_pos_Kd),
@@ -181,6 +182,25 @@ int main(void) {
             tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
         }
     }
+    /* 非活动模式的 PI 不参与本模式验证或计算，两组不共享控制器状态。 */
+    setup(Position_Mode);
+    live.speed_Kp = NAN; live.speed_Ki = NAN;
+    for (unsigned i = 0; i < 30; ++i) run_step();
+    assert(live.ErrorNow == No_Error);
+    assert(PositionCascade_GetConfiguration()->speed_kp == .5f);
+    assert(PositionCascade_GetConfiguration()->speed_ki == 2);
+    live.position_speed_Kp = .3f; live.position_speed_Ki = .7f;
+    for (unsigned i = 0; i < 30; ++i) run_step();
+    assert(live.ErrorNow == No_Error);
+    assert(PositionCascade_GetConfiguration()->speed_kp == .3f);
+    assert(PositionCascade_GetConfiguration()->speed_ki == .7f);
+    setup(Speed_Mode);
+    live.position_speed_Kp = NAN; live.position_speed_Ki = NAN;
+    for (unsigned i = 0; i < 30; ++i) run_step();
+    assert(live.ErrorNow == No_Error && live_pi.Kp == .5f && live_pi.Ki == 2);
+    live.ModeNow = Position_Mode;
+    tick();
+    assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
     /* PI/ramp arithmetic must match the shared sequential implementation exactly. */
     setup(Speed_Mode);
     MotorControl_TypeDef expected = live;

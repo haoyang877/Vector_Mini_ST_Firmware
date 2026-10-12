@@ -104,6 +104,7 @@ def encoder_startup_fixture():
 #define ENCODER_Q15_CPR 65536UL
 #define ENCODER_VELOCITY_SOURCE 0U
 #define ENCODER_VELOCITY_SOURCE_WINDOW4 1U
+#define ENCODER_VELOCITY_SOURCE_WINDOW16 2U
 #define ENCODER_Q15_HALF_TURN 32768
 #define ENC_CALIB_MECHANICAL_ZERO 4U
 typedef struct {
@@ -373,13 +374,31 @@ int main(void) {
 
 def joint_board_startup_fixture():
     source = (ROOT / 'firmware/app/board_config.c').read_text(encoding='utf-8')
-    return r'''
+    version_definitions = source[source.index('#define VERSION_STRINGIFY_INNER'):source.index('/**')]
+    version_vector = json.loads((ROOT / 'tests/vectors/software_version_v1.json').read_text(encoding='utf-8'))
+    fixture = r'''
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include "firmware_version.h"
+VERSION_DEFINITIONS
+static unsigned version_prints;
+static int SEGGER_RTT_printf(unsigned channel, const char *format, ...) {
+    char text[96];
+    va_list args;
+    assert(channel == 0);
+    va_start(args, format);
+    int length = vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    assert(strcmp(text, "Vector Mini ST APP VERSION_EXPECTED_STRING (build VERSION_EXPECTED_BUILD)\r\n") == 0);
+    ++version_prints;
+    return length;
+}
 enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
       TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
 static int hadc1, hadc2, htim1, htim7;
@@ -410,15 +429,20 @@ int main(void) {
     assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
     assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
+    assert(version_prints == 1);
     configured = true;
     Board_Init();
     assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
+    assert(version_prints == 2);
     assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
     puts("PASS actual board startup: unconfigured phase outputs released to high impedance, sampling and communication retained");
     return 0;
 }
 '''
+    return fixture.replace('VERSION_DEFINITIONS', version_definitions).replace(
+        'VERSION_EXPECTED_STRING', version_vector['software_version']).replace(
+        'VERSION_EXPECTED_BUILD', str(version_vector['build']))
 
 
 def main():

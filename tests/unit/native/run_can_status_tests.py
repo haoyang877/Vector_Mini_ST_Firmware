@@ -6,6 +6,8 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
 import argparse
+import json
+import re
 from pathlib import Path
 import subprocess
 from run_position_servo_tests import function_source
@@ -17,6 +19,13 @@ def main():
     args=ap.parse_args();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True)
     common=['#include <assert.h>','#include <stdint.h>','#include <stdbool.h>',
             '#include <stddef.h>','#include <string.h>','#include <stdio.h>']
+    # 复用生产版本常量定义，验证数字、字符串和线路黄金向量一致。
+    version_source=(ROOT/'firmware/app/board_config.c').read_text(encoding='utf-8')
+    version_definitions=version_source[version_source.index('#define VERSION_STRINGIFY_INNER'):version_source.index('/**')]
+    can_header=(ROOT/'firmware/communication/can/interface_can.h').read_text(encoding='utf-8')
+    version_id=re.search(r'CAN_GET_SOFTWARE_VERSION\s*=\s*(0x[0-9A-Fa-f]+)',can_header).group(1)
+    common += ['#include "firmware_version.h"', f'#define CAN_GET_SOFTWARE_VERSION {version_id}U', version_definitions]
+    version_vector=json.loads((ROOT/'tests/vectors/software_version_v1.json').read_text(encoding='utf-8'))
     source=(ROOT/'firmware/app/foc_task.c').read_text(encoding='utf-8')
     sampling='\n'.join(common)+r'''
 #include "firmware/services/telemetry/motor_status.h"
@@ -236,12 +245,32 @@ int main(void) {
  }
  CAN_SendMessage_Update(0x11,6.f);assert(CANMsg.tx_data_len==2 && CANMsg.tx_data_u8[0]==0x17 && CANMsg.tx_data_u8[1]==0x70);
  CAN_SendMessage_Update(0x67,2.f);assert(CANMsg.tx_data_len==4 && CANMsg.tx_data_u8[0]==0x40 && CANMsg.tx_data_u8[1]==0 && CANMsg.tx_data_u8[2]==0 && CANMsg.tx_data_u8[3]==0);
+ {
+  const uint8_t golden[]={VERSION_EXPECTED_BYTES};
+  assert(g_firmware_software_version==VERSION_EXPECTED_CODE);
+  assert(CAN_GET_SOFTWARE_VERSION==VERSION_EXPECTED_ID);
+  assert(strcmp(g_firmware_software_version_string,"VERSION_EXPECTED_STRING")==0);
+  CAN_SendMessage_Update(CAN_GET_SOFTWARE_VERSION,NAN);
+  assert(CANMsg.tx_param_id==CAN_GET_SOFTWARE_VERSION && CANMsg.tx_data_len==4 && CANMsg.can_tx_en);
+  assert(memcmp(CANMsg.tx_data_u8,golden,4)==0);
+ }
  puts("PASS actual CAN reply encoding: centi speed/acceleration, milli position and milliamp current");return 0;
 }
 '''
+    reply=reply.replace('VERSION_EXPECTED_BYTES',','.join(f'0x{b:02x}' for b in bytes.fromhex(version_vector['vectors'][0]['reply_hex'])))
+    reply=reply.replace('VERSION_EXPECTED_CODE',str(version_vector['version_code'])+'U')
+    reply=reply.replace('VERSION_EXPECTED_ID',str(version_vector['parameter_id'])+'U')
+    reply=reply.replace('VERSION_EXPECTED_STRING',version_vector['software_version'])
     command='\n'.join(common)+r'''
 #include "firmware/communication/protocol/can_motor_status.h"
+#include <math.h>
 typedef unsigned CAN_PARAM_ID;
+/* 补齐当前命令入口已有的位置速度 PI 分支，避免旧夹具缺少声明。 */
+#define CAN_SET_POSITION_SPEED_KP 0x6B
+#define CAN_GET_POSITION_SPEED_KP 0x6C
+#define CAN_SET_POSITION_SPEED_KI 0x6D
+#define CAN_GET_POSITION_SPEED_KI 0x6E
+static struct {float position_speed_Kp, position_speed_Ki;unsigned ModeNow,ErrorNow;} MotorControl;
 #define CAN_SET_STATUS_STREAM 0x64
 #define CAN_GET_STATUS_STREAM 0x65
 #define CAN_GET_PROTOCOL_REVISION 0x67
@@ -254,7 +283,7 @@ static int32_t MotorControl_GetLoadProfile(void) { return 0; }
 static float reply;
 static unsigned replies;
 static unsigned reply_id;
-static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67 || id==0x69 || id==0x6A);reply_id=id;reply=value;++replies;}
+static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67 || id==0x69 || id==0x6A || id==CAN_GET_SOFTWARE_VERSION);reply_id=id;reply=value;++replies;}
 '''+function_source(source,'CAN_ReceiveMessage_Update').split('\tif (!isfinite(data))')[0]+'}\n'+r'''
 #include <math.h>
 int main(void) {
@@ -266,6 +295,14 @@ int main(void) {
  CAN_ReceiveMessage_Update(0x65,0);assert(reply==0);
  CAN_ReceiveMessage_Update(0x64,1);assert(reply==200 && replies==7);
  CAN_ReceiveMessage_Update(0x67,0);assert(reply_id==0x67 && reply==2 && CanMotorStatus_Rate()==200);
+ MotorControl.ModeNow=3;MotorControl.ErrorNow=7;
+ MotorControl.position_speed_Kp=.5f;MotorControl.position_speed_Ki=1;
+ CAN_ReceiveMessage_Update(CAN_GET_SOFTWARE_VERSION,0);
+ assert(reply_id==CAN_GET_SOFTWARE_VERSION && reply==0 && replies==9);
+ CAN_ReceiveMessage_Update(CAN_GET_SOFTWARE_VERSION,NAN);
+ assert(reply_id==CAN_GET_SOFTWARE_VERSION && replies==10);
+ assert(MotorControl.ModeNow==3 && MotorControl.ErrorNow==7);
+ assert(MotorControl.position_speed_Kp==.5f && MotorControl.position_speed_Ki==1 && CanMotorStatus_Rate()==200);
  puts("PASS actual command adapter: start/rate/stop/query ACK and invalid input NAK");return 0;
 }
 '''

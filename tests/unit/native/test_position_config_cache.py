@@ -29,6 +29,23 @@ def main():
                                         cwd=ROOT).decode('utf-8')
     reference = function_source(reference, 'Task_Position_Mode').replace(
         'Task_Position_Mode(', 'Task_Position_Mode_Reference(')
+    # 历史算法仍比较同一组位置内环增益；只映射字段名，不改参考计算。
+    reference = reference.replace('MotorControl->speed_Kp', 'MotorControl->position_speed_Kp')
+    reference = reference.replace('MotorControl->speed_Ki', 'MotorControl->position_speed_Ki')
+    reference = reference.replace('POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2',
+                                  'MotorControl->position_accel_ff_gain_a_per_rad_s2')
+    # 配置缓存比较在同一版控制策略上进行，历史构造必须显式初始化新增布尔字段。
+    reference = reference.replace('config.friction_feedforward_enabled =',
+        'config.passive_hold_enabled = MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags);\n\tconfig.friction_feedforward_enabled =')
+    reference = reference.replace('MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED',
+        'MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags)')
+    # 旧构造早于HOLD滤波字段，不能依赖未初始化栈值；两侧使用同一现行滤波配置。
+    reference = reference.replace('config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;',
+        'config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ * '
+        '(MotorControl->position_velocity_filter_half_cutoff ? 0.5f : 1.0f);\n'
+        '\tconfig.hold_velocity_filter_hz = MotorControl->position_hold_filter_bypass ? 0.0f : '
+        'POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ * '
+        '(MotorControl->position_hold_filter_half_cutoff ? 0.5f : 1.0f);')
     actual = '\n'.join(function_source(source, n) for n in [
         'PositionMode_UpdateConfiguration', 'PositionMode_SameTuningValue',
         'PositionMode_ConfigurationMatches', 'Task_Position_Mode'])
@@ -91,7 +108,7 @@ static void setup(MotorControl_TypeDef *m) {
     m->pos_error_window = .001f; m->posAcc = .785398f; m->posDec = .523599f;
     m->pos_maxspeed = .6f; m->speed_limit = .8f;
     m->cascade_pos_Kp = 8; m->cascade_pos_Kd = 2;
-    m->speed_Kp = .5f; m->speed_Ki = 2; m->current_limit = 6;
+    m->position_speed_Kp = .5f; m->position_speed_Ki = 2; m->current_limit = 6;
     m->friction_coulomb_pos_a = 1.4f; m->friction_coulomb_neg_a = 1.3f;
     m->friction_viscous_pos_a_per_rad_s = .1f;
     m->friction_viscous_neg_a_per_rad_s = .2f;
@@ -105,7 +122,7 @@ static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
         for i, (field, value) in enumerate([
             ('pos_error_window', '.0011f'), ('posAcc', '.5f'), ('posDec', '.3f'),
             ('pos_maxspeed', '.4f'), ('speed_limit', '.7f'), ('cascade_pos_Kp', '9.0f'),
-            ('cascade_pos_Kd', '1.0f'), ('speed_Kp', '.3f'), ('speed_Ki', '1.0f'),
+            ('cascade_pos_Kd', '1.0f'), ('position_speed_Kp', '.3f'), ('position_speed_Ki', '1.0f'),
             ('current_limit', '4.0f'), ('friction_coulomb_pos_a', '1.2f'),
             ('friction_coulomb_neg_a', '1.1f'), ('friction_viscous_pos_a_per_rad_s', '.3f'),
             ('friction_viscous_neg_a_per_rad_s', '.4f')])) + r'''
@@ -115,8 +132,12 @@ static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
         m->axis_profile.maximum_speed_rad_s=tick==131 ? .3f : .2f; break;
     case 16: m->axis_profile_valid=false; break;
     case 17: m->posRef=NAN; break;
-    case 18: m->speed_Ki=tick==131 ? 0.0f : -0.0f; break;
+    case 18: m->position_speed_Ki=tick==131 ? 0.0f : -0.0f; break;
     case 19: m->posDec=tick==131 ? 1.0f : 2.0f; break;
+    case 21: m->load_profile_flags=tick==131 ? 0.0f : 1.0f; break;
+    case 22: m->load_profile_flags=tick==131 ? 1.0f : 3.0f; break;
+    case 23: m->position_accel_ff_gain_a_per_rad_s2=tick==131 ? 1.034f : NAN; break;
+    case 24: m->position_accel_ff_gain_a_per_rad_s2=tick==131 ? 1.034f : 0.0f; break;
     default: break;
     }
 }
@@ -126,7 +147,7 @@ int main(void) {
     PositionCascade_Reset();
     assert(PositionCascade_GetConfiguration()==NULL);
     assert(!PositionCascade_UpdateTarget(0,0,0,&o));
-    for(scenario=0;scenario<21;scenario++) for(pass=0;pass<2;pass++) {
+    for(scenario=0;scenario<25;scenario++) for(pass=0;pass<2;pass++) {
         MotorControl_TypeDef m; FOC_TypeDef f={0}; Encoder_TypeDef e;
         setup(&m); m.friction_model_valid=true;
         PositionCascade_Reset();
@@ -155,7 +176,7 @@ int main(void) {
     assert(!PositionCascade_UpdateTarget(0,NAN,0,&o));
     assert(!PositionCascade_UpdateTarget(0,0,NAN,&o));
     assert(!PositionCascade_UpdateTarget(0,0,0,NULL));
-    puts("PASS 25200 tick comparisons: every live tuning field, NaN, signed zero, target/axis bounds, reset, telemetry/divider, same-tick rejection");
+    puts("PASS 27600 tick comparisons: live tuning, passive/FF assembly policy, NaN, signed zero, target/axis bounds, reset, telemetry/divider, same-tick rejection");
     return 0;
 }
 '''

@@ -15,7 +15,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--cc',required=True);p.add_argument('--out',type=Path,required=True)
     a=p.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
-    source=(ROOT/'firmware/platform/stm32g4/bsp/encoder.c').read_text()
+    source=(ROOT/'firmware/platform/stm32g4/bsp/encoder.c').read_text(encoding='utf-8')
     fixture=r'''
 #undef NDEBUG
 #include <stdint.h>

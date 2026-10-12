@@ -51,6 +51,61 @@ static bool position_filter_load(const PositionFilterRecord *record, bool *half_
     return true;
 }
 
+/* 参数只在启动/保存时处理；显式按小端字计算 CRC，不在控制 ISR 中运行。 */
+static uint32_t position_speed_pi_crc(const PositionSpeedPiRecord *record)
+{
+    uint32_t words[4];
+    uint32_t crc = UINT32_MAX;
+    uint32_t index;
+    words[0] = record->magic;
+    words[1] = record->version;
+    memcpy(&words[2], &record->kp_s_per_rad, sizeof(uint32_t));
+    memcpy(&words[3], &record->ki_per_rad, sizeof(uint32_t));
+    for (index = 0U; index < 16U; ++index)
+    {
+        uint32_t bit;
+        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
+        for (bit = 0U; bit < 8U; ++bit)
+        {
+            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+/* 空尾部保留调用方给出的旧实际增益；非空非法尾部不能悄悄复用速度模式参数。 */
+static bool position_speed_pi_load(const PositionSpeedPiRecord *record,
+    float *kp_s_per_rad, float *ki_per_rad, bool *missing)
+{
+    uint32_t words[5];
+    bool blank_zero = true;
+    bool blank_erased = true;
+    uint32_t index;
+    memcpy(words, record, sizeof(words));
+    for (index = 0U; index < 5U; ++index)
+    {
+        blank_zero = blank_zero && words[index] == 0U;
+        blank_erased = blank_erased && words[index] == UINT32_MAX;
+    }
+    *missing = blank_zero || blank_erased;
+    if (*missing)
+    {
+        return isfinite(*kp_s_per_rad) && *kp_s_per_rad >= 0.0f &&
+            isfinite(*ki_per_rad) && *ki_per_rad >= 0.0f;
+    }
+    if (record->magic != PARAM_POSITION_SPEED_PI_MAGIC ||
+        record->version != PARAM_POSITION_SPEED_PI_VERSION ||
+        !isfinite(record->kp_s_per_rad) || record->kp_s_per_rad < 0.0f ||
+        !isfinite(record->ki_per_rad) || record->ki_per_rad < 0.0f ||
+        record->crc32 != position_speed_pi_crc(record))
+    {
+        return false;
+    }
+    *kp_s_per_rad = record->kp_s_per_rad;
+    *ki_per_rad = record->ki_per_rad;
+    return true;
+}
+
 bool Param_SetSpeedLimit(float limit_rad_s)
 {
     if (!isfinite(limit_rad_s) || limit_rad_s <= 0.0f ||
@@ -86,6 +141,7 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
 
 void Param_Return_Default(void)
 {
+    MotorControl.position_accel_ff_gain_a_per_rad_s2 = 0.0f;
     MotorControl.position_velocity_filter_half_cutoff = false;
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
 	MotorControl.axis_profile_valid = true;
@@ -124,6 +180,8 @@ void Param_Return_Default(void)
 	MotorControl.speedDec = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
 	MotorControl.speed_Kp = PARAM_APP_SPEED_KP;
 	MotorControl.speed_Ki = PARAM_APP_SPEED_KI;
+    MotorControl.position_speed_Kp = PARAM_APP_SPEED_KP;
+    MotorControl.position_speed_Ki = PARAM_APP_SPEED_KI;
 	MotorControl.posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
 	MotorControl.posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
 	MotorControl.pos_maxspeed = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
@@ -198,6 +256,11 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     param->position_filter.version = PARAM_POSITION_FILTER_VERSION;
     param->position_filter.half_cutoff = MotorControl.position_velocity_filter_half_cutoff ? 1U : 0U;
     param->position_filter.crc32 = position_filter_crc(&param->position_filter);
+    param->position_speed_pi.magic = PARAM_POSITION_SPEED_PI_MAGIC;
+    param->position_speed_pi.version = PARAM_POSITION_SPEED_PI_VERSION;
+    param->position_speed_pi.kp_s_per_rad = MotorControl.position_speed_Kp;
+    param->position_speed_pi.ki_per_rad = MotorControl.position_speed_Ki;
+    param->position_speed_pi.crc32 = position_speed_pi_crc(&param->position_speed_pi);
     if (!MotorControl.load_profile_valid ||
         !MotorLoadRecord_Create(MotorControl.load_profile_flags, &param->load_profile))
     {
@@ -214,6 +277,9 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 	bool position_tuning_requires_migration;
 	bool current_sense_profile_changed;
 	float position_speed_limit;
+    float speed_mode_kp;
+    float speed_mode_ki;
+    bool position_speed_pi_missing;
 
 	if (param->magic_word != MAGIC_WORD ||
 		(param->schema_version != PARAM_SCHEMA_VERSION &&
@@ -394,6 +460,8 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
 	CANMsg.can_hb_set = (uint32_t)param->can_hb;
 	MotorControl.axis_profile_valid = MotorAxisProfile_Load(&param->axis_profile,
 		&MotorControl.axis_profile);
+    speed_mode_kp = MotorControl.speed_Kp;
+    speed_mode_ki = MotorControl.speed_Ki;
 	MotorControl.axis_profile_valid = Param_ApplyJointProfile(&MotorControl);
     MotorControl.load_profile_flags = 0U;
     MotorControl.load_profile_valid = MotorLoadRecord_Load(&param->load_profile,
@@ -410,5 +478,21 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
         MotorControl.axis_profile_valid = false;
         return false;
     }
-	return position_tuning_requires_migration;
+    /* 旧 AXS2 的启动增益也是旧实际值；新记录恢复后不能覆盖任何用户 PI。 */
+    MotorControl.position_speed_Kp = MotorControl.speed_Kp;
+    MotorControl.position_speed_Ki = MotorControl.speed_Ki;
+    if (!position_speed_pi_load(&param->position_speed_pi,
+        &MotorControl.position_speed_Kp, &MotorControl.position_speed_Ki,
+        &position_speed_pi_missing))
+    {
+        MotorControl.axis_profile_valid = false;
+        return false;
+    }
+    if (!position_speed_pi_missing)
+    {
+        MotorControl.speed_Kp = speed_mode_kp;
+        MotorControl.speed_Ki = speed_mode_ki;
+    }
+
+    return position_tuning_requires_migration || position_speed_pi_missing;
 }

@@ -1,5 +1,13 @@
 # 模式3位置伺服
 
+> 最新阻尼轴源码包含零电流停靠及静止重启修复，窗口及积分退出契约见
+> [被动停靠v1](mode3_passive_hold_v1.md)。历史段落的未下载状态不代表当前板端，须核对最新实测镜像哈希。
+
+> 2026-10-10最终捕获窗口、资格滤波、积分衔接与±10°实测，见
+> [位置捕获修复报告](../reports/2026-10-10-roll-position-capture.md)。下文历史整定数据保留。
+
+2026-10-10 当前工作树的控制链、摩擦状态及收紧后的到位阈值见[运行逻辑梳理 v1](mode3_control_logic_v1.md)。下文保留历史整定过程；其中 40 Hz 滤波、0.18° 捕获和 1.2 倍脱黏增强不代表当前默认配置。代码现状与板上镜像需分别核对。
+
 适配不同电机、阻力及角度范围时，先看 [核心参数与工况适配](mode3_parameter_guide.md)；主机回归、实机动作表及历史数据验收见 [测试用例与执行入口](mode3_test_plan.md)。
 
 `Position_Mode`（模式号3）采用 jerk 参考规划、位置/速度串级反馈、摩擦前馈与到位保持。控制器和轨迹为纯 C 模块 `firmware/motor/position/position_cascade.c`、`firmware/motor/trajectory/position_smooth_trajectory.c`，只依赖标准库与项目 PI；`firmware/app/foc_run.c` 负责注入参数。模式号、正常命令入口和 Flash 参数结构保留。模式18算法不在本次整定范围内。

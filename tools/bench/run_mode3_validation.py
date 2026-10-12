@@ -215,7 +215,7 @@ def analyze_trial(profile, trial_path, case_id=None):
         require(isinstance(freq, int) and freq > 0 and isinstance(ticks, int) and ticks >= 0 and
                 ticks * 1000000 < freq * p["burst_current_guard"]["exposure_limit_us"], "phase exposure duration")
         require(guard.get("trip") == 0, "board phase guard tripped")
-    expected_runtime = {key: p["runtime"][key] for key in
+    expected_runtime = {("position_" + key if key in ("speed_Kp", "speed_Ki") else key): p["runtime"][key] for key in
                         ("cascade_pos_Kp", "cascade_pos_Kd", "speed_Kp", "speed_Ki")}
     expected_runtime["pos_maxspeed"] = math.radians(
         p["motion"].get("test_cruise_deg_s", p["motion"]["cruise_deg_s"]))

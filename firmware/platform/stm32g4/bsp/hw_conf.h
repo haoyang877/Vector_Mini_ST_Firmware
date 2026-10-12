@@ -42,7 +42,7 @@
 /* 精简档 11 路（22 B/帧）：Iq参考/Iq反馈/Id反馈/Vq/Vd/电角度/观测器电角度/观测器-编码器电角度差/Ia/Ib/Ic。 */
 #define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2i2i2i2"
 #elif RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
-/* 手工位置/电流诊断 v1：10 路 int16，20 B/帧；必须配套使用诊断 Scope。 */
+/* 手工诊断 v3：位置×3、速度×3、电流×4；10 路 int16，20 B/帧。 */
 #define RTT_JSCOPE_DESCRIPTOR "JScope_i2i2i2i2i2i2i2i2i2i2"
 #else
 #error "Unsupported RTT_TELEMETRY_PROFILE"

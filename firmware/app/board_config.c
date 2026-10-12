@@ -1,12 +1,25 @@
 #include "board_config.h"
 #include "motor_hw.h"
 #include "foc_errhandle.h"
+#include "firmware_version.h"
+#include "SEGGER_RTT.h"
+
+#define VERSION_STRINGIFY_INNER(value) #value
+#define VERSION_STRINGIFY(value) VERSION_STRINGIFY_INNER(value)
+
+const uint32_t g_firmware_software_version = FIRMWARE_VERSION_CODE;
+const char g_firmware_software_version_string[] =
+    "v" VERSION_STRINGIFY(FIRMWARE_VERSION_MAJOR) "."
+    VERSION_STRINGIFY(FIRMWARE_VERSION_MINOR) "." VERSION_STRINGIFY(FIRMWARE_VERSION_PATCH);
 
 /**
 	* @brief  Initialize board peripherals and application modules
  **/
 void Board_Init(void)
 {
+    /* 启动信息使用文本通道0，通道1保留既有示波器二进制格式。 */
+    SEGGER_RTT_printf(0, "Vector Mini ST APP %s (build %u)\r\n",
+        g_firmware_software_version_string, (unsigned)FIRMWARE_VERSION_BUILD);
     motor_hw_outer_init();
 	/*read parameters and calibration data from flash*/
 	/*if magic word invalid or not calibrated, fall back to code defaults*/

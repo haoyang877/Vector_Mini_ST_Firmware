@@ -74,7 +74,7 @@ class Mode3ValidationTests(unittest.TestCase):
         path = Path(folder)
         trial = {"arguments": {"targets": "0", "seconds": 3}, "failure": None,
                  "runtime_parameters": {"cascade_pos_Kp": 8, "cascade_pos_Kd": 2,
-                                        "speed_Kp": .5, "speed_Ki": 1, "pos_maxspeed": math.pi / 4},
+                                        "position_speed_Kp": .5, "position_speed_Ki": 1, "pos_maxspeed": math.pi / 4},
                  "shutdown_verified": True, "shutdown_error": None,
                  "image": {"hex_sha256": "synthetic-fixture-not-a-firmware-image"},
                  "events": [{"opcode": 3, "frame": 0, "value": 0, "time": 0,
@@ -175,7 +175,7 @@ class Mode3ValidationTests(unittest.TestCase):
                      lambda t: t["events"][0].update(result=1),
                      lambda t: t["arguments"].update(targets="5"),
                      lambda t: t.update(runtime_parameters={}),
-                     lambda t: t["runtime_parameters"].update(speed_Kp=.1)]
+                     lambda t: t["runtime_parameters"].update(position_speed_Kp=.1)]
         for mutate in mutations:
             with tempfile.TemporaryDirectory() as folder:
                 r = validation.analyze_trial(validation.DEFAULT_PROFILE, self.fixture(folder, mutate))

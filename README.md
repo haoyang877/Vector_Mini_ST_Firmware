@@ -40,7 +40,11 @@ python tests/run.py
 
 ## 软件已有功能
 
+当前 APP 软件版本 **v0.2.0**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
+
+独立调参：[速度模式与位置级联的两套速度 PI、旧 Flash 兼容及保存](docs/guides/separate_speed_pi.md)。
 
 同一电机增减阻尼环：[roll / wheel 共用固件与运行时切换](docs/guides/roll_wheel_runtime_profile.md)。
 

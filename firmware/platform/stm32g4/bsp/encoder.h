@@ -31,15 +31,18 @@
 #define ENCODER_PLL_OMEGA_MAX_RAD_S          2000.0f
 #define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 0.05f
 
-/* 测速来源选择（台架 A/B 对照用，两者同时编译，本宏只决定谁写速度输出）：
- *   0 = PLL 观测器（默认）
- *   1 = 4 抽头/2 ms 短窗（旧短窗方案 A2：由逐拍 0.5 ms 位移增量求和，
- *       群延时约 0.75 ms、无模型、对量化噪声抑制弱）
- * 说明：A2 与 PLL 共用同一 physical 角度链（linearized_q15），只换估计器。 */
+/* 测速来源：默认恢复2 kHz、16点/8 ms均值；该分支不运行PLL。
+ * PLL与2 ms短窗保留为编译对照，共用线性化角度与原标定。 */
 #define ENCODER_VELOCITY_SOURCE_PLL          0U
 #define ENCODER_VELOCITY_SOURCE_WINDOW4      1U
+#define ENCODER_VELOCITY_SOURCE_WINDOW16     2U
 #ifndef ENCODER_VELOCITY_SOURCE
-#define ENCODER_VELOCITY_SOURCE              ENCODER_VELOCITY_SOURCE_PLL
+#define ENCODER_VELOCITY_SOURCE              ENCODER_VELOCITY_SOURCE_WINDOW16
+#endif
+#define ENCODER_VELOCITY_WINDOW16_TAPS       16U
+#define ENCODER_VELOCITY_WINDOW16_ZERO_THRESHOLD_Q15 8
+#if ENCODER_VELOCITY_SOURCE > ENCODER_VELOCITY_SOURCE_WINDOW16
+#error "Unsupported encoder velocity source"
 #endif
 /* 窗口抽头数：40 × 20 kHz 快拍 = 2 ms，等价原"4 抽头 × 500 µs"短窗。
  * （4 抽头配合 Current_Ts 会退化成 200 µs 窗口，噪声大 10 倍，不是原方案。） */
@@ -105,8 +108,8 @@ typedef struct
 	 * （RTT 等调用方据此避免与慢拍同拍堆叠），与速度估计本身无关。 */
 	uint8_t velocity_divider;
 
-	/* A/B 用：4 抽头/2 ms 短窗测速（方案 A2）状态；仅当 ENCODER_VELOCITY_SOURCE
-	 * 选中 WINDOW4 时参与速度输出，PLL 状态始终维护。 */
+	/* 均值测速环形缓存：2 ms快拍短窗，或前16项用于8 ms慢拍均值。
+	 * 两种编译分支互斥；字段旧名保留以减少调试器布局改动。 */
 	uint8_t velocity_win4_index;
 	uint8_t velocity_win4_sample_count;
 	bool velocity_win4_ready;
@@ -123,6 +126,8 @@ typedef struct
 	uint32_t tle5012_crc_error_count;
 	uint32_t read_error_count;
 	uint16_t bad_frame_streak;
+	/* 2 kHz均值测速上次采样的多圈角度，不写入Flash。 */
+	int64_t velocity_shadow_q15;
 } Encoder_TypeDef;
 
 #define brd_enc_spi  hspi2

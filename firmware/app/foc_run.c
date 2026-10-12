@@ -558,13 +558,15 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 		POSITION_SERVO_JERK_RAMP_TIME_S;
 	config.position_kp = MotorControl->cascade_pos_Kp;
 	config.position_kd = MotorControl->cascade_pos_Kd;
-	config.speed_kp = MotorControl->speed_Kp;
-	config.speed_ki = MotorControl->speed_Ki;
+	config.speed_kp = MotorControl->position_speed_Kp;
+	config.speed_ki = MotorControl->position_speed_Ki;
 	config.acceleration_feedforward_gain =
-		POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
+		MotorControl->position_accel_ff_gain_a_per_rad_s2;
 	config.current_limit = MotorControl->current_limit;
 	config.friction_feedforward_enabled =
 		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
+	config.passive_hold_enabled =
+		MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags);
 	if (MotorControl->friction_model_valid)
 	{
 		config.friction_coulomb_positive = MotorControl->friction_coulomb_pos_a;
@@ -623,7 +625,9 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     float maximum_speed = MotorControl->pos_maxspeed;
     if (config == NULL) return false;
     if (config->friction_feedforward_enabled !=
-        MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags))
+        MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags) ||
+        config->passive_hold_enabled !=
+        MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags))
     {
         return false;
     }
@@ -645,8 +649,10 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
         !PositionMode_SameTuningValue(config->speed_limit, MotorControl->speed_limit) ||
         !PositionMode_SameTuningValue(config->position_kp, MotorControl->cascade_pos_Kp) ||
         !PositionMode_SameTuningValue(config->position_kd, MotorControl->cascade_pos_Kd) ||
-        !PositionMode_SameTuningValue(config->speed_kp, MotorControl->speed_Kp) ||
-        !PositionMode_SameTuningValue(config->speed_ki, MotorControl->speed_Ki) ||
+        !PositionMode_SameTuningValue(config->speed_kp, MotorControl->position_speed_Kp) ||
+        !PositionMode_SameTuningValue(config->speed_ki, MotorControl->position_speed_Ki) ||
+        !PositionMode_SameTuningValue(config->acceleration_feedforward_gain,
+            MotorControl->position_accel_ff_gain_a_per_rad_s2) ||
         !PositionMode_SameTuningValue(config->current_limit, MotorControl->current_limit))
         return false;
     if (MotorControl->friction_model_valid)
@@ -806,7 +812,8 @@ static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
     const MotorControl_TypeDef *saved = &outer.motor;
     if (outer.request_epoch != outer.epoch) return false;
 #define SAME_INPUT(field) PositionMode_SameTuningValue(m->field, saved->field)
-    return SAME_INPUT(current_limit) && SAME_INPUT(speed_Kp) && SAME_INPUT(speed_Ki) &&
+    return SAME_INPUT(current_limit) && SAME_INPUT(position_speed_Kp) &&
+        SAME_INPUT(position_speed_Ki) &&
         SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
         SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) &&
         SAME_INPUT(cascade_pos_Kp) && SAME_INPUT(cascade_pos_Kd) &&
@@ -838,8 +845,8 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m,
      * during preemption. Every live field is compared each fast tick. */
     if (MotorOuterLoop_SameTuning(m)) return true;
     if (!isfinite(m->current_limit) || m->current_limit <= 0.0f ||
-        !isfinite(m->speed_Kp) || m->speed_Kp < 0.0f ||
-        !isfinite(m->speed_Ki) || m->speed_Ki < 0.0f) return false;
+        !isfinite(m->position_speed_Kp) || m->position_speed_Kp < 0.0f ||
+        !isfinite(m->position_speed_Ki) || m->position_speed_Ki < 0.0f) return false;
     deceleration = m->posDec;
     maximum_speed = m->pos_maxspeed;
     if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)

@@ -140,6 +140,11 @@ typedef struct
     /* 快环拥有；CAN 只能提交切换请求。电气标定与装配状态相互独立。 */
     uint32_t load_profile_flags;
     bool load_profile_valid;
+    /* mode 3 独立归一化速度 PI：Kp 为 s/rad，Ki 为 1/rad；尾部追加保留旧偏移。 */
+    float position_speed_Kp;
+    float position_speed_Ki;
+    /* mode 3 惯量前馈 J/Kt，A/(rad/s²)；RAM调试参数，0关闭，尚不持久化。 */
+    float position_accel_ff_gain_a_per_rad_s2;
 }MotorControl_TypeDef;
 
 #endif

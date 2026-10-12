@@ -1,0 +1,20 @@
+{
+  "schema": "rtt.manual_diagnostics.v2",
+  "profile": 2,
+  "sample_rate_hz": 2000,
+  "frame_bytes": 20,
+  "byte_order": "little",
+  "counts": [9000, -4500, 9000, 4500, 18000, 1500, 1400, -200, 2500, 2500],
+  "channels": [
+    {"index": 0, "name": "位置目标", "unit": "0.01 deg"},
+    {"index": 1, "name": "位置反馈", "unit": "0.01 deg"},
+    {"index": 2, "name": "位置环速度参考", "unit": "0.01 deg/s"},
+    {"index": 3, "name": "控制滤波速度", "unit": "0.01 deg/s"},
+    {"index": 4, "name": "编码器PLL速度", "unit": "0.01 deg/s"},
+    {"index": 5, "name": "Iq参考", "unit": "mA"},
+    {"index": 6, "name": "Iq反馈", "unit": "mA"},
+    {"index": 7, "name": "Id反馈", "unit": "mA"},
+    {"index": 8, "name": "摩擦前馈电流", "unit": "mA"},
+    {"index": 9, "name": "Vq实际输出", "unit": "mV"}
+  ]
+}

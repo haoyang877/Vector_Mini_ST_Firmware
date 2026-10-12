@@ -70,6 +70,12 @@ const MotorCalibrationProfile *MotorLoadProfile_Calibration(uint32_t flags);
  */
 bool MotorLoadProfile_FeedforwardEnabled(uint32_t flags);
 
+/** @brief 判断带阻尼环装配是否采用零电流被动停靠。
+ * @param flags 已保存或生效的装配配置位。
+ * @return 仅合法配置1或3返回true；不访问硬件或改变模式。
+ */
+bool MotorLoadProfile_PassiveHoldEnabled(uint32_t flags);
+
 /** @brief 生成带版本及 CRC 的存储记录，不访问 Flash。
  * @param flags 要保存的合法配置位。
  * @param output 输出记录，调用方拥有。

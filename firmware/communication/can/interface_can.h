@@ -109,6 +109,12 @@ typedef enum
     CAN_SET_LOAD_PROFILE = 0x68,
     CAN_GET_LOAD_PROFILE = 0x69,
     CAN_GET_LOAD_PROFILE_REVISION = 0x6A,
+    CAN_SET_POSITION_SPEED_KP = 0x6B,
+    CAN_GET_POSITION_SPEED_KP = 0x6C,
+    CAN_SET_POSITION_SPEED_KI = 0x6D,
+    CAN_GET_POSITION_SPEED_KI = 0x6E,
+    /** @brief 只读 APP 软件版本，回复为大端0xMMmmppbb，不是float32。 */
+    CAN_GET_SOFTWARE_VERSION = 0x6F,
 }CAN_PARAM_ID;
 
 typedef struct

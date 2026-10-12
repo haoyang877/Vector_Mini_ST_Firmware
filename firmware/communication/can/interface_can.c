@@ -17,6 +17,7 @@
 #include "can_motor_status.h"
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
+#include "firmware_version.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -275,6 +276,30 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+    /* 浮点 PI 参数先处理，避免大有限值经过整数命令转换。 */
+    switch (param_id)
+    {
+        case CAN_SET_POSITION_SPEED_KP:
+            if (isfinite(data) && data >= 0.0f)
+            {
+                MotorControl.position_speed_Kp = data;
+            }
+            return;
+        case CAN_GET_POSITION_SPEED_KP:
+            CAN_SendMessage_Update(CAN_GET_POSITION_SPEED_KP, MotorControl.position_speed_Kp);
+            return;
+        case CAN_SET_POSITION_SPEED_KI:
+            if (isfinite(data) && data >= 0.0f)
+            {
+                MotorControl.position_speed_Ki = data;
+            }
+            return;
+        case CAN_GET_POSITION_SPEED_KI:
+            CAN_SendMessage_Update(CAN_GET_POSITION_SPEED_KI, MotorControl.position_speed_Ki);
+            return;
+        default:
+            break;
+    }
     /* 精确枚举先于 float 转 int；非法值、NaN 和运行态请求均不修改配置。 */
     if (param_id == CAN_SET_LOAD_PROFILE)
     {
@@ -296,6 +321,11 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
         return;
     }
 	/* Read-only handshake; this query never arms or changes motor settings. */
+	if (param_id == CAN_GET_SOFTWARE_VERSION)
+	{
+		CAN_SendMessage_Update(CAN_GET_SOFTWARE_VERSION, 0.0f);
+		return;
+	}
 	if (param_id == CAN_GET_PROTOCOL_REVISION) {
 		CAN_SendMessage_Update(CAN_GET_PROTOCOL_REVISION,
 			(float)CAN_PARAMETER_FORMAT_REVISION);
@@ -705,7 +735,11 @@ void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 		CANMsg.tx_data_len = 2U;
 	} else {
 		uint32_t value;
-		if (encoding == CAN_VALUE_MILLI_I32)
+		if (param_id == CAN_GET_SOFTWARE_VERSION)
+		{
+			value = g_firmware_software_version;
+		}
+		else if (encoding == CAN_VALUE_MILLI_I32)
 			value = (uint32_t)CAN_Milli32(data);
 		else if (encoding == CAN_VALUE_CENTI_I32)
 			value = (uint32_t)CAN_Centi32(data);

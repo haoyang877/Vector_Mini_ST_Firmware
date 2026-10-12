@@ -181,30 +181,13 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 }
 
 /**
-	* @brief  Temperature sensing and protection
-	* @param  *FOC: FOC struct pointer
- **/
+ * @brief 更新 MCU 内部温度及现有过温保护。
+ * @param FOC 接收温度反馈，单位 ℃；采样无效时为 NaN。
+ */
 void Temperature_Update(FOC_TypeDef *FOC)
 {
-	/*from NTC datasheet*/
-	const float B = 3455.0f;
-	float R2 = 10.0f;
-	float T2 = 25.0f;
-	
-	uint32_t adc_val;
-	float R1;
-
-	/* Called at 1 kHz; keep transcendental conversion out of the fast IRQ. */
-	{
-		adc_val = TEMP_ADC->TEMP_ADC_CHANNEL;
-		
-		R1 = (4095.0f / (float)adc_val - 1.0f) * TEMP_R2;
-		
-		FOC->temp = (1.0f / ((1.0f / B) * logf(R1 / R2) + (1.0f / (T2 + 273.15f))) - 273.15f);
-		
-	}
-	
-	if(FOC->temp >= 100.0f)
+	FOC->temp = motor_hw_mcu_temperature_c();
+	if (FOC->temp >= 100.0f)
 	{
 		Set_ErrorNow(High_Temprature);
 	}

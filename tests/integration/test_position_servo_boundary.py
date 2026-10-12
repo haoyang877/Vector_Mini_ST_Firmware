@@ -56,7 +56,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("MotorControl->friction_model_valid", adapter)
         self.assertIn("MotorControl->friction_coulomb_pos_a", adapter)
         self.assertIn("POSITION_IMPEDANCE_FRICTION_POSITIVE_A", adapter)
-        self.assertIn("POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2", adapter)
+        self.assertIn("MotorControl->position_accel_ff_gain_a_per_rad_s2", adapter)
         self.assertIn("friction_fast_release_slew_rate", public_api)
         self.assertIn(
             "POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S", adapter

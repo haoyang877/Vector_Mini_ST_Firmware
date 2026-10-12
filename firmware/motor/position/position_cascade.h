@@ -16,9 +16,9 @@ typedef struct
 	float update_period_s;
 	uint16_t call_divider;
 	float target_position;
-	float position_error_window; /* Trajectory finish tolerance only, rad. */
-	float hold_enter_position; /* Position qualification window, rad. */
-	float hold_exit_position; /* Wider hold/recovery hysteresis, rad. */
+	float position_error_window; /* 轨迹结束和实际到位精度，rad。 */
+	float hold_enter_position; /* 近区模型前馈卸载带，rad；同时定义 HOLD 滞环比例。 */
+	float hold_exit_position; /* 大偏差前馈重启带及原始退出门限，rad；保留滞环比例。 */
 	float velocity_filter_hz; /* 0 bypasses the base filter; HOLD shaping is separate. */
 	float hold_velocity_filter_hz; /* 0 bypasses HOLD shaping; runtime tuning in Hz. */
 	float following_error_limit; /* Soft governor range in rad; 0 disables. */
@@ -32,9 +32,10 @@ typedef struct
 	float position_kd;
 	float speed_kp;
 	float speed_ki;
-	float acceleration_feedforward_gain;
+	float acceleration_feedforward_gain; /* J/Kt，A/(rad/s²)；只乘轨迹加速度，0关闭。 */
 	float current_limit;
 	bool friction_feedforward_enabled;
+	bool passive_hold_enabled; /* 带阻尼环近区卸流停靠；调用者须显式初始化。 */
 	float friction_coulomb_positive;
 	float friction_coulomb_negative;
 	float friction_viscous_positive;
@@ -85,6 +86,7 @@ typedef struct
 	bool hold_candidate_active;
 	bool trajectory_limited;
 	bool stiction_integrating; /* Bounded static-error integral applied this update. */
+	bool passive_hold; /* 被动卸流或停靠；不等于target_reached，也不表示功率门极关断。 */
 } PositionCascadeTelemetry_TypeDef;
 
 /* Minimal current-command/feedback view for the high-rate motor adapter.

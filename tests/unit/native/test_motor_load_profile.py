@@ -32,6 +32,7 @@ def fixture():
 #include "foc_param_profile.h"
 #include "foc_run.h"
 #include "motor_load_control.h"
+#include "position_cascade_config.h"
 #include "interface_can.h"
 #include "utils.h"
 #define MAGIC_WORD 0x454e4332U
@@ -126,6 +127,9 @@ int main(void) {
         hypotf(roll->startup.startup_iq_a,roll->startup.startup_id_a));
     assert(!MotorLoadProfile_FeedforwardEnabled(0) && !MotorLoadProfile_FeedforwardEnabled(1));
     assert(MotorLoadProfile_FeedforwardEnabled(3));
+    assert(!MotorLoadProfile_PassiveHoldEnabled(0));
+    assert(MotorLoadProfile_PassiveHoldEnabled(1) && MotorLoadProfile_PassiveHoldEnabled(3));
+    assert(!MotorLoadProfile_PassiveHoldEnabled(2) && !MotorLoadProfile_PassiveHoldEnabled(UINT32_MAX));
     for (unsigned v=0;v<4;v++) {
         if(v==2) continue;
         assert(MotorLoadRecord_Create(v,&record));
@@ -149,6 +153,7 @@ int main(void) {
     assert(!MotorControl_RequestLoadProfile(0));
     MotorControl_ApplyLoadProfile();
     assert(MotorControl_GetLoadProfile()==1 && MotorControl.ModeNow==Motor_Disable);
+    assert(MotorControl.pos_error_window==POSITION_SERVO_DAMPED_ERROR_WINDOW_RAD);
     assert(MotorControl.idRef==0 && MotorControl.iqRef==0 && MotorControl.speedRef==0);
     assert(PI_Speed.Ui==0 && FOC.id_pi.Ui==0 && Fluxobserver.omega_e==0);
     assert(SensorlessStartup.state==SENSORLESS_STARTUP_IDLE && position_resets==1);

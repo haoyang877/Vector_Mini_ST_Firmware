@@ -7,11 +7,27 @@ from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
 from pathlib import Path
 import sys, struct, unittest, math, time
+import json
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools'))
 from can_parameter_protocol import encode, decode, Client, Frame
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_software_version_golden_vectors(self):
+        """版本查询使用无符号整数编码，独立于既有浮点协议版本。"""
+        vector = json.loads((ROOT / 'tests/vectors/software_version_v1.json').read_text(encoding='utf-8'))
+        for frame in vector['vectors']:
+            self.assertEqual(frame['identifier'], (frame['node'] << 8) | vector['parameter_id'])
+            self.assertEqual(bytes.fromhex(frame['request_hex']), bytes(4))
+            value = decode(vector['parameter_id'], bytes.fromhex(frame['reply_hex']))
+            self.assertEqual(value, vector['version_code'])
+            self.assertIsInstance(value, int)
+        self.assertEqual(decode(0x6f, bytes.fromhex('80000000')), 0x80000000)
+        self.assertEqual(decode(0x6f, bytes.fromhex('ffffffff')), 0xffffffff)
+        for payload in (bytes(2), bytes(3), bytes(5)):
+            with self.assertRaises(ValueError):
+                decode(0x6f, payload)
+
     def test_signed_vectors_and_legacy_configuration(self):
         for param,value,wire in [(2,-1.25,'fb1e'),(6,-1.25,'fffffb1e'),
                                   (4,6.28,'00000274'),(0x64,20,'41a00000')]:

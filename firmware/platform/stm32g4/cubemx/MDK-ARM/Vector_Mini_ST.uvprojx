@@ -798,6 +798,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\motor_load_profile.c</FilePath>
             </File>
+              <File>
+                <FileName>speed_feedforward.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>..\..\..\..\motor\speed_feedforward.c</FilePath>
+              </File>
             <File>
               <FileName>foc_param.c</FileName>
               <FileType>1</FileType>

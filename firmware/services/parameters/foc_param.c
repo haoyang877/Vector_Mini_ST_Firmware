@@ -106,6 +106,95 @@ static bool position_speed_pi_load(const PositionSpeedPiRecord *record,
     return true;
 }
 
+/* 参数记录按字的小端顺序校验；仅启动/保存使用，不进入速度控制计算。 */
+static uint32_t speed_feedforward_crc(const SpeedFeedforwardRecord *record)
+{
+    uint32_t words[7], crc = UINT32_MAX;
+    uint32_t index;
+    memcpy(words, record, sizeof(words));
+    for (index = 0U; index < sizeof(words); ++index)
+    {
+        uint32_t bit;
+        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
+        for (bit = 0U; bit < 8U; ++bit)
+        {
+            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+/* 参数服务独占已加载的FSL记录；保留数据不等于在本分支启用其控制行为。 */
+static FrictionSlewRecord friction_slew_passthrough;
+
+static uint32_t friction_slew_record_crc(const FrictionSlewRecord *record)
+{
+    uint32_t words[4], crc = UINT32_MAX, index;
+    memcpy(words, record, sizeof(words));
+    for (index = 0U; index < sizeof(words); ++index)
+    {
+        uint32_t bit;
+        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
+        for (bit = 0U; bit < 8U; ++bit)
+        {
+            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+static bool friction_slew_record_preserve(const FrictionSlewRecord *record)
+{
+    uint32_t words[5], index;
+    bool zero = true, erased = true;
+    friction_slew_passthrough = *record;
+    memcpy(words, record, sizeof(words));
+    for (index = 0U; index < 5U; ++index)
+    {
+        zero = zero && words[index] == 0U;
+        erased = erased && words[index] == UINT32_MAX;
+    }
+    if (zero || erased)
+    {
+        return true;
+    }
+    return record->magic == PARAM_FRICTION_SLEW_MAGIC &&
+        record->version == PARAM_FRICTION_SLEW_VERSION &&
+        isfinite(record->attack_a_per_s) && record->attack_a_per_s >= 0.0f &&
+        isfinite(record->release_a_per_s) && record->release_a_per_s >= 0.0f &&
+        record->crc32 == friction_slew_record_crc(record);
+}
+
+static bool speed_feedforward_load(const SpeedFeedforwardRecord *record,
+    SpeedFeedforwardConfig *config)
+{
+    uint32_t words[8], index;
+    bool zero = true, erased = true;
+    SpeedFeedforward_Default(config);
+    memcpy(words, record, sizeof(words));
+    for (index = 0U; index < 8U; ++index)
+    {
+        zero = zero && words[index] == 0U;
+        erased = erased && words[index] == UINT32_MAX;
+    }
+    if (zero || erased)
+    {
+        return true;
+    }
+    if (record->magic != PARAM_SPEED_FEEDFORWARD_MAGIC ||
+        record->version != PARAM_SPEED_FEEDFORWARD_VERSION || record->enabled > 1U ||
+        record->crc32 != speed_feedforward_crc(record))
+    {
+        return false;
+    }
+    config->enabled = record->enabled == 1U;
+    config->gain_a_per_rad_s2 = record->gain_a_per_rad_s2;
+    config->acceleration_limit_rad_s2 = record->acceleration_limit_rad_s2;
+    config->jerk_limit_rad_s3 = record->jerk_limit_rad_s3;
+    config->current_limit_a = record->current_limit_a;
+    return SpeedFeedforward_IsValid(config);
+}
+
 bool Param_SetSpeedLimit(float limit_rad_s)
 {
     if (!isfinite(limit_rad_s) || limit_rad_s <= 0.0f ||
@@ -141,6 +230,9 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
 
 void Param_Return_Default(void)
 {
+    memset(&friction_slew_passthrough, 0xFF, sizeof(friction_slew_passthrough));
+    SpeedFeedforward_Default(&MotorControl.speed_ff_config);
+    SpeedFeedforward_Reset(&MotorControl.speed_ff_state);
     MotorControl.position_accel_ff_gain_a_per_rad_s2 = 0.0f;
     MotorControl.position_velocity_filter_half_cutoff = false;
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
@@ -261,6 +353,15 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     param->position_speed_pi.kp_s_per_rad = MotorControl.position_speed_Kp;
     param->position_speed_pi.ki_per_rad = MotorControl.position_speed_Ki;
     param->position_speed_pi.crc32 = position_speed_pi_crc(&param->position_speed_pi);
+    param->friction_slew = friction_slew_passthrough;
+    param->speed_feedforward.magic = PARAM_SPEED_FEEDFORWARD_MAGIC;
+    param->speed_feedforward.version = PARAM_SPEED_FEEDFORWARD_VERSION;
+    param->speed_feedforward.enabled = MotorControl.speed_ff_config.enabled ? 1U : 0U;
+    param->speed_feedforward.gain_a_per_rad_s2 = MotorControl.speed_ff_config.gain_a_per_rad_s2;
+    param->speed_feedforward.acceleration_limit_rad_s2 = MotorControl.speed_ff_config.acceleration_limit_rad_s2;
+    param->speed_feedforward.jerk_limit_rad_s3 = MotorControl.speed_ff_config.jerk_limit_rad_s3;
+    param->speed_feedforward.current_limit_a = MotorControl.speed_ff_config.current_limit_a;
+    param->speed_feedforward.crc32 = speed_feedforward_crc(&param->speed_feedforward);
     if (!MotorControl.load_profile_valid ||
         !MotorLoadRecord_Create(MotorControl.load_profile_flags, &param->load_profile))
     {
@@ -494,5 +595,16 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
         MotorControl.speed_Ki = speed_mode_ki;
     }
 
+    SpeedFeedforward_Reset(&MotorControl.speed_ff_state);
+    if (!friction_slew_record_preserve(&param->friction_slew))
+    {
+        MotorControl.axis_profile_valid = false;
+        return false;
+    }
+    if (!speed_feedforward_load(&param->speed_feedforward, &MotorControl.speed_ff_config))
+    {
+        MotorControl.axis_profile_valid = false;
+        return false;
+    }
     return position_tuning_requires_migration || position_speed_pi_missing;
 }

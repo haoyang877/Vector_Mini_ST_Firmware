@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "magic": "SFF1",
+  "offset": 2312,
+  "size": 32,
+  "crc_bytes": 28,
+  "vectors": [
+    {
+      "enabled": 0,
+      "gain_a_per_rad_s2": 0.028,
+      "acceleration_limit_rad_s2": 20,
+      "jerk_limit_rad_s3": 200,
+      "current_limit_a": 2,
+      "hex": "5346463101000000000000004260e53c0000a0410000484300000040100cfcca"
+    },
+    {
+      "enabled": 1,
+      "gain_a_per_rad_s2": 0.028,
+      "acceleration_limit_rad_s2": 20,
+      "jerk_limit_rad_s3": 200,
+      "current_limit_a": 2,
+      "hex": "5346463101000000010000004260e53c0000a041000048430000004056379baf"
+    }
+  ],
+  "can_vectors": [
+    {
+      "node": 1,
+      "set_param": 112,
+      "get_param": 113,
+      "value": 1,
+      "hex": "3f800000"
+    },
+    {
+      "node": 1,
+      "set_param": 114,
+      "get_param": 115,
+      "value": 0.028,
+      "hex": "3ce56042"
+    },
+    {
+      "node": 1,
+      "set_param": 116,
+      "get_param": 117,
+      "value": 20,
+      "hex": "41a00000"
+    },
+    {
+      "node": 1,
+      "set_param": 118,
+      "get_param": 119,
+      "value": 200,
+      "hex": "43480000"
+    },
+    {
+      "node": 1,
+      "set_param": 120,
+      "get_param": 121,
+      "value": 2,
+      "hex": "40000000"
+    },
+    {
+      "node": 1,
+      "get_param": 122,
+      "value": -0.5,
+      "hex": "bf000000"
+    },
+    {
+      "node": 1,
+      "get_param": 123,
+      "value": -10,
+      "hex": "c1200000"
+    }
+  ],
+  "retained_friction_slew": {
+    "offset": 2292,
+    "size": 20,
+    "magic": "FSL1",
+    "behavior": "validate and preserve only"
+  }
+}

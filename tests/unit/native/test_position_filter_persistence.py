@@ -18,7 +18,7 @@ static void filter_checks(void) {
     InterfaceParam_TypeDef baseline, saved, expected, bad;
     assert(sizeof(PositionFilterRecord)==16U);
     assert(offsetof(InterfaceParam_TypeDef,position_filter)==2256U);
-    assert(sizeof(InterfaceParam_TypeDef)==2292U);
+    assert(sizeof(InterfaceParam_TypeDef)==2344U);
     seed(&baseline);
     assert(!MotorControl.position_velocity_filter_half_cutoff);
     const uint32_t golden_crc[2]={GOLDEN_CRC_0,GOLDEN_CRC_1};

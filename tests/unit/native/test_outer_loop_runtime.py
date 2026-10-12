@@ -217,13 +217,37 @@ int main(void) {
         }
         assert(memcmp(&live_pi, &expected_pi, sizeof(live_pi)) == 0);
     }
-    puts("PASS: 420000 fast ticks; cadence, coherent publication, preemption, STOP/fault/reset, deadline, PI/ramp");
+    /* 前馈状态由慢环计算、快环提交；停机/故障不能提交过期结果。 */
+    setup(Speed_Mode);
+    SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
+    live.speedRef=20;enc.speed=0;
+    for(unsigned i=0;i<10000;i++) run_step();
+    assert(live.ErrorNow==No_Error && live.speed_ff_state.initialized);
+    assert(live.speedShadow==live.speed_ff_state.speed_rad_s && live.speedShadow>1);
+    assert(fabsf(live.speed_ff_state.current_a)<=2 && fabsf(live.iqRef)<=live.current_limit);
+    live.ModeNow=Motor_Disable;tick();
+    assert(!live.speed_ff_state.initialized && live.speed_ff_state.current_a==0);
+    setup(Speed_Mode);
+    SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
+    live.speedRef=20;enc.speed=0;
+    for(unsigned i=0;i<100;i++) run_step();
+    live.ErrorNow=Over_Current;tick();
+    assert(!live.speed_ff_state.initialized && live.speed_ff_state.current_a==0);
+    setup(Speed_Mode);
+    SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
+    live.speed_ff_config.gain_a_per_rad_s2=NAN;tick();
+    assert(live.ErrorNow==MotorParam_Error && live.iqRef==0);
+    setup(Position_Mode);
+    live.speed_ff_config.enabled=true;live.speed_ff_config.gain_a_per_rad_s2=NAN;
+    for(unsigned i=0;i<30;i++) run_step();
+    assert(live.ErrorNow==No_Error);
+    puts("PASS: legacy cadence/publication/PI and optional FF state publication, STOP/fault isolation");
 }
 '''
     fixture = fixture.replace('#define ENCODER_OFFSET_LUT_SIZE 1024U',
                               '#define ENCODER_OFFSET_LUT_SIZE ' + lut_size + 'U')
     (out / 'fixture.c').write_text(fixture)
-    sources = [out / 'fixture.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/position/position_cascade.c',
+    sources = [out / 'fixture.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/speed_feedforward.c', ROOT / 'firmware/motor/position/position_cascade.c',
                ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c', ROOT / 'firmware/common/heap.c']
     cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
            '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),

@@ -186,7 +186,7 @@ int main(void) {
     cc = [args.cc] + (['cc'] if Path(args.cc).stem == 'zig' else [])
     log = []
     for command in [cc + ['-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-I', str(out), *NATIVE_INCLUDE_FLAGS,
-                         '-I', 'firmware/motor/foc', '-I', '.', str(src), 'firmware/motor/motor_load_profile.c', 'firmware/motor/position/position_cascade.c',
+                         '-I', 'firmware/motor/foc', '-I', '.', str(src), 'firmware/motor/motor_load_profile.c', 'firmware/motor/speed_feedforward.c', 'firmware/motor/position/position_cascade.c',
                          'firmware/motor/trajectory/position_smooth_trajectory.c', 'firmware/motor/foc/foc_pid.c', '-o', str(exe)], [str(exe)]]:
         r = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
         log.append(r.stdout + r.stderr)

@@ -39,6 +39,31 @@ typedef struct
     uint32_t crc32;
 } PositionSpeedPiRecord;
 
+/** @brief 保留并行调试版FSL1/v1既有记录；本分支仅验证/透传，不实现斜率控制。 */
+#define PARAM_FRICTION_SLEW_MAGIC 0x314C5346U
+#define PARAM_FRICTION_SLEW_VERSION 1U
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    float attack_a_per_s;
+    float release_a_per_s;
+    uint32_t crc32;
+} FrictionSlewRecord;
+
+/** @brief SFF1/v1速度前馈尾记录；小端，CRC覆盖前28字节，旧字段不移动。 */
+#define PARAM_SPEED_FEEDFORWARD_MAGIC 0x31464653U
+#define PARAM_SPEED_FEEDFORWARD_VERSION 1U
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t enabled;
+    float gain_a_per_rad_s2;
+    float acceleration_limit_rad_s2;
+    float jerk_limit_rad_s3;
+    float current_limit_a;
+    uint32_t crc32;
+} SpeedFeedforwardRecord;
+
 typedef struct
 {
 	float node_id;
@@ -97,6 +122,8 @@ typedef struct
     /* schema10既有字段偏移保持；旧固件忽略PVF1扩展。 */
     PositionFilterRecord position_filter;
     PositionSpeedPiRecord position_speed_pi;
+    FrictionSlewRecord friction_slew;
+    SpeedFeedforwardRecord speed_feedforward;
 } InterfaceParam_TypeDef;
 
 void Param_Return_Default(void);

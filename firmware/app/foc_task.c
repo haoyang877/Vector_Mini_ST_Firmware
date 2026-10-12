@@ -26,6 +26,19 @@ FOC_TypeDef FOC;
 /* CAN 单字发布，快环独占消费和运行态修改；UINT32_MAX 表示无请求。 */
 static volatile uint32_t pending_load_profile = UINT32_MAX;
 
+bool MotorControl_SetSpeedFeedforward(const SpeedFeedforwardConfig *config)
+{
+    if (!SpeedFeedforward_IsValid(config) || MotorControl.ModeNow != Motor_Disable ||
+        ModeLast != Motor_Disable || MotorControl.ErrorNow != No_Error ||
+        pending_load_profile != UINT32_MAX || !motor_hw_phase_outputs_disabled())
+    {
+        return false;
+    }
+    MotorControl.speed_ff_config = *config;
+    SpeedFeedforward_Reset(&MotorControl.speed_ff_state);
+    return true;
+}
+
 bool MotorControl_RequestLoadProfile(uint32_t flags)
 {
     if (!MotorLoadProfile_IsValid(flags) || MotorControl.ModeNow != Motor_Disable ||

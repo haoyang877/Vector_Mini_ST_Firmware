@@ -80,6 +80,7 @@ void CAN_SendMessage_Update(CAN_PARAM_ID id, float value) {
                 function_source(observer, "SensorlessStartup_Reset"),
                 function_source(reset, "Clear_RunningData"),
                 function_source(task, "MotorControl_RequestLoadProfile"),
+                function_source(task, "MotorControl_SetSpeedFeedforward"),
                 function_source(task, "MotorControl_GetLoadProfile"),
                 function_source(task, "MotorControl_ApplyLoadProfile"),
                 function_source(task, "MotorControl_IsConfigurationValid"),
@@ -237,12 +238,13 @@ def main():
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command = (
         compiler
-        + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+        + ["-std=c99", "-O1", "-ffp-contract=off", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
         + NATIVE_INCLUDE_FLAGS
     )
     command += [
         str(source),
         str(ROOT / "firmware/motor/motor_load_profile.c"),
+        str(ROOT / "firmware/motor/speed_feedforward.c"),
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
         str(ROOT / "firmware/motor/foc/foc_pid.c"),
         str(ROOT / "firmware/common/utils.c"),

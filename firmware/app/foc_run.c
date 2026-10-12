@@ -46,6 +46,35 @@ void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Enc
 static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
     PI_Controller_TypeDef *controller, float vel_mech)
 {
+        if (MotorControl->ModeNow == Speed_Mode && MotorControl->speed_ff_config.enabled)
+        {
+            float feedforward_a, pi_normalized, total_a;
+            if (!MotorControl->speed_ff_state.initialized)
+            {
+                PI_Controller_Reset(controller);
+            }
+            if (!SpeedFeedforward_Update(&MotorControl->speed_ff_state, &MotorControl->speed_ff_config,
+                MotorControl->speedRef, vel_mech, Speed_Ts, MotorControl->current_limit))
+            {
+                MotorControl->iqRef = NAN;
+                return;
+            }
+            MotorControl->isUseSpeedRamp = true;
+            MotorControl->speedShadow = MotorControl->speed_ff_state.speed_rad_s;
+            feedforward_a = MotorControl->speed_ff_state.current_a;
+            /* 将总限流换算成剩余PI电流区间，积分准入因此包含前馈。 */
+            PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts,
+                (-MotorControl->current_limit - feedforward_a) / MotorControl->current_limit,
+                (MotorControl->current_limit - feedforward_a) / MotorControl->current_limit);
+            pi_normalized = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech);
+            total_a = fminf(fmaxf(pi_normalized * MotorControl->current_limit + feedforward_a,
+                -MotorControl->current_limit), MotorControl->current_limit);
+            PI_Controller_TrackOutput(controller, (total_a - feedforward_a) / MotorControl->current_limit);
+            MotorControl->idRef = 0.0f;
+            MotorControl->iqRef = total_a;
+            return;
+        }
+        SpeedFeedforward_Reset(&MotorControl->speed_ff_state);
         MotorControl->isUseSpeedRamp = MotorControl->speedAcc > 0.0f && MotorControl->speedDec > 0.0f;
 
         if (MotorControl->isUseSpeedRamp)
@@ -838,7 +867,8 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m,
         return isfinite(m->speedRef) && isfinite(m->speedAcc) && isfinite(m->speedDec) &&
             isfinite(m->current_limit) && m->current_limit > 0.0f &&
             isfinite(m->speed_Kp) && m->speed_Kp >= 0.0f &&
-            isfinite(m->speed_Ki) && m->speed_Ki >= 0.0f;
+            isfinite(m->speed_Ki) && m->speed_Ki >= 0.0f &&
+            (!m->speed_ff_config.enabled || SpeedFeedforward_IsValid(&m->speed_ff_config));
     if (!MotorAxisProfile_AllowsPosition(&m->axis_profile,
         m->axis_profile_valid, position, m->posRef)) return false;
     /* The worker changes outputs only; request tuning stays immutable even
@@ -927,6 +957,7 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     float speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder) :
         Encoder_GetMecVelContinuous(encoder);
     if (m->ModeNow != outer.mode) {
+        SpeedFeedforward_Reset(&m->speed_ff_state);
         MotorOuterLoop_RequestReset();
         outer.mode = m->ModeNow;
         outer.divider = SPEED_LOOP_DIVIDER - 1U;
@@ -958,6 +989,7 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                         outer.published_telemetry = outer.result_telemetry;
                         outer.telemetry_valid = true;
                     } else {
+                        m->speed_ff_state = outer.motor.speed_ff_state;
                         m->isUseSpeedRamp = outer.motor.isUseSpeedRamp;
                         *pi = outer.speed_controller;
                     }
@@ -970,7 +1002,10 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
             outer.status = OUTER_IDLE;
         }
     }
-    if (!active || m->ErrorNow != No_Error) return;
+    if (!active || m->ErrorNow != No_Error) {
+        SpeedFeedforward_Reset(&m->speed_ff_state);
+        return;
+    }
     if (++outer.divider < SPEED_LOOP_DIVIDER) return;
     outer.divider = 0U;
     if (outer.status != OUTER_IDLE) {

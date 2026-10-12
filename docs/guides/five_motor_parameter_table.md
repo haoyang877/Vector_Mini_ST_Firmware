@@ -1,6 +1,6 @@
 # 五台电机总体参数表
 
-对应统一 APP 源码软件版本：**v0.2.2调试版，build 0**，见[版本查询](software_version_v1.md)。
+对应统一 APP 源码软件版本：**v0.4.0独立前馈候选，build 0**，见[版本查询](software_version_v1.md)。
 2026-10-10 已通过 J-Link 更新核验左右轮节点1/2及Roll节点3为v0.2.0；Pitch/Yaw尚未在本轮更新。
 
 版本：v1.3，2026-10-10。本表记录用户确认的**目标配置**，并在下方单独记录实机应用状态；它不是五台板卡的同步 Flash 回读。运动范围统一用 °，速度统一用 °/s；速度限值按正反方向相同的绝对值列出。左右轮上限 20 rad/s ≈ 1145.9 °/s ≈ 190.99 RPM。
@@ -43,3 +43,16 @@
 - 修改任何板卡 Flash 前，按该板 UID 和实际连接身份核对备份、编码器个体标定、目标字段及停机/关相状态；写后完整回读并复位核验。单台更新不代表其他四台已同步。
 
 本机证据：`outputs/left_wheel_identification_20260930/parameter_inspection.json`、`outputs/right_wheel_identification_20261008/current_config_read_only.json`、`outputs/right_wheel_identification_20261008/right_wheel_20rad_flash_result.json`、`outputs/right_wheel_identification_20261008/speed_test_20rad_result.json`、`outputs/right_wheel_identification_20261008/can_after_line_swap_20261008.json`、`outputs/right_wheel_identification_20261008/right_wheel_forced_can_tx_20261008.json`、`outputs/roll_filter5_persistence_20260929/summary.json`、`outputs/new_damped_motor_calibration_20260928/friction_compensation_summary.json`、`outputs/pitch_position_recheck_20260929/friction5_position_test/result.json`、`outputs/pitch_parameters_flash_20260930/inspection.json`、`outputs/yaw_filter5_limit90_20260930/verify_result.json`。`outputs/` 为忽略目录，历史证据不代替连接板卡的现时回读。
+
+## 独立候选的速度前馈参数
+
+本节仅适用`codex/wheel-speed-feedforward`候选；五台实际Flash尚未因此变更，原调试树的后续修改保持独立。
+
+| 电机 | 默认开关 | 系数A/(°/s²) | 加减速上限°/s² | jerk上限°/s³ | 前馈限流 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 左轮/右轮 | 关闭，整车停机后可用CAN开启 | 0.000489 | 1145.9 | 11459.2 | 2A且不超过总限流50% |
+| Roll/Pitch/Yaw | 保持关闭，位置模式不使用 | 同固件默认值 | 同固件默认值 | 同固件默认值 | 同固件默认值 |
+
+通信及Flash按SI单位保存：系数0.028A/(rad/s²)、加减速20rad/s²、jerk200rad/s³。
+启用后使用该独立加减速限制；关闭时继续原speedAcc/speedDec。开关/调参只能停机写，
+mode9持久化；旧Flash缺记录仍默认关闭。详见[速度前馈v1](wheel_speed_feedforward_v1.md)。

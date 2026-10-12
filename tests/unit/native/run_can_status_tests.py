@@ -270,7 +270,22 @@ typedef unsigned CAN_PARAM_ID;
 #define CAN_GET_POSITION_SPEED_KP 0x6C
 #define CAN_SET_POSITION_SPEED_KI 0x6D
 #define CAN_GET_POSITION_SPEED_KI 0x6E
-static struct {float position_speed_Kp, position_speed_Ki;unsigned ModeNow,ErrorNow;} MotorControl;
+#include "speed_feedforward.h"
+#define CAN_SET_SPEED_FF_ENABLE 0x70
+#define CAN_GET_SPEED_FF_ENABLE 0x71
+#define CAN_SET_SPEED_FF_GAIN 0x72
+#define CAN_GET_SPEED_FF_GAIN 0x73
+#define CAN_SET_SPEED_FF_ACCELERATION 0x74
+#define CAN_GET_SPEED_FF_ACCELERATION 0x75
+#define CAN_SET_SPEED_FF_JERK 0x76
+#define CAN_GET_SPEED_FF_JERK 0x77
+#define CAN_SET_SPEED_FF_CURRENT_LIMIT 0x78
+#define CAN_GET_SPEED_FF_CURRENT_LIMIT 0x79
+#define CAN_GET_SPEED_FF_CURRENT 0x7A
+#define CAN_GET_SPEED_FF_ACCELERATION_PLANNED 0x7B
+static struct {float position_speed_Kp, position_speed_Ki;unsigned ModeNow,ErrorNow;
+    SpeedFeedforwardConfig speed_ff_config;SpeedFeedforwardState speed_ff_state;} MotorControl;
+static bool MotorControl_SetSpeedFeedforward(const SpeedFeedforwardConfig *config) {(void)config;return false;}
 #define CAN_SET_STATUS_STREAM 0x64
 #define CAN_GET_STATUS_STREAM 0x65
 #define CAN_GET_PROTOCOL_REVISION 0x67

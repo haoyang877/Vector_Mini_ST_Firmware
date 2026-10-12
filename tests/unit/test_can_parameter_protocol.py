@@ -13,6 +13,29 @@ from can_parameter_protocol import encode, decode, Client, Frame
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_speed_feedforward_wire_and_client(self):
+        """新前馈参数采用独立float32线路编码，主机支持配对查询。"""
+        vectors = json.loads((ROOT / 'tests/vectors/speed_feedforward_v1.json').read_text(encoding='utf-8'))
+        for vector in vectors['can_vectors']:
+            payload = bytes.fromhex(vector['hex'])
+            self.assertAlmostEqual(decode(vector['get_param'], payload), vector['value'], places=6)
+            if 'set_param' in vector:
+                self.assertEqual(encode(vector['set_param'], vector['value']), payload)
+                class Bus:
+                    def __init__(self):
+                        self.pending = []
+                        self.sent = []
+                    def receive(self, channel):
+                        frames, self.pending = self.pending, []
+                        return frames
+                    def send(self, channel, identifier, data):
+                        self.sent.append((identifier, data))
+                        self.pending = [Frame(channel, identifier, payload, 1, time.perf_counter())]
+                bus = Bus()
+                actual, _ = Client(bus).read(0, vector['node'], vector['set_param'])
+                self.assertAlmostEqual(actual, vector['value'], places=6)
+                self.assertEqual(bus.sent, [((vector['node'] << 8) | vector['get_param'], bytes(4))])
+
     def test_software_version_golden_vectors(self):
         """版本查询使用无符号整数编码，独立于既有浮点协议版本。"""
         vector = json.loads((ROOT / 'tests/vectors/software_version_v1.json').read_text(encoding='utf-8'))

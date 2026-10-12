@@ -18,6 +18,7 @@
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
 #include "firmware_version.h"
+#include "foc_task.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -276,6 +277,48 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+    /* 独立只读观测，不修改模式或控制状态。 */
+    if (param_id == CAN_GET_SPEED_FF_CURRENT || param_id == CAN_GET_SPEED_FF_ACCELERATION_PLANNED)
+    {
+        CAN_SendMessage_Update(param_id, param_id == CAN_GET_SPEED_FF_CURRENT ?
+            MotorControl.speed_ff_state.current_a : MotorControl.speed_ff_state.acceleration_rad_s2);
+        return;
+    }
+    if (param_id >= CAN_SET_SPEED_FF_ENABLE && param_id <= CAN_GET_SPEED_FF_CURRENT_LIMIT)
+    {
+        SpeedFeedforwardConfig config = MotorControl.speed_ff_config;
+        CAN_PARAM_ID reply = (CAN_PARAM_ID)((unsigned)param_id | 1U);
+        float value;
+        bool accepted = true;
+        if (((unsigned)param_id & 1U) == 0U)
+        {
+            switch (param_id)
+            {
+                case CAN_SET_SPEED_FF_ENABLE:
+                    accepted = data == 0.0f || data == 1.0f;
+                    config.enabled = data == 1.0f;
+                    break;
+                case CAN_SET_SPEED_FF_GAIN: config.gain_a_per_rad_s2 = data; break;
+                case CAN_SET_SPEED_FF_ACCELERATION: config.acceleration_limit_rad_s2 = data; break;
+                case CAN_SET_SPEED_FF_JERK: config.jerk_limit_rad_s3 = data; break;
+                case CAN_SET_SPEED_FF_CURRENT_LIMIT: config.current_limit_a = data; break;
+                default: accepted = false; break;
+            }
+            accepted = accepted && MotorControl_SetSpeedFeedforward(&config);
+        }
+        config = MotorControl.speed_ff_config;
+        switch (reply)
+        {
+            case CAN_GET_SPEED_FF_ENABLE: value = config.enabled ? 1.0f : 0.0f; break;
+            case CAN_GET_SPEED_FF_GAIN: value = config.gain_a_per_rad_s2; break;
+            case CAN_GET_SPEED_FF_ACCELERATION: value = config.acceleration_limit_rad_s2; break;
+            case CAN_GET_SPEED_FF_JERK: value = config.jerk_limit_rad_s3; break;
+            case CAN_GET_SPEED_FF_CURRENT_LIMIT: value = config.current_limit_a; break;
+            default: value = -1.0f; break;
+        }
+        CAN_SendMessage_Update(reply, accepted ? value : -1.0f);
+        return;
+    }
     /* 浮点 PI 参数先处理，避免大有限值经过整数命令转换。 */
     switch (param_id)
     {

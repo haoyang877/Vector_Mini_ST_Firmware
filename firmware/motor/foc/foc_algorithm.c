@@ -1,6 +1,4 @@
 #include "foc_algorithm.h"
-#include "motor_thermal.h"
-#include "foc_errhandle.h"
 
 #include <stdbool.h>
 #include "utils.h"
@@ -318,15 +316,6 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
     float max_voltage;
     float voltage_d;
     float voltage_q;
-
-    float effective_limit_a = MotorThermal_ResolveLimit(MotorControl->current_limit,
-        MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
-    if (!MotorThermal_LimitVector(effective_limit_a, &MotorControl->idRef, &MotorControl->iqRef))
-    {
-        Set_ErrorNow(MotorThermal_Protection);
-        FOC_CurrentController_Reset(FOC);
-        return;
-    }
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
 

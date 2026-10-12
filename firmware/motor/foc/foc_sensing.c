@@ -134,7 +134,7 @@ static void Current_Reconstruct(FOC_TypeDef *FOC, unsigned sample_sector)
  * @param MotorControl 提供 ADC 零偏和运行模式。
  * @note 完整 ADC 序列结束后、当拍任何 PWM 写入前调用；校准使用原始值。
  */
-bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
+void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
 	static uint8_t overcurrent_count;
 	unsigned sample_sector = motor_hw_current_sample_sector();
@@ -147,7 +147,6 @@ bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	{
 		sample_sector = 0U;
 		Set_ErrorNow(CurrentOffset_Error);
-        return false;
 	}
 	
 	else
@@ -179,7 +178,6 @@ bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	{
 		overcurrent_count = 0U;
 	}
-    return isfinite(FOC->Ia) && isfinite(FOC->Ib) && isfinite(FOC->Ic);
 }
 
 /**

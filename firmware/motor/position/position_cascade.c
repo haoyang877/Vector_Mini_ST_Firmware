@@ -8,7 +8,6 @@
 
 #include "foc_pid.h"
 #include "position_cascade_config.h"
-#include "motor_thermal.h"
 #include "position_smooth_trajectory.h"
 
 typedef struct
@@ -110,12 +109,6 @@ static uint32_t PositionCascade_TimeToTicks(
 	return (uint32_t)ticks;
 }
 
-static float PositionCascade_OutputLimit(const PositionCascadeConfig_TypeDef *config)
-{
-    return MotorThermal_ResolveLimit(config->current_limit, config->thermal_output_limit_a,
-        config->thermal_limit_active);
-}
-
 static bool PositionCascade_ConfigIsValid(const PositionCascadeConfig_TypeDef *config)
 {
 	return config != NULL &&
@@ -150,8 +143,6 @@ static bool PositionCascade_ConfigIsValid(const PositionCascadeConfig_TypeDef *c
 		isfinite(config->acceleration_feedforward_gain) &&
 		config->acceleration_feedforward_gain >= 0.0f &&
 		isfinite(config->current_limit) && config->current_limit > 0.0f &&
-        (!config->thermal_limit_active || (isfinite(config->thermal_output_limit_a) &&
-         config->thermal_output_limit_a >= 0.0f)) &&
 		isfinite(config->friction_coulomb_positive) &&
 		config->friction_coulomb_positive >= 0.0f &&
 		isfinite(config->friction_coulomb_negative) &&
@@ -206,10 +197,9 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 		config->call_divider == saved->call_divider &&
 		config->friction_feedforward_enabled == saved->friction_feedforward_enabled &&
 		config->passive_hold_enabled == saved->passive_hold_enabled &&
-        config->thermal_limit_active == saved->thermal_limit_active &&
 		memcmp(&config->position_error_window, &saved->position_error_window,
-			offsetof(PositionCascadeConfig_TypeDef, thermal_limit_active) -
-            offsetof(PositionCascadeConfig_TypeDef, position_error_window)) == 0 &&
+			offsetof(PositionCascadeConfig_TypeDef, friction_feedforward_enabled) -
+			offsetof(PositionCascadeConfig_TypeDef, position_error_window)) == 0 &&
 		memcmp(&config->friction_coulomb_positive, &saved->friction_coulomb_positive,
 			sizeof(*config) - offsetof(PositionCascadeConfig_TypeDef, friction_coulomb_positive)) == 0)
 		return true;
@@ -865,7 +855,7 @@ static void PositionCascade_UpdateStictionIntegral(
 		increment = PositionCascade_Min(0.0f, PositionCascade_Max(increment,
 			-config->current_limit - current_candidate));
 	state.speed_controller.Ui = PositionCascade_Constrain(
-		state.speed_controller.Ui + increment, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		state.speed_controller.Ui + increment, -config->current_limit, config->current_limit);
 	state.stiction_integrating = increment != 0.0f;
 }
 
@@ -881,7 +871,7 @@ static void PositionCascade_RunPassiveHold(const PositionCascadeConfig_TypeDef *
 {
 	float step_a = POSITION_SERVO_PASSIVE_RELEASE_A_PER_S * config->update_period_s;
 	state.iq_reference = PositionCascade_Constrain(state.iq_reference,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		-config->current_limit, config->current_limit);
 	state.iq_reference -= PositionCascade_Constrain(state.iq_reference, -step_a, step_a);
 	PI_Controller_Reset(&state.speed_controller);
 	state.feedback_current = state.iq_reference;
@@ -962,7 +952,7 @@ static bool PositionCascade_RunPassiveRecovery(const PositionCascadeConfig_TypeD
 		PositionCascade_Min(config->speed_limit, config->maximum_speed * POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO));
 	PI_Controller_Configure(&state.speed_controller, config->speed_kp * config->current_limit,
 		config->speed_ki * config->current_limit, config->update_period_s,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		-config->current_limit, config->current_limit);
 	correction_a = PI_Controller_Run(&state.speed_controller, state.speed_reference, measured_speed);
 	if (!isfinite(correction_a))
 	{
@@ -970,14 +960,14 @@ static bool PositionCascade_RunPassiveRecovery(const PositionCascadeConfig_TypeD
 	}
 	/* 输出限速同样反馈给抗饱和，不能在斜坡后面积攒未施加的积分。 */
 	state.iq_reference += PositionCascade_Constrain(correction_a - state.iq_reference, -step_a, step_a);
-	state.iq_reference = PositionCascade_Constrain(state.iq_reference, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+	state.iq_reference = PositionCascade_Constrain(state.iq_reference, -config->current_limit, config->current_limit);
 	PI_Controller_TrackOutput(&state.speed_controller, state.iq_reference);
 	state.feedback_current = state.iq_reference;
 	state.friction_feedforward_current = 0.0f;
 	state.acceleration_feedforward_current = 0.0f;
 	state.control_velocity = measured_speed;
 	state.stiction_integrating = false;
-	state.current_saturated = PositionCascade_Abs(state.iq_reference) >= PositionCascade_OutputLimit(config);
+	state.current_saturated = PositionCascade_Abs(state.iq_reference) >= config->current_limit;
 	state.passive_hold = false;
 	state.target_reached = false;
 	state.phase = POSITION_SERVO_PHASE_SETTLE;
@@ -1244,11 +1234,11 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	FAST_PROFILE_END(FAST_PROFILE_FRICTION);
 	state.acceleration_feedforward_current = PositionCascade_Constrain(
 		config->acceleration_feedforward_gain * state.trajectory_acceleration,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		-config->current_limit, config->current_limit);
 	feedforward_candidate = state.acceleration_feedforward_current +
 		state.friction_feedforward_current;
 	feedforward_current = PositionCascade_Constrain(feedforward_candidate,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		-config->current_limit, config->current_limit);
 
 	/* Preserve the legacy speed-gain tuning while executing this PI in amperes. */
 	speed_kp_current_domain = config->speed_kp * config->current_limit;
@@ -1273,7 +1263,7 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	FAST_PROFILE_BEGIN(FAST_PROFILE_SPEED_PI);
 	PI_Controller_Configure(&state.speed_controller, speed_kp_current_domain,
 		speed_ki_current_domain, config->update_period_s,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		-config->current_limit, config->current_limit);
 	state.feedback_current = PI_Controller_Run(&state.speed_controller,
 		state.speed_reference, state.control_velocity);
 	current_candidate = state.feedback_current + feedforward_current;
@@ -1283,19 +1273,19 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 		return false;
 	}
 	state.current_saturated =
-		feedforward_candidate > PositionCascade_OutputLimit(config) ||
-        feedforward_candidate < -PositionCascade_OutputLimit(config) ||
-        current_candidate > PositionCascade_OutputLimit(config) ||
-        current_candidate < -PositionCascade_OutputLimit(config);
+		feedforward_candidate > config->current_limit ||
+		feedforward_candidate < -config->current_limit ||
+		current_candidate > config->current_limit ||
+		current_candidate < -config->current_limit;
 	state.iq_reference = PositionCascade_Constrain(current_candidate,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
+		-config->current_limit, config->current_limit);
 
 	/* Total-current saturation is included in the speed-PI anti-windup path. */
 	applied_feedback_current = PositionCascade_Constrain(state.iq_reference -
-		feedforward_current, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
-	if (state.near_target_no_integral && !config->thermal_limit_active)
+		feedforward_current, -config->current_limit, config->current_limit);
+	if (state.near_target_no_integral)
 	{
-		/* 非热降额近区沿用原积分策略；热限幅必须跟踪实际施加电流。 */
+		/* 近区禁积分时不能经饱和回算重新写入Ui。 */
 		state.speed_controller.Out = applied_feedback_current;
 	}
 	else

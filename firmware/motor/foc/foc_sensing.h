@@ -10,10 +10,9 @@ void Vbus_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
  * @brief 换算并按采样扇区重构相电流，同时保留原始三相过流检查。
  * @param FOC 接收当拍电流反馈，单位 A。
  * @param MotorControl 提供 ADC 零偏和运行模式。
- * @return 本拍电流换算可信时为true；零偏无效时为false，不允许用旧电流估计冷却。
  * @note 仅在完整 ADC 序列结束后、本拍 PWM 写入前调用；零偏校准不重构。
  */
-bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
+void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 /**
  * @brief 更新 MCU 温度反馈及 100 ℃ 过温保护。
  * @param FOC 接收温度，单位 ℃；不可用时为 NaN。

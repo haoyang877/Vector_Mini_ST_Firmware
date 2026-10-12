@@ -10,7 +10,6 @@
 #include "foc_calibration.h"
 #include "foc_friction_identification.h"
 #include "bus_voltage_profile.h"
-#include "motor_thermal_control.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -93,15 +92,6 @@ void Clear_RunningData(void)
  **/
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
-    if (!MotorThermalControl_CanRunMode((uint32_t)mode_set))
-    {
-        if (MotorControl.ErrorNow == No_Error)
-        {
-            Set_ErrorNow(MotorThermalControl_ParametersConfirmed() ?
-                MotorThermal_Protection : MotorParam_Error);
-        }
-        return false;
-    }
 	/* Reject an unsafe restart before any phase output can be enabled.
 	 * The normal supervisor owns voltage fault latching during operation. */
 	if (MotorControl.ModeNow == Motor_Disable &&
@@ -230,18 +220,16 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		}
 	}
 	
-    if (mode_set == Clear_Error)
-    {
-        if ((MotorControl.ErrorNow == MotorThermal_Protection ||
-             MotorControl.ErrorNow == No_Error) && !MotorThermalControl_CanClearFault())
-        {
-            return false;
-        }
-        /* 清其他故障不清热量；实际热锁存清除仍由快上下文再次判断。 */
-        MotorControl.ModeNow = Clear_Error;
-        return true;
-    }
-
+	if(mode_set == Clear_Error)
+	{
+		if(MotorControl.ErrorNow != No_Error)
+		{
+			MotorControl.ErrorNow = No_Error;
+			MotorControl.ModeNow = Motor_Disable;
+			return true;
+		}
+	}
+	
 	return false;
 }
 

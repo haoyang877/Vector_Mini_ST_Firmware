@@ -15,7 +15,7 @@ def fixture() -> str:
     old = subprocess.check_output(
         ["git", "show", "af70e737:firmware/app/foc_run.c"], cwd=load_profile.ROOT
     ).decode("utf-8")
-    controls = '#include "motor_thermal.h"\n' + function_source(source, "SpeedMode_UpdateControl") + "\n"
+    controls = function_source(source, "SpeedMode_UpdateControl") + "\n"
     controls += function_source(old, "SpeedMode_UpdateControl").replace(
         "SpeedMode_UpdateControl", "old_speed_control"
     )

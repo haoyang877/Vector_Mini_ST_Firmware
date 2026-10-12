@@ -36,12 +36,6 @@ static Encoder_TypeDef OnBoard_Encoder;
 static int PI_Speed;
 static void FocFrictionIdentification_Abort(MotorControl_TypeDef *m,int *p) { (void)m;(void)p; }
 static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
-static void Set_ModeNow(ModeNow_TypeDef m) { MotorControl.ModeNow=m; }
-/* 电压专项假定热准入通过；热锁存及清故障由热专项真实C夹具覆盖。 */
-static bool MotorThermalControl_CanRunMode(uint32_t mode) { (void)mode; return true; }
-static bool MotorThermalControl_ParametersConfirmed(void) { return true; }
-static bool MotorThermalControl_CanClearFault(void) { return true; }
-static bool MotorThermalControl_ClearFault(void) { return true; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { (void)e; return 0; }
 static void Task_Position_Mode_Reset(void) {}
@@ -118,8 +112,8 @@ int main(void) {
     assert(MotorControl.ErrorNow==Encoder_Error);
     puts("PASS nonfinite sensing fails closed and first fault is retained");
     reset(34.2f);MotorControl.ErrorNow=Over_Voltage;
-    assert(ModeSwitch_Handle(Clear_Error));Task_TryClearError();assert(!ModeSwitch_Handle(Speed_Mode));
-    input(33);FOC.Vbus_filt=33;assert(ModeSwitch_Handle(Clear_Error));Task_TryClearError();
+    assert(ModeSwitch_Handle(Clear_Error));assert(!ModeSwitch_Handle(Speed_Mode));
+    input(33);FOC.Vbus_filt=33;assert(ModeSwitch_Handle(Clear_Error));
     assert(MotorControl.ModeNow==Motor_Disable);assert(ModeSwitch_Handle(Speed_Mode));
     puts("PASS explicit recovery needs safe voltage, never auto-restarts");
     return 0;
@@ -132,7 +126,7 @@ def main():
     a=ap.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
     (out/'main.h').write_text('#include <stdint.h>\n')
     fixture=out/'bus_voltage_test.c'
-    fixture.write_text(PRELUDE+function_source((ROOT/'firmware/motor/foc/foc_sensing.c').read_text(encoding='utf-8'),'Vbus_Update')+'\n'+function_source((ROOT/'firmware/motor/protection/foc_errhandle.c').read_text(encoding='utf-8'),'ModeSwitch_Handle')+'\n'+function_source((ROOT/'firmware/app/foc_task.c').read_text(encoding='utf-8'),'Task_TryClearError')+CASES,encoding='utf-8')
+    fixture.write_text(PRELUDE+function_source((ROOT/'firmware/motor/foc/foc_sensing.c').read_text(),'Vbus_Update')+'\n'+function_source((ROOT/'firmware/motor/protection/foc_errhandle.c').read_text(),'ModeSwitch_Handle')+CASES)
     cc=[str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
     if Path(a.cc).stem=='zig':cc+=['cc']
     cc += NATIVE_INCLUDE_FLAGS

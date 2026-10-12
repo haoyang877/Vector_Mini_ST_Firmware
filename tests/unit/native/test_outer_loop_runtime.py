@@ -51,7 +51,6 @@ def main():
 #include "hw_conf.h"
 #include "foc_pid.h"
 #include "position_cascade.h"
-#include "motor_thermal.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
 #include "heap.h"
@@ -226,26 +225,6 @@ int main(void) {
     assert(live.ErrorNow==No_Error && live.speed_ff_state.initialized);
     assert(live.speedShadow==live.speed_ff_state.speed_rad_s && live.speedShadow>1);
     assert(fabsf(live.speed_ff_state.current_a)<=2 && fabsf(live.iqRef)<=live.current_limit);
-    /* 已完成的前馈结果尚未提交时降额：总电流夹紧、PI回算扣除实际前馈。 */
-    for(int sign=-1;sign<=1;sign+=2) {
-        setup(Speed_Mode);
-        SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
-        live.speed_ff_config.gain_a_per_rad_s2=.2f;live.speedRef=sign*20.f;enc.speed=0;
-        for(unsigned i=0;i<300;i++) run_step();
-        for(unsigned i=0;outer.status!=OUTER_QUEUED && i<20;i++) tick();
-        assert(outer.status==OUTER_QUEUED);
-        MotorOuterLoop_Service();assert(outer.status==OUTER_DONE);
-        live.thermal_limit_active=true;live.thermal_current_limit_a=.2f;
-        tick();
-        assert(live.ErrorNow==No_Error && fabsf(live.iqRef)<=.20001f);
-        assert(fabsf(live.speed_ff_state.current_a)<=.10001f);
-        assert(fabsf(live_pi.Out*live.current_limit+live.speed_ff_state.current_a-live.iqRef)<.00001f);
-        assert(live_pi.Ui>=live_pi.Umin && live_pi.Ui<=live_pi.Umax);
-        for(unsigned i=0;i<100;i++) run_step();
-        live.thermal_current_limit_a=0;
-        for(unsigned i=0;i<30;i++) run_step();
-        assert(live.iqRef==0 && live.speed_ff_state.current_a==0 && live_pi.Ui==0);
-    }
     live.ModeNow=Motor_Disable;tick();
     assert(!live.speed_ff_state.initialized && live.speed_ff_state.current_a==0);
     setup(Speed_Mode);

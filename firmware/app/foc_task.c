@@ -11,12 +11,6 @@
 #include "motor_status.h"
 #include "motor_load_control.h"
 #include "motor_hw.h"
-#include "motor_thermal_control.h"
-#include "time_hw.h"
-
-#if FOC_FREQ != 20000
-#error "Thermal sample window requires the validated 20 kHz motor fast loop"
-#endif
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -263,9 +257,7 @@ bool MotorControl_IsConfigurationValid(void)
 }
 
 void MotorControl_Init(void)
-{
-    MotorThermalControl_Init(time_hw_now_ms());
-    Encoder_ParamInit(&OnBoard_Encoder);
+{	Encoder_ParamInit(&OnBoard_Encoder);
 	
 	Fluxobserver_ParamInit(&Fluxobserver);
 	SensorlessStartup_Reset(&SensorlessStartup);
@@ -300,16 +292,6 @@ static void Task_SetMechanicalZero(MotorControl_TypeDef *MotorControl, Encoder_T
 	Set_ModeNow(Save_Param);
 }
 
-/* 清其他故障不绕过热锁存，清绕组故障必须真正满足冷却资格。 */
-static void Task_TryClearError(void)
-{
-    if (MotorThermalControl_ClearFault() || MotorControl.ErrorNow != MotorThermal_Protection)
-    {
-        Set_ErrorNow(No_Error);
-    }
-    Set_ModeNow(Motor_Disable);
-}
-
 static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 {
 	if (MotorControl->ModeNow == Current_Mode)
@@ -326,52 +308,10 @@ static bool Encoder_FeedbackRequired(const MotorControl_TypeDef *MotorControl)
 	       MotorControl->ModeNow == Set_ZeroPosition;
 }
 
-/* 快上下文最终准入，前台/调试器改变模式也不能跳过此处。 */
-static void Task_ApplyThermalGuard(void)
-{
-    bool voltage_mode = MotorControl.ModeNow == Voltage_OpenLoop || MotorControl.ModeNow == Vq_Mode ||
-        MotorControl.ModeNow == Calib_EncoderOffset || MotorControl.ModeNow == Calib_PhaseResistance;
-    bool current_boundary_exceeded = false;
-    /* 命令可能刚改配置上限，本拍最终边界必须按新配置重新发布。 */
-    MotorControl.thermal_current_limit_a = MotorThermalControl_CurrentLimit(MotorControl.current_limit);
-    MotorControl.thermal_limit_active = MotorControl.thermal_current_limit_a < MotorControl.current_limit;
-    if (voltage_mode)
-    {
-        float limit_a = MotorControl.thermal_current_limit_a;
-        float measured_vector_squared_a2 = (2.0f / 3.0f) *
-            (FOC.Ia * FOC.Ia + FOC.Ib * FOC.Ib + FOC.Ic * FOC.Ic);
-        current_boundary_exceeded = !isfinite(measured_vector_squared_a2) ||
-            measured_vector_squared_a2 > limit_a * limit_a;
-    }
-    /* 电压控制无法通过参考限流，实测越过边界时直接退出。 */
-    if (!MotorThermalControl_Guard((uint32_t)MotorControl.ModeNow) ||
-        current_boundary_exceeded)
-    {
-        if (MotorControl.ErrorNow == No_Error)
-        {
-            Set_ErrorNow(MotorThermalControl_ParametersConfirmed() ?
-                MotorThermal_Protection : MotorParam_Error);
-        }
-        MotorControl.idRef = 0.0f;
-        MotorControl.iqRef = 0.0f;
-        Set_ModeNow(Motor_Disable);
-    }
-}
-
 void FOC1kHzSupervisor(void)
 {
 	/* MCU 温度换算及保护由 1 kHz 监督任务执行。 */
 	Temperature_Update(&FOC);
-    /* ADC快中断消失时仍能停机；不在此上下文清/改热模型。 */
-    if (!MotorThermalControl_CheckWatchdog(time_hw_now_ms(), motor_hw_phase_outputs_disabled()))
-    {
-        if (MotorControl.ErrorNow == No_Error)
-        {
-            Set_ErrorNow(MotorThermal_Protection);
-        }
-        Set_ModeNow(Motor_Disable);
-        Stop_PWM_Generate();
-    }
 }
 
 void FOC20kHzIRQHandler(void)
@@ -380,7 +320,6 @@ void FOC20kHzIRQHandler(void)
 	bool defer_position_power_start = false;
 	bool defer_optional_telemetry = false;
 	bool encoder_sample_started;
-    bool current_sample_valid;
 	FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
 	FAST_PROFILE_END(FAST_PROFILE_EMPTY);
 	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER_REQUEST);
@@ -389,13 +328,7 @@ void FOC20kHzIRQHandler(void)
 	FAST_PROFILE_BEGIN(FAST_PROFILE_SENSING);
 	Vbus_Update(&FOC, &MotorControl);
 	
-    current_sample_valid = Current_Cal(&FOC, &MotorControl);
-    MotorThermalControl_Sample(current_sample_valid ? FOC.Ia : NAN,
-        current_sample_valid ? FOC.Ib : NAN, current_sample_valid ? FOC.Ic : NAN,
-        motor_hw_phase_outputs_disabled(), time_hw_now_ms());
-    MotorControl.thermal_current_limit_a = MotorThermalControl_CurrentLimit(MotorControl.current_limit);
-    MotorControl.thermal_limit_active =
-        MotorControl.thermal_current_limit_a < MotorControl.current_limit;
+	Current_Cal(&FOC, &MotorControl);
 	#if SERVO_HIL_ENABLE
 	ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
 	#endif
@@ -460,7 +393,6 @@ void FOC20kHzIRQHandler(void)
 		Set_ErrorNow(MotorParam_Error);
 		Set_ModeNow(Motor_Disable);
 	}
-    Task_ApplyThermalGuard();
 	FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
 	MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
 	switch(MotorControl.ModeNow)
@@ -564,7 +496,7 @@ void FOC20kHzIRQHandler(void)
 			Param_Return_Default();
 		
 		case Clear_Error:
-            Task_TryClearError();
+			Set_ErrorNow(No_Error);
 		default:break;
 	}
 	

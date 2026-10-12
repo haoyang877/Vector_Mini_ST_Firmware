@@ -44,9 +44,7 @@ python tests/run.py
 
 前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
 
-当前 APP 软件版本 **v0.5.0开发候选**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
-
-绕组热保护：[三相热点、热降额与放行条件](docs/guides/motor_winding_thermal_protection_v1.md)。热参数尚未确认，默认拒绝电机出力；未下载用于实机验证。
+当前 APP 软件版本 **v0.4.0独立候选**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
 
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
 

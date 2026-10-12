@@ -1,7 +1,7 @@
 #ifndef MOTOR_THERMAL_CONFIG_H
 #define MOTOR_THERMAL_CONFIG_H
 
-/* 3 A暂按d/q向量幅值解释；8 A/10 s仅用于离线对照，未获实机热参数放行。 */
+/* 3 A暂按d/q向量幅值解释；8 A/10 s仅用于离线对照，尚未实测热安全边界。 */
 #define MOTOR_THERMAL_CONTINUOUS_VECTOR_A 3.0f
 #define MOTOR_THERMAL_CONTINUOUS_PHASE_RMS_A 2.121320344f
 #define MOTOR_THERMAL_PEAK_A 7.0f
@@ -11,9 +11,9 @@
 #define MOTOR_THERMAL_FAST_SAMPLES 20U
 #define MOTOR_THERMAL_UPDATE_PERIOD_S 0.001f
 
-/* 默认禁止未经热标定放行的候选出力；离线夹具可显式覆盖验证。 */
+/* 用户授权默认放行；热降额、运行故障锁存和采样监督仍有效。 */
 #ifndef MOTOR_THERMAL_PARAMETERS_CONFIRMED
-#define MOTOR_THERMAL_PARAMETERS_CONFIRMED 0U
+#define MOTOR_THERMAL_PARAMETERS_CONFIRMED 1U
 #endif
 
 #endif

@@ -40,7 +40,9 @@ python tests/run.py
 
 ## 软件已有功能
 
-当前 APP 软件版本 **v0.2.0**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+当前独立热保护候选 **v0.3.0，build 2**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+
+绕组热保护：[默认放行、上电零热量及运行保护](docs/guides/motor_winding_thermal_protection_v1.md)。当前修订仅在独立分支验证，尚未重新合入开发分支或下载。
 
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
 

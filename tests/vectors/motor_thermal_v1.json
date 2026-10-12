@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "software_version": "v0.3.0",
-  "build": 1,
+  "build": 2,
   "fault_code": 16,
   "fault_meaning": "motor_winding_thermal_protection",
   "fault_field_offset": 0,
@@ -17,7 +17,8 @@
     "peak_a": 7,
     "heating_tau_s": 65.98486785,
     "cooling_tau_s": 120,
-    "parameters_confirmed": false
+    "parameters_confirmed": true,
+    "initial_heat": 0
   },
   "reference_without_derating": [
     {

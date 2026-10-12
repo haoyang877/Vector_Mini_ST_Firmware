@@ -1,5 +1,7 @@
 # 独立绕组热保护实现和逻辑验证
 
+本报告保留2d1c6fb7、build 1的历史结果。用户随后指定默认放行和零热量启动，当前契约见[启动修订v2](../plans/2026-10-12-motor-winding-thermal-startup-v2.md)；下文未放行及热态启动数据只适用于原版本。
+
 日期2026-10-12；分支codex/winding-thermal-protection；基线af70e737。当前工作保持独立，等待用户确认后合并到codex/ovp-36v。未下载、未运行电机。
 
 ## 实现结果

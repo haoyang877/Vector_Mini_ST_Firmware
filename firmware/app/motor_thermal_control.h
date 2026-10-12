@@ -17,9 +17,9 @@ typedef struct
 } MotorThermalDiagnostics;
 
 /**
- * @brief 初始化一次；重复调用不清热量，掉电/软件复位从最坏参考热态开始。
+ * @brief 初始化一次；首次上电/软件复位热量为0，重复调用保留运行热量。
  * @param now_ms 单调毫秒时钟，允许uint32回绕。
- * @note 输出关闭时初始化；正常STOP及清故障不得重新初始化。
+ * @note 输出关闭时初始化；正常STOP及清故障不得重新初始化，热历史不跨MCU复位保存。
  */
 void MotorThermalControl_Init(uint32_t now_ms);
 

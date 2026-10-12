@@ -52,6 +52,7 @@ def main() -> None:
 #include <string.h>
 #include <stdint.h>
 #include "motor_thermal_control.h"
+#include "motor_thermal_config.h"
 #include "data_type.h"
 static MotorThermalDiagnostics snapshot(void) {
     MotorThermalDiagnostics s;assert(MotorThermalControl_GetDiagnostics(&s));return s;
@@ -65,25 +66,34 @@ static void step(float a, float b, float c) {
 int main(void) {
     float old_heat; unsigned i;
     MotorThermalControl_Init(0);
-    assert(!MotorThermalControl_CanRunMode(Current_Mode));
-    assert(!MotorThermalControl_CanRunMode(Calib_EncoderObserver));
-    assert(!MotorThermalControl_CanRunMode(Voltage_OpenLoop));
+    assert(g_motor_thermal_diagnostics.model.max_heat==0);
+    assert(!g_motor_thermal_diagnostics.model.fault_latched);
+    for(i=0;i<4;i++) assert(g_motor_thermal_diagnostics.model.heat[i]==0);
+    assert(MotorThermalControl_ParametersConfirmed()==(MOTOR_THERMAL_PARAMETERS_CONFIRMED==1));
+#ifdef THERMAL_EXPECT_DEFAULT_CONFIRMED
+    assert(MOTOR_THERMAL_PARAMETERS_CONFIRMED==1);
+#endif
     assert(MotorThermalControl_CanRunMode(Motor_Disable));
     assert(MotorThermalControl_CanRunMode(Save_Param));
-    assert(MotorThermalControl_CurrentLimit(7)==0);
-    old_heat=g_motor_thermal_diagnostics.model.max_heat;
-    MotorThermalControl_Init(0); assert(g_motor_thermal_diagnostics.model.max_heat==old_heat);
-    for(i=0;i<450000 && g_motor_thermal_diagnostics.model.max_heat>.5f;i++) step(0,0,0);
 #if MOTOR_THERMAL_PARAMETERS_CONFIRMED == 1
-    assert(MotorThermalControl_CanClearFault());
-    assert(!MotorThermalControl_CanRunMode(Current_Mode));
-    old_heat=g_motor_thermal_diagnostics.model.max_heat;
-    assert(MotorThermalControl_ClearFault());
-    assert(g_motor_thermal_diagnostics.model.max_heat==old_heat);
+    assert(MotorThermalControl_CanRunMode(Current_Mode));
+    assert(MotorThermalControl_CanRunMode(Speed_Mode));
+    assert(MotorThermalControl_CanRunMode(Position_Mode));
+    assert(MotorThermalControl_CanRunMode(Calib_EncoderObserver));
+    assert(MotorThermalControl_CanRunMode(Calib_EleAngelOffset));
+    assert(MotorThermalControl_CanRunMode(Voltage_OpenLoop));
     assert(MotorThermalControl_CurrentLimit(9)==7);
     assert(MotorThermalControl_CurrentLimit(2)==2);
-    assert(MotorThermalControl_CanRunMode(Current_Mode));
-    for(i=0;i<5000 && !g_motor_thermal_diagnostics.model.derating;i++) step(7,-3.5f,-3.5f);
+#else
+    assert(!MotorThermalControl_CanRunMode(Current_Mode));
+    assert(MotorThermalControl_CurrentLimit(7)==0);
+#endif
+    for(i=0;i<500;i++) step(7,-3.5f,-3.5f);
+    old_heat=g_motor_thermal_diagnostics.model.max_heat;
+    assert(old_heat>0 && old_heat<.8f);
+    MotorThermalControl_Init(0); assert(g_motor_thermal_diagnostics.model.max_heat==old_heat);
+#if MOTOR_THERMAL_PARAMETERS_CONFIRMED == 1
+    for(i=0;i<6000 && !g_motor_thermal_diagnostics.model.derating;i++) step(7,-3.5f,-3.5f);
     assert(g_motor_thermal_diagnostics.model.derating);
     assert(MotorThermalControl_CanRunMode(Current_Mode));
     assert(!MotorThermalControl_CanRunMode(Calib_EleAngelOffset));
@@ -91,12 +101,25 @@ int main(void) {
     assert(!MotorThermalControl_CanRunMode(Current_Mode));
     assert(!MotorThermalControl_CanClearFault());
     assert(MotorThermalControl_Guard(Save_Param));
+    old_heat=g_motor_thermal_diagnostics.model.max_heat;
+    MotorThermalControl_Init(clock_ms);
+    assert(g_motor_thermal_diagnostics.model.max_heat==old_heat);
+    assert(g_motor_thermal_diagnostics.model.fault_latched);
+    for(i=0;i<180000 && g_motor_thermal_diagnostics.model.max_heat>.5f;i++) step(0,0,0);
+    assert(MotorThermalControl_CanClearFault());
+    assert(!MotorThermalControl_CanRunMode(Current_Mode));
+    old_heat=g_motor_thermal_diagnostics.model.max_heat;
+    assert(old_heat>0);
+    assert(MotorThermalControl_ClearFault());
+    assert(g_motor_thermal_diagnostics.model.max_heat==old_heat);
+    assert(MotorThermalControl_CanRunMode(Current_Mode));
+    assert(MotorThermalControl_CurrentLimit(9)==7);
 #else
     assert(!MotorThermalControl_CanClearFault());
     assert(!MotorThermalControl_ClearFault());
     assert(MotorThermalControl_CurrentLimit(7)==0);
 #endif
-    puts("PASS composition: hot boot, idempotent init, parameter gate, cold-clear request, cap, calibration abort, no automatic restart, clock wrap and dropout");
+    puts("PASS composition: zero-heat boot, parameter gate, retained runtime heat/latch, cap, calibration abort and explicit cooled clear");
     return 0;
 }
 """
@@ -108,6 +131,12 @@ int main(void) {
             [path, core, control],
             ["-DMOTOR_THERMAL_PARAMETERS_CONFIRMED=" + str(confirmed)],
         )
+    # 不覆盖生产放行宏，验证正常构建默认放行且启动热量为0。
+    run(
+        "thermal_control_default",
+        [path, core, control],
+        ["-DTHERMAL_EXPECT_DEFAULT_CONFIRMED=1"],
+    )
 
     # 每个新进程从静态零初始化模拟软件复位，生产接口没有重置热历史命令。
     path = out / "clock.c"
@@ -122,8 +151,8 @@ int main(void){
  MotorThermalDiagnostics d;
  uint32_t now=UINT32_MAX-1;
  MotorThermalControl_Init(now);
- assert(MotorThermalControl_GetDiagnostics(&d) && d.model.max_heat>10);
- assert(!MotorThermalControl_CanRunMode(Current_Mode));
+ assert(MotorThermalControl_GetDiagnostics(&d) && d.model.max_heat==0);
+ assert(!d.model.fault_latched && MotorThermalControl_CanRunMode(Current_Mode));
  for(unsigned n=0;n<2;n++){
   ++now;for(unsigned i=0;i<20;i++)MotorThermalControl_Sample(0,0,0,false,now);
  }
@@ -134,7 +163,7 @@ int main(void){
  assert(MotorThermalControl_GetDiagnostics(&d) && !d.model.valid);
  assert(!MotorThermalControl_CanClearFault());
  assert(d.watchdog_fault_pending);
- puts("PASS new process restart: worst-heat init, uint32 clock wrap, idle maintenance gap and irreversible active ADC-loss event");return 0;
+ puts("PASS new process restart: zero heat, uint32 clock wrap, idle maintenance gap and irreversible active ADC-loss event");return 0;
 }
 """,
         encoding="utf-8",

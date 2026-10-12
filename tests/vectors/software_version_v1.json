@@ -3,11 +3,26 @@
   "parameter_id": 111,
   "encoding": "uint32_be_0xMMmmppbb",
   "software_version": "v0.3.0",
-  "build": 1,
-  "version_code": 196609,
+  "build": 2,
+  "version_code": 196610,
   "vectors": [
-    {"node": 1, "identifier": 367, "request_hex": "00000000", "reply_hex": "00030001"},
-    {"node": 4, "identifier": 1135, "request_hex": "00000000", "reply_hex": "00030001"},
-    {"node": 5, "identifier": 1391, "request_hex": "00000000", "reply_hex": "00030001"}
+    {
+      "node": 1,
+      "identifier": 367,
+      "request_hex": "00000000",
+      "reply_hex": "00030002"
+    },
+    {
+      "node": 4,
+      "identifier": 1135,
+      "request_hex": "00000000",
+      "reply_hex": "00030002"
+    },
+    {
+      "node": 5,
+      "identifier": 1391,
+      "request_hex": "00000000",
+      "reply_hex": "00030002"
+    }
   ]
 }

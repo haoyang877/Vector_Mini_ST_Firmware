@@ -1,13 +1,13 @@
 # 绕组热保护候选使用与兼容
 
-本候选位于codex/winding-thermal-protection，软件v0.3.0、build 1。它尚未合并至codex/ovp-36v、未下载或进行实机热标定。
+本候选位于codex/winding-thermal-protection，软件v0.3.0、build 2。2026-10-12的开发分支合并已撤销；本次修订仅保留在独立工作树，未重新合并、下载或进行实机热标定。
 
 ## 当前配置和放行
 
 配置集中在firmware/app/motor_thermal_config.h：向量连续电流3 A、相RMS参考2.121 A、峰值7 A、升温时间常数65.9849 s、冷却时间常数120 s。
-这些值是逻辑验证参考，3 A单位和真实安装热能力、8 A/10 s安全性以及冷却速度仍待物理放行。MOTOR_THERMAL_PARAMETERS_CONFIRMED默认0；候选正常构建拒绝负载运行、开环和标定，查询/停机/参数维护仍可使用。不能仅为跑通测试就把放行开关改为1。
+这些值是逻辑验证参考，3 A单位和真实安装热能力、8 A/10 s安全性以及冷却速度仍待实测。按用户明确要求，MOTOR_THERMAL_PARAMETERS_CONFIRMED当前默认1；有效模型且无热锁存时可通过功率模式准入。显式构建覆盖为0时仍禁止出力，参数维护可用。软件授权不等于已完成温升标定。
 
-软件复位或重新上电从持续7 A的最坏参考相热值约10.889开始，零电流模型约370 s后才达到50%清热资格；清锁存需人工命令，不自动恢复旧目标。重复初始化不清状态。该时间依赖候选模型，不能当作实测冷却时间。
+按用户要求，首次上电或MCU软件复位时四个热量状态均为0、无热锁存，启动不再先等待约370 s。重复调用初始化函数、STOP、切模式和清故障仍保留运行累计热量。热状态仅在RAM中，MCU复位会丢失此前热历史并重新获得冷态预算，实际绕组温度不会随之归零。运行中触发热故障后，仍需冷却至50%及人工清故障，不自动恢复旧目标。
 
 ## 控制动作
 
@@ -25,11 +25,11 @@
 
 故障16定义为绕组热保护动作，覆盖热预算耗尽、模型失效和热保护拒绝的功率模式；未放行配置用现有参数错误12。先发生的其他故障保留，热状态仍独立锁定。MCU过温故障10与绕组热保护独立。
 CAN周期状态仍为48字节，fault在偏移0的大端uint16；故障16对应00 10，停机mode对应00 00。其他编号0～15和参数ID保持；旧上位机可显示未知故障16，不得将其当作MCU温度。温度字段仍为MCU温度，未增加绕组温度或热量字段。
-软件查询0x6F返回00 03 00 01。黄金向量见tests/vectors/motor_thermal_v1.json及software_version_v1.json。Flash仍为schema10/2292字节，PSP1/PVF1/DMP1/AXS1布局及校准数据没有变化。
+软件查询0x6F返回00 03 00 02。黄金向量见tests/vectors/motor_thermal_v1.json及software_version_v1.json。独立候选Flash仍为schema10/2292字节，PSP1/PVF1/DMP1/AXS1布局及校准数据没有变化；与较新开发分支重新整合时须另行核对其尾记录。
 C运行结构新增RAM尾字段和执行边界配置，Current_Cal返回bool有效性；所有模块需一起重建，不能与旧AXF地址或目标文件混用。
 
 ## 验证与已知边界
 
 离线命令：python tools/run.py test_motor_thermal --cc <C99编译器> --out outputs/motor_thermal_native。使用Zig时传入zig可执行文件，工具会增加cc子命令。该命令不会连接探针、烧录或启动电机。
-还需执行现有位置、外环、参数持久化、CAN、工程布局及普通固件构建回归。详见[验证报告](../reports/2026-10-12-winding-thermal-protection-validation.md)和[设计](../plans/2026-10-12-motor-winding-thermal-protection-v1.md)。
-逻辑验证不证明物理热边界或20 kHz最坏耗时。CPU被调试器暂停时软件监督也停止，不能靠本算法代替通电调试的现场关相/断电措施。热参数未放行前不下载用于运动验收。
+本次位置、外环、参数持久化、CAN、工程布局及普通构建回归已通过，详见[当前启动修订验证](../reports/2026-10-12-winding-thermal-startup-v2-validation.md)、[原候选历史验证](../reports/2026-10-12-winding-thermal-protection-validation.md)及[设计](../plans/2026-10-12-motor-winding-thermal-protection-v1.md)。
+逻辑验证不证明物理热边界或20 kHz最坏耗时。CPU被调试器暂停时软件监督也停止，不能靠本算法代替通电调试的现场关相/断电措施。此次软件启动修订不包含通电验收，实机测试需要独立台架场景。

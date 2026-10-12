@@ -46,7 +46,6 @@ static bool abort_on_derating(uint32_t mode)
 void MotorThermalControl_Init(uint32_t now_ms)
 {
     MotorThermalConfig config;
-    float initial_heat;
     if (thermal_diagnostics.initialized)
     {
         return;
@@ -58,10 +57,8 @@ void MotorThermalControl_Init(uint32_t now_ms)
     config.cooling_tau_s = MOTOR_THERMAL_COOLING_TAU_S;
     config.update_period_s = MOTOR_THERMAL_UPDATE_PERIOD_S;
     config.samples_per_update = MOTOR_THERMAL_FAST_SAMPLES;
-    /* 没有可靠掉电时长：用持续7 A的最坏相稳态，不能把复位当冷却。 */
-    initial_heat = config.peak_a * config.peak_a /
-                   (config.continuous_phase_rms_a * config.continuous_phase_rms_a);
-    MotorThermal_Init(&thermal_diagnostics.model, &config, initial_heat);
+    /* 用户指定上电按冷态开始；MCU复位丢失热历史，重复初始化仍保留热量。 */
+    MotorThermal_Init(&thermal_diagnostics.model, &config, 0.0f);
     thermal_diagnostics.last_update_ms = now_ms;
     published_update_ms = now_ms;
     thermal_diagnostics.parameters_confirmed = MOTOR_THERMAL_PARAMETERS_CONFIRMED == 1U;

@@ -49,6 +49,7 @@ typedef enum
 	Sensorless_Error,
 	FrictionIdentification_Error,
 	ControlOverrun_Error,
+    MotorThermal_Protection = 16, /* 绕组热过载或模型无效；MCU过温仍为10。 */
 }ErrorNow_TypeDef;
 
 typedef struct
@@ -145,6 +146,9 @@ typedef struct
     float position_speed_Ki;
     /* mode 3 惯量前馈 J/Kt，A/(rad/s²)；RAM调试参数，0关闭，尚不持久化。 */
     float position_accel_ff_gain_a_per_rad_s2;
+    /* 快环发布、工作线程仅消费；RAM尾字段，不保存到InterfaceParam。 */
+    float thermal_current_limit_a;
+    bool thermal_limit_active;
 }MotorControl_TypeDef;
 
 #endif

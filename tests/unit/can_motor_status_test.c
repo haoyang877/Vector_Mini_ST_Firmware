@@ -37,6 +37,9 @@ static void encoding(void)
     assert(!CanMotorStatus_Encode(&s,NULL,48));
     assert(CanMotorStatus_Encode(&s,data,48));
     assert(memcmp(data,expected,48)==0 && data[48]==0xa5 && data[49]==0xa5);
+    s.fault=16; s.mode=0;
+    assert(CanMotorStatus_Encode(&s,data,48));
+    assert(data[0]==0 && data[1]==16 && data[2]==0 && data[3]==0);
     s.position_target=NAN; s.position_feedback=INFINITY;
     s.speed_target=3e30f; s.speed_feedback=-3e30f;
     s.current_reference=NAN; s.current_feedback=-40.f;

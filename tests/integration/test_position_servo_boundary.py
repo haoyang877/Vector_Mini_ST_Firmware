@@ -32,6 +32,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
                 "<string.h>",
                 '"foc_pid.h"',
                 '"position_cascade_config.h"',
+                '"motor_thermal.h"',
                 '"position_smooth_trajectory.h"',
             ],
         )
@@ -72,7 +73,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("friction_landing_active", public_api)
         self.assertIn("settle_recovery_active", public_api)
         self.assertIn("hold_candidate_active", public_api)
-        self.assertIn("feedforward_candidate > config->current_limit", source)
+        self.assertIn("feedforward_candidate > PositionCascade_OutputLimit(config)", source)
 
     def test_landing_and_settle_recovery_use_measured_state(self) -> None:
         source = SERVO_SOURCE.read_text(encoding="utf-8")

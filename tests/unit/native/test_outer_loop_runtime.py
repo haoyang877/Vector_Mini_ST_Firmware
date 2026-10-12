@@ -51,6 +51,7 @@ def main():
 #include "hw_conf.h"
 #include "foc_pid.h"
 #include "position_cascade.h"
+#include "motor_thermal.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
 #include "heap.h"

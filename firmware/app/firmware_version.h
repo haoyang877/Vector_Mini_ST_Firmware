@@ -5,7 +5,7 @@
 
 /** @brief 当前 APP 软件版本；每项占一个字节，修改后须重新构建。 */
 #define FIRMWARE_VERSION_MAJOR 0
-#define FIRMWARE_VERSION_MINOR 4
+#define FIRMWARE_VERSION_MINOR 5
 #define FIRMWARE_VERSION_PATCH 0
 #define FIRMWARE_VERSION_BUILD 0
 

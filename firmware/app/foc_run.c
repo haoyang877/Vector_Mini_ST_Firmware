@@ -8,6 +8,7 @@
 #include "position_impedance.h"
 #include "position_impedance_config.h"
 #include "motor_hw.h"
+#include "motor_thermal.h"
 
 static void MotorOuterLoop_RequestReset(void);
 
@@ -49,12 +50,22 @@ static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
         if (MotorControl->ModeNow == Speed_Mode && MotorControl->speed_ff_config.enabled)
         {
             float feedforward_a, pi_normalized, total_a;
+            float available_a = MotorThermal_ResolveLimit(MotorControl->current_limit,
+                MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
+            if (available_a <= 0.0f)
+            {
+                PI_Controller_Reset(controller);
+                MotorControl->speed_ff_state.current_a = 0.0f;
+                MotorControl->idRef = 0.0f;
+                MotorControl->iqRef = 0.0f;
+                return;
+            }
             if (!MotorControl->speed_ff_state.initialized)
             {
                 PI_Controller_Reset(controller);
             }
             if (!SpeedFeedforward_Update(&MotorControl->speed_ff_state, &MotorControl->speed_ff_config,
-                MotorControl->speedRef, vel_mech, Speed_Ts, MotorControl->current_limit))
+                MotorControl->speedRef, vel_mech, Speed_Ts, available_a))
             {
                 MotorControl->iqRef = NAN;
                 return;
@@ -64,11 +75,11 @@ static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
             feedforward_a = MotorControl->speed_ff_state.current_a;
             /* 将总限流换算成剩余PI电流区间，积分准入因此包含前馈。 */
             PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts,
-                (-MotorControl->current_limit - feedforward_a) / MotorControl->current_limit,
-                (MotorControl->current_limit - feedforward_a) / MotorControl->current_limit);
+                (-available_a - feedforward_a) / MotorControl->current_limit,
+                (available_a - feedforward_a) / MotorControl->current_limit);
             pi_normalized = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech);
             total_a = fminf(fmaxf(pi_normalized * MotorControl->current_limit + feedforward_a,
-                -MotorControl->current_limit), MotorControl->current_limit);
+                -available_a), available_a);
             PI_Controller_TrackOutput(controller, (total_a - feedforward_a) / MotorControl->current_limit);
             MotorControl->idRef = 0.0f;
             MotorControl->iqRef = total_a;
@@ -101,9 +112,16 @@ static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
             MotorControl->speedShadow = MotorControl->speedRef;
         }
 
-        PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
+        float available_a = MotorThermal_ResolveLimit(MotorControl->current_limit,
+            MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
+        float ratio = available_a / MotorControl->current_limit;
+        PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -ratio, ratio);
         MotorControl->idRef = 0.0f;
         MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech) * MotorControl->current_limit;
+        if (MotorControl->thermal_limit_active)
+        {
+            PI_Controller_TrackOutput(controller, controller->Out);
+        }
 }
 
 /* Calibration retains its serialized divided call path and shares the same PI. */
@@ -224,17 +242,23 @@ static float Sensorless_UpdateSpeedLoop(MotorControl_TypeDef *MotorControl,
 	PI_Controller_TypeDef *controller, SensorlessStartup_TypeDef *Startup,
 	float observer_mech_vel)
 {
+    float ratio = MotorThermal_ResolveLimit(MotorControl->current_limit,
+        MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active) / MotorControl->current_limit;
 	if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
 	{
 		Startup->speed_feedback += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
 			(observer_mech_vel - Startup->speed_feedback);
 		Sensorless_UpdateSpeedReference(MotorControl);
 		PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
-			Speed_Ts, -1.0f, Startup->speed_pi_output_max);
+			Speed_Ts, -ratio, fminf(ratio, Startup->speed_pi_output_max));
 		PI_Controller_Run(controller, MotorControl->speedShadow, Startup->speed_feedback);
+        if (MotorControl->thermal_limit_active)
+        {
+            PI_Controller_TrackOutput(controller, controller->Out);
+        }
 		Startup->speed_loop_ticks = 0U;
 	}
-	return constrain(controller->Out, -1.0f, Startup->speed_pi_output_max) *
+	return constrain(controller->Out, -ratio, fminf(ratio, Startup->speed_pi_output_max)) *
 		MotorControl->current_limit;
 }
 
@@ -279,6 +303,12 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		return;
 	}
 
+    if (Startup->state != SENSORLESS_STARTUP_CLOSED_LOOP && MotorControl->thermal_limit_active &&
+        MotorControl->thermal_current_limit_a < MotorControl->current_limit)
+    {
+        Set_ErrorNow(MotorThermal_Protection);
+        return;
+    }
 	if (!Sensorless_StartupCurrentsAreValid(MotorControl, Config))
 	{
 		Set_ErrorNow(Sensorless_Error);
@@ -592,6 +622,8 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 	config.acceleration_feedforward_gain =
 		MotorControl->position_accel_ff_gain_a_per_rad_s2;
 	config.current_limit = MotorControl->current_limit;
+    config.thermal_limit_active = MotorControl->thermal_limit_active;
+    config.thermal_output_limit_a = MotorControl->thermal_current_limit_a;
 	config.friction_feedforward_enabled =
 		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
 	config.passive_hold_enabled =
@@ -656,7 +688,10 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     if (config->friction_feedforward_enabled !=
         MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags) ||
         config->passive_hold_enabled !=
-        MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags))
+        MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags) ||
+        config->thermal_limit_active != MotorControl->thermal_limit_active ||
+        (MotorControl->thermal_limit_active &&
+         config->thermal_output_limit_a != MotorControl->thermal_current_limit_a))
     {
         return false;
     }
@@ -764,7 +799,8 @@ void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorC
 	config.kd = MotorControl->pos_Kd;
 	config.ki = MotorControl->pos_Ki;
 	config.integral_limit = MotorControl->pos_integral_limit;
-	config.output_limit = MotorControl->current_limit;
+	config.output_limit = MotorThermal_ResolveLimit(MotorControl->current_limit,
+        MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
 	config.friction_feedforward_enabled =
 		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
 	config.friction_positive_current = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
@@ -841,7 +877,9 @@ static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
     const MotorControl_TypeDef *saved = &outer.motor;
     if (outer.request_epoch != outer.epoch) return false;
 #define SAME_INPUT(field) PositionMode_SameTuningValue(m->field, saved->field)
-    return SAME_INPUT(current_limit) && SAME_INPUT(position_speed_Kp) &&
+    return SAME_INPUT(current_limit) &&
+        m->thermal_limit_active == saved->thermal_limit_active &&
+        (!m->thermal_limit_active || SAME_INPUT(thermal_current_limit_a)) && SAME_INPUT(position_speed_Kp) &&
         SAME_INPUT(position_speed_Ki) &&
         SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
         SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) &&
@@ -980,7 +1018,9 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                 } else {
                     m->idRef = 0.0f;
                     /* A live current-limit reduction is effective immediately. */
-                    m->iqRef = fminf(fmaxf(outer.motor.iqRef, -m->current_limit), m->current_limit);
+                    float available_a = MotorThermal_ResolveLimit(m->current_limit,
+                        m->thermal_current_limit_a, m->thermal_limit_active);
+                    m->iqRef = fminf(fmaxf(outer.motor.iqRef, -available_a), available_a);
                     m->speedShadow = outer.motor.speedShadow;
                     if (m->ModeNow == Position_Mode) {
                         m->posShadow = outer.motor.posShadow;
@@ -992,6 +1032,21 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                         m->speed_ff_state = outer.motor.speed_ff_state;
                         m->isUseSpeedRamp = outer.motor.isUseSpeedRamp;
                         *pi = outer.speed_controller;
+                        if (m->thermal_limit_active)
+                        {
+                            float feedforward_a = 0.0f;
+                            if (m->speed_ff_config.enabled)
+                            {
+                                float feedforward_limit_a = fminf(m->speed_ff_config.current_limit_a,
+                                    0.5f * available_a);
+                                m->speed_ff_state.current_a = fminf(fmaxf(m->speed_ff_state.current_a,
+                                    -feedforward_limit_a), feedforward_limit_a);
+                                feedforward_a = m->speed_ff_state.current_a;
+                            }
+                            pi->Umin = (-available_a - feedforward_a) / m->current_limit;
+                            pi->Umax = (available_a - feedforward_a) / m->current_limit;
+                            PI_Controller_TrackOutput(pi, (m->iqRef - feedforward_a) / m->current_limit);
+                        }
                     }
                     outer.ready = true;
                     outer.completed++;

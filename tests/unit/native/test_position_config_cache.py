@@ -34,6 +34,9 @@ def main():
     reference = reference.replace('MotorControl->speed_Ki', 'MotorControl->position_speed_Ki')
     reference = reference.replace('POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2',
                                   'MotorControl->position_accel_ff_gain_a_per_rad_s2')
+    reference = reference.replace('config.current_limit = MotorControl->current_limit;',
+        'config.current_limit = MotorControl->current_limit;\n'
+        'config.thermal_output_limit_a = 0; config.thermal_limit_active = false;')
     # 配置缓存比较在同一版控制策略上进行，历史构造必须显式初始化新增布尔字段。
     reference = reference.replace('config.friction_feedforward_enabled =',
         'config.passive_hold_enabled = MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags);\n\tconfig.friction_feedforward_enabled =')
@@ -74,6 +77,7 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include <stdint.h>
 #include "firmware/services/telemetry/fast_loop_profile.h"
 #include "position_cascade.h"
+#include "motor_thermal.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
 #include "motor_load_profile.h"

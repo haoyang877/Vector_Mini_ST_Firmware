@@ -1,7 +1,7 @@
 # 软件版本号与查询
 
-文档 v1，2026-10-12；当前独立`codex/wheel-speed-feedforward` APP：**v0.4.0候选，build 0**。
-本功能从调试树撤回时恢复v0.2.2；调试树后续修改保持独立。新候选未下载，设备历史版本见下方记录。
+文档 v1，2026-10-12；当前`codex/ovp-36v` APP：**v0.5.0开发候选，build 0**。
+本版合并速度惯量前馈与绕组热保护；热参数未放行，默认拒绝电机出力。未下载，设备历史版本见下方记录。
 历史 `roll-pitch-v0.1` 标签仍指向原节点。其他工作树的 APP/Loader 版本独立维护。
 
 ## 修改与读取
@@ -10,13 +10,13 @@
 `FIRMWARE_VERSION_MAJOR/MINOR/PATCH/BUILD`。每项为0～255的十进制整数，
 修改后重新编译、下载才影响板端；版本由源码编入 Flash，不写入电机参数区。
 
-- RTT 文本通道0在启动时输出 `Vector Mini ST APP v0.4.0 (build 0)`；通道1
+- RTT 文本通道0在启动时输出 `Vector Mini ST APP v0.5.0 (build 0)`；通道1
   的原有 LKS 示波器格式不变。错过启动文本可读取以下符号或用 CAN 查询。
-- Keil/J-Link：只读符号 `g_firmware_software_version_string` 为 `v0.4.0`；
-  `g_firmware_software_version` 为 `0x00040000`。地址由本次 AXF/map 决定，
+- Keil/J-Link：只读符号 `g_firmware_software_version_string` 为 `v0.5.0`；
+  `g_firmware_software_version` 为 `0x00050000`。地址由本次 AXF/map 决定，
   不能沿用旧 AXF 的地址。
 - CAN：标准帧ID=`(node_id << 8) | 0x6F`，发送4字节 `00 00 00 00`；
-  同一ID回复4字节 `00 04 00 00`，依次为主、次、修订、构建号。
+  同一ID回复4字节 `00 05 00 00`，依次为主、次、修订、构建号。
   Pitch节点4示例ID为 `0x46F`，Roll为 `0x36F`，Yaw为 `0x56F`。
   四字节必须作为大端 uint32 或分别按字节读，**不是float32**。
 
@@ -28,7 +28,7 @@
 
 新增0x6F为只读命令，无对应写命令，不启动电机、不保存参数、不修改控制增益。
 线路长度、节点寻址和既有参数编码保持不变；协议版本0x67仍返回2。
-不改变 Flash 参数 schema10、PSP1 两套 PI、轴配置、LUT、电零位或机械零位。
+不改变目标分支的 Flash 参数 schema10/2344字节；FSL1、SFF1、PSP1 两套 PI、轴配置、LUT、电零位或机械零位保持。热状态仅驻留RAM，不新增CAN热参数读写。
 旧固件忽略此查询、可能超时；不得将超时解释为版本0或自动触发烧录/标定。
 
 版本标记是功能版本，精确构建仍须结合源码、目标和工件SHA256。

@@ -51,12 +51,13 @@ static PositionCascadeOutput_TypeDef step(PositionCascadeConfig_TypeDef *c,
     float position, float speed)
 {
     PositionCascadeOutput_TypeDef o;
+    float limit = c->thermal_limit_active ? fminf(c->current_limit, c->thermal_output_limit_a) : c->current_limit;
     assert(PositionCascade_Update(c, position, speed, &o));
     assert(isfinite(o.iq_reference));
-    assert(fabsf(o.iq_reference) <= c->current_limit + 0.00001f);
+    assert(fabsf(o.iq_reference) <= limit + 0.00001f);
     assert(fabsf(o.iq_reference - o.feedback_current -
         o.acceleration_feedforward_current - o.friction_feedforward_current) <
-        0.00001f || fabsf(o.iq_reference) >= c->current_limit - 0.00001f);
+        0.00001f || fabsf(o.iq_reference) >= limit - 0.00001f);
     return o;
 }
 
@@ -1626,9 +1627,48 @@ static void test_half_degree_zero_current_and_bounded_recovery(void)
     }
 }
 
+static void test_thermal_output_cap(void)
+{
+    int sign, rate, i;
+    for (sign = -1; sign <= 1; sign += 2)
+    for (rate = 1000; rate <= 2000; rate += 1000)
+    {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        c.update_period_s = 1.0f / rate;
+        c.thermal_limit_active = true;
+        c.thermal_output_limit_a = .4f;
+        c.target_position = sign * .2f;
+        c.position_kp = 8;
+        c.speed_kp = .5f;
+        c.speed_ki = 1;
+        PositionCascade_Reset();
+        for (i = 0; i < 3 * rate; ++i)
+        {
+            o = step(&c, 0, 0);
+            assert(fabsf(o.iq_reference) <= .40001f);
+            assert(fabsf(o.hold_current) <= .40001f);
+        }
+        c.thermal_output_limit_a = 0;
+        for (i = 0; i < rate; ++i)
+        {
+            o = step(&c, 0, 0);
+            assert(o.iq_reference == 0 && o.hold_current == 0);
+        }
+        c.thermal_output_limit_a = .2f;
+        for (i = 0; i < rate; ++i)
+        {
+            o = step(&c, 0, 0);
+            assert(fabsf(o.iq_reference) <= .20001f && fabsf(o.hold_current) <= .20001f);
+        }
+        assert(c.current_limit == 6 && c.speed_kp == .5f && c.speed_ki == 1);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
+    test_thermal_output_cap(); puts("PASS thermal position cap: composite FF/PI current, existing Ui reduction, zero cap, no stored-limit/gain change, both signs/rates");
     test_half_degree_zero_current_and_bounded_recovery(); puts("PASS half degree zero current; PI integral recovery, runtime current limit, no FF, 1 degree trigger, 0.5 degree release, static disturbance/new command and lower current limit, both signs/rates");
     test_damped_restart_continuity(); puts("PASS damped restart: seed stopped residual, bounded friction onset, retain moving q/v/a, both signs/rates");
     test_record07_passive_recoil(); puts("PASS record07: residual and recoil unload Ui/Iq/FF, noise stays quiet, qualified 1 degree bounded recovery, both signs/rates");

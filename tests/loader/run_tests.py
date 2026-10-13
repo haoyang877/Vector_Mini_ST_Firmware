@@ -77,6 +77,12 @@ def main():
         [sys.executable, str(root / "tests/loader/test_cycle_guard.py")],
         [
             sys.executable,
+            str(root / "tests/loader/test_tx_backpressure.py"),
+            args.cc,
+            str(out),
+        ],
+        [
+            sys.executable,
             str(root / "tests/loader/test_startup_parameter_read.py"),
             args.cc,
             str(out),

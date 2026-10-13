@@ -249,6 +249,18 @@ def main():
                     report["failed"] += 1
                     report["status"] = "FAIL"
                     report["last_error"] = str(exc)
+                    diagnostics = {
+                        "cycle": cycle,
+                        "error": str(exc),
+                        "last_requests": client.trace[-40:],
+                    }
+                    try:
+                        diagnostics["adapter_status"] = bus.diagnostics(args.channel)
+                    except Exception as diagnostic_error:
+                        diagnostics["adapter_status_error"] = str(diagnostic_error)
+                    (args.out / f"failure_{cycle:04d}.json").write_text(
+                        json.dumps(diagnostics, indent=2) + "\n", encoding="utf-8"
+                    )
                 row["duration_s"] = round(time.monotonic() - cycle_start, 3)
                 row["requests"] = len(client.trace)
                 row["retransmissions"] = sum(x["attempt"] > 0 for x in client.trace)

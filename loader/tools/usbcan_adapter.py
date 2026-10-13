@@ -65,6 +65,30 @@ class DeviceInfo(C.Structure):
     ]
 
 
+class ChannelError(C.Structure):
+    _fields_ = [
+        ("error_code", C.c_uint32),
+        ("passive", C.c_uint8 * 3),
+        ("arbitration_lost", C.c_uint8),
+    ]
+
+
+class ChannelStatus(C.Structure):
+    _fields_ = [
+        (name, C.c_uint8)
+        for name in (
+            "error_interrupt",
+            "mode",
+            "status",
+            "arbitration_lost",
+            "error_capture",
+            "warning_limit",
+            "rx_error_counter",
+            "tx_error_counter",
+        )
+    ] + [("reserved", C.c_uint32)]
+
+
 class CanFD:
     """拥有有界的1M/1M ISO CAN-FD通道。"""
 
@@ -145,6 +169,27 @@ class CanFD:
     def _ok(code, operation):
         if code != 1:
             raise OSError(f"{operation}: SDK returned {code}")
+
+    def diagnostics(self, channel):
+        """读取所选通道错误；在关闭适配器前取证，不启动或复位设备。"""
+        result = {}
+        for name, kind in (
+            ("ZCAN_ReadChannelErrInfo", ChannelError),
+            ("ZCAN_ReadChannelStatus", ChannelStatus),
+        ):
+            fn = getattr(self.dll, name)
+            fn.argtypes = [C.c_void_p, C.POINTER(kind)]
+            fn.restype = C.c_uint32
+            value = kind()
+            code = fn(self.channels[channel], C.byref(value))
+            fields = {
+                key: list(getattr(value, key))
+                if isinstance(getattr(value, key), C.Array)
+                else getattr(value, key)
+                for key, _ in kind._fields_
+            }
+            result[name] = {"sdk_result": code, "fields": fields}
+        return result
 
     def close(self):
         """尝试释放全部自己拥有的通道和适配器，错误集中报告。"""

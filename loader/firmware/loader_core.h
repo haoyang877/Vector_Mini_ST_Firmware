@@ -15,7 +15,7 @@ typedef struct
 
 /** @brief 初始化单台Loader会话。
  * @param core 状态所有者。
- * @param node 当前0～15节点。
+ * @param node 当前0～7节点。
  */
 void LoaderCore_Init(LoaderCore *core, uint8_t node);
 /** @brief 前台处理完整CAN-FD请求；坏帧无副作用。

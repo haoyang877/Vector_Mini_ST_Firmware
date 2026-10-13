@@ -9,6 +9,7 @@
 static FDCAN_HandleTypeDef hldr_can;
 
 static uint8_t s_node;
+static uint32_t s_tx_started_ms;
 
 static ldr_rx_frame_t s_rx_ring[LDR_RX_RING_SIZE];
 static volatile uint8_t s_rx_head;
@@ -202,8 +203,14 @@ bool loader_link_send(const uint8_t *data, uint8_t len)
     if (HAL_FDCAN_IsTxBufferMessagePending(&hldr_can, FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 |
                                                           FDCAN_TX_BUFFER2) != 0U)
     {
+        /* 旧回复缺ACK不能永久堵塞重试；取消只影响CAN，不改变已提交的Flash状态。 */
+        if ((uint32_t)(HAL_GetTick() - s_tx_started_ms) >= 100U)
+        {
+            hldr_can.Instance->TXBCR = FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 | FDCAN_TX_BUFFER2;
+        }
         return false;
     }
+    s_tx_started_ms = HAL_GetTick();
     return HAL_FDCAN_AddMessageToTxFifoQ(&hldr_can, &tx, (uint8_t *)data) == HAL_OK;
 }
 

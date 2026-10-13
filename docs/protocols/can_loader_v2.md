@@ -78,7 +78,7 @@ BEGIN载荷偏移：size0、image_crc4、app_version8、image_type:u16在12（�
 6. VERIFY的CRC必须等于包CRC；ACTIVATE后等待APP。
 7. 读取相同UID的新APP版本、STOP和全参数CRC。全部符合后才报告升级成功；不能只看ACTIVATE ACK。
 
-普通请求超时1 s，精确重试最多3次；ERASE初值20 s，VERIFY10 s，APP恢复5 s。上位机不得在ERASE时持续发送数据。失去连接或session不确定时停止本轮，重新读取身份/状态，不能盲目重新擦写。
+普通请求每次超时1 s，包含首发最多尝试10次，始终保持相同字节；ERASE每次初值20 s，VERIFY10 s，APP恢复5 s。Loader在新请求到来时取消已挂起超过100 ms的旧回复，该请求的回复可能尚未入队，主机应继续精确重试；取消绝不算ACTIVATE已发送。上位机不得在ERASE时持续发送数据。尝试耗尽或session不确定时停止本轮，重新读取身份/状态，不能盲目重新擦写。扩展帧级重试不能重置整圈失败记录。
 
 升级中断后记录无效，设备驻留Loader，完整重新下载。首版没有断点续传、A/B镜像、自动回滚或认证。版本字节为2，旧v1消息明确拒绝，禁止自动降级写入。
 

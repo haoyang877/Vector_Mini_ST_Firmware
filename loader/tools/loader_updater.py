@@ -71,7 +71,7 @@ class Client:
         self.session = 0
         self.trace = []
 
-    def request(self, op, payload=b"", timeout=1, retries=3, session=None):
+    def request(self, op, payload=b"", timeout=1, retries=10, session=None):
         """有界重试相同字节，不能通过创建新请求重试擦写。"""
         self.seq += 1
         if self.seq > 65535:
@@ -81,7 +81,16 @@ class Client:
         for attempt in range(retries):
             self.bus.send(self.channel, 0x7D0 + self.node, raw)
             self.trace.append(
-                {"op": op, "seq": self.seq, "session": sid, "attempt": attempt}
+                {
+                    "op": op,
+                    "seq": self.seq,
+                    "session": sid,
+                    "attempt": attempt,
+                    "offset": struct.unpack(">I", payload[:4])[0]
+                    if op == 0x22
+                    else None,
+                    "elapsed_s": time.monotonic(),
+                }
             )
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:

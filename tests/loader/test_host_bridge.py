@@ -12,7 +12,7 @@ from loader_updater import Client  # noqa: E402 - 按仓库目录加载离线客
 
 
 class NativeBus:
-    """只将CAN载荷交给离线C进程，模拟一次丢ACK和错误关联回复。"""
+    """只将CAN载荷交给离线C进程，模拟连续四次丢ACK和错误关联回复。"""
 
     def __init__(self, exe):
         self.process = subprocess.Popen(
@@ -22,7 +22,7 @@ class NativeBus:
             text=True,
         )
         self.pending = []
-        self.dropped = False
+        self.dropped = 0
 
     def send(self, channel, identifier, raw):
         if channel != 0 or identifier != 0x7D4:
@@ -30,8 +30,8 @@ class NativeBus:
         self.process.stdin.write(raw.hex() + "\n")
         self.process.stdin.flush()
         reply = bytes.fromhex(self.process.stdout.readline().strip())
-        if raw[2] == 0x22 and not self.dropped:
-            self.dropped = True
+        if raw[2] == 0x22 and self.dropped < 4:
+            self.dropped += 1
             return
         self.pending.append((0x7E4, reply))
 
@@ -63,10 +63,10 @@ def main():
         client = Client(bus, 0, 4)
         image = struct.pack("<II", 0x20007000, 0x08004011) + bytes(range(56))
         result = client.update(image, 0x00050000, bytes(range(12)))
-        if not result["activation_acknowledged"] or not bus.dropped or not bus.valid():
+        if not result["activation_acknowledged"] or bus.dropped != 4 or not bus.valid():
             raise RuntimeError("C/Python update or retry did not complete")
         print(
-            "PASS actual Python/C update: identity, manifest, dropped PROGRAM ACK, retry and valid boot record"
+            "PASS actual Python/C update: identity, manifest, four dropped PROGRAM ACKs, retry and valid boot record"
         )
     finally:
         bus.close()

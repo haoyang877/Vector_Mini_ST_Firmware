@@ -1,6 +1,7 @@
 """耐久测试的离线探针替身；不加载DLL、不连接硬件。"""
 
 from pathlib import Path
+import ctypes
 import struct
 import sys
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "loader/tools"))
 from loader_cycle_test import validate_power_samples, verify_outputs  # noqa: E402
+from usbcan_adapter import CanFD, ChannelError, ChannelStatus  # noqa: E402
 
 UID = bytes(range(12))
 
@@ -158,6 +160,39 @@ class GuardTests(unittest.TestCase):
         probe.fail_close = True
         with self.assertRaisesRegex(RuntimeError, "probe close: close failed"):
             self.invoke(probe)
+
+    def test_adapter_diagnostics_preserves_vendor_layout(self):
+        self.assertEqual(ctypes.sizeof(ChannelError), 8)
+        self.assertEqual(ctypes.sizeof(ChannelStatus), 12)
+
+        class ReadStatus:
+            def __init__(self, kind):
+                self.kind = kind
+
+            def __call__(self, handle, pointer):
+                if handle != 99:
+                    raise RuntimeError("Wrong channel")
+                value = ctypes.cast(pointer, ctypes.POINTER(self.kind)).contents
+                if self.kind is ChannelError:
+                    value.error_code = 4
+                    value.passive[:] = (1, 2, 3)
+                else:
+                    value.tx_error_counter = 136
+                return 1
+
+        bus = CanFD.__new__(CanFD)
+        bus.channels = {0: 99}
+        bus.dll = SimpleNamespace(
+            ZCAN_ReadChannelErrInfo=ReadStatus(ChannelError),
+            ZCAN_ReadChannelStatus=ReadStatus(ChannelStatus),
+        )
+        result = bus.diagnostics(0)
+        self.assertEqual(
+            result["ZCAN_ReadChannelErrInfo"]["fields"]["passive"], [1, 2, 3]
+        )
+        self.assertEqual(
+            result["ZCAN_ReadChannelStatus"]["fields"]["tx_error_counter"], 136
+        )
 
 
 if __name__ == "__main__":

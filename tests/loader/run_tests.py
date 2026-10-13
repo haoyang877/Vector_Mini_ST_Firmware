@@ -75,6 +75,12 @@ def main():
         [str(exe), "success"],
         [sys.executable, str(root / "tests/loader/test_host_bridge.py"), str(exe)],
         [sys.executable, str(root / "tests/loader/test_cycle_guard.py")],
+        [
+            sys.executable,
+            str(root / "tests/loader/test_startup_parameter_read.py"),
+            args.cc,
+            str(out),
+        ],
     ]:
         result = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
@@ -87,6 +93,9 @@ def main():
         "source_sha256": {
             p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in sources
         },
+        "startup_read_sha256": hashlib.sha256(
+            (root / "firmware/platform/stm32g4/bsp/flash.c").read_bytes()
+        ).hexdigest(),
         "vectors_sha256": hashlib.sha256(vectors.read_bytes()).hexdigest(),
     }
     (out / "summary.json").write_text(

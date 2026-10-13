@@ -118,6 +118,10 @@ void flash_read_param(void)
 
 	memcpy(param, (const void *)PARAM_FLASH_ADDR, sizeof(*param));
 	rewrite_legacy_param = Param_Download(param);
+#ifdef APP_LOADER_LAYOUT
+    /* 升级版只在RAM解释旧参数；启动迁移不能改写个体标定区。 */
+    (void)rewrite_legacy_param;
+#else
 	if (rewrite_legacy_param)
 	{
 		uint32_t primask;
@@ -133,5 +137,6 @@ void flash_read_param(void)
 		if (primask == 0U)
 			__enable_irq();
 	}
+#endif
 	HEAP_free(param);
 }

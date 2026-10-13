@@ -41,7 +41,7 @@ class LoaderBus(CanFD):
         )
 
     def receive(self, channel, timeout):
-        """返回原始标准帧，扩展/远程帧不参与升级应答。"""
+        """返回标准帧；200U的FD错误被动标记需归一化，载荷仍由上层严格校验。"""
         rows = []
         for kind, method, wait in (
             (RxFD, "ZCAN_ReceiveFD", round(timeout * 1000)),
@@ -52,10 +52,15 @@ class LoaderBus(CanFD):
             if count > 64:
                 raise OSError("SDK receive failed")
             for entry in buffer[:count]:
-                if entry.frame.can_id <= 0x7FF:
+                raw_id = entry.frame.can_id
+                identifier = raw_id & 0x1FFFFFFF
+                # 当前200U SDK将有效FD的ESI状态放在bit29；不能当成地址的一部分。
+                # Classic错误帧、扩展和远程帧仍拒绝；Loader CRC/关联字段在Client检查。
+                forbidden = 0xC0000000 if kind is RxFD else 0xE0000000
+                if not raw_id & forbidden and identifier <= 0x7FF:
                     rows.append(
                         (
-                            entry.frame.can_id,
+                            identifier,
                             bytes(entry.frame.data[: entry.frame.length]),
                         )
                     )

@@ -11,6 +11,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "loader/tools"))
 from loader_cycle_test import validate_power_samples, verify_outputs  # noqa: E402
+from loader_updater import LoaderBus  # noqa: E402
+from loader_proto import frame_bytes, parse_reply  # noqa: E402
 from usbcan_adapter import CanFD, ChannelError, ChannelStatus  # noqa: E402
 
 UID = bytes(range(12))
@@ -193,6 +195,34 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(
             result["ZCAN_ReadChannelStatus"]["fields"]["tx_error_counter"], 136
         )
+
+    def test_fd_passive_metadata_is_not_part_of_identifier(self):
+        payload = b"\0\0" + bytes(range(4)) + UID
+        valid = frame_bytes(3, 17, 0, payload)
+
+        class ReadFrames:
+            def __init__(self, identifiers):
+                self.identifiers = identifiers
+
+            def __call__(self, handle, buffer, capacity, wait):
+                for index, identifier in enumerate(self.identifiers):
+                    frame = buffer[index].frame
+                    frame.can_id = identifier
+                    frame.length = len(valid) if len(frame.data) == 64 else 8
+                    frame.data[: frame.length] = valid[: frame.length]
+                return len(self.identifiers)
+
+        bus = LoaderBus.__new__(LoaderBus)
+        bus.channels = {0: 99}
+        bus.dll = SimpleNamespace(
+            ZCAN_ReceiveFD=ReadFrames(
+                [0x200007E4, 0x7E4, 0x800007E4, 0x400007E4, 0x20000FFF]
+            ),
+            ZCAN_Receive=ReadFrames([0x200007E4]),
+        )
+        received = bus.receive(0, 0.01)
+        self.assertEqual(received, [(0x7E4, valid), (0x7E4, valid)])
+        self.assertEqual(parse_reply(received[0][1])["payload"], payload)
 
 
 if __name__ == "__main__":

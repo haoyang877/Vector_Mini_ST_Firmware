@@ -84,6 +84,8 @@ BEGIN载荷偏移：size0、image_crc4、app_version8、image_type:u16在12（�
 
 ## 其他上位机的实现检查
 
+当前USBCANFD_200U的ControlCANFD SDK会把错误被动状态的有效FD帧标记为`can_id=0x20000000 | 实际ID`，不能直接用`can_id <= 0x7FF`丢弃。该适配器接收边界取低29位作为ID，拒绝扩展/远程位，Classic错误帧仍拒绝；Loader帧还必须通过完整CRC及ID/op/seq/session/nonce核对。此行为属于该SDK的接收元数据，不改变线上v2帧，不应直接套用到其他SDK的错误帧定义。
+
 将本仓库黄金向量作为独立测试输入，验证BE整数、UID顺序、padding、帧CRC和镜像CRC；再验证错误result解析、旧nonce/seq丢弃、重复PROGRAM和错UID/layout无副作用。
 
 参数区不属于升级包。升级构建启动仅在RAM解释旧参数，禁止自动迁移写入，并强制STOP；显式mode9保存属于另外的配置操作。APP二进制不得从0x08000000独立镜像简单平移；必须重新链接到0x08004000。该版本号和layout_id描述不同契约，不能仅按版本大于当前值放行写入。

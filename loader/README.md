@@ -21,10 +21,7 @@ APP 的升级交接服务归 `firmware/services/boot_handoff/`，需在停机并
 
 当前仅支持CAN-FD。APP已重定位到`0x08004000`，RAM首32 B保留为升级邮箱；
 Loader以`0x08000000`为入口，参数区`0x0801C000`起16 KiB受独立保护。
-历史[D-loader通用框架](../docs/architecture/loader/d_loader_portable_framework_20260917.md)
-用于参考，不代表本实现具备UART、跨MCU或自动回滚能力。
-
-构建产物统一放 `outputs/build/loader/`，发布按
+构建产物统一放 `outputs/build/keil/`，发布按
 [固件发布规范](../docs/guides/firmware_release_standard.md)执行。
 
 当前源码入口：`firmware/`；独立Keil工程：`mdk/Vector_Mini_ST_Loader.uvprojx`。

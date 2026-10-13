@@ -74,6 +74,7 @@ def main():
         [str(exe), "tx-failure"],
         [str(exe), "success"],
         [sys.executable, str(root / "tests/loader/test_host_bridge.py"), str(exe)],
+        [sys.executable, str(root / "tests/loader/test_cycle_guard.py")],
     ]:
         result = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)

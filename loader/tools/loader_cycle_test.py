@@ -36,13 +36,16 @@ def verify_outputs(args, uid):
     import pylink  # 动态依赖只用于本显式硬件测试入口。
 
     j = pylink.JLink(lib=pylink.library.Library(dllpath=str(args.jlink_dll)))
+    opened = False
     connected = False
     matched = False
     was_halted = None
     safe = False
+    failure = None
     try:
         j.open(serial_no=args.jlink_serial)
-        j.exec_command("SetRestartOnClose = 1")
+        opened = True
+        j.exec_command("SetRestartOnClose = 0")
         j.set_tif(pylink.enums.JLinkInterfaces.SWD)
         j.connect("STM32G431CB", speed=100)
         connected = True
@@ -62,21 +65,39 @@ def verify_outputs(args, uid):
         first, second = sample(), sample()
         validate_power_samples(first, second)
         safe = True
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
+        cleanup_errors = []
         if connected and matched and not safe:
             # 在已绑定板上硬件关相并暂停；仍保留失败并要求现场介入。
-            j.halt()
-            for address, clear, set_bits in (
-                (0x40012C20, 0x555, 0),
-                (0x40012C44, 0x8000, 0),
-                (0x48000000, 0x3FC000, 0x3FC000),
-                (0x48000400, 15, 15),
-            ):
-                value = j.memory_read32(address, 1)[0]
-                j.memory_write32(address, [(value & ~clear) | set_bits])
+            try:
+                j.halt()
+                for address, clear, set_bits in (
+                    (0x40012C20, 0x555, 0),
+                    (0x40012C44, 0x8000, 0),
+                    (0x48000000, 0x3FC000, 0x3FC000),
+                    (0x48000400, 15, 15),
+                ):
+                    value = j.memory_read32(address, 1)[0]
+                    j.memory_write32(address, [(value & ~clear) | set_bits])
+            except Exception as exc:
+                cleanup_errors.append(f"emergency disable: {exc}")
         restart = safe or (connected and not matched and was_halted is False)
-        j.exec_command("SetRestartOnClose = " + ("1" if restart else "0"))
-        j.close()
+        if opened:
+            try:
+                j.exec_command("SetRestartOnClose = " + ("1" if restart else "0"))
+            except Exception as exc:
+                cleanup_errors.append(f"restart policy: {exc}")
+            try:
+                j.close()
+            except Exception as exc:
+                cleanup_errors.append(f"probe close: {exc}")
+        if cleanup_errors:
+            raise RuntimeError(
+                f"J-Link verification failed: {failure}; cleanup: {'; '.join(cleanup_errors)}"
+            ) from failure
 
 
 def main():
@@ -116,6 +137,8 @@ def main():
         raise ValueError("Need complete 16 KiB parameters or full Flash backup")
     expected_crc = zlib.crc32(baseline) & 0xFFFFFFFF
     args.out.mkdir(parents=True, exist_ok=True)
+    if (args.out / "summary.json").exists() or (args.out / "cycles.csv").exists():
+        raise RuntimeError("Output batch already exists; preserve previous evidence")
     bus = LoaderBus(args.dll, (args.channel,), args.device_index, args.adapter_serial)
     report = {
         "status": "RUNNING",

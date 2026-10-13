@@ -1,5 +1,10 @@
 # Loader 独立工程入口
 
+本次 `codex/ovp-36v` 接入依据为
+[CAN Loader 完整设计方案 v1](../docs/plans/2026-10-13-can-loader-minimal-design-v1.md)：
+12 KiB Loader、单 APP、1M/1M CAN-FD、参数区保留及中断后完整重下载。
+该文件为当前设计候选；尚未完成源码接入与实机验收。
+
 此目录用于后续 `YG2026-ESC-LOADER` 实现。设计依据为
 [D-loader 通用框架](../docs/architecture/loader/d_loader_portable_framework_20260917.md)。
 当前目录中的历史本机构建产物不代表该设计已经实现或通过验收。

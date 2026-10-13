@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "status": "design_candidate_reference_only",
+  "loader_protocol_version": 2,
+  "synthetic_uid_hex": "000102030405060708090a0b",
+  "synthetic_app_image_hex": "0070002011400008000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637",
+  "synthetic_app_crc32": 1505669270,
+  "crc_check_123456789": 3421780262,
+  "frames": [
+    {
+      "name": "get_info_request",
+      "direction": "request",
+      "opcode": 1,
+      "sequence": 1,
+      "session": 0,
+      "payload_hex": "01020304",
+      "frame_hex": "b1020100000100040000000001020304d1a58829",
+      "dlc_bytes": 20
+    },
+    {
+      "name": "get_uid_request",
+      "direction": "request",
+      "opcode": 3,
+      "sequence": 2,
+      "session": 0,
+      "payload_hex": "11223344",
+      "frame_hex": "b102030000020004000000001122334468e74c99",
+      "dlc_bytes": 20
+    },
+    {
+      "name": "begin_request",
+      "direction": "request",
+      "opcode": 32,
+      "sequence": 3,
+      "session": 324508639,
+      "payload_hex": "0000004059beb09600040000000100004f564c31000000014f563130000102030405060708090a0b",
+      "frame_hex": "b10220000003002813579bdf0000004059beb09600040000000100004f564c31000000014f563130000102030405060708090a0b1e8a70f5ffffffffffffffff",
+      "dlc_bytes": 64
+    },
+    {
+      "name": "program_first_40_request",
+      "direction": "request",
+      "opcode": 34,
+      "sequence": 5,
+      "session": 324508639,
+      "payload_hex": "000000000070002011400008000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "frame_hex": "b10222000005002c13579bdf000000000070002011400008000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f870c3bdaffffffff",
+      "dlc_bytes": 64
+    },
+    {
+      "name": "program_last_24_request",
+      "direction": "request",
+      "opcode": 34,
+      "sequence": 6,
+      "session": 324508639,
+      "payload_hex": "00000028202122232425262728292a2b2c2d2e2f3031323334353637",
+      "frame_hex": "b10222000006001c13579bdf00000028202122232425262728292a2b2c2d2e2f3031323334353637018dddafffffffff",
+      "dlc_bytes": 48
+    },
+    {
+      "name": "verify_request",
+      "direction": "request",
+      "opcode": 35,
+      "sequence": 7,
+      "session": 324508639,
+      "payload_hex": "",
+      "frame_hex": "b10223000007000013579bdf02b9b0a8",
+      "dlc_bytes": 16
+    },
+    {
+      "name": "activate_request",
+      "direction": "request",
+      "opcode": 36,
+      "sequence": 8,
+      "session": 324508639,
+      "payload_hex": "",
+      "frame_hex": "b10224000008000013579bdf162ddb38",
+      "dlc_bytes": 16
+    },
+    {
+      "name": "program_ack",
+      "direction": "reply",
+      "opcode": 34,
+      "sequence": 5,
+      "session": 324508639,
+      "payload_hex": "000000000028",
+      "frame_hex": "b10222000005000613579bdf0000000000282480a929ffff",
+      "dlc_bytes": 24
+    },
+    {
+      "name": "wrong_uid_error_reply",
+      "direction": "reply",
+      "opcode": 32,
+      "sequence": 3,
+      "session": 324508639,
+      "payload_hex": "000c",
+      "frame_hex": "b10220000003000213579bdf000c583d4bd5ffff",
+      "dlc_bytes": 20
+    }
+  ],
+  "invalid_frames": [
+    {
+      "name": "bad_padding",
+      "frame_hex": "b10220000003002813579bdf0000004059beb09600040000000100004f564c31000000014f563130000102030405060708090a0b1e8a70f5ffffffffffffff00",
+      "expectation": "reject_without_state_or_flash_change"
+    },
+    {
+      "name": "bad_crc",
+      "frame_hex": "b10220000003002813579bdf0001004059beb09600040000000100004f564c31000000014f563130000102030405060708090a0b1e8a70f5ffffffffffffffff",
+      "expectation": "reject_without_state_or_flash_change"
+    }
+  ],
+  "record_hex": "4c44523201003000314c564f4000000096b0be5900000400010000003031564f00000000bac2427e42434f4d4d495431",
+  "mailbox_hex": "424d4c310100200001000000040000007856341200000000cf311481434d4954"
+}

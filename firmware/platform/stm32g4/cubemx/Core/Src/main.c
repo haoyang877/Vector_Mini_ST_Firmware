@@ -28,6 +28,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "boot_hw.h"
+#include "boot_handoff_app.h"
 #include "common_inc.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
@@ -72,6 +74,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  boot_hw_early_init();
 
   /* USER CODE END 1 */
 
@@ -115,6 +118,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    BootHandoff_AppPoll();
 	  
 	CAN_SendMessage();
 	  

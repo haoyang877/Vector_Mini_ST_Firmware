@@ -34,3 +34,30 @@ bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_
     header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, data) == HAL_OK;
 }
+
+/* 维护回复只进入空队列，后续使用本次缓冲TXBTO确认真实发送。 */
+bool comm_hw_can_try_send_reply(uint16_t identifier, const uint8_t *data, size_t length)
+{
+    FDCAN_TxHeaderTypeDef header = {0};
+    if (identifier > 0x7FFU || data == NULL || (length != 4 && length != 8 && length != 16) ||
+        HAL_FDCAN_IsTxBufferMessagePending(&hfdcan1,
+            FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 | FDCAN_TX_BUFFER2) != 0U)
+    {
+        return false;
+    }
+    header.Identifier = identifier;
+    header.IdType = FDCAN_STANDARD_ID;
+    header.TxFrameType = FDCAN_DATA_FRAME;
+    header.FDFormat = FDCAN_FD_CAN;
+    header.BitRateSwitch = FDCAN_BRS_ON;
+    header.DataLength = length == 4 ? FDCAN_DLC_BYTES_4 : (length == 8 ? FDCAN_DLC_BYTES_8 : FDCAN_DLC_BYTES_16);
+    header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+    return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, data) == HAL_OK;
+}
+
+bool comm_hw_can_reply_sent(void)
+{
+    uint32_t mask = hfdcan1.LatestTxFifoQRequest;
+    return mask != 0U && (hfdcan1.Instance->TXBTO & mask) == mask &&
+        HAL_FDCAN_IsTxBufferMessagePending(&hfdcan1, mask) == 0U;
+}

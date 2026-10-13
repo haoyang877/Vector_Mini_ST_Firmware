@@ -506,6 +506,16 @@ def main():
     board_fixture = args.out / "joint_board_startup_test.c"
     board_fixture.write_text(joint_board_startup_fixture(), encoding="utf-8")
     build("joint_board_startup_test", [board_fixture])
+    loader_fixture = args.out / "joint_loader_startup_test.c"
+    loader_source = joint_board_startup_fixture().replace(
+        "enum {ADC_SINGLE_ENDED", "enum {Motor_Disable=0};\nstatic bool ModeSwitch_Handle(int mode) { assert(mode==0); return true; }\nenum {ADC_SINGLE_ENDED")
+    loader_source = loader_source.replace("phases == 6", "phases == 0").replace(
+        "assert(hiz_state_calls == 1);\n    assert(adc_irq_mask", "assert(hiz_state_calls == 1);\n    assert(adc_irq_mask", 1)
+    loader_source = loader_source.replace("assert(hiz_state_calls == 1);\n    assert(adc_irq_mask == ADC_IT_JEOS);\n    puts", "assert(hiz_state_calls == 2);\n    assert(adc_irq_mask == ADC_IT_JEOS);\n    puts")
+    loader_source = loader_source.replace("int main(void) {", "int main(void) {\n    (void)MotorControl_IsConfigurationValid; (void)HAL_TIMEx_OCN_Start;")
+    loader_fixture.write_text("#define APP_LOADER_LAYOUT 1\n" + loader_source, encoding="utf-8")
+    build("joint_loader_startup_test", [loader_fixture])
+
     if args.recording:
         import numpy as np
         data = np.loadtxt(args.recording, delimiter="\t", skiprows=1)

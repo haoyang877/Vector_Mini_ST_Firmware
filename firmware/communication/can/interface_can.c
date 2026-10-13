@@ -1,3 +1,8 @@
+#include "boot_handoff.h"
+#include "motor_hw.h"
+#include <string.h>
+#include "boot_hw.h"
+#include "time_hw.h"
 #include "motor_load_control.h"
 #include "interface_can.h"
 
@@ -21,6 +26,9 @@
 #include "foc_task.h"
 
 CANMsg_TypeDef CANMsg;
+static volatile bool uid_pending;
+static uint8_t uid_nonce[4];
+static uint8_t uid_opcode;
 
 extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
@@ -827,6 +835,25 @@ void CANRxIRQHandler(void)
 	/*node id matches*/
 	if(node_id == CANMsg.node_id)
 	{
+        if ((param_id == 0x63 || param_id == 0x7C) && frame.length == 4 && !BootHandoff_Pending())
+        {
+            uid_opcode = param_id;
+            memcpy(uid_nonce, frame.data, 4);
+            motor_hw_outer_barrier();
+            uid_pending = true;
+            return;
+        }
+        if (param_id == 0x66 && frame.length == 4 && frame.data[0] == 'B' &&
+            frame.data[1] == 'O' && frame.data[2] == 'O' && frame.data[3] == 'T')
+        {
+            if (BootHandoff_Request(node_id, time_hw_now_ms()))
+            {
+                MotorControl_LockMaintenance();
+                motor_hw_outer_barrier();
+            }
+            return;
+        }
+        if (BootHandoff_Pending()) { return; }
 		encoding = CAN_CommandEncoding((CAN_PARAM_ID)param_id);
 		if ((encoding == CAN_VALUE_MILLI_I16 && frame.length != 2U) ||
 		    (encoding != CAN_VALUE_MILLI_I16 && frame.length != 4U)) return;
@@ -874,6 +901,29 @@ void CANRxIRQHandler(void)
  **/
 void CAN_SendMessage(void)
 {
+    uint8_t uid_reply[16];
+    if (BootHandoff_Pending()) { return; }
+    if (uid_pending)
+    {
+        memcpy(uid_reply, uid_nonce, 4);
+        size_t reply_length = 16;
+        if (uid_opcode == 0x7C)
+        {
+            uint32_t crc = boot_hw_parameters_crc();
+            uid_reply[4] = (uint8_t)(crc >> 24);
+            uid_reply[5] = (uint8_t)(crc >> 16);
+            uid_reply[6] = (uint8_t)(crc >> 8);
+            uid_reply[7] = (uint8_t)crc;
+            reply_length = 8;
+        }
+        else { boot_hw_uid(uid_reply + 4); }
+        if (comm_hw_can_try_send_reply((uint16_t)((CANMsg.node_id << 8) | uid_opcode), uid_reply, reply_length))
+        {
+            uid_pending = false;
+        }
+        return;
+    }
+
 	if(CANMsg.can_tx_en == false) {
 		uint8_t payload[CAN_MOTOR_STATUS_SIZE];
 		uint16_t identifier;

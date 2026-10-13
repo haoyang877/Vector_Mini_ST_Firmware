@@ -96,6 +96,16 @@
       "payload_hex": "000c",
       "frame_hex": "b10220000003000213579bdf000c583d4bd5ffff",
       "dlc_bytes": 20
+    },
+    {
+      "name": "get_info_reply_with_parameter_crc",
+      "direction": "reply",
+      "opcode": 1,
+      "sequence": 1,
+      "session": 0,
+      "payload_hex": "0000010203040100000008004000000180004f564c31000000014f56313004000000ea9e71b5",
+      "frame_hex": "b102010000010026000000000000010203040100000008004000000180004f564c31000000014f56313004000000ea9e71b526ba8a7fffffffffffffffffffff",
+      "dlc_bytes": 64
     }
   ],
   "invalid_frames": [
@@ -111,5 +121,11 @@
     }
   ],
   "record_hex": "4c44523201003000314c564f4000000096b0be5900000400010000003031564f00000000bac2427e42434f4d4d495431",
-  "mailbox_hex": "424d4c310100200001000000040000007856341200000000cf311481434d4954"
+  "mailbox_hex": "424d4c310100200001000000040000007856341200000000cf311481434d4954",
+  "app_parameter_crc_example": {
+    "request_identifier": 1148,
+    "request_hex": "01020304",
+    "reply_hex": "01020304ea9e71b5",
+    "crc_region_bytes": 16384
+  }
 }

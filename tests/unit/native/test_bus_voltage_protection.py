@@ -116,6 +116,14 @@ int main(void) {
     input(33);FOC.Vbus_filt=33;assert(ModeSwitch_Handle(Clear_Error));
     assert(MotorControl.ModeNow==Motor_Disable);assert(ModeSwitch_Handle(Speed_Mode));
     puts("PASS explicit recovery needs safe voltage, never auto-restarts");
+    reset(33);MotorControl.maintenance_inhibit=true;
+    assert(!ModeSwitch_Handle(Speed_Mode));
+    assert(!ModeSwitch_Handle(Position_Mode));
+    assert(!ModeSwitch_Handle(Save_Param));
+    assert(!ModeSwitch_Handle(Clear_Error));
+    assert(ModeSwitch_Handle(Motor_Disable));
+    assert(MotorControl.maintenance_inhibit);
+    puts("PASS maintenance latch blocks motion/storage/error clear and keeps STOP usable");
     return 0;
 }
 '''

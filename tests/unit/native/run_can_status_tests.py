@@ -81,6 +81,14 @@ static bool comm_hw_can_receive_stub(CommHwCanFrame *f) {*f=incoming;return rx_o
 static void Set_ErrorNow(unsigned e) {MotorControl.ErrorNow=e;}
 static float IntBitToFloat(uint32_t i) {float f;memcpy(&f,&i,4);return f;}
 static void CAN_ReceiveMessage_Update(unsigned p,float f) {last_param=p;last_value=f;++calls;}
+static bool boot_pending,uid_pending;
+static uint8_t uid_nonce[4];
+static uint8_t uid_opcode;
+static bool BootHandoff_Pending(void) { return boot_pending; }
+static bool BootHandoff_Request(uint8_t n,uint32_t t) {(void)n;(void)t;boot_pending=true;return true;}
+static void MotorControl_LockMaintenance(void) {}
+static void motor_hw_outer_barrier(void) {}
+static uint32_t time_hw_now_ms(void) { return 10; }
 '''+function_source(source,'CANRxIRQHandler')+r'''
 int main(void) {
  CANMsg.node_id=4;CANMsg.can_hb_count=123;
@@ -104,6 +112,10 @@ int main(void) {
  incoming.remote=false;incoming.identifier=0x364;CANRxIRQHandler();assert(calls==3);
  CANMsg.node_id=7;incoming.identifier=0x7f4;CANRxIRQHandler();assert(calls==3 && CANMsg.can_hb_count==123);
  incoming.length=48;CANRxIRQHandler();assert(calls==3);
+ CANMsg.node_id=4;incoming.identifier=0x463;incoming.length=4;
+ memcpy(incoming.data,"NONC",4);CANRxIRQHandler();assert(uid_pending && memcmp(uid_nonce,"NONC",4)==0 && calls==3);
+ incoming.identifier=0x466;memcpy(incoming.data,"BOOT",4);CANRxIRQHandler();assert(boot_pending && calls==3);
+ incoming.identifier=0x404;CANRxIRQHandler();assert(calls==3);
  puts("PASS actual CAN RX: float config, milli-i16 current, centi-i32 speed, milli-i32 position, length and routing guards");return 0;
 }
 '''
@@ -124,10 +136,14 @@ int main(void) {
 #define FDCAN_TX_BUFFER1 2
 #define FDCAN_TX_BUFFER2 4
 #define FDCAN_DLC_BYTES_48 14
+#define FDCAN_DLC_BYTES_8 8
+#define FDCAN_DLC_BYTES_4 4
+#define FDCAN_DLC_BYTES_16 10
+#define FDCAN_IR_TC 1
 /* Match all fields/order of the vendor header: omitted fields hid stack junk. */
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength;} FDCAN_RxHeaderTypeDef;
-typedef struct {struct {unsigned TxFifoQueueMode;} Init;} Handle;
+typedef struct {struct {unsigned TxFifoQueueMode;} Init;struct {unsigned IR,TXBTO;} *Instance;unsigned LatestTxFifoQRequest;} Handle;
 extern Handle hfdcan1;
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask);
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d);
@@ -140,7 +156,7 @@ unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *h
 #include "firmware/platform/api/comm_hw.h"
 Handle hfdcan1;
 static unsigned pending,tx_calls,tx_result,rx_length=14;
-unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7);return (pending&mask)!=0;}
+unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7 || mask==1 || mask==2 || mask==4);return (pending&mask)!=0;}
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
  (void)h; assert(hdr->Identifier==0x7f4 && hdr->DataLength==14 && hdr->FDFormat==1 && hdr->BitRateSwitch==1);
  assert(hdr->ErrorStateIndicator==0 && hdr->MessageMarker==0);
@@ -162,6 +178,13 @@ int main(void) {
  bounded.guard=0x12345678;assert(comm_hw_can_receive(&bounded.f));
  assert(bounded.f.length==48 && bounded.guard==0x12345678);
  rx_length=15;assert(comm_hw_can_receive(&bounded.f));assert(bounded.f.length==64 && bounded.guard==0x12345678);
+ struct {unsigned IR,TXBTO;} fake_regs = {0};
+ hfdcan1.Instance=(void *)&fake_regs; hfdcan1.LatestTxFifoQRequest=1;
+ pending=0;assert(!comm_hw_can_reply_sent());
+ fake_regs.TXBTO=1;assert(comm_hw_can_reply_sent());
+ pending=1;assert(!comm_hw_can_reply_sent());pending=0;
+ hfdcan1.LatestTxFifoQRequest=2;assert(!comm_hw_can_reply_sent());
+ fake_regs.TXBTO=2;assert(comm_hw_can_reply_sent());
  puts("PASS actual HAL port: low-priority queue, congestion/no retry, FD48 DLC and bounded FD64 receive");return 0;
 }
 '''
@@ -187,6 +210,14 @@ unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hd
  assert(hdr->ErrorStateIndicator==0 && hdr->MessageMarker==0);
  ++replies;return 0;
 }
+static bool uid_pending;
+static uint8_t uid_nonce[4];
+static uint8_t uid_opcode;
+static bool BootHandoff_Pending(void) { return false; }
+static void boot_hw_uid(uint8_t *p) { memset(p,0,12); }
+static uint32_t boot_hw_parameters_crc(void) { return 0; }
+static bool comm_hw_can_try_send_reply_stub(uint16_t id,const uint8_t *p,size_t n) {(void)id;(void)p;(void)n;return false;}
+#define comm_hw_can_try_send_reply comm_hw_can_try_send_reply_stub
 '''+function_source(source,'CAN_SendMessage')+r'''
 int main(void) {
  CANMsg.node_id=4;CANMsg.tx_param_id=0x65;CANMsg.tx_data_len=4;CANMsg.can_tx_en=true;

@@ -1,10 +1,10 @@
 # Vector Mini ST CAN Loader 完整设计方案
 
-文档版本：v1.0。日期：2026-10-13。基准分支：`codex/ovp-36v`，基准提交：`632b83d155a704b1237ab7fae52cbeca796368d6`。开发分支：`codex/ovp36-can-loader`。
+文档版本：v1.1。日期：2026-10-13。基准分支：`codex/ovp-36v`，基准提交：`632b83d155a704b1237ab7fae52cbeca796368d6`。开发分支：`codex/ovp36-can-loader`。
 
 配套：[候选协议黄金向量](2026-10-13-can-loader-minimal-v1-vectors.json)，包含合成镜像、完整帧、无效帧、48 B记录和32 B邮箱；用于后续C/Python实现独立核对，不代表固件协议已通过。
 
-状态：设计候选。本文定义首版实现和验收边界；表中的新命令、地址重定位及协议版本尚不代表当前 APP 已实现。开发 worktree 从上述提交建立；原分支未提交的控制试验修改保留在原 worktree，不作为 Loader 修改自动提交。
+状态：已完成最小实现、离线回归及独立构建，首轮CAN完整升级已通过；连续1000次验收尚未通过，尚未合并。本文定义当前候选协议与验收边界。开发 worktree 从上述提交建立；原分支未提交的控制试验修改保留在原 worktree，不作为 Loader 修改自动提交。
 
 ## 1. 设计结论
 
@@ -122,7 +122,7 @@ Loader 使用与 APP 一致的节点编号；一个通用 Loader 镜像适用于
 | Pitch | 4 | `0x466` | `0x7D4` | `0x7E4` |
 | Yaw | 5 | `0x566` | `0x7D5` | `0x7E5` |
 
-首版节点范围限定 0～15；0 为参数身份无效时的单板恢复节点，不能用于五电机在线批量升级。正常启动时 Loader 从固定参数前缀读取 node_id，并检查有限、整数、范围、schema/magic；不根据电机类型强制覆盖 ID。完整参数错误时进入恢复，不自动写默认节点。
+升级ID编码可容纳0～15；本APP及Loader当前target只支持0～7，其中正常五电机使用1～5；0 为参数身份无效时的单板恢复节点，不能用于五电机在线批量升级。正常启动时 Loader 从固定参数前缀读取 node_id，并检查有限、整数、范围、schema/magic；不根据电机类型强制覆盖 ID。完整参数错误时进入恢复，不自动写默认节点。
 
 有效 Mailbox 的 node 必须与有效 Flash 节点一致；不一致返回身份错误并驻留，不能悄悄选择另一电机。主机在 BEGIN 前读取 MCU 96 位 UID；BEGIN 指定完整 UID，由目标侧再次核对。
 
@@ -163,7 +163,7 @@ CRC为CRC-32/ISO-HDLC：反射多项式 `0xEDB88320`、初值 `0xFFFFFFFF`、最
 
 | op | 名称 | 请求 payload | 成功回复 payload |
 | --- | --- | --- | --- |
-| `0x01` | GET_INFO | nonce:u32，共4 B | result:u16、nonce:u32、loader_version:u32、app_base:u32、capacity:u32、layout_id:u32、hardware_id:u32、param_abi:u32、node:u8、reserved:3，共34 B |
+| `0x01` | GET_INFO | nonce:u32，共4 B | result:u16、nonce:u32、loader_version:u32、app_base:u32、capacity:u32、layout_id:u32、hardware_id:u32、param_abi:u32、node:u8、reserved:3、parameter_crc32:u32，共38 B |
 | `0x02` | GET_STATUS | nonce:u32，共4 B | result:u16、nonce:u32、state:u8、last_error:u8、reserved:u16、next_offset:u32、size:u32、image_crc:u32、active_session:u32，共26 B |
 | `0x03` | GET_UID | nonce:u32，共4 B | result:u16、nonce:u32、uid:12 B，共18 B |
 | `0x20` | BEGIN | 镜像描述40 B，见下表 | result:u16、app_base:u32，共6 B；帧头回显所接受session |
@@ -226,7 +226,7 @@ INFO/STATUS/UID任意状态可查询，不更新变更请求缓存。BEGIN不擦
 
 ERASE先擦记录页并确认记录无效，再擦APP的48页。成功后next_offset=0。PROGRAM只接受 `offset==next_offset`；数据写入并回读一致后才推进偏移和ACK。VERIFY要求偏移等于image_size，校验CRC及向量，成功后进入VERIFIED。
 
-ACTIVATE重新校验镜像，写记录、回读确认，发送成功回复；实际TX完成后才跳转。ABORT清RAM会话，既不恢复旧镜像也不构造有效记录。PREPARED中ABORT后旧镜像可在显式复位后正常启动；ERASE后ABORT仍留在恢复状态。
+ACTIVATE重新校验镜像，写记录、回读确认，发送成功回复；使用实际回复缓冲的TXBTO和TXBRP确认发送完成后才跳转；未启用TXBTIE时不能依赖TC中断标志。ABORT清RAM会话，既不恢复旧镜像也不构造有效记录。PREPARED中ABORT后旧镜像可在显式复位后正常启动；ERASE后ABORT仍留在恢复状态。
 
 ### 8.1 幂等与停止等待
 
@@ -249,7 +249,7 @@ seq不回绕；最大96 KiB/40 B分块仍远小于65536条请求。旧session写
 | 会话无活动超时 | 30 s；清会话并驻留，无效APP绝不自动启动 |
 | 新APP应答等待 | 5 s |
 
-这些是实现初值，需按实测校准。Flash操作期间单Bank取指或中断可能暂停，不能依赖8帧接收队列吸收持续发包。FDCAN实际发送完成与入队分开；bus-off后保持功率安全，恢复链路或驻留，不把无ACK当作写入未执行。
+这些是实现初值，需按实测校准。Flash操作期间单Bank取指或中断可能暂停，不能依赖8帧接收队列吸收持续发包。FDCAN实际发送完成与入队分开：保存LatestTxFifoQRequest位掩码，确认TXBTO对应位已置位且TXBRP不再挂起。该判据不依赖TX完成中断使能；bus-off后保持功率安全，恢复链路或驻留，不把无ACK当作写入未执行。
 
 ## 9. Flash写入与有效记录
 
@@ -288,7 +288,9 @@ ERASE已把记录页擦空；ACTIVATE先写并回读前40 B，再用单独8 B编
 
 本分支空闲参数号 `0x63` 定义为只读GET_UID：请求4 B nonce；回复CAN-FD 16 B为相同nonce＋UID12 B。`0x66`定义为ENTER_BOOT：请求4 B大端 `0x424F4F54`，即BOOT；其他值拒绝。
 
-进入请求不得当作float32参数或mode9保存命令。成功回复为4 B大端结果0；其他结果为1忙、2未支持、3字段错误、4关相失败。旧APP不支持时超时，主机停止，不能将超时解释为已经进入或自动触发标定。
+进入请求不得当作float32参数或mode9保存命令。成功回复为4 B大端结果0；其他结果为1忙、2未支持、3字段错误、4关相失败。另增加只读 `0x7C` 参数全区CRC：请求4 B nonce，回复8 B为nonce＋大端CRC32，覆盖 `0x0801C000～0x0801FFFF` 全16 KiB。GET_INFO尾部也返回同一范围CRC，便于纯CAN上位机在升级前后核对。CRC用于完整性检查，不提供认证；台架验收同时使用原始备份的SHA256与逐字节核对。
+
+旧APP不支持时超时，主机停止，不能将超时解释为已经进入或自动触发标定。
 
 ### 10.2 时序
 
@@ -397,7 +399,17 @@ Loader/APP独立全量构建，均0错误/0警告；Loader<=12 KiB、APP<=96 KiB
 
 最后在五电机总线上逐台验证：选定一台升级时，其他四台身份、参数和运行状态不被升级请求修改。失败用独立summary记录，不能拿其他分支旧台架日志当本分支证据。
 
-### 15.4 工程检查与合并
+### 15.4 连续1000次指标
+
+同一冻结镜像、同一目标UID、同一总线通道连续升级1000次。每次包括APP停机/进入Loader、全镜像擦写校验、记录提交、APP版本/UID/停机查询、全16 KiB参数CRC核对，以及指定J-Link对功率相关位的独立检查。结束时以J-Link完整回读参数区，与初始备份逐字节及SHA256核对。
+
+观察失败率严格低于0.1%意味着1000次中必须零失败；1次失败等于0.1%，不满足目标。任一失败停止该批，不删失败行、不通过重试整圈抹掉记录。修复后另建新批次，从1重新完整运行；初装和调试失败另行归档，不能转成成功。
+
+单条报文丢ACK后的精确重试是协议功能，计入retransmissions并保留日志；整圈最终失败仍计失败。STOP/功率关闭无法确认需要现场介入，不自动恢复。读状态仅检查CCER相通道位及六路引脚MODER位；无关SPI/其他GPIO位变化不能当成关相判据，两个原始快照应保留到错误日志。
+
+台架脚本 `loader/tools/loader_cycle_test.py` 保存每圈CSV、原始镜像哈希、参数基线、通过/失败/重试和耗时。`stop.request`只在完成一圈的安全边界停止；不能结束前台Flash操作后自动恢复运动。1000次零失败只表示本批观察结果，不直接证明长期真实失败概率。
+
+### 15.5 工程检查与合并
 
 遵守用户AGENTS要求：文档阶段quick；代码/协议PR；链接与硬件release加实际台架。当前ovp分支旧tools/run.py没有这些profile；不得把Unknown command计为通过。使用已有离线/原生/Keil入口归档等效项目检查，并在summary明确统一profile是否可用。
 
@@ -421,3 +433,14 @@ Loader/APP独立全量构建，均0错误/0警告；Loader<=12 KiB、APP<=96 KiB
 - [参数总表](../guides/five_motor_parameter_table.md)：升级保存个体配置，不能用总表覆盖个体校准。
 
 首版取舍：用完整重下载恢复单镜像中断；用固定五节点和完整UID确认目标；用CRC保证内容一致性；用实际APP版本/UID应答核对启动。A/B镜像、自动回滚、签名认证和跨产品通用升级框架均不作为本首版验收能力。
+
+## 18. 当前实现入口
+
+- APP候选版本v0.5.0；Loader候选版本v1.0.0，线上协议v2。未作为正式发布版本交付。
+- `shared/boot_contract.h/.c`：布局、CRC、48 B记录和32 B邮箱。
+- `loader/firmware/`：真实升级核心与G431硬件端口。
+- `loader/tools/loader_updater.py`：单次升级；`loader_cycle_test.py`：显式硬件耐久测试。
+- `tests/loader/run_tests.py`：真实C核心假Flash故障测试及Python/C客户端联测，不连接硬件。
+- `tests/run.py --cc <compiler>`已接入Loader离线检查；Keil项目位于`loader/mdk/`及原APP项目目录。
+
+所有台架序列号、真实UID、备份及测试日志仅进入outputs，不写入通用源码配置。

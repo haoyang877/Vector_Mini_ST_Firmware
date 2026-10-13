@@ -18,7 +18,7 @@
           <Vendor>STMicroelectronics</Vendor>
           <PackID>Keil.STM32G4xx_DFP.2.2.0</PackID>
           <PackURL>https://www.keil.com/pack/</PackURL>
-          <Cpu>IRAM(0x20000000-0x20007FFF) IROM(0x8000000-0x801BFFF)  CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4") TZ</Cpu>
+          <Cpu>IRAM(0x20000020-0x20007FFF) IROM(0x8004000-0x801BFFF)  CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4") TZ</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
           <FlashDriverDll></FlashDriverDll>
@@ -245,13 +245,13 @@
               </Ocm6>
               <IRAM>
                 <Type>0</Type>
-                <StartAddress>0x20000000</StartAddress>
-                <Size>0x8000</Size>
+                <StartAddress>0x20000020</StartAddress>
+                <Size>0x7FE0</Size>
               </IRAM>
               <IROM>
                 <Type>1</Type>
-                <StartAddress>0x8000000</StartAddress>
-                <Size>0x1c000</Size>
+                <StartAddress>0x8004000</StartAddress>
+                <Size>0x18000</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -337,9 +337,9 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx,SERVO_HIL_ENABLE=1</Define>
+              <Define>USE_HAL_DRIVER,STM32G431xx,APP_LOADER_LAYOUT=1,SERVO_HIL_ENABLE=1</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../third_party/segger_rtt;../../../../../tests/hil/firmware</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app;../../../../common;../../../../communication/can;../../../../communication/protocol;../../../../motor;../../../../motor/foc;../../../../motor/identification;../../../../motor/position;../../../../motor/protection;../../../../motor/trajectory;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../third_party/segger_rtt;../../../../../tests/hil/firmware;..\..\..\..\..\shared;..\..\..\..\services\boot_handoff</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -361,7 +361,7 @@
             </VariousControls>
           </Aads>
           <LDads>
-            <umfTarg>1</umfTarg>
+            <umfTarg>0</umfTarg>
             <Ropi>0</Ropi>
             <Rwpi>0</Rwpi>
             <noStLib>0</noStLib>
@@ -370,7 +370,7 @@
             <TextAddressRange></TextAddressRange>
             <DataAddressRange></DataAddressRange>
             <pXoBase></pXoBase>
-            <ScatterFile>..\..\..\..\..\outputs\build\keil\Vector_Mini_ST_HIL\Vector_Mini_ST.sct</ScatterFile>
+            <ScatterFile>Vector_Mini_ST.sct</ScatterFile>
             <IncludeLibs></IncludeLibs>
             <IncludeLibsPath></IncludeLibsPath>
             <Misc></Misc>
@@ -1571,7 +1571,7 @@
             <FilePath>..\..\ports\motor\motor_current_stm32g4.c</FilePath>
           </File></Files>
         </Group>
-      </Groups>
+      <Group><GroupName>Boot handoff</GroupName><Files><File><FileName>boot_contract.c</FileName><FileType>1</FileType><FilePath>..\..\..\..\..\shared\boot_contract.c</FilePath></File><File><FileName>boot_handoff.c</FileName><FileType>1</FileType><FilePath>..\..\..\..\services\boot_handoff\boot_handoff.c</FilePath></File><File><FileName>boot_handoff_app.c</FileName><FileType>1</FileType><FilePath>..\..\..\..\app\boot_handoff_app.c</FilePath></File><File><FileName>boot_stm32g4.c</FileName><FileType>1</FileType><FilePath>..\..\ports\boot\boot_stm32g4.c</FilePath></File></Files></Group></Groups>
     </Target>
   </Targets>
 

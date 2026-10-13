@@ -90,8 +90,17 @@ void Clear_RunningData(void)
 	* @param  mode_set: target mode
 	* @retval true if mode switched
  **/
+void MotorControl_LockMaintenance(void)
+{
+    MotorControl.maintenance_inhibit = true;
+}
+
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
+    if (MotorControl.maintenance_inhibit && mode_set != Motor_Disable)
+    {
+        return false;
+    }
 	/* Reject an unsafe restart before any phase output can be enabled.
 	 * The normal supervisor owns voltage fault latching during operation. */
 	if (MotorControl.ModeNow == Motor_Disable &&

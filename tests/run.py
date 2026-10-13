@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from project_paths import ROOT
 
 NATIVE = (
+    'run_loader_tests',
     'run_position_servo_tests', 'run_can_status_tests', 'test_outer_loop_runtime',
     'test_wheel_speed_limits', 'test_bus_voltage_protection', 'test_current_oversampling',
     'test_current_reconstruction',

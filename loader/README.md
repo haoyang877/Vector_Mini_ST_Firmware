@@ -3,7 +3,7 @@
 本次 `codex/ovp-36v` 接入依据为
 [CAN Loader 完整设计方案 v1](../docs/plans/2026-10-13-can-loader-minimal-design-v1.md)：
 12 KiB Loader、单 APP、1M/1M CAN-FD、参数区保留及中断后完整重下载。
-该文件为当前设计候选；尚未完成源码接入与实机验收。
+已接入最小实现、独立APP/Loader构建和离线测试；在线连续1000次验收尚未完成，不能视为已发布。
 
 此目录用于后续 `YG2026-ESC-LOADER` 实现。设计依据为
 [D-loader 通用框架](../docs/architecture/loader/d_loader_portable_framework_20260917.md)。
@@ -36,3 +36,7 @@ APP 的升级交接服务归 `firmware/services/boot_handoff/`，需在停机并
 
 构建产物统一放 `outputs/build/loader/`，发布按
 [固件发布规范](../docs/guides/firmware_release_standard.md)执行。
+
+当前源码入口：`firmware/`；独立Keil工程：`mdk/Vector_Mini_ST_Loader.uvprojx`。
+主机工具：`tools/loader_updater.py`和`tools/loader_cycle_test.py`。
+离线验证：`python tests/loader/run_tests.py --cc <native compiler>`。

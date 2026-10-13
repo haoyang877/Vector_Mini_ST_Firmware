@@ -149,6 +149,8 @@ typedef struct
     /** @brief mode2可选速度整形/惯量前馈；配置停机修改，状态通过外环提交。 */
     SpeedFeedforwardConfig speed_ff_config;
     SpeedFeedforwardState speed_ff_state;
+    /* 升级锁由控制所有者设置，直到复位；不进入Flash参数。 */
+    bool maintenance_inhibit;
 }MotorControl_TypeDef;
 
 #endif

@@ -111,6 +111,7 @@ static void setup(ModeNow_TypeDef mode) {
     live.cascade_pos_Kp = 8; live.cascade_pos_Kd = 2;
     live.speed_Kp = .5f; live.speed_Ki = 2; live.current_limit = 4;
     live.position_speed_Kp = .5f; live.position_speed_Ki = 2;
+    live.friction_attack_slew_a_per_s = 2; live.friction_release_slew_a_per_s = 15;
     live.posRef = enc.position; live.speedRef = .2f;
     live.speedAcc = .8f; live.speedDec = .5f;
 }
@@ -167,6 +168,7 @@ int main(void) {
         const size_t fields[] = {
             offsetof(MotorControl_TypeDef, current_limit), offsetof(MotorControl_TypeDef, position_speed_Kp),
             offsetof(MotorControl_TypeDef, position_speed_Ki), offsetof(MotorControl_TypeDef, pos_error_window),
+            offsetof(MotorControl_TypeDef, friction_attack_slew_a_per_s), offsetof(MotorControl_TypeDef, friction_release_slew_a_per_s),
             offsetof(MotorControl_TypeDef, posAcc), offsetof(MotorControl_TypeDef, posDec),
             offsetof(MotorControl_TypeDef, pos_maxspeed), offsetof(MotorControl_TypeDef, speed_limit),
             offsetof(MotorControl_TypeDef, cascade_pos_Kp), offsetof(MotorControl_TypeDef, cascade_pos_Kd),
@@ -241,13 +243,31 @@ int main(void) {
     live.speed_ff_config.enabled=true;live.speed_ff_config.gain_a_per_rad_s2=NAN;
     for(unsigned i=0;i<30;i++) run_step();
     assert(live.ErrorNow==No_Error);
+    /* 实际反馈越界仍可向合法目标运行；缓存不能掩盖新目标越界。 */
+    for (int sign = -1; sign <= 1; sign += 2) {
+        setup(Position_Mode);
+        assert(MotorAxisProfile_Create(&live.axis_profile, "roll", -.2f, .2f, .6f));
+        enc.position = sign * .25f;
+        live.posRef = sign * .1f;
+        for (unsigned i = 0; i < 200; ++i) run_step();
+        assert(live.ErrorNow == No_Error && outer.ready);
+        assert(enc.position == sign * .25f && sign * live.posShadow > .2f);
+        assert(sign * live.iqRef < 0);
+        enc.position = sign * .35f;
+        for (unsigned i = 0; i < 20; ++i) run_step();
+        assert(live.ErrorNow == No_Error);
+        live.posRef = sign * .201f;
+        tick();
+        assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+    }
     puts("PASS: legacy cadence/publication/PI and optional FF state publication, STOP/fault isolation");
+    puts("PASS: real feedback outside travel retained; only out-of-range target faults");
 }
 '''
     fixture = fixture.replace('#define ENCODER_OFFSET_LUT_SIZE 1024U',
                               '#define ENCODER_OFFSET_LUT_SIZE ' + lut_size + 'U')
     (out / 'fixture.c').write_text(fixture)
-    sources = [out / 'fixture.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/speed_feedforward.c', ROOT / 'firmware/motor/position/position_cascade.c',
+    sources = [out / 'fixture.c', ROOT / 'firmware/services/parameters/motor_axis_profile.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/speed_feedforward.c', ROOT / 'firmware/motor/position/position_cascade.c',
                ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c', ROOT / 'firmware/common/heap.c']
     cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
            '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),

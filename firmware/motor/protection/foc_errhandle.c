@@ -123,13 +123,6 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		Set_ErrorNow(MotorParam_Error);
 		return false;
 	}
-	if (mode_set == Position_Mode && !MotorAxisProfile_AllowsPosition(
-		&MotorControl.axis_profile, MotorControl.axis_profile_valid,
-		Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecPos(&OnBoard_Encoder)))
-	{
-		Set_ErrorNow(MotorParam_Error);
-		return false;
-	}
 	/*motor identification (R/L/flux) is not used any more*/
 	if(mode_set == Calib_Motor_R_L_Flux)
 		return false;
@@ -175,22 +168,38 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	
 	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
 	{
-		/* Entering either position mode must hold the present position, not a stale target. */
-		if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
-		{
-			float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
+        /* 位置模式从真实位置起步；mode3 越界时只收窄内部保持目标。 */
+        if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
+        {
+            float current_position_rad = Encoder_GetMecPos(&OnBoard_Encoder);
+            float position_target_rad = current_position_rad;
 
-			if (!isfinite(current_position))
-			{
-				Set_ErrorNow(Encoder_Error);
-				return false;
-			}
-			MotorControl.posRef = current_position;
-			MotorControl.posShadow = current_position;
-			MotorControl.speedShadow = 0.0f;
-			MotorControl.isReachTargetPos = false;
-			Task_Position_Mode_Reset();
-		}
+            if (!isfinite(current_position_rad))
+            {
+                Set_ErrorNow(Encoder_Error);
+                return false;
+            }
+            if (mode_set == Position_Mode)
+            {
+                if (MotorControl.axis_profile.magic != 0U)
+                {
+                    position_target_rad = fminf(fmaxf(current_position_rad,
+                        MotorControl.axis_profile.minimum_position_rad),
+                        MotorControl.axis_profile.maximum_position_rad);
+                }
+                if (!MotorAxisProfile_AllowsPosition(&MotorControl.axis_profile,
+                    MotorControl.axis_profile_valid, current_position_rad, position_target_rad))
+                {
+                    Set_ErrorNow(MotorParam_Error);
+                    return false;
+                }
+            }
+            MotorControl.posRef = position_target_rad;
+            MotorControl.posShadow = current_position_rad;
+            MotorControl.speedShadow = 0.0f;
+            MotorControl.isReachTargetPos = false;
+            Task_Position_Mode_Reset();
+        }
 		MotorControl.ModeNow = mode_set;
 		return true;
 	}

@@ -63,7 +63,7 @@ int main(void)
     assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -32768) == -32768);
     assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 70000) == 70000);
     /* A real out-of-travel angle stays out, even after branch selection. */
-    assert(!MotorAxisProfile_AllowsPosition(&p, true,
+    assert(MotorAxisProfile_AllowsPosition(&p, true,
         MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -45000) *
         (6.283185307f / 65536.0f), 0.0f));
     q = p; q.minimum_position_rad = -7.0f;
@@ -76,7 +76,15 @@ int main(void)
     assert(MotorAxisProfile_Load(&p, &q) && memcmp(&p, &q, sizeof(p)) == 0);
     assert(MotorAxisProfile_AllowsPosition(&p, true, 0, 1.48f));
     assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, 1.6f));
-    assert(!MotorAxisProfile_AllowsPosition(&p, true, 1.57079633f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 1.57079633f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, -1.57079633f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, -2.0f, -1.57079633f));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 2.0f, 1.57079633f));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, 2.0f, 2.0f));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, -2.0f, -2.0f));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, INFINITY, 0));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, INFINITY));
+    assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, NAN));
     for (i = 0; i < sizeof(p); ++i) {
         q = p; ((unsigned char *)&q)[i] ^= 1;
         assert(!MotorAxisProfile_Load(&q, &q));
@@ -119,7 +127,9 @@ int main(void)
     assert(p.crc32 == 2092040327U);
     assert(MotorAxisProfile_Resolve(&p, &config) && config.speed_ki == 2);
     assert(MotorAxisProfile_AllowsPosition(&p, true, 0, .8f));
-    assert(!MotorAxisProfile_AllowsPosition(&p, true, -.3f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, -.3f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, -.4f, -.3f));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 1.0f, .9f));
     assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, .91f));
     assert(MotorAxisProfile_CreateJoint(&p, 2, 1, -.1f, .3f, .2f));
     assert(MotorAxisProfile_Resolve(&p, &config)); /* narrower configured envelope */
@@ -134,7 +144,9 @@ int main(void)
         config.maximum_current_a == 8);
     assert(MotorAxisProfile_AllowsPosition(&p, true, 0, 3.141592654f));
     assert(MotorAxisProfile_AllowsPosition(&p, true, 0, -3.141592654f));
-    assert(!MotorAxisProfile_AllowsPosition(&p, true, 3.141592654f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 3.141592654f, 0));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, -3.15f, -3.141592654f));
+    assert(MotorAxisProfile_AllowsPosition(&p, true, 3.15f, 3.141592654f));
     assert(!MotorAxisProfile_AllowsPosition(&p, true, 0, 3.15f));
     assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, 60800) == -4736);
     assert(MotorAxisProfile_InitialEncoderOffsetQ15(&p, true, -60800) == 4736);

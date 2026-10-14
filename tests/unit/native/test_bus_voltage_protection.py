@@ -26,7 +26,7 @@ PRELUDE = r'''
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
 #define ENC_CALIB_ALL 3U
 typedef struct { float Vbus, Vbus_filt; } FOC_TypeDef;
-typedef struct { unsigned calib_flag; } Encoder_TypeDef;
+typedef struct { unsigned calib_flag; float position; } Encoder_TypeDef;
 static struct { uint32_t JDR4; } adc;
 #define VBUS_ADC (&adc)
 #define VBUS_ADC_CHANNEL JDR4
@@ -37,7 +37,7 @@ static int PI_Speed;
 static void FocFrictionIdentification_Abort(MotorControl_TypeDef *m,int *p) { (void)m;(void)p; }
 static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
-static float Encoder_GetMecPos(Encoder_TypeDef *e) { (void)e; return 0; }
+static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
 static void Task_Position_Mode_Reset(void) {}
 '''
 
@@ -52,6 +52,7 @@ static void reset(float v) {
     Vbus_Update(&FOC,&MotorControl); /* Disabled sample resets all counters. */
     MotorControl.axis_profile_valid=true;
     OnBoard_Encoder.calib_flag=3;
+    OnBoard_Encoder.position=0;
 }
 static void tick(unsigned n) { while(n--) Vbus_Update(&FOC,&MotorControl); }
 static void running(float v) { reset(v);MotorControl.ModeNow=Speed_Mode; }
@@ -116,6 +117,26 @@ int main(void) {
     input(33);FOC.Vbus_filt=33;assert(ModeSwitch_Handle(Clear_Error));
     assert(MotorControl.ModeNow==Motor_Disable);assert(ModeSwitch_Handle(Speed_Mode));
     puts("PASS explicit recovery needs safe voltage, never auto-restarts");
+    /* 模式使能只收窄内部保持目标，不能改写真实反馈或报越界参数错。 */
+    {
+        const float positions[] = {-1.2f, -1.0f, -.4f, 1.0f, 1.2f};
+        const float targets[] = {-1.0f, -1.0f, -.4f, 1.0f, 1.0f};
+        for (k = 0; k < sizeof(positions) / sizeof(positions[0]); ++k) {
+            reset(33);
+            assert(MotorAxisProfile_Create(&MotorControl.axis_profile, "roll", -1, 1, .5f));
+            OnBoard_Encoder.position = positions[k];
+            MotorControl.posRef = .8f;
+            assert(ModeSwitch_Handle(Position_Mode));
+            assert(MotorControl.ErrorNow == No_Error && MotorControl.ModeNow == Position_Mode);
+            assert(MotorControl.posRef == targets[k]);
+            assert(MotorControl.posShadow == positions[k]);
+            assert(OnBoard_Encoder.position == positions[k]);
+        }
+        reset(33);
+        OnBoard_Encoder.position = NAN;
+        assert(!ModeSwitch_Handle(Position_Mode) && MotorControl.ErrorNow == Encoder_Error);
+    }
+    puts("PASS position enable outside range: bounded hold target, true feedback retained");
     return 0;
 }
 '''

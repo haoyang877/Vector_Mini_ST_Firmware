@@ -39,10 +39,11 @@ typedef struct
     uint32_t crc32;
 } PositionSpeedPiRecord;
 
-/** @brief 保留并行调试版FSL1/v1既有记录；本分支仅验证/透传，不实现斜率控制。 */
+/** @brief FSL1/v1摩擦电流斜率，A/s；CRC覆盖前16字节，旧字段偏移保持。 */
 #define PARAM_FRICTION_SLEW_MAGIC 0x314C5346U
 #define PARAM_FRICTION_SLEW_VERSION 1U
-typedef struct {
+typedef struct
+{
     uint32_t magic;
     uint32_t version;
     float attack_a_per_s;

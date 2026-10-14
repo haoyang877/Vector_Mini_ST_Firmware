@@ -1123,6 +1123,8 @@ static void test_damped_passive_hold(void)
         for (i = 0; i <= rate / 20; ++i)
         { o = step(&c, c.target_position - sign * 1.1f * rad_per_deg, 0); }
         assert(PositionCascade_GetTelemetry(&t) && !t.passive_hold);
+        /* 回位先准备有界轨迹，不要求唤醒第一拍产生电流阶跃。 */
+        for (i = 0; i < rate / 5; ++i) { o = step(&c, c.target_position - sign * 1.1f * rad_per_deg, 0); }
         assert(sign * o.iq_reference > 0);
         for (i = 0; i < rate; ++i)
         { o = step(&c, c.target_position - sign * POSITION_SERVO_PASSIVE_ENTER_POSITION_RAD * .5f, 0); }
@@ -1165,7 +1167,7 @@ static void test_passive_hold_limit_and_raw_exit(void)
     assert(PositionCascade_GetTelemetry(&t) && !t.passive_hold);
     c.velocity_filter_hz = 0;
     c.friction_feedforward_enabled = false; /* 阻尼档1未开前馈也必须被动停靠。 */
-    for (i = 0; i < 1000; ++i) { o = step(&c, .0998f, 0); }
+    for (i = 0; i < 4000; ++i) { o = step(&c, .0998f, 0); } /* 先完成回位轨迹再确认停靠。 */
     assert(PositionCascade_GetTelemetry(&t) && t.passive_hold && o.iq_reference == 0);
     o = step(&c, .0998f, POSITION_SERVO_HOLD_EXIT_SPEED_RAD_S * 1.1f);
     assert(PositionCascade_GetTelemetry(&t) && t.passive_hold && o.iq_reference == 0);
@@ -1531,7 +1533,7 @@ static void test_damped_restart_continuity(void)
     }
 }
 
-/* 用户契约：半度内零出力，越界小电流，受阻退出且量化噪声不能重复助推。 */
+/* 扰动后复用轨迹/PI/前馈，静止与低速外推都恢复，稳态再回到零电流停靠。 */
 static void test_half_degree_zero_current_and_bounded_recovery(void)
 {
     const float rad = 0.01745329252f;
@@ -1544,92 +1546,107 @@ static void test_half_degree_zero_current_and_bounded_recovery(void)
         PositionCascadeTelemetry_TypeDef t;
         c.passive_hold_enabled = true;
         c.position_error_window = POSITION_SERVO_DAMPED_ERROR_WINDOW_RAD;
-        c.current_limit = 6;
-        c.position_kp = 8;
-        c.speed_kp = .5f;
-        c.speed_ki = 1;
+        c.current_limit = 7;
+        c.position_kp = 8; c.position_kd = 2;
+        c.speed_kp = .5f; c.speed_ki = 1;
         c.update_period_s = 1.0f / rate;
         c.velocity_filter_hz = 0;
         c.target_position = 0;
-        PositionCascade_Reset();
-        for (i = 0; i < rate; ++i) { o = step(&c, -sign * .45f * rad, 0); }
-        assert(o.iq_reference == 0);
-        /* 半度到一度保持停靠，包括等于一度和短促越界噪声。 */
-        for (i = 0; i < 2 * rate; ++i)
-        {
-            o = step(&c, -sign * ((i & 1) ? 1.0f : .75f) * rad, 0);
-            assert(o.iq_reference == 0);
-        }
-        for (i = 0; i < rate / 25; ++i) { o = step(&c, -sign * 1.1f * rad, 0); }
-        assert(o.iq_reference == 0);
-        o = step(&c, -sign * .9f * rad, 0);
-        assert(o.iq_reference == 0);
-        /* 5 Hz资格滤波保留；静止误差也能触发，500 ms后不能静默退出。 */
-        c.velocity_filter_hz = 5;
-        for (i = 0; i < 3 * rate; ++i)
-        {
-            o = step(&c, -sign * 1.1f * rad, 0);
-            assert(fabsf(o.iq_reference) <= c.current_limit && o.friction_feedforward_current == 0);
-        }
-        assert(sign * o.iq_reference > 1 && sign * o.hold_current > .5f);
-        assert(PositionCascade_GetTelemetry(&t) && !t.passive_hold);
-        for (i = 0; i < rate; ++i) { o = step(&c, -sign * .75f * rad, 0); }
-        assert(sign * o.iq_reference > 1 && fabsf(o.iq_reference) <= c.current_limit);
-        c.current_limit = .1f;
-        o = step(&c, -sign * .75f * rad, 0);
-        assert(fabsf(o.iq_reference) <= .1f);
-        c.current_limit = 6;
-        o = step(&c, -sign * .49f * rad, 0);
-        assert(o.iq_reference == 0 && o.hold_current == 0);
-        for (i = 0; i < rate; ++i)
-        {
-            o = step(&c, -sign * .75f * rad, 0);
-            assert(o.iq_reference == 0);
-        }
-        /* 可重复越界触发，不依赖外推速度；回到半度再次立即清零。 */
-        for (i = 0; i < rate; ++i) { o = step(&c, -sign * 1.1f * rad, 0); }
-        assert(sign * o.iq_reference > .1f);
-        o = step(&c, -sign * .49f * rad, 0);
-        assert(o.iq_reference == 0);
-        c.target_position = sign * .2f;
-        for (i = 0; i < rate / 5; ++i) { o = step(&c, 0, 0); }
-        assert(sign * o.friction_feedforward_current > 0);
-        /* 纯积分对照：Ki=0不产生纠偏，开启Ki后增长，饱和时不积攒隐藏电流。 */
-        c.target_position = 0;
-        c.speed_kp = 0;
-        c.speed_ki = 0;
-        c.velocity_filter_hz = 0;
+        c.maximum_speed = .2f; c.acceleration = c.deceleration = .2f; c.jerk_limit = 1;
+        c.friction_breakaway_ratio = 1;
+        c.friction_coulomb_positive = c.friction_coulomb_negative = 3;
+        c.friction_attack_slew_rate = 2;
+        c.friction_fast_release_slew_rate = c.friction_release_slew_rate = 15;
         PositionCascade_Reset();
         for (i = 0; i < rate; ++i) { o = step(&c, 0, 0); }
-        for (i = 0; i < rate; ++i) { o = step(&c, -sign * 1.1f * rad, 0); }
-        assert(o.iq_reference == 0 && o.hold_current == 0);
-        c.speed_ki = 8;
-        for (i = 0; i < 10 * rate; ++i)
+        for (i = 0; i < rate; ++i)
         {
-            float before = o.iq_reference;
-            o = step(&c, -sign * 1.1f * rad, 0);
-            assert(fabsf(o.iq_reference - before) <= 2.0f / rate + .00001f);
-            assert(fabsf(o.iq_reference) <= c.current_limit && fabsf(o.hold_current) <= c.current_limit);
-            assert(fabsf(o.iq_reference - o.hold_current) < .00001f);
+            o = step(&c, -sign * ((i & 1) ? 1.0f : .75f) * rad, 0);
+            assert(o.iq_reference == 0 && o.hold_current == 0 && o.friction_feedforward_current == 0);
         }
-        assert(sign * o.iq_reference > c.current_limit - .05f);
-        /* 速度超过命令时必须反向卸积分，不能仅按位置误差越积越大。 */
+        for (i = 0; i < rate / 25; ++i) { o = step(&c, -sign * 2 * rad, 0); }
+        assert(o.iq_reference == 0);
+        o = step(&c, -sign * .9f * rad, 0);
+        for (i = 0; i < rate / 25; ++i) { o = step(&c, -sign * 2 * rad, 0); }
+        assert(o.iq_reference == 0);
+        /* 越界确认后参考必须从实际位置起步，不能直接跳到旧目标。 */
+        for (i = 0; i < rate / 50 + 1; ++i) { o = step(&c, -sign * 2 * rad, 0); }
+        assert(PositionCascade_GetTelemetry(&t) && !t.passive_hold);
+        assert(fabsf(o.position_reference + sign * 2 * rad) < .0001f);
+        assert(o.phase == POSITION_SERVO_PHASE_MOVE);
+        for (i = 0; i < rate / 2; ++i)
         {
-            float before = sign * o.hold_current;
-            for (i = 0; i < rate / 5; ++i) { o = step(&c, -sign * 1.1f * rad, sign * .5f); }
-            assert(sign * o.hold_current < before - .1f);
+            float before = o.friction_feedforward_current;
+            o = step(&c, -sign * 2 * rad, 0);
+            assert(fabsf(o.friction_feedforward_current - before) <= 2.0f / rate + .00001f);
+            assert(fabsf(o.iq_reference) <= 7 && fabsf(o.acceleration_reference) <= .20001f);
+            assert(PositionCascade_GetTelemetry(&t));
+            assert(fabsf(t.trajectory_speed_reference) <= .20001f);
         }
-        o = step(&c, -sign * .49f * rad, 0);
-        assert(o.iq_reference == 0 && o.hold_current == 0);
-        for (i = 0; i < rate; ++i) { o = step(&c, -sign * .75f * rad, 0); }
-        assert(o.iq_reference == 0 && o.hold_current == 0);
+        assert(sign * o.friction_feedforward_current > .8f && sign * o.iq_reference > .8f);
+        c.current_limit = .1f;
+        o = step(&c, -sign * 2 * rad, 0);
+        assert(fabsf(o.iq_reference) <= .1f);
+        c.current_limit = 7;
+        /* 实际返回后，参考减速完成并确认静止，再平滑卸总电流。 */
+        for (i = 0; i < 5 * rate; ++i) { o = step(&c, -sign * .4f * rad, 0); }
+        assert(PositionCascade_GetTelemetry(&t) && t.passive_hold);
+        assert(o.iq_reference == 0 && o.hold_current == 0 && o.friction_feedforward_current == 0);
+        for (i = 0; i < rate; ++i) { o = step(&c, -sign * .75f * rad, 0); assert(o.iq_reference == 0); }
+        /* 外推仍在移动时在允许速度内保留实测速度，随后仍须用原速度约束。 */
+        for (i = 0; i <= rate / 20; ++i) { o = step(&c, -sign * 2 * rad, -sign * .05f); }
+        assert(PositionCascade_GetTelemetry(&t) && !t.passive_hold);
+        assert(sign * t.trajectory_speed_reference < -.04f);
+        c.target_position = sign * .2f;
+        for (i = 0; i < rate; ++i) { o = step(&c, 0, 0); }
+        assert(sign * o.friction_feedforward_current > 0);
+    }
+}
+
+
+/* 双向、双频率验证共享上升/下降，下降大于30时也不能被旧捕获上限截断。 */
+static void test_uniform_friction_slew(void)
+{
+    int sign, rate, i;
+    for (sign = -1; sign <= 1; sign += 2)
+    for (rate = 1000; rate <= 2000; rate += 1000)
+    {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        float before;
+        c.update_period_s = 1.0f / rate;
+        c.target_position = sign * .1f;
+        c.velocity_filter_hz = 0;
+        c.friction_coulomb_positive = c.friction_coulomb_negative = 3;
+        c.friction_breakaway_ratio = 1;
+        c.friction_attack_slew_rate = 2;
+        c.friction_fast_release_slew_rate = c.friction_release_slew_rate = 60;
+        PositionCascade_Reset();
+        o = step(&c, 0, 0);
+        for (i = 0; i < rate; ++i)
+        {
+            before = o.friction_feedforward_current;
+            o = step(&c, 0, 0);
+            assert(fabsf(o.friction_feedforward_current - before) <= 2.0f / rate + .00001f);
+        }
+        assert(sign * o.friction_feedforward_current > 1.9f);
+        before = o.friction_feedforward_current;
+        o = step(&c, c.target_position - sign * .0001f, 0);
+        assert(fabsf(o.friction_feedforward_current - before) <= 60.0f / rate + .00001f);
+        /* 接近捕获窗口时第一拍已经按60而不是旧30 A/s卸流。 */
+        assert(fabsf(o.friction_feedforward_current - before) >= 59.0f / rate);
+        c.friction_attack_slew_rate = 0;
+        assert(!PositionCascade_Update(&c,0,0,&o));
+        c.friction_attack_slew_rate = 1001;
+        assert(!PositionCascade_Update(&c,0,0,&o));
     }
 }
 
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
-    test_half_degree_zero_current_and_bounded_recovery(); puts("PASS half degree zero current; PI integral recovery, runtime current limit, no FF, 1 degree trigger, 0.5 degree release, static disturbance/new command and lower current limit, both signs/rates");
+    test_uniform_friction_slew(); puts("PASS configurable friction slew: signed rise/release, no hidden capture limit, both signs/rates, invalid bound");
+    test_half_degree_zero_current_and_bounded_recovery(); puts("PASS passive disturbance recovery: 1 degree qualification, actual q/v seeded trajectory, bounded model FF and PI, recapture zero current, both signs/rates");
     test_damped_restart_continuity(); puts("PASS damped restart: seed stopped residual, bounded friction onset, retain moving q/v/a, both signs/rates");
     test_record07_passive_recoil(); puts("PASS record07: residual and recoil unload Ui/Iq/FF, noise stays quiet, qualified 1 degree bounded recovery, both signs/rates");
     test_inertia_feedforward(); puts("PASS inertia feedforward: signed acceleration, braking, saturation, disabled and passive zero");

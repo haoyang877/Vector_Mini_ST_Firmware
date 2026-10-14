@@ -44,15 +44,20 @@ class RttControlTelemetryTests(unittest.TestCase):
         self.assertIsNotNone(descriptor)
         self.assertEqual(descriptor.group(1), "JScope_" + "i2" * len(EXPECTED_FIELDS))
 
-    def test_scope_project_exposes_every_channel_once(self) -> None:
+    def test_manual_scope_project_exposes_every_channel_once(self) -> None:
         root = ET.parse(SCOPE_PROJECT).getroot()
         form = root.find(".//form[@type='5']")
         self.assertIsNotNone(form)
         channels = [variable.attrib["name"] for variable in form.findall("var")]
         self.assertEqual(
             channels,
-            [f"rtt_channel1.data{index}" for index in range(11)],
+            [f"rtt_channel1.data{index}" for index in range(10)],
         )
+        source = FOC_TASK.read_text(encoding="utf-8")
+        self.assertIn("sizeof(RTT_Data_TypeDef) == 20U", source)
+        header = (ROOT / "firmware/platform/stm32g4/bsp/hw_conf.h").read_text(encoding="utf-8")
+        manual = header.split("#elif RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS", 1)[1]
+        self.assertIn('"JScope_' + 'i2' * 10 + '"', manual.split("#else", 1)[0])
 
     def test_servo_hil_scope_uses_v2_units(self):
         # pro_lks.lksscope is the user's generic/custom scope. The HIL scope

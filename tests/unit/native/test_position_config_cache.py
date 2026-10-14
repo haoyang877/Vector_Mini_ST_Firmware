@@ -46,6 +46,9 @@ def main():
         '\tconfig.hold_velocity_filter_hz = MotorControl->position_hold_filter_bypass ? 0.0f : '
         'POSITION_SERVO_HOLD_VELOCITY_FILTER_HZ * '
         '(MotorControl->position_hold_filter_half_cutoff ? 0.5f : 1.0f);')
+    reference = reference.replace('POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S', 'MotorControl->friction_attack_slew_a_per_s')
+    reference = reference.replace('POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S', 'MotorControl->friction_release_slew_a_per_s')
+    reference = reference.replace('POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S', 'MotorControl->friction_release_slew_a_per_s')
     actual = '\n'.join(function_source(source, n) for n in [
         'PositionMode_UpdateConfiguration', 'PositionMode_SameTuningValue',
         'PositionMode_ConfigurationMatches', 'Task_Position_Mode'])
@@ -109,6 +112,7 @@ static void setup(MotorControl_TypeDef *m) {
     m->pos_maxspeed = .6f; m->speed_limit = .8f;
     m->cascade_pos_Kp = 8; m->cascade_pos_Kd = 2;
     m->position_speed_Kp = .5f; m->position_speed_Ki = 2; m->current_limit = 6;
+    m->friction_attack_slew_a_per_s = 2; m->friction_release_slew_a_per_s = 15;
     m->friction_coulomb_pos_a = 1.4f; m->friction_coulomb_neg_a = 1.3f;
     m->friction_viscous_pos_a_per_rad_s = .1f;
     m->friction_viscous_neg_a_per_rad_s = .2f;
@@ -137,6 +141,8 @@ static void change(MotorControl_TypeDef *m, unsigned scenario, unsigned tick) {
     case 21: m->load_profile_flags=tick==131 ? 0.0f : 1.0f; break;
     case 22: m->load_profile_flags=tick==131 ? 1.0f : 3.0f; break;
     case 23: m->position_accel_ff_gain_a_per_rad_s2=tick==131 ? 1.034f : NAN; break;
+    case 25: m->friction_attack_slew_a_per_s=tick==131 ? .5f : 4.0f; break;
+    case 26: m->friction_release_slew_a_per_s=tick==131 ? 3.0f : 20.0f; break;
     case 24: m->position_accel_ff_gain_a_per_rad_s2=tick==131 ? 1.034f : 0.0f; break;
     default: break;
     }
@@ -147,7 +153,7 @@ int main(void) {
     PositionCascade_Reset();
     assert(PositionCascade_GetConfiguration()==NULL);
     assert(!PositionCascade_UpdateTarget(0,0,0,&o));
-    for(scenario=0;scenario<25;scenario++) for(pass=0;pass<2;pass++) {
+    for(scenario=0;scenario<27;scenario++) for(pass=0;pass<2;pass++) {
         MotorControl_TypeDef m; FOC_TypeDef f={0}; Encoder_TypeDef e;
         setup(&m); m.friction_model_valid=true;
         PositionCascade_Reset();

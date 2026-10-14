@@ -40,11 +40,13 @@ python tests/run.py
 
 ## 软件已有功能
 
-独立候选v0.4.0：[默认关闭、CAN配置及Flash保存的速度惯量前馈](docs/guides/wheel_speed_feedforward_v1.md)。
+调试归档v0.4.1：[版本变更、验证范围及已知限制](docs/reports/2026-10-14-v041-debug-archive.md)。
+
+已合入、默认关闭：[CAN配置及Flash保存的速度惯量前馈](docs/guides/wheel_speed_feedforward_v1.md)。
 
 前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
 
-当前 APP 软件版本 **v0.4.0独立候选**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+当前 APP 软件版本 **v0.4.1，build0**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
 
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
 

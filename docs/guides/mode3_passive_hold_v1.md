@@ -1,3 +1,5 @@
+> **v0.4.1扰动回位候选**：超过1°持续50 ms后从实际q/v重新规划受控回位，复用正常速度PI及已开启的摩擦前馈。轨迹完成、误差≤0.5°且低速确认后清Ui/FF并按2 A/s卸总电流。下文旧版直接PI且无FF的描述为历史记录。当前仅离线验证，见[方案](../plans/2026-10-12-passive-disturbance-trajectory-v1.md)及[模型对照](../reports/2026-10-12-passive-disturbance-trajectory-offline.md)。
+
 # mode 3 阻尼环停靠 v1
 
 > 已完成PLL及均值测速实测，整体停靠精度尚未通过，见

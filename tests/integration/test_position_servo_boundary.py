@@ -59,7 +59,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("MotorControl->position_accel_ff_gain_a_per_rad_s2", adapter)
         self.assertIn("friction_fast_release_slew_rate", public_api)
         self.assertIn(
-            "POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S", adapter
+            "MotorControl->friction_release_slew_a_per_s", adapter
         )
 
     def test_servo_exports_coherent_diagnostics(self) -> None:

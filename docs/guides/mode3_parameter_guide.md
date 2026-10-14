@@ -1,3 +1,7 @@
+> **v0.4.1扰动回位候选**：超过1°持续50 ms后从实际q/v重新规划受控回位，复用正常速度PI及已开启的摩擦前馈。轨迹完成、误差≤0.5°且低速确认后清Ui/FF并按2 A/s卸总电流。下文旧版直接PI且无FF的描述为历史记录。当前仅离线验证，见[方案](../plans/2026-10-12-passive-disturbance-trajectory-v1.md)及[模型对照](../reports/2026-10-12-passive-disturbance-trajectory-offline.md)。
+
+> v0.3.0起新增可保存的摩擦前馈斜率：[配置说明](friction_slew_v1.md)。新变量默认上升2、下降15 A/s；当前板需下载新固件才可使用。
+
 > **v0.2.2积分纠偏候选覆盖下文旧版策略**：停靠后误差>1°持续50 ms触发位置内速度PI积分纠偏，电流受运行限流及2 A/s斜坡约束；回到≤0.5°清Ui并撤流，中间保持原状态。摩擦/惯量前馈关闭。本版已下载Pitch并完成静态核验，尚未运动验收；详见[计划](../plans/2026-10-10-passive-recovery-integral-v2.md)。
 
 # Mode 3 参数与工况适配
@@ -140,3 +144,28 @@ mode9不会保存它；本轮未更改Flash ABI。设计与验收边界见
 复制 [新电机模板](../../tests/hil/profiles/mode3/new_motor.template.json)，填写电机标识、实际可用角度、目标留量、运行参数和验收电流阈值。未知J/Kt及摩擦值保留null；测试计划需要的运动与增益字段必须有依据地填全。`core`是待核对的编译配置快照，修改JSON不会修改头文件。实际 `speed_limit`、编译宏、有效摩擦模型和固件schema仍需读回/构建核验。
 
 每份实机记录还应注明负载装配、方向、温度/NTC状态、固件镜像哈希、Flash参数版本及是否保存参数。当前板卡的schema10工作区固件与已提交schema9固件不同；不要直接把旧参数区当成新固件参数结构使用。
+
+## Keil手动参数设置（2026-10-12，Pitch）
+
+先停止运动，确认mode0及三相关闭，再在Watch修改MotorControl变量。下面位置/速度变量采用rad、rad/s、rad/s²，表中度数仅供对照。
+
+| Watch变量 | 当前Pitch目标 | 说明 |
+|---|---:|---|
+| MotorControl.current_limit | 7.0 | 运行限流A |
+| MotorControl.calib_current | 5.0 | 标定电流A，不等同于所有启动阶段瞬时幅值 |
+| MotorControl.cascade_pos_Kp / cascade_pos_Kd | 8.0 / 2.0 | mode3位置增益 |
+| MotorControl.position_speed_Kp / position_speed_Ki | 0.5 / 1.0 | mode3内速度PI |
+| MotorControl.speed_Kp / speed_Ki | 0.06 / 0.6 | 纯速度PI |
+| MotorControl.pos_maxspeed | 0.7853981634 | 45°/s |
+| MotorControl.posAcc / posDec | 0.7853981634 / 0.7853981634 | 45°/s²，mode3实际减速度另受代码30°/s²限制 |
+| MotorControl.position_velocity_filter_half_cutoff | 1 | 基础10 Hz减半为5 Hz |
+| MotorControl.load_profile_flags | 3 | 阻尼环和摩擦前馈均开启；1仅阻尼，0无阻尼 |
+| MotorControl.friction_coulomb_pos_a / friction_coulomb_neg_a | 3.455 / 3.101 | 正/反方向库仑电流A |
+| MotorControl.friction_viscous_pos_a_per_rad_s / friction_viscous_neg_a_per_rad_s | 0 / 0 | 当前目标没有速度相关摩擦项 |
+| MotorControl.friction_model_valid | 1 | 应先填入有效模型幅值；目标表值不等于本板辨识结果 |
+
+修改普通变量只改变RAM。设MotorControl.ModeNow=9（Save_Param），让MCU运行处理；确认ModeNow返回0、无故障、三相关闭，复位后重新读取数值才说明保存成功。mode9保存整组参数及个体标定，调试RAM内有其他试验值时会一并保存；仅修改少数字段时可采用备份和限定字段的Flash补丁脚本。
+
+运动范围是AXS1独立记录：MotorControl.axis_profile.minimum_position_rad=-0.9、maximum_position_rad=0.3、maximum_speed_rad_s=0.7853981634。其crc32覆盖记录前28字节，Param_Upload直接复制轴记录，不自动重算该CRC，因此不能只改上下限。使用MotorAxisProfile_Create生成完整合法记录，或专用参数页脚本同步CRC，再保存并复位核验。不要手工伪造axis_profile_valid来掩盖坏CRC。
+
+机械零位属于本机个体标定，不能复制其他板数值或把calib_flag从3手改7。当前4A004E板保留机械零位未标定状态，等机构安装后按设零流程处理。

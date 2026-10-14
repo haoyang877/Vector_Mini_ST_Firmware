@@ -169,7 +169,9 @@ int main(void) {
     e.has_valid_sample = false; e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
     e.mechanical_zero_q15 = 0; sample = 30000;
     Encoder_CompleteSample(&m, &e, false);
-    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
+    assert(e.theta_mech > m.axis_profile.maximum_position_rad);
+    assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
+    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, e.theta_mech));
     puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
     return 0;
 }

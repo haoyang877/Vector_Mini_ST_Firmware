@@ -1,8 +1,8 @@
 # 轮电机速度前馈实现设计
 
-文档v1，2026-10-12；独立分支`codex/wheel-speed-feedforward`，APP v0.4.0候选。
+文档v2，2026-10-12；功能从`codex/wheel-speed-feedforward`合入`codex/ovp-36v`，APP v0.4.0候选。
 本页说明实际代码；报文、Flash字段表及空载／整车操作见[使用调试指南](../guides/wheel_speed_feedforward_v1.md)。
-默认关闭，尚未下载或实机验收；原调试目录的代码修改保持独立。
+默认关闭，尚未下载或实机验收；目标分支现有调试修改和mode3摩擦斜率控制保留。
 
 ## 1. 目标与范围
 
@@ -105,14 +105,14 @@ Umax = (+IL − Iff) / IL
 
 保持schema10及既有PI、LUT、电零位、机械零位、轴配置的偏移。
 SFF1/v1为32字节，放在相对偏移2312，CRC覆盖前28字节；总参数长2344字节，仍占两页。
-FSL1/v1已占用2292～2311，校验后原样保留；本分支不执行FSL斜率控制行为。
+FSL1/v1占用2292～2311，使用目标分支既有加载、保存及mode3斜率控制行为。
 
 旧SFF位置全零／全0xFF时使用默认关闭，不因缺SFF本身额外保存；有效记录恢复其
 保存值，包括明确保存的开启状态。非空损坏记录拒绝准入，不自动改写成默认值。
 旧版本保存可能擦除其不认识的尾记录，再升级缺SFF时仍默认关闭。
 
-兼容数据不等于包含其他分支的控制改动。需要FSL控制行为的Roll/Pitch/Yaw继续
-使用调试分支；合入时统一控制逻辑。未知格式不能仅凭同属schema10互刷。
+合并后使用目标分支真实的FSL加载/保存及mode3斜率控制，不再使用独立分支
+的透传缓存。FSL1偏移2292和SFF1偏移2312保持，未知格式不能仅凭schema10互刷。
 
 ## 7. 代码入口与验证边界
 
@@ -126,10 +126,9 @@ FSL1/v1已占用2292～2311，校验后原样保留；本分支不执行FSL斜�
 | [can_parameter_protocol.py](../../tools/bench/can_parameter_protocol.py) | 主机配对参数写入、查询、核对 |
 
 两个Keil工程均须纳入`speed_feedforward.c`。若出现四个`SpeedFeedforward_*`链接
-缺符号，确认打开独立worktree中的工程、源文件已纳入编译，重新载入后Rebuild；
-不要将新文件复制进正在实机调试的原目录。
+缺符号，确认打开当前工作目录中的工程、源文件已纳入编译，重新载入后Rebuild。
 
-已通过：55项Python单元、36项集成、19组原生检查；普通/HIL构建均0错误、0警告。
+独立分支合入前已通过：55项Python单元、36项集成、19组原生检查；普通/HIL构建均0错误、0警告。
 覆盖旧路径逐拍对照、限加速度／jerk／电流、抗积分、模式／故障隔离、真实CAN
 配置准入、CRC坏记录及FSL透传。普通Code/RO/RW/ZI为87868/5056/428/27404字节，
 HIL为89620/5064/640/27448字节；参数和标定并存的堆最小余量1672字节。
@@ -137,7 +136,8 @@ HIL为89620/5064/640/27448字节；参数和标定并存的堆最小余量1672�
 尚未验证真实整车跟随、噪声、最佳系数／PI、带载带宽、同步采集和长期稳定性。
 候选未下载、未正式发布；历史工作树没有现代release profile工具，不宣称该profile通过。
 
-证据索引：`outputs/wheel_speed_feedforward_20261012/summary.json`；
+合入前证据索引：`outputs/wheel_speed_feedforward_20261012/summary.json`；
 接口黄金向量：[SFF1及CAN向量](../../tests/vectors/speed_feedforward_v1.json)；
 工作记录：[实现计划](../plans/2026-10-12-wheel-speed-feedforward-v1.md)。
-文档整理不改变已冻结固件及当时的源码快照。
+合并后重新验证并生成独立证据，不能用上述资源与哈希代表合并后的镜像。
+合并检查索引：`outputs/speed_feedforward_merge_20261012/summary.json`。

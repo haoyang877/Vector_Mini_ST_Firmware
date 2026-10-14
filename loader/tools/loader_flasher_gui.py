@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from types import SimpleNamespace
 
+from maintenance_version import PRODUCT_NAME, VERSION_TEXT
 from loader_factory import check_power_off, flash_package, load_hex
 from maintenance_backend import (
     can_snapshot,
@@ -148,7 +149,7 @@ class FlasherWindow:
         self.page_titles = []
         self.nav_buttons = []
         self.logs_visible = False
-        root.title("Vector Mini · 设备维护")
+        root.title(f"{PRODUCT_NAME} v{VERSION_TEXT}")
         root.tk.call("tk", "scaling", 96 / 72)
         width = min(1120, root.winfo_screenwidth() - 60)
         height = min(810, root.winfo_screenheight() - 100)
@@ -575,7 +576,7 @@ class FlasherWindow:
         footer.pack(side="bottom", fill="x", padx=22, pady=24)
         tk.Label(
             footer,
-            text="STM32G431",
+            text=f"维护工具 v{VERSION_TEXT}",
             background="#111d35",
             foreground="#a3b0c6",
             font=("Segoe UI", 9, "bold"),
@@ -1408,11 +1409,28 @@ class FlasherWindow:
 def main():
     """默认启动GUI；显式离线检查和UI冒烟模式均不调用探针。"""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", action="version", version=VERSION_TEXT)
+    parser.add_argument("--version-report", type=Path)
     parser.add_argument("--check-hex", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--smoke-ui", type=Path)
     parser.add_argument("--check-drivers", type=Path)
     args = parser.parse_args()
+    if args.version_report:
+        args.version_report.write_text(
+            json.dumps(
+                {
+                    "product": PRODUCT_NAME,
+                    "software_version": VERSION_TEXT,
+                    "hardware_accessed": False,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return 0
     if args.check_drivers:
         try:
             report = check_bundled_drivers()
@@ -1447,6 +1465,7 @@ def main():
                         "status": "PASS",
                         "hardware_accessed": False,
                         "window_title": root.title(),
+                        "software_version": VERSION_TEXT,
                         "firmware": window.firmware,
                         "pages": [
                             window.tabs.tab(tab, "text") for tab in window.tabs.tabs()

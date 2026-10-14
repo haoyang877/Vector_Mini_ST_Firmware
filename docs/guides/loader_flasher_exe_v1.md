@@ -1,6 +1,9 @@
 # Windows设备维护工具
 
 双击`VectorMiniFlasher.exe`即可运行，不需要安装Python。
+维护软件当前版本为 **v1.1.0**，标题、侧栏和 Windows 文件属性显示同一版本。
+该版本独立于板卡 APP/Loader 版本；配套合包为 Loader v1.0.0 + APP v0.5.2。
+发布包包含完整合并 HEX 与 `can_app/manifest.json`、`can_app/app.bin`；后者仅升级 APP。
 当前发布EXE内置64位`JLink_x64.dll`和`ControlCANFD.dll`，启动后从自身资源目录自动加载，无需选择DLL。
 首次在新电脑使用时，仍需安装对应USB设备驱动；内置DLL不等于安装Windows内核驱动。
 本工具用于STM32G431CB的当前APP+Loader初装布局，GUI默认使用SWD 1000 kHz，不写参数或标定区。
@@ -84,6 +87,15 @@ python loader/tools/build_flasher_exe.py --jlink-dll <JLink_x64.dll> --can-dll <
 ```
 
 构建保留PyInstaller日志、依赖完整版本、源码快照、EXE和原始厂商DLL的SHA256。
+已有独立构建的初装包时，生成完整下载ZIP：
+
+```powershell
+python loader/tools/package_maintenance.py --flasher-build outputs/flasher_exe_build --factory-package outputs/factory_package --loader-version 0x01000000 --out outputs/maintenance_package
+```
+
+输出包括EXE、按Loader/APP版本与日期命名的合并HEX、初装包、CAN包及备选烧录脚本。
+先校验初装输入、EXE哈希和源码快照；此命令不访问硬件、不代表实机验收通过。
+
 两个DLL验证Windows x64 PE架构后原样内置，许可文本和厂商说明同时保留；不修改厂商二进制。
 J-Link使用范围与DLL分发说明参见[SEGGER官方SDK说明](https://www.segger.com/products/debug-probes/j-link/tools/j-link-sdk/)。
 PyInstaller使用官方单文件窗口模式，运行时在临时目录展开依赖，不需外置Python脚本。
@@ -96,6 +108,7 @@ python tests/loader/test_factory_hex.py
 VectorMiniFlasher.exe --check-hex candidate.hex --report hex_check.json
 VectorMiniFlasher.exe --check-hex candidate.hex --smoke-ui ui_check.json
 VectorMiniFlasher.exe --check-drivers drivers_check.json
+VectorMiniFlasher.exe --version-report software_version.json
 ```
 
 离线入口输出不作为实机烧录证据。2026-10-14在独立板上完成新版冻结EXE的实际按钮烧录，

@@ -49,7 +49,7 @@ APP入口0x08004000，初装需使用完整Loader+APP包，参数区保持独立
 
 前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
 
-当前 APP 软件版本 **v0.5.1，build0（Loader合并候选）**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+当前 APP 软件版本 **v0.5.2，build0**：[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
 
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
 

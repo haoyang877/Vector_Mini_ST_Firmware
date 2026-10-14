@@ -12,6 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "loader/tools"))
 from loader_flasher_gui import FlasherWindow, find_vendor_dll  # noqa: E402
+from maintenance_version import VERSION_TEXT  # noqa: E402
 
 
 def require(value, message):
@@ -47,6 +48,7 @@ def main():
             window = FlasherWindow(root)
             root.geometry("940x740+10+10")
             root.update()
+            require(f"v{VERSION_TEXT}" in root.title(), "Software version missing")
             require(
                 str(window.flash_button["state"]) == "disabled",
                 "Default Flash button is enabled",

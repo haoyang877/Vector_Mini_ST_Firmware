@@ -8,6 +8,8 @@ import subprocess
 import sys
 import struct
 
+from maintenance_version import PRODUCT_NAME, VERSION, VERSION_TEXT
+
 
 def main():
     """使用当前环境的已安装PyInstaller，记录版本、源文件及EXE哈希。"""
@@ -59,6 +61,26 @@ def main():
         "Bundled DLLs do not install Windows USB kernel drivers.\n",
         encoding="utf-8",
     )
+    # Windows属性页与界面共用版本源；资源只在构建输出目录生成。
+    version_file = out / "windows_version.txt"
+    strings = {
+        "FileDescription": PRODUCT_NAME,
+        "FileVersion": ".".join(map(str, VERSION)),
+        "InternalName": "VectorMiniFlasher",
+        "OriginalFilename": "VectorMiniFlasher.exe",
+        "ProductName": PRODUCT_NAME,
+        "ProductVersion": VERSION_TEXT,
+    }
+    entries = ",\n".join(
+        f"StringStruct({key!r}, {value!r})" for key, value in strings.items()
+    )
+    version_file.write_text(
+        f"VSVersionInfo(ffi=FixedFileInfo(filevers={VERSION!r}, prodvers={VERSION!r}, "
+        "mask=0x3f, flags=0, OS=0x40004, fileType=1, subtype=0, date=(0, 0)), "
+        f"kids=[StringFileInfo([StringTable('080404B0', [{entries}])]), "
+        "VarFileInfo([VarStruct('Translation', [2052, 1200])])])\n",
+        encoding="utf-8",
+    )
     command = [
         sys.executable,
         "-m",
@@ -69,6 +91,8 @@ def main():
         "--noconfirm",
         "--name",
         "VectorMiniFlasher",
+        "--version-file",
+        str(version_file),
         "--hidden-import",
         "pylink",
         "--add-binary",
@@ -100,6 +124,8 @@ def main():
         "loader_proto.py",
         "usbcan_adapter.py",
         "maintenance_backend.py",
+        "maintenance_version.py",
+        "build_flasher_exe.py",
     ]
     snapshot = out / "source_snapshot"
     snapshot.mkdir()
@@ -114,6 +140,7 @@ def main():
     (out / "requirements_snapshot.txt").write_text(versions, encoding="utf-8")
     summary = {
         "status": "BUILT_NOT_HARDWARE_TESTED",
+        "software_version": VERSION_TEXT,
         "hardware_accessed": False,
         "exe": exe.name,
         "exe_bytes": exe.stat().st_size,

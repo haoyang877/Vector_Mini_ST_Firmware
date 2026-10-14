@@ -4,6 +4,7 @@
 #include "motor_thermal_control.h"
 #include "motor_thermal_config.h"
 #include "data_type.h"
+#include "motor_hw.h"
 #include <stddef.h>
 
 /* 只读调试符号；外部不得写入以获得冷态预算。 */
@@ -11,6 +12,140 @@ static MotorThermalDiagnostics thermal_diagnostics;
 /* 监督上下文只发布事件；模型失效及累计器仍由快上下文处理。 */
 static volatile bool pending_clock_fault;
 static volatile uint32_t published_update_ms;
+
+static const MotorThermalConfig default_config = {MOTOR_THERMAL_CONTINUOUS_VECTOR_A,
+                                                  MOTOR_THERMAL_CONTINUOUS_PHASE_RMS_A,
+                                                  MOTOR_THERMAL_PEAK_A,
+                                                  MOTOR_THERMAL_HEATING_TAU_S,
+                                                  MOTOR_THERMAL_COOLING_TAU_S,
+                                                  MOTOR_THERMAL_UPDATE_PERIOD_S,
+                                                  MOTOR_THERMAL_FAST_SAMPLES,
+                                                  MOTOR_THERMAL_DERATING_ENTER_HEAT,
+                                                  MOTOR_THERMAL_DERATING_EXIT_HEAT,
+                                                  MOTOR_THERMAL_TRIP_HEAT,
+                                                  MOTOR_THERMAL_CLEAR_HEAT};
+static MotorThermalConfig startup_config;
+static bool startup_config_set;
+/* 单一通信生产者；ready置位后不得覆盖，快环消费完成才释放槽位。 */
+static struct
+{
+    MotorThermalConfig config;
+    float heating_alpha;
+    float cooling_alpha;
+} pending_config;
+static volatile bool pending_config_ready;
+
+static MotorThermalConfig current_config(void)
+{
+    if (pending_config_ready)
+    {
+        motor_hw_outer_barrier();
+        return pending_config.config;
+    }
+    if (thermal_diagnostics.initialized)
+    {
+        return thermal_diagnostics.model.config;
+    }
+    return startup_config_set ? startup_config : default_config;
+}
+
+static float *parameter_value(MotorThermalConfig *config, MotorThermalParameter parameter)
+{
+    switch (parameter)
+    {
+    case MOTOR_THERMAL_CONTINUOUS_VECTOR:
+        return &config->continuous_vector_a;
+    case MOTOR_THERMAL_PEAK:
+        return &config->peak_a;
+    case MOTOR_THERMAL_HEATING_TAU:
+        return &config->heating_tau_s;
+    case MOTOR_THERMAL_DERATING_ENTER:
+        return &config->derating_enter_heat;
+    case MOTOR_THERMAL_DERATING_EXIT:
+        return &config->derating_exit_heat;
+    case MOTOR_THERMAL_TRIP:
+        return &config->trip_heat;
+    case MOTOR_THERMAL_CLEAR:
+        return &config->clear_heat;
+    default:
+        return NULL;
+    }
+}
+
+static void derive_config(MotorThermalConfig *config)
+{
+    config->continuous_phase_rms_a = config->continuous_vector_a * 0.707106781f;
+    config->cooling_tau_s = fmaxf(MOTOR_THERMAL_COOLING_MIN_TAU_S, config->heating_tau_s);
+}
+
+bool MotorThermalControl_LoadParameters(const float *values)
+{
+    MotorThermalConfig config = default_config;
+    unsigned i;
+    if (thermal_diagnostics.initialized)
+    {
+        return false;
+    }
+    if (values != NULL)
+    {
+        for (i = 0U; i < MOTOR_THERMAL_PARAMETER_COUNT; ++i)
+        {
+            *parameter_value(&config, (MotorThermalParameter)i) = values[i];
+        }
+        derive_config(&config);
+        if (!MotorThermal_ConfigValid(&config))
+        {
+            return false;
+        }
+        startup_config = config;
+    }
+    startup_config_set = values != NULL;
+    return true;
+}
+
+bool MotorThermalControl_GetParameter(MotorThermalParameter parameter, float *value)
+{
+    MotorThermalConfig config = current_config();
+    float *field = parameter_value(&config, parameter);
+    if (value == NULL || field == NULL)
+    {
+        return false;
+    }
+    *value = *field;
+    return true;
+}
+
+bool MotorThermalControl_RequestParameter(MotorThermalParameter parameter,
+                                          float value,
+                                          uint32_t mode,
+                                          bool outputs_disabled)
+{
+    MotorThermalConfig config;
+    float *field;
+    if (mode != Motor_Disable || !outputs_disabled || pending_config_ready ||
+        !thermal_diagnostics.initialized || !thermal_diagnostics.model.valid || !isfinite(value))
+    {
+        return false;
+    }
+    config = current_config();
+    field = parameter_value(&config, parameter);
+    if (field == NULL)
+    {
+        return false;
+    }
+    *field = value;
+    derive_config(&config);
+    if (!MotorThermal_ConfigValid(&config))
+    {
+        return false;
+    }
+    pending_config.config = config;
+    pending_config.heating_alpha = -expm1f(-config.update_period_s / config.heating_tau_s);
+    pending_config.cooling_alpha = -expm1f(-config.update_period_s / config.cooling_tau_s);
+    motor_hw_outer_barrier();
+    pending_config_ready = true;
+    return true;
+}
 
 static bool power_mode(uint32_t mode)
 {
@@ -50,13 +185,7 @@ void MotorThermalControl_Init(uint32_t now_ms)
     {
         return;
     }
-    config.continuous_vector_a = MOTOR_THERMAL_CONTINUOUS_VECTOR_A;
-    config.continuous_phase_rms_a = MOTOR_THERMAL_CONTINUOUS_PHASE_RMS_A;
-    config.peak_a = MOTOR_THERMAL_PEAK_A;
-    config.heating_tau_s = MOTOR_THERMAL_HEATING_TAU_S;
-    config.cooling_tau_s = MOTOR_THERMAL_COOLING_TAU_S;
-    config.update_period_s = MOTOR_THERMAL_UPDATE_PERIOD_S;
-    config.samples_per_update = MOTOR_THERMAL_FAST_SAMPLES;
+    config = current_config();
     /* 用户指定上电按冷态开始；MCU复位丢失热历史，重复初始化仍保留热量。 */
     MotorThermal_Init(&thermal_diagnostics.model, &config, 0.0f);
     thermal_diagnostics.last_update_ms = now_ms;
@@ -72,6 +201,19 @@ void MotorThermalControl_Sample(
     if (!thermal_diagnostics.initialized)
     {
         return;
+    }
+    if (pending_config_ready && outputs_disabled)
+    {
+        motor_hw_outer_barrier();
+        if (!MotorThermal_Reconfigure(state,
+                                      &pending_config.config,
+                                      pending_config.heating_alpha,
+                                      pending_config.cooling_alpha))
+        {
+            MotorThermal_Invalidate(state);
+        }
+        motor_hw_outer_barrier();
+        pending_config_ready = false;
     }
     if (pending_clock_fault)
     {
@@ -123,7 +265,7 @@ bool MotorThermalControl_CanRunMode(uint32_t mode)
     {
         return true;
     }
-    return !pending_clock_fault && thermal_diagnostics.initialized &&
+    return !pending_clock_fault && !pending_config_ready && thermal_diagnostics.initialized &&
            thermal_diagnostics.parameters_confirmed && state->valid && !state->fault_latched &&
            !(state->derating && abort_on_derating(mode));
 }
@@ -145,7 +287,8 @@ bool MotorThermalControl_Guard(uint32_t mode)
 
 float MotorThermalControl_CurrentLimit(float configured_a)
 {
-    float available_a = !pending_clock_fault && thermal_diagnostics.initialized &&
+    float available_a = !pending_clock_fault && !pending_config_ready &&
+                                thermal_diagnostics.initialized &&
                                 thermal_diagnostics.parameters_confirmed
                             ? thermal_diagnostics.model.available_a
                             : 0.0f;
@@ -156,7 +299,8 @@ bool MotorThermalControl_CanClearFault(void)
 {
     return !pending_clock_fault && thermal_diagnostics.initialized &&
            thermal_diagnostics.parameters_confirmed && thermal_diagnostics.model.valid &&
-           thermal_diagnostics.model.max_heat <= 0.5f;
+           !pending_config_ready &&
+           thermal_diagnostics.model.max_heat <= thermal_diagnostics.model.config.clear_heat;
 }
 
 bool MotorThermalControl_ClearFault(void)

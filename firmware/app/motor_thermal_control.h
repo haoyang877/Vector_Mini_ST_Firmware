@@ -55,7 +55,7 @@ bool MotorThermalControl_CanRunMode(uint32_t mode);
 /**
  * @brief 快上下文执行最终热准入，热态禁止的标定/开环会锁存退出。
  * @param mode 本拍将执行的模式。
- * @return 允许继续时为true；false时调用方必须在PWM写入前停机。
+ * @return 允许继续时为true；false时须清参考、转mode 0并在同一快拍关相。
  */
 bool MotorThermalControl_Guard(uint32_t mode);
 
@@ -67,7 +67,7 @@ bool MotorThermalControl_Guard(uint32_t mode);
 float MotorThermalControl_CurrentLimit(float configured_a);
 
 /**
- * @brief 查询有效模型是否已冷却至50%以内且参数已放行。
+ * @brief 查询有效模型是否已冷却至配置恢复门限以内且参数已放行。
  * @return 具备热清故障资格时为true。
  * @note 查询不清除热量或故障，也不使能输出。
  */
@@ -81,7 +81,7 @@ bool MotorThermalControl_ClearFault(void);
 
 /**
  * @brief 查询配置放行标志，供区分参数未放行和热保护动作。
- * @return 参数已完成实机放行时为true。
+ * @return 软件放行开关为1时为true，不证明已完成实机热标定。
  */
 bool MotorThermalControl_ParametersConfirmed(void);
 
@@ -92,5 +92,36 @@ bool MotorThermalControl_ParametersConfirmed(void);
  * @note 仅快上下文或MCU已暂停时读取，不保证跨ISR原子采集。
  */
 bool MotorThermalControl_GetDiagnostics(MotorThermalDiagnostics *output);
+
+/**
+ * @brief 启动前加载热配置；空指针选择编译默认值。
+ * @param values 按固定参数顺序排列的七个值，热门限为比例；NULL选择默认值。
+ * @return 尚未初始化且配置有效时为true；运行中拒绝覆盖。
+ * @note 不初始化模型、不清热量；仅启动参数加载调用。
+ */
+bool MotorThermalControl_LoadParameters(const float *values);
+
+/**
+ * @brief 读取已接受的参数；待消费配置也可查询和保存。
+ * @param parameter 固定参数索引。
+ * @param value 输出A、s或热比例；通信层负责百分数转换。
+ * @return 索引和指针有效时为true。
+ * @note 只读，不返回可写状态；CAN配置应在停机时逐项读回核验。
+ */
+bool MotorThermalControl_GetParameter(MotorThermalParameter parameter, float *value);
+
+/**
+ * @brief 校验并提交单个热参数，下一关相快拍应用完整配置。
+ * @param parameter 固定参数索引。
+ * @param value 候选值，单位A、s或热比例。
+ * @param mode 请求时电机模式，必须为mode 0。
+ * @param outputs_disabled 三相主/互补输出均已高阻关闭。
+ * @return 完整配置有效且单槽空闲时为true；拒绝时不修改任何状态。
+ * @note 通信上下文预计算指数系数；不清热历史、故障或采样窗口。
+ */
+bool MotorThermalControl_RequestParameter(MotorThermalParameter parameter,
+                                          float value,
+                                          uint32_t mode,
+                                          bool outputs_disabled);
 
 #endif

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "software_version": "v0.3.0",
-  "build": 2,
+  "build": 3,
   "fault_code": 16,
   "fault_meaning": "motor_winding_thermal_protection",
   "fault_field_offset": 0,
@@ -10,7 +10,7 @@
   "legacy_mcu_temperature_fault_code": 10,
   "status_payload_bytes": 48,
   "flash_schema": 10,
-  "flash_parameter_bytes": 2292,
+  "flash_parameter_bytes": 2332,
   "defaults": {
     "continuous_vector_a": 3,
     "continuous_phase_rms_a": 2.121320344,
@@ -18,7 +18,11 @@
     "heating_tau_s": 65.98486785,
     "cooling_tau_s": 120,
     "parameters_confirmed": true,
-    "initial_heat": 0
+    "initial_heat": 0,
+    "derating_enter_heat": 0.8,
+    "derating_exit_heat": 0.7,
+    "trip_heat": 1,
+    "clear_heat": 0.5
   },
   "reference_without_derating": [
     {

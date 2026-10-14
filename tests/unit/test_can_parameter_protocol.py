@@ -13,6 +13,24 @@ from can_parameter_protocol import encode, decode, Client, Frame
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_thermal_configuration_golden_vectors(self):
+        """热门限使用百分数float32，热电流独立于旧毫安int16编码。"""
+        vectors = json.loads((ROOT / 'tests/vectors/motor_thermal_configuration_v1.json').read_text(encoding='utf-8'))
+        for parameter in vectors['parameters']:
+            wire = bytes.fromhex(parameter['default_hex'])
+            self.assertEqual(encode(parameter['set_id'], parameter['default']), wire)
+            self.assertAlmostEqual(decode(parameter['get_id'], wire), parameter['default'], places=4)
+
+        class Bus:
+            def __init__(self): self.pending = []
+            def receive(self, channel):
+                result, self.pending = self.pending, []
+                return result
+            def send(self, channel, identifier, data):
+                self.pending = [Frame(channel, identifier, bytes.fromhex('42a00000'), 1, time.perf_counter())]
+
+        self.assertEqual(Client(Bus()).verify(0, 4, 0x76, 80), 80)
+
     def test_software_version_golden_vectors(self):
         """版本查询使用无符号整数编码，独立于既有浮点协议版本。"""
         vector = json.loads((ROOT / 'tests/vectors/software_version_v1.json').read_text(encoding='utf-8'))

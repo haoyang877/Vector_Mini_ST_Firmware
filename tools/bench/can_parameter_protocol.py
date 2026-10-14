@@ -83,7 +83,9 @@ class Client:
         self._send(channel, node, param, encode(param, value))
 
     def read(self, channel, node, set_param):
-        if set_param & 1 or not 0 <= set_param < 0x58 and set_param not in (0x64, 0x68):
+        if set_param & 1 or (not 0 <= set_param < 0x58
+                            and set_param not in (0x64, 0x68)
+                            and not 0x70 <= set_param <= 0x7c):
             raise ValueError('read requires a supported paired SET parameter')
         self._receive(channel)  # Discard queued replies before issuing the query.
         reply = set_param + 1

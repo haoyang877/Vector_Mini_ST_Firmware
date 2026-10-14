@@ -3,21 +3,18 @@
 #include <string.h>
 #include "common_inc.h"
 #include "foc_param_profile.h"
+#include "motor_thermal_control.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder;
 extern CANMsg_TypeDef CANMsg;
 
-/* 私有参数存储计算；与Flash I/O、控制时序分离，固定little-endian CRC契约。 */
-static uint32_t position_filter_crc(const PositionFilterRecord *record)
+/* 参数尾记录共用同一小端字CRC契约；只在启动/保存路径执行。 */
+static uint32_t parameter_words_crc(const uint32_t *words, uint32_t word_count)
 {
-    uint32_t words[3];
-    uint32_t crc = 0xFFFFFFFFU;
+    uint32_t crc = UINT32_MAX;
     uint32_t index;
-    words[0] = record->magic;
-    words[1] = record->version;
-    words[2] = record->half_cutoff;
-    for (index = 0U; index < 12U; ++index)
+    for (index = 0U; index < word_count * 4U; ++index)
     {
         uint32_t bit;
         crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
@@ -27,6 +24,16 @@ static uint32_t position_filter_crc(const PositionFilterRecord *record)
         }
     }
     return ~crc;
+}
+
+/* 私有参数存储计算；与Flash I/O、控制时序分离，固定little-endian CRC契约。 */
+static uint32_t position_filter_crc(const PositionFilterRecord *record)
+{
+    uint32_t words[3];
+    words[0] = record->magic;
+    words[1] = record->version;
+    words[2] = record->half_cutoff;
+    return parameter_words_crc(words, 3U);
 }
 
 /* 缺省旧尾部兼容10 Hz；非空损坏记录拒绝准入，不悄悄降低反馈延迟。 */
@@ -55,22 +62,40 @@ static bool position_filter_load(const PositionFilterRecord *record, bool *half_
 static uint32_t position_speed_pi_crc(const PositionSpeedPiRecord *record)
 {
     uint32_t words[4];
-    uint32_t crc = UINT32_MAX;
-    uint32_t index;
     words[0] = record->magic;
     words[1] = record->version;
     memcpy(&words[2], &record->kp_s_per_rad, sizeof(uint32_t));
     memcpy(&words[3], &record->ki_per_rad, sizeof(uint32_t));
-    for (index = 0U; index < 16U; ++index)
+    return parameter_words_crc(words, 4U);
+}
+
+static uint32_t motor_thermal_record_crc(const MotorThermalRecord *record)
+{
+    uint32_t words[9];
+    memcpy(words, record, sizeof(words));
+    return parameter_words_crc(words, 9U);
+}
+
+static bool motor_thermal_record_load(const MotorThermalRecord *record)
+{
+    uint32_t words[10];
+    uint32_t i;
+    bool blank_zero = true;
+    bool blank_erased = true;
+    memcpy(words, record, sizeof(words));
+    for (i = 0U; i < 10U; ++i)
     {
-        uint32_t bit;
-        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
-        for (bit = 0U; bit < 8U; ++bit)
-        {
-            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
-        }
+        blank_zero = blank_zero && words[i] == 0U;
+        blank_erased = blank_erased && words[i] == UINT32_MAX;
     }
-    return ~crc;
+    if (blank_zero || blank_erased)
+    {
+        return MotorThermalControl_LoadParameters(NULL);
+    }
+    return record->magic == PARAM_MOTOR_THERMAL_MAGIC &&
+           record->version == PARAM_MOTOR_THERMAL_VERSION &&
+           record->crc32 == motor_thermal_record_crc(record) &&
+           MotorThermalControl_LoadParameters(record->values);
 }
 
 /* 空尾部保留调用方给出的旧实际增益；非空非法尾部不能悄悄复用速度模式参数。 */
@@ -141,6 +166,8 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
 
 void Param_Return_Default(void)
 {
+    /* 启动缺省采用热默认值；运行中独立热标定配置与历史不被恢复默认覆盖。 */
+    (void)MotorThermalControl_LoadParameters(NULL);
     MotorControl.position_accel_ff_gain_a_per_rad_s2 = 0.0f;
     MotorControl.position_velocity_filter_half_cutoff = false;
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
@@ -261,6 +288,14 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     param->position_speed_pi.kp_s_per_rad = MotorControl.position_speed_Kp;
     param->position_speed_pi.ki_per_rad = MotorControl.position_speed_Ki;
     param->position_speed_pi.crc32 = position_speed_pi_crc(&param->position_speed_pi);
+    param->motor_thermal.magic = PARAM_MOTOR_THERMAL_MAGIC;
+    param->motor_thermal.version = PARAM_MOTOR_THERMAL_VERSION;
+    for (lut_index = 0U; lut_index < MOTOR_THERMAL_PARAMETER_COUNT; ++lut_index)
+    {
+        (void)MotorThermalControl_GetParameter((MotorThermalParameter)lut_index,
+                                               &param->motor_thermal.values[lut_index]);
+    }
+    param->motor_thermal.crc32 = motor_thermal_record_crc(&param->motor_thermal);
     if (!MotorControl.load_profile_valid ||
         !MotorLoadRecord_Create(MotorControl.load_profile_flags, &param->load_profile))
     {
@@ -494,5 +529,10 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
         MotorControl.speed_Ki = speed_mode_ki;
     }
 
+    if (!motor_thermal_record_load(&param->motor_thermal))
+    {
+        MotorControl.axis_profile_valid = false;
+        return false;
+    }
     return position_tuning_requires_migration || position_speed_pi_missing;
 }

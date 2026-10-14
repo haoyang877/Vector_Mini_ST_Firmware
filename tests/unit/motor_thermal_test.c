@@ -9,7 +9,8 @@
 
 static MotorThermalConfig config(void)
 {
-    MotorThermalConfig c = {3.0f, 2.121320344f, 7.0f, 65.98486785f, 120.0f, 0.001f, 20U};
+    MotorThermalConfig c = {
+        3.0f, 2.121320344f, 7.0f, 65.98486785f, 120.0f, 0.001f, 20U, 0.8f, 0.7f, 1.0f, 0.5f};
     return c;
 }
 

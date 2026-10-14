@@ -13,6 +13,7 @@ NATIVE = (
     'test_current_reconstruction',
     'test_mcu_temperature',
     'test_motor_thermal',
+    'test_motor_thermal_configuration',
     'test_motor_load_profile',
     'test_position_filter_persistence',
     'test_separate_speed_pi',

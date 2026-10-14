@@ -1,12 +1,15 @@
 #ifndef __FOC_PARAM_H__
 #define __FOC_PARAM_H__
 
+#include <stddef.h>
+
 #include "main.h"
 #include "encoder.h"
 #include "position_impedance_config.h"
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
 #include "motor_load_profile.h"
+#include "motor_thermal.h"
 
 #define PARAM_SCHEMA_VERSION 10U
 #define PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING 9U
@@ -38,6 +41,17 @@ typedef struct
     float ki_per_rad;
     uint32_t crc32;
 } PositionSpeedPiRecord;
+
+/** @brief MTH1/v1独立热配置；七个float按MotorThermalParameter顺序，CRC覆盖前36字节。 */
+#define PARAM_MOTOR_THERMAL_MAGIC 0x3148544DU
+#define PARAM_MOTOR_THERMAL_VERSION 1U
+typedef struct
+{
+    uint32_t magic;
+    uint32_t version;
+    float values[MOTOR_THERMAL_PARAMETER_COUNT];
+    uint32_t crc32;
+} MotorThermalRecord;
 
 typedef struct
 {
@@ -97,7 +111,13 @@ typedef struct
     /* schema10既有字段偏移保持；旧固件忽略PVF1扩展。 */
     PositionFilterRecord position_filter;
     PositionSpeedPiRecord position_speed_pi;
+    /* MTH1尾记录；旧schema10的前2292字节及标定偏移保持。 */
+    MotorThermalRecord motor_thermal;
 } InterfaceParam_TypeDef;
+
+typedef char MotorThermalRecordSize[(sizeof(MotorThermalRecord) == 40U) ? 1 : -1];
+typedef char
+    MotorThermalRecordOffset[(offsetof(InterfaceParam_TypeDef, motor_thermal) == 2292U) ? 1 : -1];
 
 void Param_Return_Default(void);
 void Param_Upload(InterfaceParam_TypeDef *param);

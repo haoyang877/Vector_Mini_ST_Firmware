@@ -35,6 +35,7 @@ def fixture():
 #include "position_cascade_config.h"
 #include "interface_can.h"
 #include "utils.h"
+#include "motor_thermal_control.h"
 #define MAGIC_WORD 0x454e4332U
 #define FLUX_OBSERVER_DEFAULT_GAMMA 800000.0f
 MotorControl_TypeDef MotorControl;
@@ -246,6 +247,9 @@ def main():
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
         str(ROOT / "firmware/motor/foc/foc_pid.c"),
         str(ROOT / "firmware/common/utils.c"),
+        str(ROOT / "firmware/motor/protection/motor_thermal.c"),
+        str(ROOT / "firmware/app/motor_thermal_control.c"),
+        "-lm",
         "-o",
         str(exe),
     ]

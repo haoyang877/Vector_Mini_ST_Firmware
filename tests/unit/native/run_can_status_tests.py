@@ -266,6 +266,16 @@ int main(void) {
 #include <math.h>
 typedef unsigned CAN_PARAM_ID;
 /* 补齐当前命令入口已有的位置速度 PI 分支，避免旧夹具缺少声明。 */
+#include "motor_thermal_control.h"
+#define CAN_SET_THERMAL_CONTINUOUS 0x70
+#define CAN_GET_THERMAL_CONTINUOUS 0x71
+#define CAN_GET_THERMAL_CLEAR 0x7D
+#define CAN_GET_THERMAL_REVISION 0x7E
+static bool motor_hw_phase_outputs_disabled(void) { return true; }
+bool MotorThermalControl_GetParameter(MotorThermalParameter p,float *v)
+{(void)p;(void)v;return false;}
+bool MotorThermalControl_RequestParameter(MotorThermalParameter p,float v,unsigned m,bool off)
+{(void)p;(void)v;(void)m;(void)off;return false;}
 #define CAN_SET_POSITION_SPEED_KP 0x6B
 #define CAN_GET_POSITION_SPEED_KP 0x6C
 #define CAN_SET_POSITION_SPEED_KI 0x6D

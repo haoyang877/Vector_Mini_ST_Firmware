@@ -18,6 +18,8 @@
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
 #include "firmware_version.h"
+#include "motor_thermal_control.h"
+#include "motor_hw.h"
 
 CANMsg_TypeDef CANMsg;
 
@@ -276,6 +278,37 @@ int CAN_GetEncoderState(void)
  **/
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
 {
+    if (param_id == CAN_GET_THERMAL_REVISION)
+    {
+        CAN_SendMessage_Update(CAN_GET_THERMAL_REVISION, 1.0f);
+        return;
+    }
+    /* 扩展先于float转int；设置只发布配置，不在CAN ISR改热模型。 */
+    if (param_id >= CAN_SET_THERMAL_CONTINUOUS && param_id <= CAN_GET_THERMAL_CLEAR)
+    {
+        unsigned index = ((unsigned)param_id - CAN_SET_THERMAL_CONTINUOUS) / 2U;
+        MotorThermalParameter parameter = (MotorThermalParameter)index;
+        CAN_PARAM_ID reply = (CAN_PARAM_ID)(CAN_GET_THERMAL_CONTINUOUS + index * 2U);
+        bool percentage = parameter >= MOTOR_THERMAL_DERATING_ENTER;
+        float value;
+        if (((unsigned)param_id & 1U) != 0U)
+        {
+            if (MotorThermalControl_GetParameter(parameter, &value))
+            {
+                CAN_SendMessage_Update(reply, percentage ? value * 100.0f : value);
+            }
+        }
+        else
+        {
+            value = percentage ? data * 0.01f : data;
+            bool accepted = MotorThermalControl_RequestParameter(parameter,
+                                                                 value,
+                                                                 (uint32_t)MotorControl.ModeNow,
+                                                                 motor_hw_phase_outputs_disabled());
+            CAN_SendMessage_Update(reply, accepted ? data : -1.0f);
+        }
+        return;
+    }
     /* 浮点 PI 参数先处理，避免大有限值经过整数命令转换。 */
     switch (param_id)
     {

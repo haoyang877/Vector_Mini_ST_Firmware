@@ -17,12 +17,29 @@ typedef struct
     float cooling_tau_s;
     float update_period_s;
     uint32_t samples_per_update;
+    float derating_enter_heat;
+    float derating_exit_heat;
+    float trip_heat;
+    float clear_heat;
 } MotorThermalConfig;
+
+/** @brief 通信及MTH1记录的固定参数顺序；门限在模型中使用比例。 */
+typedef enum
+{
+    MOTOR_THERMAL_CONTINUOUS_VECTOR = 0,
+    MOTOR_THERMAL_PEAK,
+    MOTOR_THERMAL_HEATING_TAU,
+    MOTOR_THERMAL_DERATING_ENTER,
+    MOTOR_THERMAL_DERATING_EXIT,
+    MOTOR_THERMAL_TRIP,
+    MOTOR_THERMAL_CLEAR,
+    MOTOR_THERMAL_PARAMETER_COUNT
+} MotorThermalParameter;
 
 typedef struct
 {
     MotorThermalConfig config;
-    float heat[4]; /* 整体、A/B/C相；1为热故障边界，内部不钳至1。 */
+    float heat[4]; /* 整体、A/B/C相；1为参考热预算，内部不钳至停机门限。 */
     float square_sum_a2[3];
     float heating_alpha;
     float cooling_alpha;
@@ -35,10 +52,31 @@ typedef struct
 } MotorThermalState;
 
 /**
+ * @brief 校验完整热配置和四个动作门限的顺序。
+ * @param config 待校验配置；电流为A、时间为s、热门限为比例。
+ * @return 所有参数有限、范围及相互关系有效时为true。
+ */
+bool MotorThermal_ConfigValid(const MotorThermalConfig *config);
+
+/**
+ * @brief 应用预计算配置，保留热历史、采样窗口及故障锁存。
+ * @param state 调用方独占的有效模型。
+ * @param config 完整有效配置，采样时序必须保持不变。
+ * @param heating_alpha 已在非快上下文计算的升温离散系数。
+ * @param cooling_alpha 已在非快上下文计算的冷却离散系数。
+ * @return 应用成功时为true；拒绝时状态不变。
+ * @note 仅输出关闭时调用；持续电流降低时放大H，增大时不减少已有H。
+ */
+bool MotorThermal_Reconfigure(MotorThermalState *state,
+                              const MotorThermalConfig *config,
+                              float heating_alpha,
+                              float cooling_alpha);
+
+/**
  * @brief 初始化热模型，热态启动由调用方明确给出，不能用于清故障。
  * @param state 调用方独占的状态。
  * @param config 已选定的模型参数；向量为幅值、相电流为RMS，单位A。
- * @param initial_heat 四个状态的保守初值；非负，1为热故障边界。
+ * @param initial_heat 四个状态的保守初值；非负，1为参考热预算。
  * @return 配置有效时为true；无效时状态保持禁止出力。
  * @note 仅初始化时计算指数；STOP、模式切换和清故障不得调用本函数。
  */
@@ -71,7 +109,7 @@ bool MotorThermal_Update(MotorThermalState *state);
 void MotorThermal_Invalidate(MotorThermalState *state);
 
 /**
- * @brief 仅在有效模型且所有热状态不高于50%时解除热故障锁存。
+ * @brief 仅在有效模型且所有热状态不高于配置恢复门限时解除热故障锁存。
  * @param state 调用方独占的模型状态。
  * @return 允许清除时为true；热量和累计窗口不会归零。
  */

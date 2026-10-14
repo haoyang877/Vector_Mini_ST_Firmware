@@ -17,7 +17,7 @@ static void separate_pi_checks(void) {
     InterfaceParam_TypeDef p, saved;
     assert(sizeof(PositionSpeedPiRecord)==20U);
     assert(offsetof(InterfaceParam_TypeDef,position_speed_pi)==2272U);
-    assert(sizeof(InterfaceParam_TypeDef)==2292U);
+    assert(sizeof(InterfaceParam_TypeDef)==2332U);
     assert(offsetof(InterfaceParam_TypeDef,speed_kp)==2116U);
     assert(offsetof(InterfaceParam_TypeDef,axis_profile)==2208U);
     seed(&p);

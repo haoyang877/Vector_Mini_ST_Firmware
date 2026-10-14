@@ -27,8 +27,12 @@ def main() -> None:
     )
     logs = []
     checks = {}
+    barrier = out / "thermal_barrier.c"
+    barrier.write_text("void motor_hw_outer_barrier(void) {}\n", encoding="utf-8")
 
     def run(name: str, files: list[Path], defines: list[str] | tuple[str, ...] = ()) -> None:
+        if ROOT / "firmware/app/motor_thermal_control.c" in files:
+            files = [*files, barrier]
         exe = out / (name + ".exe")
         commands = [
             base + list(defines) + [str(f) for f in files] + ["-lm", "-o", str(exe)],

@@ -5,17 +5,22 @@
 #include <stddef.h>
 #include <string.h>
 
-static bool config_valid(const MotorThermalConfig *c)
+bool MotorThermal_ConfigValid(const MotorThermalConfig *c)
 {
     return c != NULL && isfinite(c->continuous_vector_a) && c->continuous_vector_a >= 0.01f &&
-           isfinite(c->continuous_phase_rms_a) && c->continuous_phase_rms_a >= 0.01f &&
+           isfinite(c->continuous_phase_rms_a) && c->continuous_phase_rms_a >= 0.001f &&
            isfinite(c->peak_a) && c->peak_a >= c->continuous_vector_a && c->peak_a <= 100.0f &&
            c->continuous_phase_rms_a <= c->peak_a && isfinite(c->heating_tau_s) &&
            c->heating_tau_s >= 0.1f && c->heating_tau_s <= 86400.0f && isfinite(c->cooling_tau_s) &&
            c->cooling_tau_s >= c->heating_tau_s && c->cooling_tau_s <= 86400.0f &&
            isfinite(c->update_period_s) && c->update_period_s > 0.0f &&
            c->update_period_s <= 0.01f && c->samples_per_update > 0U &&
-           c->samples_per_update <= 1000U;
+           c->samples_per_update <= 1000U && isfinite(c->clear_heat) &&
+           isfinite(c->derating_exit_heat) && isfinite(c->derating_enter_heat) &&
+           isfinite(c->trip_heat) && c->clear_heat >= 0.0f &&
+           c->clear_heat < c->derating_exit_heat &&
+           c->derating_exit_heat < c->derating_enter_heat &&
+           c->derating_enter_heat < c->trip_heat && c->trip_heat <= 1.0f;
 }
 
 void MotorThermal_Invalidate(MotorThermalState *state)
@@ -37,11 +42,11 @@ static void update_limit(MotorThermalState *state)
         state->available_a = 0.0f;
         return;
     }
-    if (state->max_heat >= 0.8f)
+    if (state->max_heat >= state->config.derating_enter_heat)
     {
         state->derating = true;
     }
-    else if (state->max_heat <= 0.7f)
+    else if (state->max_heat <= state->config.derating_exit_heat)
     {
         state->derating = false;
     }
@@ -56,8 +61,50 @@ static void update_limit(MotorThermalState *state)
     {
         sustainable_a = fminf(sustainable_a, state->config.continuous_phase_rms_a);
     }
-    weight = fminf(1.0f, fmaxf(0.0f, (state->max_heat - 0.8f) / 0.2f));
+    weight = fminf(1.0f,
+                   fmaxf(0.0f,
+                         (state->max_heat - state->config.derating_enter_heat) /
+                             (state->config.trip_heat - state->config.derating_enter_heat)));
     state->available_a = state->config.peak_a + weight * (sustainable_a - state->config.peak_a);
+}
+
+bool MotorThermal_Reconfigure(MotorThermalState *state,
+                              const MotorThermalConfig *config,
+                              float heating_alpha,
+                              float cooling_alpha)
+{
+    float heat[4];
+    float max_heat = 0.0f;
+    unsigned i;
+    if (state == NULL || !state->valid || !MotorThermal_ConfigValid(config) ||
+        config->samples_per_update != state->config.samples_per_update ||
+        config->update_period_s != state->config.update_period_s || !isfinite(heating_alpha) ||
+        heating_alpha <= 0.0f || heating_alpha > 1.0f || !isfinite(cooling_alpha) ||
+        cooling_alpha <= 0.0f || cooling_alpha > heating_alpha)
+    {
+        return false;
+    }
+    for (i = 0U; i < 4U; ++i)
+    {
+        float old_a =
+            i == 0U ? state->config.continuous_vector_a : state->config.continuous_phase_rms_a;
+        float new_a = i == 0U ? config->continuous_vector_a : config->continuous_phase_rms_a;
+        float scale = fmaxf(1.0f, (old_a * old_a) / (new_a * new_a));
+        heat[i] = state->heat[i] * scale;
+        if (!isfinite(heat[i]) || heat[i] < 0.0f)
+        {
+            return false;
+        }
+        max_heat = fmaxf(max_heat, heat[i]);
+    }
+    state->config = *config;
+    state->heating_alpha = heating_alpha;
+    state->cooling_alpha = cooling_alpha;
+    memcpy(state->heat, heat, sizeof(heat));
+    state->max_heat = max_heat;
+    state->fault_latched = state->fault_latched || max_heat >= config->trip_heat;
+    update_limit(state);
+    return true;
 }
 
 bool MotorThermal_Init(MotorThermalState *state,
@@ -70,7 +117,7 @@ bool MotorThermal_Init(MotorThermalState *state,
         return false;
     }
     memset(state, 0, sizeof(*state));
-    if (!config_valid(config) || !isfinite(initial_heat) || initial_heat < 0.0f)
+    if (!MotorThermal_ConfigValid(config) || !isfinite(initial_heat) || initial_heat < 0.0f)
     {
         MotorThermal_Invalidate(state);
         return false;
@@ -84,7 +131,7 @@ bool MotorThermal_Init(MotorThermalState *state,
     }
     state->max_heat = initial_heat;
     state->valid = true;
-    state->fault_latched = initial_heat >= 1.0f;
+    state->fault_latched = initial_heat >= config->trip_heat;
     update_limit(state);
     return true;
 }
@@ -153,7 +200,7 @@ bool MotorThermal_Update(MotorThermalState *state)
     }
     memset(state->square_sum_a2, 0, sizeof(state->square_sum_a2));
     state->sample_count = 0U;
-    if (state->max_heat >= 1.0f)
+    if (state->max_heat >= state->config.trip_heat)
     {
         state->fault_latched = true;
     }
@@ -163,7 +210,7 @@ bool MotorThermal_Update(MotorThermalState *state)
 
 bool MotorThermal_ClearFault(MotorThermalState *state)
 {
-    if (state == NULL || !state->valid || state->max_heat > 0.5f)
+    if (state == NULL || !state->valid || state->max_heat > state->config.clear_heat)
     {
         return false;
     }

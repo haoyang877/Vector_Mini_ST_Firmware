@@ -784,6 +784,11 @@
               <FilePath>..\..\..\..\motor\identification\foc_friction_identification.c</FilePath>
             </File>
             <File>
+              <FileName>motor_thermal.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\protection\motor_thermal.c</FilePath>
+            </File>
+            <File>
               <FileName>foc_errhandle.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\protection\foc_errhandle.c</FilePath>
@@ -1041,6 +1046,11 @@
               <FileName>foc_traptraj.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\motor\trajectory\foc_traptraj.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_thermal_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\app\motor_thermal_control.c</FilePath>
             </File>
             <File>
               <FileName>foc_task.c</FileName>

@@ -314,6 +314,26 @@ typedef unsigned CAN_PARAM_ID;
 #define CAN_GET_SPEED_FF_CURRENT_LIMIT 0x79
 #define CAN_GET_SPEED_FF_CURRENT 0x7A
 #define CAN_GET_SPEED_FF_ACCELERATION_PLANNED 0x7B
+#include "motor_thermal_control.h"
+#define CAN_SET_THERMAL_CONTINUOUS 0x80
+#define CAN_GET_THERMAL_CONTINUOUS 0x81
+#define CAN_SET_THERMAL_PEAK 0x82
+#define CAN_GET_THERMAL_PEAK 0x83
+#define CAN_SET_THERMAL_HEATING_TAU 0x84
+#define CAN_GET_THERMAL_HEATING_TAU 0x85
+#define CAN_SET_THERMAL_DERATING_ENTER 0x86
+#define CAN_GET_THERMAL_DERATING_ENTER 0x87
+#define CAN_SET_THERMAL_DERATING_EXIT 0x88
+#define CAN_GET_THERMAL_DERATING_EXIT 0x89
+#define CAN_SET_THERMAL_TRIP 0x8A
+#define CAN_GET_THERMAL_TRIP 0x8B
+#define CAN_SET_THERMAL_CLEAR 0x8C
+#define CAN_GET_THERMAL_CLEAR 0x8D
+#define CAN_GET_THERMAL_REVISION 0x8E
+/* 通信状态用例不修改热模型，热命令由独立 golden 用例覆盖。 */
+bool MotorThermalControl_GetParameter(MotorThermalParameter p,float *v) { (void)p;(void)v;return false; }
+bool MotorThermalControl_RequestParameter(MotorThermalParameter p,float v,uint32_t m,bool off) { (void)p;(void)v;(void)m;(void)off;return false; }
+bool motor_hw_phase_outputs_disabled(void) { return true; }
 static struct {float position_speed_Kp, position_speed_Ki;unsigned ModeNow,ErrorNow;
     SpeedFeedforwardConfig speed_ff_config;SpeedFeedforwardState speed_ff_state;} MotorControl;
 static bool MotorControl_SetSpeedFeedforward(const SpeedFeedforwardConfig *config) {(void)config;return false;}

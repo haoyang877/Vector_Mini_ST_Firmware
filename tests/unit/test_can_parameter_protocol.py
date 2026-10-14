@@ -13,6 +13,34 @@ from can_parameter_protocol import encode, decode, Client, Frame
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_thermal_v2_client_and_golden_frames(self):
+        """热参数迁移到0x80段，保留速度前馈原命令及大端浮点口径。"""
+        vectors = json.loads((ROOT / 'tests/vectors/motor_thermal_configuration_v1.json').read_text(encoding='utf-8'))
+        replies = {row['get_id']: bytes.fromhex(row['default_hex']) for row in vectors['parameters']}
+
+        class Bus:
+            def __init__(self):
+                self.pending = []
+                self.sent = []
+
+            def receive(self, channel):
+                result, self.pending = self.pending, []
+                return result
+
+            def send(self, channel, identifier, data):
+                self.sent.append((identifier, data))
+                if identifier & 255 in replies:
+                    self.pending = [Frame(channel, identifier, replies[identifier & 255], 0, time.perf_counter())]
+
+        bus = Bus()
+        client = Client(bus)
+        for row in vectors['parameters']:
+            self.assertEqual(encode(row['set_id'], row['default']), replies[row['get_id']])
+            client.verify(0, 4, row['set_id'], row['default'], tolerance=0.0001)
+            self.assertEqual(bus.sent[-1], (0x400 | row['get_id'], bytes(4)))
+        with self.assertRaises(ValueError):
+            client.read(0, 4, vectors['revision_get_id'])
+
     def test_speed_feedforward_wire_and_client(self):
         """新前馈参数采用独立float32线路编码，主机支持配对查询。"""
         vectors = json.loads((ROOT / 'tests/vectors/speed_feedforward_v1.json').read_text(encoding='utf-8'))

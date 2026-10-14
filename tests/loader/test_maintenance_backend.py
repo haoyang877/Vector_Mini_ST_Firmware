@@ -359,6 +359,8 @@ def check_c_abi(cc: str, out: Path):
         "firmware/motor/position",
         "-I",
         "firmware/motor",
+        "-I",
+        "firmware/motor/protection",
         str(source),
         "-o",
         str(executable),

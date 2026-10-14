@@ -30,10 +30,12 @@ def fixture():
 #include "foc_param_profile.h"
 #include "interface_can.h"
 #include "utils.h"
+#include "motor_thermal_control.h"
 #define MAGIC_WORD 0x454e4332U
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
 CANMsg_TypeDef CANMsg;
+void motor_hw_outer_barrier(void) { }
 '''
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
@@ -122,7 +124,7 @@ def main():
     includes = [str(out)] + [str(ROOT / p) for p in ("firmware/common", "firmware/motor/foc", "firmware/platform/stm32g4/bsp", "firmware/communication")]
     command = cc + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [item for p in includes for item in ("-I", p)]
-    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), str(ROOT / "firmware/motor/motor_load_profile.c"), str(ROOT / "firmware/motor/speed_feedforward.c"), "-o", str(exe)]
+    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), str(ROOT / "firmware/motor/motor_load_profile.c"), str(ROOT / "firmware/motor/speed_feedforward.c"), str(ROOT / "firmware/motor/protection/motor_thermal.c"), str(ROOT / "firmware/app/motor_thermal_control.c"), "-lm", "-o", str(exe)]
     logs = []
     for cmd in (command, [str(exe)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

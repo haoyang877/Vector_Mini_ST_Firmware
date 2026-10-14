@@ -26,6 +26,7 @@ PRELUDE = r'''
 #include "foc_param_profile.h"
 #include "hw_conf.h"
 #include "utils.h"
+#include "motor_thermal.h"
 static MotorControl_TypeDef motor;
 static FOC_TypeDef foc;
 static PI_Controller_TypeDef pi;

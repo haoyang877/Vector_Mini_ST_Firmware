@@ -53,6 +53,7 @@ def main():
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
+#include "motor_thermal.h"
 #include "heap.h"
 #define FOC_CONFIG_NOINLINE
 #define ENCODER_OFFSET_LUT_SIZE 1024U

@@ -97,7 +97,7 @@ static void feedforward_checks(void) {
         if(tick>8000) assert(fabsf(MotorControl.iqRef)<.01f);
     }
     /* 旧布局不移动；新记录独立CRC，缺省关闭且不额外触发保存。 */
-    assert(sizeof(SpeedFeedforwardRecord)==32 && sizeof(InterfaceParam_TypeDef)==2344);
+    assert(sizeof(SpeedFeedforwardRecord)==32 && sizeof(InterfaceParam_TypeDef)==2384);
     assert(offsetof(InterfaceParam_TypeDef,friction_slew)==2292);
     assert(offsetof(InterfaceParam_TypeDef,speed_feedforward)==2312);
     assert(offsetof(InterfaceParam_TypeDef,position_speed_pi)==2272);

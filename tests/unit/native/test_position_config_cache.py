@@ -49,6 +49,9 @@ def main():
     reference = reference.replace('POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S', 'MotorControl->friction_attack_slew_a_per_s')
     reference = reference.replace('POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S', 'MotorControl->friction_release_slew_a_per_s')
     reference = reference.replace('POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S', 'MotorControl->friction_release_slew_a_per_s')
+    # 热边界未启用时，仍与原控制策略逐拍比较；显式初始化新增字段。
+    reference = reference.replace('config.friction_feedforward_enabled =',
+        'config.thermal_limit_active = false;\n\tconfig.thermal_output_limit_a = 0.0f;\n\tconfig.friction_feedforward_enabled =')
     actual = '\n'.join(function_source(source, n) for n in [
         'PositionMode_UpdateConfiguration', 'PositionMode_SameTuningValue',
         'PositionMode_ConfigurationMatches', 'Task_Position_Mode'])
@@ -79,6 +82,7 @@ bool axis_profile_valid, friction_model_valid, isReachTargetPos;
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
+#include "motor_thermal.h"
 #include "motor_load_profile.h"
 #include "firmware/services/parameters/motor_axis_profile.h"
 #define FOC_CONFIG_NOINLINE

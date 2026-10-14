@@ -1642,9 +1642,38 @@ static void test_uniform_friction_slew(void)
     }
 }
 
+/* 热边界变化只收紧实际出力，不改配置增益与运行上限。 */
+static void test_thermal_output_and_integral_limits(void)
+{
+    const float limits[] = {0.3f, 0.1f, 0.0f};
+    unsigned direction, limit_index, tick;
+    for (direction = 0U; direction < 2U; ++direction)
+    {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        c.target_position = direction == 0U ? 0.2f : -0.2f;
+        c.thermal_limit_active = true;
+        PositionCascade_Reset();
+        for (limit_index = 0U; limit_index < 3U; ++limit_index)
+        {
+            c.thermal_output_limit_a = limits[limit_index];
+            for (tick = 0U; tick < 4000U; ++tick)
+            {
+                assert(PositionCascade_Update(&c, 0.0f, 0.0f, &o));
+                assert(fabsf(o.iq_reference) <= limits[limit_index] + 0.00001f);
+                assert(fabsf(o.hold_current) <= limits[limit_index] + 0.00001f);
+            }
+        }
+        assert(o.iq_reference == 0.0f && o.hold_current == 0.0f);
+        assert(c.current_limit == 6.0f && c.speed_kp == 0.05f && c.speed_ki == 0.5f);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
+    test_thermal_output_and_integral_limits();
+    puts("PASS position thermal cap: both signs, live reduction, total FF/PI bound and zero-cap integral reset");
     test_uniform_friction_slew(); puts("PASS configurable friction slew: signed rise/release, no hidden capture limit, both signs/rates, invalid bound");
     test_half_degree_zero_current_and_bounded_recovery(); puts("PASS passive disturbance recovery: 1 degree qualification, actual q/v seeded trajectory, bounded model FF and PI, recapture zero current, both signs/rates");
     test_damped_restart_continuity(); puts("PASS damped restart: seed stopped residual, bounded friction onset, retain moving q/v/a, both signs/rates");

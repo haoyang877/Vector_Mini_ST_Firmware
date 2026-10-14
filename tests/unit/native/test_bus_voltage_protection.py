@@ -38,6 +38,11 @@ static void Set_ModeNow(ModeNow_TypeDef mode) { MotorControl.ModeNow=mode; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
 static void Task_Position_Mode_Reset(void) {}
+/* 电压准入用例固定热边界为正常；真实热锁存另由热保护用例验证。 */
+static bool MotorThermalControl_CanRunMode(uint32_t mode) { (void)mode; return true; }
+static bool MotorThermalControl_ParametersConfirmed(void) { return true; }
+static bool MotorThermalControl_CanClearFault(void) { return true; }
+static bool MotorThermalControl_ClearFault(void) { return true; }
 """
 
 CASES = r"""
@@ -183,6 +188,8 @@ def main():
     dispatch_source = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
     mode18_case = dispatch_source.split("case Position_Impedance_Mode:", 1)[1].split("break;", 1)[0]
     direct_dispatch = "\nstatic void direct_mode18_dispatch(void) {\n" + mode18_case + "\n}\n"
+    clear_task = function_source(dispatch_source, "Task_TryClearError")
+    clear_task += "\nstatic bool apply_clear_error(void) { bool accepted = ModeSwitch_Handle(Clear_Error); if (accepted) { Task_TryClearError(); } return accepted; }\n"
     fixture.write_text(
         PRELUDE
         + function_source(
@@ -194,7 +201,8 @@ def main():
             "ModeSwitch_Handle",
         )
         + direct_dispatch
-        + CASES
+        + clear_task
+        + CASES.replace("ModeSwitch_Handle(Clear_Error)", "apply_clear_error()")
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
     if Path(a.cc).stem == "zig":

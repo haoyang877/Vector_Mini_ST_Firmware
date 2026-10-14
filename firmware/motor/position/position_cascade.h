@@ -34,6 +34,8 @@ typedef struct
 	float speed_ki;
 	float acceleration_feedforward_gain; /* J/Kt，A/(rad/s²)；只乘轨迹加速度，0关闭。 */
 	float current_limit;
+    float thermal_output_limit_a; /* 实际可用电流，A；不作为PI增益尺度。 */
+    bool thermal_limit_active;
 	bool friction_feedforward_enabled;
 	bool passive_hold_enabled; /* 带阻尼环近区卸流停靠；调用者须显式初始化。 */
 	float friction_coulomb_positive;

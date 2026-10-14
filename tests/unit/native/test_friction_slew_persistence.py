@@ -11,7 +11,7 @@ static void slew_checks(void) {
     InterfaceParam_TypeDef p, saved, bad;
     const unsigned char golden[20] = {GOLDEN};
     assert(offsetof(InterfaceParam_TypeDef,friction_slew)==2292U);
-    assert(sizeof(FrictionSlewRecord)==20U && sizeof(InterfaceParam_TypeDef)==2344U);
+    assert(sizeof(FrictionSlewRecord)==20U && sizeof(InterfaceParam_TypeDef)==2384U);
     assert(offsetof(InterfaceParam_TypeDef,speed_feedforward)==2312U);
     seed(&p);
     assert(MotorControl.friction_attack_slew_a_per_s==2 && MotorControl.friction_release_slew_a_per_s==15);

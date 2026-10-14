@@ -6,7 +6,10 @@
 
 static LoaderCore core;
 
-void SysTick_Handler(void) { HAL_IncTick(); }
+void SysTick_Handler(void)
+{
+    HAL_IncTick();
+}
 
 static void power_safe(void)
 {
@@ -51,10 +54,14 @@ static bool clock_init(void)
 static uint8_t parameter_node(void)
 {
     /* 只识别APP支持的0～7精确float32编码，不引入浮点库或迁移参数。 */
-    static const uint32_t encoded[8] = {
-        0, 0x3F800000UL, 0x40000000UL, 0x40400000UL,
-        0x40800000UL, 0x40A00000UL, 0x40C00000UL, 0x40E00000UL
-    };
+    static const uint32_t encoded[8] = {0,
+                                        0x3F800000UL,
+                                        0x40000000UL,
+                                        0x40400000UL,
+                                        0x40800000UL,
+                                        0x40A00000UL,
+                                        0x40C00000UL,
+                                        0x40E00000UL};
     uint32_t node, bits, schema, magic;
     memcpy(&bits, (const void *)BOOT_PARAM_BASE, 4);
     memcpy(&schema, (const void *)(BOOT_PARAM_BASE + 2160), 4);
@@ -63,7 +70,10 @@ static uint8_t parameter_node(void)
     {
         for (node = 0; node < 8; ++node)
         {
-            if (bits == encoded[node]) { return (uint8_t)node; }
+            if (bits == encoded[node])
+            {
+                return (uint8_t)node;
+            }
         }
     }
     return 0;

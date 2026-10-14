@@ -25,8 +25,14 @@ bool LoaderPort_EraseApp(void)
     ++erase_count;
     return true;
 }
-const uint8_t *LoaderPort_App(void) { return flash + 0x4000; }
-void LoaderPort_ReadRecord(uint8_t out[BOOT_RECORD_BYTES]) { memcpy(out, flash + 0x3000, 48); }
+const uint8_t *LoaderPort_App(void)
+{
+    return flash + 0x4000;
+}
+void LoaderPort_ReadRecord(uint8_t out[BOOT_RECORD_BYTES])
+{
+    memcpy(out, flash + 0x3000, 48);
+}
 void LoaderPort_Uid(uint8_t out[12])
 {
     unsigned i;
@@ -35,7 +41,10 @@ void LoaderPort_Uid(uint8_t out[12])
         out[i] = (uint8_t)i;
     }
 }
-uint32_t LoaderPort_ParamCrc(void) { return Boot_Crc32(flash + 0x1C000, 0x4000); }
+uint32_t LoaderPort_ParamCrc(void)
+{
+    return Boot_Crc32(flash + 0x1C000, 0x4000);
+}
 bool LoaderPort_Program(uint32_t offset, const uint8_t *data, uint32_t size)
 {
     ++program_count;
@@ -55,8 +64,13 @@ bool LoaderPort_Commit(const uint8_t raw[BOOT_RECORD_BYTES])
     return n == 48;
 }
 
-static unsigned request(LoaderCore *c, unsigned op, unsigned seq, uint32_t session,
-                        const uint8_t *p, unsigned n, uint8_t reply[64])
+static unsigned request(LoaderCore *c,
+                        unsigned op,
+                        unsigned seq,
+                        uint32_t session,
+                        const uint8_t *p,
+                        unsigned n,
+                        uint8_t reply[64])
 {
     uint8_t raw[64];
     unsigned len = ldr_build_reply((uint16_t)seq, session, (uint8_t)op, p, (uint16_t)n, raw);

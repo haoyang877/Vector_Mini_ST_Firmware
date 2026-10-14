@@ -39,12 +39,12 @@ python loader/tools/loader_factory.py pack `
   --out outputs/factory_package
 ```
 
-只有两份BIN时，提供与实际APP一致的版本。v0.5.0、build0编码为0x00050000：
+只有两份BIN时，提供与实际APP一致的版本。当前合并候选v0.5.1、build0编码为0x00050100：
 
 ```powershell
 python loader/tools/loader_factory.py pack `
   --loader-bin outputs/build/loader.bin `
-  --app-bin outputs/build/app.bin --app-version 0x00050000 `
+  --app-bin outputs/build/app.bin --app-version 0x00050100 `
   --out outputs/factory_package
 ```
 

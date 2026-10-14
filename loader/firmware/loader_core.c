@@ -257,8 +257,8 @@ static uint16_t process(LoaderCore *c, const ldr_request_t *r, uint8_t *d, uint1
     }
 }
 
-uint8_t LoaderCore_Request(LoaderCore *c, const uint8_t *raw, uint8_t size, uint32_t now_ms,
-                           uint8_t reply[64])
+uint8_t LoaderCore_Request(
+    LoaderCore *c, const uint8_t *raw, uint8_t size, uint32_t now_ms, uint8_t reply[64])
 {
     ldr_request_t r;
     uint8_t data[46], payload[48];

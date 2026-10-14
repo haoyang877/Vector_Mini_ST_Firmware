@@ -18,9 +18,15 @@ bool BootHandoff_Request(uint8_t node, uint32_t now_ms)
     return true;
 }
 
-bool BootHandoff_Pending(void) { return pending; }
+bool BootHandoff_Pending(void)
+{
+    return pending;
+}
 
-uint8_t BootHandoff_Node(void) { return requested_node; }
+uint8_t BootHandoff_Node(void)
+{
+    return requested_node;
+}
 
 void BootHandoff_ReplyQueued(uint32_t now_ms)
 {

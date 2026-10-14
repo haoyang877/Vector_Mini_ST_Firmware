@@ -27,8 +27,8 @@ void LoaderCore_Init(LoaderCore *core, uint8_t node);
  * @return 回复字节数；0表示丢弃无效帧。
  * @note 同步Flash操作，无动态分配；禁止ISR调用。
  */
-uint8_t LoaderCore_Request(LoaderCore *core, const uint8_t *raw, uint8_t size, uint32_t now_ms,
-                           uint8_t reply[64]);
+uint8_t LoaderCore_Request(
+    LoaderCore *core, const uint8_t *raw, uint8_t size, uint32_t now_ms, uint8_t reply[64]);
 /** @brief 处理会话超时，保留恢复入口。
  * @param core 状态所有者。
  * @param now_ms 单调毫秒计时。

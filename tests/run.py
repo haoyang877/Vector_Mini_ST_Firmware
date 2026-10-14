@@ -16,6 +16,7 @@ NATIVE = (
     'test_motor_load_profile',
     'test_position_filter_persistence',
     'test_separate_speed_pi',
+    'test_friction_slew_persistence',
     'test_speed_feedforward',
     'test_adc_fast_dispatch', 'test_encoder_sample_overlap', 'test_fast_loop_math',
     'test_position_config_cache', 'test_rtt_calibration', 'test_rtt_manual_diagnostics',

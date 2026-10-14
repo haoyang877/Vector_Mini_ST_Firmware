@@ -23,7 +23,8 @@ void BootHandoff_AppPoll(void)
     motor_hw_outer_barrier();
     action = BootHandoff_Poll(time_hw_now_ms(),
                               MotorControl.ModeNow == Motor_Disable && ModeLast == Motor_Disable,
-                              motor_hw_phase_outputs_disabled(), comm_hw_can_reply_sent());
+                              motor_hw_phase_outputs_disabled(),
+                              comm_hw_can_reply_sent());
     if (action == BOOT_STOP)
     {
         (void)ModeSwitch_Handle(Motor_Disable);

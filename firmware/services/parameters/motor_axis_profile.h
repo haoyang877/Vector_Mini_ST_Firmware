@@ -81,24 +81,30 @@ bool MotorAxisProfile_Create(MotorAxisProfile *output, const char *name,
  * @param single_turn_difference 编码器单圈位置减机械零位，65536 count/rev。
  * @return 满足轴范围条件时返回最近分支，否则保留输入。
  * @note 仅在机械零位已标定的启动路径使用，连续跟踪不得调用。
- * 正负半圈端点保持输入符号，实际位置处于端点时仍禁止位置控制。
+ * 正负半圈端点保持输入符号，不把实际反馈钳位到目标范围。
  */
 int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile,
     bool valid, int32_t single_turn_difference);
-/** Fast bounds check after a successful load. No CRC work occurs in the ISR.
- * Actual position must remain strictly within limits; targets may equal them.
- * This is a software stop boundary, not a guarantee against physical overshoot. */
+/**
+ * @brief 检查已加载轴配置及位置目标；实际位置越界不构成目标参数错误。
+ * @param profile 调用方持有的轴配置。
+ * @param valid 加载时缓存的配置有效标志。
+ * @param actual_rad 实际位置，rad；仅检查有限性，允许处于目标范围外。
+ * @param target_rad 控制目标，rad；配置范围包含上下限端点。
+ * @return 配置及输入有效且目标合法时返回 true。
+ * @note 可在快环调用，不计算 CRC；目标范围不保证实物不会越界。
+ */
 static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profile,
-    bool valid, float actual, float target)
+    bool valid, float actual_rad, float target_rad)
 {
-    return profile != NULL && valid && isfinite(actual) && isfinite(target) &&
+    return profile != NULL && valid && isfinite(actual_rad) && isfinite(target_rad) &&
         (profile->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
          (profile->identity.numeric.config_revision == MOTOR_JOINT_CONFIG_REVISION &&
           (profile->identity.numeric.joint_type == MOTOR_JOINT_ROLL ||
            profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH ||
            profile->identity.numeric.joint_type == MOTOR_JOINT_YAW))) &&
         (profile->magic == 0U ||
-         (actual > profile->minimum_position_rad && actual < profile->maximum_position_rad &&
-          target >= profile->minimum_position_rad && target <= profile->maximum_position_rad));
+         (target_rad >= profile->minimum_position_rad &&
+          target_rad <= profile->maximum_position_rad));
 }
 #endif

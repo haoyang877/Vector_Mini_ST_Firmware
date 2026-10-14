@@ -133,8 +133,9 @@ static void feedforward_checks(void) {
     assert(!Param_Download(&saved));
     bad=saved;bad.friction_slew.magic=PARAM_FRICTION_SLEW_MAGIC;
     bad.friction_slew.version=1;bad.friction_slew.attack_a_per_s=35;bad.friction_slew.release_a_per_s=300;
-    bad.friction_slew.crc32=friction_slew_record_crc(&bad.friction_slew);
+    bad.friction_slew.crc32=friction_slew_crc(&bad.friction_slew);
     assert(!Param_Download(&bad) && MotorControl.axis_profile_valid);
+    assert(MotorControl.friction_attack_slew_a_per_s==35 && MotorControl.friction_release_slew_a_per_s==300);
     Param_Upload(&p);p.magic_word=MAGIC_WORD;
     assert(memcmp(&p.friction_slew,&bad.friction_slew,sizeof(FrictionSlewRecord))==0);
     assert(p.speed_feedforward.enabled==1);

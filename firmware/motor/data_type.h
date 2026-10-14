@@ -144,6 +144,9 @@ typedef struct
     /* mode 3 独立归一化速度 PI：Kp 为 s/rad，Ki 为 1/rad；尾部追加保留旧偏移。 */
     float position_speed_Kp;
     float position_speed_Ki;
+    /* mode3摩擦模型电流斜率，A/s；FSL1独立尾记录保存。 */
+    float friction_attack_slew_a_per_s;
+    float friction_release_slew_a_per_s;
     /* mode 3 惯量前馈 J/Kt，A/(rad/s²)；RAM调试参数，0关闭，尚不持久化。 */
     float position_accel_ff_gain_a_per_rad_s2;
     /** @brief mode2可选速度整形/惯量前馈；配置停机修改，状态通过外环提交。 */

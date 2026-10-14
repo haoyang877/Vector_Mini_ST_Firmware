@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "record": "FSL1/v1",
+  "offset": 2292,
+  "bytes": 20,
+  "vectors": [
+    {
+      "attack_a_per_s": 2.0,
+      "release_a_per_s": 15.0,
+      "hex": "46534c31010000000000004000007041a014a152"
+    },
+    {
+      "attack_a_per_s": 0.5,
+      "release_a_per_s": 3.0,
+      "hex": "46534c31010000000000003f00004040db656281"
+    },
+    {
+      "attack_a_per_s": 1000.0,
+      "release_a_per_s": 1000.0,
+      "hex": "46534c310100000000007a4400007a44c2801d87"
+    }
+  ]
+}

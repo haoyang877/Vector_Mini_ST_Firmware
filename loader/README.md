@@ -4,6 +4,8 @@
 [CAN Loader 完整设计方案 v1](../docs/plans/2026-10-13-can-loader-minimal-design-v1.md)：
 12 KiB Loader、单 APP、1M/1M CAN-FD、参数区保留及中断后完整重下载。
 已接入最小实现、独立APP/Loader构建和离线测试；当前用户验收目标调整为100轮内最多1次失败。
+合并回`codex/ovp-36v`的当前APP候选为v0.5.1/build0，保留v0.4.1控制更新；见
+[整合记录](../docs/reports/2026-10-14-loader-merge-ovp36.md)。
 2026-10-14完成单板100轮全部通过及结束参数区逐字节回读；详见
 [测试记录](../docs/reports/2026-10-13-can-loader-bringup-and-endurance.md)。当前仍为开发候选包。
 

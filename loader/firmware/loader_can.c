@@ -15,25 +15,39 @@ static ldr_rx_frame_t s_rx_ring[LDR_RX_RING_SIZE];
 static volatile uint8_t s_rx_head;
 static volatile uint8_t s_rx_tail;
 
-static const uint8_t k_dlc_to_len[16] = {0U, 1U,  2U,  3U,  4U,  5U,  6U,  7U,
-                                         8U, 12U, 16U, 20U, 24U, 32U, 48U, 64U};
+static const uint8_t k_dlc_to_len[16] = {
+    0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 12U, 16U, 20U, 24U, 32U, 48U, 64U};
 
 static uint32_t len_to_dlc(uint8_t len)
 {
     if (len <= 8U)
+    {
         return FDCAN_DLC_BYTES_8;
+    }
     if (len <= 12U)
+    {
         return FDCAN_DLC_BYTES_12;
+    }
     if (len <= 16U)
+    {
         return FDCAN_DLC_BYTES_16;
+    }
     if (len <= 20U)
+    {
         return FDCAN_DLC_BYTES_20;
+    }
     if (len <= 24U)
+    {
         return FDCAN_DLC_BYTES_24;
+    }
     if (len <= 32U)
+    {
         return FDCAN_DLC_BYTES_32;
+    }
     if (len <= 48U)
+    {
         return FDCAN_DLC_BYTES_48;
+    }
     return FDCAN_DLC_BYTES_64;
 }
 
@@ -94,8 +108,9 @@ bool loader_link_init(uint8_t node)
     {
         return false;
     }
-    if (HAL_FDCAN_ConfigGlobalFilter(&hldr_can, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE,
-                                     FDCAN_FILTER_REMOTE) != HAL_OK)
+    if (HAL_FDCAN_ConfigGlobalFilter(
+            &hldr_can, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) !=
+        HAL_OK)
     {
         return false;
     }
@@ -103,8 +118,8 @@ bool loader_link_init(uint8_t node)
     {
         return false;
     }
-    if (HAL_FDCAN_ActivateNotification(&hldr_can, FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_BUS_OFF,
-                                       0U) != HAL_OK)
+    if (HAL_FDCAN_ActivateNotification(
+            &hldr_can, FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_BUS_OFF, 0U) != HAL_OK)
     {
         return false;
     }
@@ -114,7 +129,10 @@ bool loader_link_init(uint8_t node)
     return true;
 }
 
-void FDCAN1_IT0_IRQHandler(void) { HAL_FDCAN_IRQHandler(&hldr_can); }
+void FDCAN1_IT0_IRQHandler(void)
+{
+    HAL_FDCAN_IRQHandler(&hldr_can);
+}
 
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
@@ -200,8 +218,8 @@ bool loader_link_send(const uint8_t *data, uint8_t len)
     tx.DataLength = len_to_dlc(len);
     tx.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
 
-    if (HAL_FDCAN_IsTxBufferMessagePending(&hldr_can, FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 |
-                                                          FDCAN_TX_BUFFER2) != 0U)
+    if (HAL_FDCAN_IsTxBufferMessagePending(
+            &hldr_can, FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 | FDCAN_TX_BUFFER2) != 0U)
     {
         /* 旧回复缺ACK不能永久堵塞重试；取消只影响CAN，不改变已提交的Flash状态。 */
         if ((uint32_t)(HAL_GetTick() - s_tx_started_ms) >= 100U)

@@ -617,12 +617,9 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 	}
 	config.friction_breakaway_ratio =
 		POSITION_SERVO_FRICTION_BREAKAWAY_RATIO;
-	config.friction_attack_slew_rate =
-		POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
-	config.friction_fast_release_slew_rate =
-		POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
-	config.friction_release_slew_rate =
-		POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
+	config.friction_attack_slew_rate = MotorControl->friction_attack_slew_a_per_s;
+	config.friction_fast_release_slew_rate = MotorControl->friction_release_slew_a_per_s;
+	config.friction_release_slew_rate = MotorControl->friction_release_slew_a_per_s;
 	config.friction_reference_speed =
 		POSITION_SERVO_FRICTION_REFERENCE_SPEED_RAD_S;
 	config.friction_stop_speed = POSITION_SERVO_FRICTION_STOP_SPEED_RAD_S;
@@ -665,6 +662,12 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     if (MotorControl->axis_profile.magic != 0U &&
         maximum_speed > MotorControl->axis_profile.maximum_speed_rad_s)
         maximum_speed = MotorControl->axis_profile.maximum_speed_rad_s;
+    if (!PositionMode_SameTuningValue(config->friction_attack_slew_rate, MotorControl->friction_attack_slew_a_per_s) ||
+        !PositionMode_SameTuningValue(config->friction_release_slew_rate, MotorControl->friction_release_slew_a_per_s) ||
+        !PositionMode_SameTuningValue(config->friction_fast_release_slew_rate, MotorControl->friction_release_slew_a_per_s))
+    {
+        return false;
+    }
     if (!PositionMode_SameTuningValue(config->velocity_filter_hz,
             POSITION_SERVO_VELOCITY_FILTER_HZ *
                 (MotorControl->position_velocity_filter_half_cutoff ? 0.5f : 1.0f)) ||
@@ -842,7 +845,8 @@ static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
     if (outer.request_epoch != outer.epoch) return false;
 #define SAME_INPUT(field) PositionMode_SameTuningValue(m->field, saved->field)
     return SAME_INPUT(current_limit) && SAME_INPUT(position_speed_Kp) &&
-        SAME_INPUT(position_speed_Ki) &&
+        SAME_INPUT(position_speed_Ki) && SAME_INPUT(friction_attack_slew_a_per_s) &&
+        SAME_INPUT(friction_release_slew_a_per_s) &&
         SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
         SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) &&
         SAME_INPUT(cascade_pos_Kp) && SAME_INPUT(cascade_pos_Kd) &&
@@ -874,6 +878,10 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m,
     /* The worker changes outputs only; request tuning stays immutable even
      * during preemption. Every live field is compared each fast tick. */
     if (MotorOuterLoop_SameTuning(m)) return true;
+    if (!isfinite(m->friction_attack_slew_a_per_s) || m->friction_attack_slew_a_per_s <= 0.0f ||
+        m->friction_attack_slew_a_per_s > 1000.0f ||
+        !isfinite(m->friction_release_slew_a_per_s) || m->friction_release_slew_a_per_s <= 0.0f ||
+        m->friction_release_slew_a_per_s > 1000.0f) return false;
     if (!isfinite(m->current_limit) || m->current_limit <= 0.0f ||
         !isfinite(m->position_speed_Kp) || m->position_speed_Kp < 0.0f ||
         !isfinite(m->position_speed_Ki) || m->position_speed_Ki < 0.0f) return false;

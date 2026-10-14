@@ -90,7 +90,10 @@ bool LoaderPort_Program(uint32_t offset, const uint8_t *data, uint32_t size)
     return program(BOOT_APP_BASE + offset, data, size);
 }
 
-const uint8_t *LoaderPort_App(void) { return (const uint8_t *)BOOT_APP_BASE; }
+const uint8_t *LoaderPort_App(void)
+{
+    return (const uint8_t *)BOOT_APP_BASE;
+}
 
 void LoaderPort_ReadRecord(uint8_t out[BOOT_RECORD_BYTES])
 {
@@ -104,7 +107,10 @@ bool LoaderPort_Commit(const uint8_t raw[BOOT_RECORD_BYTES])
            program(BOOT_RECORD_BASE, raw, 40) && program(BOOT_RECORD_BASE + 40, raw + 40, 8);
 }
 
-void LoaderPort_Uid(uint8_t out[12]) { memcpy(out, (const void *)UID_BASE, 12); }
+void LoaderPort_Uid(uint8_t out[12])
+{
+    memcpy(out, (const void *)UID_BASE, 12);
+}
 
 uint32_t LoaderPort_ParamCrc(void)
 {

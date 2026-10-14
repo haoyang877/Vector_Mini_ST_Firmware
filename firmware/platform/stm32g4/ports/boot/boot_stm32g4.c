@@ -11,7 +11,10 @@ void boot_hw_early_init(void)
     __ISB();
 }
 
-void boot_hw_uid(uint8_t out[12]) { memcpy(out, (const void *)UID_BASE, 12); }
+void boot_hw_uid(uint8_t out[12])
+{
+    memcpy(out, (const void *)UID_BASE, 12);
+}
 
 void boot_hw_reset_to_loader(uint32_t node, uint32_t token)
 {

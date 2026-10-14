@@ -87,20 +87,34 @@ bool ldr_parse_request(const uint8_t *raw, uint8_t len, ldr_request_t *out)
 static uint8_t padded_dlc(uint32_t need)
 {
     if (need <= 16U)
+    {
         return 16U;
+    }
     if (need <= 20U)
+    {
         return 20U;
+    }
     if (need <= 24U)
+    {
         return 24U;
+    }
     if (need <= 32U)
+    {
         return 32U;
+    }
     if (need <= 48U)
+    {
         return 48U;
+    }
     return 64U;
 }
 
-uint8_t ldr_build_reply(uint16_t seq, uint32_t session, uint8_t opcode, const uint8_t *payload,
-                        uint16_t plen, uint8_t *out)
+uint8_t ldr_build_reply(uint16_t seq,
+                        uint32_t session,
+                        uint8_t opcode,
+                        const uint8_t *payload,
+                        uint16_t plen,
+                        uint8_t *out)
 {
     uint32_t total;
     uint32_t crc;

@@ -34,8 +34,12 @@ bool ldr_parse_request(const uint8_t *raw, uint8_t len, ldr_request_t *out);
  * @param out 至少64字节输出。
  * @return 帧字节数；超容量返回0。
  */
-uint8_t ldr_build_reply(uint16_t seq, uint32_t session, uint8_t opcode, const uint8_t *payload,
-                        uint16_t plen, uint8_t *out);
+uint8_t ldr_build_reply(uint16_t seq,
+                        uint32_t session,
+                        uint8_t opcode,
+                        const uint8_t *payload,
+                        uint16_t plen,
+                        uint8_t *out);
 
 /** @brief 读取大端16位字段。
  * @param p 至少2字节。

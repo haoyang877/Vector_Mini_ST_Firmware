@@ -73,6 +73,54 @@ static uint32_t position_speed_pi_crc(const PositionSpeedPiRecord *record)
     return ~crc;
 }
 
+static uint32_t friction_slew_crc(const FrictionSlewRecord *record)
+{
+    uint32_t words[4];
+    uint32_t crc = UINT32_MAX;
+    uint32_t index;
+    words[0] = record->magic;
+    words[1] = record->version;
+    memcpy(&words[2], &record->attack_a_per_s, sizeof(uint32_t));
+    memcpy(&words[3], &record->release_a_per_s, sizeof(uint32_t));
+    for (index = 0U; index < 16U; ++index)
+    {
+        uint32_t bit;
+        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
+        for (bit = 0U; bit < 8U; ++bit)
+        {
+            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+/* 旧空尾记录使用新默认值且不自动保存；非空错误拒绝参数准入。 */
+static bool friction_slew_load(const FrictionSlewRecord *record)
+{
+    uint32_t words[5];
+    bool zero = true, erased = true;
+    uint32_t i;
+    memcpy(words, record, sizeof(words));
+    for (i = 0U; i < 5U; ++i)
+    {
+        zero = zero && words[i] == 0U;
+        erased = erased && words[i] == UINT32_MAX;
+    }
+    MotorControl.friction_attack_slew_a_per_s = POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
+    MotorControl.friction_release_slew_a_per_s = POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
+    if (zero || erased) { return true; }
+    if (record->magic != PARAM_FRICTION_SLEW_MAGIC || record->version != PARAM_FRICTION_SLEW_VERSION ||
+        !isfinite(record->attack_a_per_s) || record->attack_a_per_s <= 0.0f || record->attack_a_per_s > 1000.0f ||
+        !isfinite(record->release_a_per_s) || record->release_a_per_s <= 0.0f || record->release_a_per_s > 1000.0f ||
+        record->crc32 != friction_slew_crc(record))
+    {
+        return false;
+    }
+    MotorControl.friction_attack_slew_a_per_s = record->attack_a_per_s;
+    MotorControl.friction_release_slew_a_per_s = record->release_a_per_s;
+    return true;
+}
+
 /* 空尾部保留调用方给出的旧实际增益；非空非法尾部不能悄悄复用速度模式参数。 */
 static bool position_speed_pi_load(const PositionSpeedPiRecord *record,
     float *kp_s_per_rad, float *ki_per_rad, bool *missing)
@@ -122,47 +170,6 @@ static uint32_t speed_feedforward_crc(const SpeedFeedforwardRecord *record)
         }
     }
     return ~crc;
-}
-
-/* 参数服务独占已加载的FSL记录；保留数据不等于在本分支启用其控制行为。 */
-static FrictionSlewRecord friction_slew_passthrough;
-
-static uint32_t friction_slew_record_crc(const FrictionSlewRecord *record)
-{
-    uint32_t words[4], crc = UINT32_MAX, index;
-    memcpy(words, record, sizeof(words));
-    for (index = 0U; index < sizeof(words); ++index)
-    {
-        uint32_t bit;
-        crc ^= (words[index / 4U] >> ((index % 4U) * 8U)) & 0xFFU;
-        for (bit = 0U; bit < 8U; ++bit)
-        {
-            crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
-        }
-    }
-    return ~crc;
-}
-
-static bool friction_slew_record_preserve(const FrictionSlewRecord *record)
-{
-    uint32_t words[5], index;
-    bool zero = true, erased = true;
-    friction_slew_passthrough = *record;
-    memcpy(words, record, sizeof(words));
-    for (index = 0U; index < 5U; ++index)
-    {
-        zero = zero && words[index] == 0U;
-        erased = erased && words[index] == UINT32_MAX;
-    }
-    if (zero || erased)
-    {
-        return true;
-    }
-    return record->magic == PARAM_FRICTION_SLEW_MAGIC &&
-        record->version == PARAM_FRICTION_SLEW_VERSION &&
-        isfinite(record->attack_a_per_s) && record->attack_a_per_s >= 0.0f &&
-        isfinite(record->release_a_per_s) && record->release_a_per_s >= 0.0f &&
-        record->crc32 == friction_slew_record_crc(record);
 }
 
 static bool speed_feedforward_load(const SpeedFeedforwardRecord *record,
@@ -230,7 +237,6 @@ static bool Param_ApplyJointProfile(MotorControl_TypeDef *motor)
 
 void Param_Return_Default(void)
 {
-    memset(&friction_slew_passthrough, 0xFF, sizeof(friction_slew_passthrough));
     SpeedFeedforward_Default(&MotorControl.speed_ff_config);
     SpeedFeedforward_Reset(&MotorControl.speed_ff_state);
     MotorControl.position_accel_ff_gain_a_per_rad_s2 = 0.0f;
@@ -274,6 +280,8 @@ void Param_Return_Default(void)
 	MotorControl.speed_Ki = PARAM_APP_SPEED_KI;
     MotorControl.position_speed_Kp = PARAM_APP_SPEED_KP;
     MotorControl.position_speed_Ki = PARAM_APP_SPEED_KI;
+    MotorControl.friction_attack_slew_a_per_s = POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
+    MotorControl.friction_release_slew_a_per_s = POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
 	MotorControl.posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
 	MotorControl.posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
 	MotorControl.pos_maxspeed = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
@@ -353,7 +361,11 @@ void Param_Upload(InterfaceParam_TypeDef *param)
     param->position_speed_pi.kp_s_per_rad = MotorControl.position_speed_Kp;
     param->position_speed_pi.ki_per_rad = MotorControl.position_speed_Ki;
     param->position_speed_pi.crc32 = position_speed_pi_crc(&param->position_speed_pi);
-    param->friction_slew = friction_slew_passthrough;
+    param->friction_slew.magic = PARAM_FRICTION_SLEW_MAGIC;
+    param->friction_slew.version = PARAM_FRICTION_SLEW_VERSION;
+    param->friction_slew.attack_a_per_s = MotorControl.friction_attack_slew_a_per_s;
+    param->friction_slew.release_a_per_s = MotorControl.friction_release_slew_a_per_s;
+    param->friction_slew.crc32 = friction_slew_crc(&param->friction_slew);
     param->speed_feedforward.magic = PARAM_SPEED_FEEDFORWARD_MAGIC;
     param->speed_feedforward.version = PARAM_SPEED_FEEDFORWARD_VERSION;
     param->speed_feedforward.enabled = MotorControl.speed_ff_config.enabled ? 1U : 0U;
@@ -596,7 +608,7 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
     }
 
     SpeedFeedforward_Reset(&MotorControl.speed_ff_state);
-    if (!friction_slew_record_preserve(&param->friction_slew))
+    if (!friction_slew_load(&param->friction_slew))
     {
         MotorControl.axis_profile_valid = false;
         return false;

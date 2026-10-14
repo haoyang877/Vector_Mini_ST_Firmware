@@ -1,5 +1,11 @@
 # 位置阻抗控制
 
+> 2026-10-15 APP 体积优化：当前 APP 已暂时裁剪 mode 18，下文保留为历史实现参考。
+> 编号 18 不复用；CAN 模式请求被拒绝，GET_MODE 仍返回原模式，线上编码和参数
+> schema 均不改变。J-Link 直接写 ModeNow=18 时清零电流指令、报 MotorParam_Error
+> 并停机。mode 3 和它引用的备用摩擦常量保持可用，详见
+> [优化计划](../plans/2026-10-15-app-size-v1.md)。
+
 > 当前固件已移除 MCU USB CDC 服务。本文中 USB/VOFA 指令及采集流程仅作历史参考；当前 CAN 能力与未迁移功能见 [USB 移除说明](usb_removal.md)。
 
 

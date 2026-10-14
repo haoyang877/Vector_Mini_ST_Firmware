@@ -5,7 +5,6 @@
 #include "common_inc.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
-#include "position_impedance.h"
 #include "position_impedance_config.h"
 #include "motor_hw.h"
 
@@ -743,74 +742,9 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
-/**
-	* @brief  Position impedance control task
-	* @param  *FOC: FOC struct pointer
-	* @param  *MotorControl: MotorControl struct pointer
-	* @param  *Encoder: encoder struct pointer
- **/
-void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
-{
-	PositionImpedanceConfig_TypeDef config;
-	PositionImpedanceOutput_TypeDef output;
-	float theta_elec = Encoder_GetElePhase(Encoder);
-	float theta_mech = Encoder_GetMecPos(Encoder);
-	float vel_elec = Encoder_GetEleVel(Encoder);
-
-	config.target_position = MotorControl->posRef;
-	config.position_error_window = MotorControl->pos_error_window;
-	config.acceleration = MotorControl->posAcc;
-	config.deceleration = MotorControl->posDec;
-	config.maximum_speed = MotorControl->pos_maxspeed;
-	config.speed_limit = MotorControl->speed_limit;
-	config.kp = MotorControl->pos_Kp;
-	config.kd = MotorControl->pos_Kd;
-	config.ki = MotorControl->pos_Ki;
-	config.integral_limit = MotorControl->pos_integral_limit;
-	config.output_limit = MotorControl->current_limit;
-	config.friction_feedforward_enabled =
-		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
-	config.friction_positive_current = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
-	config.friction_negative_current = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
-	config.breakaway_positive_current = POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A;
-	config.breakaway_negative_current = POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A;
-	config.friction_attack_slew_rate = POSITION_IMPEDANCE_FRICTION_ATTACK_SLEW_A_PER_S;
-	config.friction_fast_release_slew_rate =
-		POSITION_IMPEDANCE_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
-	config.friction_release_slew_rate = POSITION_IMPEDANCE_FRICTION_RELEASE_SLEW_A_PER_S;
-	config.friction_position_enter = POSITION_IMPEDANCE_FRICTION_POSITION_ENTER_RAD;
-	config.friction_position_exit = POSITION_IMPEDANCE_FRICTION_POSITION_EXIT_RAD;
-	config.friction_reference_speed = POSITION_IMPEDANCE_FRICTION_REFERENCE_SPEED_RAD_S;
-	config.friction_stop_speed = POSITION_IMPEDANCE_FRICTION_STOP_SPEED_RAD_S;
-	config.friction_move_speed = POSITION_IMPEDANCE_FRICTION_MOVE_SPEED_RAD_S;
-	config.friction_stuck_time = POSITION_IMPEDANCE_FRICTION_STUCK_TIME_S;
-	config.friction_landing_position = POSITION_IMPEDANCE_FRICTION_LANDING_POSITION_RAD;
-	config.friction_landing_speed = POSITION_IMPEDANCE_FRICTION_LANDING_SPEED_RAD_S;
-	config.friction_recovery_delay = POSITION_IMPEDANCE_FRICTION_RECOVERY_DELAY_S;
-	config.friction_recovery_pulse_time = POSITION_IMPEDANCE_FRICTION_RECOVERY_PULSE_S;
-	config.friction_recovery_cooldown = POSITION_IMPEDANCE_FRICTION_RECOVERY_COOLDOWN_S;
-
-	if (!PositionImpedance_Update(&config, theta_mech, &output))
-	{
-		MotorControl->idRef = 0.0f;
-		MotorControl->iqRef = 0.0f;
-		Set_ErrorNow(MotorParam_Error);
-		return;
-	}
-
-	MotorControl->posShadow = output.position_reference;
-	MotorControl->speedShadow = output.speed_reference;
-	MotorControl->pos_vel_filtered = output.velocity_feedback;
-	MotorControl->isReachTargetPos = output.target_reached;
-	MotorControl->idRef = 0.0f;
-	MotorControl->iqRef = output.iq_reference;
-	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
-}
-
 void Task_Position_Mode_Reset(void)
 {
 	MotorOuterLoop_RequestReset();
-	PositionImpedance_Reset();
 }
 
 /* OUTER_RUNTIME_BEGIN

@@ -124,6 +124,11 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 			return false;
 		}
 	}
+	/* mode 18 已裁剪；拒绝旧命令，不改变当前运行模式与错误。 */
+	if (mode_set == Position_Impedance_Mode)
+	{
+		return false;
+	}
 	/* Unknown/unconfigured numeric joints cannot fall through to another
 	 * torque-producing mode. Diagnostics and explicit storage remain usable. */
 	if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable &&

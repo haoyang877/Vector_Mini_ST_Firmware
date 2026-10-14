@@ -34,6 +34,7 @@ static Encoder_TypeDef OnBoard_Encoder;
 static int PI_Speed;
 static void FocFrictionIdentification_Abort(MotorControl_TypeDef *m,int *p) { (void)m;(void)p; }
 static void Set_ErrorNow(ErrorNow_TypeDef e) { MotorControl.ErrorNow=e; }
+static void Set_ModeNow(ModeNow_TypeDef mode) { MotorControl.ModeNow=mode; }
 static bool Encoder_IsOnline(Encoder_TypeDef *e) { (void)e; return true; }
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
 static void Task_Position_Mode_Reset(void) {}
@@ -97,6 +98,26 @@ int main(void) {
         assert(MotorControl.ModeNow==Motor_Disable && MotorControl.ErrorNow==Under_Voltage);
     }
     puts("PASS all torque modes protected, unsafe start rejected");
+    reset(33.0f);
+    assert(!ModeSwitch_Handle(Position_Impedance_Mode));
+    assert(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error);
+    MotorControl.ModeNow = Position_Mode;
+    assert(!ModeSwitch_Handle(Position_Impedance_Mode));
+    assert(MotorControl.ModeNow == Position_Mode && MotorControl.ErrorNow == No_Error);
+    MotorControl.ErrorNow = Encoder_Error;
+    assert(!ModeSwitch_Handle(Position_Impedance_Mode));
+    assert(MotorControl.ErrorNow == Encoder_Error);
+    assert(ModeSwitch_Handle(Clear_Error));
+    assert(MotorControl.ModeNow == Motor_Disable);
+    puts("PASS removed mode 18 rejected without changing active mode or first fault");
+    reset(33.0f);
+    MotorControl.ModeNow = Position_Impedance_Mode;
+    MotorControl.idRef = 1.0f;
+    MotorControl.iqRef = 7.0f;
+    direct_mode18_dispatch();
+    assert(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == MotorParam_Error);
+    assert(MotorControl.idRef == 0.0f && MotorControl.iqRef == 0.0f);
+    puts("PASS debugger direct mode 18 write clears current references and selects STOP");
     reset(33.6f);assert(ModeSwitch_Handle(Speed_Mode));
     reset(25.7f);assert(ModeSwitch_Handle(Speed_Mode));
     reset(33.9f);assert(!ModeSwitch_Handle(Speed_Mode));
@@ -159,6 +180,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "main.h").write_text("#include <stdint.h>\n")
     fixture = out / "bus_voltage_test.c"
+    dispatch_source = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
+    mode18_case = dispatch_source.split("case Position_Impedance_Mode:", 1)[1].split("break;", 1)[0]
+    direct_dispatch = "\nstatic void direct_mode18_dispatch(void) {\n" + mode18_case + "\n}\n"
     fixture.write_text(
         PRELUDE
         + function_source(
@@ -169,6 +193,7 @@ def main():
             (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(),
             "ModeSwitch_Handle",
         )
+        + direct_dispatch
         + CASES
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]

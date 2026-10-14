@@ -38,7 +38,18 @@ float fast_abs(float x);
 float fast_sq(float x);
 float fast_max(float x,float y);
 float fast_min(float x,float y);
+/**
+ * @brief 半波查表计算正弦，保留原查表采样网格与截断误差。
+ * @param theta 输入角度，单位 rad；有限值，且 theta/(2π) 可转换为 int。
+ * @return 正弦近似值，无量纲。
+ * @note 无分配、无外设访问；周期边界舍入到表尾以外时环回零索引。
+ */
 float fast_sin(float theta);
+/**
+ * @brief 通过原有相位变换及半波正弦表计算余弦。
+ * @param theta 输入角度，单位 rad；π/2-theta 满足 fast_sin 的输入约束。
+ * @return 余弦近似值，无量纲。
+ */
 float fast_cos(float theta);
 float fast_atan2(float y, float x);
 float fast_sqrt(float x);

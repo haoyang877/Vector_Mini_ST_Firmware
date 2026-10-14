@@ -434,7 +434,11 @@ void FOC20kHzIRQHandler(void)
 		break;
 
 		case Position_Impedance_Mode:
-			Task_Position_Impedance_Mode(&FOC, &MotorControl, &OnBoard_Encoder);
+			/* 编号保留；直接调试写入已裁剪模式时也必须走停机路径。 */
+			MotorControl.idRef = 0.0f;
+			MotorControl.iqRef = 0.0f;
+			Set_ErrorNow(MotorParam_Error);
+			Set_ModeNow(Motor_Disable);
 		break;
 
 		case Calib_Friction:

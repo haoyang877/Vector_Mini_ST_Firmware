@@ -75,6 +75,23 @@ def main():
         [str(exe), "success"],
         [sys.executable, str(root / "tests/loader/test_host_bridge.py"), str(exe)],
         [sys.executable, str(root / "tests/loader/test_cycle_guard.py")],
+        [sys.executable, str(root / "tests/loader/test_factory_hex.py")],
+        [
+            sys.executable,
+            str(root / "tests/loader/test_maintenance_backend.py"),
+            "--cc",
+            args.cc,
+            "--out",
+            str(out / "maintenance_abi"),
+        ],
+        [
+            sys.executable,
+            str(root / "tests/loader/test_factory_package.py"),
+            "--cc",
+            args.cc,
+            "--out",
+            str(out / "factory_package"),
+        ],
         [
             sys.executable,
             str(root / "tests/loader/test_tx_backpressure.py"),
@@ -103,6 +120,21 @@ def main():
             (root / "firmware/platform/stm32g4/bsp/flash.c").read_bytes()
         ).hexdigest(),
         "vectors_sha256": hashlib.sha256(vectors.read_bytes()).hexdigest(),
+        "factory_tool_sha256": hashlib.sha256(
+            (root / "loader/tools/loader_factory.py").read_bytes()
+        ).hexdigest(),
+        "factory_test_sha256": hashlib.sha256(
+            (root / "tests/loader/test_factory_package.py").read_bytes()
+        ).hexdigest(),
+        "hex_test_sha256": hashlib.sha256(
+            (root / "tests/loader/test_factory_hex.py").read_bytes()
+        ).hexdigest(),
+        "maintenance_backend_sha256": hashlib.sha256(
+            (root / "loader/tools/maintenance_backend.py").read_bytes()
+        ).hexdigest(),
+        "maintenance_test_sha256": hashlib.sha256(
+            (root / "tests/loader/test_maintenance_backend.py").read_bytes()
+        ).hexdigest(),
     }
     (out / "summary.json").write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"

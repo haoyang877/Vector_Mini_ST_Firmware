@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -14,11 +15,12 @@ from tkinter import filedialog, messagebox, ttk
 from types import SimpleNamespace
 
 from maintenance_version import PRODUCT_NAME, VERSION_TEXT
-from loader_factory import check_power_off, flash_package, load_hex
+from loader_factory import PARAM_BASE, check_power_off, flash_package, load_hex
 from maintenance_backend import (
     can_snapshot,
     flash_snapshot,
     load_upgrade,
+    motor_name,
     run_can_upgrade,
 )
 
@@ -107,6 +109,12 @@ def inspect_target(dll: Path, serial: int, speed_khz: int = 1000) -> dict:
         if flash_kib != 128 or device_id != 0x468:
             raise RuntimeError("目标不是128 KiB STM32G431，不能烧录")
         power = check_power_off(probe)
+        # 节点位于参数区首个float32；空白/损坏值不当作ID0，读取不写参数。
+        node_bytes = bytes(probe.memory_read8(PARAM_BASE, 4))
+        if node_bytes != bytes(probe.memory_read8(PARAM_BASE, 4)):
+            raise RuntimeError("参数ID两次读取不一致，请暂停外部保存后重新读取")
+        value = struct.unpack("<f", node_bytes)[0]
+        node = int(value) if math.isfinite(value) and value.is_integer() else None
         return {
             "serial": serial,
             "uid": struct.pack("<3I", *probe.memory_read32(0x1FFF7590, 3)).hex(),
@@ -114,6 +122,7 @@ def inspect_target(dll: Path, serial: int, speed_khz: int = 1000) -> dict:
             "flash_kib": flash_kib,
             "power": power,
             "speed_khz": speed_khz,
+            "motor_node": node,
         }
     finally:
         if opened:
@@ -1036,7 +1045,7 @@ class FlasherWindow:
         def done(report):
             self.can_binding = report
             self.can_info.set(
-                f"{report['runtime']} · 节点 {report['node']} · UID {report['uid']}\n适配器 {report['adapter']['serial']} · 通道 {settings['channel']}"
+                f"电机型号：{motor_name(report['node'])}（ID {report['node']}） · {report['runtime']} · UID {report['uid']}\n适配器 {report['adapter']['serial']} · 通道 {settings['channel']}"
             )
             self.populate(self.state_table, report["rows"])
             self.snapshot_info.set(
@@ -1346,8 +1355,10 @@ class FlasherWindow:
 
         def done(binding):
             self.binding = binding
+            node = binding["motor_node"]
+            node_text = str(node) if node is not None else "未配置"
             self.target_info.set(
-                f"UID：{binding['uid']}\nSTM32G431 · {binding['flash_kib']} KiB · 参考电压 {binding['reference_voltage_mv'] / 1000:.2f} V · 关相已确认"
+                f"电机型号：{motor_name(node)}（ID {node_text}） · STM32G431 · {binding['flash_kib']} KiB\nUID：{binding['uid']} · 参考电压 {binding['reference_voltage_mv'] / 1000:.2f} V · 关相已确认"
             )
             self.write_log("目标芯片已绑定；烧录前会再次核对UID。")
 
@@ -1362,6 +1373,7 @@ class FlasherWindow:
         if str(self.binding["serial"]) != self.probe_serial.get():
             self.clear_target()
             return
+        node = self.binding["motor_node"]
         storage = (
             Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
             / "VectorMiniFlasher"
@@ -1388,6 +1400,10 @@ class FlasherWindow:
             self.write_log("记录目录：" + str(self.last_out))
             self.status.set("烧录成功")
             self.clear_target()
+            node_text = str(node) if node is not None else "未配置"
+            self.target_info.set(
+                f"电机型号：{motor_name(node)}（ID {node_text}） · 参数区已验证保留\nUID：{report['uid']} · 再次烧录请重新读取目标"
+            )
 
         self.start_job(
             "正在备份、烧录并回读校验，请等待…", lambda: flash_package(args), done

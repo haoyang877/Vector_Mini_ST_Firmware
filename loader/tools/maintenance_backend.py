@@ -31,6 +31,14 @@ def version_text(code: int) -> str:
     return text + (f" (build {code & 255})" if code & 255 else "")
 
 
+def motor_name(node: int | float | None) -> str:
+    """按节点ID显示用户约定名称；无效值不推断为默认电机，不修改身份参数。"""
+    names = ("默认电机", "左轮", "右轮", "roll", "pitch", "yaw", "lift")
+    if type(node) not in (int, float) or not math.isfinite(node) or node != int(node):
+        return "未配置"
+    return names[int(node)] if 0 <= node < len(names) else "未知电机"
+
+
 def load_upgrade(path: Path) -> tuple:
     """预检完整HEX或APP清单与BIN，返回镜像、清单及绑定全部输入的哈希。"""
     if path.suffix.lower() == ".hex":
@@ -117,6 +125,7 @@ def query_device(bus, channel: int, node: int) -> dict:
             "rows": [
                 ("设备", "UID", uid.hex(), ""),
                 ("设备", "CAN节点", node, ""),
+                ("设备", "电机型号（按ID）", motor_name(node), ""),
                 ("固件", "当前运行", "Loader", ""),
                 ("固件", "Loader版本", version_text(version), ""),
                 ("升级", "状态 / 错误", f"{stage} / {error}", ""),
@@ -135,6 +144,7 @@ def query_device(bus, channel: int, node: int) -> dict:
     rows = [
         ("设备", "UID", uid.hex(), ""),
         ("设备", "CAN节点", node, ""),
+        ("设备", "电机型号（按ID）", motor_name(node), ""),
         ("固件", "当前运行", "APP", ""),
         ("固件", "APP版本", version_text(version), ""),
         ("固件", "Loader版本", "未读取（当前运行APP）", ""),
@@ -332,6 +342,7 @@ def decode_calibration(data: bytes) -> dict:
         ("磁链", 32, "Wb"),
     ):
         rows.append(("电机", label, floating(offset), unit))
+    rows.append(("电机", "电机型号（按ID）", motor_name(floating(0)), ""))
     for label, offset in (("A相零偏", 4), ("B相零偏", 8), ("C相零偏", 12)):
         rows.append(("电流采样", label, floating(offset), "ADC count"))
     flags, reverse = data[40:42]
@@ -559,7 +570,7 @@ def flash_snapshot(dll: Path, serial: int, speed_khz: int, out: Path) -> dict:
                 "lut_deg": [],
             }
         for group, label, value, unit in calibration["rows"]:
-            if label in ("CAN节点", "电机类型", "保存的标定标志"):
+            if label in ("CAN节点", "电机类型", "电机型号（按ID）", "保存的标定标志"):
                 rows.append((group, label + "（Flash）", value, unit))
         report.update(
             status="PASS",

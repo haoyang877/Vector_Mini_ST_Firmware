@@ -64,6 +64,16 @@ def upgrade_fixture(root: Path) -> Path:
 class MaintenanceTests(unittest.TestCase):
     """纯计算及IO替身验证，全部测试保持hardware_accessed=false。"""
 
+    def test_motor_name_from_id(self):
+        for node, name in enumerate(
+            ("默认电机", "左轮", "右轮", "roll", "pitch", "yaw", "lift")
+        ):
+            self.assertEqual(backend.motor_name(node), name)
+            self.assertEqual(backend.motor_name(float(node)), name)
+        self.assertEqual(backend.motor_name(7), "未知电机")
+        for invalid in (None, False, -0.5, float("nan"), float("inf")):
+            self.assertEqual(backend.motor_name(invalid), "未配置")
+
     def test_calibration_units_and_independent_records(self):
         report = backend.decode_calibration(parameter_fixture())
         rows = {name: (value, unit) for _, name, value, unit in report["rows"]}

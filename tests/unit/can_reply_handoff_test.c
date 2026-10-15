@@ -25,6 +25,15 @@ ModeNow_TypeDef ModeLast;
 FOC_TypeDef FOC;
 Encoder_TypeDef OnBoard_Encoder;
 Handle hfdcan1;
+/* 此夹具只测试运行期收发；初始化/调速 HAL 由端口配置夹具覆盖。 */
+void Error_Handler(void) { assert(!"unexpected platform fatal handler"); }
+unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned s,unsigned e,unsigned sr,unsigned er)
+{ (void)h;(void)s;(void)e;(void)sr;(void)er;assert(!"unexpected CAN initialization");return 1; }
+unsigned HAL_FDCAN_Start(Handle *h) { (void)h;assert(!"unexpected CAN start");return 1; }
+unsigned HAL_FDCAN_Stop(Handle *h) { (void)h;assert(!"unexpected CAN stop");return 1; }
+unsigned HAL_FDCAN_Init(Handle *h) { (void)h;assert(!"unexpected CAN initialization");return 1; }
+unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned f,unsigned b)
+{ (void)h;(void)f;(void)b;assert(!"unexpected CAN notification configuration");return 1; }
 const uint32_t g_firmware_software_version = FIRMWARE_VERSION_CODE;
 static CommHwCanFrame incoming;
 static bool phase_off = true, boot_pending, filter_failure;

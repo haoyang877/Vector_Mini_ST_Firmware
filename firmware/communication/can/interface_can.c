@@ -8,8 +8,6 @@
 
 #include <limits.h>
 #include <math.h>
-#include "fdcan.h"
-#include "delay.h"
 #include "utils.h"
 #include "foc_algorithm.h"
 #include "foc_param.h"
@@ -18,14 +16,12 @@
 #include "encoder.h"
 #include "hw_conf.h"
 #include "comm_hw.h"
-#include "time_hw.h"
 #include "can_motor_status.h"
 #include "can_parameter_format.h"
 #include "foc_friction_identification.h"
 #include "firmware_version.h"
 #include "foc_task.h"
 #include "motor_thermal_control.h"
-#include "motor_hw.h"
 
 CANMsg_TypeDef CANMsg;
 volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
@@ -227,38 +223,8 @@ static int16_t CAN_Milli16(float value)
  **/
 void FDCAN1_Param_Init(void)
 {
-	FDCAN_FilterTypeDef FDCAN_Filter;
 	CanMotorStatus_Init();
-	
-	FDCAN_Filter.IdType 		= FDCAN_STANDARD_ID;
-	FDCAN_Filter.FilterIndex 	= 0;
-	FDCAN_Filter.FilterType		= FDCAN_FILTER_RANGE;
-	
-	FDCAN_Filter.FilterConfig	= FDCAN_FILTER_TO_RXFIFO0;
-
-	FDCAN_Filter.FilterID1 = (((uint32_t)CANMsg.node_id) << 8);
-	FDCAN_Filter.FilterID2 = (((uint32_t)CANMsg.node_id) << 8) + 0xFF;
-
-	if(HAL_FDCAN_ConfigFilter(&hfdcan1, &FDCAN_Filter) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	
-	if(HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	
-	if(HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	
-	if(HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	
+	comm_hw_can_start(CANMsg.node_id);
 	CANMsg.baudrate = 1000;
 }
 
@@ -305,31 +271,7 @@ void CAN_BaudRateSwitching(void)
 	
 	if(baudrate_last != CANMsg.baudrate)
     {
-		if (HAL_FDCAN_Stop(&hfdcan1) != HAL_OK)
-		{
-			Error_Handler();
-		}
-		
-		if(CANMsg.baudrate <= 1000)
-		{
-			hfdcan1.Init.DataPrescaler = 10000 / CANMsg.baudrate;
-			hfdcan1.Init.NominalPrescaler = 10000 / CANMsg.baudrate;			
-		}
-		else
-		{
-			hfdcan1.Init.DataPrescaler = 10000 / CANMsg.baudrate;
-			hfdcan1.Init.NominalPrescaler = 10;
-		}
-
-		if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
-		{
-			Error_Handler();
-		}
-
-		if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
-		{
-			Error_Handler();
-		}
+		comm_hw_can_set_bitrate(CANMsg.baudrate);
 	}
 	
 	baudrate_last = CANMsg.baudrate;

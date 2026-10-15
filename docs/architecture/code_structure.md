@@ -18,7 +18,7 @@
 | `firmware/platform/api/` | 硬件接口 |
 | `firmware/platform/stm32g4/bsp/`、`ports/` | 板级驱动、CAN/时间/外环调度实现 |
 | `firmware/platform/stm32g4/cubemx/` | .ioc、.mxproject、Core、Drivers、MDK-ARM |
-| `firmware/common/` | 数学工具、内存池 |
+| `firmware/common/` | 数学工具 |
 | `firmware/third_party/segger_rtt/` | 第三方 RTT |
 | `tests/unit/`、`integration/`、`hil/` | 单元、离线集成、实机支持与场景配置 |
 | `tools/build/`、`flash/`、`bench/`、`analysis/` | 构建、下载、采集操作、离线分析 |
@@ -74,6 +74,19 @@ APP/BOOT CRC；normal/HIL 共用布局及别名边界由现有 Loader 离线测�
 另 2 KiB 在全部计数读取完成后转换为候选 LUT；有效编码器 LUT 不复用该区域。
 Flash 参数启动读取与停机保存独占一份 2384 B 固定缓冲，重入时拒绝操作，
 不再链接自有通用堆。CCM、栈、C 库堆和参数 Flash ABI 保持不变。
+
+## CAN 功能边界（2026-10-16）
+
+`interface_can.c` 负责命令编码/分派、回复槽及保活；`comm_hw.h` 提供收发、
+节点过滤和速率配置能力。FDCAN 句柄、HAL、过滤器字段及分频配置全部留在
+`comm_status_stm32g4.c`，协议文件不再直接配置外设。回复槽由 RX 中断生产、
+前台消费，忙时不能覆盖旧帧；所有权和兼容细节见
+[CAN 回复补充](../protocols/can_reply_handoff_v1.md)。
+
+本次保留启动顺序、默认速率和原 100 ms 波特率检查调用。
+运行期重配仍含同步 HAL 操作，原 Error_Handler 也没有主动关闭 PWM；
+将重配移到前台并明确故障停机策略应作为后续行为变更独立验证。
+命令分派仍依赖电机应用状态，本次只完成硬件配置边界收口。
 
 ## 后续 Loader 与 PC 接入
 

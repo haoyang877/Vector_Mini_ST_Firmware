@@ -1,6 +1,46 @@
 #include "comm_hw.h"
 #include "fdcan.h"
 
+void comm_hw_can_start(uint8_t node)
+{
+    if (!comm_hw_can_set_node_filter(node))
+    {
+        Error_Handler();
+    }
+    if (HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_REJECT,
+        FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if (HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+void comm_hw_can_set_bitrate(uint32_t bitrate_kbps)
+{
+    if (HAL_FDCAN_Stop(&hfdcan1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    hfdcan1.Init.DataPrescaler = 10000U / bitrate_kbps;
+    hfdcan1.Init.NominalPrescaler = bitrate_kbps <= 1000U ?
+        hfdcan1.Init.DataPrescaler : 10U;
+    if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
 bool comm_hw_can_receive(CommHwCanFrame *frame)
 {
     static const uint8_t lengths[16] = {0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64};

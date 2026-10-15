@@ -145,16 +145,25 @@ int main(void) {
 #define FDCAN_IR_TC 1
 #define FDCAN_FILTER_RANGE 0
 #define FDCAN_FILTER_TO_RXFIFO0 1
+#define FDCAN_REJECT 2
+#define FDCAN_FILTER_REMOTE 1
+#define FDCAN_IT_RX_FIFO0_NEW_MESSAGE 8
 /* Match all fields/order of the vendor header: omitted fields hid stack junk. */
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength;} FDCAN_RxHeaderTypeDef;
 typedef struct {unsigned IdType,FilterIndex,FilterType,FilterConfig,FilterID1,FilterID2;} FDCAN_FilterTypeDef;
-typedef struct {struct {unsigned TxFifoQueueMode;} Init;struct {unsigned IR,TXBTO;} *Instance;unsigned LatestTxFifoQRequest;} Handle;
+typedef struct {struct {unsigned TxFifoQueueMode,DataPrescaler,NominalPrescaler;} Init;struct {unsigned IR,TXBTO;} *Instance;unsigned LatestTxFifoQRequest;} Handle;
 extern Handle hfdcan1;
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask);
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d);
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *hdr,uint8_t *d);
 unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *filter);
+unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned standard,unsigned extended,unsigned std_remote,unsigned ext_remote);
+unsigned HAL_FDCAN_Start(Handle *h);
+unsigned HAL_FDCAN_Stop(Handle *h);
+unsigned HAL_FDCAN_Init(Handle *h);
+unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned flags,unsigned buffers);
+void Error_Handler(void);
 #endif
 '''
     (out/'fdcan.h').write_text(header)
@@ -177,8 +186,32 @@ unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *filter);
     port='\n'.join(common)+r'''
 #include "fdcan.h"
 #include "firmware/platform/api/comm_hw.h"
+#include <setjmp.h>
 Handle hfdcan1;
 static unsigned pending,tx_calls,tx_result,rx_length=14,expected_length=14;
+static unsigned config_calls,fail_at,error_calls,filter_node;
+static char config_trace[16];
+static jmp_buf fatal_error;
+static struct {uint8_t node_id;uint32_t baudrate;} CANMsg;
+static unsigned config_step(char step) {
+ assert(config_calls<sizeof(config_trace));config_trace[config_calls++]=step;
+ return fail_at!=0 && config_calls==fail_at;
+}
+static void reset_config(unsigned failure) {
+ config_calls=error_calls=0;fail_at=failure;memset(config_trace,0,sizeof(config_trace));
+}
+void Error_Handler(void) {++error_calls;longjmp(fatal_error,1);}
+static void CanMotorStatus_Init(void) {assert(config_step('T')==0);}
+unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned standard,unsigned extended,unsigned std_remote,unsigned ext_remote) {
+ assert(h==&hfdcan1 && standard==FDCAN_REJECT && extended==FDCAN_REJECT);
+ assert(std_remote==FDCAN_FILTER_REMOTE && ext_remote==FDCAN_FILTER_REMOTE);return config_step('G');
+}
+unsigned HAL_FDCAN_Start(Handle *h) {assert(h==&hfdcan1);return config_step('S');}
+unsigned HAL_FDCAN_Stop(Handle *h) {assert(h==&hfdcan1);return config_step('X');}
+unsigned HAL_FDCAN_Init(Handle *h) {assert(h==&hfdcan1);return config_step('I');}
+unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned flags,unsigned buffers) {
+ assert(h==&hfdcan1 && flags==FDCAN_IT_RX_FIFO0_NEW_MESSAGE && buffers==0);return config_step('N');
+}
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7 || mask==1 || mask==2 || mask==4);return (pending&mask)!=0;}
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *hdr,const uint8_t *d) {
  (void)h; assert(hdr->Identifier==0x7f4 && hdr->DataLength==expected_length && hdr->FDFormat==1 && hdr->BitRateSwitch==1);
@@ -189,9 +222,49 @@ unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *h
  (void)h;(void)fifo;memset(hdr,0,sizeof(*hdr));hdr->DataLength=rx_length;hdr->Identifier=0x7f4;
  memset(d,0xaa,64);return 0;
 }
-unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *filter) {(void)h;(void)filter;return 0;}
+unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *filter) {
+ assert(h==&hfdcan1 && filter->IdType==FDCAN_STANDARD_ID && filter->FilterIndex==0);
+ assert(filter->FilterType==FDCAN_FILTER_RANGE && filter->FilterConfig==FDCAN_FILTER_TO_RXFIFO0);
+ assert(filter->FilterID1==(filter_node<<8) && filter->FilterID2==((filter_node<<8)|0xff));
+ return config_step('F');
+}
+'''+function_source(source,'FDCAN1_Param_Init')+function_source(source,'CAN_BaudRateSwitching')+r'''
+static void check_configuration(void) {
+ const unsigned rates[]={100,125,200,250,500,1000,2000,2500,5000};
+ for(filter_node=0;filter_node<8;++filter_node) {
+  reset_config(0);comm_hw_can_start((uint8_t)filter_node);
+  assert(config_calls==4 && memcmp(config_trace,"FGSN",4)==0 && error_calls==0);
+ }
+ filter_node=CANMsg.node_id=4;CANMsg.baudrate=125;reset_config(0);
+ FDCAN1_Param_Init();assert(config_calls==5 && memcmp(config_trace,"TFGSN",5)==0);
+ assert(CANMsg.baudrate==1000);reset_config(0);
+ CAN_BaudRateSwitching();assert(config_calls==0);
+ for(unsigned i=0;i<sizeof(rates)/sizeof(rates[0]);++i) {
+  CANMsg.baudrate=rates[i];reset_config(0);CAN_BaudRateSwitching();
+  assert(config_calls==3 && memcmp(config_trace,"XIS",3)==0 && error_calls==0);
+  assert(hfdcan1.Init.DataPrescaler==10000/rates[i]);
+  assert(hfdcan1.Init.NominalPrescaler==(rates[i]<=1000 ? 10000/rates[i] : 10));
+  CAN_BaudRateSwitching();assert(config_calls==3);
+ }
+ /* 致命处理用 longjmp 代替死循环，验证每个 HAL 失败都不会继续下一步。 */
+ for(unsigned failure=1;failure<=4;++failure) {
+  reset_config(failure);
+  if(setjmp(fatal_error)==0) {comm_hw_can_start(4);assert(!"expected fatal initialization");}
+  assert(error_calls==1 && config_calls==failure && memcmp(config_trace,"FGSN",failure)==0);
+ }
+ for(unsigned failure=1;failure<=3;++failure) {
+  reset_config(failure);hfdcan1.Init.DataPrescaler=hfdcan1.Init.NominalPrescaler=123;
+  if(setjmp(fatal_error)==0) {comm_hw_can_set_bitrate(2000);assert(!"expected fatal reconfiguration");}
+  assert(error_calls==1 && config_calls==failure && memcmp(config_trace,"XIS",failure)==0);
+  assert(hfdcan1.Init.DataPrescaler==(failure==1 ? 123 : 5));
+  assert(hfdcan1.Init.NominalPrescaler==(failure==1 ? 123 : 10));
+ }
+ reset_config(0);
+ puts("PASS CAN platform configuration: eight node ranges, nine bitrates, unchanged-value no-op, startup/reconfigure order, all seven HAL fatal paths");
+}
 int main(void) {
  uint8_t data[48]={0xab};struct {CommHwCanFrame f;uint32_t guard;} bounded;
+ check_configuration();
  hfdcan1.Init.TxFifoQueueMode=1;
  for(pending=1;pending<=7;++pending) assert(!comm_hw_can_try_send_status(0x7f4,data,48));
  pending=0; /* Bench regression: empty queue has TFFL=0, TXBRP=0. */

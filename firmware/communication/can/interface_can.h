@@ -1,8 +1,8 @@
 #ifndef __INTERFACE_CAN_H__
 #define __INTERFACE_CAN_H__
 
-#include "main.h"
-#include "data_type.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef enum
 {
@@ -169,11 +169,32 @@ typedef struct
 	uint32_t can_hb_count;
 }CANMsg_TypeDef;
 
+/** @brief 通信诊断计数；只读调试符号，启动清零，达到 UINT32_MAX 后饱和。
+ * @note 前台独占写 tx_busy，RX 中断独占写其余项；外部不得清零或修改。
+ */
+typedef struct {
+    uint32_t rx_rejected;          /**< 已上送的帧格式、数值或命令无效。 */
+    uint32_t reply_busy;           /**< 回复槽占用，拒绝新回复而保留原帧。 */
+    uint32_t tx_busy;              /**< 硬件发送忙或失败，原回复留槽重试。 */
+    uint32_t node_rejected;        /**< 改号数值无效或未完全停机。 */
+    uint32_t node_filter_failed;   /**< 过滤器更新失败，节点号保持原值。 */
+} CAN_Diagnostics_TypeDef;
+
+extern volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
+
 void FDCAN1_Param_Init(void);
 void CAN_DisConnect_Handle(void);
 void CAN_BaudRateSwitching(void);
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data);
+/** @brief 发布一条参数回复；槽满时计数拒绝，绝不覆盖旧帧。
+ * @param param_id 回复参数号。
+ * @param data 按参数定义的 SI 值，或旧协议 float32 值。
+ * @note 仅 CAN RX 中断调用；CANMsg.tx_* 只作已接受回复的调试镜像。
+ */
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data);
 void CANRxIRQHandler(void);
+/** @brief 前台单次尝试发送回复，空闲时发送可丢弃状态帧。
+ * @note 仅主循环调用；维护 CRC 每个已接受请求只计算一次，忙时不等待。
+ */
 void CAN_SendMessage(void);
 #endif

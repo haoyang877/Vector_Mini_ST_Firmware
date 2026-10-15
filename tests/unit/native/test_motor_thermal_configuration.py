@@ -33,6 +33,7 @@ def can_fixture(vectors: dict) -> str:
 #include <stdio.h>
 #include <string.h>
 #include "interface_can.h"
+#include "data_type.h"
 #include "motor_thermal_control.h"
 #include "motor_hw.h"
 #include "comm_hw.h"
@@ -40,6 +41,7 @@ def can_fixture(vectors: dict) -> str:
 #include "firmware_version.h"
 #include "utils.h"
 CANMsg_TypeDef CANMsg;
+volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
 MotorControl_TypeDef MotorControl;
 const uint32_t g_firmware_software_version = FIRMWARE_VERSION_CODE;
 typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALUE_MILLI_I16} CanValueEncoding;
@@ -47,8 +49,6 @@ static CommHwCanFrame incoming;
 static bool gate_off = true;
 static uint32_t clock_ms;
 /* Loader 请求不属于此热协议夹具；保持未请求态，仍运行真实 RX 路由。 */
-static bool uid_pending;
-static uint8_t uid_nonce[4], uid_opcode;
 static bool BootHandoff_Pending(void) { return false; }
 static bool BootHandoff_Request(uint8_t node,uint32_t now) { (void)node;(void)now;return false; }
 static uint32_t time_hw_now_ms(void) { return clock_ms; }
@@ -58,6 +58,7 @@ bool motor_hw_phase_outputs_disabled(void) { return gate_off; }
 void motor_hw_outer_barrier(void) { }
 static void Set_ErrorNow(ErrorNow_TypeDef error) { MotorControl.ErrorNow=error; }
 """
+    fixture += source.split("/* CAN_REPLY_RUNTIME_BEGIN */")[1].split("/* CAN_REPLY_RUNTIME_END */")[0]
     fixture += "\n".join(function_source(source, name) for name in functions[:5])
     fixture += "\n" + function_source(source, "CAN_SendMessage_Update") + "\n" + dispatch
     fixture += "\n" + function_source(source, "CANRxIRQHandler")
@@ -70,7 +71,7 @@ static void frame(unsigned id, float value) {
     uint32_t bits=FloatToIntBit(value); memset(&incoming,0,sizeof(incoming));
     incoming.identifier=id; incoming.length=4;
     for(unsigned i=0;i<4;i++) incoming.data[i]=(uint8_t)(bits>>(24-i*8));
-    CANMsg.can_tx_en=false; CANRxIRQHandler();
+    CANMsg.can_tx_en=false; can_reply.state=CAN_REPLY_FREE; CANRxIRQHandler();
 }
 static void write(unsigned id,float value) {
     frame(0x400|id,value); assert(CANMsg.can_tx_en && CANMsg.tx_param_id==(id+1));

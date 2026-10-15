@@ -39,7 +39,7 @@ bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_
 bool comm_hw_can_try_send_reply(uint16_t identifier, const uint8_t *data, size_t length)
 {
     FDCAN_TxHeaderTypeDef header = {0};
-    if (identifier > 0x7FFU || data == NULL || (length != 4 && length != 8 && length != 16) ||
+    if (identifier > 0x7FFU || data == NULL || (length != 2 && length != 4 && length != 8 && length != 16) ||
         HAL_FDCAN_IsTxBufferMessagePending(&hfdcan1,
             FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 | FDCAN_TX_BUFFER2) != 0U)
     {
@@ -50,7 +50,8 @@ bool comm_hw_can_try_send_reply(uint16_t identifier, const uint8_t *data, size_t
     header.TxFrameType = FDCAN_DATA_FRAME;
     header.FDFormat = FDCAN_FD_CAN;
     header.BitRateSwitch = FDCAN_BRS_ON;
-    header.DataLength = length == 4 ? FDCAN_DLC_BYTES_4 : (length == 8 ? FDCAN_DLC_BYTES_8 : FDCAN_DLC_BYTES_16);
+    header.DataLength = length == 2 ? FDCAN_DLC_BYTES_2 :
+        (length == 4 ? FDCAN_DLC_BYTES_4 : (length == 8 ? FDCAN_DLC_BYTES_8 : FDCAN_DLC_BYTES_16));
     header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     return HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, data) == HAL_OK;
 }
@@ -60,4 +61,21 @@ bool comm_hw_can_reply_sent(void)
     uint32_t mask = hfdcan1.LatestTxFifoQRequest;
     return mask != 0U && (hfdcan1.Instance->TXBTO & mask) == mask &&
         HAL_FDCAN_IsTxBufferMessagePending(&hfdcan1, mask) == 0U;
+}
+
+bool comm_hw_can_set_node_filter(uint8_t node)
+{
+    FDCAN_FilterTypeDef filter = {0};
+    if (node > 7U) {
+        return false;
+    }
+    filter.IdType = FDCAN_STANDARD_ID;
+    filter.FilterIndex = 0U;
+    filter.FilterType = FDCAN_FILTER_RANGE;
+    filter.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+    filter.FilterID1 = (uint32_t)node << 8;
+    filter.FilterID2 = filter.FilterID1 | 0xFFU;
+    /* 此 HAL 允许 READY/BUSY；标准过滤器最终只写一个 32 位 Message RAM 字。
+     * 失败分支发生在写入之前，原过滤器不变，无需 Stop/Init 或全局关中断。 */
+    return HAL_FDCAN_ConfigFilter(&hfdcan1, &filter) == HAL_OK;
 }

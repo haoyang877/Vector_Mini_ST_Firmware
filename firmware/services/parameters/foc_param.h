@@ -10,6 +10,9 @@
 #include "motor_axis_profile.h"
 #include "motor_load_profile.h"
 
+/* 既有参数记录标记，归参数序列化契约所有。 */
+#define MAGIC_WORD ((uint32_t)0x454E4332U)
+
 #define PARAM_SCHEMA_VERSION 10U
 #define PARAM_SCHEMA_VERSION_LEGACY_POSITION_TUNING 9U
 #define PARAM_SCHEMA_VERSION_LEGACY_FRICTION 8U

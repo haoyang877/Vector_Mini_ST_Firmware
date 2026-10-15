@@ -1445,6 +1445,11 @@
               <FilePath>..\..\..\..\app\board_config.c</FilePath>
             </File>
             <File>
+              <FileName>parameter_persistence.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\app\parameter_persistence.c</FilePath>
+            </File>
+            <File>
               <FileName>utils.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\common\utils.c</FilePath>

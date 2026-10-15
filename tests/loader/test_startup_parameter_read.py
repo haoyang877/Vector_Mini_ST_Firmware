@@ -1,4 +1,4 @@
-"""编译真实参数读写及前台保存协调函数，用假Flash逐点验证保存失败路径。"""
+"""跨应用/存储边界编译真实参数事务，用假Flash逐点验证保存失败路径。"""
 
 from pathlib import Path
 import re
@@ -54,6 +54,7 @@ static void __disable_irq(void) {
     if (inject_stage==6) { inject_stage=0; mode_now=Motor_Disable; }
 }
 static void __enable_irq(void) { primask=0; inject_reentry(5); }
+static void __set_PRIMASK(unsigned state) { if (state==0) __enable_irq(); else primask=state; }
 static bool motor_hw_phase_outputs_disabled(void) { assert(primask==1); return outputs_disabled; }
 static unsigned Get_ModeNow(void) { return mode_now; }
 static void Set_ModeNow(unsigned mode) { assert(primask==1); mode_now=mode; }
@@ -187,17 +188,17 @@ int main(void) {
         check_released(mask,FLASH_PARAM_SAVE_WRITTEN); check_full_record();
         /* 前台必须等待快环SAVE确认；刚收到请求、运行模式或抢占撤销均不保存。 */
         reset_case(mask); mode_now=Save_Param;
-        Main_SaveParametersPoll();
+        ParameterPersistence_Poll();
         assert(mode_now==Save_Param && uploads==0 && error_now==No_Error && primask==mask);
         ModeLast=Save_Param; mode_now=Speed_Mode;
-        Main_SaveParametersPoll(); assert(mode_now==Speed_Mode && uploads==0 && primask==mask);
+        ParameterPersistence_Poll(); assert(mode_now==Speed_Mode && uploads==0 && primask==mask);
         mode_now=Save_Param; inject_stage=6;
-        Main_SaveParametersPoll(); assert(mode_now==Motor_Disable && uploads==0 && primask==mask);
+        ParameterPersistence_Poll(); assert(mode_now==Motor_Disable && uploads==0 && primask==mask);
         mode_now=Save_Param;
-        Main_SaveParametersPoll();
+        ParameterPersistence_Poll();
         assert(mode_now==Motor_Disable && error_now==No_Error && programs==298 && stops==0);
         check_released(mask,FLASH_PARAM_SAVE_WRITTEN);
-        mode_now=Save_Param; Main_SaveParametersPoll();
+        mode_now=Save_Param; ParameterPersistence_Poll();
         assert(mode_now==Motor_Disable && error_now==No_Error && programs==298);
         check_released(mask,FLASH_PARAM_SAVE_UNCHANGED);
         /* 各种失败统一发布既有参数故障并停机，不把保存失败当成功。 */
@@ -210,7 +211,7 @@ int main(void) {
             if (failure==4) fail_program=67;
             if (failure==5) corrupt_readback=true;
             if (failure==6) lock_fails=true;
-            Main_SaveParametersPoll();
+            ParameterPersistence_Poll();
             assert(mode_now==Motor_Disable && error_now==MotorParam_Error && stops==1 && outputs_disabled);
             assert(primask==mask && (failure==0 ? parameter_buffer_busy : !parameter_buffer_busy));
             parameter_buffer_busy=false;
@@ -239,8 +240,8 @@ def main():
     """复用真实结构/保存实现/主循环协调，假HAL不会访问任何硬件。"""
     compiler, out = sys.argv[1], Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
-    source = (ROOT / "firmware/platform/stm32g4/bsp/flash.c").read_text(encoding="utf-8")
-    header = (ROOT / "firmware/platform/stm32g4/bsp/flash.h").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/parameter_persistence.c").read_text(encoding="utf-8")
+    storage_source = (ROOT / "firmware/platform/stm32g4/bsp/flash.c").read_text(encoding="utf-8")
     main_source = (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/main.c").read_text(encoding="utf-8")
     for name in ("heap.c", "heap.h"):
         if (ROOT / "firmware/common" / name).exists():
@@ -249,27 +250,39 @@ def main():
         project = ET.parse(ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM" / (name + ".uvprojx"))
         if project.findall(".//File[FileName='heap.c']"):
             raise RuntimeError("Keil工程仍链接已删除的私有分配器")
+        if len(project.findall(".//File[FileName='parameter_persistence.c']")) != 1:
+            raise RuntimeError("两个Keil工程必须各编译参数持久化模块一次")
     if '"heap.h"' in (ROOT / "firmware/app/common_inc.h").read_text(encoding="utf-8"):
         raise RuntimeError("聚合头仍引用已删除的私有分配器")
-    if main_source.count("Main_SaveParametersPoll();") != 1:
+    if main_source.count("ParameterPersistence_Poll();") != 1:
         raise RuntimeError("真实主循环必须调用已验证的保存协调函数一次")
+    if any(token in storage_source for token in
+           ("foc_param.h", "InterfaceParam_TypeDef", "MotorControl", "ModeLast", "Set_ErrorNow", "motor_hw.h")):
+        raise RuntimeError("参数区BSP不应依赖参数解析、运行模式、关相或故障策略")
+    if re.search(r"\b(?:HAL_\w+|__get_PRIMASK|__set_PRIMASK|__disable_irq|__enable_irq)\b", source):
+        raise RuntimeError("应用参数事务必须通过平台接口访问中断状态")
+    if '"flash.h"' in (ROOT / "firmware/app/common_inc.h").read_text(encoding="utf-8"):
+        raise RuntimeError("应用不应再导入旧板级Flash头")
     parameter = (ROOT / "firmware/services/parameters/foc_param.h").read_text(encoding="utf-8")
     parameter = parameter[parameter.index("typedef struct") : parameter.index("void Param_Return_Default")]
     lut_size = re.search(r"^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U",
                         (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(encoding="utf-8"), re.M)[1]
     declarations = source[source.index("static InterfaceParam_TypeDef parameter_buffer;") : source.index("/**")]
-    result_enum = header[header.index("typedef enum") : header.index("} FlashParamSaveResult;") + len("} FlashParamSaveResult;")]
     fixture = out / "startup_parameter_read.c"
     fixture.write_text(
         "#include <assert.h>\n#include <stdbool.h>\n#include <stdint.h>\n"
         "#include <stddef.h>\n#include <stdio.h>\n#include <string.h>\n"
         '#include "motor_axis_profile.h"\n#include "motor_load_profile.h"\n#include "motor_thermal.h"\n'
+        '#include "parameter_persistence.h"\n#include "parameter_storage_hw.h"\n'
         + "#define ENCODER_OFFSET_LUT_SIZE " + lut_size + "U\n"
-        + parameter + result_enum + declarations + PRELUDE
+        + parameter + declarations + PRELUDE
+        + "\n".join(function_source(storage_source, name) for name in
+                    ("parameter_storage_hw_enter", "parameter_storage_hw_exit",
+                     "parameter_storage_hw_read", "parameter_storage_hw_write"))
         + "\n".join(function_source(source, name) for name in
-                    ("parameter_buffer_acquire", "flash_store_snapshot", "flash_read_param",
-                     "flash_write_param", "flash_get_last_save_result"))
-        + function_source(main_source, "Main_SaveParametersPoll") + CASES,
+                    ("parameter_buffer_acquire", "store_snapshot", "flash_read_param",
+                     "flash_write_param", "flash_get_last_save_result", "ParameterPersistence_Poll"))
+        + CASES,
         encoding="utf-8",
     )
     command = [compiler] + (["cc"] if Path(compiler).stem == "zig" else [])

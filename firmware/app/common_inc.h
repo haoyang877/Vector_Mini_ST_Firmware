@@ -23,7 +23,6 @@
 #include "led.h"
 #include "encoder.h"
 #include "rgb.h"
-#include "flash.h"
 #include "hw_conf.h"
 #include "bsp_task.h"
 
@@ -43,6 +42,7 @@
 #include "interface_can.h"
 
 /*System*/
+#include "parameter_persistence.h"
 #include "utils.h"
 #include "board_config.h"
 #include "data_type.h"

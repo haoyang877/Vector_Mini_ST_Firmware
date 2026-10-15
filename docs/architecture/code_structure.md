@@ -88,6 +88,18 @@ Flash 参数启动读取与停机保存独占一份 2384 B 固定缓冲，重入
 将重配移到前台并明确故障停机策略应作为后续行为变更独立验证。
 命令分派仍依赖电机应用状态，本次只完成硬件配置边界收口。
 
+## 参数持久化边界（2026-10-16）
+
+- `app/parameter_persistence.c`：唯一持有参数快照、忙状态与保存结果；协调快环关相确认、
+  启动迁移和保存失败后的停机/故障。主循环只调用 `ParameterPersistence_Poll()`。
+- `services/parameters/foc_param.c/.h`：保留参数结构、默认值、校验和编解码，拥有记录魔数。
+- `platform/api/parameter_storage_hw.h` 与 `bsp/flash.c`：只提供固定参数区原始字节读写及
+  参数事务临界区。平台不再调用 `Param_Upload/Download`，也不访问运行模式或发布电机故障。
+
+原 `flash_read_param/flash_write_param` 入口保留在应用模块，避免引入多套保存接口。
+旧 BSP `flash.h` 删除，平台地址改引用现有 `boot_contract.h` 单一契约；地址和容量不变。
+完整流程、错误结果与单副本边界见 [参数保存说明](../guides/parameter_flash_save_v1.md)。
+
 ## 后续 Loader 与 PC 接入
 
 已阅读 D-loader 的总设计、通用 MCU/CAN-FD/UART 框架、内存方案、空间优化与发布规范。

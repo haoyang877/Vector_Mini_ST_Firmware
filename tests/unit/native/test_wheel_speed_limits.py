@@ -31,7 +31,6 @@ def fixture():
 #include "interface_can.h"
 #include "utils.h"
 #include "motor_thermal_control.h"
-#define MAGIC_WORD 0x454e4332U
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
 CANMsg_TypeDef CANMsg;

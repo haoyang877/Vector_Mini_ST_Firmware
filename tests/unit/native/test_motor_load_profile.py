@@ -40,7 +40,6 @@ def fixture():
 #include "interface_can.h"
 #include "utils.h"
 #include "motor_thermal_control.h"
-#define MAGIC_WORD 0x454e4332U
 #define FLUX_OBSERVER_DEFAULT_GAMMA 800000.0f
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;

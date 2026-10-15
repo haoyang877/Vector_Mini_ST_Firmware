@@ -96,6 +96,28 @@ Windows包装脚本等价入口：
 
 ## 离线检查
 
+### Keil APP 工程内存与擦除设置
+
+普通 APP 和 HIL 工程均使用独立 `Vector_Mini_ST.sct`，Target 页同步为：
+
+| 区域 | 起点 | 大小 |
+| --- | --- | --- |
+| IROM1 | `0x08004000` | `0x18000` |
+| IRAM1 | `0x20000020` | `0x7FE0` |
+
+工程 XML 中 `IROM`/`IRAM` 与 Target 页对应的 `OCR_RVCT4`/`OCR_RVCT9`
+需同时一致；仅修改前一组不能更新 Target 页。保留 Linker 的独立 scatter 选择。
+修改磁盘工程后重新打开 Keil 工程；旧 Options 窗口不能继续保存旧配置。
+
+Flash Download 选择 **Erase Sectors** 时，APP 下载仅擦除其涉及的扇区，
+不会因为算法覆盖 `0x08000000` 就擦除 Loader。
+**Erase Full Chip** 会擦除 Loader 与参数，禁止用于保留标定的 APP 更新。
+Target 内存配置不能阻止手动全片擦除，也不限制另行选择的合包 HEX。
+当前两个 APP 工程通过 After Build 自动填写有效记录，AXF/HEX 同时包含
+`0x08003000` 的 48 B 记录及完整 APP 分区；下载前必须看到
+`APP record synchronized` 和构建成功。此 HEX 不含 Loader，不能代替初装大包。
+详细配置与复位实测见 [Keil APP 调试与记录同步](keil_app_debug_v1.md)。
+
 ```powershell
 python tests/loader/run_tests.py --cc $nativeCompiler --out outputs/tests/loader_factory
 ```

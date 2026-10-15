@@ -43,6 +43,8 @@ python tests/run.py
 CAN Loader与维护工具：[Loader入口](loader/README.md)、[CAN协议](docs/protocols/can_loader_v2.md)、[初装合包](docs/guides/loader_factory_package_v1.md)、[Windows维护工具](docs/guides/loader_flasher_exe_v1.md)。
 APP入口0x08004000，初装需使用完整Loader+APP包，参数区保持独立保护。
 
+Keil调试APP：[无脚本启动、工程配置与有效记录同步](docs/guides/keil_app_debug_v1.md)。
+
 调试归档v0.4.1：[版本变更、验证范围及已知限制](docs/reports/2026-10-14-v041-debug-archive.md)。
 
 已合入、默认关闭：[CAN配置及Flash保存的速度惯量前馈](docs/guides/wheel_speed_feedforward_v1.md)。

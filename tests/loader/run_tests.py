@@ -78,6 +78,14 @@ def main():
         [sys.executable, str(root / "tests/loader/test_factory_hex.py")],
         [
             sys.executable,
+            str(root / "tests/loader/test_keil_app_record.py"),
+            "--cc",
+            args.cc,
+            "--out",
+            str(out / "keil_app_record"),
+        ],
+        [
+            sys.executable,
             str(root / "tests/loader/test_maintenance_backend.py"),
             "--cc",
             args.cc,
@@ -128,6 +136,12 @@ def main():
         ).hexdigest(),
         "hex_test_sha256": hashlib.sha256(
             (root / "tests/loader/test_factory_hex.py").read_bytes()
+        ).hexdigest(),
+        "keil_record_tool_sha256": hashlib.sha256(
+            (root / "tools/build/keil_app_record.py").read_bytes()
+        ).hexdigest(),
+        "keil_record_test_sha256": hashlib.sha256(
+            (root / "tests/loader/test_keil_app_record.py").read_bytes()
         ).hexdigest(),
         "maintenance_backend_sha256": hashlib.sha256(
             (root / "loader/tools/maintenance_backend.py").read_bytes()

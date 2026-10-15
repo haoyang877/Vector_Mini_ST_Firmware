@@ -21,7 +21,11 @@ def fixture():
     # 仅抽取新增 CAN 分派段；不复制其校验实现。
     dispatch = function_source(can, "CAN_ReceiveMessage_Update")
     dispatch = dispatch[: dispatch.index("\t/* Read-only handshake;")] + "}\n"
-    power_boundary = task[task.index("\t/* 异步模式写入") : task.index("\n\tDetect_Mode_Error_Change();")]
+    boundary_start = task.index(
+        "\tif (MotorControl.ModeNow == Motor_Disable &&",
+        task.index("FAST_PROFILE_BEGIN(FAST_PROFILE_POST_CONTROL)"),
+    )
+    power_boundary = task[boundary_start : task.index("\n\tDetect_Mode_Error_Change();")]
     return (
         r"""
 #include <assert.h>
@@ -48,7 +52,8 @@ PI_Controller_TypeDef PI_Speed;
 ModeNow_TypeDef ModeLast;
 static volatile uint32_t pending_load_profile = UINT32_MAX;
 static bool gate_off=true;
-static bool position_start_prepared, defer_position_power_start, outer_ready;
+static bool position_start_prepared, defer_power_start, outer_ready;
+static bool observer_power_start_ready, calibration_start_pending;
 static unsigned power_starts, power_stops;
 void Start_PWM_Generate(void) { gate_off=false; ++power_starts; }
 void Start_Damping_Brake(void) { gate_off=false; ++power_starts; }
@@ -59,7 +64,8 @@ static CAN_PARAM_ID reply_id;
 static float reply_value;
 bool motor_hw_phase_outputs_disabled(void) { return gate_off; }
 void motor_hw_outer_barrier(void) { }
-void EncoderCalibration_Reset(void) { }
+void EncoderCalibration_Reset(void) { calibration_start_pending=false; }
+bool EncoderObserverCalibration_IsPowerStartReady(void) { return calibration_start_pending; }
 void Task_Position_Mode_Reset(void) { ++position_resets; }
 void FOC_CurrentController_Reset(FOC_TypeDef *f) {
     PI_Controller_Reset(&f->id_pi); PI_Controller_Reset(&f->iq_pi);
@@ -88,7 +94,7 @@ void CAN_SendMessage_Update(CAN_PARAM_ID id, float value) {
                 dispatch,
             ]
         )
-        + "\nstatic void actual_power_boundary(void) {\n" + power_boundary + "\n}\n"
+        + "\nstatic void actual_power_boundary(void) {\n defer_power_start=false;\n" + power_boundary + "\n}\n"
         + r"""
 static void seed(InterfaceParam_TypeDef *baseline) {
     Param_Return_Default(); MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
@@ -214,9 +220,21 @@ int main(void) {
     assert(!gate_off && power_starts==1);
     MotorControl.ModeNow=Speed_Mode; gate_off=true; power_starts=0;
     position_start_prepared=false; outer_ready=false; actual_power_boundary();
-    assert(gate_off && power_starts==0 && defer_position_power_start);
-    defer_position_power_start=false; outer_ready=true; actual_power_boundary();
+    assert(gate_off && power_starts==0 && defer_power_start);
+    outer_ready=true; actual_power_boundary();
     assert(!gate_off && power_starts==1);
+    /* Mode 13 必须使用拍前 ready，不能在刚准备完成的同拍启用。 */
+    MotorControl.ModeNow=Calib_EncoderObserver; ModeLast=Motor_Disable;
+    gate_off=true; power_starts=0; observer_power_start_ready=false;
+    calibration_start_pending=true; actual_power_boundary();
+    assert(gate_off && power_starts==0 && defer_power_start);
+    observer_power_start_ready=true; calibration_start_pending=false;
+    actual_power_boundary(); assert(!gate_off && power_starts==1 && !defer_power_start);
+    /* 尚未更新 ModeLast 的准备窗口收到 STOP，也须清除待启用状态。 */
+    MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
+    gate_off=true; power_stops=0; calibration_start_pending=true;
+    observer_power_start_ready=false; actual_power_boundary();
+    assert(gate_off && power_stops==1 && !calibration_start_pending);
     puts("PASS dual runtime profiles, CRC/legacy, parameter preservation, switch ownership, stop guards, CAN values");
     return 0;
 }

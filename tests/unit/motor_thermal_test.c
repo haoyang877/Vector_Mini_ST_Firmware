@@ -14,6 +14,241 @@ static MotorThermalConfig config(void)
     return c;
 }
 
+/* 固定三相展开前的独立基准；保留失败相之前的逐相累加顺序。 */
+static bool legacy_accumulate(MotorThermalState *state, float ia_a, float ib_a, float ic_a)
+{
+    float current[3];
+    unsigned i;
+    if (state == NULL || !state->valid)
+    {
+        return false;
+    }
+    current[0] = ia_a;
+    current[1] = ib_a;
+    current[2] = ic_a;
+    if (state->sample_count >= state->config.samples_per_update)
+    {
+        MotorThermal_Invalidate(state);
+        return false;
+    }
+    for (i = 0U; i < 3U; ++i)
+    {
+        if (!(fabsf(current[i]) <= 100.0f))
+        {
+            MotorThermal_Invalidate(state);
+            return false;
+        }
+        state->square_sum_a2[i] += current[i] * current[i];
+    }
+    ++state->sample_count;
+    return true;
+}
+
+static void optimized_accumulate_equivalence(void)
+{
+    const uint32_t bits[] = {0U, 0x80000000U, 1U, 0x80000001U, 0x007fffffU,
+        0x00800000U, 0x42c7ffffU, 0x42c80000U, 0x42c80001U,
+        0xc2c7ffffU, 0xc2c80000U, 0xc2c80001U, 0x7f7fffffU, 0xff7fffffU,
+        0x7f800000U, 0xff800000U, 0x7f800001U, 0xff800001U, 0x7fc12345U, 0xffc12345U};
+    MotorThermalConfig c = config();
+    unsigned checked = 0U;
+    for (unsigned channel = 0U; channel < 3U; ++channel)
+    {
+        for (unsigned value = 0U; value < sizeof(bits) / sizeof(bits[0]); ++value)
+        {
+            for (unsigned admission = 0U; admission < 3U; ++admission)
+            {
+                MotorThermalState actual, before;
+                float currents[3] = {1.25f, -2.5f, 3.75f};
+                assert(MotorThermal_Init(&actual, &c, .81f));
+                actual.sample_count = admission == 1U ? c.samples_per_update : 7U;
+                actual.valid = admission != 2U;
+                actual.square_sum_a2[0] = .125f;
+                actual.square_sum_a2[1] = 4.0f;
+                actual.square_sum_a2[2] = 8.0f;
+                memcpy(&currents[channel], &bits[value], sizeof(float));
+                before = actual;
+                assert(MotorThermal_Accumulate(&actual, currents[0], currents[1], currents[2]) ==
+                    legacy_accumulate(&before, currents[0], currents[1], currents[2]));
+                assert(memcmp(&actual, &before, sizeof(actual)) == 0);
+                ++checked;
+            }
+        }
+    }
+    uint32_t random = 0x13579bdfU;
+    for (unsigned scenario = 0U; scenario < 100000U; ++scenario)
+    {
+        MotorThermalState actual, before;
+        float currents[3];
+        assert(MotorThermal_Init(&actual, &c, .81f));
+        actual.sample_count = scenario % 22U;
+        for (unsigned channel = 0U; channel < 3U; ++channel)
+        {
+            random = random * 1664525U + 1013904223U;
+            memcpy(&currents[channel], &random, sizeof(float));
+            if (scenario % 4U != channel)
+            {
+                currents[channel] = (float)(int32_t)(random % 20001U) * .01f - 100.0f;
+            }
+            actual.square_sum_a2[channel] = (float)(random % 10000U) * .1f;
+        }
+        before = actual;
+        assert(MotorThermal_Accumulate(&actual, currents[0], currents[1], currents[2]) ==
+            legacy_accumulate(&before, currents[0], currents[1], currents[2]));
+        assert(memcmp(&actual, &before, sizeof(actual)) == 0);
+        ++checked;
+    }
+    assert(!MotorThermal_Accumulate(NULL, 1.0f, NAN, INFINITY));
+    assert(!legacy_accumulate(NULL, 1.0f, NAN, INFINITY));
+    printf("PASS thermal accumulate bitwise equivalence: %u states, per-phase invalid partial sums, "
+        "signed zero/subnormal/100A boundary/sNaN/qNaN/Inf, full windows and invalid/null states\n", checked);
+}
+
+/* 优化前的更新/降额路径：保持独立表达式作为逐位基准，不参与产品编译。 */
+static void legacy_limit(MotorThermalState *state)
+{
+    float sustainable_a, weight;
+    if (!state->valid || state->fault_latched)
+    {
+        state->available_a = 0.0f;
+        return;
+    }
+    if (state->max_heat >= state->config.derating_enter_heat)
+    {
+        state->derating = true;
+    }
+    else if (state->max_heat <= state->config.derating_exit_heat)
+    {
+        state->derating = false;
+    }
+    if (!state->derating)
+    {
+        state->available_a = state->config.peak_a;
+        return;
+    }
+    sustainable_a = state->config.continuous_vector_a;
+    if (fmaxf(state->heat[1], fmaxf(state->heat[2], state->heat[3])) >= state->heat[0])
+    {
+        sustainable_a = fminf(sustainable_a, state->config.continuous_phase_rms_a);
+    }
+    weight = fminf(1.0f, fmaxf(0.0f, (state->max_heat - state->config.derating_enter_heat) /
+        (state->config.trip_heat - state->config.derating_enter_heat)));
+    state->available_a = state->config.peak_a + weight * (sustainable_a - state->config.peak_a);
+}
+
+static bool legacy_update(MotorThermalState *state)
+{
+    float q[4], phase_denominator, samples;
+    unsigned i;
+    if (state == NULL || !state->valid || state->sample_count != state->config.samples_per_update)
+    {
+        MotorThermal_Invalidate(state);
+        return false;
+    }
+    samples = (float)state->sample_count;
+    phase_denominator = samples * state->config.continuous_phase_rms_a *
+        state->config.continuous_phase_rms_a;
+    q[0] = (2.0f / 3.0f) *
+        (state->square_sum_a2[0] + state->square_sum_a2[1] + state->square_sum_a2[2]) /
+        (samples * state->config.continuous_vector_a * state->config.continuous_vector_a);
+    state->max_heat = 0.0f;
+    for (i = 0U; i < 3U; ++i)
+    {
+        q[i + 1U] = state->square_sum_a2[i] / phase_denominator;
+    }
+    for (i = 0U; i < 4U; ++i)
+    {
+        float alpha = q[i] >= state->heat[i] ? state->heating_alpha : state->cooling_alpha;
+        state->heat[i] += alpha * (q[i] - state->heat[i]);
+        if (!isfinite(state->heat[i]) || state->heat[i] < 0.0f)
+        {
+            MotorThermal_Invalidate(state);
+            return false;
+        }
+        if (state->heat[i] > state->max_heat)
+        {
+            state->max_heat = state->heat[i];
+        }
+    }
+    memset(state->square_sum_a2, 0, sizeof(state->square_sum_a2));
+    state->sample_count = 0U;
+    if (state->max_heat >= state->config.trip_heat)
+    {
+        state->fault_latched = true;
+    }
+    legacy_limit(state);
+    return true;
+}
+
+static void optimized_update_equivalence(void)
+{
+    const float vectors[] = {.01f, .1f, 1.0f, 3.0f, 10.0f, 99.0f};
+    const float taus[] = {.1f, 1.0f, 65.98486785f, 86400.0f};
+    const float initial[] = {0.0f, .7f, .8f, .81f, .99f, 1.0f, 2.0f};
+    unsigned checked = 0U;
+    for (unsigned scenario = 0U; scenario < 48U; ++scenario)
+    {
+        MotorThermalState actual, before;
+        MotorThermalConfig c = config();
+        c.continuous_vector_a = vectors[scenario % 6U];
+        c.continuous_phase_rms_a = c.continuous_vector_a * .707106781f;
+        c.peak_a = 100.0f;
+        c.heating_tau_s = taus[scenario % 4U];
+        c.cooling_tau_s = fmaxf(120.0f, c.heating_tau_s);
+        c.samples_per_update = scenario % 3U == 0U ? 1U : 20U;
+        assert(MotorThermal_Init(&actual, &c, initial[scenario % 7U]));
+        before = actual;
+        for (unsigned tick = 0U; tick < 6000U; ++tick)
+        {
+            float a = tick % 3000U < 1000U ? 8.0f : 0.0f;
+            float b = scenario & 1U ? -a : -.5f * a;
+            float d = scenario & 1U ? 0.0f : -.5f * a;
+            for (unsigned sample = 0U; sample < c.samples_per_update; ++sample)
+            {
+                assert(MotorThermal_Accumulate(&actual, a, b, d));
+                assert(legacy_accumulate(&before, a, b, d));
+            }
+            assert(MotorThermal_Update(&actual) == legacy_update(&before));
+            assert(memcmp(&actual, &before, sizeof(actual)) == 0);
+            if (actual.max_heat <= c.clear_heat)
+            {
+                assert(MotorThermal_ClearFault(&actual));
+                before.fault_latched = false;
+                legacy_limit(&before);
+                assert(memcmp(&actual, &before, sizeof(actual)) == 0);
+            }
+            ++checked;
+        }
+    }
+    /* 每个通道非有限/负值时，中止位置、部分max_heat与故障输出必须保持原样。 */
+    const float invalid[] = {NAN, INFINITY, -INFINITY, -1.0f, FLT_MAX};
+    for (unsigned field = 0U; field < 7U; ++field)
+    {
+        for (unsigned bad = 0U; bad < sizeof(invalid) / sizeof(invalid[0]); ++bad)
+        {
+            MotorThermalState actual, before;
+            MotorThermalConfig c = config();
+            assert(MotorThermal_Init(&actual, &c, .81f));
+            actual.sample_count = c.samples_per_update;
+            actual.square_sum_a2[0] = actual.square_sum_a2[1] = actual.square_sum_a2[2] = 1.0f;
+            if (field < 4U)
+            {
+                actual.heat[field] = invalid[bad];
+            }
+            else
+            {
+                actual.square_sum_a2[field - 4U] = invalid[bad];
+            }
+            before = actual;
+            assert(MotorThermal_Update(&actual) == legacy_update(&before));
+            assert(memcmp(&actual, &before, sizeof(actual)) == 0);
+            ++checked;
+        }
+    }
+    printf("PASS thermal update bitwise equivalence: %u windows, heating/cooling, hotspot, "
+        "derating/trip/clear thresholds and invalid partial updates\n", checked);
+}
+
 static void dc(MotorThermalState *s, float a, float b, float c)
 {
     unsigned i;
@@ -192,6 +427,8 @@ static void alpha_precision(void)
 
 int main(void)
 {
+    optimized_accumulate_equivalence();
+    optimized_update_equivalence();
     alpha_precision();
     analytical_cases();
     hotspot_and_cooling();

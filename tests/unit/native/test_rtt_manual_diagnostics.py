@@ -37,7 +37,7 @@ def diagnostic_fixture() -> str:
         )
         .replace("wire[11]", "wire[10]")
         .replace("length == 22", "length == 20")
-        .replace("++writes; return length;", "++writes; return skip ? 0U : length;")
+        .replace("++writes; return 1U;", "++writes; return skip ? 0U : 1U;")
     )
     fixture = (
         fixture[: fixture.index("int main(void)")]
@@ -52,8 +52,9 @@ int main(void)
     planned.speed_command = _PI / 2;
     planned.trajectory_speed_reference = _PI / 12;
     planned.friction_feedforward_current = 2.5f;
-    for (unsigned i = 0; i < 9; ++i) { RTT_Sampling(); }
-    assert(writes == 0); RTT_Sampling(); assert(writes == 1);
+    for (unsigned i = 0; i < 4; ++i) { RTT_Sampling(); }
+    assert(writes == 0); RTT_Sampling(); assert(writes == 0);
+    FOC_TelemetryService(); assert(writes == 1);
     puts("GOLDEN");
     for (unsigned i = 0; i < 10; ++i) { printf("%d%s", wire[i], i == 9 ? "\n" : ","); }
     near_count(0,9000); near_count(1,-4500); near_count(2,13500);
@@ -79,6 +80,8 @@ int main(void)
     near_count(4,1718); assert(wire[3] == 0 && wire[9] == 0);
     MotorControl.posRef = 100; FOC.Iq = NAN; sample();
     assert(wire[0] == 32767 && wire[2] == 32767 && wire[7] == 0);
+    test_deferred_snapshot();
+    assert(rtt_manual_dropped_frames == 1 && rtt_capture_dropped_frames == 2);
     puts("PASS ten diagnostic channels, golden vector, idle validity and SKIP");
     return 0;
 }

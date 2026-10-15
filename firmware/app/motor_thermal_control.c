@@ -239,6 +239,17 @@ void MotorThermalControl_Sample(
     }
 }
 
+uint32_t MotorThermalControl_SamplesUntilUpdate(void)
+{
+    const MotorThermalState *state = &thermal_diagnostics.model;
+    if (!thermal_diagnostics.initialized || !state->valid || pending_config_ready ||
+        pending_clock_fault || state->sample_count >= state->config.samples_per_update)
+    {
+        return 0U;
+    }
+    return state->config.samples_per_update - state->sample_count;
+}
+
 bool MotorThermalControl_CheckWatchdog(uint32_t now_ms, bool outputs_disabled)
 {
     if (outputs_disabled)

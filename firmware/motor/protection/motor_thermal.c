@@ -55,14 +55,26 @@ static void update_limit(MotorThermalState *state)
     }
     /* 逐相热点主导时采用相RMS作为保守向量边界，不依赖未知电角度。 */
     sustainable_a = state->config.continuous_vector_a;
-    if (fmaxf(state->heat[1], fmaxf(state->heat[2], state->heat[3])) >= state->heat[0])
+    if (state->heat[1] >= state->heat[0] || state->heat[2] >= state->heat[0] ||
+        state->heat[3] >= state->heat[0])
     {
-        sustainable_a = fminf(sustainable_a, state->config.continuous_phase_rms_a);
+        /* 配置已校验为有限正值，无需通用 fminf 的分类和库调用。 */
+        if (state->config.continuous_phase_rms_a < sustainable_a)
+        {
+            sustainable_a = state->config.continuous_phase_rms_a;
+        }
     }
-    weight = fminf(1.0f,
-                   fmaxf(0.0f,
-                         (state->max_heat - state->config.derating_enter_heat) /
-                             (state->config.trip_heat - state->config.derating_enter_heat)));
+    weight = (state->max_heat - state->config.derating_enter_heat) /
+        (state->config.trip_heat - state->config.derating_enter_heat);
+    /* NaN 与旧 fmaxf(0, NaN) 一样取0；保留零值符号及两端饱和。 */
+    if (weight < 0.0f || weight != weight)
+    {
+        weight = 0.0f;
+    }
+    else if (weight > 1.0f)
+    {
+        weight = 1.0f;
+    }
     state->available_a = state->config.peak_a + weight * (sustainable_a - state->config.peak_a);
 }
 
@@ -135,39 +147,61 @@ bool MotorThermal_Init(MotorThermalState *state,
 
 bool MotorThermal_Accumulate(MotorThermalState *state, float ia_a, float ib_a, float ic_a)
 {
-    float current[3];
-    unsigned i;
     if (state == NULL || !state->valid)
     {
         return false;
     }
-    current[0] = ia_a;
-    current[1] = ib_a;
-    current[2] = ic_a;
     if (state->sample_count >= state->config.samples_per_update)
     {
         MotorThermal_Invalidate(state);
         return false;
     }
-    for (i = 0U; i < 3U; ++i)
+    if (!(fabsf(ia_a) <= 100.0f))
     {
-        if (!(fabsf(current[i]) <= 100.0f))
-        {
-            MotorThermal_Invalidate(state);
-            return false;
-        }
-        state->square_sum_a2[i] += current[i] * current[i];
+        MotorThermal_Invalidate(state);
+        return false;
     }
+    state->square_sum_a2[0] += ia_a * ia_a;
+    if (!(fabsf(ib_a) <= 100.0f))
+    {
+        MotorThermal_Invalidate(state);
+        return false;
+    }
+    state->square_sum_a2[1] += ib_a * ib_a;
+    if (!(fabsf(ic_a) <= 100.0f))
+    {
+        MotorThermal_Invalidate(state);
+        return false;
+    }
+    state->square_sum_a2[2] += ic_a * ic_a;
     ++state->sample_count;
+    return true;
+}
+
+/* 四次固定通道调用在 ARMCC -O3 下内联，避免 q 数组落栈；异常保留已更新通道。 */
+static inline bool update_heat(MotorThermalState *state, unsigned channel, float q, float *max_heat)
+{
+    float heat = state->heat[channel];
+    float alpha = q >= heat ? state->heating_alpha : state->cooling_alpha;
+    heat += alpha * (q - heat);
+    state->heat[channel] = heat;
+    if (!isfinite(heat) || heat < 0.0f)
+    {
+        return false;
+    }
+    if (heat > *max_heat)
+    {
+        *max_heat = heat;
+    }
     return true;
 }
 
 bool MotorThermal_Update(MotorThermalState *state)
 {
-    float q[4];
+    float q0, q1, q2, q3;
     float phase_denominator;
     float samples;
-    unsigned i;
+    float max_heat = 0.0f;
     if (state == NULL || !state->valid || state->sample_count != state->config.samples_per_update)
     {
         MotorThermal_Invalidate(state);
@@ -176,25 +210,22 @@ bool MotorThermal_Update(MotorThermalState *state)
     samples = (float)state->sample_count;
     phase_denominator =
         samples * state->config.continuous_phase_rms_a * state->config.continuous_phase_rms_a;
-    q[0] = (2.0f / 3.0f) *
+    q0 = (2.0f / 3.0f) *
            (state->square_sum_a2[0] + state->square_sum_a2[1] + state->square_sum_a2[2]) /
            (samples * state->config.continuous_vector_a * state->config.continuous_vector_a);
-    state->max_heat = 0.0f;
-    for (i = 0U; i < 3U; ++i)
+    q1 = state->square_sum_a2[0] / phase_denominator;
+    q2 = state->square_sum_a2[1] / phase_denominator;
+    q3 = state->square_sum_a2[2] / phase_denominator;
+    if (!update_heat(state, 0U, q0, &max_heat) ||
+        !update_heat(state, 1U, q1, &max_heat) ||
+        !update_heat(state, 2U, q2, &max_heat) ||
+        !update_heat(state, 3U, q3, &max_heat))
     {
-        q[i + 1U] = state->square_sum_a2[i] / phase_denominator;
+        state->max_heat = max_heat;
+        MotorThermal_Invalidate(state);
+        return false;
     }
-    for (i = 0U; i < 4U; ++i)
-    {
-        float alpha = q[i] >= state->heat[i] ? state->heating_alpha : state->cooling_alpha;
-        state->heat[i] += alpha * (q[i] - state->heat[i]);
-        if (!isfinite(state->heat[i]) || state->heat[i] < 0.0f)
-        {
-            MotorThermal_Invalidate(state);
-            return false;
-        }
-        state->max_heat = fmaxf(state->max_heat, state->heat[i]);
-    }
+    state->max_heat = max_heat;
     memset(state->square_sum_a2, 0, sizeof(state->square_sum_a2));
     state->sample_count = 0U;
     if (state->max_heat >= state->config.trip_heat)

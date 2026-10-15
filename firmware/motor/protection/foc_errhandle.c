@@ -11,6 +11,7 @@
 #include "foc_friction_identification.h"
 #include "bus_voltage_profile.h"
 #include "motor_thermal_control.h"
+#include "motor_hw.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -301,14 +302,7 @@ void Clear_Mode_Error_Change(void)
  **/
 void PWM_Outputs_HiZ(void)
 {
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
-	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+    motor_hw_phase_outputs_high_impedance();
 }
 
 /**

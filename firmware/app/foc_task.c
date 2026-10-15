@@ -17,6 +17,9 @@
 #if FOC_FREQ != 20000
 #error "Thermal sample window requires the validated 20 kHz motor fast loop"
 #endif
+#if SPEED_LOOP_DIVIDER != 10
+#error "Sensorless phase scheduling requires the validated 2 kHz speed loop"
+#endif
 
 MotorControl_TypeDef MotorControl;
 PI_Controller_TypeDef PI_Speed;
@@ -108,8 +111,11 @@ static int16_t RTT_EncodeInt16(float value, float scale)
 {
 	float scaled;
 
-	if (!isfinite(value) || !isfinite(scale))
+	/* 所有调用点的比例均为有限编译期常量，仅采样值需要检查。 */
+	if (!isfinite(value))
+	{
 		return 0;
+	}
 	scaled = value * scale;
 	if (scaled > 32767.0f)
 		return 32767;
@@ -139,86 +145,170 @@ typedef struct
 #if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
 typedef char RTT_DataFrame_SizeMustBe20Bytes[
     (sizeof(RTT_Data_TypeDef) == 20U) ? 1 : -1];
-/* Scope 代码变量可读累计丢帧，不占用波形通道。 */
+/* PendSV 独占的 RTT 环形缓冲丢帧计数；不占用波形通道。 */
 static volatile uint32_t rtt_manual_dropped_frames;
 #else
 typedef char RTT_DataFrame_SizeMustBe22Bytes[
     (sizeof(RTT_Data_TypeDef) == 22U) ? 1 : -1];
 #endif
 
+/* 单核快中断生产、PendSV 消费；所有共享访问 volatile 有序。
+ * ready 为真时快中断只丢帧，服务编码完局部帧后才释放，不锁中断、不覆盖半帧。 */
+typedef struct
+{
+    float current_reference_a;
+    float current_feedback_a;
+    float d_current_a;
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    float position_reference_rad;
+    float position_feedback_rad;
+    float position_error_rad;
+    float speed_reference_rad_s;
+    float control_speed_rad_s;
+    float measured_speed_rad_s;
+    float friction_current_a;
+#else
+    float q_voltage_v;
+    float d_voltage_v;
+    float encoder_electrical_rad;
+    float observer_electrical_rad;
+    float phase_a_a;
+    float phase_b_a;
+    float phase_c_a;
+#endif
+} RTT_Snapshot;
+
+static volatile RTT_Snapshot rtt_snapshot;
+static volatile bool rtt_snapshot_ready;
+/* 快中断独占写；总丢帧为本计数加诊断模式的 rtt_manual_dropped_frames。 */
+static volatile uint32_t rtt_capture_dropped_frames;
+
 static void RTT_Sampling(void)
 {
-    static uint32_t rtt_divider_count;
-    RTT_Data_TypeDef frame;
+    /* 仅改变首帧相位：2kHz采样与编码器慢拍、1kHz热更新错开半周期。 */
+    static uint32_t rtt_divider_count = RTT_SAMPLE_DIVIDER / 2U;
 
     if (++rtt_divider_count < RTT_SAMPLE_DIVIDER)
     {
         return;
     }
     rtt_divider_count = 0U;
+    if (rtt_snapshot_ready)
+    {
+        ++rtt_capture_dropped_frames;
+        return;
+    }
 
+    rtt_snapshot.current_reference_a = MotorControl.iqRef;
+    rtt_snapshot.current_feedback_a = FOC.Iq;
+    rtt_snapshot.d_current_a = FOC.Id;
 #if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
-    /* 只读快环数据及最近一次外环快照；停机时补偿电流明确清零。 */
+    /* 只读同一快拍及最近外环快照；停机时补偿电流明确清零。 */
     {
         PositionCascadeTelemetry_TypeDef planned;
-        float position_speed_reference_rad_s = 0.0f;
+        float speed_reference_rad_s = 0.0f;
         float control_speed_rad_s = MotorControl.pos_vel_filtered;
         float friction_current_a = 0.0f;
 
         if (MotorControl.ModeNow == Position_Mode && MotorOuterLoop_GetTelemetry(&planned))
         {
-            position_speed_reference_rad_s = planned.speed_command;
+            speed_reference_rad_s = planned.speed_command;
             control_speed_rad_s = planned.speed_feedback;
             friction_current_a = planned.friction_feedforward_current;
         }
-        frame.data0 = RTT_EncodeInt16(MotorControl.posRef, RTT_POSITION_SCALE_COUNTS_PER_RAD);
-        frame.data1 = RTT_EncodeInt16(OnBoard_Encoder.theta_mech,
-            RTT_POSITION_SCALE_COUNTS_PER_RAD);
-        frame.data2 = RTT_EncodeInt16(MotorControl.posRef - OnBoard_Encoder.theta_mech,
-            RTT_POSITION_SCALE_COUNTS_PER_RAD);
-        frame.data3 = RTT_EncodeInt16(position_speed_reference_rad_s,
-            RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-        frame.data4 = RTT_EncodeInt16(control_speed_rad_s, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-        frame.data5 = RTT_EncodeInt16(OnBoard_Encoder.vel_mech, RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
-        frame.data6 = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
-        frame.data7 = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
-        frame.data8 = RTT_EncodeInt16(FOC.Id, RTT_CURRENT_SCALE_COUNTS_PER_A);
-        frame.data9 = RTT_EncodeInt16(friction_current_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+        rtt_snapshot.position_reference_rad = MotorControl.posRef;
+        rtt_snapshot.position_feedback_rad = OnBoard_Encoder.theta_mech;
+        rtt_snapshot.position_error_rad = MotorControl.posRef - OnBoard_Encoder.theta_mech;
+        rtt_snapshot.speed_reference_rad_s = speed_reference_rad_s;
+        rtt_snapshot.control_speed_rad_s = control_speed_rad_s;
+        rtt_snapshot.measured_speed_rad_s = OnBoard_Encoder.vel_mech;
+        rtt_snapshot.friction_current_a = friction_current_a;
     }
-    if (SEGGER_RTT_Write(1, &frame, sizeof(frame)) != sizeof(frame))
+#else
+    rtt_snapshot.q_voltage_v = FOC.Vq;
+    rtt_snapshot.d_voltage_v = FOC.Vd;
+    rtt_snapshot.encoder_electrical_rad = OnBoard_Encoder.theta_elec;
+    rtt_snapshot.observer_electrical_rad = Fluxobserver.theta_e;
+    rtt_snapshot.phase_a_a = FOC.Ia;
+    rtt_snapshot.phase_b_a = FOC.Ib;
+    rtt_snapshot.phase_c_a = FOC.Ic;
+#endif
+    rtt_snapshot_ready = true;
+    motor_hw_outer_schedule();
+}
+
+void FOC_TelemetryService(void)
+{
+    RTT_Data_TypeDef frame;
+
+    if (!rtt_snapshot_ready)
+    {
+        return;
+    }
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    frame.data0 = RTT_EncodeInt16(rtt_snapshot.position_reference_rad,
+        RTT_POSITION_SCALE_COUNTS_PER_RAD);
+    frame.data1 = RTT_EncodeInt16(rtt_snapshot.position_feedback_rad,
+        RTT_POSITION_SCALE_COUNTS_PER_RAD);
+    frame.data2 = RTT_EncodeInt16(rtt_snapshot.position_error_rad,
+        RTT_POSITION_SCALE_COUNTS_PER_RAD);
+    frame.data3 = RTT_EncodeInt16(rtt_snapshot.speed_reference_rad_s,
+        RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+    frame.data4 = RTT_EncodeInt16(rtt_snapshot.control_speed_rad_s,
+        RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+    frame.data5 = RTT_EncodeInt16(rtt_snapshot.measured_speed_rad_s,
+        RTT_SPEED_SCALE_COUNTS_PER_RAD_S);
+    frame.data6 = RTT_EncodeInt16(rtt_snapshot.current_reference_a,
+        RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data7 = RTT_EncodeInt16(rtt_snapshot.current_feedback_a,
+        RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data8 = RTT_EncodeInt16(rtt_snapshot.d_current_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data9 = RTT_EncodeInt16(rtt_snapshot.friction_current_a,
+        RTT_CURRENT_SCALE_COUNTS_PER_A);
+#else
+    const float ang_scale = 32767.0f / (2.0f * _PI);
+    float obs = rtt_snapshot.observer_electrical_rad;
+    float encoder_angle = rtt_snapshot.encoder_electrical_rad;
+    float diff;
+
+    frame.data0 = RTT_EncodeInt16(rtt_snapshot.current_reference_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data1 = RTT_EncodeInt16(rtt_snapshot.current_feedback_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data2 = RTT_EncodeInt16(rtt_snapshot.d_current_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data3 = RTT_EncodeInt16(rtt_snapshot.q_voltage_v, 1000.0f);
+    frame.data4 = RTT_EncodeInt16(rtt_snapshot.d_voltage_v, 1000.0f);
+    frame.data5 = RTT_EncodeInt16(encoder_angle, ang_scale);
+    /* 原始同拍电角只在低优先级编码时归位，比例与旧快环编码一致。 */
+    if (obs < 0.0f)
+    {
+        obs += _2PI;
+    }
+    frame.data6 = RTT_EncodeInt16(obs, ang_scale);
+    diff = obs - encoder_angle;
+    if (diff > _PI)
+    {
+        diff -= _2PI;
+    }
+    else if (diff < -_PI)
+    {
+        diff += _2PI;
+    }
+    frame.data7 = RTT_EncodeInt16(diff, 32767.0f / _PI);
+    frame.data8 = RTT_EncodeInt16(rtt_snapshot.phase_a_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data9 = RTT_EncodeInt16(rtt_snapshot.phase_b_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+    frame.data10 = RTT_EncodeInt16(rtt_snapshot.phase_c_a, RTT_CURRENT_SCALE_COUNTS_PER_A);
+#endif
+    /* 局部帧已完整；发送期间快中断可以发布下一帧，不会改写本次发送内容。 */
+    rtt_snapshot_ready = false;
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    /* 通道1只有此低优先级服务写；v6.30b SKIP成功返回1，丢帧返回0。 */
+    if (SEGGER_RTT_WriteSkipNoLock(1, &frame, sizeof(frame)) == 0U)
     {
         ++rtt_manual_dropped_frames;
     }
 #else
-	const float ang_scale = 32767.0f / (2.0f * _PI);
-	float obs;
-	float diff;
-
-	frame.data0 = RTT_EncodeInt16(MotorControl.iqRef, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.data1 = RTT_EncodeInt16(FOC.Iq, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.data2 = RTT_EncodeInt16(FOC.Id, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.data3 = RTT_EncodeInt16(FOC.Vq, 1000.0f);
-	frame.data4 = RTT_EncodeInt16(FOC.Vd, 1000.0f);
-	frame.data5 = RTT_EncodeInt16(OnBoard_Encoder.theta_elec, ang_scale);
-	/* 观测器电角度：归到 [0,2π) 后与编码器电角度同刻度；差值单次有界归位到 ±π
-	 * （ISR 中不允许循环等待）。差值按 ±180°↔±32767 归一（0.0055°/计数，不饱和）。 */
-	obs = Fluxobserver.theta_e;
-	if (obs < 0.0f)
-		obs += _2PI;
-	frame.data6 = RTT_EncodeInt16(obs, ang_scale);
-	diff = obs - OnBoard_Encoder.theta_elec;
-	if (diff > _PI)
-		diff -= _2PI;
-	else if (diff < -_PI)
-		diff += _2PI;
-	frame.data7 = RTT_EncodeInt16(diff, 32767.0f / _PI);
-	frame.data8 = RTT_EncodeInt16(FOC.Ia, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.data9 = RTT_EncodeInt16(FOC.Ib, RTT_CURRENT_SCALE_COUNTS_PER_A);
-	frame.data10 = RTT_EncodeInt16(FOC.Ic, RTT_CURRENT_SCALE_COUNTS_PER_A);
-    SEGGER_RTT_Write(1, &frame, sizeof(frame));
+    SEGGER_RTT_WriteSkipNoLock(1, &frame, sizeof(frame));
 #endif
 }
-
 
 /** Read-only publication from the motor owner. Requested at <=200 Hz; CAN
  * packing and transmission stay in the foreground, never in this fast path. */
@@ -374,12 +464,61 @@ void FOC1kHzSupervisor(void)
     }
 }
 
+/* 交接首拍选择一次 PI 相位；后续仍每10拍运行，不改热样本窗。
+ * 入参均在本拍采样/编码器完成后读取。返回下一次PI调用前的分频计数。 */
+static uint32_t FOC_SelectSensorlessSpeedPhase(uint32_t thermal_remaining_fast_ticks,
+    uint32_t encoder_velocity_divider)
+{
+    uint32_t thermal_phase;
+    uint32_t encoder_phase;
+    uint32_t first_phase;
+    uint32_t second_phase;
+    uint32_t first_distance;
+    uint32_t second_distance;
+    uint32_t selected_phase;
+
+    if (thermal_remaining_fast_ticks == 0U ||
+        thermal_remaining_fast_ticks > 2U * SPEED_LOOP_DIVIDER ||
+        encoder_velocity_divider >= SPEED_LOOP_DIVIDER)
+    {
+        return 0U;
+    }
+    thermal_phase = thermal_remaining_fast_ticks % SPEED_LOOP_DIVIDER;
+    encoder_phase = (SPEED_LOOP_DIVIDER - encoder_velocity_divider) % SPEED_LOOP_DIVIDER;
+    /* 两个候选距热更新3拍；首拍不叠加PI，遇0向邻拍偏移后仍至少隔2拍。 */
+    first_phase = (thermal_phase + 3U) % SPEED_LOOP_DIVIDER;
+    second_phase = (thermal_phase + 7U) % SPEED_LOOP_DIVIDER;
+    if (first_phase == 0U)
+    {
+        first_phase = SPEED_LOOP_DIVIDER - 1U;
+    }
+    if (second_phase == 0U)
+    {
+        second_phase = 1U;
+    }
+    first_distance = (first_phase + SPEED_LOOP_DIVIDER - encoder_phase) % SPEED_LOOP_DIVIDER;
+    second_distance = (second_phase + SPEED_LOOP_DIVIDER - encoder_phase) % SPEED_LOOP_DIVIDER;
+    if (first_distance > SPEED_LOOP_DIVIDER / 2U)
+    {
+        first_distance = SPEED_LOOP_DIVIDER - first_distance;
+    }
+    if (second_distance > SPEED_LOOP_DIVIDER / 2U)
+    {
+        second_distance = SPEED_LOOP_DIVIDER - second_distance;
+    }
+    selected_phase = first_distance >= second_distance ? first_phase : second_phase;
+    /* 调用中的前置++也占一拍；首次PI在交接第2～10拍，随后固定10拍。 */
+    return SPEED_LOOP_DIVIDER - 1U - selected_phase;
+}
+
 void FOC20kHzIRQHandler(void)
 {
 	static bool position_start_prepared;
-	bool defer_position_power_start = false;
+	bool defer_power_start = false;
+	bool observer_power_start_ready = false;
 	bool defer_optional_telemetry = false;
 	bool encoder_sample_started;
+    uint8_t encoder_sample_stage;
     bool current_sample_valid;
 	FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
 	FAST_PROFILE_END(FAST_PROFILE_EMPTY);
@@ -390,22 +529,27 @@ void FOC20kHzIRQHandler(void)
 	Vbus_Update(&FOC, &MotorControl);
 	
     current_sample_valid = Current_Cal(&FOC, &MotorControl);
+    encoder_sample_stage = Encoder_BeginReadback(encoder_sample_started);
     MotorThermalControl_Sample(current_sample_valid ? FOC.Ia : NAN,
         current_sample_valid ? FOC.Ib : NAN, current_sample_valid ? FOC.Ic : NAN,
         motor_hw_phase_outputs_disabled(), time_hw_now_ms());
-    MotorControl.thermal_current_limit_a = MotorThermalControl_CurrentLimit(MotorControl.current_limit);
-    MotorControl.thermal_limit_active =
-        MotorControl.thermal_current_limit_a < MotorControl.current_limit;
+    /* 最终热边界在命令处理后的 Task_ApplyThermalGuard 中统一发布。 */
 	#if SERVO_HIL_ENABLE
 	ServoHil_ObservePhaseCurrents(FOC.Ia, FOC.Ib, FOC.Ic);
 	#endif
 	FAST_PROFILE_END(FAST_PROFILE_SENSING);
+
+    MotorControl_ApplyLoadProfile();
+    /* 观测器只消费本拍相电流，与 SPI 响应传输重叠；编码器仍在同拍控制前完成。 */
+    if (!SERVO_HIL_ENABLE && MotorControl.ModeNow != Position_Mode)
+    {
+        Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
+    }
 	
 	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER);
-	Encoder_CompleteSample(&MotorControl, &OnBoard_Encoder, encoder_sample_started);
+	Encoder_CompleteSample(&MotorControl, &OnBoard_Encoder, encoder_sample_stage);
 	FAST_PROFILE_END(FAST_PROFILE_ENCODER);
 	FAST_PROFILE_BEGIN(FAST_PROFILE_COMMANDS);
-    MotorControl_ApplyLoadProfile();
 #if SERVO_HIL_ENABLE
 	{
 		/* Debug mailbox at 10 kHz; count both fast ticks for the watchdog.
@@ -443,8 +587,8 @@ void FOC20kHzIRQHandler(void)
 		}
 	}
 #endif
-	/* Select after command dispatch, including the first mode-3 IRQ. */
-	if (MotorControl.ModeNow != Position_Mode)
+	/* HIL 命令使用本拍编码器，须在命令分派后选择观测器，避免 mode 3 入场重排。 */
+	if (SERVO_HIL_ENABLE && MotorControl.ModeNow != Position_Mode)
 		Fluxobserver_Update(&FOC, &MotorControl, &Fluxobserver);
 
 	if (Encoder_FeedbackRequired(&MotorControl) &&
@@ -463,6 +607,15 @@ void FOC20kHzIRQHandler(void)
     Task_ApplyThermalGuard();
 	FAST_PROFILE_END(FAST_PROFILE_COMMANDS);
 	MotorOuterLoop_FastTick(&MotorControl, &PI_Speed, &OnBoard_Encoder);
+
+    if ((MotorControl.ModeNow == Calib_EncoderObserver ||
+         MotorControl.ModeNow == Sensorless_Speed_Mode) &&
+        SensorlessStartup.state == SENSORLESS_STARTUP_HANDOFF &&
+        SensorlessStartup.state_ticks == 0U)
+    {
+        SensorlessStartup.speed_loop_ticks = FOC_SelectSensorlessSpeedPhase(
+            MotorThermalControl_SamplesUntilUpdate(), OnBoard_Encoder.velocity_divider);
+    }
 	switch(MotorControl.ModeNow)
 	{
 		case Motor_Disable:
@@ -540,6 +693,8 @@ void FOC20kHzIRQHandler(void)
 		break;
 
 		case Calib_EncoderObserver:
+			/* 只能使用拍前准备状态；准备完成与PWM启用不能挤在同一拍。 */
+			observer_power_start_ready = EncoderObserverCalibration_IsPowerStartReady();
 			Task_Calib_EncoderObserver(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder,
 				&Fluxobserver, &SensorlessStartup);
 		break;
@@ -588,9 +743,10 @@ void FOC20kHzIRQHandler(void)
 		LED_SetState(1, (uint8_t)MotorControl.ErrorNow);
 	}
 	
-	/* 异步模式写入可能跨过边沿检查；Disable 每拍核验关相，避免漏停。 */
+	/* 准备拍尚未更新 ModeLast；STOP 也必须释放待启动标定状态。 */
 	if (MotorControl.ModeNow == Motor_Disable &&
-		(ModeLast != Motor_Disable || !motor_hw_phase_outputs_disabled()))
+		(ModeLast != Motor_Disable || !motor_hw_phase_outputs_disabled() ||
+		 EncoderObserverCalibration_IsPowerStartReady()))
 	{
 		Clear_RunningData();
 		Stop_PWM_Generate();
@@ -609,23 +765,27 @@ void FOC20kHzIRQHandler(void)
 		/* The first mode-3 tick validates/initializes the controller while
 		 * phase outputs are still off. Enable on the following fast tick,
 		 * after the neutral preload and without combining both startup costs. */
-		if ((MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Speed_Mode) &&
+		if (MotorControl.ModeNow == Calib_EncoderObserver && !observer_power_start_ready)
+		{
+			defer_power_start = true;
+		}
+		else if ((MotorControl.ModeNow == Position_Mode || MotorControl.ModeNow == Speed_Mode) &&
             (!position_start_prepared || !MotorOuterLoop_IsReady()))
 		{
 			position_start_prepared = true;
-			defer_position_power_start = true;
+			defer_power_start = true;
 		}
 		else if (MotorControl.ModeNow == Damping_Mode)
 			Start_Damping_Brake();
 		else
 			Start_PWM_Generate();
 	}
-	if (!defer_position_power_start)
+	if (!defer_power_start)
 		position_start_prepared = false;
 	
 	Detect_Mode_Error_Change();
 	
-	if (!defer_position_power_start)
+	if (!defer_power_start)
 		ModeLast = MotorControl.ModeNow;
 	ErrorLast = MotorControl.ErrorNow;
 	

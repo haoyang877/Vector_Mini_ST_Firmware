@@ -14,6 +14,12 @@ bool MotorControl_IsConfigurationValid(void);
  */
 bool MotorControl_SetSpeedFeedforward(const SpeedFeedforwardConfig *config);
 void FOC20kHzIRQHandler(void);
+/**
+ * @brief 编码并尝试发送最近一次 2 kHz 快环遥测快照，单位和通道布局保持原协议。
+ * @note 仅由低优先级 PendSV 调用，是 RTT 通道 1 的唯一写入者；不等待缓冲、不关中断。
+ *       快环只发布 float 快照；服务读完前禁止覆盖，满槽或缓冲不足时整帧丢弃。
+ */
+void FOC_TelemetryService(void);
 /** Run temperature conversion/protection from the existing 1 kHz supervisor. */
 void FOC1kHzSupervisor(void);
 

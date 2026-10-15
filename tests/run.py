@@ -12,6 +12,7 @@ NATIVE = (
     'run_position_servo_tests', 'run_can_status_tests', 'test_outer_loop_runtime',
     'test_wheel_speed_limits', 'test_bus_voltage_protection', 'test_current_oversampling',
     'test_current_reconstruction', 'test_fast_trig',
+    'test_motor_gpio_hiz', 'test_fast_irq_schedule',
     'test_mcu_temperature',
     'test_motor_thermal',
     'test_motor_thermal_configuration',

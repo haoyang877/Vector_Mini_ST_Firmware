@@ -108,6 +108,8 @@ int main(void)
   MX_SPI2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* 170 MHz 快环需要开启顺序取指预取，保持20 kHz计算预算。 */
+  __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
   Board_Init();
   /* USER CODE END 2 */
 

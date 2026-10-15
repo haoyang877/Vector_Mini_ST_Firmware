@@ -183,7 +183,7 @@ def main():
     a = ap.parse_args()
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / "main.h").write_text("#include <stdint.h>\n")
+    (out / "main.h").write_text("#include <stdint.h>\n", encoding="utf-8")
     fixture = out / "bus_voltage_test.c"
     dispatch_source = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
     mode18_case = dispatch_source.split("case Position_Impedance_Mode:", 1)[1].split("break;", 1)[0]
@@ -193,16 +193,17 @@ def main():
     fixture.write_text(
         PRELUDE
         + function_source(
-            (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(), "Vbus_Update"
+            (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8"), "Vbus_Update"
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(),
+            (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(encoding="utf-8"),
             "ModeSwitch_Handle",
         )
         + direct_dispatch
         + clear_task
-        + CASES.replace("ModeSwitch_Handle(Clear_Error)", "apply_clear_error()")
+        + CASES.replace("ModeSwitch_Handle(Clear_Error)", "apply_clear_error()"),
+        encoding="utf-8",
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
     if Path(a.cc).stem == "zig":
@@ -232,7 +233,7 @@ def main():
         r = subprocess.run(cmd, capture_output=True, text=True)
         logs.append(r.stdout + r.stderr)
         print(logs[-1], end="")
-        (out / "test.log").write_text("\n".join(logs))
+        (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
         r.check_returncode()
 
 

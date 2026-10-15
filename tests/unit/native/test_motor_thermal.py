@@ -50,6 +50,44 @@ def main() -> None:
     core = ROOT / "firmware/motor/protection/motor_thermal.c"
     control = ROOT / "firmware/app/motor_thermal_control.c"
     run("thermal_model", [ROOT / "tests/unit/motor_thermal_test.c", core])
+    phase = out / "thermal_sample_phase.c"
+    phase.write_text(r"""
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+#include "motor_thermal_control.h"
+#include "data_type.h"
+int main(void) {
+    MotorThermalDiagnostics before,after;
+    assert(MotorThermalControl_SamplesUntilUpdate()==0);
+    MotorThermalControl_Init(0);
+    assert(MotorThermalControl_SamplesUntilUpdate()==20);
+    for(unsigned i=1;i<=41;i++) {
+        MotorThermalControl_Sample(1,-.5f,-.5f,true,i/20);
+        assert(MotorThermalControl_SamplesUntilUpdate()==20-i%20);
+    }
+    assert(MotorThermalControl_GetDiagnostics(&before));
+    for(unsigned i=0;i<100;i++) assert(MotorThermalControl_SamplesUntilUpdate()==19);
+    assert(MotorThermalControl_GetDiagnostics(&after));
+    assert(memcmp(&before,&after,sizeof(before))==0 && after.updates==2);
+    assert(MotorThermalControl_RequestParameter(MOTOR_THERMAL_PEAK,6,Motor_Disable,true));
+    assert(MotorThermalControl_SamplesUntilUpdate()==0);
+    MotorThermalControl_Sample(0,0,0,false,2);
+    assert(MotorThermalControl_SamplesUntilUpdate()==0);
+    MotorThermalControl_Sample(0,0,0,true,2);
+    assert(MotorThermalControl_SamplesUntilUpdate()==17);
+    assert(MotorThermalControl_GetDiagnostics(&after) && after.updates==2 &&
+        after.model.sample_count==3 && after.model.max_heat==before.model.max_heat);
+    assert(!MotorThermalControl_CheckWatchdog(100,false));
+    assert(MotorThermalControl_SamplesUntilUpdate()==0);
+    MotorThermalControl_Sample(0,0,0,true,100);
+    assert(MotorThermalControl_GetDiagnostics(&after) && !after.model.valid);
+    assert(MotorThermalControl_SamplesUntilUpdate()==0);
+    puts("PASS thermal phase query: exact remaining samples, read-only, full window after update, pending config/clock and invalid model");
+    return 0;
+}
+""", encoding="utf-8")
+    run("thermal_sample_phase", [phase, core, control])
     fixture = r"""
 #include <assert.h>
 #include <stdio.h>
@@ -308,7 +346,6 @@ static struct { int a,b,c; } adc;
 #define OVERCURRENT_CONFIRM_CYCLES 4
 static ErrorNow_TypeDef error;
 static unsigned motor_hw_current_sample_sector(void){return 0;}
-static float fast_abs(float x){return fabsf(x);}
 static void Set_ErrorNow(ErrorNow_TypeDef e){error=e;}
 """
         + function_source(sense, "Current_Reconstruct")

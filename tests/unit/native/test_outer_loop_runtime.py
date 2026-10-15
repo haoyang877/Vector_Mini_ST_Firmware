@@ -62,9 +62,10 @@ static MotorControl_TypeDef live;
 static PI_Controller_TypeDef live_pi;
 static Encoder_TypeDef enc;
 static unsigned schedules, injection;
-static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
-static float Encoder_GetMecVel(Encoder_TypeDef *e) { return e->speed; }
-static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->speed; }
+static unsigned position_reads, speed_reads, continuous_speed_reads;
+static float Encoder_GetMecPos(Encoder_TypeDef *e) { ++position_reads; return e->position; }
+static float Encoder_GetMecVel(Encoder_TypeDef *e) { ++speed_reads; return e->speed; }
+static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { ++continuous_speed_reads; return e->speed; }
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
 static void motor_hw_outer_barrier(void);
 static void motor_hw_outer_schedule(void) { schedules++; }
@@ -105,6 +106,7 @@ static void setup(ModeNow_TypeDef mode) {
     memset(&live_pi, 0, sizeof(live_pi));
     enc.position = .3f; enc.speed = 0;
     schedules = injection = 0;
+    position_reads = speed_reads = continuous_speed_reads = 0;
     PositionCascade_Reset();
     live.ModeNow = mode; live.axis_profile_valid = true;
     live.pos_error_window = .001f; live.posAcc = .785398f; live.posDec = .523599f;
@@ -121,16 +123,28 @@ static void run_step(void) {
     if (outer.status == OUTER_QUEUED) MotorOuterLoop_Service();
 }
 int main(void) {
-    /* All known live heap allocations, even parameter I/O overlapping calibration. */
-    for (unsigned trial = 0; trial < 100; trial++) {
-        void *a = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t));
-        void *b = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(uint16_t));
-        void *c = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int16_t));
-        void *d = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
-        assert(a && b && c && d);
-        HEAP_free(b); HEAP_free(d); HEAP_free(a); HEAP_free(c);
+    /* 非活动模式仍执行状态清理，但不能重复获取本模式不消费的编码器量。 */
+    const ModeNow_TypeDef inactive_modes[]={Motor_Disable,Current_Mode,Sensorless_Speed_Mode,
+        Calib_EncoderObserver,Save_Param,Clear_Error};
+    for(unsigned i=0;i<sizeof(inactive_modes)/sizeof(inactive_modes[0]);++i) {
+        setup(inactive_modes[i]); enc.position=enc.speed=NAN;
+        for(unsigned tick_index=0;tick_index<30;++tick_index) tick();
+        assert(position_reads==0 && speed_reads==0 && continuous_speed_reads==0);
+        assert(live.ErrorNow==No_Error && schedules==0);
     }
-    printf("heap capacity passed: calibration=8192 parameter=%zu pool=%zu minimum_free=%zu\n",
+    setup(Speed_Mode); tick();
+    assert(position_reads==1 && speed_reads==1 && continuous_speed_reads==0);
+    setup(Position_Mode); tick();
+    assert(position_reads==1 && speed_reads==0 && continuous_speed_reads==1);
+    /* 标定工作区已静态化；堆仅保留一份 Flash 参数记录及分配头/对齐空间。 */
+    assert(TOTAL_HEAP_SIZE==4096);
+    for (unsigned trial = 0; trial < 100; trial++) {
+        void *d = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
+        assert(d);
+        memset(d,0xA5,sizeof(InterfaceParam_TypeDef));
+        HEAP_free(d);
+    }
+    printf("heap capacity passed: calibration_static=8192 parameter=%zu pool=%zu minimum_free=%zu\n",
         sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
     for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
         setup((ModeNow_TypeDef)mode);

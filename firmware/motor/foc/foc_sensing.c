@@ -158,17 +158,17 @@ bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	}
 	
 	/* 先保留原始三相的保护判定，不能用重构掩盖被舍弃相的过流。 */
-	raw_overcurrent = fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
-	                  fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
-	                  fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A;
+	raw_overcurrent = fabsf(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	                  fabsf(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
+	                  fabsf(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A;
 	if (MotorControl->ModeNow != Calib_CurrentOffset)
 	{
 		Current_Reconstruct(FOC, sample_sector);
 	}
 
-	if(raw_overcurrent || fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
-	   fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
-	   fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A)
+	if(raw_overcurrent || fabsf(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	   fabsf(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
+	   fabsf(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A)
 	{
 		if(overcurrent_count < OVERCURRENT_CONFIRM_CYCLES)
 			overcurrent_count++;

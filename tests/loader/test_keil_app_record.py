@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import argparse
+import re
 import struct
 import subprocess
 import sys
@@ -83,6 +84,53 @@ class KeilRecordTests(unittest.TestCase):
             self.assertEqual(len(sources), 1)
             source = directory / sources[0].findtext("FilePath").replace("\\", "/")
             self.assertTrue(source.is_file())
+
+    def test_ccm_code_reservation_excludes_its_physical_ram_alias(self):
+        """共用 scatter 必须排除 CCM 别名；保留原栈堆和启动复制入口。"""
+        directory = ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM"
+        scatter = (directory / "Vector_Mini_ST.sct").read_text(encoding="utf-8")
+        scatter = re.sub(r";[^\r\n]*", "", scatter)
+        regions = {}
+        for name in ("RW_IRAM1", "ER_CCM_HOT"):
+            matches = re.findall(
+                rf"\b{name}\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s*\{{([^}}]*)\}}",
+                scatter,
+            )
+            self.assertEqual(len(matches), 1, name)
+            start, size, body = matches[0]
+            regions[name] = (int(start, 16), int(size, 16), body)
+        rw_start, rw_size, _ = regions["RW_IRAM1"]
+        ccm_start, ccm_size, ccm_body = regions["ER_CCM_HOT"]
+        self.assertEqual(rw_start, 0x20000020)  # 前 32 B 属于复位邮箱。
+        self.assertEqual((ccm_start, ccm_size), (0x10002000, 0x800))
+        alias_start = 0x20005800 + ccm_start - 0x10000000
+        self.assertLessEqual(rw_start + rw_size, alias_start)
+        self.assertEqual(alias_start + ccm_size, 0x20008000)
+        compact = re.sub(r"\s+", "", scatter)
+        for name, limit in (
+            ("RW_IRAM1", alias_start),
+            ("ER_CCM_HOT", ccm_start + ccm_size),
+        ):
+            self.assertIn(f"ScatterAssert(ImageLimit({name})<=0x{limit:08X})", compact)
+        self.assertEqual(
+            re.findall(r"(\w+\.o)\s*\((i\.\w+)\)", ccm_body),
+            [
+                ("foc_algorithm.o", "i.FOC_Current"),
+                ("foc_algorithm.o", "i.FOC_SetVoltageModulation"),
+                *[
+                    ("foc_pid.o", "i.PI_Controller_" + name)
+                    for name in ("Configure", "Reset", "Run", "TrackOutput")
+                ],
+                ("motor_thermal.o", "i.MotorThermal_Accumulate"),
+                ("motor_thermal.o", "i.MotorThermal_Update"),
+            ],
+        )
+        startup = (directory / "startup_stm32g431xx.s").read_text(encoding="utf-8")
+        for name, expected in (("Stack_Size", 3072), ("Heap_Size", 512)):
+            size = re.search(rf"\b{name}\s+EQU\s+(0x[0-9a-fA-F]+)", startup)
+            self.assertIsNotNone(size)
+            self.assertEqual(int(size.group(1), 16), expected)
+        self.assertRegex(startup, r"LDR\s+R0,\s*=__main\s+BX\s+R0")
 
     def test_sync_is_idempotent_and_preserves_every_other_axf_byte(self):
         with tempfile.TemporaryDirectory() as directory:

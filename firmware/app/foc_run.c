@@ -170,7 +170,7 @@ static bool Sensorless_ObserverIsUsable(const Fluxobserver_TypeDef *Fluxobserver
 {
 	return Fluxobserver->theta_e == Fluxobserver->theta_e &&
 	       Fluxobserver->omega_e == Fluxobserver->omega_e &&
-	       fast_abs(Fluxobserver->omega_e) <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S;
+	       fabsf(Fluxobserver->omega_e) <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S;
 }
 
 static bool Sensorless_StartupConfigIsValid(const SensorlessStartupConfig_TypeDef *Config)
@@ -231,17 +231,23 @@ static void Sensorless_UpdateSpeedReference(MotorControl_TypeDef *MotorControl)
  * Its output is always a torque-current reference in the observer frame. */
 static float Sensorless_UpdateSpeedLoop(MotorControl_TypeDef *MotorControl,
 	PI_Controller_TypeDef *controller, SensorlessStartup_TypeDef *Startup,
-	float observer_mech_vel)
+	float observer_elec_vel, float pole_pairs)
 {
     float ratio = MotorThermal_ResolveLimit(MotorControl->current_limit,
         MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active) / MotorControl->current_limit;
+	float output_max = Startup->speed_pi_output_max;
+	float output;
+	/* 复用本拍上限；第二输入为 NaN 时仍取 ratio，保留 fminf 的异常值语义。 */
+	output_max = (ratio < output_max || output_max != output_max) ? ratio : output_max;
 	if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
 	{
+		/* 电角速度只在 2 kHz PI 更新拍换算，保持原除法与滤波运算顺序。 */
+		float observer_mech_vel = observer_elec_vel / pole_pairs;
 		Startup->speed_feedback += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
 			(observer_mech_vel - Startup->speed_feedback);
 		Sensorless_UpdateSpeedReference(MotorControl);
 		PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
-			Speed_Ts, -ratio, fminf(ratio, Startup->speed_pi_output_max));
+			Speed_Ts, -ratio, output_max);
 		PI_Controller_Run(controller, MotorControl->speedShadow, Startup->speed_feedback);
         if (MotorControl->thermal_limit_active)
         {
@@ -249,8 +255,9 @@ static float Sensorless_UpdateSpeedLoop(MotorControl_TypeDef *MotorControl,
         }
 		Startup->speed_loop_ticks = 0U;
 	}
-	return constrain(controller->Out, -ratio, fminf(ratio, Startup->speed_pi_output_max)) *
-		MotorControl->current_limit;
+	output = controller->Out;
+	output = output < -ratio ? -ratio : (output > output_max ? output_max : output);
+	return output * MotorControl->current_limit;
 }
 
 /**
@@ -267,7 +274,10 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 	float min_mech_vel;
 	float requested_direction;
 
-	if (!Sensorless_StartupConfigIsValid(Config) || pole_pairs <= 0.0f ||
+	/* 启动配置由只读档位持有，入场校验一次；可变模型与电流边界仍逐拍检查。 */
+	if (Config == NULL ||
+        (Startup->state == SENSORLESS_STARTUP_IDLE && !Sensorless_StartupConfigIsValid(Config)) ||
+        pole_pairs <= 0.0f ||
 		MotorControl->motor_phase_resistance <= 0.0f ||
 		MotorControl->motor_d_inductance <= 0.0f || MotorControl->motor_q_inductance <= 0.0f ||
 		MotorControl->motor_flux <= 0.0f || MotorControl->current_limit <= 0.0f)
@@ -276,7 +286,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		return;
 	}
 
-	if (fast_abs(MotorControl->speedRef) <= 1e-4f)
+	if (fabsf(MotorControl->speedRef) <= 1e-4f)
 	{
 		SensorlessStartup_Reset(Startup);
 		PI_Controller_Reset(controller);
@@ -288,7 +298,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 	}
 
 	min_mech_vel = Config->minimum_electrical_velocity_rad_s / pole_pairs;
-	if (fast_abs(MotorControl->speedRef) < min_mech_vel)
+	if (fabsf(MotorControl->speedRef) < min_mech_vel)
 	{
 		Set_ErrorNow(Sensorless_Error);
 		return;
@@ -348,11 +358,11 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				break;
 			}
 
-			if (fast_abs(Startup->open_loop_omega) < Config->target_electrical_velocity_rad_s)
+			if (fabsf(Startup->open_loop_omega) < Config->target_electrical_velocity_rad_s)
 			{
 				Startup->open_loop_omega += Startup->direction *
 					(Config->target_electrical_velocity_rad_s / Config->startup_ramp_time_s) * Current_Ts;
-				if (fast_abs(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
+				if (fabsf(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
 					Startup->open_loop_omega = Startup->direction * Config->target_electrical_velocity_rad_s;
 			}
 
@@ -366,7 +376,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				(Config->startup_iq_a - Config->startup_iq_initial_a) * iq_ramp_ratio);
 			FOC_Current(FOC, MotorControl, Startup->open_loop_theta, Startup->open_loop_omega);
 
-			if (fast_abs(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
+			if (fabsf(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
 			{
 				Startup->state = SENSORLESS_STARTUP_SPEED_LOCK;
 				Startup->state_ticks = 0U;
@@ -400,9 +410,9 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				Startup->lock_speed_feedback += Config->speed_lock_filter_alpha *
 					(observer_velocity - Startup->lock_speed_feedback);
 
-			speed_error = fast_abs(Startup->lock_speed_feedback - Startup->open_loop_omega);
+			speed_error = fabsf(Startup->lock_speed_feedback - Startup->open_loop_omega);
 			is_observer_locked = Startup->lock_speed_feedback * Startup->open_loop_omega > 0.0f &&
-				speed_error <= fast_abs(Startup->open_loop_omega) * Config->observer_lock_ratio;
+				speed_error <= fabsf(Startup->open_loop_omega) * Config->observer_lock_ratio;
 
 			if (is_observer_locked)
 				Startup->lock_ticks++;
@@ -419,6 +429,8 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 					Observer_GetElePhase(Fluxobserver));
 				phase_sin = sinf(Startup->handoff_phase_delta);
 				phase_cos = cosf(Startup->handoff_phase_delta);
+				Startup->handoff_phase_sin = phase_sin;
+				Startup->handoff_phase_cos = phase_cos;
 				/* The open-loop dq frame can carry substantial load angle. Reusing
 				 * its Iq in the observer frame turns alignment current into torque. */
 				Startup->handoff_id_reference = MotorControl->idRef * phase_cos -
@@ -454,8 +466,10 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			float observer_id;
 			float observer_iq;
 			float frame_step;
+			float observer_vel;
 			float frame_step_squared;
 			float previous_blend;
+			float previous_phase_sin;
 			float previous_id_integral;
 			float previous_iq_integral;
 
@@ -466,24 +480,21 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
-			previous_blend = constrain((float)Startup->state_ticks * Current_Ts /
-				Config->angle_handoff_time_s, 0.0f, 1.0f);
-			blend = constrain((float)(++Startup->state_ticks) * Current_Ts /
-				Config->angle_handoff_time_s, 0.0f, 1.0f);
+			previous_blend = (float)Startup->state_ticks * Current_Ts / Config->angle_handoff_time_s;
+			previous_blend = previous_blend < 0.0f ? 0.0f :
+				(previous_blend > 1.0f ? 1.0f : previous_blend);
+			blend = (float)(++Startup->state_ticks) * Current_Ts / Config->angle_handoff_time_s;
+			blend = blend < 0.0f ? 0.0f : (blend > 1.0f ? 1.0f : blend);
 			phase_offset = (1.0f - blend) * Startup->handoff_phase_delta;
 			phase = normalizeAngle(Observer_GetElePhase(Fluxobserver) + phase_offset);
 			frame_step = (previous_blend - blend) * Startup->handoff_phase_delta;
-			phase_vel = Observer_GetEleVel(Fluxobserver) + frame_step / Current_Ts;
+			observer_vel = Observer_GetEleVel(Fluxobserver);
+			phase_vel = observer_vel + frame_step / Current_Ts;
 
 			observer_iq = Sensorless_UpdateSpeedLoop(MotorControl, controller, Startup,
-				Observer_GetEleVel(Fluxobserver) / pole_pairs);
+				observer_vel, pole_pairs);
 			observer_id = Startup->handoff_id_reference + blend *
 				(Config->startup_id_a - Startup->handoff_id_reference);
-			phase_sin = sinf(phase_offset);
-			phase_cos = cosf(phase_offset);
-			MotorControl->idRef = observer_id * phase_cos + observer_iq * phase_sin;
-			MotorControl->iqRef = -observer_id * phase_sin + observer_iq * phase_cos;
-
 			/* Rotate only the deliberate frame correction, not normal rotor travel,
 			 * so the current PI's stored voltage has no handoff-induced step. */
 			/* The coarse sine table rounds these sub-bin steps to zero. Use a
@@ -501,6 +512,22 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				phase_sin = sinf(frame_step);
 				phase_cos = cosf(frame_step);
 			}
+			/* 复用本拍坐标修正，避免为累计相差再次调用 sinf/cosf。 */
+			previous_phase_sin = Startup->handoff_phase_sin;
+			Startup->handoff_phase_sin = previous_phase_sin * phase_cos +
+				Startup->handoff_phase_cos * phase_sin;
+			Startup->handoff_phase_cos = Startup->handoff_phase_cos * phase_cos -
+				previous_phase_sin * phase_sin;
+			if (blend >= 1.0f)
+			{
+				/* 最后一拍精确回到观测器坐标，递推舍入误差不带入闭环。 */
+				Startup->handoff_phase_sin = 0.0f;
+				Startup->handoff_phase_cos = 1.0f;
+			}
+			MotorControl->idRef = observer_id * Startup->handoff_phase_cos +
+				observer_iq * Startup->handoff_phase_sin;
+			MotorControl->iqRef = -observer_id * Startup->handoff_phase_sin +
+				observer_iq * Startup->handoff_phase_cos;
 			previous_id_integral = FOC->id_pi.Ui;
 			previous_iq_integral = FOC->iq_pi.Ui;
 			FOC->id_pi.Ui = previous_id_integral * phase_cos + previous_iq_integral * phase_sin;
@@ -521,7 +548,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		case SENSORLESS_STARTUP_CLOSED_LOOP:
 		{
 			float observer_vel = Observer_GetEleVel(Fluxobserver);
-			float observer_mech_vel = observer_vel / pole_pairs;
+			float id_ramp_elapsed_s = (float)Startup->id_ramp_ticks * Current_Ts;
 
 			if (!Sensorless_ObserverIsUsable(Fluxobserver))
 			{
@@ -530,7 +557,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			if (requested_direction * observer_vel < 0.0f &&
-				fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s)
+				fabsf(observer_vel) < Config->minimum_electrical_velocity_rad_s)
 			{
 				SensorlessStartup_Reset(Startup);
 				FOC_CurrentController_Reset(FOC);
@@ -538,15 +565,25 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				return;
 			}
 
-			MotorControl->idRef = Config->startup_id_a *
-				(1.0f - constrain((float)Startup->id_ramp_ticks * Current_Ts / Config->id_ramp_down_time_s, 0.0f, 1.0f));
-			if (Startup->id_ramp_ticks < (uint32_t)(Config->id_ramp_down_time_s / Current_Ts))
-				Startup->id_ramp_ticks++;
+			if (id_ramp_elapsed_s >= Config->id_ramp_down_time_s)
+			{
+				MotorControl->idRef = 0.0f;
+			}
+			else
+			{
+				/* 非整拍时保留原 floor 计数和末端小正值，不能提前视为完成。 */
+				MotorControl->idRef = Config->startup_id_a *
+					(1.0f - constrain(id_ramp_elapsed_s / Config->id_ramp_down_time_s, 0.0f, 1.0f));
+				if (Startup->id_ramp_ticks < (uint32_t)(Config->id_ramp_down_time_s / Current_Ts))
+				{
+					Startup->id_ramp_ticks++;
+				}
+			}
 
 			MotorControl->iqRef = Sensorless_UpdateSpeedLoop(MotorControl, controller, Startup,
-				observer_mech_vel);
+				observer_vel, pole_pairs);
 
-			if (fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s * 0.5f)
+			if (fabsf(observer_vel) < Config->minimum_electrical_velocity_rad_s * 0.5f)
 				Startup->loss_ticks++;
 			else
 				Startup->loss_ticks = 0U;
@@ -924,9 +961,14 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     Encoder_TypeDef *encoder)
 {
     bool active = m->ModeNow == Position_Mode || m->ModeNow == Speed_Mode;
-    float position = Encoder_GetMecPos(encoder);
-    float speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder) :
-        Encoder_GetMecVelContinuous(encoder);
+    float position = 0.0f;
+    float speed = 0.0f;
+    if (active)
+    {
+        position = Encoder_GetMecPos(encoder);
+        speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder) :
+            Encoder_GetMecVelContinuous(encoder);
+    }
     if (m->ModeNow != outer.mode) {
         SpeedFeedforward_Reset(&m->speed_ff_state);
         MotorOuterLoop_RequestReset();

@@ -36,6 +36,14 @@ void MotorThermalControl_Sample(
     float ia_a, float ib_a, float ic_a, bool outputs_disabled, uint32_t now_ms);
 
 /**
+ * @brief 只读查询距下一次热更新还需的有效三相实采样数，供交接入场错峰。
+ * @return 有效模型返回剩余样本数；未初始化、模型无效或配置/时钟事件待处理时返回0。
+ * @note 仅快上下文且在本拍 Sample 后调用；刚更新完返回完整窗口大小。
+ *       不重置、延后或改变热采样、热更新和保护动作，不能据此跳过 Sample。
+ */
+uint32_t MotorThermalControl_SamplesUntilUpdate(void);
+
+/**
  * @brief 监督快环缺样；失去采样时发布停机事件，不在监督上下文改热状态。
  * @param now_ms 单调毫秒时钟。
  * @param outputs_disabled 六路输出已高阻关闭时允许维护暂停，冻结热历史。

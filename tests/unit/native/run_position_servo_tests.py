@@ -34,7 +34,7 @@ def function_source(source, name):
 
 def rtt_frame_fixture():
     source = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
-    encoding = source[source.index("#define RTT_SPEED_SCALE"):source.index("/**", source.index("static void RTT_Sampling"))]
+    encoding = source[source.index("#define RTT_SPEED_SCALE"):source.index("/** Read-only publication")]
     return r'''
 #include <assert.h>
 #include <stdlib.h>
@@ -54,12 +54,81 @@ static struct { float theta_elec; } OnBoard_Encoder;
 static struct { float Iq, Id, Vq, Vd, Ia, Ib, Ic; } FOC;
 static struct { float theta_e; } Fluxobserver;
 static unsigned writes;
+static unsigned schedules;
+static bool capture_during_encode, capture_during_send;
+static void RTT_Sampling(void);
+static void motor_hw_outer_schedule(void) { ++schedules; }
 static int16_t wire[11];
-static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned length)
-{ assert(channel == 1 && length == 22); memcpy(wire, data, length); ++writes; return length; }
+static unsigned SEGGER_RTT_WriteSkipNoLock(unsigned channel, const void *data, unsigned length)
+{
+    assert(channel == 1 && length == 22);
+    if (capture_during_send)
+    {
+        capture_during_send = false;
+        MotorControl.iqRef = 3.5f; FOC.Iq = 3.4f; FOC.Id = -.4f;
+        for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    }
+    memcpy(wire, data, length); ++writes; return 1U;
+}
+static bool test_isfinite(float value)
+{
+    if (capture_during_encode)
+    {
+        capture_during_encode = false;
+        MotorControl.iqRef = 2.5f; FOC.Iq = 2.4f; FOC.Id = -.3f;
+        for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    }
+    return isfinite(value);
+}
+#undef isfinite
+#define isfinite(value) test_isfinite(value)
 ''' + encoding + r'''
-static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(); }
+static void sample(void) {
+    unsigned i; for (i = 0; i < 10; ++i) { RTT_Sampling(); }
+    FOC_TelemetryService();
+}
 static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
+static void test_deferred_snapshot(void)
+{
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    const unsigned current_index = 6U;
+#else
+    const unsigned current_index = 0U;
+#endif
+    unsigned before = writes, scheduled_before = schedules;
+    unsigned dropped_before = rtt_capture_dropped_frames;
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f; FOC.Id = -.2f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    assert(writes == before && schedules == scheduled_before + 1U && rtt_snapshot_ready);
+    MotorControl.iqRef = 2.5f; FOC.Iq = 2.4f; FOC.Id = -.3f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    assert(writes == before && schedules == scheduled_before + 1U);
+    assert(rtt_capture_dropped_frames == dropped_before + 1U);
+    FOC_TelemetryService();
+    assert(writes == before + 1U && !rtt_snapshot_ready);
+    near_count(current_index,1500); near_count(current_index+1U,1400); near_count(current_index+2U,-200);
+    FOC_TelemetryService(); assert(writes == before + 1U);
+
+    /* 编码每个字段时快中断可抢占，但不得覆盖当前 volatile 快照。 */
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f; FOC.Id = -.2f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    capture_during_encode = true;
+    FOC_TelemetryService();
+    assert(!capture_during_encode && !rtt_snapshot_ready);
+    assert(rtt_capture_dropped_frames == dropped_before + 2U);
+    near_count(current_index,1500); near_count(current_index+1U,1400); near_count(current_index+2U,-200);
+
+    /* 发送局部帧期间允许下一快照入槽；旧帧不得变成新旧字段混合。 */
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f; FOC.Id = -.2f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    capture_during_send = true;
+    FOC_TelemetryService();
+    assert(!capture_during_send && rtt_snapshot_ready);
+    near_count(current_index,1500); near_count(current_index+1U,1400); near_count(current_index+2U,-200);
+    FOC_TelemetryService(); assert(!rtt_snapshot_ready);
+    near_count(current_index,3500); near_count(current_index+1U,3400); near_count(current_index+2U,-400);
+    before = writes; FOC_TelemetryService(); assert(writes == before);
+}
 int main(void) {
     unsigned before;
     MotorControl.ModeNow = 3; MotorControl.iqRef = 1.5f;
@@ -67,7 +136,10 @@ int main(void) {
     FOC.Ia = 1; FOC.Ib = -.4f; FOC.Ic = -.6f;
     OnBoard_Encoder.theta_elec = .25f * _PI;
     Fluxobserver.theta_e = -.25f * _PI;
-    sample(); assert(writes == 1);
+    /* 首帧相位错开5个快拍，后续仍每10拍输出同拍快照。 */
+    for (unsigned i = 0; i < 4; ++i) { RTT_Sampling(); }
+    assert(writes == 0); RTT_Sampling(); assert(writes == 0);
+    FOC_TelemetryService(); assert(writes == 1);
     near_count(0,1500); near_count(1,1400); near_count(2,-200);
     near_count(3,2500); near_count(4,-600);
     near_count(5,4096); near_count(6,28671); near_count(7,-16384);
@@ -83,7 +155,9 @@ int main(void) {
     assert(RTT_EncodeInt16(INFINITY, 1) == 0);
     before = writes;
     for (unsigned i = 0; i < 9; ++i) { RTT_Sampling(); }
-    assert(writes == before); RTT_Sampling(); assert(writes == before + 1);
+    assert(writes == before); RTT_Sampling(); assert(writes == before);
+    FOC_TelemetryService(); assert(writes == before + 1);
+    test_deferred_snapshot();
     puts("PASS actual 11-channel RTT: sources, units, angle wrapping, clipping, nonfinite data and sample divider");
     return 0;
 }
@@ -122,7 +196,7 @@ typedef struct {
 } Encoder_TypeDef;
 static uint16_t sample;
 static bool sample_ok = true;
-static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e, uint16_t *out, bool started)
+static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e, uint16_t *out, uint8_t started)
 { (void)e; (void)started; *out = sample; return sample_ok; }
 static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e, uint16_t v)
 { (void)e; return v; }

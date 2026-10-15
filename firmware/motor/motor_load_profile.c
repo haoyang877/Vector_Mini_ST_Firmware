@@ -7,7 +7,7 @@
 
 typedef char MotorLoadRecordSize[(sizeof(MotorLoadRecord) == 16U) ? 1 : -1];
 
-/* 保留本分支无阻尼整定；两配置同时存在于同一个固件。 */
+/* 两配置同时存在；轮档锁定速度用约5 ms滤波，避免开环速度纹波反复清锁定计时。 */
 static const MotorCalibrationProfile wheel_profile = {{0.50f,
                                                        0.30f,
                                                        2.0f,
@@ -20,7 +20,7 @@ static const MotorCalibrationProfile wheel_profile = {{0.50f,
                                                        315.0f,
                                                        2.0f,
                                                        0.20f,
-                                                       1.0f,
+                                                       0.01f,
                                                        0.25f,
                                                        0.10f,
                                                        3.0f,

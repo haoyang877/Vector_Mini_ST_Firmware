@@ -19,10 +19,9 @@
 
 #include "main.h"
 
-/* All live application allocations: encoder calibration 8192 B plus one
- * parameter record (< 3 KiB), including allocator headers/alignment. Keep the
- * capacity regression in test_outer_loop_runtime.py when adding allocations. */
-#define TOTAL_HEAP_SIZE ((size_t) (1024 * 12))
+/* 仅 Flash 参数读写使用一份记录（小于 3 KiB）；标定使用独立固定的 8 KiB 工作区。
+ * 容量含分配器头和对齐，增加堆用户时同步更新 test_outer_loop_runtime.py 回归。 */
+#define TOTAL_HEAP_SIZE ((size_t) (1024 * 4))
 
 void  *HEAP_malloc(size_t xWantedSize);
 void   HEAP_free(void *pv);

@@ -34,7 +34,7 @@ def main():
 typedef struct { int motor_pole_pairs, axis_profile; bool axis_profile_valid; } MotorControl_TypeDef;
 static uint16_t sample;
 static bool sample_ok = true;
-static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e,uint16_t *v,bool started)
+static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e,uint16_t *v,uint8_t started)
 { (void)e; (void)started; *v=sample; return sample_ok; }
 static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e,uint16_t v)
 { (void)e; return v; }

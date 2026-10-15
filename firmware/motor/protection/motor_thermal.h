@@ -151,7 +151,8 @@ MotorThermal_ResolveLimit(float configured_a, float available_a, bool thermal_ac
     {
         return 0.0f;
     }
-    return fminf(configured_a, available_a);
+    /* 两个输入已排除非有限值，直接比较避免快环调用通用分类函数。 */
+    return configured_a < available_a ? configured_a : available_a;
 }
 
 /**

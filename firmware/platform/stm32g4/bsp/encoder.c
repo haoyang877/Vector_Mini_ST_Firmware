@@ -65,7 +65,7 @@ static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *SPIx, bool *ok)
 	return rx_data;
 }
 
-static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+static bool SPI_Reg_StartTx16(SPI_TypeDef *SPIx, uint16_t tx_data)
 {
 	if ((SPIx->CR1 & SPI_CR1_SPE) == 0U)
 		SPIx->CR1 |= SPI_CR1_SPE;
@@ -78,10 +78,19 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
 
 	if (!SPI_WaitFlag(SPIx, SPI_FLAG_TXE, ENC_SPI_XFER_SPIN_MAX))
 	{
+		return false;
+	}
+	*(__IO uint16_t *)&SPIx->DR = tx_data;
+	return true;
+}
+
+static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+{
+	if (!SPI_Reg_StartTx16(SPIx, tx_data))
+	{
 		*ok = false;
 		return 0U;
 	}
-	*(__IO uint16_t *)&SPIx->DR = tx_data;
 	return SPI_Reg_ReadRx16(SPIx, ok);
 }
 
@@ -109,27 +118,67 @@ bool Encoder_BeginSample(void)
 	return true;
 }
 
+uint8_t Encoder_BeginReadback(bool sample_started)
+{
+	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
+	bool transfer_ok;
+
+	if (!sample_started)
+	{
+		return ENCODER_SAMPLE_SYNC;
+	}
+	(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+	if (!transfer_ok)
+	{
+		return ENCODER_SAMPLE_FAILED;
+	}
+
+	SPI2_MOSI_HiZ();
+	__NOP();
+	__NOP();
+	if (!SPI_Reg_StartTx16(SPIx, 0U))
+	{
+		SPI2_MOSI_RestoreAF();
+		return ENCODER_SAMPLE_FAILED;
+	}
+	return ENCODER_SAMPLE_RESPONSE_PENDING;
+}
+
 static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15,
-	bool sample_started)
+	uint8_t sample_stage)
 {
 	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
 	uint16_t angle_word = 0U;
 	bool transfer_ok = true;
 
-	if (sample_started)
-		(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+	if (sample_stage == ENCODER_SAMPLE_RESPONSE_PENDING)
+	{
+		angle_word = SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+		SPI2_MOSI_RestoreAF();
+	}
+	else if (sample_stage == ENCODER_SAMPLE_FAILED)
+	{
+		transfer_ok = false;
+	}
 	else
 	{
-		BRD_ENC_CS_ENABLE;
-		(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
-	}
-	if (transfer_ok)
-	{
-		SPI2_MOSI_HiZ();
-		__NOP();
-		__NOP();
-		angle_word = SPI_Reg_TxRx16(SPIx, 0U, &transfer_ok);
-		SPI2_MOSI_RestoreAF();
+		if (sample_stage == ENCODER_SAMPLE_COMMAND_PENDING)
+		{
+			(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+		}
+		else
+		{
+			BRD_ENC_CS_ENABLE;
+			(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
+		}
+		if (transfer_ok)
+		{
+			SPI2_MOSI_HiZ();
+			__NOP();
+			__NOP();
+			angle_word = SPI_Reg_TxRx16(SPIx, 0U, &transfer_ok);
+			SPI2_MOSI_RestoreAF();
+		}
 	}
 	(void)SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX);
 	BRD_ENC_CS_DISABLE;
@@ -482,7 +531,7 @@ bool Encoder_SetMechanicalZero(Encoder_TypeDef *encoder)
 }
 
 void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder,
-	bool sample_started)
+	uint8_t sample_stage)
 {
 	uint16_t raw_q15;
 	uint16_t directed_q15;
@@ -490,7 +539,7 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef 
 	int32_t delta_q15;
 	uint32_t pole_pairs;
 
-	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15, sample_started))
+	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15, sample_stage))
 		return;
 
 	directed_q15 = Encoder_ApplyDirectionQ15(encoder, raw_q15);

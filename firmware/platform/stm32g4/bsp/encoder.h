@@ -138,14 +138,35 @@ typedef struct
 
 void Encoder_ParamInit(Encoder_TypeDef *Encoder);
 void Encoder_Update(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder);
-/** Nonblocking request for the next angle sample. The same fast-loop owner
- * must call CompleteSample exactly once with the returned token, even on a
- * protection fault. Do not access the sensor bus between these calls. */
+/* 事务令牌仅保存在本次快环栈上；0/1 兼容原 bool 调用。 */
+#define ENCODER_SAMPLE_SYNC              0U
+#define ENCODER_SAMPLE_COMMAND_PENDING   1U
+#define ENCODER_SAMPLE_RESPONSE_PENDING  2U
+#define ENCODER_SAMPLE_FAILED            3U
+
+/**
+ * @brief 不等待 SPI，尝试发起本快拍的角度读取命令。
+ * @return true 表示命令已发出；false 表示 CompleteSample 必须同步读取并恢复总线。
+ * @note 快环独占 SPI；即使保护触发，也必须恰好调用一次 CompleteSample 收尾。
+ */
 bool Encoder_BeginSample(void);
-/** Complete this cycle's request and update the same estimator as Update.
- * A false token uses the original synchronous read/recovery path. */
+/**
+ * @brief 有界收取命令响应并启动角度响应，让后续计算与 SPI 传输重叠。
+ * @param sample_started 本快拍 BeginSample 返回值，只能推进一次。
+ * @return 同步回退、响应待收或失败令牌；必须原样传给 CompleteSample。
+ * @note 不等待角度响应；CS/MOSI 仍归本事务所有，期间不可再次访问编码器 SPI。
+ *       失败不重发命令，诊断和有界总线收尾由 CompleteSample 统一执行。
+ */
+uint8_t Encoder_BeginReadback(bool sample_started);
+/**
+ * @brief 有界完成本快拍事务，并使用与 Update 相同的角度和速度估计流程。
+ * @param MotorControl 电机极对数及轴配置，只读。
+ * @param Encoder 本快环独占的编码器状态，成功更新测量值，失败只更新诊断。
+ * @param sample_stage BeginSample 的 0/1 返回值，或 BeginReadback 返回的事务令牌。
+ * @note 每次 BeginSample 必须且只能收尾一次；返回后 CS 释放、MOSI 恢复。
+ */
 void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder,
-    bool sample_started);
+    uint8_t sample_stage);
 
 bool Encoder_IsOnline(const Encoder_TypeDef *Encoder);
 bool Encoder_SetElectricalZero(Encoder_TypeDef *Encoder);

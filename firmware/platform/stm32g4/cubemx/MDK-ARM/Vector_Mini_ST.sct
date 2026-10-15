@@ -10,8 +10,21 @@ LR_IROM1 0x08004000 0x18000 {
   .ANY (+RO)
   .ANY (+XO)
  }
- RW_IRAM1 0x20000020 0x7FE0 {
+ ; CCM 原生地址与 0x20007800..0x20007fff 为同一物理 RAM；不缩减堆栈。
+ RW_IRAM1 0x20000020 0x77E0 {
   .ANY (+RW +ZI)
  }
+ ER_CCM_HOT 0x10002000 0x800 {
+  foc_algorithm.o (i.FOC_Current)
+  foc_algorithm.o (i.FOC_SetVoltageModulation)
+  foc_pid.o (i.PI_Controller_Configure)
+  foc_pid.o (i.PI_Controller_Reset)
+  foc_pid.o (i.PI_Controller_Run)
+  foc_pid.o (i.PI_Controller_TrackOutput)
+  motor_thermal.o (i.MotorThermal_Accumulate)
+  motor_thermal.o (i.MotorThermal_Update)
+ }
+ ScatterAssert(ImageLimit(RW_IRAM1) <= 0x20007800)
+ ScatterAssert(ImageLimit(ER_CCM_HOT) <= 0x10002800)
  APP_END 0x0801C000 FIXED EMPTY 0x0 {}
 }

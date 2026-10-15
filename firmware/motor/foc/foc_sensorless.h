@@ -52,6 +52,9 @@ typedef struct
 	uint32_t lock_ticks;
 	uint32_t id_ramp_ticks;
 	uint32_t loss_ticks;
+	/* 交接相差的单位正余弦，仅由启动状态机递推；复位/交接结束为 0/1。 */
+	float handoff_phase_sin;
+	float handoff_phase_cos;
 }SensorlessStartup_TypeDef;
 
 void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver);

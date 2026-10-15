@@ -1,7 +1,7 @@
 """Compile the actual deferred runtime with deterministic interrupt injection.
 
 Checks publication ownership, stale reset/fault rejection, deadline faults,
-2 kHz cadence, unchanged speed PI/ramp arithmetic, and application heap capacity.
+2 kHz cadence and unchanged speed PI/ramp arithmetic.
 Synthetic feedback is not an acceptance test of the physical plant.
 """
 
@@ -13,7 +13,6 @@ from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 import argparse
 from pathlib import Path
 import subprocess
-import re
 from run_position_servo_tests import ROOT, function_source
 
 
@@ -25,17 +24,12 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / 'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
-    lut_size = re.search(r'^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U',
-                         (ROOT / 'firmware/platform/stm32g4/bsp/encoder.h').read_text(encoding="utf-8"), re.M)[1]
     src = (ROOT / 'firmware/app/foc_run.c').read_text(encoding="utf-8")
     block = src.split('/* OUTER_RUNTIME_BEGIN', 1)[1].split('/* OUTER_RUNTIME_END */', 1)[0]
     block = '/* OUTER_RUNTIME_BEGIN' + block
     funcs = '\n'.join(function_source(src, n) for n in [
         'SpeedMode_UpdateControl', 'PositionMode_UpdateConfiguration',
         'PositionMode_SameTuningValue', 'PositionMode_ConfigurationMatches'])
-    # Use the real parameter structure to guard the full current allocation set.
-    param = (ROOT / 'firmware/services/parameters/foc_param.h').read_text(encoding="utf-8")
-    param = param[param.index('typedef struct'):param.index('} InterfaceParam_TypeDef;') + len('} InterfaceParam_TypeDef;')]
     fixture = r'''
 #ifdef NDEBUG
 #undef NDEBUG
@@ -54,9 +48,7 @@ def main():
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
 #include "motor_thermal.h"
-#include "heap.h"
 #define FOC_CONFIG_NOINLINE
-#define ENCODER_OFFSET_LUT_SIZE 1024U
 typedef struct { float position, speed; } Encoder_TypeDef;
 static MotorControl_TypeDef live;
 static PI_Controller_TypeDef live_pi;
@@ -69,7 +61,7 @@ static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { ++continuous_spee
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
 static void motor_hw_outer_barrier(void);
 static void motor_hw_outer_schedule(void) { schedules++; }
-''' + param + funcs + block + r'''
+''' + funcs + block + r'''
 static void tick(void) { MotorOuterLoop_FastTick(&live, &live_pi, &enc); }
 static void motor_hw_outer_barrier(void) {
     if (injection && outer.status == OUTER_RUNNING) {
@@ -136,16 +128,6 @@ int main(void) {
     assert(position_reads==1 && speed_reads==1 && continuous_speed_reads==0);
     setup(Position_Mode); tick();
     assert(position_reads==1 && speed_reads==0 && continuous_speed_reads==1);
-    /* 标定工作区已静态化；堆仅保留一份 Flash 参数记录及分配头/对齐空间。 */
-    assert(TOTAL_HEAP_SIZE==4096);
-    for (unsigned trial = 0; trial < 100; trial++) {
-        void *d = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
-        assert(d);
-        memset(d,0xA5,sizeof(InterfaceParam_TypeDef));
-        HEAP_free(d);
-    }
-    printf("heap capacity passed: calibration_static=8192 parameter=%zu pool=%zu minimum_free=%zu\n",
-        sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
     for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
         setup((ModeNow_TypeDef)mode);
         for (unsigned i = 0; i < 200000; i++) {
@@ -279,11 +261,9 @@ int main(void) {
     puts("PASS: real feedback outside travel retained; only out-of-range target faults");
 }
 '''
-    fixture = fixture.replace('#define ENCODER_OFFSET_LUT_SIZE 1024U',
-                              '#define ENCODER_OFFSET_LUT_SIZE ' + lut_size + 'U')
     (out / 'fixture.c').write_text(fixture)
     sources = [out / 'fixture.c', ROOT / 'firmware/services/parameters/motor_axis_profile.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/speed_feedforward.c', ROOT / 'firmware/motor/position/position_cascade.c',
-               ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c', ROOT / 'firmware/common/heap.c']
+               ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c']
     cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
            '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),
            '-I' + str(ROOT / 'firmware/platform/stm32g4/bsp'), '-I' + str(ROOT)]

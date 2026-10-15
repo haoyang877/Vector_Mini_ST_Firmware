@@ -102,8 +102,7 @@ static bool samples_released(void) {
 static void poison_workspace(void) {
     /* 固定区不会自动清除；显式毒化验证首次使用及复用都不依赖 BSS 初值。 */
     memset(calibration_error_sum_storage,0xA5,sizeof(calibration_error_sum_storage));
-    memset(calibration_samples_storage,0xA5,sizeof(calibration_samples_storage));
-    memset(calibration_lut_storage,0xA5,sizeof(calibration_lut_storage));
+    memset(&calibration_count_or_lut_storage,0xA5,sizeof(calibration_count_or_lut_storage));
 }
 static void setup(void) {
     watch_lut_commit=false;
@@ -462,12 +461,11 @@ static void enter_verified_candidate(void) {
 }
 static void check_clear_prefix(unsigned cleared_bins) {
     assert(p_error_sum && calibration_samples && candidate_linearization_lut);
-    assert(p_error_sum==calibration_error_sum_storage && calibration_samples==calibration_samples_storage);
-    assert(candidate_linearization_lut==calibration_lut_storage);
+    assert(p_error_sum==calibration_error_sum_storage && calibration_samples==calibration_count_or_lut_storage.samples);
+    assert(candidate_linearization_lut==calibration_count_or_lut_storage.candidate_lut);
     for(unsigned i=0;i<ENCODER_OFFSET_LUT_SIZE;++i) {
         assert(p_error_sum[i]==(i<cleared_bins ? 0 : (int32_t)0xA5A5A5A5));
         assert(calibration_samples[i]==(i<cleared_bins ? 0 : (uint16_t)0xA5A5));
-        assert(candidate_linearization_lut[i]==(int16_t)0xA5A5);
     }
 }
 static void check_alignment_command(unsigned ticks) {
@@ -535,7 +533,7 @@ static void check_candidate_initialization(void) {
     EncoderCalibration_Reset();
     assert(!candidate_linearization_lut && !p_error_sum && !calibration_samples);
 
-    /* Mode 12 仍在原对齐入口同步清完，旧构表路径覆盖全部非零固定区内容。 */
+    /* Mode 5 仍在原对齐入口同步清完，旧构表路径覆盖全部非零固定区内容。 */
     setup(); motor.ModeNow=Calib_EncoderOffset; motor.calib_current=3;
     Task_Calib_EncoderOffset(&foc,&motor,&encoder,&observer);
     assert(CalibStep==CS_ENC_OFFSET_ALIGN && voltage_calls==0);
@@ -543,7 +541,6 @@ static void check_candidate_initialization(void) {
     assert(CalibStep==CS_ENC_OFFSET_ALIGN_LOOP && voltage_calls==1 && current_calls==0);
     check_clear_prefix(ENCODER_OFFSET_LUT_SIZE);
     for(unsigned i=0;i<ENCODER_OFFSET_LUT_SIZE;++i) {
-        assert(candidate_linearization_lut[i]==(int16_t)0xA5A5);
         p_error_sum[i]=37; calibration_samples[i]=1;
     }
     assert(Encoder_Calib_BuildLut(1));
@@ -591,6 +588,106 @@ static void check_initialization_stop_restart(void) {
     assert(motor.ErrorNow==Encoder_Error && CalibStep==CS_NULL && !pwm_enabled);
     assert(motor.ModeNow==Motor_Disable && stop_calls==1 && samples_released() && save_calls==0);
     assert(!p_error_sum && !calibration_samples && !candidate_linearization_lut);
+}
+static void prepare_lut_build(void) {
+    prepare_pending_candidate(); watch_lut_commit=false;
+    memset(p_error_sum,0,sizeof(calibration_error_sum_storage));
+    memset(calibration_samples,0,sizeof(calibration_count_or_lut_storage.samples));
+    CalibStep=CS_OBS_SAMPLE_CW;
+    observer.theta_e_unwrapped=(float)MotorLoadProfile_Calibration(active_flags)->scan_turns*
+        _2PI*(float)motor.motor_pole_pairs;
+    calibration_tick(); assert(CalibStep==CS_OBS_BUILD_LUT);
+    check_old_calibration();
+}
+static void fill_lut_samples(unsigned pattern, unsigned minimum) {
+    for(unsigned i=0;i<ENCODER_OFFSET_LUT_SIZE;++i) {
+        int32_t correction=((int32_t)(i%97)-48)*23;
+        uint16_t count=(uint16_t)(minimum+(i*7)%61);
+        if(pattern==1) correction=INT16_MAX;
+        if(pattern==2) correction=INT16_MIN;
+        if(pattern==4) {
+            /* 最后一个 bin 解卷绕后越界，验证已写部分候选时仍保留旧表。 */
+            correction=i==1022 ? 32760 : (i==1023 ? -32760 : 0);
+        }
+        calibration_samples[i]=count;
+        p_error_sum[i]=correction*count+(correction<0 ? -(count-1) : count-1);
+    }
+    if(pattern==3) calibration_samples[ENCODER_OFFSET_LUT_SIZE-1]=(uint16_t)(minimum-1);
+}
+static void check_shared_lut_equivalence(void) {
+    int32_t separate_sums[ENCODER_OFFSET_LUT_SIZE];
+    uint16_t separate_counts[ENCODER_OFFSET_LUT_SIZE];
+    int16_t separate_lut[ENCODER_OFFSET_LUT_SIZE], expected_lut[ENCODER_OFFSET_LUT_SIZE];
+    unsigned expected_ticks=0, expected_mode=0, expected_error=0, expected_step=0;
+    bool expected_ok=false;
+    /* 用相同生产构表代码对比旧独立区与新共享区，覆盖两条构表路径。 */
+    for(unsigned incremental=0;incremental<2;++incremental) {
+        for(unsigned pattern=0;pattern<5;++pattern) {
+            for(unsigned shared=0;shared<2;++shared) {
+                prepare_lut_build();
+                if(!shared) {
+                    p_error_sum=separate_sums; calibration_samples=separate_counts;
+                    candidate_linearization_lut=separate_lut;
+                }
+                fill_lut_samples(pattern,SENSORLESS_ENCODER_CALIB_MIN_SAMPLES_PER_BIN);
+                uint16_t original_counts[ENCODER_OFFSET_LUT_SIZE];
+                memcpy(original_counts,calibration_samples,sizeof(original_counts));
+                unsigned ticks=0;
+                bool ok;
+                if(incremental) {
+                    while(CalibStep==CS_OBS_BUILD_LUT && ticks<4096) {
+                        calibration_tick(); ++ticks; check_old_calibration();
+                        /* 前三遍仍由计数拥有存储；最后一遍才允许候选覆盖。 */
+                        if(!samples_released() && ticks<=3*ENCODER_OFFSET_LUT_SIZE/
+                            SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE) {
+                            assert(memcmp(original_counts,calibration_samples,sizeof(original_counts))==0);
+                        }
+                    }
+                    ok=CalibStep==CS_OBS_VERIFY_CW;
+                } else {
+                    ok=Encoder_Calib_BuildLut(SENSORLESS_ENCODER_CALIB_MIN_SAMPLES_PER_BIN);
+                }
+                assert(ok==(pattern<3)); check_old_calibration();
+                if(!shared) {
+                    expected_ok=ok; expected_ticks=ticks; expected_mode=motor.ModeNow;
+                    expected_error=motor.ErrorNow; expected_step=CalibStep;
+                    if(ok) memcpy(expected_lut,candidate_linearization_lut,sizeof(expected_lut));
+                } else {
+                    assert(ok==expected_ok && ticks==expected_ticks && motor.ModeNow==expected_mode);
+                    assert(motor.ErrorNow==expected_error && CalibStep==expected_step);
+                    if(ok) assert(memcmp(expected_lut,candidate_linearization_lut,sizeof(expected_lut))==0);
+                }
+                EncoderCalibration_Reset(); assert(samples_released());
+            }
+        }
+    }
+}
+static void check_partial_candidate_restart(void) {
+    /* 候选已覆盖部分计数后中止，下一轮直接复用脏内存，禁止依赖重新毒化。 */
+    for(unsigned fault=0;fault<2;++fault) {
+        prepare_lut_build(); fill_lut_samples(0,SENSORLESS_ENCODER_CALIB_MIN_SAMPLES_PER_BIN);
+        for(unsigned i=0;i<3*ENCODER_OFFSET_LUT_SIZE/
+            SENSORLESS_ENCODER_CALIB_LUT_BUILD_BINS_PER_CYCLE+7;++i) {
+            calibration_tick(); check_old_calibration();
+            assert(CalibStep==CS_OBS_BUILD_LUT && motor.ErrorNow==No_Error);
+        }
+        assert(candidate_linearization_lut[0]==-48*23);
+        if(fault) {
+            motor.ErrorNow=Sensorless_Error; calibration_tick();
+        } else {
+            Set_ModeNow(Motor_Disable); EncoderCalibration_Reset(); Stop_PWM_Generate();
+        }
+        assert(samples_released() && !pwm_enabled && save_calls==0); check_old_calibration();
+        motor.ErrorNow=No_Error; motor.ModeNow=Calib_EncoderObserver;
+        current_calls=stop_calls=save_calls=0;
+        prepare_calibration_power();
+        for(unsigned ticks=1;ticks<=ENCODER_OFFSET_LUT_SIZE/16;++ticks) {
+            calibration_tick(); check_alignment_command(ticks); check_old_calibration();
+            for(unsigned i=0;i<ticks*16;++i) assert(p_error_sum[i]==0 && calibration_samples[i]==0);
+        }
+        check_clear_prefix(ENCODER_OFFSET_LUT_SIZE);
+        EncoderCalibration_Reset();
+    }
 }
 static void check_preparation_cancel(void) {
     /* 两个未运行 FOC 的入口窗口均可 STOP；下一次重新准备才允许上电。 */
@@ -770,8 +867,7 @@ static void check_calibration_limits_and_reset(void) {
 }
 int main(void) {
     assert(CS_OBS_ALIGN_ORIGIN==22 && CS_OBS_STOP_CURRENT==30 && CS_ENC_OFFSET_END==35);
-    assert(sizeof(calibration_error_sum_storage)+sizeof(calibration_samples_storage)+
-        sizeof(calibration_lut_storage)==8192);
+    assert(sizeof(calibration_error_sum_storage)+sizeof(calibration_count_or_lut_storage)==6144);
     for (active_flags=0; active_flags<=1; ++active_flags) {
         cfg=&MotorLoadProfile_Calibration(active_flags)->startup;
         check_startup_configuration_guards(); check_live_model_guards();
@@ -780,11 +876,12 @@ int main(void) {
         check_braking_cap(); check_speed_limit_math();
         check_speed_tick_equivalence(); check_id_ramp_equivalence();
         check_calibration_stop(); check_candidate_initialization(); check_initialization_stop_restart();
+        check_shared_lut_equivalence(); check_partial_candidate_restart();
         check_preparation_cancel();
         check_pending_candidate_lifetime();
         check_current_ramp_completion(); check_calibration_limits_and_reset();
     }
-    puts("PASS both-profile startup and guards, handoff continuity, braking cutoff, fixed 8192 B workspace, separate preparation/PWM/alignment ticks, poisoned-buffer incremental initialization and STOP/fault restart, unchanged alignment timing and mode 12 initialization, separate PWM-off and atomic LUT commit, STOP/fault preserves old calibration, commit/release before save, encoder direction preserved");
+    puts("PASS both-profile startup and guards, handoff continuity, braking cutoff, shared 6144 B workspace, separate/shared LUT outputs and failures identical, partial candidate STOP/fault restart, separate preparation/PWM/alignment ticks, poisoned-buffer incremental initialization and STOP/fault restart, unchanged alignment timing and mode 5 initialization, separate PWM-off and atomic LUT commit, STOP/fault preserves old calibration, commit/release before save, encoder direction preserved");
 }
 '''
 

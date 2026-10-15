@@ -44,7 +44,6 @@
 
 /*System*/
 #include "utils.h"
-#include "heap.h"
 #include "board_config.h"
 #include "data_type.h"
 

@@ -70,6 +70,11 @@ scatter 用区间容量及 `ScatterAssert` 拒绝重叠，原 3 KiB 栈和 512 B
 APP/BOOT CRC；normal/HIL 共用布局及别名边界由现有 Loader 离线测试覆盖。
 过程与验收见 [快环整机复核 v3](../reports/2026-10-15-fast-irq-40us-bench-v3.md)。
 
+2026-10-16 内存优化：mode 5/13 的标定工作区共 6 KiB，其中 4 KiB 为误差和，
+另 2 KiB 在全部计数读取完成后转换为候选 LUT；有效编码器 LUT 不复用该区域。
+Flash 参数启动读取与停机保存独占一份 2384 B 固定缓冲，重入时拒绝操作，
+不再链接自有通用堆。CCM、栈、C 库堆和参数 Flash ABI 保持不变。
+
 ## 后续 Loader 与 PC 接入
 
 已阅读 D-loader 的总设计、通用 MCU/CAN-FD/UART 框架、内存方案、空间优化与发布规范。

@@ -12,10 +12,13 @@
 
 #include <foc_run.h>
 
-/* Mode 12/13 互斥共享；固定工作区避免快中断执行堆分配和释放。 */
+/* Mode 5/13 互斥共享；固定工作区避免快中断执行堆分配和释放。 */
 static int32_t calibration_error_sum_storage[ENCODER_OFFSET_LUT_SIZE];
-static uint16_t calibration_samples_storage[ENCODER_OFFSET_LUT_SIZE];
-static int16_t calibration_lut_storage[ENCODER_OFFSET_LUT_SIZE];
+static union
+{
+    uint16_t samples[ENCODER_OFFSET_LUT_SIZE];
+    int16_t candidate_lut[ENCODER_OFFSET_LUT_SIZE];
+} calibration_count_or_lut_storage;
 static int32_t *p_error_sum = NULL;
 static uint16_t *calibration_samples = NULL;
 static int16_t *candidate_linearization_lut = NULL;
@@ -71,9 +74,10 @@ static int16_t Encoder_Calib_Q15Difference(uint16_t target_q15, uint16_t source_
 static void Encoder_Calib_AcquireSamples(void)
 {
 	p_error_sum = calibration_error_sum_storage;
-	calibration_samples = calibration_samples_storage;
-	candidate_linearization_lut = calibration_lut_storage;
-	/* 两条构表路径均完整写满候选后才允许读取；无需预清零候选区。 */
+	calibration_samples = calibration_count_or_lut_storage.samples;
+	candidate_linearization_lut = calibration_count_or_lut_storage.candidate_lut;
+	/* 两条构表路径先读完全部计数，再覆盖为候选；构表结束后不再读计数。
+	 * 候选完整写满并验证后才提交，当前有效 LUT 始终保留在 Encoder 中。 */
 }
 
 static uint16_t Encoder_Calib_ApplyCandidateLut(uint16_t directed_q15)
@@ -764,7 +768,7 @@ void Task_Calib_EncoderOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorContr
 
 		case CS_ENC_OFFSET_ALIGN:
 			Encoder_Calib_AcquireSamples();
-			/* Mode 12 保持同步初始化；Mode 13 在现有对齐阶段分拍清零。 */
+			/* Mode 5 保持同步初始化；Mode 13 在现有对齐阶段分拍清零。 */
 			memset(p_error_sum, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*p_error_sum));
 			memset(calibration_samples, 0, ENCODER_OFFSET_LUT_SIZE * sizeof(*calibration_samples));
 			loop_count = 0U;

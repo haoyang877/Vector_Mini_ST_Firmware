@@ -2,9 +2,35 @@
 
 #include <string.h>
 #include "foc_param.h"
-#include "heap.h"
 
 #define PARAM_FLASH_ADDR ADDR_FLASH_PAGE_56
+
+/* 启动读取与停机保存共用一份快照；不能由重入调用覆盖正在使用的记录。 */
+static InterfaceParam_TypeDef parameter_buffer;
+static volatile bool parameter_buffer_busy;
+typedef char ParameterBufferSize[(sizeof(parameter_buffer) == 2384U) ? 1 : -1];
+
+/**
+ * @brief 独占参数快照，临界区仅覆盖所有权标志。
+ * @return 成功时返回私有缓冲；重入时返回NULL，不改变参数或Flash。
+ * @note 恢复调用前中断状态；读取只在启动调用，保存由停机前台调用。
+ */
+static InterfaceParam_TypeDef *parameter_buffer_acquire(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    InterfaceParam_TypeDef *param = NULL;
+    __disable_irq();
+    if (!parameter_buffer_busy)
+    {
+        parameter_buffer_busy = true;
+        param = &parameter_buffer;
+    }
+    if (primask == 0U)
+    {
+        __enable_irq();
+    }
+    return param;
+}
 
 /**
 	* @brief  Get flash page number from address
@@ -91,16 +117,18 @@ static void flash_write_data(uint32_t addr, const void *data, uint32_t size_byte
  **/
 void flash_write_param(void)
 {
-	InterfaceParam_TypeDef *param = HEAP_malloc(sizeof(*param));
+	InterfaceParam_TypeDef *param = parameter_buffer_acquire();
 	if (param == NULL)
+	{
 		return;
+	}
 
 	Param_Upload(param);
 	param->magic_word = MAGIC_WORD;
 	if (flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + sizeof(*param) - 1U))
 		flash_write_data(PARAM_FLASH_ADDR, param, sizeof(*param));
 
-	HEAP_free(param);
+	parameter_buffer_busy = false;
 }
 
 /**
@@ -108,11 +136,10 @@ void flash_write_param(void)
  **/
 void flash_read_param(void)
 {
-	InterfaceParam_TypeDef *param = HEAP_malloc(sizeof(*param));
+	InterfaceParam_TypeDef *param = parameter_buffer_acquire();
 	bool rewrite_legacy_param;
 	if (param == NULL)
 	{
-		Param_Return_Default();
 		return;
 	}
 
@@ -138,5 +165,5 @@ void flash_read_param(void)
 			__enable_irq();
 	}
 #endif
-	HEAP_free(param);
+	parameter_buffer_busy = false;
 }

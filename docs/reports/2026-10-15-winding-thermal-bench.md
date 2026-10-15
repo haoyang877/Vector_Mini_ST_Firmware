@@ -69,3 +69,5 @@ outputs/size_thermal_integration_20261015/summary.json为准。
 尚未完成mode 1的纯Id稳定注入、运行模式连续降额、全热量停机门限、真实绕组温升/冷却辨识、
 长时连续3 A安全性、8 A/10秒安全性和掉电热历史处理。
 此版本仍按既有授权在MCU复位后从H=0开始，不能将复位当作电机冷却。
+
+后续已重新标定电零位并完成mode 1持续降额和热停机，见[运行模式记录](2026-10-15-winding-thermal-running-mode.md)。

@@ -52,7 +52,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+extern ModeNow_TypeDef ModeLast;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,7 +63,33 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+/** @brief 等待快环确认保存模式已关相，再由前台保存并发布结果。 */
+static void Main_SaveParametersPoll(void)
+{
+    uint32_t primask;
+    FlashParamSaveResult result;
+    if (Get_ModeNow() != Save_Param)
+    {
+        return;
+    }
+    primask = __get_PRIMASK();
+    __disable_irq();
+    /* CAN可在两次快拍间提交STOP和SAVE；ModeLast是完成关相后的快环确认。 */
+    if (Get_ModeNow() == Save_Param && ModeLast == Save_Param)
+    {
+        result = flash_write_param();
+        if (result != FLASH_PARAM_SAVE_WRITTEN && result != FLASH_PARAM_SAVE_UNCHANGED)
+        {
+            Stop_PWM_Generate();
+            Set_ErrorNow(MotorParam_Error);
+        }
+        Set_ModeNow(Motor_Disable);
+    }
+    if (primask == 0U)
+    {
+        __enable_irq();
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -124,17 +150,7 @@ int main(void)
 	  
 	CAN_SendMessage();
 	  
-	if(Get_ModeNow() == Save_Param)
-	{
-		/*disable global interrupt*/
-		__disable_irq();
-		/*write parameters to flash*/
-		flash_write_param();
-		/*enable global interrupt*/
-		__enable_irq();
-		                                                                   
-		Set_ModeNow(Motor_Disable);
-	}
+    Main_SaveParametersPoll();
   }
   /* USER CODE END 3 */
 }

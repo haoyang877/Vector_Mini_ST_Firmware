@@ -3,7 +3,7 @@
 分支：`codex/ovp-36v`。先合入 v0.5.3（abac5dec）的 mode 18 裁剪和半波查表，
 再完成 `codex/winding-thermal-protection`（437a6e28）的热保护集成。
 软件版本及 CAN 查询 golden 向量均为 v0.6.0 build 0；Loader 版本和链接布局不变。
-本次没有下载固件、写入设备参数或执行电机试验。
+集成阶段仅离线验证；随后完成下载及固定磁场Id基础动作测试，见[实机记录](2026-10-15-winding-thermal-bench.md)。
 
 ## 资源
 

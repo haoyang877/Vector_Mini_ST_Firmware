@@ -142,9 +142,10 @@ void MaintenanceWindow::build_shell()
     advanced_panel->setVisible(false);
     device_sequence_start_ = new QSpinBox;
     device_sequence_start_->setObjectName("benchSequenceStart");
-    device_sequence_start_->setRange(0, 65534);
+    device_sequence_start_->setRange(0, 65535);
     device_sequence_start_->setToolTip(
-        "同一未重启设备须依据源节点 2 日志填写；下一请求使用起点 + 1。");
+        "0 自动使用本工具按 UID "
+        "保存的控制序号；首次或其他主机历史须明确填写。非零起点不得早于已存记录，65535 后回到 1。");
     advanced_form->addRow("序号起点", device_sequence_start_);
     python_path_ = new QLineEdit;
     python_path_->setObjectName("pythonRuntimePath");
@@ -200,7 +201,8 @@ void MaintenanceWindow::build_shell()
 
     auto *control = new QGroupBox("速度控制");
     auto *control_layout = new QVBoxLayout(control);
-    device_bench_ack_ = new QCheckBox("已确认架空台架及 33 V / 母线 3 A / 相 6 A 限值");
+    device_bench_ack_ =
+        new QCheckBox("已核对上方 UID 为本次目标，且架空台架满足 33 V / 母线 3 A / 相 6 A 限值");
     device_bench_ack_->setObjectName("deviceBenchAcknowledged");
     control_layout->addWidget(device_bench_ack_);
     auto *control_row = new QHBoxLayout;
@@ -446,17 +448,19 @@ void MaintenanceWindow::refresh_workbench()
     device_sequence_start_->setEnabled(!device_reader_ && !upgrade_process_);
     python_path_->setEnabled(!device_reader_ && !upgrade_process_);
     sdk_path_->setEnabled(!device_reader_ && !upgrade_process_);
-    device_bench_ack_->setEnabled(connected && !upgrade_process_);
+    device_bench_ack_->setEnabled(device_identity_matches() && feedback);
     const bool running = device_identity_matches() && feedback && view.motor_state == 6 &&
                          view.control_mode == 2 && view.fault_bits == 0 && view.bus_voltage_v &&
                          *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 &&
                          view.bus_current_a && std::abs(*view.bus_current_a) <= 3.0 && view.iq_a &&
                          std::abs(*view.iq_a) <= 6.0 && view.speed_rad_s &&
                          std::abs(*view.speed_rad_s) <= 31.416;
-    device_start_button_->setEnabled(device_safe_idle() && !device_motion_may_run_ &&
+    device_start_button_->setEnabled(device_safe_idle() && device_sequence_ready_ &&
+                                     device_sequence_storage_ok_ && !device_motion_may_run_ &&
                                      device_bench_ack_->isChecked() &&
                                      device_command_queued_.isEmpty());
-    device_speed_rpm_->setEnabled(running && device_motion_may_run_ &&
+    device_speed_rpm_->setEnabled(running && device_sequence_ready_ &&
+                                  device_sequence_storage_ok_ && device_motion_may_run_ &&
                                   device_bench_ack_->isChecked());
     device_speed_button_->setEnabled(device_speed_rpm_->isEnabled() &&
                                      device_command_queued_.isEmpty());
@@ -481,9 +485,13 @@ void MaintenanceWindow::refresh_workbench()
     bus_value_->setText(feedback ? number(view.bus_voltage_v, 1) + " V / " +
                                        number(view.bus_current_a, 2) + " A"
                                  : "未知");
-    device_status_->setText(connected
-                                ? (readable && feedback ? "身份与状态新鲜" : "身份或状态缺失/过期")
-                                : (device_error_.isEmpty() ? "未连接" : device_error_));
+    device_status_->setText(
+        !device_error_.isEmpty() ? device_error_
+        : connected              ? (readable && feedback
+                                        ? (device_identity_matches() ? "身份与状态新鲜；请核对 UID 后确认台架"
+                                                                     : "产品/硬件/schema/ABI 不兼容；控制已禁用")
+                                        : "身份或状态缺失/过期")
+                                 : "未连接");
     device_control_status_->setText(
         connected ? (device_control_result_.isEmpty() ? "等待显式操作" : device_control_result_)
                   : "未连接；运动状态未知");
@@ -516,6 +524,7 @@ void MaintenanceWindow::start_real_upgrade()
             "升级门禁未满足：配套Loader、STOP/IDLE、零速与台架限值、独占和真实包均须核对。");
         return;
     }
+    const auto expected_plan = *plan_;
     const auto app_dir = QCoreApplication::applicationDirPath();
     const auto client = app_dir + "/upgrade_client.py";
     if (!QFileInfo::exists(client) || !QFileInfo::exists(app_path_->text()))
@@ -578,7 +587,7 @@ void MaintenanceWindow::start_real_upgrade()
     connect(process,
             &QProcess::finished,
             this,
-            [this, process](int exit_code)
+            [this, process, expected_plan](int exit_code)
             {
                 if (upgrade_process_ != process)
                 {
@@ -589,10 +598,9 @@ void MaintenanceWindow::start_real_upgrade()
                 const bool opened = summary.open(QIODevice::ReadOnly);
                 const auto report =
                     opened ? QJsonDocument::fromJson(summary.readAll()).object() : QJsonObject{};
-                const bool confirmed = exit_code == 0 && report.value("success").toBool() &&
-                                       report.value("uid").toString().compare(
-                                           upgrade_expected_uid_, Qt::CaseInsensitive) == 0 &&
-                                       report.value("version").toInt() == 0x00010300;
+                const bool confirmed =
+                    exit_code == 0 &&
+                    Upgrade_ResultMatches(expected_plan, upgrade_expected_uid_, report);
                 append_device_trace("upgrade_finish",
                                     {{"exit_code", exit_code},
                                      {"protocol_confirmed", confirmed},

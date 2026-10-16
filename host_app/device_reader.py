@@ -88,7 +88,7 @@ def serve(port: CanTransport, node: int, commands: TextIO, responses: TextIO) ->
     """stdin 仅接收固定GET或速度/STOP指令；退出活动会话前尽力发送STOP。"""
     print(json.dumps({"event": "ready", "node": node}), file=responses, flush=True)
     active = False
-    last_sequence = 0
+    last_control_sequence = 0
     try:
         for line in commands:
             request = json.loads(line)
@@ -116,7 +116,7 @@ def serve(port: CanTransport, node: int, commands: TextIO, responses: TextIO) ->
                     raise ValueError("控制参数格式非法")
                 if operation == "start_speed":
                     active = True
-                last_sequence = sequence
+                last_control_sequence = sequence
                 result, detail = control_once(port, node, operation, sequence, rpm)
                 if operation == "start_speed" and result not in (0, 1):
                     active = False
@@ -131,12 +131,11 @@ def serve(port: CanTransport, node: int, commands: TextIO, responses: TextIO) ->
                 }
             else:
                 raise ValueError("辅助进程收到未开放的请求格式")
-            last_sequence = sequence
             print(json.dumps(message), file=responses, flush=True)
     finally:
         if active:
             try:
-                sequence = 1 if last_sequence == 65535 else last_sequence + 1
+                sequence = 1 if last_control_sequence == 65535 else last_control_sequence + 1
                 result, detail = control_once(port, node, "stop", sequence)
                 print(
                     json.dumps({"event": "exit_stop", "result": result, "detail": detail}),

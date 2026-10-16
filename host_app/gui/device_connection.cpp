@@ -12,6 +12,8 @@
 #include <QLineEdit>
 #include <QProcess>
 #include <QSpinBox>
+#include <QSettings>
+#include "shared/targets/vector_mini_st_g431.h"
 #include <cmath>
 
 namespace yg::host
@@ -44,7 +46,6 @@ void MaintenanceWindow::connect_device()
     device_trace_path_ = QDir(evidence_dir).filePath("events.jsonl");
     append_device_trace("connect_intent",
                         {{"node", node_->value()},
-                         {"expected_uid", "5700460010504e4831303320"},
                          {"sequence_start", device_sequence_start_->value()},
                          {"first_sequence", device_sequence_start_->value() + 1}});
     if (!device_error_.isEmpty())
@@ -61,6 +62,10 @@ void MaintenanceWindow::connect_device()
     device_command_queued_.clear();
     device_control_result_.clear();
     device_sequence_ = uint16_t(device_sequence_start_->value());
+    device_control_sequence_ = device_sequence_;
+    device_expected_uid_.clear();
+    device_identity_changed_ = device_sequence_ready_ = false;
+    device_sequence_storage_ok_ = true;
     device_step_ = 0;
     device_connect_ms_ = device_discovery_ms_ = elapsed_.elapsed();
     device_feedback_ms_ = -1000;
@@ -159,9 +164,83 @@ bool MaintenanceWindow::device_identity_matches() const
 {
     const auto view = device_readback_.Device_View(elapsed_.elapsed());
     return device_reader_ && device_ready_ && !upgrade_process_ && view.identity_fresh &&
-           view.uid == "5700460010504E4831303320" && view.role == 1 &&
-           view.app_version == 0x00010300U && view.parameter_schema == 12 &&
-           view.parameter_abi == 0x000C10D0U;
+           !device_identity_changed_ && !device_expected_uid_.isEmpty() &&
+           view.uid == device_expected_uid_ && view.role == 1 && view.app_version &&
+           *view.app_version != 0 && view.product_id == TARGET_PRODUCT &&
+           view.hardware_revision == TARGET_HARDWARE && view.parameter_schema == TARGET_SCHEMA &&
+           view.parameter_abi == TARGET_PARAM_ABI;
+}
+
+// 首次真实 UID 固定本次目标；后续变化只允许 STOP，不能把确认沿用给另一台设备。
+void MaintenanceWindow::bind_device_identity()
+{
+    const auto view = device_readback_.Device_View(elapsed_.elapsed());
+    if (view.uid.isEmpty())
+    {
+        return;
+    }
+    if (!device_expected_uid_.isEmpty())
+    {
+        if (view.uid != device_expected_uid_ && !device_identity_changed_)
+        {
+            device_identity_changed_ = true;
+            device_bench_ack_->setChecked(false);
+            device_error_ = "会话 UID 变化；已禁用启动/目标并请求 STOP，请核对设备后重新连接。";
+            append_device_trace(
+                "identity_changed",
+                {{"expected_uid", device_expected_uid_}, {"observed_uid", view.uid}});
+            queue_device_command("stop");
+        }
+        return;
+    }
+    device_expected_uid_ = view.uid;
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "YG", "YG_MC_HOST");
+    const auto key = "control-sequences/" + device_expected_uid_ + "/source-2";
+    bool valid = true;
+    const bool saved = settings.contains(key);
+    const auto previous = saved ? settings.value(key).toUInt(&valid) : 0U;
+    const auto manual = uint16_t(device_sequence_start_->value());
+    const auto delta = uint16_t(manual - previous);
+    device_sequence_ready_ = settings.status() == QSettings::NoError && valid &&
+                             (!saved || (previous > 0 && previous <= 65535)) &&
+                             (!saved || manual == 0 || delta < 0x8000);
+    device_control_sequence_ = manual != 0 ? manual : uint16_t(previous);
+    if (!device_sequence_ready_)
+    {
+        device_error_ = "序号记录无效或手动起点早于已保存历史；仅允许 STOP，请核对高级设置。";
+    }
+    append_device_trace("target_bound",
+                        {{"uid", device_expected_uid_},
+                         {"control_sequence", int(device_control_sequence_)},
+                         {"sequence_ready", device_sequence_ready_}});
+}
+
+// 先持久保留控制序号及辅助进程退出时的一个 STOP；读查询不推进控制屏障。
+bool MaintenanceWindow::reserve_control_sequence(bool stopping)
+{
+    if (!stopping && (!device_sequence_ready_ || !device_sequence_storage_ok_))
+    {
+        return false;
+    }
+    device_control_sequence_ = device_control_sequence_ == 65535 ? 1 : device_control_sequence_ + 1;
+    device_sequence_ = device_control_sequence_;
+    if (!device_expected_uid_.isEmpty() && device_sequence_ready_)
+    {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "YG", "YG_MC_HOST");
+        settings.setValue("control-sequences/" + device_expected_uid_ + "/source-2",
+                          device_control_sequence_ == 65535 ? 1 : device_control_sequence_ + 1);
+        settings.sync();
+        device_sequence_storage_ok_ = settings.status() == QSettings::NoError;
+    }
+    else
+    {
+        device_sequence_storage_ok_ = false;
+    }
+    if (!device_sequence_storage_ok_)
+    {
+        device_error_ = "控制序号无法保存；禁止新启动/目标，STOP 仍会尝试，请人工核对。";
+    }
+    return stopping || device_sequence_storage_ok_;
 }
 
 bool MaintenanceWindow::device_safe_idle() const
@@ -191,19 +270,20 @@ void MaintenanceWindow::queue_device_command(const QString &operation, int rpm)
         }
     }
     else if (device_command_queued_.isEmpty() && device_bench_ack_->isChecked() &&
-             operation == "start_speed" && !device_motion_may_run_ && device_safe_idle())
+             operation == "start_speed" && !device_motion_may_run_ && device_safe_idle() &&
+             device_sequence_ready_ && device_sequence_storage_ok_)
     {
         device_command_queued_ = operation;
         device_command_rpm_ = 0;
     }
     else if (device_command_queued_.isEmpty() && operation == "set_speed" &&
-             device_motion_may_run_ && device_identity_matches() && view.feedback_fresh &&
-             view.motor_state == 6 && view.control_mode == 2 && view.fault_bits == 0 &&
-             view.bus_voltage_v && *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 &&
-             view.bus_current_a && std::abs(*view.bus_current_a) <= 3.0 && view.iq_a &&
-             std::abs(*view.iq_a) <= 6.0 && view.speed_rad_s &&
-             std::abs(*view.speed_rad_s) <= 31.416 && device_bench_ack_->isChecked() && rpm >= 0 &&
-             rpm <= 300)
+             device_motion_may_run_ && device_identity_matches() && device_sequence_ready_ &&
+             device_sequence_storage_ok_ && view.feedback_fresh && view.motor_state == 6 &&
+             view.control_mode == 2 && view.fault_bits == 0 && view.bus_voltage_v &&
+             *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 && view.bus_current_a &&
+             std::abs(*view.bus_current_a) <= 3.0 && view.iq_a && std::abs(*view.iq_a) <= 6.0 &&
+             view.speed_rad_s && std::abs(*view.speed_rad_s) <= 31.416 &&
+             device_bench_ack_->isChecked() && rpm >= 0 && rpm <= 300)
     {
         device_command_queued_ = operation;
         device_command_rpm_ = rpm;
@@ -235,7 +315,12 @@ void MaintenanceWindow::issue_device_query()
         const uint16_t type = operation == "start_speed" ? 117
                               : operation == "set_speed" ? 116
                                                          : 110;
-        device_sequence_ = device_sequence_ == 65535 ? 1 : device_sequence_ + 1;
+        if (!reserve_control_sequence(operation == "stop"))
+        {
+            device_command_queued_.clear();
+            refresh_workbench();
+            return;
+        }
         const auto request = QJsonDocument(QJsonObject{{"op", operation},
                                                        {"sequence", int(device_sequence_)},
                                                        {"rpm", device_command_rpm_}})
@@ -376,6 +461,11 @@ void MaintenanceWindow::consume_device_stdout()
                         device_start_rejected_ ? "启动被拒绝，108 确认 IDLE；未运行。"
                                                : "STOP 结果 0/0 且108确认 IDLE；仍需现场核对转子。";
                     device_start_rejected_ = false;
+                    if (device_identity_changed_ && device_stop_ack_)
+                    {
+                        disconnect_device();
+                        return;
+                    }
                 }
                 if (device_motion_may_run_ &&
                     (!view.feedback_fresh || !view.bus_voltage_v || *view.bus_voltage_v > 33.0 ||
@@ -479,6 +569,7 @@ bool MaintenanceWindow::Window_ObserveDeviceFrame(uint32_t can_id, const QByteAr
     {
         return false;
     }
+    bind_device_identity();
     refresh_workbench();
     return true;
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import json
 import shutil
 import struct
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -260,6 +262,37 @@ class UpgradeClientTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "UID"):
             client.run(self.package)
         self.assertEqual(device.writes, 0)
+
+    def test_compatible_new_app_version_does_not_require_new_host(self) -> None:
+        """目标布局/ABI不变的新APP包按自身版本核对，不绑客户端构建版本。"""
+        with tempfile.TemporaryDirectory(dir=self.directory) as directory:
+            destination = Path(directory)
+            image = bytearray(self.package.image)
+            manifest = bytearray(self.package.manifest)
+            version = self.package.version + 1
+            struct.pack_into(">I", image, 0x200 + 28, version)
+            struct.pack_into(">I", image, 0x200 + 48, 0)
+            crc = zlib.crc32(image)
+            struct.pack_into(">I", image, 0x200 + 48, crc)
+            struct.pack_into(">I", manifest, 24, version)
+            struct.pack_into(">I", manifest, 48, crc)
+            metadata = json.loads((self.directory / "package/package.json").read_text())
+            metadata.update(
+                image_version=version,
+                image_crc32=f"{crc:08x}",
+                image_sha256=hashlib.sha256(image).hexdigest(),
+                manifest_sha256=hashlib.sha256(manifest).hexdigest(),
+            )
+            (destination / "image.bin").write_bytes(image)
+            (destination / "manifest.bin").write_bytes(manifest)
+            (destination / "package.json").write_text(json.dumps(metadata))
+            package = UpgradePackage.load(destination)
+            self.assertEqual(package.version, version)
+            self.assertEqual(package.crc32, crc)
+            struct.pack_into(">I", manifest, 20, 999)
+            (destination / "manifest.bin").write_bytes(manifest)
+            with self.assertRaisesRegex(ValueError, "目标"):
+                UpgradePackage.load(destination)
 
     def test_tampered_package_is_rejected(self) -> None:
         """包文件被改写不能靠JSON元数据通过检查。"""

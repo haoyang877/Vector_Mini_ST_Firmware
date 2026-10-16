@@ -100,6 +100,26 @@ class ReaderChecks(unittest.TestCase):
         )
         self.assertEqual(len(port.sent), 2)
 
+    def test_read_queries_do_not_advance_exit_stop_sequence(self) -> None:
+        """控制序号回绕独立于GET，退出STOP使用GUI已经预留的下一序号。"""
+        port = FakePort(
+            [
+                reply(3, 117, 65535, struct.pack("<HH", 1, 0)),
+                reply(3, 108, 900, bytes(45)),
+                reply(3, 110, 1, bytes(4)),
+            ]
+        )
+        reader.serve(
+            port,
+            3,
+            io.StringIO(
+                '{"op":"start_speed","sequence":65535,"rpm":0}\n'
+                '{"type":108,"sequence":900,"page":0}\n'
+            ),
+            io.StringIO(),
+        )
+        self.assertEqual(struct.unpack_from("<H", port.sent[-1][1], 8)[0], 1)
+
     def test_uncertain_start_still_attempts_stop(self) -> None:
         port = FakePort([])
         output = io.StringIO()

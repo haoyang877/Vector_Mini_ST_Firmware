@@ -40,6 +40,8 @@ class MaintenanceWindow : public QMainWindow
     void issue_device_query();
     void consume_device_stdout();
     bool device_identity_matches() const;
+    void bind_device_identity();
+    bool reserve_control_sequence(bool stopping);
     bool device_safe_idle() const;
     void queue_device_command(const QString &operation, int rpm = 0);
     void append_device_trace(const QString &event, QJsonObject fields = {});
@@ -56,7 +58,10 @@ class MaintenanceWindow : public QMainWindow
     QProcess *device_reader_ = nullptr, *upgrade_process_ = nullptr;
     QByteArray device_output_, upgrade_output_;
     QString upgrade_output_dir_, upgrade_expected_uid_, device_trace_path_, device_error_;
-    QString device_command_queued_, device_control_result_;
+    QString device_command_queued_, device_control_result_, device_expected_uid_;
+    bool device_identity_changed_ = false, device_sequence_ready_ = false;
+    bool device_sequence_storage_ok_ = true;
+    uint16_t device_control_sequence_ = 0;
     bool device_ready_ = false, device_pending_ = false;
     bool device_motion_may_run_ = false, device_stop_ack_ = false, device_start_rejected_ = false;
     int device_command_rpm_ = 0;

@@ -21,6 +21,7 @@ extern "C"
 #include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QThread>
 #include <functional>
@@ -73,6 +74,7 @@ int fake_reader()
           "fake reader CAN ID encode");
     int starts = 0;
     int stops = 0;
+    const auto scenario = qEnvironmentVariable("YG_HOST_FAKE_SCENARIO");
     bool running = false;
     std::cout << "{\"event\":\"ready\",\"node\":1}\n" << std::flush;
     std::string line;
@@ -89,11 +91,17 @@ int fake_reader()
             auto *data = reinterpret_cast<uint8_t *>(payload.data());
             if (type == 1 && page == 0)
             {
-                payload.replace(0, 12, QByteArray::fromHex("5700460010504e4831303320"));
+                payload.replace(
+                    0,
+                    12,
+                    QByteArray::fromHex(scenario == "second-device" ||
+                                                (scenario == "changed-uid" && starts > 0)
+                                            ? "5800460010504e4831303320"
+                                            : "5700460010504e4831303320"));
                 data = reinterpret_cast<uint8_t *>(payload.data());
-                YgProtocol_WriteU32Le(data + 12, 0x59473236);
-                YgProtocol_WriteU16Le(data + 16, 1);
-                YgProtocol_WriteU32Le(data + 20, 0x00010300);
+                YgProtocol_WriteU32Le(data + 12, scenario == "wrong-product" ? 99 : 0x59473236);
+                YgProtocol_WriteU16Le(data + 16, scenario == "wrong-hardware" ? 99 : 1);
+                YgProtocol_WriteU32Le(data + 20, 0x00010301);
                 YgProtocol_WriteU32Le(data + 24, 0x00010000);
             }
             else if (type == 1 && page == 1)
@@ -107,8 +115,8 @@ int fake_reader()
             }
             else if (type == 1 && page == 2)
             {
-                YgProtocol_WriteU32Le(data + 8, 0x000C10D0);
-                YgProtocol_WriteU32Le(data + 12, 12);
+                YgProtocol_WriteU32Le(data + 8, scenario == "wrong-abi" ? 99 : 0x000C10D0);
+                YgProtocol_WriteU32Le(data + 12, scenario == "wrong-schema" ? 99 : 12);
             }
             else if (type == 2)
             {
@@ -375,7 +383,22 @@ void app_package_checks()
     auto bytes = QByteArray::fromHex(image.value("image_hex").toString().toLatin1());
     write(image_path, bytes);
     write(manifest_path, QByteArray::fromHex(image.value("manifest_hex").toString().toLatin1()));
-    check(Upgrade_Inspect(image_path).valid, "valid APP package rejected");
+    auto plan = Upgrade_Inspect(image_path);
+    check(plan.valid, "valid APP package rejected");
+    plan.version += 1;
+    QJsonObject report{{"success", true},
+                       {"uid", "5800460010504e4831303320"},
+                       {"version", double(plan.version)},
+                       {"crc32", QString("%1").arg(plan.crc32, 8, 16, QChar('0'))}};
+    check(Upgrade_ResultMatches(plan, "5800460010504E4831303320", report),
+          "result matching froze APP version or UID");
+    report["version"] = double(plan.version - 1);
+    check(!Upgrade_ResultMatches(plan, "5800460010504E4831303320", report),
+          "wrong package version accepted");
+    report["version"] = double(plan.version);
+    report["crc32"] = "invalid!";
+    check(!Upgrade_ResultMatches(plan, "5800460010504E4831303320", report),
+          "invalid image CRC accepted");
     bytes[bytes.size() - 1] ^= 1;
     write(image_path, bytes);
     check(!Upgrade_Inspect(image_path).valid, "damaged APP package accepted");
@@ -396,7 +419,7 @@ void fake_gui_checks()
         return window.findChild<QPushButton *>(name);
     };
     auto *sequence_start = window.findChild<QSpinBox *>("benchSequenceStart");
-    check(sequence_start->value() == 0 && sequence_start->maximum() == 65534,
+    check(sequence_start->value() == 0 && sequence_start->maximum() == 65535,
           "bench sequence start changed default/range");
     sequence_start->setValue(10000);
     window.findChild<QLineEdit *>("pythonRuntimePath")
@@ -486,6 +509,205 @@ void fake_gui_checks()
     check(window.findChild<QLabel *>("deviceUid")->text() == "未知",
           "disconnected UI retained stale identity");
 }
+
+void identity_and_sequence_checks(const QString &settings_path)
+{
+    const QString uid = "5800460010504E4831303320";
+    const auto key = "control-sequences/" + uid + "/source-2";
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "YG", "YG_MC_HOST");
+    settings.setValue(key, 65535);
+    settings.sync();
+    QTemporaryDir directory;
+    const auto dll = directory.filePath("unused.dll");
+    QFile marker(dll);
+    check(marker.open(QIODevice::WriteOnly), "fake marker creation failed");
+    marker.close();
+    auto connect_window = [&](MaintenanceWindow &window)
+    {
+        window.findChild<QLineEdit *>("pythonRuntimePath")
+            ->setText(QCoreApplication::applicationFilePath());
+        window.findChild<QLineEdit *>("canSdkPath")->setText(dll);
+        window.findChild<QPushButton *>("connectDevice")->click();
+        check(
+            wait_for(
+                [&]
+                {
+                    const auto status = window.findChild<QLabel *>("deviceReadbackStatus")->text();
+                    return window.findChild<QLabel *>("deviceUid")->text() != "未知" &&
+                           (window.findChild<QCheckBox *>("deviceBenchAcknowledged")->isEnabled() ||
+                            status.contains("不兼容") || status.contains("手动起点"));
+                },
+                1500),
+            "fake port did not identify");
+        window.findChild<QCheckBox *>("deviceBenchAcknowledged")->click();
+    };
+    auto start_enabled = [](MaintenanceWindow &window)
+    {
+        return window.findChild<QPushButton *>("deviceStartSpeed")->isEnabled();
+    };
+    qputenv("YG_HOST_FAKE_SCENARIO", "second-device");
+    {
+        MaintenanceWindow window;
+        connect_window(window);
+        check(wait_for(
+                  [&]
+                  {
+                      return start_enabled(window);
+                  },
+                  1500),
+              "compatible second UID/new APP version could not start");
+        window.findChild<QPushButton *>("deviceStartSpeed")->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QPushButton *>("deviceSetSpeed")->isEnabled();
+                  },
+                  1500),
+              "wrapped start did not reach running");
+        settings.sync();
+        check(settings.value(key).toUInt() == 2, "65535 control wrap/exit STOP reservation failed");
+        window.findChild<QPushButton *>("stopMotor")->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return start_enabled(window);
+                  },
+                  2000),
+              "STOP did not finish");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+    }
+    settings.sync();
+    const auto previous = settings.value(key).toUInt();
+    {
+        MaintenanceWindow window;
+        connect_window(window);
+        check(wait_for(
+                  [&]
+                  {
+                      return start_enabled(window);
+                  },
+                  1500),
+              "automatic saved seed reconnect failed");
+        window.findChild<QPushButton *>("deviceStartSpeed")->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QPushButton *>("deviceSetSpeed")->isEnabled();
+                  },
+                  1500),
+              "reconnected start not applied");
+        settings.sync();
+        check(settings.value(key).toUInt() == previous + 2,
+              "reconnect did not use saved high water");
+        window.findChild<QPushButton *>("stopMotor")->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return start_enabled(window);
+                  },
+                  2000),
+              "reconnected STOP did not finish");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+    }
+    for (const auto &scenario : {"wrong-product", "wrong-hardware", "wrong-schema", "wrong-abi"})
+    {
+        qputenv("YG_HOST_FAKE_SCENARIO", scenario);
+        MaintenanceWindow window;
+        connect_window(window);
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QLabel *>("deviceReadbackStatus")
+                          ->text()
+                          .contains("不兼容");
+                  },
+                  1500),
+              "incompatible device not read");
+        check(!start_enabled(window), "incompatible product/hardware/schema/ABI enabled power");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+    }
+    qputenv("YG_HOST_FAKE_SCENARIO", "second-device");
+    {
+        MaintenanceWindow window;
+        window.findChild<QSpinBox *>("benchSequenceStart")->setValue(1);
+        connect_window(window);
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QLabel *>("deviceReadbackStatus")
+                          ->text()
+                          .contains("手动起点");
+                  },
+                  1500),
+              "stale manual seed not rejected");
+        check(!start_enabled(window) && window.findChild<QPushButton *>("stopMotor")->isEnabled(),
+              "stale seed enabled START or disabled STOP");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+    }
+    {
+        MaintenanceWindow window;
+        connect_window(window);
+        check(wait_for(
+                  [&]
+                  {
+                      return start_enabled(window);
+                  },
+                  1500),
+              "storage failure setup failed");
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dll);
+        window.findChild<QPushButton *>("deviceStartSpeed")->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QLabel *>("deviceReadbackStatus")
+                          ->text()
+                          .contains("无法保存");
+                  },
+                  1500),
+              "unwritable sequence store not blocked");
+        check(!start_enabled(window) && window.findChild<QPushButton *>("stopMotor")->isEnabled(),
+              "storage failure enabled power or disabled STOP");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings_path);
+    }
+    qputenv("YG_HOST_FAKE_SCENARIO", "changed-uid");
+    {
+        MaintenanceWindow window;
+        connect_window(window);
+        check(wait_for(
+                  [&]
+                  {
+                      return start_enabled(window);
+                  },
+                  1500),
+              "changed UID setup failed");
+        window.findChild<QPushButton *>("deviceStartSpeed")->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QLabel *>("deviceReadbackStatus")
+                          ->text()
+                          .contains("UID 变化");
+                  },
+                  4500),
+              "session UID change not latched");
+        check(!start_enabled(window) &&
+                  !window.findChild<QCheckBox *>("deviceBenchAcknowledged")->isChecked(),
+              "UID replacement inherited prior target power permission");
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QLabel *>("deviceControlStatus")
+                          ->text()
+                          .contains("STOP 结果 0/0");
+                  },
+                  2000) ||
+                  window.findChild<QLabel *>("globalStatus")->text().contains("未连接"),
+              "UID change did not request STOP");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+    }
+    qunsetenv("YG_HOST_FAKE_SCENARIO");
+}
 } // namespace
 int main(int argc, char **argv)
 {
@@ -495,12 +717,16 @@ int main(int argc, char **argv)
     }
     QApplication app(argc, argv);
     app.setStyle("Fusion");
+    QTemporaryDir settings_directory;
+    check(settings_directory.isValid(), "isolated settings directory unavailable");
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings_directory.path());
     try
     {
         device_readback_checks();
         app_package_checks();
         gui_checks();
         fake_gui_checks();
+        identity_and_sequence_checks(settings_directory.path());
         std::cout << "host core offline PASS; no hardware access\n";
         return 0;
     }

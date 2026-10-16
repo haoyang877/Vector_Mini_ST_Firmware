@@ -123,7 +123,7 @@ class UpgradePackage:
             value("TARGET_IDENTITY_BASE"),
         )
         if (
-            (magic, profile, layout, mcu, product, hw, version, abi, role)
+            (magic, profile, layout, mcu, product, hw, abi, role)
             != (
                 0x494D3331,
                 PROFILE,
@@ -131,10 +131,10 @@ class UpgradePackage:
                 value("TARGET_MCU"),
                 value("TARGET_PRODUCT"),
                 value("TARGET_HARDWARE"),
-                value("TARGET_APP_VERSION"),
                 value("TARGET_PARAM_ABI"),
                 1,
             )
+            or version == 0
             or token == 0
             or length != len(image)
             or length > target[5]

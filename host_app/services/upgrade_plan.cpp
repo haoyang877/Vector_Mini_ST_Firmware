@@ -160,6 +160,8 @@ UpgradePlan Upgrade_Inspect(const QString &app_path)
                            .arg(identity.bytes)
                            .arg(identity.crc32, 8, 16, QChar('0'))
                            .arg(constant(target, "TARGET_PARAM_ABI"), 8, 16, QChar('0'));
+        plan.version = identity.version;
+        plan.crc32 = identity.crc32;
         plan.valid = true;
     }
     catch (const std::exception &error)
@@ -167,5 +169,17 @@ UpgradePlan Upgrade_Inspect(const QString &app_path)
         plan.error = QString::fromUtf8(error.what());
     }
     return plan;
+}
+bool Upgrade_ResultMatches(const UpgradePlan &plan,
+                           const QString &expected_uid,
+                           const QJsonObject &report)
+{
+    const auto crc_text = report.value("crc32").toString();
+    bool crc_valid = false;
+    const auto crc = crc_text.toUInt(&crc_valid, 16);
+    return plan.valid && !expected_uid.isEmpty() && report.value("success").toBool() &&
+           report.value("uid").toString().compare(expected_uid, Qt::CaseInsensitive) == 0 &&
+           report.value("version").toDouble(-1) == plan.version && crc_text.size() == 8 &&
+           crc_valid && crc == plan.crc32;
 }
 } // namespace yg::host

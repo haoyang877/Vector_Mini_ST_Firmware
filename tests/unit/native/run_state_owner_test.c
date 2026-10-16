@@ -383,6 +383,34 @@ static void test_calibration_save(void)
         "PASS encoder-LUT explicit entry remains; stale completion after STOP cannot request SAVE");
 }
 
+/* 采样 IRQ 停止而监督继续时，标定必须关相；停机 SAVE 不依赖快采样推进。 */
+static void test_maintenance_sampling_loss(void)
+{
+    const MotorMaintenanceKind powered[] = {MOTOR_MAINTENANCE_ENCODER_LUT,
+                                            MOTOR_MAINTENANCE_ELECTRICAL_ZERO};
+    for (unsigned i = 0U; i < sizeof(powered) / sizeof(powered[0]); ++i)
+    {
+        reset();
+        (void)begin_maintenance(powered[i]);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_MAINTENANCE && !output_off);
+        unsigned starts = start_count;
+        /* 故意不 PostOutcome：模拟 ADC2 没有新采样，TIM7 监督仍被调用。 */
+        MotorStateMachine_Tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
+        assert(motor.fault_code != MOTOR_FAULT_NONE && motor.control_mode == MOTOR_CONTROL_NONE);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
+        assert(start_count == starts && motor.iq_target_a == 0.0f);
+    }
+    reset();
+    (void)begin_maintenance(MOTOR_MAINTENANCE_SAVE);
+    MotorStateMachine_Tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_MAINTENANCE && output_off);
+    assert(motor.fault_code == MOTOR_FAULT_NONE);
+    puts("PASS maintenance sampling loss stops powered calibration; quiet SAVE remains valid");
+}
+
 static void test_stop_and_fault(void)
 {
     reset();
@@ -1108,6 +1136,7 @@ int main(void)
     test_control();
     test_calibration_save();
     test_borrow_cancel();
+    test_maintenance_sampling_loss();
     test_stop_and_fault();
     assert(critical_depth == 0U);
     return 0;

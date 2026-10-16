@@ -1412,12 +1412,12 @@ static void advance_current_state(void)
         break;
     case MOTOR_STATE_STARTING:
     case MOTOR_STATE_RUNNING:
+    case MOTOR_STATE_MAINTENANCE:
     case MOTOR_STATE_STOPPING:
-        /* 重新采集当前条件，执行运行守卫或停止确认。 */
+        /* 控制与有功率标定都须持续检查采样；SAVE 仅核对关相与操作许可。 */
         (void)dispatch_state_event(0U, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
         break;
     case MOTOR_STATE_IDLE:
-    case MOTOR_STATE_MAINTENANCE:
     case MOTOR_STATE_FAULT:
     case MOTOR_STATE_FATAL:
         /* 请求和结果由同拍前后明确阶段处理，不新增迁移或自动恢复。 */

@@ -1,6 +1,6 @@
 # 电机主状态机：八状态职责与执行流程
 
-更新日期：2026-10-09。适用核心 APP v1.3.0；跳转及恢复行为沿用 v1.2。
+更新日期：2026-10-16。基于核心 APP v1.3.0 整理代码；八状态及恢复行为沿用 v1.2。
 本页说明状态职责，逐状态输入和全部迁移见[状态跳转与命令处理](motor_state_flow_simplification_v1.md)。
 
 ## 当前总图
@@ -124,6 +124,24 @@ STOP／故障撤销派生保存意图，已提交的 Flash 不因取消回滚。
 
 ## 源码、线路与验证入口
 
+阅读主线是“请求入口 → 规则判定 → 实际动作”，监督拍负责按固定顺序推进。
+从 `MotorStateMachine_Tick` 看阶段，再沿下面三个入口阅读，不必在协议与算法之间来回跳转。
+
+| 阅读层次 | 具体执行 |
+| --- | --- |
+| 业务受理 | `RequestEnable` 只登记模式和启动意图，暂留 IDLE；`RequestMaintenance` 同步建立任务，进入 MAINTENANCE，出力标定可在受理内启相 |
+| 纯规则 | `MotorStateRules_Step`：故障／停止优先 → 普通事件一次解析及身份校验 → 按当前状态处理 → 补齐输出关闭约束 |
+| 实际动作 | `dispatch_state_event` 绑定原身份、读取事实、调用规则、记录结果、执行关相及取消；普通控制启相仍由 `enable_prepared_control` 最后复核 |
+
+IDLE 只检查共同准入并分派：控制启动由 `start_idle_control` 处理，维护启动由
+`start_idle_maintenance` 处理。`begin_shutdown` 表示发起关断，
+`confirm_stopped` 才表示停止事实齐全；`record_detected_faults` 会记录当前维护失败及效果。
+这几个名字分别对应请求、确认和记录，避免把动作请求误读为已完成。
+
+快拍任务结果由 `state_process_task_outcome` 消费；前台 SAVE 结果和取消归还由
+`process_save_or_cancel_completion` 消费。其返回值仅说明本次事件被规则接受，
+用来抑制该拍派生 SAVE；不能用它代表所有维护任务都已经完成。
+
 | 入口 | 职责 |
 | --- | --- |
 | [motor_state_machine.c](../../firmware/app/motor_state_machine/motor_state_machine.c) | 请求、当前事实、功率动作、Tick、结果和 SAVE 衔接 |
@@ -140,4 +158,5 @@ INIT 线上使用 3，0 保留退役；没有变更 45 B 布局或 schema12。
 
 离线用例入口为 [motor_state_rules_test.c](../../tests/unit/native/motor_state_rules_test.c)
 和 [run_state_owner_test.c](../../tests/unit/native/run_state_owner_test.c)。
-本次只同步文档及图，不改变固件或协议；实机／发布边界见[v1.3.0 候选](../releases/architecture-app-v1.3.0-candidate.md)。
+2026-10-16 的等价整理与验证见[可读性计划](../plans/active/2026-10-16-motor-state-clarity-v1.md)。
+实机／发布边界见[v1.3.0 候选](../releases/architecture-app-v1.3.0-candidate.md)。

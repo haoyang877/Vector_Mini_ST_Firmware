@@ -49,7 +49,8 @@ void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch);
 /**
  * @brief 执行一次有序监督拍，消费任务结果并提交功率、维护和目标迁移。
  * @note 仅由 2 kHz 监督中断调用；同拍允许多次迁移，动作后重新读取事实。
- *       STOP 不跳过故障消费，维护收尾当拍不启动派生保存；阶段顺序见实现。
+ *       STOP 不跳过故障消费；本拍受理 SAVE／取消完成事件时抑制派生保存。
+ *       快拍任务完成仍可沿原顺序同拍衔接 SAVE；阶段顺序见实现。
  */
 void MotorStateMachine_Tick(void);
 
@@ -98,6 +99,7 @@ void MotorStateMachine_ReadControlProgress(MotorControlProgress *progress);
  * @param mode 业务模式，不接受线上或历史编号。
  * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。
  * @note 前台消费调用，有界非阻塞；功率迁移仍在监督调度提交。
+ *       受理只登记模式和启动意图，主状态暂留 IDLE；监督拍再进入 STARTING。
  */
 MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode);
 
@@ -128,7 +130,8 @@ bool MotorStateMachine_ReadEnableProgress(uint8_t source_node,
  * @param kind 明确业务任务。
  * @param ticket 接收原始身份，失败清零。
  * @return 受理、错误、忙、故障或守卫拒绝。
- * @note 不保留调用方指针；不执行 Flash 或长耗时工作。
+ * @note 不保留调用方指针；同步进入 MAINTENANCE，出力标定可在受理内启相。
+ *       不执行 Flash 或长耗时工作；SAVE 的实际写入由前台认领后执行。
  */
 MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kind,
                                                         uint32_t *ticket);

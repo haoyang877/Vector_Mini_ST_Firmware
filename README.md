@@ -55,6 +55,10 @@ Keil调试APP：[无脚本启动、工程配置与有效记录同步](docs/guide
 mode 18 暂时裁剪，mode 3、速度前馈及标定保留。
 [版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
 
+绕组热保护：[设计原理与控制链路](docs/architecture/motor_winding_thermal_design_v1.md)、
+[配置与使用](docs/guides/motor_winding_thermal_protection_v1.md)、
+[零速闭环 Id 热测试与波形](docs/reports/2026-10-16-zero-speed-id-thermal-test.md)。
+
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
 
 独立调参：[速度模式与位置级联的两套速度 PI、旧 Flash 兼容及保存](docs/guides/separate_speed_pi.md)。

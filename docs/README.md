@@ -11,7 +11,8 @@ provide the short entry map; details belong here.
 
 当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
 按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。
-核心线路：[普通控制启动 v0.2](protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
+核心线路：[SPEED能力声明 v2](protocols/yg_protocol_core_speed_caps_v2.md)、
+[普通控制启动 v0.2](protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
 [单项标定/保存 v1.2](protocols/yg_protocol_calibration_wire_v1_2.md)。
 
 运行会话与整计划线路v1.4已退役。历史设计：[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。

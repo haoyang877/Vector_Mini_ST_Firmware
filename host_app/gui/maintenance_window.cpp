@@ -449,15 +449,16 @@ void MaintenanceWindow::refresh_workbench()
     python_path_->setEnabled(!device_reader_ && !upgrade_process_);
     sdk_path_->setEnabled(!device_reader_ && !upgrade_process_);
     device_bench_ack_->setEnabled(device_identity_matches() && feedback);
-    const bool running = device_identity_matches() && feedback && view.motor_state == 6 &&
-                         view.control_mode == 2 && view.fault_bits == 0 && view.bus_voltage_v &&
-                         *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 &&
-                         view.bus_current_a && std::abs(*view.bus_current_a) <= 3.0 && view.iq_a &&
-                         std::abs(*view.iq_a) <= 6.0 && view.speed_rad_s &&
-                         std::abs(*view.speed_rad_s) <= 31.416;
-    device_start_button_->setEnabled(device_safe_idle() && device_sequence_ready_ &&
-                                     device_sequence_storage_ok_ && !device_motion_may_run_ &&
-                                     device_bench_ack_->isChecked() &&
+    const bool speed_supported = Device_SupportsSpeed(view);
+    const bool running =
+        speed_supported && device_identity_matches() && feedback && view.motor_state == 6 &&
+        view.control_mode == 2 && view.fault_bits == 0 && view.bus_voltage_v &&
+        *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 && view.bus_current_a &&
+        std::abs(*view.bus_current_a) <= 3.0 && view.iq_a && std::abs(*view.iq_a) <= 6.0 &&
+        view.speed_rad_s && std::abs(*view.speed_rad_s) <= 31.416;
+    device_start_button_->setEnabled(speed_supported && device_safe_idle() &&
+                                     device_sequence_ready_ && device_sequence_storage_ok_ &&
+                                     !device_motion_may_run_ && device_bench_ack_->isChecked() &&
                                      device_command_queued_.isEmpty());
     device_speed_rpm_->setEnabled(running && device_sequence_ready_ &&
                                   device_sequence_storage_ok_ && device_motion_may_run_ &&
@@ -485,13 +486,14 @@ void MaintenanceWindow::refresh_workbench()
     bus_value_->setText(feedback ? number(view.bus_voltage_v, 1) + " V / " +
                                        number(view.bus_current_a, 2) + " A"
                                  : "未知");
-    device_status_->setText(
-        !device_error_.isEmpty() ? device_error_
-        : connected              ? (readable && feedback
-                                        ? (device_identity_matches() ? "身份与状态新鲜；请核对 UID 后确认台架"
-                                                                     : "产品/硬件/schema/ABI 不兼容；控制已禁用")
-                                        : "身份或状态缺失/过期")
-                                 : "未连接");
+    const QString identity_status =
+        !device_identity_matches() ? "产品/硬件/schema/ABI 不兼容；控制已禁用"
+        : speed_supported          ? "身份与状态新鲜；请核对 UID 后确认台架"
+                                   : "设备未声明SPEED或能力过期；可读取、STOP和配套升级";
+    device_status_->setText(!device_error_.isEmpty() ? device_error_
+                            : !connected             ? "未连接"
+                            : readable && feedback   ? identity_status
+                                                     : "身份或状态缺失/过期");
     device_control_status_->setText(
         connected ? (device_control_result_.isEmpty() ? "等待显式操作" : device_control_result_)
                   : "未连接；运动状态未知");

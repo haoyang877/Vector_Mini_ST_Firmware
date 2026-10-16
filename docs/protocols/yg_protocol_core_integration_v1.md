@@ -2,7 +2,7 @@
 
 日期：2026-09-28。H1 文档包。核对基线：`9226df154c1f6bc8eef9ecdd2be920d5a7d0c847`。
 本文件保留 H1 当时的行为和待办，表格中的“当前”仅指该历史基线。
-现行入口为[当前设备发现与支持范围](yg_protocol_device_discovery_v1.md)；
+现行入口为[当前设备发现与支持范围](yg_protocol_device_discovery_v1.md)及[核心SPEED能力v2](yg_protocol_core_speed_caps_v2.md)；
 参数后续已升级 schema12，107 与实际 APPLIED 反馈也已接线，不能以本文旧阶段描述判定缺失。
 后续H3已新增107及120/121/122通信路由/服务绑定，当前行为以
 [参数及清故障接入v1](yg_protocol_parameter_wire_v1.md)为补充；以下表格保留H1阶段边界，

@@ -14,6 +14,7 @@ extern "C"
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -64,6 +65,50 @@ QByteArray reply(uint8_t node, uint16_t type, uint16_t sequence, const QByteArra
         }
     }
     throw std::runtime_error("test reply too large");
+}
+
+QJsonArray caps_vectors()
+{
+    QFile file(":/fixtures/yg_protocol_core_speed_caps_v2_vectors.json");
+    check(file.open(QIODevice::ReadOnly), "SPEED capability golden vectors absent");
+    return QJsonDocument::fromJson(file.readAll()).object().value("vectors").toArray();
+}
+
+QByteArray caps_payload(const QString &name)
+{
+    for (const auto &value : caps_vectors())
+    {
+        const auto vector = value.toObject();
+        if (vector.value("name").toString() == name)
+        {
+            return QByteArray::fromHex(vector.value("payload_hex").toString().toLatin1());
+        }
+    }
+    throw std::runtime_error("unknown capability golden vector");
+}
+
+void speed_capability_checks()
+{
+    for (const auto &value : caps_vectors())
+    {
+        const auto vector = value.toObject();
+        const auto payload = caps_payload(vector.value("name").toString());
+        check(payload.size() == 16, "capability golden payload size");
+        const auto *data = reinterpret_cast<const uint8_t *>(payload.constData());
+        DeviceReadbackView view;
+        view.identity_fresh = true;
+        view.features = YgProtocol_ReadU32Le(data);
+        view.supported_modes = YgProtocol_ReadU16Le(data + 4);
+        check(*view.features == uint32_t(vector.value("features").toInt()) &&
+                  *view.supported_modes == uint16_t(vector.value("supported_modes").toInt()) &&
+                  Device_SupportsSpeed(view) == vector.value("speed_allowed").toBool(),
+              "SPEED capability golden contract mismatch");
+        view.identity_fresh = false;
+        check(!Device_SupportsSpeed(view), "stale capabilities allowed SPEED");
+        view.identity_fresh = true;
+        view.features.reset();
+        check(!Device_SupportsSpeed(view), "missing capabilities allowed SPEED");
+    }
 }
 
 int fake_reader()
@@ -120,7 +165,8 @@ int fake_reader()
             }
             else if (type == 2)
             {
-                YgProtocol_WriteU16Le(data + 6, 64);
+                payload =
+                    caps_payload(scenario.startsWith("caps/") ? scenario.mid(5) : "core_speed");
             }
             else if (type == 3)
             {
@@ -510,6 +556,55 @@ void fake_gui_checks()
           "disconnected UI retained stale identity");
 }
 
+void unsupported_speed_gui_checks()
+{
+    QTemporaryDir directory;
+    const auto dll = directory.filePath("unused.dll");
+    QFile marker(dll);
+    check(marker.open(QIODevice::WriteOnly), "fake capability port marker unavailable");
+    marker.close();
+    for (const auto &value : caps_vectors())
+    {
+        const auto vector = value.toObject();
+        if (vector.value("speed_allowed").toBool())
+        {
+            continue;
+        }
+        qputenv("YG_HOST_FAKE_SCENARIO", ("caps/" + vector.value("name").toString()).toUtf8());
+        MaintenanceWindow window;
+        window.findChild<QLineEdit *>("pythonRuntimePath")
+            ->setText(QCoreApplication::applicationFilePath());
+        window.findChild<QLineEdit *>("canSdkPath")->setText(dll);
+        window.findChild<QPushButton *>("connectDevice")->click();
+        auto *bench = window.findChild<QCheckBox *>("deviceBenchAcknowledged");
+        check(wait_for(
+                  [&]
+                  {
+                      return bench->isEnabled();
+                  },
+                  1500),
+              "GET blocked by missing SPEED");
+        bench->click();
+        check(!window.findChild<QPushButton *>("deviceStartSpeed")->isEnabled() &&
+                  !window.findChild<QPushButton *>("deviceSetSpeed")->isEnabled(),
+              "undeclared SPEED enabled control");
+        auto *stop = window.findChild<QPushButton *>("stopMotor");
+        check(stop->isEnabled(), "missing SPEED disabled STOP");
+        stop->click();
+        check(wait_for(
+                  [&]
+                  {
+                      return window.findChild<QLabel *>("deviceControlStatus")
+                          ->text()
+                          .contains("STOP 结果 0/0");
+                  },
+                  2000),
+              "STOP did not finish without SPEED support");
+        window.findChild<QPushButton *>("disconnectDevice")->click();
+    }
+    qunsetenv("YG_HOST_FAKE_SCENARIO");
+}
+
 void identity_and_sequence_checks(const QString &settings_path)
 {
     const QString uid = "5800460010504E4831303320";
@@ -722,10 +817,12 @@ int main(int argc, char **argv)
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings_directory.path());
     try
     {
+        speed_capability_checks();
         device_readback_checks();
         app_package_checks();
         gui_checks();
         fake_gui_checks();
+        unsupported_speed_gui_checks();
         identity_and_sequence_checks(settings_directory.path());
         std::cout << "host core offline PASS; no hardware access\n";
         return 0;

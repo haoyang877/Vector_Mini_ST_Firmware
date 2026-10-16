@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "message_type": 2,
+  "page": 0,
+  "byte_order": "little",
+  "vectors": [
+    {
+      "name": "core_speed",
+      "features": 7424,
+      "supported_modes": 4,
+      "payload_hex": "001d0000040040002e00000000000000",
+      "speed_allowed": true
+    },
+    {
+      "name": "legacy_get_only",
+      "features": 7168,
+      "supported_modes": 0,
+      "payload_hex": "001c0000000040002e00000000000000",
+      "speed_allowed": false
+    },
+    {
+      "name": "feature_without_mode",
+      "features": 7424,
+      "supported_modes": 0,
+      "payload_hex": "001d0000000040002e00000000000000",
+      "speed_allowed": false
+    },
+    {
+      "name": "mode_without_feature",
+      "features": 7168,
+      "supported_modes": 4,
+      "payload_hex": "001c0000040040002e00000000000000",
+      "speed_allowed": false
+    }
+  ]
+}

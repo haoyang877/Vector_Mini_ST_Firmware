@@ -22,6 +22,14 @@ struct DeviceReadbackView
     bool identity_fresh = false, feedback_fresh = false, stop_confirmed_recently = false;
 };
 
+/**
+ * @brief 核对新鲜能力页是否声明核心SPEED及必需的CAN FD/分片/反馈能力。
+ * @param view 已按来源期限处理的设备快照。
+ * @return 明确支持返回true，缺失、过期或能力不全返回false。
+ * @note 只用于速度START/SET，不作为STOP或升级的准入条件。
+ */
+bool Device_SupportsSpeed(const DeviceReadbackView &view);
+
 /** 单节点、单请求的线路回读所有者；只解析帧，不打开 SDK 或产生功率命令。 */
 class DeviceReadback
 {

@@ -271,19 +271,20 @@ void MaintenanceWindow::queue_device_command(const QString &operation, int rpm)
     }
     else if (device_command_queued_.isEmpty() && device_bench_ack_->isChecked() &&
              operation == "start_speed" && !device_motion_may_run_ && device_safe_idle() &&
-             device_sequence_ready_ && device_sequence_storage_ok_)
+             Device_SupportsSpeed(view) && device_sequence_ready_ && device_sequence_storage_ok_)
     {
         device_command_queued_ = operation;
         device_command_rpm_ = 0;
     }
     else if (device_command_queued_.isEmpty() && operation == "set_speed" &&
-             device_motion_may_run_ && device_identity_matches() && device_sequence_ready_ &&
-             device_sequence_storage_ok_ && view.feedback_fresh && view.motor_state == 6 &&
-             view.control_mode == 2 && view.fault_bits == 0 && view.bus_voltage_v &&
-             *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 && view.bus_current_a &&
-             std::abs(*view.bus_current_a) <= 3.0 && view.iq_a && std::abs(*view.iq_a) <= 6.0 &&
-             view.speed_rad_s && std::abs(*view.speed_rad_s) <= 31.416 &&
-             device_bench_ack_->isChecked() && rpm >= 0 && rpm <= 300)
+             device_motion_may_run_ && device_identity_matches() && Device_SupportsSpeed(view) &&
+             device_sequence_ready_ && device_sequence_storage_ok_ && view.feedback_fresh &&
+             view.motor_state == 6 && view.control_mode == 2 && view.fault_bits == 0 &&
+             view.bus_voltage_v && *view.bus_voltage_v > 0 && *view.bus_voltage_v <= 33.0 &&
+             view.bus_current_a && std::abs(*view.bus_current_a) <= 3.0 && view.iq_a &&
+             std::abs(*view.iq_a) <= 6.0 && view.speed_rad_s &&
+             std::abs(*view.speed_rad_s) <= 31.416 && device_bench_ack_->isChecked() && rpm >= 0 &&
+             rpm <= 300)
     {
         device_command_queued_ = operation;
         device_command_rpm_ = rpm;
@@ -312,6 +313,13 @@ void MaintenanceWindow::issue_device_query()
             return;
         }
         const auto operation = device_command_queued_;
+        if (operation != "stop" && !Device_SupportsSpeed(device_readback_.Device_View(now_ms)))
+        {
+            device_command_queued_.clear();
+            device_control_result_ = "SPEED能力缺失或过期；请求已撤销，可继续STOP或重新查询。";
+            refresh_workbench();
+            return;
+        }
         const uint16_t type = operation == "start_speed" ? 117
                               : operation == "set_speed" ? 116
                                                          : 110;

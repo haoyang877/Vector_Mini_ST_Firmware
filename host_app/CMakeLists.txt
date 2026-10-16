@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(YG_MC_HOST VERSION 1.4.2 LANGUAGES C CXX)
+project(YG_MC_HOST VERSION 1.4.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +62,9 @@ if(BUILD_TESTING)
     qt_add_resources(host_core_test host_test_fixture PREFIX "/fixtures"
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures"
         FILES ../tests/fixtures/loader_image_v3.json)
+    qt_add_resources(host_core_test host_caps_fixture PREFIX "/fixtures"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/../docs/protocols"
+        FILES ../docs/protocols/yg_protocol_core_speed_caps_v2_vectors.json)
     add_test(NAME host_core_offline COMMAND host_core_test)
     set_tests_properties(host_core_offline PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
 endif()

@@ -63,6 +63,14 @@ int expected_dlc(uint32_t logical_size)
 }
 } // namespace
 
+bool Device_SupportsSpeed(const DeviceReadbackView &view)
+{
+    constexpr uint32_t required_features = (1U << 8U) | (1U << 10U) | (1U << 11U) | (1U << 12U);
+    return view.identity_fresh &&
+           (view.features.value_or(0) & required_features) == required_features &&
+           (view.supported_modes.value_or(0) & (1U << 2U)) != 0;
+}
+
 bool DeviceReadback::Device_Reset(uint8_t node)
 {
     if (node == 0 || node == 255)

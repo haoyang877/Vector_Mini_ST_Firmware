@@ -1,16 +1,16 @@
 # 参数所有权与四类配置 v1
 
-更新：2026-10-16。适用当前核心工程。本页描述实际 RAM 和文件归属。
-配置分组不是新增 Flash 格式，
-存储仍使用 [schema12](../protocols/parameter_schema12_loading_policy_v1.md)。
+更新：2026-10-17。适用当前核心工程。本页描述实际RAM和文件归属。
+配置分组保持单份；本次移植在[schema13](../protocols/parameter_schema13_delivery_v1.md)
+尾追加热保护/前馈配置，兼容只读装载有效schema12，不恢复旧交付schema10的运行时迁移。
 
 ## 从哪里修改配置
 
 | 类别 | 默认值入口 | 活动对象与归属 |
 | --- | --- | --- |
 | 硬件 | `platform/api/board_profile_defaults.h`、`current_sense_profile.h`、各平台能力 profile | 编译期只读，平台实现使用；不能通过 CAN 改采样尺度或保护阈值 |
-| 电机 | `motor/motor_profile_defaults.h` | `MotorControlState.model`：极对数、R/L/磁链、电流环整定与标定电流 |
-| 应用 | `services/parameters/application_profile_defaults.h` | `MotorControlState.application`：运行包络、速度/位置外环和轴范围 |
+| 电机 | `motor/motor_profile_defaults.h`、`motor/protection/motor_thermal_config.c` | `MotorControlState.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
+| 应用 | `services/parameters/application_profile_defaults.h`、`motor/foc/speed_feedforward.c` | `MotorControlState.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
 | 设备个体 | `services/parameters/device_profile_defaults.h` | `MotorControlState.device`：节点与三相采样零偏；编码器校准和LUT在EncoderState，生产身份由独立身份页提供 |
 
 板卡与电机选择分别使用 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE`；

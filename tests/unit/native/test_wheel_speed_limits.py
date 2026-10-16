@@ -221,6 +221,20 @@ int main(void) {
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
     assert(motor_state.device.node_id==1U && motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI);
+    /* 运行DEFAULTS保留地址由完整owner夹具验证；本处验证该node7默认配置的真实存储边界。 */
+    motor_state.device.node_id=7U;
+    Param_Upload(&p,&motor_state,&rotor_encoder);
+    assert(p.node_id==7.0f && p.configuration_flags==0U && p.record_crc32==Param_RecordCrc(&p));
+    memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
+    uint8_t default_loader_node=0;
+    assert(LoaderPlatform_Parameters(&default_loader_node)==YI_PARAMS_RAW11 && default_loader_node==7U);
+    Param_Return_Default(&motor_state,&rotor_encoder);
+    assert(motor_state.device.node_id==1U);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(motor_state.device.node_id==7U && !motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
+    assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI);
+    puts("PASS node7 default configuration export/reload/Loader consistency; blank startup still node1");
+    Param_Return_Default(&motor_state,&rotor_encoder);
     Param_Upload(&p,&motor_state,&rotor_encoder);
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);

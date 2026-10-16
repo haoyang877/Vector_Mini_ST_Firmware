@@ -17,7 +17,6 @@
 #include "motor_sensing.h"
 #include "motor_axis.h"
 #include "foc_pid.h"
-#include "encoder_calibration_task.h"
 #include "foc_sensorless_run.h"
 #include "power_stage_hw.h"
 #include "control_math.h"
@@ -1542,9 +1541,9 @@ bool MotorStateMachine_BeginBackground(FocBackgroundClaim *claim)
     if (claim != NULL && !s_context.background_busy && !s_context.stop_pending &&
         !s_context.has_latched_outcome && s_context.rules.state == MOTOR_STATE_MAINTENANCE &&
         s_context.motor->fault_code == MOTOR_FAULT_NONE && power_stage_hw_phases_disabled() &&
-        EncoderCalibrationTask_IsReleased())
+        MotorMaintenance_IsReleased())
     {
-        /* 当前只有 SAVE 使用前台；保留前面的真实关相及任务释放检查顺序。 */
+        /* SAVE只在真实关相且维护任务/工作区均归还后认领前台。 */
         if (s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
             s_context.save_finish == SAVE_FINISH_NONE)
         {

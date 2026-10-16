@@ -84,8 +84,13 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
         MotorOuterLoop_RequestReset();
         return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
     case MOTOR_MAINTENANCE_DEFAULTS:
+    {
+        /* 运行期端点地址已冻结；恢复控制默认值不等于生产改址。 */
+        uint8_t node_id = motor->device.node_id;
         Param_Return_Default(motor, encoder);
+        motor->device.node_id = node_id;
         return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
+    }
     case MOTOR_MAINTENANCE_SAVE:
         return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     default:

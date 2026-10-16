@@ -15,6 +15,7 @@
 #include "indicator_hw.h"
 #include "bus_voltage_profile.h"
 #include "control_math.h"
+#include "maintenance_workspace.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
@@ -190,6 +191,38 @@ static uint32_t begin_maintenance(MotorMaintenanceKind kind)
     return ticket;
 }
 
+/* 运行期恢复默认不能更改已冻结的通信地址；真实维护分发仍调用默认值叶接口。 */
+static void test_defaults_preserves_device_address(void)
+{
+    reset();
+    motor.device.node_id = 7U;
+    uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_DEFAULTS);
+    uint32_t epoch = MotorStateMachine_WorkEpoch();
+    MotorTaskResult outcome = MotorMaintenance_Step(
+        MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
+    assert(outcome.result == MOTOR_TASK_COMPLETED);
+    assert(leaf_calls[MOTOR_MAINTENANCE_DEFAULTS] == 1U && motor.device.node_id == 7U);
+    assert(!motor.configuration_confirmed && encoder.calib_flag == 0U && output_off);
+    MotorStateMachine_PostOutcome(outcome, epoch);
+    tick();
+    MotorMaintenanceProgress progress;
+    assert(MotorStateMachine_ReadMaintenance(ticket, &progress));
+    assert(progress.result == MOTOR_MAINTENANCE_COMPLETED &&
+           progress.effects == MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED);
+    tick();
+    assert(MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_SAVE);
+    uint32_t save_ticket = MotorStateMachine_WorkEpoch();
+    FocBackgroundClaim claim;
+    assert(MotorStateMachine_BeginBackground(&claim));
+    MotorStateMachine_FinishBackground(&claim, true);
+    tick();
+    assert(MotorStateMachine_ReadMaintenance(save_ticket, &progress) &&
+           progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
+    assert(motor.device.node_id == 7U && output_off && motor.control_mode == MOTOR_CONTROL_NONE);
+    puts("PASS runtime DEFAULTS and derived SAVE retain node7 while clearing "
+         "confirmation/calibration");
+}
+
 static void test_control(void)
 {
     reset();
@@ -357,6 +390,11 @@ static void test_calibration_save(void)
     assert((MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_SAVE));
     save = MotorStateMachine_WorkEpoch();
     FocBackgroundClaim claim;
+    assert(EncoderCalibrationTask_IsReleased());
+    assert(MaintenanceWorkspace_BorrowEncoder() != NULL);
+    assert(!MotorStateMachine_BeginBackground(&claim));
+    assert(!MaintenanceWorkspace_IsReleased());
+    MaintenanceWorkspace_ReleaseEncoder();
     assert(MotorStateMachine_BeginBackground(&claim) && claim.kind == FOC_BACKGROUND_SAVE);
     assert(MotorStateMachine_BackgroundValid(&claim));
     MotorStateMachine_FinishBackground(&claim, true);
@@ -1114,6 +1152,7 @@ static void test_rejected_start_does_not_bind_source(void)
 
 int main(void)
 {
+    test_defaults_preserves_device_address();
     test_rejected_start_does_not_bind_source();
     test_direct_fault_recovery_and_idle_stop();
     test_target_admission_boundaries();
@@ -1182,7 +1221,9 @@ void MotorOuterLoop_RequestReset(void)
 }
 void Param_Return_Default(MotorControlState *m, EncoderState *e)
 {
-    (void)m;
-    (void)e;
+    /* 保留生产默认值接口的本次相关副作用；实际参数记录另由装载夹具验证。 */
+    m->device.node_id = 1U;
+    m->configuration_confirmed = false;
+    e->calib_flag = 0U;
     ++leaf_calls[MOTOR_MAINTENANCE_DEFAULTS];
 }

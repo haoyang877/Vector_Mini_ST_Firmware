@@ -131,6 +131,17 @@ static int check_task_cleanup(void)
         motor.application.current_limit_a = 6.0f;
         encoder.has_valid_sample = true;
         EncoderCalibrationTask_StepLut(&foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+        /* 先走完对齐前段的64拍准备；不采原点，避免后续反例被未清完门禁遮蔽。 */
+        for (unsigned tick = 1U; tick < (ENCODER_OFFSET_LUT_SIZE + 15U) / 16U; ++tick)
+        {
+            startup.state_ticks = tick;
+            MotorTaskResult prepared = EncoderCalibrationTask_StepLut(
+                &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+            if (prepared.result != MOTOR_TASK_RUNNING)
+            {
+                return 36;
+            }
+        }
         /* 准备控制残值，确保错误码上报、复位及工作区释放不会因原本为零而漏检。 */
         motor.speed_target_rad_s = motor.speed_ramped_rad_s = 15.0f;
         motor.id_target_a = motor.iq_target_a = 2.0f;
@@ -338,6 +349,22 @@ static int check_complete_task_trace(void)
                     SensorlessStartup_EncoderCalibConfig.align_hold_time_s -
                     SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) /
                    Current_Ts);
+    /* 首拍已清16 bin；其余63拍仍在原对齐采样窗口之前，保留下面原8个原点样本。 */
+    for (unsigned tick = 1U; tick < (ENCODER_OFFSET_LUT_SIZE + 15U) / 16U; ++tick)
+    {
+        if (tick >= align_ticks)
+        {
+            return 36;
+        }
+        startup.state_ticks = tick;
+        result = EncoderCalibrationTask_StepLut(
+            &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+        if (result.result != MOTOR_TASK_RUNNING)
+        {
+            return 36;
+        }
+        hash_tick(result, &motor, &encoder, workspace);
+    }
     for (unsigned tick = 0U; tick < 8U; ++tick)
     {
         startup.state_ticks = align_ticks + tick;
@@ -440,7 +467,7 @@ static int check_complete_task_trace(void)
 int main(void)
 {
     if (sizeof(EncoderCalibrationWorkspace) != MAINTENANCE_WORKSPACE_CAPACITY_BYTES ||
-        sizeof(InterfaceParam) != 4304U || !MaintenanceWorkspace_IsReleased())
+        sizeof(InterfaceParam) != 4352U || !MaintenanceWorkspace_IsReleased())
     {
         return 1;
     }

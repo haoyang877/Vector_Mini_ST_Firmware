@@ -179,9 +179,14 @@ bool comm_hw_can_service_bus_off(void)
         (void)HAL_FDCAN_AbortTxRequest(&hfdcan1, tracked_tx.buffer_mask);
     }
     critical_hw_exit(state);
-    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+    /* 硬件bus-off不改变HAL的BUSY状态，必须先Stop完成生命周期转换。 */
+    if (hfdcan1.State == HAL_FDCAN_STATE_BUSY && HAL_FDCAN_Stop(&hfdcan1) != HAL_OK)
     {
-        Error_Handler();
+        return false;
+    }
+    if (hfdcan1.State != HAL_FDCAN_STATE_READY || HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+    {
+        return false;
     }
     return true;
 }

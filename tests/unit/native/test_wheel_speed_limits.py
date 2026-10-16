@@ -46,6 +46,10 @@ bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
         (ROOT / "docs/protocols/parameter_schema12_vectors.json").read_text(encoding="utf-8")
     )
     prelude += f"\n#define PARAM_RECORD_GOLDEN_CRC {vectors['vectors'][0]['crc32']}U\n"
+    vectors13 = json.loads(
+        (ROOT / "docs/protocols/parameter_schema13_vectors.json").read_text(encoding="utf-8")
+    )
+    prelude += f"\n#define PARAM_RECORD13_GOLDEN_CRC {vectors13['vectors'][0]['crc32']}U\n"
     utils = (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
     prelude += (
@@ -142,7 +146,7 @@ int main(void) {
     puts("PASS AXS only narrows application and never overrides node; fractional addresses rejected by APP/Loader");
     /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
     {
-        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,13,UINT32_MAX};
+        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,14,UINT32_MAX};
         for(unsigned i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
             p=saved; p.schema_version=rejected[i];
             p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
@@ -166,9 +170,10 @@ int main(void) {
     p.can_hb=NAN;
     p.cascade_pos_kp=.07f; p.cascade_pos_kd=.6f; p.speed_kp=.023f;
     {
-        const uint8_t schema_bytes[] = {0x0c,0,0,0};
+        const uint8_t schema_bytes[] = {0x0d,0,0,0};
         const uint8_t magic_bytes[] = {0x32,0x43,0x4e,0x45};
-        assert(sizeof(p)==4304 && offsetof(InterfaceParam,schema_version)==2160);
+        assert(sizeof(p)==4352 && offsetof(InterfaceParam,schema_version)==2160);
+        assert(offsetof(InterfaceParam,thermal)==4304);
         assert(offsetof(InterfaceParam,magic_word)==2164);
         assert(offsetof(InterfaceParam,can_hb)==2156);
         assert(offsetof(InterfaceParam,configuration_flags)==2136);
@@ -218,6 +223,8 @@ int main(void) {
     memset(&p,0,sizeof(p)); p.schema_version=12U; p.magic_word=MAGIC_WORD;
     assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
     p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
+    p.schema_version=13U;
+    assert(Param_RecordCrc(&p)==PARAM_RECORD13_GOLDEN_CRC);
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
     assert(motor_state.device.node_id==1U && motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI);
@@ -257,6 +264,30 @@ int main(void) {
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.device.node_id==1U && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     puts("PASS independent schema12 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
+    /* 旧schema12只读装载；尾部随机值不得应用，保存才升级13。 */
+    p=saved; p.schema_version=12U;
+    memset((uint8_t *)&p+4304,0xff,sizeof(p)-4304);
+    p.record_crc32=Param_RecordCrc(&p); InterfaceParam old12=p;
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
+    assert(motor_state.device.node_id==(uint8_t)p.node_id);
+    assert(motor_state.model.thermal.continuous_vector_a==3.0f);
+    assert(!motor_state.application.speed_feedforward.enabled);
+    assert(memcmp(&p,&old12,sizeof(p))==0);
+    motor_state.model.thermal.peak_a=6.0f;
+    motor_state.application.speed_feedforward.enabled=true;
+    motor_state.application.speed_feedforward.gain_a_per_rad_s2=.04f;
+    Param_Upload(&p,&motor_state,&rotor_encoder);
+    assert(p.schema_version==13U && p.thermal.peak_a==6.0f && p.speed_feedforward_enabled==1U);
+    Param_Return_Default(&motor_state,&rotor_encoder);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(motor_state.model.thermal.peak_a==6.0f);
+    assert(motor_state.application.speed_feedforward.enabled);
+    assert(motor_state.application.speed_feedforward.gain_a_per_rad_s2==.04f);
+    p.thermal.peak_a=NAN; p.record_crc32=Param_RecordCrc(&p);
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT && !motor_state.configuration_confirmed);
+    puts("PASS schema12 bounded read and schema13 thermal/feedforward roundtrip; invalid extension rejected");
     return 0;
 }
 """
@@ -294,6 +325,9 @@ def main():
         str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
+        str(ROOT / "firmware/motor/protection/motor_thermal.c"),
+        str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
+        str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
         "-o",
         str(exe),
     ]

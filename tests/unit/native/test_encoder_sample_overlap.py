@@ -30,6 +30,7 @@ def _transport_source() -> str:
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include "encoder_spi.h"
 #define __IO volatile
 #define __NOP() ((void)0)
 #define SPI_CR1_SPE 64U
@@ -43,7 +44,7 @@ static SPI_TypeDef registers;
 typedef struct { SPI_TypeDef *Instance; } SPI_HandleTypeDef;
 static SPI_HandleTypeDef hspi2 = { &registers };
 #define ENCODER_SPI_HANDLE hspi2
-static unsigned cs, hiz, begins, ends, commands, receives, completes, fail;
+static unsigned cs, hiz, begins, ends, commands, receives, completes, read_starts, fail;
 static uint16_t response;
 static void select_sensor(void) { assert(!cs); cs = 1; begins++; }
 static void release_sensor(void) { assert(cs && !hiz); cs = 0; ends++; }
@@ -55,8 +56,16 @@ static bool SPI_WaitBSYClear(SPI_TypeDef *s, uint32_t limit) {
     assert(s == &registers && limit == 340U); return true;
 }
 static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *s, bool *ok) {
-    assert(s == &registers && cs && !hiz && s->DR == 0x8021U);
+    assert(s == &registers && cs);
+    if (hiz) {
+        receives++; *ok = fail != 2; return response;
+    }
+    assert(s->DR == 0x8021U);
     completes++; *ok = fail != 1; return 0;
+}
+static bool SPI_Reg_StartTx16(SPI_TypeDef *s, uint16_t data) {
+    assert(s == &registers && cs && hiz && data == 0U);
+    read_starts++; return fail != 3;
 }
 static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *s, uint16_t data, bool *ok) {
     assert(s == &registers && cs);
@@ -65,6 +74,8 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *s, uint16_t data, bool *ok) {
 }
 """
         + function_source(source, "encoder_spi_read_begin")
+        + "\n"
+        + function_source(source, "encoder_spi_read_begin_readback")
         + "\n"
         + function_source(source, "encoder_spi_read_complete")
         + r"""
@@ -80,25 +91,38 @@ int main(void) {
         assert(registers.DR == (started ? 0x8021U : 0x55U));
         cases++;
     }
-    for (pipeline = 0; pipeline < 2; pipeline++) for (failure = 0; failure < 3; failure++) {
+    for (pipeline = 0; pipeline < 3; pipeline++) for (failure = 0; failure < 4; failure++) {
+        if (failure == 3 && pipeline != 2) continue;
         for (word = 0; word < 65536U; word += 257U) {
             uint16_t out = 0x1357U;
             bool started, ok;
-            cs = hiz = begins = ends = commands = receives = completes = 0;
+            uint8_t stage;
+            cs = hiz = begins = ends = commands = receives = completes = read_starts = 0;
             fail = failure; response = (uint16_t)word;
             registers.CR1 = SPI_CR1_SPE; registers.SR = pipeline ? SPI_FLAG_TXE : SPI_FLAG_BSY;
-            started = encoder_spi_read_begin(0x8021U);
-            assert(started == (bool)pipeline);
-            /* 采样/保护可在此期间执行，但不得访问同一总线。 */
-            ok = encoder_spi_read_complete(started, 0x8021U, 0U, &out);
+            stage = started = encoder_spi_read_begin(0x8021U);
+            assert(started == (pipeline != 0));
+            if (pipeline == 2) {
+                stage = encoder_spi_read_begin_readback(started, 0U);
+                assert(stage == (failure == 1 || failure == 3 ? ENCODER_SPI_READ_FAILED
+                                                            : ENCODER_SPI_READ_RESPONSE_PENDING));
+                assert(cs && (hiz == (failure != 1 && failure != 3)));
+                assert(receives == 0); /* 此处仅发起响应，不能提前等读。 */
+            } else if (!pipeline) {
+                assert(encoder_spi_read_begin_readback(false, 0U) == ENCODER_SPI_READ_SYNC);
+                assert(!cs && !hiz && completes == 0 && read_starts == 0);
+            }
+            /* 保护/观测器计算可在此重叠，但不得再次访问总线。 */
+            ok = encoder_spi_read_complete(stage, 0x8021U, 0U, &out);
             assert(ok == (failure == 0) && !cs && !hiz && begins == 1 && ends == 1);
-            assert(commands == (pipeline ? 0U : 1U) && completes == pipeline);
-            assert(receives == (failure == 1 ? 0U : 1U));
+            assert(commands == (pipeline ? 0U : 1U) && completes == (unsigned)(pipeline != 0));
+            assert(receives == (failure == 1 || failure == 3 ? 0U : 1U));
+            assert(read_starts == (unsigned)(pipeline == 2 && failure != 1));
             assert(out == (failure ? 0x1357U : (uint16_t)word));
             cases++;
         }
     }
-    printf("PASS %u encoder transport cases: bus-ready check, CS/HiZ order, fallback, both failures, cleanup\n", cases);
+    printf("PASS %u encoder transport cases: sync/command/response, both RX failures, start failure, cleanup\n", cases);
     return 0;
 }
 """
@@ -121,14 +145,19 @@ def _channel_source() -> str:
 #define TLE5012B_READ_FRAME 0x0000U
 static unsigned begin_calls, complete_calls;
 static unsigned last_begin_frame, last_request_frame, last_read_frame;
-static bool begin_result, complete_result, seen_begin_ok;
+static bool begin_result, complete_result;
+static uint8_t seen_stage;
+static unsigned readback_calls;
 static uint16_t complete_response;
 bool encoder_spi_read_begin(uint16_t request_frame) {
     begin_calls++; last_begin_frame = request_frame; return begin_result;
 }
-bool encoder_spi_read_complete(bool begin_ok, uint16_t request_frame, uint16_t read_frame,
+uint8_t encoder_spi_read_begin_readback(bool begin_ok, uint16_t read_frame) {
+    assert(begin_ok && read_frame == 0U); readback_calls++; return 2U;
+}
+bool encoder_spi_read_complete(uint8_t stage, uint16_t request_frame, uint16_t read_frame,
                                uint16_t *word) {
-    complete_calls++; seen_begin_ok = begin_ok;
+    complete_calls++; seen_stage = stage;
     last_request_frame = request_frame; last_read_frame = read_frame;
     if (!complete_result) return false;
     *word = complete_response; return true;
@@ -140,6 +169,8 @@ void encoder_sensor_capture_config(void) {}
         + "\n"
         + function_source(source, "encoder_sensor_begin")
         + "\n"
+        + function_source(source, "encoder_sensor_begin_readback")
+        + "\n"
         + function_source(source, "encoder_sensor_complete")
         + "\n"
         + function_source(source, "encoder_sensor_type")
@@ -147,22 +178,26 @@ void encoder_sensor_capture_config(void) {}
 static void reset(unsigned pipeline, unsigned fail) {
     begin_calls = complete_calls = 0;
     last_begin_frame = last_request_frame = last_read_frame = 0;
-    begin_result = pipeline != 0; complete_result = fail == 0; seen_begin_ok = false;
+    begin_result = pipeline != 0; complete_result = fail == 0; seen_stage = 0xFFU;
+    readback_calls = 0;
 }
 int main(void) {
     EncoderSensorSample s;
     unsigned word, cases = 0;
     assert(encoder_sensor_type() == ENCODER_SENSOR_TYPE_TLE5012B);
-    for (unsigned pipeline = 0; pipeline < 2; pipeline++) {
+    for (unsigned pipeline = 0; pipeline < 3; pipeline++) {
         for (unsigned fail = 0; fail < 2; fail++) {
             for (word = 0; word < 65536U; word += 257U) {
                 s.angle_q15 = 0x1357U; s.status = ENCODER_SENSOR_SENSOR_FAULT;
                 reset(pipeline, fail); complete_response = (uint16_t)word;
-                assert(encoder_sensor_begin() == (bool)pipeline);
+                assert(encoder_sensor_begin() == (pipeline != 0));
                 assert(begin_calls == 1 && last_begin_frame == 0x8021U);
-                assert(encoder_sensor_complete(pipeline != 0, &s)
+                uint8_t stage = pipeline != 0;
+                if (pipeline == 2) stage = encoder_sensor_begin_readback(true);
+                assert(encoder_sensor_complete(stage, &s)
                        == (fail == 0 ? ENCODER_SENSOR_OK : ENCODER_SENSOR_BUS_TIMEOUT));
-                assert(complete_calls == 1 && seen_begin_ok == (pipeline != 0));
+                assert(complete_calls == 1 && seen_stage == stage);
+                assert(readback_calls == (unsigned)(pipeline == 2));
                 assert(last_request_frame == 0x8021U && last_read_frame == 0U);
                 if (fail == 0) {
                     assert(s.angle_q15 == (uint16_t)((word & 0x7FFFU) << 1U));
@@ -209,13 +244,16 @@ static unsigned begin_calls;
 static EncoderSensorStatus complete_status;
 static EncoderSensorSample complete_sample;
 bool encoder_sensor_begin(void) { begin_calls++; return true; }
-EncoderSensorStatus encoder_sensor_complete(bool started, EncoderSensorSample *out) {
-    (void)started;
+uint8_t encoder_sensor_begin_readback(bool started) { assert(started); return 2U; }
+EncoderSensorStatus encoder_sensor_complete(uint8_t stage, EncoderSensorSample *out) {
+    (void)stage;
     *out = complete_sample;
     return complete_status;
 }
 """
         + function_source(source, "Encoder_BeginSample")
+        + "\n"
+        + function_source(source, "Encoder_BeginReadback")
         + "\n"
         + function_source(source, "encoder_map_sensor_status")
         + "\n"
@@ -244,6 +282,7 @@ static void expect(EncoderSensorStatus status, EncoderReadStatus expected, bool 
 int main(void) {
     begin_calls = 0;
     assert(Encoder_BeginSample() && begin_calls == 1);
+    assert(Encoder_BeginReadback(true) == 2U);
     expect(ENCODER_SENSOR_OK, ENCODER_READ_OK, true);
     expect(ENCODER_SENSOR_BUS_TIMEOUT, ENCODER_READ_SPI_TIMEOUT, false);
     expect(ENCODER_SENSOR_FRAME_ERROR, ENCODER_READ_CRC_MISMATCH, false);
@@ -269,9 +308,9 @@ def _register_read_source() -> str:
 static unsigned complete_calls;
 static bool complete_begin_ok, complete_result;
 static uint16_t complete_request, complete_read_frame, complete_response;
-bool encoder_spi_read_complete(bool begin_ok, uint16_t request_frame, uint16_t read_frame,
+bool encoder_spi_read_complete(uint8_t stage, uint16_t request_frame, uint16_t read_frame,
                                uint16_t *word) {
-    complete_calls++; complete_begin_ok = begin_ok;
+    complete_calls++; complete_begin_ok = stage != 0;
     complete_request = request_frame; complete_read_frame = read_frame;
     if (!complete_result) return false;
     *word = complete_response; return true;

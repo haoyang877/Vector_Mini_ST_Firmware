@@ -121,7 +121,20 @@ class UpgradeClientTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(dir=ROOT / "outputs")
         cls.directory = Path(cls.temp.name)
         raw = cls.directory / "source.bin"
-        raw.write_bytes(bytes.fromhex(vector["source_hex"]))
+        image = bytearray.fromhex(vector["source_hex"])
+        target = json.loads(
+            (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
+        )["constants"]
+        descriptor = int(target["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
+        struct.pack_into(
+            ">I", image, descriptor + 28, int(target["TARGET_APP_VERSION"].rstrip("U"), 0)
+        )
+        struct.pack_into(
+            ">I", image, descriptor + 36, int(target["TARGET_PARAM_ABI"].rstrip("U"), 0)
+        )
+        schema = int(target["TARGET_SCHEMA"].rstrip("U"), 0)
+        struct.pack_into(">HH", image, descriptor + 40, schema, schema)
+        raw.write_bytes(image)
         subprocess.run(
             [
                 sys.executable,

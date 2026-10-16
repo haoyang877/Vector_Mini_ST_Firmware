@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "axis_config.h"
+#include "motor_thermal_config.h"
+#include "speed_feedforward.h"
 
 /** @brief 电机物理模型与电流环整定；识别任务成功后由所有者提交。 */
 typedef struct
@@ -16,6 +18,7 @@ typedef struct
     float motor_flux_wb;
     float calibration_current_a;
     float id_kp, id_ki, iq_kp, iq_ki;
+    MotorWindingThermalConfig thermal;
 } MotorModelConfig;
 
 /** @brief 应用运行包络、轨迹和外环整定；不含命令目标或 PI 积分状态。 */
@@ -27,6 +30,7 @@ typedef struct
     float speed_ceiling_rad_s;
     float speed_acceleration_rad_s2, speed_deceleration_rad_s2;
     float speed_kp, speed_ki;
+    SpeedFeedforwardConfig speed_feedforward;
     float position_error_window_rad;
     float position_acceleration_rad_s2, position_deceleration_rad_s2;
     float position_maximum_speed_rad_s;

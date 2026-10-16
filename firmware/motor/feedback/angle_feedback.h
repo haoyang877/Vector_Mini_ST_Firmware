@@ -124,16 +124,24 @@ void Encoder_Update(MotorControlState *motor_state, EncoderState *encoder);
 bool Encoder_BeginSample(void);
 
 /**
+ * @brief 推进本拍角度读取到响应阶段，不等待数据帧完成。
+ * @param sample_started 本拍Encoder_BeginSample返回值，仅推进一次。
+ * @return 不透明事务阶段，必须原样传给Encoder_CompleteSample。
+ * @note 仅20 kHz快环独占传感器总线；故障路径也必须完成本帧。
+ */
+uint8_t Encoder_BeginReadback(bool sample_started);
+
+/**
  * @brief 完成本周期角度采样：方向/LUT 校正与电角度更新（20 kHz 快路径）。
  * @param motor_state 电机控制状态指针，读取极对数。
  * @param encoder 编码器状态指针。
- * @param sample_started Encoder_BeginSample() 的返回值；false 时走同步兜底读取。
+ * @param sample_stage 本拍BeginSample的0/1返回值或BeginReadback阶段；0时同步兜底。
  * @note 与 BeginSample 由同一调用方配对执行，故障路径也必须调用；本函数不更新
  *       多圈/机械角/速度，这些慢状态由 Encoder_UpdateSlowEstimate() 独占写入。
  */
 void Encoder_CompleteSample(MotorControlState *motor_state,
                             EncoderState *encoder,
-                            bool sample_started);
+                            uint8_t sample_stage);
 
 /**
  * @brief 执行一次 2 kHz 编码器慢估计：多圈累积与机械角。

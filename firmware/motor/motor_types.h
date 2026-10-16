@@ -28,6 +28,7 @@ typedef enum
     MOTOR_FAULT_COGGING_CALIBRATION,
     MOTOR_FAULT_TEMPERATURE_SENSOR,
     MOTOR_FAULT_SELF_TEST_TIMEOUT,
+    MOTOR_FAULT_WINDING_THERMAL,
 } MotorFaultCode;
 
 /** @brief 活动配置来源；回退默认值不等于用户已确认电机配置。 */
@@ -55,6 +56,10 @@ typedef struct
     float phase_resistance_spread_pct;
     bool phase_resistance_valid, phase_resistance_warning, phase_resistance_balanced;
     bool uses_sensorless_feedback;
+    /* 快环发布的动态热边界；配置值不被降额覆盖，保护层只读恢复事实。 */
+    float thermal_current_limit_a;
+    bool thermal_limit_active;
+    bool thermal_clear_ready;
 
     float id_target_a, iq_target_a, vq_target_v;
     bool uses_speed_ramp;

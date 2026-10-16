@@ -7,18 +7,21 @@
 - [软件框图、紧凑流程图与内存分配](../docs/architecture/loader/loader_product_v3.md)
 - [升级线路、设备身份页及容器v3](../docs/protocols/yg_protocol_upgrade_wire_v3.md)
 - [实施、验收与回退计划](../docs/plans/active/2026-09-29-loader-p0-p1-v1.md)
+- [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)
 - `core/`：单事务、5s租约、主机nonce/session与精确ACTIVATE发送票据。
 - `runtime/`：安全启动、50ms窗口、现场校验、GET_INFO与升级路由。
 - `ports/`、`boards/`：固定APP写域、ECC读取、CAN物理事件、复位和跳转。
 - `targets/`：独立Keil工程及20KiB Loader/92KiB APP/16KiB参数布局。
 - `tools/package_image.py`：96B描述符回填、CRC与目标检查；原始占位BIN不能直接升级。
+- `tools/build/keil_loader_app.py`：LoaderApp Keil 构建后生成可直下的调试 AXF/HEX/BIN，
+  同时生成标记未激活的 CAN 升级包；两者用途不同。
 - `tools/factory_identity.py`：独立生产页的SN/电机类型；默认只生成文件，显式SWD写入需
-  备份、UID及数字关相核对，CAN没有生产写命令。CAN ID继续由schema12参数所有者管理。
+  备份、UID及数字关相核对，CAN没有生产写命令。CAN ID由当前参数 schema 所有者管理。
 
 目标清单修改后运行`python loader/tools/generate_target.py`及
 `python tools/build/generate_loader_app_project.py`；只生成工程输入，不构建或下载。
 `python tools/run.py build_loader_bundle --uv4 ... --fromelf ... --token ... --output outputs/...`
-独立构建两端并冻结工件、版本、schema12和SHA256。默认只产出debug候选，
+独立构建两端并冻结工件、版本、当前 schema 和 SHA256。默认只产出 debug 候选，
 `release_approved=false`；需完成当前release与台架验收后再按[发布规范](../docs/guides/firmware_release_standard.md)发布。
 
 升级工具：`python host_app/upgrade_client.py inspect --package outputs/.../app-package`为离线检查；

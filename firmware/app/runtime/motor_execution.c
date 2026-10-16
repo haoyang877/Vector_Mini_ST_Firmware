@@ -6,6 +6,7 @@
 #include "foc_sensorless.h"
 #include "foc_speed.h"
 #include "motor_axis_profile.h"
+#include "motor_thermal_control.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 
@@ -135,7 +136,12 @@ static bool position_mode_update_control(const MotorControlState *motor,
     config.speed_kp = motor->application.speed_kp;
     config.speed_ki = motor->application.speed_ki;
     config.current_limit_a = motor->application.current_limit_a;
-    return PositionCascade_UpdateControl(&config, position_rad, speed_rad_s, output);
+    return PositionCascade_UpdateControlLimited(
+        &config,
+        position_rad,
+        speed_rad_s,
+        MotorThermalControl_CurrentLimit(motor->application.current_limit_a),
+        output);
 }
 
 /* OUTER_RUNTIME_BEGIN
@@ -147,6 +153,7 @@ static struct
     volatile bool reset_requested;
     bool ready;
     MotorControlMode mode;
+    SpeedFeedforwardState speed_feedforward;
 } s_outer;
 
 void MotorOuterLoop_RequestReset(void)
@@ -227,10 +234,13 @@ void MotorOuterLoop_SlowTick(MotorControlState *m, PiController *pi, EncoderStat
     if (s_outer.reset_requested)
     {
         PositionCascade_Reset();
+        SpeedFeedforward_Reset(&s_outer.speed_feedforward);
         s_outer.reset_requested = false;
     }
     if (!active || m->fault_code != MOTOR_FAULT_NONE)
     {
+        SpeedFeedforward_Reset(&s_outer.speed_feedforward);
+        s_outer.ready = false;
         return;
     }
     if (!motor_outer_loop_inputs_valid(m, position, speed))
@@ -240,6 +250,7 @@ void MotorOuterLoop_SlowTick(MotorControlState *m, PiController *pi, EncoderStat
         m->iq_target_a = 0.0f;
         s_outer.ready = false;
         PositionCascade_Reset();
+        SpeedFeedforward_Reset(&s_outer.speed_feedforward);
         return;
     }
 
@@ -268,8 +279,19 @@ void MotorOuterLoop_SlowTick(MotorControlState *m, PiController *pi, EncoderStat
     }
     else
     {
-        SpeedMode_UpdateControl(m, pi, speed);
-        s_outer.ready = true;
+        s_outer.ready = SpeedMode_UpdateOuterControl(
+            m,
+            pi,
+            &s_outer.speed_feedforward,
+            speed,
+            MotorThermalControl_CurrentLimit(m->application.current_limit_a));
+        if (!s_outer.ready)
+        {
+            MotorFault_Report(m, MOTOR_FAULT_INVALID_PARAMETERS);
+            m->id_target_a = 0.0f;
+            m->iq_target_a = 0.0f;
+            SpeedFeedforward_Reset(&s_outer.speed_feedforward);
+        }
     }
 }
 /* OUTER_RUNTIME_END */

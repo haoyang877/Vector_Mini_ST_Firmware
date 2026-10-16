@@ -14,29 +14,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from project_paths import ROOT
 
 
-def main() -> None:
-    """读取原始APP BIN，补齐8B尾部，回填长度与整包CRC32并生成清单。"""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app-bin", type=Path, required=True)
-    parser.add_argument("--token", type=lambda value: int(value, 0), required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    if not 1 <= args.token <= 0xFFFFFFFF:
-        parser.error("token必须为非零u32，不能复用当前镜像事务的token")
-    target = json.loads(
-        (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
-    )
+def build_package(source: bytes, token: int, target: dict) -> tuple[bytes, bytes, dict]:
+    """按共同目标生成未激活的 CAN 镜像和清单；不访问磁盘或硬件。"""
+    if not 1 <= token <= 0xFFFFFFFF:
+        raise ValueError("token必须为非零u32，不能复用当前镜像事务的token")
     constants = target["constants"]
 
     def value(name: str) -> int:
         """读取目标中的无符号数值常量。"""
         return int(constants[name].rstrip("U"), 0)
 
-    image = bytearray(args.app_bin.read_bytes())
+    image = bytearray(source)
     source_sha256 = hashlib.sha256(bytes(image)).hexdigest()
     offset = value("TARGET_DESCRIPTOR_OFFSET")
     if len(image) < offset + 96 or len(image) > value("TARGET_APP_BYTES"):
-        parser.error("APP长度不在当前槽范围内；不能截断固件适配容量")
+        raise ValueError("APP长度不在当前槽范围内；不能截断固件适配容量")
     words = struct.unpack(">10I2HI16s", bytes(image[offset : offset + 64]))
     expected = (
         0x59494431,
@@ -48,22 +40,22 @@ def main() -> None:
         value("TARGET_HARDWARE"),
     )
     if words[:7] != expected or words[9] != value("TARGET_PARAM_ABI"):
-        parser.error("内嵌描述符目标不匹配；重新用Loader布局工程构建，不在打包时修补")
+        raise ValueError("内嵌描述符目标不匹配；重新用Loader布局工程构建，不在打包时修补")
     role = words[8]
     # 44..47长度与48..63（含CRC占位）在链接后必须保持零，由本工具回填。
     if role != 1 or words[12] != 0 or words[13] != bytes(16):
-        parser.error("描述符长度/CRC占位非零或角色不合法；v3仅支持普通APP")
+        raise ValueError("描述符长度/CRC占位非零或角色不合法；v3仅支持普通APP")
     if image[offset + 64 : offset + 96] != b"\xff" * 24 + bytes(8):
-        parser.error("持久标记不是原始擦除态；禁止重新打包已激活固件")
+        raise ValueError("持久标记不是原始擦除态；禁止重新打包已激活固件")
     if words[7] != value("TARGET_APP_VERSION"):
-        parser.error("APP版本与冻结目标不一致；重新构建配套APP")
+        raise ValueError("APP版本与冻结目标不一致；重新构建配套APP")
     if not words[10] <= value("TARGET_SCHEMA") <= words[11]:
-        parser.error("描述符不接受当前参数schema")
+        raise ValueError("描述符不接受当前参数schema")
     while len(image) % 8 != 0:
         image.append(0xFF)
     image_bytes = len(image)
     if image_bytes > value("TARGET_APP_BYTES"):
-        parser.error("补齐后APP超过当前槽；不能截断固件适配容量")
+        raise ValueError("补齐后APP超过当前槽；不能截断固件适配容量")
     struct.pack_into(">I", image, offset + 44, image_bytes)
     image[offset + 48 : offset + 52] = b"\x00\x00\x00\x00"
     crc = zlib.crc32(bytes(image)) & 0xFFFFFFFF
@@ -77,7 +69,7 @@ def main() -> None:
         <= (entry & ~1)
         < value("TARGET_APP_BASE") + image_bytes
     ):
-        parser.error("向量表不属于当前APP/RAM槽，或入口落入描述符/补齐区")
+        raise ValueError("向量表不属于当前APP/RAM槽，或入口落入描述符/补齐区")
     digest = struct.pack(">I", crc) + bytes(28)
     manifest = struct.pack(
         ">11I2H32sI12s",
@@ -88,7 +80,7 @@ def main() -> None:
         value("TARGET_PRODUCT"),
         value("TARGET_HARDWARE"),
         words[7],
-        args.token,
+        token,
         image_bytes,
         role,
         value("TARGET_PARAM_ABI"),
@@ -98,12 +90,6 @@ def main() -> None:
         0,
         bytes(12),
     )
-    output = args.output.resolve()
-    if not output.is_relative_to((ROOT / "outputs").resolve()):
-        parser.error("生成包必须放在本工作树outputs目录")
-    output.mkdir(parents=True, exist_ok=False)
-    (output / "image.bin").write_bytes(bytes(image))
-    (output / "manifest.bin").write_bytes(manifest)
     metadata = {
         "format": "loader-image-v3-crc32",
         "target": target["target"],
@@ -116,12 +102,35 @@ def main() -> None:
         "layout": value("TARGET_LAYOUT"),
         "parameter_schema": value("TARGET_SCHEMA"),
         "image_version": words[7],
-        "image_token": args.token,
+        "image_token": token,
         "image_role": role,
         "authentication": "integrity_only",
         "validation": "not_run",
         "release_approved": False,
     }
+    return bytes(image), manifest, metadata
+
+
+def main() -> None:
+    """读取原始APP BIN，生成未激活的 CAN 升级包。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--app-bin", type=Path, required=True)
+    parser.add_argument("--token", type=lambda value: int(value, 0), required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    target = json.loads(
+        (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
+    )
+    try:
+        image, manifest, metadata = build_package(args.app_bin.read_bytes(), args.token, target)
+    except ValueError as exc:
+        parser.error(str(exc))
+    output = args.output.resolve()
+    if not output.is_relative_to((ROOT / "outputs").resolve()):
+        parser.error("生成包必须放在本工作树outputs目录")
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "image.bin").write_bytes(image)
+    (output / "manifest.bin").write_bytes(manifest)
     (output / "package.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
 

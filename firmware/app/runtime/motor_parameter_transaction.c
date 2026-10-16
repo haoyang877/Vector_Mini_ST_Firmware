@@ -7,6 +7,7 @@
 #include "param_store.h"
 #include "maintenance_workspace.h"
 #include "motor_execution.h"
+#include "motor_thermal_control.h"
 
 /* 参数记录与其它维护任务互斥借用既有固定工作区，不常驻完整参数副本。 */
 typedef char ParamRecord_FitsWorkspace
@@ -286,7 +287,15 @@ ParameterStatus MotorParameterTransaction_Write(MotorControlState *motor,
     }
     else
     {
+        MotorWindingThermalConfig previous_thermal = motor->model.thermal;
         result = ParameterValue_Apply(motor, request);
+        if (result == PARAMETER_OK && request->parameter_id >= 0x60U &&
+            request->parameter_id <= 0x66U &&
+            !MotorThermalControl_Configure(&motor->model.thermal, true))
+        {
+            motor->model.thermal = previous_thermal;
+            result = PARAMETER_BUSY;
+        }
         if (result == PARAMETER_OK)
         {
             MotorParameterTransaction_AdvanceRevision();

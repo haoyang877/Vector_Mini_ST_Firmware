@@ -52,6 +52,11 @@ bool Encoder_BeginSample(void)
     return encoder_sensor_begin();
 }
 
+uint8_t Encoder_BeginReadback(bool sample_started)
+{
+    return encoder_sensor_begin_readback(sample_started);
+}
+
 /* 通道状态映射到既有对外读取状态；旧枚举保留以兼容遥测。
  * 输入：平台层 EncoderSensorStatus；返回：本层 EncoderReadStatus：
  * 帧错误->CRC_MISMATCH、传感器故障->TLE_SYSTEM_ERROR、总线超时/其他->SPI_TIMEOUT。 */
@@ -71,14 +76,14 @@ static EncoderReadStatus encoder_map_sensor_status(EncoderSensorStatus status)
 
 /* 采样一帧并取出归一化 Q15 角度；失败时登记映射后的读取状态。
  * 输入：encoder 状态归属；raw_q15 输出参数，仅成功时写入单圈角 Q15；
- *       started 为 Encoder_BeginSample() 的返回值，false 时驱动自行发起同步读取。
+ *       sample_stage为本拍采样/读回的阶段，0时驱动同步读取。
  * 返回：成功 true（角度已写入）；失败 false（角度未写入）。
  * 成功时缓存 frame_word/safety_word 供诊断，遗留 CRC 字段清零。 */
-static bool encoder_read_frame(EncoderState *encoder, uint16_t *raw_q15, bool started)
+static bool encoder_read_frame(EncoderState *encoder, uint16_t *raw_q15, uint8_t sample_stage)
 {
     EncoderSensorSample sample;
 
-    if (encoder_sensor_complete(started, &sample) != ENCODER_SENSOR_OK)
+    if (encoder_sensor_complete(sample_stage, &sample) != ENCODER_SENSOR_OK)
     {
         encoder_mark_read_status(encoder, encoder_map_sensor_status(sample.status));
         return false;
@@ -407,7 +412,7 @@ bool Encoder_SetMechanicalZero(EncoderState *encoder)
 
 /* 完成一帧读取：方向/LUT 校正、电角度与观测器速度更新（20 kHz 快路径）。
  * 输入：motor_state（读 motor_pole_pairs，<= 0 按 1 处理）、encoder、
- *       sample_started 为 Encoder_BeginSample() 的返回值；无返回值。
+ *       sample_stage为本拍BeginSample的0/1返回值或BeginReadback阶段；无返回值。
  * 流程：取帧 -> 方向校正 -> LUT 线性化 -> 更新 raw/directed/linearized
  *       -> 消费 velocity_restart_requested（以当前角重建观测器）
  *       -> 首个有效帧置 has_valid_sample 并请求重定多圈基准（由慢估计执行）
@@ -415,14 +420,14 @@ bool Encoder_SetMechanicalZero(EncoderState *encoder)
  * 取帧失败时仅登记读取状态，electrical_angle_rad 与速度保持旧值；本函数不写多圈/机械角。 */
 void Encoder_CompleteSample(MotorControlState *motor_state,
                             EncoderState *encoder,
-                            bool sample_started)
+                            uint8_t sample_stage)
 {
     uint16_t raw_q15;
     uint16_t directed_q15;
     uint16_t linearized_q15;
     uint32_t pole_pairs;
 
-    if (!encoder_read_frame(encoder, &raw_q15, sample_started))
+    if (!encoder_read_frame(encoder, &raw_q15, sample_stage))
     {
         return;
     }

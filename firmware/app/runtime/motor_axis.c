@@ -7,6 +7,8 @@
 #include "power_stage_hw.h"
 #include "foc_sensing.h"
 #include "motor_parameter_transaction.h"
+#include "motor_thermal_control.h"
+#include "time_hw.h"
 
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
@@ -156,6 +158,13 @@ static void sample_phase_currents(void)
 void MotorAxis_Init(void)
 {
     MotorParameterTransaction_Init(&s_motor_state, &s_rotor_encoder);
+    if (!MotorThermalControl_Init(&s_motor_state.model.thermal, time_hw_now_ms()))
+    {
+        MotorFault_Report(&s_motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
+    }
+    s_motor_state.thermal_current_limit_a =
+        MotorThermalControl_CurrentLimit(s_motor_state.application.current_limit_a);
+    s_motor_state.thermal_clear_ready = MotorThermalControl_CanClearFault();
     initialize_current_offsets();
     MotorStateMachine_Init(
         &s_motor_state, &s_foc_state, &s_speed_pi, &s_rotor_encoder, &s_sensorless_startup);
@@ -182,6 +191,14 @@ void MotorAxis_Init(void)
 
 MotorControlMode MotorAxis_SupervisorTick(void)
 {
+    /* ADC快环丢失时仍由监督关断；只发布时钟失效事件，不重置热历史。 */
+    if (!MotorThermalControl_CheckWatchdog(time_hw_now_ms(), power_stage_hw_phases_disabled()))
+    {
+        s_motor_state.thermal_current_limit_a = 0.0f;
+        s_motor_state.thermal_clear_ready = false;
+        MotorFault_Report(&s_motor_state, MOTOR_FAULT_WINDING_THERMAL);
+        MotorStateMachine_FastFaultStop();
+    }
     /* 1. 编码器慢估计：多圈/机械角/速度是慢状态唯一写者。 */
     Encoder_UpdateSlowEstimate(&s_motor_state, &s_rotor_encoder);
 
@@ -224,16 +241,60 @@ static MotorTaskResult run_fast_task(bool maintenance_runnable)
         &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
 }
 
+/* 热采样使用本拍实际三相电流；限流只是运行快照，绝不覆盖活动参数。 */
+static void update_winding_thermal(void)
+{
+    bool outputs_disabled = power_stage_hw_phases_disabled();
+    if (s_current_offset_calibration.complete)
+    {
+        MotorThermalControl_Sample(s_foc_state.phase_a_current_a,
+                                   s_foc_state.phase_b_current_a,
+                                   s_foc_state.phase_c_current_a,
+                                   outputs_disabled,
+                                   time_hw_now_ms());
+    }
+    s_motor_state.thermal_current_limit_a =
+        MotorThermalControl_CurrentLimit(s_motor_state.application.current_limit_a);
+    s_motor_state.thermal_limit_active =
+        s_motor_state.thermal_current_limit_a < s_motor_state.application.current_limit_a;
+    s_motor_state.thermal_clear_ready = MotorThermalControl_CanClearFault();
+    if (!s_current_offset_calibration.complete)
+    {
+        return;
+    }
+    MotorMaintenanceKind kind = MotorStateMachine_GetMaintenanceKind();
+    bool calibration =
+        kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
+    bool derating_allowed = !calibration && s_motor_state.control_mode != MOTOR_CONTROL_VQ;
+    if (!MotorThermalControl_CanRun(true) ||
+        (MotorStateMachine_OutputExpected() && !MotorThermalControl_Guard(derating_allowed)))
+    {
+        MotorFault_Report(&s_motor_state, MOTOR_FAULT_WINDING_THERMAL);
+    }
+    if (!outputs_disabled && s_motor_state.control_mode == MOTOR_CONTROL_VQ)
+    {
+        float vector_squared_a2 =
+            (2.0f / 3.0f) * (s_foc_state.phase_a_current_a * s_foc_state.phase_a_current_a +
+                             s_foc_state.phase_b_current_a * s_foc_state.phase_b_current_a +
+                             s_foc_state.phase_c_current_a * s_foc_state.phase_c_current_a);
+        float limit_a = s_motor_state.thermal_current_limit_a;
+        if (!(vector_squared_a2 <= limit_a * limit_a))
+        {
+            MotorFault_Report(&s_motor_state, MOTOR_FAULT_WINDING_THERMAL);
+        }
+    }
+}
+
 void MotorAxis_FastTick(void)
 {
     /* 本拍模式 worker 的周期结果，仅由运行状态机消费。 */
     MotorTaskResult work_outcome;
     /* 编码器帧采样是否已在本拍成功发起；false 时稍后走同步兜底读取。 */
-    bool encoder_sample_started;
+    uint8_t encoder_sample_stage;
 
     /* 1. 发起编码器帧采样：只启动传感器总线事务，不在本拍等待结果。
      *    返回 false 表示总线未就绪，由第 4 步同步兜底完成本帧。 */
-    encoder_sample_started = Encoder_BeginSample();
+    encoder_sample_stage = Encoder_BeginSample();
 
     /* 2. 母线电压采样：换算 bus_voltage_v、更新低通滤波值，并推进过压/欠压确认计数；
      *    禁用模式清零计数。保护判定基于本拍电压，必须先于控制输出执行。 */
@@ -242,10 +303,8 @@ void MotorAxis_FastTick(void)
 
     /* 3. 先用关相新鲜帧完成上电零点校正，再执行既有电流换算与过流保护。 */
     sample_phase_currents();
-
-    /* 4. 完成本拍角度采样：取回 SPI 帧，做方向/LUT 校正并更新电角度；
-     *    多圈/机械角/速度由 2 kHz 慢估计维护。 */
-    Encoder_CompleteSample(&s_motor_state, &s_rotor_encoder, encoder_sample_started);
+    encoder_sample_stage = Encoder_BeginReadback(encoder_sample_stage != 0U);
+    update_winding_thermal();
 
     /* 5. 观测器选择：位置模式（模式 3）由编码器与外环提供角度，跳过观测器；
      *    其余模式在模式分发前更新，首次切进电流/无感模式的这一拍即有估计可用。 */
@@ -254,6 +313,9 @@ void MotorAxis_FastTick(void)
     {
         FluxObserver_Update(&s_foc_state, &s_motor_state, &s_flux_observer);
     }
+
+    /* 第二段SPI回读与观测器运算重叠，完成后才允许故障判定及控制输出。 */
+    Encoder_CompleteSample(&s_motor_state, &s_rotor_encoder, encoder_sample_stage);
 
     /* 6. 快速环故障检查：编码器离线或轴配置失效时立即置故障并停机；
      *    不清除既有故障，且先于任何控制输出执行。 */

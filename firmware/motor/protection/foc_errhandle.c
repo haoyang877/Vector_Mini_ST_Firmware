@@ -69,6 +69,8 @@ bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
         return recovery->overcurrent_ticks >= RUN_STATE_OC_RECOVER_TICKS;
     case MOTOR_FAULT_CURRENT_OFFSET:
         return MotorCurrentOffsets_Valid(motor_state);
+    case MOTOR_FAULT_WINDING_THERMAL:
+        return motor_state->thermal_clear_ready;
     case MOTOR_FAULT_POLE_PAIRS:
         return motor_state->model.motor_pole_pairs > 0;
     case MOTOR_FAULT_INVALID_PARAMETERS:

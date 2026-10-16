@@ -46,6 +46,22 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
                                    PositionCascadeControlOutput *output);
 
 /**
+ * @brief 以独立动态电流额度执行串级控制，保留原归一化增益的物理口径。
+ * @param config 有效基础配置，current_limit_a仍为原配置标称值。
+ * @param measured_position 机械位置，rad。
+ * @param measured_speed 机械速度，rad/s。
+ * @param available_current_a 动态电流额度，A，非负且不会扩大标称值。
+ * @param output 非空结果；失败时不发布新结果。
+ * @return 输入和计算有效返回true。
+ * @note 仅串行外环调用；额度立即约束PI饱和及积分跟踪，不改变速度增益。
+ */
+bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+                                          float measured_position,
+                                          float measured_speed,
+                                          float available_current_a,
+                                          PositionCascadeControlOutput *output);
+
+/**
  * @brief 复用有效基础配置，仅更新目标并执行直接位置串级调用。
  * @param target_position 有限目标位置，单位 rad。
  * @param measured_position 有限机械位置，单位 rad。

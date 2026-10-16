@@ -4,6 +4,7 @@
 #include "motor_types.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
+#include "speed_feedforward.h"
 
 /* 速度环模块：参考斜坡、速度 PI 更新与顺序任务入口。 */
 
@@ -19,11 +20,28 @@ void MotorAxis_UpdateSpeedRamp(MotorControlState *motor_state);
  * @param  motor_state 电机控制状态指针，读写 speed_ramped_rad_s、id_target_a 与 iq_target_a。
  * @param  controller 速度 PI 控制器指针。
  * @param  mechanical_velocity_rad_s 机械角速度反馈，单位 rad/s。
- * @note 在快速环上下文调用；归一化输出按 current_limit_a 缩放为电流参考。
+ * @note 供顺序标定任务使用；保持原斜坡与归一化 PI，不启用惯量前馈。
  */
 void SpeedMode_UpdateControl(MotorControlState *motor_state,
                              PiController *controller,
                              float mechanical_velocity_rad_s);
+
+/**
+ * @brief 运行速度外环，按显式动态限流装配可选目标整形和惯量前馈。
+ * @param motor_state 非空电机状态，读取应用配置与目标，发布斜坡和电流参考。
+ * @param controller 调用方独占的非空归一化速度 PI 状态。
+ * @param state 2 kHz 外环独占的非空前馈状态；停机、故障或切模式后须复位。
+ * @param mechanical_velocity_rad_s 机械速度反馈，rad/s。
+ * @param current_limit_a 当前有效总限流，A；只允许收窄配置上限，零值关断电流。
+ * @return 输入合法且输出有限时返回 true；非法输入或计算失败返回 false。
+ * @note 只在 2 kHz 运行速度模式调用；前馈关闭且未降额时逐拍保留原数学。
+ *       PI 仍以原配置电流缩放，动态限流和前馈只改变抗饱和输出区间。
+ */
+bool SpeedMode_UpdateOuterControl(MotorControlState *motor_state,
+                                  PiController *controller,
+                                  SpeedFeedforwardState *state,
+                                  float mechanical_velocity_rad_s,
+                                  float current_limit_a);
 
 /**
  * @brief  顺序速度模式任务核心：分频执行速度环并保持电流闭环。

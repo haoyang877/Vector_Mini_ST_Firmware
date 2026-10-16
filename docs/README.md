@@ -22,6 +22,10 @@ provide the short entry map; details belong here.
 
 当前源码候选：[APP v1.3.0核心范围](releases/architecture-app-v1.3.0-candidate.md)。
 
+进行中的交付功能移植：[集成计划](plans/active/2026-10-17-delivery-feature-integration-v1.md)、
+[schema13参数与清标定契约](protocols/parameter_schema13_delivery_v1.md)。
+新包及实机结果须以本轮冻结记录为准，不能沿用v1.3.0结论。
+
 历史候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
 
 架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。

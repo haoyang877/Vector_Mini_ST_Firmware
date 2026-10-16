@@ -2,6 +2,12 @@
 
 更新：2026-10-09。描述 v1.3.0 核心工程当前源码；历史设计不代表仍存在的功能。
 
+2026-10-17增量：`motor/protection/motor_thermal`只计算热预算、降额和总向量限流；
+`app/runtime/motor_thermal_control`持有热历史并处理真实采样/监督事件，`motor_axis`
+负责调度，STOP/CLEAR/DEFAULTS不重置热量。`motor/foc/speed_feedforward`只做可选目标
+整形与惯量电流计算，规划状态由既有`s_outer`独占；前馈默认关闭。
+配置归原model/application分组，保存及兼容见[schema13](../protocols/parameter_schema13_delivery_v1.md)。
+
 ## 先看完整流程
 
 ```text

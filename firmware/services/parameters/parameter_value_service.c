@@ -52,11 +52,24 @@ static const ScalarField s_fields[] = {
     CAL_FIELD(0x44U, device.phase_a_offset_counts, 1000U),
     CAL_FIELD(0x45U, device.phase_b_offset_counts, 1000U),
     CAL_FIELD(0x46U, device.phase_c_offset_counts, 1000U),
+    WRITE_FIELD(0x60U, model.thermal.continuous_vector_a, 1000U),
+    WRITE_FIELD(0x61U, model.thermal.peak_a, 1000U),
+    WRITE_FIELD(0x62U, model.thermal.heating_tau_s, 1000U),
+    WRITE_FIELD(0x63U, model.thermal.derating_enter_heat, 1000000U),
+    WRITE_FIELD(0x64U, model.thermal.derating_exit_heat, 1000000U),
+    WRITE_FIELD(0x65U, model.thermal.trip_heat, 1000000U),
+    WRITE_FIELD(0x66U, model.thermal.clear_heat, 1000000U),
+    WRITE_FIELD(0x69U, application.speed_feedforward.gain_a_per_rad_s2, 1000000U),
+    WRITE_FIELD(0x6AU, application.speed_feedforward.acceleration_limit_rad_s2, 1000U),
+    WRITE_FIELD(0x6BU, application.speed_feedforward.jerk_limit_rad_s3, 1000U),
+    WRITE_FIELD(0x6CU, application.speed_feedforward.current_limit_a, 1000U),
 };
 
 bool ParameterValue_ConfigurationValid(const MotorControlState *motor)
 {
     return motor != NULL && motor->application.axis_profile_valid &&
+           MotorWindingThermal_Valid(&motor->model.thermal) &&
+           SpeedFeedforward_IsValid(&motor->application.speed_feedforward) &&
            motor->model.motor_pole_pairs > 0 && isfinite(motor->model.motor_phase_resistance_ohm) &&
            motor->model.motor_phase_resistance_ohm > 0.0f &&
            isfinite(motor->model.motor_d_inductance_h) &&
@@ -230,6 +243,10 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
         case 0x4EU:
             candidate.raw_value = (uint32_t)motor->configuration_source;
             break;
+        case 0x68U:
+            candidate.raw_value = motor->application.speed_feedforward.enabled ? 1U : 0U;
+            candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
+            break;
         default:
             return PARAMETER_UNSUPPORTED;
         }
@@ -277,6 +294,20 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
         motor->configuration_source = MOTOR_CONFIGURATION_ACTIVE;
         return PARAMETER_OK;
     }
+    if (request->parameter_id == 0x68U)
+    {
+        if (request->value_type != PARAMETER_VALUE_U32)
+        {
+            return PARAMETER_BAD_TYPE;
+        }
+        if (request->raw_value > 1U ||
+            !SpeedFeedforward_IsValid(&motor->application.speed_feedforward))
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        motor->application.speed_feedforward.enabled = request->raw_value == 1U;
+        return PARAMETER_OK;
+    }
     const ScalarField *field = find_field(request->parameter_id);
     if (field == NULL)
     {
@@ -319,6 +350,31 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
     int32_t signed_raw;
     memcpy(&signed_raw, &request->raw_value, sizeof(signed_raw));
     float si_value = (float)signed_raw / field->scale;
+    if (request->parameter_id >= 0x60U && request->parameter_id <= 0x66U)
+    {
+        MotorWindingThermalConfig candidate = motor->model.thermal;
+        /* 只访问已登记字段；候选完整验证后才替换唯一活动配置。 */
+        size_t offset = field->offset - offsetof(MotorControlState, model.thermal);
+        memcpy((uint8_t *)&candidate + offset, &si_value, sizeof(si_value));
+        if (!MotorWindingThermal_Valid(&candidate))
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        motor->model.thermal = candidate;
+        return PARAMETER_OK;
+    }
+    if (request->parameter_id >= 0x69U && request->parameter_id <= 0x6CU)
+    {
+        SpeedFeedforwardConfig candidate = motor->application.speed_feedforward;
+        size_t offset = field->offset - offsetof(MotorControlState, application.speed_feedforward);
+        memcpy((uint8_t *)&candidate + offset, &si_value, sizeof(si_value));
+        if (!SpeedFeedforward_IsValid(&candidate))
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        motor->application.speed_feedforward = candidate;
+        return PARAMETER_OK;
+    }
     switch (request->parameter_id)
     {
     case 1U:

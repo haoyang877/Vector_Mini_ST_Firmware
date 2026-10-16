@@ -63,8 +63,9 @@ void comm_hw_can_start_fd(void);
 
 /**
  * @brief 检查 bus-off 并重新启动 CAN FD 控制器。
- * @return 执行了恢复返回 true，健康时返回 false。
- * @note 前台每秒限频调用；不更改滤波、位时序或协议队列，失败进入平台错误处理。
+ * @return HAL重启成功返回true；无需恢复或停止/启动失败返回false。
+ * @note 前台每秒限频调用，HAL停止/启动有界等待；失败保持控制器不可用，不进入全局错误处理。
+ *       不更改滤波、位时序、协议队列或电机目标；已有跟踪票据保持失败，成功不证明总线已恢复。
  */
 bool comm_hw_can_service_bus_off(void);
 

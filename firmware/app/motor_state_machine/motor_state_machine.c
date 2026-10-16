@@ -16,6 +16,7 @@
 #include "mcu_temperature.h"
 #include "motor_sensing.h"
 #include "motor_axis.h"
+#include "motor_thermal_control.h"
 #include "foc_pid.h"
 #include "foc_sensorless_run.h"
 #include "power_stage_hw.h"
@@ -206,6 +207,7 @@ static void clear_running_data(void)
     FOC_CurrentController_Reset(s_context.foc);
     PiController_Reset(s_context.speed_pi);
     SensorlessStartup_Reset(s_context.sensorless_startup);
+    MotorOuterLoop_RequestReset();
 }
 
 /* 状态准入：锁定期、故障、实际输出与反馈许可；目标格式和范围由控制模块拥有。 */
@@ -337,8 +339,12 @@ static MotorStateFacts read_state_conditions(void)
         s_context.rules.state >= MOTOR_STATE_IDLE && s_context.rules.state <= MOTOR_STATE_STOPPING;
     facts.self_test_ready = (initialized_state || stable_self_test) && facts.configuration_valid &&
                             facts.inputs_valid && facts.active_faults == 0U;
+    bool thermal_calibration =
+        s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ENCODER_LUT ||
+        s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
     facts.start_permitted =
-        s_context.motor->application.axis_profile_valid && !s_context.boot_maintenance_only;
+        s_context.motor->application.axis_profile_valid && !s_context.boot_maintenance_only &&
+        MotorThermalControl_CanRun(mode != MOTOR_CONTROL_VQ && !thermal_calibration);
     if (mode != MOTOR_CONTROL_NONE)
     {
         facts.start_permitted = facts.start_permitted && s_context.motor->configuration_confirmed &&
@@ -365,7 +371,8 @@ static MotorStateFacts read_state_conditions(void)
                                 ((s_context.rules.maintenance_active &&
                                   MotorStateRules_Classify(s_context.rules.maintenance_kind) ==
                                       MOTOR_MAINTENANCE_CLASS_CALIBRATION) ||
-                                 power_stage_hw_phases_disabled());
+                                 power_stage_hw_phases_disabled()) &&
+                                (!thermal_calibration || MotorThermalControl_CanRun(false));
     /* 位置/速度模式需要外环控制器就绪后才确认启动，其余模式可同拍确认。 */
     facts.startup_confirmed =
         (mode != MOTOR_CONTROL_POSITION && mode != MOTOR_CONTROL_SPEED) || MotorOuterLoop_IsReady();
@@ -491,6 +498,7 @@ static bool dispatch_state_event(uint32_t events,
     publish_transition_fault();
     if (decision.actions & MOTOR_STATE_ACTION_FAULT_CLEARED)
     {
+        (void)MotorThermalControl_ClearFault();
         s_context.motor->fault_code = MOTOR_FAULT_NONE;
         s_context.motor->control_mode = MOTOR_CONTROL_NONE;
     }
@@ -693,7 +701,7 @@ static uint32_t state_start_blockers(const MotorStateFacts *facts)
     {
         reasons |= MOTOR_START_BUS_UNAVAILABLE;
     }
-    if (!facts->self_test_ready)
+    if (!facts->self_test_ready || !MotorThermalControl_CanRun(true))
     {
         reasons |= MOTOR_START_HEALTH_UNAVAILABLE;
     }
@@ -733,6 +741,7 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
     for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_VQ; ++mode)
     {
         if (readiness->start_blockers == 0U &&
+            MotorThermalControl_CanRun(mode != MOTOR_CONTROL_VQ) &&
             (mode != MOTOR_CONTROL_POSITION || state_position_start_allowed()))
         {
             readiness->startable_modes |= (uint8_t)(1U << mode);
@@ -763,6 +772,7 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
         result = MOTOR_CONTROL_BUSY;
     }
     else if (state_start_blockers(&facts) == 0U &&
+             MotorThermalControl_CanRun(mode != MOTOR_CONTROL_VQ) &&
              (mode != MOTOR_CONTROL_POSITION || state_position_start_allowed()))
     {
         clear_running_data();
@@ -880,7 +890,7 @@ MotorControlResult MotorStateMachine_RequestClear(void)
     {
         result = MOTOR_CONTROL_ACCEPTED;
     }
-    else if (s_context.rules.state == MOTOR_STATE_FAULT &&
+    else if (s_context.rules.state == MOTOR_STATE_FAULT && MotorThermalControl_CanClearFault() &&
              build_self_test_checks(&facts) == MOTOR_SELF_TEST_ALL &&
              (error == MOTOR_FAULT_NONE || MotorFault_SourceRecovered(&s_context.recovery,
                                                                       s_context.motor,

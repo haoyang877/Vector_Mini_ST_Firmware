@@ -23,6 +23,7 @@ typedef char EncoderCalibrationRepresentationMatches
          : -1];
 
 static EncoderCalibrationWorkspace *s_encoder_calib_workspace = NULL;
+static uint16_t s_prepare_bin;
 
 static EncoderCalibrationPhase s_calibration_phase = CS_NULL;
 static uint32_t s_zero_loop_count, s_zero_sample_count;
@@ -35,6 +36,7 @@ static int64_t s_zero_unwrapped_sum;
 void EncoderCalibrationTask_Cancel(void)
 {
     s_encoder_calib_workspace = NULL;
+    s_prepare_bin = 0U;
     s_calibration_phase = CS_NULL;
     s_zero_loop_count = s_zero_sample_count = 0U;
     s_zero_unwrapped_sum = 0;
@@ -57,7 +59,7 @@ static bool encoder_calib_prepare_samples(EncoderCalibrationWorkspace *workspace
         return false;
     }
     s_encoder_calib_workspace = workspace;
-    memset(s_encoder_calib_workspace, 0, sizeof(*s_encoder_calib_workspace));
+    s_prepare_bin = 0U;
     return true;
 }
 
@@ -68,6 +70,7 @@ static void encoder_observer_calib_reset(FocState *foc,
                                          SensorlessStartupState *startup)
 {
     s_encoder_calib_workspace = NULL;
+    s_prepare_bin = 0U;
     SensorlessStartup_Reset(startup);
     FOC_CurrentController_Reset(foc);
     PiController_Reset(speed_pi);
@@ -345,6 +348,13 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
     switch (s_calibration_phase)
     {
     case CS_OBS_ALIGN_ORIGIN:
+        /* 原对齐时间内每拍清16 bin；采样尚未开始，不集中清空6 KiB工作区。 */
+        for (uint16_t count = 0U; count < 16U && s_prepare_bin < ENCODER_OFFSET_LUT_SIZE; ++count)
+        {
+            s_encoder_calib_workspace->error_sum[s_prepare_bin] = 0;
+            s_encoder_calib_workspace->bins.samples[s_prepare_bin] = 0U;
+            ++s_prepare_bin;
+        }
         if (startup->state == SENSORLESS_STARTUP_ALIGN &&
             startup->state_ticks >=
                 (uint32_t)(((SensorlessStartup_EncoderCalibConfig.align_current_ramp_time_s +
@@ -363,7 +373,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 
         if (startup->state != SENSORLESS_STARTUP_ALIGN)
         {
-            if (!EncoderCalibrationCore_MeanQ15(origin_sum_q15, origin_sample_count, &origin_q15))
+            if (s_prepare_bin != ENCODER_OFFSET_LUT_SIZE ||
+                !EncoderCalibrationCore_MeanQ15(origin_sum_q15, origin_sample_count, &origin_q15))
             {
                 return encoder_observer_calib_fail(
                     foc, motor_state, speed_pi, startup, MOTOR_FAULT_ENCODER);

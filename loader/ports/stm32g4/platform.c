@@ -260,7 +260,7 @@ LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
     uint8_t block[64];
     uint32_t offset, i, words[2], node_bits, candidate, shift;
     bool blank = true;
-    /* raw11 无整记录CRC；完整扫描只确认可读/空白，不能代替APP参数合法性检查。 */
+    /* 完整扫描只确认可读/空白；CRC及配置合法性由APP所有者校验。 */
     /* 生产身份页独立；不能把已烧SN当作存在校准，也不能因该页ECC错误拒绝参数域。 */
     for (offset = 0; offset < TARGET_IDENTITY_BASE - TARGET_PARAM_BASE; offset += sizeof(block))
     {
@@ -282,7 +282,7 @@ LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
         return YI_PARAMS_BLANK;
     }
     if (node == NULL || !LoaderFlash_Read(TARGET_PARAM_BASE + TARGET_RAW_SCHEMA_OFFSET, words, 8) ||
-        words[0] != TARGET_SCHEMA || words[1] != TARGET_RAW_MAGIC ||
+        (words[0] != TARGET_SCHEMA && words[0] != 12U) || words[1] != TARGET_RAW_MAGIC ||
         !LoaderFlash_Read(TARGET_PARAM_BASE, &node_bits, 4))
     {
         return YI_PARAMS_UNSAFE;

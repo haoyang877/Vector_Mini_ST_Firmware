@@ -21,11 +21,17 @@
 
 uint32_t Param_RecordCrc(const InterfaceParam *param)
 {
+    uint32_t bytes = param->schema_version == 12U ? PARAM_SCHEMA12_BYTES : sizeof(*param);
     uint32_t offset = (uint32_t)offsetof(InterfaceParam, record_crc32);
     uint32_t crc = Crc32_Compute(param, offset, 0U);
     uint32_t tail = offset + sizeof(param->record_crc32);
-    return Crc32_Compute((const uint8_t *)param + tail, sizeof(*param) - tail, crc);
+    return Crc32_Compute((const uint8_t *)param + tail, bytes - tail, crc);
 }
+
+typedef char Schema13Layout[(offsetof(InterfaceParam, thermal) == PARAM_SCHEMA12_BYTES &&
+                             sizeof(InterfaceParam) == 4352U)
+                                ? 1
+                                : -1];
 
 /* 应用包络来自编译配置；有效轴记录只收窄，通信地址不参与控制限值。 */
 static float application_speed_ceiling_rad_s(const MotorAxisProfile *profile, bool valid)
@@ -76,6 +82,8 @@ static bool param_apply_joint_profile(MotorControlState *motor)
 
 void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_encoder)
 {
+    MotorWindingThermal_Default(&motor_state->model.thermal);
+    SpeedFeedforward_Default(&motor_state->application.speed_feedforward);
     memset(
         &motor_state->application.axis_profile, 0, sizeof(motor_state->application.axis_profile));
     motor_state->application.axis_profile_valid = true;
@@ -178,6 +186,16 @@ void Param_Upload(InterfaceParam *param,
     param->axis_profile = motor_state->application.axis_profile;
     /* 退役齿槽槽保持schema12字节布局；导出空记录，不再加载或应用补偿。 */
     memset(&param->cogging, 0, sizeof(param->cogging));
+    param->thermal = motor_state->model.thermal;
+    param->speed_feedforward_enabled = motor_state->application.speed_feedforward.enabled ? 1U : 0U;
+    param->speed_feedforward_gain_a_per_rad_s2 =
+        motor_state->application.speed_feedforward.gain_a_per_rad_s2;
+    param->speed_feedforward_acceleration_rad_s2 =
+        motor_state->application.speed_feedforward.acceleration_limit_rad_s2;
+    param->speed_feedforward_jerk_rad_s3 =
+        motor_state->application.speed_feedforward.jerk_limit_rad_s3;
+    param->speed_feedforward_current_limit_a =
+        motor_state->application.speed_feedforward.current_limit_a;
     param->record_crc32 = Param_RecordCrc(param);
 }
 
@@ -189,7 +207,8 @@ void Param_Download(const InterfaceParam *param,
     bool current_sense_profile_changed;
     float position_speed_limit;
 
-    if (param->magic_word != MAGIC_WORD || param->schema_version != PARAM_SCHEMA_VERSION)
+    if (param->magic_word != MAGIC_WORD ||
+        (param->schema_version != PARAM_SCHEMA_VERSION && param->schema_version != 12U))
     {
         Param_Return_Default(motor_state, rotor_encoder);
         motor_state->configuration_source =
@@ -215,6 +234,27 @@ void Param_Download(const InterfaceParam *param,
         Param_Return_Default(motor_state, rotor_encoder);
         motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
         return;
+    }
+
+    /* 先给旧记录完整新增默认值，绝不读取schema12末尾之后的Flash垃圾。 */
+    MotorWindingThermal_Default(&motor_state->model.thermal);
+    SpeedFeedforward_Default(&motor_state->application.speed_feedforward);
+    if (param->schema_version == PARAM_SCHEMA_VERSION)
+    {
+        SpeedFeedforwardConfig feedforward = {param->speed_feedforward_enabled == 1U,
+                                              param->speed_feedforward_gain_a_per_rad_s2,
+                                              param->speed_feedforward_acceleration_rad_s2,
+                                              param->speed_feedforward_jerk_rad_s3,
+                                              param->speed_feedforward_current_limit_a};
+        if (param->speed_feedforward_enabled > 1U || !MotorWindingThermal_Valid(&param->thermal) ||
+            !SpeedFeedforward_IsValid(&feedforward))
+        {
+            Param_Return_Default(motor_state, rotor_encoder);
+            motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
+            return;
+        }
+        motor_state->model.thermal = param->thermal;
+        motor_state->application.speed_feedforward = feedforward;
     }
 
     /* 与 Loader 共用 node_id 字段；应用轴身份不能改写设备地址。 */

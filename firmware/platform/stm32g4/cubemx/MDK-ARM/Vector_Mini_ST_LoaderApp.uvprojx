@@ -77,13 +77,13 @@
             <nStopB2X>0</nStopB2X>
           </BeforeMake>
           <AfterMake>
-            <RunUserProg1>0</RunUserProg1>
+            <RunUserProg1>1</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name />
+            <UserProg1Name>"..\..\..\..\..\.venv\Scripts\python.exe" "..\..\..\..\..\tools\build\keil_loader_app.py" "#L"</UserProg1Name>
             <UserProg2Name />
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
-            <nStopA1X>0</nStopA1X>
+            <nStopA1X>2</nStopA1X>
             <nStopA2X>0</nStopA2X>
           </AfterMake>
           <SelectedForBatchBuild>1</SelectedForBatchBuild>
@@ -124,6 +124,24 @@
             <Oh166RecLen>16</Oh166RecLen>
           </OPTHX>
         </DebugOption>
+        <Utilities>
+          <Flash1>
+            <UseTargetDll>1</UseTargetDll>
+            <UseExternalTool>0</UseExternalTool>
+            <RunIndependent>0</RunIndependent>
+            <UpdateFlashBeforeDebugging>1</UpdateFlashBeforeDebugging>
+            <Capability>1</Capability>
+            <DriverSelection>4101</DriverSelection>
+          </Flash1>
+          <bUseTDR>1</bUseTDR>
+          <Flash2>BIN\UL2V8M.DLL</Flash2>
+          <Flash3 />
+          <Flash4 />
+          <pFcarmOut />
+          <pFcarmGrp />
+          <pFcArmRoot />
+          <FcArmLst>0</FcArmLst>
+        </Utilities>
         <TargetArmAds>
           <ArmAdsMisc>
             <GenerateListings>0</GenerateListings>
@@ -779,6 +797,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\app\runtime\maintenance_workspace.c</FilePath>
             </File>
+            <File>
+              <FileName>motor_thermal_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\app\runtime\motor_thermal_control.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1251,6 +1274,21 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>motor_thermal.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\protection\motor_thermal.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_thermal_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\protection\motor_thermal_config.c</FilePath>
+            </File>
+            <File>
+              <FileName>speed_feedforward.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\speed_feedforward.c</FilePath>
             </File>
           </Files>
         </Group>

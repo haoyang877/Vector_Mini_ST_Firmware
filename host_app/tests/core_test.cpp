@@ -7,6 +7,8 @@ extern "C"
 #include "shared/protocol/yg_protocol_byte_order.h"
 #include "shared/protocol/yg_protocol_can_id.h"
 #include "shared/protocol/yg_protocol_frame_codec.h"
+#include "shared/checksum/crc32.h"
+#include "shared/targets/vector_mini_st_g431.h"
 }
 #include <QApplication>
 #include <QCheckBox>
@@ -25,6 +27,7 @@ extern "C"
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QtEndian>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -144,10 +147,11 @@ int fake_reader()
                                             ? "5800460010504e4831303320"
                                             : "5700460010504e4831303320"));
                 data = reinterpret_cast<uint8_t *>(payload.data());
-                YgProtocol_WriteU32Le(data + 12, scenario == "wrong-product" ? 99 : 0x59473236);
-                YgProtocol_WriteU16Le(data + 16, scenario == "wrong-hardware" ? 99 : 1);
-                YgProtocol_WriteU32Le(data + 20, 0x00010301);
-                YgProtocol_WriteU32Le(data + 24, 0x00010000);
+                YgProtocol_WriteU32Le(data + 12, scenario == "wrong-product" ? 99 : TARGET_PRODUCT);
+                YgProtocol_WriteU16Le(data + 16,
+                                      scenario == "wrong-hardware" ? 99 : TARGET_HARDWARE);
+                YgProtocol_WriteU32Le(data + 20, TARGET_APP_VERSION);
+                YgProtocol_WriteU32Le(data + 24, TARGET_LOADER_VERSION);
             }
             else if (type == 1 && page == 1)
             {
@@ -160,8 +164,8 @@ int fake_reader()
             }
             else if (type == 1 && page == 2)
             {
-                YgProtocol_WriteU32Le(data + 8, scenario == "wrong-abi" ? 99 : 0x000C10D0);
-                YgProtocol_WriteU32Le(data + 12, scenario == "wrong-schema" ? 99 : 12);
+                YgProtocol_WriteU32Le(data + 8, scenario == "wrong-abi" ? 99 : TARGET_PARAM_ABI);
+                YgProtocol_WriteU32Le(data + 12, scenario == "wrong-schema" ? 99 : TARGET_SCHEMA);
             }
             else if (type == 2)
             {
@@ -245,8 +249,8 @@ void device_readback_checks()
     check(yg_protocol_can_id_encode(&fields, &can_id) == YG_PROTOCOL_OK, "CAN ID encode");
     QByteArray info(32, 0);
     info[0] = 0x57;
-    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(info.data() + 12), 0x59473236);
-    YgProtocol_WriteU16Le(reinterpret_cast<uint8_t *>(info.data() + 16), 1);
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(info.data() + 12), TARGET_PRODUCT);
+    YgProtocol_WriteU16Le(reinterpret_cast<uint8_t *>(info.data() + 16), TARGET_HARDWARE);
     YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(info.data() + 20), 0x00010100);
     check(device.Device_Begin(1, 10, 0, 100), "info query registration failed");
     auto info_frame = reply(3, 1, 10, info);
@@ -296,11 +300,11 @@ void device_readback_checks()
               !device.Device_View(151).boot_epoch,
           "unavailable epoch fabricated a startup identity");
     QByteArray geometry(32, 0);
-    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(geometry.data() + 8), 0x000C10D0);
-    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(geometry.data() + 12), 12);
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(geometry.data() + 8), TARGET_PARAM_ABI);
+    YgProtocol_WriteU32Le(reinterpret_cast<uint8_t *>(geometry.data() + 12), TARGET_SCHEMA);
     check(device.Device_Begin(1, 16, 2, 151) &&
               device.Device_Accept(can_id, reply(3, 1, 16, geometry), 152) &&
-              device.Device_View(152).parameter_schema == 12,
+              device.Device_View(152).parameter_schema == TARGET_SCHEMA,
           "parameter schema was inferred instead of read back");
     QByteArray feedback =
         QByteArray::fromHex("0000000004030201E803000030F8FFFFB80B000060F0FFFFFF0D6009DC0550FB"
@@ -427,8 +431,31 @@ void app_package_checks()
               "APP fixture write failed");
     };
     auto bytes = QByteArray::fromHex(image.value("image_hex").toString().toLatin1());
+    auto manifest = QByteArray::fromHex(image.value("manifest_hex").toString().toLatin1());
+    auto put32 = [](QByteArray &data, int offset, quint32 value)
+    {
+        qToBigEndian(value, reinterpret_cast<uchar *>(data.data() + offset));
+    };
+    auto put16 = [](QByteArray &data, int offset, quint16 value)
+    {
+        qToBigEndian(value, reinterpret_cast<uchar *>(data.data() + offset));
+    };
+    check(bytes.size() >= TARGET_DESCRIPTOR_OFFSET + 96 && manifest.size() == 96,
+          "APP fixture format changed");
+    put32(bytes, TARGET_DESCRIPTOR_OFFSET + 28, TARGET_APP_VERSION);
+    put32(bytes, TARGET_DESCRIPTOR_OFFSET + 36, TARGET_PARAM_ABI);
+    put16(bytes, TARGET_DESCRIPTOR_OFFSET + 40, TARGET_SCHEMA);
+    put16(bytes, TARGET_DESCRIPTOR_OFFSET + 42, TARGET_SCHEMA);
+    put32(bytes, TARGET_DESCRIPTOR_OFFSET + 48, 0);
+    put32(manifest, 24, TARGET_APP_VERSION);
+    put32(manifest, 40, TARGET_PARAM_ABI);
+    put16(manifest, 44, TARGET_SCHEMA);
+    put16(manifest, 46, TARGET_SCHEMA);
+    const auto crc = Crc32_Compute(bytes.constData(), quint32(bytes.size()), 0);
+    put32(bytes, TARGET_DESCRIPTOR_OFFSET + 48, crc);
+    put32(manifest, 48, crc);
     write(image_path, bytes);
-    write(manifest_path, QByteArray::fromHex(image.value("manifest_hex").toString().toLatin1()));
+    write(manifest_path, manifest);
     auto plan = Upgrade_Inspect(image_path);
     check(plan.valid, "valid APP package rejected");
     plan.version += 1;

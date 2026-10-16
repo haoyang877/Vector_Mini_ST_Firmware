@@ -35,6 +35,10 @@ NATIVE = (
     "test_yg_protocol_motor_adapter",
     "test_parameter_value_service",
     "test_yg_protocol_link",
+    "test_comm_bus_off",
+    "test_motor_thermal",
+    "test_speed_feedforward",
+    "test_observer_calibration_hotpath",
 )
 
 

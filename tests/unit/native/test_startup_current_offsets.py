@@ -51,6 +51,7 @@ def main() -> None:
         "sample_phase_currents",
         "MotorAxis_Init",
         "run_fast_task",
+        "update_winding_thermal",
         "MotorAxis_FastTick",
     ):
         production += function_source(axis, name)
@@ -78,6 +79,9 @@ def main() -> None:
                 str(source),
                 str(ROOT / "firmware/motor/foc/foc_pid.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
+                str(ROOT / "firmware/motor/protection/motor_thermal.c"),
+                str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
+                str(ROOT / "firmware/app/runtime/motor_thermal_control.c"),
                 "-lm",
                 "-o",
                 str(executable),

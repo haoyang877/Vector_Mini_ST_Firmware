@@ -8,6 +8,7 @@
 #include <string.h>
 #include "foc_algorithm.h"
 #include "fast_loop_profile.h"
+#include "motor_thermal_control.h"
 
 void FOC_Current_Reference(FocState *, MotorControlState *, float, float);
 void FOC_CurrentWithReference_Reference(FocState *, MotorControlState *, float, float, float);
@@ -59,8 +60,20 @@ void FastLoopProfile_End_Reference(unsigned stage)
     record(1, 200 + stage);
 }
 
+void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
+{
+    (void)motor;
+    (void)fault;
+    assert(false);
+}
+
 int main(void)
 {
+    /* 等价比较限定在不触发新增热限制的输入，热限流另有真实入口反例。 */
+    MotorWindingThermalConfig thermal;
+    MotorWindingThermal_Default(&thermal);
+    thermal.peak_a = 100.0f;
+    assert(MotorThermalControl_Init(&thermal, 0U));
     unsigned compared = 0;
     const float bus[] = {24, 48, 0, -1, NAN, INFINITY, 0.0001f, 12};
     for (unsigned mode = 0; mode < 3; mode++)
@@ -69,6 +82,8 @@ int main(void)
         {
             FocState actual = {0}, reference = {0};
             MotorControlState motor = {0};
+            motor.application.current_limit_a = 100.0f;
+            motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(100.0f);
             motor.model.id_kp = .03f * (scenario % 5);
             motor.model.iq_kp = .05f * (scenario % 7);
             motor.model.id_ki = .3f * (scenario % 6);

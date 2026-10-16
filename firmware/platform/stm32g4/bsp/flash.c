@@ -137,6 +137,10 @@ bool flash_write_param(const void *record, uint32_t size_bytes)
     {
         return false;
     }
+    if (memcmp((const void *)PARAM_FLASH_ADDR, record, size_bytes) == 0)
+    {
+        return true;
+    }
     return flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + size_bytes - 1U) &&
            flash_write_data(PARAM_FLASH_ADDR, record, size_bytes);
 }

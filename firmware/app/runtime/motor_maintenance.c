@@ -7,6 +7,8 @@
 #include "motor_execution.h"
 #include "parameter_value_service.h"
 #include "maintenance_workspace.h"
+#include "motor_thermal_control.h"
+#include "power_stage_hw.h"
 
 /* 维护调度只调用实际功能；生命周期、输出许可、保存衔接由唯一主状态机拥有。 */
 MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
@@ -85,6 +87,13 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
         return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
     case MOTOR_MAINTENANCE_DEFAULTS:
     {
+        /* 先同步热模型；失败不能先改活动参数，更不能以恢复默认清零热历史。 */
+        MotorWindingThermalConfig thermal_defaults;
+        MotorWindingThermal_Default(&thermal_defaults);
+        if (!MotorThermalControl_Configure(&thermal_defaults, power_stage_hw_phases_disabled()))
+        {
+            return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_WINDING_THERMAL};
+        }
         /* 运行期端点地址已冻结；恢复控制默认值不等于生产改址。 */
         uint8_t node_id = motor->device.node_id;
         Param_Return_Default(motor, encoder);

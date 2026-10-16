@@ -23,7 +23,8 @@ typedef struct
  * 属于已发布 schema 的一部分，数值禁止更改。 */
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
-#define PARAM_SCHEMA_VERSION 12U
+#define PARAM_SCHEMA_VERSION 13U
+#define PARAM_SCHEMA12_BYTES 4304U
 
 typedef struct
 {
@@ -83,6 +84,13 @@ typedef struct
     MotorAxisProfile axis_profile;
     /* 退役齿槽表占位：读取忽略，导出清零；schema12布局不变。 */
     CoggingMapRecord cogging;
+    /* schema13尾追加；schema12前缀及其所有偏移保持不变。 */
+    MotorWindingThermalConfig thermal;
+    uint32_t speed_feedforward_enabled;
+    float speed_feedforward_gain_a_per_rad_s2;
+    float speed_feedforward_acceleration_rad_s2;
+    float speed_feedforward_jerk_rad_s3;
+    float speed_feedforward_current_limit_a;
 } InterfaceParam;
 
 /**
@@ -94,7 +102,7 @@ typedef struct
 void Param_Return_Default(MotorControlState *motor, EncoderState *encoder);
 
 /**
- * @brief 导出含配置确认、识别字与整条 CRC32 的 schema12 参数记录。
+ * @brief 导出含配置确认、识别字与整条 CRC32 的 schema13 参数记录。
  * @param param 调用方独占的记录空间。
  * @param motor 稳定的电机配置。
  * @param encoder 稳定的编码器配置。
@@ -105,16 +113,16 @@ void Param_Upload(InterfaceParam *param,
                   const EncoderState *encoder);
 
 /**
- * @brief 仅装载当前 schema12 完整记录，其他版本或损坏记录恢复未确认默认值。
+ * @brief 装载有效schema13或schema12前缀；旧前缀使用新增功能的保守默认值。
  * @param param 只读 Flash 记录副本。
  * @param motor 中断启动前的电机配置。
  * @param encoder 中断启动前的编码器配置。
- * @note 仅启动调用；拒绝旧版本时清除运行态标定标志，不转换记录或执行 Flash I/O。
+ * @note 仅启动调用；其他版本清除标定资格，不自动转换schema10或写Flash。
  */
 void Param_Download(const InterfaceParam *param, MotorControlState *motor, EncoderState *encoder);
 
 /**
- * @brief 计算当前参数记录完整性 CRC32，跳过 record_crc32 槽。
+ * @brief 按schema12/13规定长度计算记录CRC32，跳过record_crc32槽。
  * @param param 调用方独占的完整记录，不能为空。
  * @return 标准反射 CRC32，首块种子为零。
  * @note 启动或停机前台调用；不修改输入，不在快慢环计算。

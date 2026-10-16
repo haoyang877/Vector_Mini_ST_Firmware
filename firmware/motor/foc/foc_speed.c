@@ -2,8 +2,9 @@
 
 #include "control_config.h"
 
-/* 速度环实现：参考斜坡、速度 PI 更新与顺序任务入口。
- * 斜坡由速度模式与无感启动共用；顺序入口供摩擦辨识与外部调用。 */
+#include <math.h>
+
+/* 运行速度外环拥有可选整形/前馈；顺序标定入口保留原斜坡与 PI。 */
 
 /* 速度参考斜坡：把 speed_ramped_rad_s 按加减速限制推进到 speed_target_rad_s。
  * 速度模式与无感启动共用；两者对时基、单位与所有权的要求一致。 */
@@ -44,7 +45,7 @@ void MotorAxis_UpdateSpeedRamp(MotorControlState *motor_state)
  * @param  motor_state 电机控制状态指针，读写 speed_ramped_rad_s、id_target_a 与 iq_target_a。
  * @param  controller 速度 PI 控制器指针。
  * @param  mechanical_velocity_rad_s 机械角速度反馈，单位 rad/s。
- * @note 在快速环上下文调用；归一化输出按 current_limit_a 缩放为电流参考。
+ * @note 供顺序标定任务使用；保持原斜坡与归一化 PI，不启用惯量前馈。
  */
 void SpeedMode_UpdateControl(MotorControlState *motor_state,
                              PiController *controller,
@@ -62,6 +63,93 @@ void SpeedMode_UpdateControl(MotorControlState *motor_state,
     motor_state->iq_target_a =
         PiController_Run(controller, motor_state->speed_ramped_rad_s, mechanical_velocity_rad_s) *
         motor_state->application.current_limit_a;
+}
+
+bool SpeedMode_UpdateOuterControl(MotorControlState *motor_state,
+                                  PiController *controller,
+                                  SpeedFeedforwardState *state,
+                                  float mechanical_velocity_rad_s,
+                                  float current_limit_a)
+{
+    float configured_limit_a = motor_state->application.current_limit_a;
+    const SpeedFeedforwardConfig *config = &motor_state->application.speed_feedforward;
+    if (!isfinite(configured_limit_a) || configured_limit_a <= 0.0f || !isfinite(current_limit_a) ||
+        current_limit_a < 0.0f || (config->enabled && !SpeedFeedforward_IsValid(config)))
+    {
+        return false;
+    }
+    current_limit_a = fminf(current_limit_a, configured_limit_a);
+    if (current_limit_a == 0.0f)
+    {
+        /* 热保护归零时不推进规划；由热 owner 锁存其故障，不改报参数故障。 */
+        SpeedFeedforward_Reset(state);
+        PiController_Reset(controller);
+        motor_state->id_target_a = 0.0f;
+        motor_state->iq_target_a = 0.0f;
+        return true;
+    }
+    if (!config->enabled)
+    {
+        SpeedFeedforward_Reset(state);
+        if (current_limit_a == configured_limit_a)
+        {
+            SpeedMode_UpdateControl(motor_state, controller, mechanical_velocity_rad_s);
+        }
+        else
+        {
+            float ratio = current_limit_a / configured_limit_a;
+            MotorAxis_UpdateSpeedRamp(motor_state);
+            PiController_Configure(controller,
+                                   motor_state->application.speed_kp,
+                                   motor_state->application.speed_ki,
+                                   Speed_Ts,
+                                   -ratio,
+                                   ratio);
+            motor_state->id_target_a = 0.0f;
+            motor_state->iq_target_a = PiController_Run(controller,
+                                                        motor_state->speed_ramped_rad_s,
+                                                        mechanical_velocity_rad_s) *
+                                       configured_limit_a;
+        }
+        return isfinite(motor_state->iq_target_a);
+    }
+
+    bool initialized = state->initialized;
+    if (!SpeedFeedforward_Update(state,
+                                 config,
+                                 motor_state->speed_target_rad_s,
+                                 mechanical_velocity_rad_s,
+                                 Speed_Ts,
+                                 current_limit_a))
+    {
+        return false;
+    }
+    if (!initialized)
+    {
+        PiController_Reset(controller);
+    }
+    motor_state->uses_speed_ramp = true;
+    motor_state->speed_ramped_rad_s = state->speed_rad_s;
+    /* 前馈占用同一电流预算；积分准入同步收窄，保留原归一化增益口径。 */
+    PiController_Configure(controller,
+                           motor_state->application.speed_kp,
+                           motor_state->application.speed_ki,
+                           Speed_Ts,
+                           (-current_limit_a - state->current_a) / configured_limit_a,
+                           (current_limit_a - state->current_a) / configured_limit_a);
+    float normalized =
+        PiController_Run(controller, motor_state->speed_ramped_rad_s, mechanical_velocity_rad_s);
+    if (!isfinite(normalized))
+    {
+        return false;
+    }
+    float total_a =
+        fminf(fmaxf(normalized * configured_limit_a + state->current_a, -current_limit_a),
+              current_limit_a);
+    PiController_TrackOutput(controller, (total_a - state->current_a) / configured_limit_a);
+    motor_state->id_target_a = 0.0f;
+    motor_state->iq_target_a = total_a;
+    return isfinite(total_a);
 }
 
 /**

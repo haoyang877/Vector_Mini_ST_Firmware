@@ -20,6 +20,13 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 #include "foc_pid.h"
 #include "maintenance_workspace.h"
 #include "param_store.h"
+#include "motor_thermal_control.h"
+
+bool MotorThermalControl_Configure(const MotorWindingThermalConfig *config, bool outputs_disabled)
+{
+    (void)config;
+    return outputs_disabled;
+}
 
 /* ---- 复刻 motor_axis.c 的私有状态与对象实例；函数体由 runner 从真实源码切片追加 ---- */
 static MotorControlState s_motor_state;

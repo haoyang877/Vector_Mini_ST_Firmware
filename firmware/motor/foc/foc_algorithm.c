@@ -6,6 +6,8 @@
 #include "fast_loop_profile.h"
 #include "motor_hw.h"
 #include "control_math.h"
+#include "motor_thermal.h"
+#include "foc_errhandle.h"
 
 /* foc 变换、调制与电流环入口。本文件不访问定时器寄存器：三相 PWM 输出统一
  * 经 platform/api/motor_hw.h 契约由板级端口（platform/stm32g4/ports）实现。 */
@@ -277,6 +279,16 @@ void FOC_CurrentWithReference(
 
     FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
 
+    /* 最终提交再次按快环热额度限制d/q总向量，不能分别裁剪后超过总限流。 */
+    float id_reference = motor_state->id_target_a;
+    float current_limit_a = MotorThermal_ResolveLimit(
+        motor_state->application.current_limit_a, motor_state->thermal_current_limit_a, true);
+    if (!MotorThermal_LimitVector(current_limit_a, &id_reference, &iq_reference))
+    {
+        MotorFault_Report(motor_state, MOTOR_FAULT_WINDING_THERMAL);
+        FAST_PROFILE_END(FAST_PROFILE_CURRENT);
+        return;
+    }
     foc_measure_currents(foc, phase);
 
     if (foc->bus_voltage_filtered_v > 0.0f)
@@ -295,7 +307,7 @@ void FOC_CurrentWithReference(
                                -max_voltage,
                                max_voltage);
 
-        voltage_d = PiController_Run(&foc->id_pi, motor_state->id_target_a, foc->id_a);
+        voltage_d = PiController_Run(&foc->id_pi, id_reference, foc->id_a);
         voltage_q = PiController_Run(&foc->iq_pi, iq_reference, foc->iq_a);
         foc_set_voltage_modulation(foc, voltage_d, voltage_q);
 
@@ -329,6 +341,14 @@ void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, flo
     float voltage_q;
 
     foc_measure_currents(foc, phase);
+    float limit_a = MotorThermal_ResolveLimit(
+        motor_state->application.current_limit_a, motor_state->thermal_current_limit_a, true);
+    /* 电压模式无法按参考限流；当前热额度为零或实测越界时必须关断。 */
+    if (!(limit_a > 0.0f) || !(foc->id_a * foc->id_a + foc->iq_a * foc->iq_a <= limit_a * limit_a))
+    {
+        MotorFault_Report(motor_state, MOTOR_FAULT_WINDING_THERMAL);
+        return;
+    }
 
     if (foc->bus_voltage_filtered_v > 0.0f)
     {

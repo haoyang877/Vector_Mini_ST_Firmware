@@ -16,6 +16,7 @@
 #include "bus_voltage_profile.h"
 #include "control_math.h"
 #include "maintenance_workspace.h"
+#include "motor_thermal_control.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
@@ -152,6 +153,11 @@ static void reset(void)
     memset(&foc, 0, sizeof(foc));
     memset(&encoder, 0, sizeof(encoder));
     motor.application.axis_profile_valid = true;
+    MotorWindingThermal_Default(&motor.model.thermal);
+    SpeedFeedforward_Default(&motor.application.speed_feedforward);
+    assert(MotorThermalControl_Init(&motor.model.thermal, now_ms));
+    motor.thermal_clear_ready = true;
+    motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(6.0f);
     motor.model.motor_pole_pairs = 21;
     motor.configuration_confirmed = true;
     motor.model.motor_phase_resistance_ohm = 1.0f;
@@ -196,11 +202,34 @@ static void test_defaults_preserves_device_address(void)
 {
     reset();
     motor.device.node_id = 7U;
+    MotorWindingThermalConfig custom = motor.model.thermal;
+    custom.peak_a = 6.0f;
+    assert(MotorThermalControl_Configure(&custom, true));
+    motor.model.thermal = custom;
+    for (unsigned i = 0U; i < 20U; ++i)
+    {
+        MotorThermalControl_Sample(3.0f, -1.5f, -1.5f, true, now_ms);
+    }
+    MotorThermalDiagnostics before, after;
+    assert(MotorThermalControl_GetDiagnostics(&before) && before.model.max_heat > 0.0f);
+    MotorControlState unchanged = motor;
+    output_off = false;
+    MotorTaskResult refused = MotorMaintenance_Step(
+        MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
+    assert(refused.result == MOTOR_TASK_FAILED && refused.error == MOTOR_FAULT_WINDING_THERMAL);
+    assert(memcmp(&unchanged, &motor, sizeof(motor)) == 0);
+    assert(MotorThermalControl_GetDiagnostics(&after));
+    assert(memcmp(&before, &after, sizeof(before)) == 0);
+    output_off = true;
     uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_DEFAULTS);
     uint32_t epoch = MotorStateMachine_WorkEpoch();
     MotorTaskResult outcome = MotorMaintenance_Step(
         MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
     assert(outcome.result == MOTOR_TASK_COMPLETED);
+    assert(MotorThermalControl_GetDiagnostics(&after));
+    assert(memcmp(before.model.heat, after.model.heat, sizeof(before.model.heat)) == 0);
+    assert(after.model.config.peak_a == motor.model.thermal.peak_a &&
+           motor.model.thermal.peak_a == 7.0f);
     assert(leaf_calls[MOTOR_MAINTENANCE_DEFAULTS] == 1U && motor.device.node_id == 7U);
     assert(!motor.configuration_confirmed && encoder.calib_flag == 0U && output_off);
     MotorStateMachine_PostOutcome(outcome, epoch);
@@ -219,8 +248,8 @@ static void test_defaults_preserves_device_address(void)
     assert(MotorStateMachine_ReadMaintenance(save_ticket, &progress) &&
            progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
     assert(motor.device.node_id == 7U && output_off && motor.control_mode == MOTOR_CONTROL_NONE);
-    puts("PASS runtime DEFAULTS and derived SAVE retain node7 while clearing "
-         "confirmation/calibration");
+    puts("PASS runtime DEFAULTS retain node7/heat, failed hot-config apply changes nothing, "
+         "successful defaults synchronize runtime before derived SAVE");
 }
 
 static void test_control(void)
@@ -1150,6 +1179,70 @@ static void test_rejected_start_does_not_bind_source(void)
          "rejection preserves B");
 }
 
+/* 热模型用真实三相窗口推进，主状态机须拒绝危险策略并显式清错，不自动重启。 */
+static void test_thermal_owner_admission_and_clear(void)
+{
+    reset();
+    motor.model.thermal.heating_tau_s = 0.1f;
+    assert(MotorThermalControl_Configure(&motor.model.thermal, true));
+    for (unsigned window = 0U; window < 100U && MotorThermalControl_CanRun(false); ++window)
+    {
+        ++now_ms;
+        for (unsigned sample = 0U; sample < 20U; ++sample)
+        {
+            MotorThermalControl_Sample(6.0f, -3.0f, -3.0f, true, now_ms);
+        }
+    }
+    assert(MotorThermalControl_CanRun(true) && !MotorThermalControl_CanRun(false));
+    MotorReadiness readiness;
+    MotorStateMachine_ReadReadiness(&readiness);
+    assert((readiness.startable_modes & (1U << MOTOR_CONTROL_SPEED)) != 0U);
+    assert((readiness.startable_modes & (1U << MOTOR_CONTROL_VQ)) == 0U);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_VQ) == MOTOR_CONTROL_DENIED);
+    assert(motor.control_mode == MOTOR_CONTROL_NONE && output_off && start_count == 0U);
+    uint32_t ticket;
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
+           MOTOR_CONTROL_DENIED);
+    assert(output_off && motor.fault_code == MOTOR_FAULT_NONE);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
+    for (unsigned window = 0U; window < 100U && MotorThermalControl_CanRun(true); ++window)
+    {
+        ++now_ms;
+        for (unsigned sample = 0U; sample < 20U; ++sample)
+        {
+            MotorThermalControl_Sample(6.0f, -3.0f, -3.0f, false, now_ms);
+        }
+    }
+    assert(!MotorThermalControl_CanRun(true));
+    MotorFault_Report(&motor, MOTOR_FAULT_WINDING_THERMAL);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_DENIED);
+    for (unsigned window = 0U; window < 120000U && !MotorThermalControl_CanClearFault(); ++window)
+    {
+        ++now_ms;
+        for (unsigned sample = 0U; sample < 20U; ++sample)
+        {
+            MotorThermalControl_Sample(0.0f, 0.0f, 0.0f, true, now_ms);
+        }
+    }
+    motor.thermal_clear_ready = MotorThermalControl_CanClearFault();
+    assert(motor.thermal_clear_ready);
+    tick();
+    MotorThermalDiagnostics before, after;
+    assert(MotorThermalControl_GetDiagnostics(&before));
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorThermalControl_GetDiagnostics(&after));
+    assert(before.model.max_heat == after.model.max_heat && after.model.max_heat > 0.0f);
+    assert(!after.model.fault_latched && motor.fault_code == MOTOR_FAULT_NONE);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off && start_count == 1U);
+    puts("PASS real thermal owner: hot Vq/LUT denied, speed derating allowed, trip STOP and cooled "
+         "CLEAR preserve heat without restart");
+}
+
 int main(void)
 {
     test_defaults_preserves_device_address();
@@ -1177,6 +1270,7 @@ int main(void)
     test_borrow_cancel();
     test_maintenance_sampling_loss();
     test_stop_and_fault();
+    test_thermal_owner_admission_and_clear();
     assert(critical_depth == 0U);
     return 0;
 }
@@ -1222,6 +1316,8 @@ void MotorOuterLoop_RequestReset(void)
 void Param_Return_Default(MotorControlState *m, EncoderState *e)
 {
     /* 保留生产默认值接口的本次相关副作用；实际参数记录另由装载夹具验证。 */
+    MotorWindingThermal_Default(&m->model.thermal);
+    SpeedFeedforward_Default(&m->application.speed_feedforward);
     m->device.node_id = 1U;
     m->configuration_confirmed = false;
     e->calib_flag = 0U;

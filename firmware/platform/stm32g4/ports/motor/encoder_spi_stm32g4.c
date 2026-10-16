@@ -61,7 +61,7 @@ static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *SPIx, bool *ok)
     return rx_data;
 }
 
-static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+static bool SPI_Reg_StartTx16(SPI_TypeDef *SPIx, uint16_t tx_data)
 {
     if ((SPIx->CR1 & SPI_CR1_SPE) == 0U)
     {
@@ -76,10 +76,19 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
 
     if (!SPI_WaitFlag(SPIx, SPI_FLAG_TXE, ENC_SPI_XFER_SPIN_MAX))
     {
+        return false;
+    }
+    *(__IO uint16_t *)&SPIx->DR = tx_data;
+    return true;
+}
+
+static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+{
+    if (!SPI_Reg_StartTx16(SPIx, tx_data))
+    {
         *ok = false;
         return 0U;
     }
-    *(__IO uint16_t *)&SPIx->DR = tx_data;
     return SPI_Reg_ReadRx16(SPIx, ok);
 }
 
@@ -124,7 +133,32 @@ bool encoder_spi_read_begin(uint16_t request_frame)
     return true;
 }
 
-bool encoder_spi_read_complete(bool begin_ok,
+uint8_t encoder_spi_read_begin_readback(bool begin_ok, uint16_t read_frame)
+{
+    SPI_TypeDef *SPIx = ENCODER_SPI_HANDLE.Instance;
+    bool transfer_ok;
+
+    if (!begin_ok)
+    {
+        return ENCODER_SPI_READ_SYNC;
+    }
+    (void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+    if (!transfer_ok)
+    {
+        return ENCODER_SPI_READ_FAILED;
+    }
+    SPI2_MOSI_HiZ();
+    __NOP();
+    __NOP();
+    if (!SPI_Reg_StartTx16(SPIx, read_frame))
+    {
+        SPI2_MOSI_RestoreAF();
+        return ENCODER_SPI_READ_FAILED;
+    }
+    return ENCODER_SPI_READ_RESPONSE_PENDING;
+}
+
+bool encoder_spi_read_complete(uint8_t sample_stage,
                                uint16_t request_frame,
                                uint16_t read_frame,
                                uint16_t *word)
@@ -133,22 +167,34 @@ bool encoder_spi_read_complete(bool begin_ok,
     uint16_t received = 0U;
     bool transfer_ok = true;
 
-    if (begin_ok)
+    if (sample_stage == ENCODER_SPI_READ_RESPONSE_PENDING)
     {
-        (void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+        received = SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+        SPI2_MOSI_RestoreAF();
+    }
+    else if (sample_stage == ENCODER_SPI_READ_FAILED)
+    {
+        transfer_ok = false;
     }
     else
     {
-        ENCODER_SPI_CS_ENABLE;
-        (void)SPI_Reg_TxRx16(SPIx, request_frame, &transfer_ok);
-    }
-    if (transfer_ok)
-    {
-        SPI2_MOSI_HiZ();
-        __NOP();
-        __NOP();
-        received = SPI_Reg_TxRx16(SPIx, read_frame, &transfer_ok);
-        SPI2_MOSI_RestoreAF();
+        if (sample_stage == ENCODER_SPI_READ_COMMAND_PENDING)
+        {
+            (void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+        }
+        else
+        {
+            ENCODER_SPI_CS_ENABLE;
+            (void)SPI_Reg_TxRx16(SPIx, request_frame, &transfer_ok);
+        }
+        if (transfer_ok)
+        {
+            SPI2_MOSI_HiZ();
+            __NOP();
+            __NOP();
+            received = SPI_Reg_TxRx16(SPIx, read_frame, &transfer_ok);
+            SPI2_MOSI_RestoreAF();
+        }
     }
     (void)SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX);
     ENCODER_SPI_CS_DISABLE;

@@ -51,13 +51,21 @@ void encoder_sensor_init(void);
 bool encoder_sensor_begin(void);
 
 /**
+ * @brief 推进本拍读取到响应阶段，使后续计算可与总线传输重叠。
+ * @param started 本拍encoder_sensor_begin返回值，只能推进一次。
+ * @return 不透明事务阶段，必须原样传给encoder_sensor_complete。
+ * @note 快环独占总线；阶段仅在本拍栈上传递，无论成败均须complete收尾。
+ */
+uint8_t encoder_sensor_begin_readback(bool started);
+
+/**
  * @brief 完成一次采样并填充归一化结果。
- * @param started encoder_sensor_begin() 的返回值；false 时驱动自行发起同步读取。
+ * @param sample_stage 本拍begin的0/1返回值或begin_readback的阶段；0时驱动同步读取。
  * @param out 输出样本；仅状态为 OK 时角度与诊断字有效。
  * @return 本次采样状态。
  * @note 20 kHz 快速环调用；无论成败都释放总线。
  */
-EncoderSensorStatus encoder_sensor_complete(bool started, EncoderSensorSample *out);
+EncoderSensorStatus encoder_sensor_complete(uint8_t sample_stage, EncoderSensorSample *out);
 
 /**
  * @brief 读取当前链接的传感器型号。

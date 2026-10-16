@@ -117,8 +117,20 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
                                    float measured_speed,
                                    PositionCascadeControlOutput *output)
 {
+    return config != NULL &&
+           PositionCascade_UpdateControlLimited(
+               config, measured_position, measured_speed, config->current_limit_a, output);
+}
+
+bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+                                          float measured_position,
+                                          float measured_speed,
+                                          float available_current_a,
+                                          PositionCascadeControlOutput *output)
+{
     float alpha;
     if (output == NULL || !isfinite(measured_position) || !isfinite(measured_speed) ||
+        !isfinite(available_current_a) || available_current_a < 0.0f ||
         !position_cascade_config_valid(config))
     {
         return false;
@@ -141,16 +153,16 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
     s_state.config = *config;
     s_state.velocity_filter_alpha = alpha;
     s_state.configured = true;
+    float limit_a = fminf(available_current_a, config->current_limit_a);
     PiController_Configure(&s_state.speed_controller,
                            config->speed_kp * config->current_limit_a,
                            config->speed_ki * config->current_limit_a,
                            config->update_period_s,
-                           -config->current_limit_a,
-                           config->current_limit_a);
+                           -limit_a,
+                           limit_a);
     /* 下调电流上限即使落在分频等待拍也立即作用，不清掉已有支撑积分。 */
-    PiController_TrackOutput(
-        &s_state.speed_controller,
-        position_cascade_clamp(s_state.speed_controller.output, config->current_limit_a));
+    PiController_TrackOutput(&s_state.speed_controller,
+                             position_cascade_clamp(s_state.speed_controller.output, limit_a));
     return position_cascade_run(measured_position, measured_speed, output);
 }
 

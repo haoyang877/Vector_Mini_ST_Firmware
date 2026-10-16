@@ -49,7 +49,7 @@ def main() -> None:
         f"IRAM(0x{ram:X}-0x{end - 1:X}) IROM(0x{app:X}-0x{app + size - 1:X}) "
         'CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4")',
     )
-    # 新工程不继承普通APP的自动执行钩子或下载设置；普通工程自身保持不变。
+    # 新工程不继承普通 APP 的执行钩子；下载驱动沿用 Keil 原生配置，写域由 APP 段限定。
     for hook in ("BeforeCompile", "BeforeMake", "AfterMake"):
         for child in target.findall(common + hook + "/*"):
             child.text = (
@@ -57,10 +57,18 @@ def main() -> None:
                 if child.tag.startswith(("Run", "nStop", "UserProg1Dos", "UserProg2Dos"))
                 else ""
             )
-    options = target.find("TargetOption")
-    utilities = options.find("Utilities")
-    if utilities is not None:
-        options.remove(utilities)
+    after = target.find(common + "AfterMake")
+    if after is None:
+        raise ValueError("普通APP工程缺少AfterMake")
+    after.find("RunUserProg1").text = "1"
+    after.find("nStopA1X").text = "2"
+    after.find("UserProg1Name").text = (
+        '"'
+        + relative(".venv/Scripts/python.exe")
+        + '" "'
+        + relative("tools/build/keil_loader_app.py")
+        + '" "#L"'
+    )
     ads = "TargetOption/TargetArmAds/"
     defines = target.find(ads + "Cads/VariousControls/Define")
     # 配套APP版本来自共同目标清单，禁止运行时与描述符独立赋值。

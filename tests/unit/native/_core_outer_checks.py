@@ -30,7 +30,7 @@ def main(case: str) -> None:
     if case == "runtime":
         # 运行检查链接真实位置核心；配置/拒绝检查使用明确的边界桩。
         text = fixture.read_text(encoding="utf-8")
-        for name in ("PositionCascade_Reset", "PositionCascade_UpdateControl"):
+        for name in ("PositionCascade_Reset", "PositionCascade_UpdateControlLimited"):
             text = text.replace(function_source(text, name), "")
         text = text.replace("unsigned resets = s_resets;", "")
         text = text.replace(
@@ -57,6 +57,7 @@ def main(case: str) -> None:
             str(fixture),
             str(ROOT / "firmware/app/runtime/motor_execution.c"),
             str(ROOT / "firmware/motor/foc/foc_speed.c"),
+            str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
             str(ROOT / "firmware/motor/foc/foc_pid.c"),
             str(ROOT / "firmware/motor/math/control_math.c"),
             *position_sources,

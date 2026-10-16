@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
 from harness.common import zig_path
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
+
+sys.path.insert(0, str(ROOT / "loader/tools"))
+from package_image import build_package
 
 
 def main() -> None:
@@ -32,7 +36,21 @@ def main() -> None:
         vector = json.loads(
             (ROOT / "tests/fixtures/loader_image_v3.json").read_text(encoding="utf-8")
         )
-        image = bytes.fromhex(vector["image_hex"])
+        target = json.loads(
+            (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
+        )
+        constants = target["constants"]
+        source = bytearray.fromhex(vector["source_hex"])
+        offset = int(constants["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
+        struct.pack_into(
+            ">I", source, offset + 28, int(constants["TARGET_APP_VERSION"].rstrip("U"), 0)
+        )
+        struct.pack_into(
+            ">I", source, offset + 36, int(constants["TARGET_PARAM_ABI"].rstrip("U"), 0)
+        )
+        schema = int(constants["TARGET_SCHEMA"].rstrip("U"), 0)
+        struct.pack_into(">HH", source, offset + 40, schema, schema)
+        image, _, _ = build_package(source, 7, target)
     header = "static const uint8_t LoaderV2Image[] = {" + ",".join(map(str, image)) + "};\n"
     (output / "loader_image_v2_vector.h").write_text(header, encoding="utf-8")
     board = (ROOT / "firmware/app/composition/board_config.c").read_text(encoding="utf-8")

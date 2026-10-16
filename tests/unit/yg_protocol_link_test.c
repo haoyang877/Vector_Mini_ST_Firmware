@@ -667,14 +667,14 @@ static void runtime_start_boundary(void)
     yg_protocol_message_t stop = {.version = YG_PROTOCOL_VERSION,
                                   .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
                                   .source_node = 2U,
-                                  .destination_node = 7U,
+                                  .destination_node = 1U,
                                   .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP,
                                   .sequence = 200U};
     YgProtocolRuntime_Service(1000U);
     assert(can_starts == 0U && bus_off_services == 0U);
     assert(!YgProtocolRuntime_Init(255U));
     assert(can_starts == 0U && !YgProtocolLink_IsReady());
-    assert(YgProtocolRuntime_Init(7U));
+    assert(YgProtocolRuntime_Init(1U));
     enqueue_request(&stop);
     assert(!YgProtocolRuntime_Init(9U));
     sent = false;
@@ -685,14 +685,51 @@ static void runtime_start_boundary(void)
     assert(YgProtocolRuntime_Start());
     YgProtocolRuntime_Service(999U);
     assert(can_starts == 1U && bus_off_services == 0U && sent);
-    /* 重新初始化撤销旧服务；仍从冻结的节点 7 返回未绑定结果。 */
-    assert(sent_frame.data[4] == 7U && sent_frame.data[16] == 2U);
+    /* 重新初始化撤销旧服务；仍从冻结的节点 1 返回未绑定结果。 */
+    assert(sent_frame.data[4] == 1U && sent_frame.data[16] == 2U);
     sent = false;
     YgProtocolRuntime_Service(1000U);
     YgProtocolRuntime_Service(1999U);
     assert(bus_off_services == 1U);
     YgProtocolRuntime_Service(2000U);
     assert(bus_off_services == 2U);
+
+    /* attempt-10实际Type1/seq12原始帧；只替换硬件端口，不以pack重建请求。 */
+    const CommHwCanFrame captured = {.identifier = 0x0CEF0102U,
+                                     .length = 32U,
+                                     .extended = true,
+                                     .fd = true,
+                                     .bitrate_switch = true,
+                                     .data = {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x01, 0x01, 0x00,
+                                              0x0C, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x4A,
+                                              0x00, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00,
+                                              0x00, 0x00, 0x00, 0x00, 0x95, 0x6A, 0x00, 0x00}};
+    const yg_protocol_readonly_info_page0_t info = {
+        .uid = {0x57, 0x00, 0x46, 0x00, 0x10, 0x50, 0x4E, 0x48, 0x31, 0x30, 0x33, 0x20}};
+    const yg_protocol_readonly_caps_page0_t capabilities = {0};
+    assert(YgProtocolLink_SetDeviceDescription(&info, &capabilities));
+    sent = false;
+    sent_count = 0U;
+    assert(YgProtocolLink_OnRxFrame(&captured));
+    YgProtocolRuntime_Service(2001U);
+    assert(sent && sent_count == 1U && can_starts == 1U && bus_off_services == 2U);
+    yg_protocol_transfer_frame_t response_frame = {.identifier = sent_frame.identifier,
+                                                   .length = sent_frame.length,
+                                                   .extended = sent_frame.extended,
+                                                   .remote = sent_frame.remote,
+                                                   .fd = sent_frame.fd,
+                                                   .bitrate_switch = sent_frame.bitrate_switch};
+    yg_protocol_message_t response;
+    memcpy(response_frame.data, sent_frame.data, sent_frame.length);
+    /* unpack同时核对CAN元数据、头/帧CRC、填充与本机地址。 */
+    assert(sent_frame.identifier == 0x0CEF0201U);
+    assert(yg_protocol_canfd_unpack(&response_frame, 2U, &response) == YG_PROTOCOL_OK);
+    assert(response.version == YG_PROTOCOL_VERSION &&
+           response.flags == YG_PROTOCOL_FLAGS_RESPONSE && response.source_node == 1U &&
+           response.destination_node == 2U &&
+           response.message_type == YG_PROTOCOL_READONLY_TYPE_GET_INFO &&
+           response.sequence == 12U && response.payload_length == 32U &&
+           memcmp(response.payload, info.uid, sizeof(info.uid)) == 0);
 }
 
 static unsigned confirm_calls;

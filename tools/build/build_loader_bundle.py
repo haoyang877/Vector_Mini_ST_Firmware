@@ -1,10 +1,11 @@
-"""独立构建并冻结Loader/配套APP/schema12部署包；只构建，不下载或接触CAN/J-Link。"""
+"""独立构建并冻结 Loader/配套 APP 部署包；只构建，不下载或接触 CAN/J-Link。"""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -46,8 +47,8 @@ def main() -> int:
         "target_sha256": hashlib.sha256(target_file.read_bytes()).hexdigest(),
         "artifacts": [],
         "resources": {},
-        "parameter_schema": 12,
-        "parameter_bytes": 4304,
+        "parameter_schema": int(constants["TARGET_SCHEMA"].removesuffix("U"), 0),
+        "parameter_bytes": int(constants["TARGET_RAW_BYTES"].removesuffix("U"), 0),
         "profile": "loader-image-v3-crc32",
     }
     try:
@@ -69,10 +70,14 @@ def main() -> int:
         ):
             log = output / f"{name}.log"
             started = time.time()
+            environment = os.environ.copy()
+            if product == "APP":
+                environment["YG_LOADER_IMAGE_TOKEN"] = str(args.token)
             result = subprocess.run(
                 [str(args.uv4), "-r", str(ROOT / project), "-j0", "-o", str(log)],
                 timeout=180,
                 check=False,
+                env=environment,
             )
             text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
             if result.returncode or re.search(r"\b0 Error\(s\), 0 Warning\(s\)", text) is None:
@@ -84,10 +89,7 @@ def main() -> int:
                 artifact = ROOT / directory / f"{name}.{suffix}"
                 if not artifact.is_file() or artifact.stat().st_mtime < started - 2:
                     raise RuntimeError(f"{artifact.name}缺失或不是本次构建产物")
-                artifact_suffix = (
-                    "unpackaged.hex" if product == "APP" and suffix == "hex" else suffix
-                )
-                destination = output / f"{prefix}.{artifact_suffix}"
+                destination = output / f"{prefix}.{suffix}"
                 shutil.copyfile(artifact, destination)
                 report["artifacts"].append(
                     {
@@ -97,35 +99,40 @@ def main() -> int:
                     }
                 )
             binary = output / f"{prefix}.bin"
-            subprocess.run(
-                [
-                    str(args.fromelf),
-                    "--bin",
-                    "--output",
-                    str(binary),
-                    str(output / f"{prefix}.axf"),
-                ],
-                check=True,
-                timeout=30,
-            )
             if product == "APP":
+                built = ROOT / directory
+                debug_report = built / f"{name}.debug.json"
+                generated = built / "app-package"
+                if not debug_report.is_file() or debug_report.stat().st_mtime < started - 2:
+                    raise RuntimeError("Keil APP 后处理清单缺失或不是本次构建产物")
+                details = json.loads(debug_report.read_text(encoding="utf-8"))
+                if details["image_token"] != args.token or details["debug_markers"] != (
+                    "activated_attempted_confirmed"
+                ):
+                    raise RuntimeError("Keil 调试镜像与指定升级事务不匹配")
+                for relative, metadata in details["artifacts"].items():
+                    artifact = built / relative
+                    if (
+                        not artifact.is_file()
+                        or artifact.stat().st_mtime < started - 2
+                        or hashlib.sha256(artifact.read_bytes()).hexdigest() != metadata["sha256"]
+                    ):
+                        raise RuntimeError(f"Keil 后处理工件不匹配：{relative}")
+                shutil.copyfile(built / f"{name}.bin", binary)
+                shutil.copyfile(debug_report, output / f"{prefix}.debug.json")
+                shutil.copytree(generated, output / "app-package")
+            else:
                 subprocess.run(
                     [
-                        sys.executable,
-                        str(ROOT / "loader/tools/package_image.py"),
-                        "--app-bin",
-                        str(binary),
-                        "--token",
-                        str(args.token),
+                        str(args.fromelf),
+                        "--bin",
                         "--output",
-                        str(output / "app-package"),
+                        str(binary),
+                        str(output / f"{prefix}.axf"),
                     ],
                     check=True,
                     timeout=30,
                 )
-                # 标准APP文件名必须对应可下载包；原始占位BIN只留作打包溯源。
-                binary.rename(output / f"{prefix}.unpackaged.bin")
-                shutil.copyfile(output / "app-package/image.bin", binary)
             report["artifacts"].append(
                 {
                     "path": binary.name,
@@ -153,7 +160,7 @@ def main() -> int:
                     }
                 )
         shutil.copyfile(target_file, output / "target.json")
-        for artifact in [output / "target.json", *output.glob("*.unpackaged.bin")]:
+        for artifact in [output / "target.json", *output.glob("*.debug.json")]:
             report["artifacts"].append(
                 {
                     "path": artifact.name,
@@ -162,7 +169,7 @@ def main() -> int:
                 }
             )
         report["success"] = True
-    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError, KeyError) as exc:
         report["failure"] = str(exc)
     finally:
         (output / "summary.json").write_text(

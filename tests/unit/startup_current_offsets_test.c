@@ -16,6 +16,8 @@
 #include "motor_state_machine.h"
 #include "motor_hw.h"
 #include "motor_parameter_transaction.h"
+#include "motor_thermal_control.h"
+#include "time_hw.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
 static MotorControlState s_motor_state;
@@ -40,6 +42,8 @@ static void load_parameters(MotorControlState *motor, EncoderState *encoder)
 {
     assert(motor == &s_motor_state && encoder == &s_rotor_encoder);
     /* 模拟已存储的不同d/q增益，确保初始化不会覆盖为编译默认值。 */
+    MotorWindingThermal_Default(&s_motor_state.model.thermal);
+    s_motor_state.application.current_limit_a = 6.0f;
     s_motor_state.model.id_kp = 2.0f;
     s_motor_state.model.id_ki = 3.0f;
     s_motor_state.model.iq_kp = 4.0f;
@@ -104,9 +108,17 @@ bool Encoder_BeginSample(void)
 {
     return true;
 }
-void Encoder_CompleteSample(MotorControlState *motor, EncoderState *encoder, bool sample_started)
+uint8_t Encoder_BeginReadback(bool sample_started)
 {
-    assert(sample_started);
+    return sample_started ? 1U : 0U;
+}
+void Encoder_CompleteSample(MotorControlState *motor, EncoderState *encoder, uint8_t sample_stage)
+{
+    assert(sample_stage == 1U);
+}
+uint32_t time_hw_now_ms(void)
+{
+    return 0U;
 }
 float Encoder_GetMecPos(const EncoderState *encoder)
 {

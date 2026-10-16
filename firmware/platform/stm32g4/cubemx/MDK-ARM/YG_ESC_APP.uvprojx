@@ -384,6 +384,11 @@
           <GroupName>00_App</GroupName>
           <Files>
             <File>
+              <FileName>motor_thermal_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\app\runtime\motor_thermal_control.c</FilePath>
+            </File>
+            <File>
               <FileName>board_config.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\app\composition\board_config.c</FilePath>
@@ -805,6 +810,21 @@
         <Group>
           <GroupName>10_Motor</GroupName>
           <Files>
+            <File>
+              <FileName>motor_thermal.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\protection\motor_thermal.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_thermal_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\protection\motor_thermal_config.c</FilePath>
+            </File>
+            <File>
+              <FileName>speed_feedforward.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\motor\foc\speed_feedforward.c</FilePath>
+            </File>
             <File>
               <FileName>foc_algorithm.c</FileName>
               <FileType>1</FileType>

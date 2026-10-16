@@ -173,6 +173,104 @@ static void test_invalid_inputs(void)
     assert(memcmp(before, &output, sizeof(output)) == 0);
 }
 
+/* 动态额度只改饱和区间，不能改标称电流所定义的实际 PI 增益。 */
+static void test_dynamic_current_limit(void)
+{
+    PositionCascadeConfig value = config();
+    PositionCascadeControlOutput output;
+    PositionCascade_Reset();
+    assert(PositionCascade_UpdateControlLimited(&value, 0, 0.1f, 1.0f, &output));
+    assert(fabsf(output.iq_reference - 0.2505f) < 0.000001f);
+    assert(PositionCascade_GetConfiguration()->current_limit_a == 4.0f);
+
+    value.update_period_s = 0.1f;
+    value.speed_kp = 0;
+    value.speed_ki = 1;
+    PositionCascade_Reset();
+    for (unsigned index = 0; index < 24U; ++index)
+    {
+        assert(PositionCascade_UpdateControlLimited(&value, 0, 0, 4.0f, &output));
+    }
+    assert(output.iq_reference > 3);
+    value.call_divider = 10;
+    assert(PositionCascade_UpdateControlLimited(&value, 0, 0, 0.25f, &output));
+    assert(output.iq_reference == 0.25f);
+    /* 分频等待拍也立即归零；恢复额度后不释放已撤销的支撑积分。 */
+    value.target_position = 0;
+    assert(PositionCascade_UpdateControlLimited(&value, 0, 0, 0, &output));
+    assert(output.iq_reference == 0);
+    for (unsigned index = 0; index < 10U; ++index)
+    {
+        assert(PositionCascade_UpdateControlLimited(&value, 0, 0, 0.25f, &output));
+        assert(output.iq_reference == 0);
+    }
+    value = config();
+    value.target_position = 10;
+    value.speed_kp = 10;
+    PositionCascade_Reset();
+    for (unsigned index = 0; index < 1000U; ++index)
+    {
+        assert(PositionCascade_UpdateControlLimited(&value, 0, 0, 0.25f, &output));
+        assert(output.iq_reference == 0.25f);
+    }
+    value.target_position = 0;
+    assert(PositionCascade_UpdateControlLimited(&value, 0, 0, 0.25f, &output));
+    assert(output.iq_reference == 0);
+}
+
+static void test_dynamic_limit_rejection_and_legacy_equivalence(void)
+{
+    PositionCascadeConfig value = config();
+    PositionCascadeControlOutput expected[8], output;
+    PositionCascade_Reset();
+    for (unsigned index = 0; index < 8U; ++index)
+    {
+        value.target_position = index < 4U ? 0.2f : -0.2f;
+        assert(PositionCascade_UpdateControl(&value, 0, 0.1f, &expected[index]));
+    }
+    PositionCascade_Reset();
+    for (unsigned index = 0; index < 8U; ++index)
+    {
+        value.target_position = index < 4U ? 0.2f : -0.2f;
+        assert(PositionCascade_UpdateControlLimited(&value, 0, 0.1f, 4.0f, &output));
+        assert(output.position_reference == expected[index].position_reference);
+        assert(output.speed_reference == expected[index].speed_reference);
+        assert(output.speed_feedback_rad_s == expected[index].speed_feedback_rad_s);
+        assert(output.iq_reference == expected[index].iq_reference);
+        assert(output.target_reached == expected[index].target_reached);
+    }
+
+    /* 非法额度必须保留配置、积分、滤波和分频位置；随后序列与无拒绝路径相等。 */
+    value = config();
+    value.call_divider = 3;
+    value.velocity_filter_hz = 10;
+    PositionCascade_Reset();
+    for (unsigned index = 0; index < 3U; ++index)
+    {
+        assert(PositionCascade_UpdateControlLimited(&value, 0, 0.1f, 1.0f, &expected[index]));
+    }
+    PositionCascade_Reset();
+    assert(PositionCascade_UpdateControlLimited(&value, 0, 0.1f, 1.0f, &output));
+    PositionCascadeControlOutput before = output;
+    PositionCascadeConfig stored = *PositionCascade_GetConfiguration();
+    PositionCascadeConfig changed = value;
+    changed.target_position = 10;
+    const float invalid[] = {-1.0f, NAN, INFINITY};
+    for (unsigned index = 0; index < sizeof(invalid) / sizeof(invalid[0]); ++index)
+    {
+        assert(!PositionCascade_UpdateControlLimited(&changed, 0, 1.0f, invalid[index], &output));
+        assert(memcmp(&before, &output, sizeof(output)) == 0);
+        assert(memcmp(&stored, PositionCascade_GetConfiguration(), sizeof(stored)) == 0);
+    }
+    for (unsigned index = 1U; index < 3U; ++index)
+    {
+        assert(PositionCascade_UpdateControlLimited(&value, 0, 0.1f, 1.0f, &output));
+        assert(output.speed_reference == expected[index].speed_reference);
+        assert(output.speed_feedback_rad_s == expected[index].speed_feedback_rad_s);
+        assert(output.iq_reference == expected[index].iq_reference);
+    }
+}
+
 int main(void)
 {
     test_direct_control();
@@ -180,7 +278,9 @@ int main(void)
     test_filter_and_reset();
     test_live_limit_and_divider();
     test_invalid_inputs();
+    test_dynamic_current_limit();
+    test_dynamic_limit_rejection_and_legacy_equivalence();
     puts("PASS basic cascade: direct target/Kd/PI scaling, limits, anti-windup, filter, reset, "
-         "live limit, invalid-input rejection");
+         "live limit, dynamic budget/nominal gains, invalid-input rejection");
     return 0;
 }

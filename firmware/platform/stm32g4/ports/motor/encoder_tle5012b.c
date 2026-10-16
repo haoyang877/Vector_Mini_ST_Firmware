@@ -62,12 +62,17 @@ bool encoder_sensor_begin(void)
     return encoder_spi_read_begin(TLE5012B_REQUEST_READ_ANGLE);
 }
 
-EncoderSensorStatus encoder_sensor_complete(bool started, EncoderSensorSample *out)
+uint8_t encoder_sensor_begin_readback(bool started)
+{
+    return encoder_spi_read_begin_readback(started, TLE5012B_READ_FRAME);
+}
+
+EncoderSensorStatus encoder_sensor_complete(uint8_t sample_stage, EncoderSensorSample *out)
 {
     uint16_t word = 0U;
 
     if (!encoder_spi_read_complete(
-            started, TLE5012B_REQUEST_READ_ANGLE, TLE5012B_READ_FRAME, &word))
+            sample_stage, TLE5012B_REQUEST_READ_ANGLE, TLE5012B_READ_FRAME, &word))
     {
         out->status = ENCODER_SENSOR_BUS_TIMEOUT;
         return out->status;

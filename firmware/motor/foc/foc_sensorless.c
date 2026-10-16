@@ -2,6 +2,7 @@
 
 #include <float.h>
 #include <math.h>
+#include <string.h>
 
 #include "control_config.h"
 #include "control_math.h"
@@ -10,9 +11,17 @@
 #define FLUX_OBSERVER_MAX_CORRECTION_STEP 0.2f
 #define FLUX_OBSERVER_MIN_FLUX 1e-6f
 
+#if FLT_RADIX != 2 || FLT_MANT_DIG != 24 || FLT_MAX_EXP != 128
+#error "Flux observer requires IEEE 754 binary32 float"
+#endif
+typedef char FluxObserverFloatMustBe4Bytes[(sizeof(float) == 4U) ? 1 : -1];
+
 static int fluxobserver_is_finite(float value)
 {
-    return value == value && value <= FLT_MAX && value >= -FLT_MAX;
+    uint32_t bits;
+    /* binary32指数全1仅表示NaN/无穷；固定4字节复制避免别名违规与浮点分支。 */
+    memcpy(&bits, &value, sizeof(bits));
+    return (bits & 0x7F800000U) != 0x7F800000U;
 }
 
 static void fluxobserver_reset_state(FluxObserverState *flux_observer)
@@ -77,9 +86,9 @@ void FluxObserver_Update(FocState *foc,
         !fluxobserver_is_finite(flux_observer->x2_last))
         fluxobserver_reset_state(flux_observer);
 
-    flux_sq = Math_Square(flux);
+    flux_sq = flux * flux;
     gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (Current_Ts * flux_sq);
-    gamma = Math_Min(flux_observer->gamma, gamma_limit);
+    gamma = flux_observer->gamma < gamma_limit ? flux_observer->gamma : gamma_limit;
 
     /*Use phase currents sampled in the current ADC interrupt.*/
     Clarke_Transform(foc->phase_a_current_a,
@@ -101,8 +110,8 @@ void FluxObserver_Update(FocState *foc,
     flux_observer->etax1 = flux_observer->x1_last - Ls * flux_observer->current_alpha_a;
     flux_observer->etax2 = flux_observer->x2_last - Ls * flux_observer->current_beta_a;
 
-    flux_observer->flux_error_wb2 =
-        flux_sq - (Math_Square(flux_observer->etax1) + Math_Square(flux_observer->etax2));
+    flux_observer->flux_error_wb2 = flux_sq - (flux_observer->etax1 * flux_observer->etax1 +
+                                               flux_observer->etax2 * flux_observer->etax2);
 
     flux_observer->x1 = Current_Ts * (flux_observer->y1_last + gamma * flux_observer->etax1 *
                                                                    flux_observer->flux_error_wb2) +
@@ -125,12 +134,17 @@ void FluxObserver_Update(FocState *foc,
     flux_observer->sin = (flux_observer->x2 - Ls * flux_observer->current_beta_a) / flux;
 
     /*calculate angle with atan*/
-    flux_observer->electrical_angle_rad =
-        Math_NormalizeAngle(Math_Atan2(flux_observer->sin, flux_observer->cos));
+    flux_observer->electrical_angle_rad = Math_Atan2(flux_observer->sin, flux_observer->cos);
     if (!fluxobserver_is_finite(flux_observer->electrical_angle_rad))
     {
         fluxobserver_reset_state(flux_observer);
         return;
+    }
+
+    /* atan2输出在单圈内，只补负半圈，避免通用多圈归一化。 */
+    if (flux_observer->electrical_angle_rad < 0.0f)
+    {
+        flux_observer->electrical_angle_rad += _2PI;
     }
 
     delta_theta =

@@ -7,6 +7,12 @@ This is the stable top-level map. Detailed design and historical evidence live u
 For a plain-language walkthrough of products, control flow, scheduling, and data ownership,
 read [电机驱动软件架构说明](docs/architecture/software_architecture.md).
 
+2026-10-17 integration adds a deterministic winding-thermal core and optional speed
+feedforward without restoring the legacy runtime or wire protocol. The APP owns thermal
+scheduling/history; motor algorithms consume explicit current limits. See the
+[integration plan](docs/plans/active/2026-10-17-delivery-feature-integration-v1.md) and
+[schema13 contract](docs/protocols/parameter_schema13_delivery_v1.md) for compatibility.
+
 ## Products and contracts
 
 - `firmware/` is the current STM32G4 motor-control APP.

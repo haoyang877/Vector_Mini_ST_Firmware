@@ -15,7 +15,6 @@ def fixture():
     """组合生产函数与外围替身，覆盖持久化和控制所有权边界。"""
     param = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     task = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
-    reset = (ROOT / "firmware/motor/protection/foc_errhandle.c").read_text(encoding="utf-8")
     observer = (ROOT / "firmware/motor/foc/foc_sensorless.c").read_text(encoding="utf-8")
     can = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
     # 仅抽取新增 CAN 分派段；不复制其校验实现。
@@ -58,20 +57,27 @@ void Start_PWM_Generate(void) { gate_off=false; ++power_starts; }
 void Start_Damping_Brake(void) { gate_off=false; ++power_starts; }
 void Stop_PWM_Generate(void) { gate_off=true; ++power_stops; }
 bool MotorOuterLoop_IsReady(void) { return outer_ready; }
-static unsigned position_resets, friction_resets, replies;
+static unsigned position_resets, friction_resets, friction_aborts, replies;
+static bool trace_reset;
+static char reset_events[8];
+static unsigned reset_event_count;
+static void record_reset(char event) {
+    if(trace_reset) { assert(reset_event_count<sizeof(reset_events)); reset_events[reset_event_count++]=event; }
+}
 static CAN_PARAM_ID reply_id;
 static float reply_value;
 bool motor_hw_phase_outputs_disabled(void) { return gate_off; }
 void motor_hw_outer_barrier(void) { }
-void EncoderCalibration_Reset(void) { calibration_start_pending=false; }
+void EncoderCalibration_Reset(void) { record_reset('E'); calibration_start_pending=false; }
 bool EncoderObserverCalibration_IsPowerStartReady(void) { return calibration_start_pending; }
-void Task_Position_Mode_Reset(void) { ++position_resets; }
+void Task_Position_Mode_Reset(void) { record_reset('P'); ++position_resets; }
 void FOC_CurrentController_Reset(FOC_TypeDef *f) {
+    record_reset('C');
     PI_Controller_Reset(&f->id_pi); PI_Controller_Reset(&f->iq_pi);
 }
 void FocFrictionIdentification_Init(void) { ++friction_resets; }
 void FocFrictionIdentification_Abort(MotorControl_TypeDef *m, PI_Controller_TypeDef *p) {
-    (void)m; (void)p;
+    assert(m==&MotorControl && p==&PI_Speed); record_reset('F'); ++friction_aborts;
 }
 void CAN_SendMessage_Update(CAN_PARAM_ID id, float value) {
     ++replies; reply_id=id; reply_value=value;
@@ -84,7 +90,18 @@ void CAN_SendMessage_Update(CAN_PARAM_ID id, float value) {
                 function_source(observer, "Fluxobserver_ResetState"),
                 function_source(observer, "Fluxobserver_ParamInit"),
                 function_source(observer, "SensorlessStartup_Reset"),
-                function_source(reset, "Clear_RunningData"),
+                r"""
+static void tracked_runtime_pi_reset(PI_Controller_TypeDef *controller) {
+    assert(controller==&PI_Speed); record_reset('I'); PI_Controller_Reset(controller);
+}
+static void tracked_runtime_startup_reset(SensorlessStartup_TypeDef *startup) {
+    assert(startup==&SensorlessStartup); record_reset('S'); SensorlessStartup_Reset(startup);
+}
+#define PI_Controller_Reset tracked_runtime_pi_reset
+#define SensorlessStartup_Reset tracked_runtime_startup_reset
+""",
+                function_source(task, "task_reset_runtime"),
+                "#undef PI_Controller_Reset\n#undef SensorlessStartup_Reset",
                 function_source(task, "MotorControl_RequestLoadProfile"),
                 function_source(task, "MotorControl_SetSpeedFeedforward"),
                 function_source(task, "MotorControl_GetLoadProfile"),
@@ -112,6 +129,61 @@ static void check_preserved(const InterfaceParam_TypeDef *before) {
     expected.load_profile=after.load_profile;
     expected.friction_model_valid=after.friction_model_valid;
     assert(memcmp(&after,&expected,sizeof(after))==0);
+}
+static void check_runtime_reset_contract(void) {
+    MotorThermalControl_Init(0U);
+    for(unsigned i=0;i<41;++i) MotorThermalControl_Sample(8,-4,-4,false,i/20);
+    for(unsigned previous=0;previous<MODE_NUM;++previous) {
+        InterfaceParam_TypeDef before_param,after_param;
+        MotorThermalDiagnostics before_heat={0},after_heat={0};
+        seed(&before_param);
+        MotorControl.idRef=1; MotorControl.iqRef=2; MotorControl.vqRef=3;
+        MotorControl.speedRef=4; MotorControl.speedShadow=5; MotorControl.posShadow=6;
+        MotorControl.isReachTargetPos=true; MotorControl.pos_vel_filtered=7;
+        MotorControl.posRef=.25f; MotorControl.ErrorNow=Over_Current;
+        ModeLast=(ModeNow_TypeDef)previous; pending_load_profile=1;
+        memset(&FOC,0x3f,sizeof(FOC)); memset(&PI_Speed,0x3f,sizeof(PI_Speed));
+        memset(&Fluxobserver,0x3f,sizeof(Fluxobserver));
+        memset(&SensorlessStartup,0x3f,sizeof(SensorlessStartup));
+        SensorlessStartup.state=SENSORLESS_STARTUP_HANDOFF;
+        calibration_start_pending=true;
+        MotorControl_TypeDef expected_motor=MotorControl;
+        FOC_TypeDef expected_foc=FOC;
+        Encoder_TypeDef saved_encoder=OnBoard_Encoder;
+        Fluxobserver_TypeDef saved_observer=Fluxobserver;
+        PI_Controller_TypeDef expected_pi=PI_Speed;
+        SensorlessStartup_TypeDef expected_startup=SensorlessStartup;
+        expected_motor.idRef=expected_motor.iqRef=expected_motor.vqRef=0;
+        expected_motor.speedRef=expected_motor.speedShadow=expected_motor.posShadow=0;
+        expected_motor.isReachTargetPos=false; expected_motor.pos_vel_filtered=0;
+        expected_foc.Id=expected_foc.Iq=0;
+        PI_Controller_Reset(&expected_foc.id_pi); PI_Controller_Reset(&expected_foc.iq_pi);
+        PI_Controller_Reset(&expected_pi); SensorlessStartup_Reset(&expected_startup);
+        Param_Upload(&before_param);
+        assert(MotorThermalControl_GetDiagnostics(&before_heat));
+        assert(before_heat.model.max_heat>0 && before_heat.model.sample_count==1);
+        unsigned old_position_resets=position_resets,old_friction_aborts=friction_aborts;
+        unsigned old_starts=power_starts,old_stops=power_stops;
+        reset_event_count=0; trace_reset=true;
+        task_reset_runtime();
+        trace_reset=false;
+        const char *events=previous==Calib_Friction ? "EFPCIS" : "EPCIS";
+        assert(reset_event_count==strlen(events) && memcmp(reset_events,events,reset_event_count)==0);
+        assert(position_resets==old_position_resets+1 && !calibration_start_pending);
+        assert(friction_aborts==old_friction_aborts+(previous==Calib_Friction));
+        assert(power_starts==old_starts && power_stops==old_stops);
+        assert(ModeLast==(ModeNow_TypeDef)previous && pending_load_profile==1);
+        assert(memcmp(&MotorControl,&expected_motor,sizeof(MotorControl))==0);
+        assert(memcmp(&FOC,&expected_foc,sizeof(FOC))==0);
+        assert(memcmp(&PI_Speed,&expected_pi,sizeof(PI_Speed))==0);
+        assert(memcmp(&SensorlessStartup,&expected_startup,sizeof(SensorlessStartup))==0);
+        assert(memcmp(&OnBoard_Encoder,&saved_encoder,sizeof(OnBoard_Encoder))==0);
+        assert(memcmp(&Fluxobserver,&saved_observer,sizeof(Fluxobserver))==0);
+        Param_Upload(&after_param); assert(memcmp(&before_param,&after_param,sizeof(before_param))==0);
+        assert(MotorThermalControl_GetDiagnostics(&after_heat));
+        assert(memcmp(&before_heat,&after_heat,sizeof(before_heat))==0);
+    }
+    puts("PASS private runtime reset: all 21 previous modes, exact callback order, cancelled pending calibration, command/PI/startup reset only, preserved LUT/zeros/parameters/heat/mode/error, no PWM calls");
 }
 int main(void) {
     InterfaceParam_TypeDef baseline, saved;
@@ -235,6 +307,7 @@ int main(void) {
     observer_power_start_ready=false; actual_power_boundary();
     assert(gate_off && power_stops==1 && !calibration_start_pending);
     puts("PASS dual runtime profiles, CRC/legacy, parameter preservation, switch ownership, stop guards, CAN values");
+    check_runtime_reset_contract();
     return 0;
 }
 """

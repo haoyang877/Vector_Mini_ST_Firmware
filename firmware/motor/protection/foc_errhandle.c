@@ -5,9 +5,7 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "encoder.h"
-#include "foc_sensorless.h"
 #include "foc_run.h"
-#include "foc_calibration.h"
 #include "foc_friction_identification.h"
 #include "bus_voltage_profile.h"
 #include "motor_thermal_control.h"
@@ -19,7 +17,6 @@ extern PI_Controller_TypeDef PI_Speed;
 extern ModeNow_TypeDef  ModeLast;
 extern ErrorNow_TypeDef ErrorLast;
 extern Encoder_TypeDef OnBoard_Encoder;
-extern SensorlessStartup_TypeDef SensorlessStartup;
 
 bool is_Mode_Error_Change;
 
@@ -57,31 +54,6 @@ ErrorNow_TypeDef Get_ErroNow(void)
 void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 {
 	MotorControl.ErrorNow = tErrorNow;
-}
-
-/**
-	* @brief  Clear running control data
- **/
-void Clear_RunningData(void)
-{
-    EncoderCalibration_Reset();
-	if (ModeLast == Calib_Friction)
-		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
-	MotorControl.idRef		 = 0.0f;
-	MotorControl.iqRef		 = 0.0f;
-	MotorControl.vqRef		 = 0.0f;
-	MotorControl.speedRef    = 0.0f;
-	MotorControl.speedShadow = 0.0f;
-	MotorControl.posShadow   = 0.0f;
-	MotorControl.isReachTargetPos = false;
-	MotorControl.pos_vel_filtered = 0.0f;
-	Task_Position_Mode_Reset();
-	
-	FOC.Id = 0.0f;
-	FOC.Iq = 0.0f;
-	FOC_CurrentController_Reset(&FOC);
-	PI_Controller_Reset(&PI_Speed);
-	SensorlessStartup_Reset(&SensorlessStartup);
 }
 
 /**

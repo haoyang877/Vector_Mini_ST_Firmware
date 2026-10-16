@@ -87,7 +87,7 @@ static void other_calibration_task(ModeNow_TypeDef mode) {
     if(mode==Calib_EncoderOffset) CalibStep=CS_ENC_OFFSET_ALIGN;
 }
 static void clear_running_data(void) {
-    /* 对应 Clear_RunningData -> EncoderCalibration_Reset 的阶段清理契约。 */
+    /* 对应 task_reset_runtime -> EncoderCalibration_Reset 的阶段清理契约。 */
     ++clears; CalibStep=CS_NULL;
 }
 static void sensorless_task(void) { assert(guarded); task_seen=true; ++task_calls; }
@@ -126,7 +126,7 @@ static void sensorless_task(void) { assert(guarded); task_seen=true; ++task_call
 #define Param_Return_Default() ((void)0)
 #define Task_TryClearError() ((void)0)
 #define LED_SetState(...) ((void)0)
-#define Clear_RunningData clear_running_data
+#define task_reset_runtime clear_running_data
 #define Stop_PWM_Generate stop_pwm
 #define Start_PWM_Generate start_pwm
 #define Start_Damping_Brake start_pwm
@@ -276,7 +276,7 @@ static void check_prepared_stop_restart(void) {
         }
         assert(clears==1U && stops==1U);
     }
-    puts("PASS actual prepared STOP: clears pending mode13 stage with Disabled/PWM-off, clean restart into modes 13/12/15");
+    puts("PASS actual prepared STOP: clears pending mode13 stage with Disabled/PWM-off, clean restart into modes 13/5/15");
 }
 int main(void) {
     MotorThermalControl_Init(0U);
@@ -317,7 +317,7 @@ def main() -> None:
         result.check_returncode()
     (out / "summary.json").write_text(json.dumps({"status": "passed", "hardware_actions": False,
         "phase_combinations": 200, "irq_mode_state_combinations": 252,
-        "prepared_stop_restart_modes": [13, 12, 15]}, indent=2), encoding="utf-8")
+        "prepared_stop_restart_modes": [13, 5, 15]}, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

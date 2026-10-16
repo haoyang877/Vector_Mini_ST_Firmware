@@ -7,7 +7,6 @@ ModeNow_TypeDef Get_ModeNow(void);
 void Set_ModeNow(ModeNow_TypeDef tModeNow);
 ErrorNow_TypeDef Get_ErroNow(void);
 void Set_ErrorNow(ErrorNow_TypeDef tErrorNow);
-void Clear_RunningData(void);
 /** @brief 锁住所有非STOP模式请求，直到系统复位。
  * @note ISR/前台可调用；只锁存状态，不操作功率输出或Flash。
  */

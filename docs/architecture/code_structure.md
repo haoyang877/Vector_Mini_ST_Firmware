@@ -141,6 +141,13 @@ relocated_with_usb，最终离线日志为 final_tests。构建 map 位于 outpu
 
 ## 下一阶段代码优化
 
+2026-10-16 运行态清理收口：`foc_task.c` 的私有 `task_reset_runtime` 协调标定取消、
+摩擦辨识退出、外环/电流 PI 和无感启动状态复位；只有快环 STOP 边沿及停机装配档切换调用。
+清理完成后仍由原快环位置关相。该函数不写 Flash、不清热状态，也不删除已提交的 LUT/零位。
+`foc_errhandle` 不再向应用公开整机清理函数；故障检测、清错和模式准入职责保持原有实现。
+本步没有解开 `common_inc.h` 或全部间接头文件依赖，见
+[运行态清理计划](../plans/2026-10-16-motor-runtime-reset-v1.md)。
+
 文件归属已经明确，但目录本身不会消除耦合。`app/common_inc.h` 仍是历史聚合头，
 `motor/data_type.h` 仍依赖 MCU main.h。后续优先拆小接口与纯类型，再提取公共命令服务，
 最后细化 foc_run 中的模式执行与异步外环上下文。每步独立验证实时性和状态一致性。

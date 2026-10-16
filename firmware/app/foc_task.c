@@ -35,6 +35,34 @@ FOC_TypeDef FOC;
 /* CAN 单字发布，快环独占消费和运行态修改；UINT32_MAX 表示无请求。 */
 static volatile uint32_t pending_load_profile = UINT32_MAX;
 
+/**
+ * @brief 复位应用运行态并取消未完成标定，保留已提交标定、参数和热状态。
+ * @note 仅快环在停机清理或停机切换装配档时调用；不操作 PWM、不写 Flash。
+ */
+static void task_reset_runtime(void)
+{
+    EncoderCalibration_Reset();
+    if (ModeLast == Calib_Friction)
+    {
+        FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
+    }
+    MotorControl.idRef = 0.0f;
+    MotorControl.iqRef = 0.0f;
+    MotorControl.vqRef = 0.0f;
+    MotorControl.speedRef = 0.0f;
+    MotorControl.speedShadow = 0.0f;
+    MotorControl.posShadow = 0.0f;
+    MotorControl.isReachTargetPos = false;
+    MotorControl.pos_vel_filtered = 0.0f;
+    Task_Position_Mode_Reset();
+
+    FOC.Id = 0.0f;
+    FOC.Iq = 0.0f;
+    FOC_CurrentController_Reset(&FOC);
+    PI_Controller_Reset(&PI_Speed);
+    SensorlessStartup_Reset(&SensorlessStartup);
+}
+
 bool MotorControl_SetSpeedFeedforward(const SpeedFeedforwardConfig *config)
 {
     if (!SpeedFeedforward_IsValid(config) || MotorControl.ModeNow != Motor_Disable ||
@@ -87,7 +115,7 @@ static void MotorControl_ApplyLoadProfile(void)
     {
         return;
     }
-    Clear_RunningData();
+    task_reset_runtime();
     Fluxobserver_ParamInit(&Fluxobserver);
     if (!MotorControl.load_profile_valid ||
         ((MotorControl.load_profile_flags ^ flags) & MOTOR_LOAD_DAMPING_RING) != 0U)
@@ -748,7 +776,7 @@ void FOC20kHzIRQHandler(void)
 		(ModeLast != Motor_Disable || !motor_hw_phase_outputs_disabled() ||
 		 EncoderObserverCalibration_IsPowerStartReady()))
 	{
-		Clear_RunningData();
+		task_reset_runtime();
 		Stop_PWM_Generate();
 	}
 	/* 设零与保存不需要功率输出；包括标定结束转入保存的同一快拍。 */

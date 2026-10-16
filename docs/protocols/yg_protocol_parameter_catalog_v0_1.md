@@ -32,7 +32,7 @@
 | `0` | 活动配置修订号 `config_revision`（项目补充） | `u32` 次数 | R | APP 参数所有者提供；用于 `121` 乐观并发检查，与 Flash `schema_version` 不同。 |
 | `1` | 最大速度 `speed_limit` | `i32` mrad/s | R，W-IDLE | `MotorControl.speed_limit`；必须为正，不能超过轴型、编码器与电机配置共同上限。 |
 | `2` | 最大扭矩电流 `iq_max_limit` | `i32` mA | R，W-IDLE | `MotorControl.current_limit`；它是 Iq 限流值，**不是 N·m**。上限由电流采样/功率硬件与轴型配置共同决定。 |
-| `3` | 通信节点 `node_id` | `u8` 节点号 | R；写仅生产配置流程 | `Protocol_NodeId_Get()` 与 `axis_profile` 映射。公司节点为电机 `0x03～0x07`；当前轴型代码仍含 `1～5` 的旧映射，解决冲突前不得开放写入或重启切换。 |
+| `3` | 通信节点 `node_id` | `u8` 节点号 | R；写仅生产配置流程 | 直接来自独立schema12字段，APP要求1～254的有限整数；AXS角色不再覆盖地址。端点启动冻结，不开放在线改址；兼容变化见[地址与应用包络v2](parameter_node_application_v2.md)。 |
 | `4` | 通信波特率 `can_bitrate_profile` | `u8` 枚举；候选 `1=1M/5M CAN FD` | R | 当前固定 CAN FD 仲裁 1 Mbit/s、数据 5 Mbit/s；单个“波特率”不能表达两个速率，因此读一个完整时序 profile。首版不提供动态写入。 |
 | `5` | 电机极对数 `pole_pairs` | `u32` 对 | R，W-IDLE 候选 | `MotorControl.motor_pole_pairs`；必须为正且适配编码器/产品。更改后使电角度、标定有效性重新评估。 |
 | `6` | 电机磁链 `motor_flux` | `i32` nWb | R，W-IDLE 候选 | `MotorControl.motor_flux`，须正且有限；辨识结果通过标定流程提交，不绕过产品界限。 |

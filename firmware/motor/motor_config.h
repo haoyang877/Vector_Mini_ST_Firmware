@@ -23,7 +23,7 @@ typedef struct
 {
     float current_limit_a;
     float speed_limit_rad_s;
-    /* 装载边界解析的产品上限；不持久化、不随通信端点地址变化。 */
+    /* 编译期应用包络经有效AXS收窄；不持久化、不按设备地址选择。 */
     float speed_ceiling_rad_s;
     float speed_acceleration_rad_s2, speed_deceleration_rad_s2;
     float speed_kp, speed_ki;
@@ -35,7 +35,7 @@ typedef struct
     bool axis_profile_valid;
 } MotorApplicationConfig;
 
-/** @brief 设备个体地址与电流域标定；编码器/LUT 和齿槽表保留各自单份所有权。 */
+/** @brief 设备个体地址与电流域标定；编码器/LUT由其所属对象单份持有。 */
 typedef struct
 {
     float phase_a_offset_counts, phase_b_offset_counts, phase_c_offset_counts;

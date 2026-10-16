@@ -1,22 +1,13 @@
 # 电机 CAN 节点 ID
 
-参数恢复时根据有效的轴身份记录选择 CAN 节点 ID，随后 CAN 初始化用该 ID 配置接收过滤器。
+更新：2026-10-16。APP与Loader均直接使用schema12的独立`node_id`字段，
+APP要求1～254的有限精确整数。CAN在启动时用该地址配置端点和过滤器；ID3只读，
+本批不提供在线改址。节点号不代表电机类型，AXS1/AXS2角色不再覆盖设备地址。
 
-| 电机类型 | CAN 节点 ID | 原有关节类型存储编号 |
-|---|---:|---:|
-| wheel_left | 1 | 5 |
-| wheel_right | 2 | 4 |
-| roll | 3 | 1 |
-| pitch | 4 | 2 |
-| yaw | 5 | 3 |
-
-映射源为 `firmware/services/parameters/motor_axis_profile.c` 中的 `MotorAxisProfile_CanNodeId()`。
-CAN 节点 ID 与关节类型存储编号独立，AXS1/AXS2 的布局、版本及 CRC 算法保持不变。
-AXS1 的 roll/pitch 记录同样适用；有效 AXS2 身份记录即使尚未配置运动参数，也能选择通信地址，且不会因此允许电机运行。
-
-已识别的电机类型优先于旧参数中的 `node_id`，每次参数恢复时应用。
-未知类型、未配置或 CRC 无效的记录保留原参数恢复路径的节点 ID。
-本映射本身不写 Flash；后续正常参数保存会记录实际运行的节点 ID。
+默认救援地址仍为1，已保存配置使用其显式node。地址分配需避开当前主控和其他设备，
+不能以roll=3、pitch=4、wheel_right=2等旧映射推断地址。
+旧record如roll/node7，旧APP实际用3、Loader用7；新APP/Loader均用7，可能改变现有连接地址。
+应用运行限值也不再由节点决定。完整前后例子见[地址与应用包络v2](../protocols/parameter_node_application_v2.md)。
 
 现有协议使用公司 CAN FD：29 位扩展 ID、FD+BRS、1 Mbit/s 仲裁段和 5 Mbit/s 数据段。
 节点 ID 是地址字段，不是完整 CAN ID 或业务 Type；已删除旧 `(node << 8) | 参数号` 规则。
@@ -29,6 +20,5 @@ Type 108 查询状态，Type 116 提交控制目标，Type 124 返回 45 B 电�
 旧 48 B 状态流及其 `0x64/0x65` 启停指令已经删除。
 当前载荷、单位和结果语义见 [电机线路契约](../protocols/yg_protocol_motor_wire_v1.md)。
 
-表中是当前轴身份到节点地址的代码映射，不应从协议文档的示例节点范围推断实际地址。
-整机分配时还需检查主控和电机地址是否冲突；当前映射允许 wheel_right 使用 2，
-而线路主控默认值也为 2，组网前必须明确各节点角色及实际身份。本轮未改动节点映射。
+协议文档的示例范围不能覆盖现场配置；部署与回退都应核对记录中的显式node和匹配镜像。
+本轮仅更改软件装载策略，没有写入设备或改变Flash记录。

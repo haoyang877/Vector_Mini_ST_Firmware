@@ -1,4 +1,4 @@
-"""轮子限速相关的主机回归：生产参数装载与业务限速边界用例。"""
+"""参数归属定向检查：真实APP装载与Loader节点解析，全部I/O由内存替代。"""
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -29,9 +29,18 @@ def fixture():
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
 #include "control_math.h"
+#include "image_transfer.h"
+#include "vector_mini_st_g431.h"
 MotorControlState motor_state;
 EncoderState rotor_encoder;
 uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
+static uint8_t parameter_flash[TARGET_PARAM_BYTES];
+void LoaderPlatform_Watchdog(void) {}
+bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
+    if(address < TARGET_PARAM_BASE || count > TARGET_IDENTITY_BASE - address) { return false; }
+    memcpy(output, parameter_flash + address - TARGET_PARAM_BASE, count);
+    return true;
+}
 """
     vectors = json.loads(
         (ROOT / "docs/protocols/parameter_schema12_vectors.json").read_text(encoding="utf-8")
@@ -46,6 +55,36 @@ uint8_t Encoder_GetCalibFlag(const EncoderState *e) { return e->calib_flag; }
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
+    platform = (ROOT / "loader/ports/stm32g4/platform.c").read_text(encoding="utf-8")
+    prelude += "\n" + function_source(platform, "LoaderPlatform_Parameters")
+    policy = json.loads(
+        (ROOT / "docs/protocols/parameter_node_application_v2_vectors.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    prelude += "\nstatic void policy_golden_vectors(const InterfaceParam *base) {\n"
+    for vector in policy["vectors"]:
+        prelude += "{ InterfaceParam zero={0}, candidate=*base;\n"
+        for offset, value in vector["fields"].items():
+            values = ",".join(f"0x{byte:02x}" for byte in bytes.fromhex(value))
+            prelude += (
+                "{ const unsigned char bytes[]={"
+                + values
+                + "}; "
+                + f"memcpy((unsigned char *)&zero+{offset},bytes,sizeof(bytes)); "
+                + f"memcpy((unsigned char *)&candidate+{offset},bytes,sizeof(bytes)); }}\n"
+            )
+        prelude += f"assert(Param_RecordCrc(&zero)=={vector['zero_fill_crc32']}U);\n"
+        prelude += (
+            "candidate.record_crc32=Param_RecordCrc(&candidate); InterfaceParam before=candidate;\n"
+        )
+        prelude += "Param_Download(&candidate,&motor_state,&rotor_encoder);\n"
+        prelude += (
+            f"assert(motor_state.device.node_id=={vector['new_node']}U && "
+            f"motor_state.application.speed_limit_rad_s=={vector['new_loaded_speed_limit_rad_s']}f);\n"
+        )
+        prelude += "assert(memcmp(&before,&candidate,sizeof(candidate))==0); }\n"
+    prelude += "}\n"
     return (
         prelude
         + r"""
@@ -56,26 +95,51 @@ int main(void) {
     p.encoder_electrical_zero_q15=3155; p.encoder_calib_flag=3;
     p.encoder_linearization_lut_q15[71]=-42; p.speed_kp=.02f;
     saved=p;
-    for(node=1; node<=7; node++) {
-        float cap=(node==1 || node==2) ? 20 : .5f*_2PI;
-
+    policy_golden_vectors(&saved);
+    for(node=1; node<=254; node++) {
+        float cap=PARAM_APP_SPEED_CEILING_RAD_S;
         p=saved; p.node_id=(float)node; p.speed_limit_rad_s=21;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==cap); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
         assert(motor_state.device.node_id==node && motor_state.application.axis_profile_valid);
+        memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
+        uint8_t loader_node=0; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_RAW11 && loader_node==node);
         assert(rotor_encoder.electrical_zero_q15==3155);
         assert(rotor_encoder.linearization_lut_q15[71]==-42);
         assert(motor_state.application.speed_kp==.02f);
         p.speed_limit_rad_s=1.25f; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==1.25f);
-        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==cap); assert(motor_state.application.speed_ceiling_rad_s==cap);
-        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==cap); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
     }
-    puts("PASS all node ceilings, stored lower limits, invalid fallback, calibration preserved");
-    /* Axis record wins over stale legacy node ID before selecting the cap. */
-    p=saved; p.node_id=1; p.speed_limit_rad_s=20;
-    assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
-    p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
-    assert(motor_state.device.node_id==3 && motor_state.application.speed_limit_rad_s==.5f*_2PI);
-    puts("PASS resolved joint identity selects the ceiling before parameter loading");
+    puts("PASS 254 explicit APP/Loader addresses, independent application ceiling, low fallback and calibration");
+    /* 版本化行为变化：旧node3把字段10钳到pi，新版保留显式字段10，不生成目标。 */
+    p=saved; p.node_id=3; p.speed_limit_rad_s=10;
+    p.record_crc32=Param_RecordCrc(&p); InterfaceParam address_before=p;
+    Param_Download(&p,&motor_state,&rotor_encoder);
+    assert(motor_state.device.node_id==3 && motor_state.application.speed_limit_rad_s==10);
+    assert(motor_state.application.speed_ceiling_rad_s==20 && memcmp(&p,&address_before,sizeof(p))==0);
+    /* 轴配置仅收窄应用；同一地址不随AXS1/AXS2角色改变，输入始终不变。 */
+    for(unsigned format=0;format<2;format++) {
+        p=saved; p.node_id=7; p.speed_limit_rad_s=20;
+        if(format==0) { assert(MotorAxisProfile_Create(&p.axis_profile,"roll",-1,1,.7f)); }
+        else { assert(MotorAxisProfile_CreateJoint(&p.axis_profile,MOTOR_JOINT_ROLL,1,-.3f,.9f,.7f)); }
+        p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
+        Param_Download(&p,&motor_state,&rotor_encoder);
+        assert(motor_state.device.node_id==7 && motor_state.application.speed_limit_rad_s==.7f);
+        assert(motor_state.application.speed_ceiling_rad_s==.7f && memcmp(&p,&before,sizeof(p))==0);
+        memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
+        uint8_t loader_node=0; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_RAW11 && loader_node==7);
+    }
+    {
+        const float invalid_nodes[]={3.5f,NAN,INFINITY,-1.0f,255.0f};
+        for(unsigned i=0;i<sizeof(invalid_nodes)/sizeof(invalid_nodes[0]);i++) {
+            p=saved; p.node_id=invalid_nodes[i]; p.record_crc32=Param_RecordCrc(&p);
+            Param_Download(&p,&motor_state,&rotor_encoder);
+            assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+            memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
+            uint8_t loader_node=7; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_UNSAFE && loader_node==7);
+        }
+    }
+    puts("PASS AXS only narrows application and never overrides node; fractional addresses rejected by APP/Loader");
     /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
     {
         const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,13,UINT32_MAX};
@@ -146,7 +210,7 @@ int main(void) {
     p.friction_coulomb_pos_a=.2f; p.friction_coulomb_neg_a=.2f;
     p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
     assert(motor_state.model.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
-    assert(motor_state.application.current_limit_a==PARAM_MOTOR_CURRENT_LIMIT_A);
+    assert(motor_state.application.current_limit_a==PARAM_APP_DEFAULT_CURRENT_LIMIT_A);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     puts("PASS current-sense mismatch invalidates current-domain settings only");
 
@@ -156,7 +220,7 @@ int main(void) {
     p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
-    assert(motor_state.device.node_id==1U && motor_state.application.speed_limit_rad_s==PARAM_MOTOR_SPEED_LIMIT_RPS*_2PI);
+    assert(motor_state.device.node_id==1U && motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI);
     Param_Upload(&p,&motor_state,&rotor_encoder);
     Param_Download(&p,&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);

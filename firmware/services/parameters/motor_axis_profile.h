@@ -10,15 +10,6 @@
  */
 const char *MotorJointType_Name(uint32_t joint_type);
 /**
- * @brief 从 CRC 有效轴记录解析产品 CAN 地址。
- * @param profile 只读 AXS1/AXS2 记录，启动时读取。
- * @param fallback 记录无效或轴未知时保留的节点地址。
- * @return left/right/roll/pitch/yaw 映射 1/2/3/4/5，否则返回 fallback。
- * @note 只在启动或参数恢复调用，包含 CRC；不修改记录或启相。
- */
-uint8_t MotorAxisProfile_CanNodeId(const MotorAxisProfile *profile, uint8_t fallback);
-
-/**
  * @brief 建立带 CRC 的 AXS2 轴记录并检查配置范围。
  * @param output 调用方非空记录空间；不转移所有权。
  * @param joint_type 稳定轴类型编号。

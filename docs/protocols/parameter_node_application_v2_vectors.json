@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "schema": 12,
+  "record_bytes": 4304,
+  "byte_order": "little",
+  "vectors": [
+    {
+      "name": "explicit_nonwheel_speed",
+      "fields": {
+        "0": "00004040",
+        "2152": "00002041",
+        "2160": "0c000000",
+        "2164": "32434e45"
+      },
+      "zero_fill_crc32": "0xb14bc981",
+      "old_node": 3,
+      "old_loaded_speed_limit_rad_s": 3.1415927410125732,
+      "new_node": 3,
+      "new_loaded_speed_limit_rad_s": 10.0
+    },
+    {
+      "name": "independent_axis_address",
+      "fields": {
+        "0": "0000e040",
+        "2152": "0000a041",
+        "2160": "0c000000",
+        "2164": "32434e45",
+        "2208": "4158533101000000726f6c6c00000000000080bf0000803f3333333f4c80d078"
+      },
+      "zero_fill_crc32": "0xc441f265",
+      "old_node": 3,
+      "old_loaded_speed_limit_rad_s": 3.1415927410125732,
+      "new_node": 7,
+      "new_loaded_speed_limit_rad_s": 0.699999988079071
+    },
+    {
+      "name": "low_default_preserved",
+      "fields": {
+        "0": "0000e040",
+        "2152": "db0f4940",
+        "2160": "0c000000",
+        "2164": "32434e45"
+      },
+      "zero_fill_crc32": "0xbe331537",
+      "old_node": 7,
+      "old_loaded_speed_limit_rad_s": 3.1415927410125732,
+      "new_node": 7,
+      "new_loaded_speed_limit_rad_s": 3.1415927410125732
+    }
+  ]
+}

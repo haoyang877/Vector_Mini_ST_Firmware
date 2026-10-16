@@ -27,12 +27,16 @@ uint32_t Param_RecordCrc(const InterfaceParam *param)
     return Crc32_Compute((const uint8_t *)param + tail, sizeof(*param) - tail, crc);
 }
 
-/* schema12 兼容装载：旧记录用节点表达轮子场景，只在边界解析一次。
- * 活动参数服务和控制算法随后只读取 application，不查询通信模块。 */
-static float legacy_speed_ceiling_rad_s(uint8_t node_id)
+/* 应用包络来自编译配置；有效轴记录只收窄，通信地址不参与控制限值。 */
+static float application_speed_ceiling_rad_s(const MotorAxisProfile *profile, bool valid)
 {
-    return node_id == 1U || node_id == 2U ? PARAM_WHEEL_SPEED_LIMIT_RAD_S
-                                          : PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI;
+    float limit = PARAM_APP_SPEED_CEILING_RAD_S;
+    if (valid && profile->magic != 0U && isfinite(profile->maximum_speed_rad_s) &&
+        profile->maximum_speed_rad_s > 0.0f)
+    {
+        limit = fminf(limit, profile->maximum_speed_rad_s);
+    }
+    return limit;
 }
 
 /* 启动装配关节外环基线；不覆盖单台模型、电流标定或已保存的轴包络。 */
@@ -78,8 +82,7 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     motor_state->configuration_confirmed = false;
     motor_state->configuration_source = MOTOR_CONFIGURATION_DEFAULTS;
     motor_state->device.node_id = PARAM_DEVICE_CAN_NODE_ID;
-    motor_state->application.speed_ceiling_rad_s =
-        legacy_speed_ceiling_rad_s(motor_state->device.node_id);
+    motor_state->application.speed_ceiling_rad_s = PARAM_APP_SPEED_CEILING_RAD_S;
 
     motor_state->device.phase_a_offset_counts = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
     motor_state->device.phase_b_offset_counts = PARAM_HW_CURRENT_OFFSET_B_COUNTS;
@@ -106,11 +109,11 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     memset(rotor_encoder->linearization_lut_q15, 0, sizeof(rotor_encoder->linearization_lut_q15));
 
     motor_state->model.calibration_current_a = PARAM_MOTOR_CALIB_CURRENT_A;
-    motor_state->application.current_limit_a = PARAM_MOTOR_CURRENT_LIMIT_A;
+    motor_state->application.current_limit_a = PARAM_APP_DEFAULT_CURRENT_LIMIT_A;
     motor_state->vq_target_v = 0.0f;
-    /* 默认节点变化不能把未确认电机的默认速度从 0.5 rev/s 提高到轮子硬上限。 */
-    motor_state->application.speed_limit_rad_s =
-        Math_Min(motor_state->application.speed_ceiling_rad_s, PARAM_MOTOR_SPEED_LIMIT_RPS * _2PI);
+    /* 默认应用保持低速；统一上限不代表首次配置的活动速度。 */
+    motor_state->application.speed_limit_rad_s = Math_Min(
+        motor_state->application.speed_ceiling_rad_s, PARAM_APP_DEFAULT_SPEED_LIMIT_RPS * _2PI);
     motor_state->application.speed_acceleration_rad_s2 = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
     motor_state->application.speed_deceleration_rad_s2 = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
     motor_state->application.speed_kp = PARAM_APP_SPEED_KP;
@@ -198,7 +201,8 @@ void Param_Download(const InterfaceParam *param,
     if (param->record_crc32 != Param_RecordCrc(param) || param->configuration_flags > 1U ||
         !isfinite(param->motor_pole_pairs) || param->motor_pole_pairs < 1.0f ||
         param->motor_pole_pairs >= 2147483648.0f || !isfinite(param->node_id) ||
-        param->node_id < 1.0f || param->node_id >= 255.0f)
+        param->node_id < 1.0f || param->node_id >= 255.0f ||
+        param->node_id != (float)(uint8_t)param->node_id)
     {
         Param_Return_Default(motor_state, rotor_encoder);
         motor_state->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
@@ -213,11 +217,12 @@ void Param_Download(const InterfaceParam *param,
         return;
     }
 
-    /* Resolve axis identity before selecting the node-specific speed ceiling. */
-    motor_state->device.node_id =
-        MotorAxisProfile_CanNodeId(&param->axis_profile, (uint8_t)param->node_id);
-    motor_state->application.speed_ceiling_rad_s =
-        legacy_speed_ceiling_rad_s(motor_state->device.node_id);
+    /* 与 Loader 共用 node_id 字段；应用轴身份不能改写设备地址。 */
+    motor_state->device.node_id = (uint8_t)param->node_id;
+    motor_state->application.axis_profile_valid =
+        MotorAxisProfile_Load(&param->axis_profile, &motor_state->application.axis_profile);
+    motor_state->application.speed_ceiling_rad_s = application_speed_ceiling_rad_s(
+        &motor_state->application.axis_profile, motor_state->application.axis_profile_valid);
     motor_state->device.phase_a_offset_counts = param->currentoffset_a;
     motor_state->device.phase_b_offset_counts = param->currentoffset_b;
     motor_state->device.phase_c_offset_counts = param->currentoffset_c;
@@ -250,7 +255,7 @@ void Param_Download(const InterfaceParam *param,
     if (current_sense_profile_changed || !isfinite(param->current_limit_a) ||
         param->current_limit_a <= 0.0f)
     {
-        motor_state->application.current_limit_a = PARAM_MOTOR_CURRENT_LIMIT_A;
+        motor_state->application.current_limit_a = PARAM_APP_DEFAULT_CURRENT_LIMIT_A;
     }
     else
     {
@@ -262,10 +267,12 @@ void Param_Download(const InterfaceParam *param,
     motor_state->model.iq_kp = param->iq_kp;
     motor_state->model.iq_ki = param->iq_ki;
     motor_state->application.speed_limit_rad_s =
-        isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f
+        isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f &&
+                param->speed_limit_rad_s <= PARAM_APP_SPEED_CEILING_RAD_S
             ? Math_Constrain(
                   param->speed_limit_rad_s, 0.0f, motor_state->application.speed_ceiling_rad_s)
-            : motor_state->application.speed_ceiling_rad_s;
+            : Math_Min(motor_state->application.speed_ceiling_rad_s,
+                       PARAM_APP_DEFAULT_SPEED_LIMIT_RPS * _2PI);
     position_speed_limit =
         Math_Min(motor_state->application.speed_limit_rad_s, PARAM_POSITION_MAX_SPEED_RPS * _2PI);
     motor_state->application.speed_acceleration_rad_s2 = param->speed_acceleration_rad_s2;
@@ -292,8 +299,6 @@ void Param_Download(const InterfaceParam *param,
         isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f
             ? Math_Constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
             : PARAM_APP_CASCADE_POSITION_KD;
-    motor_state->application.axis_profile_valid =
-        MotorAxisProfile_Load(&param->axis_profile, &motor_state->application.axis_profile);
     motor_state->application.axis_profile_valid = param_apply_joint_profile(motor_state);
     motor_state->configuration_source = MOTOR_CONFIGURATION_STORED;
     motor_state->configuration_confirmed =

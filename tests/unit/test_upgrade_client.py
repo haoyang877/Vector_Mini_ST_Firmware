@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import shutil
 import struct
 import subprocess
 import sys
@@ -188,6 +189,32 @@ class UpgradeClientTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "UID"):
             UpgradeClient(device, 3, bytes(12)).run(self.package)
         self.assertEqual(device.writes, 0)
+
+    def test_portable_inspect_without_repository(self) -> None:
+        """独立客户端只用随包契约；缺失契约在打开任何设备前清晰拒绝。"""
+        with tempfile.TemporaryDirectory() as directory:
+            portable = Path(directory) / "host"
+            contracts = portable / "contracts"
+            contracts.mkdir(parents=True)
+            client = portable / "upgrade_client.py"
+            shutil.copy2(ROOT / "host_app/upgrade_client.py", client)
+            target = contracts / "vector_mini_st_g431.json"
+            shutil.copy2(ROOT / "shared/targets/vector_mini_st_g431.json", target)
+            command = [
+                sys.executable,
+                "-I",
+                str(client),
+                "inspect",
+                "--package",
+                str(self.directory / "package"),
+            ]
+            result = subprocess.run(command, cwd=portable, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            self.assertEqual(json.loads(result.stdout)["bytes"], len(self.package.image))
+            target.unlink()
+            missing = subprocess.run(command, cwd=portable, capture_output=True, check=False)
+            self.assertEqual(missing.returncode, 2)
+            self.assertNotIn(b"Traceback", missing.stderr)
 
     def test_write_ack_loss_and_progress(self) -> None:
         """已编程块的回复丢失后只重发同一块，进度仍按持久偏移递增。"""

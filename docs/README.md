@@ -14,8 +14,10 @@ provide the short entry map; details belong here.
 核心线路：[普通控制启动 v0.2](protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
 [单项标定/保存 v1.2](protocols/yg_protocol_calibration_wire_v1_2.md)。
 
-运行会话与整计划线路v1.4已退役。历史设计：[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。实际只读 GUI 调用链见
-[主机端口记录](plans/active/2026-10-08-host-get-only-port-v1.md)。
+运行会话与整计划线路v1.4已退役。历史设计：[启动身份页与恢复边界](protocols/boot_epoch_record_v1.md)。
+当前上位机为[单页核心工具](../host_app/README.md)，独立部署收口见
+[上位机升级依赖收口](plans/active/2026-10-16-host-portable-upgrade-v1.md)；
+[只读主机端口记录](plans/active/2026-10-08-host-get-only-port-v1.md)保留为历史阶段。
 
 当前源码候选：[APP v1.3.0核心范围](releases/architecture-app-v1.3.0-candidate.md)。
 

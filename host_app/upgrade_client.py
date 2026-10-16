@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 ROOT = Path(__file__).resolve().parents[1]
+TARGET_CONTRACT = Path(__file__).resolve().parent / "contracts/vector_mini_st_g431.json"
+if not TARGET_CONTRACT.is_file():
+    TARGET_CONTRACT = ROOT / "shared/targets/vector_mini_st_g431.json"
 PROFILE = 0x53593549
 
 
@@ -98,9 +101,7 @@ class UpgradePackage:
         image = (directory / "image.bin").read_bytes()
         manifest = (directory / "manifest.bin").read_bytes()
         metadata = json.loads((directory / "package.json").read_text(encoding="utf-8"))
-        constants = json.loads(
-            (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
-        )["constants"]
+        constants = json.loads(TARGET_CONTRACT.read_text(encoding="utf-8"))["constants"]
 
         def value(key: str) -> int:
             return int(constants[key].removesuffix("U"), 0)
@@ -407,7 +408,10 @@ def main() -> int:
         "--rescue-window", action="store_true", help="先抓住复位启动窗口，再检查身份"
     )
     args = parser.parse_args()
-    package = UpgradePackage.load(args.package)
+    try:
+        package = UpgradePackage.load(args.package)
+    except (OSError, ValueError, KeyError, struct.error) as exc:
+        parser.error(f"升级包或目标契约无法读取/校验：{exc}")
     if args.action == "inspect":
         print(
             json.dumps(

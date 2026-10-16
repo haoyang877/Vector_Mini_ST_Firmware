@@ -11,8 +11,9 @@ read [电机驱动软件架构说明](docs/architecture/software_architecture.md
 
 - `firmware/` is the current STM32G4 motor-control APP.
 - `loader/` is the independently built G431 upgrade product.
-- `host_app/` provides native Qt6 maintenance pages with offline upgrade planning and parameter models;
-  device CAN/SWD execution is not connected. Neither product is linked into APP.
+- `host_app/` is a single-page Qt6 CAN FD tool for real readback, explicit speed/STOP commands,
+  and matched APP-package upgrade through an independent Python client. It opens disconnected;
+  GUI control and upgrade still require matching hardware acceptance. Neither product is linked into APP.
 - `shared/` owns only cross-product protocol, image, boot, target-layout contracts, and the pure CRC32 core.
   Motor code may consume the shared CRC32 contract; shared never depends on firmware or hardware.
 

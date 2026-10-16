@@ -1,6 +1,6 @@
 # YG_MC_HOST
 
-v1.4.0 是单页 CAN FD 台架工具。默认断开且所有设备值显示未知；没有演示设备、导航、参数写入或标定任务。程序与 APP、Loader 独立构建。
+v1.4.1 是单页 CAN FD 台架工具。默认断开且所有设备值显示未知；没有演示设备、导航、参数写入或标定任务。程序与 APP、Loader 独立构建。
 
 页面只提供：
 
@@ -16,8 +16,17 @@ uv sync --locked --extra dev
 cmake -S host_app -B outputs/host_app/build -G Ninja "-DCMAKE_PREFIX_PATH=$env:QT_PREFIX" -DCMAKE_BUILD_TYPE=Debug
 cmake --build outputs/host_app/build
 ctest --test-dir outputs/host_app/build --output-on-failure
+cmake --install outputs/host_app/build --prefix "$PWD/outputs/host_app/package"
 uv run python tools/run.py format --check
 uv run python tools/run.py lint
 ```
 
-`YG_MC_HOST.exe --preview-dir outputs/host_app/core-preview` 只保存未连接页面截图并退出，不打开 SDK。真实按钮、命令及回复写在 `outputs/host_app/outputs/host-gui-*/events.jsonl`；APP 升级另写 `outputs/host_app/outputs/host-upgrade-*/summary.json`。这些日志不代替实机验收。Python 运行时和厂家 DLL 由用户显式选择，不随 EXE 分发。
+安装目录的 `bin/YG_MC_HOST.exe` 为入口；Qt 运行库、两个 Python 客户端、`ports` 和
+`bin/contracts/vector_mini_st_g431.json` 由 CMake/Qt 原生安装规则一起部署。
+契约直接来自 shared，不手工维护副本。部署目录可整体移出仓库；只复制 EXE 不构成可运行工具。
+升级包需要同目录的 `image.bin`、`manifest.bin`、`package.json`；GUI 校验镜像后，
+Python 客户端还会独立核对元数据和文件哈希，不能省略其中任何文件。
+
+`YG_MC_HOST.exe --preview-dir <目录>` 只保存未连接页面截图并退出，不打开 SDK。
+GUI 日志与升级 `summary.json` 写入程序父目录的 `outputs/host-gui-*`、`outputs/host-upgrade-*`，
+与证据目录约束一致。这些日志不代替实机验收。Python 运行时和厂家 DLL 由用户显式选择，不随 EXE 分发。

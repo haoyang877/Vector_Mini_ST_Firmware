@@ -10,8 +10,8 @@
 | --- | --- |
 | profile | 0x53593549 |
 | descriptor version/bytes | 3 / 96 |
-| layout | 5；Flash/RAM分区未移动 |
-| parameter ABI/schema | 0x000C10D0 / 12；4304B原记录不变 |
+| 当前 G431 layout | 6；Loader 16 KiB，APP 从 `0x08004000` 起占 96 KiB |
+| 当前 parameter ABI/schema | 0x000D1100 / 13；参数区地址不变 |
 | manifest | 96B大端，CRC仍在48..51，其后全0 |
 | descriptor | 原0..63身份字段保留，52..63及88..95全0 |
 | activation / attempt / confirm | 64..71 / 72..79 / 80..87，下载包全FF |
@@ -41,11 +41,11 @@ Loader只对完整且已激活镜像报告APP版本/CRC，否则为0。独立APP
 不可经56升级；page1启动状态0。page1/profile和page2几何都是维护契约，普通GET_CAPS仍仅page0。
 版本编码为major:u16/minor:u8/patch:u8（最高到最低位），1.0.0=0x00010000，来源是共同目标清单。
 
-2026-10-08 架构候选 APP 版本为 1.1.0（0x00010100），当前合成镜像和 BEGIN/CONFIRM
-黄金字节同步该版本及 CRC；profile/layout/schema 和线路布局不变。旧 1.0.0 向量仍可
-从对应历史提交追溯，不能用其描述符绕过当前打包版本核对。合成向量不代表真实升级已通过。
-
-核心删减候选为1.3.0（0x00010300），当前黄金字节与CRC同步该版本；旧1.1.0/1.2.0归档包保留。
+2026-10-17 配套目标为 APP 1.4.1、Loader 2.0.0、layout 6。协议帧和 v3 容器格式未变；
+描述符、清单、GET_INFO page2 和上位机均须报告同一 layout。layout 5 的 APP 链接在
+`0x08005000`，不能单独配新 Loader；旧 Loader 也不能接收 layout 6 包。迁移须通过受控
+SWD 同时安装两端，参数与身份页不迁移。旧 1.3.0/layout 5 黄金字节保留作历史互验，
+当前布局的黄金清单见下文；合成向量不代表真实升级已通过。
 boot_id=0及旧Type3缺少持久epoch的UNAVAILABLE语义保留；nonce不是可信设备启动次数。
 
 ## APP_CONFIRM（Type57）
@@ -61,8 +61,9 @@ APP需监督进展与本地通信健康连续观察至少1s、保持数字关相
 
 ## 黄金向量与兼容
 
-- [v3升级向量](yg_protocol_upgrade_wire_v3_vectors.json)：BEGIN内清单与v3镜像完全一致。
-- [v3镜像向量](../../tests/fixtures/loader_image_v3.json)：合成字节，不能烧录或当作实机证据。
+- [layout 6 黄金清单](../../tests/fixtures/loader_image_layout6.json)：当前 G431 目标的几何、版本、清单和 CRC 合成值。
+- [v3升级向量](yg_protocol_upgrade_wire_v3_vectors.json)：历史 layout 5 BEGIN 清单，与旧 v3 镜像一致。
+- [v3镜像向量](../../tests/fixtures/loader_image_v3.json)：历史 layout 5 合成字节，不能烧录或当作实机证据。
 - 旧[v2镜像向量](../../tests/fixtures/loader_image_v2.json)保留用于兼容历史和拒绝测试。
 - SN/电机类型没有新增CAN写命令或参数ID；生产SWD写独立页，禁止用主站ID当作生产认证。
 - 无签名认证；CRC与UID/目标检查用于完整性和防误刷，不能抵御拥有总线或SWD权限的攻击者。

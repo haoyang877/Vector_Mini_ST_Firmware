@@ -442,12 +442,16 @@ void app_package_checks()
     };
     check(bytes.size() >= TARGET_DESCRIPTOR_OFFSET + 96 && manifest.size() == 96,
           "APP fixture format changed");
+    qToLittleEndian(TARGET_APP_BASE + TARGET_DESCRIPTOR_OFFSET + 96U + 1U,
+                    reinterpret_cast<uchar *>(bytes.data() + 4));
+    put32(bytes, TARGET_DESCRIPTOR_OFFSET + 12, TARGET_LAYOUT);
     put32(bytes, TARGET_DESCRIPTOR_OFFSET + 28, TARGET_APP_VERSION);
     put32(bytes, TARGET_DESCRIPTOR_OFFSET + 36, TARGET_PARAM_ABI);
     put16(bytes, TARGET_DESCRIPTOR_OFFSET + 40, TARGET_SCHEMA);
     put16(bytes, TARGET_DESCRIPTOR_OFFSET + 42, TARGET_SCHEMA);
     put32(bytes, TARGET_DESCRIPTOR_OFFSET + 48, 0);
     put32(manifest, 24, TARGET_APP_VERSION);
+    put32(manifest, 8, TARGET_LAYOUT);
     put32(manifest, 40, TARGET_PARAM_ABI);
     put16(manifest, 44, TARGET_SCHEMA);
     put16(manifest, 46, TARGET_SCHEMA);

@@ -42,6 +42,9 @@ def main() -> None:
         constants = target["constants"]
         source = bytearray.fromhex(vector["source_hex"])
         offset = int(constants["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
+        app_base = int(constants["TARGET_APP_BASE"].rstrip("U"), 0)
+        struct.pack_into("<I", source, 4, app_base + offset + 96 + 1)
+        struct.pack_into(">I", source, offset + 12, int(constants["TARGET_LAYOUT"].rstrip("U"), 0))
         struct.pack_into(
             ">I", source, offset + 28, int(constants["TARGET_APP_VERSION"].rstrip("U"), 0)
         )

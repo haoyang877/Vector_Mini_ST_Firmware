@@ -1,5 +1,6 @@
 /** 单页真实设备界面；设备 I/O 由既有辅助进程和升级客户端执行。 */
 #include "maintenance_window.h"
+#include "shared/targets/vector_mini_st_g431.h"
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QCoreApplication>
@@ -498,10 +499,10 @@ void MaintenanceWindow::refresh_workbench()
         connected ? (device_control_result_.isEmpty() ? "等待显式操作" : device_control_result_)
                   : "未连接；运动状态未知");
     upgrade_run_button_->setEnabled(!upgrade_process_ && device_safe_idle() &&
-                                    view.loader_version == 0x00010000U && device_stop_ack_ &&
-                                    !device_motion_may_run_ && device_bench_ack_->isChecked() &&
-                                    plan_ && plan_->valid);
-    if (!upgrade_process_ && view.loader_version && *view.loader_version != 0x00010000U)
+                                    view.loader_version == TARGET_LOADER_VERSION &&
+                                    device_stop_ack_ && !device_motion_may_run_ &&
+                                    device_bench_ack_->isChecked() && plan_ && plan_->valid);
+    if (!upgrade_process_ && view.loader_version && *view.loader_version != TARGET_LOADER_VERSION)
     {
         upgrade_status_->setText("需先安装配套 LoaderApp，不能升级。");
     }
@@ -518,7 +519,7 @@ void MaintenanceWindow::start_real_upgrade()
         return;
     }
     const auto view = device_readback_.Device_View(elapsed_.elapsed());
-    if (upgrade_process_ || !device_safe_idle() || view.loader_version != 0x00010000U ||
+    if (upgrade_process_ || !device_safe_idle() || view.loader_version != TARGET_LOADER_VERSION ||
         !device_stop_ack_ || device_motion_may_run_ || !device_bench_ack_->isChecked() || !plan_ ||
         !plan_->valid)
     {

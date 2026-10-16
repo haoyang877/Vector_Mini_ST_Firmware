@@ -443,8 +443,8 @@ static void publish_transition_fault(void)
     }
 }
 
-/* 唯一事件提交路径；调用者显式保留完成身份，CLEAR 只接收已核对的恢复事实。
- * 普通受理只进入 STARTING；真实启相仍由监督拍末尾按原顺序复核后执行。 */
+/* 唯一规则提交路径：绑定原身份、读取事实、判定迁移、发布结果并执行动作。
+ * CLEAR 只接收已核对的恢复事实；普通启动由监督拍提交，维护受理会同步提交。 */
 static bool dispatch_state_event(uint32_t events,
                                  MotorMaintenanceEffect effects,
                                  uint32_t faults,
@@ -564,10 +564,10 @@ static bool state_vbus_in_enable_window(void)
            s_context.foc->bus_voltage_filtered_v <= BUS_VOLTAGE_ENABLE_MAX_V;
 }
 
-/* 会话服务：SAVE 结果上报、ZERO/DEFAULTS/标定派生完成、被打断会话的实际释放确认。
- * 完成使用创建时身份，取消确认等待全部 worker 和前台资源归还。
- * 返回 true 表示本拍已上报会话事件（完成/失败/取消确认），调用方推迟一拍再开新会话。 */
-static bool finish_maintenance_or_release(void)
+/* 消费前台 SAVE 结果，或确认 STOPPING／FAULT 中原任务已经释放。
+ * 返回本次事件是否被规则接受；用于抑制同拍派生 SAVE，不代表全部任务完成。
+ * 快拍任务完成由 state_process_task_outcome 处理，仍允许原有同拍保存衔接。 */
+static bool process_save_or_cancel_completion(void)
 {
     MotorState state = s_context.rules.state;
     if (state == MOTOR_STATE_MAINTENANCE &&
@@ -1392,16 +1392,13 @@ static void state_process_task_outcome(bool stopped)
         s_context.maintenance_runnable = false;
         power_stage_hw_stop();
         clear_running_data();
-        if (outcome.result == MOTOR_TASK_COMPLETED)
-        {
-            s_context.save_requested =
-                s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ENCODER_LUT ||
-                s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO ||
-                s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_MECHANICAL_ZERO ||
-                s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_DEFAULTS;
-            (void)dispatch_state_event(
-                MOTOR_STATE_EVENT_OPERATION_DONE, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL);
-        }
+        s_context.save_requested =
+            s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ENCODER_LUT ||
+            s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO ||
+            s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_MECHANICAL_ZERO ||
+            s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_DEFAULTS;
+        (void)dispatch_state_event(
+            MOTOR_STATE_EVENT_OPERATION_DONE, MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED, 0U, NULL);
     }
 }
 
@@ -1428,10 +1425,10 @@ static void advance_current_state(void)
     }
 }
 
-/* 维护终结/取消确认当拍不启动派生保存；保存受理后再检查显式使能。 */
-static void start_requested_save(bool stopped, bool operation_finished)
+/* 本拍 STOP 或已受理 SAVE／取消完成事件时不派生保存；随后再检查显式使能。 */
+static void start_requested_save(bool stopped, bool completion_accepted)
 {
-    if (!stopped && !operation_finished && s_context.save_requested &&
+    if (!stopped && !completion_accepted && s_context.save_requested &&
         s_context.rules.state == MOTOR_STATE_IDLE)
     {
         uint32_t mask = critical_hw_enter();
@@ -1502,14 +1499,16 @@ static void update_start_progress(void)
 
 void MotorStateMachine_Tick(void)
 {
+    /* 先消费已到达的输入；STOP 后仍处理故障，不能丢弃同拍失败。 */
     state_update_sample_progress();
     bool stopped = state_consume_stop_request();
     state_process_task_outcome(stopped);
-    bool operation_event = finish_maintenance_or_release();
+    bool completion_accepted = process_save_or_cancel_completion();
     MotorFault_UpdateRecovery(&s_context.recovery, s_context.foc, s_context.motor->fault_code);
 
+    /* 状态进展后才受理后继工作；启相前复核必须晚于停止与完成处理。 */
     advance_current_state();
-    start_requested_save(stopped, operation_event);
+    start_requested_save(stopped, completion_accepted);
     begin_requested_control(stopped);
     enable_prepared_control();
     apply_pending_control();
@@ -1545,13 +1544,12 @@ bool MotorStateMachine_BeginBackground(FocBackgroundClaim *claim)
         s_context.motor->fault_code == MOTOR_FAULT_NONE && power_stage_hw_phases_disabled() &&
         EncoderCalibrationTask_IsReleased())
     {
-        FocBackgroundKind kind = s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_SAVE
-                                     ? FOC_BACKGROUND_SAVE
-                                     : FOC_BACKGROUND_NONE;
-        if (kind != FOC_BACKGROUND_NONE &&
-            (kind != FOC_BACKGROUND_SAVE || s_context.save_finish == SAVE_FINISH_NONE))
+        /* 当前只有 SAVE 使用前台；保留前面的真实关相及任务释放检查顺序。 */
+        if (s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
+            s_context.save_finish == SAVE_FINISH_NONE)
         {
-            s_context.background_claim = (FocBackgroundClaim){s_context.operation_epoch, kind};
+            s_context.background_claim =
+                (FocBackgroundClaim){s_context.operation_epoch, FOC_BACKGROUND_SAVE};
             s_context.background_busy = true;
             *claim = s_context.background_claim;
             accepted = true;

@@ -101,8 +101,8 @@ static void request_operation_cancel(MotorStateRulesContext *context)
     }
 }
 
-static void
-enter_stopped_state(MotorStateRulesContext *context, MotorState state, uint32_t *actions)
+/* 发起关断并撤销本代请求；真实停止由资源归还事实确认。 */
+static void begin_shutdown(MotorStateRulesContext *context, MotorState state, uint32_t *actions)
 {
     request_operation_cancel(context);
     *actions |= SHUTDOWN_ACTIONS;
@@ -119,7 +119,7 @@ static void enter_fault(MotorStateRulesContext *context, uint32_t faults, uint32
     *actions |= MOTOR_STATE_ACTION_DISABLE_POWER;
     if (context->state != MOTOR_STATE_FAULT)
     {
-        enter_stopped_state(context, MOTOR_STATE_FAULT, actions);
+        begin_shutdown(context, MOTOR_STATE_FAULT, actions);
     }
 }
 
@@ -131,7 +131,7 @@ static void enter_stopping(MotorStateRulesContext *context, uint32_t *actions)
     case MOTOR_STATE_STARTING:
     case MOTOR_STATE_RUNNING:
     case MOTOR_STATE_MAINTENANCE:
-        enter_stopped_state(context, MOTOR_STATE_STOPPING, actions);
+        begin_shutdown(context, MOTOR_STATE_STOPPING, actions);
         break;
     case MOTOR_STATE_STOPPING:
         *actions |= MOTOR_STATE_ACTION_DISABLE_POWER;
@@ -166,9 +166,9 @@ static void confirm_stopped(MotorStateRulesContext *context, const MotorStateFac
 }
 
 /* 有效维护失败先作为故障源处理；同拍 STOP 不得丢弃失败及实际提交效果。 */
-static uint32_t detected_faults(MotorStateRulesContext *context,
-                                const MotorStateEvent *event,
-                                const MotorStateFacts *facts)
+static uint32_t record_detected_faults(MotorStateRulesContext *context,
+                                       const MotorStateEvent *event,
+                                       const MotorStateFacts *facts)
 {
     uint32_t faults = facts->active_faults;
     if (event->events & MOTOR_STATE_EVENT_FAULT)
@@ -229,7 +229,7 @@ static bool handle_priority_events(MotorStateRulesContext *context,
         enter_fatal(context, &decision->actions);
         return true;
     }
-    uint32_t faults = detected_faults(context, event, facts);
+    uint32_t faults = record_detected_faults(context, event, facts);
     if (faults)
     {
         /* 锁存故障仍允许单独的取消归还确认，但不得受理同拍新请求。 */
@@ -261,44 +261,6 @@ static bool handle_priority_events(MotorStateRulesContext *context,
     return false;
 }
 
-/* 完成优先于请求；完成与新请求同拍时，不检查或执行后者。 */
-static MotorStateRejection validate_event_identity(const MotorStateRulesContext *context,
-                                                   const MotorStateEvent *event,
-                                                   const MotorStateFacts *facts)
-{
-    if (event->events & ~ALL_EVENTS)
-    {
-        return MOTOR_STATE_REJECT_EVENT;
-    }
-    uint32_t completion = event->events & COMPLETION_EVENTS;
-    if (completion)
-    {
-        if (!single_event(completion))
-        {
-            return MOTOR_STATE_REJECT_EVENT;
-        }
-        return event->completion_epoch == context->epoch ? MOTOR_STATE_ACCEPTED
-                                                         : MOTOR_STATE_REJECT_STALE_EPOCH;
-    }
-    uint32_t request = event->events & REQUEST_EVENTS;
-    if (request)
-    {
-        if (!single_event(request))
-        {
-            return MOTOR_STATE_REJECT_EVENT;
-        }
-        if (event->request_epoch != context->epoch)
-        {
-            return MOTOR_STATE_REJECT_STALE_EPOCH;
-        }
-        if (!facts->request_fresh)
-        {
-            return MOTOR_STATE_REJECT_GUARD;
-        }
-    }
-    return MOTOR_STATE_ACCEPTED;
-}
-
 /* STOPPING 与 FAULT 共用的归还契约：身份、效果和真实静默必须同时满足。 */
 static MotorStateRejection confirm_cancelled_operation(MotorStateRulesContext *context,
                                                        const MotorStateEvent *event,
@@ -323,7 +285,56 @@ static MotorStateRejection confirm_cancelled_operation(MotorStateRulesContext *c
     return MOTOR_STATE_ACCEPTED;
 }
 
-/* 每个状态的普通事件入口、守卫与出口集中在本分支；公共优先级已处理。 */
+/* IDLE 受理控制会话；真正启相在 STARTING 再次核对许可。 */
+static MotorStateRejection start_idle_control(MotorStateRulesContext *context,
+                                              const MotorStateEvent *event,
+                                              const MotorStateFacts *facts,
+                                              uint32_t *actions)
+{
+    if ((unsigned)event->control_mode > MOTOR_CONTROL_VQ)
+    {
+        return MOTOR_STATE_REJECT_MODE;
+    }
+    if (!facts->start_permitted)
+    {
+        return MOTOR_STATE_REJECT_GUARD;
+    }
+    if (advance_epoch(context, actions))
+    {
+        context->state = MOTOR_STATE_STARTING;
+        *actions |= MOTOR_STATE_ACTION_START_CONTROL;
+    }
+    return MOTOR_STATE_ACCEPTED;
+}
+
+/* 维护会话独立记录任务身份与提交效果，不混入控制启动字段。 */
+static MotorStateRejection start_idle_maintenance(MotorStateRulesContext *context,
+                                                  const MotorStateEvent *event,
+                                                  const MotorStateFacts *facts,
+                                                  uint32_t *actions)
+{
+    if ((unsigned)event->maintenance_kind >= MOTOR_MAINTENANCE_NONE ||
+        MotorStateRules_Classify(event->maintenance_kind) == MOTOR_MAINTENANCE_CLASS_INVALID)
+    {
+        return MOTOR_STATE_REJECT_OPERATION;
+    }
+    if (!facts->operation_permitted)
+    {
+        return MOTOR_STATE_REJECT_GUARD;
+    }
+    if (advance_epoch(context, actions))
+    {
+        context->maintenance_kind = event->maintenance_kind;
+        context->maintenance_active = true;
+        context->operation_result = MOTOR_MAINTENANCE_NO_RESULT;
+        context->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
+        context->state = MOTOR_STATE_MAINTENANCE;
+        *actions |= MOTOR_STATE_ACTION_BEGIN_OPERATION;
+    }
+    return MOTOR_STATE_ACCEPTED;
+}
+
+/* 普通事件按状态分派；IDLE 的控制与维护准入分别处理，公共优先级已处理。 */
 static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
                                               uint32_t event_type,
                                               const MotorStateEvent *event,
@@ -365,43 +376,9 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         }
         if (event_type == MOTOR_STATE_EVENT_ENABLE)
         {
-            if ((unsigned)event->control_mode > MOTOR_CONTROL_VQ)
-            {
-                return MOTOR_STATE_REJECT_MODE;
-            }
-            if (!facts->start_permitted)
-            {
-                return MOTOR_STATE_REJECT_GUARD;
-            }
-            if (advance_epoch(context, actions))
-            {
-                context->state = MOTOR_STATE_STARTING;
-                *actions |= MOTOR_STATE_ACTION_START_CONTROL;
-            }
+            return start_idle_control(context, event, facts, actions);
         }
-        else
-        {
-            if ((unsigned)event->maintenance_kind >= MOTOR_MAINTENANCE_NONE ||
-                MotorStateRules_Classify(event->maintenance_kind) ==
-                    MOTOR_MAINTENANCE_CLASS_INVALID)
-            {
-                return MOTOR_STATE_REJECT_OPERATION;
-            }
-            if (!facts->operation_permitted)
-            {
-                return MOTOR_STATE_REJECT_GUARD;
-            }
-            if (advance_epoch(context, actions))
-            {
-                context->maintenance_kind = event->maintenance_kind;
-                context->maintenance_active = true;
-                context->operation_result = MOTOR_MAINTENANCE_NO_RESULT;
-                context->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
-                context->state = MOTOR_STATE_MAINTENANCE;
-                *actions |= MOTOR_STATE_ACTION_BEGIN_OPERATION;
-            }
-        }
-        return MOTOR_STATE_ACCEPTED;
+        return start_idle_maintenance(context, event, facts, actions);
 
     case MOTOR_STATE_STARTING:
         if (event_type != MOTOR_STATE_EVENT_START_DONE)
@@ -498,21 +475,36 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
     return MOTOR_STATE_REJECT_STATE;
 }
 
-/* 普通事件只返回拒绝原因，动作写入唯一结果；不复制上下文或结果快照。 */
+/* 完成优先于请求；只校验并执行选中事件，同拍新请求的身份与时效不参与判定。 */
 static MotorStateRejection handle_normal_event(MotorStateRulesContext *context,
                                                const MotorStateEvent *event,
                                                const MotorStateFacts *facts,
                                                uint32_t *actions)
 {
-    MotorStateRejection rejection = validate_event_identity(context, event, facts);
-    if (rejection != MOTOR_STATE_ACCEPTED)
+    if (event->events & ~ALL_EVENTS)
     {
-        return rejection;
+        return MOTOR_STATE_REJECT_EVENT;
     }
     uint32_t completion = event->events & COMPLETION_EVENTS;
     uint32_t request = event->events & REQUEST_EVENTS;
     uint32_t event_type = completion ? completion : request;
-    rejection = handle_state_event(context, event_type, event, facts, actions);
+    if (event_type)
+    {
+        if (!single_event(event_type))
+        {
+            return MOTOR_STATE_REJECT_EVENT;
+        }
+        uint32_t epoch = completion ? event->completion_epoch : event->request_epoch;
+        if (epoch != context->epoch)
+        {
+            return MOTOR_STATE_REJECT_STALE_EPOCH;
+        }
+        if (!completion && !facts->request_fresh)
+        {
+            return MOTOR_STATE_REJECT_GUARD;
+        }
+    }
+    MotorStateRejection rejection = handle_state_event(context, event_type, event, facts, actions);
     if (completion && request && rejection == MOTOR_STATE_ACCEPTED)
     {
         return MOTOR_STATE_REJECT_INTERRUPTED;

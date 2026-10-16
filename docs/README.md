@@ -24,7 +24,10 @@ provide the short entry map; details belong here.
 历史候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
 
 架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。
-八状态恢复行为见[状态反馈 v1.2](protocols/yg_protocol_motor_state_v1_2.md)。
+八状态完整入口：[状态职责与当前总图](architecture/motor_state_machine_v1.md)、
+[全部跳转及逐状态输入](architecture/motor_state_flow_simplification_v1.md)、
+[整机调用流程](architecture/motor_platform_lifecycle_v1.md)。
+线路恢复行为见[状态反馈 v1.2](protocols/yg_protocol_motor_state_v1_2.md)。
 
 | Area | Purpose |
 | --- | --- |
@@ -110,7 +113,7 @@ Unified trigonometry: [统一正余弦查表与容量验证（2026-09-28）](rep
 
 APP capacity continuation: [标定、平台与配置校验空间优化](reports/2026-09/app_flash_continuation_20260928.md).
 
-Motor state machine: [主状态机设计 v1：状态转换图、迁移条件和任务边界](architecture/motor_state_machine_v1.md).
+Motor state machine: [八状态职责、当前总图、启停与任务边界](architecture/motor_state_machine_v1.md).
 
 Motor state machine validation: [重构验收与未验证项](reports/2026-09/motor_state_machine_refactor_20260928.md).
 

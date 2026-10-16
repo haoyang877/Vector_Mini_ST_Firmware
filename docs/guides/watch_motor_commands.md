@@ -1,6 +1,6 @@
 # Keil Watch 只读观测指南
 
-更新：2026-09-29。适用主工程：`YG_ESC_APP`。
+更新：2026-10-09。适用核心 APP v1.3.0 主工程：`YG_ESC_APP`。
 本页描述人工观测步骤和当前源码中的变量，不授权烧录、复位或电机运动。
 旧 SWD 台架请求邮箱的退役记录保留在文末，不能作为当前操作入口。
 
@@ -49,12 +49,12 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
-| `s_context.rules.state` | 主状态枚举 | 空闲健康状态为 READY；READY 不等于所有模式均可启动 |
-| `s_motor_state.control_mode` | 内部控制枚举 | 空闲为 NONE；不与 CAN 模式编号混用 |
+| `s_context.rules.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方八状态映射 |
+| `s_motor_state.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
 | `s_motor_state.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
 | `s_motor_state.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
 | `s_motor_state.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
-| `s_context.rules.tested` | bool | 基础自检是否完成，不单独构成模式就绪证明 |
+| `s_context.self_test_stable_ticks` | INIT 连续健康计数 | 连续 4 个监督拍通过；STOP 不重启窗口，不是所有模式就绪缓存 |
 | `s_context.fast_sample_epoch` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
 | `s_foc_state.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
 | `s_foc_state.bus_current_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
@@ -97,7 +97,8 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 本次修复后，上电保持三相关闭，累计1秒的新鲜ADC2 JEOS帧（20kHz下20000帧）。
 偏置采用四次求和乘0.25后的12位counts均值；成功前三相偏置及电流显示NAN，
 这表示尚无本次上电的有效校正结果，不应手动改成2048或绕过自检。
-首次启动监督期限为1500ms，CLEAR后的普通自检仍为500ms。
+当前上电 INIT 期限为1500ms；FAULT CLEAR 满足完整恢复条件后直接 IDLE，
+不会重新开始500ms自检。INIT STOP 不重启本次期限或健康窗口。
 完成校正只更新RAM及活动revision，不自动保存，也不自动启相。
 硬件采样、真实残余零电流及启动时间仍需实机验证。
 
@@ -138,8 +139,12 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 采样电阻 `CURRENT_SENSE_SHUNT_MILLIOHM` 是编译宏，不是 Watch 可修改的 RAM 变量。
 6 mΩ 硬件需要核对实际构建输入为 `CURRENT_SENSE_SHUNT_MILLIOHM=6U`。
 
-内部主状态值：BOOT=0、SELF_TEST=1、READY=2、STARTING=3、RUNNING=4、
-MAINTENANCE=5、STOPPING=6、FAULT=7、FATAL=8。
+内部主状态值：INIT=1、IDLE=2、STARTING=3、RUNNING=4、MAINTENANCE=5、
+STOPPING=6、FAULT=7、FATAL=8；0 不再是 BOOT 状态。
+CAN 反馈使用 INIT=3、IDLE=5、STARTING=2、RUNNING=6、STOPPING=7、FAULT=8、
+FATAL=9，MAINTENANCE 按任务投影为 4／5；线上 0 保留退役。
+INIT／IDLE STOP 原地保持，STOPPING 完成和 FAULT CLEAR 成功直接 IDLE，
+FATAL 没有软件出口。完整条件见[状态输入与跳转表](../architecture/motor_state_flow_simplification_v1.md)。
 内部控制模式值：CURRENT=0、SPEED=1、POSITION=2、VQ=3、NONE=4。
 这些值不是 CAN 编号；例如 CAN 速度模式 2 对应内部 SPEED=1。
 
@@ -150,7 +155,8 @@ MAINTENANCE=5、STOPPING=6、FAULT=7、FATAL=8。
 对应任务终态和资源释放一起判定，不能只看一个变量。
 
 - Watch 不用于写模式、目标、故障、生命周期上下文或 PWM；不调用内部函数绕过正式受理入口。
-- 当前 CAN 普通远程使能未闭环，116 只更新运行中的同模式目标；Watch 不补足启动接口。
+- 当前 117 普通启动候选已接 CURRENT／SPEED／POSITION／VQ，116 只更新 RUNNING 同模式目标；
+  能力及实机边界见[普通启动 v0.2](../protocols/yg_protocol_ordinary_start_wire_v0_2.md)，Watch 不代替正式入口。
 - 电机出力时不用断点、单步或 Keil CPU Stop 停车。CPU 停止不保证定时器输出停止，
   固件保护与命令处理也可能停止运行。
 - 运行中的 Periodic Window Update 适合趋势观察，不能证明电流尖峰、周期抖动或 STOP 最坏延迟。
@@ -180,7 +186,7 @@ MAINTENANCE=5、STOPPING=6、FAULT=7、FATAL=8。
 ### 替代入口
 
 - 内部使能、目标、停机、清错：`MotorStateMachine_RequestEnable`、`SubmitControl`、
-  `RequestRemoteStop`、`RequestClear`。当前 CAN 不提供普通远程使能，116 仅更新运行中的同模式目标。
+  `RequestRemoteStop`、`RequestClear`。CAN 117 走有身份启动候选入口，116 仅更新运行中的同模式目标。
 - 维护、标定、保存：带来源身份的维护受理、ticket 查询/取消及前台保存认领。
 - 升级交接：`MotorStateMachine_RequestBootStop` / `MotorStateMachine_BootHandoffReady`。
 - 受理不是物理关断或资源释放证明，须按 [主状态机契约](../architecture/motor_state_machine_v1.md) 确认。

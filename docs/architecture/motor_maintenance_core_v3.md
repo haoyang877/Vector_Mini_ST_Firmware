@@ -9,11 +9,13 @@
   → MotorAxis快拍 → MotorMaintenance_Step → 对应任务Step
   → 返回RUNNING / COMPLETED / FAILED
   → 主状态机关相、取消/归还 → STOPPING → IDLE
-成功LUT/零位/DEFAULTS → 后续独立SAVE → 前台提交与回读 → IDLE
+成功LUT/零位/DEFAULTS → 回到IDLE后独立SAVE → 前台提交与回读 → STOPPING → IDLE
 ```
 
 没有自动全套标定计划。任务的内部阶段由任务自己推进，主状态机只处理准入与结果。
 任务RAM完成、输出关闭、资源归还和Flash已保存分别确认，不能用一个ACK代替。
+SAVE受理取决于本次停止、会话事件和IDLE条件；可以同监督拍衔接，不保证固定延后一拍。
+完整条件见[主状态输入与跳转](motor_state_flow_simplification_v1.md)。
 
 ## 文件与状态所有权
 

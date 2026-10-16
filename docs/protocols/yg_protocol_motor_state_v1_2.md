@@ -32,3 +32,25 @@ INIT／IDLE STOP 不再期待 STOPPING(7)。序号屏障和原请求的终态仍
 STARTING→RUNNING 的“输出已开启”只指真实数字使能回读，不表示机械运动。
 任务与 SAVE 的独立结果、实际 Flash 效果、异步取消和迟到结果契约保持。
 源码验证不代替设备下载、物理输出和时序验收。
+
+## 当前核心版本的阅读入口
+
+2026-10-09 文档同步：上述 STOP／CLEAR／FATAL 行为继续适用于核心 APP v1.3.0，
+本次没有修改线上值、payload 或黄金字节。主状态职责、全部迁移及命令输入分别见
+[主说明和当前总图](../architecture/motor_state_machine_v1.md)、
+[T1～T11 与逐状态输入表](../architecture/motor_state_flow_simplification_v1.md)。
+
+| 主状态 | 固件内部值 | CAN 状态投影 |
+| --- | ---: | --- |
+| INIT | 1 | 3；线上 0 退役 |
+| IDLE | 2 | 5 |
+| STARTING | 3 | 2 |
+| RUNNING | 4 | 6 |
+| MAINTENANCE | 5 | LUT／电零位为 4；SAVE／机械零位／DEFAULTS 为 5 |
+| STOPPING | 6 | 7 |
+| FAULT | 7 | 8 |
+| FATAL | 8 | 9 |
+
+MAINTENANCE 的 5 与 IDLE 的 5 重合，不能只凭线上状态字节确认任务已结束；
+应结合维护票据和结果。当前仅支持五项单项维护，整计划／租约／在线切模式已退役。
+新 START、同模式目标、停止及查询的线路细节沿用现行各自契约，不直接发送内部枚举。

@@ -8,7 +8,9 @@
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
 /* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
- * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。 */
+ * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。
+ * 字段顺序是已发布ABI，不按参数分类重排：基础配置、标定结果和兼容派生值在此编码，
+ * 运行目标/积分/热历史不保存。归属、来源及计算时机见docs/architecture/parameter_sources_v1.md。 */
 
 /* Flash 参数记录识别字，与 InterfaceParam.magic_word 配对；
  * 属于已发布 schema 的一部分，数值禁止更改。 */
@@ -21,25 +23,31 @@
 
 typedef struct
 {
+    /* 设备输入；node在线格式沿用float，运行对象使用受校验的整数地址。 */
     float node_id;
+    /* 当次启动重新采集的设备偏置；旧存储值不提供本次启动资格。 */
     float currentoffset_a;
     float currentoffset_b;
     float currentoffset_c;
+    /* 电机模型基础输入：来自已核实型号或实测，不由生产标签自动选择。 */
     float motor_pole_pairs;
     float motor_phase_resistance_ohm;
     float motor_d_inductance_h;
     float motor_q_inductance_h;
     float motor_flux_wb;
+    /* 装配标定结果；有效位由实际任务提交，零值本身不代表已标定。 */
     uint16_t encoder_electrical_zero_q15;
     uint16_t encoder_mechanical_zero_q15;
     uint8_t encoder_calib_flag;
     uint8_t encoder_reverse;
     uint8_t encoder_reserved[2];
     int16_t encoder_linearization_lut_q15[ENCODER_OFFSET_LUT_SIZE];
+    /* 电流PI默认由模型派生；有效存储值保留人工整定，不自动覆盖。 */
     float id_kp;
     float id_ki;
     float iq_kp;
     float iq_ki;
+    /* 应用输入：速度/位置外环整定与包络，不与电流PI混用单位。 */
     float speed_acceleration_rad_s2;
     float speed_deceleration_rad_s2;
     float speed_kp;

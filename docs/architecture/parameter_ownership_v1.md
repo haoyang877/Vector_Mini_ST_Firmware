@@ -3,6 +3,8 @@
 更新：2026-10-17。适用当前核心工程。本页描述实际RAM和文件归属。
 配置分组保持单份；本次移植在[schema13](../protocols/parameter_schema13_delivery_v1.md)
 尾追加热保护/前馈配置，兼容只读装载有效schema12，不恢复旧交付schema10的运行时迁移。
+基础输入、派生量、标定结果与运行状态的分类及宏计算边界见
+[参数来源与计算时机](parameter_sources_v1.md)。
 
 ## 从哪里修改配置
 
@@ -15,7 +17,8 @@
 
 板卡与电机选择分别使用 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE`；
 当前各只有一份已实现 profile，未知 ID 编译报错。采样电阻另由
-`CURRENT_SENSE_SHUNT_MILLIOHM` 选择，主工程配置仍为 6 mΩ。
+`CURRENT_SENSE_SHUNT_MILLIOHM` 选择：公共头文件默认与主工程显式配置均为 6 mΩ，
+仅在硬件确为 2 mΩ 时使用显式编译选项覆盖。
 增加新型号必须提供实际数值，不用枚举占位假装已支持。
 
 默认零偏由板级 ADC 中点提供，真实零偏属于每台设备的标定结果。

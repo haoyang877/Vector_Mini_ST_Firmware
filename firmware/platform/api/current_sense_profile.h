@@ -1,29 +1,35 @@
 #ifndef CURRENT_SENSE_PROFILE_H
 #define CURRENT_SENSE_PROFILE_H
 
-/* 相电流感测板级 profile：分流电阻、放大增益与各电流限值的编译期选择。 */
+/* 板级采样输入与相电流限值；均为编译期配置，不随设备参数记录改变。 */
 
-/*
- * Change only CURRENT_SENSE_SHUNT_MILLIOHM to switch the complete current-
- * sensing configuration. It may also be overridden from the compiler command
- * line. All current values below are phase-current amplitudes in amperes.
- */
+/* 固定硬件输入：ADC额定参考电压、转换位宽和放大器无量纲增益。
+ * 当前电流/VBUS换算沿用额定3.3V，不切换到温度通道测得的VDDA。 */
+#define CURRENT_SENSE_PROFILE_ADC_REFERENCE_V 3.3f
+#define CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS 12U
+#define CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN 10.0f
+
+/* 板型输入：默认6mΩ，显式编译选项仍可选择已有的2mΩ配置。
+ * 下方限值单位均为相电流幅值A，属于既有保护策略，不能由ADC满量程代替。 */
 #define CURRENT_SENSE_SHUNT_2_MILLIOHM 2U
 #define CURRENT_SENSE_SHUNT_6_MILLIOHM 6U
 
 #ifndef CURRENT_SENSE_SHUNT_MILLIOHM
-#define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_2_MILLIOHM
+#define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_6_MILLIOHM
 #endif
 
-#define CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN 10.0f
-/* Bipolar ADC full scale around 1.65 V, distinct from reliable/control limits.
- * 2 mOhm: +/-82.5 A; 6 mOhm: +/-27.5 A. Q15 tables use 32768 counts/full scale. */
+/* 固定输入的编译期派生量；不分配存储、不在采样时重复计算。
+ * 双极性ADC以额定参考的一半为中点：2mΩ为±82.5A，6mΩ为±27.5A。 */
+#define CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS                                                       \
+    ((1UL << CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS) - 1UL)
+#define CURRENT_SENSE_PROFILE_ADC_MIDSCALE_V (CURRENT_SENSE_PROFILE_ADC_REFERENCE_V / 2.0f)
+#define CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM ((float)CURRENT_SENSE_SHUNT_MILLIOHM / 1000.0f)
 #define CURRENT_SENSE_PROFILE_FULL_SCALE_A                                                         \
-    (1.65f / (CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN * CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM))
+    (CURRENT_SENSE_PROFILE_ADC_MIDSCALE_V /                                                        \
+     (CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN * CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM))
 
 #if CURRENT_SENSE_SHUNT_MILLIOHM == CURRENT_SENSE_SHUNT_2_MILLIOHM
 
-#define CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM 0.002f
 #define CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A 60.0f
 #define CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A 30.0f
 #define CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A 30.0f
@@ -34,7 +40,6 @@
 
 #elif CURRENT_SENSE_SHUNT_MILLIOHM == CURRENT_SENSE_SHUNT_6_MILLIOHM
 
-#define CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM 0.006f
 #define CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A 20.0f
 #define CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A 10.0f
 #define CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A 10.0f

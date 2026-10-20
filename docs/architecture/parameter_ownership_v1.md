@@ -3,6 +3,8 @@
 更新：2026-10-17。适用当前核心工程。本页描述实际RAM和文件归属。
 配置分组保持单份；本次移植在[schema13](../protocols/parameter_schema13_delivery_v1.md)
 尾追加热保护/前馈配置，兼容只读装载有效schema12，不恢复旧交付schema10的运行时迁移。
+基础输入、派生量、标定结果与运行状态的分类及宏计算边界见
+[参数来源与计算时机](parameter_sources_v1.md)。
 
 ## 从哪里修改配置
 

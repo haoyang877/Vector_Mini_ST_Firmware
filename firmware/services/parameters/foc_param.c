@@ -101,14 +101,11 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     motor_state->model.motor_d_inductance_h = PARAM_MOTOR_D_INDUCTANCE_H;
     motor_state->model.motor_q_inductance_h = PARAM_MOTOR_Q_INDUCTANCE_H;
     motor_state->model.motor_flux_wb = PARAM_MOTOR_FLUX_WB;
-    motor_state->model.id_kp =
-        motor_state->model.motor_d_inductance_h * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    motor_state->model.iq_kp =
-        motor_state->model.motor_q_inductance_h * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    motor_state->model.id_ki =
-        motor_state->model.motor_phase_resistance_ohm * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
-    motor_state->model.iq_ki =
-        motor_state->model.motor_phase_resistance_ohm * PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S;
+    /* 仅首次/回退默认配置使用编译期派生 PI，已保存整定仍直接装载。 */
+    motor_state->model.id_kp = PARAM_MOTOR_DEFAULT_ID_KP;
+    motor_state->model.iq_kp = PARAM_MOTOR_DEFAULT_IQ_KP;
+    motor_state->model.id_ki = PARAM_MOTOR_DEFAULT_ID_KI;
+    motor_state->model.iq_ki = PARAM_MOTOR_DEFAULT_IQ_KI;
 
     rotor_encoder->electrical_zero_q15 = PARAM_DEVICE_ENCODER_ELECTRICAL_ZERO_Q15;
     rotor_encoder->mechanical_zero_q15 = PARAM_DEVICE_ENCODER_MECHANICAL_ZERO_Q15;

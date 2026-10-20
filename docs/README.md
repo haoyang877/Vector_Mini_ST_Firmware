@@ -9,6 +9,9 @@ provide the short entry map; details belong here.
 核心阅读入口：[模块核心职责与删减清单](architecture/module_core_responsibilities.md)，
 模块细节见[核心控制执行](architecture/motor_execution_core_v3.md)、[核心维护与标定](architecture/motor_maintenance_core_v3.md)和[参数所有权](architecture/parameter_ownership_v1.md)。历史提取结果见[2026-10-08 核心解耦集成记录](reports/2026-10/module_core_integration_20261008.md)。
 
+参数填写、计算与标定的边界见[参数来源与计算时机](architecture/parameter_sources_v1.md)，
+实现和离线证据见[编译期派生收口](plans/completed/2026-10-20-parameter-sources-and-constants-v1.md)。
+
 当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
 按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。
 核心线路：[SPEED能力声明 v2](protocols/yg_protocol_core_speed_caps_v2.md)、

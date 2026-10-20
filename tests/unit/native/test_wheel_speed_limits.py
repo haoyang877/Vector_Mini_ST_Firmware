@@ -99,6 +99,37 @@ int main(void) {
     p.encoder_electrical_zero_q15=3155; p.encoder_calib_flag=3;
     p.encoder_linearization_lut_q15[71]=-42; p.speed_kp=.02f;
     saved=p;
+    /* 原默认路径先赋值 float 相模型，再乘带宽；比较全部 PI 的位模式。 */
+    {
+        volatile float resistance=PARAM_MOTOR_PHASE_RESISTANCE_OHM;
+        volatile float ld=PARAM_MOTOR_D_INDUCTANCE_H;
+        volatile float lq=PARAM_MOTOR_Q_INDUCTANCE_H;
+        const float expected[]={ld*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                lq*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                resistance*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                resistance*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S};
+        const float actual[]={motor_state.model.id_kp,motor_state.model.iq_kp,
+                              motor_state.model.id_ki,motor_state.model.iq_ki};
+        assert(memcmp(actual,expected,sizeof(expected))==0);
+    }
+    /* 两版有效记录的手调 PI 不随 R/L 重新派生，导出仍逐位保留。 */
+    for(unsigned version=12;version<=13;version++) {
+        p=saved; p.schema_version=version;
+        p.motor_phase_resistance_ohm=1.25f;
+        p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
+        p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
+        const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
+        p.record_crc32=Param_RecordCrc(&p);
+        Param_Download(&p,&motor_state,&rotor_encoder);
+        const float actual[]={motor_state.model.id_kp,motor_state.model.iq_kp,
+                              motor_state.model.id_ki,motor_state.model.iq_ki};
+        assert(motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
+        assert(memcmp(actual,expected,sizeof(expected))==0);
+        Param_Upload(&p,&motor_state,&rotor_encoder);
+        const float exported[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
+        assert(memcmp(exported,expected,sizeof(expected))==0);
+    }
+    puts("PASS default PI bit equivalence and stored schema12/13 custom PI retention");
     policy_golden_vectors(&saved);
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;

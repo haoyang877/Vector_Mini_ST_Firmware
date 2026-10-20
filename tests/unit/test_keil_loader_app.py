@@ -30,6 +30,11 @@ class KeilLoaderAppTests(unittest.TestCase):
         constants = json.loads(
             (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
         )["constants"]
+        self.app_base = int(constants["TARGET_APP_BASE"].rstrip("U"), 0)
+        self.app_bytes = int(constants["TARGET_APP_BYTES"].rstrip("U"), 0)
+        descriptor = int(constants["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
+        entry = self.app_base + descriptor + 96 + 1
+        struct.pack_into("<I", image, 4, entry)
         for offset, key in (
             (12, "TARGET_LAYOUT"),
             (16, "TARGET_MCU"),
@@ -52,7 +57,7 @@ class KeilLoaderAppTests(unittest.TestCase):
             2,
             40,
             1,
-            0x08005261,
+            entry,
             phoff,
             phoff + 32,
             0,
@@ -65,14 +70,14 @@ class KeilLoaderAppTests(unittest.TestCase):
         )
         elf[52:phoff] = image
         struct.pack_into(
-            "<8I", elf, phoff, 1, 52, 0x08005000, 0x08005000, len(image), len(image), 7, 8
+            "<8I", elf, phoff, 1, 52, self.app_base, self.app_base, len(image), len(image), 7, 8
         )
         self.axf.write_bytes(elf)
 
     def test_debug_axf_hex_bin_and_can_package_share_payload(self) -> None:
         """直接下载镜像的三标记有效，CAN 包的三标记仍为擦除态。"""
         report = synchronize(self.axf, 7)
-        _, debug = image_segment(self.axf.read_bytes(), 0x08005000, 0x17000)
+        _, debug = image_segment(self.axf.read_bytes(), self.app_base, self.app_bytes)
         self.assertEqual(debug, self.axf.with_suffix(".bin").read_bytes())
         package = (self.axf.parent / "app-package/image.bin").read_bytes()
         self.assertEqual(len(debug), len(package))
@@ -95,7 +100,7 @@ class KeilLoaderAppTests(unittest.TestCase):
                 upper = int.from_bytes(record[4:6], "big") << 16
             elif record[3] == 0:
                 self.assertEqual(
-                    upper + int.from_bytes(record[1:3], "big"), 0x08005000 + len(decoded)
+                    upper + int.from_bytes(record[1:3], "big"), self.app_base + len(decoded)
                 )
                 decoded.extend(record[4 : 4 + record[0]])
         self.assertEqual(bytes(decoded), debug)

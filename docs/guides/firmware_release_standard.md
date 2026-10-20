@@ -1,8 +1,8 @@
 # YG2026-ESC 固件发布规范
 
-文档版本：v1.0.0
+文档版本：v1.1.0
 
-制定日期：2026-09-17
+制定日期：2026-09-17；更新：2026-10-17
 适用项目：`YG2026-ESC-APP`、`YG2026-ESC-LOADER`
 
 ## 1. 适用范围
@@ -60,12 +60,26 @@ YG2026-ESC-APP-STM32G431CB-release-v1.2.0-20260917.bin
 YG2026-ESC-APP-STM32G431CB-debug-v1.2.1-20260917.hex
 YG2026-ESC-APP-STM32G431CB-factory-v1.0.0-20260917.bin
 
-YG2026-ESC-LOADER-STM32G431CB-release-v1.0.0-20260917.bin
-YG2026-ESC-LOADER-STM32G431CB-debug-v1.0.1-20260917.axf
-YG2026-ESC-LOADER-STM32G431CB-factory-v1.0.0-20260917.hex
+YG2026-ESC-LOADER-STM32G431CB-release-v2.0.0-20261017.bin
+YG2026-ESC-LOADER-STM32G431CB-debug-v2.0.0-20261017.axf
+YG2026-ESC-LOADER-STM32G431CB-factory-v2.0.0-20261017.hex
 ```
 
 以上为格式示例，不表示这些版本或构建产物已经发布。
+
+本轮配套版本从 APP `v1.4.1`、Loader `v2.0.0` 起；二者独立递增，文件名必须与
+设备查询值、镜像描述符及目标清单一致。
+
+整机 SWD 合并 HEX 使用独立前缀，并同时写明两个版本：
+
+```text
+YG2026-ESC-FULL-芯片型号-分支名-LOADER-vX.Y.Z-APP-vX.Y.Z-YYYYMMDD.hex
+YG2026-ESC-FULL-STM32G431CB-debug-LOADER-v2.0.0-APP-v1.4.1-20261017.hex
+```
+
+合并 HEX 只含 Loader 与 APP 各自的实际加载字节；参数和生产身份页不在其中。
+它的清单必须列出两镜像版本、layout、各自基址与长度、合并文件 SHA-256。
+文件名和离线校验不能替代实机启动、通信及安全验收。
 
 ## 3. 版本号管理
 
@@ -97,7 +111,7 @@ YG2026-ESC-LOADER-STM32G431CB-factory-v1.0.0-20260917.hex
 - debug 如确需包含未提交修改，清单标记 `dirty=true`，同时归档相应源码快照/补丁；不能仅记录一个不包含实际修改的 commit。
 - BIN 为原始字节镜像，烧写基址必须由清单和布局契约提供；HEX 的地址范围同样需要检查。
 - ELF/AXF 和 map 用于调试与追溯，归档时注明用途，不默认当作在线升级输入。
-- APP 和 LOADER 分别构建、分别发布。现有规范不将两者拼接后仍命名为 APP 或 LOADER；需要整机部署包时用独立包清单描述各组件和地址。
+- APP 和 LOADER 分别构建；整机 SWD 合并 HEX 使用上述 `FULL` 名称及双组件清单，不能冒充单件镜像或 CAN 升级包。
 - 芯片相同但布局不同的镜像不能互换。升级工具不得仅凭文件名或文件大小判断是否允许写入。
 
 针对当前 D-loader 设计：设备侧移除 USB；Loader 按目标支持 CAN-FD/UART，优先交付 CAN-FD。清单必须列出该构建实际启用并验证的链路，不能将框架规划能力标为已实现能力。
@@ -122,6 +136,9 @@ YG2026-ESC-LOADER-STM32G431CB-factory-v1.0.0-20260917.hex
 | `image` | 编程基址、实际传输长度、填充规则、CRC32 算法及校验值 |
 | `artifacts` | 每个产物的准确文件名、字节数、用途、SHA-256 |
 | `validation` | 已执行测试、结果及对应报告路径 |
+
+`FULL` 清单的 `components` 分别登记 Loader 与 APP 的版本、基址、长度和哈希；
+标明参数、身份页未包含在合并文件中。
 
 SHA-256 针对归档文件本身；镜像 CRC 针对升级实际传输的字节序列。若 BIN 补齐、HEX 转换或裁剪导致内容变化，应先生成最终升级镜像，再计算长度与 CRC，并将该最终文件作为独立产物登记。不能把 HEX 文本文件的 CRC 当作 APP 镜像 CRC。
 
@@ -207,6 +224,12 @@ BIN/HEX 按用途提供，符号产物按工具链使用 ELF 或 AXF，不要求
 
 ```regex
 \AYG2026-ESC-(APP|LOADER)-([A-Z0-9]+)-(release|debug|factory)-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-([0-9]{8})\.(bin|hex|elf|axf)\Z
+```
+
+整机合并 HEX 使用独立正则，两个版本都必须与清单和各自镜像一致：
+
+```regex
+\AYG2026-ESC-FULL-([A-Z0-9]+)-(release|debug|factory)-LOADER-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-APP-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-([0-9]{8})\.hex\Z
 ```
 
 该表达式采用 Python 正则语法；其他工具按对应语法实现完整字符串匹配。额外检查：

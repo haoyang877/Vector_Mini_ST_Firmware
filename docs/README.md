@@ -26,6 +26,10 @@ provide the short entry map; details belong here.
 [schema13参数与清标定契约](protocols/parameter_schema13_delivery_v1.md)。
 新包及实机结果须以本轮冻结记录为准，不能沿用v1.3.0结论。
 
+Loader 16 KiB / APP 96 KiB 的布局迁移见
+[layout 6 计划](plans/active/2026-10-17-loader-16k-layout-v1.md)与
+[当前 Loader 设计](architecture/loader/loader_product_v3.md)。
+
 历史候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
 
 架构发布候选：[APP v1.1.0 实际范围与未测项](releases/architecture-app-v1.1.0-candidate.md)。

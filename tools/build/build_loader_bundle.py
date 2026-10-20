@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.common import git_info
+from keil_loader_app import intel_hex
 from project_paths import ROOT
 
 
@@ -51,6 +52,8 @@ def main() -> int:
         "parameter_bytes": int(constants["TARGET_RAW_BYTES"].removesuffix("U"), 0),
         "profile": "loader-image-v3-crc32",
     }
+    binaries = {}
+    tags = {}
     try:
         for product, name, project, directory, version_key in (
             (
@@ -84,6 +87,7 @@ def main() -> int:
                 raise RuntimeError(f"{name}构建失败或存在警告；检查当前构建日志")
             version = int(constants[version_key].removesuffix("U"), 0)
             tag = f"v{version >> 16}.{(version >> 8) & 255}.{version & 255}"
+            tags[product] = tag
             prefix = f"YG2026-ESC-{product}-STM32G431CB-debug-{tag}-{date}"
             for suffix in ("axf", "hex", "map"):
                 artifact = ROOT / directory / f"{name}.{suffix}"
@@ -140,6 +144,7 @@ def main() -> int:
                     "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                 }
             )
+            binaries[product] = binary
             map_text = (output / f"{prefix}.map").read_text(encoding="utf-8", errors="replace")
             flash_region = re.search(r"Load Region LR_\w+ \(.*?Size: (0x[0-9a-fA-F]+)", map_text)
             ram_region = re.search(r"Execution Region RW_\w+ \(.*?Size: (0x[0-9a-fA-F]+)", map_text)
@@ -150,6 +155,45 @@ def main() -> int:
                 "download_bytes": binary.stat().st_size,
                 "ram_region_bytes": int(ram_region[1], 16),
             }
+        flash_base = int(constants["TARGET_FLASH_BASE"].removesuffix("U"), 0)
+        loader_bytes = int(constants["TARGET_LOADER_BYTES"].removesuffix("U"), 0)
+        app_base = int(constants["TARGET_APP_BASE"].removesuffix("U"), 0)
+        app_bytes = int(constants["TARGET_APP_BYTES"].removesuffix("U"), 0)
+        param_base = int(constants["TARGET_PARAM_BASE"].removesuffix("U"), 0)
+        loader_image = binaries["LOADER"].read_bytes()
+        app_image = binaries["APP"].read_bytes()
+        if (
+            app_base != flash_base + loader_bytes
+            or len(loader_image) > loader_bytes
+            or len(app_image) > app_bytes
+            or app_base + len(app_image) > param_base
+        ):
+            raise RuntimeError("Loader/APP 镜像不属于当前相邻分区")
+        combined = output / (
+            f"YG2026-ESC-FULL-STM32G431CB-debug-LOADER-{tags['LOADER']}"
+            f"-APP-{tags['APP']}-{date}.hex"
+        )
+        eof = b":00000001FF\n"
+        combined.write_bytes(
+            intel_hex(flash_base, loader_image).removesuffix(eof) + intel_hex(app_base, app_image)
+        )
+        report["artifacts"].append(
+            {
+                "path": combined.name,
+                "bytes": combined.stat().st_size,
+                "sha256": hashlib.sha256(combined.read_bytes()).hexdigest(),
+            }
+        )
+        report["combined"] = {
+            "loader_version": tags["LOADER"],
+            "app_version": tags["APP"],
+            "layout": int(constants["TARGET_LAYOUT"].removesuffix("U"), 0),
+            "loader_base": flash_base,
+            "loader_image_bytes": len(loader_image),
+            "app_base": app_base,
+            "app_image_bytes": len(app_image),
+            "parameter_base": param_base,
+        }
         for artifact in sorted((output / "app-package").iterdir()):
             if artifact.is_file():
                 report["artifacts"].append(

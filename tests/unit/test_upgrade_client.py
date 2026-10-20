@@ -126,6 +126,9 @@ class UpgradeClientTests(unittest.TestCase):
             (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
         )["constants"]
         descriptor = int(target["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
+        app_base = int(target["TARGET_APP_BASE"].rstrip("U"), 0)
+        struct.pack_into("<I", image, 4, app_base + descriptor + 96 + 1)
+        struct.pack_into(">I", image, descriptor + 12, int(target["TARGET_LAYOUT"].rstrip("U"), 0))
         struct.pack_into(
             ">I", image, descriptor + 28, int(target["TARGET_APP_VERSION"].rstrip("U"), 0)
         )

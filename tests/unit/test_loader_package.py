@@ -27,6 +27,9 @@ class LoaderPackageTests(unittest.TestCase):
         constants = json.loads(
             (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
         )["constants"]
+        app_base = int(constants["TARGET_APP_BASE"].rstrip("U"), 0)
+        descriptor = int(constants["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
+        struct.pack_into("<I", image, 4, app_base + descriptor + 96 + 1)
         for offset, key in (
             (12, "TARGET_LAYOUT"),
             (16, "TARGET_MCU"),
@@ -74,7 +77,12 @@ class LoaderPackageTests(unittest.TestCase):
             (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
         )
         target["constants"].update(
-            TARGET_APP_VERSION="0x00010300U", TARGET_PARAM_ABI="0x000C10D0U", TARGET_SCHEMA="12U"
+            TARGET_APP_BASE="0x08005000U",
+            TARGET_APP_BYTES="0x17000U",
+            TARGET_LAYOUT="5U",
+            TARGET_APP_VERSION="0x00010300U",
+            TARGET_PARAM_ABI="0x000C10D0U",
+            TARGET_SCHEMA="12U",
         )
         image, manifest, metadata = build_package(source, 7, target)
         self.assertEqual(image.hex(), vector["image_hex"])
@@ -89,6 +97,28 @@ class LoaderPackageTests(unittest.TestCase):
         result, output = self.package(self.current_source())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((output / "image.bin").read_bytes()[576:600], b"\xff" * 24)
+
+    def test_layout6_golden_and_layout5_rejection(self) -> None:
+        """迁移后清单和几何固定；旧布局不能伪装成当前升级包。"""
+        target = json.loads(
+            (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
+        )
+        golden = json.loads(
+            (ROOT / "tests/fixtures/loader_image_layout6.json").read_text(encoding="utf-8")
+        )
+        source = self.current_source()
+        image, manifest, metadata = build_package(source, 7, target)
+        self.assertEqual(manifest.hex(), golden["manifest_hex"])
+        self.assertEqual(metadata["image_crc32"], golden["crc32"])
+        self.assertEqual(len(image), golden["image_bytes"])
+        self.assertEqual(metadata["layout"], golden["layout"])
+        self.assertEqual(
+            int(target["constants"]["TARGET_APP_BASE"].rstrip("U"), 0), golden["app_base"]
+        )
+        old_layout = bytearray(source)
+        struct.pack_into(">I", old_layout, 512 + 12, 5)
+        with self.assertRaises(ValueError):
+            build_package(old_layout, 7, target)
 
     def test_v3_wire_vectors_match_package(self) -> None:
         """跨端黄金向量必须引用同一清单，nonce以载荷小端传输。"""

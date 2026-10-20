@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "purpose": "布局6合成镜像的清单与CRC黄金值；不可烧录",
+  "source_fixture": "tests/fixtures/loader_image_v3.json",
+  "layout": 6,
+  "loader_bytes": 16384,
+  "app_base": 134234112,
+  "app_bytes": 98304,
+  "app_version": 66561,
+  "loader_version": 131072,
+  "image_bytes": 640,
+  "manifest_hex": "494d3331535935490000000604310080594732360000000100010401000000070000028000000001000d1100000d000dfc34b3a60000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "crc32": "fc34b3a6"
+}

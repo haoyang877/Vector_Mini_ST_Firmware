@@ -1,7 +1,7 @@
 # Keil 单独下载 LoaderApp
 
 本流程用于已经安装匹配 Loader 的板卡，只更新 APP 槽。LoaderApp 工程链接在
-`0x08005000` 起的 APP 区；Loader、参数与设备身份区不属于这个 AXF 的加载段。
+`0x08004000` 起的 layout 6 APP 区；Loader、参数与设备身份区不属于这个 AXF 的加载段。
 
 1. 使用当前共同目标清单重新生成 LoaderApp 工程，并打开
    `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx`。
@@ -20,7 +20,7 @@ Keil 直下镜像的三个启动标记在构建时已置为有效，便于反复
 升级成功或 APP 健康确认的证据。正式 CAN 升级使用 `app-package/`：其中镜像标记
 保持擦除态，Loader 负责写入、验证、激活和试运行确认。两类文件不可互换。
 
-2026-10-17已完成干净源码release检查、配套完整构建及同一真实AXF的重复Keil Build，
-均0错误0警告；配套APP为80360B，实机下载和真实Loader跳转交由T独占验证。
-当前结果见[本轮集成记录](../reports/2026-10/delivery_feature_integration_20261017.md)。
+2026-10-17 的 80,360 B APP 属于旧 layout 5 冻结包；其台架记录见
+[本轮集成记录](../reports/2026-10/delivery_feature_integration_20261017.md)。
+新 layout 6 必须重新链接和验证，不能将旧包改名或单独与新 Loader 混装。
 本指南中的操作设置仍需在目标板确认，离线构建不是实机通过证据。

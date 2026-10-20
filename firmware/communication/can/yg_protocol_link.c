@@ -881,19 +881,19 @@ static void service_boot_completion(void)
     }
 }
 
-static void capture_boot_reply_slot(size_t previous_tail, yg_protocol_result_t result)
+static void capture_boot_reply_slot(size_t previous_head, yg_protocol_result_t result)
 {
     if (s_link_context.boot_tx_state != YG_BOOT_TX_PREPARED || s_endpoint.response_pending)
     {
         return;
     }
-    if (result != YG_PROTOCOL_OK || s_tx_queue.tail == previous_tail)
+    if (result != YG_PROTOCOL_OK || s_tx_queue.head == previous_head)
     {
         finish_boot_ticket(false);
         return;
     }
-    /* endpoint每次只排一个4B回复，此位置即当前READY，不搜索相似ID/seq的旧帧。 */
-    s_link_context.boot_tx_slot = previous_tail;
+    /* head为入队位置、tail为出队位置；此位置即当前READY，不搜索相似ID/seq的旧帧。 */
+    s_link_context.boot_tx_slot = previous_head;
     s_link_context.boot_tx_state = YG_BOOT_TX_QUEUED;
 }
 
@@ -912,7 +912,7 @@ static bool is_boot_ready_frame(const yg_protocol_transfer_frame_t *frame)
 
 static void discard_queued_boot_reply(void)
 {
-    size_t slot = s_tx_queue.head;
+    size_t slot = s_tx_queue.tail;
     for (size_t i = 0U; i < s_tx_queue.count; ++i)
     {
         if (slot == s_link_context.boot_tx_slot)
@@ -921,7 +921,7 @@ static void discard_queued_boot_reply(void)
             {
                 return;
             }
-            const size_t last = (s_tx_queue.tail + s_tx_queue.capacity - 1U) % s_tx_queue.capacity;
+            const size_t last = (s_tx_queue.head + s_tx_queue.capacity - 1U) % s_tx_queue.capacity;
             /* 只有一条带票据回复；按当前队列容量有界移动，保持其余帧顺序。 */
             while (slot != last)
             {
@@ -929,7 +929,7 @@ static void discard_queued_boot_reply(void)
                 s_tx_queue.storage[slot] = s_tx_queue.storage[next];
                 slot = next;
             }
-            s_tx_queue.tail = last;
+            s_tx_queue.head = last;
             --s_tx_queue.count;
             return;
         }
@@ -967,7 +967,7 @@ static yg_protocol_result_t send_one(void)
     yg_protocol_transfer_frame_t frame;
     CommHwCanFrame hardware = {0};
     if (s_link_context.boot_tx_state != YG_BOOT_TX_QUEUED ||
-        s_tx_queue.head != s_link_context.boot_tx_slot)
+        s_tx_queue.tail != s_link_context.boot_tx_slot)
     {
         return yg_protocol_canfd_send_one(&s_tx_queue);
     }
@@ -1015,14 +1015,14 @@ void YgProtocolLink_Service(uint32_t now_ms)
     {
         yg_protocol_transfer_frame_t frame;
         yg_protocol_result_t result;
-        size_t previous_tail;
+        size_t previous_head;
         if (!s_endpoint.response_pending && send_pending_feedback() != YG_PROTOCOL_OK)
         {
             break;
         }
         if (s_endpoint.response_pending)
         {
-            previous_tail = s_tx_queue.tail;
+            previous_head = s_tx_queue.head;
             result = yg_protocol_endpoint_process_frame(&s_endpoint, NULL, now_ms);
         }
         else
@@ -1040,10 +1040,10 @@ void YgProtocolLink_Service(uint32_t now_ms)
                 break;
             }
             /* 临界区只复制帧；CRC、路由和业务处理始终允许电机中断抢占。 */
-            previous_tail = s_tx_queue.tail;
+            previous_head = s_tx_queue.head;
             result = yg_protocol_endpoint_process_frame(&s_endpoint, &frame, now_ms);
         }
-        capture_boot_reply_slot(previous_tail, result);
+        capture_boot_reply_slot(previous_head, result);
         if (result == YG_PROTOCOL_QUEUE_FULL)
         {
             break;

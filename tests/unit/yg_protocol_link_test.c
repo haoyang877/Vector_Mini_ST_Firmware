@@ -26,19 +26,34 @@ static unsigned can_starts;
 static unsigned bus_off_services;
 static yg_protocol_motor_operation_t power_operation;
 
-/* 本夹具未绑定 boot 服务；普通响应不得进入跟踪发送通道，也不伪造发送完成。 */
+static bool tracked_allowed;
+static uint64_t tracked_ticket;
+static bool completion_pending;
+static CommHwCanTxCompletion pending_completion;
+static unsigned boot_completion_calls;
+static bool boot_completion_success;
+
+/* 只有交接夹具允许跟踪发送；完成事件由测试显式注入，普通回复仍走普通发送口。 */
 bool comm_hw_can_try_send_tracked_frame(const CommHwCanFrame *frame, uint64_t ticket)
 {
-    (void)frame;
-    (void)ticket;
-    assert(false);
-    return false;
+    assert(tracked_allowed && ticket != 0U);
+    if (!comm_hw_can_try_send_frame(frame))
+    {
+        return false;
+    }
+    tracked_ticket = ticket;
+    return true;
 }
 
 bool comm_hw_can_take_tx_completion(CommHwCanTxCompletion *completion)
 {
-    (void)completion;
-    return false;
+    if (!completion_pending)
+    {
+        return false;
+    }
+    *completion = pending_completion;
+    completion_pending = false;
+    return true;
 }
 
 /* 运行时测试用的硬件替身：只计数，不接触真实外设。 */
@@ -734,6 +749,104 @@ static void runtime_start_boundary(void)
 
 static unsigned confirm_calls;
 static bool confirm_allowed;
+static void
+ready_boot_request(void *context, const BootEntryRequest *request, BootEntryReply *reply)
+{
+    (void)context;
+    assert(request->boot_epoch == 9U);
+    *reply = (BootEntryReply){.result = BOOT_ENTRY_READY, .ack_ticket = request->boot_epoch};
+}
+
+static void ready_boot_complete(void *context, uint64_t ticket, bool success)
+{
+    (void)context;
+    assert(ticket == 9U);
+    ++boot_completion_calls;
+    boot_completion_success = success;
+}
+
+/* READY在回绕队列中排队；真实完成才成功回调，超时只移除该回复并保持普通帧顺序。 */
+static void boot_ready_queue_contract(void)
+{
+    const BootEntryService boot_service = {NULL, ready_boot_request, ready_boot_complete, NULL};
+    const yg_protocol_motor_service_t motor_service = {NULL, motor_handler};
+    uint8_t nonce[8] = {9U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP};
+    for (unsigned scenario = 0U; scenario < 3U; ++scenario)
+    {
+        assert(YgProtocolLink_Init(7U));
+        assert(YgProtocolLink_BindMotorService(&motor_service));
+        assert(YgProtocolLink_BindBootService(&boot_service));
+        tracked_allowed = true;
+        tracked_ticket = 0U;
+        completion_pending = false;
+        boot_completion_calls = sent_count = 0U;
+        tx_blocked = false;
+        /* 先移动读写位置到末尾，让后续四条回复跨过环形边界。 */
+        request.message_type = YG_PROTOCOL_MOTOR_TYPE_STOP;
+        request.payload = NULL;
+        request.payload_length = 0U;
+        for (unsigned i = 0U; i < 7U; ++i)
+        {
+            sent = false;
+            request.sequence = (uint16_t)i;
+            enqueue_request(&request);
+            YgProtocolLink_Service(i);
+            assert(sent);
+        }
+        sent = false;
+        tx_blocked = true;
+        for (unsigned i = 0U; i < 4U; ++i)
+        {
+            request.sequence = (uint16_t)(50U + i);
+            request.message_type =
+                i == 2U ? YG_PROTOCOL_BOOT_TYPE_ENTER : YG_PROTOCOL_MOTOR_TYPE_STOP;
+            request.payload = i == 2U ? nonce : NULL;
+            request.payload_length = i == 2U ? sizeof(nonce) : 0U;
+            enqueue_request(&request);
+        }
+        YgProtocolLink_Service(10U);
+        assert(boot_completion_calls == 0U && tracked_ticket == 0U);
+        if (scenario == 1U)
+        {
+            YgProtocolLink_Service(110U);
+            assert(boot_completion_calls == 1U && !boot_completion_success);
+        }
+        tx_blocked = false;
+        for (unsigned i = 0U; i < 4U; ++i)
+        {
+            sent = false;
+            YgProtocolLink_Service((scenario == 1U ? 111U : 11U) + i);
+            if (scenario != 1U && i == 2U)
+            {
+                assert(tracked_ticket == 9U && boot_completion_calls == 0U);
+                /* 旧事务完成不得消费当前票据。 */
+                pending_completion = (CommHwCanTxCompletion){.ticket = 8U, .success = true};
+                completion_pending = true;
+                YgProtocolLink_Service(15U);
+                assert(boot_completion_calls == 0U);
+                pending_completion =
+                    (CommHwCanTxCompletion){.ticket = 9U, .success = scenario == 0U};
+                completion_pending = true;
+                YgProtocolLink_Service(16U);
+                assert(boot_completion_calls == 1U && boot_completion_success == (scenario == 0U));
+            }
+        }
+        assert(boot_completion_calls == 1U);
+        assert(sent_count == (scenario == 1U ? 10U : 11U));
+        assert(sent_sequences[7] == 50U && sent_sequences[8] == 51U);
+        assert(sent_sequences[9] == (scenario == 1U ? 53U : 52U));
+        if (scenario != 1U)
+        {
+            assert(sent_sequences[10] == 53U);
+        }
+    }
+    tracked_allowed = false;
+}
 static void boot_request(void *context, const BootEntryRequest *request, BootEntryReply *reply)
 {
     (void)context;
@@ -962,6 +1075,7 @@ int main(void)
     power_route_contract();
     status_binding_reset();
     boot_confirm_and_info_contract();
+    boot_ready_queue_contract();
     runtime_start_boundary();
     return 0;
 }

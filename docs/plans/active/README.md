@@ -1,5 +1,7 @@
 # Active Plans
 
+- [Loader 交接队列修复 v1](2026-10-20-loader-handoff-queue-v1.md)：修正 READY 入队、出队和超时删除的读写索引，回归 APP→Loader 实机升级链路。
+
 - [核心边界续收口 v1](2026-10-16-core-followup-v1.md)：修复运行DEFAULTS设备地址一致性，统一维护释放门面，收口核心SPEED能力声明与主机准入。
 
 - [核心契约收口 v1](2026-10-16-core-contract-closeout-v1.md)：修复标定采样失效，解开应用/节点参数策略，收口上位机会话身份与兼容升级；只保留核心功能。

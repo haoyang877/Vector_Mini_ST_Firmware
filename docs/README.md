@@ -29,6 +29,8 @@ provide the short entry map; details belong here.
 Loader 16 KiB / APP 96 KiB 的布局迁移见
 [layout 6 计划](plans/active/2026-10-17-loader-16k-layout-v1.md)与
 [当前 Loader 设计](architecture/loader/loader_product_v3.md)。
+APP 的 READY 发送位置修复及实测见
+[交接队列修复 v1](plans/active/2026-10-20-loader-handoff-queue-v1.md)。
 
 历史候选：[APP v1.2.0 收口范围和真实限制](releases/architecture-app-v1.2.0-candidate.md)。
 

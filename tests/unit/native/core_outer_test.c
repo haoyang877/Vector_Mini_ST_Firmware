@@ -8,6 +8,7 @@
 #include "foc_speed.h"
 #include "position_cascade_config.h"
 #include "control_config.h"
+#include "application_profile_defaults.h"
 
 static MotorControlState s_motor;
 static PiController s_pi;
@@ -141,7 +142,8 @@ static void setup(MotorControlMode mode)
     s_motor.application.speed_ki = 2.0f;
     s_motor.application.speed_acceleration_rad_s2 = 0.8f;
     s_motor.application.speed_deceleration_rad_s2 = 0.5f;
-    SpeedFeedforward_Default(&s_motor.application.speed_feedforward);
+    s_motor.application.speed_feedforward =
+        (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     s_motor.application.position_error_window_rad = 0.001f;
     s_motor.application.position_maximum_speed_rad_s = 0.6f;
     s_motor.application.speed_limit_rad_s = 0.8f;
@@ -290,7 +292,7 @@ static void check_feedforward_core(void)
     SpeedFeedforwardConfig config;
     SpeedFeedforwardState state, previous;
     const float dt_s = 0.0005f;
-    SpeedFeedforward_Default(&config);
+    config = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     CHECK(!config.enabled && SpeedFeedforward_IsValid(&config));
     config.enabled = true;
     config.gain_a_per_rad_s2 = 0.2f;

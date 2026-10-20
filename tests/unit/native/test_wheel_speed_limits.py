@@ -26,6 +26,7 @@ def fixture():
 #include "foc_sensing.h"
 #include "motor_profile_defaults.h"
 #include "board_profile_defaults.h"
+#include "current_sense_profile.h"
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
 #include "control_math.h"
@@ -103,6 +104,21 @@ int main(void) {
     p.encoder_electrical_zero_q15=3155; p.encoder_calib_flag=3;
     p.encoder_linearization_lut_q15[71]=-42; p.speed_kp=.02f;
     saved=p;
+    /* 常量归位不能改变已发布默认值；期望值固定为本轮基线。 */
+    {
+        const MotorWindingThermalConfig *thermal=&motor_state.model.thermal;
+        const SpeedFeedforwardConfig *feedforward=&motor_state.application.speed_feedforward;
+        const float actual[]={thermal->continuous_vector_a,thermal->peak_a,thermal->heating_tau_s,
+            thermal->derating_enter_heat,thermal->derating_exit_heat,thermal->trip_heat,thermal->clear_heat,
+            feedforward->gain_a_per_rad_s2,feedforward->acceleration_limit_rad_s2,
+            feedforward->jerk_limit_rad_s3,feedforward->current_limit_a,
+            motor_state.application.speed_limit_rad_s,motor_state.application.speed_acceleration_rad_s2,
+            motor_state.application.speed_deceleration_rad_s2,motor_state.application.position_acceleration_rad_s2,
+            motor_state.application.position_deceleration_rad_s2,motor_state.application.position_maximum_speed_rad_s};
+        const float expected[]={3.0f,7.0f,65.98486785f,.8f,.7f,1.0f,.5f,
+            .028f,20.0f,200.0f,2.0f,.5f*_2PI,50.0f*_2PI,50.0f*_2PI,.125f*_2PI,.125f*_2PI,.125f*_2PI};
+        assert(!feedforward->enabled && memcmp(actual,expected,sizeof(expected))==0);
+    }
     /* 原默认路径先赋值 float 相模型，再乘带宽；比较全部 PI 的位模式。 */
     {
         volatile float resistance=PARAM_MOTOR_PHASE_RESISTANCE_OHM;

@@ -1,8 +1,5 @@
 #include "foc_param.h"
 
-/* 当前级联位置速度上限；存储布局中的退役字段不再装载。 */
-#define PARAM_POSITION_MAX_SPEED_RPS 0.50f
-
 #include <math.h>
 #include <string.h>
 #include <stddef.h>
@@ -85,7 +82,8 @@ static bool param_apply_joint_profile(MotorControlState *motor)
 void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_encoder)
 {
     MotorWindingThermal_Default(&motor_state->model.thermal);
-    SpeedFeedforward_Default(&motor_state->application.speed_feedforward);
+    motor_state->application.speed_feedforward =
+        (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     memset(
         &motor_state->application.axis_profile, 0, sizeof(motor_state->application.axis_profile));
     motor_state->application.axis_profile_valid = true;
@@ -119,15 +117,15 @@ void Param_Return_Default(MotorControlState *motor_state, EncoderState *rotor_en
     motor_state->application.current_limit_a = PARAM_APP_DEFAULT_CURRENT_LIMIT_A;
     motor_state->vq_target_v = 0.0f;
     /* 默认应用保持低速；统一上限不代表首次配置的活动速度。 */
-    motor_state->application.speed_limit_rad_s = Math_Min(
-        motor_state->application.speed_ceiling_rad_s, PARAM_APP_DEFAULT_SPEED_LIMIT_RPS * _2PI);
-    motor_state->application.speed_acceleration_rad_s2 = PARAM_APP_SPEED_ACCEL_RPS2 * _2PI;
-    motor_state->application.speed_deceleration_rad_s2 = PARAM_APP_SPEED_DECEL_RPS2 * _2PI;
+    motor_state->application.speed_limit_rad_s =
+        Math_Min(motor_state->application.speed_ceiling_rad_s, PARAM_APP_DEFAULT_SPEED_LIMIT_RAD_S);
+    motor_state->application.speed_acceleration_rad_s2 = PARAM_APP_SPEED_ACCEL_RAD_S2;
+    motor_state->application.speed_deceleration_rad_s2 = PARAM_APP_SPEED_DECEL_RAD_S2;
     motor_state->application.speed_kp = PARAM_APP_SPEED_KP;
     motor_state->application.speed_ki = PARAM_APP_SPEED_KI;
-    motor_state->application.position_acceleration_rad_s2 = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
-    motor_state->application.position_deceleration_rad_s2 = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
-    motor_state->application.position_maximum_speed_rad_s = PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI;
+    motor_state->application.position_acceleration_rad_s2 = PARAM_APP_POSITION_ACCEL_RAD_S2;
+    motor_state->application.position_deceleration_rad_s2 = PARAM_APP_POSITION_DECEL_RAD_S2;
+    motor_state->application.position_maximum_speed_rad_s = PARAM_APP_POSITION_MAX_SPEED_RAD_S;
     motor_state->application.cascade_position_kp = PARAM_APP_CASCADE_POSITION_KP;
     motor_state->application.cascade_position_kd = PARAM_APP_CASCADE_POSITION_KD;
 }
@@ -248,7 +246,8 @@ void Param_Download(const void *record,
 
     /* 先给旧记录完整新增默认值，绝不读取schema12末尾之后的Flash垃圾。 */
     MotorWindingThermal_Default(&motor_state->model.thermal);
-    SpeedFeedforward_Default(&motor_state->application.speed_feedforward);
+    motor_state->application.speed_feedforward =
+        (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     if (param->schema_version != 12U)
     {
         /* 用小型对齐副本读取不同版本尾部，避免创建第二份完整参数或越界访问。 */
@@ -336,25 +335,27 @@ void Param_Download(const void *record,
             ? Math_Constrain(
                   param->speed_limit_rad_s, 0.0f, motor_state->application.speed_ceiling_rad_s)
             : Math_Min(motor_state->application.speed_ceiling_rad_s,
-                       PARAM_APP_DEFAULT_SPEED_LIMIT_RPS * _2PI);
-    position_speed_limit =
-        Math_Min(motor_state->application.speed_limit_rad_s, PARAM_POSITION_MAX_SPEED_RPS * _2PI);
+                       PARAM_APP_DEFAULT_SPEED_LIMIT_RAD_S);
+    position_speed_limit = Math_Min(motor_state->application.speed_limit_rad_s,
+                                    PARAM_APP_POSITION_RESTORE_SPEED_MAX_RAD_S);
     motor_state->application.speed_acceleration_rad_s2 = param->speed_acceleration_rad_s2;
     motor_state->application.speed_deceleration_rad_s2 = param->speed_deceleration_rad_s2;
     motor_state->application.speed_kp = param->speed_kp;
     motor_state->application.speed_ki = param->speed_ki;
     motor_state->application.position_acceleration_rad_s2 =
         isfinite(param->position_acceleration_rad_s2) && param->position_acceleration_rad_s2 > 0.0f
-            ? Math_Constrain(param->position_acceleration_rad_s2, 0.0f, 200.0f * _2PI)
-            : PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
+            ? Math_Constrain(
+                  param->position_acceleration_rad_s2, 0.0f, PARAM_APP_POSITION_ACCEL_MAX_RAD_S2)
+            : PARAM_APP_POSITION_ACCEL_RAD_S2;
     motor_state->application.position_deceleration_rad_s2 =
         isfinite(param->position_deceleration_rad_s2) && param->position_deceleration_rad_s2 > 0.0f
-            ? Math_Constrain(param->position_deceleration_rad_s2, 0.0f, 200.0f * _2PI)
-            : PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
+            ? Math_Constrain(
+                  param->position_deceleration_rad_s2, 0.0f, PARAM_APP_POSITION_ACCEL_MAX_RAD_S2)
+            : PARAM_APP_POSITION_DECEL_RAD_S2;
     motor_state->application.position_maximum_speed_rad_s =
         isfinite(param->position_maximum_speed_rad_s) && param->position_maximum_speed_rad_s > 0.0f
             ? Math_Constrain(param->position_maximum_speed_rad_s, 0.0f, position_speed_limit)
-            : Math_Min(PARAM_APP_POSITION_MAX_SPEED_RPS * _2PI, position_speed_limit);
+            : Math_Min(PARAM_APP_POSITION_MAX_SPEED_RAD_S, position_speed_limit);
     motor_state->application.cascade_position_kp =
         isfinite(param->cascade_pos_kp) && param->cascade_pos_kp >= 0.0f
             ? Math_Constrain(param->cascade_pos_kp, 0.0f, CASCADE_POSITION_KP_MAX_PER_S)

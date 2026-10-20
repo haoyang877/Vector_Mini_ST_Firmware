@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <string.h>
 #include "crc32.h"
+#include "application_profile_defaults.h"
 
 typedef char axis_record_size_check[(sizeof(MotorAxisProfile) == 32U) ? 1 : -1];
 typedef char axis_crc_offset_check[(offsetof(MotorAxisProfile, crc32) == 28U) ? 1 : -1];
@@ -151,7 +152,13 @@ bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output,
 bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControlConfig *output)
 {
     MotorAxisProfile checked;
-    MotorJointControlConfig config = {8.0f, 2.0f, 0.5f, 1.0f, 0.785398163f, 0.785398163f, 6.0f};
+    MotorJointControlConfig config = {PARAM_APP_JOINT_V1_POSITION_KP,
+                                      PARAM_APP_JOINT_V1_POSITION_KD,
+                                      PARAM_APP_JOINT_V1_SPEED_KP,
+                                      PARAM_APP_JOINT_V1_ROLL_SPEED_KI,
+                                      PARAM_APP_JOINT_V1_ACCEL_RAD_S2,
+                                      PARAM_APP_JOINT_V1_DECEL_RAD_S2,
+                                      PARAM_APP_JOINT_V1_CURRENT_LIMIT_A};
     float minimum, maximum;
     if (output == NULL || !MotorAxisProfile_Load(profile, &checked) ||
         checked.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
@@ -162,19 +169,19 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
     switch (checked.identity.numeric.joint_type)
     {
     case MOTOR_JOINT_ROLL:
-        minimum = -1.57079633f;
-        maximum = 1.57079633f;
+        minimum = PARAM_APP_JOINT_V1_ROLL_MIN_RAD;
+        maximum = PARAM_APP_JOINT_V1_ROLL_MAX_RAD;
         break;
     case MOTOR_JOINT_PITCH:
-        minimum = -0.3f;
-        maximum = 0.9f;
-        config.speed_ki = 2.0f;
+        minimum = PARAM_APP_JOINT_V1_PITCH_MIN_RAD;
+        maximum = PARAM_APP_JOINT_V1_PITCH_MAX_RAD;
+        config.speed_ki = PARAM_APP_JOINT_V1_PITCH_SPEED_KI;
         break;
     default:
         return false;
     }
     if (checked.minimum_position_rad < minimum || checked.maximum_position_rad > maximum ||
-        checked.maximum_speed_rad_s > 0.785398163f)
+        checked.maximum_speed_rad_s > PARAM_APP_JOINT_V1_SPEED_LIMIT_RAD_S)
     {
         return false;
     }

@@ -10,9 +10,9 @@
 
 | 类别 | 默认值入口 | 活动对象与归属 |
 | --- | --- | --- |
-| 硬件 | `platform/api/board_profile_defaults.h`、`current_sense_profile.h`、各平台能力 profile | 编译期只读，平台实现使用；不能通过 CAN 改采样尺度或保护阈值 |
-| 电机 | `motor/motor_profile_defaults.h`、`motor/protection/motor_thermal_config.c` | `MotorControlState.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
-| 应用 | `services/parameters/application_profile_defaults.h`、`motor/foc/speed_feedforward.c` | `MotorControlState.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
+| 硬件 | `platform/api/board_profile_defaults.h`；采样派生与保护策略仍在对应能力头 | 编译期只读，平台实现使用；不能通过 CAN 改采样尺度或保护阈值 |
+| 电机 | `motor/motor_profile_defaults.h`，含热模型基础输入 | `MotorControlState.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
+| 应用 | `services/parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `MotorControlState.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
 | 设备个体 | `services/parameters/device_profile_defaults.h` | `MotorControlState.device`：节点与三相采样零偏；编码器校准和LUT在EncoderState，生产身份由独立身份页提供 |
 
 板卡与电机选择分别使用 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE`；
@@ -38,7 +38,7 @@ UID由平台读回，产品/硬件修订取shared目标清单；SN和motor_type�
 ```mermaid
 flowchart LR
     Defaults[四类默认值] --> Owner[MotorAxis 单份活动对象]
-    Store[schema12 记录] --> Adapter[foc_param 装载/导出]
+    Store[schema14 记录及12/13兼容读取] --> Adapter[foc_param 装载/导出]
     Adapter --> Owner
     Command[CAN 请求] --> Gate[参数事务 停机与身份门禁]
     Gate --> Value[parameter_value_service 纯数值校验]

@@ -17,6 +17,7 @@
 #include "control_math.h"
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"
+#include "application_profile_defaults.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
@@ -154,7 +155,7 @@ static void reset(void)
     memset(&encoder, 0, sizeof(encoder));
     motor.application.axis_profile_valid = true;
     MotorWindingThermal_Default(&motor.model.thermal);
-    SpeedFeedforward_Default(&motor.application.speed_feedforward);
+    motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     assert(MotorThermalControl_Init(&motor.model.thermal, now_ms));
     motor.thermal_clear_ready = true;
     motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(6.0f);
@@ -1317,7 +1318,7 @@ void Param_Return_Default(MotorControlState *m, EncoderState *e)
 {
     /* 保留生产默认值接口的本次相关副作用；实际参数记录另由装载夹具验证。 */
     MotorWindingThermal_Default(&m->model.thermal);
-    SpeedFeedforward_Default(&m->application.speed_feedforward);
+    m->application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     m->device.node_id = 1U;
     m->configuration_confirmed = false;
     e->calib_flag = 0U;

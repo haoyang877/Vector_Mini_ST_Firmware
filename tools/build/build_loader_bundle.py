@@ -19,21 +19,24 @@ from harness.common import git_info
 from keil_loader_app import intel_hex
 from project_paths import ROOT
 
+sys.path.insert(0, str(ROOT))
+
 sys.path.insert(0, str(ROOT / "shared/targets"))
 from target_contract import load_target, repository_path  # noqa: E402
 
+from loader.tools.generate_target import render_inputs  # noqa: E402
+from tools.build.generate_loader_app_project import render_project  # noqa: E402
+
 
 def verify_target_inputs(root: Path, target: dict) -> None:
-    """构建前核对生成头，避免所选清单与固件编译目标不同。"""
-    build = target["build"]
-    header = repository_path(root, build["target_header"])
-    definitions = header.read_text(encoding="utf-8").splitlines()
-    for name, value in target["constants"].items():
-        if f"#define {name} {value}" not in definitions:
-            raise ValueError("目标头与清单不一致，请重新生成：" + name)
-    selected = repository_path(root, build["selection_directory"]) / "loader_target.h"
-    if f'#include "{header.name}"' not in selected.read_text(encoding="utf-8"):
-        raise ValueError("编译入口未选择目标头，请重新生成目标工程")
+    """只读核对实际工程、目标头与链接脚本，拒绝过期或串用目标的构建输入。"""
+    expected = render_inputs(target, root)
+    expected[repository_path(root, target["build"]["app_project"])] = render_project(target, root)
+    for path, content in expected.items():
+        if path.read_text(encoding="utf-8") != content:
+            raise ValueError(
+                f"生成输入与目标不一致：{path.relative_to(root)}；请重新运行两个目标生成命令"
+            )
 
 
 def main() -> int:

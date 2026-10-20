@@ -15,15 +15,11 @@ sys.path.insert(0, str(ROOT / "shared/targets"))
 from target_contract import load_target, repository_path  # noqa: E402
 
 
-def main() -> None:
-    """将明确目标生成到源码目录，产物输出目录保持outputs下。"""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
-    args = parser.parse_args()
-    config = load_target(args.target)
+def render_inputs(config: dict, root: Path) -> dict[Path, str]:
+    """只读生成目标头、链接脚本及 Loader 工程，供生成命令与构建核对共用。"""
     build = config["build"]
-    target_dir = repository_path(ROOT, build["target_directory"])
-    target_header = repository_path(ROOT, build["target_header"])
+    target_dir = repository_path(root, build["target_directory"])
+    target_header = repository_path(root, build["target_header"])
     constants = config["constants"]
     header = [
         f"#ifndef {config['target'].upper()}_H",
@@ -33,7 +29,7 @@ def main() -> None:
     ]
     header += [f"#define {key} {value}" for key, value in constants.items()]
     header += ["#endif", ""]
-    target_header.write_text("\n".join(header), encoding="utf-8")
+    outputs = {target_header: "\n".join(header)}
     flash = int(constants["TARGET_FLASH_BASE"].rstrip("U"), 0)
     size = int(constants["TARGET_LOADER_BYTES"].rstrip("U"), 0)
     ram = int(constants["TARGET_RAM_BASE"].rstrip("U"), 0)
@@ -53,14 +49,11 @@ LR_LOADER 0x{flash:08X} 0x{size:X}
     }}
 }}
 """
-    target_dir.mkdir(parents=True, exist_ok=True)
-    selection_dir = repository_path(ROOT, build["selection_directory"])
-    selection_dir.mkdir(parents=True, exist_ok=True)
-    (selection_dir / "loader_target.h").write_text(
-        '/* 构建期选择目标，不在运行时切换。 */\n#include "' + target_header.name + '"\n',
-        encoding="utf-8",
+    selection_dir = repository_path(root, build["selection_directory"])
+    outputs[selection_dir / "loader_target.h"] = (
+        '/* 构建期选择目标，不在运行时切换。 */\n#include "' + target_header.name + '"\n'
     )
-    (target_dir / "loader.sct").write_text(scatter, encoding="utf-8")
+    outputs[target_dir / "loader.sct"] = scatter
     app = int(constants["TARGET_APP_BASE"].rstrip("U"), 0)
     app_bytes = int(constants["TARGET_APP_BYTES"].rstrip("U"), 0)
     descriptor = int(constants["TARGET_DESCRIPTOR_OFFSET"].rstrip("U"), 0)
@@ -77,8 +70,8 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
     RW_APP 0x{ram:08X} 0x{end - ram:X} {{ .ANY (+RW +ZI) }}
 }}
 """
-    (target_dir / "app.sct").write_text(app_scatter, encoding="utf-8")
-    tree = ET.parse(repository_path(ROOT, build["template"]))
+    outputs[target_dir / "app.sct"] = app_scatter
+    tree = ET.parse(repository_path(root, build["template"]))
     targets = tree.getroot().find("Targets")
     target = targets.find("Target")
     for other in list(targets)[1:]:
@@ -93,7 +86,7 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
 
     def relative(path: str) -> str:
         """生成相对于独立工程的路径，不写入工作站绝对位置。"""
-        return os.path.relpath(ROOT / path, target_dir).replace("/", "\\")
+        return os.path.relpath(root / path, target_dir).replace("/", "\\")
 
     set_value("TargetName", config["name"])
     common = "TargetOption/TargetCommonOption/"
@@ -158,9 +151,21 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
     if layer is not None:
         layer.text = config["name"]
     ET.indent(tree, space="  ")
-    tree.write(
-        repository_path(ROOT, build["loader_project"]), encoding="utf-8", xml_declaration=True
-    )
+    outputs[repository_path(root, build["loader_project"])] = ET.tostring(
+        tree.getroot(), encoding="utf-8", xml_declaration=True
+    ).decode("utf-8")
+    return outputs
+
+
+def main() -> None:
+    """生成明确目标的工程输入；全部计算成功后才写入文件。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
+    args = parser.parse_args()
+    outputs = render_inputs(load_target(args.target), ROOT)
+    for path, content in outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
 
 
 if __name__ == "__main__":

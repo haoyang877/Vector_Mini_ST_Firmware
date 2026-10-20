@@ -111,6 +111,7 @@
     "app_project": "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx",
     "app_output": "outputs/build/keil/Vector_Mini_ST_LoaderApp",
     "app_boot_source": "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c",
-    "selection_directory": "shared/targets/vector_mini_st_g431"
+    "selection_directory": "shared/targets/vector_mini_st_g431",
+    "app_defines": "USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U"
   }
 }

@@ -136,6 +136,23 @@ def main() -> None:
         + function_source(platform, "LoaderPlatform_ReadParameters"),
         encoding="utf-8",
     )
+    flash_domain_source = output / "flash_domain.c"
+    flash_domain_source.write_text(
+        (ROOT / "tests/unit/loader_flash_domain_test.c").read_text(encoding="utf-8")
+        + "\n"
+        + "\n".join(
+            function_source(platform, name)
+            for name in (
+                "inside",
+                "read_flash",
+                "erase_flash",
+                "program_flash",
+                "bind_io",
+                "LoaderPlatform_ImageIo",
+            )
+        ),
+        encoding="utf-8",
+    )
     board_source = output / "board_safety.c"
     board_code = (ROOT / "loader/boards/vector_mini_st/board.c").read_text(encoding="utf-8")
     board_source.write_text(
@@ -172,6 +189,7 @@ def main() -> None:
     ]
     sources = (
         "loader/core/upgrade.c",
+        "loader/product/parameters.c",
         "shared/image/image_transfer.c",
         "shared/boot/image_mailbox.c",
         "shared/boot/device_identity.c",
@@ -190,6 +208,7 @@ def main() -> None:
         ("app_confirm", str(confirm_source), []),
         ("parameters", str(parameter_source), []),
         ("parameter_io", str(parameter_io_source), []),
+        ("flash_domain", str(flash_domain_source), []),
         ("board_safety", str(board_source), []),
     ):
         executable = output / (name + ".exe")

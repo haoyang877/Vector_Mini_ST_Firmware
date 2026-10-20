@@ -11,7 +11,11 @@
 static jmp_buf finish;
 static bool model_software, model_watchdog, model_mailbox, model_link;
 static bool model_discover, discovery_sent;
-static uint32_t ticks;
+static uint32_t ticks, stop_ticks;
+/* 0：正常参数；1：空白；2：格式损坏；3：不可读。 */
+static unsigned parameter_case, marker_case;
+static uint8_t parameters[TARGET_PARAM_BYTES];
+static uint8_t parameters_before[TARGET_PARAM_BYTES];
 static uint8_t model_image[sizeof(LoaderV2Image)];
 
 static bool read_model(void *context, uint32_t address, void *out, uint32_t bytes)
@@ -59,10 +63,16 @@ bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message)
     *message = (BootMailboxMessage){YG_BOOT_ENTER, 3U};
     return model_mailbox;
 }
-LoaderParameterState LoaderParameters_ReadNode(uint8_t *node_out)
+bool LoaderPlatform_ReadParameters(uint32_t offset, void *destination, uint32_t bytes)
 {
-    *node_out = 3U;
-    return YI_PARAMS_RAW11;
+    const uint32_t capacity = TARGET_IDENTITY_BASE - TARGET_PARAM_BASE;
+    assert(bytes != 0U && bytes <= capacity && offset <= capacity - bytes);
+    if (parameter_case == 3U)
+    {
+        return false;
+    }
+    memcpy(destination, parameters + offset, bytes);
+    return true;
 }
 void LoaderPlatform_ImageIo(LoaderFlashIo *io)
 {
@@ -86,7 +96,7 @@ uint32_t LoaderPlatform_NowMs(void)
 void LoaderPlatform_Watchdog(void)
 {
     /* 完整CRC校验也会喂狗；上限覆盖真实包长度，停留路径有界结束用例。 */
-    if (++ticks >= 100U + (sizeof(LoaderV2Image) + 63U) / 64U)
+    if (++ticks >= stop_ticks)
     {
         longjmp(finish, 1);
     }
@@ -113,7 +123,8 @@ void LoaderPlatform_Jump(void)
 }
 bool LoaderCan_Init(uint8_t node_in)
 {
-    return node_in == 3U;
+    stop_ticks = ticks + 100U + (sizeof(LoaderV2Image) + 63U) / 64U;
+    return node_in == (parameter_case == 0U ? 3U : TARGET_RESCUE_NODE);
 }
 bool LoaderCan_Ready(void)
 {
@@ -157,6 +168,20 @@ static int boot(bool software, bool watchdog, bool mailbox, bool valid_image, bo
     model_mailbox = mailbox;
     model_link = link;
     ticks = 0U;
+    stop_ticks = UINT32_MAX;
+    node = TARGET_RESCUE_NODE; /* 模拟真正复位时的静态初始化。 */
+    memset(parameters, 255, sizeof(parameters));
+    memset(parameters + TARGET_IDENTITY_BASE - TARGET_PARAM_BASE, 0x5A, TARGET_IDENTITY_BYTES);
+    if (parameter_case != 1U)
+    {
+        const float can_node = 3.0f;
+        const uint32_t schema = parameter_case == 2U ? 10U : TARGET_SCHEMA;
+        const uint32_t magic = TARGET_RAW_MAGIC;
+        memcpy(parameters, &can_node, sizeof(can_node));
+        memcpy(parameters + TARGET_RAW_SCHEMA_OFFSET, &schema, sizeof(schema));
+        memcpy(parameters + TARGET_RAW_MAGIC_OFFSET, &magic, sizeof(magic));
+    }
+    memcpy(parameters_before, parameters, sizeof(parameters));
     discovery_sent = false;
     memcpy(model_image, LoaderV2Image, sizeof(model_image));
     for (uint32_t i = 0U; i < 4U; ++i)
@@ -165,6 +190,25 @@ static int boot(bool software, bool watchdog, bool mailbox, bool valid_image, bo
             (uint8_t)(YGI_ACTIVATION_MAGIC >> (24U - i * 8U));
         model_image[TARGET_DESCRIPTOR_OFFSET + YGI_ACTIVATION_OFFSET + i + 4U] =
             (uint8_t)(~YGI_ACTIVATION_MAGIC >> (24U - i * 8U));
+    }
+    if (marker_case != 0U)
+    {
+        const uint32_t offsets[] = {YGI_ATTEMPT_OFFSET, YGI_CONFIRM_OFFSET};
+        const uint32_t magics[] = {YGI_ATTEMPT_MAGIC, YGI_CONFIRM_MAGIC};
+        for (unsigned j = 0; j < 2U; ++j)
+        {
+            if (j == 1U && marker_case != 2U)
+            {
+                continue;
+            }
+            for (unsigned i = 0; i < 4U; ++i)
+            {
+                model_image[TARGET_DESCRIPTOR_OFFSET + offsets[j] + i] =
+                    (uint8_t)(magics[j] >> (24U - i * 8U));
+                model_image[TARGET_DESCRIPTOR_OFFSET + offsets[j] + i + 4U] =
+                    (uint8_t)(~magics[j] >> (24U - i * 8U));
+            }
+        }
     }
     if (!valid_image)
     {
@@ -176,6 +220,7 @@ static int boot(bool software, bool watchdog, bool mailbox, bool valid_image, bo
         (void)LoaderRuntime_Main();
         assert(false);
     }
+    assert(memcmp(parameters, parameters_before, sizeof(parameters)) == 0);
     return result;
 }
 int main(void)
@@ -187,11 +232,24 @@ int main(void)
     assert(boot(false, true, false, true, true) == 1);
     assert(boot(false, false, false, false, true) == 1);
     assert(boot(false, false, false, true, false) == 1);
+    /* 坏 APP 已试运行却未确认：普通冷启动也必须留在 Loader。 */
+    marker_case = 1U;
+    assert(boot(false, false, false, true, true) == 1);
+    marker_case = 2U;
+    assert(boot(false, false, false, true, true) == 2);
+    marker_case = 0U;
+    for (parameter_case = 1U; parameter_case <= 3U; ++parameter_case)
+    {
+        /* 参数异常保持救援节点，不能阻止恢复固件，也不能改写参数和 SN。 */
+        assert(boot(true, false, true, true, true) == 1 && node == TARGET_RESCUE_NODE);
+    }
+    parameter_case = 0U;
     model_discover = true;
     assert(boot(false, false, false, true, true) == 1 && discovery_sent && resident);
     YgProtocolUpgradeReply reply;
     status_reply(&reply);
     assert(reply.boot_epoch == 0U && (reply.flags & YG_PROTOCOL_UPGRADE_FLAG_HOST_NONCE) != 0U);
-    puts("PASS cold boot, ENTER, watchdog rescue, corrupt image, link loss and v3 discovery");
+    puts("PASS real G431 parameters, rescue node, unchanged parameters/SN, trial/confirmed boot, "
+         "ENTER, watchdog, corrupt image, link loss and discovery");
     return 0;
 }

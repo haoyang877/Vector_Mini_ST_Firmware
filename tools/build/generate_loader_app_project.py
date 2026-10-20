@@ -15,17 +15,14 @@ sys.path.insert(0, str(ROOT / "shared/targets"))
 from target_contract import load_target, repository_path  # noqa: E402
 
 
-def main() -> None:
-    """复用正常控制源码，仅替换启动能力、显式镜像身份和目标内存布局。"""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
-    args = parser.parse_args()
-    profile = load_target(args.target)
+def render_project(profile: dict, root: Path) -> str:
+    """只读生成配套 APP 工程；设备、宏、路径和链接布局均绑定所选目标。"""
     config = profile["constants"]
     build = profile["build"]
-    project = repository_path(ROOT, build["app_project"])
+    project = repository_path(root, build["app_project"])
     project_dir = project.parent
-    tree = ET.parse(repository_path(ROOT, build["template"]))
+    template = repository_path(root, build["template"])
+    tree = ET.parse(template)
     target = tree.getroot().find("Targets/Target")
     if target is None:
         raise ValueError("普通APP工程缺少Target")
@@ -39,8 +36,26 @@ def main() -> None:
 
     def relative(path: str) -> str:
         """项目路径相对工程目录，不固化工作站位置。"""
-        return os.path.relpath(ROOT / path, project_dir).replace("/", "\\")
+        return os.path.relpath(root / path, project_dir).replace("/", "\\")
 
+    # 模板路径相对于模板所在目录；新目标工程可以放在另一目录。
+    for node in target.findall(".//FilePath"):
+        source = (template.parent / (node.text or "").replace("\\", "/")).resolve()
+        node.text = relative(source.relative_to(root.resolve()).as_posix())
+    for node in target.findall(".//IncludePath"):
+        paths = [value for value in (node.text or "").split(";") if value]
+        node.text = ";".join(
+            relative(
+                (template.parent / value.replace("\\", "/"))
+                .resolve()
+                .relative_to(root.resolve())
+                .as_posix()
+            )
+            for value in paths
+        )
+    targets = tree.getroot().find("Targets")
+    for other in list(targets)[1:]:
+        targets.remove(other)
     name = build["app_name"]
     set_value("TargetName", name)
     common = "TargetOption/TargetCommonOption/"
@@ -49,6 +64,7 @@ def main() -> None:
     size = int(config["TARGET_APP_BYTES"].rstrip("U"), 0)
     ram = int(config["TARGET_RAM_BASE"].rstrip("U"), 0)
     end = int(config["TARGET_RAM_END"].rstrip("U"), 0)
+    set_value(common + "Device", profile["device"])
     set_value(common + "OutputName", name)
     set_value(common + "OutputDirectory", output)
     set_value(common + "ListingPath", output)
@@ -80,7 +96,7 @@ def main() -> None:
     ads = "TargetOption/TargetArmAds/"
     defines = target.find(ads + "Cads/VariousControls/Define")
     # 配套APP版本来自共同目标清单，禁止运行时与描述符独立赋值。
-    defines.text = (defines.text or "") + (
+    defines.text = build.get("app_defines", build["defines"]) + (
         ",YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U"
     )
     set_value(ads + "LDads/umfTarg", "0")
@@ -120,7 +136,19 @@ def main() -> None:
     if layer is not None:
         layer.text = name
     ET.indent(tree, space="  ")
-    tree.write(project, encoding="utf-8", xml_declaration=True)
+    return ET.tostring(tree.getroot(), encoding="utf-8", xml_declaration=True).decode("utf-8")
+
+
+def main() -> None:
+    """生成配套 APP 工程，不构建、不访问设备。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
+    args = parser.parse_args()
+    profile = load_target(args.target)
+    content = render_project(profile, ROOT)
+    project = repository_path(ROOT, profile["build"]["app_project"])
+    project.parent.mkdir(parents=True, exist_ok=True)
+    project.write_text(content, encoding="utf-8")
 
 
 if __name__ == "__main__":

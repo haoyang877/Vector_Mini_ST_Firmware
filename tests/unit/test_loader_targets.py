@@ -7,6 +7,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
@@ -110,7 +111,10 @@ class LoaderTargetTests(unittest.TestCase):
             selection_directory="shared/targets/offline_fixture",
             target_header="shared/targets/offline_fixture.h",
             loader_project="loader/targets/offline_fixture/fixture.uvprojx",
+            app_project="app_fixture/fixture.uvprojx",
+            app_defines="USE_HAL_DRIVER,OFFLINE_MCU,BOARD_PRODUCT_VALUE=6U",
         )
+        target["device"] = "OFFLINE_MCU_DEVICE"
         source_template = ROOT / build["template"]
         template = self.root / build["template"]
         template.parent.mkdir(parents=True)
@@ -135,6 +139,33 @@ class LoaderTargetTests(unittest.TestCase):
         self.assertIn("--target offline_fixture", project)
         self.assertIn("offline_fixture", project)
         self.assertTrue((self.root / build["loader_project"]).is_file())
+        parsed = ET.fromstring(project)
+        self.assertEqual(parsed.findtext(".//TargetCommonOption/Device"), "OFFLINE_MCU_DEVICE")
+        defines = parsed.findtext(".//Cads/VariousControls/Define")
+        self.assertIn("OFFLINE_MCU", defines)
+        self.assertIn("BOARD_PRODUCT_VALUE=6U", defines)
+        self.assertNotIn("STM32G431xx", defines)
+        generated_sources = {
+            ((self.root / build["app_project"]).parent / node.text.replace("\\", "/")).resolve()
+            for node in parsed.findall(".//FilePath")
+        }
+        self.assertIn(
+            (self.root / "firmware/platform/stm32g4/cubemx/Core/Src/main.c").resolve(),
+            generated_sources,
+        )
+        # 工程、链接、源清单和后处理均来自同一清单；任何一个过期都应在编译前拒绝。
+        for relative in (
+            build["loader_project"],
+            build["app_project"],
+            build["target_directory"] + "/loader.sct",
+            build["target_directory"] + "/app.sct",
+        ):
+            file = self.root / relative
+            original = file.read_text(encoding="utf-8")
+            file.write_text(original + "\n; stale target input\n", encoding="utf-8")
+            with self.subTest(path=relative), self.assertRaises(ValueError):
+                verify_target_inputs(self.root, target)
+            file.write_text(original, encoding="utf-8")
         verify_target_inputs(self.root, target)
         header = self.root / build["target_header"]
         header.write_text(

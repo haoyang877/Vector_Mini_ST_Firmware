@@ -97,11 +97,17 @@ uv run python host_app/upgrade_client.py inspect --target vector_mini_st_g431 --
 
 `package_image.py`、`keil_loader_app.py` 和 `build_loader_bundle.py` 也接受 `--target`。
 参数可以是目标名称，或明确的目标 JSON 文件路径；省略时保持 G431。
-不存在的显式目标不会回退为默认目标。构建前还会核对生成头与所选清单是否一致。
+不存在的显式目标不会回退为默认目标。配套构建前会只读重算并核对目标头、选择头、
+Loader/APP 工程和两份链接脚本；有任何过期输入，先重新执行两个生成命令再构建。
+不要直接修改生成工程来绕过检查，应修改目标清单或模板后重新生成。
+`build.defines` 用于 Loader；`build.app_defines` 用于配套 APP，未填写时采用前者。
+新目标需要明确填写 APP 的芯片宏和板级产品宏；G431 保留 6 毫欧采样电阻宏。
+APP 工程移到新目录时，生成器会重新计算模板源文件和头文件目录的相对路径。
 APP 工程的后处理继承目标选择，配套构建传递同一份契约并核对其哈希。
 
 Qt 主机构建通过 CMake 的 `YG_LOADER_TARGET_FILE` 选择目标，默认仍为 G431。
 所选头文件、内嵌校验资源、部署契约及启动的 Python 客户端保持一致。
+CMake 配置时会核对选择头及目标常量；目标 JSON 改过而头文件未重新生成时拒绝构建。
 独立部署需包含 `target_contract.py` 和 `contracts/<目标名>.json`；仅复制客户端脚本不够。
 生产身份工装仍为 G431 专用，不能因为升级客户端支持目标选择就用于其他芯片。
 

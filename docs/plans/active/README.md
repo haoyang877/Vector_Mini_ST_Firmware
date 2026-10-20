@@ -1,5 +1,7 @@
 # Active Plans
 
+- [Loader 连续升级二十轮验收 v1](2026-10-20-loader-repeat20-v1.md)：固定配套固件，连续验证 APP 交接、CAN 下载、确认与镜像回读，最终恢复原固件和参数。
+
 - [Loader 交接队列修复 v1](2026-10-20-loader-handoff-queue-v1.md)：修正 READY 入队、出队和超时删除的读写索引，回归 APP→Loader 实机升级链路。
 
 - [核心边界续收口 v1](2026-10-16-core-followup-v1.md)：修复运行DEFAULTS设备地址一致性，统一维护释放门面，收口核心SPEED能力声明与主机准入。

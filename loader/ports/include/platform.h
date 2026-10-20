@@ -15,11 +15,11 @@ bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset);
 uint32_t LoaderPlatform_NowMs(void);
 /** @brief 喂独立看门狗；前台有界工作之间调用。 */
 void LoaderPlatform_Watchdog(void);
-/** @brief 回读六路门极GPIO和TIM1主输出关闭。 @return 数字关断满足返回 true。 */
+/** @brief 回读板级功率输出关闭条件。 @return 数字关断满足返回 true。 */
 bool LoaderPlatform_OutputsOff(void);
-/** @brief 保存PRIMASK并屏蔽普通中断。 @return 原PRIMASK。 */
+/** @brief 保存平台中断状态并进入临界区。 @return 用于配对恢复的状态值。 */
 uint32_t LoaderPlatform_Lock(void);
-/** @brief 恢复PRIMASK。 @param key Lock返回值，不能猜测。 */
+/** @brief 离开临界区并恢复中断状态。 @param key Lock返回值，不能猜测。 */
 void LoaderPlatform_Unlock(uint32_t key);
 /** @brief 发起系统复位，调用前必须已确认输出关闭。 */
 void LoaderPlatform_Reset(void);

@@ -5,6 +5,7 @@
 源码与离线验证不等于实机验收；当前候选的实机范围见[验收记录](../docs/reports/2026-10/loader_storage_optimization_20261020.md)。
 
 - [软件框图、紧凑流程图与内存分配](../docs/architecture/loader/loader_product_v3.md)
+- [更换 MCU：资料、适配步骤和验收标准](../docs/guides/loader_mcu_porting_v1.md)
 - [升级线路、设备身份页及容器v3](../docs/protocols/yg_protocol_upgrade_wire_v3.md)
 - [实施、验收与回退计划](../docs/plans/active/2026-09-29-loader-p0-p1-v1.md)
 - [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)

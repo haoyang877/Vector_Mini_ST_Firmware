@@ -124,7 +124,7 @@ int main(void) {
         p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
         const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         p.record_crc32=Param_RecordCrc(&p);
-        Param_Download(&p,&motor_state,&rotor_encoder);
+        Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
         const float actual[]={motor_state.model.id_kp,motor_state.model.iq_kp,
                               motor_state.model.id_ki,motor_state.model.iq_ki};
         assert(motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);

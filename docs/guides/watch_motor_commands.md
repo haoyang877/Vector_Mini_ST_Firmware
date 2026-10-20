@@ -1,6 +1,6 @@
 # Keil Watch 只读观测指南
 
-更新：2026-10-09。适用核心 APP v1.3.0 主工程：`YG_ESC_APP`。
+更新：2026-10-20。适用配置与运行状态分离后的核心 APP 主工程：`YG_ESC_APP`。
 本页描述人工观测步骤和当前源码中的变量，不授权烧录、复位或电机运动。
 旧 SWD 台架请求邮箱的退役记录保留在文末，不能作为当前操作入口。
 
@@ -31,10 +31,11 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 - 在 Debug 会话打开 `View → Watch Windows → Watch 1/2`，双击 `<Enter expression>` 添加表达式。
 - 开启 `View → Periodic Window Update`，支持的调试驱动可在 CPU 运行时刷新值。
-- 当前源码按用户要求将 MotorAxis 运行对象和 `s_context` 改为非静态全局符号，
+- 当前源码按用户要求将 MotorAxis 配置/运行对象和 `s_context` 保留为非静态全局符号，
   保留既有 `s_` 名称，可直接添加短名并展开成员。历史冻结 AXF 仍可能是 `static` 实例；
   短名无法解析时，在 `View → Symbols` 中选择对应源码模块实例并添加完整限定名。
   始终以匹配板上镜像的 AXF 为准，不硬编码 RAM 地址。
+- 全局符号便于观察，公共头不提供这些对象的可写 `extern` 接口；产品代码仍通过请求、快照和显式对象参数访问。
 - Watch 中只输入无副作用的读表达式，不加入赋值、递增/递减或目标函数调用。
   不编辑 Value 列；刷新得到的多个字段不是同一时刻的原子快照。
 
@@ -42,18 +43,23 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 ## Watch 1：状态、安全与维护
 
-`s_motor_state`、`s_foc_state`、`s_rotor_encoder` 和 `s_config_revision` 归
-`firmware/app/runtime/motor_axis.c`；`s_context` 归
+`s_motor_configuration`、`s_motor_state`、`s_foc_state` 和 `s_rotor_encoder` 归
+`firmware/app/runtime/motor_axis.c`；`s_config_revision` 归
+`firmware/app/runtime/motor_parameter_transaction.c`；`s_context` 归
 `firmware/app/motor_state_machine/motor_state_machine.c`。下表使用短名表示成员路径，
 实际 Watch 名称以加载的 AXF 和 Symbols 生成的限定名为准。
+
+配置单独保存在 `s_motor_configuration`；`s_motor_state` 只含运行态，
+`s_rotor_encoder` 只含采样、PLL和位置/速度动态状态。LUT、零位、方向和标定标志
+单份保存在 `s_motor_configuration.device.encoder`。
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
 | `s_context.rules.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方八状态映射 |
 | `s_motor_state.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
 | `s_motor_state.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
-| `s_motor_state.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
-| `s_motor_state.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
+| `s_motor_configuration.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
+| `s_motor_configuration.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
 | `s_context.self_test_stable_ticks` | INIT 连续健康计数 | 连续 4 个监督拍通过；STOP 不重启窗口，不是所有模式就绪缓存 |
 | `s_context.fast_sample_epoch` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
 | `s_foc_state.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
@@ -86,7 +92,7 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 | `s_rotor_encoder.mechanical_position_rad` | rad | 机械位置反馈 |
 | `s_rotor_encoder.has_valid_sample` | bool | 编码器是否已有有效样本 |
 | `s_rotor_encoder.sample_epoch` | 有效帧计数 | 持续推进与坏帧状态一起检查 |
-| `s_rotor_encoder.calib_flag` | bitmask | bit0 线性化、bit1 电零位、bit2 可选机械零位 |
+| `s_motor_configuration.device.encoder.calib_flag` | bitmask | bit0 线性化、bit1 电零位、bit2 可选机械零位；属于配置，非动态采样状态 |
 | `s_rotor_encoder.read_status` | 编码器读帧枚举 | 当前读帧状态，OK=0 |
 | `s_rotor_encoder.bad_frame_streak` | 连续坏帧数 | 检查持续增长，不在带电运行中拔插传感器做试验 |
 
@@ -107,9 +113,9 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 | `s_current_offset_calibration.sample_count` | 新鲜帧计数，从0到20000，完成后不再累加 |
 | `s_current_offset_calibration.complete` | 成功后为true；不能单独证明整个自检完成 |
 | `s_current_offset_calibration.failed` | 输出、模式、原始范围或偏置失败；不自动重试 |
-| `s_motor_state.device.phase_a_offset_counts` | A相零点，成功后为1948..2148内实测均值 |
-| `s_motor_state.device.phase_b_offset_counts` | B相零点，不要求与A相相同 |
-| `s_motor_state.device.phase_c_offset_counts` | C相零点，不要求为固定2048 |
+| `s_motor_configuration.device.phase_a_offset_counts` | A相零点，成功后为1948..2148内实测均值 |
+| `s_motor_configuration.device.phase_b_offset_counts` | B相零点，不要求与A相相同 |
+| `s_motor_configuration.device.phase_c_offset_counts` | C相零点，不要求为固定2048 |
 | `s_foc_state.id_pi` / `s_foc_state.iq_pi` | 上电已配置活动Kp/Ki及Current_Ts；展开分别添加 |
 | `s_speed_pi` | 上电已配置活动速度Kp/Ki、Speed_Ts和-1..1归一化输出限幅 |
 
@@ -119,23 +125,30 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 无效/非正母线对应零限幅，不改变PI增益、周期或积分状态。
 旧a2a6e97c候选仍有空闲限幅为零的遗漏，不能用该候选的观测替代新版本验收；
 新限幅修复候选须另行下载并加载匹配AXF，见[修复计划](../plans/active/2026-09-29-current-pi-limit-refresh-v1.md)。
-活动参数仍在`model.id_kp/id_ki/iq_kp/iq_ki`和`application.speed_kp/speed_ki`，
+活动参数在 `s_motor_configuration.model` 的 `id_kp/id_ki/iq_kp/iq_ki` 和
+`s_motor_configuration.application` 的 `speed_kp/speed_ki`，
 不以PI积分/输出为零判断增益缺失。校正失败时保持无效资格与锁存故障，
 先排除原因再重新上电，不通过Watch改值恢复。本修复增加运行对象，必须重建匹配AXF。
 
-参数归属重构前是平铺字段，重构后分成 `model/application/device` 子对象。
-这种 RAM 布局变化不由 Flash schema 编号识别，始终以匹配的 AXF 为准。
+当前配置独立于运行态，按 `model/application/device` 分类；下面只列当前有效表达式。
+RAM布局变化不由Flash schema编号识别，本次不改变schema14/12/13的存储长度、字段或CRC。
+必须新构建并使用与实际下载镜像匹配的AXF；旧AXF和旧字段路径不能继续用于新固件。
+本文不表示本轮构建或测试已经通过。
 
-| 参数 | 重构前表达式 | 重构后表达式 |
+| 参数 | 当前表达式 | 单位或含义 |
 | --- | --- | --- |
-| 极对数 | `s_motor_state.motor_pole_pairs` | `s_motor_state.model.motor_pole_pairs` |
-| 校准电流 A | `s_motor_state.calibration_current_a` | `s_motor_state.model.calibration_current_a` |
-| 电流上限 A | `s_motor_state.current_limit_a` | `s_motor_state.application.current_limit_a` |
-| 速度上限 rad/s | `s_motor_state.speed_limit_rad_s` | `s_motor_state.application.speed_limit_rad_s` |
-| A 相零偏 ADC counts | `s_motor_state.phase_a_offset_counts` | `s_motor_state.device.phase_a_offset_counts` |
+| 极对数 | `s_motor_configuration.model.motor_pole_pairs` | 极对数 |
+| 校准电流 | `s_motor_configuration.model.calibration_current_a` | A |
+| 电流上限 | `s_motor_configuration.application.current_limit_a` | A |
+| 速度上限 | `s_motor_configuration.application.speed_limit_rad_s` | rad/s |
+| A 相零偏 | `s_motor_configuration.device.phase_a_offset_counts` | ADC counts |
+| LUT | `s_motor_configuration.device.encoder.linearization_lut_q15` | Q15角度修正表；展开数组只读观察 |
+| 电零位 | `s_motor_configuration.device.encoder.electrical_zero_q15` | Q15 |
+| 机械零位 | `s_motor_configuration.device.encoder.mechanical_zero_q15` | Q15 |
+| 编码器方向 | `s_motor_configuration.device.encoder.reverse` | 方向配置 |
 
-新布局的 `s_motor_state.device.node_id` 是设备节点参数，
-`s_motor_state.application.speed_ceiling_rad_s` 是应用上限；不要通过 Watch 改动它们。
+`s_motor_configuration.device.node_id` 是设备节点参数，
+`s_motor_configuration.application.speed_ceiling_rad_s` 是应用上限；不要通过 Watch 改动它们。
 采样电阻 `CURRENT_SENSE_SHUNT_MILLIOHM` 是编译宏，不是 Watch 可修改的 RAM 变量。
 6 mΩ 硬件需要核对实际构建输入为 `CURRENT_SENSE_SHUNT_MILLIOHM=6U`。
 

@@ -1,6 +1,6 @@
 # 代码框架与目录职责
 
-更新：2026-10-08。此页描述当前目录，不用历史报告代替当前实现和验证结果。
+更新：2026-10-20。此页描述当前目录，不用历史报告代替当前实现和验证结果。
 产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 ## 独立产品与共享契约
@@ -29,7 +29,7 @@
 | motor/protection | 电机故障与母线保护策略 |
 | motor 根目录头文件 | 电机域值类型、模式、状态、任务结果及现有模型/启动 profile，不放应用运行实例 |
 | services/lifecycle | 控制/维护请求、readiness 值与停机服务，不再实现另一套状态机 |
-| services/parameters | schema12 装载/导出、纯标量校验、轴解析及应用/设备默认值；不拥有通信节点变量 |
+| services/parameters | schema14 装载/导出及12/13兼容读取、纯标量校验、轴解析及应用/设备默认值；不拥有通信节点变量 |
 | services/telemetry | 只读电机状态值契约 |
 | communication/can | CAN 接入、队列、中断接入、链路及端点调度 |
 | communication/protocol | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
@@ -47,12 +47,14 @@
 ## 参数与运行状态
 
 硬件默认值归 platform/api，电机模型默认值归 motor，应用/设备默认值归 services/parameters。
-MotorAxis 单份运行对象内的 model/application/device 子对象持有单份活动参数，
-命令目标、模式、故障与测量留在易失状态中。
+MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `MotorControlState`。
+设备配置内的 `EncoderCalibration` 单份保存LUT/零位；`EncoderState`只含采样、位置/速度和诊断。
+运行对象不包含配置或配置指针，命令目标、模式、故障与测量留在易失状态中。
+算法接收const配置视图与可写运行对象，参数事务和校准提交通过明确入口修改配置。
 按用户的 Watch 观测要求，MotorAxis 运行对象与主状态机上下文使用非静态全局符号；
 定义和运行写入仍集中在所属模块，其他模块通过既有命令、快照和显式对象参数交互。
 保留既有 s_ 名称属于本次调试兼容例外，详见[全局观测对象决策](../plans/active/2026-09-29-watch-global-objects-v1.md)。
-schema12 保持现有混合存储布局，由装载/导出边界映射，不能当作控制对象使用。
+schema14保持现有存储布局并兼容读取12/13，由装载/导出边界映射，不能当作控制对象使用。
 参数所有者给启动组合层传节点值，通信不再作为参数节点的存储所有者。
 参数记录和编码器标定复用一份 6 KiB 固定联合工作区，APP 管理占用与归还。
 编码器任务显式借用采样对象，取消/完成清除引用；实际归还后 APP 才允许复用。

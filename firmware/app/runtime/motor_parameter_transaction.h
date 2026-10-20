@@ -10,11 +10,10 @@
 
 /**
  * @brief 重置参数事务并从唯一工作区装载现有参数记录。
- * @param motor Axis 提供的唯一电机配置对象。
- * @param encoder Axis 提供的唯一编码器配置对象。
+ * @param configuration Axis 提供的唯一活动配置，含设备编码器标定。
  * @note 仅启动时在中断使能前调用；失败采用既有默认值，不写 Flash。
  */
-void MotorParameterTransaction_Init(MotorControlState *motor, EncoderState *encoder);
+void MotorParameterTransaction_Init(MotorConfiguration *configuration);
 /**
  * @brief 登记一次已完成的活动配置变化，修订在 UINT32_MAX 饱和。
  * @note 上电校正完成或持有参数临界区时调用，不修改控制对象。
@@ -28,32 +27,30 @@ void MotorParameterTransaction_AdvanceRevision(void);
 void MotorParameterTransaction_AdvanceMaintenanceRevision(uint32_t work_epoch);
 /**
  * @brief 读取活动标量并按来源与序号重放最近原请求。
- * @param motor Axis 提供的唯一电机对象，只读借用。
- * @param encoder Axis 提供的唯一编码器对象，只读借用。
+ * @param configuration Axis 提供的唯一活动配置，只读借用。
  * @param request 原参数 ID 和来源/序号，不保留指针。
  * @param value 接收原整数位模式、权限及活动修订，失败清零。
  * @return 原参数读取、忙或身份冲突结果。
  * @note 前台调用；内部保持原短临界区，不执行存储。
  */
-ParameterStatus MotorParameterTransaction_Read(const MotorControlState *motor,
-                                               const EncoderState *encoder,
+ParameterStatus MotorParameterTransaction_Read(const MotorConfiguration *configuration,
                                                const ParameterReadRequest *request,
                                                ParameterValue *value);
 /**
  * @brief 原子应用合法停机标量并缓存完整原请求，成功写只增加一次修订。
- * @param motor 唯一活动配置对象，错误拒绝不应用新值。
+ * @param configuration 唯一活动配置对象，错误拒绝不应用新值。
+ * @param runtime 唯一运行状态，仅检查当前故障，不保存或修改配置。
  * @param foc 唯一电流控制器对象，仅成功应用时按原边界复位。
  * @param speed_pi 唯一速度 PI 对象，仅成功应用时按原边界复位。
- * @param encoder 唯一编码器对象，用于成功后的标量读取。
  * @param request 原始整数请求与 expected_revision，不保留指针。
  * @param applied 接收新修订与应用值，失败清零。
  * @return 原类型、范围、故障、状态、身份或修订校验结果。
  * @note 前台调用；原临界区内完成资格、应用、复位及回读，不自动保存。
  */
-ParameterStatus MotorParameterTransaction_Write(MotorControlState *motor,
+ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuration,
+                                                MotorControlState *runtime,
                                                 FocState *foc,
                                                 PiController *speed_pi,
-                                                const EncoderState *encoder,
                                                 const ParameterWriteRequest *request,
                                                 ParameterValue *applied);
 /**
@@ -87,14 +84,12 @@ bool MotorParameterTransaction_SaveIdle(void);
 bool MotorParameterTransaction_RevisionAvailable(void);
 /**
  * @brief 借用参数记录并在原 claim 仍有效时执行存储和回读验证。
- * @param motor 稳定的唯一活动配置，不保留指针。
- * @param encoder 稳定的唯一编码器配置，不保留指针。
+ * @param configuration 稳定的唯一活动配置，含编码器标定，不保留指针。
  * @param claim Axis 从主状态机取得的原 SAVE 认领。
  * @return 真正写入并回读成功返回 true；借用失败或认领失效返回 false。
  * @note 仅停机前台；参数导出开中断，复核与存储使用原临界区，返回前归还记录。
  */
-bool MotorParameterTransaction_SaveRecord(const MotorControlState *motor,
-                                          const EncoderState *encoder,
+bool MotorParameterTransaction_SaveRecord(const MotorConfiguration *configuration,
                                           const FocBackgroundClaim *claim);
 /**
  * @brief 接收后台完成事实，只更新匹配原票据的保存终态。

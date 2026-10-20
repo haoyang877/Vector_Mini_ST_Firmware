@@ -21,6 +21,7 @@
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
+static MotorConfiguration cfg;
 static MotorControlState motor;
 static FocState foc;
 static PiController pi;
@@ -88,9 +89,9 @@ uint16_t Encoder_GetBadFrameStreak(const EncoderState *e)
 {
     return e->bad_frame_streak;
 }
-uint8_t Encoder_GetCalibFlag(const EncoderState *e)
+uint8_t Encoder_GetCalibFlag(const EncoderCalibration *calibration)
 {
-    return e->calib_flag;
+    return calibration->calib_flag;
 }
 float Encoder_GetMecPos(const EncoderState *e)
 {
@@ -150,30 +151,30 @@ static void tick(void)
 static void reset(void)
 {
     now_ms = 0U;
+    memset(&cfg, 0, sizeof(cfg));
     memset(&motor, 0, sizeof(motor));
     memset(&foc, 0, sizeof(foc));
     memset(&encoder, 0, sizeof(encoder));
-    motor.application.axis_profile_valid = true;
-    MotorWindingThermal_Default(&motor.model.thermal);
-    motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
-    assert(MotorThermalControl_Init(&motor.model.thermal, now_ms));
+    cfg.application.axis_profile_valid = true;
+    MotorWindingThermal_Default(&cfg.model.thermal);
+    cfg.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
+    assert(MotorThermalControl_Init(&cfg.model.thermal, now_ms));
     motor.thermal_clear_ready = true;
     motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(6.0f);
-    motor.model.motor_pole_pairs = 21;
-    motor.configuration_confirmed = true;
-    motor.model.motor_phase_resistance_ohm = 1.0f;
-    motor.model.motor_d_inductance_h = motor.model.motor_q_inductance_h = 0.001f;
-    motor.model.motor_flux_wb = 0.01f;
-    motor.model.calibration_current_a = 3.0f;
-    motor.application.current_limit_a = 6.0f;
-    motor.application.speed_limit_rad_s = 20.0f;
-    motor.application.speed_acceleration_rad_s2 = motor.application.speed_deceleration_rad_s2 =
-        1.0f;
-    motor.application.speed_kp = 0.1f;
-    motor.application.speed_ki = 0.2f;
-    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
-        motor.device.phase_c_offset_counts = 2048.0f;
-    encoder.calib_flag = ENC_CALIB_ALL;
+    cfg.model.motor_pole_pairs = 21;
+    cfg.configuration_confirmed = true;
+    cfg.model.motor_phase_resistance_ohm = 1.0f;
+    cfg.model.motor_d_inductance_h = cfg.model.motor_q_inductance_h = 0.001f;
+    cfg.model.motor_flux_wb = 0.01f;
+    cfg.model.calibration_current_a = 3.0f;
+    cfg.application.current_limit_a = 6.0f;
+    cfg.application.speed_limit_rad_s = 20.0f;
+    cfg.application.speed_acceleration_rad_s2 = cfg.application.speed_deceleration_rad_s2 = 1.0f;
+    cfg.application.speed_kp = 0.1f;
+    cfg.application.speed_ki = 0.2f;
+    cfg.device.phase_a_offset_counts = cfg.device.phase_b_offset_counts =
+        cfg.device.phase_c_offset_counts = 2048.0f;
+    cfg.device.encoder.calib_flag = ENC_CALIB_ALL;
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 30.0f;
     foc.temperature_c = 25.0f;
     output_off = outer_ready = temperature_fresh = encoder_released = true;
@@ -181,7 +182,7 @@ static void reset(void)
     start_count = 0U;
     memset(leaf_calls, 0, sizeof(leaf_calls));
     stop_fails = false;
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     for (unsigned i = 0U; i < 4U; ++i)
     {
         tick();
@@ -202,11 +203,11 @@ static uint32_t begin_maintenance(MotorMaintenanceKind kind)
 static void test_defaults_preserves_device_address(void)
 {
     reset();
-    motor.device.node_id = 7U;
-    MotorWindingThermalConfig custom = motor.model.thermal;
+    cfg.device.node_id = 7U;
+    MotorWindingThermalConfig custom = cfg.model.thermal;
     custom.peak_a = 6.0f;
     assert(MotorThermalControl_Configure(&custom, true));
-    motor.model.thermal = custom;
+    cfg.model.thermal = custom;
     for (unsigned i = 0U; i < 20U; ++i)
     {
         MotorThermalControl_Sample(3.0f, -1.5f, -1.5f, true, now_ms);
@@ -214,25 +215,27 @@ static void test_defaults_preserves_device_address(void)
     MotorThermalDiagnostics before, after;
     assert(MotorThermalControl_GetDiagnostics(&before) && before.model.max_heat > 0.0f);
     MotorControlState unchanged = motor;
+    MotorConfiguration unchanged_cfg = cfg;
     output_off = false;
     MotorTaskResult refused = MotorMaintenance_Step(
-        MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
+        &cfg, MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
     assert(refused.result == MOTOR_TASK_FAILED && refused.error == MOTOR_FAULT_WINDING_THERMAL);
     assert(memcmp(&unchanged, &motor, sizeof(motor)) == 0);
+    assert(memcmp(&unchanged_cfg, &cfg, sizeof(cfg)) == 0);
     assert(MotorThermalControl_GetDiagnostics(&after));
     assert(memcmp(&before, &after, sizeof(before)) == 0);
     output_off = true;
     uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_DEFAULTS);
     uint32_t epoch = MotorStateMachine_WorkEpoch();
     MotorTaskResult outcome = MotorMaintenance_Step(
-        MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
+        &cfg, MOTOR_MAINTENANCE_DEFAULTS, &foc, &motor, &pi, &encoder, NULL, &startup);
     assert(outcome.result == MOTOR_TASK_COMPLETED);
     assert(MotorThermalControl_GetDiagnostics(&after));
     assert(memcmp(before.model.heat, after.model.heat, sizeof(before.model.heat)) == 0);
-    assert(after.model.config.peak_a == motor.model.thermal.peak_a &&
-           motor.model.thermal.peak_a == 7.0f);
-    assert(leaf_calls[MOTOR_MAINTENANCE_DEFAULTS] == 1U && motor.device.node_id == 7U);
-    assert(!motor.configuration_confirmed && encoder.calib_flag == 0U && output_off);
+    assert(after.model.config.peak_a == cfg.model.thermal.peak_a &&
+           cfg.model.thermal.peak_a == 7.0f);
+    assert(leaf_calls[MOTOR_MAINTENANCE_DEFAULTS] == 1U && cfg.device.node_id == 7U);
+    assert(!cfg.configuration_confirmed && cfg.device.encoder.calib_flag == 0U && output_off);
     MotorStateMachine_PostOutcome(outcome, epoch);
     tick();
     MotorMaintenanceProgress progress;
@@ -248,7 +251,7 @@ static void test_defaults_preserves_device_address(void)
     tick();
     assert(MotorStateMachine_ReadMaintenance(save_ticket, &progress) &&
            progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
-    assert(motor.device.node_id == 7U && output_off && motor.control_mode == MOTOR_CONTROL_NONE);
+    assert(cfg.device.node_id == 7U && output_off && motor.control_mode == MOTOR_CONTROL_NONE);
     puts("PASS runtime DEFAULTS retain node7/heat, failed hot-config apply changes nothing, "
          "successful defaults synchronize runtime before derived SAVE");
 }
@@ -282,14 +285,13 @@ static void test_control(void)
     tick();
     assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_IDLE &&
            motor.speed_target_rad_s == 0.0f);
-    assert(motor.application.current_limit_a == 6.0f &&
-           motor.application.speed_limit_rad_s == 20.0f);
+    assert(cfg.application.current_limit_a == 6.0f && cfg.application.speed_limit_rad_s == 20.0f);
     puts("PASS same-mode target owner, single-slot busy, STOP revocation and unchanged caps");
 
     reset();
-    encoder.calib_flag = ENC_CALIB_LINEARIZED;
+    cfg.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_DENIED);
-    assert(output_off && encoder.calib_flag == ENC_CALIB_LINEARIZED);
+    assert(output_off && cfg.device.encoder.calib_flag == ENC_CALIB_LINEARIZED);
     puts("PASS partial calibration cannot start closed loop; flags unchanged");
 
     reset();
@@ -388,9 +390,9 @@ static void test_identified_speed_start(void)
     assert(MotorStateMachine_RequestIdentifiedStop(2U, request.sequence));
     tick();
     request.sequence = 0U;
-    motor.configuration_confirmed = false;
+    cfg.configuration_confirmed = false;
     assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_DENIED);
-    motor.configuration_confirmed = true;
+    cfg.configuration_confirmed = true;
     assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_DENIED);
     request.sequence = 1U;
     assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
@@ -405,12 +407,12 @@ static void test_calibration_save(void)
     MotorMaintenanceProgress progress;
     uint32_t ticket, origin, save;
     reset();
-    encoder.calib_flag = ENC_CALIB_LINEARIZED;
+    cfg.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
     ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
     assert((MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_ELECTRICAL_ZERO) &&
            !output_off);
     origin = MotorStateMachine_WorkEpoch();
-    encoder.calib_flag = ENC_CALIB_ALL;
+    cfg.device.encoder.calib_flag = ENC_CALIB_ALL;
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
                                   origin);
     tick();
@@ -433,7 +435,7 @@ static void test_calibration_save(void)
     assert(MotorStateMachine_ReadMaintenance(save, &progress));
     assert(progress.result == MOTOR_MAINTENANCE_COMPLETED &&
            progress.effects == MOTOR_MAINTENANCE_EFFECT_COMMITTED);
-    assert(encoder.calib_flag == ENC_CALIB_ALL);
+    assert(cfg.device.encoder.calib_flag == ENC_CALIB_ALL);
     puts("PASS electrical-zero completion distinct from SAVE COMMITTED; derived ticket observable");
 
     reset();
@@ -500,8 +502,7 @@ static void test_stop_and_fault(void)
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
     assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
-    assert(motor.application.current_limit_a == 6.0f &&
-           motor.application.speed_limit_rad_s == 20.0f);
+    assert(cfg.application.current_limit_a == 6.0f && cfg.application.speed_limit_rad_s == 20.0f);
     puts("PASS failed output shutdown cannot restore IDLE or relaxed limits");
 }
 
@@ -571,9 +572,9 @@ static void test_preparation_readiness(void)
     for (unsigned flags = 0U; flags <= ENC_CALIB_ALL; ++flags)
     {
         reset();
-        motor.configuration_confirmed = false;
-        encoder.calib_flag = (uint8_t)flags;
-        MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+        cfg.configuration_confirmed = false;
+        cfg.device.encoder.calib_flag = (uint8_t)flags;
+        MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
         for (unsigned i = 0U; i < 4U; ++i)
         {
             tick();
@@ -593,7 +594,7 @@ static void test_preparation_readiness(void)
         assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ENCODER_LUT, &ticket) ==
                MOTOR_CONTROL_DENIED);
         assert(ticket == 0U && motor.fault_code == MOTOR_FAULT_NONE && output_off);
-        motor.configuration_confirmed = true;
+        cfg.configuration_confirmed = true;
         MotorStateMachine_ReadReadiness(&readiness);
         assert(!(readiness.start_blockers & MOTOR_START_CONFIGURATION_REQUIRED));
         if (flags != ENC_CALIB_ALL)
@@ -608,7 +609,7 @@ static void test_preparation_readiness(void)
         assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_IDLE && start_count == 0U);
     }
     reset();
-    encoder.calib_flag = 0U;
+    cfg.device.encoder.calib_flag = 0U;
     uint32_t ticket;
     assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO, &ticket) ==
            MOTOR_CONTROL_DENIED);
@@ -621,7 +622,7 @@ static void test_preparation_readiness(void)
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off);
     reset();
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 0.0f;
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     for (unsigned i = 0U; i < 4U; ++i)
     {
         tick();
@@ -647,10 +648,10 @@ static void test_readiness_admission_matrix(void)
         for (unsigned mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_VQ; ++mode)
         {
             reset();
-            motor.configuration_confirmed = (gaps & 1U) == 0U;
+            cfg.configuration_confirmed = (gaps & 1U) == 0U;
             if (gaps & 2U)
             {
-                encoder.calib_flag = 0U;
+                cfg.device.encoder.calib_flag = 0U;
             }
             if (gaps & 4U)
             {
@@ -661,7 +662,7 @@ static void test_readiness_admission_matrix(void)
                 foc.bus_voltage_v = foc.bus_voltage_filtered_v = 0.0f;
             }
             temperature_fresh = (gaps & 16U) == 0U;
-            motor.application.axis_profile_valid = (gaps & 32U) == 0U;
+            cfg.application.axis_profile_valid = (gaps & 32U) == 0U;
             motor.uses_sensorless_feedback = (gaps & 64U) != 0U;
             if (gaps & 128U)
             {
@@ -701,10 +702,10 @@ static void test_readiness_admission_matrix(void)
 static void test_startup_offset_deadline(void)
 {
     reset();
-    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
-        motor.device.phase_c_offset_counts = NAN;
+    cfg.device.phase_a_offset_counts = cfg.device.phase_b_offset_counts =
+        cfg.device.phase_c_offset_counts = NAN;
     foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = NAN;
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     tick();
     now_ms = 500U;
     tick();
@@ -724,8 +725,8 @@ static void test_startup_offset_deadline(void)
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
 
     /* 校正资格恢复后 CLEAR 直接待命，不重新初始化或启相。 */
-    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
-        motor.device.phase_c_offset_counts = 2048.0f;
+    cfg.device.phase_a_offset_counts = cfg.device.phase_b_offset_counts =
+        cfg.device.phase_c_offset_counts = 2048.0f;
     foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = 0.0f;
     tick();
     assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
@@ -741,14 +742,14 @@ static void test_startup_offset_deadline(void)
            motor.fault_code == MOTOR_FAULT_NONE && output_off);
 
     reset();
-    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
-        motor.device.phase_c_offset_counts = NAN;
+    cfg.device.phase_a_offset_counts = cfg.device.phase_b_offset_counts =
+        cfg.device.phase_c_offset_counts = NAN;
     foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = NAN;
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     tick();
     now_ms = 1000U;
-    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
-        motor.device.phase_c_offset_counts = 2048.0f;
+    cfg.device.phase_a_offset_counts = cfg.device.phase_b_offset_counts =
+        cfg.device.phase_c_offset_counts = 2048.0f;
     foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = 0.0f;
     for (unsigned i = 0U; i < 4U; ++i)
     {
@@ -761,7 +762,7 @@ static void test_startup_offset_deadline(void)
 static void test_self_test_deadline(void)
 {
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     tick();
     tick();
     tick();
@@ -775,7 +776,7 @@ static void test_self_test_deadline(void)
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && start_count == 0U);
     /* 第四个健康完成拍已到期限，必须先拒绝过期成功。 */
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     tick();
     tick();
     tick();
@@ -785,7 +786,7 @@ static void test_self_test_deadline(void)
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     /* BOOT 资源未释放与必需编码器不健康也不能无限等待。 */
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     encoder_released = false;
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_INIT);
@@ -794,7 +795,7 @@ static void test_self_test_deadline(void)
     assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     encoder.bad_frame_streak = 1U;
     tick();
     now_ms = 500U;
@@ -802,7 +803,7 @@ static void test_self_test_deadline(void)
     assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT &&
            motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off);
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     now_ms = UINT32_MAX - 100U;
     uint32_t began = now_ms;
     MotorStateMachine_Tick();
@@ -821,7 +822,7 @@ static void test_self_test_deadline(void)
     }
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && output_off);
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     output_off = false;
     stop_fails = true;
     tick();
@@ -842,7 +843,7 @@ static void test_self_test_deadline(void)
 static void test_quiet_init_and_idle_stop(void)
 {
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     assert(MotorStateMachine_GetState() == MOTOR_STATE_INIT);
     for (unsigned i = 0U; i < 4U; ++i)
     {
@@ -861,7 +862,7 @@ static void test_quiet_init_and_idle_stop(void)
     assert(MotorStateMachine_RequestIdentifiedEnable(&old) == MOTOR_CONTROL_STALE_SEQUENCE);
 
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     temperature_fresh = false;
     tick();
     const uint32_t stop_times_ms[] = {99U, 199U, 499U, 500U};
@@ -875,9 +876,9 @@ static void test_quiet_init_and_idle_stop(void)
     assert(motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT && output_off && start_count == 0U);
 
     reset();
-    motor.device.phase_a_offset_counts = motor.device.phase_b_offset_counts =
-        motor.device.phase_c_offset_counts = NAN;
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    cfg.device.phase_a_offset_counts = cfg.device.phase_b_offset_counts =
+        cfg.device.phase_c_offset_counts = NAN;
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     tick();
     now_ms = 1499U;
     assert(MotorStateMachine_RequestRemoteStop());
@@ -890,7 +891,7 @@ static void test_quiet_init_and_idle_stop(void)
     assert(motor.fault_code == MOTOR_FAULT_SELF_TEST_TIMEOUT);
 
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     encoder_released = false;
     assert(MotorStateMachine_RequestRemoteStop());
     tick();
@@ -907,7 +908,7 @@ static void test_quiet_init_and_idle_stop(void)
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE && start_count == 0U);
     /* INIT 只有一个期限；晚归还不能恢复旧 BOOT 完成时的第二次计时。 */
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     encoder_released = false;
     tick();
     now_ms = 499U;
@@ -975,28 +976,28 @@ static void test_target_admission_boundaries(void)
                     encoder.bad_frame_streak = 1U;
                     break;
                 case 6U:
-                    encoder.calib_flag = 0U;
+                    cfg.device.encoder.calib_flag = 0U;
                     break;
                 case 7U:
                     motor.uses_sensorless_feedback = true;
                     break;
                 case 8U:
-                    motor.application.axis_profile_valid = false;
+                    cfg.application.axis_profile_valid = false;
                     break;
                 case 9U:
                     foc.bus_voltage_filtered_v = 25.5f;
                     break;
                 case 10U:
-                    motor.application.current_limit_a = NAN;
+                    cfg.application.current_limit_a = NAN;
                     break;
                 case 11U:
-                    motor.application.speed_limit_rad_s = NAN;
+                    cfg.application.speed_limit_rad_s = NAN;
                     break;
                 case 12U:
-                    motor.application.axis_profile.magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
-                    motor.application.axis_profile.minimum_position_rad = -1.0f;
-                    motor.application.axis_profile.maximum_position_rad = 1.0f;
-                    motor.application.axis_profile.maximum_speed_rad_s = 2.0f;
+                    cfg.application.axis_profile.magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
+                    cfg.application.axis_profile.minimum_position_rad = -1.0f;
+                    cfg.application.axis_profile.maximum_position_rad = 1.0f;
+                    cfg.application.axis_profile.maximum_speed_rad_s = 2.0f;
                     break;
                 case 13U:
                     encoder.mechanical_position_rad = NAN;
@@ -1104,7 +1105,7 @@ static void test_direct_fault_recovery_and_idle_stop(void)
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
     reset();
-    MotorStateMachine_Init(&motor, &foc, &pi, &encoder, &startup);
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
     output_off = false;
     stop_fails = true;
     assert(MotorStateMachine_RequestRemoteStop());
@@ -1137,7 +1138,7 @@ static void test_rejected_start_does_not_bind_source(void)
             }
             else
             {
-                motor.configuration_confirmed = false;
+                cfg.configuration_confirmed = false;
             }
             MotorControlStartRequest rejected = {
                 .source_node = 2U, .sequence = 100U, .mode = MOTOR_CONTROL_SPEED};
@@ -1150,7 +1151,7 @@ static void test_rejected_start_does_not_bind_source(void)
             assert(progress.state == MOTOR_CONTROL_START_REJECTED && progress.result == expected);
             actual = MotorStateMachine_RequestIdentifiedEnable(&rejected);
             assert(actual == expected && MotorStateMachine_WorkEpoch() == epoch);
-            motor.configuration_confirmed = true;
+            cfg.configuration_confirmed = true;
             if (faulted)
             {
                 assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
@@ -1184,8 +1185,8 @@ static void test_rejected_start_does_not_bind_source(void)
 static void test_thermal_owner_admission_and_clear(void)
 {
     reset();
-    motor.model.thermal.heating_tau_s = 0.1f;
-    assert(MotorThermalControl_Configure(&motor.model.thermal, true));
+    cfg.model.thermal.heating_tau_s = 0.1f;
+    assert(MotorThermalControl_Configure(&cfg.model.thermal, true));
     for (unsigned window = 0U; window < 100U && MotorThermalControl_CanRun(false); ++window)
     {
         ++now_ms;
@@ -1277,7 +1278,9 @@ int main(void)
 }
 
 /* 调度真实维护分发，只有叶功能替换为桩；任务结果没有全局模式副作用。 */
-MotorTaskResult EncoderCalibrationTask_StepLut(FocState *f,
+MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configuration,
+                                               EncoderCalibration *calibration,
+                                               FocState *f,
                                                MotorControlState *m,
                                                PiController *p,
                                                EncoderState *e,
@@ -1285,6 +1288,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *f,
                                                SensorlessStartupState *s,
                                                EncoderCalibrationWorkspace *workspace)
 {
+    assert(configuration == &cfg && calibration == &cfg.device.encoder);
     (void)workspace;
     (void)f;
     (void)m;
@@ -1295,9 +1299,13 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *f,
     ++leaf_calls[MOTOR_MAINTENANCE_ENCODER_LUT];
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-MotorTaskResult
-EncoderCalibrationTask_StepElectricalZero(FocState *f, MotorControlState *m, EncoderState *e)
+MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const MotorConfiguration *configuration,
+                                                          EncoderCalibration *calibration,
+                                                          FocState *f,
+                                                          MotorControlState *m,
+                                                          EncoderState *e)
 {
+    assert(configuration == &cfg && calibration == &cfg.device.encoder);
     (void)f;
     (void)m;
     (void)e;
@@ -1305,8 +1313,9 @@ EncoderCalibrationTask_StepElectricalZero(FocState *f, MotorControlState *m, Enc
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
 
-bool Encoder_SetMechanicalZero(EncoderState *e)
+bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *e)
 {
+    assert(calibration == &cfg.device.encoder);
     (void)e;
     ++leaf_calls[MOTOR_MAINTENANCE_MECHANICAL_ZERO];
     return true;
@@ -1314,13 +1323,14 @@ bool Encoder_SetMechanicalZero(EncoderState *e)
 void MotorOuterLoop_RequestReset(void)
 {
 }
-void Param_Return_Default(MotorControlState *m, EncoderState *e)
+void Param_Return_Default(MotorConfiguration *configuration)
 {
     /* 保留生产默认值接口的本次相关副作用；实际参数记录另由装载夹具验证。 */
-    MotorWindingThermal_Default(&m->model.thermal);
-    m->application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
-    m->device.node_id = 1U;
-    m->configuration_confirmed = false;
-    e->calib_flag = 0U;
+    MotorWindingThermal_Default(&configuration->model.thermal);
+    configuration->application.speed_feedforward =
+        (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
+    configuration->device.node_id = 1U;
+    configuration->configuration_confirmed = false;
+    configuration->device.encoder.calib_flag = 0U;
     ++leaf_calls[MOTOR_MAINTENANCE_DEFAULTS];
 }

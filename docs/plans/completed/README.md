@@ -2,6 +2,8 @@
 
 - [Loader MCU 适配指南 v1](2026-10-20-loader-mcu-porting-guide-v1.md)：资料清单、实施步骤、验收标准和任务卡；仅文档，未新增 MCU 支持。
 
+- [配置与运行状态实体分离 v3](2026-10-20-configuration-runtime-separation-v3.md)：独立配置、编码器标定与运行对象，const算法输入及Watch入口；PR和主工程编译通过，未烧录。
+
 - [四类参数配置入口 v2](2026-10-20-parameter-entrypoints-v2.md)：硬件原始输入、热模型及应用默认归位，固定宏和三版存储兼容通过离线检查，未烧录。
 
 - [参数来源与编译期派生 v1](2026-10-20-parameter-sources-and-constants-v1.md)：输入、派生、标定和运行分类；固定宏逐位等价与PR通过，未烧录。

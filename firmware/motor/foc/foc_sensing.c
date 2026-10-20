@@ -103,11 +103,13 @@ void Vbus_Update(FocState *foc, MotorControlState *motor_state, bool output_expe
 }
 
 /* 三相电流换算、零点偏置有效性与过流确认计数。 */
-void Current_Cal(FocState *foc, MotorControlState *motor_state)
+void Current_Cal(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor_state)
 {
     static uint8_t overcurrent_count;
 
-    if (!MotorCurrentOffsets_Valid(motor_state))
+    if (!MotorCurrentOffsets_Valid(configuration))
     {
         MotorFault_Report(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
     }
@@ -115,15 +117,15 @@ void Current_Cal(FocState *foc, MotorControlState *motor_state)
     {
         foc->phase_a_current_a = -((float)motor_hw_current_sample_raw(MOTOR_HW_CURRENT_PHASE_A) *
                                        MOTOR_SENSING_ADC_SUM_TO_COUNTS -
-                                   motor_state->device.phase_a_offset_counts) *
+                                   configuration->device.phase_a_offset_counts) *
                                  MOTOR_SENSING_CURRENT_A_PER_COUNT;
         foc->phase_b_current_a = -((float)motor_hw_current_sample_raw(MOTOR_HW_CURRENT_PHASE_B) *
                                        MOTOR_SENSING_ADC_SUM_TO_COUNTS -
-                                   motor_state->device.phase_b_offset_counts) *
+                                   configuration->device.phase_b_offset_counts) *
                                  MOTOR_SENSING_CURRENT_A_PER_COUNT;
         foc->phase_c_current_a = -((float)motor_hw_current_sample_raw(MOTOR_HW_CURRENT_PHASE_C) *
                                        MOTOR_SENSING_ADC_SUM_TO_COUNTS -
-                                   motor_state->device.phase_c_offset_counts) *
+                                   configuration->device.phase_c_offset_counts) *
                                  MOTOR_SENSING_CURRENT_A_PER_COUNT;
     }
 
@@ -213,15 +215,15 @@ bool MotorTemperature_IsFresh(void)
            s_mcu_temperature.missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS;
 }
 
-bool MotorCurrentOffsets_Valid(const MotorControlState *motor_state)
+bool MotorCurrentOffsets_Valid(const MotorConfiguration *configuration)
 {
-    return !(!isfinite(motor_state->device.phase_a_offset_counts) ||
-             !isfinite(motor_state->device.phase_b_offset_counts) ||
-             !isfinite(motor_state->device.phase_c_offset_counts) ||
-             motor_state->device.phase_a_offset_counts < CURRENT_OFFSET_MIN_COUNTS ||
-             motor_state->device.phase_a_offset_counts > CURRENT_OFFSET_MAX_COUNTS ||
-             motor_state->device.phase_b_offset_counts < CURRENT_OFFSET_MIN_COUNTS ||
-             motor_state->device.phase_b_offset_counts > CURRENT_OFFSET_MAX_COUNTS ||
-             motor_state->device.phase_c_offset_counts < CURRENT_OFFSET_MIN_COUNTS ||
-             motor_state->device.phase_c_offset_counts > CURRENT_OFFSET_MAX_COUNTS);
+    return !(!isfinite(configuration->device.phase_a_offset_counts) ||
+             !isfinite(configuration->device.phase_b_offset_counts) ||
+             !isfinite(configuration->device.phase_c_offset_counts) ||
+             configuration->device.phase_a_offset_counts < CURRENT_OFFSET_MIN_COUNTS ||
+             configuration->device.phase_a_offset_counts > CURRENT_OFFSET_MAX_COUNTS ||
+             configuration->device.phase_b_offset_counts < CURRENT_OFFSET_MIN_COUNTS ||
+             configuration->device.phase_b_offset_counts > CURRENT_OFFSET_MAX_COUNTS ||
+             configuration->device.phase_c_offset_counts < CURRENT_OFFSET_MIN_COUNTS ||
+             configuration->device.phase_c_offset_counts > CURRENT_OFFSET_MAX_COUNTS);
 }

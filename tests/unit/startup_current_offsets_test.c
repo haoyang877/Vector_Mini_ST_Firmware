@@ -21,6 +21,7 @@
 #include "application_profile_defaults.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
+static MotorConfiguration s_motor_configuration;
 static MotorControlState s_motor_state;
 static FocState s_foc_state;
 static PiController s_speed_pi;
@@ -39,25 +40,26 @@ static unsigned current_reads, state_initializations, maintenance_queries;
 static unsigned observer_calls, progress_calls, protection_calls, control_calls;
 static MotorState simulated_state = MOTOR_STATE_INIT;
 
-static void load_parameters(MotorControlState *motor, EncoderState *encoder)
+static void load_parameters(MotorConfiguration *configuration)
 {
-    assert(motor == &s_motor_state && encoder == &s_rotor_encoder);
+    assert(configuration == &s_motor_configuration);
     /* 模拟已存储的不同d/q增益，确保初始化不会覆盖为编译默认值。 */
-    MotorWindingThermal_Default(&s_motor_state.model.thermal);
-    s_motor_state.application.current_limit_a = 6.0f;
-    s_motor_state.model.id_kp = 2.0f;
-    s_motor_state.model.id_ki = 3.0f;
-    s_motor_state.model.iq_kp = 4.0f;
-    s_motor_state.model.iq_ki = 5.0f;
-    s_motor_state.application.speed_kp = 0.2f;
-    s_motor_state.application.speed_ki = 0.3f;
-    s_motor_state.application.axis_profile_valid = true;
-    s_motor_state.device.phase_a_offset_counts = 2048.0f;
-    s_motor_state.device.phase_b_offset_counts = 2048.0f;
-    s_motor_state.device.phase_c_offset_counts = 2048.0f;
+    MotorWindingThermal_Default(&s_motor_configuration.model.thermal);
+    s_motor_configuration.application.current_limit_a = 6.0f;
+    s_motor_configuration.model.id_kp = 2.0f;
+    s_motor_configuration.model.id_ki = 3.0f;
+    s_motor_configuration.model.iq_kp = 4.0f;
+    s_motor_configuration.model.iq_ki = 5.0f;
+    s_motor_configuration.application.speed_kp = 0.2f;
+    s_motor_configuration.application.speed_ki = 0.3f;
+    s_motor_configuration.application.axis_profile_valid = true;
+    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
 }
 
-void MotorStateMachine_Init(MotorControlState *motor,
+void MotorStateMachine_Init(const MotorConfiguration *configuration,
+                            MotorControlState *motor,
                             FocState *foc,
                             PiController *pi,
                             EncoderState *encoder,
@@ -67,9 +69,9 @@ void MotorStateMachine_Init(MotorControlState *motor,
     (void)encoder;
     (void)startup;
     ++state_initializations;
-    assert(!MotorCurrentOffsets_Valid(motor) && isnan(foc->phase_a_current_a));
+    assert(!MotorCurrentOffsets_Valid(configuration) && isnan(foc->phase_a_current_a));
 }
-void Encoder_ParamInit(EncoderState *encoder)
+void Encoder_ParamInit(EncoderCalibration *calibration, EncoderState *encoder)
 {
     (void)encoder;
 }
@@ -113,7 +115,9 @@ uint8_t Encoder_BeginReadback(bool sample_started)
 {
     return sample_started ? 1U : 0U;
 }
-void Encoder_CompleteSample(MotorControlState *motor, EncoderState *encoder, uint8_t sample_stage)
+void Encoder_CompleteSample(const MotorConfiguration *configuration,
+                            EncoderState *encoder,
+                            uint8_t sample_stage)
 {
     assert(sample_stage == 1U);
 }
@@ -133,7 +137,9 @@ void Vbus_Update(FocState *foc, MotorControlState *motor, bool output_expected)
 {
     foc->bus_voltage_v = foc->bus_voltage_filtered_v = simulated_bus_voltage_v;
 }
-void FluxObserver_Update(FocState *foc, MotorControlState *motor, FluxObserverState *observer)
+void FluxObserver_Update(const MotorConfiguration *configuration,
+                         FocState *foc,
+                         FluxObserverState *observer)
 {
     assert(isfinite(foc->phase_a_current_a) && isfinite(foc->phase_b_current_a) &&
            isfinite(foc->phase_c_current_a));
@@ -180,7 +186,8 @@ void motor_hw_pwm_set_duty(float duty_a, float duty_b, float duty_c)
 {
     assert(duty_a == 0.5f && duty_b == 0.5f && duty_c == 0.5f);
 }
-MotorTaskResult MotorExecution_ControlStep(FocState *foc,
+MotorTaskResult MotorExecution_ControlStep(const MotorConfiguration *configuration,
+                                           FocState *foc,
                                            MotorControlState *motor,
                                            EncoderState *encoder,
                                            FluxObserverState *observer)
@@ -188,7 +195,8 @@ MotorTaskResult MotorExecution_ControlStep(FocState *foc,
     ++control_calls;
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
-MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
+MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
+                                      MotorMaintenanceKind kind,
                                       FocState *foc,
                                       MotorControlState *motor,
                                       PiController *pi,
@@ -229,7 +237,7 @@ static void initialize(void)
     assert(s_speed_pi.output_min == -1.0f && s_speed_pi.output_max == 1.0f);
     assert(s_foc_state.id_pi.integral_output == 0.0f && s_foc_state.iq_pi.integral_output == 0.0f);
     assert(s_speed_pi.integral_output == 0.0f && s_config_revision == 1U);
-    assert(!MotorCurrentOffsets_Valid(&s_motor_state));
+    assert(!MotorCurrentOffsets_Valid(&s_motor_configuration));
 }
 
 static void test_full_window(void)
@@ -245,10 +253,10 @@ static void test_full_window(void)
         assert(s_foc_state.iq_pi.output_max == FOC_MaximumVoltage(30.0f));
     }
     assert(s_current_offset_calibration.complete && !s_current_offset_calibration.failed);
-    assert(MotorCurrentOffsets_Valid(&s_motor_state));
-    assert(fabsf(s_motor_state.device.phase_a_offset_counts - 2032.625f) < 0.0005f);
-    assert(fabsf(s_motor_state.device.phase_b_offset_counts - 2051.25f) < 0.0005f);
-    assert(fabsf(s_motor_state.device.phase_c_offset_counts - 2036.5f) < 0.0005f);
+    assert(MotorCurrentOffsets_Valid(&s_motor_configuration));
+    assert(fabsf(s_motor_configuration.device.phase_a_offset_counts - 2032.625f) < 0.0005f);
+    assert(fabsf(s_motor_configuration.device.phase_b_offset_counts - 2051.25f) < 0.0005f);
+    assert(fabsf(s_motor_configuration.device.phase_c_offset_counts - 2036.5f) < 0.0005f);
     assert(fabsf(s_foc_state.phase_a_current_a + 0.125f * MOTOR_SENSING_CURRENT_A_PER_COUNT) <
            0.00002f);
     assert(fabsf(s_foc_state.phase_b_current_a) < 0.00002f &&
@@ -289,7 +297,7 @@ static void test_rejections(void)
     samples[1] = 65535U;
     sample_phase_currents();
     assert(s_current_offset_calibration.failed && s_current_offset_calibration.sample_count == 0U);
-    assert(!MotorCurrentOffsets_Valid(&s_motor_state));
+    assert(!MotorCurrentOffsets_Valid(&s_motor_configuration));
 
     initialize();
     samples[2] = 0U;
@@ -299,7 +307,7 @@ static void test_rejections(void)
     }
     assert(s_current_offset_calibration.failed && !s_current_offset_calibration.complete);
     assert(s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
-    assert(isnan(s_motor_state.device.phase_a_offset_counts) &&
+    assert(isnan(s_motor_configuration.device.phase_a_offset_counts) &&
            isnan(s_foc_state.phase_a_current_a));
     assert(s_config_revision == 1U);
 

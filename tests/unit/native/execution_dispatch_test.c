@@ -9,6 +9,7 @@
 
 /* 只替换算法、平台和所有者查询；调度体与控制分发体从生产源码原样编译。
  * 枚举交叉覆盖故障优先、维护独占、空闲预载及控制终态，不模拟物理电机。 */
+static MotorConfiguration s_motor_configuration;
 static MotorControlState s_motor_state;
 static FocState s_foc_state;
 static PiController s_speed_pi;
@@ -58,7 +59,8 @@ void motor_hw_pwm_set_duty(float a, float b, float c)
     trace |= TRACE_IDLE;
 }
 
-MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
+MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
+                                      MotorMaintenanceKind kind,
                                       FocState *foc,
                                       MotorControlState *motor,
                                       PiController *pi,
@@ -66,6 +68,7 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
                                       FluxObserverState *observer,
                                       SensorlessStartupState *startup)
 {
+    assert(configuration == &s_motor_configuration);
     assert(kind == maintenance_kind && foc == &s_foc_state && motor == &s_motor_state);
     assert(pi == &s_speed_pi && encoder == &s_rotor_encoder);
     assert(observer == &s_flux_observer && startup == &s_sensorless_startup);
@@ -73,11 +76,13 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
     return maintenance_result;
 }
 
-void Task_Current_Mode(FocState *foc,
+void Task_Current_Mode(const MotorConfiguration *configuration,
+                       FocState *foc,
                        MotorControlState *motor,
                        EncoderState *encoder,
                        FluxObserverState *observer)
 {
+    assert(configuration == &s_motor_configuration);
     assert(foc == &s_foc_state && motor == &s_motor_state);
     assert(encoder == &s_rotor_encoder && observer == &s_flux_observer);
     trace |= TRACE_CURRENT_TASK;
@@ -95,15 +100,24 @@ float Encoder_GetEleVel(const EncoderState *encoder)
     return 2.5f;
 }
 
-void FOC_Current(FocState *foc, MotorControlState *motor, float phase, float velocity)
+void FOC_Current(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor,
+                 float phase,
+                 float velocity)
 {
+    assert(configuration == &s_motor_configuration);
     assert(foc == &s_foc_state && motor == &s_motor_state);
     assert(phase == 0.75f && velocity == 2.5f);
     trace |= TRACE_CURRENT_LOOP;
 }
 
-void Task_Vq_Mode(FocState *foc, MotorControlState *motor, EncoderState *encoder)
+void Task_Vq_Mode(const MotorConfiguration *configuration,
+                  FocState *foc,
+                  MotorControlState *motor,
+                  EncoderState *encoder)
 {
+    assert(configuration == &s_motor_configuration);
     assert(foc == &s_foc_state && motor == &s_motor_state && encoder == &s_rotor_encoder);
     trace |= TRACE_VQ;
 }
@@ -163,6 +177,7 @@ static MotorTaskResult dispatch_step(void);
 int main(void)
 {
     unsigned cases = 0U;
+    memset(&s_motor_configuration, 0, sizeof(s_motor_configuration));
     memset(&s_motor_state, 0, sizeof(s_motor_state));
 #if defined(STARTUP_CURRENT_OFFSETS_PRESENT)
     /* 校正pending/failed均未complete，所有模式和维护请求都不得进入功能分发。 */

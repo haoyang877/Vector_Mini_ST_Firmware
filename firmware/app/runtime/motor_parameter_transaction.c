@@ -45,7 +45,7 @@ void MotorParameterTransaction_AdvanceRevision(void)
 }
 
 /* 启动时只借用一份既有大小的固定工作区记录，不额外常驻配置副本。 */
-static void load_parameters(MotorControlState *motor, EncoderState *encoder)
+static void load_parameters(MotorConfiguration *configuration)
 {
     InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
     uint32_t read_bytes = sizeof(*record);
@@ -57,11 +57,11 @@ static void load_parameters(MotorControlState *motor, EncoderState *encoder)
     }
     if (!read_ok)
     {
-        Param_Return_Default(motor, encoder);
+        Param_Return_Default(configuration);
     }
     else
     {
-        Param_Download(record, read_bytes, motor, encoder);
+        Param_Download(record, read_bytes, configuration);
     }
     if (record != NULL)
     {
@@ -69,12 +69,12 @@ static void load_parameters(MotorControlState *motor, EncoderState *encoder)
     }
 }
 
-void MotorParameterTransaction_Init(MotorControlState *motor, EncoderState *encoder)
+void MotorParameterTransaction_Init(MotorConfiguration *configuration)
 {
     s_config_revision = 1U;
     s_revision_work_epoch = UINT32_MAX;
     s_last_read.valid = s_last_write.valid = s_save_job.valid = false;
-    load_parameters(motor, encoder);
+    load_parameters(configuration);
 }
 
 void MotorParameterTransaction_AdvanceMaintenanceRevision(uint32_t work_epoch)
@@ -86,15 +86,14 @@ void MotorParameterTransaction_AdvanceMaintenanceRevision(uint32_t work_epoch)
     }
 }
 
-bool MotorParameterTransaction_SaveRecord(const MotorControlState *motor,
-                                          const EncoderState *encoder,
+bool MotorParameterTransaction_SaveRecord(const MotorConfiguration *configuration,
                                           const FocBackgroundClaim *claim)
 {
     bool success = false;
     InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
     if (record != NULL)
     {
-        Param_Upload(record, motor, encoder);
+        Param_Upload(record, configuration);
         uint32_t mask = critical_hw_enter();
         if (MotorStateMachine_BackgroundValid(claim))
         {
@@ -173,8 +172,7 @@ static void refresh_save_result(void)
     }
 }
 
-ParameterStatus MotorParameterTransaction_Read(const MotorControlState *motor,
-                                               const EncoderState *encoder,
+ParameterStatus MotorParameterTransaction_Read(const MotorConfiguration *configuration,
                                                const ParameterReadRequest *request,
                                                ParameterValue *value)
 {
@@ -211,7 +209,7 @@ ParameterStatus MotorParameterTransaction_Read(const MotorControlState *motor,
                          state == MOTOR_STATE_STOPPING
                      ? PARAMETER_BUSY
                      : ParameterValue_Read(
-                           motor, encoder, s_config_revision, request->parameter_id, value);
+                           configuration, s_config_revision, request->parameter_id, value);
         if (request->parameter_id >= 0x4FU && request->parameter_id <= 0x51U)
         {
             MotorReadiness readiness;
@@ -242,10 +240,10 @@ ParameterStatus MotorParameterTransaction_Read(const MotorControlState *motor,
     return result;
 }
 
-ParameterStatus MotorParameterTransaction_Write(MotorControlState *motor,
+ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuration,
+                                                MotorControlState *runtime,
                                                 FocState *foc,
                                                 PiController *speed_pi,
-                                                const EncoderState *encoder,
                                                 const ParameterWriteRequest *request,
                                                 ParameterValue *applied)
 {
@@ -279,7 +277,7 @@ ParameterStatus MotorParameterTransaction_Write(MotorControlState *motor,
     {
         result = PARAMETER_STALE_SEQUENCE;
     }
-    else if (motor->fault_code != MOTOR_FAULT_NONE)
+    else if (runtime->fault_code != MOTOR_FAULT_NONE)
     {
         result = PARAMETER_FAULT;
     }
@@ -294,13 +292,13 @@ ParameterStatus MotorParameterTransaction_Write(MotorControlState *motor,
     }
     else
     {
-        MotorWindingThermalConfig previous_thermal = motor->model.thermal;
-        result = ParameterValue_Apply(motor, request);
+        MotorWindingThermalConfig previous_thermal = configuration->model.thermal;
+        result = ParameterValue_Apply(configuration, request);
         if (result == PARAMETER_OK && request->parameter_id >= 0x60U &&
             request->parameter_id <= 0x66U &&
-            !MotorThermalControl_Configure(&motor->model.thermal, true))
+            !MotorThermalControl_Configure(&configuration->model.thermal, true))
         {
-            motor->model.thermal = previous_thermal;
+            configuration->model.thermal = previous_thermal;
             result = PARAMETER_BUSY;
         }
         if (result == PARAMETER_OK)
@@ -311,7 +309,7 @@ ParameterStatus MotorParameterTransaction_Write(MotorControlState *motor,
             FOC_CurrentController_Reset(foc);
             PiController_Reset(speed_pi);
             result = ParameterValue_Read(
-                motor, encoder, s_config_revision, request->parameter_id, applied);
+                configuration, s_config_revision, request->parameter_id, applied);
             if (result == PARAMETER_OK)
             {
                 s_last_write.request = *request;

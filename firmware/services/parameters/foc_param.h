@@ -4,9 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "angle_feedback.h"
-#include "position_cascade_config.h"
-#include "motor_axis_profile.h"
+#include "motor_config.h"
 /* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。
  * 字段顺序是已发布ABI，不按参数分类重排：基础配置、标定结果和兼容派生值在此编码，
@@ -94,35 +92,27 @@ typedef struct
 
 /**
  * @brief 将编译期默认配置应用到指定对象。
- * @param motor 启动或受理 DEFAULTS 的电机对象。
- * @param encoder 所属编码器配置。
+ * @param configuration 启动或受理 DEFAULTS 的独占配置，含编码器标定。
  * @note 调用方保证停机和独占配置；不写 Flash、不修改模式。
  */
-void Param_Return_Default(MotorControlState *motor, EncoderState *encoder);
+void Param_Return_Default(MotorConfiguration *configuration);
 
 /**
  * @brief 导出含配置确认、识别字与整条 CRC32 的 schema14 参数记录。
  * @param param 调用方独占的记录空间。
- * @param motor 稳定的电机配置。
- * @param encoder 稳定的编码器配置。
+ * @param configuration 稳定的电机、应用、设备配置及编码器标定。
  * @note 仅启动或停机前台使用；不保留指针，包含表校验。
  */
-void Param_Upload(InterfaceParam *param,
-                  const MotorControlState *motor,
-                  const EncoderState *encoder);
+void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration);
 
 /**
  * @brief 装载schema12/13/14记录；旧版本只读兼容，不自动写回。
  * @param record 按四字节对齐的只读 Flash 记录副本。
  * @param size_bytes 副本的实际容量；不足对应版本长度时拒绝。
- * @param motor 中断启动前的电机配置。
- * @param encoder 中断启动前的编码器配置。
+ * @param configuration 中断启动前的独占配置，含编码器标定。
  * @note 仅启动调用；其他版本清除标定资格，不自动转换schema10或写Flash。
  */
-void Param_Download(const void *record,
-                    uint32_t size_bytes,
-                    MotorControlState *motor,
-                    EncoderState *encoder);
+void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration *configuration);
 
 /**
  * @brief 计算当前schema14记录CRC32，跳过record_crc32槽。

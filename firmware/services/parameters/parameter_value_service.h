@@ -2,8 +2,7 @@
 #define PARAMETER_VALUE_SERVICE_H
 
 #include <stdint.h>
-#include "motor_types.h"
-#include "angle_feedback.h"
+#include "motor_config.h"
 
 /** 内部业务结果，通信层显式映射，不直接作为线上 result 编号。 */
 typedef enum
@@ -67,35 +66,33 @@ typedef struct
 
 /**
  * @brief 从稳定活动配置读取一个有明确来源的标量。
- * @param motor APP 所有者提供的稳定电机配置。
- * @param encoder APP 所有者提供的稳定校准配置。
+ * @param configuration APP 所有者提供的稳定配置，含编码器标定。
  * @param revision 当前活动版本，不是 Flash schema。
  * @param parameter_id 参数目录 v0.1 的单字节 ID。
  * @param value 接收值，失败保持全零，不保留指针。
  * @return 成功、未支持来源、编码越界或错误。
  * @note 纯有界计算，不分配、不执行 CRC 或 I/O；外部必须保证一致读取。
  */
-ParameterStatus ParameterValue_Read(const MotorControlState *motor,
-                                    const EncoderState *encoder,
+ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
                                     uint32_t revision,
                                     uint8_t parameter_id,
                                     ParameterValue *value);
 /**
  * @brief 校验并应用具备既有产品范围的停机单标量。
- * @param motor APP 独占电机配置，任何失败均保持原值。
+ * @param configuration APP 独占配置，任何失败均保持原值。
  * @param request 原始值请求，仅读取 ID/类型和值；身份与 revision 由 APP 核对。
  * @return 已应用返回 OK；只读、类型或范围错误不修改配置。
  * @note 仅所有者停机独占时调用；耦合模型和未冻结范围的项保持只读。
  */
-ParameterStatus ParameterValue_Apply(MotorControlState *motor,
+ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
                                      const ParameterWriteRequest *request);
 
 /**
  * @brief 检查当前电机配置的基础数值、轴与控制限值是否可用。
- * @param motor 所有者提供的稳定配置；空指针无效。
+ * @param configuration 所有者提供的稳定配置；空指针无效。
  * @return 关键数值有限、范围有效且轴配置有效返回 true；不要求确认或标定。
  * @note 纯有界计算；不证明参数与实际电机匹配，不访问硬件。
  */
-bool ParameterValue_ConfigurationValid(const MotorControlState *motor);
+bool ParameterValue_ConfigurationValid(const MotorConfiguration *configuration);
 
 #endif

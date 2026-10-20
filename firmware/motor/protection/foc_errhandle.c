@@ -42,7 +42,8 @@ void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
     }
     recovery->overcurrent_ticks = 0U;
 }
-bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
+bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
+                                const MotorFaultRecovery *recovery,
                                 const MotorControlState *motor_state,
                                 const FocState *foc,
                                 const EncoderState *rotor_encoder,
@@ -68,16 +69,16 @@ bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
     case MOTOR_FAULT_OVERCURRENT:
         return recovery->overcurrent_ticks >= RUN_STATE_OC_RECOVER_TICKS;
     case MOTOR_FAULT_CURRENT_OFFSET:
-        return MotorCurrentOffsets_Valid(motor_state);
+        return MotorCurrentOffsets_Valid(configuration);
     case MOTOR_FAULT_WINDING_THERMAL:
         return motor_state->thermal_clear_ready;
     case MOTOR_FAULT_POLE_PAIRS:
-        return motor_state->model.motor_pole_pairs > 0;
+        return configuration->model.motor_pole_pairs > 0;
     case MOTOR_FAULT_INVALID_PARAMETERS:
-        return motor_state->application.axis_profile_valid &&
-               motor_state->model.motor_pole_pairs > 0 &&
-               isfinite(motor_state->application.current_limit_a) &&
-               motor_state->application.current_limit_a > 0.0f;
+        return configuration->application.axis_profile_valid &&
+               configuration->model.motor_pole_pairs > 0 &&
+               isfinite(configuration->application.current_limit_a) &&
+               configuration->application.current_limit_a > 0.0f;
     case MOTOR_FAULT_CONTROL_OVERRUN:
     case MOTOR_FAULT_SELF_TEST_TIMEOUT:
         return samples_fresh;
@@ -88,7 +89,7 @@ bool MotorFault_SourceRecovered(const MotorFaultRecovery *recovery,
     case MOTOR_FAULT_FRICTION_IDENTIFICATION:
     case MOTOR_FAULT_COGGING_CALIBRATION:
         /* 终止型辨识故障由显式 CLEAR 确认；资源已释放才允许重试，各模式标定准入不变。 */
-        return motor_state->application.axis_profile_valid && maintenance_released;
+        return configuration->application.axis_profile_valid && maintenance_released;
     default:
         return false;
     }

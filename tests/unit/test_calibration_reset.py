@@ -233,7 +233,6 @@ class CalibrationResetTests(unittest.TestCase):
             "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
             + function_source(sensing, "MotorCurrentOffsets_Valid")
             + r"""
-uint8_t Encoder_GetCalibFlag(const EncoderState *encoder) { return encoder->calib_flag; }
 #define CHECK(condition) do { if (!(condition)) { printf("FAIL %u: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main(int argc, char **argv) {
     CHECK(argc == 3);
@@ -241,31 +240,31 @@ int main(int argc, char **argv) {
     FILE *input = fopen(argv[1], "rb"); CHECK(input != NULL);
     InterfaceParam param;
     CHECK(fread(&param, 1, sizeof(param), input) == sizeof(param)); fclose(input);
-    MotorControlState motor = {0}; EncoderState encoder = {0};
-    Param_Download(&param, sizeof(param), &motor, &encoder);
-    CHECK(motor.configuration_source == MOTOR_CONFIGURATION_STORED);
-    CHECK(!motor.configuration_confirmed && encoder.calib_flag == (preserved ? 3 : 0));
-    CHECK(encoder.electrical_zero_q15 == (preserved ? 1234 : 0));
-    CHECK(encoder.mechanical_zero_q15 == (preserved ? 4567 : 0));
-    CHECK(encoder.reverse == param.encoder_reverse);
-    for (unsigned i = 0; i < ENCODER_OFFSET_LUT_SIZE; ++i) { CHECK(encoder.linearization_lut_q15[i] == (preserved ? (int)(i % 128) - 64 : 0)); }
-    CHECK(motor.device.node_id == (uint8_t)param.node_id);
-    CHECK(motor.model.motor_pole_pairs == (int)param.motor_pole_pairs);
-    CHECK(motor.model.motor_phase_resistance_ohm == param.motor_phase_resistance_ohm);
-    CHECK(motor.model.motor_d_inductance_h == param.motor_d_inductance_h);
-    CHECK(motor.model.motor_q_inductance_h == param.motor_q_inductance_h);
-    CHECK(motor.model.motor_flux_wb == param.motor_flux_wb);
-    CHECK(motor.application.current_limit_a == param.current_limit_a);
-    CHECK(motor.application.speed_limit_rad_s == param.speed_limit_rad_s);
-    CHECK(motor.application.speed_kp == param.speed_kp && motor.application.speed_ki == param.speed_ki);
-    CHECK(motor.application.axis_profile_valid);
-    CHECK(memcmp(&motor.application.axis_profile, &param.axis_profile, sizeof(param.axis_profile)) == 0);
-    CHECK(memcmp(&motor.model.thermal, &param.thermal, sizeof(param.thermal)) == 0);
-    CHECK(motor.application.speed_feedforward.enabled == (param.speed_feedforward_enabled == 1));
-    CHECK(motor.application.speed_feedforward.gain_a_per_rad_s2 == param.speed_feedforward_gain_a_per_rad_s2);
-    CHECK(motor.application.speed_feedforward.acceleration_limit_rad_s2 == param.speed_feedforward_acceleration_rad_s2);
-    CHECK(motor.application.speed_feedforward.jerk_limit_rad_s3 == param.speed_feedforward_jerk_rad_s3);
-    CHECK(motor.application.speed_feedforward.current_limit_a == param.speed_feedforward_current_limit_a);
+    MotorConfiguration configuration = {0};
+    Param_Download(&param, sizeof(param), &configuration);
+    CHECK(configuration.configuration_source == MOTOR_CONFIGURATION_STORED);
+    CHECK(!configuration.configuration_confirmed && configuration.device.encoder.calib_flag == (preserved ? 3 : 0));
+    CHECK(configuration.device.encoder.electrical_zero_q15 == (preserved ? 1234 : 0));
+    CHECK(configuration.device.encoder.mechanical_zero_q15 == (preserved ? 4567 : 0));
+    CHECK(configuration.device.encoder.reverse == param.encoder_reverse);
+    for (unsigned i = 0; i < ENCODER_OFFSET_LUT_SIZE; ++i) { CHECK(configuration.device.encoder.linearization_lut_q15[i] == (preserved ? (int)(i % 128) - 64 : 0)); }
+    CHECK(configuration.device.node_id == (uint8_t)param.node_id);
+    CHECK(configuration.model.motor_pole_pairs == (int)param.motor_pole_pairs);
+    CHECK(configuration.model.motor_phase_resistance_ohm == param.motor_phase_resistance_ohm);
+    CHECK(configuration.model.motor_d_inductance_h == param.motor_d_inductance_h);
+    CHECK(configuration.model.motor_q_inductance_h == param.motor_q_inductance_h);
+    CHECK(configuration.model.motor_flux_wb == param.motor_flux_wb);
+    CHECK(configuration.application.current_limit_a == param.current_limit_a);
+    CHECK(configuration.application.speed_limit_rad_s == param.speed_limit_rad_s);
+    CHECK(configuration.application.speed_kp == param.speed_kp && configuration.application.speed_ki == param.speed_ki);
+    CHECK(configuration.application.axis_profile_valid);
+    CHECK(memcmp(&configuration.application.axis_profile, &param.axis_profile, sizeof(param.axis_profile)) == 0);
+    CHECK(memcmp(&configuration.model.thermal, &param.thermal, sizeof(param.thermal)) == 0);
+    CHECK(configuration.application.speed_feedforward.enabled == (param.speed_feedforward_enabled == 1));
+    CHECK(configuration.application.speed_feedforward.gain_a_per_rad_s2 == param.speed_feedforward_gain_a_per_rad_s2);
+    CHECK(configuration.application.speed_feedforward.acceleration_limit_rad_s2 == param.speed_feedforward_acceleration_rad_s2);
+    CHECK(configuration.application.speed_feedforward.jerk_limit_rad_s3 == param.speed_feedforward_jerk_rad_s3);
+    CHECK(configuration.application.speed_feedforward.current_limit_a == param.speed_feedforward_current_limit_a);
     puts("PASS prepared schema14 real APP load and explicit calibration policy");
     return 0;
 }

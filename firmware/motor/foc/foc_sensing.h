@@ -1,6 +1,7 @@
 #ifndef FOC_SENSING_H
 #define FOC_SENSING_H
 
+#include "motor_config.h"
 #include "control_config.h"
 #include "foc_algorithm.h"
 #include "motor_types.h"
@@ -22,11 +23,14 @@ void Vbus_Update(FocState *foc, MotorControlState *motor_state, bool output_expe
 
 /**
  * @brief  完成相电流采样换算与偏置补偿。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态指针，写入 phase_a_current_a/phase_b_current_a/phase_c_current_a。
  * @param  motor_state 电机控制状态指针。
  * @note 快速环周期调用；换算系数来自平台感测契约。
  */
-void Current_Cal(FocState *foc, MotorControlState *motor_state);
+void Current_Cal(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor_state);
 
 /**
  * @brief  更新 MCU 温度换算与遥测。
@@ -51,9 +55,9 @@ bool MotorTemperature_IsFresh(void);
 
 /**
  * @brief 按既有 ADC 零偏范围验证三相偏置。
- * @param motor 所属电机配置，只读，偏置单位为 ADC counts。
+ * @param configuration 所属活动配置，只读，偏置单位为 ADC counts。
  * @return 三个偏置均有限且位于原保护范围时返回 true。
  * @note 无 I/O，不改变阈值或配置。
  */
-bool MotorCurrentOffsets_Valid(const MotorControlState *motor);
+bool MotorCurrentOffsets_Valid(const MotorConfiguration *configuration);
 #endif

@@ -1,6 +1,7 @@
 #ifndef FOC_SENSORLESS_H
 #define FOC_SENSORLESS_H
 
+#include "motor_config.h"
 #include "motor_types.h"
 #include "foc_algorithm.h"
 
@@ -83,12 +84,12 @@ void FluxObserver_ParamInit(FluxObserverState *flux_observer);
 
 /**
  * @brief  执行一次磁链观测器更新。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态指针。
- * @param  motor_state 电机控制状态指针。
  * @param  flux_observer 观测器状态指针。
  */
-void FluxObserver_Update(FocState *foc,
-                         MotorControlState *motor_state,
+void FluxObserver_Update(const MotorConfiguration *configuration,
+                         FocState *foc,
                          FluxObserverState *flux_observer);
 
 /**

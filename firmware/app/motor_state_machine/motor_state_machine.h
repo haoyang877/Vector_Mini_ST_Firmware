@@ -14,15 +14,17 @@
 #include "motor_lifecycle_request.h"
 
 /**
- * @param motor 组合层终身电机对象。
+ * @brief 初始化运行所有者：核心进入 INIT 态，清空命令和采样进展。
+ * @param configuration 组合层终身配置只读视图；状态机不拥有配置写入口。
+ * @param motor 组合层终身电机运行对象。
  * @param foc 组合层终身 foc 对象。
  * @param pi 组合层终身速度 PI。
  * @param encoder 组合层终身编码器对象。
  * @param startup 组合层终身无感启动对象。
- * @brief 初始化运行所有者：核心进入 INIT 态，清空命令和采样进展。
  * @note 由启动组合层在中断使能前调用一次；不访问硬件。
  */
-void MotorStateMachine_Init(MotorControlState *motor,
+void MotorStateMachine_Init(const MotorConfiguration *configuration,
+                            MotorControlState *motor,
                             FocState *foc,
                             PiController *pi,
                             EncoderState *encoder,

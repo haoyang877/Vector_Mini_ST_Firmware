@@ -160,6 +160,20 @@ static void reject_pending_control(MotorControlResult reason)
     }
 }
 
+/* 撤销邮箱先保留本次任务已报告的失败；STOP与定向取消分别传入原身份。 */
+static void discard_pending_outcome(uint32_t expected_epoch)
+{
+    if (s_context.has_latched_outcome)
+    {
+        if (s_context.pending_outcome.result == MOTOR_TASK_FAILED &&
+            s_context.outcome_epoch == expected_epoch)
+        {
+            MotorFault_Report(s_context.motor, s_context.pending_outcome.error);
+        }
+        s_context.has_latched_outcome = false;
+    }
+}
+
 /* 启动重放与查询采用同一身份规则；latest 优先，未覆盖的活动请求仍可查询。 */
 static bool same_start_identity(const MotorControlStartProgress *progress,
                                 uint8_t source_node,
@@ -321,7 +335,6 @@ static bool encoder_feedback_required(const MotorControlState *motor)
            s_context.rules.maintenance_kind != MOTOR_MAINTENANCE_DEFAULTS;
 }
 
-/* 位置/速度模式首个周期先在功率输出关闭时校验控制器，下一快周期再使能。 */
 /* 同一监督拍共用采样进展，不能让多次核心 Step 把同一帧误判为陈旧。 */
 static void state_update_sample_progress(void)
 {
@@ -355,9 +368,8 @@ static MotorStateFacts read_state_conditions(void)
         s_context.rules.state >= MOTOR_STATE_IDLE && s_context.rules.state <= MOTOR_STATE_STOPPING;
     facts.self_test_ready = (initialized_state || stable_self_test) && facts.configuration_valid &&
                             facts.inputs_valid && facts.active_faults == 0U;
-    bool thermal_calibration =
-        s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ENCODER_LUT ||
-        s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
+    bool thermal_calibration = MotorStateRules_Classify(s_context.rules.maintenance_kind) ==
+                               MOTOR_MAINTENANCE_CLASS_CALIBRATION;
     facts.start_permitted =
         s_context.configuration->application.axis_profile_valid &&
         !s_context.boot_maintenance_only &&
@@ -525,6 +537,12 @@ static bool dispatch_state_event(uint32_t events,
     return decision.rejection == MOTOR_STATE_ACCEPTED;
 }
 
+/* 无结果载荷的同步事件仍逐次采集当前事实，不能跨功率动作复用旧快照。 */
+static bool dispatch_simple_event(uint32_t events)
+{
+    return dispatch_state_event(events, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+}
+
 /* INIT 只在整程序初始化后进入；STOP 不重启本次期限或连续窗口。 */
 static void advance_initialization(void)
 {
@@ -569,16 +587,15 @@ static void advance_initialization(void)
     }
     if (s_context.self_test_stable_ticks == MOTOR_SELF_TEST_STABLE_TICKS)
     {
-        (void)dispatch_state_event(
-            MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+        (void)dispatch_simple_event(MOTOR_STATE_EVENT_SELF_TEST_DONE);
     }
 }
 
 /* 停止请求：关相并尝试确认；确认可能延后一拍（quiet 需要功率级真实关闭）。 */
 static void state_request_stop(void)
 {
-    (void)dispatch_state_event(MOTOR_STATE_EVENT_STOP, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
-    (void)dispatch_state_event(0U, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+    (void)dispatch_simple_event(MOTOR_STATE_EVENT_STOP);
+    (void)dispatch_simple_event(0U);
 }
 
 /* 母线电压处于重新使能窗口 [25.6, 33.8] V：过/欠压故障的源恢复判据。 */
@@ -615,8 +632,7 @@ static bool process_save_or_cancel_completion(void)
               s_context.rules.operation_result == MOTOR_MAINTENANCE_FAILED) &&
              read_state_conditions().maintenance_released && !s_context.background_busy)
     {
-        return dispatch_state_event(
-            MOTOR_STATE_EVENT_CANCEL_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+        return dispatch_simple_event(MOTOR_STATE_EVENT_CANCEL_DONE);
     }
     return false;
 }
@@ -643,26 +659,27 @@ static bool begin_operation(MotorMaintenanceKind kind)
     }
     s_context.operation_epoch = s_context.rules.epoch;
     s_context.maintenance_runnable = true;
-    if (kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO)
+    if (MotorStateRules_Classify(kind) != MOTOR_MAINTENANCE_CLASS_CALIBRATION)
     {
-        MotorStateFacts facts = read_state_conditions();
-        if (!s_context.stop_pending && facts.start_permitted && facts.inputs_valid &&
-            facts.active_faults == 0U)
-        {
-            power_stage_hw_start();
-            if (!power_stage_hw_phases_disabled())
-            {
-                return true;
-            }
-        }
-        MotorFault_Report(s_context.motor, MOTOR_FAULT_CONTROL_OVERRUN);
-        (void)dispatch_state_event(MOTOR_STATE_EVENT_FAULT,
-                                   MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
-                                   (uint32_t)s_context.motor->fault_code,
-                                   NULL);
-        return false;
+        return true;
     }
-    return true;
+    /* 仅有功率标定需要启相；准备成功后仍读取当前许可并确认实际输出。 */
+    MotorStateFacts facts = read_state_conditions();
+    if (!s_context.stop_pending && facts.start_permitted && facts.inputs_valid &&
+        facts.active_faults == 0U)
+    {
+        power_stage_hw_start();
+        if (!power_stage_hw_phases_disabled())
+        {
+            return true;
+        }
+    }
+    MotorFault_Report(s_context.motor, MOTOR_FAULT_CONTROL_OVERRUN);
+    (void)dispatch_state_event(MOTOR_STATE_EVENT_FAULT,
+                               MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                               (uint32_t)s_context.motor->fault_code,
+                               NULL);
+    return false;
 }
 
 /* 运行所有者已静止：模式已失能、无目标/占用、资源已释放；调用方负责状态与角色前提。 */
@@ -1057,18 +1074,8 @@ MotorControlResult MotorStateMachine_CancelMaintenance(uint32_t ticket)
         else if (s_context.rules.state == MOTOR_STATE_MAINTENANCE)
         {
             reject_pending_control(MOTOR_CONTROL_DENIED);
-            if (s_context.has_latched_outcome)
-            {
-                if (s_context.pending_outcome.result == MOTOR_TASK_FAILED &&
-                    s_context.outcome_epoch == s_context.operation_epoch)
-                {
-                    /* 同代故障先锁存，再取消；不能让CANCEL递增代号后丢弃故障。 */
-                    MotorFault_Report(s_context.motor, s_context.pending_outcome.error);
-                }
-                s_context.has_latched_outcome = false;
-            }
-            bool accepted = dispatch_state_event(
-                MOTOR_STATE_EVENT_CANCEL, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+            discard_pending_outcome(s_context.operation_epoch);
+            bool accepted = dispatch_simple_event(MOTOR_STATE_EVENT_CANCEL);
             s_context.motor->control_mode = MOTOR_CONTROL_NONE;
             result = accepted ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_FAULT;
         }
@@ -1138,16 +1145,7 @@ static void request_remote_stop_locked(void)
                                                                            : MOTOR_CONTROL_DENIED);
     reject_pending_start(s_context.motor->fault_code != MOTOR_FAULT_NONE ? MOTOR_CONTROL_FAULT
                                                                          : MOTOR_CONTROL_DENIED);
-    if (s_context.has_latched_outcome)
-    {
-        if (s_context.pending_outcome.result == MOTOR_TASK_FAILED &&
-            s_context.outcome_epoch == MotorStateMachine_WorkEpoch())
-        {
-            /* STOP撤销目标，但不能撤销当前worker已报告的故障。 */
-            MotorFault_Report(s_context.motor, s_context.pending_outcome.error);
-        }
-        s_context.has_latched_outcome = false;
-    }
+    discard_pending_outcome(MotorStateMachine_WorkEpoch());
     s_context.motor->control_mode = MOTOR_CONTROL_NONE;
     s_context.enable_pending = s_context.maintenance_runnable = s_context.save_requested = false;
     s_context.stop_pending = true;
@@ -1304,12 +1302,8 @@ void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
         return;
     }
     primask = critical_hw_enter();
-    if (epoch != MotorStateMachine_WorkEpoch() || s_context.stop_pending)
-    {
-        critical_hw_exit(primask);
-        return;
-    }
-    if (outcome.result == MOTOR_TASK_PREPARED || outcome.result == MOTOR_TASK_FINALIZE)
+    if (epoch != MotorStateMachine_WorkEpoch() || s_context.stop_pending ||
+        outcome.result == MOTOR_TASK_PREPARED || outcome.result == MOTOR_TASK_FINALIZE)
     {
         /* 已退役后台整理／预载通知，不能恢复功率输出或报告成功。 */
         critical_hw_exit(primask);
@@ -1419,28 +1413,22 @@ static void state_process_task_outcome(bool stopped)
 /* 动作后重新读取事实：持续运行守卫与停止确认不能使用本拍早先的旧快照。 */
 static void advance_current_state(void)
 {
-    switch (s_context.rules.state)
+    MotorState state = s_context.rules.state;
+    if (state == MOTOR_STATE_INIT)
     {
-    case MOTOR_STATE_INIT:
         advance_initialization();
-        break;
-    case MOTOR_STATE_STARTING:
-    case MOTOR_STATE_RUNNING:
-    case MOTOR_STATE_MAINTENANCE:
-    case MOTOR_STATE_STOPPING:
-        /* 控制与有功率标定都须持续检查采样；SAVE 仅核对关相与操作许可。 */
-        (void)dispatch_state_event(0U, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
-        break;
-    case MOTOR_STATE_IDLE:
-    case MOTOR_STATE_FAULT:
-    case MOTOR_STATE_FATAL:
-        /* 请求和结果由同拍前后明确阶段处理，不新增迁移或自动恢复。 */
-        break;
     }
+    else if (state == MOTOR_STATE_STARTING || state == MOTOR_STATE_RUNNING ||
+             state == MOTOR_STATE_MAINTENANCE || state == MOTOR_STATE_STOPPING)
+    {
+        /* 控制与有功率标定都须持续检查采样；SAVE 仅核对关相与操作许可。 */
+        (void)dispatch_simple_event(0U);
+    }
+    /* IDLE等待明确请求；FAULT/FATAL不自动清错或恢复运行。 */
 }
 
-/* 本拍 STOP 或已受理 SAVE／取消完成事件时不派生保存；随后再检查显式使能。 */
-static void start_requested_save(bool stopped, bool completion_accepted)
+/* 待机派发：先处理既有保存意图，再检查显式启动，不在此直接启相。 */
+static void dispatch_idle_work(bool stopped, bool completion_accepted)
 {
     if (!stopped && !completion_accepted && s_context.save_requested &&
         s_context.rules.state == MOTOR_STATE_IDLE)
@@ -1450,16 +1438,10 @@ static void start_requested_save(bool stopped, bool completion_accepted)
         (void)begin_operation(MOTOR_MAINTENANCE_SAVE);
         critical_hw_exit(mask);
     }
-}
-
-/* 请求受理只进入 STARTING；功率输出在准备完成后独立复核。 */
-static void begin_requested_control(bool stopped)
-{
     if (s_context.enable_pending && s_context.rules.state == MOTOR_STATE_IDLE && !stopped)
     {
         s_context.enable_pending = false;
-        (void)dispatch_state_event(
-            MOTOR_STATE_EVENT_ENABLE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+        (void)dispatch_simple_event(MOTOR_STATE_EVENT_ENABLE);
     }
 }
 
@@ -1474,8 +1456,7 @@ static void enable_prepared_control(void)
             facts.inputs_valid && facts.active_faults == 0U)
         {
             power_stage_hw_start();
-            (void)dispatch_state_event(
-                MOTOR_STATE_EVENT_START_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, NULL);
+            (void)dispatch_simple_event(MOTOR_STATE_EVENT_START_DONE);
         }
         critical_hw_exit(mask);
     }
@@ -1515,18 +1496,19 @@ static void update_start_progress(void)
 
 void MotorStateMachine_Tick(void)
 {
-    /* 先消费已到达的输入；STOP 后仍处理故障，不能丢弃同拍失败。 */
+    /* 1. 消费输入：STOP之后仍锁存本拍失败，再处理标定/保存完成及取消归还。 */
     state_update_sample_progress();
     bool stopped = state_consume_stop_request();
     state_process_task_outcome(stopped);
     bool completion_accepted = process_save_or_cancel_completion();
     MotorFault_UpdateRecovery(&s_context.recovery, s_context.foc, s_context.motor->fault_code);
 
-    /* 状态进展后才受理后继工作；启相前复核必须晚于停止与完成处理。 */
+    /* 2. 推进上电自检、运行/标定守卫和停止确认；故障恢复仍需明确CLEAR。 */
     advance_current_state();
-    start_requested_save(stopped, completion_accepted);
-    begin_requested_control(stopped);
+    /* 3. 待机派发及启动：准备完成后重新取当前事实，再决定是否启相。 */
+    dispatch_idle_work(stopped, completion_accepted);
     enable_prepared_control();
+    /* 4. 运行只更新同模式目标；结果反馈不改变实际功率状态。 */
     apply_pending_control();
     update_start_progress();
 
@@ -1558,18 +1540,16 @@ bool MotorStateMachine_BeginBackground(FocBackgroundClaim *claim)
     if (claim != NULL && !s_context.background_busy && !s_context.stop_pending &&
         !s_context.has_latched_outcome && s_context.rules.state == MOTOR_STATE_MAINTENANCE &&
         s_context.motor->fault_code == MOTOR_FAULT_NONE && power_stage_hw_phases_disabled() &&
-        MotorMaintenance_IsReleased())
+        MotorMaintenance_IsReleased() &&
+        s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
+        s_context.save_finish == SAVE_FINISH_NONE)
     {
         /* SAVE只在真实关相且维护任务/工作区均归还后认领前台。 */
-        if (s_context.rules.maintenance_kind == MOTOR_MAINTENANCE_SAVE &&
-            s_context.save_finish == SAVE_FINISH_NONE)
-        {
-            s_context.background_claim =
-                (FocBackgroundClaim){s_context.operation_epoch, FOC_BACKGROUND_SAVE};
-            s_context.background_busy = true;
-            *claim = s_context.background_claim;
-            accepted = true;
-        }
+        s_context.background_claim =
+            (FocBackgroundClaim){s_context.operation_epoch, FOC_BACKGROUND_SAVE};
+        s_context.background_busy = true;
+        *claim = s_context.background_claim;
+        accepted = true;
     }
     critical_hw_exit(mask);
     return accepted;

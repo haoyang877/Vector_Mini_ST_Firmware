@@ -109,8 +109,138 @@ static int test_state_exit_contract(void)
     return 0;
 }
 
+/* 连续事件轨迹补足随机单拍摘要；只比较显式字段，不散列结构padding。 */
+static void trace_step(const char *name,
+                       MotorStateRulesContext *context,
+                       MotorStateEvent event,
+                       const MotorStateFacts *facts)
+{
+    MotorStateDecision result = MotorStateRules_Step(context, &event, facts);
+    printf("TRACE RULE %s events=%u request=%u completion=%u kind=%u effects=%u "
+           "state=%u epoch=%u active=%u kind=%u result=%u effects=%u first=%u faults=%u "
+           "actions=%u rejection=%u\n",
+           name,
+           event.events,
+           event.request_epoch,
+           event.completion_epoch,
+           event.maintenance_kind,
+           event.effects,
+           context->state,
+           context->epoch,
+           context->maintenance_active,
+           context->maintenance_kind,
+           context->operation_result,
+           context->operation_effects,
+           context->first_fault,
+           context->latched_faults,
+           result.actions,
+           result.rejection);
+}
+
+static void test_ordered_trace(void)
+{
+    MotorStateRulesContext context;
+    MotorStateRules_Init(&context);
+    MotorStateFacts facts = {0U, false, true, true, true, true, true, true, true, true, true, true};
+    facts.phases_disabled = true;
+    MotorStateEvent event = {.events = MOTOR_STATE_EVENT_SELF_TEST_DONE,
+                             .completion_epoch = context.epoch};
+    trace_step("init-complete", &context, event, &facts);
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
+                              .request_epoch = context.epoch,
+                              .control_mode = MOTOR_CONTROL_SPEED};
+    trace_step("start-request", &context, event, &facts);
+    facts.phases_disabled = false;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_START_DONE,
+                              .completion_epoch = context.epoch};
+    trace_step("start-complete", &context, event, &facts);
+    event =
+        (MotorStateEvent){.events = MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_FAULT, .faults = 8U};
+    trace_step("fault-and-stop", &context, event, &facts);
+    facts.phases_disabled = true;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_CLEAR, .request_epoch = context.epoch};
+    trace_step("clear-idle", &context, event, &facts);
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
+                              .request_epoch = context.epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
+    trace_step("save-request", &context, event, &facts);
+    facts.operation_idle = facts.maintenance_released = false;
+    uint32_t active_epoch = context.epoch;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_OPERATION_DONE,
+                              .completion_epoch = active_epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE,
+                              .effects = MOTOR_MAINTENANCE_EFFECT_COMMITTED};
+    trace_step("stop-and-save-complete", &context, event, &facts);
+    facts.operation_idle = facts.maintenance_released = true;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_CANCEL_DONE,
+                              .completion_epoch = active_epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE,
+                              .effects = MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED};
+    trace_step("stale-cancel", &context, event, &facts);
+    event.completion_epoch = context.epoch;
+    event.events |= MOTOR_STATE_EVENT_ENABLE;
+    event.request_epoch = context.epoch;
+    event.control_mode = MOTOR_CONTROL_SPEED;
+    trace_step("cancel-before-new-enable", &context, event, &facts);
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
+                              .request_epoch = context.epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
+    trace_step("new-save", &context, event, &facts);
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_OPERATION_DONE,
+                              .completion_epoch = context.epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE,
+                              .effects = MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED};
+    trace_step("uncommitted-not-success", &context, event, &facts);
+    event.effects = MOTOR_MAINTENANCE_EFFECT_COMMITTED;
+    trace_step("committed-save", &context, event, &facts);
+
+    /* 完成事件先于同拍新请求；故障释放后仍须显式 CLEAR。 */
+    MotorStateRules_Init(&context);
+    context.state = MOTOR_STATE_FAULT;
+    context.maintenance_active = true;
+    context.maintenance_kind = MOTOR_MAINTENANCE_SAVE;
+    context.operation_result = MOTOR_MAINTENANCE_CANCEL_REQUESTED;
+    context.first_fault = context.latched_faults = MOTOR_STATE_FAULT_GUARD;
+    event = (MotorStateEvent){.events =
+                                  MOTOR_STATE_EVENT_CANCEL_DONE | MOTOR_STATE_EVENT_BEGIN_OPERATION,
+                              .completion_epoch = context.epoch,
+                              .request_epoch = context.epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
+    trace_step("fault-cancel-before-new-operation", &context, event, &facts);
+
+    /* 记录代际耗尽的原始公开决定，不能把 ACCEPTED 自动改成 REJECT_FATAL。 */
+    MotorStateRules_Init(&context);
+    context.state = MOTOR_STATE_IDLE;
+    context.epoch = UINT32_MAX;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
+                              .request_epoch = context.epoch,
+                              .control_mode = MOTOR_CONTROL_SPEED};
+    trace_step("epoch-exhausted-enable", &context, event, &facts);
+    MotorStateRules_Init(&context);
+    context.state = MOTOR_STATE_IDLE;
+    context.epoch = UINT32_MAX;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
+                              .request_epoch = context.epoch,
+                              .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
+    trace_step("epoch-exhausted-operation", &context, event, &facts);
+
+    /* 同时不满足守卫和类型时，记录先发生的拒绝。 */
+    MotorStateRules_Init(&context);
+    context.state = MOTOR_STATE_IDLE;
+    facts.inputs_valid = false;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
+                              .request_epoch = context.epoch,
+                              .control_mode = (MotorControlMode)99};
+    trace_step("guard-before-invalid-mode", &context, event, &facts);
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
+                              .request_epoch = context.epoch,
+                              .maintenance_kind = (MotorMaintenanceKind)99};
+    trace_step("guard-before-invalid-kind", &context, event, &facts);
+}
+
 int main(void)
 {
+    test_ordered_trace();
     if (test_state_exit_contract())
     {
         return 1;

@@ -39,6 +39,7 @@ Loader 16 KiB / APP 96 KiB 的布局迁移见
 [当前 Loader 设计](architecture/loader/loader_product_v3.md)。
 后续更换芯片或板卡，按[Loader MCU 适配指南 v1](guides/loader_mcu_porting_v1.md)
 准备资料、实施端口与配套工程，并逐项验收。
+公共边界改造和离线证据见[多目标边界收口结果](reports/2026-10/loader_mcu_boundaries_20261021.md)。
 APP 的 READY 发送位置修复及实测见
 [交接队列修复 v1](plans/active/2026-10-20-loader-handoff-queue-v1.md)与
 [2026-10-20 实测记录](reports/2026-10/loader_layout6_upgrade_20261020.md)。

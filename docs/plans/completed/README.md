@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [Loader 多目标边界收口 v1](2026-10-21-loader-mcu-boundaries-v1.md)：分层门禁、目标配置贯通及板级/参数职责分离；完整离线验证通过，未连接硬件。
+
 - [Flash与快环精简 v1](2026-10-21-core-path-simplification-v1.md)：失败传播、固定PI绑定、状态机重复规则及遗留宏收口；离线检查与normal编译通过，未烧录。
 
 - [Loader MCU 适配指南 v1](2026-10-20-loader-mcu-porting-guide-v1.md)：资料清单、实施步骤、验收标准和任务卡；仅文档，未新增 MCU 支持。

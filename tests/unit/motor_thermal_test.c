@@ -5,6 +5,7 @@
 #include <string.h>
 #include "motor_thermal_control.h"
 #include "foc_algorithm.h"
+#include "control_config.h"
 
 static unsigned s_pwm_writes;
 void motor_hw_pwm_set_duty(float a, float b, float c)
@@ -130,6 +131,9 @@ static void test_foc(void)
     configuration.application.current_limit_a = 2.5f;
     motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(2.5f);
     configuration.model.id_kp = configuration.model.iq_kp = 1.0f;
+    foc.id_pi.proportional_gain = configuration.model.id_kp;
+    foc.iq_pi.proportional_gain = configuration.model.iq_kp;
+    foc.id_pi.sample_period_s = foc.iq_pi.sample_period_s = Current_Ts;
     motor.id_target_a = 3.0f;
     motor.iq_target_a = 4.0f;
     foc.bus_voltage_filtered_v = 33.0f;

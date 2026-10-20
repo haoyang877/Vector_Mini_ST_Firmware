@@ -351,6 +351,15 @@ static void test_identified_speed_start(void)
     assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_BUSY);
     assert(MotorStateMachine_ReadEnableProgress(2U, 101U, &progress) &&
            progress.state == MOTOR_CONTROL_START_PENDING);
+    /* 最新拒绝记录不能遮蔽仍活动的旧身份；重放不得创建第二次启动。 */
+    MotorControlStartRequest active_retry = {
+        .mode = MOTOR_CONTROL_SPEED, .sequence = 101U, .source_node = 2U};
+    assert(MotorStateMachine_RequestIdentifiedEnable(&active_retry) == MOTOR_CONTROL_ACCEPTED);
+    active_retry.mode = MOTOR_CONTROL_CURRENT;
+    assert(MotorStateMachine_RequestIdentifiedEnable(&active_retry) ==
+           MOTOR_CONTROL_CONFLICTING_RETRY);
+    assert(!MotorStateMachine_ReadEnableProgress(3U, 101U, &progress) &&
+           progress.state == MOTOR_CONTROL_START_NONE);
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off && start_count == 1U);
     assert(MotorStateMachine_ReadEnableProgress(2U, 101U, &progress) &&

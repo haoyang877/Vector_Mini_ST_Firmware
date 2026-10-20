@@ -18,6 +18,7 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 #include "motor_execution.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
+#include "control_config.h"
 #include "maintenance_workspace.h"
 #include "param_store.h"
 #include "motor_thermal_control.h"
@@ -61,6 +62,8 @@ static struct
 
 /* ---- 桩：临界区、通信节点与控制器复位 ---- */
 static uint32_t critical_depth;
+static bool axis_write_active;
+static uint32_t outer_write_entries, outer_write_exits;
 static uint32_t call_trace = 2166136261U;
 static uint32_t boundary_errors;
 static uint32_t reset_calls;
@@ -70,13 +73,26 @@ static void trace_call(uint32_t event)
 }
 uint32_t critical_hw_enter(void)
 {
-    trace_call(1U);
+    if (AXIS_WRITE_OUTER_CRITICAL && axis_write_active && critical_depth == 0U)
+    {
+        ++outer_write_entries;
+    }
+    else
+    {
+        trace_call(1U);
+    }
     return ++critical_depth;
 }
 void critical_hw_exit(uint32_t state)
 {
-    (void)state;
-    trace_call(2U);
+    if (AXIS_WRITE_OUTER_CRITICAL && axis_write_active && critical_depth == 1U)
+    {
+        ++outer_write_exits;
+    }
+    else
+    {
+        trace_call(2U);
+    }
     if (state != critical_depth || critical_depth == 0U)
     {
         ++boundary_errors;
@@ -89,7 +105,7 @@ void critical_hw_exit(uint32_t state)
 
 void MotorOuterLoop_RequestReset(void)
 {
-    if (critical_depth != 1U)
+    if (critical_depth != 1U + AXIS_WRITE_OUTER_CRITICAL)
     {
         ++boundary_errors;
     }
@@ -98,7 +114,7 @@ void MotorOuterLoop_RequestReset(void)
 }
 void FOC_CurrentController_Reset(FocState *foc)
 {
-    if (foc != &s_foc_state || critical_depth != 1U)
+    if (foc != &s_foc_state || critical_depth != 1U + AXIS_WRITE_OUTER_CRITICAL)
     {
         ++boundary_errors;
     }
@@ -107,7 +123,7 @@ void FOC_CurrentController_Reset(FocState *foc)
 }
 void PiController_Reset(PiController *controller)
 {
-    if (controller != &s_speed_pi || critical_depth != 1U)
+    if (controller != &s_speed_pi || critical_depth != 1U + AXIS_WRITE_OUTER_CRITICAL)
     {
         ++boundary_errors;
     }
@@ -279,7 +295,7 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
                                      const ParameterWriteRequest *request)
 {
     (void)request;
-    if (configuration != &s_motor_configuration || critical_depth != 1U)
+    if (configuration != &s_motor_configuration || critical_depth != 1U + AXIS_WRITE_OUTER_CRITICAL)
     {
         ++boundary_errors;
     }
@@ -302,6 +318,22 @@ static uint32_t failures;
             ++failures;                                                                            \
         }                                                                                          \
     } while (0)
+
+/* 真实Axis入口仍执行；仅将新增外层锁从基线trace中单独计数，内层调用次序照常比较。 */
+static ParameterStatus call_axis_write(const ParameterWriteRequest *request,
+                                       ParameterValue *applied)
+{
+    CHECK(!axis_write_active && critical_depth == 0U);
+    uint32_t entries_before = outer_write_entries;
+    uint32_t exits_before = outer_write_exits;
+    axis_write_active = true;
+    ParameterStatus result = MotorAxis_WriteParameter(request, applied);
+    axis_write_active = false;
+    CHECK(critical_depth == 0U);
+    CHECK(outer_write_entries == entries_before + AXIS_WRITE_OUTER_CRITICAL);
+    CHECK(outer_write_exits == exits_before + AXIS_WRITE_OUTER_CRITICAL);
+    return result;
+}
 
 static void reset_case(void)
 {
@@ -328,10 +360,10 @@ static void test_write_contract(void)
     ParameterWriteRequest write = {7U, PARAMETER_VALUE_I32, 1U, 0U, 65535U, 0U, 5U, 1234U};
     ParameterValue applied;
     uint32_t resets_before = reset_calls;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_OK);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_OK);
     CHECK(applied.revision == 6U && s_config_revision == 6U);
     CHECK(reset_calls == resets_before + 3U);
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_OK);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_OK);
     CHECK(s_config_revision == 6U && reset_calls == resets_before + 3U);
     for (unsigned field = 0U; field < 4U; ++field)
     {
@@ -352,44 +384,44 @@ static void test_write_contract(void)
         {
             conflict.raw_value ^= 0x80000000U;
         }
-        CHECK(MotorAxis_WriteParameter(&conflict, &applied) == PARAMETER_CONFLICTING_RETRY);
+        CHECK(call_axis_write(&conflict, &applied) == PARAMETER_CONFLICTING_RETRY);
         CHECK(applied.parameter_id == 0U && applied.revision == 0U);
     }
     /* 半圈窗口与 65535 -> 0 回绕；拒绝时不复位或推进配置。 */
     write.sequence = 32767U;
     write.expected_revision = 6U;
     uint32_t applies_before = stub_apply_calls;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_STALE_SEQUENCE);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_STALE_SEQUENCE);
     write.sequence = 0U;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_OK);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_OK);
     CHECK(s_config_revision == 7U && stub_apply_calls == applies_before + 1U);
     write.sequence = 1U;
     write.expected_revision = 7U;
     applies_before = stub_apply_calls;
     resets_before = reset_calls;
     write.reserved = 1U;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_INVALID_ARGUMENT);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_INVALID_ARGUMENT);
     write.reserved = 0U;
     write.reserved_sequence = 1U;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_INVALID_ARGUMENT);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_INVALID_ARGUMENT);
     write.reserved_sequence = 0U;
     s_motor_state.fault_code = MOTOR_FAULT_ENCODER;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_FAULT);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_FAULT);
     s_motor_state.fault_code = MOTOR_FAULT_NONE;
     stub_config_allowed = false;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_WRONG_STATE);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_WRONG_STATE);
     stub_config_allowed = true;
     write.expected_revision = 6U;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_REVISION_CONFLICT);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_REVISION_CONFLICT);
     write.expected_revision = 7U;
     stub_apply_status = PARAMETER_OUT_OF_RANGE;
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_OUT_OF_RANGE);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_OUT_OF_RANGE);
     CHECK(stub_apply_calls == applies_before + 1U && reset_calls == resets_before);
     CHECK(s_config_revision == 7U && s_motor_configuration.application.current_limit_a == 1234.0f);
     s_config_revision = UINT32_MAX;
     write.expected_revision = UINT32_MAX;
     CHECK(!MotorAxis_ConfigurationRevisionAvailable());
-    CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_REVISION_CONFLICT);
+    CHECK(call_axis_write(&write, &applied) == PARAMETER_REVISION_CONFLICT);
 }
 
 static void test_save_contract(void)
@@ -453,8 +485,8 @@ static void test_read_and_invalid_contract(void)
     CHECK(MotorAxis_ReadParameter(NULL, &value) == PARAMETER_INVALID_ARGUMENT);
     CHECK(value.parameter_id == 0U && value.revision == 0U);
     CHECK(MotorAxis_ReadParameter(&read, NULL) == PARAMETER_INVALID_ARGUMENT);
-    CHECK(MotorAxis_WriteParameter(NULL, &value) == PARAMETER_INVALID_ARGUMENT);
-    CHECK(MotorAxis_WriteParameter(NULL, NULL) == PARAMETER_INVALID_ARGUMENT);
+    CHECK(call_axis_write(NULL, &value) == PARAMETER_INVALID_ARGUMENT);
+    CHECK(call_axis_write(NULL, NULL) == PARAMETER_INVALID_ARGUMENT);
     uint32_t ticket = UINT32_MAX;
     CHECK(MotorAxis_RequestSave(NULL, &ticket) == PARAMETER_INVALID_ARGUMENT && ticket == 0U);
     CHECK(MotorAxis_RequestSave(NULL, NULL) == PARAMETER_INVALID_ARGUMENT);
@@ -493,16 +525,16 @@ int main(void)
                                    .sequence = 20U,
                                    .expected_revision = 0U,
                                    .raw_value = 1234U};
-    CHECK(MotorAxis_WriteParameter(&write, &value) == PARAMETER_OK);
+    CHECK(call_axis_write(&write, &value) == PARAMETER_OK);
     read.source_node = node;
     read.sequence = 20U;
     read.parameter_id = 7U;
     CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
-    CHECK(MotorAxis_WriteParameter(&write, &value) == PARAMETER_OK); /* 同字段重放原结果 */
+    CHECK(call_axis_write(&write, &value) == PARAMETER_OK); /* 同字段重放原结果 */
     uint32_t apply_before = stub_apply_calls;
     ParameterWriteRequest write_other = write;
     write_other.raw_value = 9999U;
-    CHECK(MotorAxis_WriteParameter(&write_other, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(call_axis_write(&write_other, &value) == PARAMETER_CONFLICTING_RETRY);
     CHECK(stub_apply_calls == apply_before); /* 冲突重试不重复应用 */
 
     /* 3. 保存身份：受理后读/写命中 s_save_job 冲突；同身份保存重放原结果与票据。 */
@@ -513,7 +545,7 @@ int main(void)
     read.sequence = 30U;
     CHECK(MotorAxis_ReadParameter(&read, &value) == PARAMETER_CONFLICTING_RETRY);
     write.sequence = 30U;
-    CHECK(MotorAxis_WriteParameter(&write, &value) == PARAMETER_CONFLICTING_RETRY);
+    CHECK(call_axis_write(&write, &value) == PARAMETER_CONFLICTING_RETRY);
     ticket = 0U;
     CHECK(MotorAxis_RequestSave(&save, &ticket) == PARAMETER_ACCEPTED);
     CHECK(ticket == stub_ticket);

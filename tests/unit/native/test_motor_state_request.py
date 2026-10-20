@@ -28,8 +28,13 @@ def run_variant(source_path: Path, output: Path, compiler_path: str) -> str:
     output.mkdir(parents=True, exist_ok=True)
     source = source_path.read_text(encoding="utf-8")
     fixture = (ROOT / "tests/unit/native/motor_state_request_test.c").read_text(encoding="utf-8")
+    write_source = function_source(source, "MotorAxis_WriteParameter")
+    has_outer_critical = "critical_hw_enter()" in write_source
+    fixture = f"#define AXIS_WRITE_OUTER_CRITICAL {int(has_outer_critical)}\n" + fixture
     if '#include "motor_parameter_transaction.h"' in source:
         fixture = "#define MOTOR_PARAMETER_TRANSACTION_PRESENT 1\n" + fixture
+    if "configure_controllers()" in write_source:
+        fixture += "\n" + function_source(source, "configure_controllers")
     for name in REQUEST_FUNCTIONS:
         try:
             fixture += "\n" + function_source(source, name)

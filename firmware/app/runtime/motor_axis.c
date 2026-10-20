@@ -47,31 +47,18 @@ uint8_t MotorAxis_NodeId(void)
     return s_motor_configuration.device.node_id;
 }
 
-/* PI运行对象立即反映活动参数；首个有效母线样本前电压额度为零，运行时照常更新。 */
+/* 仅在配置装配/提交边界绑定固定参数；保留积分与动态限幅，重放请求不会放宽热额度。 */
 static void configure_controllers(void)
 {
-    float maximum_voltage =
-        isfinite(s_foc_state.bus_voltage_filtered_v) && s_foc_state.bus_voltage_filtered_v > 0.0f
-            ? FOC_MaximumVoltage(s_foc_state.bus_voltage_filtered_v)
-            : 0.0f;
-    PiController_Configure(&s_foc_state.id_pi,
-                           s_motor_configuration.model.id_kp,
-                           s_motor_configuration.model.id_ki,
-                           Current_Ts,
-                           -maximum_voltage,
-                           maximum_voltage);
-    PiController_Configure(&s_foc_state.iq_pi,
-                           s_motor_configuration.model.iq_kp,
-                           s_motor_configuration.model.iq_ki,
-                           Current_Ts,
-                           -maximum_voltage,
-                           maximum_voltage);
-    PiController_Configure(&s_speed_pi,
-                           s_motor_configuration.application.speed_kp,
-                           s_motor_configuration.application.speed_ki,
-                           Speed_Ts,
-                           -1.0f,
-                           1.0f);
+    s_foc_state.id_pi.proportional_gain = s_motor_configuration.model.id_kp;
+    s_foc_state.id_pi.integral_gain = s_motor_configuration.model.id_ki;
+    s_foc_state.id_pi.sample_period_s = Current_Ts;
+    s_foc_state.iq_pi.proportional_gain = s_motor_configuration.model.iq_kp;
+    s_foc_state.iq_pi.integral_gain = s_motor_configuration.model.iq_ki;
+    s_foc_state.iq_pi.sample_period_s = Current_Ts;
+    s_speed_pi.proportional_gain = s_motor_configuration.application.speed_kp;
+    s_speed_pi.integral_gain = s_motor_configuration.application.speed_ki;
+    s_speed_pi.sample_period_s = Speed_Ts;
 }
 
 /* 每个新鲜母线样本后只刷新电压额度，不改变增益、时基或积分状态；空闲也有效。 */
@@ -185,6 +172,9 @@ void MotorAxis_Init(void)
     FOC_CurrentController_Reset(&s_foc_state);
     PiController_Reset(&s_speed_pi);
     configure_controllers();
+    update_current_controller_limits();
+    s_speed_pi.output_min = -1.0f;
+    s_speed_pi.output_max = 1.0f;
 
     s_motor_configuration.application.position_error_window_rad =
         PARAM_APP_POSITION_ERROR_WINDOW_RAD;
@@ -347,6 +337,10 @@ void MotorAxis_FastTick(void)
     if (configuration_work && s_motor_state.fault_code == MOTOR_FAULT_NONE &&
         (work_outcome.result == MOTOR_TASK_COMPLETED || work_outcome.result == MOTOR_TASK_FINALIZE))
     {
+        if (MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_DEFAULTS)
+        {
+            configure_controllers();
+        }
         MotorParameterTransaction_AdvanceMaintenanceRevision(work_epoch);
     }
     MotorStateMachine_PostOutcome(work_outcome, work_epoch);
@@ -427,8 +421,15 @@ ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, Par
 ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
                                          ParameterValue *applied)
 {
-    return MotorParameterTransaction_Write(
+    uint32_t mask = critical_hw_enter();
+    ParameterStatus result = MotorParameterTransaction_Write(
         &s_motor_configuration, &s_motor_state, &s_foc_state, &s_speed_pi, request, applied);
+    if (result == PARAMETER_OK)
+    {
+        configure_controllers();
+    }
+    critical_hw_exit(mask);
+    return result;
 }
 
 ParameterStatus MotorAxis_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket)

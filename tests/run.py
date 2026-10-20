@@ -20,6 +20,7 @@ NATIVE = (
     "test_encoder_sample_overlap",
     "test_fast_loop_math",
     "test_shared_contracts",
+    "test_app_flash_failure",
     "test_foc_equivalence",
     "test_numeric_encoding",
     "test_loader_upgrade",

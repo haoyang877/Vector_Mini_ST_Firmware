@@ -39,6 +39,19 @@ static float simulated_bus_voltage_v = 30.0f;
 static unsigned current_reads, state_initializations, maintenance_queries;
 static unsigned observer_calls, progress_calls, protection_calls, control_calls;
 static MotorState simulated_state = MOTOR_STATE_INIT;
+static bool simulated_defaults;
+static unsigned critical_depth;
+
+uint32_t critical_hw_enter(void)
+{
+    return critical_depth++;
+}
+
+void critical_hw_exit(uint32_t previous)
+{
+    assert(critical_depth == previous + 1U);
+    critical_depth = previous;
+}
 
 static void load_parameters(MotorConfiguration *configuration)
 {
@@ -152,11 +165,11 @@ bool MotorStateMachine_OutputExpected(void)
 bool MotorStateMachine_MaintenanceRunnable(void)
 {
     ++maintenance_queries;
-    return false;
+    return simulated_defaults;
 }
 MotorMaintenanceKind MotorStateMachine_GetMaintenanceKind(void)
 {
-    return MOTOR_MAINTENANCE_ENCODER_LUT;
+    return simulated_defaults ? MOTOR_MAINTENANCE_DEFAULTS : MOTOR_MAINTENANCE_ENCODER_LUT;
 }
 MotorState MotorStateMachine_GetState(void)
 {
@@ -179,7 +192,8 @@ uint32_t MotorStateMachine_WorkEpoch(void)
 }
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
 {
-    assert(outcome.result == MOTOR_TASK_RUNNING && epoch == 1U);
+    assert(outcome.result == (simulated_defaults ? MOTOR_TASK_COMPLETED : MOTOR_TASK_RUNNING) &&
+           epoch == 1U);
     ++progress_calls;
 }
 void motor_hw_pwm_set_duty(float duty_a, float duty_b, float duty_c)
@@ -204,8 +218,32 @@ MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
                                       FluxObserverState *observer,
                                       SensorlessStartupState *startup)
 {
-    assert(false);
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+    assert(simulated_defaults && kind == MOTOR_MAINTENANCE_DEFAULTS);
+    configuration->model.id_kp = 7.0f;
+    configuration->model.iq_ki = 9.0f;
+    configuration->application.speed_kp = 0.7f;
+    return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
+}
+
+/* 事务桩只核对Axis原子绑定；线上ID权限和回滚由真实事务夹具覆盖。 */
+ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuration,
+                                                MotorControlState *runtime,
+                                                FocState *foc,
+                                                PiController *speed_pi,
+                                                const ParameterWriteRequest *request,
+                                                ParameterValue *applied)
+{
+    assert(critical_depth == 1U && configuration == &s_motor_configuration);
+    assert(runtime == &s_motor_state && foc == &s_foc_state && speed_pi == &s_speed_pi);
+    if (request == NULL)
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    configuration->model.id_kp = 11.0f;
+    configuration->model.iq_ki = 13.0f;
+    configuration->application.speed_kp = 0.9f;
+    *applied = (ParameterValue){.revision = 4U};
+    return PARAMETER_OK;
 }
 /* STARTUP_CURRENT_OFFSET_PRODUCTION：脚本插入真实生产体。 */
 
@@ -215,6 +253,8 @@ static void initialize(void)
     memset(&s_foc_state, 0, sizeof(s_foc_state));
     memset(&s_speed_pi, 0, sizeof(s_speed_pi));
     output_off = true;
+    simulated_defaults = false;
+    critical_depth = 0U;
     simulated_bus_voltage_v = 30.0f;
     current_reads = 0U;
     maintenance_queries = 0U;
@@ -348,12 +388,49 @@ static void test_voltage_limits_refresh_only(void)
     }
 }
 
+static void test_configuration_binding(void)
+{
+    initialize();
+    s_foc_state.id_pi.integral_output = 0.6f;
+    s_foc_state.iq_pi.integral_output = -0.4f;
+    s_speed_pi.integral_output = 0.25f;
+    s_speed_pi.output_min = -0.2f;
+    s_speed_pi.output_max = 0.3f;
+    ParameterWriteRequest request = {0};
+    ParameterValue applied;
+    assert(MotorAxis_WriteParameter(&request, &applied) == PARAMETER_OK);
+    assert(critical_depth == 0U && applied.revision == 4U);
+    assert(s_foc_state.id_pi.proportional_gain == 11.0f);
+    assert(s_foc_state.iq_pi.integral_gain == 13.0f && s_speed_pi.proportional_gain == 0.9f);
+    assert(s_foc_state.id_pi.integral_output == 0.6f &&
+           s_foc_state.iq_pi.integral_output == -0.4f && s_speed_pi.integral_output == 0.25f);
+    assert(s_speed_pi.output_min == -0.2f && s_speed_pi.output_max == 0.3f);
+    PiController before = s_foc_state.id_pi;
+    assert(MotorAxis_WriteParameter(NULL, &applied) == PARAMETER_INVALID_ARGUMENT);
+    assert(memcmp(&before, &s_foc_state.id_pi, sizeof(before)) == 0);
+
+    /* DEFAULTS在维护拍完成时绑定，新参数在下一次控制输出前已可见。 */
+    simulated_defaults = true;
+    s_current_offset_calibration.complete = true;
+    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
+    samples[0] = samples[1] = samples[2] = 8192U;
+    MotorAxis_FastTick();
+    assert(s_foc_state.id_pi.proportional_gain == 7.0f);
+    assert(s_foc_state.iq_pi.integral_gain == 9.0f && s_speed_pi.proportional_gain == 0.7f);
+    assert(s_foc_state.id_pi.integral_output == 0.6f &&
+           s_foc_state.iq_pi.integral_output == -0.4f && s_speed_pi.integral_output == 0.25f);
+    assert(s_speed_pi.output_min == -0.2f && s_speed_pi.output_max == 0.3f);
+}
+
 int main(void)
 {
     assert(CURRENT_OFFSET_SAMPLE_COUNT == 20000U);
     test_full_window();
     test_rejections();
     test_voltage_limits_refresh_only();
+    test_configuration_binding();
     initialize();
     simulated_state = MOTOR_STATE_RUNNING;
     MotorAxis_FastTick();
@@ -361,6 +438,7 @@ int main(void)
     initialize();
     s_foc_state.bus_voltage_filtered_v = 30.0f;
     configure_controllers();
+    update_current_controller_limits();
     assert(s_foc_state.id_pi.output_max == FOC_MaximumVoltage(30.0f));
     assert(s_foc_state.iq_pi.output_min == -FOC_MaximumVoltage(30.0f));
     assert(state_initializations >= 7U);

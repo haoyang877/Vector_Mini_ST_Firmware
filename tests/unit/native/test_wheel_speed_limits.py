@@ -116,15 +116,19 @@ int main(void) {
                               motor_state.model.id_ki,motor_state.model.iq_ki};
         assert(memcmp(actual,expected,sizeof(expected))==0);
     }
-    /* 两版有效记录的手调 PI 不随 R/L 重新派生，导出仍逐位保留。 */
-    for(unsigned version=12;version<=13;version++) {
+    /* 各版有效记录的手调 PI 不随 R/L 重新派生，导出仍逐位保留。 */
+    for(unsigned version=12;version<=14;version++) {
         p=saved; p.schema_version=version;
         p.motor_phase_resistance_ohm=1.25f;
         p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
         p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
         const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
-        p.record_crc32=Param_RecordCrc(&p);
-        Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
+        uint8_t input[4352]={0};
+        unsigned bytes=version==12 ? 4304 : version==13 ? 4352 : sizeof(p);
+        memcpy(input,&p,version==14 ? sizeof(p) : 2240);
+        if(version==13) { memcpy(input+4304,(const uint8_t *)&p+2240,48); }
+        uint32_t crc=record_crc(input,bytes); memcpy(input+2140,&crc,4);
+        Param_Download(input,bytes,&motor_state,&rotor_encoder);
         const float actual[]={motor_state.model.id_kp,motor_state.model.iq_kp,
                               motor_state.model.id_ki,motor_state.model.iq_ki};
         assert(motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
@@ -133,7 +137,7 @@ int main(void) {
         const float exported[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         assert(memcmp(exported,expected,sizeof(expected))==0);
     }
-    puts("PASS default PI bit equivalence and stored schema12/13 custom PI retention");
+    puts("PASS default PI bit equivalence and stored schema12/13/14 custom PI retention");
     policy_golden_vectors(&saved);
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;

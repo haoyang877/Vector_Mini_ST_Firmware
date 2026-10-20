@@ -16,6 +16,10 @@ provide the short entry map; details belong here.
 保留控制数学、保护阈值及Watch观测入口。
 主状态机继续按[五条核心流程](architecture/motor_state_machine_v1.md)整理，
 实施与验证见[主流程精简 v2](plans/completed/2026-10-21-state-machine-core-flow-v2.md)。
+后续整机验证按[升级、标定与速度闭环验收](plans/active/2026-10-21-core-full-bench-acceptance-v1.md)
+依次执行，实测结论以新候选证据为准。
+APP 1.5.1 本轮结果见[核心工程实机验收](reports/2026-10-21-core-bench-acceptance-v1.md)，
+其中明确区分已经通过的范围和未测试项目。
 
 当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
 按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。

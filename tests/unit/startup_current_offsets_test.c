@@ -18,6 +18,7 @@
 #include "motor_parameter_transaction.h"
 #include "motor_thermal_control.h"
 #include "time_hw.h"
+#include "application_profile_defaults.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
 static MotorControlState s_motor_state;

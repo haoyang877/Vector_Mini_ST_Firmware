@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [四类参数配置入口 v2](2026-10-20-parameter-entrypoints-v2.md)：硬件原始输入、热模型及应用默认归位，固定宏和三版存储兼容通过离线检查，未烧录。
+
 - [参数来源与编译期派生 v1](2026-10-20-parameter-sources-and-constants-v1.md)：输入、派生、标定和运行分类；固定宏逐位等价与PR通过，未烧录。
 
 - [齿槽最小任务 v3](2026-10-08-cogging-minimal-task-v3.md)：启动、安全门、采集/保持和统一结束，独立候选已审并接入，待组合验证。

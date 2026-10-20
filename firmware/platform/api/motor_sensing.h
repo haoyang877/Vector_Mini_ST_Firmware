@@ -10,13 +10,8 @@
  * 电流/VBUS原始计数为四次和，使用前折算为12位域；保留历史换算运算顺序。
  * hw_conf.h 以历史名称回导这些常量，板级实现见 platform/stm32g4/ports/motor。 */
 
-/* 固定板级输入：母线分压电阻（kΩ）和ADC2每个rank的累加次数。
- * 累加次数须与ADC2实际配置一致，不是可在线修改的参数。 */
-#define MOTOR_SENSING_VBUS_R1_KOHM 10.0f
-#define MOTOR_SENSING_VBUS_R2_KOHM 1.0f
-#define MOTOR_SENSING_ADC_SAMPLE_COUNT 4U
-
-/* 以下为编译期派生量；全部操作数为常量，调用点只保留与采样值的运算。 */
+/* 固定板级输入由board_profile_defaults.h提供；以下只派生换算系数。
+ * 全部操作数为常量，调用点只保留与采样值的运算。 */
 #define MOTOR_SENSING_ADC_SUM_TO_COUNTS (1.0f / (float)MOTOR_SENSING_ADC_SAMPLE_COUNT)
 /* 母线电压：V/count；保持先除ADC量程、再乘分压比的历史顺序。 */
 #define MOTOR_SENSING_VBUS_V_PER_COUNT                                                             \

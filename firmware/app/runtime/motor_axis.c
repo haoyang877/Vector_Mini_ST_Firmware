@@ -9,6 +9,7 @@
 #include "motor_parameter_transaction.h"
 #include "motor_thermal_control.h"
 #include "time_hw.h"
+#include "application_profile_defaults.h"
 
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
@@ -120,7 +121,7 @@ static void sample_phase_currents(void)
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
         raw[phase] = motor_hw_current_sample_raw((MotorHwCurrentPhase)phase);
-        if (raw[phase] > 4U * 4095U)
+        if (raw[phase] > MOTOR_SENSING_ADC_SAMPLE_COUNT * CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
         {
             fail_current_offset_calibration();
             return;
@@ -176,7 +177,7 @@ void MotorAxis_Init(void)
     PiController_Reset(&s_speed_pi);
     configure_controllers();
 
-    s_motor_state.application.position_error_window_rad = 0.001f;
+    s_motor_state.application.position_error_window_rad = PARAM_APP_POSITION_ERROR_WINDOW_RAD;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
     MotorOuterLoop_RequestReset();
 

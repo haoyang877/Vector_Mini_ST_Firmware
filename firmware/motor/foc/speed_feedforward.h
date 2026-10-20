@@ -23,11 +23,6 @@ typedef struct
 } SpeedFeedforwardState;
 
 /**
- * @brief 设置默认关闭的保守配置。
- * @param config 接收默认配置的非空对象。
- */
-void SpeedFeedforward_Default(SpeedFeedforwardConfig *config);
-/**
  * @brief 校验全部配置字段的有限性与保守调参边界。
  * @param config 待校验配置。
  * @return 非空且全部字段合法时返回 true。

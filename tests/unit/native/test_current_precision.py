@@ -55,6 +55,10 @@ int main(void) {
     assert(CURRENT_SENSE_SHUNT_MILLIOHM==6U);
     assert(CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM==0.006f);
 #endif
+    assert(PARAM_HW_CURRENT_OFFSET_A_COUNTS==2048U);
+    assert(PARAM_HW_CURRENT_OFFSET_B_COUNTS==2048U);
+    assert(PARAM_HW_CURRENT_OFFSET_C_COUNTS==2048U);
+    assert(MOTOR_SENSING_ADC_SAMPLE_COUNT*CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS==16380U);
     /* 本项专测换算精度；上电零点采样由test_startup_current_offsets独立覆盖。 */
     motor_state.device.phase_a_offset_counts=2032.625f; motor_state.device.phase_b_offset_counts=2051.25f;
     motor_state.device.phase_c_offset_counts=2036.5f;

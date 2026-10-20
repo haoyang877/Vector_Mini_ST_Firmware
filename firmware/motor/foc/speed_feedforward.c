@@ -5,15 +5,6 @@
 #include <stddef.h>
 #include <string.h>
 
-void SpeedFeedforward_Default(SpeedFeedforwardConfig *config)
-{
-    config->enabled = false;
-    config->gain_a_per_rad_s2 = 0.028f;
-    config->acceleration_limit_rad_s2 = 20.0f;
-    config->jerk_limit_rad_s3 = 200.0f;
-    config->current_limit_a = 2.0f;
-}
-
 bool SpeedFeedforward_IsValid(const SpeedFeedforwardConfig *config)
 {
     return config != NULL && isfinite(config->gain_a_per_rad_s2) &&

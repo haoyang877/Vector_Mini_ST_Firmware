@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "parameter_value_service.h"
+#include "application_profile_defaults.h"
 
 static void read_units_and_identity(void)
 {
@@ -105,7 +106,7 @@ static void configuration_confirmation(void)
         .parameter_id = 0x4DU, .value_type = PARAMETER_VALUE_U32, .raw_value = 1U};
     ParameterValue value;
     MotorWindingThermal_Default(&motor.model.thermal);
-    SpeedFeedforward_Default(&motor.application.speed_feedforward);
+    motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     assert(ParameterValue_ConfigurationValid(&motor));
     assert(ParameterValue_Read(&motor, &encoder, 1U, 0x4DU, &value) == PARAMETER_OK);
     assert(value.raw_value == 0U && value.access == 3U);
@@ -180,7 +181,7 @@ static void thermal_and_feedforward_values(void)
     MotorControlState motor = {.configuration_confirmed = true, .device.node_id = 7U};
     EncoderState encoder = {0};
     MotorWindingThermal_Default(&motor.model.thermal);
-    SpeedFeedforward_Default(&motor.application.speed_feedforward);
+    motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     for (unsigned index = 0U; index < sizeof(values) / sizeof(values[0]); ++index)
     {
         ParameterWriteRequest request = {.parameter_id = values[index].id,
@@ -236,7 +237,8 @@ static void thermal_and_feedforward_values(void)
     assert(memcmp(&before, &motor, sizeof(motor)) == 0);
     for (unsigned index = 7U; index < sizeof(values) / sizeof(values[0]); ++index)
     {
-        SpeedFeedforward_Default(&motor.application.speed_feedforward);
+        motor.application.speed_feedforward =
+            (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
         if (values[index].id == 0x6AU)
         {
             motor.application.speed_feedforward.jerk_limit_rad_s3 = NAN;
@@ -255,7 +257,7 @@ static void thermal_and_feedforward_values(void)
     before = motor;
     assert(ParameterValue_Apply(&motor, &enable) == PARAMETER_OUT_OF_RANGE);
     assert(memcmp(&before, &motor, sizeof(motor)) == 0);
-    SpeedFeedforward_Default(&motor.application.speed_feedforward);
+    motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     assert(ParameterValue_Apply(&motor, &enable) == PARAMETER_OK);
     assert(!motor.application.speed_feedforward.enabled);
 }

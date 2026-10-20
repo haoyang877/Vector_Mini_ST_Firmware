@@ -556,6 +556,7 @@ def main():
 
     exe = build("position_servo_test", ["tests/unit/position_servo_test.c",
                                         "firmware/motor/position/position_cascade.c", "firmware/motor/trajectory/position_smooth_trajectory.c", "firmware/motor/foc/foc_pid.c"])
+    # passive/support 策略已退役；历史 pitch_support_test.c 保留，不再自动执行。
     rtt_fixture = args.out / "rtt_frame_test.c"
     rtt_fixture.write_text(rtt_frame_fixture(), encoding="utf-8")
     build("rtt_frame_test", [rtt_fixture])

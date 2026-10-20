@@ -1,9 +1,11 @@
 # 软件版本号与查询
 
-文档 v1.4，2026-10-15；当前 `codex/ovp-36v` APP源码：**v0.6.0，build 0**。
+文档 v1.5，2026-10-20；当前 `codex/ovp-36v` APP源码：**v0.6.1，build 0**。
 v0.5.3先裁剪mode 18并压缩正弦表，v0.6.0再集成绕组热保护和热参数配置；
 保留mode 3、速度前馈、摩擦斜率配置及CAN Loader。APP链接到0x08004000，Loader仍为v1.0.0。
-此前100轮验收对应冻结v0.5.0，不能作为本次v0.6.0镜像的实机耐久或电机性能验收。
+此前100轮验收对应冻结v0.5.0，不能作为本次v0.6.1镜像的实机耐久或电机性能验收。
+v0.6.1恢复7a2d235的mode 3控制并保留现代参数接口，增加默认关闭的温度保护通信开关；
+Roll实测范围及参数见[本轮报告](../reports/2026-10-20-roll-mode3-historical-tuning-v1.md)。
 合并与验证范围见[整合记录](../reports/2026-10-14-loader-merge-ovp36.md)，历史v0.4.1归档仍保留。
 v0.5.2已验证旧APP状态初装、CAN升级及复位后的标定数据保留，见[本轮记录](../reports/2026-10-14-maintenance-v110-app-v052.md)。
 历史 `roll-pitch-v0.1` 标签仍指向原节点。其他工作树的 APP/Loader 版本独立维护。
@@ -14,13 +16,13 @@ v0.5.2已验证旧APP状态初装、CAN升级及复位后的标定数据保留�
 `FIRMWARE_VERSION_MAJOR/MINOR/PATCH/BUILD`。每项为0～255的十进制整数，
 修改后重新编译、下载才影响板端；版本由源码编入 Flash，不写入电机参数区。
 
-- RTT 文本通道0在启动时输出 `Vector Mini ST APP v0.6.0 (build 0)`；通道1
+- RTT 文本通道0在启动时输出 `Vector Mini ST APP v0.6.1 (build 0)`；通道1
   的原有 LKS 示波器格式不变。错过启动文本可读取以下符号或用 CAN 查询。
-- Keil/J-Link：只读符号 `g_firmware_software_version_string` 为 `v0.6.0`；
-  `g_firmware_software_version` 为 `0x00060000`。地址由本次 AXF/map 决定，
+- Keil/J-Link：只读符号 `g_firmware_software_version_string` 为 `v0.6.1`；
+  `g_firmware_software_version` 为 `0x00060100`。地址由本次 AXF/map 决定，
   不能沿用旧 AXF 的地址。
 - CAN：标准帧ID=`(node_id << 8) | 0x6F`，发送4字节 `00 00 00 00`；
-  同一ID回复4字节 `00 06 00 00`，依次为主、次、修订、构建号。
+  同一ID回复4字节 `00 06 01 00`，依次为主、次、修订、构建号。
   Pitch节点4示例ID为 `0x46F`，Roll为 `0x36F`，Yaw为 `0x56F`。
   四字节必须作为大端 uint32 或分别按字节读，**不是float32**。
 

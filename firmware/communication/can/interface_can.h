@@ -131,7 +131,7 @@ typedef enum
     CAN_GET_SPEED_FF_CURRENT = 0x7A,
     CAN_GET_SPEED_FF_ACCELERATION_PLANNED = 0x7B,
     CAN_GET_PARAMETER_CRC = 0x7C,
-    /** @brief MTH1/v2通信扩展；值为大端float32，电流A、时间s、门限%。 */
+    /** @brief MTH1/v3通信扩展；值为大端float32，电流A、时间s、门限%。 */
     CAN_SET_THERMAL_CONTINUOUS = 0x80,
     CAN_GET_THERMAL_CONTINUOUS = 0x81,
     CAN_SET_THERMAL_PEAK = 0x82,
@@ -147,6 +147,9 @@ typedef enum
     CAN_SET_THERMAL_CLEAR = 0x8C,
     CAN_GET_THERMAL_CLEAR = 0x8D,
     CAN_GET_THERMAL_REVISION = 0x8E,
+    /** @brief RAM温度保护开关；仅停机关相接受0/1，查询返回已应用状态。 */
+    CAN_SET_TEMPERATURE_PROTECTION = 0x90,
+    CAN_GET_TEMPERATURE_PROTECTION = 0x91,
 }CAN_PARAM_ID;
 
 typedef struct

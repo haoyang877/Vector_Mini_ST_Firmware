@@ -174,6 +174,12 @@ void Error_Handler(void);
         'CAN_SetNode','CAN_CommandEncoding','CAN_ReplyEncoding','CAN_Milli32','CAN_Centi32','CAN_Milli16',
         'CAN_SetEncoderState','CAN_GetEncoderState','CAN_ReceiveMessage_Update','CAN_SendMessage_Update',
         'CANRxIRQHandler','CAN_SendMessage'))
+    # 交接夹具只观察收发抢占；温度开关的状态转换由独立热协议夹具运行真实实现。
+    actual = r'''
+bool MotorThermalControl_ProtectionEnabled(void) { return true; }
+bool MotorThermalControl_RequestProtection(bool enabled, uint32_t mode, bool off)
+{ (void)enabled; (void)mode; (void)off; return false; }
+''' + actual
     (out/'can_reply_actual.inc').write_text(actual,encoding='utf-8')
     vectors=json.loads((ROOT/'tests/vectors/can_reply_handoff_v1.json').read_text(encoding='utf-8'))
     golden='static const struct {unsigned request_id,reply_id,length;uint8_t request[4],reply[16];} handoff_vectors[]={\n'
@@ -432,10 +438,16 @@ typedef unsigned CAN_PARAM_ID;
 #define CAN_SET_THERMAL_CLEAR 0x8C
 #define CAN_GET_THERMAL_CLEAR 0x8D
 #define CAN_GET_THERMAL_REVISION 0x8E
+#define CAN_SET_TEMPERATURE_PROTECTION 0x90
+#define CAN_GET_TEMPERATURE_PROTECTION 0x91
 /* 通信状态用例不修改热模型，热命令由独立 golden 用例覆盖。 */
 bool MotorThermalControl_GetParameter(MotorThermalParameter p,float *v) { (void)p;(void)v;return false; }
 bool MotorThermalControl_RequestParameter(MotorThermalParameter p,float v,uint32_t m,bool off) { (void)p;(void)v;(void)m;(void)off;return false; }
+bool MotorThermalControl_ProtectionEnabled(void) { return true; }
+bool MotorThermalControl_RequestProtection(bool enabled,uint32_t mode,bool off) { (void)enabled;(void)mode;(void)off;return false; }
 bool motor_hw_phase_outputs_disabled(void) { return true; }
+#define Motor_Disable 0U
+static unsigned ModeLast;
 static struct {float position_speed_Kp, position_speed_Ki;unsigned ModeNow,ErrorNow;
     SpeedFeedforwardConfig speed_ff_config;SpeedFeedforwardState speed_ff_state;} MotorControl;
 static bool MotorControl_SetSpeedFeedforward(const SpeedFeedforwardConfig *config) {(void)config;return false;}
@@ -451,7 +463,7 @@ static int32_t MotorControl_GetLoadProfile(void) { return 0; }
 static float reply;
 static unsigned replies;
 static unsigned reply_id;
-static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67 || id==0x69 || id==0x6A || id==CAN_GET_SOFTWARE_VERSION);reply_id=id;reply=value;++replies;}
+static void CAN_SendMessage_Update(unsigned id,float value) {assert(id==0x65 || id==0x67 || id==0x69 || id==0x6A || id==CAN_GET_SOFTWARE_VERSION || id==CAN_GET_TEMPERATURE_PROTECTION);reply_id=id;reply=value;++replies;}
 '''+function_source(source,'CAN_ReceiveMessage_Update').split('    /* 节点事务')[0]+'}\n'+r'''
 #include <math.h>
 int main(void) {
@@ -471,6 +483,11 @@ int main(void) {
  assert(reply_id==CAN_GET_SOFTWARE_VERSION && replies==10);
  assert(MotorControl.ModeNow==3 && MotorControl.ErrorNow==7);
  assert(MotorControl.position_speed_Kp==.5f && MotorControl.position_speed_Ki==1 && CanMotorStatus_Rate()==200);
+ CAN_ReceiveMessage_Update(CAN_GET_TEMPERATURE_PROTECTION,NAN);
+ assert(reply_id==CAN_GET_TEMPERATURE_PROTECTION && reply==1);
+ CAN_ReceiveMessage_Update(CAN_SET_TEMPERATURE_PROTECTION,0);
+ assert(reply_id==CAN_GET_TEMPERATURE_PROTECTION && reply==-1);
+ assert(MotorControl.ModeNow==3 && MotorControl.ErrorNow==7);
  puts("PASS actual command adapter: start/rate/stop/query ACK and invalid input NAK");return 0;
 }
 '''

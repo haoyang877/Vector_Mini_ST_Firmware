@@ -307,6 +307,21 @@ int main(void) {
     observer_power_start_ready=false; actual_power_boundary();
     assert(gate_off && power_stops==1 && !calibration_start_pending);
     puts("PASS dual runtime profiles, CRC/legacy, parameter preservation, switch ownership, stop guards, CAN values");
+    /* 支撑仅为RAM候选：上传不能污染任何既有Flash记录，重载恢复默认。 */
+    seed(&baseline);
+    MotorControl.position_support_limit_a = 0.25f;
+    MotorControl.position_support_adjust_a_per_s = 0.75f;
+    MotorControl.position_support_release_a_per_s = 1.25f;
+    {
+        InterfaceParam_TypeDef saved;
+        Param_Upload(&saved); saved.magic_word=MAGIC_WORD;
+        assert(memcmp(&saved,&baseline,sizeof(saved))==0);
+        assert(!Param_Download(&saved));
+        assert(MotorControl.position_support_limit_a==POSITION_SERVO_SUPPORT_LIMIT_A);
+        assert(MotorControl.position_support_adjust_a_per_s==POSITION_SERVO_SUPPORT_ADJUST_A_PER_S);
+        assert(MotorControl.position_support_release_a_per_s==POSITION_SERVO_SUPPORT_RELEASE_A_PER_S);
+    }
+    puts("PASS Pitch support RAM defaults and byte-identical Flash upload");
     check_runtime_reset_contract();
     return 0;
 }

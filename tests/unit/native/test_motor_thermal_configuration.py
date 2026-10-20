@@ -43,6 +43,7 @@ def can_fixture(vectors: dict) -> str:
 CANMsg_TypeDef CANMsg;
 volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
 MotorControl_TypeDef MotorControl;
+ModeNow_TypeDef ModeLast;
 const uint32_t g_firmware_software_version = FIRMWARE_VERSION_CODE;
 typedef enum {CAN_VALUE_FLOAT32,CAN_VALUE_MILLI_I32,CAN_VALUE_CENTI_I32,CAN_VALUE_MILLI_I16} CanValueEncoding;
 static CommHwCanFrame incoming;
@@ -86,7 +87,7 @@ static void zero_step(void) {
 int main(void) {
     MotorThermalDiagnostics before,after;
     float value;
-    CANMsg.node_id=4; MotorControl.ModeNow=Motor_Disable;
+    CANMsg.node_id=4; MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
     assert(!MotorThermalControl_RequestParameter(MOTOR_THERMAL_PEAK,6,0,true));
     const float bad_boot[]={3,7,65,80,.7f,1,.5f};
     assert(!MotorThermalControl_LoadParameters(bad_boot));
@@ -94,6 +95,11 @@ int main(void) {
     assert(MotorThermalControl_LoadParameters(small_boot));
     assert(MotorThermalControl_LoadParameters(NULL));
     MotorThermalControl_Init(0);
+    /* 原热参数场景显式开启保护，避免默认关闭掩盖降额和故障断言。 */
+    assert(!MotorThermalControl_ProtectionEnabled());
+    assert(MotorThermalControl_RequestProtection(true,Motor_Disable,true));
+    for(unsigned i=0;i<20;i++) MotorThermalControl_Sample(0,0,0,true,0);
+    assert(MotorThermalControl_ProtectionEnabled() && snapshot().model.sample_count==0);
     const unsigned ids[]={0x81,0x83,0x85,0x87,0x89,0x8b,0x8d};
     const unsigned char golden[][4]={GOLDEN_CAN_BYTES};
     for(unsigned i=0;i<7;i++) {

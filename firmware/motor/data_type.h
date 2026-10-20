@@ -158,6 +158,10 @@ typedef struct
     /* 快环发布、工作线程仅消费；RAM尾字段，不保存到InterfaceParam。 */
     float thermal_current_limit_a;
     bool thermal_limit_active;
+    /* Pitch mode3支撑候选，仅RAM；0 A关闭，复位重载默认，不进入Flash ABI。 */
+    float position_support_limit_a;
+    float position_support_adjust_a_per_s;
+    float position_support_release_a_per_s;
 }MotorControl_TypeDef;
 
 #endif

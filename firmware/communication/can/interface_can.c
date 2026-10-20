@@ -338,7 +338,25 @@ void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
     }
     if (param_id == CAN_GET_THERMAL_REVISION)
     {
-        CAN_SendMessage_Update(CAN_GET_THERMAL_REVISION, 2.0f);
+        CAN_SendMessage_Update(CAN_GET_THERMAL_REVISION, 3.0f);
+        return;
+    }
+    if (param_id == CAN_SET_TEMPERATURE_PROTECTION)
+    {
+        bool outputs_disabled = motor_hw_phase_outputs_disabled();
+        bool accepted = isfinite(data) && (data == 0.0f || data == 1.0f) &&
+            MotorControl.ModeNow == Motor_Disable && ModeLast == Motor_Disable &&
+            outputs_disabled &&
+            MotorThermalControl_RequestProtection(data == 1.0f,
+                                                  (uint32_t)MotorControl.ModeNow,
+                                                  outputs_disabled);
+        CAN_SendMessage_Update(CAN_GET_TEMPERATURE_PROTECTION, accepted ? data : -1.0f);
+        return;
+    }
+    if (param_id == CAN_GET_TEMPERATURE_PROTECTION)
+    {
+        CAN_SendMessage_Update(CAN_GET_TEMPERATURE_PROTECTION,
+            MotorThermalControl_ProtectionEnabled() ? 1.0f : 0.0f);
         return;
     }
     /* 扩展先于float转int；设置只发布配置，不在CAN ISR改热模型。 */

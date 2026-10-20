@@ -16,9 +16,9 @@ typedef struct
 	float update_period_s;
 	uint16_t call_divider;
 	float target_position;
-	float position_error_window; /* 轨迹结束和实际到位精度，rad。 */
-	float hold_enter_position; /* 近区模型前馈卸载带，rad；同时定义 HOLD 滞环比例。 */
-	float hold_exit_position; /* 大偏差前馈重启带及原始退出门限，rad；保留滞环比例。 */
+	float position_error_window; /* 仅轨迹结束容差，rad；HOLD资格使用独立窗口。 */
+	float hold_enter_position; /* 主动保持入口及前馈捕获窗口，rad。 */
+	float hold_exit_position; /* 主动保持退出及摩擦恢复滞环，rad。 */
 	float velocity_filter_hz; /* 0 bypasses the base filter; HOLD shaping is separate. */
 	float hold_velocity_filter_hz; /* 0 bypasses HOLD shaping; runtime tuning in Hz. */
 	float following_error_limit; /* Soft governor range in rad; 0 disables. */
@@ -37,7 +37,7 @@ typedef struct
     float thermal_output_limit_a; /* 实际可用电流，A；不作为PI增益尺度。 */
     bool thermal_limit_active;
 	bool friction_feedforward_enabled;
-	bool passive_hold_enabled; /* 带阻尼环近区卸流停靠；调用者须显式初始化。 */
+	bool passive_hold_enabled; /* 仅保留布局兼容；恢复主动保持后忽略。 */
 	float friction_coulomb_positive;
 	float friction_coulomb_negative;
 	float friction_viscous_positive;
@@ -51,6 +51,10 @@ typedef struct
 	float friction_move_speed;
 	float friction_breakaway_distance;
 	float friction_stuck_time;
+    /* 仅保留布局兼容；独立支撑配置被忽略，不参与主动保持。 */
+    float support_current_limit_a;
+    float support_adjust_rate_a_per_s;
+    float support_release_rate_a_per_s;
 } PositionCascadeConfig_TypeDef;
 
 typedef struct
@@ -66,6 +70,7 @@ typedef struct
 	float hold_current;
 	PositionServoPhase_TypeDef phase;
 	bool target_reached;
+    float support_current_a; /* 兼容字段恒为0；hold_current仍为PI.Ui，单位A。 */
 } PositionCascadeOutput_TypeDef;
 
 typedef struct
@@ -88,7 +93,14 @@ typedef struct
 	bool hold_candidate_active;
 	bool trajectory_limited;
 	bool stiction_integrating; /* Bounded static-error integral applied this update. */
-	bool passive_hold; /* 被动卸流或停靠；不等于target_reached，也不表示功率门极关断。 */
+    /* 以下为旧被动停靠/支撑的兼容字段，均恒为false或0。 */
+	bool passive_hold;
+    float support_current_a;
+    bool support_adjusting;
+    bool support_limited;
+    bool support_refining;
+    uint32_t passive_confirm_ticks;
+    float qualification_position_rad;
 } PositionCascadeTelemetry_TypeDef;
 
 /* Minimal current-command/feedback view for the high-rate motor adapter.

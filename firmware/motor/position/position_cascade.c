@@ -11,6 +11,8 @@
 #include "motor_thermal.h"
 #include "position_smooth_trajectory.h"
 
+/* 恢复7a2d235的主动保持策略；热额度仅限幅，不改变配置电流对应的PI增益。 */
+
 typedef struct
 {
 	PositionCascadeConfig_TypeDef validated_config;
@@ -19,18 +21,12 @@ typedef struct
 	uint32_t configured_stuck_ticks;
 	float configured_velocity_filter_alpha;
 	float configured_hold_velocity_filter_alpha;
-	float configured_capture_position_rad;
-	float configured_hold_exit_position_rad;
 	PI_Controller_TypeDef speed_controller;
 	PositionSmoothTrajectory smooth_trajectory;
 	bool smooth_active;
 	bool smooth_planning;
 	uint16_t loop_count;
 	uint32_t hold_counter;
-	uint32_t passive_counter;
-	uint32_t passive_exit_counter;
-	uint32_t near_stop_counter;
-	float near_progress_error_rad;
 	uint32_t friction_stuck_counter;
 	uint32_t position_stuck_counter;
 	float position_stuck_anchor;
@@ -41,7 +37,6 @@ typedef struct
 	float speed_reference;
 	float velocity_filtered;
 	float control_velocity;
-	float qualification_position_rad;
 	float iq_reference;
 	float feedback_current;
 	float acceleration_feedforward_current;
@@ -59,11 +54,6 @@ typedef struct
 	bool trajectory_limited;
 	bool friction_current_ramping;
 	bool stiction_integrating;
-	bool settle_friction_quiet;
-	bool passive_hold;
-	bool passive_recovery_limited;
-	bool passive_brake_latched;
-	bool near_target_no_integral;
 	bool initialized;
 	bool defer_telemetry;
 } PositionCascadeState_TypeDef;
@@ -163,11 +153,11 @@ static bool PositionCascade_ConfigIsValid(const PositionCascadeConfig_TypeDef *c
 		isfinite(config->friction_breakaway_ratio) &&
 		config->friction_breakaway_ratio >= 1.0f &&
 		isfinite(config->friction_attack_slew_rate) &&
-		config->friction_attack_slew_rate > 0.0f && config->friction_attack_slew_rate <= 1000.0f &&
+		config->friction_attack_slew_rate > 0.0f &&
 		isfinite(config->friction_fast_release_slew_rate) &&
 		config->friction_fast_release_slew_rate > 0.0f &&
 		isfinite(config->friction_release_slew_rate) &&
-		config->friction_release_slew_rate > 0.0f && config->friction_release_slew_rate <= 1000.0f &&
+		config->friction_release_slew_rate > 0.0f &&
 		isfinite(config->friction_reference_speed) &&
 		config->friction_reference_speed > 0.0f &&
 		isfinite(config->friction_stop_speed) && config->friction_stop_speed >= 0.0f &&
@@ -192,6 +182,7 @@ static void PositionCascade_CopyOutput(PositionCascadeOutput_TypeDef *output)
 	output->hold_current = state.speed_controller.Ui;
 	output->phase = state.phase;
 	output->target_reached = state.target_reached;
+    output->support_current_a = 0.0f;
 }
 
 static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *config)
@@ -205,13 +196,14 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 	if (state.config_valid && config->update_period_s == saved->update_period_s &&
 		config->call_divider == saved->call_divider &&
 		config->friction_feedforward_enabled == saved->friction_feedforward_enabled &&
-		config->passive_hold_enabled == saved->passive_hold_enabled &&
         config->thermal_limit_active == saved->thermal_limit_active &&
+        (!config->thermal_limit_active || config->thermal_output_limit_a == saved->thermal_output_limit_a) &&
 		memcmp(&config->position_error_window, &saved->position_error_window,
-			offsetof(PositionCascadeConfig_TypeDef, thermal_limit_active) -
-            offsetof(PositionCascadeConfig_TypeDef, position_error_window)) == 0 &&
+			offsetof(PositionCascadeConfig_TypeDef, thermal_output_limit_a) -
+			offsetof(PositionCascadeConfig_TypeDef, position_error_window)) == 0 &&
 		memcmp(&config->friction_coulomb_positive, &saved->friction_coulomb_positive,
-			sizeof(*config) - offsetof(PositionCascadeConfig_TypeDef, friction_coulomb_positive)) == 0)
+			offsetof(PositionCascadeConfig_TypeDef, support_current_limit_a) -
+            offsetof(PositionCascadeConfig_TypeDef, friction_coulomb_positive)) == 0)
 		return true;
 	state.defer_telemetry = true;
 	if (!PositionCascade_ConfigIsValid(config)) return false;
@@ -219,10 +211,6 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 	 * Refresh only after complete validation, including when tuning changes. */
 	state.configured_hold_ticks = PositionCascade_TimeToTicks(config,
 		POSITION_SERVO_HOLD_CONFIRM_TIME_S);
-	/* 到位精度使用实际误差窗口；保留原 HOLD 滞环比例，避免宽窗口提前冻结。 */
-	state.configured_capture_position_rad = config->position_error_window;
-	state.configured_hold_exit_position_rad = config->hold_exit_position *
-		(config->position_error_window / config->hold_enter_position);
 	state.configured_stuck_ticks = PositionCascade_TimeToTicks(config,
 		config->friction_stuck_time);
 	{
@@ -233,6 +221,11 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 		state.configured_hold_velocity_filter_alpha = ratio / (1.0f + ratio);
 	}
 	memcpy(&state.validated_config, config, sizeof(*config));
+    /* 保留结构布局以兼容调用者；被动停靠与独立支撑配置不再生效。 */
+    state.validated_config.passive_hold_enabled = false;
+    state.validated_config.support_current_limit_a = 0.0f;
+    state.validated_config.support_adjust_rate_a_per_s = 0.0f;
+    state.validated_config.support_release_rate_a_per_s = 0.0f;
 	state.config_valid = true;
 	return true;
 }
@@ -262,7 +255,13 @@ bool PositionCascade_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
 		state.phase == POSITION_SERVO_PHASE_SETTLE && state.hold_counter > 0U;
 	telemetry->trajectory_limited = state.trajectory_limited;
 	telemetry->stiction_integrating = state.stiction_integrating;
-	telemetry->passive_hold = state.passive_hold;
+    telemetry->passive_hold = false;
+    telemetry->support_current_a = 0.0f;
+    telemetry->support_adjusting = false;
+    telemetry->support_limited = false;
+    telemetry->support_refining = false;
+    telemetry->passive_confirm_ticks = 0U;
+    telemetry->qualification_position_rad = 0.0f;
 	return state.initialized;
 }
 
@@ -473,45 +472,17 @@ static void PositionCascade_UpdateFriction(
 		state.friction_landing_active = false;
 		state.settle_recovery_active = false;
 		state.friction_current_ramping = false;
-		state.settle_friction_quiet = false;
-		state.passive_brake_latched = false;
 		return;
 	}
 
 	target_error = config->target_position - measured_position;
-	/* 停靠资格确认期间保留同向接近补偿；越过目标仍允许立即制动撤力。 */
-	if (config->passive_hold_enabled && state.passive_counter > 0U &&
-		state.friction_feedforward_current * target_error >= 0.0f)
-	{
-		state.friction_current_ramping = false;
-		return;
-	}
-	/* 主动保持保留近区锁存；阻尼档由被动停靠统一卸流，避免提前失去接近力矩。 */
-	if (config->passive_hold_enabled)
-	{
-		state.settle_friction_quiet = false;
-	}
-	else if (state.phase == POSITION_SERVO_PHASE_SETTLE &&
-		PositionCascade_Abs(target_error) <= config->hold_enter_position)
-	{
-		state.settle_friction_quiet = true;
-	}
-	else if (PositionCascade_Abs(target_error) > config->hold_exit_position)
-	{
-		state.settle_friction_quiet = false;
-	}
-	landing_position = state.configured_capture_position_rad;
-	if (config->passive_hold_enabled)
-	{
-		landing_position = PositionCascade_Min(landing_position, POSITION_SERVO_PASSIVE_ENTER_POSITION_RAD);
-	}
+	landing_position = config->hold_enter_position;
 	landing_zero_position = landing_position * POSITION_SERVO_FRICTION_LANDING_ZERO_RATIO;
 	feedback_is_stopped = PositionCascade_Abs(measured_speed) <=
 		config->friction_stop_speed;
 	stuck_ticks = state.configured_stuck_ticks;
 
-	if (state.phase == POSITION_SERVO_PHASE_HOLD || state.settling_in_window ||
-		state.settle_friction_quiet)
+	if (state.phase == POSITION_SERVO_PHASE_HOLD || state.settling_in_window)
 	{
 		state.friction_stuck_counter = 0U;
 		state.friction_breakaway_active = false;
@@ -527,7 +498,7 @@ static void PositionCascade_UpdateFriction(
 		 * bounded breakaway ramp, including while the reference is still moving.
 		 * Do not wait for trajectory completion with a stalled rotor.
 		 */
-		if (PositionCascade_Abs(target_error) > state.configured_capture_position_rad &&
+		if (PositionCascade_Abs(target_error) > config->hold_exit_position &&
 			feedback_is_stopped)
 		{
 			waiting_for_recovery = true;
@@ -560,7 +531,7 @@ static void PositionCascade_UpdateFriction(
 			state.position_reference) > config->position_error_window)
 			desired_direction = config->target_position >
 				state.position_reference ? 1 : -1;
-		else if (PositionCascade_Abs(target_error) > state.configured_capture_position_rad)
+		else if (PositionCascade_Abs(target_error) > config->hold_enter_position)
 			/* The reference can be nearly stopped while the rotor still lags.
 			 * Carry approach compensation through this MOVE/SETTLE gap. */
 			desired_direction = target_error > 0.0f ? 1 : -1;
@@ -570,7 +541,7 @@ static void PositionCascade_UpdateFriction(
 		if (state.settle_recovery_active)
 		{
 			if (PositionCascade_Abs(target_error) >
-				state.configured_capture_position_rad)
+				config->hold_enter_position)
 			{
 				/* Latch direction so crossing the target starts landing. */
 				desired_direction = state.friction_direction != 0 ?
@@ -584,21 +555,15 @@ static void PositionCascade_UpdateFriction(
 				fast_release = true;
 			}
 		}
-		else if (PositionCascade_Abs(target_error) > state.configured_capture_position_rad)
+		else if (PositionCascade_Abs(target_error) > config->hold_exit_position &&
+			feedback_is_stopped)
 		{
-			/* 未捕获仍需接近补偿；PLL 噪声超过静止阈值不能直接撤掉力矩。 */
-			desired_direction = target_error > 0.0f ? 1 : -1;
-			waiting_for_recovery = feedback_is_stopped;
-			if (feedback_is_stopped && state.friction_stuck_counter < UINT32_MAX)
-			{
+			waiting_for_recovery = true;
+			fast_release = true;
+			if (state.friction_stuck_counter < UINT32_MAX)
 				state.friction_stuck_counter++;
-			}
-			else if (!feedback_is_stopped)
-			{
-				state.friction_stuck_counter = 0U;
-			}
-			if (feedback_is_stopped && (stuck_ticks == 0U ||
-				state.friction_stuck_counter >= stuck_ticks))
+			if (stuck_ticks == 0U ||
+				state.friction_stuck_counter >= stuck_ticks)
 			{
 				state.settle_recovery_active = true;
 				desired_direction = target_error > 0.0f ? 1 : -1;
@@ -611,19 +576,9 @@ static void PositionCascade_UpdateFriction(
 			fast_release = true;
 		}
 	}
-	/* 窗口内尚未连续确认时继续按距离卸载，不因一个样本切到零前馈。 */
-	if (state.phase == POSITION_SERVO_PHASE_SETTLE && !state.settling_in_window &&
-		!state.settle_friction_quiet &&
-		PositionCascade_Abs(target_error) <= state.configured_capture_position_rad &&
-		desired_direction == 0 && state.friction_direction != 0)
-	{
-		desired_direction = state.friction_direction;
-		state.friction_landing_active = true;
-	}
 
 	if (desired_direction != state.friction_direction)
 	{
-		state.passive_brake_latched = false;
 		state.friction_direction = desired_direction;
 		state.friction_stuck_counter = 0U;
 		state.friction_breakaway_active = false;
@@ -688,15 +643,6 @@ static void PositionCascade_UpdateFriction(
 		}
 
 		magnitude = PositionCascade_FrictionMagnitude(config, desired_direction);
-		if (!state.friction_landing_active)
-		{
-			state.passive_brake_latched = false;
-		}
-		else if (config->passive_hold_enabled && controller_requests_braking &&
-			remaining_distance <= landing_position)
-		{
-			state.passive_brake_latched = true;
-		}
 		if (state.friction_breakaway_active)
 			magnitude *= config->friction_breakaway_ratio;
 		if (state.friction_landing_active)
@@ -715,12 +661,6 @@ static void PositionCascade_UpdateFriction(
 			magnitude *= landing_scale;
 			fast_release = true;
 		}
-		/* 仅捕获区内锁存撤力；远处速度纠偏反向不代表到位，否则先停再脱黏。 */
-		if (state.passive_brake_latched)
-		{
-			magnitude = 0.0f;
-			fast_release = true;
-		}
 		target_current = desired_direction > 0 ? magnitude : -magnitude;
 	}
 
@@ -733,21 +673,20 @@ static void PositionCascade_UpdateFriction(
 	current_delta = target_current - state.friction_feedforward_current;
 	if (PositionCascade_Abs(target_current) >
 		PositionCascade_Abs(state.friction_feedforward_current))
-		current_step = config->friction_attack_slew_rate *
+		current_step = (state.settle_recovery_active ?
+			config->friction_release_slew_rate : config->friction_attack_slew_rate) *
 			config->update_period_s;
 	else if (fast_release)
 	{
 		float release_rate = config->friction_fast_release_slew_rate;
 		/* Ease the final removal of approach torque inside the captured window.
 		 * Crossing the target or leaving capture still uses fast unloading. */
-		if ((state.settling_in_window || state.settle_friction_quiet ||
+		if ((state.settling_in_window ||
 			(state.friction_landing_active &&
-			 PositionCascade_Abs(target_error) <= state.configured_capture_position_rad)) &&
+			 PositionCascade_Abs(target_error) <= config->hold_enter_position)) &&
 			state.friction_feedforward_current * target_error > 0.0f)
-			/* 单一下降配置不再隐藏限速；旧三斜率调用保持原捕获上限。 */
-            release_rate = config->friction_fast_release_slew_rate == config->friction_release_slew_rate ?
-                release_rate : PositionCascade_Min(release_rate,
-                    POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S);
+			release_rate = PositionCascade_Min(release_rate,
+				POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S);
 		current_step = release_rate * config->update_period_s;
 	}
 	else
@@ -756,8 +695,8 @@ static void PositionCascade_UpdateFriction(
 	state.friction_feedforward_current += PositionCascade_Constrain(current_delta,
 		-current_step, current_step);
 	state.friction_feedforward_current = PositionCascade_Constrain(
-		state.friction_feedforward_current, -config->current_limit,
-		config->current_limit);
+		state.friction_feedforward_current, -PositionCascade_OutputLimit(config),
+		PositionCascade_OutputLimit(config));
 	if (!isfinite(state.friction_feedforward_current))
 		state.friction_feedforward_current = 0.0f;
 	state.friction_current_ramping =
@@ -789,7 +728,7 @@ static void PositionCascade_UpdateIntegralTransport(
 	if (!state.target_transition_active)
 		return;
 	opposes_position_correction =
-		PositionCascade_Abs(target_error) > state.configured_capture_position_rad &&
+		PositionCascade_Abs(target_error) > config->hold_enter_position &&
 		state.speed_controller.Ui * target_error < 0.0f;
 	opposes_speed_correction =
 		PositionCascade_Abs(speed_error) > config->friction_stop_speed &&
@@ -831,11 +770,10 @@ static void PositionCascade_UpdateStictionIntegral(
 	state.stiction_integrating = false;
 	/* Use reference error as well as target error: never push ahead of the
 	 * trajectory, against its correction, or through a qualified hold window. */
-	if (state.near_target_no_integral || config->stiction_integral_rate == 0.0f || state.settling_in_window ||
-		(config->passive_hold_enabled && state.passive_counter > 0U) ||
+	if (config->stiction_integral_rate == 0.0f || state.settling_in_window ||
 		state.phase == POSITION_SERVO_PHASE_HOLD ||
-		PositionCascade_Abs(error) <= state.configured_capture_position_rad ||
-		PositionCascade_Abs(target_error) <= state.configured_capture_position_rad ||
+		PositionCascade_Abs(error) <= config->hold_enter_position ||
+		PositionCascade_Abs(target_error) <= config->hold_enter_position ||
 		error * target_error <= 0.0f ||
 		PositionCascade_Abs(measured_speed) > config->friction_stop_speed ||
 		(state.position_stuck_counter > 0U &&
@@ -861,10 +799,10 @@ static void PositionCascade_UpdateStictionIntegral(
 		proportional_gain * (state.speed_reference - measured_speed);
 	if (increment > 0.0f)
 		increment = PositionCascade_Max(0.0f, PositionCascade_Min(increment,
-			config->current_limit - current_candidate));
+			PositionCascade_OutputLimit(config) - current_candidate));
 	else
 		increment = PositionCascade_Min(0.0f, PositionCascade_Max(increment,
-			-config->current_limit - current_candidate));
+			-PositionCascade_OutputLimit(config) - current_candidate));
 	state.speed_controller.Ui = PositionCascade_Constrain(
 		state.speed_controller.Ui + increment, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 	state.stiction_integrating = increment != 0.0f;
@@ -874,102 +812,6 @@ void PositionCascade_Reset(void)
 {
 	memset(&state, 0, sizeof(state));
 	PI_Controller_Reset(&state.speed_controller);
-}
-
-/* 被动停靠仅输出卸流剩余量；不运行位置/速度PI，也不保留负载积分。 */
-static void PositionCascade_RunPassiveHold(const PositionCascadeConfig_TypeDef *config,
-	float measured_speed)
-{
-	float step_a = POSITION_SERVO_PASSIVE_RELEASE_A_PER_S * config->update_period_s;
-	state.iq_reference = PositionCascade_Constrain(state.iq_reference,
-		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
-	state.iq_reference -= PositionCascade_Constrain(state.iq_reference, -step_a, step_a);
-	PI_Controller_Reset(&state.speed_controller);
-	state.feedback_current = state.iq_reference;
-	state.friction_feedforward_current = 0.0f;
-	state.acceleration_feedforward_current = 0.0f;
-	state.speed_reference = 0.0f;
-	state.control_velocity = measured_speed;
-	state.stiction_integrating = false;
-	state.current_saturated = false;
-	state.friction_current_ramping = false;
-	state.friction_breakaway_active = false;
-	state.friction_landing_active = false;
-	state.settle_recovery_active = false;
-	state.passive_brake_latched = false;
-	if (PositionCascade_Abs(config->target_position - state.qualification_position_rad) <=
-		state.configured_capture_position_rad &&
-		PositionCascade_Abs(measured_speed) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S)
-	{
-		if (state.hold_counter < state.configured_hold_ticks)
-		{
-			++state.hold_counter;
-		}
-		state.target_reached = state.hold_counter >= state.configured_hold_ticks;
-	}
-	else
-	{
-		state.hold_counter = 0U;
-		state.target_reached = false;
-	}
-	state.phase = state.target_reached ? POSITION_SERVO_PHASE_HOLD : POSITION_SERVO_PHASE_SETTLE;
-}
-
-/* true表示本拍继续被动停靠；false表示已从实测状态启动普通受控回位。 */
-static bool PositionCascade_RunPassiveRecovery(const PositionCascadeConfig_TypeDef *config,
-	float measured_position, float measured_speed)
-{
-	float raw_remaining_rad = PositionCascade_Abs(config->target_position - measured_position);
-	float remaining_rad = PositionCascade_Abs(config->target_position - state.qualification_position_rad);
-	float speed_limit = PositionCascade_Min(config->maximum_speed, config->speed_limit);
-	/* 原始与资格位置都越过1°才连续计时，保持0.5°撤流/1°唤醒滞环。 */
-	if (raw_remaining_rad <= POSITION_SERVO_PASSIVE_EXIT_POSITION_RAD ||
-		remaining_rad <= POSITION_SERVO_PASSIVE_EXIT_POSITION_RAD || state.iq_reference != 0.0f)
-	{
-		state.passive_exit_counter = 0U;
-		PositionCascade_RunPassiveHold(config, measured_speed);
-		return true;
-	}
-	if (state.passive_exit_counter < state.configured_hold_ticks)
-	{
-		++state.passive_exit_counter;
-		PositionCascade_RunPassiveHold(config, measured_speed);
-		return true;
-	}
-	/* 外推不是新目标：保留原目标，从实际q/v重新规划，不能带入已结束的旧参考。 */
-	state.position_reference = measured_position;
-	state.qualification_position_rad = measured_position;
-	state.trajectory_speed = PositionCascade_Constrain(measured_speed, -speed_limit, speed_limit);
-	state.trajectory_acceleration = 0.0f;
-	state.control_velocity = measured_speed;
-	state.smooth_active = false;
-	state.smooth_planning = false;
-	state.smooth_trajectory.failed = false;
-	state.passive_hold = false;
-	state.passive_recovery_limited = false;
-	state.passive_counter = 0U;
-	state.passive_exit_counter = 0U;
-	state.passive_brake_latched = false;
-	state.hold_counter = 0U;
-	state.target_reached = false;
-	state.target_transition_active = true;
-	state.settling_in_window = false;
-	state.settle_friction_quiet = false;
-	state.settle_recovery_active = false;
-	state.friction_landing_active = false;
-	state.friction_breakaway_active = false;
-	state.friction_stuck_counter = 0U;
-	state.position_stuck_counter = 0U;
-	state.near_target_no_integral = false;
-	state.near_stop_counter = 0U;
-	state.stiction_integrating = false;
-	state.friction_direction = 0;
-	state.friction_breakaway_start_position = measured_position;
-	state.friction_feedforward_current = 0.0f;
-	state.acceleration_feedforward_current = 0.0f;
-	PI_Controller_Reset(&state.speed_controller);
-	state.phase = POSITION_SERVO_PHASE_MOVE;
-	return false;
 }
 
 /* Keep the 2 kHz register-save frame off the intermediate fast ticks. */
@@ -997,16 +839,6 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 
 	state.loop_count = 0U;
 	state.defer_telemetry = true;
-	/* 仅过滤到位资格，控制位置误差仍用原始反馈；减少编码器量化导致的反复进出。 */
-	if (config->velocity_filter_hz > 0.0f)
-	{
-		state.qualification_position_rad += state.configured_velocity_filter_alpha *
-			(measured_position - state.qualification_position_rad);
-	}
-	else
-	{
-		state.qualification_position_rad = measured_position;
-	}
 	if (config->velocity_filter_hz > 0.0f)
 	{
 		state.velocity_filtered += state.configured_velocity_filter_alpha *
@@ -1018,22 +850,6 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	if (!was_holding)
 		state.control_velocity = measured_speed;
 
-	/* 停靠资格在规划前处理；唤醒当拍即用新的实际起点创建回位参考。 */
-	if (state.passive_recovery_limited)
-	{
-		if (config->passive_hold_enabled)
-		{
-			if (PositionCascade_RunPassiveRecovery(config, measured_position, measured_speed))
-			{
-				return true;
-			}
-		}
-		else
-		{
-			state.passive_recovery_limited = false;
-			state.passive_hold = false;
-		}
-	}
 	FAST_PROFILE_BEGIN(FAST_PROFILE_TRAJECTORY);
 	trajectory_done = PositionCascade_UpdateTrajectory(config, measured_position);
 	FAST_PROFILE_END(FAST_PROFILE_TRAJECTORY);
@@ -1047,78 +863,24 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	{
 		return true;
 	}
-	/* 近目标仅用比例/阻尼与模型前馈；旧积分平滑卸除，禁止再次累积。 */
-	if (!config->passive_hold_enabled ||
-		PositionCascade_Abs(config->target_position - measured_position) > POSITION_SERVO_NO_INTEGRAL_EXIT_RAD)
-	{
-		state.near_target_no_integral = false;
-	}
-	else if (PositionCascade_Abs(config->target_position - measured_position) <= POSITION_SERVO_NO_INTEGRAL_ENTER_RAD &&
-		PositionCascade_Abs(config->target_position - state.position_reference) <= POSITION_SERVO_NO_INTEGRAL_ENTER_RAD)
-	{
-		if (!state.near_target_no_integral)
-		{
-			state.near_progress_error_rad = PositionCascade_Abs(config->target_position - measured_position);
-			state.near_stop_counter = 0U;
-		}
-		state.near_target_no_integral = true;
-	}
-	if (config->passive_hold_enabled && !state.passive_hold && trajectory_done &&
-		PositionCascade_Abs(config->target_position - state.qualification_position_rad) <=
-			POSITION_SERVO_PASSIVE_ENTER_POSITION_RAD &&
-		PositionCascade_Abs(config->target_position - measured_position) <=
-			POSITION_SERVO_PASSIVE_ENTER_POSITION_RAD &&
-		PositionCascade_Abs(measured_speed) <= POSITION_SERVO_PASSIVE_CAPTURE_SPEED_RAD_S)
-	{
-		if (state.passive_counter < state.configured_hold_ticks)
-		{
-			++state.passive_counter;
-		}
-		if (state.passive_counter >= state.configured_hold_ticks)
-		{
-			state.passive_hold = true;
-			state.passive_recovery_limited = true;
-			state.near_stop_counter = 0U;
-			state.near_progress_error_rad = PositionCascade_Abs(config->target_position - state.qualification_position_rad);
-			state.passive_exit_counter = 0U;
-			state.target_transition_active = false;
-			state.settling_in_window = false;
-			state.hold_counter = 0U;
-			state.target_reached = false;
-			state.position_stuck_counter = 0U;
-		}
-	}
-	else if (!state.passive_hold)
-	{
-		state.passive_counter = 0U;
-	}
-	if (state.passive_hold)
-	{
-		PositionCascade_RunPassiveHold(config, measured_speed);
-		return true;
-	}
 	if (state.phase == POSITION_SERVO_PHASE_MOVE && trajectory_done)
 		state.phase = POSITION_SERVO_PHASE_SETTLE;
 
-	/* 确认到位前必须持续满足精度；进入 HOLD 后才启用退出滞环。 */
-	hold_exit_position = was_holding ? state.configured_hold_exit_position_rad :
-		state.configured_capture_position_rad;
+	hold_exit_position = config->hold_exit_position;
+	/* Quiet the feedforward before confirming HOLD; retain this latch through noise. */
 	if (PositionCascade_Abs(config->target_position - state.position_reference) >
 		hold_exit_position ||
-		PositionCascade_Abs(config->target_position - state.qualification_position_rad) > hold_exit_position ||
-		PositionCascade_Abs(config->target_position - measured_position) > config->hold_exit_position)
+		PositionCascade_Abs(config->target_position - measured_position) > hold_exit_position)
 		state.settling_in_window = false;
-	else if (was_holding && PositionCascade_Abs(config->target_position - state.qualification_position_rad) <=
-		state.configured_capture_position_rad &&
+	else if (PositionCascade_Abs(config->target_position - measured_position) <=
+		config->hold_enter_position &&
 		PositionCascade_Abs(config->target_position - state.position_reference) <=
-		state.configured_capture_position_rad)
+		config->hold_enter_position)
 		state.settling_in_window = true;
 	if (state.phase == POSITION_SERVO_PHASE_HOLD)
 	{
-		if (PositionCascade_Abs(config->target_position - state.qualification_position_rad) >
-			hold_exit_position ||
-			PositionCascade_Abs(config->target_position - measured_position) > config->hold_exit_position ||
-			PositionCascade_Abs(measured_speed) >
+		if (PositionCascade_Abs(config->target_position - measured_position) >
+			hold_exit_position || PositionCascade_Abs(measured_speed) >
 			POSITION_SERVO_HOLD_EXIT_SPEED_RAD_S)
 		{
 			state.phase = POSITION_SERVO_PHASE_SETTLE;
@@ -1130,46 +892,37 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 			state.target_transition_active = true;
 		}
 	}
-	else if (trajectory_done && !config->passive_hold_enabled)
+	else if (trajectory_done)
 	{
 		hold_ticks = state.configured_hold_ticks;
-		if ((state.hold_counter == 0U &&
-			 PositionCascade_Abs(config->target_position - state.qualification_position_rad) <=
+		if ((state.hold_counter == 0U && state.settling_in_window &&
+			 PositionCascade_Abs(config->target_position - measured_position) <=
 				hold_exit_position &&
-			 PositionCascade_Abs(config->target_position - state.position_reference) <=
-				state.configured_capture_position_rad &&
 			 PositionCascade_Abs(measured_speed) <=
-				POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S) ||
+				POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S &&
+			 PositionCascade_Abs(state.friction_feedforward_current) <=
+				config->friction_release_slew_rate * config->update_period_s) ||
 			(state.hold_counter > 0U &&
-			 PositionCascade_Abs(config->target_position - state.qualification_position_rad) <=
+			 PositionCascade_Abs(config->target_position - measured_position) <=
 				hold_exit_position &&
-			 PositionCascade_Abs(config->target_position - state.position_reference) <=
-				state.configured_capture_position_rad &&
 			 PositionCascade_Abs(measured_speed) <=
-				POSITION_SERVO_HOLD_EXIT_SPEED_RAD_S))
+				POSITION_SERVO_HOLD_EXIT_SPEED_RAD_S &&
+			 PositionCascade_Abs(state.friction_feedforward_current) <=
+				config->friction_release_slew_rate * config->update_period_s))
 		{
 			if (state.hold_counter < hold_ticks)
 				state.hold_counter++;
 			if (state.hold_counter >= hold_ticks)
 			{
-				/* 先连续确认精度，再撤除前馈；单个噪声样本不能卸掉接近力矩。 */
-				state.settling_in_window = true;
-				if (PositionCascade_Abs(state.friction_feedforward_current) <=
-					config->friction_release_slew_rate * config->update_period_s)
-				{
-					state.phase = POSITION_SERVO_PHASE_HOLD;
-					state.target_reached = true;
-					state.target_transition_active = false;
-					state.settle_recovery_active = false;
-					state.hold_counter = 0U;
-				}
+				state.phase = POSITION_SERVO_PHASE_HOLD;
+				state.target_reached = true;
+				state.target_transition_active = false;
+				state.settle_recovery_active = false;
+				state.hold_counter = 0U;
 			}
 		}
 		else
-		{
 			state.hold_counter = 0U;
-			state.settling_in_window = false;
-		}
 	}
 	else
 	{
@@ -1197,43 +950,10 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	state.speed_reference = PositionCascade_Constrain(state.speed_reference,
 		-speed_command_limit, speed_command_limit);
 
-	if (state.near_target_no_integral)
-	{
-		float remaining_rad = PositionCascade_Abs(config->target_position - measured_position);
-		uint32_t near_stuck_ticks = PositionCascade_TimeToTicks(config, POSITION_SERVO_NEAR_STUCK_TIME_S);
-		/* 用单向位置推进判定停滞，0.06°大于已知±0.025°测量噪声的峰峰值。
-		 * 冻结已有负载补偿不新增积分；噪声或向外回退不能反复续期。 */
-		if (state.near_progress_error_rad - remaining_rad >= POSITION_SERVO_NEAR_PROGRESS_RAD)
-		{
-			state.near_progress_error_rad = remaining_rad;
-			state.near_stop_counter = 0U;
-		}
-		else if (state.near_stop_counter < near_stuck_ticks)
-		{
-			++state.near_stop_counter;
-		}
-		if (state.near_stop_counter >= near_stuck_ticks)
-		{
-			float step_a = POSITION_SERVO_PASSIVE_RELEASE_A_PER_S * config->update_period_s;
-			state.speed_controller.Ui -= PositionCascade_Constrain(state.speed_controller.Ui, -step_a, step_a);
-		}
-		else
-		{
-			PositionCascade_UpdateIntegralTransport(config,
-				config->target_position - measured_position,
-				state.speed_reference - measured_speed);
-		}
-	}
-	else
-	{
-		state.near_stop_counter = 0U;
-		if (!state.settling_in_window)
-		{
-			PositionCascade_UpdateIntegralTransport(config,
-				config->target_position - measured_position,
-				state.speed_reference - measured_speed);
-		}
-	}
+	if (!state.settling_in_window)
+		PositionCascade_UpdateIntegralTransport(config,
+			config->target_position - measured_position,
+			state.speed_reference - measured_speed);
 	FAST_PROFILE_BEGIN(FAST_PROFILE_FRICTION);
 	PositionCascade_UpdateFriction(config, measured_position, measured_speed);
 	FAST_PROFILE_END(FAST_PROFILE_FRICTION);
@@ -1252,18 +972,11 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 		feedforward_current, speed_kp_current_domain);
 	/* Pause same-direction accumulation only while FF builds, not indefinitely
 	 * after it reaches its model value. Residual load must remain correctable. */
-	/* 静摩擦恢复已在同一个 Ui 中按限速累积，避免与速度 Ki 重复叠加。 */
-	if (state.near_target_no_integral || state.stiction_integrating ||
-		(config->passive_hold_enabled && state.passive_counter > 0U) ||
-		(state.friction_current_ramping && state.friction_feedforward_current *
+	if ((state.friction_current_ramping && state.friction_feedforward_current *
 		(state.speed_reference - measured_speed) > 0.0f) ||
 		state.phase == POSITION_SERVO_PHASE_HOLD ||
-		((state.settling_in_window ||
-		  (PositionCascade_Abs(config->target_position - measured_position) <=
-			state.configured_capture_position_rad &&
-		   PositionCascade_Abs(config->target_position - state.position_reference) <=
-			state.configured_capture_position_rad)) &&
-		 PositionCascade_Abs(measured_speed) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S))
+		(state.settling_in_window && PositionCascade_Abs(measured_speed) <=
+		 POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S))
 		speed_ki_current_domain = 0.0f;
 	FAST_PROFILE_BEGIN(FAST_PROFILE_SPEED_PI);
 	PI_Controller_Configure(&state.speed_controller, speed_kp_current_domain,
@@ -1279,24 +992,16 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	}
 	state.current_saturated =
 		feedforward_candidate > PositionCascade_OutputLimit(config) ||
-        feedforward_candidate < -PositionCascade_OutputLimit(config) ||
-        current_candidate > PositionCascade_OutputLimit(config) ||
-        current_candidate < -PositionCascade_OutputLimit(config);
+		feedforward_candidate < -PositionCascade_OutputLimit(config) ||
+		current_candidate > PositionCascade_OutputLimit(config) ||
+		current_candidate < -PositionCascade_OutputLimit(config);
 	state.iq_reference = PositionCascade_Constrain(current_candidate,
 		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 
 	/* Total-current saturation is included in the speed-PI anti-windup path. */
 	applied_feedback_current = PositionCascade_Constrain(state.iq_reference -
 		feedforward_current, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
-	if (state.near_target_no_integral && !config->thermal_limit_active)
-	{
-		/* 非热降额近区沿用原积分策略；热限幅必须跟踪实际施加电流。 */
-		state.speed_controller.Out = applied_feedback_current;
-	}
-	else
-	{
-		PI_Controller_TrackOutput(&state.speed_controller, applied_feedback_current);
-	}
+	PI_Controller_TrackOutput(&state.speed_controller, applied_feedback_current);
 	state.feedback_current = state.speed_controller.Out;
 	FAST_PROFILE_END(FAST_PROFILE_SPEED_PI);
 	return true;
@@ -1305,10 +1010,8 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *config,
     float measured_position, float measured_speed)
 {
-	bool target_reset = false;
 	if (!state.initialized)
 	{
-		target_reset = true;
 		/* Static initialization / Reset already cleared state. Preserve the
 		 * just-validated configuration and avoid a second reset on mode entry. */
 		state.initialized = true;
@@ -1316,7 +1019,6 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		state.position_reference = measured_position;
 		state.velocity_filtered = measured_speed;
 		state.control_velocity = measured_speed;
-		state.qualification_position_rad = measured_position;
 		state.friction_breakaway_start_position = measured_position;
 		state.target_transition_active =
 			PositionCascade_Abs(config->target_position - measured_position) >
@@ -1326,19 +1028,7 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 	}
 	else if (state.last_target != config->target_position)
 	{
-		target_reset = true;
-		/* 阻尼停靠允许位置残差；静止重启从实测位置规划，避免先补旧目标再换向。
-		 * 运动中改目标保留原参考q/v/a，不能重置轨迹造成速度或加速度跳变。 */
-		if (config->passive_hold_enabled && state.trajectory_speed == 0.0f &&
-			state.trajectory_acceleration == 0.0f &&
-			PositionCascade_Abs(state.velocity_filtered) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S &&
-			PositionCascade_Abs(measured_speed) <= POSITION_SERVO_HOLD_ENTER_SPEED_RAD_S)
-		{
-			state.position_reference = measured_position;
-			state.smooth_active = false;
-		}
 		state.last_target = config->target_position;
-		state.qualification_position_rad = measured_position;
 		state.phase = POSITION_SERVO_PHASE_MOVE;
 		state.target_reached = false;
 		state.hold_counter = 0U;
@@ -1348,27 +1038,8 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		state.settle_recovery_active = false;
 		state.target_transition_active = true;
 		state.settling_in_window = false;
-		state.settle_friction_quiet = false;
-		state.passive_hold = false;
-		state.passive_recovery_limited = false;
-		state.passive_counter = 0U;
-		state.passive_exit_counter = 0U;
-		state.passive_brake_latched = false;
-		state.near_target_no_integral = false;
-		state.near_stop_counter = 0U;
 		state.position_stuck_counter = 0U;
 		state.stiction_integrating = false;
-	}
-	/* 静止零电流时的新目标已在容差内，不为小角度命令重新建立摩擦力矩。 */
-	if (target_reset && config->passive_hold_enabled && state.iq_reference == 0.0f &&
-		state.trajectory_speed == 0.0f && state.trajectory_acceleration == 0.0f &&
-		PositionCascade_Abs(measured_speed) <= POSITION_SERVO_PASSIVE_CAPTURE_SPEED_RAD_S &&
-		PositionCascade_Abs(config->target_position - measured_position) <= POSITION_SERVO_PASSIVE_ENTER_POSITION_RAD)
-	{
-		state.position_reference = config->target_position;
-		state.smooth_active = false;
-		state.passive_hold = true;
-		state.passive_recovery_limited = true;
 	}
 
 	if (++state.loop_count < config->call_divider)

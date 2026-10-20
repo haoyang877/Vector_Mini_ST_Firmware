@@ -17,8 +17,9 @@ bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl);
 /**
  * @brief 更新 MCU 温度反馈及 100 ℃ 过温保护。
  * @param FOC 接收温度，单位 ℃；不可用时为 NaN。
+ * @param protection_enabled true执行100℃保护，false仅更新温度反馈。
  * @note 仅由 1 kHz 监督任务调用，不在电流快环内换算。
  */
-void Temperature_Update(FOC_TypeDef *FOC);
+void Temperature_Update(FOC_TypeDef *FOC, bool protection_enabled);
 
 #endif

@@ -2,27 +2,27 @@
   "schema": 1,
   "parameter_id": 111,
   "encoding": "uint32_be_0xMMmmppbb",
-  "software_version": "v0.6.0",
+  "software_version": "v0.6.1",
   "build": 0,
-  "version_code": 393216,
+  "version_code": 393472,
   "vectors": [
     {
       "node": 1,
       "identifier": 367,
       "request_hex": "00000000",
-      "reply_hex": "00060000"
+      "reply_hex": "00060100"
     },
     {
       "node": 4,
       "identifier": 1135,
       "request_hex": "00000000",
-      "reply_hex": "00060000"
+      "reply_hex": "00060100"
     },
     {
       "node": 5,
       "identifier": 1391,
       "request_hex": "00000000",
-      "reply_hex": "00060000"
+      "reply_hex": "00060100"
     }
   ]
 }

@@ -1,5 +1,5 @@
 /** @file
- * @brief 热模型单一所有者；冷态参数未确认时拒绝出力，不提供运行时绕过开关。
+ * @brief 热模型及温度保护开关的单一所有者；采样与时序异常始终禁止出力。
  */
 #include "motor_thermal_control.h"
 #include "motor_thermal_config.h"
@@ -34,6 +34,10 @@ static struct
     float cooling_alpha;
 } pending_config;
 static volatile bool pending_config_ready;
+/* 通信仅发布请求，快上下文只在输出关闭时应用；开关不持久化。 */
+static volatile bool temperature_protection_enabled = false;
+static bool pending_protection_enabled;
+static volatile bool pending_protection_ready;
 
 static MotorThermalConfig current_config(void)
 {
@@ -123,7 +127,8 @@ bool MotorThermalControl_RequestParameter(MotorThermalParameter parameter,
     MotorThermalConfig config;
     float *field;
     if (mode != Motor_Disable || !outputs_disabled || pending_config_ready ||
-        !thermal_diagnostics.initialized || !thermal_diagnostics.model.valid || !isfinite(value))
+        pending_protection_ready || !thermal_diagnostics.initialized ||
+        !thermal_diagnostics.model.valid || !isfinite(value))
     {
         return false;
     }
@@ -144,6 +149,25 @@ bool MotorThermalControl_RequestParameter(MotorThermalParameter parameter,
     pending_config.cooling_alpha = MotorThermal_Alpha(config.update_period_s, config.cooling_tau_s);
     motor_hw_outer_barrier();
     pending_config_ready = true;
+    return true;
+}
+
+bool MotorThermalControl_ProtectionEnabled(void)
+{
+    return temperature_protection_enabled;
+}
+
+bool MotorThermalControl_RequestProtection(bool enabled, uint32_t mode, bool outputs_disabled)
+{
+    if (mode != Motor_Disable || !outputs_disabled || pending_config_ready ||
+        pending_protection_ready || pending_clock_fault || !thermal_diagnostics.initialized ||
+        !thermal_diagnostics.model.valid)
+    {
+        return false;
+    }
+    pending_protection_enabled = enabled;
+    motor_hw_outer_barrier();
+    pending_protection_ready = true;
     return true;
 }
 
@@ -202,6 +226,13 @@ void MotorThermalControl_Sample(
     {
         return;
     }
+    if (pending_protection_ready && outputs_disabled)
+    {
+        motor_hw_outer_barrier();
+        temperature_protection_enabled = pending_protection_enabled;
+        motor_hw_outer_barrier();
+        pending_protection_ready = false;
+    }
     if (pending_config_ready && outputs_disabled)
     {
         motor_hw_outer_barrier();
@@ -243,7 +274,8 @@ uint32_t MotorThermalControl_SamplesUntilUpdate(void)
 {
     const MotorThermalState *state = &thermal_diagnostics.model;
     if (!thermal_diagnostics.initialized || !state->valid || pending_config_ready ||
-        pending_clock_fault || state->sample_count >= state->config.samples_per_update)
+        pending_protection_ready || pending_clock_fault ||
+        state->sample_count >= state->config.samples_per_update)
     {
         return 0U;
     }
@@ -276,9 +308,11 @@ bool MotorThermalControl_CanRunMode(uint32_t mode)
     {
         return true;
     }
-    return !pending_clock_fault && !pending_config_ready && thermal_diagnostics.initialized &&
-           thermal_diagnostics.parameters_confirmed && state->valid && !state->fault_latched &&
-           !(state->derating && abort_on_derating(mode));
+    return !pending_clock_fault && !pending_config_ready && !pending_protection_ready &&
+           thermal_diagnostics.initialized && thermal_diagnostics.parameters_confirmed &&
+           state->valid &&
+           (!temperature_protection_enabled ||
+            (!state->fault_latched && !(state->derating && abort_on_derating(mode))));
 }
 
 bool MotorThermalControl_Guard(uint32_t mode)
@@ -287,8 +321,8 @@ bool MotorThermalControl_Guard(uint32_t mode)
     {
         return true;
     }
-    if (thermal_diagnostics.parameters_confirmed && abort_on_derating(mode) &&
-        thermal_diagnostics.model.derating)
+    if (temperature_protection_enabled && thermal_diagnostics.parameters_confirmed &&
+        abort_on_derating(mode) && thermal_diagnostics.model.derating)
     {
         thermal_diagnostics.model.fault_latched = true;
         thermal_diagnostics.model.available_a = 0.0f;
@@ -298,11 +332,14 @@ bool MotorThermalControl_Guard(uint32_t mode)
 
 float MotorThermalControl_CurrentLimit(float configured_a)
 {
-    float available_a = !pending_clock_fault && !pending_config_ready &&
-                                thermal_diagnostics.initialized &&
-                                thermal_diagnostics.parameters_confirmed
-                            ? thermal_diagnostics.model.available_a
-                            : 0.0f;
+    float available_a = 0.0f;
+    if (!pending_clock_fault && !pending_config_ready && !pending_protection_ready &&
+        thermal_diagnostics.initialized && thermal_diagnostics.parameters_confirmed &&
+        thermal_diagnostics.model.valid)
+    {
+        available_a = temperature_protection_enabled ? thermal_diagnostics.model.available_a :
+            thermal_diagnostics.model.config.peak_a;
+    }
     return MotorThermal_ResolveLimit(configured_a, available_a, true);
 }
 
@@ -310,14 +347,19 @@ bool MotorThermalControl_CanClearFault(void)
 {
     return !pending_clock_fault && thermal_diagnostics.initialized &&
            thermal_diagnostics.parameters_confirmed && thermal_diagnostics.model.valid &&
-           !pending_config_ready &&
-           thermal_diagnostics.model.max_heat <= thermal_diagnostics.model.config.clear_heat;
+           !pending_config_ready && !pending_protection_ready &&
+           (!temperature_protection_enabled ||
+            thermal_diagnostics.model.max_heat <= thermal_diagnostics.model.config.clear_heat);
 }
 
 bool MotorThermalControl_ClearFault(void)
 {
-    return MotorThermalControl_CanClearFault() &&
-           MotorThermal_ClearFault(&thermal_diagnostics.model);
+    if (!MotorThermalControl_CanClearFault())
+    {
+        return false;
+    }
+    /* 旁路不清模型锁存；重新开启时仍须按真实热历史执行保护。 */
+    return !temperature_protection_enabled || MotorThermal_ClearFault(&thermal_diagnostics.model);
 }
 
 bool MotorThermalControl_ParametersConfirmed(void)

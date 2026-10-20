@@ -51,9 +51,12 @@ Keil调试APP：[无脚本启动、工程配置与有效记录同步](docs/guide
 
 前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
 
-当前 APP 软件版本 **v0.6.0，build0**：已包含 v0.5.3 体积优化与绕组热保护；
+当前 APP 软件版本 **v0.6.1，build0**：恢复7a2d235的mode 3主动保持控制，保留现有参数接口与保护；
 mode 18 暂时裁剪，mode 3、速度前馈及标定保留。
 [版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+
+[Roll位置控制实测与已保存参数](docs/reports/2026-10-20-roll-mode3-historical-tuning-v1.md)、
+[温度保护通信开关](docs/protocols/motor_temperature_protection_switch_v1.md)。
 
 绕组热保护：[设计原理与控制链路](docs/architecture/motor_winding_thermal_design_v1.md)、
 [配置与使用](docs/guides/motor_winding_thermal_protection_v1.md)、

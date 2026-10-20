@@ -23,6 +23,7 @@ def main():
 #undef NDEBUG
 #include <assert.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "adc.h"
@@ -123,10 +124,15 @@ int main(void) {
     sample(1200,1500); near(motor_hw_mcu_temperature_c(),80);
     assert(registers.ISR == ADC_FLAG_JEOC);
     assert(isnan(motor_hw_mcu_temperature_c()));
-    sample(1279,1500); Temperature_Update(&f); near(f.temp,99.75); assert(errors==0);
-    sample(1280,1500); Temperature_Update(&f); near(f.temp,100); assert(errors==1);
-    sample(1400,1500); Temperature_Update(&f); near(f.temp,130); assert(errors==2);
-    sample(0,1500); Temperature_Update(&f); assert(isnan(f.temp) && errors==2);
+    sample(1279,1500); Temperature_Update(&f,true); near(f.temp,99.75); assert(errors==0);
+    sample(1280,1500); Temperature_Update(&f,true); near(f.temp,100); assert(errors==1);
+    sample(1400,1500); Temperature_Update(&f,true); near(f.temp,130); assert(errors==2);
+    sample(0,1500); Temperature_Update(&f,true); assert(isnan(f.temp) && errors==2);
+    /* 关闭保护只关闭报警，仍消费同一ADC采样并发布实际温度。 */
+    sample(1280,1500); Temperature_Update(&f,false); near(f.temp,100); assert(errors==2);
+    sample(1400,1500); Temperature_Update(&f,false); near(f.temp,130); assert(errors==2);
+    sample(0,1500); Temperature_Update(&f,false); assert(isnan(f.temp) && errors==2);
+    sample(1280,1500); Temperature_Update(&f,true); near(f.temp,100); assert(errors==3);
     puts("PASS ADC1 sequence, MCU calibration 30/130 C, VDDA, invalid data, freshness, overtemperature");
     return 0;
 }

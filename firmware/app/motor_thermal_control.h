@@ -132,4 +132,21 @@ bool MotorThermalControl_RequestParameter(MotorThermalParameter parameter,
                                           uint32_t mode,
                                           bool outputs_disabled);
 
+/**
+ * @brief 查询已生效的温度保护开关，复位后默认为关闭。
+ * @return true启用MCU过温及电流热阈值；false仅旁路这些温度判据。
+ * @note 只读；关闭不停止温度采样、热诊断或采样时序保护。
+ */
+bool MotorThermalControl_ProtectionEnabled(void);
+
+/**
+ * @brief 停机时提交温度保护开关，由下一关相快拍应用。
+ * @param enabled true开启、false关闭温度保护。
+ * @param mode 当前模式，必须为mode 0。
+ * @param outputs_disabled 三相主/互补输出均已高阻关闭。
+ * @return 请求被接受时为true；拒绝时原状态保持。
+ * @note 不清除热历史或故障，不写Flash；待应用期间禁止启动及其他热配置请求。
+ */
+bool MotorThermalControl_RequestProtection(bool enabled, uint32_t mode, bool outputs_disabled);
+
 #endif

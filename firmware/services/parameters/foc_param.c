@@ -9,6 +9,9 @@ extern MotorControl_TypeDef MotorControl;
 extern Encoder_TypeDef OnBoard_Encoder;
 extern CANMsg_TypeDef CANMsg;
 
+/* FSL1旧空记录继续采用已发布默认值，不随历史控制内核切换而改变。 */
+#define PARAM_FRICTION_ATTACK_DEFAULT_A_PER_S 2.0f
+
 /* 参数尾记录共用同一小端字CRC契约；只在启动/保存路径执行。 */
 static uint32_t parameter_words_crc(const uint32_t *words, uint32_t word_count)
 {
@@ -120,7 +123,7 @@ static bool friction_slew_load(const FrictionSlewRecord *record)
         zero = zero && words[i] == 0U;
         erased = erased && words[i] == UINT32_MAX;
     }
-    MotorControl.friction_attack_slew_a_per_s = POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
+    MotorControl.friction_attack_slew_a_per_s = PARAM_FRICTION_ATTACK_DEFAULT_A_PER_S;
     MotorControl.friction_release_slew_a_per_s = POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
     if (zero || erased) { return true; }
     if (record->magic != PARAM_FRICTION_SLEW_MAGIC || record->version != PARAM_FRICTION_SLEW_VERSION ||
@@ -246,6 +249,9 @@ void Param_Return_Default(void)
     /* 启动缺省采用热默认值；运行中独立热标定配置与历史不被恢复默认覆盖。 */
     (void)MotorThermalControl_LoadParameters(NULL);
     MotorControl.position_accel_ff_gain_a_per_rad_s2 = 0.0f;
+    MotorControl.position_support_limit_a = POSITION_SERVO_SUPPORT_LIMIT_A;
+    MotorControl.position_support_adjust_a_per_s = POSITION_SERVO_SUPPORT_ADJUST_A_PER_S;
+    MotorControl.position_support_release_a_per_s = POSITION_SERVO_SUPPORT_RELEASE_A_PER_S;
     MotorControl.position_velocity_filter_half_cutoff = false;
 	memset(&MotorControl.axis_profile, 0, sizeof(MotorControl.axis_profile));
 	MotorControl.axis_profile_valid = true;
@@ -286,7 +292,7 @@ void Param_Return_Default(void)
 	MotorControl.speed_Ki = PARAM_APP_SPEED_KI;
     MotorControl.position_speed_Kp = PARAM_APP_SPEED_KP;
     MotorControl.position_speed_Ki = PARAM_APP_SPEED_KI;
-    MotorControl.friction_attack_slew_a_per_s = POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
+    MotorControl.friction_attack_slew_a_per_s = PARAM_FRICTION_ATTACK_DEFAULT_A_PER_S;
     MotorControl.friction_release_slew_a_per_s = POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
 	MotorControl.posAcc = PARAM_APP_POSITION_ACCEL_RPS2 * _2PI;
 	MotorControl.posDec = PARAM_APP_POSITION_DECEL_RPS2 * _2PI;
@@ -407,6 +413,11 @@ bool Param_Download(const InterfaceParam_TypeDef *param)
     float speed_mode_kp;
     float speed_mode_ki;
     bool position_speed_pi_missing;
+
+    /* 新RAM候选不借用旧Flash尾部，避免把擦除值当成支撑配置。 */
+    MotorControl.position_support_limit_a = POSITION_SERVO_SUPPORT_LIMIT_A;
+    MotorControl.position_support_adjust_a_per_s = POSITION_SERVO_SUPPORT_ADJUST_A_PER_S;
+    MotorControl.position_support_release_a_per_s = POSITION_SERVO_SUPPORT_RELEASE_A_PER_S;
 
 	if (param->magic_word != MAGIC_WORD ||
 		(param->schema_version != PARAM_SCHEMA_VERSION &&

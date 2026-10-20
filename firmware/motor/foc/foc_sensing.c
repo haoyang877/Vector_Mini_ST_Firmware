@@ -185,11 +185,12 @@ bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 /**
  * @brief 更新 MCU 内部温度及现有过温保护。
  * @param FOC 接收温度反馈，单位 ℃；采样无效时为 NaN。
+ * @param protection_enabled true执行过温保护，false保留采样但不报过温。
  */
-void Temperature_Update(FOC_TypeDef *FOC)
+void Temperature_Update(FOC_TypeDef *FOC, bool protection_enabled)
 {
 	FOC->temp = motor_hw_mcu_temperature_c();
-	if (FOC->temp >= 100.0f)
+	if (protection_enabled && FOC->temp >= 100.0f)
 	{
 		Set_ErrorNow(High_Temprature);
 	}

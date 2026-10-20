@@ -5,32 +5,35 @@ Checks publication ownership, stale reset/fault rejection, deadline faults,
 Synthetic feedback is not an acceptance test of the physical plant.
 """
 
-import sys as _sys
-from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
-
 import argparse
-from pathlib import Path
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--cc', required=True)
-    p.add_argument('--out', type=Path, default=ROOT / 'outputs/outer_loop_host')
+    p.add_argument("--cc", required=True)
+    p.add_argument("--out", type=Path, default=ROOT / "outputs/outer_loop_host")
     args = p.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
-    src = (ROOT / 'firmware/app/foc_run.c').read_text(encoding="utf-8")
-    block = src.split('/* OUTER_RUNTIME_BEGIN', 1)[1].split('/* OUTER_RUNTIME_END */', 1)[0]
-    block = '/* OUTER_RUNTIME_BEGIN' + block
-    funcs = '\n'.join(function_source(src, n) for n in [
-        'SpeedMode_UpdateControl', 'PositionMode_UpdateConfiguration',
-        'PositionMode_SameTuningValue', 'PositionMode_ConfigurationMatches'])
-    fixture = r'''
+    (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
+    src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
+    block = src.split("/* OUTER_RUNTIME_BEGIN", 1)[1].split("/* OUTER_RUNTIME_END */", 1)[0]
+    block = "/* OUTER_RUNTIME_BEGIN" + block
+    funcs = "\n".join(
+        function_source(src, n)
+        for n in [
+            "SpeedMode_UpdateControl",
+            "PositionMode_UpdateConfiguration",
+            "PositionMode_SameTuningValue",
+            "PositionMode_ConfigurationMatches",
+        ]
+    )
+    fixture = (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -61,7 +64,10 @@ static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { ++continuous_spee
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
 static void motor_hw_outer_barrier(void);
 static void motor_hw_outer_schedule(void) { schedules++; }
-''' + funcs + block + r'''
+"""
+        + funcs
+        + block
+        + r"""
 static void tick(void) { MotorOuterLoop_FastTick(&live, &live_pi, &enc); }
 static void motor_hw_outer_barrier(void) {
     if (injection && outer.status == OUTER_RUNNING) {
@@ -113,6 +119,76 @@ static void setup(ModeNow_TypeDef mode) {
 static void run_step(void) {
     tick();
     if (outer.status == OUTER_QUEUED) MotorOuterLoop_Service();
+}
+static void run_ticks(unsigned count) {
+    for (unsigned i = 0; i < count; ++i) run_step();
+    assert(live.ErrorNow == No_Error);
+}
+/* 退役参数仍可从旧Flash读取；它们不能重启被动停靠或改变主动保持。 */
+static void test_retired_support_metadata(void) {
+    static float expected_iq[4000], expected_position[4000], expected_speed[4000];
+    const char *axes[] = {"roll", "pitch"};
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        for (unsigned pass = 0; pass < 2; ++pass) {
+            setup(Position_Mode);
+            enc.position = live.posRef = 0;
+            assert(MotorAxisProfile_Create(&live.axis_profile, axes[axis], -.2f, .2f, .6f));
+            live.load_profile_flags = pass == 0 ? 0 : MOTOR_LOAD_DAMPING_RING;
+            live.position_support_limit_a = pass == 0 ? 0 : .5f;
+            live.position_support_adjust_a_per_s = pass == 0 ? 0 : .5f;
+            live.position_support_release_a_per_s = pass == 0 ? 0 : 2.0f;
+            live.position_accel_ff_gain_a_per_rad_s2 = pass == 0 ? 0 : 1.034f;
+            run_ticks(60);
+            const PositionCascadeConfig_TypeDef *config = PositionCascade_GetConfiguration();
+            assert(config != NULL && !config->passive_hold_enabled);
+            assert(config->support_current_limit_a == 0);
+            assert(config->support_adjust_rate_a_per_s == 0);
+            assert(config->support_release_rate_a_per_s == 0);
+            assert(config->acceleration_feedforward_gain == 0);
+            assert(fabsf(config->hold_enter_position - .18f * .01745329252f) < .00000001f);
+            assert(fabsf(config->hold_exit_position - .26f * .01745329252f) < .00000001f);
+            for (unsigned tick_index = 0; tick_index < 4000; ++tick_index) {
+                PositionCascadeTelemetry_TypeDef telemetry;
+                enc.position = tick_index < 1000 ? 0 : .006f;
+                if (tick_index == 2000 && pass != 0) {
+                    live.position_support_limit_a = NAN;
+                    live.position_support_adjust_a_per_s = NAN;
+                    live.position_support_release_a_per_s = NAN;
+                    live.position_accel_ff_gain_a_per_rad_s2 = NAN;
+                }
+                run_step();
+                assert(live.ErrorNow == No_Error);
+                assert(MotorOuterLoop_GetTelemetry(&telemetry));
+                assert(!telemetry.passive_hold && telemetry.support_current_a == 0);
+                assert(!telemetry.support_adjusting && !telemetry.support_limited);
+                assert(!telemetry.support_refining && telemetry.passive_confirm_ticks == 0);
+                assert(telemetry.qualification_position_rad == 0);
+                if (pass == 0) {
+                    expected_iq[tick_index] = live.iqRef;
+                    expected_position[tick_index] = live.posShadow;
+                    expected_speed[tick_index] = live.speedShadow;
+                } else {
+                    assert(live.iqRef == expected_iq[tick_index]);
+                    assert(live.posShadow == expected_position[tick_index]);
+                    assert(live.speedShadow == expected_speed[tick_index]);
+                }
+            }
+            assert(live.iqRef < -.001f);
+        }
+    }
+    /* 轮轴位置模式准入仍拒绝；速度模式不消费退役位置参数。 */
+    setup(Speed_Mode);
+    assert(MotorAxisProfile_CreateJoint(&live.axis_profile, MOTOR_JOINT_WHEEL_RIGHT,
+        0U, 0.0f, 0.0f, 0.0f));
+    live.position_support_limit_a = NAN;
+    live.position_support_adjust_a_per_s = NAN;
+    live.position_support_release_a_per_s = NAN;
+    run_ticks(30);
+    assert(PositionCascade_GetConfiguration() == NULL);
+    live.ModeNow = Position_Mode;
+    tick();
+    assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+    puts("PASS: retired support metadata ignored, precise active HOLD retained, wheel admission preserved");
 }
 int main(void) {
     /* 非活动模式仍执行状态清理，但不能重复获取本模式不消费的编码器量。 */
@@ -259,19 +335,40 @@ int main(void) {
     }
     puts("PASS: legacy cadence/publication/PI and optional FF state publication, STOP/fault isolation");
     puts("PASS: real feedback outside travel retained; only out-of-range target faults");
+    test_retired_support_metadata();
 }
-'''
-    (out / 'fixture.c').write_text(fixture)
-    sources = [out / 'fixture.c', ROOT / 'firmware/services/parameters/motor_axis_profile.c', ROOT / 'firmware/motor/motor_load_profile.c', ROOT / 'firmware/motor/speed_feedforward.c', ROOT / 'firmware/motor/position/position_cascade.c',
-               ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c']
-    cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
-           '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),
-           '-I' + str(ROOT / 'firmware/platform/stm32g4/bsp'), '-I' + str(ROOT)]
+"""
+    )
+    (out / "fixture.c").write_text(fixture)
+    sources = [
+        out / "fixture.c",
+        ROOT / "firmware/services/parameters/motor_axis_profile.c",
+        ROOT / "firmware/motor/motor_load_profile.c",
+        ROOT / "firmware/motor/speed_feedforward.c",
+        ROOT / "firmware/motor/position/position_cascade.c",
+        ROOT / "firmware/motor/trajectory/position_smooth_trajectory.c",
+        ROOT / "firmware/motor/foc/foc_pid.c",
+    ]
+    cmd = [
+        args.cc,
+        "cc",
+        "-std=c99",
+        "-O2",
+        "-ffp-contract=off",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I" + str(out),
+        "-I" + str(ROOT / "firmware/motor/foc"),
+        "-I" + str(ROOT / "firmware/common"),
+        "-I" + str(ROOT / "firmware/platform/stm32g4/bsp"),
+        "-I" + str(ROOT),
+    ]
     cmd += NATIVE_INCLUDE_FLAGS
-    cmd += [str(x) for x in sources] + ['-o', str(out / 'outer_runtime.exe')]
+    cmd += [str(x) for x in sources] + ["-o", str(out / "outer_runtime.exe")]
     subprocess.run(cmd, check=True, cwd=ROOT)
-    subprocess.run([str(out / 'outer_runtime.exe')], check=True, cwd=ROOT)
+    subprocess.run([str(out / "outer_runtime.exe")], check=True, cwd=ROOT)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

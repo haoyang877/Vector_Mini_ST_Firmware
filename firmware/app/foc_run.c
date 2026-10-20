@@ -647,15 +647,18 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 	config.position_kd = MotorControl->cascade_pos_Kd;
 	config.speed_kp = MotorControl->position_speed_Kp;
 	config.speed_ki = MotorControl->position_speed_Ki;
-	config.acceleration_feedforward_gain =
-		MotorControl->position_accel_ff_gain_a_per_rad_s2;
+	/* 恢复7a位置策略：惯量前馈关闭，兼容参数字段继续保留。 */
+	config.acceleration_feedforward_gain = POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
 	config.current_limit = MotorControl->current_limit;
     config.thermal_limit_active = MotorControl->thermal_limit_active;
     config.thermal_output_limit_a = MotorControl->thermal_current_limit_a;
 	config.friction_feedforward_enabled =
 		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
-	config.passive_hold_enabled =
-		MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags);
+	/* 主动HOLD保留积分；不使用后续版本的被动停靠和Pitch支撑。 */
+	config.passive_hold_enabled = false;
+    config.support_current_limit_a = 0.0f;
+    config.support_adjust_rate_a_per_s = 0.0f;
+    config.support_release_rate_a_per_s = 0.0f;
 	if (MotorControl->friction_model_valid)
 	{
 		config.friction_coulomb_positive = MotorControl->friction_coulomb_pos_a;
@@ -710,10 +713,15 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     float deceleration = MotorControl->posDec;
     float maximum_speed = MotorControl->pos_maxspeed;
     if (config == NULL) return false;
+    if (config->support_current_limit_a != 0.0f ||
+        config->support_adjust_rate_a_per_s != 0.0f ||
+        config->support_release_rate_a_per_s != 0.0f)
+    {
+        return false;
+    }
     if (config->friction_feedforward_enabled !=
         MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags) ||
-        config->passive_hold_enabled !=
-        MotorLoadProfile_PassiveHoldEnabled(MotorControl->load_profile_flags) ||
+        config->passive_hold_enabled ||
         config->thermal_limit_active != MotorControl->thermal_limit_active ||
         (MotorControl->thermal_limit_active &&
          config->thermal_output_limit_a != MotorControl->thermal_current_limit_a))
@@ -747,7 +755,7 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
         !PositionMode_SameTuningValue(config->speed_kp, MotorControl->position_speed_Kp) ||
         !PositionMode_SameTuningValue(config->speed_ki, MotorControl->position_speed_Ki) ||
         !PositionMode_SameTuningValue(config->acceleration_feedforward_gain,
-            MotorControl->position_accel_ff_gain_a_per_rad_s2) ||
+            POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2) ||
         !PositionMode_SameTuningValue(config->current_limit, MotorControl->current_limit))
         return false;
     if (MotorControl->friction_model_valid)
@@ -856,6 +864,7 @@ static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
          (SAME_INPUT(friction_coulomb_pos_a) && SAME_INPUT(friction_coulomb_neg_a) &&
           SAME_INPUT(friction_viscous_pos_a_per_rad_s) && SAME_INPUT(friction_viscous_neg_a_per_rad_s))) &&
         m->axis_profile.magic == saved->axis_profile.magic &&
+        memcmp(&m->axis_profile.identity, &saved->axis_profile.identity, sizeof(m->axis_profile.identity)) == 0 &&
         m->axis_profile.maximum_speed_rad_s == saved->axis_profile.maximum_speed_rad_s;
 #undef SAME_INPUT
 }

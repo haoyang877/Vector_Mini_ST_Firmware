@@ -479,7 +479,7 @@ static void Task_ApplyThermalGuard(void)
 void FOC1kHzSupervisor(void)
 {
 	/* MCU 温度换算及保护由 1 kHz 监督任务执行。 */
-	Temperature_Update(&FOC);
+	Temperature_Update(&FOC, MotorThermalControl_ProtectionEnabled());
     /* ADC快中断消失时仍能停机；不在此上下文清/改热模型。 */
     if (!MotorThermalControl_CheckWatchdog(time_hw_now_ms(), motor_hw_phase_outputs_disabled()))
     {
@@ -691,7 +691,8 @@ void FOC20kHzIRQHandler(void)
 		break;
 
 		case Calib_Friction:
-			FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder);
+			FocFrictionIdentification_Task(&FOC, &MotorControl, &PI_Speed, &OnBoard_Encoder,
+                MotorThermalControl_ProtectionEnabled());
 		break;
 		
 		case Calib_Motor_R_L_Flux:

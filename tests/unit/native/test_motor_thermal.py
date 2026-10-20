@@ -108,6 +108,12 @@ static void step(float a, float b, float c) {
 int main(void) {
     float old_heat; unsigned i;
     MotorThermalControl_Init(0);
+    /* 上电默认关闭；热保护回归经公开请求开启，并消费完整零电流窗口。 */
+    assert(!MotorThermalControl_ProtectionEnabled());
+    assert(MotorThermalControl_RequestProtection(true,Motor_Disable,true));
+    for(i=0;i<20;i++) MotorThermalControl_Sample(0,0,0,true,0);
+    assert(MotorThermalControl_ProtectionEnabled());
+    assert(g_motor_thermal_diagnostics.model.sample_count==0);
     assert(g_motor_thermal_diagnostics.model.max_heat==0);
     assert(!g_motor_thermal_diagnostics.model.fault_latched);
     for(i=0;i<4;i++) assert(g_motor_thermal_diagnostics.model.heat[i]==0);
@@ -385,7 +391,8 @@ static bool MotorThermalControl_ParametersConfirmed(void){return confirmed;}
 static bool MotorThermalControl_CheckWatchdog(unsigned ms,bool off){(void)ms;(void)off;return watchdog_ok;}
 static bool motor_hw_phase_outputs_disabled(void){return false;}
 static unsigned time_hw_now_ms(void){return 123;}
-static void Temperature_Update(FOC_TypeDef *p){(void)p;}
+static bool MotorThermalControl_ProtectionEnabled(void){return true;}
+static void Temperature_Update(FOC_TypeDef *p,bool enabled){(void)p;(void)enabled;}
 static void Stop_PWM_Generate(void){stops++;}
 static void Set_ModeNow(ModeNow_TypeDef m){MotorControl.ModeNow=m;}
 static void Set_ErrorNow(ErrorNow_TypeDef e){MotorControl.ErrorNow=e;}

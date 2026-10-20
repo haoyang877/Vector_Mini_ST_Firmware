@@ -9,13 +9,13 @@
 #define CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS 12U
 #define CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN 10.0f
 
-/* 板型输入：只选择已存在的2mΩ或6mΩ配置，可由编译选项覆盖。
+/* 板型输入：默认6mΩ，显式编译选项仍可选择已有的2mΩ配置。
  * 下方限值单位均为相电流幅值A，属于既有保护策略，不能由ADC满量程代替。 */
 #define CURRENT_SENSE_SHUNT_2_MILLIOHM 2U
 #define CURRENT_SENSE_SHUNT_6_MILLIOHM 6U
 
 #ifndef CURRENT_SENSE_SHUNT_MILLIOHM
-#define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_2_MILLIOHM
+#define CURRENT_SENSE_SHUNT_MILLIOHM CURRENT_SENSE_SHUNT_6_MILLIOHM
 #endif
 
 /* 固定输入的编译期派生量；不分配存储、不在采样时重复计算。

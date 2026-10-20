@@ -51,6 +51,10 @@ uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
         + function_source(sensing, "Current_Cal")
         + r"""
 int main(void) {
+#ifdef TEST_EXPECT_DEFAULT_6_MILLIOHM
+    assert(CURRENT_SENSE_SHUNT_MILLIOHM==6U);
+    assert(CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM==0.006f);
+#endif
     /* 本项专测换算精度；上电零点采样由test_startup_current_offsets独立覆盖。 */
     motor_state.device.phase_a_offset_counts=2032.625f; motor_state.device.phase_b_offset_counts=2051.25f;
     motor_state.device.phase_c_offset_counts=2036.5f;
@@ -92,8 +96,13 @@ int main(void) {
         + NATIVE_INCLUDE_FLAGS
         + [str(fixture), str(ROOT / "firmware/motor/math/control_math.c"), "-lm", "-o", str(exe)]
     )
-    for shunt in (2, 6):
-        for step in (command + [f"-DCURRENT_SENSE_SHUNT_MILLIOHM={shunt}"], [str(exe)]):
+    for shunt in (None, 2, 6):
+        profile_flags = (
+            ["-DTEST_EXPECT_DEFAULT_6_MILLIOHM"]
+            if shunt is None
+            else [f"-DCURRENT_SENSE_SHUNT_MILLIOHM={shunt}"]
+        )
+        for step in (command + profile_flags, [str(exe)]):
             subprocess.run(step, check=True)
 
 

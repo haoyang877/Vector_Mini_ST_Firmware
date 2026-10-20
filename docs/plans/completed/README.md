@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [Flash与快环精简 v1](2026-10-21-core-path-simplification-v1.md)：失败传播、固定PI绑定、状态机重复规则及遗留宏收口；离线检查与normal编译通过，未烧录。
+
 - [Loader MCU 适配指南 v1](2026-10-20-loader-mcu-porting-guide-v1.md)：资料清单、实施步骤、验收标准和任务卡；仅文档，未新增 MCU 支持。
 
 - [配置与运行状态实体分离 v3](2026-10-20-configuration-runtime-separation-v3.md)：独立配置、编码器标定与运行对象，const算法输入及Watch入口；PR和主工程编译通过，未烧录。

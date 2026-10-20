@@ -160,6 +160,28 @@ static void reject_pending_control(MotorControlResult reason)
     }
 }
 
+/* 启动重放与查询采用同一身份规则；latest 优先，未覆盖的活动请求仍可查询。 */
+static bool same_start_identity(const MotorControlStartProgress *progress,
+                                uint8_t source_node,
+                                uint16_t sequence)
+{
+    return progress->state != MOTOR_CONTROL_START_NONE &&
+           progress->request.source_node == source_node && progress->request.sequence == sequence;
+}
+
+static const MotorControlStartProgress *find_start_progress(uint8_t source_node, uint16_t sequence)
+{
+    if (same_start_identity(&s_context.latest_start, source_node, sequence))
+    {
+        return &s_context.latest_start;
+    }
+    if (same_start_identity(&s_context.active_start, source_node, sequence))
+    {
+        return &s_context.active_start;
+    }
+    return NULL;
+}
+
 /* 只改变尚未确认启相的原身份；已启动结果保留为历史，不表示当前仍有输出。 */
 static void reject_pending_start(MotorControlResult reason)
 {
@@ -169,24 +191,16 @@ static void reject_pending_start(MotorControlResult reason)
     }
     s_context.active_start.state = MOTOR_CONTROL_START_REJECTED;
     s_context.active_start.result = reason;
-    if (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
-        s_context.latest_start.request.source_node == s_context.active_start.request.source_node &&
-        s_context.latest_start.request.sequence == s_context.active_start.request.sequence)
+    if (same_start_identity(&s_context.latest_start,
+                            s_context.active_start.request.source_node,
+                            s_context.active_start.request.sequence))
     {
         s_context.latest_start = s_context.active_start;
     }
 }
 
-static bool same_start_identity(const MotorControlStartProgress *progress,
-                                const MotorControlStartRequest *request)
-{
-    return progress->state != MOTOR_CONTROL_START_NONE &&
-           progress->request.source_node == request->source_node &&
-           progress->request.sequence == request->sequence;
-}
-
 /* 16 位半范围序号：0 是相同身份，1..32767 是新请求，其余是陈旧请求。 */
-static bool start_sequence_newer(uint16_t sequence, uint16_t baseline)
+static bool sequence_newer(uint16_t sequence, uint16_t baseline)
 {
     uint16_t delta = (uint16_t)(sequence - baseline);
     return delta != 0U && delta < UINT16_C(0x8000);
@@ -677,7 +691,8 @@ static bool request_busy(void)
 {
     return s_context.boot_stop_ticket != 0U || s_context.save_requested ||
            s_context.background_busy || s_context.has_latched_outcome ||
-           s_context.has_pending_control || s_context.rules.maintenance_active;
+           s_context.has_pending_control || s_context.rules.maintenance_active ||
+           s_context.enable_pending;
 }
 
 /* 公开入口与状态反馈共用准入；拒绝只是准备未满足，不清目标、不锁故障。 */
@@ -714,7 +729,7 @@ static uint32_t state_start_blockers(const MotorStateFacts *facts)
     {
         reasons |= MOTOR_START_STATE_UNAVAILABLE;
     }
-    if (!configuration_idle(facts) || request_busy() || s_context.enable_pending)
+    if (!configuration_idle(facts) || request_busy())
     {
         reasons |= MOTOR_START_OWNER_BUSY;
     }
@@ -772,7 +787,7 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (request_busy() || s_context.enable_pending)
+    else if (request_busy())
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -804,27 +819,22 @@ MotorStateMachine_RequestIdentifiedEnable(const MotorControlStartRequest *reques
     }
     uint32_t mask = critical_hw_enter();
     MotorControlResult result;
+    const MotorControlStartProgress *previous =
+        find_start_progress(request->source_node, request->sequence);
     if (s_context.remote_source_valid && s_context.remote_source != request->source_node)
     {
         result = MOTOR_CONTROL_DENIED;
     }
-    else if (same_start_identity(&s_context.latest_start, request))
+    else if (previous != NULL)
     {
-        result = s_context.latest_start.request.mode == request->mode
-                     ? s_context.latest_start.result
-                     : MOTOR_CONTROL_CONFLICTING_RETRY;
-    }
-    else if (same_start_identity(&s_context.active_start, request))
-    {
-        result = s_context.active_start.request.mode == request->mode
-                     ? s_context.active_start.result
-                     : MOTOR_CONTROL_CONFLICTING_RETRY;
+        result = previous->request.mode == request->mode ? previous->result
+                                                         : MOTOR_CONTROL_CONFLICTING_RETRY;
     }
     else if ((s_context.stop_sequence_valid &&
-              !start_sequence_newer(request->sequence, s_context.stop_sequence)) ||
+              !sequence_newer(request->sequence, s_context.stop_sequence)) ||
              (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
               s_context.latest_start.request.source_node == request->source_node &&
-              !start_sequence_newer(request->sequence, s_context.latest_start.request.sequence)))
+              !sequence_newer(request->sequence, s_context.latest_start.request.sequence)))
     {
         result = MOTOR_CONTROL_STALE_SEQUENCE;
     }
@@ -860,19 +870,7 @@ bool MotorStateMachine_ReadEnableProgress(uint8_t source_node,
     }
     uint32_t mask = critical_hw_enter();
     *progress = (MotorControlStartProgress){.state = MOTOR_CONTROL_START_NONE};
-    const MotorControlStartProgress *found = NULL;
-    if (s_context.latest_start.state != MOTOR_CONTROL_START_NONE &&
-        s_context.latest_start.request.source_node == source_node &&
-        s_context.latest_start.request.sequence == sequence)
-    {
-        found = &s_context.latest_start;
-    }
-    else if (s_context.active_start.state != MOTOR_CONTROL_START_NONE &&
-             s_context.active_start.request.source_node == source_node &&
-             s_context.active_start.request.sequence == sequence)
-    {
-        found = &s_context.active_start;
-    }
+    const MotorControlStartProgress *found = find_start_progress(source_node, sequence);
     if (found != NULL)
     {
         *progress = *found;
@@ -887,7 +885,7 @@ MotorControlResult MotorStateMachine_RequestClear(void)
     MotorStateFacts facts = read_state_conditions();
     MotorFaultCode error = s_context.motor->fault_code;
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (request_busy() || s_context.enable_pending || !facts.maintenance_released)
+    if (request_busy() || !facts.maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -937,7 +935,7 @@ MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kin
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (request_busy() || s_context.enable_pending || !facts.maintenance_released)
+    else if (request_busy() || !facts.maintenance_released)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -1005,9 +1003,8 @@ MotorStateMachine_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *re
     if (s_context.last_maintenance_request.ticket != 0U &&
         request->source_node == s_context.last_maintenance_request.request.source_node)
     {
-        uint16_t delta =
-            (uint16_t)(request->sequence - s_context.last_maintenance_request.request.sequence);
-        if (delta == 0U)
+        uint16_t previous_sequence = s_context.last_maintenance_request.request.sequence;
+        if (request->sequence == previous_sequence)
         {
             result = request->kind == s_context.last_maintenance_request.request.kind
                          ? MOTOR_CONTROL_ACCEPTED
@@ -1019,7 +1016,7 @@ MotorStateMachine_RequestIdentifiedMaintenance(const MotorMaintenanceRequest *re
             critical_hw_exit(mask);
             return result;
         }
-        if (delta >= UINT16_C(0x8000))
+        if (!sequence_newer(request->sequence, previous_sequence))
         {
             critical_hw_exit(mask);
             return MOTOR_CONTROL_STALE_SEQUENCE;
@@ -1172,8 +1169,7 @@ bool MotorStateMachine_RequestIdentifiedStop(uint8_t source_node, uint16_t seque
     {
         s_context.remote_source = source_node;
         s_context.remote_source_valid = true;
-        if (!s_context.stop_sequence_valid ||
-            start_sequence_newer(sequence, s_context.stop_sequence))
+        if (!s_context.stop_sequence_valid || sequence_newer(sequence, s_context.stop_sequence))
         {
             s_context.stop_sequence = sequence;
             s_context.stop_sequence_valid = true;
@@ -1500,7 +1496,9 @@ static void update_start_progress(void)
                  !s_context.stop_pending && !power_stage_hw_phases_disabled())
         {
             s_context.active_start.state = MOTOR_CONTROL_START_STARTED;
-            if (same_start_identity(&s_context.latest_start, &s_context.active_start.request))
+            if (same_start_identity(&s_context.latest_start,
+                                    s_context.active_start.request.source_node,
+                                    s_context.active_start.request.sequence))
             {
                 s_context.latest_start = s_context.active_start;
             }

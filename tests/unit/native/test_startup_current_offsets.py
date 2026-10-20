@@ -53,6 +53,7 @@ def main() -> None:
         "run_fast_task",
         "update_winding_thermal",
         "MotorAxis_FastTick",
+        "MotorAxis_WriteParameter",
     ):
         production += function_source(axis, name)
     fixture = (ROOT / "tests/unit/startup_current_offsets_test.c").read_text(encoding="utf-8")

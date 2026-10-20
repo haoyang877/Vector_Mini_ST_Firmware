@@ -113,7 +113,8 @@ void SVM_SectorJudge(
  * @param  motor_state 运行目标与动态热额度；必要时锁存故障。
  * @param  phase 电角度，单位 rad。
  * @param  phase_vel 电角速度，单位 rad/s（解耦/前馈用）。
- * @note   仅快速环调用；PWM 输出经 motor_hw 契约。
+ * @note   调用前由所有者将活动Kp/Ki及Current_Ts绑定到id_pi/iq_pi；本入口只刷新动态电压限幅。
+ *         仅快速环调用；PWM 输出经 motor_hw 契约。
  */
 void FOC_Current(const MotorConfiguration *configuration,
                  FocState *foc,
@@ -128,7 +129,8 @@ void FOC_Current(const MotorConfiguration *configuration,
  * @param  phase 电角度，单位 rad。
  * @param  phase_vel 电角速度，单位 rad/s。
  * @param  iq_reference q 轴电流参考，单位 A。
- * @note   仅快速环调用；参考仍受 current_limit_a 限制。
+ * @note   调用前由所有者将活动Kp/Ki及Current_Ts绑定到id_pi/iq_pi；本入口只刷新动态电压限幅。
+ *         仅快速环调用；参考仍受 current_limit_a 限制。
  */
 void FOC_CurrentWithReference(const MotorConfiguration *configuration,
                               FocState *foc,
@@ -149,7 +151,8 @@ void FOC_CurrentController_Reset(FocState *foc);
  * @param  motor_state 电机控制状态。
  * @param  phase 电角度，单位 rad。
  * @param  phase_vel 电角速度，单位 rad/s。
- * @note   仅快速环调用；需要有效编码器帧。
+ * @note   调用前由所有者将活动Kp/Ki及Current_Ts绑定到id_pi；本入口只刷新动态电压限幅。
+ *         仅快速环调用；需要有效编码器帧。
  */
 void FOC_Vq_Mode(const MotorConfiguration *configuration,
                  FocState *foc,

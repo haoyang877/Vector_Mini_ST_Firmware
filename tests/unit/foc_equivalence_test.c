@@ -9,6 +9,7 @@
 #include "foc_algorithm.h"
 #include "fast_loop_profile.h"
 #include "motor_thermal_control.h"
+#include "control_config.h"
 
 void FOC_Current_Reference(
     const MotorConfiguration *, FocState *, MotorControlState *, float, float);
@@ -70,6 +71,23 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
     assert(false);
 }
 
+/* 与Axis配置提交边界一致，只绑定固定参数，不改变历史积分或动态限幅。 */
+static void bind_current_configuration(FocState *foc, const MotorConfiguration *configuration)
+{
+    PiController_Configure(&foc->id_pi,
+                           configuration->model.id_kp,
+                           configuration->model.id_ki,
+                           Current_Ts,
+                           foc->id_pi.output_min,
+                           foc->id_pi.output_max);
+    PiController_Configure(&foc->iq_pi,
+                           configuration->model.iq_kp,
+                           configuration->model.iq_ki,
+                           Current_Ts,
+                           foc->iq_pi.output_min,
+                           foc->iq_pi.output_max);
+}
+
 int main(void)
 {
     /* 等价比较限定在不触发新增热限制的输入，热限流另有真实入口反例。 */
@@ -92,10 +110,21 @@ int main(void)
             configuration.model.iq_kp = .05f * (scenario % 7);
             configuration.model.id_ki = .3f * (scenario % 6);
             configuration.model.iq_ki = .2f * (scenario % 8);
+            bind_current_configuration(&actual, &configuration);
+            bind_current_configuration(&reference, &configuration);
             for (unsigned tick = 0; tick < 512; tick++)
             {
+                /* 模拟停机提交后的首次控制拍；不用重置PI历史来掩盖绑定错误。 */
+                if (tick == 256U)
+                {
+                    configuration.model.id_kp += 0.015f;
+                    configuration.model.iq_ki += 0.025f;
+                    bind_current_configuration(&actual, &configuration);
+                    bind_current_configuration(&reference, &configuration);
+                }
                 memset(captures, 0, sizeof(captures));
-                actual.bus_voltage_filtered_v = tick % 37 == 0 ? 0 : bus[scenario % 8];
+                actual.bus_voltage_filtered_v =
+                    tick % 37 == 0 ? 0 : bus[(scenario + tick / 73U) % 8];
                 actual.phase_a_current_a = .2f * (float)((int)((tick * 7) % 41) - 20);
                 actual.phase_b_current_a = .3f * (float)((int)((tick * 11) % 37) - 18);
                 actual.phase_c_current_a = -(actual.phase_a_current_a + actual.phase_b_current_a);
@@ -108,7 +137,8 @@ int main(void)
                 motor.vq_target_v = (float)((int)(tick % 121) - 60);
                 float phase = .01f * (float)((int)(tick % 601) - 300);
                 float velocity = (float)((int)((tick * 19) % 6001) - 3000);
-                if (mode == 0)
+                unsigned active_mode = (mode + tick / 128U) % 3U;
+                if (active_mode == 0)
                 {
                     FOC_CurrentWithReference(
                         &configuration, &actual, &motor, phase, velocity, motor.iq_target_a + .5f);
@@ -119,7 +149,7 @@ int main(void)
                                                        velocity,
                                                        motor.iq_target_a + .5f);
                 }
-                else if (mode == 1)
+                else if (active_mode == 1)
                 {
                     FOC_Current(&configuration, &actual, &motor, phase, velocity);
                     FOC_Current_Reference(&configuration, &reference, &motor, phase, velocity);
@@ -132,13 +162,16 @@ int main(void)
                 if (memcmp(&actual, &reference, sizeof(actual)) ||
                     memcmp(&captures[0], &captures[1], sizeof(Capture)))
                 {
-                    fprintf(
-                        stderr, "FOC mismatch mode=%u scenario=%u tick=%u\n", mode, scenario, tick);
+                    fprintf(stderr,
+                            "FOC mismatch mode=%u scenario=%u tick=%u\n",
+                            active_mode,
+                            scenario,
+                            tick);
                     return 1;
                 }
                 assert(captures[0].writes == 1);
 #if defined(FAST_LOOP_STAGE_PROFILE) && FAST_LOOP_STAGE_PROFILE
-                assert(captures[0].count == (mode == 2 ? 1U : 3U));
+                assert(captures[0].count == (active_mode == 2 ? 1U : 3U));
 #else
                 assert(captures[0].count == 1U);
 #endif

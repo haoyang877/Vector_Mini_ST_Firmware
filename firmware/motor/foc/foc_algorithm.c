@@ -303,18 +303,9 @@ void FOC_CurrentWithReference(const MotorConfiguration *configuration,
     if (foc->bus_voltage_filtered_v > 0.0f)
     {
         max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
-        PiController_Configure(&foc->id_pi,
-                               configuration->model.id_kp,
-                               configuration->model.id_ki,
-                               Current_Ts,
-                               -max_voltage,
-                               max_voltage);
-        PiController_Configure(&foc->iq_pi,
-                               configuration->model.iq_kp,
-                               configuration->model.iq_ki,
-                               Current_Ts,
-                               -max_voltage,
-                               max_voltage);
+        /* 固定增益与周期由所有者在配置提交时绑定；本拍仅更新动态电压额度。 */
+        foc->id_pi.output_min = foc->iq_pi.output_min = -max_voltage;
+        foc->id_pi.output_max = foc->iq_pi.output_max = max_voltage;
 
         voltage_d = PiController_Run(&foc->id_pi, id_reference, foc->id_a);
         voltage_q = PiController_Run(&foc->iq_pi, iq_reference, foc->iq_a);
@@ -366,12 +357,8 @@ void FOC_Vq_Mode(const MotorConfiguration *configuration,
     if (foc->bus_voltage_filtered_v > 0.0f)
     {
         max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
-        PiController_Configure(&foc->id_pi,
-                               configuration->model.id_kp,
-                               configuration->model.id_ki,
-                               Current_Ts,
-                               -max_voltage,
-                               max_voltage);
+        foc->id_pi.output_min = -max_voltage;
+        foc->id_pi.output_max = max_voltage;
 
         voltage_d = PiController_Run(&foc->id_pi, 0.0f, foc->id_a);
         voltage_q = Math_Constrain(motor_state->vq_target_v, -max_voltage, max_voltage);

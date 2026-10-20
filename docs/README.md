@@ -12,6 +12,9 @@ provide the short entry map; details belong here.
 参数填写、计算与标定的边界见[参数来源与计算时机](architecture/parameter_sources_v1.md)，
 实现和离线证据见[编译期派生收口](plans/completed/2026-10-20-parameter-sources-and-constants-v1.md)。
 
+核心执行路径见[Flash与快环精简记录](plans/completed/2026-10-21-core-path-simplification-v1.md)，
+保留控制数学、保护阈值及Watch观测入口。
+
 当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
 按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。
 核心线路：[SPEED能力声明 v2](protocols/yg_protocol_core_speed_caps_v2.md)、

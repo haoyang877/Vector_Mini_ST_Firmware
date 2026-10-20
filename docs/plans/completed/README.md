@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [Loader 改造复审 v1](2026-10-21-loader-boundary-review-v1.md)：修复工程目标遗漏，补齐 G431 故障恢复与参数保护回归；离线验证通过。
+
 - [主状态机核心流程精简 v2](2026-10-21-state-machine-core-flow-v2.md)：明确五条核心流程，合并准入、撤销及派发的重复逻辑；固定基线对照、PR与normal编译通过，未烧录。
 
 - [Loader 多目标边界收口 v1](2026-10-21-loader-mcu-boundaries-v1.md)：分层门禁、目标配置贯通及板级/参数职责分离；完整离线验证通过，未连接硬件。

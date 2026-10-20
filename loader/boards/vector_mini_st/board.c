@@ -106,3 +106,10 @@ void SystemClock_Config(void)
         Error_Handler();
     }
 }
+
+bool LoaderBoard_OutputsOff(void)
+{
+    return !(GPIOA->ODR & 0x780U) && !(GPIOB->ODR & 3U) &&
+           (GPIOA->MODER & 0x3FC000U) == 0x154000U && (GPIOB->MODER & 15U) == 5U &&
+           !(GPIOA->OTYPER & 0x780U) && !(GPIOB->OTYPER & 3U) && !(TIM1->BDTR & TIM_BDTR_MOE);
+}

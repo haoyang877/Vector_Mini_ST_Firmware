@@ -117,7 +117,7 @@ UpgradePlan Upgrade_Inspect(const QString &app_path)
         {
             throw std::runtime_error("请选择打包后的 image.bin");
         }
-        QFile resource(":/contracts/vector_mini_st_g431.json");
+        QFile resource(":/contracts/loader_target.json");
         if (!resource.open(QIODevice::ReadOnly))
         {
             throw std::runtime_error("缺少共享目标资源");

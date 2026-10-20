@@ -62,15 +62,51 @@ CAN FD 为优先通信方式；UART 必须单独实现和验收，不能因更�
 | [镜像内核](../../shared/image/image_transfer.c)要求每次编程 8 字节，三个启动标记也按该单位写入 | 核对新 Flash 编程规则；若不兼容，连同标记布局、CRC 归一化、故障恢复和配套工具一起设计 |
 | 镜像内核把 APP 槽上限限制为 128 KiB | 更大 APP 要检查并调整内核、打包工具及边界测试；这不是芯片总 Flash 容量上限 |
 | [目标配置](../../shared/targets/vector_mini_st_g431.json)是单一 G431 目标 | 新建独立目标，不能覆盖 G431 配置或沿用它的兼容身份 |
-| [工程生成器](../../loader/tools/generate_target.py)和[配套 APP 生成器](../../tools/build/generate_loader_app_project.py)固定部分 G431/Cortex-M4 输入 | 增加明确的目标选择，核对芯片宏、启动文件、链接文件、SDK、编译器和下载算法 |
-| [运行入口](../../loader/runtime/main.c)直接包含 G431 目标头文件 | 通过构建选择目标；避免在通用升级流程中堆叠各型号条件分支 |
-| [客户端](../../host_app/upgrade_client.py)固定加载 G431 目标契约 | 支持选择目标并继续核对设备、布局和镜像，不能删掉匹配检查来接受新包 |
+| 工程生成、打包和客户端已接入显式目标选择，现有真实目标仍只有 G431 | 新增目标时提供芯片端口和完整构建输入；生成工具不会自动实现驱动 |
+| [运行入口](../../loader/runtime/main.c)通过生成的 `loader_target.h` 选择目标 | 由目标清单生成；不要手工替换已验证目标的头文件 |
+| [客户端](../../host_app/upgrade_client.py)支持 `--target`，省略时保持 G431 | 契约随工具部署；未知目标和不兼容能力在操作前拒绝，不能取消匹配检查 |
 | UID 通路目前使用 12 字节，打包检查使用当前 ARM 启动向量规则 | 核对新芯片 UID 编码和启动架构；不直接截断身份，不套用不适用的向量检查 |
 | G431 使用保留 RAM 邮箱及特定复位、ECC 和看门狗处理 | 核对新 MCU 的真实行为，不能只替换寄存器地址 |
 
 协议、描述符、参数或身份编码发生不兼容变化时，更新相应版本、文档、黄金向量及测试，
 明确拒绝旧目标的方式。新增 MCU 本身不等于必须改线协议；兼容时保留已有协议。
 不改变格式时，也要为新目标登记准确的 MCU、产品、硬件和布局信息。
+
+## 已完成的公共边界收口
+
+2026-10-21 已将平台接口放入 `loader/ports/include/`，芯片实现留在
+`loader/ports/stm32g4/`。依赖检查覆盖核心、组合层、产品层、端口和板级，
+核心不能直接包含厂商头、芯片私有头或目标配置。
+
+`loader/product/parameters.c` 负责现有参数格式和 CAN 节点解析；平台只提供有界只读访问，
+拒绝读过参数边界进入生产身份页。`loader/boards/vector_mini_st/board.c` 同时拥有
+关相动作和关闭状态核对。此次保持原有寄存器条件、节点策略及存储格式。
+
+目标来源统一到 `shared/targets/`，通过 `target_contract.py` 读取并检查。
+构建信息记录芯片宏、CPU、工程模板、源文件、输出目录和选择头目录；
+固件只编译一个选定目标，不增加运行时目标注册表。
+
+以下命令只生成工程或检查本地文件，不接触设备：
+
+```powershell
+uv run python loader/tools/generate_target.py --target vector_mini_st_g431
+uv run python tools/build/generate_loader_app_project.py --target vector_mini_st_g431
+uv run python tools/build/check_project_layout.py --target vector_mini_st_g431
+uv run python host_app/upgrade_client.py inspect --target vector_mini_st_g431 --package outputs/配套包/app-package
+```
+
+`package_image.py`、`keil_loader_app.py` 和 `build_loader_bundle.py` 也接受 `--target`。
+参数可以是目标名称，或明确的目标 JSON 文件路径；省略时保持 G431。
+不存在的显式目标不会回退为默认目标。构建前还会核对生成头与所选清单是否一致。
+APP 工程的后处理继承目标选择，配套构建传递同一份契约并核对其哈希。
+
+Qt 主机构建通过 CMake 的 `YG_LOADER_TARGET_FILE` 选择目标，默认仍为 G431。
+所选头文件、内嵌校验资源、部署契约及启动的 Python 客户端保持一致。
+独立部署需包含 `target_contract.py` 和 `contracts/<目标名>.json`；仅复制客户端脚本不够。
+生产身份工装仍为 G431 专用，不能因为升级客户端支持目标选择就用于其他芯片。
+
+本轮没有放宽 8 字节编程、128 KiB APP 上限、Cortex-M 向量及 12 字节 UID 约定。
+不同存储几何和启动架构仍需按下面步骤设计、测试，不能通过修改目标名称绕过限制。
 
 ## 分步适配
 
@@ -169,7 +205,7 @@ uv run python tools/run.py verify --profile release
 当前 release 工具面向现有目标；接入新目标时必须使其能单独构建并报告新目标结果，
 不能拿只构建 G431 的通过结果代替新 MCU 构建。
 生成工程后先审核并提交目标修改，再从干净工作树执行 release 验证。
-现有生成命令没有通用的目标选择参数；适配工具之前不要照搬假设存在的命令。
+当前目标选择和公共边界的用法见下一节；目标可选择不等于已支持其他芯片。
 
 新增并核对：地址越界、整数溢出、擦写边界、镜像不完整、错误 MCU/板卡/布局、
 CRC 错误、错误启动入口、过期会话、重复请求、超时和启动标记半写场景。

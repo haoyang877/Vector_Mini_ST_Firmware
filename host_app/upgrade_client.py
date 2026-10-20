@@ -7,6 +7,7 @@ import hashlib
 import json
 import secrets
 import struct
+import sys
 import time
 import zlib
 from dataclasses import dataclass
@@ -14,9 +15,16 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET_CONTRACT = Path(__file__).resolve().parent / "contracts/vector_mini_st_g431.json"
-if not TARGET_CONTRACT.is_file():
-    TARGET_CONTRACT = ROOT / "shared/targets/vector_mini_st_g431.json"
+HOST_DIRECTORY = Path(__file__).resolve().parent
+sys_path = (
+    HOST_DIRECTORY if (HOST_DIRECTORY / "target_contract.py").is_file() else ROOT / "shared/targets"
+)
+sys.path.insert(0, str(sys_path))
+from target_contract import load_target  # noqa: E402
+
+TARGET_DIRECTORY = HOST_DIRECTORY / "contracts"
+if not TARGET_DIRECTORY.is_dir():
+    TARGET_DIRECTORY = ROOT / "shared/targets"
 PROFILE = 0x53593549
 
 
@@ -96,12 +104,13 @@ class UpgradePackage:
     loader_version: int
 
     @classmethod
-    def load(cls, directory: Path) -> UpgradePackage:
+    def load(cls, directory: Path, target_selection: str | Path | None = None) -> UpgradePackage:
         """严格检查冻结目标、描述符、向量、CRC和配套文件SHA256。"""
         image = (directory / "image.bin").read_bytes()
         manifest = (directory / "manifest.bin").read_bytes()
         metadata = json.loads((directory / "package.json").read_text(encoding="utf-8"))
-        constants = json.loads(TARGET_CONTRACT.read_text(encoding="utf-8"))["constants"]
+        contract = load_target(target_selection, directory=TARGET_DIRECTORY)
+        constants = contract["constants"]
 
         def value(key: str) -> int:
             return int(constants[key].removesuffix("U"), 0)
@@ -173,6 +182,7 @@ class UpgradePackage:
             or sp % 8
             or not pc & 1
             or not target[4] + offset + 96 <= (pc & ~1) < target[4] + length
+            or metadata.get("target") != contract["target"]
             or metadata.get("format") != "loader-image-v3-crc32"
             or metadata.get("image_sha256") != hashlib.sha256(image).hexdigest()
             or metadata.get("manifest_sha256") != hashlib.sha256(manifest).hexdigest()
@@ -458,6 +468,7 @@ def main() -> int:
     """包检查默认离线；upgrade须显式独占台架且逻辑电源供电。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("inspect", "upgrade"))
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--sdk", type=Path)
     parser.add_argument("--device-index", type=int, default=0, help="USB-CAN设备索引；使用通道0")
@@ -470,7 +481,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        package = UpgradePackage.load(args.package)
+        package = UpgradePackage.load(args.package, args.target)
     except (OSError, ValueError, KeyError, struct.error) as exc:
         parser.error(f"升级包或目标契约无法读取/校验：{exc}")
     if args.action == "inspect":

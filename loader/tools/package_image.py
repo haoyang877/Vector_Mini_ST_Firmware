@@ -13,6 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from project_paths import ROOT
 
+sys.path.insert(0, str(ROOT / "shared/targets"))
+from target_contract import load_target  # noqa: E402
+
 
 def build_package(source: bytes, token: int, target: dict) -> tuple[bytes, bytes, dict]:
     """按共同目标生成未激活的 CAN 镜像和清单；不访问磁盘或硬件。"""
@@ -114,14 +117,13 @@ def build_package(source: bytes, token: int, target: dict) -> tuple[bytes, bytes
 def main() -> None:
     """读取原始APP BIN，生成未激活的 CAN 升级包。"""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
     parser.add_argument("--app-bin", type=Path, required=True)
     parser.add_argument("--token", type=lambda value: int(value, 0), required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    target = json.loads(
-        (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
-    )
     try:
+        target = load_target(args.target)
         image, manifest, metadata = build_package(args.app_bin.read_bytes(), args.token, target)
     except ValueError as exc:
         parser.error(str(exc))

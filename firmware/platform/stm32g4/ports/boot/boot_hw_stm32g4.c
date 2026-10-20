@@ -2,7 +2,7 @@
 #include "boot_hw.h"
 #include "image_mailbox.h"
 #include "image_format.h"
-#include "vector_mini_st_g431.h"
+#include "loader_target.h"
 #include "stm32g4xx_hal.h"
 #include <string.h>
 extern const uint32_t __Vectors;

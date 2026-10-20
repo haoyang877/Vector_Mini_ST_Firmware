@@ -22,7 +22,9 @@ uv run python tools/run.py lint
 ```
 
 安装目录的 `bin/YG_MC_HOST.exe` 为入口；Qt 运行库、两个 Python 客户端、`ports` 和
-`bin/contracts/vector_mini_st_g431.json` 由 CMake/Qt 原生安装规则一起部署。
+`bin/target_contract.py` 与 `bin/contracts/<目标名>.json` 由 CMake/Qt 原生安装规则一起部署。
+CMake 的 `YG_LOADER_TARGET_FILE` 选择构建契约，默认 G431；生成目标头后再配置主机工程。
+CLI 支持 `--target` 名称或 JSON 路径，错误目标不回退；GUI 使用编译时所选目标启动 CLI。
 契约直接来自 shared，不手工维护副本。部署目录可整体移出仓库；只复制 EXE 不构成可运行工具。
 升级包需要同目录的 `image.bin`、`manifest.bin`、`package.json`；GUI 校验镜像后，
 Python 客户端还会独立核对元数据和文件哈希，不能省略其中任何文件。

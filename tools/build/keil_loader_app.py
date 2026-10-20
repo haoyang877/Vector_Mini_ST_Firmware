@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "loader/tools"))
 from package_image import build_package  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "shared/targets"))
+from target_contract import load_target  # noqa: E402
+
 MARKERS = ((64, 0x41435433), (72, 0x54525933), (80, 0x4F4B4133))
 
 
@@ -148,14 +151,12 @@ def reuse_existing(
     return report
 
 
-def build_outputs(axf: Path, token: int | None) -> dict:
+def build_outputs(axf: Path, token: int | None, target_selection: str | Path | None = None) -> dict:
     """从同一 AXF 派生调试下载镜像和未激活 CAN 包。"""
     axf = axf.resolve()
     if token is not None and not 1 <= token <= 0xFFFFFFFF:
         raise ValueError("token 必须是非零 u32")
-    target = json.loads(
-        (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
-    )
+    target = load_target(target_selection)
     constants = target["constants"]
     app_base = int(constants["TARGET_APP_BASE"].rstrip("U"), 0)
     app_bytes = int(constants["TARGET_APP_BYTES"].rstrip("U"), 0)
@@ -228,13 +229,13 @@ def build_outputs(axf: Path, token: int | None) -> dict:
     return report
 
 
-def synchronize(axf: Path, token: int | None) -> dict:
+def synchronize(axf: Path, token: int | None, target_selection: str | Path | None = None) -> dict:
     """处理或严格复用 APP 镜像；任何失败撤销旧成功清单。"""
     axf = axf.resolve()
     if not axf.is_relative_to((ROOT / "outputs").resolve()) or not axf.is_file():
         raise ValueError("AXF 必须是当前工作树 outputs 内的构建文件")
     try:
-        return build_outputs(axf, token)
+        return build_outputs(axf, token, target_selection)
     except (OSError, ValueError, struct.error, KeyError, TypeError):
         invalidate_outputs(axf)
         raise
@@ -243,13 +244,20 @@ def synchronize(axf: Path, token: int | None) -> dict:
 def main() -> int:
     """Keil After Build 入口；任何无效镜像返回非零。"""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
     parser.add_argument("axf", type=Path)
     parser.add_argument("--token", type=lambda value: int(value, 0))
     args = parser.parse_args()
     try:
         configured = os.environ.get("YG_LOADER_IMAGE_TOKEN")
         token = args.token if args.token is not None else int(configured, 0) if configured else None
-        report = synchronize(args.axf, token)
+        configured_target = os.environ.get("YG_LOADER_TARGET_FILE")
+        selection = args.target
+        if configured_target and (
+            args.target is None or args.target == load_target(configured_target)["target"]
+        ):
+            selection = configured_target
+        report = synchronize(args.axf, token, selection)
     except (OSError, ValueError, struct.error, KeyError) as exc:
         print(f"LoaderApp sync failed: {exc}", file=sys.stderr)
         return 1

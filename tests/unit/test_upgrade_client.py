@@ -92,7 +92,11 @@ class UpgradeClientTests(unittest.TestCase):
             "-I",
             str(ROOT / "loader/core"),
             "-I",
-            str(ROOT / "loader/ports/stm32g4"),
+            str(ROOT / "loader/ports/include"),
+            "-I",
+            str(ROOT / "loader/product"),
+            "-I",
+            str(ROOT / "shared/targets/vector_mini_st_g431"),
             "-shared",
             "-std=c99",
             "-Wall",
@@ -216,6 +220,9 @@ class UpgradeClientTests(unittest.TestCase):
             contracts.mkdir(parents=True)
             client = portable / "upgrade_client.py"
             shutil.copy2(ROOT / "host_app/upgrade_client.py", client)
+            shutil.copy2(
+                ROOT / "shared/targets/target_contract.py", portable / "target_contract.py"
+            )
             target = contracts / "vector_mini_st_g431.json"
             shutil.copy2(ROOT / "shared/targets/vector_mini_st_g431.json", target)
             command = [

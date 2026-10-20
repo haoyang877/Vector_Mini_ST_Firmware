@@ -1,8 +1,9 @@
 /* 产品组合根：唯一前台所有者，冷启动驻留/升级/跳前校验；不链接APP运行态。 */
 #include "upgrade.h"
 #include "platform.h"
+#include "parameters.h"
 #include "can_port.h"
-#include "vector_mini_st_g431.h"
+#include "loader_target.h"
 #include "yg_protocol_frame_codec.h"
 #include "yg_protocol_can_id.h"
 #include "yg_protocol_fragment.h"
@@ -437,7 +438,7 @@ int main(void)
         LoaderPlatform_Fatal();
     }
     mailbox_valid = LoaderPlatform_TakeMailbox(&message);
-    (void)LoaderPlatform_Parameters(&node);
+    (void)LoaderParameters_ReadNode(&node);
     if (!LoaderCan_Init(node))
     {
         LoaderPlatform_Fatal();

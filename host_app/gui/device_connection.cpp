@@ -13,7 +13,7 @@
 #include <QProcess>
 #include <QSpinBox>
 #include <QSettings>
-#include "shared/targets/vector_mini_st_g431.h"
+#include "loader_target.h"
 #include <cmath>
 
 namespace yg::host

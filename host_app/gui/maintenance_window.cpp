@@ -1,6 +1,6 @@
 /** 单页真实设备界面；设备 I/O 由既有辅助进程和升级客户端执行。 */
 #include "maintenance_window.h"
-#include "shared/targets/vector_mini_st_g431.h"
+#include "loader_target.h"
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QCoreApplication>
@@ -555,6 +555,8 @@ void MaintenanceWindow::start_real_upgrade()
     process->setArguments({"-u",
                            client,
                            "upgrade",
+                           "--target",
+                           YG_LOADER_TARGET_NAME,
                            "--package",
                            package_dir,
                            "--sdk",

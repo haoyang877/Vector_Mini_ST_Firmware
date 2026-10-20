@@ -126,7 +126,25 @@ def main() -> None:
     parameter_source.write_text(
         (ROOT / "tests/unit/loader_parameter_test.c").read_text(encoding="utf-8")
         + "\n"
-        + function_source(platform, "LoaderPlatform_Parameters"),
+        + (ROOT / "loader/product/parameters.c").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    parameter_io_source = output / "parameter_io.c"
+    parameter_io_source.write_text(
+        (ROOT / "tests/unit/loader_parameter_io_test.c").read_text(encoding="utf-8")
+        + "\n"
+        + function_source(platform, "LoaderPlatform_ReadParameters"),
+        encoding="utf-8",
+    )
+    board_source = output / "board_safety.c"
+    board_code = (ROOT / "loader/boards/vector_mini_st/board.c").read_text(encoding="utf-8")
+    board_source.write_text(
+        (ROOT / "tests/unit/loader_board_test.c").read_text(encoding="utf-8")
+        + "\n"
+        + "\n".join(
+            function_source(board_code, name)
+            for name in ("pins", "LoaderBoard_Safe", "LoaderBoard_OutputsOff")
+        ),
         encoding="utf-8",
     )
     base = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
@@ -134,7 +152,11 @@ def main() -> None:
         "-I",
         str(ROOT / "firmware/services/lifecycle"),
         "-I",
-        str(ROOT / "loader/ports/stm32g4"),
+        str(ROOT / "loader/ports/include"),
+        "-I",
+        str(ROOT / "loader/product"),
+        "-I",
+        str(ROOT / "shared/targets/vector_mini_st_g431"),
         "-I",
         str(ROOT / "loader/core"),
         "-I",
@@ -167,6 +189,8 @@ def main() -> None:
         ("flash_wait", str(flash_source), []),
         ("app_confirm", str(confirm_source), []),
         ("parameters", str(parameter_source), []),
+        ("parameter_io", str(parameter_io_source), []),
+        ("board_safety", str(board_source), []),
     ):
         executable = output / (name + ".exe")
         for command in (

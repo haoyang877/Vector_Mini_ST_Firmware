@@ -8,7 +8,7 @@ extern "C"
 #include "shared/protocol/yg_protocol_can_id.h"
 #include "shared/protocol/yg_protocol_frame_codec.h"
 #include "shared/checksum/crc32.h"
-#include "shared/targets/vector_mini_st_g431.h"
+#include "loader_target.h"
 }
 #include <QApplication>
 #include <QCheckBox>

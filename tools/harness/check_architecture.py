@@ -12,7 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ROOT, config
 
 DEBT = ROOT / "tools/harness/architecture_debt.json"
-INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+INCLUDE = re.compile(r'^\s*#\s*include\s+[<"]([^>"]+)[>"]', re.MULTILINE)
+LOADER_PORTABLE_LAYERS = {"loader_core", "loader_runtime", "loader_product", "loader_api"}
+HARDWARE_HEADER = re.compile(r"^(?:stm32|gd32|at32|hc32|core_cm|cmsis|hal_|ll_)", re.I)
 
 
 def layer_config():
@@ -55,6 +57,17 @@ def scan() -> list[dict]:
             continue
         text = source.read_text(encoding="utf-8-sig", errors="replace")
         for include in INCLUDE.findall(text):
+            if source_layer in LOADER_PORTABLE_LAYERS and HARDWARE_HEADER.match(Path(include).name):
+                source_rel = source.relative_to(ROOT).as_posix()
+                violations.append(
+                    {
+                        "id": f"{source_rel} -> hardware-header:{include}",
+                        "from_layer": source_layer,
+                        "to_layer": "hardware-header",
+                        "include": include,
+                    }
+                )
+                continue
             candidates = []
             local = (source.parent / include).resolve()
             if local.is_file():

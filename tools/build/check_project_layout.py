@@ -8,11 +8,15 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
+import argparse
 import re
 import sys
 import xml.etree.ElementTree as ET
 
 from project_paths import ROOT
+
+sys.path.insert(0, str(ROOT / "shared/targets"))
+from target_contract import load_target, repository_path  # noqa: E402
 
 
 def resolve_path(base, value):
@@ -46,41 +50,58 @@ def check_project(project):
             errors.append(f"duplicate source: {value}")
         sources.append(path)
 
-    # Include headers as well as project-listed C files: Keil does not list every
-    # header, and a moved header can contain another relative include.
+    # 从实际编译单元追踪自有头文件，避免把其他目标的专用端口误套进本工程。
     owned = (
         "firmware/app",
-        "firmware/motor/math",
         "firmware/motor",
         "firmware/services",
         "firmware/communication",
-        "firmware/platform/api",
-        "firmware/platform/stm32g4/bsp",
-        "firmware/platform/stm32g4/ports",
-        "firmware/platform/stm32g4/cubemx/Core",
+        "firmware/platform",
         "firmware/third_party/segger_rtt",
+        "loader",
+        "shared",
     )
-    for folder in owned:
-        for source in (ROOT / folder).rglob("*"):
-            if source.suffix not in (".c", ".h"):
-                continue
-            # CubeMX lists optional HAL modules behind preprocessor guards.
-            # Their enabled dependencies are verified by the real Keil build.
-            if source.name == "stm32g4xx_hal_conf.h":
-                continue
-            text = source.read_text(encoding="utf-8-sig", errors="surrogateescape")
-            for value in re.findall(r'^\s*#\s*include\s+"([^"]+)"', text, re.M):
-                if not any(
-                    resolve_path(base, value).is_file() for base in [source.parent, *include_dirs]
-                ):
-                    errors.append(f'{source.relative_to(ROOT)}: unresolved include "{value}"')
+    roots = [(ROOT / folder).resolve() for folder in owned]
+    pending = list(sources)
+    visited = set()
+    while pending:
+        source = pending.pop()
+        if (
+            source in visited
+            or not source.is_file()
+            or source.suffix not in (".c", ".h")
+            or not any(source.is_relative_to(root) for root in roots)
+            or "Drivers" in source.parts
+            or source.name == "stm32g4xx_hal_conf.h"
+        ):
+            continue
+        visited.add(source)
+        text = source.read_text(encoding="utf-8-sig", errors="surrogateescape")
+        for value in re.findall(r'^\s*#\s*include\s+"([^"]+)"', text, re.M):
+            matches = [
+                resolve_path(base, value)
+                for base in [source.parent, *include_dirs]
+                if resolve_path(base, value).is_file()
+            ]
+            if not matches:
+                errors.append(f'{source.relative_to(ROOT)}: unresolved include "{value}"')
+            else:
+                pending.append(matches[0])
     return errors, len(sources), len(include_dirs)
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
+    args = parser.parse_args()
+    profile = load_target(args.target)
+    build = profile["build"]
     failed = False
-    for name in ("YG_ESC_APP",):
-        project = ROOT / "firmware/platform/stm32g4/cubemx/MDK-ARM" / f"{name}.uvprojx"
+    for relative in dict.fromkeys(
+        (build["template"], build["loader_project"], build["app_project"])
+    ):
+        project = repository_path(ROOT, relative)
+        name = project.stem
         errors, sources, includes = check_project(project)
         for error in errors:
             print(f"{name}: {error}", file=sys.stderr)

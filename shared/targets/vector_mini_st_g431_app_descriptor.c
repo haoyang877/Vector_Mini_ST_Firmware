@@ -1,6 +1,6 @@
 /* 仅Loader布局APP目标编译；版本/角色来自构建输入，不把旧独立APP伪装成可升级镜像。 */
 #include "image_format.h"
-#include "vector_mini_st_g431.h"
+#include "loader_target.h"
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
 #ifndef YG_APP_IMAGE_VERSION
 #error Loader APP target requires explicit YG_APP_IMAGE_VERSION

@@ -34,10 +34,12 @@ def fixture():
 #include "control_math.h"
 #include "image_transfer.h"
 #include "vector_mini_st_g431.h"
+#include "parameters.h"
 MotorConfiguration configuration;
 static uint8_t parameter_flash[TARGET_PARAM_BYTES];
 void LoaderPlatform_Watchdog(void) {}
-bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
+bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count) {
+    uint32_t address = TARGET_PARAM_BASE + offset;
     if(address < TARGET_PARAM_BASE || count > TARGET_IDENTITY_BASE - address) { return false; }
     memcpy(output, parameter_flash + address - TARGET_PARAM_BASE, count);
     return true;
@@ -64,8 +66,7 @@ bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
-    platform = (ROOT / "loader/ports/stm32g4/platform.c").read_text(encoding="utf-8")
-    prelude += "\n" + function_source(platform, "LoaderPlatform_Parameters")
+    prelude += "\n" + (ROOT / "loader/product/parameters.c").read_text(encoding="utf-8")
     policy = json.loads(
         (ROOT / "docs/protocols/parameter_node_application_v2_vectors.json").read_text(
             encoding="utf-8"
@@ -161,7 +162,7 @@ int main(void) {
         p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&configuration); assert(configuration.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(configuration.application.speed_ceiling_rad_s==cap);
         assert(configuration.device.node_id==node && configuration.application.axis_profile_valid);
         memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
-        uint8_t loader_node=0; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_RAW11 && loader_node==node);
+        uint8_t loader_node=0; assert(LoaderParameters_ReadNode(&loader_node)==YI_PARAMS_RAW11 && loader_node==node);
         assert(configuration.device.encoder.electrical_zero_q15==3155);
         assert(configuration.device.encoder.linearization_lut_q15[71]==-42);
         assert(configuration.application.speed_kp==.02f);
@@ -186,7 +187,7 @@ int main(void) {
         assert(configuration.device.node_id==7 && configuration.application.speed_limit_rad_s==.7f);
         assert(configuration.application.speed_ceiling_rad_s==.7f && memcmp(&p,&before,sizeof(p))==0);
         memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
-        uint8_t loader_node=0; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_RAW11 && loader_node==7);
+        uint8_t loader_node=0; assert(LoaderParameters_ReadNode(&loader_node)==YI_PARAMS_RAW11 && loader_node==7);
     }
     {
         const float invalid_nodes[]={3.5f,NAN,INFINITY,-1.0f,255.0f};
@@ -195,7 +196,7 @@ int main(void) {
             Param_Download(&p,sizeof(p),&configuration);
             assert(!configuration.configuration_confirmed && configuration.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
             memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
-            uint8_t loader_node=7; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_UNSAFE && loader_node==7);
+            uint8_t loader_node=7; assert(LoaderParameters_ReadNode(&loader_node)==YI_PARAMS_UNSAFE && loader_node==7);
         }
     }
     puts("PASS AXS only narrows application and never overrides node; fractional addresses rejected by APP/Loader");
@@ -293,7 +294,7 @@ int main(void) {
     assert(p.node_id==7.0f && p.configuration_flags==0U && p.record_crc32==Param_RecordCrc(&p));
     memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
     uint8_t default_loader_node=0;
-    assert(LoaderPlatform_Parameters(&default_loader_node)==YI_PARAMS_RAW11 && default_loader_node==7U);
+    assert(LoaderParameters_ReadNode(&default_loader_node)==YI_PARAMS_RAW11 && default_loader_node==7U);
     Param_Return_Default(&configuration);
     assert(configuration.device.node_id==1U);
     Param_Download(&p,sizeof(p),&configuration);

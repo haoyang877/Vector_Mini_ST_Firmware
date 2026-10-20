@@ -1,7 +1,7 @@
 #ifndef VECTOR_MINI_ST_G431_H
 #define VECTOR_MINI_ST_G431_H
 #include <stdint.h>
-/* 由shared/targets/vector_mini_st_g431.json生成；容量仍待统一链接验收。 */
+/* 由目标清单生成；禁止手工修改。 */
 #define TARGET_FLASH_BASE 0x08000000U
 #define TARGET_FLASH_BYTES 0x20000U
 #define TARGET_ERASE_BYTES 0x800U

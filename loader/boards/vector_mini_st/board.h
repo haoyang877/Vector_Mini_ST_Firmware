@@ -13,4 +13,6 @@ void LoaderBoard_Safe(void);
 void SystemClock_Config(void);
 /** @brief 配置FDCAN1时钟及PB8/PB9引脚。 @return 时钟配置成功返回true。 */
 bool LoaderBoard_CanInit(void);
+/** @brief 回读本板六路门极配置及主输出关闭状态。 @return 满足既定关闭条件返回 true。 */
+bool LoaderBoard_OutputsOff(void);
 #endif

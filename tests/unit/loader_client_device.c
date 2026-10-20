@@ -91,7 +91,7 @@ bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message)
     (void)message;
     return false;
 }
-LoaderParameterState LoaderPlatform_Parameters(uint8_t *value)
+LoaderParameterState LoaderParameters_ReadNode(uint8_t *value)
 {
     *value = 3U;
     return YI_PARAMS_RAW11;

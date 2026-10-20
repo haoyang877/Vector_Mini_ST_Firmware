@@ -37,8 +37,11 @@
     "TARGET_IDENTITY_BYTES": "0x800U"
   },
   "includes": [
+    "shared/targets/vector_mini_st_g431",
     "loader/targets/vector_mini_st_g431",
     "loader/core",
+    "loader/product",
+    "loader/ports/include",
     "loader/ports/stm32g4",
     "loader/boards/vector_mini_st",
     "shared/targets",
@@ -88,6 +91,26 @@
     ],
     "Shared image": [
       "shared/image/image_transfer.c"
+    ],
+    "Loader product": [
+      "loader/product/parameters.c"
     ]
+  },
+  "image_architecture": "cortex-m",
+  "build": {
+    "artifact_mcu": "STM32G431CB",
+    "cpu": "CLOCK(8000000) FPU2 CPUTYPE(\"Cortex-M4\")",
+    "defines": "USE_HAL_DRIVER,STM32G431xx",
+    "template": "firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx",
+    "target_directory": "loader/targets/vector_mini_st_g431",
+    "target_header": "shared/targets/vector_mini_st_g431.h",
+    "descriptor_source": "shared/targets/vector_mini_st_g431_app_descriptor.c",
+    "loader_project": "loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx",
+    "loader_output": "outputs/build/loader/vector_mini_st_g431",
+    "app_name": "Vector_Mini_ST_LoaderApp",
+    "app_project": "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx",
+    "app_output": "outputs/build/keil/Vector_Mini_ST_LoaderApp",
+    "app_boot_source": "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c",
+    "selection_directory": "shared/targets/vector_mini_st_g431"
   }
 }

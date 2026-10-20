@@ -87,13 +87,45 @@ allows = ["platform_api", "motor", "services", "protocol", "communication", "sha
 
 [architecture.layers.app]
 paths = ["firmware/app"]
-allows = ["motor_math", "platform_api", "motor", "services", "protocol", "communication", "app", "shared"]
+allows = ["target_profile", "motor_math", "platform_api", "motor", "services", "protocol", "communication", "app", "shared"]
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
-allows = ["platform_api", "motor", "services", "platform_stm32", "cubemx", "shared"]
+allows = ["target_profile", "platform_api", "motor", "services", "platform_stm32", "cubemx", "shared"]
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/stm32g4/cubemx/Core"]
 allows = ["platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx"]
 
+
+[architecture.layers.loader_api]
+paths = ["loader/ports/include"]
+allows = ["loader_api", "shared"]
+
+[architecture.layers.loader_core]
+paths = ["loader/core"]
+allows = ["loader_core", "shared"]
+
+[architecture.layers.loader_product]
+paths = ["loader/product"]
+allows = ["target_profile", "loader_product", "loader_api", "loader_target", "shared"]
+
+[architecture.layers.loader_runtime]
+paths = ["loader/runtime"]
+allows = ["target_profile", "loader_runtime", "loader_core", "loader_product", "loader_api", "loader_target", "shared"]
+
+[architecture.layers.loader_target]
+paths = ["loader/targets"]
+allows = ["target_profile", "loader_target", "shared"]
+
+[architecture.layers.loader_mcu]
+paths = ["loader/ports/stm32g4"]
+allows = ["target_profile", "loader_mcu", "loader_api", "loader_board", "loader_target", "shared", "cubemx"]
+
+[architecture.layers.loader_board]
+paths = ["loader/boards"]
+allows = ["loader_board", "shared", "cubemx"]
+
+[architecture.layers.target_profile]
+paths = ["shared/targets"]
+allows = ["target_profile", "shared"]

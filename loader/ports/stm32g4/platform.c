@@ -3,7 +3,7 @@
 #include "board.h"
 #include "flash_guard.h"
 #include "can_port.h"
-#include "vector_mini_st_g431.h"
+#include "loader_target.h"
 #include "stm32g4xx_hal.h"
 #include <string.h>
 
@@ -173,9 +173,7 @@ void LoaderPlatform_Watchdog(void)
 }
 bool LoaderPlatform_OutputsOff(void)
 {
-    return !(GPIOA->ODR & 0x780U) && !(GPIOB->ODR & 3U) &&
-           (GPIOA->MODER & 0x3FC000U) == 0x154000U && (GPIOB->MODER & 15U) == 5U &&
-           !(GPIOA->OTYPER & 0x780U) && !(GPIOB->OTYPER & 3U) && !(TIM1->BDTR & TIM_BDTR_MOE);
+    return LoaderBoard_OutputsOff();
 }
 void LoaderPlatform_Fatal(void)
 {
@@ -255,56 +253,11 @@ void LoaderPlatform_Reset(void)
 {
     NVIC_SystemReset();
 }
-LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
+bool LoaderPlatform_ReadParameters(uint32_t offset, void *destination, uint32_t bytes)
 {
-    uint8_t block[64];
-    uint32_t offset, i, words[2], node_bits, candidate, shift;
-    bool blank = true;
-    /* 完整扫描只确认可读/空白；CRC及配置合法性由APP所有者校验。 */
-    /* 生产身份页独立；不能把已烧SN当作存在校准，也不能因该页ECC错误拒绝参数域。 */
-    for (offset = 0; offset < TARGET_IDENTITY_BASE - TARGET_PARAM_BASE; offset += sizeof(block))
-    {
-        LoaderPlatform_Watchdog();
-        if (!LoaderFlash_Read(TARGET_PARAM_BASE + offset, block, sizeof(block)))
-        {
-            return YI_PARAMS_UNSAFE;
-        }
-        for (i = 0; i < sizeof(block); ++i)
-        {
-            if (block[i] != 255)
-            {
-                blank = false;
-            }
-        }
-    }
-    if (blank)
-    {
-        return YI_PARAMS_BLANK;
-    }
-    if (node == NULL || !LoaderFlash_Read(TARGET_PARAM_BASE + TARGET_RAW_SCHEMA_OFFSET, words, 8) ||
-        (words[0] != TARGET_SCHEMA && words[0] != 12U && words[0] != 13U) ||
-        words[1] != TARGET_RAW_MAGIC || !LoaderFlash_Read(TARGET_PARAM_BASE, &node_bits, 4))
-    {
-        return YI_PARAMS_UNSAFE;
-    }
-    /* node_id 的现有ABI是 IEEE754 float，逐位接纳精确整数，拒绝NaN/负值/小数。 */
-    if (node_bits == 0)
-    {
-        *node = 0;
-        return YI_PARAMS_RAW11;
-    }
-    if ((node_bits >> 23) < 127U || (node_bits >> 23) > 134U)
-    {
-        return YI_PARAMS_UNSAFE;
-    }
-    shift = 150U - (node_bits >> 23);
-    candidate = (node_bits & 0x7FFFFFU) | 0x800000U;
-    if ((candidate & ((1U << shift) - 1U)) != 0 || (candidate >> shift) >= 255U)
-    {
-        return YI_PARAMS_UNSAFE;
-    }
-    *node = (uint8_t)(candidate >> shift);
-    return YI_PARAMS_RAW11;
+    const uint32_t capacity = TARGET_IDENTITY_BASE - TARGET_PARAM_BASE;
+    return destination != NULL && bytes != 0U && bytes <= capacity && offset <= capacity - bytes &&
+           LoaderFlash_Read(TARGET_PARAM_BASE + offset, destination, bytes);
 }
 bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message)
 {

@@ -11,7 +11,8 @@
 - [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)
 - `core/`：单事务、5s租约、主机nonce/session与精确ACTIVATE发送票据。
 - `runtime/`：安全启动、50ms窗口、现场校验、GET_INFO与升级路由。
-- `ports/`、`boards/`：固定APP写域、ECC读取、CAN物理事件、复位和跳转。
+- `ports/include/`：公共平台接口；`ports/stm32g4/`：当前芯片驱动。
+- `product/`：只读参数识别和节点策略；`boards/`：板级时钟、引脚、关相与状态核对。
 - `targets/`：独立 Keil 工程及 layout 6 的 16 KiB Loader/96 KiB APP/16 KiB 参数与身份布局。
 - `tools/package_image.py`：96B描述符回填、CRC与目标检查；原始占位BIN不能直接升级。
 - `tools/build/keil_loader_app.py`：LoaderApp Keil 构建后生成可直下的调试 AXF/HEX/BIN，
@@ -19,10 +20,12 @@
 - `tools/factory_identity.py`：独立生产页的SN/电机类型；默认只生成文件，显式SWD写入需
   备份、UID及数字关相核对，CAN没有生产写命令。CAN ID由当前参数 schema 所有者管理。
 
-目标清单修改后运行`python loader/tools/generate_target.py`及
-`python tools/build/generate_loader_app_project.py`；只生成工程输入，不构建或下载。
+目标清单修改后运行`python loader/tools/generate_target.py --target vector_mini_st_g431`及
+`python tools/build/generate_loader_app_project.py --target vector_mini_st_g431`；只生成工程输入，不构建或下载。
 `python tools/run.py build_loader_bundle --uv4 ... --fromelf ... --token ... --output outputs/...`
 独立构建两端，并生成双版本命名的整机 SWD HEX、单件工件、CAN 包与 SHA-256 清单。
+生成、打包、配套构建和主机 CLI 都接受 `--target`（名称或 JSON 路径），默认 G431；
+未知目标明确失败，构建前核对生成头与清单。当前仍只有一个经过验证的真实 MCU 端口。
 默认只产出 debug 候选，
 `release_approved=false`；需完成当前release与台架验收后再按[发布规范](../docs/guides/firmware_release_standard.md)发布。
 

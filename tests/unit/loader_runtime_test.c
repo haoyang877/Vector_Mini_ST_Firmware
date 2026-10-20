@@ -59,7 +59,7 @@ bool LoaderPlatform_TakeMailbox(BootMailboxMessage *message)
     *message = (BootMailboxMessage){YG_BOOT_ENTER, 3U};
     return model_mailbox;
 }
-LoaderParameterState LoaderPlatform_Parameters(uint8_t *node_out)
+LoaderParameterState LoaderParameters_ReadNode(uint8_t *node_out)
 {
     *node_out = 3U;
     return YI_PARAMS_RAW11;

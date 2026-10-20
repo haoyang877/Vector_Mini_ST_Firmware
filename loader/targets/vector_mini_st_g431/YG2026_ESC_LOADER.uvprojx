@@ -318,7 +318,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32G431xx</Define>
               <Undefine />
-              <IncludePath>.;..\..\core;..\..\ports\stm32g4;..\..\boards\vector_mini_st;..\..\..\shared\targets;..\..\..\shared\image;..\..\..\shared\boot;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Include;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Device\ST\STM32G4xx\Include</IncludePath>
+              <IncludePath>..\..\..\shared\targets\vector_mini_st_g431;.;..\..\core;..\..\product;..\..\ports\include;..\..\ports\stm32g4;..\..\boards\vector_mini_st;..\..\..\shared\targets;..\..\..\shared\image;..\..\..\shared\boot;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Include;..\..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Device\ST\STM32G4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -516,6 +516,16 @@
               <FileName>image_transfer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\shared\image\image_transfer.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Loader product</GroupName>
+          <Files>
+            <File>
+              <FileName>parameters.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\product\parameters.c</FilePath>
             </File>
           </Files>
         </Group>

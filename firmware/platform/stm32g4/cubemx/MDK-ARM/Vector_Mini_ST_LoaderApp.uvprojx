@@ -79,7 +79,7 @@
           <AfterMake>
             <RunUserProg1>1</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name>"..\..\..\..\..\.venv\Scripts\python.exe" "..\..\..\..\..\tools\build\keil_loader_app.py" "#L"</UserProg1Name>
+            <UserProg1Name>"..\..\..\..\..\.venv\Scripts\python.exe" "..\..\..\..\..\tools\build\keil_loader_app.py" "#L" --target vector_mini_st_g431</UserProg1Name>
             <UserProg2Name />
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
@@ -336,7 +336,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app/composition;../../../../app/runtime;../../../../app/motor_state_machine;../../../../motor/math;../../../../communication/can;../../../../communication/protocol;../../../../../shared/checksum;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/calibration;../../../../motor/feedback;../../../../motor/position;../../../../motor/protection;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../../../../app/composition;../../../../app/runtime;../../../../app/motor_state_machine;../../../../motor/math;../../../../communication/can;../../../../communication/protocol;../../../../../shared/checksum;../../../../../shared/protocol;../../../../../shared/boot;../../../../../shared/image;../../../../../shared/targets;../../../../motor;../../../../motor/foc;../../../../motor/calibration;../../../../motor/feedback;../../../../motor/position;../../../../motor/protection;../../../api;../../bsp;../../../../services/parameters;../../../../services/telemetry;../../../../services/lifecycle;..\..\..\..\..\shared\targets\vector_mini_st_g431</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>

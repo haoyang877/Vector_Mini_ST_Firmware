@@ -19,10 +19,27 @@ from harness.common import git_info
 from keil_loader_app import intel_hex
 from project_paths import ROOT
 
+sys.path.insert(0, str(ROOT / "shared/targets"))
+from target_contract import load_target, repository_path  # noqa: E402
+
+
+def verify_target_inputs(root: Path, target: dict) -> None:
+    """构建前核对生成头，避免所选清单与固件编译目标不同。"""
+    build = target["build"]
+    header = repository_path(root, build["target_header"])
+    definitions = header.read_text(encoding="utf-8").splitlines()
+    for name, value in target["constants"].items():
+        if f"#define {name} {value}" not in definitions:
+            raise ValueError("目标头与清单不一致，请重新生成：" + name)
+    selected = repository_path(root, build["selection_directory"]) / "loader_target.h"
+    if f'#include "{header.name}"' not in selected.read_text(encoding="utf-8"):
+        raise ValueError("编译入口未选择目标头，请重新生成目标工程")
+
 
 def main() -> int:
     """两工程都零错误/警告且产物新鲜才冻结；任何失败不输出成功summary。"""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
     parser.add_argument("--uv4", type=Path, required=True)
     parser.add_argument("--fromelf", type=Path, required=True)
     parser.add_argument("--token", type=lambda value: int(value, 0), required=True)
@@ -30,6 +47,12 @@ def main() -> int:
     args = parser.parse_args()
     if not 1 <= args.token <= 0xFFFFFFFF:
         parser.error("token必须是非零u32")
+    try:
+        target = load_target(args.target)
+        build = target["build"]
+        verify_target_inputs(ROOT, target)
+    except (OSError, ValueError, KeyError) as exc:
+        parser.error(f"目标契约无效：{exc}")
     output = args.output.resolve()
     if not output.is_relative_to((ROOT / "outputs").resolve()):
         parser.error("构建与冻结证据必须放当前工作树outputs下")
@@ -37,37 +60,39 @@ def main() -> int:
         parser.error("编译器入口或fromelf不存在")
     output.mkdir(parents=True, exist_ok=False)
     source = git_info()
-    target_file = ROOT / "shared/targets/vector_mini_st_g431.json"
-    constants = json.loads(target_file.read_text(encoding="utf-8"))["constants"]
+    constants = target["constants"]
+    target_data = (json.dumps(target, indent=2) + "\n").encode("utf-8")
     date = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")
     report = {
         "success": False,
         "release_approved": False,
         "hardware_validation": "not_run",
         "source": source,
-        "target_sha256": hashlib.sha256(target_file.read_bytes()).hexdigest(),
+        "target": target["target"],
+        "target_sha256": hashlib.sha256(target_data).hexdigest(),
         "artifacts": [],
         "resources": {},
         "parameter_schema": int(constants["TARGET_SCHEMA"].removesuffix("U"), 0),
         "parameter_bytes": int(constants["TARGET_RAW_BYTES"].removesuffix("U"), 0),
         "profile": "loader-image-v3-crc32",
     }
+    (output / "target.json").write_bytes(target_data)
     binaries = {}
     tags = {}
     try:
         for product, name, project, directory, version_key in (
             (
                 "LOADER",
-                "YG2026_ESC_LOADER",
-                "loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx",
-                "outputs/build/loader/vector_mini_st_g431",
+                target["name"],
+                build["loader_project"],
+                build["loader_output"],
                 "TARGET_LOADER_VERSION",
             ),
             (
                 "APP",
-                "Vector_Mini_ST_LoaderApp",
-                "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx",
-                "outputs/build/keil/Vector_Mini_ST_LoaderApp",
+                build["app_name"],
+                build["app_project"],
+                build["app_output"],
                 "TARGET_APP_VERSION",
             ),
         ):
@@ -76,8 +101,9 @@ def main() -> int:
             environment = os.environ.copy()
             if product == "APP":
                 environment["YG_LOADER_IMAGE_TOKEN"] = str(args.token)
+                environment["YG_LOADER_TARGET_FILE"] = str(output / "target.json")
             result = subprocess.run(
-                [str(args.uv4), "-r", str(ROOT / project), "-j0", "-o", str(log)],
+                [str(args.uv4), "-r", str(repository_path(ROOT, project)), "-j0", "-o", str(log)],
                 timeout=180,
                 check=False,
                 env=environment,
@@ -88,7 +114,7 @@ def main() -> int:
             version = int(constants[version_key].removesuffix("U"), 0)
             tag = f"v{version >> 16}.{(version >> 8) & 255}.{version & 255}"
             tags[product] = tag
-            prefix = f"YG2026-ESC-{product}-STM32G431CB-debug-{tag}-{date}"
+            prefix = f"YG2026-ESC-{product}-{build['artifact_mcu']}-debug-{tag}-{date}"
             for suffix in ("axf", "hex", "map"):
                 artifact = ROOT / directory / f"{name}.{suffix}"
                 if not artifact.is_file() or artifact.stat().st_mtime < started - 2:
@@ -110,6 +136,13 @@ def main() -> int:
                 if not debug_report.is_file() or debug_report.stat().st_mtime < started - 2:
                     raise RuntimeError("Keil APP 后处理清单缺失或不是本次构建产物")
                 details = json.loads(debug_report.read_text(encoding="utf-8"))
+                if (
+                    details.get("target_sha256")
+                    != hashlib.sha256(
+                        json.dumps(target, sort_keys=True).encode("utf-8")
+                    ).hexdigest()
+                ):
+                    raise RuntimeError("APP 后处理目标与构建目标不一致")
                 if details["image_token"] != args.token or details["debug_markers"] != (
                     "activated_attempted_confirmed"
                 ):
@@ -170,7 +203,7 @@ def main() -> int:
         ):
             raise RuntimeError("Loader/APP 镜像不属于当前相邻分区")
         combined = output / (
-            f"YG2026-ESC-FULL-STM32G431CB-debug-LOADER-{tags['LOADER']}"
+            f"YG2026-ESC-FULL-{build['artifact_mcu']}-debug-LOADER-{tags['LOADER']}"
             f"-APP-{tags['APP']}-{date}.hex"
         )
         eof = b":00000001FF\n"
@@ -203,7 +236,7 @@ def main() -> int:
                         "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
                     }
                 )
-        shutil.copyfile(target_file, output / "target.json")
+        (output / "target.json").write_bytes(target_data)
         for artifact in [output / "target.json", *output.glob("*.debug.json")]:
             report["artifacts"].append(
                 {

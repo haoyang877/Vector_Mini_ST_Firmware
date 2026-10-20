@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
-import json
+import argparse
 import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from project_paths import KEIL, ROOT
+from project_paths import ROOT
+
+sys.path.insert(0, str(ROOT / "shared/targets"))
+from target_contract import load_target, repository_path  # noqa: E402
 
 
 def main() -> None:
     """复用正常控制源码，仅替换启动能力、显式镜像身份和目标内存布局。"""
-    config = json.loads(
-        (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
-    )["constants"]
-    tree = ET.parse(KEIL / "YG_ESC_APP.uvprojx")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
+    args = parser.parse_args()
+    profile = load_target(args.target)
+    config = profile["constants"]
+    build = profile["build"]
+    project = repository_path(ROOT, build["app_project"])
+    project_dir = project.parent
+    tree = ET.parse(repository_path(ROOT, build["template"]))
     target = tree.getroot().find("Targets/Target")
     if target is None:
         raise ValueError("普通APP工程缺少Target")
@@ -31,12 +39,12 @@ def main() -> None:
 
     def relative(path: str) -> str:
         """项目路径相对工程目录，不固化工作站位置。"""
-        return os.path.relpath(ROOT / path, KEIL).replace("/", "\\")
+        return os.path.relpath(ROOT / path, project_dir).replace("/", "\\")
 
-    name = "Vector_Mini_ST_LoaderApp"
+    name = build["app_name"]
     set_value("TargetName", name)
     common = "TargetOption/TargetCommonOption/"
-    output = relative(f"outputs/build/keil/{name}") + "\\"
+    output = relative(build["app_output"]) + "\\"
     app = int(config["TARGET_APP_BASE"].rstrip("U"), 0)
     size = int(config["TARGET_APP_BYTES"].rstrip("U"), 0)
     ram = int(config["TARGET_RAM_BASE"].rstrip("U"), 0)
@@ -46,8 +54,7 @@ def main() -> None:
     set_value(common + "ListingPath", output)
     set_value(
         common + "Cpu",
-        f"IRAM(0x{ram:X}-0x{end - 1:X}) IROM(0x{app:X}-0x{app + size - 1:X}) "
-        'CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4")',
+        f"IRAM(0x{ram:X}-0x{end - 1:X}) IROM(0x{app:X}-0x{app + size - 1:X}) " + build["cpu"],
     )
     # 新工程不继承普通 APP 的执行钩子；下载驱动沿用 Keil 原生配置，写域由 APP 段限定。
     for hook in ("BeforeCompile", "BeforeMake", "AfterMake"):
@@ -67,7 +74,8 @@ def main() -> None:
         + relative(".venv/Scripts/python.exe")
         + '" "'
         + relative("tools/build/keil_loader_app.py")
-        + '" "#L"'
+        + '" "#L" --target '
+        + profile["target"]
     )
     ads = "TargetOption/TargetArmAds/"
     defines = target.find(ads + "Cads/VariousControls/Define")
@@ -77,7 +85,7 @@ def main() -> None:
     )
     set_value(ads + "LDads/umfTarg", "0")
     set_value(ads + "LDads/useFile", "1")
-    set_value(ads + "LDads/ScatterFile", relative("loader/targets/vector_mini_st_g431/app.sct"))
+    set_value(ads + "LDads/ScatterFile", relative(build["target_directory"] + "/app.sct"))
     for item in target.find(ads + "ArmAdsMisc/OnChipMemories"):
         start, length = item.find("StartAddress"), item.find("Size")
         if start is not None and length is not None:
@@ -87,20 +95,20 @@ def main() -> None:
                 start.text, length.text = hex(ram), hex(end - ram)
             else:
                 start.text, length.text = "0x0", "0x0"
+    includes = target.find(ads + "Cads/VariousControls/IncludePath")
+    includes.text = (includes.text or "") + ";" + relative(build["selection_directory"])
     groups = target.find("Groups")
     for file in groups.findall("Group/Files/File"):
         if file.findtext("FileName") == "boot_hw_unavailable.c":
-            file.find("FileName").text = "boot_hw_stm32g4.c"
-            file.find("FilePath").text = relative(
-                "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c"
-            )
+            file.find("FileName").text = Path(build["app_boot_source"]).name
+            file.find("FilePath").text = relative(build["app_boot_source"])
     files = groups.find("Group[GroupName='50_Shared']/Files")
     if files is None:
         raise ValueError("普通APP工程缺少50_Shared分组")
     # APP 只保留进 Loader 的 RAM 邮箱与内嵌描述符；镜像校验与启动判据归 Loader。
     for source in (
         "shared/boot/image_mailbox.c",
-        "shared/targets/vector_mini_st_g431_app_descriptor.c",
+        build["descriptor_source"],
     ):
         file = ET.SubElement(files, "File")
         ET.SubElement(file, "FileName").text = Path(source).name
@@ -112,7 +120,7 @@ def main() -> None:
     if layer is not None:
         layer.text = name
     ET.indent(tree, space="  ")
-    tree.write(KEIL / f"{name}.uvprojx", encoding="utf-8", xml_declaration=True)
+    tree.write(project, encoding="utf-8", xml_declaration=True)
 
 
 if __name__ == "__main__":

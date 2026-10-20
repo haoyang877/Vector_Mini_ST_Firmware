@@ -38,7 +38,8 @@ flowchart LR
 | `shared/image`、`shared/boot`、`shared/protocol` | 镜像格式、启动标记、邮箱与通信契约 | 尽量复用；契约变化时先更新版本、文档和测试 |
 | `loader/core` | 单次升级事务、会话绑定、提交与超时 | 不接触 HAL、寄存器或板级引脚 |
 | `loader/runtime` | 组织启动判断、升级命令和只读设备信息 | 接入目标芯片的端口，核对安全顺序 |
-| `loader/ports`、`loader/boards` | Flash、CAN、时钟、看门狗、关相与跳转 | 为新 MCU/板卡重新实现并验证 |
+| `loader/ports/include`、`loader/ports/stm32g4` | 公共接口及现有 Flash、CAN、看门狗、跳转驱动 | 接口独立于 HAL；新 MCU 实现对应端口 |
+| `loader/product`、`loader/boards` | 参数节点策略、板级关相与状态核对 | 参数策略不混入芯片驱动；安全状态随板卡验证 |
 | `shared/targets` 与工程输入 | 分区、擦写几何、版本和链接配置 | 为 Loader 和配套 APP 同时生成并构建 |
 
 通信端口和 Flash 端口是不同边界。新增 UART 不应修改镜像内核；更换 MCU 必须重新检查

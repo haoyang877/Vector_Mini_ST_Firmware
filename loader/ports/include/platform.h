@@ -38,11 +38,14 @@ void LoaderPlatform_ImageIo(LoaderFlashIo *io);
  */
 void LoaderPlatform_ReadIdentity(uint8_t uid[12], DeviceIdentity *identity);
 /**
- * @brief 只读识别raw11存储外形并解析CAN节点。
- * @param node 成功识别后输出0..254节点，否则保持原值。
- * @return RAW11、完整空区或不可信；不代表标定有效或允许使能。
+ * @brief 只读访问参数区，禁止越过生产身份边界。
+ * @param offset 参数区内字节偏移。
+ * @param destination 调用方输出缓冲区，失败后不可使用。
+ * @param bytes 非零读取字节数。
+ * @return 范围有效且物理读取成功返回 true。
+ * @note 不解析参数格式、不授予写权限；仅前台调用。
  */
-LoaderParameterState LoaderPlatform_Parameters(uint8_t *node);
+bool LoaderPlatform_ReadParameters(uint32_t offset, void *destination, uint32_t bytes);
 /**
  * @brief 读取后立即清除交接邮箱。
  * @param message 有效时输出值，失败不修改。

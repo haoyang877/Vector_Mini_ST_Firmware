@@ -1,6 +1,6 @@
 # 电机主状态机：八状态职责与执行流程
 
-更新日期：2026-10-16。基于核心 APP v1.3.0 整理代码；八状态及恢复行为沿用 v1.2。
+更新日期：2026-10-21。继续精简主流程；八状态、线路取值及恢复行为保持不变。
 本页说明状态职责，逐状态输入和全部迁移见[状态跳转与命令处理](motor_state_flow_simplification_v1.md)。
 
 ## 当前总图
@@ -15,6 +15,20 @@ FAULT 新故障继续锁存，致命错误进入 FATAL；FATAL 没有软件跳�
 通常控制路径：`INIT → IDLE → STARTING → RUNNING → STOPPING → IDLE`。
 维护路径：`IDLE → MAINTENANCE → STOPPING → IDLE`。
 故障恢复：`当前非 FATAL 状态 → FAULT → 恢复确认＋明确 CLEAR → IDLE`。
+
+## 先看五条核心流程
+
+| 流程 | 只做什么 | 源码入口 |
+| --- | --- | --- |
+| 上电 | 关相完成当前启动的采样、自检和稳定窗口，成功后待机 | `advance_initialization` |
+| 待机 | 等明确启动或单项维护；已有自动保存意图优先派发，不自动运行电机 | `dispatch_idle_work`、`RequestEnable`、`RequestMaintenance` |
+| 运行 | 准备完成后复核并启相；仅接受当前模式的新目标 | `enable_prepared_control`、`apply_pending_control` |
+| 标定 | 叶任务推进自己的采集阶段，主状态机消费完成/失败，退出后独立保存 | `begin_operation`、`state_process_task_outcome` |
+| 停机与故障 | 先关相、撤销旧目标并确认归还；可恢复故障须明确CLEAR，致命故障锁存 | `state_apply_actions`、`FastFaultStop`、`RequestClear` |
+
+`MotorStateMachine_Tick`按“消费输入→推进状态→待机派发/启相复核→运行目标和反馈”顺序阅读。
+STARTING、STOPPING是启动和停止尚未确认的真实阶段，不能合并成一个使能变量。
+速度、位置控制计算和标定内部步骤留在各自模块；这里不重复实现其子状态机。
 
 ## 八个状态各自负责什么
 
@@ -133,10 +147,14 @@ STOP／故障撤销派生保存意图，已提交的 Flash 不因取消回滚。
 | 纯规则 | `MotorStateRules_Step`：故障／停止优先 → 普通事件一次解析及身份校验 → 按当前状态处理 → 补齐输出关闭约束 |
 | 实际动作 | `dispatch_state_event` 绑定原身份、读取事实、调用规则、记录结果、执行关相及取消；普通控制启相仍由 `enable_prepared_control` 最后复核 |
 
-IDLE 只检查共同准入并分派：控制启动由 `start_idle_control` 处理，维护启动由
-`start_idle_maintenance` 处理。`begin_shutdown` 表示发起关断，
+纯规则的IDLE分支直接列出控制与维护各自准入，共用一次新会话代际推进。
+`begin_shutdown` 表示发起关断，
 `confirm_stopped` 才表示停止事实齐全；`record_detected_faults` 会记录当前维护失败及效果。
 这几个名字分别对应请求、确认和记录，避免把动作请求误读为已完成。
+
+STOP和定向取消共用`discard_pending_outcome`保留原身份匹配的失败，再撤销邮箱。
+无载荷的同步事件统一走`dispatch_simple_event`，每次仍重新读当前事实；带结果、故障
+或恢复事实的事件继续显式提交，不能拿动作前的关相快照确认动作后的状态。
 
 快拍任务结果由 `state_process_task_outcome` 消费；前台 SAVE 结果和取消归还由
 `process_save_or_cancel_completion` 消费。其返回值仅说明本次事件被规则接受，

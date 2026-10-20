@@ -14,6 +14,8 @@ provide the short entry map; details belong here.
 
 核心执行路径见[Flash与快环精简记录](plans/completed/2026-10-21-core-path-simplification-v1.md)，
 保留控制数学、保护阈值及Watch观测入口。
+主状态机继续按[五条核心流程](architecture/motor_state_machine_v1.md)整理，
+实施与验证见[主流程精简 v2](plans/completed/2026-10-21-state-machine-core-flow-v2.md)。
 
 当前收口：[核心电机工程 v3](architecture/core_only_v3.md)，
 按[核心删减决定](plans/active/2026-10-08-core-only-v3.md)删除扩展功能。

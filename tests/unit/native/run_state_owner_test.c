@@ -28,7 +28,14 @@ static PiController pi;
 static EncoderState encoder;
 static SensorlessStartupState startup;
 static bool output_off, stop_fails, start_fails, temperature_fresh, encoder_released;
-static unsigned start_count, leaf_calls[8];
+static unsigned start_count, stop_count, leaf_calls[8];
+static bool trace_enabled;
+static unsigned trace_event;
+static const char *trace_case;
+static uint32_t trace_ticket;
+static uint8_t trace_source;
+static uint16_t trace_start_sequence;
+static void trace_capture(const char *event, unsigned result, unsigned detail);
 static bool outer_ready;
 static uint32_t critical_depth;
 static uint32_t now_ms;
@@ -68,12 +75,31 @@ void power_stage_hw_start(void)
     {
         output_off = false;
     }
+    if (trace_enabled)
+    {
+        printf("TRACE POWER %s %u START %u %u %u\n",
+               trace_case,
+               trace_event,
+               start_count,
+               output_off,
+               critical_depth);
+    }
 }
 void power_stage_hw_stop(void)
 {
+    ++stop_count;
     if (!stop_fails)
     {
         output_off = true;
+    }
+    if (trace_enabled)
+    {
+        printf("TRACE POWER %s %u STOP %u %u %u\n",
+               trace_case,
+               trace_event,
+               stop_count,
+               output_off,
+               critical_depth);
     }
 }
 void indicator_hw_set_led(bool error, uint8_t count)
@@ -146,10 +172,13 @@ static void tick(void)
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
                                   MotorStateMachine_WorkEpoch());
     MotorStateMachine_Tick();
+    trace_capture("tick", 0U, 0U);
 }
 
 static void reset(void)
 {
+    bool resume_trace = trace_enabled;
+    trace_enabled = false;
     now_ms = 0U;
     memset(&cfg, 0, sizeof(cfg));
     memset(&motor, 0, sizeof(motor));
@@ -179,7 +208,7 @@ static void reset(void)
     foc.temperature_c = 25.0f;
     output_off = outer_ready = temperature_fresh = encoder_released = true;
     start_fails = false;
-    start_count = 0U;
+    start_count = stop_count = 0U;
     memset(leaf_calls, 0, sizeof(leaf_calls));
     stop_fails = false;
     MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
@@ -188,7 +217,170 @@ static void reset(void)
         tick();
     }
     assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE);
+    trace_ticket = trace_source = trace_start_sequence = 0U;
+    trace_enabled = resume_trace;
+    trace_capture("reset", 0U, 0U);
 }
+
+/* 只记录公共值与硬件桩动作；不读私有状态，不改变请求或监督调用次序。 */
+static unsigned trace_float(float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static void trace_capture(const char *event, unsigned result, unsigned detail)
+{
+    if (!trace_enabled)
+    {
+        return;
+    }
+    MotorControlProgress control = {0};
+    MotorControlStartProgress start = {0};
+    MotorMaintenanceProgress original = {0}, current = {0};
+    uint32_t epoch = MotorStateMachine_WorkEpoch();
+    MotorStateMachine_ReadControlProgress(&control);
+    bool start_found =
+        MotorStateMachine_ReadEnableProgress(trace_source, trace_start_sequence, &start);
+    bool original_found = MotorStateMachine_ReadMaintenance(trace_ticket, &original);
+    bool current_found = MotorStateMachine_ReadMaintenance(epoch, &current);
+    printf("TRACE OWNER %s %u %s %u %u time=%u state=%u epoch=%u mode=%u fault=%u "
+           "off=%u starts=%u stops=%u refs=%08x,%08x,%08x control=%u,%u,%u,%u "
+           "enable=%u,%u,%u,%u,%u old=%u,%u,%u,%u,%u current=%u,%u,%u,%u,%u "
+           "released=%u,%u depth=%u\n",
+           trace_case,
+           trace_event++,
+           event,
+           result,
+           detail,
+           now_ms,
+           MotorStateMachine_GetState(),
+           epoch,
+           motor.control_mode,
+           motor.fault_code,
+           output_off,
+           start_count,
+           stop_count,
+           trace_float(motor.speed_target_rad_s),
+           trace_float(motor.id_target_a),
+           trace_float(motor.iq_target_a),
+           control.state,
+           control.result,
+           control.source_node,
+           control.sequence,
+           start_found,
+           start.state,
+           start.result,
+           start.request.source_node,
+           start.request.sequence,
+           original_found,
+           original.ticket,
+           original.kind,
+           original.result,
+           original.effects,
+           current_found,
+           current.ticket,
+           current.kind,
+           current.result,
+           current.effects,
+           EncoderCalibrationTask_IsReleased(),
+           MaintenanceWorkspace_IsReleased(),
+           critical_depth);
+}
+
+static void trace_begin(const char *name)
+{
+    trace_case = name;
+    trace_event = 0U;
+    trace_enabled = true;
+    trace_capture("begin", 0U, 0U);
+}
+
+static MotorControlResult trace_enable(MotorControlMode mode)
+{
+    MotorControlResult result = MotorStateMachine_RequestEnable(mode);
+    trace_capture("enable", result, mode);
+    return result;
+}
+static MotorControlResult trace_identified_enable(const MotorControlStartRequest *request)
+{
+    MotorControlResult result = MotorStateMachine_RequestIdentifiedEnable(request);
+    if (request != NULL)
+    {
+        trace_source = request->source_node;
+        trace_start_sequence = request->sequence;
+    }
+    trace_capture("identified-enable", result, request ? request->sequence : 0U);
+    return result;
+}
+static MotorControlResult trace_control(const MotorControlCommand *command)
+{
+    MotorControlResult result = MotorStateMachine_SubmitControl(command);
+    trace_capture("control", result, command ? command->sequence : 0U);
+    return result;
+}
+static bool trace_stop(void)
+{
+    bool result = MotorStateMachine_RequestRemoteStop();
+    trace_capture("stop", result, 0U);
+    return result;
+}
+static bool trace_identified_stop(uint8_t source, uint16_t sequence)
+{
+    bool result = MotorStateMachine_RequestIdentifiedStop(source, sequence);
+    trace_capture("identified-stop", result, sequence);
+    return result;
+}
+static MotorControlResult trace_clear(void)
+{
+    MotorControlResult result = MotorStateMachine_RequestClear();
+    trace_capture("clear", result, 0U);
+    return result;
+}
+static MotorControlResult trace_maintenance(MotorMaintenanceKind kind, uint32_t *ticket)
+{
+    MotorControlResult result = MotorStateMachine_RequestMaintenance(kind, ticket);
+    if (result == MOTOR_CONTROL_ACCEPTED && ticket != NULL)
+    {
+        trace_ticket = *ticket;
+    }
+    trace_capture("maintenance", result, kind);
+    return result;
+}
+static bool trace_begin_background(FocBackgroundClaim *claim)
+{
+    bool result = MotorStateMachine_BeginBackground(claim);
+    trace_capture("claim", result, result ? claim->epoch : 0U);
+    return result;
+}
+static void trace_finish_background(const FocBackgroundClaim *claim, bool success)
+{
+    MotorStateMachine_FinishBackground(claim, success);
+    trace_capture("finish", success, claim ? claim->epoch : 0U);
+}
+static void trace_outcome(MotorTaskResult result, uint32_t epoch)
+{
+    MotorStateMachine_PostOutcome(result, epoch);
+    trace_capture("outcome", result.result, epoch);
+}
+static void trace_direct_tick(void)
+{
+    MotorStateMachine_Tick();
+    trace_capture("direct-tick", 0U, 0U);
+}
+
+#define MotorStateMachine_RequestEnable trace_enable
+#define MotorStateMachine_RequestIdentifiedEnable trace_identified_enable
+#define MotorStateMachine_SubmitControl trace_control
+#define MotorStateMachine_RequestRemoteStop trace_stop
+#define MotorStateMachine_RequestIdentifiedStop trace_identified_stop
+#define MotorStateMachine_RequestClear trace_clear
+#define MotorStateMachine_RequestMaintenance trace_maintenance
+#define MotorStateMachine_BeginBackground trace_begin_background
+#define MotorStateMachine_FinishBackground trace_finish_background
+#define MotorStateMachine_PostOutcome trace_outcome
+#define MotorStateMachine_Tick trace_direct_tick
 
 /* 以公共维护入口开启会话并返回创建时 ticket；不再经由 SWD 台架邮箱。 */
 static uint32_t begin_maintenance(MotorMaintenanceKind kind)
@@ -259,6 +451,7 @@ static void test_defaults_preserves_device_address(void)
 static void test_control(void)
 {
     reset();
+    trace_begin("test_control");
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     tick();
     tick();
@@ -319,6 +512,7 @@ static void test_control(void)
            motor.fault_code == MOTOR_FAULT_NONE && motor.control_mode == MOTOR_CONTROL_NONE &&
            motor.speed_target_rad_s == 0.0f);
     puts("PASS worker fault latches error; fresh recovery CLEAR does not restart");
+    trace_enabled = false;
 }
 
 /* 同源序号和STOP屏障只使用真实所有者入口，断言不通过私有状态伪造启相。 */
@@ -329,6 +523,7 @@ static void test_identified_speed_start(void)
     MotorControlStartProgress progress;
 
     reset();
+    trace_begin("test_identified_speed_start");
     assert(MotorStateMachine_RequestIdentifiedStop(2U, 100U));
     tick();
     request.sequence = 99U;
@@ -407,6 +602,7 @@ static void test_identified_speed_start(void)
     assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
     assert(output_off && start_count == 0U);
     puts("PASS identified speed start: retry, conflict, busy, STOP, fault, wrap, rejected retry");
+    trace_enabled = false;
 }
 
 /* 启动已受理时，后台不得借用配置并让监督中断误判资源仍被占用。 */
@@ -416,6 +612,7 @@ static void test_calibration_save(void)
     MotorMaintenanceProgress progress;
     uint32_t ticket, origin, save;
     reset();
+    trace_begin("test_calibration_save");
     cfg.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
     ticket = begin_maintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO);
     assert((MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_ELECTRICAL_ZERO) &&
@@ -460,6 +657,7 @@ static void test_calibration_save(void)
            MotorStateMachine_GetState() == MOTOR_STATE_IDLE);
     puts(
         "PASS encoder-LUT explicit entry remains; stale completion after STOP cannot request SAVE");
+    trace_enabled = false;
 }
 
 /* 采样 IRQ 停止而监督继续时，标定必须关相；停机 SAVE 不依赖快采样推进。 */
@@ -493,6 +691,7 @@ static void test_maintenance_sampling_loss(void)
 static void test_stop_and_fault(void)
 {
     reset();
+    trace_begin("test_stop_and_fault");
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
     tick();
@@ -513,6 +712,7 @@ static void test_stop_and_fault(void)
     assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_STOPPING);
     assert(cfg.application.current_limit_a == 6.0f && cfg.application.speed_limit_rad_s == 20.0f);
     puts("PASS failed output shutdown cannot restore IDLE or relaxed limits");
+    trace_enabled = false;
 }
 
 static void test_borrow_cancel(void)
@@ -521,6 +721,7 @@ static void test_borrow_cancel(void)
     MotorMaintenanceProgress progress;
     uint32_t ticket;
     reset();
+    trace_begin("test_borrow_cancel");
     ticket = begin_maintenance(MOTOR_MAINTENANCE_SAVE);
     assert(MotorStateMachine_BeginBackground(&claim));
     assert(MotorStateMachine_RequestRemoteStop());
@@ -542,6 +743,7 @@ static void test_borrow_cancel(void)
     assert(motor.control_mode == MOTOR_CONTROL_NONE &&
            progress.effects != MOTOR_MAINTENANCE_EFFECT_COMMITTED);
     puts("PASS SAVE borrow blocks cancellation ACK; forged/late results cannot claim COMMITTED");
+    trace_enabled = false;
 }
 
 /* 前台发布与持久化分别确认；整理失败不得派生保存。 */
@@ -1077,6 +1279,7 @@ static void test_target_admission_boundaries(void)
 static void test_direct_fault_recovery_and_idle_stop(void)
 {
     reset();
+    trace_begin("test_direct_fault_recovery_and_idle_stop");
     uint32_t epoch = MotorStateMachine_WorkEpoch();
     assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     assert(MotorStateMachine_RequestRemoteStop());
@@ -1126,6 +1329,7 @@ static void test_direct_fault_recovery_and_idle_stop(void)
     assert(MotorStateMachine_GetState() == MOTOR_STATE_FATAL);
     puts("PASS pending start and busy idle STOP stay IDLE; healthy CLEAR directly IDLE; FATAL "
          "stays latched");
+    trace_enabled = false;
 }
 
 /* 模拟叶算法已经发布结果，验证真实所有者的串联、身份和最终保存边界。 */

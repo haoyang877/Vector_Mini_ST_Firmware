@@ -1,6 +1,6 @@
 # 电机状态跳转与命令处理 v1.2
 
-更新日期：2026-10-16。对应核心 APP v1.3.0 的实际八状态及后续等价代码整理。
+更新日期：2026-10-21。对应当前主状态机；实际八状态、线路行为和事件优先级未改变。
 职责及总图见[主状态机说明](motor_state_machine_v1.md)；本页逐状态列输入和出口。
 原文件名保留以兼容链接，旧九状态及维护内串行 SAVE 候选属于历史方案。
 
@@ -98,9 +98,10 @@ CLEAR 前先确认代际可推进；耗尽 → FATAL，原锁存保留，不能�
 正常迁移见 `MotorStateRules_Step`／`handle_state_event`，故障优先级见
 `handle_priority_events`，实际动作和事实见 `dispatch_state_event`、
 `state_apply_actions`、`read_state_conditions`，均位于[主状态模块](../../firmware/app/motor_state_machine/)。
-STARTING 实际放行见 `enable_prepared_control`，保存衔接见 `start_requested_save`。
+STARTING 实际放行见 `enable_prepared_control`，待机保存及启动派发见 `dispatch_idle_work`。
 普通事件在 `handle_normal_event` 内只解析一次，完成事件仍优先于同拍新请求；
-IDLE 的两种受理由 `start_idle_control`／`start_idle_maintenance` 分别表达。
+IDLE 分支分别校验控制与维护请求，再共用一次新会话代际推进；INIT/IDLE的CLEAR空操作
+及STOPPING/FAULT的取消归还各只保留一处处理。
 关断请求 `begin_shutdown` 与实际确认 `confirm_stopped` 保持分开，迁移表不变。
 
 历史：[九状态总图](../assets/motor_state_machine/state-transition-map.svg)、

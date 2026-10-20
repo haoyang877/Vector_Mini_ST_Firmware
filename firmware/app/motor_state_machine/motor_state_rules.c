@@ -55,12 +55,6 @@ static bool running_permitted(const MotorStateFacts *facts)
            facts->maintenance_released;
 }
 
-/* 完成和新请求各只能有一位；高优先级事件已经在此前处理。 */
-static bool single_event(uint32_t events)
-{
-    return events && !(events & (events - 1U));
-}
-
 /* 首故障取最低位，后续故障累计锁存。 */
 static void latch_faults(MotorStateRulesContext *context, uint32_t faults)
 {
@@ -91,20 +85,15 @@ static bool advance_epoch(MotorStateRulesContext *context, uint32_t *actions)
     return true;
 }
 
-/* 取消无法撤销外部已提交效果，等待实际归还前保持 UNKNOWN。 */
-static void request_operation_cancel(MotorStateRulesContext *context)
+/* 发起关断并撤销本代请求；真实停止由资源归还事实确认。 */
+static void begin_shutdown(MotorStateRulesContext *context, MotorState state, uint32_t *actions)
 {
+    /* 取消不回滚外部效果；等实际归还前只能记录 UNKNOWN。 */
     if (context->maintenance_active && context->operation_result == MOTOR_MAINTENANCE_NO_RESULT)
     {
         context->operation_result = MOTOR_MAINTENANCE_CANCEL_REQUESTED;
         context->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
     }
-}
-
-/* 发起关断并撤销本代请求；真实停止由资源归还事实确认。 */
-static void begin_shutdown(MotorStateRulesContext *context, MotorState state, uint32_t *actions)
-{
-    request_operation_cancel(context);
     *actions |= SHUTDOWN_ACTIONS;
     if (advance_epoch(context, actions))
     {
@@ -285,55 +274,6 @@ static MotorStateRejection confirm_cancelled_operation(MotorStateRulesContext *c
     return MOTOR_STATE_ACCEPTED;
 }
 
-/* IDLE 受理控制会话；真正启相在 STARTING 再次核对许可。 */
-static MotorStateRejection start_idle_control(MotorStateRulesContext *context,
-                                              const MotorStateEvent *event,
-                                              const MotorStateFacts *facts,
-                                              uint32_t *actions)
-{
-    if ((unsigned)event->control_mode > MOTOR_CONTROL_VQ)
-    {
-        return MOTOR_STATE_REJECT_MODE;
-    }
-    if (!facts->start_permitted)
-    {
-        return MOTOR_STATE_REJECT_GUARD;
-    }
-    if (advance_epoch(context, actions))
-    {
-        context->state = MOTOR_STATE_STARTING;
-        *actions |= MOTOR_STATE_ACTION_START_CONTROL;
-    }
-    return MOTOR_STATE_ACCEPTED;
-}
-
-/* 维护会话独立记录任务身份与提交效果，不混入控制启动字段。 */
-static MotorStateRejection start_idle_maintenance(MotorStateRulesContext *context,
-                                                  const MotorStateEvent *event,
-                                                  const MotorStateFacts *facts,
-                                                  uint32_t *actions)
-{
-    if ((unsigned)event->maintenance_kind >= MOTOR_MAINTENANCE_NONE ||
-        MotorStateRules_Classify(event->maintenance_kind) == MOTOR_MAINTENANCE_CLASS_INVALID)
-    {
-        return MOTOR_STATE_REJECT_OPERATION;
-    }
-    if (!facts->operation_permitted)
-    {
-        return MOTOR_STATE_REJECT_GUARD;
-    }
-    if (advance_epoch(context, actions))
-    {
-        context->maintenance_kind = event->maintenance_kind;
-        context->maintenance_active = true;
-        context->operation_result = MOTOR_MAINTENANCE_NO_RESULT;
-        context->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
-        context->state = MOTOR_STATE_MAINTENANCE;
-        *actions |= MOTOR_STATE_ACTION_BEGIN_OPERATION;
-    }
-    return MOTOR_STATE_ACCEPTED;
-}
-
 /* 普通事件按状态分派；IDLE 的控制与维护准入分别处理，公共优先级已处理。 */
 static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
                                               uint32_t event_type,
@@ -341,13 +281,20 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
                                               const MotorStateFacts *facts,
                                               uint32_t *actions)
 {
+    /* 待命 CLEAR 不执行重置；停止和故障共用同一归还确认。 */
+    if (event_type == MOTOR_STATE_EVENT_CLEAR &&
+        (context->state == MOTOR_STATE_INIT || context->state == MOTOR_STATE_IDLE))
+    {
+        return MOTOR_STATE_ACCEPTED;
+    }
+    if (event_type == MOTOR_STATE_EVENT_CANCEL_DONE &&
+        (context->state == MOTOR_STATE_STOPPING || context->state == MOTOR_STATE_FAULT))
+    {
+        return confirm_cancelled_operation(context, event, facts);
+    }
     switch (context->state)
     {
     case MOTOR_STATE_INIT:
-        if (event_type == MOTOR_STATE_EVENT_CLEAR)
-        {
-            return MOTOR_STATE_ACCEPTED;
-        }
         if (event_type != MOTOR_STATE_EVENT_SELF_TEST_DONE)
         {
             break;
@@ -361,10 +308,6 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         return MOTOR_STATE_ACCEPTED;
 
     case MOTOR_STATE_IDLE:
-        if (event_type == MOTOR_STATE_EVENT_CLEAR)
-        {
-            return MOTOR_STATE_ACCEPTED;
-        }
         if (event_type != MOTOR_STATE_EVENT_ENABLE &&
             event_type != MOTOR_STATE_EVENT_BEGIN_OPERATION)
         {
@@ -376,9 +319,47 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         }
         if (event_type == MOTOR_STATE_EVENT_ENABLE)
         {
-            return start_idle_control(context, event, facts, actions);
+            if ((unsigned)event->control_mode > MOTOR_CONTROL_VQ)
+            {
+                return MOTOR_STATE_REJECT_MODE;
+            }
+            if (!facts->start_permitted)
+            {
+                return MOTOR_STATE_REJECT_GUARD;
+            }
         }
-        return start_idle_maintenance(context, event, facts, actions);
+        else
+        {
+            if ((unsigned)event->maintenance_kind >= MOTOR_MAINTENANCE_NONE ||
+                MotorStateRules_Classify(event->maintenance_kind) ==
+                    MOTOR_MAINTENANCE_CLASS_INVALID)
+            {
+                return MOTOR_STATE_REJECT_OPERATION;
+            }
+            if (!facts->operation_permitted)
+            {
+                return MOTOR_STATE_REJECT_GUARD;
+            }
+        }
+        /* 同一代只受理一种工作；控制准备和维护子流程各自继续执行。 */
+        if (advance_epoch(context, actions))
+        {
+            if (event_type == MOTOR_STATE_EVENT_ENABLE)
+            {
+                context->state = MOTOR_STATE_STARTING;
+                *actions |= MOTOR_STATE_ACTION_START_CONTROL;
+            }
+            else
+            {
+                context->maintenance_kind = event->maintenance_kind;
+                context->maintenance_active = true;
+                context->operation_result = MOTOR_MAINTENANCE_NO_RESULT;
+                context->operation_effects = MOTOR_MAINTENANCE_EFFECT_UNKNOWN;
+                context->state = MOTOR_STATE_MAINTENANCE;
+                *actions |= MOTOR_STATE_ACTION_BEGIN_OPERATION;
+            }
+        }
+        return MOTOR_STATE_ACCEPTED;
 
     case MOTOR_STATE_STARTING:
         if (event_type != MOTOR_STATE_EVENT_START_DONE)
@@ -422,10 +403,6 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         return MOTOR_STATE_ACCEPTED;
 
     case MOTOR_STATE_STOPPING:
-        if (event_type == MOTOR_STATE_EVENT_CANCEL_DONE)
-        {
-            return confirm_cancelled_operation(context, event, facts);
-        }
         if (event_type == 0U)
         {
             confirm_stopped(context, facts);
@@ -433,10 +410,6 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         break;
 
     case MOTOR_STATE_FAULT:
-        if (event_type == MOTOR_STATE_EVENT_CANCEL_DONE)
-        {
-            return confirm_cancelled_operation(context, event, facts);
-        }
         if (event_type != MOTOR_STATE_EVENT_CLEAR)
         {
             break;
@@ -490,7 +463,8 @@ static MotorStateRejection handle_normal_event(MotorStateRulesContext *context,
     uint32_t event_type = completion ? completion : request;
     if (event_type)
     {
-        if (!single_event(event_type))
+        /* 已排除零事件；多于一位的完成或请求不能共享一个身份。 */
+        if ((event_type & (event_type - 1U)) != 0U)
         {
             return MOTOR_STATE_REJECT_EVENT;
         }

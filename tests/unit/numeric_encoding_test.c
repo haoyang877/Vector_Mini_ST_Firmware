@@ -68,8 +68,7 @@ static void check(float value)
 /* 从真实目录读回所有标量，覆盖描述符缩放和私有结构偏移，而非只测转换函数。 */
 static void check_catalog(void)
 {
-    MotorControlState motor = {0};
-    EncoderState encoder = {0};
+    MotorConfiguration motor = {0};
     const float samples[] = {0.0f,
                              -0.0f,
                              0.0625f,
@@ -89,8 +88,7 @@ static void check_catalog(void)
             ParameterValue value;
             uint32_t expected = 0U;
             bool valid = ref_parameter(samples[j], (float)s_fields[i].scale, &expected) != 0;
-            ParameterStatus result =
-                ParameterValue_Read(&motor, &encoder, 42U, s_fields[i].id, &value);
+            ParameterStatus result = ParameterValue_Read(&motor, 42U, s_fields[i].id, &value);
             if ((result == PARAMETER_OK) != valid ||
                 (valid &&
                  (value.raw_value != expected || value.revision != 42U ||

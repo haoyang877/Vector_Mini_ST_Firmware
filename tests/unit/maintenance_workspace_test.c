@@ -32,13 +32,15 @@ void FOC_CurrentController_Reset(FocState *foc)
     PiController_Reset(&foc->id_pi);
     PiController_Reset(&foc->iq_pi);
 }
-void SensorlessStartup_Run(FocState *foc,
+void SensorlessStartup_Run(const MotorConfiguration *configuration,
+                           FocState *foc,
                            MotorControlState *motor,
                            PiController *pi,
                            FluxObserverState *observer,
                            SensorlessStartupState *startup,
                            const SensorlessStartupConfig *config)
 {
+    (void)configuration;
     (void)foc;
     (void)motor;
     (void)pi;
@@ -49,8 +51,13 @@ void SensorlessStartup_Run(FocState *foc,
         startup->state = SENSORLESS_STARTUP_ALIGN;
     }
 }
-void FOC_Current(FocState *foc, MotorControlState *motor, float phase, float velocity)
+void FOC_Current(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor,
+                 float phase,
+                 float velocity)
 {
+    (void)configuration;
     (void)foc;
     (void)motor;
     (void)phase;
@@ -84,10 +91,13 @@ void Encoder_ResetVelocity(EncoderState *encoder)
 {
     encoder->velocity_ready = false;
 }
-bool Encoder_SetElectricalZeroQ15(EncoderState *encoder, uint16_t angle)
+bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
+                                  EncoderState *encoder,
+                                  uint16_t angle)
 {
-    encoder->electrical_zero_q15 = angle;
-    encoder->calib_flag |= ENC_CALIB_ELECTRICAL_ZERO;
+    (void)encoder;
+    calibration->electrical_zero_q15 = angle;
+    calibration->calib_flag |= ENC_CALIB_ELECTRICAL_ZERO;
     return true;
 }
 
@@ -117,6 +127,7 @@ static int check_task_cleanup(void)
     for (unsigned scenario = 0U; scenario < 19U; ++scenario)
     {
         FocState foc = {0};
+        MotorConfiguration configuration = {0};
         MotorControlState motor = {0};
         PiController pi = {0};
         EncoderState encoder = {0};
@@ -124,19 +135,35 @@ static int check_task_cleanup(void)
         SensorlessStartupState startup = {0};
         EncoderCalibrationWorkspace *workspace = MaintenanceWorkspace_BorrowEncoder();
         EncoderCalibrationTask_Cancel();
-        motor.model.motor_pole_pairs = 21;
-        motor.model.motor_phase_resistance_ohm = 1.0f;
-        motor.model.motor_d_inductance_h = motor.model.motor_q_inductance_h = 0.001f;
-        motor.model.motor_flux_wb = 0.01f;
-        motor.application.current_limit_a = 6.0f;
+        configuration.model.motor_pole_pairs = 21;
+        configuration.model.motor_phase_resistance_ohm = 1.0f;
+        configuration.model.motor_d_inductance_h = configuration.model.motor_q_inductance_h =
+            0.001f;
+        configuration.model.motor_flux_wb = 0.01f;
+        configuration.application.current_limit_a = 6.0f;
         encoder.has_valid_sample = true;
-        EncoderCalibrationTask_StepLut(&foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+        EncoderCalibrationTask_StepLut(&configuration,
+                                       &configuration.device.encoder,
+                                       &foc,
+                                       &motor,
+                                       &pi,
+                                       &encoder,
+                                       &observer,
+                                       &startup,
+                                       workspace);
         /* 先走完对齐前段的64拍准备；不采原点，避免后续反例被未清完门禁遮蔽。 */
         for (unsigned tick = 1U; tick < (ENCODER_OFFSET_LUT_SIZE + 15U) / 16U; ++tick)
         {
             startup.state_ticks = tick;
-            MotorTaskResult prepared = EncoderCalibrationTask_StepLut(
-                &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+            MotorTaskResult prepared = EncoderCalibrationTask_StepLut(&configuration,
+                                                                      &configuration.device.encoder,
+                                                                      &foc,
+                                                                      &motor,
+                                                                      &pi,
+                                                                      &encoder,
+                                                                      &observer,
+                                                                      &startup,
+                                                                      workspace);
             if (prepared.result != MOTOR_TASK_RUNNING)
             {
                 return 36;
@@ -159,11 +186,11 @@ static int check_task_cleanup(void)
             encoder.has_valid_sample = false;
             break;
         case 2U:
-            motor.model.motor_pole_pairs = 0;
+            configuration.model.motor_pole_pairs = 0;
             error = MOTOR_FAULT_POLE_PAIRS;
             break;
         case 3U:
-            motor.model.motor_flux_wb = 0.0f;
+            configuration.model.motor_flux_wb = 0.0f;
             error = MOTOR_FAULT_INVALID_PARAMETERS;
             break;
         case 4U:
@@ -201,11 +228,11 @@ static int check_task_cleanup(void)
             error = MOTOR_FAULT_SENSORLESS;
             break;
         case 12U:
-            motor.application.current_limit_a = 0.0f;
+            configuration.application.current_limit_a = 0.0f;
             error = MOTOR_FAULT_INVALID_PARAMETERS;
             break;
         case 13U:
-            motor.application.current_limit_a =
+            configuration.application.current_limit_a =
                 SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A - 0.25f;
             error = MOTOR_FAULT_INVALID_PARAMETERS;
             break;
@@ -233,8 +260,15 @@ static int check_task_cleanup(void)
             MaintenanceWorkspace_ReleaseEncoder();
             continue;
         }
-        MotorTaskResult result = EncoderCalibrationTask_StepLut(
-            &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+        MotorTaskResult result = EncoderCalibrationTask_StepLut(&configuration,
+                                                                &configuration.device.encoder,
+                                                                &foc,
+                                                                &motor,
+                                                                &pi,
+                                                                &encoder,
+                                                                &observer,
+                                                                &startup,
+                                                                workspace);
         if (scenario == 18U)
         {
             /* 稳速窗口允许尚未闭环，不能被统一跟踪拒绝误伤。 */
@@ -263,8 +297,15 @@ static int check_task_cleanup(void)
         motor.fault_code = MOTOR_FAULT_NONE;
         motor.id_target_a = motor.iq_target_a = 2.0f;
         s_cleanup_order = 0U;
-        result =
-            EncoderCalibrationTask_StepLut(&foc, &motor, &pi, &encoder, &observer, &startup, NULL);
+        result = EncoderCalibrationTask_StepLut(&configuration,
+                                                &configuration.device.encoder,
+                                                &foc,
+                                                &motor,
+                                                &pi,
+                                                &encoder,
+                                                &observer,
+                                                &startup,
+                                                NULL);
         /* 离线/参数非法场景仍被入口门禁拒绝；正常参数下低速停止必须完成并撤销转矩。 */
         if (scenario != 1U && scenario != 2U && scenario != 3U && scenario != 12U &&
             scenario != 13U &&
@@ -295,7 +336,7 @@ static void hash_bytes(const void *value, size_t bytes)
 
 static void hash_tick(MotorTaskResult result,
                       const MotorControlState *motor,
-                      const EncoderState *encoder,
+                      const EncoderCalibration *calibration,
                       const EncoderCalibrationWorkspace *workspace)
 {
     EncoderCalibrationPhase phase = EncoderCalibrationTask_GetStep();
@@ -306,9 +347,9 @@ static void hash_tick(MotorTaskResult result,
     hash_bytes(&motor->iq_target_a, sizeof(motor->iq_target_a));
     hash_bytes(&motor->speed_target_rad_s, sizeof(motor->speed_target_rad_s));
     hash_bytes(&motor->speed_ramped_rad_s, sizeof(motor->speed_ramped_rad_s));
-    hash_bytes(&encoder->calib_flag, sizeof(encoder->calib_flag));
-    hash_bytes(&encoder->electrical_zero_q15, sizeof(encoder->electrical_zero_q15));
-    hash_bytes(&encoder->mechanical_zero_q15, sizeof(encoder->mechanical_zero_q15));
+    hash_bytes(&calibration->calib_flag, sizeof(calibration->calib_flag));
+    hash_bytes(&calibration->electrical_zero_q15, sizeof(calibration->electrical_zero_q15));
+    hash_bytes(&calibration->mechanical_zero_q15, sizeof(calibration->mechanical_zero_q15));
     if (workspace != NULL)
     {
         hash_bytes(workspace, sizeof(*workspace));
@@ -321,6 +362,7 @@ static void hash_tick(MotorTaskResult result,
 static int check_complete_task_trace(void)
 {
     FocState foc = {0};
+    MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
     PiController pi = {0};
     EncoderState encoder = {0};
@@ -328,22 +370,29 @@ static int check_complete_task_trace(void)
     SensorlessStartupState startup = {0};
     EncoderCalibrationTask_Cancel();
     EncoderCalibrationWorkspace *workspace = MaintenanceWorkspace_BorrowEncoder();
-    motor.model.motor_pole_pairs = 21;
-    motor.model.motor_phase_resistance_ohm = 1.0f;
-    motor.model.motor_d_inductance_h = motor.model.motor_q_inductance_h = 0.001f;
-    motor.model.motor_flux_wb = 0.01f;
-    motor.application.current_limit_a = 6.0f;
+    configuration.model.motor_pole_pairs = 21;
+    configuration.model.motor_phase_resistance_ohm = 1.0f;
+    configuration.model.motor_d_inductance_h = configuration.model.motor_q_inductance_h = 0.001f;
+    configuration.model.motor_flux_wb = 0.01f;
+    configuration.application.current_limit_a = 6.0f;
     encoder.has_valid_sample = true;
     encoder.read_status = ENCODER_READ_OK;
-    encoder.calib_flag = ENC_CALIB_ALL;
-    encoder.electrical_zero_q15 = 3U;
-    encoder.mechanical_zero_q15 = 4U;
+    configuration.device.encoder.calib_flag = ENC_CALIB_ALL;
+    configuration.device.encoder.electrical_zero_q15 = 3U;
+    configuration.device.encoder.mechanical_zero_q15 = 4U;
     for (unsigned bin = 0U; bin < ENCODER_OFFSET_LUT_SIZE; ++bin)
     {
-        encoder.linearization_lut_q15[bin] = 42;
+        configuration.device.encoder.linearization_lut_q15[bin] = 42;
     }
-    MotorTaskResult result =
-        EncoderCalibrationTask_StepLut(&foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+    MotorTaskResult result = EncoderCalibrationTask_StepLut(&configuration,
+                                                            &configuration.device.encoder,
+                                                            &foc,
+                                                            &motor,
+                                                            &pi,
+                                                            &encoder,
+                                                            &observer,
+                                                            &startup,
+                                                            workspace);
     uint32_t align_ticks =
         (uint32_t)((SensorlessStartup_EncoderCalibConfig.align_current_ramp_time_s +
                     SensorlessStartup_EncoderCalibConfig.align_hold_time_s -
@@ -357,20 +406,34 @@ static int check_complete_task_trace(void)
             return 36;
         }
         startup.state_ticks = tick;
-        result = EncoderCalibrationTask_StepLut(
-            &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
+        result = EncoderCalibrationTask_StepLut(&configuration,
+                                                &configuration.device.encoder,
+                                                &foc,
+                                                &motor,
+                                                &pi,
+                                                &encoder,
+                                                &observer,
+                                                &startup,
+                                                workspace);
         if (result.result != MOTOR_TASK_RUNNING)
         {
             return 36;
         }
-        hash_tick(result, &motor, &encoder, workspace);
+        hash_tick(result, &motor, &configuration.device.encoder, workspace);
     }
     for (unsigned tick = 0U; tick < 8U; ++tick)
     {
         startup.state_ticks = align_ticks + tick;
-        result = EncoderCalibrationTask_StepLut(
-            &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
-        hash_tick(result, &motor, &encoder, workspace);
+        result = EncoderCalibrationTask_StepLut(&configuration,
+                                                &configuration.device.encoder,
+                                                &foc,
+                                                &motor,
+                                                &pi,
+                                                &encoder,
+                                                &observer,
+                                                &startup,
+                                                workspace);
+        hash_tick(result, &motor, &configuration.device.encoder, workspace);
     }
     startup.state = SENSORLESS_STARTUP_CLOSED_LOOP;
     startup.speed_feedback_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
@@ -404,17 +467,25 @@ static int check_complete_task_trace(void)
         {
             observer.electrical_velocity_rad_s = 0.0f;
         }
-        result = EncoderCalibrationTask_StepLut(
-            &foc, &motor, &pi, &encoder, &observer, &startup, workspace);
-        hash_tick(result, &motor, &encoder, workspace);
+        result = EncoderCalibrationTask_StepLut(&configuration,
+                                                &configuration.device.encoder,
+                                                &foc,
+                                                &motor,
+                                                &pi,
+                                                &encoder,
+                                                &observer,
+                                                &startup,
+                                                workspace);
+        hash_tick(result, &motor, &configuration.device.encoder, workspace);
         if (result.result != MOTOR_TASK_RUNNING)
         {
             break;
         }
     }
     if (result.result != MOTOR_TASK_COMPLETED || motor.fault_code != MOTOR_FAULT_NONE ||
-        encoder.calib_flag != ENC_CALIB_LINEARIZED || !encoder.rebase_requested ||
-        encoder.electrical_zero_q15 != 0U || encoder.mechanical_zero_q15 != 0U ||
+        configuration.device.encoder.calib_flag != ENC_CALIB_LINEARIZED ||
+        !encoder.rebase_requested || configuration.device.encoder.electrical_zero_q15 != 0U ||
+        configuration.device.encoder.mechanical_zero_q15 != 0U ||
         !EncoderCalibrationTask_IsReleased() || motor.id_target_a != 0.0f ||
         motor.iq_target_a != 0.0f)
     {
@@ -426,27 +497,29 @@ static int check_complete_task_trace(void)
     }
     for (unsigned bin = 0U; bin < ENCODER_OFFSET_LUT_SIZE; ++bin)
     {
-        if (encoder.linearization_lut_q15[bin] != 0)
+        if (configuration.device.encoder.linearization_lut_q15[bin] != 0)
         {
             return 32;
         }
     }
     MaintenanceWorkspace_ReleaseEncoder();
     encoder.linearized_q15 = 65530U;
-    motor.model.calibration_current_a = 2.0f;
+    configuration.model.calibration_current_a = 2.0f;
     unsigned zero_ticks = 0U;
     for (; zero_ticks < 40000U; ++zero_ticks)
     {
         encoder.linearized_q15 = zero_ticks % 2U == 0U ? 65530U : 10U;
-        result = EncoderCalibrationTask_StepElectricalZero(&foc, &motor, &encoder);
-        hash_tick(result, &motor, &encoder, NULL);
+        result = EncoderCalibrationTask_StepElectricalZero(
+            &configuration, &configuration.device.encoder, &foc, &motor, &encoder);
+        hash_tick(result, &motor, &configuration.device.encoder, NULL);
         if (result.result != MOTOR_TASK_RUNNING)
         {
             break;
         }
     }
     if (result.result != MOTOR_TASK_COMPLETED ||
-        (encoder.electrical_zero_q15 != 1U && encoder.electrical_zero_q15 != 2U) ||
+        (configuration.device.encoder.electrical_zero_q15 != 1U &&
+         configuration.device.encoder.electrical_zero_q15 != 2U) ||
         !EncoderCalibrationTask_IsReleased() || motor.id_target_a != 0.0f ||
         motor.iq_target_a != 0.0f)
     {
@@ -455,7 +528,7 @@ static int check_complete_task_trace(void)
     printf("trace PASS: lut_ticks=%u zero_ticks=%u zero_q15=%u hash=%016llx\n",
            lut_ticks,
            zero_ticks,
-           encoder.electrical_zero_q15,
+           configuration.device.encoder.electrical_zero_q15,
            (unsigned long long)s_trace_hash);
     return 0;
 }

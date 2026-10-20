@@ -10,9 +10,12 @@
 #include "fast_loop_profile.h"
 #include "motor_thermal_control.h"
 
-void FOC_Current_Reference(FocState *, MotorControlState *, float, float);
-void FOC_CurrentWithReference_Reference(FocState *, MotorControlState *, float, float, float);
-void FOC_Vq_Mode_Reference(FocState *, MotorControlState *, float, float);
+void FOC_Current_Reference(
+    const MotorConfiguration *, FocState *, MotorControlState *, float, float);
+void FOC_CurrentWithReference_Reference(
+    const MotorConfiguration *, FocState *, MotorControlState *, float, float, float);
+void FOC_Vq_Mode_Reference(
+    const MotorConfiguration *, FocState *, MotorControlState *, float, float);
 
 typedef struct
 {
@@ -81,13 +84,14 @@ int main(void)
         for (unsigned scenario = 0; scenario < 40; scenario++)
         {
             FocState actual = {0}, reference = {0};
+            MotorConfiguration configuration = {0};
             MotorControlState motor = {0};
-            motor.application.current_limit_a = 100.0f;
+            configuration.application.current_limit_a = 100.0f;
             motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(100.0f);
-            motor.model.id_kp = .03f * (scenario % 5);
-            motor.model.iq_kp = .05f * (scenario % 7);
-            motor.model.id_ki = .3f * (scenario % 6);
-            motor.model.iq_ki = .2f * (scenario % 8);
+            configuration.model.id_kp = .03f * (scenario % 5);
+            configuration.model.iq_kp = .05f * (scenario % 7);
+            configuration.model.id_ki = .3f * (scenario % 6);
+            configuration.model.iq_ki = .2f * (scenario % 8);
             for (unsigned tick = 0; tick < 512; tick++)
             {
                 memset(captures, 0, sizeof(captures));
@@ -107,19 +111,23 @@ int main(void)
                 if (mode == 0)
                 {
                     FOC_CurrentWithReference(
-                        &actual, &motor, phase, velocity, motor.iq_target_a + .5f);
-                    FOC_CurrentWithReference_Reference(
-                        &reference, &motor, phase, velocity, motor.iq_target_a + .5f);
+                        &configuration, &actual, &motor, phase, velocity, motor.iq_target_a + .5f);
+                    FOC_CurrentWithReference_Reference(&configuration,
+                                                       &reference,
+                                                       &motor,
+                                                       phase,
+                                                       velocity,
+                                                       motor.iq_target_a + .5f);
                 }
                 else if (mode == 1)
                 {
-                    FOC_Current(&actual, &motor, phase, velocity);
-                    FOC_Current_Reference(&reference, &motor, phase, velocity);
+                    FOC_Current(&configuration, &actual, &motor, phase, velocity);
+                    FOC_Current_Reference(&configuration, &reference, &motor, phase, velocity);
                 }
                 else
                 {
-                    FOC_Vq_Mode(&actual, &motor, phase, velocity);
-                    FOC_Vq_Mode_Reference(&reference, &motor, phase, velocity);
+                    FOC_Vq_Mode(&configuration, &actual, &motor, phase, velocity);
+                    FOC_Vq_Mode_Reference(&configuration, &reference, &motor, phase, velocity);
                 }
                 if (memcmp(&actual, &reference, sizeof(actual)) ||
                     memcmp(&captures[0], &captures[1], sizeof(Capture)))

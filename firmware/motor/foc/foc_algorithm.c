@@ -264,14 +264,23 @@ static inline void foc_apply_modulation(FocState *foc, float phase, float phase_
 }
 
 /* 电流环：使用 motor_state->iq_target_a 作为 q 轴参考执行一次 d/q 电流闭环。 */
-void FOC_Current(FocState *foc, MotorControlState *motor_state, float phase, float phase_vel)
+void FOC_Current(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor_state,
+                 float phase,
+                 float phase_vel)
 {
-    FOC_CurrentWithReference(foc, motor_state, phase, phase_vel, motor_state->iq_target_a);
+    FOC_CurrentWithReference(
+        configuration, foc, motor_state, phase, phase_vel, motor_state->iq_target_a);
 }
 
 /* 电流环：使用显式 q 轴电流参考执行一次 d/q 电流闭环并输出三相占空比。 */
-void FOC_CurrentWithReference(
-    FocState *foc, MotorControlState *motor_state, float phase, float phase_vel, float iq_reference)
+void FOC_CurrentWithReference(const MotorConfiguration *configuration,
+                              FocState *foc,
+                              MotorControlState *motor_state,
+                              float phase,
+                              float phase_vel,
+                              float iq_reference)
 {
     float max_voltage;
     float voltage_d;
@@ -282,7 +291,7 @@ void FOC_CurrentWithReference(
     /* 最终提交再次按快环热额度限制d/q总向量，不能分别裁剪后超过总限流。 */
     float id_reference = motor_state->id_target_a;
     float current_limit_a = MotorThermal_ResolveLimit(
-        motor_state->application.current_limit_a, motor_state->thermal_current_limit_a, true);
+        configuration->application.current_limit_a, motor_state->thermal_current_limit_a, true);
     if (!MotorThermal_LimitVector(current_limit_a, &id_reference, &iq_reference))
     {
         MotorFault_Report(motor_state, MOTOR_FAULT_WINDING_THERMAL);
@@ -295,14 +304,14 @@ void FOC_CurrentWithReference(
     {
         max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
         PiController_Configure(&foc->id_pi,
-                               motor_state->model.id_kp,
-                               motor_state->model.id_ki,
+                               configuration->model.id_kp,
+                               configuration->model.id_ki,
                                Current_Ts,
                                -max_voltage,
                                max_voltage);
         PiController_Configure(&foc->iq_pi,
-                               motor_state->model.iq_kp,
-                               motor_state->model.iq_ki,
+                               configuration->model.iq_kp,
+                               configuration->model.iq_ki,
                                Current_Ts,
                                -max_voltage,
                                max_voltage);
@@ -334,7 +343,11 @@ void FOC_CurrentController_Reset(FocState *foc)
 }
 
 /* q 轴电压模式：d 轴电流闭环到 0，q 轴电压限幅后直接输出。 */
-void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, float phase_vel)
+void FOC_Vq_Mode(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor_state,
+                 float phase,
+                 float phase_vel)
 {
     float max_voltage;
     float voltage_d;
@@ -342,7 +355,7 @@ void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, flo
 
     foc_measure_currents(foc, phase);
     float limit_a = MotorThermal_ResolveLimit(
-        motor_state->application.current_limit_a, motor_state->thermal_current_limit_a, true);
+        configuration->application.current_limit_a, motor_state->thermal_current_limit_a, true);
     /* 电压模式无法按参考限流；当前热额度为零或实测越界时必须关断。 */
     if (!(limit_a > 0.0f) || !(foc->id_a * foc->id_a + foc->iq_a * foc->iq_a <= limit_a * limit_a))
     {
@@ -354,8 +367,8 @@ void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, flo
     {
         max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
         PiController_Configure(&foc->id_pi,
-                               motor_state->model.id_kp,
-                               motor_state->model.id_ki,
+                               configuration->model.id_kp,
+                               configuration->model.id_ki,
                                Current_Ts,
                                -max_voltage,
                                max_voltage);

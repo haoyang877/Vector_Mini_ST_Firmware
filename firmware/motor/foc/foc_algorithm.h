@@ -4,6 +4,7 @@
 /* foc 算法核心：坐标变换、SVPWM 与电流/电压环；PWM 输出统一经 motor_hw 契约，
  * 不直接访问定时器寄存器。 */
 
+#include "motor_config.h"
 #include "motor_types.h"
 #include "foc_pid.h"
 
@@ -107,15 +108,21 @@ void SVM_SectorJudge(
 
 /**
  * @brief  电流环：执行一拍 d/q 电流闭环并更新三相 PWM。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态。
- * @param  motor_state 电机控制状态（含电流指令与限制）。
+ * @param  motor_state 运行目标与动态热额度；必要时锁存故障。
  * @param  phase 电角度，单位 rad。
  * @param  phase_vel 电角速度，单位 rad/s（解耦/前馈用）。
  * @note   仅快速环调用；PWM 输出经 motor_hw 契约。
  */
-void FOC_Current(FocState *foc, MotorControlState *motor_state, float phase, float phase_vel);
+void FOC_Current(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor_state,
+                 float phase,
+                 float phase_vel);
 /**
  * @brief  电流环（带外部 q 轴参考）：供辨识与调试注入 iq。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态。
  * @param  motor_state 电机控制状态。
  * @param  phase 电角度，单位 rad。
@@ -123,7 +130,8 @@ void FOC_Current(FocState *foc, MotorControlState *motor_state, float phase, flo
  * @param  iq_reference q 轴电流参考，单位 A。
  * @note   仅快速环调用；参考仍受 current_limit_a 限制。
  */
-void FOC_CurrentWithReference(FocState *foc,
+void FOC_CurrentWithReference(const MotorConfiguration *configuration,
+                              FocState *foc,
                               MotorControlState *motor_state,
                               float phase,
                               float phase_vel,
@@ -136,11 +144,16 @@ void FOC_CurrentWithReference(FocState *foc,
 void FOC_CurrentController_Reset(FocState *foc);
 /**
  * @brief  vq_v 开环电压模式：固定电角度施加 q 轴电压执行一拍。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态。
  * @param  motor_state 电机控制状态。
  * @param  phase 电角度，单位 rad。
  * @param  phase_vel 电角速度，单位 rad/s。
  * @note   仅快速环调用；需要有效编码器帧。
  */
-void FOC_Vq_Mode(FocState *foc, MotorControlState *motor_state, float phase, float phase_vel);
+void FOC_Vq_Mode(const MotorConfiguration *configuration,
+                 FocState *foc,
+                 MotorControlState *motor_state,
+                 float phase,
+                 float phase_vel);
 #endif

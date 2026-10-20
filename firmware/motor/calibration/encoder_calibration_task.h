@@ -57,10 +57,12 @@ bool EncoderCalibrationTask_IsReleased(void);
 
 /**
  * @brief 观测器 LUT 标定周期任务：无感闭环下重建 1024 点线性化 LUT。
+ * @param configuration 活动配置只读视图，读取电机模型与应用限值。
+ * @param calibration configuration->device.encoder 的可写视图，仅提交 LUT 与零位资格。
  * @param foc 电流控制与观测量。
  * @param motor_state 电机与控制状态；任务只写指令类字段。
  * @param speed_pi 速度环控制器状态（无感启动复用）。
- * @param encoder 编码器状态；验证通过后提交 LUT 并清除电/机械零位标志。
+ * @param encoder 编码器运行状态；提交 LUT 时同步角度并请求位置/速度重建。
  * @param flux_observer 观测器状态；机械参考由静态对齐与过零插值建立。
  * @param startup 无感启动状态机状态。
  * @param workspace 调用方独占采样区，活动任务期间地址须不变；NULL 表示不可借用。
@@ -71,7 +73,9 @@ bool EncoderCalibrationTask_IsReleased(void);
  *       停相与模式回退由运行状态机按结果协议执行。取消/完成仅清除借用，
  *       调用方确认 IsReleased 后才可复用空间；不分配或释放内存。
  */
-MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
+MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configuration,
+                                               EncoderCalibration *calibration,
+                                               FocState *foc,
                                                MotorControlState *motor_state,
                                                PiController *speed_pi,
                                                EncoderState *encoder,
@@ -81,16 +85,20 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 
 /**
  * @brief 电角度零位标定周期任务：d 轴对齐平均线性化角并写电角度零位。
+ * @param configuration 活动配置只读视图，读取对齐电流与应用限值。
+ * @param calibration configuration->device.encoder 的可写视图，要求已线性化并接收电零位。
  * @param foc 电流控制与观测量。
  * @param motor_state 电机与控制状态；id_target_a 由本任务驱动。
- * @param encoder 编码器状态；要求已置 ENC_CALIB_LINEARIZED，结果写电零位。
+ * @param encoder 编码器运行状态，提供在线状态与本拍线性化角。
  * @return 对齐中返回 MOTOR_TASK_RUNNING；成功返回
  *         MOTOR_TASK_COMPLETED（随后由所有者受理独立保存）；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；完成/失败经结果协议上报，
  *       停相、任务衔接及保存由主状态机执行。
  */
-MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
+MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const MotorConfiguration *configuration,
+                                                          EncoderCalibration *calibration,
+                                                          FocState *foc,
                                                           MotorControlState *motor_state,
                                                           EncoderState *encoder);
 

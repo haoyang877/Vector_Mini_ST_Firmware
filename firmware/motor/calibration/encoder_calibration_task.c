@@ -104,34 +104,36 @@ static MotorTaskResult encoder_observer_calib_finish(FocState *foc,
     return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
 }
 
-static void encoder_calib_commit_candidate_lut(EncoderState *encoder)
+static void encoder_calib_commit_candidate_lut(EncoderCalibration *calibration,
+                                               EncoderState *encoder)
 {
     uint16_t current_linearized_q15;
 
-    memcpy(encoder->linearization_lut_q15,
+    memcpy(calibration->linearization_lut_q15,
            s_encoder_calib_workspace->bins.candidate,
-           sizeof(encoder->linearization_lut_q15));
+           sizeof(calibration->linearization_lut_q15));
     current_linearized_q15 = EncoderCalibrationCore_ApplyLut(
         s_encoder_calib_workspace->bins.candidate, encoder->directed_q15);
     encoder->linearized_q15 = current_linearized_q15;
-    encoder->electrical_zero_q15 = 0U;
-    encoder->mechanical_zero_q15 = 0U;
-    encoder->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
-    encoder->calib_flag |= ENC_CALIB_LINEARIZED;
+    calibration->electrical_zero_q15 = 0U;
+    calibration->mechanical_zero_q15 = 0U;
+    calibration->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
+    calibration->calib_flag |= ENC_CALIB_LINEARIZED;
     /* 慢状态由 2 kHz 慢估计独占：请求重定多圈基准（基准取当前线性化角、零影子归零）。 */
     encoder->rebase_requested = true;
     Encoder_ResetVelocity(encoder);
 }
 
-static bool encoder_observer_calib_is_stable(MotorControlState *motor_state,
+static bool encoder_observer_calib_is_stable(const MotorConfiguration *configuration,
+                                             const MotorControlState *motor_state,
                                              FluxObserverState *flux_observer,
                                              SensorlessStartupState *startup,
                                              uint32_t position_epoch)
 {
     float target_electrical_speed =
-        SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * (float)motor_state->model.motor_pole_pairs;
+        SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * (float)configuration->model.motor_pole_pairs;
     float filtered_electrical_speed =
-        startup->speed_feedback_rad_s * (float)motor_state->model.motor_pole_pairs;
+        startup->speed_feedback_rad_s * (float)configuration->model.motor_pole_pairs;
 
     return startup->state == SENSORLESS_STARTUP_CLOSED_LOOP &&
            Observer_GetPositionEpoch(flux_observer) == position_epoch &&
@@ -150,11 +152,11 @@ static bool encoder_observer_calib_is_tracking(FluxObserverState *flux_observer,
            Observer_GetPositionEpoch(flux_observer) == position_epoch;
 }
 
-static float encoder_observer_calib_get_stop_speed(const MotorControlState *motor_state)
+static float encoder_observer_calib_get_stop_speed(const MotorConfiguration *configuration)
 {
     float minimum_mechanical_speed =
         SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s /
-        (float)motor_state->model.motor_pole_pairs;
+        (float)configuration->model.motor_pole_pairs;
     float stop_speed = minimum_mechanical_speed * SENSORLESS_ENCODER_CALIB_STOP_SPEED_MARGIN;
 
     return stop_speed < SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S
@@ -162,7 +164,7 @@ static float encoder_observer_calib_get_stop_speed(const MotorControlState *moto
                : SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
 }
 
-static bool encoder_observer_calib_can_brake(const MotorControlState *motor_state,
+static bool encoder_observer_calib_can_brake(const MotorConfiguration *configuration,
                                              const EncoderState *encoder,
                                              FluxObserverState *flux_observer,
                                              SensorlessStartupState *startup,
@@ -182,15 +184,17 @@ static bool encoder_observer_calib_can_brake(const MotorControlState *motor_stat
     }
     /* 发布 LUT 会重启测速；就绪后以编码器速度独立提前截止制动，不依赖电零位。 */
     return !encoder->velocity_ready ||
-           (encoder_speed > minimum_speed / (float)motor_state->model.motor_pole_pairs &&
+           (encoder_speed > minimum_speed / (float)configuration->model.motor_pole_pairs &&
             encoder_speed <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S /
-                                 (float)motor_state->model.motor_pole_pairs);
+                                 (float)configuration->model.motor_pole_pairs);
 }
 
 /**
  * @brief Mode13 用无感观测器重建线性化 LUT；静态零相位对齐建立本次机械原点。
  */
-MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
+MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configuration,
+                                               EncoderCalibration *calibration,
+                                               FocState *foc,
                                                MotorControlState *motor_state,
                                                PiController *speed_pi,
                                                EncoderState *encoder,
@@ -230,17 +234,17 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         return encoder_observer_calib_fail(
             foc, motor_state, speed_pi, startup, MOTOR_FAULT_ENCODER);
     }
-    if (motor_state->model.motor_pole_pairs <= 0)
+    if (configuration->model.motor_pole_pairs <= 0)
     {
         return encoder_observer_calib_fail(
             foc, motor_state, speed_pi, startup, MOTOR_FAULT_POLE_PAIRS);
     }
-    if (motor_state->model.motor_phase_resistance_ohm <= 0.0f ||
-        motor_state->model.motor_d_inductance_h <= 0.0f ||
-        motor_state->model.motor_q_inductance_h <= 0.0f ||
-        motor_state->model.motor_flux_wb <= 0.0f ||
-        motor_state->application.current_limit_a <= 0.0f ||
-        motor_state->application.current_limit_a < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
+    if (configuration->model.motor_phase_resistance_ohm <= 0.0f ||
+        configuration->model.motor_d_inductance_h <= 0.0f ||
+        configuration->model.motor_q_inductance_h <= 0.0f ||
+        configuration->model.motor_flux_wb <= 0.0f ||
+        configuration->application.current_limit_a <= 0.0f ||
+        configuration->application.current_limit_a < SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A)
     {
         return encoder_observer_calib_fail(
             foc, motor_state, speed_pi, startup, MOTOR_FAULT_INVALID_PARAMETERS);
@@ -277,7 +281,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 
     if ((s_calibration_phase == CS_OBS_STOP_DECEL || s_calibration_phase == CS_OBS_STOP_CURRENT) &&
         !encoder_observer_calib_can_brake(
-            motor_state, encoder, flux_observer, startup, observer_position_epoch))
+            configuration, encoder, flux_observer, startup, observer_position_epoch))
     {
         /* 两个停止段均已验证并发布 LUT；低于观测器可用速度时撤销转矩，避免驱动过零。 */
         return encoder_observer_calib_finish(foc, motor_state, speed_pi, startup);
@@ -293,7 +297,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
                                        1.0f);
         motor_state->id_target_a = 0.0f;
         motor_state->iq_target_a = stop_current_ref * (1.0f - current_ratio);
-        FOC_Current(foc,
+        FOC_Current(configuration,
+                    foc,
                     motor_state,
                     Observer_GetElePhase(flux_observer),
                     Observer_GetEleVel(flux_observer));
@@ -307,7 +312,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
                                                    SENSORLESS_ENCODER_CALIB_STOP_DECEL_TIME_S,
                                                0.0f,
                                                1.0f);
-            float stop_speed = encoder_observer_calib_get_stop_speed(motor_state);
+            float stop_speed = encoder_observer_calib_get_stop_speed(configuration);
 
             motor_state->speed_target_rad_s =
                 stop_start_speed + (stop_speed - stop_start_speed) * decel_ratio;
@@ -319,7 +324,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
             motor_state->speed_target_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
         }
 
-        SensorlessStartup_Run(foc,
+        SensorlessStartup_Run(configuration,
+                              foc,
                               motor_state,
                               speed_pi,
                               flux_observer,
@@ -334,7 +340,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         }
     }
 
-    required_electrical_theta = _2PI * (float)motor_state->model.motor_pole_pairs;
+    required_electrical_theta = _2PI * (float)configuration->model.motor_pole_pairs;
     observer_position = Observer_GetElePosition(flux_observer);
 
     /* 找原点、采样、构表、验证共享跟踪准入；稳速窗口和停止段仍保留各自判据。 */
@@ -410,7 +416,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
         }
 
         if (encoder_observer_calib_is_stable(
-                motor_state, flux_observer, startup, observer_position_epoch))
+                configuration, motor_state, flux_observer, startup, observer_position_epoch))
         {
             if (++state_ticks >=
                 (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIME_S / Current_Ts))
@@ -482,7 +488,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
             .required_electrical_theta_rad = required_electrical_theta,
             .directed_q15 = encoder->directed_q15,
             .stable = encoder_observer_calib_is_stable(
-                motor_state, flux_observer, startup, observer_position_epoch),
+                configuration, motor_state, flux_observer, startup, observer_position_epoch),
         };
         EncoderCalibrationCore_SampleLut(s_encoder_calib_workspace, &verify_state.window, &sample);
 
@@ -532,7 +538,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
             .required_electrical_theta_rad = required_electrical_theta,
             .directed_q15 = encoder->directed_q15,
             .stable = encoder_observer_calib_is_stable(
-                motor_state, flux_observer, startup, observer_position_epoch),
+                configuration, motor_state, flux_observer, startup, observer_position_epoch),
         };
         EncoderCalibrationCore_VerifyLut(
             &verify_state, s_encoder_calib_workspace->bins.candidate, &verification_sample);
@@ -548,10 +554,10 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
                     foc, motor_state, speed_pi, startup, MOTOR_FAULT_ENCODER);
             }
 
-            encoder_calib_commit_candidate_lut(encoder);
+            encoder_calib_commit_candidate_lut(calibration, encoder);
             s_encoder_calib_workspace = NULL;
             stop_start_speed = motor_state->speed_ramped_rad_s;
-            float stop_speed = encoder_observer_calib_get_stop_speed(motor_state);
+            float stop_speed = encoder_observer_calib_get_stop_speed(configuration);
             if (stop_start_speed < stop_speed)
             {
                 stop_start_speed = stop_speed;
@@ -570,9 +576,9 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 
     case CS_OBS_STOP_DECEL:
     {
-        float stop_speed = encoder_observer_calib_get_stop_speed(motor_state);
+        float stop_speed = encoder_observer_calib_get_stop_speed(configuration);
         float observer_mech_vel =
-            Observer_GetEleVel(flux_observer) / (float)motor_state->model.motor_pole_pairs;
+            Observer_GetEleVel(flux_observer) / (float)configuration->model.motor_pole_pairs;
         bool speed_reached =
             Math_Abs(observer_mech_vel) <=
             stop_speed * (1.0f + SENSORLESS_ENCODER_CALIB_STOP_SPEED_TOLERANCE_RATIO);
@@ -612,13 +618,15 @@ MotorTaskResult EncoderCalibrationTask_StepLut(FocState *foc,
 /**
  * @brief Mode15 以对齐后的线性化 Q15 平均角确定电零位。
  */
-MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
+MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const MotorConfiguration *configuration,
+                                                          EncoderCalibration *calibration,
+                                                          FocState *foc,
                                                           MotorControlState *motor_state,
                                                           EncoderState *encoder)
 {
     MotorTaskResult outcome = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     float time = (float)s_zero_loop_count * Current_Ts;
-    float align_current = motor_state->model.calibration_current_a;
+    float align_current = configuration->model.calibration_current_a;
 
     if (align_current < ENCODER_ELEC_ZERO_MIN_ALIGN_CURRENT_A)
     {
@@ -635,7 +643,7 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
         outcome.error = MOTOR_FAULT_ENCODER;
         return outcome;
     }
-    if ((encoder->calib_flag & ENC_CALIB_LINEARIZED) == 0U)
+    if ((calibration->calib_flag & ENC_CALIB_LINEARIZED) == 0U)
     {
         MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
         outcome.result = MOTOR_TASK_FAILED;
@@ -649,10 +657,10 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
         outcome.error = MOTOR_FAULT_INVALID_PARAMETERS;
         return outcome;
     }
-    if (motor_state->application.current_limit_a > 0.0f &&
-        align_current > motor_state->application.current_limit_a)
+    if (configuration->application.current_limit_a > 0.0f &&
+        align_current > configuration->application.current_limit_a)
     {
-        align_current = motor_state->application.current_limit_a;
+        align_current = configuration->application.current_limit_a;
     }
 
     if (s_zero_loop_count == 0U)
@@ -660,7 +668,7 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
         s_zero_sample_count = 0U;
         s_zero_sample_anchor = encoder->linearized_q15;
         s_zero_unwrapped_sum = 0;
-        encoder->calib_flag &= (uint8_t)~ENC_CALIB_ELECTRICAL_ZERO;
+        calibration->calib_flag &= (uint8_t)~ENC_CALIB_ELECTRICAL_ZERO;
         FOC_CurrentController_Reset(foc);
     }
 
@@ -670,7 +678,7 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
                                        0.0f,
                                        1.0f);
     motor_state->iq_target_a = 0.0f;
-    FOC_Current(foc, motor_state, 0.0f, 0.0f);
+    FOC_Current(configuration, foc, motor_state, 0.0f, 0.0f);
 
     if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) &&
         encoder->read_status == ENCODER_READ_OK)
@@ -688,7 +696,7 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(FocState *foc,
         if (EncoderCalibrationCore_MeanQ15(
                 s_zero_unwrapped_sum, s_zero_sample_count, &electrical_zero_q15))
         {
-            calibrated = Encoder_SetElectricalZeroQ15(encoder, electrical_zero_q15);
+            calibrated = Encoder_SetElectricalZeroQ15(calibration, encoder, electrical_zero_q15);
         }
 
         motor_state->id_target_a = 0.0f;

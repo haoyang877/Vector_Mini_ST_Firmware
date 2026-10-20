@@ -10,21 +10,22 @@
 
 /**
  * @brief 检查指定维护任务的功能前提，不提交状态或启相。
+ * @param configuration 活动配置只读视图，含轴策略、限值与设备校准。
  * @param kind 实际维护任务类型。
- * @param motor 电机配置及当前故障。
  * @param foc 母线和控制测量。
- * @param encoder 编码器健康与标定信息。
+ * @param encoder 编码器运行健康。
  * @return 输入和功能前提全部满足返回 MOTOR_FAULT_NONE，否则返回拒绝原因；不锁存故障。
  */
-MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
-                                      const MotorControlState *motor,
+MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
+                                      MotorMaintenanceKind kind,
                                       const FocState *foc,
                                       const EncoderState *encoder);
 /**
  * @brief 执行已受理任务的一个有界快速周期。
+ * @param configuration 维护所有者提供的独占配置，仅默认恢复或校准提交修改。
  * @param kind 所有者选择的实际任务。
  * @param foc 电流环对象。
- * @param motor 配置和结果对象。
+ * @param motor 易失运行状态与控制目标。
  * @param pi 速度控制器。
  * @param encoder 编码器状态。
  * @param observer 磁链观测器。
@@ -32,7 +33,8 @@ MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
  * @return 功能事实；不包含下一任务或功率动作。
  * @note 20 kHz 调用，所有者须已校验 epoch、故障及取消；保存只在前台执行。
  */
-MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
+MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
+                                      MotorMaintenanceKind kind,
                                       FocState *foc,
                                       MotorControlState *motor,
                                       PiController *pi,

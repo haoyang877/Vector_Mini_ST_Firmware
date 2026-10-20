@@ -17,16 +17,16 @@ typedef struct
 } ScalarField;
 
 #define READ_FIELD(id, field, scale)                                                               \
-    {id, PARAMETER_ACCESS_READ, offsetof(MotorControlState, field), scale}
+    {id, PARAMETER_ACCESS_READ, offsetof(MotorConfiguration, field), scale}
 #define WRITE_FIELD(id, field, scale)                                                              \
     {id,                                                                                           \
      PARAMETER_ACCESS_READ | PARAMETER_ACCESS_WRITE_IDLE,                                          \
-     offsetof(MotorControlState, field),                                                           \
+     offsetof(MotorConfiguration, field),                                                          \
      scale}
 #define CAL_FIELD(id, field, scale)                                                                \
     {id,                                                                                           \
      PARAMETER_ACCESS_READ | PARAMETER_ACCESS_CALIBRATION,                                         \
-     offsetof(MotorControlState, field),                                                           \
+     offsetof(MotorConfiguration, field),                                                          \
      scale}
 static const ScalarField s_fields[] = {
     WRITE_FIELD(1U, application.speed_limit_rad_s, 1000U),
@@ -65,34 +65,42 @@ static const ScalarField s_fields[] = {
     WRITE_FIELD(0x6CU, application.speed_feedforward.current_limit_a, 1000U),
 };
 
-bool ParameterValue_ConfigurationValid(const MotorControlState *motor)
+bool ParameterValue_ConfigurationValid(const MotorConfiguration *configuration)
 {
-    return motor != NULL && motor->application.axis_profile_valid &&
-           MotorWindingThermal_Valid(&motor->model.thermal) &&
-           SpeedFeedforward_IsValid(&motor->application.speed_feedforward) &&
-           motor->model.motor_pole_pairs > 0 && isfinite(motor->model.motor_phase_resistance_ohm) &&
-           motor->model.motor_phase_resistance_ohm > 0.0f &&
-           isfinite(motor->model.motor_d_inductance_h) &&
-           motor->model.motor_d_inductance_h > 0.0f &&
-           isfinite(motor->model.motor_q_inductance_h) &&
-           motor->model.motor_q_inductance_h > 0.0f && isfinite(motor->model.motor_flux_wb) &&
-           motor->model.motor_flux_wb > 0.0f && isfinite(motor->application.current_limit_a) &&
-           motor->application.current_limit_a > 0.0f &&
-           motor->application.current_limit_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
-           isfinite(motor->model.calibration_current_a) &&
-           motor->model.calibration_current_a > 0.0f &&
-           motor->model.calibration_current_a <= CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
-           isfinite(motor->application.speed_limit_rad_s) &&
-           motor->application.speed_limit_rad_s > 0.0f && isfinite(motor->model.id_kp) &&
-           motor->model.id_kp >= 0.0f && isfinite(motor->model.id_ki) &&
-           motor->model.id_ki >= 0.0f && isfinite(motor->model.iq_kp) &&
-           motor->model.iq_kp >= 0.0f && isfinite(motor->model.iq_ki) &&
-           motor->model.iq_ki >= 0.0f && isfinite(motor->application.speed_acceleration_rad_s2) &&
-           motor->application.speed_acceleration_rad_s2 > 0.0f &&
-           isfinite(motor->application.speed_deceleration_rad_s2) &&
-           motor->application.speed_deceleration_rad_s2 > 0.0f &&
-           isfinite(motor->application.speed_kp) && motor->application.speed_kp >= 0.0f &&
-           isfinite(motor->application.speed_ki) && motor->application.speed_ki >= 0.0f;
+    return configuration != NULL && configuration->application.axis_profile_valid &&
+           MotorWindingThermal_Valid(&configuration->model.thermal) &&
+           SpeedFeedforward_IsValid(&configuration->application.speed_feedforward) &&
+           configuration->model.motor_pole_pairs > 0 &&
+           isfinite(configuration->model.motor_phase_resistance_ohm) &&
+           configuration->model.motor_phase_resistance_ohm > 0.0f &&
+           isfinite(configuration->model.motor_d_inductance_h) &&
+           configuration->model.motor_d_inductance_h > 0.0f &&
+           isfinite(configuration->model.motor_q_inductance_h) &&
+           configuration->model.motor_q_inductance_h > 0.0f &&
+           isfinite(configuration->model.motor_flux_wb) &&
+           configuration->model.motor_flux_wb > 0.0f &&
+           isfinite(configuration->application.current_limit_a) &&
+           configuration->application.current_limit_a > 0.0f &&
+           configuration->application.current_limit_a <=
+               CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
+           isfinite(configuration->model.calibration_current_a) &&
+           configuration->model.calibration_current_a > 0.0f &&
+           configuration->model.calibration_current_a <=
+               CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A &&
+           isfinite(configuration->application.speed_limit_rad_s) &&
+           configuration->application.speed_limit_rad_s > 0.0f &&
+           isfinite(configuration->model.id_kp) && configuration->model.id_kp >= 0.0f &&
+           isfinite(configuration->model.id_ki) && configuration->model.id_ki >= 0.0f &&
+           isfinite(configuration->model.iq_kp) && configuration->model.iq_kp >= 0.0f &&
+           isfinite(configuration->model.iq_ki) && configuration->model.iq_ki >= 0.0f &&
+           isfinite(configuration->application.speed_acceleration_rad_s2) &&
+           configuration->application.speed_acceleration_rad_s2 > 0.0f &&
+           isfinite(configuration->application.speed_deceleration_rad_s2) &&
+           configuration->application.speed_deceleration_rad_s2 > 0.0f &&
+           isfinite(configuration->application.speed_kp) &&
+           configuration->application.speed_kp >= 0.0f &&
+           isfinite(configuration->application.speed_ki) &&
+           configuration->application.speed_ki >= 0.0f;
 }
 
 /* 返回的描述符属于只读常量表，不含可变控制对象地址。 */
@@ -154,8 +162,7 @@ static ParameterStatus encode_float(float value, uint32_t scale, uint32_t *raw)
     return PARAMETER_OK;
 }
 
-ParameterStatus ParameterValue_Read(const MotorControlState *motor,
-                                    const EncoderState *encoder,
+ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
                                     uint32_t revision,
                                     uint8_t parameter_id,
                                     ParameterValue *value)
@@ -165,7 +172,7 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
         return PARAMETER_INVALID_ARGUMENT;
     }
     *value = (ParameterValue){0};
-    if (motor == NULL || encoder == NULL)
+    if (configuration == NULL)
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
@@ -175,7 +182,7 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
     if (field != NULL)
     {
         float si_value;
-        memcpy(&si_value, (const uint8_t *)motor + field->offset, sizeof(si_value));
+        memcpy(&si_value, (const uint8_t *)configuration + field->offset, sizeof(si_value));
         ParameterStatus status = encode_float(si_value, field->scale, &candidate.raw_value);
         if (status != PARAMETER_OK)
         {
@@ -183,7 +190,7 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
         }
         candidate.value_type = PARAMETER_VALUE_I32;
         candidate.access = field->access;
-        if (motor->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+        if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
             (parameter_id == 21U || parameter_id == 22U || parameter_id == 23U))
         {
             /* 启动 joint profile 会覆盖这些字段，不能承诺单值改写的掉电持久语义。 */
@@ -198,53 +205,56 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
             candidate.raw_value = revision;
             break;
         case 3U:
-            candidate.raw_value = motor->device.node_id;
+            candidate.raw_value = configuration->device.node_id;
             break;
         case 4U:
             candidate.raw_value = 1U;
             break;
         case 5U:
-            if (motor->model.motor_pole_pairs <= 0)
+            if (configuration->model.motor_pole_pairs <= 0)
             {
                 return PARAMETER_OUT_OF_RANGE;
             }
-            candidate.raw_value = (uint32_t)motor->model.motor_pole_pairs;
+            candidate.raw_value = (uint32_t)configuration->model.motor_pole_pairs;
             break;
         case 10U:
             candidate.value_type = PARAMETER_VALUE_I32;
-            if (encode_float(
-                    (motor->model.motor_d_inductance_h + motor->model.motor_q_inductance_h) * 0.5f,
-                    1000000000.0f,
-                    &candidate.raw_value) != PARAMETER_OK)
+            if (encode_float((configuration->model.motor_d_inductance_h +
+                              configuration->model.motor_q_inductance_h) *
+                                 0.5f,
+                             1000000000.0f,
+                             &candidate.raw_value) != PARAMETER_OK)
             {
                 return PARAMETER_OUT_OF_RANGE;
             }
             break;
         case 0x40U:
-            candidate.raw_value = encoder->electrical_zero_q15;
+            candidate.raw_value = configuration->device.encoder.electrical_zero_q15;
             break;
         case 0x41U:
-            candidate.raw_value = encoder->mechanical_zero_q15;
+            candidate.raw_value = configuration->device.encoder.mechanical_zero_q15;
             break;
         case 0x42U:
-            candidate.raw_value = encoder->reverse;
+            candidate.raw_value = configuration->device.encoder.reverse;
             break;
         case 0x43U:
             /* 参数目录定义的是完整有效布尔值，不能把部分标志 0x01 解释为有效。 */
-            candidate.raw_value = (encoder->calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL ? 1U : 0U;
+            candidate.raw_value =
+                (configuration->device.encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL ? 1U
+                                                                                            : 0U;
             break;
         case 0x4CU:
             candidate.raw_value = CURRENT_SENSE_SHUNT_MILLIOHM;
             break;
         case 0x4DU:
-            candidate.raw_value = motor->configuration_confirmed ? 1U : 0U;
+            candidate.raw_value = configuration->configuration_confirmed ? 1U : 0U;
             candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
             break;
         case 0x4EU:
-            candidate.raw_value = (uint32_t)motor->configuration_source;
+            candidate.raw_value = (uint32_t)configuration->configuration_source;
             break;
         case 0x68U:
-            candidate.raw_value = motor->application.speed_feedforward.enabled ? 1U : 0U;
+            candidate.raw_value = configuration->application.speed_feedforward.enabled ? 1U : 0U;
             candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
             break;
         default:
@@ -259,23 +269,24 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
     return PARAMETER_OK;
 }
 
-static float speed_ceiling(const MotorControlState *motor)
+static float speed_ceiling(const MotorConfiguration *configuration)
 {
-    float limit = motor->application.speed_ceiling_rad_s;
+    float limit = configuration->application.speed_ceiling_rad_s;
     if (!isfinite(limit) || limit <= 0.0f)
     {
         return 0.0f;
     }
-    if (motor->application.axis_profile.magic != 0U)
+    if (configuration->application.axis_profile.magic != 0U)
     {
-        limit = fminf(limit, motor->application.axis_profile.maximum_speed_rad_s);
+        limit = fminf(limit, configuration->application.axis_profile.maximum_speed_rad_s);
     }
     return limit;
 }
 
-ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWriteRequest *request)
+ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
+                                     const ParameterWriteRequest *request)
 {
-    if (motor == NULL || request == NULL)
+    if (configuration == NULL || request == NULL)
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
@@ -286,12 +297,12 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
             return PARAMETER_BAD_TYPE;
         }
         if (request->raw_value > 1U ||
-            (request->raw_value == 1U && !ParameterValue_ConfigurationValid(motor)))
+            (request->raw_value == 1U && !ParameterValue_ConfigurationValid(configuration)))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->configuration_confirmed = request->raw_value == 1U;
-        motor->configuration_source = MOTOR_CONFIGURATION_ACTIVE;
+        configuration->configuration_confirmed = request->raw_value == 1U;
+        configuration->configuration_source = MOTOR_CONFIGURATION_ACTIVE;
         return PARAMETER_OK;
     }
     if (request->parameter_id == 0x68U)
@@ -301,11 +312,11 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
             return PARAMETER_BAD_TYPE;
         }
         if (request->raw_value > 1U ||
-            !SpeedFeedforward_IsValid(&motor->application.speed_feedforward))
+            !SpeedFeedforward_IsValid(&configuration->application.speed_feedforward))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.speed_feedforward.enabled = request->raw_value == 1U;
+        configuration->application.speed_feedforward.enabled = request->raw_value == 1U;
         return PARAMETER_OK;
     }
     const ScalarField *field = find_field(request->parameter_id);
@@ -337,7 +348,7 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
     {
         return PARAMETER_READ_ONLY;
     }
-    if (motor->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+    if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         (request->parameter_id == 21U || request->parameter_id == 22U ||
          request->parameter_id == 23U))
     {
@@ -352,47 +363,47 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
     float si_value = (float)signed_raw / field->scale;
     if (request->parameter_id >= 0x60U && request->parameter_id <= 0x66U)
     {
-        MotorWindingThermalConfig candidate = motor->model.thermal;
+        MotorWindingThermalConfig candidate = configuration->model.thermal;
         /* 只访问已登记字段；候选完整验证后才替换唯一活动配置。 */
-        size_t offset = field->offset - offsetof(MotorControlState, model.thermal);
+        size_t offset = field->offset - offsetof(MotorConfiguration, model.thermal);
         memcpy((uint8_t *)&candidate + offset, &si_value, sizeof(si_value));
         if (!MotorWindingThermal_Valid(&candidate))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->model.thermal = candidate;
+        configuration->model.thermal = candidate;
         return PARAMETER_OK;
     }
     if (request->parameter_id >= 0x69U && request->parameter_id <= 0x6CU)
     {
-        SpeedFeedforwardConfig candidate = motor->application.speed_feedforward;
-        size_t offset = field->offset - offsetof(MotorControlState, application.speed_feedforward);
+        SpeedFeedforwardConfig candidate = configuration->application.speed_feedforward;
+        size_t offset = field->offset - offsetof(MotorConfiguration, application.speed_feedforward);
         memcpy((uint8_t *)&candidate + offset, &si_value, sizeof(si_value));
         if (!SpeedFeedforward_IsValid(&candidate))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.speed_feedforward = candidate;
+        configuration->application.speed_feedforward = candidate;
         return PARAMETER_OK;
     }
     switch (request->parameter_id)
     {
     case 1U:
-        if (si_value <= 0.0f || si_value > speed_ceiling(motor))
+        if (si_value <= 0.0f || si_value > speed_ceiling(configuration))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.speed_limit_rad_s = si_value;
-        motor->application.position_maximum_speed_rad_s =
-            fminf(motor->application.position_maximum_speed_rad_s, si_value);
+        configuration->application.speed_limit_rad_s = si_value;
+        configuration->application.position_maximum_speed_rad_s =
+            fminf(configuration->application.position_maximum_speed_rad_s, si_value);
         break;
     case 2U:
     {
         float limit = CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A;
-        if (motor->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC)
+        if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC)
         {
             MotorJointControlConfig config;
-            if (!MotorAxisProfile_Resolve(&motor->application.axis_profile, &config))
+            if (!MotorAxisProfile_Resolve(&configuration->application.axis_profile, &config))
             {
                 return PARAMETER_OUT_OF_RANGE;
             }
@@ -402,7 +413,7 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.current_limit_a = si_value;
+        configuration->application.current_limit_a = si_value;
         break;
     }
     case 21U:
@@ -410,22 +421,22 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.cascade_position_kp = si_value;
+        configuration->application.cascade_position_kp = si_value;
         break;
     case 22U:
         if (si_value < 0.0f || si_value > CASCADE_POSITION_KD_MAX)
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.cascade_position_kd = si_value;
+        configuration->application.cascade_position_kd = si_value;
         break;
     case 23U:
-        if (si_value <= 0.0f || si_value > motor->application.speed_limit_rad_s ||
-            si_value > speed_ceiling(motor))
+        if (si_value <= 0.0f || si_value > configuration->application.speed_limit_rad_s ||
+            si_value > speed_ceiling(configuration))
         {
             return PARAMETER_OUT_OF_RANGE;
         }
-        motor->application.position_maximum_speed_rad_s = si_value;
+        configuration->application.position_maximum_speed_rad_s = si_value;
         break;
     default:
         return PARAMETER_READ_ONLY;

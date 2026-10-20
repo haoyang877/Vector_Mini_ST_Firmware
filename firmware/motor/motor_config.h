@@ -7,6 +7,7 @@
 #include "axis_config.h"
 #include "motor_thermal_config.h"
 #include "speed_feedforward.h"
+#include "encoder_config.h"
 
 /** @brief 电机物理模型与电流环整定；识别任务成功后由所有者提交。 */
 typedef struct
@@ -39,11 +40,33 @@ typedef struct
     bool axis_profile_valid;
 } MotorApplicationConfig;
 
-/** @brief 设备个体地址与电流域标定；编码器/LUT由其所属对象单份持有。 */
+/** @brief 设备个体地址与装配标定；电流偏置每次启动由关相采样重新取得。 */
 typedef struct
 {
     float phase_a_offset_counts, phase_b_offset_counts, phase_c_offset_counts;
     uint8_t node_id;
+    EncoderCalibration encoder;
 } MotorDeviceConfig;
+
+/** @brief 活动配置来源；回退默认值不等于用户已确认电机配置。 */
+typedef enum
+{
+    MOTOR_CONFIGURATION_DEFAULTS = 0,
+    MOTOR_CONFIGURATION_STORED,
+    MOTOR_CONFIGURATION_UNSUPPORTED,
+    MOTOR_CONFIGURATION_CORRUPT,
+    MOTOR_CONFIGURATION_ACTIVE
+} MotorConfigurationSource;
+
+/** @brief 单轴活动配置；Axis单份持有，算法仅借用const视图，禁止存放运行目标或积分。 */
+typedef struct
+{
+    MotorModelConfig model;
+    MotorApplicationConfig application;
+    MotorDeviceConfig device;
+    /* 参数所有者元数据，不写入运行状态；存储层显式编码确认位。 */
+    bool configuration_confirmed;
+    MotorConfigurationSource configuration_source;
+} MotorConfiguration;
 
 #endif

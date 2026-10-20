@@ -6,34 +6,33 @@
 
 #include "parameter_value_service.h"
 #include "application_profile_defaults.h"
+#include "motor_types.h"
 
 static void read_units_and_identity(void)
 {
-    MotorControlState motor = {0};
-    EncoderState encoder = {0};
+    MotorConfiguration motor = {0};
     ParameterValue value;
 
     motor.device.node_id = 3U;
     motor.application.speed_ceiling_rad_s = 20.0f;
     motor.application.speed_limit_rad_s = 20.0f;
     motor.application.current_limit_a = 1.25f;
-    MotorControlState before = motor;
-    assert(ParameterValue_Read(&motor, &encoder, 7U, 1U, &value) == PARAMETER_OK);
+    MotorConfiguration before = motor;
+    assert(ParameterValue_Read(&motor, 7U, 1U, &value) == PARAMETER_OK);
     assert(value.value_type == PARAMETER_VALUE_I32 && value.raw_value == 20000U);
     assert(value.parameter_id == 1U && value.revision == 7U);
-    assert(ParameterValue_Read(&motor, &encoder, 7U, 2U, &value) == PARAMETER_OK);
+    assert(ParameterValue_Read(&motor, 7U, 2U, &value) == PARAMETER_OK);
     assert(value.raw_value == 1250U);
-    assert(ParameterValue_Read(&motor, &encoder, 7U, 0U, &value) == PARAMETER_OK);
+    assert(ParameterValue_Read(&motor, 7U, 0U, &value) == PARAMETER_OK);
     assert(value.value_type == PARAMETER_VALUE_U32 && value.raw_value == 7U);
-    assert(ParameterValue_Read(&motor, &encoder, 7U, 3U, &value) == PARAMETER_OK);
+    assert(ParameterValue_Read(&motor, 7U, 3U, &value) == PARAMETER_OK);
     assert(value.raw_value == 3U);
     assert(memcmp(&motor, &before, sizeof(motor)) == 0);
 }
 
 static void read_errors_clear_output(void)
 {
-    MotorControlState motor = {0};
-    EncoderState encoder = {0};
+    MotorConfiguration motor = {0};
     ParameterValue value;
     const ParameterValue empty = {0};
     const float invalid_values[] = {NAN, INFINITY, 3.0e9f};
@@ -42,24 +41,21 @@ static void read_errors_clear_output(void)
     {
         motor.application.speed_limit_rad_s = invalid_values[index];
         memset(&value, 0x5A, sizeof(value));
-        assert(ParameterValue_Read(&motor, &encoder, 7U, 1U, &value) == PARAMETER_OUT_OF_RANGE);
+        assert(ParameterValue_Read(&motor, 7U, 1U, &value) == PARAMETER_OUT_OF_RANGE);
         assert(memcmp(&value, &empty, sizeof(value)) == 0);
     }
     memset(&value, 0x5A, sizeof(value));
-    assert(ParameterValue_Read(&motor, &encoder, 7U, 0xFFU, &value) == PARAMETER_UNSUPPORTED);
+    assert(ParameterValue_Read(&motor, 7U, 0xFFU, &value) == PARAMETER_UNSUPPORTED);
     assert(memcmp(&value, &empty, sizeof(value)) == 0);
     memset(&value, 0x5A, sizeof(value));
-    assert(ParameterValue_Read(NULL, &encoder, 7U, 1U, &value) == PARAMETER_INVALID_ARGUMENT);
+    assert(ParameterValue_Read(NULL, 7U, 1U, &value) == PARAMETER_INVALID_ARGUMENT);
     assert(memcmp(&value, &empty, sizeof(value)) == 0);
-    memset(&value, 0x5A, sizeof(value));
-    assert(ParameterValue_Read(&motor, NULL, 7U, 1U, &value) == PARAMETER_INVALID_ARGUMENT);
-    assert(memcmp(&value, &empty, sizeof(value)) == 0);
-    assert(ParameterValue_Read(&motor, &encoder, 7U, 1U, NULL) == PARAMETER_INVALID_ARGUMENT);
+    assert(ParameterValue_Read(&motor, 7U, 1U, NULL) == PARAMETER_INVALID_ARGUMENT);
 }
 
 static void write_rejection_preserves_configuration(void)
 {
-    MotorControlState motor = {0};
+    MotorConfiguration motor = {0};
     ParameterWriteRequest request = {
         .parameter_id = 2U,
         .value_type = PARAMETER_VALUE_U32,
@@ -69,7 +65,7 @@ static void write_rejection_preserves_configuration(void)
     motor.application.speed_limit_rad_s = 2.0f;
     motor.application.current_limit_a = 1.25f;
     motor.model.motor_flux_wb = 0.01f;
-    MotorControlState before = motor;
+    MotorConfiguration before = motor;
     assert(ParameterValue_Apply(&motor, &request) == PARAMETER_BAD_TYPE);
     request.value_type = PARAMETER_VALUE_I32;
     request.raw_value = 0U;
@@ -90,28 +86,27 @@ static void write_rejection_preserves_configuration(void)
 
 static void configuration_confirmation(void)
 {
-    MotorControlState motor = {.application.axis_profile_valid = true,
-                               .model.motor_pole_pairs = 21,
-                               .model.motor_phase_resistance_ohm = 1.0f,
-                               .model.motor_d_inductance_h = 0.001f,
-                               .model.motor_q_inductance_h = 0.001f,
-                               .model.motor_flux_wb = 0.01f,
-                               .application.current_limit_a = 1.0f,
-                               .model.calibration_current_a = 1.0f,
-                               .application.speed_limit_rad_s = 1.0f,
-                               .application.speed_acceleration_rad_s2 = 1.0f,
-                               .application.speed_deceleration_rad_s2 = 1.0f};
-    EncoderState encoder = {0};
+    MotorConfiguration motor = {.application.axis_profile_valid = true,
+                                .model.motor_pole_pairs = 21,
+                                .model.motor_phase_resistance_ohm = 1.0f,
+                                .model.motor_d_inductance_h = 0.001f,
+                                .model.motor_q_inductance_h = 0.001f,
+                                .model.motor_flux_wb = 0.01f,
+                                .application.current_limit_a = 1.0f,
+                                .model.calibration_current_a = 1.0f,
+                                .application.speed_limit_rad_s = 1.0f,
+                                .application.speed_acceleration_rad_s2 = 1.0f,
+                                .application.speed_deceleration_rad_s2 = 1.0f};
     ParameterWriteRequest request = {
         .parameter_id = 0x4DU, .value_type = PARAMETER_VALUE_U32, .raw_value = 1U};
     ParameterValue value;
     MotorWindingThermal_Default(&motor.model.thermal);
     motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     assert(ParameterValue_ConfigurationValid(&motor));
-    assert(ParameterValue_Read(&motor, &encoder, 1U, 0x4DU, &value) == PARAMETER_OK);
+    assert(ParameterValue_Read(&motor, 1U, 0x4DU, &value) == PARAMETER_OK);
     assert(value.raw_value == 0U && value.access == 3U);
     request.raw_value = 2U;
-    MotorControlState before = motor;
+    MotorConfiguration before = motor;
     assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OUT_OF_RANGE);
     assert(memcmp(&motor, &before, sizeof(motor)) == 0);
     request.raw_value = 1U;
@@ -121,8 +116,8 @@ static void configuration_confirmation(void)
     assert(memcmp(&motor, &before, sizeof(motor)) == 0);
     motor.model.motor_flux_wb = 0.01f;
     assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OK);
-    assert(motor.configuration_confirmed && encoder.calib_flag == 0U);
-    assert(ParameterValue_Read(&motor, &encoder, 2U, 0x4EU, &value) == PARAMETER_OK);
+    assert(motor.configuration_confirmed && motor.device.encoder.calib_flag == 0U);
+    assert(ParameterValue_Read(&motor, 2U, 0x4EU, &value) == PARAMETER_OK);
     assert(value.raw_value == MOTOR_CONFIGURATION_ACTIVE && value.access == 1U);
     request.raw_value = 0U;
     assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OK);
@@ -132,8 +127,7 @@ static void configuration_confirmation(void)
 /* 地址仅属于设备；应用包络已经装配，在线值服务不再据地址选择轮子策略。 */
 static void device_address_does_not_select_application(void)
 {
-    MotorControlState motor = {0};
-    EncoderState encoder = {0};
+    MotorConfiguration motor = {0};
     motor.application.speed_ceiling_rad_s = 20.0f;
     motor.application.speed_limit_rad_s = 2.0f;
     motor.application.position_maximum_speed_rad_s = 1.0f;
@@ -145,12 +139,12 @@ static void device_address_does_not_select_application(void)
     MotorApplicationConfig application = motor.application;
     motor.device.node_id = 99U;
     ParameterValue value;
-    assert(ParameterValue_Read(&motor, &encoder, 1U, 3U, &value) == PARAMETER_OK);
+    assert(ParameterValue_Read(&motor, 1U, 3U, &value) == PARAMETER_OK);
     assert(value.raw_value == 99U);
     assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OK);
     assert(memcmp(&application, &motor.application, sizeof(application)) == 0);
     request.raw_value = 21000U;
-    MotorControlState before = motor;
+    MotorConfiguration before = motor;
     assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OUT_OF_RANGE);
     assert(memcmp(&before, &motor, sizeof(motor)) == 0);
     motor.application.speed_ceiling_rad_s = NAN;
@@ -178,8 +172,7 @@ static void thermal_and_feedforward_values(void)
                   {0x6AU, 15000U, 0U},
                   {0x6BU, 150000U, 2000001U},
                   {0x6CU, 1000U, 10001U}};
-    MotorControlState motor = {.configuration_confirmed = true, .device.node_id = 7U};
-    EncoderState encoder = {0};
+    MotorConfiguration motor = {.configuration_confirmed = true, .device.node_id = 7U};
     MotorWindingThermal_Default(&motor.model.thermal);
     motor.application.speed_feedforward = (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     for (unsigned index = 0U; index < sizeof(values) / sizeof(values[0]); ++index)
@@ -189,11 +182,10 @@ static void thermal_and_feedforward_values(void)
                                          .raw_value = values[index].raw};
         assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OK);
         ParameterValue readback;
-        assert(ParameterValue_Read(&motor, &encoder, 9U, request.parameter_id, &readback) ==
-               PARAMETER_OK);
+        assert(ParameterValue_Read(&motor, 9U, request.parameter_id, &readback) == PARAMETER_OK);
         assert(readback.raw_value == request.raw_value && readback.revision == 9U);
         assert(readback.value_type == PARAMETER_VALUE_I32 && readback.access == 3U);
-        MotorControlState before = motor;
+        MotorConfiguration before = motor;
         request.raw_value = values[index].invalid_raw;
         assert(ParameterValue_Apply(&motor, &request) == PARAMETER_OUT_OF_RANGE);
         assert(memcmp(&before, &motor, sizeof(motor)) == 0);
@@ -217,9 +209,9 @@ static void thermal_and_feedforward_values(void)
         .parameter_id = 0x68U, .value_type = PARAMETER_VALUE_U32, .raw_value = 1U};
     assert(ParameterValue_Apply(&motor, &enable) == PARAMETER_OK);
     ParameterValue readback;
-    assert(ParameterValue_Read(&motor, &encoder, 10U, 0x68U, &readback) == PARAMETER_OK);
+    assert(ParameterValue_Read(&motor, 10U, 0x68U, &readback) == PARAMETER_OK);
     assert(readback.raw_value == 1U && readback.value_type == PARAMETER_VALUE_U32);
-    MotorControlState before = motor;
+    MotorConfiguration before = motor;
     enable.raw_value = 2U;
     assert(ParameterValue_Apply(&motor, &enable) == PARAMETER_OUT_OF_RANGE);
     assert(memcmp(&before, &motor, sizeof(motor)) == 0);
@@ -262,8 +254,30 @@ static void thermal_and_feedforward_values(void)
     assert(!motor.application.speed_feedforward.enabled);
 }
 
+/* 配置对象与运行对象相邻放置，配置写入不得越界破坏运行目标或故障快照。 */
+static void configuration_write_preserves_runtime(void)
+{
+    struct
+    {
+        MotorConfiguration configuration;
+        MotorControlState runtime;
+    } axis = {0};
+    unsigned char runtime_before[sizeof(axis.runtime)];
+    memset(&axis.runtime, 0xA5, sizeof(axis.runtime));
+    memcpy(runtime_before, &axis.runtime, sizeof(runtime_before));
+    axis.configuration.application.speed_ceiling_rad_s = 20.0f;
+    axis.configuration.application.speed_limit_rad_s = 2.0f;
+    axis.configuration.application.position_maximum_speed_rad_s = 1.0f;
+    ParameterWriteRequest request = {
+        .parameter_id = 1U, .value_type = PARAMETER_VALUE_I32, .raw_value = 15000U};
+    assert(ParameterValue_Apply(&axis.configuration, &request) == PARAMETER_OK);
+    assert(axis.configuration.application.speed_limit_rad_s == 15.0f);
+    assert(memcmp(runtime_before, &axis.runtime, sizeof(runtime_before)) == 0);
+}
+
 int main(void)
 {
+    configuration_write_preserves_runtime();
     device_address_does_not_select_application();
     configuration_confirmation();
     read_units_and_identity();

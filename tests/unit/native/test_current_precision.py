@@ -35,6 +35,7 @@ static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 #define OVERCURRENT_CONFIRM_CYCLES 5U
 #define CURRENT_OFFSET_MIN_COUNTS 1948.0f
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
+static MotorConfiguration configuration;
 static MotorControlState motor_state;
 static FocState foc;
 static void MotorFault_Report(MotorControlState *m, MotorFaultCode x) {m->fault_code=x;}
@@ -60,19 +61,19 @@ int main(void) {
     assert(PARAM_HW_CURRENT_OFFSET_C_COUNTS==2048U);
     assert(MOTOR_SENSING_ADC_SAMPLE_COUNT*CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS==16380U);
     /* 本项专测换算精度；上电零点采样由test_startup_current_offsets独立覆盖。 */
-    motor_state.device.phase_a_offset_counts=2032.625f; motor_state.device.phase_b_offset_counts=2051.25f;
-    motor_state.device.phase_c_offset_counts=2036.5f;
+    configuration.device.phase_a_offset_counts=2032.625f; configuration.device.phase_b_offset_counts=2051.25f;
+    configuration.device.phase_c_offset_counts=2036.5f;
     adc.JDR1=8131;adc.JDR2=8205;adc.JDR3=8146;
-    Current_Cal(&foc,&motor_state);
+    Current_Cal(&configuration,&foc,&motor_state);
     assert(motor_state.fault_code==MOTOR_FAULT_NONE);
     assert(foc.phase_b_current_a==0 && foc.phase_c_current_a==0);
     assert(fabsf(foc.phase_a_current_a+.125f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
-    adc.JDR1+=1;Current_Cal(&foc,&motor_state);
+    adc.JDR1+=1;Current_Cal(&configuration,&foc,&motor_state);
     assert(fabsf(foc.phase_a_current_a+.375f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
     /* Actual 1 A input is not inadvertently rescaled by four. */
-    adc.JDR2=(uint32_t)roundf(4*(motor_state.device.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
-    Current_Cal(&foc,&motor_state);assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
-    motor_state.device.phase_c_offset_counts=NAN;Current_Cal(&foc,&motor_state);
+    adc.JDR2=(uint32_t)roundf(4*(configuration.device.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
+    Current_Cal(&configuration,&foc,&motor_state);assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
+    configuration.device.phase_c_offset_counts=NAN;Current_Cal(&configuration,&foc,&motor_state);
     assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET);
     puts("PASS quarter-code current resolution, actual current scale, invalid-offset protection");
     return 0;

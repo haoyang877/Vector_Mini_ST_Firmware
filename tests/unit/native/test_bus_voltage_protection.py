@@ -21,23 +21,21 @@ PRELUDE = r"""
 #include <stdio.h>
 #include <string.h>
 #include "motor_types.h"
+#include "motor_config.h"
 #include "bus_voltage_profile.h"
 #include "motor_sensing.h"
 #define FOC_FREQ 20000U
 #define SENSING_VBUS_FACTOR (3.3f / 4095.0f * 11.0f)
 #define ADC2_SUM_TO_COUNTS .25f
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
-#define ENC_CALIB_ALL 3U
-#define ENC_CALIB_LINEARIZED 1U
 typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } FocState;
-typedef struct { unsigned calib_flag; } EncoderState;
 static struct { uint32_t JDR4; } adc;
 uint16_t motor_hw_vbus_sample_raw(void) {
     return (uint16_t)adc.JDR4;
 }
+static MotorConfiguration configuration;
 static MotorControlState motor_state;
 static FocState s_foc_state;
-static EncoderState rotor_encoder;
 static void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
 """
 
@@ -47,12 +45,13 @@ static void input(float v) {
     assert(adc.JDR4<=4*4095);
 }
 static void reset(float v) {
+    memset(&configuration,0,sizeof(configuration));
     memset(&motor_state,0,sizeof(motor_state));
     motor_state.control_mode=MOTOR_CONTROL_NONE;
     input(v); s_foc_state.bus_voltage_filtered_v=v;
     Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
-    motor_state.application.axis_profile_valid=true;
-    rotor_encoder.calib_flag=3;
+    configuration.application.axis_profile_valid=true;
+    configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
 }
 static void tick(unsigned n) { while(n--) Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); }
 static void running(float v) { reset(v);motor_state.control_mode=MOTOR_CONTROL_SPEED; }

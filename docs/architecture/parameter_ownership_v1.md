@@ -1,7 +1,7 @@
 # 参数所有权与四类配置 v1
 
-更新：2026-10-20。适用当前核心工程。本页描述实际RAM和文件归属。
-配置分组保持单份；[schema14](../protocols/parameter_schema14_storage_v1.md)删除退役齿槽占位，
+更新：2026-10-20。适用当前核心工程。本页描述配置与运行状态分离后的实际RAM和文件归属。
+四类配置不再嵌入运行状态；[schema14](../protocols/parameter_schema14_storage_v1.md)删除退役齿槽占位，
 只读兼容有效schema12/13；schema10通过显式离线工具迁移，不在启动时自动写回。
 基础输入、派生量、标定结果与运行状态的分类及宏计算边界见
 [参数来源与计算时机](parameter_sources_v1.md)。
@@ -11,9 +11,12 @@
 | 类别 | 默认值入口 | 活动对象与归属 |
 | --- | --- | --- |
 | 硬件 | `platform/api/board_profile_defaults.h`；采样派生与保护策略仍在对应能力头 | 编译期只读，平台实现使用；不能通过 CAN 改采样尺度或保护阈值 |
-| 电机 | `motor/motor_profile_defaults.h`，含热模型基础输入 | `MotorControlState.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
-| 应用 | `services/parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `MotorControlState.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
-| 设备个体 | `services/parameters/device_profile_defaults.h` | `MotorControlState.device`：节点与三相采样零偏；编码器校准和LUT在EncoderState，生产身份由独立身份页提供 |
+| 电机 | `motor/motor_profile_defaults.h`，含热模型基础输入 | `s_motor_configuration.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
+| 应用 | `services/parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `s_motor_configuration.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
+| 设备个体 | `services/parameters/device_profile_defaults.h` | `s_motor_configuration.device`：节点与三相采样零偏；其 `encoder` 成员单份持有LUT、方向、电零位、机械零位和标定标志；生产身份由独立身份页提供 |
+
+以上路径相对 `firmware/`。硬件配置为编译期常量，其余三类活动配置组成独立的
+`MotorConfiguration`，没有复制成每类各一份完整运行对象或Flash记录。
 
 板卡与电机选择分别使用 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE`；
 当前各只有一份已实现 profile，未知 ID 编译报错。采样电阻另由
@@ -27,27 +30,39 @@ UID由平台读回，产品/硬件修订取shared目标清单；SN和motor_type�
 
 ## 状态和读写边界
 
-`app/runtime/motor_axis.c` 持有唯一 MotorControlState、EncoderState 和各控制对象。
-按 Watch 观测要求保留非静态符号；跨模块仍通过快照、请求与显式对象参数交互，
+`app/runtime/motor_axis.c` 分别持有以下单份对象；配置、运行态和编码器动态状态不再互相包含：
+
+| 对象 | 类型与内容 | 写入边界 |
+| --- | --- | --- |
+| `s_motor_configuration` | `MotorConfiguration`；model/application/device、配置确认状态和来源 | 参数装载/默认值、通过门禁的参数事务及标定结果提交 |
+| `s_motor_state` | `MotorControlState`；模式、故障、目标、参考、动态限幅等运行态 | 生命周期、执行及控制路径 |
+| `s_rotor_encoder` | `EncoderState`；采样有效性、读帧状态、PLL和位置/速度估计 | 编码器采样与估计路径；不再持有LUT、方向或零位 |
+
+按 Watch 观测要求保留非静态符号；公共头不提供这些对象的可写 `extern` 接口。
+算法通过显式的只读配置参数和独立运行态参数工作；跨模块通过请求、值快照或明确的对象参数交互，
 不把全局可见地址作为公共写接口，也不创建第二份完整参数或 LUT。
-`motor_parameter_transaction.c` 独占请求缓存、活动修订及保存票据，Axis 保留转发与调度。
+`app/runtime/motor_parameter_transaction.c` 独占 `s_config_revision`、请求缓存及保存票据，Axis 保留转发与调度。
 事务模块不保存运行对象指针，不接管主状态机的准入或真实关相。
 模式、故障、速度/位置/电流目标、参考值和测量仍是运行状态，不能当作持久配置。
-确认状态、来源和活动 revision 是所有者元数据，不能用 Flash schema 代替。
+确认状态和来源随配置对象管理；活动 revision 随参数事务管理，不能用 Flash schema 代替。
 
 ```mermaid
 flowchart LR
-    Defaults[四类默认值] --> Owner[MotorAxis 单份活动对象]
+    Defaults[四类默认值] --> Config[MotorConfiguration 单份配置]
     Store[schema14 记录及12/13兼容读取] --> Adapter[foc_param 装载/导出]
-    Adapter --> Owner
+    Adapter --> Config
     Command[CAN 请求] --> Gate[参数事务 停机与身份门禁]
     Gate --> Value[parameter_value_service 纯数值校验]
-    Value --> Owner
-    Owner --> Control[控制与标定任务 显式借用]
-    Owner --> Snapshot[只读状态/标量快照]
-    Owner --> Save[异步维护保存 实际提交/回读]
+    Value --> Config
+    Config -->|const配置| Control[控制算法与编码器估计]
+    Runtime[MotorControlState与EncoderState 动态状态] <--> Control
+    Config --> Calibration[标定任务 显式提交校准结果]
+    Calibration --> Config
+    Config --> Snapshot[只读状态/标量快照]
+    Runtime --> Snapshot
+    Config --> Save[异步维护保存 实际提交/回读]
     Save --> Store
-    Owner --> Node[节点值]
+    Config --> Node[节点值]
     Node --> Board[启动组合层]
     Board --> Endpoint[通信端点]
 ```
@@ -55,7 +70,8 @@ flowchart LR
 - 参数写入先核对停机、资源归还、source/sequence/完整内容和 expected_revision。
 - 单标量成功只增加一次 revision；失败无副作用；读回值不含内部指针。
 - 保存使用已有临时工作区，122 受理不代表 Flash 成功；提交并回读后才返回 OK。
-- 控制与标定按既有上下文借用对象，通信仅消费服务与值快照，不持有参数指针。
+- 控制与估计只读配置、更新各自运行态；标定通过显式可写配置对象提交结果，通信仅消费服务与值快照，不持有参数指针。
+- `Param_Upload` 只编码配置，`Param_Download` 只装载配置；不接收运行对象，也不保存PI积分、目标或采样历史。
 - `MotorAxis_NodeId()` 给组合层复制地址；已删除通信拥有的参数节点桥和 Setter。
   通信端点在初始化时冻结地址，本批未新增在线改地址能力。运行期DEFAULTS保留现用node，
   不把控制默认值恢复当作生产改址；空白/损坏记录启动时仍使用既有默认地址1。
@@ -74,6 +90,8 @@ schema14记录为2288字节，保留整条CRC与16KiB参数/身份区域；旧sc
 下一批若要独立保存硬件/电机profile ID、第二个产品硬上限或批次，
 必须另行定义版本化存储/协议和制造写入权限。当前不新增这些ABI，也不自动迁移旧校准。
 
-内部 RAM 偏移已变化，调试和采样脚本必须使用该候选对应的 ELF。
-调试必须使用实际下载候选匹配的HEX/AXF，不能用本页结构解读历史固件。上电会重新采集关相电流零偏，不将存储零偏当作本次启动资格。
+本次分离不改schema14/12/13的字段、长度、CRC或兼容装载规则，仅改变RAM对象及接口。
+内部 RAM 偏移已变化，必须重新生成并使用该候选匹配的新AXF；历史AXF和固定地址脚本不能解释新对象。
+实际下载镜像也必须与所用AXF匹配。本页不构成构建或实机验证通过的证据。
+上电会重新采集关相电流零偏，不将存储零偏当作本次启动资格。
 实施与证据见[参数所有权记录](../plans/completed/2026-09-29-parameter-ownership-v1.md)。

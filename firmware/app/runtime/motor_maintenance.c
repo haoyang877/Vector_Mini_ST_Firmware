@@ -11,15 +11,15 @@
 #include "power_stage_hw.h"
 
 /* 维护调度只调用实际功能；生命周期、输出许可、保存衔接由唯一主状态机拥有。 */
-MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
-                                      const MotorControlState *motor,
+MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
+                                      MotorMaintenanceKind kind,
                                       const FocState *foc,
                                       const EncoderState *encoder)
 {
     if ((kind != MOTOR_MAINTENANCE_ENCODER_LUT && kind != MOTOR_MAINTENANCE_ELECTRICAL_ZERO &&
          kind != MOTOR_MAINTENANCE_MECHANICAL_ZERO && kind != MOTOR_MAINTENANCE_SAVE &&
          kind != MOTOR_MAINTENANCE_DEFAULTS) ||
-        !motor->application.axis_profile_valid)
+        !configuration->application.axis_profile_valid)
     {
         return MOTOR_FAULT_INVALID_PARAMETERS;
     }
@@ -27,7 +27,8 @@ MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
         kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
     if (torque_task)
     {
-        if (!motor->configuration_confirmed || !ParameterValue_ConfigurationValid(motor))
+        if (!configuration->configuration_confirmed ||
+            !ParameterValue_ConfigurationValid(configuration))
         {
             return MOTOR_FAULT_INVALID_PARAMETERS;
         }
@@ -43,7 +44,7 @@ MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
         }
     }
     if (kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO &&
-        (Encoder_GetCalibFlag(encoder) & ENC_CALIB_LINEARIZED) == 0U)
+        (Encoder_GetCalibFlag(&configuration->device.encoder) & ENC_CALIB_LINEARIZED) == 0U)
     {
         return MOTOR_FAULT_ENCODER_NOT_CALIBRATED;
     }
@@ -55,7 +56,8 @@ MotorFaultCode MotorMaintenance_Admit(MotorMaintenanceKind kind,
     return MOTOR_FAULT_NONE;
 }
 
-MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
+MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
+                                      MotorMaintenanceKind kind,
                                       FocState *foc,
                                       MotorControlState *motor,
                                       PiController *pi,
@@ -68,8 +70,15 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
     case MOTOR_MAINTENANCE_ENCODER_LUT:
     {
         EncoderCalibrationWorkspace *workspace = MaintenanceWorkspace_BorrowEncoder();
-        MotorTaskResult result =
-            EncoderCalibrationTask_StepLut(foc, motor, pi, encoder, observer, startup, workspace);
+        MotorTaskResult result = EncoderCalibrationTask_StepLut(configuration,
+                                                                &configuration->device.encoder,
+                                                                foc,
+                                                                motor,
+                                                                pi,
+                                                                encoder,
+                                                                observer,
+                                                                startup,
+                                                                workspace);
         if (EncoderCalibrationTask_IsReleased())
         {
             MaintenanceWorkspace_ReleaseEncoder();
@@ -77,9 +86,10 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
         return result;
     }
     case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
-        return EncoderCalibrationTask_StepElectricalZero(foc, motor, encoder);
+        return EncoderCalibrationTask_StepElectricalZero(
+            configuration, &configuration->device.encoder, foc, motor, encoder);
     case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
-        if (!Encoder_SetMechanicalZero(encoder))
+        if (!Encoder_SetMechanicalZero(&configuration->device.encoder, encoder))
         {
             return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
         }
@@ -95,9 +105,10 @@ MotorTaskResult MotorMaintenance_Step(MotorMaintenanceKind kind,
             return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_WINDING_THERMAL};
         }
         /* 运行期端点地址已冻结；恢复控制默认值不等于生产改址。 */
-        uint8_t node_id = motor->device.node_id;
-        Param_Return_Default(motor, encoder);
-        motor->device.node_id = node_id;
+        uint8_t node_id = configuration->device.node_id;
+        Param_Return_Default(configuration);
+        motor->vq_target_v = 0.0f;
+        configuration->device.node_id = node_id;
         return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
     }
     case MOTOR_MAINTENANCE_SAVE:

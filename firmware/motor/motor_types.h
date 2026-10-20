@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "motor_config.h"
 
 #include "motor_control_mode.h"
 
@@ -31,30 +30,11 @@ typedef enum
     MOTOR_FAULT_WINDING_THERMAL,
 } MotorFaultCode;
 
-/** @brief 活动配置来源；回退默认值不等于用户已确认电机配置。 */
-typedef enum
-{
-    MOTOR_CONFIGURATION_DEFAULTS = 0,
-    MOTOR_CONFIGURATION_STORED,
-    MOTOR_CONFIGURATION_UNSUPPORTED,
-    MOTOR_CONFIGURATION_CORRUPT,
-    MOTOR_CONFIGURATION_ACTIVE
-} MotorConfigurationSource;
-
-/** @brief 运行对象聚合；配置分组单份持有，目标、故障和测量永不持久化。 */
+/** @brief 单轴易失运行状态；不包含配置或配置指针，目标、故障和测量永不持久化。 */
 typedef struct
 {
-    MotorModelConfig model;
-    MotorApplicationConfig application;
-    MotorDeviceConfig device;
-
     MotorControlMode control_mode;
     MotorFaultCode fault_code;
-    /* 识别过程测量，不属于可保存的模型参数。 */
-    float phase_resistance_vector_ohm[3];
-    float phase_resistance_a_ohm, phase_resistance_b_ohm, phase_resistance_c_ohm;
-    float phase_resistance_spread_pct;
-    bool phase_resistance_valid, phase_resistance_warning, phase_resistance_balanced;
     bool uses_sensorless_feedback;
     /* 快环发布的动态热边界；配置值不被降额覆盖，保护层只读恢复事实。 */
     float thermal_current_limit_a;
@@ -70,9 +50,6 @@ typedef struct
     /* 模式 3 规划轨迹速度；遥测无效窗口为 NaN。 */
     float position_trajectory_speed_rad_s;
 
-    /* 所有者的活动配置元数据；不是存储 schema 或控制目标。 */
-    bool configuration_confirmed;
-    MotorConfigurationSource configuration_source;
 } MotorControlState;
 
 #endif

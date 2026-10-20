@@ -29,9 +29,9 @@ bool MotorThermalControl_Configure(const MotorWindingThermalConfig *config, bool
 }
 
 /* ---- 复刻 motor_axis.c 的私有状态与对象实例；函数体由 runner 从真实源码切片追加 ---- */
+static MotorConfiguration s_motor_configuration;
 static MotorControlState s_motor_state;
 static PiController s_speed_pi;
-static EncoderState s_rotor_encoder;
 static FocState s_foc_state;
 #if defined(MOTOR_PARAMETER_TRANSACTION_PRESENT)
 /* 真实所有者的状态和全部函数一并编译；不在夹具复制第二份新事务状态。 */
@@ -170,35 +170,29 @@ bool param_store_write(const void *record, uint32_t size_bytes)
     }
     return stub_store_write_ok;
 }
-void Param_Return_Default(MotorControlState *motor, EncoderState *encoder)
+void Param_Return_Default(MotorConfiguration *configuration)
 {
     trace_call(10U);
     ++default_calls;
-    if (motor != &s_motor_state || encoder != &s_rotor_encoder)
+    if (configuration != &s_motor_configuration)
     {
         ++boundary_errors;
     }
 }
-void Param_Download(const void *record,
-                    uint32_t size_bytes,
-                    MotorControlState *motor,
-                    EncoderState *encoder)
+void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration *configuration)
 {
     trace_call(11U);
     ++download_calls;
-    if (record != &stub_record || size_bytes != sizeof(stub_record) || motor != &s_motor_state ||
-        encoder != &s_rotor_encoder)
+    if (record != &stub_record || size_bytes != sizeof(stub_record) ||
+        configuration != &s_motor_configuration)
     {
         ++boundary_errors;
     }
 }
-void Param_Upload(InterfaceParam *record,
-                  const MotorControlState *motor,
-                  const EncoderState *encoder)
+void Param_Upload(InterfaceParam *record, const MotorConfiguration *configuration)
 {
     trace_call(12U);
-    if (record != &stub_record || motor != &s_motor_state || encoder != &s_rotor_encoder ||
-        critical_depth != 0U)
+    if (record != &stub_record || configuration != &s_motor_configuration || critical_depth != 0U)
     {
         ++boundary_errors;
     }
@@ -264,14 +258,15 @@ static ParameterStatus stub_apply_status = PARAMETER_OK;
 static uint32_t stub_apply_calls;
 static uint32_t stub_read_calls;
 
-ParameterStatus ParameterValue_Read(const MotorControlState *motor,
-                                    const EncoderState *encoder,
+ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
                                     uint32_t revision,
                                     uint8_t parameter_id,
                                     ParameterValue *value)
 {
-    (void)motor;
-    (void)encoder;
+    if (configuration != &s_motor_configuration)
+    {
+        ++boundary_errors;
+    }
     ++stub_read_calls;
     trace_call(18U);
     *value = (ParameterValue){0};
@@ -280,10 +275,11 @@ ParameterStatus ParameterValue_Read(const MotorControlState *motor,
     value->access = PARAMETER_ACCESS_READ | PARAMETER_ACCESS_WRITE_IDLE;
     return stub_read_status;
 }
-ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWriteRequest *request)
+ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
+                                     const ParameterWriteRequest *request)
 {
     (void)request;
-    if (motor != &s_motor_state || critical_depth != 1U)
+    if (configuration != &s_motor_configuration || critical_depth != 1U)
     {
         ++boundary_errors;
     }
@@ -291,7 +287,7 @@ ParameterStatus ParameterValue_Apply(MotorControlState *motor, const ParameterWr
     trace_call(19U);
     if (stub_apply_status == PARAMETER_OK)
     {
-        motor->application.current_limit_a = (float)request->raw_value;
+        configuration->application.current_limit_a = (float)request->raw_value;
     }
     return stub_apply_status;
 }
@@ -309,6 +305,7 @@ static uint32_t failures;
 
 static void reset_case(void)
 {
+    memset(&s_motor_configuration, 0, sizeof(s_motor_configuration));
     memset(&s_motor_state, 0, sizeof(s_motor_state));
     s_config_revision = 5U;
     s_last_read.valid = s_last_write.valid = s_save_job.valid = false;
@@ -388,7 +385,7 @@ static void test_write_contract(void)
     stub_apply_status = PARAMETER_OUT_OF_RANGE;
     CHECK(MotorAxis_WriteParameter(&write, &applied) == PARAMETER_OUT_OF_RANGE);
     CHECK(stub_apply_calls == applies_before + 1U && reset_calls == resets_before);
-    CHECK(s_config_revision == 7U && s_motor_state.application.current_limit_a == 1234.0f);
+    CHECK(s_config_revision == 7U && s_motor_configuration.application.current_limit_a == 1234.0f);
     s_config_revision = UINT32_MAX;
     write.expected_revision = UINT32_MAX;
     CHECK(!MotorAxis_ConfigurationRevisionAvailable());
@@ -554,7 +551,7 @@ int main(void)
     /* 初始化只借用原工作区；维护修订由同一所有者去重并保持饱和语义。 */
     reset_case();
     stub_store_read_ok = true;
-    MotorParameterTransaction_Init(&s_motor_state, &s_rotor_encoder);
+    MotorParameterTransaction_Init(&s_motor_configuration);
     CHECK(download_calls == 1U && record_releases == 1U && s_config_revision == 1U);
     CHECK(!s_last_read.valid && !s_last_write.valid && !s_save_job.valid);
     MotorParameterTransaction_AdvanceMaintenanceRevision(4U);
@@ -567,10 +564,10 @@ int main(void)
     MotorParameterTransaction_AdvanceMaintenanceRevision(5U);
     CHECK(s_config_revision == UINT32_MAX && s_revision_work_epoch == 5U);
     stub_store_read_ok = false;
-    MotorParameterTransaction_Init(&s_motor_state, &s_rotor_encoder);
+    MotorParameterTransaction_Init(&s_motor_configuration);
     CHECK(default_calls == 1U && record_releases == 2U && s_config_revision == 1U);
     stub_borrow_available = false;
-    MotorParameterTransaction_Init(&s_motor_state, &s_rotor_encoder);
+    MotorParameterTransaction_Init(&s_motor_configuration);
     CHECK(default_calls == 2U && record_releases == 2U);
     CHECK(boundary_errors == 0U && critical_depth == 0U);
 #endif

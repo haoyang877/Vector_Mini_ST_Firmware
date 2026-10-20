@@ -21,6 +21,7 @@
 #include "foc_sensorless_run.h"
 
 /* 电机与控制对象全局符号供 Watch 观测；运行写入仍由 MotorAxis 组装和调度。 */
+MotorConfiguration s_motor_configuration;
 MotorControlState s_motor_state;
 PiController s_speed_pi;
 EncoderState s_rotor_encoder;
@@ -43,7 +44,7 @@ CurrentOffsetCalibration s_current_offset_calibration;
 
 uint8_t MotorAxis_NodeId(void)
 {
-    return s_motor_state.device.node_id;
+    return s_motor_configuration.device.node_id;
 }
 
 /* PI运行对象立即反映活动参数；首个有效母线样本前电压额度为零，运行时照常更新。 */
@@ -54,20 +55,20 @@ static void configure_controllers(void)
             ? FOC_MaximumVoltage(s_foc_state.bus_voltage_filtered_v)
             : 0.0f;
     PiController_Configure(&s_foc_state.id_pi,
-                           s_motor_state.model.id_kp,
-                           s_motor_state.model.id_ki,
+                           s_motor_configuration.model.id_kp,
+                           s_motor_configuration.model.id_ki,
                            Current_Ts,
                            -maximum_voltage,
                            maximum_voltage);
     PiController_Configure(&s_foc_state.iq_pi,
-                           s_motor_state.model.iq_kp,
-                           s_motor_state.model.iq_ki,
+                           s_motor_configuration.model.iq_kp,
+                           s_motor_configuration.model.iq_ki,
                            Current_Ts,
                            -maximum_voltage,
                            maximum_voltage);
     PiController_Configure(&s_speed_pi,
-                           s_motor_state.application.speed_kp,
-                           s_motor_state.application.speed_ki,
+                           s_motor_configuration.application.speed_kp,
+                           s_motor_configuration.application.speed_ki,
                            Speed_Ts,
                            -1.0f,
                            1.0f);
@@ -85,9 +86,9 @@ static void update_current_controller_limits(void)
 static void initialize_current_offsets(void)
 {
     s_current_offset_calibration = (CurrentOffsetCalibration){0};
-    s_motor_state.device.phase_a_offset_counts = NAN;
-    s_motor_state.device.phase_b_offset_counts = NAN;
-    s_motor_state.device.phase_c_offset_counts = NAN;
+    s_motor_configuration.device.phase_a_offset_counts = NAN;
+    s_motor_configuration.device.phase_b_offset_counts = NAN;
+    s_motor_configuration.device.phase_c_offset_counts = NAN;
     s_foc_state.phase_a_current_a = NAN;
     s_foc_state.phase_b_current_a = NAN;
     s_foc_state.phase_c_current_a = NAN;
@@ -105,7 +106,7 @@ static void sample_phase_currents(void)
 {
     if (s_current_offset_calibration.complete)
     {
-        Current_Cal(&s_foc_state, &s_motor_state);
+        Current_Cal(&s_motor_configuration, &s_foc_state, &s_motor_state);
         return;
     }
     if (s_current_offset_calibration.failed)
@@ -137,39 +138,47 @@ static void sample_phase_currents(void)
     }
     float scale =
         MOTOR_SENSING_ADC_SUM_TO_COUNTS / (float)s_current_offset_calibration.sample_count;
-    s_motor_state.device.phase_a_offset_counts =
+    s_motor_configuration.device.phase_a_offset_counts =
         (float)s_current_offset_calibration.phase_sum_raw[0] * scale;
-    s_motor_state.device.phase_b_offset_counts =
+    s_motor_configuration.device.phase_b_offset_counts =
         (float)s_current_offset_calibration.phase_sum_raw[1] * scale;
-    s_motor_state.device.phase_c_offset_counts =
+    s_motor_configuration.device.phase_c_offset_counts =
         (float)s_current_offset_calibration.phase_sum_raw[2] * scale;
-    if (!MotorCurrentOffsets_Valid(&s_motor_state))
+    if (!MotorCurrentOffsets_Valid(&s_motor_configuration))
     {
-        s_motor_state.device.phase_a_offset_counts = NAN;
-        s_motor_state.device.phase_b_offset_counts = NAN;
-        s_motor_state.device.phase_c_offset_counts = NAN;
+        s_motor_configuration.device.phase_a_offset_counts = NAN;
+        s_motor_configuration.device.phase_b_offset_counts = NAN;
+        s_motor_configuration.device.phase_c_offset_counts = NAN;
         fail_current_offset_calibration();
         return;
     }
     s_current_offset_calibration.complete = true;
     MotorParameterTransaction_AdvanceRevision();
-    Current_Cal(&s_foc_state, &s_motor_state);
+    Current_Cal(&s_motor_configuration, &s_foc_state, &s_motor_state);
 }
 
 void MotorAxis_Init(void)
 {
-    MotorParameterTransaction_Init(&s_motor_state, &s_rotor_encoder);
-    if (!MotorThermalControl_Init(&s_motor_state.model.thermal, time_hw_now_ms()))
+    MotorParameterTransaction_Init(&s_motor_configuration);
+    if (s_motor_configuration.configuration_source != MOTOR_CONFIGURATION_STORED)
+    {
+        s_motor_state.vq_target_v = 0.0f;
+    }
+    if (!MotorThermalControl_Init(&s_motor_configuration.model.thermal, time_hw_now_ms()))
     {
         MotorFault_Report(&s_motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
     }
     s_motor_state.thermal_current_limit_a =
-        MotorThermalControl_CurrentLimit(s_motor_state.application.current_limit_a);
+        MotorThermalControl_CurrentLimit(s_motor_configuration.application.current_limit_a);
     s_motor_state.thermal_clear_ready = MotorThermalControl_CanClearFault();
     initialize_current_offsets();
-    MotorStateMachine_Init(
-        &s_motor_state, &s_foc_state, &s_speed_pi, &s_rotor_encoder, &s_sensorless_startup);
-    Encoder_ParamInit(&s_rotor_encoder);
+    MotorStateMachine_Init(&s_motor_configuration,
+                           &s_motor_state,
+                           &s_foc_state,
+                           &s_speed_pi,
+                           &s_rotor_encoder,
+                           &s_sensorless_startup);
+    Encoder_ParamInit(&s_motor_configuration.device.encoder, &s_rotor_encoder);
 
     FluxObserver_ParamInit(&s_flux_observer);
     SensorlessStartup_Reset(&s_sensorless_startup);
@@ -177,14 +186,15 @@ void MotorAxis_Init(void)
     PiController_Reset(&s_speed_pi);
     configure_controllers();
 
-    s_motor_state.application.position_error_window_rad = PARAM_APP_POSITION_ERROR_WINDOW_RAD;
+    s_motor_configuration.application.position_error_window_rad =
+        PARAM_APP_POSITION_ERROR_WINDOW_RAD;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
     MotorOuterLoop_RequestReset();
 
     /* 未配置轴记录的关节在启动后保持禁用。 */
     /* 上电零点校正和基础自检只在关相状态推进，完成也不自动使能电机。 */
     s_motor_state.control_mode = MOTOR_CONTROL_NONE;
-    if (!s_motor_state.application.axis_profile_valid)
+    if (!s_motor_configuration.application.axis_profile_valid)
     {
         MotorFault_Report(&s_motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
     }
@@ -201,11 +211,11 @@ MotorControlMode MotorAxis_SupervisorTick(void)
         MotorStateMachine_FastFaultStop();
     }
     /* 1. 编码器慢估计：多圈/机械角/速度是慢状态唯一写者。 */
-    Encoder_UpdateSlowEstimate(&s_motor_state, &s_rotor_encoder);
+    Encoder_UpdateSlowEstimate(&s_motor_configuration, &s_rotor_encoder);
 
     /* 2. 外环控制：位置级联/轨迹与速度 PI 直接执行并发布 iq_target_a；
      *    本函数是外环输出唯一写者，快环只读取。 */
-    MotorOuterLoop_SlowTick(&s_motor_state, &s_speed_pi, &s_rotor_encoder);
+    MotorOuterLoop_SlowTick(&s_motor_configuration, &s_motor_state, &s_speed_pi, &s_rotor_encoder);
 
     /* 3. 主运行状态机：消费快环 worker 结果，完成故障指示、维护会话、
      *    功率级启停迁移与影子提交；故障的硬件关断由快环紧急快车道先行执行。 */
@@ -224,7 +234,8 @@ static MotorTaskResult run_fast_task(bool maintenance_runnable)
     }
     if (maintenance_runnable)
     {
-        return MotorMaintenance_Step(MotorStateMachine_GetMaintenanceKind(),
+        return MotorMaintenance_Step(&s_motor_configuration,
+                                     MotorStateMachine_GetMaintenanceKind(),
                                      &s_foc_state,
                                      &s_motor_state,
                                      &s_speed_pi,
@@ -239,7 +250,7 @@ static MotorTaskResult run_fast_task(bool maintenance_runnable)
         return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     }
     return MotorExecution_ControlStep(
-        &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
 }
 
 /* 热采样使用本拍实际三相电流；限流只是运行快照，绝不覆盖活动参数。 */
@@ -255,9 +266,9 @@ static void update_winding_thermal(void)
                                    time_hw_now_ms());
     }
     s_motor_state.thermal_current_limit_a =
-        MotorThermalControl_CurrentLimit(s_motor_state.application.current_limit_a);
+        MotorThermalControl_CurrentLimit(s_motor_configuration.application.current_limit_a);
     s_motor_state.thermal_limit_active =
-        s_motor_state.thermal_current_limit_a < s_motor_state.application.current_limit_a;
+        s_motor_state.thermal_current_limit_a < s_motor_configuration.application.current_limit_a;
     s_motor_state.thermal_clear_ready = MotorThermalControl_CanClearFault();
     if (!s_current_offset_calibration.complete)
     {
@@ -312,11 +323,11 @@ void MotorAxis_FastTick(void)
     if (s_current_offset_calibration.complete &&
         s_motor_state.control_mode != MOTOR_CONTROL_POSITION)
     {
-        FluxObserver_Update(&s_foc_state, &s_motor_state, &s_flux_observer);
+        FluxObserver_Update(&s_motor_configuration, &s_foc_state, &s_flux_observer);
     }
 
     /* 第二段SPI回读与观测器运算重叠，完成后才允许故障判定及控制输出。 */
-    Encoder_CompleteSample(&s_motor_state, &s_rotor_encoder, encoder_sample_stage);
+    Encoder_CompleteSample(&s_motor_configuration, &s_rotor_encoder, encoder_sample_stage);
 
     /* 6. 快速环故障检查：编码器离线或轴配置失效时立即置故障并停机；
      *    不清除既有故障，且先于任何控制输出执行。 */
@@ -368,9 +379,9 @@ MotorState MotorAxis_ReadStatus(MotorStatus *sample,
     uint32_t mask = critical_hw_enter();
     sample_motor_status(sample);
     *valid_bits = 0x54U;
-    if (s_motor_state.application.axis_profile_valid &&
+    if (s_motor_configuration.application.axis_profile_valid &&
         Encoder_GetBadFrameStreak(&s_rotor_encoder) == 0U &&
-        Encoder_GetCalibFlag(&s_rotor_encoder) != 0U)
+        Encoder_GetCalibFlag(&s_motor_configuration.device.encoder) != 0U)
     {
         *valid_bits |= 0x03U;
     }
@@ -395,7 +406,7 @@ void MotorAxis_ServiceBackground(void)
     bool success = false;
     if (claim.kind == FOC_BACKGROUND_SAVE)
     {
-        success = MotorParameterTransaction_SaveRecord(&s_motor_state, &s_rotor_encoder, &claim);
+        success = MotorParameterTransaction_SaveRecord(&s_motor_configuration, &claim);
     }
     uint32_t mask = critical_hw_enter();
     bool current = MotorStateMachine_BackgroundValid(&claim);
@@ -410,14 +421,14 @@ void MotorAxis_ServiceBackground(void)
 /* 外部参数入口保留；事务状态与资格判断仅由参数事务模块推进。 */
 ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, ParameterValue *value)
 {
-    return MotorParameterTransaction_Read(&s_motor_state, &s_rotor_encoder, request, value);
+    return MotorParameterTransaction_Read(&s_motor_configuration, request, value);
 }
 
 ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
                                          ParameterValue *applied)
 {
     return MotorParameterTransaction_Write(
-        &s_motor_state, &s_foc_state, &s_speed_pi, &s_rotor_encoder, request, applied);
+        &s_motor_configuration, &s_motor_state, &s_foc_state, &s_speed_pi, request, applied);
 }
 
 ParameterStatus MotorAxis_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket)

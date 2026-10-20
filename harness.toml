@@ -119,7 +119,7 @@ paths = ["loader/targets"]
 allows = ["target_profile", "loader_target", "shared"]
 
 [architecture.layers.loader_mcu]
-paths = ["loader/ports/stm32g4"]
+paths = ["loader/ports"]
 allows = ["target_profile", "loader_mcu", "loader_api", "loader_board", "loader_target", "shared", "cubemx"]
 
 [architecture.layers.loader_board]

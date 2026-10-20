@@ -71,3 +71,19 @@ class LoaderBoundaryTests(unittest.TestCase):
         errors = self.scan('#include "loader_target.h"', "loader_core")
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0]["to_layer"], "target_profile")
+
+    def test_future_mcu_directories_are_classified(self):
+        """新增 MCU 端口默认受分层检查，公共接口仍归独立层。"""
+        _, roots = check_architecture.layer_config()
+        self.assertEqual(
+            check_architecture.owner(
+                check_architecture.ROOT / "loader/ports/future_family/flash.c", roots
+            ),
+            "loader_mcu",
+        )
+        self.assertEqual(
+            check_architecture.owner(
+                check_architecture.ROOT / "loader/ports/include/platform.h", roots
+            ),
+            "loader_api",
+        )

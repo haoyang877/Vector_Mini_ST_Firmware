@@ -460,6 +460,7 @@ def main() -> int:
     parser.add_argument("action", choices=("inspect", "upgrade"))
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--sdk", type=Path)
+    parser.add_argument("--device-index", type=int, default=0, help="USB-CAN设备索引；使用通道0")
     parser.add_argument("--node", type=int)
     parser.add_argument("--uid")
     parser.add_argument("--output", type=Path)
@@ -514,7 +515,7 @@ def main() -> int:
                 print(f"\r下载 {percent}%", end="\n" if written == total else "", flush=True)
                 last_percent = percent
 
-        with ControlCanFd(args.sdk) as transport:
+        with ControlCanFd(args.sdk, device_index=args.device_index) as transport:
             client = UpgradeClient(transport, args.node, uid, progress)
             if args.rescue_window:
                 client.hold_rescue_window()

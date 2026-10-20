@@ -1,5 +1,7 @@
 # Active Plans
 
+- [schema14配套实机验收 v1](2026-10-20-loader-schema14-acceptance-v1.md)：连续正常升级、静默超时、下载中复位及不通信APP救援，结束恢复原机。
+
 - [Loader与参数存储优化 v1](2026-10-20-loader-storage-optimize-v1.md)：保持单份参数，紧凑存储、显式迁移、分项耗时与运行库瘦身。
 
 - [Loader 连续升级二十轮验收 v1](2026-10-20-loader-repeat20-v1.md)：固定配套固件，连续验证 APP 交接、CAN 下载、确认与镜像回读，最终恢复原固件和参数。

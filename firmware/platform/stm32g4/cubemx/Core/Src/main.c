@@ -110,6 +110,8 @@ int main(void)
   MX_SPI1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
+  /* 恢复快环执行预算；先启用指令预取，再启动控制器与采样中断。 */
+  __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
   Board_Init();
   /* USER CODE END 2 */
 

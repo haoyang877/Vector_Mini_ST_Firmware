@@ -15,8 +15,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools/build"))
 from harness.common import zig_path  # noqa: E402
 from prepare_calibration_reset import (  # noqa: E402
+    EXTENSION_OFFSET,
     FEEDFORWARD_DEFAULT,
     IDENTITY_OFFSET,
+    LEGACY13_BYTES,
     PARAM_BYTES,
     RECORD_BYTES,
     THERMAL_DEFAULT,
@@ -30,8 +32,8 @@ from run_position_servo_tests import function_source  # noqa: E402
 def source_page(schema: int) -> bytearray:
     """构造含有效模型、限值、AXS1和独立身份页的完整参数快照。"""
     raw = bytearray(PARAM_BYTES)
-    raw[RECORD_BYTES:] = bytes(
-        (index * 17 + 3) % 256 for index in range(PARAM_BYTES - RECORD_BYTES)
+    raw[LEGACY13_BYTES:] = bytes(
+        (index * 17 + 3) % 256 for index in range(PARAM_BYTES - LEGACY13_BYTES)
     )
     struct.pack_into("<9f", raw, 0, 7, 2048, 2049, 2047, 21, 1.2, 0.0011, 0.0012, 0.01)
     struct.pack_into("<HHBB", raw, 36, 1234, 4567, 3, 1)
@@ -45,11 +47,12 @@ def source_page(schema: int) -> bytearray:
     struct.pack_into("<2f", raw, 2180, 0.1, 0.3)
     axis = struct.pack("<II8s3f", 0x31535841, 1, b"roll", -1, 1, 2)
     raw[2208:2240] = axis + struct.pack("<I", zlib.crc32(axis))
-    if schema == 13:
-        struct.pack_into("<7f", raw, 4304, 3.2, 6.8, 70, 0.85, 0.65, 0.95, 0.45)
-        struct.pack_into("<I4f", raw, 4332, 1, 0.04, 15, 120, 1.2)
+    if schema in (13, 14):
+        offset = 4304 if schema == 13 else EXTENSION_OFFSET
+        struct.pack_into("<7f", raw, offset, 3.2, 6.8, 70, 0.85, 0.65, 0.95, 0.45)
+        struct.pack_into("<I4f", raw, offset + 28, 1, 0.04, 15, 120, 1.2)
     elif schema == 12:
-        raw[4304:RECORD_BYTES] = b"\xff" * (RECORD_BYTES - 4304)
+        raw[4304:LEGACY13_BYTES] = b"\xff" * (LEGACY13_BYTES - 4304)
     else:
         put_extension(raw, 2344, b"MTH1", struct.pack("<7f", 3.2, 6.8, 70, 0.85, 0.65, 0.95, 0.45))
         put_extension(raw, 2312, b"SFF1", struct.pack("<I4f", 1, 0.04, 15, 120, 1.2))
@@ -60,8 +63,8 @@ def source_page(schema: int) -> bytearray:
 def refresh_crc(raw: bytearray) -> None:
     """只有schema12/13有整条CRC；schema10不伪造旧记录完整性。"""
     schema = struct.unpack_from("<I", raw, 2160)[0]
-    if schema in (12, 13):
-        size = 4304 if schema == 12 else RECORD_BYTES
+    if schema in (12, 13, 14):
+        size = {12: 4304, 13: LEGACY13_BYTES, 14: RECORD_BYTES}[schema]
         struct.pack_into("<I", raw, 2140, zlib.crc32(raw[:2140] + raw[2144:size]))
 
 
@@ -80,7 +83,7 @@ class CalibrationResetTests(unittest.TestCase):
     """固定页边界，清除资格但不更换设备、模型或应用配置。"""
 
     def test_preserves_all_owned_configuration_and_identity(self) -> None:
-        for schema in (10, 12, 13):
+        for schema in (10, 12, 13, 14):
             with self.subTest(schema=schema):
                 raw = source_page(schema)
                 before = bytes(raw)
@@ -102,7 +105,7 @@ class CalibrationResetTests(unittest.TestCase):
                 self.assertEqual(result[36:41], bytes(5))
                 self.assertEqual(result[44:2092], bytes(2048))
                 self.assertEqual(result[2136:2140], bytes(4))
-                self.assertEqual(struct.unpack_from("<II", result, 2160), (13, 0x454E4332))
+                self.assertEqual(struct.unpack_from("<II", result, 2160), (14, 0x454E4332))
                 crc = zlib.crc32(result[:2140] + result[2144:RECORD_BYTES])
                 self.assertEqual(struct.unpack_from("<I", result, 2140)[0], crc)
                 self.assertEqual(record_crc(result, RECORD_BYTES), crc)
@@ -111,18 +114,49 @@ class CalibrationResetTests(unittest.TestCase):
                 self.assertFalse(report["configuration_confirmed"])
                 self.assertFalse(report["hardware_actions"])
                 if schema == 12:
-                    self.assertEqual(result[4304:4332], struct.pack("<7f", *THERMAL_DEFAULT))
-                    self.assertEqual(result[4332:4352], struct.pack("<I4f", *FEEDFORWARD_DEFAULT))
+                    self.assertEqual(
+                        result[EXTENSION_OFFSET : EXTENSION_OFFSET + 28],
+                        struct.pack("<7f", *THERMAL_DEFAULT),
+                    )
+                    self.assertEqual(
+                        result[EXTENSION_OFFSET + 28 : RECORD_BYTES],
+                        struct.pack("<I4f", *FEEDFORWARD_DEFAULT),
+                    )
                 else:
                     self.assertEqual(
-                        result[4304:4332], before[2352:2380] if schema == 10 else before[4304:4332]
+                        result[EXTENSION_OFFSET : EXTENSION_OFFSET + 28],
+                        before[2352:2380]
+                        if schema == 10
+                        else before[
+                            (4304 if schema == 13 else EXTENSION_OFFSET) : (
+                                4332 if schema == 13 else EXTENSION_OFFSET + 28
+                            )
+                        ],
                     )
                     self.assertEqual(
-                        result[4332:4352], before[2320:2340] if schema == 10 else before[4332:4352]
+                        result[EXTENSION_OFFSET + 28 : RECORD_BYTES],
+                        before[2320:2340]
+                        if schema == 10
+                        else before[
+                            (4332 if schema == 13 else EXTENSION_OFFSET + 28) : (
+                                4352 if schema == 13 else RECORD_BYTES
+                            )
+                        ],
                     )
 
+    def test_migration_requires_legacy_layout_and_valid_calibration(self) -> None:
+        raw = source_page(10)
+        with self.assertRaisesRegex(ValueError, "旧交付布局"):
+            prepare(raw, hashlib.sha256(raw).hexdigest(), preserve_calibration=True)
+        for offset, value in ((40, 8), (41, 2)):
+            raw = source_page(13)
+            raw[offset] = value
+            refresh_crc(raw)
+            with self.assertRaisesRegex(ValueError, "资格|方向"):
+                prepare(raw, hashlib.sha256(raw).hexdigest(), preserve_calibration=True)
+
     def test_invalid_hash_length_crc_and_node_are_rejected(self) -> None:
-        for schema in (10, 12, 13):
+        for schema in (10, 12, 13, 14):
             raw = source_page(schema)
             with self.assertRaises(ValueError):
                 prepare(raw, "0" * 64)
@@ -181,9 +215,9 @@ class CalibrationResetTests(unittest.TestCase):
         struct.pack_into("<f", raw, 4340, 0.1)
         refresh_crc(raw)
         result, _ = prepare_page(raw)
-        self.assertEqual(result[4304:4352], raw[4304:4352])
+        self.assertEqual(result[EXTENSION_OFFSET:RECORD_BYTES], raw[4304:4352])
 
-    def test_schema13_outputs_load_in_real_app_without_fallback(self) -> None:
+    def test_schema14_outputs_load_in_real_app_without_fallback(self) -> None:
         compiler = zig_path()
         if compiler is None:
             self.skipTest("未安装native C编译器")
@@ -202,17 +236,19 @@ class CalibrationResetTests(unittest.TestCase):
 uint8_t Encoder_GetCalibFlag(const EncoderState *encoder) { return encoder->calib_flag; }
 #define CHECK(condition) do { if (!(condition)) { printf("FAIL %u: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main(int argc, char **argv) {
-    CHECK(argc == 2);
+    CHECK(argc == 3);
+    bool preserved = strcmp(argv[2], "preserve") == 0;
     FILE *input = fopen(argv[1], "rb"); CHECK(input != NULL);
     InterfaceParam param;
     CHECK(fread(&param, 1, sizeof(param), input) == sizeof(param)); fclose(input);
     MotorControlState motor = {0}; EncoderState encoder = {0};
-    Param_Download(&param, &motor, &encoder);
+    Param_Download(&param, sizeof(param), &motor, &encoder);
     CHECK(motor.configuration_source == MOTOR_CONFIGURATION_STORED);
-    CHECK(!motor.configuration_confirmed && encoder.calib_flag == 0);
-    CHECK(encoder.electrical_zero_q15 == 0 && encoder.mechanical_zero_q15 == 0);
+    CHECK(!motor.configuration_confirmed && encoder.calib_flag == (preserved ? 3 : 0));
+    CHECK(encoder.electrical_zero_q15 == (preserved ? 1234 : 0));
+    CHECK(encoder.mechanical_zero_q15 == (preserved ? 4567 : 0));
     CHECK(encoder.reverse == param.encoder_reverse);
-    for (unsigned i = 0; i < ENCODER_OFFSET_LUT_SIZE; ++i) { CHECK(encoder.linearization_lut_q15[i] == 0); }
+    for (unsigned i = 0; i < ENCODER_OFFSET_LUT_SIZE; ++i) { CHECK(encoder.linearization_lut_q15[i] == (preserved ? (int)(i % 128) - 64 : 0)); }
     CHECK(motor.device.node_id == (uint8_t)param.node_id);
     CHECK(motor.model.motor_pole_pairs == (int)param.motor_pole_pairs);
     CHECK(motor.model.motor_phase_resistance_ohm == param.motor_phase_resistance_ohm);
@@ -230,7 +266,7 @@ int main(int argc, char **argv) {
     CHECK(motor.application.speed_feedforward.acceleration_limit_rad_s2 == param.speed_feedforward_acceleration_rad_s2);
     CHECK(motor.application.speed_feedforward.jerk_limit_rad_s3 == param.speed_feedforward_jerk_rad_s3);
     CHECK(motor.application.speed_feedforward.current_limit_a == param.speed_feedforward_current_limit_a);
-    puts("PASS prepared schema13 real APP load, configuration preserved and calibration cleared");
+    puts("PASS prepared schema14 real APP load and explicit calibration policy");
     return 0;
 }
 """,
@@ -263,17 +299,33 @@ int main(int argc, char **argv) {
         compiled = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
         log.append(compiled.stdout + compiled.stderr)
         self.assertEqual(compiled.returncode, 0, log[-1])
-        for schema in (10, 12, 13):
+        for schema in (10, 12, 13, 14):
             raw = source_page(schema)
             result, report = prepare_page(raw)
             path = output / f"from_schema{schema}.bin"
             path.write_bytes(result)
             loaded = subprocess.run(
-                [str(executable), str(path)], capture_output=True, text=True, cwd=ROOT
+                [str(executable), str(path), "reset"], capture_output=True, text=True, cwd=ROOT
             )
             log.append(f"schema{schema}: " + loaded.stdout + loaded.stderr)
             self.assertEqual(loaded.returncode, 0, log[-1])
             self.assertEqual(report["output_sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+            migrated, migration = prepare(
+                raw,
+                hashlib.sha256(raw).hexdigest(),
+                preserve_calibration=True,
+                legacy_layout="vector-mini-schema10-delivery-v1",
+            )
+            self.assertEqual(migrated[36:42], raw[36:42])
+            self.assertEqual(migrated[44:2092], raw[44:2092])
+            self.assertEqual(migrated[RECORD_BYTES:], raw[RECORD_BYTES:])
+            self.assertTrue(migration["calibration_preserved"])
+            path.write_bytes(migrated)
+            loaded = subprocess.run(
+                [str(executable), str(path), "preserve"], capture_output=True, text=True, cwd=ROOT
+            )
+            log.append(f"preserve schema{schema}: " + loaded.stdout + loaded.stderr)
+            self.assertEqual(loaded.returncode, 0, log[-1])
         (output / "cross_language.log").write_text("\n".join(log), encoding="utf-8")
 
 

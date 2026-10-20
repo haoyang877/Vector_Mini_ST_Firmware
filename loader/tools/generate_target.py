@@ -113,6 +113,8 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
     )
     set_value(ads + "Cads/VariousControls/MiscControls", "")
     set_value(ads + "Cads/Optim", "4")
+    # Loader无stdio/堆分配，选择ARM MicroLIB；APP沿用原运行库与栈预算。
+    set_value(ads + "ArmAdsMisc/useUlib", "1")
     set_value(ads + "LDads/umfTarg", "0")
     set_value(ads + "LDads/useFile", "1")
     set_value(ads + "LDads/ScatterFile", "loader.sct")

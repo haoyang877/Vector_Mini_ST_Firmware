@@ -50,6 +50,10 @@ bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
         (ROOT / "docs/protocols/parameter_schema13_vectors.json").read_text(encoding="utf-8")
     )
     prelude += f"\n#define PARAM_RECORD13_GOLDEN_CRC {vectors13['vectors'][0]['crc32']}U\n"
+    vectors14 = json.loads(
+        (ROOT / "docs/protocols/parameter_schema14_vectors.json").read_text(encoding="utf-8")
+    )
+    prelude += f"\n#define PARAM_RECORD14_GOLDEN_CRC {vectors14['vectors'][0]['crc32']}U\n"
     utils = (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
     prelude += (
@@ -68,7 +72,7 @@ bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
     )
     prelude += "\nstatic void policy_golden_vectors(const InterfaceParam *base) {\n"
     for vector in policy["vectors"]:
-        prelude += "{ InterfaceParam zero={0}, candidate=*base;\n"
+        prelude += "{ uint8_t zero[4304]={0}, legacy[4304]={0}; InterfaceParam candidate=*base;\n"
         for offset, value in vector["fields"].items():
             values = ",".join(f"0x{byte:02x}" for byte in bytes.fromhex(value))
             prelude += (
@@ -78,11 +82,11 @@ bool LoaderFlash_Read(uint32_t address, void *output, uint32_t count) {
                 + f"memcpy((unsigned char *)&zero+{offset},bytes,sizeof(bytes)); "
                 + f"memcpy((unsigned char *)&candidate+{offset},bytes,sizeof(bytes)); }}\n"
             )
-        prelude += f"assert(Param_RecordCrc(&zero)=={vector['zero_fill_crc32']}U);\n"
+        prelude += f"assert(record_crc(zero,sizeof(zero))=={vector['zero_fill_crc32']}U);\n"
         prelude += (
             "candidate.record_crc32=Param_RecordCrc(&candidate); InterfaceParam before=candidate;\n"
         )
-        prelude += "Param_Download(&candidate,&motor_state,&rotor_encoder);\n"
+        prelude += "memcpy(legacy,&candidate,2240); candidate.record_crc32=record_crc(legacy,sizeof(legacy)); before=candidate; memcpy(legacy+2140,&candidate.record_crc32,4); Param_Download(legacy,sizeof(legacy),&motor_state,&rotor_encoder);\n"
         prelude += (
             f"assert(motor_state.device.node_id=={vector['new_node']}U && "
             f"motor_state.application.speed_limit_rad_s=={vector['new_loaded_speed_limit_rad_s']}f);\n"
@@ -103,22 +107,22 @@ int main(void) {
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;
         p=saved; p.node_id=(float)node; p.speed_limit_rad_s=21;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
         assert(motor_state.device.node_id==node && motor_state.application.axis_profile_valid);
         memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
         uint8_t loader_node=0; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_RAW11 && loader_node==node);
         assert(rotor_encoder.electrical_zero_q15==3155);
         assert(rotor_encoder.linearization_lut_q15[71]==-42);
         assert(motor_state.application.speed_kp==.02f);
-        p.speed_limit_rad_s=1.25f; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==1.25f);
-        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
-        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.speed_limit_rad_s=1.25f; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==1.25f);
+        p.speed_limit_rad_s=NAN; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
+        p.speed_limit_rad_s=0; p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder); assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI); assert(motor_state.application.speed_ceiling_rad_s==cap);
     }
     puts("PASS 254 explicit APP/Loader addresses, independent application ceiling, low fallback and calibration");
     /* 版本化行为变化：旧node3把字段10钳到pi，新版保留显式字段10，不生成目标。 */
     p=saved; p.node_id=3; p.speed_limit_rad_s=10;
     p.record_crc32=Param_RecordCrc(&p); InterfaceParam address_before=p;
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(motor_state.device.node_id==3 && motor_state.application.speed_limit_rad_s==10);
     assert(motor_state.application.speed_ceiling_rad_s==20 && memcmp(&p,&address_before,sizeof(p))==0);
     /* 轴配置仅收窄应用；同一地址不随AXS1/AXS2角色改变，输入始终不变。 */
@@ -127,7 +131,7 @@ int main(void) {
         if(format==0) { assert(MotorAxisProfile_Create(&p.axis_profile,"roll",-1,1,.7f)); }
         else { assert(MotorAxisProfile_CreateJoint(&p.axis_profile,MOTOR_JOINT_ROLL,1,-.3f,.9f,.7f)); }
         p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
-        Param_Download(&p,&motor_state,&rotor_encoder);
+        Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
         assert(motor_state.device.node_id==7 && motor_state.application.speed_limit_rad_s==.7f);
         assert(motor_state.application.speed_ceiling_rad_s==.7f && memcmp(&p,&before,sizeof(p))==0);
         memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
@@ -137,7 +141,7 @@ int main(void) {
         const float invalid_nodes[]={3.5f,NAN,INFINITY,-1.0f,255.0f};
         for(unsigned i=0;i<sizeof(invalid_nodes)/sizeof(invalid_nodes[0]);i++) {
             p=saved; p.node_id=invalid_nodes[i]; p.record_crc32=Param_RecordCrc(&p);
-            Param_Download(&p,&motor_state,&rotor_encoder);
+            Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
             assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
             memset(parameter_flash,255,sizeof(parameter_flash)); memcpy(parameter_flash,&p,sizeof(p));
             uint8_t loader_node=7; assert(LoaderPlatform_Parameters(&loader_node)==YI_PARAMS_UNSAFE && loader_node==7);
@@ -146,11 +150,11 @@ int main(void) {
     puts("PASS AXS only narrows application and never overrides node; fractional addresses rejected by APP/Loader");
     /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
     {
-        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,14,UINT32_MAX};
+        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,15,UINT32_MAX};
         for(unsigned i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
             p=saved; p.schema_version=rejected[i];
             p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
-            p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
+            p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
             assert(memcmp(&p,&before,sizeof(p))==0);
             assert(motor_state.device.node_id==(uint8_t)PARAM_DEVICE_CAN_NODE_ID);
             assert(rotor_encoder.calib_flag==0 && rotor_encoder.electrical_zero_q15==0);
@@ -159,7 +163,7 @@ int main(void) {
             assert(motor_state.application.speed_kp==PARAM_APP_SPEED_KP);
         }
         p=saved; p.magic_word=0;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
         assert(rotor_encoder.calib_flag==0);
     }
     puts("PASS old/unknown schema rejection, defaults and immutable input");
@@ -170,10 +174,10 @@ int main(void) {
     p.can_hb=NAN;
     p.cascade_pos_kp=.07f; p.cascade_pos_kd=.6f; p.speed_kp=.023f;
     {
-        const uint8_t schema_bytes[] = {0x0d,0,0,0};
+        const uint8_t schema_bytes[] = {0x0e,0,0,0};
         const uint8_t magic_bytes[] = {0x32,0x43,0x4e,0x45};
-        assert(sizeof(p)==4352 && offsetof(InterfaceParam,schema_version)==2160);
-        assert(offsetof(InterfaceParam,thermal)==4304);
+        assert(sizeof(p)==2288 && offsetof(InterfaceParam,schema_version)==2160);
+        assert(offsetof(InterfaceParam,thermal)==2240);
         assert(offsetof(InterfaceParam,magic_word)==2164);
         assert(offsetof(InterfaceParam,can_hb)==2156);
         assert(offsetof(InterfaceParam,configuration_flags)==2136);
@@ -185,7 +189,7 @@ int main(void) {
     }
     {
         p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
-        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
+        p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
         assert(memcmp(&p,&before,sizeof(p))==0);
     }
     assert(motor_state.application.cascade_position_kp==.07f && motor_state.application.cascade_position_kd==.6f);
@@ -199,13 +203,13 @@ int main(void) {
         assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
     }
     /* 退役槽不应用到控制；导出清零，但schema12大小和CRC完整性保持。 */
-    p=saved; p.cogging.magic=0x31475143U; p.cogging.iq_q15[17]=123;
+    p=saved;
     p.friction_model_valid=1U; p.friction_coulomb_pos_a=.2f;
     p.record_crc32=Param_RecordCrc(&p);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     Param_Upload(&p,&motor_state,&rotor_encoder);
-    assert(p.cogging.magic==0 && p.cogging.iq_q15[17]==0 && p.friction_model_valid==0);
+    assert(p.friction_model_valid==0);
     puts("PASS schema12 golden layout and retired fields ignored/zero export");
     /* 当前硬件配置变化仍使电流域参数失效，不属于已删除的版本迁移。 */
     p=saved;
@@ -213,18 +217,22 @@ int main(void) {
     p.calibration_current_a=.1f; p.current_limit_a=.1f;
     p.friction_model_valid=1U;
     p.friction_coulomb_pos_a=.2f; p.friction_coulomb_neg_a=.2f;
-    p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,&motor_state,&rotor_encoder);
+    p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(motor_state.model.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
     assert(motor_state.application.current_limit_a==PARAM_APP_DEFAULT_CURRENT_LIMIT_A);
     assert(rotor_encoder.calib_flag==3 && rotor_encoder.linearization_lut_q15[71]==-42);
     puts("PASS current-sense mismatch invalidates current-domain settings only");
 
     /* 独立 zlib 黄金值固定整条 CRC 契约；记录 CRC 槽不参与计算。 */
-    memset(&p,0,sizeof(p)); p.schema_version=12U; p.magic_word=MAGIC_WORD;
-    assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
-    p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD_GOLDEN_CRC);
-    p.schema_version=13U;
-    assert(Param_RecordCrc(&p)==PARAM_RECORD13_GOLDEN_CRC);
+    uint8_t zero_legacy[4352]={0};
+    uint32_t old_schema=12U, magic=MAGIC_WORD;
+    memcpy(zero_legacy+2160,&old_schema,4); memcpy(zero_legacy+2164,&magic,4);
+    assert(record_crc(zero_legacy,4304)==PARAM_RECORD_GOLDEN_CRC);
+    old_schema=13U; memcpy(zero_legacy+2160,&old_schema,4);
+    assert(record_crc(zero_legacy,4352)==PARAM_RECORD13_GOLDEN_CRC);
+    memset(&p,0,sizeof(p)); p.schema_version=PARAM_SCHEMA_VERSION; p.magic_word=MAGIC_WORD;
+    assert(Param_RecordCrc(&p)==PARAM_RECORD14_GOLDEN_CRC);
+    p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD14_GOLDEN_CRC);
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
     assert(motor_state.device.node_id==1U && motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI);
@@ -237,55 +245,71 @@ int main(void) {
     assert(LoaderPlatform_Parameters(&default_loader_node)==YI_PARAMS_RAW11 && default_loader_node==7U);
     Param_Return_Default(&motor_state,&rotor_encoder);
     assert(motor_state.device.node_id==1U);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(motor_state.device.node_id==7U && !motor_state.configuration_confirmed && rotor_encoder.calib_flag==0U);
     assert(motor_state.application.speed_limit_rad_s==PARAM_APP_DEFAULT_SPEED_LIMIT_RPS*_2PI);
     puts("PASS node7 default configuration export/reload/Loader consistency; blank startup still node1");
     Param_Return_Default(&motor_state,&rotor_encoder);
     Param_Upload(&p,&motor_state,&rotor_encoder);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
     motor_state.configuration_confirmed=true; rotor_encoder.calib_flag=ENC_CALIB_LINEARIZED;
     Param_Upload(&p,&motor_state,&rotor_encoder); saved=p;
     Param_Return_Default(&motor_state,&rotor_encoder);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(motor_state.configuration_confirmed && rotor_encoder.calib_flag==ENC_CALIB_LINEARIZED);
     p.current_limit_a+=1.0f;
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     assert(rotor_encoder.calib_flag==0U && motor_state.application.axis_profile_valid);
     p=saved; p.configuration_flags=2U; p.record_crc32=Param_RecordCrc(&p);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     p=saved; p.motor_flux_wb=NAN; p.record_crc32=Param_RecordCrc(&p);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     p=saved; p.node_id=0.0f; p.record_crc32=Param_RecordCrc(&p);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(!motor_state.configuration_confirmed && motor_state.device.node_id==1U && motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
     puts("PASS independent schema12 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
     /* 旧schema12只读装载；尾部随机值不得应用，保存才升级13。 */
-    p=saved; p.schema_version=12U;
-    memset((uint8_t *)&p+4304,0xff,sizeof(p)-4304);
-    p.record_crc32=Param_RecordCrc(&p); InterfaceParam old12=p;
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    uint8_t legacy[4352], original[4352];
+    memset(legacy,0xa5,sizeof(legacy));
+    p=saved; p.schema_version=12U; memcpy(legacy,&p,2240);
+    uint32_t crc=record_crc(legacy,4304); memcpy(legacy+2140,&crc,4);
+    memcpy(original,legacy,sizeof(legacy));
+    Param_Download(legacy,sizeof(legacy),&motor_state,&rotor_encoder);
     assert(motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
     assert(motor_state.device.node_id==(uint8_t)p.node_id);
     assert(motor_state.model.thermal.continuous_vector_a==3.0f);
     assert(!motor_state.application.speed_feedforward.enabled);
-    assert(memcmp(&p,&old12,sizeof(p))==0);
+    assert(memcmp(legacy,original,sizeof(legacy))==0);
+    Param_Download(legacy,4303,&motor_state,&rotor_encoder);
+    assert(motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    Param_Download(legacy,sizeof(legacy),&motor_state,&rotor_encoder);
+    p=saved; p.schema_version=13U; memcpy(legacy,&p,2240);
+    memcpy(legacy+4304,(const uint8_t *)&p+2240,48);
+    crc=record_crc(legacy,4352); memcpy(legacy+2140,&crc,4);
+    Param_Download(legacy,sizeof(legacy),&motor_state,&rotor_encoder);
+    assert(motor_state.configuration_source==MOTOR_CONFIGURATION_STORED);
+    assert(rotor_encoder.linearization_lut_q15[71]==p.encoder_linearization_lut_q15[71]);
+    legacy[3000]^=1;
+    Param_Download(legacy,sizeof(legacy),&motor_state,&rotor_encoder);
+    assert(motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
+    legacy[3000]^=1;
+    Param_Download(legacy,sizeof(legacy),&motor_state,&rotor_encoder);
     motor_state.model.thermal.peak_a=6.0f;
     motor_state.application.speed_feedforward.enabled=true;
     motor_state.application.speed_feedforward.gain_a_per_rad_s2=.04f;
     Param_Upload(&p,&motor_state,&rotor_encoder);
-    assert(p.schema_version==13U && p.thermal.peak_a==6.0f && p.speed_feedforward_enabled==1U);
+    assert(p.schema_version==14U && p.thermal.peak_a==6.0f && p.speed_feedforward_enabled==1U);
     Param_Return_Default(&motor_state,&rotor_encoder);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(motor_state.model.thermal.peak_a==6.0f);
     assert(motor_state.application.speed_feedforward.enabled);
     assert(motor_state.application.speed_feedforward.gain_a_per_rad_s2==.04f);
     p.thermal.peak_a=NAN; p.record_crc32=Param_RecordCrc(&p);
-    Param_Download(&p,&motor_state,&rotor_encoder);
+    Param_Download(&p,sizeof(p),&motor_state,&rotor_encoder);
     assert(motor_state.configuration_source==MOTOR_CONFIGURATION_CORRUPT && !motor_state.configuration_confirmed);
     puts("PASS schema12 bounded read and schema13 thermal/feedforward roundtrip; invalid extension rejected");
     return 0;

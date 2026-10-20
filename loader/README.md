@@ -29,6 +29,10 @@
 `upgrade`才打开用户指定SDK与节点，须显式UID、独占及无电机动力条件。默认验证/CI不接触设备。
 不支持USB、UART、第二MCU、跨复位续传、旧APP回滚、维护角色或签名。
 layout 5 到 layout 6 必须通过受控 SWD 同时迁移 Loader 与 APP；不能混用旧址 APP
-或以 CAN 改写 Loader。当前目标版本为 Loader v2.0.0、APP v1.4.2。
+或以 CAN 改写 Loader。当前候选为 Loader v2.1.0、APP v1.5.0，参数使用[schema14](../docs/protocols/parameter_schema14_storage_v1.md)。
+旧版本的二十轮实测不代表新候选已经通过实机验收。
 APP 的 READY 回复必须关联队列入队位置，并等待该帧真实发送完成后才能复位；
 修复与验证见[交接队列修复计划](../docs/plans/active/2026-10-20-loader-handoff-queue-v1.md)。
+
+升级客户端的 summary.json 现含 timing：按命令统计发送耗时、回复等待和重试，失败请求也计入。
+发送耗时包含传输适配器以及外层 J-Link 检查；不能称作纯 CAN 总线耗时。

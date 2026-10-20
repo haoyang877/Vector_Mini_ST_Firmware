@@ -106,10 +106,15 @@ class LoaderPackageTests(unittest.TestCase):
         golden = json.loads(
             (ROOT / "tests/fixtures/loader_image_layout6.json").read_text(encoding="utf-8")
         )
-        # 黄金值固定其发布版本，当前版本另由CLI用例覆盖。
+        # 黄金值固定其发布版本与参数ABI，当前版本另由CLI用例覆盖。
         source = bytearray(self.current_source())
         struct.pack_into(">I", source, 512 + 28, golden["app_version"])
+        old_manifest = bytes.fromhex(golden["manifest_hex"])
+        abi, low, high = struct.unpack_from(">IHH", old_manifest, 40)
+        struct.pack_into(">IHH", source, 512 + 36, abi, low, high)
         target["constants"]["TARGET_APP_VERSION"] = f"0x{golden['app_version']:08X}U"
+        target["constants"]["TARGET_PARAM_ABI"] = f"0x{abi:08X}U"
+        target["constants"]["TARGET_SCHEMA"] = f"{low}U"
         image, manifest, metadata = build_package(source, 7, target)
         self.assertEqual(manifest.hex(), golden["manifest_hex"])
         self.assertEqual(metadata["image_crc32"], golden["crc32"])

@@ -25,6 +25,7 @@ provide the short entry map; details belong here.
 进行中的交付功能移植：[集成计划](plans/active/2026-10-17-delivery-feature-integration-v1.md)、
 [schema13参数与清标定契约](protocols/parameter_schema13_delivery_v1.md)。
 新包及实机结果须以本轮冻结记录为准，不能沿用v1.3.0结论。
+当前参数收口见[schema14紧凑存储与迁移](protocols/parameter_schema14_storage_v1.md)。
 
 Loader 16 KiB / APP 96 KiB 的布局迁移见
 [layout 6 计划](plans/active/2026-10-17-loader-16k-layout-v1.md)与

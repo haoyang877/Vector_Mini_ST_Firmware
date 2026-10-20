@@ -11,7 +11,7 @@
 
 /* 参数记录与其它维护任务互斥借用既有固定工作区，不常驻完整参数副本。 */
 typedef char ParamRecord_FitsWorkspace
-    [(sizeof(InterfaceParam) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+    [(PARAM_RECORD_READ_BYTES <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 
 /* 活动修订与最近变更身份；不常驻 InterfaceParam 副本，不复用 schema 版本。 */
 volatile uint32_t s_config_revision;
@@ -48,13 +48,20 @@ void MotorParameterTransaction_AdvanceRevision(void)
 static void load_parameters(MotorControlState *motor, EncoderState *encoder)
 {
     InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
-    if (record == NULL || !param_store_read(record, sizeof(*record)))
+    uint32_t read_bytes = sizeof(*record);
+    bool read_ok = record != NULL && param_store_read(record, read_bytes);
+    if (read_ok && (record->schema_version == 12U || record->schema_version == 13U))
+    {
+        read_bytes = record->schema_version == 12U ? PARAM_SCHEMA12_BYTES : PARAM_SCHEMA13_BYTES;
+        read_ok = param_store_read(record, read_bytes);
+    }
+    if (!read_ok)
     {
         Param_Return_Default(motor, encoder);
     }
     else
     {
-        Param_Download(record, motor, encoder);
+        Param_Download(record, read_bytes, motor, encoder);
     }
     if (record != NULL)
     {

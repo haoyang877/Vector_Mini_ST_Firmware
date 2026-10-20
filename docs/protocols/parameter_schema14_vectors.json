@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "schema": 14,
+  "record_bytes": 2288,
+  "extension_offset": 2240,
+  "byte_order": "little",
+  "crc": "CRC32/ISO-HDLC; omit bytes 2140..2143; initial seed 0",
+  "vectors": [
+    {
+      "name": "zero_record_unconfirmed",
+      "fill": 0,
+      "fields": {
+        "2160": "0e000000",
+        "2164": "32434e45"
+      },
+      "crc32": "0x10e7f3fa",
+      "crc_bytes": "faf3e710"
+    }
+  ]
+}

@@ -179,11 +179,15 @@ void Param_Return_Default(MotorControlState *motor, EncoderState *encoder)
         ++boundary_errors;
     }
 }
-void Param_Download(const InterfaceParam *record, MotorControlState *motor, EncoderState *encoder)
+void Param_Download(const void *record,
+                    uint32_t size_bytes,
+                    MotorControlState *motor,
+                    EncoderState *encoder)
 {
     trace_call(11U);
     ++download_calls;
-    if (record != &stub_record || motor != &s_motor_state || encoder != &s_rotor_encoder)
+    if (record != &stub_record || size_bytes != sizeof(stub_record) || motor != &s_motor_state ||
+        encoder != &s_rotor_encoder)
     {
         ++boundary_errors;
     }

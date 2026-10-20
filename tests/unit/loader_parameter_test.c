@@ -33,6 +33,16 @@ int main(void)
     memcpy(memory + TARGET_RAW_SCHEMA_OFFSET, &schema, 4U);
     memcpy(memory + TARGET_RAW_MAGIC_OFFSET, &magic, 4U);
     assert(LoaderPlatform_Parameters(&node) == YI_PARAMS_RAW11 && node == 3U);
+    for (schema = 12U; schema <= 14U; ++schema)
+    {
+        memcpy(memory + TARGET_RAW_SCHEMA_OFFSET, &schema, 4U);
+        assert(LoaderPlatform_Parameters(&node) == YI_PARAMS_RAW11 && node == 3U);
+    }
+    schema = 10U;
+    memcpy(memory + TARGET_RAW_SCHEMA_OFFSET, &schema, 4U);
+    assert(LoaderPlatform_Parameters(&node) == YI_PARAMS_UNSAFE);
+    schema = TARGET_SCHEMA;
+    memcpy(memory + TARGET_RAW_SCHEMA_OFFSET, &schema, 4U);
     unreadable = true;
     assert(LoaderPlatform_Parameters(&node) == YI_PARAMS_UNSAFE);
     unreadable = false;

@@ -467,7 +467,7 @@ static int check_complete_task_trace(void)
 int main(void)
 {
     if (sizeof(EncoderCalibrationWorkspace) != MAINTENANCE_WORKSPACE_CAPACITY_BYTES ||
-        sizeof(InterfaceParam) != 4352U || !MaintenanceWorkspace_IsReleased())
+        sizeof(InterfaceParam) != 2288U || !MaintenanceWorkspace_IsReleased())
     {
         return 1;
     }

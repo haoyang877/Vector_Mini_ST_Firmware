@@ -1,5 +1,7 @@
 # Active Plans
 
+- [Loader与参数存储优化 v1](2026-10-20-loader-storage-optimize-v1.md)：保持单份参数，紧凑存储、显式迁移、分项耗时与运行库瘦身。
+
 - [Loader 连续升级二十轮验收 v1](2026-10-20-loader-repeat20-v1.md)：固定配套固件，连续验证 APP 交接、CAN 下载、确认与镜像回读，最终恢复原固件和参数。
 
 - [Loader 交接队列修复 v1](2026-10-20-loader-handoff-queue-v1.md)：修正 READY 入队、出队和超时删除的读写索引，回归 APP→Loader 实机升级链路。

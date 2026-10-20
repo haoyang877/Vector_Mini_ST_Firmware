@@ -7,6 +7,7 @@ typedef union
     uint64_t alignment;
     EncoderCalibrationWorkspace encoder;
     InterfaceParam parameter;
+    uint8_t legacy_parameter[PARAM_RECORD_READ_BYTES];
 } MaintenanceWorkspaceStorage;
 
 typedef char MaintenanceWorkspace_FitsBudget

@@ -247,6 +247,34 @@ class UpgradeClientTests(unittest.TestCase):
         self.assertTrue(any(item["type"] == 51 and item["attempt"] == 1 for item in client.trace))
         self.assertEqual(progress[-1], (len(self.package.image), len(self.package.image)))
         self.assertEqual(progress, sorted(set(progress)))
+        timing = client.timing_summary()["by_type"]["51"]
+        self.assertEqual(timing["retries"], 1)
+        self.assertEqual(timing["failed_requests"], 0)
+        self.assertGreater(timing["transport_send_s"], 0)
+
+    def test_request_timing_separates_adapter_time(self) -> None:
+        """注入时钟核对发送占用与回复等待分开，避免把调试器开销算成CAN速度。"""
+        device = NativeDevice(self.dll)
+        client = UpgradeClient(device, 3, b"\x01" * 12)
+        with patch("host_app.upgrade_client.time.perf_counter", side_effect=[1, 1.1, 1.3, 1.6]):
+            client.request(1, struct.pack("<IIHH", 0, 0, 0, 0))
+        timing = client.timing_summary()["by_type"]["1"]
+        self.assertAlmostEqual(timing["elapsed_s"], 0.6)
+        self.assertAlmostEqual(timing["transport_send_s"], 0.2)
+        self.assertAlmostEqual(timing["reply_wait_s"], 0.4)
+        self.assertEqual(timing["frames_sent"], 1)
+
+    def test_failed_request_is_counted_in_timing(self) -> None:
+        """最终超时也计入总耗时与重试统计，不能只统计成功请求。"""
+        device = NativeDevice(self.dll)
+        device.drop = 4
+        client = UpgradeClient(device, 3, b"\x01" * 12)
+        with self.assertRaises(TimeoutError):
+            client.request(1, struct.pack("<IIHH", 0, 0, 0, 0))
+        timing = client.timing_summary()["by_type"]["1"]
+        self.assertEqual(timing["failed_requests"], 1)
+        self.assertEqual(timing["retries"], 3)
+        self.assertEqual(timing["frames_sent"], 4)
 
     def test_lost_activation_ack_requires_new_app_confirmation(self) -> None:
         """ACTIVATE 回复已发却被主机丢弃，必须凭新 APP 版本/CRC/持久确认恢复。"""

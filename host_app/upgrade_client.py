@@ -211,6 +211,7 @@ class UpgradeClient:
         self.trace: list[dict] = []
         self.binding = b""
         self.progress = progress
+        self.request_timings: list[dict] = []
 
     def request(
         self,
@@ -226,9 +227,15 @@ class UpgradeClient:
             sequence = self.sequence
         frames = encode_frames(self.node, kind, payload, sequence)
         reply_sequence = len(frames) - 1 if len(frames) > 1 else sequence
+        started = time.perf_counter()
+        send_s = 0.0
+        attempts = 0
         for attempt in range(4):
+            attempts += 1
+            send_started = time.perf_counter()
             for identifier, data in frames:
                 self.transport.send(identifier, data)
+            send_s += time.perf_counter() - send_started
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline:
                 frame = self.transport.receive(max(0.0, deadline - time.monotonic()))
@@ -239,8 +246,60 @@ class UpgradeClient:
                 except ValueError:
                     continue
                 self.trace.append({"type": kind, "attempt": attempt, "reply": response.hex()})
+                self._record_timing(kind, started, send_s, attempts, len(frames), True)
                 return response
+        self._record_timing(kind, started, send_s, attempts, len(frames), False)
         raise TimeoutError(f"Type{kind}回复超时；停止升级，检查CAN与Loader驻留状态")
+
+    def _record_timing(
+        self,
+        kind: int,
+        started: float,
+        send_s: float,
+        attempts: int,
+        frames_per_attempt: int,
+        success: bool,
+    ) -> None:
+        """记录主机观察耗时；send包含适配器或外层检查，不能解释为总线占用。"""
+        elapsed_s = time.perf_counter() - started
+        self.request_timings.append(
+            {
+                "type": kind,
+                "success": success,
+                "attempts": attempts,
+                "frames_sent": attempts * frames_per_attempt,
+                "elapsed_s": elapsed_s,
+                "transport_send_s": send_s,
+                "reply_wait_s": max(0.0, elapsed_s - send_s),
+            }
+        )
+
+    def timing_summary(self) -> dict:
+        """按升级命令汇总成功和超时请求；等待含协议重试与Python调度开销。"""
+        by_type: dict[str, dict] = {}
+        for item in self.request_timings:
+            group = by_type.setdefault(
+                str(item["type"]),
+                {
+                    "requests": 0,
+                    "failed_requests": 0,
+                    "retries": 0,
+                    "frames_sent": 0,
+                    "elapsed_s": 0.0,
+                    "transport_send_s": 0.0,
+                    "reply_wait_s": 0.0,
+                },
+            )
+            group["requests"] += 1
+            group["failed_requests"] += int(not item["success"])
+            group["retries"] += item["attempts"] - 1
+            for key in ("frames_sent", "elapsed_s", "transport_send_s", "reply_wait_s"):
+                group[key] += item[key]
+        return {
+            "clock": "host_perf_counter",
+            "by_type": by_type,
+            "note": "send包含传输适配器和外层检查；不是纯CAN总线耗时",
+        }
 
     def identify(self) -> tuple[bytes, bytes, tuple[int, ...]]:
         """查询三页并核对实际UID与合法角色，拒绝混入旧设备回复。"""
@@ -377,6 +436,7 @@ class UpgradeClient:
                         "version": package.version,
                         "crc32": f"{package.crc32:08x}",
                         "trace": self.trace,
+                        "timing": self.timing_summary(),
                     }
             time.sleep(0.05)
         raise TimeoutError("新APP未完成健康与持久确认，等待看门狗退回Loader")
@@ -463,6 +523,7 @@ def main() -> int:
         report["failure"] = str(exc)
         if client is not None:
             report["trace"] = client.trace
+            report["timing"] = client.timing_summary()
     finally:
         (output / "summary.json").write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

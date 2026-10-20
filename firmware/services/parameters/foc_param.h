@@ -7,15 +7,6 @@
 #include "angle_feedback.h"
 #include "position_cascade_config.h"
 #include "motor_axis_profile.h"
-/* schema12退役记录槽，仅用于保持已部署参数的大小和偏移；无运行算法。 */
-typedef struct
-{
-    uint32_t magic, encoder_signature;
-    float full_scale_a;
-    uint32_t crc32;
-    int16_t iq_q15[1024];
-} CoggingMapRecord;
-
 /* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。 */
 
@@ -23,8 +14,10 @@ typedef struct
  * 属于已发布 schema 的一部分，数值禁止更改。 */
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
-#define PARAM_SCHEMA_VERSION 13U
+#define PARAM_SCHEMA_VERSION 14U
 #define PARAM_SCHEMA12_BYTES 4304U
+#define PARAM_SCHEMA13_BYTES 4352U
+#define PARAM_RECORD_READ_BYTES PARAM_SCHEMA13_BYTES
 
 typedef struct
 {
@@ -82,9 +75,7 @@ typedef struct
     uint32_t friction_model_valid;
     /* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
     MotorAxisProfile axis_profile;
-    /* 退役齿槽表占位：读取忽略，导出清零；schema12布局不变。 */
-    CoggingMapRecord cogging;
-    /* schema13尾追加；schema12前缀及其所有偏移保持不变。 */
+    /* schema14删除退役齿槽表；旧schema13尾部由装载函数按版本读取。 */
     MotorWindingThermalConfig thermal;
     uint32_t speed_feedforward_enabled;
     float speed_feedforward_gain_a_per_rad_s2;
@@ -102,7 +93,7 @@ typedef struct
 void Param_Return_Default(MotorControlState *motor, EncoderState *encoder);
 
 /**
- * @brief 导出含配置确认、识别字与整条 CRC32 的 schema13 参数记录。
+ * @brief 导出含配置确认、识别字与整条 CRC32 的 schema14 参数记录。
  * @param param 调用方独占的记录空间。
  * @param motor 稳定的电机配置。
  * @param encoder 稳定的编码器配置。
@@ -113,17 +104,21 @@ void Param_Upload(InterfaceParam *param,
                   const EncoderState *encoder);
 
 /**
- * @brief 装载有效schema13或schema12前缀；旧前缀使用新增功能的保守默认值。
- * @param param 只读 Flash 记录副本。
+ * @brief 装载schema12/13/14记录；旧版本只读兼容，不自动写回。
+ * @param record 按四字节对齐的只读 Flash 记录副本。
+ * @param size_bytes 副本的实际容量；不足对应版本长度时拒绝。
  * @param motor 中断启动前的电机配置。
  * @param encoder 中断启动前的编码器配置。
  * @note 仅启动调用；其他版本清除标定资格，不自动转换schema10或写Flash。
  */
-void Param_Download(const InterfaceParam *param, MotorControlState *motor, EncoderState *encoder);
+void Param_Download(const void *record,
+                    uint32_t size_bytes,
+                    MotorControlState *motor,
+                    EncoderState *encoder);
 
 /**
- * @brief 按schema12/13规定长度计算记录CRC32，跳过record_crc32槽。
- * @param param 调用方独占的完整记录，不能为空。
+ * @brief 计算当前schema14记录CRC32，跳过record_crc32槽。
+ * @param param 调用方独占的完整当前记录，不能为空。
  * @return 标准反射 CRC32，首块种子为零。
  * @note 启动或停机前台调用；不修改输入，不在快慢环计算。
  */

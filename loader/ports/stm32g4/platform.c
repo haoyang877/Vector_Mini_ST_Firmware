@@ -282,8 +282,8 @@ LoaderParameterState LoaderPlatform_Parameters(uint8_t *node)
         return YI_PARAMS_BLANK;
     }
     if (node == NULL || !LoaderFlash_Read(TARGET_PARAM_BASE + TARGET_RAW_SCHEMA_OFFSET, words, 8) ||
-        (words[0] != TARGET_SCHEMA && words[0] != 12U) || words[1] != TARGET_RAW_MAGIC ||
-        !LoaderFlash_Read(TARGET_PARAM_BASE, &node_bits, 4))
+        (words[0] != TARGET_SCHEMA && words[0] != 12U && words[0] != 13U) ||
+        words[1] != TARGET_RAW_MAGIC || !LoaderFlash_Read(TARGET_PARAM_BASE, &node_bits, 4))
     {
         return YI_PARAMS_UNSAFE;
     }

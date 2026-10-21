@@ -4,6 +4,8 @@
 
 从[app.h](composition/app.h)开始读；只向芯片入口公开四个应用调用：
 
+完整调用流程及2kHz执行次序评审统一维护在[软件架构主流程](../../docs/architecture/software_architecture.md)。
+
 | 入口 | 实现 | 调用方与职责 |
 | --- | --- | --- |
 | App_Init | app_startup.c前部 | main完成外设初始化后调用一次：参数/电机、采样、通信依次启动 |

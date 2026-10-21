@@ -34,6 +34,9 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 
 ## 从四个入口开始读
 
+main、四入口、主状态机和控制之间的完整流程图，以及2kHz外环次序的评审，
+统一见[软件架构主流程](software_architecture.md)。本页继续负责逐文件导航。
+
 先读[app.h](../../firmware/app/composition/app.h)的四个入口契约，实施范围见
 [四入口计划](../plans/completed/2026-10-21-app-entry-v1.md)；源文件按下面的调用链阅读：
 

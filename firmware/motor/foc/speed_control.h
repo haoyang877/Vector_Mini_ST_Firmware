@@ -1,5 +1,5 @@
-#ifndef FOC_SPEED_H
-#define FOC_SPEED_H
+#ifndef SPEED_CONTROL_H
+#define SPEED_CONTROL_H
 
 #include "motor_config.h"
 #include "motor_types.h"

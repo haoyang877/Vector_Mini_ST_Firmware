@@ -54,7 +54,7 @@ def check_project(project):
     owned = (
         "firmware/app",
         "firmware/motor",
-        "firmware/services",
+        "firmware/parameters",
         "firmware/communication",
         "firmware/platform",
         "firmware/third_party/segger_rtt",

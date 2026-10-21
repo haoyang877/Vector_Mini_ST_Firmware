@@ -6,8 +6,8 @@
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
-#include "foc_sensorless.h"
-#include "foc_sensorless_run.h"
+#include "flux_observer.h"
+#include "sensorless_startup.h"
 #include "motor_task_result.h"
 
 /* Mode13/15 编码器标定任务适配，纯计算契约见 encoder_calibration_core.h：

@@ -12,8 +12,8 @@
 | --- | --- | --- |
 | 硬件 | `platform/api/board_profile_defaults.h`；采样派生与保护策略仍在对应能力头 | 编译期只读，平台实现使用；不能通过 CAN 改采样尺度或保护阈值 |
 | 电机 | `motor/motor_profile_defaults.h`，含热模型基础输入 | `s_motor_configuration.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
-| 应用 | `services/parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `s_motor_configuration.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
-| 设备个体 | `services/parameters/device_profile_defaults.h` | `s_motor_configuration.device`：节点与三相采样零偏；其 `encoder` 成员单份持有LUT、方向、电零位、机械零位和标定标志；生产身份由独立身份页提供 |
+| 应用 | `parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `s_motor_configuration.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
+| 设备个体 | `parameters/device_profile_defaults.h` | `s_motor_configuration.device`：节点与三相采样零偏；其 `encoder` 成员单份持有LUT、方向、电零位、机械零位和标定标志；生产身份由独立身份页提供 |
 
 以上路径相对 `firmware/`。硬件配置为编译期常量，其余三类活动配置组成独立的
 `MotorConfiguration`，没有复制成每类各一份完整运行对象或Flash记录。
@@ -49,10 +49,10 @@ UID由平台读回，产品/硬件修订取shared目标清单；SN和motor_type�
 ```mermaid
 flowchart LR
     Defaults[四类默认值] --> Config[MotorConfiguration 单份配置]
-    Store[schema14 记录及12/13兼容读取] --> Adapter[foc_param 装载/导出]
+    Store[schema14 记录及12/13兼容读取] --> Adapter[parameter_record 装载/导出]
     Adapter --> Config
     Command[CAN 请求] --> Gate[参数事务 停机与身份门禁]
-    Gate --> Value[parameter_value_service 纯数值校验]
+    Gate --> Value[parameter_values 纯数值校验]
     Value --> Config
     Config -->|const配置| Control[控制算法与编码器估计]
     Runtime[MotorControlState与EncoderState 动态状态] <--> Control

@@ -1,4 +1,4 @@
-#include "board_config.h"
+#include "app_startup.h"
 
 #include "board_hw.h"
 #include "boot_hw.h"
@@ -8,7 +8,7 @@
 #include "yg_protocol_runtime.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_motor_adapter.h"
-#include "motor_stop_service.h"
+#include "motor_stop_request.h"
 #include "motor_hw.h"
 #include "motor_axis.h"
 #include "power_stage_hw.h"

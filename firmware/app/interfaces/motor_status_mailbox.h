@@ -1,5 +1,5 @@
-#ifndef MOTOR_STATUS_H
-#define MOTOR_STATUS_H
+#ifndef MOTOR_STATUS_MAILBOX_H
+#define MOTOR_STATUS_MAILBOX_H
 #include <stdbool.h>
 #include <stdint.h>
 

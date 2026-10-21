@@ -3,10 +3,10 @@
 #include <stddef.h>
 
 #include "critical_hw.h"
-#include "foc_param.h"
+#include "parameter_record.h"
 #include "param_store.h"
 #include "maintenance_workspace.h"
-#include "motor_control_execution.h"
+#include "motor_control.h"
 #include "motor_thermal_control.h"
 
 /* 参数记录与其它维护任务互斥借用既有固定工作区，不常驻完整参数副本。 */

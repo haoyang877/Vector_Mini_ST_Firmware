@@ -1,4 +1,4 @@
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 #include <stddef.h>
 #include <math.h>
 #include "foc_sensing.h"

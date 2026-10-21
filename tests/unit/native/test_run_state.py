@@ -6,14 +6,18 @@ import hashlib
 import io
 import json
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
-from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+from project_paths import ROOT, native_include_flags, resolve_source_path
+from run_position_servo_tests import function_source
 
 REFERENCE_PATHS = (
     "firmware/app",
     "firmware/motor",
+    "firmware/parameters",
     "firmware/services",
     "firmware/communication",
     "firmware/platform/api",
@@ -23,15 +27,29 @@ REFERENCE_PATHS = (
 OWNER_SOURCES = (
     "firmware/app/motor_state_machine/motor_state_machine.c",
     "firmware/app/motor_state_machine/motor_state_rules.c",
-    "firmware/motor/protection/foc_errhandle.c",
+    "firmware/motor/protection/motor_fault.c",
     "firmware/motor/foc/speed_feedforward.c",
     "firmware/motor/protection/motor_thermal.c",
     "firmware/motor/protection/motor_thermal_config.c",
     "firmware/motor/protection/motor_thermal_control.c",
-    "firmware/services/parameters/motor_axis_profile.c",
-    "firmware/services/parameters/parameter_value_service.c",
+    "firmware/parameters/motor_axis_profile.c",
+    "firmware/parameters/parameter_values.c",
     "shared/checksum/crc32.c",
 )
+
+
+LEGACY_SOURCES = {
+    "firmware/motor/protection/motor_fault.c": ("firmware/motor/protection/foc_errhandle.c",),
+    "firmware/motor/protection/motor_thermal_control.c": (
+        "firmware/app/runtime/motor_thermal_control.c",
+    ),
+    "firmware/parameters/motor_axis_profile.c": (
+        "firmware/services/parameters/motor_axis_profile.c",
+    ),
+    "firmware/parameters/parameter_values.c": (
+        "firmware/services/parameters/parameter_value_service.c",
+    ),
+}
 
 
 def git_text(*arguments: str) -> str:
@@ -50,8 +68,19 @@ def export_reference(reference: str, output: Path) -> tuple[str, Path]:
     destination = output / "reference" / revision
     if destination.exists():
         raise ValueError(f"基线导出目录已存在，请为本轮选择新的 --out：{destination}")
+    paths = [
+        path
+        for path in REFERENCE_PATHS
+        if subprocess.run(
+            ["git", "cat-file", "-e", revision + ":" + path],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    ]
     payload = subprocess.check_output(
-        ["git", "archive", "--format=tar", revision, *REFERENCE_PATHS], cwd=ROOT
+        ["git", "archive", "--format=tar", revision, *paths], cwd=ROOT
     )
     destination.mkdir(parents=True)
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:") as archive:
@@ -69,13 +98,40 @@ def owner_fixture(tree: Path) -> str:
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
     fixture += function_source(sensing, "MotorCurrentOffsets_Valid")
-    execution = (tree / "firmware/app/runtime/motor_execution.c").read_text(encoding="utf-8")
-    fixture += "\n" + function_source(execution, "MotorExecution_ValidateTarget")
+    command_path = resolve_source_path(
+        tree, "firmware/app/runtime/motor_command.c", "firmware/app/runtime/motor_execution.c"
+    )
+    execution = command_path.read_text(encoding="utf-8")
+    command_name = (
+        "MotorCommand_ValidateTarget"
+        if "MotorCommand_ValidateTarget(" in execution
+        else "MotorExecution_ValidateTarget"
+    )
+    fixture += "\n" + function_source(execution, command_name)
     adapter = (tree / "firmware/app/composition/yg_protocol_status_adapter.c").read_text(
         encoding="utf-8"
     )
     fixture += "\n" + function_source(adapter, "protocol_mode")
     fixture += "\n" + function_source(adapter, "protocol_state")
+    # 夹具只改头名和接口别名；旧生产函数体、配置及常量仍来自同一冻结树。
+    headers = {
+        "motor_command.h": ("firmware/app/runtime/motor_command.h", "motor_execution.h"),
+        "motor_control.h": ("firmware/motor/foc/motor_control.h", "motor_control_execution.h"),
+        "motor_fault.h": ("firmware/motor/protection/motor_fault.h", "foc_errhandle.h"),
+        "sensorless_startup.h": ("firmware/motor/foc/sensorless_startup.h", "foc_sensorless_run.h"),
+        "parameter_values.h": (
+            "firmware/parameters/parameter_values.h",
+            "parameter_value_service.h",
+        ),
+    }
+    for current, (relative, legacy) in headers.items():
+        if not (tree / relative).is_file():
+            if (
+                current == "motor_control.h"
+                and not (tree / "firmware/motor/foc/motor_control_execution.h").is_file()
+            ):
+                legacy = "motor_execution.h"
+            fixture = fixture.replace(f'#include "{current}"', f'#include "{legacy}"')
     return fixture
 
 
@@ -107,16 +163,11 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
         f'#include "{owner_path.as_posix()}"\n',
         encoding="utf-8",
     )
-    includes = [
-        flag if flag == "-I" else str(tree / Path(flag).relative_to(ROOT))
-        for flag in NATIVE_INCLUDE_FLAGS
-    ]
+    includes = native_include_flags(tree)
     executable = output / "run_state_owner.exe"
-    production = [tree / path for path in OWNER_SOURCES]
-    thermal_index = OWNER_SOURCES.index("firmware/motor/protection/motor_thermal_control.c")
-    if not production[thermal_index].is_file():
-        # 冻结基线保持当时APP热组合的实际源码，不能混入当前保护实现。
-        production[thermal_index] = tree / "firmware/app/runtime/motor_thermal_control.c"
+    production = [
+        resolve_source_path(tree, path, *LEGACY_SOURCES.get(path, ())) for path in OWNER_SOURCES
+    ]
     production[0] = instrumented_owner
     production += [maintenance, maintenance.parent / "maintenance_workspace.c"]
     command = (

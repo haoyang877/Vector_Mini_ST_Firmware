@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include "encoder_calibration_task.h"
-#include "foc_param.h"
+#include "parameter_record.h"
 
 /* APP 唯一维护工作区；参数和编码器采样互斥，不分配、不保留块链表。 */
 #define MAINTENANCE_WORKSPACE_CAPACITY_BYTES (1024U * 6U)

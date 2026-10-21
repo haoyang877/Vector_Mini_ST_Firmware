@@ -1,4 +1,4 @@
-#include "foc_speed.h"
+#include "speed_control.h"
 
 #include "control_config.h"
 

@@ -1,7 +1,7 @@
 /* 注入生产Board_ServiceBoot原文，验证进展、健康、间隔与回绕；硬件全为桩。 */
 #include <assert.h>
 #include <stdio.h>
-#include "board_config.h"
+#include "app_startup.h"
 #include "boot_hw.h"
 #include "motor_state_machine.h"
 #include "comm_hw.h"

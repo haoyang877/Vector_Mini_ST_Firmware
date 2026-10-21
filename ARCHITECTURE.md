@@ -8,8 +8,8 @@ For a plain-language walkthrough of products, control flow, scheduling, and data
 read [电机驱动软件架构说明](docs/architecture/software_architecture.md).
 
 2026-10-17 integration adds a deterministic winding-thermal core and optional speed
-feedforward without restoring the legacy runtime or wire protocol. The APP owns thermal
-scheduling/history; motor algorithms consume explicit current limits. See the
+feedforward without restoring the legacy runtime or wire protocol. APP schedules thermal
+updates; motor/protection owns the thermal history and explicit current limits. See the
 [integration plan](docs/plans/active/2026-10-17-delivery-feature-integration-v1.md) and
 [schema13 contract](docs/protocols/parameter_schema13_delivery_v1.md) for compatibility.
 
@@ -30,7 +30,9 @@ shared pure contracts + motor/math + motor value types
     ↓
 platform API + motor algorithms
     ↓
-services + protocol + communication
+parameters + app/interfaces (value/owner contracts)
+    ↓
+protocol + communication
     ↓
 app composition
 
@@ -45,10 +47,13 @@ The architecture checker resolves local quoted includes and rejects new violatio
 ## Runtime boundaries
 
 - The fast motor loop owns deterministic sensing, foc, protection, and actuation paths.
-- Services expose parameters and telemetry without owning platform peripherals.
+- Parameters own configuration values and record conversion; app/interfaces owns command,
+  STOP-confirmation and read-only status contracts without platform peripherals.
 - Communication validates wire data at the boundary and invokes explicit services.
 - The motor main state machine and its private transition rules form one APP module at
-  `firmware/app/motor_state_machine/`; services publish requests, not a second lifecycle core.
+  `firmware/app/motor_state_machine/`; public interfaces carry requests, not a second lifecycle core.
+- Communication may include app/interfaces, but never app/runtime or private state-machine headers.
+  Motor and parameters never depend on APP implementations; STM32 ports implement hardware only.
 - Application code assembles tasks and modes; it must not become a second protocol layer.
 - Hardware bench tools are outside normal verification and require explicit physical context.
 
@@ -60,7 +65,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
   project-owned types and physical units, and state timing, blocking, ownership, and failure behavior.
 - `firmware/platform/stm32g4/bsp/` owns chip and board primitives. `ports/` adapts those primitives to
   platform APIs. CubeMX owns generated startup and peripheral composition.
-- `motor/`, `services/`, and `communication/` must not expose STM32 HAL types, peripheral handles,
+- `motor/`, `parameters/`, `app/interfaces/`, and `communication/` must not expose STM32 HAL types, peripheral handles,
   registers, pin mappings, or vendor headers. Hardware revision and MCU selection stay below the API
   or in application composition rather than being scattered as feature `#ifdef` branches.
 - A platform API models a capability needed by its caller; it is not a one-for-one wrapper around
@@ -69,7 +74,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
 ### Functional independence
 
 - Motor algorithms prefer deterministic data-in/data-out functions. Platform code performs I/O,
-  application code schedules and composes, and services own policy or persistence.
+  application code schedules and composes, and parameter code owns configuration conversion.
 - Mutable state has one owning module. Other modules use commands, immutable snapshots, or an
   explicitly passed state object instead of writing another module's globals.
 - APP owns one fixed maintenance workspace for parameter records and encoder

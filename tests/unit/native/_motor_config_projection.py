@@ -30,6 +30,7 @@ _CALL = re.compile(
 def project_reference_motor_config(source: str) -> str:
     """为旧FOC入口增加只读配置借用；原参考数据流与控制数学保持不变。"""
     source = source.replace('#include "utils.h"', '#include "control_math.h"')
+    source = source.replace('#include "foc_errhandle.h"', '#include "motor_fault.h"')
     source = _PATTERN.sub(lambda match: f"configuration->{_FIELDS[match[2]]}.{match[2]}", source)
     source = _GROUPED_PATTERN.sub(r"configuration->\1.", source)
     source = _SIGNATURE.sub(r"\1 \2(const MotorConfiguration *configuration, ", source)

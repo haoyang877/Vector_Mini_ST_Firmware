@@ -6,10 +6,11 @@
 #include "motor_state_machine.h"
 #include "motor_maintenance.h"
 #include "encoder_calibration_task.h"
-#include "foc_errhandle.h"
-#include "motor_execution.h"
+#include "motor_fault.h"
+#include "motor_command.h"
+#include "motor_control.h"
 #include "foc_sensing.h"
-#include "foc_sensorless_run.h"
+#include "sensorless_startup.h"
 #include "power_stage_hw.h"
 #include "critical_hw.h"
 #include "indicator_hw.h"
@@ -18,7 +19,7 @@
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"
 #include "application_profile_defaults.h"
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */

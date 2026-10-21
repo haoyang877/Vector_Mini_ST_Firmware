@@ -26,11 +26,11 @@
 
 当前源码入口：
 [采样](../../firmware/motor/foc/foc_sensing.c)、
-[故障处理](../../firmware/motor/protection/foc_errhandle.c)、
-[快速环](../../firmware/app/composition/foc_task.c)、
+[故障处理](../../firmware/motor/protection/motor_fault.c)、
+[快速环](../../firmware/app/composition/app_tasks.c)、
 [平台接口](../../firmware/platform/api/motor_hw.h)、
-[状态快照](../../firmware/services/telemetry/motor_status.h)、
-[参数](../../firmware/services/parameters/foc_param.h)。
+[状态快照](../../firmware/app/interfaces/motor_status_mailbox.h)、
+[参数](../../firmware/parameters/parameter_record.h)。
 
 ## 2. 模块边界与依赖
 

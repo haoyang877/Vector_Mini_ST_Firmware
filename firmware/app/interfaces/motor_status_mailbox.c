@@ -1,5 +1,5 @@
 /* 状态快照由调用方明确传入，协议投影不暴露内部可写对象。 */
-#include "motor_status.h"
+#include "motor_status_mailbox.h"
 #include <stddef.h>
 
 /* Single-core ISR/foreground mailbox. Every shared payload access and s_state

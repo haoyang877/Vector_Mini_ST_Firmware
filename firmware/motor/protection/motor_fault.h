@@ -1,5 +1,5 @@
-#ifndef FOC_ERRHANDLE_H
-#define FOC_ERRHANDLE_H
+#ifndef MOTOR_FAULT_H
+#define MOTOR_FAULT_H
 #include "motor_types.h"
 #include "motor_config.h"
 #include "foc_algorithm.h"

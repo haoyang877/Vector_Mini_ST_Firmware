@@ -1,7 +1,7 @@
 #ifndef YG_PROTOCOL_MOTOR_ADAPTER_H
 #define YG_PROTOCOL_MOTOR_ADAPTER_H
 
-#include "motor_stop_service.h"
+#include "motor_stop_request.h"
 #include "motor_control_command.h"
 #include "yg_protocol_motor.h"
 

@@ -20,11 +20,11 @@ def fixture():
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "foc_param.h"
+#include "parameter_record.h"
 #include "motor_axis_profile.h"
 #include "position_cascade_config.h"
 #include "crc32.h"
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 #include "foc_sensing.h"
 #include "motor_profile_defaults.h"
 #include "board_profile_defaults.h"
@@ -64,7 +64,7 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
     )
     prelude += function_source(sensing, "MotorCurrentOffsets_Valid")
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
-    production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
+    production = (ROOT / "firmware/parameters/parameter_record.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
     prelude += "\n" + (ROOT / "loader/product/parameters.c").read_text(encoding="utf-8")
     policy = json.loads(
@@ -398,9 +398,9 @@ def main():
     command += [item for p in includes for item in ("-I", p)]
     command += [
         str(source),
-        str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+        str(ROOT / "firmware/parameters/motor_axis_profile.c"),
         str(ROOT / "shared/checksum/crc32.c"),
-        str(ROOT / "firmware/services/parameters/parameter_value_service.c"),
+        str(ROOT / "firmware/parameters/parameter_values.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
         str(ROOT / "firmware/motor/foc/speed_feedforward.c"),

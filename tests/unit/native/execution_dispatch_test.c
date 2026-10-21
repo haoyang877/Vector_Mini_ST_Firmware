@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "motor_execution.h"
+#include "motor_command.h"
+#include "motor_control.h"
 #include "motor_hw.h"
 #include "motor_maintenance.h"
 #include "motor_state_machine.h"

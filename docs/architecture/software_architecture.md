@@ -8,7 +8,7 @@
 host_app：独立主机工具，通过通信访问设备，不链接进固件
 APP：composition组装
        ├─ runtime单轴调度 + 主状态机
-       ├─ services参数/请求/快照 + communication业务
+       ├─ interfaces命令/停机/快照 + parameters配置/记录 + communication业务
        ├─ motor控制、反馈、标定、保护
        └─ platform能力接口 → STM32G4 BSP/ports/CubeMX
 Loader：独立启动/升级产品

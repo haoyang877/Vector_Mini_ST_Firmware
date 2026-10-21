@@ -3,7 +3,7 @@
 更新：2026-10-21。此页描述当前目录，不用历史报告代替当前实现和验证结果。
 产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 对照Keil阅读每个源文件时，使用[APP文件职责与分层对照](app_file_responsibilities_v1.md)：
-按当前七组及工程顺序列出107个源文件、对应头文件与物理路径，并说明37个独立头文件。
+按当前七组及工程顺序列出106个源文件、对应头文件与物理路径，并说明37个独立头文件。
 
 ## 独立产品与共享契约
 
@@ -20,19 +20,18 @@
 
 | 目录 | 内容与边界 |
 | --- | --- |
-| app/composition | board_config：启动/端口绑定/启动交接；bsp_task、foc_task：任务入口；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
-| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_execution：命令格式与范围校验；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
+| app/composition | app_startup：启动/端口绑定/启动交接；app_tasks：快慢拍与指示器任务入口；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
+| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_command：命令格式与范围校验；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
+| app/interfaces | motor_control_command、motor_lifecycle_request、motor_readiness：窄值契约；motor_stop_request：停机请求与真实关闭确认；motor_status_mailbox：只读快照传递；不引用runtime或私有状态机 |
 | app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |
-| motor/foc | motor_control_execution：控制分发与外环；foc_algorithm：控制计算与PI配置绑定；foc_sensing：采样换算及上电零偏累计；标定所需无感启动 |
+| motor/foc | motor_control：控制分发与外环；foc_algorithm：控制计算与PI配置绑定；foc_sensing：采样换算及上电零偏累计；flux_observer和sensorless_startup：标定所需估计/启动；speed_control：速度控制 |
 | motor/feedback | angle_feedback：编码器采样、角度校正、多圈与速度估计；所有模式共同使用 |
 | motor/position | position_cascade：直接位置→速度→电流控制 |
 | motor/math | control_math：既有数学、角度与滤波计算，无硬件或 APP 依赖 |
 | motor/calibration | encoder_calibration_core：LUT/零位计算；encoder_calibration_task：采集/应用流程 |
 | motor/protection | 电机故障、母线保护与绕组热保护；motor_thermal_control独占热历史，通过显式电流、时间及功率事实推进 |
 | motor 根目录头文件 | 电机域值类型、模式、状态、任务结果及现有模型/启动 profile，不放应用运行实例 |
-| services/lifecycle | 控制/维护请求、readiness 值与停机服务，不再实现另一套状态机 |
-| services/parameters | schema14 装载/导出及12/13兼容读取、纯标量校验、轴解析及应用/设备默认值；不拥有通信节点变量 |
-| services/telemetry | 只读电机状态值契约 |
+| parameters | parameter_record：schema14装载/导出及12/13兼容读取；parameter_values：标量类型/权限/范围及缩放；motor_axis_profile：轴记录；应用/设备默认值；不拥有通信节点变量 |
 | communication/can | CAN 接入、队列、中断接入、链路及端点调度 |
 | communication/protocol | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
 | platform/api | 无 STM32 类型的硬件能力、单位、失败及执行上下文契约 |
@@ -48,7 +47,7 @@
 
 ## 参数与运行状态
 
-硬件默认值归 platform/api，电机模型默认值归 motor，应用/设备默认值归 services/parameters。
+硬件默认值归 platform/api，电机模型默认值归 motor，应用/设备默认值归 parameters。
 MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `MotorControlState`。
 设备配置内的 `EncoderCalibration` 单份保存LUT/零位；`EncoderState`只含采样、位置/速度和诊断。
 运行对象不包含配置或配置指针，命令目标、模式、故障与测量留在易失状态中。
@@ -71,7 +70,7 @@ schema14保持现有存储布局并兼容读取12/13，由装载/导出边界映
 Loader 配套 APP 为同目录 Vector_Mini_ST_LoaderApp.uvprojx；两者复用同一业务源码。
 普通 APP 独立从 Flash 起始地址链接；只有配套工程使用 Loader APP 槽，不能混称两者布局。
 
-Keil 保持七组：App、Motor、Services、Communication、Platform、Shared、Vendor。
+Keil 保持七组：App、Motor、Parameters、Communication、Platform、Shared、Vendor。
 物理子目录不扩展为更多 Keil 分组，工程树只登记源文件，不登记 .h。
 用户逐文件优化、源码顺序与调试配置保留。CubeMX Core/Drivers 内部相对位置不变。
 VS Code 按实际目录浏览；原生测试 include 路径统一由 tools/project_paths.py 提供。

@@ -1,8 +1,8 @@
-#ifndef FOC_SENSORLESS_RUN_H
-#define FOC_SENSORLESS_RUN_H
+#ifndef SENSORLESS_STARTUP_H
+#define SENSORLESS_STARTUP_H
 
 #include "motor_config.h"
-#include "foc_sensorless.h"
+#include "flux_observer.h"
 
 /* 无感运行应用：启动序列与速度模式；观测器算法见 foc_sensorless.{c,h}。 */
 

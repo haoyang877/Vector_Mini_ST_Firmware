@@ -7,7 +7,7 @@
 #include "motor_hw.h"
 #include "control_math.h"
 #include "motor_thermal.h"
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 
 /* foc 变换、调制与电流环入口。本文件不访问定时器寄存器：三相 PWM 输出统一
  * 经 platform/api/motor_hw.h 契约由板级端口（platform/stm32g4/ports）实现。 */

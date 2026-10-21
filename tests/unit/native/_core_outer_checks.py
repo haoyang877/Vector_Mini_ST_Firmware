@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import NATIVE_INCLUDE_DIRS, ROOT
+from project_paths import ROOT, native_include_flags
 from run_position_servo_tests import function_source
 
 
@@ -22,9 +22,7 @@ def main(case: str) -> None:
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
     executable = output / "core_outer.exe"
     reference = args.reference_root.resolve()
-    flags = ["-I", str(ROOT / "firmware/app/runtime")]
-    for directory in NATIVE_INCLUDE_DIRS:
-        flags += ["-I", str(reference / directory)]
+    flags = ["-I", str(ROOT / "firmware/app/runtime"), *native_include_flags(reference)]
     fixture = ROOT / "tests/unit/native/core_outer_test.c"
     position_sources = []
     if case == "runtime":
@@ -55,9 +53,9 @@ def main(case: str) -> None:
             "-Werror",
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(fixture),
-            str(ROOT / "firmware/app/runtime/motor_execution.c"),
-            str(ROOT / "firmware/motor/foc/motor_control_execution.c"),
-            str(ROOT / "firmware/motor/foc/foc_speed.c"),
+            str(ROOT / "firmware/app/runtime/motor_command.c"),
+            str(ROOT / "firmware/motor/foc/motor_control.c"),
+            str(ROOT / "firmware/motor/foc/speed_control.c"),
             str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
             str(ROOT / "firmware/motor/foc/foc_pid.c"),
             str(ROOT / "firmware/motor/math/control_math.c"),

@@ -1,11 +1,11 @@
 # APP文件职责与分层对照
 
 更新：2026-10-21。适用当前`YG_ESC_APP`主工程及`Vector_Mini_ST_LoaderApp`配套工程。
-主工程树包含107个源文件，下面按Keil现有七组及原排列顺序逐项说明；文件链接指向实际物理位置。
+主工程树包含106个源文件，下面按Keil现有七组及原排列顺序逐项说明；文件链接指向实际物理位置。
 源文件有对应头文件时一并链接，头文件负责类型、函数契约和单位，实现仍属于同一模块。
 另列37个没有同名`.c`的自有头文件，区分配置、值类型、平台能力和私有规则。
 
-当前名称与调整建议分别列示；建议项尚未实施。读代码时先按实际文件名定位，再按职责判断归属。
+目录、Keil树和模块名已经同步。下面直接使用当前文件名，旧名到新名的对应见末尾迁移表。
 
 ## 七个工程分组分别负责什么
 
@@ -14,9 +14,9 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 
 | Keil分组 | 实际物理目录 | 核心职责 |
 | --- | --- | --- |
-| 00_App | `firmware/app/{composition,runtime,motor_state_machine}` | 启动组装、运行所有权、调度和主状态机。 |
+| 00_App | `firmware/app/{composition,runtime,motor_state_machine,interfaces}` | 启动组装、运行所有权、调度和主状态机。 |
 | 10_Motor | `firmware/motor/{foc,feedback,position,calibration,protection,math}` | 控制、反馈、单项标定与保护计算。 |
-| 20_Services | `firmware/services/{parameters,lifecycle,telemetry}` | 参数、停机请求和只读状态传递。当前名称偏宽泛。 |
+| 20_Parameters | `firmware/parameters` | 配置默认值、标量访问和参数记录转换；真实Flash归平台。 |
 | 30_Communication | `firmware/communication/{can,protocol}` | CAN承载、消息分派、业务字段和单位转换。 |
 | 40_Platform | `firmware/platform/stm32g4/{ports,bsp,cubemx}` | 硬件接口实现、初始化和中断接线。 |
 | 50_Shared | `shared/{protocol,checksum,boot}` | 真正跨APP/Loader共用的格式和纯计算。 |
@@ -40,18 +40,19 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 
 | 文件与物理目录 | 核心功能 | 归属和边界 |
 | --- | --- | --- |
-| [board_config.c](../../firmware/app/composition/board_config.c) / [.h](../../firmware/app/composition/board_config.h)<br>`firmware/app/composition` | 装配板级启动、生产身份、CAN业务绑定和APP确认/进入Loader交接。 | 仅组合所有者与平台能力；不实现FOC、协议codec或直接HAL操作。 |
+| [app_startup.c](../../firmware/app/composition/app_startup.c) / [.h](../../firmware/app/composition/app_startup.h)<br>`firmware/app/composition` | 装配板级启动、生产身份、CAN业务绑定和APP确认/进入Loader交接。 | 仅组合所有者与平台能力；不实现FOC、协议codec或直接HAL操作。 |
 | [motor_axis.c](../../firmware/app/runtime/motor_axis.c) / [.h](../../firmware/app/runtime/motor_axis.h)<br>`firmware/app/runtime` | 持有单份配置及Watch运行对象，编排20kHz快环、2kHz监督和后台保存。 | 按顺序借用显式对象并转递结果；控制计算、采样换算和热算法归motor，启停许可归主状态机。 |
 | [motor_parameter_transaction.c](../../firmware/app/runtime/motor_parameter_transaction.c) / [.h](../../firmware/app/runtime/motor_parameter_transaction.h)<br>`firmware/app/runtime` | 拥有参数读写去重、活动revision及异步保存票据，并装载/保存配置记录。 | 只在既有准入下提交配置；不拥有主状态、功率使能或运行对象副本。 |
 | [motor_state_machine.c](../../firmware/app/motor_state_machine/motor_state_machine.c) / [.h](../../firmware/app/motor_state_machine/motor_state_machine.h)<br>`firmware/app/motor_state_machine` | 独占INIT至FATAL生命周期，处理启停、维护、故障、请求身份和后台完成。 | 消费真实采样/资源事实并执行转换动作；不计算控制律，CLEAR成功仅回待机。 |
 | [motor_state_rules.c](../../firmware/app/motor_state_machine/motor_state_rules.c)<br>`firmware/app/motor_state_machine` | 依据状态、事件和条件计算主状态转换及所需动作。 | 纯规则核心；不访问硬件、不执行控制或存储，实际动作由主状态机兑现。 |
-| [motor_execution.c](../../firmware/app/runtime/motor_execution.c) / [.h](../../firmware/app/runtime/motor_execution.h)<br>`firmware/app/runtime` | 校验控制命令未使用字段、有限性及当前电流/速度/位置/电压目标范围。 | 只校验目标，不授予启动许可、不修改运行状态、不执行控制算法。 |
+| [motor_command.c](../../firmware/app/runtime/motor_command.c) / [.h](../../firmware/app/runtime/motor_command.h)<br>`firmware/app/runtime` | 校验控制命令未使用字段、有限性及当前电流/速度/位置/电压目标范围。 | 只校验目标，不授予启动许可、不修改运行状态、不执行控制算法。 |
 | [motor_maintenance.c](../../firmware/app/runtime/motor_maintenance.c) / [.h](../../firmware/app/runtime/motor_maintenance.h)<br>`firmware/app/runtime` | 对单项LUT、零位、默认值和保存进行准入、任务分发、取消及资源归还。 | 不拥有主生命周期或标定内部阶段；保存由后台真实存储提交，任务不能自行启相。 |
-| [foc_task.c](../../firmware/app/composition/foc_task.c) / [.h](../../firmware/app/composition/foc_task.h)<br>`firmware/app/composition` | 将20kHz与2kHz任务入口直接转交MotorAxis。 | 仅任务入口；不持有控制对象、不插入算法或外设细节。 |
-| [bsp_task.c](../../firmware/app/composition/bsp_task.c) / [.h](../../firmware/app/composition/bsp_task.h)<br>`firmware/app/composition` | 在2kHz监督中先执行电机监督，再分频更新LED与RGB状态指示。 | 仅应用指示策略与任务组合；CAN服务在主循环，灯硬件操作经indicator接口。 |
+| [app_tasks.c](../../firmware/app/composition/app_tasks.c) / [.h](../../firmware/app/composition/app_tasks.h)<br>`firmware/app/composition` | 提供20kHz快环、2kHz监督和分频LED/RGB任务入口，保持原调用顺序。 | 合并原两个任务源；不持有控制对象，调用MotorAxis与指示器能力。 |
 | [yg_protocol_owner_adapter.c](../../firmware/app/composition/yg_protocol_owner_adapter.c) / [.h](../../firmware/app/composition/yg_protocol_owner_adapter.h)<br>`firmware/app/composition` | 把协议生命周期、普通启动、参数与维护请求映射到对应所有者并映射结果。 | 组合业务接口及身份/进展；不直接写Watch对象、不替代codec或控制准入。 |
 | [yg_protocol_status_adapter.c](../../firmware/app/composition/yg_protocol_status_adapter.c) / [.h](../../firmware/app/composition/yg_protocol_status_adapter.h)<br>`firmware/app/composition` | 将电机、主状态和启动健康的只读快照映射为协议遥测值。 | 只发布快照与状态映射；不反向修改控制状态或触发功率。 |
 | [maintenance_workspace.c](../../firmware/app/runtime/maintenance_workspace.c) / [.h](../../firmware/app/runtime/maintenance_workspace.h)<br>`firmware/app/runtime` | 互斥借出参数记录与编码器采样共用的固定联合工作区，并核对归还。 | 只管理6KiB静态资源占用；无heap、算法或隐式第二份大数组。 |
+| [motor_stop_request.c](../../firmware/app/interfaces/motor_stop_request.c) / [.h](../../firmware/app/interfaces/motor_stop_request.h)<br>`firmware/app/interfaces` | 将带来源/序号的STOP请求交给功率所有者，并根据真实关闭确认维护停机票据。 | 服务层只关联请求与确认，不直接关相、不拥有主生命周期。 |
+| [motor_status_mailbox.c](../../firmware/app/interfaces/motor_status_mailbox.c) / [.h](../../firmware/app/interfaces/motor_status_mailbox.h)<br>`firmware/app/interfaces` | 通过请求、发布和取走三个阶段传递单槽只读电机状态快照。 | 不读取Axis全局，不执行控制；生产者和消费者遵守单核ISR/前台邮箱所有权。 |
 
 ### 10_Motor 电机计算与任务
 
@@ -59,7 +60,7 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 
 | 文件与物理目录 | 核心功能 | 归属和边界 |
 | --- | --- | --- |
-| [motor_control_execution.c](../../firmware/motor/foc/motor_control_execution.c) / [.h](../../firmware/motor/foc/motor_control_execution.h)<br>`firmware/motor/foc` | 执行电流/速度/位置/Vq模式分发及2kHz外环，独占外环复位和就绪状态。 | 显式接收配置与运行对象；不依赖服务命令、不查询APP生命周期、不使能功率。 |
+| [motor_control.c](../../firmware/motor/foc/motor_control.c) / [.h](../../firmware/motor/foc/motor_control.h)<br>`firmware/motor/foc` | 执行电流/速度/位置/Vq模式分发及2kHz外环，独占外环复位和就绪状态。 | 显式接收配置与运行对象；不依赖服务命令、不查询APP生命周期、不使能功率。 |
 | [motor_thermal_control.c](../../firmware/motor/protection/motor_thermal_control.c) / [.h](../../firmware/motor/protection/motor_thermal_control.h)<br>`firmware/motor/protection` | 持有单份热历史，编排采样窗/监督看门狗、热限流、故障准入和调试快照。 | 热保护应用策略层；不访问硬件或主状态机，调用者提供真实时间和关相事实。 |
 | [motor_thermal.c](../../firmware/motor/protection/motor_thermal.c) / [.h](../../firmware/motor/protection/motor_thermal.h)<br>`firmware/motor/protection` | 计算三相热累积、加热/冷却、降额迟滞、故障锁存及向量限流。 | 热模型纯计算层；状态显式传入，不拥有系统时钟、采样外设或生命周期。 |
 | [motor_thermal_config.c](../../firmware/motor/protection/motor_thermal_config.c) / [.h](../../firmware/motor/protection/motor_thermal_config.h)<br>`firmware/motor/protection` | 提供绕组热默认输入，校验并派生模型峰值、连续值和1ms采样更新配置。 | 热配置转换层；不保存热历史、不调度采样、不改变应用电流上限。 |
@@ -67,27 +68,25 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 | [foc_algorithm.c](../../firmware/motor/foc/foc_algorithm.c) / [.h](../../firmware/motor/foc/foc_algorithm.h)<br>`firmware/motor/foc` | 完成坐标变换、d/q电流闭环、Vq控制、调制及PI配置和电压额度更新。 | 控制数学及PWM能力调用；不持有生命周期、Flash或HAL句柄，不自行启动功率级。 |
 | [foc_pid.c](../../firmware/motor/foc/foc_pid.c) / [.h](../../firmware/motor/foc/foc_pid.h)<br>`firmware/motor/foc` | 执行PI配置、积分/饱和、输出跟踪和显式复位。 | 通用控制器纯计算；只更新传入PiController，不决定电机模式或保护阈值。 |
 | [foc_sensing.c](../../firmware/motor/foc/foc_sensing.c) / [.h](../../firmware/motor/foc/foc_sensing.h)<br>`firmware/motor/foc` | 完成上电零偏采集、母线/相电流/温度换算、采样资格及对应故障发布。 | 经平台接口取样及查询关相；不碰寄存器、不启相、不写Flash或参数revision。 |
-| [foc_sensorless.c](../../firmware/motor/foc/foc_sensorless.c) / [.h](../../firmware/motor/foc/foc_sensorless.h)<br>`firmware/motor/foc` | 根据电压电流计算磁链观测器角度、速度、多圈位置及有效性。 | 只更新传入观测器；不负责启动序列、编码器采样或主状态转换。 |
-| [foc_sensorless_run.c](../../firmware/motor/foc/foc_sensorless_run.c) / [.h](../../firmware/motor/foc/foc_sensorless_run.h)<br>`firmware/motor/foc` | 为编码器标定提供对齐、开环、锁速、角度交接和无感闭环支持序列。 | 仅推进传入SensorlessStartupState和电流控制；不代表APP普通启动入口、不保存标定或拥有主状态。 |
-| [foc_speed.c](../../firmware/motor/foc/foc_speed.c) / [.h](../../firmware/motor/foc/foc_speed.h)<br>`firmware/motor/foc` | 推进速度斜坡并执行归一化速度PI、动态限流及可选前馈组合。 | 更新显式控制参考；普通2kHz外环与标定分频入口各自调用，不自行选择生命周期。 |
+| [flux_observer.c](../../firmware/motor/foc/flux_observer.c) / [.h](../../firmware/motor/foc/flux_observer.h)<br>`firmware/motor/foc` | 根据电压电流计算磁链观测器角度、速度、多圈位置及有效性。 | 只更新传入观测器；不负责启动序列、编码器采样或主状态转换。 |
+| [sensorless_startup.c](../../firmware/motor/foc/sensorless_startup.c) / [.h](../../firmware/motor/foc/sensorless_startup.h)<br>`firmware/motor/foc` | 为编码器标定提供对齐、开环、锁速、角度交接和无感闭环支持序列。 | 仅推进传入SensorlessStartupState和电流控制；不代表APP普通启动入口、不保存标定或拥有主状态。 |
+| [speed_control.c](../../firmware/motor/foc/speed_control.c) / [.h](../../firmware/motor/foc/speed_control.h)<br>`firmware/motor/foc` | 推进速度斜坡并执行归一化速度PI、动态限流及可选前馈组合。 | 更新显式控制参考；普通2kHz外环与标定分频入口各自调用，不自行选择生命周期。 |
 | [angle_feedback.c](../../firmware/motor/feedback/angle_feedback.c) / [.h](../../firmware/motor/feedback/angle_feedback.h)<br>`firmware/motor/feedback` | 经传感器接口采样并应用方向/LUT/零位，产生电角、多圈位置及速度估计。 | 常规采样只读配置、更新显式反馈状态；标定setter显式修改校准对象，不拥有标定流程或自动保存。 |
 | [position_cascade.c](../../firmware/motor/position/position_cascade.c) / [.h](../../firmware/motor/position/position_cascade.h)<br>`firmware/motor/position` | 执行直接位置到速度再到电流的串级、反馈滤波、限幅和到位判断。 | 位置控制纯计算；不包含轨迹规划、硬件访问或主状态机，电流额度由调用方传入。 |
 | [encoder_calibration_task.c](../../firmware/motor/calibration/encoder_calibration_task.c) / [.h](../../firmware/motor/calibration/encoder_calibration_task.h)<br>`firmware/motor/calibration` | 逐拍采集LUT并执行构表、验证、停转和结果提交，以及单项电零位任务。 | 只拥有标定内部步骤与显式借用采样空间；报告完成/取消，不拥有主启停许可或Flash保存。 |
 | [encoder_calibration_core.c](../../firmware/motor/calibration/encoder_calibration_core.c) / [.h](../../firmware/motor/calibration/encoder_calibration_core.h)<br>`firmware/motor/calibration` | 执行Q15角差/均值、角度采样分桶、分步LUT构建及质量校验。 | 确定性标定计算核心；不访问传感器、出力、生命周期或持久存储。 |
-| [foc_errhandle.c](../../firmware/motor/protection/foc_errhandle.c) / [.h](../../firmware/motor/protection/foc_errhandle.h)<br>`firmware/motor/protection` | 锁存首个故障，累计过流恢复资格并判断各故障源是否恢复。 | 只报告/核对故障事实；不自动CLEAR、重新启动或直接切换功率输出。 |
+| [motor_fault.c](../../firmware/motor/protection/motor_fault.c) / [.h](../../firmware/motor/protection/motor_fault.h)<br>`firmware/motor/protection` | 锁存首个故障，累计过流恢复资格并判断各故障源是否恢复。 | 只报告/核对故障事实；不自动CLEAR、重新启动或直接切换功率输出。 |
 | [control_math.c](../../firmware/motor/math/control_math.c) / [.h](../../firmware/motor/math/control_math.h)<br>`firmware/motor/math` | 提供角度归一化、三角/开方近似、滤波、限幅和位转换等基础数学。 | 无I/O与APP状态依赖；由调用方提供输入及状态，不改变控制策略。 |
 
-### 20_Services 参数与业务接口
+### 20_Parameters 配置与参数记录
 
-当前包含参数转换/读写、停机服务和状态邮箱；这是三类职责的集合，不是一条所有代码必须经过的中间层。
+负责配置默认值、参数标量访问及RAW记录转换；停机与快照已归APP公共接口。
 
 | 文件与物理目录 | 核心功能 | 归属和边界 |
 | --- | --- | --- |
-| [motor_stop_service.c](../../firmware/services/lifecycle/motor_stop_service.c) / [.h](../../firmware/services/lifecycle/motor_stop_service.h)<br>`firmware/services/lifecycle` | 将带来源/序号的STOP请求交给功率所有者，并根据真实关闭确认维护停机票据。 | 服务层只关联请求与确认，不直接关相、不拥有主生命周期。 |
-| [foc_param.c](../../firmware/services/parameters/foc_param.c) / [.h](../../firmware/services/parameters/foc_param.h)<br>`firmware/services/parameters` | 装配默认配置，并在MotorConfiguration与schema14及兼容旧RAW记录之间转换和校验CRC。 | 参数服务只转换配置，不执行Flash I/O，不持久化目标、积分或测量历史。 |
-| [motor_axis_profile.c](../../firmware/services/parameters/motor_axis_profile.c) / [.h](../../firmware/services/parameters/motor_axis_profile.h)<br>`firmware/services/parameters` | 读取、校验或创建轴配置记录，解析关节配置，并判断位置和速度包络。 | 只处理显式轴记录及数值，不选择通信节点、不执行控制或硬件动作。 |
-| [parameter_value_service.c](../../firmware/services/parameters/parameter_value_service.c) / [.h](../../firmware/services/parameters/parameter_value_service.h)<br>`firmware/services/parameters` | 按冻结参数ID目录处理类型、权限、单位缩放、数值校验和显式配置字段读写。 | 只操作调用者传入的配置，生命周期准入、去重、revision和保存由APP所有者管理。 |
-| [motor_status.c](../../firmware/services/telemetry/motor_status.c) / [.h](../../firmware/services/telemetry/motor_status.h)<br>`firmware/services/telemetry` | 通过请求、发布和取走三个阶段传递单槽只读电机状态快照。 | 不读取Axis全局，不执行控制；生产者和消费者遵守单核ISR/前台邮箱所有权。 |
+| [parameter_record.c](../../firmware/parameters/parameter_record.c) / [.h](../../firmware/parameters/parameter_record.h)<br>`firmware/parameters` | 装配默认配置，并在MotorConfiguration与schema14及兼容旧RAW记录之间转换和校验CRC。 | 参数服务只转换配置，不执行Flash I/O，不持久化目标、积分或测量历史。 |
+| [motor_axis_profile.c](../../firmware/parameters/motor_axis_profile.c) / [.h](../../firmware/parameters/motor_axis_profile.h)<br>`firmware/parameters` | 读取、校验或创建轴配置记录，解析关节配置，并判断位置和速度包络。 | 只处理显式轴记录及数值，不选择通信节点、不执行控制或硬件动作。 |
+| [parameter_values.c](../../firmware/parameters/parameter_values.c) / [.h](../../firmware/parameters/parameter_values.h)<br>`firmware/parameters` | 按冻结参数ID目录处理类型、权限、单位缩放、数值校验和显式配置字段读写。 | 只操作调用者传入的配置，生命周期准入、去重、revision和保存由APP所有者管理。 |
 
 ### 30_Communication 通信接入与业务转换
 
@@ -110,7 +109,7 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 | [yg_protocol_readonly.c](../../firmware/communication/protocol/yg_protocol_readonly.c) / [.h](../../firmware/communication/protocol/yg_protocol_readonly.h)<br>`firmware/communication/protocol` | 只读查询服务分派：按配置选择身份/能力/电机状态provider，检查单播ACK元数据并限制响应payload长度。 | communication/protocol；选择已注入数据源，不采集硬件、不组织产品路由，不负责具体payload字节字段。 |
 | [yg_protocol_readonly_payload.c](../../firmware/communication/protocol/yg_protocol_readonly_payload.c) / [.h](../../firmware/communication/protocol/yg_protocol_readonly_payload.h)<br>`firmware/communication/protocol` | 只读值payload编解码：设备APP/Loader状态及boot_epoch、分页查询、身份page0、能力page0显式小端编码。 | communication/protocol；纯字段转换，与readonly.c的provider选择分离；输入快照由APP提供，不直接读取UID/版本寄存器或状态。 |
 | [yg_protocol_router.c](../../firmware/communication/protocol/yg_protocol_router.c) / [.h](../../firmware/communication/protocol/yg_protocol_router.h)<br>`firmware/communication/protocol` | 完整消息Type到handler/context的有限分派，校验路由重复及注册表匹配，并从服务结果构造应答消息元数据。 | communication/protocol；不同于registry元数据目录；不拥有队列、分片、重试历史或业务状态，不访问硬件。 |
-| [yg_protocol_transfer.c](../../firmware/communication/protocol/yg_protocol_transfer.c) / [.h](../../firmware/communication/protocol/yg_protocol_transfer.h)<br>`firmware/communication/protocol` | 固定容量帧环形队列：push/pop/peek/count及满队列丢弃计数。 | communication/protocol现路径；属于传输容器而非升级镜像传输，也不做分片/CRC/路由；不分配内存，跨IRQ串行化由Link调用方负责。 |
+| [yg_protocol_frame_queue.c](../../firmware/communication/can/yg_protocol_frame_queue.c) / [.h](../../firmware/communication/can/yg_protocol_frame_queue.h)<br>`firmware/communication/can` | 固定容量帧环形队列：push/pop/peek/count及满队列丢弃计数。 | communication/can；固定容量帧队列，不是镜像升级或分片业务；并发串行化由调用者负责。 |
 
 ### 40_Platform 硬件适配与生成入口
 
@@ -197,6 +196,9 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 
 | 实际头文件 | 类型 | 功能和归属 |
 | --- | --- | --- |
+| [app/interfaces/motor_control_command.h](../../firmware/app/interfaces/motor_control_command.h) | 请求与只读进展契约 | SI目标、START身份、受理/应用进度及submit端口。 |
+| [app/interfaces/motor_lifecycle_request.h](../../firmware/app/interfaces/motor_lifecycle_request.h) | 请求与只读进展契约 | 维护任务类别、请求身份、票据与阶段/提交效果。 |
+| [app/interfaces/motor_readiness.h](../../firmware/app/interfaces/motor_readiness.h) | 请求与只读进展契约 | 启动阻断原因、自检事实及可启动模式快照。 |
 | [app/motor_state_machine/motor_state_internal.h](../../firmware/app/motor_state_machine/motor_state_internal.h) | 模块私有规则契约 | 主状态机事件/动作/guards及规则状态，不是公共访问入口。 |
 | [communication/protocol/yg_protocol_service.h](../../firmware/communication/protocol/yg_protocol_service.h) | 通信内部结果值契约 | 内部服务状态/reply及显式线路结果码映射。 |
 | [motor/axis_config.h](../../firmware/motor/axis_config.h) | 配置值契约 | 轴类型、AXS记录及关节控制基线值；内联位置范围校验。 |
@@ -211,6 +213,8 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 | [motor/motor_types.h](../../firmware/motor/motor_types.h) | 运行值契约 | 故障码和易失MotorControlState；无配置指针。 |
 | [motor/position/position_cascade_config.h](../../firmware/motor/position/position_cascade_config.h) | 派生量/时基/保护契约 | 位置串级固定增益/范围的限值契约。 |
 | [motor/protection/bus_voltage_profile.h](../../firmware/motor/protection/bus_voltage_profile.h) | 派生量/时基/保护契约 | 母线过欠压及确认周期等保护常量。 |
+| [parameters/application_profile_defaults.h](../../firmware/parameters/application_profile_defaults.h) | 默认输入与profile选择 | 应用速度/电流包络、外环与关节默认值。 |
+| [parameters/device_profile_defaults.h](../../firmware/parameters/device_profile_defaults.h) | 默认输入与profile选择 | 单台设备节点及默认校准初值。 |
 | [platform/api/board_hw.h](../../firmware/platform/api/board_hw.h) | 平台能力接口 | 板级初始化组合所需的能力声明。 |
 | [platform/api/board_profile_defaults.h](../../firmware/platform/api/board_profile_defaults.h) | 默认输入与profile选择 | 板级ADC/采样电阻/放大/分压等基础硬件输入。 |
 | [platform/api/boot_hw.h](../../firmware/platform/api/boot_hw.h) | 平台能力接口 | Loader跳转/确认与启动邮箱相关硬件能力。 |
@@ -229,11 +233,6 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 | [platform/api/power_stage_hw.h](../../firmware/platform/api/power_stage_hw.h) | 平台能力接口 | 功率启停与实际六路输出使能读回能力。 |
 | [platform/api/time_hw.h](../../firmware/platform/api/time_hw.h) | 平台能力接口 | 单调时钟能力。 |
 | [platform/stm32g4/bsp/hw_conf.h](../../firmware/platform/stm32g4/bsp/hw_conf.h) | 板级实际接线 | TIM1时钟/PWM周期、ADC实例与相通道、编码器型号选择；包含CubeMX main.h。 |
-| [services/lifecycle/motor_control_command.h](../../firmware/services/lifecycle/motor_control_command.h) | 请求与只读进展契约 | SI目标、START身份、受理/应用进度及submit端口。 |
-| [services/lifecycle/motor_lifecycle_request.h](../../firmware/services/lifecycle/motor_lifecycle_request.h) | 请求与只读进展契约 | 维护任务类别、请求身份、票据与阶段/提交效果。 |
-| [services/lifecycle/motor_readiness.h](../../firmware/services/lifecycle/motor_readiness.h) | 请求与只读进展契约 | 启动阻断原因、自检事实及可启动模式快照。 |
-| [services/parameters/application_profile_defaults.h](../../firmware/services/parameters/application_profile_defaults.h) | 默认输入与profile选择 | 应用速度/电流包络、外环与关节默认值。 |
-| [services/parameters/device_profile_defaults.h](../../firmware/services/parameters/device_profile_defaults.h) | 默认输入与profile选择 | 单台设备节点及默认校准初值。 |
 
 ## Loader配套APP的文件差异
 
@@ -245,39 +244,36 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 | [image_mailbox.c](../../shared/boot/image_mailbox.c) | 编解码APP进入Loader的一次性32字节邮箱消息，并校验magic、版本、节点和CRC32。 | 仅配套APP登记。 |
 | [vector_mini_st_g431_app_descriptor.c](../../shared/targets/vector_mini_st_g431_app_descriptor.c) | 为配套APP在固定节放置产品、布局、版本、参数ABI及提交标记的镜像描述符。 | 仅配套APP登记。 |
 
-## 当前命名与归属应如何收紧
+## 本轮已落实的命名与归属
 
-保持职责边界，同时让名称能直接说明作用。优先消除下列歧义，具体移动时同步工程清单、头文件引用和离线夹具。
-
-| 当前项 | 实际问题 | 合理调整 |
+| 旧项 | 当前文件或归属 | 保持的职责边界 |
 | --- | --- | --- |
-| `app/runtime/motor_execution` | 实际仅做命令校验，却与motor执行模块近乎重名。 | 命名为`motor_command`；若继续仅主状态机一个生产调用者，可将校验作为该模块私有函数，删除独立执行模块名。 |
-| `motor/foc/motor_control_execution` | execution与control重复强调执行，跨层重名难分。 | 命名为`motor_control`，明确只负责已准入模式的控制执行。 |
-| `foc_sensorless`和`foc_sensorless_run` | 名称没有区分估计器与启动序列，run容易误认为APP运行入口。 | 分别命名`flux_observer`与`sensorless_startup`，保留计算/启动职责边界。 |
-| `foc_param` | 内容覆盖整个配置及存储记录，与FOC名称不符。 | 命名为`parameter_record`，说明默认装配和记录转换；真实Flash操作仍归平台。 |
-| `foc_speed`、`foc_errhandle` | 分别负责速度控制与通用电机故障，并非仅FOC内部细节。 | 命名为`speed_control`、`motor_fault`，归motor对应控制/保护目录。 |
-| `foc_task`与`bsp_task` | 相邻任务转发链名称混用算法与板级含义。 | 合为APP任务入口`app_tasks`；保留既有IRQ入口名和执行顺序。 |
-| `board_config` | 实际是启动组装及产品绑定，容易被当成硬件宏配置。 | 命名为`app_startup`；硬件默认输入仍在board_profile_defaults。 |
-| `20_Services` | 把参数、停机请求、状态邮箱混成一个泛化层。 | 参数集中为明确的parameters模块；停机请求和快照按APP对外接口归属整理，通信依赖窄契约；不靠只改Keil分组名掩盖物理归属。 |
-| `yg_protocol_transfer` | 当前只是固定帧队列，容易误认为升级或分片传输。 | 命名为`yg_protocol_frame_queue`并归CAN承载目录；不改变队列容量或并发语义。 |
-| `yg_protocol_link` | 同时拥有会话、重放及终态反馈，责任较集中。 | 明确其为APP通信会话所有者；后续精简重复逻辑，不描述成纯路由，也不继续拆出新注册框架。 |
+| motor_execution | app/runtime/motor_command | 校验命令，主状态机决定准入。 |
+| motor_control_execution | motor/foc/motor_control | 执行已经准入的控制模式和外环。 |
+| foc_sensorless | motor/foc/flux_observer | 根据电压电流估计磁链、角度和速度。 |
+| foc_sensorless_run | motor/foc/sensorless_startup | 推进标定支持的对准、开环和角度交接。 |
+| foc_speed、foc_errhandle | speed_control、motor_fault | 分别负责速度控制及故障事实。 |
+| foc_param、parameter_value_service | parameters/parameter_record、parameter_values | 记录转换与标量校验，不操作真实Flash。 |
+| board_config | app/composition/app_startup | 启动、产品绑定和Loader交接组装。 |
+| foc_task与bsp_task | app/composition/app_tasks | 保留原快慢拍入口及调用顺序，合并源文件。 |
+| services/parameters | firmware/parameters，Keil 20_Parameters | 参数独立归属，不拥有运行生命周期。 |
+| 停机服务、状态邮箱、请求值头 | app/interfaces，源文件归Keil 00_App | 通信只用窄接口，不引用APP内部实现。 |
+| yg_protocol_transfer | communication/can/yg_protocol_frame_queue | 固定帧队列，容量与并发约定不变。 |
 
-以下拆分有实际边界，应先保留：主状态机动作与纯转换规则、编码器标定采样步骤与LUT计算、
-热模型计算与热保护历史/调度、平台能力接口与芯片实现。归同一模块不要求强行合成一份大文件。
-
-旧阻尼前馈宏、轨迹/摩擦诊断枚举，以及工程中保留的UART厂商源，不表示这些退役业务重新启用。
-清理应依据当前生产调用，协议/存储兼容编号另行处理。
+主状态机动作与纯规则、标定采集与纯LUT计算、热模型与有状态保护、平台接口与芯片实现继续保持各自边界。
+yg_protocol_link仍是单份APP通信会话所有者，集中维护重放和终态反馈，不将其描述成纯路由。
+旧阻尼前馈宏、轨迹/摩擦诊断枚举及保留的UART厂商源不代表退役业务已启用。
 
 ## 从功能反查文件
 
 | 要看什么 | 从哪里开始 |
 | --- | --- |
-| 上电顺序、通信/Loader绑定 | `main.c → board_config.c → motor_axis.c` |
+| 上电顺序、通信/Loader绑定 | `main.c → app_startup.c → motor_axis.c` |
 | 使能、停止、清错和主状态跳转 | `motor_state_machine.c`与`motor_state_rules.c` |
-| 速度命令如何变成电流 | `motor_control_execution.c → foc_speed.c → foc_algorithm.c` |
-| 位置串级如何计算 | `motor_control_execution.c → position_cascade.c → foc_algorithm.c` |
-| LUT/零位标定 | `motor_maintenance.c → encoder_calibration_task.c → encoder_calibration_core.c`，无感支持见`foc_sensorless_run.c` |
-| 四类配置入口及保存 | 默认profile头 → `motor_parameter_transaction.c → foc_param.c → param_store_stm32g4.c → flash.c` |
+| 速度命令如何变成电流 | `motor_control.c → speed_control.c → foc_algorithm.c` |
+| 位置串级如何计算 | `motor_control.c → position_cascade.c → foc_algorithm.c` |
+| LUT/零位标定 | `motor_maintenance.c → encoder_calibration_task.c → encoder_calibration_core.c`，无感支持见`sensorless_startup.c` |
+| 四类配置入口及保存 | 默认profile头 → `motor_parameter_transaction.c → parameter_record.c → param_store_stm32g4.c → flash.c` |
 | 原始ADC/PWM/编码器SPI | `motor_sensing_stm32g4.c`、`motor_pwm_stm32g4.c`、`encoder_spi_stm32g4.c` |
 | Watch运行对象 | `motor_axis.c`；状态机上下文在`motor_state_machine.c`，均使用匹配AXF观察。 |
 

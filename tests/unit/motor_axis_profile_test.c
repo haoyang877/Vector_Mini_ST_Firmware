@@ -6,7 +6,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "../../firmware/services/parameters/motor_axis_profile.h"
+#include "../../firmware/parameters/motor_axis_profile.h"
 
 int main(void)
 {

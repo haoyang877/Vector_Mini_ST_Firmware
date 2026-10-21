@@ -1,11 +1,11 @@
-#ifndef MOTOR_CONTROL_EXECUTION_H
-#define MOTOR_CONTROL_EXECUTION_H
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
 
 #include "motor_task_result.h"
 #include "position_cascade.h"
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
-#include "foc_sensorless.h"
+#include "flux_observer.h"
 #include "foc_pid.h"
 #include "motor_types.h"
 
@@ -72,9 +72,9 @@ void Task_Vq_Mode(const MotorConfiguration *configuration,
  * @note 仅运行组装层在 20 kHz 调用；须先确认无故障且处于 STARTING/RUNNING。
  *       不反查生命周期、不选择维护、不启相，终态交给主状态机复核。
  */
-MotorTaskResult MotorExecution_ControlStep(const MotorConfiguration *configuration,
-                                           FocState *foc,
-                                           MotorControlState *motor,
-                                           EncoderState *encoder,
-                                           FluxObserverState *observer);
+MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
+                                  FocState *foc,
+                                  MotorControlState *motor,
+                                  EncoderState *encoder,
+                                  FluxObserverState *observer);
 #endif

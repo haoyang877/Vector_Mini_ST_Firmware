@@ -1,7 +1,7 @@
 #include "motor_thermal_control.h"
 
 #include <stddef.h>
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 
 /* 快环拥有模型；监督上下文只发布时钟失效事件，不清零热量。 */
 static MotorThermalDiagnostics s_thermal;

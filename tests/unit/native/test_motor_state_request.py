@@ -54,7 +54,7 @@ def run_variant(source_path: Path, output: Path, compiler_path: str) -> str:
         + NATIVE_INCLUDE_FLAGS
         + [
             "-I",
-            str(ROOT / "firmware/services/lifecycle"),
+            str(ROOT / "firmware/app/interfaces"),
             "-std=c99",
             "-O1",
             "-UNDEBUG",

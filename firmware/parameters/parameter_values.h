@@ -1,5 +1,5 @@
-#ifndef PARAMETER_VALUE_SERVICE_H
-#define PARAMETER_VALUE_SERVICE_H
+#ifndef PARAMETER_VALUES_H
+#define PARAMETER_VALUES_H
 
 #include <stdint.h>
 #include "motor_config.h"

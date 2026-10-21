@@ -4,8 +4,9 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "motor_execution.h"
-#include "foc_speed.h"
+#include "motor_command.h"
+#include "motor_control.h"
+#include "speed_control.h"
 #include "position_cascade_config.h"
 #include "control_config.h"
 #include "application_profile_defaults.h"
@@ -229,19 +230,19 @@ static void check_validation(void)
     setup(MOTOR_CONTROL_SPEED);
     FocState foc = {0};
     MotorControlCommand command = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = 0.2f};
-    CHECK(MotorExecution_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
+    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
           MOTOR_CONTROL_ACCEPTED);
     command.iq_a = 0.01f;
-    CHECK(MotorExecution_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
+    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
           MOTOR_CONTROL_INVALID);
     command.iq_a = 0.0f;
     command.speed_rad_s = 1.0f;
-    CHECK(MotorExecution_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
+    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
           MOTOR_CONTROL_OUT_OF_RANGE);
     command.speed_rad_s = NAN;
-    CHECK(MotorExecution_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
+    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &foc, &s_encoder) ==
           MOTOR_CONTROL_INVALID);
-    CHECK(MotorExecution_ValidateTarget(&s_configuration, NULL, &foc, &s_encoder) ==
+    CHECK(MotorCommand_ValidateTarget(&s_configuration, NULL, &foc, &s_encoder) ==
           MOTOR_CONTROL_INVALID);
 }
 static void check_runtime(void)

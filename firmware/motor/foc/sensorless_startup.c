@@ -1,10 +1,10 @@
-#include "foc_sensorless_run.h"
+#include "sensorless_startup.h"
 
 #include <math.h>
 #include <stddef.h>
 
-#include "foc_errhandle.h"
-#include "foc_speed.h"
+#include "motor_fault.h"
+#include "speed_control.h"
 #include "foc_pid.h"
 #include "control_config.h"
 #include "motor_startup_profile.h"

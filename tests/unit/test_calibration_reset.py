@@ -228,8 +228,8 @@ class CalibrationResetTests(unittest.TestCase):
         sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
         source = output / "load_prepared.c"
         source.write_text(
-            '#include <math.h>\n#include <stdio.h>\n#include <string.h>\n#include "foc_param.h"\n'
-            '#include "parameter_value_service.h"\n#include "foc_sensing.h"\n'
+            '#include <math.h>\n#include <stdio.h>\n#include <string.h>\n#include "parameter_record.h"\n'
+            '#include "parameter_values.h"\n#include "foc_sensing.h"\n'
             "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
             + function_source(sensing, "MotorCurrentOffsets_Valid")
             + r"""
@@ -284,9 +284,9 @@ int main(int argc, char **argv) {
         command += [
             str(ROOT / path)
             for path in (
-                "firmware/services/parameters/foc_param.c",
-                "firmware/services/parameters/parameter_value_service.c",
-                "firmware/services/parameters/motor_axis_profile.c",
+                "firmware/parameters/parameter_record.c",
+                "firmware/parameters/parameter_values.c",
+                "firmware/parameters/motor_axis_profile.c",
                 "firmware/motor/math/control_math.c",
                 "firmware/motor/protection/motor_thermal.c",
                 "firmware/motor/protection/motor_thermal_config.c",

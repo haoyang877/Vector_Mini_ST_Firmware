@@ -1,10 +1,10 @@
-#include "motor_control_execution.h"
+#include "motor_control.h"
 #include <math.h>
 
 #include "control_config.h"
-#include "foc_errhandle.h"
-#include "foc_sensorless.h"
-#include "foc_speed.h"
+#include "motor_fault.h"
+#include "flux_observer.h"
+#include "speed_control.h"
 #include "axis_config.h"
 #include "motor_thermal_control.h"
 #include "position_cascade.h"
@@ -279,11 +279,11 @@ void Task_Vq_Mode(const MotorConfiguration *configuration,
 }
 
 /* 调用方已完成故障与生命周期准入；控制功能不反查状态机或选择维护任务。 */
-MotorTaskResult MotorExecution_ControlStep(const MotorConfiguration *configuration,
-                                           FocState *foc,
-                                           MotorControlState *motor,
-                                           EncoderState *encoder,
-                                           FluxObserverState *observer)
+MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
+                                  FocState *foc,
+                                  MotorControlState *motor,
+                                  EncoderState *encoder,
+                                  FluxObserverState *observer)
 {
     switch (motor->control_mode)
     {

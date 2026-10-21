@@ -4,7 +4,7 @@
 
 | 目录 | 职责 | 阅读入口 |
 | --- | --- | --- |
-| composition | 初始化、快慢拍入口、协议与所有者绑定 | [board_config.c](composition/board_config.c) |
+| composition | 初始化、快慢拍入口、协议与所有者绑定 | [app_startup.c](composition/app_startup.c) |
 | runtime | 单轴对象、控制/维护调度、参数事务和固定工作区 | [motor_axis.c](runtime/motor_axis.c) |
 | motor_state_machine | 唯一生命周期、启停准入、故障及资源归还 | [motor_state_machine.c](motor_state_machine/motor_state_machine.c) |
 

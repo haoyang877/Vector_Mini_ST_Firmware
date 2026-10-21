@@ -56,7 +56,7 @@ def main() -> None:
         image, _, _ = build_package(source, 7, target)
     header = "static const uint8_t LoaderV2Image[] = {" + ",".join(map(str, image)) + "};\n"
     (output / "loader_image_v2_vector.h").write_text(header, encoding="utf-8")
-    board = (ROOT / "firmware/app/composition/board_config.c").read_text(encoding="utf-8")
+    board = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
     health_fixture = (ROOT / "tests/unit/loader_app_health_test.c").read_text(encoding="utf-8")
     interval = next(
         line for line in board.splitlines() if line.startswith("#define BOOT_HEALTH_INTERVAL_MS")
@@ -167,7 +167,7 @@ def main() -> None:
     base = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
     base += NATIVE_INCLUDE_FLAGS + [
         "-I",
-        str(ROOT / "firmware/services/lifecycle"),
+        str(ROOT / "firmware/app/interfaces"),
         "-I",
         str(ROOT / "loader/ports/include"),
         "-I",

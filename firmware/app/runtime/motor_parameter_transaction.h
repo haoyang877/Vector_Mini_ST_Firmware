@@ -3,7 +3,7 @@
 
 #include "foc_algorithm.h"
 #include "motor_state_machine.h"
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 
 /* 单轴参数事务所有者：仅持有修订、请求缓存和保存票据；显式借用对象，不保留对象指针。
  * 既有非 static 符号供只读 Watch，生产调用者只能通过下列接口推进状态。 */

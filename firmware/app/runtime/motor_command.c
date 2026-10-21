@@ -1,4 +1,4 @@
-#include "motor_execution.h"
+#include "motor_command.h"
 #include <math.h>
 
 #include "axis_config.h"
@@ -6,10 +6,10 @@
 /* APP命令入口只校验目标格式和数值范围；控制计算归motor层。 */
 
 /* 只验证 SI 目标格式与控制范围，不读取生命周期、不修改对象或输出。 */
-MotorControlResult MotorExecution_ValidateTarget(const MotorConfiguration *configuration,
-                                                 const MotorControlCommand *command,
-                                                 const FocState *foc,
-                                                 const EncoderState *encoder)
+MotorControlResult MotorCommand_ValidateTarget(const MotorConfiguration *configuration,
+                                               const MotorControlCommand *command,
+                                               const FocState *foc,
+                                               const EncoderState *encoder)
 {
     if (command == NULL || !isfinite(command->position_rad) || !isfinite(command->speed_rad_s) ||
         !isfinite(command->iq_a) || !isfinite(command->vq_v))

@@ -8,7 +8,7 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 
 | 类别 | 位置 | 生效方式 |
 | --- | --- | --- |
-| 电机、运行限制、速度PI及模式3位置增益 | `motor_state`，保存/恢复见 [foc_param.c](../../firmware/services/parameters/foc_param.c) | 通过现有参数接口设置；RAM生效不等于已保存Flash |
+| 电机、运行限制、速度PI及模式3位置增益 | `motor_state`，保存/恢复见 [foc_param.c](../../firmware/parameters/parameter_record.c) | 通过现有参数接口设置；RAM生效不等于已保存Flash |
 | 模式3轨迹、捕获、滤波、摩擦整形 | [position_cascade_config.h](../../firmware/motor/position/position_cascade_config.h) | 修改后重新编译；当前没有覆盖全部宏的运行时参数协议 |
 | 实际装配机构摩擦模型 | `friction_model_valid` 和正反向库仑/粘性参数 | 有效模型优先；以读回值确认，不能仅根据存在保存文件判断有效 |
 | 编码器、电流采样、电机极对数等 | 既有电机/硬件配置与标定 | 换电机先确认；不是位置环整定参数 |

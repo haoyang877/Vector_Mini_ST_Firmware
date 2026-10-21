@@ -11,8 +11,8 @@
 | --- | --- | --- | --- |
 | 硬件 | `platform/api/board_profile_defaults.h` | 板型、ADC参考/位宽、放大倍数、分流器、VBUS分压、累加次数、路径补偿 | 节点、电机R/L、实测零偏 |
 | 电机 | `motor/motor_profile_defaults.h` | 型号、极对数、相R/L、磁链、电流环带宽、标定电流、热模型七项输入 | 应用速度上限、设备SN、LUT |
-| 应用 | `services/parameters/application_profile_defaults.h` | 几何包络、默认限流/速度、外环、轨迹、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
-| 设备 | `services/parameters/device_profile_defaults.h` | 空白设备的默认节点及未标定占位 | 实际SN/UID、标定结果、应用角色选择 |
+| 应用 | `parameters/application_profile_defaults.h` | 几何包络、默认限流/速度、外环、轨迹、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
+| 设备 | `parameters/device_profile_defaults.h` | 空白设备的默认节点及未标定占位 | 实际SN/UID、标定结果、应用角色选择 |
 
 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE` 与分流器选择可由编译选项指定；
 当前仅提供已实现的板型/电机数据，未知值拒绝编译。分流器默认6mΩ，可显式选择2mΩ。
@@ -53,7 +53,7 @@ R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动�
 | `platform/api/motor_sensing.h` | 只引用板级输入，不再重复定义 | 电流A/count、电压V/count、累加归一化 |
 | `platform/api/control_config.h` | FOC、速度、位置、监督频率 | 各周期、分频和每毫秒监督拍数 |
 | `motor/motor_profile_defaults.h` | 默认电机模型、电流环带宽、热模型输入 | 默认电流PI公式 |
-| `services/parameters/application_profile_defaults.h` | 轮径、线速度、应用限值、外环/前馈整定 | 默认角速度包络及所有固定转/秒到rad/s换算 |
+| `parameters/application_profile_defaults.h` | 轮径、线速度、应用限值、外环/前馈整定 | 默认角速度包络及所有固定转/秒到rad/s换算 |
 
 以上路径相对`firmware/`。固定表达式用带括号、明确单位的宏，保留原浮点运算顺序。
 宏只是源码替换；只有操作数都是编译期常量才能免去运行时计算。

@@ -84,7 +84,7 @@ int main(void) {
 def board_orchestration_fixture(source: str | None = None) -> str:
     """验证真实 Board_Init；允许独立树使用组合树的只读源码快照。"""
     if source is None:
-        source = (ROOT / "firmware/app/composition/board_config.c").read_text(encoding="utf-8")
+        source = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
     return (
         r"""
 #ifdef NDEBUG

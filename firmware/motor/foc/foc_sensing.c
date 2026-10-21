@@ -4,7 +4,7 @@
 
 #include "bus_voltage_profile.h"
 #include "control_config.h"
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 #include "mcu_temperature.h"
 #include "motor_sensing.h"
 #include "power_stage_hw.h"

@@ -4,9 +4,9 @@
 
 ```text
 firmware/                         电机 APP
-  app/                            启动组装、模式与任务调度
+  app/                            启动组装、公共请求接口、主状态机与任务调度
   motor/                          FOC、位置控制、编码器标定与保护
-  services/                       参数与遥测
+  parameters/                     配置默认值、标量读写和参数记录转换
   communication/                  CAN 接入与协议
   platform/                       硬件接口、STM32G4 BSP/端口/CubeMX
 loader/                           独立 G431 Loader、升级事务与 CAN FD 端口

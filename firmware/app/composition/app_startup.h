@@ -1,5 +1,5 @@
-#ifndef BOARD_CONFIG_H
-#define BOARD_CONFIG_H
+#ifndef APP_STARTUP_H
+#define APP_STARTUP_H
 
 #include <stdint.h>
 

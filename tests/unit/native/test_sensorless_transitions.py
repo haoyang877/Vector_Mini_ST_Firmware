@@ -22,9 +22,10 @@ PRELUDE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "motor_execution.h"
-#include "foc_sensorless_run.h"
-#include "foc_speed.h"
+#include "motor_command.h"
+#include "motor_control.h"
+#include "sensorless_startup.h"
+#include "speed_control.h"
 #include "hw_conf.h"
 #include "motor_startup_profile.h"
 #include "control_math.h"
@@ -177,17 +178,17 @@ def main():
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
-    source = (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/foc/sensorless_startup.c").read_text(encoding="utf-8")
     run = source.split("/* SENSORLESS_RUNTIME_BEGIN", 1)[1].split(
         "/* SENSORLESS_RUNTIME_END */", 1
     )[0]
     run = "/* SENSORLESS_RUNTIME_BEGIN" + run
     reset = function_source(
-        (ROOT / "firmware/motor/foc/foc_sensorless_run.c").read_text(encoding="utf-8"),
+        (ROOT / "firmware/motor/foc/sensorless_startup.c").read_text(encoding="utf-8"),
         "SensorlessStartup_Reset",
     )
     ramp = function_source(
-        (ROOT / "firmware/motor/foc/foc_speed.c").read_text(encoding="utf-8"),
+        (ROOT / "firmware/motor/foc/speed_control.c").read_text(encoding="utf-8"),
         "MotorAxis_UpdateSpeedRamp",
     )
     fixture = PRELUDE + reset + ramp + run + CASES

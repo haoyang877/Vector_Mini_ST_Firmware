@@ -2,11 +2,11 @@
 #define MOTOR_AXIS_H
 #include <stdbool.h>
 #include "motor_types.h"
-#include "motor_status.h"
+#include "motor_status_mailbox.h"
 #include "motor_state_types.h"
 #include "motor_lifecycle_request.h"
 #include "motor_control_command.h"
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 /**
  * @brief 装载参数并初始化唯一电机执行对象。
  * @note 仅启动组合层在中断启用前调用一次，不自动使能。

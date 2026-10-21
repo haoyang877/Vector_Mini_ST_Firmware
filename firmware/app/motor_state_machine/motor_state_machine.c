@@ -7,10 +7,10 @@
 #include "motor_state_internal.h"
 #include "bus_voltage_profile.h"
 #include "critical_hw.h"
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 #include "foc_algorithm.h"
 #include "motor_maintenance.h"
-#include "motor_execution.h"
+#include "motor_command.h"
 #include "foc_sensing.h"
 #include "indicator_hw.h"
 #include "mcu_temperature.h"
@@ -18,11 +18,11 @@
 #include "motor_axis.h"
 #include "motor_thermal_control.h"
 #include "foc_pid.h"
-#include "foc_sensorless_run.h"
+#include "sensorless_startup.h"
 #include "power_stage_hw.h"
 #include "control_math.h"
 #include "time_hw.h"
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 
 /* 普通自检仍为500ms；首次上电额外允许历史1秒零点采样，监督停摆不在此保证内。 */
 #define MOTOR_SELF_TEST_TIMEOUT_MS 500U
@@ -246,7 +246,7 @@ static MotorControlResult admit_control_target(const MotorControlCommand *comman
     {
         return MOTOR_CONTROL_DENIED;
     }
-    MotorControlResult target_result = MotorExecution_ValidateTarget(
+    MotorControlResult target_result = MotorCommand_ValidateTarget(
         s_context.configuration, command, s_context.foc, s_context.rotor_encoder);
     /* 保持原拒绝优先级：格式错误先于故障，范围结果后于运行准入。 */
     if (target_result == MOTOR_CONTROL_INVALID)

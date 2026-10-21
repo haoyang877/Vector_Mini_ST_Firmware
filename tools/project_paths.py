@@ -39,14 +39,37 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/motor/calibration",
     "firmware/motor/feedback",
     "firmware/motor/protection",
-    "firmware/services/lifecycle",
-    "firmware/services/parameters",
-    "firmware/services/telemetry",
+    "firmware/app/interfaces",
+    "firmware/parameters",
     "firmware/communication/can",
     "firmware/communication/protocol",
     "firmware/platform/api",
     "firmware/platform/stm32g4/bsp",
 )
-NATIVE_INCLUDE_FLAGS = [
-    item for directory in NATIVE_INCLUDE_DIRS for item in ("-I", str(ROOT / directory))
-]
+
+
+def resolve_source_path(tree: Path, current: str, *legacy: str) -> Path:
+    """从指定源码树选择真实存在的当前或旧路径；不回退到工作区的另一实现。"""
+    for relative in (current, *legacy):
+        candidate = tree / relative
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"源码树缺少当前及历史路径：{tree}: {(current, *legacy)}")
+
+
+def native_include_flags(tree: Path = ROOT) -> list[str]:
+    """为实际源码树提供头搜索目录；旧服务目录仅用于冻结基线自己的头文件。"""
+    legacy = (
+        "firmware/services/lifecycle",
+        "firmware/services/parameters",
+        "firmware/services/telemetry",
+    )
+    return [
+        item
+        for relative in (*NATIVE_INCLUDE_DIRS, *legacy)
+        if (tree / relative).is_dir()
+        for item in ("-I", str(tree / relative))
+    ]
+
+
+NATIVE_INCLUDE_FLAGS = native_include_flags()

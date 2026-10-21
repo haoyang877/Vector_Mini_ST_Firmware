@@ -1,4 +1,4 @@
-#include "foc_sensorless.h"
+#include "flux_observer.h"
 
 #include <float.h>
 #include <math.h>

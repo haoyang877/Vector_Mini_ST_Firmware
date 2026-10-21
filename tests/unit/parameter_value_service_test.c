@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 #include "application_profile_defaults.h"
 #include "motor_types.h"
 

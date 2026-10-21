@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "motor_state_internal.h"
-#include "motor_stop_service.h"
+#include "motor_stop_request.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_adapter.h"
 

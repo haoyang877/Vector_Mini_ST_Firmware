@@ -4,7 +4,7 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "angle_feedback.h"
-#include "foc_sensorless.h"
+#include "flux_observer.h"
 #include "motor_task_result.h"
 #include "motor_lifecycle_request.h"
 

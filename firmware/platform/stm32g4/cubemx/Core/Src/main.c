@@ -29,7 +29,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
 
-#include "board_config.h"
+#include "app_startup.h"
 #include "boot_hw.h"
 #include "control_config.h"
 #include "motor_axis.h"

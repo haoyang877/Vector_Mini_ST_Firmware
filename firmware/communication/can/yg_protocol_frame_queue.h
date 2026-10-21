@@ -1,5 +1,5 @@
-#ifndef YG_PROTOCOL_TRANSFER_H
-#define YG_PROTOCOL_TRANSFER_H
+#ifndef YG_PROTOCOL_FRAME_QUEUE_H
+#define YG_PROTOCOL_FRAME_QUEUE_H
 
 #include <stdbool.h>
 #include <stddef.h>

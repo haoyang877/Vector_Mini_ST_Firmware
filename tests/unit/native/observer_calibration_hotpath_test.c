@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "foc_sensorless.c"
+#include "flux_observer.c"
 #include "encoder_calibration_task.c"
 
 static bool leave_align;

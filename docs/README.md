@@ -7,7 +7,7 @@ provide the short entry map; details belong here.
 按产品职责、APP 分工、命令流转、周期调度、参数与状态所有权组织，包含当前架构图片。
 
 对照工程逐文件阅读：[APP文件职责与分层对照](architecture/app_file_responsibilities_v1.md)。
-按Keil当前七组及原顺序说明107个源文件、对应头文件和实际物理路径，并列命名与归属调整建议。
+按Keil当前七组及原顺序说明106个源文件、对应头文件和实际物理路径，并列命名与归属调整建议。
 
 核心阅读入口：[模块核心职责与删减清单](architecture/module_core_responsibilities.md)，
 模块细节见[核心控制执行](architecture/motor_execution_core_v3.md)、[核心维护与标定](architecture/motor_maintenance_core_v3.md)和[参数所有权](architecture/parameter_ownership_v1.md)。历史提取结果见[2026-10-08 核心解耦集成记录](reports/2026-10/module_core_integration_20261008.md)。

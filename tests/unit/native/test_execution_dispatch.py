@@ -9,9 +9,14 @@ from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) -> str:
     """在相同桩输入下编译旧版或新版生产体，返回可比较的调用轨迹摘要。"""
-    control_path = source_dir.parent.parent / "motor/foc/motor_control_execution.c"
-    if not control_path.exists():
-        control_path = source_dir / "motor_execution.c"
+    candidates = (
+        source_dir.parent.parent / "motor/foc/motor_control.c",
+        source_dir.parent.parent / "motor/foc/motor_control_execution.c",
+        source_dir / "motor_execution.c",
+    )
+    control_path = next((path for path in candidates if path.is_file()), None)
+    if control_path is None:
+        raise FileNotFoundError(f"当前或历史控制生产文件不存在：{source_dir}")
     execution = control_path.read_text(encoding="utf-8")
     state_path = source_dir / "motor_axis.c"
     if not state_path.exists():
@@ -32,8 +37,11 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
             + "\n"
             + fixture
         )
-    if "MotorExecution_ControlStep(" in execution:
-        fixture += "\n" + function_source(execution, "MotorExecution_ControlStep")
+    control_step = (
+        "MotorControl_Step" if "MotorControl_Step(" in execution else "MotorExecution_ControlStep"
+    )
+    if control_step + "(" in execution:
+        fixture += "\n" + function_source(execution, control_step)
         fixture += "\n" + function_source(state, "run_fast_task")
         call = "run_fast_task()"
         if "run_fast_task(bool maintenance_runnable)" in state:
@@ -57,7 +65,7 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
     command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
     command += NATIVE_INCLUDE_FLAGS + [
         "-I",
-        str(ROOT / "firmware/services/lifecycle"),
+        str(ROOT / "firmware/app/interfaces"),
         "-std=c99",
         "-O1",
         "-UNDEBUG",

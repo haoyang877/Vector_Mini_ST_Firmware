@@ -1,10 +1,10 @@
-#include "foc_param.h"
+#include "parameter_record.h"
 
 #include <math.h>
 #include <string.h>
 #include <stddef.h>
 #include "crc32.h"
-#include "parameter_value_service.h"
+#include "parameter_values.h"
 #include "foc_sensing.h"
 
 /* 参数读写与默认值：限值取自平台感测契约，数值换算不访问硬件。 */

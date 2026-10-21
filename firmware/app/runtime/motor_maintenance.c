@@ -3,9 +3,9 @@
 #include <math.h>
 #include "bus_voltage_profile.h"
 #include "encoder_calibration_task.h"
-#include "foc_param.h"
-#include "motor_control_execution.h"
-#include "parameter_value_service.h"
+#include "parameter_record.h"
+#include "motor_control.h"
+#include "parameter_values.h"
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"
 #include "power_stage_hw.h"

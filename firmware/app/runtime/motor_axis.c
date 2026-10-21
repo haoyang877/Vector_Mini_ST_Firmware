@@ -12,12 +12,12 @@
 
 #include "angle_feedback.h"
 #include "foc_algorithm.h"
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 #include "foc_pid.h"
-#include "motor_control_execution.h"
+#include "motor_control.h"
 #include "motor_state_machine.h"
-#include "foc_sensorless.h"
-#include "foc_sensorless_run.h"
+#include "flux_observer.h"
+#include "sensorless_startup.h"
 
 /* 电机与控制对象全局符号供 Watch 观测；运行写入仍由 MotorAxis 组装和调度。 */
 MotorConfiguration s_motor_configuration;
@@ -166,7 +166,7 @@ static MotorTaskResult run_fast_task(bool maintenance_runnable)
         motor_hw_pwm_set_duty(0.5f, 0.5f, 0.5f);
         return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     }
-    return MotorExecution_ControlStep(
+    return MotorControl_Step(
         &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
 }
 

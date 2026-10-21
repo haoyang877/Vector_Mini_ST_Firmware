@@ -1,8 +1,8 @@
-#ifndef MOTOR_EXECUTION_H
-#define MOTOR_EXECUTION_H
+#ifndef MOTOR_COMMAND_H
+#define MOTOR_COMMAND_H
 
 #include "motor_control_command.h"
-#include "motor_control_execution.h"
+#include "motor_control.h"
 
 /* APP控制目标准入接口；算法与运行状态通过motor执行接口显式传递。 */
 
@@ -15,9 +15,9 @@
  * @return 格式错误返回 INVALID，越界返回 OUT_OF_RANGE，否则 ACCEPTED。
  * @note 不修改对象、不访问硬件；调用者同步配置和测量，另行检查故障、状态与启相许可。
  */
-MotorControlResult MotorExecution_ValidateTarget(const MotorConfiguration *configuration,
-                                                 const MotorControlCommand *command,
-                                                 const FocState *foc,
-                                                 const EncoderState *encoder);
+MotorControlResult MotorCommand_ValidateTarget(const MotorConfiguration *configuration,
+                                               const MotorControlCommand *command,
+                                               const FocState *foc,
+                                               const EncoderState *encoder);
 
 #endif

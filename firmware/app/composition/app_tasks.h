@@ -1,5 +1,5 @@
-#ifndef FOC_TASK_H
-#define FOC_TASK_H
+#ifndef APP_TASKS_H
+#define APP_TASKS_H
 
 #include "motor_types.h"
 
@@ -14,5 +14,11 @@ void FOC20kHzIRQHandler(void);
  * @note 由 TIM7 监督中断上下文调用，不得替代快速环中的立即关断路径。
  */
 MotorControlMode FOC2kHzSupervisor(void);
+
+/**
+ * @brief 2 kHz 板级监督任务：推进指示器、CAN 维护与监督组合。
+ * @note 仅由 TIM7 中断上下文调用；不得阻塞、不得动态分配。
+ */
+void BSP2kHzIRQHandler(void);
 
 #endif

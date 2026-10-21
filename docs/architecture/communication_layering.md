@@ -23,7 +23,7 @@ RX ISR只复制输入；不处理业务、Flash或日志。前台有界处理队
 | [APP协议](../../firmware/communication/protocol/) | 命令注册及请求/结果值对象 |
 | [owner_adapter](../../firmware/app/composition/yg_protocol_owner_adapter.c) | 显式映射启动/清错/维护/参数请求 |
 | [status_adapter](../../firmware/app/composition/yg_protocol_status_adapter.c) | 将同一时刻快照编码为状态回复 |
-| [board_config](../../firmware/app/composition/board_config.c) | 绑定业务所有者、设备身份及Loader交接能力 |
+| [app_startup](../../firmware/app/composition/app_startup.c) | 绑定业务所有者、设备身份及Loader交接能力 |
 
 ## 保留的核心线路
 

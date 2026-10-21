@@ -4,7 +4,7 @@
 | --- | --- |
 | [app](app/README.md) | 启动组装、单轴运行所有者、主状态机 |
 | [motor](motor/README.md) | 控制执行、FOC/外环、反馈、单项标定与保护 |
-| services | 参数、只读状态、控制/维护值请求 |
+| [parameters](parameters/README.md) | 配置默认值、标量读写和参数记录转换 |
 | communication | CAN 接入与 APP 业务协议 |
 | platform | 硬件能力接口，以及 STM32G4 实现和生成工程 |
 | third_party | 第三方源码，保持原有布局 |

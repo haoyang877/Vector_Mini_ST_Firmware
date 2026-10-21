@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "control_config.h"
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 #include "motor_startup_profile.h"
 #include "control_math.h"
 

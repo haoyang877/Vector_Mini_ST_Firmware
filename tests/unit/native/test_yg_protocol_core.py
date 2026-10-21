@@ -53,7 +53,7 @@ def main() -> None:
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_parameter.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_job.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_transfer.c"),
+            str(ROOT / "firmware/communication/can/yg_protocol_frame_queue.c"),
             "-o",
             str(executable),
         ]

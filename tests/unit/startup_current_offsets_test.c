@@ -7,12 +7,13 @@
 #include "motor_axis.h"
 #include "motor_maintenance.h"
 #include "foc_algorithm.h"
-#include "foc_errhandle.h"
+#include "motor_fault.h"
 #include "foc_sensing.h"
-#include "foc_sensorless.h"
+#include "flux_observer.h"
 #include "motor_sensing.h"
 #include "power_stage_hw.h"
-#include "motor_execution.h"
+#include "motor_command.h"
+#include "motor_control.h"
 #include "control_math.h"
 #include "motor_state_machine.h"
 #include "motor_hw.h"
@@ -201,11 +202,11 @@ void motor_hw_pwm_set_duty(float duty_a, float duty_b, float duty_c)
 {
     assert(duty_a == 0.5f && duty_b == 0.5f && duty_c == 0.5f);
 }
-MotorTaskResult MotorExecution_ControlStep(const MotorConfiguration *configuration,
-                                           FocState *foc,
-                                           MotorControlState *motor,
-                                           EncoderState *encoder,
-                                           FluxObserverState *observer)
+MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
+                                  FocState *foc,
+                                  MotorControlState *motor,
+                                  EncoderState *encoder,
+                                  FluxObserverState *observer)
 {
     ++control_calls;
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};

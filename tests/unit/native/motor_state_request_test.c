@@ -14,8 +14,9 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 }
 #include "critical_hw.h"
 #include "motor_state_machine.h"
-#include "parameter_value_service.h"
-#include "motor_execution.h"
+#include "parameter_values.h"
+#include "motor_command.h"
+#include "motor_control.h"
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "control_config.h"

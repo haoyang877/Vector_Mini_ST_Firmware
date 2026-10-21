@@ -9,8 +9,8 @@
 
 | 源码 | 核心工作 |
 | --- | --- |
-| [motor_execution.c](../../firmware/app/runtime/motor_execution.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
-| [motor_control_execution.c](../../firmware/motor/foc/motor_control_execution.c) | 协调2kHz速度/位置外环，分发20kHz任务；不读取APP状态机或服务命令 |
+| [motor_command.c](../../firmware/app/runtime/motor_command.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
+| [motor_control.c](../../firmware/motor/foc/motor_control.c) | 协调2kHz速度/位置外环，分发20kHz任务；不读取APP状态机或服务命令 |
 | [position_cascade.c](../../firmware/motor/position/position_cascade.c) | 直接位置PD → 限幅速度参考 → 速度PI → 电流参考 |
 | [foc_algorithm.c](../../firmware/motor/foc/foc_algorithm.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
 | [foc_pid.c](../../firmware/motor/foc/foc_pid.c) | PI状态更新、限幅和输出跟踪 |
@@ -20,7 +20,7 @@
 
 控制入口显式接收电机、FOC、编码器和观测器对象。
 目标和反馈使用A、rad/s、rad、V；线路整数尺度由通信边界换算。
-`MotorExecution_ValidateTarget`只验证格式及数值范围，不授予运行许可。
+`MotorCommand_ValidateTarget`只验证格式及数值范围，不授予运行许可。
 `MotorOuterLoop_SlowTick`写电流参考，快环读取并执行，禁止通信直接写控制器积分。
 
 | 模式 | 慢拍 | 快拍 |

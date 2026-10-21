@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
 from harness.common import zig_path
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
-LIFECYCLE_INCLUDE_FLAGS = ["-I", str(ROOT / "firmware/services/lifecycle")]
+LIFECYCLE_INCLUDE_FLAGS = ["-I", str(ROOT / "firmware/app/interfaces")]
 
 
 def main() -> None:
@@ -41,7 +41,7 @@ def main() -> None:
             "-Wextra",
             "-Werror",
             str(ROOT / "tests/unit/yg_protocol_motor_adapter_test.c"),
-            str(ROOT / "firmware/services/lifecycle/motor_stop_service.c"),
+            str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
             str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor_adapter.c"),
             str(ROOT / "firmware/communication/protocol/yg_protocol_motor.c"),

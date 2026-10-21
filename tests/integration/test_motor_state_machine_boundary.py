@@ -41,6 +41,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             for name in (
                 "app",
                 "motor",
+                "parameters",
                 "services",
                 "communication",
                 "platform/api",
@@ -67,7 +68,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             r"\b(?:void|bool|float|MotorTaskResult)\s+"
             r"(?:MotorOuterLoop_\w+|MotorThermalControl_\w+|MotorCurrentOffsets_\w+|"
             r"FOC_ConfigureControllers|FOC_UpdateCurrentControllerLimits|"
-            r"Task_(?:Current|Vq)_Mode|MotorExecution_ControlStep)"
+            r"Task_(?:Current|Vq)_Mode|MotorControl_Step|MotorExecution_ControlStep)"
             r"\s*\([^;{}]*\)\s*\{"
         )
         for path in (ROOT / "firmware/app/runtime").glob("*.[ch]"):
@@ -81,7 +82,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             "firmware/app/runtime/motor_axis.c",
             "firmware/app/runtime/motor_parameter_transaction.c",
         }
-        for directory in ("app", "motor", "services", "communication"):
+        for directory in ("app", "motor", "parameters", "services", "communication"):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
                 relative = path.relative_to(ROOT).as_posix()
                 if relative not in permitted:
@@ -92,7 +93,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
 
     def test_unused_maintenance_query_is_retired(self) -> None:
         """维护类型使用现有查询，不保留只有测试调用的重复接口。"""
-        for directory in ("app", "motor", "services"):
+        for directory in ("app", "motor", "parameters", "services"):
             for path in (ROOT / "firmware" / directory).rglob("*.[ch]"):
                 self.assertNotIn("MotorStateMachine_IsMaintenanceActive", production_text(path))
 
@@ -105,7 +106,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         retired = (
             r"\b(?:ModeNow|ModeLast|ModeNow_TypeDef|MotorWorkOutcome_TypeDef|next_mode|power_off)\b"
         )
-        for directory in ("app", "motor", "services"):
+        for directory in ("app", "motor", "parameters", "services"):
             for path in (ROOT / "firmware" / directory).rglob("*"):
                 if path.suffix in (".c", ".h"):
                     self.assertIsNone(re.search(retired, production_text(path)), path.as_posix())
@@ -116,7 +117,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
 
     def test_normal_enable_has_one_owner(self) -> None:
         callers = set()
-        for directory in ("app", "motor", "services", "communication"):
+        for directory in ("app", "motor", "parameters", "services", "communication"):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
                 if re.search(r"\bpower_stage_hw_start\s*\(", production_text(path)):
                     callers.add(path.relative_to(ROOT).as_posix())
@@ -124,11 +125,13 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
 
     def test_private_transition_rules_have_one_production_owner(self) -> None:
         module = ROOT / "firmware/app/motor_state_machine"
+        self.assertFalse((ROOT / "firmware/app/interfaces/app_lifecycle.c").exists())
+        self.assertFalse((ROOT / "firmware/app/interfaces/app_lifecycle.h").exists())
         self.assertFalse((ROOT / "firmware/services/lifecycle/app_lifecycle.c").exists())
         self.assertFalse((ROOT / "firmware/services/lifecycle/app_lifecycle.h").exists())
         owned_files = [
             path
-            for directory in ("app", "motor", "services", "communication")
+            for directory in ("app", "motor", "parameters", "services", "communication")
             for path in (ROOT / "firmware" / directory).rglob("*")
         ]
         for path in owned_files:

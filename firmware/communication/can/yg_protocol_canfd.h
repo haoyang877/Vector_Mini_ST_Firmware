@@ -2,7 +2,7 @@
 #define YG_PROTOCOL_CANFD_H
 
 #include "comm_hw.h"
-#include "yg_protocol_transfer.h"
+#include "yg_protocol_frame_queue.h"
 #include "yg_protocol_wire_types.h"
 
 /**

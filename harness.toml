@@ -73,29 +73,33 @@ allows = ["platform_api"]
 paths = ["firmware/motor"]
 allows = ["motor_math", "platform_api", "motor", "shared"]
 
-[architecture.layers.services]
-paths = ["firmware/services"]
-allows = ["motor_math", "platform_api", "motor", "services", "shared"]
+[architecture.layers.parameters]
+paths = ["firmware/parameters"]
+allows = ["motor_math", "platform_api", "motor", "parameters", "shared"]
+
+[architecture.layers.app_interfaces]
+paths = ["firmware/app/interfaces"]
+allows = ["motor", "app_interfaces"]
 
 [architecture.layers.protocol]
 paths = ["firmware/communication/protocol"]
-allows = ["motor", "services", "protocol", "shared"]
+allows = ["motor", "parameters", "app_interfaces", "protocol", "shared"]
 
 [architecture.layers.communication]
 paths = ["firmware/communication/can"]
-allows = ["platform_api", "motor", "services", "protocol", "communication", "shared"]
+allows = ["platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "shared"]
 
 [architecture.layers.app]
 paths = ["firmware/app"]
-allows = ["target_profile", "motor_math", "platform_api", "motor", "services", "protocol", "communication", "app", "shared"]
+allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "app", "shared"]
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
-allows = ["target_profile", "platform_api", "motor", "services", "platform_stm32", "cubemx", "shared"]
+allows = ["target_profile", "platform_api", "motor", "parameters", "platform_stm32", "cubemx", "shared"]
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/stm32g4/cubemx/Core"]
-allows = ["platform_api", "motor", "services", "protocol", "communication", "app", "platform_stm32", "cubemx"]
+allows = ["platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "app", "platform_stm32", "cubemx"]
 
 
 [architecture.layers.loader_api]

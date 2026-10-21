@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "motor_status.h"
+#include "motor_status_mailbox.h"
 #include "motor_control_command.h"
 #include "yg_protocol_wire_types.h"
 

@@ -7,7 +7,7 @@
 #include <limits.h>
 #include <math.h>
 #include "../../firmware/communication/protocol/yg_protocol_motor_status.c"
-#include "../../firmware/services/parameters/parameter_value_service.c"
+#include "../../firmware/parameters/parameter_values.c"
 static int32_t ref_measurement(float value, double scale, int32_t min, int32_t max)
 {
     if (!isfinite(value))

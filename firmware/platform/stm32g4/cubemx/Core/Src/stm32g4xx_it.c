@@ -23,12 +23,11 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "adc.h"
-#include "bsp_task.h"
+#include "app_tasks.h"
 #include "dma.h"
 #include "fast_loop_profile.h"
 #include "fdcan.h"
-#include "motor_execution.h"
-#include "foc_task.h"
+#include "motor_command.h"
 #include "yg_protocol_canfd_irq.h"
 #include "tim.h"
 /* USER CODE END Includes */

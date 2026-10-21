@@ -1,10 +1,18 @@
-#include "bsp_task.h"
-
+#include "app_tasks.h"
+#include "motor_axis.h"
 #include "control_config.h"
-#include "motor_types.h"
-#include "foc_task.h"
 #include "motor_state_machine.h"
 #include "indicator_hw.h"
+
+/* 中断入口不持有控制对象，只调用 APP 执行所有者。 */
+void FOC20kHzIRQHandler(void)
+{
+    MotorAxis_FastTick();
+}
+MotorControlMode FOC2kHzSupervisor(void)
+{
+    return MotorAxis_SupervisorTick();
+}
 
 /* 2 kHz 板级监督任务：电机监督与指示器组合。CAN FD 协议在主循环后台服务，
  * 不在监督中混入旧标准 CAN 的队列、波特率或心跳维护。 */

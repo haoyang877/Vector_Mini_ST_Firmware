@@ -1,5 +1,5 @@
-#ifndef MOTOR_STOP_SERVICE_H
-#define MOTOR_STOP_SERVICE_H
+#ifndef MOTOR_STOP_REQUEST_H
+#define MOTOR_STOP_REQUEST_H
 
 #include <stdbool.h>
 #include <stdint.h>

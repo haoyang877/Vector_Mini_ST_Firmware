@@ -1,5 +1,5 @@
-#ifndef FOC_PARAM_H
-#define FOC_PARAM_H
+#ifndef PARAMETER_RECORD_H
+#define PARAMETER_RECORD_H
 
 #include <stdbool.h>
 #include <stdint.h>

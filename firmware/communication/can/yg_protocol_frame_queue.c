@@ -1,5 +1,5 @@
 /* 固定容量环形队列；跨中断访问由通信组合层串行化。 */
-#include "yg_protocol_transfer.h"
+#include "yg_protocol_frame_queue.h"
 
 #include <string.h>
 

@@ -51,9 +51,13 @@ Keil调试APP：[无脚本启动、工程配置与有效记录同步](docs/guide
 
 前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
 
-当前 APP 软件版本 **v0.6.1，build0**：恢复7a2d235的mode 3主动保持控制，保留现有参数接口与保护；
+轮电机阻力旋钮：[可行性、摩擦模型、发热估算及分阶段验收方案](docs/plans/2026-10-17-wheel-friction-knob-v1.md)。
+
+当前 APP 软件版本 **v0.6.1，build0**：恢复7a2d235的mode 3主动保持控制，保留现有参数接口和温度保护开关；
 mode 18 暂时裁剪，mode 3、速度前馈及标定保留。
 [版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+
+Pitch 小电流支撑候选：[控制与离线验证](docs/guides/pitch_support_v1.md)、[悬臂受力分析](docs/architecture/pitch_force_analysis_v1.md)；实测记录：[小角度短测](docs/reports/2026-10-19-pitch-support-bench-v1.md)、[扩范围结果](docs/reports/2026-10-19-pitch-support-range-v1.md)、[V5全范围结果与限制](docs/reports/2026-10-19-pitch-v5-full-range-5a.md)、[保持电流辨识](docs/reports/2026-10-19-pitch-hold-interval-identification-v1.md)。
 
 [Roll位置控制实测与已保存参数](docs/reports/2026-10-20-roll-mode3-historical-tuning-v1.md)、
 [温度保护通信开关](docs/protocols/motor_temperature_protection_switch_v1.md)。

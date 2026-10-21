@@ -30,18 +30,34 @@ def fixture():
 #include "foc_param_profile.h"
 #include "interface_can.h"
 #include "utils.h"
-#define MAGIC_WORD 0x454e4332U
+#include "motor_thermal_control.h"
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
 CANMsg_TypeDef CANMsg;
+ModeNow_TypeDef ModeLast;
+volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
+static bool phase_outputs_disabled = true;
+static bool filter_succeeds = true;
+static unsigned filter_calls;
+static uint8_t filter_node;
+bool motor_hw_phase_outputs_disabled(void) { return phase_outputs_disabled; }
+bool comm_hw_can_set_node_filter(uint8_t node) {
+    ++filter_calls;
+    filter_node=node;
+    return filter_succeeds;
+}
+void motor_hw_outer_barrier(void) { }
 '''
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
     prelude += re.sub(r'^#include.*$', '', production, flags=re.M)
-    prelude += '\nstatic void can_set(int id, float data) { int data_int=(int)data; switch(id) {\n'
-    prelude += '\n'.join(command_case("firmware/communication/can/interface_can.c", n) for n in
-                         ("CAN_SET_NODE_ID", "CAN_SET_SPEED_LIMIT"))
+    can_source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
+    prelude += '\n' + '\n'.join(function_source(can_source, name) for name in
+                                ("CAN_Count", "CAN_SetNode"))
+    prelude += '\nstatic void can_set(int id, float data) {\n'
+    prelude += 'if (id==CAN_SET_NODE_ID) { CAN_SetNode(data); return; }\nswitch(id) {\n'
+    prelude += command_case("firmware/communication/can/interface_can.c", "CAN_SET_SPEED_LIMIT")
     return prelude + '\n} }\n' + r'''
 int main(void) {
     InterfaceParam_TypeDef p, saved;
@@ -64,12 +80,20 @@ int main(void) {
         p.speed_limit=0; Param_Download(&p); assert(MotorControl.speed_limit==cap);
     }
     puts("PASS all node ceilings, stored lower limits, invalid fallback, calibration preserved");
-    /* Axis record wins over stale legacy node ID before selecting the cap. */
+    /* 临时联调时，合法 Flash 节点号优先于轴身份。 */
     p=saved; p.node_id=1; p.speed_limit=20;
     assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_ROLL, 1, -.3f, .9f, .7f));
     Param_Download(&p);
+    assert(CANMsg.node_id==1 && MotorControl.speed_limit==20);
+    p.node_id=NAN; Param_Download(&p);
     assert(CANMsg.node_id==3 && MotorControl.speed_limit==.5f*_2PI);
-    puts("PASS resolved joint identity selects the ceiling before parameter loading");
+    p=saved; p.node_id=3;
+    assert(MotorAxisProfile_CreateJoint(&p.axis_profile, MOTOR_JOINT_YAW, 1,
+        -3.141592654f, 3.141592654f, .5f));
+    Param_Download(&p); assert(CANMsg.node_id==3 && MotorControl.axis_profile_valid);
+    Param_Upload(&p); p.magic_word=MAGIC_WORD; assert(p.node_id==3);
+    Param_Download(&p); assert(CANMsg.node_id==3);
+    puts("PASS stored node survives yaw save/load; invalid node falls back to identity");
     for(node=1; node<=2; node++) {
         CANMsg.node_id=node; MotorControl.speedRef=25; MotorControl.pos_maxspeed=24;
         can_set(CAN_SET_SPEED_LIMIT,20);
@@ -81,8 +105,26 @@ int main(void) {
         assert(Param_SetSpeedLimit(10) && MotorControl.speedRef==-10);
     }
     puts("PASS CAN rad/s boundaries; reduced limits clamp both command signs");
+    MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
+    CANMsg.node_id=2; Param_SetSpeedLimit(20);
+    MotorControl.speedRef=19; MotorControl.pos_maxspeed=18;
+    for(unsigned rejection=0; rejection<4; ++rejection) {
+        MotorControl.ModeNow=(rejection==0) ? Speed_Mode : Motor_Disable;
+        ModeLast=(rejection==1) ? Speed_Mode : Motor_Disable;
+        phase_outputs_disabled=(rejection!=2);
+        filter_succeeds=(rejection!=3);
+        can_set(CAN_SET_NODE_ID,3);
+        assert(CANMsg.node_id==2 && MotorControl.speed_limit==20);
+        assert(MotorControl.speedRef==19 && MotorControl.pos_maxspeed==18);
+        assert(filter_calls==(rejection==3 ? 1U : 0U));
+    }
+    assert(CAN_Diagnostics.node_rejected==3 && CAN_Diagnostics.node_filter_failed==1);
+    MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
+    phase_outputs_disabled=true; filter_succeeds=true;
+    puts("PASS node admission/filter failures preserve node, limit and both commands");
     CANMsg.node_id=2; MotorControl.speedRef=20; Param_SetSpeedLimit(20);
     can_set(CAN_SET_NODE_ID,3);
+    assert(filter_calls==2 && filter_node==3);
     assert(CANMsg.node_id==3 && MotorControl.speed_limit==.5f*_2PI && MotorControl.speedRef==.5f*_2PI);
     can_set(CAN_SET_SPEED_LIMIT,20); assert(MotorControl.speed_limit==.5f*_2PI);
     can_set(CAN_SET_NODE_ID,1); assert(MotorControl.speed_limit==.5f*_2PI);
@@ -114,7 +156,7 @@ def main():
     includes = [str(out)] + [str(ROOT / p) for p in ("firmware/common", "firmware/motor/foc", "firmware/platform/stm32g4/bsp", "firmware/communication")]
     command = cc + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [item for p in includes for item in ("-I", p)]
-    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), "-o", str(exe)]
+    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), str(ROOT / "firmware/motor/motor_load_profile.c"), str(ROOT / "firmware/motor/speed_feedforward.c"), str(ROOT / "firmware/motor/protection/motor_thermal.c"), str(ROOT / "firmware/app/motor_thermal_control.c"), "-lm", "-o", str(exe)]
     logs = []
     for cmd in (command, [str(exe)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

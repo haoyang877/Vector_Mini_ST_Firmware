@@ -134,7 +134,7 @@ static void Current_Reconstruct(FOC_TypeDef *FOC, unsigned sample_sector)
  * @param MotorControl 提供 ADC 零偏和运行模式。
  * @note 完整 ADC 序列结束后、当拍任何 PWM 写入前调用；校准使用原始值。
  */
-void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
+bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
 	static uint8_t overcurrent_count;
 	unsigned sample_sector = motor_hw_current_sample_sector();
@@ -147,6 +147,7 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	{
 		sample_sector = 0U;
 		Set_ErrorNow(CurrentOffset_Error);
+        return false;
 	}
 	
 	else
@@ -157,17 +158,17 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	}
 	
 	/* 先保留原始三相的保护判定，不能用重构掩盖被舍弃相的过流。 */
-	raw_overcurrent = fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
-	                  fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
-	                  fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A;
+	raw_overcurrent = fabsf(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	                  fabsf(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
+	                  fabsf(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A;
 	if (MotorControl->ModeNow != Calib_CurrentOffset)
 	{
 		Current_Reconstruct(FOC, sample_sector);
 	}
 
-	if(raw_overcurrent || fast_abs(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
-	   fast_abs(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
-	   fast_abs(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A)
+	if(raw_overcurrent || fabsf(FOC->Ia) > CURRENT_OVERCURRENT_TRIP_A ||
+	   fabsf(FOC->Ib) > CURRENT_OVERCURRENT_TRIP_A ||
+	   fabsf(FOC->Ic) > CURRENT_OVERCURRENT_TRIP_A)
 	{
 		if(overcurrent_count < OVERCURRENT_CONFIRM_CYCLES)
 			overcurrent_count++;
@@ -178,33 +179,18 @@ void Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	{
 		overcurrent_count = 0U;
 	}
+    return isfinite(FOC->Ia) && isfinite(FOC->Ib) && isfinite(FOC->Ic);
 }
 
 /**
-	* @brief  Temperature sensing and protection
-	* @param  *FOC: FOC struct pointer
- **/
-void Temperature_Update(FOC_TypeDef *FOC)
+ * @brief 更新 MCU 内部温度及现有过温保护。
+ * @param FOC 接收温度反馈，单位 ℃；采样无效时为 NaN。
+ * @param protection_enabled true执行过温保护，false保留采样但不报过温。
+ */
+void Temperature_Update(FOC_TypeDef *FOC, bool protection_enabled)
 {
-	/*from NTC datasheet*/
-	const float B = 3455.0f;
-	float R2 = 10.0f;
-	float T2 = 25.0f;
-	
-	uint32_t adc_val;
-	float R1;
-
-	/* Called at 1 kHz; keep transcendental conversion out of the fast IRQ. */
-	{
-		adc_val = TEMP_ADC->TEMP_ADC_CHANNEL;
-		
-		R1 = (4095.0f / (float)adc_val - 1.0f) * TEMP_R2;
-		
-		FOC->temp = (1.0f / ((1.0f / B) * logf(R1 / R2) + (1.0f / (T2 + 273.15f))) - 273.15f);
-		
-	}
-	
-	if(FOC->temp >= 100.0f)
+	FOC->temp = motor_hw_mcu_temperature_c();
+	if (protection_enabled && FOC->temp >= 100.0f)
 	{
 		Set_ErrorNow(High_Temprature);
 	}

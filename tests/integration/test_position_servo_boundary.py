@@ -1,13 +1,11 @@
-
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "tools"))
 import re
 import unittest
-from pathlib import Path
 
+from project_paths import ROOT
 
 SERVO_HEADER = ROOT / "firmware/motor/position/position_cascade.h"
 SERVO_SOURCE = ROOT / "firmware/motor/position/position_cascade.c"
@@ -32,6 +30,7 @@ class PositionServoBoundaryTests(unittest.TestCase):
                 "<string.h>",
                 '"foc_pid.h"',
                 '"position_cascade_config.h"',
+                '"motor_thermal.h"',
                 '"position_smooth_trajectory.h"',
             ],
         )
@@ -56,11 +55,21 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("MotorControl->friction_model_valid", adapter)
         self.assertIn("MotorControl->friction_coulomb_pos_a", adapter)
         self.assertIn("POSITION_IMPEDANCE_FRICTION_POSITIVE_A", adapter)
-        self.assertIn("POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2", adapter)
-        self.assertIn("friction_fast_release_slew_rate", public_api)
-        self.assertIn(
-            "POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S", adapter
+        # 恢复历史算法后，保留参数存储但不从RAM启用惯量前馈。
+        self.assertRegex(
+            adapter,
+            r"config\.acceleration_feedforward_gain\s*=\s*"
+            r"POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;",
         )
+        self.assertNotIn("MotorControl->position_accel_ff_gain_a_per_rad_s2", adapter)
+        configuration = (ROOT / "firmware/motor/position/position_cascade_config.h").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(
+            configuration, r"#define\s+POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2\s+0\.0f"
+        )
+        self.assertIn("friction_fast_release_slew_rate", public_api)
+        self.assertIn("MotorControl->friction_release_slew_a_per_s", adapter)
 
     def test_servo_exports_coherent_diagnostics(self) -> None:
         public_api = SERVO_HEADER.read_text(encoding="utf-8")
@@ -72,19 +81,15 @@ class PositionServoBoundaryTests(unittest.TestCase):
         self.assertIn("friction_landing_active", public_api)
         self.assertIn("settle_recovery_active", public_api)
         self.assertIn("hold_candidate_active", public_api)
-        self.assertIn("feedforward_candidate > config->current_limit", source)
+        self.assertIn("feedforward_candidate > PositionCascade_OutputLimit(config)", source)
 
     def test_landing_and_settle_recovery_use_measured_state(self) -> None:
         source = SERVO_SOURCE.read_text(encoding="utf-8")
-        self.assertIn(
-            "target_error = config->target_position - measured_position", source
-        )
+        self.assertIn("target_error = config->target_position - measured_position", source)
         self.assertIn("speed_toward_target * speed_toward_target", source)
         self.assertIn("state.settle_recovery_active = true", source)
         self.assertIn("Latch direction so crossing the target starts landing", source)
-        self.assertIn(
-            "inside_braking_envelope = remaining_distance <=", source
-        )
+        self.assertIn("inside_braking_envelope = remaining_distance <=", source)
         self.assertRegex(
             source,
             r"(?s)controller_requests_braking\s*=.*?inside_braking_envelope;",

@@ -1,9 +1,27 @@
 /** @file
- * @brief STM32G4 电流采样扇区适配，只读上一拍 PWM 比较值。
- * @note 依赖当前中心对齐 PWM 的预装载与 ADC 快中断写入顺序。
+ * @brief STM32G4 电流采样扇区与功率引脚高阻适配。
+ * @note 扇区读取依赖中心对齐 PWM 预装载与 ADC 快中断写入顺序。
  */
 #include "motor_hw.h"
 #include "stm32g4xx.h"
+
+void motor_hw_phase_outputs_high_impedance(void)
+{
+    /* 与本板 HAL 的 ANALOG 分支一致：只写 PA7～PA10、PB0～PB1 的 MODER。
+     * 保留 PUPDR、AFR 等寄存器及其他引脚，避免通用 GPIO 初始化的逐引脚循环。 */
+    GPIOA->MODER |= (3U << 14) | (3U << 16) | (3U << 18) | (3U << 20);
+    GPIOB->MODER |= 15U;
+}
+
+bool motor_hw_phase_outputs_disabled(void)
+{
+    const uint32_t phase_mask = TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                                TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                                TIM_CCER_CC3E | TIM_CCER_CC3NE;
+    const uint32_t gpioa_mask = (3U << 14) | (3U << 16) | (3U << 18) | (3U << 20);
+    return (TIM1->CCER & phase_mask) == 0U &&
+           (GPIOA->MODER & gpioa_mask) == gpioa_mask && (GPIOB->MODER & 15U) == 15U;
+}
 
 unsigned motor_hw_current_sample_sector(void)
 {

@@ -1,375 +1,341 @@
-"""Update one motor-drive Loader image over a Chuangxin USBCANFD adapter."""
-# noqa: SIZE_OK - frozen deliverable combines the required adapter, client, flow, and CLI.
+"""单目标CAN-FD升级；只在显式CLI执行时打开硬件。"""
 
 import argparse
-from collections.abc import Callable
 import ctypes as C
+import hashlib
 import json
 from pathlib import Path
+import secrets
 import struct
 import time
-from typing import Protocol, TypedDict
 
-from loader_proto import (
-    APP_BASE_ADDRESS,
-    APP_REQUEST_ENTER_BOOT,
-    APP_REQUEST_GET_MODE,
-    FLASH_PAGE_SIZE,
-    MAX_PROGRAM_CHUNK,
-    OP_ABORT,
-    OP_ACTIVATE,
-    OP_BEGIN_UPDATE,
-    OP_ERASE,
-    OP_GET_INFO,
-    OP_PROGRAM,
-    OP_VERIFY,
-    PROGRAM_ALIGNMENT,
-    REQUEST_ID_BASE,
-    RESPONSE_ID_BASE,
-    RESULT_NAMES,
-    RESULT_OK,
-    Reply,
-    crc32,
-    frame_bytes,
-    parse_reply,
-)
-import sys as _sys
-from pathlib import Path as _Path
-
-_REPO_TOOLS = _Path(__file__).resolve().parents[2] / "tools"
-if str(_REPO_TOOLS) not in _sys.path:
-    _sys.path.insert(0, str(_REPO_TOOLS))
-
+from loader_proto import frame_bytes, parse_reply, ProtocolFrameError, crc32
 from usbcan_adapter import CanFD, RxCAN, RxFD, TxFD
 
-DEFAULT_DLL = Path("D:/Work/Code/motor_ctrl_app/.local/canfd-sdk/ControlCANFD.dll")
-Trace = Callable[[str, int, bytes, int], None]
-Progress = Callable[[int, int], None]
-ReceivedFrame = tuple[int, bytes, int]
-
-
-class Bus(Protocol):
-    def send(self, channel: int, identifier: int, data: bytes) -> None: ...
-    def receive(self, channel: int, timeout: float) -> list[ReceivedFrame]: ...
-
-
-class Info(TypedDict):
-    loader_version: int
-    app_base: int
-    app_capacity: int
-    node: int
-
-
-class BeginReply(TypedDict):
-    session: int
-    app_base: int
-
-
-class UpdateResult(TypedDict):
-    ok: bool
-    status: str
-    image_size: int
-    image_crc: int
-    session: int
-    timings_ms: dict[str, float]
-
-
-class LoaderResultError(RuntimeError):
-    """The Loader returned a nonzero result code."""
-
-    def __init__(self, opcode: int, result: int) -> None:
-        self.opcode = opcode
-        self.result = result
-        super().__init__(f"Loader opcode {opcode:#04x}: {RESULT_NAMES.get(result, f'UNKNOWN_{result}')}")
-
-
-class LoaderValueError(ValueError):
-    """A Loader API value violates its wire or update-flow contract."""
+LAYOUT_ID = 0x4F564C31
+HARDWARE_ID = 1
+PARAM_ABI = 0x4F563130
+APP_BASE = 0x08004000
+CAPACITY = 0x18000
 
 
 class LoaderBus(CanFD):
-    """Add CAN-FD transmit and combined FD/classic receive to ``CanFD``."""
+    """拥有显式选定的适配器和通道，关闭时只释放自己打开的资源。"""
 
-    def send(self, channel: int, identifier: int, data: bytes) -> None:
-        if channel not in self.channels:
-            raise LoaderValueError(f"channel is not open: {channel}")
-        if not 0 <= identifier <= 0x7FF:
-            raise LoaderValueError(f"not a standard 11-bit CAN ID: {identifier:#x}")
-        if len(data) > 64:
-            raise LoaderValueError(f"CAN-FD payload too long: {len(data)}")
-        message = TxFD()
-        message.frame.can_id = identifier
-        message.frame.length = len(data)
-        message.frame.flags = 1
-        message.frame.data[:len(data)] = data
-        self._ok(self.dll.ZCAN_TransmitFD(self.channels[channel], C.byref(message), 1), "transmit FD")
+    def send(self, channel, identifier, data):
+        """发送标准FD数据帧；SDK成功只表示提交，不表示业务成功。"""
+        if (
+            channel not in self.channels
+            or not 0 <= identifier <= 0x7FF
+            or len(data) > 64
+        ):
+            raise ValueError("Invalid CAN target/frame")
+        msg = TxFD()
+        msg.frame.can_id = identifier
+        msg.frame.length = len(data)
+        msg.frame.flags = 1
+        msg.frame.data[: len(data)] = data
+        self._ok(
+            self.dll.ZCAN_TransmitFD(self.channels[channel], C.byref(msg), 1),
+            "transmit",
+        )
 
-    def receive(self, channel: int, timeout: float) -> list[ReceivedFrame]:
-        if channel not in self.channels:
-            raise LoaderValueError(f"channel is not open: {channel}")
-        if timeout < 0:
-            raise LoaderValueError(f"negative receive timeout: {timeout}")
-        frames: list[ReceivedFrame] = []
-        calls = ((RxFD, "ZCAN_ReceiveFD", 64, max(0, round(timeout * 1000))),
-                 (RxCAN, "ZCAN_Receive", 8, 0))
-        for frame_type, name, limit, wait_ms in calls:
-            messages = (frame_type * 64)()
-            count = getattr(self.dll, name)(self.channels[channel], messages, 64, wait_ms)
+    def receive(self, channel, timeout):
+        """返回标准帧；200U的FD错误被动标记需归一化，载荷仍由上层严格校验。"""
+        rows = []
+        for kind, method, wait in (
+            (RxFD, "ZCAN_ReceiveFD", round(timeout * 1000)),
+            (RxCAN, "ZCAN_Receive", 0),
+        ):
+            buffer = (kind * 64)()
+            count = getattr(self.dll, method)(self.channels[channel], buffer, 64, wait)
             if count > 64:
-                raise OSError(f"{name} failed: SDK returned {count}")
-            for message in messages[:count]:
-                length = message.frame.length
-                if length > limit:
-                    raise OSError(f"{name} returned invalid length {length}")
-                flags = message.frame.flags if frame_type is RxFD else 0
-                frames.append((message.frame.can_id, bytes(message.frame.data[:length]), flags))
-        return frames
+                raise OSError("SDK receive failed")
+            for entry in buffer[:count]:
+                raw_id = entry.frame.can_id
+                identifier = raw_id & 0x1FFFFFFF
+                # 当前200U SDK将有效FD的ESI状态放在bit29；不能当成地址的一部分。
+                # Classic错误帧、扩展和远程帧仍拒绝；Loader CRC/关联字段在Client检查。
+                forbidden = 0xC0000000 if kind is RxFD else 0xE0000000
+                if not raw_id & forbidden and identifier <= 0x7FF:
+                    rows.append(
+                        (
+                            identifier,
+                            bytes(entry.frame.data[: entry.frame.length]),
+                        )
+                    )
+        return rows
 
 
-class LoaderClient:
-    """Serialize Loader requests and retain communication errors for diagnostics."""
+class Client:
+    """停止等待客户端；响应必须匹配本次ID/op/seq/session。"""
 
-    def __init__(self, bus: Bus, node: int = 0, timeout: float = 1.0, trace: Trace | None = None) -> None:
-        if not 0 <= node <= 15:
-            raise LoaderValueError(f"node outside Loader ID range: {node}")
-        if timeout <= 0:
-            raise LoaderValueError(f"timeout must be positive: {timeout}")
-        self.bus = bus
-        self.node = node
-        self.timeout = timeout
-        self.trace = trace
+    def __init__(self, bus, channel, node):
+        self.bus, self.channel, self.node = bus, channel, node
+        self.seq = 0
         self.session = 0
-        self.errors: list[str] = []
-        self._seq = 0
+        self.trace = []
 
-    def _record(self, detail: str) -> None:
-        self.errors.append(detail)
-
-    def _request(self, opcode: int, payload: bytes = b"", timeout: float | None = None,
-                 retries: int = 5) -> Reply:
-        seq = self._seq
-        self._seq = (self._seq + 1) & 0xFFFF
-        request_session = self.session
-        raw = frame_bytes(opcode, seq, request_session, payload)
-        try:
-            self.bus.receive(0, 0.0)
-        except (OSError, ValueError) as exc:
-            self._record(f"opcode={opcode:#x} pre-drain: {exc!r}")
-        request_timeout = self.timeout if timeout is None else timeout
-        for attempt in range(retries + 1):
-            try:
-                self.bus.send(0, REQUEST_ID_BASE + self.node, raw)
-                if self.trace:
-                    self.trace("tx", REQUEST_ID_BASE + self.node, raw, 1)
-            except (OSError, ValueError) as exc:
-                self._record(f"opcode={opcode:#x} attempt={attempt + 1} send: {exc!r}")
-                continue
-            deadline = time.perf_counter() + request_timeout
-            while time.perf_counter() < deadline:
-                try:
-                    frames = self.bus.receive(0, min(0.05, max(0.0, deadline - time.perf_counter())))
-                except (OSError, ValueError) as exc:
-                    self._record(f"opcode={opcode:#x} attempt={attempt + 1} receive: {exc!r}")
-                    break
-                for identifier, data, flags in frames:
-                    if self.trace:
-                        self.trace("rx", identifier, data, flags)
-                    if identifier & 0x20000000:
-                        self._record(f"opcode={opcode:#x} CAN error frame id={identifier:#x}")
-                        continue
-                    if identifier != RESPONSE_ID_BASE + self.node:
-                        continue
-                    if not flags & 1:
-                        self._record(f"opcode={opcode:#x} reply was not CAN-FD with BRS")
+    def request(self, op, payload=b"", timeout=1, retries=10, session=None):
+        """有界重试相同字节，不能通过创建新请求重试擦写。"""
+        self.seq += 1
+        if self.seq > 65535:
+            raise RuntimeError("Sequence exhausted")
+        sid = self.session if session is None else session
+        raw = frame_bytes(op, self.seq, sid, payload)
+        for attempt in range(retries):
+            self.bus.send(self.channel, 0x7D0 + self.node, raw)
+            self.trace.append(
+                {
+                    "op": op,
+                    "seq": self.seq,
+                    "session": sid,
+                    "attempt": attempt,
+                    "offset": struct.unpack(">I", payload[:4])[0]
+                    if op == 0x22
+                    else None,
+                    "elapsed_s": time.monotonic(),
+                }
+            )
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                for identifier, data in self.bus.receive(self.channel, 0.01):
+                    if identifier != 0x7E0 + self.node:
                         continue
                     try:
                         reply = parse_reply(data)
-                    except ValueError as exc:
-                        self._record(f"opcode={opcode:#x} malformed reply: {exc!r}")
+                    except ProtocolFrameError:
                         continue
-                    if (reply["opcode"], reply["seq"], reply["session"]) != (opcode, seq, request_session):
-                        self._record(f"opcode={opcode:#x} mismatched reply")
+                    if (reply["opcode"], reply["seq"], reply["session"]) != (
+                        op,
+                        self.seq,
+                        sid,
+                    ):
                         continue
-                    if reply["result"] != RESULT_OK:
-                        raise LoaderResultError(opcode, reply["result"])
-                    return reply
-            self._record(f"opcode={opcode:#x} attempt={attempt + 1} timeout")
-        raise TimeoutError(f"Loader opcode {opcode:#04x} timed out after {retries + 1} attempts")
+                    if reply["result"] != 0:
+                        raise RuntimeError(
+                            f"Loader rejected op {op:#x}: {reply['result']}"
+                        )
+                    return reply["payload"][2:]
+        raise TimeoutError(f"Loader op {op:#x} timed out")
 
-    @staticmethod
-    def _payload(reply: Reply, length: int) -> bytes:
-        payload = reply["payload"]
-        if len(payload) != length:
-            raise LoaderValueError(f"opcode {reply['opcode']:#x} reply length {len(payload)}, expected {length}")
-        return payload
+    def query(self, op, expected_length):
+        """用新nonce关联只读结果，不采信旧队列中的应答。"""
+        nonce = secrets.token_bytes(4)
+        payload = self.request(op, nonce, session=0)
+        if len(payload) != expected_length or payload[:4] != nonce:
+            raise RuntimeError("Malformed/stale query response")
+        return payload[4:]
 
-    def get_info(self) -> Info:
-        loader_version, app_base, capacity, node = struct.unpack(">IIIB3x", self._payload(self._request(OP_GET_INFO), 18)[2:])
-        return {"loader_version": loader_version, "app_base": app_base, "app_capacity": capacity, "node": node}
+    def check_target(self, uid):
+        """副作用前同时核对UID、节点、布局和兼容族。"""
+        info = self.query(1, 36)
+        version, base, capacity, layout, hardware, abi = struct.unpack(">6I", info[:24])
+        if (base, capacity, layout, hardware, abi, info[24]) != (
+            APP_BASE,
+            CAPACITY,
+            LAYOUT_ID,
+            HARDWARE_ID,
+            PARAM_ABI,
+            self.node,
+        ):
+            raise RuntimeError("Loader target/layout mismatch")
+        if self.query(3, 16) != uid:
+            raise RuntimeError("Selected UID mismatch")
+        self.parameter_crc = struct.unpack(">I", info[28:32])[0]
+        return version
 
-    def begin(self, size: int, crc: int, version: int, img_type: int = 1) -> BeginReply:
-        payload = struct.pack(">IIIH2x", size, crc, version, img_type)
-        session, app_base = struct.unpack(">II", self._payload(self._request(OP_BEGIN_UPDATE, payload), 10)[2:])
-        self.session = session
-        return {"session": session, "app_base": app_base}
-
-    def erase(self) -> None:
-        self._payload(self._request(OP_ERASE, timeout=20.0), 2)
-
-    def program(self, offset: int, data: bytes) -> int:
-        if (offset % PROGRAM_ALIGNMENT or not data or len(data) > MAX_PROGRAM_CHUNK
-                or len(data) % PROGRAM_ALIGNMENT):
-            raise LoaderValueError("PROGRAM requires aligned offset and 8..40 aligned data bytes")
-        reply = self._request(OP_PROGRAM, struct.pack(">I", offset) + data)
-        return struct.unpack(">I", self._payload(reply, 6)[2:])[0]
-
-    def verify(self) -> int:
-        reply = self._request(OP_VERIFY, timeout=10.0)
-        return struct.unpack(">I", self._payload(reply, 6)[2:])[0]
-
-    def activate(self) -> None:
-        self._payload(self._request(OP_ACTIVATE), 2)
-        self.session = 0
-
-    def abort(self) -> None:
-        self._payload(self._request(OP_ABORT), 2)
-        self.session = 0
-
-    def enter_boot(self) -> None:
-        identifier = (self.node << 8) | APP_REQUEST_ENTER_BOOT
-        data = bytes(4)
-        self.bus.send(0, identifier, data)
-        if self.trace:
-            self.trace("tx", identifier, data, 1)
-
-    def wait_loader_alive(self, timeout: float = 5.0) -> Info:
-        deadline = time.perf_counter() + timeout
-        while time.perf_counter() < deadline:
-            poll_started = time.perf_counter()
-            try:
-                reply = self._request(OP_GET_INFO, timeout=min(0.05, max(0.001, deadline - time.perf_counter())), retries=0)
-                loader_version, app_base, capacity, node = struct.unpack(">IIIB3x", self._payload(reply, 18)[2:])
-                return {"loader_version": loader_version, "app_base": app_base, "app_capacity": capacity, "node": node}
-            except (TimeoutError, OSError, ValueError) as exc:
-                self._record(f"wait_loader_alive: {exc!r}")
-            delay = min(0.05 - (time.perf_counter() - poll_started), deadline - time.perf_counter())
-            if delay > 0:
-                time.sleep(delay)
-        raise TimeoutError(f"Loader node {self.node} not alive after {timeout:.3f}s")
-
-    def wait_app_alive(self, timeout: float = 5.0) -> bytes:
-        deadline = time.perf_counter() + timeout
-        identifier = (self.node << 8) | APP_REQUEST_GET_MODE
-        while time.perf_counter() < deadline:
-            poll_started = time.perf_counter()
-            try:
-                data = bytes(4)
-                self.bus.send(0, identifier, data)
-                if self.trace:
-                    self.trace("tx", identifier, data, 1)
-                for reply_id, data, flags in self.bus.receive(0, min(0.05, max(0.0, deadline - time.perf_counter()))):
-                    if self.trace:
-                        self.trace("rx", reply_id, data, flags)
-                    if reply_id == identifier and len(data) == 4:
-                        return data
-            except (OSError, ValueError) as exc:
-                self._record(f"wait_app_alive: {exc!r}")
-            delay = min(0.05 - (time.perf_counter() - poll_started), deadline - time.perf_counter())
-            if delay > 0:
-                time.sleep(delay)
-        raise TimeoutError(f"APP node {self.node} not alive after {timeout:.3f}s")
+    def update(self, image, version, uid):
+        """完整下载并提交；不自动重擦恢复，也不启动电机。"""
+        validate_image(image)
+        self.check_target(uid)
+        self.session = secrets.randbelow(0xFFFFFFFF) + 1
+        manifest = (
+            struct.pack(
+                ">IIIHHIII",
+                len(image),
+                crc32(image),
+                version,
+                1,
+                0,
+                LAYOUT_ID,
+                HARDWARE_ID,
+                PARAM_ABI,
+            )
+            + uid
+        )
+        if self.request(0x20, manifest) != struct.pack(">I", APP_BASE):
+            raise RuntimeError("BEGIN response mismatch")
+        self.request(0x21, timeout=20)
+        offset = 0
+        while offset < len(image):
+            n = min(40, len(image) - offset, 2048 - offset % 2048)
+            ack = self.request(
+                0x22, struct.pack(">I", offset) + image[offset : offset + n]
+            )
+            if ack != struct.pack(">I", offset + n):
+                raise RuntimeError("Offset ACK mismatch")
+            offset += n
+        if self.request(0x23, timeout=10) != struct.pack(">I", crc32(image)):
+            raise RuntimeError("VERIFY CRC mismatch")
+        activate_ack = True
+        try:
+            self.request(0x24)
+        except TimeoutError:
+            activate_ack = False
+        return {
+            "image_bytes": len(image),
+            "image_crc32": crc32(image),
+            "session": self.session,
+            "activation_acknowledged": activate_ack,
+        }
 
 
-def update_firmware(client: LoaderClient, image_bytes: bytes, version: int,
-                    progress: Progress | None = None) -> UpdateResult:
-    """Run BEGIN, ERASE, PROGRAM, VERIFY, ACTIVATE, and APP-alive phases."""
-    if not image_bytes:
-        raise LoaderValueError("firmware image is empty")
-    image_crc = crc32(image_bytes)
-    timings: dict[str, float] = {}
-
-    total_started = time.perf_counter()
-    started = total_started
-    begin = client.begin(len(image_bytes), image_crc, version)
-    timings["begin"] = (time.perf_counter() - started) * 1000
-    if begin["app_base"] != APP_BASE_ADDRESS:
-        raise LoaderValueError(f"Loader APP base {begin['app_base']:#x}, expected {APP_BASE_ADDRESS:#x}")
-
-    started = time.perf_counter()
-    client.erase()
-    timings["erase"] = (time.perf_counter() - started) * 1000
-    program_started = time.perf_counter()
-    page_size = FLASH_PAGE_SIZE
-    offset = 0
-    while offset < len(image_bytes):
-        to_page_end = page_size - (offset % page_size)
-        step = min(MAX_PROGRAM_CHUNK, to_page_end)
-        chunk = image_bytes[offset:offset + step]
-        aligned = (len(chunk) + PROGRAM_ALIGNMENT - 1) // PROGRAM_ALIGNMENT * PROGRAM_ALIGNMENT
-        padded = chunk.ljust(aligned, b"\xFF")
-        next_offset = client.program(offset, padded)
-        if next_offset != offset + len(padded):
-            raise LoaderValueError(f"Loader next offset {next_offset}, expected {offset + len(padded)}")
-        if progress:
-            progress(min(offset + len(chunk), len(image_bytes)), len(image_bytes))
-        offset += len(padded)
-    timings["program"] = (time.perf_counter() - program_started) * 1000
-
-    started = time.perf_counter()
-    computed_crc = client.verify()
-    timings["verify"] = (time.perf_counter() - started) * 1000
-    if computed_crc != image_crc:
-        raise LoaderValueError(f"Loader CRC {computed_crc:#010x}, expected {image_crc:#010x}")
-    started = time.perf_counter()
-    client.activate()
-    timings["activate"] = (time.perf_counter() - started) * 1000
-    started = time.perf_counter()
-    client.wait_app_alive()
-    timings["app_alive"] = (time.perf_counter() - started) * 1000
-    timings["total"] = (time.perf_counter() - total_started) * 1000
-    return {"ok": True, "status": "activated", "image_size": len(image_bytes), "image_crc": image_crc,
-            "session": begin["session"], "timings_ms": timings}
+def validate_image(image):
+    """在任何硬件操作前检查重定位镜像长度和Cortex-M向量。"""
+    if len(image) < 8 or len(image) > CAPACITY or len(image) % 8:
+        raise ValueError("Image size/alignment")
+    sp, reset = struct.unpack("<II", image[:8])
+    if sp % 8 or not 0x20000028 <= sp <= 0x20008000 or not reset & 1:
+        raise ValueError("Invalid stack/Thumb vector")
+    if not APP_BASE <= reset & ~1 < APP_BASE + len(image):
+        raise ValueError("Image was not linked for this APP address")
 
 
-def main() -> int:  # noqa: BROAD_EXCEPT_OK
+def app_query(bus, channel, node, op, payload, predicate, timeout=1):
+    """只接受当前请求的nonce/版本；函数本身不发送运动命令。"""
+    deadline = time.monotonic() + timeout
+    last_send = 0
+    while time.monotonic() < deadline:
+        if time.monotonic() - last_send > 0.1:
+            bus.send(channel, (node << 8) | op, payload)
+            last_send = time.monotonic()
+        for identifier, data in bus.receive(channel, 0.01):
+            if identifier == (node << 8) | op and predicate(data):
+                return data
+    raise TimeoutError(f"APP query {op:#x} timed out")
+
+
+def app_ready(bus, channel, node, version, uid):
+    """核对新版本和同板UID；不将GET_MODE=0单独当作升级成功。"""
+    app_query(
+        bus,
+        channel,
+        node,
+        0x6F,
+        b"\0" * 4,
+        lambda data: data == struct.pack(">I", version),
+        timeout=5,
+    )
+    nonce = secrets.token_bytes(4)
+    app_query(
+        bus, channel, node, 0x63, nonce, lambda data: data == nonce + uid, timeout=2
+    )
+
+
+def app_parameter_crc(bus, channel, node):
+    """用nonce读取整个16 KiB参数区CRC，供独立上位机核对。"""
+    nonce = secrets.token_bytes(4)
+    reply = app_query(
+        bus,
+        channel,
+        node,
+        0x7C,
+        nonce,
+        lambda data: len(data) == 8 and data[:4] == nonce,
+        timeout=2,
+    )
+    return struct.unpack(">I", reply[4:])[0]
+
+
+def main():
+    """显式单设备升级CLI；多个设备由序列号与通道选择。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, required=True)
-    parser.add_argument("--node", type=int, default=0)
-    parser.add_argument("--version", type=lambda value: int(value, 0), required=True)
-    parser.add_argument("--dll", type=Path, default=DEFAULT_DLL)
-    parser.add_argument("--logdir", type=Path)
+    parser.add_argument("--dll", type=Path, required=True)
+    parser.add_argument("--adapter-serial", required=True)
+    parser.add_argument("--device-index", type=int, default=0)
+    parser.add_argument("--channel", type=int, choices=(0, 1), required=True)
+    parser.add_argument("--node", type=int, required=True)
+    parser.add_argument("--uid", required=True)
+    parser.add_argument("--package", type=Path, required=True)
+    parser.add_argument("--enter-app", action="store_true")
+    parser.add_argument("--out", type=Path, default=Path("outputs/loader_update"))
     args = parser.parse_args()
-    trace_rows: list[dict[str, str | int | float]] = []
-    trace = lambda direction, identifier, data, flags: trace_rows.append(
-        {"direction": direction, "id": f"0x{identifier:X}", "data": data.hex(), "flags": flags, "time": time.time()})
-    bus: LoaderBus | None = None
-    client: LoaderClient | None = None
-    summary: dict[str, bool | str | int | dict[str, float]]
+    uid = bytes.fromhex(args.uid)
+    if len(uid) != 12 or not 0 <= args.node <= 7:
+        raise ValueError("UID/node invalid")
+    manifest = json.loads((args.package / "manifest.json").read_text(encoding="utf-8"))
+    image = (args.package / "app.bin").read_bytes()
+    validate_image(image)
+    if (
+        manifest["app_base"],
+        manifest["layout_id"],
+        manifest["hardware_id"],
+        manifest["param_abi"],
+        manifest["image_bytes"],
+        manifest["image_crc32"],
+        manifest["image_sha256"],
+    ) != (
+        APP_BASE,
+        LAYOUT_ID,
+        HARDWARE_ID,
+        PARAM_ABI,
+        len(image),
+        crc32(image),
+        hashlib.sha256(image).hexdigest(),
+    ):
+        raise ValueError("Package manifest mismatch")
+    bus = LoaderBus(args.dll, (args.channel,), args.device_index, args.adapter_serial)
+    client = Client(bus, args.channel, args.node)
+    args.out.mkdir(parents=True, exist_ok=True)
+    report = {
+        "status": "FAIL",
+        "node": args.node,
+        "uid": args.uid,
+        "adapter": bus.info,
+        "channel": args.channel,
+    }
     try:
-        image = args.image.read_bytes()
-        bus = LoaderBus(args.dll)
-        client = LoaderClient(bus, node=args.node, trace=trace)
-        client.enter_boot()
-        client.wait_loader_alive()
-        summary = update_firmware(client, image, args.version)
-        summary["communication_errors"] = client.errors
-    except Exception as exc:  # noqa: BROAD_EXCEPT_OK
-        summary = {"ok": False, "status": "failed", "error": repr(exc)}
-        if client is not None:
-            summary["communication_errors"] = client.errors
+        if args.enter_app:
+            nonce = secrets.token_bytes(4)
+            app_query(
+                bus,
+                args.channel,
+                args.node,
+                0x63,
+                nonce,
+                lambda data: data == nonce + uid,
+            )
+            # 此处进入命令由APP停机/关相后处理，缺少回复即中止。
+            app_query(
+                bus,
+                args.channel,
+                args.node,
+                0x66,
+                b"BOOT",
+                lambda data: data == b"\0" * 4,
+            )
+            time.sleep(0.1)
+        report.update(client.update(image, manifest["app_version"], uid))
+        app_ready(bus, args.channel, args.node, manifest["app_version"], uid)
+        after_crc = app_parameter_crc(bus, args.channel, args.node)
+        report["parameter_crc_before"] = client.parameter_crc
+        report["parameter_crc_after"] = after_crc
+        if after_crc != client.parameter_crc:
+            raise RuntimeError("Protected parameter region changed")
+        report["status"] = "PASS"
     finally:
-        if bus is not None:
-            try:
-                bus.close()
-            except OSError as exc:
-                summary = {**summary, "ok": False, "close_error": repr(exc)}
-    if args.logdir:
-        args.logdir.mkdir(parents=True, exist_ok=True)
-        (args.logdir / "trace.json").write_text(json.dumps(trace_rows, indent=2), encoding="utf-8")
-        (args.logdir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(json.dumps(summary, indent=2))
-    return 0 if summary["ok"] else 1
+        report["requests"] = client.trace
+        (args.out / "summary.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+        bus.close()
+    print(
+        json.dumps(
+            {key: value for key, value in report.items() if key != "requests"}, indent=2
+        )
+    )
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

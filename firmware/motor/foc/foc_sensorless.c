@@ -1,6 +1,8 @@
 #include "foc_sensorless.h"
 
 #include <float.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "utils.h"
 #include "hw_conf.h"
@@ -9,9 +11,18 @@
 #define FLUX_OBSERVER_MAX_CORRECTION_STEP  0.2f
 #define FLUX_OBSERVER_MIN_FLUX             1e-6f
 
+#if FLT_RADIX != 2 || FLT_MANT_DIG != 24 || FLT_MAX_EXP != 128
+#error "Flux observer requires IEEE 754 binary32 float"
+#endif
+typedef char Fluxobserver_FloatMustBe4Bytes[(sizeof(float) == 4U) ? 1 : -1];
+
 static int Fluxobserver_IsFinite(float value)
 {
-	return value == value && value <= FLT_MAX && value >= -FLT_MAX;
+	uint32_t bits;
+	/* binary32 指数全1表示无穷或任意NaN；memcpy 避免指针别名违规。
+	 * ARMCC 将固定4字节复制展开，省去每快拍多处浮点比较和条件跳转。 */
+	memcpy(&bits, &value, sizeof(bits));
+	return (bits & 0x7F800000U) != 0x7F800000U;
 }
 
 static void Fluxobserver_ResetState(Fluxobserver_TypeDef *Fluxobserver)
@@ -52,6 +63,8 @@ void SensorlessStartup_Reset(SensorlessStartup_TypeDef *Startup)
 	Startup->open_loop_omega = 0.0f;
 	Startup->handoff_phase_delta = 0.0f;
 	Startup->handoff_id_reference = 0.0f;
+	Startup->handoff_phase_sin = 0.0f;
+	Startup->handoff_phase_cos = 1.0f;
 	Startup->speed_feedback = 0.0f;
 	Startup->lock_speed_feedback = 0.0f;
 	Startup->direction = 1.0f;
@@ -90,9 +103,9 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	if(!Fluxobserver_IsFinite(Fluxobserver->x1_last) || !Fluxobserver_IsFinite(Fluxobserver->x2_last))
 		Fluxobserver_ResetState(Fluxobserver);
 
-	flux_sq = fast_sq(flux);
+	flux_sq = flux * flux;
 	gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (Current_Ts * flux_sq);
-	gamma = fast_min(Fluxobserver->gamma, gamma_limit);
+	gamma = Fluxobserver->gamma < gamma_limit ? Fluxobserver->gamma : gamma_limit;
 	
 	/*Use phase currents sampled in the current ADC interrupt.*/
 	Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
@@ -110,7 +123,8 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	Fluxobserver->etax1 = Fluxobserver->x1_last - Ls * Fluxobserver->Ialpha;
 	Fluxobserver->etax2 = Fluxobserver->x2_last - Ls * Fluxobserver->Ibeta;
 	
-	Fluxobserver->phi_err = flux_sq - (fast_sq(Fluxobserver->etax1) + fast_sq(Fluxobserver->etax2));
+	Fluxobserver->phi_err = flux_sq - (Fluxobserver->etax1 * Fluxobserver->etax1 +
+		Fluxobserver->etax2 * Fluxobserver->etax2);
 	
 	Fluxobserver->x1 = Current_Ts * (Fluxobserver->y1_last + gamma * Fluxobserver->etax1 * Fluxobserver->phi_err) + Fluxobserver->x1_last;
 	Fluxobserver->x2 = Current_Ts * (Fluxobserver->y2_last + gamma * Fluxobserver->etax2 * Fluxobserver->phi_err) + Fluxobserver->x2_last;
@@ -129,11 +143,16 @@ void Fluxobserver_Update(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, F
 	Fluxobserver->sin = (Fluxobserver->x2 - Ls * Fluxobserver->Ibeta ) / flux;
 	
 	/*calculate angle with atan*/
-	Fluxobserver->theta_e = normalizeAngle(fast_atan2(Fluxobserver->sin, Fluxobserver->cos));
+	Fluxobserver->theta_e = fast_atan2(Fluxobserver->sin, Fluxobserver->cos);
 	if(!Fluxobserver_IsFinite(Fluxobserver->theta_e))
 	{
 		Fluxobserver_ResetState(Fluxobserver);
 		return;
+	}
+	/* atan2 已限制在单圈内，只补负半圈，避免通用取整归一化。 */
+	if (Fluxobserver->theta_e < 0.0f)
+	{
+		Fluxobserver->theta_e += _2PI;
 	}
 	
 	delta_theta = Fluxobserver->theta_e - Fluxobserver->theta_last;

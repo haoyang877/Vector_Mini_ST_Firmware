@@ -252,6 +252,7 @@ void PendSV_Handler(void)
   uint32_t fast_count = hil_profile_count;
 #endif
   MotorOuterLoop_Service();
+  FOC_TelemetryService();
 #if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
   outer_irq_profile.last_cycles = DWT->CYCCNT - started;
   if (outer_irq_profile.last_cycles > outer_irq_profile.max_cycles)
@@ -326,6 +327,7 @@ void ADC1_2_IRQHandler(void)
   /* Board IRQ dispatch: ISR/IER bit positions match on STM32G4.
    * Skip idle peripherals, but preserve every enabled ADC event/error path.
    * Retain these guards when regenerating the shared ADC vector. */
+
   if ((hadc1.Instance->ISR & hadc1.Instance->IER) != 0U)
     HAL_ADC_IRQHandler(&hadc1);
   Board_ADC2DispatchInterrupt();

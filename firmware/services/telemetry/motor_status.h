@@ -13,7 +13,7 @@ typedef struct {
     float speed_target, speed_feedback;
     float current_reference, current_feedback;
     float position_planned, speed_planned;
-    float temperature, bus_voltage;
+    float temperature, bus_voltage; /* temperature：MCU 温度（℃），无效时 NaN。 */
     float bus_current;
 } MotorStatus;
 

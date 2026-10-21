@@ -28,6 +28,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "boot_hw.h"
+#include "boot_handoff_app.h"
 #include "common_inc.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
@@ -61,7 +63,6 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -72,6 +73,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  boot_hw_early_init();
 
   /* USER CODE END 1 */
 
@@ -105,6 +107,8 @@ int main(void)
   MX_SPI2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* 170 MHz 快环需要开启顺序取指预取，保持20 kHz计算预算。 */
+  __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
   Board_Init();
   /* USER CODE END 2 */
 
@@ -115,19 +119,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    BootHandoff_AppPoll();
+	  
 	CAN_SendMessage();
 	  
-	if(Get_ModeNow() == Save_Param)
-	{
-		/*disable global interrupt*/
-		__disable_irq();
-		/*write parameters to flash*/
-		flash_write_param();
-		/*enable global interrupt*/
-		__enable_irq();
-		                                                                   
-		Set_ModeNow(Motor_Disable);
-	}
+    ParameterPersistence_Poll();
   }
   /* USER CODE END 3 */
 }

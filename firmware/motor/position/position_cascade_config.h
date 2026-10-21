@@ -41,22 +41,17 @@
 #define POSITION_SERVO_HOLD_EXIT_POSITION_RAD            0.004537856f /* 0.26 deg */
 #define POSITION_SERVO_HOLD_CONFIRM_TIME_S               0.05f
 
-/* Identified friction model shaping and static breakaway assistance.
- * 2026-09-22 experiment on the damping-ring motor: the breakaway pulse is a
- * torque step into a low-inertia rotor and produced 1.5-3 deg lurches with
- * 14-15 rpm spikes (see docs/reports/2026-09/cascade_smoothness_20260922.md).
- * Ratio 1.0 removes the step so the feedforward is a single ramped value, and
- * the attack/release slews are slowed so no step is injected at all. */
+/* Identified friction model shaping and static breakaway assistance. */
 #define POSITION_SERVO_FRICTION_REFERENCE_SPEED_RAD_S    0.03f
 #define POSITION_SERVO_FRICTION_STOP_SPEED_RAD_S         0.02f
 #define POSITION_SERVO_FRICTION_MOVE_SPEED_RAD_S         0.05f
 #define POSITION_SERVO_FRICTION_BREAKAWAY_DISTANCE_RAD   0.003f
 #define POSITION_SERVO_FRICTION_STUCK_TIME_S             0.05f
-#define POSITION_SERVO_FRICTION_BREAKAWAY_RATIO          1.00f
+#define POSITION_SERVO_FRICTION_BREAKAWAY_RATIO          1.20f
 /* Keep some approach torque until capture; zero-torque distance is inside it. */
 #define POSITION_SERVO_FRICTION_LANDING_ZERO_RATIO       0.50f
-#define POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S      30.0f
-#define POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S 30.0f
+#define POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S      200.0f
+#define POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S 200.0f
 #define POSITION_SERVO_FRICTION_CAPTURE_RELEASE_SLEW_A_PER_S 30.0f
 #define POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S     15.0f
 
@@ -64,5 +59,12 @@
 #define POSITION_SERVO_INTEGRAL_OPPOSING_DECAY_RATE_PER_S 10.0f
 #define POSITION_SERVO_INTEGRAL_OPPOSING_MAX_SLEW_A_PER_S 5.0f
 #define POSITION_SERVO_INTEGRAL_ZERO_THRESHOLD_A          0.001f
+
+/* 参数层兼容缺省值：仅作为轨迹结束容差，不改变主动HOLD的0.18/0.26度窗口。 */
+#define POSITION_SERVO_DAMPED_ERROR_WINDOW_RAD           0.0013962634f
+/* 参数层仍初始化这些兼容字段；当前mode3不使用独立支撑控制。 */
+#define POSITION_SERVO_SUPPORT_LIMIT_A                    3.0f
+#define POSITION_SERVO_SUPPORT_ADJUST_A_PER_S              2.0f
+#define POSITION_SERVO_SUPPORT_RELEASE_A_PER_S             2.0f
 
 #endif

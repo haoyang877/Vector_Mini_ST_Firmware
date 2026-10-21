@@ -1,5 +1,14 @@
 <img src="./docs/assets/project/logo.png" width="600"/>
 
+## 开发分支
+
+| 分支 | 同级工作目录 | 用途 |
+| --- | --- | --- |
+| `main` | `Vector_Mini_ST_Firmware` | 当前功能开发，已合并 OVP-36V |
+| `the-system-refactor` | `Vector_Mini_ST_Firmware_system_refactor` | 整体代码重构 |
+
+分支整理与冲突选择规则见[两分支与工作树整理](docs/plans/2026-10-21-two-branch-worktree-v1.md)。
+
 ## 代码目录
 
 ```text
@@ -45,7 +54,41 @@ python tests/run.py
 
 ## 软件已有功能
 
+CAN Loader与维护工具：[Loader入口](loader/README.md)、[CAN协议](docs/protocols/can_loader_v2.md)、[初装合包](docs/guides/loader_factory_package_v1.md)、[Windows维护工具](docs/guides/loader_flasher_exe_v1.md)。
+APP入口0x08004000，初装需使用完整Loader+APP包，参数区保持独立保护。
+
+Keil调试APP：[无脚本启动、工程配置与有效记录同步](docs/guides/keil_app_debug_v1.md)。
+
+调试归档v0.4.1：[版本变更、验证范围及已知限制](docs/reports/2026-10-14-v041-debug-archive.md)。
+
+已合入、默认关闭：[CAN配置及Flash保存的速度惯量前馈](docs/guides/wheel_speed_feedforward_v1.md)。
+
+前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
+
+轮电机阻力旋钮：[可行性、摩擦模型、发热估算及分阶段验收方案](docs/plans/2026-10-17-wheel-friction-knob-v1.md)。
+
+当前 APP 软件版本 **v0.6.1，build0**：恢复7a2d235的mode 3主动保持控制，保留现有参数接口和温度保护开关；
+mode 18 暂时裁剪，mode 3、速度前馈及标定保留。
+[版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
+
+Pitch 小电流支撑候选：[控制与离线验证](docs/guides/pitch_support_v1.md)、[悬臂受力分析](docs/architecture/pitch_force_analysis_v1.md)；实测记录：[小角度短测](docs/reports/2026-10-19-pitch-support-bench-v1.md)、[扩范围结果](docs/reports/2026-10-19-pitch-support-range-v1.md)、[V5全范围结果与限制](docs/reports/2026-10-19-pitch-v5-full-range-5a.md)、[保持电流辨识](docs/reports/2026-10-19-pitch-hold-interval-identification-v1.md)。
+
+[Roll位置控制实测与已保存参数](docs/reports/2026-10-20-roll-mode3-historical-tuning-v1.md)、
+[温度保护通信开关](docs/protocols/motor_temperature_protection_switch_v1.md)。
+
+绕组热保护：[设计原理与控制链路](docs/architecture/motor_winding_thermal_design_v1.md)、
+[配置与使用](docs/guides/motor_winding_thermal_protection_v1.md)、
+[零速闭环 Id 热测试与波形](docs/reports/2026-10-16-zero-speed-id-thermal-test.md)。
+
 模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
+
+独立调参：[速度模式与位置级联的两套速度 PI、旧 Flash 兼容及保存](docs/guides/separate_speed_pi.md)。
+
+同一电机增减阻尼环：[roll / wheel 共用固件与运行时切换](docs/guides/roll_wheel_runtime_profile.md)。
+
+硬件检查方法：[电流采样、三相通路、相序和电阻检查 v0.1](docs/guides/motor_electrical_health_test_v1.md)。
+
+新电机完整交付流程：[硬件链路、角度/摩擦标定、速度及位置测试](docs/guides/new_motor_commissioning_workflow.md)。
 
 底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
 

@@ -2,6 +2,7 @@
 #define __FOC_SENSORLESS_H__
 
 #include "data_type.h"
+#include "motor_load_profile.h"
 #include "foc_algorithm.h"
 
 typedef struct
@@ -36,28 +37,6 @@ typedef enum
 
 typedef struct
 {
-	float align_current_ramp_time_s;
-	float align_hold_time_s;
-	float align_current_a;
-	float startup_iq_initial_a;
-	float startup_iq_a;
-	float startup_iq_ramp_time_s;
-	float startup_id_a;
-	float minimum_current_limit_a;
-	float minimum_electrical_velocity_rad_s;
-	float target_electrical_velocity_rad_s;
-	float startup_ramp_time_s;
-	float speed_lock_time_s;
-	float speed_lock_filter_alpha;
-	float observer_lock_ratio;
-	float angle_handoff_time_s;
-	float lock_timeout_s;
-	float id_ramp_down_time_s;
-	float observer_loss_time_s;
-}SensorlessStartupConfig_TypeDef;
-
-typedef struct
-{
 	SensorlessStartupState_TypeDef state;
 	float open_loop_theta;
 	float open_loop_omega;
@@ -73,6 +52,9 @@ typedef struct
 	uint32_t lock_ticks;
 	uint32_t id_ramp_ticks;
 	uint32_t loss_ticks;
+	/* 交接相差的单位正余弦，仅由启动状态机递推；复位/交接结束为 0/1。 */
+	float handoff_phase_sin;
+	float handoff_phase_cos;
 }SensorlessStartup_TypeDef;
 
 void Fluxobserver_ParamInit(Fluxobserver_TypeDef *Fluxobserver);

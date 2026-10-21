@@ -1,0 +1,22 @@
+{
+  "revision": 1,
+  "wire_changed": false,
+  "baud_reply_id_bug_fixed": true,
+  "vectors": [
+    {"name": "node4", "request_id": 1033, "request_hex": "00000000", "reply_id": 1033, "reply_hex": "40800000"},
+    {"name": "current_minus_1_25_a", "request_id": 1027, "request_hex": "00000000", "reply_id": 1027, "reply_hex": "fb1e"},
+    {"name": "baud_1000", "request_id": 1065, "request_hex": "00000000", "reply_id": 1065, "reply_hex": "447a0000"},
+    {"name": "uid", "request_id": 1123, "request_hex": "01020304", "reply_id": 1123, "reply_hex": "01020304000102030405060708090a0b"},
+    {"name": "parameter_crc", "request_id": 1148, "request_hex": "01020304", "reply_id": 1148, "reply_hex": "0102030412345678"}
+  ],
+  "rename": {
+    "old_node": 4,
+    "new_node": 3,
+    "request_id": 1032,
+    "request_hex": "40400000",
+    "requires_stopped_and_phases_off": true,
+    "automatic_ack": false,
+    "query_id": 777,
+    "reply_hex": "40400000"
+  }
+}

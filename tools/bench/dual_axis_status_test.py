@@ -205,7 +205,7 @@ def main():
         for axis,config in AXES.items():
             verify(axis,0,0);verify(axis,0x4c,0);verify(axis,8,config['node']);verify(axis,0xc,1)
             row={}
-            for key,param,wanted in [('position_kp',0x54,8),('position_kd',0x56,2),('speed_kp',0x18,.5),('speed_ki',0x1a,config['ki']),('current_limit',0x10,6),('acc_rad_s2',0x1c,math.radians(45)),('dec_rad_s2',0x1e,math.radians(45))]:
+            for key,param,wanted in [('position_kp',0x54,8),('position_kd',0x56,2),('speed_kp',0x6b,.5),('speed_ki',0x6d,config['ki']),('current_limit',0x10,6),('acc_rad_s2',0x1c,math.radians(45)),('dec_rad_s2',0x1e,math.radians(45))]:
                 row[key]=verify(axis,param,wanted)
             original_speeds[axis]=read(axis,0x20)
             if not 0<original_speeds[axis]<=math.radians(45)+1e-6: raise RuntimeError('unexpected speed configuration')

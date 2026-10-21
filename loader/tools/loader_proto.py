@@ -1,20 +1,20 @@
-"""Pure framing and parsing for the motor-drive Loader CAN-FD protocol."""
+"""Loader v2纯帧编解码，与C黄金向量一致，不访问硬件。"""
 
 from typing import Final, TypedDict
 import struct
 import zlib
 
 MAGIC: Final = 0xB1
-PROTOCOL_VERSION: Final = 0x01
+PROTOCOL_VERSION: Final = 0x02
 HEADER_SIZE: Final = 12
 CRC_SIZE: Final = 4
 MAX_PAYLOAD_SIZE: Final = 48
 FD_LENGTHS: Final = (16, 20, 24, 32, 48, 64)
 
-# Mirrored from shared/flash_layout/flash_layout.h (see tests/test_protocol_single_source.py).
+# 当前target几何由shared/boot_contract.h和跨语言测试核对。
 FLASH_PAGE_SIZE: Final = 0x800
 
-# Mirrored from shared/protocol/loader_can_v1.h (see tests/test_protocol_single_source.py).
+# v2停止等待字段；与loader/firmware/loader_cfg.h一致。
 PROGRAM_ALIGNMENT: Final = 8
 MAX_PROGRAM_CHUNK: Final = 40
 BOOT_WINDOW_MS: Final = 50
@@ -28,6 +28,7 @@ APP_CAPACITY: Final = 0x18000
 
 OP_GET_INFO: Final = 0x01
 OP_GET_STATUS: Final = 0x02
+OP_GET_UID: Final = 0x03
 OP_BEGIN_UPDATE: Final = 0x20
 OP_ERASE: Final = 0x21
 OP_PROGRAM: Final = 0x22
@@ -55,11 +56,16 @@ RESULT_NAMES: Final = {
     RESULT_FLASH_ERR: "FLASH_ERR",
     RESULT_VERIFY_FAIL: "VERIFY_FAIL",
     RESULT_BAD_OP: "BAD_OP",
+    9: "BAD_SESSION",
+    10: "BUSY",
+    11: "CONFLICT",
+    12: "BAD_IDENTITY",
+    13: "BAD_COMPATIBILITY",
 }
 
 
 class Reply(TypedDict):
-    """Parsed Loader reply fields."""
+    """解析后的Loader回复字段。"""
 
     opcode: int
     flags: int
@@ -71,21 +77,21 @@ class Reply(TypedDict):
 
 
 class ProtocolFrameError(ValueError):
-    """A received frame does not satisfy the frozen wire format."""
+    """接收帧不满足v2格式。"""
 
 
 def crc32(data: bytes) -> int:
-    """Return the unsigned ISO-HDLC CRC32 used on the wire."""
+    """返回线上使用的无符号CRC-32/ISO-HDLC。"""
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
 def valid_fd_lengths(minimum: int = 0) -> tuple[int, ...]:
-    """Return valid CAN-FD lengths that can contain at least ``minimum`` bytes."""
+    """返回能容纳给定字节数的合法FD长度。"""
     return tuple(length for length in FD_LENGTHS if length >= minimum)
 
 
 def frame_bytes(op: int, seq: int, session: int, payload: bytes = b"") -> bytes:
-    """Encode one Loader frame and pad it to the smallest valid CAN-FD length."""
+    """编码一帧并补齐最小合法FD长度。"""
     if not 0 <= op <= 0xFF:
         raise ProtocolFrameError(f"opcode outside u8 range: {op}")
     if not 0 <= seq <= 0xFFFF:
@@ -95,20 +101,24 @@ def frame_bytes(op: int, seq: int, session: int, payload: bytes = b"") -> bytes:
     if len(payload) > MAX_PAYLOAD_SIZE:
         raise ProtocolFrameError(f"payload exceeds {MAX_PAYLOAD_SIZE} bytes")
 
-    header = struct.pack(">BBBBHHI", MAGIC, PROTOCOL_VERSION, op, 0, seq, len(payload), session)
+    header = struct.pack(
+        ">BBBBHHI", MAGIC, PROTOCOL_VERSION, op, 0, seq, len(payload), session
+    )
     protected = header + payload
     encoded = protected + struct.pack(">I", crc32(protected))
     lengths = valid_fd_lengths(len(encoded))
     if not lengths:
         raise ProtocolFrameError("frame exceeds 64-byte CAN-FD limit")
-    return encoded.ljust(lengths[0], b"\xFF")
+    return encoded.ljust(lengths[0], b"\xff")
 
 
 def parse_reply(raw: bytes) -> Reply:
-    """Parse and CRC-check a padded Loader reply."""
+    """检查回复字段、CRC及填充并解析。"""
     if len(raw) not in FD_LENGTHS:
         raise ProtocolFrameError(f"invalid CAN-FD frame length: {len(raw)}")
-    magic, version, opcode, flags, seq, payload_len, session = struct.unpack(">BBBBHHI", raw[:HEADER_SIZE])
+    magic, version, opcode, flags, seq, payload_len, session = struct.unpack(
+        ">BBBBHHI", raw[:HEADER_SIZE]
+    )
     if magic != MAGIC or version != PROTOCOL_VERSION or flags != 0:
         raise ProtocolFrameError("invalid Loader header")
     if payload_len < 2 or payload_len > MAX_PAYLOAD_SIZE:
@@ -118,7 +128,7 @@ def parse_reply(raw: bytes) -> Reply:
     frame_end = crc_offset + CRC_SIZE
     if frame_end > len(raw):
         raise ProtocolFrameError("declared payload exceeds frame length")
-    if raw[frame_end:] != b"\xFF" * (len(raw) - frame_end):
+    if raw[frame_end:] != b"\xff" * (len(raw) - frame_end):
         raise ProtocolFrameError("invalid CAN-FD padding")
 
     protected = raw[:crc_offset]

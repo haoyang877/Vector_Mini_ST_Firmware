@@ -1,4 +1,6 @@
 #include "foc_algorithm.h"
+#include "motor_thermal.h"
+#include "foc_errhandle.h"
 
 #include <stdbool.h>
 #include "utils.h"
@@ -317,6 +319,15 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
     float voltage_d;
     float voltage_q;
 
+    float effective_limit_a = MotorThermal_ResolveLimit(MotorControl->current_limit,
+        MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
+    if (!MotorThermal_LimitVector(effective_limit_a, &MotorControl->idRef, &MotorControl->iqRef))
+    {
+        Set_ErrorNow(MotorThermal_Protection);
+        FOC_CurrentController_Reset(FOC);
+        return;
+    }
+
     FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
 
     Clarke_Transform(FOC->Ia, FOC->Ib, FOC->Ic, &FOC->Ialpha, &FOC->Ibeta);
@@ -332,11 +343,13 @@ void FOC_Current(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, float pha
         voltage_q = PI_Controller_Run(&FOC->iq_pi, MotorControl->iqRef, FOC->Iq);
         FOC_SetVoltageModulation(FOC, voltage_d, voltage_q);
 
-        PI_Controller_TrackOutput(&FOC->id_pi, FOC->mod_d * FOC->Vbus_filt / 1.5f);
-        PI_Controller_TrackOutput(&FOC->iq_pi, FOC->mod_q * FOC->Vbus_filt / 1.5f);
         /* 实际 d/q 电压(V)：由标幺调制量还原（与上面的抗饱和关系一致），供遥测/诊断消费。 */
-        FOC->Vd = FOC->mod_d * FOC->Vbus_filt / 1.5f;
-        FOC->Vq = FOC->mod_q * FOC->Vbus_filt / 1.5f;
+        voltage_d = FOC->mod_d * FOC->Vbus_filt / 1.5f;
+        voltage_q = FOC->mod_q * FOC->Vbus_filt / 1.5f;
+        PI_Controller_TrackOutput(&FOC->id_pi, voltage_d);
+        PI_Controller_TrackOutput(&FOC->iq_pi, voltage_q);
+        FOC->Vd = voltage_d;
+        FOC->Vq = voltage_q;
     }
     else
     {

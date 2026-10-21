@@ -67,7 +67,8 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
             return stored->minimum_position_rad == 0.0f &&
                 stored->maximum_position_rad == 0.0f && stored->maximum_speed_rad_s == 0.0f;
         if (stored->identity.numeric.joint_type != MOTOR_JOINT_ROLL &&
-            stored->identity.numeric.joint_type != MOTOR_JOINT_PITCH) return false;
+            stored->identity.numeric.joint_type != MOTOR_JOINT_PITCH &&
+            stored->identity.numeric.joint_type != MOTOR_JOINT_YAW) return false;
     } else if (stored->magic != MOTOR_AXIS_PROFILE_MAGIC || stored->version != MOTOR_AXIS_PROFILE_VERSION ||
                MotorAxisProfile_JointType(stored) == MOTOR_JOINT_UNKNOWN) return false;
     return
@@ -144,6 +145,12 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
     case MOTOR_JOINT_PITCH:
         minimum = -0.3f; maximum = 0.9f; config.speed_ki = 2.0f;
         break;
+    case MOTOR_JOINT_YAW:
+        minimum = -3.141592654f; maximum = 3.141592654f;
+        config.acceleration_rad_s2 = 0.2f;
+        config.deceleration_rad_s2 = 0.2f;
+        config.maximum_current_a = 8.0f;
+        break;
     default: return false;
     }
     if (checked.minimum_position_rad < minimum || checked.maximum_position_rad > maximum ||
@@ -159,6 +166,16 @@ int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisProfile *profile
     if (profile == NULL || !valid || single_turn_difference < -65535 ||
         single_turn_difference > 65535) return single_turn_difference;
     joint_type = MotorAxisProfile_JointType(profile);
+    /* yaw 覆盖整圈；启动只选距零位最近的单圈分支，端点仍由限位拒绝。 */
+    if (joint_type == MOTOR_JOINT_YAW &&
+        profile->minimum_position_rad >= -3.141592654f &&
+        profile->maximum_position_rad <= 3.141592654f &&
+        profile->minimum_position_rad < profile->maximum_position_rad)
+    {
+        if (single_turn_difference > 32768) { return single_turn_difference - 65536; }
+        if (single_turn_difference < -32768) { return single_turn_difference + 65536; }
+        return single_turn_difference;
+    }
     if ((joint_type != MOTOR_JOINT_ROLL && joint_type != MOTOR_JOINT_PITCH) ||
         !(profile->minimum_position_rad > -3.141592654f &&
           profile->maximum_position_rad < 3.141592654f &&

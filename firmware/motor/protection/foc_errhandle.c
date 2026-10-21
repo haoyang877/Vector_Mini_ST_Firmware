@@ -5,10 +5,11 @@
 #include "foc_algorithm.h"
 #include "foc_pid.h"
 #include "encoder.h"
-#include "foc_sensorless.h"
 #include "foc_run.h"
 #include "foc_friction_identification.h"
 #include "bus_voltage_profile.h"
+#include "motor_thermal_control.h"
+#include "motor_hw.h"
 
 extern MotorControl_TypeDef MotorControl;
 extern FOC_TypeDef FOC;
@@ -16,7 +17,6 @@ extern PI_Controller_TypeDef PI_Speed;
 extern ModeNow_TypeDef  ModeLast;
 extern ErrorNow_TypeDef ErrorLast;
 extern Encoder_TypeDef OnBoard_Encoder;
-extern SensorlessStartup_TypeDef SensorlessStartup;
 
 bool is_Mode_Error_Change;
 
@@ -57,30 +57,6 @@ void Set_ErrorNow(ErrorNow_TypeDef tErrorNow)
 }
 
 /**
-	* @brief  Clear running control data
- **/
-void Clear_RunningData(void)
-{
-	if (ModeLast == Calib_Friction)
-		FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
-	MotorControl.idRef		 = 0.0f;
-	MotorControl.iqRef		 = 0.0f;
-	MotorControl.vqRef		 = 0.0f;
-	MotorControl.speedRef    = 0.0f;
-	MotorControl.speedShadow = 0.0f;
-	MotorControl.posShadow   = 0.0f;
-	MotorControl.isReachTargetPos = false;
-	MotorControl.pos_vel_filtered = 0.0f;
-	Task_Position_Mode_Reset();
-	
-	FOC.Id = 0.0f;
-	FOC.Iq = 0.0f;
-	FOC_CurrentController_Reset(&FOC);
-	PI_Controller_Reset(&PI_Speed);
-	SensorlessStartup_Reset(&SensorlessStartup);
-}
-
-/**
 	* @brief  Handle motor mode switching
 	*         motor identification is removed, motor body parameters
 	*         are filled externally; closed-loop modes require encoder
@@ -88,8 +64,26 @@ void Clear_RunningData(void)
 	* @param  mode_set: target mode
 	* @retval true if mode switched
  **/
+void MotorControl_LockMaintenance(void)
+{
+    MotorControl.maintenance_inhibit = true;
+}
+
 bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 {
+    if (MotorControl.maintenance_inhibit && mode_set != Motor_Disable)
+    {
+        return false;
+    }
+    if (!MotorThermalControl_CanRunMode((uint32_t)mode_set))
+    {
+        if (MotorControl.ErrorNow == No_Error)
+        {
+            Set_ErrorNow(MotorThermalControl_ParametersConfirmed() ?
+                MotorThermal_Protection : MotorParam_Error);
+        }
+        return false;
+    }
 	/* Reject an unsafe restart before any phase output can be enabled.
 	 * The normal supervisor owns voltage fault latching during operation. */
 	if (MotorControl.ModeNow == Motor_Disable &&
@@ -113,17 +107,15 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 			return false;
 		}
 	}
+	/* mode 18 已裁剪；拒绝旧命令，不改变当前运行模式与错误。 */
+	if (mode_set == Position_Impedance_Mode)
+	{
+		return false;
+	}
 	/* Unknown/unconfigured numeric joints cannot fall through to another
 	 * torque-producing mode. Diagnostics and explicit storage remain usable. */
 	if (!MotorControl.axis_profile_valid && mode_set != Motor_Disable &&
 		mode_set != Clear_Error && mode_set != Save_Param)
-	{
-		Set_ErrorNow(MotorParam_Error);
-		return false;
-	}
-	if (mode_set == Position_Mode && !MotorAxisProfile_AllowsPosition(
-		&MotorControl.axis_profile, MotorControl.axis_profile_valid,
-		Encoder_GetMecPos(&OnBoard_Encoder), Encoder_GetMecPos(&OnBoard_Encoder)))
 	{
 		Set_ErrorNow(MotorParam_Error);
 		return false;
@@ -173,22 +165,38 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 	
 	if(MotorControl.ModeNow == Motor_Disable && MotorControl.ErrorNow == No_Error)
 	{
-		/* Entering either position mode must hold the present position, not a stale target. */
-		if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
-		{
-			float current_position = Encoder_GetMecPos(&OnBoard_Encoder);
+        /* 位置模式从真实位置起步；mode3 越界时只收窄内部保持目标。 */
+        if (mode_set == Position_Mode || mode_set == Position_Impedance_Mode)
+        {
+            float current_position_rad = Encoder_GetMecPos(&OnBoard_Encoder);
+            float position_target_rad = current_position_rad;
 
-			if (!isfinite(current_position))
-			{
-				Set_ErrorNow(Encoder_Error);
-				return false;
-			}
-			MotorControl.posRef = current_position;
-			MotorControl.posShadow = current_position;
-			MotorControl.speedShadow = 0.0f;
-			MotorControl.isReachTargetPos = false;
-			Task_Position_Mode_Reset();
-		}
+            if (!isfinite(current_position_rad))
+            {
+                Set_ErrorNow(Encoder_Error);
+                return false;
+            }
+            if (mode_set == Position_Mode)
+            {
+                if (MotorControl.axis_profile.magic != 0U)
+                {
+                    position_target_rad = fminf(fmaxf(current_position_rad,
+                        MotorControl.axis_profile.minimum_position_rad),
+                        MotorControl.axis_profile.maximum_position_rad);
+                }
+                if (!MotorAxisProfile_AllowsPosition(&MotorControl.axis_profile,
+                    MotorControl.axis_profile_valid, current_position_rad, position_target_rad))
+                {
+                    Set_ErrorNow(MotorParam_Error);
+                    return false;
+                }
+            }
+            MotorControl.posRef = position_target_rad;
+            MotorControl.posShadow = current_position_rad;
+            MotorControl.speedShadow = 0.0f;
+            MotorControl.isReachTargetPos = false;
+            Task_Position_Mode_Reset();
+        }
 		MotorControl.ModeNow = mode_set;
 		return true;
 	}
@@ -218,16 +226,18 @@ bool ModeSwitch_Handle(ModeNow_TypeDef mode_set)
 		}
 	}
 	
-	if(mode_set == Clear_Error)
-	{
-		if(MotorControl.ErrorNow != No_Error)
-		{
-			MotorControl.ErrorNow = No_Error;
-			MotorControl.ModeNow = Motor_Disable;
-			return true;
-		}
-	}
-	
+    if (mode_set == Clear_Error)
+    {
+        if ((MotorControl.ErrorNow == MotorThermal_Protection ||
+             MotorControl.ErrorNow == No_Error) && !MotorThermalControl_CanClearFault())
+        {
+            return false;
+        }
+        /* 清其他故障不清热量；实际热锁存清除仍由快上下文再次判断。 */
+        MotorControl.ModeNow = Clear_Error;
+        return true;
+    }
+
 	return false;
 }
 
@@ -264,14 +274,7 @@ void Clear_Mode_Error_Change(void)
  **/
 void PWM_Outputs_HiZ(void)
 {
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	GPIO_InitStruct.Pin = PWM_AL_Pin | PWM_AH_Pin | PWM_BH_Pin | PWM_CH_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	HAL_GPIO_Init(PWM_AL_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin = PWM_BL_Pin | PWM_CL_Pin;
-	HAL_GPIO_Init(PWM_BL_GPIO_Port, &GPIO_InitStruct);
+    motor_hw_phase_outputs_high_impedance();
 }
 
 /**

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<?xml version='1.0' encoding='utf-8'?>
 <Project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project_projx.xsd">
 
   <SchemaVersion>2.1</SchemaVersion>
@@ -19,28 +19,28 @@
           <PackID>Keil.STM32G4xx_DFP.2.2.0</PackID>
           <PackURL>https://www.keil.com/pack/</PackURL>
           <Cpu>IRAM(0x20000020-0x20007FFF) IROM(0x8000000-0x8002FFF)  CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4") TZ</Cpu>
-          <FlashUtilSpec></FlashUtilSpec>
-          <StartupFile></StartupFile>
-          <FlashDriverDll></FlashDriverDll>
+          <FlashUtilSpec />
+          <StartupFile />
+          <FlashDriverDll />
           <DeviceId>0</DeviceId>
-          <RegisterFile></RegisterFile>
-          <MemoryEnv></MemoryEnv>
-          <Cmp></Cmp>
-          <Asm></Asm>
-          <Linker></Linker>
-          <OHString></OHString>
-          <InfinionOptionDll></InfinionOptionDll>
-          <SLE66CMisc></SLE66CMisc>
-          <SLE66AMisc></SLE66AMisc>
-          <SLE66LinkerMisc></SLE66LinkerMisc>
+          <RegisterFile />
+          <MemoryEnv />
+          <Cmp />
+          <Asm />
+          <Linker />
+          <OHString />
+          <InfinionOptionDll />
+          <SLE66CMisc />
+          <SLE66AMisc />
+          <SLE66LinkerMisc />
           <SFDFile>$$Device:STM32G431CBUx$CMSIS\SVD\STM32G431.svd</SFDFile>
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
-          <BinPath></BinPath>
-          <IncludePath></IncludePath>
-          <LibPath></LibPath>
-          <RegisterFilePath></RegisterFilePath>
-          <DBRegisterFilePath></DBRegisterFilePath>
+          <BinPath />
+          <IncludePath />
+          <LibPath />
+          <RegisterFilePath />
+          <DBRegisterFilePath />
           <TargetStatus>
             <Error>0</Error>
             <ExitCodeStop>0</ExitCodeStop>
@@ -55,15 +55,15 @@
           <CreateHexFile>1</CreateHexFile>
           <DebugInformation>1</DebugInformation>
           <BrowseInformation>1</BrowseInformation>
-          <ListingPath></ListingPath>
+          <ListingPath>..\..\outputs\build\keil\Vector_Mini_ST_Loader\</ListingPath>
           <HexFormatSelection>1</HexFormatSelection>
           <Merge32K>0</Merge32K>
           <CreateBatchFile>0</CreateBatchFile>
           <BeforeCompile>
             <RunUserProg1>0</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name></UserProg1Name>
-            <UserProg2Name></UserProg2Name>
+            <UserProg1Name />
+            <UserProg2Name />
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
             <nStopU1X>0</nStopU1X>
@@ -72,8 +72,8 @@
           <BeforeMake>
             <RunUserProg1>0</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name></UserProg1Name>
-            <UserProg2Name></UserProg2Name>
+            <UserProg1Name />
+            <UserProg2Name />
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
             <nStopB1X>0</nStopB1X>
@@ -82,15 +82,15 @@
           <AfterMake>
             <RunUserProg1>0</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name></UserProg1Name>
-            <UserProg2Name></UserProg2Name>
+            <UserProg1Name />
+            <UserProg2Name />
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
             <nStopA1X>0</nStopA1X>
             <nStopA2X>0</nStopA2X>
           </AfterMake>
           <SelectedForBatchBuild>1</SelectedForBatchBuild>
-          <SVCSIdString></SVCSIdString>
+          <SVCSIdString />
         </TargetCommonOption>
         <CommonProperty>
           <UseCPPCompiler>0</UseCPPCompiler>
@@ -104,8 +104,8 @@
           <AssembleAssemblyFile>0</AssembleAssemblyFile>
           <PublicsOnly>0</PublicsOnly>
           <StopOnExitCode>3</StopOnExitCode>
-          <CustomArgument></CustomArgument>
-          <IncludeLibraryModules></IncludeLibraryModules>
+          <CustomArgument />
+          <IncludeLibraryModules />
           <ComprImg>0</ComprImg>
         </CommonProperty>
         <DllOption>
@@ -137,12 +137,12 @@
             <DriverSelection>4101</DriverSelection>
           </Flash1>
           <bUseTDR>1</bUseTDR>
-          <Flash2>BIN\UL2CM3.DLL</Flash2>
-          <Flash3></Flash3>
-          <Flash4></Flash4>
-          <pFcarmOut></pFcarmOut>
-          <pFcarmGrp></pFcarmGrp>
-          <pFcArmRoot></pFcArmRoot>
+          <Flash2>BIN\UL2V8M.DLL</Flash2>
+          <Flash3 />
+          <Flash4 />
+          <pFcarmOut />
+          <pFcarmGrp />
+          <pFcArmRoot />
           <FcArmLst>0</FcArmLst>
         </Utilities>
         <TargetArmAds>
@@ -175,7 +175,7 @@
             <RvctClst>0</RvctClst>
             <GenPPlst>0</GenPPlst>
             <AdsCpuType>"Cortex-M4"</AdsCpuType>
-            <RvctDeviceName></RvctDeviceName>
+            <RvctDeviceName />
             <mOS>0</mOS>
             <uocRom>0</uocRom>
             <uocRam>0</uocRam>
@@ -246,7 +246,7 @@
               <IRAM>
                 <Type>0</Type>
                 <StartAddress>0x20000020</StartAddress>
-                <Size>0x7fe0</Size>
+                <Size>0x7FE0</Size>
               </IRAM>
               <IROM>
                 <Type>1</Type>
@@ -309,7 +309,7 @@
                 <Size>0x8000</Size>
               </OCR_RVCT10>
             </OnChipMemories>
-            <RvctStartVector></RvctStartVector>
+            <RvctStartVector />
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
@@ -338,8 +338,8 @@
             <VariousControls>
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx</Define>
-              <Undefine></Undefine>
-              <IncludePath>../../firmware/platform/stm32g4/cubemx/Core/Inc;../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc;../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../../firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include;../../firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Include;..\..\shared</IncludePath>
+              <Undefine />
+              <IncludePath>..\..\firmware\platform\stm32g4\cubemx\Core\Inc;..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\firmware\platform\stm32g4\cubemx\Drivers\CMSIS\Include;..\..\firmware\app;..\..\firmware\common;..\..\firmware\communication\can;..\..\firmware\communication\protocol;..\..\firmware\motor;..\..\firmware\motor\foc;..\..\firmware\motor\identification;..\..\firmware\motor\position;..\..\firmware\motor\protection;..\..\firmware\motor\trajectory;..\..\firmware\platform\api;..\..\firmware\platform\stm32g4\bsp;..\..\firmware\services\parameters;..\..\firmware\services\telemetry;..\..\firmware\third_party\segger_rtt;..\..\tests\hil\firmware;../firmware;../../shared</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -354,10 +354,10 @@
             <useXO>0</useXO>
             <ClangAsOpt>1</ClangAsOpt>
             <VariousControls>
-              <MiscControls></MiscControls>
-              <Define></Define>
-              <Undefine></Undefine>
-              <IncludePath></IncludePath>
+              <MiscControls />
+              <Define />
+              <Undefine />
+              <IncludePath />
             </VariousControls>
           </Aads>
           <LDads>
@@ -367,152 +367,102 @@
             <noStLib>0</noStLib>
             <RepFail>1</RepFail>
             <useFile>0</useFile>
-            <TextAddressRange></TextAddressRange>
-            <DataAddressRange></DataAddressRange>
-            <pXoBase></pXoBase>
+            <TextAddressRange />
+            <DataAddressRange />
+            <pXoBase />
             <ScatterFile>Vector_Mini_ST_Loader\Vector_Mini_ST_Loader.sct</ScatterFile>
-            <IncludeLibs></IncludeLibs>
-            <IncludeLibsPath></IncludeLibsPath>
-            <Misc></Misc>
-            <LinkerInputFile></LinkerInputFile>
-            <DisabledWarnings></DisabledWarnings>
+            <IncludeLibs />
+            <IncludeLibsPath />
+            <Misc />
+            <LinkerInputFile />
+            <DisabledWarnings />
           </LDads>
         </TargetArmAds>
       </TargetOption>
       <Groups>
-        <Group>
-          <GroupName>Loader</GroupName>
-          <Files>
-            <File>
-              <FileName>loader_main.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\firmware\loader_main.c</FilePath>
-            </File>
-            <File>
-              <FileName>loader_can.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\firmware\loader_can.c</FilePath>
-            </File>
-            <File>
-              <FileName>loader_flash.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\firmware\loader_flash.c</FilePath>
-            </File>
-            <File>
-              <FileName>loader_crc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\firmware\loader_crc.c</FilePath>
-            </File>
-            <File>
-              <FileName>loader_proto.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\firmware\loader_proto.c</FilePath>
-            </File>
-            <File>
-              <FileName>loader_jump.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\firmware\loader_jump.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Startup</GroupName>
-          <Files>
-            <File>
+        <Group><GroupName>Loader</GroupName><Files><File><FileName>loader_main.c</FileName><FileType>1</FileType><FilePath>..\firmware\loader_main.c</FilePath></File><File><FileName>loader_can.c</FileName><FileType>1</FileType><FilePath>..\firmware\loader_can.c</FilePath></File><File><FileName>loader_port.c</FileName><FileType>1</FileType><FilePath>..\firmware\loader_port.c</FilePath></File><File><FileName>loader_core.c</FileName><FileType>1</FileType><FilePath>..\firmware\loader_core.c</FilePath></File><File><FileName>loader_proto.c</FileName><FileType>1</FileType><FilePath>..\firmware\loader_proto.c</FilePath></File><File><FileName>boot_contract.c</FileName><FileType>1</FileType><FilePath>../../shared/boot_contract.c</FilePath></File></Files></Group><Group><GroupName>Startup</GroupName><Files><File>
               <FileName>startup_stm32g431xx.s</FileName>
               <FileType>2</FileType>
               <FilePath>..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s</FilePath>
             </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Core</GroupName>
-          <Files>
-            <File>
+          </Files></Group><Group><GroupName>Core</GroupName><Files><File>
               <FileName>system_stm32g4xx.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Core/Src/system_stm32g4xx.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Core\Src\system_stm32g4xx.c</FilePath>
             </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>HAL</GroupName>
-          <Files>
-            <File>
+          </Files></Group><Group><GroupName>HAL</GroupName><Files><File>
               <FileName>stm32g4xx_hal.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_cortex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_cortex.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_rcc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_rcc.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_rcc_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_rcc_ex.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_gpio.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_gpio.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_fdcan.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_fdcan.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_fdcan.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_flash.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_flash_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_flash_ex.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_pwr.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_pwr.c</FilePath>
             </File>
             <File>
               <FileName>stm32g4xx_hal_pwr_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c</FilePath>
+              <FilePath>..\..\firmware\platform\stm32g4\cubemx\Drivers\STM32G4xx_HAL_Driver\Src\stm32g4xx_hal_pwr_ex.c</FilePath>
             </File>
-          </Files>
-        </Group>
-      </Groups>
+            </Files></Group></Groups>
     </Target>
   </Targets>
 
   <RTE>
     <packages>
       <filter>
-        <targetInfos/>
+        <targetInfos />
       </filter>
       <package name="CMSIS" schemaVersion="1.7.36" url="https://www.keil.com/pack/" vendor="ARM" version="6.1.0">
         <targetInfos>
-          <targetInfo name="Vector_Mini_ST"/>
+          <targetInfo name="Vector_Mini_ST" />
         </targetInfos>
       </package>
       <package name="STM32G4xx_DFP" schemaVersion="1.7.36" url="https://www.keil.com/pack/" vendor="Keil" version="2.0.0">
         <targetInfos>
-          <targetInfo name="Vector_Mini_ST"/>
+          <targetInfo name="Vector_Mini_ST" />
         </targetInfos>
       </package>
     </packages>
-    <apis/>
-    <components/>
-    <files/>
+    <apis />
+    <components />
+    <files />
   </RTE>
 
   <LayerInfo>

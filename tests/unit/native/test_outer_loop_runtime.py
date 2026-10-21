@@ -1,42 +1,39 @@
 """Compile the actual deferred runtime with deterministic interrupt injection.
 
 Checks publication ownership, stale reset/fault rejection, deadline faults,
-2 kHz cadence, unchanged speed PI/ramp arithmetic, and application heap capacity.
+2 kHz cadence and unchanged speed PI/ramp arithmetic.
 Synthetic feedback is not an acceptance test of the physical plant.
 """
 
-import sys as _sys
-from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
-
 import argparse
-from pathlib import Path
 import subprocess
-import re
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--cc', required=True)
-    p.add_argument('--out', type=Path, default=ROOT / 'outputs/outer_loop_host')
+    p.add_argument("--cc", required=True)
+    p.add_argument("--out", type=Path, default=ROOT / "outputs/outer_loop_host")
     args = p.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'main.h').write_text('#include <stdint.h>\n#include <stddef.h>\n')
-    lut_size = re.search(r'^#define\s+ENCODER_OFFSET_LUT_SIZE\s+(\d+)U',
-                         (ROOT / 'firmware/platform/stm32g4/bsp/encoder.h').read_text(), re.M)[1]
-    src = (ROOT / 'firmware/app/foc_run.c').read_text()
-    block = src.split('/* OUTER_RUNTIME_BEGIN', 1)[1].split('/* OUTER_RUNTIME_END */', 1)[0]
-    block = '/* OUTER_RUNTIME_BEGIN' + block
-    funcs = '\n'.join(function_source(src, n) for n in [
-        'SpeedMode_UpdateControl', 'PositionMode_UpdateConfiguration',
-        'PositionMode_SameTuningValue', 'PositionMode_ConfigurationMatches'])
-    # Use the real parameter structure to guard the full current allocation set.
-    param = (ROOT / 'firmware/services/parameters/foc_param.h').read_text()
-    param = param[param.index('typedef struct'):param.index('} InterfaceParam_TypeDef;') + len('} InterfaceParam_TypeDef;')]
-    fixture = r'''
+    (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
+    src = (ROOT / "firmware/app/foc_run.c").read_text(encoding="utf-8")
+    block = src.split("/* OUTER_RUNTIME_BEGIN", 1)[1].split("/* OUTER_RUNTIME_END */", 1)[0]
+    block = "/* OUTER_RUNTIME_BEGIN" + block
+    funcs = "\n".join(
+        function_source(src, n)
+        for n in [
+            "SpeedMode_UpdateControl",
+            "PositionMode_UpdateConfiguration",
+            "PositionMode_SameTuningValue",
+            "PositionMode_ConfigurationMatches",
+        ]
+    )
+    fixture = (
+        r"""
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -47,26 +44,30 @@ def main():
 #include <stdio.h>
 #include <string.h>
 #include "data_type.h"
+#include "motor_load_profile.h"
 #include "hw_conf.h"
 #include "foc_pid.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 #include "position_impedance_config.h"
-#include "heap.h"
+#include "motor_thermal.h"
 #define FOC_CONFIG_NOINLINE
-#define ENCODER_OFFSET_LUT_SIZE 1024U
 typedef struct { float position, speed; } Encoder_TypeDef;
 static MotorControl_TypeDef live;
 static PI_Controller_TypeDef live_pi;
 static Encoder_TypeDef enc;
 static unsigned schedules, injection;
-static float Encoder_GetMecPos(Encoder_TypeDef *e) { return e->position; }
-static float Encoder_GetMecVel(Encoder_TypeDef *e) { return e->speed; }
-static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { return e->speed; }
+static unsigned position_reads, speed_reads, continuous_speed_reads;
+static float Encoder_GetMecPos(Encoder_TypeDef *e) { ++position_reads; return e->position; }
+static float Encoder_GetMecVel(Encoder_TypeDef *e) { ++speed_reads; return e->speed; }
+static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { ++continuous_speed_reads; return e->speed; }
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
 static void motor_hw_outer_barrier(void);
 static void motor_hw_outer_schedule(void) { schedules++; }
-''' + param + funcs + block + r'''
+"""
+        + funcs
+        + block
+        + r"""
 static void tick(void) { MotorOuterLoop_FastTick(&live, &live_pi, &enc); }
 static void motor_hw_outer_barrier(void) {
     if (injection && outer.status == OUTER_RUNNING) {
@@ -103,12 +104,15 @@ static void setup(ModeNow_TypeDef mode) {
     memset(&live_pi, 0, sizeof(live_pi));
     enc.position = .3f; enc.speed = 0;
     schedules = injection = 0;
+    position_reads = speed_reads = continuous_speed_reads = 0;
     PositionCascade_Reset();
     live.ModeNow = mode; live.axis_profile_valid = true;
     live.pos_error_window = .001f; live.posAcc = .785398f; live.posDec = .523599f;
     live.pos_maxspeed = .6f; live.speed_limit = .8f;
     live.cascade_pos_Kp = 8; live.cascade_pos_Kd = 2;
     live.speed_Kp = .5f; live.speed_Ki = 2; live.current_limit = 4;
+    live.position_speed_Kp = .5f; live.position_speed_Ki = 2;
+    live.friction_attack_slew_a_per_s = 2; live.friction_release_slew_a_per_s = 15;
     live.posRef = enc.position; live.speedRef = .2f;
     live.speedAcc = .8f; live.speedDec = .5f;
 }
@@ -116,18 +120,90 @@ static void run_step(void) {
     tick();
     if (outer.status == OUTER_QUEUED) MotorOuterLoop_Service();
 }
-int main(void) {
-    /* All known live heap allocations, even parameter I/O overlapping calibration. */
-    for (unsigned trial = 0; trial < 100; trial++) {
-        void *a = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int32_t));
-        void *b = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(uint16_t));
-        void *c = HEAP_malloc(ENCODER_OFFSET_LUT_SIZE * sizeof(int16_t));
-        void *d = HEAP_malloc(sizeof(InterfaceParam_TypeDef));
-        assert(a && b && c && d);
-        HEAP_free(b); HEAP_free(d); HEAP_free(a); HEAP_free(c);
+static void run_ticks(unsigned count) {
+    for (unsigned i = 0; i < count; ++i) run_step();
+    assert(live.ErrorNow == No_Error);
+}
+/* 退役参数仍可从旧Flash读取；它们不能重启被动停靠或改变主动保持。 */
+static void test_retired_support_metadata(void) {
+    static float expected_iq[4000], expected_position[4000], expected_speed[4000];
+    const char *axes[] = {"roll", "pitch"};
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        for (unsigned pass = 0; pass < 2; ++pass) {
+            setup(Position_Mode);
+            enc.position = live.posRef = 0;
+            assert(MotorAxisProfile_Create(&live.axis_profile, axes[axis], -.2f, .2f, .6f));
+            live.load_profile_flags = pass == 0 ? 0 : MOTOR_LOAD_DAMPING_RING;
+            live.position_support_limit_a = pass == 0 ? 0 : .5f;
+            live.position_support_adjust_a_per_s = pass == 0 ? 0 : .5f;
+            live.position_support_release_a_per_s = pass == 0 ? 0 : 2.0f;
+            live.position_accel_ff_gain_a_per_rad_s2 = pass == 0 ? 0 : 1.034f;
+            run_ticks(60);
+            const PositionCascadeConfig_TypeDef *config = PositionCascade_GetConfiguration();
+            assert(config != NULL && !config->passive_hold_enabled);
+            assert(config->support_current_limit_a == 0);
+            assert(config->support_adjust_rate_a_per_s == 0);
+            assert(config->support_release_rate_a_per_s == 0);
+            assert(config->acceleration_feedforward_gain == 0);
+            assert(fabsf(config->hold_enter_position - .18f * .01745329252f) < .00000001f);
+            assert(fabsf(config->hold_exit_position - .26f * .01745329252f) < .00000001f);
+            for (unsigned tick_index = 0; tick_index < 4000; ++tick_index) {
+                PositionCascadeTelemetry_TypeDef telemetry;
+                enc.position = tick_index < 1000 ? 0 : .006f;
+                if (tick_index == 2000 && pass != 0) {
+                    live.position_support_limit_a = NAN;
+                    live.position_support_adjust_a_per_s = NAN;
+                    live.position_support_release_a_per_s = NAN;
+                    live.position_accel_ff_gain_a_per_rad_s2 = NAN;
+                }
+                run_step();
+                assert(live.ErrorNow == No_Error);
+                assert(MotorOuterLoop_GetTelemetry(&telemetry));
+                assert(!telemetry.passive_hold && telemetry.support_current_a == 0);
+                assert(!telemetry.support_adjusting && !telemetry.support_limited);
+                assert(!telemetry.support_refining && telemetry.passive_confirm_ticks == 0);
+                assert(telemetry.qualification_position_rad == 0);
+                if (pass == 0) {
+                    expected_iq[tick_index] = live.iqRef;
+                    expected_position[tick_index] = live.posShadow;
+                    expected_speed[tick_index] = live.speedShadow;
+                } else {
+                    assert(live.iqRef == expected_iq[tick_index]);
+                    assert(live.posShadow == expected_position[tick_index]);
+                    assert(live.speedShadow == expected_speed[tick_index]);
+                }
+            }
+            assert(live.iqRef < -.001f);
+        }
     }
-    printf("heap capacity passed: calibration=8192 parameter=%zu pool=%zu minimum_free=%zu\n",
-        sizeof(InterfaceParam_TypeDef), TOTAL_HEAP_SIZE, HEAP_get_minimumEver_free_size());
+    /* 轮轴位置模式准入仍拒绝；速度模式不消费退役位置参数。 */
+    setup(Speed_Mode);
+    assert(MotorAxisProfile_CreateJoint(&live.axis_profile, MOTOR_JOINT_WHEEL_RIGHT,
+        0U, 0.0f, 0.0f, 0.0f));
+    live.position_support_limit_a = NAN;
+    live.position_support_adjust_a_per_s = NAN;
+    live.position_support_release_a_per_s = NAN;
+    run_ticks(30);
+    assert(PositionCascade_GetConfiguration() == NULL);
+    live.ModeNow = Position_Mode;
+    tick();
+    assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+    puts("PASS: retired support metadata ignored, precise active HOLD retained, wheel admission preserved");
+}
+int main(void) {
+    /* 非活动模式仍执行状态清理，但不能重复获取本模式不消费的编码器量。 */
+    const ModeNow_TypeDef inactive_modes[]={Motor_Disable,Current_Mode,Sensorless_Speed_Mode,
+        Calib_EncoderObserver,Save_Param,Clear_Error};
+    for(unsigned i=0;i<sizeof(inactive_modes)/sizeof(inactive_modes[0]);++i) {
+        setup(inactive_modes[i]); enc.position=enc.speed=NAN;
+        for(unsigned tick_index=0;tick_index<30;++tick_index) tick();
+        assert(position_reads==0 && speed_reads==0 && continuous_speed_reads==0);
+        assert(live.ErrorNow==No_Error && schedules==0);
+    }
+    setup(Speed_Mode); tick();
+    assert(position_reads==1 && speed_reads==1 && continuous_speed_reads==0);
+    setup(Position_Mode); tick();
+    assert(position_reads==1 && speed_reads==0 && continuous_speed_reads==1);
     for (unsigned mode = Speed_Mode; mode <= Position_Mode; mode++) {
         setup((ModeNow_TypeDef)mode);
         for (unsigned i = 0; i < 200000; i++) {
@@ -163,8 +239,9 @@ int main(void) {
     /* No stale validation cache may conceal a changed live tuning field. */
     {
         const size_t fields[] = {
-            offsetof(MotorControl_TypeDef, current_limit), offsetof(MotorControl_TypeDef, speed_Kp),
-            offsetof(MotorControl_TypeDef, speed_Ki), offsetof(MotorControl_TypeDef, pos_error_window),
+            offsetof(MotorControl_TypeDef, current_limit), offsetof(MotorControl_TypeDef, position_speed_Kp),
+            offsetof(MotorControl_TypeDef, position_speed_Ki), offsetof(MotorControl_TypeDef, pos_error_window),
+            offsetof(MotorControl_TypeDef, friction_attack_slew_a_per_s), offsetof(MotorControl_TypeDef, friction_release_slew_a_per_s),
             offsetof(MotorControl_TypeDef, posAcc), offsetof(MotorControl_TypeDef, posDec),
             offsetof(MotorControl_TypeDef, pos_maxspeed), offsetof(MotorControl_TypeDef, speed_limit),
             offsetof(MotorControl_TypeDef, cascade_pos_Kp), offsetof(MotorControl_TypeDef, cascade_pos_Kd),
@@ -180,6 +257,25 @@ int main(void) {
             tick(); assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
         }
     }
+    /* 非活动模式的 PI 不参与本模式验证或计算，两组不共享控制器状态。 */
+    setup(Position_Mode);
+    live.speed_Kp = NAN; live.speed_Ki = NAN;
+    for (unsigned i = 0; i < 30; ++i) run_step();
+    assert(live.ErrorNow == No_Error);
+    assert(PositionCascade_GetConfiguration()->speed_kp == .5f);
+    assert(PositionCascade_GetConfiguration()->speed_ki == 2);
+    live.position_speed_Kp = .3f; live.position_speed_Ki = .7f;
+    for (unsigned i = 0; i < 30; ++i) run_step();
+    assert(live.ErrorNow == No_Error);
+    assert(PositionCascade_GetConfiguration()->speed_kp == .3f);
+    assert(PositionCascade_GetConfiguration()->speed_ki == .7f);
+    setup(Speed_Mode);
+    live.position_speed_Kp = NAN; live.position_speed_Ki = NAN;
+    for (unsigned i = 0; i < 30; ++i) run_step();
+    assert(live.ErrorNow == No_Error && live_pi.Kp == .5f && live_pi.Ki == 2);
+    live.ModeNow = Position_Mode;
+    tick();
+    assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
     /* PI/ramp arithmetic must match the shared sequential implementation exactly. */
     setup(Speed_Mode);
     MotorControl_TypeDef expected = live;
@@ -196,22 +292,83 @@ int main(void) {
         }
         assert(memcmp(&live_pi, &expected_pi, sizeof(live_pi)) == 0);
     }
-    puts("PASS: 420000 fast ticks; cadence, coherent publication, preemption, STOP/fault/reset, deadline, PI/ramp");
+    /* 前馈状态由慢环计算、快环提交；停机/故障不能提交过期结果。 */
+    setup(Speed_Mode);
+    SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
+    live.speedRef=20;enc.speed=0;
+    for(unsigned i=0;i<10000;i++) run_step();
+    assert(live.ErrorNow==No_Error && live.speed_ff_state.initialized);
+    assert(live.speedShadow==live.speed_ff_state.speed_rad_s && live.speedShadow>1);
+    assert(fabsf(live.speed_ff_state.current_a)<=2 && fabsf(live.iqRef)<=live.current_limit);
+    live.ModeNow=Motor_Disable;tick();
+    assert(!live.speed_ff_state.initialized && live.speed_ff_state.current_a==0);
+    setup(Speed_Mode);
+    SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
+    live.speedRef=20;enc.speed=0;
+    for(unsigned i=0;i<100;i++) run_step();
+    live.ErrorNow=Over_Current;tick();
+    assert(!live.speed_ff_state.initialized && live.speed_ff_state.current_a==0);
+    setup(Speed_Mode);
+    SpeedFeedforward_Default(&live.speed_ff_config);live.speed_ff_config.enabled=true;
+    live.speed_ff_config.gain_a_per_rad_s2=NAN;tick();
+    assert(live.ErrorNow==MotorParam_Error && live.iqRef==0);
+    setup(Position_Mode);
+    live.speed_ff_config.enabled=true;live.speed_ff_config.gain_a_per_rad_s2=NAN;
+    for(unsigned i=0;i<30;i++) run_step();
+    assert(live.ErrorNow==No_Error);
+    /* 实际反馈越界仍可向合法目标运行；缓存不能掩盖新目标越界。 */
+    for (int sign = -1; sign <= 1; sign += 2) {
+        setup(Position_Mode);
+        assert(MotorAxisProfile_Create(&live.axis_profile, "roll", -.2f, .2f, .6f));
+        enc.position = sign * .25f;
+        live.posRef = sign * .1f;
+        for (unsigned i = 0; i < 200; ++i) run_step();
+        assert(live.ErrorNow == No_Error && outer.ready);
+        assert(enc.position == sign * .25f && sign * live.posShadow > .2f);
+        assert(sign * live.iqRef < 0);
+        enc.position = sign * .35f;
+        for (unsigned i = 0; i < 20; ++i) run_step();
+        assert(live.ErrorNow == No_Error);
+        live.posRef = sign * .201f;
+        tick();
+        assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
+    }
+    puts("PASS: legacy cadence/publication/PI and optional FF state publication, STOP/fault isolation");
+    puts("PASS: real feedback outside travel retained; only out-of-range target faults");
+    test_retired_support_metadata();
 }
-'''
-    fixture = fixture.replace('#define ENCODER_OFFSET_LUT_SIZE 1024U',
-                              '#define ENCODER_OFFSET_LUT_SIZE ' + lut_size + 'U')
-    (out / 'fixture.c').write_text(fixture)
-    sources = [out / 'fixture.c', ROOT / 'firmware/motor/position/position_cascade.c',
-               ROOT / 'firmware/motor/trajectory/position_smooth_trajectory.c', ROOT / 'firmware/motor/foc/foc_pid.c', ROOT / 'firmware/common/heap.c']
-    cmd = [args.cc, 'cc', '-std=c99', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
-           '-I' + str(out), '-I' + str(ROOT / 'firmware/motor/foc'), '-I' + str(ROOT / 'firmware/common'),
-           '-I' + str(ROOT / 'firmware/platform/stm32g4/bsp'), '-I' + str(ROOT)]
+"""
+    )
+    (out / "fixture.c").write_text(fixture)
+    sources = [
+        out / "fixture.c",
+        ROOT / "firmware/services/parameters/motor_axis_profile.c",
+        ROOT / "firmware/motor/motor_load_profile.c",
+        ROOT / "firmware/motor/speed_feedforward.c",
+        ROOT / "firmware/motor/position/position_cascade.c",
+        ROOT / "firmware/motor/trajectory/position_smooth_trajectory.c",
+        ROOT / "firmware/motor/foc/foc_pid.c",
+    ]
+    cmd = [
+        args.cc,
+        "cc",
+        "-std=c99",
+        "-O2",
+        "-ffp-contract=off",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I" + str(out),
+        "-I" + str(ROOT / "firmware/motor/foc"),
+        "-I" + str(ROOT / "firmware/common"),
+        "-I" + str(ROOT / "firmware/platform/stm32g4/bsp"),
+        "-I" + str(ROOT),
+    ]
     cmd += NATIVE_INCLUDE_FLAGS
-    cmd += [str(x) for x in sources] + ['-o', str(out / 'outer_runtime.exe')]
+    cmd += [str(x) for x in sources] + ["-o", str(out / "outer_runtime.exe")]
     subprocess.run(cmd, check=True, cwd=ROOT)
-    subprocess.run([str(out / 'outer_runtime.exe')], check=True, cwd=ROOT)
+    subprocess.run([str(out / "outer_runtime.exe")], check=True, cwd=ROOT)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

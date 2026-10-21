@@ -8,7 +8,10 @@
 
 #include "foc_pid.h"
 #include "position_cascade_config.h"
+#include "motor_thermal.h"
 #include "position_smooth_trajectory.h"
+
+/* 恢复7a2d235的主动保持策略；热额度仅限幅，不改变配置电流对应的PI增益。 */
 
 typedef struct
 {
@@ -97,6 +100,12 @@ static uint32_t PositionCascade_TimeToTicks(
 	return (uint32_t)ticks;
 }
 
+static float PositionCascade_OutputLimit(const PositionCascadeConfig_TypeDef *config)
+{
+    return MotorThermal_ResolveLimit(config->current_limit, config->thermal_output_limit_a,
+        config->thermal_limit_active);
+}
+
 static bool PositionCascade_ConfigIsValid(const PositionCascadeConfig_TypeDef *config)
 {
 	return config != NULL &&
@@ -131,6 +140,8 @@ static bool PositionCascade_ConfigIsValid(const PositionCascadeConfig_TypeDef *c
 		isfinite(config->acceleration_feedforward_gain) &&
 		config->acceleration_feedforward_gain >= 0.0f &&
 		isfinite(config->current_limit) && config->current_limit > 0.0f &&
+        (!config->thermal_limit_active || (isfinite(config->thermal_output_limit_a) &&
+         config->thermal_output_limit_a >= 0.0f)) &&
 		isfinite(config->friction_coulomb_positive) &&
 		config->friction_coulomb_positive >= 0.0f &&
 		isfinite(config->friction_coulomb_negative) &&
@@ -171,6 +182,7 @@ static void PositionCascade_CopyOutput(PositionCascadeOutput_TypeDef *output)
 	output->hold_current = state.speed_controller.Ui;
 	output->phase = state.phase;
 	output->target_reached = state.target_reached;
+    output->support_current_a = 0.0f;
 }
 
 static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *config)
@@ -184,11 +196,14 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 	if (state.config_valid && config->update_period_s == saved->update_period_s &&
 		config->call_divider == saved->call_divider &&
 		config->friction_feedforward_enabled == saved->friction_feedforward_enabled &&
+        config->thermal_limit_active == saved->thermal_limit_active &&
+        (!config->thermal_limit_active || config->thermal_output_limit_a == saved->thermal_output_limit_a) &&
 		memcmp(&config->position_error_window, &saved->position_error_window,
-			offsetof(PositionCascadeConfig_TypeDef, friction_feedforward_enabled) -
+			offsetof(PositionCascadeConfig_TypeDef, thermal_output_limit_a) -
 			offsetof(PositionCascadeConfig_TypeDef, position_error_window)) == 0 &&
 		memcmp(&config->friction_coulomb_positive, &saved->friction_coulomb_positive,
-			sizeof(*config) - offsetof(PositionCascadeConfig_TypeDef, friction_coulomb_positive)) == 0)
+			offsetof(PositionCascadeConfig_TypeDef, support_current_limit_a) -
+            offsetof(PositionCascadeConfig_TypeDef, friction_coulomb_positive)) == 0)
 		return true;
 	state.defer_telemetry = true;
 	if (!PositionCascade_ConfigIsValid(config)) return false;
@@ -206,6 +221,11 @@ static bool PositionCascade_CheckConfig(const PositionCascadeConfig_TypeDef *con
 		state.configured_hold_velocity_filter_alpha = ratio / (1.0f + ratio);
 	}
 	memcpy(&state.validated_config, config, sizeof(*config));
+    /* 保留结构布局以兼容调用者；被动停靠与独立支撑配置不再生效。 */
+    state.validated_config.passive_hold_enabled = false;
+    state.validated_config.support_current_limit_a = 0.0f;
+    state.validated_config.support_adjust_rate_a_per_s = 0.0f;
+    state.validated_config.support_release_rate_a_per_s = 0.0f;
 	state.config_valid = true;
 	return true;
 }
@@ -235,6 +255,13 @@ bool PositionCascade_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
 		state.phase == POSITION_SERVO_PHASE_SETTLE && state.hold_counter > 0U;
 	telemetry->trajectory_limited = state.trajectory_limited;
 	telemetry->stiction_integrating = state.stiction_integrating;
+    telemetry->passive_hold = false;
+    telemetry->support_current_a = 0.0f;
+    telemetry->support_adjusting = false;
+    telemetry->support_limited = false;
+    telemetry->support_refining = false;
+    telemetry->passive_confirm_ticks = 0U;
+    telemetry->qualification_position_rad = 0.0f;
 	return state.initialized;
 }
 
@@ -668,8 +695,8 @@ static void PositionCascade_UpdateFriction(
 	state.friction_feedforward_current += PositionCascade_Constrain(current_delta,
 		-current_step, current_step);
 	state.friction_feedforward_current = PositionCascade_Constrain(
-		state.friction_feedforward_current, -config->current_limit,
-		config->current_limit);
+		state.friction_feedforward_current, -PositionCascade_OutputLimit(config),
+		PositionCascade_OutputLimit(config));
 	if (!isfinite(state.friction_feedforward_current))
 		state.friction_feedforward_current = 0.0f;
 	state.friction_current_ramping =
@@ -772,12 +799,12 @@ static void PositionCascade_UpdateStictionIntegral(
 		proportional_gain * (state.speed_reference - measured_speed);
 	if (increment > 0.0f)
 		increment = PositionCascade_Max(0.0f, PositionCascade_Min(increment,
-			config->current_limit - current_candidate));
+			PositionCascade_OutputLimit(config) - current_candidate));
 	else
 		increment = PositionCascade_Min(0.0f, PositionCascade_Max(increment,
-			-config->current_limit - current_candidate));
+			-PositionCascade_OutputLimit(config) - current_candidate));
 	state.speed_controller.Ui = PositionCascade_Constrain(
-		state.speed_controller.Ui + increment, -config->current_limit, config->current_limit);
+		state.speed_controller.Ui + increment, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 	state.stiction_integrating = increment != 0.0f;
 }
 
@@ -932,11 +959,11 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	FAST_PROFILE_END(FAST_PROFILE_FRICTION);
 	state.acceleration_feedforward_current = PositionCascade_Constrain(
 		config->acceleration_feedforward_gain * state.trajectory_acceleration,
-		-config->current_limit, config->current_limit);
+		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 	feedforward_candidate = state.acceleration_feedforward_current +
 		state.friction_feedforward_current;
 	feedforward_current = PositionCascade_Constrain(feedforward_candidate,
-		-config->current_limit, config->current_limit);
+		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 
 	/* Preserve the legacy speed-gain tuning while executing this PI in amperes. */
 	speed_kp_current_domain = config->speed_kp * config->current_limit;
@@ -954,7 +981,7 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	FAST_PROFILE_BEGIN(FAST_PROFILE_SPEED_PI);
 	PI_Controller_Configure(&state.speed_controller, speed_kp_current_domain,
 		speed_ki_current_domain, config->update_period_s,
-		-config->current_limit, config->current_limit);
+		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 	state.feedback_current = PI_Controller_Run(&state.speed_controller,
 		state.speed_reference, state.control_velocity);
 	current_candidate = state.feedback_current + feedforward_current;
@@ -964,16 +991,16 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 		return false;
 	}
 	state.current_saturated =
-		feedforward_candidate > config->current_limit ||
-		feedforward_candidate < -config->current_limit ||
-		current_candidate > config->current_limit ||
-		current_candidate < -config->current_limit;
+		feedforward_candidate > PositionCascade_OutputLimit(config) ||
+		feedforward_candidate < -PositionCascade_OutputLimit(config) ||
+		current_candidate > PositionCascade_OutputLimit(config) ||
+		current_candidate < -PositionCascade_OutputLimit(config);
 	state.iq_reference = PositionCascade_Constrain(current_candidate,
-		-config->current_limit, config->current_limit);
+		-PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 
 	/* Total-current saturation is included in the speed-PI anti-windup path. */
 	applied_feedback_current = PositionCascade_Constrain(state.iq_reference -
-		feedforward_current, -config->current_limit, config->current_limit);
+		feedforward_current, -PositionCascade_OutputLimit(config), PositionCascade_OutputLimit(config));
 	PI_Controller_TrackOutput(&state.speed_controller, applied_feedback_current);
 	state.feedback_current = state.speed_controller.Out;
 	FAST_PROFILE_END(FAST_PROFILE_SPEED_PI);

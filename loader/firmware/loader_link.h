@@ -1,40 +1,35 @@
-/**
-  ******************************************************************************
-  * @file    loader_link.h
-  * @brief   Transport seam of the resident Loader.
-  *
-  * The Loader core (loader_main/loader_jump) talks to the host only through
-  * this interface.  loader_can.c implements it for CAN-FD; an RS-485/UART or
-  * a different MCU port provides another implementation without touching the
-  * core.  This header must stay free of vendor-specific types.
-  ******************************************************************************
-  */
 #ifndef LOADER_LINK_H
 #define LOADER_LINK_H
-
 #include <stdbool.h>
 #include <stdint.h>
-
+/** @brief 原始CAN-FD帧，不暴露HAL类型。 */
 typedef struct
 {
-	uint16_t id; /* transport-level address of the frame (CAN ID today) */
-	uint8_t len;
-	uint8_t data[64];
+    uint16_t id;
+    uint8_t len;
+    uint8_t data[64];
 } ldr_rx_frame_t;
-
-/**
-  * @brief Configure the transport for `node`.
-  * @retval false on a fatal init error (caller halts; see loader_main.c).
-  */
+/** @brief 初始化1M/1M目标CAN过滤。
+ * @param node 0～7节点。
+ * @return 初始化成功为true。
+ */
 bool loader_link_init(uint8_t node);
-
-/** Pop one received frame (ISR fills a small ring). Returns false when empty. */
+/** @brief 前台取一帧，不阻塞。
+ * @param out 输出帧。
+ * @return 有帧为true。
+ */
 bool loader_link_rx_pop(ldr_rx_frame_t *out);
-
-/** Best-effort non-blocking send of one reply frame to the host. */
-void loader_link_send(const uint8_t *data, uint8_t len);
-
-/** Quiesce the transport (no IRQs, no RX/TX) before jumping to the APP. */
+/** @brief 非阻塞提交回复；发送完成需另行查询。
+ * @param data 回复字节。
+ * @param len 合法FD字节数。
+ * @return 实际入队成功为true。
+ * @note 旧回复挂起超过100 ms时请求取消并返回false；必须重试原请求，取消不等于发送完成。
+ */
+bool loader_link_send(const uint8_t *data, uint8_t len);
+/** @brief 检查本次队列发送是否全部完成。
+ * @return 有完成标志且无待发送消息为true。
+ */
+bool loader_link_sent(void);
+/** @brief 前台关闭CAN中断与外设。 */
 void loader_link_shutdown(void);
-
-#endif /* LOADER_LINK_H */
+#endif

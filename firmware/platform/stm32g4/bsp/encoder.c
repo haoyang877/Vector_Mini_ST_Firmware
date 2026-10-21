@@ -65,7 +65,7 @@ static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *SPIx, bool *ok)
 	return rx_data;
 }
 
-static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+static bool SPI_Reg_StartTx16(SPI_TypeDef *SPIx, uint16_t tx_data)
 {
 	if ((SPIx->CR1 & SPI_CR1_SPE) == 0U)
 		SPIx->CR1 |= SPI_CR1_SPE;
@@ -78,10 +78,19 @@ static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
 
 	if (!SPI_WaitFlag(SPIx, SPI_FLAG_TXE, ENC_SPI_XFER_SPIN_MAX))
 	{
+		return false;
+	}
+	*(__IO uint16_t *)&SPIx->DR = tx_data;
+	return true;
+}
+
+static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *SPIx, uint16_t tx_data, bool *ok)
+{
+	if (!SPI_Reg_StartTx16(SPIx, tx_data))
+	{
 		*ok = false;
 		return 0U;
 	}
-	*(__IO uint16_t *)&SPIx->DR = tx_data;
 	return SPI_Reg_ReadRx16(SPIx, ok);
 }
 
@@ -109,27 +118,67 @@ bool Encoder_BeginSample(void)
 	return true;
 }
 
+uint8_t Encoder_BeginReadback(bool sample_started)
+{
+	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
+	bool transfer_ok;
+
+	if (!sample_started)
+	{
+		return ENCODER_SAMPLE_SYNC;
+	}
+	(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+	if (!transfer_ok)
+	{
+		return ENCODER_SAMPLE_FAILED;
+	}
+
+	SPI2_MOSI_HiZ();
+	__NOP();
+	__NOP();
+	if (!SPI_Reg_StartTx16(SPIx, 0U))
+	{
+		SPI2_MOSI_RestoreAF();
+		return ENCODER_SAMPLE_FAILED;
+	}
+	return ENCODER_SAMPLE_RESPONSE_PENDING;
+}
+
 static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *encoder, uint16_t *raw_q15,
-	bool sample_started)
+	uint8_t sample_stage)
 {
 	SPI_TypeDef *SPIx = brd_enc_spi.Instance;
 	uint16_t angle_word = 0U;
 	bool transfer_ok = true;
 
-	if (sample_started)
-		(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+	if (sample_stage == ENCODER_SAMPLE_RESPONSE_PENDING)
+	{
+		angle_word = SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+		SPI2_MOSI_RestoreAF();
+	}
+	else if (sample_stage == ENCODER_SAMPLE_FAILED)
+	{
+		transfer_ok = false;
+	}
 	else
 	{
-		BRD_ENC_CS_ENABLE;
-		(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
-	}
-	if (transfer_ok)
-	{
-		SPI2_MOSI_HiZ();
-		__NOP();
-		__NOP();
-		angle_word = SPI_Reg_TxRx16(SPIx, 0U, &transfer_ok);
-		SPI2_MOSI_RestoreAF();
+		if (sample_stage == ENCODER_SAMPLE_COMMAND_PENDING)
+		{
+			(void)SPI_Reg_ReadRx16(SPIx, &transfer_ok);
+		}
+		else
+		{
+			BRD_ENC_CS_ENABLE;
+			(void)SPI_Reg_TxRx16(SPIx, 0x8021U, &transfer_ok);
+		}
+		if (transfer_ok)
+		{
+			SPI2_MOSI_HiZ();
+			__NOP();
+			__NOP();
+			angle_word = SPI_Reg_TxRx16(SPIx, 0U, &transfer_ok);
+			SPI2_MOSI_RestoreAF();
+		}
 	}
 	(void)SPI_WaitBSYClear(SPIx, ENC_SPI_XFER_SPIN_MAX);
 	BRD_ENC_CS_DISABLE;
@@ -184,6 +233,7 @@ void Encoder_ResetVelocity(Encoder_TypeDef *encoder)
 	encoder->velocity_win4_sample_count = 0U;
 	encoder->velocity_win4_delta_sum = 0;
 	encoder->velocity_win4_ready = false;
+	encoder->velocity_shadow_q15 = encoder->shadow_q15;
 }
 
 void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
@@ -222,6 +272,7 @@ void Encoder_SetReverse(Encoder_TypeDef *encoder, bool reverse)
  * 内部回绕估计角，误差不足半圈时单次 wrap 归位，角速度按上限限幅。
  * 不写 theta_elec/theta_mech，也不触及多圈与标定量。
  * 结束时维护快拍分频计数，供 Encoder_DidUpdateVelocity() 报告 2 kHz 慢拍边界。 */
+#if ENCODER_VELOCITY_SOURCE != ENCODER_VELOCITY_SOURCE_WINDOW16
 static void Encoder_UpdateVelocityPll(Encoder_TypeDef *encoder, uint32_t pole_pairs)
 {
 	float theta_meas = (float)encoder->linearized_q15 * (_2PI / (float)ENCODER_Q15_CPR);
@@ -295,7 +346,67 @@ static void Encoder_UpdateVelocityPll(Encoder_TypeDef *encoder, uint32_t pole_pa
 	encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
 }
 
-/* A/B 对照用：4 抽头/2 ms 短窗测速（旧短窗方案 A2）。
+#endif
+
+/* 恢复PLL之前的2 kHz、16点均值：8 ms位移除以8 ms，群延时约4 ms。
+ * 复用互斥短窗分支的缓存；角度由同一快环展开，零位和LUT不变。
+ * 无死区输出供位置环使用；常规速度保留旧版8计数零速门限。 */
+#if ENCODER_VELOCITY_SOURCE == ENCODER_VELOCITY_SOURCE_WINDOW16
+static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *encoder, uint32_t pole_pairs)
+{
+	int64_t delta64;
+	int32_t delta_q15;
+	int32_t sum_abs;
+	float velocity_scale;
+
+	if (++encoder->velocity_divider < SPEED_LOOP_DIVIDER)
+	{
+		return;
+	}
+	encoder->velocity_divider = 0U;
+	delta64 = encoder->shadow_q15 - encoder->velocity_shadow_q15;
+	encoder->velocity_shadow_q15 = encoder->shadow_q15;
+	if (delta64 > INT32_MAX)
+	{
+		delta_q15 = INT32_MAX;
+	}
+	else if (delta64 < INT32_MIN)
+	{
+		delta_q15 = INT32_MIN;
+	}
+	else
+	{
+		delta_q15 = (int32_t)delta64;
+	}
+	encoder->velocity_win4_delta_sum -=
+		encoder->velocity_win4_delta_history[encoder->velocity_win4_index];
+	encoder->velocity_win4_delta_history[encoder->velocity_win4_index] = delta_q15;
+	encoder->velocity_win4_delta_sum += delta_q15;
+	encoder->velocity_win4_index =
+		(uint8_t)((encoder->velocity_win4_index + 1U) % ENCODER_VELOCITY_WINDOW16_TAPS);
+	if (encoder->velocity_win4_sample_count < ENCODER_VELOCITY_WINDOW16_TAPS)
+	{
+		encoder->velocity_win4_sample_count++;
+	}
+	encoder->velocity_ready = encoder->velocity_win4_sample_count == ENCODER_VELOCITY_WINDOW16_TAPS;
+	encoder->velocity_win4_ready = encoder->velocity_ready;
+	velocity_scale = _2PI / ((float)ENCODER_Q15_CPR *
+		(float)ENCODER_VELOCITY_WINDOW16_TAPS * Speed_Ts);
+	encoder->vel_mech_continuous = encoder->velocity_ready ?
+		(float)encoder->velocity_win4_delta_sum * velocity_scale : 0.0f;
+	encoder->vel_mech_fast = encoder->vel_mech_continuous;
+	sum_abs = encoder->velocity_win4_delta_sum;
+	if (sum_abs < 0)
+	{
+		sum_abs = -sum_abs;
+	}
+	encoder->vel_mech = encoder->velocity_ready &&
+		sum_abs > ENCODER_VELOCITY_WINDOW16_ZERO_THRESHOLD_Q15 ? encoder->vel_mech_continuous : 0.0f;
+	encoder->vel_elec = encoder->vel_mech * (float)pole_pairs;
+}
+#endif
+
+/* A/B 对照用：40快拍/2 ms短窗测速（旧短窗方案 A2）。
  * 输入：encoder、pole_pairs、delta_q15 本拍位移增量（0.5 ms）；仅有效帧调用。
  * 输出：覆盖 vel_mech_continuous/vel_mech（8 计数门限）/vel_mech_fast（1 计数门限）/vel_elec，
  *       口径与旧短窗实现一致；仅在 ENCODER_VELOCITY_SOURCE 选中 WINDOW4 时被调用。
@@ -420,7 +531,7 @@ bool Encoder_SetMechanicalZero(Encoder_TypeDef *encoder)
 }
 
 void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef *encoder,
-	bool sample_started)
+	uint8_t sample_stage)
 {
 	uint16_t raw_q15;
 	uint16_t directed_q15;
@@ -428,7 +539,7 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef 
 	int32_t delta_q15;
 	uint32_t pole_pairs;
 
-	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15, sample_started))
+	if (!Encoder_ReadTle5012BFrame(encoder, &raw_q15, sample_stage))
 		return;
 
 	directed_q15 = Encoder_ApplyDirectionQ15(encoder, raw_q15);
@@ -468,9 +579,13 @@ void Encoder_CompleteSample(MotorControl_TypeDef *MotorControl, Encoder_TypeDef 
 
 	encoder->previous_linearized_q15 = linearized_q15;
 	encoder->shadow_q15 += delta_q15;
+#if ENCODER_VELOCITY_SOURCE == ENCODER_VELOCITY_SOURCE_WINDOW16
+	Encoder_UpdateVelocity2kHz(encoder, pole_pairs);
+#else
 	Encoder_UpdateVelocityPll(encoder, pole_pairs);
 #if ENCODER_VELOCITY_SOURCE == ENCODER_VELOCITY_SOURCE_WINDOW4
 	Encoder_UpdateVelocityWindow4(encoder, pole_pairs, delta_q15);
+#endif
 #endif
 	Encoder_UpdateAngles(encoder, pole_pairs);
 }

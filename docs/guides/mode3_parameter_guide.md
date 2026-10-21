@@ -1,4 +1,29 @@
+> **v0.4.1扰动回位候选**：超过1°持续50 ms后从实际q/v重新规划受控回位，复用正常速度PI及已开启的摩擦前馈。轨迹完成、误差≤0.5°且低速确认后清Ui/FF并按2 A/s卸总电流。下文旧版直接PI且无FF的描述为历史记录。当前仅离线验证，见[方案](../plans/2026-10-12-passive-disturbance-trajectory-v1.md)及[模型对照](../reports/2026-10-12-passive-disturbance-trajectory-offline.md)。
+
+> v0.3.0起新增可保存的摩擦前馈斜率：[配置说明](friction_slew_v1.md)。新变量默认上升2、下降15 A/s；当前板需下载新固件才可使用。
+
+> **v0.2.2积分纠偏候选覆盖下文旧版策略**：停靠后误差>1°持续50 ms触发位置内速度PI积分纠偏，电流受运行限流及2 A/s斜坡约束；回到≤0.5°清Ui并撤流，中间保持原状态。摩擦/惯量前馈关闭。本版已下载Pitch并完成静态核验，尚未运动验收；详见[计划](../plans/2026-10-10-passive-recovery-integral-v2.md)。
+
 # Mode 3 参数与工况适配
+
+> 历史v7（软件v0.2.1）：停靠后±0.5°内零保持/纠偏；原始及资格偏差均超过0.5°连续50 ms才允许最多1 A纠偏，
+> 不恢复Ui或摩擦前馈，受阻500 ms后退出。精确标志仍采用±0.08°，不等同于被动停靠。
+> 受阻后重新尝试需位置变化>0.12°且速度>1.72°/s持续50 ms；小目标本在静止位置±0.5°内则不启动。
+> 见[被动停靠v1](mode3_passive_hold_v1.md)。此窗口默认不是Flash参数，须下载新固件生效。
+
+> 摩擦模型幅值不变，当前建立斜率为2 A/s。仅在轨迹结束且原始/滤波速度均低于静止阈值时，
+> 阻尼轴换目标以实测位置重新起步；运动中换目标保留参考q/v/a。测试增益Kp32/Kd3是临时RAM值，
+> 不代表Flash默认已更新。见[启动连贯性v2计划](../plans/2026-10-10-record07-start-continuity-v2.md)。
+
+> 后续v3/v4实测内速度比例Kp0.8、Ki1；停靠总Iq及近区旧Ui释放斜率2 A/s。
+> 这些增益仍仅用于当前加载Roll的RAM试验，默认参数和个体标定Flash未改。
+
+> v5瞬态速度阻尼已撤回；v4也未通过零电流停靠。历史v7（软件v0.2.1）依据用户最新零电流窗口要求修改，
+> 不能沿用旧版本验收结论。见[停止回调对比](../reports/2026-10-10-roll-stop-recoil.md)及被动停靠指南。
+
+> 2026-10-10起，`position_error_window`同时定义实际捕获精度；基准HOLD窗口
+> 用于保留滞环比例，资格位置独立滤波。本文历史窗口表不能直接当作有效捕获值，
+> 当前行为及验证见[位置捕获修复报告](../reports/2026-10-10-roll-position-capture.md)。
 
 roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展持久化，见 [轴配置与Flash读回](motor_axis_profiles.md)。JSON仍是测试/准备输入，本身不写入固件。
 
@@ -11,6 +36,7 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 | 电机、运行限制、速度PI及模式3位置增益 | `MotorControl`，保存/恢复见 [foc_param.c](../../firmware/services/parameters/foc_param.c) | 通过现有参数接口设置；RAM生效不等于已保存Flash |
 | 模式3轨迹、捕获、滤波、摩擦整形 | [position_cascade_config.h](../../firmware/motor/position/position_cascade_config.h) | 修改后重新编译；当前没有覆盖全部宏的运行时参数协议 |
 | 实际装配机构摩擦模型 | `friction_model_valid` 和正反向库仑/粘性参数 | 有效模型优先；以读回值确认，不能仅根据存在保存文件判断有效 |
+| 模式3惯量前馈 | `MotorControl.position_accel_ff_gain_a_per_rad_s2` | RAM实时生效，默认0关闭；尚无Flash/CAN参数记录，复位恢复0 |
 | 编码器、电流采样、电机极对数等 | 既有电机/硬件配置与标定 | 换电机先确认；不是位置环整定参数 |
 | 台架动作范围和验收标准 | [bench_20260908.json](../../tests/hil/profiles/mode3/bench_20260908.json) | 供测试计划及数据验收使用，**不会自动写入固件参数** |
 
@@ -34,6 +60,20 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 | `pos_error_window` | rad / 0.001，约0.0573° | 在 `foc_task.c` 初始化；原在线轨迹的结束容差，不等于定位精度或HOLD窗口，也不在当前Flash参数结构中 |
 
 模式3使用的是 `cascade_pos_Kp/Kd`。`pos_Kp/pos_Kd/pos_Ki/pos_integral_limit` 属于另一位置控制路径，不能拿它们当作模式3的三环PID调节项。模式3静止纠偏复用速度PI积分，没有独立的位置Ki。
+
+### 惯量前馈试调
+
+设置 `position_accel_ff_gain_a_per_rad_s2 = J / Kt`，J为电机轴端总惯量，
+单位kg·m²，Kt为Nm/A。该项只乘S曲线的轨迹加速度，不微分测量速度。
+正向加速加正电流，正向减速加负电流；反向运动符号相反，匀速与停靠归零。
+与摩擦前馈和反馈共用`current_limit`，不能把各项上限相加当作允许总电流。
+
+当前Roll用户给定J=0.57 kg·m²。21极对、磁链0.0175025 Wb、Id=0时，按
+现有幅值不变变换估计Kt=0.55133 Nm/A，故系数约1.03387 A/(rad/s²)。
+0.2 rad/s²约需0.207 A，30°/s²约需0.541 A。Kt尚非实测力矩标定，
+不能把该系数通用于裸轴或其他装配。此字段为RAM参数，默认/复位为0，
+mode9不会保存它；本轮未更改Flash ABI。设计与验收边界见
+[惯量前馈v1](../plans/2026-10-10-roll-inertia-feedforward-v1.md)。
 
 **换电流上限会同时改变速度PI增益。** 例如原限流6 A、速度参数0.5/1，对应电流域比例3、积分6；改成3 A并保留参数时，两项系数都减半。若目的是只改变限流，应先评估是否需要保持电流域增益，再根据新电机重新整定，不能机械照搬历史参数。
 
@@ -104,3 +144,28 @@ roll/pitch名称、角度范围与最大巡航速度现可通过AXS1参数扩展
 复制 [新电机模板](../../tests/hil/profiles/mode3/new_motor.template.json)，填写电机标识、实际可用角度、目标留量、运行参数和验收电流阈值。未知J/Kt及摩擦值保留null；测试计划需要的运动与增益字段必须有依据地填全。`core`是待核对的编译配置快照，修改JSON不会修改头文件。实际 `speed_limit`、编译宏、有效摩擦模型和固件schema仍需读回/构建核验。
 
 每份实机记录还应注明负载装配、方向、温度/NTC状态、固件镜像哈希、Flash参数版本及是否保存参数。当前板卡的schema10工作区固件与已提交schema9固件不同；不要直接把旧参数区当成新固件参数结构使用。
+
+## Keil手动参数设置（2026-10-12，Pitch）
+
+先停止运动，确认mode0及三相关闭，再在Watch修改MotorControl变量。下面位置/速度变量采用rad、rad/s、rad/s²，表中度数仅供对照。
+
+| Watch变量 | 当前Pitch目标 | 说明 |
+|---|---:|---|
+| MotorControl.current_limit | 7.0 | 运行限流A |
+| MotorControl.calib_current | 5.0 | 标定电流A，不等同于所有启动阶段瞬时幅值 |
+| MotorControl.cascade_pos_Kp / cascade_pos_Kd | 8.0 / 2.0 | mode3位置增益 |
+| MotorControl.position_speed_Kp / position_speed_Ki | 0.5 / 1.0 | mode3内速度PI |
+| MotorControl.speed_Kp / speed_Ki | 0.06 / 0.6 | 纯速度PI |
+| MotorControl.pos_maxspeed | 0.7853981634 | 45°/s |
+| MotorControl.posAcc / posDec | 0.7853981634 / 0.7853981634 | 45°/s²，mode3实际减速度另受代码30°/s²限制 |
+| MotorControl.position_velocity_filter_half_cutoff | 1 | 基础10 Hz减半为5 Hz |
+| MotorControl.load_profile_flags | 3 | 阻尼环和摩擦前馈均开启；1仅阻尼，0无阻尼 |
+| MotorControl.friction_coulomb_pos_a / friction_coulomb_neg_a | 3.455 / 3.101 | 正/反方向库仑电流A |
+| MotorControl.friction_viscous_pos_a_per_rad_s / friction_viscous_neg_a_per_rad_s | 0 / 0 | 当前目标没有速度相关摩擦项 |
+| MotorControl.friction_model_valid | 1 | 应先填入有效模型幅值；目标表值不等于本板辨识结果 |
+
+修改普通变量只改变RAM。设MotorControl.ModeNow=9（Save_Param），让MCU运行处理；确认ModeNow返回0、无故障、三相关闭，复位后重新读取数值才说明保存成功。mode9保存整组参数及个体标定，调试RAM内有其他试验值时会一并保存；仅修改少数字段时可采用备份和限定字段的Flash补丁脚本。
+
+运动范围是AXS1独立记录：MotorControl.axis_profile.minimum_position_rad=-0.9、maximum_position_rad=0.3、maximum_speed_rad_s=0.7853981634。其crc32覆盖记录前28字节，Param_Upload直接复制轴记录，不自动重算该CRC，因此不能只改上下限。使用MotorAxisProfile_Create生成完整合法记录，或专用参数页脚本同步CRC，再保存并复位核验。不要手工伪造axis_profile_valid来掩盖坏CRC。
+
+机械零位属于本机个体标定，不能复制其他板数值或把calib_flag从3手改7。当前4A004E板保留机械零位未标定状态，等机构安装后按设零流程处理。

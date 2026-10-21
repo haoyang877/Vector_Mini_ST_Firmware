@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "flash_offset": 2240,
+  "records": [
+    {"flags": 0, "little_endian_hex": "444d503101000000000000004f4c9819"},
+    {"flags": 1, "little_endian_hex": "444d503101000000010000002a2b24a1"},
+    {"flags": 3, "little_endian_hex": "444d50310100000003000000a1e32d0b"}
+  ],
+  "can": [
+    {"parameter": 104, "value": 0, "big_endian_hex": "00000000"},
+    {"parameter": 104, "value": 1, "big_endian_hex": "3f800000"},
+    {"parameter": 104, "value": 3, "big_endian_hex": "40400000"},
+    {"parameter": 105, "value": -1, "big_endian_hex": "bf800000"},
+    {"parameter": 106, "value": 1, "big_endian_hex": "3f800000"}
+  ]
+}

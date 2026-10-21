@@ -24,6 +24,7 @@ SPEED_GET = {0x05, 0x13, 0x15, 0x17, 0x1d, 0x1f, 0x21, 0x3f}
 
 def layout(param, reply=False):
     """Return big-endian packing and scale for the parameter on this wire."""
+    if reply and param == 0x6f: return '>I', 1
     if param in (CURRENT_GET if reply else CURRENT_SET): return '>h', 1000
     if param in (POSITION_GET if reply else POSITION_SET): return '>i', 1000
     if param in (SPEED_GET if reply else SPEED_SET): return '>i', 100
@@ -44,6 +45,8 @@ def decode(param, data):
     fmt, scale = layout(param, reply=True)
     if len(data) != struct.calcsize(fmt): raise ValueError('unexpected reply length')
     value = struct.unpack(fmt, data)[0]
+    # 软件版本是四个无符号字节，不能按 float32 或有符号哨兵解释。
+    if param == 0x6f: return value
     if not math.isfinite(value) or (fmt != '>f' and value == -(1 << (8 * len(data) - 1))):
         raise ValueError('invalid reply sentinel')
     return value / scale
@@ -80,7 +83,7 @@ class Client:
         self._send(channel, node, param, encode(param, value))
 
     def read(self, channel, node, set_param):
-        if set_param & 1 or not 0 <= set_param < 0x58 and set_param != 0x64:
+        if set_param & 1 or (not 0 <= set_param < 0x58 and set_param not in (0x64, 0x68, 0x70, 0x72, 0x74, 0x76, 0x78) and not 0x80 <= set_param <= 0x8c):
             raise ValueError('read requires a supported paired SET parameter')
         self._receive(channel)  # Discard queued replies before issuing the query.
         reply = set_param + 1

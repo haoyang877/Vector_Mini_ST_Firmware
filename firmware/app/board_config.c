@@ -1,12 +1,25 @@
 #include "board_config.h"
 #include "motor_hw.h"
 #include "foc_errhandle.h"
+#include "firmware_version.h"
+#include "SEGGER_RTT.h"
+
+#define VERSION_STRINGIFY_INNER(value) #value
+#define VERSION_STRINGIFY(value) VERSION_STRINGIFY_INNER(value)
+
+const uint32_t g_firmware_software_version = FIRMWARE_VERSION_CODE;
+const char g_firmware_software_version_string[] =
+    "v" VERSION_STRINGIFY(FIRMWARE_VERSION_MAJOR) "."
+    VERSION_STRINGIFY(FIRMWARE_VERSION_MINOR) "." VERSION_STRINGIFY(FIRMWARE_VERSION_PATCH);
 
 /**
 	* @brief  Initialize board peripherals and application modules
  **/
 void Board_Init(void)
 {
+    /* 启动信息使用文本通道0，通道1保留既有示波器二进制格式。 */
+    SEGGER_RTT_printf(0, "Vector Mini ST APP %s (build %u)\r\n",
+        g_firmware_software_version_string, (unsigned)FIRMWARE_VERSION_BUILD);
     motor_hw_outer_init();
 	/*read parameters and calibration data from flash*/
 	/*if magic word invalid or not calibrated, fall back to code defaults*/
@@ -14,6 +27,10 @@ void Board_Init(void)
 	
 	/*motor control related parameters initialize*/
 	MotorControl_Init();
+#ifdef APP_LOADER_LAYOUT
+    /* 升级版启动保持STOP，不恢复升级前运动或自动使能相输出。 */
+    (void)ModeSwitch_Handle(Motor_Disable);
+#endif
 	
 	/*delay function init*/
 	delay_init(170);
@@ -24,26 +41,32 @@ void Board_Init(void)
 	
 	/* Preserve existing startup calibration only for a configured motor.
 	 * CH4 below still clocks sampling/diagnostics for an unconfigured joint. */
-	if (MotorControl_IsConfigurationValid())
-	{
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
-		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
-		HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
-	}
+#ifndef APP_LOADER_LAYOUT
+    if (MotorControl_IsConfigurationValid())
+    {
+        HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+        HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+        HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+        HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_1);
+        HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_2);
+        HAL_TIMEx_OCN_Start(&htim1, TIM_CHANNEL_3);
+    }
+#endif
 
 	/*enable channel 4 PWM to trigger ADC conversion*/
 	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);
 	
 	/* An unconfigured joint never starts the phase channels; release the six
 	 * pins to high impedance explicitly. */
-	if (!MotorControl_IsConfigurationValid())
-	{
-		PWM_Outputs_HiZ();
-	}
-	
+#ifdef APP_LOADER_LAYOUT
+    PWM_Outputs_HiZ();
+#else
+    if (!MotorControl_IsConfigurationValid())
+    {
+        PWM_Outputs_HiZ();
+    }
+#endif
+
 	/*enable ADC1 ADC 2 injection mode sampling*/
 	HAL_ADCEx_InjectedStart(&hadc1);
 	HAL_ADCEx_InjectedStart(&hadc2);

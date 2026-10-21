@@ -7,6 +7,18 @@
 #include "encoder.h"
 #include "foc_sensorless.h"
 
+/** @brief 取消未完成的编码器标定并解除工作区引用，保留已提交的 LUT 和零位。
+ * @note 电机快环在停机清理或装配切换时调用，不操作 PWM，不写 Flash。
+ */
+void EncoderCalibration_Reset(void);
+
+/** @brief 查询 Mode 13 是否已完成准备，可安排独立的 PWM 启用拍。
+ * @return true 表示当前为待启用状态；false 表示尚未准备或已经进入其他阶段。
+ * @note 仅快环调度器在标定任务前查询；本拍任务仍须完成准入检查，无故障时
+ *       才能在任务后启用 PWM。该启用拍不运行 FOC，下一拍开始原对齐计时。
+ */
+bool EncoderObserverCalibration_IsPowerStartReady(void);
+
 #define OFFSET_LUT_NUM              ENCODER_OFFSET_LUT_SIZE
 #define MAX_MOTOR_POLE_PAIRS        20U
 #define COGGING_MAP_NUM             5000U
@@ -48,7 +60,10 @@ typedef enum
 	CS_ENC_OFFSET_ALIGN_LOOP,
 	CS_ENC_OFFSET_RAMP_CW,
 	CS_ENC_OFFSET_SAMPLE_CW,
-	CS_ENC_OFFSET_END
+	CS_ENC_OFFSET_END,
+	/* 追加状态，不改变既有调试/遥测状态编号。 */
+	CS_OBS_START_PWM,
+	CS_OBS_COMMIT
 } CalibStep_TyepeDef;
 
 /* Read by owner-ISR RTT telemetry; calibration remains the only writer. */

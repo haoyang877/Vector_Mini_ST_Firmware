@@ -1,0 +1,71 @@
+{
+  "revision": 3,
+  "encoding": "float32_be",
+  "node_example": 4,
+  "revision_get_id": 142,
+  "parameters": [
+    {
+      "name": "continuous_current",
+      "set_id": 128,
+      "get_id": 129,
+      "unit": "A",
+      "default": 3,
+      "default_hex": "40400000"
+    },
+    {
+      "name": "peak_current",
+      "set_id": 130,
+      "get_id": 131,
+      "unit": "A",
+      "default": 7,
+      "default_hex": "40e00000"
+    },
+    {
+      "name": "heating_time_constant",
+      "set_id": 132,
+      "get_id": 133,
+      "unit": "s",
+      "default": 65.98486785,
+      "default_hex": "4283f841"
+    },
+    {
+      "name": "derating_enter",
+      "set_id": 134,
+      "get_id": 135,
+      "unit": "%",
+      "default": 80,
+      "default_hex": "42a00000"
+    },
+    {
+      "name": "derating_exit",
+      "set_id": 136,
+      "get_id": 137,
+      "unit": "%",
+      "default": 70,
+      "default_hex": "428c0000"
+    },
+    {
+      "name": "trip",
+      "set_id": 138,
+      "get_id": 139,
+      "unit": "%",
+      "default": 100,
+      "default_hex": "42c80000"
+    },
+    {
+      "name": "clear",
+      "set_id": 140,
+      "get_id": 141,
+      "unit": "%",
+      "default": 50,
+      "default_hex": "42480000"
+    }
+  ],
+  "flash_magic": "MTH1",
+  "flash_version": 1,
+  "flash_record_bytes": 40,
+  "flash_offset": 2344,
+  "flash_parameter_bytes": 2384,
+  "flash_values_are_heat_ratios": true,
+  "flash_record_default_hex": "4d54483101000000000040400000e04041f88342cdcc4c3f3333333f0000803f0000003f6fc81b92"
+}

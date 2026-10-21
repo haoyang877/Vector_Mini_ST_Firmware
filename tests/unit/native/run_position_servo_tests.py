@@ -34,7 +34,7 @@ def function_source(source, name):
 
 def rtt_frame_fixture():
     source = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
-    encoding = source[source.index("#define RTT_SPEED_SCALE"):source.index("/**", source.index("static void RTT_Sampling"))]
+    encoding = source[source.index("#define RTT_SPEED_SCALE"):source.index("/** Read-only publication")]
     return r'''
 #include <assert.h>
 #include <stdlib.h>
@@ -43,55 +43,122 @@ def rtt_frame_fixture():
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "position_cascade.h"
 #define _PI 3.14159265358979323846f
+#define _2PI (2.0f * _PI)
 #define RTT_SAMPLE_DIVIDER 10U
-#define CASCADE_POSITION_LOOP_DIVIDER 10U
-#define RTT_TELEMETRY_SERVO 0U
 #define RTT_TELEMETRY_CALIBRATION 1U
-#define RTT_TELEMETRY_PROFILE RTT_TELEMETRY_SERVO
-#define Position_Mode 3
-#define No_Error 0
-static struct { int ModeNow, ErrorNow; float posRef, iqRef; } MotorControl;
-static struct { float theta_mech; } OnBoard_Encoder;
-static struct { float Iq; } FOC;
-static PositionCascadeTelemetry_TypeDef published;
-static bool valid = true, ready = true;
+#define RTT_TELEMETRY_MANUAL_DIAGNOSTICS 2U
+#define RTT_TELEMETRY_PROFILE RTT_TELEMETRY_CALIBRATION
+static struct { int ModeNow; float iqRef; } MotorControl;
+static struct { float theta_elec; } OnBoard_Encoder;
+static struct { float Iq, Id, Vq, Vd, Ia, Ib, Ic; } FOC;
+static struct { float theta_e; } Fluxobserver;
 static unsigned writes;
-static int16_t wire[12];
-#define Encoder_DidUpdateVelocity(p) false
-static bool MotorOuterLoop_IsReady(void) { return ready; }
-static __attribute__((noinline)) bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *out)
-{ *out = published; return valid; }
-static unsigned SEGGER_RTT_Write(unsigned channel, const void *data, unsigned length)
-{ assert(channel == 1 && length == 24); memcpy(wire, data, length); ++writes; return length; }
+static unsigned schedules;
+static bool capture_during_encode, capture_during_send;
+static void RTT_Sampling(void);
+static void motor_hw_outer_schedule(void) { ++schedules; }
+static int16_t wire[11];
+static unsigned SEGGER_RTT_WriteSkipNoLock(unsigned channel, const void *data, unsigned length)
+{
+    assert(channel == 1 && length == 22);
+    if (capture_during_send)
+    {
+        capture_during_send = false;
+        MotorControl.iqRef = 3.5f; FOC.Iq = 3.4f; FOC.Id = -.4f;
+        for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    }
+    memcpy(wire, data, length); ++writes; return 1U;
+}
+static bool test_isfinite(float value)
+{
+    if (capture_during_encode)
+    {
+        capture_during_encode = false;
+        MotorControl.iqRef = 2.5f; FOC.Iq = 2.4f; FOC.Id = -.3f;
+        for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    }
+    return isfinite(value);
+}
+#undef isfinite
+#define isfinite(value) test_isfinite(value)
 ''' + encoding + r'''
-static void sample(void) { unsigned i; for (i = 0; i < 10; ++i) RTT_Sampling(false); }
+static void sample(void) {
+    unsigned i; for (i = 0; i < 10; ++i) { RTT_Sampling(); }
+    FOC_TelemetryService();
+}
 static void near_count(int index, int expected) { assert(abs((int)wire[index]-expected) <= 1); }
+static void test_deferred_snapshot(void)
+{
+#if RTT_TELEMETRY_PROFILE == RTT_TELEMETRY_MANUAL_DIAGNOSTICS
+    const unsigned current_index = 6U;
+#else
+    const unsigned current_index = 0U;
+#endif
+    unsigned before = writes, scheduled_before = schedules;
+    unsigned dropped_before = rtt_capture_dropped_frames;
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f; FOC.Id = -.2f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    assert(writes == before && schedules == scheduled_before + 1U && rtt_snapshot_ready);
+    MotorControl.iqRef = 2.5f; FOC.Iq = 2.4f; FOC.Id = -.3f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    assert(writes == before && schedules == scheduled_before + 1U);
+    assert(rtt_capture_dropped_frames == dropped_before + 1U);
+    FOC_TelemetryService();
+    assert(writes == before + 1U && !rtt_snapshot_ready);
+    near_count(current_index,1500); near_count(current_index+1U,1400); near_count(current_index+2U,-200);
+    FOC_TelemetryService(); assert(writes == before + 1U);
+
+    /* 编码每个字段时快中断可抢占，但不得覆盖当前 volatile 快照。 */
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f; FOC.Id = -.2f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    capture_during_encode = true;
+    FOC_TelemetryService();
+    assert(!capture_during_encode && !rtt_snapshot_ready);
+    assert(rtt_capture_dropped_frames == dropped_before + 2U);
+    near_count(current_index,1500); near_count(current_index+1U,1400); near_count(current_index+2U,-200);
+
+    /* 发送局部帧期间允许下一快照入槽；旧帧不得变成新旧字段混合。 */
+    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f; FOC.Id = -.2f;
+    for (unsigned i = 0; i < 10; ++i) { RTT_Sampling(); }
+    capture_during_send = true;
+    FOC_TelemetryService();
+    assert(!capture_during_send && rtt_snapshot_ready);
+    near_count(current_index,1500); near_count(current_index+1U,1400); near_count(current_index+2U,-200);
+    FOC_TelemetryService(); assert(!rtt_snapshot_ready);
+    near_count(current_index,3500); near_count(current_index+1U,3400); near_count(current_index+2U,-400);
+    before = writes; FOC_TelemetryService(); assert(writes == before);
+}
 int main(void) {
     unsigned before;
-    MotorControl.ModeNow = 3; MotorControl.posRef = 30 * _PI / 180;
-    MotorControl.iqRef = 1.5f; FOC.Iq = 1.4f;
-    OnBoard_Encoder.theta_mech = 10 * _PI / 180;
-    published.position_reference = 20 * _PI / 180;
-    published.trajectory_speed_reference = -25 * _PI / 180;
-    published.speed_command = 2; /* ensure reference is planned speed */
-    published.speed_feedback = -20 * _PI / 180;
-    published.feedback_current = 1.2f; published.hold_current = .2f;
-    sample(); assert(writes == 1);
-    near_count(0,3000); near_count(1,2000); near_count(2,1000); near_count(3,1000);
-    near_count(4,-2500); near_count(5,-2000); near_count(6,1500);
-    near_count(7,300); near_count(8,1400); near_count(9,1200); near_count(10,200);
-    assert(((uint16_t)wire[11] & 0x4180) == 0x4080);
-    MotorControl.posRef = -200 * _PI / 180; sample(); near_count(0,-20000);
-    MotorControl.posRef = 400 * _PI / 180; sample(); assert(wire[0] == 32767);
-    MotorControl.posRef = -400 * _PI / 180; sample(); assert(wire[0] == -32768);
+    MotorControl.ModeNow = 3; MotorControl.iqRef = 1.5f;
+    FOC.Iq = 1.4f; FOC.Id = -.2f; FOC.Vq = 2.5f; FOC.Vd = -.6f;
+    FOC.Ia = 1; FOC.Ib = -.4f; FOC.Ic = -.6f;
+    OnBoard_Encoder.theta_elec = .25f * _PI;
+    Fluxobserver.theta_e = -.25f * _PI;
+    /* 首帧相位错开5个快拍，后续仍每10拍输出同拍快照。 */
+    for (unsigned i = 0; i < 4; ++i) { RTT_Sampling(); }
+    assert(writes == 0); RTT_Sampling(); assert(writes == 0);
+    FOC_TelemetryService(); assert(writes == 1);
+    near_count(0,1500); near_count(1,1400); near_count(2,-200);
+    near_count(3,2500); near_count(4,-600);
+    near_count(5,4096); near_count(6,28671); near_count(7,-16384);
+    near_count(8,1000); near_count(9,-400); near_count(10,-600);
+    OnBoard_Encoder.theta_elec = 1.75f * _PI;
+    Fluxobserver.theta_e = .25f * _PI;
+    sample(); near_count(7,16384);
+    MotorControl.iqRef = 50; FOC.Iq = -50;
+    sample(); assert(wire[0] == 32767 && wire[1] == -32768);
+    MotorControl.iqRef = NAN; FOC.Id = INFINITY;
+    sample(); assert(wire[0] == 0 && wire[2] == 0);
     assert(RTT_EncodeInt16(NAN, 1) == 0);
     assert(RTT_EncodeInt16(INFINITY, 1) == 0);
-    before = writes; RTT_Sampling(true); assert(writes == before);
-    valid = false; sample(); assert((wire[11] & 128) == 0);
-    assert(wire[0] == 0 && wire[7] == 0 && wire[8] == 0);
-    puts("PASS actual RTT encoder v2: channel sources/units, negative continuous angles, clipping, invalid/deferred telemetry");
+    before = writes;
+    for (unsigned i = 0; i < 9; ++i) { RTT_Sampling(); }
+    assert(writes == before); RTT_Sampling(); assert(writes == before);
+    FOC_TelemetryService(); assert(writes == before + 1);
+    test_deferred_snapshot();
+    puts("PASS actual 11-channel RTT: sources, units, angle wrapping, clipping, nonfinite data and sample divider");
     return 0;
 }
 '''
@@ -109,6 +176,9 @@ def encoder_startup_fixture():
 #include "motor_axis_profile.h"
 #define _2PI 6.2831853072f
 #define ENCODER_Q15_CPR 65536UL
+#define ENCODER_VELOCITY_SOURCE 0U
+#define ENCODER_VELOCITY_SOURCE_WINDOW4 1U
+#define ENCODER_VELOCITY_SOURCE_WINDOW16 2U
 #define ENCODER_Q15_HALF_TURN 32768
 #define ENC_CALIB_MECHANICAL_ZERO 4U
 typedef struct {
@@ -126,7 +196,7 @@ typedef struct {
 } Encoder_TypeDef;
 static uint16_t sample;
 static bool sample_ok = true;
-static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e, uint16_t *out, bool started)
+static bool Encoder_ReadTle5012BFrame(Encoder_TypeDef *e, uint16_t *out, uint8_t started)
 { (void)e; (void)started; *out = sample; return sample_ok; }
 static uint16_t Encoder_ApplyDirectionQ15(Encoder_TypeDef *e, uint16_t v)
 { (void)e; return v; }
@@ -134,7 +204,7 @@ static uint16_t Encoder_ApplyLinearizationQ15(Encoder_TypeDef *e, uint16_t v)
 { (void)e; return v; }
 static void Encoder_ResetVelocity(Encoder_TypeDef *e)
 { e->velocity_shadow_q15 = e->shadow_q15; }
-static void Encoder_UpdateVelocity2kHz(Encoder_TypeDef *e, uint32_t poles)
+static void Encoder_UpdateVelocityPll(Encoder_TypeDef *e, uint32_t poles)
 { (void)e; (void)poles; }
 ''' + "\n".join(function_source(source, name) for name in
     ["Encoder_UpdateAngles", "Encoder_CompleteSample"]) + r'''
@@ -173,7 +243,9 @@ int main(void) {
     e.has_valid_sample = false; e.calib_flag = ENC_CALIB_MECHANICAL_ZERO;
     e.mechanical_zero_q15 = 0; sample = 30000;
     Encoder_CompleteSample(&m, &e, false);
-    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
+    assert(e.theta_mech > m.axis_profile.maximum_position_rad);
+    assert(MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, 0));
+    assert(!MotorAxisProfile_AllowsPosition(&m.axis_profile, true, e.theta_mech, e.theta_mech));
     puts("PASS actual encoder startup: calibrated wrap, continuity, invalid sample/axis, preserved zero and travel limits");
     return 0;
 }
@@ -183,70 +255,56 @@ int main(void) {
 def encoder_fixture():
     source = (ROOT / "firmware/platform/stm32g4/bsp/encoder.c").read_text(encoding="utf-8")
     header = (ROOT / "firmware/platform/stm32g4/bsp/encoder.h").read_text(encoding="utf-8")
-    macros = []
-    for name, text in [("ENCODER_Q15_CPR", header), ("ENCODER_VELOCITY_WINDOW", header),
-                       ("ENCODER_VELOCITY_ZERO_THRESHOLD_Q15", source)]:
-        macros.append(re.search(r"^#define\s+" + name + r"\s+[^\r\n]+", text, re.M)[0])
-    # Only peripheral-independent estimator functions are compiled here. The
-    # hardware build separately checks the actual full Encoder_TypeDef layout.
-    return """
-#ifdef NDEBUG
+    definitions = header[header.index("/* TLE5012B"):header.index("#define brd_enc_spi")]
+    # 使用当前PLL实现与真实结构，不再引用已移除的16点滑窗。
+    return r"""
 #undef NDEBUG
-#endif
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <limits.h>
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
-#define _2PI 6.2831853072f
+#define _PI 3.14159265358979323846f
+#define _2PI (2.0f * _PI)
 #define SPEED_LOOP_DIVIDER 10U
-#define Speed_Ts 0.0005f
-""" + "\n".join(macros) + """
-typedef struct {
-    int32_t velocity_delta_history[ENCODER_VELOCITY_WINDOW];
-    uint8_t velocity_divider, velocity_history_index, velocity_sample_count;
-    uint16_t bad_frame_streak;
-    int32_t velocity_delta_sum;
-    bool velocity_ready;
-    int64_t velocity_shadow_q15, shadow_q15;
-    float vel_mech, vel_elec, vel_mech_continuous;
-} Encoder_TypeDef;
-""" + "\n".join(function_source(source, name) for name in
-    ["Encoder_ResetVelocity", "Encoder_UpdateVelocity2kHz", "Encoder_GetMecVel",
-     "Encoder_GetMecVelContinuous", "Encoder_DidUpdateVelocity"]) + """
+#define Current_Ts 0.00005f
+""" + definitions + "\n".join(function_source(source, name) for name in
+        ["Encoder_ResetVelocity", "Encoder_UpdateVelocityPll", "Encoder_GetMecVel",
+         "Encoder_GetMecVelContinuous", "Encoder_GetMecVelFast", "Encoder_DidUpdateVelocity"]) + r"""
 int main(void) {
+    const float speeds[] = {.03f, -.03f, 3, -3, 12, -12};
     Encoder_TypeDef e = {0};
-    int k, n;
     Encoder_ResetVelocity(&e);
     assert(!Encoder_DidUpdateVelocity(&e));
-    for (k=0; k<400; ++k) {
-        if ((k % 4)==0) e.shadow_q15++;
-        for(n=0; n<10; ++n) {
-            Encoder_UpdateVelocity2kHz(&e, 7);
-            assert(Encoder_DidUpdateVelocity(&e) == (n == 9));
+    e.linearized_q15 = 65530;
+    Encoder_UpdateVelocityPll(&e, 7);
+    assert(e.velocity_ready && e.vel_mech_continuous == 0);
+    for (unsigned j = 0; j < sizeof(speeds)/sizeof(speeds[0]); ++j) {
+        double angle = 6.28, sum = 0;
+        Encoder_ResetVelocity(&e);
+        for (unsigned k = 1; k <= 50000; ++k) {
+            angle += speeds[j] * Current_Ts;
+            while (angle < 0) { angle += _2PI; }
+            while (angle >= _2PI) { angle -= _2PI; }
+            e.linearized_q15 = (uint16_t)(angle * ENCODER_Q15_CPR / _2PI);
+            Encoder_UpdateVelocityPll(&e, 7);
+            assert(Encoder_DidUpdateVelocity(&e) == (k % SPEED_LOOP_DIVIDER == 0));
+            assert(isfinite(e.pll_omega_rad_s) && fabsf(e.pll_omega_rad_s) <= ENCODER_PLL_OMEGA_MAX_RAD_S);
+            assert(Encoder_GetMecVelFast(&e) == Encoder_GetMecVelContinuous(&e));
+            assert(e.vel_elec == Encoder_GetMecVel(&e) * 7);
+            if (k > 49000) { sum += e.vel_mech_continuous; }
         }
+        assert(fabs(sum / 1000 - speeds[j]) < .01);
+        e.bad_frame_streak = 1; assert(!Encoder_DidUpdateVelocity(&e));
+        e.bad_frame_streak = 0;
     }
-    e.bad_frame_streak = 1;
-    assert(!Encoder_DidUpdateVelocity(&e));
-    e.bad_frame_streak = 0;
-    assert(Encoder_GetMecVel(&e)==0);
-    assert(fabsf(Encoder_GetMecVelContinuous(&e)-_2PI/(65536.0f*.002f))<.00001f);
     Encoder_ResetVelocity(&e);
-    assert(Encoder_GetMecVelContinuous(&e)==0 && !e.velocity_ready);
-    for (k=0; k<400; ++k) {
-        if ((k % 4)==0) e.shadow_q15--;
-        for(n=0; n<10; ++n) Encoder_UpdateVelocity2kHz(&e, 7);
-    }
-    assert(Encoder_GetMecVel(&e)==0 && Encoder_GetMecVelContinuous(&e)<-.04f);
-    for(k=0;k<100;++k) {
-        e.shadow_q15+=20;
-        for(n=0;n<10;++n) Encoder_UpdateVelocity2kHz(&e, 7);
-    }
-    assert(Encoder_GetMecVel(&e)==Encoder_GetMecVelContinuous(&e));
-    assert(e.vel_elec==e.vel_mech*7);
-    puts("PASS actual encoder estimator: low speed, both directions, reset, legacy path");
+    assert(!e.velocity_ready && Encoder_GetMecVelContinuous(&e) == 0);
+    e.linearized_q15 = 1000;
+    for (unsigned k = 0; k < 5000; ++k) { Encoder_UpdateVelocityPll(&e, 7); }
+    assert(Encoder_GetMecVel(&e) == 0);
+    puts("PASS actual PLL estimator: startup/reset, wraps, both signs, low/high speed scheduling and 2kHz boundary");
     return 0;
 }
 """
@@ -369,6 +427,15 @@ int main(void) {
     assert(!Param_ApplyJointProfile(&m) && memcmp(&m, &before, sizeof(m)) == 0);
     m.current_limit = 8;
     assert(Param_ApplyJointProfile(&m) && m.current_limit == 6);
+    assert(MotorAxisProfile_CreateJoint(&m.axis_profile, MOTOR_JOINT_YAW, 1,
+        -3.141592654f, 3.141592654f, .785398163f));
+    m.current_limit = 8;
+    assert(Param_ApplyJointProfile(&m) && m.current_limit == 8);
+    assert(m.cascade_pos_Kp == 8 && m.cascade_pos_Kd == 2 &&
+        m.speed_Kp == .5f && m.speed_Ki == 1 && m.posAcc == .2f && m.posDec == .2f);
+    assert(m.calibration_sentinel == 0xdeadbeef);
+    m.current_limit = 5;
+    assert(Param_ApplyJointProfile(&m) && m.current_limit == 5);
     for (id = 0; id <= 5; ++id) {
         assert(MotorAxisProfile_CreateJoint(&m.axis_profile, id, 0, 0, 0, 0));
         before = m;
@@ -383,13 +450,31 @@ int main(void) {
 
 def joint_board_startup_fixture():
     source = (ROOT / 'firmware/app/board_config.c').read_text(encoding='utf-8')
-    return r'''
+    version_definitions = source[source.index('#define VERSION_STRINGIFY_INNER'):source.index('/**')]
+    version_vector = json.loads((ROOT / 'tests/vectors/software_version_v1.json').read_text(encoding='utf-8'))
+    fixture = r'''
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include "firmware_version.h"
+VERSION_DEFINITIONS
+static unsigned version_prints;
+static int SEGGER_RTT_printf(unsigned channel, const char *format, ...) {
+    char text[96];
+    va_list args;
+    assert(channel == 0);
+    va_start(args, format);
+    int length = vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    assert(strcmp(text, "Vector Mini ST APP VERSION_EXPECTED_STRING (build VERSION_EXPECTED_BUILD)\r\n") == 0);
+    ++version_prints;
+    return length;
+}
 enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
       TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
 static int hadc1, hadc2, htim1, htim7;
@@ -420,15 +505,20 @@ int main(void) {
     assert(phases == 0 && sampling == 1 && adc_started == 2 && communication == 1);
     assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
+    assert(version_prints == 1);
     configured = true;
     Board_Init();
     assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
+    assert(version_prints == 2);
     assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
     puts("PASS actual board startup: unconfigured phase outputs released to high impedance, sampling and communication retained");
     return 0;
 }
 '''
+    return fixture.replace('VERSION_DEFINITIONS', version_definitions).replace(
+        'VERSION_EXPECTED_STRING', version_vector['software_version']).replace(
+        'VERSION_EXPECTED_BUILD', str(version_vector['build']))
 
 
 def main():
@@ -466,6 +556,7 @@ def main():
 
     exe = build("position_servo_test", ["tests/unit/position_servo_test.c",
                                         "firmware/motor/position/position_cascade.c", "firmware/motor/trajectory/position_smooth_trajectory.c", "firmware/motor/foc/foc_pid.c"])
+    # passive/support 策略已退役；历史 pitch_support_test.c 保留，不再自动执行。
     rtt_fixture = args.out / "rtt_frame_test.c"
     rtt_fixture.write_text(rtt_frame_fixture(), encoding="utf-8")
     build("rtt_frame_test", [rtt_fixture])
@@ -492,6 +583,16 @@ def main():
     board_fixture = args.out / "joint_board_startup_test.c"
     board_fixture.write_text(joint_board_startup_fixture(), encoding="utf-8")
     build("joint_board_startup_test", [board_fixture])
+    loader_fixture = args.out / "joint_loader_startup_test.c"
+    loader_source = joint_board_startup_fixture().replace(
+        "enum {ADC_SINGLE_ENDED", "enum {Motor_Disable=0};\nstatic bool ModeSwitch_Handle(int mode) { assert(mode==0); return true; }\nenum {ADC_SINGLE_ENDED")
+    loader_source = loader_source.replace("phases == 6", "phases == 0").replace(
+        "assert(hiz_state_calls == 1);\n    assert(adc_irq_mask", "assert(hiz_state_calls == 1);\n    assert(adc_irq_mask", 1)
+    loader_source = loader_source.replace("assert(hiz_state_calls == 1);\n    assert(adc_irq_mask == ADC_IT_JEOS);\n    puts", "assert(hiz_state_calls == 2);\n    assert(adc_irq_mask == ADC_IT_JEOS);\n    puts")
+    loader_source = loader_source.replace("int main(void) {", "int main(void) {\n    (void)MotorControl_IsConfigurationValid; (void)HAL_TIMEx_OCN_Start;")
+    loader_fixture.write_text("#define APP_LOADER_LAYOUT 1\n" + loader_source, encoding="utf-8")
+    build("joint_loader_startup_test", [loader_fixture])
+
     if args.recording:
         import numpy as np
         data = np.loadtxt(args.recording, delimiter="\t", skiprows=1)

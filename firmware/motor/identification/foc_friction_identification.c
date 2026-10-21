@@ -115,7 +115,8 @@ void FocFrictionIdentification_Abort(MotorControl_TypeDef *motor,
 }
 
 void FocFrictionIdentification_Task(FOC_TypeDef *foc, MotorControl_TypeDef *motor,
-	PI_Controller_TypeDef *speed_controller, Encoder_TypeDef *encoder)
+	PI_Controller_TypeDef *speed_controller, Encoder_TypeDef *encoder,
+    bool temperature_protection_enabled)
 {
 	FrictionIdentificationInput_TypeDef input;
 	FrictionIdentificationState_TypeDef state;
@@ -148,11 +149,17 @@ void FocFrictionIdentification_Task(FOC_TypeDef *foc, MotorControl_TypeDef *moto
 	}
 
 	if (foc->Vbus_filt >= BUS_VOLTAGE_OVERVOLTAGE_V)
+	{
 		Set_ErrorNow(Over_Voltage);
+	}
 	else if (foc->Vbus_filt <= BUS_VOLTAGE_UNDERVOLTAGE_V)
+	{
 		Set_ErrorNow(Under_Voltage);
-	else if (foc->temp >= 100.0f)
+	}
+	else if (temperature_protection_enabled && foc->temp >= 100.0f)
+	{
 		Set_ErrorNow(High_Temprature);
+	}
 	if (motor->ErrorNow != No_Error)
 	{
 		Fail(motor, speed_controller, FRICTION_IDENT_REASON_SAFETY_FAULT, false);

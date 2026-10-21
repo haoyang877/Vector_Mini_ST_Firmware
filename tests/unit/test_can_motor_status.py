@@ -49,6 +49,11 @@ class StatusWireTests(unittest.TestCase):
         self.assertIsNone(decode(0x7f4,data)['bus_current_A'])
         data[39]=2
         self.assertIsNone(decode(0x7f4,data)['bus_current_A'])
+    def test_mcu_temperature_vectors(self):
+        for raw, expected in [('09c4',25.0),('197d',65.25),('fc18',-10.0),('8000',None)]:
+            data=bytearray(48)
+            data[32:34]=bytes.fromhex(raw)
+            self.assertEqual(decode(0x7f4,data)['temperature_C'],expected)
     def test_invalid_value_not_falsely_zero(self):
         data=bytearray(48);data[4]=0x80;data[20]=0x80;data[32]=0x80;data[34]=0x80
         result=decode(0x7f3,data)

@@ -1,14 +1,13 @@
 #ifndef __INTERFACE_CAN_H__
 #define __INTERFACE_CAN_H__
 
-#include "main.h"
-#include "data_type.h"
-#include "protocol/boot_handoff.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef enum
 {
 	CAN_SET_MODE			= 0x00,
-	CAN_GET_MODE			= BOOT_HANDOFF_CMD_GET_MODE,
+	CAN_GET_MODE			= 0x01,
 	CAN_SET_CURRENT			= 0x02,
 	CAN_GET_CURRENT_SET		= 0x03,
 	CAN_SET_SPEED			= 0x04,
@@ -104,15 +103,53 @@ typedef enum
 	CAN_GET_FRICTION_RMSE_NEG = 0x60,
 	CAN_GET_FRICTION_CANDIDATE_VALID = 0x61,
 	CAN_GET_FRICTION_MODEL_VALID = 0x62,
+    CAN_GET_DEVICE_UID = 0x63,
+    CAN_ENTER_BOOT = 0x66,
 	CAN_SET_STATUS_STREAM = 0x64,
 	CAN_GET_STATUS_STREAM = 0x65,
-	/* Host request: safe-stop and hand control to the resident loader. */
-	CAN_ENTER_BOOT = BOOT_HANDOFF_CMD_ENTER_BOOT,
 	CAN_GET_PROTOCOL_REVISION = 0x67,
-	/* Host requests: persist parameters and read back the flash record. */
-	CAN_SAVE_PARAM = 0x68,
-	CAN_GET_FLASH_PARAM_INFO = 0x69,
-	CAN_GET_FLASH_PARAM_CHUNK = 0x6A,
+    CAN_SET_LOAD_PROFILE = 0x68,
+    CAN_GET_LOAD_PROFILE = 0x69,
+    CAN_GET_LOAD_PROFILE_REVISION = 0x6A,
+    CAN_SET_POSITION_SPEED_KP = 0x6B,
+    CAN_GET_POSITION_SPEED_KP = 0x6C,
+    CAN_SET_POSITION_SPEED_KI = 0x6D,
+    CAN_GET_POSITION_SPEED_KI = 0x6E,
+    /** @brief 只读 APP 软件版本，回复为大端0xMMmmppbb，不是float32。 */
+    CAN_GET_SOFTWARE_VERSION = 0x6F,
+    /** @brief 以下速度前馈参数均为4字节大端float32；写入仅限停机。 */
+    CAN_SET_SPEED_FF_ENABLE = 0x70,
+    CAN_GET_SPEED_FF_ENABLE = 0x71,
+    CAN_SET_SPEED_FF_GAIN = 0x72,
+    CAN_GET_SPEED_FF_GAIN = 0x73,
+    CAN_SET_SPEED_FF_ACCELERATION = 0x74,
+    CAN_GET_SPEED_FF_ACCELERATION = 0x75,
+    CAN_SET_SPEED_FF_JERK = 0x76,
+    CAN_GET_SPEED_FF_JERK = 0x77,
+    CAN_SET_SPEED_FF_CURRENT_LIMIT = 0x78,
+    CAN_GET_SPEED_FF_CURRENT_LIMIT = 0x79,
+    CAN_GET_SPEED_FF_CURRENT = 0x7A,
+    CAN_GET_SPEED_FF_ACCELERATION_PLANNED = 0x7B,
+    CAN_GET_PARAMETER_CRC = 0x7C,
+    /** @brief MTH1/v3通信扩展；值为大端float32，电流A、时间s、门限%。 */
+    CAN_SET_THERMAL_CONTINUOUS = 0x80,
+    CAN_GET_THERMAL_CONTINUOUS = 0x81,
+    CAN_SET_THERMAL_PEAK = 0x82,
+    CAN_GET_THERMAL_PEAK = 0x83,
+    CAN_SET_THERMAL_HEATING_TAU = 0x84,
+    CAN_GET_THERMAL_HEATING_TAU = 0x85,
+    CAN_SET_THERMAL_DERATING_ENTER = 0x86,
+    CAN_GET_THERMAL_DERATING_ENTER = 0x87,
+    CAN_SET_THERMAL_DERATING_EXIT = 0x88,
+    CAN_GET_THERMAL_DERATING_EXIT = 0x89,
+    CAN_SET_THERMAL_TRIP = 0x8A,
+    CAN_GET_THERMAL_TRIP = 0x8B,
+    CAN_SET_THERMAL_CLEAR = 0x8C,
+    CAN_GET_THERMAL_CLEAR = 0x8D,
+    CAN_GET_THERMAL_REVISION = 0x8E,
+    /** @brief RAM温度保护开关；仅停机关相接受0/1，查询返回已应用状态。 */
+    CAN_SET_TEMPERATURE_PROTECTION = 0x90,
+    CAN_GET_TEMPERATURE_PROTECTION = 0x91,
 }CAN_PARAM_ID;
 
 typedef struct
@@ -124,9 +161,7 @@ typedef struct
 	/*parameter ID*/
 	CAN_PARAM_ID rx_param_id,tx_param_id;
 	float rx_data,tx_data;
-	uint8_t rx_data_u8[4];
-	/* CAN-FD replies (flash record readback) may carry up to 64 bytes. */
-	uint8_t tx_data_u8[64];
+	uint8_t rx_data_u8[4],tx_data_u8[4];
 	/** @brief 当前待回复参数的线路载荷长度，电流为 2，其他为 4。 */
 	uint8_t tx_data_len;
 	bool can_rx_en;
@@ -137,11 +172,32 @@ typedef struct
 	uint32_t can_hb_count;
 }CANMsg_TypeDef;
 
+/** @brief 通信诊断计数；只读调试符号，启动清零，达到 UINT32_MAX 后饱和。
+ * @note 前台独占写 tx_busy，RX 中断独占写其余项；外部不得清零或修改。
+ */
+typedef struct {
+    uint32_t rx_rejected;          /**< 已上送的帧格式、数值或命令无效。 */
+    uint32_t reply_busy;           /**< 回复槽占用，拒绝新回复而保留原帧。 */
+    uint32_t tx_busy;              /**< 硬件发送忙或失败，原回复留槽重试。 */
+    uint32_t node_rejected;        /**< 改号数值无效或未完全停机。 */
+    uint32_t node_filter_failed;   /**< 过滤器更新失败，节点号保持原值。 */
+} CAN_Diagnostics_TypeDef;
+
+extern volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
+
 void FDCAN1_Param_Init(void);
 void CAN_DisConnect_Handle(void);
 void CAN_BaudRateSwitching(void);
 void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data);
+/** @brief 发布一条参数回复；槽满时计数拒绝，绝不覆盖旧帧。
+ * @param param_id 回复参数号。
+ * @param data 按参数定义的 SI 值，或旧协议 float32 值。
+ * @note 仅 CAN RX 中断调用；CANMsg.tx_* 只作已接受回复的调试镜像。
+ */
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data);
 void CANRxIRQHandler(void);
+/** @brief 前台单次尝试发送回复，空闲时发送可丢弃状态帧。
+ * @note 仅主循环调用；维护 CRC 每个已接受请求只计算一次，忙时不等待。
+ */
 void CAN_SendMessage(void);
 #endif

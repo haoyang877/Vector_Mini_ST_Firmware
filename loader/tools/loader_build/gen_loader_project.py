@@ -1,12 +1,5 @@
-"""Generate the Loader Keil project from the APP project.
+"""从APP工程生成独立G431 Loader目标；只构建、不下载。"""
 
-Creates:
-  MDK-ARM/Vector_Mini_ST_Loader/Vector_Mini_ST_Loader.sct
-  MDK-ARM/Vector_Mini_ST_Loader.uvprojx
-The loader target links at 0x08000000 (12 KiB, pages 0-5). The remaining
-3.5 pages inside the 16 KiB loader partition are: page 6 app record
-(0x08003000) and page 7 spare (0x08003800).
-"""
 from pathlib import Path
 import os
 import xml.etree.ElementTree as ET
@@ -35,10 +28,9 @@ HAL_WHITELIST = [
 LOADER_FILES = [
     "loader_main.c",
     "loader_can.c",
-    "loader_flash.c",
-    "loader_crc.c",
+    "loader_port.c",
+    "loader_core.c",
     "loader_proto.c",
-    "loader_jump.c",
 ]
 
 SCATTER_TEXT = """; *************************************************************
@@ -91,17 +83,22 @@ def main() -> int:
     assert common is not None
     out_dir = common.find("OutputDirectory")
     if out_dir is not None:
-        out_dir.text = "../../outputs/build/keil/Vector_Mini_ST_Loader/"
+        out_dir.text = "..\\..\\outputs\\build\\keil\\Vector_Mini_ST_Loader\\"
     out_name = common.find("OutputName")
     if out_name is not None:
         out_name.text = TARGET_NAME
 
     cpu = common.find("Cpu")
     if cpu is not None:
-        cpu.text = ('IRAM(0x20000020-0x20007FFF) IROM(0x8000000-0x8002FFF)  '
-                    'CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4") TZ')
+        cpu.text = (
+            "IRAM(0x20000020-0x20007FFF) IROM(0x8000000-0x8002FFF)  "
+            'CLOCK(8000000) FPU2 CPUTYPE("Cortex-M4") TZ'
+        )
 
-    for tag, start, size in (("IROM", "0x8000000", "0x3000"), ("IRAM", "0x20000020", "0x7FE0")):
+    for tag, start, size in (
+        ("IROM", "0x8000000", "0x3000"),
+        ("IRAM", "0x20000020", "0x7FE0"),
+    ):
         for elem in root.iter(tag):
             sa = elem.find("StartAddress")
             sz = elem.find("Size")
@@ -127,17 +124,19 @@ def main() -> int:
     inc = vc.find("IncludePath")
     if inc is not None:
         parts = [p.strip() for p in (inc.text or "").split(";") if p.strip()]
-        rebased = [os.path.relpath((SRC.parent / p.replace("\\", "/")).resolve(), DST.parent)
-                   for p in parts]
-        inc.text = ";".join(rebased)
+        rebased = [
+            os.path.relpath((SRC.parent / p.replace("\\", "/")).resolve(), DST.parent)
+            for p in parts
+        ]
+        inc.text = ";".join(rebased + ["../firmware", "../../shared"])
 
     listing = common.find("ListingPath")
     if listing is not None:
-        listing.text = "../../outputs/build/keil/Vector_Mini_ST_Loader/"
-    after = common.find("AfterMake/UserProg1Name")
-    if after is not None:
-        after.text = ('python "../../host_app/tools/check_app_layout.py" --target loader '
-                      '--map "../../outputs/build/keil/Vector_Mini_ST_Loader/Vector_Mini_ST_Loader.map"')
+        listing.text = "..\\..\\outputs\\build\\keil\\Vector_Mini_ST_Loader\\"
+    for tag in ("RunUserProg1", "RunUserProg2"):
+        element = common.find("AfterMake/" + tag)
+        if element is not None:
+            element.text = "0"
 
     groups_el = target.find("Groups")
     assert groups_el is not None
@@ -155,19 +154,28 @@ def main() -> int:
     ldr_files = []
     for name in LOADER_FILES:
         ldr_files.append(make_file(name, "1", f"..\\firmware\\{name}"))
+    ldr_files.append(make_file("boot_contract.c", "1", "../../shared/boot_contract.c"))
     add_group("Loader", ldr_files)
 
     # Startup + system
     startup = clones.get("startup_stm32g431xx.s")
     if startup is None:
-        startup = make_file("startup_stm32g431xx.s", "2", r"..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s")
+        startup = make_file(
+            "startup_stm32g431xx.s",
+            "2",
+            r"..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s",
+        )
     else:
-        startup.find("FilePath").text = r"..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s"
+        startup.find(
+            "FilePath"
+        ).text = r"..\..\firmware\platform\stm32g4\cubemx\MDK-ARM\startup_stm32g431xx.s"
     add_group("Startup", [startup])
 
     system = clones.get("system_stm32g4xx.c")
     if system is None:
-        system = make_file("system_stm32g4xx.c", "1", "..\\Core\\Src\\system_stm32g4xx.c")
+        system = make_file(
+            "system_stm32g4xx.c", "1", "..\\Core\\Src\\system_stm32g4xx.c"
+        )
     add_group("Core", [system])
 
     # HAL whitelist
@@ -194,6 +202,9 @@ def main() -> int:
             continue
         f.find("FilePath").text = os.path.relpath(source, DST.parent)
 
+    (REPO / "outputs/build/keil/Vector_Mini_ST_Loader").mkdir(
+        parents=True, exist_ok=True
+    )
     SCT_DIR.mkdir(parents=True, exist_ok=True)
     SCT.write_text(SCATTER_TEXT, encoding="ascii")
 

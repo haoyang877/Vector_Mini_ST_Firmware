@@ -56,6 +56,15 @@ static PositionCascadeOutput_TypeDef step(PositionCascadeConfig_TypeDef *c,
     assert(fabsf(o.iq_reference - o.feedback_current -
         o.acceleration_feedforward_current - o.friction_feedforward_current) <
         0.00001f || fabsf(o.iq_reference) >= c->current_limit - 0.00001f);
+    assert(o.support_current_a == 0.0f);
+    {
+        PositionCascadeTelemetry_TypeDef telemetry;
+        assert(PositionCascade_GetTelemetry(&telemetry));
+        assert(!telemetry.passive_hold && telemetry.support_current_a == 0.0f);
+        assert(!telemetry.support_adjusting && !telemetry.support_limited);
+        assert(!telemetry.support_refining && telemetry.passive_confirm_ticks == 0U);
+        assert(telemetry.qualification_position_rad == 0.0f);
+    }
     return o;
 }
 
@@ -967,9 +976,103 @@ static void test_live_hold_period_reconfiguration(void)
     assert(o.target_reached); /* Still 50 ms after changing from 2 kHz to 1 kHz. */
 }
 
+
+/* 热保护只收紧输出和积分额度，不能改写保存的电流或速度环增益。 */
+static void test_thermal_output_and_integral_limits(void)
+{
+    const float limits[] = {0.3f, 0.1f, 0.0f};
+    unsigned direction, limit_index, tick;
+    for (direction = 0; direction < 2; direction++) {
+        PositionCascadeConfig_TypeDef c = config();
+        PositionCascadeOutput_TypeDef o;
+        c.target_position = direction == 0 ? 0.2f : -0.2f;
+        c.thermal_limit_active = true;
+        PositionCascade_Reset();
+        for (limit_index = 0; limit_index < 3; limit_index++) {
+            c.thermal_output_limit_a = limits[limit_index];
+            for (tick = 0; tick < 4000; tick++) {
+                assert(PositionCascade_Update(&c, 0, 0, &o));
+                assert(fabsf(o.iq_reference) <= limits[limit_index] + 0.00001f);
+                assert(fabsf(o.hold_current) <= limits[limit_index] + 0.00001f);
+            }
+        }
+        assert(o.iq_reference == 0 && o.hold_current == 0);
+        assert(c.current_limit == 6 && c.speed_kp == 0.05f && c.speed_ki == 0.5f);
+    }
+}
+
+static void test_thermal_boundary_validation(void)
+{
+    PositionCascadeConfig_TypeDef c = config();
+    PositionCascadeOutput_TypeDef o;
+    c.target_position = 1.0f;
+    c.thermal_output_limit_a = NAN;
+    PositionCascade_Reset();
+    assert(PositionCascade_Update(&c, 0, 0, &o));
+    c.thermal_limit_active = true;
+    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    c.thermal_output_limit_a = -1.0f;
+    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    c.thermal_output_limit_a = INFINITY;
+    assert(!PositionCascade_Update(&c, 0, 0, &o));
+    c.current_limit = 0.2f;
+    c.thermal_output_limit_a = 9.0f;
+    for (unsigned tick = 0; tick < 4000; ++tick) {
+        assert(PositionCascade_Update(&c, 0, 0, &o));
+        assert(fabsf(o.iq_reference) <= c.current_limit + 0.00001f);
+        assert(fabsf(o.hold_current) <= c.current_limit + 0.00001f);
+    }
+}
+
+/* 保留 ABI 字段，但启用旧策略字段不得改变主动位置闭环的任何输出。 */
+static void test_retired_passive_support_has_no_effect(void)
+{
+    enum { TICKS = 3000 };
+    PositionCascadeOutput_TypeDef baseline[TICKS];
+    for (unsigned pass = 0; pass < 2; ++pass) {
+        PositionCascadeConfig_TypeDef c = config();
+        c.passive_hold_enabled = pass != 0;
+        c.support_current_limit_a = pass == 0 ? 0.0f : 5.0f;
+        c.support_adjust_rate_a_per_s = pass == 0 ? 0.0f : 0.5f;
+        c.support_release_rate_a_per_s = pass == 0 ? 0.0f : 0.2f;
+        PositionCascade_Reset();
+        for (unsigned tick = 0; tick < TICKS; ++tick) {
+            PositionCascadeOutput_TypeDef o;
+            c.target_position = tick < 1000 ? 0.2f : (tick < 2000 ? -0.1f : 0.0f);
+            o = step(&c, 0.01f * sinf((float)tick * 0.01f),
+                0.02f * cosf((float)tick * 0.01f));
+            if (pass == 0) {
+                baseline[tick] = o;
+            } else {
+                const PositionCascadeOutput_TypeDef *b = &baseline[tick];
+                assert(o.position_reference == b->position_reference);
+                assert(o.speed_reference == b->speed_reference);
+                assert(o.acceleration_reference == b->acceleration_reference);
+                assert(o.speed_feedback == b->speed_feedback);
+                assert(o.iq_reference == b->iq_reference);
+                assert(o.feedback_current == b->feedback_current);
+                assert(o.acceleration_feedforward_current == b->acceleration_feedforward_current);
+                assert(o.friction_feedforward_current == b->friction_feedforward_current);
+                assert(o.hold_current == b->hold_current);
+                assert(o.phase == b->phase && o.target_reached == b->target_reached);
+            }
+        }
+        {
+            const PositionCascadeConfig_TypeDef *saved = PositionCascade_GetConfiguration();
+            assert(saved != NULL && !saved->passive_hold_enabled);
+            assert(saved->support_current_limit_a == 0.0f);
+            assert(saved->support_adjust_rate_a_per_s == 0.0f);
+            assert(saved->support_release_rate_a_per_s == 0.0f);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3) return replay(argv[1], argv[2]);
+    test_thermal_output_and_integral_limits(); puts("PASS thermal output/integral limits in both directions, including zero");
+    test_thermal_boundary_validation(); puts("PASS thermal input validation and configured current cap");
+    test_retired_passive_support_has_no_effect(); puts("PASS retired passive/support configuration has no effect");
     test_single_filter_across_phases(); puts("PASS single 10 Hz feedback across HOLD, retarget, MOVE and capture");
     test_live_filter_reconfiguration(); puts("PASS live filter frequency/period changes and disable/re-enable");
     test_live_hold_period_reconfiguration(); puts("PASS hold confirmation time after live update-period change");

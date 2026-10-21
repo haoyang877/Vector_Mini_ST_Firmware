@@ -4,6 +4,7 @@
 #include "main.h"
 #include <stdbool.h>
 #include "motor_axis_profile.h"
+#include "speed_feedforward.h"
 
 typedef enum
 {
@@ -49,6 +50,7 @@ typedef enum
 	Sensorless_Error,
 	FrictionIdentification_Error,
 	ControlOverrun_Error,
+    MotorThermal_Protection = 16, /* 绕组热过载或模型无效；MCU过温仍为10。 */
 }ErrorNow_TypeDef;
 
 typedef struct
@@ -136,7 +138,30 @@ typedef struct
     /* RAM-only mode-3 A/B request, copied with the motor configuration snapshot. */
     bool position_hold_filter_bypass;
     bool position_hold_filter_half_cutoff; /* RAM-only comparison against default cutoff. */
-    bool position_velocity_filter_half_cutoff; /* RAM-only base velocity filter trial. */
+    bool position_velocity_filter_half_cutoff; /* PVF1保存基准速度滤波半频标志。 */
+    /* 快环拥有；CAN 只能提交切换请求。电气标定与装配状态相互独立。 */
+    uint32_t load_profile_flags;
+    bool load_profile_valid;
+    /* mode 3 独立归一化速度 PI：Kp 为 s/rad，Ki 为 1/rad；尾部追加保留旧偏移。 */
+    float position_speed_Kp;
+    float position_speed_Ki;
+    /* mode3摩擦模型电流斜率，A/s；FSL1独立尾记录保存。 */
+    float friction_attack_slew_a_per_s;
+    float friction_release_slew_a_per_s;
+    /* mode 3 惯量前馈 J/Kt，A/(rad/s²)；RAM调试参数，0关闭，尚不持久化。 */
+    float position_accel_ff_gain_a_per_rad_s2;
+    /** @brief mode2可选速度整形/惯量前馈；配置停机修改，状态通过外环提交。 */
+    SpeedFeedforwardConfig speed_ff_config;
+    SpeedFeedforwardState speed_ff_state;
+    /* 升级锁由控制所有者设置，直到复位；不进入Flash参数。 */
+    bool maintenance_inhibit;
+    /* 快环发布、工作线程仅消费；RAM尾字段，不保存到InterfaceParam。 */
+    float thermal_current_limit_a;
+    bool thermal_limit_active;
+    /* Pitch mode3支撑候选，仅RAM；0 A关闭，复位重载默认，不进入Flash ABI。 */
+    float position_support_limit_a;
+    float position_support_adjust_a_per_s;
+    float position_support_release_a_per_s;
 }MotorControl_TypeDef;
 
 #endif

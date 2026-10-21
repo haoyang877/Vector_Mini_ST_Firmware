@@ -5,9 +5,9 @@
 #include "common_inc.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
-#include "position_impedance.h"
 #include "position_impedance_config.h"
 #include "motor_hw.h"
+#include "motor_thermal.h"
 
 static void MotorOuterLoop_RequestReset(void);
 
@@ -46,6 +46,37 @@ void Task_Current_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Enc
 static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
     PI_Controller_TypeDef *controller, float vel_mech)
 {
+        if (MotorControl->ModeNow == Speed_Mode && MotorControl->speed_ff_config.enabled)
+        {
+            float feedforward_a, pi_normalized, total_a;
+            float available_a = MotorThermal_ResolveLimit(MotorControl->current_limit,
+                MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
+            if (!MotorControl->speed_ff_state.initialized)
+            {
+                PI_Controller_Reset(controller);
+            }
+            if (!SpeedFeedforward_Update(&MotorControl->speed_ff_state, &MotorControl->speed_ff_config,
+                MotorControl->speedRef, vel_mech, Speed_Ts, available_a))
+            {
+                MotorControl->iqRef = NAN;
+                return;
+            }
+            MotorControl->isUseSpeedRamp = true;
+            MotorControl->speedShadow = MotorControl->speed_ff_state.speed_rad_s;
+            feedforward_a = MotorControl->speed_ff_state.current_a;
+            /* 将总限流换算成剩余PI电流区间，积分准入因此包含前馈。 */
+            PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts,
+                (-available_a - feedforward_a) / MotorControl->current_limit,
+                (available_a - feedforward_a) / MotorControl->current_limit);
+            pi_normalized = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech);
+            total_a = fminf(fmaxf(pi_normalized * MotorControl->current_limit + feedforward_a,
+                -available_a), available_a);
+            PI_Controller_TrackOutput(controller, (total_a - feedforward_a) / MotorControl->current_limit);
+            MotorControl->idRef = 0.0f;
+            MotorControl->iqRef = total_a;
+            return;
+        }
+        SpeedFeedforward_Reset(&MotorControl->speed_ff_state);
         MotorControl->isUseSpeedRamp = MotorControl->speedAcc > 0.0f && MotorControl->speedDec > 0.0f;
 
         if (MotorControl->isUseSpeedRamp)
@@ -72,9 +103,16 @@ static void SpeedMode_UpdateControl(MotorControl_TypeDef *MotorControl,
             MotorControl->speedShadow = MotorControl->speedRef;
         }
 
-        PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -1.0f, 1.0f);
+        float available_a = MotorThermal_ResolveLimit(MotorControl->current_limit,
+            MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active);
+        float ratio = available_a / MotorControl->current_limit;
+        PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki, Speed_Ts, -ratio, ratio);
         MotorControl->idRef = 0.0f;
         MotorControl->iqRef = PI_Controller_Run(controller, MotorControl->speedShadow, vel_mech) * MotorControl->current_limit;
+        if (MotorControl->thermal_limit_active)
+        {
+            PI_Controller_TrackOutput(controller, controller->Out);
+        }
 }
 
 /* Calibration retains its serialized divided call path and shares the same PI. */
@@ -128,33 +166,11 @@ const SensorlessStartupConfig_TypeDef SensorlessStartup_DefaultConfig =
 	SENSORLESS_OBSERVER_LOSS_TIME_S
 };
 
-const SensorlessStartupConfig_TypeDef SensorlessStartup_EncoderCalibConfig =
-{
-	SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
-	SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
-	SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
-	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
-	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
-	SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
-	SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
-	SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
-	SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
-	SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
-	SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
-	SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
-	SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
-	SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
-	SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
-	SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
-	SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
-	SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S
-};
-
 static bool Sensorless_ObserverIsUsable(const Fluxobserver_TypeDef *Fluxobserver)
 {
 	return Fluxobserver->theta_e == Fluxobserver->theta_e &&
 	       Fluxobserver->omega_e == Fluxobserver->omega_e &&
-	       fast_abs(Fluxobserver->omega_e) <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S;
+	       fabsf(Fluxobserver->omega_e) <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S;
 }
 
 static bool Sensorless_StartupConfigIsValid(const SensorlessStartupConfig_TypeDef *Config)
@@ -215,20 +231,33 @@ static void Sensorless_UpdateSpeedReference(MotorControl_TypeDef *MotorControl)
  * Its output is always a torque-current reference in the observer frame. */
 static float Sensorless_UpdateSpeedLoop(MotorControl_TypeDef *MotorControl,
 	PI_Controller_TypeDef *controller, SensorlessStartup_TypeDef *Startup,
-	float observer_mech_vel)
+	float observer_elec_vel, float pole_pairs)
 {
+    float ratio = MotorThermal_ResolveLimit(MotorControl->current_limit,
+        MotorControl->thermal_current_limit_a, MotorControl->thermal_limit_active) / MotorControl->current_limit;
+	float output_max = Startup->speed_pi_output_max;
+	float output;
+	/* 复用本拍上限；第二输入为 NaN 时仍取 ratio，保留 fminf 的异常值语义。 */
+	output_max = (ratio < output_max || output_max != output_max) ? ratio : output_max;
 	if (++Startup->speed_loop_ticks >= SPEED_LOOP_DIVIDER)
 	{
+		/* 电角速度只在 2 kHz PI 更新拍换算，保持原除法与滤波运算顺序。 */
+		float observer_mech_vel = observer_elec_vel / pole_pairs;
 		Startup->speed_feedback += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
 			(observer_mech_vel - Startup->speed_feedback);
 		Sensorless_UpdateSpeedReference(MotorControl);
 		PI_Controller_Configure(controller, MotorControl->speed_Kp, MotorControl->speed_Ki,
-			Speed_Ts, -1.0f, Startup->speed_pi_output_max);
+			Speed_Ts, -ratio, output_max);
 		PI_Controller_Run(controller, MotorControl->speedShadow, Startup->speed_feedback);
+        if (MotorControl->thermal_limit_active)
+        {
+            PI_Controller_TrackOutput(controller, controller->Out);
+        }
 		Startup->speed_loop_ticks = 0U;
 	}
-	return constrain(controller->Out, -1.0f, Startup->speed_pi_output_max) *
-		MotorControl->current_limit;
+	output = controller->Out;
+	output = output < -ratio ? -ratio : (output > output_max ? output_max : output);
+	return output * MotorControl->current_limit;
 }
 
 /**
@@ -245,7 +274,10 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 	float min_mech_vel;
 	float requested_direction;
 
-	if (!Sensorless_StartupConfigIsValid(Config) || pole_pairs <= 0.0f ||
+	/* 启动配置由只读档位持有，入场校验一次；可变模型与电流边界仍逐拍检查。 */
+	if (Config == NULL ||
+        (Startup->state == SENSORLESS_STARTUP_IDLE && !Sensorless_StartupConfigIsValid(Config)) ||
+        pole_pairs <= 0.0f ||
 		MotorControl->motor_phase_resistance <= 0.0f ||
 		MotorControl->motor_d_inductance <= 0.0f || MotorControl->motor_q_inductance <= 0.0f ||
 		MotorControl->motor_flux <= 0.0f || MotorControl->current_limit <= 0.0f)
@@ -254,7 +286,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		return;
 	}
 
-	if (fast_abs(MotorControl->speedRef) <= 1e-4f)
+	if (fabsf(MotorControl->speedRef) <= 1e-4f)
 	{
 		SensorlessStartup_Reset(Startup);
 		PI_Controller_Reset(controller);
@@ -266,12 +298,18 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 	}
 
 	min_mech_vel = Config->minimum_electrical_velocity_rad_s / pole_pairs;
-	if (fast_abs(MotorControl->speedRef) < min_mech_vel)
+	if (fabsf(MotorControl->speedRef) < min_mech_vel)
 	{
 		Set_ErrorNow(Sensorless_Error);
 		return;
 	}
 
+    if (Startup->state != SENSORLESS_STARTUP_CLOSED_LOOP && MotorControl->thermal_limit_active &&
+        MotorControl->thermal_current_limit_a < MotorControl->current_limit)
+    {
+        Set_ErrorNow(MotorThermal_Protection);
+        return;
+    }
 	if (!Sensorless_StartupCurrentsAreValid(MotorControl, Config))
 	{
 		Set_ErrorNow(Sensorless_Error);
@@ -320,11 +358,11 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				break;
 			}
 
-			if (fast_abs(Startup->open_loop_omega) < Config->target_electrical_velocity_rad_s)
+			if (fabsf(Startup->open_loop_omega) < Config->target_electrical_velocity_rad_s)
 			{
 				Startup->open_loop_omega += Startup->direction *
 					(Config->target_electrical_velocity_rad_s / Config->startup_ramp_time_s) * Current_Ts;
-				if (fast_abs(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
+				if (fabsf(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
 					Startup->open_loop_omega = Startup->direction * Config->target_electrical_velocity_rad_s;
 			}
 
@@ -338,7 +376,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				(Config->startup_iq_a - Config->startup_iq_initial_a) * iq_ramp_ratio);
 			FOC_Current(FOC, MotorControl, Startup->open_loop_theta, Startup->open_loop_omega);
 
-			if (fast_abs(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
+			if (fabsf(Startup->open_loop_omega) >= Config->target_electrical_velocity_rad_s)
 			{
 				Startup->state = SENSORLESS_STARTUP_SPEED_LOCK;
 				Startup->state_ticks = 0U;
@@ -372,9 +410,9 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				Startup->lock_speed_feedback += Config->speed_lock_filter_alpha *
 					(observer_velocity - Startup->lock_speed_feedback);
 
-			speed_error = fast_abs(Startup->lock_speed_feedback - Startup->open_loop_omega);
+			speed_error = fabsf(Startup->lock_speed_feedback - Startup->open_loop_omega);
 			is_observer_locked = Startup->lock_speed_feedback * Startup->open_loop_omega > 0.0f &&
-				speed_error <= fast_abs(Startup->open_loop_omega) * Config->observer_lock_ratio;
+				speed_error <= fabsf(Startup->open_loop_omega) * Config->observer_lock_ratio;
 
 			if (is_observer_locked)
 				Startup->lock_ticks++;
@@ -391,6 +429,8 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 					Observer_GetElePhase(Fluxobserver));
 				phase_sin = sinf(Startup->handoff_phase_delta);
 				phase_cos = cosf(Startup->handoff_phase_delta);
+				Startup->handoff_phase_sin = phase_sin;
+				Startup->handoff_phase_cos = phase_cos;
 				/* The open-loop dq frame can carry substantial load angle. Reusing
 				 * its Iq in the observer frame turns alignment current into torque. */
 				Startup->handoff_id_reference = MotorControl->idRef * phase_cos -
@@ -426,8 +466,10 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			float observer_id;
 			float observer_iq;
 			float frame_step;
+			float observer_vel;
 			float frame_step_squared;
 			float previous_blend;
+			float previous_phase_sin;
 			float previous_id_integral;
 			float previous_iq_integral;
 
@@ -438,24 +480,21 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			Startup->open_loop_theta = normalizeAngle(Startup->open_loop_theta + Startup->open_loop_omega * Current_Ts);
-			previous_blend = constrain((float)Startup->state_ticks * Current_Ts /
-				Config->angle_handoff_time_s, 0.0f, 1.0f);
-			blend = constrain((float)(++Startup->state_ticks) * Current_Ts /
-				Config->angle_handoff_time_s, 0.0f, 1.0f);
+			previous_blend = (float)Startup->state_ticks * Current_Ts / Config->angle_handoff_time_s;
+			previous_blend = previous_blend < 0.0f ? 0.0f :
+				(previous_blend > 1.0f ? 1.0f : previous_blend);
+			blend = (float)(++Startup->state_ticks) * Current_Ts / Config->angle_handoff_time_s;
+			blend = blend < 0.0f ? 0.0f : (blend > 1.0f ? 1.0f : blend);
 			phase_offset = (1.0f - blend) * Startup->handoff_phase_delta;
 			phase = normalizeAngle(Observer_GetElePhase(Fluxobserver) + phase_offset);
 			frame_step = (previous_blend - blend) * Startup->handoff_phase_delta;
-			phase_vel = Observer_GetEleVel(Fluxobserver) + frame_step / Current_Ts;
+			observer_vel = Observer_GetEleVel(Fluxobserver);
+			phase_vel = observer_vel + frame_step / Current_Ts;
 
 			observer_iq = Sensorless_UpdateSpeedLoop(MotorControl, controller, Startup,
-				Observer_GetEleVel(Fluxobserver) / pole_pairs);
+				observer_vel, pole_pairs);
 			observer_id = Startup->handoff_id_reference + blend *
 				(Config->startup_id_a - Startup->handoff_id_reference);
-			phase_sin = sinf(phase_offset);
-			phase_cos = cosf(phase_offset);
-			MotorControl->idRef = observer_id * phase_cos + observer_iq * phase_sin;
-			MotorControl->iqRef = -observer_id * phase_sin + observer_iq * phase_cos;
-
 			/* Rotate only the deliberate frame correction, not normal rotor travel,
 			 * so the current PI's stored voltage has no handoff-induced step. */
 			/* The coarse sine table rounds these sub-bin steps to zero. Use a
@@ -473,6 +512,22 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				phase_sin = sinf(frame_step);
 				phase_cos = cosf(frame_step);
 			}
+			/* 复用本拍坐标修正，避免为累计相差再次调用 sinf/cosf。 */
+			previous_phase_sin = Startup->handoff_phase_sin;
+			Startup->handoff_phase_sin = previous_phase_sin * phase_cos +
+				Startup->handoff_phase_cos * phase_sin;
+			Startup->handoff_phase_cos = Startup->handoff_phase_cos * phase_cos -
+				previous_phase_sin * phase_sin;
+			if (blend >= 1.0f)
+			{
+				/* 最后一拍精确回到观测器坐标，递推舍入误差不带入闭环。 */
+				Startup->handoff_phase_sin = 0.0f;
+				Startup->handoff_phase_cos = 1.0f;
+			}
+			MotorControl->idRef = observer_id * Startup->handoff_phase_cos +
+				observer_iq * Startup->handoff_phase_sin;
+			MotorControl->iqRef = -observer_id * Startup->handoff_phase_sin +
+				observer_iq * Startup->handoff_phase_cos;
 			previous_id_integral = FOC->id_pi.Ui;
 			previous_iq_integral = FOC->iq_pi.Ui;
 			FOC->id_pi.Ui = previous_id_integral * phase_cos + previous_iq_integral * phase_sin;
@@ -493,7 +548,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 		case SENSORLESS_STARTUP_CLOSED_LOOP:
 		{
 			float observer_vel = Observer_GetEleVel(Fluxobserver);
-			float observer_mech_vel = observer_vel / pole_pairs;
+			float id_ramp_elapsed_s = (float)Startup->id_ramp_ticks * Current_Ts;
 
 			if (!Sensorless_ObserverIsUsable(Fluxobserver))
 			{
@@ -502,7 +557,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 			}
 
 			if (requested_direction * observer_vel < 0.0f &&
-				fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s)
+				fabsf(observer_vel) < Config->minimum_electrical_velocity_rad_s)
 			{
 				SensorlessStartup_Reset(Startup);
 				FOC_CurrentController_Reset(FOC);
@@ -510,15 +565,25 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 				return;
 			}
 
-			MotorControl->idRef = Config->startup_id_a *
-				(1.0f - constrain((float)Startup->id_ramp_ticks * Current_Ts / Config->id_ramp_down_time_s, 0.0f, 1.0f));
-			if (Startup->id_ramp_ticks < (uint32_t)(Config->id_ramp_down_time_s / Current_Ts))
-				Startup->id_ramp_ticks++;
+			if (id_ramp_elapsed_s >= Config->id_ramp_down_time_s)
+			{
+				MotorControl->idRef = 0.0f;
+			}
+			else
+			{
+				/* 非整拍时保留原 floor 计数和末端小正值，不能提前视为完成。 */
+				MotorControl->idRef = Config->startup_id_a *
+					(1.0f - constrain(id_ramp_elapsed_s / Config->id_ramp_down_time_s, 0.0f, 1.0f));
+				if (Startup->id_ramp_ticks < (uint32_t)(Config->id_ramp_down_time_s / Current_Ts))
+				{
+					Startup->id_ramp_ticks++;
+				}
+			}
 
 			MotorControl->iqRef = Sensorless_UpdateSpeedLoop(MotorControl, controller, Startup,
-				observer_mech_vel);
+				observer_vel, pole_pairs);
 
-			if (fast_abs(observer_vel) < Config->minimum_electrical_velocity_rad_s * 0.5f)
+			if (fabsf(observer_vel) < Config->minimum_electrical_velocity_rad_s * 0.5f)
 				Startup->loss_ticks++;
 			else
 				Startup->loss_ticks = 0U;
@@ -580,13 +645,20 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 		POSITION_SERVO_JERK_RAMP_TIME_S;
 	config.position_kp = MotorControl->cascade_pos_Kp;
 	config.position_kd = MotorControl->cascade_pos_Kd;
-	config.speed_kp = MotorControl->speed_Kp;
-	config.speed_ki = MotorControl->speed_Ki;
-	config.acceleration_feedforward_gain =
-		POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
+	config.speed_kp = MotorControl->position_speed_Kp;
+	config.speed_ki = MotorControl->position_speed_Ki;
+	/* 恢复7a位置策略：惯量前馈关闭，兼容参数字段继续保留。 */
+	config.acceleration_feedforward_gain = POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2;
 	config.current_limit = MotorControl->current_limit;
+    config.thermal_limit_active = MotorControl->thermal_limit_active;
+    config.thermal_output_limit_a = MotorControl->thermal_current_limit_a;
 	config.friction_feedforward_enabled =
-		MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
+		MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags);
+	/* 主动HOLD保留积分；不使用后续版本的被动停靠和Pitch支撑。 */
+	config.passive_hold_enabled = false;
+    config.support_current_limit_a = 0.0f;
+    config.support_adjust_rate_a_per_s = 0.0f;
+    config.support_release_rate_a_per_s = 0.0f;
 	if (MotorControl->friction_model_valid)
 	{
 		config.friction_coulomb_positive = MotorControl->friction_coulomb_pos_a;
@@ -608,12 +680,9 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 	}
 	config.friction_breakaway_ratio =
 		POSITION_SERVO_FRICTION_BREAKAWAY_RATIO;
-	config.friction_attack_slew_rate =
-		POSITION_SERVO_FRICTION_ATTACK_SLEW_A_PER_S;
-	config.friction_fast_release_slew_rate =
-		POSITION_SERVO_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
-	config.friction_release_slew_rate =
-		POSITION_SERVO_FRICTION_RELEASE_SLEW_A_PER_S;
+	config.friction_attack_slew_rate = MotorControl->friction_attack_slew_a_per_s;
+	config.friction_fast_release_slew_rate = MotorControl->friction_release_slew_a_per_s;
+	config.friction_release_slew_rate = MotorControl->friction_release_slew_a_per_s;
 	config.friction_reference_speed =
 		POSITION_SERVO_FRICTION_REFERENCE_SPEED_RAD_S;
 	config.friction_stop_speed = POSITION_SERVO_FRICTION_STOP_SPEED_RAD_S;
@@ -644,11 +713,32 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
     float deceleration = MotorControl->posDec;
     float maximum_speed = MotorControl->pos_maxspeed;
     if (config == NULL) return false;
+    if (config->support_current_limit_a != 0.0f ||
+        config->support_adjust_rate_a_per_s != 0.0f ||
+        config->support_release_rate_a_per_s != 0.0f)
+    {
+        return false;
+    }
+    if (config->friction_feedforward_enabled !=
+        MotorLoadProfile_FeedforwardEnabled(MotorControl->load_profile_flags) ||
+        config->passive_hold_enabled ||
+        config->thermal_limit_active != MotorControl->thermal_limit_active ||
+        (MotorControl->thermal_limit_active &&
+         config->thermal_output_limit_a != MotorControl->thermal_current_limit_a))
+    {
+        return false;
+    }
     if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
         deceleration = POSITION_SERVO_DECELERATION_MAX_RAD_S2;
     if (MotorControl->axis_profile.magic != 0U &&
         maximum_speed > MotorControl->axis_profile.maximum_speed_rad_s)
         maximum_speed = MotorControl->axis_profile.maximum_speed_rad_s;
+    if (!PositionMode_SameTuningValue(config->friction_attack_slew_rate, MotorControl->friction_attack_slew_a_per_s) ||
+        !PositionMode_SameTuningValue(config->friction_release_slew_rate, MotorControl->friction_release_slew_a_per_s) ||
+        !PositionMode_SameTuningValue(config->friction_fast_release_slew_rate, MotorControl->friction_release_slew_a_per_s))
+    {
+        return false;
+    }
     if (!PositionMode_SameTuningValue(config->velocity_filter_hz,
             POSITION_SERVO_VELOCITY_FILTER_HZ *
                 (MotorControl->position_velocity_filter_half_cutoff ? 0.5f : 1.0f)) ||
@@ -662,8 +752,10 @@ static bool PositionMode_ConfigurationMatches(const PositionCascadeConfig_TypeDe
         !PositionMode_SameTuningValue(config->speed_limit, MotorControl->speed_limit) ||
         !PositionMode_SameTuningValue(config->position_kp, MotorControl->cascade_pos_Kp) ||
         !PositionMode_SameTuningValue(config->position_kd, MotorControl->cascade_pos_Kd) ||
-        !PositionMode_SameTuningValue(config->speed_kp, MotorControl->speed_Kp) ||
-        !PositionMode_SameTuningValue(config->speed_ki, MotorControl->speed_Ki) ||
+        !PositionMode_SameTuningValue(config->speed_kp, MotorControl->position_speed_Kp) ||
+        !PositionMode_SameTuningValue(config->speed_ki, MotorControl->position_speed_Ki) ||
+        !PositionMode_SameTuningValue(config->acceleration_feedforward_gain,
+            POSITION_SERVO_ACCEL_FF_GAIN_A_PER_RAD_S2) ||
         !PositionMode_SameTuningValue(config->current_limit, MotorControl->current_limit))
         return false;
     if (MotorControl->friction_model_valid)
@@ -722,74 +814,9 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
 }
 
-/**
-	* @brief  Position impedance control task
-	* @param  *FOC: FOC struct pointer
-	* @param  *MotorControl: MotorControl struct pointer
-	* @param  *Encoder: encoder struct pointer
- **/
-void Task_Position_Impedance_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl, Encoder_TypeDef *Encoder)
-{
-	PositionImpedanceConfig_TypeDef config;
-	PositionImpedanceOutput_TypeDef output;
-	float theta_elec = Encoder_GetElePhase(Encoder);
-	float theta_mech = Encoder_GetMecPos(Encoder);
-	float vel_elec = Encoder_GetEleVel(Encoder);
-
-	config.target_position = MotorControl->posRef;
-	config.position_error_window = MotorControl->pos_error_window;
-	config.acceleration = MotorControl->posAcc;
-	config.deceleration = MotorControl->posDec;
-	config.maximum_speed = MotorControl->pos_maxspeed;
-	config.speed_limit = MotorControl->speed_limit;
-	config.kp = MotorControl->pos_Kp;
-	config.kd = MotorControl->pos_Kd;
-	config.ki = MotorControl->pos_Ki;
-	config.integral_limit = MotorControl->pos_integral_limit;
-	config.output_limit = MotorControl->current_limit;
-	config.friction_feedforward_enabled =
-		MOTOR_DAMPING_FEEDFORWARD == MOTOR_DAMPING_FEEDFORWARD_ENABLED;
-	config.friction_positive_current = POSITION_IMPEDANCE_FRICTION_POSITIVE_A;
-	config.friction_negative_current = POSITION_IMPEDANCE_FRICTION_NEGATIVE_A;
-	config.breakaway_positive_current = POSITION_IMPEDANCE_BREAKAWAY_POSITIVE_A;
-	config.breakaway_negative_current = POSITION_IMPEDANCE_BREAKAWAY_NEGATIVE_A;
-	config.friction_attack_slew_rate = POSITION_IMPEDANCE_FRICTION_ATTACK_SLEW_A_PER_S;
-	config.friction_fast_release_slew_rate =
-		POSITION_IMPEDANCE_FRICTION_FAST_RELEASE_SLEW_A_PER_S;
-	config.friction_release_slew_rate = POSITION_IMPEDANCE_FRICTION_RELEASE_SLEW_A_PER_S;
-	config.friction_position_enter = POSITION_IMPEDANCE_FRICTION_POSITION_ENTER_RAD;
-	config.friction_position_exit = POSITION_IMPEDANCE_FRICTION_POSITION_EXIT_RAD;
-	config.friction_reference_speed = POSITION_IMPEDANCE_FRICTION_REFERENCE_SPEED_RAD_S;
-	config.friction_stop_speed = POSITION_IMPEDANCE_FRICTION_STOP_SPEED_RAD_S;
-	config.friction_move_speed = POSITION_IMPEDANCE_FRICTION_MOVE_SPEED_RAD_S;
-	config.friction_stuck_time = POSITION_IMPEDANCE_FRICTION_STUCK_TIME_S;
-	config.friction_landing_position = POSITION_IMPEDANCE_FRICTION_LANDING_POSITION_RAD;
-	config.friction_landing_speed = POSITION_IMPEDANCE_FRICTION_LANDING_SPEED_RAD_S;
-	config.friction_recovery_delay = POSITION_IMPEDANCE_FRICTION_RECOVERY_DELAY_S;
-	config.friction_recovery_pulse_time = POSITION_IMPEDANCE_FRICTION_RECOVERY_PULSE_S;
-	config.friction_recovery_cooldown = POSITION_IMPEDANCE_FRICTION_RECOVERY_COOLDOWN_S;
-
-	if (!PositionImpedance_Update(&config, theta_mech, &output))
-	{
-		MotorControl->idRef = 0.0f;
-		MotorControl->iqRef = 0.0f;
-		Set_ErrorNow(MotorParam_Error);
-		return;
-	}
-
-	MotorControl->posShadow = output.position_reference;
-	MotorControl->speedShadow = output.speed_reference;
-	MotorControl->pos_vel_filtered = output.velocity_feedback;
-	MotorControl->isReachTargetPos = output.target_reached;
-	MotorControl->idRef = 0.0f;
-	MotorControl->iqRef = output.iq_reference;
-	FOC_Current(FOC, MotorControl, theta_elec, vel_elec);
-}
-
 void Task_Position_Mode_Reset(void)
 {
 	MotorOuterLoop_RequestReset();
-	PositionImpedance_Reset();
 }
 
 /* OUTER_RUNTIME_BEGIN
@@ -823,15 +850,21 @@ static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
     const MotorControl_TypeDef *saved = &outer.motor;
     if (outer.request_epoch != outer.epoch) return false;
 #define SAME_INPUT(field) PositionMode_SameTuningValue(m->field, saved->field)
-    return SAME_INPUT(current_limit) && SAME_INPUT(speed_Kp) && SAME_INPUT(speed_Ki) &&
+    return SAME_INPUT(current_limit) &&
+        m->thermal_limit_active == saved->thermal_limit_active &&
+        (!m->thermal_limit_active || SAME_INPUT(thermal_current_limit_a)) && SAME_INPUT(position_speed_Kp) &&
+        SAME_INPUT(position_speed_Ki) && SAME_INPUT(friction_attack_slew_a_per_s) &&
+        SAME_INPUT(friction_release_slew_a_per_s) &&
         SAME_INPUT(pos_error_window) && SAME_INPUT(posAcc) && SAME_INPUT(posDec) &&
         SAME_INPUT(pos_maxspeed) && SAME_INPUT(speed_limit) &&
         SAME_INPUT(cascade_pos_Kp) && SAME_INPUT(cascade_pos_Kd) &&
+        m->load_profile_flags == saved->load_profile_flags &&
         m->friction_model_valid == saved->friction_model_valid &&
         (!m->friction_model_valid ||
          (SAME_INPUT(friction_coulomb_pos_a) && SAME_INPUT(friction_coulomb_neg_a) &&
           SAME_INPUT(friction_viscous_pos_a_per_rad_s) && SAME_INPUT(friction_viscous_neg_a_per_rad_s))) &&
         m->axis_profile.magic == saved->axis_profile.magic &&
+        memcmp(&m->axis_profile.identity, &saved->axis_profile.identity, sizeof(m->axis_profile.identity)) == 0 &&
         m->axis_profile.maximum_speed_rad_s == saved->axis_profile.maximum_speed_rad_s;
 #undef SAME_INPUT
 }
@@ -847,15 +880,20 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m,
         return isfinite(m->speedRef) && isfinite(m->speedAcc) && isfinite(m->speedDec) &&
             isfinite(m->current_limit) && m->current_limit > 0.0f &&
             isfinite(m->speed_Kp) && m->speed_Kp >= 0.0f &&
-            isfinite(m->speed_Ki) && m->speed_Ki >= 0.0f;
+            isfinite(m->speed_Ki) && m->speed_Ki >= 0.0f &&
+            (!m->speed_ff_config.enabled || SpeedFeedforward_IsValid(&m->speed_ff_config));
     if (!MotorAxisProfile_AllowsPosition(&m->axis_profile,
         m->axis_profile_valid, position, m->posRef)) return false;
     /* The worker changes outputs only; request tuning stays immutable even
      * during preemption. Every live field is compared each fast tick. */
     if (MotorOuterLoop_SameTuning(m)) return true;
+    if (!isfinite(m->friction_attack_slew_a_per_s) || m->friction_attack_slew_a_per_s <= 0.0f ||
+        m->friction_attack_slew_a_per_s > 1000.0f ||
+        !isfinite(m->friction_release_slew_a_per_s) || m->friction_release_slew_a_per_s <= 0.0f ||
+        m->friction_release_slew_a_per_s > 1000.0f) return false;
     if (!isfinite(m->current_limit) || m->current_limit <= 0.0f ||
-        !isfinite(m->speed_Kp) || m->speed_Kp < 0.0f ||
-        !isfinite(m->speed_Ki) || m->speed_Ki < 0.0f) return false;
+        !isfinite(m->position_speed_Kp) || m->position_speed_Kp < 0.0f ||
+        !isfinite(m->position_speed_Ki) || m->position_speed_Ki < 0.0f) return false;
     deceleration = m->posDec;
     maximum_speed = m->pos_maxspeed;
     if (deceleration > POSITION_SERVO_DECELERATION_MAX_RAD_S2)
@@ -932,10 +970,16 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     Encoder_TypeDef *encoder)
 {
     bool active = m->ModeNow == Position_Mode || m->ModeNow == Speed_Mode;
-    float position = Encoder_GetMecPos(encoder);
-    float speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder) :
-        Encoder_GetMecVelContinuous(encoder);
+    float position = 0.0f;
+    float speed = 0.0f;
+    if (active)
+    {
+        position = Encoder_GetMecPos(encoder);
+        speed = m->ModeNow == Speed_Mode ? Encoder_GetMecVel(encoder) :
+            Encoder_GetMecVelContinuous(encoder);
+    }
     if (m->ModeNow != outer.mode) {
+        SpeedFeedforward_Reset(&m->speed_ff_state);
         MotorOuterLoop_RequestReset();
         outer.mode = m->ModeNow;
         outer.divider = SPEED_LOOP_DIVIDER - 1U;
@@ -958,7 +1002,9 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                 } else {
                     m->idRef = 0.0f;
                     /* A live current-limit reduction is effective immediately. */
-                    m->iqRef = fminf(fmaxf(outer.motor.iqRef, -m->current_limit), m->current_limit);
+                    float available_a = MotorThermal_ResolveLimit(m->current_limit,
+                        m->thermal_current_limit_a, m->thermal_limit_active);
+                    m->iqRef = fminf(fmaxf(outer.motor.iqRef, -available_a), available_a);
                     m->speedShadow = outer.motor.speedShadow;
                     if (m->ModeNow == Position_Mode) {
                         m->posShadow = outer.motor.posShadow;
@@ -967,8 +1013,16 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                         outer.published_telemetry = outer.result_telemetry;
                         outer.telemetry_valid = true;
                     } else {
+                        m->speed_ff_state = outer.motor.speed_ff_state;
                         m->isUseSpeedRamp = outer.motor.isUseSpeedRamp;
                         *pi = outer.speed_controller;
+                        if (m->thermal_limit_active)
+                        {
+                            float ratio = available_a / m->current_limit;
+                            pi->Umin = -ratio;
+                            pi->Umax = ratio;
+                            PI_Controller_TrackOutput(pi, m->iqRef / m->current_limit);
+                        }
                     }
                     outer.ready = true;
                     outer.completed++;
@@ -979,7 +1033,10 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
             outer.status = OUTER_IDLE;
         }
     }
-    if (!active || m->ErrorNow != No_Error) return;
+    if (!active || m->ErrorNow != No_Error) {
+        SpeedFeedforward_Reset(&m->speed_ff_state);
+        return;
+    }
     if (++outer.divider < SPEED_LOOP_DIVIDER) return;
     outer.divider = 0U;
     if (outer.status != OUTER_IDLE) {

@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "baseline": "2add54e1",
+  "sine_table_ieee754_le_sha256": "027906564fb841000010b4c052139ab3a9044701c1c7109fd830e6a6ae419304",
+  "sine_table_points": 1024,
+  "stored_points": 512,
+  "removed_mode": 18,
+  "mode_request": {"initial_mode": 0, "expected_mode": 0, "expected_error": 0},
+  "debug_direct_write": {"expected_mode": 0, "expected_error": 12, "id_ref_a": 0, "iq_ref_a": 0},
+  "compatibility": "mode_numbers_and_parameter_schema_unchanged"
+}

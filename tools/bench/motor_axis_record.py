@@ -69,7 +69,7 @@ def decode(record):
                 raise ValueError("Identity-only record must have zero bounds")
         else:
             f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]
-            bounds = {1: (-math.pi / 2, math.pi / 2), 2: (-.3, .9)}
+            bounds = {1: (-math.pi / 2, math.pi / 2), 2: (-.3, .9), 3: (-math.pi, math.pi)}
             if joint_type not in bounds or low >= high or speed <= 0:
                 raise ValueError("Joint has no validated configuration")
             minimum, maximum = map(f32, bounds[joint_type])

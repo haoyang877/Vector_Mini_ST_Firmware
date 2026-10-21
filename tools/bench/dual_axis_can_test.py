@@ -129,7 +129,7 @@ def main():
             verify(axis,8,config['node']);verify(axis,0,0);verify(axis,0x4c,0);verify(axis,0x0c,1)
             row = {}
             for key,param,value in [('position_kp',0x54,8),('position_kd',0x56,2),
-                                    ('speed_kp',0x18,.5),('speed_ki',0x1a,config['ki']),
+                                    ('speed_kp',0x6b,.5),('speed_ki',0x6d,config['ki']),
                                     ('current_limit',0x10,6),('acc_turn_s2',0x1c,.125),('dec_turn_s2',0x1e,.125)]:
                 row[key] = verify(axis,param,value)
             original_speeds[axis] = read(axis,0x20)[0]

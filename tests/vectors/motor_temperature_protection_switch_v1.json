@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "thermal_protocol_revision": 3,
+  "encoding": "float32_be",
+  "payload_bytes": 4,
+  "set_id": 144,
+  "get_id": 145,
+  "default_enabled": false,
+  "stored_in_flash": false,
+  "set_reply_reports": "accepted_request",
+  "get_reply_reports": "applied_state",
+  "value_vectors": [
+    {"name": "off", "value": 0, "hex": "00000000"},
+    {"name": "on", "value": 1, "hex": "3f800000"},
+    {"name": "rejected", "value": -1, "hex": "bf800000"}
+  ],
+  "frames": [
+    {
+      "name": "node3_off",
+      "node_id": 3,
+      "request_id": 912,
+      "request_id_hex": "390",
+      "request_hex": "00000000",
+      "reply_id": 913,
+      "reply_id_hex": "391",
+      "reply_hex": "00000000"
+    },
+    {
+      "name": "node3_on",
+      "node_id": 3,
+      "request_id": 912,
+      "request_id_hex": "390",
+      "request_hex": "3f800000",
+      "reply_id": 913,
+      "reply_id_hex": "391",
+      "reply_hex": "3f800000"
+    },
+    {
+      "name": "node3_query_default",
+      "node_id": 3,
+      "request_id": 913,
+      "request_id_hex": "391",
+      "request_hex": "00000000",
+      "applied_enabled": false,
+      "reply_id": 913,
+      "reply_id_hex": "391",
+      "reply_hex": "00000000"
+    },
+    {
+      "name": "node3_query_nan_when_off",
+      "node_id": 3,
+      "request_id": 913,
+      "request_id_hex": "391",
+      "request_hex": "7fc00000",
+      "applied_enabled": false,
+      "reply_id": 913,
+      "reply_id_hex": "391",
+      "reply_hex": "00000000"
+    },
+    {
+      "name": "node3_reject_two",
+      "node_id": 3,
+      "request_id": 912,
+      "request_id_hex": "390",
+      "request_hex": "40000000",
+      "reply_id": 913,
+      "reply_id_hex": "391",
+      "reply_hex": "bf800000"
+    },
+    {
+      "name": "node4_off",
+      "node_id": 4,
+      "request_id": 1168,
+      "request_id_hex": "490",
+      "request_hex": "00000000",
+      "reply_id": 1169,
+      "reply_id_hex": "491",
+      "reply_hex": "00000000"
+    },
+    {
+      "name": "node4_on",
+      "node_id": 4,
+      "request_id": 1168,
+      "request_id_hex": "490",
+      "request_hex": "3f800000",
+      "reply_id": 1169,
+      "reply_id_hex": "491",
+      "reply_hex": "3f800000"
+    },
+    {
+      "name": "node4_query_default",
+      "node_id": 4,
+      "request_id": 1169,
+      "request_id_hex": "491",
+      "request_hex": "00000000",
+      "applied_enabled": false,
+      "reply_id": 1169,
+      "reply_id_hex": "491",
+      "reply_hex": "00000000"
+    },
+    {
+      "name": "node4_query_nan_when_off",
+      "node_id": 4,
+      "request_id": 1169,
+      "request_id_hex": "491",
+      "request_hex": "7fc00000",
+      "applied_enabled": false,
+      "reply_id": 1169,
+      "reply_id_hex": "491",
+      "reply_hex": "00000000"
+    },
+    {
+      "name": "node4_reject_negative_one",
+      "node_id": 4,
+      "request_id": 1168,
+      "request_id_hex": "490",
+      "request_hex": "bf800000",
+      "reply_id": 1169,
+      "reply_id_hex": "491",
+      "reply_hex": "bf800000"
+    }
+  ],
+  "invalid_set_values": [
+    {"name": "negative_one", "hex": "bf800000"},
+    {"name": "one_half", "hex": "3f000000"},
+    {"name": "two", "hex": "40000000"},
+    {"name": "positive_infinity", "hex": "7f800000"},
+    {"name": "negative_infinity", "hex": "ff800000"},
+    {"name": "quiet_nan", "hex": "7fc00000"},
+    {"name": "smallest_positive_subnormal", "hex": "00000001"},
+    {"name": "below_one", "hex": "3f7fffff"}
+  ],
+  "rejected_states": [
+    "mode_not_disabled",
+    "last_mode_not_disabled",
+    "phase_outputs_enabled",
+    "model_not_initialized",
+    "model_invalid",
+    "clock_fault",
+    "thermal_parameters_pending",
+    "protection_switch_pending"
+  ]
+}

@@ -1538,29 +1538,123 @@ static void update_start_progress(void)
     critical_hw_exit(mask);
 }
 
-void MotorStateMachine_Tick(void)
+bool MotorStateMachine_PrepareSupervisor(MotorSupervisorStep *step)
 {
-    /* 1. 消费输入：STOP之后仍锁存本拍失败，再处理标定/保存完成及取消归还。 */
+    if (step == NULL)
+    {
+        return false;
+    }
+    *step = (MotorSupervisorStep){0};
+    step->supervisor_epoch = s_context.supervisor_epoch;
+
+    /* 每拍输入、稳定窗口及保存衔接只消费一次。 */
     state_update_sample_progress();
     bool stopped = state_consume_stop_request();
     state_process_task_outcome(stopped);
     bool completion_accepted = process_save_or_cancel_completion();
     MotorFault_UpdateRecovery(&s_context.recovery, s_context.foc, s_context.motor->fault_code);
-
-    /* 2. 推进上电自检、运行/标定守卫和停止确认；故障恢复仍需明确CLEAR。 */
     advance_current_state();
-    /* 3. 待机派发及启动：准备完成后重新取当前事实，再决定是否启相。 */
     dispatch_idle_work(stopped, completion_accepted);
-    enable_prepared_control();
-    /* 4. 运行只更新同模式目标；结果反馈不改变实际功率状态。 */
     apply_pending_control();
-    update_start_progress();
 
+    /* 计算在开中断区使用副本；快环继续读取上次已提交值。 */
+    uint32_t mask = critical_hw_enter();
+    step->state_epoch = s_context.rules.epoch;
+    step->motor = *s_context.motor;
+    step->speed_pi = *s_context.speed_pi;
+    step->control_allowed = (s_context.rules.state == MOTOR_STATE_STARTING ||
+                             s_context.rules.state == MOTOR_STATE_RUNNING) &&
+                            s_context.motor->control_mode != MOTOR_CONTROL_NONE &&
+                            s_context.motor->fault_code == MOTOR_FAULT_NONE &&
+                            !s_context.stop_pending && s_context.boot_stop_ticket == 0U;
+    critical_hw_exit(mask);
+    return step->control_allowed;
+}
+
+/* 只提交外环真正拥有的字段，不覆盖快环更新的热事实或活动目标。 */
+static void publish_outer_control(const MotorSupervisorStep *step)
+{
+    s_context.motor->id_target_a = step->motor.id_target_a;
+    s_context.motor->iq_target_a = step->motor.iq_target_a;
+    s_context.motor->uses_speed_ramp = step->motor.uses_speed_ramp;
+    s_context.motor->speed_ramped_rad_s = step->motor.speed_ramped_rad_s;
+    s_context.motor->position_reference_rad = step->motor.position_reference_rad;
+    s_context.motor->position_target_reached = step->motor.position_target_reached;
+    s_context.motor->position_velocity_filtered_rad_s =
+        step->motor.position_velocity_filtered_rad_s;
+    s_context.motor->position_trajectory_speed_rad_s = step->motor.position_trajectory_speed_rad_s;
+    *s_context.speed_pi = step->speed_pi;
+}
+
+void MotorStateMachine_CommitSupervisor(const MotorSupervisorStep *step)
+{
+    if (step == NULL || step->supervisor_epoch != s_context.supervisor_epoch)
+    {
+        return;
+    }
+    /* 不再取任务邮箱或推进INIT；这里只复核最新保护事实与本拍身份。 */
+    bool same_work = step->state_epoch == s_context.rules.epoch &&
+                     step->motor.control_mode == s_context.motor->control_mode;
+    if (same_work && step->control_allowed && step->calculated &&
+        step->motor.fault_code != MOTOR_FAULT_NONE)
+    {
+        MotorFault_Report(s_context.motor, step->motor.fault_code);
+    }
+    (void)state_consume_stop_request();
+    if (s_context.motor->fault_code != MOTOR_FAULT_NONE &&
+        s_context.rules.state != MOTOR_STATE_FAULT && s_context.rules.state != MOTOR_STATE_FATAL)
+    {
+        s_context.save_requested = false;
+        (void)dispatch_state_event(MOTOR_STATE_EVENT_FAULT,
+                                   MOTOR_MAINTENANCE_EFFECT_UNKNOWN,
+                                   (uint32_t)s_context.motor->fault_code,
+                                   NULL);
+    }
+    else if (s_context.rules.state == MOTOR_STATE_STARTING ||
+             s_context.rules.state == MOTOR_STATE_RUNNING ||
+             s_context.rules.state == MOTOR_STATE_MAINTENANCE)
+    {
+        (void)dispatch_simple_event(0U);
+    }
+
+    uint32_t mask = critical_hw_enter();
+    if (step->supervisor_epoch != s_context.supervisor_epoch)
+    {
+        critical_hw_exit(mask);
+        return;
+    }
+    same_work = step->supervisor_epoch == s_context.supervisor_epoch &&
+                step->state_epoch == s_context.rules.epoch &&
+                step->motor.control_mode == s_context.motor->control_mode;
+    bool valid_control = same_work && step->control_allowed && step->calculated &&
+                         s_context.motor->fault_code == MOTOR_FAULT_NONE &&
+                         !s_context.stop_pending && s_context.boot_stop_ticket == 0U &&
+                         (s_context.rules.state == MOTOR_STATE_STARTING ||
+                          s_context.rules.state == MOTOR_STATE_RUNNING);
+    bool outer_mode = s_context.motor->control_mode == MOTOR_CONTROL_SPEED ||
+                      s_context.motor->control_mode == MOTOR_CONTROL_POSITION;
+    if (valid_control && outer_mode && MotorOuterLoop_IsReady())
+    {
+        publish_outer_control(step);
+    }
+    /* 本拍提交票据在此消费；重复提交不能再发布或再次推进监督计数。 */
+    ++s_context.supervisor_epoch;
+    critical_hw_exit(mask);
+    if (!valid_control && step->calculated)
+    {
+        MotorOuterLoop_RequestReset();
+    }
+
+    /* 原ready及真实启相复核不削弱；非外环模式仍走各自就绪判据。 */
+    if (valid_control && (!outer_mode || MotorOuterLoop_IsReady()))
+    {
+        enable_prepared_control();
+    }
+    update_start_progress();
     indicator_hw_set_led(s_context.motor->fault_code != MOTOR_FAULT_NONE,
                          (uint8_t)(s_context.motor->fault_code != MOTOR_FAULT_NONE
                                        ? s_context.motor->fault_code
                                        : (unsigned)s_context.motor->control_mode));
-    ++s_context.supervisor_epoch;
 }
 
 uint32_t MotorStateMachine_WorkEpoch(void)

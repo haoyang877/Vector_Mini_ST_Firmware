@@ -130,16 +130,18 @@ MotorControlMode MotorAxis_SupervisorTick(void)
     /* 1. 编码器慢估计：多圈/机械角/速度是慢状态唯一写者。 */
     Encoder_UpdateSlowEstimate(&s_motor_configuration, &s_rotor_encoder);
 
-    /* 2. 外环控制：位置级联/轨迹与速度 PI 直接执行并发布 iq_target_a；
-     *    本函数是外环输出唯一写者，快环只读取。 */
-    MotorOuterLoop_SlowTick(&s_motor_configuration, &s_motor_state, &s_speed_pi, &s_rotor_encoder);
-
-    /* 3. 主运行状态机：消费快环 worker 结果，完成故障指示、维护会话、
-     *    功率级启停迁移与影子提交；故障的硬件关断由快环紧急快车道先行执行。 */
-    MotorStateMachine_Tick();
-
-    /* 4. MCU 温度与 VREFINT 换算属于 2 kHz 监督任务。 */
+    /* 2. 本拍温度事实先发布，状态/故障在正常控制计算前处理。 */
     Temperature_Update(&s_foc_state, &s_motor_state);
+    MotorSupervisorStep step;
+    if (MotorStateMachine_PrepareSupervisor(&step))
+    {
+        /* 算法及求值顺序不变；结果和PI仅写入本拍副本。 */
+        MotorOuterLoop_SlowTick(
+            &s_motor_configuration, &step.motor, &step.speed_pi, &s_rotor_encoder);
+        step.calculated = true;
+    }
+    /* 3. 重读故障/STOP/代际及ready，最后才提交引用和启相。 */
+    MotorStateMachine_CommitSupervisor(&step);
     return s_motor_state.control_mode;
 }
 /* 使用本拍捕获的维护许可；故障不预载 PWM，空闲预载不改变功率使能。 */

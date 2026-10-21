@@ -108,6 +108,15 @@ def owner_fixture(tree: Path) -> str:
         else "MotorExecution_ValidateTarget"
     )
     fixture += "\n" + function_source(execution, command_name)
+    if "MotorStateMachine_PrepareSupervisor" in (tree / OWNER_SOURCES[0]).read_text(
+        encoding="utf-8"
+    ):
+        axis = (tree / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
+        fixture += "\n#define s_motor_configuration cfg\n#define s_motor_state motor\n"
+        fixture += (
+            "#define s_foc_state foc\n#define s_speed_pi pi\n#define s_rotor_encoder encoder\n"
+        )
+        fixture += function_source(axis, "MotorAxis_SupervisorTick")
     adapter = (tree / "firmware/app/composition/yg_protocol_status_adapter.c").read_text(
         encoding="utf-8"
     )
@@ -153,7 +162,9 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
     owner_path = tree / OWNER_SOURCES[0]
     preemptible = "read_locked_state_conditions" in owner_path.read_text(encoding="utf-8")
     source.write_text(
-        f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n" + owner_fixture(tree),
+        f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n"
+        + f"#define STATE_SUPERVISOR_STAGED {int('MotorStateMachine_PrepareSupervisor' in owner_path.read_text(encoding='utf-8'))}\n"
+        + owner_fixture(tree),
         encoding="utf-8",
     )
     # 仅替换实际校验调用名用于观测屏蔽状态；校验主体仍链接该版本的真实实现。

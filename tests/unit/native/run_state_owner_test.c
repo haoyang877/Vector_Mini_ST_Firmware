@@ -45,6 +45,9 @@ static unsigned validation_unmasked_calls, validation_masked_calls;
 static bool require_locked_validation;
 static uint32_t now_ms;
 static void tick(void);
+#if STATE_SUPERVISOR_STAGED
+static void test_staged_supervisor(void);
+#endif
 
 uint32_t time_hw_now_ms(void)
 {
@@ -211,6 +214,17 @@ EncoderCalibrationPhase EncoderCalibrationTask_GetStep(void)
 {
     return encoder_released ? CS_NULL : CS_OBS_ALIGN_ORIGIN;
 }
+
+#if STATE_SUPERVISOR_STAGED
+/* 历史owner场景仍调用一拍；新生产所有者按唯一Prepare/Commit配对执行。 */
+static void MotorStateMachine_Tick(void)
+{
+    MotorSupervisorStep step;
+    bool allowed = MotorStateMachine_PrepareSupervisor(&step);
+    step.calculated = allowed;
+    MotorStateMachine_CommitSupervisor(&step);
+}
+#endif
 
 static void tick(void)
 {
@@ -1600,6 +1614,9 @@ int main(void)
     test_maintenance_sampling_loss();
     test_stop_and_fault();
     test_thermal_owner_admission_and_clear();
+#if STATE_SUPERVISOR_STAGED
+    test_staged_supervisor();
+#endif
     assert(critical_depth == 0U);
     return 0;
 }
@@ -1661,3 +1678,200 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->device.encoder.calib_flag = 0U;
     ++leaf_calls[MOTOR_MAINTENANCE_DEFAULTS];
 }
+
+#if STATE_SUPERVISOR_STAGED
+/* 真实Axis调度与真实owner；这里仅替换计算/传感器边界来注入中途事件。 */
+static unsigned supervisor_stage, supervisor_outer_calls, supervisor_injection;
+static bool supervisor_ready;
+static float supervisor_target_seen;
+MotorControlMode MotorAxis_SupervisorTick(void);
+
+void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, EncoderState *state)
+{
+    assert(configuration == &cfg && state == &encoder && supervisor_stage == 0U);
+    supervisor_stage = 1U;
+}
+void Temperature_Update(FocState *state, MotorControlState *control)
+{
+    assert(state == &foc && control == &motor && supervisor_stage == 1U);
+    supervisor_stage = 2U;
+    if (supervisor_injection == 4U)
+    {
+        MotorFault_Report(&motor, MOTOR_FAULT_OVERTEMPERATURE);
+    }
+}
+void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
+                             MotorControlState *candidate,
+                             PiController *controller,
+                             EncoderState *state)
+{
+    assert(configuration == &cfg && state == &encoder && supervisor_stage == 2U);
+    assert(candidate != &motor && controller != &pi && critical_depth == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_NONE);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_STARTING ||
+           MotorStateMachine_GetState() == MOTOR_STATE_RUNNING);
+    ++supervisor_outer_calls;
+    supervisor_stage = 3U;
+    supervisor_target_seen = candidate->speed_target_rad_s;
+    float published_iq = motor.iq_target_a;
+    candidate->id_target_a = 0.0f;
+    candidate->iq_target_a = candidate->speed_target_rad_s * 0.1f;
+    controller->integral_output = 7.0f;
+    outer_ready = supervisor_ready;
+    assert(motor.iq_target_a == published_iq);
+    if (supervisor_injection == 1U)
+    {
+        MotorFault_Report(&motor, MOTOR_FAULT_OVERCURRENT);
+        MotorStateMachine_FastFaultStop();
+    }
+    else if (supervisor_injection == 2U)
+    {
+        assert(MotorStateMachine_RequestRemoteStop());
+    }
+    else if (supervisor_injection == 3U)
+    {
+        MotorFault_Report(candidate, MOTOR_FAULT_INVALID_PARAMETERS);
+    }
+}
+static void staged_axis_tick(void)
+{
+    /* 模拟新鲜快采样窗口；真实热owner跨reset保留历史，不伪造初始化清零。 */
+    MotorThermalDiagnostics diagnostics;
+    assert(MotorThermalControl_GetDiagnostics(&diagnostics));
+    for (unsigned sample = 0U; sample < diagnostics.model.config.samples_per_update; ++sample)
+    {
+        MotorThermalControl_Sample(0.0f, 0.0f, 0.0f, output_off, now_ms);
+    }
+    supervisor_stage = 0U;
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    uint32_t before, after;
+    (void)MotorStateMachine_ReadBootHealth(&before);
+    (void)MotorAxis_SupervisorTick();
+    (void)MotorStateMachine_ReadBootHealth(&after);
+    assert(after == before + 1U && critical_depth == 0U);
+    assert(supervisor_stage == 2U || supervisor_stage == 3U);
+}
+static void test_staged_supervisor(void)
+{
+    trace_enabled = false;
+    reset();
+    supervisor_outer_calls = supervisor_injection = 0U;
+    supervisor_ready = outer_ready = false;
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    staged_axis_tick();
+    assert(supervisor_outer_calls == 1U && start_count == 0U && output_off);
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_STARTING);
+    supervisor_ready = true;
+    staged_axis_tick();
+    assert(start_count == 1U && !output_off);
+    MotorControlCommand command = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = 3.5f};
+    assert(MotorStateMachine_SubmitControl(&command) == MOTOR_CONTROL_ACCEPTED);
+    staged_axis_tick();
+    if (supervisor_target_seen != 3.5f || fabsf(motor.iq_target_a - 0.35f) >= 1e-6f)
+    {
+        fprintf(stderr,
+                "staged target=%f iq=%f state=%u fault=%u ready=%u calls=%u\n",
+                (double)supervisor_target_seen,
+                (double)motor.iq_target_a,
+                (unsigned)MotorStateMachine_GetState(),
+                (unsigned)motor.fault_code,
+                outer_ready,
+                supervisor_outer_calls);
+    }
+    assert(supervisor_target_seen == 3.5f && fabsf(motor.iq_target_a - 0.35f) < 1e-6f);
+    assert(pi.integral_output == 7.0f);
+    unsigned calls_before = supervisor_outer_calls;
+    assert(MotorStateMachine_RequestRemoteStop());
+    staged_axis_tick();
+    assert(output_off && motor.iq_target_a == 0.0f && supervisor_outer_calls == calls_before);
+
+    for (unsigned injection = 1U; injection <= 4U; ++injection)
+    {
+        reset();
+        supervisor_injection = 0U;
+        supervisor_ready = true;
+        assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+        staged_axis_tick();
+        assert(MotorStateMachine_SubmitControl(&command) == MOTOR_CONTROL_ACCEPTED);
+        calls_before = supervisor_outer_calls;
+        supervisor_injection = injection;
+        staged_axis_tick();
+        assert(output_off && motor.iq_target_a == 0.0f);
+        assert(supervisor_outer_calls == calls_before + (injection == 4U ? 0U : 1U));
+        assert(MotorStateMachine_GetState() ==
+               (injection == 2U ? MOTOR_STATE_IDLE : MOTOR_STATE_FAULT));
+    }
+    supervisor_injection = 0U;
+    for (MotorControlMode mode = MOTOR_CONTROL_CURRENT; mode <= MOTOR_CONTROL_VQ; ++mode)
+    {
+        if (mode == MOTOR_CONTROL_SPEED || mode == MOTOR_CONTROL_POSITION)
+        {
+            continue;
+        }
+        reset();
+        supervisor_ready = false;
+        assert(MotorStateMachine_RequestEnable(mode) == MOTOR_CONTROL_ACCEPTED);
+        staged_axis_tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off);
+        assert(!outer_ready && motor.iq_target_a == 0.0f);
+    }
+
+    /* INIT稳定窗口每拍只进一次；重复提交不增加监督epoch。 */
+    reset();
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
+    for (unsigned tick_index = 0U; tick_index < 4U; ++tick_index)
+    {
+        staged_axis_tick();
+        assert(MotorStateMachine_GetState() ==
+               (tick_index < 3U ? MOTOR_STATE_INIT : MOTOR_STATE_IDLE));
+    }
+    MotorSupervisorStep old_step;
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    assert(!MotorStateMachine_PrepareSupervisor(&old_step));
+    MotorStateMachine_CommitSupervisor(&old_step);
+    uint32_t first, duplicate;
+    (void)MotorStateMachine_ReadBootHealth(&first);
+    MotorStateMachine_CommitSupervisor(&old_step);
+    (void)MotorStateMachine_ReadBootHealth(&duplicate);
+    assert(first == duplicate);
+
+    /* 旧计算跨过停机/新启动后，不能覆盖新的控制代际。 */
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    supervisor_ready = true;
+    staged_axis_tick();
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    assert(MotorStateMachine_PrepareSupervisor(&old_step));
+    old_step.calculated = true;
+    old_step.motor.iq_target_a = 123.0f;
+    assert(MotorStateMachine_RequestRemoteStop());
+    staged_axis_tick();
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    staged_axis_tick();
+    float new_iq = motor.iq_target_a;
+    (void)MotorStateMachine_ReadBootHealth(&first);
+    MotorStateMachine_CommitSupervisor(&old_step);
+    (void)MotorStateMachine_ReadBootHealth(&duplicate);
+    assert(first == duplicate && motor.iq_target_a == new_iq && !output_off);
+    /* 同一监督拍也须拒绝不匹配的状态代际，不能只依赖拍序号。 */
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    assert(MotorStateMachine_PrepareSupervisor(&old_step));
+    old_step.calculated = true;
+    ++old_step.state_epoch;
+    old_step.motor.iq_target_a = 123.0f;
+    MotorStateMachine_CommitSupervisor(&old_step);
+    assert(motor.iq_target_a == new_iq && !output_off);
+
+    reset();
+    supervisor_ready = false;
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_POSITION) == MOTOR_CONTROL_ACCEPTED);
+    staged_axis_tick();
+    assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_STARTING);
+    supervisor_ready = true;
+    staged_axis_tick();
+    assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_RUNNING);
+}
+#endif

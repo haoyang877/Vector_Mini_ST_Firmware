@@ -26,7 +26,8 @@ FAULT 新故障继续锁存，致命错误进入 FATAL；FATAL 没有软件跳�
 | 标定 | 叶任务推进自己的采集阶段，主状态机消费完成/失败，退出后独立保存 | `begin_operation`、`state_process_task_outcome` |
 | 停机与故障 | 先关相、撤销旧目标并确认归还；可恢复故障须明确CLEAR，致命故障锁存 | `state_apply_actions`、`FastFaultStop`、`RequestClear` |
 
-`MotorStateMachine_Tick`按“消费输入→推进状态→待机派发/启相复核→运行目标和反馈”顺序阅读。
+`MotorStateMachine_PrepareSupervisor`消费输入、推进一次状态、派发工作并应用新目标；
+获准后计算外环副本，`MotorStateMachine_CommitSupervisor`只复核并提交，不再次推进自检或消费任务。
 STARTING、STOPPING是启动和停止尚未确认的真实阶段，不能合并成一个使能变量。
 速度、位置控制计算和标定内部步骤留在各自模块；这里不重复实现其子状态机。
 
@@ -52,7 +53,8 @@ START 受理与实际启相分为两步。受理时选择模式、清旧目标�
 初始目标为零，位置初始参考为当前位置；监督拍随后进入 STARTING。
 
 速度和位置需要外环消费复位、验证输入并报告就绪。
-`MotorAxis_SupervisorTick` 先执行外环，再执行状态机，新受理的准备可能延续到下一监督拍。
+`MotorAxis_SupervisorTick`先更新输入及状态，再执行获准外环，最后复核提交。
+SPEED/POSITION只有本拍计算取得ready后才可启相；未就绪保持STARTING和关相。
 电流和 VQ 可以同拍准备完成，因此有时遥测不会看到 STARTING。
 
 就绪后在临界区重新核对 STOP、升级停机票据、故障、健康及启动许可，
@@ -139,7 +141,7 @@ STOP／故障撤销派生保存意图，已提交的 Flash 不因取消回滚。
 ## 源码、线路与验证入口
 
 阅读主线是“请求入口 → 规则判定 → 实际动作”，监督拍负责按固定顺序推进。
-从 `MotorStateMachine_Tick` 看阶段，再沿下面三个入口阅读，不必在协议与算法之间来回跳转。
+从 `MotorStateMachine_PrepareSupervisor` 和 `MotorStateMachine_CommitSupervisor` 看阶段，再沿下面三个入口阅读，不必在协议与算法之间来回跳转。
 
 | 阅读层次 | 具体执行 |
 | --- | --- |

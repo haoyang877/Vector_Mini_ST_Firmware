@@ -48,13 +48,33 @@ void MotorStateMachine_FastFaultStop(void);
  *       非 RUNNING 结果与消费端通过短临界区交换，保留首个终态，失败优先。
  */
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch);
+/** @brief 单次监督的栈上计算载体；不是活动运行对象，禁止保留到下一拍。 */
+typedef struct
+{
+    uint32_t supervisor_epoch;
+    uint32_t state_epoch;
+    MotorControlState motor;
+    PiController speed_pi;
+    bool control_allowed;
+    bool calculated;
+} MotorSupervisorStep;
+
 /**
- * @brief 执行一次有序监督拍，消费任务结果并提交功率、维护和目标迁移。
- * @note 仅由 2 kHz 监督中断调用；同拍允许多次迁移，动作后重新读取事实。
- *       STOP 不跳过故障消费；本拍受理 SAVE／取消完成事件时抑制派生保存。
- *       快拍任务完成仍可沿原顺序同拍衔接 SAVE；阶段顺序见实现。
+ * @brief 消费一次监督输入、推进状态并准备获准控制的本拍副本。
+ * @param step 调用方栈上载体，必须非空；随后同拍交给CommitSupervisor，不得复用。
+ * @return 本拍允许执行既有控制准备或外环计算时返回true。
+ * @note 仅由2kHz监督调用一次；STOP/故障优先，新目标在计算前应用。
+ *       自检、结果消费及保存衔接只在此推进；不得重复调用来代替最终复核。
  */
-void MotorStateMachine_Tick(void);
+bool MotorStateMachine_PrepareSupervisor(MotorSupervisorStep *step);
+
+/**
+ * @brief 复核本拍身份和保护事实，发布有效计算结果并决定是否启相。
+ * @param step 本拍PrepareSupervisor得到的载体；计算结束后设置calculated，再提交一次。
+ * @note 仅由同一2kHz监督在计算后调用；过期或重复提交无效。
+ *       SPEED/POSITION须本拍计算且原ready有效；此处不重复推进自检或消费任务结果。
+ */
+void MotorStateMachine_CommitSupervisor(const MotorSupervisorStep *step);
 
 /**
  * @brief 读取运行所有者的生命周期状态。

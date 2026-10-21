@@ -14,7 +14,7 @@
 | App_SupervisorTick | app_tasks.c | TIM7回调，执行既有2kHz监督、主状态推进和指示器分频 |
 
 随后阅读runtime/motor_axis.c的Init、FastTick、SupervisorTick和ServiceBackground，
-再从MotorStateMachine_Tick进入主状态机。四入口是执行上下文边界，不增加线程或调度器。
+再从MotorStateMachine_PrepareSupervisor及CommitSupervisor进入同一主状态机。四入口是执行上下文边界，不增加线程或调度器。
 
 | 目录 | 职责 | 阅读入口 |
 | --- | --- | --- |
@@ -22,7 +22,7 @@
 | runtime | 单轴对象、控制/维护调度、参数事务和固定工作区 | [motor_axis.c](runtime/motor_axis.c) |
 | motor_state_machine | 唯一生命周期、启停准入、故障及资源归还 | [motor_state_machine.c](motor_state_machine/motor_state_machine.c) |
 
-20kHz快拍执行采样、保护及一拍控制/标定；2kHz慢拍执行估计、外环和主状态监督。
+20kHz快拍执行采样、保护及一拍控制/标定；2kHz慢拍先更新输入及状态，再计算获准外环副本，最后复核并提交。
 前台处理通信和停机SAVE，Flash不在ISR执行。
 runtime不实现外环、热模型或ADC计数处理：分别调用motor控制执行、保护及采样接口，
 只传入所属对象和当前事实。命令格式/范围校验仍归APP，不反向引入motor算法。

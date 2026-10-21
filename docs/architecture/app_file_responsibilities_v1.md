@@ -25,7 +25,7 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 ```text
 请求：CAN中断 → 接收队列 → 前台消息解析/路由 → APP所有者接口 → 主状态机
 控制：ADC完整采样中断 → APP快拍调度 → 反馈/保护/控制计算 → 平台PWM端口
-监督：TIM7中断 → APP慢拍调度 → 速度/位置外环 → 主状态推进
+监督：TIM7中断 → APP慢拍调度 → 输入与状态前处理 → 获准外环副本 → 复核提交
 保存：APP后台事务 → 参数记录转换 → 平台Flash字节存储
 ```
 
@@ -53,7 +53,7 @@ TIM7回调
 ```
 
 App_Init与App_Process位于app_startup.c前部，内部绑定/启动交接辅助函数在后部。
-继续读motor_axis的四条执行路径，再从MotorStateMachine_Tick进入状态机；算法按实际调用进入。
+继续读motor_axis的四条执行路径，再从MotorStateMachine_PrepareSupervisor及CommitSupervisor进入状态机；算法按实际调用进入。
 20kHz快环和2kHz监督由中断驱动，前台循环处理通信与存储；四入口不代表四个线程。
 对应实施与证据见[四入口收口计划](../plans/completed/2026-10-21-app-entry-v1.md)。
 

@@ -26,7 +26,7 @@ runtime只保留对象所有权、调度、命令校验及维护/参数协调；
 
 ## 从main到四个APP入口：当前调用流程
 
-本节统一维护执行流程，依据当前`codex/system-refactor`及四入口实现提交`9ac9c392`。
+本节统一维护执行流程，依据当前`codex/system-refactor`及四入口实现、2kHz三段监督实现。
 方框中的函数名对应源码，中文步骤概括内部工作；虚线表示中断触发或跨上下文信息交互。
 20kHz和2kHz分别对应50µs和500µs节拍，不是已测执行耗时。
 
@@ -59,7 +59,7 @@ flowchart TD
 
     subgraph SLOW["④ TIM7监督中断：2kHz"]
         S["App_SupervisorTick"]
-        AS["MotorAxis_SupervisorTick<br/>慢估计、外环、主状态推进、温度"]
+        AS["MotorAxis_SupervisorTick<br/>输入事实、状态前处理<br/>获准计算、复核提交"]
         LED["原LED/RGB分频任务"]
         S --> AS --> LED
     end
@@ -95,81 +95,63 @@ flowchart TD
         IDLE --> RESULT
     end
 
-    subgraph SLOW["2kHz：当前源码顺序"]
+    subgraph SLOW["2kHz：前处理 → 获准计算 → 复核提交"]
         S["MotorAxis_SupervisorTick"]
         WATCH["热采样节拍看门狗<br/>失效即锁存故障并关断"]
         ENCODER["Encoder_UpdateSlowEstimate<br/>机械位置和速度估计"]
-        OUTER["MotorOuterLoop_SlowTick<br/>速度PI或位置串级<br/>发布iq_target_a及外环ready"]
-        STATE["MotorStateMachine_Tick<br/>STOP/故障/结果消费及状态迁移<br/>启相复核、待处理目标提交"]
-        TEMP["Temperature_Update<br/>温度换算、更新与故障发布"]
-        S --> WATCH --> ENCODER --> OUTER --> STATE --> TEMP
+        TEMP["Temperature_Update<br/>先更新本拍温度及保护事实"]
+        PRE["MotorStateMachine_PrepareSupervisor<br/>消费STOP、故障及任务/保存结果<br/>推进一次状态、自检窗口及工作派发<br/>应用新目标，取得本拍代际和计算副本"]
+        ALLOW{"STARTING/RUNNING<br/>无故障、STOP或升级停机票据？"}
+        OUTER["MotorOuterLoop_SlowTick<br/>在栈上副本计算既有外环<br/>更新临时参考、PI及外环ready"]
+        SKIP["跳过控制计算<br/>不发布新参考、不启相"]
+        COMMIT["MotorStateMachine_CommitSupervisor<br/>复核最新故障、STOP、运行守卫和代际<br/>有效才发布外环参考及PI<br/>启动仍须ready、资格和真实启相回读"]
+        DONE["监督序号只提交一次<br/>更新启动进展及指示器"]
+        S --> WATCH --> ENCODER --> TEMP --> PRE --> ALLOW
+        ALLOW -->|"是"| OUTER --> COMMIT
+        ALLOW -->|"否"| SKIP --> COMMIT
+        COMMIT --> DONE
     end
 
-    OUTER -. "电流目标" .-> CONTROL
-    STATE -. "状态、模式和维护许可" .-> SELECT
-    RESULT -. "采样进展及任务结果" .-> STATE
+    COMMIT -. "已提交电流目标" .-> CONTROL
+    PRE -. "状态、模式和维护许可" .-> SELECT
+    RESULT -. "采样进展及任务结果" .-> PRE
 ```
 
 实际出力经motor控制算法和platform PWM能力执行。维护任务只推进内部步骤；
 主状态机拥有功率及资源许可，前台保存仍经同一状态所有者认领并提交完成。
-主状态机周期推进主要在2kHz；前台请求接口也会准入/登记，部分维护请求同步迁移，
-不能理解为所有生命周期写入都只发生在MotorStateMachine_Tick中。
+生命周期周期推进主要在2kHz；前台请求接口也会准入/登记，部分维护请求同步迁移，
+不能理解为所有生命周期写入都只发生在监督入口。
 
-## 为什么当前先计算外环，再推进主状态机
+## 三段监督的边界与启动ready
 
-当前顺序有明确依赖，但仍有收紧空间：
+1. **前处理**：先刷新温度，再消费本拍STOP、任务结果、保存/取消完成和恢复事实，
+   推进自检及生命周期。运行中的同模式新目标在计算前应用，正常调度下可在本拍参与外环，
+   不再固定多等一个500µs监督周期；这不是通信到机械响应或STOP关断最坏时延的测量。
+2. **获准计算**：仅STARTING/RUNNING且未故障、停机、升级交接才计算。
+   `MotorSupervisorStep`在监督栈上携带本拍代际、运行值和速度PI副本，不新增全局运行镜像。
+   外环公式和求值顺序保持，计算区开中断；快环继续读取上一次已提交的外环参考。
+   CURRENT/VQ仍沿既有外环入口的非外环分支，不要求速度/位置ready，也不覆盖其活动目标。
+3. **复核提交**：读取计算期间可能发生的故障和STOP，再检查运行守卫、状态代际与监督序号。
+   仅本拍有效SPEED/POSITION结果且ready有效才在短临界区发布外环参考与PI，
+   不回写整份运行状态，避免覆盖快环更新的故障、热事实等字段。失效结果丢弃并请求外环复位。
+4. **启动检查保留**：STARTING先生成零目标或当前位置的准备结果；
+   SPEED/POSITION必须取得本拍外环ready，CURRENT/VQ使用各自原就绪判据。
+   原启相入口仍先校验配置，再在短临界区重新核对STOP、故障、采样、许可和代际；
+   实际数字输出状态确认已开启后才进入RUNNING，ready本身不等于已经启相。
+5. **只推进一次**：Prepare消费任务邮箱、自检稳定窗口及保存衔接；Commit不再次执行这些步骤。
+   Commit只复核当前保护事实和持续守卫，监督序号在提交时增一次，重复/过期票据无效。
+   这不是两次完整Tick，也不是第二套状态机。
 
-1. 启动请求先清旧参考、请求外环复位并选择模式；速度/位置初始目标为零或当前位置。
-   外环慢拍消费复位、核对输入并生成初始电流目标，随后报告ready。
-   状态机的startup_confirmed依赖MotorOuterLoop_IsReady；启相前还会在原临界区
-   重新核对STOP、故障、采样、参数、许可和代际。先外环能在本拍提供准备结果。
-2. 当前并非把全部故障检查放在控制后。监督入口首先执行采样节拍看门狗；
-   外环遇已有故障不执行正常控制计算；20kHz独立检查故障并在出力任务前关断。
-   远程STOP受理入口还同步撤销启动/维护许可并把control_mode置NONE，
-   因此不能笼统推断“每次STOP都会再算一拍旧速度控制”。完整关相及停止确认仍按真实路径判断。
-   STOP登记本身不调用平台关相，control_mode为NONE也不是输出已关闭的证据；
-   后续状态处理执行关相并核对真实输出事实。
-3. 新SPEED/POSITION目标由状态机尾部apply_pending_control提交，当前外环已经算完；
-   目标要到下一外环拍才参与运算，正常调度下多等一个500µs监督周期。
-   这不是通信到机械响应或STOP关断的最坏时延结论。
-4. 持续运行守卫、任务结果及部分生命周期事件晚于本拍外环处理；
-   外环没有独立核对全部主状态准入事实，不能称其已经满足“所有状态和故障前置”。
-   温度也在状态机之后刷新，本次新温度不会被同拍较早的状态判断使用。
-5. ADC中断优先级为0，TIM7为3；在允许抢占的NVIC配置下，快环可在监督中执行，
-   iq_target_a也由外环直接发布。函数先后次序不等于整拍控制输出的原子提交。
-   收紧边界时还需核对中断配置、代际及发布/撤销时机，不能用扩大关中断区解决。
+20kHz快速故障通道独立存在，必要时立即关相；提交复核不能替代快速保护。
+STOP受理会撤销模式及许可，但受理成功不等于真实输出已关闭；关相仍走原平台及回读路径。
+ADC优先级0、TIM7优先级3，外环允许快环抢占；不能通过扩大关中断范围代替提交边界。
+四个App入口、状态与线上编码、控制公式、保护阈值和Keil Watch入口保持不变。
 
 源码依据：[监督调度](../../firmware/app/runtime/motor_axis.c)、
 [外环与ready](../../firmware/motor/foc/motor_control.c)、
-[状态、STOP、启动及目标提交](../../firmware/app/motor_state_machine/motor_state_machine.c)。
-
-## 建议的监督组织：尚未改代码
-
-方向是先处理当前状态与保护，再运行获准控制；启动准备及启相提交继续分开。
-不宜只交换MotorOuterLoop_SlowTick和MotorStateMachine_Tick两行，
-也不能把完整Tick调用两遍，那会重复推进计数、消费事件或改变维护/保存衔接。
-
-```mermaid
-flowchart TD
-    INPUT["准备本拍输入<br/>采样进展、编码器慢估计、温度/健康事实"]
-    PRE["同一主状态机前处理<br/>优先STOP/故障/失效守卫<br/>处理模式、复位及有效新目标"]
-    ALLOW{"当前状态允许运行<br/>或执行启动准备？"}
-    COMPUTE["获准的控制准备或更新<br/>SPEED/POSITION计算外环<br/>STARTING准备期保持关相"]
-    REVOKE["撤销/清理旧控制<br/>保持输出关闭"]
-    COMMIT["同一主状态机提交<br/>复核故障、STOP、代际及外环ready<br/>再决定是否启相、更新请求进展"]
-    DONE["更新指示器，结束监督拍"]
-    INPUT --> PRE --> ALLOW
-    ALLOW -->|"是"| COMPUTE --> COMMIT
-    ALLOW -->|"否"| REVOKE --> COMMIT
-    COMMIT --> DONE
-```
-
-“前处理/提交”是同一主状态所有者的概念阶段，不是已经新增的公开API或第二套状态机。
-实施时应保证每拍只消费一次事件、推进一次计数；故障/STOP后不得再发布有效出力参考，
-SPEED/POSITION无当前外环ready不得启相；在新目标计算与快环可见性之间保留明确的发布及撤销规则。
-CURRENT/VQ不需要速度/位置外环，仍按各自就绪条件提交，不能因跳过外环而撤销有效运行。
-控制公式、保护阈值、四个App入口和Keil Watch契约保持不变。
-本次仅更新流程图与源码评审说明，没有重排运行代码，也没有新的实机或时序验证结论。
+[同一状态所有者的前处理和提交](../../firmware/app/motor_state_machine/motor_state_machine.c)。
+实施与证据见[2kHz三段监督计划](../plans/active/2026-10-21-supervisor-staged-v1.md)。
+本图表示当前源码调用关系；本批没有新的实机、中断耗时或MCU占用率结论。
 
 ## 上电、运行和维护
 

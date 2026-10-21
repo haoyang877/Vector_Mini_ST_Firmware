@@ -1,7 +1,7 @@
 # 编码器测速估计优化：20 kHz PLL 替换 8 ms 滑窗 v1.0
 
 日期：2026-09-23。状态：**已实施并经 J-Link 实机验证**（PR 档全绿；转速环 PI 终整定与带载验收待办）。
-相关计划：[编码器测速估计优化](../../plans/active/2026-09-23-encoder-speed-estimation-optimization.md)；
+相关计划：[编码器测速估计优化](../../archive/plans/2026-09-23-encoder-speed-estimation-optimization.md)；
 决策：[0002 速度估计所有权变更](../../plans/decisions/0002-encoder-velocity-estimator-ownership.md)。
 
 ## 1. 背景与目标

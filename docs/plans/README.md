@@ -1,18 +1,11 @@
-# Plans and Decisions
+# 计划、结果与当前限制
 
-- [`active/`](active/): work in progress with acceptance criteria and a decision log.
-- [`completed/`](completed/): finished plans retained as design history.
-- [`decisions/`](decisions/): durable architecture and workflow decisions.
-- [`tech-debt-tracker.md`](tech-debt-tracker.md): acknowledged debt with an exit condition.
+- [当前任务](active/README.md)：仅保留尚未结束的明确事项。
+- [已完成记录](completed/README.md)：正文已有原计划范围内结果；不等于所有后续候选已验收。
+- [当前限制与剩余验收](tech-debt-tracker.md)：按实际代码和现有证据登记。
+- [决策记录](decisions)
+- [历史计划](../archive/plans/README.md)：旧基线、被替代/撤销或已停止阶段；归档不代表全部完成。
 
-Small, local edits do not need a plan. Cross-module, protocol, release, safety, or harness
-changes do. Completed plans must record the verification evidence used for acceptance.
-
-Behavior-preserving refactor plans additionally record:
-
-- the structural problem and measurable improvement target;
-- unchanged external behavior, including protocol/parameter ABI, defaults, state transitions,
-  fault behavior, control outputs, timing, stack, ROM/RAM, and artifacts as applicable;
-- the pre-refactor test, golden-vector, timing, resource, and image/map baseline;
-- staged migration steps, rollback point, and removal conditions for any temporary path;
-- acceptance results, failed checks, unresolved debt, and the final `summary.json` evidence.
+当前计划须写范围、基线、接受条件和回退；完成后写实际结果并迁移。
+重启历史事项前先核对代码现状，在现行计划承接有效缺口，不能把旧阶段状态直接当作当前任务。
+维护流程见[文档规则](../guides/documentation.md)，实机结论只按[报告](../reports/README.md)的原始基线解释。

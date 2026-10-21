@@ -1,14 +1,17 @@
-# Technical Debt Tracker
+# 当前限制与待验收事项
 
-| ID | Debt | Enforcement and exit condition |
+核对日期：2026-10-21。只登记当前代码可确认的限制和证据缺口。
+已撤销的架构/功能方案保存在归档，不自动变成待开发需求。
+
+| ID | 当前事实 | 退出条件与入口 |
 | --- | --- | --- |
-| ARCH-001 | Motor headers still reach services profiles (`motor_axis_profile` / `foc_param_profile` / `fast_loop_profile`) as include-level reverse dependencies. | Listed in `tools/harness/architecture_debt.json` (5 entries); remove entries as those profiles are inverted into `platform/api` or pure types. |
-| ARCH-002 | Some motor code reaches APP telemetry/service details. | Architecture ratchet forbids any new include-level violation; refactor existing entries incrementally. The hardware boundary is now closed: only `firmware/platform/stm32g4/**` includes CubeMX/HAL. |
-| TOOL-001 | Keil requires a licensed Windows installation. | `doctor release` requires `KEIL_UV4`; CI uses a labeled self-hosted runner. |
-| TEST-001 | Historical state-equivalence comparison needs an external pre-change source. | Keep optional `--reference-source`; release evidence states whether it was supplied. |
+| VERIFY-001 | 1.5.5/1.5.6及四入口工作树后续重构不能继承1.5.1或1.5.4硬件结论 | 冻结当前源码/产物后，按明确授权的范围补齐匹配验收；见[当前候选验收计划](active/2026-10-21-current-candidate-acceptance-v1.md) |
+| TIMING-001 | 既有IRQ结果是有限工况观测；当前重构版本尚无覆盖全部标定/运行路径的时序证据 | 明确候选、测量开销和场景；不能以旧计数、平均值或诊断镜像替代当前时序 |
+| HOST-001 | Rust GUI候选与Qt兼容工具的源码/能力不同，GUI实机验收尚未在现行计划中闭合 | 按[GUI计划](active/2026-10-21-host-gui-bench-v1.md)固定实际版本并记录结果；不把脚本PASS当GUI PASS |
+| TOOL-001 | release需要本机有效Keil和洁净源码，当前有预先存在的未提交修改 | doctor release、clean-source和匹配构建/哈希全部通过后才形成release声明 |
+| TEST-001 | 历史状态等价比较需要独立旧源码 | 使用既有可选--reference-source并如实记录是否提供 |
+| SENSOR-001 | TLE5012B当前端口未读取运行安全字/CRC，STAT配置快照不参与逐帧资格 | 如需完整传感器健康检测，另立协议/时序与台架范围明确的实现计划；当前诊断覆盖按[标定指南](../guides/calibration_process.md)说明，不伪称已经校验 |
 
-Closed: HIL-001（HIL 台架与工装已于 2026-09-19 退役，见
-[HIL 退役计划](active/2026-09-19-hil-retirement.md)）。
-
-Debt entries must describe an automated guard and a concrete deletion condition. Do not
-use this file to waive newly introduced violations.
+`tools/harness/architecture_debt.json`的逆向依赖清单为空；原ARCH-001/002已不再是开放债务。
+当前仍无UART/第二款MCU、A/B回滚、镜像签名、多轴1kHz同步或位置轨迹支持，
+这些是产品支持边界，未经新需求与版本化计划不自动恢复。

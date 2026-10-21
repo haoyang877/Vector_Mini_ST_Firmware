@@ -3,8 +3,8 @@
 日期：2026-09-28。基于参数目录v0.1，由本轮整体重构请求及ROOT裁决收口。
 2026-09-29 现状：APP 参数所有者、活动值服务和保存维护链已接线，旧只读适配器删除。
 本文件冻结线路语义，不把历史候选或源码存在当作当前验证证明。
-本次历史清理未测试、未构建；改动后的统一验证仍待进行，见
-[清理记录](../plans/active/2026-09-29-legacy-cleanup-v1.md)。
+核对日期：2026-10-21。下文描述现行线路；历史实施记录见
+[阶段清理记录](../archive/plans/2026-09-29-legacy-cleanup-v1.md)，其未测声明只对应当时基线。
 
 ## 1. 不变边界
 
@@ -18,7 +18,7 @@ SN/BYTES没有真实源，当前只接标量i32/u32，明确UNSUPPORTED，不填
 本轮ROOT冻结：请求为空，不含掩码。请求清除全部已恢复且允许复位的锁存故障，
 回复沿用4B `result:u16, detail:u16`。实时故障未恢复必须拒绝或如实留存，剩余故障
 由108/124查询。CLEAR不启动、不使能、不恢复旧目标，也不替代STOP。
-通信仅提交值请求；故障源/恢复/取消旧请求及完成判定均由E所有者负责。
+通信仅提交值请求；故障源/恢复、取消旧请求及完成判定均由APP主状态机所有者负责。
 
 101 enable=1与107经adapter的`lifecycle_handler/lifecycle_context`注入APP映射函数。
 未绑定返回UNSUPPORTED，不能直接操作PWM或假造成功；STOP/失能沿原停机服务。
@@ -81,9 +81,9 @@ STOP撤销/故障取消后不能把旧作业结果充当新请求完成；此状
 `yg_protocol_parameter_decode/encode_reply`负责字段；link绑定
 `yg_protocol_parameter_service_t`，后台串行调用handler，不保留输入payload指针。
 内部request携带源节点和序号，reply携带值、revision及value_type/access。
-旧只读adapter仅在成功时提供真实类型和READ权限；WRITE/SAVE不假装已经实现。
+旧只读adapter已删除；当前参数事务、活动标量服务与真实后台SAVE已接线，按所有者真实结果回复。
 
-黄金payload见`yg_protocol_parameter_wire_v1_vectors.json`。统一验证以后覆盖：字段非法、
+黄金payload见`yg_protocol_parameter_wire_v1_vectors.json`。相应离线夹具覆盖：字段非法、
 u32高位保持、主站拒绝、未绑定、同seq重传冲突、版本冲突、停止取消和Flash保存失败。
 参数ID/缩放以参数目录为准；当前无真实实现的ID明确不支持，不增加新模式或参数ABI。
 
@@ -91,5 +91,6 @@ u32高位保持、主站拒绝、未绑定、同seq重传冲突、版本冲突�
 
 新增 ID 0x4D～0x51，现有请求/响应字节布局与结果码不变。0x4D 为停机配置确认，
 写入仍受身份、revision、类型和配置数值校验约束；确认不自动标定、保存或启动。
-其余项为只读准备资格诊断，未确认或部分标定时主状态保持 READY、ENABLE 被拒绝。
+0x4E为配置来源，0x4F～0x51为只读准备资格诊断；配置/标定未齐时可保持IDLE，
+对应模式的START被拒绝，不存在旧READY主状态。
 [完整定义](../architecture/motor_readiness_v1.md)及[黄金向量](yg_protocol_parameter_wire_v1_vectors.json)。

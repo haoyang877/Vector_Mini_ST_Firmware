@@ -97,7 +97,7 @@ CLEAR 前先确认代际可推进；耗尽 → FATAL，原锁存保留，不能�
 
 正常迁移见 `MotorStateRules_Step`／`handle_state_event`，故障优先级见
 `handle_priority_events`，实际动作和事实见 `dispatch_state_event`、
-`state_apply_actions`、`read_state_conditions`，均位于[主状态模块](../../firmware/app/motor_state_machine/)。
+`state_apply_actions`、`read_state_conditions`，均位于[主状态模块](../../firmware/app/motor_state_machine)。
 STARTING 实际放行见 `enable_prepared_control`，待机保存及启动派发见 `dispatch_idle_work`。
 普通事件在 `handle_normal_event` 内只解析一次，完成事件仍优先于同拍新请求；
 IDLE 分支分别校验控制与维护请求，再共用一次新会话代际推进；INIT/IDLE的CLEAR空操作
@@ -108,4 +108,4 @@ IDLE 分支分别校验控制与维护请求，再共用一次新会话代际推
 [早期分流程展示](../assets/motor_state_machine/state-flow-linear-review.html)、
 [未实施的维护内串行 SAVE 候选](../assets/motor_state_machine/state-simplification-eight-v1.svg)。
 它们保留设计过程，不覆盖本页 T1～T11。
-本次核对记录见[文档更新计划 v1](../plans/active/2026-10-09-motor-state-documentation-v1.md)。
+本次核对记录见[文档更新计划 v1](../plans/completed/2026-10-09-motor-state-documentation-v1.md)。

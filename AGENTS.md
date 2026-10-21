@@ -9,7 +9,7 @@ the linked documents instead of expanding this file into a handbook.
 - `tests/`: offline unit/integration/native checks.
 - `tools/`: build, bench, analysis, and project-harness commands.
 - `docs/`: architecture, protocols, guides, hardware references, reports, and plans.
-- `loader/`, `host_app/`, `shared/`: future independent products and shared contracts.
+- `loader/`, `host_app/`, `shared/`: independent products and shared contracts.
 - `outputs/`: ignored generated evidence; never treat an old output as current proof.
 
 Authoritative entry points: `README.md`, `ARCHITECTURE.md`, `docs/README.md`,

@@ -90,11 +90,11 @@ IDLE 仍映射为既有线上状态 5；PC 用新序号查询资格，重试原�
 ENABLE 在同一临界区重新核对，监督拍及运行守卫继续复核。确认、标定、保存都不自动 ENABLE。
 SAVE 可以持久化未确认/部分标定记录，重载后保持同样限制；DEFAULTS 清除确认和标定资格。
 
-配置确认持久化与整条 CRC 见[schema12 契约](../protocols/parameter_schema12_loading_policy_v1.md)。
+配置确认持久化与整条CRC见[schema14契约](../protocols/parameter_schema14_storage_v1.md)，兼容读取有效schema12/13。
 黄金字节见[参数线路向量](../protocols/yg_protocol_parameter_wire_v1_vectors.json)。
 
 未配置设备使用节点 1，与 Loader 救援节点一致；完整电机状态的节点合法范围为 1～254。
-默认速度保持原 0.5 rev/s，不因节点 1 的轮子硬上限自动提高。批量配置仍需使用各板既有
+默认速度保持原0.5 rev/s；当前不再按节点派生轮子硬上限。批量配置仍需使用各板既有
 编译 profile/完整记录指定节点；本轮未增加运行时节点重配接口。
 
 ## 所有权与验证
@@ -107,6 +107,6 @@ Param 服务应用默认/装载/确认，状态存于 APP 私有电机对象；�
 健康窗口中断、时钟回绕、总期限、关断失败 FATAL、CRC 黄金与掉电重载。
 这属于离线验证；未烧录、未修改设备参数、未控制电机。
 
-2026-10-08：BOOT 与基础自检已合并 INIT；INIT STOP 不重启期限／窗口，其余健康与启动资格保持。线上映射见[状态反馈 v1.1](../protocols/yg_protocol_motor_state_v1_1.md)。
+2026-10-08：BOOT 与基础自检已合并 INIT；INIT STOP 不重启期限／窗口，其余健康与启动资格保持。线上映射见[状态反馈 v1.1](../protocols/yg_protocol_motor_state_v1_2.md)。
 
 2026-10-08 出口收敛：INIT／IDLE STOP 保持状态与代际；停止与 CLEAR 成功只回 IDLE。详见[恢复契约 v1.2](../protocols/yg_protocol_motor_state_v1_2.md)。

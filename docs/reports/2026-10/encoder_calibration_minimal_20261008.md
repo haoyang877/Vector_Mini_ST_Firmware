@@ -1,7 +1,7 @@
 # 编码器标定最小实现 v4
 
 日期：2026-10-08。基点 `e46a8cca09a364c8b3c8506bed8f55cf12f9becf`；干净实现提交 PR 全通过，待 ROOT 审查/集成。
-目标与回退见[最小实现计划](../../plans/active/2026-10-08-encoder-calibration-minimal-v4.md)。
+目标与回退见[最小实现计划](../../archive/plans/2026-10-08-encoder-calibration-minimal-v4.md)。
 四个功能保持：LUT 标定及验证、电零位平均、安全退出/收尾、复用现有后台保存。
 
 实现仍是一个任务流程和一个纯计算核心，没有新增接口、状态机、框架、配置或依赖。

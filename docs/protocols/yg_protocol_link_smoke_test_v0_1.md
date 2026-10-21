@@ -6,7 +6,7 @@
 协议头 CRC、整帧 CRC 和只读 GET_CAPS 响应。它不发送电机控制、参数写入、Flash 擦写或升级命令。
 
 固件端点在 `FDCAN1` 的 RX 中断接收帧，在主循环后台 `YgProtocolLink_Service` 中推进路由，并返回 GET_CAPS；
-2 kHz `CAN_Service` 仅继续服务旧标准帧协议。
+2kHz监督处理当前控制/保护资格；旧标准CAN服务已删除，不存在并行兼容链路。
 固定位时序为仲裁段 1 Mbit/s、数据段 5 Mbit/s。请求使用 source=主机 Node ID、destination=板卡
 Node ID、priority=2；响应使用反向地址、priority=3。
 
@@ -22,9 +22,9 @@ Node ID、priority=2；响应使用反向地址、priority=3。
 
 ```powershell
 .\.venv\Scripts\python.exe tools/bench/yg_protocol_link_test.py `
-  --adapter-root D:\Work\Code\motor_ctrl_app `
+  --adapter-root <adapter-root> `
   --node-id 7 `
-  --source-id 1 `
+  --source-id 2 `
   --board vector-mini-st-01 `
   --firmware-sha256 <64 位 SHA-256> `
   --no-motor-power `
@@ -36,17 +36,17 @@ Node ID、priority=2；响应使用反向地址、priority=3。
 
 ## 请求/响应黄金形态
 
-以板卡 Node ID=7、主机 source=1、sequence=1 为例：
+以板卡 Node ID=7、主机 source=2、sequence=1 为例：
 
 ```text
-请求 ID：08EF0701
+请求 ID：08EF0702
 请求物理长度：32
-请求应用数据：5A A5 01 20 01 07 02 00 01 00 0C 00 00 00 00 <CRC8>
+请求应用数据：5A A5 01 20 02 07 02 00 01 00 0C 00 00 00 00 <CRC8>
               44 33 22 11 01 00 00 00 00 00 00 00 <CRC16> 00 00
 ```
 
 请求 payload 是 `session_id=0x11223344`、`request_id=1`、`page=0`、保留字段为 0，全部小端。
-响应为 `message_type=2`、`flags` 含 RESPONSE、source=7、destination=1、sequence=1，能力
+响应为 `message_type=2`、`flags` 含 RESPONSE、source=7、destination=2、sequence=1，能力
 payload 长度 16 字节。具体 CRC 和响应原始帧以 `run.json` 为准。
 
 该冒烟结果只证明只读通信链路和端点闭环；它不证明控制命令、反馈周期、5 轴同步或 1 kHz

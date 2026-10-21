@@ -10,15 +10,16 @@ read [电机驱动软件架构说明](docs/architecture/software_architecture.md
 2026-10-17 integration adds a deterministic winding-thermal core and optional speed
 feedforward without restoring the legacy runtime or wire protocol. APP schedules thermal
 updates; motor/protection owns the thermal history and explicit current limits. See the
-[integration plan](docs/plans/active/2026-10-17-delivery-feature-integration-v1.md) and
-[schema13 contract](docs/protocols/parameter_schema13_delivery_v1.md) for compatibility.
+[integration plan](docs/archive/plans/2026-10-17-delivery-feature-integration-v1.md) and
+[schema13 extension](docs/protocols/parameter_schema13_delivery_v1.md) for feature semantics;
+current storage writes [schema14](docs/protocols/parameter_schema14_storage_v1.md) and reads valid schema12/13.
 
 ## Products and contracts
 
 - `firmware/` is the current STM32G4 motor-control APP.
 - `loader/` is the independently built G431 upgrade product.
-- `host_app/` is a single-page Qt6 CAN FD tool for real readback, explicit speed/STOP commands,
-  and matched APP-package upgrade through an independent Python client. It opens disconnected;
+- `host_app/` contains the Rust GUI candidate and the Qt6 core CAN FD tool for real readback,
+  explicit speed/STOP commands, and matched APP-package upgrade through an independent Python client. They open disconnected;
   GUI control and upgrade still require matching hardware acceptance. Neither product is linked into APP.
 - `shared/` owns only cross-product protocol, image, boot, target-layout contracts, and the pure CRC32 core.
   Motor code may consume the shared CRC32 contract; shared never depends on firmware or hardware.

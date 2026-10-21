@@ -34,8 +34,8 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 
 ## 从四个入口开始读
 
-四个入口的目标契约见[APP四入口收口计划](../plans/active/2026-10-21-app-entry-v1.md)，
-当前实现仍分布在 `app_startup.h` 与 `app_tasks.h`；源文件按下面的调用链阅读：
+先读[app.h](../../firmware/app/composition/app.h)的四个入口契约，实施范围见
+[四入口计划](../plans/completed/2026-10-21-app-entry-v1.md)；源文件按下面的调用链阅读：
 
 ```text
 main.c：BootHw/HAL/时钟/外设初始化
@@ -52,7 +52,7 @@ TIM7回调
 App_Init与App_Process位于app_startup.c前部，内部绑定/启动交接辅助函数在后部。
 继续读motor_axis的四条执行路径，再从MotorStateMachine_Tick进入状态机；算法按实际调用进入。
 20kHz快环和2kHz监督由中断驱动，前台循环处理通信与存储；四入口不代表四个线程。
-对应实施与证据见[四入口收口计划](../plans/active/2026-10-21-app-entry-v1.md)。
+对应实施与证据见[四入口收口计划](../plans/completed/2026-10-21-app-entry-v1.md)。
 
 ## 与Keil树逐文件对应
 
@@ -218,7 +218,7 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 
 | 实际头文件 | 类型 | 功能和归属 |
 | --- | --- | --- |
-| [四入口收口计划](../plans/active/2026-10-21-app-entry-v1.md) | 四个应用入口的目标契约 | App_Init、App_Process、App_FastTick、App_SupervisorTick；分别限定启动、前台、20kHz与2kHz上下文。 |
+| [app/composition/app.h](../../firmware/app/composition/app.h) | 四个应用入口契约 | App_Init、App_Process、App_FastTick、App_SupervisorTick；分别限定启动、前台、20kHz与2kHz上下文。 |
 | [app/interfaces/motor_control_command.h](../../firmware/app/interfaces/motor_control_command.h) | 请求与只读进展契约 | SI目标、START身份、受理/应用进度及submit端口。 |
 | [app/interfaces/motor_lifecycle_request.h](../../firmware/app/interfaces/motor_lifecycle_request.h) | 请求与只读进展契约 | 维护任务类别、请求身份、票据与阶段/提交效果。 |
 | [app/interfaces/motor_readiness.h](../../firmware/app/interfaces/motor_readiness.h) | 请求与只读进展契约 | 启动阻断原因、自检事实及可启动模式快照。 |

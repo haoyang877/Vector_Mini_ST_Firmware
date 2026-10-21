@@ -19,7 +19,7 @@
 `outputs/coordination/capacity-review-20261008/integration_manifest.json`。
 
 职责图与实际删除依据见[模块核心职责](../../architecture/module_core_responsibilities.md)；
-详细行为与回退见[本批计划](../../plans/active/2026-10-08-module-core-decoupling-v2.md)。
+详细行为与回退见[本批计划](../../archive/plans/2026-10-08-module-core-decoupling-v2.md)。
 
 ## 证据边界
 

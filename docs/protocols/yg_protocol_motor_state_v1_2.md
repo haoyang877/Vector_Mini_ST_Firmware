@@ -1,8 +1,8 @@
 # 电机状态反馈与恢复契约 v1.2
 
-日期：2026-10-08。用户已审全部跳转并批准本版。承接[八状态映射 v1.1](yg_protocol_motor_state_v1_1.md)，
+日期：2026-10-08。用户已审全部跳转并批准本版。承接[八状态映射 v1.1](yg_protocol_motor_state_v1_2.md)，
 本版收敛 STOP 与故障恢复行为，状态值、45B payload、CRC、统一帧版本 `0x01`、
-参数 schema12 和请求／任务身份 ABI 保持。实施见[出口收敛 v4](../plans/active/2026-10-08-motor-state-flow-simplification-v4.md)。
+本版不改变请求／任务身份ABI；当前持久参数已升级为schema14，见对应存储契约。实施见[出口收敛 v4](../archive/plans/2026-10-08-motor-state-flow-simplification-v4.md)。
 
 | 事件 | v1.1 | v1.2 |
 | --- | --- | --- |

@@ -134,7 +134,7 @@ STOP／故障撤销派生保存意图，已提交的 Flash 不因取消回滚。
 
 纯规则同次判定优先级为 FATAL → 有效故障／执行保护 → STOP／CANCEL → 完成 → 新请求。
 任务失败不能被同拍 STOP 吞掉；完成与新请求不能靠同一事件组合自动启动。
-前台处理 Flash 和通信，ISR 不执行存储；见[整机调用流程](motor_platform_lifecycle_v1.md)。
+前台处理 Flash 和通信，ISR 不执行存储；见[整机调用流程](software_architecture.md)。
 
 ## 源码、线路与验证入口
 
@@ -164,7 +164,7 @@ STARTING启相也先在开中断区间校验不变配置，原子复核准备代
 启相后仍在同一PRIMASK区间，软件保护事实未被中断改写；START_DONE实际重读
 功率使能状态，复用本区间刚核对的软件资格，不重复计算整组事实。
 其他状态与请求受理保持原完整校验路径。
-具体目标与时序证据见[临界区预算收口](../plans/active/2026-10-21-state-critical-budget-v1.md)。
+具体目标与时序证据见[临界区预算收口](../plans/completed/2026-10-21-state-critical-budget-v1.md)。
 
 快拍任务结果由 `state_process_task_outcome` 消费；前台 SAVE 结果和取消归还由
 `process_save_or_cancel_completion` 消费。其返回值仅说明本次事件被规则接受，
@@ -179,12 +179,12 @@ STARTING启相也先在开中断区间校验不变配置，原子复核准备代
 | [motor_maintenance.c](../../firmware/app/runtime/motor_maintenance.c) | 五种维护准入、叶任务调用、取消与释放 |
 
 内部整数与 CAN 状态值不同，见[状态反馈与恢复 v1.2](../protocols/yg_protocol_motor_state_v1_2.md)。
-INIT 线上使用 3，0 保留退役；没有变更 45 B 布局或 schema12。
+INIT 线上使用 3，0 保留退役；状态语义不改变45B布局；当前参数已是schema14并兼容读取12/13，不能把旧更新基线当作当前存储版本。
 线路见[普通启动 v0.2](../protocols/yg_protocol_ordinary_start_wire_v0_2.md)及
 [单项任务 v1.2](../protocols/yg_protocol_calibration_wire_v1_2.md)，健康位及期限见
 [基础自检与模式就绪](motor_readiness_v1.md)。
 
 离线用例入口为 [motor_state_rules_test.c](../../tests/unit/native/motor_state_rules_test.c)
 和 [run_state_owner_test.c](../../tests/unit/native/run_state_owner_test.c)。
-2026-10-16 的等价整理与验证见[可读性计划](../plans/active/2026-10-16-motor-state-clarity-v1.md)。
+2026-10-16 的等价整理与验证见[可读性计划](../plans/completed/2026-10-16-motor-state-clarity-v1.md)。
 实机／发布边界见[v1.3.0 候选](../releases/architecture-app-v1.3.0-candidate.md)。

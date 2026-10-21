@@ -1,7 +1,7 @@
 # 主状态出口收敛交付 v4
 
 日期：2026-10-08。源码提交：`bd5b210`；本批基点：`dcaa9c5` 加冻结的集成功能工作区。
-依据[批准计划](../../plans/active/2026-10-08-motor-state-flow-simplification-v4.md)实施。
+依据[批准计划](../../archive/plans/2026-10-08-motor-state-flow-simplification-v4.md)实施。
 
 ## 结果
 

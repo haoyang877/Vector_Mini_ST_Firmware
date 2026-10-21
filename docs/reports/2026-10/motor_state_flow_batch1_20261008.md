@@ -1,7 +1,7 @@
 # 主状态流转简化第一批验收 2026-10-08
 
 范围：完整设计对照、维护失败重复出口删除；八状态尚未实施。
-计划见[专项 v2](../../plans/active/2026-10-08-motor-state-flow-simplification-v2.md)，
+计划见[专项 v2](../../archive/plans/2026-10-08-motor-state-flow-simplification-v2.md)，
 设计见[全出口与职责](../../architecture/motor_state_flow_simplification_v1.md)。
 
 ## 基线和真实改动

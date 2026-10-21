@@ -50,7 +50,7 @@ uvprojx 的现场差异只有换行，Git 内容一致；当前用户逐文件�
 
 ## 核心梳理与窄改动
 
-分阶段数据流见[齿槽标定边界 v1](../../architecture/cogging_calibration_v1.md)。
+分阶段数据流见[齿槽标定边界 v1](../../archive/architecture/cogging_calibration_v1.md)。
 真正核心是双向点采样与候选表去均值/身份/CRC；位置保持、会话安全门、台架 guard、
 补偿准入和前台提交是现有必要边界，全部保留。
 

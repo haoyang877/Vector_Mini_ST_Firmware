@@ -22,7 +22,7 @@ MotorStateMachine 功率许可/关相/epoch/保存完成，以及 foc_param 导�
 ## 职责依据
 
 完整分阶段职责、单位、表所有权、发布/保存/取消与恢复资格见
-[齿槽标定边界 v1](../../architecture/cogging_calibration_v1.md)。
+[齿槽标定边界 v1](../../archive/architecture/cogging_calibration_v1.md)。
 
 ## 不变项、验收与回退
 

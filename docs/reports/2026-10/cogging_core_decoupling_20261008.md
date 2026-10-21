@@ -10,7 +10,7 @@
 
 ## 实际结构与状态归属
 
-一页职责/数据流见[核心边界 v2](../../architecture/cogging_core_boundaries_v2.md)。
+一页职责/数据流见[核心边界 v2](../../archive/architecture/cogging_core_boundaries_v2.md)。
 本轮复用 `CoggingCalibration_Start/Update/Abort` 和 `CoggingMap_Build/Valid`，
 三份纯实现 `.c` 逐字节规范化比较不变，没有另造算法。
 

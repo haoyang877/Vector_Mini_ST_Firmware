@@ -1,9 +1,9 @@
 # 八状态与静默 STOP 验收 2026-10-08
 
 本批已在隔离源码实施用户选择的八状态及静默 STOP，未合并或进行硬件操作。
-计划见[v3](../../plans/active/2026-10-08-motor-state-flow-simplification-v3.md)，
+计划见[v3](../../archive/plans/2026-10-08-motor-state-flow-simplification-v3.md)，
 实际图与出口见[主说明 v1.1](../../architecture/motor_state_machine_v1.md)，
-协议变化见[状态反馈 v1.1](../../protocols/yg_protocol_motor_state_v1_1.md)。
+协议变化见[状态反馈 v1.1](../../archive/protocols/yg_protocol_motor_state_v1_1.md)。
 
 ## 真实改动与冻结输入
 

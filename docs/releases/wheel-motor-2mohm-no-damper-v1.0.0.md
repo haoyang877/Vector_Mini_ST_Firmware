@@ -22,7 +22,7 @@
 | RTT | 普通 APP 固定 8 个 int16 通道、2 kHz，各运行模式均发送；HIL 保持 12 通道 |
 
 源码入口：`current_sense_profile.h`、`hw_conf.h`、`foc_param_profile.h`。
-RTT 信号及换算见 [8 路 RTT 说明](../guides/rtt_calibration_telemetry.md)，配套
+RTT 信号及换算见 [8 路 RTT 说明](../archive/guides/rtt_calibration_telemetry.md)，配套
 `tools/bench/scopes/pro_lks_calibration.lksscope`，调试时加载匹配镜像的 AXF。
 
 ## 已执行的实物验证

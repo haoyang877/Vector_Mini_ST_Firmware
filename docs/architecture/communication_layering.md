@@ -1,6 +1,6 @@
 # 核心工程通信分层
 
-更新：2026-10-09。适用v1.3.0；APP与Loader共用yg_protocol纯codec。
+更新：2026-10-21。按当前APP/Loader实现核对；两端共用yg_protocol纯codec。
 当前链路为CAN FD：29位扩展ID、FD+BRS、1M/5M；不兼容旧YI、UART或USB服务。
 
 ## 帧到业务的路径
@@ -18,9 +18,9 @@ RX ISR只复制输入；不处理业务、Flash或日志。前台有界处理队
 | 入口 | 当前职责 |
 | --- | --- |
 | [comm_hw.h](../../firmware/platform/api/comm_hw.h) | 硬件收发能力，HAL位于平台ports |
-| [CAN接入](../../firmware/communication/can/) | 节点运行态、队列、链路服务 |
+| [CAN接入](../../firmware/communication/can) | 节点运行态、队列、链路服务 |
 | [shared codec](../../shared/protocol/README.md) | CAN ID、公司头、CRC和分片；APP/Loader单份实现 |
-| [APP协议](../../firmware/communication/protocol/) | 命令注册及请求/结果值对象 |
+| [APP协议](../../firmware/communication/protocol) | 命令注册及请求/结果值对象 |
 | [owner_adapter](../../firmware/app/composition/yg_protocol_owner_adapter.c) | 显式映射启动/清错/维护/参数请求 |
 | [status_adapter](../../firmware/app/composition/yg_protocol_status_adapter.c) | 将同一时刻快照编码为状态回复 |
 | [app_startup](../../firmware/app/composition/app_startup.c) | 绑定业务所有者、设备身份及Loader交接能力 |
@@ -39,7 +39,9 @@ RX ISR只复制输入；不处理业务、Flash或日志。前台有界处理队
 | 56/57 升级交接/确认 | 仅配套LoaderApp；停机/资源归还/TX完成后交接，健康满足后确认 |
 
 117线路模式为1/2/3/6，不能直接强转内部枚举。
-GET_CAPS仍保守报告supported_modes=0，表示未发布已验收能力；不应据此称源码没有117接线。
+GET_CAPS报告features=0x1D00、supported_modes=0x0004，仅公布核心SPEED；
+电流/位置/VQ仍为候选实现。能力声明与候选实机验收分别判断。
+APP当前RX/TX各8帧、控制历史32槽；不再沿用历史40帧发送队列与256槽重试保证。
 同身份重试按有界记录处理；拒绝请求不能改变功率、模式或活动目标。
 未提供跨复位电机启动重放保护；不要把Loader升级nonce/session当作电机启动身份。
 0x0076运行会话、0x00A6组合计划已退役；齿槽/摩擦/电阻任务不再可执行。

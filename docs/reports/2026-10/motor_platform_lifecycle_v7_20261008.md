@@ -2,7 +2,7 @@
 
 日期：2026-10-08。基线 `7f44bd083902081b00d1761648c158c34350d098`，
 独立分支 `codex/motor-lifecycle-flow`；ROOT 基线树保持干净且未修改。
-源码范围、真实调用图、接口清单和未实现表见[平台流程](../../architecture/motor_platform_lifecycle_v1.md)。
+源码范围、真实调用图、接口清单和未实现表见[平台流程](../../archive/architecture/motor_platform_lifecycle_v1.md)。
 
 ## 已交付
 

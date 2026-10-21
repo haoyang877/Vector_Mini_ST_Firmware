@@ -10,7 +10,7 @@ firmware/                         电机 APP
   communication/                  CAN 接入与协议
   platform/                       硬件接口、STM32G4 BSP/端口/CubeMX
 loader/                           独立 G431 Loader、升级事务与 CAN FD 端口
-host_app/                         Qt6 维护页面、离线升级规划与参数模型（设备执行后端待接线）
+host_app/                         Rust GUI候选、Qt6核心工具与独立CAN客户端
 shared/                           APP/Loader 共用协议、镜像及交接契约
 tools/                           build、bench、analysis
 tests/                           unit、integration
@@ -53,13 +53,13 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 
 ## 功能介绍
 
-​        Vector 驱动器是一款中小型尺寸，基于矢量控制的永磁同步电机驱动，适用于轮毂电机，关节电机等。24V母线电压下，实测最高支持约400W的持续功率输入（需散热片）。内部算法可实现基础的电流、速度、位置闭环，以及编码器LUT和零位标定。目前仅支持有感运行，板载了一块TLE5012B绝对式编码器，同时支持外部SPI编码器信号输入。当前应用通过 FDCAN 接收控制命令和回传状态；USART1 外设已随容量优化退役，不再初始化。MCU USB CDC 命令、遥测和协议栈已移除，PC 端 USB-CAN 分析仪仍可使用。FDCAN数据段最高波特率5Mbps，可通过外部主控向总线发送报文以实现一对多控制。驱动器具有母线过压和欠压，相线过流，过温等保护，最大程度地保障驱动能够稳定运行。
+​        Vector 驱动器是一款中小型尺寸，基于矢量控制的永磁同步电机驱动，适用于轮毂电机，关节电机等。24V母线电压下，实测最高支持约400W的持续功率输入（需散热片）。内部算法可实现基础的电流、速度、位置闭环，以及编码器LUT和零位标定。目前仅支持有感运行，板载了一块TLE5012B绝对式编码器，当前端口使用SPI2板载TLE5012B；其他型号或外部通道须有实际端口接入。当前应用通过 FDCAN 接收控制命令和回传状态；USART1 外设已随容量优化退役，不再初始化。MCU USB CDC 命令、遥测和协议栈已移除，PC 端 USB-CAN 分析仪仍可使用。FDCAN数据段最高波特率5Mbps，可通过外部主控向总线发送报文以实现一对多控制。驱动器具有母线过压和欠压，相线过流，过温等保护，最大程度地保障驱动能够稳定运行。
 
 ## 软件已有功能
 
-模式3轴配置：[roll / pitch名称、范围与Flash持久化](docs/guides/motor_axis_profiles.md)。
+轴配置：[AXS1/AXS2身份、范围与持久化](docs/guides/motor_axis_profiles.md)。
 
-底盘轮子限速：[节点 1/2、10 cm 轮径、1 m/s 对应 190.986 rpm](docs/guides/chassis_wheel_speed_limit.md)。
+速度包络由应用配置及轴记录决定，不再按节点派生，见[节点与应用策略](docs/protocols/parameter_node_application_v2.md)。
 
 * 基础有感FOC算法 电流 速度 位置 可控
 * 直接位置→速度→电流串级，保留原增益、限幅和抗饱和
@@ -69,7 +69,8 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 * 过压、欠压、过流、过温保护
 * 编码器断连识别
 
-当前以[核心功能删减v3](docs/plans/active/2026-10-08-core-only-v3.md)为准。
+当前功能、支持范围与产品边界见[软件架构](docs/architecture/software_architecture.md)，
+已公布的主机控制能力仅为SPEED，其他候选模式须按实际能力与验收范围判断。
 轨迹、摩擦/相电阻辨识、齿槽标定/补偿、运行租约、持久启动计数和自动RTT已退役。
 历史报告与归档镜像保留，但不能作为当前功能或实机通过证据。
 
@@ -79,7 +80,7 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 
 > 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/guides/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
 
-> 原始手册见 [Vector_User Manual.pdf](<docs/hardware/Vector_User Manual.pdf>)。其中 USB/VOFA 章节属于历史功能，不适用于当前固件；当前接口与功能缺口见 [USB 移除说明](docs/guides/usb_removal.md)。
+> 原始手册见 [Vector_User Manual.pdf](<docs/hardware/Vector_User Manual.pdf>)。其中 USB/VOFA 章节属于历史功能；当前接口见[设备发现与支持范围](docs/protocols/yg_protocol_device_discovery_v1.md)。
 
 ## 参考项目
 

@@ -9,8 +9,8 @@
 - 逐文件SHA256及新增工程源清单：`outputs/boot-epoch-v1/source-manifest.json`。
 
 本记录是源码和离线证据，不是新固件发布、实机Flash或整机防重放通过声明。
-格式、地址和兼容定义见[启动身份记录v1](../../protocols/boot_epoch_record_v1.md)，
-目标、回退及未完成接线见[实现计划](../../plans/active/2026-10-08-boot-epoch-provider-v1.md)。
+格式、地址和兼容定义见[启动身份记录v1](../../archive/protocols/boot_epoch_record_v1.md)，
+目标、回退及未完成接线见[实现计划](../../archive/plans/2026-10-08-boot-epoch-provider-v1.md)。
 
 ## 已交付的实际实现
 
@@ -82,7 +82,7 @@ ECCD会沿现有NMI死循环停在已关相、通信未开始的初始化；可�
 当前实现不具备抵抗这类回滚的硬件保证。参数保留验收须分别核对RAW前三页、
 生产身份63页和epoch61/62页，正常启动计数变化不算标定破坏。
 恢复旧固件／参数不得无区分覆盖epoch页或擦后回到1；安全维修及回滚处理尚未实现，
-分域规则见[记录契约](../../protocols/boot_epoch_record_v1.md)的备份恢复章节。
+分域规则见[记录契约](../../archive/protocols/boot_epoch_record_v1.md)的备份恢复章节。
 
 待ROOT：工程接线、内存所有权最终核对、完整构建／容量、H新线路的实际epoch匹配与能力位、
 正式生产旧功率线路权限政策，以及后续明确授权的设备验收。

@@ -45,7 +45,7 @@
 
 新模块 position_smooth_trajectory.c（历史源码 `firmware/motor/trajectory/position_smooth_trajectory.c`，本轮已退役） 为调用方持有状态的纯C算法，不依赖MCU、HAL或动态分配。静止定位用五次速度多项式同时生成q/v/a，段间jerk连续；运动中改目标、改限值或启用参考治理时，保留q/v/a并转原在线限jerk路径。后者不承诺切换处jerk连续。
 
-每控制周期最多进行4次峰值速度搜索，规划准备期间保留原支撑电流，准备收尾周期不叠加完整外环计算。传感器/参数有效性检查与原快保护仍在。具体接口、公式和退回在线轨迹的条件见 [控制器说明](../../guides/position_servo_control.md)。
+每控制周期最多进行4次峰值速度搜索，规划准备期间保留原支撑电流，准备收尾周期不叠加完整外环计算。传感器/参数有效性检查与原快保护仍在。具体接口、公式和退回在线轨迹的条件见 [控制器说明](../../archive/guides/position_servo_control.md)。
 
 ![85°静止定位的参考位置、速度、加速度与jerk](../../assets/figures/mode3_c3_trajectory85.png)
 

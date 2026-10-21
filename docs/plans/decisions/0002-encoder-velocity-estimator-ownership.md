@@ -2,6 +2,13 @@
 
 日期：2026-09-23。状态：**已实施**（PR 档全绿；固件台架功能验证通过；转速环增益整定与带宽终验收待办）。
 
+## 当前实现核对（2026-10-21）
+
+20kHz PLL的速度所有权决策仍有效；当前默认ωn=90Hz、ζ=0.707，来源为
+`firmware/motor/feedback/angle_feedback.h`。下文300Hz与带宽/纹波结果保留其原试验基线，
+不能作为当前默认或所有轴的验收结论。当前传感器帧错误/传感器故障由平台端口映射到反馈健康，
+更细的传感器诊断能力需按实际driver核对，不能从历史未决项推断已经覆盖全部STAT位。
+
 ## 背景
 
 原速度估计为 2 kHz tick 上的 16 点割线（8 ms 窗口，群延迟 ≈4.0 ms），且速度状态由
@@ -33,7 +40,7 @@
 
 ## 依据
 
-- 实现：`firmware/motor/position/angle_feedback.{c,h}`。
+- 实现：[当前反馈实现](../../../firmware/motor/feedback/angle_feedback.c)与[配置头](../../../firmware/motor/feedback/angle_feedback.h)。
 - 离线验收（波特图/延迟/带宽）：`tests/unit/test_speed_loop_bandwidth.py`；
   PR 档 `outputs/runs/20260923T153812377849Z-1c6aec1a/summary.json`。
 - 台架 A/B：同增益阶跃下，新估计器阻尼比 ζ≈0.32、超调 34%（旧：ζ≈0.13、超调 67%）。

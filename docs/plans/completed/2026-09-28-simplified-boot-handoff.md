@@ -1,7 +1,7 @@
 # 最简启动/升级方案（去 Boot/Record）v1
 
 日期：2026-09-28。状态：**已完成（B：彻底删除）**。设计基线：`c495cf1`；执行起点：`abc3b45a`。
-关联：[Loader 产品与内存](../../architecture/loader/loader_product_v1.md)。
+关联：[Loader 产品与内存](../../archive/architecture/loader/loader_product_v1.md)。
 
 2026-09-28补充审查：本页保留实施与构建历史，“已完成”仅表示简化源码落地，
 不表示运行验收通过。看门狗、维护角色、故障救援和协议兼容问题见

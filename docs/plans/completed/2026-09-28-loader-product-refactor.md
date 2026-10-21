@@ -1,4 +1,4 @@
-> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../active/2026-09-29-legacy-cleanup-v1.md)。
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../../archive/plans/2026-09-29-legacy-cleanup-v1.md)。
 
 # Loader 独立产品重构 v1
 
@@ -63,4 +63,4 @@ CAN-FD 采用1M仲裁/5M数据；H拥有共享纯codec，D不暴露旧YI/Y3/B1�
 
 待总工集成：APP最早期BootHw_Init、trial健康确认/监督喂狗、56唯一owner及精确TX完成回调、
 APP重定位工程与描述符输入。当前最小Loader单槽布局仍未证明容纳全APP；首次旧独立APP转换
-不能直接覆盖非空boot区历史。详细边界见[当前实现](../../architecture/loader/loader_product_v1.md)。
+不能直接覆盖非空boot区历史。详细边界见[当前实现](../../archive/architecture/loader/loader_product_v1.md)。

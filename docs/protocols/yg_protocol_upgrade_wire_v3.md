@@ -1,69 +1,118 @@
-# 公司升级线路与镜像 v3
+# 当前公司升级线路、交接与镜像v3
 
-日期：2026-09-29。公司帧版本仍为1，ISO扩展CAN FD/BRS，仲裁1Mbit/s、数据5Mbit/s，主站2。
-50..56的请求/回复布局、nonce绑定、分片与结果码继承[升级载荷v2](yg_protocol_upgrade_wire_v2.md)，
-但容器换成v3，不能发送v2镜像。Type57是本项目评审分配，部署前公司消息表须同步。
+核对日期：2026-10-21。依据shared目标、upgrade codec、Loader与APP启动实现。
+本页合并早期升级载荷/交接页中仍有效的字段，当前包不再依赖阅读旧容器规范。
+公司帧版本1，扩展CAN FD+BRS、1M/5M、主站2单播；请求ACK_REQ或ACK_REQ|RETRY。
+外层数值小端，96B镜像清单/描述符是大端容器，不能memcpy本地结构体。
 
-## 新镜像契约
+## 目标、包与镜像
 
-| 项目 | 值 |
+| 项目 | 当前G431目标 |
 | --- | --- |
-| profile | 0x53593549 |
-| descriptor version/bytes | 3 / 96 |
-| 当前 G431 layout | 6；Loader 16 KiB，APP 从 `0x08004000` 起占 96 KiB |
-| 当前 parameter ABI/schema | 0x000D1100 / 13；参数区地址不变 |
-| manifest | 96B大端，CRC仍在48..51，其后全0 |
-| descriptor | 原0..63身份字段保留，52..63及88..95全0 |
-| activation / attempt / confirm | 64..71 / 72..79 / 80..87，下载包全FF |
-| marker values | ACT3=0x41435433、TRY3=0x54525933、OKA3=0x4F4B4133；后4B为反码 |
+| product/hardware | 0x59473236 / 1，编译目标声明 |
+| layout | 6，Loader16KiB；APP基址0x08004000、容量96KiB |
+| parameter ABI/schema | 0x000E08F0 / 14；记录2288B，兼容读取12/13 |
+| APP/Loader版本声明 | 1.5.7 / 2.1.0；实际以匹配源码生成的shared清单/描述符为准 |
+| image profile | 0x53593549，descriptor版本3、96B |
+| activation/attempt/confirm偏移 | 64..71 / 72..79 / 80..87 |
+| 持久标记 | ACT3=0x41435433、TRY3=0x54525933、OKA3=0x4F4B4133；各后4B为反码 |
 
-CRC32：EDB88320反射、初值/末异或FFFFFFFF，覆盖8B对齐的完整镜像。描述符48..51归一化0，
-64..87归一化FF。v2和旧SHA profile都拒绝。APP入口必须位于描述符之后的实际镜像范围。
-单槽激活门槛、尝试消费与确认规则见[当前设计](../architecture/loader/loader_product_v3.md)。
-50..55回复flags仍为0x06或0x07；不能仅靠flags推断v3，必须检查GET_INFO的boot_api/profile/layout。
+版本声明不是发布或新实机PASS。清单96B：CRC在48..51、52..95为0；
+描述符52..63及88..95为0，包内64..87为FF。CRC32使用反射EDB88320、
+初值/末异或FFFFFFFF，覆盖8B补齐镜像；描述符48..51归零、64..87归FF计算。
+清单/描述符身份、长度、CRC及入口范围一致才可接受；仅普通APP角色1。
+v2容器、旧SHA profile、旧布局不能线上混刷。打包入口为 `loader/tools/package_image.py`。
+当前布局黄金输入见[layout6夹具](../../tests/fixtures/loader_image_layout6.json)；
+旧layout5/v2夹具保留作历史互验和拒绝测试，不能直接部署。
 
-空 Type 53 STATUS 是只读发现请求，同时让 Loader 留在救援状态，关闭自动跳转。
-它不擦除、不创建 session；GET_INFO 本身不关闭 50ms 启动窗口。救援客户端可在复位前
-反复发空 STATUS 捕获该窗口，随后严格检查实际 UID、配套版本和几何才发 BEGIN。
+## 50～55请求与身份
 
-## GET_INFO（Type1）
+历史字段名boot_epoch/expected_boot在线上保留，但含义是主机随机非零u64事务nonce，
+不是设备持久启动次数。每次新事务、复位或过期后使用新nonce，同事务重试保持。
+发现回复boot=0合法，不能拿0发BEGIN，也不能用节点号/固定1伪造nonce。
 
-请求仍为12B小端：session:u32、request_id:u32、page:u16、reserved:u16=0；必须单播并要求ACK。
-APP与Loader支持page0..2，每页32B，无前置结果码。UID始终来自芯片，SN另存生产记录。
+| Type | 请求，小端数值 | 总长 |
+| --- | --- | --- |
+| 50 BEGIN | nonce:u64 + manifest[96]原样大端 | 104B |
+| 51 WRITE | nonce:u64 + session:u32 + offset:u32 + length:u16 + data | 18+length，26～146B |
+| 52 FINISH | nonce:u64 + session:u32 | 12B |
+| 53 STATUS | 空发现，或nonce:u64+session:u32查询事务 | 0/12B |
+| 54 ACTIVATE | nonce:u64 + session:u32 | 12B |
+| 55 ABORT | nonce:u64 + session:u32 | 12B |
 
-| 页 | 偏移与内容 |
+WRITE长度8～128B，offset/length均8B对齐且不溢出；连续顺序写入并精确读回。
+BEGIN最多3片，128B WRITE最多4片；分片规则见[公共重组契约](yg_protocol_fragment_v0_2.md)。
+主机保持每次一个完整逻辑请求在途；分片尾seq可在不同块重复，不能作为升级去重身份。
+BEGIN按source/nonce/完整manifest幂等，WRITE再匹配session/offset/完整data；
+重复FINISH/ACTIVATE/ABORT不重新分配提交票据或延长绝对时限。
+
+## 统一40B回复
+
+50～55合法业务回复同Type/关联seq，交换src/dst。物理CAN FD64B，尾部补零不计应用CRC。
+
+| 偏移 | 字段 |
+| ---: | --- |
+| 0/2 | result/detail:u16 |
+| 4 | nonce:u64，无会话发现可0 |
+| 12 | session:u32，无会话0 |
+| 16/17 | phase:u8 / flags:u8 |
+| 18 | max_block_bytes:u16，当前128 |
+| 20/24 | next_offset/image_bytes:u32，8B对齐；next不超过length |
+| 28/32/36 | image_token/image_version/image_role:u32；无镜像0 |
+
+phase：IDLE0、READY1、ERASING2、RECEIVING3、VERIFYING4、VERIFIED5、COMMITTED6、ERROR7。
+flags bit0待激活、bit1 INTEGRITY_ONLY、bit2 HOST_NONCE，其余0；当前通常0x06或0x07。
+40B响应不表示APP已启动或健康确认。`next_offset`只统计已持久写入并读回字节。
+
+result使用0完成、1受理、2不支持、3长度、4字段、5拒绝、6忙、7未授权、8失败、11范围、17故障。
+detail固定：1字段、2nonce不匹配、3session、4阶段、5目标身份、6范围/顺序、
+7Flash/读回、8相同offset数据冲突、9CRC/向量/描述符、10真实性策略不支持、
+11输出/链路、12超时、13内部失败。result/detail配对以codec和产品映射为准，
+不可把内部枚举直接发出或把失败补成成功。
+
+空STATUS是只读发现，也让Loader驻留救援；不擦除、不建session。
+GET_INFO本身不关闭50ms自动跳转窗口。会话STATUS可续5s租约，空发现不续租。
+FINISH先受理，由前台推进整包校验，STATUS见VERIFIED后才ACTIVATE。
+ACTIVATE的具体响应关联完整u64内部TX票据，物理成功后复核整包/关相/链路，
+才持久激活并复位；入队、FIFO空或其他帧完成不能替代。完成期限500ms。
+
+## APP进入Loader：Type56
+
+仅安装匹配Loader的配套APP开放。请求8B主机nonce，响应4B result/detail：
+不可用2/0、等待停机1/1、READY1/0、拒绝5/0、失败8/0；其他长度/字段/权限错误沿公共码。
+Type3当前没有持久epoch，不能用其0值授权56。
+APP在停机、资源归还、保存空闲和数字关相满足后，将完整u64票据绑定具体READY响应。
+只有真实发送完成且身份/时限/静默复核通过才写一次性ENTER邮箱并复位；失败保持停机。
+READY排队与平台发送使用有界绝对时限，重试不换票据；不能因队列进展刷新时限。
+主机随后重新发现同UID的Loader，不能把READY当作角色切换成功。
+
+## GET_INFO与确认
+
+Type1请求12B小端：session:u32、request_id:u32、page:u16、reserved=0:u16。
+每页32B，无前置result；APP与Loader支持page0..2。
+
+| 页 | 布局 |
 | --- | --- |
-| 0 | 0 UID[12]；12 product:u32；16 hardware:u16；18 boot_api:u16=3；20 app_version:u32；24 loader_version:u32；28 boot_id:u32=0 |
-| 1 | 0 SN[16]；16 motor_type:u32；20 identity_valid:u8；21 CAN ID:u8；22 role:u8（APP1/Loader2）；23 boot_state:u8（未知0/已确认1/试运行2/Loader3）；24 image_crc32:u32；28 profile:u32 |
-| 2 | 八个u32：MCU、layout、parameter ABI、schema、APP基址、APP容量、Loader容量、生产身份页基址 |
+| 0 | 0 UID[12]；12 product:u32；16 hardware:u16；18 boot_api:u16；20 app_version:u32；24 loader_version:u32；28 boot_id:u32=0 |
+| 1 | 0 SN[16]；16 motor_type:u32；20 identity_valid:u8；21 node:u8；22 role:u8（APP1/Loader2）；23 boot_state:u8（未知0/已确认1/试运行2/Loader3）；24 image_crc32:u32；28 profile:u32 |
+| 2 | 八个u32：MCU、layout、parameter ABI、schema、APP基址、APP容量、Loader容量、身份页基址 |
 
-Loader只对完整且已激活镜像报告APP版本/CRC，否则为0。独立APP的boot_api和Loader版本为0，
-不可经56升级；page1启动状态0。page1/profile和page2几何都是维护契约，普通GET_CAPS仍仅page0。
-版本编码为major:u16/minor:u8/patch:u8（最高到最低位），1.0.0=0x00010000，来源是共同目标清单。
+配套boot_api=3，独立APP为0且Loader版本为0；Loader仅对完整已激活APP报告版本/CRC。
+版本major:u16/minor:u8/patch:u8，高位到低位；实际值来自shared目标与镜像。
+SN独立生产页，不等于UID，不存在普通CAN写SN命令。
 
-2026-10-17 配套目标为 APP 1.4.1、Loader 2.0.0、layout 6。协议帧和 v3 容器格式未变；
-描述符、清单、GET_INFO page2 和上位机均须报告同一 layout。layout 5 的 APP 链接在
-`0x08005000`，不能单独配新 Loader；旧 Loader 也不能接收 layout 6 包。迁移须通过受控
-SWD 同时安装两端，参数与身份页不迁移。旧 1.3.0/layout 5 黄金字节保留作历史互验，
-当前布局的黄金清单见下文；合成向量不代表真实升级已通过。
-boot_id=0及旧Type3缺少持久epoch的UNAVAILABLE语义保留；nonce不是可信设备启动次数。
+Type57 APP_CONFIRM：主站2单播ACK，8B version:u32+image_crc32:u32，4B result/detail响应。
+精确匹配当前APP且连续健康至少1s、数字关相、保存空闲后一次写确认；相同身份可幂等重试。
+试运行5s内不确认则停止喂IWDG，复位后留Loader；5s不是物理复位完成时长。
+主机须再读同UID/page1的版本、CRC、APP角色和boot_state1才报告升级成功。
+Type57不使能电机，不使用Type56交接TX票据。
 
-## APP_CONFIRM（Type57）
+## 兼容、失败与证据
 
-请求8B小端：version:u32、image_crc32:u32。仅主站2单播ACK请求，不支持分片或广播。
-回复4B：result:u16、detail:u16；成功0，字段/长度错误4/3，未满足健康/关相/身份条件5，
-未安装确认服务2或路由不支持。Type57不使用Type56的内部TX票据，不触发复位或电机使能。
-
-APP需监督进展与本地通信健康连续观察至少1s、保持数字关相与参数保存空闲，才能一次写确认。
-版本与CRC必须精确匹配当前APP；已确认的相同身份重复请求成功，但错误身份仍拒绝。
-试运行5s内未确认停止喂IWDG；看门狗复位留Loader。客户端收到成功回复后必须再查询page1，
-只有相同UID、APP角色、版本/CRC正确且boot_state=1才能报告升级成功。
-
-## 黄金向量与兼容
-
-- [layout 6 黄金清单](../../tests/fixtures/loader_image_layout6.json)：当前 G431 目标的几何、版本、清单和 CRC 合成值。
-- [v3升级向量](yg_protocol_upgrade_wire_v3_vectors.json)：历史 layout 5 BEGIN 清单，与旧 v3 镜像一致。
-- [v3镜像向量](../../tests/fixtures/loader_image_v3.json)：历史 layout 5 合成字节，不能烧录或当作实机证据。
-- 旧[v2镜像向量](../../tests/fixtures/loader_image_v2.json)保留用于兼容历史和拒绝测试。
-- SN/电机类型没有新增CAN写命令或参数ID；生产SWD写独立页，禁止用主站ID当作生产认证。
-- 无签名认证；CRC与UID/目标检查用于完整性和防误刷，不能抵御拥有总线或SWD权限的攻击者。
+单槽升级：擦除后没有旧镜像自动回滚，无跨复位续传。
+完整传输未激活不允许冷启动，TRY只消费一次；已尝试未确认的镜像复位后驻留。
+参数与身份页不在升级写范围；参数单份保存的掉电限制见[schema14](parameter_schema14_storage_v1.md)。
+布局/ABI不兼容时首次安装需明确受控配套流程，不猜测跨版本迁移。
+CRC/UID防误刷不提供签名认证或恶意重放防护。
+[历史v3向量](yg_protocol_upgrade_wire_v3_vectors.json)和[当前目标夹具](../../tests/fixtures/loader_image_layout6.json)
+有各自基线，向量不是实机通过证据。设备结果见[报告索引](../reports/README.md)。

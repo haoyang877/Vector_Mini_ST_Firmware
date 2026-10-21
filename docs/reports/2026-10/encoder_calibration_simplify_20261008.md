@@ -13,8 +13,8 @@ Mode15 仅将说明注释改为中文，代码和 public header 未改。
 本轮减少整包 ROM **32 B**，静态 RAM 不变；不能宣称更大的算法缩包收益。
 
 阶段职责、单位、数据流、准入、候选发布、取消/停止和保存边界见
-[职责文档](../../architecture/encoder_calibration_task_v1.md)；不变项与回退见
-[计划](../../plans/active/2026-10-08-encoder-calibration-simplify-v1.md)。
+[职责文档](../../archive/architecture/encoder_calibration_task_v1.md)；不变项与回退见
+[计划](../../archive/plans/2026-10-08-encoder-calibration-simplify-v1.md)。
 
 ## 完整提交与冻结输入
 

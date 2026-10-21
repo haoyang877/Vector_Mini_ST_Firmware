@@ -8,7 +8,7 @@
 - [更换 MCU：资料、适配步骤和验收标准](../docs/guides/loader_mcu_porting_v1.md)
 - [多目标边界改造与离线验证](../docs/reports/2026-10/loader_mcu_boundaries_20261021.md)
 - [升级线路、设备身份页及容器v3](../docs/protocols/yg_protocol_upgrade_wire_v3.md)
-- [实施、验收与回退计划](../docs/plans/active/2026-09-29-loader-p0-p1-v1.md)
+- [实施、验收与回退计划](../docs/archive/plans/2026-09-29-loader-p0-p1-v1.md)
 - [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)
 - `core/`：单事务、5s租约、主机nonce/session与精确ACTIVATE发送票据。
 - `runtime/`：安全启动、50ms窗口、现场校验、GET_INFO与升级路由。
@@ -40,7 +40,7 @@ layout 5 到 layout 6 必须通过受控 SWD 同时迁移 Loader 与 APP；不�
 旧版本的二十轮实测不计入新候选次数。当前候选已完成三次连续升级及三项故障恢复，
 真实掉电和参数保存断电仍未覆盖。
 APP 的 READY 回复必须关联队列入队位置，并等待该帧真实发送完成后才能复位；
-修复与验证见[交接队列修复计划](../docs/plans/active/2026-10-20-loader-handoff-queue-v1.md)。
+修复与验证见[交接队列修复计划](../docs/plans/completed/2026-10-20-loader-handoff-queue-v1.md)。
 
 升级客户端的 summary.json 现含 timing：按命令统计发送耗时、回复等待和重试，失败请求也计入。
 发送耗时包含传输适配器以及外层 J-Link 检查；不能称作纯 CAN 总线耗时。

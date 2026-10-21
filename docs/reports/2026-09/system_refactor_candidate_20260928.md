@@ -1,4 +1,4 @@
-> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](../../plans/completed/2026-09-29-framework-closure-v1.md)与[历史清理](../../plans/active/2026-09-29-legacy-cleanup-v1.md)。
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](../../plans/completed/2026-09-29-framework-closure-v1.md)与[历史清理](../../archive/plans/2026-09-29-legacy-cleanup-v1.md)。
 
 # E/H/D 整体重构开发候选（2026-09-28）
 
@@ -98,8 +98,8 @@ Loader 配套 APP 的交接调用链为：56 请求当前完整 boot_epoch → A
 线上协议使用共享 codec，没有恢复旧 YI 线协议。升级为单槽方案，SHA 用于完整性，
 不声称签名认证、旧版本回滚或断点续传。逐字节协议见
 [参数协议](../../protocols/yg_protocol_parameter_wire_v1.md)、
-[升级协议](../../protocols/yg_protocol_upgrade_wire_v1.md)、
-[启动交接协议](../../protocols/yg_protocol_boot_entry_wire_v1.md)。
+[升级协议](../../archive/protocols/yg_protocol_upgrade_wire_v1.md)、
+[启动交接协议](../../archive/protocols/yg_protocol_boot_entry_wire_v1.md)。
 
 **原 `FocBenchSpeed`（版本 3）SWD 台架邮箱已随容量批次退役**，不再是 Watch 入口，
 也不再提供 command 1..12 直达。控制、维护与清错改由运行所有者公开 API（CAN 或前台）

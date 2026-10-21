@@ -37,15 +37,10 @@ FDCAN HAL → comm_hw.h → yg_protocol_canfd_irq → yg_protocol_link
 
 ## 4. 当前已接入的类型
 
-| 类型 | 方向 | 当前行为 |
-| --- | --- | --- |
-| GET_INFO | 请求/回复 | 返回设备和版本页 |
-| GET_CAPS | 请求/回复 | 返回 CAN FD、帧长和分片能力 |
-| GET_MOTOR_STATE | 请求/回复 | 调用应用状态快照；启动后尚未刷新时返回 BUSY |
-| MOTOR_STOP | 请求/回复 | 经电机停机服务执行；未绑定服务返回 UNSUPPORTED |
-| MOTOR_DISABLE | 请求/回复 | 经电机停机服务执行；未绑定服务返回 UNSUPPORTED |
-
-所有未注册类型都返回路由错误，不自动转到历史标准 CAN 编号。
+APP静态注册为1/2/3/108/124、101/107/110/116/117、120～122、160～162及56/57。
+描述符存在不代表业务开放：56/57只有匹配LoaderApp实际回调可用时提供。
+当前能力、请求/回复及限制集中见[设备发现](yg_protocol_device_discovery_v1.md)和[单轴线路](yg_protocol_motor_wire_v1.md)。
+未注册Type不转发到旧标准CAN。Loader有自己的50～55升级路由，不能把APP注册表直接用于Loader。
 
 ## 5. 旧协议兼容边界
 

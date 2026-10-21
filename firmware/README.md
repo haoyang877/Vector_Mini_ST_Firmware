@@ -30,7 +30,7 @@ Keil 仅显示源码，实际目录中的头文件与实现相邻。
 
 上电保持三相关闭，MotorAxis调度foc_sensing累计1秒新鲜ADC帧校正三相电流偏置；完成前自检不就绪。
 电流与速度PI实例在启动时配置已加载的活动参数，校正不自动保存或启相。
-源码修复不等于实机通过，见[初始化修复计划](../docs/plans/active/2026-09-29-startup-current-offset-pi-fix-v1.md)。
+源码修复不等于实机通过，见[初始化修复计划](../docs/archive/plans/2026-09-29-startup-current-offset-pi-fix-v1.md)。
 
 具体 Watch 表达式、重构前后参数名称差异和安全操作步骤见
 [Keil Watch 只读观测指南](../docs/guides/watch_motor_commands.md)。

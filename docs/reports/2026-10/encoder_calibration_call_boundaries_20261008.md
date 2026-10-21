@@ -3,7 +3,7 @@
 日期：2026-10-08。实现、直接比较与干净实现提交的 PR 全通过，待 ROOT 审查/集成。
 基点 `b6f08c5b115199ad1e73a77db62c65afe3d761f8`；集成现场四个本模块文件的 LF 内容一致。
 沿用 v1/v2 继承快照，不修改集成现场或共享 Keil 项目。
-计划见[调用与边界简化](../../plans/active/2026-10-08-encoder-calibration-call-boundaries-v3.md)。
+计划见[调用与边界简化](../../archive/plans/2026-10-08-encoder-calibration-call-boundaries-v3.md)。
 
 ## 实际调用关系
 

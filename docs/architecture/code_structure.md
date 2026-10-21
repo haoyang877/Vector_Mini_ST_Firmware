@@ -40,7 +40,7 @@
 | platform/stm32g4/cubemx | 生成入口、Core、HAL/CMSIS、IOC 和 Keil 工程；不搬业务到生成区 |
 
 源码与对应头文件相邻。目录按职责分组，不为单个函数新建目录，不创建空的未来配置目录。
-数据流和所有权见 [APP 命名与所有权](app_naming_v1.md)、
+数据流和所有权见 [APP 命名与所有权](software_architecture.md)、
 [主状态机契约](motor_state_machine_v1.md)。
 
 各模块核心输入、结果、状态所有者和实际删减见[模块核心职责](module_core_responsibilities.md)。
@@ -56,7 +56,7 @@ MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `Mo
 runtime不解析ADC计数、不实现位置/速度外环或热模型，仍通过平台能力查询时间及真实关相事实。
 按用户的 Watch 观测要求，MotorAxis 运行对象与主状态机上下文使用非静态全局符号；
 定义和运行写入仍集中在所属模块，其他模块通过既有命令、快照和显式对象参数交互。
-保留既有 s_ 名称属于本次调试兼容例外，详见[全局观测对象决策](../plans/active/2026-09-29-watch-global-objects-v1.md)。
+保留既有 s_ 名称属于本次调试兼容例外，详见[全局观测对象决策](../archive/plans/2026-09-29-watch-global-objects-v1.md)。
 schema14保持现有存储布局并兼容读取12/13，由装载/导出边界映射，不能当作控制对象使用。
 参数所有者给启动组合层传节点值，通信不再作为参数节点的存储所有者。
 参数记录和编码器标定复用一份 6 KiB 固定联合工作区，APP 管理占用与归还。

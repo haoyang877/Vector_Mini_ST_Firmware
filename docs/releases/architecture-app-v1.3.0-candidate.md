@@ -31,5 +31,5 @@ schema12 4304B记录和16KiB总参数/身份区保持，历史摩擦/齿槽槽�
 配套LoaderApp仍必须装入原layout5的94208B槽；是否可打包由实际匹配构建确认。
 未经匹配台架验证，不称正式发布或实机PASS。
 
-当前架构见[核心功能说明](../architecture/core_only_v3.md)，具体删减依据见
-[本轮决定](../plans/active/2026-10-08-core-only-v3.md)。
+当前架构见[核心功能说明](../archive/architecture/core_only_v3.md)，具体删减依据见
+[本轮决定](../archive/plans/2026-10-08-core-only-v3.md)。

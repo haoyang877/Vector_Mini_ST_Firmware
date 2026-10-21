@@ -1,6 +1,6 @@
 # 当前设备发现与支持范围 v1
 
-更新：2026-10-16。适用于 `codex/system-refactor` 本批源码；身份字段已接入版本化目标清单，本轮仅离线验证。
+更新：2026-10-21。按当前 `codex/system-refactor` 工作树核对；设备身份来自共享目标和真实设备来源，版本声明不代表当前候选实机通过。
 这是当前接入入口；历史提案和 H1 快照不作为现行支持清单。
 
 ## 设备身份与能力
@@ -49,11 +49,11 @@ MIT、低侧制动、运行中隐式跨模式、动态参数表和周期运动�
 
 ## 参数与版本兼容
 
-当前参数为 schema12，4304 B 及 16 KiB 分区保持，ABI=0x000C10D0。
-只装载完整 CRC 正确的当前记录；schema11 和更旧记录回退未确认默认值，
-不转换、不自动擦写，旧 LUT/标定不会自动获得新版本有效性。
-现场需在匹配 APP/Loader 下重新配置、标定并显式保存；回退旧镜像需匹配参数备份。
-完整细节以[schema12 装载政策](parameter_schema12_loading_policy_v1.md)为准。
+当前记录为schema14、2288B、ABI=0x000E08F0，layout6保留原16KiB末端区域，
+其中用户参数14KiB、独立身份页2KiB。APP兼容读取完整且CRC有效的schema12/13，
+保留基础参数和有效标定，schema12新增热/前馈配置使用默认值；启动不自动回写。
+未知/损坏记录不能获得有效配置资格，显式保存才写schema14。
+离线旧交付迁移另用受控工具，回退须匹配旧参数备份；见[schema14政策](parameter_schema14_storage_v1.md)。
 
 线路契约分别见[电机命令](yg_protocol_motor_wire_v1.md)、
 [参数与 CLEAR](yg_protocol_parameter_wire_v1.md)、[升级v3](yg_protocol_upgrade_wire_v3.md)。

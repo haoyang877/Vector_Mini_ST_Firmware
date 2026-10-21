@@ -248,4 +248,4 @@ uint32_t CoggingTorqueGuard_Check(volatile CoggingTorqueGuard *guard,
 模块专属步骤且上下文不同），按 STYLE 的“语义不一致时保留小规模重复”维持独立。
 
 **剩余待办**：齿槽补偿向速度/位置/阻抗模式的扩展见
-[active 计划](../active/2026-09-19-cogging-compensation-torque-modes.md)（需台架授权与逐模式 A/B 证据）。
+[active 计划](../../archive/plans/2026-09-19-cogging-compensation-torque-modes.md)（需台架授权与逐模式 A/B 证据）。

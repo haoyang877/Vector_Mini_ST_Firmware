@@ -1,4 +1,4 @@
-> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../active/2026-09-29-legacy-cleanup-v1.md)。
+> 历史阶段记录，2026-09-29 归档。下文是当时的设计、状态和证据，不代表当前待办或当前版本通过。现状见[框架收尾](2026-09-29-framework-closure-v1.md)与[历史清理](../../archive/plans/2026-09-29-legacy-cleanup-v1.md)。
 
 # Loader 简化审查与修复计划 v1
 
@@ -6,7 +6,7 @@
 审查开始时改动尚未提交，期间已提交，关键发现按提交后的源码再次核对。
 状态：初审未通过；用户要求“检查并修改”后已实施源码修复，待发布与台架验收。
 下文 R1～R7 保留初审发现；当前修复状态与证据见末尾执行记录。本轮不操作硬件。
-关联：[候选设计](../../architecture/loader/loader_product_v1.md)、
+关联：[候选设计](../../archive/architecture/loader/loader_product_v1.md)、
 [简化实施记录](2026-09-28-simplified-boot-handoff.md)。
 
 ## 结论与保留能力
@@ -144,7 +144,7 @@ outputs/reviews/loader-simplification-20260928/native-review.log、review_probe.
 另修复ACTIVATE后整包复核失败仍显示VERIFIED的问题，现转ERROR/DIGEST且不复位；
 ENTER邮箱node改为本机节点，与字段含义一致。保留无持久ACTIVATE门槛的简化取舍，
 不新增日志页，不承诺掉电续传、签名认证或旧镜像自动回滚。
-协议/迁移和黄金向量见[载荷v2](../../protocols/yg_protocol_upgrade_wire_v2.md)。
+协议/迁移和黄金向量见[载荷v2](../../archive/protocols/yg_protocol_upgrade_wire_v2.md)。
 
 验收命令通过工作树已有`.venv`执行（此机未提供uv命令）；不安装依赖、不接触硬件。
 

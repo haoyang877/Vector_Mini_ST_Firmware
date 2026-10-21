@@ -1,8 +1,8 @@
 # 编码器标定核心抽离 J 验收 v2
 
 日期：2026-10-08。状态：模块实现与离线验收完成，待 ROOT 审查/工程接线/集成。
-一页[核心/外围数据流](../../architecture/encoder_calibration_core_v2.md)给出输入、单位、
-状态写者、结果和发布/取消/保存链；[计划](../../plans/active/2026-10-08-encoder-calibration-core-v2.md)给出回退。
+一页[核心/外围数据流](../../archive/architecture/encoder_calibration_core_v2.md)给出输入、单位、
+状态写者、结果和发布/取消/保存链；[计划](../../archive/plans/2026-10-08-encoder-calibration-core-v2.md)给出回退。
 
 ## 完整基点与源码
 

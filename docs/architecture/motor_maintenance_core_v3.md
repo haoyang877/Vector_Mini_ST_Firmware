@@ -1,6 +1,6 @@
 # 核心维护与编码器标定模块
 
-更新：2026-10-16。适用v1.3.0；维护只支持LUT、电零位、机械零位、SAVE及DEFAULTS。
+更新：2026-10-21。当前维护只支持LUT、电零位、机械零位、SAVE及DEFAULTS。
 
 ## 一项任务一条调用链
 
@@ -53,4 +53,4 @@ SAVE认领统一调用MotorMaintenance_IsReleased，具体任务与工作区须�
 
 已删除齿槽、摩擦、相电阻辨识以及整套计划；旧kind3～5返回不支持。
 通信入口见[单项维护v1.2](../protocols/yg_protocol_calibration_wire_v1_2.md)，
-计算边界见[编码器核心](encoder_calibration_core_v2.md)。
+计算边界及当前操作顺序见[统一标定指南](../guides/calibration_process.md)。

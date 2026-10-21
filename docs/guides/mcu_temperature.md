@@ -1,33 +1,20 @@
-# MCU 温度检测
+# MCU温度来源与保护
 
-当前轮电机没有安装 NTC，温度字段改为 **STM32G431 芯片内部温度**。它不表示电机绕组、MOS 管或环境温度，不能替代这些部件的独立热保护。节点、编码器方向、齿槽标定表、参数 schema 12 和4304字节参数结构保持不变。
+核对日期：2026-10-21。当前测量来源是STM32G431内部温度传感器和VREFINT，
+不是绕组、MOS或环境温度。硬件入口见[`mcu_temperature.h`](../../firmware/platform/api/mcu_temperature.h)，
+监督和保护见[`foc_sensing.c`](../../firmware/motor/foc/foc_sensing.c)。
 
-## 采样与换算
+ADC1的软件触发注入组读取TS和VREFINT；平台侧使用每颗芯片的校准数据换算。
+2kHz监督读取完整结果并启动后续采样，不以温度转换延长20kHz控制业务。
+显示温度使用低通，过温判断使用原始有效值；90°C触发MCU过温故障，
+恢复门限为80°C且仍需显式CLEAR。持续无效/过期样本触发温度传感器故障。
 
-ADC1 注入序列改为软件触发的两通道：rank1=内部TS（IN16），rank2=VREFINT（IN18）。开启扫描，采样时间640.5周期，在42.5 MHz下约15.07 µs，满足TS最少5 µs；初始化等待1 ms覆盖内部传感器启动时间。配置位于CubeMX USER CODE段。生成代码中的PA3常规通道不启动、不作为温度来源。
+当前CAN温度位于108/124的45B状态payload偏移34，i16、0.01°C；
+有效位bit8表示MCU温度。无真实电机温度来源时偏移36无效，不能复制MCU温度。
+旧标准CAN GET0x43/0x6E/0x6F、旧48B状态帧与HIL工程均已退役。
+具体字段见[状态线路](../protocols/yg_protocol_motor_wire_v1.md)。
 
-启动阶段进行一次采样，之后 2 kHz 监督任务在 JEOS 后读取完整两通道结果、清标志并发起下一次转换。没有新增ADC1中断，也不延长ADC2电流采样或20 kHz FOC中断。一次序列约30.7 µs，在两次监督调用之间完成。
-
-使用每颗芯片ROM中的TS_CAL1（0x1FFF75A8，30°C）、TS_CAL2（0x1FFF75CA，130°C）及VREFINT_CAL（0x1FFF75AA，3.0 V标定）。本仓库旧LL库的110°C常量有误，不使用其温度转换宏。
-
-```
-VDDA_mV = 3000 * VREFINT_CAL / ADC_VREFINT
-TS_at_3V = ADC_TS * VREFINT_CAL / ADC_VREFINT
-temperature_C = 30 + (TS_at_3V - TS_CAL1) * 100 / (TS_CAL2 - TS_CAL1)
-```
-
-显示采用系数 0.01 的一阶低通（2 kHz 节拍下与原 1 kHz/0.02 等效，约 50 ms 时间常数），首次有效值直接初始化；过温判定使用未滤波温度，不等待低通响应。`McuTemperature`调试结构给出原始ADC、VDDA、未滤波温度、有效标志、失效 tick 数（0.5 ms/tick）及累计有效样本数。
-
-## 保护与兼容性
-
-芯片温度90°C触发原有`MOTOR_FAULT_OVERTEMPERATURE`（故障10）。此阈值比数据手册最低温度等级的105°C结温上限低15°C，给校准公差、测量误差和热延迟留出余量；它是本版本保守软件阈值，尚未进行实物热箱验证，不表示整机热安全验收。
-
-原始ADC为0/满量程、工厂常数无效、VDDA不在1.62～3.6 V或换算温度超出-40～150°C时拒绝读数并输出NaN。连续无有效样本100 ms（包括JEOS停止更新）触发新增`MOTOR_FAULT_TEMPERATURE_SENSOR`（故障17）。已有故障保持，不由温度覆盖；恢复有效读数不会自动清除已锁存故障。读数短时不更新可保持最近有效值，最多 99.5 ms。
-
-CAN GET `0x43`与48字节状态帧offset32仍使用原编码，只改变来源；无效时分别返回NaN与int16哨兵0x8000。新增GET `0x6E`返回1（MCU芯片），`0x6F`返回有效状态。请求和回复均4字节大端float32，左轮ID分别0x16E/0x16F。上位机应显示“MCU温度”，来源查询不支持时应显示来源未知。
-
-## 验证
-
-原生测试执行生产换算函数及监督任务，覆盖30/130°C两点、供电修正、负温、无效ADC/ROM、滤波与原始温度保护、100 ms（200 tick）超时、启动无ADC以及故障保持。普通/HIL构建和全套回归通过。静止实机验证与固件校验值见[报告](../reports/2026-09/mcu_temperature_20260918.md)。
-
-依据：[STM32G431数据手册DS12589](https://www.st.com/resource/en/datasheet/stm32g431cb.pdf)第3.18、5.3.1、5.3.23节；[ST对130°C校准点的确认](https://community.st.com/stm32-mcus-embedded-software-32/stm32g431-ts-cal2-temperature-21128)。
+绕组热保护是另一条基于相电流平方与时间的模型路径，不是温度传感器；
+其调度、失效关断和清错条件见[保护架构](../architecture/fault_protection.md)。
+旧换算推导与当时实机记录保留在[历史说明](../archive/guides/mcu_temperature.md)及
+[温度验证报告](../reports/2026-09/mcu_temperature_20260918.md)。

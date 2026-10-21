@@ -7,7 +7,7 @@ v1/v2、继承现场、运行适配/三份纯计算 `.c`、公开头、APP 和 K
 
 ## 最小职责与实际删除
 
-[一页流程](../../architecture/cogging_minimal_task_v3.md)对应启动、定位采样、统一结束、候选交接。
+[一页流程](../../archive/architecture/cogging_minimal_task_v3.md)对应启动、定位采样、统一结束、候选交接。
 标量聚合到 s_task；算法观察符号 s_cogging_calib 与全部运行观察符号保留。
 仓库工具/Keil 配置没有原任务散落标量引用，只有已同步修改的两份夹具。
 

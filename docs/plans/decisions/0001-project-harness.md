@@ -20,6 +20,6 @@ recorded as debt; new violations fail verification. CI never flashes or moves a 
 
 Developers and agents can validate from a clean checkout and receive actionable failures.
 The Keil build needs a licensed self-hosted Windows runner. HIL was retired on 2026-09-19
-(see the [HIL retirement plan](../active/2026-09-19-hil-retirement.md)); any remaining
+(see the [HIL retirement plan](../../archive/plans/2026-09-19-hil-retirement.md)); any remaining
 hardware bench work stays manually authorized by a physically present operator and is not
 a merge-time automation.

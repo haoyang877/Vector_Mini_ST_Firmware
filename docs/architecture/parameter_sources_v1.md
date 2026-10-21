@@ -11,7 +11,7 @@
 | --- | --- | --- | --- |
 | 硬件 | `platform/api/board_profile_defaults.h` | 板型、ADC参考/位宽、放大倍数、分流器、VBUS分压、累加次数、路径补偿 | 节点、电机R/L、实测零偏 |
 | 电机 | `motor/motor_profile_defaults.h` | 型号、极对数、相R/L、磁链、电流环带宽、标定电流、热模型七项输入 | 应用速度上限、设备SN、LUT |
-| 应用 | `parameters/application_profile_defaults.h` | 几何包络、默认限流/速度、外环、轨迹、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
+| 应用 | `parameters/application_profile_defaults.h` | 几何包络、默认限流/速度、外环、兼容字段、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
 | 设备 | `parameters/device_profile_defaults.h` | 空白设备的默认节点及未标定占位 | 实际SN/UID、标定结果、应用角色选择 |
 
 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE` 与分流器选择可由编译选项指定；
@@ -26,6 +26,8 @@
 配置不再存于 `s_motor_state`，LUT/零位/方向也不再存于动态编码器对象 `s_rotor_encoder`。
 位置误差窗属于只读编译配置，保留在 `MotorAxis_Init` 原位置赋值，不改恢复默认时序。
 SN来自独立生产身份页，UID来自芯片；标定值只能来自实际标定提交，不能以宏制造已标定状态。
+位置加减速等历史字段仍有存储/读取兼容用途，当前直接位置串级不执行轨迹；
+保留字段不能作为运行算法仍存在的证明。速度整形/jerk属于独立SPEED前馈路径。
 
 ## 归属和来源
 

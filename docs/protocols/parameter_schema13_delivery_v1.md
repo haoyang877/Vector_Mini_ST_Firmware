@@ -1,5 +1,7 @@
 # 交付功能参数扩展 v1：schema13
 
+> 兼容格式：当前写入schema14；本文及原向量保留用于仍受支持的旧版读取和兼容校验。当前装载规则优先见[schema14](parameter_schema14_storage_v1.md)。
+
 2026-10-17。随APP v1.4.0提供绕组热保护和可选速度整形/惯量前馈；公司协议帧头及120/121/122 payload格式保持不变。
 
 本文保留 schema13 的已发布契约；当前紧凑格式见[schema14存储与迁移](parameter_schema14_storage_v1.md)。

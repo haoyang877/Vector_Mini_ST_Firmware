@@ -55,7 +55,7 @@ CAN FD 为优先通信方式；UART 必须单独实现和验收，不能因更�
 
 当前已实现并验证的目标是 G431 + CAN FD。应以当前源码、目标配置及
 [实机记录](../reports/2026-10/loader_storage_optimization_20261020.md)为依据，
-早期[通用框架设计](../architecture/loader/d_loader_portable_framework_20260917.md)中的规划不代表已经实现。
+早期[通用框架设计](../architecture/loader/loader_product_v3.md)中的规划不代表已经实现。
 
 | 当前实现 | 新目标适配时要做什么 |
 | --- | --- |

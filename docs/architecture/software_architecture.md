@@ -34,11 +34,14 @@ runtime只保留对象所有权、调度、命令校验及维护/参数协调；
 控制与有功率标定均在监督拍持续核对采样资格，采样中断停止也不能保持标定输出。
 
 没有自动全套标定、轨迹管理、齿槽补偿、摩擦/电阻辨识、RTT、运行租约或heap。
+绕组热保护与可选SPEED速度整形/惯量前馈已经接入：热历史归motor/protection，
+速度前馈归motor/foc；位置串级不因速度前馈恢复轨迹或摩擦功能。
+host_app同时保留Rust GUI候选与Qt核心工具，程序能力和验收分别按各自源码确认。
 硬件、电机、应用和设备配置按来源与职责分组，持久布局为schema14，兼容读取schema12/13。
 设备node只取独立地址字段；应用速度包络由应用配置及AXS数值决定，不再由节点派生。
 删除旧地址映射会改变部分记录的实际通信地址和隐含速度钳制，详见本批兼容契约。
 
-本批行为与兼容边界见[核心契约收口](../plans/active/2026-10-16-core-contract-closeout-v1.md)。
+本批行为与兼容边界见[核心契约收口](../plans/completed/2026-10-16-core-contract-closeout-v1.md)。
 多型号profile仍须提供真实配置数据；本批不虚构新型号，也不恢复组合标定。
 
 ## 深入阅读
@@ -49,7 +52,7 @@ runtime只保留对象所有权、调度、命令校验及维护/参数协调；
 - [控制执行和直接位置串级](motor_execution_core_v3.md)
 - [单项维护、编码器标定和真实保存](motor_maintenance_core_v3.md)
 - [四类参数与兼容限制](parameter_ownership_v1.md)
-- [通信分层](communication_layering.md)、[Loader设计](loader/loader_product_v3.md)
-- [实际目录归属](code_structure.md)、[候选及未测项](../releases/architecture-app-v1.3.0-candidate.md)
+- [通信分层](communication_layering.md)、[Loader设计](loader/loader_product_v3.md)、[故障保护](fault_protection.md)
+- [实际目录归属](code_structure.md)、[当前候选及未测项](../plans/active/2026-10-21-current-candidate-acceptance-v1.md)
 
 本页描述源码职责，不代表当前候选已通过实机验收。

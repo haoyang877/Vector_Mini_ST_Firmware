@@ -2,7 +2,7 @@
 
 本轮按用户要求，将 APP 的正弦和余弦统一到 `Math_SinCos`；没有烧录、访问探针
 或发送电机命令。基准 ce31fc60，执行计划见
-[统一查表 v1](../../plans/active/2026-09-28-unified-trig-v1.md)。
+[统一查表 v1](../../archive/plans/2026-09-28-unified-trig-v1.md)。
 
 ## 实现及数值变化
 

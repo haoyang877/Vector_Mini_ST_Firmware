@@ -72,6 +72,7 @@ int main(void)
                    snapshot.supervisor_ticks == SUPERVISOR_FREQ * 8U / 5U &&
                    readiness.self_test_checks == MOTOR_SELF_TEST_ALL &&
                    (readiness.start_blockers & MOTOR_START_CONFIGURATION_REQUIRED) != 0U &&
+                   MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_DENIED &&
                    fabsf(status.bus_voltage - config.bus_voltage_v) < 0.1f &&
                    status.current_reference == 0.0f;
     printf("{\"success\":%s,\"state\":%u,\"fault\":%u,\"mode\":%u,"

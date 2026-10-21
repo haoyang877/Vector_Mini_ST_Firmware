@@ -16,8 +16,9 @@
 #include "time_hw.h"
 #include "vector_mini_st_g431.h"
 #include "yg_protocol_canfd_irq.h"
+#include "inverter_model.h"
 
-/* 仅静态外设替身；所有APP状态与校正流程均由原生产源码推进。 */
+/* 静态或最小物理对象替身；所有APP状态、校正和控制均由原生产源码推进。 */
 #define QUEUE_CAPACITY 32U
 #if (1000000U % FOC_FREQ) != 0U || (FOC_FREQ % SUPERVISOR_FREQ) != 0U
 #error "Virtual time requires integer microseconds and an integer supervisor divider"
@@ -40,6 +41,17 @@ static uint32_t s_storage_bytes;
 static uint64_t s_ticket, s_ticket_started_us;
 static CommHwCanTxCompletion s_completion;
 static bool s_completion_ready;
+
+bool VirtualPlatform_LoadParameters(const void *record, uint32_t size_bytes)
+{
+    if (s_initialized || record == NULL || size_bytes == 0U || size_bytes > sizeof(s_storage))
+    {
+        return false;
+    }
+    memcpy(s_storage, record, size_bytes);
+    s_storage_bytes = size_bytes;
+    return true;
+}
 
 static bool enqueue(FrameQueue *queue, const CommHwCanFrame *frame, uint64_t ticket)
 {
@@ -84,7 +96,14 @@ bool VirtualPlatform_Init(const VirtualConfig *config)
             return false;
         }
     }
+    if (config->motor_connected &&
+        (!MotorModel_Valid(&config->motor) || config->integration_substeps == 0U ||
+         config->integration_substeps > 100U))
+    {
+        return false;
+    }
     s_config = *config;
+    s_snapshot.rotor.angle_rad = (float)config->encoder_angle_q15 * (6.283185307f / 65536.0f);
     s_snapshot.phases_disabled = true;
     s_initialized = true;
     App_Init();
@@ -99,6 +118,38 @@ bool VirtualPlatform_Advance(uint32_t fast_ticks)
     }
     for (uint32_t tick = 0U; tick < fast_ticks; ++tick)
     {
+        if (s_config.motor_connected)
+        {
+            float voltage_v[3];
+            if (!InverterModel_Apply(s_snapshot.duty,
+                                     s_config.bus_voltage_v,
+                                     !s_snapshot.phases_disabled,
+                                     voltage_v))
+            {
+                power_stage_hw_stop();
+                return false;
+            }
+            for (unsigned step = 0U; step < s_config.integration_substeps; ++step)
+            {
+                if (!MotorModel_Step(&s_config.motor,
+                                     &s_snapshot.rotor,
+                                     voltage_v,
+                                     !s_snapshot.phases_disabled,
+                                     1.0f /
+                                         ((float)FOC_FREQ * (float)s_config.integration_substeps)))
+                {
+                    power_stage_hw_stop();
+                    return false;
+                }
+            }
+            MotorModel_PhaseCurrents(
+                &s_config.motor, &s_snapshot.rotor, s_snapshot.phase_current_a);
+            for (unsigned phase = 0U; phase < 3U; ++phase)
+            {
+                s_snapshot.peak_phase_current_a = fmaxf(s_snapshot.peak_phase_current_a,
+                                                        fabsf(s_snapshot.phase_current_a[phase]));
+            }
+        }
         s_snapshot.time_us += 1000000U / FOC_FREQ;
         if (s_rx.count != 0U && s_can_started)
         {
@@ -112,7 +163,8 @@ bool VirtualPlatform_Advance(uint32_t fast_ticks)
             ++s_snapshot.supervisor_ticks;
         }
         App_Process();
-        if (s_snapshot.power_was_enabled || s_critical_depth != 0U || s_critical_error)
+        if ((!s_config.motor_connected && s_snapshot.power_was_enabled) ||
+            s_snapshot.sample_saturated || s_critical_depth != 0U || s_critical_error)
         {
             power_stage_hw_stop();
             return false;
@@ -178,15 +230,25 @@ bool board_hw_read_identity(uint8_t record[64])
 
 uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase)
 {
-    return (unsigned)phase < 3U
-               ? (uint16_t)(s_config.phase_offset_counts[phase] * MOTOR_SENSING_ADC_SAMPLE_COUNT)
-               : 0U;
+    if ((unsigned)phase >= 3U)
+    {
+        return 0U;
+    }
+    /* 电路放大极性与原Current_Cal一致；只编码传感器，绝不写控制器电流。 */
+    float counts = (float)s_config.phase_offset_counts[phase] -
+                   s_snapshot.phase_current_a[phase] / MOTOR_SENSING_CURRENT_A_PER_COUNT;
+    if (!isfinite(counts) || counts < 0.0f || counts > CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
+    {
+        s_snapshot.sample_saturated = true;
+        return 0U;
+    }
+    return (uint16_t)(lroundf(counts) * MOTOR_SENSING_ADC_SAMPLE_COUNT);
 }
 
 uint16_t motor_hw_vbus_sample_raw(void)
 {
-    return (uint16_t)lroundf(s_config.bus_voltage_v / MOTOR_SENSING_VBUS_V_PER_COUNT *
-                             MOTOR_SENSING_ADC_SAMPLE_COUNT);
+    return (uint16_t)(lroundf(s_config.bus_voltage_v / MOTOR_SENSING_VBUS_V_PER_COUNT) *
+                      MOTOR_SENSING_ADC_SAMPLE_COUNT);
 }
 
 void motor_hw_temperature_poll(MotorHwTemperaturePoll *result)
@@ -238,6 +300,16 @@ EncoderSensorStatus encoder_sensor_complete(uint8_t sample_stage, EncoderSensorS
     s_encoder_started = false;
     *out = (EncoderSensorSample){
         .status = ENCODER_SENSOR_OK, .angle_q15 = s_config.encoder_angle_q15, .crc_ok = true};
+    if (s_config.motor_connected)
+    {
+        double angle = fmod(s_snapshot.rotor.angle_rad, 6.283185307179586);
+        if (angle < 0.0f)
+        {
+            angle += 6.283185307179586;
+        }
+        /* TLE5012B有效15位，接口沿用左移一位的16位单圈表示。 */
+        out->angle_q15 = (uint16_t)((uint32_t)(angle * (32768.0 / 6.283185307179586)) << 1U);
+    }
     return out->status;
 }
 EncoderSensorType encoder_sensor_type(void)

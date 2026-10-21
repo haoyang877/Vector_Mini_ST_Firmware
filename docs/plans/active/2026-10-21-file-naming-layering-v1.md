@@ -69,4 +69,35 @@ app_tasks明确继承原foc_task的Optim=4/oTime=1，保留快入口策略；
 真实基线所有者比较：`outputs/naming-layering-v1/native-owner/summary.json`，
 当前与3344c3ed的owner/power/event轨迹及262144条规则一致。
 历史文档保留原叙述，只修复指向当前移动文件的42处链接；路径迁移表同步当前目标。
-后续PR、构建、资源及产物身份在最终冻结后补记；本候选实机与20kHz时序尚未复测。
+本候选实机与20kHz时序尚未复测。
+
+## 最终离线结果
+
+实现提交：`b266c21d271f1510723e17961eea33481446ea7d`，APP1.5.6 / Loader2.1.0。
+逐文件导航见[APP文件职责与分层对照](../../architecture/app_file_responsibilities_v1.md)，
+覆盖106个主工程源文件、37个独立自有头文件和配套APP的额外输入。
+
+- PR全部通过：`outputs/runs/20261021T083822727618Z-b266c21d/summary.json`。
+- normal主工程：0错误、0警告；构建输入及产物见`outputs/naming-layering-v1/normal-build/summary.json`。
+- Loader与配套APP：均0错误、0警告；冻结目录为
+  `outputs/delivery/naming-layering-b266c21d-20261021/`，资源及逐产物SHA256见其中`summary.json`。
+- Watch/资源独立核对：`outputs/naming-layering-v1/watch-resource-comparison.json`。
+  14个对象的名称、源声明、大小、所属object及本次链接地址一致；这不替代DWARF成员偏移或实机验证。
+
+| 配套产品资源 | APP1.5.5 | APP1.5.6 | 变化 |
+| --- | ---: | ---: | ---: |
+| APP Flash | 81376 B | 81360 B | -16 B |
+| APP RAM | 18552 B | 18552 B | 0 B |
+| Loader Flash | 14520 B | 14520 B | 0 B |
+| Loader RAM | 4344 B | 4344 B | 0 B |
+
+Loader BIN仍为`0ea00279f316316ee3a9b31df78889e8e285b81fe0ac66700faec4b57b45aacf`，逐字节相同。
+新APP原始BIN为`aad587ba3f3fcf1a70f080bc25397502ed3888d4dbc92ae5013e8216ca37d3a6`；
+整包HEX为`e26ba298a413df24e5d2e59c2b7ee4485f0aa783ccbbb51ebc33067d5a2d9714`。
+APP差异包含版本和重链接；16 B减少不代表删减控制算法。
+
+正式release profile未通过：原有两份计划、参数说明和`.vscode/`改动仍未提交，
+`clean-release-source`拒绝当前工作区，继而没有本轮release构建清单；
+其余离线项全部通过，见`outputs/runs/20261021T084111346946Z-b266c21d/summary.json`。
+没有清理或提交这些现场改动来绕过门禁。直接构建及冻结包仅作为debug候选，未批准发布。
+本批未连接硬件、下载、复位或运动；既有实机结论不自动覆盖新二进制。

@@ -492,14 +492,14 @@ static void publish_transition_fault(void)
 static bool dispatch_state_event(uint32_t events,
                                  MotorMaintenanceEffect effects,
                                  uint32_t faults,
-                                 const MotorStateFacts *recovery_facts)
+                                 const MotorStateFacts *current_facts)
 {
     /* RUNNING期间参数写入和DEFAULTS均不受理。监督空事件的纯配置校验不屏蔽ADC；
      * 若前台计算期间监督改变了状态/代际，提交时退回原有完整校验路径。
      * 快故障、STOP、采样资格和功率事实仍在下面的提交临界区读取。 */
     uint32_t validation_epoch = s_context.rules.epoch;
     bool running_poll =
-        events == 0U && recovery_facts == NULL && s_context.rules.state == MOTOR_STATE_RUNNING;
+        events == 0U && current_facts == NULL && s_context.rules.state == MOTOR_STATE_RUNNING;
     bool configuration_valid =
         running_poll && ParameterValue_ConfigurationValid(s_context.configuration);
     uint32_t mask = critical_hw_enter();
@@ -528,9 +528,9 @@ static bool dispatch_state_event(uint32_t events,
                              .maintenance_kind = s_context.rules.maintenance_kind,
                              .effects = effects};
     MotorStateFacts facts;
-    if (recovery_facts != NULL)
+    if (current_facts != NULL)
     {
-        facts = *recovery_facts;
+        facts = *current_facts;
     }
     else if (running_poll && s_context.rules.state == MOTOR_STATE_RUNNING &&
              validation_epoch == s_context.rules.epoch)
@@ -1482,18 +1482,28 @@ static void dispatch_idle_work(bool stopped, bool completion_accepted)
 /* 实际启相前在原临界区再次读取许可；准备就绪本身不能作为延迟启相授权。 */
 static void enable_prepared_control(void)
 {
-    if (s_context.rules.state == MOTOR_STATE_STARTING && read_state_conditions().startup_confirmed)
+    if (s_context.rules.state != MOTOR_STATE_STARTING)
     {
-        uint32_t mask = critical_hw_enter();
-        MotorStateFacts facts = read_state_conditions();
-        if (!s_context.stop_pending && s_context.boot_stop_ticket == 0U && facts.start_permitted &&
-            facts.inputs_valid && facts.active_faults == 0U)
+        return;
+    }
+    uint32_t preparation_epoch = s_context.rules.epoch;
+    bool configuration_valid = ParameterValue_ConfigurationValid(s_context.configuration);
+    uint32_t mask = critical_hw_enter();
+    if (s_context.rules.state == MOTOR_STATE_STARTING && preparation_epoch == s_context.rules.epoch)
+    {
+        MotorStateFacts facts = read_locked_state_conditions(configuration_valid);
+        if (!s_context.stop_pending && s_context.boot_stop_ticket == 0U &&
+            facts.startup_confirmed && facts.start_permitted && facts.inputs_valid &&
+            facts.active_faults == 0U)
         {
             power_stage_hw_start();
-            (void)dispatch_simple_event(MOTOR_STATE_EVENT_START_DONE);
+            /* 同一原子区间只复用不变的配置结论；启相后功率与动态事实仍实际重读。 */
+            facts = read_locked_state_conditions(configuration_valid);
+            (void)dispatch_state_event(
+                MOTOR_STATE_EVENT_START_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &facts);
         }
-        critical_hw_exit(mask);
     }
+    critical_hw_exit(mask);
 }
 
 /* 原代启相事实经监督拍确认；STOP/故障可在此之前同步撤销身份。 */

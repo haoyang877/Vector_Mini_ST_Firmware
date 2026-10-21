@@ -41,6 +41,7 @@ static bool outer_ready;
 static uint32_t critical_depth;
 static unsigned validation_interrupt;
 static unsigned validation_unmasked_calls, validation_masked_calls;
+static bool require_locked_validation;
 static uint32_t now_ms;
 static void tick(void);
 
@@ -70,6 +71,12 @@ void critical_hw_exit(uint32_t mask)
 /* 观测真实配置校验的屏蔽状态；在开中断区间模拟一次高优先级事件。 */
 bool Test_ConfigurationValid(const MotorConfiguration *configuration)
 {
+    bool valid = ParameterValue_ConfigurationValid(configuration);
+    if (require_locked_validation)
+    {
+        assert(critical_depth != 0U);
+        require_locked_validation = false;
+    }
     if (validation_interrupt != 0U)
     {
         if (critical_depth != 0U)
@@ -93,11 +100,12 @@ bool Test_ConfigurationValid(const MotorConfiguration *configuration)
                 {
                     tick();
                     cfg.application.current_limit_a = NAN;
+                    require_locked_validation = true;
                 }
             }
         }
     }
-    return ParameterValue_ConfigurationValid(configuration);
+    return valid;
 }
 bool power_stage_hw_phases_disabled(void)
 {
@@ -216,6 +224,7 @@ static void reset(void)
     bool resume_trace = trace_enabled;
     trace_enabled = false;
     validation_interrupt = 0U;
+    require_locked_validation = false;
     now_ms = 0U;
     memset(&cfg, 0, sizeof(cfg));
     memset(&motor, 0, sizeof(motor));
@@ -1509,6 +1518,7 @@ static void test_preemptible_running_validation(void)
         validation_interrupt = interrupt;
         tick();
         assert(validation_interrupt == 0U && validation_unmasked_calls == 1U);
+        assert(!require_locked_validation);
         if (!output_off || motor.iq_target_a != 0.0f)
         {
             fprintf(stderr,
@@ -1535,9 +1545,34 @@ static void test_preemptible_running_validation(void)
 #endif
 }
 
+/* 准备完成后的纯配置校验可被抢占，但过期准备和快故障绝不能启相。 */
+static void test_preemptible_start_validation(void)
+{
+#if STATE_VALIDATION_PREEMPTIBLE
+    for (unsigned interrupt = 1U; interrupt <= 2U; ++interrupt)
+    {
+        reset();
+        outer_ready = false;
+        assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_STARTING && output_off);
+        outer_ready = true;
+        validation_unmasked_calls = 0U;
+        validation_interrupt = interrupt;
+        tick();
+        assert(validation_interrupt == 0U && validation_unmasked_calls == 1U);
+        assert(output_off && start_count == 0U);
+        tick();
+        assert(MotorStateMachine_GetState() ==
+               (interrupt == 1U ? MOTOR_STATE_FAULT : MOTOR_STATE_IDLE));
+    }
+#endif
+}
+
 int main(void)
 {
     test_preemptible_running_validation();
+    test_preemptible_start_validation();
     test_defaults_preserves_device_address();
     test_rejected_start_does_not_bind_source();
     test_direct_fault_recovery_and_idle_stop();

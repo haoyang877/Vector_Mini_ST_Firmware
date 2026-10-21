@@ -67,9 +67,11 @@ def main() -> None:
         + "\n"
         + health_fixture
         + "\n"
-        + function_source(board, "Board_ServiceBoot")
+        + function_source(board, "service_boot")
         + "\n"
-        + function_source(board, "confirm_image"),
+        + function_source(board, "confirm_image")
+        + "\n"
+        + function_source(board, "App_Process"),
         encoding="utf-8",
     )
     platform = (ROOT / "loader/ports/stm32g4/platform.c").read_text(encoding="utf-8")
@@ -203,7 +205,14 @@ def main() -> None:
     logs = []
     for name, source, extra in (
         ("runtime", "tests/unit/loader_runtime_test.c", [str(ROOT / f) for f in sources]),
-        ("app_health", str(health_source), ["-DYG_APP_LOADER_IMAGE=1"]),
+        (
+            "app_health",
+            str(health_source),
+            [
+                "-DYG_APP_LOADER_IMAGE=1",
+                str(ROOT / "firmware/app/composition/app_tasks.c"),
+            ],
+        ),
         ("flash_wait", str(flash_source), []),
         ("app_confirm", str(confirm_source), []),
         ("parameters", str(parameter_source), []),

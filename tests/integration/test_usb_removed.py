@@ -27,10 +27,15 @@ class UsbRemovalTests(unittest.TestCase):
         task = (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8")
         self.assertIn("MX_FDCAN1_Init();", main)
         self.assertNotIn("CAN_Service();", task)
-        self.assertIn("FOC2kHzSupervisor();", task)
+        self.assertIn("void App_SupervisorTick(void)", task)
+        self.assertIn("MotorAxis_SupervisorTick();", task)
+        self.assertNotIn("FOC2kHzSupervisor", task)
+        self.assertNotIn("BSP2kHzIRQHandler", task)
         self.assertNotIn("CAN_DisConnect_Handle();", task)
-        self.assertIn("YgProtocolRuntime_Service", main)
-        self.assertNotRegex(main + task, r"USB_|usb_device|HSI48_ON")
+        self.assertIn("App_Process();", main)
+        startup = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
+        self.assertIn("YgProtocolRuntime_Service", startup)
+        self.assertNotRegex(main + task + startup, r"USB_|usb_device|HSI48_ON")
 
     def test_usb_irq_slots_remain_but_no_application_handlers(self):
         startup = (KEIL / "startup_stm32g431xx.s").read_text()

@@ -3,7 +3,7 @@
 更新：2026-10-21。适用当前`YG_ESC_APP`主工程及`Vector_Mini_ST_LoaderApp`配套工程。
 主工程树包含106个源文件，下面按Keil现有七组及原排列顺序逐项说明；文件链接指向实际物理位置。
 源文件有对应头文件时一并链接，头文件负责类型、函数契约和单位，实现仍属于同一模块。
-另列37个没有同名`.c`的自有头文件，区分配置、值类型、平台能力和私有规则。
+另列38个没有同名`.c`的自有头文件，区分配置、值类型、平台能力和私有规则。
 
 目录、Keil树和模块名已经同步。下面直接使用当前文件名，旧名到新名的对应见末尾迁移表。
 
@@ -32,6 +32,28 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 功率启停许可归主状态机；算法给计算结果，通信给请求，平台兑现硬件动作。
 `app/composition`是组装边界，可以绑定这些模块；控制算法不反向调用APP。
 
+## 从四个入口开始读
+
+四个入口的目标契约见[APP四入口收口计划](../plans/active/2026-10-21-app-entry-v1.md)，
+当前实现仍分布在 `app_startup.h` 与 `app_tasks.h`；源文件按下面的调用链阅读：
+
+```text
+main.c：BootHw/HAL/时钟/外设初始化
+  └─ App_Init                 app_startup.c：参数/电机 → 采样启动 → 通信绑定与启动
+while (1)
+  └─ App_Process              app_startup.c：后台事务 → 状态刷新 → 通信 → 私有Loader交接
+ADC完整JEOS回调
+  └─ App_FastTick             app_tasks.c → MotorAxis_FastTick：采样、保护、控制/标定
+TIM7回调
+  └─ App_SupervisorTick       app_tasks.c → MotorAxis_SupervisorTick → 主状态推进
+                                         └─ 原LED/RGB分频处理
+```
+
+App_Init与App_Process位于app_startup.c前部，内部绑定/启动交接辅助函数在后部。
+继续读motor_axis的四条执行路径，再从MotorStateMachine_Tick进入状态机；算法按实际调用进入。
+20kHz快环和2kHz监督由中断驱动，前台循环处理通信与存储；四入口不代表四个线程。
+对应实施与证据见[四入口收口计划](../plans/active/2026-10-21-app-entry-v1.md)。
+
 ## 与Keil树逐文件对应
 
 ### 00_App 应用组织
@@ -40,14 +62,14 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 
 | 文件与物理目录 | 核心功能 | 归属和边界 |
 | --- | --- | --- |
-| [app_startup.c](../../firmware/app/composition/app_startup.c) / [.h](../../firmware/app/composition/app_startup.h)<br>`firmware/app/composition` | 装配板级启动、生产身份、CAN业务绑定和APP确认/进入Loader交接。 | 仅组合所有者与平台能力；不实现FOC、协议codec或直接HAL操作。 |
+| [app_startup.c](../../firmware/app/composition/app_startup.c) / [app.h](../../firmware/app/composition/app.h)<br>`firmware/app/composition` | 以App_Init装配电机、采样和通信，以App_Process有序推进后台；Loader确认/交接为私有实现。 | 仅组合所有者与平台能力；不实现FOC、协议codec或直接HAL操作。 |
 | [motor_axis.c](../../firmware/app/runtime/motor_axis.c) / [.h](../../firmware/app/runtime/motor_axis.h)<br>`firmware/app/runtime` | 持有单份配置及Watch运行对象，编排20kHz快环、2kHz监督和后台保存。 | 按顺序借用显式对象并转递结果；控制计算、采样换算和热算法归motor，启停许可归主状态机。 |
 | [motor_parameter_transaction.c](../../firmware/app/runtime/motor_parameter_transaction.c) / [.h](../../firmware/app/runtime/motor_parameter_transaction.h)<br>`firmware/app/runtime` | 拥有参数读写去重、活动revision及异步保存票据，并装载/保存配置记录。 | 只在既有准入下提交配置；不拥有主状态、功率使能或运行对象副本。 |
 | [motor_state_machine.c](../../firmware/app/motor_state_machine/motor_state_machine.c) / [.h](../../firmware/app/motor_state_machine/motor_state_machine.h)<br>`firmware/app/motor_state_machine` | 独占INIT至FATAL生命周期，处理启停、维护、故障、请求身份和后台完成。 | 消费真实采样/资源事实并执行转换动作；不计算控制律，CLEAR成功仅回待机。 |
 | [motor_state_rules.c](../../firmware/app/motor_state_machine/motor_state_rules.c)<br>`firmware/app/motor_state_machine` | 依据状态、事件和条件计算主状态转换及所需动作。 | 纯规则核心；不访问硬件、不执行控制或存储，实际动作由主状态机兑现。 |
 | [motor_command.c](../../firmware/app/runtime/motor_command.c) / [.h](../../firmware/app/runtime/motor_command.h)<br>`firmware/app/runtime` | 校验控制命令未使用字段、有限性及当前电流/速度/位置/电压目标范围。 | 只校验目标，不授予启动许可、不修改运行状态、不执行控制算法。 |
 | [motor_maintenance.c](../../firmware/app/runtime/motor_maintenance.c) / [.h](../../firmware/app/runtime/motor_maintenance.h)<br>`firmware/app/runtime` | 对单项LUT、零位、默认值和保存进行准入、任务分发、取消及资源归还。 | 不拥有主生命周期或标定内部阶段；保存由后台真实存储提交，任务不能自行启相。 |
-| [app_tasks.c](../../firmware/app/composition/app_tasks.c) / [.h](../../firmware/app/composition/app_tasks.h)<br>`firmware/app/composition` | 提供20kHz快环、2kHz监督和分频LED/RGB任务入口，保持原调用顺序。 | 合并原两个任务源；不持有控制对象，调用MotorAxis与指示器能力。 |
+| [app_tasks.c](../../firmware/app/composition/app_tasks.c) / [app.h](../../firmware/app/composition/app.h)<br>`firmware/app/composition` | 提供App_FastTick与App_SupervisorTick，执行20kHz快环、2kHz监督及原指示器分频。 | 合并原两个任务源；不持有控制对象，调用MotorAxis与指示器能力。 |
 | [yg_protocol_owner_adapter.c](../../firmware/app/composition/yg_protocol_owner_adapter.c) / [.h](../../firmware/app/composition/yg_protocol_owner_adapter.h)<br>`firmware/app/composition` | 把协议生命周期、普通启动、参数与维护请求映射到对应所有者并映射结果。 | 组合业务接口及身份/进展；不直接写Watch对象、不替代codec或控制准入。 |
 | [yg_protocol_status_adapter.c](../../firmware/app/composition/yg_protocol_status_adapter.c) / [.h](../../firmware/app/composition/yg_protocol_status_adapter.h)<br>`firmware/app/composition` | 将电机、主状态和启动健康的只读快照映射为协议遥测值。 | 只发布快照与状态映射；不反向修改控制状态或触发功率。 |
 | [maintenance_workspace.c](../../firmware/app/runtime/maintenance_workspace.c) / [.h](../../firmware/app/runtime/maintenance_workspace.h)<br>`firmware/app/runtime` | 互斥借出参数记录与编码器采样共用的固定联合工作区，并核对归还。 | 只管理6KiB静态资源占用；无heap、算法或隐式第二份大数组。 |
@@ -138,11 +160,11 @@ VS Code显示物理目录，Keil显示源文件清单；二者通过下表和逐
 | [dma.c](../../firmware/platform/stm32g4/cubemx/Core/Src/dma.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/dma.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 打开DMA/DMAMUX时钟并配置DMA1通道中断入口。 | CubeMX DMA基础初始化，具体TIM2发送通道在定时器MSP配置。 |
 | [fdcan.c](../../firmware/platform/stm32g4/cubemx/Core/Src/fdcan.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/fdcan.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 配置FDCAN1帧格式、1M/5M位时序、引脚和中断优先级。 | CubeMX外设配置与USER CODE覆写；收发队列在端口，业务解析在communication。 |
 | [gpio.c](../../firmware/platform/stm32g4/cubemx/Core/Src/gpio.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/gpio.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 初始化板级GPIO时钟、默认输出电平及片选/指示等引脚模式。 | 板级引脚配置，不包含运行模式、控制目标或功率准入策略。 |
-| [main.c](../../firmware/platform/stm32g4/cubemx/Core/Src/main.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/main.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 处理启动能力、HAL/系统时钟与外设初始化，启动Board，并循环调度后台维护、协议和启动服务。 | CubeMX入口和USER CODE组合边界，不在主循环重建电机算法或第二套状态机。 |
+| [main.c](../../firmware/platform/stm32g4/cubemx/Core/Src/main.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/main.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 处理启动能力、HAL/时钟与外设初始化，随后调用App_Init，主循环只调用App_Process。 | CubeMX入口和USER CODE组合边界，不在主循环重建电机算法或第二套状态机。 |
 | [spi.c](../../firmware/platform/stm32g4/cubemx/Core/Src/spi.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/spi.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 配置SPI1/SPI2模式、字宽、速率以及GPIO复用和外设时钟。 | 平台外设初始化；编码器事务与传感器帧解析分别属于端口和型号驱动。 |
 | [startup_stm32g431xx.s](../../firmware/platform/stm32g4/cubemx/MDK-ARM/startup_stm32g431xx.s)<br>`firmware/platform/stm32g4/cubemx/MDK-ARM` | 声明Cortex-M4向量表、栈及链接运行区，执行Reset_Handler并进入C运行库。 | 芯片/工具链启动文件，保留汇编中的运行库heap预留不等于恢复了APP堆分配器。 |
 | [stm32g4xx_hal_msp.c](../../firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_hal_msp.c)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 执行HAL全局MSP初始化，打开SYSCFG/PWR并配置芯片级基础项。 | CubeMX系统底座，不持有业务状态或控制算法。 |
-| [stm32g4xx_it.c](../../firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/stm32g4xx_it.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 连接ADC完整JEOS快环、TIM7监督、CAN接收及DMA等中断，并提供异常/SysTick入口。 | 硬件IRQ和APP任务的组合边界；电机控制由任务派发，异常处理不被描述为已验证的自动恢复。 |
+| [stm32g4xx_it.c](../../firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/stm32g4xx_it.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 连接ADC完整JEOS快环、TIM7监督、CAN接收及DMA等中断，并提供异常/SysTick入口。 | ADC JEOS回调调用App_FastTick，TIM7回调调用App_SupervisorTick；硬件处理仍归平台。 |
 | [tim.c](../../firmware/platform/stm32g4/cubemx/Core/Src/tim.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/tim.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 配置TIM1互补PWM/ADC触发、TIM2 RGB DMA及时基为2kHz的TIM7监督中断。 | CubeMX定时器、引脚和DMA初始化，不执行控制律或主状态迁移。 |
 
 ### 50_Shared 跨产品契约
@@ -191,11 +213,12 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 
 ## 没有同名实现文件的头文件
 
-下表覆盖APP自有目录中没有同名`.c`的37个头文件。平台能力的实现在`ports`或`bsp`，
+下表覆盖APP自有目录中没有同名`.c`的38个头文件。平台能力的实现在`ports`或`bsp`，
 值契约和默认宏通常无需独立实现文件。生成的CubeMX/HAL头文件仍由对应工具和厂商维护。
 
 | 实际头文件 | 类型 | 功能和归属 |
 | --- | --- | --- |
+| [四入口收口计划](../plans/active/2026-10-21-app-entry-v1.md) | 四个应用入口的目标契约 | App_Init、App_Process、App_FastTick、App_SupervisorTick；分别限定启动、前台、20kHz与2kHz上下文。 |
 | [app/interfaces/motor_control_command.h](../../firmware/app/interfaces/motor_control_command.h) | 请求与只读进展契约 | SI目标、START身份、受理/应用进度及submit端口。 |
 | [app/interfaces/motor_lifecycle_request.h](../../firmware/app/interfaces/motor_lifecycle_request.h) | 请求与只读进展契约 | 维护任务类别、请求身份、票据与阶段/提交效果。 |
 | [app/interfaces/motor_readiness.h](../../firmware/app/interfaces/motor_readiness.h) | 请求与只读进展契约 | 启动阻断原因、自检事实及可启动模式快照。 |

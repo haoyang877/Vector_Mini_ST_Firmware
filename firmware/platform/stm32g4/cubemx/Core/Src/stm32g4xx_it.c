@@ -23,7 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "adc.h"
-#include "app_tasks.h"
+#include "app.h"
 #include "dma.h"
 #include "fast_loop_profile.h"
 #include "fdcan.h"
@@ -339,7 +339,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if(hadc == &hadc2 && __HAL_ADC_GET_FLAG(hadc, ADC_FLAG_JEOS))
 	{		
-		FOC20kHzIRQHandler();
+		App_FastTick();
 	}
 }
 
@@ -361,7 +361,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim == (&htim7))
     {
-		BSP2kHzIRQHandler();
+		App_SupervisorTick();
     }
 }
 

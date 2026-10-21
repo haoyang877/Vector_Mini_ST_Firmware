@@ -46,6 +46,10 @@ The architecture checker resolves local quoted includes and rejects new violatio
 
 ## Runtime boundaries
 
+- `app/composition/app.h` exposes four MCU-facing entries: `App_Init`, `App_Process`,
+  `App_FastTick`, and `App_SupervisorTick`. Startup/background assembly lives in
+  `app_startup.c`; bounded ADC/TIM scheduling lives in `app_tasks.c`. See the
+  [APP reading order](firmware/app/README.md).
 - The fast motor loop owns deterministic sensing, foc, protection, and actuation paths.
 - Parameters own configuration values and record conversion; app/interfaces owns command,
   STOP-confirmation and read-only status contracts without platform peripherals.

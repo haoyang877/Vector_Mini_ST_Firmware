@@ -3,7 +3,7 @@
 更新：2026-10-21。此页描述当前目录，不用历史报告代替当前实现和验证结果。
 产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 对照Keil阅读每个源文件时，使用[APP文件职责与分层对照](app_file_responsibilities_v1.md)：
-按当前七组及工程顺序列出106个源文件、对应头文件与物理路径，并说明37个独立头文件。
+按当前七组及工程顺序列出106个源文件、对应头文件与物理路径，并说明38个独立头文件。
 
 ## 独立产品与共享契约
 
@@ -20,7 +20,7 @@
 
 | 目录 | 内容与边界 |
 | --- | --- |
-| app/composition | app_startup：启动/端口绑定/启动交接；app_tasks：快慢拍与指示器任务入口；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
+| app/composition | app.h：四个应用入口；app_startup：App_Init初始化和App_Process后台编排，Loader交接为私有实现；app_tasks：App_FastTick和App_SupervisorTick；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
 | app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_command：命令格式与范围校验；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
 | app/interfaces | motor_control_command、motor_lifecycle_request、motor_readiness：窄值契约；motor_stop_request：停机请求与真实关闭确认；motor_status_mailbox：只读快照传递；不引用runtime或私有状态机 |
 | app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |

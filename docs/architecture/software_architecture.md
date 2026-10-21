@@ -43,6 +43,7 @@ runtime只保留对象所有权、调度、命令校验及维护/参数协调；
 
 ## 深入阅读
 
+- [从四个APP入口读主流程](../../firmware/app/README.md)：App_Init、App_Process、App_FastTick和App_SupervisorTick。
 - [模块输入、输出与全局符号归属](module_core_responsibilities.md)
 - [八状态及启停/故障流程](motor_state_machine_v1.md)
 - [控制执行和直接位置串级](motor_execution_core_v3.md)

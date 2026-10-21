@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT, resolve_source_path
 
 
 def function_source(source: str, name: str) -> str:
@@ -82,9 +82,14 @@ int main(void) {
 
 
 def board_orchestration_fixture(source: str | None = None) -> str:
-    """验证真实 Board_Init；允许独立树使用组合树的只读源码快照。"""
+    """验证实际初始化入口；冻结源码按自身App_Init或旧Board_Init名称提取。"""
     if source is None:
-        source = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
+        source = resolve_source_path(
+            ROOT,
+            "firmware/app/composition/app_startup.c",
+            "firmware/app/composition/board_config.c",
+        ).read_text(encoding="utf-8")
+    entry = "App_Init" if "void App_Init(" in source else "Board_Init"
     return (
         r"""
 #ifdef NDEBUG
@@ -114,22 +119,22 @@ static bool bind_device_description(void) { log_step(9); return protocol_ready; 
 static bool YgProtocolRuntime_Start(void) { log_step(10); return protocol_ready; }
 static void power_stage_hw_stop(void) { log_step(6); }
 """
-        + function_source(source, "Board_Init")
+        + function_source(source, entry)
         + r"""
 int main(void) {
     static const int expected[] = {3, 4, 5, 7, 8, 9, 10};
     int index;
-    Board_Init();
+    INIT_ENTRY();
     assert(order_len == 7 && !board_start_argument && s_communication_ready);
     for (index = 0; index < 7; ++index) assert(order[index] == expected[index]);
     protocol_ready = false;
     order_len = 0;
-    Board_Init();
+    INIT_ENTRY();
     assert(order_len == 4 && order[3] == 6 && !s_communication_ready);
     puts("PASS board startup: order, configuration and communication failure disables power");
     return 0;
 }
-"""
+""".replace("INIT_ENTRY", entry)
     )
 
 

@@ -1,17 +1,13 @@
-#include "app_tasks.h"
+#include "app.h"
 #include "motor_axis.h"
 #include "control_config.h"
 #include "motor_state_machine.h"
 #include "indicator_hw.h"
 
 /* 中断入口不持有控制对象，只调用 APP 执行所有者。 */
-void FOC20kHzIRQHandler(void)
+void App_FastTick(void)
 {
     MotorAxis_FastTick();
-}
-MotorControlMode FOC2kHzSupervisor(void)
-{
-    return MotorAxis_SupervisorTick();
 }
 
 /* 2 kHz 板级监督任务：电机监督与指示器组合。CAN FD 协议在主循环后台服务，
@@ -46,14 +42,14 @@ static IndicatorHwColor mode_color(MotorControlMode mode)
 }
 
 /**
- * @brief 2 kHz 板级监督任务：推进通信服务、指示器、CAN 维护与监督组合。
+ * @brief 执行2 kHz电机监督与原指示器分频任务。
  * @note 仅由 TIM7 中断上下文调用；不得阻塞、不得动态分配。
  */
-void BSP2kHzIRQHandler(void)
+void App_SupervisorTick(void)
 {
     /* CAN FD 收发由 RX ISR + 主循环 YgProtocolLink_Service 完成。 */
     /* 电机监督：编码器慢估计、外环控制、主状态机与温度。 */
-    MotorControlMode mode = FOC2kHzSupervisor();
+    MotorControlMode mode = MotorAxis_SupervisorTick();
 
     if (++s_led_cnt >= LED_DIVIDER)
     {

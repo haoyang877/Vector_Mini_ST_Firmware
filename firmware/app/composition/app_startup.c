@@ -1,4 +1,4 @@
-#include "app_startup.h"
+#include "app.h"
 
 #include "board_hw.h"
 #include "boot_hw.h"
@@ -26,6 +26,45 @@ static motor_stop_service_t s_stop_service;
 static yg_protocol_motor_adapter_t s_motor_adapter;
 static bool s_communication_ready;
 static DeviceIdentity s_identity;
+
+/* 公开入口在前，绑定及Loader交接细节在后。 */
+static bool bind_motor_stop(void);
+static bool bind_device_description(void);
+static void service_boot(uint32_t now_ms);
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+static bool bind_boot_entry(void);
+#endif
+
+void App_Init(void)
+{
+    /* 电机所有者装载参数与标定并初始化；无效记录回退默认值。 */
+    MotorAxis_Init();
+
+    /* 新协议复位态为失能；CH4 采样时钟保持运行，三相输出等待控制所有者授权。 */
+    board_hw_start(false);
+
+    /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
+    s_communication_ready = YgProtocolRuntime_Init(MotorAxis_NodeId()) &&
+                            YgProtocolStatusAdapter_Init() && bind_motor_stop() &&
+                            YgProtocolOwner_BindServices() && bind_device_description();
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    s_communication_ready = s_communication_ready && bind_boot_entry();
+#endif
+    s_communication_ready = s_communication_ready && YgProtocolRuntime_Start();
+    if (!s_communication_ready)
+    {
+        /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
+        power_stage_hw_stop();
+    }
+}
+
+void App_Process(void)
+{
+    MotorAxis_ServiceBackground();
+    YgProtocolStatusAdapter_Refresh();
+    YgProtocolRuntime_Service(time_hw_now_ms());
+    service_boot(time_hw_now_ms());
+}
 
 static void publish_identity(void)
 {
@@ -235,30 +274,7 @@ static bool bind_boot_entry(void)
 }
 #endif
 
-void Board_Init(void)
-{
-    /* 电机所有者装载参数与标定并初始化；无效记录回退默认值。 */
-    MotorAxis_Init();
-
-    /* 新协议复位态为失能；CH4 采样时钟保持运行，三相输出等待控制所有者授权。 */
-    board_hw_start(false);
-
-    /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
-    s_communication_ready = YgProtocolRuntime_Init(MotorAxis_NodeId()) &&
-                            YgProtocolStatusAdapter_Init() && bind_motor_stop() &&
-                            YgProtocolOwner_BindServices() && bind_device_description();
-#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-    s_communication_ready = s_communication_ready && bind_boot_entry();
-#endif
-    s_communication_ready = s_communication_ready && YgProtocolRuntime_Start();
-    if (!s_communication_ready)
-    {
-        /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
-        power_stage_hw_stop();
-    }
-}
-
-void Board_ServiceBoot(uint32_t now_ms)
+static void service_boot(uint32_t now_ms)
 {
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     poll_entry(now_ms);

@@ -2,9 +2,21 @@
 
 当前核心范围；[完整模块导航](../../docs/architecture/module_core_responsibilities.md)。
 
+从[app.h](composition/app.h)开始读；只向芯片入口公开四个应用调用：
+
+| 入口 | 实现 | 调用方与职责 |
+| --- | --- | --- |
+| App_Init | app_startup.c前部 | main完成外设初始化后调用一次：参数/电机、采样、通信依次启动 |
+| App_Process | app_startup.c前部 | main的while循环：后台事务、状态刷新、通信及私有Loader交接 |
+| App_FastTick | app_tasks.c | ADC完整JEOS回调，执行既有20kHz采样、保护和控制/标定 |
+| App_SupervisorTick | app_tasks.c | TIM7回调，执行既有2kHz监督、主状态推进和指示器分频 |
+
+随后阅读runtime/motor_axis.c的Init、FastTick、SupervisorTick和ServiceBackground，
+再从MotorStateMachine_Tick进入主状态机。四入口是执行上下文边界，不增加线程或调度器。
+
 | 目录 | 职责 | 阅读入口 |
 | --- | --- | --- |
-| composition | 初始化、快慢拍入口、协议与所有者绑定 | [app_startup.c](composition/app_startup.c) |
+| composition | 四个公开入口；后台编排、协议与所有者绑定 | [app.h](composition/app.h)、[app_startup.c](composition/app_startup.c) |
 | runtime | 单轴对象、控制/维护调度、参数事务和固定工作区 | [motor_axis.c](runtime/motor_axis.c) |
 | motor_state_machine | 唯一生命周期、启停准入、故障及资源归还 | [motor_state_machine.c](motor_state_machine/motor_state_machine.c) |
 

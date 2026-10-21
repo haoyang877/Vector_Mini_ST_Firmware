@@ -27,15 +27,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdbool.h>
-
-#include "app_startup.h"
+#include "app.h"
 #include "boot_hw.h"
-#include "control_config.h"
-#include "motor_axis.h"
-#include "time_hw.h"
-#include "yg_protocol_runtime.h"
-#include "yg_protocol_status_adapter.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -112,7 +105,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   /* 恢复快环执行预算；先启用指令预取，再启动控制器与采样中断。 */
   __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
-  Board_Init();
+  App_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -122,10 +115,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    MotorAxis_ServiceBackground();
-    YgProtocolStatusAdapter_Refresh();
-    YgProtocolRuntime_Service(time_hw_now_ms());
-    Board_ServiceBoot(time_hw_now_ms());
+    App_Process();
 
   }
   /* USER CODE END 3 */

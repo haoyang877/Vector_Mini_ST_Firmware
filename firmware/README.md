@@ -3,7 +3,7 @@
 | 目录 | 在这里查什么 |
 | --- | --- |
 | [app](app/README.md) | 启动组装、单轴运行所有者、主状态机 |
-| [motor](motor/README.md) | 电机算法、反馈、轨迹、标定、辨识与保护 |
+| [motor](motor/README.md) | 控制执行、FOC/外环、反馈、单项标定与保护 |
 | services | 参数、只读状态、控制/维护值请求 |
 | communication | CAN 接入与 APP 业务协议 |
 | platform | 硬件能力接口，以及 STM32G4 实现和生成工程 |
@@ -22,12 +22,13 @@ Keil 仅显示源码，实际目录中的头文件与实现相邻。
 
 | 对象 | 所属源码 | 观测内容 |
 | --- | --- | --- |
-| `s_motor_state` | `app/runtime/motor_axis.c` | 模式、故障、配置确认、模型/应用参数、速度/电流/位置目标 |
+| `s_motor_configuration` | `app/runtime/motor_axis.c` | model/application/device配置、配置来源及确认状态，含设备LUT/零位 |
+| `s_motor_state` | `app/runtime/motor_axis.c` | 模式、故障、速度/电流/位置目标及动态限幅，不包含配置 |
 | `s_foc_state` | `app/runtime/motor_axis.c` | 母线电压/电流、三相电流、d/q 电流、温度 |
-| `s_rotor_encoder` | `app/runtime/motor_axis.c` | 机械位置/速度、采样有效性、校准标志、读帧错误 |
+| `s_rotor_encoder` | `app/runtime/motor_axis.c` | 机械位置/速度、采样有效性及读帧错误，不持有LUT/零位 |
 | `s_context` | `app/motor_state_machine/motor_state_machine.c` | 主状态、自检、维护结果、后台工作及控制执行进度 |
 
-上电保持三相关闭，MotorAxis累计1秒新鲜ADC帧校正三相电流偏置；完成前自检不就绪。
+上电保持三相关闭，MotorAxis调度foc_sensing累计1秒新鲜ADC帧校正三相电流偏置；完成前自检不就绪。
 电流与速度PI实例在启动时配置已加载的活动参数，校正不自动保存或启相。
 源码修复不等于实机通过，见[初始化修复计划](../docs/plans/active/2026-09-29-startup-current-offset-pi-fix-v1.md)。
 

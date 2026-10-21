@@ -60,5 +60,26 @@ runtime不得重新定义已迁走的算法接口。热保护的功率事实读�
 - `outputs/runtime-responsibilities-v1/thermal/summary.json`：真实热模型、调度、VQ/降额和故障边界五场景通过。
 - 两份Keil工程同步源归属；逐文件编译选项按文件名逐项比较保持，新增执行源继承原执行源选项。
 
-最终PR、构建资源及产物身份待最后冻结后补记。本候选的真实20kHz耗时、标定/速度和升级
-尚未复测；既有1.5.4计时不能作为1.5.5结果。新增跨源调用可能改变内联和指令开销。
+### 最终检查与候选
+
+生产源提交：`05528f86437ddeec44433965baa211e06e2f139e`，分支`codex/system-refactor`。
+runtime中C源从1594行降至1068行；其中控制与保护功能迁回motor，不表示删掉526行功能。
+19个迁移函数去除注释/空白后与基线相同；11个状态机、控制核心、配置类型和保护边界文件保持。
+
+| 检查 | 结果及证据 |
+| --- | --- |
+| 最终PR | PASS：`outputs/runs/20261021T074856548080Z-05528f86/summary.json` |
+| 最终文档收尾quick | PASS：`outputs/runs/20261021T075259803053Z-05528f86/summary.json` |
+| 主工程normal | 0 errors/0 warnings：`outputs/build/logs/YG_ESC_APP.log` |
+| Loader/配套APP构建与冻结 | 成功：`outputs/delivery/runtime-responsibilities-05528f86-20261021/summary.json` |
+| Watch | 9个关键符号的大小和所属对象一致：同冻结目录`watch-comparison.json` |
+| 源码/产物复核 | PASS：`outputs/runtime-responsibilities-v1/review_summary.json` |
+| release profile | 未通过：`outputs/runs/20261021T075114976017Z-05528f86/summary.json`；doctor及离线检查通过，保留的原现场修改使clean-source失败，因此未启动该profile内构建/正式发布清单 |
+
+配套APP Flash从81112增至81376字节（+264，约0.33%），RAM仍18552字节；这是跨源职责拆分的实际
+编译代价，不宣称本批缩减镜像或提速。Loader仍14520字节且BIN与基线相同。
+调试候选APP1.5.5/Loader2.1.0、layout6、schema14，冻结产物均按summary内SHA256复核。
+Watch符号地址因重新链接改变，使用本候选匹配AXF，不复用历史固定地址。
+
+本候选的真实20kHz耗时、标定/速度和升级尚未复测；既有1.5.4计时不能作为1.5.5结果。
+新增跨源调用可能改变内联和指令开销。本轮未接硬件、未下载，冻结成功不代表正式release或实机PASS。

@@ -1,15 +1,15 @@
 # 电机域核心功能导航
 
-当前v1.3.0；本域不拥有APP生命周期，不直接保存Flash。
+当前核心范围；本域不拥有APP生命周期，不直接保存Flash。
 
 | 目录 | 核心工作 |
 | --- | --- |
-| foc | d/q电流控制、PI、测量换算，以及LUT依赖的无感启动/观测器 |
+| foc | 控制模式分发、速度/位置外环协调、d/q电流控制、PI、零偏及测量换算，以及LUT依赖的无感启动/观测器 |
 | feedback | 编码器采样、LUT/零位校正、多圈与速度估计 |
 | position | 直接位置PD→速度PI→电流参考；无轨迹和前馈 |
 | math | 确定性角度、滤波和数学计算 |
 | calibration | LUT及电零位任务，显式输入的纯标定核心 |
-| protection | 电流、母线、温度等故障判定和恢复条件 |
+| protection | 电流、母线、温度等故障判定和恢复条件，单份绕组热历史及降额计算 |
 
 motor_config.h定义model/application/device配置，motor_types.h定义易失运行值。
 motor_profile_defaults.h提供电机模型默认值，板卡与采样配置属于平台。

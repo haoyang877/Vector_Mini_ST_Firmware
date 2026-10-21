@@ -1497,8 +1497,8 @@ static void enable_prepared_control(void)
             facts.active_faults == 0U)
         {
             power_stage_hw_start();
-            /* 同一原子区间只复用不变的配置结论；启相后功率与动态事实仍实际重读。 */
-            facts = read_locked_state_conditions(configuration_valid);
+            /* 同一PRIMASK内软件事实未变；START_DONE消费的功率事实必须实际回读。 */
+            facts.phases_disabled = power_stage_hw_phases_disabled();
             (void)dispatch_state_event(
                 MOTOR_STATE_EVENT_START_DONE, MOTOR_MAINTENANCE_EFFECT_UNKNOWN, 0U, &facts);
         }

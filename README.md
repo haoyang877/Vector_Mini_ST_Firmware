@@ -40,6 +40,12 @@ python tests/run.py
 
 ## 软件已有功能
 
+自v0.6.3起默认全经典 CAN：只有白名单请求通过完整校验并被业务接受才喂通信看门狗；拒绝 FD/BRS、长帧、UID、BOOT 和周期 FD 状态流。编译选项 `VECTOR_CAN_CLASSIC_ONLY=0` 保留原 FD 兼容部署。当前v0.6.5的 `0x6F` 软件版本回复为大端 `00060500`，不是 float32。
+
+部署、兼容性和旧 Loader 阻断项见 [共线经典 CAN v0.6.3](docs/protocols/classic_can_deployment_v063.md)。本次补丁只做离线验证，没有更新设备固件。
+
+本次修复、离线验证、构建工件与待完成实机步骤见 [Roll 经典 CAN 回复 v0.6.2 工程报告](docs/reports/2026-10-20-roll-classic-reply-v062.md)。
+
 CAN Loader与维护工具：[Loader入口](loader/README.md)、[CAN协议](docs/protocols/can_loader_v2.md)、[初装合包](docs/guides/loader_factory_package_v1.md)、[Windows维护工具](docs/guides/loader_flasher_exe_v1.md)。
 APP入口0x08004000，初装需使用完整Loader+APP包，参数区保持独立保护。
 
@@ -51,12 +57,14 @@ Keil调试APP：[无脚本启动、工程配置与有效记录同步](docs/guide
 
 前馈开发说明：[控制实现、限幅及状态所有权](docs/architecture/wheel_speed_feedforward_design_v1.md)。
 
-当前 APP 软件版本 **v0.6.1，build0**：恢复7a2d235的mode 3主动保持控制，保留现有参数接口与保护；
+轮电机阻力旋钮：[可行性、摩擦模型、发热估算及分阶段验收方案](docs/plans/2026-10-17-wheel-friction-knob-v1.md)。
+
+当前 APP 软件版本 **v0.6.5，build0**：外部参考构建的 mode 3 使用无死区连续测速回复 `0x3F`，默认点到点构建和其他模式保持既有测速语义；CAN ID、四字节回复及0.01 rad/s量化不变。详见[外部参考低速反馈修复](docs/reports/2026-10-21-external-speed-feedback-v065.md)。
+继续保留经典 CAN 准入、7a2d235的mode 3主动保持控制、参数 Flash ABI和温度保护开关；
 mode 18 暂时裁剪，mode 3、速度前馈及标定保留。
 [版本配置、RTT/J-Link 和 CAN 查询](docs/guides/software_version_v1.md)。
 
-[Roll位置控制实测与已保存参数](docs/reports/2026-10-20-roll-mode3-historical-tuning-v1.md)、
-[温度保护通信开关](docs/protocols/motor_temperature_protection_switch_v1.md)。
+Pitch 小电流支撑候选：[漂移触发、静止冻结、RAM 参数与离线验证](docs/guides/pitch_support_v1.md)；[小角度短测](docs/reports/2026-10-19-pitch-support-bench-v1.md)、[扩范围实测与未通过项](docs/reports/2026-10-19-pitch-support-range-v1.md)。
 
 绕组热保护：[设计原理与控制链路](docs/architecture/motor_winding_thermal_design_v1.md)、
 [配置与使用](docs/guides/motor_winding_thermal_protection_v1.md)、

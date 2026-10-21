@@ -9,6 +9,15 @@ void MotorOuterLoop_Service(void);
 bool MotorOuterLoop_IsReady(void);
 bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
 
+/**
+ * @brief 发布已通过 CAN 业务校验的位置目标，供外部参考候选使用。
+ * @param[in] position_rad 接受的机械目标，rad。
+ * @param[in] received_ms 本机接收时的单调毫秒。
+ * @note 仅 CAN RX 单写者调用；不运行控制器、不复位轨迹、不修改反馈。
+ * 默认点到点构建为无副作用操作，快环以非阻塞一致快照交给控制工作线程。
+ */
+void MotorOuterLoop_PublishPositionTarget(float position_rad, uint32_t received_ms);
+
 #include "encoder.h"
 #include "foc_algorithm.h"
 #include "foc_sensorless.h"

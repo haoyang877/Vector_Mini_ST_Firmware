@@ -2,8 +2,24 @@
 #include "loader_link.h"
 
 #include "loader_cfg.h"
+#include "can_deployment.h"
 #include "stm32g4xx_hal.h"
 
+#if VECTOR_CAN_CLASSIC_ONLY
+/* 共线版本不初始化 CAN，不接收、不发送；启动/回退仍由 Loader 主循环处理。 */
+bool loader_link_init(uint8_t node) { (void)node; return true; }
+bool loader_link_rx_pop(ldr_rx_frame_t *out) { (void)out; return false; }
+bool loader_link_send(const uint8_t *data, uint8_t len)
+{ (void)data; (void)len; return false; }
+bool loader_link_sent(void) { return false; }
+void loader_link_shutdown(void) { }
+void FDCAN1_IT0_IRQHandler(void) { }
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *can, uint32_t flags)
+{ (void)can; (void)flags; }
+void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *can, uint32_t flags)
+{ (void)can; (void)flags; }
+#else
+/* LOADER_FD_IMPLEMENTATION */
 #define LDR_RX_RING_SIZE 8U
 
 static FDCAN_HandleTypeDef hldr_can;
@@ -56,6 +72,7 @@ bool loader_link_init(uint8_t node)
     RCC_PeriphCLKInitTypeDef periph_clk = {0};
     GPIO_InitTypeDef gpio = {0};
     FDCAN_FilterTypeDef filter = {0};
+
 
     s_node = node;
 
@@ -179,6 +196,7 @@ void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorSt
 {
     FDCAN_ProtocolStatusTypeDef protocol_status;
 
+
     if (hfdcan != &hldr_can)
     {
         return;
@@ -197,6 +215,7 @@ void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorSt
 
 bool loader_link_rx_pop(ldr_rx_frame_t *out)
 {
+    if (out == NULL) { return false; }
     if (s_rx_tail == s_rx_head)
     {
         return false;
@@ -209,6 +228,8 @@ bool loader_link_rx_pop(ldr_rx_frame_t *out)
 bool loader_link_send(const uint8_t *data, uint8_t len)
 {
     FDCAN_TxHeaderTypeDef tx = {0};
+
+    if (data == NULL || len == 0U || len > 64U) { return false; }
 
     tx.Identifier = (uint32_t)(LDR_RSP_BASE + s_node);
     tx.IdType = FDCAN_STANDARD_ID;
@@ -245,3 +266,5 @@ void loader_link_shutdown(void)
     (void)HAL_FDCAN_Stop(&hldr_can);
     HAL_NVIC_DisableIRQ(FDCAN1_IT0_IRQn);
 }
+
+#endif

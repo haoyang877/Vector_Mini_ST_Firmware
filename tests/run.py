@@ -13,6 +13,8 @@ NATIVE = (
     "run_position_servo_tests",
     "test_position_servo_7a2d235_equivalence",
     "run_can_status_tests",
+    "test_can_deployment",
+    "test_external_position_reference",
     "test_outer_loop_runtime",
     "test_wheel_speed_limits",
     "test_bus_voltage_protection",

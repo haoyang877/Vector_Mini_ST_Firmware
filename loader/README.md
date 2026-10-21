@@ -1,5 +1,10 @@
 # Loader 独立工程入口
 
+v0.6.3 共线部署新增 `VECTOR_CAN_CLASSIC_ONLY`（默认 1）：Loader 不初始化 CAN，
+整个启动/回退阶段保持静默。在线维护仍只有原 FD 协议；需物理隔离后使用值为 0 的构建。
+APP 与 Loader 必须配套选择。只更新 APP 不能排除旧 Loader 的 FD 回复。
+详见 [部署与验证边界](../docs/protocols/classic_can_deployment_v063.md)。
+
 本次 `codex/ovp-36v` 接入依据为
 [CAN Loader 完整设计方案 v1](../docs/plans/2026-10-13-can-loader-minimal-design-v1.md)：
 12 KiB Loader、单 APP、1M/1M CAN-FD、参数区保留及中断后完整重下载。

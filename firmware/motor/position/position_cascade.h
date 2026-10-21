@@ -101,7 +101,22 @@ typedef struct
     bool support_refining;
     uint32_t passive_confirm_ticks;
     float qualification_position_rad;
+    bool external_reference_active; /* 外部路径正在拥有参考，不改变真实反馈。 */
+    bool external_reference_stale; /* 没有有效的新鲜输入，保持已生成的参考位置。 */
+    uint32_t external_rejected_points;
 } PositionCascadeTelemetry_TypeDef;
+
+/** @brief 控制所有者取得的单个外部位置样本；所有时间均为本机单调毫秒。 */
+typedef struct
+{
+    float position_rad;
+    uint32_t received_ms;
+    uint32_t now_ms;
+    uint32_t sequence;
+    bool valid;
+    float minimum_position_rad;
+    float maximum_position_rad;
+} PositionExternalInput;
 
 /* Minimal current-command/feedback view for the high-rate motor adapter.
  * Rich diagnostics remain available through GetTelemetry / the existing API. */
@@ -121,6 +136,23 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
  * All APIs share one controller instance and require the same serial owner. */
 bool PositionCascade_UpdateTargetControl(float target_position, float measured_position,
     float measured_speed, PositionCascadeControlOutput_TypeDef *output);
+
+/**
+ * @brief 用带本机接收时刻的外部位置样本更新级联，跳过点到点停车规划。
+ * @param[in] config 已校验的控制参数；速度、电流及反馈滤波继续生效。
+ * @param[in] input 单写者发布并由快环取得的一致输入快照。
+ * @param[in] measured_position 真实测量位置，rad。
+ * @param[in] measured_speed 真实测量速度，rad/s。
+ * @param[out] output 本次控制结果，不包含伪造的传感器数据。
+ * @return 输入和配置可安全处理时为true；配置/反馈非有限时为false。
+ * @note 与其他级联API共享单实例，只能由同一控制所有者串行调用。
+ * 外部路径的名义加减速由主控规划；短时预测有角度上限，过期保持最后生成位置。
+   * 5ms名义周期允许压缩接收及同毫秒新序号，按至少5ms插补并限制单点跳变；
+   * 已有有效会话的逆序接收时间、未来/过期样本不能刷新反馈新鲜度。
+ */
+bool PositionCascade_UpdateExternalControl(const PositionCascadeConfig_TypeDef *config,
+    const PositionExternalInput *input, float measured_position, float measured_speed,
+    PositionCascadeControlOutput_TypeDef *output);
 
 /** Reset all mode-3 position-servo trajectory and controller state. */
 void PositionCascade_Reset(void);

@@ -3,9 +3,9 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def main():
@@ -49,6 +49,7 @@ def main():
     exe = out / "loader_test.exe"
     command = compiler + [
         "-std=c99",
+        "-DVECTOR_CAN_CLASSIC_ONLY=0",
         "-O1",
         "-Wall",
         "-Wextra",
@@ -121,9 +122,7 @@ def main():
     summary = {
         "status": "PASS",
         "hardware_accessed": False,
-        "source_sha256": {
-            p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in sources
-        },
+        "source_sha256": {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in sources},
         "startup_read_sha256": hashlib.sha256(
             (root / "firmware/platform/stm32g4/bsp/flash.c").read_bytes()
         ).hexdigest(),
@@ -150,9 +149,7 @@ def main():
             (root / "tests/loader/test_maintenance_backend.py").read_bytes()
         ).hexdigest(),
     }
-    (out / "summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
-    )
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

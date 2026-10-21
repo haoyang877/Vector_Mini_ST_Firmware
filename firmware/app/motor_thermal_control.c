@@ -8,9 +8,9 @@
 #include <stddef.h>
 
 /* 只读调试符号；外部不得写入以获得冷态预算。 */
-static MotorThermalDiagnostics thermal_diagnostics;
+ MotorThermalDiagnostics thermal_diagnostics;
 /* 监督上下文只发布事件；模型失效及累计器仍由快上下文处理。 */
-static volatile bool pending_clock_fault;
+bool pending_clock_fault;
 static volatile uint32_t published_update_ms;
 
 static const MotorThermalConfig default_config = {MOTOR_THERMAL_CONTINUOUS_VECTOR_A,

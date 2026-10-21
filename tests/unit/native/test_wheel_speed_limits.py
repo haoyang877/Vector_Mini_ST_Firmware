@@ -2,26 +2,29 @@
 
 import sys as _sys
 from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, NATIVE_INCLUDE_FLAGS
 
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-from pathlib import Path
 import re
 import subprocess
-from run_position_servo_tests import ROOT, function_source
+from pathlib import Path
+
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def command_case(path, name):
     source = (ROOT / path).read_text(encoding="utf-8")
     source = function_source(source, "CAN_ReceiveMessage_Update")
     start = source.index("case " + name + ":")
-    end = source.index("break;", start) + len("break;")
+    end = source.index("return Param_SetSpeedLimit(data);", start) + len(
+        "return Param_SetSpeedLimit(data);"
+    )
     return source[start:end]
 
 
 def fixture():
-    prelude = r'''
+    prelude = r"""
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -47,18 +50,22 @@ bool comm_hw_can_set_node_filter(uint8_t node) {
     return filter_succeeds;
 }
 void motor_hw_outer_barrier(void) { }
-'''
+"""
     utils = (ROOT / "firmware/common/utils.c").read_text(encoding="utf-8")
     prelude += "\n".join(function_source(utils, n) for n in ("constrain", "fast_min"))
     production = (ROOT / "firmware/services/parameters/foc_param.c").read_text(encoding="utf-8")
-    prelude += re.sub(r'^#include.*$', '', production, flags=re.M)
+    prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
     can_source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
-    prelude += '\n' + '\n'.join(function_source(can_source, name) for name in
-                                ("CAN_Count", "CAN_SetNode"))
-    prelude += '\nstatic void can_set(int id, float data) {\n'
-    prelude += 'if (id==CAN_SET_NODE_ID) { CAN_SetNode(data); return; }\nswitch(id) {\n'
+    prelude += "\n" + "\n".join(
+        function_source(can_source, name) for name in ("CAN_Count", "CAN_SetNode")
+    )
+    prelude += "\nstatic bool can_set(int id, float data) {\n"
+    prelude += "if (id==CAN_SET_NODE_ID) { return CAN_SetNode(data); }\nswitch(id) {\n"
     prelude += command_case("firmware/communication/can/interface_can.c", "CAN_SET_SPEED_LIMIT")
-    return prelude + '\n} }\n' + r'''
+    return (
+        prelude
+        + "\n} return false; }\n"
+        + r"""
 int main(void) {
     InterfaceParam_TypeDef p, saved;
     unsigned node;
@@ -135,7 +142,8 @@ int main(void) {
     puts("PASS node changes reduce limits and never silently increase a stored lower limit");
     return 0;
 }
-'''
+"""
+    )
 
 
 def main():
@@ -145,7 +153,7 @@ def main():
     args = ap.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / "main.h").write_text('#include <stdint.h>\n')
+    (out / "main.h").write_text("#include <stdint.h>\n")
     source = out / "wheel_speed_test.c"
     source.write_text(fixture(), encoding="utf-8")
     cc = [str(Path(args.cc).resolve())] if Path(args.cc).is_file() else [args.cc]
@@ -153,10 +161,28 @@ def main():
         cc += ["cc"]
     cc += NATIVE_INCLUDE_FLAGS
     exe = out / "wheel_speed_test.exe"
-    includes = [str(out)] + [str(ROOT / p) for p in ("firmware/common", "firmware/motor/foc", "firmware/platform/stm32g4/bsp", "firmware/communication")]
+    includes = [str(out)] + [
+        str(ROOT / p)
+        for p in (
+            "firmware/common",
+            "firmware/motor/foc",
+            "firmware/platform/stm32g4/bsp",
+            "firmware/communication",
+        )
+    ]
     command = cc + ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     command += [item for p in includes for item in ("-I", p)]
-    command += [str(source), str(ROOT / "firmware/services/parameters/motor_axis_profile.c"), str(ROOT / "firmware/motor/motor_load_profile.c"), str(ROOT / "firmware/motor/speed_feedforward.c"), str(ROOT / "firmware/motor/protection/motor_thermal.c"), str(ROOT / "firmware/app/motor_thermal_control.c"), "-lm", "-o", str(exe)]
+    command += [
+        str(source),
+        str(ROOT / "firmware/services/parameters/motor_axis_profile.c"),
+        str(ROOT / "firmware/motor/motor_load_profile.c"),
+        str(ROOT / "firmware/motor/speed_feedforward.c"),
+        str(ROOT / "firmware/motor/protection/motor_thermal.c"),
+        str(ROOT / "firmware/app/motor_thermal_control.c"),
+        "-lm",
+        "-o",
+        str(exe),
+    ]
     logs = []
     for cmd in (command, [str(exe)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

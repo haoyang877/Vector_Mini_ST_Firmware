@@ -8,6 +8,58 @@
 #include "position_impedance_config.h"
 #include "motor_hw.h"
 #include "motor_thermal.h"
+#include "time_hw.h"
+#include <float.h>
+
+/* POSITION_COMMAND_MAILBOX_BEGIN */
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+/* CAN RX 只发布，快环只取快照；奇数序号表示写入中，读者不等待。 */
+static volatile struct {
+    uint32_t sequence;
+    uint32_t received_ms;
+    float position_rad;
+    bool published;
+} position_command_mailbox;
+static uint32_t position_direct_floor_sequence;
+
+static bool MotorOuterLoop_ReadPositionTarget(PositionExternalInput *sample)
+{
+    uint32_t sequence = position_command_mailbox.sequence;
+    if (!position_command_mailbox.published || (sequence & 1U) != 0U) { return false; }
+    motor_hw_outer_barrier();
+    sample->position_rad = position_command_mailbox.position_rad;
+    sample->received_ms = position_command_mailbox.received_ms;
+    motor_hw_outer_barrier();
+    if (sequence != position_command_mailbox.sequence) { return false; }
+    sample->sequence = sequence;
+    sample->now_ms = time_hw_now_ms();
+    sample->valid = true;
+    return true;
+}
+
+static void MotorOuterLoop_SetReferenceBounds(PositionExternalInput *sample,
+    const MotorControl_TypeDef *motor)
+{
+    sample->minimum_position_rad = motor->axis_profile.magic ? motor->axis_profile.minimum_position_rad : -FLT_MAX;
+    sample->maximum_position_rad = motor->axis_profile.magic ? motor->axis_profile.maximum_position_rad : FLT_MAX;
+}
+#endif
+
+void MotorOuterLoop_PublishPositionTarget(float position_rad, uint32_t received_ms)
+{
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    ++position_command_mailbox.sequence;
+    motor_hw_outer_barrier();
+    position_command_mailbox.position_rad = position_rad;
+    position_command_mailbox.received_ms = received_ms;
+    position_command_mailbox.published = true;
+    motor_hw_outer_barrier();
+    ++position_command_mailbox.sequence;
+#else
+    (void)position_rad; (void)received_ms;
+#endif
+}
+/* POSITION_COMMAND_MAILBOX_END */
 
 static void MotorOuterLoop_RequestReset(void);
 
@@ -615,7 +667,7 @@ void Task_Sensorless_Speed_Mode(FOC_TypeDef *FOC,
 #endif
 static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_TypeDef *MotorControl,
     float theta_mech, float vel_mech, PositionCascadeControlOutput_TypeDef *output,
-    uint16_t call_divider)
+    uint16_t call_divider, const PositionExternalInput *external)
 {
     PositionCascadeConfig_TypeDef config;
 	config.update_period_s = Cascade_Position_Ts;
@@ -691,6 +743,13 @@ static FOC_CONFIG_NOINLINE bool PositionMode_UpdateConfiguration(MotorControl_Ty
 		POSITION_SERVO_FRICTION_BREAKAWAY_DISTANCE_RAD;
 	config.friction_stuck_time = POSITION_SERVO_FRICTION_STUCK_TIME_S;
 
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    if (external != NULL) {
+        return PositionCascade_UpdateExternalControl(&config, external, theta_mech, vel_mech, output);
+    }
+#else
+    (void)external;
+#endif
     return PositionCascade_UpdateControl(&config, theta_mech, vel_mech, output);
 }
 
@@ -774,6 +833,15 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 {
 	bool updated;
 	PositionCascadeControlOutput_TypeDef output;
+    const PositionExternalInput *external = NULL;
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    PositionExternalInput external_sample = {0};
+    (void)MotorOuterLoop_ReadPositionTarget(&external_sample);
+    external_sample.now_ms = time_hw_now_ms();
+    external_sample.valid = external_sample.valid && external_sample.sequence != position_direct_floor_sequence;
+    MotorOuterLoop_SetReferenceBounds(&external_sample, MotorControl);
+    external = &external_sample;
+#endif
 	FAST_PROFILE_BEGIN(FAST_PROFILE_POSITION_ONLY);
 	float theta_elec = Encoder_GetElePhase(Encoder);
 	float theta_mech = Encoder_GetMecPos(Encoder);
@@ -789,11 +857,14 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 		return;
 	}
 
-	if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), MotorControl))
+	if (external != NULL && PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), MotorControl))
+        updated = PositionCascade_UpdateExternalControl(PositionCascade_GetConfiguration(), external,
+            theta_mech, vel_mech, &output);
+    else if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), MotorControl))
 		updated = PositionCascade_UpdateTargetControl(MotorControl->posRef, theta_mech, vel_mech, &output);
 	else
 		updated = PositionMode_UpdateConfiguration(MotorControl, theta_mech, vel_mech, &output,
-            CASCADE_POSITION_LOOP_DIVIDER);
+            CASCADE_POSITION_LOOP_DIVIDER, external);
 
 	if (!updated)
 	{
@@ -816,6 +887,9 @@ void Task_Position_Mode(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl,
 
 void Task_Position_Mode_Reset(void)
 {
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    position_direct_floor_sequence = position_command_mailbox.sequence & ~1U;
+#endif
 	MotorOuterLoop_RequestReset();
 }
 
@@ -836,6 +910,10 @@ static struct {
     MotorControl_TypeDef motor;
     PI_Controller_TypeDef speed_controller;
     PositionCascadeTelemetry_TypeDef result_telemetry, published_telemetry;
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    PositionExternalInput external_input, external_latest;
+    uint32_t external_floor_sequence;
+#endif
 } outer;
 
 static void MotorOuterLoop_RequestReset(void)
@@ -922,6 +1000,10 @@ static bool MotorOuterLoop_InputsValid(const MotorControl_TypeDef *m,
 void MotorOuterLoop_Service(void)
 {
     PositionCascadeControlOutput_TypeDef output;
+    const PositionExternalInput *external = NULL;
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    PositionExternalInput external_sample;
+#endif
     if (outer.status != OUTER_QUEUED) return;
     motor_hw_outer_barrier();
     outer.status = OUTER_RUNNING;
@@ -930,12 +1012,20 @@ void MotorOuterLoop_Service(void)
         outer.worker_epoch = outer.request_epoch;
     }
     if (outer.motor.ModeNow == Position_Mode) {
-        if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), &outer.motor))
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+        external_sample = outer.external_input;
+        external_sample.now_ms = time_hw_now_ms();
+        external = &external_sample;
+#endif
+        if (external != NULL && PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), &outer.motor))
+            outer.valid = PositionCascade_UpdateExternalControl(PositionCascade_GetConfiguration(), external,
+                outer.position, outer.speed, &output);
+        else if (PositionMode_ConfigurationMatches(PositionCascade_GetConfiguration(), &outer.motor))
             outer.valid = PositionCascade_UpdateTargetControl(outer.motor.posRef,
                 outer.position, outer.speed, &output);
         else
             outer.valid = PositionMode_UpdateConfiguration(&outer.motor,
-                outer.position, outer.speed, &output, 1U);
+                outer.position, outer.speed, &output, 1U, external);
         outer.valid = outer.valid && isfinite(output.iq_reference);
         if (outer.valid) {
             outer.motor.posShadow = output.position_reference;
@@ -972,6 +1062,11 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
     bool active = m->ModeNow == Position_Mode || m->ModeNow == Speed_Mode;
     float position = 0.0f;
     float speed = 0.0f;
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    if (m->ModeNow != Position_Mode) {
+        outer.external_floor_sequence = position_command_mailbox.sequence & ~1U;
+    }
+#endif
     if (active)
     {
         position = Encoder_GetMecPos(encoder);
@@ -1047,6 +1142,17 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
         return;
     }
     outer.motor = *m;
+#if POSITION_EXTERNAL_REFERENCE_ENABLE
+    if (m->ModeNow == Position_Mode) {
+        PositionExternalInput sample = {0};
+        if (MotorOuterLoop_ReadPositionTarget(&sample)) { outer.external_latest = sample; }
+        outer.external_input = outer.external_latest;
+        outer.external_input.now_ms = time_hw_now_ms();
+        outer.external_input.valid = outer.external_latest.valid &&
+            outer.external_latest.sequence != outer.external_floor_sequence;
+        MotorOuterLoop_SetReferenceBounds(&outer.external_input, m);
+    }
+#endif
     outer.speed_controller = *pi;
     outer.position = position;
     outer.speed = speed;

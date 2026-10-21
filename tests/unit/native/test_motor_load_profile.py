@@ -17,9 +17,47 @@ def fixture():
     task = (ROOT / "firmware/app/foc_task.c").read_text(encoding="utf-8")
     observer = (ROOT / "firmware/motor/foc/foc_sensorless.c").read_text(encoding="utf-8")
     can = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
-    # 仅抽取新增 CAN 分派段；不复制其校验实现。
-    dispatch = function_source(can, "CAN_ReceiveMessage_Update")
-    dispatch = dispatch[: dispatch.index("\t/* Read-only handshake;")] + "}\n"
+
+    # 逐个抽取真实分支，结构调整不再依赖旧注释作为截断标记。
+    def selected_cases(function, names):
+        text = function_source(can, function)
+        starts = list(re.finditer(r"^    (?:case (\w+)|default):", text, re.M))
+        return "".join(
+            text[item.start() : starts[index + 1].start()]
+            for index, item in enumerate(starts[:-1])
+            if item.group(1) in names
+        )
+
+    names = {
+        "CAN_SET_LOAD_PROFILE",
+        "CAN_GET_LOAD_PROFILE",
+        "CAN_GET_LOAD_PROFILE_REVISION",
+        "CAN_SET_POSITION_SPEED_KP",
+        "CAN_GET_POSITION_SPEED_KP",
+        "CAN_SET_POSITION_SPEED_KI",
+        "CAN_GET_POSITION_SPEED_KI",
+    }
+    names.update(
+        "CAN_" + direction + "_SPEED_FF_" + field
+        for direction in ("SET", "GET")
+        for field in ("ENABLE", "GAIN", "ACCELERATION", "JERK", "CURRENT_LIMIT")
+    )
+    names.update(("CAN_GET_SPEED_FF_CURRENT", "CAN_GET_SPEED_FF_ACCELERATION_PLANNED"))
+    read = (
+        "static bool CAN_ReadParameter(CAN_PARAM_ID param_id) {float value; switch(param_id) {\n"
+        + selected_cases("CAN_ReadParameter", names)
+        + "default:return false;} CAN_SendMessage_Update(param_id,value);return true;}\n"
+    )
+    handler = function_source(can, "CAN_ReceiveMessage_Update")
+    dispatch = (
+        function_source(can, "CAN_RequestKind")
+        + "\n"
+        + read
+        + handler[: handler.index("    switch (param_id) {")]
+        + "    switch (param_id) {\n"
+        + selected_cases("CAN_ReceiveMessage_Update", names)
+        + "    default:return false;} }\n"
+    )
     boundary_start = task.index(
         "\tif (MotorControl.ModeNow == Motor_Disable &&",
         task.index("FAST_PROFILE_BEGIN(FAST_PROFILE_POST_CONTROL)"),
@@ -39,6 +77,7 @@ def fixture():
 #include "interface_can.h"
 #include "utils.h"
 #include "motor_thermal_control.h"
+#include "can_deployment.h"
 #define FLUX_OBSERVER_DEFAULT_GAMMA 800000.0f
 MotorControl_TypeDef MotorControl;
 Encoder_TypeDef OnBoard_Encoder;
@@ -110,7 +149,9 @@ static void tracked_runtime_startup_reset(SensorlessStartup_TypeDef *startup) {
                 dispatch,
             ]
         )
-        + "\nstatic void actual_power_boundary(void) {\n defer_power_start=false;\n" + power_boundary + "\n}\n"
+        + "\nstatic void actual_power_boundary(void) {\n defer_power_start=false;\n"
+        + power_boundary
+        + "\n}\n"
         + r"""
 static void seed(InterfaceParam_TypeDef *baseline) {
     Param_Return_Default(); MotorControl.ModeNow=Motor_Disable; ModeLast=Motor_Disable;
@@ -344,7 +385,17 @@ def main():
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command = (
         compiler
-        + ["-std=c99", "-O1", "-ffp-contract=off", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+        + [
+            "-std=c99",
+            "-O1",
+            "-ffp-contract=off",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(out),
+        ]
         + NATIVE_INCLUDE_FLAGS
     )
     command += [

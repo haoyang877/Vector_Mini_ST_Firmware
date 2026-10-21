@@ -1,5 +1,6 @@
 /* 请求只写一次；升级锁直到复位，停止失败不得自动恢复运动。 */
 #include "boot_handoff.h"
+#include "../../../shared/can_deployment.h"
 static volatile bool pending;
 static volatile uint8_t requested_node;
 static volatile uint32_t requested_ms;
@@ -8,7 +9,7 @@ static uint32_t queued_ms;
 
 bool BootHandoff_Request(uint8_t node, uint32_t now_ms)
 {
-    if (pending || node > 15)
+    if (VECTOR_CAN_CLASSIC_ONLY || pending || node > 15)
     {
         return false;
     }
@@ -36,7 +37,7 @@ void BootHandoff_ReplyQueued(uint32_t now_ms)
 
 BootAction BootHandoff_Poll(uint32_t now_ms, bool stopped, bool phases_off, bool sent)
 {
-    if (!pending)
+    if (VECTOR_CAN_CLASSIC_ONLY || !pending)
     {
         return BOOT_WAIT;
     }

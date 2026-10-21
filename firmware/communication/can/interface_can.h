@@ -188,16 +188,28 @@ extern volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
 void FDCAN1_Param_Init(void);
 void CAN_DisConnect_Handle(void);
 void CAN_BaudRateSwitching(void);
-void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data);
-/** @brief 发布一条参数回复；槽满时计数拒绝，绝不覆盖旧帧。
- * @param param_id 回复参数号。
- * @param data 按参数定义的 SI 值，或旧协议 float32 值。
- * @note 仅 CAN RX 中断调用；CANMsg.tx_* 只作已接受回复的调试镜像。
+/**
+ * @brief 校验并执行显式支持的参数请求，查询忽略占位值。
+ * @param[in] param_id 参数编号。
+ * @param[in] data 解码后的 SI 数值。
+ * @return 业务接受返回 true，拒绝返回 false；本函数不刷新心跳。
+ */
+bool CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data);
+/**
+ * @brief 按参数编码发布回复，并冻结当前请求的帧格式；槽满不覆盖旧帧。
+ * @param[in] param_id 回复参数号。
+ * @param[in] data 按参数定义的 SI 数值；软件版本回复使用只读编译常量。
+ * @note 不重入 RX 调用，载荷复制到单槽，不等待硬件；直接调用按编译部署选择默认格式。
  */
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data);
+/**
+ * @brief 非阻塞取出本节点参数请求并分派，回复跟随请求帧格式。
+ * @note 仅业务接受后喂狗；显式白名单校验完整节点、格式、长度和写入数值。
+ */
 void CANRxIRQHandler(void);
-/** @brief 前台单次尝试发送回复，空闲时发送可丢弃状态帧。
- * @note 仅主循环调用；维护 CRC 每个已接受请求只计算一次，忙时不等待。
+/**
+ * @brief 前台按槽内冻结格式重试回复，成功入队后释放；空槽保留原状态流行为。
+ * @note 仅主循环调用，不等待发送完成，不改变模式、目标或参数。
  */
 void CAN_SendMessage(void);
 #endif

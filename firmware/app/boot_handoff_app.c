@@ -15,7 +15,7 @@ void BootHandoff_AppPoll(void)
 {
     uint8_t reply[4] = {0};
     BootAction action;
-    if (!BootHandoff_Pending())
+    if (VECTOR_CAN_CLASSIC_ONLY || !BootHandoff_Pending())
     {
         return;
     }

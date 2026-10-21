@@ -14,8 +14,41 @@ from run_position_servo_tests import function_source
 def can_fixture(vectors: dict) -> str:
     """抽取生产收发及热分派，硬件边界仅用内存帧替身。"""
     source = (ROOT / "firmware/communication/can/interface_can.c").read_text(encoding="utf-8")
+    # 抽取真实热分支；不以恒真验证器代替业务接受结果。
     dispatch = function_source(source, "CAN_ReceiveMessage_Update")
-    dispatch = "void CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data) {\n" + dispatch[dispatch.index("    if (param_id == CAN_GET_THERMAL_REVISION)"):dispatch.index("    /* 浮点 PI 参数先处理")] + "}\n"
+    read = function_source(source, "CAN_ReadParameter")
+    read_cases = "\n".join(
+        line
+        for line in read.splitlines()
+        if "case CAN_GET_THERMAL_REVISION:" in line
+        or "case CAN_GET_TEMPERATURE_PROTECTION:" in line
+    )
+    thermal_read = read[
+        read.index("    case CAN_GET_THERMAL_CONTINUOUS:") : read.index(
+            "    default: return false;"
+        )
+    ]
+    thermal_write = dispatch[
+        dispatch.index("    case CAN_SET_TEMPERATURE_PROTECTION:") : dispatch.index(
+            "    case CAN_SET_SPEED_FF_ENABLE:"
+        )
+    ]
+    dispatch = (
+        function_source(source, "CAN_RequestKind")
+        + "\n"
+        + (
+            "static bool CAN_ReadParameter(CAN_PARAM_ID param_id) { float value; switch(param_id) {\n"
+            + read_cases
+            + "\n"
+            + thermal_read
+            + "default:return false;} CAN_SendMessage_Update(param_id,value);return true;}\n"
+            + "bool CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id,float data) {\n"
+            + "if(CAN_RequestKind(param_id)==1U) {return CAN_ReadParameter(param_id);}\n"
+            + "switch(param_id) {\n"
+            + thermal_write
+            + "default:return false;}}\n"
+        )
+    )
     functions = [
         "CAN_CommandEncoding",
         "CAN_ReplyEncoding",
@@ -59,7 +92,9 @@ bool motor_hw_phase_outputs_disabled(void) { return gate_off; }
 void motor_hw_outer_barrier(void) { }
 static void Set_ErrorNow(ErrorNow_TypeDef error) { MotorControl.ErrorNow=error; }
 """
-    fixture += source.split("/* CAN_REPLY_RUNTIME_BEGIN */")[1].split("/* CAN_REPLY_RUNTIME_END */")[0]
+    fixture += source.split("/* CAN_REPLY_RUNTIME_BEGIN */")[1].split(
+        "/* CAN_REPLY_RUNTIME_END */"
+    )[0]
     fixture += "\n".join(function_source(source, name) for name in functions[:5])
     fixture += "\n" + function_source(source, "CAN_SendMessage_Update") + "\n" + dispatch
     fixture += "\n" + function_source(source, "CANRxIRQHandler")
@@ -160,7 +195,8 @@ int main(void) {
         for v in vectors["parameters"]
     ]
     return fixture.replace("GOLDEN_CAN_BYTES", ",".join(rows)).replace(
-        "THERMAL_PROTOCOL_REVISION", str(vectors["revision"]))
+        "THERMAL_PROTOCOL_REVISION", str(vectors["revision"])
+    )
 
 
 def storage_fixture(vectors: dict, original: str) -> str:

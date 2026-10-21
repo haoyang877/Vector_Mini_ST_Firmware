@@ -1,4 +1,5 @@
 #include "can_motor_status.h"
+#include "../../../shared/can_deployment.h"
 #include <limits.h>
 #include <math.h>
 #include <string.h>
@@ -6,19 +7,24 @@
 /* One atomic aligned word: low 9 bits Hz, bit 9 enabled, rest command epoch.
  * Sole writer after initialization is the serialized receive-command context. */
 static volatile uint32_t configuration = 20U;
+#if !VECTOR_CAN_CLASSIC_ONLY
 static uint32_t observed_configuration, last_ms, phase;
 static bool clock_valid, due;
+#endif
 
 void CanMotorStatus_Init(void)
 {
     configuration = 20U;
+#if !VECTOR_CAN_CLASSIC_ONLY
     observed_configuration = 0U;
     last_ms = phase = 0U;
     clock_valid = due = false;
+#endif
 }
 bool CanMotorStatus_Configure(float command)
 {
     uint32_t old = configuration, rate = old & 511U, enabled;
+    if (VECTOR_CAN_CLASSIC_ONLY && command != 0.0f) { return false; }
     if (!isfinite(command)) return false;
     if (command == 0.0f) enabled = 0U;
     else if (command == 1.0f) enabled = 512U;
@@ -33,8 +39,13 @@ bool CanMotorStatus_Configure(float command)
 }
 uint16_t CanMotorStatus_Rate(void)
 {
+#if VECTOR_CAN_CLASSIC_ONLY
+    return 0U;
+#else
+
     uint32_t value = configuration;
     return (value & 512U) ? (uint16_t)(value & 511U) : 0U;
+#endif
 }
 static int32_t milli32(float value)
 {
@@ -100,6 +111,11 @@ bool CanMotorStatus_Encode(const MotorStatus *s, uint8_t *data, size_t capacity)
 bool CanMotorStatus_Prepare(uint32_t now, uint8_t node,
     uint16_t *identifier, uint8_t *data, size_t capacity)
 {
+#if VECTOR_CAN_CLASSIC_ONLY
+    (void)now; (void)node; (void)identifier; (void)data; (void)capacity;
+    return false;
+#else
+
     uint32_t config = configuration, elapsed, rate;
     bool next_period = false;
     MotorStatus sample;
@@ -127,4 +143,5 @@ bool CanMotorStatus_Prepare(uint32_t now, uint8_t node,
     if (configuration != config) return false; /* Command arrived while building. */
     *identifier = (uint16_t)(CAN_MOTOR_STATUS_ID_BASE + node);
     return CanMotorStatus_Encode(&sample, data, capacity);
+#endif
 }

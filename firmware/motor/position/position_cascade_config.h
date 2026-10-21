@@ -4,6 +4,21 @@
 #define CASCADE_POSITION_KP_MAX_PER_S  50.0f
 #define CASCADE_POSITION_KD_MAX        10.0f
 
+/* 仅候选构建显式置1；默认继续使用原点到点规划及参数语义。 */
+#ifndef POSITION_EXTERNAL_REFERENCE_ENABLE
+#define POSITION_EXTERNAL_REFERENCE_ENABLE 0
+#endif
+#if POSITION_EXTERNAL_REFERENCE_ENABLE != 0 && POSITION_EXTERNAL_REFERENCE_ENABLE != 1
+#error "POSITION_EXTERNAL_REFERENCE_ENABLE must be 0 or 1"
+#endif
+/** @brief 首个外部会话采用的保守插补周期，单位ms；正常段按实际接收间隔计算。 */
+#define POSITION_EXTERNAL_PERIOD_MS 20U
+/** @brief 200Hz及压缩接收采用的最短插补时间，单位ms；不改变CAN目标编码。 */
+#define POSITION_EXTERNAL_MIN_PERIOD_MS 5U
+#define POSITION_EXTERNAL_TIMEOUT_MS 100U
+#define POSITION_EXTERNAL_QUANTIZATION_RAD 0.002f
+#define POSITION_EXTERNAL_PREDICTION_RAD 0.004f /* 0.229 deg，且不越轴限位。 */
+
 /*
  * Mode-3 position-servo reference shaping. The acceleration feedforward gain
  * remains zero until J/Kt has been identified for the complete mechanism.

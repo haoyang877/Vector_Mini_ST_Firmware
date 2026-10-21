@@ -1,5 +1,9 @@
 # APP / Loader / PC 共享契约边界
 
+`can_deployment.h` 为 APP/Loader 共用的编译部署选项：默认全经典 CAN，Loader 静默；
+值为 0 时保留物理隔离环境中的 FD 维护。它不属于电机参数 Flash ABI，
+详见 [v0.6.3 部署说明](../docs/protocols/classic_can_deployment_v063.md)。
+
 这是后续集成的契约入口，目前只有目录约定，没有可用的升级 ABI 实现。
 
 - `protocol/`：版本、操作码、错误码、端序、CRC 定义及黄金向量。

@@ -56,6 +56,25 @@ typedef struct
 	bool stiction_integrating;
 	bool initialized;
 	bool defer_telemetry;
+    bool external_mode;
+    struct
+    {
+        float goal;
+        float remaining_s;
+        float start_position;
+        float start_velocity;
+        float end_velocity;
+        float duration_s;
+        float elapsed_s;
+        float minimum_position;
+        float maximum_position;
+        uint32_t sequence;
+        uint32_t received_ms;
+        uint32_t rejected;
+        bool initialized;
+        bool valid;
+        bool stale;
+    } external;
 } PositionCascadeState_TypeDef;
 
 static PositionCascadeState_TypeDef state;
@@ -262,6 +281,9 @@ bool PositionCascade_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
     telemetry->support_refining = false;
     telemetry->passive_confirm_ticks = 0U;
     telemetry->qualification_position_rad = 0.0f;
+    telemetry->external_reference_active = state.external_mode;
+    telemetry->external_reference_stale = state.external_mode && state.external.stale;
+    telemetry->external_rejected_points = state.external.rejected;
 	return state.initialized;
 }
 
@@ -379,9 +401,60 @@ static bool PositionCascade_UpdateOnlineTrajectory(
 	return false;
 }
 
+/* 参考段连续接续，包间预测有角度上限，不逐点计算停车包络。 */
+static bool PositionCascade_UpdateExternalTrajectory(const PositionCascadeConfig_TypeDef *config)
+{
+    float previous_speed = state.trajectory_speed;
+    float proposed = config->target_position;
+    float step;
+    state.external.elapsed_s += config->update_period_s;
+    if (state.external.duration_s > 0.0f && state.external.elapsed_s < state.external.duration_s) {
+        float duration = state.external.duration_s;
+        float u;
+        u = state.external.elapsed_s / duration;
+        /* Hermite 端点由收到的样本确定；新段从当前 q/v 连续接续。 */
+        proposed = (2.0f*u*u*u-3.0f*u*u+1.0f)*state.external.start_position +
+            (u*u*u-2.0f*u*u+u)*duration*state.external.start_velocity +
+            (-2.0f*u*u*u+3.0f*u*u)*config->target_position +
+            (u*u*u-u*u)*duration*state.external.end_velocity;
+    } else if (state.external.duration_s > 0.0f && state.external.end_velocity != 0.0f) {
+        float gap = state.external.elapsed_s - state.external.duration_s;
+        float velocity = state.external.end_velocity;
+        /* 连续衰减到最多4 mrad预测，避免毫秒级抖动让每一包末尾速度先归零。 */
+        proposed += velocity * gap /
+            (1.0f + PositionCascade_Abs(velocity) * gap / POSITION_EXTERNAL_PREDICTION_RAD);
+    }
+    if (state.external.elapsed_s < state.external.duration_s) {
+        float low = PositionCascade_Min(state.external.start_position, config->target_position) - POSITION_EXTERNAL_PREDICTION_RAD;
+        float high = PositionCascade_Max(state.external.start_position, config->target_position) + POSITION_EXTERNAL_PREDICTION_RAD;
+        proposed = PositionCascade_Constrain(proposed, low, high);
+    } else {
+        proposed = PositionCascade_Constrain(proposed,
+            config->target_position - POSITION_EXTERNAL_PREDICTION_RAD,
+            config->target_position + POSITION_EXTERNAL_PREDICTION_RAD);
+    }
+    proposed = PositionCascade_Constrain(proposed,
+        state.external.minimum_position, state.external.maximum_position);
+    step = PositionCascade_Constrain(proposed - state.position_reference,
+        -config->maximum_speed * config->update_period_s,
+        config->maximum_speed * config->update_period_s);
+    state.position_reference += step;
+    state.trajectory_speed = step / config->update_period_s;
+    state.trajectory_acceleration = (state.trajectory_speed - previous_speed) / config->update_period_s;
+    state.external.remaining_s = PositionCascade_Max(0.0f,
+        state.external.remaining_s - config->update_period_s);
+    state.trajectory_limited = PositionCascade_Abs(proposed-state.position_reference) > 0.0000001f;
+    state.smooth_planning = false;
+    state.smooth_active = false;
+    return state.external.end_velocity == 0.0f &&
+        PositionCascade_Abs(config->target_position - state.position_reference) < 0.0000001f;
+}
+
 static bool PositionCascade_UpdateTrajectory(
 	const PositionCascadeConfig_TypeDef *config, float measured_position)
 {
+
+    if (state.external_mode) { return PositionCascade_UpdateExternalTrajectory(config); }
 	PositionSmoothTrajectory *s = &state.smooth_trajectory;
 	PositionSmoothSample sample;
 	bool done;
@@ -946,7 +1019,7 @@ static POSITION_CONTROL_NOINLINE bool PositionCascade_RunControl(const PositionC
 	/* A lagging axis needs some speed above trajectory cruise to catch up.
 	 * Bound that headroom independently, and always honor the motor limit. */
 	speed_command_limit = PositionCascade_Min(config->speed_limit,
-		config->maximum_speed * POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO);
+		config->maximum_speed * (state.external_mode ? 1.0f : POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO));
 	state.speed_reference = PositionCascade_Constrain(state.speed_reference,
 		-speed_command_limit, speed_command_limit);
 
@@ -1026,7 +1099,7 @@ static bool PositionCascade_RunValidated(const PositionCascadeConfig_TypeDef *co
 		state.phase = state.target_transition_active ?
 			POSITION_SERVO_PHASE_MOVE : POSITION_SERVO_PHASE_SETTLE;
 	}
-	else if (state.last_target != config->target_position)
+	else if (!state.external_mode && state.last_target != config->target_position)
 	{
 		state.last_target = config->target_position;
 		state.phase = POSITION_SERVO_PHASE_MOVE;
@@ -1053,6 +1126,8 @@ bool PositionCascade_Update(const PositionCascadeConfig_TypeDef *config,
 	float measured_position, float measured_speed,
 	PositionCascadeOutput_TypeDef *output)
 {
+
+    state.external_mode = false;
 	state.defer_telemetry = false;
 	if (output == NULL || !isfinite(measured_position) ||
 		!isfinite(measured_speed) || !PositionCascade_CheckConfig(config))
@@ -1070,6 +1145,8 @@ const PositionCascadeConfig_TypeDef *PositionCascade_GetConfiguration(void)
 bool PositionCascade_UpdateTarget(float target_position, float measured_position,
 	float measured_speed, PositionCascadeOutput_TypeDef *output)
 {
+
+    state.external_mode = false;
 	state.defer_telemetry = false;
 	if (!state.config_valid || output == NULL || !isfinite(target_position) ||
 		!isfinite(measured_position) || !isfinite(measured_speed))
@@ -1093,6 +1170,7 @@ static void PositionCascade_CopyControlOutput(PositionCascadeControlOutput_TypeD
 bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
     float measured_position, float measured_speed, PositionCascadeControlOutput_TypeDef *output)
 {
+    state.external_mode = false;
     state.defer_telemetry = false;
     if (output == NULL || !isfinite(measured_position) ||
         !isfinite(measured_speed) || !PositionCascade_CheckConfig(config)) return false;
@@ -1104,12 +1182,122 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig_TypeDef *config,
 bool PositionCascade_UpdateTargetControl(float target_position, float measured_position,
     float measured_speed, PositionCascadeControlOutput_TypeDef *output)
 {
+    state.external_mode = false;
     state.defer_telemetry = false;
     if (!state.config_valid || output == NULL || !isfinite(target_position) ||
         !isfinite(measured_position) || !isfinite(measured_speed)) return false;
     state.validated_config.target_position = target_position;
     if (!PositionCascade_RunValidated(&state.validated_config,
         measured_position, measured_speed)) return false;
+    PositionCascade_CopyControlOutput(output);
+    return true;
+}
+
+/**
+ * @brief 串行消费带接收时间的外部位置参考，连续接续插补并更新级联输出。
+ * @param[in] config 级联配置；速度、电流、限位和滤波仍生效，不允许加速度前馈。
+ * @param[in] input 同一控制所有者取得的一致邮箱快照；时间为回绕的本机毫秒，序号只用于去重。
+ * @param[in] measured_position 真实位置，单位rad；恢复新会话时作为参考种子。
+ * @param[in] measured_speed 真实速度，单位rad/s；恢复时按配置限速播种参考速度。
+ * @param[out] output 本次控制结果，不替换真实传感器反馈。
+ * @return 配置、指针或反馈非法时false；其余返回级联运行结果。陈旧、逆序或越界样本
+ *         仍可能返回true，但会锁存拒绝计数并保持最后生成参考，不能解释为样本被接受。
+ * @note 无锁、无分配、无通信发送；调用者须与其他级联API串行使用同一静态实例。
+ *       接收压缩到同毫秒的合法新序号按5ms最短插补处理，避免零除和无意使能重置。
+ */
+bool PositionCascade_UpdateExternalControl(const PositionCascadeConfig_TypeDef *config,
+    const PositionExternalInput *input, float measured_position, float measured_speed,
+    PositionCascadeControlOutput_TypeDef *output)
+{
+    PositionCascadeConfig_TypeDef effective;
+    bool changed = false;
+    if (config == NULL || input == NULL || output == NULL ||
+        !isfinite(measured_position) || !isfinite(measured_speed) ||
+        !PositionCascade_CheckConfig(config) || config->acceleration_feedforward_gain != 0.0f ||
+        !isfinite(input->minimum_position_rad) || !isfinite(input->maximum_position_rad) ||
+        input->minimum_position_rad > input->maximum_position_rad) {
+        return false;
+    }
+    if (!state.external_mode) { memset(&state.external, 0, sizeof(state.external)); }
+    state.external.minimum_position = input->minimum_position_rad;
+    state.external.maximum_position = input->maximum_position_rad;
+    if (!state.external.initialized) {
+        state.external.initialized = true;
+        state.external.goal = measured_position;
+        state.external.stale = true;
+    }
+    if (input->valid && input->sequence != state.external.sequence) {
+        uint32_t interval_ms = input->received_ms - state.external.received_ms;
+        bool restart = !state.external.valid || interval_ms >= POSITION_EXTERNAL_TIMEOUT_MS;
+        /* 200Hz在接收端可形成4/6ms抖动或同毫秒合并；短间隔仍只给一个5ms步长预算。
+         * 逆序时间不等同于长时间掉线，不能借restart绕过连续参考的顺序检查。 */
+        bool time_ordered = !state.external.valid || interval_ms < UINT32_C(0x80000000);
+        float minimum_s = (float)POSITION_EXTERNAL_MIN_PERIOD_MS * 0.001f;
+        float interpolation_s = restart ? (float)POSITION_EXTERNAL_PERIOD_MS * 0.001f : PositionCascade_Constrain(
+            (float)interval_ms * 0.001f, minimum_s, 0.04f);
+        float allowed_s = restart ? 0.04f : PositionCascade_Max((float)interval_ms * 0.001f, minimum_s);
+        float anchor = restart ? measured_position : state.external.goal;
+        float allowed_step = config->maximum_speed * allowed_s + POSITION_EXTERNAL_QUANTIZATION_RAD;
+        state.external.sequence = input->sequence;
+        if (isfinite(input->position_rad) &&
+            (uint32_t)(input->now_ms - input->received_ms) < POSITION_EXTERNAL_TIMEOUT_MS &&
+            time_ordered &&
+            input->position_rad >= input->minimum_position_rad &&
+            input->position_rad <= input->maximum_position_rad &&
+            PositionCascade_Abs(input->position_rad - anchor) <= allowed_step) {
+            float previous_goal = state.external.goal;
+            changed = input->position_rad != previous_goal;
+            if (restart && state.initialized) {
+                /* 新会话仅一次按实际位置接续，避免恢复时拉回掉线前的旧参考。 */
+                state.position_reference = measured_position;
+                state.trajectory_speed = PositionCascade_Constrain(measured_speed,
+                    -config->maximum_speed, config->maximum_speed);
+                state.trajectory_acceleration = 0.0f;
+                PI_Controller_Reset(&state.speed_controller);
+            }
+            state.external.goal = input->position_rad;
+            if (changed || restart || state.external.end_velocity != 0.0f) {
+                /* 分母与实际段时长一致：5ms目标不再反复重置10ms段，0ms压缩也不会零除。 */
+                state.external.remaining_s = interpolation_s;
+                state.external.duration_s = state.external.remaining_s;
+                state.external.elapsed_s = 0.0f;
+                state.external.start_position = state.initialized ? state.position_reference : measured_position;
+                state.external.start_velocity = state.initialized ? state.trajectory_speed : 0.0f;
+                state.external.end_velocity = restart ? 0.0f : PositionCascade_Constrain(
+                    (input->position_rad-previous_goal)/interpolation_s,
+                    -config->maximum_speed, config->maximum_speed);
+            }
+            state.external.received_ms = input->received_ms;
+            state.external.valid = true;
+            state.external.stale = false;
+        } else {
+            if (state.external.rejected < UINT32_MAX) { ++state.external.rejected; }
+            state.external.valid = false;
+            state.external.stale = true;
+        }
+    }
+    if (!state.external.valid ||
+        (uint32_t)(input->now_ms - state.external.received_ms) >= POSITION_EXTERNAL_TIMEOUT_MS) {
+        state.external.goal = state.initialized ? state.position_reference : measured_position;
+        state.external.remaining_s = 0.0f;
+        state.external.duration_s = 0.0f;
+        state.external.end_velocity = 0.0f;
+        state.external.valid = false;
+        state.external.stale = true;
+    }
+    if (changed && state.initialized) {
+        state.phase = POSITION_SERVO_PHASE_MOVE;
+        state.target_reached = false;
+        state.hold_counter = 0U;
+        state.target_transition_active = true;
+        state.settling_in_window = false;
+    }
+    effective = *config;
+    effective.target_position = state.external.goal;
+    state.external_mode = true;
+    state.defer_telemetry = false;
+    if (!PositionCascade_CheckConfig(&effective) ||
+        !PositionCascade_RunValidated(&effective, measured_position, measured_speed)) { return false; }
     PositionCascade_CopyControlOutput(output);
     return true;
 }

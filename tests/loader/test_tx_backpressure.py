@@ -1,8 +1,8 @@
 """编译真实Loader发送函数，验证缺ACK取消和实际发送完成判据。"""
 
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests/unit/native"))
@@ -73,6 +73,7 @@ def main():
     compiler, out = sys.argv[1], Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
     source = (ROOT / "loader/firmware/loader_can.c").read_text(encoding="utf-8")
+    source = source.split("/* LOADER_FD_IMPLEMENTATION */", 1)[1]
     fixture = out / "tx_backpressure.c"
     fixture.write_text(
         PRELUDE
@@ -87,6 +88,7 @@ def main():
         command
         + [
             "-std=gnu99",
+            "-DVECTOR_CAN_CLASSIC_ONLY=0",
             "-O1",
             "-UNDEBUG",
             "-Wall",

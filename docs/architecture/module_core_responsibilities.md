@@ -1,6 +1,7 @@
 # 核心工程模块职责
 
 更新：2026-10-21。描述当前核心工程源码；历史设计不代表仍存在的功能。
+逐文件定位见[APP文件职责与分层对照](app_file_responsibilities_v1.md)，与Keil实际源清单顺序对应。
 
 2026-10-17增量：`motor/protection/motor_thermal`只计算热预算、降额和总向量限流；
 `motor/protection/motor_thermal_control`持有热历史并处理显式采样/监督事件，`motor_axis`

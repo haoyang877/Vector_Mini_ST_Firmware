@@ -94,13 +94,26 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
     """各版本分别编译 owner 和 rules，保留所有旧断言。"""
     output.mkdir(parents=True, exist_ok=True)
     source = output / "run_state_owner.c"
-    source.write_text(owner_fixture(tree), encoding="utf-8")
+    owner_path = tree / OWNER_SOURCES[0]
+    preemptible = "read_locked_state_conditions" in owner_path.read_text(encoding="utf-8")
+    source.write_text(
+        f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n" + owner_fixture(tree),
+        encoding="utf-8",
+    )
+    # 仅替换实际校验调用名用于观测屏蔽状态；校验主体仍链接该版本的真实实现。
+    instrumented_owner = output / "instrumented_owner.c"
+    instrumented_owner.write_text(
+        "#define ParameterValue_ConfigurationValid Test_ConfigurationValid\n"
+        f'#include "{owner_path.as_posix()}"\n',
+        encoding="utf-8",
+    )
     includes = [
         flag if flag == "-I" else str(tree / Path(flag).relative_to(ROOT))
         for flag in NATIVE_INCLUDE_FLAGS
     ]
     executable = output / "run_state_owner.exe"
     production = [tree / path for path in OWNER_SOURCES]
+    production[0] = instrumented_owner
     production += [maintenance, maintenance.parent / "maintenance_workspace.c"]
     command = (
         compiler

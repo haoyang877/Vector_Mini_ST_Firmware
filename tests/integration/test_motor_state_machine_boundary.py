@@ -15,6 +15,55 @@ def production_text(path: Path) -> str:
 
 
 class MotorStateMachineBoundaryTests(unittest.TestCase):
+    def test_watch_objects_are_not_cross_module_data_interfaces(self) -> None:
+        """Watch符号保留；生产模块不得自行extern或直接使用其它所有者的运行对象。"""
+        owners = {
+            "firmware/app/runtime/motor_axis.c": (
+                "s_motor_configuration",
+                "s_motor_state",
+                "s_foc_state",
+                "s_rotor_encoder",
+                "s_speed_pi",
+                "s_flux_observer",
+                "s_sensorless_startup",
+                "s_current_offset_calibration",
+            ),
+            "firmware/app/runtime/motor_parameter_transaction.c": (
+                "s_config_revision",
+                "s_revision_work_epoch",
+                "s_last_read",
+                "s_last_write",
+                "s_save_job",
+            ),
+        }
+        for directory in ("app", "motor", "services", "communication"):
+            for path in (ROOT / "firmware" / directory).rglob("*.[ch]"):
+                relative = path.relative_to(ROOT).as_posix()
+                source = production_text(path)
+                for owner, names in owners.items():
+                    if relative != owner:
+                        for name in names:
+                            self.assertIsNone(re.search(rf"\b{name}\b", source), (relative, name))
+                if relative != "firmware/app/motor_state_machine/motor_state_machine.c":
+                    self.assertIsNone(
+                        re.search(r"\bextern\b[^;{}]*\bs_context\b", source), relative
+                    )
+
+    def test_parameter_mutations_enter_through_axis_owner(self) -> None:
+        """协议/业务适配不得绕过Axis，直接调用接受可写配置的内部参数事务。"""
+        permitted = {
+            "firmware/app/runtime/motor_axis.c",
+            "firmware/app/runtime/motor_parameter_transaction.c",
+        }
+        for directory in ("app", "motor", "services", "communication"):
+            for path in (ROOT / "firmware" / directory).rglob("*.c"):
+                relative = path.relative_to(ROOT).as_posix()
+                if relative not in permitted:
+                    self.assertIsNone(
+                        re.search(r"\bMotorParameterTransaction_\w+\s*\(", production_text(path)),
+                        relative,
+                    )
+
     def test_unused_maintenance_query_is_retired(self) -> None:
         """维护类型使用现有查询，不保留只有测试调用的重复接口。"""
         for directory in ("app", "motor", "services"):

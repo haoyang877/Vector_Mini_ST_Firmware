@@ -18,6 +18,7 @@
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"
 #include "application_profile_defaults.h"
+#include "parameter_value_service.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
 /* 真实生产所有者和类型；仅替换硬件与 worker，验证命令、资源和身份交接。 */
@@ -38,6 +39,8 @@ static uint16_t trace_start_sequence;
 static void trace_capture(const char *event, unsigned result, unsigned detail);
 static bool outer_ready;
 static uint32_t critical_depth;
+static unsigned validation_interrupt;
+static unsigned validation_unmasked_calls, validation_masked_calls;
 static uint32_t now_ms;
 static void tick(void);
 
@@ -62,6 +65,39 @@ void critical_hw_exit(uint32_t mask)
 {
     assert(critical_depth == mask + 1U);
     critical_depth = mask;
+}
+
+/* 观测真实配置校验的屏蔽状态；在开中断区间模拟一次高优先级事件。 */
+bool Test_ConfigurationValid(const MotorConfiguration *configuration)
+{
+    if (validation_interrupt != 0U)
+    {
+        if (critical_depth != 0U)
+        {
+            ++validation_masked_calls;
+        }
+        else
+        {
+            unsigned interrupt = validation_interrupt;
+            validation_interrupt = 0U;
+            ++validation_unmasked_calls;
+            if (interrupt == 1U)
+            {
+                MotorFault_Report(&motor, MOTOR_FAULT_OVERVOLTAGE);
+                MotorStateMachine_FastFaultStop();
+            }
+            else
+            {
+                assert(MotorStateMachine_RequestRemoteStop());
+                if (interrupt == 3U)
+                {
+                    tick();
+                    cfg.application.current_limit_a = NAN;
+                }
+            }
+        }
+    }
+    return ParameterValue_ConfigurationValid(configuration);
 }
 bool power_stage_hw_phases_disabled(void)
 {
@@ -179,6 +215,7 @@ static void reset(void)
 {
     bool resume_trace = trace_enabled;
     trace_enabled = false;
+    validation_interrupt = 0U;
     now_ms = 0U;
     memset(&cfg, 0, sizeof(cfg));
     memset(&motor, 0, sizeof(motor));
@@ -1458,8 +1495,49 @@ static void test_thermal_owner_admission_and_clear(void)
          "CLEAR preserve heat without restart");
 }
 
+/* 正常监督轮询必须允许快故障抢占，且不能用旧配置结果跨越状态代际。 */
+static void test_preemptible_running_validation(void)
+{
+#if STATE_VALIDATION_PREEMPTIBLE
+    for (unsigned interrupt = 1U; interrupt <= 3U; ++interrupt)
+    {
+        reset();
+        assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off);
+        validation_unmasked_calls = validation_masked_calls = 0U;
+        validation_interrupt = interrupt;
+        tick();
+        assert(validation_interrupt == 0U && validation_unmasked_calls == 1U);
+        if (!output_off || motor.iq_target_a != 0.0f)
+        {
+            fprintf(stderr,
+                    "validation interrupt=%u output_off=%u iq=%g state=%u fault=%u\n",
+                    interrupt,
+                    output_off,
+                    (double)motor.iq_target_a,
+                    (unsigned)MotorStateMachine_GetState(),
+                    (unsigned)motor.fault_code);
+        }
+        assert(output_off && motor.iq_target_a == 0.0f);
+        if (interrupt == 1U)
+        {
+            assert(motor.fault_code == MOTOR_FAULT_OVERVOLTAGE);
+            assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
+        }
+        else
+        {
+            tick();
+            assert(output_off && MotorStateMachine_GetState() != MOTOR_STATE_RUNNING);
+        }
+        assert(critical_depth == 0U);
+    }
+#endif
+}
+
 int main(void)
 {
+    test_preemptible_running_validation();
     test_defaults_preserves_device_address();
     test_rejected_start_does_not_bind_source();
     test_direct_fault_recovery_and_idle_stop();

@@ -345,11 +345,10 @@ static void state_update_sample_progress(void)
     s_context.observed_fast_sample_epoch = current_epoch;
 }
 
-/* 基础健康不要求编码器标定；各模式的标定准入仍由既有模式校验拥有。 */
-static MotorStateFacts read_state_conditions(void)
+/* 调用方持有临界区；配置校验可预先完成，采样、故障和STOP事实必须在此重新读取。 */
+static MotorStateFacts read_locked_state_conditions(bool configuration_valid)
 {
     MotorStateFacts facts;
-    uint32_t state = critical_hw_enter();
     MotorControlMode mode = s_context.motor->control_mode;
 
     facts.active_faults = (uint32_t)s_context.motor->fault_code;
@@ -360,7 +359,7 @@ static MotorStateFacts read_state_conditions(void)
     facts.maintenance_released = !s_context.background_busy && MotorMaintenance_IsReleased();
     facts.inputs_valid = s_context.fast_samples_fresh && bus_measurements_finite() &&
                          phase_currents_finite() && temperature_measurement_fresh();
-    facts.configuration_valid = ParameterValue_ConfigurationValid(s_context.configuration);
+    facts.configuration_valid = configuration_valid;
     /* 正常控制／维护及停止只从完成初始化的状态进入，不保存第二份完成标志。 */
     bool stable_self_test = s_context.rules.state == MOTOR_STATE_INIT &&
                             s_context.self_test_stable_ticks == MOTOR_SELF_TEST_STABLE_TICKS;
@@ -408,7 +407,16 @@ static MotorStateFacts read_state_conditions(void)
         (mode != MOTOR_CONTROL_POSITION && mode != MOTOR_CONTROL_SPEED) || MotorOuterLoop_IsReady();
     /* 本地事件在提交临界区使用当前代际；异步结果仍保留创建时的身份。 */
     facts.request_fresh = !s_context.stop_pending;
-    critical_hw_exit(state);
+    return facts;
+}
+
+/* 非运行轮询路径保持原子完整校验；不缓存配置资格或动态保护事实。 */
+static MotorStateFacts read_state_conditions(void)
+{
+    uint32_t mask = critical_hw_enter();
+    MotorStateFacts facts =
+        read_locked_state_conditions(ParameterValue_ConfigurationValid(s_context.configuration));
+    critical_hw_exit(mask);
     return facts;
 }
 
@@ -486,7 +494,20 @@ static bool dispatch_state_event(uint32_t events,
                                  uint32_t faults,
                                  const MotorStateFacts *recovery_facts)
 {
+    /* RUNNING期间参数写入和DEFAULTS均不受理。监督空事件的纯配置校验不屏蔽ADC；
+     * 若前台计算期间监督改变了状态/代际，提交时退回原有完整校验路径。
+     * 快故障、STOP、采样资格和功率事实仍在下面的提交临界区读取。 */
+    uint32_t validation_epoch = s_context.rules.epoch;
+    bool running_poll =
+        events == 0U && recovery_facts == NULL && s_context.rules.state == MOTOR_STATE_RUNNING;
+    bool configuration_valid =
+        running_poll && ParameterValue_ConfigurationValid(s_context.configuration);
     uint32_t mask = critical_hw_enter();
+    /* 开中断计算期间到达的STOP必须先于空事件守卫；不等待下一监督拍。 */
+    if (running_poll && s_context.stop_pending)
+    {
+        events = MOTOR_STATE_EVENT_STOP;
+    }
     /* 完成使用创建时保存的身份；禁止用当前规则 epoch 重建维护完成身份。
      * worker/前台结果在进入本路径前仍须通过原始邮箱或认领身份复核。 */
     uint32_t completion_epoch = s_context.rules.epoch;
@@ -506,7 +527,20 @@ static bool dispatch_state_event(uint32_t events,
                              .control_mode = s_context.motor->control_mode,
                              .maintenance_kind = s_context.rules.maintenance_kind,
                              .effects = effects};
-    MotorStateFacts facts = recovery_facts != NULL ? *recovery_facts : read_state_conditions();
+    MotorStateFacts facts;
+    if (recovery_facts != NULL)
+    {
+        facts = *recovery_facts;
+    }
+    else if (running_poll && s_context.rules.state == MOTOR_STATE_RUNNING &&
+             validation_epoch == s_context.rules.epoch)
+    {
+        facts = read_locked_state_conditions(configuration_valid);
+    }
+    else
+    {
+        facts = read_state_conditions();
+    }
     MotorMaintenanceKind previous_kind = s_context.rules.maintenance_kind;
     MotorStateDecision decision = MotorStateRules_Step(&s_context.rules, &event, &facts);
 

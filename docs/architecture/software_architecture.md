@@ -150,7 +150,7 @@ ADC优先级0、TIM7优先级3，外环允许快环抢占；不能通过扩大�
 源码依据：[监督调度](../../firmware/app/runtime/motor_axis.c)、
 [外环与ready](../../firmware/motor/foc/motor_control.c)、
 [同一状态所有者的前处理和提交](../../firmware/app/motor_state_machine/motor_state_machine.c)。
-实施与证据见[2kHz三段监督计划](../plans/active/2026-10-21-supervisor-staged-v1.md)。
+实施与证据见[2kHz三段监督计划](../plans/completed/2026-10-21-supervisor-staged-v1.md)。
 本图表示当前源码调用关系；本批没有新的实机、中断耗时或MCU占用率结论。
 
 ## 上电、运行和维护

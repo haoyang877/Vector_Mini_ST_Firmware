@@ -36,3 +36,34 @@ CURRENT/VQ不依赖外环ready、自检/epoch每拍一次及重复提交无效�
 
 回退仅撤销本批独立提交，参照上述基线；不reset/clean或改其他工作树引用。
 离线、构建和剩余门禁记入本计划，生成证据放`outputs/supervisor-staged-v1/`。
+
+## 本批结果
+
+实施提交`3fe9653e`；消除初始化临时栈对象后的最终源码
+`94b3182456564b6933658bc9d1cceaf1c20e8a23`，APP1.5.8 / Loader2.1.0。
+代码、离线验证和debug构建完成；正式release、硬件与时序验收未完成。
+
+- PR检查通过：`outputs/runs/20261021T114838684752Z-94b31824/summary.json`。
+  包括格式、lint、工程布局、离线测试、架构、接口、文档与仓库规则检查。
+- 定向夹具链接真实Axis监督、状态owner及规则，边界桩注入计算中STOP/快速故障、
+  本拍温度故障和局部计算失败；同拍目标、SPEED/POSITION ready、CURRENT/VQ、
+  INIT稳定窗口、监督epoch、重复提交及失效代际均通过。
+  相对固定基线的既有owner/功率/事件轨迹与规则输出一致；
+  证据：`outputs/supervisor-staged-v1/zero-copy-final/summary.json`。
+  这是原生夹具结果，不是真实功率关断或电机运动证明。
+- 主工程与配套APP/Loader均0错误、0警告。冻结包目录
+  `outputs/delivery/supervisor-staged-94b3182-20261021/`，版本、源SHA及产物摘要见summary.json。
+  保留的用户参数注释和Keil设置如实登记为dirty输入，不冒充clean正式release。
+- 正常APP Flash79504B、RAM18504B；配套APP Flash81920B、RAM18552B。
+  相对1.5.7构建，Flash分别增加544B及552B，链接RAM不变。
+  Loader仍Flash14520B、RAM4344B，BIN与1.5.7配套包中的Loader逐字节一致。
+- 14个Watch对象声明、链接尺寸及归属对象文件不变；217份motor/parameters/platform/
+  shared codec源码与基线一致，现场motor_profile_defaults.h只有原有注释修改。
+  见`outputs/supervisor-staged-v1/review.json`。
+- ARMCC静态调用图：Axis监督自身栈120B，最大调用深度480B；
+  TIM7链最大调用深度520B。它们不是实测峰值，不包含硬件异常入栈、
+  抢占嵌套及未解析路径的完整证明；不得据此声称20kHz时序或MCU占用率通过。
+  初始化使用直接memset，避免编译器为零初始化额外保留一份临时结构体。
+
+剩余：新候选真实启停/标定及升级、故障关断、中断耗时/最长路径、
+实际嵌套栈及MCU占用率，合并到当前候选剩余验收计划；本批不启动台架。

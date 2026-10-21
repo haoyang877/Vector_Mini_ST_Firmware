@@ -9,17 +9,23 @@ from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) -> str:
     """在相同桩输入下编译旧版或新版生产体，返回可比较的调用轨迹摘要。"""
-    execution = (source_dir / "motor_execution.c").read_text(encoding="utf-8")
+    control_path = source_dir.parent.parent / "motor/foc/motor_control_execution.c"
+    if not control_path.exists():
+        control_path = source_dir / "motor_execution.c"
+    execution = control_path.read_text(encoding="utf-8")
     state_path = source_dir / "motor_axis.c"
     if not state_path.exists():
         state_path = source_dir / "motor_state.c"
     state = state_path.read_text(encoding="utf-8")
     fixture = (ROOT / "tests/unit/native/execution_dispatch_test.c").read_text(encoding="utf-8")
     if "s_current_offset_calibration.complete" in state:
-        context_end = state.index("CurrentOffsetCalibration s_current_offset_calibration;") + len(
-            "CurrentOffsetCalibration s_current_offset_calibration;"
-        )
-        context = state[state.index("#define CURRENT_OFFSET_SAMPLE_COUNT") : context_end]
+        declaration = "CurrentOffsetCalibration s_current_offset_calibration;"
+        sensing = (ROOT / "firmware/motor/foc/foc_sensing.h").read_text(encoding="utf-8")
+        if "} CurrentOffsetCalibration;" in sensing:
+            context = declaration
+        else:
+            context_end = state.index(declaration) + len(declaration)
+            context = state[state.index("#define CURRENT_OFFSET_SAMPLE_COUNT") : context_end]
         fixture = (
             '#include "foc_sensing.h"\n#define STARTUP_CURRENT_OFFSETS_PRESENT 1\n'
             + context

@@ -27,7 +27,7 @@ OWNER_SOURCES = (
     "firmware/motor/foc/speed_feedforward.c",
     "firmware/motor/protection/motor_thermal.c",
     "firmware/motor/protection/motor_thermal_config.c",
-    "firmware/app/runtime/motor_thermal_control.c",
+    "firmware/motor/protection/motor_thermal_control.c",
     "firmware/services/parameters/motor_axis_profile.c",
     "firmware/services/parameters/parameter_value_service.c",
     "shared/checksum/crc32.c",
@@ -113,6 +113,10 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
     ]
     executable = output / "run_state_owner.exe"
     production = [tree / path for path in OWNER_SOURCES]
+    thermal_index = OWNER_SOURCES.index("firmware/motor/protection/motor_thermal_control.c")
+    if not production[thermal_index].is_file():
+        # 冻结基线保持当时APP热组合的实际源码，不能混入当前保护实现。
+        production[thermal_index] = tree / "firmware/app/runtime/motor_thermal_control.c"
     production[0] = instrumented_owner
     production += [maintenance, maintenance.parent / "maintenance_workspace.c"]
     command = (

@@ -21,18 +21,26 @@ def main() -> None:
     axis = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
     algorithm = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
-    context_end = axis.index("CurrentOffsetCalibration s_current_offset_calibration;") + len(
-        "CurrentOffsetCalibration s_current_offset_calibration;"
-    )
-    context = axis[axis.index("#define CURRENT_OFFSET_SAMPLE_COUNT") : context_end]
-    production = context + "\n#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
+    production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
+    production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n"
     production += (
         "#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n#define OVERCURRENT_CONFIRM_CYCLES 5U\n"
     )
     production += function_source(sensing, "MotorCurrentOffsets_Valid")
     production += function_source(sensing, "Current_Cal")
-    for name in ("FOC_MaximumVoltage", "FOC_CurrentController_Reset"):
+    for name in (
+        "MotorCurrentOffsets_Init",
+        "fail_current_offset_calibration",
+        "MotorCurrentOffsets_Sample",
+    ):
+        production += function_source(sensing, name)
+    for name in (
+        "FOC_MaximumVoltage",
+        "FOC_ConfigureControllers",
+        "FOC_UpdateCurrentControllerLimits",
+        "FOC_CurrentController_Reset",
+    ):
         production += function_source(algorithm, name)
     transaction = (ROOT / "firmware/app/runtime/motor_parameter_transaction.c").read_text(
         encoding="utf-8"
@@ -47,7 +55,6 @@ def main() -> None:
         "configure_controllers",
         "update_current_controller_limits",
         "initialize_current_offsets",
-        "fail_current_offset_calibration",
         "sample_phase_currents",
         "MotorAxis_Init",
         "run_fast_task",
@@ -82,7 +89,7 @@ def main() -> None:
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
-                str(ROOT / "firmware/app/runtime/motor_thermal_control.c"),
+                str(ROOT / "firmware/motor/protection/motor_thermal_control.c"),
                 "-lm",
                 "-o",
                 str(executable),

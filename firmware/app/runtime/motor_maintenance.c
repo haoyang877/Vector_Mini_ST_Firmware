@@ -4,7 +4,7 @@
 #include "bus_voltage_profile.h"
 #include "encoder_calibration_task.h"
 #include "foc_param.h"
-#include "motor_execution.h"
+#include "motor_control_execution.h"
 #include "parameter_value_service.h"
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"

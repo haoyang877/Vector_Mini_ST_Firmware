@@ -1,6 +1,6 @@
 # 代码框架与目录职责
 
-更新：2026-10-20。此页描述当前目录，不用历史报告代替当前实现和验证结果。
+更新：2026-10-21。此页描述当前目录，不用历史报告代替当前实现和验证结果。
 产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 ## 独立产品与共享契约
@@ -19,14 +19,14 @@
 | 目录 | 内容与边界 |
 | --- | --- |
 | app/composition | board_config：启动/端口绑定/启动交接；bsp_task、foc_task：任务入口；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
-| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_execution：控制执行与外环协调；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
+| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_execution：命令格式与范围校验；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
 | app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |
-| motor/foc | 电流、速度、标定所需无感启动与采样换算 |
+| motor/foc | motor_control_execution：控制分发与外环；foc_algorithm：控制计算与PI配置绑定；foc_sensing：采样换算及上电零偏累计；标定所需无感启动 |
 | motor/feedback | angle_feedback：编码器采样、角度校正、多圈与速度估计；所有模式共同使用 |
 | motor/position | position_cascade：直接位置→速度→电流控制 |
 | motor/math | control_math：既有数学、角度与滤波计算，无硬件或 APP 依赖 |
 | motor/calibration | encoder_calibration_core：LUT/零位计算；encoder_calibration_task：采集/应用流程 |
-| motor/protection | 电机故障与母线保护策略 |
+| motor/protection | 电机故障、母线保护与绕组热保护；motor_thermal_control独占热历史，通过显式电流、时间及功率事实推进 |
 | motor 根目录头文件 | 电机域值类型、模式、状态、任务结果及现有模型/启动 profile，不放应用运行实例 |
 | services/lifecycle | 控制/维护请求、readiness 值与停机服务，不再实现另一套状态机 |
 | services/parameters | schema14 装载/导出及12/13兼容读取、纯标量校验、轴解析及应用/设备默认值；不拥有通信节点变量 |
@@ -51,6 +51,8 @@ MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `Mo
 设备配置内的 `EncoderCalibration` 单份保存LUT/零位；`EncoderState`只含采样、位置/速度和诊断。
 运行对象不包含配置或配置指针，命令目标、模式、故障与测量留在易失状态中。
 算法接收const配置视图与可写运行对象，参数事务和校准提交通过明确入口修改配置。
+零偏观测实例仍由Axis持有，foc_sensing只通过显式参数累计；首次完成后仍由Axis依次增加修订、换算电流。
+runtime不解析ADC计数、不实现位置/速度外环或热模型，仍通过平台能力查询时间及真实关相事实。
 按用户的 Watch 观测要求，MotorAxis 运行对象与主状态机上下文使用非静态全局符号；
 定义和运行写入仍集中在所属模块，其他模块通过既有命令、快照和显式对象参数交互。
 保留既有 s_ 名称属于本次调试兼容例外，详见[全局观测对象决策](../plans/active/2026-09-29-watch-global-objects-v1.md)。

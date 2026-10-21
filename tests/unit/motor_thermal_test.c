@@ -120,6 +120,63 @@ static void test_watchdog(void)
          "recovery");
 }
 
+static void test_protection(void)
+{
+    MotorConfiguration configuration = {0};
+    MotorControlState motor = {0};
+    FocState foc = {0};
+    configuration.application.current_limit_a = 2.5f;
+    /* 未完成零偏只发布关闭额度，不能把无样本解释为绕组故障。 */
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, false, true, false, true);
+    assert(motor.thermal_current_limit_a == 0.0f && motor.thermal_limit_active);
+    assert(!motor.thermal_clear_ready && motor.fault_code == MOTOR_FAULT_NONE);
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, true, false, true);
+    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+
+    MotorWindingThermalConfig config;
+    MotorWindingThermal_Default(&config);
+    config.heating_tau_s = 0.1f;
+    assert(MotorThermalControl_Init(&config, 0U));
+    motor.fault_code = MOTOR_FAULT_NONE;
+    motor.control_mode = MOTOR_CONTROL_VQ;
+    foc.phase_a_current_a = 3.0f;
+    foc.phase_b_current_a = foc.phase_c_current_a = -1.5f;
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, true, true, false);
+    assert(motor.fault_code == MOTOR_FAULT_NONE && motor.thermal_current_limit_a == 2.5f);
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+    motor.fault_code = MOTOR_FAULT_NONE;
+    foc.phase_a_current_a = 2.5f;
+    foc.phase_b_current_a = foc.phase_c_current_a = -1.25f;
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    assert(motor.fault_code == MOTOR_FAULT_NONE);
+    foc.phase_a_current_a = NAN;
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+
+    motor = (MotorControlState){0};
+    motor.control_mode = MOTOR_CONTROL_CURRENT;
+    uint32_t now_ms = 0U;
+    for (unsigned i = 0U; i < 100U && MotorThermalControl_CanRun(false); ++i)
+    {
+        window(6.0f, -3.0f, -3.0f, &now_ms);
+    }
+    assert(MotorThermalControl_CanRun(true) && !MotorThermalControl_CanRun(false));
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, true);
+    assert(motor.fault_code == MOTOR_FAULT_NONE);
+    MotorThermalDiagnostics before, after;
+    assert(MotorThermalControl_GetDiagnostics(&before));
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, false, false);
+    assert(motor.fault_code == MOTOR_FAULT_NONE);
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+    assert(MotorThermalControl_GetDiagnostics(&after));
+    assert(memcmp(before.model.heat, after.model.heat, sizeof(before.model.heat)) == 0);
+    assert(after.model.fault_latched);
+    puts("PASS protection owner: startup qualification, Vq vector boundary, finite inputs, "
+         "derating policy and preserved heat history");
+}
+
 static void test_foc(void)
 {
     MotorWindingThermalConfig config;
@@ -166,6 +223,10 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "watchdog") == 0)
     {
         test_watchdog();
+    }
+    else if (strcmp(argv[1], "protection") == 0)
+    {
+        test_protection();
     }
     else if (strcmp(argv[1], "foc") == 0)
     {

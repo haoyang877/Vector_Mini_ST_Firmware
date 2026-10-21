@@ -1,9 +1,9 @@
 # 核心工程模块职责
 
-更新：2026-10-09。描述 v1.3.0 核心工程当前源码；历史设计不代表仍存在的功能。
+更新：2026-10-21。描述当前核心工程源码；历史设计不代表仍存在的功能。
 
 2026-10-17增量：`motor/protection/motor_thermal`只计算热预算、降额和总向量限流；
-`app/runtime/motor_thermal_control`持有热历史并处理真实采样/监督事件，`motor_axis`
+`motor/protection/motor_thermal_control`持有热历史并处理显式采样/监督事件，`motor_axis`
 负责调度，STOP/CLEAR/DEFAULTS不重置热量。`motor/foc/speed_feedforward`只做可选目标
 整形与惯量电流计算，规划状态由既有`s_outer`独占；前馈默认关闭。
 配置归原model/application分组，保存及兼容见[schema13](../protocols/parameter_schema13_delivery_v1.md)。
@@ -40,6 +40,10 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 | [shared](../../shared/README.md) | 跨产品字节和值 → 纯编解码/契约 → 统一数据 | 不依赖APP或HAL，不拥有运行电机 |
 | [上位机](../../host_app/README.md) | CAN读回、速度/STOP请求与匹配APP包 → 单页展示及升级客户端 → 实际回复与结果 | 默认断开，无演示或标定入口；GUI实机控制/升级尚待验收 |
 
+runtime中的`motor_execution`只验证命令；`motor/foc/motor_control_execution`独占控制执行和外环。
+`foc_sensing`推进上电零偏累计，`foc_algorithm`绑定PI配置与电压额度；Axis只传对象和安排顺序。
+热保护计算留在motor，功率事实和生命周期许可由APP提供，不从motor反查主状态机。
+
 ## 全局符号与唯一写入者
 
 | 所有者 | 当前关键符号或对象 | 允许的使用方式 |
@@ -48,6 +52,8 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 | 主状态机 | `s_context` | 请求入口串行化启停、目标、维护和清错 |
 | 参数事务 | `s_config_revision`、请求缓存与SAVE记录 | 参数请求入口更新；成功写仅增一次revision |
 | 位置控制器 | `position_cascade.c`中的私有`s_state` | Update/Reset接口；调用方不写内部积分 |
+| 外环控制 | `motor_control_execution.c`中的私有`s_outer` | 请求复位/慢拍接口；只拥有外环就绪与前馈历史 |
+| 绕组热保护 | `motor_thermal_control.c`中的私有`s_thermal` | 显式采样/配置/保护接口；快照不可写回 |
 | 编码器标定 | 任务阶段、窗口和零位累积 | Step/Cancel接口；纯核心通过显式对象计算 |
 | 维护工作区 | `maintenance_workspace.c`中的联合区 | 编码器采样与参数记录互斥借用、确认归还 |
 

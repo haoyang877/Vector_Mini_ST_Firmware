@@ -48,6 +48,24 @@ typedef struct
 float FOC_MaximumVoltage(float bus_voltage_v);
 
 /**
+ * @brief 将活动d/q与速度PI增益、采样周期绑定到显式控制器。
+ * @param configuration 调用期间稳定的只读电机及应用配置。
+ * @param foc d/q控制器所有者。
+ * @param speed_pi 速度控制器所有者。
+ * @note 仅初始化或受保护的配置提交边界调用；保留积分、输出和动态限幅。
+ */
+void FOC_ConfigureControllers(const MotorConfiguration *configuration,
+                              FocState *foc,
+                              PiController *speed_pi);
+
+/**
+ * @brief 按本拍母线电压刷新d/q电压额度。
+ * @param foc 母线采样及d/q控制器所有者。
+ * @note 快速环在母线采样后调用；不改变增益、采样周期、积分或速度控制器。
+ */
+void FOC_UpdateCurrentControllerLimits(FocState *foc);
+
+/**
  * @brief  Clarke 变换：三相 → 静止 α/β。
  * @param  a 三相 A 相值。
  * @param  b 三相 B 相值。

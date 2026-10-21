@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stddef.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -426,6 +427,12 @@ static void test_configuration_binding(void)
 
 int main(void)
 {
+    /* Watch类型与对象布局不随零偏计算的所属目录迁移而变化。 */
+    assert(sizeof(CurrentOffsetCalibration) == 20U);
+    assert(offsetof(CurrentOffsetCalibration, phase_sum_raw) == 0U);
+    assert(offsetof(CurrentOffsetCalibration, sample_count) == 12U);
+    assert(offsetof(CurrentOffsetCalibration, complete) == 16U);
+    assert(offsetof(CurrentOffsetCalibration, failed) == 17U);
     assert(CURRENT_OFFSET_SAMPLE_COUNT == 20000U);
     test_full_window();
     test_rejections();

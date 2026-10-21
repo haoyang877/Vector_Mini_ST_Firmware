@@ -12,6 +12,41 @@
 /* 沿用已退役上电零点任务的1秒采样窗口，不恢复其其它标定模式。 */
 #define MOTOR_CURRENT_OFFSET_SAMPLE_TIME_MS 1000U
 
+/* JEOS每帧推进一次；20kHz下累计1秒，最大四次和的总和仍可由uint32_t容纳。 */
+#define CURRENT_OFFSET_SAMPLE_COUNT (FOC_FREQ * MOTOR_CURRENT_OFFSET_SAMPLE_TIME_MS / 1000U)
+
+/** @brief 上电零偏采样状态；Axis持有实例，采样模块通过显式对象独占推进。 */
+typedef struct
+{
+    uint32_t phase_sum_raw[3];
+    uint32_t sample_count;
+    bool complete, failed;
+} CurrentOffsetCalibration;
+
+/**
+ * @brief 清除本次上电零偏资格及电流测量，不沿用存储零偏。
+ * @param calibration Axis持有的校正状态，调用后清零。
+ * @param configuration 活动配置，三相零偏设为NAN。
+ * @param foc 采样运行对象，三相电流设为NAN。
+ * @note 仅上电关相初始化；不写硬件、参数修订或Flash。
+ */
+void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
+                              MotorConfiguration *configuration,
+                              FocState *foc);
+
+/**
+ * @brief 读取并累计一拍原始三相采样，首次完成时提交经过校验的零偏。
+ * @param calibration Axis显式借用的校正状态；完成或失败后不继续累计。
+ * @param configuration 活动配置，首次成功时写入三相ADC零偏，单位counts。
+ * @param motor_state 当前模式及故障所有者；越界或非关相时锁存既有零偏故障。
+ * @return 本拍首次完成校正返回true；尚未完成、已完成或失败返回false。
+ * @note 仅新鲜20kHz采样拍调用；非阻塞，不启相、不重试、不更新修订或写Flash。
+ *       调用者在首次完成后先发布参数修订，再沿既有Current_Cal路径换算本拍电流。
+ */
+bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
+                                MotorConfiguration *configuration,
+                                MotorControlState *motor_state);
+
 /**
  * @brief  更新母线电压采样与滤波值。
  * @param  foc foc 状态指针，写入 bus_voltage_v 相关字段。

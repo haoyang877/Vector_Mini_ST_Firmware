@@ -36,8 +36,20 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 "s_save_job",
             ),
         }
-        for directory in ("app", "motor", "services", "communication"):
-            for path in (ROOT / "firmware" / directory).rglob("*.[ch]"):
+        directories = [
+            ROOT / "firmware" / name
+            for name in (
+                "app",
+                "motor",
+                "services",
+                "communication",
+                "platform/api",
+                "platform/stm32g4/bsp",
+                "platform/stm32g4/ports",
+            )
+        ] + [ROOT / "shared"]
+        for directory in directories:
+            for path in directory.rglob("*.[ch]"):
                 relative = path.relative_to(ROOT).as_posix()
                 source = production_text(path)
                 for owner, names in owners.items():
@@ -48,6 +60,20 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                     self.assertIsNone(
                         re.search(r"\bextern\b[^;{}]*\bs_context\b", source), relative
                     )
+
+    def test_runtime_does_not_implement_control_or_thermal_algorithms(self) -> None:
+        """runtime调用motor能力，不能再拥有外环、当前模式或热保护计算的实现。"""
+        implementations = (
+            r"\b(?:void|bool|float|MotorTaskResult)\s+"
+            r"(?:MotorOuterLoop_\w+|MotorThermalControl_\w+|MotorCurrentOffsets_\w+|"
+            r"FOC_ConfigureControllers|FOC_UpdateCurrentControllerLimits|"
+            r"Task_(?:Current|Vq)_Mode|MotorExecution_ControlStep)"
+            r"\s*\([^;{}]*\)\s*\{"
+        )
+        for path in (ROOT / "firmware/app/runtime").glob("*.[ch]"):
+            self.assertIsNone(
+                re.search(implementations, production_text(path)), path.relative_to(ROOT).as_posix()
+            )
 
     def test_parameter_mutations_enter_through_axis_owner(self) -> None:
         """协议/业务适配不得绕过Axis，直接调用接受可写配置的内部参数事务。"""

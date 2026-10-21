@@ -3,7 +3,6 @@
 #include "critical_hw.h"
 #include "motor_maintenance.h"
 #include "motor_hw.h"
-#include "motor_sensing.h"
 #include "power_stage_hw.h"
 #include "foc_sensing.h"
 #include "motor_parameter_transaction.h"
@@ -15,7 +14,7 @@
 #include "foc_algorithm.h"
 #include "foc_errhandle.h"
 #include "foc_pid.h"
-#include "motor_execution.h"
+#include "motor_control_execution.h"
 #include "motor_state_machine.h"
 #include "foc_sensorless.h"
 #include "foc_sensorless_run.h"
@@ -30,16 +29,7 @@ SensorlessStartupState s_sensorless_startup;
 
 FocState s_foc_state;
 
-/* JEOS每帧推进一次；20kHz下累计1秒，最大四次和的总和仍可由uint32_t容纳。 */
-#define CURRENT_OFFSET_SAMPLE_COUNT (FOC_FREQ * MOTOR_CURRENT_OFFSET_SAMPLE_TIME_MS / 1000U)
-typedef struct
-{
-    uint32_t phase_sum_raw[3];
-    uint32_t sample_count;
-    bool complete, failed;
-} CurrentOffsetCalibration;
-
-/* 仅MotorAxis写入；全局可见性用于与既有运行对象一致的只读Watch观测。 */
+/* Axis持有并显式借给采样模块；全局可见性保留既有只读Watch观测。 */
 CurrentOffsetCalibration s_current_offset_calibration;
 
 uint8_t MotorAxis_NodeId(void)
@@ -50,42 +40,19 @@ uint8_t MotorAxis_NodeId(void)
 /* 仅在配置装配/提交边界绑定固定参数；保留积分与动态限幅，重放请求不会放宽热额度。 */
 static void configure_controllers(void)
 {
-    s_foc_state.id_pi.proportional_gain = s_motor_configuration.model.id_kp;
-    s_foc_state.id_pi.integral_gain = s_motor_configuration.model.id_ki;
-    s_foc_state.id_pi.sample_period_s = Current_Ts;
-    s_foc_state.iq_pi.proportional_gain = s_motor_configuration.model.iq_kp;
-    s_foc_state.iq_pi.integral_gain = s_motor_configuration.model.iq_ki;
-    s_foc_state.iq_pi.sample_period_s = Current_Ts;
-    s_speed_pi.proportional_gain = s_motor_configuration.application.speed_kp;
-    s_speed_pi.integral_gain = s_motor_configuration.application.speed_ki;
-    s_speed_pi.sample_period_s = Speed_Ts;
+    FOC_ConfigureControllers(&s_motor_configuration, &s_foc_state, &s_speed_pi);
 }
 
 /* 每个新鲜母线样本后只刷新电压额度，不改变增益、时基或积分状态；空闲也有效。 */
 static void update_current_controller_limits(void)
 {
-    float maximum_voltage_v = FOC_MaximumVoltage(s_foc_state.bus_voltage_filtered_v);
-    s_foc_state.id_pi.output_min = s_foc_state.iq_pi.output_min = -maximum_voltage_v;
-    s_foc_state.id_pi.output_max = s_foc_state.iq_pi.output_max = maximum_voltage_v;
+    FOC_UpdateCurrentControllerLimits(&s_foc_state);
 }
 
 /* 不把2048或上次存储零点当作本次上电校正资格；NAN阻止原自检/启动门禁通过。 */
 static void initialize_current_offsets(void)
 {
-    s_current_offset_calibration = (CurrentOffsetCalibration){0};
-    s_motor_configuration.device.phase_a_offset_counts = NAN;
-    s_motor_configuration.device.phase_b_offset_counts = NAN;
-    s_motor_configuration.device.phase_c_offset_counts = NAN;
-    s_foc_state.phase_a_current_a = NAN;
-    s_foc_state.phase_b_current_a = NAN;
-    s_foc_state.phase_c_current_a = NAN;
-}
-
-/* 所有零点失败均锁存同一资格；保留采样证据和已经报告的首个故障。 */
-static void fail_current_offset_calibration(void)
-{
-    s_current_offset_calibration.failed = true;
-    MotorFault_Report(&s_motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+    MotorCurrentOffsets_Init(&s_current_offset_calibration, &s_motor_configuration, &s_foc_state);
 }
 
 /* 只能由新鲜JEOS快速拍调用；不启相、不分配、不阻塞、不保存、不自动重试。 */
@@ -96,52 +63,12 @@ static void sample_phase_currents(void)
         Current_Cal(&s_motor_configuration, &s_foc_state, &s_motor_state);
         return;
     }
-    if (s_current_offset_calibration.failed)
+    if (MotorCurrentOffsets_Sample(
+            &s_current_offset_calibration, &s_motor_configuration, &s_motor_state))
     {
-        return;
+        MotorParameterTransaction_AdvanceRevision();
+        Current_Cal(&s_motor_configuration, &s_foc_state, &s_motor_state);
     }
-    if (!power_stage_hw_phases_disabled() || s_motor_state.control_mode != MOTOR_CONTROL_NONE)
-    {
-        fail_current_offset_calibration();
-        return;
-    }
-    uint16_t raw[3];
-    for (unsigned phase = 0U; phase < 3U; ++phase)
-    {
-        raw[phase] = motor_hw_current_sample_raw((MotorHwCurrentPhase)phase);
-        if (raw[phase] > MOTOR_SENSING_ADC_SAMPLE_COUNT * CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
-        {
-            fail_current_offset_calibration();
-            return;
-        }
-    }
-    for (unsigned phase = 0U; phase < 3U; ++phase)
-    {
-        s_current_offset_calibration.phase_sum_raw[phase] += raw[phase];
-    }
-    if (++s_current_offset_calibration.sample_count < CURRENT_OFFSET_SAMPLE_COUNT)
-    {
-        return;
-    }
-    float scale =
-        MOTOR_SENSING_ADC_SUM_TO_COUNTS / (float)s_current_offset_calibration.sample_count;
-    s_motor_configuration.device.phase_a_offset_counts =
-        (float)s_current_offset_calibration.phase_sum_raw[0] * scale;
-    s_motor_configuration.device.phase_b_offset_counts =
-        (float)s_current_offset_calibration.phase_sum_raw[1] * scale;
-    s_motor_configuration.device.phase_c_offset_counts =
-        (float)s_current_offset_calibration.phase_sum_raw[2] * scale;
-    if (!MotorCurrentOffsets_Valid(&s_motor_configuration))
-    {
-        s_motor_configuration.device.phase_a_offset_counts = NAN;
-        s_motor_configuration.device.phase_b_offset_counts = NAN;
-        s_motor_configuration.device.phase_c_offset_counts = NAN;
-        fail_current_offset_calibration();
-        return;
-    }
-    s_current_offset_calibration.complete = true;
-    MotorParameterTransaction_AdvanceRevision();
-    Current_Cal(&s_motor_configuration, &s_foc_state, &s_motor_state);
 }
 
 void MotorAxis_Init(void)
@@ -255,36 +182,20 @@ static void update_winding_thermal(void)
                                    outputs_disabled,
                                    time_hw_now_ms());
     }
-    s_motor_state.thermal_current_limit_a =
-        MotorThermalControl_CurrentLimit(s_motor_configuration.application.current_limit_a);
-    s_motor_state.thermal_limit_active =
-        s_motor_state.thermal_current_limit_a < s_motor_configuration.application.current_limit_a;
-    s_motor_state.thermal_clear_ready = MotorThermalControl_CanClearFault();
-    if (!s_current_offset_calibration.complete)
-    {
-        return;
-    }
     MotorMaintenanceKind kind = MotorStateMachine_GetMaintenanceKind();
     bool calibration =
         kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
     bool derating_allowed = !calibration && s_motor_state.control_mode != MOTOR_CONTROL_VQ;
-    if (!MotorThermalControl_CanRun(true) ||
-        (MotorStateMachine_OutputExpected() && !MotorThermalControl_Guard(derating_allowed)))
-    {
-        MotorFault_Report(&s_motor_state, MOTOR_FAULT_WINDING_THERMAL);
-    }
-    if (!outputs_disabled && s_motor_state.control_mode == MOTOR_CONTROL_VQ)
-    {
-        float vector_squared_a2 =
-            (2.0f / 3.0f) * (s_foc_state.phase_a_current_a * s_foc_state.phase_a_current_a +
-                             s_foc_state.phase_b_current_a * s_foc_state.phase_b_current_a +
-                             s_foc_state.phase_c_current_a * s_foc_state.phase_c_current_a);
-        float limit_a = s_motor_state.thermal_current_limit_a;
-        if (!(vector_squared_a2 <= limit_a * limit_a))
-        {
-            MotorFault_Report(&s_motor_state, MOTOR_FAULT_WINDING_THERMAL);
-        }
-    }
+    /* 保留原短路条件：模型允许时才查询功率事实；额外CanRun只读，不推进热历史。 */
+    bool output_expected = s_current_offset_calibration.complete &&
+                           MotorThermalControl_CanRun(true) && MotorStateMachine_OutputExpected();
+    MotorThermalControl_UpdateProtection(&s_motor_configuration,
+                                         &s_foc_state,
+                                         &s_motor_state,
+                                         s_current_offset_calibration.complete,
+                                         outputs_disabled,
+                                         output_expected,
+                                         derating_allowed);
 }
 
 void MotorAxis_FastTick(void)

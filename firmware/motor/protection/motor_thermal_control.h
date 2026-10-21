@@ -2,6 +2,7 @@
 #define MOTOR_THERMAL_CONTROL_H
 
 #include "motor_thermal_config.h"
+#include "foc_algorithm.h"
 
 /** @brief 快速环独占的热历史与更新证据；不属于参数或通信布局。 */
 typedef struct
@@ -39,6 +40,24 @@ bool MotorThermalControl_Configure(const MotorWindingThermalConfig *config, bool
  */
 void MotorThermalControl_Sample(
     float ia_a, float ib_a, float ic_a, bool outputs_disabled, uint32_t now_ms);
+/**
+ * @brief 发布热限流快照并按本拍功率策略检查绕组保护，不操作硬件。
+ * @param configuration 只读活动配置，电流上限单位A。
+ * @param foc 本拍三相实测电流，单位A。
+ * @param motor 所属运行对象；更新热快照，失败仅报告原绕组热故障。
+ * @param samples_ready 本次上电电流零偏已完成；false时只发布快照。
+ * @param outputs_disabled 本拍实际关相事实，与本拍采样使用相同值。
+ * @param output_expected 生命周期要求出力；仅在模型允许运行时查询并传入。
+ * @param derating_allowed 当前控制策略允许热降额；开环电压和功率标定为false。
+ * @note 20kHz快环在Sample之后调用；不清历史、不改配置、不启停功率。
+ */
+void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuration,
+                                          const FocState *foc,
+                                          MotorControlState *motor,
+                                          bool samples_ready,
+                                          bool outputs_disabled,
+                                          bool output_expected,
+                                          bool derating_allowed);
 /**
  * @brief 监督功率开启时的热采样窗口，丢失更新时发布不可自动恢复的失效事件。
  * @param now_ms 单调毫秒时钟。

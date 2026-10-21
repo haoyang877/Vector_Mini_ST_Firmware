@@ -21,6 +21,29 @@ float FOC_MaximumVoltage(float bus_voltage_v)
                : 0.0f;
 }
 
+/* 固定配置只在提交边界绑定，避免快环重复写入或重置控制器积分。 */
+void FOC_ConfigureControllers(const MotorConfiguration *configuration,
+                              FocState *foc,
+                              PiController *speed_pi)
+{
+    foc->id_pi.proportional_gain = configuration->model.id_kp;
+    foc->id_pi.integral_gain = configuration->model.id_ki;
+    foc->id_pi.sample_period_s = Current_Ts;
+    foc->iq_pi.proportional_gain = configuration->model.iq_kp;
+    foc->iq_pi.integral_gain = configuration->model.iq_ki;
+    foc->iq_pi.sample_period_s = Current_Ts;
+    speed_pi->proportional_gain = configuration->application.speed_kp;
+    speed_pi->integral_gain = configuration->application.speed_ki;
+    speed_pi->sample_period_s = Speed_Ts;
+}
+
+void FOC_UpdateCurrentControllerLimits(FocState *foc)
+{
+    float maximum_voltage_v = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
+    foc->id_pi.output_min = foc->iq_pi.output_min = -maximum_voltage_v;
+    foc->id_pi.output_max = foc->iq_pi.output_max = maximum_voltage_v;
+}
+
 /* 计算 d/q 轴调制比并按最大调制深度限幅；母线电压无效时清零输出。
  * 返回值只表示本次是否产生有效调制，不表示功率级已使能。 */
 static bool foc_set_voltage_modulation(FocState *foc, float voltage_d, float voltage_q)

@@ -56,6 +56,7 @@ def main(case: str) -> None:
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(fixture),
             str(ROOT / "firmware/app/runtime/motor_execution.c"),
+            str(ROOT / "firmware/motor/foc/motor_control_execution.c"),
             str(ROOT / "firmware/motor/foc/foc_speed.c"),
             str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
             str(ROOT / "firmware/motor/foc/foc_pid.c"),

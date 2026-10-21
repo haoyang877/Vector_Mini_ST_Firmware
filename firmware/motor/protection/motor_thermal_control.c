@@ -1,6 +1,7 @@
 #include "motor_thermal_control.h"
 
 #include <stddef.h>
+#include "foc_errhandle.h"
 
 /* 快环拥有模型；监督上下文只发布时钟失效事件，不清零热量。 */
 static MotorThermalDiagnostics s_thermal;
@@ -69,6 +70,41 @@ void MotorThermalControl_Sample(
         (void)MotorThermal_Update(model);
         s_thermal.last_update_ms = s_published_update_ms = now_ms;
         ++s_thermal.updates;
+    }
+}
+
+void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuration,
+                                          const FocState *foc,
+                                          MotorControlState *motor,
+                                          bool samples_ready,
+                                          bool outputs_disabled,
+                                          bool output_expected,
+                                          bool derating_allowed)
+{
+    motor->thermal_current_limit_a =
+        MotorThermalControl_CurrentLimit(configuration->application.current_limit_a);
+    motor->thermal_limit_active =
+        motor->thermal_current_limit_a < configuration->application.current_limit_a;
+    motor->thermal_clear_ready = MotorThermalControl_CanClearFault();
+    if (!samples_ready)
+    {
+        return;
+    }
+    if (!MotorThermalControl_CanRun(true) ||
+        (output_expected && !MotorThermalControl_Guard(derating_allowed)))
+    {
+        MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
+    }
+    if (!outputs_disabled && motor->control_mode == MOTOR_CONTROL_VQ)
+    {
+        float vector_squared_a2 = (2.0f / 3.0f) * (foc->phase_a_current_a * foc->phase_a_current_a +
+                                                   foc->phase_b_current_a * foc->phase_b_current_a +
+                                                   foc->phase_c_current_a * foc->phase_c_current_a);
+        float limit_a = motor->thermal_current_limit_a;
+        if (!(vector_squared_a2 <= limit_a * limit_a))
+        {
+            MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
+        }
     }
 }
 

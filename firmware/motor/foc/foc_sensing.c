@@ -7,6 +7,7 @@
 #include "foc_errhandle.h"
 #include "mcu_temperature.h"
 #include "motor_sensing.h"
+#include "power_stage_hw.h"
 #include "control_math.h"
 
 /* 母线电压、相电流与 MCU 温度的判定、滤波与遥测。
@@ -21,6 +22,75 @@
 
 /* 监督 ISR 更新、前台快照读取；私有化不改变原有 volatile 访问。 */
 static volatile McuTemperatureTelemetry s_mcu_temperature;
+
+/* 不把2048或上次存储零点当作本次上电校正资格。 */
+void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
+                              MotorConfiguration *configuration,
+                              FocState *foc)
+{
+    *calibration = (CurrentOffsetCalibration){0};
+    configuration->device.phase_a_offset_counts = NAN;
+    configuration->device.phase_b_offset_counts = NAN;
+    configuration->device.phase_c_offset_counts = NAN;
+    foc->phase_a_current_a = NAN;
+    foc->phase_b_current_a = NAN;
+    foc->phase_c_current_a = NAN;
+}
+
+/* 保留采样证据和首个故障；失败后不自动恢复上电校正资格。 */
+static void fail_current_offset_calibration(CurrentOffsetCalibration *calibration,
+                                            MotorControlState *motor_state)
+{
+    calibration->failed = true;
+    MotorFault_Report(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+}
+
+bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
+                                MotorConfiguration *configuration,
+                                MotorControlState *motor_state)
+{
+    if (calibration->complete || calibration->failed)
+    {
+        return false;
+    }
+    if (!power_stage_hw_phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    {
+        fail_current_offset_calibration(calibration, motor_state);
+        return false;
+    }
+    uint16_t raw[3];
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        raw[phase] = motor_hw_current_sample_raw((MotorHwCurrentPhase)phase);
+        if (raw[phase] > MOTOR_SENSING_ADC_SAMPLE_COUNT * CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
+        {
+            fail_current_offset_calibration(calibration, motor_state);
+            return false;
+        }
+    }
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        calibration->phase_sum_raw[phase] += raw[phase];
+    }
+    if (++calibration->sample_count < CURRENT_OFFSET_SAMPLE_COUNT)
+    {
+        return false;
+    }
+    float scale = MOTOR_SENSING_ADC_SUM_TO_COUNTS / (float)calibration->sample_count;
+    configuration->device.phase_a_offset_counts = (float)calibration->phase_sum_raw[0] * scale;
+    configuration->device.phase_b_offset_counts = (float)calibration->phase_sum_raw[1] * scale;
+    configuration->device.phase_c_offset_counts = (float)calibration->phase_sum_raw[2] * scale;
+    if (!MotorCurrentOffsets_Valid(configuration))
+    {
+        configuration->device.phase_a_offset_counts = NAN;
+        configuration->device.phase_b_offset_counts = NAN;
+        configuration->device.phase_c_offset_counts = NAN;
+        fail_current_offset_calibration(calibration, motor_state);
+        return false;
+    }
+    calibration->complete = true;
+    return true;
+}
 
 /* 母线电压采样、滤波与过压/欠压确认计数。 */
 void Vbus_Update(FocState *foc, MotorControlState *motor_state, bool output_expected)

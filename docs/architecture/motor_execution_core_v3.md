@@ -1,17 +1,18 @@
 # 核心控制执行模块
 
-更新：2026-10-09。适用v1.3.0；当前四种模式为电流、速度、位置、q轴电压。
+更新：2026-10-21。当前四种模式为电流、速度、位置、q轴电压。
 
 ## 模块边界
 
-主状态机批准模式和目标，MotorAxis调度，motor_execution执行一拍控制。
+主状态机批准模式和目标，MotorAxis调度，motor层的motor_control_execution执行一拍控制。
 控制任务不自行启相、不切换主状态、不写Flash；错误由所有者处理。
 
 | 源码 | 核心工作 |
 | --- | --- |
-| [motor_execution.c](../../firmware/app/runtime/motor_execution.c) | 校验目标，协调2kHz速度/位置外环，分发20kHz任务 |
+| [motor_execution.c](../../firmware/app/runtime/motor_execution.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
+| [motor_control_execution.c](../../firmware/motor/foc/motor_control_execution.c) | 协调2kHz速度/位置外环，分发20kHz任务；不读取APP状态机或服务命令 |
 | [position_cascade.c](../../firmware/motor/position/position_cascade.c) | 直接位置PD → 限幅速度参考 → 速度PI → 电流参考 |
-| [foc_algorithm.c](../../firmware/motor/foc/foc_algorithm.c) | 电流变换、d/q PI、电压限幅与调制 |
+| [foc_algorithm.c](../../firmware/motor/foc/foc_algorithm.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
 | [foc_pid.c](../../firmware/motor/foc/foc_pid.c) | PI状态更新、限幅和输出跟踪 |
 | [angle_feedback.c](../../firmware/motor/feedback/angle_feedback.c) | 编码器角度校正及快慢估计 |
 

@@ -62,7 +62,7 @@ def main() -> None:
                 "firmware/motor/math/control_math.c",
                 "firmware/motor/protection/motor_thermal.c",
                 "firmware/motor/protection/motor_thermal_config.c",
-                "firmware/app/runtime/motor_thermal_control.c",
+                "firmware/motor/protection/motor_thermal_control.c",
                 str(out / "reference_foc.c"),
                 str(out / "reference_pi.c"),
                 "-o",

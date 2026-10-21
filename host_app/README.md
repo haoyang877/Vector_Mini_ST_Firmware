@@ -1,5 +1,19 @@
 # YG_MC_HOST
 
+Rust 实机候选 v2.1.2 位于 `rust/`，配套当前共享目标契约：APP1.5.1 / Loader2.1.0 /
+layout6 / schema14。保留七工作区与深色工具主题。连接页显式填写 CAN 设备索引与节点；
+不自动尝试其他适配器。启用原生辅助功能接口，用于键盘操作和 GUI 验证。
+本轮范围和验收见[GUI 实机验证计划](../docs/plans/active/2026-10-21-host-gui-bench-v1.md)。
+界面候选存在不代表实机通过；实际结果以本轮 `outputs/host-live-test/` 记录为准。
+
+```powershell
+$env:CARGO_TARGET_DIR = "$PWD/outputs/host-rust-cargo"
+cargo fmt --manifest-path host_app/rust/Cargo.toml --check
+cargo clippy --manifest-path host_app/rust/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path host_app/rust/Cargo.toml --locked
+cargo build --manifest-path host_app/rust/Cargo.toml --release --locked
+```
+
 v1.4.4 是单页 CAN FD 台架工具，配套共享目标契约的 schema 14 / 参数 ABI 0x000E08F0。默认断开且所有设备值显示未知；没有演示设备、导航、参数写入或标定任务。程序与 APP、Loader 独立构建。
 
 页面只提供：

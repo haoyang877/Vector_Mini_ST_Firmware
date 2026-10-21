@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "node": 3,
+  "vectors": [
+    {
+      "name": "node-query",
+      "id": 777,
+      "request": "00000000",
+      "reply": "40400000"
+    },
+    {
+      "name": "version-query",
+      "id": 879,
+      "request": "00000000",
+      "reply": "00060600"
+    },
+    {
+      "name": "psp-even-query",
+      "id": 876,
+      "request": "00000000",
+      "reply": "3f19999a"
+    },
+    {
+      "name": "thermal-even-query",
+      "id": 910,
+      "request": "00000000",
+      "reply": "40400000"
+    },
+    {
+      "name": "crc-eight-byte-reply",
+      "id": 892,
+      "request": "01020304",
+      "reply": "0102030412345678"
+    },
+    {
+      "name": "source37d",
+      "id": 893,
+      "request": "00000000",
+      "reply": null
+    },
+    {
+      "name": "source37e",
+      "id": 894,
+      "request": "00000000",
+      "reply": null
+    },
+    {
+      "name": "source3fd",
+      "id": 1021,
+      "request": "00000000",
+      "reply": null
+    },
+    {
+      "name": "source3fe",
+      "id": 1022,
+      "request": "00000000",
+      "reply": null
+    },
+    {
+      "name": "read-only-pseudo-write",
+      "id": 838,
+      "request": "00000000",
+      "reply": null
+    },
+    {
+      "name": "fractional-mode",
+      "id": 768,
+      "request": "40600000",
+      "reply": null
+    },
+    {
+      "name": "current-over-7A",
+      "id": 770,
+      "request": "1f40",
+      "reply": null
+    },
+    {
+      "name": "current-sentinel",
+      "id": 770,
+      "request": "8000",
+      "reply": null
+    },
+    {
+      "name": "wrong-node",
+      "id": 1033,
+      "request": "00000000",
+      "reply": null
+    }
+  ]
+}

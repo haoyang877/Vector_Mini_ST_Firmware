@@ -1544,7 +1544,7 @@ bool MotorStateMachine_PrepareSupervisor(MotorSupervisorStep *step)
     {
         return false;
     }
-    *step = (MotorSupervisorStep){0};
+    memset(step, 0, sizeof(*step));
     step->supervisor_epoch = s_context.supervisor_epoch;
 
     /* 每拍输入、稳定窗口及保存衔接只消费一次。 */

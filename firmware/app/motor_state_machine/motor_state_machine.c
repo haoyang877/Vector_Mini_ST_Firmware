@@ -493,6 +493,18 @@ static void publish_transition_fault(void)
     }
 }
 
+/* 普通启动由2kHz监督独占推进；前台参数写不能抢占，快拍只在维护许可下改配置。
+ * 上电电流偏置不在ConfigurationValid扫描范围内；这里只证明纯配置可稳定读取。 */
+static bool startup_configuration_stable(void)
+{
+    return s_context.motor->control_mode != MOTOR_CONTROL_NONE &&
+           s_context.motor->fault_code == MOTOR_FAULT_NONE && !s_context.stop_pending &&
+           !s_context.rules.maintenance_active && !s_context.maintenance_runnable &&
+           !s_context.background_busy && !s_context.has_latched_outcome &&
+           !s_context.has_pending_control && !s_context.save_requested &&
+           s_context.boot_stop_ticket == 0U && !s_context.boot_maintenance_only;
+}
+
 /* 唯一规则提交路径：绑定原身份、读取事实、判定迁移、发布结果并执行动作。
  * CLEAR 只接收已核对的恢复事实；普通启动由监督拍提交，维护受理会同步提交。 */
 static bool dispatch_state_event(uint32_t events,
@@ -500,17 +512,23 @@ static bool dispatch_state_event(uint32_t events,
                                  uint32_t faults,
                                  const MotorStateFacts *current_facts)
 {
-    /* RUNNING期间参数写入和DEFAULTS均不受理。监督空事件的纯配置校验不屏蔽ADC；
-     * 若前台计算期间监督改变了状态/代际，提交时退回原有完整校验路径。
-     * 快故障、STOP、采样资格和功率事实仍在下面的提交临界区读取。 */
+    /* 仅运行空守卫和无维护占用的普通启动在锁外校验配置；提交重核状态与代际。
+     * 快故障、STOP、采样资格、ready和功率事实仍在下面的提交临界区读取。 */
+    MotorState validation_state = s_context.rules.state;
     uint32_t validation_epoch = s_context.rules.epoch;
     bool running_poll =
-        events == 0U && current_facts == NULL && s_context.rules.state == MOTOR_STATE_RUNNING;
+        events == 0U && current_facts == NULL && validation_state == MOTOR_STATE_RUNNING;
+    bool startup_event =
+        current_facts == NULL &&
+        ((events == MOTOR_STATE_EVENT_ENABLE && validation_state == MOTOR_STATE_IDLE) ||
+         (events == 0U && validation_state == MOTOR_STATE_STARTING)) &&
+        startup_configuration_stable();
+    bool configuration_prevalidated = running_poll || startup_event;
     bool configuration_valid =
-        running_poll && ParameterValue_ConfigurationValid(s_context.configuration);
+        configuration_prevalidated && ParameterValue_ConfigurationValid(s_context.configuration);
     uint32_t mask = critical_hw_enter();
     /* 开中断计算期间到达的STOP必须先于空事件守卫；不等待下一监督拍。 */
-    if (running_poll && s_context.stop_pending)
+    if (configuration_prevalidated && s_context.stop_pending)
     {
         events = MOTOR_STATE_EVENT_STOP;
     }
@@ -538,8 +556,9 @@ static bool dispatch_state_event(uint32_t events,
     {
         facts = *current_facts;
     }
-    else if (running_poll && s_context.rules.state == MOTOR_STATE_RUNNING &&
-             validation_epoch == s_context.rules.epoch)
+    else if (configuration_prevalidated && s_context.rules.state == validation_state &&
+             validation_epoch == s_context.rules.epoch &&
+             (!startup_event || startup_configuration_stable()))
     {
         facts = read_locked_state_conditions(configuration_valid);
     }

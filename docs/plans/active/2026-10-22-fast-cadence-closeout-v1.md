@@ -104,3 +104,25 @@ T确认最终STOP、实际关相、参数身份保持和硬件句柄释放。
 ADC故障、跨SAVE/DEFAULTS完成、动态母线和同代STOP序号屏障交错检查通过。
 正常受理配置校验为1次开中断、0次关中断；这只证明离线行为和位置，效果仍须实测。
 证据：`outputs/cadence-closeout-20261022/start-admission-prevalidation-tests/summary.json`。
+
+## 启动监督路径继续收口
+
+1.5.10正式修复提交为`1ef9060ab6071751679acc36e95c10a6cbc75410`。
+原14记录器C仅增加此START受理改动，实测25773个间隔仍有1次>75µs、最大80µs，
+累计较名义周期多49µs；未记时序PASS。最长内部临界区为19µs，返回地址
+`0x08012d05`在`dispatch_state_event`范围内；这仍不是单次gap与临界区的事件关联。
+证据：`outputs/irq14-ab/C-live/continuation-02/summary.json`。
+初次空闲阶段USB-CAN打开失败，未发START且确认关相；失败保留，独立上下文一次续接完成。
+最终恢复正式1.5.10，全片/参数/身份读回匹配，无故障、零目标、真实关相。
+
+第三处最小修复用于APP1.5.11：仅扩展普通启动监督中的IDLE+ENABLE、STARTING空守卫，
+在无维护worker/后台写者及占用的条件下锁外校验配置；提交仍重核同状态、epoch和资格。
+前台参数写不能抢占2kHz监督，快拍维护写者已排除，device偏置不在扫描范围内。
+STOP优先于新解锁窗口里的普通启动事件，当前采样/故障/功率/ready仍锁内读取。
+MAINT、DEFAULTS、SAVE、CLEAR和携带既有facts的START_DONE分支不扩展。
+
+固定1ef9060a对照owner/功率/事件与规则输出一致；ENABLE和STARTING新增开中断窗口的
+ADC故障、STOP、载体失效及跨DEFAULTS+派生SAVE完成检查通过。正常一次监督仍只推进一次，
+ready未完成保持STARTING不启相；过期提交不能再次推进监督计数。
+证据：`outputs/cadence-closeout-20261022/start-supervisor-prevalidation-tests/summary.json`。
+时序效果留待同一原记录器D实际窗口，状态故障测试不以旧owner替代最终版本。

@@ -116,9 +116,15 @@ bool Test_ConfigurationValid(const MotorConfiguration *configuration)
             else
             {
                 assert(MotorStateMachine_RequestRemoteStop());
-                if (interrupt == 3U)
+                if (interrupt == 3U || interrupt == 4U)
                 {
                     tick();
+#if STATE_START_SUPERVISOR_PREVALIDATED
+                    if (interrupt == 4U)
+                    {
+                        inject_start_admission(4U);
+                    }
+#endif
                     cfg.application.current_limit_a = NAN;
                     require_locked_validation = true;
                 }
@@ -1735,6 +1741,69 @@ static void test_start_admission_prevalidation(void)
 #endif
 }
 
+/* ENABLE和STARTING空守卫只解锁配置；动态事件与过期监督载体不能启相或重复提交。 */
+static void test_preemptible_start_supervisor_validation(void)
+{
+#if STATE_START_SUPERVISOR_PREVALIDATED
+    trace_enabled = false;
+    for (unsigned starting = 0U; starting < 2U; ++starting)
+    {
+        reset();
+        outer_ready = false;
+        assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+        if (starting)
+        {
+            tick();
+        }
+        unsigned masked_before = configuration_masked_calls;
+        unsigned unmasked_before = configuration_unmasked_calls;
+        uint32_t before, after;
+        (void)MotorStateMachine_ReadBootHealth(&before);
+        tick();
+        (void)MotorStateMachine_ReadBootHealth(&after);
+        assert(after == before + 1U && configuration_masked_calls == masked_before &&
+               configuration_unmasked_calls == unmasked_before + 2U);
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_STARTING && output_off);
+        for (unsigned interrupt = 1U; interrupt <= 4U; ++interrupt)
+        {
+            reset();
+            outer_ready = false;
+            assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+            if (starting)
+            {
+                tick();
+            }
+            outer_ready = true;
+            (void)MotorStateMachine_ReadBootHealth(&before);
+            masked_before = configuration_masked_calls;
+            validation_unmasked_calls = 0U;
+            validation_interrupt = interrupt;
+            tick();
+            (void)MotorStateMachine_ReadBootHealth(&after);
+            assert(validation_interrupt == 0U && validation_unmasked_calls == 1U &&
+                   !require_locked_validation && configuration_masked_calls > masked_before);
+            assert(after == before + (interrupt == 4U ? 4U : 1U));
+            assert(output_off && start_count == 0U && critical_depth == 0U);
+            assert(MotorStateMachine_GetState() ==
+                   (interrupt == 1U ? MOTOR_STATE_FAULT : MOTOR_STATE_IDLE));
+            if (interrupt == 4U)
+            {
+                assert(!cfg.configuration_confirmed && cfg.device.encoder.calib_flag == 0U &&
+                       leaf_calls[MOTOR_MAINTENANCE_DEFAULTS] == 1U);
+            }
+        }
+    }
+    reset();
+    uint32_t ticket;
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_DEFAULTS, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    unsigned unmasked_before = configuration_unmasked_calls;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_MAINTENANCE &&
+           configuration_unmasked_calls == unmasked_before);
+#endif
+}
+
 /* 固定基线仍做完整扫描；当前健康查询只消费原输入谓词，不改变布尔资格。 */
 static void assert_boot_health(bool expected)
 {
@@ -1806,6 +1875,7 @@ int main(void)
     test_preemptible_running_validation();
     test_preemptible_start_validation();
     test_start_admission_prevalidation();
+    test_preemptible_start_supervisor_validation();
     test_defaults_preserves_device_address();
     test_rejected_start_does_not_bind_source();
     test_direct_fault_recovery_and_idle_stop();

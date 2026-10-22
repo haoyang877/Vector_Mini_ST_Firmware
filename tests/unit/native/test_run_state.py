@@ -170,6 +170,7 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
         + f"#define STATE_SUPERVISOR_STAGED {int('MotorStateMachine_PrepareSupervisor' in owner_text)}\n"
         + f"#define STATE_BOOT_HEALTH_INPUTS_ONLY {int(health_inputs_only)}\n"
         + f"#define STATE_START_ADMISSION_PREVALIDATED {int('prepare_start_configuration' in owner_text)}\n"
+        + f"#define STATE_START_SUPERVISOR_PREVALIDATED {int('startup_configuration_stable' in owner_text)}\n"
         + owner_fixture(tree),
         encoding="utf-8",
     )

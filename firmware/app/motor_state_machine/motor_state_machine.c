@@ -104,6 +104,13 @@ static bool temperature_measurement_fresh(void)
     return MotorTemperature_IsFresh() && isfinite(s_context.foc->temperature_c);
 }
 
+/* 调用方持有临界区；健康查询与状态守卫共用本拍输入资格，不扫描配置。 */
+static bool state_inputs_valid(void)
+{
+    return s_context.fast_samples_fresh && bus_measurements_finite() && phase_currents_finite() &&
+           temperature_measurement_fresh();
+}
+
 /* 感测自检：允许无功率母线，不要求标定；运行保护与启相窗口另有契约。 */
 static uint32_t read_self_test_measurements(void)
 {
@@ -357,8 +364,7 @@ static MotorStateFacts read_locked_state_conditions(bool configuration_valid)
     /* 取消确认必须同时取得每个 worker 和前台的实际释放证明。 */
     facts.operation_idle = !s_context.background_busy && !s_context.has_latched_outcome;
     facts.maintenance_released = !s_context.background_busy && MotorMaintenance_IsReleased();
-    facts.inputs_valid = s_context.fast_samples_fresh && bus_measurements_finite() &&
-                         phase_currents_finite() && temperature_measurement_fresh();
+    facts.inputs_valid = state_inputs_valid();
     facts.configuration_valid = configuration_valid;
     /* 正常控制／维护及停止只从完成初始化的状态进入，不保存第二份完成标志。 */
     bool stable_self_test = s_context.rules.state == MOTOR_STATE_INIT &&
@@ -1258,8 +1264,7 @@ bool MotorStateMachine_ReadBootHealth(uint32_t *progress)
     }
     uint32_t mask = critical_hw_enter();
     *progress = s_context.supervisor_epoch;
-    bool healthy =
-        read_state_conditions().inputs_valid && s_context.rules.state != MOTOR_STATE_FATAL;
+    bool healthy = state_inputs_valid() && s_context.rules.state != MOTOR_STATE_FATAL;
     critical_hw_exit(mask);
     return healthy;
 }

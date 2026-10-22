@@ -42,9 +42,11 @@ static bool outer_ready;
 static uint32_t critical_depth;
 static unsigned validation_interrupt;
 static unsigned validation_unmasked_calls, validation_masked_calls;
+static unsigned configuration_validation_calls;
 static bool require_locked_validation;
 static uint32_t now_ms;
 static void tick(void);
+static void assert_boot_health(bool expected);
 #if STATE_SUPERVISOR_STAGED
 static void test_staged_supervisor(void);
 #endif
@@ -75,6 +77,7 @@ void critical_hw_exit(uint32_t mask)
 /* 观测真实配置校验的屏蔽状态；在开中断区间模拟一次高优先级事件。 */
 bool Test_ConfigurationValid(const MotorConfiguration *configuration)
 {
+    ++configuration_validation_calls;
     bool valid = ParameterValue_ConfigurationValid(configuration);
     if (require_locked_validation)
     {
@@ -1496,6 +1499,7 @@ static void test_thermal_owner_admission_and_clear(void)
     MotorFault_Report(&motor, MOTOR_FAULT_WINDING_THERMAL);
     tick();
     assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT && output_off);
+    assert_boot_health(true);
     assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_DENIED);
     for (unsigned window = 0U; window < 120000U && !MotorThermalControl_CanClearFault(); ++window)
     {
@@ -1584,6 +1588,72 @@ static void test_preemptible_start_validation(void)
 #endif
 }
 
+/* 固定基线仍做完整扫描；当前健康查询只消费原输入谓词，不改变布尔资格。 */
+static void assert_boot_health(bool expected)
+{
+    unsigned validation_before = configuration_validation_calls;
+    uint32_t progress = UINT32_MAX;
+    assert(MotorStateMachine_ReadBootHealth(&progress) == expected);
+    assert(progress != UINT32_MAX && critical_depth == 0U);
+#if STATE_BOOT_HEALTH_INPUTS_ONLY
+    assert(configuration_validation_calls == validation_before);
+#else
+    assert(configuration_validation_calls == validation_before + 1U);
+#endif
+}
+
+static void test_boot_health_inputs(void)
+{
+    reset();
+    uint32_t progress, next;
+    assert_boot_health(true);
+    assert(MotorStateMachine_ReadBootHealth(&progress) && progress != 0U);
+    assert(MotorStateMachine_ReadBootHealth(&next) && next == progress);
+    tick();
+    assert(MotorStateMachine_ReadBootHealth(&next) && next != progress);
+    MotorStateMachine_Tick();
+    assert_boot_health(false);
+    tick();
+    float *measurements[] = {&foc.bus_voltage_v,
+                             &foc.bus_voltage_filtered_v,
+                             &foc.phase_a_current_a,
+                             &foc.phase_b_current_a,
+                             &foc.phase_c_current_a,
+                             &foc.temperature_c};
+    const float invalid_values[] = {NAN, INFINITY, -INFINITY};
+    for (unsigned field = 0U; field < sizeof(measurements) / sizeof(measurements[0]); ++field)
+    {
+        float saved = *measurements[field];
+        for (unsigned value = 0U; value < sizeof(invalid_values) / sizeof(invalid_values[0]);
+             ++value)
+        {
+            *measurements[field] = invalid_values[value];
+            assert_boot_health(false);
+        }
+        *measurements[field] = saved;
+    }
+    temperature_fresh = false;
+    assert_boot_health(false);
+    temperature_fresh = true;
+    assert_boot_health(true);
+    MotorFault_Report(&motor, MOTOR_FAULT_OVERVOLTAGE);
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FAULT);
+    cfg.application.current_limit_a = NAN;
+    assert(!ParameterValue_ConfigurationValid(&cfg));
+    assert_boot_health(true);
+    reset();
+    MotorStateMachine_Init(&cfg, &motor, &foc, &pi, &encoder, &startup);
+    output_off = false;
+    stop_fails = true;
+    tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_FATAL);
+    assert_boot_health(false);
+    unsigned validation_before = configuration_validation_calls;
+    assert(!MotorStateMachine_ReadBootHealth(NULL));
+    assert(configuration_validation_calls == validation_before && critical_depth == 0U);
+}
+
 int main(void)
 {
     test_preemptible_running_validation();
@@ -1597,15 +1667,7 @@ int main(void)
     test_self_test_deadline();
     test_quiet_init_and_idle_stop();
     test_startup_offset_deadline();
-    reset();
-    uint32_t progress, next;
-    assert(MotorStateMachine_ReadBootHealth(&progress) && progress != 0U);
-    assert(MotorStateMachine_ReadBootHealth(&next) && next == progress);
-    tick();
-    assert(MotorStateMachine_ReadBootHealth(&next) && next != progress);
-    MotorStateMachine_Tick();
-    assert(!MotorStateMachine_ReadBootHealth(&next));
-    assert(!MotorStateMachine_ReadBootHealth(NULL));
+    test_boot_health_inputs();
     test_wire_projection();
     test_identified_speed_start();
     test_control();

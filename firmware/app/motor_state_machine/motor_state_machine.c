@@ -827,7 +827,44 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
     critical_hw_exit(mask);
 }
 
-MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
+typedef struct
+{
+    uint32_t epoch;
+    bool reusable, configuration_valid;
+} StartConfigurationValidation;
+
+/* 调用方持锁；只在无维护/后台写者的关相IDLE中预校验，前台参数写不能重入。
+ * 快拍上电偏置不属于ConfigurationValid扫描字段；动态保护事实仍在提交锁内重读。 */
+static bool start_configuration_stable(void)
+{
+    return s_context.rules.state == MOTOR_STATE_IDLE &&
+           s_context.motor->control_mode == MOTOR_CONTROL_NONE &&
+           s_context.motor->fault_code == MOTOR_FAULT_NONE && !s_context.stop_pending &&
+           !s_context.maintenance_runnable && !request_busy() && power_stage_hw_phases_disabled();
+}
+
+/* 只保存本次调用的纯校验结果；跨状态代际或维护占用变化时退回原锁内扫描。 */
+static StartConfigurationValidation prepare_start_configuration(MotorControlMode mode)
+{
+    StartConfigurationValidation validation = {0};
+    if ((unsigned)mode > MOTOR_CONTROL_VQ || s_context.boot_maintenance_only)
+    {
+        return validation;
+    }
+    uint32_t mask = critical_hw_enter();
+    validation.epoch = s_context.rules.epoch;
+    validation.reusable = start_configuration_stable();
+    critical_hw_exit(mask);
+    if (validation.reusable)
+    {
+        validation.configuration_valid = ParameterValue_ConfigurationValid(s_context.configuration);
+    }
+    return validation;
+}
+
+/* 调用方持有最终提交锁；身份、动态许可、清零和意图发布保持同一次原子受理。 */
+static MotorControlResult request_enable_locked(MotorControlMode mode,
+                                                const StartConfigurationValidation *validation)
 {
     if ((unsigned)mode > MOTOR_CONTROL_VQ)
     {
@@ -837,8 +874,10 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
     {
         return MOTOR_CONTROL_DENIED;
     }
-    uint32_t mask = critical_hw_enter();
-    MotorStateFacts facts = read_state_conditions();
+    MotorStateFacts facts = validation->reusable && validation->epoch == s_context.rules.epoch &&
+                                    start_configuration_stable()
+                                ? read_locked_state_conditions(validation->configuration_valid)
+                                : read_state_conditions();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
     if (s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
@@ -862,6 +901,14 @@ MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
         s_context.enable_pending = true;
         result = MOTOR_CONTROL_ACCEPTED;
     }
+    return result;
+}
+
+MotorControlResult MotorStateMachine_RequestEnable(MotorControlMode mode)
+{
+    StartConfigurationValidation validation = prepare_start_configuration(mode);
+    uint32_t mask = critical_hw_enter();
+    MotorControlResult result = request_enable_locked(mode, &validation);
     critical_hw_exit(mask);
     return result;
 }
@@ -874,6 +921,7 @@ MotorStateMachine_RequestIdentifiedEnable(const MotorControlStartRequest *reques
     {
         return MOTOR_CONTROL_INVALID;
     }
+    StartConfigurationValidation validation = prepare_start_configuration(request->mode);
     uint32_t mask = critical_hw_enter();
     MotorControlResult result;
     const MotorControlStartProgress *previous =
@@ -897,7 +945,7 @@ MotorStateMachine_RequestIdentifiedEnable(const MotorControlStartRequest *reques
     }
     else
     {
-        result = MotorStateMachine_RequestEnable(request->mode);
+        result = request_enable_locked(request->mode, &validation);
         s_context.latest_start = (MotorControlStartProgress){
             .request = *request,
             .state = result == MOTOR_CONTROL_ACCEPTED ? MOTOR_CONTROL_START_PENDING

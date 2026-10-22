@@ -43,10 +43,15 @@ static uint32_t critical_depth;
 static unsigned validation_interrupt;
 static unsigned validation_unmasked_calls, validation_masked_calls;
 static unsigned configuration_validation_calls;
+static unsigned configuration_masked_calls, configuration_unmasked_calls;
 static bool require_locked_validation;
 static uint32_t now_ms;
 static void tick(void);
 static void assert_boot_health(bool expected);
+#if STATE_START_ADMISSION_PREVALIDATED
+static unsigned start_admission_interrupt;
+static void inject_start_admission(unsigned interrupt);
+#endif
 #if STATE_SUPERVISOR_STAGED
 static void test_staged_supervisor(void);
 #endif
@@ -78,6 +83,14 @@ void critical_hw_exit(uint32_t mask)
 bool Test_ConfigurationValid(const MotorConfiguration *configuration)
 {
     ++configuration_validation_calls;
+    if (critical_depth != 0U)
+    {
+        ++configuration_masked_calls;
+    }
+    else
+    {
+        ++configuration_unmasked_calls;
+    }
     bool valid = ParameterValue_ConfigurationValid(configuration);
     if (require_locked_validation)
     {
@@ -112,6 +125,14 @@ bool Test_ConfigurationValid(const MotorConfiguration *configuration)
             }
         }
     }
+#if STATE_START_ADMISSION_PREVALIDATED
+    if (start_admission_interrupt != 0U && critical_depth == 0U)
+    {
+        unsigned interrupt = start_admission_interrupt;
+        start_admission_interrupt = 0U;
+        inject_start_admission(interrupt);
+    }
+#endif
     return valid;
 }
 bool power_stage_hw_phases_disabled(void)
@@ -243,6 +264,9 @@ static void reset(void)
     trace_enabled = false;
     validation_interrupt = 0U;
     require_locked_validation = false;
+#if STATE_START_ADMISSION_PREVALIDATED
+    start_admission_interrupt = 0U;
+#endif
     now_ms = 0U;
     memset(&cfg, 0, sizeof(cfg));
     memset(&motor, 0, sizeof(motor));
@@ -285,6 +309,60 @@ static void reset(void)
     trace_enabled = resume_trace;
     trace_capture("reset", 0U, 0U);
 }
+
+#if STATE_START_ADMISSION_PREVALIDATED
+/* 只在新增开中断校验窗口注入事件；维护仍经真实owner/worker完成，不改私有状态。 */
+static void inject_start_admission(unsigned interrupt)
+{
+    assert(critical_depth == 0U);
+    if (interrupt == 1U)
+    {
+        MotorFault_Report(&motor, MOTOR_FAULT_OVERVOLTAGE);
+        MotorStateMachine_FastFaultStop();
+    }
+    else if (interrupt == 2U)
+    {
+        assert(MotorStateMachine_RequestRemoteStop());
+    }
+    else if (interrupt == 3U || interrupt == 4U)
+    {
+        uint32_t ticket;
+        MotorMaintenanceKind kind =
+            interrupt == 3U ? MOTOR_MAINTENANCE_SAVE : MOTOR_MAINTENANCE_DEFAULTS;
+        assert(MotorStateMachine_RequestMaintenance(kind, &ticket) == MOTOR_CONTROL_ACCEPTED);
+        if (kind == MOTOR_MAINTENANCE_DEFAULTS)
+        {
+            MotorTaskResult outcome =
+                MotorMaintenance_Step(&cfg, kind, &foc, &motor, &pi, &encoder, NULL, &startup);
+            assert(outcome.result == MOTOR_TASK_COMPLETED);
+            MotorStateMachine_PostOutcome(outcome, ticket);
+            tick();
+            tick();
+            assert(MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_SAVE);
+        }
+        FocBackgroundClaim claim;
+        assert(MotorStateMachine_BeginBackground(&claim));
+        MotorStateMachine_FinishBackground(&claim, true);
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE);
+    }
+    else if (interrupt == 5U)
+    {
+        foc.bus_voltage_filtered_v = BUS_VOLTAGE_ENABLE_MIN_V - 1.0f;
+    }
+    else
+    {
+        assert(interrupt == 6U);
+        uint32_t epoch = MotorStateMachine_WorkEpoch();
+        assert(MotorStateMachine_RequestIdentifiedStop(7U, 20U));
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_IDLE &&
+               MotorStateMachine_WorkEpoch() == epoch);
+    }
+    /* 故障/STOP或跨维护代际时，最终提交必须退回原锁内完整扫描。 */
+    require_locked_validation = interrupt <= 4U;
+}
+#endif
 
 /* 只记录公共值与硬件桩动作；不读私有状态，不改变请求或监督调用次序。 */
 static unsigned trace_float(float value)
@@ -1588,6 +1666,75 @@ static void test_preemptible_start_validation(void)
 #endif
 }
 
+/* 两入口只在稳定关相IDLE解锁校验；动态拒绝和跨维护配置不能复用旧结果。 */
+static void test_start_admission_prevalidation(void)
+{
+#if STATE_START_ADMISSION_PREVALIDATED
+    trace_enabled = false;
+    for (unsigned identified = 0U; identified < 2U; ++identified)
+    {
+        reset();
+        unsigned masked_before = configuration_masked_calls;
+        unsigned unmasked_before = configuration_unmasked_calls;
+        MotorControlStartRequest request = {
+            .mode = MOTOR_CONTROL_SPEED, .source_node = 7U, .sequence = 10U};
+        MotorControlResult result = identified ? MotorStateMachine_RequestIdentifiedEnable(&request)
+                                               : MotorStateMachine_RequestEnable(request.mode);
+        assert(result == MOTOR_CONTROL_ACCEPTED && output_off && start_count == 0U);
+        assert(configuration_masked_calls == masked_before &&
+               configuration_unmasked_calls == unmasked_before + 1U);
+        for (unsigned interrupt = 1U; interrupt <= (identified ? 6U : 5U); ++interrupt)
+        {
+            reset();
+            masked_before = configuration_masked_calls;
+            uint32_t epoch = MotorStateMachine_WorkEpoch();
+            start_admission_interrupt = interrupt;
+            result = identified ? MotorStateMachine_RequestIdentifiedEnable(&request)
+                                : MotorStateMachine_RequestEnable(request.mode);
+            assert(start_admission_interrupt == 0U && !require_locked_validation &&
+                   critical_depth == 0U && output_off && start_count == 0U);
+            MotorControlResult expected = interrupt == 1U   ? MOTOR_CONTROL_FAULT
+                                          : interrupt == 3U ? MOTOR_CONTROL_ACCEPTED
+                                          : interrupt == 6U ? MOTOR_CONTROL_STALE_SEQUENCE
+                                                            : MOTOR_CONTROL_DENIED;
+            assert(result == expected);
+            if (interrupt == 3U || interrupt == 4U)
+            {
+                assert(MotorStateMachine_WorkEpoch() != epoch);
+            }
+            if (interrupt == 4U)
+            {
+                assert(!cfg.configuration_confirmed && cfg.device.encoder.calib_flag == 0U &&
+                       leaf_calls[MOTOR_MAINTENANCE_DEFAULTS] == 1U);
+            }
+            if (interrupt == 5U)
+            {
+                assert(configuration_masked_calls == masked_before);
+            }
+            if (identified && interrupt != 6U)
+            {
+                MotorControlStartProgress progress;
+                assert(MotorStateMachine_ReadEnableProgress(7U, 10U, &progress));
+                assert(progress.result == expected &&
+                       progress.state == (expected == MOTOR_CONTROL_ACCEPTED
+                                              ? MOTOR_CONTROL_START_PENDING
+                                              : MOTOR_CONTROL_START_REJECTED));
+            }
+        }
+        reset();
+        uint32_t ticket;
+        assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_DEFAULTS, &ticket) ==
+               MOTOR_CONTROL_ACCEPTED);
+        unmasked_before = configuration_unmasked_calls;
+        masked_before = configuration_masked_calls;
+        result = identified ? MotorStateMachine_RequestIdentifiedEnable(&request)
+                            : MotorStateMachine_RequestEnable(request.mode);
+        assert(result == MOTOR_CONTROL_BUSY && configuration_unmasked_calls == unmasked_before &&
+               configuration_masked_calls == masked_before + 1U);
+    }
+#endif
+}
+
 /* 固定基线仍做完整扫描；当前健康查询只消费原输入谓词，不改变布尔资格。 */
 static void assert_boot_health(bool expected)
 {
@@ -1658,6 +1805,7 @@ int main(void)
 {
     test_preemptible_running_validation();
     test_preemptible_start_validation();
+    test_start_admission_prevalidation();
     test_defaults_preserves_device_address();
     test_rejected_start_does_not_bind_source();
     test_direct_fault_recovery_and_idle_stop();

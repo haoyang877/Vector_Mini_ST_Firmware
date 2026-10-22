@@ -55,4 +55,52 @@ ReadBootHealth的最小修复已完成：state_inputs_valid复用原四谓词，
 证据：`outputs/bench/t158-supervisor-20261021/boot-health-inputs-only-20261022-02/summary.json`。
 首次夹具热watchdog注入污染后续场景的失败保留在原目录；夹具已改用既有热trip流程，
 未为测试修改生产热历史行为。
-候选14缺失6份精确插桩源，不能重建其严格反事实；后续如改用候选16同源A/B须明确新基线。
+候选14一度缺失6份精确插桩源；现已从历史patch数据恢复，原summary指定的11项输入
+全部逐字节SHA256匹配。恢复清单见
+`outputs/bench/irq-timing-20261021/recovered-candidate14/recovery-manifest.json`。
+T正在准备原14记账方式下的严格A/B，未批准用别的记录器冒充原反事实。
+
+## 1.5.9实测进展
+
+产品修复提交为`8e7b53d34c0954c8d532eea18524f76b95600f09`，APP1.5.9 / Loader2.1.0。
+隔离构建清单为`outputs/delivery/boot-health-159-8e7b53d3-20261022/summary.json`；
+APP BIN SHA256为`13230868ebad657399586174b8b12e4961b95c553d82b16aa790cea07ff9609c`。
+
+候选16同记录器A/B已经实际完成，13次健康查询中，旧实现锁内主体平均13.31µs、
+最大14µs，新实现平均1.77µs、最大2µs。测量不含锁的进入/退出及探针统计尾部，
+不能写成完整PRIMASK最长时间。两侧ADC最大间隔均为62µs、无超过75µs事件；
+该窗口未重现候选14异常，不能据此认定唯一根因已修。
+
+未插桩正式1.5.9已下载并通过空闲、低速1/2rad/s、目标更新与STOP有限窗，
+平均快环约20kHz、监督约2kHz；终点计数不能证明每个周期无长间隔。
+T确认最终STOP、实际关相、参数身份保持和硬件句柄释放。
+实测证据为`outputs/bench/t158-supervisor-20261021/live-attempt-06-health-ab-20261022/summary.json`。
+
+最终1.5.9对应的早期CLEAR拒绝、FAULT内START拒绝和pending目标撤销仍未覆盖。
+候选17已离线构建并等待窄审；在严格节拍对照优先完成后执行，不扩大成全量回归。
+
+## 原记录器反事实与第二处缩锁
+
+已用恢复输入精确重建原候选14，A的83808字节BIN与原件相同。
+同一IRQ3/SEG1记录器下，A有限窗25955个间隔出现3次>75µs、最大87µs；
+仅回移健康修复的B在24280个间隔中仍出现1次、最大86µs。
+总间隔与名义50µs周期累计分别相差150/49µs。单窗不能推出统计改善或唯一因果；
+健康修复不足以消除原记录器中的异常，未将其记作PASS。
+实测及恢复记录：`outputs/irq14-ab/live-proposal/summary.json`。
+两窗均无电机故障且STOP/真实关相通过；首次恢复在擦写前因备份文件重名退出，
+保留原失败记录，独立目录恢复正式1.5.9后全片、参数及身份读回匹配。
+
+源码和匹配反汇编同时确认：旧critical计时未包括恢复PRIMASK前的统计尾部，
+每ADC拍又在JEOS清除前执行四次stage统计；这些观测不能当未插桩产品WCET。
+原两侧最长内部临界区约20µs，调用者均为RequestIdentifiedEnable。
+
+第二处最小修复用于APP1.5.10：仅在受保护的关相IDLE、无STOP/故障/维护worker或占用
+条件下，锁外执行原纯配置校验。结果仅保存在本次调用栈上；最终原子提交重新检查
+资格和epoch，变化时退回原完整扫描。epoch不是配置版本；证明依赖前台串行和IDLE无写者，
+不允许跨DEFAULTS/维护完成直接复用结果。来源/序号、动态保护、清参考/PI复位及意图发布
+仍留在同一最终锁内。ENABLE/STARTING规则派发及原ready检查不改。
+
+固定8e7b53d3基线的owner/功率/事件轨迹、262144规则输出保持；新增两入口的STOP、
+ADC故障、跨SAVE/DEFAULTS完成、动态母线和同代STOP序号屏障交错检查通过。
+正常受理配置校验为1次开中断、0次关中断；这只证明离线行为和位置，效果仍须实测。
+证据：`outputs/cadence-closeout-20261022/start-admission-prevalidation-tests/summary.json`。

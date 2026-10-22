@@ -45,3 +45,7 @@ data_recoder/
 *.egg-info/
 /host_app/build/
 /host_app/dist/
+
+# Device maintenance packages stay local; only source and checksum metadata are tracked.
+/releases/device-maintenance/**/*.zip
+/releases/device-maintenance/**/*.exe

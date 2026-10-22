@@ -1,0 +1,78 @@
+{
+  "format": "vector-mini-maintenance-source-tag-v1",
+  "tag": "maintenance-v1.1.1",
+  "software_version": "1.1.1",
+  "archive_created_date": "2026-10-19",
+  "git_archive_date": "2026-10-22",
+  "package": {
+    "storage": "local-only-not-in-git",
+    "local_path": "outputs/releases/VectorMini_v1.1.1_Loader_v1.0.0_APP_v0.5.3_20261019.zip",
+    "file": "VectorMini_v1.1.1_Loader_v1.0.0_APP_v0.5.3_20261019.zip",
+    "bytes": 24551316,
+    "sha256": "8b4c78d0f84b36ec1625b78301b1515ab2e6bf98ad90173fd5d93989b511d0e3"
+  },
+  "maintenance_source": {
+    "commit": "7e01354c10caceb1eb9048172519e244e9f02f3d",
+    "directory": "loader/tools",
+    "sha256_normalized_lf": {
+      "build_flasher_exe.py": "f63d5b5fde8525e6f8b8104de30df200f5968eacc71f05ba9b7e55a6eb6489a9",
+      "loader_factory.py": "9a459918497e5460eeae673492dd681df6aec68c5706edf08e551fa6640397d0",
+      "loader_flasher_gui.py": "7742f323e203ae6ee65d662c2ffbf8afd585aaa064b33edf3e58e4e708040348",
+      "loader_proto.py": "0301df10d3023698b255e5c42ebfe2e1a924033094b641e7c65111d03682e1ae",
+      "loader_updater.py": "7f52a0cdce8adcff25d0ad7b63f50d7feb6f4377717cb23f78114a8554bbd7d7",
+      "maintenance_backend.py": "1405920fef09478f86350254e181f0f1d05e132112eb593ebd4d65dd60a06b40",
+      "maintenance_version.py": "aeea39185fde466bbae2c6c8fa0a20ea43bad4e17a67cf82883a9fad76c36bf9",
+      "usbcan_adapter.py": "341ac9f32fa41e5f230a4c01df550d38cebf4a3929cbfdeca0c15e82af36a3e8"
+    }
+  },
+  "exe": {
+    "bytes": 24492713,
+    "sha256": "71ef94164a53176fab837a2742e940c8768a00eb513818b31a253c0b5239d883"
+  },
+  "bundled_firmware": {
+    "loader_version": "1.0.0",
+    "loader": {
+      "bytes": 12244,
+      "sha256": "b8446131fba078689b4cd3863a1205e4aa490397d045c4b27239b69934cd8563"
+    },
+    "app_version": "0.5.3",
+    "app_source_commit": "abac5dec9599f15b3ee02aea4f0c19dc819343cf",
+    "app": {
+      "bytes": 85912,
+      "sha256": "95d047245d3b7279559ec5099021d78d28921fd292dd5e496782187a63d534ac"
+    },
+    "combined_hex": "Loader_v1.0.0_APP_v0.5.3_20261019.hex",
+    "combined_hex_sha256": "228446a89b0b004f1e195d5dafe150bb0025ff599bd9e0e4678990aadbca2234",
+    "formal_release": false,
+    "hardware_revalidated_this_archive": false
+  },
+  "validation": {
+    "archive_integrity": "PASS",
+    "manifest_entries_verified": 22,
+    "current_maintenance_source_matches_archived_exe_source": true,
+    "offline_checks": {
+      "version": {
+        "status": "PASS",
+        "hardware_accessed": false,
+        "report_sha256": "c01492a9cbf66a28593f761478f58917586b712b17a725ee4bc97f7aab45ff9e"
+      },
+      "drivers": {
+        "status": "PASS",
+        "hardware_accessed": false,
+        "report_sha256": "fbc434bcef9a07db5db74bfcb2315a33396d84501522132a54fcb03c9d033100"
+      },
+      "hex": {
+        "status": "PASS",
+        "hardware_accessed": false,
+        "report_sha256": "168c050166a3f7246bed8d1f066991b9ddb14ae47a57239ae561bb25e41fa1e2"
+      },
+      "ui": {
+        "status": "PASS",
+        "hardware_accessed": false,
+        "report_sha256": "0297df9e0955c83bdad88f335c356c0fb3c6194e449378c923e38a563fe14ec9"
+      }
+    }
+  },
+  "hardware_accessed": false,
+  "firmware_flashed": false
+}

@@ -1,0 +1,270 @@
+{
+  "source": "F456_base libraries, AT32F45x SDK 2.0.1",
+  "files": [
+    {
+      "path": "cmsis/core/cmsis_armcc.h",
+      "input": "cmsis/cm4/core_support/cmsis_armcc.h",
+      "sha256": "d074534d7106cec83474b3b0a897bd2553e1a8895ecbd54f4f4fb25928066eee"
+    },
+    {
+      "path": "cmsis/core/cmsis_armclang.h",
+      "input": "cmsis/cm4/core_support/cmsis_armclang.h",
+      "sha256": "11b39b96ddc1125124762b3423a77b90dd40ea5b4582a3513830245046b24311"
+    },
+    {
+      "path": "cmsis/core/cmsis_armclang_ltm.h",
+      "input": "cmsis/cm4/core_support/cmsis_armclang_ltm.h",
+      "sha256": "8621969ea669a1b230ff2125a760ef66d575c48cb45e9e457f768909abcbda46"
+    },
+    {
+      "path": "cmsis/core/cmsis_compiler.h",
+      "input": "cmsis/cm4/core_support/cmsis_compiler.h",
+      "sha256": "869640702d811c4c63abb52206715c891a93fd03be954df5ad40d378355af3d6"
+    },
+    {
+      "path": "cmsis/core/cmsis_gcc.h",
+      "input": "cmsis/cm4/core_support/cmsis_gcc.h",
+      "sha256": "3d4e265d0aa42f888385ccf073666e6ebb5ec9f834760b9da27c474e177f708d"
+    },
+    {
+      "path": "cmsis/core/cmsis_iccarm.h",
+      "input": "cmsis/cm4/core_support/cmsis_iccarm.h",
+      "sha256": "f28119adbc81fb0e3c957c9aebe8fb423ad93634e76ead3caa2b0818d2e123ae"
+    },
+    {
+      "path": "cmsis/core/cmsis_version.h",
+      "input": "cmsis/cm4/core_support/cmsis_version.h",
+      "sha256": "8cda7ac3ff6f0eb5e83c4fe613dd195151b24da54167f5c3c007e599a03f1edc"
+    },
+    {
+      "path": "cmsis/core/core_cm4.h",
+      "input": "cmsis/cm4/core_support/core_cm4.h",
+      "sha256": "d59a9e3ed4cf43a3c74a2e48f344d41be2b6363ef9394ea2c551052fe553a6af"
+    },
+    {
+      "path": "cmsis/core/mpu_armv7.h",
+      "input": "cmsis/cm4/core_support/mpu_armv7.h",
+      "sha256": "de1b5eb9ed566527b66dc06f4ecb6a43ab6800f7dac47e87c9cb42984dca41bb"
+    },
+    {
+      "path": "cmsis/device/at32f45x.h",
+      "input": "cmsis/cm4/device_support/at32f45x.h",
+      "sha256": "ac84ff411c60f969237574bf32f7c9aabfbdc6507859a1033598460818004940"
+    },
+    {
+      "path": "cmsis/device/at32f45x_conf_template.h",
+      "input": "cmsis/cm4/device_support/at32f45x_conf_template.h",
+      "sha256": "ebd2fe40666c3f5b055a3a1f97703c24b8b154e25daeced24cc6ee142e0ac0e5"
+    },
+    {
+      "path": "cmsis/device/system_at32f45x.c",
+      "input": "cmsis/cm4/device_support/system_at32f45x.c",
+      "sha256": "ea4aadc90584ce185b1e53cf8731608925599fbac587e6783620052f8fb84afb"
+    },
+    {
+      "path": "cmsis/device/system_at32f45x.h",
+      "input": "cmsis/cm4/device_support/system_at32f45x.h",
+      "sha256": "148cc86976f40b0eff68082ed09d5ff0d1905fc0c86ec22f18d525c79da4f8c8"
+    },
+    {
+      "path": "cmsis/startup_at32f45x.s",
+      "input": "cmsis/cm4/device_support/startup/mdk/startup_at32f45x.s",
+      "sha256": "1f9967c2be5072655d08f5438b6d2e0f581f5f4798d0d719c077dfc7012e3f7f"
+    },
+    {
+      "path": "drivers/inc/at32f45x_acc.h",
+      "input": "drivers/inc/at32f45x_acc.h",
+      "sha256": "5ccba06a06dee06656f9981940b749fafd5646f61e783d5ee292ccee43eafef0"
+    },
+    {
+      "path": "drivers/inc/at32f45x_adc.h",
+      "input": "drivers/inc/at32f45x_adc.h",
+      "sha256": "043b1f85a5043a8492add75a8964e7062dea5d59b5a3e05133bfe471b620efdd"
+    },
+    {
+      "path": "drivers/inc/at32f45x_aes.h",
+      "input": "drivers/inc/at32f45x_aes.h",
+      "sha256": "3cdbfe8c415c88d43369182c8c62736d559e273e08f19445c6131784747d4da7"
+    },
+    {
+      "path": "drivers/inc/at32f45x_can.h",
+      "input": "drivers/inc/at32f45x_can.h",
+      "sha256": "ec8f589db476c75c1324fa29a3cf2bc9bc299e293222d573bc3846fca4fddb93"
+    },
+    {
+      "path": "drivers/inc/at32f45x_crc.h",
+      "input": "drivers/inc/at32f45x_crc.h",
+      "sha256": "a11dc61232d319ff9f6031dfae8287675fee322432ba6bfe353a75df4bf4bb18"
+    },
+    {
+      "path": "drivers/inc/at32f45x_crm.h",
+      "input": "drivers/inc/at32f45x_crm.h",
+      "sha256": "8a8ee0c86a51725722485283953cc6bb94df2d8b4037b2d9558547d4b8bbdbd7"
+    },
+    {
+      "path": "drivers/inc/at32f45x_dac.h",
+      "input": "drivers/inc/at32f45x_dac.h",
+      "sha256": "a856fe26923db56cbd9d76911cbc7ac06719a5b202f2cf0ef476f86670caa79d"
+    },
+    {
+      "path": "drivers/inc/at32f45x_debug.h",
+      "input": "drivers/inc/at32f45x_debug.h",
+      "sha256": "bede4a994dae5b7ce8e5de9c2ed32f081e3c6c61bd73e89edc1ac4046adbf70d"
+    },
+    {
+      "path": "drivers/inc/at32f45x_def.h",
+      "input": "drivers/inc/at32f45x_def.h",
+      "sha256": "3ec2e3f2b3dd5ff6f7d955895a5f6795e0aad34a7d082fff09f9b9b47332ddcc"
+    },
+    {
+      "path": "drivers/inc/at32f45x_dma.h",
+      "input": "drivers/inc/at32f45x_dma.h",
+      "sha256": "d21469bf7daba6a5a4b5120aec00ccc0e45a09e1e7a96b3f5d058cf000e798b0"
+    },
+    {
+      "path": "drivers/inc/at32f45x_emac.h",
+      "input": "drivers/inc/at32f45x_emac.h",
+      "sha256": "54a2a41a148bd4e37e52a181bfbebea4783baa65f1b5d5364eaa54a5f28b7f73"
+    },
+    {
+      "path": "drivers/inc/at32f45x_ertc.h",
+      "input": "drivers/inc/at32f45x_ertc.h",
+      "sha256": "ed0f031ac32afdd59fd0fb918f6014289860052f9ed748f60bc413ba04dec14f"
+    },
+    {
+      "path": "drivers/inc/at32f45x_exint.h",
+      "input": "drivers/inc/at32f45x_exint.h",
+      "sha256": "f84516af68b7bf2e1216798165a2103094c8b8eb444a4daaa16bb07182b8c2ff"
+    },
+    {
+      "path": "drivers/inc/at32f45x_flash.h",
+      "input": "drivers/inc/at32f45x_flash.h",
+      "sha256": "b8ea6df2d8d6b8283676d24f30173d79e6073f25cb3f7d5cbd4e5e2cb3adf64f"
+    },
+    {
+      "path": "drivers/inc/at32f45x_gpio.h",
+      "input": "drivers/inc/at32f45x_gpio.h",
+      "sha256": "9965063f211481abed42da407bef07b3e1ffb4ec63f46025e85b0c0dd3794266"
+    },
+    {
+      "path": "drivers/inc/at32f45x_i2c.h",
+      "input": "drivers/inc/at32f45x_i2c.h",
+      "sha256": "8d586c254af97ec9e99e157eaa1971c3ca2b3f3be730cbe52931fef05e44cb10"
+    },
+    {
+      "path": "drivers/inc/at32f45x_misc.h",
+      "input": "drivers/inc/at32f45x_misc.h",
+      "sha256": "735da1cfbb50d6e4a6131604299aa9ecfd4b4e939284fd57d74ea7ccbdd00f7a"
+    },
+    {
+      "path": "drivers/inc/at32f45x_pwc.h",
+      "input": "drivers/inc/at32f45x_pwc.h",
+      "sha256": "3dcfb8d6898cc2ffe49dd710e0004a1d759692bb4389e8c8022fa8d748eae148"
+    },
+    {
+      "path": "drivers/inc/at32f45x_qspi.h",
+      "input": "drivers/inc/at32f45x_qspi.h",
+      "sha256": "825b096232ac2005990d7bf06fb00ec79bc108abd194e2a80977a001cd545a06"
+    },
+    {
+      "path": "drivers/inc/at32f45x_scfg.h",
+      "input": "drivers/inc/at32f45x_scfg.h",
+      "sha256": "2cd1761878aeb09bb973bb5670f42f055723d6c14a9da8af05dd3e9c7f2a1ffa"
+    },
+    {
+      "path": "drivers/inc/at32f45x_sdio.h",
+      "input": "drivers/inc/at32f45x_sdio.h",
+      "sha256": "5058dafe960e30784d1e183706da7a3bd6f19fa90f1b905f1b76775bca585369"
+    },
+    {
+      "path": "drivers/inc/at32f45x_spi.h",
+      "input": "drivers/inc/at32f45x_spi.h",
+      "sha256": "9a0d375bc5bf4fbbea4d11069537521b59ab694908eed0864692f62d6c1e0794"
+    },
+    {
+      "path": "drivers/inc/at32f45x_tmr.h",
+      "input": "drivers/inc/at32f45x_tmr.h",
+      "sha256": "07d81ab5261bdfe03c129501e8b96041ea0f5174fb61c87eed3dbfbe85749012"
+    },
+    {
+      "path": "drivers/inc/at32f45x_trng.h",
+      "input": "drivers/inc/at32f45x_trng.h",
+      "sha256": "4933d7543a0db8203756b8427fd15aa31506354adc88d07eb878fc5de9059ff5"
+    },
+    {
+      "path": "drivers/inc/at32f45x_usart.h",
+      "input": "drivers/inc/at32f45x_usart.h",
+      "sha256": "77af466b9b11334e3f5241639e2b2cad7aab467992e909543a416cf9dbe3b902"
+    },
+    {
+      "path": "drivers/inc/at32f45x_usb.h",
+      "input": "drivers/inc/at32f45x_usb.h",
+      "sha256": "5de3e0612653d12ec297150805f41d9cbb30b0ba8814cd8dc6a4f41219455e5a"
+    },
+    {
+      "path": "drivers/inc/at32f45x_wdt.h",
+      "input": "drivers/inc/at32f45x_wdt.h",
+      "sha256": "454b0f9236ac3b5c36746209bc9da7cf7f77c9128b22c7173c82250aec032d93"
+    },
+    {
+      "path": "drivers/inc/at32f45x_wwdt.h",
+      "input": "drivers/inc/at32f45x_wwdt.h",
+      "sha256": "ab1cfa7f342bb5909f30814f2272fb4a4ec9a1bd21e712a3d6c7e90a2389239c"
+    },
+    {
+      "path": "drivers/inc/at32f45x_xmc.h",
+      "input": "drivers/inc/at32f45x_xmc.h",
+      "sha256": "c19c98c0eb9b8230ae1198995724956f847f5bd9229a1b5a98108b09a784e720"
+    },
+    {
+      "path": "drivers/src/at32f45x_adc.c",
+      "input": "drivers/src/at32f45x_adc.c",
+      "sha256": "181371bab2416c8d7dfdf0b37ed716a370898ed6325b41f95bd3c8c1efa468df"
+    },
+    {
+      "path": "drivers/src/at32f45x_can.c",
+      "input": "drivers/src/at32f45x_can.c",
+      "sha256": "e0b3a18788ecc4674765cfe858c44949b8a7a793b8956a903291fe604b0055fe"
+    },
+    {
+      "path": "drivers/src/at32f45x_crm.c",
+      "input": "drivers/src/at32f45x_crm.c",
+      "sha256": "84f06b5925342b94fb2576e230b9575f5589372dd7d08eec523915285a48bbda"
+    },
+    {
+      "path": "drivers/src/at32f45x_dma.c",
+      "input": "drivers/src/at32f45x_dma.c",
+      "sha256": "a888ba15d3221e4a87b2c3cbebc0c7426343ac12687f12c44cf981fe75350321"
+    },
+    {
+      "path": "drivers/src/at32f45x_flash.c",
+      "input": "drivers/src/at32f45x_flash.c",
+      "sha256": "61214ba15c45a0ff41a394ff83b35f85ceb7df212d1d4014a0000331b8b77181"
+    },
+    {
+      "path": "drivers/src/at32f45x_gpio.c",
+      "input": "drivers/src/at32f45x_gpio.c",
+      "sha256": "b10929f3012996d359dfcad9081d174a19526d89a15115775674337a74f49b3f"
+    },
+    {
+      "path": "drivers/src/at32f45x_misc.c",
+      "input": "drivers/src/at32f45x_misc.c",
+      "sha256": "47d12d002e8c6d3f34fff1d4456674aa4eb3c9575a16258344083aa2a6260546"
+    },
+    {
+      "path": "drivers/src/at32f45x_pwc.c",
+      "input": "drivers/src/at32f45x_pwc.c",
+      "sha256": "17395a25c0a6f34c2db9590ff0af91593ebc5c031acc63fc3f0539fd8d4123ca"
+    },
+    {
+      "path": "drivers/src/at32f45x_spi.c",
+      "input": "drivers/src/at32f45x_spi.c",
+      "sha256": "13a966013993380592b1c18a0a13dc1043f8da3c51c6e7ab0e15e1c41f50bb03"
+    },
+    {
+      "path": "drivers/src/at32f45x_tmr.c",
+      "input": "drivers/src/at32f45x_tmr.c",
+      "sha256": "c39874113783bb2017a4d4401c9227efc31b2c4cbffa14f467c834d6ee5d30f8"
+    }
+  ]
+}

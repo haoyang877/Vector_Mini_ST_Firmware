@@ -80,6 +80,24 @@ Counter_Reset(void);
                 _, new, _ = check_architecture.evaluate()
         self.assertEqual(new, [violation])
 
+    def test_board_configuration_cannot_depend_on_motor_implementation(self):
+        """公共能力可消费目标数据，目标数据不得反向依赖电机功能。"""
+        with tempfile.TemporaryDirectory() as folder:
+            root = _Path(folder)
+            api = root / "firmware/platform/api"
+            board = root / "firmware/platform/config/boards"
+            motor = root / "firmware/motor"
+            for directory in (api, board, motor):
+                directory.mkdir(parents=True)
+            (api / "board_profile_defaults.h").write_text('#include "../config/boards/example.h"\n')
+            (board / "example.h").write_text('#include "motor_example.h"\n')
+            (motor / "motor_example.h").write_text("#define MOTOR_EXAMPLE 1\n")
+            with patch.object(check_architecture, "ROOT", root):
+                violations = check_architecture.scan()
+        self.assertEqual(len(violations), 1)
+        self.assertEqual(violations[0]["from_layer"], "platform_config")
+        self.assertEqual(violations[0]["to_layer"], "motor")
+
     def test_docs_and_hygiene_have_no_unwaived_problem(self):
         self.assertEqual(check_docs.problems(), [])
         self.assertEqual(check_hygiene.problems(), [])

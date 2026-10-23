@@ -3,7 +3,7 @@
 
 #include "board_profile_defaults.h"
 
-/* 采样派生量与相电流保护策略；原始硬件输入归board_profile_defaults.h所有。 */
+/* 公共采样派生量：固定输入与保护限值由board_profile_defaults.h选择的目标数据提供。 */
 
 /* 固定输入的编译期派生量；不分配存储、不在采样时重复计算。
  * 双极性ADC以额定参考的一半为中点：2mΩ为±82.5A，6mΩ为±27.5A。 */
@@ -15,25 +15,5 @@
     (CURRENT_SENSE_PROFILE_ADC_MIDSCALE_V /                                                        \
      (CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN * CURRENT_SENSE_PROFILE_SHUNT_RESISTANCE_OHM))
 #define CURRENT_SENSE_PROFILE_PATH_COMPENSATION_OHM PARAM_HW_PHASE_RESISTANCE_PATH_COMPENSATION_OHM
-
-/* 既有策略的单位为相电流幅值A，不能由ADC满量程代替或推算。 */
-
-#if CURRENT_SENSE_SHUNT_MILLIOHM == CURRENT_SENSE_SHUNT_2_MILLIOHM
-
-#define CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A 60.0f
-#define CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A 30.0f
-#define CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A 30.0f
-#define CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A 40.0f
-
-#elif CURRENT_SENSE_SHUNT_MILLIOHM == CURRENT_SENSE_SHUNT_6_MILLIOHM
-
-#define CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A 20.0f
-#define CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A 10.0f
-#define CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A 10.0f
-#define CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A 18.0f
-
-#else
-#error "Unsupported CURRENT_SENSE_SHUNT_MILLIOHM; select 2U or 6U"
-#endif
 
 #endif

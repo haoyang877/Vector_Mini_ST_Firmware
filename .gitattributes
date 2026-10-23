@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# 固定来源的第三方源码保留原始字节，确保跨平台检出后仍匹配manifest哈希。
+firmware/third_party/at32f45x/** -text
+firmware/third_party/segger_rtt/** -text

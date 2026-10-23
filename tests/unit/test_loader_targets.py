@@ -150,7 +150,7 @@ class LoaderTargetTests(unittest.TestCase):
             for node in parsed.findall(".//FilePath")
         }
         self.assertIn(
-            (self.root / "firmware/platform/stm32g4/cubemx/Core/Src/main.c").resolve(),
+            (self.root / "firmware/platform/stm32g4/application/main.c").resolve(),
             generated_sources,
         )
         # 工程、链接、源清单和后处理均来自同一清单；任何一个过期都应在编译前拒绝。

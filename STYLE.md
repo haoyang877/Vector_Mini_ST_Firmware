@@ -10,6 +10,8 @@ Vendor and generated sources retain their upstream formatting.
 - Managed C/C++: repository-owned sources under `firmware`, `loader`, `host_app`, `shared`, and
   `tests/hil/firmware`.
 - Excluded: `firmware/third_party/**` and all `firmware/platform/**/cubemx/**` generated content.
+  The relocated CubeMX entry `firmware/platform/stm32g4/application/main.c` also keeps its
+  generated formatting; other files in `application/` remain managed.
 - Check only: `uv run python tools/run.py format --check` and
   `uv run python tools/run.py lint`.
 - Format new or changed managed files: `uv run python tools/run.py format`.

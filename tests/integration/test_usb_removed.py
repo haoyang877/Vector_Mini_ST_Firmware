@@ -23,7 +23,7 @@ class UsbRemovalTests(unittest.TestCase):
                 self.assertNotRegex(path.lower(), r"usb|pcd|ring_buffer")
 
     def test_startup_and_supervisor_keep_can_without_usb_calls(self):
-        main = (CUBEMX / "Core/Src/main.c").read_text(encoding="utf-8")
+        main = (ROOT / "firmware/platform/stm32g4/application/main.c").read_text(encoding="utf-8")
         task = (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8")
         self.assertIn("MX_FDCAN1_Init();", main)
         self.assertNotIn("CAN_Service();", task)
@@ -50,7 +50,7 @@ class UsbRemovalTests(unittest.TestCase):
         self.assertNotIn("USB", text)
         for pin in ("PA11", "PA12"):
             self.assertIn(pin + ".Signal=GPIO_Analog", text)
-        self.assertIn("ProjectManager.MainLocation=Core/Src", text)
+        self.assertIn("ProjectManager.MainLocation=../application", text)
         self.assertIn("ProjectManager.TargetToolchain=MDK-ARM V5.32", text)
         values = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
         for prefix, count in (("IP", "IPsNb"), ("Pin", "PinsNb")):

@@ -20,6 +20,8 @@ native_extensions = [".c", ".h", ".cc", ".cpp", ".hh", ".hpp"]
 exclude_prefixes = [
   "firmware/third_party",
   "firmware/platform/stm32g4/cubemx",
+  # 与CubeMX的MainLocation对应；仅搬迁的生成入口保留原格式。
+  "firmware/platform/stm32g4/application/main.c",
   "host_app/.venv",
   "host_app/build",
   "host_app/dist",
@@ -96,6 +98,10 @@ allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters",
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
 allows = ["target_profile", "platform_api", "motor", "parameters", "platform_stm32", "cubemx", "shared"]
+
+[architecture.layers.stm32_application]
+paths = ["firmware/platform/stm32g4/application"]
+allows = ["platform_api", "app", "cubemx"]
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/stm32g4/cubemx/Core"]

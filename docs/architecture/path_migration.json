@@ -15,7 +15,7 @@
     "Core/Src/dma.c": "firmware/platform/stm32g4/cubemx/Core/Src/dma.c",
     "Core/Src/fdcan.c": "firmware/platform/stm32g4/cubemx/Core/Src/fdcan.c",
     "Core/Src/gpio.c": "firmware/platform/stm32g4/cubemx/Core/Src/gpio.c",
-    "Core/Src/main.c": "firmware/platform/stm32g4/cubemx/Core/Src/main.c",
+    "Core/Src/main.c": "firmware/platform/stm32g4/application/main.c",
     "Core/Src/spi.c": "firmware/platform/stm32g4/cubemx/Core/Src/spi.c",
     "Core/Src/stm32g4xx_hal_msp.c": "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_hal_msp.c",
     "Core/Src/stm32g4xx_it.c": "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c",

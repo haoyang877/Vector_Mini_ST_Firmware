@@ -24,6 +24,7 @@ def main():
             "r40-openloop-power",
             "r40-openloop-combined",
             "r40-closedloop",
+            "r40-app-off",
         ),
         default="all",
     )
@@ -45,6 +46,9 @@ def main():
     }
     targets["r40-closedloop"] = (
         ROOT / "firmware/platform/at32f456/foundation/R40_F456_ClosedLoop.uvprojx"
+    )
+    targets["r40-app-off"] = (
+        ROOT / "firmware/platform/at32f456/application/R40_F456_App_Off.uvprojx"
     )
     for kind, project in targets.items():
         # all保留既有含义，底层验证镜像只接受显式选择，不能混入APP发布。

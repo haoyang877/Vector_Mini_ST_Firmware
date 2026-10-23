@@ -1,0 +1,14 @@
+; 独立关相APP：末16KiB参数保留，顶端128字节留给故障/调试诊断。
+LR_IROM1 0x08000000 0x0003C000 {
+  ER_IROM1 0x08000000 0x0003C000 {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+  RW_IRAM1 0x20000000 0x0001AF80 {
+    .ANY (+RW +ZI)
+  }
+  RW_DIAGNOSTIC 0x2001AF80 UNINIT 0x00000080 {
+    * (.bss.r40_noinit)
+  }
+}

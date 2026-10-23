@@ -1,4 +1,5 @@
 #include "yg_protocol_status_adapter.h"
+#include "app_bus_current.h"
 
 #include <math.h>
 
@@ -130,6 +131,7 @@ void YgProtocolStatusAdapter_Refresh(void)
     MotorMaintenanceKind kind;
     MotorState state = MotorAxis_ReadStatus(
         &s_source.sample, &s_source.measurement_valid_bits, &kind, &s_source.control_progress);
+    AppBusCurrent_Apply(&s_source.sample.bus_current, &s_source.measurement_valid_bits);
     s_source.faults = fault_bits((MotorFaultCode)s_source.sample.fault);
     s_source.mode = protocol_mode((MotorControlMode)s_source.sample.mode, kind);
     s_source.state = state == MOTOR_STATE_FATAL ? 9U

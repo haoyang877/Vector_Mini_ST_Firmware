@@ -19,6 +19,32 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     base = ROOT / "firmware/platform/at32f456"
     native = ROOT / "tests/unit/native"
+    for profile in (1, 2):
+        feedback_executable = args.out.resolve() / f"app_bus_current_{profile}.exe"
+        feedback_command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
+        subprocess.run(
+            feedback_command
+            + NATIVE_INCLUDE_FLAGS
+            + [
+                "-I",
+                str(base / "bsp"),
+                "-std=c11",
+                "-O2",
+                "-UNDEBUG",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                f"-DFOC_ACTIVE_HW_PROFILE={profile}",
+                str(native / "app_bus_current_test.c"),
+                str(ROOT / "firmware/app/composition/yg_protocol_status_adapter.c"),
+                str(ROOT / "firmware/communication/protocol/yg_protocol_motor_status.c"),
+                "-lm",
+                "-o",
+                str(feedback_executable),
+            ],
+            check=True,
+        )
+        subprocess.run([str(feedback_executable)], check=True)
     executable = args.out.resolve() / "r40_foundation.exe"
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
@@ -142,6 +168,24 @@ def main() -> int:
         check=True,
     )
     subprocess.run([str(rtt_executable)], check=True)
+    app_rtt_executable = args.out.resolve() / "r40_app_rtt.exe"
+    subprocess.run(
+        command[: command.index("-I")]
+        + NATIVE_INCLUDE_FLAGS
+        + [
+            "-I",
+            str(base / "application"),
+            "-I",
+            str(ROOT / "firmware/third_party/segger_rtt"),
+            str(base / "application/app_telemetry.c"),
+            str(ROOT / "firmware/third_party/segger_rtt/SEGGER_RTT.c"),
+            str(native / "r40_app_telemetry_test.c"),
+            "-o",
+            str(app_rtt_executable),
+        ],
+        check=True,
+    )
+    subprocess.run([str(app_rtt_executable)], check=True)
     window_executable = args.out.resolve() / "r40_power_window.exe"
     subprocess.run(
         command[: command.index("-I")]

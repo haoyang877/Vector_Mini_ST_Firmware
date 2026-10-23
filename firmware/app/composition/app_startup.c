@@ -15,7 +15,7 @@
 #include "yg_protocol_status_adapter.h"
 #include "yg_protocol_owner_adapter.h"
 #include "time_hw.h"
-#include "vector_mini_st_g431.h"
+#include "app_target.h"
 #include "yg_protocol_byte_order.h"
 #include "device_identity.h"
 

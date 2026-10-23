@@ -1,0 +1,8 @@
+// 完整APP使用DWT作为采样时基；断开调试时不得停止该计数器。
+// 只调整探针退出策略，不写外设、复位芯片或开启功率输出。
+int SetupTarget(void)
+{
+    JLINK_ExecCommand("SetDbgPowerDownOnClose = 0");
+    JLINK_ExecCommand("SetSkipDebugDeInit = 1");
+    return 0;
+}

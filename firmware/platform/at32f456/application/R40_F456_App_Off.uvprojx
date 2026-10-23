@@ -336,7 +336,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls></MiscControls>
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,APP_TARGET_R40_F456=1,FOC_ACTIVE_HW_PROFILE=2,FOC_ACTIVE_MOTOR_PROFILE=2,R40_APP_PHASE_LOCK=1,R40_APP_BINDINGS=1,R40_TEMPERATURE_SENSING_ENABLED=1</Define>
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,APP_TARGET_R40_F456=1,FOC_ACTIVE_HW_PROFILE=2,FOC_ACTIVE_MOTOR_PROFILE=2,R40_APP_PHASE_LOCK=1,R40_APP_BINDINGS=1,R40_TEMPERATURE_SENSING_ENABLED=1,R40_APP_MCU_TEMPERATURE_OPTIONAL=1</Define>
               <Undefine></Undefine>
               <IncludePath>.;..\..\..\third_party\segger_rtt;..\bsp;..\ports;..\..\api;..\..\..\app\composition;..\..\..\app\runtime;..\..\..\app\motor_state_machine;..\..\..\motor\math;..\..\..\communication\can;..\..\..\communication\protocol;..\..\..\..\shared\checksum;..\..\..\..\shared\protocol;..\..\..\..\shared\boot;..\..\..\..\shared\image;..\..\..\..\shared\targets;..\..\..\motor;..\..\..\motor\foc;..\..\..\motor\calibration;..\..\..\motor\feedback;..\..\..\motor\position;..\..\..\motor\protection;..\..\..\parameters;..\..\..\app\interfaces;..\..\..\third_party\at32f45x\drivers\inc;..\..\..\third_party\at32f45x\cmsis\core;..\..\..\third_party\at32f45x\cmsis\device</IncludePath>
             </VariousControls>

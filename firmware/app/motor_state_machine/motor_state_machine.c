@@ -108,7 +108,14 @@ static bool temperature_measurement_fresh(void)
 static bool state_inputs_valid(void)
 {
     return s_context.fast_samples_fresh && bus_measurements_finite() && phase_currents_finite() &&
-           temperature_measurement_fresh();
+           (!BOARD_REQUIRE_MCU_TEMPERATURE || temperature_measurement_fresh());
+}
+
+/* 可选项不计入必需检查，但原始事实位保持无效；其他七项和未知位仍严格检查。 */
+static bool self_test_checks_complete(uint32_t checks)
+{
+    uint32_t optional = BOARD_REQUIRE_MCU_TEMPERATURE ? 0U : MOTOR_SELF_TEST_TEMPERATURE_VALID;
+    return (checks | optional) == MOTOR_SELF_TEST_ALL;
 }
 
 /* 感测自检：允许无功率母线，不要求标定；运行保护与启相窗口另有契约。 */
@@ -469,7 +476,7 @@ static void publish_transition_fault(void)
         s_context.motor->fault_code == MOTOR_FAULT_NONE)
     {
         MotorFaultCode error = MOTOR_FAULT_CONTROL_OVERRUN;
-        if (!MotorTemperature_IsFresh())
+        if (BOARD_REQUIRE_MCU_TEMPERATURE && !MotorTemperature_IsFresh())
         {
             error = MOTOR_FAULT_TEMPERATURE_SENSOR;
         }
@@ -635,7 +642,7 @@ static void advance_initialization(void)
     }
     MotorStateFacts facts = read_state_conditions();
     uint32_t checks = build_self_test_checks(&facts);
-    if (checks != MOTOR_SELF_TEST_ALL || s_context.motor->fault_code != MOTOR_FAULT_NONE)
+    if (!self_test_checks_complete(checks) || s_context.motor->fault_code != MOTOR_FAULT_NONE)
     {
         s_context.self_test_stable_ticks = 0U;
         return;
@@ -1018,7 +1025,7 @@ MotorControlResult MotorStateMachine_RequestClear(void)
         result = MOTOR_CONTROL_ACCEPTED;
     }
     else if (s_context.rules.state == MOTOR_STATE_FAULT && MotorThermalControl_CanClearFault() &&
-             build_self_test_checks(&facts) == MOTOR_SELF_TEST_ALL &&
+             self_test_checks_complete(build_self_test_checks(&facts)) &&
              (error == MOTOR_FAULT_NONE || MotorFault_SourceRecovered(s_context.configuration,
                                                                       &s_context.recovery,
                                                                       s_context.motor,

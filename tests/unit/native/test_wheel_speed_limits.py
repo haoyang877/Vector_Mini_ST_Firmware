@@ -420,6 +420,45 @@ def verify_motor_profiles(cc: list[str], out: Path) -> None:
     print("PASS unknown model, invalid damping and incomplete APP rejection")
 
 
+def verify_application_defaults(cc: list[str], out: Path) -> None:
+    """用真实默认值和校验函数检查新旧板；不以手写夹具覆盖默认电流。"""
+    source = "\n".join(
+        function_source((ROOT / path).read_text(encoding="utf-8"), name)
+        for path, name in (
+            ("firmware/parameters/parameter_record.c", "Param_Return_Default"),
+            ("firmware/parameters/parameter_values.c", "ParameterValue_ConfigurationValid"),
+        )
+    )
+    (out / "app_defaults_subject.inc").write_text(source, encoding="utf-8")
+    for profile, expected in ((1, "6.0f"), (2, "3.0f")):
+        executable = out / f"app_defaults_{profile}.exe"
+        flags = [f"-DFOC_ACTIVE_HW_PROFILE={profile}", f"-DEXPECTED_DEFAULT_A={expected}"]
+        if profile == 2:
+            flags += [
+                "-DFOC_ACTIVE_MOTOR_PROFILE=2",
+                "-DAPP_TARGET_R40_F456=1",
+                "-DR40_APP_PHASE_LOCK=1",
+                "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1",
+            ]
+        subprocess.run(
+            cc
+            + ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+            + flags
+            + [
+                str(ROOT / "tests/unit/native/app_defaults_test.c"),
+                str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
+                str(ROOT / "firmware/motor/protection/motor_thermal.c"),
+                str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
+                str(ROOT / "firmware/motor/math/control_math.c"),
+                "-lm",
+                "-o",
+                str(executable),
+            ],
+            check=True,
+        )
+        subprocess.run([str(executable)], check=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cc", required=True)
@@ -435,6 +474,7 @@ def main():
         cc += ["cc"]
     cc += NATIVE_INCLUDE_FLAGS
     verify_motor_profiles(cc, out)
+    verify_application_defaults(cc, out)
     exe = out / "wheel_speed_test.exe"
     includes = [str(out)] + [
         str(ROOT / p)

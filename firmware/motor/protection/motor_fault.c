@@ -58,9 +58,11 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
         return samples_fresh && Encoder_IsOnline(rotor_encoder) &&
                Encoder_GetBadFrameStreak(rotor_encoder) == 0U;
     case MOTOR_FAULT_TEMPERATURE_SENSOR:
-        return temperature_fresh && isfinite(foc->temperature_c);
+        return !BOARD_REQUIRE_MCU_TEMPERATURE ||
+               (temperature_fresh && isfinite(foc->temperature_c));
     case MOTOR_FAULT_OVERTEMPERATURE:
-        return temperature_fresh && foc->temperature_c < RUN_STATE_TEMP_RECOVER_C;
+        return !BOARD_REQUIRE_MCU_TEMPERATURE ||
+               (temperature_fresh && foc->temperature_c < RUN_STATE_TEMP_RECOVER_C);
     case MOTOR_FAULT_OVERVOLTAGE:
     case MOTOR_FAULT_UNDERVOLTAGE:
         return (isfinite(foc->bus_voltage_filtered_v) &&

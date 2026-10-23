@@ -155,7 +155,13 @@ def invoke(command: list[str], log: Path) -> str:
     return text
 
 
-def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path) -> dict:
+def run_variant(
+    tree: Path,
+    output: Path,
+    compiler: list[str],
+    maintenance: Path,
+    optional_temperature: bool = False,
+) -> dict:
     """各版本分别编译 owner 和 rules，保留所有旧断言。"""
     output.mkdir(parents=True, exist_ok=True)
     source = output / "run_state_owner.c"
@@ -165,13 +171,26 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
     health_inputs_only = "state_inputs_valid()" in function_source(
         owner_text, "MotorStateMachine_ReadBootHealth"
     )
+    fixture = owner_fixture(tree)
+    if optional_temperature:
+        # 新板使用真实默认值，防止夹具手填3A掩盖默认配置超限。
+        fixture = fixture.replace(
+            "cfg.application.current_limit_a = 6.0f;",
+            "cfg.application.current_limit_a = PARAM_APP_DEFAULT_CURRENT_LIMIT_A;",
+        )
+        case = ROOT / "tests/unit/native/mcu_temperature_owner_case.c"
+        fixture = (
+            "#define main required_temperature_main\n"
+            + fixture
+            + f'\n#undef main\n#include "{case.as_posix()}"\n'
+        )
     source.write_text(
         f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n"
         + f"#define STATE_SUPERVISOR_STAGED {int('MotorStateMachine_PrepareSupervisor' in owner_text)}\n"
         + f"#define STATE_BOOT_HEALTH_INPUTS_ONLY {int(health_inputs_only)}\n"
         + f"#define STATE_START_ADMISSION_PREVALIDATED {int('prepare_start_configuration' in owner_text)}\n"
         + f"#define STATE_START_SUPERVISOR_PREVALIDATED {int('startup_configuration_stable' in owner_text)}\n"
-        + owner_fixture(tree),
+        + fixture,
         encoding="utf-8",
     )
     # 仅替换实际校验调用名用于观测屏蔽状态；校验主体仍链接该版本的真实实现。
@@ -199,9 +218,17 @@ def run_variant(tree: Path, output: Path, compiler: list[str], maintenance: Path
             "-Wall",
             "-Wextra",
             "-Werror",
-            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(source),
         ]
+        + (
+            [
+                "-DFOC_ACTIVE_HW_PROFILE=2",
+                "-DR40_APP_PHASE_LOCK=1",
+                "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1",
+            ]
+            if optional_temperature
+            else ["-DCURRENT_SENSE_SHUNT_MILLIOHM=6U"]
+        )
         + [str(path) for path in production]
         + ["-o", str(executable)]
     )
@@ -276,6 +303,14 @@ def main() -> None:
                 tree / "firmware/app/runtime/motor_maintenance.c",
             )
         current = run_variant(ROOT, output / "current", compiler, maintenance)
+        optional = run_variant(
+            ROOT,
+            output / "r40_optional_temperature",
+            compiler,
+            maintenance,
+            optional_temperature=True,
+        )
+        summary["r40_optional_temperature"] = optional["owner"]
         if reference is not None:
             differences = []
             for name in ("owner", "rules"):

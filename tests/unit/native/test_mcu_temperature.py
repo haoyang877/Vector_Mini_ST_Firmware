@@ -113,6 +113,88 @@ int main(void) {
     )
     subprocess.run([str(exe)], check=True)
 
+    state = (ROOT / "firmware/app/motor_state_machine/motor_state_machine.c").read_text(
+        encoding="utf-8"
+    )
+    fault = (ROOT / "firmware/motor/protection/motor_fault.c").read_text(encoding="utf-8")
+    subject = (
+        "\n".join(
+            line
+            for line in (production + "\n" + fault).splitlines()
+            if line.startswith(("#define CURRENT_OFFSET_", "#define RUN_STATE_"))
+        )
+        + "\n"
+    )
+    for content, names in (
+        (fault, ("MotorFault_Report",)),
+        (
+            production,
+            ("Temperature_Update", "MotorTemperature_IsFresh", "MotorCurrentOffsets_Valid"),
+        ),
+        (
+            state,
+            (
+                "bus_measurements_finite",
+                "phase_currents_finite",
+                "temperature_measurement_fresh",
+                "state_inputs_valid",
+                "self_test_checks_complete",
+                "read_self_test_measurements",
+            ),
+        ),
+        (fault, ("MotorFault_SourceRecovered",)),
+    ):
+        for name in names:
+            subject += "\n" + function_source(content, name)
+    (out / "mcu_temperature_policy_subject.inc").write_text(subject, encoding="utf-8")
+    for name, flags in (
+        ("old_required", ["-DFOC_ACTIVE_HW_PROFILE=1"]),
+        (
+            "old_ignores_r40_flag",
+            ["-DFOC_ACTIVE_HW_PROFILE=1", "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1"],
+        ),
+        ("r40_required", ["-DFOC_ACTIVE_HW_PROFILE=2"]),
+        (
+            "r40_optional",
+            [
+                "-DFOC_ACTIVE_HW_PROFILE=2",
+                "-DR40_APP_PHASE_LOCK=1",
+                "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1",
+            ],
+        ),
+    ):
+        policy_exe = out / (name + ".exe")
+        subprocess.run(
+            compiler
+            + ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+            + NATIVE_INCLUDE_FLAGS
+            + flags
+            + [
+                str(ROOT / "tests/unit/native/mcu_temperature_policy_test.c"),
+                "-lm",
+                "-o",
+                str(policy_exe),
+            ],
+            check=True,
+        )
+        subprocess.run([str(policy_exe)], check=True)
+    policy_header = out / "policy_header.c"
+    policy_header.write_text('#include "board_profile_defaults.h"\n', encoding="utf-8")
+    for flags in (
+        ["-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1"],
+        ["-DR40_APP_MCU_TEMPERATURE_OPTIONAL=2", "-DR40_APP_PHASE_LOCK=1"],
+    ):
+        rejected = subprocess.run(
+            compiler
+            + NATIVE_INCLUDE_FLAGS
+            + ["-DFOC_ACTIVE_HW_PROFILE=2"]
+            + flags
+            + ["-c", str(policy_header), "-o", str(out / "invalid.o")],
+            capture_output=True,
+        )
+        if rejected.returncode == 0:
+            raise RuntimeError("非法温度策略或未锁定输出的目标没有被编译期拒绝")
+
 
 if __name__ == "__main__":
     main()

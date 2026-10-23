@@ -218,7 +218,8 @@ void Current_Cal(const MotorConfiguration *configuration,
     }
 }
 
-/* 内部温度轮询、结果发布、失效超时与过温跳闸。 */
+/* 内部温度轮询、结果发布、失效超时与过温跳闸。
+ * 板级可选策略只影响故障判定，绝不把缺失样本转换成有效温度。 */
 void Temperature_Update(FocState *foc, MotorControlState *motor_state)
 {
     MotorHwTemperaturePoll poll;
@@ -247,7 +248,7 @@ void Temperature_Update(FocState *foc, MotorControlState *motor_state)
             ++s_mcu_temperature.sample_count;
             /* 90°C 比后缀 6 器件的 105°C 结温上限低 15°C，为校准公差与测量
              * 误差留余量；不覆盖绕组/MOSFET 温度。 */
-            if (poll.celsius >= MCU_TEMPERATURE_TRIP_C &&
+            if (BOARD_REQUIRE_MCU_TEMPERATURE && poll.celsius >= MCU_TEMPERATURE_TRIP_C &&
                 motor_state->fault_code == MOTOR_FAULT_NONE)
             {
                 MotorFault_Report(motor_state, MOTOR_FAULT_OVERTEMPERATURE);
@@ -271,7 +272,8 @@ void Temperature_Update(FocState *foc, MotorControlState *motor_state)
             s_mcu_temperature.valid = 0U;
             foc->temperature_c = NAN;
         }
-        if (s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
+        if (BOARD_REQUIRE_MCU_TEMPERATURE &&
+            s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
             motor_state->fault_code == MOTOR_FAULT_NONE)
         {
             MotorFault_Report(motor_state, MOTOR_FAULT_TEMPERATURE_SENSOR);

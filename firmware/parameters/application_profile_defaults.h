@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "control_math.h"
+#include "current_sense_profile.h"
 
 /* 几何与需求输入：独立于通信节点、板卡和电机物理模型。 */
 #define PARAM_WHEEL_DIAMETER_M 0.10f
@@ -15,7 +16,10 @@
 
 /* 首次配置输入：低速默认值不等于应用包络，不按节点选取。 */
 #define PARAM_APP_DEFAULT_SPEED_LIMIT_RPS 0.50f
-#define PARAM_APP_DEFAULT_CURRENT_LIMIT_A 6.0f
+/* 首次默认电流也必须落在板级允许范围；旧板仍为6A，新板由3A上限收窄。 */
+#define PARAM_APP_DEFAULT_CURRENT_LIMIT_A                                                          \
+    (CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A < 6.0f ? CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A  \
+                                                      : 6.0f)
 
 /* 人工整定输入：rev/s² 在装配时乘 2π；速度 PI 为归一化电流输出口径。 */
 #define PARAM_APP_SPEED_ACCEL_RPS2 50.0f

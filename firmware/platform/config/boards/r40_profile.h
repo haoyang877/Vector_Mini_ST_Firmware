@@ -6,7 +6,17 @@
 /* 独立PA4母线电流链路；APP装配按硬件能力选择反馈来源。 */
 #define BOARD_HAS_BUS_CURRENT_SENSOR 1
 
-#define BOARD_REQUIRE_MCU_TEMPERATURE 1
+/* 临时温度策略仅用于关相APP，不改变测量有效性或底层采样。 */
+#ifndef R40_APP_MCU_TEMPERATURE_OPTIONAL
+#define R40_APP_MCU_TEMPERATURE_OPTIONAL 0
+#endif
+#if R40_APP_MCU_TEMPERATURE_OPTIONAL != 0 && R40_APP_MCU_TEMPERATURE_OPTIONAL != 1
+#error "R40 MCU temperature policy must be 0 or 1"
+#endif
+#if R40_APP_MCU_TEMPERATURE_OPTIONAL && (!defined(R40_APP_PHASE_LOCK) || R40_APP_PHASE_LOCK != 1)
+#error "Optional MCU temperature requires phase-locked R40 APP"
+#endif
+#define BOARD_REQUIRE_MCU_TEMPERATURE (!R40_APP_MCU_TEMPERATURE_OPTIONAL)
 
 /* 完整APP关相接入使用实板采样尺度，保护上限保持当前3A台架边界。 */
 #define CURRENT_SENSE_PROFILE_ADC_REFERENCE_V R40_ADC_REFERENCE_V

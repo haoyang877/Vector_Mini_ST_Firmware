@@ -1,0 +1,14 @@
+; 闭环台架专用：末128字节保留复位前诊断；不写Flash或产品参数。
+LR_IROM1 0x08000000 0x0003C000 {
+  ER_IROM1 0x08000000 0x0003C000 {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+  RW_IRAM1 0x20000000 0x0001AF80 {
+    .ANY (+RW +ZI)
+  }
+  RW_RETAIN 0x2001AF80 UNINIT 0x80 {
+    * (.bss.R40_RETAIN)
+  }
+}

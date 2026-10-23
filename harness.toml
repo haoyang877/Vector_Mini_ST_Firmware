@@ -103,9 +103,22 @@ allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters",
 paths = ["firmware/platform/stm32g4/bsp", "firmware/platform/stm32g4/ports"]
 allows = ["target_profile", "platform_api", "motor", "parameters", "platform_stm32", "cubemx", "shared"]
 
+[architecture.layers.platform_at32]
+paths = ["firmware/platform/at32f456/bsp", "firmware/platform/at32f456/ports"]
+allows = ["platform_api", "platform_config", "platform_at32"]
+
 [architecture.layers.stm32_application]
 paths = ["firmware/platform/stm32g4/application"]
 allows = ["platform_api", "app", "cubemx"]
+
+[architecture.layers.at32_application]
+paths = ["firmware/platform/at32f456/application"]
+allows = ["at32_application", "platform_api", "platform_at32", "platform_config", "app", "app_interfaces", "motor", "parameters", "target_profile", "communication"]
+
+[architecture.layers.at32_foundation]
+paths = ["firmware/platform/at32f456/foundation"]
+# 独立台架入口是装配层；闭环验证直接复用motor，BSP/ports仍禁止该依赖。
+allows = ["platform_api", "platform_at32", "platform_config", "motor_math", "motor", "at32_foundation"]
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/stm32g4/cubemx/Core"]

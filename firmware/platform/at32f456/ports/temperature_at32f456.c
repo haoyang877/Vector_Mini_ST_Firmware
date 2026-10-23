@@ -10,6 +10,24 @@
 static bool s_seen;
 static uint32_t s_last_sequence;
 
+/* Keil只读诊断；begin=end且为非零偶数才一致，估算值不进入公共保护接口。
+ * status：0禁用、1无新鲜数据、2未校准估算、3已校准有效、4样本或校准无效。 */
+enum
+{
+    R40_MCU_TEMPERATURE_DISABLED = 0U,
+    R40_MCU_TEMPERATURE_UNAVAILABLE,
+    R40_MCU_TEMPERATURE_ESTIMATED,
+    R40_MCU_TEMPERATURE_CALIBRATED,
+    R40_MCU_TEMPERATURE_INVALID
+};
+typedef struct
+{
+    uint32_t begin, sequence, status, sample_count, raw_ts, raw_vref, protection_valid;
+    float temperature_c, vdda_mv;
+    uint32_t end;
+} R40McuTemperatureDiagnostic;
+volatile R40McuTemperatureDiagnostic g_r40_mcu_temperature_diagnostic;
+
 typedef struct
 {
     float reference_mv, calibration_mv, calibration_c, slope_mv_per_c;
@@ -19,6 +37,11 @@ static const R40TemperatureCalibration s_calibration = {R40_INTERNAL_REFERENCE_M
                                                         R40_TEMPERATURE_CAL_MV,
                                                         R40_TEMPERATURE_CAL_C,
                                                         R40_TEMPERATURE_SLOPE_MV_PER_C};
+static const R40TemperatureCalibration s_typical = {R40_TEMPERATURE_TYPICAL_REFERENCE_MV,
+                                                    R40_TEMPERATURE_TYPICAL_CAL_MV,
+                                                    R40_TEMPERATURE_TYPICAL_CAL_C,
+                                                    R40_TEMPERATURE_TYPICAL_SLOPE_MV_PER_C};
+
 static bool convert_sample(uint16_t raw_ts,
                            uint16_t raw_ref,
                            const R40TemperatureCalibration *calibration,
@@ -57,6 +80,30 @@ static bool convert_temperature(uint16_t raw_ts, uint16_t raw_ref, float *celsiu
            convert_sample(raw_ts, raw_ref, &s_calibration, celsius, vdda_mv);
 }
 
+static void publish_diagnostic(const R40TemperatureSamples *sample,
+                               uint32_t status,
+                               float celsius,
+                               float vdda_mv)
+{
+    uint32_t version = g_r40_mcu_temperature_diagnostic.begin + 2U;
+    g_r40_mcu_temperature_diagnostic.begin = version - 1U;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    if (sample != NULL)
+    {
+        g_r40_mcu_temperature_diagnostic.sequence = sample->sequence;
+        g_r40_mcu_temperature_diagnostic.raw_ts = sample->mcu_temperature_counts;
+        g_r40_mcu_temperature_diagnostic.raw_vref = sample->reference_counts;
+        ++g_r40_mcu_temperature_diagnostic.sample_count;
+    }
+    g_r40_mcu_temperature_diagnostic.status = status;
+    g_r40_mcu_temperature_diagnostic.protection_valid = status == R40_MCU_TEMPERATURE_CALIBRATED;
+    g_r40_mcu_temperature_diagnostic.temperature_c = celsius;
+    g_r40_mcu_temperature_diagnostic.vdda_mv = vdda_mv;
+    g_r40_mcu_temperature_diagnostic.end = version;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    g_r40_mcu_temperature_diagnostic.begin = version;
+}
+
 void motor_hw_temperature_poll(MotorHwTemperaturePoll *result)
 {
     if (result == NULL)
@@ -67,11 +114,13 @@ void motor_hw_temperature_poll(MotorHwTemperaturePoll *result)
     result->conversion_ok = false;
     if (!R40_TEMPERATURE_SENSING_ENABLED)
     {
+        publish_diagnostic(NULL, R40_MCU_TEMPERATURE_DISABLED, NAN, NAN);
         return;
     }
     R40TemperatureSamples sample;
     if (!R40_AdcReadTemperature(&sample))
     {
+        publish_diagnostic(NULL, R40_MCU_TEMPERATURE_UNAVAILABLE, NAN, NAN);
         return;
     }
     if (s_seen && sample.sequence == s_last_sequence)
@@ -85,4 +134,15 @@ void motor_hw_temperature_poll(MotorHwTemperaturePoll *result)
     result->raw_vref = sample.reference_counts;
     result->conversion_ok = convert_temperature(
         sample.mcu_temperature_counts, sample.reference_counts, &result->celsius, &result->vdda_mv);
+    float celsius = result->conversion_ok ? result->celsius : NAN;
+    float vdda_mv = result->conversion_ok ? result->vdda_mv : NAN;
+    uint32_t status =
+        result->conversion_ok ? R40_MCU_TEMPERATURE_CALIBRATED : R40_MCU_TEMPERATURE_INVALID;
+    if (!R40_TEMPERATURE_CALIBRATED &&
+        convert_sample(
+            sample.mcu_temperature_counts, sample.reference_counts, &s_typical, &celsius, &vdda_mv))
+    {
+        status = R40_MCU_TEMPERATURE_ESTIMATED;
+    }
+    publish_diagnostic(&sample, status, celsius, vdda_mv);
 }

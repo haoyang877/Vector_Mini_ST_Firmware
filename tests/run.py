@@ -12,6 +12,7 @@ NATIVE = (
     "test_at32_foundation",
     "test_at32_io",
     "test_at32_encoder",
+    "test_at32_storage_temperature",
     "run_position_servo_tests",
     "test_outer_loop_runtime",
     "test_wheel_speed_limits",

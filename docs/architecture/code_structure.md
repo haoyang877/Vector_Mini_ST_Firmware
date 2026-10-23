@@ -1,9 +1,9 @@
 # 代码框架与目录职责
 
-更新：2026-10-21。此页描述当前目录，不用历史报告代替当前实现和验证结果。
+更新：2026-10-23。此页描述当前目录，不用历史报告代替当前实现和验证结果。
 产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 对照Keil阅读每个源文件时，使用[APP文件职责与分层对照](app_file_responsibilities_v1.md)：
-按当前七组及工程顺序列出106个源文件、对应头文件与物理路径，并说明38个独立头文件。
+按当前七组及工程顺序列出106个源文件、对应头文件与物理路径，并说明39个独立头文件。
 
 ## 独立产品与共享契约
 
@@ -35,9 +35,11 @@
 | communication/can | CAN 接入、队列、中断接入、链路及端点调度 |
 | communication/protocol | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
 | platform/api | 无 STM32 类型的硬件能力、单位、失败及执行上下文契约 |
+| platform/config/boards | 按目标保存只读采样输入与固定限值；公共头只选择数据和派生，不依赖外设或功能实现 |
 | platform/stm32g4/bsp | 芯片/板卡原语与驱动 |
 | platform/stm32g4/ports | 板级、CAN、编码器、电机、时间及启动能力的实现 |
-| platform/stm32g4/cubemx | 生成入口、Core、HAL/CMSIS、IOC 和 Keil 工程；不搬业务到生成区 |
+| platform/stm32g4/application | 普通APP与Loader配套APP共用的main.c入口；与AT32的application目录对应 |
+| platform/stm32g4/cubemx | Core外设、中断、HAL/CMSIS、IOC和Keil工程；main.c由MainLocation指定到../application |
 
 源码与对应头文件相邻。目录按职责分组，不为单个函数新建目录，不创建空的未来配置目录。
 数据流和所有权见 [APP 命名与所有权](software_architecture.md)、
@@ -68,6 +70,11 @@ schema14保持现有存储布局并兼容读取12/13，由装载/导出边界映
 
 主工程为 firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx。
 Loader 配套 APP 为同目录 Vector_Mini_ST_LoaderApp.uvprojx；两者复用同一业务源码。
+两者均只编译`firmware/platform/stm32g4/application/main.c`作为C入口；
+AT32共用APP入口为`firmware/platform/at32f456/application/main.c`。
+旧板入口保留CubeMX生成标记和原格式；IOC的MainLocation为`../application`。
+后续再生成需核对该落点和工程源清单，不能重新加入`Core/Src/main.c`造成重复入口。
+本次迁移未执行CubeMX再生成，生成器对外部目录落点的实际行为仍需再生成时核验。
 普通 APP 独立从 Flash 起始地址链接；只有配套工程使用 Loader APP 槽，不能混称两者布局。
 
 Keil 保持七组：App、Motor、Parameters、Communication、Platform、Shared、Vendor。

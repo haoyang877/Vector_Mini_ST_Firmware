@@ -1,6 +1,6 @@
 # 参数来源、派生与计算时机 v1
 
-更新：2026-10-20。参数按两个维度管理：归属为硬件、电机、应用、设备；来源为基础输入、派生、标定、运行。
+更新：2026-10-22。参数按两个维度管理：归属为硬件、电机、应用、设备；来源为基础输入、派生、标定、运行。
 本页描述现有实现及本轮整理后的边界，不增加线上参数、存储字段或自动辨识能力。
 
 ## 四个配置入口
@@ -9,15 +9,16 @@
 
 | 类别 | 配置入口 | 要填写的内容 | 不在此处填写 |
 | --- | --- | --- | --- |
-| 硬件 | `platform/api/board_profile_defaults.h` | 板型、ADC参考/位宽、放大倍数、分流器、VBUS分压、累加次数、路径补偿 | 节点、电机R/L、实测零偏 |
-| 电机 | `motor/motor_profile_defaults.h` | 型号、极对数、相R/L、磁链、电流环带宽、标定电流、热模型七项输入 | 应用速度上限、设备SN、LUT |
+| 硬件 | `platform/config/boards/vector_mini_st.h`，经`platform/api/board_profile_defaults.h`选择 | 板型、ADC参考/位宽、放大倍数、分流器、VBUS分压、累加次数、路径补偿和固定电流限值 | 节点、电机R/L、实测零偏 |
+| 电机 | `motor/motor_profile_selection.h`、`motor/profiles/`；完整APP经`motor_profile_defaults.h` | 型号、极对数、相R/L、磁链、电流环带宽、标定电流、热模型七项输入 | 应用速度上限、设备SN、LUT |
 | 应用 | `parameters/application_profile_defaults.h` | 几何包络、默认限流/速度、外环、兼容字段、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
 | 设备 | `parameters/device_profile_defaults.h` | 空白设备的默认节点及未标定占位 | 实际SN/UID、标定结果、应用角色选择 |
 
 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE` 与分流器选择可由编译选项指定；
 当前仅提供已实现的板型/电机数据，未知值拒绝编译。分流器默认6mΩ，可显式选择2mΩ。
 器件引脚/时钟/外设实例仍归BSP、ports及CubeMX；控制时基归 `platform/api/control_config.h`，
-保护阈值归对应保护策略头，不把驱动定义与可在线配置的参数混合。
+相电流固定限值随板级数据提供，母线/温度等保护阈值仍归对应策略头，
+不把驱动定义与可在线配置的参数混合。板级数据只向公共能力头提供编译期值，不依赖功能层或外设。
 
 默认值只用于空白、无效记录或显式恢复默认。已有有效记录继续装载其中的模型、整定、
 前馈和标定值；改头文件后重新编译不等于覆盖设备上的Flash。
@@ -42,7 +43,9 @@ SN来自独立生产身份页，UID来自芯片；标定值只能来自实际标
 `s_rotor_encoder` 仅保存采样、PLL和动态位置/速度估计；SN仍在独立生产身份页，不进入参数记录。
 
 R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动计算。
-当前仅内置一个电机默认profile，生产`motor_type`仅用于身份上报，尚不自动选择模型。
+当前配置包含HT8115-4的有/无阻尼环、YQ-5708、YQ-5740和暂定YQ-8116；
+完整可驱动APP默认值仍只有HT。其他型号缺失项与编译选择见[电机配置](../../firmware/motor/profiles/README.md)。
+生产`motor_type`仅用于身份上报，不自动选择模型。
 速度/位置PI、热时间常数、允许电流和保护门限需要设计或试验依据，不能只靠R/L推导。
 电阻的相/线定义、磁链的电压峰值/RMS和相/线定义必须先确定，再进行数值换算。
 
@@ -50,11 +53,12 @@ R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动�
 
 | 来源文件 | 固定输入 | 编译期派生 |
 | --- | --- | --- |
-| `platform/api/board_profile_defaults.h` | 板级ADC规格、分流器/放大器、母线分压、累加次数 | 默认ADC中点 |
-| `platform/api/current_sense_profile.h` | 沿用独立的相电流保护策略 | ADC量程、计数域、电流满量程 |
+| `platform/config/boards/vector_mini_st.h` | 板级ADC规格、分流器/放大器、母线分压、累加次数与既有相电流限值 | 无运行时计算 |
+| `platform/api/board_profile_defaults.h` | 选择已实现目标，不复制板级数值 | 默认ADC中点 |
+| `platform/api/current_sense_profile.h` | 使用目标提供的输入与限值，不由满量程推导策略 | ADC量程、计数域、电流满量程 |
 | `platform/api/motor_sensing.h` | 只引用板级输入，不再重复定义 | 电流A/count、电压V/count、累加归一化 |
 | `platform/api/control_config.h` | FOC、速度、位置、监督频率 | 各周期、分频和每毫秒监督拍数 |
-| `motor/motor_profile_defaults.h` | 默认电机模型、电流环带宽、热模型输入 | 默认电流PI公式 |
+| `motor/profiles/`及`motor_profile_selection.h` | 各型号电机数据与统一1kHz带宽；完整APP入口仍为`motor_profile_defaults.h` | 默认电流PI公式 |
 | `parameters/application_profile_defaults.h` | 轮径、线速度、应用限值、外环/前馈整定 | 默认角速度包络及所有固定转/秒到rad/s换算 |
 
 以上路径相对`firmware/`。固定表达式用带括号、明确单位的宏，保留原浮点运算顺序。

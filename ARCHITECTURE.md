@@ -37,8 +37,10 @@ protocol + communication
     ↓
 app composition
 
-STM32G4 BSP/ports implement platform API.
-CubeMX Core is the generated hardware entry and composition boundary.
+STM32G4 BSP/ports implement platform API. AT32F456 ports implement the same contracts;
+its explicit App_Off target links shared APP with a compile-time power lock.
+STM32G4 application/main.c is the hardware entry and composition boundary;
+CubeMX Core retains generated peripheral and interrupt implementations.
 ```
 
 New dependencies must follow this direction. The 2026-09-29 closure removes all recorded
@@ -68,8 +70,12 @@ The architecture checker resolves local quoted includes and rejects new violatio
 
 - `firmware/platform/api/` defines the capabilities required by portable firmware. Contracts use
   project-owned types and physical units, and state timing, blocking, ownership, and failure behavior.
+- `firmware/platform/config/boards/` holds read-only board inputs and fixed current limits.
+  Platform API selects these data without changing capability contracts; board data must not depend
+  on motor, application, or peripheral implementations.
 - `firmware/platform/stm32g4/bsp/` owns chip and board primitives. `ports/` adapts those primitives to
-  platform APIs. CubeMX owns generated startup and peripheral composition.
+  platform APIs. `application/main.c` assembles startup and peripherals for both standalone and
+  Loader-linked APP; its CubeMX USER CODE markers remain. CubeMX owns generated peripheral code.
 - `motor/`, `parameters/`, `app/interfaces/`, and `communication/` must not expose STM32 HAL types, peripheral handles,
   registers, pin mappings, or vendor headers. Hardware revision and MCU selection stay below the API
   or in application composition rather than being scattered as feature `#ifdef` branches.

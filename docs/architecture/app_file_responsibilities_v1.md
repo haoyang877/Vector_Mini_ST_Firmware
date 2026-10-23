@@ -1,9 +1,9 @@
 # APP文件职责与分层对照
 
-更新：2026-10-21。适用当前`YG_ESC_APP`主工程及`Vector_Mini_ST_LoaderApp`配套工程。
+更新：2026-10-22。适用当前`YG_ESC_APP`主工程及`Vector_Mini_ST_LoaderApp`配套工程。
 主工程树包含106个源文件，下面按Keil现有七组及原排列顺序逐项说明；文件链接指向实际物理位置。
 源文件有对应头文件时一并链接，头文件负责类型、函数契约和单位，实现仍属于同一模块。
-另列38个没有同名`.c`的自有头文件，区分配置、值类型、平台能力和私有规则。
+另列39个没有同名`.c`的自有头文件，区分配置、值类型、平台能力和私有规则。
 
 目录、Keil树和模块名已经同步。下面直接使用当前文件名，旧名到新名的对应见末尾迁移表。
 
@@ -163,7 +163,7 @@ App_Init与App_Process位于app_startup.c前部，内部绑定/启动交接辅�
 | [dma.c](../../firmware/platform/stm32g4/cubemx/Core/Src/dma.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/dma.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 打开DMA/DMAMUX时钟并配置DMA1通道中断入口。 | CubeMX DMA基础初始化，具体TIM2发送通道在定时器MSP配置。 |
 | [fdcan.c](../../firmware/platform/stm32g4/cubemx/Core/Src/fdcan.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/fdcan.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 配置FDCAN1帧格式、1M/5M位时序、引脚和中断优先级。 | CubeMX外设配置与USER CODE覆写；收发队列在端口，业务解析在communication。 |
 | [gpio.c](../../firmware/platform/stm32g4/cubemx/Core/Src/gpio.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/gpio.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 初始化板级GPIO时钟、默认输出电平及片选/指示等引脚模式。 | 板级引脚配置，不包含运行模式、控制目标或功率准入策略。 |
-| [main.c](../../firmware/platform/stm32g4/cubemx/Core/Src/main.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/main.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 处理启动能力、HAL/时钟与外设初始化，随后调用App_Init，主循环只调用App_Process。 | CubeMX入口和USER CODE组合边界，不在主循环重建电机算法或第二套状态机。 |
+| [main.c](../../firmware/platform/stm32g4/application/main.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/main.h)<br>`firmware/platform/stm32g4/application` | 处理启动能力、HAL/时钟与外设初始化，随后调用App_Init，主循环只调用App_Process。 | 平台application入口，保留CubeMX生成标记和USER CODE组合边界；普通APP与Loader配套APP共用，不在主循环重建算法或状态机。 |
 | [spi.c](../../firmware/platform/stm32g4/cubemx/Core/Src/spi.c) / [.h](../../firmware/platform/stm32g4/cubemx/Core/Inc/spi.h)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 配置SPI1/SPI2模式、字宽、速率以及GPIO复用和外设时钟。 | 平台外设初始化；编码器事务与传感器帧解析分别属于端口和型号驱动。 |
 | [startup_stm32g431xx.s](../../firmware/platform/stm32g4/cubemx/MDK-ARM/startup_stm32g431xx.s)<br>`firmware/platform/stm32g4/cubemx/MDK-ARM` | 声明Cortex-M4向量表、栈及链接运行区，执行Reset_Handler并进入C运行库。 | 芯片/工具链启动文件，保留汇编中的运行库heap预留不等于恢复了APP堆分配器。 |
 | [stm32g4xx_hal_msp.c](../../firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_hal_msp.c)<br>`firmware/platform/stm32g4/cubemx/Core/Src` | 执行HAL全局MSP初始化，打开SYSCFG/PWR并配置芯片级基础项。 | CubeMX系统底座，不持有业务状态或控制算法。 |
@@ -216,7 +216,7 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 
 ## 没有同名实现文件的头文件
 
-下表覆盖APP自有目录中没有同名`.c`的38个头文件。平台能力的实现在`ports`或`bsp`，
+下表覆盖APP自有目录中没有同名`.c`的39个头文件。平台能力的实现在`ports`或`bsp`，
 值契约和默认宏通常无需独立实现文件。生成的CubeMX/HAL头文件仍由对应工具和厂商维护。
 
 | 实际头文件 | 类型 | 功能和归属 |
@@ -242,12 +242,13 @@ ST HAL、LL和CMSIS实现，由平台调用；不承载项目业务。
 | [parameters/application_profile_defaults.h](../../firmware/parameters/application_profile_defaults.h) | 默认输入与profile选择 | 应用速度/电流包络、外环与关节默认值。 |
 | [parameters/device_profile_defaults.h](../../firmware/parameters/device_profile_defaults.h) | 默认输入与profile选择 | 单台设备节点及默认校准初值。 |
 | [platform/api/board_hw.h](../../firmware/platform/api/board_hw.h) | 平台能力接口 | 板级初始化组合所需的能力声明。 |
-| [platform/api/board_profile_defaults.h](../../firmware/platform/api/board_profile_defaults.h) | 默认输入与profile选择 | 板级ADC/采样电阻/放大/分压等基础硬件输入。 |
+| [platform/api/board_profile_defaults.h](../../firmware/platform/api/board_profile_defaults.h) | profile选择与默认中点 | 选择板级数据，保持原有编译契约。 |
+| [platform/config/boards/vector_mini_st.h](../../firmware/platform/config/boards/vector_mini_st.h) | 旧板目标数据 | ADC/采样电阻/放大/分压及固定电流限值，无外设或功能依赖。 |
 | [platform/api/boot_hw.h](../../firmware/platform/api/boot_hw.h) | 平台能力接口 | Loader跳转/确认与启动邮箱相关硬件能力。 |
 | [platform/api/comm_hw.h](../../firmware/platform/api/comm_hw.h) | 平台能力接口 | CAN帧值、收发、发送完成跟踪和bus-off等硬件能力。 |
 | [platform/api/control_config.h](../../firmware/platform/api/control_config.h) | 派生量/时基/保护契约 | 20k/2k调度时基、分频及采样周期派生量。 |
 | [platform/api/critical_hw.h](../../firmware/platform/api/critical_hw.h) | 平台能力接口 | 保存/恢复中断屏蔽状态的临界区能力。 |
-| [platform/api/current_sense_profile.h](../../firmware/platform/api/current_sense_profile.h) | 派生量/时基/保护契约 | 电流采样编译期派生量及既有相电流阈值。 |
+| [platform/api/current_sense_profile.h](../../firmware/platform/api/current_sense_profile.h) | 派生量契约 | 电流采样编译期派生量；固定限值随目标数据提供。 |
 | [platform/api/encoder_sensor.h](../../firmware/platform/api/encoder_sensor.h) | 平台能力接口 | 传感器归一化角度/状态及分阶段采样契约，当前仅TLE5012B驱动。 |
 | [platform/api/encoder_spi.h](../../firmware/platform/api/encoder_spi.h) | 平台能力接口 | 编码器总线事务能力，不向上暴露SPI句柄。 |
 | [platform/api/fast_loop_profile.h](../../firmware/platform/api/fast_loop_profile.h) | 可选诊断契约 | 编译期开关的快环阶段钩子，默认空操作。 |

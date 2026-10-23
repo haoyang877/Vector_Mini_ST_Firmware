@@ -370,6 +370,56 @@ int main(void) {
     )
 
 
+def verify_motor_profiles(cc: list[str], out: Path) -> None:
+    """编译并运行型号/阻尼环矩阵，同时验证不完整APP和非法配置拒绝。"""
+    cases = (
+        (1, 0, "HT8115-4", "HT8115-4/no-damping-ring", 21, 1.905, 0.001635, 1, 300, 3, 1, 0),
+        (1, 1, "HT8115-4", "HT8115-4/damping-ring", 21, 1.905, 0.001635, 1, 300, 3, 1, 0),
+        (2, 0, "YQ-5708", "YQ-5708/8:1", 14, 0.55, 0.0001425, 8, 2500, 3.535533906, 0, 0),
+        (3, 0, "YQ-5740", "YQ-5740/40:1", 14, 0.55, 0.0001425, 40, 2500, 3.535533906, 0, 0),
+        (4, 0, "YQ-8116", "YQ-8116/HT8115-4-baseline", 21, 1.905, 0.001635, 1, 300, 3, 0, 1),
+    )
+    source = ROOT / "tests/unit/native/motor_profiles_test.c"
+    flags = ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
+    for model, damping, *expected in cases:
+        executable = out / f"motor_profile_{model}_{damping}.exe"
+        subprocess.run(
+            cc
+            + flags
+            + [f"-DFOC_ACTIVE_MOTOR_PROFILE={model}", f"-DMOTOR_HAS_DAMPING_RING={damping}"]
+            + [str(source), "-lm", "-o", str(executable)],
+            check=True,
+        )
+        subprocess.run([str(executable), *map(str, expected)], check=True)
+    rejected = out / "motor_profile_rejected.c"
+    for header, definitions, reason in (
+        ("motor_profile_selection.h", ["-DFOC_ACTIVE_MOTOR_PROFILE=99"], "Unsupported FOC_ACTIVE"),
+        ("motor_profile_selection.h", ["-DMOTOR_HAS_DAMPING_RING=2"], "Unsupported MOTOR_HAS"),
+        (
+            "motor_profile_selection.h",
+            ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DMOTOR_HAS_DAMPING_RING=1"],
+            "Damping-ring configuration",
+        ),
+        *(
+            (
+                "motor_profile_defaults.h",
+                [f"-DFOC_ACTIVE_MOTOR_PROFILE={model}"],
+                "Motor APP defaults incomplete",
+            )
+            for model in (2, 3, 4)
+        ),
+    ):
+        rejected.write_text(f'#include "{header}"\n', encoding="utf-8")
+        result = subprocess.run(
+            cc + flags + definitions + ["-c", str(rejected), "-o", str(out / "rejected.o")],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 or reason not in result.stderr:
+            raise RuntimeError(f"电机配置应拒绝但未得到预期错误: {definitions}: {result.stderr}")
+    print("PASS unknown model, invalid damping and incomplete APP rejection")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cc", required=True)
@@ -384,6 +434,7 @@ def main():
     if Path(args.cc).stem == "zig":
         cc += ["cc"]
     cc += NATIVE_INCLUDE_FLAGS
+    verify_motor_profiles(cc, out)
     exe = out / "wheel_speed_test.exe"
     includes = [str(out)] + [
         str(ROOT / p)

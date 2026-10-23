@@ -13,6 +13,7 @@
 
 motor_config.h定义model/application/device配置，motor_types.h定义易失运行值。
 motor_profile_defaults.h提供电机模型默认值，板卡与采样配置属于平台。
+型号参数与HT阻尼环配置见[电机配置](profiles/README.md)，统一1kHz电流环默认带宽。
 算法通过显式对象获得输入、返回结果；APP选择何时执行和关相，平台执行实际I/O。
 源码与头文件同目录。齿槽标定/补偿、摩擦/电阻辨识及复杂位置轨迹已删除。
 

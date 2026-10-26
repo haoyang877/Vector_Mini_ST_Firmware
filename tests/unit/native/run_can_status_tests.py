@@ -152,6 +152,7 @@ void Error_Handler(void);
     actual = source.split("/* CAN_REPLY_RUNTIME_BEGIN */")[1].split("/* CAN_REPLY_RUNTIME_END */")[
         0
     ]
+    actual += source.split("/* CAN_MOTION_RUNTIME_BEGIN */")[1].split("/* CAN_MOTION_RUNTIME_END */")[0]
     actual += (
         "\n"
         + encoding_types

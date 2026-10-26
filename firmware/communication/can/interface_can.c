@@ -383,6 +383,9 @@ static unsigned CAN_RequestKind(CAN_PARAM_ID param_id)
     case CAN_GET_LOAD_PROFILE:
     case CAN_GET_LOAD_PROFILE_REVISION:
     case CAN_GET_THERMAL_REVISION:
+    case CAN_GET_POSITION_PLANNED:
+    case CAN_GET_VELOCITY_PLANNED:
+    case CAN_GET_VELOCITY_REFERENCE:
     case CAN_GET_TEMPERATURE_PROTECTION:
     case CAN_GET_SPEED_FF_CURRENT:
     case CAN_GET_SPEED_FF_ACCELERATION_PLANNED:
@@ -467,14 +470,57 @@ static float CAN_ReportedMechanicalVelocity(void)
     return OnBoard_Encoder.vel_mech;
 }
 
-/** @brief 读取指定参数并发布单槽回复，查询不修改控制状态或喂通信看门狗。
- * @param[in] param_id 已实现的查询编号，0x3F按构建选项和当前模式选择测速源。
- * @return true表示找到参数并尝试发布回复；false表示编号未实现或参数读取失败。
- * @note 回复槽忙时沿用原有丢弃与计数规则，不等待、不重试，其他资源由发送端管理。
+/* CAN_MOTION_RUNTIME_BEGIN */
+/** @brief CAN RX独占的锁存快照，首查询更新，后两查询使用同一设备发布序号。 */
+static struct {
+    float values[3]; /**< 驱动内部规划位置rad、规划速度和速度环参考rad/s。 */
+    uint16_t sequence; /**< 设备快环发布序号低16位，不随查询次数改变。 */
+    uint32_t latched_ms; /**< 首查询锁存时刻，超过20ms则后包失效。 */
+    bool valid; /**< 锁存时模式为3、无故障且发布快照有效。 */
+} can_motion_latch;
+
+/**
+ * @brief 按0x93/95/97返回同一快环快照的八字节只读分包。
+ * @param[in] param_id 已校验的规划查询号；调用者为不重入CAN RX。
+ * @return true表示格式合法且已入回复槽；槽满返回false并沿用忙计数。
+ * @note 首包仅在槽空时更新锁存，不更改模式、目标、Flash或伺服参数。
+ */
+static bool CAN_ReadMotion(CAN_PARAM_ID param_id)
+{
+    uint8_t payload[8] = {1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    unsigned part = ((unsigned)param_id - CAN_GET_POSITION_PLANNED) / 2U;
+    uint32_t raw;
+    if (part >= 3U) { return false; }
+    if (can_reply.state != CAN_REPLY_FREE) { CAN_Count(&CAN_Diagnostics.reply_busy); return false; }
+    if (part == 0U) {
+        can_motion_latch.valid = MotorControl.ModeNow == Position_Mode &&
+            MotorControl.ErrorNow == No_Error &&
+            MotorOuterLoop_GetMotionTelemetry(can_motion_latch.values, &can_motion_latch.sequence);
+        can_motion_latch.latched_ms = time_hw_now_ms();
+    }
+    payload[1] = can_motion_latch.valid && MotorControl.ModeNow == Position_Mode &&
+        MotorControl.ErrorNow == No_Error &&
+        (uint32_t)(time_hw_now_ms() - can_motion_latch.latched_ms) < 20U ? 1U : 0U;
+    payload[2] = (uint8_t)(can_motion_latch.sequence >> 8);
+    payload[3] = (uint8_t)can_motion_latch.sequence;
+    raw = FloatToIntBit(payload[1] ? can_motion_latch.values[part] : NAN);
+    payload[4] = (uint8_t)(raw >> 24); payload[5] = (uint8_t)(raw >> 16);
+    payload[6] = (uint8_t)(raw >> 8); payload[7] = (uint8_t)raw;
+    return CAN_QueueReply((uint16_t)((CANMsg.node_id << 8) | param_id), payload, 8U, CAN_REPLY_READY);
+}
+
+/* CAN_MOTION_RUNTIME_END */
+
+/**
+ * @brief 查询现有参数或新增规划只读快照，不改变原有参数编码。
+ * @param[in] param_id 已通过白名单的读取ID，由CAN RX独占调用。
+ * @return true表示查询被接受，false表示未知参数；回复槽忙沿用原有规则。
  */
 static bool CAN_ReadParameter(CAN_PARAM_ID param_id)
 {
     float value;
+    if (param_id == CAN_GET_POSITION_PLANNED || param_id == CAN_GET_VELOCITY_PLANNED ||
+        param_id == CAN_GET_VELOCITY_REFERENCE) { return CAN_ReadMotion(param_id); }
     switch (param_id) {
     case CAN_GET_MODE: value = (float)MotorControl.ModeNow; break;
     case CAN_GET_CURRENT_SET: value = MotorControl.iqRef; break;

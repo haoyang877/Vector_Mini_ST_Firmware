@@ -57,11 +57,19 @@ static MotorControl_TypeDef live;
 static PI_Controller_TypeDef live_pi;
 static Encoder_TypeDef enc;
 static unsigned schedules, injection;
+/** @brief 单线程模拟一次ADC发布抢占，屏障消费后清除。 */
+static bool motion_read_injection;
 static unsigned position_reads, speed_reads, continuous_speed_reads;
 static float Encoder_GetMecPos(Encoder_TypeDef *e) { ++position_reads; return e->position; }
 static float Encoder_GetMecVel(Encoder_TypeDef *e) { ++speed_reads; return e->speed; }
 static float Encoder_GetMecVelContinuous(Encoder_TypeDef *e) { ++continuous_speed_reads; return e->speed; }
 static void Set_ErrorNow(ErrorNow_TypeDef error) { live.ErrorNow = error; }
+/** @brief 测试拥有的设备单调毫秒，不读取硬件。 */
+static uint32_t motion_test_now_ms;
+/** @brief 返回测试毫秒时钟，不产生硬件访问。
+ * @return 当前模拟时刻，允许uint32回绕。
+ */
+static uint32_t time_hw_now_ms(void) {return motion_test_now_ms;}
 static void motor_hw_outer_barrier(void);
 static void motor_hw_outer_schedule(void) { schedules++; }
 """
@@ -70,6 +78,13 @@ static void motor_hw_outer_schedule(void) { schedules++; }
         + r"""
 static void tick(void) { MotorOuterLoop_FastTick(&live, &live_pi, &enc); }
 static void motor_hw_outer_barrier(void) {
+    if (motion_read_injection) {
+        motion_read_injection = false;
+        outer.telemetry_sequence += 2;
+        outer.published_telemetry.position_reference = 4;
+        outer.published_telemetry.trajectory_speed_reference = 5;
+        outer.published_telemetry.speed_command = 6;
+    }
     if (injection && outer.status == OUTER_RUNNING) {
         unsigned action = injection;
         float old_iq = live.iqRef;
@@ -190,7 +205,34 @@ static void test_retired_support_metadata(void) {
     assert(live.ErrorNow == MotorParam_Error && live.iqRef == 0);
     puts("PASS: retired support metadata ignored, precise active HOLD retained, wheel admission preserved");
 }
+/** @brief 验证生产getter的完整快照、有限值、过期、回绕和被快环抢占后的重读。 */
+static void test_motion_snapshot(void) {
+    float values[3] = {9,9,9}; uint16_t sequence = 99;
+    memset(&outer,0,sizeof(outer));
+    assert(!MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    assert(sequence==99 && values[0]==9);
+    outer.telemetry_valid=true;outer.telemetry_sequence=2;motion_test_now_ms=5;
+    outer.published_telemetry.position_reference=1;
+    outer.published_telemetry.trajectory_speed_reference=2;
+    outer.published_telemetry.speed_command=3;
+    assert(MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    assert(sequence==1 && values[0]==1 && values[1]==2 && values[2]==3);
+    motion_read_injection=true;
+    assert(MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    assert(sequence==2 && values[0]==4 && values[1]==5 && values[2]==6);
+    outer.telemetry_sequence=5;
+    assert(!MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    outer.telemetry_sequence=6;motion_test_now_ms=40;
+    assert(!MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    motion_test_now_ms=0;outer.telemetry_sampled_ms=UINT32_MAX-5;
+    assert(MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    MotorOuterLoop_RequestReset();
+    assert(!MotorOuterLoop_GetMotionTelemetry(values,&sequence));
+    motion_test_now_ms=0;
+}
+
 int main(void) {
+    test_motion_snapshot();
     /* 非活动模式仍执行状态清理，但不能重复获取本模式不消费的编码器量。 */
     const ModeNow_TypeDef inactive_modes[]={Motor_Disable,Current_Mode,Sensorless_Speed_Mode,
         Calib_EncoderObserver,Save_Param,Clear_Error};
@@ -339,7 +381,7 @@ int main(void) {
 }
 """
     )
-    (out / "fixture.c").write_text(fixture)
+    (out / "fixture.c").write_text(fixture, encoding="utf-8")
     sources = [
         out / "fixture.c",
         ROOT / "firmware/services/parameters/motor_axis_profile.c",

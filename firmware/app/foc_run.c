@@ -10,6 +10,7 @@
 #include "motor_thermal.h"
 #include "time_hw.h"
 #include <float.h>
+#include <string.h>
 
 /* POSITION_COMMAND_MAILBOX_BEGIN */
 #if POSITION_EXTERNAL_REFERENCE_ENABLE
@@ -906,6 +907,8 @@ static struct {
     unsigned divider, age, maximum_age, deadline_misses, completed, discarded;
     ModeNow_TypeDef mode;
     bool ready, valid, telemetry_valid;
+    volatile uint32_t telemetry_sequence; /**< 快环单写的偶数完整发布序号，奇数表示更新中。 */
+    uint32_t telemetry_sampled_ms; /**< 最近完整规划发布的设备单调毫秒，受序号保护。 */
     float position, speed;
     MotorControl_TypeDef motor;
     PI_Controller_TypeDef speed_controller;
@@ -920,7 +923,11 @@ static void MotorOuterLoop_RequestReset(void)
 {
     outer.epoch++;
     outer.ready = false;
+    outer.telemetry_sequence++;
+    motor_hw_outer_barrier();
     outer.telemetry_valid = false;
+    motor_hw_outer_barrier();
+    outer.telemetry_sequence++;
 }
 
 static bool MotorOuterLoop_SameTuning(const MotorControl_TypeDef *m)
@@ -1048,6 +1055,40 @@ bool MotorOuterLoop_IsReady(void)
     return outer.ready;
 }
 
+/**
+ * @brief 在CAN读取上下文取得同一快环发布的规划量，序号变化时有界重读。
+ * @param[out] values 三元素数组，规划位置rad、规划速度rad/s和速度参考rad/s。
+ * @param[out] sequence 完整发布序号低16位，0也是合法设备序号。
+ * @return true为新鲜完整有限的快照；false不改变输出、不影响控制状态。
+ * @note 不取锁、不屏蔽中断、不发送报文，最多尝试三次；重置使原快照失效。
+ */
+bool MotorOuterLoop_GetMotionTelemetry(float values[3], uint16_t *sequence)
+{
+    unsigned attempt;
+    if (values == NULL || sequence == NULL) { return false; }
+    for (attempt = 0U; attempt < 3U; ++attempt) {
+        uint32_t before = outer.telemetry_sequence;
+        uint32_t sampled;
+        bool valid;
+        float copy[3];
+        if ((before & 1U) != 0U) { continue; }
+        motor_hw_outer_barrier();
+        valid = outer.telemetry_valid;
+        sampled = outer.telemetry_sampled_ms;
+        copy[0] = outer.published_telemetry.position_reference;
+        copy[1] = outer.published_telemetry.trajectory_speed_reference;
+        copy[2] = outer.published_telemetry.speed_command;
+        motor_hw_outer_barrier();
+        if (before != outer.telemetry_sequence) { continue; }
+        if (!valid || (uint32_t)(time_hw_now_ms() - sampled) >= 40U ||
+            !isfinite(copy[0]) || !isfinite(copy[1]) || !isfinite(copy[2])) { return false; }
+        memcpy(values, copy, sizeof(copy));
+        *sequence = (uint16_t)(before / 2U);
+        return true;
+    }
+    return false;
+}
+
 bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry)
 {
     /* Fast-context reader; the worker never modifies this published snapshot. */
@@ -1105,8 +1146,13 @@ void MotorOuterLoop_FastTick(MotorControl_TypeDef *m, PI_Controller_TypeDef *pi,
                         m->posShadow = outer.motor.posShadow;
                         m->pos_vel_filtered = outer.motor.pos_vel_filtered;
                         m->isReachTargetPos = outer.motor.isReachTargetPos;
+                        outer.telemetry_sequence++;
+                        motor_hw_outer_barrier();
                         outer.published_telemetry = outer.result_telemetry;
+                        outer.telemetry_sampled_ms = time_hw_now_ms();
                         outer.telemetry_valid = true;
+                        motor_hw_outer_barrier();
+                        outer.telemetry_sequence++;
                     } else {
                         m->speed_ff_state = outer.motor.speed_ff_state;
                         m->isUseSpeedRamp = outer.motor.isUseSpeedRamp;

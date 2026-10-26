@@ -10,6 +10,15 @@ bool MotorOuterLoop_IsReady(void);
 bool MotorOuterLoop_GetTelemetry(PositionCascadeTelemetry_TypeDef *telemetry);
 
 /**
+ * @brief 从CAN上下文有界读取快环发布的三个同周期内部参考，不运行控制器。
+ * @param[out] values 三元素数组，依次规划位置rad、规划速度rad/s、速度环参考rad/s。
+ * @param[out] sequence 设备发布序号低16位，允许回绕；重复读取不递增。
+ * @return true表示完整有限且40ms内的新鲜规划快照，false时输出保持原值。
+ * @note ADC快环为唯一发布者，CAN RX可被其抢占；最多重读三次，不关中断、不等待。
+ */
+bool MotorOuterLoop_GetMotionTelemetry(float values[3], uint16_t *sequence);
+
+/**
  * @brief 发布已通过 CAN 业务校验的位置目标，供外部参考候选使用。
  * @param[in] position_rad 接受的机械目标，rad。
  * @param[in] received_ms 本机接收时的单调毫秒。

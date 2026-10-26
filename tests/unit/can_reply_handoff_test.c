@@ -169,6 +169,23 @@ unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *filter)
 }
 
 /* 由现有 native 入口逐函数抽取生成，不复制生产实现。 */
+/** @brief 规划查询的测试发布源，实际序号由测试显式控制。 */
+static uint16_t motion_sequence = 7;
+/** @brief 发布源是否有效，用于验证失能及缺失快照。 */
+static bool motion_valid = true;
+/**
+ * @brief 返回确定性内部规划替身，CAN编解码与锁存代码仍使用生产函数。
+ * @param[out] values 三个SI参考，故意令规划速度与速度参考不同。
+ * @param[out] sequence 当前设备发布序号。
+ * @return 配置的有效性，失败时输出不变。
+ */
+static bool MotorOuterLoop_GetMotionTelemetry(float values[3], uint16_t *sequence)
+{
+    if (!motion_valid) { return false; }
+    values[0] = .25f; values[1] = -.5f; values[2] = -.75f;
+    *sequence = motion_sequence;
+    return true;
+}
 #include "can_reply_actual.inc"
 #include "can_reply_vectors.h"
 
@@ -349,8 +366,28 @@ static void check_position_speed_reply(void)
  * @brief 执行实际协议与端口回归，不访问任何硬件。
  * @return 全部断言通过返回 0，否则由断言终止进程。
  */
+/** @brief 三个查询沿用经典读帧，回复锁存同序号；规划速度与参考不得混淆。 */
+static void test_motion_queries(void)
+{
+    const uint8_t position[8] = {1,1,0,7,0x3e,0x80,0,0};
+    const uint8_t velocity[8] = {1,1,0,7,0xbf,0,0,0};
+    const uint8_t reference[8] = {1,1,0,7,0xbf,0x40,0,0};
+    reset_fixture(); MotorControl.ModeNow=Position_Mode; motion_sequence=7;
+    scalar_format(4,CAN_GET_POSITION_PLANNED,0,false,false); CAN_SendMessage();
+    check_sent(0x493,position,8); assert(!sent_fd && !sent_brs);
+    motion_sequence=8; /* 后两包仍必须使用首查询锁存的序号7。 */
+    scalar_format(4,CAN_GET_VELOCITY_PLANNED,0,false,false); CAN_SendMessage();
+    check_sent(0x495,velocity,8);
+    scalar_format(4,CAN_GET_VELOCITY_REFERENCE,0,false,false); CAN_SendMessage();
+    check_sent(0x497,reference,8);
+    MotorControl.ModeNow=Motor_Disable;
+    scalar_format(4,CAN_GET_POSITION_PLANNED,0,false,false); CAN_SendMessage();
+    assert(sent_data[1]==0);
+}
+
 int main(void)
 {
+    test_motion_queries();
 #if defined(TEST_SPEED_REPLY_ONLY)
     check_position_speed_reply();
     return 0;

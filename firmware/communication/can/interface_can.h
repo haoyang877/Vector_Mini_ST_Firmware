@@ -150,6 +150,9 @@ typedef enum
     /** @brief RAM温度保护开关；仅停机关相接受0/1，查询返回已应用状态。 */
     CAN_SET_TEMPERATURE_PROTECTION = 0x90,
     CAN_GET_TEMPERATURE_PROTECTION = 0x91,
+    CAN_GET_POSITION_PLANNED = 0x93, /**< 只读锁存三量快照并返回规划位置；8字节版本化回复。 */
+    CAN_GET_VELOCITY_PLANNED = 0x95, /**< 只读上次锁存快照的规划速度；不改变轨迹。 */
+    CAN_GET_VELOCITY_REFERENCE = 0x97, /**< 只读上次锁存快照的速度环参考。 */
 }CAN_PARAM_ID;
 
 typedef struct

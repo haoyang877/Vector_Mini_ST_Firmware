@@ -36,6 +36,24 @@ unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned f,unsigned b)
 { (void)h;(void)f;(void)b;assert(!"unexpected CAN notification configuration");return 1; }
 const uint32_t g_firmware_software_version = FIRMWARE_VERSION_CODE;
 static CommHwCanFrame incoming;
+/* 可选三槽硬件FIFO模拟；普通协议用例继续逐帧调用。 */
+static CommHwCanFrame rx_fifo[3], refill_frame;
+static unsigned rx_fill, refill_remaining, rx_flags, rx_pop_count;
+static bool fifo_mode, irq_pending;
+static struct { unsigned id, length; bool fd, brs; uint8_t data[16]; } sent_history[32];
+#define FDCAN_HandleTypeDef Handle
+#define FDCAN1_IT0_IRQn 21
+void HAL_FDCAN_RxFifo0Callback(Handle *h, uint32_t flags);
+static unsigned HAL_FDCAN_GetRxFifoFillLevel(Handle *h,unsigned fifo)
+{ (void)h;(void)fifo;return rx_fill; }
+static void HAL_NVIC_SetPendingIRQ(unsigned irq)
+{ assert(irq==FDCAN1_IT0_IRQn);irq_pending=true; }
+static void HAL_FDCAN_IRQHandler(Handle *h)
+{
+    unsigned flags=rx_flags;rx_flags=0;
+    if(flags) HAL_FDCAN_RxFifo0Callback(h,flags);
+}
+
 static bool phase_off = true, boot_pending, filter_failure, mode_allowed = true;
 static unsigned tx_result, tx_attempts, sent_count, pending, crc_calls, uid_calls;
 static unsigned filter_calls, filter_node = 4, limit_updates, injected;
@@ -136,7 +154,11 @@ unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *he
     sent_brs=header->BitRateSwitch==FDCAN_BRS_ON;
     sent_length=header->DataLength==10U ? 16U : header->DataLength;
     assert(sent_length<=sizeof(sent_data));
-    memcpy(sent_data,data,sent_length); ++sent_count;
+    memcpy(sent_data,data,sent_length);
+    unsigned slot=sent_count % 32U;
+    sent_history[slot].id=sent_id;sent_history[slot].length=sent_length;
+    sent_history[slot].fd=sent_fd;sent_history[slot].brs=sent_brs;
+    memcpy(sent_history[slot].data,data,sent_length);++sent_count;
     return HAL_OK;
 }
 /**
@@ -150,6 +172,15 @@ unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *he
 unsigned HAL_FDCAN_GetRxMessage(Handle *h,unsigned fifo,FDCAN_RxHeaderTypeDef *header,uint8_t *data)
 {
     (void)h;(void)fifo;memset(header,0,sizeof(*header));
+    if(fifo_mode) {
+        if(!rx_fill) return 1;
+        incoming=rx_fifo[0];--rx_fill;++rx_pop_count;
+        memmove(rx_fifo,rx_fifo+1,rx_fill*sizeof(rx_fifo[0]));
+        if(refill_remaining) {
+            rx_fifo[rx_fill++]=refill_frame;--refill_remaining;
+            rx_flags|=FDCAN_IT_RX_FIFO0_NEW_MESSAGE;
+        }
+    }
     header->Identifier=incoming.identifier;header->DataLength=incoming.length;
     header->IdType=incoming.extended;header->RxFrameType=incoming.remote;
     header->FDFormat=incoming.fd?FDCAN_FD_CAN:FDCAN_CLASSIC_CAN;
@@ -187,6 +218,7 @@ static bool MotorOuterLoop_GetMotionTelemetry(float values[3], uint16_t *sequenc
     return true;
 }
 #include "can_reply_actual.inc"
+#include "can_rx_irq_actual.inc"
 #include "can_reply_vectors.h"
 
 /** @brief 清空模拟控制状态、回复槽及计数，确保每个用例相互独立。 */
@@ -194,13 +226,15 @@ static void reset_fixture(void)
 {
     memset(&CANMsg,0,sizeof(CANMsg));memset(&MotorControl,0,sizeof(MotorControl));
     memset((void *)&CAN_Diagnostics,0,sizeof(CAN_Diagnostics));
-    memset((void *)&can_reply,0,sizeof(can_reply));
+    memset((void *)can_replies,0,sizeof(can_replies));can_reply_read=can_reply_write=0;
     CANMsg.node_id=4;CANMsg.baudrate=1000;MotorControl.speed_limit=20;
     ModeLast=Motor_Disable;phase_off=true;boot_pending=false;filter_failure=false;mode_allowed=true;
     tx_result=tx_attempts=sent_count=pending=crc_calls=uid_calls=0;
     filter_calls=limit_updates=injected=0;filter_node=4;send_hook=crc_hook=NULL;
     status_rate=0;sent_fd=sent_brs=false;
     continuous_speed_reads=0;
+    fifo_mode=irq_pending=false;rx_fill=refill_remaining=rx_flags=rx_pop_count=0;
+    memset(sent_history,0,sizeof(sent_history));
     memset(&OnBoard_Encoder,0,sizeof(OnBoard_Encoder));
 }
 /**
@@ -267,24 +301,24 @@ static void check_reply_formats(void)
         bool fd=format!=0,brs=format==2;
         reset_fixture();
         scalar_format(4,CAN_GET_NODE_ID,0,fd,brs);
-        assert(can_reply.state==CAN_REPLY_READY);
+        assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].state==CAN_REPLY_READY);
         tx_result=1;CAN_SendMessage();assert(sent_count==0);
         scalar_format(4,CAN_GET_NODE_ID,0,!fd,false);
         tx_result=0;CAN_SendMessage();check_sent(0x409,node4,4);
-        assert(sent_fd==fd && sent_brs==brs && CAN_Diagnostics.reply_busy==1);
+        assert(sent_fd==fd && sent_brs==brs && CAN_Diagnostics.reply_busy==0);
     }
     reset_fixture();
     request_format(4,CAN_GET_PARAMETER_CRC,nonce,false,false);
     CAN_SendMessage();check_sent(0x47c,crc,8);assert(!sent_fd && !sent_brs);
     reset_fixture();
     request_format(4,CAN_GET_DEVICE_UID,nonce,false,false);
-    CAN_SendMessage();assert(sent_count==0 && uid_calls==0 && can_reply.state==CAN_REPLY_FREE);
+    CAN_SendMessage();assert(sent_count==0 && uid_calls==0 && can_reply_read==can_reply_write);
     {const uint8_t boot[4]={'B','O','O','T'};
      request_format(4,CAN_ENTER_BOOT,boot,false,false);assert(!boot_pending);}
     assert(CAN_Diagnostics.rx_rejected==2);
     assert(CanMotorStatus_Configure(20));
     scalar_format(4,CAN_SET_STATUS_STREAM,10,false,false);
-    assert(status_rate==20 && can_reply.state==CAN_REPLY_FREE);
+    assert(status_rate==20 && can_reply_read==can_reply_write);
     scalar_format(4,CAN_SET_STATUS_STREAM,0,false,false);
     CAN_SendMessage();assert(status_rate==0 && !sent_fd && !sent_brs);
 
@@ -385,9 +419,115 @@ static void test_motion_queries(void)
     assert(sent_data[1]==0);
 }
 
+/** @brief 将真实GET放入三槽硬件替身，只置一次新消息中断标志。 */
+static void fifo_query(unsigned op)
+{
+    assert(rx_fill < 3);
+    CommHwCanFrame *frame=&rx_fifo[rx_fill++];
+    memset(frame,0,sizeof(*frame));frame->identifier=0x400|op;frame->length=4;
+    rx_flags|=FDCAN_IT_RX_FIFO0_NEW_MESSAGE;
+}
+
+/** @brief 无后续新请求也必须排空三帧；预算续调度仍经真实IRQ入口。 */
+static void check_rx_fifo_burst(void)
+{
+    reset_fixture();fifo_mode=true;
+    OnBoard_Encoder.theta_mech=.125f;OnBoard_Encoder.vel_mech=.5f;
+    fifo_query(CAN_GET_POS2_FILT);fifo_query(CAN_GET_SPEED2_FILT);fifo_query(CAN_GET_ERROR);
+    FDCAN1_IT0_IRQHandler();
+    assert(rx_fill==0 && rx_pop_count==3 && !irq_pending);
+    assert(can_reply_write-can_reply_read==3 && CAN_Diagnostics.rx_peak_depth==3);
+    for(unsigned i=0;i<3;++i) CAN_SendMessage();
+    assert(sent_count==3 && !CANMsg.can_tx_en);
+    assert(sent_history[0].id==0x441 && sent_history[1].id==0x43f && sent_history[2].id==0x44d);
+    const uint8_t pos[4]={0,0,0,125},speed[4]={0,0,0,50},error[4]={0};
+    assert(memcmp(sent_history[0].data,pos,4)==0 && memcmp(sent_history[1].data,speed,4)==0);
+    assert(memcmp(sent_history[2].data,error,4)==0);
+
+    /* 一帧在第一次消费期间到达：本IRQ仍只能读三帧，第四帧靠软件挂起处理。 */
+    reset_fixture();fifo_mode=true;
+    fifo_query(CAN_GET_NODE_ID);fifo_query(CAN_GET_MODE);fifo_query(CAN_GET_ERROR);
+    refill_frame=rx_fifo[0];refill_remaining=1;
+    FDCAN1_IT0_IRQHandler();
+    assert(rx_pop_count==3 && rx_fill==1 && irq_pending && CAN_Diagnostics.rx_budget_exhausted==1);
+    rx_flags=0; /* 特意无RF0N，验证HAL不回调的续调度分支。 */
+    irq_pending=false;FDCAN1_IT0_IRQHandler();
+    assert(rx_pop_count==4 && rx_fill==0 && !irq_pending);
+    for(unsigned i=0;i<4;++i) CAN_SendMessage();
+    assert(sent_count==4 && can_reply_read==can_reply_write);
+    assert(sent_history[3].id==0x409);
+
+    reset_fixture();fifo_mode=true;rx_flags=FDCAN_IT_RX_FIFO0_MESSAGE_LOST;
+    FDCAN1_IT0_IRQHandler();assert(CAN_Diagnostics.rx_fifo_lost==1);
+    CAN_Diagnostics.rx_fifo_lost=UINT32_MAX;rx_flags=FDCAN_IT_RX_FIFO0_MESSAGE_LOST;
+    FDCAN1_IT0_IRQHandler();assert(CAN_Diagnostics.rx_fifo_lost==UINT32_MAX);
+    puts("PASS RX: three real GETs reply without new traffic; max three pops per IRQ; software continuation; loss counter saturation");
+}
+
+/** @brief 队满、计数回绕、不同格式快照、忙恢复和STOP均不破坏已排队回复。 */
+static void check_reply_fifo(void)
+{
+    const uint8_t zero[4]={0};
+    reset_fixture();
+    can_reply_read=can_reply_write=UINT32_MAX-3U;
+    for(unsigned i=0;i<CAN_REPLY_CAPACITY;++i) {
+        CANMsg.node_id=(uint8_t)(i%8);OnBoard_Encoder.theta_mech=(float)(i+1);
+        request_format(CANMsg.node_id,CAN_GET_POS2_FILT,zero,false,false);
+    }
+    assert(can_reply_write-can_reply_read==8 && CAN_Diagnostics.reply_peak_depth==8);
+    request_format(CANMsg.node_id,CAN_GET_MODE,zero,false,false);
+    assert(CAN_Diagnostics.reply_busy==1 && can_reply_write-can_reply_read==8);
+    MotorControl.ModeNow=Speed_Mode;
+    request_format(CANMsg.node_id,CAN_SET_MODE,zero,false,false);
+    assert(MotorControl.ModeNow==Motor_Disable); /* STOP不等待回复队列空闲。 */
+    tx_result=1;CAN_SendMessage();CAN_SendMessage();
+    assert(sent_count==0 && CAN_Diagnostics.tx_busy==2 && can_reply_write-can_reply_read==8);
+    tx_result=0;
+    for(unsigned i=0;i<8;++i) {
+        CAN_SendMessage();
+        assert(sent_history[i].id==((i<<8)|CAN_GET_POS2_FILT));
+        uint32_t raw=(uint32_t)(i+1)*1000U;
+        const uint8_t bytes[4]={(uint8_t)(raw>>24),(uint8_t)(raw>>16),(uint8_t)(raw>>8),(uint8_t)raw};
+        assert(memcmp(sent_history[i].data,bytes,4)==0 && !sent_history[i].fd && !sent_history[i].brs);
+    }
+    assert(can_reply_read==can_reply_write && !CANMsg.can_tx_en);
+    /* 连续填充/释放复用全部槽，并跨越单调索引回绕。 */
+    for(unsigned round=0;round<64;++round) {
+        for(unsigned i=0;i<8;++i) CAN_SendMessage_Update(CAN_GET_NODE_ID,(float)(round*8+i));
+        for(unsigned i=0;i<8;++i) CAN_SendMessage();
+        assert(can_reply_read==can_reply_write);
+    }
+
+#if !VECTOR_CAN_CLASSIC_ONLY
+    reset_fixture();
+    for(unsigned format=0;format<3;++format) {
+        uint8_t nonce[4]={(uint8_t)format,2,3,4};
+        request_format(4,CAN_GET_PARAMETER_CRC,nonce,format!=0,format==2);
+    }
+    request_format(4,CAN_GET_DEVICE_UID,zero,true,false);
+    tx_result=1;CAN_SendMessage();CAN_SendMessage();assert(crc_calls==1);
+    tx_result=0;
+    for(unsigned format=0;format<3;++format) {
+        CAN_SendMessage();
+        assert(sent_history[format].id==0x47c && sent_history[format].length==8);
+        assert(sent_history[format].fd==(format!=0) && sent_history[format].brs==(format==2));
+        assert(sent_history[format].data[0]==format && sent_history[format].data[1]==2);
+    }
+    CAN_SendMessage();assert(crc_calls==3 && uid_calls==1 && sent_length==16 && sent_fd && !sent_brs);
+    /* BOOT抢占满队列：既有回复不再发送，后续交接仍由原状态机负责。 */
+    for(unsigned i=0;i<8;++i) request_format(4,CAN_GET_MODE,zero,false,false);
+    const uint8_t boot[4]={'B','O','O','T'};
+    request_format(4,CAN_ENTER_BOOT,boot,true,true);
+    unsigned before=sent_count;CAN_SendMessage();assert(boot_pending && sent_count==before);
+#endif
+    puts("PASS reply FIFO: eight immutable items, full queue, STOP/BOOT, TX busy recovery, index wrap, per-item CRC/UID and classic/FD/BRS");
+}
+
 int main(void)
 {
     test_motion_queries();
+    check_rx_fifo_burst();
+    check_reply_fifo();
 #if defined(TEST_SPEED_REPLY_ONLY)
     check_position_speed_reply();
     return 0;
@@ -407,24 +547,26 @@ int main(void)
     reset_fixture();
     CAN_SendMessage_Update(CAN_GET_CURRENT_SET,-1.25f);
     CAN_SendMessage_Update(CAN_GET_NODE_ID,4);
-    assert(CAN_Diagnostics.reply_busy==1 && CANMsg.tx_param_id==CAN_GET_CURRENT_SET);
+    assert(CAN_Diagnostics.reply_busy==0 && CANMsg.tx_param_id==CAN_GET_NODE_ID);
     send_hook=inject_query;CAN_SendMessage();
-    check_sent(0x403,current,2);assert(injected==1 && CAN_Diagnostics.reply_busy==2);
-    assert(can_reply.state==CAN_REPLY_FREE && !CANMsg.can_tx_en);
-    send_hook=NULL;CAN_SendMessage();assert(sent_count==1);
+    check_sent(0x403,current,2);assert(injected==1 && CAN_Diagnostics.reply_busy==0);
+    assert(can_reply_write-can_reply_read==2 && CANMsg.can_tx_en);
+    send_hook=NULL;CAN_SendMessage();check_sent(0x409,node4,4);
+    CAN_SendMessage();check_sent(0x409,node4,4);assert(sent_count==3 && !CANMsg.can_tx_en);
     scalar(4,CAN_GET_NODE_ID,0);CAN_SendMessage();check_sent(0x409,node4,4);
 
     reset_fixture();request(4,CAN_GET_PARAMETER_CRC,nonce);
     crc_hook=inject_uid;tx_result=1;CAN_SendMessage();
-    assert(crc_calls==1 && injected==1 && CAN_Diagnostics.reply_busy==1);
-    assert(can_reply.state==CAN_REPLY_READY && CANMsg.can_tx_en && tx_attempts==1);
+    assert(crc_calls==1 && injected==1 && CAN_Diagnostics.reply_busy==0);
+    assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].state==CAN_REPLY_READY && CANMsg.can_tx_en && tx_attempts==1);
     for (unsigned i=0;i<6;++i) { CAN_SendMessage(); }
     assert(crc_calls==1 && CAN_Diagnostics.tx_busy==7 && tx_attempts==7);
     pending=1;CAN_SendMessage();assert(tx_attempts==7 && CAN_Diagnostics.tx_busy==8);
     pending=0;tx_result=0;CAN_SendMessage();check_sent(0x47c,crc,8);
-    assert(crc_calls==1 && can_reply.state==CAN_REPLY_FREE);
+    assert(crc_calls==1 && can_reply_write-can_reply_read==1);
+    CAN_SendMessage();assert(uid_calls==1 && can_reply_read==can_reply_write);
     request(4,CAN_GET_DEVICE_UID,nonce);send_hook=inject_query;CAN_SendMessage();
-    check_sent(0x463,uid,16);assert(uid_calls==1 && CAN_Diagnostics.reply_busy==2);
+    check_sent(0x463,uid,16);assert(uid_calls==2 && CAN_Diagnostics.reply_busy==0);
 
     reset_fixture();request(4,CAN_GET_PARAMETER_CRC,nonce);crc_hook=inject_boot;CAN_SendMessage();
     assert(boot_pending && tx_attempts==0 && crc_calls==1);
@@ -447,7 +589,7 @@ int main(void)
     assert(CANMsg.node_id==3 && filter_node==3 && MotorControl.speed_limit==2 && limit_updates==1);
     CAN_SendMessage();check_sent(0x409,node4,4); /* 改号前的回复仍用原 ID。 */
     scalar(3,CAN_SET_NODE_ID,3);assert(filter_calls==2 && limit_updates==1);
-    scalar(4,CAN_GET_NODE_ID,0);assert(can_reply.state==CAN_REPLY_FREE);
+    scalar(4,CAN_GET_NODE_ID,0);assert(can_reply_read==can_reply_write);
     scalar(3,CAN_GET_NODE_ID,0);CAN_SendMessage();
     { const uint8_t node3[4]={0x40,0x40,0,0};check_sent(0x309,node3,4); }
 
@@ -457,7 +599,7 @@ int main(void)
     scalar(4,CAN_GET_NODE_ID,FLT_MAX);assert(CAN_Diagnostics.rx_rejected==1);
     CAN_Diagnostics.rx_rejected=UINT32_MAX;scalar(4,0xfe,0);
     assert(CAN_Diagnostics.rx_rejected==UINT32_MAX);
-    CAN_SendMessage_Update(CAN_GET_NODE_ID,4);CAN_Diagnostics.reply_busy=UINT32_MAX;
+    for(unsigned i=0;i<CAN_REPLY_CAPACITY;++i) CAN_SendMessage_Update(CAN_GET_NODE_ID,4);CAN_Diagnostics.reply_busy=UINT32_MAX;
     CAN_SendMessage_Update(CAN_GET_NODE_ID,4);assert(CAN_Diagnostics.reply_busy==UINT32_MAX);
     CAN_Diagnostics.tx_busy=UINT32_MAX;tx_result=1;CAN_SendMessage();assert(CAN_Diagnostics.tx_busy==UINT32_MAX);
     puts("PASS CAN handoff: immutable reply/nonce/ID, one CRC per request, retry, BOOT, stopped node transaction, baud GET");

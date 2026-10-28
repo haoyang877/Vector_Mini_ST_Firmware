@@ -24,7 +24,7 @@ void comm_hw_can_start(uint8_t node)
     {
         Error_Handler();
     }
-    if (HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK)
+    if (HAL_FDCAN_ActivateNotification(&hfdcan1, (FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST), 0) != HAL_OK)
     {
         Error_Handler();
     }

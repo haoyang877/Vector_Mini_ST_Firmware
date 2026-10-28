@@ -165,7 +165,7 @@ typedef struct
 	CAN_PARAM_ID rx_param_id,tx_param_id;
 	float rx_data,tx_data;
 	uint8_t rx_data_u8[4],tx_data_u8[4];
-	/** @brief 当前待回复参数的线路载荷长度，电流为 2，其他为 4。 */
+	/** @brief 最近入队回复参数的线路载荷长度，电流为 2，其他为 4。 */
 	uint8_t tx_data_len;
 	bool can_rx_en;
 	bool can_tx_en;
@@ -180,10 +180,14 @@ typedef struct
  */
 typedef struct {
     uint32_t rx_rejected;          /**< 已上送的帧格式、数值或命令无效。 */
-    uint32_t reply_busy;           /**< 回复槽占用，拒绝新回复而保留原帧。 */
-    uint32_t tx_busy;              /**< 硬件发送忙或失败，原回复留槽重试。 */
+    uint32_t reply_busy;           /**< 八项回复FIFO已满，拒绝新回复而保留旧项。 */
+    uint32_t tx_busy;              /**< 硬件发送忙或失败，队头保留并重试。 */
     uint32_t node_rejected;        /**< 改号数值无效或未完全停机。 */
     uint32_t node_filter_failed;   /**< 过滤器更新失败，节点号保持原值。 */
+    uint32_t reply_peak_depth;    /**< 回复FIFO历史峰值，范围0～8。 */
+    uint32_t rx_fifo_lost;        /**< 硬件FIFO0丢帧事件次数，不等同丢帧总数。 */
+    uint32_t rx_peak_depth;       /**< 中断观察到的FIFO0峰值，范围0～3。 */
+    uint32_t rx_budget_exhausted; /**< 三帧预算用尽后仍有积压的次数。 */
 } CAN_Diagnostics_TypeDef;
 
 extern volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
@@ -202,7 +206,7 @@ bool CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data);
  * @brief 按参数编码发布回复，并冻结当前请求的帧格式；槽满不覆盖旧帧。
  * @param[in] param_id 回复参数号。
  * @param[in] data 按参数定义的 SI 数值；软件版本回复使用只读编译常量。
- * @note 不重入 RX 调用，载荷复制到单槽，不等待硬件；直接调用按编译部署选择默认格式。
+ * @note 不重入 RX 调用，载荷复制到八项FIFO，不等待硬件；直接调用按编译部署选择默认格式。
  */
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data);
 /**

@@ -234,10 +234,10 @@ static void golden_frames(void) {
         }
         frame(frames[i].request_id,IntBitToFloat(frames[i].request_bits));
         assert(CANMsg.can_tx_en && CANMsg.tx_data_len==4);
-        assert(can_reply.identifier==frames[i].reply_id && can_reply.length==4);
+        assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].identifier==frames[i].reply_id && can_replies[can_reply_read % CAN_REPLY_CAPACITY].length==4);
         assert((unsigned)CANMsg.tx_param_id==(frames[i].reply_id & 0xff));
         assert(memcmp(CANMsg.tx_data_u8,frames[i].reply,4)==0);
-        for (unsigned j=0;j<4;++j) assert(can_reply.data[j]==frames[i].reply[j]);
+        for (unsigned j=0;j<4;++j) assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].data[j]==frames[i].reply[j]);
         consume();
     }
     /* 非法值逐一通过真实解码器，节点3和4都必须保持原开关状态。 */
@@ -250,9 +250,9 @@ static void golden_frames(void) {
         for (unsigned i=0;i<sizeof(invalid_bits)/sizeof(invalid_bits[0]);++i) {
             frame((node<<8)|SET_ID,IntBitToFloat(invalid_bits[i]));
             assert(CANMsg.can_tx_en && CANMsg.tx_data_len==4);
-            assert(can_reply.identifier==((node<<8)|GET_ID) && can_reply.length==4);
+            assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].identifier==((node<<8)|GET_ID) && can_replies[can_reply_read % CAN_REPLY_CAPACITY].length==4);
             assert(memcmp(CANMsg.tx_data_u8,rejected,4)==0);
-            for (unsigned j=0;j<4;++j) assert(can_reply.data[j]==rejected[j]);
+            for (unsigned j=0;j<4;++j) assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].data[j]==rejected[j]);
             consume();
             assert(MotorThermalControl_ProtectionEnabled());
         }

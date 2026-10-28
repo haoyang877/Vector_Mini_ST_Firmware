@@ -126,6 +126,7 @@ int main(void) {
 #define FDCAN_REJECT 2
 #define FDCAN_FILTER_REMOTE 1
 #define FDCAN_IT_RX_FIFO0_NEW_MESSAGE 8
+#define FDCAN_IT_RX_FIFO0_MESSAGE_LOST 16
 /* Match all fields/order of the vendor header: omitted fields hid stack junk. */
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength,FDFormat,BitRateSwitch;} FDCAN_RxHeaderTypeDef;
@@ -175,6 +176,7 @@ void Error_Handler(void);
                 "CAN_ReceiveMessage_Update",
                 "CAN_SendMessage_Update",
                 "CANRxIRQHandler",
+                "CAN_ReleaseReply",
                 "CAN_SendMessage",
             )
         )
@@ -189,6 +191,11 @@ bool MotorThermalControl_RequestProtection(bool enabled, uint32_t mode, bool off
         + actual
     )
     (out / "can_reply_actual.inc").write_text(actual, encoding="utf-8")
+    irq_source = (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c").read_text(encoding="utf-8")
+    (out / "can_rx_irq_actual.inc").write_text(
+        "static bool can_rx_serviced;\n" + "\n".join(function_source(irq_source, name) for name in
+        ("CAN_DrainRxFifo0", "HAL_FDCAN_RxFifo0Callback", "FDCAN1_IT0_IRQHandler")), encoding="utf-8")
+
     vectors = json.loads(
         (ROOT / "tests/vectors/can_reply_handoff_v1.json").read_text(encoding="utf-8")
     )
@@ -209,7 +216,7 @@ bool MotorThermalControl_RequestProtection(bool enabled, uint32_t mode, bool off
         )
     (out / "can_reply_vectors.h").write_text(golden + "};\n", encoding="utf-8")
     admission = json.loads(
-        (ROOT / "tests/vectors/classic_can_admission_v066.json").read_text(encoding="utf-8")
+        (ROOT / "tests/vectors/classic_can_admission_v071.json").read_text(encoding="utf-8")
     )
     golden = "static const struct {unsigned id,length,reply_length;uint8_t request[4],reply[16];} admission_vectors[]={\n"
     for row in admission["vectors"]:
@@ -255,7 +262,7 @@ unsigned HAL_FDCAN_Start(Handle *h) {assert(h==&hfdcan1);return config_step('S')
 unsigned HAL_FDCAN_Stop(Handle *h) {assert(h==&hfdcan1);return config_step('X');}
 unsigned HAL_FDCAN_Init(Handle *h) {assert(h==&hfdcan1);return config_step('I');}
 unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned flags,unsigned buffers) {
- assert(h==&hfdcan1 && flags==FDCAN_IT_RX_FIFO0_NEW_MESSAGE && buffers==0);return config_step('N');
+ assert(h==&hfdcan1 && flags==(FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST) && buffers==0);return config_step('N');
 }
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask) {(void)h;assert(mask==7 || mask==1 || mask==2 || mask==4);return (pending&mask)!=0;}
 /** @brief 检查真实端口提交的完整帧头并记录发送调用次数。
@@ -403,6 +410,7 @@ static bool BootHandoff_Pending(void) { return false; }
 static void boot_hw_uid(uint8_t *p) { memset(p,0,12); }
 static uint32_t boot_hw_parameters_crc(void) { return 0; }
 """
+        + function_source(source, "CAN_ReleaseReply")
         + function_source(source, "CAN_SendMessage")
         + r"""
 int main(void) {
@@ -457,7 +465,7 @@ static void motor_hw_outer_barrier(void) {}
         + function_source(source, "CAN_SendMessage_Update")
         + r"""
 static void encode_next(CAN_PARAM_ID id,float value) {
- can_reply.state=CAN_REPLY_FREE;CAN_SendMessage_Update(id,value);
+ can_reply_read=can_reply_write=0;CAN_SendMessage_Update(id,value);
 }
 #define CAN_SendMessage_Update encode_next
 int main(void) {

@@ -50,6 +50,7 @@ def main():
 #define FDCAN_REJECT 2
 #define FDCAN_FILTER_REMOTE 1
 #define FDCAN_IT_RX_FIFO0_NEW_MESSAGE 8
+#define FDCAN_IT_RX_FIFO0_MESSAGE_LOST 16
 typedef struct {unsigned Identifier,IdType,TxFrameType,DataLength,ErrorStateIndicator,BitRateSwitch,FDFormat,TxEventFifoControl,MessageMarker;} FDCAN_TxHeaderTypeDef;
 typedef struct {unsigned Identifier,IdType,RxFrameType,DataLength,FDFormat,BitRateSwitch;} FDCAN_RxHeaderTypeDef;
 typedef struct {unsigned IdType,FilterIndex,FilterType,FilterConfig,FilterID1,FilterID2;} FDCAN_FilterTypeDef;

@@ -1,3 +1,5 @@
+当前候选 **v0.7.1**：修复CAN接收积压与回复队列，保留Loader；已完成离线测试、Keil构建及节点2的60秒静止通信实测，有效反馈49.986Hz。详见[修复与验证报告](docs/reports/2026-10-27-can-rx-reply-queue-v071.md)。
+
 <img src="./docs/assets/project/logo.png" width="600"/>
 
 ## 代码目录

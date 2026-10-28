@@ -43,6 +43,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+/* 同一CAN IRQ不可重入；标记HAL回调是否已消耗本次三帧预算。 */
+static bool can_rx_serviced;
 #if defined(SERVO_HIL_ENABLE) && SERVO_HIL_ENABLE
 static volatile struct {
   uint32_t count, last_cycles, max_cycles, preempted_jobs;
@@ -67,6 +69,7 @@ static uint32_t hil_profile_previous_start;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+static void CAN_DrainRxFifo0(void);
 
 /* USER CODE END PFP */
 
@@ -357,10 +360,12 @@ void ADC1_2_IRQHandler(void)
 void FDCAN1_IT0_IRQHandler(void)
 {
   /* USER CODE BEGIN FDCAN1_IT0_IRQn 0 */
-
+  can_rx_serviced = false;
   /* USER CODE END FDCAN1_IT0_IRQn 0 */
   HAL_FDCAN_IRQHandler(&hfdcan1);
   /* USER CODE BEGIN FDCAN1_IT0_IRQn 1 */
+  /* 软件挂起的IRQ不一定有RF0N标志，HAL不会回调；也必须继续消费。 */
+  if (!can_rx_serviced) { CAN_DrainRxFifo0(); }
 
   /* USER CODE END FDCAN1_IT0_IRQn 1 */
 }
@@ -381,6 +386,31 @@ void TIM7_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 /**
+ * @brief 每次IRQ最多消费硬件FIFO深度的三帧，ADC仍可抢占。
+ * @note 预算后仍有数据则挂起下一次IRQ，不能等待新的总线报文唤醒。
+ * HAL已清除RF0N时，软件续调度仍通过IRQ尾部入口获得下一份预算。
+ */
+static void CAN_DrainRxFifo0(void)
+{
+    uint32_t count;
+    uint32_t depth = HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0);
+    can_rx_serviced = true;
+    if (depth > CAN_Diagnostics.rx_peak_depth) { CAN_Diagnostics.rx_peak_depth = depth; }
+    for (count = 0U; count < 3U && depth != 0U; ++count) {
+        CANRxIRQHandler();
+        depth = HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0);
+        if (depth > CAN_Diagnostics.rx_peak_depth) { CAN_Diagnostics.rx_peak_depth = depth; }
+    }
+    if (depth != 0U) {
+        if (CAN_Diagnostics.rx_budget_exhausted != UINT32_MAX) {
+            ++CAN_Diagnostics.rx_budget_exhausted;
+        }
+        HAL_NVIC_SetPendingIRQ(FDCAN1_IT0_IRQn);
+    }
+}
+
+
+/**
    * @brief  ADCIRQHandler, deal with FOC related tasks
 			 Interrupt frequency: 20kHz
    * @param  
@@ -398,7 +428,11 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
 	if(hfdcan==&hfdcan1)
 	{
-		CANRxIRQHandler();
+        if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_MESSAGE_LOST) != 0U &&
+            CAN_Diagnostics.rx_fifo_lost != UINT32_MAX) {
+            ++CAN_Diagnostics.rx_fifo_lost;
+        }
+        CAN_DrainRxFifo0();
 	}
 }
 

@@ -157,7 +157,7 @@ static void check_deployment(void)
     prepare_test();
     for (unsigned fd=0;fd<2;++fd) {
         for (unsigned brs=0;brs<2;++brs) {
-            can_reply.state=CAN_REPLY_FREE;CANMsg.can_hb_count=123;
+            can_reply_read=can_reply_write=0;CANMsg.can_hb_count=123;
             scalar_format(3,CAN_GET_NODE_ID,0,fd,brs);
             bool allowed=(!brs || fd) && (!VECTOR_CAN_CLASSIC_ONLY || !fd);
             assert((CANMsg.can_hb_count==0)==allowed);
@@ -180,21 +180,21 @@ static void check_deployment(void)
         const uint8_t boot[4]={'B','O','O','T'};
         request_format(3,CAN_ENTER_BOOT,boot,false,false);assert(!boot_pending);
         request_format(3,CAN_ENTER_BOOT,boot,true,true);assert(!boot_pending);
-        can_reply.state=CAN_REPLY_READY;can_reply.fd=true;can_reply.length=4;
+        can_reply_write=can_reply_read+1U;can_replies[can_reply_read % CAN_REPLY_CAPACITY].state=CAN_REPLY_READY;can_replies[can_reply_read % CAN_REPLY_CAPACITY].fd=true;can_replies[can_reply_read % CAN_REPLY_CAPACITY].length=4;
         unsigned count=sent_count;
         CAN_SendMessage();
-        assert(sent_count==count && can_reply.state==CAN_REPLY_FREE);
+        assert(sent_count==count && can_reply_read==can_reply_write);
     } else {
         assert(CanMotorStatus_Configure(20) && CanMotorStatus_Rate()==20);
         request_format(3,CAN_GET_DEVICE_UID,nonce,true,false);
         CAN_SendMessage();assert(sent_length==16 && sent_fd && !sent_brs);
     }
-    can_reply.state=CAN_REPLY_FREE;
+    can_reply_read=can_reply_write=0;
     request_format(3,CAN_GET_PARAMETER_CRC,nonce,false,false);
-    tx_result=1;CAN_SendMessage();assert(can_reply.state==CAN_REPLY_READY);
+    tx_result=1;CAN_SendMessage();assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].state==CAN_REPLY_READY);
     scalar_format(3,CAN_GET_NODE_ID,0,true,true); /* 冻结的经典重试不被替换。 */
     tx_result=0;CAN_SendMessage();assert(sent_length==8 && !sent_fd && !sent_brs);
-    can_reply.state=CAN_REPLY_FREE;
+    can_reply_read=can_reply_write=0;
     CAN_SendMessage_Update(CAN_GET_NODE_ID,3);CAN_SendMessage();
     assert(sent_fd==!VECTOR_CAN_CLASSIC_ONLY && sent_brs==!VECTOR_CAN_CLASSIC_ONLY);
 }
@@ -221,7 +221,7 @@ static void check_sustained_polling(void)
                 (uint8_t)(raw>>8),(uint8_t)raw};
             request_format(3,CAN_SET_POS,target,false,false);
             ++writes;
-            assert(MotorControl.ModeNow==Position_Mode && can_reply.state==CAN_REPLY_FREE);
+            assert(MotorControl.ModeNow==Position_Mode && can_reply_read==can_reply_write);
             for (unsigned slot=0;slot<5;++slot) {
                 uint8_t expected[4]={0};
                 unsigned length=4;
@@ -242,7 +242,7 @@ static void check_sustained_polling(void)
                 unsigned before=sent_count;
                 scalar_format(3,ids[slot],0,false,false);
                 ++requests;
-                assert(can_reply.state==CAN_REPLY_READY && CANMsg.can_hb_count==0);
+                assert(can_replies[can_reply_read % CAN_REPLY_CAPACITY].state==CAN_REPLY_READY && CANMsg.can_hb_count==0);
                 for(unsigned delay=0;delay<=busy_ms;++delay) {
                     /* 共线源擎 PDO 不应刷新本节点心跳或改写已排队回复。 */
                     unsigned old_count=CANMsg.can_hb_count;
@@ -252,12 +252,12 @@ static void check_sustained_polling(void)
                     pending=delay<busy_ms?1U:0U;
                     CAN_SendMessage();
                     if(delay<busy_ms) {
-                        assert(sent_count==before && can_reply.state==CAN_REPLY_READY);
+                        assert(sent_count==before && can_replies[can_reply_read % CAN_REPLY_CAPACITY].state==CAN_REPLY_READY);
                     }
                     CAN_DisConnect_Handle();
                     ++elapsed_ms;
                 }
-                assert(sent_count==before+1U && can_reply.state==CAN_REPLY_FREE);
+                assert(sent_count==before+1U && can_reply_read==can_reply_write);
                 assert(!sent_fd && !sent_brs);
                 check_sent(0x300U|ids[slot],expected,length);
                 ++per_channel[slot];

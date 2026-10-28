@@ -30,7 +30,7 @@ CANMsg_TypeDef CANMsg;
 volatile CAN_Diagnostics_TypeDef CAN_Diagnostics;
 
 /* CAN_REPLY_RUNTIME_BEGIN */
-/** @brief 单槽回复的发布状态，由 RX 发布、主循环处理并释放。 */
+/** @brief RX 生产、前台消费的回复状态；UID/CRC 仅由前台补齐。 */
 typedef enum {
     CAN_REPLY_FREE,
     CAN_REPLY_UID,
@@ -38,18 +38,22 @@ typedef enum {
     CAN_REPLY_READY
 } CanReplyState;
 
-/** @brief 单槽回复；占用期间 RX 不修改载荷、ID 或帧格式。
- * @note RX 填写全部字段后发布状态，主循环成功入队后才释放。
- * UID/CRC 计算及 HAL 重试期间不跟随新查询改变帧格式。
- */
-static volatile struct {
-    CanReplyState state; /**< FREE 时其余字段无效。 */
-    uint16_t identifier; /**< 请求时冻结的标准 ID，不随节点改号而变化。 */
-    uint8_t length;      /**< 载荷字节数，范围 2～16。 */
-    bool fd;            /**< 请求时冻结的经典/FD 格式。 */
-    bool brs;           /**< 请求时冻结的 FD 速率切换位，经典帧为 false。 */
-    uint8_t data[16];    /**< 本槽拥有的载荷副本。 */
-} can_reply;
+#define CAN_REPLY_CAPACITY 8U
+
+/** @brief 每项独占请求时冻结的 ID、载荷和格式，HAL 接受前不得复用。 */
+typedef struct {
+    CanReplyState state; /**< 队头是否仍需前台计算UID/CRC。 */
+    uint16_t identifier; /**< 请求时冻结的回复ID，改号不重定向旧项。 */
+    uint8_t length; /**< 当前载荷长度；UID/CRC补齐后更新。 */
+    bool fd; /**< 请求时冻结的经典/FD格式。 */
+    bool brs; /**< 请求时冻结的BRS，经典帧固定false。 */
+    uint8_t data[16]; /**< 项内拥有载荷与维护请求nonce。 */
+} CanReply;
+
+static volatile CanReply can_replies[CAN_REPLY_CAPACITY];
+/* 单写者单读者：RX 只发布 write，前台只释放 read；无符号差支持计数回绕。 */
+static volatile uint32_t can_reply_write;
+static volatile uint32_t can_reply_read;
 
 /** @brief 不重入 RX 分派中的请求格式；分派结束恢复编译部署的默认格式。 */
 static bool can_request_fd = !VECTOR_CAN_CLASSIC_ONLY;
@@ -68,40 +72,62 @@ static void CAN_Count(volatile uint32_t *counter)
 }
 
 /**
- * @brief 将载荷、标识符及当前请求格式发布到空回复槽。
+ * @brief 将请求快照发布到八项回复 FIFO，满队列保留旧回复并计数。
  * @param[in] identifier 请求时确定的标准回复 ID。
- * @param[in] data 至少 length 字节的载荷；函数复制后不保留该指针。
- * @param[in] length 初始载荷长度，不超过 16；经典帧不超过 8。
- * @param[in] state 发布状态，不能为 FREE；UID/CRC 由主循环补齐载荷。
- * @return 发布成功返回 true；槽忙或载荷超出当前格式能力返回 false。
- * @note 仅不重入 RX 调用；屏障保证先发布数据再发布状态。失败不覆盖旧回复。
+ * @param[in] data 调用期有效的载荷，复制后不保留指针。
+ * @param[in] length 初始长度不超过16，经典帧不超过8。
+ * @param[in] state 初始处理状态，UID/CRC 留到前台计算。
+ * @return 发布成功为true，队满或格式无效为false。
+ * @note 仅不重入RX生产者调用；先写完载荷、再以屏障发布write。
  */
 static bool CAN_QueueReply(uint16_t identifier, const uint8_t *data,
     uint8_t length, CanReplyState state)
 {
+    uint32_t write = can_reply_write;
+    uint32_t depth = write - can_reply_read;
+    volatile CanReply *reply;
     unsigned i;
-    if (can_reply.state != CAN_REPLY_FREE) {
+    if (depth >= CAN_REPLY_CAPACITY) {
         CAN_Count(&CAN_Diagnostics.reply_busy);
         return false;
     }
-    if (length > sizeof(can_reply.data) || (!can_request_fd && length > 8U) ||
+    if (length > sizeof(can_replies[0].data) || (!can_request_fd && length > 8U) ||
         (VECTOR_CAN_CLASSIC_ONLY && (can_request_fd || can_request_brs || length > 8U))) {
         CAN_Count(&CAN_Diagnostics.rx_rejected);
         return false;
     }
-    can_reply.identifier = identifier;
-    can_reply.length = length;
-    can_reply.fd = can_request_fd;
-    can_reply.brs = can_request_fd && can_request_brs;
-    for (i = 0U; i < length; ++i) {
-        can_reply.data[i] = data[i];
-    }
-    CANMsg.can_tx_en = true;
+    reply = &can_replies[write % CAN_REPLY_CAPACITY];
+    /* 与消费者释放read配对，避免复用仍在HAL调用中的项。 */
     motor_hw_outer_barrier();
-    can_reply.state = state;
+    reply->identifier = identifier;
+    reply->length = length;
+    reply->fd = can_request_fd;
+    reply->brs = can_request_fd && can_request_brs;
+    for (i = 0U; i < length; ++i) {
+        reply->data[i] = data[i];
+    }
+    reply->state = state;
+    motor_hw_outer_barrier();
+    can_reply_write = write + 1U;
+    CANMsg.can_tx_en = true;
+    if (depth + 1U > CAN_Diagnostics.reply_peak_depth) {
+        CAN_Diagnostics.reply_peak_depth = depth + 1U;
+    }
     return true;
 }
+
 /* CAN_REPLY_RUNTIME_END */
+
+/** @brief 前台在HAL接受或拒绝旧格式项后释放队头；不覆盖并发RX的发布。 */
+static void CAN_ReleaseReply(void)
+{
+    motor_hw_outer_barrier();
+    ++can_reply_read;
+    /* can_tx_en仅为兼容调试镜像，不参与队列判空；重读避免覆盖RX的true。 */
+    CANMsg.can_tx_en = false;
+    motor_hw_outer_barrier();
+    if (can_reply_read != can_reply_write) { CANMsg.can_tx_en = true; }
+}
 
 extern MotorControl_TypeDef MotorControl;
 extern ModeNow_TypeDef ModeLast;
@@ -491,7 +517,7 @@ static bool CAN_ReadMotion(CAN_PARAM_ID param_id)
     unsigned part = ((unsigned)param_id - CAN_GET_POSITION_PLANNED) / 2U;
     uint32_t raw;
     if (part >= 3U) { return false; }
-    if (can_reply.state != CAN_REPLY_FREE) { CAN_Count(&CAN_Diagnostics.reply_busy); return false; }
+    if (can_reply_write - can_reply_read >= CAN_REPLY_CAPACITY) { CAN_Count(&CAN_Diagnostics.reply_busy); return false; }
     if (part == 0U) {
         can_motion_latch.valid = MotorControl.ModeNow == Position_Mode &&
             MotorControl.ErrorNow == No_Error &&
@@ -814,7 +840,7 @@ bool CAN_ReceiveMessage_Update(CAN_PARAM_ID param_id, float data)
  * @brief 按原参数编码生成回复，并将当前请求的经典/FD/BRS 格式冻结到回复槽。
  * @param[in] param_id 回复参数号，决定 float32、定点或软件版本编码。
  * @param[in] data 回复的 SI 数值；软件版本号使用只读编译常量。
- * @note 仅不重入 RX 分派调用；槽忙时不覆盖旧帧或调试镜像，不等待硬件。
+ * @note 仅不重入 RX 分派调用；队满时不覆盖旧帧或调试镜像，不等待硬件。
  */
 void CAN_SendMessage_Update(CAN_PARAM_ID param_id, float data)
 {
@@ -927,9 +953,9 @@ void CANRxIRQHandler(void)
 }
 
 /**
- * @brief 前台按回复槽冻结的格式发送，HAL 忙时保持整帧待下次重试。
- * @note 仅主循环调用；UID/CRC 只计算一次。成功入队后释放槽，不等同已送达。
- * FD 兼容部署下，空槽继续处理显式状态流；不修改模式、目标或参数。
+ * @brief 前台按FIFO队头冻结的格式发送，HAL 忙时保持整帧待下次重试。
+ * @note 仅主循环调用；UID/CRC 只计算一次。HAL接受后释放队头，不等同已送达。
+ * FD 兼容部署下，空队列继续处理显式状态流；不修改模式、目标或参数。
  */
 void CAN_SendMessage(void)
 {
@@ -937,26 +963,27 @@ void CAN_SendMessage(void)
     unsigned i;
     uint8_t length;
     uint16_t identifier;
+    volatile CanReply *reply;
     if (BootHandoff_Pending()) { return; }
-    /* 防止调试器保留的旧 FD 回复堵住经典队列，更不能降级截断后发送。 */
-    if (VECTOR_CAN_CLASSIC_ONLY && can_reply.state != CAN_REPLY_FREE &&
-        (can_reply.fd || can_reply.brs || can_reply.length > 8U || can_reply.state == CAN_REPLY_UID)) {
-        CANMsg.can_tx_en = false;
-        can_reply.state = CAN_REPLY_FREE;
-        return;
-    }
-    if (can_reply.state == CAN_REPLY_FREE) {
+    if (can_reply_read == can_reply_write) {
         uint8_t status[CAN_MOTOR_STATUS_SIZE];
         if (CanMotorStatus_Prepare(time_hw_now_ms(), CANMsg.node_id,
-            &identifier, status, sizeof(status)) && can_reply.state == CAN_REPLY_FREE &&
+            &identifier, status, sizeof(status)) && can_reply_read == can_reply_write &&
             !BootHandoff_Pending()) {
             (void)comm_hw_can_try_send_status(identifier, status, sizeof(status));
         }
         return;
     }
     motor_hw_outer_barrier();
-    if (can_reply.state == CAN_REPLY_CRC || can_reply.state == CAN_REPLY_UID) {
-        if (can_reply.state == CAN_REPLY_CRC) {
+    reply = &can_replies[can_reply_read % CAN_REPLY_CAPACITY];
+    /* 经典部署不能发送调试器保留的FD项，不截断伪装为经典回复。 */
+    if (VECTOR_CAN_CLASSIC_ONLY &&
+        (reply->fd || reply->brs || reply->length > 8U || reply->state == CAN_REPLY_UID)) {
+        CAN_ReleaseReply();
+        return;
+    }
+    if (reply->state == CAN_REPLY_CRC || reply->state == CAN_REPLY_UID) {
+        if (reply->state == CAN_REPLY_CRC) {
             uint32_t crc = boot_hw_parameters_crc();
             payload[4] = (uint8_t)(crc >> 24);
             payload[5] = (uint8_t)(crc >> 16);
@@ -968,22 +995,20 @@ void CAN_SendMessage(void)
             length = 16U;
         }
         for (i = 4U; i < length; ++i) {
-            can_reply.data[i] = payload[i];
+            reply->data[i] = payload[i];
         }
-        can_reply.length = length;
-        can_reply.state = CAN_REPLY_READY;
+        reply->length = length;
+        reply->state = CAN_REPLY_READY;
     }
     /* 本次回复的 ID、nonce 和数据均来自入槽时的请求，改号不能重定向旧回复。 */
-    identifier = can_reply.identifier;
-    length = can_reply.length;
+    identifier = reply->identifier;
+    length = reply->length;
     for (i = 0U; i < length; ++i) {
-        payload[i] = can_reply.data[i];
+        payload[i] = reply->data[i];
     }
     if (BootHandoff_Pending()) { return; }
-    if (comm_hw_can_try_send_reply_format(identifier, payload, length, can_reply.fd, can_reply.brs)) {
-        CANMsg.can_tx_en = false;
-        motor_hw_outer_barrier();
-        can_reply.state = CAN_REPLY_FREE;
+    if (comm_hw_can_try_send_reply_format(identifier, payload, length, reply->fd, reply->brs)) {
+        CAN_ReleaseReply();
     } else {
         CAN_Count(&CAN_Diagnostics.tx_busy);
     }

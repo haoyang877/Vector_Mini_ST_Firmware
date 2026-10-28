@@ -107,7 +107,7 @@ static void frame(unsigned id, float value) {
     uint32_t bits=FloatToIntBit(value); memset(&incoming,0,sizeof(incoming));
     incoming.identifier=id; incoming.length=4;
     for(unsigned i=0;i<4;i++) incoming.data[i]=(uint8_t)(bits>>(24-i*8));
-    CANMsg.can_tx_en=false; can_reply.state=CAN_REPLY_FREE; CANRxIRQHandler();
+    CANMsg.can_tx_en=false; can_reply_read=can_reply_write=0; CANRxIRQHandler();
 }
 static void write(unsigned id,float value) {
     frame(0x400|id,value); assert(CANMsg.can_tx_en && CANMsg.tx_param_id==(id+1));

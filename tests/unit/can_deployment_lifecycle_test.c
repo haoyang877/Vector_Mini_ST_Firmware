@@ -30,7 +30,7 @@ unsigned HAL_FDCAN_ConfigFilter(Handle *h,const FDCAN_FilterTypeDef *filter)
 unsigned HAL_FDCAN_ConfigGlobalFilter(Handle *h,unsigned a,unsigned b,unsigned c,unsigned d)
 { (void)h; assert(a==FDCAN_REJECT && b==FDCAN_REJECT && c==FDCAN_FILTER_REMOTE && d==FDCAN_FILTER_REMOTE); return HAL_OK; }
 unsigned HAL_FDCAN_ActivateNotification(Handle *h,unsigned a,unsigned b)
-{ (void)h;assert(a==FDCAN_IT_RX_FIFO0_NEW_MESSAGE && b==0);return HAL_OK; }
+{ (void)h;assert(a==(FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST) && b==0);return HAL_OK; }
 unsigned HAL_FDCAN_IsTxBufferMessagePending(Handle *h,unsigned mask)
 { (void)h;(void)mask;return 0; }
 unsigned HAL_FDCAN_AddMessageToTxFifoQ(Handle *h,const FDCAN_TxHeaderTypeDef *header,const uint8_t *data)

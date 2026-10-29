@@ -14,12 +14,14 @@
  * @param kind 实际维护任务类型。
  * @param foc 母线和控制测量。
  * @param encoder 编码器运行健康。
+ * @param configuration_valid 所有者已核对同一配置代际的完整校验结果；动态事实仍在此重读。
  * @return 输入和功能前提全部满足返回 MOTOR_FAULT_NONE，否则返回拒绝原因；不锁存故障。
  */
 MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
                                       const FocState *foc,
-                                      const EncoderState *encoder);
+                                      const EncoderState *encoder,
+                                      bool configuration_valid);
 /**
  * @brief 执行已受理任务的一个有界快速周期。
  * @param configuration 维护所有者提供的独占配置，仅默认恢复或校准提交修改。
@@ -52,5 +54,14 @@ void MotorMaintenance_Cancel(MotorMaintenanceKind kind);
  * @return 全部工作区静默返回 true，不代表后台借用归还或硬件关闭。
  */
 bool MotorMaintenance_IsReleased(void);
+
+/**
+ * @brief 在所有者确认关相且锁定原会话后发布LUT并归还工作区。
+ * @param configuration 活动参数的独占可写视图。
+ * @param encoder 角度运行状态。
+ * @return 发布成功返回true，失败不发布候选并返回false。
+ * @note 仅前台临界区调用，不启动功率、不写Flash。
+ */
+bool MotorMaintenance_PublishLut(MotorConfiguration *configuration, EncoderState *encoder);
 
 #endif

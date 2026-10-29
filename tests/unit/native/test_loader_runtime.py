@@ -71,13 +71,28 @@ def main() -> None:
         + "\n"
         + function_source(board, "confirm_image")
         + "\n"
-        + function_source(board, "App_Process"),
+        + function_source(board, "App_Process")
+        + "\n"
+        + function_source(
+            (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
+            "mode_color",
+        )
+        + "\n"
+        + function_source(
+            (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
+            "App_FastTick",
+        )
+        + "\n#define RGB_DIVIDER (SUPERVISOR_FREQ / 20U)\nstatic uint16_t s_rgb_cnt;\n"
+        + function_source(
+            (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
+            "App_SupervisorTick",
+        ),
         encoding="utf-8",
     )
     platform = (ROOT / "loader/ports/stm32g4/platform.c").read_text(encoding="utf-8")
     device = (
         ROOT
-        / "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include/stm32g431xx.h"
+        / "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Device/ST/STM32G4xx/Include/stm32g431xx.h"
     ).read_text(encoding="utf-8")
     sr_defines = "\n".join(
         line for line in device.splitlines() if line.startswith("#define FLASH_SR_")
@@ -96,7 +111,7 @@ def main() -> None:
         + function_source(platform, "flash_ready"),
         encoding="utf-8",
     )
-    boot = (ROOT / "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c").read_text(
+    boot = (ROOT / "firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c").read_text(
         encoding="utf-8"
     )
     confirm_source = output / "app_confirm.c"
@@ -117,6 +132,7 @@ def main() -> None:
                 "marker_valid",
                 "outputs_off",
                 "BootHw_Watchdog",
+                "BootHw_IsAvailable",
                 "BootHw_IsConfirmed",
                 "BootHw_ImageCrc32",
                 "BootHw_Confirm",
@@ -208,10 +224,7 @@ def main() -> None:
         (
             "app_health",
             str(health_source),
-            [
-                "-DYG_APP_LOADER_IMAGE=1",
-                str(ROOT / "firmware/app/composition/app_tasks.c"),
-            ],
+            ["-DYG_APP_LOADER_IMAGE=1"],
         ),
         ("flash_wait", str(flash_source), []),
         ("app_confirm", str(confirm_source), []),

@@ -2,6 +2,25 @@
 
 结果只适用于各记录的原始范围和基线，未测/失败/限制仍按原文保留。
 
+- [BSP整理后AT32烧录与关相验收](2026-10-27-bsp-cleanup-at32-flash-v1.md)：独立读回、运行、CAN及参数保留通过；未启相、未转动。
+
+- [AT32 BSP职责收敛](2026-10-26-at32-bsp-responsibility-cleanup-v1.md)：统一命名、删除实现期测试代码，平铺11文件，九工程与完整回归通过；未烧录。
+
+
+- [BSP私有接口收敛后的AT32关相实测](2026-10-26-bsp-private-at32-hil-v1.md)：修复时序问题，九工程、完整release、J-Link读回及CAN实测通过；未转动。
+
+- [BSP私有头与直接查询收敛](2026-10-26-bsp-private-header-consolidation-v1.md)：统一私有声明、删除两处纯转发，九工程及完整离线验收通过；未操作硬件。
+
+- [双板能力配置与接口收口v1](2026-10-25-platform-capabilities-v1.md)：统一能力/使能/必需条件，清理采样、编码器、PWM/CAN边界；9目标及PR/release通过，未烧录。
+
+- [双板CAN职责与接口v1](2026-10-24-can-responsibility-refactor-v1.md)：统一CAN职责和共享DLC校验；9目标及PR/release通过，AT32关相通信实测通过。
+
+- [双板PWM与功率输出职责v1](2026-10-24-pwm-power-refactor-v1.md)：统一PWM接口、输出硬件所有者、目标许可和初始化职责；9目标和PR/release通过，未烧录。
+
+- [双板编码器职责拆解v1](2026-10-24-encoder-responsibility-refactor-v1.md)：统一编码器接口、器件协议与SPI职责；9目标和PR/release通过，AT32批准镜像关相实测通过。
+
+- [双板采样职责拆解v1](2026-10-24-sampling-responsibility-refactor-v1.md)：共同采样契约、AT32职责拆分与STM32完整链路归位；9目标编译和PR/release通过，未烧录。
+
 - [2kHz三段监督v1](2026-10-21-supervisor-staged-v1.md)：前处理、获准计算和复核提交已落地，离线与debug构建通过，实机/时序未测。
 - [APP四入口收口v1](2026-10-21-app-entry-v1.md)：源码与离线构建已收口，正式release及实机限制见正文。
 
@@ -66,3 +85,9 @@
 - [Project harness implementation — 2026-09-18](project_harness_20260918.md)
 
 - [文档体系清理与对齐v1](2026-10-21-docs-cleanup-v1.md)：归档、合并、源码核对及本轮检查结果。
+
+- [Platform收敛为BSP、板级配置和原样SDK](2026-10-26-platform-bsp-sdk-v1.md)
+
+- [共用电机BSP与实现分离](2026-10-26-common-motor-bsp-v1.md)：九目标/Loader及PR/release通过，AT32永久关相验证通过；剩余文件精简项见报告。
+
+- [BSP最小直接实现](2026-10-26-minimal-bsp-v1.md)：删除17个文件，九工程及Loader、PR/release和AT32关相验证通过。

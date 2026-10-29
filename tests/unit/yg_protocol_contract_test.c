@@ -7,7 +7,6 @@
 #include "yg_protocol_motor.h"
 #include "yg_protocol_parameter.h"
 #include "yg_protocol_job.h"
-#include "yg_protocol_motor_status.h"
 #include "yg_protocol_readonly.h"
 
 static void motor_handler(void *context,
@@ -345,28 +344,23 @@ static void maintenance_kind_extension_vectors(void)
 static void endpoint_round_trip(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
-    yg_protocol_readonly_service_t service = {
-        .context = &source,
-        .protocol_info_type = YG_PROTOCOL_READONLY_TYPE_DISABLED,
-        .device_info_type = YG_PROTOCOL_READONLY_TYPE_DISABLED,
-        .capabilities_type = YG_PROTOCOL_READONLY_TYPE_DISABLED,
-        .motor_status_type = YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE,
-        .motor_status = yg_protocol_motor_status_provider};
-    yg_protocol_route_t route = {
-        YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, yg_protocol_readonly_handle, &service};
-    yg_protocol_message_registry_t registry;
-    yg_protocol_router_t router;
+    yg_protocol_readonly_service_t service = {&source, yg_protocol_motor_status_provider};
+    const yg_protocol_command_t entries[] = {
+        {YG_PROTOCOL_READONLY_TYPE_GET_MOTOR_STATE, false, yg_protocol_readonly_handle, &service},
+        {YG_PROTOCOL_READONLY_TYPE_GET_INFO, true, NULL, NULL},
+        {YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK, false, NULL, NULL},
+    };
+    yg_protocol_commands_t commands;
     yg_protocol_transfer_frame_t rx_storage[3], tx_storage[2], frame;
     yg_protocol_transfer_queue_t rx, tx;
     uint8_t fragments[96];
     yg_protocol_endpoint_t endpoint;
     yg_protocol_endpoint_config_t config = {
-        3U, 6U, 200U, &rx, &tx, &router, fragments, sizeof(fragments)};
+        3U, 6U, 200U, &rx, &tx, &commands, fragments, sizeof(fragments)};
     yg_protocol_message_t request = {
         1U, YG_PROTOCOL_FLAGS_ACK_REQUEST, 2U, 3U, 108U, 9U, 0U, 0U, NULL};
     yg_protocol_message_t response;
-    assert(yg_protocol_product_registry_init(&registry) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_init(&router, &registry, &route, 1U) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_register(&commands, entries, 3U) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_init(&rx, rx_storage, 3U));
     assert(yg_protocol_transfer_queue_init(&tx, tx_storage, 2U));
     assert(yg_protocol_endpoint_init(&endpoint, &config) == YG_PROTOCOL_OK);
@@ -402,13 +396,13 @@ static void endpoint_round_trip(void)
     assert(yg_protocol_canfd_pack(&request, 6U, &frame) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_push(&rx, &frame));
     assert(yg_protocol_endpoint_process_one(&endpoint, 4U) == YG_PROTOCOL_INVALID_FIELD);
-    assert(tx.count == 0U);
+    assert(yg_protocol_transfer_queue_count(&tx) == 0U);
     request.flags = YG_PROTOCOL_FLAGS_ACK_REQUEST;
     request.destination_node = 0xFFU;
     assert(yg_protocol_canfd_pack(&request, 6U, &frame) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_push(&rx, &frame));
     assert(yg_protocol_endpoint_process_one(&endpoint, 5U) == YG_PROTOCOL_INVALID_NODE_ID);
-    assert(tx.count == 0U);
+    assert(yg_protocol_transfer_queue_count(&tx) == 0U);
     assert(yg_protocol_endpoint_reset(&endpoint) == YG_PROTOCOL_OK);
 
     /* GET_INFO 的完整 48B 响应分成 46+2，缺一个空位时没有半包入队。 */
@@ -418,10 +412,10 @@ static void endpoint_round_trip(void)
         1U, YG_PROTOCOL_FLAGS_RESPONSE, 3U, 2U, 1U, 9U, 48U, 0U, long_payload};
     assert(yg_protocol_transfer_queue_push(&tx, &frame));
     assert(yg_protocol_endpoint_send(&endpoint, &long_message, 6U) == YG_PROTOCOL_QUEUE_FULL);
-    assert(tx.count == 1U);
+    assert(yg_protocol_transfer_queue_count(&tx) == 1U);
     assert(yg_protocol_endpoint_reset(&endpoint) == YG_PROTOCOL_OK);
     assert(yg_protocol_endpoint_send(&endpoint, &long_message, 6U) == YG_PROTOCOL_OK);
-    assert(tx.count == 2U);
+    assert(yg_protocol_transfer_queue_count(&tx) == 2U);
     yg_protocol_fragment_state_t assembly;
     uint8_t assembled[48];
     yg_protocol_message_t complete;
@@ -437,7 +431,114 @@ static void endpoint_round_trip(void)
     assert(complete.payload_length == 48U && memcmp(complete.payload, long_payload, 48U) == 0);
     long_message.message_type = 124U;
     assert(yg_protocol_endpoint_send(&endpoint, &long_message, 3U) == YG_PROTOCOL_INVALID_LENGTH);
-    assert(tx.count == 0U);
+    assert(yg_protocol_transfer_queue_count(&tx) == 0U);
+}
+
+typedef struct
+{
+    unsigned calls;
+    bool defer;
+    yg_protocol_result_t status;
+    yg_protocol_message_t reply;
+    uint8_t payload;
+} reply_test_context_t;
+
+static yg_protocol_result_t handle_reply_test(void *context,
+                                              const yg_protocol_message_t *request,
+                                              yg_protocol_service_result_t *result)
+{
+    reply_test_context_t *test = context;
+    ++test->calls;
+    assert(request->payload_length == 1U);
+    /* 模拟业务保存异步结果，不能保存 RX 栈内存或 endpoint 的回复缓冲。 */
+    test->payload = request->payload[0];
+    test->reply = *request;
+    test->reply.source_node = request->destination_node;
+    test->reply.destination_node = request->source_node;
+    test->reply.flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    test->reply.payload = &test->payload;
+    result->reply_ready = !test->defer;
+    result->response_payload[0] = test->payload;
+    result->response_payload_length = 1U;
+    return test->status;
+}
+
+static void command_reply_policy(void)
+{
+    reply_test_context_t business = {.defer = true, .status = YG_PROTOCOL_OK};
+    const yg_protocol_command_t entries[] = {
+        {0x0010U, false, handle_reply_test, &business},
+        {0x0011U, false, NULL, NULL},
+    };
+    yg_protocol_commands_t commands;
+    yg_protocol_transfer_frame_t rx_storage[2], tx_storage[1], frame;
+    yg_protocol_transfer_queue_t rx, tx;
+    uint8_t fragments[46], payload = 0x5AU;
+    yg_protocol_endpoint_t endpoint;
+    const yg_protocol_endpoint_config_t config = {
+        3U, 3U, 200U, &rx, &tx, &commands, fragments, sizeof(fragments)};
+    yg_protocol_message_t request = {
+        1U, YG_PROTOCOL_FLAGS_ACK_REQUEST, 2U, 3U, 0x0010U, 9U, 1U, 0U, &payload};
+    yg_protocol_message_t response;
+    assert(yg_protocol_commands_register(&commands, entries, 2U) == YG_PROTOCOL_OK);
+    assert(yg_protocol_transfer_queue_init(&rx, rx_storage, 2U));
+    assert(yg_protocol_transfer_queue_init(&tx, tx_storage, 1U));
+    assert(yg_protocol_endpoint_init(&endpoint, &config) == YG_PROTOCOL_OK);
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    frame.data[16] ^= 1U;
+    assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 0U) ==
+           YG_PROTOCOL_INVALID_FRAME_CRC);
+    assert(business.calls == 0U && yg_protocol_transfer_queue_count(&tx) == 0U);
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 1U) == YG_PROTOCOL_OK);
+    assert(business.calls == 1U && yg_protocol_transfer_queue_count(&tx) == 0U &&
+           !endpoint.response_pending);
+    memset(frame.data, 0, sizeof(frame.data));
+    /* 完成后走相同发送入口；TX 复制结果，后续可释放业务持有的数据。 */
+    assert(yg_protocol_endpoint_send(&endpoint, &business.reply, 3U) == YG_PROTOCOL_OK);
+    business.payload = 0U;
+    assert(yg_protocol_transfer_queue_pop(&tx, &frame));
+    assert(yg_protocol_canfd_unpack(&frame, 2U, &response) == YG_PROTOCOL_OK);
+    assert(response.sequence == 9U && response.payload[0] == 0x5AU);
+
+    business.defer = false;
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(yg_protocol_transfer_queue_push(&tx, &frame));
+    assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 2U) == YG_PROTOCOL_QUEUE_FULL);
+    assert(business.calls == 2U && endpoint.response_pending);
+    for (unsigned i = 0U; i < 3U; ++i)
+    {
+        assert(yg_protocol_endpoint_process_frame(&endpoint, NULL, 3U) == YG_PROTOCOL_QUEUE_FULL);
+        assert(business.calls == 2U);
+    }
+    assert(yg_protocol_transfer_queue_pop(&tx, &frame));
+    assert(yg_protocol_endpoint_process_frame(&endpoint, NULL, 4U) == YG_PROTOCOL_OK);
+    assert(business.calls == 2U && !endpoint.response_pending);
+    assert(yg_protocol_transfer_queue_pop(&tx, &frame));
+
+    business.status = YG_PROTOCOL_INVALID_FIELD;
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 5U) == YG_PROTOCOL_INVALID_FIELD);
+    assert(business.calls == 3U && yg_protocol_transfer_queue_count(&tx) == 0U);
+    business.status = YG_PROTOCOL_OK;
+    request.flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 6U) == YG_PROTOCOL_OK);
+    assert(business.calls == 4U &&
+           yg_protocol_transfer_queue_count(&tx) == 0U); /* 不对回复再自动回复。 */
+
+    request.flags = YG_PROTOCOL_FLAGS_ACK_REQUEST;
+    for (uint16_t type = 0x0011U; type <= 0x0012U; ++type)
+    {
+        request.message_type = type; /* 仅发送项和未知 ID 均不能执行。 */
+        assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+        assert(yg_protocol_endpoint_process_frame(&endpoint, &frame, 7U) ==
+               YG_PROTOCOL_ROUTE_NOT_FOUND);
+        assert(business.calls == 4U && yg_protocol_transfer_queue_count(&tx) == 0U);
+    }
+    business.reply.message_type = 0x0011U;
+    assert(yg_protocol_endpoint_send(&endpoint, &business.reply, 3U) == YG_PROTOCOL_OK);
+    assert(yg_protocol_transfer_queue_count(&tx) == 1U);
 }
 
 void yg_protocol_contract_test(void)
@@ -449,4 +550,5 @@ void yg_protocol_contract_test(void)
     motor_command_vectors();
     maintenance_kind_extension_vectors();
     endpoint_round_trip();
+    command_reply_policy();
 }

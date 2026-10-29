@@ -33,10 +33,10 @@ MotorControlMode MotorAxis_SupervisorTick(void);
  * @brief 采集一致的只读电机测量值。
  * @param sample 调用方快照空间，不保留指针。
  * @param valid_bits 接收既有测量有效位。
- * @param maintenance_kind 接收同一临界区内的维护任务类型，空闲为 NONE。
- * @param control_progress 接收同一临界区内的控制请求进展。
+ * @param maintenance_kind 接收同一一致快照的维护任务类型，空闲为 NONE。
+ * @param control_progress 接收同一一致快照的控制请求进展。
  * @return 关联的生命周期状态。
- * @note 前台调用；内部短临界区，不暴露控制对象地址。
+ * @note 前台调用；版本核对允许快慢ISR抢占，最多重试三次后原子采集，不暴露控制对象地址。
  */
 MotorState MotorAxis_ReadStatus(MotorStatus *sample,
                                 uint8_t *valid_bits,
@@ -94,4 +94,11 @@ bool MotorAxis_SaveIdle(void);
  * @note 维护准入与本查询须在同一短临界区；允许读取或保存当前版本，不返回对象地址。
  */
 bool MotorAxis_ConfigurationRevisionAvailable(void);
+/**
+ * @brief 在本拍末尾处理已配置的台架限速和只读遥测。
+ * @param fast_samples 已完成的快拍序号。
+ * @note 仅由快任务编排调用；Axis内部读取自己的对象，不对外借出地址。
+ *       限时台架超过原60rad/s界限先关相，再发布原格式诊断帧；禁用诊断不增加硬件访问。
+ */
+void MotorAxis_ServiceFastDiagnostics(uint32_t fast_samples);
 #endif

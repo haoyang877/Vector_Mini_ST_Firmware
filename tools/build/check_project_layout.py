@@ -26,6 +26,19 @@ def resolve_path(base, value):
 def check_project(project):
     errors = []
     tree = ET.parse(project)
+    # 强制包含配置必须直接指向工程相对文件，避免偶然依赖某个-I目录回退。
+    for node in tree.findall(".//MiscControls"):
+        for quoted, plain in re.findall(
+            r'(?:--preinclude(?:=|\s+)|-include\s+)(?:"([^"]+)"|(\S+))', node.text or ""
+        ):
+            value = quoted or plain
+            if not resolve_path(project.parent, value).is_file():
+                errors.append(f"missing forced include: {value}")
+    # uVision会直接拼接输出文件名，目录必须保留末尾分隔符。
+    for tag in ("OutputDirectory", "ListingPath"):
+        value = tree.findtext(".//" + tag)
+        if value and not value.endswith(("\\", "/")):
+            errors.append(f"{tag} must end with a directory separator: {value}")
     include_dirs = []
     sources = []
     for node in tree.findall(".//IncludePath"):
@@ -72,6 +85,7 @@ def check_project(project):
             or source.suffix not in (".c", ".h")
             or not any(source.is_relative_to(root) for root in roots)
             or "Drivers" in source.parts
+            or source.is_relative_to(ROOT / "firmware/platform/sdk")
             or source.name == "stm32g4xx_hal_conf.h"
         ):
             continue

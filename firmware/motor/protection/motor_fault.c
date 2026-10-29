@@ -1,8 +1,10 @@
+#include "app_feature_requirements.h"
 #include "motor_fault.h"
+#include "bsp_system.h"
 #include <stddef.h>
 #include <math.h>
 #include "foc_sensing.h"
-#include "motor_sensing.h"
+#include "sampling_scale.h"
 #include "bus_voltage_profile.h"
 #include "control_math.h"
 
@@ -13,11 +15,14 @@
 /* 报告只锁存故障；清除和模式变化由 APP 生命周期所有者处理。 */
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode error)
 {
-    if (motor != NULL && error != MOTOR_FAULT_NONE &&
-        (motor->fault_code == MOTOR_FAULT_NONE ||
-         motor->fault_code == MOTOR_FAULT_CAN_DISCONNECTED))
+    if (motor != NULL && error != MOTOR_FAULT_NONE)
     {
-        motor->fault_code = error;
+        /* 快故障抢占低频报告时，后者不能覆盖已锁存的真实故障。 */
+        if (!BspSystem_CompareExchange32(&motor->fault_code, MOTOR_FAULT_NONE, error))
+        {
+            (void)BspSystem_CompareExchange32(
+                &motor->fault_code, MOTOR_FAULT_CAN_DISCONNECTED, error);
+        }
     }
 }
 
@@ -58,10 +63,9 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
         return samples_fresh && Encoder_IsOnline(rotor_encoder) &&
                Encoder_GetBadFrameStreak(rotor_encoder) == 0U;
     case MOTOR_FAULT_TEMPERATURE_SENSOR:
-        return !BOARD_REQUIRE_MCU_TEMPERATURE ||
-               (temperature_fresh && isfinite(foc->temperature_c));
+        return !BSP_REQUIRED_MCU_TEMPERATURE || (temperature_fresh && isfinite(foc->temperature_c));
     case MOTOR_FAULT_OVERTEMPERATURE:
-        return !BOARD_REQUIRE_MCU_TEMPERATURE ||
+        return !BSP_REQUIRED_MCU_TEMPERATURE ||
                (temperature_fresh && foc->temperature_c < RUN_STATE_TEMP_RECOVER_C);
     case MOTOR_FAULT_OVERVOLTAGE:
     case MOTOR_FAULT_UNDERVOLTAGE:

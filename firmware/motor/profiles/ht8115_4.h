@@ -30,6 +30,9 @@
 #define PARAM_MOTOR_MAX_SPEED_RPM 300.0f
 #define PARAM_MOTOR_GEAR_RATIO 1.0f
 #define PARAM_MOTOR_CALIB_CURRENT_A 3.0f
+/* 无阻尼环装配的既有标定速度；阻尼环装配仍用启动配置中的专用整定。 */
+#define PARAM_MOTOR_CALIB_TARGET_ELEC_VEL_RAD_S 315.0f
+#define PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S 15.0f
 
 /* HT既有热设计输入保持不变，不因带宽或阻尼环选择扩大电流额度。 */
 #define PARAM_MOTOR_THERMAL_CONTINUOUS_VECTOR_A 3.0f

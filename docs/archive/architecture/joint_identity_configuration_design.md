@@ -29,7 +29,7 @@ roll、pitch、yaw、wheel_right、wheel_left 共用固件。装配时赋予关�
 - `firmware/services/parameters/foc_param.c` 从持久化参数直接恢复 PID，最后加载轴记录；当前没有按轴身份解析参数集的步骤。
 - AXS1 的 `name[8]` 无法容纳 `wheel_right` 或 `wheel_left`；不能截断名称或直接扩大原结构来解释旧 Flash。
 - `firmware/motor/position/position_cascade_config.h` 中轨迹整形、保持窗口等仍是公共常量。需要按关节配置的项目应进入运行配置，而非按关节编译多份控制器。
-- 当前 `firmware/platform/stm32g4/bsp/flash.c` 混合参数存储与 MCU Flash 操作，`firmware/services/parameters/foc_param.h` 直接依赖硬件头文件，且参数恢复存在回退默认值/重写路径。新增设计不能通过继续增加全局变量或上层 HAL 调用扩大这些耦合。
+- 当前 `firmware/platform/bsp/mcu/stm32g4/flash.c` 混合参数存储与 MCU Flash 操作，`firmware/services/parameters/foc_param.h` 直接依赖硬件头文件，且参数恢复存在回退默认值/重写路径。新增设计不能通过继续增加全局变量或上层 HAL 调用扩大这些耦合。
 
 ## 数据职责
 

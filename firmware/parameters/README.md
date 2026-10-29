@@ -10,6 +10,6 @@
 | application_profile_defaults.h | 应用包络、外环和可选前馈的默认输入 |
 | device_profile_defaults.h | 单台设备地址和默认校准初值 |
 
-硬件默认值在platform/api，电机默认值在motor；本目录没有复制一套运行状态。
+硬件默认值在platform/config，电机默认值在motor；本目录没有复制一套运行状态。
 主状态准入、去重、revision及保存票据归APP参数事务；实际字节读写归平台param_store。
 四类参数的完整归属见[参数所有权](../../docs/architecture/parameter_ownership_v1.md)。

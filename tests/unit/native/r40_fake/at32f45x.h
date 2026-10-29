@@ -2,6 +2,9 @@
 #define R40_FAKE_AT32_H
 
 #include <stdbool.h>
+#ifndef R40_IO_FAKE_H
+#include "../cmsis_preemption_fake.h"
+#endif
 #include <stdint.h>
 
 /* 离线寄存器替身：仅实现底层启动的外部依赖，不替代被测端口逻辑。 */
@@ -10,7 +13,7 @@ typedef unsigned flag_status;
 typedef unsigned tmr_channel_select_type;
 typedef struct
 {
-    uint32_t cctrl, brk, pr, div, c2dt, c3dt, c4dt, cval;
+    uint32_t cctrl, brk, pr, div, c2dt, c3dt, c4dt, cval, ctrl1;
     bool running;
 } tmr_type;
 typedef struct
@@ -342,4 +345,24 @@ void __disable_irq(void);
  */
 void __set_PRIMASK(unsigned value);
 
+typedef struct
+{
+    uint32_t CTRL, CYCCNT;
+} FoundationDwt;
+typedef struct
+{
+    uint32_t DEMCR;
+} FoundationCoreDebug;
+#ifndef DWT
+extern FoundationDwt foundation_dwt;
+extern FoundationCoreDebug foundation_core_debug;
+#define DWT (&foundation_dwt)
+#define CoreDebug (&foundation_core_debug)
+#define DWT_CTRL_CYCCNTENA_Msk 1U
+#define CoreDebug_DEMCR_TRCENA_Msk (1U << 24)
+#endif
+/** @brief 拦截模拟复位，禁止实际访问CPU复位寄存器。 */
+void NVIC_SystemReset(void);
+/** @brief 拦截模拟异常停留，测试进程不得真的无限等待。 */
+void __WFI(void);
 #endif

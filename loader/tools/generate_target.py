@@ -67,7 +67,11 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
         *(InRoot$$Sections)
         .ANY (+RO)
     }}
-    RW_APP 0x{ram:08X} 0x{end - ram:X} {{ .ANY (+RW +ZI) }}
+    RW_APP 0x{ram:08X} 0x{end - ram:X} {{ .ANY (+RW) }}
+    ZI_APP +0 0x{end - ram:X} {{ .ANY (+ZI) }}
+    ScatterAssert(ImageLimit(ZI_APP) <= 0x{end:08X})
+    ; 尾段按加载地址对齐，保证调试镜像和CAN包都由同一个合法AXF生成。
+    ER_IMAGE_TAIL AlignExpr(ImageLimit(ER_APP) + ImageLength(RW_APP), 8) FIXED 0x8 {{ * (.app_image_tail) }}
 }}
 """
     outputs[target_dir / "app.sct"] = app_scatter

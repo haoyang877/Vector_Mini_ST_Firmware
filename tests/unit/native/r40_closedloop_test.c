@@ -2,10 +2,10 @@
 #include <math.h>
 #include <stdio.h>
 #include "closedloop_bench.h"
-#include "motor_hw.h"
+#include "bsp_pwm.h"
 #include "motor_fault.h"
-#include "encoder_sensor.h"
-#include "critical_hw.h"
+#include "bsp_encoder.h"
+#include "bsp_system.h"
 #include "control_math.h"
 
 static float s_duty[3], s_current[3];
@@ -17,39 +17,36 @@ static bool s_voltage_stalled;
 extern volatile float g_closedloop_motion[2048][8];
 extern volatile uint32_t g_closedloop_motion_samples;
 
-void encoder_sensor_init(void)
+BspResult BspEncoder_ReadDiagnostics(BspEncoderDiagnostics *d)
 {
+    *d = (BspEncoderDiagnostics){.sample_result = BSP_OK};
+    return BSP_OK;
+}
+BspResult BspEncoder_Begin(void)
+{
+    return BSP_OK;
+}
+BspResult BspEncoder_BeginReadback(void)
+{
+    return BSP_OK;
+}
+BspResult BspEncoder_Complete(BspEncoderSample *sample)
+{
+    *sample = (BspEncoderSample){.angle_counts = s_angle};
+    return BSP_OK;
 }
 
-bool encoder_sensor_begin(void)
-{
-    return true;
-}
-
-uint8_t encoder_sensor_begin_readback(bool started)
-{
-    return started ? 1U : 0U;
-}
-
-EncoderSensorStatus encoder_sensor_complete(uint8_t stage, EncoderSensorSample *sample)
-{
-    (void)stage;
-    *sample =
-        (EncoderSensorSample){.status = ENCODER_SENSOR_OK, .angle_q15 = s_angle, .crc_ok = true};
-    return ENCODER_SENSOR_OK;
-}
-
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     return 0U;
 }
 
-void critical_hw_exit(uint32_t state)
+void BspSystem_ExitCritical(uint32_t state)
 {
     (void)state;
 }
 
-void motor_hw_pwm_set_duty(float a, float b, float c)
+BspResult BspPwm_SetDuty(float a, float b, float c)
 {
     s_duty[0] = a;
     s_duty[1] = b;
@@ -58,6 +55,7 @@ void motor_hw_pwm_set_duty(float a, float b, float c)
     {
         assert(isfinite(s_duty[i]) && s_duty[i] > 0.4f && s_duty[i] < 0.6f);
     }
+    return BSP_OK;
 }
 
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode code)

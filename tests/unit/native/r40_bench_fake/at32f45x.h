@@ -5,7 +5,7 @@
 /* 验证镜像测试的窄寄存器替身，不模拟控制器或Flash算法。 */
 typedef struct
 {
-    uint32_t cctrl, brk, pr, c2dt, c3dt, c4dt;
+    uint32_t cctrl, brk, pr, c2dt, c3dt, c4dt, ctrl1, cval;
     bool running;
 } tmr_type;
 typedef struct

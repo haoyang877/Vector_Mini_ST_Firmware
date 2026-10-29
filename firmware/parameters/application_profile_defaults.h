@@ -3,7 +3,8 @@
 
 #include <stdbool.h>
 #include "control_math.h"
-#include "current_sense_profile.h"
+#include "sampling_scale.h"
+#include "current_sense_limits.h"
 
 /* 几何与需求输入：独立于通信节点、板卡和电机物理模型。 */
 #define PARAM_WHEEL_DIAMETER_M 0.10f
@@ -24,8 +25,12 @@
 /* 人工整定输入：rev/s² 在装配时乘 2π；速度 PI 为归一化电流输出口径。 */
 #define PARAM_APP_SPEED_ACCEL_RPS2 50.0f
 #define PARAM_APP_SPEED_DECEL_RPS2 50.0f
+#ifndef PARAM_APP_SPEED_KP
 #define PARAM_APP_SPEED_KP 0.05f
+#endif
+#ifndef PARAM_APP_SPEED_KI
 #define PARAM_APP_SPEED_KI 0.5f
+#endif
 
 /* 人工整定输入：低速位置轨迹采用 rev/s²、rev/s，装配时转换为 SI。 */
 #define PARAM_APP_POSITION_ACCEL_RPS2 0.125f

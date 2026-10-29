@@ -26,7 +26,8 @@ PRELUDE = r"""
 #include "motor_control.h"
 #include "sensorless_startup.h"
 #include "speed_control.h"
-#include "hw_conf.h"
+#include "sampling_scale.h"
+#include "control_config.h"
 #include "motor_startup_profile.h"
 #include "control_math.h"
 static MotorConfiguration configuration;
@@ -163,8 +164,12 @@ static void check_braking_cap(void) {
     assert(motor.iq_target_a>0); /* Ordinary mode retains its positive torque authority. */
 }
 int main(void) {
-    check_handoff(1); check_handoff(-1); check_voltage_rotation();
-    check_braking_cap();
+    assert(s_encoder_startup_config_valid == sensorless_startup_config_is_valid(&SensorlessStartup_EncoderCalibConfig));
+    for (unsigned variant=0; variant<2; ++variant) {
+        cfg=variant ? &SensorlessStartup_EncoderCalibConfig : &test_startup_config;
+        check_handoff(1); check_handoff(-1); check_voltage_rotation();
+        check_braking_cap();
+    }
     puts("PASS observer-frame current continuity, state-4 speed feedback, PI cap, braking authority");
 }
 """

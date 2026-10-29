@@ -1,6 +1,6 @@
 /* 统一应用帧的定长头部、显式小端序列化和双层 CRC 实现。 */
 #include "yg_protocol_frame_codec.h"
-#include "yg_protocol_byte_order.h"
+#include "yg_protocol_common.h"
 
 #include <stdbool.h>
 

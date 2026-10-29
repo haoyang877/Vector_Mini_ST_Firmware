@@ -74,7 +74,7 @@ def record_check(
 def firmware_artifacts() -> list[dict]:
     artifacts = []
     build_root = ROOT / "outputs/build/keil"
-    for target in ("YG_ESC_APP",):
+    for target in ("ESC-APP-STM32G431",):
         directory = build_root / target
         target_files = []
         for suffix in (".axf", ".hex", ".map"):

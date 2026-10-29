@@ -23,19 +23,28 @@ class UsbRemovalTests(unittest.TestCase):
                 self.assertNotRegex(path.lower(), r"usb|pcd|ring_buffer")
 
     def test_startup_and_supervisor_keep_can_without_usb_calls(self):
-        main = (ROOT / "firmware/platform/stm32g4/application/main.c").read_text(encoding="utf-8")
+        main = (ROOT / "projects/stm32g4/application/main.c").read_text(encoding="utf-8")
+        platform = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
         task = (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8")
-        self.assertIn("MX_FDCAN1_Init();", main)
+        self.assertIn("Can_Init()", platform)
+        controller = (ROOT / "firmware/platform/bsp/mcu/stm32g4/can.c").read_text(encoding="utf-8")
+        self.assertIn("MX_FDCAN1_Init();", controller)
         self.assertNotIn("CAN_Service();", task)
         self.assertIn("void App_SupervisorTick(void)", task)
         self.assertIn("MotorAxis_SupervisorTick();", task)
         self.assertNotIn("FOC2kHzSupervisor", task)
         self.assertNotIn("BSP2kHzIRQHandler", task)
         self.assertNotIn("CAN_DisConnect_Handle();", task)
+        self.assertIn("BspResult Bsp_Init(void)", platform)
+        self.assertIn("int main(void)", main)
+        self.assertIn("App_Init();", main)
         self.assertIn("App_Process();", main)
         startup = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
         self.assertIn("YgProtocolRuntime_Service", startup)
-        self.assertNotRegex(main + task + startup, r"USB_|usb_device|HSI48_ON")
+        self.assertIn("void App_Process(void)", startup)
+        self.assertNotIn("int main(void)", startup)
+        self.assertNotIn("int main(void)", platform)
+        self.assertNotRegex(main + platform + task + startup, r"USB_|usb_device|HSI48_ON")
 
     def test_usb_irq_slots_remain_but_no_application_handlers(self):
         startup = (KEIL / "startup_stm32g431xx.s").read_text()
@@ -46,11 +55,11 @@ class UsbRemovalTests(unittest.TestCase):
         self.assertNotIn("hpcd_USB_FS", irq)
 
     def test_cubemx_cannot_regenerate_usb(self):
-        text = (CUBEMX / "Vector_Mini_ST.ioc").read_text()
+        text = (ROOT / "projects/stm32g4/cubemx/Vector_Mini_ST.ioc").read_text()
         self.assertNotIn("USB", text)
         for pin in ("PA11", "PA12"):
             self.assertIn(pin + ".Signal=GPIO_Analog", text)
-        self.assertIn("ProjectManager.MainLocation=../application", text)
+        self.assertIn("ProjectManager.MainLocation=Core/Src", text)
         self.assertIn("ProjectManager.TargetToolchain=MDK-ARM V5.32", text)
         values = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
         for prefix, count in (("IP", "IPsNb"), ("Pin", "PinsNb")):

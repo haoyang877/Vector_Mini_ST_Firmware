@@ -9,10 +9,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from project_paths import ROOT
 
 NATIVE = (
+    "test_bsp_features",
+    "test_bsp_function_contract",
     "test_at32_foundation",
     "test_at32_io",
     "test_at32_encoder",
     "test_at32_storage_temperature",
+    "test_power_stage_start",
+    "test_stm32_indicator",
     "run_position_servo_tests",
     "test_outer_loop_runtime",
     "test_wheel_speed_limits",
@@ -42,6 +46,7 @@ NATIVE = (
     "test_yg_protocol_link",
     "test_comm_bus_off",
     "test_motor_thermal",
+    "test_motor_status_snapshot",
     "test_speed_feedforward",
     "test_observer_calibration_hotpath",
 )

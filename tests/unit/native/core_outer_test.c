@@ -293,12 +293,12 @@ static void check_runtime(void)
     setup(MOTOR_CONTROL_CURRENT);
     FocState foc = {0};
     FluxObserverState observer = {0};
-    Task_Current_Mode(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
     CHECK(s_current_calls == 1U && s_phase_rad == 0.75f && s_phase_velocity_rad_s == 2.5f);
     s_motor.uses_sensorless_feedback = true;
     observer.electrical_angle_rad = 1.25f;
     observer.electrical_velocity_rad_s = 5.0f;
-    Task_Current_Mode(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
     CHECK(s_current_calls == 2U && s_phase_rad == 1.25f && s_phase_velocity_rad_s == 5.0f);
 }
 
@@ -488,4 +488,19 @@ int main(int argc, char **argv)
     }
     printf("core outer %s: %s\n", argv[1], s_failures == 0U ? "PASS" : "FAIL");
     return s_failures == 0U ? 0 : 1;
+}
+
+void FOC_Step(const MotorConfiguration *configuration,
+              FocState *foc,
+              MotorControlState *motor,
+              FocControlLaw law,
+              float phase,
+              float speed,
+              float d_reference,
+              float q_reference)
+{
+    (void)law;
+    (void)d_reference;
+    (void)q_reference;
+    FOC_Current(configuration, foc, motor, phase, speed);
 }

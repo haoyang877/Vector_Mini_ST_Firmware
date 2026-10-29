@@ -26,5 +26,9 @@
 #define PARAM_MOTOR_MAX_SPEED_RPM 2500.0f
 #define PARAM_MOTOR_GEAR_RATIO 8.0f
 #define PARAM_MOTOR_CALIB_CURRENT_A 1.6f
+/* 14对极下30rad/s对应420rad/s电角速度，高于观测器交接下限250rad/s。
+ * 标定速度独立于日常速度模式限值，保留既有实机配置。 */
+#define PARAM_MOTOR_CALIB_TARGET_ELEC_VEL_RAD_S 420.0f
+#define PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S 30.0f
 
 #endif

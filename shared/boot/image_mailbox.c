@@ -1,7 +1,7 @@
 /* APP→Loader 一次性进入邮箱：固定 32B 布局，magic/version 与前 28B CRC32。 */
 #include "image_mailbox.h"
 #include "../checksum/crc32.h"
-#include "../protocol/yg_protocol_byte_order.h"
+#include "../protocol/yg_protocol_common.h"
 
 static bool valid(const BootMailboxMessage *m)
 {

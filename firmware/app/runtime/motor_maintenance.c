@@ -8,13 +8,14 @@
 #include "parameter_values.h"
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"
-#include "power_stage_hw.h"
+#include "bsp_pwm.h"
 
 /* 维护调度只调用实际功能；生命周期、输出许可、保存衔接由唯一主状态机拥有。 */
 MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
                                       const FocState *foc,
-                                      const EncoderState *encoder)
+                                      const EncoderState *encoder,
+                                      bool configuration_valid)
 {
     if ((kind != MOTOR_MAINTENANCE_ENCODER_LUT && kind != MOTOR_MAINTENANCE_ELECTRICAL_ZERO &&
          kind != MOTOR_MAINTENANCE_MECHANICAL_ZERO && kind != MOTOR_MAINTENANCE_SAVE &&
@@ -27,8 +28,7 @@ MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
         kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
     if (torque_task)
     {
-        if (!configuration->configuration_confirmed ||
-            !ParameterValue_ConfigurationValid(configuration))
+        if (!configuration->configuration_confirmed || !configuration_valid)
         {
             return MOTOR_FAULT_INVALID_PARAMETERS;
         }
@@ -100,7 +100,7 @@ MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
         /* 先同步热模型；失败不能先改活动参数，更不能以恢复默认清零热历史。 */
         MotorWindingThermalConfig thermal_defaults;
         MotorWindingThermal_Default(&thermal_defaults);
-        if (!MotorThermalControl_Configure(&thermal_defaults, power_stage_hw_phases_disabled()))
+        if (!MotorThermalControl_Configure(&thermal_defaults, BspPwm_ArePhasesDisabled()))
         {
             return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_WINDING_THERMAL};
         }
@@ -133,4 +133,18 @@ void MotorMaintenance_Cancel(MotorMaintenanceKind kind)
 bool MotorMaintenance_IsReleased(void)
 {
     return MaintenanceWorkspace_IsReleased() && EncoderCalibrationTask_IsReleased();
+}
+
+bool MotorMaintenance_PublishLut(MotorConfiguration *configuration, EncoderState *encoder)
+{
+    if (configuration == NULL || encoder == NULL || !BspPwm_ArePhasesDisabled())
+    {
+        return false;
+    }
+    bool published = EncoderCalibrationTask_PublishLut(&configuration->device.encoder, encoder);
+    if (published)
+    {
+        MaintenanceWorkspace_ReleaseEncoder();
+    }
+    return published;
 }

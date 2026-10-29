@@ -22,6 +22,8 @@ def main() -> None:
     sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
     algorithm = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
     production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
+    if "s_status_revision" in axis:
+        production += "static volatile uint32_t s_status_revision;\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n"
     production += (
@@ -33,6 +35,7 @@ def main() -> None:
         "MotorCurrentOffsets_Init",
         "fail_current_offset_calibration",
         "MotorCurrentOffsets_Sample",
+        "MotorCurrentOffsets_Finalize",
     ):
         production += function_source(sensing, name)
     for name in (
@@ -56,8 +59,8 @@ def main() -> None:
         "update_current_controller_limits",
         "initialize_current_offsets",
         "sample_phase_currents",
+        "finalize_current_offsets",
         "MotorAxis_Init",
-        "run_fast_task",
         "update_winding_thermal",
         "MotorAxis_FastTick",
         "MotorAxis_WriteParameter",
@@ -75,6 +78,7 @@ def main() -> None:
         command = (
             compiler
             + NATIVE_INCLUDE_FLAGS
+            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
             + [
                 "-std=c99",
                 "-O1",

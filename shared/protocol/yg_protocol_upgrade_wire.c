@@ -1,7 +1,6 @@
 /* 升级载荷v1：只做有界字段转换，镜像真实性、存储及会话由产品所有者校验。 */
 #include "yg_protocol_upgrade_wire.h"
-#include "yg_protocol_request.h"
-#include "yg_protocol_byte_order.h"
+#include "yg_protocol_common.h"
 
 static bool valid_result(uint16_t result)
 {

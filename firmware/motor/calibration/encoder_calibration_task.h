@@ -33,7 +33,8 @@ typedef enum
     CS_ENC_OFFSET_ALIGN_LOOP,
     CS_ENC_OFFSET_RAMP_CW,
     CS_ENC_OFFSET_SAMPLE_CW,
-    CS_ENC_OFFSET_END
+    CS_ENC_OFFSET_END,
+    CS_LUT_PUBLISH_PENDING
 } EncoderCalibrationPhase;
 
 /* 当前标定阶段；前台与诊断只读，标定任务为唯一写者。 */
@@ -56,22 +57,31 @@ void EncoderCalibrationTask_Cancel(void);
 bool EncoderCalibrationTask_IsReleased(void);
 
 /**
+ * @brief 在关相后台发布已验证的候选LUT并释放标定引用。
+ * @param calibration 独占的设备标定对象。
+ * @param encoder 独占的角度运行状态。
+ * @return 候选有效且发布成功返回true，否则保持原标定返回false。
+ * @note 所有者须在同一临界区复核会话、STOP、故障和关相；不在快环调用。
+ */
+bool EncoderCalibrationTask_PublishLut(EncoderCalibration *calibration, EncoderState *encoder);
+
+/**
  * @brief 观测器 LUT 标定周期任务：无感闭环下重建 1024 点线性化 LUT。
  * @param configuration 活动配置只读视图，读取电机模型与应用限值。
- * @param calibration configuration->device.encoder 的可写视图，仅提交 LUT 与零位资格。
+ * @param calibration 保留既有调用形状；本快环入口不再写入正式LUT。
  * @param foc 电流控制与观测量。
  * @param motor_state 电机与控制状态；任务只写指令类字段。
  * @param speed_pi 速度环控制器状态（无感启动复用）。
- * @param encoder 编码器运行状态；提交 LUT 时同步角度并请求位置/速度重建。
+ * @param encoder 编码器运行状态，关相前仍使用原LUT反馈。
  * @param flux_observer 观测器状态；机械参考由静态对齐与过零插值建立。
  * @param startup 无感启动状态机状态。
  * @param workspace 调用方独占采样区，活动任务期间地址须不变；NULL 表示不可借用。
  * @return 采集中返回 MOTOR_TASK_RUNNING；标定完成返回
- *         MOTOR_TASK_COMPLETED，所有者关相并独立衔接保存；
+ *         MOTOR_TASK_FINALIZE，所有者关相后在后台发布，再独立衔接保存；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；本地中止只清理采样区与控制状态，
- *       停相与模式回退由运行状态机按结果协议执行。取消/完成仅清除借用，
- *       调用方确认 IsReleased 后才可复用空间；不分配或释放内存。
+ *       停相与模式回退由运行状态机按结果协议执行。FINALIZE保留候选借用，
+ *       发布或取消后调用方确认 IsReleased 才可复用空间；不分配或释放内存。
  */
 MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configuration,
                                                EncoderCalibration *calibration,

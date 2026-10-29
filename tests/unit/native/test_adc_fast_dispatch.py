@@ -20,7 +20,7 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     source = function_source(
-        (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c").read_text(),
+        (ROOT / "firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/stm32g4xx_it.c").read_text(),
         "Board_ADC2DispatchInterrupt",
     )
     fixture = (

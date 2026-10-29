@@ -48,7 +48,7 @@ commands require an explicit bench context and scenario.
 
 ## Code quality
 
-- Follow `STYLE.md` and start new modules from the checked examples under `templates/`.
+- Follow `STYLE.md`, including its naming and abbreviations, and start modules from `templates/`.
 - All modules inherit the root `.editorconfig`, `.clang-format`, and Ruff configuration.
 - Do not add competing module-local format rules without a documented repository decision.
 - Use unit-bearing names for physical values and braces for every control-flow body.
@@ -73,6 +73,8 @@ commands require an explicit bench context and scenario.
   board pins, or vendor headers. Platform APIs describe capabilities, units, timing, and failures.
 - Keep board/MCU variants and vendor adaptation in BSP, ports, or composition code; do not scatter
   hardware `#ifdef` branches through portable modules.
+- BSP peripheral initialization and upper-level functional interfaces follow the user's explicit
+  contract in `docs/architecture/bsp_design_rules.md`; application composition does not own registers.
 - Separate deterministic computation from I/O and scheduling. Give mutable state one owner and
   exchange commands, snapshots, or explicit state objects across module boundaries.
 - Reuse only when units, timing, ownership, errors, and safety semantics match. Prefer small obvious
@@ -95,5 +97,3 @@ commands require an explicit bench context and scenario.
 - Reject newly introduced architecture violations or expansion of the debt baseline.
 - Reject hardware actions reachable from default verification or CI.
 - Reject release claims without a current `summary.json` and matching artifact hashes.
-- Treat failure to verify STOP or power-output disable as a hard failure requiring
-  physical intervention; never automatically resume a trial.

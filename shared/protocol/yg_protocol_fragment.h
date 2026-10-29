@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "yg_protocol_wire_types.h"
+#include "yg_protocol_common.h"
 
 /* 12.1：首片起整条重组绝对上限，新片不得延长该时限。 */
 #define YG_PROTOCOL_FRAGMENT_ABSOLUTE_TIMEOUT_MS 2000U

@@ -1,3 +1,4 @@
+#include "bsp_system.h"
 #include "encoder_calibration_task.h"
 
 #include <stdbool.h>
@@ -23,7 +24,10 @@ typedef char EncoderCalibrationRepresentationMatches
          : -1];
 
 static EncoderCalibrationWorkspace *s_encoder_calib_workspace = NULL;
+#define ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK 4U
+
 static uint16_t s_prepare_bin;
+static bool s_lut_verified;
 
 static EncoderCalibrationPhase s_calibration_phase = CS_NULL;
 static uint32_t s_zero_loop_count, s_zero_sample_count;
@@ -40,6 +44,7 @@ void EncoderCalibrationTask_Cancel(void)
     s_calibration_phase = CS_NULL;
     s_zero_loop_count = s_zero_sample_count = 0U;
     s_zero_unwrapped_sum = 0;
+    s_lut_verified = false;
 }
 bool EncoderCalibrationTask_IsReleased(void)
 {
@@ -79,6 +84,7 @@ static void encoder_observer_calib_reset(FocState *foc,
     motor_state->id_target_a = 0.0f;
     motor_state->iq_target_a = 0.0f;
     s_calibration_phase = CS_NULL;
+    s_lut_verified = false;
 }
 
 /* 故障上报先于控制状态清理；错误码与原阶段分支保持一致。 */
@@ -98,16 +104,34 @@ static MotorTaskResult encoder_observer_calib_finish(FocState *foc,
                                                      PiController *speed_pi,
                                                      SensorlessStartupState *startup)
 {
-    /* 保存前结束转矩，避免低速观测器在转子过零后继续施加负 iq。 */
+    if (!s_lut_verified || s_encoder_calib_workspace == NULL)
+    {
+        return encoder_observer_calib_fail(
+            foc, motor_state, speed_pi, startup, MOTOR_FAULT_ENCODER);
+    }
+    EncoderCalibrationWorkspace *candidate = s_encoder_calib_workspace;
+    /* 结束转矩控制并保留已验证候选；主状态机必须先关相再认领发布。 */
     encoder_observer_calib_reset(foc, motor_state, speed_pi, startup);
-    /* 功率级关断与任务衔接由主状态机执行。 */
-    return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
+    s_encoder_calib_workspace = candidate;
+    s_calibration_phase = CS_LUT_PUBLISH_PENDING;
+    return (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE};
 }
 
-static void encoder_calib_commit_candidate_lut(EncoderCalibration *calibration,
-                                               EncoderState *encoder)
+bool EncoderCalibrationTask_PublishLut(EncoderCalibration *calibration, EncoderState *encoder)
 {
+    if (calibration == NULL || encoder == NULL || s_encoder_calib_workspace == NULL ||
+        s_calibration_phase != CS_LUT_PUBLISH_PENDING)
+    {
+        return false;
+    }
     uint16_t current_linearized_q15;
+    /* 后台发布期间保持关相；先撤销LUT资格，ADC不能读取半张表。 */
+    uint8_t published_flags =
+        (uint8_t)((calibration->calib_flag &
+                   (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO)) |
+                  ENC_CALIB_LINEARIZED);
+    calibration->calib_flag = 0U;
+    BspSystem_MemoryBarrier();
 
     memcpy(calibration->linearization_lut_q15,
            s_encoder_calib_workspace->bins.candidate,
@@ -117,11 +141,13 @@ static void encoder_calib_commit_candidate_lut(EncoderCalibration *calibration,
     encoder->linearized_q15 = current_linearized_q15;
     calibration->electrical_zero_q15 = 0U;
     calibration->mechanical_zero_q15 = 0U;
-    calibration->calib_flag &= (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO);
-    calibration->calib_flag |= ENC_CALIB_LINEARIZED;
+    BspSystem_MemoryBarrier();
+    calibration->calib_flag = published_flags;
     /* 慢状态由 2 kHz 慢估计独占：请求重定多圈基准（基准取当前线性化角、零影子归零）。 */
     encoder->rebase_requested = true;
     Encoder_ResetVelocity(encoder);
+    EncoderCalibrationTask_Cancel();
+    return true;
 }
 
 static bool encoder_observer_calib_is_stable(const MotorConfiguration *configuration,
@@ -182,7 +208,7 @@ static bool encoder_observer_calib_can_brake(const MotorConfiguration *configura
     {
         return false;
     }
-    /* 发布 LUT 会重启测速；就绪后以编码器速度独立提前截止制动，不依赖电零位。 */
+    /* 以编码器速度独立提前截止制动；关相前保持旧LUT，不依赖电零位。 */
     return !encoder->velocity_ready ||
            (encoder_speed > minimum_speed / (float)configuration->model.motor_pole_pairs &&
             encoder_speed <= SENSORLESS_OBSERVER_MAX_ELEC_VEL_RAD_S /
@@ -202,6 +228,8 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configu
                                                SensorlessStartupState *startup,
                                                EncoderCalibrationWorkspace *workspace)
 {
+    /* 保留原任务入口形状，正式配置只在后台PublishLut写入。 */
+    (void)calibration;
     static uint32_t state_ticks;
     static uint32_t stage_ticks;
     static uint32_t observer_position_epoch;
@@ -222,6 +250,11 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configu
     float observer_position;
     float relative_theta;
     MotorTaskResult outcome = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+
+    if (s_calibration_phase == CS_LUT_PUBLISH_PENDING)
+    {
+        return (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE};
+    }
 
     if (s_encoder_calib_workspace != NULL && workspace != s_encoder_calib_workspace)
     {
@@ -277,13 +310,16 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configu
         origin_negative_seen = false;
         build_state = (EncoderCalibrationBuildState){0};
         s_calibration_phase = CS_OBS_ALIGN_ORIGIN;
+        /* IDLE已预载中性PWM；首拍只建立会话，避免与首拍电流计算叠加超时。
+         * 下一拍才开始原对齐斜坡，其采样、保持及超时计数不提前推进。 */
+        return outcome;
     }
 
     if ((s_calibration_phase == CS_OBS_STOP_DECEL || s_calibration_phase == CS_OBS_STOP_CURRENT) &&
         !encoder_observer_calib_can_brake(
             configuration, encoder, flux_observer, startup, observer_position_epoch))
     {
-        /* 两个停止段均已验证并发布 LUT；低于观测器可用速度时撤销转矩，避免驱动过零。 */
+        /* 两个停止段均已验证候选LUT；低于观测器可用速度时撤销转矩，避免驱动过零。 */
         return encoder_observer_calib_finish(foc, motor_state, speed_pi, startup);
     }
 
@@ -335,7 +371,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configu
         {
             encoder_observer_calib_reset(foc, motor_state, speed_pi, startup);
             outcome.result = MOTOR_TASK_FAILED;
-            outcome.error = motor_state->fault_code;
+            outcome.error = (MotorFaultCode)motor_state->fault_code;
             return outcome;
         }
     }
@@ -354,8 +390,10 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configu
     switch (s_calibration_phase)
     {
     case CS_OBS_ALIGN_ORIGIN:
-        /* 原对齐时间内每拍清16 bin；采样尚未开始，不集中清空6 KiB工作区。 */
-        for (uint16_t count = 0U; count < 16U && s_prepare_bin < ENCODER_OFFSET_LUT_SIZE; ++count)
+        /* 原对齐时间内分拍清表；采样尚未开始，不集中清空6 KiB工作区。 */
+        for (uint16_t count = 0U; count < ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK &&
+                                  s_prepare_bin < ENCODER_OFFSET_LUT_SIZE;
+             ++count)
         {
             s_encoder_calib_workspace->error_sum[s_prepare_bin] = 0;
             s_encoder_calib_workspace->bins.samples[s_prepare_bin] = 0U;
@@ -554,8 +592,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configu
                     foc, motor_state, speed_pi, startup, MOTOR_FAULT_ENCODER);
             }
 
-            encoder_calib_commit_candidate_lut(calibration, encoder);
-            s_encoder_calib_workspace = NULL;
+            s_lut_verified = true;
             stop_start_speed = motor_state->speed_ramped_rad_s;
             float stop_speed = encoder_observer_calib_get_stop_speed(configuration);
             if (stop_start_speed < stop_speed)

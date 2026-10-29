@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "yg_protocol_wire_types.h"
+#include "yg_protocol_common.h"
 
 /**
  * @brief 把已构造的协议消息编码为一个 CAN FD 应用帧。

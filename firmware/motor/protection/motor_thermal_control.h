@@ -4,6 +4,10 @@
 #include "motor_thermal_config.h"
 #include "foc_algorithm.h"
 
+/* APP_ENABLED_WINDING_THERMAL_MODEL默认开启。限时AT32台架显式关闭时不累计热量、
+ * 不执行热降额/热更新看门狗，CurrentLimit仍返回有效配置限流，Vq瞬时限流仍执行。
+ * 关闭时GetDiagnostics返回false且不写输出，不能把未运行的热模型当作健康遥测。 */
+
 /** @brief 快速环独占的热历史与更新证据；不属于参数或通信布局。 */
 typedef struct
 {

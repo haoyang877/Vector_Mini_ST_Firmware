@@ -9,7 +9,7 @@
 | [`motor_thermal_control`](../../firmware/motor/protection/motor_thermal_control.h) | 快环热历史/动态电流额度，失效及策略边界；监督监控采样窗口 |
 | [`motor_axis`](../../firmware/app/runtime/motor_axis.c) | 调度采样与保护，执行快速故障关断，向监督提供一致事实 |
 | [`motor_state_machine`](../../firmware/app/motor_state_machine/motor_state_machine.c) | 唯一启停许可、FAULT/CLEAR/FATAL及实际资源释放 |
-| [`power_stage_hw`](../../firmware/platform/api/power_stage_hw.h) | 功率关闭、启用与实际数字回读；寄存器实现位于STM32端口 |
+| [`BspPwm`](../../firmware/platform/bsp/include/bsp_pwm.h) | 功率关闭、启用与实际数字回读；寄存器实现位于各板PWM BSP |
 
 快环故障路径不等待前台或2kHz监督才关相。源恢复只是一项事实，
 不能直接清锁存、恢复目标或重新出力。`MotorFault_Report`保留首个故障，

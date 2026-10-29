@@ -1,0 +1,65 @@
+; 限时APP：相同控制实现从SRAM执行，避开Flash等待对20kHz时限的影响。
+; 56KiB热代码与其余数据分区，RAM边界沿用既有布局；Flash参数布局不变。
+LR_IROM1 0x08000000 0x0003C000 {
+  ER_IROM1 0x08000000 0x0003C000 {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    ; Flash事务边界在控制器空闲时执行，初始化也不占用快环SRAM。
+    system.o (i.Bsp_Init)
+    system.o (i.McuSystem_Init)
+    system.o (i.McuSystem_Start)
+    bsp_adc.o (i.Adc_Init)
+    adc.o (i.McuAdc_Init)
+    adc.o (i.McuAdc_PauseForStorage)
+    adc.o (i.McuAdc_ResumeAfterStorage)
+    pwm.o (i.McuPwm_Init)
+    ; LUT发布仅在关相后台调用，不占用快速中断代码区。
+    encoder_calibration_task.o (i.EncoderCalibrationTask_PublishLut)
+    motor_axis.o (i.MotorAxis_ServiceBackground)
+    .ANY (+RO)
+  }
+  ER_FAST 0x20000000 0x0000E000 {
+    system.o (+RO)
+    bsp_can.o (+RO)
+    can.o (+RO)
+    motor_axis.o (+RO)
+    motor_control.o (+RO)
+    motor_state_machine.o (+RO)
+    motor_state_rules.o (+RO)
+    motor_maintenance.o (+RO)
+    motor_thermal*.o (+RO)
+    bsp_adc.o (+RO)
+    adc.o (+RO)
+    pwm.o (+RO)
+    bsp_encoder.o (+RO)
+    bsp_pwm.o (+RO)
+    parameter_values.o (+RO)
+    angle_feedback.o (+RO)
+    encoder*.o (+RO)
+    sensorless_startup.o (+RO)
+    flux_observer.o (+RO)
+    foc*.o (+RO)
+    speed*.o (+RO)
+    control_math.o (+RO)
+    pwm_power_window.o (+RO)
+    app_tasks.o (+RO)
+    ; SystemInit在scatterload之前调用CRM，CRM及启动用库函数必须留在Flash。
+    at32f45x_adc.o (+RO)
+    at32f45x_can.o (+RO)
+    at32f45x_dma.o (+RO)
+    at32f45x_gpio.o (+RO)
+    at32f45x_spi.o (+RO)
+    at32f45x_tmr.o (+RO)
+    motor_parameter_transaction.o (+RO)
+    maintenance_workspace.o (+RO)
+    sqrtf.o (+RO)
+    ; BSP快帧与编码器结果复制不能经Flash跳板；保留原库实现与计算顺序。
+    rt_memcpy_v6.o (+RO)
+    rt_memcpy_w.o (+RO)
+    rt_memclr.o (+RO)
+    rt_memclr_w.o (+RO)
+  }
+  RW_IRAM1 0x2000E000 0x00009000 {
+    .ANY (+RW +ZI)
+  }
+}

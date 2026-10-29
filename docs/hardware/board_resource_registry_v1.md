@@ -2,6 +2,9 @@
 
 更新：2026-10-23。统一记录 Vector Mini ST 和 YG_ESC_V1.0（原R40）的资源及适配电机。
 
+适配对象、修改边界和后置事项见[统一框架适配范围草案](../architecture/dual_board_adaptation_scope_v1.md)。
+本表登记资源和参数，不以型号已列出表示完整APP或实机验收通过。
+
 ## 板卡资源
 
 | 项目 | Vector Mini ST 旧板 | YG_ESC_V1.0 新板 |
@@ -66,8 +69,8 @@ YQ-5740复用5708电气参数，只更改型号和减速比。YQ-8116全部继�
 
 ## 配置入口与备注
 
-- 旧板：[板卡配置](../../firmware/platform/config/boards/vector_mini_st.h)、[电机选择入口](../../firmware/motor/motor_profile_selection.h)。
-- YG_ESC_V1.0：[板卡配置](../../firmware/platform/config/boards/r40_analog.h)、[台架电机配置](../../firmware/platform/at32f456/foundation/closedloop_bench.c)。现有文件名及宏暂保留R40。
+- 旧板：[板卡配置](../../firmware/platform/config/boards/stm32g4.h)、[电机选择入口](../../firmware/motor/motor_profile_selection.h)。
+- YG_ESC_V1.0：[板卡配置](../../firmware/platform/config/boards/at32f456.h)、[台架电机配置](../../tests/bench/at32f456/closedloop_bench.c)。现有文件名及宏暂保留R40。
 - 旧板图纸为2mΩ，当前默认工程为6mΩ；新板PA3电压、PA4电流按实板确认。PB5有对地0Ω，使用LED前需确认实装。
 - 详细参数依据与电流能力核算见[新板输入记录](r40_at32f456_configuration_v1.md)；过程和测试结果见[适配计划](../plans/active/2026-10-22-at32f456-port-v1.md)。
 

@@ -28,11 +28,11 @@ def main() -> int:
     output = args.out.resolve()
     if not output.is_relative_to((ROOT / "outputs").resolve()):
         parser.error("测试证据必须位于本树outputs")
-    source = (args.source or ROOT / "firmware/platform/stm32g4/bsp/flash.c").resolve()
-    header = (args.header or ROOT / "firmware/platform/stm32g4/bsp/flash.h").resolve()
+    source = (args.source or ROOT / "firmware/platform/bsp/mcu/stm32g4/flash.c").resolve()
+    header = (args.header or ROOT / "firmware/platform/bsp/include/bsp_flash.h").resolve()
     fixture = ROOT / "tests/unit/native/app_flash_failure_test.c"
     vendor = ROOT / (
-        "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include/stm32g431xx.h"
+        "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Device/ST/STM32G4xx/Include/stm32g431xx.h"
     )
     target = ROOT / "shared/targets/vector_mini_st_g431.h"
     output.mkdir(parents=True, exist_ok=True)
@@ -45,7 +45,7 @@ def main() -> int:
     )
     (output / "flash_register_bits.h").write_text(bit_definitions + "\n", encoding="utf-8")
     (output / "flash_under_test.c").write_bytes(source.read_bytes())
-    (output / "flash.h").write_bytes(header.read_bytes())
+    (output / "bsp_flash.h").write_bytes(header.read_bytes())
     executable = output / (
         "app_flash_failure.exe" if sys.platform == "win32" else "app_flash_failure"
     )
@@ -62,9 +62,15 @@ def main() -> int:
         "-I",
         str(output),
         "-I",
-        str(ROOT / "firmware/platform/stm32g4/bsp"),
+        str(ROOT / "firmware/platform/bsp/mcu/stm32g4"),
         "-I",
-        str(ROOT / "firmware/platform/api"),
+        str(ROOT / "firmware/platform/bsp/include"),
+        "-I",
+        str(ROOT / "firmware/platform/config"),
+        "-I",
+        str(ROOT / "firmware/app/config"),
+        "-I",
+        str(ROOT / "firmware/platform/bsp"),
         "-I",
         str(target.parent),
         str(fixture),

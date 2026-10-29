@@ -30,7 +30,7 @@ enum
     MOTOR_SELF_TEST_ALL = 255U
 };
 
-/** @brief 所有者只读诊断值；startable_modes 的 bit0/1/2/3 对应电流/速度/位置/VQ。 */
+/** @brief 所有者只读诊断值；bit0/1/2/3为电流/速度/位置/VQ，bit5/6为电压/电流开环。 */
 typedef struct
 {
     uint32_t start_blockers;

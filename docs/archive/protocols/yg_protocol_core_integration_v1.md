@@ -222,7 +222,7 @@ E1 完成真实 guards 只构成启动接线的前置条件，不自动开放 10
 代码核对入口：
 
 - [路由、能力和去重](../../../firmware/communication/can/yg_protocol_link.c)
-- [电机业务适配](../../../firmware/communication/protocol/yg_protocol_motor_adapter.c)
+- [电机业务适配](../../../firmware/communication/commands/yg_protocol_motor_adapter.c)
 - [运行所有者及目标复核](../../../firmware/app/motor_state_machine/motor_state_machine.c)
 - [STOP 的输出禁止确认](../../../firmware/app/interfaces/motor_stop_request.c)
 - [生命周期纯核心](../../../firmware/app/motor_state_machine/motor_state_rules.c)

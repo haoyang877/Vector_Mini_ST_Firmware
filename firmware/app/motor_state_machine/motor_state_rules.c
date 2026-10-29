@@ -319,7 +319,7 @@ static MotorStateRejection handle_state_event(MotorStateRulesContext *context,
         }
         if (event_type == MOTOR_STATE_EVENT_ENABLE)
         {
-            if ((unsigned)event->control_mode > MOTOR_CONTROL_VQ)
+            if (!MotorControlMode_IsValid(event->control_mode))
             {
                 return MOTOR_STATE_REJECT_MODE;
             }

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<ProjectWorkspace xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project_mpw.xsd">
+  <SchemaVersion>1.0</SchemaVersion>
+  <Header>### uVision Project, (C) Keil Software</Header>
+  <WorkspaceName>YG-ESC</WorkspaceName>
+  <project>
+    <PathAndName>.\projects\stm32g4\MDK-ARM\ESC-APP-STM32G431.uvprojx</PathAndName>
+    <NodeIsActive>0</NodeIsActive>
+    <NodeIsExpanded>1</NodeIsExpanded>
+    <NodeIsCheckedInBatchBuild>0</NodeIsCheckedInBatchBuild>
+  </project>
+  <project>
+    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456.uvprojx</PathAndName>
+    <NodeIsActive>1</NodeIsActive>
+    <NodeIsExpanded>1</NodeIsExpanded>
+    <NodeIsCheckedInBatchBuild>0</NodeIsCheckedInBatchBuild>
+  </project>
+  <project>
+    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456-Commissioning.uvprojx</PathAndName>
+    <NodeIsActive>0</NodeIsActive>
+    <NodeIsExpanded>1</NodeIsExpanded>
+    <NodeIsCheckedInBatchBuild>0</NodeIsCheckedInBatchBuild>
+  </project>
+</ProjectWorkspace>

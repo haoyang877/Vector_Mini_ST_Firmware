@@ -1,6 +1,6 @@
 /* 仅Flash地址读写原语和硬件忙/完成副作用由模拟器提供；擦写算法完整执行。 */
 #include "at32f45x.h"
-#include "r40_storage_layout.h"
+#include "bsp_config.h"
 #include "parameter_record.h"
 #include <assert.h>
 #include <stdio.h>
@@ -10,6 +10,14 @@
 static const uint8_t *flash_memory(uint32_t address);
 static void flash_store_word(uint32_t address, uint32_t value);
 #include "r40_storage_production.inc"
+static bool param_store_write(const void *data, uint32_t length)
+{
+    return BspFlash_Write(data, length) == BSP_OK;
+}
+static bool param_store_read(void *data, uint32_t length)
+{
+    return BspFlash_Read(data, length) == BSP_OK;
+}
 
 flash_type sim_flash;
 static uint8_t storage[R40_PARAM_BYTES + 2U * R40_FLASH_SECTOR_BYTES];
@@ -17,6 +25,23 @@ static bool power_off = true, blocked_unlock, missing_completion;
 static unsigned irq = 1U, ipsr, erases, programs, reads, polls, locks;
 static unsigned error_after, busy_after, corrupt_after, operation, remaining;
 static uint32_t pending_address, pending_word, error_flag;
+static bool pause_fail, resume_fail, sampling_paused;
+bool McuAdc_PauseForStorage(void)
+{
+    assert(irq && !ipsr && power_off && !sampling_paused);
+    if (pause_fail)
+    {
+        return false;
+    }
+    sampling_paused = true;
+    return true;
+}
+bool McuAdc_ResumeAfterStorage(void)
+{
+    assert(sampling_paused && !operation && irq && power_off);
+    sampling_paused = false;
+    return !resume_fail;
+}
 
 static const uint8_t *flash_memory(uint32_t address)
 {
@@ -27,6 +52,7 @@ static const uint8_t *flash_memory(uint32_t address)
 
 static void flash_store_word(uint32_t address, uint32_t value)
 {
+    assert(sampling_paused);
     assert(!operation && !sim_flash.ctrl_bit.oplk && sim_flash.ctrl_bit.fprgm);
     assert(address % 4U == 0U && address >= R40_PARAM_BASE);
     assert(address + 4U <= R40_PARAM_BASE + 2U * R40_FLASH_SECTOR_BYTES);
@@ -36,7 +62,7 @@ static void flash_store_word(uint32_t address, uint32_t value)
     operation = 2U;
     remaining = 2U;
 }
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return power_off;
 }
@@ -47,6 +73,20 @@ unsigned __get_PRIMASK(void)
 uint32_t __get_IPSR(void)
 {
     return ipsr;
+}
+uint32_t BspSystem_EnterCritical(void)
+{
+    uint32_t old = irq;
+    irq = 1U;
+    return old;
+}
+void BspSystem_ExitCritical(uint32_t key)
+{
+    irq = key;
+}
+void BspPwm_Disable(void)
+{
+    power_off = true;
 }
 void flash_unlock(void)
 {
@@ -74,6 +114,7 @@ flag_status flash_flag_get(uint32_t flags)
         ++polls;
         if (sim_flash.ctrl_bit.erstr && sim_flash.ctrl_bit.secers)
         {
+            assert(sampling_paused);
             assert(!operation && !sim_flash.ctrl_bit.oplk);
             sim_flash.ctrl_bit.erstr = 0U;
             pending_address = sim_flash.addr;
@@ -134,6 +175,7 @@ static void reset(void)
     ipsr = erases = programs = reads = polls = locks = 0U;
     error_after = busy_after = corrupt_after = operation = error_flag = 0U;
     blocked_unlock = s_flash_blocked = missing_completion = false;
+    pause_fail = resume_fail = sampling_paused = false;
 }
 
 static void guards_unchanged(void)
@@ -158,9 +200,11 @@ int main(void)
         input[i] = (uint8_t)(i * 17U);
     }
     reset();
-    assert(!param_store_read(NULL, 1U) && !param_store_read(result, 0U));
+    s_storage_initialized = false;
+    assert(Flash_Init());
+    assert(!param_store_read(NULL, 1U) && BspFlash_Read(NULL, 0U) == BSP_OK);
     assert(!param_store_read(result, sizeof(result)));
-    assert(!param_store_write(NULL, 1U) && !param_store_write(input, 0U));
+    assert(!param_store_write(NULL, 1U) && BspFlash_Write(NULL, 0U) == BSP_OK);
     assert(!param_store_write(input, sizeof(input)));
     assert(!param_store_write((void *)(uintptr_t)R40_PARAM_BASE, 1U));
     assert(!param_store_write((void *)(UINTPTR_MAX - 1U), 4U));
@@ -169,7 +213,8 @@ int main(void)
     assert(!param_store_write(input, 12U));
     power_off = true;
     irq = 0U;
-    assert(!param_store_write(input, 12U));
+    assert(param_store_write(input, 12U) && irq == 0U);
+    reset();
     irq = 1U;
     ipsr = 17U;
     assert(!param_store_write(input, 12U));
@@ -199,6 +244,12 @@ int main(void)
     blocked_unlock = true;
     assert(!param_store_write(input, sizeof(input) - 1U) && !erases && !programs);
     reset();
+    pause_fail = true;
+    assert(!param_store_write(input, 12U) && !erases && !programs && !sampling_paused);
+    reset();
+    resume_fail = true;
+    assert(!param_store_write(input, 12U) && erases == 1U && programs == 3U);
+    reset();
     error_flag = FLASH_EPPERR_FLAG;
     assert(!param_store_write(input, 12U) && !erases && !programs && sim_flash.ctrl_bit.oplk);
     for (unsigned failure = 1U; failure <= 10U; ++failure)
@@ -214,6 +265,7 @@ int main(void)
         reset();
         busy_after = failure;
         assert(!param_store_write(input, sizeof(input) - 1U) && s_flash_blocked);
+        assert(sampling_paused);
         assert(erases + programs == failure && operation && !sim_flash.ctrl_bit.oplk);
         unsigned before = polls;
         assert(!param_store_write(input, 12U) && !param_store_read(result, 12U));
@@ -229,7 +281,7 @@ int main(void)
     reset();
     corrupt_after = 3U;
     assert(!param_store_write(input, 12U) && sim_flash.ctrl_bit.oplk);
-    assert(param_store_read(result, 12U) && memcmp(result, input, 12U) != 0);
+    assert(BspFlash_Read(result, 12U) == BSP_IO_ERROR);
     guards_unchanged();
     puts("PASS AT32 store: RAW ABI, page boundaries, readback, write guards, padding, errors, busy "
          "lockout and isolation");

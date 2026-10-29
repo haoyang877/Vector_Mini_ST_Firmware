@@ -30,11 +30,50 @@ static FlashRegisters *model_access(void);
 #define FLASH model_access()
 #define FLASH_BASE TARGET_FLASH_BASE
 #define FLASH_PAGE_SIZE TARGET_ERASE_BYTES
+uint32_t __get_IPSR(void);
 #include "flash_under_test.c"
+static bool param_store_write(const void *data, uint32_t length)
+{
+    return BspFlash_Write(data, length) == BSP_OK;
+}
+static bool param_store_read(void *data, uint32_t length)
+{
+    return BspFlash_Read(data, length) == BSP_OK;
+}
 
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return phases_disabled;
+}
+
+static uint32_t test_primask;
+uint32_t __get_IPSR(void)
+{
+    return 0U;
+}
+uint32_t BspSystem_EnterCritical(void)
+{
+    uint32_t old = test_primask;
+    test_primask = 1U;
+    return old;
+}
+void BspSystem_ExitCritical(uint32_t key)
+{
+    test_primask = key;
+}
+void BspPwm_Disable(void)
+{
+    phases_disabled = true;
+}
+bool McuAdc_PauseForStorage(void)
+{
+    assert(test_primask && phases_disabled);
+    return true;
+}
+bool McuAdc_ResumeAfterStorage(void)
+{
+    assert(test_primask && phases_disabled);
+    return true;
 }
 
 static void start_result(bool error, bool busy)
@@ -105,6 +144,9 @@ static void setup(void)
     busy_started_at = 0U;
     unlock_allowed = phases_disabled = true;
     program_active = false;
+    s_storage_initialized = false;
+    s_flash_write_blocked = false;
+    assert(Flash_Init());
 #ifdef FLASH_WAIT_MAX_POLLS
     s_flash_write_blocked = false;
 #endif
@@ -143,7 +185,7 @@ static void check_latched_write_rejection(const uint8_t *data, uint32_t bytes)
     registers.SR &= ~FLASH_SR_BSY;
     FlashRegisters before = registers;
     unsigned before_accesses = accesses;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(accesses == before_accesses);
     assert(memcmp(&before, &registers, sizeof(before)) == 0);
     check_identity();
@@ -155,13 +197,13 @@ static void check_failures(const uint8_t *data, uint32_t bytes)
     setup();
     uint32_t original_acr = registers.ACR;
     registers.SR = FLASH_SR_PROGERR;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 0U && program_calls == 0U);
     check_idle_cleanup(original_acr);
 
     setup();
     unlock_allowed = false;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 0U && program_calls == 0U);
     check_idle_cleanup(original_acr);
 
@@ -173,13 +215,13 @@ static void check_failures(const uint8_t *data, uint32_t bytes)
 
     setup();
     erase_error_at = 1U;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 1U && program_calls == 0U);
     check_idle_cleanup(original_acr);
 
     setup();
     program_error_at = 2U;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 1U && program_calls == 2U);
     assert(memcmp((const void *)(uintptr_t)TARGET_PARAM_BASE, data, 16U) == 0);
     assert(*(const uint32_t *)(uintptr_t)(TARGET_PARAM_BASE + 16U) == UINT32_MAX);
@@ -188,7 +230,7 @@ static void check_failures(const uint8_t *data, uint32_t bytes)
     setup();
     registers.SR = FLASH_SR_BSY;
     busy_snapshot = registers;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 0U && program_calls == 0U);
     check_busy_preserved();
     check_latched_write_rejection(data, bytes);
@@ -203,14 +245,14 @@ static void check_failures(const uint8_t *data, uint32_t bytes)
 
     setup();
     erase_busy_at = 1U;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 1U && program_calls == 0U);
     check_busy_preserved();
     check_latched_write_rejection(data, bytes);
 
     setup();
     program_busy_at = 1U;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     assert(erase_calls == 1U && program_calls == 1U);
     check_busy_preserved();
     check_latched_write_rejection(data, bytes);
@@ -243,23 +285,23 @@ static void check_ready_and_success(const uint8_t *data, uint32_t bytes)
 
     setup();
     uint32_t original_acr = registers.ACR;
-    assert(flash_write_param(data, bytes));
+    assert(param_store_write(data, bytes));
     assert(erase_calls == 1U && program_calls == 3U);
     assert(memcmp((const void *)(uintptr_t)TARGET_PARAM_BASE, data, bytes) == 0);
-    assert(flash_write_param(data, bytes));
+    assert(param_store_write(data, bytes));
     assert(erase_calls == 1U && program_calls == 3U); /* 相同记录仍免擦写。 */
     check_idle_cleanup(original_acr);
 
     setup();
     phases_disabled = false;
-    assert(!flash_write_param(data, bytes));
+    assert(!param_store_write(data, bytes));
     phases_disabled = true;
-    assert(!flash_write_param(NULL, bytes));
-    assert(!flash_write_param(data, 0U));
-    assert(!flash_write_param(data, TARGET_RAW_BYTES + 1U));
+    assert(!param_store_write(NULL, bytes));
+    assert(BspFlash_Write(NULL, 0U) == BSP_OK);
+    assert(!param_store_write(data, TARGET_RAW_BYTES + 1U));
     assert(erase_calls == 0U && program_calls == 0U);
-    assert(!flash_read_param(NULL, 1U));
-    assert(!flash_read_param((void *)data, TARGET_PARAM_BYTES + 1U));
+    assert(!param_store_read(NULL, 1U));
+    assert(!param_store_read((void *)data, TARGET_PARAM_BYTES + 1U));
     check_idle_cleanup(original_acr);
 }
 

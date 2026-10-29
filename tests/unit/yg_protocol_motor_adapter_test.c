@@ -15,6 +15,9 @@
 
 static int failures;
 
+/* 测试入口生成的配置体直接来自APP，验证发现页和正式控制入口一致。 */
+extern bool test_application_capabilities(void);
+
 #define CHECK(condition)                                                                           \
     do                                                                                             \
     {                                                                                              \
@@ -519,6 +522,100 @@ static void test_control_boundary(void)
     printf("PASS control boundary: mode/SI conversion and explicit owner results\n");
 }
 
+static void open_loop_service(void *context,
+                              const yg_protocol_motor_request_t *request,
+                              yg_protocol_service_reply_t *reply)
+{
+    unsigned *calls = context;
+    CHECK(request->mode == 9U || request->mode == 10U);
+    CHECK(request->operation == YG_PROTOCOL_MOTOR_START_CONTROL ||
+          request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL);
+    ++calls[request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL];
+    reply->status = YG_PROTOCOL_SERVICE_OK;
+}
+
+static void test_open_loop_vectors(void)
+{
+    /* v0.3黄金payload：+20Hz、Vd=1V/Vq=2V；-20Hz、Id=1A/Iq=2A。 */
+    static const uint8_t voltage[32] = {9, 0, 0, 0, 0, 0,    0,    0,    0, 0,    0,
+                                        0, 0, 0, 0, 0, 0xd0, 0x07, 0,    0, 0x20, 0x4e,
+                                        0, 0, 0, 0, 0, 0,    0xe8, 0x03, 0, 0};
+    static const uint8_t current[32] = {10,   0,    0,    0,    0, 0, 0, 0, 0, 0,    0,
+                                        0,    0xd0, 0x07, 0,    0, 0, 0, 0, 0, 0xe0, 0xb1,
+                                        0xff, 0xff, 0xe8, 0x03, 0, 0, 0, 0, 0, 0};
+    yg_protocol_message_t message = {
+        .message_type = YG_PROTOCOL_MOTOR_TYPE_CONTROL, .payload_length = 32U, .payload = voltage};
+    yg_protocol_motor_request_t decoded;
+    CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_OK);
+    CHECK(decoded.mode == 9 && decoded.electrical_frequency_mHz == 20000 && decoded.vd_mV == 1000 &&
+          decoded.v_q_mV == 2000);
+    ControlOwner owner = {.result = MOTOR_CONTROL_ACCEPTED};
+    yg_protocol_motor_adapter_t adapter = {.submit_control = submit_control,
+                                           .control_context = &owner};
+    yg_protocol_service_reply_t reply;
+    yg_protocol_motor_adapter_handle(&adapter, &decoded, &reply);
+    CHECK(owner.command.mode == MOTOR_CONTROL_OPEN_VOLTAGE &&
+          owner.command.electrical_frequency_hz == 20.0f);
+    CHECK(owner.command.vd_v == 1.0f && owner.command.vq_v == 2.0f && owner.command.id_a == 0);
+    message.payload = current;
+    CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_OK);
+    yg_protocol_motor_adapter_handle(&adapter, &decoded, &reply);
+    CHECK(owner.command.mode == MOTOR_CONTROL_OPEN_CURRENT &&
+          owner.command.electrical_frequency_hz == -20.0f);
+    CHECK(owner.command.id_a == 1.0f && owner.command.iq_a == 2.0f && owner.command.vq_v == 0);
+    yg_protocol_motor_request_t before = decoded;
+    message.payload_length = 20U;
+    CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_INVALID_LENGTH);
+    CHECK(memcmp(&before, &decoded, sizeof(before)) == 0);
+    uint8_t invalid[32];
+    memcpy(invalid, voltage, sizeof(invalid));
+    invalid[24] = 1;
+    message.payload = invalid;
+    message.payload_length = 32;
+    CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_INVALID_FIELD);
+    invalid[0] = 1;
+    invalid[24] = 0;
+    CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_INVALID_LENGTH);
+    unsigned calls[2] = {0};
+    yg_protocol_motor_context_t context = {.node_id = 3U,
+                                           .motor_service = {calls, open_loop_service}};
+    context.motor_status_source = &context.empty_motor_status;
+    uint8_t start_payload[4] = {9, 0, 0, 0};
+    yg_protocol_message_t start = {.version = YG_PROTOCOL_VERSION,
+                                   .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                   .source_node = 2U,
+                                   .destination_node = 3U,
+                                   .sequence = 71U,
+                                   .message_type = YG_PROTOCOL_MOTOR_TYPE_START,
+                                   .payload_length = 4U,
+                                   .payload = start_payload};
+    yg_protocol_service_result_t result = {0};
+    CHECK(yg_protocol_motor_handle_start(&context, &start, &result) == YG_PROTOCOL_OK);
+    CHECK(calls[0] == 1U && result.response_payload[0] == 0U);
+    start_payload[0] = 10U;
+    CHECK(yg_protocol_motor_handle_start(&context, &start, &result) == YG_PROTOCOL_OK &&
+          calls[0] == 2U);
+    start_payload[0] = 7U;
+    CHECK(yg_protocol_motor_handle_start(&context, &start, &result) == YG_PROTOCOL_OK &&
+          calls[0] == 2U);
+    CHECK(result.response_payload[0] == 2U);
+    start.message_type = YG_PROTOCOL_MOTOR_TYPE_CONTROL;
+    start.payload_length = 32U;
+    start.payload = voltage;
+    CHECK(yg_protocol_motor_handle_control(&context, &start, &result) == YG_PROTOCOL_OK);
+    CHECK(calls[1] == 1U && calls[0] == 2U && result.response_payload[0] == 0U);
+    CHECK(yg_protocol_motor_handle_control(&context, &start, &result) == YG_PROTOCOL_OK &&
+          calls[1] == 1U);
+    memcpy(invalid, voltage, sizeof(invalid));
+    invalid[20] ^= 1U;
+    start.payload = invalid;
+    CHECK(yg_protocol_motor_handle_control(&context, &start, &result) == YG_PROTOCOL_OK &&
+          calls[1] == 1U);
+    CHECK(result.response_payload[0] == 4U);
+    printf("PASS v0.3 open-loop golden payloads, SI mapping, lengths, start whitelist and "
+           "extended-payload replay\n");
+}
+
 int main(void)
 {
     test_early_returns();
@@ -530,6 +627,8 @@ int main(void)
     test_stop_identity_reaches_owner_in_every_phase();
     test_unconfirmable_shutdown_never_ok();
     test_control_boundary();
+    test_open_loop_vectors();
+    CHECK(test_application_capabilities());
 
     if (failures != 0)
     {

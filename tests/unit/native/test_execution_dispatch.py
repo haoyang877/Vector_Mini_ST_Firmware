@@ -42,15 +42,17 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
     )
     if control_step + "(" in execution:
         fixture += "\n" + function_source(execution, control_step)
-        fixture += "\n" + function_source(state, "run_fast_task")
-        call = "run_fast_task()"
-        if "run_fast_task(bool maintenance_runnable)" in state:
-            # 夹具单测分发入口：按原故障/零点门禁捕获许可，便于比较功能调用轨迹。
-            call = (
-                "run_fast_task(s_current_offset_calibration.complete && "
-                "s_motor_state.fault_code == MOTOR_FAULT_NONE && "
-                "MotorStateMachine_MaintenanceRunnable())"
+        if "run_fast_task(" in state:
+            fixture += "\n" + function_source(state, "run_fast_task")
+            call = "run_fast_task(MotorStateMachine_MaintenanceRunnable())"
+        else:
+            start = state.index(
+                "    bool maintenance_runnable = MotorStateMachine_MaintenanceRunnable();"
             )
+            end = state.index("\npublish:", start)
+            fixture += "\nstatic MotorTaskResult run_test_dispatch(void) {\n" + state[start:end]
+            fixture += "\npublish:\nreturn outcome;\n}\n"
+            call = "run_test_dispatch()"
     else:
         fixture += "\n" + function_source(execution, "MotorExecution_FastStep")
         call = (
@@ -72,7 +74,7 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
         "-Wall",
         "-Wextra",
         "-Werror",
-        f"-DFAST_LOOP_STAGE_PROFILE={profile}",
+        f"-DBSP_ENABLED_FAST_LOOP_PROFILE={profile}",
         str(source),
         "-o",
         str(executable),

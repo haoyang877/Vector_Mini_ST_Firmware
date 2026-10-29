@@ -3,7 +3,7 @@
 #include "image_mailbox.h"
 #include "device_identity.h"
 #include "yg_protocol_upgrade_wire.h"
-#include "yg_protocol_byte_order.h"
+#include "yg_protocol_common.h"
 #include <assert.h>
 #include <string.h>
 #define MODEL_BASE 0x1000U

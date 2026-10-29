@@ -2,7 +2,7 @@
 
 ## 实现与配置归属
 
-ADC2 在 `firmware/platform/stm32g4/cubemx/Core/Src/adc.c` 的 `USER CODE ADC2_Init 2` 中启用注入组
+ADC2 在 `firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/adc.c` 的 `USER CODE ADC2_Init 2` 中启用注入组
 4×硬件过采样、不右移。每次原有 TIM1 CC4 触发，硬件为每个注入
 rank 连续完成4次采样和转换，将完整累加结果写入对应 JDR。
 顺序仍为 phase_a_current_a、phase_b_current_a、phase_c_current_a、bus_voltage_v；bus_voltage_v 同属此组，因此也使用4×。

@@ -99,7 +99,7 @@ Type3稳定值快照从BootHwInfo一次性启动观察取完整u64身份；角�
 
 | 目标 | 实际源与输入 |
 | --- | --- |
-| 普通独立APP | 添加`firmware/platform/stm32g4/ports/boot/boot_hw_unavailable.c`；不定义`YG_APP_LOADER_IMAGE`；输出不可用身份，不触邮箱/IWDG/镜像记录 |
+| 普通独立APP | 添加`firmware/platform/bsp/mcu/stm32g4/boot_hw_unavailable.c`；不定义`YG_APP_LOADER_IMAGE`；输出不可用身份，不触邮箱/IWDG/镜像记录 |
 | Loader感知APP | 添加`firmware/services/boot_handoff/boot_handoff.c`、D的`boot_hw_stm32g4.c`、`shared/boot/image_mailbox.c`、`shared/image/{image_transfer,nv_record,nv_sha256}.c`、`shared/targets/vector_mini_st_g431_app_descriptor.c`；使用D的app.sct与保留32B邮箱的RAM布局 |
 | 两目标公共 | `yg_protocol_boot.c`及既有参数/job/readonly源码；包含`shared/boot`、`shared/image`、`shared/protocol`；Loader目标另包含`shared/targets`，交接目标包含`services/boot_handoff` |
 

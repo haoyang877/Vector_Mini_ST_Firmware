@@ -84,12 +84,12 @@ Counter_Reset(void);
         """公共能力可消费目标数据，目标数据不得反向依赖电机功能。"""
         with tempfile.TemporaryDirectory() as folder:
             root = _Path(folder)
-            api = root / "firmware/platform/api"
+            api = root / "firmware/platform/bsp/include"
             board = root / "firmware/platform/config/boards"
             motor = root / "firmware/motor"
             for directory in (api, board, motor):
                 directory.mkdir(parents=True)
-            (api / "board_profile_defaults.h").write_text('#include "../config/boards/example.h"\n')
+            (api / "bsp_config.h").write_text('#include "../config/boards/example.h"\n')
             (board / "example.h").write_text('#include "motor_example.h"\n')
             (motor / "motor_example.h").write_text("#define MOTOR_EXAMPLE 1\n")
             with patch.object(check_architecture, "ROOT", root):

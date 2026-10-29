@@ -27,8 +27,8 @@ def fixture():
 #include "parameter_values.h"
 #include "foc_sensing.h"
 #include "motor_profile_defaults.h"
-#include "board_profile_defaults.h"
-#include "current_sense_profile.h"
+#include "bsp_config.h"
+#include "sampling_scale.h"
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
 #include "control_math.h"
@@ -400,6 +400,16 @@ def verify_motor_profiles(cc: list[str], out: Path) -> None:
             ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DMOTOR_HAS_DAMPING_RING=1"],
             "Damping-ring configuration",
         ),
+        (
+            "motor_profile_defaults.h",
+            ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DPARAM_MOTOR_APP_TEST_DEFAULTS=1"],
+            "test target must supply flux and thermal parameters",
+        ),
+        (
+            (ROOT / "firmware/app/config/targets/r40_app_common.h").as_posix(),
+            [],
+            "Temporary motor defaults require a phase-locked or bounded-test target",
+        ),
         *(
             (
                 "motor_profile_defaults.h",
@@ -430,16 +440,59 @@ def verify_application_defaults(cc: list[str], out: Path) -> None:
         )
     )
     (out / "app_defaults_subject.inc").write_text(source, encoding="utf-8")
-    for profile, expected in ((1, "6.0f"), (2, "3.0f")):
-        executable = out / f"app_defaults_{profile}.exe"
-        flags = [f"-DFOC_ACTIVE_HW_PROFILE={profile}", f"-DEXPECTED_DEFAULT_A={expected}"]
-        if profile == 2:
-            flags += [
-                "-DFOC_ACTIVE_MOTOR_PROFILE=2",
-                "-DAPP_TARGET_R40_F456=1",
-                "-DR40_APP_PHASE_LOCK=1",
-                "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1",
-            ]
+    # 真实目标配置同时覆盖旧板两种采样电阻，以及新板关相/限时目标。
+    target_dir = ROOT / "firmware/app/config/targets"
+    cases = (
+        ("old_6m", [], "6.0f", "0.05f", "0.5f", "90.0f", "18.0f", 21, "1.905f", 0),
+        (
+            "old_2m",
+            ["-DCURRENT_SENSE_SHUNT_MILLIOHM=2"],
+            "6.0f",
+            "0.05f",
+            "0.5f",
+            "90.0f",
+            "40.0f",
+            21,
+            "1.905f",
+            0,
+        ),
+        (
+            "r40_off",
+            ["-include", str(target_dir / "r40_app_off.h")],
+            "3.0f",
+            "0.05f",
+            "0.5f",
+            "90.0f",
+            "3.0f",
+            14,
+            "0.55f",
+            1,
+        ),
+        (
+            "r40_commissioning",
+            ["-include", str(target_dir / "r40_app_commissioning.h")],
+            "3.0f",
+            "0.005f",
+            "0.05f",
+            "800.0f",
+            "3.0f",
+            14,
+            "0.55f",
+            1,
+        ),
+    )
+    for name, selection, current, kp, ki, pll, trip, poles, resistance, bus_sensor in cases:
+        executable = out / f"app_defaults_{name}.exe"
+        flags = selection + [
+            f"-DEXPECTED_DEFAULT_A={current}",
+            f"-DEXPECTED_SPEED_KP={kp}",
+            f"-DEXPECTED_SPEED_KI={ki}",
+            f"-DEXPECTED_PLL_HZ={pll}",
+            f"-DEXPECTED_TRIP_A={trip}",
+            f"-DEXPECTED_POLE_PAIRS={poles}",
+            f"-DEXPECTED_PHASE_R_OHM={resistance}",
+            f"-DEXPECTED_BUS_SENSOR={bus_sensor}",
+        ]
         subprocess.run(
             cc
             + ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
@@ -481,7 +534,7 @@ def main():
         for p in (
             "firmware/motor/math",
             "firmware/motor/foc",
-            "firmware/platform/stm32g4/bsp",
+            "firmware/platform/bsp/mcu/stm32g4",
             "firmware/communication",
         )
     ]

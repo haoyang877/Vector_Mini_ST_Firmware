@@ -20,8 +20,8 @@ def main() -> int:
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     native = ROOT / "tests/unit/native"
-    platform = ROOT / "firmware/platform/at32f456"
-    source = (platform / "ports/param_store_at32f456.c").read_text(encoding="utf-8")
+    platform = ROOT / "firmware/platform/bsp/mcu/at32f456"
+    source = (platform / "flash.c").read_text(encoding="utf-8")
     for primitive in ("flash_memory", "flash_store_word"):
         source = source.replace(function_source(source, primitive), "")
     (out / "r40_storage_production.inc").write_text(source, encoding="utf-8")
@@ -30,11 +30,12 @@ def main() -> int:
         function_source(source, "Temperature_Update"), encoding="utf-8"
     )
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
-    command += ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
+    command += ["-DBSP_BOARD=2", "-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     for include in (
         native / "r40_storage_fake",
-        ROOT / "firmware/third_party/at32f45x/drivers/inc",
-        platform / "bsp",
+        ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
+        platform,
+        platform,
         out,
     ):
         command += ["-I", str(include)]
@@ -45,19 +46,26 @@ def main() -> int:
     )
     subprocess.run([str(executable)], check=True)
     calibrated = [
-        "-DR40_TEMPERATURE_SENSING_ENABLED=1",
+        "-DBSP_ENABLED_MCU_TEMPERATURE=1",
         "-DR40_TEMPERATURE_CALIBRATED=1",
         "-DR40_INTERNAL_REFERENCE_MV=1200.0f",
         "-DR40_TEMPERATURE_CAL_MV=1280.0f",
         "-DR40_TEMPERATURE_SLOPE_MV_PER_C=4.27f",
     ]
     variants = [
-        ("disabled", ["-DR40_TEMPERATURE_SENSING_ENABLED=0"], 0),
-        ("uncalibrated", ["-DR40_TEMPERATURE_SENSING_ENABLED=1"], 0),
+        ("disabled", ["-DBSP_ENABLED_MCU_TEMPERATURE=0"], 0),
+        ("uncalibrated", ["-DBSP_ENABLED_MCU_TEMPERATURE=1"], 0),
+        (
+            "reference_only",
+            ["-DBSP_ENABLED_MCU_TEMPERATURE=1", "-DR40_INTERNAL_REFERENCE_MV=1200.0f"],
+            0,
+        ),
         ("calibrated", calibrated, 1),
         ("invalid_calibration", calibrated[:-1] + ["-DR40_TEMPERATURE_SLOPE_MV_PER_C=0.0f"], 0),
     ]
     for name, flags, expected in variants:
+        if name != "disabled":
+            flags = flags + ["-DBSP_REQUIRED_MCU_TEMPERATURE=1"]
         executable = out / f"temperature_{name}.exe"
         subprocess.run(
             command

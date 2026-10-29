@@ -29,7 +29,7 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     for name in ("fdcan.h", "main.h"):
         (output / name).write_text("/* 仅测试桩：类型与函数在夹具定义。 */\n", encoding="utf-8")
-    source = ROOT / "firmware/platform/stm32g4/ports/comm/comm_status_stm32g4.c"
+    source = ROOT / "firmware/platform/bsp/mcu/stm32g4/can.c"
     fixture = ROOT / "tests/unit/native/comm_bus_off_test.c"
     executable = output / ("comm_bus_off.exe" if sys.platform == "win32" else "comm_bus_off")
     command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
@@ -41,7 +41,13 @@ def main() -> int:
         "-I",
         str(output),
         "-I",
-        str(ROOT / "firmware/platform/api"),
+        str(ROOT / "firmware/platform/bsp/include"),
+        "-I",
+        str(ROOT / "firmware/platform/config"),
+        "-I",
+        str(ROOT / "firmware/app/config"),
+        "-I",
+        str(ROOT / "firmware/platform/bsp"),
         "-I",
         str(source.parent),
         str(fixture),

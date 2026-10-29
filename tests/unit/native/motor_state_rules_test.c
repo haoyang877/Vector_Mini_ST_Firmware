@@ -2,6 +2,7 @@
  * 无故障事实由 active_faults 推导，删除旧夹具互相矛盾的故障布尔组合。 */
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include "motor_state_internal.h"
 
 static uint32_t seed = UINT32_C(0x91ab32cd);
@@ -238,8 +239,56 @@ static void test_ordered_trace(void)
     trace_step("guard-before-invalid-kind", &context, event, &facts);
 }
 
+/* 标定空轮询只消费故障、输入及维护许可；其余事实所有组合均不得影响结果。 */
+static int test_calibration_poll_facts(void)
+{
+    for (unsigned kind = 0U; kind < 2U; ++kind)
+    {
+        for (unsigned bits = 0U; bits < 4096U; ++bits)
+        {
+            MotorStateFacts full = {.active_faults =
+                                        (bits & 2048U) ? MOTOR_STATE_FAULT_OPERATION : 0U,
+                                    .phases_disabled = (bits & 1U) != 0U,
+                                    .control_idle = (bits & 2U) != 0U,
+                                    .operation_idle = (bits & 4U) != 0U,
+                                    .maintenance_released = (bits & 8U) != 0U,
+                                    .inputs_valid = (bits & 16U) != 0U,
+                                    .configuration_valid = (bits & 32U) != 0U,
+                                    .self_test_ready = (bits & 64U) != 0U,
+                                    .start_permitted = (bits & 128U) != 0U,
+                                    .operation_permitted = (bits & 256U) != 0U,
+                                    .startup_confirmed = (bits & 512U) != 0U,
+                                    .request_fresh = (bits & 1024U) != 0U};
+            MotorStateFacts minimal = {.active_faults = full.active_faults,
+                                       .inputs_valid = full.inputs_valid,
+                                       .operation_permitted = full.operation_permitted};
+            MotorStateRulesContext a = {0};
+            MotorStateRules_Init(&a);
+            a.state = MOTOR_STATE_MAINTENANCE;
+            a.maintenance_active = true;
+            a.maintenance_kind =
+                kind == 0U ? MOTOR_MAINTENANCE_ENCODER_LUT : MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
+            MotorStateRulesContext b = a;
+            MotorStateEvent poll = {0};
+            MotorStateDecision first = MotorStateRules_Step(&a, &poll, &full);
+            MotorStateDecision second = MotorStateRules_Step(&b, &poll, &minimal);
+            if (first.actions != second.actions || first.rejection != second.rejection ||
+                memcmp(&a, &b, sizeof(a)) != 0)
+            {
+                return 1;
+            }
+        }
+    }
+    puts("PASS 8192 calibration poll fact combinations preserve all decisions");
+    return 0;
+}
+
 int main(void)
 {
+    if (test_calibration_poll_facts())
+    {
+        return 1;
+    }
     test_ordered_trace();
     if (test_state_exit_contract())
     {

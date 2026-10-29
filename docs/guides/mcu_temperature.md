@@ -1,7 +1,7 @@
 # MCU温度来源与保护
 
 核对日期：2026-10-21。当前测量来源是STM32G431内部温度传感器和VREFINT，
-不是绕组、MOS或环境温度。硬件入口见[`mcu_temperature.h`](../../firmware/platform/api/mcu_temperature.h)，
+不是绕组、MOS或环境温度。硬件入口见[`mcu_temperature.h`](../../firmware/app/config/mcu_temperature.h)，
 监督和保护见[`foc_sensing.c`](../../firmware/motor/foc/foc_sensing.c)。
 
 ADC1的软件触发注入组读取TS和VREFINT；平台侧使用每颗芯片的校准数据换算。

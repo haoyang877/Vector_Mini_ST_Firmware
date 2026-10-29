@@ -99,7 +99,7 @@ float Math_Max(float x, float y);
 float Math_Min(float x, float y);
 
 /**
- * @brief 同表三次插值计算正弦与余弦，单圈最大绝对误差不超过 1e-6。
+ * @brief 查表并作小角旋转计算正弦与余弦，单圈最大绝对误差不超过 1e-6。
  * @param theta_rad 输入角度，单位 rad；控制调用者应保持在 [-2pi, 2pi]。
  * @param sin_out 正弦输出；调用方提供非空、可写的独立 float 对象。
  * @param cos_out 余弦输出；调用方提供非空、可写的独立 float 对象，不得与 sin_out 重叠。

@@ -3,8 +3,10 @@
 
 #include "motor_config.h"
 #include "control_config.h"
+#include "current_sense_limits.h"
 #include "foc_algorithm.h"
 #include "motor_types.h"
+#include "bsp_adc.h"
 
 /* 温度失效门限：监督 tick 数（2 kHz，0.5 ms/tick），保持 MCU_TEMPERATURE_TIMEOUT_MS 契约。 */
 #define MCU_TEMPERATURE_TIMEOUT_TICKS (MCU_TEMPERATURE_TIMEOUT_MS * SUPERVISOR_TICKS_PER_MS)
@@ -18,9 +20,9 @@
 /** @brief 上电零偏采样状态；Axis持有实例，采样模块通过显式对象独占推进。 */
 typedef struct
 {
-    uint32_t phase_sum_raw[3];
-    uint32_t sample_count;
-    bool complete, failed;
+    volatile uint32_t phase_sum_raw[3];
+    volatile uint32_t sample_count;
+    volatile bool complete, failed;
 } CurrentOffsetCalibration;
 
 /**
@@ -35,37 +37,54 @@ void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
                               FocState *foc);
 
 /**
- * @brief 读取并累计一拍原始三相采样，首次完成时提交经过校验的零偏。
- * @param calibration Axis显式借用的校正状态；完成或失败后不继续累计。
- * @param configuration 活动配置，首次成功时写入三相ADC零偏，单位counts。
+ * @brief 读取并累计一拍原始三相采样，满窗口后冻结累加结果。
+ * @param calibration Axis显式借用的校正状态；窗口已满、完成或失败后不继续累计。
  * @param motor_state 当前模式及故障所有者；越界或非关相时锁存既有零偏故障。
- * @return 本拍首次完成校正返回true；尚未完成、已完成或失败返回false。
+ * @return 本拍首次集满窗口返回true；其余情况返回false，不代表零偏已发布。
  * @note 仅新鲜20kHz采样拍调用；非阻塞，不启相、不重试、不更新修订或写Flash。
- *       调用者在首次完成后先发布参数修订，再沿既有Current_Cal路径换算本拍电流。
+ *       不做一次性浮点计算或发布，由监督任务调用Finalize；发布前电流保持无效。
  */
 bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
-                                MotorConfiguration *configuration,
                                 MotorControlState *motor_state);
+
+/**
+ * @brief 在监督任务计算并原子发布已集满窗口的三相零偏。
+ * @param calibration Axis持有的累加结果；仅成功发布后置complete。
+ * @param configuration 活动配置，成功时写入三相零偏，单位counts。
+ * @param motor_state 模式及故障所有者；失去关相条件或校验失败时锁存原故障。
+ * @return 本次首次成功发布返回true，未就绪、已完成或失败返回false。
+ * @note 仅2kHz监督调用，浮点计算可被快中断抢占；短临界区只执行最终校验与发布。
+ *       调用者成功后推进参数修订；下一快拍换算电流，不修改原采样窗口或保护阈值。
+ */
+bool MotorCurrentOffsets_Finalize(CurrentOffsetCalibration *calibration,
+                                  MotorConfiguration *configuration,
+                                  MotorControlState *motor_state);
 
 /**
  * @brief  更新母线电压采样与滤波值。
  * @param  foc foc 状态指针，写入 bus_voltage_v 相关字段。
  * @param  motor_state 电机控制状态指针，写入电压故障。
  * @param output_expected 所有者确认需要保护输出；关闭确认前保持 true。
+ * @param sample 本拍只读快帧；NULL表示采样失败，电压按原无效路径处理。
  * @note 快速环周期调用；禁用状态下采样用于复位计数器。
  */
-void Vbus_Update(FocState *foc, MotorControlState *motor_state, bool output_expected);
+void Vbus_Update(FocState *foc,
+                 MotorControlState *motor_state,
+                 bool output_expected,
+                 const BspAdcFastSample *sample);
 
 /**
  * @brief  完成相电流采样换算与偏置补偿。
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态指针，写入 phase_a_current_a/phase_b_current_a/phase_c_current_a。
  * @param  motor_state 电机控制状态指针。
+ * @param sample 与电压处理共用的本拍只读快帧；NULL按原采样失败路径处理。
  * @note 快速环周期调用；换算系数来自平台感测契约。
  */
 void Current_Cal(const MotorConfiguration *configuration,
                  FocState *foc,
-                 MotorControlState *motor_state);
+                 MotorControlState *motor_state,
+                 const BspAdcFastSample *sample);
 
 /**
  * @brief  更新 MCU 温度换算与遥测。

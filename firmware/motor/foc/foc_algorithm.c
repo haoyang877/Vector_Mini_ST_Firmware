@@ -4,13 +4,13 @@
 
 #include "control_config.h"
 #include "fast_loop_profile.h"
-#include "motor_hw.h"
+#include "bsp_pwm.h"
 #include "control_math.h"
 #include "motor_thermal.h"
 #include "motor_fault.h"
 
 /* foc 变换、调制与电流环入口。本文件不访问定时器寄存器：三相 PWM 输出统一
- * 经 platform/api/motor_hw.h 契约由板级端口（platform/stm32g4/ports）实现。 */
+ * 经 platform/bsp/include/bsp_pwm.h 契约由对应板级BSP实现。 */
 
 #define FOC_MAX_MODULATION (0.95f * SQRT_3_BY_2)
 
@@ -257,47 +257,128 @@ void SVM_SectorJudge(
     }
 }
 
-/* 两种控制策略共享采样变换，保持各自 PI 与电压给定。 */
-static inline void foc_measure_currents(FocState *foc, float phase)
+/* 所有普通模式和标定入口共用同一条FOC流水线；策略只选择d/q控制律。 */
+void FOC_Step(const MotorConfiguration *configuration,
+              FocState *foc,
+              MotorControlState *motor,
+              FocControlLaw law,
+              float phase,
+              float phase_vel,
+              float d_reference,
+              float q_reference)
 {
+    if ((unsigned)law > FOC_CONTROL_VOLTAGE ||
+        (law == FOC_CONTROL_VOLTAGE && (!isfinite(d_reference) || !isfinite(q_reference))))
+    {
+        MotorFault_Report(motor, MOTOR_FAULT_INVALID_PARAMETERS);
+        return;
+    }
+    bool current_loop = law == FOC_CONTROL_CURRENT;
+    if (current_loop)
+    {
+        FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
+    }
+    float limit_a = MotorThermal_ResolveLimit(
+        configuration->application.current_limit_a, motor->thermal_current_limit_a, true);
+    if (current_loop && !MotorThermal_LimitVector(limit_a, &d_reference, &q_reference))
+    {
+        MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
+        goto finish;
+    }
+
+    /* 实测abc -> alpha/beta -> 所选控制角度下的d/q；三路过流已在采样阶段检查。 */
     Clarke_Transform(foc->phase_a_current_a,
                      foc->phase_b_current_a,
                      foc->phase_c_current_a,
                      &foc->current_alpha_a,
                      &foc->current_beta_a);
     Park_Transform(foc->current_alpha_a, foc->current_beta_a, phase, &foc->id_a, &foc->iq_a);
-}
+    if (!current_loop && (!(limit_a > 0.0f) ||
+                          !(foc->id_a * foc->id_a + foc->iq_a * foc->iq_a <= limit_a * limit_a)))
+    {
+        MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
+        goto finish;
+    }
 
-/* 滤波、遥测及 PWM 的计算与输出顺序不可改变。 */
-static inline void foc_apply_modulation(FocState *foc, float phase, float phase_vel)
-{
+    /* 控制律只产生Vd/Vq，共用后续电压限幅、SVPWM和唯一PWM提交。 */
+    if (foc->bus_voltage_filtered_v > 0.0f)
+    {
+        float maximum_v = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
+        float voltage_d = d_reference;
+        float voltage_q = q_reference;
+        switch (law)
+        {
+        case FOC_CONTROL_CURRENT:
+            foc->id_pi.output_min = foc->iq_pi.output_min = -maximum_v;
+            foc->id_pi.output_max = foc->iq_pi.output_max = maximum_v;
+            voltage_d = PiController_Run(&foc->id_pi, d_reference, foc->id_a);
+            voltage_q = PiController_Run(&foc->iq_pi, q_reference, foc->iq_a);
+            break;
+        case FOC_CONTROL_ID_VQ:
+            foc->id_pi.output_min = -maximum_v;
+            foc->id_pi.output_max = maximum_v;
+            voltage_d = PiController_Run(&foc->id_pi, d_reference, foc->id_a);
+            voltage_q = Math_Constrain(q_reference, -maximum_v, maximum_v);
+            break;
+        case FOC_CONTROL_VOLTAGE:
+            break;
+        }
+        foc_set_voltage_modulation(foc, voltage_d, voltage_q);
+    }
+    else
+    {
+        FOC_CurrentController_Reset(foc);
+        foc->mod_d = foc->mod_q = foc->duty = 0.0f;
+    }
+
+    /* 电压矢量已限幅：逆Park包含原一拍角度预测，SVPWM之后只提交一次。 */
     Inverse_Park_Transform(
         foc->mod_d, foc->mod_q, phase + phase_vel * Current_Ts, &foc->mod_alpha, &foc->mod_beta);
-
+    SVM_SectorJudge(
+        foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
+    if (BspPwm_SetDuty(foc->duty_a, foc->duty_b, foc->duty_c) != BSP_OK)
+    {
+        MotorFault_Report(motor, MOTOR_FAULT_CONTROL_OVERRUN);
+    }
     UTILS_LP_FAST(foc->id_filtered_a, foc->id_a, 0.01f);
     UTILS_LP_FAST(foc->iq_filtered_a, foc->iq_a, 0.01f);
-
     foc->bus_current_a = foc->mod_d * foc->id_a + foc->mod_q * foc->iq_a;
     UTILS_LP_FAST(foc->bus_current_filtered_a, foc->bus_current_a, 0.01f);
     foc->power_filtered_w = foc->bus_voltage_filtered_v * foc->bus_current_filtered_a;
 
-    SVM_SectorJudge(
-        foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
-    motor_hw_pwm_set_duty(foc->duty_a, foc->duty_b, foc->duty_c);
+    /* 跟踪影响下一拍积分；电压开环不修改PI积分。 */
+    if (foc->bus_voltage_filtered_v > 0.0f && law != FOC_CONTROL_VOLTAGE)
+    {
+        PiController_TrackOutput(&foc->id_pi, foc->mod_d * foc->bus_voltage_filtered_v / 1.5f);
+        if (current_loop)
+        {
+            PiController_TrackOutput(&foc->iq_pi, foc->mod_q * foc->bus_voltage_filtered_v / 1.5f);
+        }
+    }
+finish:
+    if (current_loop)
+    {
+        FAST_PROFILE_END(FAST_PROFILE_CURRENT);
+    }
 }
 
-/* 电流环：使用 motor_state->iq_target_a 作为 q 轴参考执行一次 d/q 电流闭环。 */
+/* 标定和台架兼容入口只绑定策略与参考，不再分别实现一套FOC。 */
 void FOC_Current(const MotorConfiguration *configuration,
                  FocState *foc,
                  MotorControlState *motor_state,
                  float phase,
                  float phase_vel)
 {
-    FOC_CurrentWithReference(
-        configuration, foc, motor_state, phase, phase_vel, motor_state->iq_target_a);
+    FOC_Step(configuration,
+             foc,
+             motor_state,
+             FOC_CONTROL_CURRENT,
+             phase,
+             phase_vel,
+             motor_state->id_target_a,
+             motor_state->iq_target_a);
 }
 
-/* 电流环：使用显式 q 轴电流参考执行一次 d/q 电流闭环并输出三相占空比。 */
 void FOC_CurrentWithReference(const MotorConfiguration *configuration,
                               FocState *foc,
                               MotorControlState *motor_state,
@@ -305,96 +386,34 @@ void FOC_CurrentWithReference(const MotorConfiguration *configuration,
                               float phase_vel,
                               float iq_reference)
 {
-    float max_voltage;
-    float voltage_d;
-    float voltage_q;
-
-    FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
-
-    /* 最终提交再次按快环热额度限制d/q总向量，不能分别裁剪后超过总限流。 */
-    float id_reference = motor_state->id_target_a;
-    float current_limit_a = MotorThermal_ResolveLimit(
-        configuration->application.current_limit_a, motor_state->thermal_current_limit_a, true);
-    if (!MotorThermal_LimitVector(current_limit_a, &id_reference, &iq_reference))
-    {
-        MotorFault_Report(motor_state, MOTOR_FAULT_WINDING_THERMAL);
-        FAST_PROFILE_END(FAST_PROFILE_CURRENT);
-        return;
-    }
-    foc_measure_currents(foc, phase);
-
-    if (foc->bus_voltage_filtered_v > 0.0f)
-    {
-        max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
-        /* 固定增益与周期由所有者在配置提交时绑定；本拍仅更新动态电压额度。 */
-        foc->id_pi.output_min = foc->iq_pi.output_min = -max_voltage;
-        foc->id_pi.output_max = foc->iq_pi.output_max = max_voltage;
-
-        voltage_d = PiController_Run(&foc->id_pi, id_reference, foc->id_a);
-        voltage_q = PiController_Run(&foc->iq_pi, iq_reference, foc->iq_a);
-        foc_set_voltage_modulation(foc, voltage_d, voltage_q);
-
-        PiController_TrackOutput(&foc->id_pi, foc->mod_d * foc->bus_voltage_filtered_v / 1.5f);
-        PiController_TrackOutput(&foc->iq_pi, foc->mod_q * foc->bus_voltage_filtered_v / 1.5f);
-    }
-    else
-    {
-        FOC_CurrentController_Reset(foc);
-        foc->mod_d = 0.0f;
-        foc->mod_q = 0.0f;
-        foc->duty = 0.0f;
-    }
-
-    foc_apply_modulation(foc, phase, phase_vel);
-    FAST_PROFILE_END(FAST_PROFILE_CURRENT);
+    FOC_Step(configuration,
+             foc,
+             motor_state,
+             FOC_CONTROL_CURRENT,
+             phase,
+             phase_vel,
+             motor_state->id_target_a,
+             iq_reference);
 }
 
-/* 复位 d/q 电流环状态。 */
 void FOC_CurrentController_Reset(FocState *foc)
 {
     PiController_Reset(&foc->id_pi);
     PiController_Reset(&foc->iq_pi);
 }
 
-/* q 轴电压模式：d 轴电流闭环到 0，q 轴电压限幅后直接输出。 */
 void FOC_Vq_Mode(const MotorConfiguration *configuration,
                  FocState *foc,
                  MotorControlState *motor_state,
                  float phase,
                  float phase_vel)
 {
-    float max_voltage;
-    float voltage_d;
-    float voltage_q;
-
-    foc_measure_currents(foc, phase);
-    float limit_a = MotorThermal_ResolveLimit(
-        configuration->application.current_limit_a, motor_state->thermal_current_limit_a, true);
-    /* 电压模式无法按参考限流；当前热额度为零或实测越界时必须关断。 */
-    if (!(limit_a > 0.0f) || !(foc->id_a * foc->id_a + foc->iq_a * foc->iq_a <= limit_a * limit_a))
-    {
-        MotorFault_Report(motor_state, MOTOR_FAULT_WINDING_THERMAL);
-        return;
-    }
-
-    if (foc->bus_voltage_filtered_v > 0.0f)
-    {
-        max_voltage = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
-        foc->id_pi.output_min = -max_voltage;
-        foc->id_pi.output_max = max_voltage;
-
-        voltage_d = PiController_Run(&foc->id_pi, 0.0f, foc->id_a);
-        voltage_q = Math_Constrain(motor_state->vq_target_v, -max_voltage, max_voltage);
-        foc_set_voltage_modulation(foc, voltage_d, voltage_q);
-        PiController_TrackOutput(&foc->id_pi, foc->mod_d * foc->bus_voltage_filtered_v / 1.5f);
-    }
-    else
-    {
-        FOC_CurrentController_Reset(foc);
-        foc->mod_d = 0.0f;
-        foc->mod_q = 0.0f;
-        foc->duty = 0.0f;
-    }
-
-    foc_apply_modulation(foc, phase, phase_vel);
+    FOC_Step(configuration,
+             foc,
+             motor_state,
+             FOC_CONTROL_ID_VQ,
+             phase,
+             phase_vel,
+             0.0f,
+             motor_state->vq_target_v);
 }

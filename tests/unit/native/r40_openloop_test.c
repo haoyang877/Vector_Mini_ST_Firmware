@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
-#include "../../../firmware/platform/at32f456/foundation/openloop_model.h"
+#include "../../bench/at32f456/openloop_model.h"
 
 static void ready(R40OlModel *model)
 {

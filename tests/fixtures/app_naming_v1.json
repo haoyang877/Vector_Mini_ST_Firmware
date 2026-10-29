@@ -493,7 +493,6 @@
       "sin_quarter_tab": "s_sin_quarter_tab"
     },
     "firmware/communication/can/yg_protocol_canfd.c": {},
-    "firmware/communication/can/yg_protocol_canfd_irq.c": {},
     "firmware/communication/can/yg_protocol_endpoint.c": {},
     "firmware/communication/can/yg_protocol_link.c": {
       "empty_device_status": "s_empty_device_status",
@@ -507,25 +506,19 @@
       "rx_queue": "s_rx_queue",
       "rx_storage": "s_rx_storage",
       "tx_queue": "s_tx_queue",
-      "tx_storage": "s_tx_storage"
-    },
-    "firmware/communication/can/yg_protocol_runtime.c": {
+      "tx_storage": "s_tx_storage",
       "configured_node_id": "s_configured_node_id",
       "initialized": "s_initialized",
       "last_recovery_ms": "s_last_recovery_ms",
       "started": "s_started"
     },
-    "firmware/communication/protocol/yg_protocol_boot.c": {},
-    "firmware/communication/protocol/yg_protocol_job.c": {},
-    "firmware/communication/protocol/yg_protocol_message_registry.c": {},
-    "firmware/communication/protocol/yg_protocol_motor.c": {},
-    "firmware/communication/protocol/yg_protocol_motor_adapter.c": {},
-    "firmware/communication/protocol/yg_protocol_motor_status.c": {},
-    "firmware/communication/protocol/yg_protocol_parameter.c": {},
-    "firmware/communication/protocol/yg_protocol_readonly.c": {},
-    "firmware/communication/protocol/yg_protocol_readonly_payload.c": {},
-    "firmware/communication/protocol/yg_protocol_router.c": {},
-    "firmware/communication/protocol/yg_protocol_transfer.c": {},
+    "firmware/communication/commands/yg_protocol_boot.c": {},
+    "firmware/communication/commands/yg_protocol_job.c": {},
+    "firmware/communication/commands/yg_protocol_motor.c": {},
+    "firmware/communication/commands/yg_protocol_motor_adapter.c": {},
+    "firmware/communication/commands/yg_protocol_parameter.c": {},
+    "firmware/communication/commands/yg_protocol_readonly.c": {},
+    "firmware/communication/commands/yg_protocol_transfer.c": {},
     "firmware/motor/data_type.c": {},
     "firmware/motor/foc/cogging_compensation.c": {
       "admitted_identity": "s_admitted_identity",
@@ -632,27 +625,27 @@
       "revision_work_epoch": "s_revision_work_epoch",
       "save_job": "s_save_job"
     },
-    "firmware/platform/stm32g4/bsp/led.c": {
+    "firmware/platform/bsp/mcu/stm32g4/led.c": {
       "LED": "s_led",
       "LED_SetGPIO": "update_gpio"
     },
-    "firmware/platform/stm32g4/bsp/rgb.c": {
+    "firmware/platform/bsp/mcu/stm32g4/rgb.c": {
       "Pixel_Buf": "s_pixel_buffer",
       "RGB": "s_rgb_color",
       "rgb_up_down": "s_brightness_direction",
       "brightness": "s_brightness"
     },
-    "firmware/platform/stm32g4/bsp/delay.c": {
+    "firmware/platform/bsp/mcu/stm32g4/delay.c": {
       "g_fac_us": "s_cycles_per_us"
     }
   },
   "scoped_identifiers": {
-    "firmware/platform/stm32g4/bsp/rgb.c": {
+    "firmware/platform/bsp/mcu/stm32g4/rgb.c": {
       "R": "red",
       "G": "green",
       "B": "blue"
     },
-    "firmware/platform/stm32g4/bsp/rgb.h": {
+    "firmware/platform/bsp/mcu/stm32g4/rgb.h": {
       "R": "red",
       "G": "green",
       "B": "blue"

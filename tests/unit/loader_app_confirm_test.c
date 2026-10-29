@@ -35,6 +35,7 @@ static struct
 #define GPIOA (&gpio_a)
 #define GPIOB (&gpio_b)
 static bool available;
+bool BootHw_IsAvailable(void);
 static uint32_t trial_started_ms, ticks, irq_mask;
 static uint32_t HAL_GetTick(void)
 {
@@ -88,6 +89,14 @@ static void reset_trial(void)
 }
 int main(void)
 {
+    available = false;
+    trial_started_ms = 1234U;
+    ticks = 7890U;
+    irq_mask = 1U;
+    assert(!BootHw_IsAvailable());
+    available = true;
+    assert(BootHw_IsAvailable());
+    assert(trial_started_ms == 1234U && ticks == 7890U && irq_mask == 1U);
 #if defined(_WIN32)
     void *memory = VirtualAlloc((void *)(uintptr_t)TARGET_FLASH_BASE,
                                 TARGET_FLASH_BYTES,

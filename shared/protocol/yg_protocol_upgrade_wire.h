@@ -1,7 +1,7 @@
 #ifndef YG_PROTOCOL_UPGRADE_WIRE_H
 #define YG_PROTOCOL_UPGRADE_WIRE_H
 
-#include "yg_protocol_wire_types.h"
+#include "yg_protocol_common.h"
 
 #define YG_PROTOCOL_UPGRADE_TYPE_BEGIN 50U
 #define YG_PROTOCOL_UPGRADE_TYPE_WRITE 51U

@@ -1,3 +1,5 @@
+# YG-ESC
+
 <img src="./docs/assets/project/logo.png" width="600"/>
 
 ## 代码目录
@@ -18,9 +20,13 @@ docs/                            architecture、protocols、guides、hardware、
 outputs/                         构建、测试与分析产物（忽略提交）
 ```
 
-Keil 主工程为
-[`YG_ESC_APP.uvprojx`](firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx)，
-目标和输出名统一为 `YG_ESC_APP`；构建产物输出到 `outputs/build/keil/YG_ESC_APP/`。
+双板统一管理入口为 [YG-ESC.uvmpw](YG-ESC.uvmpw)，在一个 Keil 窗口中管理旧板 APP、
+新板关相 APP 和新板限时调试 APP，默认选中新板关相版。
+切换方法见 [Keil 工作区使用说明](docs/guides/keil_workspace.md)。
+
+旧板独立主工程为
+[`ESC-APP-STM32G431.uvprojx`](projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx)，
+目标和输出名统一为 `ESC-APP-STM32G431`；构建产物输出到 `outputs/build/keil/ESC-APP-STM32G431/`。
 
 人工调试的观测对象、变量清单、单位和枚举值见
 [Keil Watch 只读观测指南](docs/guides/watch_motor_commands.md)。

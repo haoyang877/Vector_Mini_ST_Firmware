@@ -11,9 +11,9 @@
 #include "motor_control.h"
 #include "foc_sensing.h"
 #include "sensorless_startup.h"
-#include "power_stage_hw.h"
-#include "critical_hw.h"
-#include "indicator_hw.h"
+#include "bsp_pwm.h"
+#include "bsp_system.h"
+#include "bsp_led.h"
 #include "bus_voltage_profile.h"
 #include "control_math.h"
 #include "maintenance_workspace.h"
@@ -39,6 +39,7 @@ static uint8_t trace_source;
 static uint16_t trace_start_sequence;
 static void trace_capture(const char *event, unsigned result, unsigned detail);
 static bool outer_ready;
+static bool lut_publish_fail;
 static uint32_t critical_depth;
 static unsigned validation_interrupt;
 static unsigned validation_unmasked_calls, validation_masked_calls;
@@ -56,7 +57,7 @@ static void inject_start_admission(unsigned interrupt);
 static void test_staged_supervisor(void);
 #endif
 
-uint32_t time_hw_now_ms(void)
+uint32_t BspSystem_TimeMs(void)
 {
     return now_ms;
 }
@@ -69,11 +70,11 @@ bool MotorAxis_ConfigurationRevisionAvailable(void)
     return true;
 }
 
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     return critical_depth++;
 }
-void critical_hw_exit(uint32_t mask)
+void BspSystem_ExitCritical(uint32_t mask)
 {
     assert(critical_depth == mask + 1U);
     critical_depth = mask;
@@ -141,13 +142,21 @@ bool Test_ConfigurationValid(const MotorConfiguration *configuration)
 #endif
     return valid;
 }
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return output_off;
 }
-void power_stage_hw_start(void)
+BspPwmStatus BspPwm_GetStatus(void)
 {
+    return (BspPwmStatus){output_off ? BSP_PWM_OFF : BSP_PWM_ON, stop_count};
+}
+BspResult BspPwm_Enable(void)
+{
+#if STATE_FAST_POWER_OWNER
+    assert(critical_depth == 0U);
+#else
     assert(critical_depth != 0U);
+#endif
     ++start_count;
     if (!start_fails)
     {
@@ -162,8 +171,9 @@ void power_stage_hw_start(void)
                output_off,
                critical_depth);
     }
+    return output_off ? BSP_IO_ERROR : BSP_OK;
 }
-void power_stage_hw_stop(void)
+void BspPwm_Disable(void)
 {
     ++stop_count;
     if (!stop_fails)
@@ -180,10 +190,11 @@ void power_stage_hw_stop(void)
                critical_depth);
     }
 }
-void indicator_hw_set_led(bool error, uint8_t count)
+BspResult BspLed_SetCode(BspLedCodeChannel error, uint8_t count)
 {
     (void)error;
     (void)count;
+    return BSP_OK;
 }
 bool Encoder_IsOnline(const EncoderState *e)
 {
@@ -240,6 +251,18 @@ bool EncoderCalibrationTask_IsReleased(void)
 {
     return encoder_released;
 }
+bool EncoderCalibrationTask_PublishLut(EncoderCalibration *calibration, EncoderState *state)
+{
+    (void)state;
+    assert(critical_depth != 0U && output_off && !encoder_released);
+    if (lut_publish_fail)
+    {
+        return false;
+    }
+    calibration->calib_flag = ENC_CALIB_LINEARIZED;
+    encoder_released = true;
+    return true;
+}
 EncoderCalibrationPhase EncoderCalibrationTask_GetStep(void)
 {
     return encoder_released ? CS_NULL : CS_OBS_ALIGN_ORIGIN;
@@ -258,9 +281,22 @@ static void MotorStateMachine_Tick(void)
 
 static void tick(void)
 {
+#if STATE_FAST_POWER_OWNER
+    MotorStateMachine_BeginFastTick();
+#endif
     MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
                                   MotorStateMachine_WorkEpoch());
     MotorStateMachine_Tick();
+#if STATE_FAST_POWER_OWNER
+    /* 模拟下一ADC与后续监督确认；精确分拍契约另在专门用例验证。 */
+    MotorStateMachine_BeginFastTick();
+    if (MotorStateMachine_GetState() == MOTOR_STATE_STARTING && !output_off)
+    {
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                      MotorStateMachine_WorkEpoch());
+        MotorStateMachine_Tick();
+    }
+#endif
     trace_capture("tick", 0U, 0U);
 }
 
@@ -301,6 +337,7 @@ static void reset(void)
     foc.bus_voltage_v = foc.bus_voltage_filtered_v = 30.0f;
     foc.temperature_c = 25.0f;
     output_off = outer_ready = temperature_fresh = encoder_released = true;
+    lut_publish_fail = false;
     start_fails = false;
     start_count = stop_count = 0U;
     memset(leaf_calls, 0, sizeof(leaf_calls));
@@ -536,6 +573,10 @@ static uint32_t begin_maintenance(MotorMaintenanceKind kind)
     uint32_t ticket = 0U;
     assert(MotorStateMachine_RequestMaintenance(kind, &ticket) == MOTOR_CONTROL_ACCEPTED);
     assert(ticket != 0U);
+#if STATE_FAST_POWER_OWNER
+    assert(output_off);
+    MotorStateMachine_BeginFastTick();
+#endif
     return ticket;
 }
 
@@ -594,6 +635,104 @@ static void test_defaults_preserves_device_address(void)
     assert(cfg.device.node_id == 7U && output_off && motor.control_mode == MOTOR_CONTROL_NONE);
     puts("PASS runtime DEFAULTS retain node7/heat, failed hot-config apply changes nothing, "
          "successful defaults synchronize runtime before derived SAVE");
+}
+
+static void test_open_loop_owner(void)
+{
+    const MotorControlMode modes[] = {MOTOR_CONTROL_OPEN_VOLTAGE, MOTOR_CONTROL_OPEN_CURRENT};
+    for (unsigned i = 0U; i < 2U; ++i)
+    {
+        reset();
+        cfg.device.encoder.calib_flag = 0U;
+        MotorReadiness readiness;
+        MotorStateMachine_ReadReadiness(&readiness);
+        assert((readiness.startable_modes & (1U << modes[i])) != 0U);
+        assert(MotorStateMachine_RequestEnable(modes[i]) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        tick();
+        assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && !output_off);
+        assert(motor.open_loop_frequency_hz == 0 && motor.open_loop_angle_rad == 0 &&
+               motor.vd_target_v == 0);
+        MotorControlCommand command = {
+            .mode = modes[i], .source_node = 2U, .sequence = 51U, .electrical_frequency_hz = 1.0f};
+        if (i == 0U)
+        {
+            command.vd_v = 1.0f;
+            command.vq_v = 2.0f;
+        }
+        else
+        {
+            command.id_a = 1.0f;
+            command.iq_a = 2.0f;
+        }
+        assert(MotorStateMachine_SubmitControl(&command) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        assert(motor.open_loop_frequency_hz == 1.0f && motor.vd_target_v == command.vd_v &&
+               motor.vq_target_v == command.vq_v && motor.id_target_a == command.id_a &&
+               motor.iq_target_a == command.iq_a);
+        command.electrical_frequency_hz = NAN;
+        assert(MotorCommand_ValidateTarget(&cfg, &command, &foc, &encoder) ==
+               MOTOR_CONTROL_INVALID);
+        command.electrical_frequency_hz = MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ + 1.0f;
+        assert(MotorCommand_ValidateTarget(&cfg, &command, &foc, &encoder) ==
+               MOTOR_CONTROL_OUT_OF_RANGE);
+        command.electrical_frequency_hz = 1.0f;
+        MotorConfiguration invalid_config = cfg;
+        invalid_config.application.speed_limit_rad_s = NAN;
+        invalid_config.application.axis_profile.magic = 1U;
+        invalid_config.application.axis_profile.maximum_speed_rad_s = 20.0f;
+        assert(MotorCommand_ValidateTarget(&invalid_config, &command, &foc, &encoder) ==
+               MOTOR_CONTROL_OUT_OF_RANGE);
+        invalid_config = cfg;
+        invalid_config.application.speed_limit_rad_s = 0.01f;
+        assert(MotorCommand_ValidateTarget(&invalid_config, &command, &foc, &encoder) ==
+               MOTOR_CONTROL_OUT_OF_RANGE);
+        MotorControlCommand excessive = command;
+        if (i == 0U)
+        {
+            excessive.vd_v = FOC_MaximumVoltage(foc.bus_voltage_filtered_v);
+        }
+        else
+        {
+            excessive.id_a = cfg.application.current_limit_a;
+        }
+        assert(MotorCommand_ValidateTarget(&cfg, &excessive, &foc, &encoder) ==
+               MOTOR_CONTROL_OUT_OF_RANGE);
+        if (i == 0U)
+        {
+            command.id_a = 0.1f;
+        }
+        else
+        {
+            command.vd_v = 0.1f;
+        }
+        assert(MotorCommand_ValidateTarget(&cfg, &command, &foc, &encoder) ==
+               MOTOR_CONTROL_INVALID);
+        assert(MotorStateMachine_RequestRemoteStop());
+        tick();
+        assert(output_off && motor.control_mode == MOTOR_CONTROL_NONE &&
+               motor.open_loop_frequency_hz == 0 && motor.open_loop_angle_rad == 0 &&
+               motor.vd_target_v == 0 && motor.vq_target_v == 0 && motor.id_target_a == 0 &&
+               motor.iq_target_a == 0);
+    }
+    for (unsigned i = 0U; i < 2U; ++i)
+    {
+        reset();
+        cfg.device.encoder.calib_flag = 0U;
+        encoder.bad_frame_streak = 1U;
+        assert(MotorStateMachine_RequestEnable(modes[i]) == MOTOR_CONTROL_DENIED && output_off);
+        reset();
+        cfg.configuration_confirmed = false;
+        assert(MotorStateMachine_RequestEnable(modes[i]) == MOTOR_CONTROL_DENIED && output_off);
+        reset();
+        foc.phase_a_current_a = NAN;
+        assert(MotorStateMachine_RequestEnable(modes[i]) == MOTOR_CONTROL_DENIED && output_off);
+        reset();
+        MotorFault_Report(&motor, MOTOR_FAULT_OVERCURRENT);
+        assert(MotorStateMachine_RequestEnable(modes[i]) == MOTOR_CONTROL_FAULT && output_off);
+    }
+    puts("PASS formal open-loop owner: uncalibrated/raw-online start, zero references, target "
+         "mapping, bounds and STOP clear");
 }
 
 static void test_control(void)
@@ -755,6 +894,82 @@ static void test_identified_speed_start(void)
 
 /* 启动已受理时，后台不得借用配置并让监督中断误判资源仍被占用。 */
 
+/* 后台发布必须保持原ticket、关相和独占工作区；STOP/故障不能被迟到完成覆盖。 */
+static void test_lut_background_publication(void)
+{
+    for (unsigned scenario = 0U; scenario < 5U; ++scenario)
+    {
+        reset();
+        uint32_t ticket = begin_maintenance(MOTOR_MAINTENANCE_ENCODER_LUT);
+        uint32_t epoch = MotorStateMachine_WorkEpoch();
+        assert(MaintenanceWorkspace_BorrowEncoder() != NULL);
+        encoder_released = false;
+        uint8_t previous_flags = cfg.device.encoder.calib_flag;
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE},
+                                      epoch);
+        tick();
+        assert(output_off && !MotorStateMachine_MaintenanceRunnable());
+        assert(cfg.device.encoder.calib_flag == previous_flags);
+        assert(!MaintenanceWorkspace_IsReleased());
+        if (scenario == 1U)
+        {
+            assert(MotorStateMachine_RequestRemoteStop());
+            tick();
+            FocBackgroundClaim cancelled;
+            assert(!MotorStateMachine_BeginBackground(&cancelled));
+        }
+        else
+        {
+            FocBackgroundClaim claim;
+            assert(MotorStateMachine_BeginBackground(&claim));
+            assert(claim.kind == FOC_BACKGROUND_LUT_PUBLISH && claim.epoch == epoch);
+            if (scenario == 2U)
+            {
+                assert(MotorStateMachine_RequestRemoteStop());
+            }
+            if (scenario == 3U)
+            {
+                MotorFault_Report(&motor, MOTOR_FAULT_OVERVOLTAGE);
+                MotorStateMachine_FastFaultStop();
+            }
+            lut_publish_fail = scenario == 4U;
+            uint32_t mask = BspSystem_EnterCritical();
+            bool published = MotorStateMachine_BackgroundValid(&claim) &&
+                             MotorMaintenance_PublishLut(&cfg, &encoder);
+            if (!published)
+            {
+                MotorMaintenance_Cancel(MOTOR_MAINTENANCE_ENCODER_LUT);
+            }
+            MotorStateMachine_FinishBackground(&claim, published);
+            BspSystem_ExitCritical(mask);
+            tick();
+            if (scenario == 0U)
+            {
+                assert(published && cfg.device.encoder.calib_flag == ENC_CALIB_LINEARIZED);
+                assert(MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_SAVE);
+            }
+            else
+            {
+                assert(!published && cfg.device.encoder.calib_flag == previous_flags);
+                assert(MotorStateMachine_GetMaintenanceKind() != MOTOR_MAINTENANCE_SAVE);
+            }
+            MotorStateMachine_FinishBackground(&claim, true);
+        }
+        assert(output_off && MaintenanceWorkspace_IsReleased());
+        MotorMaintenanceProgress progress;
+        assert(MotorStateMachine_ReadMaintenance(ticket, &progress));
+        if (scenario == 0U)
+        {
+            assert(progress.result == MOTOR_MAINTENANCE_COMPLETED);
+        }
+        else
+        {
+            assert(progress.result != MOTOR_MAINTENANCE_COMPLETED);
+        }
+    }
+    puts("PASS LUT background publication: OFF, original ticket, workspace, STOP/fault/failure");
+}
+
 static void test_calibration_save(void)
 {
     MotorMaintenanceProgress progress;
@@ -903,7 +1118,7 @@ static void test_borrow_cancel(void)
 /* 固定线上编号作为外部参考，防止内部枚举变动改写 CAN 状态。 */
 static void test_wire_projection(void)
 {
-    const uint8_t controls[] = {1U, 2U, 3U, 6U, 0U};
+    const uint8_t controls[] = {1U, 2U, 3U, 6U, 0U, 9U, 10U};
     const uint8_t maintenance[] = {7U, 7U, 0U, 7U, 8U, 8U, 0U, 0U};
     for (unsigned i = 0U; i < sizeof(controls); ++i)
     {
@@ -959,11 +1174,11 @@ static void test_preparation_readiness(void)
         if (flags != ENC_CALIB_ALL)
         {
             assert(readiness.start_blockers & MOTOR_START_CALIBRATION_REQUIRED);
-            assert(readiness.startable_modes == 0U);
+            assert(readiness.startable_modes == 0x60U);
         }
         else
         {
-            assert(readiness.start_blockers == 0U && readiness.startable_modes == 15U);
+            assert(readiness.start_blockers == 0U && readiness.startable_modes == 0x6FU);
         }
         assert(output_off && MotorStateMachine_GetState() == MOTOR_STATE_IDLE && start_count == 0U);
     }
@@ -1608,6 +1823,35 @@ static void test_thermal_owner_admission_and_clear(void)
 }
 
 /* 正常监督轮询必须允许快故障抢占，且不能用旧配置结果跨越状态代际。 */
+static void test_preemptible_calibration_validation(void)
+{
+#if STATE_CALIBRATION_GUARD_PREVALIDATED
+    const MotorMaintenanceKind kinds[] = {MOTOR_MAINTENANCE_ENCODER_LUT,
+                                          MOTOR_MAINTENANCE_ELECTRICAL_ZERO};
+    for (unsigned i = 0U; i < sizeof(kinds) / sizeof(kinds[0]); ++i)
+    {
+        for (unsigned interrupt = 1U; interrupt <= 3U; ++interrupt)
+        {
+            reset();
+            (void)begin_maintenance(kinds[i]);
+            unsigned starts = start_count;
+            validation_unmasked_calls = validation_masked_calls = 0U;
+            validation_interrupt = interrupt;
+            tick();
+            assert(validation_interrupt == 0U && validation_unmasked_calls == 1U);
+            assert(!require_locked_validation && output_off && critical_depth == 0U);
+            assert(start_count == starts);
+            if (interrupt == 1U)
+            {
+                assert(motor.fault_code == MOTOR_FAULT_OVERVOLTAGE);
+            }
+            tick();
+            assert(output_off && start_count == starts);
+        }
+    }
+#endif
+}
+
 static void test_preemptible_running_validation(void)
 {
 #if STATE_VALIDATION_PREEMPTIBLE
@@ -1870,8 +2114,111 @@ static void test_boot_health_inputs(void)
     assert(configuration_validation_calls == validation_before && critical_depth == 0U);
 }
 
+/* 维护身份入口不能用外层临界区重新包住完整配置扫描。 */
+static void test_maintenance_admission_prevalidation(void)
+{
+#if STATE_MAINTENANCE_ADMISSION_PREVALIDATED
+    trace_enabled = false;
+    for (unsigned identified = 0U; identified < 2U; ++identified)
+    {
+        for (unsigned interrupt = 0U; interrupt <= 3U; ++interrupt)
+        {
+            reset();
+            uint32_t ticket = 0U;
+            MotorMaintenanceRequest request = {
+                .kind = MOTOR_MAINTENANCE_ENCODER_LUT, .source_node = 7U, .sequence = 10U};
+            unsigned unmasked = configuration_unmasked_calls;
+            unsigned masked = configuration_masked_calls;
+            validation_interrupt = interrupt < 3U ? interrupt : 0U;
+            start_admission_interrupt = interrupt == 3U ? 4U : 0U;
+            MotorControlResult result =
+                identified ? MotorStateMachine_RequestIdentifiedMaintenance(&request, &ticket)
+                           : MotorStateMachine_RequestMaintenance(request.kind, &ticket);
+            assert(critical_depth == 0U);
+            assert(interrupt == 3U ? configuration_unmasked_calls > unmasked
+                                   : configuration_unmasked_calls == unmasked + 1U);
+            assert(validation_interrupt == 0U);
+            if (interrupt == 0U)
+            {
+                assert(result == MOTOR_CONTROL_ACCEPTED && ticket != 0U);
+#if STATE_FAST_POWER_OWNER
+                assert(output_off);
+                MotorStateMachine_BeginFastTick();
+#endif
+                assert(!output_off);
+                assert(configuration_masked_calls == masked);
+            }
+            else
+            {
+                if (result == MOTOR_CONTROL_ACCEPTED || ticket != 0U || !output_off)
+                {
+                    fprintf(stderr,
+                            "maintenance injection=%u identified=%u result=%u ticket=%u off=%u\n",
+                            interrupt,
+                            identified,
+                            (unsigned)result,
+                            ticket,
+                            (unsigned)output_off);
+                }
+                assert(result != MOTOR_CONTROL_ACCEPTED && ticket == 0U && output_off);
+                assert(start_count == 0U);
+            }
+        }
+    }
+#endif
+}
+
+#if STATE_FAST_POWER_OWNER
+/* 单拍契约：命令受理绝不启相；STOP、故障和取消可以撤销未消费代际。 */
+static void test_fast_power_handoff(void)
+{
+    for (unsigned cancel = 0U; cancel < 4U; ++cancel)
+    {
+        reset();
+        uint32_t ticket;
+        assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_ELECTRICAL_ZERO, &ticket) ==
+               MOTOR_CONTROL_ACCEPTED);
+        assert(output_off && start_count == 0U && !MotorStateMachine_MaintenanceRunnable());
+        if (cancel == 1U)
+        {
+            assert(MotorStateMachine_RequestRemoteStop());
+        }
+        else if (cancel == 2U)
+        {
+            MotorFault_Report(&motor, MOTOR_FAULT_OVERCURRENT);
+        }
+        else if (cancel == 3U)
+        {
+            assert(MotorStateMachine_CancelMaintenance(ticket) == MOTOR_CONTROL_ACCEPTED);
+        }
+        MotorStateMachine_BeginFastTick();
+        assert(cancel == 0U ? !output_off && start_count == 1U : output_off && start_count == 0U);
+    }
+    reset();
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    MotorStateMachine_Tick();
+    assert(output_off && start_count == 0U && MotorStateMachine_GetState() == MOTOR_STATE_STARTING);
+    MotorStateMachine_BeginFastTick();
+    assert(!output_off && start_count == 1U &&
+           MotorStateMachine_GetState() == MOTOR_STATE_STARTING);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    MotorStateMachine_Tick();
+    assert(MotorStateMachine_GetState() == MOTOR_STATE_RUNNING && start_count == 1U);
+    puts("PASS fast power handoff: acceptance OFF, fast enable, supervisor confirmation, "
+         "STOP/fault/cancel");
+}
+#endif
+
 int main(void)
 {
+#if STATE_FAST_POWER_OWNER
+    test_fast_power_handoff();
+#endif
+    test_maintenance_admission_prevalidation();
+    test_preemptible_calibration_validation();
     test_preemptible_running_validation();
     test_preemptible_start_validation();
     test_start_admission_prevalidation();
@@ -1888,8 +2235,10 @@ int main(void)
     test_boot_health_inputs();
     test_wire_projection();
     test_identified_speed_start();
+    test_open_loop_owner();
     test_control();
     test_calibration_save();
+    test_lut_background_publication();
     test_borrow_cancel();
     test_maintenance_sampling_loss();
     test_stop_and_fault();
@@ -2022,15 +2371,28 @@ static void staged_axis_tick(void)
     {
         MotorThermalControl_Sample(0.0f, 0.0f, 0.0f, output_off, now_ms);
     }
-    supervisor_stage = 0U;
-    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
-                                  MotorStateMachine_WorkEpoch());
-    uint32_t before, after;
-    (void)MotorStateMachine_ReadBootHealth(&before);
-    (void)MotorAxis_SupervisorTick();
-    (void)MotorStateMachine_ReadBootHealth(&after);
-    assert(after == before + 1U && critical_depth == 0U);
-    assert(supervisor_stage == 2U || supervisor_stage == 3U);
+    /* 此业务测试助手等待实际启动确认；独立用例核对单拍延迟。 */
+    for (unsigned phase = 0U; phase < 2U; ++phase)
+    {
+        supervisor_stage = 0U;
+        MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                      MotorStateMachine_WorkEpoch());
+        uint32_t before, after;
+        (void)MotorStateMachine_ReadBootHealth(&before);
+        (void)MotorAxis_SupervisorTick();
+        (void)MotorStateMachine_ReadBootHealth(&after);
+        assert(after == before + 1U && critical_depth == 0U);
+        assert(supervisor_stage == 2U || supervisor_stage == 3U);
+#if STATE_FAST_POWER_OWNER
+        MotorStateMachine_BeginFastTick();
+        if (MotorStateMachine_GetState() != MOTOR_STATE_STARTING || output_off)
+        {
+            break;
+        }
+#else
+        break;
+#endif
+    }
 }
 static void test_staged_supervisor(void)
 {
@@ -2061,6 +2423,20 @@ static void test_staged_supervisor(void)
     }
     assert(supervisor_target_seen == 3.5f && fabsf(motor.iq_target_a - 0.35f) < 1e-6f);
     assert(pi.integral_output == 7.0f);
+#if STATE_PUBLICATION_PREVALIDATED
+    /* 配置校验在反馈计算前完成；发布前仍由真实规则复核动态事实。 */
+    MotorSupervisorStep publication_step;
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    assert(MotorStateMachine_PrepareSupervisor(&publication_step));
+    assert(publication_step.configuration_valid);
+    unsigned validations_before_publication = configuration_validation_calls;
+    publication_step.calculated = true;
+    publication_step.motor.iq_target_a = 0.25f;
+    MotorStateMachine_CommitSupervisor(&publication_step);
+    assert(configuration_validation_calls == validations_before_publication);
+    assert(motor.iq_target_a == 0.25f && !output_off);
+#endif
     unsigned calls_before = supervisor_outer_calls;
     assert(MotorStateMachine_RequestRemoteStop());
     staged_axis_tick();
@@ -2155,3 +2531,12 @@ static void test_staged_supervisor(void)
     assert(!output_off && MotorStateMachine_GetState() == MOTOR_STATE_RUNNING);
 }
 #endif
+
+uint32_t BspSystem_EnterControlCritical(void)
+{
+    return BspSystem_EnterCritical();
+}
+void BspSystem_ExitControlCritical(uint32_t state)
+{
+    BspSystem_ExitCritical(state);
+}

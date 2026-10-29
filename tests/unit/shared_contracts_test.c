@@ -6,8 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "crc32.h"
-#include "yg_protocol_byte_order.h"
-#include "yg_protocol_request.h"
+#include "yg_protocol_common.h"
 #include "crc_vectors.h"
 
 int main(void)

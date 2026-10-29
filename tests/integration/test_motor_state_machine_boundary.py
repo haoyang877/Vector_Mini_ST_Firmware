@@ -44,9 +44,9 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 "parameters",
                 "services",
                 "communication",
-                "platform/api",
-                "platform/stm32g4/bsp",
-                "platform/stm32g4/ports",
+                "platform/bsp/include",
+                "platform/bsp/mcu/stm32g4",
+                "platform/bsp/mcu/at32f456",
             )
         ] + [ROOT / "shared"]
         for directory in directories:
@@ -119,7 +119,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         callers = set()
         for directory in ("app", "motor", "parameters", "services", "communication"):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
-                if re.search(r"\bpower_stage_hw_start\s*\(", production_text(path)):
+                if re.search(r"\bBspPwm_Enable\s*\(", production_text(path)):
                     callers.add(path.relative_to(ROOT).as_posix())
         self.assertEqual(callers, {"firmware/app/motor_state_machine/motor_state_machine.c"})
 

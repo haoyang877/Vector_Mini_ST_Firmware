@@ -22,7 +22,7 @@ class KeilLoaderAppTests(unittest.TestCase):
         (ROOT / "outputs").mkdir(exist_ok=True)
         directory = tempfile.TemporaryDirectory(dir=ROOT / "outputs")
         self.addCleanup(directory.cleanup)
-        self.axf = Path(directory.name) / "Vector_Mini_ST_LoaderApp.axf"
+        self.axf = Path(directory.name) / "ESC-APP-STM32G431-LoaderApp.axf"
         vector = json.loads(
             (ROOT / "tests/fixtures/loader_image_v3.json").read_text(encoding="utf-8")
         )

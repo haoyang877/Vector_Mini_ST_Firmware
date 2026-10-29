@@ -41,13 +41,32 @@ def main() -> None:
     )
     logs = []
     for invocation in [command] + [
-        [str(executable), name] for name in ("core", "runtime", "watchdog", "protection", "foc")
+        [str(executable), name]
+        for name in ("core", "runtime", "watchdog", "protection", "foc", "submission")
     ]:
         result = subprocess.run(invocation, capture_output=True, text=True, check=False)
         logs.append(result.stdout + result.stderr)
         (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
         print(logs[-1], end="")
         result.check_returncode()
+    disabled = output / "motor_thermal_disabled.exe"
+    disabled_command = command[:-2] + [
+        "-include",
+        str(ROOT / "firmware/app/config/targets/r40_app_commissioning.h"),
+        "-o",
+        str(disabled),
+    ]
+    subprocess.run(disabled_command, check=True)
+    subprocess.run([str(disabled), "disabled"], check=True)
+    subprocess.run([str(disabled), "submission"], check=True)
+    rejected = subprocess.run(
+        command + ["-DAPP_ENABLED_WINDING_THERMAL_MODEL=0"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if rejected.returncode == 0 or "requires the bounded AT32" not in rejected.stderr:
+        raise RuntimeError("Unbounded thermal-disable configuration was not rejected")
 
 
 if __name__ == "__main__":

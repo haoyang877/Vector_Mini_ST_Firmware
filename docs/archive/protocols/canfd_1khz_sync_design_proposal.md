@@ -181,6 +181,6 @@ N 是物理 FD 数据区字节数，包含公司头、业务、公司 CRC 和填
 
 建议验收指标分别记录：设定值周期和每轴反馈周期均为 1000 µs、每周期全组反馈接收截止时间、轴间实际生效误差、固定管线延迟、每轴反馈周期、最大连续缺点、长期漂移、位置跟随误差。所有硬件参数与允许误差在确认前保持 UNKNOWN/TODO，不把本轮计算或编码校验当成实机通过。
 
-当前仓库参考：firmware/platform/stm32g4/bsp/hw_conf.h 定义快环 20 kHz 与 CASCADE_POSITION_LOOP_FREQ=2000；firmware/platform/stm32g4/cubemx/Core/Src/stm32g4xx_it.c 的 ADC 回调进入 FOC20kHzIRQHandler；firmware/motor/position/position_cascade.c 有本地点到点轨迹生成逻辑。这说明已有本地控制路径，但不证明已实现上述同步流或确定性通信。
+当前仓库参考：firmware/platform/bsp/mcu/stm32g4/hw_conf.h 定义快环 20 kHz 与 CASCADE_POSITION_LOOP_FREQ=2000；firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/stm32g4xx_it.c 的 ADC 回调进入 FOC20kHzIRQHandler；firmware/motor/position/position_cascade.c 有本地点到点轨迹生成逻辑。这说明已有本地控制路径，但不证明已实现上述同步流或确定性通信。
 
 参考编码和工程预算见 canfd_1khz_sync_proposal_vectors.json，可由 tools/canfd_sync_budget_reference.py 复现。已校验新反馈的 14 B 业务长度、32 B 物理长度、头部执行序号及两种实现交叉校验的公司 CRC；时序为模型计算，未做实机验证。当前 1.2.3 命令表及固件均未改动；其旧 200 Hz 默认档位不代表本建议最新的双向 1 kHz 要求。

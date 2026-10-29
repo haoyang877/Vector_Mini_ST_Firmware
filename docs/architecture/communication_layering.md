@@ -1,14 +1,16 @@
 # 核心工程通信分层
 
-更新：2026-10-21。按当前APP/Loader实现核对；两端共用yg_protocol纯codec。
+简化后的命令注册与回复流程见[简化设计](../protocols/yg_protocol_simplification_design_v1.md)。协议格式、命令清单与消息流程统一见 [yg_protocol 通信协议与软件设计](../protocols/README.md)。2026-10-26 的硬件实现已由共用 `bsp_can.c` 管理发送跟踪与恢复协调，具体 MCU 操作位于 `bsp/mcu/*/can.c`，详见[共用 BSP](platform_interface_implementations_v1.md)。
+
+更新：2026-10-26。按当前APP/Loader实现核对；两端共用yg_protocol纯codec。
 当前链路为CAN FD：29位扩展ID、FD+BRS、1M/5M；不兼容旧YI、UART或USB服务。
 
 ## 帧到业务的路径
 
 ```text
-平台FDCAN → canfd_irq有界入队 → link前台收发
-  → shared/protocol帧校验/分片 → protocol注册/路由
-  → composition所有者适配器 → 主状态机/参数事务
+平台FDCAN → link中的RX入口有界入队 → link前台收发
+  → shared/protocol帧校验/分片 → endpoint单一命令表
+  → motor/parameter/job/boot等业务协议处理 → composition适配器 → 主状态机/参数事务
 状态所有者 → 一致快照 → status_adapter → 编码回复
 ```
 
@@ -17,10 +19,10 @@ RX ISR只复制输入；不处理业务、Flash或日志。前台有界处理队
 
 | 入口 | 当前职责 |
 | --- | --- |
-| [comm_hw.h](../../firmware/platform/api/comm_hw.h) | 硬件收发能力，HAL位于平台ports |
+| [bsp_can.h](../../firmware/platform/bsp/include/bsp_can.h) | 硬件帧、发送完成与生命周期；职责见[双板CAN链路](can_chain_v1.md) |
 | [CAN接入](../../firmware/communication/can) | 节点运行态、队列、链路服务 |
 | [shared codec](../../shared/protocol/README.md) | CAN ID、公司头、CRC和分片；APP/Loader单份实现 |
-| [APP协议](../../firmware/communication/protocol) | 命令注册及请求/结果值对象 |
+| [APP协议](../../firmware/communication/commands) | 命令处理、服务调用、重试与反馈状态及回复编码；不访问队列和硬件 |
 | [owner_adapter](../../firmware/app/composition/yg_protocol_owner_adapter.c) | 显式映射启动/清错/维护/参数请求 |
 | [status_adapter](../../firmware/app/composition/yg_protocol_status_adapter.c) | 将同一时刻快照编码为状态回复 |
 | [app_startup](../../firmware/app/composition/app_startup.c) | 绑定业务所有者、设备身份及Loader交接能力 |

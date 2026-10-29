@@ -96,6 +96,10 @@ FATAL 的 STOP、CLEAR、连接恢复及迟到结果不能解除锁存。
 当前支持 LUT、电零位、机械零位、DEFAULTS、SAVE。电零位依赖有效 LUT，不隐式先执行 LUT。
 相电阻、摩擦、齿槽、组合标定计划、运行租约及在线模式切换已经退役。
 
+LUT的FINALIZE仅表示候选已验证且转矩任务结束：监督拍先关相，保留工作区供后台发布。
+后台认领仍绑定原operation_epoch，并在复制前复核STOP、故障和实际关相；发布成功后
+才上报COMPLETED。发布前取消丢弃候选，迟到完成不复活旧任务；独立SAVE须等工作区归还。
+
 ```text
 IDLE → MAINTENANCE〔LUT／电零位／机械零位／DEFAULTS〕
      → STOPPING → IDLE

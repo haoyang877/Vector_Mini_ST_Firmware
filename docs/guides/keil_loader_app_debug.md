@@ -4,10 +4,10 @@
 `0x08004000` 起的 layout 6 APP 区；Loader、参数与设备身份区不属于这个 AXF 的加载段。
 
 1. 使用当前共同目标清单重新生成 LoaderApp 工程，并打开
-   `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx`。
+   `projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx`。
    工程的 After Build 会调用当前工作树 `.venv` 中的 Python；构建失败时停止。
-2. 构建完成后检查 `outputs/build/keil/Vector_Mini_ST_LoaderApp/` 中的
-   `Vector_Mini_ST_LoaderApp.debug.json`。它记录 AXF、HEX、BIN 和 `app-package/`
+2. 构建完成后检查 `outputs/build/keil/ESC-APP-STM32G431-LoaderApp/` 中的
+   `ESC-APP-STM32G431-LoaderApp.debug.json`。它记录 AXF、HEX、BIN 和 `app-package/`
    的哈希。无源码变更的重复构建会严格核对并复用这些文件；核对失败则构建失败，
    旧派生文件会失效。调试下载使用该目录的 AXF；`app-package/image.bin` 只供 CAN 升级。
 3. 台架上使用 J-Link 时，在 Keil Flash Download 中选择按扇区擦除和下载后校验，

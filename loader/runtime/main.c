@@ -8,8 +8,7 @@
 #include "yg_protocol_can_id.h"
 #include "yg_protocol_fragment.h"
 #include "yg_protocol_upgrade_wire.h"
-#include "yg_protocol_byte_order.h"
-#include "yg_protocol_request.h"
+#include "yg_protocol_common.h"
 #include <string.h>
 static LoaderUpgrade upgrade;
 static LoaderImageConfig image_config;

@@ -37,6 +37,9 @@ typedef enum
 #define GPIO_PINS_5 (1U << 5)
 #define GPIO_PINS_6 (1U << 6)
 #define __DMB() ((void)0)
+#define __DSB() ((void)0)
+#define __ISB() ((void)0)
+#define __NVIC_PRIO_BITS 4U
 typedef struct
 {
     uint32_t CTRL, CYCCNT;
@@ -47,6 +50,8 @@ typedef struct
 } SimCoreDebug;
 extern SimCycleCounter sim_cycle_counter;
 extern SimCoreDebug sim_core_debug;
+#undef DWT
+#undef CoreDebug
 #define DWT (&sim_cycle_counter)
 #define CoreDebug (&sim_core_debug)
 #define DWT_CTRL_CYCCNTENA_Msk 1U
@@ -74,12 +79,23 @@ extern SimCoreDebug sim_core_debug;
 #define DMA1_Channel2_IRQn 12U
 #define DMA1_Channel3_IRQn 13U
 #define CAN1_STAT_IRQn 21U
+#define CAN1_RX_IRQn 20U
+/** @brief 记录模拟的中断重挂。 @param irq 外设中断编号。 */
+void NVIC_SetPendingIRQ(unsigned irq);
+extern uint32_t sim_nvic_pending, sim_nvic_enabled, sim_can_irq_mask;
+extern unsigned sim_rx_remaining;
+extern bool sim_can_reset_stuck, sim_can_release_stuck, sim_can_retlim_stuck;
+extern bool sim_can_realim_stuck, sim_can_timing_bad;
+extern void (*sim_fatal_hook)(void);
 
 typedef struct
 {
     bool enabled, calibrated, oversampled, dma_enabled;
+    bool ordinary_oversampled, ordinary_oversample_per_trigger;
     unsigned flags, length, channels[4], ordinary_channels[4], ordinary_length;
+    unsigned sample_times[4], ordinary_sample_times[4];
     unsigned ratio, shift, trigger, edge, ordinary_trigger, ordinary_edge, interrupts;
+    unsigned ordinary_oversample_recovery;
     uint16_t result[4];
 } SimAdc;
 
@@ -105,6 +121,15 @@ extern can_filter_config_type sim_filter;
 extern can_bittime_type sim_timing;
 extern bool sim_complete_during_status;
 extern unsigned sim_can_pclk_hz;
+extern bool sim_storage_auto_samples, sim_storage_stop_stuck;
+extern unsigned sim_storage_isr;
+extern uint32_t sim_cleared_irqs;
+/** @brief 读取离线中断屏蔽状态。 @return 模拟PRIMASK。 */
+unsigned __get_PRIMASK(void);
+/** @brief 读取离线上下文。 @return 模拟异常号。 */
+uint32_t __get_IPSR(void);
+/** @brief 清除模拟NVIC挂起位。 @param irq 中断号。 */
+void NVIC_ClearPendingIRQ(unsigned irq);
 
 /** @brief 记录离线CAN时钟选择。
  * @param instance 模拟CAN实例。
@@ -127,4 +152,11 @@ void __WFI(void);
 /** @brief 离线记录等待周期，不访问硬件。 */
 void __NOP(void);
 
+/** @brief 读取模拟优先级屏蔽阈值。 @return BASEPRI值。 */
+uint32_t __get_BASEPRI(void);
+/** @brief 恢复模拟优先级阈值。 @param value 原阈值。 */
+void __set_BASEPRI(uint32_t value);
+/** @brief 只提高模拟屏蔽强度。 @param value 新阈值。 */
+void __set_BASEPRI_MAX(uint32_t value);
+extern uint32_t sim_can_submit_primask, sim_can_submit_basepri;
 #endif

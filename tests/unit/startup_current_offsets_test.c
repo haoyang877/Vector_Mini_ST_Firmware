@@ -10,16 +10,18 @@
 #include "motor_fault.h"
 #include "foc_sensing.h"
 #include "flux_observer.h"
-#include "motor_sensing.h"
-#include "power_stage_hw.h"
+#include "fast_loop_profile.h"
+#include "sampling_scale.h"
+#include "bsp_adc.h"
+#include "bsp_pwm.h"
 #include "motor_command.h"
 #include "motor_control.h"
 #include "control_math.h"
 #include "motor_state_machine.h"
-#include "motor_hw.h"
+#include "bsp_pwm.h"
 #include "motor_parameter_transaction.h"
 #include "motor_thermal_control.h"
-#include "time_hw.h"
+#include "bsp_system.h"
 #include "application_profile_defaults.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
@@ -39,17 +41,36 @@ static uint16_t samples[3];
 static bool output_off = true;
 static float simulated_bus_voltage_v = 30.0f;
 static unsigned current_reads, state_initializations, maintenance_queries;
+static unsigned fast_frame_reads;
+static bool frame_available = true;
+static BspAdcFastSample voltage_sample;
 static unsigned observer_calls, progress_calls, protection_calls, control_calls;
 static MotorState simulated_state = MOTOR_STATE_INIT;
 static bool simulated_defaults;
+static bool simulated_save;
+static unsigned velocity_restarts;
 static unsigned critical_depth;
+static bool trace_enabled, inject_control_fault;
+static char fast_trace[32];
+static unsigned fast_trace_length;
 
-uint32_t critical_hw_enter(void)
+/* 只在指定场景记录调度边界，正常零偏窗口不产生额外记录。 */
+static void record_fast_call(char event)
+{
+    if (trace_enabled)
+    {
+        assert(fast_trace_length + 1U < sizeof(fast_trace));
+        fast_trace[fast_trace_length++] = event;
+        fast_trace[fast_trace_length] = '\0';
+    }
+}
+
+uint32_t BspSystem_EnterCritical(void)
 {
     return critical_depth++;
 }
 
-void critical_hw_exit(uint32_t previous)
+void BspSystem_ExitCritical(uint32_t previous)
 {
     assert(critical_depth == previous + 1U);
     critical_depth = previous;
@@ -104,16 +125,47 @@ void MotorOuterLoop_RequestReset(void)
 void MotorMaintenance_Init(void)
 {
 }
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return output_off;
 }
-uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase)
+static float bsp_offsets[3];
+BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *out)
 {
     ++current_reads;
-    assert((unsigned)phase < 3U);
-    return samples[phase];
+    *out = (BspAdcRawCurrent){.valid_mask = BSP_ADC_FAST_PHASE_CURRENT_VALID};
+    for (unsigned i = 0; i < 3; i++)
+    {
+        out->phase_counts[i] = samples[i] * .25f;
+    }
+    return BSP_OK;
 }
+BspResult BspAdc_SetPhaseOffsets(const float offsets[3])
+{
+    assert(output_off);
+    memcpy(bsp_offsets, offsets, sizeof(bsp_offsets));
+    return BSP_OK;
+}
+BspResult BspAdc_ReadFast(BspAdcFastSample *out)
+{
+    record_fast_call('A');
+    ++fast_frame_reads;
+    if (!frame_available)
+    {
+        return BSP_IO_ERROR;
+    }
+    *out = (BspAdcFastSample){.valid_mask =
+                                  BSP_ADC_FAST_PHASE_CURRENT_VALID | BSP_ADC_FAST_BUS_VOLTAGE_VALID,
+                              .bus_voltage_v = simulated_bus_voltage_v,
+                              .sequence = fast_frame_reads};
+    for (unsigned i = 0; i < 3; i++)
+    {
+        out->phase_current_a[i] =
+            -(samples[i] * .25f - bsp_offsets[i]) * MOTOR_SENSING_CURRENT_A_PER_COUNT;
+    }
+    return BSP_OK;
+}
+
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode error)
 {
     if (motor->fault_code == MOTOR_FAULT_NONE)
@@ -124,19 +176,31 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode error)
 
 bool Encoder_BeginSample(void)
 {
+    record_fast_call('B');
     return true;
 }
 uint8_t Encoder_BeginReadback(bool sample_started)
 {
+    record_fast_call('R');
     return sample_started ? 1U : 0U;
 }
 void Encoder_CompleteSample(const MotorConfiguration *configuration,
                             EncoderState *encoder,
                             uint8_t sample_stage)
 {
+    record_fast_call('E');
     assert(sample_stage == 1U);
+    assert(encoder->velocity_restart_requested == simulated_save);
+    encoder->velocity_restart_requested = false;
 }
-uint32_t time_hw_now_ms(void)
+void Encoder_ResetVelocity(EncoderState *encoder)
+{
+    record_fast_call('Z');
+    assert(output_off && simulated_save);
+    ++velocity_restarts;
+    encoder->velocity_restart_requested = true;
+}
+uint32_t BspSystem_TimeMs(void)
 {
     return 0U;
 }
@@ -148,16 +212,27 @@ float Encoder_GetMecVel(const EncoderState *encoder)
 {
     return 0.0f;
 }
-void Vbus_Update(FocState *foc, MotorControlState *motor, bool output_expected)
+void Vbus_Update(FocState *foc,
+                 MotorControlState *motor,
+                 bool output_expected,
+                 const BspAdcFastSample *sample)
 {
-    foc->bus_voltage_v = foc->bus_voltage_filtered_v = simulated_bus_voltage_v;
+    record_fast_call('V');
+    assert((sample != NULL) == frame_available);
+    if (sample != NULL)
+    {
+        voltage_sample = *sample;
+    }
+    foc->bus_voltage_v = foc->bus_voltage_filtered_v = sample != NULL ? sample->bus_voltage_v : NAN;
 }
 void FluxObserver_Update(const MotorConfiguration *configuration,
                          FocState *foc,
                          FluxObserverState *observer)
 {
-    assert(isfinite(foc->phase_a_current_a) && isfinite(foc->phase_b_current_a) &&
-           isfinite(foc->phase_c_current_a));
+    assert((isfinite(foc->phase_a_current_a) && isfinite(foc->phase_b_current_a) &&
+            isfinite(foc->phase_c_current_a)) ||
+           s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
+    record_fast_call('O');
     ++observer_calls;
 }
 bool MotorStateMachine_OutputExpected(void)
@@ -166,11 +241,16 @@ bool MotorStateMachine_OutputExpected(void)
 }
 bool MotorStateMachine_MaintenanceRunnable(void)
 {
+    record_fast_call('Q');
     ++maintenance_queries;
     return simulated_defaults;
 }
 MotorMaintenanceKind MotorStateMachine_GetMaintenanceKind(void)
 {
+    if (simulated_save)
+    {
+        return MOTOR_MAINTENANCE_SAVE;
+    }
     return simulated_defaults ? MOTOR_MAINTENANCE_DEFAULTS : MOTOR_MAINTENANCE_ENCODER_LUT;
 }
 MotorState MotorStateMachine_GetState(void)
@@ -179,10 +259,12 @@ MotorState MotorStateMachine_GetState(void)
 }
 void MotorStateMachine_CheckFastFaults(void)
 {
+    record_fast_call('F');
     ++protection_calls;
 }
 void MotorStateMachine_FastFaultStop(void)
 {
+    record_fast_call('S');
     if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
     {
         output_off = true;
@@ -190,17 +272,21 @@ void MotorStateMachine_FastFaultStop(void)
 }
 uint32_t MotorStateMachine_WorkEpoch(void)
 {
+    record_fast_call('W');
     return 1U;
 }
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
 {
+    record_fast_call('T');
     assert(outcome.result == (simulated_defaults ? MOTOR_TASK_COMPLETED : MOTOR_TASK_RUNNING) &&
            epoch == 1U);
     ++progress_calls;
 }
-void motor_hw_pwm_set_duty(float duty_a, float duty_b, float duty_c)
+BspResult BspPwm_SetDuty(float duty_a, float duty_b, float duty_c)
 {
+    record_fast_call('P');
     assert(duty_a == 0.5f && duty_b == 0.5f && duty_c == 0.5f);
+    return BSP_OK;
 }
 MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
                                   FocState *foc,
@@ -208,6 +294,11 @@ MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
                                   EncoderState *encoder,
                                   FluxObserverState *observer)
 {
+    record_fast_call('C');
+    if (inject_control_fault)
+    {
+        MotorFault_Report(motor, MOTOR_FAULT_OVERCURRENT);
+    }
     ++control_calls;
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
@@ -220,6 +311,7 @@ MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
                                       FluxObserverState *observer,
                                       SensorlessStartupState *startup)
 {
+    record_fast_call('M');
     assert(simulated_defaults && kind == MOTOR_MAINTENANCE_DEFAULTS);
     configuration->model.id_kp = 7.0f;
     configuration->model.iq_ki = 9.0f;
@@ -249,16 +341,26 @@ ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuratio
 }
 /* STARTUP_CURRENT_OFFSET_PRODUCTION：脚本插入真实生产体。 */
 
+static void sample_test_currents(void)
+{
+    BspAdcFastSample sample;
+    BspResult result = BspAdc_ReadFast(&sample);
+    sample_phase_currents(result == BSP_OK ? &sample : NULL);
+}
+
 static void initialize(void)
 {
     memset(&s_motor_state, 0, sizeof(s_motor_state));
     memset(&s_foc_state, 0, sizeof(s_foc_state));
     memset(&s_speed_pi, 0, sizeof(s_speed_pi));
     output_off = true;
-    simulated_defaults = false;
+    simulated_defaults = simulated_save = false;
+    trace_enabled = inject_control_fault = false;
     critical_depth = 0U;
     simulated_bus_voltage_v = 30.0f;
     current_reads = 0U;
+    fast_frame_reads = 0U;
+    frame_available = true;
     maintenance_queries = 0U;
     observer_calls = progress_calls = protection_calls = control_calls = 0U;
     simulated_state = MOTOR_STATE_INIT;
@@ -294,7 +396,18 @@ static void test_full_window(void)
         assert(s_foc_state.id_pi.output_min == -FOC_MaximumVoltage(30.0f));
         assert(s_foc_state.iq_pi.output_max == FOC_MaximumVoltage(30.0f));
     }
+    assert(!s_current_offset_calibration.complete && !s_current_offset_calibration.failed);
+    assert(!MotorCurrentOffsets_Valid(&s_motor_configuration) && s_config_revision == 1U);
+    uint32_t pending_sum = s_current_offset_calibration.phase_sum_raw[0];
+    sample_test_currents();
+    assert(s_current_offset_calibration.sample_count == CURRENT_OFFSET_SAMPLE_COUNT);
+    assert(s_current_offset_calibration.phase_sum_raw[0] == pending_sum);
+    assert(isnan(s_foc_state.phase_a_current_a));
+    finalize_current_offsets();
+    finalize_current_offsets();
     assert(s_current_offset_calibration.complete && !s_current_offset_calibration.failed);
+    assert(critical_depth == 0U);
+    sample_test_currents();
     assert(MotorCurrentOffsets_Valid(&s_motor_configuration));
     assert(fabsf(s_motor_configuration.device.phase_a_offset_counts - 2032.625f) < 0.0005f);
     assert(fabsf(s_motor_configuration.device.phase_b_offset_counts - 2051.25f) < 0.0005f);
@@ -304,18 +417,23 @@ static void test_full_window(void)
     assert(fabsf(s_foc_state.phase_b_current_a) < 0.00002f &&
            fabsf(s_foc_state.phase_c_current_a) < 0.00002f);
     assert(s_config_revision == 2U);
-    assert(observer_calls == 1U && control_calls == 0U);
+    assert(observer_calls == 0U && control_calls == 0U);
     assert(progress_calls == CURRENT_OFFSET_SAMPLE_COUNT &&
            protection_calls == CURRENT_OFFSET_SAMPLE_COUNT);
     /* 完成零点的这一拍也只捕获一次维护许可，分发与修订使用同一事实。 */
     assert(maintenance_queries == CURRENT_OFFSET_SAMPLE_COUNT);
     uint32_t old_sum = s_current_offset_calibration.phase_sum_raw[0];
     samples[0] += 4U;
-    sample_phase_currents();
+    sample_test_currents();
     assert(s_current_offset_calibration.sample_count == CURRENT_OFFSET_SAMPLE_COUNT);
     assert(s_current_offset_calibration.phase_sum_raw[0] == old_sum && s_config_revision == 2U);
     assert(fabsf(s_foc_state.phase_a_current_a + 1.125f * MOTOR_SENSING_CURRENT_A_PER_COUNT) <
            0.00002f);
+    /* 电压和电流共享一次采样；失败帧同样只读取一次，并进入原保护。 */
+    unsigned prior_reads = fast_frame_reads;
+    MotorAxis_FastTick();
+    assert(fast_frame_reads == prior_reads + 1U);
+    assert(s_foc_state.phase_a_current_a == voltage_sample.phase_current_a[0]);
 }
 
 static void test_rejections(void)
@@ -327,17 +445,17 @@ static void test_rejections(void)
     assert(s_current_offset_calibration.failed && current_reads == 0U);
     assert(s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET && s_config_revision == 1U);
     output_off = true;
-    sample_phase_currents();
+    sample_test_currents();
     assert(current_reads == 0U && !s_current_offset_calibration.complete);
 
     initialize();
     s_motor_state.control_mode = MOTOR_CONTROL_CURRENT;
-    sample_phase_currents();
+    sample_test_currents();
     assert(s_current_offset_calibration.failed && current_reads == 0U);
 
     initialize();
     samples[1] = 65535U;
-    sample_phase_currents();
+    sample_test_currents();
     assert(s_current_offset_calibration.failed && s_current_offset_calibration.sample_count == 0U);
     assert(!MotorCurrentOffsets_Valid(&s_motor_configuration));
 
@@ -345,8 +463,10 @@ static void test_rejections(void)
     samples[2] = 0U;
     for (unsigned i = 0U; i < CURRENT_OFFSET_SAMPLE_COUNT; ++i)
     {
-        sample_phase_currents();
+        sample_test_currents();
     }
+    assert(!s_current_offset_calibration.complete && !s_current_offset_calibration.failed);
+    finalize_current_offsets();
     assert(s_current_offset_calibration.failed && !s_current_offset_calibration.complete);
     assert(s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
     assert(isnan(s_motor_configuration.device.phase_a_offset_counts) &&
@@ -354,9 +474,21 @@ static void test_rejections(void)
     assert(s_config_revision == 1U);
 
     initialize();
+    for (unsigned i = 0U; i < CURRENT_OFFSET_SAMPLE_COUNT; ++i)
+    {
+        sample_test_currents();
+    }
+    output_off = false;
+    finalize_current_offsets();
+    assert(s_current_offset_calibration.failed && !s_current_offset_calibration.complete);
+    assert(s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
+    assert(isnan(s_motor_configuration.device.phase_a_offset_counts));
+    assert(s_config_revision == 1U && critical_depth == 0U);
+
+    initialize();
     s_motor_state.fault_code = MOTOR_FAULT_ENCODER;
     samples[0] = 65535U;
-    sample_phase_currents();
+    sample_test_currents();
     assert(s_motor_state.fault_code == MOTOR_FAULT_ENCODER);
 }
 
@@ -426,6 +558,73 @@ static void test_configuration_binding(void)
     assert(s_speed_pi.output_min == -0.2f && s_speed_pi.output_max == 0.3f);
 }
 
+/* B/A/V/R/O/Z/E/F/S/W/Q/C/M/P/T依次表示事务、ADC、电压、读回、观测器、
+ * 测速重置、编码器完成、故障检查、关断检查、代际、许可、控制、维护、预载、发布。 */
+static void expect_fast_tick_order(const char *expected)
+{
+    unsigned prior_reads = fast_frame_reads;
+    unsigned prior_queries = maintenance_queries;
+    uint32_t prior_revision = s_status_revision;
+    fast_trace_length = 0U;
+    trace_enabled = true;
+    MotorAxis_FastTick();
+    trace_enabled = false;
+    assert(strcmp(fast_trace, expected) == 0);
+    assert(fast_frame_reads == prior_reads + 1U && maintenance_queries == prior_queries + 1U);
+    assert(s_status_revision == prior_revision + 1U);
+}
+
+static void prepare_fast_tick_order(MotorState state, MotorControlMode mode)
+{
+    initialize();
+    s_current_offset_calibration.complete = true;
+    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        bsp_offsets[phase] = 2048.0f;
+        samples[phase] = 8192U;
+    }
+    simulated_state = state;
+    s_motor_state.control_mode = mode;
+}
+
+static void test_fast_tick_order(void)
+{
+    initialize();
+    expect_fast_tick_order("BAVREFSWQTS");
+
+    prepare_fast_tick_order(MOTOR_STATE_STARTING, MOTOR_CONTROL_CURRENT);
+    expect_fast_tick_order("BAVROEFSWQCTS");
+    prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_SPEED);
+    expect_fast_tick_order("BAVROEFSWQCTS");
+    prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_POSITION);
+    expect_fast_tick_order("BAVREFSWQCTS");
+    prepare_fast_tick_order(MOTOR_STATE_IDLE, MOTOR_CONTROL_NONE);
+    expect_fast_tick_order("BAVROEFSWQPTS");
+
+    prepare_fast_tick_order(MOTOR_STATE_MAINTENANCE, MOTOR_CONTROL_NONE);
+    simulated_defaults = true;
+    expect_fast_tick_order("BAVROEFSWQMTS");
+    assert(s_config_revision == 2U && s_foc_state.id_pi.proportional_gain == 7.0f);
+    prepare_fast_tick_order(MOTOR_STATE_MAINTENANCE, MOTOR_CONTROL_NONE);
+    simulated_save = true;
+    expect_fast_tick_order("BAVROZEFSWQPTS");
+
+    /* 故障前后均保留采样收尾；执行中新故障必须由末尾的关断检查接住。 */
+    prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
+    output_off = false;
+    s_motor_state.fault_code = MOTOR_FAULT_ENCODER;
+    expect_fast_tick_order("BAVROEFSWQTS");
+    assert(output_off && s_motor_state.fault_code == MOTOR_FAULT_ENCODER);
+    prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
+    output_off = false;
+    inject_control_fault = true;
+    expect_fast_tick_order("BAVROEFSWQCTS");
+    assert(output_off && s_motor_state.fault_code == MOTOR_FAULT_OVERCURRENT);
+}
+
 int main(void)
 {
     /* Watch类型与对象布局不随零偏计算的所属目录迁移而变化。 */
@@ -438,7 +637,18 @@ int main(void)
     test_full_window();
     test_rejections();
     test_voltage_limits_refresh_only();
+    test_fast_tick_order();
     test_configuration_binding();
+    simulated_defaults = false;
+    simulated_save = true;
+    output_off = true;
+    velocity_restarts = 0U;
+    MotorAxis_FastTick();
+    MotorAxis_FastTick();
+    assert(velocity_restarts == 2U);
+    simulated_save = false;
+    MotorAxis_FastTick();
+    assert(velocity_restarts == 2U);
     initialize();
     simulated_state = MOTOR_STATE_RUNNING;
     MotorAxis_FastTick();
@@ -450,6 +660,30 @@ int main(void)
     assert(s_foc_state.id_pi.output_max == FOC_MaximumVoltage(30.0f));
     assert(s_foc_state.iq_pi.output_min == -FOC_MaximumVoltage(30.0f));
     assert(state_initializations >= 7U);
+    /* 放在最后：无效电流必须使真实热保护失效锁存，不能污染后续正常场景。 */
+    s_current_offset_calibration.complete = true;
+    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
+    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
+    frame_available = false;
+    unsigned prior_reads = fast_frame_reads;
+    expect_fast_tick_order("BAVROEFSWQTS");
+    assert(fast_frame_reads == prior_reads + 1U && output_off);
+    assert(s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
+    assert(isnan(s_foc_state.phase_a_current_a));
+    puts("PASS FastTick order: shared ADC/null, SPI overlap, SAVE, dispatch and two fault stops");
     puts("PASS startup offset/PI initialization and sampled voltage limits preserve PI state");
     return 0;
+}
+
+void MotorStateMachine_BeginFastTick(void)
+{
+}
+uint32_t BspSystem_EnterControlCritical(void)
+{
+    return BspSystem_EnterCritical();
+}
+void BspSystem_ExitControlCritical(uint32_t state)
+{
+    BspSystem_ExitCritical(state);
 }

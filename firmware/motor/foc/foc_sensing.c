@@ -1,3 +1,4 @@
+#include "app_feature_requirements.h"
 #include "foc_sensing.h"
 
 #include <math.h>
@@ -6,13 +7,14 @@
 #include "control_config.h"
 #include "motor_fault.h"
 #include "mcu_temperature.h"
-#include "motor_sensing.h"
-#include "power_stage_hw.h"
+#include "sampling_scale.h"
+#include "bsp_adc.h"
+#include "bsp_system.h"
+#include "bsp_pwm.h"
 #include "control_math.h"
 
-/* 母线电压、相电流与 MCU 温度的判定、滤波与遥测。
- * 原始采样与板级换算在 platform/stm32g4/ports/motor/motor_sensing_stm32g4.c
- * 完成，换算常量由 platform/api/motor_sensing.h 拥有；本文件不访问寄存器。 */
+/* 母线电压、相电流与MCU温度的判定、滤波与遥测。
+ * 原码由采样BSP提供，固定尺度归platform/config；本文件不访问寄存器。 */
 
 #define OVERCURRENT_CONFIRM_CYCLES 5U
 
@@ -46,14 +48,21 @@ static void fail_current_offset_calibration(CurrentOffsetCalibration *calibratio
 }
 
 bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
-                                MotorConfiguration *configuration,
                                 MotorControlState *motor_state)
 {
-    if (calibration->complete || calibration->failed)
+    if (calibration->complete || calibration->failed ||
+        calibration->sample_count >= CURRENT_OFFSET_SAMPLE_COUNT)
     {
         return false;
     }
-    if (!power_stage_hw_phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    {
+        fail_current_offset_calibration(calibration, motor_state);
+        return false;
+    }
+    BspAdcRawCurrent frame;
+    if (BspAdc_ReadRawCurrent(&frame) != BSP_OK ||
+        (frame.valid_mask & BSP_ADC_FAST_PHASE_CURRENT_VALID) == 0U)
     {
         fail_current_offset_calibration(calibration, motor_state);
         return false;
@@ -61,7 +70,14 @@ bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
     uint16_t raw[3];
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
-        raw[phase] = motor_hw_current_sample_raw((MotorHwCurrentPhase)phase);
+        if (!isfinite(frame.phase_counts[phase]) || frame.phase_counts[phase] < 0.0f ||
+            frame.phase_counts[phase] > CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
+        {
+            fail_current_offset_calibration(calibration, motor_state);
+            return false;
+        }
+        /* 保留原四次和的整数累加域，20k样本不会引入float累计舍入。 */
+        raw[phase] = (uint16_t)(frame.phase_counts[phase] * MOTOR_SENSING_ADC_SAMPLE_COUNT);
         if (raw[phase] > MOTOR_SENSING_ADC_SAMPLE_COUNT * CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
         {
             fail_current_offset_calibration(calibration, motor_state);
@@ -72,33 +88,59 @@ bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
     {
         calibration->phase_sum_raw[phase] += raw[phase];
     }
-    if (++calibration->sample_count < CURRENT_OFFSET_SAMPLE_COUNT)
+    return ++calibration->sample_count == CURRENT_OFFSET_SAMPLE_COUNT;
+}
+
+bool MotorCurrentOffsets_Finalize(CurrentOffsetCalibration *calibration,
+                                  MotorConfiguration *configuration,
+                                  MotorControlState *motor_state)
+{
+    if (calibration->complete || calibration->failed ||
+        calibration->sample_count != CURRENT_OFFSET_SAMPLE_COUNT)
     {
         return false;
     }
     float scale = MOTOR_SENSING_ADC_SUM_TO_COUNTS / (float)calibration->sample_count;
-    configuration->device.phase_a_offset_counts = (float)calibration->phase_sum_raw[0] * scale;
-    configuration->device.phase_b_offset_counts = (float)calibration->phase_sum_raw[1] * scale;
-    configuration->device.phase_c_offset_counts = (float)calibration->phase_sum_raw[2] * scale;
-    if (!MotorCurrentOffsets_Valid(configuration))
+    const float offsets[3] = {(float)calibration->phase_sum_raw[0] * scale,
+                              (float)calibration->phase_sum_raw[1] * scale,
+                              (float)calibration->phase_sum_raw[2] * scale};
+    for (unsigned phase = 0U; phase < 3U; ++phase)
     {
-        configuration->device.phase_a_offset_counts = NAN;
-        configuration->device.phase_b_offset_counts = NAN;
-        configuration->device.phase_c_offset_counts = NAN;
+        if (!isfinite(offsets[phase]) || offsets[phase] < CURRENT_OFFSET_MIN_COUNTS ||
+            offsets[phase] > CURRENT_OFFSET_MAX_COUNTS)
+        {
+            fail_current_offset_calibration(calibration, motor_state);
+            return false;
+        }
+    }
+    uint32_t key = BspSystem_EnterCritical();
+    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE ||
+        BspAdc_SetPhaseOffsets(offsets) != BSP_OK)
+    {
         fail_current_offset_calibration(calibration, motor_state);
+        BspSystem_ExitCritical(key);
         return false;
     }
+    configuration->device.phase_a_offset_counts = offsets[0];
+    configuration->device.phase_b_offset_counts = offsets[1];
+    configuration->device.phase_c_offset_counts = offsets[2];
     calibration->complete = true;
+    BspSystem_ExitCritical(key);
     return true;
 }
 
 /* 母线电压采样、滤波与过压/欠压确认计数。 */
-void Vbus_Update(FocState *foc, MotorControlState *motor_state, bool output_expected)
+void Vbus_Update(FocState *foc,
+                 MotorControlState *motor_state,
+                 bool output_expected,
+                 const BspAdcFastSample *sample)
 {
     static uint32_t overvoltage_count, undervoltage_count, hard_overvoltage_count;
 
-    foc->bus_voltage_v = (float)motor_hw_vbus_sample_raw() * MOTOR_SENSING_ADC_SUM_TO_COUNTS *
-                         MOTOR_SENSING_VBUS_V_PER_COUNT;
+    foc->bus_voltage_v =
+        sample != NULL && (sample->valid_mask & BSP_ADC_FAST_BUS_VOLTAGE_VALID) != 0U
+            ? sample->bus_voltage_v
+            : NAN;
 
     UTILS_LP_FAST(foc->bus_voltage_filtered_v, foc->bus_voltage_v, 0.05f);
 
@@ -175,7 +217,8 @@ void Vbus_Update(FocState *foc, MotorControlState *motor_state, bool output_expe
 /* 三相电流换算、零点偏置有效性与过流确认计数。 */
 void Current_Cal(const MotorConfiguration *configuration,
                  FocState *foc,
-                 MotorControlState *motor_state)
+                 MotorControlState *motor_state,
+                 const BspAdcFastSample *sample)
 {
     static uint8_t overcurrent_count;
 
@@ -185,18 +228,17 @@ void Current_Cal(const MotorConfiguration *configuration,
     }
     else
     {
-        foc->phase_a_current_a = -((float)motor_hw_current_sample_raw(MOTOR_HW_CURRENT_PHASE_A) *
-                                       MOTOR_SENSING_ADC_SUM_TO_COUNTS -
-                                   configuration->device.phase_a_offset_counts) *
-                                 MOTOR_SENSING_CURRENT_A_PER_COUNT;
-        foc->phase_b_current_a = -((float)motor_hw_current_sample_raw(MOTOR_HW_CURRENT_PHASE_B) *
-                                       MOTOR_SENSING_ADC_SUM_TO_COUNTS -
-                                   configuration->device.phase_b_offset_counts) *
-                                 MOTOR_SENSING_CURRENT_A_PER_COUNT;
-        foc->phase_c_current_a = -((float)motor_hw_current_sample_raw(MOTOR_HW_CURRENT_PHASE_C) *
-                                       MOTOR_SENSING_ADC_SUM_TO_COUNTS -
-                                   configuration->device.phase_c_offset_counts) *
-                                 MOTOR_SENSING_CURRENT_A_PER_COUNT;
+        if (sample == NULL || (sample->valid_mask & BSP_ADC_FAST_PHASE_CURRENT_VALID) == 0U)
+        {
+            foc->phase_a_current_a = foc->phase_b_current_a = foc->phase_c_current_a = NAN;
+            MotorFault_Report(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
+        }
+        else
+        {
+            foc->phase_a_current_a = sample->phase_current_a[0];
+            foc->phase_b_current_a = sample->phase_current_a[1];
+            foc->phase_c_current_a = sample->phase_current_a[2];
+        }
     }
 
     if (Math_Abs(foc->phase_a_current_a) > MOTOR_SENSING_OVERCURRENT_TRIP_A ||
@@ -222,13 +264,39 @@ void Current_Cal(const MotorConfiguration *configuration,
  * 板级可选策略只影响故障判定，绝不把缺失样本转换成有效温度。 */
 void Temperature_Update(FocState *foc, MotorControlState *motor_state)
 {
-    MotorHwTemperaturePoll poll;
+    struct
+    {
+        bool sample_ready, conversion_ok;
+        uint32_t raw_ts, raw_vref;
+        float celsius, vdda_mv;
+    } poll = {0};
+    static bool raw_seen;
+    static uint32_t last_raw_sequence;
     bool good = false;
 
     /* 软件触发的 ADC1 序列在两次 2 kHz 监督调用之间完成（序列约 30.7 µs）：端口在
      * JEOS 就绪时读取两个 rank、清标志并请求下一次序列。ADC2/PWM 电流采样与
      * 20 kHz 中断不受影响。 */
-    motor_hw_temperature_poll(&poll);
+    (void)BspAdc_UpdateAuxiliary();
+    BspAdcRawValue raw;
+    if (BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE, &raw) == BSP_OK &&
+        (!raw_seen || raw.sequence != last_raw_sequence))
+    {
+        raw_seen = true;
+        last_raw_sequence = raw.sequence;
+        poll.sample_ready = true;
+        poll.raw_ts = (uint32_t)raw.counts;
+        poll.raw_vref = raw.reference_valid ? (uint32_t)raw.reference_counts : 0U;
+        BspAdcValue value, supply;
+        poll.conversion_ok = BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE, &value) == BSP_OK;
+        if (poll.conversion_ok)
+        {
+            poll.celsius = value.value;
+        }
+        poll.vdda_mv = BspAdc_ReadChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE, &supply) == BSP_OK
+                           ? supply.value * 1000.0f
+                           : NAN;
+    }
     if (poll.sample_ready)
     {
         s_mcu_temperature.raw_ts = poll.raw_ts;
@@ -248,7 +316,7 @@ void Temperature_Update(FocState *foc, MotorControlState *motor_state)
             ++s_mcu_temperature.sample_count;
             /* 90°C 比后缀 6 器件的 105°C 结温上限低 15°C，为校准公差与测量
              * 误差留余量；不覆盖绕组/MOSFET 温度。 */
-            if (BOARD_REQUIRE_MCU_TEMPERATURE && poll.celsius >= MCU_TEMPERATURE_TRIP_C &&
+            if (BSP_REQUIRED_MCU_TEMPERATURE && poll.celsius >= MCU_TEMPERATURE_TRIP_C &&
                 motor_state->fault_code == MOTOR_FAULT_NONE)
             {
                 MotorFault_Report(motor_state, MOTOR_FAULT_OVERTEMPERATURE);
@@ -272,7 +340,7 @@ void Temperature_Update(FocState *foc, MotorControlState *motor_state)
             s_mcu_temperature.valid = 0U;
             foc->temperature_c = NAN;
         }
-        if (BOARD_REQUIRE_MCU_TEMPERATURE &&
+        if (BSP_REQUIRED_MCU_TEMPERATURE &&
             s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
             motor_state->fault_code == MOTOR_FAULT_NONE)
         {

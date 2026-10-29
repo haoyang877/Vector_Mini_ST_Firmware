@@ -173,7 +173,7 @@ static void check_prepare(void)
                                        SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S -
                                        SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) /
                                       Current_Ts);
-    assert(sample_tick >= ENCODER_OFFSET_LUT_SIZE / 16U);
+    assert(sample_tick >= ENCODER_OFFSET_LUT_SIZE / ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
     EncoderCalibrationTask_Cancel();
     memset(&workspace, 0xA5, sizeof(workspace));
     leave_align = false;
@@ -186,13 +186,29 @@ static void check_prepare(void)
                                                             &observer,
                                                             &startup,
                                                             &workspace);
-    assert(result.result == MOTOR_TASK_RUNNING && s_prepare_bin == 16U);
-    assert(workspace.error_sum[0] == 0 && workspace.bins.samples[15] == 0U);
-    assert(workspace.bins.samples[16] == 0xA5A5U); /* 首拍不再清6 KiB。 */
+    assert(result.result == MOTOR_TASK_RUNNING && s_prepare_bin == 0U);
+    assert(startup.state == SENSORLESS_STARTUP_IDLE && startup.state_ticks == 0U);
+    assert(workspace.bins.samples[0] == 0xA5A5U && current_calls == 0U);
+    result = EncoderCalibrationTask_StepLut(&configuration,
+                                            &configuration.device.encoder,
+                                            &foc,
+                                            &motor,
+                                            &speed,
+                                            &encoder,
+                                            &observer,
+                                            &startup,
+                                            &workspace);
+    assert(result.result == MOTOR_TASK_RUNNING &&
+           s_prepare_bin == ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
+    assert(workspace.error_sum[0] == 0 &&
+           workspace.bins.samples[ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK - 1U] == 0U);
+    assert(workspace.bins.samples[ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK] ==
+           0xA5A5U); /* 首拍不再清6 KiB。 */
     EncoderCalibrationTask_Cancel();
     assert(EncoderCalibrationTask_IsReleased() && s_prepare_bin == 0U);
     memset(&workspace, 0xA5, sizeof(workspace));
-    for (unsigned i = 0U; i < ENCODER_OFFSET_LUT_SIZE / 16U; ++i)
+    for (unsigned i = 0U; i <= ENCODER_OFFSET_LUT_SIZE / ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK;
+         ++i)
     {
         result = EncoderCalibrationTask_StepLut(&configuration,
                                                 &configuration.device.encoder,
@@ -204,7 +220,7 @@ static void check_prepare(void)
                                                 &startup,
                                                 &workspace);
         assert(result.result == MOTOR_TASK_RUNNING);
-        assert(s_prepare_bin == (i + 1U) * 16U);
+        assert(s_prepare_bin == i * ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
         startup.state_ticks = sample_tick;
     }
     for (unsigned i = 0U; i < ENCODER_OFFSET_LUT_SIZE; ++i)
@@ -234,6 +250,16 @@ static void check_prepare(void)
                                             &observer,
                                             &startup,
                                             &workspace);
+    assert(result.result == MOTOR_TASK_RUNNING && startup.state_ticks == 0U);
+    result = EncoderCalibrationTask_StepLut(&configuration,
+                                            &configuration.device.encoder,
+                                            &foc,
+                                            &motor,
+                                            &speed,
+                                            &encoder,
+                                            &observer,
+                                            &startup,
+                                            &workspace);
     assert(result.result == MOTOR_TASK_FAILED && result.error == MOTOR_FAULT_ENCODER);
     assert(EncoderCalibrationTask_IsReleased() && s_prepare_bin == 0U);
     assert(configuration.device.encoder.calib_flag ==
@@ -241,11 +267,73 @@ static void check_prepare(void)
     assert(current_calls == 0U); /* 准备检查没有调用功率控制。 */
 }
 
+static void check_commit(void)
+{
+    union
+    {
+        uint32_t alignment;
+        uint8_t bytes[sizeof(EncoderCalibration) + 8U];
+    } storage;
+    EncoderCalibrationWorkspace workspace;
+    for (unsigned offset = 0U; offset <= 2U; offset += 2U)
+    {
+        memset(&storage, 0x5A, sizeof(storage));
+        EncoderCalibration *calibration = (EncoderCalibration *)&storage.bytes[offset];
+        calibration->calib_flag = ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO;
+        calibration->reverse = 1U;
+        EncoderState encoder = {0};
+        encoder.directed_q15 = 32767U;
+        for (unsigned i = 0U; i < ENCODER_OFFSET_LUT_SIZE; ++i)
+        {
+            workspace.bins.candidate[i] = (int16_t)((i * 73U) ^ 0x8421U);
+        }
+        uint16_t expected =
+            EncoderCalibrationCore_ApplyLut(workspace.bins.candidate, encoder.directed_q15);
+        s_encoder_calib_workspace = &workspace;
+        s_calibration_phase = CS_OBS_VERIFY_CW;
+        assert(!EncoderCalibrationTask_PublishLut(calibration, &encoder));
+        s_lut_verified = true;
+        FocState foc = {0};
+        MotorControlState motor = {0};
+        PiController pi = {0};
+        SensorlessStartupState startup = {0};
+        assert(encoder_observer_calib_finish(&foc, &motor, &pi, &startup).result ==
+               MOTOR_TASK_FINALIZE);
+        assert(!EncoderCalibrationTask_IsReleased());
+        assert(calibration->calib_flag == (ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO));
+        assert(EncoderCalibrationTask_PublishLut(calibration, &encoder));
+        assert(EncoderCalibrationTask_IsReleased());
+        assert(!EncoderCalibrationTask_PublishLut(calibration, &encoder));
+        assert(memcmp(calibration->linearization_lut_q15,
+                      workspace.bins.candidate,
+                      sizeof(calibration->linearization_lut_q15)) == 0);
+        assert(calibration->calib_flag == ENC_CALIB_LINEARIZED && calibration->reverse == 1U);
+        assert(calibration->electrical_zero_q15 == 0U && calibration->mechanical_zero_q15 == 0U);
+        assert(encoder.linearized_q15 == expected && encoder.rebase_requested &&
+               encoder.velocity_restart_requested);
+        for (unsigned i = 0U; i < offset; ++i)
+        {
+            assert(storage.bytes[i] == 0x5A);
+        }
+        for (unsigned i = offset + sizeof(*calibration); i < sizeof(storage.bytes); ++i)
+        {
+            assert(storage.bytes[i] == 0x5A);
+        }
+        s_encoder_calib_workspace = &workspace;
+        s_calibration_phase = CS_LUT_PUBLISH_PENDING;
+        EncoderCalibration before_cancel = *calibration;
+        EncoderCalibrationTask_Cancel();
+        assert(!EncoderCalibrationTask_PublishLut(calibration, &encoder));
+        assert(memcmp(calibration, &before_cancel, sizeof(*calibration)) == 0);
+    }
+}
+
 int main(void)
 {
     check_finite();
     check_observer();
     check_prepare();
+    check_commit();
     puts("PASS observer finite/phase equivalence and bounded calibration prepare/cancel/reentry");
     return 0;
 }

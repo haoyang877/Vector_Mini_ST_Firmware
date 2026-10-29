@@ -35,3 +35,6 @@ RTT、组合计划、运行租约、摩擦/电阻辨识和齿槽任务已删除�
 [控制执行](../../docs/architecture/motor_execution_core_v3.md)、
 [维护](../../docs/architecture/motor_maintenance_core_v3.md)、
 [四类参数](../../docs/architecture/parameter_ownership_v1.md)。
+
+两板的真实main位于各自platform/application目录，调用同一套App接口；
+平台实现归相邻platform_app.c，入口装配声明归app_platform.h，app.h只保留四个App入口。

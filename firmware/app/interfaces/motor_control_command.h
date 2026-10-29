@@ -16,6 +16,8 @@ typedef struct
     /* 来源 0 表示本地调用；身份不参与控制计算，也不是存储 ABI。 */
     uint8_t source_node;
     uint16_t sequence;
+    /* 扩展模式参数；旧模式须为零，运行目标不进入Flash参数记录。 */
+    float id_a, vd_v, electrical_frequency_hz;
 } MotorControlCommand;
 
 /** @brief 目标提交结果；ACCEPTED 仅表示已复制到控制所有者的邮箱。 */

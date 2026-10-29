@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "critical_hw.h"
+#include "bsp_system.h"
 #include "maintenance_workspace.h"
 #include "motor_startup_profile.h"
 #include "control_config.h"
@@ -107,7 +107,7 @@ bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
 static uint32_t s_mask;
 static unsigned s_depth;
 
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     uint32_t previous = s_mask;
     s_mask = 1U;
@@ -115,7 +115,7 @@ uint32_t critical_hw_enter(void)
     return previous;
 }
 
-void critical_hw_exit(uint32_t state)
+void BspSystem_ExitCritical(uint32_t state)
 {
     s_mask = state;
     --s_depth;
@@ -151,8 +151,11 @@ static int check_task_cleanup(void)
                                        &observer,
                                        &startup,
                                        workspace);
-        /* 先走完对齐前段的64拍准备；不采原点，避免后续反例被未清完门禁遮蔽。 */
-        for (unsigned tick = 1U; tick < (ENCODER_OFFSET_LUT_SIZE + 15U) / 16U; ++tick)
+        /* 先走完初始化和全部分拍清表；不采原点，避免后续反例被未清完门禁遮蔽。 */
+        for (unsigned tick = 1U; tick < 1U + (ENCODER_OFFSET_LUT_SIZE +
+                                              ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK - 1U) /
+                                                 ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK;
+             ++tick)
         {
             startup.state_ticks = tick;
             MotorTaskResult prepared = EncoderCalibrationTask_StepLut(&configuration,
@@ -306,10 +309,10 @@ static int check_task_cleanup(void)
                                                 &observer,
                                                 &startup,
                                                 NULL);
-        /* 离线/参数非法场景仍被入口门禁拒绝；正常参数下低速停止必须完成并撤销转矩。 */
+        /* 没有已验证候选时，即使处于低速停止段也必须失败，不能伪造完成。 */
         if (scenario != 1U && scenario != 2U && scenario != 3U && scenario != 12U &&
             scenario != 13U &&
-            (result.result != MOTOR_TASK_COMPLETED || result.error != MOTOR_FAULT_NONE ||
+            (result.result != MOTOR_TASK_FAILED || result.error != MOTOR_FAULT_ENCODER ||
              motor.id_target_a != 0.0f || motor.iq_target_a != 0.0f || s_cleanup_order != 2U ||
              !EncoderCalibrationTask_IsReleased()))
         {
@@ -398,8 +401,11 @@ static int check_complete_task_trace(void)
                     SensorlessStartup_EncoderCalibConfig.align_hold_time_s -
                     SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) /
                    Current_Ts);
-    /* 首拍已清16 bin；其余63拍仍在原对齐采样窗口之前，保留下面原8个原点样本。 */
-    for (unsigned tick = 1U; tick < (ENCODER_OFFSET_LUT_SIZE + 15U) / 16U; ++tick)
+    /* 清表仍在原对齐采样窗口之前，保留下面原8个原点样本。 */
+    for (unsigned tick = 1U;
+         tick < 1U + (ENCODER_OFFSET_LUT_SIZE + ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK - 1U) /
+                         ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK;
+         ++tick)
     {
         if (tick >= align_ticks)
         {
@@ -482,7 +488,11 @@ static int check_complete_task_trace(void)
             break;
         }
     }
-    if (result.result != MOTOR_TASK_COMPLETED || motor.fault_code != MOTOR_FAULT_NONE ||
+    if (result.result != MOTOR_TASK_FINALIZE || motor.fault_code != MOTOR_FAULT_NONE ||
+        EncoderCalibrationTask_IsReleased() ||
+        configuration.device.encoder.calib_flag != ENC_CALIB_ALL ||
+        configuration.device.encoder.linearization_lut_q15[0] != 42 ||
+        !EncoderCalibrationTask_PublishLut(&configuration.device.encoder, &encoder) ||
         configuration.device.encoder.calib_flag != ENC_CALIB_LINEARIZED ||
         !encoder.rebase_requested || configuration.device.encoder.electrical_zero_q15 != 0U ||
         configuration.device.encoder.mechanical_zero_q15 != 0U ||

@@ -5,11 +5,14 @@
 #include <string.h>
 #include "foc_sensing.h"
 #include "mcu_temperature.h"
-#include "../../../firmware/platform/at32f456/ports/temperature_at32f456.c"
+#include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
+
+#include "temperature_api_fixture.h"
 
 static bool available = true;
 static unsigned s_adc_reads;
-static R40TemperatureSamples data;
+static AdcTemperatureSample data;
+#if BSP_ENABLED_MCU_TEMPERATURE
 static MotorControlState state;
 static FocState foc;
 volatile McuTemperatureTelemetry s_mcu_temperature;
@@ -18,8 +21,9 @@ static void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
     motor->fault_code = fault;
 }
 #include "r40_temperature_production.inc"
+#endif
 
-bool R40_AdcReadTemperature(R40TemperatureSamples *out)
+bool Adc_ReadTemperature(AdcTemperatureSample *out)
 {
     ++s_adc_reads;
     if (!available)
@@ -30,62 +34,111 @@ bool R40_AdcReadTemperature(R40TemperatureSamples *out)
     return true;
 }
 
+bool Adc_ReadAux(AdcAuxSample *out)
+{
+    (void)out;
+    assert(false && "MCU temperature must not consume the motor NTC channel");
+    return false;
+}
+
+static void TestTemperature_Poll(TestTemperaturePoll *result)
+{
+    if (result == NULL)
+    {
+        return;
+    }
+    result->sample_ready = result->conversion_ok = false;
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    static bool seen;
+    static uint32_t sequence;
+    AdcTemperatureSample sample;
+    if (!Adc_ReadTemperature(&sample) || (seen && sample.sequence == sequence))
+    {
+        return;
+    }
+    seen = true;
+    sequence = sample.sequence;
+    AdcTemperatureValue value;
+    McuAdc_ConvertTemperature(&sample, &value);
+    result->sample_ready = true;
+    result->raw_ts = sample.mcu_temperature_counts;
+    result->raw_vref = sample.reference_counts;
+    result->conversion_ok = value.temperature_result == BSP_OK;
+    if (result->conversion_ok)
+    {
+        result->celsius = value.celsius;
+        result->vdda_mv = value.vdda_v * 1000.0f;
+    }
+    /* 温度资格失败不能影响同帧有效VDDA。 */
+    if (R40_INTERNAL_REFERENCE_MV >= 1100.0f && R40_INTERNAL_REFERENCE_MV <= 1300.0f)
+    {
+        assert(value.voltage_result == BSP_OK);
+        assert(fabsf(value.vdda_v - 3.276f) < 0.0001f);
+    }
+    else
+    {
+        assert(value.voltage_result == BSP_NOT_CALIBRATED && isnan(value.vdda_v));
+    }
+#endif
+}
+#if BSP_ENABLED_MCU_TEMPERATURE
+static bool convert_temperature(uint16_t ts, uint16_t ref, float *c, float *mv)
+{
+    AdcTemperatureSample sample = {ts, ref, 0U, 0U};
+    AdcTemperatureValue value;
+    McuAdc_ConvertTemperature(&sample, &value);
+    if (value.temperature_result != BSP_OK)
+    {
+        return false;
+    }
+    *c = value.celsius;
+    *mv = value.vdda_v * 1000.0f;
+    return true;
+}
+#endif
+
 int main(void)
 {
-    MotorHwTemperaturePoll result = {
+    TestTemperaturePoll result = {
         .raw_ts = 12U, .raw_vref = 34U, .celsius = 56.0f, .vdda_mv = 78.0f};
-    data = (R40TemperatureSamples){1600U, 1500U, 1U};
-    motor_hw_temperature_poll(&result);
-    if (!R40_TEMPERATURE_SENSING_ENABLED)
+    AdcTemperatureSample invalid = {0U, 1500U, 0U, 0U};
+    AdcTemperatureValue values;
+    McuAdc_ConvertTemperature(&invalid, &values);
+    assert(values.temperature_result == BSP_NOT_CALIBRATED && isnan(values.celsius));
+    if (R40_INTERNAL_REFERENCE_MV >= 1100.0f && R40_INTERNAL_REFERENCE_MV <= 1300.0f)
+    {
+        assert(values.voltage_result == BSP_OK && fabsf(values.vdda_v - 3.276f) < 0.0001f);
+        invalid.reference_counts = 0U;
+        McuAdc_ConvertTemperature(&invalid, &values);
+        assert(values.voltage_result == BSP_IO_ERROR && isnan(values.vdda_v));
+    }
+    data = (AdcTemperatureSample){1600U, 1500U, 1U, 0U};
+    TestTemperature_Poll(&result);
+    if (!BSP_ENABLED_MCU_TEMPERATURE)
     {
         assert(!result.sample_ready && !result.conversion_ok && s_adc_reads == 0U);
         assert(result.raw_ts == 12U && result.raw_vref == 34U);
         assert(result.celsius == 56.0f && result.vdda_mv == 78.0f);
-        assert(g_r40_mcu_temperature_diagnostic.status == R40_MCU_TEMPERATURE_DISABLED);
-        assert(g_r40_mcu_temperature_diagnostic.protection_valid == 0U);
-        assert(isnan(g_r40_mcu_temperature_diagnostic.temperature_c));
         puts("PASS disabled MCU temperature does not read ADC or publish valid protection data");
         return 0;
     }
+#if BSP_ENABLED_MCU_TEMPERATURE
     assert(result.sample_ready && result.raw_ts == 1600U && result.raw_vref == 1500U);
     assert(result.conversion_ok == EXPECT_CALIBRATED);
-    assert(g_r40_mcu_temperature_diagnostic.begin == g_r40_mcu_temperature_diagnostic.end);
-    assert(g_r40_mcu_temperature_diagnostic.begin != 0U &&
-           (g_r40_mcu_temperature_diagnostic.begin & 1U) == 0U);
-    assert(g_r40_mcu_temperature_diagnostic.sample_count == 1U);
-    assert(g_r40_mcu_temperature_diagnostic.raw_ts == 1600U &&
-           g_r40_mcu_temperature_diagnostic.raw_vref == 1500U);
     if (!R40_TEMPERATURE_CALIBRATED)
     {
-        assert(g_r40_mcu_temperature_diagnostic.status == R40_MCU_TEMPERATURE_ESTIMATED);
-        assert(fabsf(g_r40_mcu_temperature_diagnostic.temperature_c - 25.0f) < 0.001f);
-        assert(g_r40_mcu_temperature_diagnostic.protection_valid == 0U);
         assert(result.celsius == 56.0f && result.vdda_mv == 78.0f);
-    }
-    else if (EXPECT_CALIBRATED)
-    {
-        assert(g_r40_mcu_temperature_diagnostic.status == R40_MCU_TEMPERATURE_CALIBRATED);
-        assert(g_r40_mcu_temperature_diagnostic.protection_valid == 1U);
-    }
-    else
-    {
-        assert(g_r40_mcu_temperature_diagnostic.status == R40_MCU_TEMPERATURE_INVALID);
-        assert(isnan(g_r40_mcu_temperature_diagnostic.temperature_c));
     }
     if (EXPECT_CALIBRATED)
     {
         assert(fabsf(result.celsius - 25.0f) < 0.001f && fabsf(result.vdda_mv - 3276.0f) < 0.01f);
     }
-    motor_hw_temperature_poll(&result);
+    TestTemperature_Poll(&result);
     assert(!result.sample_ready && !result.conversion_ok);
-    assert(g_r40_mcu_temperature_diagnostic.sample_count == 1U);
     available = false;
     ++data.sequence;
-    motor_hw_temperature_poll(&result);
+    TestTemperature_Poll(&result);
     assert(!result.sample_ready);
-    assert(g_r40_mcu_temperature_diagnostic.status == R40_MCU_TEMPERATURE_UNAVAILABLE);
-    assert(g_r40_mcu_temperature_diagnostic.protection_valid == 0U);
-    assert(isnan(g_r40_mcu_temperature_diagnostic.temperature_c));
     available = true;
     for (unsigned i = 0U; i < 200U; ++i)
     {
@@ -122,30 +175,24 @@ int main(void)
         assert(state.fault_code == MOTOR_FAULT_TEMPERATURE_SENSOR);
         data.mcu_temperature_counts = 1970U;
         ++data.sequence;
-        motor_hw_temperature_poll(&result);
+        TestTemperature_Poll(&result);
         assert(!result.conversion_ok && result.celsius == 56.0f);
-        if (!R40_TEMPERATURE_CALIBRATED)
-        {
-            assert(g_r40_mcu_temperature_diagnostic.temperature_c > 90.0f);
-            assert(g_r40_mcu_temperature_diagnostic.protection_valid == 0U);
-        }
     }
     /* 已显示温度后遇到无效ADC，不能保留可用状态或沿用上次温度。 */
     data.mcu_temperature_counts = 0U;
     ++data.sequence;
-    motor_hw_temperature_poll(&result);
+    TestTemperature_Poll(&result);
     assert(result.sample_ready && !result.conversion_ok);
-    assert(g_r40_mcu_temperature_diagnostic.status == R40_MCU_TEMPERATURE_INVALID);
-    assert(isnan(g_r40_mcu_temperature_diagnostic.temperature_c));
     data.mcu_temperature_counts = 1600U;
     data.sequence = UINT32_MAX;
-    motor_hw_temperature_poll(&result);
+    TestTemperature_Poll(&result);
     assert(result.sample_ready);
     data.sequence = 0U;
-    motor_hw_temperature_poll(&result);
+    TestTemperature_Poll(&result);
     assert(result.sample_ready);
-    motor_hw_temperature_poll(NULL);
+    TestTemperature_Poll(NULL);
     puts("PASS AT32 temperature: unique snapshots, calibration validity, supply/range, wrap and "
-         "diagnostic estimates isolated from unchanged protection");
+         "raw/calibrated values and unchanged protection");
+#endif
     return 0;
 }

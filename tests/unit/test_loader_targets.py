@@ -41,6 +41,23 @@ class LoaderTargetTests(unittest.TestCase):
         """默认目标与显式名称产生同一个契约。"""
         self.assertEqual(self.target, load_target("vector_mini_st_g431"))
 
+    def test_project_name_accepts_hyphens_but_not_paths_or_commands(self):
+        """工程名支持连字符，不放宽路径、命令字符或发布MCU约束。"""
+        target = copy.deepcopy(self.target)
+        target["build"]["app_name"] = "ESC-APP-STM32G431-LoaderApp"
+        self.assertEqual(load_target(self.save(target)), target)
+        for key, value in (
+            ("app_name", "../outside"),
+            ("app_name", "bad\\path"),
+            ("app_name", "bad;command"),
+            ("app_name", "-option"),
+            ("artifact_mcu", "STM32-G431"),
+        ):
+            invalid = copy.deepcopy(target)
+            invalid["build"][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                load_target(self.save(invalid))
+
     def test_unknown_name_does_not_fall_back(self):
         """选择不存在的目标不会静默使用 G431。"""
         with self.assertRaises(FileNotFoundError):
@@ -150,7 +167,7 @@ class LoaderTargetTests(unittest.TestCase):
             for node in parsed.findall(".//FilePath")
         }
         self.assertIn(
-            (self.root / "firmware/platform/stm32g4/application/main.c").resolve(),
+            (self.root / "projects/stm32g4/application/main.c").resolve(),
             generated_sources,
         )
         # 工程、链接、源清单和后处理均来自同一清单；任何一个过期都应在编译前拒绝。
@@ -198,3 +215,18 @@ class LoaderTargetTests(unittest.TestCase):
             self.assertIn("missing.h", errors[0])
             header.write_text("", encoding="utf-8")
             self.assertEqual(check_project_layout.check_project(project)[0], [])
+
+    def test_forced_configuration_has_explicit_project_path(self):
+        """强制包含不能靠无关include目录碰巧找到已搬迁的目标配置。"""
+        config = self.root / "config.h"
+        config.write_text("", encoding="utf-8")
+        project = self.root / "test.uvprojx"
+        for option in ("--preinclude", "-include"):
+            for filename, valid in (("config.h", True), ("stale/config.h", False)):
+                project.write_text(
+                    f"<Project><MiscControls>{option} {filename}</MiscControls></Project>",
+                    encoding="utf-8",
+                )
+                with self.subTest(option=option, filename=filename):
+                    errors, _, _ = check_project_layout.check_project(project)
+                    self.assertEqual(not errors, valid)

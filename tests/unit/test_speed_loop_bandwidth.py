@@ -24,7 +24,8 @@ PLL_WN_HZ = float(
     re.search(
         r"#define ENCODER_PLL_OMEGA_N_HZ ([0-9.]+)f",
         (
-            Path(__file__).resolve().parents[2] / "firmware/motor/feedback/angle_feedback.h"
+            Path(__file__).resolve().parents[2]
+            / "firmware/motor/profiles/encoder_feedback_defaults.h"
         ).read_text(encoding="utf-8"),
     ).group(1)
 )

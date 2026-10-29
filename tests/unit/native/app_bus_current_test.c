@@ -4,7 +4,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "app_bus_current.h"
+#include "bsp_config.h"
+#include "bus_current_feedback.h"
 #include "motor_axis.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_status_adapter.h"
@@ -49,50 +50,97 @@ static yg_protocol_motor_feedback_t feedback(void)
     return value;
 }
 
-#if BOARD_HAS_BUS_CURRENT_SENSOR
-#include "../../../firmware/platform/at32f456/application/bus_current_feedback.c"
+#if BSP_ENABLED_BUS_CURRENT
+#include "../../../firmware/app/runtime/bus_current_feedback.c"
+#define BUS_CURRENT_A_PER_COUNT                                                                    \
+    (BUS_CURRENT_ADC_REFERENCE_V / (float)BUS_CURRENT_ADC_MAX_COUNTS / BUS_CURRENT_GAIN /          \
+     BUS_CURRENT_SHUNT_OHM)
 
 static uint32_t s_now, s_seq, s_critical_depth;
 static bool s_available = true, s_disabled = true;
 static uint16_t s_raw;
+static unsigned s_read_race, s_raw_reads;
 
-uint32_t time_hw_now_ms(void)
+uint32_t BspSystem_TimeMs(void)
 {
     return s_now;
 }
 
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     return s_critical_depth++;
 }
 
-void critical_hw_exit(uint32_t previous)
+void BspSystem_ExitCritical(uint32_t previous)
 {
     assert(s_critical_depth == previous + 1U);
     s_critical_depth = previous;
 }
 
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return s_disabled;
 }
 
-bool R40_AdcReadAux(R40AuxSamples *sample)
+static float s_offset;
+BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *sample)
+{
+    assert(s_critical_depth == 0U);
+    ++s_raw_reads;
+    if (s_read_race != 0U)
+    {
+        if (s_read_race == 1U)
+        {
+            g_r40_bus_current_diagnostic.sample_valid = false;
+            s_read_race = 0U;
+        }
+        else
+        {
+            ++g_r40_bus_current_diagnostic.sequence;
+            g_r40_bus_current_diagnostic.filtered_a = 0.25f;
+            if (s_read_race == 2U)
+            {
+                s_read_race = 0U;
+            }
+        }
+    }
+    if (!s_available)
+    {
+        return BSP_STALE;
+    }
+    *sample = (BspAdcRawCurrent){.bus_current_counts = s_raw,
+                                 .valid_mask = BSP_ADC_FAST_BUS_CURRENT_VALID,
+                                 .sequence = s_seq};
+    return BSP_OK;
+}
+BspResult BspAdc_SetBusCurrentOffset(float offset)
+{
+    if (!s_disabled)
+    {
+        return BSP_REJECTED;
+    }
+    s_offset = offset;
+    return BSP_OK;
+}
+BspResult BspAdc_ReadFast(BspAdcFastSample *sample)
 {
     if (!s_available)
     {
-        return false;
+        return BSP_STALE;
     }
-    *sample = (R40AuxSamples){.bus_current_counts = s_raw, .sequence = s_seq};
-    return true;
+    *sample =
+        (BspAdcFastSample){.bus_current_a = ((float)s_raw - s_offset) * BUS_CURRENT_A_PER_COUNT,
+                           .valid_mask = BSP_ADC_FAST_BUS_CURRENT_VALID,
+                           .sequence = s_seq};
+    return BSP_OK;
 }
 
 static void sample(uint16_t raw)
 {
     s_raw = raw;
-    ++s_seq;
-    s_now += s_seq & 1U;
-    AppBusCurrent_Sample();
+    s_seq += 10U;
+    s_now += (s_seq / 10U) & 1U;
+    BusCurrentFeedback_Sample();
 }
 
 static void calibrate(void)
@@ -116,17 +164,17 @@ static void expect_invalid(void)
 
 static void hardware_feedback(void)
 {
-    AppBusCurrent_Init();
+    BusCurrentFeedback_Init();
     expect_invalid();
     sample(2060U);
     for (unsigned i = 0U; i < 150U; ++i)
     {
-        AppBusCurrent_Sample();
+        BusCurrentFeedback_Sample();
     }
     assert(g_r40_bus_current_diagnostic.offset_samples == 1U);
     expect_invalid();
 
-    AppBusCurrent_Init();
+    BusCurrentFeedback_Init();
     s_disabled = false;
     for (unsigned i = 0U; i < 150U; ++i)
     {
@@ -168,16 +216,16 @@ static void hardware_feedback(void)
 
     for (unsigned i = 0U; i < 10U; ++i)
     {
-        AppBusCurrent_Sample();
+        BusCurrentFeedback_Sample();
     }
     float unchanged = g_r40_bus_current_diagnostic.filtered_a;
-    AppBusCurrent_Sample();
+    BusCurrentFeedback_Sample();
     assert(unchanged == g_r40_bus_current_diagnostic.filtered_a);
     s_now += 2U;
     assert(feedback().valid_bits & (1U << 5U));
     ++s_now;
     expect_invalid();
-    AppBusCurrent_Sample();
+    BusCurrentFeedback_Sample();
     expect_invalid();
     sample(2060U);
     assert(feedback().valid_bits & (1U << 5U));
@@ -192,28 +240,28 @@ static void hardware_feedback(void)
     }
     s_available = false;
     expect_invalid();
-    AppBusCurrent_Sample();
+    BusCurrentFeedback_Sample();
     expect_invalid();
     s_available = true;
     sample(2060U);
     assert(feedback().valid_bits & (1U << 5U));
 
     /* 序号缺口不继续累计校准；计数与毫秒自然回绕仍能采集。 */
-    AppBusCurrent_Init();
+    BusCurrentFeedback_Init();
     s_disabled = true;
     sample(2060U);
     sample(2060U);
-    s_seq += 10U;
+    s_seq += 20U;
     sample(2060U);
     assert(g_r40_bus_current_diagnostic.offset_samples == 1U);
-    AppBusCurrent_Init();
+    BusCurrentFeedback_Init();
     s_seq = UINT32_MAX - 64U;
     s_now = UINT32_MAX - 16U;
     calibrate();
     assert(feedback().valid_bits & (1U << 5U));
 
     /* 噪声窗口和偏离中点的直流电平不能获准成为零点。 */
-    AppBusCurrent_Init();
+    BusCurrentFeedback_Init();
     for (unsigned i = 0U; i < 200U; ++i)
     {
         sample(i & 1U ? 2040U : 2060U);
@@ -227,7 +275,22 @@ static void hardware_feedback(void)
     assert(!g_r40_bus_current_diagnostic.offset_valid);
     expect_invalid();
     calibrate();
-    AppBusCurrent_Apply(NULL, NULL);
+    assert(!BusCurrentFeedback_Read(NULL));
+    float current_a;
+    s_read_race = 1U;
+    s_raw_reads = 0U;
+    assert(!BusCurrentFeedback_Read(&current_a) && isnan(current_a));
+    assert(s_raw_reads == 2U);
+    sample(2060U);
+    s_read_race = 2U;
+    s_raw_reads = 0U;
+    assert(BusCurrentFeedback_Read(&current_a) && current_a == 0.25f);
+    assert(s_raw_reads == 2U);
+    s_read_race = 3U;
+    s_raw_reads = 0U;
+    assert(!BusCurrentFeedback_Read(&current_a) && isnan(current_a));
+    assert(s_raw_reads == 2U);
+    s_read_race = 0U;
     assert(s_critical_depth == 0U);
     puts("PASS PA4 offset, signed conversion, filter, stale/fault invalidity and APP wire path");
 }
@@ -236,15 +299,11 @@ static void hardware_feedback(void)
 int main(void)
 {
     assert(YgProtocolStatusAdapter_Init());
-#if BOARD_HAS_BUS_CURRENT_SENSOR
+#if BSP_ENABLED_BUS_CURRENT
     hardware_feedback();
 #else
     yg_protocol_motor_feedback_t value = feedback();
     assert(value.bus_current_mA == 750 && (value.valid_bits & (1U << 5U)));
-    float unchanged = 0.25f;
-    uint8_t bits = 0x95U;
-    AppBusCurrent_Apply(&unchanged, &bits);
-    assert(unchanged == 0.25f && bits == 0x95U);
     puts("PASS legacy hardware-free estimate and validity remain unchanged");
 #endif
     return 0;

@@ -5,12 +5,20 @@
 #include <string.h>
 
 #include "at32f45x.h"
-#include "critical_hw.h"
-#include "power_stage_hw.h"
-#include "motor_hw.h"
-#include "r40_clock.h"
-#include "r40_platform.h"
-#include "time_hw.h"
+#include "bsp_system.h"
+#include "bsp_pwm.h"
+#include "bsp_config.h"
+#include "bsp_internal.h"
+FoundationDwt foundation_dwt;
+FoundationCoreDebug foundation_core_debug;
+void NVIC_SystemReset(void)
+{
+    abort();
+}
+void __WFI(void)
+{
+    abort();
+}
 
 tmr_type fake_tmr1, fake_tmr6;
 gpio_type fake_gpioa = {0xFFFFU}, fake_gpiob = {0xFFFFU};
@@ -105,7 +113,7 @@ void gpio_init(gpio_type *gpio, gpio_init_type *pins)
 {
     if (pins->gpio_mode == GPIO_MODE_MUX)
     {
-        assert(power_stage_hw_phases_disabled());
+        assert(BspPwm_ArePhasesDisabled());
         assert(fake_tmr1.brk == 0U);
         assert((gpio->output & pins->gpio_pins) == 0U);
         ++fake_mux_count;
@@ -186,12 +194,11 @@ void tmr_brkdt_config(tmr_type *timer, tmr_brkdt_config_type *config)
 }
 void tmr_output_enable(tmr_type *timer, unsigned enabled)
 {
-    assert(fake_primask == 1U);
     if (enabled)
     {
         assert((timer->cctrl & 0x5550U) == 0x5550U);
     }
-    timer->brk = enabled;
+    timer->brk = enabled ? 0x8000U : 0U;
 }
 void tmr_flag_clear(tmr_type *timer, unsigned flag)
 {
@@ -204,7 +211,7 @@ void tmr_interrupt_enable(tmr_type *timer, unsigned mask, unsigned enabled)
 }
 void tmr_counter_enable(tmr_type *timer, unsigned enabled)
 {
-    assert(power_stage_hw_phases_disabled());
+    assert(BspPwm_ArePhasesDisabled());
     timer->running = enabled;
 }
 unsigned SysTick_Config(unsigned reload)
@@ -234,11 +241,118 @@ void __set_PRIMASK(unsigned value)
     fake_primask = value;
 }
 
+/* 固定边界向量验证合并提交：严格大于256计数，失败零写入，关相/停表沿用预载语义。 */
+static void test_pwm_commit_boundaries(void)
+{
+    const struct
+    {
+        uint32_t count;
+        bool up, down;
+    } cases[] = {{0U, true, false},
+                 {256U, true, false},
+                 {257U, true, true},
+                 {4243U, true, true},
+                 {4244U, false, true},
+                 {4500U, false, true},
+                 {4501U, false, false},
+                 {UINT32_MAX, false, false}};
+    const uint32_t channels[] = {0U, 0x10U, 0x5550U};
+    const uint32_t controls[] = {0U, 1U, 0x11U, 0x13U};
+    tmr_type saved = fake_tmr1;
+    for (unsigned channel = 0U; channel < 3U; ++channel)
+    {
+        for (unsigned master = 0U; master < 2U; ++master)
+        {
+            for (unsigned mode = 0U; mode < 4U; ++mode)
+            {
+                for (unsigned i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
+                {
+                    fake_tmr1.cctrl = channels[channel] | 1U;
+                    fake_tmr1.brk = master ? 0x8000U : 0U;
+                    fake_tmr1.ctrl1 = controls[mode];
+                    fake_tmr1.cval = cases[i].count;
+                    fake_tmr1.pr = 4500U;
+                    fake_tmr1.c2dt = 111U;
+                    fake_tmr1.c3dt = 222U;
+                    fake_tmr1.c4dt = 333U;
+                    bool expected = (channel == 0U && master == 0U) || mode == 0U ||
+                                    (mode == 1U ? cases[i].up : cases[i].down);
+                    assert(McuPwm_CommitThree(12U, 34U, 56U) == expected);
+                    assert(fake_tmr1.c2dt == (expected ? 12U : 111U));
+                    assert(fake_tmr1.c3dt == (expected ? 34U : 222U));
+                    assert(fake_tmr1.c4dt == (expected ? 56U : 333U));
+                    assert(fake_tmr1.ctrl1 == controls[mode]);
+                    assert(fake_tmr1.cctrl == (channels[channel] | 1U));
+                    assert(fake_tmr1.brk == (master ? 0x8000U : 0U));
+                    fake_tmr1.c2dt = 111U;
+                    fake_tmr1.c3dt = 222U;
+                    fake_tmr1.c4dt = 333U;
+                    assert(McuPwm_CommitPhase(BSP_PWM_PHASE_B, 78U) == expected);
+                    assert(fake_tmr1.c2dt == 111U && fake_tmr1.c4dt == 333U);
+                    assert(fake_tmr1.c3dt == (expected ? 78U : 222U));
+                    assert(fake_tmr1.ctrl1 == controls[mode]);
+                }
+            }
+        }
+    }
+    /* 扫描实际16位周期/计数，包含保护预算以下的周期和越过顶部的计数。
+     * 预期值独立按原count范围与上/下计数公式计算，覆盖原来无符号回绕拒绝语义。 */
+    const uint32_t periods[] = {0U, 1U, 255U, 256U, 257U, 4250U, 4500U, 65535U};
+    uint32_t checked = 0U;
+    for (unsigned p = 0U; p < sizeof(periods) / sizeof(periods[0]); ++p)
+    {
+        uint32_t period = periods[p];
+        for (uint32_t count = 0U; count <= period + 1U; ++count)
+        {
+            for (unsigned channel = 0U; channel < 3U; ++channel)
+            {
+                for (unsigned master = 0U; master < 2U; ++master)
+                {
+                    for (unsigned mode = 0U; mode < 4U; ++mode)
+                    {
+                        uint32_t control = controls[mode];
+                        uint32_t remaining = (control & 0x10U) != 0U ? count : period - count;
+                        bool expected = (channel == 0U && master == 0U) || (control & 1U) == 0U ||
+                                        (count <= period && remaining > 256U);
+                        fake_tmr1.cctrl = channels[channel] | 1U;
+                        fake_tmr1.brk = master ? 0x8000U : 0U;
+                        fake_tmr1.ctrl1 = control;
+                        fake_tmr1.cval = count;
+                        fake_tmr1.pr = period;
+                        fake_tmr1.c2dt = 111U;
+                        fake_tmr1.c3dt = 222U;
+                        fake_tmr1.c4dt = 333U;
+                        assert(McuPwm_CommitThree(12U, 34U, 56U) == expected);
+                        assert(fake_tmr1.c2dt == (expected ? 12U : 111U));
+                        assert(fake_tmr1.c3dt == (expected ? 34U : 222U));
+                        assert(fake_tmr1.c4dt == (expected ? 56U : 333U));
+                        assert(fake_tmr1.ctrl1 == control);
+                        assert(fake_tmr1.cctrl == (channels[channel] | 1U));
+                        assert(fake_tmr1.brk == (master ? 0x8000U : 0U));
+                        fake_tmr1.c2dt = 111U;
+                        fake_tmr1.c3dt = 222U;
+                        fake_tmr1.c4dt = 333U;
+                        assert(McuPwm_CommitPhase(BSP_PWM_PHASE_B, 78U) == expected);
+                        assert(fake_tmr1.c2dt == 111U && fake_tmr1.c4dt == 333U);
+                        assert(fake_tmr1.c3dt == (expected ? 78U : 222U));
+                        assert(fake_tmr1.ctrl1 == control);
+                        ++checked;
+                    }
+                }
+            }
+        }
+    }
+    fake_tmr1 = saved;
+    printf("PASS AT32 PWM: 192 boundary vectors and %u period/count/output cases, timeout zero "
+           "writes\n",
+           checked);
+}
+
 int main(int argc, char **argv)
 {
     fake_failure = argc > 1 ? (unsigned)strtoul(argv[1], NULL, 10) : 0U;
-    assert(!R40_TimingStart());
-    bool initialized = R40_PlatformInit();
+    assert(!McuSystem_Start());
+    bool initialized = McuSystem_Init();
     assert((fake_gpioa.output & 0xE00U) == 0U);
     assert((fake_gpiob.output & 0x13U) == 0U);
     assert((fake_gpiob.output & 0x1000U) != 0U);
@@ -250,25 +364,25 @@ int main(int argc, char **argv)
         return 0;
     }
     assert(initialized && fake_mux_count == 2U && fake_timer_channels == 0x54U);
-    assert(!R40_PlatformInit());
+    assert(!McuSystem_Init());
     assert(fake_tmr1.pr == 4500U && fake_tmr1.div == 0U);
     assert(fake_tmr6.pr == 499U && fake_tmr6.div == 179U);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
     assert(R40_CAN_HZ / (R40_CAN_NOMINAL_SEG1 + R40_CAN_NOMINAL_SEG2) == 1000000U);
     assert(R40_CAN_HZ / (R40_CAN_DATA_SEG1 + R40_CAN_DATA_SEG2) == 5000000U);
-    bool started = R40_TimingStart();
+    bool started = McuSystem_Start();
     if (fake_failure == 5U)
     {
         assert(!started && !fake_tmr1.running && !fake_tmr6.running);
         puts("PASS SysTick failure leaves timers stopped");
         return 0;
     }
-    assert(started && !R40_TimingStart());
-    assert(power_stage_hw_phases_disabled() && fake_tmr1.brk == 0U);
+    assert(started && !McuSystem_Start());
+    assert(BspPwm_ArePhasesDisabled() && fake_tmr1.brk == 0U);
     fake_tmr1.cctrl = 0xAU;
-    power_stage_hw_start();
-    assert(fake_tmr1.brk == 1U && !power_stage_hw_phases_disabled());
-    power_stage_hw_stop();
+    BspPwm_Enable();
+    assert(fake_tmr1.brk == 0x8000U && !BspPwm_ArePhasesDisabled());
+    BspPwm_Disable();
     assert(fake_tmr1.cctrl == 0xAU && fake_tmr1.brk == 0U);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
     for (unsigned bit = 0U; bit < 16U; ++bit)
@@ -277,50 +391,78 @@ int main(int argc, char **argv)
         if ((value & (s_main_outputs | s_complement_outputs)) != 0U)
         {
             fake_tmr1.cctrl = value;
-            assert(!power_stage_hw_phases_disabled());
-            power_stage_hw_stop();
-            assert(power_stage_hw_phases_disabled());
+            assert(!BspPwm_ArePhasesDisabled());
+            BspPwm_Disable();
+            assert(BspPwm_ArePhasesDisabled());
         }
     }
     for (unsigned initial = 0U; initial <= 1U; ++initial)
     {
         fake_primask = initial;
-        power_stage_hw_start();
+        BspPwm_Enable();
         assert(fake_primask == initial);
-        power_stage_hw_stop();
+        BspPwm_Disable();
         assert(fake_primask == initial);
-        unsigned outer = critical_hw_enter(), inner = critical_hw_enter();
+        unsigned outer = BspSystem_EnterCritical(), inner = BspSystem_EnterCritical();
         assert(fake_primask == 1U);
-        critical_hw_exit(inner);
+        BspSystem_ExitCritical(inner);
         assert(fake_primask == 1U);
-        critical_hw_exit(outer);
+        BspSystem_ExitCritical(outer);
         assert(fake_primask == initial);
     }
-    assert(time_hw_now_ms() == 0U);
+    for (unsigned initial = 0U; initial < 2U; ++initial)
+    {
+        fake_primask = initial;
+        uint32_t outer = BspSystem_EnterControlCritical();
+        uint32_t inner = BspSystem_EnterControlCritical();
+        assert(outer == 0U && inner == 0x20U && fake_primask == initial);
+        BspSystem_ExitControlCritical(inner);
+        BspSystem_ExitControlCritical(outer);
+        uint32_t restored = BspSystem_EnterControlCritical();
+        assert(restored == 0U && fake_primask == initial);
+        BspSystem_ExitControlCritical(restored);
+        volatile uint32_t word = 7U;
+        assert(!BspSystem_CompareExchange32(&word, 3U, 9U) && word == 7U);
+        assert(BspSystem_CompareExchange32(&word, 7U, 9U) && word == 9U);
+        assert(fake_primask == initial);
+    }
+    assert(BspSystem_TimeMs() == 0U);
     for (unsigned i = 0U; i < 2001U; ++i)
     {
         SysTick_Handler();
     }
-    assert(time_hw_now_ms() == 2001U);
+    assert(BspSystem_TimeMs() == 2001U);
+    uint32_t us_origin = BspSystem_TimeUs();
+    uint64_t elapsed_cycles = 0U;
+    for (unsigned n = 0U; n < 600U; n++)
+    {
+        uint32_t advance = n < 100U ? 179U : 4000000000U;
+        foundation_dwt.CYCCNT += advance;
+        elapsed_cycles += advance;
+        fake_primask = n & 1U;
+        assert(BspSystem_TimeUs() == us_origin + (uint32_t)(elapsed_cycles / 180U));
+        assert(fake_primask == (n & 1U));
+    }
     for (unsigned mask = 0U; mask < 2U; ++mask)
     {
         fake_primask = mask;
         for (unsigned i = 0U; i <= 4500U; ++i)
         {
             float a = (float)i / 4500.0f;
-            motor_hw_pwm_set_duty(a, 0.25f, 0.75f);
+            BspPwm_SetDuty(a, 0.25f, 0.75f);
             assert(fake_tmr1.c2dt == (uint16_t)(a * 4500.0f));
             assert(fake_tmr1.c3dt == 1125U && fake_tmr1.c4dt == 3375U);
-            assert(fake_tmr1.brk == 0U && power_stage_hw_phases_disabled() && fake_primask == mask);
+            assert(fake_tmr1.brk == 0U && BspPwm_ArePhasesDisabled() && fake_primask == mask);
         }
-        motor_hw_pwm_set_phase_duty(MOTOR_HW_PWM_PHASE_B, 0.5f);
+        BspPwm_SetPhaseDuty(BSP_PWM_PHASE_B, 0.5f);
         assert(fake_tmr1.c2dt == 4500U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 3375U);
-        motor_hw_pwm_set_phase_duty((MotorHwPwmPhase)99, 0.0f);
+        BspPwm_SetPhaseDuty((BspPwmPhase)99, 0.0f);
         assert(fake_tmr1.c3dt == 2250U);
-        motor_hw_pwm_force_high_sides();
+        assert(BspPwm_SetDuty(1.0f, 1.0f, 1.0f) == BSP_OK);
         assert(fake_tmr1.c2dt == 4500U && fake_tmr1.c3dt == 4500U && fake_tmr1.c4dt == 4500U);
-        assert(fake_tmr1.brk == 0U && power_stage_hw_phases_disabled() && fake_tmr1.running);
+        assert(fake_tmr1.brk == 0U && BspPwm_ArePhasesDisabled() && fake_tmr1.running);
     }
+    test_pwm_commit_boundaries();
     puts("PASS startup ordering, real ports, timing, six outputs and nested IRQ state");
     return 0;
 }

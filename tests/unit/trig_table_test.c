@@ -108,6 +108,20 @@ int main(void)
         assert(isnan(s) && isnan(c));
     }
     float s, c;
+    /* 预测角跨一圈时，与显式fmodf归一化逐位一致，包括边界及负零。 */
+    for (unsigned i = 0U; i <= 4096U; ++i)
+    {
+        float angle = _2PI + (float)i * (_2PI / 4096.0f);
+        for (unsigned sign = 0U; sign < 2U; ++sign)
+        {
+            float input = sign ? -angle : angle;
+            float reference_s, reference_c;
+            Math_SinCos(input, &s, &c);
+            Math_SinCos(fmodf(input, _2PI), &reference_s, &reference_c);
+            assert(memcmp(&s, &reference_s, sizeof(s)) == 0);
+            assert(memcmp(&c, &reference_c, sizeof(c)) == 0);
+        }
+    }
     Math_SinCos(-0.0f, &s, &c);
     assert(signbit(s) && c == 1.0f);
     Math_SinCos(0.0f, &s, &c);

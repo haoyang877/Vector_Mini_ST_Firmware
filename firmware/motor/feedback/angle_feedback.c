@@ -3,8 +3,8 @@
 #include <limits.h>
 #include <string.h>
 #include "control_config.h"
-#include "critical_hw.h"
-#include "encoder_sensor.h"
+#include "bsp_system.h"
+#include "bsp_encoder.h"
 #include "control_math.h"
 
 /* 角度反馈（motor 层拥有）：帧读取编排与电角度（20 kHz 快路径）、机械/电角速度
@@ -49,26 +49,32 @@ static void encoder_mark_read_status(EncoderState *encoder, EncoderReadStatus st
  * 仅 20 kHz 快环调用；两次调用之间禁止访问传感器总线。 */
 bool Encoder_BeginSample(void)
 {
-    return encoder_sensor_begin();
+    return BspEncoder_Begin() == BSP_OK;
 }
 
 uint8_t Encoder_BeginReadback(bool sample_started)
 {
-    return encoder_sensor_begin_readback(sample_started);
+    if (!sample_started)
+    {
+        return 0U;
+    }
+    (void)BspEncoder_BeginReadback();
+    return 1U;
 }
 
 /* 通道状态映射到既有对外读取状态；旧枚举保留以兼容遥测。
- * 输入：平台层 EncoderSensorStatus；返回：本层 EncoderReadStatus：
+ * 输入：平台层 BspEncoderStatus；返回：本层 EncoderReadStatus：
  * 帧错误->CRC_MISMATCH、传感器故障->TLE_SYSTEM_ERROR、总线超时/其他->SPI_TIMEOUT。 */
-static EncoderReadStatus encoder_map_sensor_status(EncoderSensorStatus status)
+static EncoderReadStatus encoder_map_sensor_status(BspResult status)
 {
     switch (status)
     {
-    case ENCODER_SENSOR_FRAME_ERROR:
+    case BSP_CRC_ERROR:
+    case BSP_FRAME_ERROR:
         return ENCODER_READ_CRC_MISMATCH;
-    case ENCODER_SENSOR_SENSOR_FAULT:
+    case BSP_SENSOR_FAULT:
         return ENCODER_READ_TLE_SYSTEM_ERROR;
-    case ENCODER_SENSOR_BUS_TIMEOUT:
+    case BSP_TIMEOUT:
     default:
         return ENCODER_READ_SPI_TIMEOUT;
     }
@@ -81,19 +87,27 @@ static EncoderReadStatus encoder_map_sensor_status(EncoderSensorStatus status)
  * 成功时缓存 frame_word/safety_word 供诊断，遗留 CRC 字段清零。 */
 static bool encoder_read_frame(EncoderState *encoder, uint16_t *raw_q15, uint8_t sample_stage)
 {
-    EncoderSensorSample sample;
-
-    if (encoder_sensor_complete(sample_stage, &sample) != ENCODER_SENSOR_OK)
+    BspEncoderSample sample;
+    BspResult result = sample_stage != 0U ? BspEncoder_Complete(&sample) : BSP_NOT_READY;
+    if (result != BSP_OK)
     {
-        encoder_mark_read_status(encoder, encoder_map_sensor_status(sample.status));
+        encoder_mark_read_status(encoder, encoder_map_sensor_status(result));
         return false;
     }
-
-    encoder->frame_word = sample.frame_word;
-    encoder->safety_word = sample.safety_word;
+    BspEncoderDiagnostics diagnostics;
+    if (BspEncoder_ReadDiagnostics(&diagnostics) == BSP_OK && diagnostics.sample_result == BSP_OK &&
+        diagnostics.sample_sequence == sample.sequence)
+    {
+        encoder->frame_word = (diagnostics.valid_mask & BSP_ENCODER_DIAG_FRAME_VALID) != 0U
+                                  ? diagnostics.frame_word
+                                  : 0U;
+        encoder->safety_word = (diagnostics.valid_mask & BSP_ENCODER_DIAG_SAFETY_VALID) != 0U
+                                   ? diagnostics.safety_word
+                                   : 0U;
+    }
     encoder->crc_received = 0U;
     encoder->crc_calculated = 0U;
-    *raw_q15 = sample.angle_q15;
+    *raw_q15 = sample.angle_counts;
     encoder_mark_read_status(encoder, ENCODER_READ_OK);
     return true;
 }
@@ -309,7 +323,9 @@ void Encoder_SetReverse(EncoderCalibration *calibration, EncoderState *encoder, 
         return;
     }
 
-    primask = critical_hw_enter();
+    primask = BspSystem_EnterControlCritical();
+    calibration->calib_flag = 0U;
+    BspSystem_MemoryBarrier();
     calibration->reverse = reverse_value;
     calibration->electrical_zero_q15 = 0U;
     calibration->mechanical_zero_q15 = 0U;
@@ -325,12 +341,12 @@ void Encoder_SetReverse(EncoderCalibration *calibration, EncoderState *encoder, 
     encoder->previous_linearized_q15 = 0U;
     encoder->mechanical_position_rad = 0.0f;
     encoder_reset_velocity_estimate(encoder);
-    critical_hw_exit(primask);
+    BspSystem_ExitControlCritical(primask);
 }
 
 /* 上电初始化编码器状态与传感器通道。
  * 输入：calibration、encoder；校准须在调用前由参数服务填充；无返回值。
- * 方向值归一化为 0/1；清空快/慢/诊断状态；复位速度窗口；调用 encoder_sensor_init()。
+ * 方向值归一化为 0/1；清空快/慢/诊断状态；复位速度窗口；调用 BspEncoder_Init()。
  * SPI 初始化失败走致命错误路径，不返回。 */
 void Encoder_ParamInit(EncoderCalibration *calibration, EncoderState *encoder)
 {
@@ -358,8 +374,6 @@ void Encoder_ParamInit(EncoderCalibration *calibration, EncoderState *encoder)
     encoder->read_error_count = 0U;
     encoder->bad_frame_streak = 0U;
     encoder_reset_velocity_estimate(encoder);
-
-    encoder_sensor_init();
 }
 
 /* 判断编码器是否在线。
@@ -407,12 +421,12 @@ bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *en
         return false;
     }
 
-    primask = critical_hw_enter();
+    primask = BspSystem_EnterControlCritical();
     calibration->mechanical_zero_q15 = encoder->linearized_q15;
     calibration->calib_flag |= ENC_CALIB_MECHANICAL_ZERO;
     /* 零位在下一 2 kHz 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零。 */
     encoder->zero_requested = true;
-    critical_hw_exit(primask);
+    BspSystem_ExitControlCritical(primask);
     return true;
 }
 

@@ -1,10 +1,12 @@
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "motor_command.h"
+#include "control_math.h"
 #include "motor_control.h"
-#include "motor_hw.h"
+#include "bsp_pwm.h"
 #include "motor_maintenance.h"
 #include "motor_state_machine.h"
 
@@ -30,7 +32,7 @@ enum
     TRACE_KIND = 2U,
     TRACE_STATE = 4U,
     TRACE_IDLE = 8U,
-    TRACE_CURRENT_TASK = 16U,
+    TRACE_CURRENT_TASK = 32U,
     TRACE_CURRENT_LOOP = 32U,
     TRACE_VQ = 64U,
     TRACE_MAINTENANCE = 256U,
@@ -54,10 +56,11 @@ MotorState MotorStateMachine_GetState(void)
     return lifecycle_state;
 }
 
-void motor_hw_pwm_set_duty(float a, float b, float c)
+BspResult BspPwm_SetDuty(float a, float b, float c)
 {
     assert(a == 0.5f && b == 0.5f && c == 0.5f);
     trace |= TRACE_IDLE;
+    return BSP_OK;
 }
 
 MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
@@ -123,10 +126,79 @@ void Task_Vq_Mode(const MotorConfiguration *configuration,
     trace |= TRACE_VQ;
 }
 
+float Observer_GetElePhase(FluxObserverState *observer)
+{
+    assert(observer == &s_flux_observer);
+    return 0.75f;
+}
+float Observer_GetEleVel(FluxObserverState *observer)
+{
+    assert(observer == &s_flux_observer);
+    return 2.5f;
+}
+bool Encoder_IsOnline(const EncoderState *encoder)
+{
+    assert(encoder == &s_rotor_encoder);
+    return true;
+}
+uint8_t Encoder_GetCalibFlag(const EncoderCalibration *calibration)
+{
+    (void)calibration;
+    return ENC_CALIB_ALL;
+}
+void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
+{
+    if (motor->fault_code == MOTOR_FAULT_NONE)
+    {
+        motor->fault_code = fault;
+    }
+}
+void FOC_Step(const MotorConfiguration *configuration,
+              FocState *foc,
+              MotorControlState *motor,
+              FocControlLaw law,
+              float phase,
+              float velocity,
+              float d_reference,
+              float q_reference)
+{
+    assert(configuration == &s_motor_configuration && foc == &s_foc_state &&
+           motor == &s_motor_state);
+    if (MotorControlMode_IsOpenLoop(motor->control_mode))
+    {
+        assert(phase == motor->open_loop_angle_rad &&
+               velocity == _2PI * motor->open_loop_frequency_hz);
+        if (motor->control_mode == MOTOR_CONTROL_OPEN_VOLTAGE)
+        {
+            assert(law == FOC_CONTROL_VOLTAGE && d_reference == motor->vd_target_v &&
+                   q_reference == motor->vq_target_v);
+        }
+        else
+        {
+            assert(law == FOC_CONTROL_CURRENT && d_reference == motor->id_target_a &&
+                   q_reference == motor->iq_target_a);
+        }
+        trace |= TRACE_CURRENT_LOOP;
+        return;
+    }
+    assert(phase == 0.75f && velocity == 2.5f);
+    if (motor->control_mode == MOTOR_CONTROL_VQ)
+    {
+        assert(law == FOC_CONTROL_ID_VQ && d_reference == 0 && q_reference == motor->vq_target_v);
+        trace |= TRACE_VQ;
+    }
+    else
+    {
+        assert(law == FOC_CONTROL_CURRENT && d_reference == motor->id_target_a &&
+               q_reference == motor->iq_target_a);
+        trace |= TRACE_CURRENT_LOOP;
+    }
+}
+
 /* 合成输入的行为期望独立于调度内部实现；不把受理状态当作物理输出事实。 */
 static void check_result(MotorTaskResult actual)
 {
-    unsigned expected_trace = 0U;
+    unsigned expected_trace = TRACE_RUNNABLE;
     MotorTaskResult expected = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     if (s_motor_state.fault_code == MOTOR_FAULT_NONE)
     {
@@ -193,7 +265,7 @@ int main(void)
             s_motor_state.control_mode = (MotorControlMode)mode;
             trace = 0U;
             MotorTaskResult actual = dispatch_step();
-            assert(trace == 0U && actual.result == MOTOR_TASK_RUNNING &&
+            assert(trace == TRACE_RUNNABLE && actual.result == MOTOR_TASK_RUNNING &&
                    actual.error == MOTOR_FAULT_NONE);
         }
     }
@@ -235,5 +307,30 @@ int main(void)
         }
     }
     printf("PASS %u scheduling cases; trace=%lu\n", cases, trace_hash);
+    s_motor_state = (MotorControlState){.control_mode = MOTOR_CONTROL_OPEN_VOLTAGE,
+                                        .open_loop_frequency_hz = 20.0f,
+                                        .open_loop_angle_rad = _2PI - 0.001f,
+                                        .vq_target_v = 2.0f};
+    trace = 0U;
+    MotorControl_Step(
+        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+    assert(trace == TRACE_CURRENT_LOOP && s_motor_state.open_loop_angle_rad > 0 &&
+           s_motor_state.open_loop_angle_rad < 0.01f);
+    s_motor_state.control_mode = MOTOR_CONTROL_OPEN_CURRENT;
+    s_motor_state.open_loop_frequency_hz = -20.0f;
+    s_motor_state.open_loop_angle_rad = 0.001f;
+    s_motor_state.id_target_a = 0.2f;
+    s_motor_state.iq_target_a = 0.3f;
+    trace = 0U;
+    MotorControl_Step(
+        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+    assert(trace == TRACE_CURRENT_LOOP && s_motor_state.open_loop_angle_rad > _2PI - 0.01f);
+    s_motor_state.open_loop_frequency_hz = NAN;
+    trace = 0U;
+    MotorControl_Step(
+        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+    assert(trace == 0 && s_motor_state.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
+    puts("PASS formal open-loop laws: voltage/current references, bidirectional phase wrap, "
+         "invalid frequency");
     return 0;
 }

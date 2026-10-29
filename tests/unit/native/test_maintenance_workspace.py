@@ -97,6 +97,7 @@ def main() -> None:
             command
             + reference_header
             + NATIVE_INCLUDE_FLAGS
+            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
             + flags
             + ["-DMOTOR_HAS_DAMPING_RING=" + str(args.damping_profile)]
             + [

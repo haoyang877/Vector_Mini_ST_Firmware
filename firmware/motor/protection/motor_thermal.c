@@ -2,8 +2,21 @@
  * @brief 固定窗口热计算；无分配、无阻塞、不推断绝对绕组温度。
  */
 #include "motor_thermal.h"
+#include <float.h>
 #include <stddef.h>
 #include <string.h>
+
+#if FLT_RADIX != 2 || FLT_MANT_DIG != 24 || FLT_MAX_EXP != 128
+#error "Motor thermal checks require IEEE 754 binary32"
+#endif
+typedef char ThermalFloatMustBe4Bytes[(sizeof(float) == 4U) ? 1 : -1];
+
+static inline uint32_t thermal_float_bits(float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
 
 bool MotorThermal_ConfigValid(const MotorThermalConfig *c)
 {
@@ -156,19 +169,20 @@ bool MotorThermal_Accumulate(MotorThermalState *state, float ia_a, float ib_a, f
         MotorThermal_Invalidate(state);
         return false;
     }
-    if (!(fabsf(ia_a) <= 100.0f))
+    /* binary32绝对值按位有序；含边界100A，NaN/无穷仍立即失效。 */
+    if ((thermal_float_bits(ia_a) & UINT32_C(0x7FFFFFFF)) > UINT32_C(0x42C80000))
     {
         MotorThermal_Invalidate(state);
         return false;
     }
     state->square_sum_a2[0] += ia_a * ia_a;
-    if (!(fabsf(ib_a) <= 100.0f))
+    if ((thermal_float_bits(ib_a) & UINT32_C(0x7FFFFFFF)) > UINT32_C(0x42C80000))
     {
         MotorThermal_Invalidate(state);
         return false;
     }
     state->square_sum_a2[1] += ib_a * ib_a;
-    if (!(fabsf(ic_a) <= 100.0f))
+    if ((thermal_float_bits(ic_a) & UINT32_C(0x7FFFFFFF)) > UINT32_C(0x42C80000))
     {
         MotorThermal_Invalidate(state);
         return false;
@@ -185,11 +199,13 @@ static inline bool update_heat(MotorThermalState *state, unsigned channel, float
     float alpha = q >= heat ? state->heating_alpha : state->cooling_alpha;
     heat += alpha * (q - heat);
     state->heat[channel] = heat;
-    if (!isfinite(heat) || heat < 0.0f)
+    uint32_t bits = thermal_float_bits(heat);
+    /* 非负有限值含负零；不改变先写本通道、再判错的既有收尾顺序。 */
+    if (!(bits <= UINT32_C(0x7F7FFFFF) || bits == UINT32_C(0x80000000)))
     {
         return false;
     }
-    if (heat > *max_heat)
+    if ((bits & UINT32_C(0x7FFFFFFF)) > thermal_float_bits(*max_heat))
     {
         *max_heat = heat;
     }

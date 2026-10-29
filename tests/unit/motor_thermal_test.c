@@ -1,5 +1,6 @@
 /* 绕组热纯核与真实APP/FOC入口定向检查；只有PWM记录桩，无硬件访问。 */
 #include <assert.h>
+#include "bsp_pwm.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,10 +9,19 @@
 #include "control_config.h"
 
 static unsigned s_pwm_writes;
-void motor_hw_pwm_set_duty(float a, float b, float c)
+static const FocState *s_submission_state;
+static float s_integral_at_submission, s_filter_at_submission;
+static BspResult s_submission_result = BSP_OK;
+BspResult BspPwm_SetDuty(float a, float b, float c)
 {
     assert(isfinite(a) && isfinite(b) && isfinite(c));
     ++s_pwm_writes;
+    if (s_submission_state != NULL)
+    {
+        s_integral_at_submission = s_submission_state->id_pi.integral_output;
+        s_filter_at_submission = s_submission_state->id_filtered_a;
+    }
+    return s_submission_result;
 }
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
 {
@@ -209,10 +219,93 @@ static void test_foc(void)
          "rejection");
 }
 
+static void test_submission(void)
+{
+    MotorConfiguration config = {0};
+    MotorControlState motor = {0};
+    FocState foc = {0};
+    config.application.current_limit_a = motor.thermal_current_limit_a = 3.0f;
+    foc.bus_voltage_filtered_v = 20.0f;
+    foc.id_pi.proportional_gain = foc.iq_pi.proportional_gain = 1.0f;
+    foc.id_pi.integral_output = foc.iq_pi.integral_output = 30.0f;
+    foc.id_filtered_a = 99.0f;
+    s_submission_state = &foc;
+    FOC_Current(&config, &foc, &motor, 0.0f, 0.0f);
+    assert(s_integral_at_submission == 30.0f && s_filter_at_submission == 99.0f);
+    assert(foc.id_pi.integral_output <= foc.id_pi.output_max);
+    assert(fabsf(foc.id_filtered_a - 98.01f) < .00001f);
+    assert(foc.id_pi.output == foc.mod_d * foc.bus_voltage_filtered_v / 1.5f);
+    s_submission_result = BSP_TIMEOUT;
+    FOC_Current(&config, &foc, &motor, 0.0f, 0.0f);
+    assert(motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN);
+    assert(foc.id_pi.output == foc.mod_d * foc.bus_voltage_filtered_v / 1.5f);
+    s_submission_state = NULL;
+    puts("PASS PWM submitted before next-tick PI tracking and statistics; failure state retained");
+}
+
+static void test_disabled(void)
+{
+    MotorWindingThermalConfig config;
+    MotorWindingThermal_Default(&config);
+    assert(!MotorThermalControl_CanRun(false));
+    assert(MotorThermalControl_CurrentLimit(3.0f) == 0.0f);
+    assert(MotorThermalControl_Init(&config, 0U));
+    assert(!MotorThermalControl_Configure(&config, false));
+    assert(MotorThermalControl_Configure(&config, true));
+    for (unsigned i = 0U; i < 100000U; ++i)
+    {
+        MotorThermalControl_Sample(NAN, INFINITY, 100.0f, false, i);
+    }
+    assert(MotorThermalControl_CanRun(false) && MotorThermalControl_Guard(false));
+    assert(MotorThermalControl_CheckWatchdog(1000000U, false));
+    assert(MotorThermalControl_CurrentLimit(3.0f) == 3.0f);
+    assert(MotorThermalControl_CurrentLimit(NAN) == 0.0f);
+    MotorThermalDiagnostics diagnostics, before;
+    memset(&diagnostics, 0xA5, sizeof(diagnostics));
+    before = diagnostics;
+    assert(!MotorThermalControl_GetDiagnostics(&diagnostics));
+    assert(memcmp(&before, &diagnostics, sizeof(before)) == 0);
+
+    MotorConfiguration configuration = {0};
+    MotorControlState motor = {0};
+    FocState foc = {0};
+    configuration.application.current_limit_a = 3.0f;
+    motor.control_mode = MOTOR_CONTROL_CURRENT;
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    assert(motor.thermal_current_limit_a == 3.0f && !motor.thermal_limit_active);
+    foc.id_pi.proportional_gain = foc.iq_pi.proportional_gain = 1.0f;
+    foc.id_pi.sample_period_s = foc.iq_pi.sample_period_s = Current_Ts;
+    foc.bus_voltage_filtered_v = 30.0f;
+    motor.id_target_a = 3.0f;
+    motor.iq_target_a = 4.0f;
+    FOC_Current(&configuration, &foc, &motor, 0.0f, 0.0f);
+    assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_NONE);
+    assert(fabsf(foc.id_pi.reference - 1.8f) < 0.000001f);
+    assert(fabsf(foc.iq_pi.reference - 2.4f) < 0.000001f);
+    motor.control_mode = MOTOR_CONTROL_VQ;
+    foc.phase_a_current_a = 4.0f;
+    foc.phase_b_current_a = foc.phase_c_current_a = -2.0f;
+    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+    motor.fault_code = MOTOR_FAULT_NONE;
+    FOC_CurrentWithReference(&configuration, &foc, &motor, 0.0f, 0.0f, NAN);
+    assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+    puts("PASS disabled thermal model: no fabricated diagnostics, 3A vector/current guards "
+         "retained");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
-    if (strcmp(argv[1], "core") == 0)
+    if (strcmp(argv[1], "submission") == 0)
+    {
+        test_submission();
+    }
+    else if (strcmp(argv[1], "disabled") == 0)
+    {
+        test_disabled();
+    }
+    else if (strcmp(argv[1], "core") == 0)
     {
         test_core();
     }

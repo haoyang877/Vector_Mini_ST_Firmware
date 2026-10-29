@@ -20,18 +20,21 @@ PRELUDE = r"""
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "bsp_adc.h"
 #include "motor_types.h"
 #include "motor_config.h"
 #include "bus_voltage_profile.h"
-#include "motor_sensing.h"
+#include "sampling_scale.h"
 #define FOC_FREQ 20000U
 #define SENSING_VBUS_FACTOR (3.3f / 4095.0f * 11.0f)
 #define ADC2_SUM_TO_COUNTS .25f
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
 typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } FocState;
 static struct { uint32_t JDR4; } adc;
-uint16_t motor_hw_vbus_sample_raw(void) {
-    return (uint16_t)adc.JDR4;
+BspResult BspAdc_ReadFast(BspAdcFastSample *out) {
+    *out=(BspAdcFastSample){.bus_voltage_v=(float)adc.JDR4*ADC2_SUM_TO_COUNTS*SENSING_VBUS_FACTOR,
+                         .valid_mask=BSP_ADC_FAST_BUS_VOLTAGE_VALID};
+    return BSP_OK;
 }
 static MotorConfiguration configuration;
 static MotorControlState motor_state;
@@ -40,6 +43,11 @@ static void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_
 """
 
 CASES = r"""
+static void sample_voltage(bool output_expected) {
+    BspAdcFastSample sample;
+    BspResult result=BspAdc_ReadFast(&sample);
+    Vbus_Update(&s_foc_state,&motor_state,output_expected,result==BSP_OK?&sample:NULL);
+}
 static void input(float v) {
     adc.JDR4=(uint32_t)roundf(v/SENSING_VBUS_FACTOR/ADC2_SUM_TO_COUNTS);
     assert(adc.JDR4<=4*4095);
@@ -49,11 +57,11 @@ static void reset(float v) {
     memset(&motor_state,0,sizeof(motor_state));
     motor_state.control_mode=MOTOR_CONTROL_NONE;
     input(v); s_foc_state.bus_voltage_filtered_v=v;
-    Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
+    sample_voltage(motor_state.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
     configuration.application.axis_profile_valid=true;
     configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
 }
-static void tick(unsigned n) { while(n--) Vbus_Update(&s_foc_state,&motor_state,motor_state.control_mode!=MOTOR_CONTROL_NONE); }
+static void tick(unsigned n) { while(n--) sample_voltage(motor_state.control_mode!=MOTOR_CONTROL_NONE); }
 static void running(float v) { reset(v);motor_state.control_mode=MOTOR_CONTROL_SPEED; }
 /* 正有限 float 的位模式有序；独立整数区间作参考，不复用待测浮点判定。 */
 static void test_enable_window(void) {
@@ -126,7 +134,7 @@ int main(void) {
     puts("PASS disable resets both confirmation counters");
     /* 维护执行器不再借用控制模式值；同一显式保护许可覆盖转矩维护。 */
     reset(34.2f);
-    for(k=0;k<40;k++) Vbus_Update(&s_foc_state,&motor_state,true);
+    for(k=0;k<40;k++) sample_voltage(true);
     assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
     puts("PASS explicit maintenance power expectation protected independently of control mode");
     return 0;

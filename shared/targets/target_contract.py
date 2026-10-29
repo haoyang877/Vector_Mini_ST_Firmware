@@ -103,9 +103,9 @@ def load_target(selection: str | Path | None = None, *, directory: Path | None =
     if "build" in target:
         build = target["build"]
         for key in ("artifact_mcu", "app_name"):
-            if not isinstance(build.get(key), str) or not re.fullmatch(
-                r"[A-Za-z0-9_]+", build[key]
-            ):
+            # Keil工程名允许连字符；发布用MCU字段仍保持原有约束。
+            pattern = r"[A-Za-z0-9_][A-Za-z0-9_-]*" if key == "app_name" else r"[A-Za-z0-9_]+"
+            if not isinstance(build.get(key), str) or not re.fullmatch(pattern, build[key]):
                 raise ValueError(f"目标构建名称非法：{key}")
     return target
 

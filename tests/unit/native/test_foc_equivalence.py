@@ -30,14 +30,16 @@ def main() -> None:
         ).decode("utf-8")
 
     foc = project_reference_motor_config(frozen("firmware/motor/foc/foc_algorithm.c"))
+    # 只投影退役的PWM头文件与输出符号，不改变冻结参考的运算和控制分支。
+    foc = foc.replace('#include "motor_hw.h"', '#include "bsp_pwm.h"').replace(
+        "motor_hw_pwm_set_duty", "BspPwm_SetDuty"
+    )
     pi = frozen("firmware/motor/foc/foc_pid.c")
     names = set(re.findall(r"^(?:float|void|bool)\s+(\w+)\s*\(", foc + "\n" + pi, re.M))
     # 仅投影函数名，常量、算术次序、控制分支及结构保持冻结内容。
     defines = "\n".join(
         "#define " + n + " " + n + "_Reference"
-        for n in sorted(
-            names | {"motor_hw_pwm_set_duty", "FastLoopProfile_Begin", "FastLoopProfile_End"}
-        )
+        for n in sorted(names | {"BspPwm_SetDuty", "FastLoopProfile_Begin", "FastLoopProfile_End"})
     )
     (out / "reference_foc.c").write_text(defines + "\n" + foc, encoding="utf-8")
     (out / "reference_pi.c").write_text(defines + "\n" + pi, encoding="utf-8")
@@ -55,7 +57,7 @@ def main() -> None:
                 "-Wall",
                 "-Wextra",
                 "-Werror",
-                f"-DFAST_LOOP_STAGE_PROFILE={profile}",
+                f"-DBSP_ENABLED_FAST_LOOP_PROFILE={profile}",
                 "tests/unit/foc_equivalence_test.c",
                 "firmware/motor/foc/foc_algorithm.c",
                 "firmware/motor/foc/foc_pid.c",

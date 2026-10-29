@@ -32,7 +32,7 @@ def main() -> int:
         executable = output / f"observer_calibration_{damping}.exe"
         command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
         command += ["-std=c99", "-O1", "-Wall", "-Wextra", "-Werror", "-I", str(output)]
-        command += NATIVE_INCLUDE_FLAGS
+        command += NATIVE_INCLUDE_FLAGS + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
         command += [
             f"-DMOTOR_HAS_DAMPING_RING={damping}",
             str(ROOT / "tests/unit/native/observer_calibration_hotpath_test.c"),

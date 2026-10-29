@@ -1,9 +1,9 @@
 # 代码框架与目录职责
 
-更新：2026-10-23。此页描述当前目录，不用历史报告代替当前实现和验证结果。
+更新：2026-10-26。此页描述当前目录，不用历史报告代替当前实现和验证结果。
 产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 对照Keil阅读每个源文件时，使用[APP文件职责与分层对照](app_file_responsibilities_v1.md)：
-按当前七组及工程顺序列出106个源文件、对应头文件与物理路径，并说明39个独立头文件。
+按当前七组说明主要源文件、对应头文件、物理路径与独立配置头。
 
 ## 独立产品与共享契约
 
@@ -20,11 +20,11 @@
 
 | 目录 | 内容与边界 |
 | --- | --- |
-| app/composition | app.h：四个应用入口；app_startup：App_Init初始化和App_Process后台编排，Loader交接为私有实现；app_tasks：App_FastTick和App_SupervisorTick；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
+| app/composition | app.h：应用入口；app_startup：App_Init初始化和App_Process后台编排，Loader交接为私有实现；app_tasks：App_FastTick和App_SupervisorTick；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
 | app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_command：命令格式与范围校验；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
 | app/interfaces | motor_control_command、motor_lifecycle_request、motor_readiness：窄值契约；motor_stop_request：停机请求与真实关闭确认；motor_status_mailbox：只读快照传递；不引用runtime或私有状态机 |
 | app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |
-| motor/foc | motor_control：控制分发与外环；foc_algorithm：控制计算与PI配置绑定；foc_sensing：采样换算及上电零偏累计；flux_observer和sensorless_startup：标定所需估计/启动；speed_control：速度控制 |
+| motor/foc | motor_control：控制分发与外环；foc_algorithm：控制计算与PI配置绑定；foc_sensing：消费BSP物理帧及上电零偏累计；flux_observer和sensorless_startup：标定所需估计/启动；speed_control：速度控制 |
 | motor/feedback | angle_feedback：编码器采样、角度校正、多圈与速度估计；所有模式共同使用 |
 | motor/position | position_cascade：直接位置→速度→电流控制 |
 | motor/math | control_math：既有数学、角度与滤波计算，无硬件或 APP 依赖 |
@@ -33,13 +33,17 @@
 | motor 根目录头文件 | 电机域值类型、模式、状态、任务结果及现有模型/启动 profile，不放应用运行实例 |
 | parameters | parameter_record：schema14装载/导出及12/13兼容读取；parameter_values：标量类型/权限/范围及缩放；motor_axis_profile：轴记录；应用/设备默认值；不拥有通信节点变量 |
 | communication/can | CAN 接入、队列、中断接入、链路及端点调度 |
-| communication/protocol | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
-| platform/api | 无 STM32 类型的硬件能力、单位、失败及执行上下文契约 |
-| platform/config/boards | 按目标保存只读采样输入与固定限值；公共头只选择数据和派生，不依赖外设或功能实现 |
-| platform/stm32g4/bsp | 芯片/板卡原语与驱动 |
-| platform/stm32g4/ports | 板级、CAN、编码器、电机、时间及启动能力的实现 |
-| platform/stm32g4/application | 普通APP与Loader配套APP共用的main.c入口；与AT32的application目录对应 |
-| platform/stm32g4/cubemx | Core外设、中断、HAL/CMSIS、IOC和Keil工程；main.c由MainLocation指定到../application |
+| communication/telemetry | 按目标选择的2kHz只读RTT波形，控制输入只读，不含电机命令 |
+| communication/commands | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
+| platform/bsp/include | 唯一公共硬件契约，保持单位、失败和执行上下文 |
+| platform/config | 板型、支持与使能校验、接线与采样比例；应用准入不在此处 |
+| platform/bsp/mcu/stm32g4 | STM32外设后端及私有生成Core，原厂Drivers在SDK目录 |
+| platform/bsp/mcu/at32f456 | AT32外设后端、DMA/SPI物理事务及存储协调 |
+| platform/bsp根目录 | 两板共用的采样/PWM/编码器/CAN流程及软件状态；器件协议在devices，必要私有声明在bsp_internal.h |
+| platform/sdk | 厂商原目录，逐文件保持；不统一为同样的目录格式 |
+| app/config | 应用必需功能、构建使能、控制周期、软件限流和测试输出许可 |
+| projects | 完整APP目标装配、Keil工程、启动汇编、scatter和CubeMX元数据 |
+| tests/bench/at32f456 | 五个独立外设/电机台架的源代码 |
 
 源码与对应头文件相邻。目录按职责分组，不为单个函数新建目录，不创建空的未来配置目录。
 数据流和所有权见 [APP 命名与所有权](software_architecture.md)、
@@ -49,12 +53,14 @@
 
 ## 参数与运行状态
 
-硬件默认值归 platform/api，电机模型默认值归 motor，应用/设备默认值归 parameters。
+板级物理输入归platform/config/boards，配置选择、比例与时基头归config；
+实现归属见[双板对应表](platform_interface_implementations_v1.md)。
+电机模型默认值归motor，应用/设备默认值归parameters。
 MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `MotorControlState`。
 设备配置内的 `EncoderCalibration` 单份保存LUT/零位；`EncoderState`只含采样、位置/速度和诊断。
 运行对象不包含配置或配置指针，命令目标、模式、故障与测量留在易失状态中。
 算法接收const配置视图与可写运行对象，参数事务和校准提交通过明确入口修改配置。
-零偏观测实例仍由Axis持有，foc_sensing只通过显式参数累计；首次完成后仍由Axis依次增加修订、换算电流。
+零偏观测实例仍由Axis持有，foc_sensing只通过显式参数累计；窗口满后由Axis监督任务发布零偏并增加修订，下一快拍换算电流。
 runtime不解析ADC计数、不实现位置/速度外环或热模型，仍通过平台能力查询时间及真实关相事实。
 按用户的 Watch 观测要求，MotorAxis 运行对象与主状态机上下文使用非静态全局符号；
 定义和运行写入仍集中在所属模块，其他模块通过既有命令、快照和显式对象参数交互。
@@ -62,24 +68,49 @@ runtime不解析ADC计数、不实现位置/速度外环或热模型，仍通过
 schema14保持现有存储布局并兼容读取12/13，由装载/导出边界映射，不能当作控制对象使用。
 参数所有者给启动组合层传节点值，通信不再作为参数节点的存储所有者。
 参数记录和编码器标定复用一份 6 KiB 固定联合工作区，APP 管理占用与归还。
-编码器任务显式借用采样对象，取消/完成清除引用；实际归还后 APP 才允许复用。
+编码器任务显式借用采样对象；LUT验证和停转后返回FINALIZE，仍保留候选工作区。
+主状态机确认关相后由Axis后台复核会话、STOP和故障，原子发布正式LUT及角度元数据。
+发布成功或取消才清除借用；实际归还后APP才允许独立SAVE复用工作区。
 没有 heap 分配器、空闲链表或三份常驻大数组。
 具体读写规则与持久层尚未拆开的兼容限制见[参数所有权](parameter_ownership_v1.md)。
 
 ## 工程与工具接线
 
-主工程为 firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx。
-Loader 配套 APP 为同目录 Vector_Mini_ST_LoaderApp.uvprojx；两者复用同一业务源码。
-两者均只编译`firmware/platform/stm32g4/application/main.c`作为C入口；
-AT32共用APP入口为`firmware/platform/at32f456/application/main.c`。
-旧板入口保留CubeMX生成标记和原格式；IOC的MainLocation为`../application`。
-后续再生成需核对该落点和工程源清单，不能重新加入`Core/Src/main.c`造成重复入口。
-本次迁移未执行CubeMX再生成，生成器对外部目录落点的实际行为仍需再生成时核验。
+双板完整APP共享APP/Motor/Parameters/Communication实现，按功能使能选择母线电流和诊断模块，
+通过相同BSP功能接口装配。板级资源、采样比例及能力归`platform/config/boards/`；
+电机物理模型与型号标定速度归`motor/profiles/`；速度估计公共默认值归
+`motor/profiles/encoder_feedback_defaults.h`。
+AT32两个测试目标分别预包含`app/config/targets/r40_app_off.h`和
+`r40_app_commissioning.h`，由公共目标头集中提供组合选择及临时热数据。
+这些头只有编译期输入，不复制算法、不新增运行时选择、也不改变BSP契约。
+旧板维持既有默认选择；新板限时目标的800Hz PLL和速度PI仍是测试配置。
+具体迁移、对照及未验收项见[双板配置收敛计划](../plans/active/2026-10-24-dual-board-config-v1.md)。
+
+统一管理入口为仓库根目录`YG-ESC.uvmpw`，仅引用旧板APP及新板Off/Commissioning工程。
+三个子工程独立构建，公共代码保持引用同一份；默认活动工程为新板Off，初始不勾选批量构建。
+使用方法见[Keil工作区](../guides/keil_workspace.md)。
+旧板主工程为 projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx。
+Loader 配套 APP 为同目录 ESC-APP-STM32G431-LoaderApp.uvprojx；两者复用同一业务源码。
+两板各自`projects/<board>/application/main.c`定义真实`main()`，模板逐字节一致。
+入口固定调用`Bsp_Init → App_Init → Bsp_Start → App_Start`，前台循环调用`App_Process`。
+MCU的system.c负责硬件初始化和IRQ接线，app_startup.c负责共用对象、协议绑定和后台业务。
+不存在相邻platform_app.c或app_platform.h转发层；各板的具体职责见[BSP架构总图](bsp_architecture_v1.md)。
+旧板普通APP与Loader配套APP选择同一份板级入口；四个完整目标各只链接本板一个main。
+两板application源码均手工维护。IOC的MainLocation保持`Core/Src`，
+生成的Core/Src/main.c不能加入完整APP工程；再生成后核对源清单，避免双入口。
+本轮不执行CubeMX再生成，不能以静态配置检查代替生成器实测。
+实施和验证见[双板入口分离](../plans/active/2026-10-24-board-application-entry-v1.md)。
 普通 APP 独立从 Flash 起始地址链接；只有配套工程使用 Loader APP 槽，不能混称两者布局。
 
-Keil 保持七组：App、Motor、Parameters、Communication、Platform、Shared、Vendor。
-物理子目录不扩展为更多 Keil 分组，工程树只登记源文件，不登记 .h。
-用户逐文件优化、源码顺序与调试配置保留。CubeMX Core/Drivers 内部相对位置不变。
+双板完整APP的Keil工程保持同名七组：`00_App`、`10_Motor`、`20_Parameters`、
+`30_Communication`、`40_Platform`、`50_Shared`、`90_Vendor`。
+物理子目录不扩展为更多Keil分组，工程树只登记源文件，不登记.h。
+新板沿用旧板ARMCC 5.06、C99及公共逐文件优化；公共组的源文件与顺序一致。
+新板入口和采集归Platform，可选只读遥测归Communication，SEGGER RTT归Vendor。
+设备包、存储区、启动文件、SDK及目标配置预包含仍由各板独立选择；
+新板保持禁止自动下载及关相/限时约束。CubeMX Core/Drivers内部相对位置不变。
+本轮编译器切换后的新板镜像尚未实机验收，不能继承先前ARMClang镜像的快环测量。
+对照与验收见[Keil工程对齐](../plans/active/2026-10-24-keil-project-alignment-v1.md)。
 VS Code 按实际目录浏览；原生测试 include 路径统一由 tools/project_paths.py 提供。
 
 目录迁移映射见 [path_migration.json](path_migration.json)，

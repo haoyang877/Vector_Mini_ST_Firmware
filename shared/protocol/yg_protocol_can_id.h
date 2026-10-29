@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "yg_protocol_wire_types.h"
+#include "yg_protocol_common.h"
 
 #define YG_PROTOCOL_CAN_ID_PF 0xEFU
 

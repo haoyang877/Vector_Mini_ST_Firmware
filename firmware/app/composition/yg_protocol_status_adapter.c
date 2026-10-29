@@ -1,17 +1,20 @@
 #include "yg_protocol_status_adapter.h"
-#include "app_bus_current.h"
+#include "bsp_config.h"
+#if BSP_SUPPORTED_BUS_CURRENT
+#include "bus_current_feedback.h"
+#endif
 
 #include <math.h>
 
 #include "angle_feedback.h"
-#include "critical_hw.h"
+#include "bsp_system.h"
 #include "motor_types.h"
 #include "foc_algorithm.h"
 #include "foc_sensing.h"
 #include "motor_state_machine.h"
 #include "motor_axis.h"
 #include "yg_protocol_link.h"
-#include "yg_protocol_motor_status.h"
+#include "yg_protocol_motor.h"
 
 /* 状态适配器只组装 SI 快照；线路缩放、哨兵和小端编码由 protocol 层统一完成。 */
 static yg_protocol_motor_status_source_t s_source;
@@ -83,6 +86,10 @@ static uint8_t protocol_mode(MotorControlMode mode, MotorMaintenanceKind kind)
         return 3U;
     case MOTOR_CONTROL_VQ:
         return 6U;
+    case MOTOR_CONTROL_OPEN_VOLTAGE:
+        return 9U;
+    case MOTOR_CONTROL_OPEN_CURRENT:
+        return 10U;
     default:
         return 0U;
     }
@@ -127,11 +134,16 @@ void YgProtocolStatusAdapter_Refresh(void)
     {
         return;
     }
-    /* 前台独占 s_source；采集短临界区避免快/慢环打断，CRC 与发送在恢复中断后执行。 */
+    /* 前台独占 s_source；版本核对取得快慢环一致快照，CRC与发送不持有采集临界区。 */
     MotorMaintenanceKind kind;
     MotorState state = MotorAxis_ReadStatus(
         &s_source.sample, &s_source.measurement_valid_bits, &kind, &s_source.control_progress);
-    AppBusCurrent_Apply(&s_source.sample.bus_current, &s_source.measurement_valid_bits);
+#if BSP_SUPPORTED_BUS_CURRENT
+    /* 有硬件时使用实测；失效保留NAN及无效位，无硬件时保留原估算。 */
+    bool bus_current_valid = BusCurrentFeedback_Read(&s_source.sample.bus_current);
+    s_source.measurement_valid_bits =
+        (s_source.measurement_valid_bits & (uint8_t)~0x40U) | (bus_current_valid ? 0x40U : 0U);
+#endif
     s_source.faults = fault_bits((MotorFaultCode)s_source.sample.fault);
     s_source.mode = protocol_mode((MotorControlMode)s_source.sample.mode, kind);
     s_source.state = state == MOTOR_STATE_FATAL ? 9U

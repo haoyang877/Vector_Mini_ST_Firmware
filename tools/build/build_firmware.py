@@ -25,6 +25,7 @@ def main():
             "r40-openloop-combined",
             "r40-closedloop",
             "r40-app-off",
+            "r40-app-commissioning",
         ),
         default="all",
     )
@@ -34,21 +35,17 @@ def main():
     log_dir = ROOT / "outputs/build/logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     targets = {
-        "normal": KEIL / "YG_ESC_APP.uvprojx",
-        "r40-foundation": ROOT
-        / "firmware/platform/at32f456/foundation/R40_F456_Foundation.uvprojx",
-        "r40-openloop-dry": ROOT
-        / "firmware/platform/at32f456/foundation/R40_F456_OpenLoop_Dry.uvprojx",
-        "r40-openloop-power": ROOT
-        / "firmware/platform/at32f456/foundation/R40_F456_OpenLoop_Power.uvprojx",
+        "normal": KEIL / "ESC-APP-STM32G431.uvprojx",
+        "r40-foundation": ROOT / "projects/at32f456/bench/R40_F456_Foundation.uvprojx",
+        "r40-openloop-dry": ROOT / "projects/at32f456/bench/R40_F456_OpenLoop_Dry.uvprojx",
+        "r40-openloop-power": ROOT / "projects/at32f456/bench/R40_F456_OpenLoop_Power.uvprojx",
         "r40-openloop-combined": ROOT
-        / "firmware/platform/at32f456/foundation/R40_F456_OpenLoop_Combined.uvprojx",
+        / "projects/at32f456/bench/R40_F456_OpenLoop_Combined.uvprojx",
     }
-    targets["r40-closedloop"] = (
-        ROOT / "firmware/platform/at32f456/foundation/R40_F456_ClosedLoop.uvprojx"
-    )
-    targets["r40-app-off"] = (
-        ROOT / "firmware/platform/at32f456/application/R40_F456_App_Off.uvprojx"
+    targets["r40-closedloop"] = ROOT / "projects/at32f456/bench/R40_F456_ClosedLoop.uvprojx"
+    targets["r40-app-off"] = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
+    targets["r40-app-commissioning"] = (
+        ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Commissioning.uvprojx"
     )
     for kind, project in targets.items():
         # all保留既有含义，底层验证镜像只接受显式选择，不能混入APP发布。

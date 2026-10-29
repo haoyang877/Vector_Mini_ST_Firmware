@@ -1,9 +1,10 @@
 #include "yg_protocol_owner_adapter.h"
+#include "yg_protocol_motor_adapter.h"
 
 #include <string.h>
 
 #include "motor_state_machine.h"
-#include "critical_hw.h"
+#include "bsp_system.h"
 #include "motor_axis.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_parameter.h"
@@ -140,21 +141,8 @@ static void handle_start(const yg_protocol_motor_request_t *request,
                          yg_protocol_service_reply_t *reply)
 {
     MotorControlMode mode;
-    switch (request->mode)
+    if (!yg_protocol_motor_decode_mode(request->mode, &mode))
     {
-    case 1U:
-        mode = MOTOR_CONTROL_CURRENT;
-        break;
-    case 2U:
-        mode = MOTOR_CONTROL_SPEED;
-        break;
-    case 3U:
-        mode = MOTOR_CONTROL_POSITION;
-        break;
-    case 6U:
-        mode = MOTOR_CONTROL_VQ;
-        break;
-    default:
         reply->status = YG_PROTOCOL_SERVICE_UNSUPPORTED;
         return;
     }
@@ -370,12 +358,12 @@ handle_job(void *context, const yg_protocol_job_request_t *request, yg_protocol_
     else if (request->operation == YG_PROTOCOL_JOB_CANCEL)
     {
         /* 162只取消本任务ticket；不能拿维护SAVE身份取消122参数保存。 */
-        uint32_t mask = critical_hw_enter();
+        uint32_t mask = BspSystem_EnterControlCritical();
         MotorMaintenanceProgress candidate;
         bool calibration = MotorStateMachine_ReadMaintenance(ticket, &candidate) &&
                            job_wire_kind(candidate.kind) != 0U;
         result = calibration ? MotorStateMachine_CancelMaintenance(ticket) : MOTOR_CONTROL_INVALID;
-        critical_hw_exit(mask);
+        BspSystem_ExitControlCritical(mask);
         if (result == MOTOR_CONTROL_INVALID)
         {
             reply->detail = YG_PROTOCOL_JOB_DETAIL_STALE_TOKEN;

@@ -6,44 +6,13 @@
 #include "flux_observer.h"
 #include "speed_control.h"
 #include "axis_config.h"
+#include "control_math.h"
 #include "motor_thermal_control.h"
 #include "position_cascade.h"
 #include "position_cascade_config.h"
 
 /* 控制执行核心独占外环状态；调用方传入配置和运行对象，不反查APP生命周期。
  * 调用顺序、数学与故障发布保持原核心合同，不接管功率使能或参数事务。 */
-
-/**
- * @brief  电流模式控制任务。
- * @param configuration 只读活动配置；由调用方保持同拍一致。
- * @param  foc foc 状态指针。
- * @param  motor_state 电机控制状态指针。
- * @param  encoder 编码器状态指针。
- * @param  flux_observer 磁链观测器状态指针。
- * @note 在 20kHz 快速环上下文调用，显式选择编码器或必要的无感反馈。
- */
-void Task_Current_Mode(const MotorConfiguration *configuration,
-                       FocState *foc,
-                       MotorControlState *motor_state,
-                       EncoderState *encoder,
-                       FluxObserverState *flux_observer)
-{
-    float electrical_angle_rad;
-    float electrical_velocity_rad_s;
-
-    if (motor_state->uses_sensorless_feedback == true)
-    {
-        electrical_angle_rad = Observer_GetElePhase(flux_observer);
-        electrical_velocity_rad_s = Observer_GetEleVel(flux_observer);
-    }
-    else
-    {
-        electrical_angle_rad = Encoder_GetElePhase(encoder);
-        electrical_velocity_rad_s = Encoder_GetEleVel(encoder);
-    }
-
-    FOC_Current(configuration, foc, motor_state, electrical_angle_rad, electrical_velocity_rad_s);
-}
 
 /* 轴记录生效时沿用更严格的机械速度上限。 */
 static float position_mode_maximum_speed(const MotorConfiguration *configuration)
@@ -247,59 +216,90 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
 }
 /* OUTER_RUNTIME_END */
 
-/**
- * @brief  Q 轴电压模式：d 轴电流闭环到零，q 轴直接给定电压。
- * @param configuration 只读活动配置；由调用方保持同拍一致。
- * @param  foc foc 状态指针。
- * @param  motor_state 电机控制状态指针。
- * @param  encoder 编码器状态指针。
- * @note 在 20kHz 快速环上下文调用；编码器离线或未标定时置故障并返回。
- */
-void Task_Vq_Mode(const MotorConfiguration *configuration,
-                  FocState *foc,
-                  MotorControlState *motor_state,
-                  EncoderState *encoder)
-{
-    if (!Encoder_IsOnline(encoder))
-    {
-        MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER);
-        return;
-    }
-    if ((Encoder_GetCalibFlag(&configuration->device.encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
-    {
-        MotorFault_Report(motor_state, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
-        return;
-    }
-
-    motor_state->id_target_a = 0.0f;
-    motor_state->iq_target_a = 0.0f;
-
-    FOC_Vq_Mode(
-        configuration, foc, motor_state, Encoder_GetElePhase(encoder), Encoder_GetEleVel(encoder));
-}
-
-/* 调用方已完成故障与生命周期准入；控制功能不反查状态机或选择维护任务。 */
+/* 模式只选择角度来源、控制律与参考，共用FOC_Step负责所有调制和PWM。 */
 MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
                                   FocState *foc,
                                   MotorControlState *motor,
                                   EncoderState *encoder,
                                   FluxObserverState *observer)
 {
+    float phase, velocity;
+    float d_reference = motor->id_target_a;
+    float q_reference = motor->iq_target_a;
+    FocControlLaw law = FOC_CONTROL_CURRENT;
     switch (motor->control_mode)
     {
     case MOTOR_CONTROL_CURRENT:
-        Task_Current_Mode(configuration, foc, motor, encoder, observer);
+        if (motor->uses_sensorless_feedback)
+        {
+            phase = Observer_GetElePhase(observer);
+            velocity = Observer_GetEleVel(observer);
+        }
+        else
+        {
+            phase = Encoder_GetElePhase(encoder);
+            velocity = Encoder_GetEleVel(encoder);
+        }
         break;
     case MOTOR_CONTROL_SPEED:
     case MOTOR_CONTROL_POSITION:
-        FOC_Current(
-            configuration, foc, motor, Encoder_GetElePhase(encoder), Encoder_GetEleVel(encoder));
+        phase = Encoder_GetElePhase(encoder);
+        velocity = Encoder_GetEleVel(encoder);
         break;
     case MOTOR_CONTROL_VQ:
-        Task_Vq_Mode(configuration, foc, motor, encoder);
+        if (!Encoder_IsOnline(encoder))
+        {
+            MotorFault_Report(motor, MOTOR_FAULT_ENCODER);
+            return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+        }
+        if ((Encoder_GetCalibFlag(&configuration->device.encoder) & ENC_CALIB_ALL) != ENC_CALIB_ALL)
+        {
+            MotorFault_Report(motor, MOTOR_FAULT_ENCODER_NOT_CALIBRATED);
+            return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+        }
+        motor->id_target_a = motor->iq_target_a = 0.0f;
+        phase = Encoder_GetElePhase(encoder);
+        velocity = Encoder_GetEleVel(encoder);
+        d_reference = 0.0f;
+        q_reference = motor->vq_target_v;
+        law = FOC_CONTROL_ID_VQ;
+        break;
+    case MOTOR_CONTROL_OPEN_VOLTAGE:
+    case MOTOR_CONTROL_OPEN_CURRENT:
+        if (!isfinite(motor->open_loop_frequency_hz) ||
+            fabsf(motor->open_loop_frequency_hz) > MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ ||
+            !isfinite(motor->open_loop_angle_rad) || motor->open_loop_angle_rad < 0.0f ||
+            motor->open_loop_angle_rad >= _2PI)
+        {
+            MotorFault_Report(motor, MOTOR_FAULT_INVALID_PARAMETERS);
+            return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+        }
+        phase = motor->open_loop_angle_rad;
+        velocity = _2PI * motor->open_loop_frequency_hz;
+        if (motor->control_mode == MOTOR_CONTROL_OPEN_VOLTAGE)
+        {
+            law = FOC_CONTROL_VOLTAGE;
+            d_reference = motor->vd_target_v;
+            q_reference = motor->vq_target_v;
+        }
         break;
     default:
-        break;
+        return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+    }
+    FOC_Step(configuration, foc, motor, law, phase, velocity, d_reference, q_reference);
+    if (MotorControlMode_IsOpenLoop(motor->control_mode) && motor->fault_code == MOTOR_FAULT_NONE)
+    {
+        /* 200Hz上限保证每拍小于一圈；保持正/负频率连续，不做无界归一化。 */
+        float next = phase + velocity * Current_Ts;
+        if (next >= _2PI)
+        {
+            next -= _2PI;
+        }
+        if (next < 0.0f)
+        {
+            next += _2PI;
+        }
+        motor->open_loop_angle_rad = next;
     }
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }

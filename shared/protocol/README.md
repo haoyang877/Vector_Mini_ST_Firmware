@@ -6,7 +6,7 @@ APP与独立Loader复用本目录的唯一实现。当前契约见
 
 | 文件 | 职责 |
 |---|---|
-| `yg_protocol_wire_types.h` | 16B 头、46B 单帧载荷上限、结果码与消息视图 |
+| `yg_protocol_common.h` | 消息类型、16B 头与46B载荷上限、小端字节读写、请求检查和四字节结果写入 |
 | `yg_protocol_crc.c/.h` | 公司 CRC8 与 CRC16 |
 | `yg_protocol_frame_codec.c/.h` | 显式小端字段编码、长度与双 CRC 校验 |
 | `yg_protocol_can_id.c/.h` | 29 位扩展 ID 编解码，PF 固定为 0xEF |
@@ -15,7 +15,9 @@ APP与独立Loader复用本目录的唯一实现。当前契约见
 
 无 HAL、APP 状态、Loader 状态、动态分配、队列或外设初始化。
 消息视图引用输入缓冲区；只有在其生命周期内才可使用载荷指针。
-头文件名称、函数签名和线上字节保持不变，不保留旧目录副本或转发包装。
+`wire_types.h`、`byte_order.h`、`request.h` 已合并为 `yg_protocol_common.h`。
+函数名、结构体与线上字节保持不变，不保留旧头文件或转发包装。
+本目录共11个C/头文件；APP命令处理位于 `firmware/communication/commands/`，本目录不依赖它。
 
 业务路由、权限、Flash、物理发送及复位由各产品拥有。本目录返回编解码结果，
 不意味着参数已应用、块已持久化、回复已发送或升级已成功。

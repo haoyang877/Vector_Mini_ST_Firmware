@@ -1,3 +1,4 @@
+#include "app_feature_requirements.h"
 /* 生产温度/准入/恢复函数的定向回归；模拟测量事实，不连接硬件。 */
 #include <assert.h>
 #include <math.h>
@@ -7,12 +8,15 @@
 #include "bus_voltage_profile.h"
 #include "foc_sensing.h"
 #include "mcu_temperature.h"
+#include "bsp_internal.h"
 #include "motor_fault.h"
 #include "motor_readiness.h"
-#include "motor_sensing.h"
+#include "sampling_scale.h"
+
+#include "temperature_api_fixture.h"
 
 static McuTemperatureTelemetry s_mcu_temperature;
-static MotorHwTemperaturePoll s_poll;
+static TestTemperaturePoll s_poll;
 static MotorConfiguration s_configuration;
 static FocState s_foc;
 static MotorControlState s_motor;
@@ -26,7 +30,7 @@ static struct
     bool fast_samples_fresh;
 } s_context = {&s_foc, &s_configuration, &s_encoder, true};
 
-void motor_hw_temperature_poll(MotorHwTemperaturePoll *result)
+static void TestTemperature_Poll(TestTemperaturePoll *result)
 {
     *result = s_poll;
 }
@@ -73,16 +77,16 @@ int main(void)
     }
     assert(!MotorTemperature_IsFresh() && isnan(s_foc.temperature_c));
     assert(s_motor.fault_code ==
-           (BOARD_REQUIRE_MCU_TEMPERATURE ? MOTOR_FAULT_TEMPERATURE_SENSOR : MOTOR_FAULT_NONE));
-    assert(state_inputs_valid() == !BOARD_REQUIRE_MCU_TEMPERATURE);
+           (BSP_REQUIRED_MCU_TEMPERATURE ? MOTOR_FAULT_TEMPERATURE_SENSOR : MOTOR_FAULT_NONE));
+    assert(state_inputs_valid() == !BSP_REQUIRED_MCU_TEMPERATURE);
     uint32_t checks = read_self_test_measurements();
     assert(!(checks & MOTOR_SELF_TEST_TEMPERATURE_VALID));
-    assert(recovered(MOTOR_FAULT_TEMPERATURE_SENSOR) == !BOARD_REQUIRE_MCU_TEMPERATURE);
-    assert(recovered(MOTOR_FAULT_OVERTEMPERATURE) == !BOARD_REQUIRE_MCU_TEMPERATURE);
+    assert(recovered(MOTOR_FAULT_TEMPERATURE_SENSOR) == !BSP_REQUIRED_MCU_TEMPERATURE);
+    assert(recovered(MOTOR_FAULT_OVERTEMPERATURE) == !BSP_REQUIRED_MCU_TEMPERATURE);
 
     assert(self_test_checks_complete(MOTOR_SELF_TEST_ALL));
     assert(self_test_checks_complete(MOTOR_SELF_TEST_ALL & ~MOTOR_SELF_TEST_TEMPERATURE_VALID) ==
-           !BOARD_REQUIRE_MCU_TEMPERATURE);
+           !BSP_REQUIRED_MCU_TEMPERATURE);
     for (uint32_t bit = 1U; bit <= MOTOR_SELF_TEST_RESOURCES_RELEASED; bit <<= 1U)
     {
         if (bit != MOTOR_SELF_TEST_TEMPERATURE_VALID)
@@ -120,12 +124,12 @@ int main(void)
     Temperature_Update(&s_foc, &s_motor);
     assert(s_motor.fault_code == MOTOR_FAULT_TEMPERATURE_SENSOR);
     s_motor.fault_code = MOTOR_FAULT_NONE;
-    s_poll = (MotorHwTemperaturePoll){
+    s_poll = (TestTemperaturePoll){
         .sample_ready = true, .conversion_ok = true, .celsius = 100.0f, .vdda_mv = 3300.0f};
     Temperature_Update(&s_foc, &s_motor);
     assert(MotorTemperature_IsFresh() && s_foc.temperature_c == 100.0f);
     assert(s_motor.fault_code ==
-           (BOARD_REQUIRE_MCU_TEMPERATURE ? MOTOR_FAULT_OVERTEMPERATURE : MOTOR_FAULT_NONE));
+           (BSP_REQUIRED_MCU_TEMPERATURE ? MOTOR_FAULT_OVERTEMPERATURE : MOTOR_FAULT_NONE));
     assert(!(read_self_test_measurements() & MOTOR_SELF_TEST_TEMPERATURE_VALID));
     s_motor.fault_code = MOTOR_FAULT_ENCODER;
     Temperature_Update(&s_foc, &s_motor);
@@ -137,7 +141,7 @@ int main(void)
     assert(MotorTemperature_IsFresh() && s_foc.temperature_c == 25.0f);
     assert(read_self_test_measurements() & MOTOR_SELF_TEST_TEMPERATURE_VALID);
     assert(state_inputs_valid());
-    puts(BOARD_REQUIRE_MCU_TEMPERATURE
+    puts(BSP_REQUIRED_MCU_TEMPERATURE
              ? "PASS required MCU temperature: timeout/hot/recovery/validity preserved"
              : "PASS optional MCU temperature: invalid telemetry, truthful self-test, other guards "
                "retained");

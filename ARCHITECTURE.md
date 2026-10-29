@@ -7,6 +7,14 @@ This is the stable top-level map. Detailed design and historical evidence live u
 For a plain-language walkthrough of products, control flow, scheduling, and data ownership,
 read [电机驱动软件架构说明](docs/architecture/software_architecture.md).
 
+新旧板适配对象、允许修改与独立评审项见
+[统一框架适配范围草案](docs/architecture/dual_board_adaptation_scope_v1.md)。
+该页区分既有用户约束、待讨论变更与验证结果，不将当前工作树自动视为已接受基线。
+
+platform只保留BSP、板级config和原样厂商SDK；项目专用入口装配在projects，台架源码在tests/bench。
+BSP公共接口、私有实现与配置的实际对应关系见
+[BSP逻辑与文件总图](docs/architecture/bsp_architecture_v1.md)。
+
 2026-10-17 integration adds a deterministic winding-thermal core and optional speed
 feedforward without restoring the legacy runtime or wire protocol. APP schedules thermal
 updates; motor/protection owns the thermal history and explicit current limits. See the
@@ -37,10 +45,12 @@ protocol + communication
     ↓
 app composition
 
-STM32G4 BSP/ports implement platform API. AT32F456 ports implement the same contracts;
+Both targets link the same sampling, PWM, encoder, and CAN BSP implementations.
+MCU backends operate peripherals; device modules decode sensor protocols;
 its explicit App_Off target links shared APP with a compile-time power lock.
-STM32G4 application/main.c is the hardware entry and composition boundary;
-CubeMX Core retains generated peripheral and interrupt implementations.
+Each board owns projects/<board>/application/main.c with the same entry template.
+BSP system.c owns hardware startup; app_startup.c and app_tasks.c own application services;
+CubeMX Core retains generated STM32 peripheral and interrupt implementations.
 ```
 
 New dependencies must follow this direction. The 2026-09-29 closure removes all recorded
@@ -49,10 +59,13 @@ The architecture checker resolves local quoted includes and rejects new violatio
 
 ## Runtime boundaries
 
-- `app/composition/app.h` exposes four MCU-facing entries: `App_Init`, `App_Process`,
+- `app/composition/app.h` exposes application lifecycle and task entries: `App_Init`, `App_Start`, `App_Process`,
   `App_FastTick`, and `App_SupervisorTick`. Startup/background assembly lives in
   `app_startup.c`; bounded ADC/TIM scheduling lives in `app_tasks.c`. See the
   [APP reading order](firmware/app/README.md).
+- Each board's `application/main.c` calls `Bsp_Init`, `App_Init`, `Bsp_Start`, `App_Start`,
+  then `App_Process`. MCU system code owns hardware startup; application composition
+  owns protocol binding and service scheduling. There is no AppPlatform forwarding layer.
 - The fast motor loop owns deterministic sensing, foc, protection, and actuation paths.
 - Parameters own configuration values and record conversion; app/interfaces owns command,
   STOP-confirmation and read-only status contracts without platform peripherals.
@@ -60,7 +73,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
 - The motor main state machine and its private transition rules form one APP module at
   `firmware/app/motor_state_machine/`; public interfaces carry requests, not a second lifecycle core.
 - Communication may include app/interfaces, but never app/runtime or private state-machine headers.
-  Motor and parameters never depend on APP implementations; STM32 ports implement hardware only.
+  Motor and parameters never depend on APP implementations; board BSPs implement hardware only.
 - Application code assembles tasks and modes; it must not become a second protocol layer.
 - Hardware bench tools are outside normal verification and require explicit physical context.
 
@@ -68,14 +81,14 @@ The architecture checker resolves local quoted includes and rejects new violatio
 
 ### Hardware independence
 
-- `firmware/platform/api/` defines the capabilities required by portable firmware. Contracts use
+- `firmware/platform/bsp/include/` defines the capabilities required by portable firmware. Contracts use
   project-owned types and physical units, and state timing, blocking, ownership, and failure behavior.
-- `firmware/platform/config/boards/` holds read-only board inputs and fixed current limits.
-  Platform API selects these data without changing capability contracts; board data must not depend
+- `firmware/platform/config/boards/` holds read-only electrical resources, scaling inputs and measurement limits.
+  Sampling scales derive from these data without changing capability contracts; board data must not depend
   on motor, application, or peripheral implementations.
-- `firmware/platform/stm32g4/bsp/` owns chip and board primitives. `ports/` adapts those primitives to
-  platform APIs. `application/main.c` assembles startup and peripherals for both standalone and
-  Loader-linked APP; its CubeMX USER CODE markers remain. CubeMX owns generated peripheral code.
+- Board `bsp/` directories own chip and board primitives and directly implement
+  platform APIs. `application/main.c` owns the standalone and Loader-linked APP entry;
+  `mcu/*/system.c` owns hand-maintained hardware startup. CubeMX owns generated peripheral code.
 - `motor/`, `parameters/`, `app/interfaces/`, and `communication/` must not expose STM32 HAL types, peripheral handles,
   registers, pin mappings, or vendor headers. Hardware revision and MCU selection stay below the API
   or in application composition rather than being scattered as feature `#ifdef` branches.

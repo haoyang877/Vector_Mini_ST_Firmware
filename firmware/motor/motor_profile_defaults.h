@@ -3,26 +3,18 @@
 
 #include "motor_profile_selection.h"
 
-/* 完整APP仍从此入口取得默认值；未知磁链/热参数不得从其他型号借用。
- * 独立台架仅需已知电气输入时使用motor_profile_selection.h。 */
+/* 完整APP仍从此入口取得默认值；型号数据不全时，仅允许目标配置显式提供测试值。
+ * 此处不识别板型或MCU，正式默认值仍必须完整。 */
 #if !PARAM_MOTOR_APP_DEFAULTS_READY
-#if defined(APP_TARGET_R40_F456) && APP_TARGET_R40_F456 &&                                         \
-    ((defined(R40_APP_PHASE_LOCK) && R40_APP_PHASE_LOCK == 1) ||                                   \
-     (defined(R40_APP_BOUNDED_TEST) && R40_APP_BOUNDED_TEST == 1))
-/* 关相及获准限时目标采用用户指定的临时热时间常数；不作为正式热设计参数。
- * 已确认磁链从型号配置取得；其他缺磁链的型号仍保留无效占位。 */
-#ifndef PARAM_MOTOR_FLUX_WB
-#define PARAM_MOTOR_FLUX_WB 0.0f
-#endif
-#define PARAM_MOTOR_THERMAL_CONTINUOUS_VECTOR_A 3.0f
-#define PARAM_MOTOR_THERMAL_PEAK_A 3.0f
-#define PARAM_MOTOR_THERMAL_HEATING_TAU_S 3600.0f
-#define PARAM_MOTOR_THERMAL_DERATING_ENTER_RATIO 0.8f
-#define PARAM_MOTOR_THERMAL_DERATING_EXIT_RATIO 0.7f
-#define PARAM_MOTOR_THERMAL_TRIP_RATIO 1.0f
-#define PARAM_MOTOR_THERMAL_CLEAR_RATIO 0.5f
-#else
+#if !defined(PARAM_MOTOR_APP_TEST_DEFAULTS) || PARAM_MOTOR_APP_TEST_DEFAULTS != 1
 #error "Motor APP defaults incomplete: confirm flux and thermal parameters before APP integration"
+#endif
+#if !defined(PARAM_MOTOR_FLUX_WB) || !defined(PARAM_MOTOR_THERMAL_CONTINUOUS_VECTOR_A) ||          \
+    !defined(PARAM_MOTOR_THERMAL_PEAK_A) || !defined(PARAM_MOTOR_THERMAL_HEATING_TAU_S) ||         \
+    !defined(PARAM_MOTOR_THERMAL_DERATING_ENTER_RATIO) ||                                          \
+    !defined(PARAM_MOTOR_THERMAL_DERATING_EXIT_RATIO) ||                                           \
+    !defined(PARAM_MOTOR_THERMAL_TRIP_RATIO) || !defined(PARAM_MOTOR_THERMAL_CLEAR_RATIO)
+#error "Motor APP defaults incomplete: test target must supply flux and thermal parameters"
 #endif
 #endif
 

@@ -2,18 +2,18 @@
 #include <assert.h>
 #include <string.h>
 #include "yg_protocol_canfd.h"
-#include "yg_protocol_router.h"
+#include "yg_protocol_endpoint.h"
 
-static CommHwCanFrame sent;
+static BspCanFrame sent;
 static bool send_ok;
 static unsigned send_calls;
 static unsigned handler_calls;
 
-bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame)
+BspResult BspCan_TrySend(const BspCanFrame *frame)
 {
     sent = *frame;
     ++send_calls;
-    return send_ok;
+    return send_ok ? BSP_OK : BSP_BUSY;
 }
 
 static yg_protocol_result_t handle_test(void *context,
@@ -143,17 +143,14 @@ static void queued_round_trip(void)
                                        0x02, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0xD1,
                                        0x69, 0x02, 0x34, 0x12, 0xE8, 0x03, 0x00, 0x00,
                                        0xD2, 0xE1, 0,    0,    0,    0,    0,    0};
-    static const yg_protocol_message_descriptor_t descriptors[] = {{105U, false, true}};
-    static const yg_protocol_route_t routes[] = {{105U, handle_test, NULL}};
-    yg_protocol_message_registry_t registry;
-    yg_protocol_router_t router;
+    static const yg_protocol_command_t entries[] = {{105U, false, handle_test, NULL}};
+    yg_protocol_commands_t commands;
     yg_protocol_service_result_t result;
     yg_protocol_transfer_frame_t tx_storage[2], rx_storage[2], frame, next, received;
     yg_protocol_transfer_queue_t tx, rx;
     yg_protocol_message_t message = {1U, 0U, 2U, 3U, 105U, 2U, 8U, 0U, &golden[16]};
     yg_protocol_message_t decoded;
-    assert(yg_protocol_message_registry_init(&registry, descriptors, 1U) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_init(&router, &registry, routes, 1U) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_register(&commands, entries, 1U) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_init(&tx, tx_storage, 2U));
     assert(yg_protocol_transfer_queue_init(&rx, rx_storage, 2U));
     assert(yg_protocol_canfd_pack(&message, 2U, &frame) == YG_PROTOCOL_OK);
@@ -177,7 +174,9 @@ static void queued_round_trip(void)
     sent.data[0] = 0U;
     assert(yg_protocol_transfer_queue_pop(&rx, &received));
     assert(yg_protocol_canfd_unpack(&received, 3U, &decoded) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_handle(&router, &decoded, &result) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_execute(yg_protocol_commands_find(&commands, decoded.message_type),
+                                        &decoded,
+                                        &result) == YG_PROTOCOL_OK);
     assert(handler_calls == 1U && result.response_sequence == 2U);
     assert(yg_protocol_canfd_send_one(&tx) == YG_PROTOCOL_OK);
     assert(sent.data[8] == 3U && yg_protocol_transfer_queue_count(&tx) == 0U);
@@ -193,8 +192,69 @@ static void queued_round_trip(void)
     assert(yg_protocol_canfd_send_one(NULL) == YG_PROTOCOL_INVALID_ARGUMENT);
 }
 
+static void reserved_front_slot(void)
+{
+    yg_protocol_transfer_frame_t storage[8], input = {0}, snapshot, copied;
+    yg_protocol_transfer_queue_t queue;
+    assert(!yg_protocol_transfer_queue_discard(NULL));
+    for (size_t capacity = 1U; capacity <= 8U; ++capacity)
+    {
+        assert(yg_protocol_transfer_queue_init(&queue, storage, capacity));
+        for (uint32_t pass = 0U; pass < 1000U; ++pass)
+        {
+            input.identifier = pass;
+            assert(yg_protocol_transfer_queue_push(&queue, &input));
+            assert(yg_protocol_transfer_queue_peek(&queue, &snapshot));
+            size_t reserved = queue.tail;
+            /* 生产者可在复制任意两个字节间运行；未消费槽位不可被覆盖。 */
+            for (size_t i = 1U; i < capacity; ++i)
+            {
+                input.identifier = pass + (uint32_t)i;
+                assert(yg_protocol_transfer_queue_push(&queue, &input));
+                assert(memcmp(&storage[reserved], &snapshot, sizeof(snapshot)) == 0);
+            }
+            assert(!yg_protocol_transfer_queue_push(&queue, &input));
+            assert(memcmp(&storage[reserved], &snapshot, sizeof(snapshot)) == 0);
+            assert(yg_protocol_transfer_queue_discard(&queue));
+            for (size_t i = 1U; i < capacity; ++i)
+            {
+                assert(yg_protocol_transfer_queue_pop(&queue, &copied));
+                assert(copied.identifier == pass + i);
+            }
+            assert(!yg_protocol_transfer_queue_discard(&queue));
+            assert(yg_protocol_transfer_queue_count(&queue) == 0U);
+        }
+    }
+}
+
+static void queue_sequence_wrap(void)
+{
+    yg_protocol_transfer_frame_t storage[3], input = {0}, copied;
+    yg_protocol_transfer_queue_t queue;
+    assert(yg_protocol_transfer_queue_init(&queue, storage, 3U));
+    queue.produced = queue.consumed = UINT32_MAX - 2U;
+    for (unsigned pass = 0U; pass < 12U; ++pass)
+    {
+        for (unsigned frame = 0U; frame < 3U; ++frame)
+        {
+            input.identifier = pass * 3U + frame;
+            assert(yg_protocol_transfer_queue_push(&queue, &input));
+        }
+        assert(yg_protocol_transfer_queue_count(&queue) == 3U);
+        assert(!yg_protocol_transfer_queue_push(&queue, &input));
+        for (unsigned frame = 0U; frame < 3U; ++frame)
+        {
+            assert(yg_protocol_transfer_queue_pop(&queue, &copied));
+            assert(copied.identifier == pass * 3U + frame);
+        }
+        assert(yg_protocol_transfer_queue_count(&queue) == 0U);
+    }
+}
+
 void yg_protocol_canfd_test(void)
 {
     lengths_and_errors();
     queued_round_trip();
+    reserved_front_slot();
+    queue_sequence_wrap();
 }

@@ -28,7 +28,9 @@ def main():
 #include <stdio.h>
 #include "motor_types.h"
 #include "foc_algorithm.h"
-#include "motor_sensing.h"
+#include "sampling_scale.h"
+#include "current_sense_limits.h"
+#include "bsp_adc.h"
 #include "control_math.h"
 static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 
@@ -39,18 +41,24 @@ static MotorConfiguration configuration;
 static MotorControlState motor_state;
 static FocState foc;
 static void MotorFault_Report(MotorControlState *m, MotorFaultCode x) {m->fault_code=x;}
-uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase) {
-    switch(phase) {
-        case MOTOR_HW_CURRENT_PHASE_A: return (uint16_t)adc.JDR1;
-        case MOTOR_HW_CURRENT_PHASE_B: return (uint16_t)adc.JDR2;
-        case MOTOR_HW_CURRENT_PHASE_C: return (uint16_t)adc.JDR3;
-        default: return 0U;
-    }
+BspResult BspAdc_ReadFast(BspAdcFastSample *sample) {
+    const uint32_t raw[3]={adc.JDR1,adc.JDR2,adc.JDR3};
+    const float offsets[3]={configuration.device.phase_a_offset_counts,
+        configuration.device.phase_b_offset_counts,configuration.device.phase_c_offset_counts};
+    *sample=(BspAdcFastSample){.valid_mask=BSP_ADC_FAST_PHASE_CURRENT_VALID};
+    for(unsigned i=0;i<3;i++) sample->phase_current_a[i]=-(raw[i]*.25f-offsets[i])*MOTOR_SENSING_CURRENT_A_PER_COUNT;
+    return BSP_OK;
 }
+
 """
         + function_source(sensing, "MotorCurrentOffsets_Valid")
         + function_source(sensing, "Current_Cal")
         + r"""
+static void sample_current(void) {
+    BspAdcFastSample sample;
+    BspResult result=BspAdc_ReadFast(&sample);
+    Current_Cal(&configuration,&foc,&motor_state,result==BSP_OK?&sample:NULL);
+}
 int main(void) {
 #ifdef TEST_EXPECT_DEFAULT_6_MILLIOHM
     assert(CURRENT_SENSE_SHUNT_MILLIOHM==6U);
@@ -64,16 +72,19 @@ int main(void) {
     configuration.device.phase_a_offset_counts=2032.625f; configuration.device.phase_b_offset_counts=2051.25f;
     configuration.device.phase_c_offset_counts=2036.5f;
     adc.JDR1=8131;adc.JDR2=8205;adc.JDR3=8146;
-    Current_Cal(&configuration,&foc,&motor_state);
+    sample_current();
     assert(motor_state.fault_code==MOTOR_FAULT_NONE);
     assert(foc.phase_b_current_a==0 && foc.phase_c_current_a==0);
     assert(fabsf(foc.phase_a_current_a+.125f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
-    adc.JDR1+=1;Current_Cal(&configuration,&foc,&motor_state);
+    adc.JDR1+=1;sample_current();
     assert(fabsf(foc.phase_a_current_a+.375f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
     /* Actual 1 A input is not inadvertently rescaled by four. */
     adc.JDR2=(uint32_t)roundf(4*(configuration.device.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
-    Current_Cal(&configuration,&foc,&motor_state);assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
-    configuration.device.phase_c_offset_counts=NAN;Current_Cal(&configuration,&foc,&motor_state);
+    sample_current();assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
+    Current_Cal(&configuration,&foc,&motor_state,NULL);
+    assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET && isnan(foc.phase_a_current_a));
+    motor_state.fault_code=MOTOR_FAULT_NONE;
+    configuration.device.phase_c_offset_counts=NAN;sample_current();
     assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET);
     puts("PASS quarter-code current resolution, actual current scale, invalid-offset protection");
     return 0;

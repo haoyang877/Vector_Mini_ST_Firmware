@@ -57,7 +57,13 @@ def scan() -> list[dict]:
             continue
         text = source.read_text(encoding="utf-8-sig", errors="replace")
         for include in INCLUDE.findall(text):
-            if source_layer in LOADER_PORTABLE_LAYERS and HARDWARE_HEADER.match(Path(include).name):
+            if source_layer in LOADER_PORTABLE_LAYERS | {
+                "platform_encoder",
+                "platform_measurement",
+                "telemetry",
+                "platform_pwm",
+                "platform_can",
+            } and HARDWARE_HEADER.match(Path(include).name):
                 source_rel = source.relative_to(ROOT).as_posix()
                 violations.append(
                     {

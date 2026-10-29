@@ -6,7 +6,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include "../../firmware/communication/protocol/yg_protocol_motor_status.c"
+#include "../../firmware/communication/commands/yg_protocol_motor.c"
 #include "../../firmware/parameters/parameter_values.c"
 static int32_t ref_measurement(float value, double scale, int32_t min, int32_t max)
 {

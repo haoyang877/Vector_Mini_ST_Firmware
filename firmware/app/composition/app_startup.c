@@ -1,22 +1,19 @@
 #include "app.h"
 
-#include "board_hw.h"
+#include "app_tasks.h"
 #include "boot_hw.h"
-#include "comm_hw.h"
-#include "critical_hw.h"
+#include "bsp_can.h"
+#include "bsp_system.h"
 #include "motor_state_machine.h"
-#include "yg_protocol_runtime.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_motor_adapter.h"
 #include "motor_stop_request.h"
-#include "motor_hw.h"
+#include "bsp_pwm.h"
 #include "motor_axis.h"
-#include "power_stage_hw.h"
 #include "yg_protocol_status_adapter.h"
 #include "yg_protocol_owner_adapter.h"
-#include "time_hw.h"
 #include "app_target.h"
-#include "yg_protocol_byte_order.h"
+#include "yg_protocol_common.h"
 #include "device_identity.h"
 
 /* 启动编排：参数装载 → 应用状态初始化 → 板级采样时钟 → CAN FD 端点。
@@ -38,10 +35,11 @@ static bool bind_boot_entry(void);
 void App_Init(void)
 {
     /* 电机所有者装载参数与标定并初始化；无效记录回退默认值。 */
+    AppTasks_Init();
     MotorAxis_Init();
 
     /* 新协议复位态为失能；CH4 采样时钟保持运行，三相输出等待控制所有者授权。 */
-    board_hw_start(false);
+    /* 采样由main在应用对象就绪后调用Bsp_Start开放。 */
 
     /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
     s_communication_ready = YgProtocolRuntime_Init(MotorAxis_NodeId()) &&
@@ -50,20 +48,31 @@ void App_Init(void)
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     s_communication_ready = s_communication_ready && bind_boot_entry();
 #endif
-    s_communication_ready = s_communication_ready && YgProtocolRuntime_Start();
+
     if (!s_communication_ready)
     {
         /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
-        power_stage_hw_stop();
+        BspPwm_Disable();
     }
+}
+
+void App_Start(void)
+{
+    s_communication_ready = s_communication_ready && YgProtocolRuntime_Start();
+    if (!s_communication_ready)
+    {
+        BspPwm_Disable();
+    }
+    AppTasks_Start();
 }
 
 void App_Process(void)
 {
     MotorAxis_ServiceBackground();
     YgProtocolStatusAdapter_Refresh();
-    YgProtocolRuntime_Service(time_hw_now_ms());
-    service_boot(time_hw_now_ms());
+    YgProtocolRuntime_Service(BspSystem_TimeMs());
+    service_boot(BspSystem_TimeMs());
+    AppTasks_Process();
 }
 
 static void publish_identity(void)
@@ -89,7 +98,7 @@ static motor_stop_owner_result_t request_stop(void *context, uint8_t source_node
 static bool phases_disabled(void *context)
 {
     (void)context;
-    return power_stage_hw_phases_disabled();
+    return BspPwm_ArePhasesDisabled();
 }
 
 static MotorControlResult submit_control(void *context, const MotorControlCommand *command)
@@ -126,7 +135,8 @@ static bool bind_device_description(void)
                                               .boot_api = TARGET_BOOT_API};
     yg_protocol_readonly_caps_page0_t capabilities = {
         .features = (1UL << 8U) | (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
-        .supported_modes = (1U << 2U), /* 仅公布已有核心SPEED；不是实机验收结论。 */
+        /* 公布已接通的速度和两种开环路径；能力位不代表实机验收。 */
+        .supported_modes = (1U << 2U) | (1U << 9U) | (1U << 10U),
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
     uint8_t payload[32], record[64];
@@ -142,7 +152,7 @@ static bool bind_device_description(void)
     info.boot_api = 0U;
     info.boot_version = 0U;
 #endif
-    if (board_hw_read_identity(record))
+    if (BspSystem_ReadIdentity(record) == BSP_OK)
     {
         (void)DeviceIdentity_Decode(record, &s_identity);
     }
@@ -151,7 +161,7 @@ static bool bind_device_description(void)
         YgProtocol_WriteU32Le(payload + i * 4U, target[i]);
     }
     publish_identity();
-    return board_hw_read_uid(info.uid) &&
+    return BspSystem_ReadUid(info.uid) == BSP_OK &&
            YgProtocolLink_SetDeviceDescription(&info, &capabilities) &&
            YgProtocolLink_SetMaintenanceInfoPage(2U, payload);
 }
@@ -174,8 +184,9 @@ static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
     uint32_t progress;
     bool confirmed = s_boot_supported && !s_entry_requested && s_healthy_intervals >= 11U &&
                      MotorStateMachine_ReadBootHealth(&progress) && s_communication_ready &&
-                     YgProtocolLink_IsReady() && comm_hw_can_is_healthy() && MotorAxis_SaveIdle() &&
-                     power_stage_hw_phases_disabled() && BootHw_Confirm(version, crc32);
+                     YgProtocolLink_IsReady() && (BspCan_GetState() == BSP_CAN_READY) &&
+                     MotorAxis_SaveIdle() && BspPwm_ArePhasesDisabled() &&
+                     BootHw_Confirm(version, crc32);
     publish_identity();
     return confirmed;
 }
@@ -226,7 +237,7 @@ static void handle_entry(void *context, const BootEntryRequest *request, BootEnt
         reply->result = BOOT_ENTRY_DENIED;
         return;
     }
-    now_ms = time_hw_now_ms();
+    now_ms = BspSystem_TimeMs();
     if (!s_entry_requested)
     {
         s_entry_request = *request;
@@ -252,23 +263,23 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
     {
         return;
     }
-    mask = critical_hw_enter();
+    mask = BspSystem_EnterCritical();
     /* 最终二次复核后撤销票据使用权限；复位失败也不能再次消费旧TX结果。 */
     permitted = success && s_entry_result == BOOT_ENTRY_READY &&
-                (uint32_t)(time_hw_now_ms() - s_entry_started_ms) < BOOT_ENTRY_TIMEOUT_MS &&
+                (uint32_t)(BspSystem_TimeMs() - s_entry_started_ms) < BOOT_ENTRY_TIMEOUT_MS &&
                 MotorStateMachine_BootHandoffReady(ticket) && MotorAxis_SaveIdle();
     s_entry_result = BOOT_ENTRY_FAILED;
     if (permitted)
     {
         (void)BootHw_EnterLoader(MotorAxis_NodeId());
     }
-    critical_hw_exit(mask);
+    BspSystem_ExitCritical(mask);
 }
 
 static bool bind_boot_entry(void)
 {
     const BootEntryService service = {NULL, handle_entry, handle_tx_complete, confirm_image};
-    s_boot_supported = BootHw_Init();
+    s_boot_supported = BootHw_IsAvailable();
     publish_identity();
     return YgProtocolLink_BindBootService(&service);
 }
@@ -284,7 +295,7 @@ static void service_boot(uint32_t now_ms)
         s_health_checked_ms = now_ms;
         bool healthy = MotorStateMachine_ReadBootHealth(&progress);
         healthy = healthy && progress != s_observed_supervisor_epoch && s_communication_ready &&
-                  YgProtocolLink_IsReady() && comm_hw_can_is_healthy();
+                  YgProtocolLink_IsReady() && (BspCan_GetState() == BSP_CAN_READY);
         s_observed_supervisor_epoch = progress;
         s_healthy_intervals =
             healthy ? (s_healthy_intervals < 11U ? s_healthy_intervals + 1U : 11U) : 0U;

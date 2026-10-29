@@ -21,6 +21,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "main.h").write_text("#pragma once\n#include <stdint.h>\n")
     production = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+    temperature = (ROOT / "firmware/platform/bsp/mcu/stm32g4/temperature.c").read_text(
+        encoding="utf8"
+    )
     src = (
         r"""
 #include <assert.h>
@@ -30,8 +33,10 @@ def main():
 #include <stdio.h>
 #include <string.h>
 #include "foc_sensing.h"
+#include "app_feature_requirements.h"
 #include "mcu_temperature.h"
-#include "motor_sensing.h"
+#include "sampling_scale.h"
+#include "bsp_internal.h"
 static struct {uint32_t JDR1,JDR2,flags;} adc;
 #define ADC_FLAG_JEOS 1U
 #define ADC_FLAG_JEOC 2U
@@ -42,7 +47,21 @@ static MotorControlState motor_state;
 static FocState foc;
 volatile McuTemperatureTelemetry s_mcu_temperature;
 static void MotorFault_Report(MotorControlState *m, MotorFaultCode e) {m->fault_code=e;}
-void motor_hw_temperature_poll(MotorHwTemperaturePoll *result) {
+"""
+        + function_source(temperature, "convert_sample")
+        + r"""
+static bool McuTemperature_Convert(uint32_t ts, uint32_t ref, uint16_t c30, uint16_t c130,
+                                   uint16_t vref, float *c, float *mv) {
+    AdcTemperatureSample sample = {(uint16_t)ts, (uint16_t)ref, 0U, 0U};
+    AdcTemperatureValue value;
+    convert_sample(&sample,c30,c130,vref,&value);
+    if(value.temperature_result != BSP_OK) return false;
+    *c=value.celsius;*mv=value.vdda_v*1000.0f;return true;
+}
+"""
+        + f'\n#include "{(ROOT / "tests/unit/native/temperature_api_fixture.h").as_posix()}"\n'
+        + r"""
+static void TestTemperature_Poll(TestTemperaturePoll *result) {
     result->sample_ready=false; result->conversion_ok=false;
     if(adc.flags & ADC_FLAG_JEOS) {
         result->raw_ts=adc.JDR1; result->raw_vref=adc.JDR2;
@@ -66,6 +85,19 @@ static void reset(void) {
 }
 int main(void) {
  float c,v;
+ AdcTemperatureSample invalid={0U,1500U,0U,0U};
+ AdcTemperatureValue values;
+ convert_sample(&invalid,1000U,1400U,1500U,&values);
+ assert(values.temperature_result==BSP_NOT_CALIBRATED && isnan(values.celsius));
+ assert(values.voltage_result==BSP_OK && values.vdda_v==3.0f);
+ invalid.mcu_temperature_counts=1000U;
+ convert_sample(&invalid,0U,0U,1500U,&values);
+ assert(values.temperature_result==BSP_NOT_CALIBRATED && values.voltage_result==BSP_OK);
+ convert_sample(&invalid,1000U,1400U,0U,&values);
+ assert(values.temperature_result==BSP_NOT_CALIBRATED && values.voltage_result==BSP_NOT_CALIBRATED);
+ invalid.reference_counts=0U;
+ convert_sample(&invalid,1000U,1400U,1500U,&values);
+ assert(values.voltage_result==BSP_IO_ERROR && isnan(values.vdda_v));
  assert(McuTemperature_Convert(1000,1500,1000,1400,1500,&c,&v) && c==30 && v==3000);
  assert(McuTemperature_Convert(1400,1500,1000,1400,1500,&c,&v) && c==130);
  assert(McuTemperature_Convert(1000,1500,1100,1540,1650,&c,&v) && c==30 && v==3300);
@@ -108,6 +140,7 @@ int main(void) {
         compiler
         + ["-std=c99", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
         + NATIVE_INCLUDE_FLAGS
+        + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
         + [str(fixture), "-lm", "-o", str(exe)],
         check=True,
     )
@@ -118,7 +151,8 @@ int main(void) {
     )
     fault = (ROOT / "firmware/motor/protection/motor_fault.c").read_text(encoding="utf-8")
     subject = (
-        "\n".join(
+        '#include "bsp_system.h"\n'
+        + "\n".join(
             line
             for line in (production + "\n" + fault).splitlines()
             if line.startswith(("#define CURRENT_OFFSET_", "#define RUN_STATE_"))
@@ -151,15 +185,32 @@ int main(void) {
         ("old_required", ["-DFOC_ACTIVE_HW_PROFILE=1"]),
         (
             "old_ignores_r40_flag",
-            ["-DFOC_ACTIVE_HW_PROFILE=1", "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1"],
+            ["-DFOC_ACTIVE_HW_PROFILE=1", "-DBSP_REQUIRED_MCU_TEMPERATURE=1"],
         ),
-        ("r40_required", ["-DFOC_ACTIVE_HW_PROFILE=2"]),
+        (
+            "r40_required",
+            [
+                "-DFOC_ACTIVE_HW_PROFILE=2",
+                "-DBSP_REQUIRED_MCU_TEMPERATURE=1",
+                "-DBSP_ENABLED_MCU_TEMPERATURE=1",
+            ],
+        ),
         (
             "r40_optional",
             [
                 "-DFOC_ACTIVE_HW_PROFILE=2",
                 "-DR40_APP_PHASE_LOCK=1",
-                "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1",
+                "-DBSP_PWM_HARD_LOCK=1",
+                "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
+            ],
+        ),
+        (
+            "r40_bounded_optional",
+            [
+                "-DFOC_ACTIVE_HW_PROFILE=2",
+                "-DR40_APP_PHASE_LOCK=0",
+                "-DR40_APP_BOUNDED_TEST=1",
+                "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
             ],
         ),
     ):
@@ -168,6 +219,7 @@ int main(void) {
             compiler
             + ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
             + NATIVE_INCLUDE_FLAGS
+            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
             + flags
             + [
                 str(ROOT / "tests/unit/native/mcu_temperature_policy_test.c"),
@@ -179,14 +231,15 @@ int main(void) {
         )
         subprocess.run([str(policy_exe)], check=True)
     policy_header = out / "policy_header.c"
-    policy_header.write_text('#include "board_profile_defaults.h"\n', encoding="utf-8")
+    policy_header.write_text('#include "app_feature_requirements.h"\n', encoding="utf-8")
     for flags in (
-        ["-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1"],
-        ["-DR40_APP_MCU_TEMPERATURE_OPTIONAL=2", "-DR40_APP_PHASE_LOCK=1"],
+        ["-DAPP_TARGET_R40_F456=1", "-DBSP_REQUIRED_MCU_TEMPERATURE=0"],
+        ["-DBSP_REQUIRED_MCU_TEMPERATURE=2", "-DR40_APP_PHASE_LOCK=1"],
     ):
         rejected = subprocess.run(
             compiler
             + NATIVE_INCLUDE_FLAGS
+            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
             + ["-DFOC_ACTIVE_HW_PROFILE=2"]
             + flags
             + ["-c", str(policy_header), "-o", str(out / "invalid.o")],

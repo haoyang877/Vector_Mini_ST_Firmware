@@ -49,9 +49,9 @@
     "shared/boot",
     "shared/checksum",
     "shared/protocol",
-    "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc",
-    "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Include",
-    "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include"
+    "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Inc",
+    "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Include",
+    "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Device/ST/STM32G4xx/Include"
   ],
   "groups": {
     "Loader core": [
@@ -77,17 +77,17 @@
       "shared/boot/device_identity.c"
     ],
     "ST support": [
-      "firmware/platform/stm32g4/cubemx/MDK-ARM/startup_stm32g431xx.s",
-      "firmware/platform/stm32g4/cubemx/Core/Src/system_stm32g4xx.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c",
-      "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c"
+      "projects/stm32g4/MDK-ARM/startup_stm32g431xx.s",
+      "firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/system_stm32g4xx.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c",
+      "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c"
     ],
     "Shared image": [
       "shared/image/image_transfer.c"
@@ -101,16 +101,16 @@
     "artifact_mcu": "STM32G431CB",
     "cpu": "CLOCK(8000000) FPU2 CPUTYPE(\"Cortex-M4\")",
     "defines": "USE_HAL_DRIVER,STM32G431xx",
-    "template": "firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvprojx",
+    "template": "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx",
     "target_directory": "loader/targets/vector_mini_st_g431",
     "target_header": "shared/targets/vector_mini_st_g431.h",
     "descriptor_source": "shared/targets/vector_mini_st_g431_app_descriptor.c",
     "loader_project": "loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx",
     "loader_output": "outputs/build/loader/vector_mini_st_g431",
-    "app_name": "Vector_Mini_ST_LoaderApp",
-    "app_project": "firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx",
-    "app_output": "outputs/build/keil/Vector_Mini_ST_LoaderApp",
-    "app_boot_source": "firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c",
+    "app_name": "ESC-APP-STM32G431-LoaderApp",
+    "app_project": "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx",
+    "app_output": "outputs/build/keil/ESC-APP-STM32G431-LoaderApp",
+    "app_boot_source": "firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c",
     "selection_directory": "shared/targets/vector_mini_st_g431",
     "app_defines": "USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U"
   }

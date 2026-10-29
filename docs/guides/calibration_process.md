@@ -10,7 +10,7 @@
 机械位置和速度对控制算法使用rad和rad/s。20kHz快路径更新角度PLL速度，慢拍维护位置。
 LUT、电零位和机械零位由 `MotorConfiguration.device.encoder` 保存，反馈运行状态不复制表。
 
-当前[TLE5012B端口](../../firmware/platform/stm32g4/ports/motor/encoder_tle5012b.c)只读角度字，
+当前[TLE5012B端口](../../firmware/platform/devices/encoder_tle5012b.c)只读角度字，
 未读取运行安全字/CRC；`crc_ok=true`是当前驱动返回值，不能作为硬件CRC已经校验的证据。
 初始化的STAT等配置快照仅供诊断，不是逐帧运行健康检查。连续SPI失败可触发反馈离线，
 但不能据此声称已覆盖磁场状态、所有STAT故障或角度安全字失效。

@@ -6,12 +6,10 @@
 #include "yg_protocol_can_id.h"
 #include "yg_protocol_frame_codec.h"
 #include "yg_protocol_fragment.h"
-#include "yg_protocol_message_registry.h"
-#include "yg_protocol_motor_status.h"
+#include "yg_protocol_motor.h"
 #include "yg_protocol_readonly.h"
-#include "yg_protocol_readonly_payload.h"
-#include "yg_protocol_router.h"
-#include "yg_protocol_frame_queue.h"
+#include "yg_protocol_endpoint.h"
+#include "yg_protocol_canfd.h"
 #include "vector_mini_st_g431.h"
 
 static yg_protocol_result_t handle_position(void *context,
@@ -82,29 +80,36 @@ static void can_id_round_trip(void)
            YG_PROTOCOL_INVALID_NODE_ID);
 }
 
-static void router_routes_by_type(void)
+static void commands_execute_by_type(void)
 {
-    static const yg_protocol_message_descriptor_t descriptors[] = {
-        {105U, false, true},
-        {124U, false, true},
+    static const yg_protocol_command_t entries[] = {
+        {105U, false, handle_position, NULL},
+        {124U, false, handle_status, NULL},
     };
-    static const yg_protocol_route_t routes[] = {
-        {105U, handle_position, NULL},
-        {124U, handle_status, NULL},
-    };
-    yg_protocol_message_registry_t registry;
-    yg_protocol_router_t router;
+    yg_protocol_commands_t commands;
     yg_protocol_service_result_t result;
     yg_protocol_message_t message = {YG_PROTOCOL_VERSION, 0U, 1U, 2U, 105U, 7U, 2U, 0U, NULL};
     uint8_t payload[] = {0xE8U, 0x03U};
 
     message.payload = payload;
-    assert(yg_protocol_message_registry_init(&registry, descriptors, 2U) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_init(&router, &registry, routes, 2U) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_handle(&router, &message, &result) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_register(&commands, entries, 2U) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_execute(yg_protocol_commands_find(&commands, message.message_type),
+                                        &message,
+                                        &result) == YG_PROTOCOL_OK);
     assert(result.response_sequence == 7U);
+    assert(result.reply_ready);
+    /* 重复 ID 或空表参数，不能破坏已注册的命令表。 */
+    yg_protocol_command_t invalid[] = {entries[0], entries[0]};
+    assert(yg_protocol_commands_register(&commands, invalid, 2U) ==
+           YG_PROTOCOL_INVALID_MESSAGE_TYPE);
+    assert(commands.entries == entries && commands.count == 2U);
+    assert(yg_protocol_commands_register(&commands, NULL, 1U) == YG_PROTOCOL_INVALID_ARGUMENT);
+    assert(yg_protocol_commands_execute(&entries[1], &message, &result) ==
+           YG_PROTOCOL_ROUTE_NOT_FOUND);
     message.message_type = 999U;
-    assert(yg_protocol_router_handle(&router, &message, &result) == YG_PROTOCOL_ROUTE_NOT_FOUND);
+    assert(yg_protocol_commands_execute(yg_protocol_commands_find(&commands, message.message_type),
+                                        &message,
+                                        &result) == YG_PROTOCOL_ROUTE_NOT_FOUND);
 }
 
 static yg_protocol_result_t provide_protocol_info(void *context,
@@ -125,22 +130,10 @@ static yg_protocol_result_t provide_protocol_info(void *context,
 
 static void readonly_request_to_response(void)
 {
-    static const yg_protocol_readonly_service_t configuration = {
-        NULL,
-        YG_PROTOCOL_READONLY_TYPE_GET_INFO,
-        YG_PROTOCOL_READONLY_TYPE_DISABLED,
-        YG_PROTOCOL_READONLY_TYPE_DISABLED,
-        YG_PROTOCOL_READONLY_TYPE_DISABLED,
-        provide_protocol_info,
-        NULL,
-        NULL,
-        NULL,
-    };
-    yg_protocol_readonly_service_t service;
-    yg_protocol_route_t route = {
-        YG_PROTOCOL_READONLY_TYPE_GET_INFO, yg_protocol_readonly_handle, &service};
-    yg_protocol_message_registry_t registry;
-    yg_protocol_router_t router;
+    yg_protocol_readonly_service_t service = {NULL, provide_protocol_info};
+    const yg_protocol_command_t entry = {
+        YG_PROTOCOL_READONLY_TYPE_GET_INFO, true, yg_protocol_readonly_handle, &service};
+    yg_protocol_commands_t commands;
     yg_protocol_service_result_t result;
     yg_protocol_frame_view_t decoded;
     uint8_t encoded[YG_PROTOCOL_MAX_FRAME_SIZE];
@@ -156,12 +149,12 @@ static void readonly_request_to_response(void)
                                      NULL};
     yg_protocol_message_t response;
 
-    assert(yg_protocol_readonly_init(&service, &configuration) == YG_PROTOCOL_OK);
-    assert(yg_protocol_product_registry_init(&registry) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_init(&router, &registry, &route, 1U) == YG_PROTOCOL_OK);
-    assert(yg_protocol_router_handle(&router, &request, &result) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_register(&commands, &entry, 1U) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_execute(yg_protocol_commands_find(&commands, request.message_type),
+                                        &request,
+                                        &result) == YG_PROTOCOL_OK);
     assert(result.response_payload_length == 4U);
-    assert(yg_protocol_router_build_response(&request, &result, &response) == YG_PROTOCOL_OK);
+    assert(yg_protocol_commands_build_response(&request, &result, &response) == YG_PROTOCOL_OK);
     assert(response.source_node == 3U && response.destination_node == 2U);
     assert(response.sequence == 9U && response.payload_length == 4U);
     assert(response.payload[0] == YG_PROTOCOL_VERSION);
@@ -377,6 +370,103 @@ static void transfer_queue_is_bounded(void)
     }
 }
 
+/* 直接调用业务模块，验证历史和反馈无需依赖全局链路状态。 */
+static void isolated_control(void *context,
+                             const yg_protocol_motor_request_t *request,
+                             yg_protocol_service_reply_t *reply)
+{
+    unsigned *calls = context;
+    assert(request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL);
+    ++*calls;
+    reply->status = YG_PROTOCOL_SERVICE_OK;
+}
+
+typedef struct
+{
+    bool busy;
+    unsigned calls;
+    uint8_t node;
+    uint16_t sequence;
+    uint8_t payload[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
+} feedback_sink_t;
+
+static yg_protocol_result_t
+isolated_send(void *context, const yg_protocol_message_t *message, uint8_t priority)
+{
+    feedback_sink_t *sink = context;
+    assert(priority == 3U && message->message_type == 0x007CU);
+    assert(message->payload_length == sizeof(sink->payload));
+    if (sink->busy)
+    {
+        return YG_PROTOCOL_QUEUE_FULL;
+    }
+    ++sink->calls;
+    sink->node = message->source_node;
+    sink->sequence = message->sequence;
+    memcpy(sink->payload, message->payload, sizeof(sink->payload));
+    return YG_PROTOCOL_OK;
+}
+
+static void business_contexts_are_independent(void)
+{
+    unsigned calls_a = 0U, calls_b = 0U;
+    yg_protocol_motor_context_t a = {.node_id = 3U};
+    yg_protocol_motor_context_t b = {.node_id = 4U};
+    a.motor_status_source = &a.empty_motor_status;
+    b.motor_status_source = &b.empty_motor_status;
+    a.motor_service = (yg_protocol_motor_service_t){&calls_a, isolated_control};
+    b.motor_service = (yg_protocol_motor_service_t){&calls_b, isolated_control};
+    uint8_t payload[YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE] = {3U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 3U,
+                                     .message_type = 0x0074U,
+                                     .sequence = 41U,
+                                     .payload_length = sizeof(payload),
+                                     .payload = payload};
+    yg_protocol_service_result_t response = {0};
+    feedback_sink_t sink = {.busy = true};
+    assert(yg_protocol_motor_handle_control(&a, &request, &response) == YG_PROTOCOL_OK);
+    assert(calls_a == 1U && calls_b == 0U && response.response_payload[0] == 0U);
+    uint8_t pending[sizeof(sink.payload)];
+    memcpy(pending, a.feedback_payload, sizeof(pending));
+    assert(yg_protocol_motor_flush_feedback(&a, isolated_send, &sink) == YG_PROTOCOL_QUEUE_FULL);
+    assert(a.feedback_pending && a.feedback_sequence == 0U && sink.calls == 0U);
+
+    request.destination_node = 4U;
+    assert(yg_protocol_motor_handle_control(&b, &request, &response) == YG_PROTOCOL_OK);
+    assert(calls_a == 1U && calls_b == 1U);
+    sink.busy = false;
+    assert(yg_protocol_motor_flush_feedback(&b, isolated_send, &sink) == YG_PROTOCOL_OK);
+    assert(sink.node == 4U && sink.sequence == 0U && !b.feedback_pending);
+    assert(a.feedback_pending && a.feedback_sequence == 0U);
+    assert(yg_protocol_motor_flush_feedback(&a, isolated_send, &sink) == YG_PROTOCOL_OK);
+    assert(sink.node == 3U && sink.sequence == 0U && !a.feedback_pending);
+    assert(memcmp(sink.payload, pending, sizeof(pending)) == 0);
+    request.destination_node = 3U;
+    request.flags |= YG_PROTOCOL_FLAGS_RETRY;
+    assert(yg_protocol_motor_handle_control(&a, &request, &response) == YG_PROTOCOL_OK);
+    assert(calls_a == 1U && calls_b == 1U);
+    assert(yg_protocol_motor_flush_feedback(&a, isolated_send, &sink) == YG_PROTOCOL_OK);
+    assert(sink.sequence == 1U && sink.calls == 3U);
+
+    yg_protocol_readonly_context_t unavailable = {0};
+    yg_protocol_readonly_context_t available = {.device_description_available = true};
+    available.maintenance_pages[0][0] = 0xA7U;
+    uint8_t page[YG_PROTOCOL_READONLY_PAGE_REQUEST_SIZE] = {0};
+    page[8] = 1U;
+    request.message_type = 0x0001U;
+    request.payload = page;
+    request.payload_length = sizeof(page);
+    assert(yg_protocol_readonly_handle_info(&available, &request, &response) == YG_PROTOCOL_OK);
+    assert(response.response_payload_length == 32U && response.response_payload[0] == 0xA7U);
+    assert(yg_protocol_readonly_handle_info(&unavailable, &request, &response) == YG_PROTOCOL_OK);
+    assert(response.response_payload_length == 4U && response.response_payload[0] == 6U);
+    assert(yg_protocol_readonly_handle_info(&available, &request, &response) == YG_PROTOCOL_OK);
+    assert(response.response_payload_length == 32U && response.response_payload[0] == 0xA7U);
+}
+
 void yg_protocol_canfd_test(void);
 void yg_protocol_contract_test(void);
 
@@ -384,14 +474,15 @@ int main(void)
 {
     frame_round_trip();
     can_id_round_trip();
-    router_routes_by_type();
+    commands_execute_by_type();
     readonly_request_to_response();
     readonly_payload_codecs();
     motor_status_adapter();
     fragments_reassemble();
     transfer_queue_is_bounded();
+    business_contexts_are_independent();
     yg_protocol_canfd_test();
     yg_protocol_contract_test();
-    puts("PASS yg_protocol core interfaces: codec, CAN ID, registry, router, fragments and queue");
+    puts("PASS yg_protocol core interfaces: codec, CAN ID, commands, fragments and queue");
     return 0;
 }

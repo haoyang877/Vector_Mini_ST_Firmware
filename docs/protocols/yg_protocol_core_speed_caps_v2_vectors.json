@@ -5,6 +5,13 @@
   "byte_order": "little",
   "vectors": [
     {
+      "name": "speed_and_open_loop_v03",
+      "features": 7424,
+      "supported_modes": 1540,
+      "payload_hex": "001d0000040640002e00000000000000",
+      "speed_allowed": true
+    },
+    {
       "name": "core_speed",
       "features": 7424,
       "supported_modes": 4,

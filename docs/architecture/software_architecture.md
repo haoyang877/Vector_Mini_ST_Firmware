@@ -1,6 +1,6 @@
 # 电机驱动软件架构
 
-更新：2026-10-21。当前重构主线以核心控制、单项标定、参数、保护及升级恢复为范围。
+更新：2026-10-29。当前重构主线以核心控制、单项标定、参数、保护及升级恢复为范围。
 
 ## 产品与层级
 
@@ -82,7 +82,7 @@ flowchart TD
         SAMPLE["编码器采样、电压/电流换算<br/>热保护、观测器与反馈更新"]
         FAULT["CheckFastFaults / FastFaultStop<br/>快速故障必要时立即关相"]
         SELECT{"零偏完成且无故障后<br/>按状态与维护许可择一"}
-        CONTROL["MotorControl_Step<br/>CURRENT / SPEED / POSITION / VQ"]
+        CONTROL["MotorControl_Step<br/>CURRENT / SPEED / POSITION / VQ<br/>电压开环 / 电流闭环角度开环"]
         CAL["MotorMaintenance_Step<br/>LUT、零位等单项维护步骤"]
         IDLE["空闲或未就绪不启相<br/>未满足条件不执行出力任务"]
         RESULT["PostOutcome登记进展/结果<br/>再执行FastFaultStop复核"]
@@ -185,3 +185,33 @@ host_app同时保留Rust GUI候选与Qt核心工具，程序能力和验收分�
 - [实际目录归属](code_structure.md)、[当前候选及未测项](../plans/active/2026-10-21-current-candidate-acceptance-v1.md)
 
 本页描述源码职责，不代表当前候选已通过实机验收。
+
+
+## 共用FOC流水线与正式开环模式（2026-10-29）
+
+普通快环由MotorAxis_FastTick完成采样与保护后，直接进入MotorControl_Step选择
+角度和控制律，再调用一次FOC_Step。原run_fast_task、Task_Current_Mode、Task_Vq_Mode
+转发已去除；标定/台架仍可使用FOC_Current、FOC_CurrentWithReference和FOC_Vq_Mode，
+它们只绑定参考并进入同一FOC_Step，不各自实现电流变换或PWM流程。
+
+```mermaid
+flowchart LR
+    A[ADC与编码器采样] --> B[相电流/母线电压快速保护]
+    B --> C[选择反馈角度或开环电角度]
+    C --> D[Clarke / Park]
+    D --> E[电流PI / Id PI加Vq / 纯Vdq]
+    E --> F[电压矢量限幅]
+    F --> G[逆Park与一拍角度预测]
+    G --> H[SVPWM]
+    H --> I[一次PWM提交]
+    I --> J[下一拍积分跟踪和统计]
+```
+
+两板目前均为三相实测输入，保留三路实测过流检测，不把第三相擅自改成负两相和。
+硬件母线电流的校零和对外反馈仍由BusCurrentFeedback拥有；FOC内部调制乘电流
+是模型估计，两者不混作同一来源。初始化、维护和故障分支在普通FOC之前退出到共同
+结果发布点；两次显式FastFaultStop、SPI与计算重叠位置、20kHz频率保持。
+
+模式与参数的线格式见[通信扩展说明](../protocols/yg_protocol_simplification_design_v1.md)。
+开环频率和相位是独立易失运行状态，不复用机械速度目标，不进入Flash参数记录。
+纯电压策略不运行电流PI；Vq策略保持Id=0闭环；两种电流策略均受d/q总矢量限流。

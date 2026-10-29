@@ -62,6 +62,17 @@ int main(int argc, char **argv)
 #elif FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708 ||                                     \
     FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5740
     near_value(PARAM_MOTOR_PEAK_VECTOR_A, 10.60660172f);
+#if FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708
+    /* 稳态目标不得落在观测器交接下限以下；两种速度统一到电机轴口径。 */
+    near_value(SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S, 420.0f);
+    near_value(SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S, 30.0f);
+    near_value(SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * (float)PARAM_MOTOR_POLE_PAIRS,
+               SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S);
+    assert(SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * (float)PARAM_MOTOR_POLE_PAIRS >
+           SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S);
+    assert(SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A < 3.0f);
+    assert(SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A < 3.0f);
+#endif
 #endif
     printf("PASS %s: 1kHz, model inputs, gear ratio, calibration variant and readiness\n",
            PARAM_MOTOR_CONFIGURATION_NAME);

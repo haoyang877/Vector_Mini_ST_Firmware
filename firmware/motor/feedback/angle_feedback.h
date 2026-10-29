@@ -4,9 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "motor_config.h"
+#include "profiles/encoder_feedback_defaults.h"
 
 /* 角度反馈（motor 层拥有）：传感器采样 -> 方向/线性化/电零位/多圈/速度。
- * 传感器型号由板级 hw_conf.h 的 ENCODER_SENSOR_TYPE 选择，驱动负责把各自位宽
+ * 传感器型号由工程选择唯一器件协议源，驱动负责把各自位宽
  * 归一化为同一 Q15 语义；本层不访问寄存器、总线或板级宏。 */
 
 /* 单圈角度表示：无符号 Q15，范围 [0, 65535]。 */
@@ -19,11 +20,7 @@
  * ENCODER_PLL_OMEGA_MAX_RAD_S 为输出限幅（防坏帧/极端输入发散）；
  * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 mechanical_velocity_rad_s 归零，
  * mechanical_velocity_continuous_rad_s 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
-/* 默认取低纹波点；不叠加滤波器，延迟/噪声取舍见决策 0002。 */
-#define ENCODER_PLL_OMEGA_N_HZ 90.0f
-#define ENCODER_PLL_ZETA 0.707f
-#define ENCODER_PLL_OMEGA_MAX_RAD_S 2000.0f
-#define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 0.05f
+/* 默认取低纹波点；数值统一归配置头，不叠加滤波器，取舍见决策0002。 */
 
 /** 编码器读取状态；当前实现只产生 OK 与 SPI_TIMEOUT，其余为协议层预留。 */
 typedef enum

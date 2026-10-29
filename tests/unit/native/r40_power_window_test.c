@@ -2,22 +2,23 @@
 #include <assert.h>
 #include <stdio.h>
 #include "at32f45x.h"
-#include "power_stage_hw.h"
-#include "r40_power_window.h"
+#include "bsp_pwm.h"
+#include "pwm_power_window.h"
+#include "bsp_internal.h"
 
 tmr_type fake_tmr1;
 static uint32_t s_key, s_now;
-uint32_t time_hw_now_ms(void)
+uint32_t BspSystem_TimeMs(void)
 {
     return s_now;
 }
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     uint32_t key = s_key;
     s_key = 1U;
     return key;
 }
-void critical_hw_exit(uint32_t key)
+void BspSystem_ExitCritical(uint32_t key)
 {
     s_key = key;
 }
@@ -32,61 +33,74 @@ void tmr_output_enable(tmr_type *timer, confirm_state enabled)
         timer->brk &= ~0x8000U;
     }
 }
+static BspResult owned_enable(void)
+{
+    uint32_t key = BspSystem_EnterCritical();
+    BspResult result = PwmPowerWindow_Start(s_now) ? BspPwm_Enable() : BSP_REJECTED;
+    if (result != BSP_OK)
+    {
+        PwmPowerWindow_Stop();
+        BspPwm_Disable();
+    }
+    BspSystem_ExitCritical(key);
+    return result;
+}
 int main(void)
 {
-    R40_PowerWindowInit();
+    PwmPowerWindow_Init();
     fake_tmr1.cctrl = 1U;
-    power_stage_hw_start();
-    assert(power_stage_hw_phases_disabled() && !(fake_tmr1.brk & 0x8000U));
-    assert(!R40_PowerWindowArm(199U, 0U));
-    assert(!R40_PowerWindowArm(45001U, 0U));
-    assert(R40_PowerWindowArm(200U, 0U));
-    assert(!R40_PowerWindowArm(40000U, 0U));
-    power_stage_hw_start();
+    assert(owned_enable() == BSP_REJECTED);
+    assert(BspPwm_ArePhasesDisabled() && !(fake_tmr1.brk & 0x8000U));
+    assert(!PwmPowerWindow_Arm(199U, 0U));
+    assert(!PwmPowerWindow_Arm(45001U, 0U));
+    assert(PwmPowerWindow_Arm(200U, 0U));
+    assert(!PwmPowerWindow_Arm(40000U, 0U));
+    assert(owned_enable() == BSP_OK);
     assert((fake_tmr1.cctrl & 0x5550U) == 0x5550U && (fake_tmr1.brk & 0x8000U));
     for (unsigned n = 0U; n < 3999U; ++n)
     {
-        assert(R40_PowerWindowTick(0U));
+        assert(PwmPowerWindow_Tick(0U));
     }
-    assert(!R40_PowerWindowTick(0U)); /* 即使毫秒卡住也按快拍到期。 */
-    power_stage_hw_stop();
-    power_stage_hw_start();
-    assert(power_stage_hw_phases_disabled() && fake_tmr1.cctrl == 1U);
-    assert(!R40_PowerWindowArm(200U, 0U));
+    assert(!PwmPowerWindow_Tick(0U)); /* 即使毫秒卡住也按快拍到期。 */
+    BspPwm_Disable();
+    owned_enable();
+    assert(BspPwm_ArePhasesDisabled() && fake_tmr1.cctrl == 1U);
+    assert(!PwmPowerWindow_Arm(200U, 0U));
 
-    R40_PowerWindowInit();
+    PwmPowerWindow_Init();
     s_now = UINT32_MAX - 10U;
-    assert(R40_PowerWindowArm(200U, s_now));
-    power_stage_hw_start();
+    assert(PwmPowerWindow_Arm(200U, s_now));
+    owned_enable();
     s_now += 199U;
-    power_stage_hw_start(); /* 重复START不能更新截止时间。 */
-    assert(!power_stage_hw_phases_disabled());
-    assert(R40_PowerWindowTick(s_now));
-    assert(!R40_PowerWindowTick(s_now + 1U));
-    power_stage_hw_stop();
-    assert(g_r40_power_window.state == R40_POWER_EXPIRED);
+    owned_enable(); /* 重复START不能更新截止时间。 */
+    assert(!BspPwm_ArePhasesDisabled());
+    assert(PwmPowerWindow_Tick(s_now));
+    assert(!PwmPowerWindow_Tick(s_now + 1U));
+    BspPwm_Disable();
+    assert(g_pwm_power_window.state == PWM_POWER_EXPIRED);
 
-    R40_PowerWindowInit();
-    assert(R40_PowerWindowArm(200U, 0U));
+    PwmPowerWindow_Init();
+    assert(PwmPowerWindow_Arm(200U, 0U));
     s_now = 5000U;
-    power_stage_hw_start();
-    assert(power_stage_hw_phases_disabled());
-    assert(g_r40_power_window.state == R40_POWER_EXPIRED);
+    owned_enable();
+    assert(BspPwm_ArePhasesDisabled());
+    assert(g_pwm_power_window.state == PWM_POWER_EXPIRED);
 
-    R40_PowerWindowInit();
-    assert(R40_PowerWindowArm(200U, 0U));
+    PwmPowerWindow_Init();
+    assert(PwmPowerWindow_Arm(200U, 0U));
     s_now = 0U;
-    power_stage_hw_start();
-    power_stage_hw_stop();
-    assert(g_r40_power_window.state == R40_POWER_DONE);
-    power_stage_hw_start();
-    assert(power_stage_hw_phases_disabled() && !(fake_tmr1.brk & 0x8000U) && s_key == 0U);
-    R40_PowerWindowInit();
-    assert(R40_PowerWindowArm(200U, 0U));
-    R40_PowerWindowAbort();
-    assert(!R40_PowerWindowTick(0U));
-    power_stage_hw_start();
-    assert(power_stage_hw_phases_disabled() && !R40_PowerWindowArm(200U, 0U));
+    owned_enable();
+    BspPwm_Disable();
+    (void)PwmPowerWindow_Tick(s_now);
+    assert(g_pwm_power_window.state == PWM_POWER_DONE);
+    owned_enable();
+    assert(BspPwm_ArePhasesDisabled() && !(fake_tmr1.brk & 0x8000U) && s_key == 0U);
+    PwmPowerWindow_Init();
+    assert(PwmPowerWindow_Arm(200U, 0U));
+    PwmPowerWindow_Abort();
+    assert(!PwmPowerWindow_Tick(0U));
+    owned_enable();
+    assert(BspPwm_ArePhasesDisabled() && !PwmPowerWindow_Arm(200U, 0U));
     puts("PASS bounded APP: disarmed denial, time/tick cutoff, wrap, no renewal/restart, real "
          "gates");
     return 0;

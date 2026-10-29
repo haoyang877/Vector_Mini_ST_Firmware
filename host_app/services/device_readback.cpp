@@ -2,7 +2,7 @@
 #include "device_readback.h"
 extern "C"
 {
-#include "shared/protocol/yg_protocol_byte_order.h"
+#include "shared/protocol/yg_protocol_common.h"
 #include "shared/protocol/yg_protocol_can_id.h"
 #include "shared/protocol/yg_protocol_frame_codec.h"
 }

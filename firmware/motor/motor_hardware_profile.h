@@ -2,7 +2,7 @@
 #define MOTOR_HARDWARE_PROFILE_H
 
 /* 电机硬件配置契约：阻尼环/摩擦前馈是否安装的选择与校验。
- * platform/api 层拥有该契约；板级配置（hw_conf.h）引用，motor 模块可直接包含。 */
+ * platform/bsp/include 层拥有该契约；板级配置（hw_conf.h）引用，motor 模块可直接包含。 */
 
 /* 阻尼环相关的编码器标定 profile 选择。 */
 #define MOTOR_DAMPING_RING_DISABLED 0U

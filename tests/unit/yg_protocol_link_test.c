@@ -3,23 +3,23 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "comm_hw.h"
-#include "critical_hw.h"
+#include "bsp_can.h"
+#include "bsp_system.h"
 #include "yg_protocol_canfd.h"
 #include "yg_protocol_link.h"
-#include "yg_protocol_runtime.h"
 #include "yg_protocol_readonly.h"
-#include "yg_protocol_readonly_payload.h"
 #include "yg_protocol_boot.h"
 
-static CommHwCanFrame sent_frame;
+static BspCanFrame sent_frame;
 static bool sent;
 static uint32_t irq_mask;
+static unsigned critical_entries;
 static unsigned motor_calls;
 static uint16_t start_stop_barrier;
 static bool tx_blocked;
-static CommHwCanFrame injected_frame;
+static BspCanFrame injected_frame;
 static bool inject_on_unlock;
+static bool inject_on_consume;
 static uint16_t sent_sequences[32];
 static size_t sent_count;
 static unsigned can_starts;
@@ -29,53 +29,75 @@ static yg_protocol_motor_operation_t power_operation;
 static bool tracked_allowed;
 static uint64_t tracked_ticket;
 static bool completion_pending;
-static CommHwCanTxCompletion pending_completion;
+static BspCanCompletion pending_completion;
 static unsigned boot_completion_calls;
 static bool boot_completion_success;
+static unsigned rx_reads;
+static unsigned rx_remaining;
 
-/* 只有交接夹具允许跟踪发送；完成事件由测试显式注入，普通回复仍走普通发送口。 */
-bool comm_hw_can_try_send_tracked_frame(const CommHwCanFrame *frame, uint64_t ticket)
+/* 直接验证迁入 link 的中断入口，FIFO 替身不接触硬件。 */
+BspResult BspCan_Receive(BspCanFrame *frame)
 {
-    assert(tracked_allowed && ticket != 0U);
-    if (!comm_hw_can_try_send_frame(frame))
+    ++rx_reads;
+    if (rx_remaining == 0U)
     {
-        return false;
+        return BSP_NOT_READY;
     }
-    tracked_ticket = ticket;
-    return true;
+    --rx_remaining;
+    *frame = injected_frame;
+    return BSP_OK;
 }
 
-bool comm_hw_can_take_tx_completion(CommHwCanTxCompletion *completion)
+/* 只有交接夹具允许跟踪发送；完成事件由测试显式注入，普通回复仍走普通发送口。 */
+BspResult BspCan_TrySendTracked(const BspCanFrame *frame, uint64_t ticket)
+{
+    assert(tracked_allowed && ticket != 0U);
+    if (BspCan_TrySend(frame) != BSP_OK)
+    {
+        return BSP_NOT_READY;
+    }
+    tracked_ticket = ticket;
+    return BSP_OK;
+}
+
+BspResult BspCan_TakeCompletion(BspCanCompletion *completion)
 {
     if (!completion_pending)
     {
-        return false;
+        return BSP_NOT_READY;
     }
     *completion = pending_completion;
     completion_pending = false;
-    return true;
+    return BSP_OK;
 }
 
 /* 运行时测试用的硬件替身：只计数，不接触真实外设。 */
-void comm_hw_can_start_fd(void)
+BspResult BspCan_Start(void)
 {
     ++can_starts;
+    return BSP_OK;
 }
 
-bool comm_hw_can_service_bus_off(void)
+BspResult BspCan_Recover(void)
 {
     ++bus_off_services;
-    return true;
+    return BSP_OK;
 }
 
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
+    ++critical_entries;
     uint32_t previous = irq_mask;
+    if (previous == 0U && inject_on_consume)
+    {
+        inject_on_consume = false;
+        assert(YgProtocolLink_OnRxFrame(&injected_frame));
+    }
     irq_mask = 1U;
     return previous;
 }
 
-void critical_hw_exit(uint32_t state)
+void BspSystem_ExitCritical(uint32_t state)
 {
     assert(irq_mask == 1U);
     irq_mask = state;
@@ -86,19 +108,29 @@ void critical_hw_exit(uint32_t state)
     }
 }
 
+void BspSystem_MemoryBarrier(void)
+{
+    assert(irq_mask == 0U);
+    if (inject_on_consume || inject_on_unlock)
+    {
+        inject_on_consume = inject_on_unlock = false;
+        assert(YgProtocolLink_OnRxFrame(&injected_frame));
+    }
+}
+
 /* 替代平台发送口，验证链路只读请求的编码、路由与响应，不接触真实 CAN 或电机。 */
-bool comm_hw_can_try_send_frame(const CommHwCanFrame *frame)
+BspResult BspCan_TrySend(const BspCanFrame *frame)
 {
     assert(irq_mask == 0U);
     if (frame == NULL || sent || tx_blocked)
     {
-        return false;
+        return BSP_NOT_READY;
     }
     sent_frame = *frame;
     sent = true;
     assert(sent_count < sizeof(sent_sequences) / sizeof(sent_sequences[0]));
     sent_sequences[sent_count++] = (uint16_t)frame->data[8] | ((uint16_t)frame->data[9] << 8U);
-    return true;
+    return BSP_OK;
 }
 
 static void motor_handler(void *context,
@@ -124,6 +156,43 @@ static void control_handler(void *context,
 }
 
 /* 在发送持续忙时填满 TX，随后恢复发送：命令不得执行两次或乱序丢失。 */
+static void irq_receive_budget(void)
+{
+    yg_protocol_motor_service_t service = {NULL, motor_handler};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP};
+    yg_protocol_transfer_frame_t frame;
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindMotorService(&service));
+    assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
+    injected_frame = (BspCanFrame){.identifier = frame.identifier,
+                                   .length = frame.length,
+                                   .extended = true,
+                                   .fd = true,
+                                   .bitrate_switch = true};
+    memcpy(injected_frame.data, frame.data, frame.length);
+    motor_calls = 0U;
+    sent_count = 0U;
+    sent = false;
+    rx_reads = 0U;
+    rx_remaining = 5U;
+    unsigned entries_before = critical_entries;
+    YgProtocolCanfd_RxIrqHandler();
+    assert(critical_entries == entries_before);
+    assert(rx_reads == 3U && rx_remaining == 2U && motor_calls == 0U && !sent);
+    YgProtocolLink_Service(1U);
+    assert(motor_calls == 3U);
+    entries_before = critical_entries;
+    YgProtocolCanfd_RxIrqHandler();
+    assert(critical_entries == entries_before);
+    assert(rx_reads == 6U && rx_remaining == 0U && motor_calls == 3U);
+    YgProtocolLink_Service(2U);
+    assert(motor_calls == 5U);
+}
+
 static void backlog_and_interrupt_handoff(void)
 {
     yg_protocol_motor_service_t service = {NULL, motor_handler};
@@ -143,11 +212,11 @@ static void backlog_and_interrupt_handoff(void)
     {
         request.sequence = (uint16_t)index;
         assert(yg_protocol_canfd_pack(&request, 3U, &frame) == YG_PROTOCOL_OK);
-        injected_frame = (CommHwCanFrame){.identifier = frame.identifier,
-                                          .length = frame.length,
-                                          .extended = true,
-                                          .fd = true,
-                                          .bitrate_switch = true};
+        injected_frame = (BspCanFrame){.identifier = frame.identifier,
+                                       .length = frame.length,
+                                       .extended = true,
+                                       .fd = true,
+                                       .bitrate_switch = true};
         memcpy(injected_frame.data, frame.data, frame.length);
         assert(YgProtocolLink_OnRxFrame(&injected_frame));
     }
@@ -176,6 +245,13 @@ static void backlog_and_interrupt_handoff(void)
     sent = false;
     YgProtocolLink_Service(100U);
     assert(motor_calls == 10U && sent_count == 9U && !inject_on_unlock && irq_mask == 0U);
+    /* 队首先复制，再由ISR追加，最后提交消费；原帧和新帧都只执行一次。 */
+    assert(YgProtocolLink_OnRxFrame(&injected_frame));
+    inject_on_consume = true;
+    sent = false;
+    YgProtocolLink_Service(101U);
+    assert(motor_calls == 12U && !inject_on_consume && irq_mask == 0U);
+    assert(critical_entries == 0U);
 }
 
 static void put_u16(uint8_t *buffer, uint16_t value)
@@ -205,7 +281,7 @@ static void control_reply_and_feedback(void)
                                      .payload = payload};
     yg_protocol_transfer_frame_t packed, response_frame;
     yg_protocol_message_t response;
-    CommHwCanFrame received = {0};
+    BspCanFrame received = {0};
     assert(YgProtocolLink_Init(7U));
     assert(yg_protocol_canfd_pack(&request, 2U, &packed) == YG_PROTOCOL_OK);
     received.identifier = packed.identifier;
@@ -295,7 +371,7 @@ static void enable_route(void)
                                      .payload_length = sizeof(payload),
                                      .payload = payload};
     yg_protocol_transfer_frame_t frame;
-    CommHwCanFrame received = {0};
+    BspCanFrame received = {0};
     assert(YgProtocolLink_Init(7U));
     assert(yg_protocol_canfd_pack(&request, 2U, &frame) == YG_PROTOCOL_OK);
     received.identifier = frame.identifier;
@@ -326,7 +402,7 @@ static void power_handler(void *context,
 static void enqueue_request(const yg_protocol_message_t *request)
 {
     yg_protocol_transfer_frame_t packed;
-    CommHwCanFrame received = {0};
+    BspCanFrame received = {0};
     assert(yg_protocol_canfd_pack(request, 2U, &packed) == YG_PROTOCOL_OK);
     received.identifier = packed.identifier;
     received.length = packed.length;
@@ -710,15 +786,15 @@ static void runtime_start_boundary(void)
     assert(bus_off_services == 2U);
 
     /* attempt-10实际Type1/seq12原始帧；只替换硬件端口，不以pack重建请求。 */
-    const CommHwCanFrame captured = {.identifier = 0x0CEF0102U,
-                                     .length = 32U,
-                                     .extended = true,
-                                     .fd = true,
-                                     .bitrate_switch = true,
-                                     .data = {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x01, 0x01, 0x00,
-                                              0x0C, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x4A,
-                                              0x00, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00,
-                                              0x00, 0x00, 0x00, 0x00, 0x95, 0x6A, 0x00, 0x00}};
+    const BspCanFrame captured = {.identifier = 0x0CEF0102U,
+                                  .length = 32U,
+                                  .extended = true,
+                                  .fd = true,
+                                  .bitrate_switch = true,
+                                  .data = {0x5A, 0xA5, 0x01, 0x20, 0x02, 0x01, 0x01, 0x00,
+                                           0x0C, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x4A,
+                                           0x00, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00,
+                                           0x00, 0x00, 0x00, 0x00, 0x95, 0x6A, 0x00, 0x00}};
     const yg_protocol_readonly_info_page0_t info = {
         .uid = {0x57, 0x00, 0x46, 0x00, 0x10, 0x50, 0x4E, 0x48, 0x31, 0x30, 0x33, 0x20}};
     const yg_protocol_readonly_caps_page0_t capabilities = {0};
@@ -825,12 +901,12 @@ static void boot_ready_queue_contract(void)
             {
                 assert(tracked_ticket == 9U && boot_completion_calls == 0U);
                 /* 旧事务完成不得消费当前票据。 */
-                pending_completion = (CommHwCanTxCompletion){.ticket = 8U, .success = true};
+                pending_completion = (BspCanCompletion){.ticket = 8U, .result = BSP_CAN_TX_OK};
                 completion_pending = true;
                 YgProtocolLink_Service(15U);
                 assert(boot_completion_calls == 0U);
-                pending_completion =
-                    (CommHwCanTxCompletion){.ticket = 9U, .success = scenario == 0U};
+                pending_completion = (BspCanCompletion){
+                    .ticket = 9U, .result = scenario == 0U ? BSP_CAN_TX_OK : BSP_CAN_TX_ERROR};
                 completion_pending = true;
                 YgProtocolLink_Service(16U);
                 assert(boot_completion_calls == 1U && boot_completion_success == (scenario == 0U));
@@ -937,7 +1013,7 @@ int main(void)
     yg_protocol_transfer_frame_t request_frame = {0};
     yg_protocol_transfer_frame_t response_frame = {0};
     yg_protocol_message_t response = {0};
-    CommHwCanFrame received = {0};
+    BspCanFrame received = {0};
     uint32_t session_id = 0x11223344U;
     uint32_t request_id = 0x55667788U;
 
@@ -1070,6 +1146,7 @@ int main(void)
     start_route_contract();
     multimode_start_vectors();
     control_reply_and_feedback();
+    irq_receive_budget();
     backlog_and_interrupt_handoff();
     control_history_window();
     power_route_contract();

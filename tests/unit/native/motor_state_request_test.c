@@ -6,13 +6,14 @@
 #include <string.h>
 
 #include "motor_axis.h"
+#include "motor_maintenance.h"
 #include "motor_state_machine.h"
 
 void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 {
     *readiness = (MotorReadiness){.start_blockers = 3U, .self_test_checks = MOTOR_SELF_TEST_ALL};
 }
-#include "critical_hw.h"
+#include "bsp_system.h"
 #include "motor_state_machine.h"
 #include "parameter_values.h"
 #include "motor_command.h"
@@ -21,7 +22,7 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 #include "foc_pid.h"
 #include "control_config.h"
 #include "maintenance_workspace.h"
-#include "param_store.h"
+#include "bsp_flash.h"
 #include "motor_thermal_control.h"
 
 bool MotorThermalControl_Configure(const MotorWindingThermalConfig *config, bool outputs_disabled)
@@ -35,6 +36,19 @@ static MotorConfiguration s_motor_configuration;
 static MotorControlState s_motor_state;
 static PiController s_speed_pi;
 static FocState s_foc_state;
+static EncoderState s_rotor_encoder;
+
+/* 本夹具只验证参数/SAVE；LUT行为由真实owner与任务夹具覆盖。 */
+bool MotorMaintenance_PublishLut(MotorConfiguration *configuration, EncoderState *encoder)
+{
+    (void)configuration;
+    (void)encoder;
+    return false;
+}
+void MotorMaintenance_Cancel(MotorMaintenanceKind kind)
+{
+    (void)kind;
+}
 #if defined(MOTOR_PARAMETER_TRANSACTION_PRESENT)
 /* 真实所有者的状态和全部函数一并编译；不在夹具复制第二份新事务状态。 */
 #include "motor_parameter_transaction.c"
@@ -72,7 +86,7 @@ static void trace_call(uint32_t event)
 {
     call_trace = (call_trace ^ event) * 16777619U;
 }
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     if (AXIS_WRITE_OUTER_CRITICAL && axis_write_active && critical_depth == 0U)
     {
@@ -84,7 +98,7 @@ uint32_t critical_hw_enter(void)
     }
     return ++critical_depth;
 }
-void critical_hw_exit(uint32_t state)
+void BspSystem_ExitCritical(uint32_t state)
 {
     if (AXIS_WRITE_OUTER_CRITICAL && axis_write_active && critical_depth == 1U)
     {
@@ -168,16 +182,16 @@ void MaintenanceWorkspace_ReleaseParameter(InterfaceParam *record)
         stub_background_current = false;
     }
 }
-bool param_store_read(void *record, uint32_t size_bytes)
+BspResult BspFlash_Read(void *record, size_t size_bytes)
 {
     trace_call(8U);
     if (record != &stub_record || size_bytes != sizeof(stub_record) || critical_depth != 0U)
     {
         ++boundary_errors;
     }
-    return stub_store_read_ok;
+    return stub_store_read_ok ? BSP_OK : BSP_IO_ERROR;
 }
-bool param_store_write(const void *record, uint32_t size_bytes)
+BspResult BspFlash_Write(const void *record, size_t size_bytes)
 {
     trace_call(9U);
     ++store_writes;
@@ -185,7 +199,7 @@ bool param_store_write(const void *record, uint32_t size_bytes)
     {
         ++boundary_errors;
     }
-    return stub_store_write_ok;
+    return stub_store_write_ok ? BSP_OK : BSP_IO_ERROR;
 }
 void Param_Return_Default(MotorConfiguration *configuration)
 {
@@ -611,4 +625,13 @@ int main(void)
     }
     printf("FAILURES: %u\n", failures);
     return 1;
+}
+
+uint32_t BspSystem_EnterControlCritical(void)
+{
+    return BspSystem_EnterCritical();
+}
+void BspSystem_ExitControlCritical(uint32_t state)
+{
+    BspSystem_ExitCritical(state);
 }

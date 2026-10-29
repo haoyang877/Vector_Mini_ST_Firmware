@@ -6,11 +6,11 @@
 #include "SEGGER_RTT.h"
 
 static uint32_t s_depth;
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     return s_depth++;
 }
-void critical_hw_exit(uint32_t key)
+void BspSystem_ExitCritical(uint32_t key)
 {
     s_depth = key;
 }

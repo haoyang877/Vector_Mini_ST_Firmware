@@ -20,8 +20,9 @@ REFERENCE_PATHS = (
     "firmware/parameters",
     "firmware/services",
     "firmware/communication",
-    "firmware/platform/api",
-    "firmware/platform/stm32g4/bsp",
+    "firmware/platform/bsp/include",
+    "firmware/platform/config",
+    "firmware/platform/bsp/mcu/stm32g4",
     "shared",
 )
 OWNER_SOURCES = (
@@ -116,6 +117,11 @@ def owner_fixture(tree: Path) -> str:
         fixture += (
             "#define s_foc_state foc\n#define s_speed_pi pi\n#define s_rotor_encoder encoder\n"
         )
+        if "finalize_current_offsets();" in axis:
+            # 此夹具直接提供零偏条件，采样/延后发布由真实startup_current_offsets用例覆盖。
+            fixture += "static void finalize_current_offsets(void) {}\n"
+        if "s_status_revision" in axis:
+            fixture += "static volatile uint32_t s_status_revision;\n"
         fixture += function_source(axis, "MotorAxis_SupervisorTick")
     adapter = (tree / "firmware/app/composition/yg_protocol_status_adapter.c").read_text(
         encoding="utf-8"
@@ -185,11 +191,15 @@ def run_variant(
             + f'\n#undef main\n#include "{case.as_posix()}"\n'
         )
     source.write_text(
-        f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n"
+        f"#define STATE_FAST_POWER_OWNER {int('MotorStateMachine_BeginFastTick' in owner_text)}\n"
+        + f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n"
         + f"#define STATE_SUPERVISOR_STAGED {int('MotorStateMachine_PrepareSupervisor' in owner_text)}\n"
+        + f"#define STATE_PUBLICATION_PREVALIDATED {int('step->configuration_valid' in owner_text)}\n"
         + f"#define STATE_BOOT_HEALTH_INPUTS_ONLY {int(health_inputs_only)}\n"
         + f"#define STATE_START_ADMISSION_PREVALIDATED {int('prepare_start_configuration' in owner_text)}\n"
         + f"#define STATE_START_SUPERVISOR_PREVALIDATED {int('startup_configuration_stable' in owner_text)}\n"
+        + f"#define STATE_CALIBRATION_GUARD_PREVALIDATED {int('encoder_calibration_poll' in owner_text)}\n"
+        + f"#define STATE_MAINTENANCE_ADMISSION_PREVALIDATED {int('request_maintenance_locked' in owner_text)}\n"
         + fixture,
         encoding="utf-8",
     )
@@ -206,7 +216,11 @@ def run_variant(
         resolve_source_path(tree, path, *LEGACY_SOURCES.get(path, ())) for path in OWNER_SOURCES
     ]
     production[0] = instrumented_owner
-    production += [maintenance, maintenance.parent / "maintenance_workspace.c"]
+    production += [
+        maintenance,
+        maintenance.parent / "maintenance_workspace.c",
+        ROOT / "tests/unit/bsp_preemption_stubs.c",
+    ]
     command = (
         compiler
         + ["-I", str(maintenance.parent)]
@@ -224,7 +238,8 @@ def run_variant(
             [
                 "-DFOC_ACTIVE_HW_PROFILE=2",
                 "-DR40_APP_PHASE_LOCK=1",
-                "-DR40_APP_MCU_TEMPERATURE_OPTIONAL=1",
+                "-DBSP_PWM_HARD_LOCK=1",
+                "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
             ]
             if optional_temperature
             else ["-DCURRENT_SENSE_SHUNT_MILLIOHM=6U"]

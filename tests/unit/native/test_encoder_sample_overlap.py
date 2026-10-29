@@ -11,7 +11,6 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
 import argparse
-import re
 import subprocess
 from pathlib import Path
 
@@ -20,9 +19,7 @@ from run_position_servo_tests import function_source
 
 
 def _transport_source() -> str:
-    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_spi_stm32g4.c").read_text(
-        encoding="utf-8"
-    )
+    source = (ROOT / "firmware/platform/bsp/mcu/stm32g4/encoder_spi.c").read_text(encoding="utf-8")
     return (
         r"""
 #undef NDEBUG
@@ -46,16 +43,17 @@ static SPI_HandleTypeDef hspi2 = { &registers };
 #define ENCODER_SPI_HANDLE hspi2
 static unsigned cs, hiz, begins, ends, commands, receives, completes, read_starts, fail;
 static uint16_t response;
+static const EncoderSpiRequest request = {0x8021U, 2U};
 static void select_sensor(void) { assert(!cs); cs = 1; begins++; }
 static void release_sensor(void) { assert(cs && !hiz); cs = 0; ends++; }
 #define ENCODER_SPI_CS_ENABLE select_sensor()
 #define ENCODER_SPI_CS_DISABLE release_sensor()
-static void SPI2_MOSI_HiZ(void) { assert(cs && !hiz); hiz = 1; }
-static void SPI2_MOSI_RestoreAF(void) { assert(cs && hiz); hiz = 0; }
-static bool SPI_WaitBSYClear(SPI_TypeDef *s, uint32_t limit) {
+static void spi_mosi_release(void) { assert(cs && !hiz); hiz = 1; }
+static void spi_mosi_restore(void) { assert(cs && hiz); hiz = 0; }
+static bool spi_wait_idle(SPI_TypeDef *s, uint32_t limit) {
     assert(s == &registers && limit == 340U); return true;
 }
-static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *s, bool *ok) {
+static uint16_t spi_read_word(SPI_TypeDef *s, bool *ok) {
     assert(s == &registers && cs);
     if (hiz) {
         receives++; *ok = fail != 2; return response;
@@ -63,21 +61,21 @@ static uint16_t SPI_Reg_ReadRx16(SPI_TypeDef *s, bool *ok) {
     assert(s->DR == 0x8021U);
     completes++; *ok = fail != 1; return 0;
 }
-static bool SPI_Reg_StartTx16(SPI_TypeDef *s, uint16_t data) {
+static bool spi_start_word(SPI_TypeDef *s, uint16_t data) {
     assert(s == &registers && cs && hiz && data == 0U);
     read_starts++; return fail != 3;
 }
-static uint16_t SPI_Reg_TxRx16(SPI_TypeDef *s, uint16_t data, bool *ok) {
+static uint16_t spi_transfer_word(SPI_TypeDef *s, uint16_t data, bool *ok) {
     assert(s == &registers && cs);
     if (data == 0x8021U) { assert(!hiz); commands++; *ok = fail != 1; return 0; }
     assert(data == 0U && hiz); receives++; *ok = fail != 2; return response;
 }
 """
-        + function_source(source, "encoder_spi_read_begin")
+        + function_source(source, "EncoderSpi_Begin")
         + "\n"
-        + function_source(source, "encoder_spi_read_begin_readback")
+        + function_source(source, "EncoderSpi_BeginReadback")
         + "\n"
-        + function_source(source, "encoder_spi_read_complete")
+        + function_source(source, "EncoderSpi_Complete")
         + r"""
 int main(void) {
     unsigned sr, enabled, pipeline, failure, word, cases = 0;
@@ -85,7 +83,7 @@ int main(void) {
         bool started;
         registers.CR1 = enabled ? SPI_CR1_SPE : 0; registers.SR = sr; registers.DR = 0x55;
         cs = hiz = begins = ends = 0;
-        started = encoder_spi_read_begin(0x8021U);
+        started = EncoderSpi_Begin(&request);
         assert(started == (enabled && (sr & (SPI_FLAG_TXE|SPI_FLAG_RXNE|SPI_FLAG_OVR|SPI_FLAG_BSY)) == SPI_FLAG_TXE));
         assert(begins == (unsigned)started && cs == (unsigned)started);
         assert(registers.DR == (started ? 0x8021U : 0x55U));
@@ -94,26 +92,28 @@ int main(void) {
     for (pipeline = 0; pipeline < 3; pipeline++) for (failure = 0; failure < 4; failure++) {
         if (failure == 3 && pipeline != 2) continue;
         for (word = 0; word < 65536U; word += 257U) {
-            uint16_t out = 0x1357U;
+            uint8_t bytes[2] = {0x13U, 0x57U};
+            uint16_t out;
             bool started, ok;
             uint8_t stage;
             cs = hiz = begins = ends = commands = receives = completes = read_starts = 0;
             fail = failure; response = (uint16_t)word;
             registers.CR1 = SPI_CR1_SPE; registers.SR = pipeline ? SPI_FLAG_TXE : SPI_FLAG_BSY;
-            stage = started = encoder_spi_read_begin(0x8021U);
+            stage = started = EncoderSpi_Begin(&request);
             assert(started == (pipeline != 0));
             if (pipeline == 2) {
-                stage = encoder_spi_read_begin_readback(started, 0U);
+                stage = EncoderSpi_BeginReadback(started);
                 assert(stage == (failure == 1 || failure == 3 ? ENCODER_SPI_READ_FAILED
                                                             : ENCODER_SPI_READ_RESPONSE_PENDING));
                 assert(cs && (hiz == (failure != 1 && failure != 3)));
                 assert(receives == 0); /* 此处仅发起响应，不能提前等读。 */
             } else if (!pipeline) {
-                assert(encoder_spi_read_begin_readback(false, 0U) == ENCODER_SPI_READ_SYNC);
+                assert(EncoderSpi_BeginReadback(false) == ENCODER_SPI_READ_SYNC);
                 assert(!cs && !hiz && completes == 0 && read_starts == 0);
             }
             /* 保护/观测器计算可在此重叠，但不得再次访问总线。 */
-            ok = encoder_spi_read_complete(stage, 0x8021U, 0U, &out);
+            ok = EncoderSpi_Complete(stage, &request, bytes);
+            out = (uint16_t)(((uint16_t)bytes[0] << 8) | bytes[1]);
             assert(ok == (failure == 0) && !cs && !hiz && begins == 1 && ends == 1);
             assert(commands == (pipeline ? 0U : 1U) && completes == (unsigned)(pipeline != 0));
             assert(receives == (failure == 1 || failure == 3 ? 0U : 1U));
@@ -129,94 +129,6 @@ int main(void) {
     )
 
 
-def _channel_source() -> str:
-    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_tle5012b.c").read_text(
-        encoding="utf-8"
-    )
-    return (
-        r"""
-#undef NDEBUG
-#include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include "encoder_sensor.h"
-#define TLE5012B_REQUEST_READ_ANGLE 0x8021U
-#define TLE5012B_READ_FRAME 0x0000U
-static unsigned begin_calls, complete_calls;
-static unsigned last_begin_frame, last_request_frame, last_read_frame;
-static bool begin_result, complete_result;
-static uint8_t seen_stage;
-static unsigned readback_calls;
-static uint16_t complete_response;
-bool encoder_spi_read_begin(uint16_t request_frame) {
-    begin_calls++; last_begin_frame = request_frame; return begin_result;
-}
-uint8_t encoder_spi_read_begin_readback(bool begin_ok, uint16_t read_frame) {
-    assert(begin_ok && read_frame == 0U); readback_calls++; return 2U;
-}
-bool encoder_spi_read_complete(uint8_t stage, uint16_t request_frame, uint16_t read_frame,
-                               uint16_t *word) {
-    complete_calls++; seen_stage = stage;
-    last_request_frame = request_frame; last_read_frame = read_frame;
-    if (!complete_result) return false;
-    *word = complete_response; return true;
-}
-static void encoder_spi_init(void) {}
-void encoder_sensor_capture_config(void) {}
-"""
-        + function_source(source, "encoder_sensor_init")
-        + "\n"
-        + function_source(source, "encoder_sensor_begin")
-        + "\n"
-        + function_source(source, "encoder_sensor_begin_readback")
-        + "\n"
-        + function_source(source, "encoder_sensor_complete")
-        + "\n"
-        + function_source(source, "encoder_sensor_type")
-        + r"""
-static void reset(unsigned pipeline, unsigned fail) {
-    begin_calls = complete_calls = 0;
-    last_begin_frame = last_request_frame = last_read_frame = 0;
-    begin_result = pipeline != 0; complete_result = fail == 0; seen_stage = 0xFFU;
-    readback_calls = 0;
-}
-int main(void) {
-    EncoderSensorSample s;
-    unsigned word, cases = 0;
-    assert(encoder_sensor_type() == ENCODER_SENSOR_TYPE_TLE5012B);
-    for (unsigned pipeline = 0; pipeline < 3; pipeline++) {
-        for (unsigned fail = 0; fail < 2; fail++) {
-            for (word = 0; word < 65536U; word += 257U) {
-                s.angle_q15 = 0x1357U; s.status = ENCODER_SENSOR_SENSOR_FAULT;
-                reset(pipeline, fail); complete_response = (uint16_t)word;
-                assert(encoder_sensor_begin() == (pipeline != 0));
-                assert(begin_calls == 1 && last_begin_frame == 0x8021U);
-                uint8_t stage = pipeline != 0;
-                if (pipeline == 2) stage = encoder_sensor_begin_readback(true);
-                assert(encoder_sensor_complete(stage, &s)
-                       == (fail == 0 ? ENCODER_SENSOR_OK : ENCODER_SENSOR_BUS_TIMEOUT));
-                assert(complete_calls == 1 && seen_stage == stage);
-                assert(readback_calls == (unsigned)(pipeline == 2));
-                assert(last_request_frame == 0x8021U && last_read_frame == 0U);
-                if (fail == 0) {
-                    assert(s.angle_q15 == (uint16_t)((word & 0x7FFFU) << 1U));
-                    assert(s.frame_word == (uint16_t)word);
-                    assert(s.safety_word == 0U && s.crc_ok);
-                } else {
-                    assert(s.angle_q15 == 0x1357U);
-                }
-                cases++;
-            }
-        }
-    }
-    printf("PASS %u encoder channel cases: TLE request/read frame, async and fallback, decode, bus-timeout status\n", cases);
-    return 0;
-}
-"""
-    )
-
-
 def _mapping_source() -> str:
     source = (ROOT / "firmware/motor/feedback/angle_feedback.c").read_text(encoding="utf-8")
     return (
@@ -226,7 +138,8 @@ def _mapping_source() -> str:
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "encoder_sensor.h"
+#include "bsp_encoder.h"
+#include "bsp_internal.h"
 typedef unsigned EncoderReadStatus;
 #define ENCODER_READ_OK 0U
 #define ENCODER_READ_SPI_TIMEOUT 1U
@@ -241,15 +154,20 @@ static void encoder_mark_read_status(EncoderState *e, EncoderReadStatus status) 
     e->status = status;
 }
 static unsigned begin_calls;
-static EncoderSensorStatus complete_status;
-static EncoderSensorSample complete_sample;
-bool encoder_sensor_begin(void) { begin_calls++; return true; }
-uint8_t encoder_sensor_begin_readback(bool started) { assert(started); return 2U; }
-EncoderSensorStatus encoder_sensor_complete(uint8_t stage, EncoderSensorSample *out) {
-    (void)stage;
-    *out = complete_sample;
+static BspResult complete_status;
+static BspEncoderSample complete_sample;
+BspResult BspEncoder_Begin(void) { begin_calls++; return BSP_OK; }
+BspResult BspEncoder_BeginReadback(void) { return BSP_OK; }
+BspResult BspEncoder_Complete(BspEncoderSample *out) {
+    if(complete_status==BSP_OK) { *out=complete_sample; }
     return complete_status;
 }
+BspResult BspEncoder_ReadDiagnostics(BspEncoderDiagnostics *out) {
+    *out=(BspEncoderDiagnostics){.type=BSP_ENCODER_TLE5012B,.sample_result=complete_status,
+        .sample_sequence=complete_sample.sequence,.valid_mask=BSP_ENCODER_DIAG_FRAME_VALID,
+        .frame_word=0xBEEFU}; return BSP_OK;
+}
+
 """
         + function_source(source, "Encoder_BeginSample")
         + "\n"
@@ -259,20 +177,16 @@ EncoderSensorStatus encoder_sensor_complete(uint8_t stage, EncoderSensorSample *
         + "\n"
         + function_source(source, "encoder_read_frame")
         + r"""
-static void expect(EncoderSensorStatus status, EncoderReadStatus expected, bool ok) {
+static void expect(BspResult status, EncoderReadStatus expected, bool ok) {
     EncoderState e;
     uint16_t raw = 0x2468U;
     complete_status = status;
-    complete_sample.status = status;
-    complete_sample.angle_q15 = 0x1234U;
-    complete_sample.frame_word = 0xBEEFU;
-    complete_sample.safety_word = 0x0001U;
-    complete_sample.crc_ok = true;
+    complete_sample=(BspEncoderSample){.angle_counts=0x1234U,.sequence=1U};
     e.frame_word = 0U; e.safety_word = 0U; e.crc_received = 1U; e.crc_calculated = 1U;
-    assert(encoder_read_frame(&e, &raw, false) == ok);
+    assert(encoder_read_frame(&e, &raw, 1U) == ok);
     assert(e.status == expected);
     if (ok) {
-        assert(raw == 0x1234U && e.frame_word == 0xBEEFU && e.safety_word == 0x0001U);
+        assert(raw == 0x1234U && e.frame_word == 0xBEEFU && e.safety_word == 0U);
         assert(e.crc_received == 0U && e.crc_calculated == 0U);
     } else {
         assert(raw == 0x2468U); /* 失败不覆盖调用方缓存。 */
@@ -282,11 +196,11 @@ static void expect(EncoderSensorStatus status, EncoderReadStatus expected, bool 
 int main(void) {
     begin_calls = 0;
     assert(Encoder_BeginSample() && begin_calls == 1);
-    assert(Encoder_BeginReadback(true) == 2U);
-    expect(ENCODER_SENSOR_OK, ENCODER_READ_OK, true);
-    expect(ENCODER_SENSOR_BUS_TIMEOUT, ENCODER_READ_SPI_TIMEOUT, false);
-    expect(ENCODER_SENSOR_FRAME_ERROR, ENCODER_READ_CRC_MISMATCH, false);
-    expect(ENCODER_SENSOR_SENSOR_FAULT, ENCODER_READ_TLE_SYSTEM_ERROR, false);
+    assert(Encoder_BeginReadback(true) == 1U);
+    expect(BSP_OK, ENCODER_READ_OK, true);
+    expect(BSP_TIMEOUT, ENCODER_READ_SPI_TIMEOUT, false);
+    expect(BSP_CRC_ERROR, ENCODER_READ_CRC_MISMATCH, false);
+    expect(BSP_SENSOR_FAULT, ENCODER_READ_TLE_SYSTEM_ERROR, false);
     puts("PASS encoder mapping cases: begin passthrough, status mapping, diagnostics and raw angle transfer");
     return 0;
 }
@@ -294,121 +208,12 @@ int main(void) {
     )
 
 
-def _register_read_source() -> str:
-    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_spi_stm32g4.c").read_text(
-        encoding="utf-8"
-    )
-    return (
-        r"""
-#undef NDEBUG
-#include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-static unsigned complete_calls;
-static bool complete_begin_ok, complete_result;
-static uint16_t complete_request, complete_read_frame, complete_response;
-bool encoder_spi_read_complete(uint8_t stage, uint16_t request_frame, uint16_t read_frame,
-                               uint16_t *word) {
-    complete_calls++; complete_begin_ok = stage != 0;
-    complete_request = request_frame; complete_read_frame = read_frame;
-    if (!complete_result) return false;
-    *word = complete_response; return true;
-}
-"""
-        + function_source(source, "encoder_spi_read_register")
-        + r"""
-int main(void) {
-    uint16_t out;
-    /* 成功：转发 begin_ok=false、请求帧、read_frame=0 并回写数据。 */
-    complete_calls = 0; complete_result = true; complete_response = 0x2468U;
-    out = 0x1357U;
-    assert(encoder_spi_read_register(0x8061U, &out));
-    assert(complete_calls == 1 && !complete_begin_ok);
-    assert(complete_request == 0x8061U && complete_read_frame == 0U && out == 0x2468U);
-    /* 失败：不修改输出。 */
-    complete_calls = 0; complete_result = false; out = 0x1357U;
-    assert(!encoder_spi_read_register(0x8091U, &out));
-    assert(complete_calls == 1 && complete_request == 0x8091U && out == 0x1357U);
-    puts("PASS encoder register read: sync forward, request/read frame, output pass-through, failure retention");
-    return 0;
-}
-"""
-    )
-
-
-def _config_capture_source() -> str:
-    source = (ROOT / "firmware/platform/stm32g4/ports/motor/encoder_tle5012b.c").read_text(
-        encoding="utf-8"
-    )
-    header = (ROOT / "firmware/platform/api/encoder_sensor.h").read_text(encoding="utf-8")
-    macro_names = {
-        "ENCODER_SENSOR_CONFIG_WORDS": header,
-        "TLE5012B_REQUEST_READ_STAT": source,
-        "TLE5012B_REQUEST_READ_ACSTAT": source,
-        "TLE5012B_REQUEST_READ_MOD_1": source,
-        "TLE5012B_REQUEST_READ_MOD_2": source,
-        "TLE5012B_REQUEST_READ_MOD_3": source,
-    }
-    macros = "\n".join(
-        re.search(r"^#define\s+" + name + r"\s+[^\r\n]+", text, re.M)[0]
-        for name, text in macro_names.items()
-    )
-    return (
-        r"""
-#undef NDEBUG
-#include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-"""
-        + macros
-        + r"""
-static volatile uint16_t tle5012b_config_words[ENCODER_SENSOR_CONFIG_WORDS];
-static unsigned read_calls;
-static uint16_t read_request[8], read_value[8];
-static bool read_ok[8];
-bool encoder_spi_read_register(uint16_t request_frame, uint16_t *word) {
-    unsigned i = read_calls++;
-    read_request[i] = request_frame;
-    if (!read_ok[i]) return false;
-    *word = read_value[i]; return true;
-}
-"""
-        + function_source(source, "encoder_sensor_capture_config")
-        + "\n"
-        + function_source(source, "encoder_sensor_config_word")
-        + r"""
-int main(void) {
-    unsigned i;
-    /* 命令顺序 STAT/MOD_1/MOD_2/MOD_3；成功时按序存储。 */
-    read_calls = 0;
-    for (i = 0; i < ENCODER_SENSOR_CONFIG_WORDS; i++) { read_ok[i] = true; read_value[i] = (uint16_t)(0x1000U + i); }
-    encoder_sensor_capture_config();
-    assert(read_calls == ENCODER_SENSOR_CONFIG_WORDS);
-    assert(read_request[0] == 0x8001U && read_request[1] == 0x8061U);
-    assert(read_request[2] == 0x8081U && read_request[3] == 0x8091U);
-    for (i = 0; i < ENCODER_SENSOR_CONFIG_WORDS; i++)
-        assert(encoder_sensor_config_word((uint8_t)i) == (uint16_t)(0x1000U + i));
-    assert(encoder_sensor_config_word(ENCODER_SENSOR_CONFIG_WORDS) == 0U);
-    assert(encoder_sensor_config_word(200U) == 0U);
-    /* 失败字保留旧值。 */
-    read_calls = 0;
-    read_ok[0] = true; read_value[0] = 0xAAAAU;
-    read_ok[1] = false; read_ok[2] = false; read_ok[3] = false;
-    encoder_sensor_capture_config();
-    assert(encoder_sensor_config_word(0U) == 0xAAAAU);
-    assert(encoder_sensor_config_word(1U) == 0x1001U);
-    assert(encoder_sensor_config_word(2U) == 0x1002U && encoder_sensor_config_word(3U) == 0x1003U);
-    puts("PASS encoder config capture: STAT/MOD1/MOD2/MOD3 order, storage, out-of-range, failure retention");
-    return 0;
-}
-"""
-    )
-
-
-def _build(out: Path, name: str, source: str, cc: str) -> Path:
+def _build(out: Path, name: str, source: str, cc: str, extra: list[str] | None = None) -> Path:
     fixture = out / f"{name}.c"
+    source = source.replace(
+        "../../../firmware/platform/bsp/mcu/stm32g4/encoder_spi.c",
+        (ROOT / "firmware/platform/bsp/mcu/stm32g4/encoder_spi.c").as_posix(),
+    )
     fixture.write_text(source, encoding="utf-8")
     exe = out / f"{name}.exe"
     compiler = [cc] + (["cc"] if Path(cc).stem == "zig" else [])
@@ -416,6 +221,9 @@ def _build(out: Path, name: str, source: str, cc: str) -> Path:
         compiler
         + ["-std=c99", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
         + NATIVE_INCLUDE_FLAGS
+        + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
+        + ["-I", str(ROOT / "firmware/platform/bsp/encoder")]
+        + (extra or [])
         + [str(fixture), "-o", str(exe)],
         check=True,
     )
@@ -429,16 +237,38 @@ def main():
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    (out / "main.h").write_text("#pragma once\n#include <stdint.h>\n")
     for name, source in (
         ("encoder_transport", _transport_source()),
-        ("encoder_channel", _channel_source()),
         ("encoder_mapping", _mapping_source()),
-        ("encoder_register_read", _register_read_source()),
-        ("encoder_config_capture", _config_capture_source()),
     ):
         exe = _build(out, name, source, args.cc)
         subprocess.run([str(exe)], check=True)
+
+    executable = _build(
+        out,
+        "encoder_tle_protocol",
+        (ROOT / "tests/unit/native/tle5012b_protocol_test.c").read_text(encoding="utf-8"),
+        args.cc,
+        [
+            str(ROOT / "firmware/platform/devices/encoder_tle5012b.c"),
+            str(ROOT / "firmware/platform/bsp/bsp_encoder.c"),
+        ],
+    )
+    subprocess.run([str(executable)], check=True)
+
+    executable = _build(
+        out,
+        "encoder_stm32_registers",
+        (ROOT / "tests/unit/native/stm32_encoder_test.c").read_text(encoding="utf-8"),
+        args.cc,
+        [
+            "-I",
+            str(ROOT / "tests/unit/native/stm32_encoder_fake"),
+            str(ROOT / "firmware/platform/devices/encoder_tle5012b.c"),
+            str(ROOT / "firmware/platform/bsp/bsp_encoder.c"),
+        ],
+    )
+    subprocess.run([str(executable)], check=True)
 
 
 if __name__ == "__main__":

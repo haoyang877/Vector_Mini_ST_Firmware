@@ -9,9 +9,8 @@ Vendor and generated sources retain their upstream formatting.
 - Managed Python: Python sources under `tools`, `tests`, `loader`, `host_app`, and `shared`.
 - Managed C/C++: repository-owned sources under `firmware`, `loader`, `host_app`, `shared`, and
   `tests/hil/firmware`.
-- Excluded: `firmware/third_party/**` and all `firmware/platform/**/cubemx/**` generated content.
-  The relocated CubeMX entry `firmware/platform/stm32g4/application/main.c` also keeps its
-  generated formatting; other files in `application/` remain managed.
+- Excluded: `firmware/third_party/**` and all `firmware/platform/sdk/**` and `firmware/platform/bsp/mcu/stm32g4/generated/**` content.
+  Platform application adapters are hand-maintained and follow the repository formatting rules.
 - Check only: `uv run python tools/run.py format --check` and
   `uv run python tools/run.py lint`.
 - Format new or changed managed files: `uv run python tools/run.py format`.
@@ -53,6 +52,30 @@ debt never needs to be restored.
   `@brief`, one `@param` for every named parameter, and `@return` for every non-`void` result.
   Add `@note` when the caller must know ISR/thread context, ownership, blocking behavior, side
   effects, hardware state, or a safety precondition.
+
+### Naming and abbreviations
+
+- Follow `STYLE.md`: public functions use `Module_Action`, private functions use `snake_case`,
+  types use `PascalCase`, and macros use `UPPER_SNAKE_CASE`. Files use `snake_case` and describe
+  their responsibility. A module uses one recognizable prefix; do not shorten it into ambiguity.
+- Use `Init`, `Configure`, `Reset`, `Update`, `Step`, `Sample`, `Get`, `Set`, `Is`, `Has`, `Can`,
+  `Validate`, `Publish`, and `Cancel` consistently with their actual behavior. `Get`, `Is`, `Has`,
+  and `Can` are read-only queries. Document hardware I/O, faults, state changes, execution context,
+  units, and the precise meaning of return values in public contracts.
+- Approved short words in function and type names: `Elec` = electrical, `Mech` = mechanical,
+  `Vel` = velocity, `Pos` = position, `Config` = configuration, and `Param` = parameter.
+  Use the same spelling throughout; do not use `Ele`, `Mec`, or an ambiguous `Cal`.
+  Write `Current`, `Voltage`, `Temperature`, and `Calibration` in full.
+- Established domain abbreviations may be used when unambiguous: `Foc`, `Pi`, `Pwm`, `Adc`,
+  `Lut`, `Mcu`, `Svm`, `Id`, `Iq`, `Vd`, `Vq`, and `Q15` in function/type names; use uppercase
+  in macros and lowercase in identifiers, for example `FOC_FREQ`, `id_target_a`, and `zero_q15`.
+  Preserve canonical external identifiers where their casing is part of a contract.
+- Include units or representation in physical-value variables and fields (`_a`, `_v`, `_rad`,
+  `_rad_s`, `_ms`, `_us`, `_counts`, `_q15`); document function return units. Prefer short,
+  meaningful names such as `Encoder_GetElecVel` and `Encoder_GetMechPos` over arbitrary truncation.
+- Apply these rules to new and touched code; rename existing interfaces only after checking all
+  callers, build inputs, tests, and documentation. Preserve protocol, storage, and shared ABI
+  identifiers unless a separately versioned migration is explicitly intended.
 
 ## Python
 

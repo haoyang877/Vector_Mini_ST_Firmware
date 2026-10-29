@@ -1,6 +1,6 @@
 # 参数所有权与四类配置 v1
 
-更新：2026-10-22。适用当前核心工程。本页描述配置与运行状态分离后的实际RAM和文件归属。
+更新：2026-10-26。适用当前核心工程。本页描述配置与运行状态分离后的实际RAM和文件归属。
 四类配置不再嵌入运行状态；[schema14](../protocols/parameter_schema14_storage_v1.md)删除退役齿槽占位，
 只读兼容有效schema12/13；schema10通过显式离线工具迁移，不在启动时自动写回。
 基础输入、派生量、标定结果与运行状态的分类及宏计算边界见
@@ -10,7 +10,7 @@
 
 | 类别 | 默认值入口 | 活动对象与归属 |
 | --- | --- | --- |
-| 硬件 | `platform/config/boards/vector_mini_st.h`；`platform/api/board_profile_defaults.h`选择目标，能力头保留派生表达式 | 编译期只读，包含原有固定电流限值；不能通过 CAN 改采样尺度或保护阈值 |
+| 硬件 | `platform/config/boards/`；`platform/config/bsp_config.h`选择目标，能力头保留派生表达式 | 编译期只读，包含原有固定电流限值；不能通过 CAN 改采样尺度或保护阈值 |
 | 电机 | `motor/motor_profile_defaults.h`，含热模型基础输入 | `s_motor_configuration.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
 | 应用 | `parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `s_motor_configuration.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
 | 设备个体 | `parameters/device_profile_defaults.h` | `s_motor_configuration.device`：节点与三相采样零偏；其 `encoder` 成员单份持有LUT、方向、电零位、机械零位和标定标志；生产身份由独立身份页提供 |
@@ -18,10 +18,10 @@
 以上路径相对 `firmware/`。硬件配置为编译期常量，其余三类活动配置组成独立的
 `MotorConfiguration`，没有复制成每类各一份完整运行对象或Flash记录。
 
-板卡与电机选择分别使用 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE`；
-当前各只有一份已实现 profile，未知 ID 编译报错。采样电阻另由
-`CURRENT_SENSE_SHUNT_MILLIOHM` 选择：公共头文件默认与主工程显式配置均为 6 mΩ，
-仅在硬件确为 2 mΩ 时使用显式编译选项覆盖。
+板卡由 `platform/config/bsp_config.h` 的 `BSP_BOARD` 统一选择，并校验兼容名称
+`FOC_ACTIVE_HW_PROFILE`；电机由 `FOC_ACTIVE_MOTOR_PROFILE` 独立选择。已有两板及多种电机
+配置，未知 ID 编译报错；具体支持范围见资源与型号表。`CURRENT_SENSE_SHUNT_MILLIOHM`
+由所选板提供：STM32旧板默认6 mΩ，可在硬件确为2 mΩ时显式选择；AT32新板固定4 mΩ。
 增加新型号必须提供实际数值，不用枚举占位假装已支持。
 
 默认零偏由板级 ADC 中点提供，真实零偏属于每台设备的标定结果。
@@ -70,9 +70,14 @@ flowchart LR
 - 参数写入先核对停机、资源归还、source/sequence/完整内容和 expected_revision。
 - 单标量成功只增加一次 revision；失败无副作用；读回值不含内部指针。
 - 保存使用已有临时工作区，122 受理不代表 Flash 成功；提交并回读后才返回 OK。
+  SAVE期间Axis对有效角度帧重建速度估计，避免把Flash暂停期间的滑行按单个50us周期计算；
+  原始角度仍更新，输出保持关闭，退出SAVE后恢复连续PLL。此时速度零值不证明机械静止。
 - Flash 擦写首个失败立即结束，不继续后续页或双字；忙等待次数耗尽后，本次启动内拒绝后续写入，
   需要复位后重新建立存储资格。该软件边界不保证单 bank 取指停顿时的墙钟期限，不能代替硬件故障处理。
 - 控制与估计只读配置、更新各自运行态；标定通过显式可写配置对象提交结果，通信仅消费服务与值快照，不持有参数指针。
+- LUT候选验证后先完成停转并返回FINALIZE；正式表在关相后台发布，之前保持原配置。
+  Axis在同一临界区复核原任务会话、STOP、故障及实际关相，再复制表、更新标志和修订号。
+  发布或取消归还工作区后，主状态机才能发起独立保存；后台完成不冒充快速采样进展。
 - `Param_Upload` 只编码配置，`Param_Download` 只装载配置；不接收运行对象，也不保存PI积分、目标或采样历史。
 - `MotorAxis_NodeId()` 给组合层复制地址；已删除通信拥有的参数节点桥和 Setter。
   通信端点在初始化时冻结地址，本批未新增在线改地址能力。运行期DEFAULTS保留现用node，

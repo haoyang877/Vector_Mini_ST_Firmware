@@ -13,17 +13,17 @@
 ## 2. 代码边界
 
 ```text
-FDCAN HAL → comm_hw.h → yg_protocol_canfd_irq → yg_protocol_link
-                                      │                  │
-                                      │                  ├─ frame_codec / CRC
-                                      │                  ├─ fragment / transfer queue
-                                      │                  ├─ registry / router
-                                      │                  └─ motor / readonly services
-                                      ▼
-                               电机与参数服务
+CAN 控制器 → BspCan → link 的 RX 中断入口 → RX 队列
+                                      ↓
+link 前台服务 → endpoint（解包、命令表、调用、回复）
+                                      ↓
+                         电机 / 查询 / 参数 / 维护 / 升级
+                                      ↓
+                           TX 队列 → BspCan 发送
 ```
 
-`comm_hw.h` 只描述能力：取一帧、提交一帧、启动 FDCAN。它不解释 type、sequence、payload 或业务错误。`YgProtocolCanfd_RxIrqHandler` 是唯一 RX FIFO0 入口，ISR 只做有限复制和帧元数据筛选。
+
+`bsp_can.h` 只描述能力：取一帧、提交一帧、启动 FDCAN。它不解释 type、sequence、payload 或业务错误。`YgProtocolCanfd_RxIrqHandler` 是唯一 RX FIFO0 入口，ISR 只做有限复制和帧元数据筛选。
 
 ## 3. 队列和处理上限
 

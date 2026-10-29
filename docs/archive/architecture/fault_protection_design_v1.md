@@ -30,7 +30,7 @@
 [采样](../../../firmware/motor/foc/foc_sensing.c)、
 [故障处理](../../../firmware/motor/protection/motor_fault.c)、
 [快速环](../../../firmware/app/composition/app_tasks.c)、
-[平台接口](../../../firmware/platform/api/motor_hw.h)、
+[平台接口](../../../firmware/platform/bsp/include/bsp_pwm.h)、
 [状态快照](../../../firmware/app/interfaces/motor_status_mailbox.h)、
 [参数](../../../firmware/parameters/parameter_record.h)。
 

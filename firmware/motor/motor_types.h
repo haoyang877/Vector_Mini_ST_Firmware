@@ -34,7 +34,8 @@ typedef enum
 typedef struct
 {
     MotorControlMode control_mode;
-    MotorFaultCode fault_code;
+    /* 原子故障锁存字；保存MotorFaultCode值，不属于线上或持久化结构。 */
+    volatile uint32_t fault_code;
     bool uses_sensorless_feedback;
     /* 快环发布的动态热边界；配置值不被降额覆盖，保护层只读恢复事实。 */
     float thermal_current_limit_a;
@@ -49,6 +50,9 @@ typedef struct
     float position_velocity_filtered_rad_s;
     /* 模式 3 规划轨迹速度；遥测无效窗口为 NaN。 */
     float position_trajectory_speed_rad_s;
+
+    /* 正式开环模式的易失参考；停止/启动清零，频率为电角Hz，相位为下一拍rad。 */
+    float vd_target_v, open_loop_frequency_hz, open_loop_angle_rad;
 
 } MotorControlState;
 

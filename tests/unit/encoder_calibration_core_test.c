@@ -187,6 +187,49 @@ static int check_build(void)
     return 0;
 }
 
+/* 只改变每拍工作量不能改变成表内容、失败结果或失败位置。 */
+static int check_build_budgets(void)
+{
+    for (unsigned mode = 0U; mode < 3U; ++mode)
+    {
+        EncoderCalibrationWorkspace reference = {0};
+        for (unsigned bin = 0U; bin < ENCODER_CALIBRATION_LUT_SIZE; ++bin)
+        {
+            uint16_t samples = (uint16_t)(16U + bin % 7U);
+            int32_t correction = (int32_t)(bin % 200U) - 100;
+            reference.bins.samples[bin] = samples;
+            reference.error_sum[bin] = (correction + (mode == 2U ? 32720 : -500)) * samples;
+        }
+        if (mode == 1U)
+        {
+            reference.bins.samples[700] = 15U;
+        }
+        EncoderCalibrationWorkspace candidate = reference;
+        EncoderCalibrationBuildState old_state = {0}, new_state = {0};
+        EncoderCalibrationBuildResult old_result = ENCODER_CALIBRATION_BUILD_RUNNING;
+        EncoderCalibrationBuildResult new_result = ENCODER_CALIBRATION_BUILD_RUNNING;
+        for (unsigned tick = 0U; tick < 4097U; ++tick)
+        {
+            if (old_result == ENCODER_CALIBRATION_BUILD_RUNNING)
+            {
+                old_result = EncoderCalibrationCore_BuildLutStep(&reference, &old_state, 8U, 16U);
+            }
+            if (new_result == ENCODER_CALIBRATION_BUILD_RUNNING)
+            {
+                new_result = EncoderCalibrationCore_BuildLutStep(&candidate, &new_state, 1U, 16U);
+            }
+        }
+        if (old_result != new_result || old_result == ENCODER_CALIBRATION_BUILD_RUNNING ||
+            old_state.candidate_lut_stage != new_state.candidate_lut_stage ||
+            old_state.candidate_lut_index != new_state.candidate_lut_index ||
+            memcmp(&reference, &candidate, sizeof(reference)) != 0)
+        {
+            return 19;
+        }
+    }
+    return 0;
+}
+
 static int check_verification(void)
 {
     memset(&s_workspace, 0, sizeof(s_workspace));
@@ -232,6 +275,10 @@ int main(void)
     if (result == 0)
     {
         result = check_build();
+    }
+    if (result == 0)
+    {
+        result = check_build_budgets();
     }
     if (result == 0)
     {

@@ -30,7 +30,7 @@
         <form title="Form" type="0"/>
         <form title="自定义变量" type="1" lv-width="150,100,100,100,100,100,100,100,0,100,100,100"/>
         <form title="寄存器变量" chip="" type="13" lv-width="150,100,100,100,100,100,100,100,0,100,100,100"/>
-        <form mapFile="../../../outputs/build/keil/YG_ESC_APP/YG_ESC_APP.axf" title="代码变量" type="2" lv-width="264,100,100,100,320,100,100,204,0,100,100,100"/>
+        <form mapFile="../../../outputs/build/keil/ESC-APP-STM32G431/ESC-APP-STM32G431.axf" title="代码变量" type="2" lv-width="264,100,100,100,320,100,100,204,0,100,100,100"/>
         <form page="-1" title="运行日志" visible="0" floating="0" type="3"/>
         <form page="-1" encode="GBK" checkTStamp="0" title="RTT命令行" visible="0" syncFilePath="" floating="0" sync2File="0" type="4"/>
         <form page="0" floating="0" trigValue="0" visible="1" scrollType="1" type="5" xCount="213.426" xTag="0" autoRange="1" min="-500" trigType="0" title="RTT数据" scatterStyle="1" subMode="1" max="500" lineStyle="1" subCols="1" trigName="rtt_channel1.data0">

@@ -1,6 +1,6 @@
 # Keil Watch 只读观测指南
 
-更新：2026-10-20。适用配置与运行状态分离后的核心 APP 主工程：`YG_ESC_APP`。
+更新：2026-10-20。适用配置与运行状态分离后的核心 APP 主工程：`ESC-APP-STM32G431`。
 本页描述人工观测步骤和当前源码中的变量，不授权烧录、复位或电机运动。
 旧SWD台架邮箱的删除范围见[历史附录](../archive/guides/watch_motor_commands_retirement.md)。
 
@@ -18,7 +18,7 @@
    将示例路径替换为匹配的 AXF 路径；引号内路径使用双反斜杠：
 
    ```text
-   LOAD "C:\\matching-build\\YG_ESC_APP.axf" NOCODE CLEAR INCREMENTAL
+   LOAD "C:\\matching-build\\ESC-APP-STM32G431.axf" NOCODE CLEAR INCREMENTAL
    ```
 
    `NOCODE` 不写入程序，`CLEAR INCREMENTAL` 替换符号且避免该 LOAD 命令复位目标。

@@ -22,7 +22,7 @@
 
 位置：loader/ports/stm32g4/platform.c 的 LoaderPlatform_Init；
 firmware/app/board_config.c 的 Board_ServiceBoot；
-firmware/platform/stm32g4/ports/boot/boot_hw_stm32g4.c 的 BootHw_Watchdog。
+firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c 的 BootHw_Watchdog。
 
 Loader启动IWDG后跳APP；旧BootHandoff_Service的健康喂狗调用随服务删除。
 全仓APP/ports/CubeMX Core只剩BootHw_Watchdog定义，没有调用者，正常配套APP也会超时复位。

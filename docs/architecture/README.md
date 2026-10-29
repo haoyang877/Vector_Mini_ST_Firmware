@@ -4,6 +4,17 @@
 
 | 查什么 | 唯一主题入口 |
 | --- | --- |
+| BSP功能接口、初始化与板级配置 | [BSP接口设计v1](bsp_interfaces_v1.md) |
+| 逐函数契约、类型及可独立包含的头文件 | [BSP接口头文件设计稿](bsp_api_v1/README.md) |
+| BSP完整文件树、所有权及运行流程 | [BSP架构总图](bsp_architecture_v1.md) |
+| BSP长期职责约定 | [用户确认的BSP职责](bsp_design_rules.md) |
+| 硬件支持、目标使能、准入要求与禁用资源 | [双板能力配置](platform_capabilities_v1.md) |
+| 当前平台接口落点与后续精简目标 | [公共接口与实现对应表](platform_interface_implementations_v1.md) |
+| 双板采样初始化、IRQ、原码及存储协调 | [完整采样链路](sampling_chain_v1.md) |
+| 双板编码器接口、器件协议与SPI传输 | [编码器三层链路](encoder_chain_v1.md) |
+| PWM比较值、功率启停及目标许可 | [PWM与功率链路](pwm_power_chain_v1.md) |
+| CAN初始化、收发、发送完成与错误恢复 | [双板CAN链路](can_chain_v1.md) |
+| 新旧板适配对象、改动范围与冻结边界 | [统一框架适配范围草案](dual_board_adaptation_scope_v1.md) |
 | 系统职责与产品支持范围 | [软件架构](software_architecture.md) |
 | 目录、依赖与工程 | [代码结构](code_structure.md) |
 | Keil逐文件阅读 | [APP文件职责](app_file_responsibilities_v1.md) |

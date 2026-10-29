@@ -52,7 +52,7 @@ Mode15 仅将说明注释改为中文，代码和 public header 未改。
 | `firmware/communication/protocol/yg_protocol_motor.c` | `60b0c2d316634f162c08cff80111bf401c92e1f231871e1c90f555fe2f02f6a7` |
 | `firmware/motor/feedback/angle_feedback.h` | `b65c25d1e6211fde951541911fa4241d2632c7f771c3946bbda9cd17e9d6acf6` |
 | `firmware/motor/foc/foc_sensing.h` | `0cbfd417d12eaca2acdfe06b5d922a1f19f6df20a154ff01adc6db9aaf295882` |
-| `firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvoptx` | `7de7a02dec7405493bb22ed962d8402717f2c491c7d793471e25e0bd251d65d7` |
+| `projects/stm32g4/MDK-ARM/YG_ESC_APP.uvoptx` | `7de7a02dec7405493bb22ed962d8402717f2c491c7d793471e25e0bd251d65d7` |
 | `tests/run.py` | `bc4f4a08501cc2d103c92b90d45417ecaa024ca8be0482d55a396c9104996d33` |
 | `tests/unit/native/execution_dispatch_test.c` | `039db31abf01a2bec3402b1f22b9424a7c5fbaaf45ac49d426ebcb8b1a04bd4f` |
 | `tests/unit/native/run_state_owner_test.c` | `750ea6ef8538bdd52b0a8298f3657d599c7ae43b23777f3f1853c77f09591f32` |

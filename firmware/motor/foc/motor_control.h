@@ -30,39 +30,12 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
  */
 bool MotorOuterLoop_IsReady(void);
 /**
- * @brief  电流模式任务：执行一拍 d/q 电流闭环。
- * @param configuration 只读活动配置。
- * @param  foc foc 状态。
- * @param  motor_state 电机控制状态。
- * @param  encoder 编码器状态。
- * @param  flux_observer 磁链观测器状态。
- * @note 仅 20 kHz 快速环调用。
- */
-void Task_Current_Mode(const MotorConfiguration *configuration,
-                       FocState *foc,
-                       MotorControlState *motor_state,
-                       EncoderState *encoder,
-                       FluxObserverState *flux_observer);
-/**
  * @brief  请求外环在下一慢拍复位控制与就绪状态。
  * @note 模式切换与故障入口调用；可在非快速环上下文调用。
  */
 void MotorOuterLoop_RequestReset(void);
 /**
- * @brief  vq_v 开环电压模式任务：固定电角度施加 q 轴电压。
- * @param configuration 只读活动配置。
- * @param  foc foc 状态。
- * @param  motor_state 电机控制状态。
- * @param  encoder 编码器状态。
- * @note 仅快速环调用；需要有效编码器帧。
- */
-void Task_Vq_Mode(const MotorConfiguration *configuration,
-                  FocState *foc,
-                  MotorControlState *motor_state,
-                  EncoderState *encoder);
-
-/**
- * @brief 执行调用方已准入的电流、速度、位置或 vq_v 控制功能。
+ * @brief 选择反馈/开环角度和电流/电压控制律，再执行共用FOC流水线。
  * @param configuration 只读活动配置。
  * @param foc 电流环对象。
  * @param motor 可写运行对象，不含配置。

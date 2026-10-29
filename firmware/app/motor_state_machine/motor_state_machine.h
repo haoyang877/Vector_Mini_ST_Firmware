@@ -41,6 +41,13 @@ void MotorStateMachine_CheckFastFaults(void);
  */
 void MotorStateMachine_FastFaultStop(void);
 /**
+ * @brief 快环执行worker前消费已准备的启相请求，STOP和故障优先。
+ * @note 仅ADC最高优先级调用一次；不扫描配置、不重置控制器、不屏蔽中断。
+ *   前台/监督最后发布原代际，实际启相前重核动态保护；受理不再同步启相。
+ */
+void MotorStateMachine_BeginFastTick(void);
+
+/**
  * @brief 上报本周期 worker 结果：20 kHz 快环写入，2 kHz 状态机消费。
  * @param epoch worker 执行前捕获的原始身份。
  * @param outcome 本周期功能结果；MOTOR_TASK_RUNNING 不入箱。
@@ -57,6 +64,8 @@ typedef struct
     PiController speed_pi;
     bool control_allowed;
     bool calculated;
+    /* RUNNING配置在同拍只读；在读取反馈前校验，提交仍重读动态保护事实。 */
+    bool configuration_valid;
 } MotorSupervisorStep;
 
 /**
@@ -152,7 +161,7 @@ bool MotorStateMachine_ReadEnableProgress(uint8_t source_node,
  * @param kind 明确业务任务。
  * @param ticket 接收原始身份，失败清零。
  * @return 受理、错误、忙、故障或守卫拒绝。
- * @note 不保留调用方指针；同步进入 MAINTENANCE，出力标定可在受理内启相。
+ * @note 不保留调用方指针；同步进入MAINTENANCE；出力标定在下一ADC快拍重核后启相。
  *       不执行 Flash 或长耗时工作；SAVE 的实际写入由前台认领后执行。
  */
 MotorControlResult MotorStateMachine_RequestMaintenance(MotorMaintenanceKind kind,
@@ -230,7 +239,8 @@ typedef enum
 {
     FOC_BACKGROUND_NONE,
     FOC_BACKGROUND_SAVE,
-    FOC_BACKGROUND_COGGING /* 退役编号，不再可执行。 */
+    FOC_BACKGROUND_COGGING, /* 退役编号，不再可执行。 */
+    FOC_BACKGROUND_LUT_PUBLISH
 } FocBackgroundKind;
 typedef struct
 {
@@ -254,7 +264,7 @@ bool MotorStateMachine_BackgroundValid(const FocBackgroundClaim *claim);
 /**
  * @brief 归还前台工作并提交原始会话结果。
  * @param claim 原始认领，必须精确匹配已借出的资源。
- * @param success 仅 SAVE，true 表示回读已验证。
+ * @param success SAVE表示回读已验证，LUT发布表示候选已原子提交并释放。
  * @note 缓冲已释放后调用；迟到结果只归还资源，不复活目标。
  */
 void MotorStateMachine_FinishBackground(const FocBackgroundClaim *claim, bool success);

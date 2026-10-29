@@ -1,5 +1,9 @@
 # 核心 SPEED 能力声明 v2
 
+2026-10-29增补：当前能力由[开环扩展v0.3](yg_protocol_simplification_design_v1.md#正式开环控制扩展-v03-2026-10-29)
+追加mode9/10，supported_modes为0x0604，features仍为0x1D00。下文保留v2的历史
+SPEED语义；主机速度准入不变，新增黄金向量与旧向量共同保留。
+
 日期：2026-10-16。覆盖旧发现记录中“supported_modes=0”的当前实现状态；
 保留历史提案的原结论作为历史，不将实现能力声明当作当前候选实机验收。
 

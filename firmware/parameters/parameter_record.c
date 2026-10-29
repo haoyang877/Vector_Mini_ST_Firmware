@@ -8,11 +8,11 @@
 #include "foc_sensing.h"
 
 /* 参数读写与默认值：限值取自平台感测契约，数值换算不访问硬件。 */
-#include "current_sense_profile.h"
+#include "sampling_scale.h"
 #include "motor_axis_profile.h"
 #include "position_cascade_config.h"
 #include "motor_profile_defaults.h"
-#include "board_profile_defaults.h"
+#include "bsp_config.h"
 #include "application_profile_defaults.h"
 #include "device_profile_defaults.h"
 #include "control_math.h"

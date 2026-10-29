@@ -2,8 +2,10 @@
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
-#include "../../../firmware/platform/at32f456/foundation/r40_bench.c"
-#include "../../../firmware/platform/at32f456/ports/motor_pwm_at32f456.c"
+#include "../../bench/at32f456/r40_bench.c"
+#include "bsp_system.h"
+#include <math.h>
+#include "pwm_duty_production.inc"
 
 tmr_type fake_tmr1 = {.pr = 4500U}, fake_tmr6;
 gpio_type fake_gpioa, fake_gpiob;
@@ -12,16 +14,16 @@ uint32_t system_core_clock = 180000000U;
 static uint32_t s_mask, s_ms, s_writes;
 static uint8_t s_flash[4096];
 static bool s_fail_write, s_can_sent;
-static CommHwCanFrame s_sent;
+static BspCanFrame s_sent;
 static uint64_t s_sent_ticket;
 
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     uint32_t old = s_mask;
     s_mask = 1U;
     return old;
 }
-void critical_hw_exit(uint32_t old)
+void BspSystem_ExitCritical(uint32_t old)
 {
     s_mask = old;
 }
@@ -29,12 +31,12 @@ void __disable_irq(void)
 {
     s_mask = 1U;
 }
-void power_stage_hw_stop(void)
+void BspPwm_Disable(void)
 {
     fake_tmr1.cctrl = 0U;
     fake_tmr1.brk = 0U;
 }
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return fake_tmr1.cctrl == 0U;
 }
@@ -47,57 +49,57 @@ void dma_channel_enable(unsigned channel, bool enabled)
     (void)channel;
     assert(!enabled);
 }
-uint32_t time_hw_now_ms(void)
+uint32_t BspSystem_TimeMs(void)
 {
     return s_ms;
 }
-uint16_t motor_hw_current_sample_raw(MotorHwCurrentPhase phase)
+BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *out)
 {
-    return (uint16_t)phase;
+    *out = (BspAdcRawCurrent){.phase_counts = {0.0f, .25f, .5f},
+                              .valid_mask = BSP_ADC_FAST_PHASE_CURRENT_VALID};
+    return BSP_OK;
 }
-uint16_t motor_hw_vbus_sample_raw(void)
+BspResult BspAdc_ReadRawChannel(BspAdcChannel channel, BspAdcRawValue *out)
 {
-    return 1234U;
+    *out = (BspAdcRawValue){.counts = channel == BSP_ADC_BUS_VOLTAGE   ? 1234.0f * .25f
+                                      : channel == BSP_ADC_BUS_CURRENT ? 100.0f
+                                                                       : (float)channel * .25f};
+    return BSP_OK;
 }
-bool R40_AdcReadAux(R40AuxSamples *out)
-{
-    *out = (R40AuxSamples){100U, 372U, 1U};
-    return true;
-}
-bool param_store_read(void *out, uint32_t size)
+BspResult BspFlash_Read(void *out, size_t size)
 {
     memcpy(out, s_flash, size);
-    return true;
+    return BSP_OK;
 }
-bool param_store_write(const void *in, uint32_t size)
+BspResult BspFlash_Write(const void *in, size_t size)
 {
     assert(s_mask && !fake_tmr1.running && !fake_tmr6.running);
     assert(size == 2288U && outputs_disabled());
     ++s_writes;
     if (s_fail_write)
     {
-        return false;
+        return BSP_IO_ERROR;
     }
     memset(s_flash, 0xff, sizeof(s_flash));
     memcpy(s_flash, in, size);
-    return true;
+    return BSP_OK;
 }
-bool comm_hw_can_try_send_tracked_frame(const CommHwCanFrame *frame, uint64_t ticket)
+BspResult BspCan_TrySendTracked(const BspCanFrame *frame, uint64_t ticket)
 {
     s_sent = *frame;
     s_sent_ticket = ticket;
     s_can_sent = true;
-    return true;
+    return BSP_OK;
 }
-bool comm_hw_can_take_tx_completion(CommHwCanTxCompletion *out)
+BspResult BspCan_TakeCompletion(BspCanCompletion *out)
 {
     if (!s_can_sent)
     {
-        return false;
+        return BSP_NOT_READY;
     }
-    *out = (CommHwCanTxCompletion){s_sent_ticket, true};
+    *out = (BspCanCompletion){s_sent_ticket, BSP_CAN_TX_OK};
     s_can_sent = false;
-    return true;
+    return BSP_OK;
 }
 
 static void request(uint32_t command, uint32_t nonce, uint32_t confirmation)
@@ -144,20 +146,20 @@ int main(void)
     assert(R40_BenchPoll() && g_r40_bench.result == 3U && g_r40_bench.detail == 4U);
     fake_gpioa.idt = 0U;
     g_r40_bench.command = 0;
-    CommHwCanFrame frame = {.identifier = R40_BENCH_CAN_REQUEST,
-                            .length = 8U,
-                            .extended = true,
-                            .fd = true,
-                            .bitrate_switch = true};
+    BspCanFrame frame = {.identifier = R40_BENCH_CAN_REQUEST,
+                         .length = 8U,
+                         .extended = true,
+                         .fd = true,
+                         .bitrate_switch = true};
     R40_BenchCanReceive(&frame);
     assert(!s_can_sent);
     memcpy(frame.data, "R40B1234", 8U);
     R40_BenchCanReceive(&frame);
     assert(s_can_sent && s_sent.identifier == R40_BENCH_CAN_RESPONSE && s_sent_ticket > UINT32_MAX);
     assert(!R40_BenchPoll() && s_can_tx_ok == 1U);
-    R40MotorTemperatureSample temp = {.sequence = 7,
+    AdcMotorTemperatureSample temp = {.sequence = 7,
                                       .raw_counts = 372,
-                                      .status = R40_MOTOR_TEMPERATURE_VALID,
+                                      .status = ADC_MOTOR_TEMPERATURE_VALID,
                                       .resistance_ohm = 10000,
                                       .celsius = 25};
     R40_BenchPublish(2, 20, 20, 0, 2000, 42, 40, 50, &temp);

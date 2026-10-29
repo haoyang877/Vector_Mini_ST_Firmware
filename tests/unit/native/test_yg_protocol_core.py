@@ -30,6 +30,7 @@ def main() -> None:
         command.append("cc")
     command.extend(
         NATIVE_INCLUDE_FLAGS
+        + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
         + [
             "-std=c99",
             "-UNDEBUG",
@@ -44,16 +45,11 @@ def main() -> None:
             str(ROOT / "shared/protocol/yg_protocol_crc.c"),
             str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
             str(ROOT / "shared/protocol/yg_protocol_can_id.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_message_registry.c"),
             str(ROOT / "shared/protocol/yg_protocol_fragment.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_router.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_readonly.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_readonly_payload.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_motor_status.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_motor.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_parameter.c"),
-            str(ROOT / "firmware/communication/protocol/yg_protocol_job.c"),
-            str(ROOT / "firmware/communication/can/yg_protocol_frame_queue.c"),
+            str(ROOT / "firmware/communication/commands/yg_protocol_readonly.c"),
+            str(ROOT / "firmware/communication/commands/yg_protocol_motor.c"),
+            str(ROOT / "firmware/communication/commands/yg_protocol_parameter.c"),
+            str(ROOT / "firmware/communication/commands/yg_protocol_job.c"),
             "-o",
             str(executable),
         ]

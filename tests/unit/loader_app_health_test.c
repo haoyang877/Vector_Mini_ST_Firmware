@@ -4,15 +4,14 @@
 #include "app.h"
 #include "motor_axis.h"
 #include "control_config.h"
-#include "indicator_hw.h"
-#include "time_hw.h"
-#include "yg_protocol_runtime.h"
+#include "bsp_led.h"
+#include "bsp_system.h"
+#include "yg_protocol_link.h"
 #include "yg_protocol_status_adapter.h"
 #include "boot_hw.h"
 #include "motor_state_machine.h"
-#include "comm_hw.h"
-#include "yg_protocol_link.h"
-#include "power_stage_hw.h"
+#include "bsp_can.h"
+#include "bsp_pwm.h"
 
 static uint32_t s_health_checked_ms, s_observed_supervisor_epoch;
 static bool s_communication_ready;
@@ -20,6 +19,9 @@ static uint8_t s_healthy_intervals;
 static bool s_boot_supported, s_entry_requested;
 static bool confirm_image(void *context, uint32_t version, uint32_t crc32);
 static void publish_identity(void)
+{
+}
+void AppTasks_Process(void)
 {
 }
 static uint32_t model_now_ms, clock_reads, foreground_stage;
@@ -35,7 +37,7 @@ void YgProtocolStatusAdapter_Refresh(void)
     assert(foreground_stage == 1U);
     foreground_stage = 2U;
 }
-uint32_t time_hw_now_ms(void)
+uint32_t BspSystem_TimeMs(void)
 {
     ++clock_reads;
     if (clock_reads == 1U)
@@ -76,11 +78,12 @@ void indicator_hw_led_task(void)
     assert(supervisor_calls != 0U && supervisor_calls % (SUPERVISOR_FREQ / 5U) == 0U);
     ++led_calls;
 }
-void indicator_hw_set_color(IndicatorHwColor color)
+BspResult BspLed_SetColor(BspLedColor color)
 {
     assert(supervisor_calls != 0U && supervisor_calls % (SUPERVISOR_FREQ / 20U) == 0U);
-    assert(color == INDICATOR_HW_COLOR_CYAN);
+    assert(color == BSP_LED_CYAN);
     ++rgb_calls;
+    return BSP_OK;
 }
 static void process_at(uint32_t now_ms)
 {
@@ -98,7 +101,7 @@ static void test_tick_entries(void)
         App_SupervisorTick();
     }
     assert(supervisor_calls == SUPERVISOR_FREQ / 5U && fast_calls == 1U);
-    assert(led_calls == 1U && rgb_calls == 4U);
+    assert(led_calls == 0U && rgb_calls == 4U);
 }
 
 static uint32_t model_progress, feeds, calls;
@@ -120,7 +123,7 @@ bool MotorAxis_SaveIdle(void)
 {
     return model_idle;
 }
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return model_off;
 }
@@ -133,9 +136,9 @@ bool YgProtocolLink_IsReady(void)
 {
     return model_link;
 }
-bool comm_hw_can_is_healthy(void)
+BspCanState BspCan_GetState(void)
 {
-    return model_link;
+    return model_link ? BSP_CAN_READY : BSP_CAN_ERROR;
 }
 void BootHw_Watchdog(bool healthy)
 {

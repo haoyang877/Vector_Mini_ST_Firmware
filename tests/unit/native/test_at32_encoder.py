@@ -35,15 +35,22 @@ def main() -> int:
         encoding="utf-8",
     )
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
-    command += ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
+    command += ["-DBSP_BOARD=2", "-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     for directory in (
         native / "r40_encoder_fake",
-        ROOT / "firmware/third_party/at32f45x/drivers/inc",
-        ROOT / "firmware/platform/at32f456/bsp",
-        ROOT / "firmware/platform/api",
+        ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
+        ROOT / "firmware/platform/bsp/mcu/at32f456",
+        ROOT / "firmware/platform/bsp/include",
+        ROOT / "firmware/platform/config",
+        ROOT / "firmware/app/config",
+        ROOT / "firmware/platform/bsp",
     ):
         command += ["-I", str(directory)]
     command += ["-I", str(args.out.resolve())] + NATIVE_INCLUDE_FLAGS
+    command += [
+        str(ROOT / "firmware/platform/devices/encoder_mt6835.c"),
+        str(ROOT / "firmware/platform/bsp/bsp_encoder.c"),
+    ]
     executable = args.out.resolve() / "r40_encoder.exe"
     subprocess.run(
         command + [str(native / "r40_encoder_test.c"), "-o", str(executable)], check=True
@@ -53,7 +60,13 @@ def main() -> int:
     app_executable = args.out.resolve() / "r40_encoder_app.exe"
     subprocess.run(
         command
-        + ["-DR40_APP_BINDINGS=1", str(native / "r40_encoder_test.c"), "-o", str(app_executable)],
+        + [
+            "-DBSP_APP_LIFECYCLE=1",
+            "-DBSP_ENCODER_TIMEOUT_US=40U",
+            str(native / "r40_encoder_test.c"),
+            "-o",
+            str(app_executable),
+        ],
         check=True,
     )
     for scenario in range(3):
@@ -62,8 +75,9 @@ def main() -> int:
     subprocess.run(
         command
         + [
-            "-DR40_APP_BINDINGS=1",
-            "-DR40_MT6835_FAST_SPI=1",
+            "-DBSP_APP_LIFECYCLE=1",
+            "-DBSP_ENCODER_TIMEOUT_US=40U",
+            "-DBSP_ENCODER_FAST_SPI=1",
             str(native / "r40_encoder_test.c"),
             "-o",
             str(fast_executable),
@@ -72,6 +86,39 @@ def main() -> int:
     )
     for scenario in range(3):
         subprocess.run([str(fast_executable), str(scenario)], check=True)
+    word_executable = args.out.resolve() / "r40_encoder_word.exe"
+    subprocess.run(
+        command
+        + [
+            "-DBSP_APP_LIFECYCLE=1",
+            "-DBSP_ENCODER_TIMEOUT_US=40U",
+            "-DBSP_ENCODER_FAST_SPI=1",
+            "-DBSP_ENCODER_WORD_TRANSFER=1",
+            str(native / "r40_encoder_test.c"),
+            "-o",
+            str(word_executable),
+        ],
+        check=True,
+    )
+    for scenario in range(3):
+        subprocess.run([str(word_executable), str(scenario)], check=True)
+    dma_executable = args.out.resolve() / "r40_encoder_dma.exe"
+    subprocess.run(
+        command
+        + [
+            "-DBSP_APP_LIFECYCLE=1",
+            "-DBSP_ENCODER_TIMEOUT_US=40U",
+            "-DBSP_ENCODER_FAST_SPI=1",
+            "-DBSP_ENCODER_WORD_TRANSFER=1",
+            "-DBSP_ENCODER_DMA_TRANSFER=1",
+            str(native / "r40_encoder_test.c"),
+            "-o",
+            str(dma_executable),
+        ],
+        check=True,
+    )
+    for scenario in range(3):
+        subprocess.run([str(dma_executable), str(scenario)], check=True)
     return 0
 
 

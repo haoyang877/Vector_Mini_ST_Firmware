@@ -5,8 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FIRMWARE = ROOT / "firmware"
-CUBEMX = FIRMWARE / "platform/stm32g4/cubemx"
-KEIL = CUBEMX / "MDK-ARM"
+CUBEMX = FIRMWARE / "platform/bsp/mcu/stm32g4/generated"
+KEIL = ROOT / "projects/stm32g4/MDK-ARM"
 BUILD = ROOT / "outputs/build/keil"
 
 # Existing tools remain directly executable without an editable installation.
@@ -42,9 +42,18 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/app/interfaces",
     "firmware/parameters",
     "firmware/communication/can",
-    "firmware/communication/protocol",
-    "firmware/platform/api",
-    "firmware/platform/stm32g4/bsp",
+    "firmware/communication/commands",
+    "firmware/platform/bsp/include",
+    "firmware/platform/devices",
+    "firmware/platform/config",
+    "firmware/platform/bsp",
+    "firmware/app/config",
+    "firmware/app/config/targets",
+    "firmware/communication/telemetry",
+    "firmware/platform/bsp",
+    "firmware/app/config",
+    "firmware/app/config/targets",
+    "firmware/platform/bsp/mcu/stm32g4",
 )
 
 

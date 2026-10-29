@@ -23,7 +23,9 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     actual = function_source(
-        (ROOT / "firmware/platform/stm32g4/cubemx/Core/Src/adc.c").read_text(encoding="utf-8"),
+        (ROOT / "firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/adc.c").read_text(
+            encoding="utf-8"
+        ),
         "MX_ADC2_Init",
     )
     fixture = (
@@ -111,10 +113,10 @@ int main(void) {
     exe = out / "current_oversampling_test.exe"
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
     includes = [
-        "firmware/platform/stm32g4/cubemx/Core/Inc",
-        "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver/Inc",
-        "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
-        "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Include",
+        "firmware/platform/bsp/mcu/stm32g4/generated/Core/Inc",
+        "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Inc",
+        "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
+        "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Include",
     ]
     command = compiler + [
         "-std=c99",

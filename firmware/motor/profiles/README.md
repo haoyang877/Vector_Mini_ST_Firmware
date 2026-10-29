@@ -15,6 +15,13 @@ Keil在目标的C/C++ Define中选择型号和阻尼环；例如
 `FOC_ACTIVE_MOTOR_PROFILE=3U,MOTOR_HAS_DAMPING_RING=0U`选择YQ-5740。
 型号选择对整目标保持一致，不根据板名、CAN地址或生产标签自动切换。
 AT32 ClosedLoop独立台架未显式选择时使用YQ-5708，STM32完整APP默认HT无阻尼环。
+AT32完整APP的关相/限时目标在Keil的Misc Controls预包含一个
+`platform/config/targets/r40_app_*.h`配置头，C/C++ Define只保留SDK芯片选择。
+目标头集中指定组合、调试策略和临时热数据；不要再次在各算法文件或工程Define覆盖数值。
+共用速度估计默认值见`encoder_feedback_defaults.h`，默认90Hz；限时目标800Hz仍待完整速度验收。
+各型号的无阻尼环标定速度也在型号文件中，公共启动配置只消费数值。
+YQ-5740为保持行为仍保留原315rad/s电角目标、15rad/s机械目标，两者与14极对不一致，
+未获准沿用5708的标定验收，后续应作为独立功能问题处理。
 
 `motor_profile_defaults.h`是完整APP的兼容入口，只接受具有完整默认参数的型号。
 YQ-5708/5740磁链已按电机轴Kt=0.0801N·m/A及14极对反算为0.003814286Wb，

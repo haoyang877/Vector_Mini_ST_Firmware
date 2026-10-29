@@ -75,4 +75,9 @@ const uint8_t AppImage_Descriptor[YGI_DESCRIPTOR_BYTES] = {
     0,
     0,
     0};
+
+/* 独立尾段保证整个加载镜像按Flash双字对齐，不改变描述符或参数ABI。
+ * 链接脚本把它放在RW加载数据之后；仅用于镜像封装，不参与运行状态。 */
+__attribute__((used, aligned(8), section(".app_image_tail")))
+const uint8_t AppImage_LoadAlignment[8] = {255, 255, 255, 255, 255, 255, 255, 255};
 #endif

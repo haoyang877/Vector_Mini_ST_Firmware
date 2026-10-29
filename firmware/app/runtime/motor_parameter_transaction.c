@@ -2,9 +2,9 @@
 
 #include <stddef.h>
 
-#include "critical_hw.h"
+#include "bsp_system.h"
 #include "parameter_record.h"
-#include "param_store.h"
+#include "bsp_flash.h"
 #include "maintenance_workspace.h"
 #include "motor_control.h"
 #include "motor_thermal_control.h"
@@ -49,11 +49,11 @@ static void load_parameters(MotorConfiguration *configuration)
 {
     InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
     uint32_t read_bytes = sizeof(*record);
-    bool read_ok = record != NULL && param_store_read(record, read_bytes);
+    bool read_ok = record != NULL && (BspFlash_Read(record, read_bytes) == BSP_OK);
     if (read_ok && (record->schema_version == 12U || record->schema_version == 13U))
     {
         read_bytes = record->schema_version == 12U ? PARAM_SCHEMA12_BYTES : PARAM_SCHEMA13_BYTES;
-        read_ok = param_store_read(record, read_bytes);
+        read_ok = (BspFlash_Read(record, read_bytes) == BSP_OK);
     }
     if (!read_ok)
     {
@@ -94,12 +94,12 @@ bool MotorParameterTransaction_SaveRecord(const MotorConfiguration *configuratio
     if (record != NULL)
     {
         Param_Upload(record, configuration);
-        uint32_t mask = critical_hw_enter();
+        uint32_t mask = BspSystem_EnterCritical();
         if (MotorStateMachine_BackgroundValid(claim))
         {
-            success = param_store_write(record, sizeof(*record));
+            success = (BspFlash_Write(record, sizeof(*record)) == BSP_OK);
         }
-        critical_hw_exit(mask);
+        BspSystem_ExitCritical(mask);
         MaintenanceWorkspace_ReleaseParameter(record);
     }
     return success;
@@ -185,7 +185,7 @@ ParameterStatus MotorParameterTransaction_Read(const MotorConfiguration *configu
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
-    uint32_t mask = critical_hw_enter();
+    uint32_t mask = BspSystem_EnterControlCritical();
     ParameterStatus result;
     if (s_last_read.valid && request->source_node == s_last_read.request.source_node &&
         request->sequence == s_last_read.request.sequence)
@@ -236,7 +236,7 @@ ParameterStatus MotorParameterTransaction_Read(const MotorConfiguration *configu
             s_last_read.valid = true;
         }
     }
-    critical_hw_exit(mask);
+    BspSystem_ExitControlCritical(mask);
     return result;
 }
 
@@ -256,7 +256,7 @@ ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuratio
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
-    uint32_t mask = critical_hw_enter();
+    uint32_t mask = BspSystem_EnterControlCritical();
     refresh_save_result();
     ParameterStatus result;
     if (s_last_write.valid && request->source_node == s_last_write.request.source_node &&
@@ -318,7 +318,7 @@ ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuratio
             }
         }
     }
-    critical_hw_exit(mask);
+    BspSystem_ExitControlCritical(mask);
     return result;
 }
 
@@ -334,7 +334,7 @@ ParameterStatus MotorParameterTransaction_RequestSave(const ParameterSaveRequest
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
-    uint32_t mask = critical_hw_enter();
+    uint32_t mask = BspSystem_EnterControlCritical();
     refresh_save_result();
     ParameterStatus result;
     if (s_save_job.valid && request->source_node == s_save_job.request.source_node &&
@@ -381,7 +381,7 @@ ParameterStatus MotorParameterTransaction_RequestSave(const ParameterSaveRequest
             s_save_job.valid = true;
         }
     }
-    critical_hw_exit(mask);
+    BspSystem_ExitControlCritical(mask);
     return result;
 }
 
@@ -392,7 +392,7 @@ ParameterStatus MotorParameterTransaction_PollSave(uint32_t ticket, uint32_t *pe
         return PARAMETER_INVALID_ARGUMENT;
     }
     *persisted_revision = 0U;
-    uint32_t mask = critical_hw_enter();
+    uint32_t mask = BspSystem_EnterControlCritical();
     ParameterStatus result = PARAMETER_STALE_TICKET;
     if (s_save_job.valid && ticket != 0U && ticket == s_save_job.ticket)
     {
@@ -403,16 +403,16 @@ ParameterStatus MotorParameterTransaction_PollSave(uint32_t ticket, uint32_t *pe
             *persisted_revision = s_save_job.persisted_revision;
         }
     }
-    critical_hw_exit(mask);
+    BspSystem_ExitControlCritical(mask);
     return result;
 }
 
 bool MotorParameterTransaction_SaveIdle(void)
 {
-    uint32_t mask = critical_hw_enter();
+    uint32_t mask = BspSystem_EnterControlCritical();
     refresh_save_result();
     bool idle = !s_save_job.valid || s_save_job.result != PARAMETER_ACCEPTED;
-    critical_hw_exit(mask);
+    BspSystem_ExitControlCritical(mask);
     return idle;
 }
 

@@ -12,8 +12,8 @@ Loader 容量仍未闭合，不能宣称可安装、升级成功或可发布。
 
 | 工程 | 路径 | 用途 |
 | --- | --- | --- |
-| 普通主 APP | `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST.uvprojx` | 独立 APP，保留原链接位置；仅链接 `boot_hw_unavailable.c`，不宣称已安装 Loader |
-| Loader 配套 APP | `firmware/platform/stm32g4/cubemx/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx` | 链接实际启动端口、交接服务、镜像记录与描述符，采用 D 的 `app.sct`；容量待解决 |
+| 普通主 APP | `projects/stm32g4/MDK-ARM/Vector_Mini_ST.uvprojx` | 独立 APP，保留原链接位置；仅链接 `boot_hw_unavailable.c`，不宣称已安装 Loader |
+| Loader 配套 APP | `projects/stm32g4/MDK-ARM/Vector_Mini_ST_LoaderApp.uvprojx` | 链接实际启动端口、交接服务、镜像记录与描述符，采用 D 的 `app.sct`；容量待解决 |
 | 独立 Loader | `loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx` | 独立启动、镜像下载及试启动产品 |
 
 普通工程不链接完整镜像库；配套工程不链接不可用端口，不能把两种 BootHw 同时加入。
@@ -38,7 +38,7 @@ firmware/services/
   boot_handoff/                  升级停机、回复完成、试启动确认的事务所有者
 firmware/motor/                   保留原控制数学、辨识和保护算法
 firmware/communication/           CAN 接入、业务路由；不直接改电机可变对象
-firmware/platform/api/           能力、单位与失败语义，不公开 HAL 类型
+firmware/platform/bsp/include/           能力、单位与失败语义，不公开 HAL 类型
 firmware/platform/stm32g4/        MCU/BSP/端口及 CubeMX 适配
 shared/protocol/                 APP/Loader 共用帧、CRC、分片与升级 codec
 shared/boot/                     邮箱与启动交接值契约

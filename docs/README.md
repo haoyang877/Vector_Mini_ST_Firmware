@@ -1,5 +1,7 @@
 # 文档入口
 
+通信协议与设计请先读 [yg_protocol 主文档](protocols/README.md)。已按 2026-10-26 的工作树整理帧格式、全部 CMD ID、控制/参数/维护/升级流程及软硬件分工；专题字段与测试向量从该页进入。
+
 现行文档按2026-10-21的 `codex/system-refactor` 核对：源码提交3a099dc8（含已提交四入口），另保留原有未提交参数说明等修改。
 本轮只整理文档；源码HEAD、工作树与实际设备镜像分别确认，版本号不表示发布或实机PASS。
 
@@ -21,7 +23,7 @@
 任务与检查说明见[测试入口](../tests/README.md)。
 
 本轮共享目标声明APP1.5.7、Loader2.1.0、layout6、schema14、参数ABI0x000E08F0，
-唯一配置来源为shared/targets。当前仅公布SPEED控制能力，其他候选模式不能由目录名称推断为已验收能力。
+唯一配置来源为shared/targets。当前公布SPEED和两种开环控制能力，能力声明不能替代实机验收。
 历史报告只对其源码与设备条件有效；后续候选的缺口见[当前待验收项](plans/active/2026-10-21-current-candidate-acceptance-v1.md)。
 
 新增、更新、归档、合并和检查流程见[文档维护规则](guides/documentation.md)。

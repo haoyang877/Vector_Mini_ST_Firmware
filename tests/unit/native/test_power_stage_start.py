@@ -14,9 +14,9 @@ from pathlib import Path
 from project_paths import ROOT
 from run_position_servo_tests import function_source
 
-HAL = ROOT / "firmware/platform/stm32g4/cubemx/Drivers/STM32G4xx_HAL_Driver"
-CMSIS = ROOT / "firmware/platform/stm32g4/cubemx/Drivers/CMSIS/Device/ST/STM32G4xx/Include"
-PORT = ROOT / "firmware/platform/stm32g4/ports/motor/power_stage_stm32g4.c"
+HAL = ROOT / "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver"
+CMSIS = ROOT / "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Device/ST/STM32G4xx/Include"
+PORT = ROOT / "firmware/platform/bsp/mcu/stm32g4/pwm.c"
 NATIVE = ROOT / "tests/unit/native"
 
 
@@ -111,7 +111,9 @@ def prepare_reference(out: Path) -> dict:
         macro_source(device, "IS_TIM_SLAVE_INSTANCE"),
     ]
     # Other instance addresses are identity-only stubs, never dereferenced.
-    other_instances = sorted(set(re.findall(r"\bTIM\d+\b", "\n".join(selectors))) - {"TIM1", "TIM8"})
+    other_instances = sorted(
+        set(re.findall(r"\bTIM\d+\b", "\n".join(selectors))) - {"TIM1", "TIM8"}
+    )
     for index, name in enumerate(other_instances):
         header.append(f"#define {name} ((TIM_TypeDef *)(uintptr_t){0x1000 + index * 0x100}U)")
     header.extend(selectors)
@@ -140,7 +142,12 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     manifest = prepare_reference(out)
-    files = [PORT, NATIVE / "power_stage_start_test.cpp", NATIVE / "power_stage_fake/tim.h", Path(__file__)]
+    files = [
+        PORT,
+        NATIVE / "power_stage_start_test.cpp",
+        NATIVE / "power_stage_fake/tim.h",
+        Path(__file__),
+    ]
     manifest["tested_source_sha256"] = {
         path.relative_to(ROOT).as_posix(): sha256(path.read_bytes()) for path in files
     }
@@ -150,20 +157,45 @@ def main():
     exe = out / "power_stage_start.exe"
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command = compiler + [
-        "-x", "c++", "-std=c++17", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror",
-        "-fno-exceptions", "-fno-rtti",
-        "-I", str(out), "-I", str(NATIVE / "power_stage_fake"),
-        "-I", str(ROOT / "firmware/platform/api"),
-        str(NATIVE / "power_stage_start_test.cpp"), str(PORT), "-o", str(exe),
+        "-x",
+        "c++",
+        "-std=c++17",
+        "-O2",
+        "-UNDEBUG",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fno-exceptions",
+        "-fno-rtti",
+        "-I",
+        str(out),
+        "-I",
+        str(NATIVE / "power_stage_fake"),
+        "-I",
+        str(ROOT / "firmware/platform/bsp/include"),
+        "-I",
+        str(ROOT / "firmware/platform/config"),
+        "-I",
+        str(ROOT / "firmware/app/config"),
+        "-I",
+        str(ROOT / "firmware/platform/bsp"),
+        str(NATIVE / "power_stage_start_test.cpp"),
+        str(PORT),
+        "-o",
+        str(exe),
     ]
-    build = subprocess.run(command, check=True, capture_output=True, text=True)
+    build = subprocess.run(command, check=False, capture_output=True, text=True)
     (out / "compile.log").write_text(build.stdout + build.stderr, encoding="utf-8")
+    build.check_returncode()
     result = subprocess.run([str(exe)], check=True, capture_output=True, text=True)
     (out / "run.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     summary = {
-        "status": "PASS", "compile_command": command, "stdout": result.stdout.strip(),
+        "status": "PASS",
+        "compile_command": command,
+        "stdout": result.stdout.strip(),
         "reference_manifest_sha256": sha256((out / "reference-manifest.json").read_bytes()),
-        "executable_sha256": sha256(exe.read_bytes()), "hardware_access": False,
+        "executable_sha256": sha256(exe.read_bytes()),
+        "hardware_access": False,
     }
     (out / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

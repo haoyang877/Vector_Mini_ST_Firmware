@@ -16,14 +16,15 @@
 | 107 CLEAR | 空；回复4B | 源恢复和完整健康满足后回IDLE，不启动 |
 | 108 GET_MOTOR_STATE | 空；回复45B | correlated_seq=0；无新鲜快照result6、测量无效；非空请求result3 |
 | 110 STOP | 空；回复4B | 受理和真实关相确认分开；不得以ACK推断机械静止 |
-| 116 SET_CONTROL | 20B，见下文；回复4B，另发关联124 | 只更新RUNNING的同模式目标 |
+| 116 SET_CONTROL | 旧模式20B、开环9/10为32B；回复4B，另发关联124 | 只更新RUNNING的同模式目标 |
 | 117 START_CONTROL | 4B mode+reserved；回复4B | 见[普通启动v0.2](yg_protocol_ordinary_start_wire_v0_2.md) |
 | 124 MOTOR_FEEDBACK | 45B主动反馈；无请求 | 关联116的受理/拒绝或实际应用终态 |
 
-116布局：mode:u8、flags=0:u8、reserved=0:u16、position_mrad:i32、speed_mrad_s:i32、
+116旧模式布局：mode:u8、flags=0:u8、reserved=0:u16、position_mrad:i32、speed_mrad_s:i32、
 iq_mA:i32、v_q_mV:i32。mode1/2/3/6分别为电流/速度/位置/q轴电压，仅对应字段非零。
 mode0不作为控制目标，MIT4和低侧制动5不开放。线路编号必须显式映射内部枚举。
-当前GET_CAPS只公布SPEED：features=0x1D00、supported_modes=0x0004；其他三种启动仍为候选实现。
+当前GET_CAPS公布SPEED及开环mode9/10：features=0x1D00、supported_modes=0x0604；
+其他三种启动仍为候选实现。新增请求布局见[开环扩展v0.3](yg_protocol_simplification_design_v1.md#正式开环控制扩展-v03-2026-10-29)。
 
 线路结果：0执行完成、1已受理、2不支持、3长度错误、4字段/陈旧序号、5状态不允许、
 6忙、7未授权源、8内部失败、11超范围、17故障未解除。detail由各业务定义。

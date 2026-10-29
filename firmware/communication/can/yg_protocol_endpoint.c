@@ -1,5 +1,7 @@
-/* 串行端点组装：帧队列到业务路由；不拥有硬件、不新增控制策略。 */
 #include "yg_protocol_endpoint.h"
+#include <string.h>
+
+/* 串行端点组装：帧队列到命令执行；不拥有硬件、不新增控制策略。 */
 
 static bool queue_valid(const yg_protocol_transfer_queue_t *queue)
 {
@@ -20,9 +22,8 @@ yg_protocol_result_t yg_protocol_endpoint_init(yg_protocol_endpoint_t *endpoint,
     if (config == NULL || config->local_node == YG_PROTOCOL_BROADCAST_NODE_ID ||
         config->reply_priority > 7U || config->fragment_timeout_ms == 0U ||
         !queue_valid(config->rx) || !queue_valid(config->tx) || config->rx == config->tx ||
-        config->rx->storage == config->tx->storage || config->router == NULL ||
-        config->router->registry == NULL ||
-        (config->router->route_count > 0U && config->router->routes == NULL) ||
+        config->rx->storage == config->tx->storage || config->commands == NULL ||
+        (config->commands->count > 0U && config->commands->entries == NULL) ||
         config->fragment_capacity > YG_PROTOCOL_MAX_MESSAGE_PAYLOAD)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
@@ -68,7 +69,7 @@ yg_protocol_result_t yg_protocol_endpoint_send(yg_protocol_endpoint_t *endpoint,
                                                const yg_protocol_message_t *message,
                                                uint8_t priority)
 {
-    const yg_protocol_message_descriptor_t *descriptor;
+    const yg_protocol_command_t *descriptor;
     yg_protocol_transfer_frame_t frame;
     yg_protocol_message_t part;
     yg_protocol_result_t result;
@@ -87,8 +88,7 @@ yg_protocol_result_t yg_protocol_endpoint_send(yg_protocol_endpoint_t *endpoint,
     {
         return YG_PROTOCOL_INVALID_LENGTH;
     }
-    descriptor =
-        yg_protocol_message_registry_find(endpoint->config.router->registry, message->message_type);
+    descriptor = yg_protocol_commands_find(endpoint->config.commands, message->message_type);
     if (descriptor == NULL)
     {
         return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
@@ -97,7 +97,7 @@ yg_protocol_result_t yg_protocol_endpoint_send(yg_protocol_endpoint_t *endpoint,
                 ? 1U
                 : (message->payload_length + YG_PROTOCOL_MAX_PAYLOAD_SIZE - 1U) /
                       YG_PROTOCOL_MAX_PAYLOAD_SIZE;
-    if (count > 1U && (!descriptor->allow_fragment || descriptor->periodic))
+    if (count > 1U && (!descriptor->allow_fragment))
     {
         return YG_PROTOCOL_INVALID_LENGTH;
     }
@@ -164,7 +164,7 @@ yg_protocol_result_t yg_protocol_endpoint_process_frame(yg_protocol_endpoint_t *
                                                         uint32_t now_ms)
 {
     yg_protocol_message_t part, message;
-    const yg_protocol_message_descriptor_t *descriptor;
+    const yg_protocol_command_t *descriptor;
     yg_protocol_result_t result;
     if (endpoint == NULL || !endpoint->initialized)
     {
@@ -184,14 +184,12 @@ yg_protocol_result_t yg_protocol_endpoint_process_frame(yg_protocol_endpoint_t *
     {
         return result;
     }
-    descriptor =
-        yg_protocol_message_registry_find(endpoint->config.router->registry, part.message_type);
-    if (descriptor == NULL)
+    descriptor = yg_protocol_commands_find(endpoint->config.commands, part.message_type);
+    if (descriptor == NULL || descriptor->handler == NULL)
     {
         return YG_PROTOCOL_ROUTE_NOT_FOUND;
     }
-    if ((part.flags & YG_PROTOCOL_FLAGS_FRAGMENT_MASK) != 0U &&
-        (!descriptor->allow_fragment || descriptor->periodic))
+    if ((part.flags & YG_PROTOCOL_FLAGS_FRAGMENT_MASK) != 0U && (!descriptor->allow_fragment))
     {
         return YG_PROTOCOL_INVALID_LENGTH;
     }
@@ -201,15 +199,14 @@ yg_protocol_result_t yg_protocol_endpoint_process_frame(yg_protocol_endpoint_t *
     {
         return result;
     }
-    result =
-        yg_protocol_router_handle(endpoint->config.router, &message, &endpoint->service_result);
-    if (result != YG_PROTOCOL_OK ||
+    result = yg_protocol_commands_execute(descriptor, &message, &endpoint->service_result);
+    if (result != YG_PROTOCOL_OK || !endpoint->service_result.reply_ready ||
         (message.flags & (YG_PROTOCOL_FLAGS_ACK_REQUEST | YG_PROTOCOL_FLAGS_RESPONSE)) !=
             YG_PROTOCOL_FLAGS_ACK_REQUEST)
     {
         return result;
     }
-    result = yg_protocol_router_build_response(
+    result = yg_protocol_commands_build_response(
         &message, &endpoint->service_result, &endpoint->pending_response);
     if (result != YG_PROTOCOL_OK)
     {
@@ -225,8 +222,111 @@ yg_protocol_result_t yg_protocol_endpoint_reset(yg_protocol_endpoint_t *endpoint
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    endpoint->config.rx->head = endpoint->config.rx->tail = endpoint->config.rx->count = 0U;
-    endpoint->config.tx->head = endpoint->config.tx->tail = endpoint->config.tx->count = 0U;
+    endpoint->config.rx->head = endpoint->config.rx->tail = 0U;
+    endpoint->config.rx->produced = endpoint->config.rx->consumed = 0U;
+    endpoint->config.tx->head = endpoint->config.tx->tail = 0U;
+    endpoint->config.tx->produced = endpoint->config.tx->consumed = 0U;
     endpoint->response_pending = false;
     return yg_protocol_fragment_reset(&endpoint->fragment);
+}
+
+/* 单一命令表：登记、查找、执行；不访问硬件或电机全局状态。 */
+
+yg_protocol_result_t yg_protocol_commands_register(yg_protocol_commands_t *commands,
+                                                   const yg_protocol_command_t *entries,
+                                                   size_t count)
+{
+    if (commands == NULL || (count > 0U && entries == NULL))
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    for (size_t i = 0U; i < count; ++i)
+    {
+        for (size_t j = i + 1U; j < count; ++j)
+        {
+            if (entries[i].message_type == entries[j].message_type)
+            {
+                return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
+            }
+        }
+    }
+    commands->entries = entries;
+    commands->count = count;
+    return YG_PROTOCOL_OK;
+}
+
+const yg_protocol_command_t *yg_protocol_commands_find(const yg_protocol_commands_t *commands,
+                                                       uint16_t message_type)
+{
+    if (commands == NULL || commands->entries == NULL)
+    {
+        return NULL;
+    }
+    for (size_t i = 0U; i < commands->count; ++i)
+    {
+        if (commands->entries[i].message_type == message_type)
+        {
+            return &commands->entries[i];
+        }
+    }
+    return NULL;
+}
+
+yg_protocol_result_t yg_protocol_commands_execute(const yg_protocol_command_t *command,
+                                                  const yg_protocol_message_t *request,
+                                                  yg_protocol_service_result_t *result)
+{
+    if (request == NULL || result == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    memset(result, 0, sizeof(*result));
+    result->result = YG_PROTOCOL_ROUTE_NOT_FOUND;
+    if (command == NULL || command->handler == NULL ||
+        command->message_type != request->message_type)
+    {
+        return result->result;
+    }
+    result->reply_ready = true;
+    result->response_sequence = request->sequence;
+    result->response_type = request->message_type;
+    result->response_flags = YG_PROTOCOL_FLAGS_RESPONSE;
+    result->response_source_node = request->destination_node;
+    result->response_destination_node = request->source_node;
+    result->result = command->handler(command->context, request, result);
+    return result->result;
+}
+
+yg_protocol_result_t
+yg_protocol_commands_build_response(const yg_protocol_message_t *request,
+                                    const yg_protocol_service_result_t *service_result,
+                                    yg_protocol_message_t *response)
+{
+    if (request == NULL || service_result == NULL || response == NULL)
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (service_result->result != YG_PROTOCOL_OK)
+    {
+        return service_result->result;
+    }
+    if (service_result->response_source_node == YG_PROTOCOL_BROADCAST_NODE_ID ||
+        service_result->response_destination_node == YG_PROTOCOL_BROADCAST_NODE_ID)
+    {
+        return YG_PROTOCOL_INVALID_NODE_ID;
+    }
+    if (service_result->response_payload_length > YG_PROTOCOL_MAX_PAYLOAD_SIZE)
+    {
+        return YG_PROTOCOL_INVALID_LENGTH;
+    }
+    response->version = request->version;
+    response->flags = service_result->response_flags;
+    response->source_node = service_result->response_source_node;
+    response->destination_node = service_result->response_destination_node;
+    response->message_type = service_result->response_type;
+    response->sequence = service_result->response_sequence;
+    response->payload_length = service_result->response_payload_length;
+    response->reserved = service_result->response_reserved;
+    response->payload = service_result->response_payload;
+    return YG_PROTOCOL_OK;
 }

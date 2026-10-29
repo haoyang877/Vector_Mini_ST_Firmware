@@ -1,7 +1,7 @@
 /* 镜像事务与跳前校验：三个独立双字提供激活、一次试运行及确认门槛。 */
 #include "image_transfer.h"
 #include "../checksum/crc32.h"
-#include "../protocol/yg_protocol_byte_order.h"
+#include "../protocol/yg_protocol_common.h"
 #include <string.h>
 
 static uint32_t be32(const uint8_t *p)

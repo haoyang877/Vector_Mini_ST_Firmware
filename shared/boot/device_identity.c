@@ -2,7 +2,7 @@
 #include "device_identity.h"
 #include "../checksum/crc32.h"
 #include "../image/image_format.h"
-#include "../protocol/yg_protocol_byte_order.h"
+#include "../protocol/yg_protocol_common.h"
 #include <string.h>
 bool DeviceIdentity_Decode(const uint8_t record[64], DeviceIdentity *identity)
 {

@@ -3,15 +3,44 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "comm_hw.h"
+#include "bsp_can.h"
 #include "loader_entry.h"
 #include "yg_protocol_job.h"
 #include "yg_protocol_motor.h"
-#include "yg_protocol_motor_status.h"
 #include "yg_protocol_parameter.h"
-#include "yg_protocol_readonly_payload.h"
-#include "yg_protocol_wire_types.h"
+#include "yg_protocol_readonly.h"
+#include "yg_protocol_common.h"
+
+/**
+ * @brief 唯一 CAN FD RX FIFO0 中断入口。
+ * @note 单次最多取 3 帧，只复制扩展 FD+BRS 帧并入队，不执行 CRC、分片或电机业务。
+ */
+void YgProtocolCanfd_RxIrqHandler(void);
+
+/**
+ * @brief 初始化唯一CAN FD协议的软件状态和冻结节点配置，不启动硬件。
+ * @param node_id 本机节点号；不得使用广播地址。
+ * @return 协议端点初始化成功返回 true。
+ * @note 仅在前台启动阶段调用一次；成功后由APP绑定真实业务，再调用Start。
+ *       已成功初始化后再次调用返回 false，不清除队列或重新启动硬件。
+ *       参数桥保存的是配置值；启动后修改参数桥不会改变 link 已冻结的地址。
+ */
+bool YgProtocolRuntime_Init(uint8_t node_id);
+
+/**
+ * @brief 在全部业务绑定完成后启动CAN FD硬件接收。
+ * @return 软件已初始化且平台启动正常返回时返回true；未初始化或link不可用返回false。
+ * @note 仅前台启动阶段调用；已启动时幂等返回true，不重新配置外设或清队列。
+ *       平台启动失败由既有平台错误处理负责；本函数不恢复电机、不绑定默认业务。
+ */
+bool YgProtocolRuntime_Start(void);
+
+/**
+ * @brief 推进 CAN FD 协议并按秒限频恢复 bus-off。
+ * @param now_ms 单调毫秒时钟，允许 uint32_t 回绕。
+ * @note 只在前台调用；未Start不处理；一次最多处理8个输入和8个输出，无等待。
+ */
+void YgProtocolRuntime_Service(uint32_t now_ms);
 
 /**
  * @brief 初始化 CAN FD 链路端点和独占队列。
@@ -85,7 +114,7 @@ bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service);
  * @return 已初始化、队列无在途回复且绑定有效返回true，否则false且保持旧绑定。
  * @note 只在RX启动前或停止RX并清空队列后调用，不与Service并发。
  *       有在途票据不能撤销或替换；不探测Loader，也不将回调存在当成已安装能力。
- *       物理发送完成由comm_hw tracked接口提供，普通提交成功不能触发复位。
+ *       物理发送完成由BspCan跟踪接口提供，普通提交成功不能触发复位。
  */
 bool YgProtocolLink_BindBootService(const BootEntryService *service);
 
@@ -101,9 +130,10 @@ bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_
  * @brief 把硬件接收的扩展 CAN FD 帧放入协议 RX 队列。
  * @param frame 硬件端口提供的完整帧，函数返回后不保存指针。
  * @return 接收并入队返回 true；帧格式非法或队列满返回 false。
- * @note 由唯一 FDCAN RX 入口调用；不执行 CRC、路由或业务处理。
+ * @note 由唯一CAN RX IRQ生产；前台消费端负责互斥，生产端允许电机ISR抢占。
+ *   不得从第二个并发生产者调用；不执行CRC、路由或业务处理。
  */
-bool YgProtocolLink_OnRxFrame(const CommHwCanFrame *frame);
+bool YgProtocolLink_OnRxFrame(const BspCanFrame *frame);
 
 /**
  * @brief 在主循环后台推进协议收发和只读响应。

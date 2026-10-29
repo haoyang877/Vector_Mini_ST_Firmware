@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from project_paths import NATIVE_INCLUDE_FLAGS, ROOT, resolve_source_path
+from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
 def function_source(source: str, name: str) -> str:
@@ -34,107 +34,147 @@ def function_source(source: str, name: str) -> str:
 
 
 def board_startup_fixture() -> str:
-    """用主机寄存器桩验证真实采样启动和三相使能条件。"""
-    source = (ROOT / "firmware/platform/stm32g4/ports/board/board_startup_stm32g4.c").read_text(
-        encoding="utf-8"
-    )
+    """执行真实Bsp_Start，采样成功才能开放监督，失败关相且禁止重复启动。"""
+    source = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
     return (
         r"""
-#ifdef NDEBUG
-#undef NDEBUG
-#endif
 #include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
-enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
-      TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
-static int hadc1, hadc2, htim1, htim7;
-static uint32_t SystemCoreClock = 170000000U;
-static unsigned delay_clock;
-static unsigned phases, sampling, adc_started;
-static unsigned adc_irq_mask = ADC_IT_JEOC;
-static void delay_init(uint16_t clock) { delay_clock = clock; }
-static void HAL_ADCEx_Calibration_Start(int *adc, int mode) { (void)adc; (void)mode; }
-static void HAL_TIM_PWM_Start(int *timer, int channel) {
-    (void)timer; if (channel == TIM_CHANNEL_4) sampling++; else phases++;
-}
-static void HAL_TIMEx_OCN_Start(int *timer, int channel) { (void)timer; (void)channel; phases++; }
-static void HAL_ADCEx_InjectedStart(int *adc) { (void)adc; adc_started++; }
-static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask |= mask; }
-static void __HAL_ADC_DISABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask &= ~mask; }
-static void HAL_TIM_Base_Start_IT(int *timer) { (void)timer; }
+#include "bsp.h"
+#define HAL_OK 0
+static unsigned s_startup_state,step,off;
+static int htim7;
+static bool adc_ok=true,timer_ok=true;
+static bool Adc_Start(void) { assert(++step==1U); return adc_ok; }
+static int HAL_TIM_Base_Start_IT(int *h) { assert(h==&htim7 && ++step==2U); return timer_ok ? HAL_OK : 1; }
+static void BspPwm_Disable(void) { ++off; }
 """
-        + function_source(source, "board_hw_start")
+        + function_source(source, "Bsp_Start")
         + r"""
 int main(void) {
-    board_hw_start(false);
-    assert(phases == 0 && sampling == 1 && adc_started == 2);
-    assert(adc_irq_mask == ADC_IT_JEOS && delay_clock == 170U);
-    board_hw_start(true);
-    assert(phases == 6 && sampling == 2 && adc_started == 4);
-    assert(adc_irq_mask == ADC_IT_JEOS);
-    puts("PASS actual board startup: unconfigured phase outputs off, sampling retained");
-    return 0;
+ assert(Bsp_Start()==BSP_NOT_READY && step==0U);
+ s_startup_state=2U; assert(Bsp_Start()==BSP_OK && step==2U && off==0U);
+ assert(Bsp_Start()==BSP_NOT_READY && step==2U);
+ s_startup_state=2U;step=0U;adc_ok=false;
+ assert(Bsp_Start()==BSP_IO_ERROR && step==1U && off==1U && s_startup_state==4U);
+ s_startup_state=2U;step=0U;adc_ok=true;timer_ok=false;
+ assert(Bsp_Start()==BSP_IO_ERROR && step==2U && off==2U && s_startup_state==4U);
+ puts("PASS sampling/supervisor order, repeated Start, failure closes output"); return 0;
 }
 """
     )
 
 
 def board_orchestration_fixture(source: str | None = None) -> str:
-    """验证实际初始化入口；冻结源码按自身App_Init或旧Board_Init名称提取。"""
-    if source is None:
-        source = resolve_source_path(
-            ROOT,
-            "firmware/app/composition/app_startup.c",
-            "firmware/app/composition/board_config.c",
-        ).read_text(encoding="utf-8")
-    entry = "App_Init" if "void App_Init(" in source else "Board_Init"
+    """执行真实应用Init/Start，硬件准备和应用对象生命周期分离。"""
+    source = source or (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
     return (
         r"""
-#ifdef NDEBUG
-#undef NDEBUG
-#endif
 #include <assert.h>
-#include <stdbool.h>
 #include <stdio.h>
-static int order[8];
-static int order_len;
-static bool board_start_argument;
-static void log_step(int step) { order[order_len++] = step; }
-/* 参数装载归初始化所有者；板级组合只调用一次所有者入口。 */
-static void MotorAxis_Init(void) { log_step(3); }
-static unsigned MotorAxis_NodeId(void) { return 1U; }
-static void board_hw_start(bool motor_phases_enabled) {
-    log_step(4);
-    board_start_argument = motor_phases_enabled;
-}
-static bool protocol_ready = true;
-static bool s_communication_ready;
-static bool YgProtocolRuntime_Init(unsigned node) { assert(node == 1U); log_step(5); return protocol_ready; }
-static bool YgProtocolStatusAdapter_Init(void) { return protocol_ready; }
-static bool bind_motor_stop(void) { log_step(7); return protocol_ready; }
-static bool YgProtocolOwner_BindServices(void) { log_step(8); return protocol_ready; }
-static bool bind_device_description(void) { log_step(9); return protocol_ready; }
-static bool YgProtocolRuntime_Start(void) { log_step(10); return protocol_ready; }
-static void power_stage_hw_stop(void) { log_step(6); }
+#include <stdbool.h>
+static unsigned order[16],count;
+static bool s_communication_ready,ready=true;
+static void log_step(unsigned n) { order[count++]=n; }
+static void AppTasks_Init(void) { log_step(1); }
+static void MotorAxis_Init(void) { log_step(2); }
+static unsigned MotorAxis_NodeId(void) { return 7; }
+static bool YgProtocolRuntime_Init(unsigned n) { assert(n==7);log_step(3);return ready; }
+static bool YgProtocolStatusAdapter_Init(void) { log_step(4);return ready; }
+static bool bind_motor_stop(void) { log_step(5);return ready; }
+static bool YgProtocolOwner_BindServices(void) { log_step(6);return ready; }
+static bool bind_device_description(void) { log_step(7);return ready; }
+static bool YgProtocolRuntime_Start(void) { log_step(8);return ready; }
+static void AppTasks_Start(void) { log_step(9); }
+static void BspPwm_Disable(void) { log_step(10); }
 """
-        + function_source(source, entry)
+        + function_source(source, "App_Init")
+        + function_source(source, "App_Start")
         + r"""
 int main(void) {
-    static const int expected[] = {3, 4, 5, 7, 8, 9, 10};
-    int index;
-    INIT_ENTRY();
-    assert(order_len == 7 && !board_start_argument && s_communication_ready);
-    for (index = 0; index < 7; ++index) assert(order[index] == expected[index]);
-    protocol_ready = false;
-    order_len = 0;
-    INIT_ENTRY();
-    assert(order_len == 4 && order[3] == 6 && !s_communication_ready);
-    puts("PASS board startup: order, configuration and communication failure disables power");
-    return 0;
+ App_Init();assert(count==7 && s_communication_ready);
+ App_Start();assert(count==9);
+ for(unsigned i=0;i<9;i++) assert(order[i]==i+1);
+ count=0;ready=false;App_Init();assert(!s_communication_ready && count==4 && order[3]==10);
+ App_Start();assert(count==6 && order[4]==10 && order[5]==9);
+ puts("PASS object binding before BSP Start, communication failure closes output");return 0;
 }
-""".replace("INIT_ENTRY", entry)
+"""
+    )
+
+
+def application_entry_fixture(platform: str) -> str:
+    """两板真实main必须依次Init BSP、Init APP、Start BSP、Start APP并服务前台。"""
+    source = (ROOT / f"projects/{platform}/application/main.c").read_text(encoding="utf-8")
+    return (
+        r"""
+#include <assert.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include "bsp.h"
+static jmp_buf exit_entry;
+static unsigned trace[8],count,failure,iterations;
+static void step(unsigned n) { trace[count++]=n; }
+static BspResult Bsp_Init(void) { step(1);return failure==1 ? BSP_IO_ERROR : BSP_OK; }
+static void App_Init(void) { step(2); }
+static BspResult Bsp_Start(void) { step(3);return failure==2 ? BSP_IO_ERROR : BSP_OK; }
+static void App_Start(void) { step(4); }
+static void App_Process(void) { step(5);if(++iterations==2)longjmp(exit_entry,1); }
+static void startup_failed(void) { longjmp(exit_entry,1); }
+""".replace("static BspResult Bsp_", "BspResult Bsp_")
+        + function_source(source, "main").replace(
+            "int main(void)", "static int application_entry(void)"
+        )
+        + r"""
+int main(void) {
+ const unsigned expected[]={1,2,3,4,5,5};
+ for(failure=0;failure<3;failure++) {
+  count=iterations=0;if(setjmp(exit_entry)==0)application_entry();
+  assert(count==(failure==1 ? 1U : failure==2 ? 3U : 6U));
+  for(unsigned i=0;i<count;i++)assert(trace[i]==expected[i]);
+ }
+ puts("PASS dual-board main: BSP/APP lifecycle and failure ordering");return 0;
+}
+"""
+    )
+
+
+def platform_init_fixture() -> str:
+    """核对真实STM32初始化原外设相对顺序及新BSP唯一所有者。"""
+    source = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
+    calls = (
+        "BootHw_Init",
+        "HAL_Init",
+        "system_clock_init",
+        "MX_GPIO_Init",
+        "MX_DMA_Init",
+        "MX_ADC2_Init",
+        "Can_Init",
+        "Pwm_Init",
+        "MX_TIM2_Init",
+        "MX_TIM7_Init",
+        "Led_Init",
+        "MX_ADC1_Init",
+        "MX_SPI1_Init",
+        "MX_SPI2_Init",
+        "__HAL_FLASH_PREFETCH_BUFFER_ENABLE",
+        "Adc_Init",
+        "system_time_init",
+        "Flash_Init",
+        "Encoder_Init",
+    )
+    return (
+        '#include <assert.h>\n#include <stdio.h>\n#include "bsp.h"\n#include "bsp_config.h"\n'
+        "static unsigned s_startup_state,count,off;\n"
+        + "\n".join(
+            f"static bool {name}(void) {{ assert(++count=={index});return true; }}"
+            for index, name in enumerate(calls, 1)
+        )
+        + "\nstatic void BspPwm_Disable(void) { ++off; }\n"
+        + function_source(source, "Bsp_Init")
+        + "\nint main(void) { assert(Bsp_Init()==BSP_OK && count==19 && off==0);"
+        "assert(Bsp_Init()==BSP_NOT_READY && count==19);"
+        'puts("PASS STM32 19-step initialization, original peripheral order, exactly once");return 0;}\n'
     )
 
 
@@ -180,6 +220,9 @@ def main() -> None:
         ],
     )
     for name, fixture in (
+        ("application_entry_stm32_test", application_entry_fixture("stm32g4")),
+        ("application_entry_at32_test", application_entry_fixture("at32f456")),
+        ("platform_init_test", platform_init_fixture()),
         ("board_startup_test", board_startup_fixture()),
         ("board_orchestration_test", board_orchestration_fixture()),
     ):

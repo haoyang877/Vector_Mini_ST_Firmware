@@ -1,3 +1,4 @@
+#include "bsp_pwm.h"
 /* 冻结旧 FOC 与当前实际入口逐拍对照；硬件输出只记录，不访问设备。 */
 #ifdef NDEBUG
 #undef NDEBUG
@@ -25,27 +26,31 @@ typedef struct
     unsigned count, writes;
 } Capture;
 static Capture captures[2];
+static bool allow_expected_fault;
+static BspResult pwm_result = BSP_OK;
 
 static void record(unsigned side, unsigned event)
 {
     assert(captures[side].count < 8);
     captures[side].events[captures[side].count++] = event;
 }
-void motor_hw_pwm_set_duty(float a, float b, float c)
+BspResult BspPwm_SetDuty(float a, float b, float c)
 {
     record(0, 2);
     captures[0].writes++;
     captures[0].duty[0] = a;
     captures[0].duty[1] = b;
     captures[0].duty[2] = c;
+    return pwm_result;
 }
-void motor_hw_pwm_set_duty_Reference(float a, float b, float c)
+BspResult BspPwm_SetDuty_Reference(float a, float b, float c)
 {
     record(1, 2);
     captures[1].writes++;
     captures[1].duty[0] = a;
     captures[1].duty[1] = b;
     captures[1].duty[2] = c;
+    return BSP_OK;
 }
 void FastLoopProfile_Begin(unsigned stage)
 {
@@ -66,9 +71,11 @@ void FastLoopProfile_End_Reference(unsigned stage)
 
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
 {
-    (void)motor;
-    (void)fault;
-    assert(false);
+    assert(allow_expected_fault);
+    if (motor->fault_code == MOTOR_FAULT_NONE)
+    {
+        motor->fault_code = fault;
+    }
 }
 
 /* 与Axis配置提交边界一致，只绑定固定参数，不改变历史积分或动态限幅。 */
@@ -86,6 +93,49 @@ static void bind_current_configuration(FocState *foc, const MotorConfiguration *
                            Current_Ts,
                            foc->iq_pi.output_min,
                            foc->iq_pi.output_max);
+}
+
+static void test_voltage_law(void)
+{
+    MotorConfiguration configuration = {0};
+    configuration.application.current_limit_a = 3.0f;
+    MotorControlState motor = {.thermal_current_limit_a = 3.0f};
+    FocState foc = {.bus_voltage_filtered_v = 29.0f,
+                    .phase_a_current_a = 0.2f,
+                    .phase_b_current_a = -0.1f,
+                    .phase_c_current_a = -0.1f};
+    foc.id_pi.integral_output = 0.7f;
+    foc.iq_pi.integral_output = -0.3f;
+    PiController id = foc.id_pi, iq = foc.iq_pi;
+    memset(captures, 0, sizeof(captures));
+    FOC_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0.0f, 0.0f, 0.0f, 2.0f);
+    assert(fabsf(foc.id_a - 0.2f) < 1e-6f && fabsf(foc.iq_a) < 1e-6f);
+    assert(fabsf(foc.mod_q - 3.0f / 29.0f) < 1e-6f && foc.mod_d == 0.0f);
+    assert(captures[0].writes == 1U && fabsf(foc.duty_a - 0.5f) < 1e-6f);
+    float delta = 3.0f / (29.0f * sqrtf(3.0f));
+    assert(fabsf(foc.duty_b - (0.5f - delta)) < 1e-6f);
+    assert(fabsf(foc.duty_c - (0.5f + delta)) < 1e-6f);
+    assert(memcmp(&id, &foc.id_pi, sizeof(id)) == 0 && memcmp(&iq, &foc.iq_pi, sizeof(iq)) == 0);
+    FOC_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0.0f, 0.0f, 100.0f, 100.0f);
+    assert(fabsf(foc.mod_d - foc.mod_q) < 1e-6f);
+    assert(fabsf(hypotf(foc.mod_d, foc.mod_q) - 0.95f * sqrtf(3.0f) * 0.5f) < 1e-6f);
+    assert(foc.duty_a >= 0 && foc.duty_a <= 1 && foc.duty_b >= 0 && foc.duty_b <= 1 &&
+           foc.duty_c >= 0 && foc.duty_c <= 1);
+    allow_expected_fault = true;
+    memset(captures, 0, sizeof(captures));
+    foc.phase_a_current_a = 4.0f;
+    foc.phase_b_current_a = foc.phase_c_current_a = -2.0f;
+    FOC_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0, 0, 0, 2);
+    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL && captures[0].writes == 0);
+    motor.fault_code = MOTOR_FAULT_NONE;
+    foc.phase_a_current_a = foc.phase_b_current_a = foc.phase_c_current_a = 0;
+    pwm_result = BSP_IO_ERROR;
+    FOC_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0, 0, 0, 2);
+    assert(motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && captures[0].writes == 1);
+    pwm_result = BSP_OK;
+    allow_expected_fault = false;
+    puts("PASS voltage law: measured dq, analytical SVPWM, vector limit, unchanged PI, current/PWM "
+         "faults");
 }
 
 int main(void)
@@ -159,6 +209,11 @@ int main(void)
                     FOC_Vq_Mode(&configuration, &actual, &motor, phase, velocity);
                     FOC_Vq_Mode_Reference(&configuration, &reference, &motor, phase, velocity);
                 }
+                /* NaN符号不属于无效功率值的合同；有限值与其它状态仍逐字节核对。 */
+                if (isnan(actual.power_filtered_w) && isnan(reference.power_filtered_w))
+                {
+                    reference.power_filtered_w = actual.power_filtered_w;
+                }
                 if (memcmp(&actual, &reference, sizeof(actual)) ||
                     memcmp(&captures[0], &captures[1], sizeof(Capture)))
                 {
@@ -167,10 +222,20 @@ int main(void)
                             active_mode,
                             scenario,
                             tick);
+                    const unsigned char *a = (const unsigned char *)&actual;
+                    const unsigned char *r = (const unsigned char *)&reference;
+                    for (unsigned byte = 0; byte < sizeof(actual); ++byte)
+                    {
+                        if (a[byte] != r[byte])
+                        {
+                            fprintf(
+                                stderr, "state byte %u: %02x != %02x\n", byte, a[byte], r[byte]);
+                        }
+                    }
                     return 1;
                 }
                 assert(captures[0].writes == 1);
-#if defined(FAST_LOOP_STAGE_PROFILE) && FAST_LOOP_STAGE_PROFILE
+#if defined(BSP_ENABLED_FAST_LOOP_PROFILE) && BSP_ENABLED_FAST_LOOP_PROFILE
                 assert(captures[0].count == (active_mode == 2 ? 1U : 3U));
 #else
                 assert(captures[0].count == 1U);
@@ -179,6 +244,7 @@ int main(void)
             }
         }
     }
+    test_voltage_law();
     printf("PASS %u FOC comparisons: complete state, PI, PWM and profiling order\n", compared);
     return 0;
 }

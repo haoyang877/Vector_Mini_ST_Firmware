@@ -124,6 +124,35 @@ void SVM_ZeroInjection(float a, float b, float c, float *duty_a, float *duty_b, 
 void SVM_SectorJudge(
     float alpha, float beta, float *duty_a, float *duty_b, float *duty_c, int32_t *sector);
 
+/** @brief 共用FOC控制律；角度来源由调用方独立选择。 */
+typedef enum
+{
+    FOC_CONTROL_CURRENT,
+    FOC_CONTROL_ID_VQ,
+    FOC_CONTROL_VOLTAGE
+} FocControlLaw;
+
+/**
+ * @brief 执行实测电流变换、控制律、电压限幅、SVPWM及一次PWM更新。
+ * @param configuration 本拍稳定的活动配置。
+ * @param foc 电流、调制与PI对象。
+ * @param motor 电流保护额度和故障对象。
+ * @param law d/q电流闭环、Id闭环加Vq给定或纯电压给定。
+ * @param phase 本拍控制电角度，rad。
+ * @param phase_vel 电角速度，rad/s，用于原一拍输出角度预测。
+ * @param d_reference 电流律/Id律为A，纯电压律为V。
+ * @param q_reference 电流律为A，其余为V。
+ * @note 仅快速环；调用方先完成采样、过流/过压和输出准入；本函数不启相。
+ */
+void FOC_Step(const MotorConfiguration *configuration,
+              FocState *foc,
+              MotorControlState *motor,
+              FocControlLaw law,
+              float phase,
+              float phase_vel,
+              float d_reference,
+              float q_reference);
+
 /**
  * @brief  电流环：执行一拍 d/q 电流闭环并更新三相 PWM。
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
@@ -163,7 +192,7 @@ void FOC_CurrentWithReference(const MotorConfiguration *configuration,
  */
 void FOC_CurrentController_Reset(FocState *foc);
 /**
- * @brief  vq_v 开环电压模式：固定电角度施加 q 轴电压执行一拍。
+ * @brief  Vq给定、Id闭环到零：使用传入电角度执行一拍。
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态。
  * @param  motor_state 电机控制状态。

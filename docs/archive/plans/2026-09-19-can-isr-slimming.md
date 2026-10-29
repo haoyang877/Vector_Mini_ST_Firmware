@@ -37,7 +37,7 @@ TIM7 2 kHz (prio 3)  ① 排空 RX ring：逐条派发（写路径/读路径，�
 
 | 事实 | 证据 |
 | --- | --- |
-| 中断优先级（数值越小越高）：`ADC1_2`(20 kHz FOC)=0、`FDCAN1_IT0`(CAN RX)=1、`TIM7`(2 kHz)=3、`DMA1_Channel1`=5 | `firmware/platform/stm32g4/cubemx/Core/Src/fdcan.c:104`、`adc.c:271,317`、`tim.c:263`、`dma.c:48` |
+| 中断优先级（数值越小越高）：`ADC1_2`(20 kHz FOC)=0、`FDCAN1_IT0`(CAN RX)=1、`TIM7`(2 kHz)=3、`DMA1_Channel1`=5 | `firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/fdcan.c:104`、`adc.c:271,317`、`tim.c:263`、`dma.c:48` |
 | CAN 中断入口：`HAL_FDCAN_RxFifo0Callback` → `CANRxIRQHandler()`，即派发全程在 `FDCAN1_IT0_IRQHandler` 内 | `stm32g4xx_it.c:342-350`、`firmware/communication/can/can_command_binding.c` |
 | 快环 20 kHz（50 µs 周期）在注入转换回调内 | `stm32g4xx_it.c:333-342`、`firmware/app/foc_task.c:22` |
 | ISR 内工作量：取帧 + 帧级过滤 + ≤4 字节解码 + 两级 `switch`（写 28 case / 读 60 case）+ 命中 case 体，其中 `CAN_SET_POS`/`CAN_SET_CURRENT`/`CAN_SET_SPEED` 会调用 `ModeSwitch_Handle` | `can_command_binding.c:37-95`、`can_binding_commands.c`、`can_binding_queries.c` |

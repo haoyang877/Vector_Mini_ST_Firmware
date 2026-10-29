@@ -5,10 +5,32 @@
 #include <string.h>
 
 #include "tim.h"
-#include "power_stage_hw.h"
+#include "bsp_pwm.h"
+#include "bsp_system.h"
+#include "bsp_internal.h"
+#include <stdlib.h>
+void __disable_irq(void)
+{
+    abort();
+}
+void __WFI(void)
+{
+    abort();
+}
 
 TIM_TypeDef g_tim1, g_tim8;
 TIM_HandleTypeDef htim1;
+static uint32_t s_irq_mask;
+uint32_t BspSystem_EnterCritical(void)
+{
+    uint32_t before = s_irq_mask;
+    s_irq_mask = 1U;
+    return before;
+}
+void BspSystem_ExitCritical(uint32_t state)
+{
+    s_irq_mask = state;
+}
 
 enum
 {
@@ -27,6 +49,7 @@ struct Result
 {
     TraceEvent trace[TRACE_CAPACITY];
     uint32_t count, registers[2 * REGISTER_COUNT];
+    BspResult enable_result;
     uint32_t channel[6], complementary[4], state, lock, fallback_count;
     uint32_t fallback_kind[6], fallback_channel[6];
 };
@@ -147,10 +170,24 @@ static void reference_stop(TIM_HandleTypeDef *handle)
 
 static void register_list(TIM_TypeDef *timer, TimRegister **result)
 {
-    TimRegister *items[] = {
-        &timer->CR1, &timer->CR2, &timer->SMCR, &timer->CCER, &timer->BDTR, &timer->CNT,
-        &timer->PSC, &timer->ARR, &timer->RCR, &timer->CCR1, &timer->CCR2, &timer->CCR3,
-        &timer->CCR4, &timer->DIER, &timer->SR, &timer->EGR, &timer->CCMR1, &timer->CCMR2};
+    TimRegister *items[] = {&timer->CR1,
+                            &timer->CR2,
+                            &timer->SMCR,
+                            &timer->CCER,
+                            &timer->BDTR,
+                            &timer->CNT,
+                            &timer->PSC,
+                            &timer->ARR,
+                            &timer->RCR,
+                            &timer->CCR1,
+                            &timer->CCR2,
+                            &timer->CCR3,
+                            &timer->CCR4,
+                            &timer->DIER,
+                            &timer->SR,
+                            &timer->EGR,
+                            &timer->CCMR1,
+                            &timer->CCMR2};
     memcpy(result, items, sizeof(items));
 }
 
@@ -189,9 +226,8 @@ static void initialize(const Scenario &scenario, TIM_HandleTypeDef *handle)
     if (scenario.state_variant)
     {
         unsigned slot = (scenario.state_variant - 1) % 6;
-        HAL_TIM_ChannelStateTypeDef state = scenario.state_variant <= 6
-                                               ? HAL_TIM_CHANNEL_STATE_BUSY
-                                               : HAL_TIM_CHANNEL_STATE_RESET;
+        HAL_TIM_ChannelStateTypeDef state =
+            scenario.state_variant <= 6 ? HAL_TIM_CHANNEL_STATE_BUSY : HAL_TIM_CHANNEL_STATE_RESET;
         if (slot < 3)
         {
             handle->ChannelState[slot] = state;
@@ -206,30 +242,49 @@ static void initialize(const Scenario &scenario, TIM_HandleTypeDef *handle)
     s_break_mode = scenario.break_mode;
 }
 
+/* 新API增加只读输出确认；参考侧单独读取同一硬件状态，不替代HAL行为参考。 */
+static BspResult reference_result(TIM_HandleTypeDef *handle)
+{
+    uint32_t mask = TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                    TIM_CCER_CC3E | TIM_CCER_CC3NE;
+    uint32_t channels = handle->Instance->CCER & mask;
+    bool enabled = (handle->Instance->BDTR & TIM_BDTR_MOE) != 0U;
+    return channels == mask && enabled ? BSP_OK : BSP_IO_ERROR;
+}
+
 static Result capture(const Scenario &scenario, bool reference, bool cycle)
 {
     TIM_HandleTypeDef reference_handle;
     TIM_HandleTypeDef *handle = reference ? &reference_handle : &htim1;
     initialize(scenario, handle);
+    BspResult observed;
     if (reference)
     {
         reference_start(handle);
+        observed = reference_result(handle);
         if (cycle)
         {
             reference_stop(handle);
+            TIM1->BDTR &= ~TIM_BDTR_MOE;
+            TIM1->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                            TIM_CCER_CC3E | TIM_CCER_CC3NE);
             reference_start(handle);
+            observed = reference_result(handle);
         }
     }
     else
     {
-        power_stage_hw_start();
+        McuPwm_EnableOutputs();
+        observed = reference_result(&htim1);
         if (cycle)
         {
-            power_stage_hw_stop();
-            power_stage_hw_start();
+            McuPwm_DisableOutputs();
+            McuPwm_EnableOutputs();
+            observed = reference_result(&htim1);
         }
     }
     Result result = {};
+    result.enable_result = observed;
     result.count = s_trace_count;
     memcpy(result.trace, s_trace, s_trace_count * sizeof(TraceEvent));
     for (unsigned alternate = 0; alternate < 2; ++alternate)
@@ -261,6 +316,8 @@ static void check(const Scenario &scenario, bool cycle)
 {
     Result expected = capture(scenario, true, cycle);
     Result actual = capture(scenario, false, cycle);
+    assert(actual.enable_result == expected.enable_result);
+    assert(s_irq_mask == 0U);
     assert(actual.count == expected.count);
     assert(memcmp(actual.trace, expected.trace, actual.count * sizeof(TraceEvent)) == 0);
     assert(memcmp(actual.registers, expected.registers, sizeof(actual.registers)) == 0);
@@ -279,8 +336,136 @@ static void check(const Scenario &scenario, bool cycle)
     }
 }
 
+static void test_duties(void)
+{
+    Scenario scenario = {0, 0, 0, 0, 0, 1, 0};
+    initialize(scenario, &htim1);
+    g_tim1.ARR.value = 7777U;
+    const uint32_t ccer = g_tim1.CCER.value, bdtr = g_tim1.BDTR.value;
+    const uint32_t control = g_tim1.CR1.value;
+    for (unsigned i = 0; i <= 4250U; ++i)
+    {
+        s_trace_count = 0;
+        float duty = (float)i / 4250.0f;
+        assert(McuPwm_CommitThree((uint16_t)(duty * 4250U), 1062U, 3187U));
+        assert(g_tim1.CCR1.value == (uint16_t)(duty * 4250U));
+        assert(g_tim1.CCR2.value == 1062U && g_tim1.CCR3.value == 3187U);
+        const uint32_t expected_registers[] = {g_tim1.CR1.identity,
+                                               g_tim1.CCR1.identity,
+                                               g_tim1.CCR2.identity,
+                                               g_tim1.CCR3.identity,
+                                               g_tim1.CR1.identity};
+        unsigned written = 0U;
+        for (unsigned n = 0U; n < s_trace_count; ++n)
+        {
+            if (s_trace[n].write)
+            {
+                assert(written < 5U && s_trace[n].identity == expected_registers[written]);
+                if (written == 0U)
+                {
+                    assert(s_trace[n].value == (control | (1U << 1U)));
+                }
+                else if (written == 4U)
+                {
+                    assert(s_trace[n].value == control);
+                }
+                ++written;
+            }
+        }
+        assert(written == 5U && g_tim1.CR1.value == control);
+        assert(g_tim1.CCER.value == ccer && g_tim1.BDTR.value == bdtr);
+    }
+    s_trace_count = 0;
+    assert(McuPwm_CommitPhase(BSP_PWM_PHASE_B, 2125U));
+    assert(g_tim1.CCR2.value == 2125U);
+    assert(s_trace[s_trace_count - 1U].write &&
+           s_trace[s_trace_count - 1U].identity == g_tim1.CCR2.identity);
+    s_trace_count = 0U;
+    assert(!McuPwm_CommitPhase((BspPwmPhase)99, 4250U));
+    for (unsigned n = 0U; n < s_trace_count; ++n)
+    {
+        assert(!s_trace[n].write);
+    }
+    assert(McuPwm_CommitThree(4250U, 4250U, 4250U));
+    assert(g_tim1.CCR1.value == 4250U && g_tim1.CCR2.value == 4250U && g_tim1.CCR3.value == 4250U);
+    assert(g_tim1.CCER.value == ccer && g_tim1.BDTR.value == bdtr);
+}
+
+/* 比较写入轨迹而非只看最终值，超时不允许触及任何寄存器。 */
+static void test_pwm_commit_boundaries(void)
+{
+    const struct
+    {
+        uint32_t count;
+        bool up, down;
+    } cases[] = {{0U, true, false},
+                 {256U, true, false},
+                 {257U, true, true},
+                 {3993U, true, true},
+                 {3994U, false, true},
+                 {4250U, false, true},
+                 {4251U, false, false},
+                 {UINT32_MAX, false, false}};
+    const uint32_t channels[] = {0U, TIM_CCER_CC1E, 0x555U};
+    const uint32_t controls[] = {0U, 1U, 0x11U, 0x13U};
+    for (unsigned channel = 0U; channel < 3U; ++channel)
+    {
+        for (unsigned master = 0U; master < 2U; ++master)
+        {
+            for (unsigned mode = 0U; mode < 4U; ++mode)
+            {
+                for (unsigned i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
+                {
+                    Scenario scenario = {
+                        0, 0, channels[channel], master ? TIM_BDTR_MOE : 0U, 0, 0, 0};
+                    initialize(scenario, &htim1);
+                    g_tim1.CR1.value = controls[mode];
+                    g_tim1.CNT.value = cases[i].count;
+                    g_tim1.ARR.value = 4250U;
+                    g_tim1.CCR1.value = 111U;
+                    g_tim1.CCR2.value = 222U;
+                    g_tim1.CCR3.value = 333U;
+                    bool expected = (channel == 0U && master == 0U) || mode == 0U ||
+                                    (mode == 1U ? cases[i].up : cases[i].down);
+                    s_trace_count = 0U;
+                    assert(McuPwm_CommitThree(12U, 34U, 56U) == expected);
+                    unsigned writes = 0U, channel_reads = 0U;
+                    for (unsigned n = 0U; n < s_trace_count; ++n)
+                    {
+                        writes += s_trace[n].write;
+                        channel_reads +=
+                            !s_trace[n].write && s_trace[n].identity == g_tim1.CCER.identity;
+                    }
+                    assert(channel_reads == 1U);
+                    assert(writes == (expected ? (channel == 0U && master == 0U ? 5U : 3U) : 0U));
+                    assert(g_tim1.CCR1.value == (expected ? 12U : 111U));
+                    assert(g_tim1.CCR2.value == (expected ? 34U : 222U));
+                    assert(g_tim1.CCR3.value == (expected ? 56U : 333U));
+                    assert(g_tim1.CR1.value == controls[mode]);
+                    assert(g_tim1.CCER.value == channels[channel]);
+                    assert(g_tim1.BDTR.value == (master ? TIM_BDTR_MOE : 0U));
+                    s_trace_count = 0U;
+                    assert(McuPwm_CommitPhase(BSP_PWM_PHASE_B, 78U) == expected);
+                    writes = 0U;
+                    for (unsigned n = 0U; n < s_trace_count; ++n)
+                    {
+                        writes += s_trace[n].write;
+                    }
+                    assert(writes == (expected ? 1U : 0U));
+                    assert(g_tim1.CCR2.value == (expected ? 78U : 222U));
+                    assert(g_tim1.CR1.value == controls[mode]);
+                }
+            }
+        }
+    }
+    puts("PASS STM32 merged PWM: 192 timer/output boundary cases, single state read, zero writes "
+         "on timeout");
+}
+
 int main(void)
 {
+    test_duties();
+    test_pwm_commit_boundaries();
     const uint32_t ccer[] = {0, TIM_CCER_CC4E, 0xA5A5A5A5U, 0xFFFFFFFFU};
     const uint32_t bdtr[] = {0, TIM_BDTR_MOE, 0xA5A55A5AU};
     unsigned cases = 0;
@@ -312,6 +497,12 @@ int main(void)
         check(scenario, true);
         ++cases;
     }
-    printf("PASS %u official-HAL cases; exact MMIO/state traces, fallback and start-stop-start\n", cases);
+    printf("PASS %u official-HAL cases; exact MMIO/state traces, fallback and start-stop-start\n",
+           cases);
     return 0;
+}
+
+/* 初始化由独立采样启动夹具验证。 */
+void MX_TIM1_Init(void)
+{
 }

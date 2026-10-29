@@ -36,7 +36,7 @@ uvprojx 的现场差异只有换行，Git 内容一致；当前用户逐文件�
 | `firmware/communication/protocol/yg_protocol_motor.c` | 修改 |
 | `firmware/motor/feedback/angle_feedback.h` | 修改 |
 | `firmware/motor/foc/foc_sensing.h` | 修改 |
-| `firmware/platform/stm32g4/cubemx/MDK-ARM/YG_ESC_APP.uvoptx` | 修改 |
+| `projects/stm32g4/MDK-ARM/YG_ESC_APP.uvoptx` | 修改 |
 | `tests/run.py` | 修改 |
 | `tests/unit/native/execution_dispatch_test.c` | 修改 |
 | `tests/unit/native/run_state_owner_test.c` | 修改 |

@@ -38,7 +38,7 @@
 | 2 mΩ | 0.04029 | 60 A | 30 A | 30 A | 40 A | 10 A | 30 A | 4 mΩ |
 | 6 mΩ（默认） | 0.01343 | 20 A | 10 A | 10 A | 18 A | 3 A | 6 A | 8 mΩ |
 
-`firmware/platform/stm32g4/bsp/hw_conf.h` 最终使用通用公式：
+`firmware/platform/bsp/mcu/stm32g4/hw_conf.h` 最终使用通用公式：
 
 ```c
 #define SENSING_CURR_FACTOR (3.3f / 4095.0f / CURRENT_AMP_GAIN / SENSING_RES)

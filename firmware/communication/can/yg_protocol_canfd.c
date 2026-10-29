@@ -1,10 +1,11 @@
-/* CAN FD 承载适配：物理长度与应用长度分离，发送失败不消费队列。
- * 不启动外设、不配置速率/滤波，也不与旧入口竞争读取 RX FIFO。 */
+#include "bsp_system.h"
 #include "yg_protocol_canfd.h"
-
 #include <string.h>
 #include "yg_protocol_can_id.h"
 #include "yg_protocol_frame_codec.h"
+
+/* CAN FD 承载适配：物理长度与应用长度分离，发送失败不消费队列。
+ * 不启动外设、不配置速率/滤波，也不与旧入口竞争读取 RX FIFO。 */
 
 static uint8_t padded_length(size_t length)
 {
@@ -118,7 +119,7 @@ yg_protocol_result_t yg_protocol_canfd_unpack(const yg_protocol_transfer_frame_t
 }
 
 yg_protocol_result_t yg_protocol_canfd_receive(yg_protocol_transfer_queue_t *queue,
-                                               const CommHwCanFrame *received)
+                                               const BspCanFrame *received)
 {
     yg_protocol_transfer_frame_t frame = {0};
     if (queue == NULL || queue->storage == NULL || queue->capacity == 0U || received == NULL)
@@ -142,7 +143,7 @@ yg_protocol_result_t yg_protocol_canfd_receive(yg_protocol_transfer_queue_t *que
 yg_protocol_result_t yg_protocol_canfd_send_one(yg_protocol_transfer_queue_t *queue)
 {
     yg_protocol_transfer_frame_t frame;
-    CommHwCanFrame hardware = {0};
+    BspCanFrame hardware = {0};
     if (queue == NULL || queue->storage == NULL || queue->capacity == 0U)
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
@@ -162,10 +163,113 @@ yg_protocol_result_t yg_protocol_canfd_send_one(yg_protocol_transfer_queue_t *qu
     hardware.fd = frame.fd;
     hardware.bitrate_switch = frame.bitrate_switch;
     memcpy(hardware.data, frame.data, frame.length);
-    if (!comm_hw_can_try_send_frame(&hardware))
+    if (BspCan_TrySend(&hardware) != BSP_OK)
     {
         return YG_PROTOCOL_TRANSPORT_BUSY;
     }
     (void)yg_protocol_transfer_queue_pop(queue, &frame);
     return YG_PROTOCOL_OK;
+}
+
+/* 单生产者/单消费者分别发布累计序号；完整槽复制先于发布，不需全局锁。 */
+
+bool yg_protocol_transfer_queue_init(yg_protocol_transfer_queue_t *queue,
+                                     yg_protocol_transfer_frame_t *storage,
+                                     size_t capacity)
+{
+    if (queue == NULL || storage == NULL || capacity == 0U || capacity > UINT32_MAX / 2U)
+    {
+        return false;
+    }
+    queue->storage = storage;
+    queue->capacity = capacity;
+    queue->head = 0U;
+    queue->tail = 0U;
+    queue->produced = 0U;
+    queue->consumed = 0U;
+    queue->dropped = 0U;
+    return true;
+}
+
+bool yg_protocol_transfer_queue_push(yg_protocol_transfer_queue_t *queue,
+                                     const yg_protocol_transfer_frame_t *frame)
+{
+    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U ||
+        frame->length > YG_PROTOCOL_TRANSFER_DATA_SIZE)
+    {
+        return false;
+    }
+    if ((uint32_t)(queue->produced - queue->consumed) >= queue->capacity)
+    {
+        queue->dropped++;
+        return false;
+    }
+    BspSystem_MemoryBarrier();
+    queue->storage[queue->head % queue->capacity] = *frame;
+    queue->head = (queue->head + 1U) % queue->capacity;
+    BspSystem_MemoryBarrier();
+    ++queue->produced;
+    return true;
+}
+
+bool yg_protocol_transfer_queue_pop(yg_protocol_transfer_queue_t *queue,
+                                    yg_protocol_transfer_frame_t *frame)
+{
+    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U)
+    {
+        return false;
+    }
+    if (queue->produced == queue->consumed)
+    {
+        return false;
+    }
+    BspSystem_MemoryBarrier();
+    *frame = queue->storage[queue->tail % queue->capacity];
+    queue->tail = (queue->tail + 1U) % queue->capacity;
+    BspSystem_MemoryBarrier();
+    ++queue->consumed;
+    return true;
+}
+
+size_t yg_protocol_transfer_queue_count(const yg_protocol_transfer_queue_t *queue)
+{
+    if (queue == NULL)
+    {
+        return 0U;
+    }
+    return (uint32_t)(queue->produced - queue->consumed);
+}
+
+bool yg_protocol_transfer_queue_discard(yg_protocol_transfer_queue_t *queue)
+{
+    if (queue == NULL || queue->storage == NULL || queue->capacity == 0U ||
+        queue->produced == queue->consumed)
+    {
+        return false;
+    }
+    queue->tail = (queue->tail + 1U) % queue->capacity;
+    BspSystem_MemoryBarrier();
+    ++queue->consumed;
+    return true;
+}
+
+uint32_t yg_protocol_transfer_queue_dropped(const yg_protocol_transfer_queue_t *queue)
+{
+    return queue == NULL ? 0U : queue->dropped;
+}
+
+bool yg_protocol_transfer_queue_peek(const yg_protocol_transfer_queue_t *queue,
+                                     yg_protocol_transfer_frame_t *frame)
+{
+    if (queue == NULL || frame == NULL || queue->storage == NULL || queue->capacity == 0U)
+    {
+        return false;
+    }
+    if (queue->produced == queue->consumed)
+    {
+        return false;
+    }
+    BspSystem_MemoryBarrier();
+    *frame = queue->storage[queue->tail % queue->capacity];
+    return true;
 }

@@ -199,66 +199,62 @@ float fast_min_3(float x, float y, float z)
     return (min_xy < z) ? min_xy : z;
 }
 
-/* 用象限对称读取同一张表；索引按 1024 个间隔循环。 */
-static float sin_table_sample(unsigned index)
-{
-    unsigned offset = index & 511U;
-    if (offset > 256U)
-    {
-        offset = 512U - offset;
-    }
-    return (index & 512U) != 0U ? -s_sin_quarter_tab[offset] : s_sin_quarter_tab[offset];
-}
-
+/* 用象限对称读取单位圆节点，再旋转不足一个表间隔的小角；保持亚分度步长。 */
 void Math_SinCos(float theta_rad, float *sin_out, float *cos_out)
 {
-    float angle_rad;
-    float position;
-    unsigned index;
-    float fraction;
-    float squared;
-    float blend;
-    float slope0;
-    float slope1;
-    float sin0;
-    float sin1;
-    float cos0;
-    float cos1;
-    float sine;
-
     if (!isfinite(theta_rad))
     {
         *sin_out = NAN;
         *cos_out = NAN;
         return;
     }
-    /* 先取绝对值而不把负小角加到 2pi，避免丢掉小于一个 ULP 的交接修正量。 */
-    angle_rad = fabsf(theta_rad);
-    if (angle_rad >= _2PI)
-    {
-        angle_rad = fmodf(angle_rad, _2PI);
-    }
-    position = angle_rad * (1024.0f / _2PI);
-    index = (unsigned)position;
-    fraction = position - (float)index;
-    sin0 = sin_table_sample(index);
-    sin1 = sin_table_sample(index + 1U);
-    cos0 = sin_table_sample(index + 256U);
-    cos1 = sin_table_sample(index + 257U);
-
-    /* Hermite 插值的值和导数都来自表；共享权重同时得到正余弦。
-     * 三次插值避免线性插值的弦长损失在反复积分状态旋转时累积。 */
-    squared = fraction * fraction;
-    blend = squared * (3.0f - 2.0f * fraction);
-    slope0 = fraction * (fraction - 1.0f) * (fraction - 1.0f) * (_2PI / 1024.0f);
-    slope1 = squared * (fraction - 1.0f) * (_2PI / 1024.0f);
-    sine = sin0 + (blend * (sin1 - sin0) + slope0 * cos0 + slope1 * cos1);
-    *cos_out = cos0 + (blend * (cos1 - cos0) - slope0 * sin0 - slope1 * sin1);
-    *sin_out = theta_rad < 0.0f ? -sine : sine;
     if (theta_rad == 0.0f)
     {
         *sin_out = theta_rad;
+        *cos_out = 1.0f;
+        return;
     }
+    float angle_rad = fabsf(theta_rad);
+    if (angle_rad >= _2PI)
+    {
+        /* 跨一圈使用与fmodf逐位等价的减法，多圈保留原归一化。 */
+        angle_rad = angle_rad < 2.0f * _2PI ? angle_rad - _2PI : fmodf(angle_rad, _2PI);
+    }
+    float position = angle_rad * (1024.0f / _2PI);
+    unsigned index = (unsigned)position;
+    unsigned offset = index & 255U;
+    float rising = s_sin_quarter_tab[offset];
+    float falling = s_sin_quarter_tab[256U - offset];
+    float sin0;
+    float cos0;
+    switch ((index >> 8U) & 3U)
+    {
+    case 0U:
+        sin0 = rising;
+        cos0 = falling;
+        break;
+    case 1U:
+        sin0 = falling;
+        cos0 = -rising;
+        break;
+    case 2U:
+        sin0 = -rising;
+        cos0 = -falling;
+        break;
+    default:
+        sin0 = -falling;
+        cos0 = rising;
+        break;
+    }
+    /* delta属于[0,pi/512)，三阶sin/四阶cos截断误差分别小于7.3e-14/7.5e-17。
+     * 使用旋转保持单位圆；不能用线性弦插值，后者会使交接积分器反复旋转时衰减。 */
+    float delta = (position - (float)index) * (_2PI / 1024.0f);
+    float squared = delta * delta;
+    float sin_delta = delta * (1.0f - squared * (1.0f / 6.0f));
+    float cos_delta = 1.0f - squared * (0.5f - squared * (1.0f / 24.0f));
+    float sine = sin0 * cos_delta + cos0 * sin_delta;
+    *cos_out = cos0 * cos_delta - sin0 * sin_delta;
+    *sin_out = theta_rad < 0.0f ? -sine : sine;
 }
 
 /**

@@ -85,22 +85,77 @@ static bool sensorless_observer_is_usable(const FluxObserverState *flux_observer
 }
 
 /* 启动参数集准入：时间、电流与速度阈值必须自洽。 */
+#define SENSORLESS_STARTUP_VALUES_VALID(align_current_ramp_time_s,                                 \
+                                        align_hold_time_s,                                         \
+                                        align_current_a,                                           \
+                                        startup_iq_initial_a,                                      \
+                                        startup_iq_a,                                              \
+                                        startup_iq_ramp_time_s,                                    \
+                                        startup_id_a,                                              \
+                                        minimum_current_limit_a,                                   \
+                                        minimum_electrical_velocity_rad_s,                         \
+                                        target_electrical_velocity_rad_s,                          \
+                                        startup_ramp_time_s,                                       \
+                                        speed_lock_time_s,                                         \
+                                        speed_lock_filter_alpha,                                   \
+                                        observer_lock_ratio,                                       \
+                                        angle_handoff_time_s,                                      \
+                                        lock_timeout_s,                                            \
+                                        id_ramp_down_time_s,                                       \
+                                        observer_loss_time_s)                                      \
+    (align_current_ramp_time_s > 0.0f && align_hold_time_s >= 0.0f && align_current_a > 0.0f &&    \
+     startup_iq_initial_a >= 0.0f && startup_iq_a >= startup_iq_initial_a &&                       \
+     startup_iq_ramp_time_s > 0.0f && startup_id_a >= 0.0f && minimum_current_limit_a >= 0.0f &&   \
+     minimum_electrical_velocity_rad_s > 0.0f &&                                                   \
+     target_electrical_velocity_rad_s >= minimum_electrical_velocity_rad_s &&                      \
+     startup_ramp_time_s > 0.0f && speed_lock_time_s > 0.0f && speed_lock_filter_alpha > 0.0f &&   \
+     speed_lock_filter_alpha <= 1.0f && observer_lock_ratio > 0.0f &&                              \
+     angle_handoff_time_s > 0.0f && lock_timeout_s >= speed_lock_time_s &&                         \
+     id_ramp_down_time_s > 0.0f && observer_loss_time_s > 0.0f)
 static bool sensorless_startup_config_is_valid(const SensorlessStartupConfig *Config)
 {
-    return Config != NULL && Config->align_current_ramp_time_s > 0.0f &&
-           Config->align_hold_time_s >= 0.0f && Config->align_current_a > 0.0f &&
-           Config->startup_iq_initial_a >= 0.0f &&
-           Config->startup_iq_a >= Config->startup_iq_initial_a &&
-           Config->startup_iq_ramp_time_s > 0.0f && Config->startup_id_a >= 0.0f &&
-           Config->minimum_current_limit_a >= 0.0f &&
-           Config->minimum_electrical_velocity_rad_s > 0.0f &&
-           Config->target_electrical_velocity_rad_s >= Config->minimum_electrical_velocity_rad_s &&
-           Config->startup_ramp_time_s > 0.0f && Config->speed_lock_time_s > 0.0f &&
-           Config->speed_lock_filter_alpha > 0.0f && Config->speed_lock_filter_alpha <= 1.0f &&
-           Config->observer_lock_ratio > 0.0f && Config->angle_handoff_time_s > 0.0f &&
-           Config->lock_timeout_s >= Config->speed_lock_time_s &&
-           Config->id_ramp_down_time_s > 0.0f && Config->observer_loss_time_s > 0.0f;
+    return Config != NULL &&
+           SENSORLESS_STARTUP_VALUES_VALID(Config->align_current_ramp_time_s,
+                                           Config->align_hold_time_s,
+                                           Config->align_current_a,
+                                           Config->startup_iq_initial_a,
+                                           Config->startup_iq_a,
+                                           Config->startup_iq_ramp_time_s,
+                                           Config->startup_id_a,
+                                           Config->minimum_current_limit_a,
+                                           Config->minimum_electrical_velocity_rad_s,
+                                           Config->target_electrical_velocity_rad_s,
+                                           Config->startup_ramp_time_s,
+                                           Config->speed_lock_time_s,
+                                           Config->speed_lock_filter_alpha,
+                                           Config->observer_lock_ratio,
+                                           Config->angle_handoff_time_s,
+                                           Config->lock_timeout_s,
+                                           Config->id_ramp_down_time_s,
+                                           Config->observer_loss_time_s);
 }
+
+/* 与运行时共用同一谓词；只读内置表在编译时求值，不增加可变许可缓存。 */
+static const bool s_encoder_startup_config_valid =
+    SENSORLESS_STARTUP_VALUES_VALID(SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
+                                    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
+                                    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
+                                    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
+                                    SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
+                                    SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
+                                    SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
+                                    SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
+                                    SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
+                                    SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
+                                    SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
+                                    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S);
+#undef SENSORLESS_STARTUP_VALUES_VALID
 
 /* 启动电流准入：对准与开环电流的合成矢量不得超出电流限制。 */
 static bool sensorless_startup_currents_are_valid(const MotorConfiguration *configuration,
@@ -516,7 +571,10 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
     float min_mech_vel;
     SensorlessStartupRunState run;
 
-    if (!sensorless_startup_config_is_valid(Config) || pole_pairs <= 0.0f ||
+    bool config_valid = Config == &SensorlessStartup_EncoderCalibConfig
+                            ? s_encoder_startup_config_valid
+                            : sensorless_startup_config_is_valid(Config);
+    if (!config_valid || pole_pairs <= 0.0f ||
         configuration->model.motor_phase_resistance_ohm <= 0.0f ||
         configuration->model.motor_d_inductance_h <= 0.0f ||
         configuration->model.motor_q_inductance_h <= 0.0f ||

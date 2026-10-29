@@ -65,7 +65,7 @@ ARM Compiler 5.06 update7 build960，用相同 `Cortex-M4.fp`、C99、microlib�
 CRC核心已有生产调用，没有再实现一份CRC；新增对象不分配堆或大常驻数组。
 栈、启动耗时、擦除耐久和动态时序尚未测量。
 
-唯一新增工程C源：`firmware/platform/stm32g4/ports/board/boot_epoch_stm32g4.c`。
+唯一新增工程C源：`firmware/platform/bsp/mcu/stm32g4/boot_epoch_stm32g4.c`。
 ROOT需将它加入普通APP和LoaderApp的Platform组；Loader不链接本provider。
 API与BSP头的既有include目录可解析，新共享常量已与目标JSON一致。
 原Keil工程及用户选项均未修改。PR的project-layout PASS不证明新源已经进入最终链接。

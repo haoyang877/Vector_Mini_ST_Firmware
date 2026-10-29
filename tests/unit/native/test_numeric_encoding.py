@@ -31,6 +31,8 @@ def main() -> None:
         "-Wextra",
         "-Werror",
         str(ROOT / "tests/unit/numeric_encoding_test.c"),
+        str(ROOT / "shared/protocol/yg_protocol_crc.c"),
+        str(ROOT / "firmware/communication/commands/yg_protocol_readonly.c"),
         str(ROOT / "firmware/parameters/motor_axis_profile.c"),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal.c"),

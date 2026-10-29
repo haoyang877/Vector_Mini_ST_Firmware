@@ -33,14 +33,45 @@ gpio_type fake_gpioa, fake_gpiob;
 crm_type fake_crm;
 uint32_t system_core_clock = 180000000U;
 static unsigned s_irq;
+bool sim_storage_auto_samples, sim_storage_stop_stuck;
+unsigned sim_storage_isr;
+uint32_t sim_cleared_irqs;
+uint32_t sim_nvic_pending, sim_nvic_enabled, sim_can_irq_mask;
+unsigned sim_rx_remaining;
+bool sim_can_reset_stuck, sim_can_release_stuck, sim_can_retlim_stuck;
+bool sim_can_realim_stuck, sim_can_timing_bad;
+void (*sim_fatal_hook)(void);
+unsigned __get_PRIMASK(void)
+{
+    return s_irq;
+}
+uint32_t __get_IPSR(void)
+{
+    return sim_storage_isr;
+}
+void NVIC_ClearPendingIRQ(unsigned irq)
+{
+    sim_cleared_irqs |= 1U << irq;
+}
+void NVIC_SetPendingIRQ(unsigned irq)
+{
+    if (irq < 32U)
+    {
+        sim_nvic_pending |= 1U << irq;
+    }
+}
 void (*sim_before_critical_enter)(void);
 unsigned sim_critical_enters, sim_critical_exits;
 
-uint32_t time_hw_now_ms(void)
+uint32_t BspSystem_TimeUs(void)
+{
+    return sim_ms * 1000U;
+}
+uint32_t BspSystem_TimeMs(void)
 {
     return sim_ms;
 }
-uint32_t critical_hw_enter(void)
+uint32_t BspSystem_EnterCritical(void)
 {
     if (s_irq == 0U && sim_before_critical_enter != NULL)
     {
@@ -53,17 +84,17 @@ uint32_t critical_hw_enter(void)
     ++sim_critical_enters;
     return old;
 }
-void critical_hw_exit(uint32_t old)
+void BspSystem_ExitCritical(uint32_t old)
 {
     s_irq = old;
     ++sim_critical_exits;
 }
-void power_stage_hw_stop(void)
+void BspPwm_Disable(void)
 {
     sim_power_off = true;
     ++sim_stop_calls;
 }
-bool power_stage_hw_phases_disabled(void)
+bool BspPwm_ArePhasesDisabled(void)
 {
     return sim_power_off;
 }
@@ -73,6 +104,10 @@ void __disable_irq(void)
 }
 void __WFI(void)
 {
+    if (sim_fatal_hook != NULL)
+    {
+        sim_fatal_hook();
+    }
     assert(!"unexpected fatal platform halt");
 }
 void __NOP(void)
@@ -118,6 +153,10 @@ void NVIC_SetPriority(unsigned irq, unsigned priority)
 }
 void NVIC_EnableIRQ(unsigned irq)
 {
+    if (irq < 32U)
+    {
+        sim_nvic_enabled |= 1U << irq;
+    }
     if (irq == DMA1_Channel3_IRQn)
     {
         ++sim_temperature_irq_enables;
@@ -197,18 +236,23 @@ void adc_preempt_channel_set(adc_type *a,
                              uint8_t rank,
                              adc_sampletime_select_type sample)
 {
-    assert(a == ADC1 && sample == ADC_SAMPLETIME_12_5);
-    sim_adc[0].channels[rank - 1U] = ch;
+    assert((a == ADC1 && ch <= ADC_CHANNEL_3 &&
+            sample == (ch == ADC_CHANNEL_3 ? ADC_SAMPLETIME_24_5 : ADC_SAMPLETIME_12_5)) ||
+           (a == ADC2 && ch == ADC_CHANNEL_4 && sample == ADC_SAMPLETIME_92_5));
+    sim_adc[index_of(a)].channels[rank - 1U] = ch;
+    sim_adc[index_of(a)].sample_times[rank - 1U] = sample;
 }
 void adc_ordinary_channel_set(adc_type *a,
                               adc_channel_select_type ch,
                               uint8_t rank,
                               adc_sampletime_select_type sample)
 {
-    assert(sample == ADC_SAMPLETIME_640_5);
+    const bool hall = a == ADC2 && (ch == ADC_CHANNEL_5 || ch == ADC_CHANNEL_6);
+    assert(sample == (hall ? ADC_SAMPLETIME_24_5 : ADC_SAMPLETIME_640_5));
     assert((a == ADC1 && (ch == 16U || ch == 17U)) || (a == ADC2 && ch >= 4U && ch <= 7U));
     assert(rank >= 1U && rank <= 4U);
     sim_adc[index_of(a)].ordinary_channels[rank - 1U] = ch;
+    sim_adc[index_of(a)].ordinary_sample_times[rank - 1U] = sample;
 }
 void adc_oversample_ratio_shift_set(adc_type *a,
                                     adc_oversample_ratio_type ratio,
@@ -220,6 +264,18 @@ void adc_oversample_ratio_shift_set(adc_type *a,
 void adc_preempt_oversample_enable(adc_type *a, confirm_state enabled)
 {
     sim_adc[index_of(a)].oversampled = enabled;
+}
+void adc_ordinary_oversample_enable(adc_type *a, confirm_state enabled)
+{
+    sim_adc[index_of(a)].ordinary_oversampled = enabled;
+}
+void adc_ordinary_oversample_trig_enable(adc_type *a, confirm_state enabled)
+{
+    sim_adc[index_of(a)].ordinary_oversample_per_trigger = enabled;
+}
+void adc_ordinary_oversample_restart_set(adc_type *a, adc_ordinary_oversample_restart_type recovery)
+{
+    sim_adc[index_of(a)].ordinary_oversample_recovery = recovery;
 }
 void adc_preempt_conversion_trigger_set(adc_type *a,
                                         adc_preempt_trig_select_type trigger,
@@ -259,11 +315,26 @@ void adc_enable(adc_type *a, confirm_state enabled)
 }
 flag_status adc_flag_get(adc_type *a, uint8_t flag)
 {
+    if (sim_storage_auto_samples && a == ADC1 && flag == ADC_PCCE_FLAG &&
+        sim_adc[0].edge == ADC_PREEMPT_TRIG_EDGE_RISING)
+    {
+        sim_adc[0].flags |= ADC_PCCE_FLAG;
+        sim_adc[1].flags |= ADC_PCCE_FLAG;
+    }
     if (flag == ADC_RDY_FLAG)
     {
         return sim_adc_failure == 1U ? RESET : SET;
     }
     return (sim_adc[index_of(a)].flags & flag) != 0U;
+}
+void adc_conversion_stop(adc_type *a)
+{
+    (void)a;
+}
+flag_status adc_conversion_stop_status_get(adc_type *a)
+{
+    (void)a;
+    return sim_storage_stop_stuck ? SET : RESET;
 }
 void adc_flag_clear(adc_type *a, uint32_t flag)
 {
@@ -360,7 +431,16 @@ void dma_interrupt_enable(dma_channel_type *c, uint32_t mask, confirm_state enab
 }
 flag_status dma_flag_get(uint32_t flags)
 {
+    if (sim_storage_auto_samples && sim_dma_enabled &&
+        sim_adc[1].ordinary_edge == ADC_ORDINARY_TRIG_EDGE_RISING)
+    {
+        sim_dma_flags |= DMA1_HDT2_FLAG;
+    }
     return (sim_dma_flags & flags) != 0U;
+}
+void dma_data_number_set(dma_channel_type *channel, uint16_t number)
+{
+    channel->dtcnt = number;
 }
 void dma_flag_clear(uint32_t flags)
 {
@@ -375,7 +455,7 @@ void can_reset(can_type *c)
 }
 void can_software_reset(can_type *c, confirm_state enabled)
 {
-    c->ctrlstat_bit.reset = enabled;
+    c->ctrlstat_bit.reset = enabled ? !sim_can_reset_stuck : sim_can_release_stuck;
     /* RM软件复位表：重发/仲裁限制在RESET期间保持复位值。 */
     c->lbtcfg_bit.retlim = CAN_RE_TRANS_TIMES_UNLIMIT;
     c->lbtcfg_bit.realim = CAN_RE_ARBI_TIMES_UNLIMIT;
@@ -390,6 +470,10 @@ void can_bittime_set(can_type *c, can_bittime_type *v)
     sim_timing = *v;
     ++sim_bit_writes;
     c->lbtcfg_bit.presc = v->bittime_div - 1U;
+    if (sim_can_timing_bad)
+    {
+        c->lbtcfg_bit.presc = 1U;
+    }
     c->actime_bit.ac_seg_1 = v->ac_bts1_size - 2U;
     c->actime_bit.ac_seg_2 = v->ac_bts2_size - 1U;
     c->fdtime_bit.fd_seg_1 = v->fd_bts1_size - 2U;
@@ -409,14 +493,14 @@ void can_retransmission_limit_set(can_type *c, can_retransmission_times_type lim
 {
     if (!c->ctrlstat_bit.reset)
     {
-        c->lbtcfg_bit.retlim = limit;
+        c->lbtcfg_bit.retlim = sim_can_retlim_stuck ? CAN_RE_TRANS_TIMES_UNLIMIT : limit;
     }
 }
 void can_rearbitration_limit_set(can_type *c, can_rearbitration_times_type limit)
 {
     if (!c->ctrlstat_bit.reset)
     {
-        c->lbtcfg_bit.realim = limit;
+        c->lbtcfg_bit.realim = sim_can_realim_stuck ? CAN_RE_ARBI_TIMES_1 : limit;
     }
 }
 void can_receive_all_enable(can_type *c, confirm_state enabled)
@@ -461,8 +545,14 @@ void can_filter_set(can_type *c, can_filter_type filter, can_filter_config_type 
 void can_interrupt_enable(can_type *c, uint32_t mask, confirm_state enabled)
 {
     (void)c;
-    (void)mask;
-    (void)enabled;
+    if (enabled)
+    {
+        sim_can_irq_mask |= mask;
+    }
+    else
+    {
+        sim_can_irq_mask &= ~mask;
+    }
 }
 void can_flag_clear(can_type *c, uint32_t mask)
 {
@@ -500,6 +590,8 @@ void can_transmit_status_get(can_type *c, can_transmit_status_type *v)
 }
 error_status can_txbuf_write(can_type *c, can_txbuf_select_type buffer, can_txbuf_type *v)
 {
+    sim_can_submit_primask = __get_PRIMASK();
+    sim_can_submit_basepri = __get_BASEPRI();
     assert(buffer == CAN_TXBUF_PTB && !c->ctrlstat_bit.tpe);
     if (sim_can_tx_fail)
     {
@@ -523,11 +615,36 @@ void can_transmit_abort(can_type *c, can_abort_transmit_type type)
 error_status can_rxbuf_read(can_type *c, can_rxbuf_type *v)
 {
     (void)c;
-    if (!sim_rx_ready)
+    if (!sim_rx_ready && sim_rx_remaining == 0U)
     {
         return ERROR;
     }
     *v = sim_rx;
     sim_rx_ready = false;
+    if (sim_rx_remaining != 0U)
+    {
+        --sim_rx_remaining;
+    }
     return SUCCESS;
+}
+can_rxbuf_status_type can_rxbuf_status_get(can_type *c)
+{
+    (void)c;
+    return sim_rx_ready || sim_rx_remaining != 0U ? CAN_RXBUF_STATUS_FULL : CAN_RXBUF_STATUS_EMPTY;
+}
+
+static uint32_t s_basepri;
+uint32_t sim_can_submit_primask, sim_can_submit_basepri;
+uint32_t __get_BASEPRI(void)
+{
+    return s_basepri;
+}
+void __set_BASEPRI(uint32_t value)
+{
+    s_basepri = value;
+}
+void __set_BASEPRI_MAX(uint32_t value)
+{
+    if (value != 0U && (s_basepri == 0U || value < s_basepri))
+        s_basepri = value;
 }

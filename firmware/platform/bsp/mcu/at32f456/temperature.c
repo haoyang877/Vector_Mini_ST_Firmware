@@ -1,5 +1,5 @@
 #include "bsp_internal.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 #include <math.h>
 

@@ -239,15 +239,18 @@ uint32_t LoaderPlatform_NowMs(void)
 }
 uint32_t LoaderPlatform_Lock(void)
 {
-    uint32_t key = __get_PRIMASK();
-    __disable_irq();
-    __DMB();
+    /* Loader唯一启用的外设中断为FDCAN优先级1；保留更严格的外层屏蔽。 */
+    uint32_t key = __get_BASEPRI();
+    __set_BASEPRI_MAX(1U << (8U - __NVIC_PRIO_BITS));
+    __DSB();
+    __ISB();
     return key;
 }
 void LoaderPlatform_Unlock(uint32_t key)
 {
     __DMB();
-    __set_PRIMASK(key);
+    __set_BASEPRI(key);
+    __ISB();
 }
 void LoaderPlatform_Reset(void)
 {

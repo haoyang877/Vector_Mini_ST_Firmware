@@ -9,7 +9,7 @@
 4.2 V 是常规锂离子电芯的充电上限示例（[制造商数据表](https://www.molicel.com/wp-content/uploads/INR21700P42A_1.7_Product-Data-Sheet-of-INR-21700-P42A-80092.pdf)）；本项目未识别实际电池的电芯型号。
 24.0 V 欠压值是本次选择的保守整包控制阈值，相当于平均每节 3.0 V，不能据此判断任何单节电芯的电压。
 
-配置集中在 `firmware/motor/protection/bus_voltage_profile.h`，是编译期设置，不更改 Flash 参数 schema 或电机校准。
+配置集中在 `firmware/config/application_config.h`，是编译期设置，不更改 Flash 参数 schema 或电机校准。
 不同串数、电芯化学体系或外部稳压电源应重新配置，不能直接沿用本配置。
 
 | 项目 | 条件 | 确认时间 |

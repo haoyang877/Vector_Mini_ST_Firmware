@@ -1,8 +1,8 @@
 # 8S母线电压保护
 
 核对日期：2026-10-21。配置来源为
-[`bus_voltage_profile.h`](../../firmware/motor/protection/bus_voltage_profile.h)，
-测量及运行判断由[`foc_sensing.c`](../../firmware/motor/foc/foc_sensing.c)负责。
+[`bus_voltage_profile.h`](../../firmware/config/application_config.h)，
+测量及运行判断由[`motor_voltage.c`](../../firmware/motor/sensing/motor_voltage.c)负责。
 
 | 条件 | 当前门限 | 确认 |
 | --- | --- | --- |

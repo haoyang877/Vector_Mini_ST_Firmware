@@ -5,16 +5,11 @@
 #include <stddef.h>
 #include "crc32.h"
 #include "parameter_values.h"
-#include "foc_sensing.h"
+#include "motor_sensing.h"
 
 /* 参数读写与默认值：限值取自平台感测契约，数值换算不访问硬件。 */
-#include "sampling_scale.h"
 #include "motor_axis_profile.h"
-#include "position_cascade_config.h"
-#include "motor_profile_defaults.h"
-#include "bsp_config.h"
-#include "application_profile_defaults.h"
-#include "device_profile_defaults.h"
+#include "application_config.h"
 #include "control_math.h"
 
 static uint32_t record_crc(const void *record, uint32_t bytes)
@@ -202,7 +197,6 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
 {
     const InterfaceParam *param = record;
     uint32_t lut_index;
-    uint32_t record_bytes;
     bool current_sense_profile_changed;
     float position_speed_limit;
 
@@ -212,9 +206,7 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
         return;
     }
-    if (param->magic_word != MAGIC_WORD ||
-        (param->schema_version != PARAM_SCHEMA_VERSION && param->schema_version != 12U &&
-         param->schema_version != 13U))
+    if (param->magic_word != MAGIC_WORD || param->schema_version != PARAM_SCHEMA_VERSION)
     {
         Param_Return_Default(configuration);
         configuration->configuration_source =
@@ -223,10 +215,7 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
                 : MOTOR_CONFIGURATION_UNSUPPORTED;
         return;
     }
-    record_bytes = param->schema_version == 12U   ? PARAM_SCHEMA12_BYTES
-                   : param->schema_version == 13U ? PARAM_SCHEMA13_BYTES
-                                                  : sizeof(*param);
-    if (size_bytes < record_bytes || param->record_crc32 != record_crc(record, record_bytes) ||
+    if (size_bytes < sizeof(*param) || param->record_crc32 != Param_RecordCrc(param) ||
         param->configuration_flags > 1U || !isfinite(param->motor_pole_pairs) ||
         param->motor_pole_pairs < 1.0f || param->motor_pole_pairs >= 2147483648.0f ||
         !isfinite(param->node_id) || param->node_id < 1.0f || param->node_id >= 255.0f ||
@@ -245,39 +234,21 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         return;
     }
 
-    /* 先给旧记录完整新增默认值，绝不读取schema12末尾之后的Flash垃圾。 */
-    MotorWindingThermal_Default(&configuration->model.thermal);
-    configuration->application.speed_feedforward =
-        (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
-    if (param->schema_version != 12U)
+    /* 当前记录完整校验后，直接读取热模型和速度前馈。 */
     {
-        /* 用小型对齐副本读取不同版本尾部，避免创建第二份完整参数或越界访问。 */
-        struct
-        {
-            MotorWindingThermalConfig thermal;
-            uint32_t speed_feedforward_enabled;
-            float speed_feedforward_gain_a_per_rad_s2;
-            float speed_feedforward_acceleration_rad_s2;
-            float speed_feedforward_jerk_rad_s3;
-            float speed_feedforward_current_limit_a;
-        } extension;
-        const uint32_t tail = offsetof(InterfaceParam, thermal);
-        const uint32_t source_tail = param->schema_version == 13U ? PARAM_SCHEMA12_BYTES : tail;
-        memcpy(&extension, (const uint8_t *)record + source_tail, sizeof(extension));
-        SpeedFeedforwardConfig feedforward = {extension.speed_feedforward_enabled == 1U,
-                                              extension.speed_feedforward_gain_a_per_rad_s2,
-                                              extension.speed_feedforward_acceleration_rad_s2,
-                                              extension.speed_feedforward_jerk_rad_s3,
-                                              extension.speed_feedforward_current_limit_a};
-        if (extension.speed_feedforward_enabled > 1U ||
-            !MotorWindingThermal_Valid(&extension.thermal) ||
+        SpeedFeedforwardConfig feedforward = {param->speed_feedforward_enabled == 1U,
+                                              param->speed_feedforward_gain_a_per_rad_s2,
+                                              param->speed_feedforward_acceleration_rad_s2,
+                                              param->speed_feedforward_jerk_rad_s3,
+                                              param->speed_feedforward_current_limit_a};
+        if (param->speed_feedforward_enabled > 1U || !MotorWindingThermal_Valid(&param->thermal) ||
             !SpeedFeedforward_IsValid(&feedforward))
         {
             Param_Return_Default(configuration);
             configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
             return;
         }
-        configuration->model.thermal = extension.thermal;
+        configuration->model.thermal = param->thermal;
         configuration->application.speed_feedforward = feedforward;
     }
 
@@ -370,7 +341,7 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     configuration->configuration_confirmed =
         param->configuration_flags == 1U && !current_sense_profile_changed;
     if (!ParameterValue_ConfigurationValid(configuration) ||
-        !MotorCurrentOffsets_Valid(configuration))
+        !MotorCurrentOffsets_IsValid(configuration))
     {
         Param_Return_Default(configuration);
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;

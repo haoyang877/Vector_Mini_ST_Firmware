@@ -3,8 +3,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "foc_sensing.h"
-#include "mcu_temperature.h"
+#include "motor_sensing.h"
+#include "application_config.h"
 #include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
 
 #include "temperature_api_fixture.h"
@@ -14,7 +14,7 @@ static unsigned s_adc_reads;
 static AdcTemperatureSample data;
 #if BSP_ENABLED_MCU_TEMPERATURE
 static MotorControlState state;
-static FocState foc;
+static MotorMeasurement foc;
 volatile McuTemperatureTelemetry s_mcu_temperature;
 static void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
 {
@@ -143,14 +143,14 @@ int main(void)
     for (unsigned i = 0U; i < 200U; ++i)
     {
         ++data.sequence;
-        Temperature_Update(&foc, &state);
+        McuTemperature_Update(&foc, &state);
     }
     if (EXPECT_CALIBRATED)
     {
         assert(s_mcu_temperature.valid && state.fault_code == MOTOR_FAULT_NONE);
         data.mcu_temperature_counts = 1970U;
         ++data.sequence;
-        Temperature_Update(&foc, &state);
+        McuTemperature_Update(&foc, &state);
         assert(state.fault_code == MOTOR_FAULT_OVERTEMPERATURE);
         assert(s_mcu_temperature.raw_celsius > 90.0f);
         float celsius = 0.0f, supply = 0.0f;

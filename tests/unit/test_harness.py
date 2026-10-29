@@ -85,12 +85,12 @@ Counter_Reset(void);
         with tempfile.TemporaryDirectory() as folder:
             root = _Path(folder)
             api = root / "firmware/platform/bsp/include"
-            board = root / "firmware/platform/config/boards"
+            board = root / "firmware/config"
             motor = root / "firmware/motor"
             for directory in (api, board, motor):
                 directory.mkdir(parents=True)
-            (api / "bsp_config.h").write_text('#include "../config/boards/example.h"\n')
-            (board / "example.h").write_text('#include "motor_example.h"\n')
+            (api / "bsp_config.h").write_text('#include "board_config.h"\n')
+            (board / "board_config.h").write_text('#include "motor_example.h"\n')
             (motor / "motor_example.h").write_text("#define MOTOR_EXAMPLE 1\n")
             with patch.object(check_architecture, "ROOT", root):
                 violations = check_architecture.scan()

@@ -56,7 +56,7 @@ class PwmLayeringTests(unittest.TestCase):
         self.assertIn("McuPwm_Fatal()", common)
         self.assertNotIn("PwmPowerWindow", common)
         self.assertNotIn("pwm_output_config.h", common)
-        self.assertNotIn("BSP_PWM_PERMIT_MODE", common)
+        self.assertNotIn("APP_PWM_WINDOWED", common)
         self.assertIn("BSP_PWM_HARD_LOCK", common)
         for board in ("at32f456", "stm32g4"):
             self.assertNotIn(
@@ -66,14 +66,15 @@ class PwmLayeringTests(unittest.TestCase):
 
     def test_board_inputs_do_not_own_application_current_limits(self):
         """电气量程归板配置，命令/标定上限和软件跳闸值归应用策略。"""
-        for path in (PLATFORM / "config/boards").glob("*.h"):
-            source = path.read_text(encoding="utf8")
-            for policy in (
-                "CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A",
-                "CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A",
-                "CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A",
-            ):
-                self.assertNotIn(policy, source, str(path))
+        resource = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
+        app = (ROOT / "firmware/config/application_config.h").read_text(encoding="utf8")
+        for policy in (
+            "CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A",
+            "CURRENT_SENSE_PROFILE_CALIB_LIMIT_MAX_A",
+            "CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A",
+        ):
+            self.assertNotIn(policy, resource)
+            self.assertIn(policy, app)
 
 
 if __name__ == "__main__":

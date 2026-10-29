@@ -15,6 +15,7 @@
 static MotorConfiguration s_motor_configuration;
 static MotorControlState s_motor_state;
 static FocState s_foc_state;
+static MotorMeasurement s_motor_measurement;
 static PiController s_speed_pi;
 static EncoderState s_rotor_encoder;
 static FluxObserverState s_flux_observer;
@@ -66,12 +67,14 @@ BspResult BspPwm_SetDuty(float a, float b, float c)
 MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
                                       FocState *foc,
+                                      const MotorMeasurement *measurement,
                                       MotorControlState *motor,
                                       PiController *pi,
                                       EncoderState *encoder,
                                       FluxObserverState *observer,
                                       SensorlessStartupState *startup)
 {
+    (void)measurement;
     assert(configuration == &s_motor_configuration);
     assert(kind == maintenance_kind && foc == &s_foc_state && motor == &s_motor_state);
     assert(pi == &s_speed_pi && encoder == &s_rotor_encoder);
@@ -92,24 +95,26 @@ void Task_Current_Mode(const MotorConfiguration *configuration,
     trace |= TRACE_CURRENT_TASK;
 }
 
-float Encoder_GetElePhase(const EncoderState *encoder)
+float Encoder_GetElecPhase(const EncoderState *encoder)
 {
     assert(encoder == &s_rotor_encoder);
     return 0.75f;
 }
 
-float Encoder_GetEleVel(const EncoderState *encoder)
+float Encoder_GetElecVel(const EncoderState *encoder)
 {
     assert(encoder == &s_rotor_encoder);
     return 2.5f;
 }
 
-void FOC_Current(const MotorConfiguration *configuration,
-                 FocState *foc,
-                 MotorControlState *motor,
-                 float phase,
-                 float velocity)
+void Foc_RunCurrent(const MotorConfiguration *configuration,
+                    FocState *foc,
+                    const MotorMeasurement *measurement,
+                    MotorControlState *motor,
+                    float phase,
+                    float velocity)
 {
+    (void)measurement;
     assert(configuration == &s_motor_configuration);
     assert(foc == &s_foc_state && motor == &s_motor_state);
     assert(phase == 0.75f && velocity == 2.5f);
@@ -126,12 +131,12 @@ void Task_Vq_Mode(const MotorConfiguration *configuration,
     trace |= TRACE_VQ;
 }
 
-float Observer_GetElePhase(FluxObserverState *observer)
+float FluxObserver_GetElecPhase(FluxObserverState *observer)
 {
     assert(observer == &s_flux_observer);
     return 0.75f;
 }
-float Observer_GetEleVel(FluxObserverState *observer)
+float FluxObserver_GetElecVel(FluxObserverState *observer)
 {
     assert(observer == &s_flux_observer);
     return 2.5f;
@@ -141,7 +146,7 @@ bool Encoder_IsOnline(const EncoderState *encoder)
     assert(encoder == &s_rotor_encoder);
     return true;
 }
-uint8_t Encoder_GetCalibFlag(const EncoderCalibration *calibration)
+uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration)
 {
     (void)calibration;
     return ENC_CALIB_ALL;
@@ -153,8 +158,9 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
         motor->fault_code = fault;
     }
 }
-void FOC_Step(const MotorConfiguration *configuration,
+void Foc_Step(const MotorConfiguration *configuration,
               FocState *foc,
+              const MotorMeasurement *measurement,
               MotorControlState *motor,
               FocControlLaw law,
               float phase,
@@ -162,6 +168,7 @@ void FOC_Step(const MotorConfiguration *configuration,
               float d_reference,
               float q_reference)
 {
+    (void)measurement;
     assert(configuration == &s_motor_configuration && foc == &s_foc_state &&
            motor == &s_motor_state);
     if (MotorControlMode_IsOpenLoop(motor->control_mode))
@@ -312,8 +319,12 @@ int main(void)
                                         .open_loop_angle_rad = _2PI - 0.001f,
                                         .vq_target_v = 2.0f};
     trace = 0U;
-    MotorControl_Step(
-        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+    MotorControl_Step(&s_motor_configuration,
+                      &s_foc_state,
+                      &s_motor_measurement,
+                      &s_motor_state,
+                      &s_rotor_encoder,
+                      &s_flux_observer);
     assert(trace == TRACE_CURRENT_LOOP && s_motor_state.open_loop_angle_rad > 0 &&
            s_motor_state.open_loop_angle_rad < 0.01f);
     s_motor_state.control_mode = MOTOR_CONTROL_OPEN_CURRENT;
@@ -322,13 +333,21 @@ int main(void)
     s_motor_state.id_target_a = 0.2f;
     s_motor_state.iq_target_a = 0.3f;
     trace = 0U;
-    MotorControl_Step(
-        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+    MotorControl_Step(&s_motor_configuration,
+                      &s_foc_state,
+                      &s_motor_measurement,
+                      &s_motor_state,
+                      &s_rotor_encoder,
+                      &s_flux_observer);
     assert(trace == TRACE_CURRENT_LOOP && s_motor_state.open_loop_angle_rad > _2PI - 0.01f);
     s_motor_state.open_loop_frequency_hz = NAN;
     trace = 0U;
-    MotorControl_Step(
-        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+    MotorControl_Step(&s_motor_configuration,
+                      &s_foc_state,
+                      &s_motor_measurement,
+                      &s_motor_state,
+                      &s_rotor_encoder,
+                      &s_flux_observer);
     assert(trace == 0 && s_motor_state.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
     puts("PASS formal open-loop laws: voltage/current references, bidirectional phase wrap, "
          "invalid frequency");

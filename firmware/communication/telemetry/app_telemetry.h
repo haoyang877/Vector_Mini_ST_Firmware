@@ -2,8 +2,8 @@
 #define R40_APP_TELEMETRY_H
 
 #include <stdint.h>
-#include "angle_feedback.h"
-#include "foc_algorithm.h"
+#include "encoder_feedback.h"
+#include "foc.h"
 #include "motor_types.h"
 
 /* 可选RTT诊断只读帧；历史符号保留以兼容Watch/采集脚本。
@@ -38,6 +38,7 @@ void R40AppTelemetry_Init(void);
  * @brief 每10个真实快拍复制一帧，不调用RTT、不等待前台。
  * @param fast_samples 已完成的20kHz快拍序号。
  * @param foc 快环所有者的本拍电流与电压，只读。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param motor 快环控制目标和故障，只读。
  * @param encoder 本拍角度与速度，只读。
  * @param state 当前生命周期值。
@@ -47,6 +48,7 @@ void R40AppTelemetry_Init(void);
  */
 void R40AppTelemetry_Capture(uint32_t fast_samples,
                              const FocState *foc,
+                             const MotorMeasurement *measurement,
                              const MotorControlState *motor,
                              const EncoderState *encoder,
                              uint32_t state,

@@ -3,7 +3,7 @@
 #include "at32f45x.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "at32f45x_dma.h"
 
 /* 本板独占SPI2的四线传输：管理CS、字长、DMA、所有权及全帧期限。
@@ -33,7 +33,7 @@
 #if BSP_ENCODER_FAST_SPI != 0 && BSP_ENCODER_FAST_SPI != 1
 #error "R40 MT6835 SPI selection must be 0 or 1"
 #endif
-#if BSP_ENCODER_FAST_SPI && R40_CORE_HZ / 16U > BSP_ENCODER_SPI_MAX_HZ
+#if BSP_ENCODER_FAST_SPI && R40_CORE_CLOCK_DERIVED_HZ / 16U > BSP_ENCODER_SPI_MAX_HZ
 #error "MT6835 SPI exceeds the 16MHz device limit"
 #endif
 

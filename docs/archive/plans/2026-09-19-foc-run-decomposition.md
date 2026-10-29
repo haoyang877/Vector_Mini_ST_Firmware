@@ -26,7 +26,7 @@
 
 | 原结构 | 新结构 |
 | --- | --- |
-| `SpeedMode_UpdateControl` 与 `Sensorless_UpdateSpeedReference` 两份相同斜坡 | 共享 `MotorControl_UpdateSpeedRamp` |
+| `SpeedControl_Update` 与 `Sensorless_UpdateSpeedReference` 两份相同斜坡 | 共享 `MotorControl_UpdateSpeedRamp` |
 | `Task_Sensorless_Speed_Mode` 5 状态 switch（304 行） | 任务只做准入校验与分发；新增 `Sensorless_RunAlign/_RunOpenLoop/_RunSpeedLock/_RunHandoff/_RunClosedLoop` |
 | 交接捕获块（旋转 dq 电流、预置速度 PI） | `Sensorless_BeginHandoff` |
 | 小角度 sin/cos 展开与 PI 积分器旋转 | `Sensorless_SmallAngleSinCos`、`Sensorless_RotateToObserverFrame/_RotateFromObserverFrame` |

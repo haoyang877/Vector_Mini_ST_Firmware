@@ -22,15 +22,15 @@ def fixture():
 #include <string.h>
 #include "parameter_record.h"
 #include "motor_axis_profile.h"
-#include "position_cascade_config.h"
+#include "application_config.h"
 #include "crc32.h"
 #include "parameter_values.h"
-#include "foc_sensing.h"
-#include "motor_profile_defaults.h"
-#include "bsp_config.h"
-#include "sampling_scale.h"
-#include "application_profile_defaults.h"
-#include "device_profile_defaults.h"
+#include "motor_sensing.h"
+#include "application_config.h"
+#include "board_config.h"
+#include "board_config.h"
+#include "application_config.h"
+#include "application_config.h"
 #include "control_math.h"
 #include "image_transfer.h"
 #include "vector_mini_st_g431.h"
@@ -45,24 +45,16 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
     return true;
 }
 """
-    vectors = json.loads(
-        (ROOT / "docs/protocols/parameter_schema12_vectors.json").read_text(encoding="utf-8")
-    )
-    prelude += f"\n#define PARAM_RECORD_GOLDEN_CRC {vectors['vectors'][0]['crc32']}U\n"
-    vectors13 = json.loads(
-        (ROOT / "docs/protocols/parameter_schema13_vectors.json").read_text(encoding="utf-8")
-    )
-    prelude += f"\n#define PARAM_RECORD13_GOLDEN_CRC {vectors13['vectors'][0]['crc32']}U\n"
     vectors14 = json.loads(
         (ROOT / "docs/protocols/parameter_schema14_vectors.json").read_text(encoding="utf-8")
     )
     prelude += f"\n#define PARAM_RECORD14_GOLDEN_CRC {vectors14['vectors'][0]['crc32']}U\n"
     utils = (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8")
-    sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+    sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
     prelude += (
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
-    prelude += function_source(sensing, "MotorCurrentOffsets_Valid")
+    prelude += function_source(sensing, "MotorCurrentOffsets_IsValid")
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
     production = (ROOT / "firmware/parameters/parameter_record.c").read_text(encoding="utf-8")
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
@@ -74,21 +66,21 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
     )
     prelude += "\nstatic void policy_golden_vectors(const InterfaceParam *base) {\n"
     for vector in policy["vectors"]:
-        prelude += "{ uint8_t zero[4304]={0}, legacy[4304]={0}; InterfaceParam candidate=*base;\n"
+        prelude += "{ InterfaceParam candidate=*base;\n"
         for offset, value in vector["fields"].items():
+            if int(offset) == 2160:
+                continue  # 固定向量的旧版号不覆盖当前记录版本。
             values = ",".join(f"0x{byte:02x}" for byte in bytes.fromhex(value))
             prelude += (
                 "{ const unsigned char bytes[]={"
                 + values
                 + "}; "
-                + f"memcpy((unsigned char *)&zero+{offset},bytes,sizeof(bytes)); "
                 + f"memcpy((unsigned char *)&candidate+{offset},bytes,sizeof(bytes)); }}\n"
             )
-        prelude += f"assert(record_crc(zero,sizeof(zero))=={vector['zero_fill_crc32']}U);\n"
         prelude += (
             "candidate.record_crc32=Param_RecordCrc(&candidate); InterfaceParam before=candidate;\n"
         )
-        prelude += "memcpy(legacy,&candidate,2240); candidate.record_crc32=record_crc(legacy,sizeof(legacy)); before=candidate; memcpy(legacy+2140,&candidate.record_crc32,4); Param_Download(legacy,sizeof(legacy),&configuration);\n"
+        prelude += "Param_Download(&candidate,sizeof(candidate),&configuration);\n"
         prelude += (
             f"assert(configuration.device.node_id=={vector['new_node']}U && "
             f"configuration.application.speed_limit_rad_s=={vector['new_loaded_speed_limit_rad_s']}f);\n"
@@ -125,27 +117,23 @@ int main(void) {
         volatile float resistance=PARAM_MOTOR_PHASE_RESISTANCE_OHM;
         volatile float ld=PARAM_MOTOR_D_INDUCTANCE_H;
         volatile float lq=PARAM_MOTOR_Q_INDUCTANCE_H;
-        const float expected[]={ld*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                lq*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                resistance*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                resistance*PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_RAD_S};
+        const float expected[]={ld*CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                lq*CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                resistance*CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                resistance*CURRENT_LOOP_BANDWIDTH_RAD_S};
         const float actual[]={configuration.model.id_kp,configuration.model.iq_kp,
                               configuration.model.id_ki,configuration.model.iq_ki};
         assert(memcmp(actual,expected,sizeof(expected))==0);
     }
-    /* 各版有效记录的手调 PI 不随 R/L 重新派生，导出仍逐位保留。 */
-    for(unsigned version=12;version<=14;version++) {
-        p=saved; p.schema_version=version;
+    /* 当前有效记录的手调 PI 不随 R/L 重新派生，导出仍逐位保留。 */
+    {
+        p=saved;
         p.motor_phase_resistance_ohm=1.25f;
         p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
         p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
         const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
-        uint8_t input[4352]={0};
-        unsigned bytes=version==12 ? 4304 : version==13 ? 4352 : sizeof(p);
-        memcpy(input,&p,version==14 ? sizeof(p) : 2240);
-        if(version==13) { memcpy(input+4304,(const uint8_t *)&p+2240,48); }
-        uint32_t crc=record_crc(input,bytes); memcpy(input+2140,&crc,4);
-        Param_Download(input,bytes,&configuration);
+        p.record_crc32=Param_RecordCrc(&p);
+        Param_Download(&p,sizeof(p),&configuration);
         const float actual[]={configuration.model.id_kp,configuration.model.iq_kp,
                               configuration.model.id_ki,configuration.model.iq_ki};
         assert(configuration.configuration_source==MOTOR_CONFIGURATION_STORED);
@@ -154,7 +142,7 @@ int main(void) {
         const float exported[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         assert(memcmp(exported,expected,sizeof(expected))==0);
     }
-    puts("PASS default PI bit equivalence and stored schema12/13/14 custom PI retention");
+    puts("PASS default PI bit equivalence and stored schema14 custom PI retention");
     policy_golden_vectors(&saved);
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;
@@ -202,7 +190,7 @@ int main(void) {
     puts("PASS AXS only narrows application and never overrides node; fractional addresses rejected by APP/Loader");
     /* 只接受当前版本：旧版、未知版和无效识别字均回退，不修改输入记录。 */
     {
-        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,15,UINT32_MAX};
+        const uint32_t rejected[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,15,UINT32_MAX};
         for(unsigned i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
             p=saved; p.schema_version=rejected[i];
             p.record_crc32=Param_RecordCrc(&p); InterfaceParam before=p;
@@ -213,12 +201,29 @@ int main(void) {
             assert(configuration.device.encoder.linearization_lut_q15[71]==0);
             assert(configuration.application.cascade_position_kp==PARAM_APP_CASCADE_POSITION_KP);
             assert(configuration.application.speed_kp==PARAM_APP_SPEED_KP);
+            assert(configuration.configuration_source==MOTOR_CONFIGURATION_UNSUPPORTED);
+            assert(!configuration.configuration_confirmed);
         }
         p=saved; p.magic_word=0;
         p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&configuration);
         assert(configuration.device.encoder.calib_flag==0);
     }
     puts("PASS old/unknown schema rejection, defaults and immutable input");
+    /* 旧长度及旧CRC均正确也不得装载，输入保持不变。 */
+    for (unsigned version=12U;version<=13U;version++) {
+        union { uint32_t alignment; uint8_t bytes[4352]; } legacy;
+        uint8_t before[4352];
+        const unsigned bytes=version==12U ? 4304U : 4352U;
+        memset(&legacy,0,sizeof(legacy)); p=saved; p.schema_version=version;
+        memcpy(legacy.bytes,&p,2240U);
+        if(version==13U) memcpy(legacy.bytes+4304U,(const uint8_t *)&p+2240U,48U);
+        uint32_t crc=record_crc(legacy.bytes,bytes); memcpy(legacy.bytes+2140U,&crc,4U);
+        memcpy(before,legacy.bytes,sizeof(before));
+        Param_Download(legacy.bytes,bytes,&configuration);
+        assert(configuration.configuration_source==MOTOR_CONFIGURATION_UNSUPPORTED);
+        assert(!configuration.configuration_confirmed && configuration.device.encoder.calib_flag==0U);
+        assert(memcmp(before,legacy.bytes,sizeof(before))==0);
+    }
     /* 当前布局的黄金字节与偏移保持；加载保留既有整定和标定数据。 */
     p=saved; p.node_id=1; p.speed_limit_rad_s=20;
     p.configuration_flags=1U; p.reserved_pos_ki=0xffffffffU;
@@ -254,7 +259,7 @@ int main(void) {
         const uint8_t zero_bytes[] = {0,0,0,0};
         assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
     }
-    /* 退役槽不应用到控制；导出清零，但schema12大小和CRC完整性保持。 */
+    /* 退役槽不应用到控制；导出清零，当前记录的CRC完整性保持。 */
     p=saved;
     p.friction_model_valid=1U; p.friction_coulomb_pos_a=.2f;
     p.record_crc32=Param_RecordCrc(&p);
@@ -262,7 +267,7 @@ int main(void) {
     assert(configuration.device.encoder.calib_flag==3 && configuration.device.encoder.linearization_lut_q15[71]==-42);
     Param_Upload(&p,&configuration);
     assert(p.friction_model_valid==0);
-    puts("PASS schema12 golden layout and retired fields ignored/zero export");
+    puts("PASS schema14 golden layout and retired fields ignored/zero export");
     /* 当前硬件配置变化仍使电流域参数失效，不属于已删除的版本迁移。 */
     p=saved;
     p.current_sense_shunt_milliohm=CURRENT_SENSE_SHUNT_MILLIOHM==2U ? 6U : 2U;
@@ -276,12 +281,6 @@ int main(void) {
     puts("PASS current-sense mismatch invalidates current-domain settings only");
 
     /* 独立 zlib 黄金值固定整条 CRC 契约；记录 CRC 槽不参与计算。 */
-    uint8_t zero_legacy[4352]={0};
-    uint32_t old_schema=12U, magic=MAGIC_WORD;
-    memcpy(zero_legacy+2160,&old_schema,4); memcpy(zero_legacy+2164,&magic,4);
-    assert(record_crc(zero_legacy,4304)==PARAM_RECORD_GOLDEN_CRC);
-    old_schema=13U; memcpy(zero_legacy+2160,&old_schema,4);
-    assert(record_crc(zero_legacy,4352)==PARAM_RECORD13_GOLDEN_CRC);
     memset(&p,0,sizeof(p)); p.schema_version=PARAM_SCHEMA_VERSION; p.magic_word=MAGIC_WORD;
     assert(Param_RecordCrc(&p)==PARAM_RECORD14_GOLDEN_CRC);
     p.record_crc32=UINT32_MAX; assert(Param_RecordCrc(&p)==PARAM_RECORD14_GOLDEN_CRC);
@@ -323,33 +322,13 @@ int main(void) {
     p=saved; p.node_id=0.0f; p.record_crc32=Param_RecordCrc(&p);
     Param_Download(&p,sizeof(p),&configuration);
     assert(!configuration.configuration_confirmed && configuration.device.node_id==1U && configuration.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
-    puts("PASS independent schema12 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
-    /* 旧schema12只读装载；尾部随机值不得应用，保存才升级13。 */
-    uint8_t legacy[4352], original[4352];
-    memset(legacy,0xa5,sizeof(legacy));
-    p=saved; p.schema_version=12U; memcpy(legacy,&p,2240);
-    uint32_t crc=record_crc(legacy,4304); memcpy(legacy+2140,&crc,4);
-    memcpy(original,legacy,sizeof(legacy));
-    Param_Download(legacy,sizeof(legacy),&configuration);
-    assert(configuration.configuration_source==MOTOR_CONFIGURATION_STORED);
-    assert(configuration.device.node_id==(uint8_t)p.node_id);
-    assert(configuration.model.thermal.continuous_vector_a==3.0f);
-    assert(!configuration.application.speed_feedforward.enabled);
-    assert(memcmp(legacy,original,sizeof(legacy))==0);
-    Param_Download(legacy,4303,&configuration);
+    puts("PASS independent schema14 CRC golden, unconfirmed/confirmed reload, partial calibration and corruption fallback");
+    /* 当前记录被截断时拒绝，不触碰记录外的内容。 */
+    p=saved;
+    Param_Download(&p,sizeof(p)-1U,&configuration);
     assert(configuration.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
-    Param_Download(legacy,sizeof(legacy),&configuration);
-    p=saved; p.schema_version=13U; memcpy(legacy,&p,2240);
-    memcpy(legacy+4304,(const uint8_t *)&p+2240,48);
-    crc=record_crc(legacy,4352); memcpy(legacy+2140,&crc,4);
-    Param_Download(legacy,sizeof(legacy),&configuration);
-    assert(configuration.configuration_source==MOTOR_CONFIGURATION_STORED);
-    assert(configuration.device.encoder.linearization_lut_q15[71]==p.encoder_linearization_lut_q15[71]);
-    legacy[3000]^=1;
-    Param_Download(legacy,sizeof(legacy),&configuration);
-    assert(configuration.configuration_source==MOTOR_CONFIGURATION_CORRUPT);
-    legacy[3000]^=1;
-    Param_Download(legacy,sizeof(legacy),&configuration);
+    assert(!configuration.configuration_confirmed);
+    Param_Download(&p,sizeof(p),&configuration);
     configuration.model.thermal.peak_a=6.0f;
     configuration.application.speed_feedforward.enabled=true;
     configuration.application.speed_feedforward.gain_a_per_rad_s2=.04f;
@@ -363,11 +342,50 @@ int main(void) {
     p.thermal.peak_a=NAN; p.record_crc32=Param_RecordCrc(&p);
     Param_Download(&p,sizeof(p),&configuration);
     assert(configuration.configuration_source==MOTOR_CONFIGURATION_CORRUPT && !configuration.configuration_confirmed);
-    puts("PASS schema12 bounded read and schema13 thermal/feedforward roundtrip; invalid extension rejected");
+    puts("PASS schema14 bounded read and thermal/feedforward roundtrip; invalid extension rejected");
     return 0;
 }
 """
     )
+
+
+def verify_independent_inputs(cc: list[str], out: Path) -> None:
+    """板卡和电机头可独立包含，两个正式目标各自选择正确默认型号。"""
+    board = out / "board_independence.c"
+    board.write_text(
+        '#include "board_config.h"\n'
+        "#if defined(FOC_ACTIVE_MOTOR_PROFILE) || defined(PARAM_MOTOR_POLE_PAIRS)\n"
+        '#error "board selected a motor"\n#endif\n',
+        encoding="utf-8",
+    )
+    motor = out / "motor_independence.c"
+    motor.write_text(
+        '#include "motor_profile_config.h"\n'
+        "#if defined(BSP_BOARD) || defined(BSP_SUPPORTED_PWM)\n"
+        '#error "motor selected a board"\n#endif\n'
+        "#if FOC_ACTIVE_MOTOR_PROFILE != EXPECTED_MOTOR_PROFILE\n"
+        '#error "wrong default motor"\n#endif\n',
+        encoding="utf-8",
+    )
+    for target, model in (("STM32_APP", 1), ("AT32_OFF", 2)):
+        for source in (board, motor):
+            subprocess.run(
+                cc
+                + [
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    f"-DFIRMWARE_TARGET_{target}=1",
+                    f"-DEXPECTED_MOTOR_PROFILE={model}",
+                    "-c",
+                    str(source),
+                    "-o",
+                    str(out / f"independent_{target}_{source.stem}.o"),
+                ],
+                check=True,
+            )
+    print("PASS independent board and motor headers for both APP targets")
 
 
 def verify_motor_profiles(cc: list[str], out: Path) -> None:
@@ -393,26 +411,26 @@ def verify_motor_profiles(cc: list[str], out: Path) -> None:
         subprocess.run([str(executable), *map(str, expected)], check=True)
     rejected = out / "motor_profile_rejected.c"
     for header, definitions, reason in (
-        ("motor_profile_selection.h", ["-DFOC_ACTIVE_MOTOR_PROFILE=99"], "Unsupported FOC_ACTIVE"),
-        ("motor_profile_selection.h", ["-DMOTOR_HAS_DAMPING_RING=2"], "Unsupported MOTOR_HAS"),
+        ("motor_profile_config.h", ["-DFOC_ACTIVE_MOTOR_PROFILE=99"], "Unsupported FOC_ACTIVE"),
+        ("motor_profile_config.h", ["-DMOTOR_HAS_DAMPING_RING=2"], "Unsupported MOTOR_HAS"),
         (
-            "motor_profile_selection.h",
+            "motor_profile_config.h",
             ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DMOTOR_HAS_DAMPING_RING=1"],
             "Damping-ring configuration",
         ),
         (
-            "motor_profile_defaults.h",
+            "application_config.h",
             ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DPARAM_MOTOR_APP_TEST_DEFAULTS=1"],
             "test target must supply flux and thermal parameters",
         ),
         (
-            (ROOT / "firmware/app/config/targets/r40_app_common.h").as_posix(),
+            (out / "targets/r40_app_common.h").as_posix(),
             [],
             "Temporary motor defaults require a phase-locked or bounded-test target",
         ),
         *(
             (
-                "motor_profile_defaults.h",
+                "application_config.h",
                 [f"-DFOC_ACTIVE_MOTOR_PROFILE={model}"],
                 "Motor APP defaults incomplete",
             )
@@ -421,13 +439,275 @@ def verify_motor_profiles(cc: list[str], out: Path) -> None:
     ):
         rejected.write_text(f'#include "{header}"\n', encoding="utf-8")
         result = subprocess.run(
-            cc + flags + definitions + ["-c", str(rejected), "-o", str(out / "rejected.o")],
+            cc
+            + flags
+            + definitions
+            + (["-DCONFIG_VALIDATE_FULL_APP=1"] if header == "application_config.h" else [])
+            + ["-c", str(rejected), "-o", str(out / "rejected.o")],
             capture_output=True,
             text=True,
         )
         if result.returncode == 0 or reason not in result.stderr:
             raise RuntimeError(f"电机配置应拒绝但未得到预期错误: {definitions}: {result.stderr}")
     print("PASS unknown model, invalid damping and incomplete APP rejection")
+
+
+def verify_custom_config(cc: list[str], out: Path) -> None:
+    """独立板型和型号输入可改变派生值，且不能绕过目标与热数据准入。"""
+    resource = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
+    motor = (ROOT / "firmware/config/motor_profile_config.h").read_text(encoding="utf8")
+    for name, start, end in (
+        (
+            "stm32g4.h",
+            "#elif BSP_BOARD == BSP_BOARD_STM32G4\n",
+            '\n#else\n#error "Unknown BSP board"',
+        ),
+        (
+            "at32f456.h",
+            "#elif BSP_BOARD == BSP_BOARD_AT32F456\n",
+            "\n#elif BSP_BOARD == BSP_BOARD_STM32G4",
+        ),
+        (
+            "ht8115_4.h",
+            "FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_8116\n",
+            "\n#elif FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708",
+        ),
+    ):
+        source = motor if name == "ht8115_4.h" else resource
+        (out / name).write_text(source.split(start, 1)[1].split(end, 1)[0], encoding="utf8")
+    (out / "custom_motor.h").write_text(
+        '#include "ht8115_4.h"\n'
+        "#undef PARAM_MOTOR_POLE_PAIRS\n#define PARAM_MOTOR_POLE_PAIRS 14\n"
+        "#undef PARAM_MOTOR_PHASE_RESISTANCE_OHM\n#define PARAM_MOTOR_PHASE_RESISTANCE_OHM 0.75f\n"
+        "#undef PARAM_MOTOR_D_INDUCTANCE_H\n#define PARAM_MOTOR_D_INDUCTANCE_H 0.0002f\n"
+        "#undef PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S\n#define PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S 25.0f\n",
+        encoding="utf-8",
+    )
+    (out / "custom_stm.h").write_text(
+        '#define CURRENT_SENSE_SHUNT_MILLIOHM 2U\n#include "stm32g4.h"\n'
+        "#undef CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN\n"
+        "#define CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN 5.0f\n",
+        encoding="utf-8",
+    )
+    (out / "custom_at32.h").write_text(
+        '#include "at32f456.h"\n'
+        "#undef R40_PHASE_SHUNT_MILLIOHM\n#define R40_PHASE_SHUNT_MILLIOHM 5U\n"
+        "#undef R40_ADC_RESOLUTION_BITS\n#define R40_ADC_RESOLUTION_BITS 10U\n"
+        "#undef R40_CURRENT_GAIN\n#define R40_CURRENT_GAIN 10.0f\n",
+        encoding="utf-8",
+    )
+    (out / "invalid_motor.h").write_text(
+        '#include "custom_motor.h"\n#undef PARAM_MOTOR_POLE_PAIRS\n'
+        "#define PARAM_MOTOR_POLE_PAIRS 0\n",
+        encoding="utf-8",
+    )
+    (out / "invalid_at32.h").write_text(
+        '#include "at32f456.h"\n#undef R40_ADC_RESOLUTION_BITS\n'
+        "#define R40_ADC_RESOLUTION_BITS 32U\n",
+        encoding="utf-8",
+    )
+    (out / "invalid_capability.h").write_text(
+        '#include "stm32g4.h"\n#undef BSP_SUPPORTED_CAN\n#define BSP_SUPPORTED_CAN 2\n',
+        encoding="utf-8",
+    )
+    (out / "invalid_clock.h").write_text(
+        '#include "at32f456.h"\n'
+        "#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 8100000U\n"
+        "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 40U\n",
+        encoding="utf-8",
+    )
+    (out / "invalid_fast_clock.h").write_text(
+        '#include "at32f456.h"\n'
+        "#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 10000000U\n"
+        "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 80U\n",
+        encoding="utf-8",
+    )
+    targets = out / "targets"
+    flags = ["-std=c11", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
+    source = ROOT / "tests/unit/native/config_custom_profile_test.c"
+    for target, board in (("stm32g4_app.h", "custom_stm.h"), ("r40_app_off.h", "custom_at32.h")):
+        exe = out / f"custom_{board}.exe"
+        subprocess.run(
+            cc
+            + flags
+            + [
+                f'-DBSP_BOARD_CONFIG_HEADER="{board}"',
+                '-DMOTOR_PROFILE_HEADER="custom_motor.h"',
+                "-include",
+                str(targets / target),
+                str(source),
+                "-lm",
+                "-o",
+                str(exe),
+            ],
+            check=True,
+        )
+        subprocess.run([str(exe)], check=True)
+
+    # PLL /4 与 MCU 初始化一致；不同晶振、倍频和分频的时钟由同一组输入计算。
+    (out / "custom_clock.h").write_text(
+        '#include "at32f456.h"\n'
+        "#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 16000000U\n"
+        "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 60U\n"
+        "#undef R40_PLL_PRE_DIVIDER\n#define R40_PLL_PRE_DIVIDER 3U\n",
+        encoding="utf-8",
+    )
+    clock_test = out / "custom_clock_test.c"
+    clock_test.write_text(
+        '#include "board_config.h"\n#include "application_config.h"\n'
+        "_Static_assert(R40_CORE_HZ == 80000000U && R40_TIMER_HZ == 80000000U && "
+        'R40_CAN_HZ == 80000000U, "clock derivation failed");\n'
+        "_Static_assert(R40_CAN_NOMINAL_SEG1 == 60U && R40_CAN_NOMINAL_SEG2 == 20U && "
+        'R40_CAN_DATA_SEG1 == 12U && R40_CAN_DATA_SEG2 == 4U, "CAN timing failed");\n'
+        '_Static_assert(APP_FAST_MAX_CYCLES == 4000U, "fast-loop deadline failed");\n'
+        "int main(void) { return 0; }\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        cc
+        + flags
+        + [
+            '-DBSP_BOARD_CONFIG_HEADER="custom_clock.h"',
+            "-include",
+            str(targets / "r40_app_off.h"),
+            str(clock_test),
+            "-o",
+            str(out / "custom_clock_test.exe"),
+        ],
+        check=True,
+    )
+    subprocess.run([str(out / "custom_clock_test.exe")], check=True)
+
+    # 厂商时钟配置必须使用相同晶振输入，避免只修改板卡配置后出现两套频率。
+    clock_probe = out / "custom_clock_sdk_test.c"
+    clock_probe.write_text(
+        '#include "at32f45x_conf.h"\n'
+        '#if HEXT_VALUE != 16000000U\n#error "SDK clock input disagrees"\n#endif\n',
+        encoding="utf-8",
+    )
+    sdk = ROOT / "firmware/platform/sdk/at32f45x"
+    subprocess.run(
+        cc
+        + flags
+        + [
+            "-DAT32F456CCU7",
+            '-DBSP_BOARD_CONFIG_HEADER="custom_clock.h"',
+            "-include",
+            str(targets / "r40_app_off.h"),
+            "-I",
+            str(ROOT / "firmware/platform/bsp/mcu/at32f456"),
+            "-I",
+            str(sdk / "drivers/inc"),
+            "-I",
+            str(sdk / "cmsis/device"),
+            "-I",
+            str(sdk / "cmsis/core"),
+            "-E",
+            str(clock_probe),
+            "-o",
+            str(out / "custom_clock_sdk_test.i"),
+        ],
+        check=True,
+    )
+
+    # 10位变体仅验证换算；实际AT32驱动固定12位，必须拒绝不匹配的板卡输入。
+    driver = ROOT / "firmware/platform/bsp/mcu/at32f456/adc.c"
+    bad_adc = subprocess.run(
+        cc
+        + flags
+        + [
+            '-DBSP_BOARD_CONFIG_HEADER="custom_at32.h"',
+            "-include",
+            str(targets / "r40_app_off.h"),
+            "-I",
+            str(ROOT / "tests/unit/native/r40_io_fake"),
+            "-I",
+            str(ROOT / "firmware/platform/sdk/at32f45x/drivers/inc"),
+            "-I",
+            str(ROOT / "firmware/platform/bsp"),
+            "-E",
+            str(driver),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if (
+        bad_adc.returncode == 0
+        or "AT32F456 ADC initialization requires 12-bit sampling" not in bad_adc.stderr
+    ):
+        raise RuntimeError(f"ADC位宽不一致时应拒绝构建: {bad_adc.stderr}")
+
+    rejected = out / "custom_rejected.c"
+    rejected.write_text(
+        '#include "application_config.h"\n#include "board_config.h"\n', encoding="utf-8"
+    )
+    for flags_extra, reason in (
+        (
+            ["-include", str(targets / "stm32g4_app.h"), '-DBSP_BOARD_CONFIG_HEADER="at32f456.h"'],
+            "Board configuration and MCU BSP family disagree",
+        ),
+        (
+            [
+                "-include",
+                str(targets / "stm32g4_app.h"),
+                '-DMOTOR_PROFILE_HEADER="custom_motor.h"',
+                "-DFOC_ACTIVE_MOTOR_PROFILE=1",
+            ],
+            "Choose MOTOR_PROFILE_HEADER or FOC_ACTIVE_MOTOR_PROFILE",
+        ),
+        (
+            ["-include", str(targets / "r40_app_off.h"), "-DFOC_ACTIVE_MOTOR_PROFILE=4"],
+            "Motor APP defaults incomplete",
+        ),
+        (
+            [
+                "-include",
+                str(targets / "stm32g4_app.h"),
+                '-DMOTOR_PROFILE_HEADER="invalid_motor.h"',
+            ],
+            "Motor profile must specify positive pole pairs",
+        ),
+        (
+            [
+                "-include",
+                str(targets / "r40_app_off.h"),
+                '-DBSP_BOARD_CONFIG_HEADER="invalid_at32.h"',
+            ],
+            "Invalid current-sense ADC resolution",
+        ),
+        (
+            [
+                "-include",
+                str(targets / "stm32g4_app.h"),
+                '-DBSP_BOARD_CONFIG_HEADER="invalid_capability.h"',
+            ],
+            "Invalid or unsupported BSP capability",
+        ),
+        (
+            [
+                "-include",
+                str(targets / "r40_app_off.h"),
+                '-DBSP_BOARD_CONFIG_HEADER="invalid_clock.h"',
+            ],
+            "AT32 CAN clock cannot represent",
+        ),
+        (
+            [
+                "-include",
+                str(targets / "r40_app_off.h"),
+                '-DBSP_BOARD_CONFIG_HEADER="invalid_fast_clock.h"',
+            ],
+            "AT32 core clock exceeds validated ADC/SPI timing",
+        ),
+    ):
+        result = subprocess.run(
+            cc + flags + flags_extra + ["-c", str(rejected), "-o", str(out / "custom_rejected.o")],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 or reason not in result.stderr:
+            raise RuntimeError(f"配置应拒绝但未得到预期错误：{flags_extra}: {result.stderr}")
+    print("PASS custom configuration conflicts and incomplete motor rejection")
 
 
 def verify_application_defaults(cc: list[str], out: Path) -> None:
@@ -441,7 +721,7 @@ def verify_application_defaults(cc: list[str], out: Path) -> None:
     )
     (out / "app_defaults_subject.inc").write_text(source, encoding="utf-8")
     # 真实目标配置同时覆盖旧板两种采样电阻，以及新板关相/限时目标。
-    target_dir = ROOT / "firmware/app/config/targets"
+    target_dir = out / "targets"
     cases = (
         ("old_6m", [], "6.0f", "0.05f", "0.5f", "90.0f", "18.0f", 21, "1.905f", 0),
         (
@@ -451,7 +731,7 @@ def verify_application_defaults(cc: list[str], out: Path) -> None:
             "0.05f",
             "0.5f",
             "90.0f",
-            "40.0f",
+            "18.0f",
             21,
             "1.905f",
             0,
@@ -501,7 +781,7 @@ def verify_application_defaults(cc: list[str], out: Path) -> None:
                 str(ROOT / "tests/unit/native/app_defaults_test.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal.c"),
-                str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
+                str(ROOT / "firmware/motor/control/speed_feedforward.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 "-lm",
                 "-o",
@@ -519,6 +799,17 @@ def main():
     args = ap.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    target_dir = out / "targets"
+    target_dir.mkdir(exist_ok=True)
+    for name, target in (
+        ("stm32g4_app.h", "STM32_APP"),
+        ("r40_app_off.h", "AT32_OFF"),
+        ("r40_app_commissioning.h", "AT32_COMMISSIONING"),
+        ("r40_app_common.h", "AT32_COMMON"),
+    ):
+        (target_dir / name).write_text(
+            f'#define FIRMWARE_TARGET_{target} 1\n#include "board_config.h"\n', encoding="utf8"
+        )
     (out / "main.h").write_text("#include <stdint.h>\n")
     source = out / "wheel_speed_test.c"
     source.write_text(fixture(), encoding="utf-8")
@@ -526,14 +817,17 @@ def main():
     if Path(args.cc).stem == "zig":
         cc += ["cc"]
     cc += NATIVE_INCLUDE_FLAGS
+    verify_independent_inputs(cc, out)
     verify_motor_profiles(cc, out)
+    verify_custom_config(cc, out)
     verify_application_defaults(cc, out)
     exe = out / "wheel_speed_test.exe"
     includes = [str(out)] + [
         str(ROOT / p)
         for p in (
             "firmware/motor/math",
-            "firmware/motor/foc",
+            "firmware/motor/control",
+            "firmware/config",
             "firmware/platform/bsp/mcu/stm32g4",
             "firmware/communication",
         )
@@ -547,7 +841,7 @@ def main():
         str(ROOT / "firmware/parameters/parameter_values.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
-        str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
+        str(ROOT / "firmware/motor/control/speed_feedforward.c"),
         "-o",
         str(exe),
     ]

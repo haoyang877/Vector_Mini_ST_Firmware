@@ -26,8 +26,8 @@ def main() -> int:
         ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
         ROOT / "firmware/platform/bsp/mcu/at32f456",
         ROOT / "firmware/platform/bsp/include",
-        ROOT / "firmware/platform/config",
-        ROOT / "firmware/app/config",
+        ROOT / "firmware/config",
+        ROOT / "firmware/config",
         ROOT / "firmware/platform/bsp",
         ROOT / "firmware/platform/devices",
     ):
@@ -77,6 +77,36 @@ def main() -> int:
         )
         for scenario in scenarios:
             subprocess.run([str(executable), str(scenario)], check=True)
+
+    # 用同一实际 CAN 端口验证另一组晶振/PLL 输入仍得到 1M/5M 和 75% 采样点。
+    board = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf-8")
+    board = board.split("#elif BSP_BOARD == BSP_BOARD_AT32F456\n", 1)[1].split(
+        "\n#elif BSP_BOARD == BSP_BOARD_STM32G4", 1
+    )[0]
+    (args.out / "r40_can_clock.h").write_text(
+        board
+        + "\n#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 16000000U\n"
+        + "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 60U\n"
+        + "#undef R40_PLL_PRE_DIVIDER\n#define R40_PLL_PRE_DIVIDER 3U\n",
+        encoding="utf-8",
+    )
+    clocked_can = args.out.resolve() / "r40_can_80mhz.exe"
+    subprocess.run(
+        command
+        + [
+            "-I",
+            str(args.out.resolve()),
+            '-DBSP_BOARD_CONFIG_HEADER="r40_can_clock.h"',
+            str(native / "r40_can_test.c"),
+            str(native / "r40_io_fake/sdk.c"),
+            "-lm",
+            "-o",
+            str(clocked_can),
+        ],
+        check=True,
+    )
+    subprocess.run([str(clocked_can)], check=True)
+
     stm32 = ROOT / "firmware/platform/bsp/mcu/stm32g4"
     sampling = (stm32 / "adc.c").read_text(encoding="utf8")
     names = (

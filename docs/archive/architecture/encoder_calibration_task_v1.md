@@ -2,7 +2,7 @@
 
 # Mode13/Mode15 编码器标定任务职责 v1
 
-日期：2026-10-08。对应 `firmware/motor/calibration/encoder_calibration_task.c/.h`。
+日期：2026-10-08。对应 `firmware/motor/calibration/encoder_calibration.c/.h`。
 本文保留第一批职责基线；v1.3.0现行职责先读[核心维护模块](../../architecture/motor_maintenance_core_v3.md)，计算边界见[核心/外围数据流 v2](encoder_calibration_core_v2.md)。
 
 任务只拥有标定阶段、计数、累积值和借用引用；不拥有电机主状态、功率许可或 Flash。

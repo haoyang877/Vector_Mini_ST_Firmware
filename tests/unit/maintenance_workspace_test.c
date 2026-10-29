@@ -3,8 +3,8 @@
 #include <string.h>
 #include "bsp_system.h"
 #include "maintenance_workspace.h"
-#include "motor_startup_profile.h"
-#include "control_config.h"
+#include "application_config.h"
+#include "application_config.h"
 #include "control_math.h"
 
 /* 只替代控制边界；完整任务源码由脚本插入，计算与阶段分支使用真实实现。 */
@@ -26,7 +26,7 @@ void SensorlessStartup_Reset(SensorlessStartupState *startup)
     ++s_cleanup_order;
     memset(startup, 0, sizeof(*startup));
 }
-void FOC_CurrentController_Reset(FocState *foc)
+void Foc_ResetCurrent(FocState *foc)
 {
     ++s_cleanup_order;
     PiController_Reset(&foc->id_pi);
@@ -34,12 +34,14 @@ void FOC_CurrentController_Reset(FocState *foc)
 }
 void SensorlessStartup_Run(const MotorConfiguration *configuration,
                            FocState *foc,
+                           const MotorMeasurement *measurement,
                            MotorControlState *motor,
                            PiController *pi,
                            FluxObserverState *observer,
                            SensorlessStartupState *startup,
                            const SensorlessStartupConfig *config)
 {
+    (void)measurement;
     (void)configuration;
     (void)foc;
     (void)motor;
@@ -51,31 +53,33 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
         startup->state = SENSORLESS_STARTUP_ALIGN;
     }
 }
-void FOC_Current(const MotorConfiguration *configuration,
-                 FocState *foc,
-                 MotorControlState *motor,
-                 float phase,
-                 float velocity)
+void Foc_RunCurrent(const MotorConfiguration *configuration,
+                    FocState *foc,
+                    const MotorMeasurement *measurement,
+                    MotorControlState *motor,
+                    float phase,
+                    float velocity)
 {
+    (void)measurement;
     (void)configuration;
     (void)foc;
     (void)motor;
     (void)phase;
     (void)velocity;
 }
-float Observer_GetElePhase(FluxObserverState *observer)
+float FluxObserver_GetElecPhase(FluxObserverState *observer)
 {
     return observer->electrical_angle_rad;
 }
-float Observer_GetEleVel(FluxObserverState *observer)
+float FluxObserver_GetElecVel(FluxObserverState *observer)
 {
     return observer->electrical_velocity_rad_s;
 }
-float Observer_GetElePosition(FluxObserverState *observer)
+float FluxObserver_GetElecPos(FluxObserverState *observer)
 {
     return observer->electrical_position_rad;
 }
-uint32_t Observer_GetPositionEpoch(FluxObserverState *observer)
+uint32_t FluxObserver_GetPositionEpoch(FluxObserverState *observer)
 {
     return observer->position_epoch;
 }
@@ -83,7 +87,7 @@ bool Encoder_IsOnline(const EncoderState *encoder)
 {
     return encoder->has_valid_sample;
 }
-float Encoder_GetMecVelContinuous(const EncoderState *encoder)
+float Encoder_GetMechVelContinuous(const EncoderState *encoder)
 {
     return encoder->mechanical_velocity_continuous_rad_s;
 }
@@ -127,6 +131,7 @@ static int check_task_cleanup(void)
     for (unsigned scenario = 0U; scenario < 19U; ++scenario)
     {
         FocState foc = {0};
+        MotorMeasurement measurement = {0};
         MotorConfiguration configuration = {0};
         MotorControlState motor = {0};
         PiController pi = {0};
@@ -145,6 +150,7 @@ static int check_task_cleanup(void)
         EncoderCalibrationTask_StepLut(&configuration,
                                        &configuration.device.encoder,
                                        &foc,
+                                       &measurement,
                                        &motor,
                                        &pi,
                                        &encoder,
@@ -161,6 +167,7 @@ static int check_task_cleanup(void)
             MotorTaskResult prepared = EncoderCalibrationTask_StepLut(&configuration,
                                                                       &configuration.device.encoder,
                                                                       &foc,
+                                                                      &measurement,
                                                                       &motor,
                                                                       &pi,
                                                                       &encoder,
@@ -266,6 +273,7 @@ static int check_task_cleanup(void)
         MotorTaskResult result = EncoderCalibrationTask_StepLut(&configuration,
                                                                 &configuration.device.encoder,
                                                                 &foc,
+                                                                &measurement,
                                                                 &motor,
                                                                 &pi,
                                                                 &encoder,
@@ -303,6 +311,7 @@ static int check_task_cleanup(void)
         result = EncoderCalibrationTask_StepLut(&configuration,
                                                 &configuration.device.encoder,
                                                 &foc,
+                                                &measurement,
                                                 &motor,
                                                 &pi,
                                                 &encoder,
@@ -365,6 +374,7 @@ static void hash_tick(MotorTaskResult result,
 static int check_complete_task_trace(void)
 {
     FocState foc = {0};
+    MotorMeasurement measurement = {0};
     MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
     PiController pi = {0};
@@ -390,6 +400,7 @@ static int check_complete_task_trace(void)
     MotorTaskResult result = EncoderCalibrationTask_StepLut(&configuration,
                                                             &configuration.device.encoder,
                                                             &foc,
+                                                            &measurement,
                                                             &motor,
                                                             &pi,
                                                             &encoder,
@@ -400,7 +411,7 @@ static int check_complete_task_trace(void)
         (uint32_t)((SensorlessStartup_EncoderCalibConfig.align_current_ramp_time_s +
                     SensorlessStartup_EncoderCalibConfig.align_hold_time_s -
                     SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) /
-                   Current_Ts);
+                   FOC_TS_S);
     /* 清表仍在原对齐采样窗口之前，保留下面原8个原点样本。 */
     for (unsigned tick = 1U;
          tick < 1U + (ENCODER_OFFSET_LUT_SIZE + ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK - 1U) /
@@ -415,6 +426,7 @@ static int check_complete_task_trace(void)
         result = EncoderCalibrationTask_StepLut(&configuration,
                                                 &configuration.device.encoder,
                                                 &foc,
+                                                &measurement,
                                                 &motor,
                                                 &pi,
                                                 &encoder,
@@ -433,6 +445,7 @@ static int check_complete_task_trace(void)
         result = EncoderCalibrationTask_StepLut(&configuration,
                                                 &configuration.device.encoder,
                                                 &foc,
+                                                &measurement,
                                                 &motor,
                                                 &pi,
                                                 &encoder,
@@ -476,6 +489,7 @@ static int check_complete_task_trace(void)
         result = EncoderCalibrationTask_StepLut(&configuration,
                                                 &configuration.device.encoder,
                                                 &foc,
+                                                &measurement,
                                                 &motor,
                                                 &pi,
                                                 &encoder,
@@ -520,7 +534,7 @@ static int check_complete_task_trace(void)
     {
         encoder.linearized_q15 = zero_ticks % 2U == 0U ? 65530U : 10U;
         result = EncoderCalibrationTask_StepElectricalZero(
-            &configuration, &configuration.device.encoder, &foc, &motor, &encoder);
+            &configuration, &configuration.device.encoder, &foc, &measurement, &motor, &encoder);
         hash_tick(result, &motor, &configuration.device.encoder, NULL);
         if (result.result != MOTOR_TASK_RUNNING)
         {

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import ROOT, native_include_flags
+from project_paths import ROOT, native_include_flags, resolve_source_path
 from run_position_servo_tests import function_source
 
 
@@ -41,7 +41,15 @@ def main(case: str) -> None:
         )
         fixture = output / "runtime_fixture.c"
         fixture.write_text(text, encoding="utf-8")
-        position_sources = [str(reference / "firmware/motor/position/position_cascade.c")]
+        position_sources = [
+            str(
+                resolve_source_path(
+                    reference,
+                    "firmware/motor/control/position_control.c",
+                    "firmware/motor/position/position_cascade.c",
+                )
+            )
+        ]
     command = (
         compiler
         + flags
@@ -54,10 +62,10 @@ def main(case: str) -> None:
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(fixture),
             str(ROOT / "firmware/app/runtime/motor_command.c"),
-            str(ROOT / "firmware/motor/foc/motor_control.c"),
-            str(ROOT / "firmware/motor/foc/speed_control.c"),
-            str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
-            str(ROOT / "firmware/motor/foc/foc_pid.c"),
+            str(ROOT / "firmware/motor/control/motor_control.c"),
+            str(ROOT / "firmware/motor/control/speed_control.c"),
+            str(ROOT / "firmware/motor/control/speed_feedforward.c"),
+            str(ROOT / "firmware/motor/control/pi_controller.c"),
             str(ROOT / "firmware/motor/math/control_math.c"),
             *position_sources,
             "-lm",

@@ -333,10 +333,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U</Define>
+              <MiscControls>--diag_suppress=1 -DFIRMWARE_TARGET_STM32_APP --preinclude ..\..\..\firmware\config\board_config.h</MiscControls>
+              <Define>USE_HAL_DRIVER,STM32G431xx</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication\can;..\..\..\firmware\communication\commands;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\foc;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\position;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\platform\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\app\config;..\..\..\firmware\app\config\targets;..\..\..\firmware\platform\devices</IncludePath>
+              <IncludePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication\can;..\..\..\firmware\communication\commands;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\config;..\..\..\firmware\config;..\..\..\firmware\platform\devices</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -912,7 +912,7 @@
             <File>
               <FileName>motor_control.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\motor_control.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\motor_control.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1085,12 +1085,12 @@
             <File>
               <FileName>speed_feedforward.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\speed_feedforward.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\speed_feedforward.c</FilePath>
             </File>
             <File>
-              <FileName>foc_algorithm.c</FileName>
+              <FileName>foc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\foc_algorithm.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\foc.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1144,9 +1144,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_pid.c</FileName>
+              <FileName>foc_output.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\foc_pid.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\foc_output.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1200,9 +1200,177 @@
               </FileOption>
             </File>
             <File>
-              <FileName>foc_sensing.c</FileName>
+              <FileName>pi_controller.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\foc_sensing.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\pi_controller.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>motor_current.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\sensing\motor_current.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>motor_voltage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\sensing\motor_voltage.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>mcu_temperature_sensing.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\sensing\mcu_temperature_sensing.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1258,7 +1426,7 @@
             <File>
               <FileName>flux_observer.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\flux_observer.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\feedback\flux_observer.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1314,7 +1482,7 @@
             <File>
               <FileName>sensorless_startup.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\sensorless_startup.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\sensorless_startup.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1370,7 +1538,7 @@
             <File>
               <FileName>speed_control.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\speed_control.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\speed_control.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1424,9 +1592,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>angle_feedback.c</FileName>
+              <FileName>encoder_feedback.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\feedback\angle_feedback.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\feedback\encoder_feedback.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1480,9 +1648,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>position_cascade.c</FileName>
+              <FileName>position_control.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\position\position_cascade.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\position_control.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -1536,9 +1704,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>encoder_calibration_task.c</FileName>
+              <FileName>encoder_calibration.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\calibration\encoder_calibration_task.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\calibration\encoder_calibration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>

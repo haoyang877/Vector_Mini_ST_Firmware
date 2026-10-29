@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 #include "../../../firmware/motor/math/control_math.h"
-#include "../../../firmware/platform/config/boards/at32f456.h"
+#include "../../../firmware/config/board_config.h"
 
 static void midpoint(R40OlModel *model)
 {

@@ -1,13 +1,13 @@
 #include "encoder_protocol.h"
-#include "app_feature_requirements.h"
-#include "bsp_config.h"
+#include "application_config.h"
+#include "board_config.h"
 #include "at32f45x.h"
 #include "at32f45x_debug.h"
 #include "at32f45x_wdt.h"
 #include "bsp_system.h"
 #include "bsp_encoder.h"
 #include "bsp_pwm.h"
-#include "sampling_scale.h"
+#include "board_config.h"
 #include "openloop_model.h"
 #if defined(R40_CLOSEDLOOP_TEST) && R40_CLOSEDLOOP_TEST
 #include "closedloop_bench.h"
@@ -29,7 +29,7 @@ static bool s_record_fault;
 #include "bsp_pwm.h"
 #include "bsp_internal.h"
 #include "bsp_internal.h"
-#include "../../../firmware/platform/config/boards/at32f456.h"
+#include "../../../firmware/config/board_config.h"
 
 #if defined(R40_KEIL_OPENLOOP) && R40_KEIL_OPENLOOP
 #include "openloop_keil_control.h"

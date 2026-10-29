@@ -91,8 +91,8 @@ PR 证据：`outputs/runs/encoder-calibration-boundaries-pr-v3/summary.json`（5
 | --- | --- |
 | `firmware/motor/calibration/encoder_calibration_core.c` | `8ce93fe8125f45b621c359cc3c344b136fd53af710b53176cc0ae0c48444ad18` |
 | `firmware/motor/calibration/encoder_calibration_core.h` | `1bda30269e50a3a00580d1d2d1d8d01dc80552bd2ed78cc1d2cfabc2e057092d` |
-| `firmware/motor/calibration/encoder_calibration_task.c` | `886fb25c2490fb6f6ea2f7de1c2920b7937b4427b1be16815294956f72a41b05` |
-| `firmware/motor/calibration/encoder_calibration_task.h` | `069dc6c6bc29062d8e7e48e029646e54e87880d81b8a68489165469f3b320b93` |
+| `firmware/motor/calibration/encoder_calibration.c` | `886fb25c2490fb6f6ea2f7de1c2920b7937b4427b1be16815294956f72a41b05` |
+| `firmware/motor/calibration/encoder_calibration.h` | `069dc6c6bc29062d8e7e48e029646e54e87880d81b8a68489165469f3b320b93` |
 
 机器基点/源码/对象/证据记录为 `outputs/encoder-calibration-v3/evidence.json`；
 直接比较日志为 `equivalence-final-0/test.log`、`equivalence-final-1/test.log`（同目录）。

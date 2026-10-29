@@ -1,6 +1,5 @@
 #include "motor_thermal_config.h"
-#include "control_config.h"
-#include "motor_profile_defaults.h"
+#include "application_config.h"
 
 /* 物理配置派生固定采样时序；默认峰值不覆盖应用限流，配置更新不含热历史。 */
 
@@ -17,6 +16,7 @@
 
 void MotorWindingThermal_Default(MotorWindingThermalConfig *config)
 {
+#if PARAM_MOTOR_APP_DEFAULTS_READY
     *config = (MotorWindingThermalConfig){PARAM_MOTOR_THERMAL_CONTINUOUS_VECTOR_A,
                                           PARAM_MOTOR_THERMAL_PEAK_A,
                                           PARAM_MOTOR_THERMAL_HEATING_TAU_S,
@@ -24,6 +24,10 @@ void MotorWindingThermal_Default(MotorWindingThermalConfig *config)
                                           PARAM_MOTOR_THERMAL_DERATING_EXIT_RATIO,
                                           PARAM_MOTOR_THERMAL_TRIP_RATIO,
                                           PARAM_MOTOR_THERMAL_CLEAR_RATIO};
+#else
+    /* 未确认的热模型不得伪造参数；运行时校验拒绝全零占位。 */
+    *config = (MotorWindingThermalConfig){0};
+#endif
 }
 
 bool MotorWindingThermal_Derive(const MotorWindingThermalConfig *config,

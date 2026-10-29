@@ -1,4 +1,4 @@
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_can.h"
 #include "bsp_internal.h"
 #if BSP_ENABLED_CAN

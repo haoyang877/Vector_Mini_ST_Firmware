@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "control_math.h"
-#include "foc_algorithm.h"
+#include "foc.h"
 
 static double max_error;
 static double max_norm_error;
@@ -71,7 +71,7 @@ int main(void)
         check(angle, 1e-6);
         float d, q, alpha, beta;
         Park_Transform(2.0f, -3.0f, angle, &d, &q);
-        Inverse_Park_Transform(d, q, angle, &alpha, &beta);
+        Park_Inverse(d, q, angle, &alpha, &beta);
         assert(fabsf(alpha - 2.0f) < 1e-5f && fabsf(beta + 3.0f) < 1e-5f);
     }
     double single_error = max_error;

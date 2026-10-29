@@ -332,10 +332,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>-include ../../../firmware/app/config/targets/at32_motor_bench.h </MiscControls>
+              <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH </MiscControls>
               <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,R40_OPENLOOP_POWER_ENABLED=1,R40_OL_VOLTAGE_V=1.0f,R40_OL_DURATION_MS=10000U,R40_OL_CURRENT_LIMIT_A=3.0f,R40_CLOSEDLOOP_TEST=1</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\foc;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\calibration;..\..\..\firmware\platform\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\app\config;..\..\..\firmware\app\config\targets;..\..\..\firmware\platform\devices</IncludePath>
+              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\calibration;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\config;..\..\..\firmware\config;..\..\..\firmware\platform\devices</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -400,24 +400,29 @@
               <FilePath>..\..\..\tests\bench\at32f456\closedloop_bench.c</FilePath>
             </File>
             <File>
-              <FileName>foc_algorithm.c</FileName>
+              <FileName>foc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\foc_algorithm.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\foc.c</FilePath>
             </File>
             <File>
-              <FileName>foc_pid.c</FileName>
+              <FileName>foc_output.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\foc_pid.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\foc_output.c</FilePath>
+            </File>
+            <File>
+              <FileName>pi_controller.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\control\pi_controller.c</FilePath>
             </File>
             <File>
               <FileName>speed_control.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\speed_control.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\speed_control.c</FilePath>
             </File>
             <File>
               <FileName>speed_feedforward.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\speed_feedforward.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\control\speed_feedforward.c</FilePath>
             </File>
             <File>
               <FileName>motor_thermal.c</FileName>
@@ -430,14 +435,24 @@
               <FilePath>..\..\..\firmware\motor\protection\motor_fault.c</FilePath>
             </File>
             <File>
-              <FileName>angle_feedback.c</FileName>
+              <FileName>encoder_feedback.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\feedback\angle_feedback.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\feedback\encoder_feedback.c</FilePath>
             </File>
             <File>
-              <FileName>foc_sensing.c</FileName>
+              <FileName>motor_current.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\foc\foc_sensing.c</FilePath>
+              <FilePath>..\..\..\firmware\motor\sensing\motor_current.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_voltage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\sensing\motor_voltage.c</FilePath>
+            </File>
+            <File>
+              <FileName>mcu_temperature_sensing.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\sensing\mcu_temperature_sensing.c</FilePath>
             </File>
             <File>
               <FileName>encoder_calibration_core.c</FileName>

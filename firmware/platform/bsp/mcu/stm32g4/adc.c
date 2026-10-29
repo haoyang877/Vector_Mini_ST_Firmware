@@ -7,6 +7,11 @@
 #include "tim.h"
 #include "stm32g4xx_ll_adc.h"
 
+/* CubeMX中的ADC1/ADC2当前均固定12位；不得仅修改换算配置。 */
+#if CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS != 12U
+#error "STM32G4 ADC initialization requires 12-bit sampling"
+#endif
+
 /* CubeMX先准备外设；本模块拥有校准、采样启动和原码读取，保持原HAL调用顺序。 */
 static bool s_sampling_started, s_sampling_fault, s_storage_owned, s_storage_was_started;
 

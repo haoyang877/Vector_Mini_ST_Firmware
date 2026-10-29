@@ -18,9 +18,9 @@ void MotorStateMachine_ReadReadiness(MotorReadiness *readiness)
 #include "parameter_values.h"
 #include "motor_command.h"
 #include "motor_control.h"
-#include "foc_algorithm.h"
-#include "foc_pid.h"
-#include "control_config.h"
+#include "foc.h"
+#include "pi_controller.h"
+#include "application_config.h"
 #include "maintenance_workspace.h"
 #include "bsp_flash.h"
 #include "motor_thermal_control.h"
@@ -127,7 +127,7 @@ void MotorOuterLoop_RequestReset(void)
     ++reset_calls;
     trace_call(3U);
 }
-void FOC_CurrentController_Reset(FocState *foc)
+void Foc_ResetCurrent(FocState *foc)
 {
     if (foc != &s_foc_state || critical_depth != 1U + AXIS_WRITE_OUTER_CRITICAL)
     {

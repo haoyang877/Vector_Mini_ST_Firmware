@@ -15,9 +15,6 @@
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
 #define PARAM_SCHEMA_VERSION 14U
-#define PARAM_SCHEMA12_BYTES 4304U
-#define PARAM_SCHEMA13_BYTES 4352U
-#define PARAM_RECORD_READ_BYTES PARAM_SCHEMA13_BYTES
 
 typedef struct
 {
@@ -53,9 +50,9 @@ typedef struct
     float position_acceleration_rad_s2;
     float position_deceleration_rad_s2;
     float position_maximum_speed_rad_s;
-    /* schema12 复用退役槽；bit0 为用户配置确认，其他位必须为零。 */
+    /* bit0 为用户配置确认，其他位必须为零。 */
     uint32_t configuration_flags;
-    /* schema12 整条记录 CRC32，计算时跳过此四字节槽。 */
+    /* 整条记录 CRC32，计算时跳过此四字节槽。 */
     uint32_t record_crc32;
     float calibration_current_a;
     float current_limit_a;
@@ -81,7 +78,7 @@ typedef struct
     uint32_t friction_model_valid;
     /* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
     MotorAxisProfile axis_profile;
-    /* schema14删除退役齿槽表；旧schema13尾部由装载函数按版本读取。 */
+    /* schema14的热模型和速度前馈。 */
     MotorWindingThermalConfig thermal;
     uint32_t speed_feedforward_enabled;
     float speed_feedforward_gain_a_per_rad_s2;
@@ -106,11 +103,11 @@ void Param_Return_Default(MotorConfiguration *configuration);
 void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration);
 
 /**
- * @brief 装载schema12/13/14记录；旧版本只读兼容，不自动写回。
+ * @brief 装载schema14记录；其他版本不受支持。
  * @param record 按四字节对齐的只读 Flash 记录副本。
- * @param size_bytes 副本的实际容量；不足对应版本长度时拒绝。
+ * @param size_bytes 副本的实际容量；不足当前记录长度时拒绝。
  * @param configuration 中断启动前的独占配置，含编码器标定。
- * @note 仅启动调用；其他版本清除标定资格，不自动转换schema10或写Flash。
+ * @note 仅启动调用；其他版本清除标定资格，不自动转换或写Flash。
  */
 void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration *configuration);
 

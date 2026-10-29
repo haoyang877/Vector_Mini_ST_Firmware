@@ -33,8 +33,8 @@ def main() -> None:
         native / "stm32_indicator_fake",
         (args.baseline or ROOT) / "firmware/platform/bsp/include",
         ROOT / "firmware/platform/bsp",
-        ROOT / "firmware/platform/config",
-        ROOT / "firmware/app/config",
+        ROOT / "firmware/config",
+        ROOT / "firmware/config",
     ):
         command += ["-I", str(directory)]
     command += [str(p) for p in (*sources, native / "stm32_indicator_test.c")]

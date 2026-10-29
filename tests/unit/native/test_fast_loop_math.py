@@ -18,11 +18,11 @@ from run_position_servo_tests import function_source
 def sine_fixture() -> str:
     """对生产查表及坐标变换使用独立 double 参考验证数值精度。"""
     fixture = (ROOT / "tests/unit/trig_table_test.c").read_text(encoding="utf-8")
-    source = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
     return (
         fixture
         + function_source(source, "Park_Transform")
-        + function_source(source, "Inverse_Park_Transform")
+        + function_source(source, "Park_Inverse")
     )
 
 

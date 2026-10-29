@@ -1,8 +1,8 @@
 #include "motor_maintenance.h"
 
 #include <math.h>
-#include "bus_voltage_profile.h"
-#include "encoder_calibration_task.h"
+#include "application_config.h"
+#include "encoder_calibration.h"
 #include "parameter_record.h"
 #include "motor_control.h"
 #include "parameter_values.h"
@@ -13,7 +13,7 @@
 /* 维护调度只调用实际功能；生命周期、输出许可、保存衔接由唯一主状态机拥有。 */
 MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
-                                      const FocState *foc,
+                                      const MotorMeasurement *measurement,
                                       const EncoderState *encoder,
                                       bool configuration_valid)
 {
@@ -32,19 +32,20 @@ MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
         {
             return MOTOR_FAULT_INVALID_PARAMETERS;
         }
-        if (!isfinite(foc->bus_voltage_v) || !isfinite(foc->bus_voltage_filtered_v) ||
-            foc->bus_voltage_v >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
-            foc->bus_voltage_filtered_v > BUS_VOLTAGE_ENABLE_MAX_V)
+        if (!isfinite(measurement->bus_voltage_v) ||
+            !isfinite(measurement->bus_voltage_filtered_v) ||
+            measurement->bus_voltage_v >= BUS_VOLTAGE_HARD_OVERVOLTAGE_V ||
+            measurement->bus_voltage_filtered_v > BUS_VOLTAGE_ENABLE_MAX_V)
         {
             return MOTOR_FAULT_OVERVOLTAGE;
         }
-        if (foc->bus_voltage_filtered_v < BUS_VOLTAGE_ENABLE_MIN_V)
+        if (measurement->bus_voltage_filtered_v < BUS_VOLTAGE_ENABLE_MIN_V)
         {
             return MOTOR_FAULT_UNDERVOLTAGE;
         }
     }
     if (kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO &&
-        (Encoder_GetCalibFlag(&configuration->device.encoder) & ENC_CALIB_LINEARIZED) == 0U)
+        (Encoder_GetCalibrationFlag(&configuration->device.encoder) & ENC_CALIB_LINEARIZED) == 0U)
     {
         return MOTOR_FAULT_ENCODER_NOT_CALIBRATED;
     }
@@ -59,6 +60,7 @@ MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
 MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
                                       FocState *foc,
+                                      const MotorMeasurement *measurement,
                                       MotorControlState *motor,
                                       PiController *pi,
                                       EncoderState *encoder,
@@ -73,6 +75,7 @@ MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
         MotorTaskResult result = EncoderCalibrationTask_StepLut(configuration,
                                                                 &configuration->device.encoder,
                                                                 foc,
+                                                                measurement,
                                                                 motor,
                                                                 pi,
                                                                 encoder,
@@ -87,7 +90,7 @@ MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
     }
     case MOTOR_MAINTENANCE_ELECTRICAL_ZERO:
         return EncoderCalibrationTask_StepElectricalZero(
-            configuration, &configuration->device.encoder, foc, motor, encoder);
+            configuration, &configuration->device.encoder, foc, measurement, motor, encoder);
     case MOTOR_MAINTENANCE_MECHANICAL_ZERO:
         if (!Encoder_SetMechanicalZero(&configuration->device.encoder, encoder))
         {

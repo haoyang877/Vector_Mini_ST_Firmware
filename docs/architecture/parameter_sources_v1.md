@@ -3,21 +3,21 @@
 更新：2026-10-26。参数按两个维度管理：归属为硬件、电机、应用、设备；来源为基础输入、派生、标定、运行。
 本页描述现有实现及本轮整理后的边界，不增加线上参数、存储字段或自动辨识能力。
 
-## 四个配置入口
+## 三个配置入口与四类数据
 
 下列路径相对 `firmware/`。按所属类别修改基础输入，不到算法 `.c` 中寻找产品默认值。
 
 | 类别 | 配置入口 | 要填写的内容 | 不在此处填写 |
 | --- | --- | --- | --- |
-| 硬件 | `platform/config/boards/`，经`platform/config/bsp_config.h`选择 | 板型、ADC参考/位宽、放大倍数、分流器、VBUS分压、累加次数、路径补偿和固定电流限值 | 节点、电机R/L、实测零偏 |
-| 电机 | `motor/motor_profile_selection.h`、`motor/profiles/`；完整APP经`motor_profile_defaults.h` | 型号、极对数、相R/L、磁链、电流环带宽、标定电流、热模型七项输入 | 应用速度上限、设备SN、LUT |
-| 应用 | `parameters/application_profile_defaults.h` | 几何包络、默认限流/速度、外环、兼容字段、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
-| 设备 | `parameters/device_profile_defaults.h` | 空白设备的默认节点及未标定占位 | 实际SN/UID、标定结果、应用角色选择 |
+| 硬件 | `config/board_config.h` | 板型、ADC参考/位宽、放大倍数、分流器、VBUS分压、累加次数与路径补偿 | 节点、电机R/L、实测零偏 |
+| 电机 | `config/motor_profile_config.h`；完整APP经`application_config.h` | 型号、极对数、相R/L、磁链、标定电流、热模型七项输入 | 应用速度上限、设备SN、LUT |
+| 应用 | `config/application_config.h` | 几何包络、默认限流/速度、外环、位置误差窗、速度前馈、既有关节修订值 | 板级采样比例、设备地址、实测模型 |
+| 设备 | `config/application_config.h` | 空白设备的默认节点及未标定占位 | 实际SN/UID、标定结果、应用角色选择 |
 
 `FOC_ACTIVE_HW_PROFILE`、`FOC_ACTIVE_MOTOR_PROFILE` 与分流器选择可由编译选项指定；
 当前仅提供已实现的板型/电机数据，未知值拒绝编译。STM32旧板分流器默认6mΩ，可在匹配硬件时显式选择2mΩ；AT32新板固定4mΩ。
-器件引脚/时钟/外设实例归BSP及其板级生成配置；控制时基归 `app/config/control_config.h`，
-相电流固定限值随板级数据提供，母线/温度等保护阈值仍归对应策略头，
+器件引脚/时钟/外设实例归BSP及其板级生成配置；控制时基归 `config/application_config.h`，
+相电流和母线/温度的固定保护限值由应用配置选择软件策略，
 不把驱动定义与可在线配置的参数混合。板级数据只向公共能力头提供编译期值，不依赖功能层或外设。
 
 默认值只用于空白、无效记录或显式恢复默认。已有有效记录继续装载其中的模型、整定、
@@ -44,7 +44,7 @@ SN来自独立生产身份页，UID来自芯片；标定值只能来自实际标
 
 R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动计算。
 当前配置包含HT8115-4的有/无阻尼环、YQ-5708、YQ-5740和暂定YQ-8116；
-完整可驱动APP默认值仍只有HT。其他型号缺失项与编译选择见[电机配置](../../firmware/motor/profiles/README.md)。
+完整可驱动APP默认值仍只有HT。其他型号缺失项与编译选择见[电机配置](../../firmware/config/README.md)。
 生产`motor_type`仅用于身份上报，不自动选择模型。
 速度/位置PI、热时间常数、允许电流和保护门限需要设计或试验依据，不能只靠R/L推导。
 电阻的相/线定义、磁链的电压峰值/RMS和相/线定义必须先确定，再进行数值换算。
@@ -53,13 +53,12 @@ R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动�
 
 | 来源文件 | 固定输入 | 编译期派生 |
 | --- | --- | --- |
-| `platform/config/boards/stm32g4.h` | 板级ADC规格、分流器/放大器、母线分压、累加次数与既有相电流限值 | 无运行时计算 |
-| `platform/config/bsp_config.h` | 选择已实现目标，不复制板级数值 | 默认ADC中点 |
-| `platform/config/sampling_scale.h` | 使用目标提供的输入与限值，不由满量程推导策略 | ADC量程、计数域、电流满量程 |
-| `platform/config/sampling_scale.h` | 只引用板级输入，不再重复定义 | 电流A/count、电压V/count、累加归一化 |
-| `app/config/control_config.h` | FOC、速度、位置、监督频率 | 各周期、分频和每毫秒监督拍数 |
-| `motor/profiles/`及`motor_profile_selection.h` | 各型号电机数据与统一1kHz带宽；完整APP入口仍为`motor_profile_defaults.h` | 默认电流PI公式 |
-| `parameters/application_profile_defaults.h` | 轮径、线速度、应用限值、外环/前馈整定 | 默认角速度包络及所有固定转/秒到rad/s换算 |
+| `config/board_config.h` | 板级ADC规格、分流器/放大器、母线分压和累加次数 | 无运行时计算 |
+| `config/board_config.h` | 选择已实现目标，不复制板级数值 | 默认ADC中点 |
+| `config/application_config.h` | 使用板卡、电机、控制时基输入 | ADC换算、控制周期与分频、电流PI公式 |
+| `config/application_config.h` | FOC、速度、位置、监督频率 | 校验频率之间的关系 |
+| `config/motor_profile_config.h` | 各型号电机数据；完整APP入口为`application_config.h` | 选用电机型号 |
+| `config/application_config.h` | 轮径、线速度、应用限值、外环/前馈整定 | 默认角速度包络及固定单位换算 |
 
 以上路径相对`firmware/`。固定表达式用带括号、明确单位的宏，保留原浮点运算顺序。
 宏只是源码替换；只有操作数都是编译期常量才能免去运行时计算。
@@ -89,7 +88,7 @@ R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动�
 电流PI输出单位是V，积分器再乘一次采样周期，因此保存的Ki不预乘Ts。
 速度PI仍是现有归一化输出口径，不能与电流PI直接交换增益。
 
-有效schema12/13/14记录里的PI继续原值装载，可能包含人工整定；不因默认宏变化自动重算。
+有效schema14记录里的PI继续原值装载，可能包含人工整定；不因默认宏变化自动重算。
 电流PI的固定增益和采样周期在上电装配、成功参数写入及恢复默认完成时绑定；
 这些绑定不重置积分、不放宽动态限幅。20kHz电流入口继续按本拍母线电压更新电压额度，
 不再逐拍重复写入固定增益。观测器和前馈保持原显式配置计算，不增加缓存和失效状态。
@@ -108,7 +107,7 @@ R/L/磁链的基础输入可来自厂家或实测，不是由型号标签自动�
 `s_config_revision`。模式、控制目标和故障过程留在 `s_motor_state`，采样、PLL及位置/速度估计留在
 `s_rotor_encoder`；PI积分、热积累、动态额度和通信队列仍由各自运行对象管理。
 这些全局名称为Watch观测保留，公共头不暴露可写 `extern`；算法显式借用只读配置与运行态。
-当前schema14为2288B，保留既有schema12（4304B）/13（4352B）兼容读取；本轮不改布局、
+当前仅接受2288B的schema14记录；本轮不改其布局、
 字段编号、CRC或权限，也不把四类配置拆成四份常驻或存储副本。
 RAM对象拆分后必须使用新构建且与板上镜像匹配的AXF，不能沿用历史对象地址。
 本文说明源码所有权与兼容边界，不表示本轮构建或测试已经通过。

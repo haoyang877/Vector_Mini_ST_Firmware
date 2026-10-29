@@ -1,8 +1,8 @@
 /* 共用ADC：快帧发布与换算、慢通道缓存、零偏提交；硬件采集留在MCU实现。 */
 #include "bsp_pwm.h"
-#include "control_config.h"
+#include "application_config.h"
 #include "bsp_internal.h"
-#include "sampling_scale.h"
+#include "board_config.h"
 #include <math.h>
 #include <stddef.h>
 #include "bsp_system.h"

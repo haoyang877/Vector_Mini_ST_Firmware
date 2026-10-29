@@ -4,7 +4,7 @@
 
 | 所有者 | 实际职责与入口 |
 | --- | --- |
-| [`foc_sensing`](../../firmware/motor/foc/foc_sensing.c) | ADC偏置、相电流、母线和MCU温度判定及测量资格 |
+| [`motor_sensing`](../../firmware/motor/sensing/motor_current.c) | ADC偏置、相电流、母线和MCU温度判定及测量资格 |
 | [`motor_fault`](../../firmware/motor/protection/motor_fault.c) | 故障锁存、过流恢复驻留和源恢复矩阵；不启相 |
 | [`motor_thermal_control`](../../firmware/motor/protection/motor_thermal_control.h) | 快环热历史/动态电流额度，失效及策略边界；监督监控采样窗口 |
 | [`motor_axis`](../../firmware/app/runtime/motor_axis.c) | 调度采样与保护，执行快速故障关断，向监督提供一致事实 |

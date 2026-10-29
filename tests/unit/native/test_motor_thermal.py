@@ -31,8 +31,9 @@ def main() -> None:
             str(ROOT / "firmware/motor/protection/motor_thermal.c"),
             str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
             str(ROOT / "firmware/motor/protection/motor_thermal_control.c"),
-            str(ROOT / "firmware/motor/foc/foc_algorithm.c"),
-            str(ROOT / "firmware/motor/foc/foc_pid.c"),
+            str(ROOT / "firmware/motor/control/foc.c"),
+            str(ROOT / "firmware/motor/control/foc_output.c"),
+            str(ROOT / "firmware/motor/control/pi_controller.c"),
             str(ROOT / "firmware/motor/math/control_math.c"),
             "-lm",
             "-o",
@@ -51,8 +52,7 @@ def main() -> None:
         result.check_returncode()
     disabled = output / "motor_thermal_disabled.exe"
     disabled_command = command[:-2] + [
-        "-include",
-        str(ROOT / "firmware/app/config/targets/r40_app_commissioning.h"),
+        "-DFIRMWARE_TARGET_AT32_COMMISSIONING=1",
         "-o",
         str(disabled),
     ]

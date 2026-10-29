@@ -5,7 +5,7 @@
 #include "bsp_system.h"
 #include "can_frame_codec.h"
 #include "at32f45x.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_pwm.h"
 #include <stddef.h>
 #include <string.h>

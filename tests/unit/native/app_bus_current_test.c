@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bus_current_feedback.h"
 #include "motor_axis.h"
 #include "yg_protocol_link.h"
@@ -51,12 +51,12 @@ static yg_protocol_motor_feedback_t feedback(void)
 }
 
 #if BSP_ENABLED_BUS_CURRENT
-#include "../../../firmware/app/runtime/bus_current_feedback.c"
+#include "../../../firmware/app/composition/bus_current_feedback.c"
 #define BUS_CURRENT_A_PER_COUNT                                                                    \
     (BUS_CURRENT_ADC_REFERENCE_V / (float)BUS_CURRENT_ADC_MAX_COUNTS / BUS_CURRENT_GAIN /          \
      BUS_CURRENT_SHUNT_OHM)
 
-static uint32_t s_now, s_seq, s_critical_depth;
+static uint32_t s_now, s_seq, s_critical_depth, s_control_lock_calls;
 static bool s_available = true, s_disabled = true;
 static uint16_t s_raw;
 static unsigned s_read_race, s_raw_reads;
@@ -66,12 +66,13 @@ uint32_t BspSystem_TimeMs(void)
     return s_now;
 }
 
-uint32_t BspSystem_EnterCritical(void)
+uint32_t BspSystem_EnterControlCritical(void)
 {
+    ++s_control_lock_calls;
     return s_critical_depth++;
 }
 
-void BspSystem_ExitCritical(uint32_t previous)
+void BspSystem_ExitControlCritical(uint32_t previous)
 {
     assert(s_critical_depth == previous + 1U);
     s_critical_depth = previous;
@@ -85,7 +86,7 @@ bool BspPwm_ArePhasesDisabled(void)
 static float s_offset;
 BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *sample)
 {
-    assert(s_critical_depth == 0U);
+    assert(s_critical_depth == 0U && s_control_lock_calls != 0U);
     ++s_raw_reads;
     if (s_read_race != 0U)
     {

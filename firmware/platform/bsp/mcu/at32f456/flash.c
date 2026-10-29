@@ -6,7 +6,7 @@
 #include <string.h>
 #include "at32f45x.h"
 #include "bsp_pwm.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 /* 仅停机前台，BSP内部拥有中断屏蔽和恢复；不访问业务对象、不改变参数schema。
  * 同bank取指可能被Flash忙状态阻塞，轮询上限不是硬件墙钟保证。

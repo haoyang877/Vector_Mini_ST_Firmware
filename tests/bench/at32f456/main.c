@@ -1,6 +1,6 @@
 #include "bsp_internal.h"
 #include "encoder_protocol.h"
-#include "app_feature_requirements.h"
+#include "application_config.h"
 #include "at32f45x.h"
 #include "bsp_can.h"
 #include "bsp_encoder.h"

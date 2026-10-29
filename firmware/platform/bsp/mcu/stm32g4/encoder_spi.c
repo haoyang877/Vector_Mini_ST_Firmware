@@ -1,5 +1,5 @@
 #include "encoder_spi.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 #include "main.h"
 #include "spi.h"

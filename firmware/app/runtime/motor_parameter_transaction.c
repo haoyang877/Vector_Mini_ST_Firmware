@@ -11,7 +11,7 @@
 
 /* 参数记录与其它维护任务互斥借用既有固定工作区，不常驻完整参数副本。 */
 typedef char ParamRecord_FitsWorkspace
-    [(PARAM_RECORD_READ_BYTES <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
+    [(sizeof(InterfaceParam) <= MAINTENANCE_WORKSPACE_CAPACITY_BYTES) ? 1 : -1];
 
 /* 活动修订与最近变更身份；不常驻 InterfaceParam 副本，不复用 schema 版本。 */
 volatile uint32_t s_config_revision;
@@ -50,11 +50,6 @@ static void load_parameters(MotorConfiguration *configuration)
     InterfaceParam *record = MaintenanceWorkspace_BorrowParameter();
     uint32_t read_bytes = sizeof(*record);
     bool read_ok = record != NULL && (BspFlash_Read(record, read_bytes) == BSP_OK);
-    if (read_ok && (record->schema_version == 12U || record->schema_version == 13U))
-    {
-        read_bytes = record->schema_version == 12U ? PARAM_SCHEMA12_BYTES : PARAM_SCHEMA13_BYTES;
-        read_ok = (BspFlash_Read(record, read_bytes) == BSP_OK);
-    }
     if (!read_ok)
     {
         Param_Return_Default(configuration);
@@ -306,7 +301,7 @@ ParameterStatus MotorParameterTransaction_Write(MotorConfiguration *configuratio
             MotorParameterTransaction_AdvanceRevision();
             /* 原有控制器复位边界，不在这里重写控制数学或增益公式。 */
             MotorOuterLoop_RequestReset();
-            FOC_CurrentController_Reset(foc);
+            Foc_ResetCurrent(foc);
             PiController_Reset(speed_pi);
             result = ParameterValue_Read(
                 configuration, s_config_revision, request->parameter_id, applied);

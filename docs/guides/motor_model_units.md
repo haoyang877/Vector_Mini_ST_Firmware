@@ -2,7 +2,7 @@
 
 核对日期：2026-10-23。算法内部使用SI浮点量，通信在边界显式缩放。
 配置与运行数据定义见[`motor_config.h`](../../firmware/motor/motor_config.h)、
-[`motor_types.h`](../../firmware/motor/motor_types.h)及[`foc_algorithm.h`](../../firmware/motor/foc/foc_algorithm.h)。
+[`motor_types.h`](../../firmware/motor/motor_types.h)及[`foc.h`](../../firmware/motor/control/foc.h)。
 
 | 量 | 算法单位 | 线上常用尺度 |
 | --- | --- | --- |
@@ -30,10 +30,11 @@ YQ-5708/5740的Kt=0.0801N·m/A、p=14，得到ψ=0.003814286Wb。
 
 机械/电角速度通过极对数换算，rpm=rad/s×60/(2π)，机械角度deg=rad×180/π。
 电流采样硬件输入与既有固定限值归
-[`vector_mini_st.h`](../../firmware/platform/config/boards/stm32g4.h)，
+[`vector_mini_st.h`](../../firmware/config/board_config.h)，
 经 `bsp_config.h` 选择，派生比例仍归
-[`sampling_scale.h`](../../firmware/platform/config/sampling_scale.h)。
+[`sampling_scale.h`](../../firmware/config/board_config.h)。
 2mΩ/6mΩ是不同编译配置，ADC满量程、可命令限流和过流保护门限是不同量。
+两种分流配置当前共用10 A命令/标定上限与18 A软件过流阈值；不根据测量量程自动放宽。
 4×过采样累加先乘0.25恢复12bit count口径，再减本次零偏并换算A，见[采样说明](current_oversampling.md)。
 
 PI的输入/输出单位取决于调用契约；位置串级速度增益仍乘配置标称电流上限。

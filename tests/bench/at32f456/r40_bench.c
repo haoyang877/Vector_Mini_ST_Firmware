@@ -5,11 +5,11 @@
 #include "at32f45x.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
-#include "sampling_scale.h"
+#include "board_config.h"
 #include "bsp_flash.h"
 #include "bsp_pwm.h"
 #include "bsp_internal.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 /* 命令结果：0空闲、1执行中、2通过、3失败、4拒绝；存储测试只接受原本全FF的两扇区。
  * 所有对象均归此验证模块所有；不把这些诊断命令接入产品CAN协议。 */

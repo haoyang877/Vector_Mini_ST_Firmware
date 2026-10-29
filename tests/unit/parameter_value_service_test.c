@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "parameter_values.h"
-#include "application_profile_defaults.h"
+#include "application_config.h"
 #include "motor_types.h"
 
 static void read_units_and_identity(void)

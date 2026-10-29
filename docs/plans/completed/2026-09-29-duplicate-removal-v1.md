@@ -43,7 +43,7 @@
 
 删除旧 Task_Position_Mode、Task_Speed_Mode、PositionCascade_Update/UpdateTarget、
 PositionCascadeOutput 及空 data_type.c；外环复位入口改为 MotorOuterLoop_RequestReset。
-生产位置/速度外环继续由真实 2 kHz worker 执行，摩擦辨识仍调用 SpeedMode_Run。
+生产位置/速度外环继续由真实 2 kHz worker 执行，摩擦辨识仍调用 SpeedControl_Run。
 
 标准 CRC32 只保留 shared/checksum 一份。持久数据、邮箱和镜像事务共用；镜像继续使用
 原始续算状态，适配已取反的共享接口。协议小端转换与确认单播请求规则归窄职责头，

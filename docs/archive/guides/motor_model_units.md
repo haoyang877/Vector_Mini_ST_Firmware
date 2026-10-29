@@ -50,7 +50,7 @@
 SENSING_CURR_FACTOR = 3.3 / 4095 / 10 / 0.006 ≈ 0.01343 A/LSB
 ```
 
-`firmware/motor/foc/foc_sensing.c` 中：
+`firmware/motor/sensing/motor_current.c` 中：
 
 ```c
 foc->phase_a_current_a = -((int16_t)ADC值 - phase_a_offset_counts) * SENSING_CURR_FACTOR;  // A
@@ -75,11 +75,11 @@ SENSING_VBUS_FACTOR = 3.3 / 4095 × 11 ≈ 0.008866 V/LSB
 foc->bus_voltage_v = ADC值 × SENSING_VBUS_FACTOR;   // V
 ```
 
-过压/欠压保护阈值（`firmware/motor/foc/foc_sensing.c`）同样以 V 为单位：bus_voltage_v > 30 V 报过压，< 10 V 报欠压。
+过压/欠压保护阈值（`firmware/motor/sensing/motor_current.c`）同样以 V 为单位：bus_voltage_v > 30 V 报过压，< 10 V 报欠压。
 
 ### 3.2 调制量（p.u.）与实际电压的关系
 
-`firmware/motor/foc/foc_algorithm.c` 中，电压给定先归一化为标幺值调制量：
+`firmware/motor/control/foc.c` 中，电压给定先归一化为标幺值调制量：
 
 ```c
 V_to_mod = 1.5f / foc->bus_voltage_filtered_v;   // V → p.u.

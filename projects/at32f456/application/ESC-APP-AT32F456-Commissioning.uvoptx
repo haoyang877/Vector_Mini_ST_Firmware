@@ -754,7 +754,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\runtime\bus_current_feedback.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\composition\bus_current_feedback.c</PathWithFileName>
       <FilenameWithoutPath>bus_current_feedback.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>

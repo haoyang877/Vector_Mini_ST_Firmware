@@ -9,7 +9,7 @@
 完整 base：`a246a962c5b0686da46eec595a2eb33a1729f4ba`。
 独立分支：`codex/position-cascade`。集成树存在其他未提交修改，位置、轨迹和直接调用者
 与 base 一致；不修改集成树或旧项目树，不把其他会话修改纳入本提交。
-主范围为 `firmware/motor/position/position_cascade.c`；头文件、轨迹、主状态机、参数 ABI、
+主范围为 `firmware/motor/control/position_control.c`；头文件、轨迹、主状态机、参数 ABI、
 协议、控制参数、保护阈值、调度周期、单位和正式布局保持不变。
 
 ## 保持不变与实施

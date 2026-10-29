@@ -23,10 +23,9 @@ T_SLOW = 1.0 / 2000.0
 PLL_WN_HZ = float(
     re.search(
         r"#define ENCODER_PLL_OMEGA_N_HZ ([0-9.]+)f",
-        (
-            Path(__file__).resolve().parents[2]
-            / "firmware/motor/profiles/encoder_feedback_defaults.h"
-        ).read_text(encoding="utf-8"),
+        (Path(__file__).resolve().parents[2] / "firmware/config/application_config.h").read_text(
+            encoding="utf-8"
+        ),
     ).group(1)
 )
 PLL_ZETA = 0.707

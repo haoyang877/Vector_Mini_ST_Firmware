@@ -6,8 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "position_cascade.h"
-#include "position_cascade_config.h"
+#include "position_control.h"
+#include "application_config.h"
 #include "validation_actual.inc"
 static bool reference_valid(const PositionCascadeConfig *config)
 {

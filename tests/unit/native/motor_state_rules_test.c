@@ -5,6 +5,26 @@
 #include <string.h>
 #include "motor_state_internal.h"
 
+/* 对照旧工作区时，生产请求总是在锁内绑定当前代际。 */
+#ifdef MOTOR_RULES_BASELINE
+static MotorStateDecision baseline_step(MotorStateRulesContext *context,
+                                        const MotorStateEvent *event,
+                                        const MotorStateFacts *facts)
+{
+    if (context && event)
+    {
+        MotorStateEvent current = *event;
+        current.request_epoch = context->epoch;
+        return MotorStateRules_Step(context, &current, facts);
+    }
+    return MotorStateRules_Step(context, event, facts);
+}
+#define MotorStateRules_Step baseline_step
+#define DECISION_ACCEPTED(result) ((result).rejection == MOTOR_STATE_ACCEPTED)
+#else
+#define DECISION_ACCEPTED(result) ((result).accepted)
+#endif
+
 static uint32_t seed = UINT32_C(0x91ab32cd);
 static uint64_t digest = UINT64_C(14695981039346656037);
 static uint32_t random_value(void)
@@ -68,8 +88,8 @@ static int test_state_exit_contract(void)
         return 1;
     }
     context.state = MOTOR_STATE_FAULT;
-    context.first_fault = context.latched_faults = MOTOR_STATE_FAULT_GUARD;
-    MotorStateEvent clear = {.events = MOTOR_STATE_EVENT_CLEAR, .request_epoch = context.epoch};
+    context.latched_faults = MOTOR_STATE_FAULT_GUARD;
+    MotorStateEvent clear = {.events = MOTOR_STATE_EVENT_CLEAR};
     facts.self_test_ready = false;
     (void)MotorStateRules_Step(&context, &clear, &facts);
     if (context.state != MOTOR_STATE_FAULT || !context.latched_faults)
@@ -78,18 +98,16 @@ static int test_state_exit_contract(void)
     }
     facts.self_test_ready = true;
     (void)MotorStateRules_Step(&context, &clear, &facts);
-    if (context.state != MOTOR_STATE_IDLE || context.first_fault || context.latched_faults)
+    if (context.state != MOTOR_STATE_IDLE || context.latched_faults)
     {
         return 1;
     }
     /* 代际耗尽只能锁入 FATAL，不能报告 CLEAR 成功或清除原故障。 */
     context.state = MOTOR_STATE_FAULT;
     context.epoch = UINT32_MAX;
-    context.first_fault = context.latched_faults = MOTOR_STATE_FAULT_GUARD;
-    clear.request_epoch = context.epoch;
+    context.latched_faults = MOTOR_STATE_FAULT_GUARD;
     MotorStateDecision exhausted = MotorStateRules_Step(&context, &clear, &facts);
-    if (context.state != MOTOR_STATE_FATAL || exhausted.rejection != MOTOR_STATE_REJECT_FATAL ||
-        context.first_fault != MOTOR_STATE_FAULT_GUARD ||
+    if (context.state != MOTOR_STATE_FATAL || DECISION_ACCEPTED(exhausted) ||
         !(context.latched_faults & MOTOR_STATE_FAULT_GUARD) ||
         (exhausted.actions & MOTOR_STATE_ACTION_FAULT_CLEARED))
     {
@@ -97,10 +115,8 @@ static int test_state_exit_contract(void)
         return 1;
     }
     context.state = MOTOR_STATE_FATAL;
-    clear.request_epoch = context.epoch;
     (void)MotorStateRules_Step(&context, &clear, &facts);
-    MotorStateEvent linked = {.events = MOTOR_STATE_EVENT_LINK_RECOVERED};
-    (void)MotorStateRules_Step(&context, &linked, &facts);
+    (void)MotorStateRules_Step(&context, &poll, &facts);
     if (context.state != MOTOR_STATE_FATAL)
     {
         return 1;
@@ -110,6 +126,23 @@ static int test_state_exit_contract(void)
     return 0;
 }
 
+#ifndef MOTOR_RULES_BASELINE
+/* 所有者串行提交事件；组合事件不能被误当成启动或完成。 */
+static int test_reject_combined_event(void)
+{
+    MotorStateRulesContext context;
+    MotorStateRules_Init(&context);
+    context.state = MOTOR_STATE_IDLE;
+    MotorStateFacts facts = {0U, true, true, true, true, true, true, true, true, true, true, true};
+    MotorStateEvent event = {.events = MOTOR_STATE_EVENT_ENABLE | MOTOR_STATE_EVENT_BEGIN_OPERATION,
+                             .control_mode = MOTOR_CONTROL_CURRENT,
+                             .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
+    MotorStateDecision result = MotorStateRules_Step(&context, &event, &facts);
+    return DECISION_ACCEPTED(result) || context.state != MOTOR_STATE_IDLE || context.epoch != 2U ||
+           !(result.actions & MOTOR_STATE_ACTION_DISABLE_POWER);
+}
+#endif
+
 /* 连续事件轨迹补足随机单拍摘要；只比较显式字段，不散列结构padding。 */
 static void trace_step(const char *name,
                        MotorStateRulesContext *context,
@@ -117,12 +150,11 @@ static void trace_step(const char *name,
                        const MotorStateFacts *facts)
 {
     MotorStateDecision result = MotorStateRules_Step(context, &event, facts);
-    printf("TRACE RULE %s events=%u request=%u completion=%u kind=%u effects=%u "
-           "state=%u epoch=%u active=%u kind=%u result=%u effects=%u first=%u faults=%u "
-           "actions=%u rejection=%u\n",
+    printf("TRACE RULE %s events=%u completion=%u kind=%u effects=%u "
+           "state=%u epoch=%u active=%u kind=%u result=%u effects=%u faults=%u "
+           "actions=%u accepted=%u\n",
            name,
            event.events,
-           event.request_epoch,
            event.completion_epoch,
            event.maintenance_kind,
            event.effects,
@@ -132,10 +164,9 @@ static void trace_step(const char *name,
            context->maintenance_kind,
            context->operation_result,
            context->operation_effects,
-           context->first_fault,
            context->latched_faults,
-           result.actions,
-           result.rejection);
+           result.actions & ~UINT32_C(0x60),
+           DECISION_ACCEPTED(result));
 }
 
 static void test_ordered_trace(void)
@@ -147,31 +178,28 @@ static void test_ordered_trace(void)
     MotorStateEvent event = {.events = MOTOR_STATE_EVENT_SELF_TEST_DONE,
                              .completion_epoch = context.epoch};
     trace_step("init-complete", &context, event, &facts);
-    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
-                              .request_epoch = context.epoch,
-                              .control_mode = MOTOR_CONTROL_SPEED};
+    event =
+        (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE, .control_mode = MOTOR_CONTROL_SPEED};
     trace_step("start-request", &context, event, &facts);
     facts.phases_disabled = false;
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_START_DONE,
                               .completion_epoch = context.epoch};
     trace_step("start-complete", &context, event, &facts);
-    event =
-        (MotorStateEvent){.events = MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_FAULT, .faults = 8U};
-    trace_step("fault-and-stop", &context, event, &facts);
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_FAULT, .faults = 8U};
+    trace_step("fault", &context, event, &facts);
     facts.phases_disabled = true;
-    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_CLEAR, .request_epoch = context.epoch};
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_CLEAR};
     trace_step("clear-idle", &context, event, &facts);
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
-                              .request_epoch = context.epoch,
                               .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
     trace_step("save-request", &context, event, &facts);
     facts.operation_idle = facts.maintenance_released = false;
     uint32_t active_epoch = context.epoch;
-    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_OPERATION_DONE,
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_STOP,
                               .completion_epoch = active_epoch,
                               .maintenance_kind = MOTOR_MAINTENANCE_SAVE,
                               .effects = MOTOR_MAINTENANCE_EFFECT_COMMITTED};
-    trace_step("stop-and-save-complete", &context, event, &facts);
+    trace_step("stop-during-save", &context, event, &facts);
     facts.operation_idle = facts.maintenance_released = true;
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_CANCEL_DONE,
                               .completion_epoch = active_epoch,
@@ -179,12 +207,8 @@ static void test_ordered_trace(void)
                               .effects = MOTOR_MAINTENANCE_EFFECT_UNCOMMITTED};
     trace_step("stale-cancel", &context, event, &facts);
     event.completion_epoch = context.epoch;
-    event.events |= MOTOR_STATE_EVENT_ENABLE;
-    event.request_epoch = context.epoch;
-    event.control_mode = MOTOR_CONTROL_SPEED;
-    trace_step("cancel-before-new-enable", &context, event, &facts);
+    trace_step("cancel-confirmed", &context, event, &facts);
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
-                              .request_epoch = context.epoch,
                               .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
     trace_step("new-save", &context, event, &facts);
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_OPERATION_DONE,
@@ -195,33 +219,29 @@ static void test_ordered_trace(void)
     event.effects = MOTOR_MAINTENANCE_EFFECT_COMMITTED;
     trace_step("committed-save", &context, event, &facts);
 
-    /* 完成事件先于同拍新请求；故障释放后仍须显式 CLEAR。 */
+    /* 故障中的任务归还仍须显式 CLEAR。 */
     MotorStateRules_Init(&context);
     context.state = MOTOR_STATE_FAULT;
     context.maintenance_active = true;
     context.maintenance_kind = MOTOR_MAINTENANCE_SAVE;
     context.operation_result = MOTOR_MAINTENANCE_CANCEL_REQUESTED;
-    context.first_fault = context.latched_faults = MOTOR_STATE_FAULT_GUARD;
-    event = (MotorStateEvent){.events =
-                                  MOTOR_STATE_EVENT_CANCEL_DONE | MOTOR_STATE_EVENT_BEGIN_OPERATION,
+    context.latched_faults = MOTOR_STATE_FAULT_GUARD;
+    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_CANCEL_DONE,
                               .completion_epoch = context.epoch,
-                              .request_epoch = context.epoch,
                               .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
-    trace_step("fault-cancel-before-new-operation", &context, event, &facts);
+    trace_step("fault-cancel", &context, event, &facts);
 
     /* 记录代际耗尽的原始公开决定，不能把 ACCEPTED 自动改成 REJECT_FATAL。 */
     MotorStateRules_Init(&context);
     context.state = MOTOR_STATE_IDLE;
     context.epoch = UINT32_MAX;
-    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
-                              .request_epoch = context.epoch,
-                              .control_mode = MOTOR_CONTROL_SPEED};
+    event =
+        (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE, .control_mode = MOTOR_CONTROL_SPEED};
     trace_step("epoch-exhausted-enable", &context, event, &facts);
     MotorStateRules_Init(&context);
     context.state = MOTOR_STATE_IDLE;
     context.epoch = UINT32_MAX;
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
-                              .request_epoch = context.epoch,
                               .maintenance_kind = MOTOR_MAINTENANCE_SAVE};
     trace_step("epoch-exhausted-operation", &context, event, &facts);
 
@@ -229,12 +249,10 @@ static void test_ordered_trace(void)
     MotorStateRules_Init(&context);
     context.state = MOTOR_STATE_IDLE;
     facts.inputs_valid = false;
-    event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE,
-                              .request_epoch = context.epoch,
-                              .control_mode = (MotorControlMode)99};
+    event =
+        (MotorStateEvent){.events = MOTOR_STATE_EVENT_ENABLE, .control_mode = (MotorControlMode)99};
     trace_step("guard-before-invalid-mode", &context, event, &facts);
     event = (MotorStateEvent){.events = MOTOR_STATE_EVENT_BEGIN_OPERATION,
-                              .request_epoch = context.epoch,
                               .maintenance_kind = (MotorMaintenanceKind)99};
     trace_step("guard-before-invalid-kind", &context, event, &facts);
 }
@@ -272,7 +290,8 @@ static int test_calibration_poll_facts(void)
             MotorStateEvent poll = {0};
             MotorStateDecision first = MotorStateRules_Step(&a, &poll, &full);
             MotorStateDecision second = MotorStateRules_Step(&b, &poll, &minimal);
-            if (first.actions != second.actions || first.rejection != second.rejection ||
+            if (first.actions != second.actions ||
+                DECISION_ACCEPTED(first) != DECISION_ACCEPTED(second) ||
                 memcmp(&a, &b, sizeof(a)) != 0)
             {
                 return 1;
@@ -285,6 +304,13 @@ static int test_calibration_poll_facts(void)
 
 int main(void)
 {
+#ifndef MOTOR_RULES_BASELINE
+    if (test_reject_combined_event())
+    {
+        fprintf(stderr, "FAIL combined event must not start work\n");
+        return 1;
+    }
+#endif
     if (test_calibration_poll_facts())
     {
         return 1;
@@ -299,9 +325,9 @@ int main(void)
     MotorStateRules_Init(NULL);
     MotorStateRules_Init(&initial);
     MotorStateDecision misuse = MotorStateRules_Step(NULL, NULL, NULL);
-    if (misuse.rejection != MOTOR_STATE_REJECT_ARGUMENT ||
-        misuse.actions != MOTOR_STATE_ACTION_DISABLE_POWER || initial.state != MOTOR_STATE_INIT ||
-        initial.epoch != 2U || initial.maintenance_kind != MOTOR_MAINTENANCE_NONE)
+    if (DECISION_ACCEPTED(misuse) || misuse.actions != MOTOR_STATE_ACTION_DISABLE_POWER ||
+        initial.state != MOTOR_STATE_INIT || initial.epoch != 2U ||
+        initial.maintenance_kind != MOTOR_MAINTENANCE_NONE)
     {
         return 1;
     }
@@ -351,17 +377,9 @@ int main(void)
                                    MOTOR_STATE_EVENT_BEGIN_OPERATION,
                                    MOTOR_STATE_EVENT_OPERATION_DONE,
                                    MOTOR_STATE_EVENT_OPERATION_FAILED,
-                                   MOTOR_STATE_EVENT_LINK_RECOVERED,
-                                   MOTOR_STATE_EVENT_CANCEL,
+                                   MOTOR_STATE_EVENT_STOP,
                                    MOTOR_STATE_EVENT_CANCEL_DONE,
-                                   MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_OPERATION_FAILED,
-                                   MOTOR_STATE_EVENT_STOP | MOTOR_STATE_EVENT_ENABLE,
-                                   MOTOR_STATE_EVENT_CANCEL | MOTOR_STATE_EVENT_OPERATION_DONE,
-                                   MOTOR_STATE_EVENT_CLEAR | MOTOR_STATE_EVENT_ENABLE,
-                                   MOTOR_STATE_EVENT_OPERATION_DONE | MOTOR_STATE_EVENT_ENABLE,
-                                   MOTOR_STATE_EVENT_CANCEL_DONE | MOTOR_STATE_EVENT_FAULT,
-                                   UINT32_C(0x8000),
-                                   UINT32_C(0x3fff)};
+                                   UINT32_C(0x8000)};
     for (unsigned i = 0; i < 262144U; ++i)
     {
         MotorStateRulesContext a;
@@ -374,7 +392,6 @@ int main(void)
         a.maintenance_active = a.maintenance_kind != MOTOR_MAINTENANCE_NONE;
         a.operation_result = (MotorMaintenanceResult)(random_value() % 5U);
         a.operation_effects = (MotorMaintenanceEffect)(random_value() % 3U);
-        a.first_fault = i % 19U == 0U ? 1U : 0U;
         a.latched_faults = i % 19U == 0U ? 3U : 0U;
         uint32_t bits = random_value();
         MotorStateFacts g = {.active_faults = i % 29U == 0U ? 4U : 0U,
@@ -398,7 +415,6 @@ int main(void)
             .events = event_sets[(i / 8U) % (sizeof(event_sets) / sizeof(event_sets[0]))],
             .faults = i % 17U == 0U ? 8U : 0U,
             .completion_epoch = i % 5U == 0U ? 0U : a.epoch,
-            .request_epoch = i % 7U == 0U ? 0U : a.epoch,
             .control_mode = modes[random_value() % 6U],
             .maintenance_kind = kinds[random_value() % 6U],
             .effects = (MotorMaintenanceEffect)(random_value() % 4U)};
@@ -409,13 +425,13 @@ int main(void)
                                     : MOTOR_MAINTENANCE_CLASS_NONE);
         record(a.operation_result);
         record(a.operation_effects);
-        record(a.first_fault);
         record(a.latched_faults);
-        record(r.actions);
-        record(r.rejection);
+        /* 旧规则返回的两种启动动作未被生产所有者消费，不纳入生产动作对照。 */
+        record(r.actions & ~UINT32_C(0x60));
+        record(DECISION_ACCEPTED(r));
     }
     printf("262144 cases, digest %016llx\n", (unsigned long long)digest);
-    if (digest != UINT64_C(0x9dd9307dcc7bb53f))
+    if (digest != UINT64_C(0xb3492347e23c14de))
     {
         fprintf(stderr, "FAIL frozen motor-state behavior digest\n");
         return 1;

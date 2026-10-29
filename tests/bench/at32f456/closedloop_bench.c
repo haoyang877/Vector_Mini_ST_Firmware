@@ -1,16 +1,16 @@
-#include "closedloop_bench.h"
-
-#include <math.h>
-#include <string.h>
-#include "control_config.h"
-#include "control_math.h"
-#include "speed_control.h"
-
 /* 此装配默认YQ-5708；编译选项可独立选择电机，不按板名切换模型。 */
 #ifndef FOC_ACTIVE_MOTOR_PROFILE
 #define FOC_ACTIVE_MOTOR_PROFILE FOC_MOTOR_PROFILE_YQ_5708
 #endif
-#include "../../../firmware/motor/motor_profile_selection.h"
+#include "closedloop_bench.h"
+
+#include <math.h>
+#include <string.h>
+#include "application_config.h"
+#include "control_math.h"
+#include "speed_control.h"
+
+#include "../../../firmware/config/board_config.h"
 
 #define R40_CL_POLE_PAIRS ((float)PARAM_MOTOR_POLE_PAIRS)
 #define R40_CL_VOLTAGE_LIMIT_V 1.5f
@@ -52,8 +52,8 @@ void R40Cl_Init(R40ClBench *bench)
     bench->configuration.application.speed_acceleration_rad_s2 = 2.5f;
     bench->configuration.application.speed_deceleration_rad_s2 = 2.5f;
     bench->motor.thermal_current_limit_a = 0.8f;
-    FOC_ConfigureControllers(&bench->configuration, &bench->foc, &bench->speed_pi);
-    Encoder_ParamInit(&bench->configuration.device.encoder, &bench->encoder);
+    Foc_ConfigureControllers(&bench->configuration, &bench->foc, &bench->speed_pi);
+    Encoder_InitFeedback(&bench->configuration.device.encoder, &bench->encoder);
 }
 
 bool R40Cl_ReadEncoder(R40ClBench *bench, uint8_t stage, uint16_t *raw)
@@ -101,7 +101,7 @@ bool R40Cl_Begin(R40ClBench *bench, R40OlModel *guard, uint32_t mode, uint32_t n
     bench->telemetry.speed_mae_rpm = 0.0f;
     memset(bench->angle_sums, 0, sizeof(bench->angle_sums));
     memset(bench->angle_samples, 0, sizeof(bench->angle_samples));
-    FOC_CurrentController_Reset(&bench->foc);
+    Foc_ResetCurrent(&bench->foc);
     PiController_Reset(&bench->speed_pi);
     Encoder_ResetVelocity(&bench->encoder);
     bench->motor.speed_ramped_rad_s = 0.0f;
@@ -125,7 +125,7 @@ static void update_angle(R40ClBench *bench, uint16_t angle)
     }
     bench->last_angle = angle;
     float direction = bench->telemetry.direction == 0 ? 1.0f : (float)bench->telemetry.direction;
-    bench->telemetry.velocity_rad_s = direction * Encoder_GetMecVelContinuous(&bench->encoder);
+    bench->telemetry.velocity_rad_s = direction * Encoder_GetMechVelContinuous(&bench->encoder);
 }
 
 static float ramp(uint32_t ticks, uint32_t duration)
@@ -297,7 +297,7 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
     }
     else
     {
-        phase = Encoder_GetElePhase(&bench->encoder);
+        phase = Encoder_GetElecPhase(&bench->encoder);
         if (fabsf(t->velocity_rad_s) > R40_CL_SPEED_LIMIT_RAD_S)
         {
             fail(bench, guard, 4U);
@@ -325,10 +325,10 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
                                    : (ticks < 100000U || ticks >= 180000U
                                           ? 0.0f
                                           : -bench->speed_reference_rpm * _2PI / 60.0f);
-                SpeedMode_UpdateControl(&bench->configuration,
-                                        &bench->motor,
-                                        &bench->speed_pi,
-                                        t->direction * t->velocity_rad_s);
+                SpeedControl_Update(&bench->configuration,
+                                    &bench->motor,
+                                    &bench->speed_pi,
+                                    t->direction * t->velocity_rad_s);
             }
             iq = bench->motor.iq_target_a;
         }
@@ -339,19 +339,25 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
         phase -= _2PI;
     }
     bench->motor.id_target_a = id;
-    bench->foc.bus_voltage_filtered_v = guard->bus_v;
+    bench->measurement.bus_voltage_filtered_v = guard->bus_v;
     /* 原中间层电流语义为负向采样差，与其SVM占空比方向配对。 */
-    bench->foc.phase_a_current_a = -guard->current_a[0];
-    bench->foc.phase_b_current_a = -guard->current_a[1];
-    bench->foc.phase_c_current_a = -guard->current_a[2];
+    bench->measurement.phase_a_current_a = -guard->current_a[0];
+    bench->measurement.phase_b_current_a = -guard->current_a[1];
+    bench->measurement.phase_c_current_a = -guard->current_a[2];
     if (t->mode == 3U)
     {
-        FOC_Vq_Mode(&bench->configuration, &bench->foc, &bench->motor, phase, 0.0f);
+        Foc_RunVq(
+            &bench->configuration, &bench->foc, &bench->measurement, &bench->motor, phase, 0.0f);
     }
     else
     {
-        FOC_CurrentWithReference(
-            &bench->configuration, &bench->foc, &bench->motor, phase, 0.0f, iq);
+        Foc_RunCurrentRef(&bench->configuration,
+                          &bench->foc,
+                          &bench->measurement,
+                          &bench->motor,
+                          phase,
+                          0.0f,
+                          iq);
     }
     t->id_reference_a = id;
     t->iq_reference_a = iq;

@@ -25,9 +25,9 @@ def main() -> int:
     for primitive in ("flash_memory", "flash_store_word"):
         source = source.replace(function_source(source, primitive), "")
     (out / "r40_storage_production.inc").write_text(source, encoding="utf-8")
-    source = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/sensing/mcu_temperature_sensing.c").read_text(encoding="utf-8")
     (out / "r40_temperature_production.inc").write_text(
-        function_source(source, "Temperature_Update"), encoding="utf-8"
+        function_source(source, "McuTemperature_Update"), encoding="utf-8"
     )
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += ["-DBSP_BOARD=2", "-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]

@@ -20,16 +20,16 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / "main.h").write_text("#pragma once\n#include <stdint.h>\n")
-    sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+    sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
     src = (
         r"""
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include "motor_types.h"
-#include "foc_algorithm.h"
-#include "sampling_scale.h"
-#include "current_sense_limits.h"
+#include "foc.h"
+#include "board_config.h"
+#include "application_config.h"
 #include "bsp_adc.h"
 #include "control_math.h"
 static struct {uint32_t JDR1,JDR2,JDR3;} adc;
@@ -39,7 +39,7 @@ static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 static MotorConfiguration configuration;
 static MotorControlState motor_state;
-static FocState foc;
+static MotorMeasurement foc;
 static void MotorFault_Report(MotorControlState *m, MotorFaultCode x) {m->fault_code=x;}
 BspResult BspAdc_ReadFast(BspAdcFastSample *sample) {
     const uint32_t raw[3]={adc.JDR1,adc.JDR2,adc.JDR3};
@@ -51,13 +51,13 @@ BspResult BspAdc_ReadFast(BspAdcFastSample *sample) {
 }
 
 """
-        + function_source(sensing, "MotorCurrentOffsets_Valid")
-        + function_source(sensing, "Current_Cal")
+        + function_source(sensing, "MotorCurrentOffsets_IsValid")
+        + function_source(sensing, "MotorCurrent_Update")
         + r"""
 static void sample_current(void) {
     BspAdcFastSample sample;
     BspResult result=BspAdc_ReadFast(&sample);
-    Current_Cal(&configuration,&foc,&motor_state,result==BSP_OK?&sample:NULL);
+    MotorCurrent_Update(&configuration,&foc,&motor_state,result==BSP_OK?&sample:NULL);
 }
 int main(void) {
 #ifdef TEST_EXPECT_DEFAULT_6_MILLIOHM
@@ -81,7 +81,25 @@ int main(void) {
     /* Actual 1 A input is not inadvertently rescaled by four. */
     adc.JDR2=(uint32_t)roundf(4*(configuration.device.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
     sample_current();assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
-    Current_Cal(&configuration,&foc,&motor_state,NULL);
+    /* 两种分流策略均为18 A；严格大于阈值并连续5拍才报告过流。 */
+    {
+        BspAdcFastSample overcurrent={.valid_mask=BSP_ADC_FAST_PHASE_CURRENT_VALID};
+        overcurrent.phase_current_a[0]=18.0f;
+        for(unsigned i=0;i<OVERCURRENT_CONFIRM_CYCLES+1U;i++)
+            MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
+        assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+        overcurrent.phase_current_a[0]=18.1f;
+        for(unsigned i=0;i<OVERCURRENT_CONFIRM_CYCLES-1U;i++) {
+            MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
+            assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+        }
+        MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
+        assert(motor_state.fault_code==MOTOR_FAULT_OVERCURRENT);
+        overcurrent.phase_current_a[0]=0.0f;
+        MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
+        motor_state.fault_code=MOTOR_FAULT_NONE;
+    }
+    MotorCurrent_Update(&configuration,&foc,&motor_state,NULL);
     assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET && isnan(foc.phase_a_current_a));
     motor_state.fault_code=MOTOR_FAULT_NONE;
     configuration.device.phase_c_offset_counts=NAN;sample_current();

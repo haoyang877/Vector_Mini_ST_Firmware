@@ -5,7 +5,7 @@
 
 ## 当前数据流
 
-[`angle_feedback.c`](../../firmware/motor/feedback/angle_feedback.c)消费平台读帧状态并完成方向、
+[`encoder_feedback.c`](../../firmware/motor/feedback/encoder_feedback.c)消费平台读帧状态并完成方向、
 1024点LUT插值、电角度、多圈位置与速度估计。原始/校正环形角以65536 counts/转表示；
 机械位置和速度对控制算法使用rad和rad/s。20kHz快路径更新角度PLL速度，慢拍维护位置。
 LUT、电零位和机械零位由 `MotorConfiguration.device.encoder` 保存，反馈运行状态不复制表。
@@ -38,7 +38,7 @@ STOP可能取消尚未开始的派生SAVE；RAM结果仍有效时可在满足准
 LUT任务依次执行静态对齐、无感启动和稳定、找原点、正向采样、分批构表、残差验证、
 发布结果与卸流。电零位在已有效LUT上执行d轴对齐及角度均值。
 计算由 `encoder_calibration_core` 处理Q15差值/均值、累计、构表和残差；
-`encoder_calibration_task` 持有阶段和时间并发布结果。
+`encoder_calibration` 持有阶段和时间并发布结果。
 APP维护协调器负责准入、取消和固定6KiB工作区；主状态机决定功率与资源释放；前台执行Flash。
 计算核心不访问HAL、Flash，不拥有第二套运行状态机。
 
@@ -48,7 +48,7 @@ APP维护协调器负责准入、取消和固定6KiB工作区；主状态机决�
 
 ## 存储与证据
 
-保存使用[schema14](../protocols/parameter_schema14_storage_v1.md)，兼容读取有效schema12/13。
+保存使用[schema14](../protocols/parameter_schema14_storage_v1.md)，旧版本不受支持。
 旧文档中“旧格式必定拒绝”或固定历史Flash偏移不作为当前恢复规则。
 标定一致性不是外部角度计量。历史通过范围见[APP1.5.1实机报告](../reports/2026-10-21-core-bench-acceptance-v1.md)；
 后续源码的实机、复位重装载和时序验证仍须匹配候选重新建立证据。

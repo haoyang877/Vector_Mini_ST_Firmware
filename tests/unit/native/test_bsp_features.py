@@ -24,13 +24,13 @@ def main():
         "-I",
         str(platform / "bsp/include"),
         "-I",
-        str(platform / "config"),
+        str(ROOT / "firmware/config"),
         "-I",
         str(platform / "bsp"),
         "-I",
         str(platform / "devices"),
         "-I",
-        str(ROOT / "firmware/app/config"),
+        str(ROOT / "firmware/config"),
     ]
     subject = native / "bsp_feature_config_test.c"
     for board in (1, 2):
@@ -83,7 +83,15 @@ def main():
             f"-DEXPECT_CAN_ENABLED={can}",
         ]
         if target:
-            flags += ["-include", str(ROOT / "firmware/app/config/targets" / target)]
+            flags += [
+                "-DFIRMWARE_TARGET_"
+                + {
+                    "r40_app_off.h": "AT32_OFF",
+                    "r40_app_commissioning.h": "AT32_COMMISSIONING",
+                    "at32_motor_bench.h": "AT32_BENCH",
+                }[target]
+                + "=1"
+            ]
         exe = args.out / f"target_{index}.exe"
         subprocess.run(common + api + flags + [str(subject), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
@@ -120,11 +128,11 @@ def main():
         ["BSP_BOARD=1", "BSP_REQUIRED_MCU_TEMPERATURE=0", "BSP_ENABLED_MCU_TEMPERATURE=0"],
         ["APP_TARGET_R40_F456=1", "BSP_BOARD=2", "BSP_REQUIRED_MCU_TEMPERATURE=0"],
         ["BSP_ENABLED_FAST_LOOP_PROFILE=2"],
-        ["BSP_TARGET_MOTOR_ONLY=1"],
-        ["BSP_TARGET_MOTOR_ONLY=1", "BSP_BOARD=2", "APP_TARGET_R40_F456=1"],
+        ["FIRMWARE_TARGET_AT32_BENCH=1"],
+        ["FIRMWARE_TARGET_AT32_BENCH=1", "BSP_BOARD=2", "APP_TARGET_R40_F456=1"],
     ]
     for feature in ("PHASE_CURRENT", "BUS_VOLTAGE", "ROTOR_ENCODER", "PWM", "CAN"):
-        invalid += [[f"BSP_ENABLED_{feature}=0"], [f"BSP_REQUIRED_{feature}=0"]]
+        invalid.append([f"BSP_ENABLED_{feature}=0"])
     for index, flags in enumerate(invalid):
         result = subprocess.run(
             common

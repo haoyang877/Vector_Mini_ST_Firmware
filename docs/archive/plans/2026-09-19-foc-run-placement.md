@@ -37,7 +37,7 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 | 1 | 1.3 位置入口决策 | `Task_Position_Mode` 保留为模式 3 顺序入口（与 `Task_Speed_Mode` 对称的外部/调试接口），定义处已注明"生产由外环执行本适配器"；不删除，等价性夹具继续以其为被测入口 | 完成（保留并文档化） |
 | 1 | 1.4 无感运行模块拆分 | 启动序列与速度模式从观测器实现拆出为 `motor/foc/foc_sensorless_run.{c,h}`（观测器文件只留 Fluxobserver/Observer）；`SensorlessStartup_Reset` 随迁；`EncoderCalibConfig` 归位 `foc_calibration.c`（其 profile 所有者，已含 hw_conf 债务）；控制时基与无感默认参数下沉 `platform/api/control_config.h`（跨层文档化契约，hw_conf 引用并派生 PWM 参数）；删除两个全仓库无消费者的派生宏；`foc_run.c`/`motor_state.c`/calibration/errhandle 补 include；两个原生夹具与两个 Keil 工程同步 | 完成 |
 | 2 | 2.1 hw_conf 控制常量上移 | 控制时基（FOC/速度/位置/级联环）与无感启动默认参数移入 `platform/api/control_config.h`；`hw_conf.h` 改为引用并派生 `PWM_TIM_FREQ` | 完成（作为 1.4 前置） |
-| 2 | 2.2 速度环核心下沉 | 新建 `motor/foc/foc_speed.{c,h}`：`MotorControl_UpdateSpeedRamp` 自运行模块迁入、`SpeedMode_UpdateControl` 自 `foc_run.c` 迁入（去 static）、新增 `SpeedMode_Run`（分频 + 更新 + 电流环，顺序任务核心）；`Task_Speed_Mode` 保留为 app 薄包装（签名不变，外部接口）；摩擦辨识改调 `SpeedMode_Run` 并删 `foc_run.h`（**最后一条 motor→app 反向依赖消除**，架构债 −1）；夹具/两工程/债务基线同步 | 完成 |
+| 2 | 2.2 速度环核心下沉 | 新建 `motor/foc/foc_speed.{c,h}`：`MotorControl_UpdateSpeedRamp` 自运行模块迁入、`SpeedControl_Update` 自 `foc_run.c` 迁入（去 static）、新增 `SpeedControl_Run`（分频 + 更新 + 电流环，顺序任务核心）；`Task_Speed_Mode` 保留为 app 薄包装（签名不变，外部接口）；摩擦辨识改调 `SpeedControl_Run` 并删 `foc_run.h`（**最后一条 motor→app 反向依赖消除**，架构债 −1）；夹具/两工程/债务基线同步 | 完成 |
 | 2 | 2.3（可选）文件级拆分 | `app/foc_run.c` → `foc_mode_tasks.c` / `foc_outer_loop.c` / `foc_position_adapter.c` | 待办 |
 
 ## 依赖矩阵（改动面 × 并行工作）
@@ -62,7 +62,7 @@ communication 用本地原型绕过依赖方向。本轮目标：**公共接口�
 | --- | --- |
 | `run_can_status_tests.py` | 已删除 `MotorOuterLoop_GetTelemetry` stub 与 telemetry 类型，改影子字段断言（0.1） |
 | `test_sensorless_transitions.py` | 切片源与 `SensorlessStartup_Reset` 提取改指 `foc_sensorless_run.c`，`MotorControl_UpdateSpeedRamp` 独立自 `foc_speed.c` 提取；PRELUDE 补两个模块头；标定配置经 calibration 切片提供（1.1→1.4→2.2） |
-| `test_outer_loop_runtime.py` | 斜坡与 `SpeedMode_UpdateControl` 自 `foc_speed.c` 提取，其余仍取自 `foc_run.c`（1.1→1.4→2.2） |
+| `test_outer_loop_runtime.py` | 斜坡与 `SpeedControl_Update` 自 `foc_speed.c` 提取，其余仍取自 `foc_run.c`（1.1→1.4→2.2） |
 | `test_position_config_cache.py` | 保持以 `Task_Position_Mode` 为 actual 入口（1.3 保留决策），无需修改 |
 | `test_bus_voltage_protection.py` | `Task_Position_Mode_Reset` stub 改为 `PositionImpedance_Reset`（1.2） |
 | `test_run_state.py` | 新增 `Task_Position_Mode_Reset` 静默 stub（1.2） |

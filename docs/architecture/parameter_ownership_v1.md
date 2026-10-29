@@ -2,7 +2,7 @@
 
 更新：2026-10-26。适用当前核心工程。本页描述配置与运行状态分离后的实际RAM和文件归属。
 四类配置不再嵌入运行状态；[schema14](../protocols/parameter_schema14_storage_v1.md)删除退役齿槽占位，
-只读兼容有效schema12/13；schema10通过显式离线工具迁移，不在启动时自动写回。
+APP仅接受schema14，其他版本不在启动时迁移或写回；Loader独立行为不在本轮范围。
 基础输入、派生量、标定结果与运行状态的分类及宏计算边界见
 [参数来源与计算时机](parameter_sources_v1.md)。
 
@@ -10,15 +10,15 @@
 
 | 类别 | 默认值入口 | 活动对象与归属 |
 | --- | --- | --- |
-| 硬件 | `platform/config/boards/`；`platform/config/bsp_config.h`选择目标，能力头保留派生表达式 | 编译期只读，包含原有固定电流限值；不能通过 CAN 改采样尺度或保护阈值 |
-| 电机 | `motor/motor_profile_defaults.h`，含热模型基础输入 | `s_motor_configuration.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
-| 应用 | `parameters/application_profile_defaults.h`，含外环/前馈及既有关节配置修订 | `s_motor_configuration.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
-| 设备个体 | `parameters/device_profile_defaults.h` | `s_motor_configuration.device`：节点与三相采样零偏；其 `encoder` 成员单份持有LUT、方向、电零位、机械零位和标定标志；生产身份由独立身份页提供 |
+| 硬件 | `config/board_config.h`，包含板卡选择与资源输入 | 编译期只读；不能通过 CAN 改采样尺度或保护阈值 |
+| 电机 | `config/motor_profile_config.h`，含型号和热模型基础输入 | `s_motor_configuration.model`：极对数、R/L/磁链、电流环整定、标定电流及绕组热配置 |
+| 应用 | `config/application_config.h`，含外环/前馈及既有关节配置修订 | `s_motor_configuration.application`：运行包络、速度/位置外环、轴范围及默认关闭的速度前馈 |
+| 设备个体 | `config/application_config.h` | `s_motor_configuration.device`：节点与三相采样零偏；其 `encoder` 成员单份持有LUT、方向、电零位、机械零位和标定标志；生产身份由独立身份页提供 |
 
 以上路径相对 `firmware/`。硬件配置为编译期常量，其余三类活动配置组成独立的
 `MotorConfiguration`，没有复制成每类各一份完整运行对象或Flash记录。
 
-板卡由 `platform/config/bsp_config.h` 的 `BSP_BOARD` 统一选择，并校验兼容名称
+板卡由 `config/board_config.h` 的 `BSP_BOARD` 统一选择，并校验兼容名称
 `FOC_ACTIVE_HW_PROFILE`；电机由 `FOC_ACTIVE_MOTOR_PROFILE` 独立选择。已有两板及多种电机
 配置，未知 ID 编译报错；具体支持范围见资源与型号表。`CURRENT_SENSE_SHUNT_MILLIOHM`
 由所选板提供：STM32旧板默认6 mΩ，可在硬件确为2 mΩ时显式选择；AT32新板固定4 mΩ。
@@ -85,8 +85,8 @@ flowchart LR
 
 ## 兼容与尚未完成
 
-schema14记录为2288字节，保留整条CRC与16KiB参数/身份区域；旧schema12/13仍按原始长度校验后装载。
-schema14已删除旧齿槽表；12/13兼容读取仍识别并忽略其旧占位，少量基础退役字段不用于控制，导出清零；
+schema14记录为2288字节，保留整条CRC与16KiB参数/身份区域；旧版本不受支持。
+schema14已删除旧齿槽表，少量基础退役字段不用于控制，导出清零；
 参数ID 0x47～0x4B退役且不复用，其余目录ID/缩放/权限保持。
 `node_id`与`speed_limit_rad_s`是独立持久字段；当前装载不再从角色覆盖节点，
 也不从节点选择应用包络。应用编译上限为既有20 rad/s，默认仍0.5 rev/s和6 A，

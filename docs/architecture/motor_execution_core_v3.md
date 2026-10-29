@@ -1,24 +1,27 @@
 # 核心控制执行模块
 
-更新：2026-10-21。当前四种模式为电流、速度、位置、q轴电压。
+更新：2026-10-21。当前模式包括电流、速度、位置、q轴电压及开环电压/电流。
 
 ## 模块边界
 
-主状态机批准模式和目标，MotorAxis调度，motor层的motor_control_execution执行一拍控制。
+主状态机批准模式和目标，MotorAxis调度，motor层的motor_control执行一拍控制。
 控制任务不自行启相、不切换主状态、不写Flash；错误由所有者处理。
 
 | 源码 | 核心工作 |
 | --- | --- |
 | [motor_command.c](../../firmware/app/runtime/motor_command.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
-| [motor_control.c](../../firmware/motor/foc/motor_control.c) | 协调2kHz速度/位置外环，分发20kHz任务；不读取APP状态机或服务命令 |
-| [position_cascade.c](../../firmware/motor/position/position_cascade.c) | 直接位置PD → 限幅速度参考 → 速度PI → 电流参考 |
-| [foc_algorithm.c](../../firmware/motor/foc/foc_algorithm.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
-| [foc_pid.c](../../firmware/motor/foc/foc_pid.c) | PI状态更新、限幅和输出跟踪 |
-| [angle_feedback.c](../../firmware/motor/feedback/angle_feedback.c) | 编码器角度校正及快慢估计 |
+| [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调2kHz速度/位置外环，分发20kHz任务；不读取APP状态机或服务命令 |
+| [position_control.c](../../firmware/motor/control/position_control.c) | 直接位置PD → 限幅速度参考 → 速度PI → 电流参考 |
+| [foc.c](../../firmware/motor/control/foc.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
+| [foc_output.c](../../firmware/motor/control/foc_output.c) | 调用FOC计算、提交PWM并完成后处理；提交失败仍报告故障 |
+| [pi_controller.c](../../firmware/motor/control/pi_controller.c) | PI状态更新、限幅和输出跟踪 |
+| [encoder_feedback.c](../../firmware/motor/feedback/encoder_feedback.c) | 编码器角度校正及快慢估计 |
 
 ## 输入与输出
 
-控制入口显式接收电机、FOC、编码器和观测器对象。
+控制入口显式接收电机、采样测量、FOC、编码器和观测器对象。
+Axis持有的`MotorMeasurement`包含母线电压、三相电流及MCU温度；
+FOC内的母线电流和功率是估算值，快慢拍测量字段不构成同一时刻的采样快照。
 目标和反馈使用A、rad/s、rad、V；线路整数尺度由通信边界换算。
 `MotorCommand_ValidateTarget`只验证格式及数值范围，不授予运行许可。
 `MotorOuterLoop_SlowTick`写电流参考，快环读取并执行，禁止通信直接写控制器积分。
@@ -29,6 +32,7 @@
 | SPEED | 速度PI生成q轴电流参考 | d/q电流闭环 |
 | POSITION | 位置PD和速度PI生成q轴电流参考 | d/q电流闭环 |
 | VQ | 不执行位置/速度闭环 | 按编码器电角度施加q轴电压 |
+| OPEN_VOLTAGE / OPEN_CURRENT | 不执行位置/速度闭环 | 按指定电角频率执行开环电压或电流控制 |
 
 ## 位置串级只保留什么
 

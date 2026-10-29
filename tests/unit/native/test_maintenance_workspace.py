@@ -72,7 +72,7 @@ def main() -> None:
     )
     run([str(core_executable)])
     fixture = (ROOT / "tests/unit/maintenance_workspace_test.c").read_text(encoding="utf-8")
-    sources = [core_directory / "encoder_calibration_task.c"]
+    sources = [core_directory / "encoder_calibration.c"]
     if args.reference_source:
         sources.append(args.reference_source)
     traces = []
@@ -105,7 +105,7 @@ def main() -> None:
                 str(source),
                 str(task_core),
                 str(ROOT / "firmware/app/runtime/maintenance_workspace.c"),
-                str(ROOT / "firmware/motor/foc/foc_pid.c"),
+                str(ROOT / "firmware/motor/control/pi_controller.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 "-o",
                 str(executable),

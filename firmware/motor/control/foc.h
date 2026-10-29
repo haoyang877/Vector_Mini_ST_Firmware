@@ -1,0 +1,204 @@
+#ifndef FOC_H
+#define FOC_H
+
+/* foc 算法核心：坐标变换、SVPWM 与电流/电压环；PWM 输出统一经 BSP 契约，
+ * 不直接访问定时器寄存器。 */
+
+#include "motor_config.h"
+#include "motor_measurement.h"
+#include "motor_types.h"
+#include "pi_controller.h"
+
+/**
+ * @brief FOC控制器、坐标变换及调制状态；采样值由MotorMeasurement持有。
+ * @note 电压V、电流A，调制比及占空比为标幺；母线电流和功率为控制估算。
+ */
+typedef struct
+{
+    float bus_current_a, bus_current_filtered_a;
+    float power_filtered_w;
+    float voltage_alpha_v, voltage_beta_v;
+    float vd_v, vq_v;
+    float current_alpha_a, current_beta_a;
+    float current_alpha_filtered_a, current_beta_filtered_a;
+    float id_a, iq_a, id_filtered_a, iq_filtered_a;
+    PiController id_pi;
+    PiController iq_pi;
+    /*dq voltage of p.u.*/
+    float mod_d, mod_q;
+    /*alpha-beta voltage of p.u.*/
+    float mod_alpha, mod_beta;
+    /*duty of voltage utilization */
+    float duty;
+    /*duty cycle of abc*/
+    float duty_a, duty_b, duty_c;
+    int32_t sector;
+} FocState;
+
+/**
+ * @brief 计算当前母线允许的 d/q 电压幅值上限，复用控制器调制深度限制。
+ * @param bus_voltage_v 母线电压，单位 V。
+ * @return 有限正母线电压对应的最大幅值 V；无效或非正输入返回零。
+ * @note 纯计算、非阻塞；这是算法限幅，不替代产品功率与温度保护。
+ */
+float Foc_MaxVoltage(float bus_voltage_v);
+
+/**
+ * @brief 将活动d/q与速度PI增益、采样周期绑定到显式控制器。
+ * @param configuration 调用期间稳定的只读电机及应用配置。
+ * @param foc d/q控制器所有者。
+ * @param speed_pi 速度控制器所有者。
+ * @note 仅初始化或受保护的配置提交边界调用；保留积分、输出和动态限幅。
+ */
+void Foc_ConfigureControllers(const MotorConfiguration *configuration,
+                              FocState *foc,
+                              PiController *speed_pi);
+
+/**
+ * @brief 按本拍母线电压刷新d/q电压额度。
+ * @param foc d/q控制器所有者。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
+ * @note 快速环在母线采样后调用；不改变增益、采样周期、积分或速度控制器。
+ */
+void Foc_UpdateCurrentLimits(FocState *foc, const MotorMeasurement *measurement);
+
+/**
+ * @brief  Clarke 变换：三相 → 静止 α/β。
+ * @param  a 三相 A 相值。
+ * @param  b 三相 B 相值。
+ * @param  c 三相 C 相值。
+ * @param  alpha 输出 α 轴分量，调用方持有。
+ * @param  beta 输出 β 轴分量，调用方持有。
+ */
+void Clarke_Transform(float a, float b, float c, float *alpha, float *beta);
+/**
+ * @brief  Clarke 反变换：α/β → 三相。
+ * @param  alpha α 轴分量。
+ * @param  beta β 轴分量。
+ * @param  a 输出 A 相值。
+ * @param  b 输出 B 相值。
+ * @param  c 输出 C 相值。
+ */
+void Clarke_Inverse(float alpha, float beta, float *a, float *b, float *c);
+/**
+ * @brief  Park 变换：α/β → 旋转 d/q。
+ * @param  alpha α 轴分量。
+ * @param  beta β 轴分量。
+ * @param  theta 电角度，单位 rad。
+ * @param  d 输出 d 轴分量。
+ * @param  q 输出 q 轴分量。
+ */
+void Park_Transform(float alpha, float beta, float theta, float *d, float *q);
+/**
+ * @brief  Park 反变换：d/q → α/β。
+ * @param  d d 轴分量。
+ * @param  q q 轴分量。
+ * @param  theta 电角度，单位 rad。
+ * @param  alpha 输出 α 轴分量。
+ * @param  beta 输出 β 轴分量。
+ */
+void Park_Inverse(float d, float q, float theta, float *alpha, float *beta);
+/**
+ * @brief  SVPWM 扇区判定与矢量时间计算。
+ * @param  alpha α 轴调制分量。
+ * @param  beta β 轴调制分量。
+ * @param  duty_a 输出 A 相占空比。
+ * @param  duty_b 输出 B 相占空比。
+ * @param  duty_c 输出 C 相占空比。
+ * @param  sector 输出扇区号（1..6），调用方持有。
+ * @note   仅快速环调用；输入需为有限值。
+ */
+void Svm_SectorJudge(
+    float alpha, float beta, float *duty_a, float *duty_b, float *duty_c, int32_t *sector);
+
+/** @brief 共用FOC控制律；角度来源由调用方独立选择。 */
+typedef enum
+{
+    FOC_CONTROL_CURRENT,
+    FOC_CONTROL_ID_VQ,
+    FOC_CONTROL_VOLTAGE
+} FocControlLaw;
+
+/**
+ * @brief 执行实测电流变换、控制律、电压限幅、SVPWM及一次PWM更新。
+ * @param configuration 本拍稳定的活动配置。
+ * @param foc 电流变换、调制与PI对象。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
+ * @param motor 电流保护额度和故障对象。
+ * @param law d/q电流闭环、Id闭环加Vq给定或纯电压给定。
+ * @param phase 本拍控制电角度，rad。
+ * @param phase_vel 电角速度，rad/s，用于原一拍输出角度预测。
+ * @param d_reference 电流律/Id律为A，纯电压律为V。
+ * @param q_reference 电流律为A，其余为V。
+ * @note 仅快速环；调用方先完成采样、过流/过压和输出准入；本函数不启相。
+ */
+void Foc_Step(const MotorConfiguration *configuration,
+              FocState *foc,
+              const MotorMeasurement *measurement,
+              MotorControlState *motor,
+              FocControlLaw law,
+              float phase,
+              float phase_vel,
+              float d_reference,
+              float q_reference);
+
+/**
+ * @brief  电流环：执行一拍 d/q 电流闭环并更新三相 PWM。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
+ * @param  foc foc 状态。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
+ * @param  motor_state 运行目标与动态热额度；必要时锁存故障。
+ * @param  phase 电角度，单位 rad。
+ * @param  phase_vel 电角速度，单位 rad/s（解耦/前馈用）。
+ * @note   调用前由所有者将活动Kp/Ki及FOC_TS_S绑定到id_pi/iq_pi；本入口只刷新动态电压限幅。
+ *         仅快速环调用；PWM 输出经 motor_hw 契约。
+ */
+void Foc_RunCurrent(const MotorConfiguration *configuration,
+                    FocState *foc,
+                    const MotorMeasurement *measurement,
+                    MotorControlState *motor_state,
+                    float phase,
+                    float phase_vel);
+/**
+ * @brief  电流环（带外部 q 轴参考）：供辨识与调试注入 iq。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
+ * @param  foc foc 状态。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
+ * @param  motor_state 电机控制状态。
+ * @param  phase 电角度，单位 rad。
+ * @param  phase_vel 电角速度，单位 rad/s。
+ * @param  iq_reference q 轴电流参考，单位 A。
+ * @note   调用前由所有者将活动Kp/Ki及FOC_TS_S绑定到id_pi/iq_pi；本入口只刷新动态电压限幅。
+ *         仅快速环调用；参考仍受 current_limit_a 限制。
+ */
+void Foc_RunCurrentRef(const MotorConfiguration *configuration,
+                       FocState *foc,
+                       const MotorMeasurement *measurement,
+                       MotorControlState *motor_state,
+                       float phase,
+                       float phase_vel,
+                       float iq_reference);
+/**
+ * @brief  复位电流环控制器（清积分与输出）。
+ * @param  foc foc 状态。
+ * @note   模式切换与故障清理时调用；不写硬件。
+ */
+void Foc_ResetCurrent(FocState *foc);
+/**
+ * @brief  Vq给定、Id闭环到零：使用传入电角度执行一拍。
+ * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
+ * @param  foc foc 状态。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
+ * @param  motor_state 电机控制状态。
+ * @param  phase 电角度，单位 rad。
+ * @param  phase_vel 电角速度，单位 rad/s。
+ * @note   调用前由所有者将活动Kp/Ki及FOC_TS_S绑定到id_pi；本入口只刷新动态电压限幅。
+ *         仅快速环调用；需要有效编码器帧。
+ */
+void Foc_RunVq(const MotorConfiguration *configuration,
+               FocState *foc,
+               const MotorMeasurement *measurement,
+               MotorControlState *motor_state,
+               float phase,
+               float phase_vel);
+#endif

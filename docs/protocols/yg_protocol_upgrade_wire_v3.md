@@ -11,7 +11,7 @@
 | --- | --- |
 | product/hardware | 0x59473236 / 1，编译目标声明 |
 | layout | 6，Loader16KiB；APP基址0x08004000、容量96KiB |
-| parameter ABI/schema | 0x000E08F0 / 14；记录2288B，兼容读取12/13 |
+| parameter ABI/schema | 0x000E08F0 / 14；记录2288B，只接受schema14 |
 | APP/Loader版本声明 | 1.5.7 / 2.1.0；实际以匹配源码生成的shared清单/描述符为准 |
 | image profile | 0x53593549，descriptor版本3、96B |
 | activation/attempt/confirm偏移 | 64..71 / 72..79 / 80..87 |

@@ -1,7 +1,7 @@
 /* 状态读取抢占夹具：实际读取实现由Python拼入，更新模拟完整ISR发布。 */
 #include "motor_axis.h"
-#include "foc_algorithm.h"
-#include "angle_feedback.h"
+#include "foc.h"
+#include "encoder_feedback.h"
 #include "bsp_system.h"
 #include <assert.h>
 #include <math.h>
@@ -11,6 +11,7 @@
 static MotorConfiguration s_motor_configuration;
 static MotorControlState s_motor_state;
 static FocState s_foc_state;
+static MotorMeasurement s_motor_measurement;
 static EncoderState s_rotor_encoder;
 static volatile uint32_t s_status_revision;
 static unsigned s_depth, s_budget, s_getter_calls, s_locked_getter_calls, s_value;
@@ -24,8 +25,8 @@ static void publish(unsigned value)
     s_motor_state.speed_target_rad_s = (float)value;
     s_motor_state.iq_target_a = (float)value;
     s_foc_state.iq_a = (float)value;
-    s_foc_state.temperature_c = (float)value;
-    s_foc_state.bus_voltage_filtered_v = (float)value;
+    s_motor_measurement.temperature_c = (float)value;
+    s_motor_measurement.bus_voltage_filtered_v = (float)value;
     s_foc_state.bus_current_filtered_a = (float)value;
     s_motor_configuration.application.axis_profile_valid = true;
     ++s_status_revision;
@@ -42,7 +43,7 @@ void BspSystem_ExitCritical(uint32_t key)
     s_depth = key;
 }
 
-float Encoder_GetMecPos(const EncoderState *encoder)
+float Encoder_GetMechPos(const EncoderState *encoder)
 {
     (void)encoder;
     ++s_getter_calls;
@@ -58,7 +59,7 @@ float Encoder_GetMecPos(const EncoderState *encoder)
     return (float)s_value;
 }
 
-float Encoder_GetMecVel(const EncoderState *encoder)
+float Encoder_GetMechVel(const EncoderState *encoder)
 {
     (void)encoder;
     return (float)s_value;
@@ -70,13 +71,13 @@ uint16_t Encoder_GetBadFrameStreak(const EncoderState *encoder)
     return 0U;
 }
 
-uint8_t Encoder_GetCalibFlag(const EncoderCalibration *calibration)
+uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration)
 {
     (void)calibration;
     return 3U;
 }
 
-bool MotorTemperature_IsFresh(void)
+bool McuTemperature_IsFresh(void)
 {
     return (s_value & 1U) != 0U;
 }

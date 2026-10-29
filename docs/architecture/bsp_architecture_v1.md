@@ -112,9 +112,9 @@ ADC的初始化、运行及Flash暂停恢复共用文件私有状态，不再通
 
 | 位置 | 内容 | 例子 |
 | --- | --- | --- |
-| platform/config/boards | 物理接线、器件、采样比例、时钟、已实现能力 | 分流电阻、放大倍数、PWM通道、编码器型号 |
-| platform/config/bsp_config.h、sampling_scale.h | 板选择、能力/使能一致性检查、物理换算派生 | 不能使能不存在的传感器；原码到A/V |
-| app/config | 产品功能选择、控制周期、应用限流、测试许可 | current_sense_limits.h、pwm_output_config.h、targets/* |
+| config/boards | 物理接线、器件、采样比例、时钟、已实现能力 | 分流电阻、放大倍数、PWM通道、编码器型号 |
+| config/board_config.h、sampling_scale.h | 板选择、能力/使能一致性检查、物理换算派生 | 不能使能不存在的传感器；原码到A/V |
+| config/application | 产品功能选择、控制周期、应用限流、测试许可 | current_sense_limits.h、pwm_output_config.h、targets/* |
 
 BSP_SUPPORTED表示确有硬件实现；BSP_ENABLED表示本次构建使用；BSP_REQUIRED是应用准入要求。
 关闭可选功能时同名入口仍存在，返回未支持或无效结果，不伪造成功；完整电机APP不能关闭自身必需的相电流/PWM等依赖。
@@ -123,7 +123,7 @@ BSP_SUPPORTED表示确有硬件实现；BSP_ENABLED表示本次构建使用；BS
 永久关相由构建目标给出BSP_PWM_HARD_LOCK，BSP直接拒绝启相。应用仍区分普通、永久关相和限时模式，并校验模式与硬件锁一致。
 限时窗口只在app/runtime/pwm_power_window.c拥有状态；BSP不包含pwm_output_config.h，也不认识窗口期限。
 控制周期由app/config/control_config.h给出构建期时基，MCU据此配置定时器；这是纯数值输入，不是调用应用逻辑。
-板配置不再保存命令电流上限、标定电流上限和软件过流阈值；它们在app/config/current_sense_limits.h保持原值。
+板卡配置选择配套的软件电流策略头；应用配置提供命令、标定电流上限和软件过流阈值，并由 `config/application_config.h` 校验和引用。这些策略不从传感器量程自动放宽。
 
 ## 启动与运行顺序
 

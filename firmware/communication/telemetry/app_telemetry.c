@@ -32,6 +32,7 @@ void R40AppTelemetry_Init(void)
 
 void R40AppTelemetry_Capture(uint32_t fast_samples,
                              const FocState *foc,
+                             const MotorMeasurement *measurement,
                              const MotorControlState *motor,
                              const EncoderState *encoder,
                              uint32_t state,
@@ -45,9 +46,9 @@ void R40AppTelemetry_Capture(uint32_t fast_samples,
     R40AppTelemetryFrame frame = {
         fast_samples * 50U,
         fast_samples / 10U,
-        foc->phase_a_current_a,
-        foc->phase_b_current_a,
-        foc->phase_c_current_a,
+        measurement->phase_a_current_a,
+        measurement->phase_b_current_a,
+        measurement->phase_c_current_a,
         motor->id_target_a,
         foc->id_a,
         motor->iq_target_a,
@@ -64,7 +65,7 @@ void R40AppTelemetry_Capture(uint32_t fast_samples,
         calibration_flags,
         encoder->read_status,
         maintenance_kind,
-        foc->bus_voltage_v,
+        measurement->bus_voltage_v,
     };
     uint32_t version = g_r40_app_telemetry.begin + 2U;
     g_r40_app_telemetry.begin = version | 1U;

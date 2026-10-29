@@ -43,7 +43,7 @@
 | 项目 | HT8115-4 | YQ-5708 | YQ-5740 | YQ-8116 |
 | --- | --- | --- | --- | --- |
 | 当前配套板卡 | Vector Mini ST | YG_ESC_V1.0 | YG_ESC_V1.0 | YG_ESC_V1.0 |
-| 配置文件 | [ht8115_4.h](../../firmware/motor/profiles/ht8115_4.h) | [yq_5708.h](../../firmware/motor/profiles/yq_5708.h) | [yq_5740.h](../../firmware/motor/profiles/yq_5740.h) | [yq_8116.h](../../firmware/motor/profiles/yq_8116.h) |
+| 配置段 | [HT8115-4](../../firmware/config/motor_profile_config.h) | [YQ-5708](../../firmware/config/motor_profile_config.h) | [YQ-5740](../../firmware/config/motor_profile_config.h) | [YQ-8116](../../firmware/config/motor_profile_config.h) |
 | 选择标识后缀 `FOC_MOTOR_PROFILE_` | `HT8115_4`（1） | `YQ_5708`（2） | `YQ_5740`（3） | `YQ_8116`（4） |
 | 装配配置 | 无阻尼环 / 有阻尼环 | 当前装配 | 当前装配 | 暂定HT基线 |
 | 极对数 | 21 | 14 | 14 | 暂同HT |
@@ -58,19 +58,19 @@
 | 短时电流（幅值） | **7A**，时长待确认 | 约10.61A、30s | 同5708 | 暂同HT |
 | 电机轴最高转速 | **300rpm** | 2500rpm | 同5708 | 暂同HT |
 | 电流环默认带宽 | **1kHz** | **1kHz** | **1kHz** | **1kHz** |
-| 完整APP默认配置 | 已有；两种阻尼环分别选择 | 热参数待补 | 热参数待补 | 详细参数待确认 |
+| 完整APP默认配置 | 无阻尼环配置 | 热参数待补，永久关相 | 未纳入当前工程 | 未纳入当前工程 |
 
-HT阻尼环通过现有`MOTOR_HAS_DAMPING_RING=0/1`选择；机械参数后续分别完善。
+当前两套正式工程均使用无阻尼环配置；上述其他型号数据仅作资料保留。
 YQ-5740复用5708电气参数，只更改型号和减速比。YQ-8116全部继承值均为暂定。
 5708/5740磁链按`ψ=Kt/(1.5×极对数)`反算；惯量按用户确认的SI值，不再乘截图的e-4。
 惯量先作为型号配置数据保存，未新增通信/Flash字段，也未接入控制算法。
-5708/5740电流幅值由原2.5/7.5Arms折算；电机规格不自动改变当前台架的3A保护。
-新默认值不覆盖已存PI；配置选择和后续新增型号的方法见[配置说明](../../firmware/motor/profiles/README.md)。
+5708/5740电流幅值由原2.5/7.5Arms折算；电机规格不自动改变应用保护阈值。历史台架曾使用3A保护，当前正式工程阈值见固件配置。
+新默认值不覆盖已存PI；配置选择和后续新增型号的方法见[配置说明](../../firmware/config/README.md)。
 
 ## 配置入口与备注
 
-- 旧板：[板卡配置](../../firmware/platform/config/boards/stm32g4.h)、[电机选择入口](../../firmware/motor/motor_profile_selection.h)。
-- YG_ESC_V1.0：[板卡配置](../../firmware/platform/config/boards/at32f456.h)、[台架电机配置](../../tests/bench/at32f456/closedloop_bench.c)。现有文件名及宏暂保留R40。
+- 旧板：[板卡配置](../../firmware/config/board_config.h)、[电机选择入口](../../firmware/config/motor_profile_config.h)。
+- YG_ESC_V1.0：[板卡配置](../../firmware/config/board_config.h)、[台架电机配置](../../tests/bench/at32f456/closedloop_bench.c)。现有文件名及宏暂保留R40。
 - 旧板图纸为2mΩ，当前默认工程为6mΩ；新板PA3电压、PA4电流按实板确认。PB5有对地0Ω，使用LED前需确认实装。
 - 详细参数依据与电流能力核算见[新板输入记录](r40_at32f456_configuration_v1.md)；过程和测试结果见[适配计划](../plans/active/2026-10-22-at32f456-port-v1.md)。
 

@@ -193,7 +193,7 @@ Flash双方均自行保护中断和采样、失败锁存；编码器失败配置
 CAN BSP识别合法经典/FD元数据；上层协议仍只使用原扩展FD+BRS及原过滤器，不扩大业务协议范围。
 
 一次性功率窗口在`firmware/app/runtime/pwm_power_window.*`，母线电流零点/滤波在
-`firmware/app/runtime/bus_current_feedback.*`。它们是应用状态与策略，不回放到BSP中。
+`firmware/app/composition/bus_current_feedback.*`。它们是应用状态与策略，不回放到BSP中。
 没有驱动注册表、运行时板检测、虚表或为对称而制造的MCU空文件。
 
 ## 验证入口

@@ -1,8 +1,8 @@
 #include "bsp_pwm.h"
 #include "at32f45x.h"
 #include "bsp_system.h"
-#include "control_config.h"
-#include "bsp_config.h"
+#include "application_config.h"
+#include "board_config.h"
 #include "bsp_internal.h"
 
 #define PWM_TOP (R40_TIMER_HZ / (2U * FOC_FREQ))

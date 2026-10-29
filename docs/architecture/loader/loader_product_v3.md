@@ -176,8 +176,8 @@ Flash；只写身份页，随后读回并核对保护区。失败时保持停机
 ## 本轮紧凑参数候选
 
 APP v1.5.0 / Loader v2.1.0 删除退役齿槽表，参数仍单份，详见
-[schema14存储与迁移](../../protocols/parameter_schema14_storage_v1.md)。旧schema12/13只读兼容，
-显式保存才写新格式；schema10须离线迁移。布局地址和升级期间不写参数的规则不变。
+[schema14存储](../../protocols/parameter_schema14_storage_v1.md)。APP只接受schema14；
+Loader独立节点识别行为不在本轮范围。布局地址和升级期间不写参数的规则不变。
 
 Loader 改用较小的 C 运行库，未缩减栈或删除安全检查。前面的二十轮实测属于旧配套版本；
 新候选的资源、离线和实机结果分别记录在[优化计划](../../archive/plans/2026-10-20-loader-storage-optimize-v1.md)。

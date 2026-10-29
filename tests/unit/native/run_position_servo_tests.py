@@ -164,7 +164,7 @@ def platform_init_fixture() -> str:
         "Encoder_Init",
     )
     return (
-        '#include <assert.h>\n#include <stdio.h>\n#include "bsp.h"\n#include "bsp_config.h"\n'
+        '#include <assert.h>\n#include <stdio.h>\n#include "bsp.h"\n#include "board_config.h"\n'
         "static unsigned s_startup_state,count,off;\n"
         + "\n".join(
             f"static bool {name}(void) {{ assert(++count=={index});return true; }}"
@@ -215,8 +215,8 @@ def main() -> None:
         "position_servo_test",
         [
             "tests/unit/position_servo_test.c",
-            "firmware/motor/position/position_cascade.c",
-            "firmware/motor/foc/foc_pid.c",
+            "firmware/motor/control/position_control.c",
+            "firmware/motor/control/pi_controller.c",
         ],
     )
     for name, fixture in (

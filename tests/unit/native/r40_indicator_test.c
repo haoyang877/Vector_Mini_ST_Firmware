@@ -5,11 +5,12 @@
 #include "at32f45x.h"
 #include "bsp_led.h"
 #include "bsp_internal.h"
-#include "control_config.h"
+#include "application_config.h"
 gpio_type fake_led_gpio;
-static unsigned s_key, s_writes;
+static unsigned s_key, s_writes, s_global_lock_calls;
 uint32_t BspSystem_EnterCritical(void)
 {
+    ++s_global_lock_calls;
     unsigned old = s_key;
     s_key = 1U;
     return old;
@@ -101,7 +102,7 @@ int main(void)
         else
             assert(on && off);
     }
-    assert(!s_key && s_writes);
+    assert(!s_key && s_writes && s_global_lock_calls == 0U);
     puts("PASS R40 LED: active-low startup, code priority, all colors, breathing, isolated GPIO");
     return 0;
 }

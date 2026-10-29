@@ -332,10 +332,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>-include ../../../firmware/app/config/targets/at32_motor_bench.h </MiscControls>
+              <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH </MiscControls>
               <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,R40_OPENLOOP_POWER_ENABLED=1,R40_OPENLOOP_CAPTURE=1,R40_KEIL_OPENLOOP=1,R40_OL_ELECTRICAL_HZ=20.0f,R40_OL_VOLTAGE_V=2.0f,R40_OL_DURATION_MS=10000U,R40_OL_CURRENT_LIMIT_A=3.0f</Define>
               <Undefine />
-              <IncludePath>..\..\..\tests\bench\at32f456;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\foc;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\platform\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\app\config;..\..\..\firmware\app\config\targets;..\..\..\firmware\platform\devices</IncludePath>
+              <IncludePath>..\..\..\tests\bench\at32f456;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\config;..\..\..\firmware\config;..\..\..\firmware\platform\devices</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>

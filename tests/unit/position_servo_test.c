@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "position_cascade.h"
-#include "position_cascade_config.h"
+#include "position_control.h"
+#include "application_config.h"
 
 static PositionCascadeConfig config(void)
 {

@@ -10,21 +10,37 @@ PLATFORM = ROOT / "firmware/platform"
 
 
 class PlatformLayoutTests(unittest.TestCase):
-    def test_platform_source_has_only_four_roots(self):
+    def test_platform_source_has_only_three_roots(self):
         roots = {
             p.relative_to(PLATFORM).parts[0]
             for p in PLATFORM.rglob("*")
             if p.is_file() and len(p.relative_to(PLATFORM).parts) > 1
         }
-        self.assertEqual(roots, {"bsp", "config", "devices", "sdk"})
+        self.assertEqual(roots, {"bsp", "devices", "sdk"})
 
     def test_board_config_does_not_own_application_requirements(self):
-        for p in (PLATFORM / "config").rglob("*.h"):
-            self.assertNotRegex(
-                p.read_text(encoding="utf8"),
-                r"BSP_REQUIRED_|R40_APP_(?:PHASE_LOCK|BOUNDED_TEST)|PARAM_MOTOR_THERMAL_",
-            )
-        self.assertTrue((ROOT / "firmware/app/config/app_feature_requirements.h").is_file())
+        config = ROOT / "firmware/config"
+        self.assertEqual(
+            {p.name for p in config.glob("*.h")},
+            {"board_config.h", "motor_profile_config.h", "application_config.h"},
+        )
+        resource = (config / "board_config.h").read_text(encoding="utf8")
+        boards = resource.split("#elif BSP_BOARD == BSP_BOARD_AT32F456", 1)[1].split(
+            '#error "Unknown BSP board"', 1
+        )[0]
+        self.assertNotRegex(
+            boards, r"BSP_REQUIRED_|R40_APP_(?:PHASE_LOCK|BOUNDED_TEST)|PARAM_MOTOR_THERMAL_"
+        )
+        app = (config / "application_config.h").read_text(encoding="utf8")
+        self.assertIn("Required BSP feature disabled", app)
+
+    def test_motor_and_board_inputs_are_separate(self):
+        config = ROOT / "firmware/config"
+        board = (config / "board_config.h").read_text(encoding="utf8")
+        motor = (config / "motor_profile_config.h").read_text(encoding="utf8")
+        self.assertNotIn("FOC_ACTIVE_MOTOR_PROFILE", board)
+        self.assertNotIn("PARAM_MOTOR_", board)
+        self.assertNotIn("BSP_SUPPORTED_", motor)
 
     def test_each_project_has_its_own_entry_outside_bsp(self):
         for project in (ROOT / "projects").rglob("*.uvprojx"):

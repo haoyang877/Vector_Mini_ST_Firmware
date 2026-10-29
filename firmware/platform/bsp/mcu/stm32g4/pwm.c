@@ -1,7 +1,7 @@
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_pwm.h"
 #include "tim.h"
-#include "control_config.h"
+#include "application_config.h"
 #define PWM_TIM_PERIOD (170000000 / FOC_FREQ / 2)
 #include "bsp_system.h"
 #include "bsp_internal.h"

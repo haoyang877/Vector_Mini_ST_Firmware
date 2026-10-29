@@ -130,7 +130,7 @@ int main(void) {
 
 
 def _mapping_source() -> str:
-    source = (ROOT / "firmware/motor/feedback/angle_feedback.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/feedback/encoder_feedback.c").read_text(encoding="utf-8")
     return (
         r"""
 #undef NDEBUG

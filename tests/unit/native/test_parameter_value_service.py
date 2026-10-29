@@ -43,7 +43,7 @@ def main() -> None:
             str(ROOT / "shared/checksum/crc32.c"),
             str(ROOT / "firmware/motor/protection/motor_thermal.c"),
             str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
-            str(ROOT / "firmware/motor/foc/speed_feedforward.c"),
+            str(ROOT / "firmware/motor/control/speed_feedforward.c"),
             "-lm",
             "-o",
             str(executable),

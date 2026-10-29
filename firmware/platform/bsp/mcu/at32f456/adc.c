@@ -1,12 +1,17 @@
 /* AT32 ADC硬件所有者：配置、DMA、IRQ、故障和存储暂停共享本文件私有状态。 */
 #include "bsp_internal.h"
 #include "at32f45x.h"
-#include "control_config.h"
-#include "sampling_scale.h"
-#include "bsp_config.h"
+#include "application_config.h"
+#include "board_config.h"
+#include "board_config.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
 #include <stddef.h>
+
+/* ADC1/ADC2初始化固定12位；不得仅修改换算配置。 */
+#if CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS != 12U
+#error "AT32F456 ADC initialization requires 12-bit sampling"
+#endif
 
 #define R40_ADC_WAIT_ITERATIONS 200000U
 #define R40_FAST_SUM_MAX (R40_ADC_MAX_COUNTS * R40_ADC_ACCUMULATIONS)

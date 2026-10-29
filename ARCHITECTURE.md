@@ -11,7 +11,7 @@ read [电机驱动软件架构说明](docs/architecture/software_architecture.md
 [统一框架适配范围草案](docs/architecture/dual_board_adaptation_scope_v1.md)。
 该页区分既有用户约束、待讨论变更与验证结果，不将当前工作树自动视为已接受基线。
 
-platform只保留BSP、板级config和原样厂商SDK；项目专用入口装配在projects，台架源码在tests/bench。
+platform只保留BSP、器件实现和原样厂商SDK；产品配置集中在firmware/config，项目入口装配在projects，台架源码在tests/bench。
 BSP公共接口、私有实现与配置的实际对应关系见
 [BSP逻辑与文件总图](docs/architecture/bsp_architecture_v1.md)。
 
@@ -20,7 +20,7 @@ feedforward without restoring the legacy runtime or wire protocol. APP schedules
 updates; motor/protection owns the thermal history and explicit current limits. See the
 [integration plan](docs/archive/plans/2026-10-17-delivery-feature-integration-v1.md) and
 [schema13 extension](docs/protocols/parameter_schema13_delivery_v1.md) for feature semantics;
-current storage writes [schema14](docs/protocols/parameter_schema14_storage_v1.md) and reads valid schema12/13.
+current storage reads and writes only [schema14](docs/protocols/parameter_schema14_storage_v1.md).
 
 ## Products and contracts
 
@@ -83,7 +83,7 @@ The architecture checker resolves local quoted includes and rejects new violatio
 
 - `firmware/platform/bsp/include/` defines the capabilities required by portable firmware. Contracts use
   project-owned types and physical units, and state timing, blocking, ownership, and failure behavior.
-- `firmware/platform/config/boards/` holds read-only electrical resources, scaling inputs and measurement limits.
+- `firmware/config/boards/` holds read-only electrical resources, scaling inputs and measurement limits.
   Sampling scales derive from these data without changing capability contracts; board data must not depend
   on motor, application, or peripheral implementations.
 - Board `bsp/` directories own chip and board primitives and directly implement

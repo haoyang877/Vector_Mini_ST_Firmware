@@ -2,7 +2,7 @@
 #include <stddef.h>
 #include <string.h>
 #include "crc32.h"
-#include "application_profile_defaults.h"
+#include "application_config.h"
 
 typedef char axis_record_size_check[(sizeof(MotorAxisProfile) == 32U) ? 1 : -1];
 typedef char axis_crc_offset_check[(offsetof(MotorAxisProfile, crc32) == 28U) ? 1 : -1];

@@ -38,9 +38,9 @@ def run_variant(source_path: Path, output: Path, compiler_path: str) -> str:
         fixture = "#define MOTOR_PARAMETER_TRANSACTION_PRESENT 1\n" + fixture
     if "configure_controllers()" in write_source:
         controller_source = function_source(source, "configure_controllers")
-        if "FOC_ConfigureControllers(" in controller_source:
-            algorithm = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
-            fixture += "\n" + function_source(algorithm, "FOC_ConfigureControllers")
+        if "Foc_ConfigureControllers(" in controller_source:
+            algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
+            fixture += "\n" + function_source(algorithm, "Foc_ConfigureControllers")
         fixture += "\n" + controller_source
     for name in REQUEST_FUNCTIONS:
         try:

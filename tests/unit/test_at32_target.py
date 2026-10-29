@@ -16,12 +16,20 @@ from check_project_layout import check_project  # noqa: E402
 def target_defines(tree: ET.ElementTree, filename: str) -> str:
     """检查实际预包含入口，再读取其公共及目标配置供结构断言使用。"""
     options = tree.findtext(".//Cads/VariousControls/MiscControls").replace("\\", "/")
-    relative = f"../../../firmware/app/config/targets/{filename}"
-    if options != f"--diag_suppress=1 --preinclude {relative}":
+    target = {"r40_app_off.h": "AT32_OFF", "r40_app_commissioning.h": "AT32_COMMISSIONING"}[
+        filename
+    ]
+    relative = "../../../firmware/config/board_config.h"
+    if options != f"--diag_suppress=1 -DFIRMWARE_TARGET_{target} --preinclude {relative}":
         raise AssertionError(f"Unexpected target configuration entry: {options}")
-    base = ROOT / "firmware/app/config/targets"
-    text = (base / filename).read_text(encoding="utf8")
-    text += (base / "r40_app_common.h").read_text(encoding="utf8")
+    resource = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
+    off, remainder = resource.split("#if defined(FIRMWARE_TARGET_AT32_OFF)\n", 1)[1].split(
+        "#elif defined(FIRMWARE_TARGET_AT32_COMMISSIONING)\n", 1
+    )
+    commissioning, common = remainder.split("#endif\n/* AT32完整APP", 1)
+    common = common.split("#elif defined(FIRMWARE_TARGET_AT32_BENCH)", 1)[0]
+    motor = (ROOT / "firmware/config/motor_profile_config.h").read_text(encoding="utf8")
+    text = (off if target == "AT32_OFF" else commissioning) + common + motor
     return ",".join(
         f"{key}={value}" for key, value in re.findall(r"^#define (\w+) ([^\n]+)", text, re.M)
     )
@@ -128,7 +136,7 @@ class At32TargetTests(unittest.TestCase):
                         in {
                             "projects/at32f456/application/startup_at32f456_app.s",
                             "firmware/platform/devices/encoder_mt6835.c",
-                            "firmware/app/runtime/bus_current_feedback.c",
+                            "firmware/app/composition/bus_current_feedback.c",
                             "firmware/platform/bsp/pwm_output_permit.c",
                             "firmware/app/runtime/pwm_power_window.c",
                             "firmware/platform/bsp/can_frame_codec.c",
@@ -190,7 +198,7 @@ class At32TargetTests(unittest.TestCase):
                     and path.as_posix()
                     not in {
                         "firmware/communication/telemetry/app_telemetry.c",
-                        "firmware/app/runtime/bus_current_feedback.c",
+                        "firmware/app/composition/bus_current_feedback.c",
                         "firmware/app/runtime/pwm_power_window.c",
                     }
                     and not path.as_posix().startswith("firmware/app/targets/")
@@ -229,14 +237,14 @@ class At32TargetTests(unittest.TestCase):
             "R40_APP_BOUNDED_TEST=1",
             "APP_ENABLED_DIAGNOSTIC_TELEMETRY=0",
             "BSP_REQUIRED_MCU_TEMPERATURE=0",
-            "FOC_ACTIVE_MOTOR_PROFILE=2",
+            "FOC_ACTIVE_MOTOR_PROFILE=FOC_MOTOR_PROFILE_YQ_5708",
             "BSP_ENCODER_FAST_SPI=1",
             "BSP_ENCODER_WORD_TRANSFER=1",
             "BSP_ENCODER_DMA_TRANSFER=1",
         ):
             self.assertIn(flag, defines)
         self.assertEqual(tree.findtext(".//UpdateFlashBeforeDebugging"), "0")
-        common = (ROOT / "firmware/app/config/targets/r40_app_common.h").read_text(encoding="utf8")
+        common = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
         self.assertIn("#ifndef APP_ENABLED_DIAGNOSTIC_TELEMETRY", common)
         self.assertNotIn(
             "app_telemetry.o", (base / "r40_app_commissioning.sct").read_text(encoding="utf8")
@@ -244,7 +252,7 @@ class At32TargetTests(unittest.TestCase):
         paths = [node.text.replace("\\", "/") for node in tree.findall(".//FilePath")]
         for name in (
             "motor_axis.c",
-            "encoder_calibration_task.c",
+            "encoder_calibration.c",
             "pwm_power_window.c",
             "app_telemetry.c",
         ):
@@ -252,6 +260,25 @@ class At32TargetTests(unittest.TestCase):
         self.assertFalse(
             any("closedloop_bench" in path or "openloop_model" in path for path in paths)
         )
+
+    def test_fast_control_and_sensing_remain_in_sram(self):
+        """控制和测量拆分后保留原SRAM快环，LUT提交仍留在Flash。"""
+        base = ROOT / "projects/at32f456/application"
+        for filename in ("r40_app.sct", "r40_app_commissioning.sct"):
+            with self.subTest(filename=filename):
+                text = (base / filename).read_text(encoding="utf-8")
+                flash, fast = text.split("ER_FAST", 1)
+                fast = fast.split("}", 1)[0]
+                for obj in (
+                    "foc*.o",
+                    "pi_controller.o",
+                    "motor_current.o",
+                    "motor_voltage.o",
+                    "mcu_temperature_sensing.o",
+                    "encoder_feedback.o",
+                ):
+                    self.assertIn(f"{obj} (+RO)", fast)
+                self.assertIn("encoder_calibration.o (i.EncoderCalibrationTask_PublishLut)", flash)
 
     def test_app_stack_is_separate_from_vendor(self):
         base = ROOT / "projects/at32f456/application"
@@ -283,8 +310,8 @@ class At32TargetTests(unittest.TestCase):
             "R40_APP_PHASE_LOCK=1",
             "BSP_APP_LIFECYCLE=1",
             "APP_TARGET_R40_F456=1",
-            "FOC_ACTIVE_HW_PROFILE=2",
-            "FOC_ACTIVE_MOTOR_PROFILE=2",
+            "FOC_ACTIVE_HW_PROFILE=BSP_BOARD_AT32F456",
+            "FOC_ACTIVE_MOTOR_PROFILE=FOC_MOTOR_PROFILE_YQ_5708",
             "BSP_ENCODER_FAST_SPI=1",
             "BSP_ENCODER_WORD_TRANSFER=1",
             "BSP_ENCODER_DMA_TRANSFER=1",
@@ -340,11 +367,11 @@ class At32TargetTests(unittest.TestCase):
         self.assertIn("R40_OL_CURRENT_LIMIT_A=3.0f", defines)
         self.assertEqual(tree.findtext(".//UpdateFlashBeforeDebugging"), "0")
         files = [node.text.replace("\\", "/") for node in tree.findall(".//FilePath")]
-        for name in ("foc_algorithm.c", "foc_pid.c", "speed_control.c"):
+        for name in ("foc.c", "pi_controller.c", "speed_control.c"):
             self.assertTrue(any(path.endswith("/" + name) for path in files))
         entry = (base / "closedloop_bench.c").read_text(encoding="utf-8")
-        self.assertIn("FOC_CurrentWithReference(", entry)
-        self.assertIn("SpeedMode_UpdateControl(", entry)
+        self.assertIn("Foc_RunCurrentRef(", entry)
+        self.assertIn("SpeedControl_Update(", entry)
         self.assertNotIn("param_store_", entry)
         self.assertNotIn("comm_hw_", entry)
 
@@ -407,7 +434,7 @@ class At32TargetTests(unittest.TestCase):
         self.assertNotIn("motor_temperature_at32f456", old_project.read_text(encoding="utf-8"))
 
     def test_parameter_sectors_are_excluded_from_image(self):
-        layout = (ROOT / "firmware/platform/config/boards/at32f456.h").read_text(encoding="utf-8")
+        layout = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf-8")
         values = {
             name: int(value, 0)
             for name, value in re.findall(r"#define (R40_\w+) (0x[0-9A-Fa-f]+|[0-9]+)U", layout)

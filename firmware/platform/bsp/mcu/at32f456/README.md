@@ -15,7 +15,7 @@
 | boot.c | 此板现有APP/Loader交接能力 |
 | at32f45x_conf.h | 厂商驱动编译选择 |
 
-引脚、比例和Flash范围在platform/config/boards/at32f456.h；控制周期和测试配置在app/config。
+引脚、比例和Flash范围在firmware/config/board_config.h；控制周期和测试配置在firmware/config。
 ADC状态不跨文件传递；没有adc_sampling_*或system_setup私有层。
 实现中不保留临时诊断入口、测试快照和测试统计。
 两板使用相同功能命名，实际器件协议在platform/devices。

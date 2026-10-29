@@ -147,7 +147,11 @@ int main(void)
     assert(sim_timing.bittime_div == 1U);
     assert(R40_CAN_HZ / (sim_timing.ac_bts1_size + sim_timing.ac_bts2_size) == 1000000U);
     assert(R40_CAN_HZ / (sim_timing.fd_bts1_size + sim_timing.fd_bts2_size) == 5000000U);
-    assert(sim_timing.fd_ssp_offset == 28U);
+    assert(sim_timing.ac_bts1_size * 4U ==
+           (sim_timing.ac_bts1_size + sim_timing.ac_bts2_size) * 3U);
+    assert(sim_timing.fd_bts1_size * 4U ==
+           (sim_timing.fd_bts1_size + sim_timing.fd_bts2_size) * 3U);
+    assert(sim_timing.fd_ssp_offset == R40_CAN_HZ / 20000000U * 3U + 1U);
     for (unsigned bit = 0U; bit < 29U; ++bit)
     {
         for (unsigned dlc = 0U; dlc < 16U; ++dlc)

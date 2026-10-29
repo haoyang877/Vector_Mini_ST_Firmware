@@ -1,8 +1,8 @@
 # 当前位置串级控制
 
 核对日期：2026-10-21。当前POSITION是直接位置→速度→电流串级。
-源码为[`position_cascade.c`](../../firmware/motor/position/position_cascade.c)及
-[公开头](../../firmware/motor/position/position_cascade.h)，由Motor外环调度。
+源码为[`position_control.c`](../../firmware/motor/control/position_control.c)及
+[公开头](../../firmware/motor/control/position_control.h)，由Motor外环调度。
 
 ## 实际计算
 

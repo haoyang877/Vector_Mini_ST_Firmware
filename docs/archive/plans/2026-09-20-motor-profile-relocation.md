@@ -17,8 +17,8 @@
 ## 2. 变更清单
 
 - 移动：`firmware/platform/api/motor_hardware_profile.h` →
-  `firmware/motor/motor_hardware_profile.h`（内容逐字节不变）。
-- 新增：`firmware/motor/motor_startup_profile.h` = 原 `control_config.h` 的
+  `firmware/config/motor_profile_config.h`（内容逐字节不变）。
+- 新增：`firmware/config/application_config.h` = 原 `control_config.h` 的
   “无感启动整定”“编码器标定（Mode 13/15）默认值”“电角度零位对齐时序”三段，
   含 `MOTOR_HAS_DAMPING_RING` 变体（include 新的 profile 头）。
 - `control_config.h` 只保留 FOC/速度环/位置环/级联位置环/监督 tick 时基与 RTT 采样契约。

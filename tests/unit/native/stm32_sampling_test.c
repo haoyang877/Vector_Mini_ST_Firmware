@@ -5,8 +5,8 @@
 #include <math.h>
 #include "bsp_internal.h"
 #include "bsp_pwm.h"
-#include "sampling_scale.h"
-#include "mcu_temperature.h"
+#include "board_config.h"
+#include "application_config.h"
 
 enum
 {

@@ -1,6 +1,6 @@
 /* 仅Flash地址读写原语和硬件忙/完成副作用由模拟器提供；擦写算法完整执行。 */
 #include "at32f45x.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "parameter_record.h"
 #include <assert.h>
 #include <stdio.h>

@@ -26,13 +26,14 @@ PRELUDE = r"""
 #include "motor_control.h"
 #include "sensorless_startup.h"
 #include "speed_control.h"
-#include "sampling_scale.h"
-#include "control_config.h"
-#include "motor_startup_profile.h"
+#include "board_config.h"
+#include "application_config.h"
+#include "application_config.h"
 #include "control_math.h"
 static MotorConfiguration configuration;
 static MotorControlState motor;
 static FocState foc;
+static MotorMeasurement measurement;
 static PiController pi;
 static FluxObserverState observer;
 static SensorlessStartupState startup;
@@ -41,23 +42,24 @@ static unsigned current_calls, stop_calls;
 static bool pwm_enabled;
 static float applied_observer_iq, applied_observer_id, applied_phase, applied_velocity;
 void MotorFault_Report(MotorControlState *m, MotorFaultCode e) { m->fault_code=e; }
-void FOC_CurrentController_Reset(FocState *f) {
+void Foc_ResetCurrent(FocState *f) {
     PiController_Reset(&f->id_pi); PiController_Reset(&f->iq_pi);
 }
-void FOC_Current(const MotorConfiguration *configuration, FocState *f, MotorControlState *m, float phase, float velocity) {
+void Foc_RunCurrent(const MotorConfiguration *configuration, FocState *f, const MotorMeasurement *measurement, MotorControlState *m, float phase, float velocity) {
+    (void)measurement;
     (void)configuration; (void)f;
     float offset=phase-observer.electrical_angle_rad;
     applied_observer_iq=m->id_target_a*sinf(offset)+m->iq_target_a*cosf(offset);
     applied_observer_id=m->id_target_a*cosf(offset)-m->iq_target_a*sinf(offset);
     applied_phase=phase; applied_velocity=velocity; ++current_calls;
 }
-void FluxObserver_ParamInit(FluxObserverState *o) { memset(o,0,sizeof(*o)); }
-float Observer_GetElePhase(FluxObserverState *o) { return o->electrical_angle_rad; }
-float Observer_GetEleVel(FluxObserverState *o) { return o->electrical_velocity_rad_s; }
-float Observer_GetElePosition(FluxObserverState *o) { return o->electrical_position_rad; }
-uint32_t Observer_GetPositionEpoch(FluxObserverState *o) { return o->position_epoch; }
+void FluxObserver_Init(FluxObserverState *o) { memset(o,0,sizeof(*o)); }
+float FluxObserver_GetElecPhase(FluxObserverState *o) { return o->electrical_angle_rad; }
+float FluxObserver_GetElecVel(FluxObserverState *o) { return o->electrical_velocity_rad_s; }
+float FluxObserver_GetElecPos(FluxObserverState *o) { return o->electrical_position_rad; }
+uint32_t FluxObserver_GetPositionEpoch(FluxObserverState *o) { return o->position_epoch; }
 bool Encoder_IsOnline(const EncoderState *e) { return e->has_valid_sample; }
-float Encoder_GetMecVelContinuous(const EncoderState *e) { return e->mechanical_velocity_continuous_rad_s; }
+float Encoder_GetMechVelContinuous(const EncoderState *e) { return e->mechanical_velocity_continuous_rad_s; }
 void Encoder_ResetVelocity(EncoderState *e) { e->velocity_ready=false; }
 """
 
@@ -102,7 +104,7 @@ static void setup(void) {
     startup.speed_feedback_rad_s=motor.speed_target_rad_s;
     current_calls=stop_calls=0; pwm_enabled=true;
 }
-static void tick(void) { SensorlessStartup_Run(&configuration,&foc,&motor,&pi,&observer,&startup,cfg); }
+static void tick(void) { SensorlessStartup_Run(&configuration,&foc, &measurement,&motor,&pi,&observer,&startup,cfg); }
 static void enter_handoff(float direction, float phase_delta) {
     setup(); motor.speed_target_rad_s*=direction; motor.speed_ramped_rad_s=motor.speed_target_rad_s;
     observer.electrical_velocity_rad_s*=direction;
@@ -110,8 +112,8 @@ static void enter_handoff(float direction, float phase_delta) {
     startup.state=SENSORLESS_STARTUP_SPEED_LOCK;
     startup.direction=direction;
     startup.open_loop_velocity_rad_s=observer.electrical_velocity_rad_s;
-    startup.open_loop_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+phase_delta-observer.electrical_velocity_rad_s*Current_Ts);
-    startup.lock_ticks=(uint32_t)(cfg->speed_lock_time_s/Current_Ts)-1U;
+    startup.open_loop_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+phase_delta-observer.electrical_velocity_rad_s*FOC_TS_S);
+    startup.lock_ticks=(uint32_t)(cfg->speed_lock_time_s/FOC_TS_S)-1U;
     tick(); assert(startup.state==SENSORLESS_STARTUP_HANDOFF);
 }
 static void check_handoff(float direction) {
@@ -125,7 +127,7 @@ static void check_handoff(float direction) {
     float max_error=0;
     unsigned steps=0;
     while(startup.state==SENSORLESS_STARTUP_HANDOFF) {
-        observer.electrical_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+observer.electrical_velocity_rad_s*Current_Ts);
+        observer.electrical_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+observer.electrical_velocity_rad_s*FOC_TS_S);
         tick();
         max_error=fmaxf(max_error,fabsf(applied_observer_iq-iq_before));
         assert(fabsf(applied_observer_iq-pi.output*configuration.application.current_limit_a)<.005f);
@@ -183,18 +185,18 @@ def main():
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / "main.h").write_text("#include <stdint.h>\n#include <stddef.h>\n")
-    source = (ROOT / "firmware/motor/foc/sensorless_startup.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/motor/control/sensorless_startup.c").read_text(encoding="utf-8")
     run = source.split("/* SENSORLESS_RUNTIME_BEGIN", 1)[1].split(
         "/* SENSORLESS_RUNTIME_END */", 1
     )[0]
     run = "/* SENSORLESS_RUNTIME_BEGIN" + run
     reset = function_source(
-        (ROOT / "firmware/motor/foc/sensorless_startup.c").read_text(encoding="utf-8"),
+        (ROOT / "firmware/motor/control/sensorless_startup.c").read_text(encoding="utf-8"),
         "SensorlessStartup_Reset",
     )
     ramp = function_source(
-        (ROOT / "firmware/motor/foc/speed_control.c").read_text(encoding="utf-8"),
-        "MotorAxis_UpdateSpeedRamp",
+        (ROOT / "firmware/motor/control/speed_control.c").read_text(encoding="utf-8"),
+        "SpeedControl_UpdateRamp",
     )
     fixture = PRELUDE + reset + ramp + run + CASES
     source = out / "transitions.c"
@@ -217,7 +219,7 @@ def main():
                 "-Wno-unused-function",
                 "-DMOTOR_HAS_DAMPING_RING=" + str(damping),
                 str(source),
-                str(ROOT / "firmware/motor/foc/foc_pid.c"),
+                str(ROOT / "firmware/motor/control/pi_controller.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 "-o",
                 str(exe),

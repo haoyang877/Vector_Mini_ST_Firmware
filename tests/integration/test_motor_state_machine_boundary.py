@@ -67,7 +67,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         implementations = (
             r"\b(?:void|bool|float|MotorTaskResult)\s+"
             r"(?:MotorOuterLoop_\w+|MotorThermalControl_\w+|MotorCurrentOffsets_\w+|"
-            r"FOC_ConfigureControllers|FOC_UpdateCurrentControllerLimits|"
+            r"Foc_ConfigureControllers|Foc_UpdateCurrentLimits|"
             r"Task_(?:Current|Vq)_Mode|MotorControl_Step|MotorExecution_ControlStep)"
             r"\s*\([^;{}]*\)\s*\{"
         )

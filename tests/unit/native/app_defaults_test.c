@@ -1,16 +1,17 @@
-#include "app_feature_requirements.h"
+#include "application_config.h"
 /* 使用生产默认值装配和配置校验，检查两板首次上电参数可通过自检。 */
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include "control_math.h"
 #include "parameter_record.h"
 #include "parameter_values.h"
-#include "application_profile_defaults.h"
-#include "motor_profile_defaults.h"
-#include "device_profile_defaults.h"
-#include "angle_feedback.h"
-#include "control_config.h"
-#include "bsp_config.h"
+#include "application_config.h"
+#include "application_config.h"
+#include "application_config.h"
+#include "encoder_feedback.h"
+#include "application_config.h"
+#include "board_config.h"
 
 #include "app_defaults_subject.inc"
 
@@ -33,7 +34,7 @@ int main(void)
     assert(BSP_ENABLED_BUS_CURRENT == EXPECTED_BUS_SENSOR);
     assert(BSP_REQUIRED_MCU_TEMPERATURE == !EXPECTED_BUS_SENSOR);
     assert(FOC_FREQ == 20000U && SUPERVISOR_FREQ == 2000U && SPEED_LOOP_FREQ == 2000U);
-    assert(PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_HZ == 1000.0f);
+    assert(CURRENT_LOOP_BANDWIDTH_HZ == 1000.0f);
     if (EXPECTED_BUS_SENSOR)
     {
         assert(PARAM_MOTOR_THERMAL_HEATING_TAU_S == 3600.0f);

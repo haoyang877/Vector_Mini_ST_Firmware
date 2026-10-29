@@ -1,30 +1,30 @@
-#include "app_feature_requirements.h"
+#include "application_config.h"
 /* 生产温度/准入/恢复函数的定向回归；模拟测量事实，不连接硬件。 */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "angle_feedback.h"
-#include "bus_voltage_profile.h"
-#include "foc_sensing.h"
-#include "mcu_temperature.h"
+#include "encoder_feedback.h"
+#include "application_config.h"
+#include "motor_sensing.h"
+#include "application_config.h"
 #include "bsp_internal.h"
 #include "motor_fault.h"
 #include "motor_readiness.h"
-#include "sampling_scale.h"
+#include "board_config.h"
 
 #include "temperature_api_fixture.h"
 
 static McuTemperatureTelemetry s_mcu_temperature;
 static TestTemperaturePoll s_poll;
 static MotorConfiguration s_configuration;
-static FocState s_foc;
+static MotorMeasurement s_foc;
 static MotorControlState s_motor;
 static EncoderState s_encoder;
 static bool s_encoder_online = true;
 static struct
 {
-    FocState *foc;
+    MotorMeasurement *measurement;
     MotorConfiguration *configuration;
     EncoderState *rotor_encoder;
     bool fast_samples_fresh;
@@ -61,7 +61,7 @@ static bool recovered(MotorFaultCode fault)
                                       fault,
                                       true,
                                       true,
-                                      MotorTemperature_IsFresh());
+                                      McuTemperature_IsFresh());
 }
 
 int main(void)
@@ -73,9 +73,9 @@ int main(void)
 
     for (unsigned tick = 0U; tick < MCU_TEMPERATURE_TIMEOUT_TICKS + 5U; ++tick)
     {
-        Temperature_Update(&s_foc, &s_motor);
+        McuTemperature_Update(&s_foc, &s_motor);
     }
-    assert(!MotorTemperature_IsFresh() && isnan(s_foc.temperature_c));
+    assert(!McuTemperature_IsFresh() && isnan(s_foc.temperature_c));
     assert(s_motor.fault_code ==
            (BSP_REQUIRED_MCU_TEMPERATURE ? MOTOR_FAULT_TEMPERATURE_SENSOR : MOTOR_FAULT_NONE));
     assert(state_inputs_valid() == !BSP_REQUIRED_MCU_TEMPERATURE);
@@ -121,24 +121,24 @@ int main(void)
 
     /* 可选策略不自动清除旧故障，仍需所有者处理显式CLEAR。 */
     s_motor.fault_code = MOTOR_FAULT_TEMPERATURE_SENSOR;
-    Temperature_Update(&s_foc, &s_motor);
+    McuTemperature_Update(&s_foc, &s_motor);
     assert(s_motor.fault_code == MOTOR_FAULT_TEMPERATURE_SENSOR);
     s_motor.fault_code = MOTOR_FAULT_NONE;
     s_poll = (TestTemperaturePoll){
         .sample_ready = true, .conversion_ok = true, .celsius = 100.0f, .vdda_mv = 3300.0f};
-    Temperature_Update(&s_foc, &s_motor);
-    assert(MotorTemperature_IsFresh() && s_foc.temperature_c == 100.0f);
+    McuTemperature_Update(&s_foc, &s_motor);
+    assert(McuTemperature_IsFresh() && s_foc.temperature_c == 100.0f);
     assert(s_motor.fault_code ==
            (BSP_REQUIRED_MCU_TEMPERATURE ? MOTOR_FAULT_OVERTEMPERATURE : MOTOR_FAULT_NONE));
     assert(!(read_self_test_measurements() & MOTOR_SELF_TEST_TEMPERATURE_VALID));
     s_motor.fault_code = MOTOR_FAULT_ENCODER;
-    Temperature_Update(&s_foc, &s_motor);
+    McuTemperature_Update(&s_foc, &s_motor);
     assert(s_motor.fault_code == MOTOR_FAULT_ENCODER);
 
     memset(&s_mcu_temperature, 0, sizeof(s_mcu_temperature));
     s_poll.celsius = 25.0f;
-    Temperature_Update(&s_foc, &s_motor);
-    assert(MotorTemperature_IsFresh() && s_foc.temperature_c == 25.0f);
+    McuTemperature_Update(&s_foc, &s_motor);
+    assert(McuTemperature_IsFresh() && s_foc.temperature_c == 25.0f);
     assert(read_self_test_measurements() & MOTOR_SELF_TEST_TEMPERATURE_VALID);
     assert(state_inputs_valid());
     puts(BSP_REQUIRED_MCU_TEMPERATURE

@@ -18,7 +18,7 @@
 
 | 目录 | 职责 | 阅读入口 |
 | --- | --- | --- |
-| composition | 四个公开入口；后台编排、协议与所有者绑定 | [app.h](composition/app.h)、[app_startup.c](composition/app_startup.c) |
+| composition | 四个公开入口；后台编排、协议与所有者绑定，以及母线电流测量的校零、滤波和状态装配 | [app.h](composition/app.h)、[app_startup.c](composition/app_startup.c)、[bus_current_feedback.c](composition/bus_current_feedback.c) |
 | runtime | 单轴对象、控制/维护调度、参数事务和固定工作区 | [motor_axis.c](runtime/motor_axis.c) |
 | motor_state_machine | 唯一生命周期、启停准入、故障及资源归还 | [motor_state_machine.c](motor_state_machine/motor_state_machine.c) |
 

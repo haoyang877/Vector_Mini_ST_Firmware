@@ -17,7 +17,7 @@
 | 已有实现 | 本设计的处理 |
 | --- | --- |
 | `motor/protection/bus_voltage_profile.h`：8S 母线配置 | 保留为板卡/供电 profile 输入；不再把旧 10/30V 配置当作当前基线 |
-| `motor/foc/foc_sensing.c`：电流、电压、MCU 温度保护 | 分离采样转换与条件检测；逐项迁移，不一次重写采样调度 |
+| `motor/foc/motor_sensing.c`：电流、电压、MCU 温度保护 | 分离采样转换与条件检测；逐项迁移，不一次重写采样调度 |
 | 默认 2mΩ、40A、连续 5 次软件过流 | 记录为当前代码值；实际构建宏覆盖及实物匹配另行确认 |
 | MCU 90℃跳闸、采样超时100ms | 明确温度来源为 MCU die，不能作为绕组或 MOS 测温 |
 | `MOTOR_FAULT_CONTROL_OVERRUN`、`MOTOR_FAULT_COGGING_CALIBRATION`、`MOTOR_FAULT_TEMPERATURE_SENSOR` | 保留旧故障编号，增加独立子原因和内部类型 |
@@ -27,7 +27,7 @@
 | 单个 fault_code、直接清除、CAN 接收自动解除断联 | 作为迁移目标；全局搜索清除旁路并逐一替换 |
 
 当前源码入口：
-[采样](../../../firmware/motor/foc/foc_sensing.c)、
+[采样](../../../firmware/motor/sensing/motor_current.c)、
 [故障处理](../../../firmware/motor/protection/motor_fault.c)、
 [快速环](../../../firmware/app/composition/app_tasks.c)、
 [平台接口](../../../firmware/platform/bsp/include/bsp_pwm.h)、

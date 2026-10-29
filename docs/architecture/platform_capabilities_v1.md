@@ -19,7 +19,7 @@ bsp_config.h检查布尔值、板型匹配及不能启用未支持功能；app_f
 完整APP要求相电流、母线电压、编码器、PWM和CAN。Foundation需要CAN，四个电机台架明确禁用CAN。
 STM32完整APP不可取消原MCU温度保护。AT32仍保持原关相/限时目标的温度策略。
 永久关相和一次性限时许可由app/config配置，不能用能力开关绕过。
-BSP只消费BSP_PWM_HARD_LOCK；应用校验它与许可模式一致。软件限流在app/config/current_sense_limits.h，板头只保存真实电气输入和量程。
+BSP只消费BSP_PWM_HARD_LOCK；应用检查硬件锁与目标一致，并只在限时目标启用功率窗口。板卡选择配套应用软件限流策略，`config/application_config.h` 校验和引用；这些策略与电气输入和量程含义独立。
 
 关闭功能后统一接口仍存在并返回NOT_SUPPORTED，不创建另一套命名或假成功实现。
 关闭CAN不触碰控制器/IRQ；关闭LED不启动输出；UART当前只提供禁用契约。

@@ -90,6 +90,17 @@ def main() -> None:
         encoding="utf-8",
     )
     platform = (ROOT / "loader/ports/stm32g4/platform.c").read_text(encoding="utf-8")
+    lock_source = output / "priority_lock.c"
+    lock_source.write_text(
+        (ROOT / "tests/unit/native/cmsis_preemption_fake.h").read_text(encoding="utf-8")
+        + "\n"
+        + (ROOT / "tests/unit/loader_priority_lock_test.c").read_text(encoding="utf-8")
+        + "\n"
+        + function_source(platform, "LoaderPlatform_Lock")
+        + "\n"
+        + function_source(platform, "LoaderPlatform_Unlock"),
+        encoding="utf-8",
+    )
     device = (
         ROOT
         / "firmware/platform/sdk/stm32g4/Drivers/CMSIS/Device/ST/STM32G4xx/Include/stm32g431xx.h"
@@ -232,6 +243,7 @@ def main() -> None:
         ("parameter_io", str(parameter_io_source), []),
         ("flash_domain", str(flash_domain_source), []),
         ("board_safety", str(board_source), []),
+        ("priority_lock", str(lock_source), ["-Wno-unused-function"]),
     ):
         executable = output / (name + ".exe")
         for command in (

@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include "app.h"
 #include "motor_axis.h"
-#include "control_config.h"
+#include "application_config.h"
 #include "bsp_led.h"
 #include "bsp_system.h"
 #include "yg_protocol_link.h"

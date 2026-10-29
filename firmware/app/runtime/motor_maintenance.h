@@ -1,25 +1,25 @@
 #ifndef MOTOR_MAINTENANCE_H
 #define MOTOR_MAINTENANCE_H
 
-#include "foc_algorithm.h"
-#include "foc_pid.h"
-#include "angle_feedback.h"
+#include "foc.h"
+#include "pi_controller.h"
+#include "encoder_feedback.h"
 #include "flux_observer.h"
-#include "motor_task_result.h"
+#include "motor_types.h"
 #include "motor_lifecycle_request.h"
 
 /**
  * @brief 检查指定维护任务的功能前提，不提交状态或启相。
  * @param configuration 活动配置只读视图，含轴策略、限值与设备校准。
  * @param kind 实际维护任务类型。
- * @param foc 母线和控制测量。
+ * @param measurement 母线电压测量。
  * @param encoder 编码器运行健康。
  * @param configuration_valid 所有者已核对同一配置代际的完整校验结果；动态事实仍在此重读。
  * @return 输入和功能前提全部满足返回 MOTOR_FAULT_NONE，否则返回拒绝原因；不锁存故障。
  */
 MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
-                                      const FocState *foc,
+                                      const MotorMeasurement *measurement,
                                       const EncoderState *encoder,
                                       bool configuration_valid);
 /**
@@ -27,6 +27,7 @@ MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
  * @param configuration 维护所有者提供的独占配置，仅默认恢复或校准提交修改。
  * @param kind 所有者选择的实际任务。
  * @param foc 电流环对象。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param motor 易失运行状态与控制目标。
  * @param pi 速度控制器。
  * @param encoder 编码器状态。
@@ -38,6 +39,7 @@ MotorFaultCode MotorMaintenance_Admit(const MotorConfiguration *configuration,
 MotorTaskResult MotorMaintenance_Step(MotorConfiguration *configuration,
                                       MotorMaintenanceKind kind,
                                       FocState *foc,
+                                      const MotorMeasurement *measurement,
                                       MotorControlState *motor,
                                       PiController *pi,
                                       EncoderState *encoder,

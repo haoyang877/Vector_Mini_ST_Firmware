@@ -1,16 +1,16 @@
 #include "yg_protocol_status_adapter.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #if BSP_SUPPORTED_BUS_CURRENT
 #include "bus_current_feedback.h"
 #endif
 
 #include <math.h>
 
-#include "angle_feedback.h"
+#include "encoder_feedback.h"
 #include "bsp_system.h"
 #include "motor_types.h"
-#include "foc_algorithm.h"
-#include "foc_sensing.h"
+#include "foc.h"
+#include "motor_sensing.h"
 #include "motor_state_machine.h"
 #include "motor_axis.h"
 #include "yg_protocol_link.h"

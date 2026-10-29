@@ -19,7 +19,7 @@ def main() -> int:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     native = ROOT / "tests/unit/native"
-    angle_source = (ROOT / "firmware/motor/feedback/angle_feedback.c").read_text(encoding="utf-8")
+    angle_source = (ROOT / "firmware/motor/feedback/encoder_feedback.c").read_text(encoding="utf-8")
     functions = (
         "encoder_mark_read_status",
         "Encoder_BeginSample",
@@ -30,7 +30,7 @@ def main() -> int:
         "encoder_update_shadow",
     )
     (args.out / "r40_angle_contract.inc").write_text(
-        '#include "angle_feedback.h"\n'
+        '#include "encoder_feedback.h"\n'
         + "\n".join(function_source(angle_source, name) for name in functions),
         encoding="utf-8",
     )
@@ -41,8 +41,8 @@ def main() -> int:
         ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
         ROOT / "firmware/platform/bsp/mcu/at32f456",
         ROOT / "firmware/platform/bsp/include",
-        ROOT / "firmware/platform/config",
-        ROOT / "firmware/app/config",
+        ROOT / "firmware/config",
+        ROOT / "firmware/config",
         ROOT / "firmware/platform/bsp",
     ):
         command += ["-I", str(directory)]

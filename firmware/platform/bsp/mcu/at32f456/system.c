@@ -1,5 +1,5 @@
 #include "bsp_internal.h"
-#include "control_config.h"
+#include "application_config.h"
 #include <stddef.h>
 #include <string.h>
 #include "bsp_system.h"
@@ -12,7 +12,7 @@
 #include "boot_hw.h"
 #include "bsp_pwm.h"
 #include "bsp_can.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 /* 等待上限是启动阶段的轮询次数，不冒充准确的毫秒超时。 */
 #define R40_CLOCK_WAIT_ITERATIONS 2000000U
@@ -77,7 +77,7 @@ static bool clock_init(void)
 /* 中央对齐完整周期为2*PR，单向监督计数周期才是PR+1（手册15.4.3.2）。 */
 #define R40_SUPERVISOR_TOP (1000000U / SUPERVISOR_FREQ - 1U)
 
-#if (R40_TIMER_HZ % (2U * FOC_FREQ)) != 0U || (1000000U % SUPERVISOR_FREQ) != 0U
+#if (R40_CORE_CLOCK_DERIVED_HZ % (2U * FOC_FREQ)) != 0U || (1000000U % SUPERVISOR_FREQ) != 0U
 #error "R40 timer clock must divide the frozen control frequencies exactly"
 #endif
 

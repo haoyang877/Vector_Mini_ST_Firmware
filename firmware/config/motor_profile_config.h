@@ -1,0 +1,84 @@
+// clang-format off
+#ifndef FIRMWARE_MOTOR_PROFILE_CONFIG_H
+#define FIRMWARE_MOTOR_PROFILE_CONFIG_H
+
+/* 电机型号输入与派生表达式；与板卡资源独立选择。 */
+#include "config.h"
+
+#if FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_HT8115_4
+
+/* STM32 正式工程使用的 HT8115-4。 */
+#define PARAM_MOTOR_MODEL_NAME  "HT8115-4"
+#define PARAM_MOTOR_CONFIGURATION_NAME  "HT8115-4/no-damping-ring"
+#define PARAM_MOTOR_APP_DEFAULTS_READY     1U
+#define PARAM_MOTOR_DATA_PROVISIONAL       0U
+#define PARAM_MOTOR_TORQUE_CONSTANT_VALID  1U
+#define PARAM_MOTOR_POLE_PAIRS            21
+#define PARAM_MOTOR_PHASE_RESISTANCE_OHM  (3.81f * 0.5f)
+#define PARAM_MOTOR_D_INDUCTANCE_H        (3.27e-3f * 0.5f)
+#define PARAM_MOTOR_Q_INDUCTANCE_H        PARAM_MOTOR_D_INDUCTANCE_H
+/* Kv=15rpm/V；磁链=60/(sqrt(3)*2π*极对数*Kv)。 */
+#define PARAM_MOTOR_FLUX_WB  0.0175025f
+/* Kt由既有磁链反推，电流口径为Iq/相电流幅值，不是独立测量值。 */
+#define PARAM_MOTOR_TORQUE_CONSTANT_NM_PER_A                                                       \
+    (1.5f * (float)PARAM_MOTOR_POLE_PAIRS * PARAM_MOTOR_FLUX_WB)
+/* 两种阻尼环装配的惯量均待提供；0仅为无效占位，不能用于控制计算。 */
+#define PARAM_MOTOR_ROTOR_INERTIA_KG_M2  0.0f
+#define PARAM_MOTOR_ROTOR_INERTIA_VALID  0U
+#define PARAM_MOTOR_RATED_VECTOR_A       3.0f
+#define PARAM_MOTOR_PEAK_VECTOR_A        7.0f
+#define PARAM_MOTOR_MAX_SPEED_RPM        300.0f
+#define PARAM_MOTOR_GEAR_RATIO           1.0f
+#define PARAM_MOTOR_CALIB_CURRENT_A      3.0f
+/* 无阻尼环装配的既有标定速度；阻尼环装配仍用启动配置中的专用整定。 */
+#define PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S        15.0f
+
+/* HT既有热设计输入保持不变，不因带宽或阻尼环选择扩大电流额度。 */
+#define PARAM_MOTOR_THERMAL_CONTINUOUS_VECTOR_A   PARAM_MOTOR_RATED_VECTOR_A
+#define PARAM_MOTOR_THERMAL_PEAK_A                PARAM_MOTOR_PEAK_VECTOR_A
+#define PARAM_MOTOR_THERMAL_HEATING_TAU_S         65.98486785f
+#define PARAM_MOTOR_THERMAL_DERATING_ENTER_RATIO  0.8f
+#define PARAM_MOTOR_THERMAL_DERATING_EXIT_RATIO   0.7f
+#define PARAM_MOTOR_THERMAL_TRIP_RATIO            1.0f
+#define PARAM_MOTOR_THERMAL_CLEAR_RATIO           0.5f
+
+#elif FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708
+
+/* AT32 正式工程使用的 YQ-5708。 */
+#define PARAM_MOTOR_MODEL_NAME          "YQ-5708"
+#define PARAM_MOTOR_CONFIGURATION_NAME  "YQ-5708/8:1"
+#define PARAM_MOTOR_GEAR_RATIO          8.0f
+/* 14 对极、30 rad/s 机械转速对应 420 rad/s 电角速度。 */
+#define PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S        30.0f
+#define PARAM_MOTOR_APP_DEFAULTS_READY    0U
+#define PARAM_MOTOR_DATA_PROVISIONAL      0U
+#define PARAM_MOTOR_POLE_PAIRS            14
+#define PARAM_MOTOR_PHASE_RESISTANCE_OHM  (1.1f * 0.5f)
+#define PARAM_MOTOR_D_INDUCTANCE_H        (0.000285f * 0.5f)
+#define PARAM_MOTOR_Q_INDUCTANCE_H        PARAM_MOTOR_D_INDUCTANCE_H
+/* 用户确认Kt=80.1mN·m/A，A为Iq/相电流幅值，参考轴为电机轴。
+ * Id=0时Te=1.5*p*磁链*Iq，磁链单位Wb，不按减速比缩放。 */
+#define PARAM_MOTOR_TORQUE_CONSTANT_NM_PER_A  (80.1f * 0.001f)
+#define PARAM_MOTOR_TORQUE_CONSTANT_VALID     1U
+#define PARAM_MOTOR_FLUX_WB                                                                        \
+    (PARAM_MOTOR_TORQUE_CONSTANT_NM_PER_A / (1.5f * (float)PARAM_MOTOR_POLE_PAIRS))
+/* 用户明确SI值为0.0005kg·m²，不采用截图e-4标签再次缩放；未计外部负载惯量。 */
+#define PARAM_MOTOR_ROTOR_INERTIA_KG_M2  0.0005f
+#define PARAM_MOTOR_ROTOR_INERTIA_VALID  1U
+/* 电机规格为向量幅值，不改变板级保护；原始规格为2.5/7.5Arms。 */
+#define PARAM_MOTOR_RATED_VECTOR_A   (2.5f * 1.414213562f)
+#define PARAM_MOTOR_PEAK_VECTOR_A    (7.5f * 1.414213562f)
+#define PARAM_MOTOR_MAX_SPEED_RPM    2500.0f
+#define PARAM_MOTOR_CALIB_CURRENT_A  1.6f
+
+#else
+#error "Unsupported FOC_ACTIVE_MOTOR_PROFILE"
+#endif
+
+
+/* 两个正式型号的标定目标同轴，电角速度由机械速度和极对数派生。 */
+#define PARAM_MOTOR_CALIB_TARGET_ELEC_VEL_RAD_S                                                    \
+    ((PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S) * (float)(PARAM_MOTOR_POLE_PAIRS))
+
+#endif
+// clang-format on

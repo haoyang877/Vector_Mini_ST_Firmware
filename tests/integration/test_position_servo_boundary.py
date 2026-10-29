@@ -11,8 +11,8 @@ from project_paths import ROOT
 
 class PositionServoBoundaryTests(unittest.TestCase):
     def test_basic_module_has_no_retired_or_hardware_dependencies(self) -> None:
-        source = (ROOT / "firmware/motor/position/position_cascade.c").read_text(encoding="utf-8")
-        header = (ROOT / "firmware/motor/position/position_cascade.h").read_text(encoding="utf-8")
+        source = (ROOT / "firmware/motor/control/position_control.c").read_text(encoding="utf-8")
+        header = (ROOT / "firmware/motor/control/position_control.h").read_text(encoding="utf-8")
         for name in (
             "PositionSmooth",
             "friction",

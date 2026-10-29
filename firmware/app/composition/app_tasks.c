@@ -1,6 +1,6 @@
 #include "app.h"
 #include "motor_axis.h"
-#include "control_config.h"
+#include "application_config.h"
 #include "motor_state_machine.h"
 #include "bsp_led.h"
 
@@ -9,9 +9,9 @@
 #include "bsp_system.h"
 #include "bsp_pwm.h"
 #include "bsp_adc.h"
-#include "app_feature_requirements.h"
+#include "application_config.h"
 #include "bsp_can.h"
-#include "pwm_output_config.h"
+#include "application_config.h"
 #include "yg_protocol_link.h"
 #include <math.h>
 
@@ -27,7 +27,7 @@
 #if BSP_ENABLED_BUS_CURRENT
 #include "bus_current_feedback.h"
 #endif
-#if BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_PWM_WINDOWED
 #include "pwm_power_window.h"
 #endif
 
@@ -35,7 +35,7 @@ static volatile uint32_t s_fast_samples, s_supervisor_ticks;
 static uint32_t s_watchdog_last_ms, s_watchdog_last_fast, s_watchdog_last_slow;
 static bool s_watchdog_enabled;
 
-#if BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_PWM_WINDOWED
 volatile uint32_t g_r40_app_test_window_ms, g_r40_app_test_arm_result;
 #endif
 
@@ -59,7 +59,7 @@ static bool power_contract_valid(void)
         {
             return true;
         }
-#if BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_PWM_WINDOWED
         if (outputs == BSP_PWM_ON && g_pwm_power_window.state == PWM_POWER_ACTIVE)
         {
             return true;
@@ -73,7 +73,7 @@ void AppTasks_Init(void)
 {
     s_fast_samples = s_supervisor_ticks = 0U;
     s_watchdog_enabled = false;
-#if BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_PWM_WINDOWED
     PwmPowerWindow_Init();
 #endif
 #if BSP_ENABLED_BUS_CURRENT
@@ -99,7 +99,7 @@ void AppTasks_Start(void)
 
 void BspApp_OnFastSample(void)
 {
-#if BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_PWM_WINDOWED
     if (!PwmPowerWindow_Tick(BspSystem_TimeMs()))
     {
         BspPwm_Disable();
@@ -107,7 +107,7 @@ void BspApp_OnFastSample(void)
 #endif
     App_FastTick();
     ++s_fast_samples;
-#if APP_ENABLED_DIAGNOSTIC_TELEMETRY || BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_ENABLED_DIAGNOSTIC_TELEMETRY || APP_PWM_WINDOWED
     MotorAxis_ServiceFastDiagnostics(s_fast_samples);
 #endif
 #if APP_ENFORCE_POWER_CONTRACT
@@ -134,7 +134,7 @@ void BspApp_OnCanReceive(void)
 
 void AppTasks_Process(void)
 {
-#if BSP_PWM_PERMIT_MODE == BSP_PWM_PERMIT_WINDOW
+#if APP_PWM_WINDOWED
     if (g_pwm_power_window.state == PWM_POWER_EXPIRED)
     {
         (void)MotorStateMachine_RequestRemoteStop();

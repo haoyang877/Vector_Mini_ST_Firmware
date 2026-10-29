@@ -99,7 +99,7 @@ flowchart TD
         S["MotorAxis_SupervisorTick"]
         WATCH["热采样节拍看门狗<br/>失效即锁存故障并关断"]
         ENCODER["Encoder_UpdateSlowEstimate<br/>机械位置和速度估计"]
-        TEMP["Temperature_Update<br/>先更新本拍温度及保护事实"]
+        TEMP["McuTemperature_Update<br/>先更新本拍温度及保护事实"]
         PRE["MotorStateMachine_PrepareSupervisor<br/>消费STOP、故障及任务/保存结果<br/>推进一次状态、自检窗口及工作派发<br/>应用新目标，取得本拍代际和计算副本"]
         ALLOW{"STARTING/RUNNING<br/>无故障、STOP或升级停机票据？"}
         OUTER["MotorOuterLoop_SlowTick<br/>在栈上副本计算既有外环<br/>更新临时参考、PI及外环ready"]
@@ -148,7 +148,7 @@ ADC优先级0、TIM7优先级3，外环允许快环抢占；不能通过扩大�
 四个App入口、状态与线上编码、控制公式、保护阈值和Keil Watch入口保持不变。
 
 源码依据：[监督调度](../../firmware/app/runtime/motor_axis.c)、
-[外环与ready](../../firmware/motor/foc/motor_control.c)、
+[外环与ready](../../firmware/motor/control/motor_control.c)、
 [同一状态所有者的前处理和提交](../../firmware/app/motor_state_machine/motor_state_machine.c)。
 实施与证据见[2kHz三段监督计划](../plans/completed/2026-10-21-supervisor-staged-v1.md)。
 本图表示当前源码调用关系；本批没有新的实机、中断耗时或MCU占用率结论。
@@ -166,7 +166,7 @@ ADC优先级0、TIM7优先级3，外环允许快环抢占；不能通过扩大�
 绕组热保护与可选SPEED速度整形/惯量前馈已经接入：热历史归motor/protection，
 速度前馈归motor/foc；位置串级不因速度前馈恢复轨迹或摩擦功能。
 host_app同时保留Rust GUI候选与Qt核心工具，程序能力和验收分别按各自源码确认。
-硬件、电机、应用和设备配置按来源与职责分组，持久布局为schema14，兼容读取schema12/13。
+硬件、电机、应用和设备配置按来源与职责分组，持久布局只接受schema14。
 设备node只取独立地址字段；应用速度包络由应用配置及AXS数值决定，不再由节点派生。
 删除旧地址映射会改变部分记录的实际通信地址和隐含速度钳制，详见本批兼容契约。
 

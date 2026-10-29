@@ -90,7 +90,7 @@ IDLE 仍映射为既有线上状态 5；PC 用新序号查询资格，重试原�
 ENABLE 在同一临界区重新核对，监督拍及运行守卫继续复核。确认、标定、保存都不自动 ENABLE。
 SAVE 可以持久化未确认/部分标定记录，重载后保持同样限制；DEFAULTS 清除确认和标定资格。
 
-配置确认持久化与整条CRC见[schema14契约](../protocols/parameter_schema14_storage_v1.md)，兼容读取有效schema12/13。
+配置确认持久化与整条CRC见[schema14契约](../protocols/parameter_schema14_storage_v1.md)，旧版本不受支持。
 黄金字节见[参数线路向量](../protocols/yg_protocol_parameter_wire_v1_vectors.json)。
 
 未配置设备使用节点 1，与 Loader 救援节点一致；完整电机状态的节点合法范围为 1～254。

@@ -20,21 +20,6 @@ typedef enum
     MOTOR_MAINTENANCE_CLASS_ZERO,
     MOTOR_MAINTENANCE_CLASS_INVALID
 } MotorMaintenanceClass;
-typedef enum
-{
-    MOTOR_STATE_ACCEPTED,
-    MOTOR_STATE_REJECT_ARGUMENT,
-    MOTOR_STATE_REJECT_EVENT,
-    MOTOR_STATE_REJECT_STATE,
-    MOTOR_STATE_REJECT_BUSY,
-    MOTOR_STATE_REJECT_STALE_EPOCH,
-    MOTOR_STATE_REJECT_MODE,
-    MOTOR_STATE_REJECT_OPERATION,
-    MOTOR_STATE_REJECT_GUARD,
-    MOTOR_STATE_REJECT_FAULT,
-    MOTOR_STATE_REJECT_INTERRUPTED,
-    MOTOR_STATE_REJECT_FATAL
-} MotorStateRejection;
 
 enum
 {
@@ -48,8 +33,6 @@ enum
     MOTOR_STATE_EVENT_BEGIN_OPERATION = 256U,
     MOTOR_STATE_EVENT_OPERATION_DONE = 512U,
     MOTOR_STATE_EVENT_OPERATION_FAILED = 1024U,
-    MOTOR_STATE_EVENT_LINK_RECOVERED = 2048U,
-    MOTOR_STATE_EVENT_CANCEL = 4096U,
     MOTOR_STATE_EVENT_CANCEL_DONE = 8192U
 };
 enum
@@ -58,8 +41,6 @@ enum
     MOTOR_STATE_ACTION_REVOKE_REQUESTS = 2U,
     MOTOR_STATE_ACTION_CANCEL_CONTROL = 4U,
     MOTOR_STATE_ACTION_CANCEL_OPERATION = 8U,
-    MOTOR_STATE_ACTION_START_CONTROL = 32U,
-    MOTOR_STATE_ACTION_BEGIN_OPERATION = 64U,
     MOTOR_STATE_ACTION_FAULT_CLEARED = 128U
 };
 /* 来源适配器可以使用低 29 位存放内部故障源。 */
@@ -69,7 +50,7 @@ enum
 
 typedef struct
 {
-    uint32_t events, faults, completion_epoch, request_epoch;
+    uint32_t events, faults, completion_epoch;
     MotorControlMode control_mode;
     MotorMaintenanceKind maintenance_kind;
     MotorMaintenanceEffect effects;
@@ -87,7 +68,7 @@ typedef struct
      * 缺少恢复证据时为 false。IDLE 允许缺少某项标定：start_permitted
      * 只拒绝受影响模式；基础参数错误则自检失败。 */
     bool start_permitted, operation_permitted, startup_confirmed;
-    /* 适配器还需自行校验来源与队列时效，不能只信任 request_epoch。 */
+    /* 请求来源与队列时效由所有者校验；停止请求使本拍请求失效。 */
     bool request_fresh;
 } MotorStateFacts;
 /* 唯一所有者上下文中的规则字段；不含模式镜像、分类镜像或返回快照。 */
@@ -99,13 +80,13 @@ typedef struct
     bool maintenance_active;
     MotorMaintenanceResult operation_result;
     MotorMaintenanceEffect operation_effects;
-    uint32_t epoch, first_fault, latched_faults;
+    uint32_t epoch, latched_faults;
 } MotorStateRulesContext;
 
 typedef struct
 {
     uint32_t actions;
-    MotorStateRejection rejection;
+    bool accepted;
 } MotorStateDecision;
 
 /**
@@ -123,16 +104,16 @@ MotorMaintenanceClass MotorStateRules_Classify(MotorMaintenanceKind kind);
  */
 void MotorStateRules_Init(MotorStateRulesContext *context);
 /**
- * @brief 执行一次生命周期状态迁移，返回动作请求与拒绝原因。
+ * @brief 执行一次生命周期状态迁移，返回动作请求与受理结果。
  * @param context 唯一所有者持有的规则字段；调用方串行化访问。
- * @param event 本拍事件集与载荷（events/faults/epoch/control_mode/maintenance_kind/effects）。
+ * @param event 单个事件与载荷（events/faults/epoch/control_mode/maintenance_kind/effects）。
  * @param facts 调用方提供的当前健康、许可与资源事实。
- * @return 迁移结果：动作位与拒绝原因；不复制上下文，动作不是硬件证据。
- * @note 优先级 FATAL > FAULT > STOP > CANCEL > 完成通知 > 新请求；完成与新请求同拍
- *       报 INTERRUPTED。LINK_RECOVERED 永不清除锁存；空事件轮询 guards 与停止确认。
- *       当前操作失败按故障处理，不被同拍 STOP 吞掉；陈旧完成不能污染新会话。
+ * @return 迁移结果：动作位与受理结果；不复制上下文，动作不是硬件证据。
+ * @note 所有者串行提交事件；FATAL、活动故障和执行守卫优先于停止和普通事件。
+ *       空事件轮询 guards 与停止确认；通信恢复不会清除锁存。
+ *       所有者在停止前保留已报告的任务失败；陈旧完成不能污染新会话。
  *       已处 FAULT 可单独确认 CANCEL_DONE，继续锁存全部活动故障；不得伪造 guards 清零。
- *       请求需 request_epoch 且 request_fresh；完成需阶段 epoch。停止/取消不回滚 Flash，
+ *       新请求需 request_fresh；异步完成需阶段 epoch。停止/取消不回滚 Flash，
  *       也不承诺效果未提交。被取消的操作必须用新取消 epoch 的 CANCEL_DONE 确认，
  *       且匹配操作、资源静默与实际效果；UNKNOWN 表示提交结果仍需外部查询。
  *       存在未确认取消时不得通过 CLEAR 或回到 IDLE。SAVE 完成必须 COMMITTED，

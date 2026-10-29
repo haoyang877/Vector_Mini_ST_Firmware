@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "motor_thermal_control.h"
-#include "foc_algorithm.h"
-#include "control_config.h"
+#include "foc.h"
+#include "application_config.h"
 
 static unsigned s_pwm_writes;
 static const FocState *s_submission_state;
@@ -134,13 +134,15 @@ static void test_protection(void)
 {
     MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
-    FocState foc = {0};
+    MotorMeasurement measurement = {0};
     configuration.application.current_limit_a = 2.5f;
     /* 未完成零偏只发布关闭额度，不能把无样本解释为绕组故障。 */
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, false, true, false, true);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, false, true, false, true);
     assert(motor.thermal_current_limit_a == 0.0f && motor.thermal_limit_active);
     assert(!motor.thermal_clear_ready && motor.fault_code == MOTOR_FAULT_NONE);
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, true, false, true);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, true, false, true);
     assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
 
     MotorWindingThermalConfig config;
@@ -149,19 +151,23 @@ static void test_protection(void)
     assert(MotorThermalControl_Init(&config, 0U));
     motor.fault_code = MOTOR_FAULT_NONE;
     motor.control_mode = MOTOR_CONTROL_VQ;
-    foc.phase_a_current_a = 3.0f;
-    foc.phase_b_current_a = foc.phase_c_current_a = -1.5f;
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, true, true, false);
+    measurement.phase_a_current_a = 3.0f;
+    measurement.phase_b_current_a = measurement.phase_c_current_a = -1.5f;
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, true, true, false);
     assert(motor.fault_code == MOTOR_FAULT_NONE && motor.thermal_current_limit_a == 2.5f);
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, false);
     assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
     motor.fault_code = MOTOR_FAULT_NONE;
-    foc.phase_a_current_a = 2.5f;
-    foc.phase_b_current_a = foc.phase_c_current_a = -1.25f;
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    measurement.phase_a_current_a = 2.5f;
+    measurement.phase_b_current_a = measurement.phase_c_current_a = -1.25f;
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, false);
     assert(motor.fault_code == MOTOR_FAULT_NONE);
-    foc.phase_a_current_a = NAN;
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    measurement.phase_a_current_a = NAN;
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, false);
     assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
 
     motor = (MotorControlState){0};
@@ -172,13 +178,16 @@ static void test_protection(void)
         window(6.0f, -3.0f, -3.0f, &now_ms);
     }
     assert(MotorThermalControl_CanRun(true) && !MotorThermalControl_CanRun(false));
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, true);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, true);
     assert(motor.fault_code == MOTOR_FAULT_NONE);
     MotorThermalDiagnostics before, after;
     assert(MotorThermalControl_GetDiagnostics(&before));
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, false, false);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, false, false);
     assert(motor.fault_code == MOTOR_FAULT_NONE);
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, false);
     assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
     assert(MotorThermalControl_GetDiagnostics(&after));
     assert(memcmp(before.model.heat, after.model.heat, sizeof(before.model.heat)) == 0);
@@ -195,25 +204,26 @@ static void test_foc(void)
     MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
     FocState foc = {0};
+    MotorMeasurement measurement = {0};
     configuration.application.current_limit_a = 2.5f;
     motor.thermal_current_limit_a = MotorThermalControl_CurrentLimit(2.5f);
     configuration.model.id_kp = configuration.model.iq_kp = 1.0f;
     foc.id_pi.proportional_gain = configuration.model.id_kp;
     foc.iq_pi.proportional_gain = configuration.model.iq_kp;
-    foc.id_pi.sample_period_s = foc.iq_pi.sample_period_s = Current_Ts;
+    foc.id_pi.sample_period_s = foc.iq_pi.sample_period_s = FOC_TS_S;
     motor.id_target_a = 3.0f;
     motor.iq_target_a = 4.0f;
-    foc.bus_voltage_filtered_v = 33.0f;
-    FOC_Current(&configuration, &foc, &motor, 0.0f, 0.0f);
+    measurement.bus_voltage_filtered_v = 33.0f;
+    Foc_RunCurrent(&configuration, &foc, &measurement, &motor, 0.0f, 0.0f);
     assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_NONE);
     assert(fabsf(foc.id_pi.reference - 1.5f) < 0.000001f);
     assert(fabsf(foc.iq_pi.reference - 2.0f) < 0.000001f);
-    foc.phase_a_current_a = 3.0f;
-    foc.phase_b_current_a = foc.phase_c_current_a = -1.5f;
-    FOC_Vq_Mode(&configuration, &foc, &motor, 0.0f, 0.0f);
+    measurement.phase_a_current_a = 3.0f;
+    measurement.phase_b_current_a = measurement.phase_c_current_a = -1.5f;
+    Foc_RunVq(&configuration, &foc, &measurement, &motor, 0.0f, 0.0f);
     assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
     motor.fault_code = MOTOR_FAULT_NONE;
-    FOC_CurrentWithReference(&configuration, &foc, &motor, 0.0f, 0.0f, NAN);
+    Foc_RunCurrentRef(&configuration, &foc, &measurement, &motor, 0.0f, 0.0f, NAN);
     assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
     puts("PASS real FOC final dq-vector limiting, Vq actual-current boundary and invalid target "
          "rejection");
@@ -224,21 +234,22 @@ static void test_submission(void)
     MotorConfiguration config = {0};
     MotorControlState motor = {0};
     FocState foc = {0};
+    MotorMeasurement measurement = {0};
     config.application.current_limit_a = motor.thermal_current_limit_a = 3.0f;
-    foc.bus_voltage_filtered_v = 20.0f;
+    measurement.bus_voltage_filtered_v = 20.0f;
     foc.id_pi.proportional_gain = foc.iq_pi.proportional_gain = 1.0f;
     foc.id_pi.integral_output = foc.iq_pi.integral_output = 30.0f;
     foc.id_filtered_a = 99.0f;
     s_submission_state = &foc;
-    FOC_Current(&config, &foc, &motor, 0.0f, 0.0f);
+    Foc_RunCurrent(&config, &foc, &measurement, &motor, 0.0f, 0.0f);
     assert(s_integral_at_submission == 30.0f && s_filter_at_submission == 99.0f);
     assert(foc.id_pi.integral_output <= foc.id_pi.output_max);
     assert(fabsf(foc.id_filtered_a - 98.01f) < .00001f);
-    assert(foc.id_pi.output == foc.mod_d * foc.bus_voltage_filtered_v / 1.5f);
+    assert(foc.id_pi.output == foc.mod_d * measurement.bus_voltage_filtered_v / 1.5f);
     s_submission_result = BSP_TIMEOUT;
-    FOC_Current(&config, &foc, &motor, 0.0f, 0.0f);
+    Foc_RunCurrent(&config, &foc, &measurement, &motor, 0.0f, 0.0f);
     assert(motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN);
-    assert(foc.id_pi.output == foc.mod_d * foc.bus_voltage_filtered_v / 1.5f);
+    assert(foc.id_pi.output == foc.mod_d * measurement.bus_voltage_filtered_v / 1.5f);
     s_submission_state = NULL;
     puts("PASS PWM submitted before next-tick PI tracking and statistics; failure state retained");
 }
@@ -269,26 +280,29 @@ static void test_disabled(void)
     MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
     FocState foc = {0};
+    MotorMeasurement measurement = {0};
     configuration.application.current_limit_a = 3.0f;
     motor.control_mode = MOTOR_CONTROL_CURRENT;
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, false);
     assert(motor.thermal_current_limit_a == 3.0f && !motor.thermal_limit_active);
     foc.id_pi.proportional_gain = foc.iq_pi.proportional_gain = 1.0f;
-    foc.id_pi.sample_period_s = foc.iq_pi.sample_period_s = Current_Ts;
-    foc.bus_voltage_filtered_v = 30.0f;
+    foc.id_pi.sample_period_s = foc.iq_pi.sample_period_s = FOC_TS_S;
+    measurement.bus_voltage_filtered_v = 30.0f;
     motor.id_target_a = 3.0f;
     motor.iq_target_a = 4.0f;
-    FOC_Current(&configuration, &foc, &motor, 0.0f, 0.0f);
+    Foc_RunCurrent(&configuration, &foc, &measurement, &motor, 0.0f, 0.0f);
     assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_NONE);
     assert(fabsf(foc.id_pi.reference - 1.8f) < 0.000001f);
     assert(fabsf(foc.iq_pi.reference - 2.4f) < 0.000001f);
     motor.control_mode = MOTOR_CONTROL_VQ;
-    foc.phase_a_current_a = 4.0f;
-    foc.phase_b_current_a = foc.phase_c_current_a = -2.0f;
-    MotorThermalControl_UpdateProtection(&configuration, &foc, &motor, true, false, true, false);
+    measurement.phase_a_current_a = 4.0f;
+    measurement.phase_b_current_a = measurement.phase_c_current_a = -2.0f;
+    MotorThermalControl_UpdateProtection(
+        &configuration, &measurement, &motor, true, false, true, false);
     assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
     motor.fault_code = MOTOR_FAULT_NONE;
-    FOC_CurrentWithReference(&configuration, &foc, &motor, 0.0f, 0.0f, NAN);
+    Foc_RunCurrentRef(&configuration, &foc, &measurement, &motor, 0.0f, 0.0f, NAN);
     assert(s_pwm_writes == 1U && motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
     puts("PASS disabled thermal model: no fabricated diagnostics, 3A vector/current guards "
          "retained");

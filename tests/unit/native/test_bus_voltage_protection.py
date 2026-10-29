@@ -23,13 +23,13 @@ PRELUDE = r"""
 #include "bsp_adc.h"
 #include "motor_types.h"
 #include "motor_config.h"
-#include "bus_voltage_profile.h"
-#include "sampling_scale.h"
+#include "application_config.h"
+#include "board_config.h"
 #define FOC_FREQ 20000U
 #define SENSING_VBUS_FACTOR (3.3f / 4095.0f * 11.0f)
 #define ADC2_SUM_TO_COUNTS .25f
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
-typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } FocState;
+typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } MotorMeasurement;
 static struct { uint32_t JDR4; } adc;
 BspResult BspAdc_ReadFast(BspAdcFastSample *out) {
     *out=(BspAdcFastSample){.bus_voltage_v=(float)adc.JDR4*ADC2_SUM_TO_COUNTS*SENSING_VBUS_FACTOR,
@@ -38,7 +38,7 @@ BspResult BspAdc_ReadFast(BspAdcFastSample *out) {
 }
 static MotorConfiguration configuration;
 static MotorControlState motor_state;
-static FocState s_foc_state;
+static MotorMeasurement s_foc_state;
 static void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
 """
 
@@ -46,7 +46,7 @@ CASES = r"""
 static void sample_voltage(bool output_expected) {
     BspAdcFastSample sample;
     BspResult result=BspAdc_ReadFast(&sample);
-    Vbus_Update(&s_foc_state,&motor_state,output_expected,result==BSP_OK?&sample:NULL);
+    MotorVoltage_Update(&s_foc_state,&motor_state,output_expected,result==BSP_OK?&sample:NULL);
 }
 static void input(float v) {
     adc.JDR4=(uint32_t)roundf(v/SENSING_VBUS_FACTOR/ADC2_SUM_TO_COUNTS);
@@ -154,7 +154,8 @@ def main():
     fixture.write_text(
         PRELUDE
         + function_source(
-            (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8"), "Vbus_Update"
+            (ROOT / "firmware/motor/sensing/motor_voltage.c").read_text(encoding="utf-8"),
+            "MotorVoltage_Update",
         )
         + "\n"
         + function_source(
@@ -162,7 +163,7 @@ def main():
                 encoding="utf-8"
             ),
             "state_vbus_in_enable_window",
-        ).replace("s_context.foc->", "s_foc_state.")
+        ).replace("s_context.measurement->", "s_foc_state.")
         + CASES
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
@@ -182,7 +183,7 @@ def main():
         "-I",
         str(ROOT / "firmware/motor/math"),
         "-I",
-        str(ROOT / "firmware/motor/foc"),
+        str(ROOT / "firmware/motor/control"),
         str(fixture),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/parameters/motor_axis_profile.c"),

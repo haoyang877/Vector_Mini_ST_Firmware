@@ -14,7 +14,7 @@
 #include "boot_hw.h"
 #include "bsp_pwm.h"
 #include "bsp_can.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 static bool s_microseconds_ready;
 static uint32_t s_cycle_anchor, s_cycle_remainder, s_microseconds, s_cycles_per_us;

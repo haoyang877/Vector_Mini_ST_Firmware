@@ -225,13 +225,13 @@ class CalibrationResetTests(unittest.TestCase):
             ROOT / "outputs/coordination/delivery-feature-integration-20261017/calibration_reset"
         )
         output.mkdir(parents=True, exist_ok=True)
-        sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
+        sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
         source = output / "load_prepared.c"
         source.write_text(
             '#include <math.h>\n#include <stdio.h>\n#include <string.h>\n#include "parameter_record.h"\n'
-            '#include "parameter_values.h"\n#include "foc_sensing.h"\n'
+            '#include "parameter_values.h"\n#include "motor_sensing.h"\n'
             "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
-            + function_source(sensing, "MotorCurrentOffsets_Valid")
+            + function_source(sensing, "MotorCurrentOffsets_IsValid")
             + r"""
 #define CHECK(condition) do { if (!(condition)) { printf("FAIL %u: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main(int argc, char **argv) {
@@ -290,7 +290,7 @@ int main(int argc, char **argv) {
                 "firmware/motor/math/control_math.c",
                 "firmware/motor/protection/motor_thermal.c",
                 "firmware/motor/protection/motor_thermal_config.c",
-                "firmware/motor/foc/speed_feedforward.c",
+                "firmware/motor/control/speed_feedforward.c",
                 "shared/checksum/crc32.c",
             )
         ] + ["-lm", "-o", str(executable)]

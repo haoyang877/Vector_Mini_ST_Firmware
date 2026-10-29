@@ -62,10 +62,6 @@ static void LifecycleOwner_Apply(LifecycleOwner *owner, uint32_t actions)
     {
         owner->power_disabled = true;
     }
-    if (actions & MOTOR_STATE_ACTION_START_CONTROL)
-    {
-        owner->power_disabled = false;
-    }
 }
 
 static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, MotorControlMode mode)
@@ -77,7 +73,6 @@ static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, MotorCon
     memset(&event, 0, sizeof(event));
     event.events = events;
     event.control_mode = mode;
-    event.request_epoch = owner->lifecycle.epoch;
     event.completion_epoch = owner->lifecycle.epoch;
     guards = LifecycleOwner_Guards(owner);
     result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
@@ -96,6 +91,11 @@ static void LifecycleOwner_PowerOn(LifecycleOwner *owner)
     LifecycleOwner_Init(owner);
     LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_CONTROL_NONE);
     LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_ENABLE, MOTOR_CONTROL_CURRENT);
+    /* 真实所有者在 STARTING 准备完成后独立启相，并非规则动作。 */
+    if (owner->lifecycle.state == MOTOR_STATE_STARTING)
+    {
+        owner->power_disabled = false;
+    }
     LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_START_DONE, MOTOR_CONTROL_NONE);
 }
 
@@ -128,7 +128,7 @@ LifecycleOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t se
     guards = LifecycleOwner_Guards(owner);
     result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
     LifecycleOwner_Apply(owner, result.actions);
-    if (result.rejection == MOTOR_STATE_ACCEPTED)
+    if (result.accepted)
     {
         return MOTOR_STOP_OWNER_ACCEPTED;
     }

@@ -1,11 +1,11 @@
 /* 只拥有PC13/PC14低有效GPIO与1ms亮度调制，闪烁语义由共用BSP决定。 */
 #include "bsp_internal.h"
 #include "at32f45x.h"
-#include "bsp_system.h"
 
 static bool s_initialized;
-static uint16_t s_color_pins;
-static uint8_t s_brightness, s_pwm_step;
+/* 引脚和亮度作为一个对齐字发布，SysTick不会读到半个更新。 */
+static volatile uint32_t s_output;
+static uint8_t s_pwm_step;
 
 void McuLed_Init(void)
 {
@@ -32,10 +32,7 @@ void McuLed_WriteColor(BspLedColor color, uint8_t brightness)
                                       BSP_LED_RED_PIN | BSP_LED_BLUE_PIN,
                                       BSP_LED_BLUE_PIN,
                                       BSP_LED_RED_PIN | BSP_LED_BLUE_PIN};
-    uint32_t key = BspSystem_EnterCritical();
-    s_color_pins = s_pins[color];
-    s_brightness = brightness;
-    BspSystem_ExitCritical(key);
+    s_output = ((uint32_t)brightness << 16U) | s_pins[color];
 }
 
 void McuLed_Tick1ms(void)
@@ -44,10 +41,9 @@ void McuLed_Tick1ms(void)
     {
         return;
     }
-    uint32_t key = BspSystem_EnterCritical();
-    uint16_t active = s_brightness > s_pwm_step ? s_color_pins : 0U;
+    uint32_t output = s_output;
+    uint16_t active = (output >> 16U) > s_pwm_step ? (uint16_t)output : 0U;
     s_pwm_step = (uint8_t)((s_pwm_step + 1U) % 100U);
     gpio_bits_set(GPIOC, (BSP_LED_RED_PIN | BSP_LED_BLUE_PIN) & (uint16_t)~active);
     gpio_bits_reset(GPIOC, active);
-    BspSystem_ExitCritical(key);
 }

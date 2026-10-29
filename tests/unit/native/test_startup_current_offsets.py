@@ -19,8 +19,8 @@ def main() -> None:
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
     axis = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
-    sensing = (ROOT / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
-    algorithm = (ROOT / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
+    sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
+    algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
     production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
     if "s_status_revision" in axis:
         production += "static volatile uint32_t s_status_revision;\n"
@@ -29,8 +29,8 @@ def main() -> None:
     production += (
         "#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n#define OVERCURRENT_CONFIRM_CYCLES 5U\n"
     )
-    production += function_source(sensing, "MotorCurrentOffsets_Valid")
-    production += function_source(sensing, "Current_Cal")
+    production += function_source(sensing, "MotorCurrentOffsets_IsValid")
+    production += function_source(sensing, "MotorCurrent_Update")
     for name in (
         "MotorCurrentOffsets_Init",
         "fail_current_offset_calibration",
@@ -39,10 +39,10 @@ def main() -> None:
     ):
         production += function_source(sensing, name)
     for name in (
-        "FOC_MaximumVoltage",
-        "FOC_ConfigureControllers",
-        "FOC_UpdateCurrentControllerLimits",
-        "FOC_CurrentController_Reset",
+        "Foc_MaxVoltage",
+        "Foc_ConfigureControllers",
+        "Foc_UpdateCurrentLimits",
+        "Foc_ResetCurrent",
     ):
         production += function_source(algorithm, name)
     transaction = (ROOT / "firmware/app/runtime/motor_parameter_transaction.c").read_text(
@@ -89,7 +89,7 @@ def main() -> None:
                 "-Wno-unused-parameter",
                 f"-DCURRENT_SENSE_SHUNT_MILLIOHM={shunt}U",
                 str(source),
-                str(ROOT / "firmware/motor/foc/foc_pid.c"),
+                str(ROOT / "firmware/motor/control/pi_controller.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),

@@ -2,8 +2,8 @@
 #define R40_CLOSEDLOOP_BENCH_H
 
 #include "openloop_model.h"
-#include "foc_algorithm.h"
-#include "angle_feedback.h"
+#include "foc.h"
+#include "encoder_feedback.h"
 
 /* 独立台架装配：复用原有FOC/速度算法，不接入产品命令、参数持久化或输出轴闭环。 */
 typedef struct
@@ -22,6 +22,7 @@ typedef struct
     MotorConfiguration configuration;
     MotorControlState motor;
     FocState foc;
+    MotorMeasurement measurement;
     PiController speed_pi;
     EncoderState encoder;
     R40ClTelemetry telemetry;

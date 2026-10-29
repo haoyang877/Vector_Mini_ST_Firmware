@@ -1,0 +1,574 @@
+#include "encoder_feedback.h"
+
+#include <limits.h>
+#include <string.h>
+#include "application_config.h"
+#include "bsp_system.h"
+#include "bsp_encoder.h"
+#include "control_math.h"
+
+/* 编码器反馈 */
+/* 90Hz 为公共默认值；目标可指定经过独立验收的带宽。 */
+// clang-format off
+#ifndef ENCODER_PLL_OMEGA_N_HZ
+#define ENCODER_PLL_OMEGA_N_HZ  90.0f
+#endif
+#define ENCODER_PLL_ZETA                      0.707f
+#define ENCODER_PLL_OMEGA_MAX_RAD_S           2000.0f
+#define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S  0.05f
+// clang-format on
+
+static void encoder_mark_read_status(EncoderState *encoder, EncoderReadStatus status)
+{
+    encoder->read_status = status;
+    if (status == ENCODER_READ_OK)
+    {
+        encoder->bad_frame_streak = 0U;
+        return;
+    }
+
+    encoder->read_status_latched = status;
+    encoder->read_error_count++;
+    if (encoder->bad_frame_streak < UINT16_MAX)
+    {
+        encoder->bad_frame_streak++;
+    }
+}
+
+/* 非阻塞发起一次传感器采样；总线异常时保留同步兜底路径。
+ * 输入：无（单板传感器通道）。
+ * 返回：已发起 true；总线未就绪 false，此时调用方仍须调用
+ *       Encoder_CompleteSample(..., false) 走同步兜底完成本帧。
+ * 仅 20 kHz 快环调用；两次调用之间禁止访问传感器总线。 */
+bool Encoder_BeginSample(void)
+{
+    return BspEncoder_Begin() == BSP_OK;
+}
+
+uint8_t Encoder_BeginReadback(bool sample_started)
+{
+    if (!sample_started)
+    {
+        return 0U;
+    }
+    (void)BspEncoder_BeginReadback();
+    return 1U;
+}
+
+/* 通道状态映射到既有对外读取状态；旧枚举保留以兼容遥测。
+ * 输入：平台层 BspEncoderStatus；返回：本层 EncoderReadStatus：
+ * 帧错误->CRC_MISMATCH、传感器故障->TLE_SYSTEM_ERROR、总线超时/其他->SPI_TIMEOUT。 */
+static EncoderReadStatus encoder_map_sensor_status(BspResult status)
+{
+    switch (status)
+    {
+    case BSP_CRC_ERROR:
+    case BSP_FRAME_ERROR:
+        return ENCODER_READ_CRC_MISMATCH;
+    case BSP_SENSOR_FAULT:
+        return ENCODER_READ_TLE_SYSTEM_ERROR;
+    case BSP_TIMEOUT:
+    default:
+        return ENCODER_READ_SPI_TIMEOUT;
+    }
+}
+
+/* 采样一帧并取出归一化 Q15 角度；失败时登记映射后的读取状态。
+ * 输入：encoder 状态归属；raw_q15 输出参数，仅成功时写入单圈角 Q15；
+ *       sample_stage为本拍采样/读回的阶段，0时驱动同步读取。
+ * 返回：成功 true（角度已写入）；失败 false（角度未写入）。
+ * 成功时缓存 frame_word/safety_word 供诊断，遗留 CRC 字段清零。 */
+static bool encoder_read_frame(EncoderState *encoder, uint16_t *raw_q15, uint8_t sample_stage)
+{
+    BspEncoderSample sample;
+    BspResult result = sample_stage != 0U ? BspEncoder_Complete(&sample) : BSP_NOT_READY;
+    if (result != BSP_OK)
+    {
+        encoder_mark_read_status(encoder, encoder_map_sensor_status(result));
+        return false;
+    }
+    BspEncoderDiagnostics diagnostics;
+    if (BspEncoder_ReadDiagnostics(&diagnostics) == BSP_OK && diagnostics.sample_result == BSP_OK &&
+        diagnostics.sample_sequence == sample.sequence)
+    {
+        encoder->frame_word = (diagnostics.valid_mask & BSP_ENCODER_DIAG_FRAME_VALID) != 0U
+                                  ? diagnostics.frame_word
+                                  : 0U;
+        encoder->safety_word = (diagnostics.valid_mask & BSP_ENCODER_DIAG_SAFETY_VALID) != 0U
+                                   ? diagnostics.safety_word
+                                   : 0U;
+    }
+    encoder->crc_received = 0U;
+    encoder->crc_calculated = 0U;
+    *raw_q15 = sample.angle_counts;
+    encoder_mark_read_status(encoder, ENCODER_READ_OK);
+    return true;
+}
+
+/* 按方向配置取反单圈角度。
+ * 输入：calibration（读 reverse）、raw_q15 原始单圈角。
+ * 返回：方向校正后的 Q15 角；reverse == 0 原样返回，
+ *       否则返回 0 - raw_q15 的模 65536 补码。 */
+static uint16_t encoder_apply_direction_q15(const EncoderCalibration *calibration, uint16_t raw_q15)
+{
+    if (calibration->reverse == 0U)
+    {
+        return raw_q15;
+    }
+
+    return (uint16_t)(0U - raw_q15);
+}
+
+/* 用 1024 点 Q15 表做线性插值校正（每点覆盖 64 count，磁编码器偏心/非线性补偿）。
+ * 输入：calibration（读 linearization_lut_q15）、已做方向校正的 raw_q15。
+ * 返回：减去插值校正量后的 Q15 角（模 65536）；LUT 全零表示不校正。
+ * 索引：index = raw_q15 >> 6，小数部分取低 6 位；末点回绕到表头做环形插值。 */
+static uint16_t encoder_apply_linearization_q15(const EncoderCalibration *calibration,
+                                                uint16_t raw_q15)
+{
+    uint16_t lut_index = raw_q15 >> 6;
+    uint16_t fraction = raw_q15 & 0x003FU;
+    int32_t correction_a = calibration->linearization_lut_q15[lut_index];
+    int32_t correction_b =
+        calibration->linearization_lut_q15[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
+    int32_t correction = correction_a + (((correction_b - correction_a) * fraction) >> 6);
+
+    return (uint16_t)((int32_t)raw_q15 - correction);
+}
+
+/* 由线性化角与电零位得到电角度（20 kHz 快路径每拍更新）。
+ * 输入：calibration、encoder、pole_pairs 极对数（调用方保证 >= 1）。
+ * 返回：无返回值；写 electrical_angle_rad，单位 rad，范围 [0, 2π)。
+ * 公式：(linearized_q15 - electrical_zero_q15) * pole_pairs 截断回 uint16，
+ *       等价于对 65536 取模，天然完成电角度回绕，再乘 2π/65536。 */
+static void encoder_update_elec_angle(const EncoderCalibration *calibration,
+                                      EncoderState *encoder,
+                                      uint32_t pole_pairs)
+{
+    uint16_t electrical_q15;
+
+    electrical_q15 = (uint16_t)((uint32_t)(uint16_t)(encoder->linearized_q15 -
+                                                     calibration->electrical_zero_q15) *
+                                pole_pairs);
+    encoder->electrical_angle_rad = (float)electrical_q15 * (_2PI / (float)ENCODER_Q15_CPR);
+}
+
+/* 复位角度跟踪观测器：清观测器角/角速度与全部速度输出；仅初始化/临界区调用。
+ * 输入：encoder；无返回值。
+ * 输出/副作用：pll_theta_rad/pll_omega_rad_s 归零，velocity_ready = false，
+ *              三个速度输出归零，并清除 velocity_restart_requested。 */
+static void encoder_reset_velocity_estimate(EncoderState *encoder)
+{
+    encoder->pll_theta_rad = 0.0f;
+    encoder->pll_omega_rad_s = 0.0f;
+    encoder->velocity_ready = false;
+    encoder->mechanical_velocity_rad_s = 0.0f;
+    encoder->mechanical_velocity_continuous_rad_s = 0.0f;
+    encoder->electrical_velocity_rad_s = 0.0f;
+    encoder->velocity_restart_requested = false;
+}
+
+/* 每帧有效样本的多圈累积：半圈判定后累加最短路径增量。
+ * 输入：encoder；无返回值。
+ * 输出：previous_linearized_q15、shadow_q15（无界多圈位置，Q15 count）。
+ * delta 超过 ±32768 时按 ±65536 折算，处理单圈回绕；shadow_q15 为 int64，
+ * 可长期累积多圈而不溢出。 */
+static void encoder_update_shadow(EncoderState *encoder)
+{
+    int32_t delta_q15 =
+        (int32_t)encoder->linearized_q15 - (int32_t)encoder->previous_linearized_q15;
+
+    if (delta_q15 > ENCODER_Q15_HALF_TURN)
+    {
+        delta_q15 -= (int32_t)ENCODER_Q15_CPR;
+    }
+    else if (delta_q15 < -ENCODER_Q15_HALF_TURN)
+    {
+        delta_q15 += (int32_t)ENCODER_Q15_CPR;
+    }
+
+    encoder->previous_linearized_q15 = encoder->linearized_q15;
+    encoder->shadow_q15 += delta_q15;
+}
+
+/* 20 kHz 快路径二阶角度跟踪观测器（PLL）：由线性化单圈角估计机械角速度。
+ * 输入：encoder（读 linearized_q15）、pole_pairs 极对数（调用方保证 >= 1）；仅有效帧调用。
+ * 输出：pll_theta_rad、pll_omega_rad_s、velocity_ready、mechanical_velocity_continuous_rad_s、
+ *       mechanical_velocity_rad_s（含软零速死区）、electrical_velocity_rad_s。
+ * 首帧/重启（!velocity_ready）以当前角初始化观测器，不产生速度冲击；之后在 [0,2π)
+ * 内部回绕估计角，误差不足半圈时单次 wrap 归位，角速度按上限限幅。
+ * 不写 electrical_angle_rad/mechanical_position_rad，也不触及标定量。 */
+static void encoder_update_velocity_pll(EncoderState *encoder, uint32_t pole_pairs)
+{
+    float theta_meas = (float)encoder->linearized_q15 * (_2PI / (float)ENCODER_Q15_CPR);
+    float omega_n;
+    float kp;
+    float ki;
+    float err;
+    float vel;
+
+    if (!encoder->velocity_ready)
+    {
+        encoder->pll_theta_rad = theta_meas;
+        encoder->pll_omega_rad_s = 0.0f;
+        encoder->velocity_ready = true;
+        encoder->mechanical_velocity_rad_s = 0.0f;
+        encoder->mechanical_velocity_continuous_rad_s = 0.0f;
+        encoder->electrical_velocity_rad_s = 0.0f;
+        return;
+    }
+
+    omega_n = _2PI * ENCODER_PLL_OMEGA_N_HZ;
+    kp = 2.0f * ENCODER_PLL_ZETA * omega_n * FOC_TS_S;
+    ki = omega_n * omega_n * FOC_TS_S;
+    err = theta_meas - encoder->pll_theta_rad;
+
+    if (err > _PI)
+    {
+        err -= _2PI;
+    }
+    else if (err < -_PI)
+    {
+        err += _2PI;
+    }
+
+    encoder->pll_theta_rad += FOC_TS_S * encoder->pll_omega_rad_s + kp * err;
+    encoder->pll_omega_rad_s += ki * err;
+
+    if (encoder->pll_theta_rad > _2PI)
+    {
+        encoder->pll_theta_rad -= _2PI;
+    }
+    else if (encoder->pll_theta_rad < 0.0f)
+    {
+        encoder->pll_theta_rad += _2PI;
+    }
+
+    if (encoder->pll_omega_rad_s > ENCODER_PLL_OMEGA_MAX_RAD_S)
+    {
+        encoder->pll_omega_rad_s = ENCODER_PLL_OMEGA_MAX_RAD_S;
+    }
+    else if (encoder->pll_omega_rad_s < -ENCODER_PLL_OMEGA_MAX_RAD_S)
+    {
+        encoder->pll_omega_rad_s = -ENCODER_PLL_OMEGA_MAX_RAD_S;
+    }
+
+    vel = encoder->pll_omega_rad_s;
+    encoder->mechanical_velocity_continuous_rad_s = vel;
+    encoder->mechanical_velocity_rad_s =
+        (vel < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S && vel > -ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S)
+            ? 0.0f
+            : vel;
+    encoder->electrical_velocity_rad_s = encoder->mechanical_velocity_rad_s * (float)pole_pairs;
+}
+
+/* 首样本/重定多圈基准：用当前线性化角、机械零位与轴策略确立多圈位置基准；仅慢估计调用。
+ * 输入：configuration（轴配置与校准）、encoder；无返回值。
+ * 输出：previous_linearized_q15、shadow_q15、mechanical_zero_shadow_q15。
+ * 未标定机械零位：影子零位取 0，shadow 以当前线性化角为基准；
+ * 已标定：影子零位取 mechanical_zero_q15，并用
+ * MotorAxisProfile_InitialEncoderOffsetQ15() 解析首样本圈数，使便携轴重启后
+ * 多圈位置连续、行程检查仍然有效。 */
+static void encoder_rebase_multi_turn_position(const MotorConfiguration *configuration,
+                                               EncoderState *encoder)
+{
+    const EncoderCalibration *calibration = &configuration->device.encoder;
+    encoder->previous_linearized_q15 = encoder->linearized_q15;
+    encoder->shadow_q15 = encoder->linearized_q15;
+    if ((calibration->calib_flag & ENC_CALIB_MECHANICAL_ZERO) == 0U)
+    {
+        encoder->mechanical_zero_shadow_q15 = 0;
+    }
+    else
+    {
+        encoder->mechanical_zero_shadow_q15 = (int64_t)calibration->mechanical_zero_q15;
+        /* 只解析首样本的圈数；便携轴策略保留已标定零位并保持行程检查有效。 */
+        encoder->shadow_q15 =
+            encoder->mechanical_zero_shadow_q15 +
+            MotorAxisProfile_InitialEncoderOffsetQ15(&configuration->application.axis_profile,
+                                                     configuration->application.axis_profile_valid,
+                                                     (int32_t)encoder->linearized_q15 -
+                                                         (int32_t)calibration->mechanical_zero_q15);
+    }
+}
+
+/* 请求复位速度估计窗口（停机、模式切换或首个有效样本后调用）。
+ * 输入：encoder；无返回值。
+ * 只置 velocity_restart_requested，由下一拍有效采样在快路径生效；
+ * 可从任意中断上下文调用，不会与慢估计写者撕裂。 */
+void Encoder_ResetVelocity(EncoderState *encoder)
+{
+    /* 慢状态由 2 kHz 慢估计独占写：此处只登记请求，避免跨中断撕裂。 */
+    encoder->velocity_restart_requested = true;
+}
+
+/* 设置编码器方向；改变方向会清空 LUT、电零位、机械零位与全部角度状态。
+ * 输入：calibration、encoder、reverse（true 表示反向）；无返回值。
+ * 同值调用直接返回；变化时在临界区内完成写入与复位，避免 20 kHz 环读到中间状态，
+ * 最后请求复位速度窗口。清标定后须重新标定，否则电角度不可用。 */
+void Encoder_SetReverse(EncoderCalibration *calibration, EncoderState *encoder, bool reverse)
+{
+    uint8_t reverse_value = reverse ? 1U : 0U;
+    uint32_t primask;
+
+    if (calibration->reverse == reverse_value)
+    {
+        return;
+    }
+
+    primask = BspSystem_EnterControlCritical();
+    calibration->calib_flag = 0U;
+    BspSystem_MemoryBarrier();
+    calibration->reverse = reverse_value;
+    calibration->electrical_zero_q15 = 0U;
+    calibration->mechanical_zero_q15 = 0U;
+    calibration->calib_flag = 0U;
+    memset(calibration->linearization_lut_q15, 0, sizeof(calibration->linearization_lut_q15));
+    encoder->raw_q15 = 0U;
+    encoder->directed_q15 = 0U;
+    encoder->linearized_q15 = 0U;
+    encoder->has_valid_sample = false;
+    encoder->electrical_angle_rad = 0.0f;
+    encoder->shadow_q15 = 0;
+    encoder->mechanical_zero_shadow_q15 = 0;
+    encoder->previous_linearized_q15 = 0U;
+    encoder->mechanical_position_rad = 0.0f;
+    encoder_reset_velocity_estimate(encoder);
+    BspSystem_ExitControlCritical(primask);
+}
+
+/* 上电初始化编码器状态与传感器通道。
+ * 输入：calibration、encoder；校准须在调用前由参数服务填充；无返回值。
+ * 方向值归一化为 0/1；清空快/慢/诊断状态；复位速度窗口；调用 BspEncoderFeedback_Init()。
+ * SPI 初始化失败走致命错误路径，不返回。 */
+void Encoder_InitFeedback(EncoderCalibration *calibration, EncoderState *encoder)
+{
+    calibration->reverse = calibration->reverse != 0U ? 1U : 0U;
+    encoder->raw_q15 = 0U;
+    encoder->directed_q15 = 0U;
+    encoder->linearized_q15 = 0U;
+    encoder->previous_linearized_q15 = 0U;
+    encoder->shadow_q15 = 0;
+    encoder->mechanical_zero_shadow_q15 = (int64_t)calibration->mechanical_zero_q15;
+    encoder->has_valid_sample = false;
+    encoder->electrical_angle_rad = 0.0f;
+    encoder->mechanical_position_rad = 0.0f;
+    encoder->sample_epoch = 0U;
+    encoder->slow_sample_epoch = 0U;
+    encoder->rebase_requested = false;
+    encoder->zero_requested = false;
+    encoder->read_status = ENCODER_READ_OK;
+    encoder->read_status_latched = ENCODER_READ_OK;
+    encoder->frame_word = 0U;
+    encoder->safety_word = 0U;
+    encoder->crc_received = 0U;
+    encoder->crc_calculated = 0U;
+    encoder->crc_error_count = 0U;
+    encoder->read_error_count = 0U;
+    encoder->bad_frame_streak = 0U;
+    encoder_reset_velocity_estimate(encoder);
+}
+
+/* 判断编码器是否在线。
+ * 输入：encoder；返回：已有有效样本且连续坏帧 < ENCODER_BAD_FRAME_OFFLINE_COUNT
+ * （20 kHz 下约 5 ms）时为 true。 */
+bool Encoder_IsOnline(const EncoderState *encoder)
+{
+    return encoder->has_valid_sample && encoder->bad_frame_streak < ENCODER_BAD_FRAME_OFFLINE_COUNT;
+}
+
+/* 写入指定的 Q15 电零位并置位电零位标定标志。
+ * 输入：calibration、encoder、electrical_zero_q15（Q15，0..65535）。
+ * 返回：设置成功 true；编码器离线 false 且不改写。 */
+bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
+                                  EncoderState *encoder,
+                                  uint16_t electrical_zero_q15)
+{
+    if (!Encoder_IsOnline(encoder))
+    {
+        return false;
+    }
+
+    calibration->electrical_zero_q15 = electrical_zero_q15;
+    calibration->calib_flag |= ENC_CALIB_ELECTRICAL_ZERO;
+    return true;
+}
+
+/* 以当前线性化角度作为电零位（mode 15 电零位标定的落点）。
+ * 输入：encoder；返回：设置成功 true；编码器离线 false 且不改写。 */
+bool Encoder_SetElectricalZero(EncoderCalibration *calibration, EncoderState *encoder)
+{
+    return Encoder_SetElectricalZeroQ15(calibration, encoder, encoder->linearized_q15);
+}
+
+/* 以当前线性化角度作为机械零位（位置原点）。
+ * 输入：encoder；返回：设置成功 true；编码器离线 false 且不改写。
+ * 零位在下一 2 kHz 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零；
+ * 只影响位置原点，不等价于电零位标定。临界区内写入并置 zero_requested。 */
+bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *encoder)
+{
+    uint32_t primask;
+
+    if (!Encoder_IsOnline(encoder))
+    {
+        return false;
+    }
+
+    primask = BspSystem_EnterControlCritical();
+    calibration->mechanical_zero_q15 = encoder->linearized_q15;
+    calibration->calib_flag |= ENC_CALIB_MECHANICAL_ZERO;
+    /* 零位在下一 2 kHz 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零。 */
+    encoder->zero_requested = true;
+    BspSystem_ExitControlCritical(primask);
+    return true;
+}
+
+/* 完成一帧读取：方向/LUT 校正、电角度与观测器速度更新（20 kHz 快路径）。
+ * 输入：configuration（读 motor_pole_pairs，<= 0 按 1 处理）、encoder、
+ *       sample_stage为本拍BeginSample的0/1返回值或BeginReadback阶段；无返回值。
+ * 流程：取帧 -> 方向校正 -> LUT 线性化 -> 更新 raw/directed/linearized
+ *       -> 消费 velocity_restart_requested（以当前角重建观测器）
+ *       -> 首个有效帧置 has_valid_sample 并请求重定多圈基准（由慢估计执行）
+ *       -> sample_epoch++ -> 更新 electrical_angle_rad 与观测器速度。
+ * 取帧失败时仅登记读取状态，electrical_angle_rad 与速度保持旧值；本函数不写多圈/机械角。 */
+void Encoder_CompleteSample(const MotorConfiguration *configuration,
+                            EncoderState *encoder,
+                            uint8_t sample_stage)
+{
+    const EncoderCalibration *calibration = &configuration->device.encoder;
+    uint16_t raw_q15;
+    uint16_t directed_q15;
+    uint16_t linearized_q15;
+    uint32_t pole_pairs;
+
+    if (!encoder_read_frame(encoder, &raw_q15, sample_stage))
+    {
+        return;
+    }
+
+    directed_q15 = encoder_apply_direction_q15(calibration, raw_q15);
+    linearized_q15 = encoder_apply_linearization_q15(calibration, directed_q15);
+    encoder->raw_q15 = raw_q15;
+    encoder->directed_q15 = directed_q15;
+    encoder->linearized_q15 = linearized_q15;
+    pole_pairs = configuration->model.motor_pole_pairs > 0
+                     ? (uint32_t)configuration->model.motor_pole_pairs
+                     : 1U;
+
+    if (encoder->velocity_restart_requested)
+    {
+        /* 重建观测器：下一拍以当前角自初始化，避免重启后速度冲击。 */
+        encoder->velocity_ready = false;
+        encoder->velocity_restart_requested = false;
+    }
+
+    if (!encoder->has_valid_sample)
+    {
+        encoder->has_valid_sample = true;
+        /* 首个有效帧：2 kHz 慢估计重建多圈基准；观测器在下一拍自初始化。 */
+        encoder->rebase_requested = true;
+        encoder->velocity_ready = false;
+    }
+    encoder->sample_epoch++;
+    encoder_update_elec_angle(calibration, encoder, pole_pairs);
+    encoder_update_velocity_pll(encoder, pole_pairs);
+}
+
+/* 2 kHz 慢估计：多圈/机械角为慢位置状态唯一写者；速度由 20 kHz 快路径观测器负责。
+ * 输入：configuration（轴配置与校准）、encoder；无返回值。
+ * 顺序：有新样本时按 rebase_requested 走重定多圈基准，否则累积多圈；
+ *       随后消费 zero_requested（机械零位影子对齐当前多圈值）；
+ *       最后每拍重算 mechanical_position_rad——即使没有新样本也更新，保证零位请求下一拍立即生效。 */
+void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, EncoderState *encoder)
+{
+    bool new_sample =
+        encoder->has_valid_sample && encoder->sample_epoch != encoder->slow_sample_epoch;
+
+    if (new_sample)
+    {
+        if (encoder->rebase_requested)
+        {
+            encoder_rebase_multi_turn_position(configuration, encoder);
+            encoder->rebase_requested = false;
+        }
+        else
+        {
+            encoder_update_shadow(encoder);
+        }
+        encoder->slow_sample_epoch = encoder->sample_epoch;
+    }
+    if (encoder->zero_requested)
+    {
+        encoder->mechanical_zero_shadow_q15 = encoder->shadow_q15;
+        encoder->zero_requested = false;
+    }
+    encoder->mechanical_position_rad =
+        (float)(encoder->shadow_q15 - encoder->mechanical_zero_shadow_q15) *
+        (_2PI / (float)ENCODER_Q15_CPR);
+}
+
+/* 同步读取一帧角度并更新电角度（20 kHz 快路径兼容入口）。
+ * 输入：configuration、encoder；无返回值。
+ * 等价于 Encoder_CompleteSample(..., false)；新代码使用 BeginSample/CompleteSample
+ * 分离采样，以覆盖传感器 SPI 事务的整拍时延。 */
+void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encoder)
+{
+    Encoder_CompleteSample(configuration, encoder, false);
+}
+
+/* 读取电角度。输入：encoder；返回：electrical_angle_rad，单位 rad，[0, 2π)，20 kHz 每帧更新。 */
+float Encoder_GetElecPhase(const EncoderState *encoder)
+{
+    return encoder->electrical_angle_rad;
+}
+
+/* 读取机械角度（相对机械零位的多圈位置）。输入：encoder；返回：mechanical_position_rad，单位 rad。 */
+float Encoder_GetMechPos(const EncoderState *encoder)
+{
+    return encoder->mechanical_position_rad;
+}
+
+/* 读取电角速度。输入：encoder；返回：electrical_velocity_rad_s，单位 rad/s，等于 mechanical_velocity_rad_s x 极对数。 */
+float Encoder_GetElecVel(const EncoderState *encoder)
+{
+    return encoder->electrical_velocity_rad_s;
+}
+
+/* 读取机械角速度。输入：encoder；返回：mechanical_velocity_rad_s，单位 rad/s；
+ * 速度窗口未满或窗口增量低于零速死区时为 0。 */
+float Encoder_GetMechVel(const EncoderState *encoder)
+{
+    return encoder->mechanical_velocity_rad_s;
+}
+
+/* 读取连续机械角速度，不含零速死区。输入：encoder；返回：mechanical_velocity_continuous_rad_s，
+ * 单位 rad/s；速度窗口未满时为 0（供观测器等需要连续量纲的消费者）。 */
+float Encoder_GetMechVelContinuous(const EncoderState *encoder)
+{
+    return encoder->mechanical_velocity_continuous_rad_s;
+}
+
+/* 读取线性化后角度占整圈的比例。输入：encoder；返回：[0,1) 的比例，供调试与诊断。 */
+float Encoder_GetCprRatio(const EncoderState *encoder)
+{
+    return (float)encoder->linearized_q15 / (float)ENCODER_Q15_CPR;
+}
+
+/* 读取标定标志位。输入：calibration；返回：ENC_CALIB_* 位图（线性化/电零位/机械零位）。 */
+uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration)
+{
+    return calibration->calib_flag;
+}
+
+/* 读取连续坏帧计数。输入：encoder；返回：自最近一次有效帧以来的连续坏帧数，
+ * 在 UINT16_MAX 处饱和（离线判定见 Encoder_IsOnline）。 */
+uint16_t Encoder_GetBadFrameStreak(const EncoderState *encoder)
+{
+    return encoder->bad_frame_streak;
+}
+
+/* 读取编码器方向配置。输入：calibration；返回：1 表示反向，0 表示正向。 */
+uint8_t Encoder_GetReverse(const EncoderCalibration *calibration)
+{
+    return calibration->reverse;
+}

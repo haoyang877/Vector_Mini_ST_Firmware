@@ -37,7 +37,7 @@ def main() -> int:
             f"-DMOTOR_HAS_DAMPING_RING={damping}",
             str(ROOT / "tests/unit/native/observer_calibration_hotpath_test.c"),
             str(ROOT / "firmware/motor/calibration/encoder_calibration_core.c"),
-            str(ROOT / "firmware/motor/foc/foc_pid.c"),
+            str(ROOT / "firmware/motor/control/pi_controller.c"),
             str(ROOT / "firmware/motor/math/control_math.c"),
             "-lm",
             "-o",

@@ -5,20 +5,20 @@
 
 #include "motor_state_machine.h"
 #include "motor_maintenance.h"
-#include "encoder_calibration_task.h"
+#include "encoder_calibration.h"
 #include "motor_fault.h"
 #include "motor_command.h"
 #include "motor_control.h"
-#include "foc_sensing.h"
+#include "motor_sensing.h"
 #include "sensorless_startup.h"
 #include "bsp_pwm.h"
 #include "bsp_system.h"
 #include "bsp_led.h"
-#include "bus_voltage_profile.h"
+#include "application_config.h"
 #include "control_math.h"
 #include "maintenance_workspace.h"
 #include "motor_thermal_control.h"
-#include "application_profile_defaults.h"
+#include "application_config.h"
 #include "parameter_values.h"
 #define FOC_MAX_MODULATION (0.95f * 0.866025403f)
 
@@ -41,6 +41,32 @@ static void trace_capture(const char *event, unsigned result, unsigned detail);
 static bool outer_ready;
 static bool lut_publish_fail;
 static uint32_t critical_depth;
+#if STATE_NO_NESTED_CONDITION_LOCKS
+static unsigned nested_control_entries;
+#endif
+#if STATE_FAST_OUTCOME_UNLOCKED
+static unsigned control_critical_entries;
+#endif
+#if STATE_TAKE_RESULT_UNLOCKED
+extern MotorTaskResult Test_TakeCurrentTaskResult(void);
+#endif
+#if STATE_MAILBOX_ATOMIC || STATE_START_COMMIT_GUARDED
+static uint32_t global_irq_depth;
+#endif
+#if STATE_MAILBOX_ATOMIC
+static bool mailbox_interrupt_enabled, mailbox_interrupt_pending;
+static unsigned global_critical_entries;
+static void deliver_mailbox_interrupt(void);
+extern bool Test_MailboxHasPending(void);
+#endif
+#if STATE_START_COMMIT_GUARDED
+static unsigned start_interrupt_stage;
+static bool start_interrupt_pending;
+static void deliver_start_interrupt(void);
+#endif
+#if STATE_TARGET_COMMIT_GUARDED
+static unsigned target_fault_hit, target_encoder_calls;
+#endif
 static unsigned validation_interrupt;
 static unsigned validation_unmasked_calls, validation_masked_calls;
 static unsigned configuration_validation_calls;
@@ -72,13 +98,87 @@ bool MotorAxis_ConfigurationRevisionAvailable(void)
 
 uint32_t BspSystem_EnterCritical(void)
 {
+#if STATE_MAILBOX_ATOMIC || STATE_START_COMMIT_GUARDED
+    ++global_irq_depth;
+#endif
+#if STATE_MAILBOX_ATOMIC
+    ++global_critical_entries;
+#endif
     return critical_depth++;
 }
 void BspSystem_ExitCritical(uint32_t mask)
 {
     assert(critical_depth == mask + 1U);
     critical_depth = mask;
+#if STATE_MAILBOX_ATOMIC || STATE_START_COMMIT_GUARDED
+    assert(global_irq_depth != 0U);
+    --global_irq_depth;
+#endif
+#if STATE_MAILBOX_ATOMIC
+    if (global_irq_depth == 0U && mailbox_interrupt_pending)
+    {
+        mailbox_interrupt_pending = false;
+        deliver_mailbox_interrupt();
+    }
+#endif
+#if STATE_START_COMMIT_GUARDED
+    if (global_irq_depth == 0U && start_interrupt_pending)
+    {
+        start_interrupt_pending = false;
+        deliver_start_interrupt();
+    }
+#endif
 }
+
+#if STATE_MAILBOX_ATOMIC
+static void deliver_mailbox_interrupt(void)
+{
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
+                                  MotorStateMachine_WorkEpoch());
+}
+
+/* 模拟ADC在邮箱载荷复制与清标志之间到达；PRIMASK有效时等退出后交付。 */
+void Test_MailboxInterrupt(void)
+{
+    if (mailbox_interrupt_enabled)
+    {
+        mailbox_interrupt_enabled = false;
+        if (global_irq_depth != 0U)
+        {
+            mailbox_interrupt_pending = true;
+        }
+        else
+        {
+            deliver_mailbox_interrupt();
+        }
+    }
+}
+#endif
+
+#if STATE_START_COMMIT_GUARDED
+static void deliver_start_interrupt(void)
+{
+    MotorFault_Report(&motor, MOTOR_FAULT_ENCODER);
+    MotorStateMachine_FastFaultStop();
+}
+
+/* 测试ADC在最终复核前或发布时到达；PRIMASK有效时延后交付。 */
+void Test_StartProgressInterrupt(unsigned stage)
+{
+    if (start_interrupt_stage == stage)
+    {
+        start_interrupt_stage = 0U;
+        if (global_irq_depth != 0U)
+        {
+            start_interrupt_pending = true;
+        }
+        else
+        {
+            deliver_start_interrupt();
+        }
+    }
+}
+#endif
 
 /* 观测真实配置校验的屏蔽状态；在开中断区间模拟一次高优先级事件。 */
 bool Test_ConfigurationValid(const MotorConfiguration *configuration)
@@ -198,25 +298,34 @@ BspResult BspLed_SetCode(BspLedCodeChannel error, uint8_t count)
 }
 bool Encoder_IsOnline(const EncoderState *e)
 {
+#if STATE_TARGET_COMMIT_GUARDED
+    /* 模拟ADC在控制资格检查中抢占；BASEPRI不会屏蔽该中断。 */
+    if (target_fault_hit != 0U && ++target_encoder_calls == target_fault_hit)
+    {
+        target_fault_hit = 0U;
+        MotorFault_Report(&motor, MOTOR_FAULT_ENCODER);
+        MotorStateMachine_FastFaultStop();
+    }
+#endif
     return e->bad_frame_streak == 0U;
 }
 uint16_t Encoder_GetBadFrameStreak(const EncoderState *e)
 {
     return e->bad_frame_streak;
 }
-uint8_t Encoder_GetCalibFlag(const EncoderCalibration *calibration)
+uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration)
 {
     return calibration->calib_flag;
 }
-float Encoder_GetMecPos(const EncoderState *e)
+float Encoder_GetMechPos(const EncoderState *e)
 {
     return e->mechanical_position_rad;
 }
-float Encoder_GetMecVel(const EncoderState *e)
+float Encoder_GetMechVel(const EncoderState *e)
 {
     return e->mechanical_velocity_rad_s;
 }
-bool MotorTemperature_IsFresh(void)
+bool McuTemperature_IsFresh(void)
 {
     return temperature_fresh;
 }
@@ -224,7 +333,7 @@ float Math_Abs(float value)
 {
     return fabsf(value);
 }
-void FOC_CurrentController_Reset(FocState *f)
+void Foc_ResetCurrent(FocState *f)
 {
     f->id_a = f->iq_a = 0.0f;
 }
@@ -690,7 +799,7 @@ static void test_open_loop_owner(void)
         MotorControlCommand excessive = command;
         if (i == 0U)
         {
-            excessive.vd_v = FOC_MaximumVoltage(foc.bus_voltage_filtered_v);
+            excessive.vd_v = Foc_MaxVoltage(foc.bus_voltage_filtered_v);
         }
         else
         {
@@ -2212,8 +2321,164 @@ static void test_fast_power_handoff(void)
 }
 #endif
 
+#if STATE_TARGET_COMMIT_GUARDED
+/* 故障抢占目标资格检查时，旧目标不得覆盖故障拒绝或被标为已应用。 */
+static void test_fast_fault_during_target_admission(void)
+{
+    reset();
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    tick();
+    MotorControlCommand goal = {
+        .mode = MOTOR_CONTROL_SPEED, .speed_rad_s = -2.0f, .source_node = 2U, .sequence = 41U};
+    assert(MotorStateMachine_SubmitControl(&goal) == MOTOR_CONTROL_ACCEPTED);
+    target_encoder_calls = 0U;
+    target_fault_hit = 2U;
+    tick();
+    MotorControlProgress progress;
+    MotorStateMachine_ReadControlProgress(&progress);
+    assert(target_fault_hit == 0U && target_encoder_calls == 2U && output_off);
+    assert(motor.fault_code == MOTOR_FAULT_ENCODER && motor.speed_target_rad_s == 0.0f);
+    assert(progress.state == MOTOR_CONTROL_PROGRESS_REJECTED &&
+           progress.result == MOTOR_CONTROL_FAULT);
+}
+#endif
+
+#if STATE_FAST_OUTCOME_UNLOCKED
+/* ADC最高优先级发布终态时无需屏蔽低优先级中断。 */
+static void test_fast_outcome_does_not_mask_control(void)
+{
+    reset();
+    uint32_t epoch = MotorStateMachine_WorkEpoch();
+    unsigned entries = control_critical_entries;
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_PREPARED, MOTOR_FAULT_NONE}, epoch);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, epoch);
+    assert(control_critical_entries == entries);
+#if STATE_TAKE_RESULT_UNLOCKED
+    MotorTaskResult outcome = Test_TakeCurrentTaskResult();
+    assert(outcome.result == MOTOR_TASK_COMPLETED && outcome.error == MOTOR_FAULT_NONE);
+#if STATE_MAILBOX_ATOMIC
+    unsigned global_entries = global_critical_entries;
+#endif
+    assert(Test_TakeCurrentTaskResult().result == MOTOR_TASK_RUNNING);
+    assert(control_critical_entries == entries);
+#if STATE_MAILBOX_ATOMIC
+    assert(global_critical_entries == global_entries);
+#endif
+#endif
+}
+#endif
+
+#if STATE_MAILBOX_ATOMIC
+/* 复制旧终态期间的快故障必须在归还CPU后保留，不能被旧消费清除。 */
+static void test_fast_fault_during_mailbox_take(void)
+{
+    reset();
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    mailbox_interrupt_enabled = true;
+    MotorTaskResult first = Test_TakeCurrentTaskResult();
+    MotorTaskResult second = Test_TakeCurrentTaskResult();
+    assert(!mailbox_interrupt_enabled && !mailbox_interrupt_pending && global_irq_depth == 0U);
+    assert(first.result == MOTOR_TASK_COMPLETED);
+    assert(second.result == MOTOR_TASK_FAILED && second.error == MOTOR_FAULT_ENCODER);
+    assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off);
+    reset();
+    unsigned global_entries = global_critical_entries;
+    assert(MotorStateMachine_RequestRemoteStop());
+    assert(global_critical_entries == global_entries);
+    reset();
+    global_entries = global_critical_entries;
+    tick();
+    assert(global_critical_entries == global_entries);
+}
+
+#if STATE_DISCARD_ATOMIC
+/* 定向取消撤销旧结果时，快环新故障仍须留在邮箱并触发故障。 */
+static void test_fast_fault_during_mailbox_discard(void)
+{
+    reset();
+    uint32_t ticket;
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_MECHANICAL_ZERO, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                                  MotorStateMachine_WorkEpoch());
+    mailbox_interrupt_enabled = true;
+    assert(MotorStateMachine_CancelMaintenance(ticket) == MOTOR_CONTROL_FAULT);
+    assert(!mailbox_interrupt_enabled && !mailbox_interrupt_pending && global_irq_depth == 0U);
+    assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off && Test_MailboxHasPending());
+}
+#endif
+#endif
+
+#if STATE_START_COMMIT_GUARDED
+/* 故障先发生时拒绝启动；已原子发布后到达的故障不能产生自相矛盾的终态。 */
+static void test_fast_fault_during_start_publication(void)
+{
+    for (unsigned stage = 1U; stage <= 2U; ++stage)
+    {
+        reset();
+        MotorControlStartRequest request = {
+            .mode = MOTOR_CONTROL_SPEED, .source_node = 2U, .sequence = 77U};
+        assert(MotorStateMachine_RequestIdentifiedEnable(&request) == MOTOR_CONTROL_ACCEPTED);
+        start_interrupt_stage = stage;
+        tick();
+        tick();
+        MotorControlStartProgress progress;
+        assert(MotorStateMachine_ReadEnableProgress(2U, 77U, &progress));
+        assert(start_interrupt_stage == 0U && !start_interrupt_pending && global_irq_depth == 0U);
+        assert(motor.fault_code == MOTOR_FAULT_ENCODER && output_off);
+        assert(progress.state ==
+               (stage == 1U ? MOTOR_CONTROL_START_REJECTED : MOTOR_CONTROL_START_STARTED));
+        assert(progress.result == (stage == 1U ? MOTOR_CONTROL_FAULT : MOTOR_CONTROL_ACCEPTED));
+    }
+}
+#endif
+
+#if STATE_NO_NESTED_CONDITION_LOCKS
+/* 调用方已经持有控制锁时，读取状态和提交规则不再嵌套同一把锁。 */
+static void test_no_redundant_control_locks(void)
+{
+    reset();
+    unsigned nested = nested_control_entries;
+    MotorReadiness readiness;
+    MotorStateMachine_ReadReadiness(&readiness);
+    (void)MotorStateMachine_BootHandoffReady(UINT64_C(1));
+    assert(MotorStateMachine_RequestClear() == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestEnable(MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    tick();
+    assert(nested_control_entries == nested);
+    reset();
+    nested = nested_control_entries;
+    uint32_t ticket;
+    assert(MotorStateMachine_RequestMaintenance(MOTOR_MAINTENANCE_MECHANICAL_ZERO, &ticket) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_CancelMaintenance(ticket) == MOTOR_CONTROL_ACCEPTED);
+    assert(nested_control_entries == nested);
+}
+#endif
+
 int main(void)
 {
+#if STATE_START_COMMIT_GUARDED
+    test_fast_fault_during_start_publication();
+#endif
+#if STATE_MAILBOX_ATOMIC
+    test_fast_fault_during_mailbox_take();
+#if STATE_DISCARD_ATOMIC
+    test_fast_fault_during_mailbox_discard();
+#endif
+#endif
+#if STATE_NO_NESTED_CONDITION_LOCKS
+    test_no_redundant_control_locks();
+#endif
+#if STATE_FAST_OUTCOME_UNLOCKED
+    test_fast_outcome_does_not_mask_control();
+#endif
+#if STATE_TARGET_COMMIT_GUARDED
+    test_fast_fault_during_target_admission();
+#endif
 #if STATE_FAST_POWER_OWNER
     test_fast_power_handoff();
 #endif
@@ -2320,7 +2585,7 @@ void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, Encoder
     assert(configuration == &cfg && state == &encoder && supervisor_stage == 0U);
     supervisor_stage = 1U;
 }
-void Temperature_Update(FocState *state, MotorControlState *control)
+void McuTemperature_Update(FocState *state, MotorControlState *control)
 {
     assert(state == &foc && control == &motor && supervisor_stage == 1U);
     supervisor_stage = 2U;
@@ -2534,9 +2799,27 @@ static void test_staged_supervisor(void)
 
 uint32_t BspSystem_EnterControlCritical(void)
 {
+#if STATE_NO_NESTED_CONDITION_LOCKS
+    if (critical_depth != 0U)
+    {
+        ++nested_control_entries;
+    }
+#endif
+#if STATE_FAST_OUTCOME_UNLOCKED
+    ++control_critical_entries;
+#endif
+#if STATE_MAILBOX_ATOMIC || STATE_START_COMMIT_GUARDED
+    return critical_depth++;
+#else
     return BspSystem_EnterCritical();
+#endif
 }
 void BspSystem_ExitControlCritical(uint32_t state)
 {
+#if STATE_MAILBOX_ATOMIC || STATE_START_COMMIT_GUARDED
+    assert(critical_depth == state + 1U);
+    critical_depth = state;
+#else
     BspSystem_ExitCritical(state);
+#endif
 }

@@ -1,7 +1,7 @@
 /* 禁用CAN仍有同一公开入口，拒绝发送且保持调用方快照，绝不伪造已发送。 */
 #include <assert.h>
 #include <string.h>
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_can.h"
 int main(void)
 {

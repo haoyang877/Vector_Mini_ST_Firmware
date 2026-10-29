@@ -21,7 +21,7 @@ def main() -> int:
     base = ROOT / "firmware/platform/bsp/mcu/at32f456"
     native = ROOT / "tests/unit/native"
     permit_probe = args.out.resolve() / "permit_config_probe.c"
-    permit_probe.write_text('#include "pwm_output_config.h"\n', encoding="utf8")
+    permit_probe.write_text('#include "application_config.h"\n', encoding="utf8")
     cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     for flags in (
         [],
@@ -35,9 +35,9 @@ def main() -> int:
                 "-I",
                 str(ROOT / "firmware/platform/bsp"),
                 "-I",
-                str(ROOT / "firmware/app/config"),
+                str(ROOT / "firmware/config"),
                 "-I",
-                str(ROOT / "firmware/platform/config"),
+                str(ROOT / "firmware/config"),
                 *flags,
                 str(permit_probe),
                 "-o",
@@ -46,10 +46,9 @@ def main() -> int:
             check=True,
         )
     for flags in (
-        ["-DR40_APP_PHASE_LOCK=1", "-DBSP_PWM_PERMIT_MODE=0"],
-        ["-DR40_APP_BOUNDED_TEST=1", "-DBSP_PWM_PERMIT_MODE=0"],
-        ["-DBSP_PWM_PERMIT_MODE=3"],
         ["-DR40_APP_PHASE_LOCK=1", "-DR40_APP_BOUNDED_TEST=1"],
+        ["-DR40_APP_PHASE_LOCK=1", "-DR40_APP_BOUNDED_TEST=1", "-DBSP_PWM_HARD_LOCK=1"],
+        ["-DR40_APP_BOUNDED_TEST=1", "-DBSP_PWM_HARD_LOCK=1"],
         ["-DR40_APP_PHASE_LOCK=1"],
         ["-DBSP_PWM_HARD_LOCK=1"],
     ):
@@ -60,9 +59,9 @@ def main() -> int:
                 "-I",
                 str(ROOT / "firmware/platform/bsp"),
                 "-I",
-                str(ROOT / "firmware/app/config"),
+                str(ROOT / "firmware/config"),
                 "-I",
-                str(ROOT / "firmware/platform/config"),
+                str(ROOT / "firmware/config"),
                 *flags,
                 str(permit_probe),
                 "-o",
@@ -127,8 +126,8 @@ def main() -> int:
         native / "r40_fake",
         base,
         ROOT / "firmware/platform/bsp/include",
-        ROOT / "firmware/platform/config",
-        ROOT / "firmware/app/config",
+        ROOT / "firmware/config",
+        ROOT / "firmware/config",
         ROOT / "firmware/platform/bsp",
         ROOT / "firmware/platform/devices",
         ROOT / "firmware/platform/bsp",
@@ -178,8 +177,8 @@ def main() -> int:
         native / "r40_bench_fake",
         base,
         ROOT / "firmware/platform/bsp/include",
-        ROOT / "firmware/platform/config",
-        ROOT / "firmware/app/config",
+        ROOT / "firmware/config",
+        ROOT / "firmware/config",
         ROOT / "firmware/platform/bsp",
         ROOT / "firmware/platform/devices",
     ):
@@ -236,11 +235,12 @@ def main() -> int:
                 ROOT / "tests/bench/at32f456/closedloop_bench.c",
                 ROOT / "tests/bench/at32f456/openloop_model.c",
                 motor / "math/control_math.c",
-                motor / "foc/foc_algorithm.c",
-                motor / "foc/foc_pid.c",
-                motor / "foc/speed_control.c",
-                motor / "foc/speed_feedforward.c",
-                motor / "feedback/angle_feedback.c",
+                motor / "control/foc.c",
+                motor / "control/foc_output.c",
+                motor / "control/pi_controller.c",
+                motor / "control/speed_control.c",
+                motor / "control/speed_feedforward.c",
+                motor / "feedback/encoder_feedback.c",
                 motor / "protection/motor_thermal.c",
                 native / "r40_closedloop_test.c",
             )
@@ -279,11 +279,11 @@ def main() -> int:
             "-I",
             str(ROOT / "firmware/third_party/segger_rtt"),
             "-I",
-            str(ROOT / "firmware/platform/config"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/communication/telemetry"),
             "-I",
-            str(ROOT / "firmware/app/config"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/platform/bsp"),
             str(ROOT / "tests/bench/at32f456/openloop_telemetry.c"),
@@ -307,11 +307,11 @@ def main() -> int:
             "-I",
             str(ROOT / "firmware/third_party/segger_rtt"),
             "-I",
-            str(ROOT / "firmware/platform/config"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/communication/telemetry"),
             "-I",
-            str(ROOT / "firmware/app/config"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/platform/bsp"),
             str(ROOT / "firmware/communication/telemetry/app_telemetry.c"),
@@ -347,11 +347,11 @@ def main() -> int:
             "-I",
             str(ROOT / "firmware/platform/bsp/include"),
             "-I",
-            str(ROOT / "firmware/platform/config"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/communication/telemetry"),
             "-I",
-            str(ROOT / "firmware/app/config"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/platform/bsp"),
             str(ROOT / "firmware/app/runtime/pwm_power_window.c"),
@@ -372,8 +372,8 @@ def main() -> int:
                 native / "r40_indicator_fake",
                 base,
                 ROOT / "firmware/platform/bsp/include",
-                ROOT / "firmware/platform/config",
-                ROOT / "firmware/app/config",
+                ROOT / "firmware/config",
+                ROOT / "firmware/config",
                 ROOT / "firmware/platform/bsp",
                 ROOT / "firmware/platform/devices",
             ),
@@ -389,8 +389,8 @@ def main() -> int:
             (
                 native / "r40_fake",
                 ROOT / "firmware/platform/bsp/include",
-                ROOT / "firmware/platform/config",
-                ROOT / "firmware/app/config",
+                ROOT / "firmware/config",
+                ROOT / "firmware/config",
                 ROOT / "firmware/platform/bsp",
                 ROOT / "firmware/platform/devices",
                 ROOT / "firmware/platform/bsp",
@@ -414,7 +414,7 @@ def main() -> int:
     # 未锁定的新电机完整APP仍拒绝；关相目标验证临时热配置走真实派生和校验路径。
     profile_source = args.out.resolve() / "profile_selection_test.c"
     profile_source.write_text(
-        '#include "motor_profile_defaults.h"\n'
+        '#include "application_config.h"\n'
         '#include "motor_thermal_config.h"\n'
         "#include <assert.h>\n"
         "#include <math.h>\n"
@@ -447,7 +447,7 @@ def main() -> int:
     if denied.returncode == 0 or b"Motor APP defaults incomplete" not in denied.stderr:
         raise RuntimeError("Incomplete production motor defaults were not rejected")
     subprocess.run(
-        profile_command + ["-include", str(ROOT / "firmware/app/config/targets/r40_app_off.h")],
+        profile_command + ["-DFIRMWARE_TARGET_AT32_OFF=1"],
         check=True,
     )
     subprocess.run([str(args.out.resolve() / "profile_selection.exe")], check=True)

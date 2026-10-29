@@ -72,8 +72,8 @@ paths = ["firmware/platform/bsp/include"]
 allows = ["platform_api", "platform_config"]
 
 [architecture.layers.platform_config]
-paths = ["firmware/platform/config"]
-allows = ["platform_config"]
+paths = ["firmware/config/board_config.h"]
+allows = ["platform_config", "app_config"]
 
 [architecture.layers.motor]
 paths = ["firmware/motor"]
@@ -178,7 +178,7 @@ paths = ["firmware/communication/telemetry"]
 allows = ["platform_api", "motor", "telemetry"]
 
 [architecture.layers.app_config]
-paths = ["firmware/app/config"]
+paths = ["firmware/config"]
 allows = ["app_config", "platform_config"]
 
 [architecture.layers.platform_common]

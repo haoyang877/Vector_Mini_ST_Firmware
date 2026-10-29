@@ -11,9 +11,9 @@
 #include "bsp_pwm.h"
 #include "bsp_uart.h"
 #include "bsp_system.h"
-#include "bsp_config.h"
-#include "pwm_output_config.h"
-#include "sampling_scale.h"
+#include "board_config.h"
+#include "application_config.h"
+#include "board_config.h"
 #include "bsp_internal.h"
 static uint32_t mask, now_us = 100U, writes, initializations, period_reads;
 static uint16_t duty_counts[3], adc_counts[4] = {8193U, 8192U, 8191U, 12000U};

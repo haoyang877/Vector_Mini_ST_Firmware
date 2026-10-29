@@ -1,7 +1,7 @@
 #include "bsp_encoder.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_internal.h"
 #include "encoder_protocol.h"
 #include <stddef.h>

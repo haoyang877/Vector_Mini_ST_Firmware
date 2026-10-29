@@ -7,7 +7,7 @@
 #include "at32f45x.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_internal.h"
 FoundationDwt foundation_dwt;
 FoundationCoreDebug foundation_core_debug;

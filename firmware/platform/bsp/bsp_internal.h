@@ -13,7 +13,7 @@
 #include "bsp_pwm.h"
 #include "bsp_can.h"
 #include "bsp_led.h"
-#include "bsp_config.h"
+#include "board_config.h"
 
 /* ADC缓存与生命周期 */
 /** @brief 辅助温度采样原码；12位单次域，sequence自然回绕。 */

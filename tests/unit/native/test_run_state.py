@@ -21,6 +21,7 @@ REFERENCE_PATHS = (
     "firmware/services",
     "firmware/communication",
     "firmware/platform/bsp/include",
+    "firmware/config",
     "firmware/platform/config",
     "firmware/platform/bsp/mcu/stm32g4",
     "shared",
@@ -29,7 +30,7 @@ OWNER_SOURCES = (
     "firmware/app/motor_state_machine/motor_state_machine.c",
     "firmware/app/motor_state_machine/motor_state_rules.c",
     "firmware/motor/protection/motor_fault.c",
-    "firmware/motor/foc/speed_feedforward.c",
+    "firmware/motor/control/speed_feedforward.c",
     "firmware/motor/protection/motor_thermal.c",
     "firmware/motor/protection/motor_thermal_config.c",
     "firmware/motor/protection/motor_thermal_control.c",
@@ -44,6 +45,7 @@ LEGACY_SOURCES = {
     "firmware/motor/protection/motor_thermal_control.c": (
         "firmware/app/runtime/motor_thermal_control.c",
     ),
+    "firmware/motor/control/speed_feedforward.c": ("firmware/motor/foc/speed_feedforward.c",),
     "firmware/parameters/motor_axis_profile.c": (
         "firmware/services/parameters/motor_axis_profile.c",
     ),
@@ -89,16 +91,125 @@ def export_reference(reference: str, output: Path) -> tuple[str, Path]:
     return revision, destination
 
 
+def adapt_measurement_fixture(fixture: str, declare: bool = True) -> str:
+    """将相同测试输入投影到新测量对象；冻结参考仍使用自己的旧结构。"""
+    if declare:
+        fixture = fixture.replace(
+            "static FocState foc;", "static FocState foc;\nstatic MotorMeasurement measurement;"
+        )
+        fixture = fixture.replace(
+            "#define s_foc_state foc\n",
+            "#define s_foc_state foc\n#define s_motor_measurement measurement\n",
+        )
+        fixture = fixture.replace(
+            "memset(&foc, 0, sizeof(foc));",
+            "memset(&foc, 0, sizeof(foc));\n    memset(&measurement, 0, sizeof(measurement));",
+        )
+        fixture = fixture.replace(
+            "void McuTemperature_Update(FocState *state,",
+            "void McuTemperature_Update(MotorMeasurement *state,",
+        ).replace(
+            "state == &foc && control == &motor", "state == &measurement && control == &motor"
+        )
+        fixture = fixture.replace(
+            "FocState *f,\n                                               MotorControlState *m,",
+            "FocState *f,\n                                               const MotorMeasurement *measurement_input,\n                                               MotorControlState *m,",
+        ).replace(
+            "FocState *f,\n                                                          MotorControlState *m,",
+            "FocState *f,\n                                                          const MotorMeasurement *measurement_input,\n                                                          MotorControlState *m,",
+        )
+        fixture = fixture.replace(
+            "    (void)f;\n    (void)m;", "    (void)f;\n    (void)measurement_input;\n    (void)m;"
+        )
+    for field in (
+        "bus_voltage_v",
+        "bus_voltage_filtered_v",
+        "phase_a_current_a",
+        "phase_b_current_a",
+        "phase_c_current_a",
+        "temperature_c",
+    ):
+        fixture = fixture.replace("foc." + field, "measurement." + field)
+    fixture = fixture.replace(
+        "MotorStateMachine_Init(&cfg, &motor, &foc,",
+        "MotorStateMachine_Init(&cfg, &motor, &foc, &measurement,",
+    )
+    fixture = fixture.replace(
+        "&foc, &motor, &pi, &encoder, NULL, &startup",
+        "&foc, &measurement, &motor, &pi, &encoder, NULL, &startup",
+    )
+    import re
+
+    fixture = re.sub(
+        r"(MotorCommand_ValidateTarget\([^,]+,\s*[^,]+,)\s*&foc,", r"\1 &measurement,", fixture
+    )
+    return fixture
+
+
 def owner_fixture(tree: Path) -> str:
     """夹具一致，准入计算从各自生产版本读取。"""
     fixture = (ROOT / "tests/unit/native/run_state_owner_test.c").read_text(encoding="utf-8")
-    algorithm = (tree / "firmware/motor/foc/foc_algorithm.c").read_text(encoding="utf-8")
-    sensing = (tree / "firmware/motor/foc/foc_sensing.c").read_text(encoding="utf-8")
-    fixture += "\n" + function_source(algorithm, "FOC_MaximumVoltage")
+    if not (tree / "firmware/motor/sensing/motor_sensing.h").is_file():
+        fixture = fixture.replace('"motor_sensing.h"', '"foc_sensing.h"')
+    if not (tree / "firmware/motor/feedback/encoder_feedback.h").is_file():
+        fixture = "#define Foc_MaxVoltage FOC_MaximumVoltage\n" + fixture
+        fixture = "#define Foc_ConfigureControllers FOC_ConfigureControllers\n" + fixture
+        fixture = "#define Foc_UpdateCurrentLimits FOC_UpdateCurrentControllerLimits\n" + fixture
+        fixture = "#define Foc_Step FOC_Step\n" + fixture
+        fixture = "#define Foc_RunCurrentRef FOC_CurrentWithReference\n" + fixture
+        fixture = "#define Foc_ResetCurrent FOC_CurrentController_Reset\n" + fixture
+        fixture = "#define Foc_RunCurrent FOC_Current\n" + fixture
+        fixture = "#define Foc_RunVq FOC_Vq_Mode\n" + fixture
+        fixture = "#define Svm_ZeroInjection SVM_ZeroInjection\n" + fixture
+        fixture = "#define Svm_SectorJudge SVM_SectorJudge\n" + fixture
+        fixture = "#define Clarke_Inverse Inverse_Clarke_Transform\n" + fixture
+        fixture = "#define Park_Inverse Inverse_Park_Transform\n" + fixture
+        fixture = "#define Encoder_GetCprRatio Encoder_GetCountInCPR_Ratio\n" + fixture
+        fixture = "#define Encoder_GetCalibrationFlag Encoder_GetCalibFlag\n" + fixture
+        fixture = "#define SpeedControl_UpdateRamp MotorAxis_UpdateSpeedRamp\n" + fixture
+        fixture = "#define MotorCurrentOffsets_IsValid MotorCurrentOffsets_Valid\n" + fixture
+        fixture = "#define Encoder_InitFeedback Encoder_ParamInit\n" + fixture
+        fixture = "#define FluxObserver_Init FluxObserver_ParamInit\n" + fixture
+        fixture = "#define MotorCurrent_Update Current_Cal\n" + fixture
+        fixture = "#define MotorVoltage_Update Vbus_Update\n" + fixture
+        fixture = "#define McuTemperature_Update Temperature_Update\n" + fixture
+        fixture = "#define McuTemperature_IsFresh MotorTemperature_IsFresh\n" + fixture
+        fixture = "#define Encoder_GetElecVel Encoder_GetEleVel\n" + fixture
+        fixture = "#define Encoder_GetMechVel Encoder_GetMecVel\n" + fixture
+        fixture = "#define Encoder_GetMechVelContinuous Encoder_GetMecVelContinuous\n" + fixture
+        fixture = "#define Encoder_GetElecPhase Encoder_GetElePhase\n" + fixture
+        fixture = "#define Encoder_GetMechPos Encoder_GetMecPos\n" + fixture
+        fixture = "#define FluxObserver_GetElecPhase Observer_GetElePhase\n" + fixture
+        fixture = "#define FluxObserver_GetElecVel Observer_GetEleVel\n" + fixture
+        fixture = "#define FluxObserver_GetElecPos Observer_GetElePosition\n" + fixture
+        fixture = "#define FluxObserver_GetPositionEpoch Observer_GetPositionEpoch\n" + fixture
+        fixture = fixture.replace('"encoder_feedback.h"', '"angle_feedback.h"')
+        fixture = fixture.replace('"encoder_calibration.h"', '"encoder_calibration_task.h"')
+    if not (tree / "firmware/motor/control/foc.h").is_file():
+        fixture = fixture.replace('"foc.h"', '"foc_algorithm.h"')
+        fixture = fixture.replace('"pi_controller.h"', '"foc_pid.h"')
+        fixture = fixture.replace('"position_control.h"', '"position_cascade.h"')
+    algorithm = resolve_source_path(
+        tree, "firmware/motor/control/foc.c", "firmware/motor/foc/foc_algorithm.c"
+    ).read_text(encoding="utf-8")
+    sensing = resolve_source_path(
+        tree,
+        "firmware/motor/sensing/motor_current.c",
+        "firmware/motor/sensing/motor_sensing.c",
+        "firmware/motor/foc/foc_sensing.c",
+    ).read_text(encoding="utf-8")
+    fixture += "\n" + function_source(
+        algorithm, "Foc_MaxVoltage" if "Foc_MaxVoltage(" in algorithm else "FOC_MaximumVoltage"
+    )
     fixture += (
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
-    fixture += function_source(sensing, "MotorCurrentOffsets_Valid")
+    fixture += function_source(
+        sensing,
+        "MotorCurrentOffsets_IsValid"
+        if "MotorCurrentOffsets_IsValid(" in sensing
+        else "MotorCurrentOffsets_Valid",
+    )
     command_path = resolve_source_path(
         tree, "firmware/app/runtime/motor_command.c", "firmware/app/runtime/motor_execution.c"
     )
@@ -131,22 +242,35 @@ def owner_fixture(tree: Path) -> str:
     # 夹具只改头名和接口别名；旧生产函数体、配置及常量仍来自同一冻结树。
     headers = {
         "motor_command.h": ("firmware/app/runtime/motor_command.h", "motor_execution.h"),
-        "motor_control.h": ("firmware/motor/foc/motor_control.h", "motor_control_execution.h"),
+        "motor_control.h": (
+            "firmware/motor/control/motor_control.h",
+            "motor_control_execution.h",
+        ),
         "motor_fault.h": ("firmware/motor/protection/motor_fault.h", "foc_errhandle.h"),
-        "sensorless_startup.h": ("firmware/motor/foc/sensorless_startup.h", "foc_sensorless_run.h"),
+        "sensorless_startup.h": (
+            "firmware/motor/control/sensorless_startup.h",
+            "foc_sensorless_run.h",
+        ),
         "parameter_values.h": (
             "firmware/parameters/parameter_values.h",
             "parameter_value_service.h",
         ),
     }
     for current, (relative, legacy) in headers.items():
-        if not (tree / relative).is_file():
+        if (
+            not (tree / relative).is_file()
+            and not (
+                tree / relative.replace("/interface/", "/foc/").replace("/control/", "/foc/")
+            ).is_file()
+        ):
             if (
                 current == "motor_control.h"
                 and not (tree / "firmware/motor/foc/motor_control_execution.h").is_file()
             ):
                 legacy = "motor_execution.h"
             fixture = fixture.replace(f'#include "{current}"', f'#include "{legacy}"')
+    if (tree / "firmware/motor/sensing/motor_measurement.h").is_file():
+        fixture = adapt_measurement_fixture(fixture)
     return fixture
 
 
@@ -173,6 +297,33 @@ def run_variant(
     source = output / "run_state_owner.c"
     owner_path = tree / OWNER_SOURCES[0]
     owner_text = owner_path.read_text(encoding="utf-8")
+    fast_outcome_unlocked = "BspSystem_EnterControlCritical" not in function_source(
+        owner_text, "MotorStateMachine_PostOutcome"
+    )
+    take_result_source = (
+        function_source(owner_text, "take_current_task_result")
+        if "take_current_task_result(" in owner_text
+        else ""
+    )
+    take_result_unlocked = bool(take_result_source) and (
+        "BspSystem_EnterControlCritical" not in take_result_source
+    )
+    shared_mailbox_source = (
+        function_source(owner_text, "take_pending_outcome")
+        if "take_pending_outcome(" in owner_text
+        else ""
+    )
+    mailbox_source = shared_mailbox_source or take_result_source
+    mailbox_atomic = "BspSystem_EnterCritical()" in mailbox_source
+    discard_source = (
+        function_source(owner_text, "discard_pending_outcome")
+        if "discard_pending_outcome(" in owner_text
+        else ""
+    )
+    discard_atomic = mailbox_atomic and (
+        bool(shared_mailbox_source) or "BspSystem_EnterCritical()" in discard_source
+    )
+    start_commit_guarded = "start_commit_mask" in owner_text
     preemptible = "read_locked_state_conditions" in owner_text
     health_inputs_only = "state_inputs_valid()" in function_source(
         owner_text, "MotorStateMachine_ReadBootHealth"
@@ -185,13 +336,22 @@ def run_variant(
             "cfg.application.current_limit_a = PARAM_APP_DEFAULT_CURRENT_LIMIT_A;",
         )
         case = ROOT / "tests/unit/native/mcu_temperature_owner_case.c"
+        case_text = case.read_text(encoding="utf-8")
+        if (tree / "firmware/motor/sensing/motor_measurement.h").is_file():
+            case_text = adapt_measurement_fixture(case_text, declare=False)
         fixture = (
-            "#define main required_temperature_main\n"
-            + fixture
-            + f'\n#undef main\n#include "{case.as_posix()}"\n'
+            "#define main required_temperature_main\n" + fixture + "\n#undef main\n" + case_text
         )
+
     source.write_text(
-        f"#define STATE_FAST_POWER_OWNER {int('MotorStateMachine_BeginFastTick' in owner_text)}\n"
+        f"#define STATE_NO_NESTED_CONDITION_LOCKS {int('read_state_conditions_locked' in owner_text)}\n"
+        + f"#define STATE_FAST_OUTCOME_UNLOCKED {int(fast_outcome_unlocked)}\n"
+        + f"#define STATE_TAKE_RESULT_UNLOCKED {int(take_result_unlocked)}\n"
+        + f"#define STATE_MAILBOX_ATOMIC {int(mailbox_atomic)}\n"
+        + f"#define STATE_DISCARD_ATOMIC {int(discard_atomic)}\n"
+        + f"#define STATE_START_COMMIT_GUARDED {int(start_commit_guarded)}\n"
+        + f"#define STATE_TARGET_COMMIT_GUARDED {int('target_commit_mask' in owner_text)}\n"
+        + f"#define STATE_FAST_POWER_OWNER {int('MotorStateMachine_BeginFastTick' in owner_text)}\n"
         + f"#define STATE_VALIDATION_PREEMPTIBLE {int(preemptible)}\n"
         + f"#define STATE_SUPERVISOR_STAGED {int('MotorStateMachine_PrepareSupervisor' in owner_text)}\n"
         + f"#define STATE_PUBLICATION_PREVALIDATED {int('step->configuration_valid' in owner_text)}\n"
@@ -205,12 +365,69 @@ def run_variant(
     )
     # 仅替换实际校验调用名用于观测屏蔽状态；校验主体仍链接该版本的真实实现。
     instrumented_owner = output / "instrumented_owner.c"
+    tested_owner = owner_path
+    owner_probe = owner_text
+    if mailbox_atomic:
+        marker = "        s_context.has_latched_outcome = false;"
+        if mailbox_source.count(marker) != 1:
+            raise ValueError("无法定位结果邮箱消费点")
+        instrumented_take = mailbox_source.replace(
+            marker, "        Test_MailboxInterrupt();\n" + marker
+        )
+        owner_probe = owner_probe.replace(mailbox_source, instrumented_take, 1)
+    if discard_atomic and not shared_mailbox_source:
+        if discard_source.count(marker) != 1:
+            raise ValueError("无法定位结果邮箱撤销点")
+        instrumented_discard = discard_source.replace(
+            marker, "        Test_MailboxInterrupt();\n" + marker
+        )
+        owner_probe = owner_probe.replace(discard_source, instrumented_discard, 1)
+    if start_commit_guarded:
+        start_source = function_source(owner_text, "update_start_progress")
+        before = "    uint32_t start_commit_mask = BspSystem_EnterCritical();"
+        publish = (
+            "            finish_pending_start(MOTOR_CONTROL_ACCEPTED);"
+            if "finish_pending_start(MOTOR_CONTROL_ACCEPTED)" in start_source
+            else "            s_context.active_start.state = MOTOR_CONTROL_START_STARTED;"
+        )
+        if start_source.count(before) != 1 or start_source.count(publish) != 1:
+            raise ValueError("无法定位启动进度提交点")
+        instrumented_start = start_source.replace(
+            before, "    Test_StartProgressInterrupt(1U);\n" + before
+        ).replace(publish, "            Test_StartProgressInterrupt(2U);\n" + publish)
+        owner_probe = owner_probe.replace(start_source, instrumented_start, 1)
+    if mailbox_atomic or start_commit_guarded:
+        tested_owner = output / "owner_preemption_probe.c"
+        tested_owner.write_text(owner_probe, encoding="utf-8")
     instrumented_owner.write_text(
         "#define ParameterValue_ConfigurationValid Test_ConfigurationValid\n"
-        f'#include "{owner_path.as_posix()}"\n',
+        + ("void Test_MailboxInterrupt(void);\n" if mailbox_atomic else "")
+        + ("void Test_StartProgressInterrupt(unsigned stage);\n" if start_commit_guarded else "")
+        + f'#include "{tested_owner.as_posix()}"\n'
+        + (
+            "MotorTaskResult Test_TakeCurrentTaskResult(void) "
+            "{ return take_current_task_result(); }\n"
+            if take_result_unlocked
+            else ""
+        )
+        + (
+            "bool Test_MailboxHasPending(void) { return s_context.has_latched_outcome; }\n"
+            if mailbox_atomic
+            else ""
+        ),
         encoding="utf-8",
     )
     includes = native_include_flags(tree)
+    # 冻结提交使用重构前的配置目录；基线始终包含该提交自己的头文件。
+    for relative in (
+        "firmware/app/config",
+        "firmware/app/config/targets",
+        "firmware/platform/config",
+        "firmware/platform/config/boards",
+        "firmware/motor/profiles",
+    ):
+        if (tree / relative).is_dir():
+            includes += ["-I", str(tree / relative)]
     executable = output / "run_state_owner.exe"
     production = [
         resolve_source_path(tree, path, *LEGACY_SOURCES.get(path, ())) for path in OWNER_SOURCES
@@ -254,6 +471,14 @@ def run_variant(
     command = (
         compiler
         + includes
+        + (
+            ["-DMOTOR_RULES_BASELINE"]
+            if "request_epoch"
+            in (tree / "firmware/app/motor_state_machine/motor_state_internal.h").read_text(
+                encoding="utf-8"
+            )
+            else []
+        )
         + [
             "-std=c99",
             "-O2",

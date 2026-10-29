@@ -33,7 +33,7 @@ reference_q15 = uint16((theta_obs - observer_position_origin) * 65536 / (2*pi*p)
 此位置仅在本次连续观测器运行期间有效，不是断电保持的绝对多圈位置。
 观测器复位导致 `position_epoch` 变化时，中止任务，不提交该次候选。
 
-启动及采样默认值归 `firmware/motor/motor_startup_profile.h`：带阻尼环装配当前为
+启动及采样默认值归 `firmware/config/application_config.h`：带阻尼环装配当前为
 20 rad/s、5 个采集圈，无阻尼环装配为 15 rad/s、10 个采集圈。
 稳态检查窗口为 0.5 s、速度误差上限 20%；每个 LUT 桶至少 16 个样本。
 候选构建每拍处理数量有界，之后验证一机械圈。RMS 上限为 256 Q15 counts，

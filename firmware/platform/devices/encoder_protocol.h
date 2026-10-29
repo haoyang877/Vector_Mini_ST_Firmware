@@ -2,7 +2,7 @@
 #define ENCODER_PROTOCOL_H
 
 #include "bsp_encoder.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "encoder_spi.h"
 /** @brief 真实器件解码结果；仅BSP内部使用，不混入控制样本。 */
 typedef struct

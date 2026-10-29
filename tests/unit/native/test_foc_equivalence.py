@@ -30,18 +30,52 @@ def main() -> None:
         ).decode("utf-8")
 
     foc = project_reference_motor_config(frozen("firmware/motor/foc/foc_algorithm.c"))
+    foc = foc.replace('"control_config.h"', '"application_config.h"')
     # 只投影退役的PWM头文件与输出符号，不改变冻结参考的运算和控制分支。
     foc = foc.replace('#include "motor_hw.h"', '#include "bsp_pwm.h"').replace(
         "motor_hw_pwm_set_duty", "BspPwm_SetDuty"
     )
     pi = frozen("firmware/motor/foc/foc_pid.c")
+    foc = foc.replace('"foc_algorithm.h"', '"foc.h"').replace('"foc_pid.h"', '"pi_controller.h"')
+    pi = pi.replace('"foc_pid.h"', '"pi_controller.h"')
+    # 仅投影符号名称，参考算法的运算与调用次序保持不变。
+    symbol_map = {
+        "FOC_MaximumVoltage": "Foc_MaxVoltage",
+        "FOC_ConfigureControllers": "Foc_ConfigureControllers",
+        "FOC_UpdateCurrentControllerLimits": "Foc_UpdateCurrentLimits",
+        "FOC_Step": "Foc_Step",
+        "FOC_CurrentWithReference": "Foc_RunCurrentRef",
+        "FOC_CurrentController_Reset": "Foc_ResetCurrent",
+        "FOC_Current": "Foc_RunCurrent",
+        "FOC_Vq_Mode": "Foc_RunVq",
+        "SVM_ZeroInjection": "Svm_ZeroInjection",
+        "SVM_SectorJudge": "Svm_SectorJudge",
+        "Inverse_Clarke_Transform": "Clarke_Inverse",
+        "Inverse_Park_Transform": "Park_Inverse",
+    }
+    for old_name, new_name in symbol_map.items():
+        foc = re.sub(r"\b" + old_name + r"\b", new_name, foc)
+        pi = re.sub(r"\b" + old_name + r"\b", new_name, pi)
     names = set(re.findall(r"^(?:float|void|bool)\s+(\w+)\s*\(", foc + "\n" + pi, re.M))
     # 仅投影函数名，常量、算术次序、控制分支及结构保持冻结内容。
     defines = "\n".join(
         "#define " + n + " " + n + "_Reference"
         for n in sorted(names | {"BspPwm_SetDuty", "FastLoopProfile_Begin", "FastLoopProfile_End"})
     )
-    (out / "reference_foc.c").write_text(defines + "\n" + foc, encoding="utf-8")
+    # 冻结拆分前的状态布局，参考代码仍用自己的字段；当前实现单独使用测量对象。
+    legacy_header = (ROOT / "tests/fixtures/foc_before_measurement.h").read_text(encoding="utf-8")
+    legacy_type = re.search(r"typedef struct\s*\{.*?\} FocState;", legacy_header, re.S)
+    if legacy_type is None:
+        raise ValueError("冻结 FocState 缺失")
+    (out / "reference_type.h").write_text(
+        legacy_type.group(0).replace("FocState;", "FocReference;"), encoding="utf-8"
+    )
+    (out / "reference_foc.h").write_text(legacy_header, encoding="utf-8")
+    foc = foc.replace('"foc.h"', '"reference_foc.h"')
+    (out / "reference_foc.c").write_text(
+        defines + "\n#define Current_Ts FOC_TS_S\n#define FocState FocReference\n" + foc,
+        encoding="utf-8",
+    )
     (out / "reference_pi.c").write_text(defines + "\n" + pi, encoding="utf-8")
     cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     logs = []
@@ -50,6 +84,7 @@ def main() -> None:
         command = (
             cc
             + NATIVE_INCLUDE_FLAGS
+            + ["-I", str(out)]
             + [
                 "-std=c99",
                 "-O2",
@@ -59,8 +94,9 @@ def main() -> None:
                 "-Werror",
                 f"-DBSP_ENABLED_FAST_LOOP_PROFILE={profile}",
                 "tests/unit/foc_equivalence_test.c",
-                "firmware/motor/foc/foc_algorithm.c",
-                "firmware/motor/foc/foc_pid.c",
+                "firmware/motor/control/foc.c",
+                "firmware/motor/control/foc_output.c",
+                "firmware/motor/control/pi_controller.c",
                 "firmware/motor/math/control_math.c",
                 "firmware/motor/protection/motor_thermal.c",
                 "firmware/motor/protection/motor_thermal_config.c",

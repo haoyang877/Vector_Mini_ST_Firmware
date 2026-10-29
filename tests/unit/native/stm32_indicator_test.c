@@ -13,11 +13,12 @@
 #endif
 IndicatorGpio g_indicator_red, g_indicator_green;
 unsigned htim2;
-static uint32_t s_signature = 2166136261U, s_mask;
+static uint32_t s_signature = 2166136261U, s_mask, s_global_lock_calls;
 static unsigned s_dma_calls;
 static bool s_dma_busy;
 uint32_t BspSystem_EnterCritical(void)
 {
+    ++s_global_lock_calls;
     uint32_t key = s_mask;
     s_mask = 1;
     return key;
@@ -99,7 +100,7 @@ int main(void)
     s_dma_busy = false;
     assert(BspLed_SetColor((BspLedColor)99) == BSP_INVALID_ARGUMENT);
     assert(BspLed_SetCode((BspLedCodeChannel)99, 1) == BSP_INVALID_ARGUMENT);
-    assert(s_mask == 0U);
+    assert(s_mask == 0U && s_global_lock_calls == 0U);
 #endif
     return 0;
 }

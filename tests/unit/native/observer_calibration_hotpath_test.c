@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "flux_observer.c"
-#include "encoder_calibration_task.c"
+#include "encoder_calibration.c"
 
 static bool leave_align;
 static unsigned current_calls;
@@ -32,12 +32,14 @@ void SensorlessStartup_Reset(SensorlessStartupState *startup)
 }
 void SensorlessStartup_Run(const MotorConfiguration *configuration,
                            FocState *foc,
+                           const MotorMeasurement *measurement,
                            MotorControlState *motor,
                            PiController *controller,
                            FluxObserverState *observer,
                            SensorlessStartupState *startup,
                            const SensorlessStartupConfig *config)
 {
+    (void)measurement;
     (void)configuration;
     (void)foc;
     (void)motor;
@@ -47,17 +49,19 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
     startup->state = leave_align ? SENSORLESS_STARTUP_OPEN_LOOP : SENSORLESS_STARTUP_ALIGN;
     ++startup->state_ticks;
 }
-void FOC_CurrentController_Reset(FocState *foc)
+void Foc_ResetCurrent(FocState *foc)
 {
     PiController_Reset(&foc->id_pi);
     PiController_Reset(&foc->iq_pi);
 }
-void FOC_Current(const MotorConfiguration *configuration,
-                 FocState *foc,
-                 MotorControlState *motor,
-                 float phase,
-                 float velocity)
+void Foc_RunCurrent(const MotorConfiguration *configuration,
+                    FocState *foc,
+                    const MotorMeasurement *measurement,
+                    MotorControlState *motor,
+                    float phase,
+                    float velocity)
 {
+    (void)measurement;
     (void)configuration;
     (void)foc;
     (void)motor;
@@ -69,7 +73,7 @@ bool Encoder_IsOnline(const EncoderState *encoder)
 {
     return encoder->has_valid_sample;
 }
-float Encoder_GetMecVelContinuous(const EncoderState *encoder)
+float Encoder_GetMechVelContinuous(const EncoderState *encoder)
 {
     return encoder->mechanical_velocity_rad_s;
 }
@@ -116,23 +120,24 @@ static void check_finite(void)
 static void check_observer(void)
 {
     FocState foc = {0};
+    MotorMeasurement measurement = {0};
     MotorConfiguration configuration = {0};
     FluxObserverState observer = {0};
     configuration.model.motor_phase_resistance_ohm = 0.2f;
     configuration.model.motor_d_inductance_h = 0.0002f;
     configuration.model.motor_q_inductance_h = 0.0003f;
     configuration.model.motor_flux_wb = 0.015f;
-    foc.bus_voltage_filtered_v = 33.0f;
-    FluxObserver_ParamInit(&observer);
+    measurement.bus_voltage_filtered_v = 33.0f;
+    FluxObserver_Init(&observer);
     for (unsigned i = 0U; i < 8192U; ++i)
     {
         float phase = (float)i * 0.017f;
-        foc.phase_a_current_a = 0.1f * sinf(phase);
-        foc.phase_b_current_a = 0.1f * sinf(phase - 2.0943951f);
-        foc.phase_c_current_a = 0.1f * sinf(phase + 2.0943951f);
+        measurement.phase_a_current_a = 0.1f * sinf(phase);
+        measurement.phase_b_current_a = 0.1f * sinf(phase - 2.0943951f);
+        measurement.phase_c_current_a = 0.1f * sinf(phase + 2.0943951f);
         foc.mod_alpha = 0.01f * cosf(phase);
         foc.mod_beta = 0.01f * sinf(phase);
-        FluxObserver_Update(&configuration, &foc, &observer);
+        FluxObserver_Update(&configuration, &foc, &measurement, &observer);
         float reference = Math_NormalizeAngle(Math_Atan2(observer.sin, observer.cos));
         assert(memcmp(&reference, &observer.electrical_angle_rad, sizeof(reference)) == 0);
         assert(isfinite(observer.electrical_velocity_rad_s));
@@ -142,7 +147,7 @@ static void check_observer(void)
     {
         uint32_t epoch = observer.position_epoch;
         configuration.model.motor_flux_wb = invalid[i];
-        FluxObserver_Update(&configuration, &foc, &observer);
+        FluxObserver_Update(&configuration, &foc, &measurement, &observer);
         assert(observer.position_epoch == epoch + 1U);
         assert(observer.electrical_angle_rad == 0.0f && observer.x1_last == 0.0f);
     }
@@ -151,6 +156,7 @@ static void check_observer(void)
 static void check_prepare(void)
 {
     FocState foc = {0};
+    MotorMeasurement measurement = {0};
     MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
     PiController speed = {0};
@@ -172,7 +178,7 @@ static void check_prepare(void)
     uint32_t sample_tick = (uint32_t)((SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S +
                                        SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S -
                                        SENSORLESS_ENCODER_CALIB_ALIGN_SAMPLE_TIME_S) /
-                                      Current_Ts);
+                                      FOC_TS_S);
     assert(sample_tick >= ENCODER_OFFSET_LUT_SIZE / ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
     EncoderCalibrationTask_Cancel();
     memset(&workspace, 0xA5, sizeof(workspace));
@@ -180,6 +186,7 @@ static void check_prepare(void)
     MotorTaskResult result = EncoderCalibrationTask_StepLut(&configuration,
                                                             &configuration.device.encoder,
                                                             &foc,
+                                                            &measurement,
                                                             &motor,
                                                             &speed,
                                                             &encoder,
@@ -192,6 +199,7 @@ static void check_prepare(void)
     result = EncoderCalibrationTask_StepLut(&configuration,
                                             &configuration.device.encoder,
                                             &foc,
+                                            &measurement,
                                             &motor,
                                             &speed,
                                             &encoder,
@@ -213,6 +221,7 @@ static void check_prepare(void)
         result = EncoderCalibrationTask_StepLut(&configuration,
                                                 &configuration.device.encoder,
                                                 &foc,
+                                                &measurement,
                                                 &motor,
                                                 &speed,
                                                 &encoder,
@@ -232,6 +241,7 @@ static void check_prepare(void)
     result = EncoderCalibrationTask_StepLut(&configuration,
                                             &configuration.device.encoder,
                                             &foc,
+                                            &measurement,
                                             &motor,
                                             &speed,
                                             &encoder,
@@ -244,6 +254,7 @@ static void check_prepare(void)
     result = EncoderCalibrationTask_StepLut(&configuration,
                                             &configuration.device.encoder,
                                             &foc,
+                                            &measurement,
                                             &motor,
                                             &speed,
                                             &encoder,
@@ -254,6 +265,7 @@ static void check_prepare(void)
     result = EncoderCalibrationTask_StepLut(&configuration,
                                             &configuration.device.encoder,
                                             &foc,
+                                            &measurement,
                                             &motor,
                                             &speed,
                                             &encoder,

@@ -28,9 +28,9 @@
 | `projects/stm32g4/application/`、`projects/at32f456/application/` | 各板main入口、初始化和中断调度接线 | 调用同一套App四入口，不另建控制算法或主状态机 |
 | APP装配与目标选择 | 必要的目标身份和模块装配，目标为一到两个装配/选择文件 | 不扩展到runtime或状态机行为；超出时先列清原因和影响 |
 | `platform/bsp/`各板实现 | 时钟、中断、ADC、PWM、SPI/编码器、CAN、时间、存储等接口实现 | 按同一公共契约提供真实硬件能力，不向共用功能层暴露寄存器或厂商类型 |
-| `platform/config/boards/` | 引脚/采样链输入、能力和固定板级限制 | 配置与外设实现分离；电路量程不等同于可安全运行电流 |
-| `firmware/app/config/targets/`与`projects/`内的启动/链接及Keil工程 | 目标组合、工程源清单、芯片启动、各板地址布局和测试目标装配 | 兼容性变化明确记录，保持旧板普通APP和Loader配套APP可构建 |
-| `motor/profiles/`及配置选择入口 | 电机与装配参数、统一1kHz电流环默认值 | 电机与板卡独立选择；不因改默认值自动覆盖已有有效人工PI |
+| `config/board_config.h` | 引脚/采样链输入、能力和固定板级限制 | 配置与外设实现分离；电路量程不等同于可安全运行电流 |
+| `firmware/config/board_config.h`与`projects/`内的启动/链接及Keil工程 | 目标组合、工程源清单、芯片启动、各板地址布局和测试目标装配 | 兼容性变化明确记录，保持旧板普通APP和Loader配套APP可构建 |
+| `config/motor_profile_config.h`及配置选择入口 | 电机与装配参数 | 电机与板卡独立选择；不因改默认值自动覆盖已有有效人工PI |
 | 离线测试、验证工具和文档 | 对应的路径、目标矩阵、接口替身、边界及证据维护 | 测试入口不自行下载或启相；定向通过与完整验收分别报告 |
 
 旧板main迁入projects/stm32g4/application属于入口位置统一，迁移本身保持初始化顺序和行为。

@@ -1,7 +1,7 @@
 #ifndef FAST_LOOP_PROFILE_H
 #define FAST_LOOP_PROFILE_H
 
-#include "bsp_config.h"
+#include "board_config.h"
 
 /* 可选快速环诊断钩子：板级端口拥有时钟与累计值，控制代码只传递阶段标识。
  * 未启用 BSP_ENABLED_FAST_LOOP_PROFILE 的构建不会产生函数调用或 RAM 占用。 */

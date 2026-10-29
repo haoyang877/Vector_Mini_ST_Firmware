@@ -1,6 +1,6 @@
 /* 快环不可抢占；其它所有者自行保证互斥。本层不屏蔽中断，提交期限与故障关相仍保留。 */
 #include "bsp_pwm.h"
-#include "bsp_config.h"
+#include "board_config.h"
 #include "bsp_internal.h"
 #include <string.h>
 

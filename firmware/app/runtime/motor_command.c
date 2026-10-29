@@ -9,7 +9,7 @@
 /* 只验证 SI 目标格式与控制范围，不读取生命周期、不修改对象或输出。 */
 MotorControlResult MotorCommand_ValidateTarget(const MotorConfiguration *configuration,
                                                const MotorControlCommand *command,
-                                               const FocState *foc,
+                                               const MotorMeasurement *measurement,
                                                const EncoderState *encoder)
 {
     if (command == NULL || !isfinite(command->position_rad) || !isfinite(command->speed_rad_s) ||
@@ -34,7 +34,7 @@ MotorControlResult MotorCommand_ValidateTarget(const MotorConfiguration *configu
     {
         return MOTOR_CONTROL_INVALID;
     }
-    if (configuration == NULL || foc == NULL || encoder == NULL)
+    if (configuration == NULL || measurement == NULL || encoder == NULL)
     {
         return MOTOR_CONTROL_INVALID;
     }
@@ -66,7 +66,7 @@ MotorControlResult MotorCommand_ValidateTarget(const MotorConfiguration *configu
         if (command->mode == MOTOR_CONTROL_OPEN_VOLTAGE)
         {
             squared = command->vd_v * command->vd_v + command->vq_v * command->vq_v;
-            limit = FOC_MaximumVoltage(foc->bus_voltage_filtered_v);
+            limit = Foc_MaxVoltage(measurement->bus_voltage_filtered_v);
         }
         if (!isfinite(limit) || limit <= 0.0f || !isfinite(squared) || squared > limit * limit)
         {
@@ -97,12 +97,12 @@ MotorControlResult MotorCommand_ValidateTarget(const MotorConfiguration *configu
     case MOTOR_CONTROL_POSITION:
         return MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
                                                configuration->application.axis_profile_valid,
-                                               Encoder_GetMecPos(encoder),
+                                               Encoder_GetMechPos(encoder),
                                                command->position_rad)
                    ? MOTOR_CONTROL_ACCEPTED
                    : MOTOR_CONTROL_OUT_OF_RANGE;
     case MOTOR_CONTROL_VQ:
-        return fabsf(command->vq_v) <= FOC_MaximumVoltage(foc->bus_voltage_filtered_v)
+        return fabsf(command->vq_v) <= Foc_MaxVoltage(measurement->bus_voltage_filtered_v)
                    ? MOTOR_CONTROL_ACCEPTED
                    : MOTOR_CONTROL_OUT_OF_RANGE;
     default:

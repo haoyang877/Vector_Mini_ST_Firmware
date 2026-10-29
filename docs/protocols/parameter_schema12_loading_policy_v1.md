@@ -1,6 +1,6 @@
 # 参数 schema12 装载与完整性契约 v1
 
-> 兼容格式：当前写入schema14；本文及原向量保留用于仍受支持的旧版读取和兼容校验。当前装载规则优先见[schema14](parameter_schema14_storage_v1.md)。
+> 历史格式：当前 APP 不再装载 schema12；本文与原向量仅保留历史记录。当前规则见[schema14](parameter_schema14_storage_v1.md)。
 
 日期：2026-09-29。schema12 新增持久配置确认与整条记录 CRC32；不转换旧记录，不自动回写。
 

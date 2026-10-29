@@ -31,7 +31,7 @@ ReadRawCurrent只返回三相原码。ReadChannel(BUS_CURRENT)返回物理量，
 NOT_CALIBRATED。应用拥有母线电流零偏标定，却无接口取得用于计算零偏的原码；
 SetBusCurrentOffset有写入入口但没有完整的输入链。
 
-现有证据：firmware/app/runtime/bus_current_feedback.c:108读取辅助原码，随后检查轨限、
+现有证据：firmware/app/composition/bus_current_feedback.c:108读取辅助原码，随后检查轨限、
 连续序号、128个样本和稳定窗口，再得到零偏。仅凭新接口无法保留这些检查。
 MCU温度原码/VREF/VDDA诊断也未在新接口中明确迁移。
 
@@ -48,7 +48,7 @@ ReadFast把三相电流和母线电压作为一次全量成功的输出；缺电
 因此上电标定阶段无法只取得已经有效的母线电压；关闭相电流而保留电压的目标同样未定义。
 
 现有证据：firmware/app/runtime/motor_axis.c:219先更新本拍母线电压和电压额度，
-:223才采集/完成相电流零偏。firmware/motor/foc/foc_sensing.c:98的电压更新不依赖零偏完成。
+:223才采集/完成相电流零偏。firmware/motor/sensing/motor_current.c:98的电压更新不依赖零偏完成。
 
 建议：保留同拍快照，但用清晰的字段有效性表示“电压有效、电流待标定”；或提供从同一缓存
 读取母线电压的独立入口。必须保持帧一致性，不能为拆接口触发第二次转换或伪造电流为0。

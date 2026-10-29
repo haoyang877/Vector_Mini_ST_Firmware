@@ -2,7 +2,7 @@
 #define MAINTENANCE_WORKSPACE_H
 
 #include <stdbool.h>
-#include "encoder_calibration_task.h"
+#include "encoder_calibration.h"
 #include "parameter_record.h"
 
 /* APP 唯一维护工作区；参数和编码器采样互斥，不分配、不保留块链表。 */
@@ -10,7 +10,7 @@
 
 /**
  * @brief 借用参数记录空间，已有任何借用时返回失败。
- * @return 独占记录指针；底层容量至少 PARAM_RECORD_READ_BYTES，繁忙返回 NULL。
+ * @return 独占当前记录指针，繁忙返回 NULL。
  * @note 启动或前台使用；调用者归还前不得启动标定，不清空已有内容。
  */
 InterfaceParam *MaintenanceWorkspace_BorrowParameter(void);

@@ -1,7 +1,7 @@
 #ifndef MOTOR_PARAMETER_TRANSACTION_H
 #define MOTOR_PARAMETER_TRANSACTION_H
 
-#include "foc_algorithm.h"
+#include "foc.h"
 #include "motor_state_machine.h"
 #include "parameter_values.h"
 

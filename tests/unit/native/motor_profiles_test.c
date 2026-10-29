@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "motor_profile_selection.h"
-#include "motor_startup_profile.h"
+#include "board_config.h"
+#include "application_config.h"
 
 /* 期望值由独立的型号矩阵传入，不从被测配置回读生成。 */
 static void near_value(float actual, float expected)
@@ -29,7 +29,7 @@ int main(int argc, char **argv)
     near_value(PARAM_MOTOR_RATED_VECTOR_A, strtof(argv[8], NULL));
     assert(PARAM_MOTOR_APP_DEFAULTS_READY == (unsigned)atoi(argv[9]));
     assert(PARAM_MOTOR_DATA_PROVISIONAL == (unsigned)atoi(argv[10]));
-    near_value(PARAM_MOTOR_CURRENT_LOOP_BANDWIDTH_HZ, 1000.0f);
+    near_value(CURRENT_LOOP_BANDWIDTH_HZ, 1000.0f);
     near_value(PARAM_MOTOR_DEFAULT_ID_KP, inductance * 6283.185307f);
     near_value(PARAM_MOTOR_DEFAULT_IQ_KP, inductance * 6283.185307f);
     near_value(PARAM_MOTOR_DEFAULT_ID_KI, resistance * 6283.185307f);

@@ -2,7 +2,9 @@
 #define MOTOR_THERMAL_CONTROL_H
 
 #include "motor_thermal_config.h"
-#include "foc_algorithm.h"
+#include "motor_measurement.h"
+#include "motor_config.h"
+#include "motor_types.h"
 
 /* APP_ENABLED_WINDING_THERMAL_MODEL默认开启。限时AT32台架显式关闭时不累计热量、
  * 不执行热降额/热更新看门狗，CurrentLimit仍返回有效配置限流，Vq瞬时限流仍执行。
@@ -47,7 +49,7 @@ void MotorThermalControl_Sample(
 /**
  * @brief 发布热限流快照并按本拍功率策略检查绕组保护，不操作硬件。
  * @param configuration 只读活动配置，电流上限单位A。
- * @param foc 本拍三相实测电流，单位A。
+ * @param measurement 本拍三相实测电流，单位A。
  * @param motor 所属运行对象；更新热快照，失败仅报告原绕组热故障。
  * @param samples_ready 本次上电电流零偏已完成；false时只发布快照。
  * @param outputs_disabled 本拍实际关相事实，与本拍采样使用相同值。
@@ -56,7 +58,7 @@ void MotorThermalControl_Sample(
  * @note 20kHz快环在Sample之后调用；不清历史、不改配置、不启停功率。
  */
 void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuration,
-                                          const FocState *foc,
+                                          const MotorMeasurement *measurement,
                                           MotorControlState *motor,
                                           bool samples_ready,
                                           bool outputs_disabled,

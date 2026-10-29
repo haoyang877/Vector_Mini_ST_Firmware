@@ -17,7 +17,7 @@ uint32_t LoaderPlatform_NowMs(void);
 void LoaderPlatform_Watchdog(void);
 /** @brief 回读板级功率输出关闭条件。 @return 数字关断满足返回 true。 */
 bool LoaderPlatform_OutputsOff(void);
-/** @brief 保存平台中断状态并进入临界区。 @return 用于配对恢复的状态值。 */
+/** @brief 屏蔽Loader的CAN及低优先级中断。 @return 用于配对恢复的原优先级屏蔽值。 */
 uint32_t LoaderPlatform_Lock(void);
 /** @brief 离开临界区并恢复中断状态。 @param key Lock返回值，不能猜测。 */
 void LoaderPlatform_Unlock(uint32_t key);

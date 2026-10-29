@@ -10,6 +10,7 @@ from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) -> str:
     """在相同桩输入下编译旧版或新版生产体，返回可比较的调用轨迹摘要。"""
     candidates = (
+        source_dir.parent.parent / "motor/control/motor_control.c",
         source_dir.parent.parent / "motor/foc/motor_control.c",
         source_dir.parent.parent / "motor/foc/motor_control_execution.c",
         source_dir / "motor_execution.c",
@@ -23,16 +24,46 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
         state_path = source_dir / "motor_state.c"
     state = state_path.read_text(encoding="utf-8")
     fixture = (ROOT / "tests/unit/native/execution_dispatch_test.c").read_text(encoding="utf-8")
+    fixture = "#define FOC_MaximumVoltage Foc_MaxVoltage\n" + fixture
+    fixture = "#define FOC_ConfigureControllers Foc_ConfigureControllers\n" + fixture
+    fixture = "#define FOC_UpdateCurrentControllerLimits Foc_UpdateCurrentLimits\n" + fixture
+    fixture = "#define FOC_Step Foc_Step\n" + fixture
+    fixture = "#define FOC_CurrentWithReference Foc_RunCurrentRef\n" + fixture
+    fixture = "#define FOC_CurrentController_Reset Foc_ResetCurrent\n" + fixture
+    fixture = "#define FOC_Current Foc_RunCurrent\n" + fixture
+    fixture = "#define FOC_Vq_Mode Foc_RunVq\n" + fixture
+    fixture = "#define SVM_ZeroInjection Svm_ZeroInjection\n" + fixture
+    fixture = "#define SVM_SectorJudge Svm_SectorJudge\n" + fixture
+    fixture = "#define Inverse_Clarke_Transform Clarke_Inverse\n" + fixture
+    fixture = "#define Inverse_Park_Transform Park_Inverse\n" + fixture
+    fixture = "#define EncoderFeedback_Init Encoder_InitFeedback\n" + fixture
+    fixture = "#define Encoder_GetCountInCPR_Ratio Encoder_GetCprRatio\n" + fixture
+    fixture = "#define Encoder_GetCalibFlag Encoder_GetCalibrationFlag\n" + fixture
+    fixture = "#define FluxObserver_GetElecPosition FluxObserver_GetElecPos\n" + fixture
+    fixture = "#define MotorAxis_UpdateSpeedRamp SpeedControl_UpdateRamp\n" + fixture
+    fixture = "#define Current_Cal MotorCurrent_Update\n" + fixture
+    fixture = "#define Vbus_Update MotorVoltage_Update\n" + fixture
+    fixture = "#define Temperature_Update McuTemperature_Update\n" + fixture
+    fixture = "#define MotorTemperature_IsFresh McuTemperature_IsFresh\n" + fixture
+    fixture = "#define Encoder_GetEleVel Encoder_GetElecVel\n" + fixture
+    fixture = "#define Encoder_GetMecVel Encoder_GetMechVel\n" + fixture
+    fixture = "#define Encoder_GetMecVelContinuous Encoder_GetMechVelContinuous\n" + fixture
+    fixture = "#define Encoder_GetElePhase Encoder_GetElecPhase\n" + fixture
+    fixture = "#define Encoder_GetMecPos Encoder_GetMechPos\n" + fixture
+    fixture = "#define Observer_GetElePhase FluxObserver_GetElecPhase\n" + fixture
+    fixture = "#define Observer_GetEleVel FluxObserver_GetElecVel\n" + fixture
+    fixture = "#define Observer_GetElePosition FluxObserver_GetElecPos\n" + fixture
+    fixture = "#define Observer_GetPositionEpoch FluxObserver_GetPositionEpoch\n" + fixture
     if "s_current_offset_calibration.complete" in state:
         declaration = "CurrentOffsetCalibration s_current_offset_calibration;"
-        sensing = (ROOT / "firmware/motor/foc/foc_sensing.h").read_text(encoding="utf-8")
+        sensing = (ROOT / "firmware/motor/sensing/motor_sensing.h").read_text(encoding="utf-8")
         if "} CurrentOffsetCalibration;" in sensing:
             context = declaration
         else:
             context_end = state.index(declaration) + len(declaration)
             context = state[state.index("#define CURRENT_OFFSET_SAMPLE_COUNT") : context_end]
         fixture = (
-            '#include "foc_sensing.h"\n#define STARTUP_CURRENT_OFFSETS_PRESENT 1\n'
+            '#include "motor_sensing.h"\n#define STARTUP_CURRENT_OFFSETS_PRESENT 1\n'
             + context
             + "\n"
             + fixture

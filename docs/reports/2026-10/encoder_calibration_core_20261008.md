@@ -18,8 +18,8 @@
 | --- | --- |
 | `firmware/motor/calibration/encoder_calibration_core.c` | `393d065fbdb98c29cc485867314fca051329a08574dfbcda6218e6f2bc813dee` |
 | `firmware/motor/calibration/encoder_calibration_core.h` | `a57f349349639842fb8f649921743a843b88c34dac60cb2b073d235660625c02` |
-| `firmware/motor/calibration/encoder_calibration_task.c` | `1e0c2afe05a7cbdf5a826a85038e14286f56f220ccac90ecf0021416ed790ce2` |
-| `firmware/motor/calibration/encoder_calibration_task.h` | `069dc6c6bc29062d8e7e48e029646e54e87880d81b8a68489165469f3b320b93` |
+| `firmware/motor/calibration/encoder_calibration.c` | `1e0c2afe05a7cbdf5a826a85038e14286f56f220ccac90ecf0021416ed790ce2` |
+| `firmware/motor/calibration/encoder_calibration.h` | `069dc6c6bc29062d8e7e48e029646e54e87880d81b8a68489165469f3b320b93` |
 
 基点 task.c 为 `d5da247cfd2f59fa38991c34eaa745897a40b7d11fbb44e4a9e9deb25993e295`；
 基点 task.h 原 CRLF 为 `cf6e0df548da175776df6b4fc14065a24db17c411d43d440aa1383711a587450`。

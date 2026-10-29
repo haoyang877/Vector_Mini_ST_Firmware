@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "pwm_power_window.h"
-#include "pwm_output_config.h"
+#include "application_config.h"
 #include "bsp_pwm.h"
 #define PWM_ALL_OUTPUT_MASK 0x5550U
 volatile PwmPowerWindow g_pwm_power_window;

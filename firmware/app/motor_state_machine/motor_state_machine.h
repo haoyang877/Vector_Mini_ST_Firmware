@@ -4,10 +4,10 @@
 
 #include <stdbool.h>
 
-#include "motor_task_result.h"
-#include "foc_algorithm.h"
-#include "foc_pid.h"
-#include "angle_feedback.h"
+#include "motor_types.h"
+#include "foc.h"
+#include "pi_controller.h"
+#include "encoder_feedback.h"
 #include "flux_observer.h"
 #include "motor_state_types.h"
 #include "motor_control_command.h"
@@ -18,6 +18,7 @@
  * @param configuration 组合层终身配置只读视图；状态机不拥有配置写入口。
  * @param motor 组合层终身电机运行对象。
  * @param foc 组合层终身 foc 对象。
+ * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param pi 组合层终身速度 PI。
  * @param encoder 组合层终身编码器对象。
  * @param startup 组合层终身无感启动对象。
@@ -26,6 +27,7 @@
 void MotorStateMachine_Init(const MotorConfiguration *configuration,
                             MotorControlState *motor,
                             FocState *foc,
+                            const MotorMeasurement *measurement,
                             PiController *pi,
                             EncoderState *encoder,
                             SensorlessStartupState *startup);
@@ -52,7 +54,8 @@ void MotorStateMachine_BeginFastTick(void);
  * @param epoch worker 执行前捕获的原始身份。
  * @param outcome 本周期功能结果；MOTOR_TASK_RUNNING 不入箱。
  * @note 仅由 ADC2 JEOS 的 20 kHz 快速中断末尾调用；每拍登记感测处理进展，
- *       非 RUNNING 结果与消费端通过短临界区交换，保留首个终态，失败优先。
+ *       非 RUNNING 结果先写载荷再发布，保留首个终态，失败优先。
+ *       ADC是唯一快环发布者，监督和前台不能抢占；消费端负责自己的同步。
  */
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch);
 /** @brief 单次监督的栈上计算载体；不是活动运行对象，禁止保留到下一拍。 */

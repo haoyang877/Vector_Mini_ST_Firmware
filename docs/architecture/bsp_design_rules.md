@@ -1,5 +1,14 @@
 # BSP职责约定
 
+## MCU资源配置（2026-10-30）
+
+AT32和STM32各自在mcu/<芯片>/mcu_resources.h维护PWM/TIM、ADC输入与转换结果通道、
+GPIO、SPI、CAN、DMA及中断映射。头文件仅供本MCU实现使用，不由公共BSP头或应用导入。
+现有驱动直接引用资源宏；板卡能力、模拟换算比例、时钟数值及Flash范围继续引用board_config.h。
+UART、LED等未启用资源明确登记，不为配置表增加空驱动。
+STM32的CubeMX初始化、MSP和向量表需要与资源表同步；修改表本身不会改写生成区。
+具体范围及验证见[资源配置计划](../plans/active/2026-10-30-mcu-resources-v1.md)。
+
 当前公开面见[公共接口最简化](../plans/active/2026-10-30-bsp-public-minimal-v1.md)：
 include仅保留8个功能头；初始化与台架声明归根目录bsp_internal.h。
 删除闲置微秒时基、内核频率查询、独立复位入口及快速环诊断钩子，现用同步与结果语义保留。

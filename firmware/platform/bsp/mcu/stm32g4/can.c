@@ -4,34 +4,31 @@
  */
 #include "../../bsp_internal.h"
 #include "bsp_can.h"
-#include "board_config.h"
+#include "mcu_resources.h"
 #include <string.h>
 #include "fdcan.h"
-
-#define MCU_CAN_ELEMENT_WORDS 18U
-#define MCU_CAN_TX_BUFFERS 3U
 
 #if BSP_ENABLED_CAN
 static const uint8_t s_dlc_lengths[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 
 void McuCan_Init(void)
 {
-    MX_FDCAN1_Init();
-    FDCAN1->RXGFC = (FDCAN1->RXGFC &
-                     ~(FDCAN_RXGFC_ANFS | FDCAN_RXGFC_ANFE | FDCAN_RXGFC_RRFS | FDCAN_RXGFC_RRFE)) |
-                    (FDCAN_REJECT << FDCAN_RXGFC_ANFS_Pos) | FDCAN_RXGFC_RRFS | FDCAN_RXGFC_RRFE;
+    MCU_CAN_INIT();
+    MCU_CAN->RXGFC = (MCU_CAN->RXGFC & ~(FDCAN_RXGFC_ANFS | FDCAN_RXGFC_ANFE | FDCAN_RXGFC_RRFS |
+                                         FDCAN_RXGFC_RRFE)) |
+                     (FDCAN_REJECT << FDCAN_RXGFC_ANFS_Pos) | FDCAN_RXGFC_RRFS | FDCAN_RXGFC_RRFE;
     /* 两板统一只允许一帧在途，FIFO硬件指针用于识别最近提交的槽。 */
-    FDCAN1->TXBC &= ~FDCAN_TXBC_TFQM;
-    FDCAN1->IE = 0U;
-    FDCAN1->ILE = 0U;
-    FDCAN1->ILS = 0U;
+    MCU_CAN->TXBC &= ~FDCAN_TXBC_TFQM;
+    MCU_CAN->IE = 0U;
+    MCU_CAN->ILE = 0U;
+    MCU_CAN->ILS = 0U;
 }
 
 void BspCan_Start(void)
 {
-    FDCAN1->CCCR &= ~FDCAN_CCCR_INIT;
-    FDCAN1->IE = FDCAN_IE_RF0NE;
-    FDCAN1->ILE = FDCAN_ILE_EINT0;
+    MCU_CAN->CCCR &= ~FDCAN_CCCR_INIT;
+    MCU_CAN->IE = FDCAN_IE_RF0NE;
+    MCU_CAN->ILE = FDCAN_ILE_EINT0;
 }
 
 bool BspCan_TrySend(const BspCanFrame *frame)
@@ -45,9 +42,9 @@ bool BspCan_TrySend(const BspCanFrame *frame)
     {
         ++dlc;
     }
-    uint32_t index = (FDCAN1->TXFQS & FDCAN_TXFQS_TFQPI) >> FDCAN_TXFQS_TFQPI_Pos;
-    volatile uint32_t *message =
-        (volatile uint32_t *)(uintptr_t)hfdcan1.msgRam.TxFIFOQSA + index * MCU_CAN_ELEMENT_WORDS;
+    uint32_t index = (MCU_CAN->TXFQS & FDCAN_TXFQS_TFQPI) >> FDCAN_TXFQS_TFQPI_Pos;
+    volatile uint32_t *message = (volatile uint32_t *)(uintptr_t)MCU_CAN_HANDLE.msgRam.TxFIFOQSA +
+                                 index * MCU_CAN_ELEMENT_WORDS;
     message[0] = (frame->extended ? (1UL << 30U) | frame->identifier : frame->identifier << 18U) |
                  (frame->remote ? 1UL << 29U : 0U);
     message[1] = ((uint32_t)dlc << 16U) | (frame->fd ? 1UL << 21U : 0U) |
@@ -64,20 +61,20 @@ bool BspCan_TrySend(const BspCanFrame *frame)
         memcpy(&word, frame->data + offset, count);
         data[offset / 4U] = word;
     }
-    FDCAN1->TXBAR = 1UL << index;
+    MCU_CAN->TXBAR = 1UL << index;
     return true;
 }
 
 bool BspCan_Receive(BspCanFrame *frame)
 {
-    uint32_t fifo = FDCAN1->RXF0S;
+    uint32_t fifo = MCU_CAN->RXF0S;
     if ((fifo & FDCAN_RXF0S_F0FL) == 0U)
     {
         return false;
     }
     uint32_t index = (fifo & FDCAN_RXF0S_F0GI) >> FDCAN_RXF0S_F0GI_Pos;
-    volatile uint32_t *message =
-        (volatile uint32_t *)(uintptr_t)hfdcan1.msgRam.RxFIFO0SA + index * MCU_CAN_ELEMENT_WORDS;
+    volatile uint32_t *message = (volatile uint32_t *)(uintptr_t)MCU_CAN_HANDLE.msgRam.RxFIFO0SA +
+                                 index * MCU_CAN_ELEMENT_WORDS;
     uint32_t first = message[0], second = message[1];
     frame->extended = (first & (1UL << 30U)) != 0U;
     frame->identifier = frame->extended ? first & 0x1FFFFFFFU : (first >> 18U) & 0x7FFU;
@@ -97,21 +94,21 @@ bool BspCan_Receive(BspCanFrame *frame)
         }
         memcpy(frame->data + offset, &word, count);
     }
-    FDCAN1->RXF0A = index;
+    MCU_CAN->RXF0A = index;
     return true;
 }
 
 bool BspCan_IsTransmitBusy(void)
 {
-    return FDCAN1->TXBRP != 0U;
+    return MCU_CAN->TXBRP != 0U;
 }
 
 bool BspCan_IsTransmitComplete(void)
 {
     /* FIFO的写指针已前进一格；前一槽就是本次单帧发送，避免软件保存句柄。 */
-    uint32_t next = (FDCAN1->TXFQS & FDCAN_TXFQS_TFQPI) >> FDCAN_TXFQS_TFQPI_Pos;
+    uint32_t next = (MCU_CAN->TXFQS & FDCAN_TXFQS_TFQPI) >> FDCAN_TXFQS_TFQPI_Pos;
     uint32_t last = next == 0U ? MCU_CAN_TX_BUFFERS - 1U : next - 1U;
-    return FDCAN1->TXBRP == 0U && (FDCAN1->TXBTO & (1UL << last)) != 0U;
+    return MCU_CAN->TXBRP == 0U && (MCU_CAN->TXBTO & (1UL << last)) != 0U;
 }
 
 /* 生成的向量仍由HAL确认中断标志，报文读写在本MCU文件直接完成。 */

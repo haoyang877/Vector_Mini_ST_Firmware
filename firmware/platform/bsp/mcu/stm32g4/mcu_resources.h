@@ -1,0 +1,147 @@
+/**
+ * @file mcu_resources.h
+ * @brief STM32G431板级资源分配；仅供本MCU的BSP实现使用。
+ * @note 手写驱动直接引用此表；标有CubeMX的资源仍由generated/Core初始化。
+ *       修改这些资源须同步projects/stm32g4/cubemx/Vector_Mini_ST.ioc并重新生成，
+ *       同时核对USER CODE覆盖。只改此表不能替换生成代码的初始化或向量入口。
+ *       模拟比例和Flash布局分别沿用board_config.h和shared/targets。
+ */
+#ifndef STM32G4_MCU_RESOURCES_H
+#define STM32G4_MCU_RESOURCES_H
+
+#include "board_config.h"
+
+#if BSP_BOARD != BSP_BOARD_STM32G4
+#error "STM32G4 resources require the STM32G4 board"
+#endif
+
+/* PWM（CubeMX tim.c/main.h）：A/B/C = TIM1 CH1/2/3；20kHz中心对齐。
+ * 上桥PA8/9/10，下桥PA7/PB0/PB1，AF6；CH4仅作ADC内部触发，无外部输出。
+ * 更换通道须同步比较寄存器、使能位和生成的HAL_TIM_PWM_ConfigChannel。 */
+#define MCU_PWM_TIMER TIM1
+#define MCU_PWM_INIT MX_TIM1_Init
+#define MCU_PWM_PHASE_A_CHANNEL TIM_CHANNEL_1
+#define MCU_PWM_PHASE_B_CHANNEL TIM_CHANNEL_2
+#define MCU_PWM_PHASE_C_CHANNEL TIM_CHANNEL_3
+#define MCU_PWM_PHASE_A_COMPARE (MCU_PWM_TIMER->CCR1)
+#define MCU_PWM_PHASE_B_COMPARE (MCU_PWM_TIMER->CCR2)
+#define MCU_PWM_PHASE_C_COMPARE (MCU_PWM_TIMER->CCR3)
+#define MCU_PWM_PHASE_CHANNEL_MASK                                                                 \
+    (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E |             \
+     TIM_CCER_CC3NE)
+#define MCU_PWM_A_HIGH_PORT GPIOA
+#define MCU_PWM_A_HIGH_PIN GPIO_PIN_8
+#define MCU_PWM_B_HIGH_PORT GPIOA
+#define MCU_PWM_B_HIGH_PIN GPIO_PIN_9
+#define MCU_PWM_C_HIGH_PORT GPIOA
+#define MCU_PWM_C_HIGH_PIN GPIO_PIN_10
+#define MCU_PWM_A_LOW_PORT GPIOA
+#define MCU_PWM_A_LOW_PIN GPIO_PIN_7
+#define MCU_PWM_B_LOW_PORT GPIOB
+#define MCU_PWM_B_LOW_PIN GPIO_PIN_0
+#define MCU_PWM_C_LOW_PORT GPIOB
+#define MCU_PWM_C_LOW_PIN GPIO_PIN_1
+#define MCU_PWM_GPIO_AF GPIO_AF6_TIM1
+
+/* APP/Loader交接前的引脚关相检查；与CubeMX当前两组GPIO初始化保持一致。
+ * 引脚跨组迁移时同步调整分组，不能只改PWM比较通道。 */
+#define MCU_PWM_PRIMARY_GPIO_PORT MCU_PWM_A_HIGH_PORT
+#define MCU_PWM_PRIMARY_GPIO_PINS                                                                  \
+    (MCU_PWM_A_LOW_PIN | MCU_PWM_A_HIGH_PIN | MCU_PWM_B_HIGH_PIN | MCU_PWM_C_HIGH_PIN)
+#define MCU_PWM_SECONDARY_GPIO_PORT MCU_PWM_B_LOW_PORT
+#define MCU_PWM_SECONDARY_GPIO_PINS (MCU_PWM_B_LOW_PIN | MCU_PWM_C_LOW_PIN)
+
+/* TIM7（CubeMX tim.c）：2kHz监督任务；SysTick提供1ms HAL时基。
+ * ADC快速触发为TIM1_CC4下降沿，内部温度由监督回调软件触发。 */
+#define MCU_CONTROL_TIMER TIM7
+#define MCU_CONTROL_TIMER_HANDLE htim7
+#define MCU_CONTROL_TIMER_INIT MX_TIM7_Init
+#define MCU_ADC_TRIGGER_CHANNEL TIM_CHANNEL_4
+#define MCU_ADC_TRIGGER_ENABLE_MASK TIM_CCER_CC4E
+#define MCU_ADC_FAST_TRIGGER ADC_EXTERNALTRIGINJEC_T1_CC4
+#define MCU_ADC_FAST_TRIGGER_EDGE ADC_EXTERNALTRIGINJECCONV_EDGE_FALLING
+
+/* ADC2（CubeMX adc.c/main.h）：rank1/2/3/4 = 相A/相B/相C/母线电压。
+ * 输入通道和转换结果槽分别列出；每rank四次和域，读JDR，不使用DMA。 */
+#define MCU_ADC_FAST ADC2
+#define MCU_ADC_FAST_HANDLE hadc2
+#define MCU_ADC_FAST_INIT MX_ADC2_Init
+#define MCU_ADC_PHASE_A_PORT GPIOA
+#define MCU_ADC_PHASE_A_PIN GPIO_PIN_5
+#define MCU_ADC_PHASE_A_CHANNEL ADC_CHANNEL_13
+#define MCU_ADC_PHASE_A_RESULT (MCU_ADC_FAST->JDR1)
+#define MCU_ADC_PHASE_B_PORT GPIOA
+#define MCU_ADC_PHASE_B_PIN GPIO_PIN_6
+#define MCU_ADC_PHASE_B_CHANNEL ADC_CHANNEL_3
+#define MCU_ADC_PHASE_B_RESULT (MCU_ADC_FAST->JDR2)
+#define MCU_ADC_PHASE_C_PORT GPIOC
+#define MCU_ADC_PHASE_C_PIN GPIO_PIN_4
+#define MCU_ADC_PHASE_C_CHANNEL ADC_CHANNEL_5
+#define MCU_ADC_PHASE_C_RESULT (MCU_ADC_FAST->JDR3)
+#define MCU_ADC_BUS_VOLTAGE_PORT GPIOA
+#define MCU_ADC_BUS_VOLTAGE_PIN GPIO_PIN_4
+#define MCU_ADC_BUS_VOLTAGE_CHANNEL ADC_CHANNEL_17
+#define MCU_ADC_BUS_VOLTAGE_RESULT (MCU_ADC_FAST->JDR4)
+
+/* ADC1（CubeMX adc.c USER CODE）：内部温度/VREFINT，rank1/2软件触发。
+ * PA3在生成基线中仍配置为模拟口，但未接入电机温度读取；无独立母线电流。 */
+#define MCU_ADC_INTERNAL ADC1
+#define MCU_ADC_INTERNAL_HANDLE hadc1
+#define MCU_ADC_INTERNAL_INIT MX_ADC1_Init
+#define MCU_ADC_TEMPERATURE_CHANNEL ADC_CHANNEL_TEMPSENSOR_ADC1
+#define MCU_ADC_REFERENCE_CHANNEL ADC_CHANNEL_VREFINT
+#define MCU_ADC_TEMPERATURE_RESULT (MCU_ADC_INTERNAL->JDR1)
+#define MCU_ADC_REFERENCE_RESULT (MCU_ADC_INTERNAL->JDR2)
+
+/* 编码器SPI2：CS/SCK/MISO/MOSI = PB12/13/14/15，AF5。
+ * 手写encoder_spi.c初始化并轮询16位传输；TLE5012B读阶段将MOSI切为输入。
+ * 同组引脚共用端口；改端口时一并更改时钟宏。generated/gpio.c仍预置PB12 CS，
+ * 换CS须同步CubeMX GPIO配置。SPI1没有运行消费者，不初始化。 */
+#define MCU_ENCODER_SPI SPI2
+#define MCU_ENCODER_GPIO_CLOCK_ENABLE __HAL_RCC_GPIOB_CLK_ENABLE
+#define MCU_ENCODER_SPI_CLOCK_ENABLE __HAL_RCC_SPI2_CLK_ENABLE
+#define MCU_ENCODER_SPI_FORCE_RESET __HAL_RCC_SPI2_FORCE_RESET
+#define MCU_ENCODER_SPI_RELEASE_RESET __HAL_RCC_SPI2_RELEASE_RESET
+#define BSP_ENCODER_GPIO_PORT GPIOB
+#define BSP_ENCODER_CS_PIN 12U
+#define BSP_ENCODER_SCK_PIN 13U
+#define BSP_ENCODER_MISO_PIN 14U
+#define BSP_ENCODER_MOSI_PIN 15U
+#define BSP_ENCODER_GPIO_AF 5U
+
+/* FDCAN1（CubeMX fdcan.c）：PB8 RX/PB9 TX，AF9；PCLK1时钟，1M/5M。
+ * PB8兼BOOT0，沿用板卡软件启动配置。FIFO0接收、3槽TX FIFO；消息RAM由HAL分配。 */
+#define MCU_CAN FDCAN1
+#define MCU_CAN_HANDLE hfdcan1
+#define MCU_CAN_INIT MX_FDCAN1_Init
+#define MCU_CAN_GPIO_PORT GPIOB
+#define MCU_CAN_RX_PIN GPIO_PIN_8
+#define MCU_CAN_TX_PIN GPIO_PIN_9
+#define MCU_CAN_GPIO_AF GPIO_AF9_FDCAN1
+#define MCU_CAN_ELEMENT_WORDS 18U
+#define MCU_CAN_TX_BUFFERS 3U
+
+/* 中断（CubeMX adc.c/tim.c/fdcan.c/stm32g4xx_it.c）：
+ * ADC1/2共用入口，先分发ADC2快速环；CAN FIFO0通过HAL回调；TIM7调度监督。
+ * 优先级越小越高；SysTick优先级取HAL配置。更换IRQ需同步生成向量和MSP设置。 */
+#define MCU_ADC_IRQ ADC1_2_IRQn
+#define MCU_ADC_IRQ_HANDLER ADC1_2_IRQHandler
+#define MCU_ADC_IRQ_PRIORITY 0U
+#define MCU_CAN_IRQ FDCAN1_IT0_IRQn
+#define MCU_CAN_IRQ_HANDLER FDCAN1_IT0_IRQHandler
+#define MCU_CAN_IRQ_PRIORITY 1U
+#define MCU_CONTROL_IRQ TIM7_IRQn
+#define MCU_CONTROL_IRQ_HANDLER TIM7_IRQHandler
+#define MCU_CONTROL_IRQ_PRIORITY 3U
+#define MCU_SYSTICK_IRQ SysTick_IRQn
+#define MCU_SYSTICK_IRQ_HANDLER SysTick_Handler
+#define MCU_SYSTICK_IRQ_PRIORITY TICK_INT_PRIORITY
+#define MCU_CONTROL_CRITICAL_PRIORITY 2U
+
+/* GPIO预置（CubeMX gpio.c）：PA11/12为模拟输入；PC11外部编码器CS维持高电平，
+ * 但没有外部编码器SPI驱动。修改这些预置需同步CubeMX，不在手写驱动中重复初始化。
+ * DMA：当前ADC读JDR、编码器SPI轮询、CAN读消息RAM，均无DMA通道或DMA IRQ占用。
+ * UART：已移除驱动，PB6/PB7历史串口焊盘不代表启用；没有UART/DMA/IRQ分配。
+ * LED和GPIO EXTI也未启用。接入这些功能时登记完整资源组并补相应BSP实现。 */
+
+#endif

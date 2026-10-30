@@ -4,7 +4,7 @@
  */
 #include "../../bsp_internal.h"
 #include "bsp_adc.h"
-#include "board_config.h"
+#include "mcu_resources.h"
 #include "adc.h"
 #include "tim.h"
 #include "stm32g4xx_ll_adc.h"
@@ -29,59 +29,59 @@ static void calibrate(ADC_HandleTypeDef *adc)
 
 void McuAdc_Init(void)
 {
-    MX_ADC2_Init();
+    MCU_ADC_FAST_INIT();
 #if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
-    MX_ADC1_Init();
-    calibrate(&hadc1);
+    MCU_ADC_INTERNAL_INIT();
+    calibrate(&MCU_ADC_INTERNAL_HANDLE);
 #endif
-    calibrate(&hadc2);
+    calibrate(&MCU_ADC_FAST_HANDLE);
 }
 
 void Adc_Start(void)
 {
-    ADC2->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
-    NVIC_ClearPendingIRQ(ADC1_2_IRQn);
-    ADC2->IER = (ADC2->IER & ~ADC_IER_JEOCIE) | ADC_IER_JEOSIE;
+    MCU_ADC_FAST->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+    NVIC_ClearPendingIRQ(MCU_ADC_IRQ);
+    MCU_ADC_FAST->IER = (MCU_ADC_FAST->IER & ~ADC_IER_JEOCIE) | ADC_IER_JEOSIE;
 #if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
-    ADC1->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
-    LL_ADC_INJ_StartConversion(ADC1);
+    MCU_ADC_INTERNAL->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+    LL_ADC_INJ_StartConversion(MCU_ADC_INTERNAL);
 #endif
-    LL_ADC_INJ_StartConversion(ADC2);
-    TIM1->CCER |= TIM_CCER_CC4E;
+    LL_ADC_INJ_StartConversion(MCU_ADC_FAST);
+    MCU_PWM_TIMER->CCER |= MCU_ADC_TRIGGER_ENABLE_MASK;
 }
 
 void Adc_Stop(void)
 {
-    ADC2->IER &= ~ADC_IER_JEOSIE;
-    if (LL_ADC_INJ_IsConversionOngoing(ADC2))
+    MCU_ADC_FAST->IER &= ~ADC_IER_JEOSIE;
+    if (LL_ADC_INJ_IsConversionOngoing(MCU_ADC_FAST))
     {
-        LL_ADC_INJ_StopConversion(ADC2);
-        while (LL_ADC_INJ_IsConversionOngoing(ADC2))
+        LL_ADC_INJ_StopConversion(MCU_ADC_FAST);
+        while (LL_ADC_INJ_IsConversionOngoing(MCU_ADC_FAST))
         {
         }
     }
 #if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
-    if (LL_ADC_INJ_IsConversionOngoing(ADC1))
+    if (LL_ADC_INJ_IsConversionOngoing(MCU_ADC_INTERNAL))
     {
-        LL_ADC_INJ_StopConversion(ADC1);
-        while (LL_ADC_INJ_IsConversionOngoing(ADC1))
+        LL_ADC_INJ_StopConversion(MCU_ADC_INTERNAL);
+        while (LL_ADC_INJ_IsConversionOngoing(MCU_ADC_INTERNAL))
         {
         }
     }
-    ADC1->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+    MCU_ADC_INTERNAL->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
 #endif
-    ADC2->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+    MCU_ADC_FAST->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
 }
 
 bool Adc_CompleteFast(void)
 {
     /* HAL完成回调返回后清JEOS，应用读取时寄存器仍保存本拍结果。 */
-    return (ADC2->ISR & ADC_ISR_JEOS) != 0U;
+    return (MCU_ADC_FAST->ISR & ADC_ISR_JEOS) != 0U;
 }
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *adc)
 {
-    if (adc == &hadc2 && Adc_CompleteFast())
+    if (adc == &MCU_ADC_FAST_HANDLE && Adc_CompleteFast())
     {
         BspApp_OnFastSample();
     }
@@ -92,17 +92,18 @@ float BspAdc_ReadRawChannel(BspAdcChannel channel)
     switch (channel)
     {
     case BSP_ADC_PHASE_CURRENT_A:
-        return (float)ADC2->JDR1 * BSP_ADC_SUM_TO_COUNTS;
+        return (float)MCU_ADC_PHASE_A_RESULT * BSP_ADC_SUM_TO_COUNTS;
     case BSP_ADC_PHASE_CURRENT_B:
-        return (float)ADC2->JDR2 * BSP_ADC_SUM_TO_COUNTS;
+        return (float)MCU_ADC_PHASE_B_RESULT * BSP_ADC_SUM_TO_COUNTS;
     case BSP_ADC_PHASE_CURRENT_C:
-        return (float)ADC2->JDR3 * BSP_ADC_SUM_TO_COUNTS;
+        return (float)MCU_ADC_PHASE_C_RESULT * BSP_ADC_SUM_TO_COUNTS;
     case BSP_ADC_BUS_VOLTAGE:
-        return (float)ADC2->JDR4 * BSP_ADC_SUM_TO_COUNTS;
+        return (float)MCU_ADC_BUS_VOLTAGE_RESULT * BSP_ADC_SUM_TO_COUNTS;
 #if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
     case BSP_ADC_MCU_TEMPERATURE:
     case BSP_ADC_ANALOG_SUPPLY_VOLTAGE:
-        return channel == BSP_ADC_MCU_TEMPERATURE ? (float)ADC1->JDR1 : (float)ADC1->JDR2;
+        return channel == BSP_ADC_MCU_TEMPERATURE ? (float)MCU_ADC_TEMPERATURE_RESULT
+                                                  : (float)MCU_ADC_REFERENCE_RESULT;
 #endif
     default:
         return NAN;

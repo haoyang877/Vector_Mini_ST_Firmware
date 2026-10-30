@@ -1,5 +1,5 @@
 #include "../../bsp_internal.h"
-#include "board_config.h"
+#include "mcu_resources.h"
 #include <stddef.h>
 #include <string.h>
 #include "bsp_system.h"
@@ -85,10 +85,10 @@ static bool s_timing_started;
 
 static void supervisor_timer_init(void)
 {
-    crm_periph_clock_enable(CRM_TMR6_PERIPH_CLOCK, TRUE);
-    tmr_reset(TMR6);
-    tmr_base_init(TMR6, AT32_SUPERVISOR_TOP, AT32_TIMER_HZ / 1000000U - 1U);
-    tmr_flag_clear(TMR6, TMR_OVF_FLAG);
+    crm_periph_clock_enable(MCU_CONTROL_TIMER_CLOCK, TRUE);
+    tmr_reset(MCU_CONTROL_TIMER);
+    tmr_base_init(MCU_CONTROL_TIMER, AT32_SUPERVISOR_TOP, AT32_TIMER_HZ / 1000000U - 1U);
+    tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
 }
 
 bool McuSystem_Init(void)
@@ -117,13 +117,13 @@ bool McuSystem_Start(void)
     {
         return false;
     }
-    NVIC_SetPriority(SysTick_IRQn, 3U);
-    tmr_flag_clear(TMR6, TMR_OVF_FLAG);
-    tmr_interrupt_enable(TMR6, TMR_OVF_INT, TRUE);
-    NVIC_SetPriority(TMR6_DAC_GLOBAL_IRQn, 2U);
-    NVIC_EnableIRQ(TMR6_DAC_GLOBAL_IRQn);
-    tmr_counter_enable(TMR1, TRUE);
-    tmr_counter_enable(TMR6, TRUE);
+    NVIC_SetPriority(MCU_SYSTICK_IRQ, MCU_SYSTICK_IRQ_PRIORITY);
+    tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
+    tmr_interrupt_enable(MCU_CONTROL_TIMER, TMR_OVF_INT, TRUE);
+    NVIC_SetPriority(MCU_CONTROL_IRQ, MCU_CONTROL_IRQ_PRIORITY);
+    NVIC_EnableIRQ(MCU_CONTROL_IRQ);
+    tmr_counter_enable(MCU_PWM_TIMER, TRUE);
+    tmr_counter_enable(MCU_CONTROL_TIMER, TRUE);
     s_timing_started = true;
     return true;
 }
@@ -131,7 +131,7 @@ bool McuSystem_Start(void)
 /* 1ms时基归本端口所有；沿用uint32_t自然回绕语义。 */
 static volatile uint32_t s_milliseconds;
 
-void SysTick_Handler(void)
+void MCU_SYSTICK_IRQ_HANDLER(void)
 {
     ++s_milliseconds;
 }
@@ -305,11 +305,11 @@ void BspWatchdog_Feed(void)
     }
 }
 
-void TMR6_DAC_GLOBAL_IRQHandler(void)
+void MCU_CONTROL_IRQ_HANDLER(void)
 {
-    if (tmr_flag_get(TMR6, TMR_OVF_FLAG))
+    if (tmr_flag_get(MCU_CONTROL_TIMER, TMR_OVF_FLAG))
     {
-        tmr_flag_clear(TMR6, TMR_OVF_FLAG);
+        tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
         BspApp_OnControlTick();
     }
 }
@@ -345,7 +345,7 @@ void UsageFault_Handler(void)
 uint32_t BspSystem_EnterControlCritical(void)
 {
     uint32_t state = __get_BASEPRI();
-    __set_BASEPRI_MAX(2U << (8U - __NVIC_PRIO_BITS));
+    __set_BASEPRI_MAX(MCU_CONTROL_CRITICAL_PRIORITY << (8U - __NVIC_PRIO_BITS));
     __DSB();
     __ISB();
     return state;

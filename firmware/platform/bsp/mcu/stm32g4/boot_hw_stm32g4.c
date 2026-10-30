@@ -5,6 +5,7 @@
 #include "image_format.h"
 #include "loader_target.h"
 #include "stm32g4xx_hal.h"
+#include "mcu_resources.h"
 #include <string.h>
 extern const uint32_t __Vectors;
 static bool available;
@@ -21,9 +22,10 @@ static bool marker_valid(uint32_t offset, uint32_t magic)
 }
 static bool outputs_off(void)
 {
-    const uint32_t mask = TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE |
-                          TIM_CCER_CC3E | TIM_CCER_CC3NE;
-    return !(TIM1->CCER & mask) && !(GPIOA->IDR & 0x780U) && !(GPIOB->IDR & 3U);
+    const uint32_t mask = MCU_PWM_PHASE_CHANNEL_MASK;
+    return !(MCU_PWM_TIMER->CCER & mask) &&
+           !(MCU_PWM_PRIMARY_GPIO_PORT->IDR & MCU_PWM_PRIMARY_GPIO_PINS) &&
+           !(MCU_PWM_SECONDARY_GPIO_PORT->IDR & MCU_PWM_SECONDARY_GPIO_PINS);
 }
 bool BootHw_Init(void)
 {

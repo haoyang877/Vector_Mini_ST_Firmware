@@ -12,7 +12,7 @@
 #include "boot_hw.h"
 #include "bsp_pwm.h"
 #include "bsp_can.h"
-#include "board_config.h"
+#include "mcu_resources.h"
 
 uint32_t BspSystem_TimeMs(void)
 {
@@ -106,17 +106,17 @@ static void system_clock_init(void)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *timer)
 {
-    if (timer != &htim7)
+    if (timer != &MCU_CONTROL_TIMER_HANDLE)
     {
         return;
     }
     BspApp_OnControlTick();
 #if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
     /* 监督任务读完上一对TS/VREF后，再触发下一次转换。 */
-    if (!LL_ADC_INJ_IsConversionOngoing(ADC1))
+    if (!LL_ADC_INJ_IsConversionOngoing(MCU_ADC_INTERNAL))
     {
-        ADC1->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
-        LL_ADC_INJ_StartConversion(ADC1);
+        MCU_ADC_INTERNAL->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+        LL_ADC_INJ_StartConversion(MCU_ADC_INTERNAL);
     }
 #endif
 }
@@ -137,7 +137,7 @@ BspResult Bsp_Init(void)
     McuCan_Init();
 #endif
     McuPwm_Init();
-    MX_TIM7_Init();
+    MCU_CONTROL_TIMER_INIT();
     /* 原有预取必须先于App_Init启动采样，时钟和外设顺序保持不变。 */
     __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
 
@@ -164,8 +164,8 @@ BspResult Bsp_Start(void)
     }
     s_startup_state = 3U;
     Adc_Start();
-    TIM1->CR1 |= TIM_CR1_CEN;
-    if (HAL_TIM_Base_Start_IT(&htim7) != HAL_OK)
+    MCU_PWM_TIMER->CR1 |= TIM_CR1_CEN;
+    if (HAL_TIM_Base_Start_IT(&MCU_CONTROL_TIMER_HANDLE) != HAL_OK)
     {
         goto failed;
     }
@@ -211,7 +211,7 @@ void assert_failed(uint8_t *file, uint32_t line)
 uint32_t BspSystem_EnterControlCritical(void)
 {
     uint32_t state = __get_BASEPRI();
-    __set_BASEPRI_MAX(2U << (8U - __NVIC_PRIO_BITS));
+    __set_BASEPRI_MAX(MCU_CONTROL_CRITICAL_PRIORITY << (8U - __NVIC_PRIO_BITS));
     __DSB();
     __ISB();
     return state;

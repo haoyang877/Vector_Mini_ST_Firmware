@@ -5,6 +5,11 @@
 适配对象、修改边界和后置事项见[统一框架适配范围草案](../architecture/dual_board_adaptation_scope_v1.md)。
 本表登记资源和参数，不以型号已列出表示完整APP或实机验收通过。
 
+当前可编辑的BSP资源入口是
+[STM32资源头](../../firmware/platform/bsp/mcu/stm32g4/mcu_resources.h)和
+[AT32资源头](../../firmware/platform/bsp/mcu/at32f456/mcu_resources.h)。
+下表保留硬件接线资料，未启用焊盘不表示驱动已接入；软件现用资源及IRQ以资源头为准。
+
 ## 板卡资源
 
 | 项目 | Vector Mini ST 旧板 | YG_ESC_V1.0 新板 |
@@ -22,14 +27,14 @@
 | 母线电压ADC | PA4 / ADC2 | PA3 / ADC1 |
 | 母线电流ADC | 无独立采样 | PA4 / ADC2 |
 | 电机温度ADC | PA3预留，当前未用 | PA7 / ADC2 |
-| MCU温度 | ADC1内部温度及VREF | 内部温度未启用 |
+| MCU温度 | ADC1内部温度及VREF | ADC1内部温度及VREF原码；物理量仍需实板校准 |
 | 电机编码器SPI | SPI2；CS/SCK/MISO/MOSI：PB12/13/14/15 | SPI2；CS/SCK/MISO/MOSI：PB12/13/14/15 |
-| 输出端反馈资源 | SPI1：PB3/4/5，CS：PC11 | PA5、PA6 / ADC2，两路sin/cos |
+| 输出端反馈资源 | SPI1：PB3/4/5，CS：PC11，未启用 | PA5、PA6 / ADC2，两路sin/cos |
 | CAN引脚 / 速率 | RX：PB8，TX：PB9；1M/5M | RX：PB8，TX：PB9；1M/5M |
-| UART资源 | TX：PB6，RX：PB7，当前APP未使用 | TX：PA15，RX：PB3，尚未适配 |
-| DMA当前用途 | DMA1_CH1：RGB | DMA1_CH2：辅助ADC；CH3预留内部温度 |
+| UART资源 | TX：PB6，RX：PB7，驱动已移除 | TX：PA15，RX：PB3，未启用 |
+| DMA当前用途 | 无，RGB已移除 | DMA1_CH2：辅助ADC；CH3：内部温度/VREF；DMA2_CH1/2：SPI2 RX/TX |
 | SWD | PA13 / PA14 | PA13 / PA14 |
-| LED资源（使用逻辑后续适配） | PA15红、PC10绿；PA2：RGB | PC13红、PC14蓝；PB5/PB6：双色灯 |
+| LED硬件焊盘（驱动已移除） | PA15红、PC10绿；PA2：RGB | PC13红、PC14蓝；PB5/PB6：双色灯 |
 | 栅极驱动 / MOS | FD6288Q / CSD18540Q5B | FD6288Q / WSD6035DN33 |
 | 相电流采样 | 低侧分流；当前6mΩ、10倍增益 | 相线分流；4mΩ、INA240A1、20倍增益 |
 | 母线电流采样 | 无 | 2mΩ、INA240A1、20倍增益 |

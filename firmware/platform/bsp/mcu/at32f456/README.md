@@ -7,6 +7,7 @@
 
 | 文件 | 职责 |
 | --- | --- |
+| mcu_resources.h | PWM/TMR、ADC输入与结果、GPIO、SPI、CAN、DMA及IRQ资源映射；登记未启用资源 |
 | system.c | 系统时钟、时基、看门狗、BSP启动顺序及系统IRQ |
 | adc.c | ADC初始化、DMA、原码读取、启停、IRQ及片内校准量换算 |
 | pwm.c | PWM初始化、周期读取、比较值写入、启停与通道查询 |
@@ -16,13 +17,15 @@
 | boot.c | 此板现有APP/Loader交接能力 |
 | at32f45x_conf.h | 厂商驱动编译选择 |
 
-引脚、比例和Flash范围在firmware/config/board_config.h；控制周期和测试配置在firmware/config。
+引脚、外设通道与IRQ在本目录mcu_resources.h；比例、时钟数值和Flash范围仍在
+firmware/config/board_config.h，控制周期在firmware/config/config.h。
 ADC硬件读取、启停与IRQ集中在本目录adc.c；读取直接返回float，没有帧状态或采样缓存。
 ADC零偏、单位换算和NTC公式也在本目录adc.c内完成。
 PWM占空比换算和硬件操作全部在本目录pwm.c，不保留转发文件、状态或保护。
 sin/cos在adc.c私有s_aux_dma中观察；顺序按启用的NTC、sin、cos排列，每组两半。
 实现中不保留临时诊断入口、测试快照和测试统计。
-本轮AT32 ADC/PWM按用户要求仅提供实现，测试和编译均未运行。
+先前ADC/PWM接口精简未运行测试和编译；资源配置收拢的独立离线验证见
+[资源配置计划](../../../../../docs/plans/active/2026-10-30-mcu-resources-v1.md)。
 两板编码器在各自MCU的encoder_spi.c直接实现Begin和ReadAngle，使用相同65536计数域；无CRC/超时/事务状态。
 DMA缓冲为本文件私有，BSP不增加空转发层。
 

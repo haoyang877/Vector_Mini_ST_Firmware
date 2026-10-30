@@ -4,39 +4,35 @@
  */
 #include "../../bsp_internal.h"
 #include "bsp_pwm.h"
-#include "board_config.h"
+#include "mcu_resources.h"
 #include "tim.h"
-
-#define PWM_PHASE_CHANNEL_MASK                                                                     \
-    (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E |             \
-     TIM_CCER_CC3NE)
 
 void McuPwm_Init(void)
 {
-    MX_TIM1_Init();
+    MCU_PWM_INIT();
 }
 
 void BspPwm_SetDuty(float phase_a, float phase_b, float phase_c)
 {
-    float period_counts = (float)TIM1->ARR;
-    TIM1->CCR1 = (uint16_t)(phase_a * period_counts);
-    TIM1->CCR2 = (uint16_t)(phase_b * period_counts);
-    TIM1->CCR3 = (uint16_t)(phase_c * period_counts);
+    float period_counts = (float)MCU_PWM_TIMER->ARR;
+    MCU_PWM_PHASE_A_COMPARE = (uint16_t)(phase_a * period_counts);
+    MCU_PWM_PHASE_B_COMPARE = (uint16_t)(phase_b * period_counts);
+    MCU_PWM_PHASE_C_COMPARE = (uint16_t)(phase_c * period_counts);
 }
 
 void BspPwm_SetPhaseDuty(BspPwmPhase phase, float duty)
 {
-    uint16_t counts = (uint16_t)(duty * (float)TIM1->ARR);
+    uint16_t counts = (uint16_t)(duty * (float)MCU_PWM_TIMER->ARR);
     switch (phase)
     {
     case BSP_PWM_PHASE_A:
-        TIM1->CCR1 = counts;
+        MCU_PWM_PHASE_A_COMPARE = counts;
         break;
     case BSP_PWM_PHASE_B:
-        TIM1->CCR2 = counts;
+        MCU_PWM_PHASE_B_COMPARE = counts;
         break;
     case BSP_PWM_PHASE_C:
-        TIM1->CCR3 = counts;
+        MCU_PWM_PHASE_C_COMPARE = counts;
         break;
     }
 }
@@ -44,17 +40,17 @@ void BspPwm_SetPhaseDuty(BspPwmPhase phase, float duty)
 void BspPwm_Enable(void)
 {
     /* 六路相通道及互补输出，最后开放主输出。 */
-    TIM1->CCER |= PWM_PHASE_CHANNEL_MASK;
-    TIM1->BDTR |= TIM_BDTR_MOE;
+    MCU_PWM_TIMER->CCER |= MCU_PWM_PHASE_CHANNEL_MASK;
+    MCU_PWM_TIMER->BDTR |= TIM_BDTR_MOE;
 }
 
 void BspPwm_Disable(void)
 {
-    TIM1->BDTR &= ~TIM_BDTR_MOE;
-    TIM1->CCER &= ~PWM_PHASE_CHANNEL_MASK;
+    MCU_PWM_TIMER->BDTR &= ~TIM_BDTR_MOE;
+    MCU_PWM_TIMER->CCER &= ~MCU_PWM_PHASE_CHANNEL_MASK;
 }
 
 bool BspPwm_ArePhasesDisabled(void)
 {
-    return (TIM1->CCER & PWM_PHASE_CHANNEL_MASK) == 0U;
+    return (MCU_PWM_TIMER->CCER & MCU_PWM_PHASE_CHANNEL_MASK) == 0U;
 }

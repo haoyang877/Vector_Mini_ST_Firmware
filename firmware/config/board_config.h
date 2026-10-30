@@ -82,17 +82,10 @@
 #define BUS_CURRENT_GAIN             AT32_BUS_CURRENT_GAIN
 #define BUS_CURRENT_SHUNT_OHM        AT32_BUS_SHUNT_OHM
 
-/* 三相固定使用TMR1通道2/3/4；编码器资源如下。 */
+/* 编码器型号选择；硬件通道归MCU资源头。 */
 #define BSP_ENCODER_DEVICE_TYPE      3U
 
-/* SPI接线由本板配置提供，GPIO名称在对应SDK编译单元中解析。 */
-#define BSP_ENCODER_GPIO_PORT   GPIOB
-#define BSP_ENCODER_GPIO_CLOCK  CRM_GPIOB_PERIPH_CLOCK
-#define BSP_ENCODER_CS_PIN      12U
-#define BSP_ENCODER_SCK_PIN     13U
-#define BSP_ENCODER_MISO_PIN    14U
-#define BSP_ENCODER_MOSI_PIN    15U
-#define BSP_ENCODER_GPIO_AF     5U
+/* 引脚及外设映射见对应mcu目录的mcu_resources.h。 */
 
 /* 实板时钟与CAN位时序，数值沿用已验证目标。 */
 #define AT32_HEXT_HZ          8000000U
@@ -157,16 +150,10 @@
 #define CURRENT_SENSE_PROFILE_RELIABLE_LIMIT_A           20.0f
 
 
-/* 三相逻辑通道与编码器资源绑定。 */
+/* 编码器型号选择；硬件通道归MCU资源头。 */
 #define BSP_ENCODER_DEVICE_TYPE      1U
 
-/* SPI接线由本板配置提供，GPIO名称在对应SDK编译单元中解析。 */
-#define BSP_ENCODER_GPIO_PORT  GPIOB
-#define BSP_ENCODER_CS_PIN     12U
-#define BSP_ENCODER_SCK_PIN    13U
-#define BSP_ENCODER_MISO_PIN   14U
-#define BSP_ENCODER_MOSI_PIN   15U
-#define BSP_ENCODER_GPIO_AF    5U
+/* 引脚及外设映射见对应mcu目录的mcu_resources.h。 */
 
 
 #else

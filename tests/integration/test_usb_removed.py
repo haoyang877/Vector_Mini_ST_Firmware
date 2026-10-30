@@ -28,7 +28,11 @@ class UsbRemovalTests(unittest.TestCase):
         task = (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8")
         self.assertIn("Can_Init()", platform)
         controller = (ROOT / "firmware/platform/bsp/mcu/stm32g4/can.c").read_text(encoding="utf-8")
-        self.assertIn("MX_FDCAN1_Init();", controller)
+        resources = (ROOT / "firmware/platform/bsp/mcu/stm32g4/mcu_resources.h").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("MCU_CAN_INIT();", controller)
+        self.assertRegex(resources, r"(?m)^#define\s+MCU_CAN_INIT\s+MX_FDCAN1_Init\s*$")
         self.assertNotIn("CAN_Service();", task)
         self.assertIn("void App_SupervisorTick(void)", task)
         self.assertIn("MotorAxis_SupervisorTick();", task)

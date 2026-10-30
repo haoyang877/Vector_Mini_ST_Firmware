@@ -3,7 +3,6 @@
 #include <math.h>
 #include <stddef.h>
 #include "bsp_system.h"
-#include "board_config.h"
 #include "bsp_pwm.h"
 #include "bsp_adc.h"
 #include "application_config.h"
@@ -37,23 +36,23 @@ typedef struct
     BusCurrentStatus status;
 } BusCurrentDiagnostic;
 
-volatile BusCurrentDiagnostic g_r40_bus_current_diagnostic;
+volatile BusCurrentDiagnostic g_at32_bus_current_diagnostic;
 static uint32_t s_offset_sum, s_offset_min, s_offset_max;
-static bool s_sequence_seen;
+static bool s_sample_seen;
 
 static void reset_offset_window(void)
 {
     s_offset_sum = 0U;
     s_offset_min = BUS_CURRENT_ADC_MAX_COUNTS;
     s_offset_max = 0U;
-    g_r40_bus_current_diagnostic.offset_samples = 0U;
+    g_at32_bus_current_diagnostic.offset_samples = 0U;
 }
 
 static void invalidate_sample(BusCurrentStatus status)
 {
-    g_r40_bus_current_diagnostic.sample_valid = false;
-    g_r40_bus_current_diagnostic.status = status;
-    if (!g_r40_bus_current_diagnostic.offset_valid)
+    g_at32_bus_current_diagnostic.sample_valid = false;
+    g_at32_bus_current_diagnostic.status = status;
+    if (!g_at32_bus_current_diagnostic.offset_valid)
     {
         reset_offset_window();
     }
@@ -61,9 +60,9 @@ static void invalidate_sample(BusCurrentStatus status)
 
 void BusCurrentFeedback_Init(void)
 {
-    g_r40_bus_current_diagnostic =
+    g_at32_bus_current_diagnostic =
         (BusCurrentDiagnostic){.offset_counts = NAN, .current_a = NAN, .filtered_a = NAN};
-    s_sequence_seen = false;
+    s_sample_seen = false;
     reset_offset_window();
 }
 
@@ -78,7 +77,7 @@ static bool collect_offset(uint32_t counts)
         counts > OFFSET_CENTER_COUNTS + OFFSET_TOLERANCE_COUNTS)
     {
         reset_offset_window();
-        g_r40_bus_current_diagnostic.status = BUS_CURRENT_OFFSET_REJECTED;
+        g_at32_bus_current_diagnostic.status = BUS_CURRENT_OFFSET_REJECTED;
         return false;
     }
     if (counts < s_offset_min)
@@ -92,22 +91,18 @@ static bool collect_offset(uint32_t counts)
     if (s_offset_max - s_offset_min > OFFSET_RANGE_COUNTS)
     {
         reset_offset_window();
-        g_r40_bus_current_diagnostic.status = BUS_CURRENT_OFFSET_REJECTED;
+        g_at32_bus_current_diagnostic.status = BUS_CURRENT_OFFSET_REJECTED;
         return false;
     }
     s_offset_sum += counts;
-    ++g_r40_bus_current_diagnostic.offset_samples;
-    if (g_r40_bus_current_diagnostic.offset_samples < OFFSET_SAMPLES)
+    ++g_at32_bus_current_diagnostic.offset_samples;
+    if (g_at32_bus_current_diagnostic.offset_samples < OFFSET_SAMPLES)
     {
         return false;
     }
-    g_r40_bus_current_diagnostic.offset_counts = (float)s_offset_sum / (float)OFFSET_SAMPLES;
-    if (BspAdc_SetBusCurrentOffset(g_r40_bus_current_diagnostic.offset_counts) != BSP_OK)
-    {
-        g_r40_bus_current_diagnostic.status = BUS_CURRENT_OFFSET_REJECTED;
-        return false;
-    }
-    g_r40_bus_current_diagnostic.offset_valid = true;
+    g_at32_bus_current_diagnostic.offset_counts = (float)s_offset_sum / (float)OFFSET_SAMPLES;
+    BspAdc_SetBusCurrentOffset(g_at32_bus_current_diagnostic.offset_counts);
+    g_at32_bus_current_diagnostic.offset_valid = true;
     return true;
 }
 
@@ -117,66 +112,44 @@ void BusCurrentFeedback_Sample(void)
     {
         return;
     }
-    BspAdcRawCurrent sample;
-    if (BspAdc_ReadRawCurrent(&sample) != BSP_OK ||
-        (sample.valid_mask & BSP_ADC_FAST_BUS_CURRENT_VALID) == 0U)
-    {
-        invalidate_sample(BUS_CURRENT_NO_SAMPLE);
-        return;
-    }
+    uint32_t counts = (uint32_t)BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT);
     uint32_t now = BspSystem_TimeMs();
-    uint32_t advance = sample.sequence - g_r40_bus_current_diagnostic.sequence;
-    if (s_sequence_seen && advance == 0U)
-    {
-        if ((uint32_t)(now - g_r40_bus_current_diagnostic.milliseconds) > SAMPLE_MAX_AGE_MS)
-        {
-            invalidate_sample(BUS_CURRENT_NO_SAMPLE);
-        }
-        return;
-    }
-    const uint32_t expected_advance = FOC_FREQ / SUPERVISOR_FREQ;
     bool consecutive =
-        s_sequence_seen && advance >= expected_advance - 1U && advance <= expected_advance + 1U;
-    s_sequence_seen = true;
-    g_r40_bus_current_diagnostic.sequence = sample.sequence;
-    g_r40_bus_current_diagnostic.milliseconds = now;
-    g_r40_bus_current_diagnostic.raw_counts = sample.bus_current_counts;
-    if (sample.bus_current_counts <= RAIL_MARGIN_COUNTS ||
-        sample.bus_current_counts >= BUS_CURRENT_ADC_MAX_COUNTS - RAIL_MARGIN_COUNTS)
+        s_sample_seen &&
+        (uint32_t)(now - g_at32_bus_current_diagnostic.milliseconds) <= SAMPLE_MAX_AGE_MS;
+    s_sample_seen = true;
+    /* 此序号只记录监督读数次数，不表示ADC触发次数。 */
+    ++g_at32_bus_current_diagnostic.sequence;
+    g_at32_bus_current_diagnostic.milliseconds = now;
+    g_at32_bus_current_diagnostic.raw_counts = counts;
+    if (counts <= RAIL_MARGIN_COUNTS || counts >= BUS_CURRENT_ADC_MAX_COUNTS - RAIL_MARGIN_COUNTS)
     {
         invalidate_sample(BUS_CURRENT_RAIL);
         return;
     }
-    if (!g_r40_bus_current_diagnostic.offset_valid)
+    if (!g_at32_bus_current_diagnostic.offset_valid)
     {
         if (!consecutive)
         {
             reset_offset_window();
         }
-        g_r40_bus_current_diagnostic.status = BUS_CURRENT_WAIT_OFFSET;
-        if (!collect_offset(sample.bus_current_counts))
+        g_at32_bus_current_diagnostic.status = BUS_CURRENT_WAIT_OFFSET;
+        if (!collect_offset(counts))
         {
             return;
         }
     }
-    BspAdcFastSample physical;
-    if (BspAdc_ReadFast(&physical) != BSP_OK ||
-        (physical.valid_mask & BSP_ADC_FAST_BUS_CURRENT_VALID) == 0U)
-    {
-        g_r40_bus_current_diagnostic.sample_valid = false;
-        return;
-    }
-    float current_a = physical.bus_current_a;
-    /* 缺帧或恢复后重置滤波，不把丢失的样本虚构成连续输入；重复帧不推进滤波。 */
+    float current_a = BspAdc_ReadChannel(BSP_ADC_BUS_CURRENT);
+    /* 监督任务间隔过长时重置滤波；ADC只提供数值。 */
     float filtered_a =
-        g_r40_bus_current_diagnostic.sample_valid && consecutive
-            ? g_r40_bus_current_diagnostic.filtered_a +
-                  FILTER_ALPHA * (current_a - g_r40_bus_current_diagnostic.filtered_a)
+        g_at32_bus_current_diagnostic.sample_valid && consecutive
+            ? g_at32_bus_current_diagnostic.filtered_a +
+                  FILTER_ALPHA * (current_a - g_at32_bus_current_diagnostic.filtered_a)
             : current_a;
-    g_r40_bus_current_diagnostic.current_a = current_a;
-    g_r40_bus_current_diagnostic.filtered_a = filtered_a;
-    g_r40_bus_current_diagnostic.sample_valid = true;
-    g_r40_bus_current_diagnostic.status = BUS_CURRENT_VALID;
+    g_at32_bus_current_diagnostic.current_a = current_a;
+    g_at32_bus_current_diagnostic.filtered_a = filtered_a;
+    g_at32_bus_current_diagnostic.sample_valid = true;
+    g_at32_bus_current_diagnostic.status = BUS_CURRENT_VALID;
 }
 
 bool BusCurrentFeedback_Read(float *current_a)
@@ -185,36 +158,13 @@ bool BusCurrentFeedback_Read(float *current_a)
     {
         return false;
     }
-    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
-    {
-        /* 写者是低频监督，屏蔽监督期间仍允许ADC快环抢占。 */
-        uint32_t key = BspSystem_EnterControlCritical();
-        uint32_t sequence = g_r40_bus_current_diagnostic.sequence;
-        uint32_t milliseconds = g_r40_bus_current_diagnostic.milliseconds;
-        float filtered_a = g_r40_bus_current_diagnostic.filtered_a;
-        bool offset_valid = g_r40_bus_current_diagnostic.offset_valid;
-        bool sample_valid = g_r40_bus_current_diagnostic.sample_valid;
-        BspSystem_ExitControlCritical(key);
-
-        /* ADC快照和换算在锁外执行，不能阻塞20kHz采样中断。 */
-        BspAdcRawCurrent sample;
-        bool healthy = BspAdc_ReadRawCurrent(&sample) == BSP_OK &&
-                       (sample.valid_mask & BSP_ADC_FAST_BUS_CURRENT_VALID) != 0U;
-        key = BspSystem_EnterControlCritical();
-        bool unchanged = sequence == g_r40_bus_current_diagnostic.sequence &&
-                         milliseconds == g_r40_bus_current_diagnostic.milliseconds &&
-                         offset_valid == g_r40_bus_current_diagnostic.offset_valid &&
-                         sample_valid == g_r40_bus_current_diagnostic.sample_valid;
-        bool fresh = (uint32_t)(BspSystem_TimeMs() - milliseconds) <= SAMPLE_MAX_AGE_MS;
-        BspSystem_ExitControlCritical(key);
-        if (unchanged)
-        {
-            bool valid = offset_valid && sample_valid && fresh && healthy;
-            *current_a = valid ? filtered_a : NAN;
-            return valid;
-        }
-    }
-    /* 连续两次被生产者更新时保守返回失效，不无限重试或刷新样本年龄。 */
-    *current_a = NAN;
-    return false;
+    uint32_t key = BspSystem_EnterControlCritical();
+    float filtered_a = g_at32_bus_current_diagnostic.filtered_a;
+    bool valid = g_at32_bus_current_diagnostic.offset_valid &&
+                 g_at32_bus_current_diagnostic.sample_valid &&
+                 (uint32_t)(BspSystem_TimeMs() - g_at32_bus_current_diagnostic.milliseconds) <=
+                     SAMPLE_MAX_AGE_MS;
+    BspSystem_ExitControlCritical(key);
+    *current_a = valid ? filtered_a : NAN;
+    return valid;
 }

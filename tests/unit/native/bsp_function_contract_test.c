@@ -9,12 +9,11 @@
 #include <string.h>
 #include "bsp_adc.h"
 #include "bsp_pwm.h"
-#include "bsp_uart.h"
 #include "bsp_system.h"
 #include "board_config.h"
 #include "application_config.h"
 #include "board_config.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 static uint32_t mask, now_us = 100U, writes, initializations, period_reads;
 static uint16_t duty_counts[3], adc_counts[4] = {8193U, 8192U, 8191U, 12000U};
 static bool any_output, all_outputs, master, can_write = true, healthy = true, complete = true;
@@ -37,16 +36,6 @@ uint32_t BspSystem_EnterCritical(void)
 void BspSystem_ExitCritical(uint32_t old)
 {
     mask = old;
-}
-uint32_t BspSystem_TimeUs(void)
-{
-    if (inject_timestamp != 0U)
-    {
-        --inject_timestamp;
-        complete = true;
-        assert(Adc_CompleteFast());
-    }
-    return now_us;
 }
 uint32_t BspSystem_TimeMs(void)
 {
@@ -254,9 +243,9 @@ static void adc_contract(void)
     assert(BspAdc_SetPhaseOffsets(offsets) == BSP_OK);
     assert(BspAdc_ReadFast(&value) == BSP_OK && value.sequence == sequence);
     assert((value.valid_mask & BSP_ADC_FAST_PHASE_CURRENT_VALID) != 0U);
-    assert(fabsf(value.phase_current_a[0] + .25f * MOTOR_SENSING_CURRENT_A_PER_COUNT) < 1e-6f);
+    assert(fabsf(value.phase_current_a[0] + .25f * BSP_ADC_CURRENT_A_PER_COUNT) < 1e-6f);
     assert(value.phase_current_a[1] == 0.0f &&
-           fabsf(value.phase_current_a[2] - .25f * MOTOR_SENSING_CURRENT_A_PER_COUNT) < 1e-6f);
+           fabsf(value.phase_current_a[2] - .25f * BSP_ADC_CURRENT_A_PER_COUNT) < 1e-6f);
     assert(BspAdc_SetBusCurrentOffset(2048.0f) ==
            (BSP_ENABLED_BUS_CURRENT ? BSP_OK : BSP_NOT_SUPPORTED));
     assert(BspAdc_ReadFast(&value) == BSP_OK && value.sequence == sequence);
@@ -331,11 +320,10 @@ static void adc_contract(void)
             float expected = id <= BSP_ADC_PHASE_CURRENT_C ? value.phase_current_a[id]
                              : id == BSP_ADC_BUS_VOLTAGE   ? value.bus_voltage_v
                                                            : value.bus_current_a;
-            float expected_counts =
-                id <= BSP_ADC_PHASE_CURRENT_C ? raw.phase_counts[id]
-                : id == BSP_ADC_BUS_VOLTAGE
-                    ? adc_counts[BSP_SAMPLE_VBUS_RANK] * MOTOR_SENSING_ADC_SUM_TO_COUNTS
-                    : raw.bus_current_counts;
+            float expected_counts = id <= BSP_ADC_PHASE_CURRENT_C ? raw.phase_counts[id]
+                                    : id == BSP_ADC_BUS_VOLTAGE
+                                        ? adc_counts[BSP_SAMPLE_VBUS_RANK] * BSP_ADC_SUM_TO_COUNTS
+                                        : raw.bus_current_counts;
             assert(BspAdc_ReadChannel(signal, &physical) == BSP_OK);
             assert(memcmp(&physical.value, &expected, sizeof(expected)) == 0);
             assert(physical.sequence == value.sequence && physical.sampled_ms == now_us / 1000U);
@@ -480,17 +468,6 @@ static void auxiliary_channel_contract(void)
     assert(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE, &ntc_value) == BSP_SENSOR_FAULT);
 #endif
 }
-static void uart_contract(void)
-{
-    uint8_t data = 0xA5U;
-    size_t received = 99U;
-    BspUartTxResult result = BSP_UART_TX_OK;
-    assert(BspUart_TryWrite(&data, 1U) == BSP_NOT_SUPPORTED);
-    assert(BspUart_TakeTxResult(&result) == BSP_NOT_SUPPORTED && result == BSP_UART_TX_OK);
-    assert(BspUart_Read(&data, 1U, &received) == BSP_NOT_SUPPORTED && received == 0U &&
-           data == 0xA5U);
-    assert(BspUart_GetState() == BSP_UART_DISABLED);
-}
 int main(int argc, char **argv)
 {
     unsigned scenario = argc > 1 ? (unsigned)atoi(argv[1]) : 0U;
@@ -555,7 +532,6 @@ int main(int argc, char **argv)
     adc_contract();
     publication_sequence_contract();
     auxiliary_channel_contract();
-    uart_contract();
     uint32_t sequence = BspPwm_GetStatus().disable_sequence;
     if (scenario == 0U)
     {

@@ -1,161 +1,176 @@
-#include "bsp_system.h"
-#include "bsp_pwm.h"
-#include "bsp_internal.h"
-
-#include <stddef.h>
+/**
+ * @file adc.c
+ * @brief STM32G4 ADC硬件采样、启停、中断和片内校准值读取。
+ */
+#include "../../bsp_internal.h"
+#include "bsp_adc.h"
+#include "board_config.h"
 #include "adc.h"
 #include "tim.h"
 #include "stm32g4xx_ll_adc.h"
+#include <math.h>
 
-/* CubeMX中的ADC1/ADC2当前均固定12位；不得仅修改换算配置。 */
-#if CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS != 12U
-#error "STM32G4 ADC initialization requires 12-bit sampling"
+static volatile float s_phase_offsets[3] = {NAN, NAN, NAN};
+static volatile float s_bus_offset = NAN;
+
+static void calibrate(ADC_HandleTypeDef *adc)
+{
+    HAL_ADCEx_Calibration_Start(adc, ADC_SINGLE_ENDED);
+    /* ADC时钟为HCLK/4，校准结束后等待至少4个ADC周期再使能。 */
+    for (uint32_t cycles = 0U; cycles < 4U * LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES; ++cycles)
+    {
+        __NOP();
+    }
+    LL_ADC_Enable(adc->Instance);
+    while (!LL_ADC_IsActiveFlag_ADRDY(adc->Instance))
+    {
+    }
+}
+
+void McuAdc_Init(void)
+{
+    MX_ADC2_Init();
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    MX_ADC1_Init();
+    calibrate(&hadc1);
 #endif
+    calibrate(&hadc2);
+}
 
-/* CubeMX先准备外设；本模块拥有校准、采样启动和原码读取，保持原HAL调用顺序。 */
-static bool s_sampling_started, s_sampling_fault, s_storage_owned, s_storage_was_started;
-
-bool McuAdc_Init(void)
+void Adc_Start(void)
 {
-    /* 保持旧板原有HAL错误处理，不借职责搬迁增加或删除启动条件。 */
-    if (BSP_ENABLED_INTERNAL_ANALOG_SAMPLING)
+    ADC2->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+    NVIC_ClearPendingIRQ(ADC1_2_IRQn);
+    ADC2->IER = (ADC2->IER & ~ADC_IER_JEOCIE) | ADC_IER_JEOSIE;
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    ADC1->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+    LL_ADC_INJ_StartConversion(ADC1);
+#endif
+    LL_ADC_INJ_StartConversion(ADC2);
+    TIM1->CCER |= TIM_CCER_CC4E;
+}
+
+void Adc_Stop(void)
+{
+    ADC2->IER &= ~ADC_IER_JEOSIE;
+    if (LL_ADC_INJ_IsConversionOngoing(ADC2))
     {
-        HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
+        LL_ADC_INJ_StopConversion(ADC2);
+        while (LL_ADC_INJ_IsConversionOngoing(ADC2))
+        {
+        }
     }
-    HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
-    return true;
-}
-
-bool McuAdc_Start(void)
-{
-    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-    if (BSP_ENABLED_INTERNAL_ANALOG_SAMPLING)
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    if (LL_ADC_INJ_IsConversionOngoing(ADC1))
     {
-        HAL_ADCEx_InjectedStart(&hadc1);
+        LL_ADC_INJ_StopConversion(ADC1);
+        while (LL_ADC_INJ_IsConversionOngoing(ADC1))
+        {
+        }
     }
-    HAL_ADCEx_InjectedStart(&hadc2);
-    __HAL_ADC_DISABLE_IT(&hadc2, ADC_IT_JEOC);
-    __HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOS);
-    s_sampling_started = true;
-    return true;
+    ADC1->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+#endif
+    ADC2->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
 }
 
-bool McuAdc_CompleteFast(void)
+bool Adc_CompleteFast(void)
 {
-    /* HAL回调之后才清JEOS，保持既有IRQ确认与APP执行顺序。 */
-    return __HAL_ADC_GET_FLAG(&hadc2, ADC_FLAG_JEOS) != 0U;
+    /* HAL完成回调返回后清JEOS，应用读取时寄存器仍保存本拍结果。 */
+    return (ADC2->ISR & ADC_ISR_JEOS) != 0U;
 }
 
-bool Adc_IsHealthy(void)
+void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *adc)
 {
-    /* 旧板没有AT32载波丢帧锁存；不以统一接口伪称增加了此保护。 */
-    return s_sampling_started && !s_sampling_fault;
-}
-
-bool McuAdc_PollTemperature(AdcTemperatureSample *out)
-{
-    if (!BSP_ENABLED_INTERNAL_ANALOG_SAMPLING || out == NULL ||
-        !__HAL_ADC_GET_FLAG(&hadc1, ADC_FLAG_JEOS))
+    if (adc == &hadc2 && Adc_CompleteFast())
     {
-        return false;
-    }
-    out->mcu_temperature_counts = ADC1->JDR1;
-    out->reference_counts = ADC1->JDR2;
-    __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_JEOS | ADC_FLAG_JEOC);
-    out->sequence = 0U; /* 完整帧序号和时间戳仅由公共发布入口填写。 */
-    out->sampled_ms = 0U;
-    return true;
-}
-
-void McuAdc_ContinueTemperature(void)
-{
-    if (BSP_ENABLED_INTERNAL_ANALOG_SAMPLING && !LL_ADC_INJ_IsConversionOngoing(ADC1))
-    {
-        LL_ADC_INJ_StartConversion(ADC1);
+        BspApp_OnFastSample();
     }
 }
 
-uint16_t McuAdc_ReadRank(unsigned rank)
+float BspAdc_ReadRawChannel(BspAdcChannel channel)
 {
-    switch (rank)
+    switch (channel)
     {
-    case 0U:
-        return (uint16_t)ADC2->JDR1;
-    case 1U:
-        return (uint16_t)ADC2->JDR2;
-    case 2U:
-        return (uint16_t)ADC2->JDR3;
-    case 3U:
-        return (uint16_t)ADC2->JDR4;
+    case BSP_ADC_PHASE_CURRENT_A:
+        return (float)ADC2->JDR1 * BSP_ADC_SUM_TO_COUNTS;
+    case BSP_ADC_PHASE_CURRENT_B:
+        return (float)ADC2->JDR2 * BSP_ADC_SUM_TO_COUNTS;
+    case BSP_ADC_PHASE_CURRENT_C:
+        return (float)ADC2->JDR3 * BSP_ADC_SUM_TO_COUNTS;
+    case BSP_ADC_BUS_VOLTAGE:
+        return (float)ADC2->JDR4 * BSP_ADC_SUM_TO_COUNTS;
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    case BSP_ADC_MCU_TEMPERATURE:
+    case BSP_ADC_ANALOG_SUPPLY_VOLTAGE:
+        return channel == BSP_ADC_MCU_TEMPERATURE ? (float)ADC1->JDR1 : (float)ADC1->JDR2;
+#endif
     default:
-        return 0U;
+        return NAN;
     }
 }
 
-uint16_t McuAdc_ReadBusCurrent(void)
+float BspAdc_ReadChannel(BspAdcChannel channel)
 {
-    return 0U;
+    float counts = BspAdc_ReadRawChannel(channel);
+    switch (channel)
+    {
+    case BSP_ADC_PHASE_CURRENT_A:
+    case BSP_ADC_PHASE_CURRENT_B:
+    case BSP_ADC_PHASE_CURRENT_C:
+        return -(counts - s_phase_offsets[channel]) * BSP_ADC_CURRENT_A_PER_COUNT;
+    case BSP_ADC_BUS_VOLTAGE:
+        return counts * BSP_ADC_VBUS_V_PER_COUNT;
+#if BSP_ENABLED_BUS_CURRENT
+    case BSP_ADC_BUS_CURRENT:
+        return (counts - s_bus_offset) * (BUS_CURRENT_ADC_REFERENCE_V / BUS_CURRENT_ADC_MAX_COUNTS /
+                                          BUS_CURRENT_GAIN / BUS_CURRENT_SHUNT_OHM);
+#endif
+#if BSP_ENABLED_MOTOR_TEMPERATURE
+    case BSP_ADC_MOTOR_TEMPERATURE:
+    {
+        if (counts == 0.0f || counts >= CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
+        {
+            return NAN;
+        }
+        float resistance_ohm =
+            BSP_ADC_NTC_PULLDOWN_OHM * (CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS - counts) / counts;
+        return 1.0f / (1.0f / 298.15f +
+                       logf(resistance_ohm / BSP_ADC_NTC_R25_OHM) / BSP_ADC_NTC_BETA_K) -
+               273.15f;
+    }
+#endif
+    case BSP_ADC_ANALOG_SUPPLY_VOLTAGE:
+        if (counts == 0.0f)
+        {
+            return NAN;
+        }
+        return 3.0f * (float)*VREFINT_CAL_ADDR / counts;
+    case BSP_ADC_MCU_TEMPERATURE:
+    {
+        float reference_counts = BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE);
+        float cal30 = (float)*TEMPSENSOR_CAL1_ADDR;
+        float cal130 = (float)*TEMPSENSOR_CAL2_ADDR;
+        if (reference_counts == 0.0f || cal130 == cal30)
+        {
+            return NAN;
+        }
+        float normalized = counts * (float)*VREFINT_CAL_ADDR / reference_counts;
+        return 30.0f + (normalized - cal30) * 100.0f / (cal130 - cal30);
+    }
+    default:
+        return NAN;
+    }
 }
 
-bool McuAdc_PauseForStorage(void)
+void BspAdc_SetPhaseOffsets(const float offsets_counts[3])
 {
-    if (__get_IPSR() != 0U || __get_PRIMASK() == 0U || !BspPwm_ArePhasesDisabled() ||
-        s_storage_owned || s_sampling_fault)
+    for (unsigned phase = 0U; phase < 3U; ++phase)
     {
-        return false;
+        s_phase_offsets[phase] = offsets_counts[phase];
     }
-    s_storage_owned = true;
-    s_storage_was_started = s_sampling_started;
-    if (!s_sampling_started)
-    {
-        return true;
-    }
-    __HAL_ADC_DISABLE_IT(&hadc2, ADC_IT_JEOS);
-    HAL_StatusTypeDef main_status = HAL_ADCEx_InjectedStop(&hadc2);
-    HAL_StatusTypeDef auxiliary_status = HAL_OK;
-    if (BSP_ENABLED_INTERNAL_ANALOG_SAMPLING)
-    {
-        auxiliary_status = HAL_ADCEx_InjectedStop(&hadc1);
-    }
-    s_sampling_started = false;
-    AdcFrames_Invalidate();
-    if (main_status != HAL_OK || auxiliary_status != HAL_OK)
-    {
-        s_sampling_fault = true;
-        BspPwm_Disable();
-        return false;
-    }
-    __HAL_ADC_CLEAR_FLAG(&hadc2, ADC_FLAG_JEOS | ADC_FLAG_JEOC);
-    return true;
 }
 
-bool McuAdc_ResumeAfterStorage(void)
+void BspAdc_SetBusCurrentOffset(float offset_counts)
 {
-    if (!s_storage_owned || s_sampling_fault || !BspPwm_ArePhasesDisabled())
-    {
-        return false;
-    }
-    if (!s_storage_was_started)
-    {
-        s_storage_owned = false;
-        return true;
-    }
-    __HAL_ADC_CLEAR_FLAG(&hadc2, ADC_FLAG_JEOS | ADC_FLAG_JEOC);
-    HAL_StatusTypeDef auxiliary_status = HAL_OK;
-    if (BSP_ENABLED_INTERNAL_ANALOG_SAMPLING)
-    {
-        __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_JEOS | ADC_FLAG_JEOC);
-        auxiliary_status = HAL_ADCEx_InjectedStart(&hadc1);
-    }
-    HAL_StatusTypeDef main_status = HAL_ADCEx_InjectedStart(&hadc2);
-    if (main_status != HAL_OK || auxiliary_status != HAL_OK)
-    {
-        s_sampling_fault = true;
-        BspPwm_Disable();
-        return false;
-    }
-    s_sampling_started = true;
-    s_storage_owned = false;
-    __HAL_ADC_ENABLE_IT(&hadc2, ADC_IT_JEOS);
-    return true;
+    s_bus_offset = offset_counts;
 }

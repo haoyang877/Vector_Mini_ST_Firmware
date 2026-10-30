@@ -163,7 +163,7 @@ yg_protocol_result_t yg_protocol_canfd_send_one(yg_protocol_transfer_queue_t *qu
     hardware.fd = frame.fd;
     hardware.bitrate_switch = frame.bitrate_switch;
     memcpy(hardware.data, frame.data, frame.length);
-    if (BspCan_TrySend(&hardware) != BSP_OK)
+    if (!BspCan_TrySend(&hardware))
     {
         return YG_PROTOCOL_TRANSPORT_BUSY;
     }

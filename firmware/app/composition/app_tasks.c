@@ -2,7 +2,6 @@
 #include "motor_axis.h"
 #include "application_config.h"
 #include "motor_state_machine.h"
-#include "bsp_led.h"
 
 #include "app_tasks.h"
 #include "bsp.h"
@@ -36,7 +35,7 @@ static uint32_t s_watchdog_last_ms, s_watchdog_last_fast, s_watchdog_last_slow;
 static bool s_watchdog_enabled;
 
 #if APP_PWM_WINDOWED
-volatile uint32_t g_r40_app_test_window_ms, g_r40_app_test_arm_result;
+volatile uint32_t g_at32_app_test_window_ms, g_at32_app_test_arm_result;
 #endif
 
 static void halt_disabled(void)
@@ -51,22 +50,15 @@ static void halt_disabled(void)
 
 static bool power_contract_valid(void)
 {
-    /* 快环可在前台读数之间启停输出；只在不一致时复读一次，不屏蔽ADC。 */
-    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
+    if (BspPwm_ArePhasesDisabled())
     {
-        BspPwmState outputs = BspPwm_GetStatus().state;
-        if (outputs == BSP_PWM_OFF)
-        {
-            return true;
-        }
-#if APP_PWM_WINDOWED
-        if (outputs == BSP_PWM_ON && g_pwm_power_window.state == PWM_POWER_ACTIVE)
-        {
-            return true;
-        }
-#endif
+        return true;
     }
+#if APP_PWM_WINDOWED
+    return g_pwm_power_window.state == PWM_POWER_ACTIVE;
+#else
     return false;
+#endif
 }
 
 void AppTasks_Init(void)
@@ -80,7 +72,7 @@ void AppTasks_Init(void)
     BusCurrentFeedback_Init();
 #endif
 #if APP_ENABLED_DIAGNOSTIC_TELEMETRY
-    R40AppTelemetry_Init();
+    AT32AppTelemetry_Init();
 #endif
 }
 
@@ -139,27 +131,26 @@ void AppTasks_Process(void)
     {
         (void)MotorStateMachine_RequestRemoteStop();
     }
-    if (g_r40_app_test_window_ms != 0U)
+    if (g_at32_app_test_window_ms != 0U)
     {
         uint32_t key = BspSystem_EnterControlCritical();
-        uint32_t duration = g_r40_app_test_window_ms;
-        g_r40_app_test_window_ms = 0U;
-        bool allowed = MotorStateMachine_GetState() == MOTOR_STATE_IDLE &&
-                       BspPwm_ArePhasesDisabled() && BspPwm_GetStatus().state == BSP_PWM_OFF;
-        g_r40_app_test_arm_result =
+        uint32_t duration = g_at32_app_test_window_ms;
+        g_at32_app_test_window_ms = 0U;
+        bool allowed =
+            MotorStateMachine_GetState() == MOTOR_STATE_IDLE && BspPwm_ArePhasesDisabled();
+        g_at32_app_test_arm_result =
             allowed && PwmPowerWindow_Arm(duration, BspSystem_TimeMs()) ? 1U : 2U;
         BspSystem_ExitControlCritical(key);
     }
 #endif
 #if APP_ENABLED_DIAGNOSTIC_TELEMETRY
-    R40AppTelemetry_Service();
+    AT32AppTelemetry_Service();
 #endif
     if (!s_watchdog_enabled)
     {
         return;
     }
-    BspAdcFastSample sample;
-    if (BspAdc_ReadFast(&sample) != BSP_OK || !power_contract_valid())
+    if (!power_contract_valid())
     {
         halt_disabled();
     }
@@ -182,48 +173,11 @@ void App_FastTick(void)
     MotorAxis_FastTick();
 }
 
-/* 2 kHz 板级监督任务：电机监督与指示器组合。CAN FD 协议在主循环后台服务，
- * 不在监督中混入旧标准 CAN 的队列、波特率或心跳维护。 */
-
-#define RGB_DIVIDER (SUPERVISOR_FREQ / 20U)
-
-static uint16_t s_rgb_cnt;
-
-/* 模式→呼吸色映射：应用策略，保持既有颜色语义不变。 */
-static BspLedColor mode_color(MotorControlMode mode)
-{
-    MotorMaintenanceKind kind = MotorStateMachine_GetMaintenanceKind();
-    if (kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_COGGING ||
-        kind == MOTOR_MAINTENANCE_FRICTION)
-    {
-        return BSP_LED_PURPLE;
-    }
-    switch (mode)
-    {
-    case MOTOR_CONTROL_CURRENT:
-        return BSP_LED_GREEN;
-    case MOTOR_CONTROL_SPEED:
-        return BSP_LED_CYAN;
-    case MOTOR_CONTROL_POSITION:
-        return BSP_LED_BLUE;
-    default:
-        return BSP_LED_OFF;
-    }
-}
-
 /**
- * @brief 执行2 kHz电机监督与原指示器分频任务。
- * @note 仅由 TIM7 中断上下文调用；不得阻塞、不得动态分配。
+ * @brief 执行2 kHz电机监督。
+ * @note 仅由监督上下文调用；不得阻塞、不得动态分配。
  */
 void App_SupervisorTick(void)
 {
-    /* CAN FD 收发由 RX ISR + 主循环 YgProtocolLink_Service 完成。 */
-    /* 电机监督：编码器慢估计、外环控制、主状态机与温度。 */
-    MotorControlMode mode = MotorAxis_SupervisorTick();
-
-    if (++s_rgb_cnt >= RGB_DIVIDER)
-    {
-        BspLed_SetColor(mode_color(mode));
-        s_rgb_cnt = 0;
-    }
+    (void)MotorAxis_SupervisorTick();
 }

@@ -7,14 +7,12 @@
 #include "motor_config.h"
 
 /* 角度反馈（motor 层拥有）：传感器采样 -> 方向/线性化/电零位/多圈/速度。
- * 传感器型号由工程选择唯一器件协议源，驱动负责把各自位宽
- * 归一化为同一 Q15 语义；本层不访问寄存器、总线或板级宏。 */
+ * 两板消费统一的直接角度读数，数学处理使用65536计数域。
+ * 本层不访问外设寄存器。 */
 
 /* 单圈角度表示：无符号 Q15，范围 [0, 65535]。 */
 #define ENCODER_Q15_CPR 65536UL
 #define ENCODER_Q15_HALF_TURN 32768
-/* 连续错误达到此次数时，反馈与状态机均认为编码器离线。 */
-#define ENCODER_BAD_FRAME_OFFLINE_COUNT 100U
 
 /* 机械速度估计：20 kHz 快路径的二阶角度跟踪观测器（PLL）。
  * 带宽 ENCODER_PLL_OMEGA_N_HZ、阻尼比 ENCODER_PLL_ZETA；输出机械角速度 rad/s。
@@ -22,22 +20,6 @@
  * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 mechanical_velocity_rad_s 归零，
  * mechanical_velocity_continuous_rad_s 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
 /* 默认取低纹波点；PLL 常量位于反馈实现，不叠加滤波器，取舍见决策0002。 */
-
-/** 编码器读取状态；当前实现只产生 OK 与 SPI_TIMEOUT，其余为协议层预留。 */
-typedef enum
-{
-    ENCODER_READ_OK = 0,
-    ENCODER_READ_SPI_TIMEOUT = 1,
-    ENCODER_READ_CRC_MISMATCH = 2,
-    ENCODER_READ_MAGNET_TOO_STRONG = 3,
-    ENCODER_READ_MAGNET_TOO_WEAK = 4,
-    ENCODER_READ_MAGNET_INVALID = 5,
-    ENCODER_READ_OVERSPEED = 6,
-    ENCODER_READ_TLE_RESET = 7,
-    ENCODER_READ_TLE_SYSTEM_ERROR = 8,
-    ENCODER_READ_TLE_INTERFACE_ERROR = 9,
-    ENCODER_READ_TLE_INVALID_ANGLE = 10
-} EncoderReadStatus;
 
 /** 编码器运行状态：20 kHz 采样/速度与 2 kHz 位置；不拥有持久化校准。 */
 typedef struct
@@ -70,61 +52,23 @@ typedef struct
     float electrical_velocity_rad_s;
     float mechanical_velocity_rad_s;
     float mechanical_velocity_continuous_rad_s;
-
-    /* 传感器帧诊断与在线状态。 */
-    EncoderReadStatus read_status;
-    EncoderReadStatus read_status_latched;
-    uint16_t frame_word;
-    uint16_t safety_word;
-    uint8_t crc_received;
-    uint8_t crc_calculated;
-    uint32_t crc_error_count;
-    uint32_t read_error_count;
-    uint16_t bad_frame_streak;
 } EncoderState;
 
 /**
- * @brief 上电初始化编码器运行状态与 SPI 外设。
+ * @brief 上电初始化编码器运行状态。
  * @param calibration 已装载的设备校准；仅将方向值归一化为 0/1。
  * @param encoder 编码器运行状态指针。
- * @note 初始化一次；SPI 初始化失败走致命错误路径，不返回。
+ * @note 初始化一次；外设初始化由BSP启动流程完成。
  */
 void Encoder_InitFeedback(EncoderCalibration *calibration, EncoderState *encoder);
 
 /**
- * @brief 同步读取一帧角度并更新电角度（20 kHz 快路径）。
+ * @brief 读取本拍角度并更新电角度、方向校正和速度估计。
  * @param configuration 活动配置只读视图，读取极对数、轴配置与设备校准。
  * @param encoder 编码器状态指针。
- * @note 20 kHz 快速环的兼容入口；新代码使用 BeginSample/CompleteSample 分离采样。
+ * @note 两板调用前均须先BspEncoder_Begin；直接消费完成的传输，不返回采集状态。
  */
 void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encoder);
-
-/**
- * @brief 非阻塞地发起下一帧角度采样。
- * @return 已发起返回 true；总线未就绪返回 false，此时仍须由同一调用方完成本帧。
- * @note 仅 20 kHz 快速环调用；两次调用之间禁止访问传感器总线。
- */
-bool Encoder_BeginSample(void);
-
-/**
- * @brief 推进本拍角度读取到响应阶段，不等待数据帧完成。
- * @param sample_started 本拍Encoder_BeginSample返回值，仅推进一次。
- * @return 不透明事务阶段，必须原样传给Encoder_CompleteSample。
- * @note 仅20 kHz快环独占传感器总线；故障路径也必须完成本帧。
- */
-uint8_t Encoder_BeginReadback(bool sample_started);
-
-/**
- * @brief 完成本周期角度采样：方向/LUT 校正与电角度更新（20 kHz 快路径）。
- * @param configuration 活动配置只读视图，读取极对数与设备校准。
- * @param encoder 编码器状态指针。
- * @param sample_stage 本拍BeginSample的0/1返回值或BeginReadback阶段；0时同步兜底。
- * @note 与 BeginSample 由同一调用方配对执行，故障路径也必须调用；本函数不更新
- *       多圈/机械角由 Encoder_UpdateSlowEstimate() 独占写入；速度由本快路径更新。
- */
-void Encoder_CompleteSample(const MotorConfiguration *configuration,
-                            EncoderState *encoder,
-                            uint8_t sample_stage);
 
 /**
  * @brief 执行一次 2 kHz 编码器慢估计：多圈累积与机械角。
@@ -136,9 +80,10 @@ void Encoder_CompleteSample(const MotorConfiguration *configuration,
 void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, EncoderState *encoder);
 
 /**
- * @brief 判断编码器是否在线。
+ * @brief 判断编码器是否已有角度样本。
  * @param encoder 编码器状态指针。
- * @return 已有有效样本且连续坏帧少于 ENCODER_BAD_FRAME_OFFLINE_COUNT 时返回 true。
+ * @return 首次角度采样完成后返回 true。
+ * @note 仅表示已取得样本，不诊断传感器连接或帧错误。
  */
 bool Encoder_IsOnline(const EncoderState *encoder);
 
@@ -146,7 +91,7 @@ bool Encoder_IsOnline(const EncoderState *encoder);
  * @brief 以当前线性化角度作为电零位（mode 15 电零位标定的落点）。
  * @param calibration 设备校准可写视图，仅由参数/维护所有者提供。
  * @param encoder 编码器状态指针。
- * @return 设置成功返回 true；编码器离线时返回 false 且不改写。
+ * @return 设置成功返回 true；尚无角度样本时返回 false 且不改写。
  */
 bool Encoder_SetElectricalZero(EncoderCalibration *calibration, EncoderState *encoder);
 
@@ -155,7 +100,7 @@ bool Encoder_SetElectricalZero(EncoderCalibration *calibration, EncoderState *en
  * @param calibration 设备校准可写视图，仅由参数/维护所有者提供。
  * @param encoder 编码器状态指针。
  * @param electrical_zero_q15 电零位，Q15（0..65535）。
- * @return 设置成功返回 true；编码器离线时返回 false 且不改写。
+ * @return 设置成功返回 true；尚无角度样本时返回 false 且不改写。
  */
 bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
                                   EncoderState *encoder,
@@ -165,7 +110,7 @@ bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
  * @brief 以当前线性化角度作为机械零位（位置原点）。
  * @param calibration 设备校准可写视图，仅由参数/维护所有者提供。
  * @param encoder 编码器状态指针。
- * @return 设置成功返回 true；编码器离线时返回 false 且不改写。
+ * @return 设置成功返回 true；尚无角度样本时返回 false 且不改写。
  * @note 只影响位置原点，不等价于电零位标定。
  */
 bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *encoder);
@@ -234,13 +179,6 @@ float Encoder_GetCprRatio(const EncoderState *encoder);
  * @return 标定位图，取值为 ENC_CALIB_* 的组合。
  */
 uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration);
-
-/**
- * @brief 读取连续坏帧计数。
- * @param encoder 编码器状态指针。
- * @return 自最近一次有效帧以来的连续坏帧数。
- */
-uint16_t Encoder_GetBadFrameStreak(const EncoderState *encoder);
 
 /**
  * @brief 读取编码器方向配置。

@@ -12,9 +12,9 @@
 
 #include "../../../firmware/config/board_config.h"
 
-#define R40_CL_POLE_PAIRS ((float)PARAM_MOTOR_POLE_PAIRS)
-#define R40_CL_VOLTAGE_LIMIT_V 1.5f
-#define R40_CL_SPEED_LIMIT_RAD_S (_2PI)
+#define AT32_CL_POLE_PAIRS ((float)PARAM_MOTOR_POLE_PAIRS)
+#define AT32_CL_VOLTAGE_LIMIT_V 1.5f
+#define AT32_CL_SPEED_LIMIT_RAD_S (_2PI)
 
 /* 台架末段20kHz环形记录；故障/完成后停止更新，主机仅在关相后读取。 */
 volatile float g_closedloop_waveform[1024][4];
@@ -23,16 +23,16 @@ volatile uint32_t g_closedloop_waveform_samples;
 volatile float g_closedloop_motion[2048][8];
 volatile uint32_t g_closedloop_motion_samples;
 
-static void fail(R40ClBench *bench, R40OlModel *guard, uint32_t reason)
+static void fail(AT32ClBench *bench, AT32OlModel *guard, uint32_t reason)
 {
     if (bench->telemetry.failure == 0U)
     {
         bench->telemetry.failure = reason;
     }
-    R40Ol_Stop(guard, R40_OL_OUTPUT_ERROR);
+    AT32Ol_Stop(guard, AT32_OL_OUTPUT_ERROR);
 }
 
-void R40Cl_Init(R40ClBench *bench)
+void AT32Cl_Init(AT32ClBench *bench)
 {
     memset(bench, 0, sizeof(*bench));
     bench->speed_reference_rpm = 20.0f;
@@ -56,33 +56,28 @@ void R40Cl_Init(R40ClBench *bench)
     Encoder_InitFeedback(&bench->configuration.device.encoder, &bench->encoder);
 }
 
-bool R40Cl_ReadEncoder(R40ClBench *bench, uint8_t stage, uint16_t *raw)
+uint16_t AT32Cl_ReadEncoder(AT32ClBench *bench)
 {
-    Encoder_CompleteSample(&bench->configuration, &bench->encoder, stage);
-    if (bench->encoder.read_status != ENCODER_READ_OK)
-    {
-        return false;
-    }
-    *raw = bench->encoder.raw_q15;
-    return true;
+    Encoder_Update(&bench->configuration, &bench->encoder);
+    return bench->encoder.raw_q15;
 }
 
-bool R40Cl_Begin(R40ClBench *bench, R40OlModel *guard, uint32_t mode, uint32_t now_ms)
+bool AT32Cl_Begin(AT32ClBench *bench, AT32OlModel *guard, uint32_t mode, uint32_t now_ms)
 {
     uint32_t required = mode > 0U && mode <= 4U ? (1U << (mode - 1U)) - 1U : UINT32_MAX;
     if ((mode == 4U &&
          (!isfinite(bench->speed_reference_rpm) || bench->speed_reference_rpm <= 0.0f ||
           bench->speed_reference_rpm >= 60.0f)) ||
         bench->telemetry.failure != 0U || bench->telemetry.passed_mask != required ||
-        (guard->state != R40_OL_READY && guard->state != R40_OL_DONE))
+        (guard->state != AT32_OL_READY && guard->state != AT32_OL_DONE))
     {
         return false;
     }
-    if (guard->state == R40_OL_DONE)
+    if (guard->state == AT32_OL_DONE)
     {
-        guard->state = R40_OL_READY;
+        guard->state = AT32_OL_READY;
     }
-    if (!R40Ol_Begin(guard, now_ms))
+    if (!AT32Ol_Begin(guard, now_ms))
     {
         return false;
     }
@@ -112,7 +107,7 @@ bool R40Cl_Begin(R40ClBench *bench, R40OlModel *guard, uint32_t mode, uint32_t n
     return true;
 }
 
-static void update_angle(R40ClBench *bench, uint16_t angle)
+static void update_angle(AT32ClBench *bench, uint16_t angle)
 {
     if (!bench->angle_initialized)
     {
@@ -135,9 +130,9 @@ static float ramp(uint32_t ticks, uint32_t duration)
     return fminf(up, down);
 }
 
-static void finish(R40ClBench *bench, R40OlModel *guard)
+static void finish(AT32ClBench *bench, AT32OlModel *guard)
 {
-    R40ClTelemetry *t = &bench->telemetry;
+    AT32ClTelemetry *t = &bench->telemetry;
     if (t->quality_samples < 1000U || !(t->tracking_mae_a < 0.15f))
     {
         fail(bench, guard, 1U);
@@ -196,21 +191,21 @@ static void finish(R40ClBench *bench, R40OlModel *guard)
         return;
     }
     t->passed_mask |= 1U << (t->mode - 1U);
-    guard->state = R40_OL_DONE;
+    guard->state = AT32_OL_DONE;
 }
 
-void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
+void AT32Cl_Step(AT32ClBench *bench, AT32OlModel *guard, uint16_t angle_q15)
 {
-    R40ClTelemetry *t = &bench->telemetry;
-    if (guard->state == R40_OL_FAULT)
+    AT32ClTelemetry *t = &bench->telemetry;
+    if (guard->state == AT32_OL_FAULT)
     {
         return;
     }
     update_angle(bench, angle_q15);
-    if (guard->state != R40_OL_RUNNING)
+    if (guard->state != AT32_OL_RUNNING)
     {
         /* 原保护的10秒上限先到时，仍必须完成本阶段验收，不能绕过质量检查。 */
-        if (guard->state == R40_OL_DONE && (t->passed_mask & (1U << (t->mode - 1U))) == 0U)
+        if (guard->state == AT32_OL_DONE && (t->passed_mask & (1U << (t->mode - 1U))) == 0U)
         {
             finish(bench, guard);
         }
@@ -273,7 +268,7 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
         }
         else if (ticks >= 40000U && ticks < 100000U)
         {
-            float cycles = R40_CL_POLE_PAIRS * (float)(ticks - 40000U) / 60000.0f;
+            float cycles = AT32_CL_POLE_PAIRS * (float)(ticks - 40000U) / 60000.0f;
             phase = _2PI * (cycles - (uint32_t)cycles);
         }
         else if (ticks >= 100000U && ticks < 120000U)
@@ -282,7 +277,7 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
         }
         else if (ticks >= 120000U && ticks < 180000U)
         {
-            float cycles = R40_CL_POLE_PAIRS * (1.0f - (float)(ticks - 120000U) / 60000.0f);
+            float cycles = AT32_CL_POLE_PAIRS * (1.0f - (float)(ticks - 120000U) / 60000.0f);
             phase = _2PI * (cycles - (uint32_t)cycles);
         }
         const uint32_t starts[3] = {30000U, 110000U, 190000U};
@@ -298,7 +293,7 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
     else
     {
         phase = Encoder_GetElecPhase(&bench->encoder);
-        if (fabsf(t->velocity_rad_s) > R40_CL_SPEED_LIMIT_RAD_S)
+        if (fabsf(t->velocity_rad_s) > AT32_CL_SPEED_LIMIT_RAD_S)
         {
             fail(bench, guard, 4U);
             return;
@@ -395,7 +390,7 @@ void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15)
             _2PI;
         t->speed_mae_rpm = bench->speed_error_sum_rpm / ++t->speed_samples;
     }
-    float voltage_limit_v = t->mode == 2U ? 2.0f : R40_CL_VOLTAGE_LIMIT_V;
+    float voltage_limit_v = t->mode == 2U ? 2.0f : AT32_CL_VOLTAGE_LIMIT_V;
     if (!isfinite(t->vd_v) || !isfinite(t->vq_v) ||
         t->vd_v * t->vd_v + t->vq_v * t->vq_v > voltage_limit_v * voltage_limit_v ||
         bench->motor.fault_code != MOTOR_FAULT_NONE)

@@ -5,14 +5,14 @@
 volatile uint32_t g_openloop_enable;
 volatile uint32_t g_openloop_rejected_starts;
 
-void R40KeilControl_Init(R40KeilControl *control)
+void AT32KeilControl_Init(AT32KeilControl *control)
 {
     control->active = false;
     g_openloop_enable = 0U;
     g_openloop_rejected_starts = 0U;
 }
 
-bool R40KeilControl_Poll(R40KeilControl *control, R40OlModel *model, uint32_t now_ms)
+bool AT32KeilControl_Poll(AT32KeilControl *control, AT32OlModel *model, uint32_t now_ms)
 {
     uint32_t requested = g_openloop_enable;
     if (!control->active)
@@ -21,7 +21,7 @@ bool R40KeilControl_Poll(R40KeilControl *control, R40OlModel *model, uint32_t no
         {
             return false;
         }
-        if (requested != 1U || !R40Ol_Begin(model, now_ms))
+        if (requested != 1U || !AT32Ol_Begin(model, now_ms))
         {
             ++g_openloop_rejected_starts;
             g_openloop_enable = 0U;
@@ -29,7 +29,7 @@ bool R40KeilControl_Poll(R40KeilControl *control, R40OlModel *model, uint32_t no
         }
         control->active = true;
     }
-    if (model->state == R40_OL_DONE || model->state == R40_OL_FAULT)
+    if (model->state == AT32_OL_DONE || model->state == AT32_OL_FAULT)
     {
         g_openloop_enable = 0U;
         control->active = false;
@@ -37,11 +37,11 @@ bool R40KeilControl_Poll(R40KeilControl *control, R40OlModel *model, uint32_t no
     }
     if (requested != 1U)
     {
-        R40Ol_Stop(model, R40_OL_USER_STOP);
+        AT32Ol_Stop(model, AT32_OL_USER_STOP);
         g_openloop_enable = 0U;
         control->active = false;
         return true;
     }
-    R40Ol_Heartbeat(model, now_ms);
+    AT32Ol_Heartbeat(model, now_ms);
     return false;
 }

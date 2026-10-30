@@ -11,6 +11,8 @@
 #include "motor_axis.h"
 #include <math.h>
 #include "bsp_system.h"
+#include "bsp_adc.h"
+#include "bsp_encoder.h"
 #include "motor_maintenance.h"
 #include "bsp_pwm.h"
 #include "motor_sensing.h"
@@ -26,7 +28,6 @@
 #include "motor_state_machine.h"
 #include "flux_observer.h"
 #include "sensorless_startup.h"
-#include "fast_loop_profile.h"
 
 /* 电机与控制对象全局符号供 Watch 观测；运行写入仍由 MotorAxis 组装和调度。 */
 MotorConfiguration s_motor_configuration;
@@ -69,12 +70,12 @@ static void initialize_current_offsets(void)
         &s_current_offset_calibration, &s_motor_configuration, &s_motor_measurement);
 }
 
-/* 只能由新鲜JEOS快速拍调用；不启相、不分配、不阻塞、不保存、不自动重试。 */
-static void sample_phase_currents(const BspAdcFastSample *sample)
+/* 只能由新鲜快速采样调用；不启相、不分配、不阻塞、不保存、不自动重试。 */
+static void sample_phase_currents(const float phase_current_a[3])
 {
     if (s_current_offset_calibration.complete)
     {
-        MotorCurrent_Update(&s_motor_configuration, &s_motor_measurement, &s_motor_state, sample);
+        MotorCurrent_Update(&s_motor_measurement, phase_current_a);
         return;
     }
     (void)MotorCurrentOffsets_Sample(&s_current_offset_calibration, &s_motor_state);
@@ -210,23 +211,21 @@ static void update_winding_thermal(void)
 void MotorAxis_FastTick(void)
 {
     /* 1. 取得本拍编码器事务，底层传输与后续计算重叠。 */
-    FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER_REQUEST);
-    uint8_t encoder_stage = Encoder_BeginSample();
-    FAST_PROFILE_END(FAST_PROFILE_ENCODER_REQUEST);
 
-    /* 2. 电压和电流共用一次ADC快照；失败时传入NULL，继续原保护与收尾。 */
-    FAST_PROFILE_BEGIN(FAST_PROFILE_SENSING);
-    BspAdcFastSample sample;
-    const BspAdcFastSample *valid_sample = NULL;
-    if (BspAdc_ReadFast(&sample) == BSP_OK)
+    BspEncoder_Begin();
+
+    /* 2. 读取电压和三相电流，测量模块只消费数值。 */
+    float phase_current_a[3] = {NAN, NAN, NAN};
+    float bus_voltage_v = NAN;
+    bus_voltage_v = BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE);
+    for (unsigned phase = 0U; phase < 3U; ++phase)
     {
-        valid_sample = &sample;
+        phase_current_a[phase] =
+            BspAdc_ReadChannel((BspAdcChannel)(BSP_ADC_PHASE_CURRENT_A + phase));
     }
-    MotorVoltage_Update(
-        &s_motor_measurement, &s_motor_state, MotorStateMachine_OutputExpected(), valid_sample);
+    MotorVoltage_Update(&s_motor_measurement, bus_voltage_v);
     update_current_controller_limits();
-    sample_phase_currents(valid_sample);
-    encoder_stage = Encoder_BeginReadback(encoder_stage != 0U);
+    sample_phase_currents(phase_current_a);
     update_winding_thermal();
 
     /* 3. 读回与热保护/观测器计算重叠，之后完成角度更新；位置模式跳过观测器。 */
@@ -237,15 +236,12 @@ void MotorAxis_FastTick(void)
             &s_motor_configuration, &s_foc_state, &s_motor_measurement, &s_flux_observer);
     }
 
-    FAST_PROFILE_END(FAST_PROFILE_SENSING);
-    FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER);
     /* SAVE可能暂停采样，重建测速以免将停顿中的位移按50us换算。 */
     if (MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_SAVE)
     {
         Encoder_ResetVelocity(&s_rotor_encoder);
     }
-    Encoder_CompleteSample(&s_motor_configuration, &s_rotor_encoder, encoder_stage);
-    FAST_PROFILE_END(FAST_PROFILE_ENCODER);
+    Encoder_Update(&s_motor_configuration, &s_rotor_encoder);
 
     /* 4. 先完成编码器事务，再检查故障并立即关断。 */
     MotorStateMachine_CheckFastFaults();
@@ -277,10 +273,7 @@ void MotorAxis_FastTick(void)
     state = MotorStateMachine_GetState();
     if (state != MOTOR_STATE_STARTING && state != MOTOR_STATE_RUNNING)
     {
-        if (BspPwm_SetDuty(0.5f, 0.5f, 0.5f) != BSP_OK)
-        {
-            outcome = (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_CONTROL_OVERRUN};
-        }
+        BspPwm_SetDuty(0.5f, 0.5f, 0.5f);
         goto publish;
     }
     /* 普通路径只有模式选择和一条共用FOC，不进入维护/生命周期分发。 */
@@ -329,7 +322,7 @@ static MotorState read_status_snapshot(MotorStatus *sample,
     sample->speed_planned = NAN;
     *valid_bits = 0x54U;
     if (s_motor_configuration.application.axis_profile_valid &&
-        Encoder_GetBadFrameStreak(&s_rotor_encoder) == 0U &&
+        Encoder_IsOnline(&s_rotor_encoder) &&
         Encoder_GetCalibrationFlag(&s_motor_configuration.device.encoder) != 0U)
     {
         *valid_bits |= 0x03U;
@@ -461,14 +454,14 @@ void MotorAxis_ServiceFastDiagnostics(uint32_t fast_samples)
     }
 #endif
 #if APP_ENABLED_DIAGNOSTIC_TELEMETRY
-    R40AppTelemetry_Capture(fast_samples,
-                            &s_foc_state,
-                            &s_motor_measurement,
-                            &s_motor_state,
-                            &s_rotor_encoder,
-                            MotorStateMachine_GetState(),
-                            s_motor_configuration.device.encoder.calib_flag,
-                            MotorStateMachine_GetMaintenanceKind());
+    AT32AppTelemetry_Capture(fast_samples,
+                             &s_foc_state,
+                             &s_motor_measurement,
+                             &s_motor_state,
+                             &s_rotor_encoder,
+                             MotorStateMachine_GetState(),
+                             s_motor_configuration.device.encoder.calib_flag,
+                             MotorStateMachine_GetMaintenanceKind());
 #else
     (void)fast_samples;
 #endif

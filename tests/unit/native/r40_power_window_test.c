@@ -4,7 +4,7 @@
 #include "at32f45x.h"
 #include "bsp_pwm.h"
 #include "pwm_power_window.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 
 tmr_type fake_tmr1;
 static uint32_t s_key, s_now;

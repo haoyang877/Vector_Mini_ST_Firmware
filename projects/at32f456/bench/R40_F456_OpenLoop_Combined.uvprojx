@@ -333,7 +333,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH </MiscControls>
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,R40_OPENLOOP_POWER_ENABLED=1,R40_OPENLOOP_CAPTURE=1,R40_KEIL_OPENLOOP=1,R40_OL_ELECTRICAL_HZ=20.0f,R40_OL_VOLTAGE_V=2.0f,R40_OL_DURATION_MS=10000U,R40_OL_CURRENT_LIMIT_A=3.0f</Define>
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=1,AT32_OPENLOOP_CAPTURE=1,AT32_KEIL_OPENLOOP=1,AT32_OL_ELECTRICAL_HZ=20.0f,AT32_OL_VOLTAGE_V=2.0f,AT32_OL_DURATION_MS=10000U,AT32_OL_CURRENT_LIMIT_A=3.0f,BSP_BOARD=2U</Define>
               <Undefine />
               <IncludePath>..\..\..\tests\bench\at32f456;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\config;..\..\..\firmware\config;..\..\..\firmware\platform\devices</IncludePath>
             </VariousControls>
@@ -435,71 +435,16 @@
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\can.c</FilePath>
             </File>
             <File>
-              <FileName>can_frame_codec.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\can_frame_codec.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_mt6835.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\devices\encoder_mt6835.c</FilePath>
-            </File>
-            <File>
               <FileName>encoder_spi.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\encoder_spi.c</FilePath>
-            </File>
-            <File>
-              <FileName>temperature.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\temperature.c</FilePath>
             </File>
             <File>
               <FileName>flash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\flash.c</FilePath>
             </File>
-            <File>
-              <FileName>bsp_adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_adc.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_led.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_led.c</FilePath>
-            </File>
-            <File>
-              <FileName>led.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\led.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_uart.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_uart.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_pwm.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_pwm.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_encoder.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_encoder.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_can.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_can.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_tle5012b.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\devices\encoder_tle5012b.c</FilePath>
-            </File>
-          </Files>
+            </Files>
         </Group>
         <Group>
           <GroupName>Vendor CMSIS</GroupName>

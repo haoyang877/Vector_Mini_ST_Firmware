@@ -1,208 +1,124 @@
-#include "bsp_internal.h"
+/**
+ * @file can.c
+ * @brief STM32G4 CAN初始化、寄存器收发、启动及接收中断。
+ */
+#include "../../bsp_internal.h"
 #include "bsp_can.h"
+#include "board_config.h"
+#include <string.h>
+#include "fdcan.h"
+
+#define MCU_CAN_ELEMENT_WORDS 18U
+#define MCU_CAN_TX_BUFFERS 3U
 
 #if BSP_ENABLED_CAN
-#include "bsp_system.h"
-#include "can_frame_codec.h"
-#include "fdcan.h"
-#include "main.h"
-#include <stddef.h>
-#include <string.h>
+static const uint8_t s_dlc_lengths[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 
-/* 本模块独占控制器状态与发送票据；IRQ只锁存/分发，不解释协议。 */
-static void irq_enable_receive(void);
-static bool s_rx_overflow;
-
-/* CAN为1，ADC为0；只保护HAL控制器访问，快采样始终可抢占。 */
-static uint32_t can_enter_critical(void)
+void McuCan_Init(void)
 {
-    uint32_t state = __get_BASEPRI();
-    __set_BASEPRI_MAX(1U << (8U - __NVIC_PRIO_BITS));
-    __DSB();
-    __ISB();
-    return state;
-}
-
-static void can_exit_critical(uint32_t state)
-{
-    __DMB();
-    __set_BASEPRI(state);
-    __ISB();
-}
-
-bool McuCan_Init(void)
-{
-    /* 生成器HAL失败进入原Error_Handler；正常返回即表示初始化完成。 */
     MX_FDCAN1_Init();
+    FDCAN1->RXGFC = (FDCAN1->RXGFC &
+                     ~(FDCAN_RXGFC_ANFS | FDCAN_RXGFC_ANFE | FDCAN_RXGFC_RRFS | FDCAN_RXGFC_RRFE)) |
+                    (FDCAN_REJECT << FDCAN_RXGFC_ANFS_Pos) | FDCAN_RXGFC_RRFS | FDCAN_RXGFC_RRFE;
+    /* 两板统一只允许一帧在途，FIFO硬件指针用于识别最近提交的槽。 */
+    FDCAN1->TXBC &= ~FDCAN_TXBC_TFQM;
+    FDCAN1->IE = 0U;
+    FDCAN1->ILE = 0U;
+    FDCAN1->ILS = 0U;
+}
+
+void BspCan_Start(void)
+{
+    FDCAN1->CCCR &= ~FDCAN_CCCR_INIT;
+    FDCAN1->IE = FDCAN_IE_RF0NE;
+    FDCAN1->ILE = FDCAN_ILE_EINT0;
+}
+
+bool BspCan_TrySend(const BspCanFrame *frame)
+{
+    if (BspCan_IsTransmitBusy())
+    {
+        return false;
+    }
+    uint8_t dlc = 0U;
+    while (s_dlc_lengths[dlc] < frame->length)
+    {
+        ++dlc;
+    }
+    uint32_t index = (FDCAN1->TXFQS & FDCAN_TXFQS_TFQPI) >> FDCAN_TXFQS_TFQPI_Pos;
+    volatile uint32_t *message =
+        (volatile uint32_t *)(uintptr_t)hfdcan1.msgRam.TxFIFOQSA + index * MCU_CAN_ELEMENT_WORDS;
+    message[0] = (frame->extended ? (1UL << 30U) | frame->identifier : frame->identifier << 18U) |
+                 (frame->remote ? 1UL << 29U : 0U);
+    message[1] = ((uint32_t)dlc << 16U) | (frame->fd ? 1UL << 21U : 0U) |
+                 (frame->bitrate_switch ? 1UL << 20U : 0U);
+    volatile uint32_t *data = message + 2U;
+    for (uint8_t offset = 0U; offset < frame->length; offset += 4U)
+    {
+        uint32_t word = 0U;
+        uint8_t count = frame->length - offset;
+        if (count > 4U)
+        {
+            count = 4U;
+        }
+        memcpy(&word, frame->data + offset, count);
+        data[offset / 4U] = word;
+    }
+    FDCAN1->TXBAR = 1UL << index;
     return true;
 }
-void McuCan_Start(void)
-{
 
-    if (HAL_FDCAN_ConfigGlobalFilter(&hfdcan1,
-                                     FDCAN_REJECT,
-                                     FDCAN_ACCEPT_IN_RX_FIFO0,
-                                     FDCAN_FILTER_REMOTE,
-                                     FDCAN_FILTER_REMOTE) != HAL_OK)
+bool BspCan_Receive(BspCanFrame *frame)
+{
+    uint32_t fifo = FDCAN1->RXF0S;
+    if ((fifo & FDCAN_RXF0S_F0FL) == 0U)
     {
-        Error_Handler();
+        return false;
     }
-
-    if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+    uint32_t index = (fifo & FDCAN_RXF0S_F0GI) >> FDCAN_RXF0S_F0GI_Pos;
+    volatile uint32_t *message =
+        (volatile uint32_t *)(uintptr_t)hfdcan1.msgRam.RxFIFO0SA + index * MCU_CAN_ELEMENT_WORDS;
+    uint32_t first = message[0], second = message[1];
+    frame->extended = (first & (1UL << 30U)) != 0U;
+    frame->identifier = frame->extended ? first & 0x1FFFFFFFU : (first >> 18U) & 0x7FFU;
+    frame->remote = (first & (1UL << 29U)) != 0U;
+    frame->fd = (second & (1UL << 21U)) != 0U;
+    frame->bitrate_switch = (second & (1UL << 20U)) != 0U;
+    uint8_t dlc = (uint8_t)((second >> 16U) & 0xFU);
+    volatile uint32_t *data = message + 2U;
+    frame->length = frame->fd ? s_dlc_lengths[dlc] : (dlc > 8U ? 8U : dlc);
+    for (uint8_t offset = 0U; !frame->remote && offset < frame->length; offset += 4U)
     {
-        Error_Handler();
+        uint32_t word = data[offset / 4U];
+        uint8_t count = frame->length - offset;
+        if (count > 4U)
+        {
+            count = 4U;
+        }
+        memcpy(frame->data + offset, &word, count);
     }
-}
-
-bool McuCan_IsAvailable(void)
-{
-    return (hfdcan1.Instance->PSR & FDCAN_PSR_BO) == 0U &&
-           (hfdcan1.Instance->CCCR & FDCAN_CCCR_INIT) == 0U;
-}
-bool McuCan_NeedsRecovery(void)
-{
-    return !McuCan_IsAvailable();
-}
-bool McuCan_Recover(void)
-{
-    uint32_t key = can_enter_critical();
-    /* 硬件bus-off不改变HAL的BUSY状态，先Stop完成生命周期转换。 */
-    bool stopped = hfdcan1.State != HAL_FDCAN_STATE_BUSY || HAL_FDCAN_Stop(&hfdcan1) == HAL_OK;
-    bool recovered =
-        stopped && hfdcan1.State == HAL_FDCAN_STATE_READY && HAL_FDCAN_Start(&hfdcan1) == HAL_OK;
-    can_exit_critical(key);
-    return recovered;
+    FDCAN1->RXF0A = index;
+    return true;
 }
 
-static void irq_enable_receive(void)
+bool BspCan_IsTransmitBusy(void)
 {
-    if (HAL_FDCAN_ActivateNotification(
-            &hfdcan1, (FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST), 0) !=
-        HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-void McuCan_OnReceiveInterrupt(BspCanReceiveHandler receive_handler, uint32_t events)
-{
-    if ((events & FDCAN_IT_RX_FIFO0_MESSAGE_LOST) != 0U)
-    {
-        s_rx_overflow = true;
-    }
-    /* HAL已确认FIFO中断标志；只转发当前控制器的有界接收回调。 */
-    if (receive_handler != 0)
-    {
-        receive_handler();
-    }
-}
-void McuCan_EnableReceiveInterrupt(void)
-{
-    irq_enable_receive();
+    return FDCAN1->TXBRP != 0U;
 }
 
-BspResult McuCan_Receive(BspCanFrame *frame)
+bool BspCan_IsTransmitComplete(void)
 {
-    if (HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0) == 0U)
-    {
-        return BSP_NOT_READY;
-    }
-    FDCAN_RxHeaderTypeDef header;
-    BspCanFrame received = {0};
-    if (frame == NULL)
-    {
-        return BSP_IO_ERROR;
-    }
-    uint32_t key = can_enter_critical();
-    bool accepted =
-        HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &header, received.data) == HAL_OK;
-    can_exit_critical(key);
-    if (!accepted)
-    {
-        return BSP_IO_ERROR;
-    }
-    if (!CanFrame_DecodeLength(header.DataLength, &received.length))
-    {
-        return BSP_FRAME_ERROR;
-    }
-    received.identifier = header.Identifier;
-    received.extended = header.IdType != FDCAN_STANDARD_ID;
-    received.remote = header.RxFrameType != FDCAN_DATA_FRAME;
-    received.fd = header.FDFormat == FDCAN_FD_CAN;
-    received.bitrate_switch = header.BitRateSwitch == FDCAN_BRS_ON;
-    uint8_t dlc;
-    if (!CanFrame_EncodeTx(&received, &dlc))
-    {
-        return BSP_FRAME_ERROR;
-    }
-    *frame = received;
-    return BSP_OK;
-}
-bool McuCan_SlotIdle(uint32_t token)
-{
-    return (hfdcan1.Instance->TXBRP & token) == 0U;
-}
-bool McuCan_TxCancelled(uint32_t token)
-{
-    return (hfdcan1.Instance->TXBCF & token) != 0U;
-}
-bool McuCan_TxCompleted(uint32_t token)
-{
-    return (hfdcan1.Instance->TXBTO & token) != 0U;
-}
-void McuCan_ReadTerminal(uint32_t token, bool *matches, bool *sent)
-{
-    (void)token;
-    *matches = false;
-    *sent = false;
-}
-void McuCan_Abort(uint32_t token)
-{
-    (void)HAL_FDCAN_AbortTxRequest(&hfdcan1, token);
-}
-bool McuCan_Submit(const BspCanFrame *frame, uint8_t dlc, uint32_t *token)
-{
-    FDCAN_TxHeaderTypeDef header = {0};
-    /* 本仓库 G4 HAL 使用未移位的 DLC 编码 0..15。 */
-    header.DataLength = dlc;
-    header.Identifier = frame->identifier;
-    header.IdType = frame->extended ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
-    header.TxFrameType = frame->remote ? FDCAN_REMOTE_FRAME : FDCAN_DATA_FRAME;
-    header.FDFormat = frame->fd ? FDCAN_FD_CAN : FDCAN_CLASSIC_CAN;
-    header.BitRateSwitch = frame->bitrate_switch ? FDCAN_BRS_ON : FDCAN_BRS_OFF;
-    header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-    uint32_t key = can_enter_critical();
-    bool accepted = HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, frame->data) == HAL_OK;
-    if (accepted)
-    {
-        *token = HAL_FDCAN_GetLatestTxFifoQRequestBuffer(&hfdcan1);
-    }
-    can_exit_critical(key);
-    return accepted;
+    /* FIFO的写指针已前进一格；前一槽就是本次单帧发送，避免软件保存句柄。 */
+    uint32_t next = (FDCAN1->TXFQS & FDCAN_TXFQS_TFQPI) >> FDCAN_TXFQS_TFQPI_Pos;
+    uint32_t last = next == 0U ? MCU_CAN_TX_BUFFERS - 1U : next - 1U;
+    return FDCAN1->TXBRP == 0U && (FDCAN1->TXBTO & (1UL << last)) != 0U;
 }
 
-bool McuCan_TakeRxOverflow(void)
+/* 生成的向量仍由HAL确认中断标志，报文读写在本MCU文件直接完成。 */
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *handle, uint32_t events)
 {
-    bool pending = (hfdcan1.Instance->IR & FDCAN_IR_RF0L) != 0U;
-    bool lost = s_rx_overflow || pending;
-    s_rx_overflow = false;
-    if (pending)
-    {
-        __HAL_FDCAN_CLEAR_FLAG(&hfdcan1, FDCAN_FLAG_RX_FIFO0_MESSAGE_LOST);
-    }
-    return lost;
-}
-
-BspCanState McuCan_GetState(void)
-{
-    uint32_t status = hfdcan1.Instance->PSR;
-    if ((status & FDCAN_PSR_BO) != 0U)
-    {
-        return BSP_CAN_BUS_OFF;
-    }
-    if (!McuCan_IsAvailable() || (status & FDCAN_PSR_EP) != 0U)
-    {
-        return BSP_CAN_ERROR;
-    }
-    return (status & FDCAN_PSR_EW) != 0U ? BSP_CAN_WARNING : BSP_CAN_READY;
+    (void)handle;
+    (void)events;
+    BspApp_OnCanReceive();
 }
 #endif

@@ -55,7 +55,7 @@ static bool position_mode_update_control(const MotorConfiguration *configuration
 }
 
 /* OUTER_RUNTIME_BEGIN
- * 2 kHz 慢拍外环：位置级联与速度 PI 在 TIM7 监督上下文直接执行，是位置/速度
+ * 2 kHz 慢拍外环：位置级联与速度 PI 在监督上下文直接执行，是位置/速度
  * 外环输出的唯一写者；20 kHz 快环只读取 motor_state.iq_target_a。复位与模式变化由
  * 请求标志在本函数内消费，跨上下文只交换标志与单字状态。 */
 static struct

@@ -1,7 +1,7 @@
 /**
  * @file bsp_flash.h
  * @brief 固定应用记录区的受控读写。
- * @note 固定区硬件存储事务由BSP完整持有；记录格式和业务独占属于应用。
+ * @note 固定区硬件事务由对应MCU实现；记录格式和业务独占属于应用。
  */
 #ifndef BSP_FLASH_H
 #define BSP_FLASH_H

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "bsp_encoder.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "encoder_protocol.h"
 
 #include "../../../firmware/platform/bsp/mcu/at32f456/encoder_spi.c"
@@ -18,7 +18,7 @@ SimCoreDebug sim_core_debug;
 gpio_type fake_gpiob;
 static spi_init_type sim_config;
 static unsigned selected, pending, count, selects, releases, resets, irq, mux_count;
-static uint32_t ready_cycle, last_receive_cycle, idle_flags, clock_hz = R40_CORE_HZ;
+static uint32_t ready_cycle, last_receive_cycle, idle_flags, clock_hz = AT32_CORE_HZ;
 static uint8_t tx[6], reply[4], registers[256];
 static unsigned fault, fault_byte, drop_config_address = UINT_MAX;
 static bool clock_stopped, power_off = true;
@@ -529,7 +529,7 @@ static void test_faults(void)
     make_reply(0x123456U, 0U);
     assert(BspEncoder_Begin() == BSP_OK);
     (void)BspEncoder_BeginReadback();
-    sim_dwt.CYCCNT += R40_CORE_HZ / 40000U;
+    sim_dwt.CYCCNT += AT32_CORE_HZ / 40000U;
 #if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
     assert(BspEncoder_Complete(&sample) == BSP_OK);
 #else

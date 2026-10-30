@@ -1,6 +1,6 @@
 # 核心工程通信分层
 
-简化后的命令注册与回复流程见[简化设计](../protocols/yg_protocol_simplification_design_v1.md)。协议格式、命令清单与消息流程统一见 [yg_protocol 通信协议与软件设计](../protocols/README.md)。2026-10-26 的硬件实现已由共用 `bsp_can.c` 管理发送跟踪与恢复协调，具体 MCU 操作位于 `bsp/mcu/*/can.c`，详见[共用 BSP](platform_interface_implementations_v1.md)。
+简化后的命令注册与回复流程见[简化设计](../protocols/yg_protocol_simplification_design_v1.md)。协议格式、命令清单与消息流程统一见 [yg_protocol 通信协议与软件设计](../protocols/README.md)。当前 CAN 的初始化、收发、DLC换算与中断直接位于 `bsp/mcu/*/can.c`，详见[共用 BSP](platform_interface_implementations_v1.md)。
 
 更新：2026-10-26。按当前APP/Loader实现核对；两端共用yg_protocol纯codec。
 当前链路为CAN FD：29位扩展ID、FD+BRS、1M/5M；不兼容旧YI、UART或USB服务。

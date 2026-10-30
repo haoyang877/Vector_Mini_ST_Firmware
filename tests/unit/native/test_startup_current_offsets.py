@@ -26,9 +26,7 @@ def main() -> None:
         production += "static volatile uint32_t s_status_revision;\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n"
-    production += (
-        "#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n#define OVERCURRENT_CONFIRM_CYCLES 5U\n"
-    )
+    production += "#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
     production += function_source(sensing, "MotorCurrent_Update")
     for name in (

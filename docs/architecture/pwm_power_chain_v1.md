@@ -1,5 +1,7 @@
 # 双板PWM与功率输出链路 v1
 
+最新实现：PWM初始化、占空比换算、寄存器写入和启停都在各MCU的pwm.c，独立公共源文件已删除；下文旧阶段状态不代表当前实现。
+
 更新：2026-10-29。公开契约见[bsp_pwm.h](../../firmware/platform/bsp/include/bsp_pwm.h)。
 
 ## 职责

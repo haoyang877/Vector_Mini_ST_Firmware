@@ -29,7 +29,7 @@ class PlatformLayoutTests(unittest.TestCase):
             '#error "Unknown BSP board"', 1
         )[0]
         self.assertNotRegex(
-            boards, r"BSP_REQUIRED_|R40_APP_(?:PHASE_LOCK|BOUNDED_TEST)|PARAM_MOTOR_THERMAL_"
+            boards, r"BSP_REQUIRED_|AT32_APP_(?:PHASE_LOCK|BOUNDED_TEST)|PARAM_MOTOR_THERMAL_"
         )
         app = (config / "application_config.h").read_text(encoding="utf8")
         self.assertIn("Required BSP feature disabled", app)
@@ -101,19 +101,15 @@ class PlatformLayoutTests(unittest.TestCase):
 
     def test_direct_queries_have_no_common_forwarder(self):
         """查询仍由原硬件所有者实现，不重复公共状态和保护逻辑。"""
-        common_adc = (PLATFORM / "bsp/bsp_adc.c").read_text(encoding="utf8")
-        common_pwm = (PLATFORM / "bsp/bsp_pwm.c").read_text(encoding="utf8")
-        self.assertNotIn("bool Adc_IsHealthy(void)", common_adc)
-        self.assertNotIn("bool BspPwm_ArePhasesDisabled(void)", common_pwm)
+        self.assertFalse((PLATFORM / "bsp/bsp_adc.c").exists())
+        self.assertFalse((PLATFORM / "bsp/bsp_pwm.c").exists())
         for board in ("at32f456", "stm32g4"):
             mcu = PLATFORM / "bsp/mcu" / board
-            self.assertIn(
-                "bool Adc_IsHealthy(void)",
-                (mcu / "adc.c").read_text(encoding="utf8"),
-            )
-            self.assertIn(
-                "bool BspPwm_ArePhasesDisabled(void)", (mcu / "pwm.c").read_text(encoding="utf8")
-            )
+            adc = (mcu / "adc.c").read_text(encoding="utf8")
+            pwm = (mcu / "pwm.c").read_text(encoding="utf8")
+            self.assertIn("float BspAdc_ReadChannel(", adc)
+            self.assertIn("bool BspPwm_ArePhasesDisabled(void)", pwm)
+            self.assertIn("void BspPwm_SetDuty(", pwm)
 
     def test_bsp_does_not_dispatch_application_or_protocol(self):
         for p in (PLATFORM / "bsp").rglob("*.[ch]"):
@@ -130,12 +126,11 @@ class PlatformLayoutTests(unittest.TestCase):
             "adc_sampling_storage.c",
             "system_setup.h",
             "system_setup.c",
-            "r40_indicator.h",
         ):
             self.assertFalse((mcu / name).exists(), name)
         adc = (mcu / "adc.c").read_text(encoding="utf8")
         self.assertNotIn("AdcSamplingState", adc)
-        self.assertNotIn("R40_KEIL_OPENLOOP", adc)
+        self.assertNotIn("AT32_KEIL_OPENLOOP", adc)
         self.assertNotRegex(adc, r"return\s+AdcSampling_\w+\(&s_sampling")
         self.assertNotIn("gpio_pin_mux_config", (mcu / "system.c").read_text(encoding="utf8"))
         self.assertIn("McuPwm_PreparePins", (mcu / "pwm.c").read_text(encoding="utf8"))

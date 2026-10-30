@@ -1,5 +1,5 @@
 #include "yg_protocol_status_adapter.h"
-#include "board_config.h"
+#include "application_config.h"
 #if BSP_SUPPORTED_BUS_CURRENT
 #include "bus_current_feedback.h"
 #endif

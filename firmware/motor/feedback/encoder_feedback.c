@@ -1,6 +1,5 @@
 #include "encoder_feedback.h"
 
-#include <limits.h>
 #include <string.h>
 #include "application_config.h"
 #include "bsp_system.h"
@@ -17,93 +16,6 @@
 #define ENCODER_PLL_OMEGA_MAX_RAD_S           2000.0f
 #define ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S  0.05f
 // clang-format on
-
-static void encoder_mark_read_status(EncoderState *encoder, EncoderReadStatus status)
-{
-    encoder->read_status = status;
-    if (status == ENCODER_READ_OK)
-    {
-        encoder->bad_frame_streak = 0U;
-        return;
-    }
-
-    encoder->read_status_latched = status;
-    encoder->read_error_count++;
-    if (encoder->bad_frame_streak < UINT16_MAX)
-    {
-        encoder->bad_frame_streak++;
-    }
-}
-
-/* 非阻塞发起一次传感器采样；总线异常时保留同步兜底路径。
- * 输入：无（单板传感器通道）。
- * 返回：已发起 true；总线未就绪 false，此时调用方仍须调用
- *       Encoder_CompleteSample(..., false) 走同步兜底完成本帧。
- * 仅 20 kHz 快环调用；两次调用之间禁止访问传感器总线。 */
-bool Encoder_BeginSample(void)
-{
-    return BspEncoder_Begin() == BSP_OK;
-}
-
-uint8_t Encoder_BeginReadback(bool sample_started)
-{
-    if (!sample_started)
-    {
-        return 0U;
-    }
-    (void)BspEncoder_BeginReadback();
-    return 1U;
-}
-
-/* 通道状态映射到既有对外读取状态；旧枚举保留以兼容遥测。
- * 输入：平台层 BspEncoderStatus；返回：本层 EncoderReadStatus：
- * 帧错误->CRC_MISMATCH、传感器故障->TLE_SYSTEM_ERROR、总线超时/其他->SPI_TIMEOUT。 */
-static EncoderReadStatus encoder_map_sensor_status(BspResult status)
-{
-    switch (status)
-    {
-    case BSP_CRC_ERROR:
-    case BSP_FRAME_ERROR:
-        return ENCODER_READ_CRC_MISMATCH;
-    case BSP_SENSOR_FAULT:
-        return ENCODER_READ_TLE_SYSTEM_ERROR;
-    case BSP_TIMEOUT:
-    default:
-        return ENCODER_READ_SPI_TIMEOUT;
-    }
-}
-
-/* 采样一帧并取出归一化 Q15 角度；失败时登记映射后的读取状态。
- * 输入：encoder 状态归属；raw_q15 输出参数，仅成功时写入单圈角 Q15；
- *       sample_stage为本拍采样/读回的阶段，0时驱动同步读取。
- * 返回：成功 true（角度已写入）；失败 false（角度未写入）。
- * 成功时缓存 frame_word/safety_word 供诊断，遗留 CRC 字段清零。 */
-static bool encoder_read_frame(EncoderState *encoder, uint16_t *raw_q15, uint8_t sample_stage)
-{
-    BspEncoderSample sample;
-    BspResult result = sample_stage != 0U ? BspEncoder_Complete(&sample) : BSP_NOT_READY;
-    if (result != BSP_OK)
-    {
-        encoder_mark_read_status(encoder, encoder_map_sensor_status(result));
-        return false;
-    }
-    BspEncoderDiagnostics diagnostics;
-    if (BspEncoder_ReadDiagnostics(&diagnostics) == BSP_OK && diagnostics.sample_result == BSP_OK &&
-        diagnostics.sample_sequence == sample.sequence)
-    {
-        encoder->frame_word = (diagnostics.valid_mask & BSP_ENCODER_DIAG_FRAME_VALID) != 0U
-                                  ? diagnostics.frame_word
-                                  : 0U;
-        encoder->safety_word = (diagnostics.valid_mask & BSP_ENCODER_DIAG_SAFETY_VALID) != 0U
-                                   ? diagnostics.safety_word
-                                   : 0U;
-    }
-    encoder->crc_received = 0U;
-    encoder->crc_calculated = 0U;
-    *raw_q15 = sample.angle_counts;
-    encoder_mark_read_status(encoder, ENCODER_READ_OK);
-    return true;
-}
 
 /* 按方向配置取反单圈角度。
  * 输入：calibration（读 reverse）、raw_q15 原始单圈角。
@@ -337,10 +249,9 @@ void Encoder_SetReverse(EncoderCalibration *calibration, EncoderState *encoder, 
     BspSystem_ExitControlCritical(primask);
 }
 
-/* 上电初始化编码器状态与传感器通道。
+/* 上电初始化编码器反馈。
  * 输入：calibration、encoder；校准须在调用前由参数服务填充；无返回值。
- * 方向值归一化为 0/1；清空快/慢/诊断状态；复位速度窗口；调用 BspEncoderFeedback_Init()。
- * SPI 初始化失败走致命错误路径，不返回。 */
+ * 方向值归一化为 0/1；清空快/慢计算状态并复位速度窗口。 */
 void Encoder_InitFeedback(EncoderCalibration *calibration, EncoderState *encoder)
 {
     calibration->reverse = calibration->reverse != 0U ? 1U : 0U;
@@ -357,29 +268,18 @@ void Encoder_InitFeedback(EncoderCalibration *calibration, EncoderState *encoder
     encoder->slow_sample_epoch = 0U;
     encoder->rebase_requested = false;
     encoder->zero_requested = false;
-    encoder->read_status = ENCODER_READ_OK;
-    encoder->read_status_latched = ENCODER_READ_OK;
-    encoder->frame_word = 0U;
-    encoder->safety_word = 0U;
-    encoder->crc_received = 0U;
-    encoder->crc_calculated = 0U;
-    encoder->crc_error_count = 0U;
-    encoder->read_error_count = 0U;
-    encoder->bad_frame_streak = 0U;
     encoder_reset_velocity_estimate(encoder);
 }
 
-/* 判断编码器是否在线。
- * 输入：encoder；返回：已有有效样本且连续坏帧 < ENCODER_BAD_FRAME_OFFLINE_COUNT
- * （20 kHz 下约 5 ms）时为 true。 */
+/* 判断是否已取得首个角度样本，不提供硬件诊断。 */
 bool Encoder_IsOnline(const EncoderState *encoder)
 {
-    return encoder->has_valid_sample && encoder->bad_frame_streak < ENCODER_BAD_FRAME_OFFLINE_COUNT;
+    return encoder->has_valid_sample;
 }
 
 /* 写入指定的 Q15 电零位并置位电零位标定标志。
  * 输入：calibration、encoder、electrical_zero_q15（Q15，0..65535）。
- * 返回：设置成功 true；编码器离线 false 且不改写。 */
+ * 返回：设置成功 true；尚无角度样本时 false 且不改写。 */
 bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
                                   EncoderState *encoder,
                                   uint16_t electrical_zero_q15)
@@ -395,14 +295,14 @@ bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
 }
 
 /* 以当前线性化角度作为电零位（mode 15 电零位标定的落点）。
- * 输入：encoder；返回：设置成功 true；编码器离线 false 且不改写。 */
+ * 输入：encoder；返回：设置成功 true；尚无角度样本时 false 且不改写。 */
 bool Encoder_SetElectricalZero(EncoderCalibration *calibration, EncoderState *encoder)
 {
     return Encoder_SetElectricalZeroQ15(calibration, encoder, encoder->linearized_q15);
 }
 
 /* 以当前线性化角度作为机械零位（位置原点）。
- * 输入：encoder；返回：设置成功 true；编码器离线 false 且不改写。
+ * 输入：encoder；返回：设置成功 true；尚无角度样本时 false 且不改写。
  * 零位在下一 2 kHz 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零；
  * 只影响位置原点，不等价于电零位标定。临界区内写入并置 zero_requested。 */
 bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *encoder)
@@ -425,15 +325,13 @@ bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *en
 
 /* 完成一帧读取：方向/LUT 校正、电角度与观测器速度更新（20 kHz 快路径）。
  * 输入：configuration（读 motor_pole_pairs，<= 0 按 1 处理）、encoder、
- *       sample_stage为本拍BeginSample的0/1返回值或BeginReadback阶段；无返回值。
+ *       直接读取已经发起的传输；无返回值。
  * 流程：取帧 -> 方向校正 -> LUT 线性化 -> 更新 raw/directed/linearized
  *       -> 消费 velocity_restart_requested（以当前角重建观测器）
  *       -> 首个有效帧置 has_valid_sample 并请求重定多圈基准（由慢估计执行）
  *       -> sample_epoch++ -> 更新 electrical_angle_rad 与观测器速度。
- * 取帧失败时仅登记读取状态，electrical_angle_rad 与速度保持旧值；本函数不写多圈/机械角。 */
-void Encoder_CompleteSample(const MotorConfiguration *configuration,
-                            EncoderState *encoder,
-                            uint8_t sample_stage)
+ * 两板均不检查采集帧错误，本函数不写多圈/机械角。 */
+void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encoder)
 {
     const EncoderCalibration *calibration = &configuration->device.encoder;
     uint16_t raw_q15;
@@ -441,10 +339,7 @@ void Encoder_CompleteSample(const MotorConfiguration *configuration,
     uint16_t linearized_q15;
     uint32_t pole_pairs;
 
-    if (!encoder_read_frame(encoder, &raw_q15, sample_stage))
-    {
-        return;
-    }
+    raw_q15 = BspEncoder_ReadAngle();
 
     directed_q15 = encoder_apply_direction_q15(calibration, raw_q15);
     linearized_q15 = encoder_apply_linearization_q15(calibration, directed_q15);
@@ -507,15 +402,6 @@ void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, Encoder
         (_2PI / (float)ENCODER_Q15_CPR);
 }
 
-/* 同步读取一帧角度并更新电角度（20 kHz 快路径兼容入口）。
- * 输入：configuration、encoder；无返回值。
- * 等价于 Encoder_CompleteSample(..., false)；新代码使用 BeginSample/CompleteSample
- * 分离采样，以覆盖传感器 SPI 事务的整拍时延。 */
-void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encoder)
-{
-    Encoder_CompleteSample(configuration, encoder, false);
-}
-
 /* 读取电角度。输入：encoder；返回：electrical_angle_rad，单位 rad，[0, 2π)，20 kHz 每帧更新。 */
 float Encoder_GetElecPhase(const EncoderState *encoder)
 {
@@ -558,13 +444,6 @@ float Encoder_GetCprRatio(const EncoderState *encoder)
 uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration)
 {
     return calibration->calib_flag;
-}
-
-/* 读取连续坏帧计数。输入：encoder；返回：自最近一次有效帧以来的连续坏帧数，
- * 在 UINT16_MAX 处饱和（离线判定见 Encoder_IsOnline）。 */
-uint16_t Encoder_GetBadFrameStreak(const EncoderState *encoder)
-{
-    return encoder->bad_frame_streak;
 }
 
 /* 读取编码器方向配置。输入：calibration；返回：1 表示反向，0 表示正向。 */

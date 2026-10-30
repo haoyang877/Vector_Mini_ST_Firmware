@@ -1,7 +1,7 @@
 /* 独立包含所有公共硬件契约；能力描述必须与实际编译配置一一对应。 */
 #include <assert.h>
 #include "application_config.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "bsp_encoder.h"
 #include "bsp_pwm.h"
 #include "bsp_can.h"

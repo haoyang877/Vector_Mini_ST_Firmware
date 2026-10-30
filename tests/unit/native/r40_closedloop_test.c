@@ -63,20 +63,20 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode code)
     motor->fault_code = code;
 }
 
-static void initialize(R40ClBench *bench, R40OlModel *guard)
+static void initialize(AT32ClBench *bench, AT32OlModel *guard)
 {
-    R40Cl_Init(bench);
-    R40Ol_Init(guard);
+    AT32Cl_Init(bench);
+    AT32Ol_Init(guard);
     uint16_t raw[4] = {8192U, 8192U, 8192U, 4704U};
     for (uint32_t i = 0U; i < 22048U; ++i)
     {
-        R40Ol_Step(guard, raw, true, true, i / 20U);
+        AT32Ol_Step(guard, raw, true, true, i / 20U);
         s_angle = 10000U;
         uint16_t angle;
-        assert(R40Cl_ReadEncoder(bench, 1U, &angle));
-        R40Cl_Step(bench, guard, 10000U);
+        assert(AT32Cl_ReadEncoder(bench, 1U, &angle));
+        AT32Cl_Step(bench, guard, 10000U);
     }
-    assert(guard->state == R40_OL_READY);
+    assert(guard->state == AT32_OL_READY);
     for (unsigned i = 0U; i < 3U; ++i)
     {
         s_current[i] = 0.0f;
@@ -84,9 +84,9 @@ static void initialize(R40ClBench *bench, R40OlModel *guard)
     }
 }
 
-static void run(R40ClBench *bench, R40OlModel *guard, unsigned mode)
+static void run(AT32ClBench *bench, AT32OlModel *guard, unsigned mode)
 {
-    assert(R40Cl_Begin(bench, guard, mode, 2000U));
+    assert(AT32Cl_Begin(bench, guard, mode, 2000U));
     double rotor_phase = 0.0, previous_phase = 0.0;
     float position_rad = 0.0f, speed_rad_s = 0.0f;
     for (uint32_t i = 0U; i < 210000U; ++i)
@@ -94,14 +94,14 @@ static void run(R40ClBench *bench, R40OlModel *guard, unsigned mode)
         uint32_t ms = 2000U + i / 20U;
         if (i % 1000U == 0U)
         {
-            R40Ol_Heartbeat(guard, ms);
+            AT32Ol_Heartbeat(guard, ms);
         }
         float mean = (s_duty[0] + s_duty[1] + s_duty[2]) / 3.0f;
         uint16_t raw[4] = {0U, 0U, 0U, 4704U};
         for (unsigned p = 0U; p < 3U; ++p)
         {
             float voltage =
-                guard->state == R40_OL_RUNNING ? (s_duty[p] - mean) * guard->bus_v : 0.0f;
+                guard->state == AT32_OL_RUNNING ? (s_duty[p] - mean) * guard->bus_v : 0.0f;
             s_current[p] += (voltage - 0.55f * s_current[p]) * 0.00005f / 0.0001425f;
             raw[p] = (uint16_t)lroundf(8192.0f + s_current[p] * 397.090909f);
         }
@@ -139,12 +139,12 @@ static void run(R40ClBench *bench, R40OlModel *guard, unsigned mode)
             previous_phase = bench->telemetry.phase_rad;
             angle = (uint16_t)(10000 + lround(rotor_phase * 65536.0 / (14.0 * 6.283185307)));
         }
-        R40Ol_Step(guard, raw, true, true, ms);
+        AT32Ol_Step(guard, raw, true, true, ms);
         s_angle = angle;
-        assert(R40Cl_ReadEncoder(bench, 1U, &angle));
-        R40Cl_Step(bench, guard, angle);
+        assert(AT32Cl_ReadEncoder(bench, 1U, &angle));
+        AT32Cl_Step(bench, guard, angle);
         assert(bench->telemetry.phase_rad >= 0.0f && bench->telemetry.phase_rad < 6.283185307f);
-        if (guard->state == R40_OL_DONE || guard->state == R40_OL_FAULT)
+        if (guard->state == AT32_OL_DONE || guard->state == AT32_OL_FAULT)
         {
             break;
         }
@@ -153,13 +153,13 @@ static void run(R40ClBench *bench, R40OlModel *guard, unsigned mode)
 
 int main(void)
 {
-    R40ClBench bench;
-    R40OlModel guard;
+    AT32ClBench bench;
+    AT32OlModel guard;
     initialize(&bench, &guard);
-    assert(!R40Cl_Begin(&bench, &guard, 2U, 2000U));
-    assert(!R40Cl_Begin(&bench, &guard, 0U, 2000U));
+    assert(!AT32Cl_Begin(&bench, &guard, 2U, 2000U));
+    assert(!AT32Cl_Begin(&bench, &guard, 0U, 2000U));
     run(&bench, &guard, 1U);
-    assert(guard.state == R40_OL_DONE && bench.telemetry.passed_mask == 1U);
+    assert(guard.state == AT32_OL_DONE && bench.telemetry.passed_mask == 1U);
     assert(bench.telemetry.tracking_mae_a < 0.06f);
     assert(g_closedloop_motion_samples >= 1999U && g_closedloop_motion_samples <= 2000U);
     /* 实际RL电流响应要跟上三个频段，不能仅以参考发生器存在判为通过。 */
@@ -181,9 +181,9 @@ int main(void)
         assert(measured_square < 1.1f * reference_square);
         assert(error_square < 0.15f * reference_square);
     }
-    assert(!R40Cl_Begin(&bench, &guard, 1U, 2000U));
+    assert(!AT32Cl_Begin(&bench, &guard, 1U, 2000U));
     run(&bench, &guard, 2U);
-    assert(guard.state == R40_OL_DONE && bench.telemetry.passed_mask == 3U);
+    assert(guard.state == AT32_OL_DONE && bench.telemetry.passed_mask == 3U);
     assert(bench.telemetry.direction == 1);
     fprintf(stderr,
             "calibration zero %.3f travel %.3f return %.3f\n",
@@ -194,14 +194,14 @@ int main(void)
     assert(fabsf(bench.telemetry.calibration_travel_counts - 65536.0f) < 2.0f);
     s_voltage_stalled = true;
     run(&bench, &guard, 3U);
-    assert(guard.state == R40_OL_FAULT && bench.telemetry.failure == 5U);
-    assert(!R40Cl_Begin(&bench, &guard, 4U, 2000U));
+    assert(guard.state == AT32_OL_FAULT && bench.telemetry.failure == 5U);
+    assert(!AT32Cl_Begin(&bench, &guard, 4U, 2000U));
     s_voltage_stalled = false;
     initialize(&bench, &guard);
     run(&bench, &guard, 1U);
     run(&bench, &guard, 2U);
     run(&bench, &guard, 3U);
-    assert(guard.state == R40_OL_DONE && bench.telemetry.passed_mask == 7U);
+    assert(guard.state == AT32_OL_DONE && bench.telemetry.passed_mask == 7U);
     /* 独立1rpm反馈转过5度后结束，明显早于10秒硬时限。 */
     assert(bench.telemetry.elapsed_ms < 1000U &&
            bench.position_counts - bench.stage_start_counts >= 910);
@@ -211,14 +211,14 @@ int main(void)
     for (unsigned i = 0U; i < sizeof(invalid_speeds) / sizeof(invalid_speeds[0]); ++i)
     {
         bench.speed_reference_rpm = invalid_speeds[i];
-        assert(!R40Cl_Begin(&bench, &guard, 4U, 2000U));
-        assert(guard.state == R40_OL_DONE && bench.telemetry.passed_mask == 7U);
+        assert(!AT32Cl_Begin(&bench, &guard, 4U, 2000U));
+        assert(guard.state == AT32_OL_DONE && bench.telemetry.passed_mask == 7U);
     }
     bench.speed_reference_rpm = 20.0f;
     /* 不动的编码器不能通过速度验收，即使电流闭环跟踪完美。 */
     run(&bench, &guard, 4U);
-    assert(guard.state == R40_OL_FAULT && bench.telemetry.failure == 4U);
-    assert(!R40Cl_Begin(&bench, &guard, 4U, 2000U));
+    assert(guard.state == AT32_OL_FAULT && bench.telemetry.failure == 4U);
+    assert(!AT32Cl_Begin(&bench, &guard, 4U, 2000U));
     for (unsigned gain = 300U; gain <= 900U; gain += 300U)
     {
         initialize(&bench, &guard);
@@ -237,7 +237,7 @@ int main(void)
                gain,
                bench.telemetry.speed_mae_rpm,
                bench.telemetry.failure);
-        assert(guard.state == R40_OL_DONE && bench.telemetry.passed_mask == 15U);
+        assert(guard.state == AT32_OL_DONE && bench.telemetry.passed_mask == 15U);
     }
     initialize(&bench, &guard);
     run(&bench, &guard, 1U);
@@ -245,7 +245,7 @@ int main(void)
     run(&bench, &guard, 3U);
     s_periodic_disturbance_a = 0.0f;
     run(&bench, &guard, 4U);
-    assert(guard.state == R40_OL_DONE && bench.telemetry.passed_mask == 15U);
+    assert(guard.state == AT32_OL_DONE && bench.telemetry.passed_mask == 15U);
     s_periodic_disturbance_a = 0.15f;
     initialize(&bench, &guard);
     run(&bench, &guard, 1U);
@@ -253,27 +253,27 @@ int main(void)
     run(&bench, &guard, 3U);
     run(&bench, &guard, 4U);
     /* 强扰动按同一误差线判定，不能因候选参数改变而误报通过。 */
-    if (guard.state == R40_OL_DONE)
+    if (guard.state == AT32_OL_DONE)
     {
         assert(bench.telemetry.speed_mae_rpm < 1.5f && bench.telemetry.passed_mask == 15U);
     }
     else
     {
-        assert(guard.state == R40_OL_FAULT && bench.telemetry.failure == 4U &&
+        assert(guard.state == AT32_OL_FAULT && bench.telemetry.failure == 4U &&
                bench.telemetry.speed_mae_rpm >= 1.5f);
     }
     s_mechanical_gain = 0.0f;
     initialize(&bench, &guard);
-    assert(R40Cl_Begin(&bench, &guard, 1U, 2000U));
+    assert(AT32Cl_Begin(&bench, &guard, 1U, 2000U));
     uint16_t high[4] = {9500U, 8192U, 8192U, 4704U};
-    R40Ol_Step(&guard, high, true, true, 2001U);
-    assert(guard.state == R40_OL_FAULT && guard.fault == R40_OL_OVERCURRENT);
-    assert(!R40Cl_Begin(&bench, &guard, 1U, 2002U));
+    AT32Ol_Step(&guard, high, true, true, 2001U);
+    assert(guard.state == AT32_OL_FAULT && guard.fault == AT32_OL_OVERCURRENT);
+    assert(!AT32Cl_Begin(&bench, &guard, 1U, 2002U));
     initialize(&bench, &guard);
-    assert(R40Cl_Begin(&bench, &guard, 1U, 2000U));
+    assert(AT32Cl_Begin(&bench, &guard, 1U, 2000U));
     uint16_t zero[4] = {8192U, 8192U, 8192U, 4704U};
-    R40Ol_Step(&guard, zero, true, true, 2300U);
-    assert(guard.state == R40_OL_FAULT && guard.fault == R40_OL_LEASE_EXPIRED);
+    AT32Ol_Step(&guard, zero, true, true, 2300U);
+    assert(guard.state == AT32_OL_FAULT && guard.fault == AT32_OL_LEASE_EXPIRED);
     puts("PASS R40 closed-loop sequencing, real PI/RL plant, angle calibration, stalled speed "
          "rejection, 3A and lease stop");
     return 0;

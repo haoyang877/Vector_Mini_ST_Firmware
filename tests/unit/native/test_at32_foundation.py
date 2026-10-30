@@ -25,8 +25,8 @@ def main() -> int:
     cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     for flags in (
         [],
-        ["-DR40_APP_PHASE_LOCK=1", "-DBSP_PWM_HARD_LOCK=1"],
-        ["-DR40_APP_BOUNDED_TEST=1"],
+        ["-DAT32_APP_PHASE_LOCK=1", "-DBSP_PWM_HARD_LOCK=1"],
+        ["-DAT32_APP_BOUNDED_TEST=1"],
     ):
         subprocess.run(
             cc
@@ -46,10 +46,10 @@ def main() -> int:
             check=True,
         )
     for flags in (
-        ["-DR40_APP_PHASE_LOCK=1", "-DR40_APP_BOUNDED_TEST=1"],
-        ["-DR40_APP_PHASE_LOCK=1", "-DR40_APP_BOUNDED_TEST=1", "-DBSP_PWM_HARD_LOCK=1"],
-        ["-DR40_APP_BOUNDED_TEST=1", "-DBSP_PWM_HARD_LOCK=1"],
-        ["-DR40_APP_PHASE_LOCK=1"],
+        ["-DAT32_APP_PHASE_LOCK=1", "-DAT32_APP_BOUNDED_TEST=1"],
+        ["-DAT32_APP_PHASE_LOCK=1", "-DAT32_APP_BOUNDED_TEST=1", "-DBSP_PWM_HARD_LOCK=1"],
+        ["-DAT32_APP_BOUNDED_TEST=1", "-DBSP_PWM_HARD_LOCK=1"],
+        ["-DAT32_APP_PHASE_LOCK=1"],
         ["-DBSP_PWM_HARD_LOCK=1"],
     ):
         rejected = subprocess.run(
@@ -136,14 +136,13 @@ def main() -> int:
         command += ["-I", str(include)]
     sources = [
         base / "pwm.c",
-        ROOT / "firmware/platform/bsp/bsp_pwm.c",
         base / "system.c",
         native / "r40_foundation_test.c",
     ]
     subprocess.run(command + [str(p) for p in sources] + ["-o", str(executable)], check=True)
     for failure in range(6):
         subprocess.run([str(executable), str(failure)], check=True)
-    pwm_runtime = (ROOT / "firmware/platform/bsp/bsp_pwm.c").read_text(encoding="utf8")
+    pwm_runtime = (base / "pwm.c").read_text(encoding="utf8")
     pwm_backend_source = (base / "pwm.c").read_text(encoding="utf8")
     compare_start = pwm_backend_source.index("#if BSP_PWM_PHASE_A_CHANNEL")
     compare_end = pwm_backend_source.index("void McuPwm_DisableOutputs", compare_start)
@@ -203,10 +202,10 @@ def main() -> int:
         subprocess.run(
             command[: command.index("-I")]
             + [
-                f"-DR40_OL_VOLTAGE_V={voltage}f",
-                f"-DR40_OL_DURATION_MS={duration}U",
-                f"-DR40_OL_CURRENT_LIMIT_A={current}f",
-                f"-DR40_OL_ELECTRICAL_HZ={frequency}f",
+                f"-DAT32_OL_VOLTAGE_V={voltage}f",
+                f"-DAT32_OL_DURATION_MS={duration}U",
+                f"-DAT32_OL_CURRENT_LIMIT_A={current}f",
+                f"-DAT32_OL_ELECTRICAL_HZ={frequency}f",
                 str(ROOT / "tests/bench/at32f456/openloop_model.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 str(native / "r40_openloop_test.c"),
@@ -225,9 +224,9 @@ def main() -> int:
         + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
         + ["-I", str(ROOT / "tests/bench/at32f456")]
         + [
-            "-DR40_OL_CURRENT_LIMIT_A=3.0f",
-            "-DR40_OL_DURATION_MS=10000U",
-            "-DR40_CLOSEDLOOP_TEST=1",
+            "-DAT32_OL_CURRENT_LIMIT_A=3.0f",
+            "-DAT32_OL_DURATION_MS=10000U",
+            "-DAT32_CLOSEDLOOP_TEST=1",
         ]
         + [
             str(path)
@@ -255,10 +254,10 @@ def main() -> int:
         + [
             "-I",
             str(ROOT / "tests/bench/at32f456"),
-            "-DR40_OL_VOLTAGE_V=2.0f",
-            "-DR40_OL_ELECTRICAL_HZ=20.0f",
-            "-DR40_OL_CURRENT_LIMIT_A=3.0f",
-            "-DR40_OL_DURATION_MS=10000U",
+            "-DAT32_OL_VOLTAGE_V=2.0f",
+            "-DAT32_OL_ELECTRICAL_HZ=20.0f",
+            "-DAT32_OL_CURRENT_LIMIT_A=3.0f",
+            "-DAT32_OL_DURATION_MS=10000U",
             str(ROOT / "tests/bench/at32f456/openloop_keil_control.c"),
             str(ROOT / "tests/bench/at32f456/openloop_model.c"),
             str(motor / "math/control_math.c"),
@@ -325,7 +324,7 @@ def main() -> int:
     subprocess.run([str(app_rtt_executable)], check=True)
     pwm_fixture = args.out.resolve() / "pwm_initialized.c"
     pwm_fixture.write_text(
-        (ROOT / "firmware/platform/bsp/bsp_pwm.c")
+        (base / "pwm.c")
         .read_text(encoding="utf8")
         .replace(
             "static bool s_initialized;",
@@ -337,7 +336,7 @@ def main() -> int:
     subprocess.run(
         command[: command.index("-I")]
         + [
-            "-DR40_APP_BOUNDED_TEST=1",
+            "-DAT32_APP_BOUNDED_TEST=1",
             "-I",
             str(ROOT / "firmware/app/runtime"),
             "-I",
@@ -367,24 +366,6 @@ def main() -> int:
     subprocess.run([str(window_executable)], check=True)
     for name, includes, sources, flags in (
         (
-            "indicator",
-            (
-                native / "r40_indicator_fake",
-                base,
-                ROOT / "firmware/platform/bsp/include",
-                ROOT / "firmware/config",
-                ROOT / "firmware/config",
-                ROOT / "firmware/platform/bsp",
-                ROOT / "firmware/platform/devices",
-            ),
-            (
-                base / "led.c",
-                ROOT / "firmware/platform/bsp/bsp_led.c",
-                native / "r40_indicator_test.c",
-            ),
-            [],
-        ),
-        (
             "app_lock",
             (
                 native / "r40_fake",
@@ -402,7 +383,7 @@ def main() -> int:
                 native / "r40_app_lock_test.c",
                 native / "r40_fake/pwm_init_unexpected.c",
             ),
-            ["-DR40_APP_PHASE_LOCK=1", "-DBSP_PWM_HARD_LOCK=1"],
+            ["-DAT32_APP_PHASE_LOCK=1", "-DBSP_PWM_HARD_LOCK=1"],
         ),
     ):
         cmd = command[: command.index("-I")] + flags
@@ -455,7 +436,7 @@ def main() -> int:
     entry = (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf8")
     fixture = (native / "r40_current_pulse_test.c").read_text(encoding="utf8")
     contract_source = args.out.resolve() / "power_contract_fixture.c"
-    pwm_source = (ROOT / "firmware/platform/bsp/bsp_pwm.c").read_text(encoding="utf8")
+    pwm_source = (base / "pwm.c").read_text(encoding="utf8")
     snapshot_source = (
         (
             function_source((base / "pwm.c").read_text(encoding="utf8"), "McuPwm_ReadOutputs")
@@ -486,7 +467,7 @@ def main() -> int:
             + NATIVE_INCLUDE_FLAGS
             + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
             + [
-                f"-DR40_APP_BOUNDED_TEST={bounded}",
+                f"-DAT32_APP_BOUNDED_TEST={bounded}",
                 "-I",
                 str(base),
                 str(contract_source),

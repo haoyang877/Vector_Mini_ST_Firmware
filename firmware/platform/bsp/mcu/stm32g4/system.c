@@ -1,73 +1,18 @@
-#include "bsp_internal.h"
+#include "../../bsp_internal.h"
 #include "vector_mini_st_g431.h"
 #include <stddef.h>
 #include <string.h>
 #include "bsp_system.h"
 #include "main.h"
-#include "adc.h"
-#include "dma.h"
-#include "fdcan.h"
-#include "spi.h"
 #include "tim.h"
+#include "adc.h"
+#include "stm32g4xx_ll_adc.h"
 #include "gpio.h"
 #include "bsp.h"
 #include "boot_hw.h"
 #include "bsp_pwm.h"
 #include "bsp_can.h"
 #include "board_config.h"
-
-static bool s_microseconds_ready;
-static uint32_t s_cycle_anchor, s_cycle_remainder, s_microseconds, s_cycles_per_us;
-
-static void system_time_advance(void)
-{
-    if (!s_microseconds_ready)
-    {
-        return;
-    }
-    uint32_t cycles = DWT->CYCCNT;
-    uint32_t elapsed = cycles - s_cycle_anchor;
-    s_cycle_anchor = cycles;
-    s_microseconds += elapsed / s_cycles_per_us;
-    s_cycle_remainder += elapsed % s_cycles_per_us;
-    if (s_cycle_remainder >= s_cycles_per_us)
-    {
-        s_cycle_remainder -= s_cycles_per_us;
-        ++s_microseconds;
-    }
-}
-
-static void system_time_init(void)
-{
-    uint32_t key = BspSystem_EnterCritical();
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    s_cycles_per_us = BspSystem_CoreClockHz() / 1000000U;
-    s_microseconds = BspSystem_TimeMs() * 1000U;
-    s_cycle_anchor = DWT->CYCCNT;
-    s_cycle_remainder = 0U;
-    s_microseconds_ready = s_cycles_per_us != 0U;
-    BspSystem_ExitCritical(key);
-}
-
-uint32_t BspSystem_TimeUs(void)
-{
-    uint32_t key = BspSystem_EnterCritical();
-    system_time_advance();
-    uint32_t now_us = s_microseconds;
-    BspSystem_ExitCritical(key);
-    return now_us;
-}
-
-uint32_t BspSystem_CoreClockHz(void)
-{
-    return SystemCoreClock;
-}
-
-void BspSystem_Reset(void)
-{
-    NVIC_SystemReset();
-}
 
 uint32_t BspSystem_TimeMs(void)
 {
@@ -115,15 +60,6 @@ BspResult BspSystem_ReadIdentity(uint8_t record[64])
     return BSP_OK;
 }
 
-/* HAL弱钩子由本系统实现接管，只增加扩展时基维护，原毫秒步进不变。 */
-void HAL_IncTick(void)
-{
-    uint32_t key = BspSystem_EnterCritical();
-    uwTick += (uint32_t)uwTickFreq;
-    system_time_advance();
-    BspSystem_ExitCritical(key);
-}
-
 /* 启动状态只由本MCU实现持有；失败不允许同次启动重试。 */
 static unsigned s_startup_state;
 
@@ -168,6 +104,23 @@ static void system_clock_init(void)
     }
 }
 
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *timer)
+{
+    if (timer != &htim7)
+    {
+        return;
+    }
+    BspApp_OnControlTick();
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    /* 监督任务读完上一对TS/VREF后，再触发下一次转换。 */
+    if (!LL_ADC_INJ_IsConversionOngoing(ADC1))
+    {
+        ADC1->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
+        LL_ADC_INJ_StartConversion(ADC1);
+    }
+#endif
+}
+
 BspResult Bsp_Init(void)
 {
     if (s_startup_state != 0U)
@@ -180,35 +133,21 @@ BspResult Bsp_Init(void)
     HAL_Init();
     system_clock_init();
     MX_GPIO_Init();
-    MX_DMA_Init();
-    MX_ADC2_Init();
-    if (!Can_Init())
-    {
-        goto failed;
-    }
-    Pwm_Init();
-    MX_TIM2_Init();
+#if BSP_ENABLED_CAN
+    McuCan_Init();
+#endif
+    McuPwm_Init();
     MX_TIM7_Init();
-    Led_Init();
-    if (BSP_ENABLED_INTERNAL_ANALOG_SAMPLING)
-    {
-        MX_ADC1_Init();
-    }
-    MX_SPI1_Init();
-    MX_SPI2_Init();
     /* 原有预取必须先于App_Init启动采样，时钟和外设顺序保持不变。 */
     __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
 
-    if (!Adc_Init())
-    {
-        goto failed;
-    }
+    McuAdc_Init();
 
-    system_time_init();
-    if (!Flash_Init() || !Encoder_Init())
+    if (!Flash_Init())
     {
         goto failed;
     }
+    McuEncoder_Init();
     s_startup_state = 2U;
     return BSP_OK;
 failed:
@@ -224,7 +163,9 @@ BspResult Bsp_Start(void)
         return BSP_NOT_READY;
     }
     s_startup_state = 3U;
-    if (!Adc_Start() || HAL_TIM_Base_Start_IT(&htim7) != HAL_OK)
+    Adc_Start();
+    TIM1->CR1 |= TIM_CR1_CEN;
+    if (HAL_TIM_Base_Start_IT(&htim7) != HAL_OK)
     {
         goto failed;
     }
@@ -265,43 +206,6 @@ void assert_failed(uint8_t *file, uint32_t line)
     (void)line;
 }
 #endif
-
-void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
-
-{
-
-    if (hadc == &hadc2 && Adc_CompleteFast())
-
-    {
-
-        BspApp_OnFastSample();
-    }
-}
-
-void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
-
-{
-
-    if (hfdcan == &hfdcan1)
-
-    {
-
-        Can_OnReceiveInterrupt(BspApp_OnCanReceive, RxFifo0ITs);
-    }
-}
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-
-{
-
-    if (htim == (&htim7))
-
-    {
-
-        BspApp_OnControlTick();
-        Led_SupervisorTick();
-    }
-}
 
 /* ADC为0，载波/采样DMA为1；前台只与低频监督互斥。 */
 uint32_t BspSystem_EnterControlCritical(void)

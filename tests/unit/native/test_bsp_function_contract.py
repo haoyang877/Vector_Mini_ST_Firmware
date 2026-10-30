@@ -32,8 +32,8 @@ def main():
                 *(["-DBSP_ENABLED_MCU_TEMPERATURE=1"] if internal else []),
                 str(ROOT / "tests/unit/native/bsp_function_contract_test.c"),
                 *[
-                    str(ROOT / "firmware/platform/bsp" / name)
-                    for name in ("bsp_adc.c", "bsp_pwm.c", "bsp_uart.c")
+                    str(ROOT / "firmware/platform/bsp/mcu" / ("at32f456" if board == 2 else "stm32g4") / name)
+                    for name in ("adc.c", "pwm.c")
                 ],
                 "-lm",
                 "-o",

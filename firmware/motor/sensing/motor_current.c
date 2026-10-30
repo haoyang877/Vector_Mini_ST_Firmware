@@ -5,14 +5,11 @@
 
 #include "application_config.h"
 #include "motor_fault.h"
-#include "board_config.h"
 #include "bsp_adc.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
-#include "control_math.h"
 
 /* 相电流与上电零偏。 */
-#define OVERCURRENT_CONFIRM_CYCLES 5U
 #define CURRENT_OFFSET_MIN_COUNTS 1948.0f
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 
@@ -51,24 +48,17 @@ bool MotorCurrentOffsets_Sample(CurrentOffsetCalibration *calibration,
         fail_current_offset_calibration(calibration, motor_state);
         return false;
     }
-    BspAdcRawCurrent frame;
-    if (BspAdc_ReadRawCurrent(&frame) != BSP_OK ||
-        (frame.valid_mask & BSP_ADC_FAST_PHASE_CURRENT_VALID) == 0U)
-    {
-        fail_current_offset_calibration(calibration, motor_state);
-        return false;
-    }
     uint16_t raw[3];
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
-        if (!isfinite(frame.phase_counts[phase]) || frame.phase_counts[phase] < 0.0f ||
-            frame.phase_counts[phase] > CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
+        float counts = BspAdc_ReadRawChannel((BspAdcChannel)(BSP_ADC_PHASE_CURRENT_A + phase));
+        if (!isfinite(counts) || counts < 0.0f || counts > CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
         {
             fail_current_offset_calibration(calibration, motor_state);
             return false;
         }
         /* 保留原四次和的整数累加域，20k样本不会引入float累计舍入。 */
-        raw[phase] = (uint16_t)(frame.phase_counts[phase] * MOTOR_SENSING_ADC_SAMPLE_COUNT);
+        raw[phase] = (uint16_t)(counts * MOTOR_SENSING_ADC_SAMPLE_COUNT);
         if (raw[phase] > MOTOR_SENSING_ADC_SAMPLE_COUNT * CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS)
         {
             fail_current_offset_calibration(calibration, motor_state);
@@ -91,7 +81,7 @@ bool MotorCurrentOffsets_Finalize(CurrentOffsetCalibration *calibration,
     {
         return false;
     }
-    float scale = MOTOR_SENSING_ADC_SUM_TO_COUNTS / (float)calibration->sample_count;
+    float scale = BSP_ADC_SUM_TO_COUNTS / (float)calibration->sample_count;
     const float offsets[3] = {(float)calibration->phase_sum_raw[0] * scale,
                               (float)calibration->phase_sum_raw[1] * scale,
                               (float)calibration->phase_sum_raw[2] * scale};
@@ -105,13 +95,13 @@ bool MotorCurrentOffsets_Finalize(CurrentOffsetCalibration *calibration,
         }
     }
     uint32_t key = BspSystem_EnterCritical();
-    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE ||
-        BspAdc_SetPhaseOffsets(offsets) != BSP_OK)
+    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
     {
         fail_current_offset_calibration(calibration, motor_state);
         BspSystem_ExitCritical(key);
         return false;
     }
+    BspAdc_SetPhaseOffsets(offsets);
     configuration->device.phase_a_offset_counts = offsets[0];
     configuration->device.phase_b_offset_counts = offsets[1];
     configuration->device.phase_c_offset_counts = offsets[2];
@@ -120,51 +110,12 @@ bool MotorCurrentOffsets_Finalize(CurrentOffsetCalibration *calibration,
     return true;
 }
 
-/* 三相电流换算、零点偏置有效性与过流确认计数。 */
-void MotorCurrent_Update(const MotorConfiguration *configuration,
-                         MotorMeasurement *measurement,
-                         MotorControlState *motor_state,
-                         const BspAdcFastSample *sample)
+/* 三相电流搬运；不做零偏、过流或缺失判定。 */
+void MotorCurrent_Update(MotorMeasurement *measurement, const float phase_current_a[3])
 {
-    static uint8_t overcurrent_count;
-
-    if (!MotorCurrentOffsets_IsValid(configuration))
-    {
-        MotorFault_Report(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
-    }
-    else
-    {
-        if (sample == NULL || (sample->valid_mask & BSP_ADC_FAST_PHASE_CURRENT_VALID) == 0U)
-        {
-            measurement->phase_a_current_a = measurement->phase_b_current_a =
-                measurement->phase_c_current_a = NAN;
-            MotorFault_Report(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
-        }
-        else
-        {
-            measurement->phase_a_current_a = sample->phase_current_a[0];
-            measurement->phase_b_current_a = sample->phase_current_a[1];
-            measurement->phase_c_current_a = sample->phase_current_a[2];
-        }
-    }
-
-    if (Math_Abs(measurement->phase_a_current_a) > MOTOR_SENSING_OVERCURRENT_TRIP_A ||
-        Math_Abs(measurement->phase_b_current_a) > MOTOR_SENSING_OVERCURRENT_TRIP_A ||
-        Math_Abs(measurement->phase_c_current_a) > MOTOR_SENSING_OVERCURRENT_TRIP_A)
-    {
-        if (overcurrent_count < OVERCURRENT_CONFIRM_CYCLES)
-        {
-            overcurrent_count++;
-        }
-        if (overcurrent_count >= OVERCURRENT_CONFIRM_CYCLES)
-        {
-            MotorFault_Report(motor_state, MOTOR_FAULT_OVERCURRENT);
-        }
-    }
-    else
-    {
-        overcurrent_count = 0U;
-    }
+    measurement->phase_a_current_a = phase_current_a[0];
+    measurement->phase_b_current_a = phase_current_a[1];
+    measurement->phase_c_current_a = phase_current_a[2];
 }
 
 bool MotorCurrentOffsets_IsValid(const MotorConfiguration *configuration)

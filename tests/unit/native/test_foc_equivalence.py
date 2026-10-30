@@ -1,4 +1,4 @@
-"""冻结修改前 FOC/PI，比较实际入口状态、PWM 与诊断钩子顺序；只用主机输出桩。"""
+"""冻结修改前 FOC/PI，比较实际入口状态与PWM顺序；只用主机输出桩。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
 def main() -> None:
-    """参考只生成在 outputs，开启/关闭计时宏各比较一次。"""
+    """参考只生成在outputs，比较运算结果与PWM调用。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True)
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/foc_equivalence")
@@ -35,6 +35,9 @@ def main() -> None:
     foc = foc.replace('#include "motor_hw.h"', '#include "bsp_pwm.h"').replace(
         "motor_hw_pwm_set_duty", "BspPwm_SetDuty"
     )
+    # 退役的诊断钩子从冻结参考投影中一并移除，不改算术与控制分支。
+    foc = foc.replace('#include "fast_loop_profile.h"', "")
+    foc = re.sub(r"(?m)^\s*FAST_PROFILE_(?:BEGIN|END)\([^\n]*\);\n", "", foc)
     pi = frozen("firmware/motor/foc/foc_pid.c")
     foc = foc.replace('"foc_algorithm.h"', '"foc.h"').replace('"foc_pid.h"', '"pi_controller.h"')
     pi = pi.replace('"foc_pid.h"', '"pi_controller.h"')
@@ -59,8 +62,7 @@ def main() -> None:
     names = set(re.findall(r"^(?:float|void|bool)\s+(\w+)\s*\(", foc + "\n" + pi, re.M))
     # 仅投影函数名，常量、算术次序、控制分支及结构保持冻结内容。
     defines = "\n".join(
-        "#define " + n + " " + n + "_Reference"
-        for n in sorted(names | {"BspPwm_SetDuty", "FastLoopProfile_Begin", "FastLoopProfile_End"})
+        "#define " + n + " " + n + "_Reference" for n in sorted(names | {"BspPwm_SetDuty"})
     )
     # 冻结拆分前的状态布局，参考代码仍用自己的字段；当前实现单独使用测量对象。
     legacy_header = (ROOT / "tests/fixtures/foc_before_measurement.h").read_text(encoding="utf-8")
@@ -79,40 +81,38 @@ def main() -> None:
     (out / "reference_pi.c").write_text(defines + "\n" + pi, encoding="utf-8")
     cc = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     logs = []
-    for profile in (0, 1):
-        exe = out / f"foc_profile_{profile}.exe"
-        command = (
-            cc
-            + NATIVE_INCLUDE_FLAGS
-            + ["-I", str(out)]
-            + [
-                "-std=c99",
-                "-O2",
-                "-UNDEBUG",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                f"-DBSP_ENABLED_FAST_LOOP_PROFILE={profile}",
-                "tests/unit/foc_equivalence_test.c",
-                "firmware/motor/control/foc.c",
-                "firmware/motor/control/foc_output.c",
-                "firmware/motor/control/pi_controller.c",
-                "firmware/motor/math/control_math.c",
-                "firmware/motor/protection/motor_thermal.c",
-                "firmware/motor/protection/motor_thermal_config.c",
-                "firmware/motor/protection/motor_thermal_control.c",
-                str(out / "reference_foc.c"),
-                str(out / "reference_pi.c"),
-                "-o",
-                str(exe),
-            ]
-        )
-        for invocation in (command, [str(exe)]):
-            result = subprocess.run(invocation, cwd=ROOT, capture_output=True, text=True)
-            logs.append(result.stdout + result.stderr)
-            (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
-            print(logs[-1], end="")
-            result.check_returncode()
+    exe = out / "foc_equivalence.exe"
+    command = (
+        cc
+        + NATIVE_INCLUDE_FLAGS
+        + ["-I", str(out)]
+        + [
+            "-std=c99",
+            "-O2",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "tests/unit/foc_equivalence_test.c",
+            "firmware/motor/control/foc.c",
+            "firmware/motor/control/foc_output.c",
+            "firmware/motor/control/pi_controller.c",
+            "firmware/motor/math/control_math.c",
+            "firmware/motor/protection/motor_thermal.c",
+            "firmware/motor/protection/motor_thermal_config.c",
+            "firmware/motor/protection/motor_thermal_control.c",
+            str(out / "reference_foc.c"),
+            str(out / "reference_pi.c"),
+            "-o",
+            str(exe),
+        ]
+    )
+    for invocation in (command, [str(exe)]):
+        result = subprocess.run(invocation, cwd=ROOT, capture_output=True, text=True)
+        logs.append(result.stdout + result.stderr)
+        (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        print(logs[-1], end="")
+        result.check_returncode()
 
 
 if __name__ == "__main__":

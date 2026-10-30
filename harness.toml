@@ -112,7 +112,7 @@ paths = ["firmware/platform/bsp/can_frame_codec.c", "firmware/platform/bsp/can_f
 allows = ["platform_api", "platform_can"]
 
 [architecture.layers.platform_pwm]
-paths = ["firmware/platform/bsp/bsp_pwm.c"]
+paths = []
 allows = ["platform_internal", "platform_api", "platform_config", "platform_pwm"]
 
 [architecture.layers.platform_encoder]
@@ -186,7 +186,7 @@ paths = ["firmware/platform/bsp"]
 allows = ["platform_internal", "platform_common", "platform_api", "platform_config", "app_config", "platform_encoder", "platform_pwm", "platform_can", "platform_bsp"]
 
 [architecture.layers.platform_bsp]
-paths = ["firmware/platform/bsp/bsp_adc.c", "firmware/platform/bsp/bsp_encoder.c", "firmware/platform/bsp/bsp_can.c", "firmware/platform/bsp/bsp_led.c", "firmware/platform/bsp/bsp_uart.c", ]
+paths = []
 allows = ["platform_internal", "platform_bsp", "platform_api", "platform_config", "platform_encoder", "platform_pwm", "platform_can", "platform_common", "app_config"]
 
 [architecture.layers.platform_internal]

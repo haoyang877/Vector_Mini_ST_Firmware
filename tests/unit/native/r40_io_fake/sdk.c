@@ -63,10 +63,6 @@ void NVIC_SetPendingIRQ(unsigned irq)
 void (*sim_before_critical_enter)(void);
 unsigned sim_critical_enters, sim_critical_exits;
 
-uint32_t BspSystem_TimeUs(void)
-{
-    return sim_ms * 1000U;
-}
 uint32_t BspSystem_TimeMs(void)
 {
     return sim_ms;

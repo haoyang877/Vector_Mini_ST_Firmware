@@ -20,13 +20,13 @@ void MotorAxis_Init(void);
 uint8_t MotorAxis_NodeId(void);
 /**
  * @brief 执行快速采样、控制和结果发布。
- * @note 20 kHz ADC2 JEOS 上下文，执行有界。
+ * @note 20 kHz快速采样上下文，执行有界。
  */
 void MotorAxis_FastTick(void);
 /**
  * @brief 执行慢估计、外环和生命周期监督。
  * @return 本次提交后的模式，仅用于指示器。
- * @note 2 kHz TIM7 上下文。
+ * @note 2 kHz监督上下文。
  */
 MotorControlMode MotorAxis_SupervisorTick(void);
 /**

@@ -131,7 +131,7 @@ bool EncoderCalibrationTask_PublishLut(EncoderCalibration *calibration, EncoderS
         return false;
     }
     uint16_t current_linearized_q15;
-    /* 后台发布期间保持关相；先撤销LUT资格，ADC不能读取半张表。 */
+    /* 后台发布期间保持关相；先撤销LUT资格，快速采样不能读取半张表。 */
     uint8_t published_flags =
         (uint8_t)((calibration->calib_flag &
                    (uint8_t)~(ENC_CALIB_ELECTRICAL_ZERO | ENC_CALIB_MECHANICAL_ZERO)) |
@@ -724,8 +724,7 @@ MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const MotorConfigurati
     motor_state->iq_target_a = 0.0f;
     Foc_RunCurrent(configuration, foc, measurement, motor_state, 0.0f, 0.0f);
 
-    if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) &&
-        encoder->read_status == ENCODER_READ_OK)
+    if (time >= (ENC_ZERO_ALIGN_TIME - ENC_ZERO_SAMPLE_TIME) && Encoder_IsOnline(encoder))
     {
         EncoderCalibrationCore_AddAngleSample(encoder->linearized_q15,
                                               s_zero_sample_anchor,

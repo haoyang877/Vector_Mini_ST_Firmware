@@ -625,30 +625,9 @@
       "revision_work_epoch": "s_revision_work_epoch",
       "save_job": "s_save_job"
     },
-    "firmware/platform/bsp/mcu/stm32g4/led.c": {
-      "LED": "s_led",
-      "LED_SetGPIO": "update_gpio"
-    },
-    "firmware/platform/bsp/mcu/stm32g4/rgb.c": {
-      "Pixel_Buf": "s_pixel_buffer",
-      "RGB": "s_rgb_color",
-      "rgb_up_down": "s_brightness_direction",
-      "brightness": "s_brightness"
-    },
     "firmware/platform/bsp/mcu/stm32g4/delay.c": {
       "g_fac_us": "s_cycles_per_us"
     }
   },
-  "scoped_identifiers": {
-    "firmware/platform/bsp/mcu/stm32g4/rgb.c": {
-      "R": "red",
-      "G": "green",
-      "B": "blue"
-    },
-    "firmware/platform/bsp/mcu/stm32g4/rgb.h": {
-      "R": "red",
-      "G": "green",
-      "B": "blue"
-    }
-  }
+  "scoped_identifiers": {}
 }

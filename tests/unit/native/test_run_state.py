@@ -454,7 +454,7 @@ def run_variant(
         + (
             [
                 "-DFOC_ACTIVE_HW_PROFILE=2",
-                "-DR40_APP_PHASE_LOCK=1",
+                "-DAT32_APP_PHASE_LOCK=1",
                 "-DBSP_PWM_HARD_LOCK=1",
                 "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
             ]

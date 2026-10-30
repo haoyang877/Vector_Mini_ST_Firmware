@@ -1,4 +1,4 @@
-"""核对单一CAN模块、私有错误处理与唯一构建实现。"""
+"""核对各MCU的CAN实现与唯一构建输入。"""
 
 import unittest
 import xml.etree.ElementTree as ET
@@ -9,20 +9,18 @@ BSP = ROOT / "firmware/platform/bsp"
 
 
 class CanLayeringTests(unittest.TestCase):
-    def test_targets_select_one_board_and_shared_codec(self):
-        """工程仅链接本板CAN和真实共用的帧辅助。"""
+    def test_targets_select_one_board_can(self):
+        """工程只链接本板CAN实现，DLC换算不再单独编译。"""
         for project in (ROOT / "projects").rglob("*.uvprojx"):
             paths = [
                 (project.parent / node.text.replace("\\", "/")).resolve()
                 for node in ET.parse(project).findall(".//FilePath")
             ]
             board = "at32f456" if "at32f456" in project.parts else "stm32g4"
-            for source in (
-                BSP / "bsp_can.c",
-                BSP / "mcu" / board / "can.c",
-                BSP / "can_frame_codec.c",
-            ):
-                self.assertEqual([p for p in paths if p.name == source.name], [source])
+            source = BSP / "mcu" / board / "can.c"
+            self.assertEqual([p for p in paths if p.name == "can.c"], [source])
+            self.assertNotIn("bsp_can.c", [p.name for p in paths])
+            self.assertNotIn("can_frame_codec.c", [p.name for p in paths])
 
     def test_no_old_api_or_protocol_inside_controller(self):
         """控制器辅助不再形成公开接口，BSP不解释业务协议。"""
@@ -33,25 +31,24 @@ class CanLayeringTests(unittest.TestCase):
             for name in ("can_controller.h", "can_irq.h", "can_controller.c", "can_irq.c"):
                 self.assertFalse((BSP / "mcu" / board / name).exists())
         self.assertFalse((BSP / "can_disabled.h").exists())
-        for path in (BSP / "can_frame_codec.c", BSP / "bsp_can.c"):
-            source = path.read_text(encoding="utf8")
-            for hardware in ("HAL_", "CAN1", "FDCAN1", "at32f45x", "hfdcan1"):
-                self.assertNotIn(hardware, source)
+        self.assertFalse((BSP / "can_frame_codec.c").exists())
+        self.assertFalse((BSP / "can_frame_codec.h").exists())
+        self.assertFalse((BSP / "bsp_can.c").exists())
 
     def test_irq_and_init_are_wired_through_public_contract(self):
         """保留初始化及接收开放时机，IRQ通过BSP边界进入通信。"""
         at = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf8")
         st = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf8")
-        irq = st
-        for text in (at, irq):
-            self.assertIn("Can_OnReceiveInterrupt(BspApp_OnCanReceive", text)
+        at_can = (BSP / "mcu/at32f456/can.c").read_text(encoding="utf8")
+        st_can = (BSP / "mcu/stm32g4/can.c").read_text(encoding="utf8")
+        self.assertIn("void CAN1_RX_IRQHandler(void)", at_can)
+        self.assertIn("BspApp_OnCanReceive();", at_can)
+        self.assertIn("McuCan_Init();", at)
+        self.assertIn("HAL_FDCAN_RxFifo0Callback", st_can)
+        self.assertNotIn("McuCan_EnableReceiveInterrupt", st_can)
+        self.assertIn("McuCan_Init();", st)
         self.assertNotIn("can_rxbuf_status_get", at)
         self.assertNotIn("YgProtocol", at + st)
-        self.assertIn(
-            "McuCan_EnableReceiveInterrupt()", (BSP / "bsp_can.c").read_text(encoding="utf8")
-        )
-        for text in (at, st):
-            self.assertIn("Can_Init()", text)
 
 
 if __name__ == "__main__":

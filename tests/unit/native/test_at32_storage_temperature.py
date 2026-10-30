@@ -47,21 +47,21 @@ def main() -> int:
     subprocess.run([str(executable)], check=True)
     calibrated = [
         "-DBSP_ENABLED_MCU_TEMPERATURE=1",
-        "-DR40_TEMPERATURE_CALIBRATED=1",
-        "-DR40_INTERNAL_REFERENCE_MV=1200.0f",
-        "-DR40_TEMPERATURE_CAL_MV=1280.0f",
-        "-DR40_TEMPERATURE_SLOPE_MV_PER_C=4.27f",
+        "-DAT32_TEMPERATURE_CALIBRATED=1",
+        "-DAT32_INTERNAL_REFERENCE_MV=1200.0f",
+        "-DAT32_TEMPERATURE_CAL_MV=1280.0f",
+        "-DAT32_TEMPERATURE_SLOPE_MV_PER_C=4.27f",
     ]
     variants = [
         ("disabled", ["-DBSP_ENABLED_MCU_TEMPERATURE=0"], 0),
         ("uncalibrated", ["-DBSP_ENABLED_MCU_TEMPERATURE=1"], 0),
         (
             "reference_only",
-            ["-DBSP_ENABLED_MCU_TEMPERATURE=1", "-DR40_INTERNAL_REFERENCE_MV=1200.0f"],
+            ["-DBSP_ENABLED_MCU_TEMPERATURE=1", "-DAT32_INTERNAL_REFERENCE_MV=1200.0f"],
             0,
         ),
         ("calibrated", calibrated, 1),
-        ("invalid_calibration", calibrated[:-1] + ["-DR40_TEMPERATURE_SLOPE_MV_PER_C=0.0f"], 0),
+        ("invalid_calibration", calibrated[:-1] + ["-DAT32_TEMPERATURE_SLOPE_MV_PER_C=0.0f"], 0),
     ]
     for name, flags, expected in variants:
         if name != "disabled":

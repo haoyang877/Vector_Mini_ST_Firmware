@@ -1,6 +1,6 @@
 /**
  * @file bsp_system.h
- * @brief 系统时间、临界区、身份、复位及看门狗。
+ * @brief 毫秒时间、同步原语、身份及看门狗。
  * @note 按已评审BSP契约分阶段迁移；仅使用当前已接入的功能。
  */
 #ifndef BSP_SYSTEM_H
@@ -24,21 +24,6 @@ extern "C"
     uint32_t BspSystem_TimeMs(void);
 
     /**
-     * @brief 读取单调递增的微秒时间。
-     * @return 微秒计数，按2^32自然回绕。
-     * @note Init成功后前台/ISR有界调用；不用于跨回绕区间的绝对排序。
-     * @note 不代替原周期级快环测量；分辨率及读取开销按板验证。
-     */
-    uint32_t BspSystem_TimeUs(void);
-
-    /**
-     * @brief 读取当前实际配置的内核频率。
-     * @return Init成功后的内核频率，Hz。
-     * @note 前台/ISR只读，不修改时钟，不把晶振频率当作内核频率。
-     */
-    uint32_t BspSystem_CoreClockHz(void);
-
-    /**
      * @brief 保存并屏蔽可屏蔽中断。
      * @return 必须原样传给ExitCritical的原中断屏蔽状态。
      * @note 允许嵌套，同一上下文严格后进先出配对；不屏蔽NMI/HardFault。
@@ -55,6 +40,37 @@ extern "C"
     void BspSystem_ExitCritical(uint32_t saved_state);
 
     /**
+     * @brief 保护前台与低频监督的控制状态，不屏蔽快采样和载波中断。
+     * @return 必须原样交给ExitControlCritical的原优先级屏蔽状态。
+     * @note 仅屏蔽逻辑优先级2及以下紧急程度的中断；不修改PRIMASK。
+     *   快环仍可抢占，不能用于保护快环拥有的数据或实现等待；同上下文嵌套配对。
+     */
+    uint32_t BspSystem_EnterControlCritical(void);
+
+    /**
+     * @brief 恢复控制临界区原有优先级屏蔽状态。
+     * @param saved_state 对应EnterControlCritical返回值。
+     */
+    void BspSystem_ExitControlCritical(uint32_t saved_state);
+
+    /**
+     * @brief 发布或读取跨中断邮箱前建立内存访问顺序，不屏蔽中断。
+     * @note 不提供互斥；邮箱必须仍遵循单写者、完整载荷先于发布标志的约定。
+     */
+    void BspSystem_MemoryBarrier(void);
+
+    /**
+     * @brief 不屏蔽中断地比较并替换一个32位共享状态。
+     * @param address 4字节对齐且指向SRAM的有效共享字。
+     * @param expected 允许替换的原值。
+     * @param desired 匹配时写入的新值。
+     * @return 原值匹配且写入成功为true，原值不符为false。
+     * @note 使用排他访问；快环不等待低优先级所有者，前台被抢占可重试。
+     */
+    bool
+    BspSystem_CompareExchange32(volatile uint32_t *address, uint32_t expected, uint32_t desired);
+
+    /**
      * @brief 读取12字节芯片唯一标识。
      * @param uid 调用方至少12字节可写缓冲，不保存指针。
      * @return 完成为BSP_OK；空指针为BSP_INVALID_ARGUMENT。
@@ -69,13 +85,6 @@ extern "C"
      * @note Init成功后前台调用；不解释CRC、不生成默认身份、不写回；失败后缓冲不可用。
      */
     BspResult BspSystem_ReadIdentity(uint8_t record[BSP_SYSTEM_IDENTITY_BYTES]);
-
-    /**
-     * @brief 请求芯片系统复位。
-     * @note 正常不返回；前台所有者先完成停机及关相确认，不自动授权或恢复运动。
-     * @note 进入Loader使用BootHw_EnterLoader；本接口不代写Loader邮箱。
-     */
-    void BspSystem_Reset(void);
 
     /**
      * @brief 按目标配置启动应用看门狗。

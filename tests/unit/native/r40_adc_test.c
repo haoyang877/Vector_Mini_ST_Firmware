@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
-#include "../../../firmware/platform/bsp/bsp_adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
 
 extern unsigned sim_adc_trigger_ticks;
@@ -69,9 +68,9 @@ int main(int argc, char **argv)
     }
     assert(sim_adc[1].channels[0] == 4U && sim_adc[1].ordinary_channels[0] == 7U);
     assert(sim_adc[0].ordinary_channels[0] == 16U && sim_adc[0].ordinary_channels[1] == 17U);
-    assert(sim_adc[0].ordinary_length == 2U && sim_adc[1].ordinary_length == R40_AUX_RANKS);
+    assert(sim_adc[0].ordinary_length == 2U && sim_adc[1].ordinary_length == AT32_AUX_RANKS);
     assert(sim_dma_config.memory_base_addr == (uint32_t)(uintptr_t)s_sampling.aux_dma);
-    assert(sim_dma_config.buffer_size == 2U * R40_AUX_RANKS && sim_dma_config.loop_mode_enable);
+    assert(sim_dma_config.buffer_size == 2U * AT32_AUX_RANKS && sim_dma_config.loop_mode_enable);
     assert(sim_temperature_dma_config.memory_base_addr ==
            (uint32_t)(uintptr_t)s_sampling.temperature_dma);
     assert(sim_temperature_dma_config.buffer_size == 4U &&
@@ -111,7 +110,7 @@ int main(int argc, char **argv)
             return 0;
         }
         assert(resumed && Adc_IsHealthy() && sim_dma_enabled);
-        assert(sim_dma_channel.dtcnt == 2U * R40_AUX_RANKS);
+        assert(sim_dma_channel.dtcnt == 2U * AT32_AUX_RANKS);
         assert(sim_cleared_irqs & (1U << DMA1_Channel2_IRQn));
         sim_storage_auto_samples = false;
         assert(sim_adc[0].flags == ADC_PCCE_FLAG && sim_dma_flags == DMA1_HDT2_FLAG);
@@ -124,7 +123,7 @@ int main(int argc, char **argv)
         return 0;
     }
     /* 实际分频及rank配置须保留建立时长，并让母线电流先完成；不冒充模拟精度实测。 */
-    const float adc_mhz = (float)R40_CORE_HZ / 1000000.0f / ((unsigned)sim_adc_common.div + 2U);
+    const float adc_mhz = (float)AT32_CORE_HZ / 1000000.0f / ((unsigned)sim_adc_common.div + 2U);
     assert(adc_mhz == 60.0f);
     float conversion_us = 0.0f;
     for (unsigned rank = 0U; rank < 4U; ++rank)
@@ -201,20 +200,20 @@ int main(int argc, char **argv)
     assert(BspAdc_SetBusCurrentOffset(2048.0f) == BSP_OK);
     assert(BspAdc_ReadFast(&physical) == BSP_OK &&
            (physical.valid_mask & BSP_ADC_FAST_BUS_CURRENT_VALID) != 0U);
-    const float expected_bus_current_a =
-        2.0f * R40_ADC_REFERENCE_V / R40_ADC_MAX_COUNTS / R40_BUS_CURRENT_GAIN / R40_BUS_SHUNT_OHM;
+    const float expected_bus_current_a = 2.0f * AT32_ADC_REFERENCE_V / AT32_ADC_MAX_COUNTS /
+                                         AT32_BUS_CURRENT_GAIN / AT32_BUS_SHUNT_OHM;
     assert(fabsf(physical.bus_current_a - expected_bus_current_a) < 0.000001f);
     puts("PASS ADC2 PA4 bus current: actual raw sample, offset validity and physical conversion");
     if (scenario == 18U)
     {
         sampling_carrier_tick();
         unsigned entries = sim_critical_enters;
-        sim_cycle_counter.CYCCNT += R40_CORE_HZ / FOC_FREQ;
+        sim_cycle_counter.CYCCNT += AT32_CORE_HZ / FOC_FREQ;
         sim_before_critical_enter = complete_pending_adc;
         sampling_carrier_tick();
         assert(sim_before_critical_enter == NULL && sim_critical_enters > entries);
         assert(sim_critical_enters == sim_critical_exits && Adc_IsHealthy());
-        sim_cycle_counter.CYCCNT += R40_CORE_HZ / FOC_FREQ;
+        sim_cycle_counter.CYCCNT += AT32_CORE_HZ / FOC_FREQ;
         sampling_carrier_tick();
         assert(!Adc_IsHealthy());
         assert(sim_critical_enters == sim_critical_exits && sim_stop_calls);
@@ -247,7 +246,7 @@ int main(int argc, char **argv)
     }
     AdcAuxSample out = {0};
     assert(!Adc_ReadAux(&out));
-    for (unsigned i = 0; i < 2U * R40_AUX_RANKS; ++i)
+    for (unsigned i = 0; i < 2U * AT32_AUX_RANKS; ++i)
     {
         s_sampling.aux_dma[i] = 100U + i;
     }
@@ -279,7 +278,7 @@ int main(int argc, char **argv)
     sim_dma_flags = DMA1_FDT2_FLAG;
     DMA1_Channel2_IRQHandler();
     assert(Adc_ReadAux(&out) && out.sequence == 2U);
-    assert(out.motor_temperature_counts == 100U + R40_AUX_RANKS);
+    assert(out.motor_temperature_counts == 100U + AT32_AUX_RANKS);
     AdcTemperatureSample temperature = {0};
     assert(!Adc_ReadTemperature(&temperature));
     s_sampling.temperature_dma[0] = 1200U;
@@ -323,9 +322,9 @@ int main(int argc, char **argv)
     assert(!Adc_ReadAux(NULL));
     assert(!Adc_ReadTemperature(&temperature) && !Adc_ReadTemperature(NULL));
     const float a_per_count =
-        R40_ADC_REFERENCE_V / R40_ADC_MAX_COUNTS / R40_CURRENT_GAIN / R40_PHASE_SHUNT_OHM;
-    const float v_per_count = R40_ADC_REFERENCE_V / R40_ADC_MAX_COUNTS *
-                              (R40_VBUS_TOP_KOHM + R40_VBUS_BOTTOM_KOHM) / R40_VBUS_BOTTOM_KOHM;
+        AT32_ADC_REFERENCE_V / AT32_ADC_MAX_COUNTS / AT32_CURRENT_GAIN / AT32_PHASE_SHUNT_OHM;
+    const float v_per_count = AT32_ADC_REFERENCE_V / AT32_ADC_MAX_COUNTS *
+                              (AT32_VBUS_TOP_KOHM + AT32_VBUS_BOTTOM_KOHM) / AT32_VBUS_BOTTOM_KOHM;
     assert(a_per_count > 0.0100f && a_per_count < 0.0101f);
     assert(v_per_count > 0.0252f && v_per_count < 0.0253f);
     puts("PASS real four-conversion sums, coherent DMA halves and board scale");

@@ -1,5 +1,5 @@
-#include "bsp_internal.h"
-#include "application_config.h"
+#include "../../bsp_internal.h"
+#include "board_config.h"
 #include <stddef.h>
 #include <string.h>
 #include "bsp_system.h"
@@ -12,14 +12,13 @@
 #include "boot_hw.h"
 #include "bsp_pwm.h"
 #include "bsp_can.h"
-#include "board_config.h"
 
 /* 等待上限是启动阶段的轮询次数，不冒充准确的毫秒超时。 */
-#define R40_CLOCK_WAIT_ITERATIONS 2000000U
+#define AT32_CLOCK_WAIT_ITERATIONS 2000000U
 
 static bool wait_clock_flag(uint32_t flag)
 {
-    for (uint32_t remaining = R40_CLOCK_WAIT_ITERATIONS; remaining > 0U; --remaining)
+    for (uint32_t remaining = AT32_CLOCK_WAIT_ITERATIONS; remaining > 0U; --remaining)
     {
         if (crm_flag_get(flag) == SET)
         {
@@ -40,7 +39,7 @@ static bool clock_init(void)
     {
         return false;
     }
-    crm_pll_config(CRM_PLL_SOURCE_HEXT, R40_PLL_MULTIPLIER, R40_PLL_PRE_DIVIDER, CRM_PLL_FP_4);
+    crm_pll_config(CRM_PLL_SOURCE_HEXT, AT32_PLL_MULTIPLIER, AT32_PLL_PRE_DIVIDER, CRM_PLL_FP_4);
     crm_clock_source_enable(CRM_CLOCK_SOURCE_PLL, TRUE);
     if (!wait_clock_flag(CRM_PLL_STABLE_FLAG))
     {
@@ -53,7 +52,7 @@ static bool clock_init(void)
     crm_auto_step_mode_enable(TRUE);
     crm_sysclk_switch(CRM_SCLK_PLL);
     bool switched = false;
-    for (uint32_t remaining = R40_CLOCK_WAIT_ITERATIONS; remaining > 0U; --remaining)
+    for (uint32_t remaining = AT32_CLOCK_WAIT_ITERATIONS; remaining > 0U; --remaining)
     {
         if (crm_sysclk_switch_status_get() == CRM_SCLK_PLL)
         {
@@ -69,29 +68,26 @@ static bool clock_init(void)
     system_core_clock_update();
     crm_clocks_freq_type clocks;
     crm_clocks_freq_get(&clocks);
-    return system_core_clock == R40_CORE_HZ && clocks.ahb_freq == R40_CORE_HZ &&
-           clocks.apb1_freq == R40_CORE_HZ && clocks.apb2_freq == R40_CORE_HZ &&
+    return system_core_clock == AT32_CORE_HZ && clocks.ahb_freq == AT32_CORE_HZ &&
+           clocks.apb1_freq == AT32_CORE_HZ && clocks.apb2_freq == AT32_CORE_HZ &&
            CRM->misc2_bit.apb3div == CRM_APB3_DIV_4;
 }
 
 /* 中央对齐完整周期为2*PR，单向监督计数周期才是PR+1（手册15.4.3.2）。 */
-#define R40_SUPERVISOR_TOP (1000000U / SUPERVISOR_FREQ - 1U)
+#define AT32_SUPERVISOR_TOP (1000000U / SUPERVISOR_FREQ - 1U)
 
-#if (R40_CORE_CLOCK_DERIVED_HZ % (2U * FOC_FREQ)) != 0U || (1000000U % SUPERVISOR_FREQ) != 0U
+#if (AT32_CORE_CLOCK_DERIVED_HZ % (2U * FOC_FREQ)) != 0U || (1000000U % SUPERVISOR_FREQ) != 0U
 #error "R40 timer clock must divide the frozen control frequencies exactly"
 #endif
 
 static bool s_hardware_initialized;
 static bool s_timing_started;
 
-static void timer_init_disabled(void)
+static void supervisor_timer_init(void)
 {
-    crm_periph_clock_enable(CRM_TMR1_PERIPH_CLOCK, TRUE);
     crm_periph_clock_enable(CRM_TMR6_PERIPH_CLOCK, TRUE);
-    tmr_reset(TMR1);
     tmr_reset(TMR6);
-    Pwm_Init();
-    tmr_base_init(TMR6, R40_SUPERVISOR_TOP, R40_TIMER_HZ / 1000000U - 1U);
+    tmr_base_init(TMR6, AT32_SUPERVISOR_TOP, AT32_TIMER_HZ / 1000000U - 1U);
     tmr_flag_clear(TMR6, TMR_OVF_FLAG);
 }
 
@@ -101,28 +97,23 @@ bool McuSystem_Init(void)
     {
         return false;
     }
-    McuPwm_PreparePins();
     if (!clock_init())
     {
         return false;
     }
-    timer_init_disabled();
-    if (!BspPwm_ArePhasesDisabled())
-    {
-        return false;
-    }
-    McuPwm_ConnectPins();
+    McuPwm_Init();
+    supervisor_timer_init();
     s_hardware_initialized = true;
     return true;
 }
 
 bool McuSystem_Start(void)
 {
-    if (!s_hardware_initialized || s_timing_started || !BspPwm_ArePhasesDisabled())
+    if (!s_hardware_initialized || s_timing_started)
     {
         return false;
     }
-    if (SysTick_Config(R40_CORE_HZ / 1000U) != 0U)
+    if (SysTick_Config(AT32_CORE_HZ / 1000U) != 0U)
     {
         return false;
     }
@@ -134,78 +125,15 @@ bool McuSystem_Start(void)
     tmr_counter_enable(TMR1, TRUE);
     tmr_counter_enable(TMR6, TRUE);
     s_timing_started = true;
-    return BspPwm_ArePhasesDisabled();
+    return true;
 }
 
 /* 1ms时基归本端口所有；沿用uint32_t自然回绕语义。 */
 static volatile uint32_t s_milliseconds;
 
-static bool s_microseconds_ready;
-static uint32_t s_cycle_anchor, s_cycle_remainder, s_microseconds, s_cycles_per_us;
-
-static void system_time_advance(void)
-{
-    if (!s_microseconds_ready)
-    {
-        return;
-    }
-    uint32_t cycles = DWT->CYCCNT;
-    uint32_t elapsed = cycles - s_cycle_anchor;
-    s_cycle_anchor = cycles;
-    s_microseconds += elapsed / s_cycles_per_us;
-    s_cycle_remainder += elapsed % s_cycles_per_us;
-    if (s_cycle_remainder >= s_cycles_per_us)
-    {
-        s_cycle_remainder -= s_cycles_per_us;
-        ++s_microseconds;
-    }
-}
-
-static void system_time_init(void)
-{
-    uint32_t key = BspSystem_EnterCritical();
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    s_cycles_per_us = BspSystem_CoreClockHz() / 1000000U;
-    s_microseconds = BspSystem_TimeMs() * 1000U;
-    s_cycle_anchor = DWT->CYCCNT;
-    s_cycle_remainder = 0U;
-    s_microseconds_ready = s_cycles_per_us != 0U;
-    BspSystem_ExitCritical(key);
-}
-
-uint32_t BspSystem_TimeUs(void)
-{
-    uint32_t key = BspSystem_EnterCritical();
-    if (!s_microseconds_ready)
-    {
-        system_time_init();
-    }
-    system_time_advance();
-    uint32_t now_us = s_microseconds;
-    BspSystem_ExitCritical(key);
-    return now_us;
-}
-
-uint32_t BspSystem_CoreClockHz(void)
-{
-    return system_core_clock;
-}
-
-void BspSystem_Reset(void)
-{
-    NVIC_SystemReset();
-}
-
 void SysTick_Handler(void)
 {
     ++s_milliseconds;
-    uint32_t key = BspSystem_EnterCritical();
-    system_time_advance();
-    BspSystem_ExitCritical(key);
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
-    McuLed_Tick1ms();
-#endif
 }
 
 uint32_t BspSystem_TimeMs(void)
@@ -313,21 +241,20 @@ BspResult Bsp_Init(void)
     }
     s_startup_state = 1U;
     (void)BootHw_Init();
-    if (!McuSystem_Init() || !Can_Init())
+    if (!McuSystem_Init())
     {
         goto failed;
     }
-    Led_Init();
-    if (!Adc_Init())
-    {
-        goto failed;
-    }
+#if BSP_ENABLED_CAN
+    McuCan_Init();
+#endif
+    McuAdc_Init();
 
-    system_time_init();
-    if (!Flash_Init() || !Encoder_Init())
+    if (!Flash_Init())
     {
         goto failed;
     }
+    McuEncoder_Init();
     s_startup_state = 2U;
     return BSP_OK;
 failed:
@@ -343,7 +270,8 @@ BspResult Bsp_Start(void)
         return BSP_NOT_READY;
     }
     s_startup_state = 3U;
-    if (!Adc_Start() || !McuSystem_Start())
+    Adc_Start();
+    if (!McuSystem_Start())
     {
         goto failed;
     }
@@ -377,39 +305,13 @@ void BspWatchdog_Feed(void)
     }
 }
 
-void ADC1_2_IRQHandler(void)
-{
-    uint32_t started = DWT->CYCCNT;
-    uint32_t elapsed;
-    if (!Adc_CompleteFast())
-    {
-        if (!Adc_IsHealthy())
-        {
-            halt_disabled();
-        }
-        return;
-    }
-    BspApp_OnFastSample();
-    elapsed = DWT->CYCCNT - started;
-    if (elapsed >= APP_FAST_MAX_CYCLES)
-    {
-        halt_disabled();
-    }
-}
-
 void TMR6_DAC_GLOBAL_IRQHandler(void)
 {
     if (tmr_flag_get(TMR6, TMR_OVF_FLAG))
     {
         tmr_flag_clear(TMR6, TMR_OVF_FLAG);
         BspApp_OnControlTick();
-        Led_SupervisorTick();
     }
-}
-
-void CAN1_RX_IRQHandler(void)
-{
-    Can_OnReceiveInterrupt(BspApp_OnCanReceive, 0U);
 }
 
 void NMI_Handler(void)

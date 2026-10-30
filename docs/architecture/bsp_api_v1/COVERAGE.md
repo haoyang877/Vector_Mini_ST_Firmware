@@ -1,5 +1,8 @@
 # 通道与功能覆盖复核（修订6）
 
+当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
+不保留接口、占位实现或工程引用。见[删除记录](../../plans/active/2026-10-30-remove-led-uart-v1.md)。
+
 日期：2026-10-26。范围：修订6接口及两板已接入实现；离线通过，统一实测未完成。
 复核来源：当前两板代码、用户指出的相电流遗漏，以及任务
 `codex://threads/01a17761-6789-7232-8fd9-b8992b0993ad` 中的独立审核建议。
@@ -44,9 +47,7 @@ HARDWARE_VERSION和ANALOG_SUPPLY_VOLTAGE的SUPPORTED/ENABLED/REQUIRED已按已�
 | ADC | 三相、母线、NTC、内部温度/VREF/VDDA、版本采样 | 三相/母线电流共用快组；保留VDDA；统一原码/物理量映射 |
 | PWM | 三相/单相占空比、许可、立即关相、全关判断、状态与关相序号 | 同事件生效、截止拒绝及BSP失败收尾已定义；实际时序仍需验证 |
 | 编码器 | Begin/Readback/Complete、计数、型号、独立采样诊断及配置字 | 控制样本与器件字分开；有效位、CRC是否执行、配置六槽映射已明确 |
-| LED | 模式/故障闪烁与颜色/灯带刷新 | 通道枚举、共享优先级、重复设置及5Hz/20Hz推进已定义 |
 | CAN | 启动、单次提交、票据提交、接收、完成、状态、bus-off恢复 | 补溢出/坏帧结果、幸存帧保留和有界继续消费；不改变协议选择 |
-| UART | 字节发送、完成、接收错误、运行状态 | 补发送期限、迟到事件隔离及失败锁存；当前无硬件，不生成空驱动 |
 | Flash | 固定区读取、RAW区写入/回读、源重叠拒绝、失败锁存 | 已覆盖；完整硬件事务的中断状态归BSP |
 | BootHw | 槽识别、进入Loader、继承看门狗、试运行确认与查询 | 原接口加已获准的IsAvailable只读查询，避免二次初始化 |
 | 专用诊断 | FastLoopProfile及当前原码/电压诊断 | FastLoopProfile原合同单独保留，VDDA映射已补，不能以十个头文件数量删掉既有用途 |
@@ -101,5 +102,5 @@ HARDWARE_VERSION和ANALOG_SUPPLY_VOLTAGE的SUPPORTED/ENABLED/REQUIRED已按已�
 | CAN丢帧被当空队列或不继续消费 | Receive先一次报告OVERFLOW，保留幸存帧；第11节有界消费 | 连续溢出、坏帧后好帧、IO活锁及原ISR预算 |
 | UART传输无终止期限 | TX_TIMEOUT终态、TakeTxResult推进期限及TX静止确认；第12节 | 真实UART接线后故障注入、迟到IRQ和RX不受损 |
 
-PWM、编码器、LED和CAN已实现并通过原生回归；UART按本契约保持未绑定，收发返回NOT_SUPPORTED。
+PWM、编码器和CAN的旧回归记录不能代表本轮实现已验证；LED与UART已删除。
 接口编译和文档检查不能证明物理寄存器时序或安全关断，仍须实测。ADC九通道及快母线电流要求不变。

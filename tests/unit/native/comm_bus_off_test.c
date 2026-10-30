@@ -209,8 +209,6 @@ uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef *h, uint32_t fifo)
     return rx_ready ? 1U : 0U;
 }
 #include "can.c"
-#include "../../../firmware/platform/bsp/bsp_can.c"
-#include "../../../firmware/platform/bsp/can_frame_codec.c"
 #include "can_legacy_assertions.h"
 
 static void check(bool value, const char *message)

@@ -1,5 +1,5 @@
-#ifndef R40_CLOSEDLOOP_BENCH_H
-#define R40_CLOSEDLOOP_BENCH_H
+#ifndef AT32_CLOSEDLOOP_BENCH_H
+#define AT32_CLOSEDLOOP_BENCH_H
 
 #include "openloop_model.h"
 #include "foc.h"
@@ -15,7 +15,7 @@ typedef struct
     float calibration_travel_counts, calibration_return_counts, phase_sum_a;
     uint32_t speed_samples;
     float speed_mae_rpm;
-} R40ClTelemetry;
+} AT32ClTelemetry;
 
 typedef struct
 {
@@ -25,7 +25,7 @@ typedef struct
     MotorMeasurement measurement;
     PiController speed_pi;
     EncoderState encoder;
-    R40ClTelemetry telemetry;
+    AT32ClTelemetry telemetry;
     int32_t position_counts, last_angle, stage_start_counts;
     int64_t angle_sums[3];
     uint32_t angle_samples[3];
@@ -33,21 +33,20 @@ typedef struct
     float speed_error_sum_rpm;
     float speed_reference_rpm;
     bool angle_initialized;
-} R40ClBench;
+} AT32ClBench;
 
 /** @brief 初始化闭环台架，固定低电流参考与3A瞬时相电流停机边界。
  * @param bench 调用方独占的台架状态。
  * @note 仅在平台初始化后调用，会初始化编码器端口，不使能功率。
  */
-void R40Cl_Init(R40ClBench *bench);
-/** @brief 复用未修改的角度层完成SPI帧、方向变换和20kHz速度PLL。
- * @param bench 台架独占的配置和编码器状态。
- * @param stage 本拍驱动的读取阶段，原样交给角度层。
- * @param raw 输出原始单圈角度，仅成功时更新。
- * @return 帧状态有效时返回true。
- * @note 20kHz调用，每次SPI事务只完成一次。
+void AT32Cl_Init(AT32ClBench *bench);
+/**
+ * @brief 消费已完成的DMA角度并更新方向校正和速度PLL。
+ * @param bench 台架配置和编码器运行对象。
+ * @return 原始单圈角度，0..65535。
+ * @note 调用前由台架执行BspEncoder_Begin，不提供采集错误状态。
  */
-bool R40Cl_ReadEncoder(R40ClBench *bench, uint8_t stage, uint16_t *raw);
+uint16_t AT32Cl_ReadEncoder(AT32ClBench *bench);
 /** @brief 按顺序请求定向电流、整圈角度校准、Vq开环加Id闭环、速度四个独立阶段。
  * @param bench 调用方独占的台架状态。
  * @param guard 原开环入口的校零、采样、租期与停机保护状态。
@@ -56,13 +55,13 @@ bool R40Cl_ReadEncoder(R40ClBench *bench, uint8_t stage, uint16_t *raw);
  * @return 已通过前序阶段且保护允许本次开始时返回true。
  * @note 故障后不重启；阶段完成不自动开始下一阶段。
  */
-bool R40Cl_Begin(R40ClBench *bench, R40OlModel *guard, uint32_t mode, uint32_t now_ms);
+bool AT32Cl_Begin(AT32ClBench *bench, AT32OlModel *guard, uint32_t mode, uint32_t now_ms);
 /** @brief 消费保护后的一拍采样，运行原有FOC并记录校准与跟踪证据。
  * @param bench 调用方独占的台架状态。
  * @param guard 已完成本拍原始采样保护的状态。
  * @param angle_q15 MT6835整圈16位角度。
  * @note 20kHz调用；仅RUNNING时调用原FOC写PWM，输出使能仍由入口管理。
  */
-void R40Cl_Step(R40ClBench *bench, R40OlModel *guard, uint16_t angle_q15);
+void AT32Cl_Step(AT32ClBench *bench, AT32OlModel *guard, uint16_t angle_q15);
 
 #endif

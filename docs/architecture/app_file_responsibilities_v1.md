@@ -226,7 +226,7 @@ yg_protocol_link负责装配和链路调度；控制重试记录与待发反馈�
 | 位置串级如何计算 | `motor_control.c → position_control.c → foc.c` |
 | LUT/零位标定 | `motor_maintenance.c → encoder_calibration.c → encoder_calibration_core.c`，无感支持见`sensorless_startup.c` |
 | 四类配置入口及保存 | 默认profile头 → `motor_parameter_transaction.c → parameter_record.c → BspFlash_Write` |
-| 原始ADC/PWM/编码器SPI | `bsp_adc.c`、`bsp_pwm.c`和各MCU的`encoder_spi.c` |
+| 原始ADC/PWM/编码器SPI | 各MCU的`adc.c`、`pwm.c`和`encoder_spi.c` |
 | Watch运行对象 | `motor_axis.c`；状态机上下文在`motor_state_machine.c`，均使用匹配AXF观察。 |
 
 依赖总则见[架构地图](../../ARCHITECTURE.md)，目录规则见[代码结构](code_structure.md)，

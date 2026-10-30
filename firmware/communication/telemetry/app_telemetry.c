@@ -4,19 +4,19 @@
 #include "SEGGER_RTT.h"
 #include "bsp_system.h"
 
-#define R40_APP_TELEMETRY_QUEUE_SIZE 32U
+#define AT32_APP_TELEMETRY_QUEUE_SIZE 32U
 
 /* C99编译期检查：与旧板工具链一致，帧布局不变。 */
-typedef char R40AppTelemetryFrameSizeCheck[(sizeof(R40AppTelemetryFrame) == 88U) ? 1 : -1];
+typedef char AT32AppTelemetryFrameSizeCheck[(sizeof(AT32AppTelemetryFrame) == 88U) ? 1 : -1];
 
-volatile R40AppTelemetryDiagnostic g_r40_app_telemetry;
-static R40AppTelemetryFrame s_queue[R40_APP_TELEMETRY_QUEUE_SIZE];
+volatile AT32AppTelemetryDiagnostic g_at32_app_telemetry;
+static AT32AppTelemetryFrame s_queue[AT32_APP_TELEMETRY_QUEUE_SIZE];
 static char s_rtt_buffer[8192];
 static volatile uint32_t s_produced, s_consumed;
 
-void R40AppTelemetry_Init(void)
+void AT32AppTelemetry_Init(void)
 {
-    memset((void *)&g_r40_app_telemetry, 0, sizeof(g_r40_app_telemetry));
+    memset((void *)&g_at32_app_telemetry, 0, sizeof(g_at32_app_telemetry));
     s_produced = s_consumed = 0U;
     SEGGER_RTT_Init();
     SEGGER_RTT_ConfigUpBuffer(1U,
@@ -27,23 +27,23 @@ void R40AppTelemetry_Init(void)
     SEGGER_RTT_WriteString(
         0U,
         "APP RTT1 2kHz: us,seq,ia,ib,ic,id_ref,id,iq_ref,iq,vd,vq,theta_e,"
-        "speed_ref,speed,raw,linear,state,fault,calib,encoder,maintenance,vbus\n");
+        "speed_ref,speed,raw,linear,state,fault,calib,reserved,maintenance,vbus\n");
 }
 
-void R40AppTelemetry_Capture(uint32_t fast_samples,
-                             const FocState *foc,
-                             const MotorMeasurement *measurement,
-                             const MotorControlState *motor,
-                             const EncoderState *encoder,
-                             uint32_t state,
-                             uint32_t calibration_flags,
-                             uint32_t maintenance_kind)
+void AT32AppTelemetry_Capture(uint32_t fast_samples,
+                              const FocState *foc,
+                              const MotorMeasurement *measurement,
+                              const MotorControlState *motor,
+                              const EncoderState *encoder,
+                              uint32_t state,
+                              uint32_t calibration_flags,
+                              uint32_t maintenance_kind)
 {
     if (fast_samples % 10U != 0U)
     {
         return;
     }
-    R40AppTelemetryFrame frame = {
+    AT32AppTelemetryFrame frame = {
         fast_samples * 50U,
         fast_samples / 10U,
         measurement->phase_a_current_a,
@@ -63,49 +63,49 @@ void R40AppTelemetry_Capture(uint32_t fast_samples,
         state,
         motor->fault_code,
         calibration_flags,
-        encoder->read_status,
+        0U,
         maintenance_kind,
         measurement->bus_voltage_v,
     };
-    uint32_t version = g_r40_app_telemetry.begin + 2U;
-    g_r40_app_telemetry.begin = version | 1U;
-    g_r40_app_telemetry.sample = frame;
+    uint32_t version = g_at32_app_telemetry.begin + 2U;
+    g_at32_app_telemetry.begin = version | 1U;
+    g_at32_app_telemetry.sample = frame;
     /* 单生产者先复制再发布索引；前台取出时用短临界区，不能读到半帧。 */
-    if (s_produced - s_consumed < R40_APP_TELEMETRY_QUEUE_SIZE)
+    if (s_produced - s_consumed < AT32_APP_TELEMETRY_QUEUE_SIZE)
     {
-        s_queue[s_produced % R40_APP_TELEMETRY_QUEUE_SIZE] = frame;
+        s_queue[s_produced % AT32_APP_TELEMETRY_QUEUE_SIZE] = frame;
         BspSystem_MemoryBarrier();
         ++s_produced;
-        ++g_r40_app_telemetry.queued;
+        ++g_at32_app_telemetry.queued;
     }
     else
     {
-        ++g_r40_app_telemetry.queue_dropped;
+        ++g_at32_app_telemetry.queue_dropped;
     }
-    g_r40_app_telemetry.end = version;
-    g_r40_app_telemetry.begin = version;
+    g_at32_app_telemetry.end = version;
+    g_at32_app_telemetry.begin = version;
 }
 
-void R40AppTelemetry_Service(void)
+void AT32AppTelemetry_Service(void)
 {
     for (unsigned n = 0U; n < 4U; ++n)
     {
-        R40AppTelemetryFrame frame;
+        AT32AppTelemetryFrame frame;
         if (s_consumed == s_produced)
         {
             return;
         }
         BspSystem_MemoryBarrier();
-        frame = s_queue[s_consumed % R40_APP_TELEMETRY_QUEUE_SIZE];
+        frame = s_queue[s_consumed % AT32_APP_TELEMETRY_QUEUE_SIZE];
         BspSystem_MemoryBarrier();
         ++s_consumed;
         if (SEGGER_RTT_WriteNoLock(1U, &frame, sizeof(frame)) == sizeof(frame))
         {
-            ++g_r40_app_telemetry.sent;
+            ++g_at32_app_telemetry.sent;
         }
         else
         {
-            ++g_r40_app_telemetry.rtt_dropped;
+            ++g_at32_app_telemetry.rtt_dropped;
         }
     }
 }

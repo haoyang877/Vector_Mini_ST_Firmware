@@ -8,7 +8,7 @@
 #include "application_config.h"
 #include "motor_sensing.h"
 #include "application_config.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "motor_fault.h"
 #include "motor_readiness.h"
 #include "board_config.h"

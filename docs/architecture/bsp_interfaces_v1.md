@@ -1,5 +1,8 @@
 # BSP功能接口与实现v1（修订6）
 
+当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
+不保留接口、占位实现或工程引用。见[删除记录](../plans/active/2026-10-30-remove-led-uart-v1.md)。
+
 状态：修订6接口已接入两板固件，双板构建与离线发布检查通过；统一实机验收尚未完成。日期：2026-10-26。
 相电流零偏的应用收尾已移至2kHz监督任务，属于明确记录的调度调整，详见执行约定第2节。
 完整文件树和所有权见[BSP架构总图](bsp_architecture_v1.md)。
@@ -11,16 +14,8 @@
 ```text
 firmware/platform/
 ├─ bsp/
-│  ├─ include/                  十个统一功能契约及既有FastLoopProfile诊断
-│  ├─ bsp_adc.c                 快帧、原码/物理量、独立有效位和零偏提交
-│  ├─ bsp_pwm.c                 占空比校验、提交保护、输出门控与关相序号
-│  ├─ bsp_encoder.c             非阻塞事务、控制样本、器件诊断和配置读取
-│  ├─ bsp_can.c                 软件票据、终态、溢出报告与恢复节流
-│  ├─ bsp_led.c                 统一闪烁与呼吸节拍
-│  ├─ bsp_uart.c                当前两板未绑定，统一返回NOT_SUPPORTED
-│  ├─ can_frame_codec.c/.h      物理DLC转换，不解释应用协议
+│  ├─ include/                  八个统一功能契约
 │  ├─ bsp_internal.h           统一私有声明，不含实现或状态定义
-│  ├─ devices/                 MT6835/TLE5012B命令、校验及角度解码
 │  └─ mcu/{at32f456,stm32g4}/   系统、IRQ及ADC/PWM/SPI/CAN/GPIO/Flash真实操作
 ├─ config/                     唯一板选择、资源、比例、硬件能力与组合校验
 └─ sdk/                        厂商原目录，不统一厂商目录格式
@@ -33,6 +28,13 @@ BSP不调用具体协议处理器，不持有电机对象；Axis通过自身接�
 Flash写入的暂停采样、擦写、回读和中断恢复由BSP拥有；应用外层临界区只保护保存任务身份不被取消后继续使用。
 
 ## 模块接口
+
+当前公开面为8个头、39个函数声明（其中3个为应用实现的事件回调）。
+BootHw_Init和单相PWM仅在根目录内部头声明；已删除闲置微秒时基、复位入口和阶段诊断。
+本轮未编译或运行测试，见[公共接口最简化](../plans/active/2026-10-30-bsp-public-minimal-v1.md)。
+
+全部外设实现放在对应MCU目录，include保留统一接口声明。
+核对记录见[全BSP硬件边界核对](../plans/active/2026-10-30-bsp-hardware-boundary-audit-v1.md)。
 
 ### 生命周期和应用事件
 
@@ -52,91 +54,82 @@ void BspApp_OnCanReceive(void);
 
 ```c
 uint32_t BspSystem_TimeMs(void);
-uint32_t BspSystem_TimeUs(void);
-uint32_t BspSystem_CoreClockHz(void);
 uint32_t BspSystem_EnterCritical(void);
 void BspSystem_ExitCritical(uint32_t saved_state);
+uint32_t BspSystem_EnterControlCritical(void);
+void BspSystem_ExitControlCritical(uint32_t saved_state);
+void BspSystem_MemoryBarrier(void);
+bool BspSystem_CompareExchange32(volatile uint32_t *address, uint32_t expected, uint32_t desired);
 BspResult BspSystem_ReadUid(uint8_t uid[BSP_SYSTEM_UID_BYTES]);
 BspResult BspSystem_ReadIdentity(uint8_t record[BSP_SYSTEM_IDENTITY_BYTES]);
-void BspSystem_Reset(void);
 BspResult BspWatchdog_Start(void);
 void BspWatchdog_Feed(void);
 ```
 
 ### 模拟信号
 
-详细契约：[bsp_adc.h](../../firmware/platform/bsp/include/bsp_adc.h)。
+两板共用[ADC接口](../../firmware/platform/bsp/include/bsp_adc.h)：
 
 ```c
-BspResult BspAdc_ReadFast(BspAdcFastSample *sample);
-BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *sample);
-BspResult BspAdc_ReadRawChannel(BspAdcChannel channel, BspAdcRawValue *sample);
-BspResult BspAdc_SetPhaseOffsets(const float offsets_counts[3]);
-BspResult BspAdc_SetBusCurrentOffset(float offset_counts);
-BspResult BspAdc_ReadChannel(BspAdcChannel channel, BspAdcValue *sample);
-BspResult BspAdc_UpdateAuxiliary(void);
+float BspAdc_ReadRawChannel(BspAdcChannel channel);
+float BspAdc_ReadChannel(BspAdcChannel channel);
+void BspAdc_SetPhaseOffsets(const float offsets_counts[3]);
+void BspAdc_SetBusCurrentOffset(float offset_counts);
 ```
+
+直接读取原码或物理量；无结果码、帧类型、有效位、序号或缓存。
+缺参数、未提供的信号或数学无定义返回NAN。硬件原码、触发、DMA和中断由各MCU实现；
+换算及零偏也在各MCU实现，公开接口不因板型改变。
 
 ### 三相功率输出
 
-详细契约：[bsp_pwm.h](../../firmware/platform/bsp/include/bsp_pwm.h)。
+两板共用[PWM接口](../../firmware/platform/bsp/include/bsp_pwm.h)：
 
 ```c
-BspResult BspPwm_SetDuty(float phase_a, float phase_b, float phase_c);
-BspResult BspPwm_SetPhaseDuty(BspPwmPhase phase, float duty);
-BspResult BspPwm_Enable(void);
+void BspPwm_SetDuty(float phase_a, float phase_b, float phase_c);
+void BspPwm_Enable(void);
 void BspPwm_Disable(void);
 bool BspPwm_ArePhasesDisabled(void);
-BspPwmStatus BspPwm_GetStatus(void);
 ```
+
+直接写比较值/输出位，或读取六路通道是否全关；不校验、不返回状态或事件计数。
+占空比换算、周期读取、比较值写入、启停和通道查询均由各MCU实现。
+应用与电机代码不根据芯片选择调用形式，不新增状态或转发包装。
+此统一接口于2026-10-30按用户要求实施，测试与编译尚未运行。
 
 ### 编码器
 
-详细契约：[bsp_encoder.h](../../firmware/platform/bsp/include/bsp_encoder.h)。
+两板使用同一[公开头](../../firmware/platform/bsp/include/bsp_encoder.h)：
 
 ```c
-BspResult BspEncoder_Begin(void);
-BspResult BspEncoder_BeginReadback(void);
-BspResult BspEncoder_Complete(BspEncoderSample *sample);
-BspEncoderType BspEncoder_GetType(void);
-BspResult BspEncoder_ReadDiagnostics(BspEncoderDiagnostics *diagnostics);
-BspResult BspEncoder_CaptureConfig(void);
-BspResult BspEncoder_ReadConfigWord(uint8_t index, uint16_t *word);
+void BspEncoder_Begin(void);
+uint16_t BspEncoder_ReadAngle(void);
 ```
 
-### 指示器
-
-详细契约：[bsp_led.h](../../firmware/platform/bsp/include/bsp_led.h)。
-
-```c
-BspResult BspLed_SetCode(BspLedCodeChannel channel, uint8_t blink_count);
-BspResult BspLed_SetColor(BspLedColor color);
-```
+Begin发起本拍读取，ReadAngle等待已发起的传输完成并返回0..65535计数域，一圈为65536。
+MT6835取高16位，TLE5012B的15位角度乘2；不施加方向、零位或LUT。
+工程只编译本板MCU的encoder_spi.c，由其直接实现统一接口；不再保留事务/诊断/配置缓存。
+硬件读写和启停归MCU，BSP没有额外Encoder转发实现。
+两板均无CRC、状态和超时检查。本次统一实现尚未测试或编译。
 
 ### CAN帧
 
-详细契约：[bsp_can.h](../../firmware/platform/bsp/include/bsp_can.h)。
+两板共用[bsp_can.h](../../firmware/platform/bsp/include/bsp_can.h)，板型只在工程和BSP内部选择。
 
 ```c
-BspResult BspCan_Start(void);
-BspResult BspCan_TrySend(const BspCanFrame *frame);
-BspResult BspCan_TrySendTracked(const BspCanFrame *frame, uint64_t ticket);
-BspResult BspCan_Receive(BspCanFrame *frame);
-BspResult BspCan_TakeCompletion(BspCanCompletion *completion);
-BspCanState BspCan_GetState(void);
-BspResult BspCan_Recover(void);
+void BspCan_Start(void);
+bool BspCan_TrySend(const BspCanFrame *frame);
+bool BspCan_Receive(BspCanFrame *frame);
+bool BspCan_IsTransmitBusy(void);
+bool BspCan_IsTransmitComplete(void);
 ```
 
-### UART字节流
-
-详细契约：[bsp_uart.h](../../firmware/platform/bsp/include/bsp_uart.h)。
-
-```c
-BspResult BspUart_TryWrite(const uint8_t *data, size_t length);
-BspResult BspUart_TakeTxResult(BspUartTxResult *result);
-BspResult BspUart_Read(uint8_t *data, size_t capacity, size_t *received);
-BspUartState BspUart_GetState(void);
-```
+length统一为字节数，ID为11位标准ID或29位扩展ID；调用方保证ID、格式和DLC对应长度合法。
+两板均只允许一帧在途，TrySend的true表示硬件已接受请求，IsTransmitComplete才表示发送成功。
+Receive以false表示FIFO空，数据帧写入length个字节，远程帧只写头字段。
+不提供BspResult、软件状态、票据、超时/取消或自动恢复；协议握手仍在通信层。
+DLC转换直接位于各MCU收发函数；统一入口在mcu/*/can.c实现，包含启停、收发和IRQ。
+本轮按用户要求未测试、未编译，不能沿用页面顶部的历史验证结果。
 
 ### 参数存储区
 
@@ -152,7 +145,6 @@ BspResult BspFlash_Write(const void *data, size_t length);
 详细契约：[boot_hw.h](../../firmware/platform/bsp/include/boot_hw.h)。
 
 ```c
-bool BootHw_Init(void);
 bool BootHw_EnterLoader(uint8_t node);
 void BootHw_Watchdog(bool healthy);
 bool BootHw_Confirm(uint32_t version, uint32_t crc32);
@@ -169,10 +161,8 @@ bool BootHw_IsAvailable(void);
 | 独立母线电流 | ADC2 PA4注入序列，与ADC1同次PWM事件 | 未布置，返回NOT_SUPPORTED |
 | 辅助模拟量 | PA7 NTC、可选sin/cos、内部温度/VREF | 内部温度/VREF；其它未布置 |
 | 编码器 | MT6835、SPI2四线，APP沿用DMA | TLE5012B、SPI2三线换向 |
-| PWM | TMR1，保留原六路使能、死区、映射 | TIM1，保留原HAL通道状态及六路顺序 |
-| CAN | CAN1单PTB，普通帧也须等待槽释放 | FDCAN1硬件FIFO；跟踪票据独占软件槽 |
-| LED | PC13/PC14共用闪烁和颜色 | 状态GPIO和TIM2 CH3灯带分别显示 |
-| UART/硬件版本ADC | 未绑定 | 未绑定 |
+| PWM | TMR1，保留原六路使能、死区、映射 | TIM1，直接读写比较值和六路/主输出位 |
+| CAN | CAN1单PTB，单帧在途 | FDCAN1硬件FIFO，单帧在途 |
 | 看门狗 | 原AT32应用看门狗 | 独立APP无应用看门狗，Loader继承路径保持 |
 
 功能用`BSP_SUPPORTED_*`描述实板能力，用`BSP_ENABLED_*`选择本目标功能，用应用的
@@ -182,15 +172,16 @@ STM32生成初始化须与板配置一致，换接线要同步生成配置；不
 
 ## 控制行为和增强边界
 
-三相采样四次累加、算术顺序、母线电压保护、编码器65536计数和原诊断字、协议/参数ABI保持。
-AT32母线电流改为真正PWM同步快采样；零点和滤波仍在2kHz监督拍处理128个样本，按快序号跨10拍判断连续性。
-新快帧内电压、相电流和母线电流有效位相互独立。未校准电流是NAN，原码仍可用于上电标定。
+三相采样四次累加、算术顺序、母线电压保护、编码器65536计数和协议/参数ABI保持。
+编码器不再提供原始诊断字、错误枚举或坏帧计数。
+AT32母线电流仍为PWM同步采样；应用在2kHz监督拍读取数值并处理128个校零读数及滤波，ADC不提供快序号。
+两板都不提供ADC快帧或有效位；未设置零偏的物理电流为NAN，原码直接用于校零。
 AT32内部温度/VREF没有实测校准时只发布原码，不把典型值诊断当作保护资格。
 
-以下是明确的异常路径增强，不能宣称与旧错误行为逐位等价：PWM错过提交窗口先关相并锁存、
-部分启用失败由BSP收尾并读回；关断不完整进入致命路径；CAN报告溢出并保留幸存帧，已确认终态不被后续超时覆盖；
-Flash双方均自行保护中断和采样、失败锁存；编码器失败配置槽明确无效，不复用旧值充当新读数。
-CAN BSP识别合法经典/FD元数据；上层协议仍只使用原扩展FD+BRS及原过滤器，不扩大业务协议范围。
+两板PWM均按用户要求删除原提交超时、启停读回和故障状态包装。
+CAN不报告溢出或维护软件终态；发送完成查询直接读取硬件。
+Flash双方沿用各自存储处理；两板编码器均不提供配置缓存和读取错误状态。
+CAN按调用方提供的合法经典/FD元数据读写硬件；上层协议仍只使用原扩展FD+BRS及原过滤器。
 
 一次性功率窗口在`firmware/app/runtime/pwm_power_window.*`，母线电流零点/滤波在
 `firmware/app/composition/bus_current_feedback.*`。它们是应用状态与策略，不回放到BSP中。

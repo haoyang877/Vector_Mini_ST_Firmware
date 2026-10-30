@@ -1,5 +1,5 @@
-#ifndef R40_BENCH_FAKE_H
-#define R40_BENCH_FAKE_H
+#ifndef AT32_BENCH_FAKE_H
+#define AT32_BENCH_FAKE_H
 #include <stdbool.h>
 #include <stdint.h>
 /* 验证镜像测试的窄寄存器替身，不模拟控制器或Flash算法。 */

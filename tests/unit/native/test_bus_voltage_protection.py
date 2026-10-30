@@ -1,6 +1,6 @@
-"""使用模拟 ADC 输入执行生产母线采样与模式准入。
+"""离线验证母线电压搬运、低通收敛、缺帧置NAN与启动窗口位模式；不访问硬件。
 
-不打开探针，也不施加真实过压/欠压；仅覆盖离线判定逻辑。
+不施加真实过压/欠压，也不验证采样模块的保护判定（该判定已删除）。
 """
 
 import sys as _sys
@@ -25,44 +25,15 @@ PRELUDE = r"""
 #include "motor_config.h"
 #include "application_config.h"
 #include "board_config.h"
-#define FOC_FREQ 20000U
-#define SENSING_VBUS_FACTOR (3.3f / 4095.0f * 11.0f)
-#define ADC2_SUM_TO_COUNTS .25f
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
 typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } MotorMeasurement;
-static struct { uint32_t JDR4; } adc;
-BspResult BspAdc_ReadFast(BspAdcFastSample *out) {
-    *out=(BspAdcFastSample){.bus_voltage_v=(float)adc.JDR4*ADC2_SUM_TO_COUNTS*SENSING_VBUS_FACTOR,
-                         .valid_mask=BSP_ADC_FAST_BUS_VOLTAGE_VALID};
-    return BSP_OK;
-}
-static MotorConfiguration configuration;
-static MotorControlState motor_state;
 static MotorMeasurement s_foc_state;
-static void MotorFault_Report(MotorControlState *m,MotorFaultCode e) { m->fault_code=e; }
 """
 
 CASES = r"""
-static void sample_voltage(bool output_expected) {
-    BspAdcFastSample sample;
-    BspResult result=BspAdc_ReadFast(&sample);
-    MotorVoltage_Update(&s_foc_state,&motor_state,output_expected,result==BSP_OK?&sample:NULL);
+static void sample_voltage(const BspAdcFastSample *sample) {
+    MotorVoltage_Update(&s_foc_state, sample);
 }
-static void input(float v) {
-    adc.JDR4=(uint32_t)roundf(v/SENSING_VBUS_FACTOR/ADC2_SUM_TO_COUNTS);
-    assert(adc.JDR4<=4*4095);
-}
-static void reset(float v) {
-    memset(&configuration,0,sizeof(configuration));
-    memset(&motor_state,0,sizeof(motor_state));
-    motor_state.control_mode=MOTOR_CONTROL_NONE;
-    input(v); s_foc_state.bus_voltage_filtered_v=v;
-    sample_voltage(motor_state.control_mode!=MOTOR_CONTROL_NONE); /* Disabled sample resets all counters. */
-    configuration.application.axis_profile_valid=true;
-    configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
-}
-static void tick(unsigned n) { while(n--) sample_voltage(motor_state.control_mode!=MOTOR_CONTROL_NONE); }
-static void running(float v) { reset(v);motor_state.control_mode=MOTOR_CONTROL_SPEED; }
 /* 正有限 float 的位模式有序；独立整数区间作参考，不复用待测浮点判定。 */
 static void test_enable_window(void) {
     float lower = BUS_VOLTAGE_ENABLE_MIN_V, upper = BUS_VOLTAGE_ENABLE_MAX_V;
@@ -100,43 +71,33 @@ static void test_enable_window(void) {
     }
     printf("PASS %u enable-window values, all exponent/sign classes and endpoint neighbors\n", compared);
 }
+
 int main(void) {
-    unsigned k;
+    unsigned i;
+    BspAdcFastSample sample = {.bus_voltage_v = 30.0f};
+
     test_enable_window();
-    /* Full 8S charge must run beyond both the old 10000-cycle window and
-     * the new delays, without inheriting the old 30 V false threshold. */
-    running(33.6f);tick(40000);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    puts("PASS 33.6 V full-charge operation");
-    running(34.2f);tick(39);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
-    input(32);tick(100);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
-    puts("PASS 2 ms sustained overvoltage and fault latch");
-    running(23.9f);tick(1999);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_UNDERVOLTAGE);
-    puts("PASS 100 ms sustained undervoltage");
-    running(33);input(34.8f);tick(2);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
-    assert(s_foc_state.bus_voltage_filtered_v<34.0f);
-    puts("PASS three-sample hard overvoltage bypasses filter lag");
-    running(33);for(k=0;k<100;k++) {
-        input(34.8f);tick(2);input(33);tick(20);
-        assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+
+    /* 原始值逐拍搬运；首拍低通从原状态向新输入收敛。 */
+    s_foc_state.bus_voltage_filtered_v = 0.0f;
+    sample_voltage(&sample);
+    assert(s_foc_state.bus_voltage_v == 30.0f);
+    assert(fabsf(s_foc_state.bus_voltage_filtered_v - 1.5f) < 1e-6f);
+    puts("PASS raw bus voltage copied and low-pass seeded");
+
+    const float target_v = 32.5f;
+    sample.bus_voltage_v = target_v;
+    for (i = 0; i < 1000; ++i) {
+        sample_voltage(&sample);
     }
-    running(23.9f);tick(1900);input(30);tick(1000);
-    input(23.9f);tick(1900);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    puts("PASS isolated spikes and interrupted dips do not accumulate");
-    running(34.2f);tick(39);motor_state.control_mode=MOTOR_CONTROL_NONE;tick(1);
-    motor_state.control_mode=MOTOR_CONTROL_SPEED;tick(39);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
-    running(23.9f);tick(1999);motor_state.control_mode=MOTOR_CONTROL_NONE;tick(1);
-    motor_state.control_mode=MOTOR_CONTROL_SPEED;tick(1999);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    tick(1);assert(motor_state.fault_code==MOTOR_FAULT_UNDERVOLTAGE);
-    puts("PASS disable resets both confirmation counters");
-    /* 维护执行器不再借用控制模式值；同一显式保护许可覆盖转矩维护。 */
-    reset(34.2f);
-    for(k=0;k<40;k++) sample_voltage(true);
-    assert(motor_state.fault_code==MOTOR_FAULT_OVERVOLTAGE);
-    puts("PASS explicit maintenance power expectation protected independently of control mode");
+    assert(s_foc_state.bus_voltage_v == target_v);
+    assert(fabsf(s_foc_state.bus_voltage_filtered_v - target_v) < 0.01f);
+    puts("PASS low-pass converges to input");
+
+    /* 缺帧不再报故障；两个字段均为NAN。 */
+    sample_voltage(NULL);
+    assert(isnan(s_foc_state.bus_voltage_v) && isnan(s_foc_state.bus_voltage_filtered_v));
+    puts("PASS NULL frame yields NAN fields");
     return 0;
 }
 """

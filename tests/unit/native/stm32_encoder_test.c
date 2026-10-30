@@ -4,7 +4,7 @@
 #include <string.h>
 #include "main.h"
 #include "bsp_encoder.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "encoder_protocol.h"
 uint32_t BspSystem_EnterCritical(void)
 {

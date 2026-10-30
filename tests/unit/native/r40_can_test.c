@@ -4,8 +4,6 @@
 #include <string.h>
 #include <setjmp.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/can.c"
-#include "../../../firmware/platform/bsp/bsp_can.c"
-#include "../../../firmware/platform/bsp/can_frame_codec.c"
 #include "can_legacy_assertions.h"
 
 static jmp_buf fatal_exit;
@@ -27,8 +25,8 @@ static void boot_fixture(void)
     sim_bit_writes = sim_can_writes = 0U;
     sim_fatal_hook = NULL;
     BspSystem_ExitCritical(0U);
-    system_core_clock = R40_CORE_HZ;
-    sim_can_pclk_hz = R40_CAN_HZ;
+    system_core_clock = AT32_CORE_HZ;
+    sim_can_pclk_hz = AT32_CAN_HZ;
     memset(&sim_can, 0, sizeof(sim_can));
 }
 /** @brief 配置读回、重复启动与有界等待失败必须保持关相并进入原致命路径。 */
@@ -139,19 +137,19 @@ int main(void)
     assert(!BspCan_TrySendFrame(&frame) && !BspCan_IsHealthy());
     system_core_clock = 192000000U;
     assert(!BspCan_Init());
-    system_core_clock = R40_CORE_HZ;
+    system_core_clock = AT32_CORE_HZ;
     sim_can_pclk_hz = 90000000U;
     assert(!BspCan_Init());
-    sim_can_pclk_hz = R40_CAN_HZ;
+    sim_can_pclk_hz = AT32_CAN_HZ;
     assert(BspCan_Init() && !BspCan_Init());
     assert(sim_timing.bittime_div == 1U);
-    assert(R40_CAN_HZ / (sim_timing.ac_bts1_size + sim_timing.ac_bts2_size) == 1000000U);
-    assert(R40_CAN_HZ / (sim_timing.fd_bts1_size + sim_timing.fd_bts2_size) == 5000000U);
+    assert(AT32_CAN_HZ / (sim_timing.ac_bts1_size + sim_timing.ac_bts2_size) == 1000000U);
+    assert(AT32_CAN_HZ / (sim_timing.fd_bts1_size + sim_timing.fd_bts2_size) == 5000000U);
     assert(sim_timing.ac_bts1_size * 4U ==
            (sim_timing.ac_bts1_size + sim_timing.ac_bts2_size) * 3U);
     assert(sim_timing.fd_bts1_size * 4U ==
            (sim_timing.fd_bts1_size + sim_timing.fd_bts2_size) * 3U);
-    assert(sim_timing.fd_ssp_offset == R40_CAN_HZ / 20000000U * 3U + 1U);
+    assert(sim_timing.fd_ssp_offset == AT32_CAN_HZ / 20000000U * 3U + 1U);
     for (unsigned bit = 0U; bit < 29U; ++bit)
     {
         for (unsigned dlc = 0U; dlc < 16U; ++dlc)

@@ -1,5 +1,6 @@
 /* 独立APP目标未重定位也未保留启动邮箱，平台明确不提供Loader能力。 */
 #include "boot_hw.h"
+#include "../../bsp_internal.h"
 
 bool BootHw_Init(void)
 {

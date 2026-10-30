@@ -105,7 +105,6 @@ def run_variant(compiler: Path, source_dir: Path, output: Path, profile: int) ->
         "-Wall",
         "-Wextra",
         "-Werror",
-        f"-DBSP_ENABLED_FAST_LOOP_PROFILE={profile}",
         str(source),
         "-o",
         str(executable),

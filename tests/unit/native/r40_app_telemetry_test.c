@@ -28,14 +28,14 @@ int main(void)
     FocState original_foc = foc;
     MotorControlState original_motor = motor;
     EncoderState original_encoder = encoder;
-    R40AppTelemetry_Init();
+    AT32AppTelemetry_Init();
     for (uint32_t tick = 1U; tick <= 20U; ++tick)
     {
-        R40AppTelemetry_Capture(tick, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
-        R40AppTelemetry_Service();
+        AT32AppTelemetry_Capture(tick, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
+        AT32AppTelemetry_Service();
     }
-    assert(g_r40_app_telemetry.queued == 2U && g_r40_app_telemetry.sent == 2U);
-    R40AppTelemetryFrame frames[2];
+    assert(g_at32_app_telemetry.queued == 2U && g_at32_app_telemetry.sent == 2U);
+    AT32AppTelemetryFrame frames[2];
     memcpy(frames, _SEGGER_RTT.aUp[1].pBuffer, sizeof(frames));
     assert(frames[0].timestamp_us == 500U && frames[1].timestamp_us == 1000U);
     assert(frames[0].sequence == 1U && frames[1].sequence == 2U);
@@ -49,25 +49,25 @@ int main(void)
     /* 前台停调度只填32帧，之后丢整帧；不会等主机或覆盖未消费记录。 */
     for (uint32_t tick = 30U; tick <= 420U; tick += 10U)
     {
-        R40AppTelemetry_Capture(tick, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
+        AT32AppTelemetry_Capture(tick, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
     }
-    assert(g_r40_app_telemetry.queued == 34U);
-    assert(g_r40_app_telemetry.queue_dropped == 8U);
-    R40AppTelemetry_Service();
-    assert(g_r40_app_telemetry.sent == 6U);
-    assert(g_r40_app_telemetry.begin == g_r40_app_telemetry.end);
+    assert(g_at32_app_telemetry.queued == 34U);
+    assert(g_at32_app_telemetry.queue_dropped == 8U);
+    AT32AppTelemetry_Service();
+    assert(g_at32_app_telemetry.sent == 6U);
+    assert(g_at32_app_telemetry.begin == g_at32_app_telemetry.end);
     for (unsigned n = 0U; n < 500U; ++n)
     {
-        R40AppTelemetry_Capture(500U + n * 10U, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
-        R40AppTelemetry_Service();
+        AT32AppTelemetry_Capture(500U + n * 10U, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
+        AT32AppTelemetry_Service();
     }
-    assert(g_r40_app_telemetry.rtt_dropped > 0U);
-    assert(_SEGGER_RTT.aUp[1].WrOff % sizeof(R40AppTelemetryFrame) == 0U);
+    assert(g_at32_app_telemetry.rtt_dropped > 0U);
+    assert(_SEGGER_RTT.aUp[1].WrOff % sizeof(AT32AppTelemetryFrame) == 0U);
     _SEGGER_RTT.aUp[1].RdOff = _SEGGER_RTT.aUp[1].WrOff;
-    uint32_t sent = g_r40_app_telemetry.sent;
-    R40AppTelemetry_Capture(6000U, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
-    R40AppTelemetry_Service();
-    assert(g_r40_app_telemetry.sent == sent + 1U && s_depth == 0U);
+    uint32_t sent = g_at32_app_telemetry.sent;
+    AT32AppTelemetry_Capture(6000U, &foc, &measurement, &motor, &encoder, 2U, 3U, 8U);
+    AT32AppTelemetry_Service();
+    assert(g_at32_app_telemetry.sent == sent + 1U && s_depth == 0U);
     puts("PASS APP RTT: 2kHz real frames, read-only inputs, bounded queue, host stall/recovery");
     return 0;
 }

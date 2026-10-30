@@ -250,8 +250,8 @@ bool YgProtocolLink_OnRxFrame(const BspCanFrame *frame)
     {
         return false;
     }
-    /* 唯一CAN RX IRQ生产，前台不能抢占本函数，消费端已在临界区取走。
-     * ADC和监督ISR不访问RX队列；帧校验及复制不应全局屏蔽电机中断。 */
+    /* 唯一CAN RX IRQ生产，前台单消费者取帧。
+     * 快速采样和监督上下文不访问RX队列；帧校验及复制不全局屏蔽电机中断。 */
     return yg_protocol_canfd_receive(&s_rx_queue, frame) == YG_PROTOCOL_OK;
 }
 
@@ -268,21 +268,22 @@ static void finish_boot_ticket(bool success)
     yg_protocol_boot_complete(&s_boot_context, ticket, success);
 }
 
-static void service_boot_completion(void)
+static void service_boot_completion(uint32_t now_ms)
 {
-    BspCanCompletion completion;
-    for (uint8_t received = 0U; received < 8U; ++received)
+    if (s_link_context.boot_tx_state == YG_BOOT_TX_IN_FLIGHT)
     {
-        if (BspCan_TakeCompletion(&completion) != BSP_OK)
+        if ((uint32_t)(now_ms - s_boot_context.boot_ready_ms) >= YG_LINK_BOOT_QUEUE_TIMEOUT_MS)
         {
-            break;
+            finish_boot_ticket(false);
         }
-        if (s_link_context.boot_tx_state == YG_BOOT_TX_IN_FLIGHT &&
-            completion.ticket == s_boot_context.boot_ticket && completion.ticket != 0U)
+        else if (BspCan_IsTransmitComplete())
         {
-            finish_boot_ticket(completion.result == BSP_CAN_TX_OK);
+            finish_boot_ticket(true);
         }
-        /* 旧票据或其他帧事件不能使当前交接完成。 */
+        else if (!BspCan_IsTransmitBusy())
+        {
+            finish_boot_ticket(false);
+        }
     }
 }
 
@@ -373,6 +374,11 @@ static void expire_boot_reply(uint32_t now_ms)
 
 static yg_protocol_result_t send_one(void)
 {
+    /* 交接回复确认前不提交其它帧，硬件完成位只对应本次回复。 */
+    if (s_link_context.boot_tx_state == YG_BOOT_TX_IN_FLIGHT)
+    {
+        return YG_PROTOCOL_TRANSPORT_BUSY;
+    }
     yg_protocol_transfer_frame_t frame;
     BspCanFrame hardware = {0};
     if (s_link_context.boot_tx_state != YG_BOOT_TX_QUEUED ||
@@ -399,7 +405,7 @@ static yg_protocol_result_t send_one(void)
     hardware.fd = frame.fd;
     hardware.bitrate_switch = frame.bitrate_switch;
     memcpy(hardware.data, frame.data, frame.length);
-    if (BspCan_TrySendTracked(&hardware, s_boot_context.boot_ticket) != BSP_OK)
+    if (!BspCan_TrySend(&hardware))
     {
         return YG_PROTOCOL_TRANSPORT_BUSY;
     }
@@ -417,7 +423,7 @@ void YgProtocolLink_Service(uint32_t now_ms)
     {
         return;
     }
-    service_boot_completion();
+    service_boot_completion(now_ms);
     s_boot_context.service_now_ms = now_ms;
     expire_boot_reply(now_ms);
     while (processed < 8U)
@@ -483,7 +489,6 @@ bool YgProtocolLink_IsReady(void)
 }
 
 /* runtime 只拥有硬件调度；link 接收组合层的地址值并独占端点状态。 */
-static uint32_t s_last_recovery_ms;
 static bool s_initialized;
 static bool s_started;
 
@@ -494,7 +499,6 @@ bool YgProtocolRuntime_Init(uint8_t node_id)
     {
         return false;
     }
-    s_last_recovery_ms = 0U;
     s_initialized = true;
     return true;
 }
@@ -509,10 +513,7 @@ bool YgProtocolRuntime_Start(void)
     {
         return true;
     }
-    if (BspCan_Start() != BSP_OK)
-    {
-        return false;
-    }
+    BspCan_Start();
     s_started = true;
     return true;
 }
@@ -522,11 +523,6 @@ void YgProtocolRuntime_Service(uint32_t now_ms)
     if (!s_started)
     {
         return;
-    }
-    if ((uint32_t)(now_ms - s_last_recovery_ms) >= 1000U)
-    {
-        s_last_recovery_ms = now_ms;
-        (void)BspCan_Recover();
     }
     YgProtocolLink_Service(now_ms);
 }
@@ -538,10 +534,9 @@ void YgProtocolCanfd_RxIrqHandler(void)
     /* 每次最多读取 3 帧，持续输入不能把一次 ISR 拉成无界循环。 */
     for (uint8_t count = 0U; count < 3U; ++count)
     {
-        if (BspCan_Receive(&frame) != BSP_OK)
+        if (!BspCan_Receive(&frame))
         {
-            /* 空 FIFO 或被端口层丢弃的非 CAN FD 帧都计入本次上限；继续清理剩余槽位。 */
-            continue;
+            break;
         }
         /* 格式验证由 link 唯一负责；ISR 只提供帧值，不重复维护准入条件。 */
         (void)YgProtocolLink_OnRxFrame(&frame);

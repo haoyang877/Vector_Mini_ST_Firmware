@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
-#include "../../../firmware/platform/bsp/bsp_adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
 
 int main(void)
@@ -16,7 +15,7 @@ int main(void)
     assert(sim_adc[1].ordinary_channels[1] == 0U);
     assert(sim_adc[0].ordinary_channels[0] == 0U && !sim_adc[0].dma_enabled);
     assert(sim_temperature_dma_config.buffer_size == 0U);
-    assert(sim_dma_config.buffer_size == 2U * R40_AUX_RANKS);
+    assert(sim_dma_config.buffer_size == 2U * AT32_AUX_RANKS);
     assert(Adc_Start() && sim_dma_enabled == !!BSP_ENABLED_AUX_SAMPLING &&
            !sim_temperature_dma_enabled);
     assert(sim_adc[0].ordinary_edge == ADC_ORDINARY_TRIG_EDGE_NONE);
@@ -33,7 +32,7 @@ int main(void)
     assert(Adc_IsHealthy() && !sim_temperature_dma_enabled);
 
     s_sampling.aux_dma[0] = 101U;
-    s_sampling.aux_dma[R40_AUX_RANKS] = 202U;
+    s_sampling.aux_dma[AT32_AUX_RANKS] = 202U;
     sim_dma_flags = DMA1_HDT2_FLAG;
     DMA1_Channel2_IRQHandler();
     AdcAuxSample aux;

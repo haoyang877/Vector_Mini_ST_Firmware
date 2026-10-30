@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "bsp_pwm.h"
 #include "board_config.h"
 #include "application_config.h"
@@ -28,10 +28,6 @@ static bool s_sampling_fault;
 static unsigned s_startup_state = 2U;
 #define HAL_OK 0
 uint32_t BspSystem_TimeMs(void)
-{
-    return 0U;
-}
-uint32_t BspSystem_TimeUs(void)
 {
     return 0U;
 }

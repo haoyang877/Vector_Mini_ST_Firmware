@@ -75,14 +75,9 @@ def main() -> None:
         + "\n"
         + function_source(
             (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
-            "mode_color",
-        )
-        + "\n"
-        + function_source(
-            (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
             "App_FastTick",
         )
-        + "\n#define RGB_DIVIDER (SUPERVISOR_FREQ / 20U)\nstatic uint16_t s_rgb_cnt;\n"
+        + "\n"
         + function_source(
             (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
             "App_SupervisorTick",

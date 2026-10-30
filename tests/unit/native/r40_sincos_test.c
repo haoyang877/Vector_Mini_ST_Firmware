@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
-#include "../../../firmware/platform/bsp/bsp_adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
 
 static uint16_t hardware_average(uint16_t first)
@@ -16,7 +15,7 @@ static uint16_t hardware_average(uint16_t first)
 
 static void fill_half(bool second, uint16_t sin_first, uint16_t cos_first)
 {
-    unsigned base = second ? R40_AUX_RANKS : 0U;
+    unsigned base = second ? AT32_AUX_RANKS : 0U;
     s_sampling.aux_dma[base] = hardware_average(371U);
     s_sampling.aux_dma[base + 1U] = hardware_average(sin_first);
     s_sampling.aux_dma[base + 2U] = hardware_average(cos_first);
@@ -24,11 +23,11 @@ static void fill_half(bool second, uint16_t sin_first, uint16_t cos_first)
 
 static void check_pair(uint32_t sin_counts, uint32_t cos_counts, uint32_t sequence)
 {
-    assert(g_r40_sincos_snapshot.begin != 0U && (g_r40_sincos_snapshot.begin & 1U) == 0U);
-    assert(g_r40_sincos_snapshot.begin == g_r40_sincos_snapshot.end);
-    assert(g_r40_sincos_snapshot.pa5_counts == sin_counts);
-    assert(g_r40_sincos_snapshot.pa6_counts == cos_counts);
-    assert(g_r40_sincos_snapshot.sequence == sequence);
+    assert(g_at32_sincos_snapshot.begin != 0U && (g_at32_sincos_snapshot.begin & 1U) == 0U);
+    assert(g_at32_sincos_snapshot.begin == g_at32_sincos_snapshot.end);
+    assert(g_at32_sincos_snapshot.pa5_counts == sin_counts);
+    assert(g_at32_sincos_snapshot.pa6_counts == cos_counts);
+    assert(g_at32_sincos_snapshot.sequence == sequence);
 }
 
 int main(int argc, char **argv)
@@ -54,7 +53,7 @@ int main(int argc, char **argv)
            sim_adc[1].ordinary_oversample_recovery == ADC_OVERSAMPLE_CONTINUE);
     assert(sim_adc[1].channels[0] == ADC_CHANNEL_4 &&
            sim_adc[1].sample_times[0] == ADC_SAMPLETIME_92_5);
-    assert(g_r40_sincos_snapshot.begin == 0U && g_r40_sincos_snapshot.end == 0U);
+    assert(g_at32_sincos_snapshot.begin == 0U && g_at32_sincos_snapshot.end == 0U);
     assert(sim_adc[1].ordinary_trigger == ADC_ORDINARY_TRIG_TMR6TRGOUT &&
            sim_adc[1].ordinary_edge == ADC_ORDINARY_TRIG_EDGE_RISING);
 
@@ -75,7 +74,7 @@ int main(int argc, char **argv)
     sim_dma_flags = DMA1_FDT2_FLAG;
     DMA1_Channel2_IRQHandler();
     check_pair(3001U, 1501U, 2U);
-    assert(g_r40_sincos_snapshot.milliseconds == 1U);
+    assert(g_at32_sincos_snapshot.milliseconds == 1U);
 
     /* ADC2抢占组保持单次原码，不受普通组四次平均/右移影响。 */
     sim_adc[0].flags = ADC_PCCE_FLAG;
@@ -103,17 +102,17 @@ int main(int argc, char **argv)
         }
         DMA1_Channel2_IRQHandler();
         assert(!Adc_IsHealthy() && sim_power_off && !sim_dma_enabled);
-        assert(g_r40_sincos_snapshot.begin == 0U && g_r40_sincos_snapshot.end == 0U);
+        assert(g_at32_sincos_snapshot.begin == 0U && g_at32_sincos_snapshot.end == 0U);
         puts(
             "PASS sin/cos DMA loss/error/range fault invalidates both channels and stops sampling");
         return 0;
     }
     if (scenario == 5U)
     {
-        uint32_t old_version = g_r40_sincos_snapshot.end;
+        uint32_t old_version = g_at32_sincos_snapshot.end;
         unsigned key = BspSystem_EnterCritical();
         assert(McuAdc_PauseForStorage());
-        assert(g_r40_sincos_snapshot.begin == 0U && g_r40_sincos_snapshot.end == 0U);
+        assert(g_at32_sincos_snapshot.begin == 0U && g_at32_sincos_snapshot.end == 0U);
         sim_storage_auto_samples = true;
         assert(McuAdc_ResumeAfterStorage());
         sim_storage_auto_samples = false;
@@ -121,7 +120,7 @@ int main(int argc, char **argv)
         fill_half(false, 1100U, 2100U);
         DMA1_Channel2_IRQHandler();
         check_pair(1101U, 2101U, 3U);
-        assert(g_r40_sincos_snapshot.end != old_version && Adc_IsHealthy());
+        assert(g_at32_sincos_snapshot.end != old_version && Adc_IsHealthy());
         BspSystem_ExitCritical(key);
     }
     if (scenario == 6U)
@@ -132,7 +131,7 @@ int main(int argc, char **argv)
         sim_dma_flags = DMA1_HDT2_FLAG;
         DMA1_Channel2_IRQHandler();
         check_pair(1201U, 2201U, 0U);
-        assert(g_r40_sincos_snapshot.end == 2U);
+        assert(g_at32_sincos_snapshot.end == 2U);
     }
     puts("PASS sin/cos 4x hardware average: paired halves, NTC units, bus current isolation and "
          "recovery");

@@ -1,13 +1,10 @@
 # Platform
 
-这里按bsp、devices和原样厂商sdk归类。
+bsp/include只放8个统一功能头；bsp/bsp_internal.h放内部初始化、采样控制及台架声明。
+ADC、PWM、编码器、CAN、Flash和系统硬件操作直接在bsp/mcu/<芯片>/实现对应接口。
+不保留公共转发源文件，LED、UART和快速环阶段诊断已删除。
 
-采样、PWM、编码器、CAN与LED共用bsp根目录下的功能实现；UART有一处明确的禁用实现。bsp/include是公开契约，bsp_internal.h集中必要的私有声明，器件契约在devices。
-mcu/at32f456与mcu/stm32g4处理SDK/寄存器和硬件事务；devices仅实现器件协议。
-板型和板卡参数在firmware/config/boards；应用使能和关相目标在firmware/config/application和targets。
-工程入口在projects，应用回调在firmware/app/composition，台架在tests/bench。厂商SDK与生成外设配置保持原实现。
+板型和硬件参数在firmware/config；应用入口在projects，业务回调在firmware/app/composition。
+底层台架在tests/bench，厂商SDK保持原样，生成代码手工调整仅在USER CODE区域。
 
 详见[共用接口与职责](../../docs/architecture/platform_interface_implementations_v1.md)。
-
-PWM初始化与运行操作归对应MCU的同一文件；单调用方许可/诊断函数归使用方私有。
-STM32指示器不再经过LED/RGB转发，参数存储不再经过第二套Flash接口；未使用延时已删除。

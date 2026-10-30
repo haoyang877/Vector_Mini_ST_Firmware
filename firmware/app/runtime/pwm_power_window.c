@@ -24,9 +24,7 @@ bool PwmPowerWindow_Arm(uint32_t duration_ms, uint32_t now_ms)
 
 bool PwmPowerWindow_Start(uint32_t now_ms)
 {
-    BspPwmStatus status = BspPwm_GetStatus();
-    if (g_pwm_power_window.state == PWM_POWER_ACTIVE &&
-        status.disable_sequence != g_pwm_power_window.disable_sequence)
+    if (g_pwm_power_window.state == PWM_POWER_ACTIVE && BspPwm_ArePhasesDisabled())
     {
         PwmPowerWindow_Stop();
         return false;
@@ -38,7 +36,6 @@ bool PwmPowerWindow_Start(uint32_t now_ms)
             g_pwm_power_window.state = PWM_POWER_EXPIRED;
             return false;
         }
-        g_pwm_power_window.disable_sequence = status.disable_sequence;
         g_pwm_power_window.started_ms = now_ms;
         g_pwm_power_window.fast_ticks = 0U;
         g_pwm_power_window.state = PWM_POWER_ACTIVE;
@@ -70,8 +67,7 @@ void PwmPowerWindow_Abort(void)
 
 bool PwmPowerWindow_Tick(uint32_t now_ms)
 {
-    if (g_pwm_power_window.state == PWM_POWER_ACTIVE &&
-        BspPwm_GetStatus().disable_sequence != g_pwm_power_window.disable_sequence)
+    if (g_pwm_power_window.state == PWM_POWER_ACTIVE && BspPwm_ArePhasesDisabled())
     {
         PwmPowerWindow_Stop();
     }

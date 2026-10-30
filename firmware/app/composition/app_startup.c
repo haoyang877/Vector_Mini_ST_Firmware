@@ -38,7 +38,7 @@ void App_Init(void)
     AppTasks_Init();
     MotorAxis_Init();
 
-    /* 新协议复位态为失能；CH4 采样时钟保持运行，三相输出等待控制所有者授权。 */
+    /* 新协议复位态为失能；采样时钟保持运行，三相输出等待控制所有者授权。 */
     /* 采样由main在应用对象就绪后调用Bsp_Start开放。 */
 
     /* CAN FD 是唯一通信入口；硬件启动由运行时端点委托给平台层。 */
@@ -184,9 +184,8 @@ static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
     uint32_t progress;
     bool confirmed = s_boot_supported && !s_entry_requested && s_healthy_intervals >= 11U &&
                      MotorStateMachine_ReadBootHealth(&progress) && s_communication_ready &&
-                     YgProtocolLink_IsReady() && (BspCan_GetState() == BSP_CAN_READY) &&
-                     MotorAxis_SaveIdle() && BspPwm_ArePhasesDisabled() &&
-                     BootHw_Confirm(version, crc32);
+                     YgProtocolLink_IsReady() && MotorAxis_SaveIdle() &&
+                     BspPwm_ArePhasesDisabled() && BootHw_Confirm(version, crc32);
     publish_identity();
     return confirmed;
 }
@@ -295,7 +294,7 @@ static void service_boot(uint32_t now_ms)
         s_health_checked_ms = now_ms;
         bool healthy = MotorStateMachine_ReadBootHealth(&progress);
         healthy = healthy && progress != s_observed_supervisor_epoch && s_communication_ready &&
-                  YgProtocolLink_IsReady() && (BspCan_GetState() == BSP_CAN_READY);
+                  YgProtocolLink_IsReady();
         s_observed_supervisor_epoch = progress;
         s_healthy_intervals =
             healthy ? (s_healthy_intervals < 11U ? s_healthy_intervals + 1U : 11U) : 0U;

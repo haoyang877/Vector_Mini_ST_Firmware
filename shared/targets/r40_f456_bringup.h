@@ -1,5 +1,5 @@
-#ifndef R40_F456_BRINGUP_H
-#define R40_F456_BRINGUP_H
+#ifndef AT32_F456_BRINGUP_H
+#define AT32_F456_BRINGUP_H
 
 /* 独立关相验证APP；0表示尚无正式产品/布局分配，主机不得作为可升级目标。
  * 参数schema仍为14；不复用G431布局或伪造Loader能力。 */

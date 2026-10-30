@@ -22,14 +22,14 @@ int main(void)
     assert(CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS == 4095U);
     assert(CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A == 10.0f);
     assert(CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A == 18.0f);
-    assert(fabsf(MOTOR_SENSING_CURRENT_A_PER_COUNT - 3.3f / 4095.0f / 5.0f / 0.002f) < 1e-7f);
+    assert(fabsf(BSP_ADC_CURRENT_A_PER_COUNT - 3.3f / 4095.0f / 5.0f / 0.002f) < 1e-7f);
 #else
     assert(CURRENT_SENSE_SHUNT_MILLIOHM == 5U);
     assert(CURRENT_SENSE_PROFILE_ADC_MAX_COUNTS == 1023U);
-    assert(R40_ADC_MAX_COUNTS == 1023U);
-    assert(fabsf(R40_PHASE_SHUNT_OHM - 0.005f) < 1e-7f);
+    assert(AT32_ADC_MAX_COUNTS == 1023U);
+    assert(fabsf(AT32_PHASE_SHUNT_OHM - 0.005f) < 1e-7f);
     assert(CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A == 3.0f);
-    assert(fabsf(MOTOR_SENSING_CURRENT_A_PER_COUNT - 3.3f / 1023.0f / 10.0f / 0.005f) < 1e-7f);
+    assert(fabsf(BSP_ADC_CURRENT_A_PER_COUNT - 3.3f / 1023.0f / 10.0f / 0.005f) < 1e-7f);
     assert(PARAM_MOTOR_THERMAL_PEAK_A == 7.0f);
 #endif
     puts("PASS custom board and motor inputs derive without selector edits");

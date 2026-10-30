@@ -90,11 +90,9 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 | `s_motor_state.position_target_rad` | rad | 位置目标 |
 | `s_motor_state.position_reference_rad` | rad | 规划后的位置参考 |
 | `s_rotor_encoder.mechanical_position_rad` | rad | 机械位置反馈 |
-| `s_rotor_encoder.has_valid_sample` | bool | 编码器是否已有有效样本 |
-| `s_rotor_encoder.sample_epoch` | 有效帧计数 | 持续推进与坏帧状态一起检查 |
+| `s_rotor_encoder.has_valid_sample` | bool | 是否已取得首个角度样本；不表示做过硬件诊断 |
+| `s_rotor_encoder.sample_epoch` | 采样计数 | 每次角度更新推进 |
 | `s_motor_configuration.device.encoder.calib_flag` | bitmask | bit0 线性化、bit1 电零位、bit2 可选机械零位；属于配置，非动态采样状态 |
-| `s_rotor_encoder.read_status` | 编码器读帧枚举 | 当前读帧状态，OK=0 |
-| `s_rotor_encoder.bad_frame_streak` | 连续坏帧数 | 检查持续增长，不在带电运行中拔插传感器做试验 |
 
 ## 参数布局与编号
 

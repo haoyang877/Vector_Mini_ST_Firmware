@@ -23,8 +23,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "adc.h"
-#include "dma.h"
-#include "fast_loop_profile.h"
 #include "fdcan.h"
 #include "bsp_can.h"
 #include "tim.h"
@@ -57,34 +55,7 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#if defined(BSP_ENABLED_FAST_LOOP_PROFILE) && BSP_ENABLED_FAST_LOOP_PROFILE
-/* Diagnostic storage is private to the board clock adapter. No per-stage
- * arrays: one selected stage keeps the temporary profiling image within RAM. */
-static volatile struct {
-  uint32_t selected, count;
-  uint64_t total;
-  uint32_t minimum, maximum, started;
-} fast_loop_stage_profile;
 
-void FastLoopProfile_Begin(unsigned stage)
-{
-  if (fast_loop_stage_profile.selected == stage)
-    fast_loop_stage_profile.started = DWT->CYCCNT;
-}
-
-void FastLoopProfile_End(unsigned stage)
-{
-  if (fast_loop_stage_profile.selected == stage) {
-    uint32_t elapsed = DWT->CYCCNT - fast_loop_stage_profile.started;
-    if (elapsed < fast_loop_stage_profile.minimum)
-      fast_loop_stage_profile.minimum = elapsed;
-    if (elapsed > fast_loop_stage_profile.maximum)
-      fast_loop_stage_profile.maximum = elapsed;
-    fast_loop_stage_profile.total += elapsed;
-    fast_loop_stage_profile.count++;
-  }
-}
-#endif
 
 /* Board IRQ adapter: specialize only the independently triggered, single JEOS
  * event used by this board. All other configurations/events retain HAL handling.
@@ -116,7 +87,6 @@ static void Board_ADC2DispatchInterrupt(void)
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
 extern FDCAN_HandleTypeDef hfdcan1;
-extern DMA_HandleTypeDef hdma_tim2_ch3;
 extern TIM_HandleTypeDef htim7;
 /* USER CODE BEGIN EV */
 
@@ -262,20 +232,6 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles DMA1 channel1 global interrupt.
-  */
-void DMA1_Channel1_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
-
-  /* USER CODE END DMA1_Channel1_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_tim2_ch3);
-  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
-
-  /* USER CODE END DMA1_Channel1_IRQn 1 */
-}
-
-/**
   * @brief This function handles ADC1 and ADC2 global interrupt.
   */
 void ADC1_2_IRQHandler(void)
@@ -328,8 +284,4 @@ void TIM7_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 /* Application callbacks live in projects/stm32g4/application/platform_app.c. */
-void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
-{
-    HAL_TIM_PWM_Stop_DMA(&htim2,TIM_CHANNEL_3);
-}
 /* USER CODE END 1 */

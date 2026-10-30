@@ -6,7 +6,6 @@
 #include "application_config.h"
 #include "motor_measurement.h"
 #include "motor_types.h"
-#include "bsp_adc.h"
 
 /** @brief 上电零偏采样状态；Axis持有实例，采样模块通过显式对象独占推进。 */
 typedef struct
@@ -52,30 +51,20 @@ bool MotorCurrentOffsets_Finalize(CurrentOffsetCalibration *calibration,
                                   MotorControlState *motor_state);
 
 /**
- * @brief  更新母线电压采样与滤波值。
- * @param  measurement 测量对象，写入 bus_voltage_v 相关字段。
- * @param  motor_state 电机控制状态指针，写入电压故障。
- * @param output_expected 所有者确认需要保护输出；关闭确认前保持 true。
- * @param sample 本拍只读快帧；NULL表示采样失败，电压按原无效路径处理。
- * @note 快速环周期调用；禁用状态下采样用于复位计数器。
+ * @brief 将母线电压搬运到测量对象并更新低通滤波。
+ * @param measurement 测量对象。
+ * @param bus_voltage_v 本拍母线电压，V。
+ * @note 快速环调用；不做过压/欠压判定，不上报故障。
  */
-void MotorVoltage_Update(MotorMeasurement *measurement,
-                         MotorControlState *motor_state,
-                         bool output_expected,
-                         const BspAdcFastSample *sample);
+void MotorVoltage_Update(MotorMeasurement *measurement, float bus_voltage_v);
 
 /**
- * @brief  消费已换算相电流、验证零偏并执行过流确认。
- * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
- * @param  measurement 测量对象，写入 phase_a_current_a/phase_b_current_a/phase_c_current_a。
- * @param  motor_state 电机控制状态指针。
- * @param sample 与电压处理共用的本拍只读快帧；NULL按原采样失败路径处理。
- * @note 快速环周期调用；快帧中的相电流由平台换算；无效输入或过流时报告故障。
+ * @brief 将三相电流搬运到测量对象。
+ * @param measurement 测量对象。
+ * @param phase_current_a 三相电流，A，不保留指针。
+ * @note 快速环调用；不做零偏或过流校验。
  */
-void MotorCurrent_Update(const MotorConfiguration *configuration,
-                         MotorMeasurement *measurement,
-                         MotorControlState *motor_state,
-                         const BspAdcFastSample *sample);
+void MotorCurrent_Update(MotorMeasurement *measurement, const float phase_current_a[3]);
 
 /**
  * @brief  更新 MCU 温度换算与遥测。

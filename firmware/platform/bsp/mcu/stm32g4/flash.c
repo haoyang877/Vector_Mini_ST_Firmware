@@ -1,6 +1,6 @@
 #include "bsp_flash.h"
 #include "bsp_system.h"
-#include "bsp_internal.h"
+#include "../../bsp_internal.h"
 #include "main.h"
 #include "vector_mini_st_g431.h"
 
@@ -146,14 +146,14 @@ static bool write_record(const void *record, uint32_t size_bytes)
     {
         return true;
     }
-    if (!McuAdc_PauseForStorage())
-    {
-        return false;
-    }
+    Adc_Stop();
     bool ok = flash_erase_pages(PARAM_FLASH_ADDR, PARAM_FLASH_ADDR + size_bytes - 1U) &&
               flash_write_data(PARAM_FLASH_ADDR, record, size_bytes);
-    bool resumed = !s_flash_write_blocked && McuAdc_ResumeAfterStorage();
-    return ok && resumed;
+    if (!s_flash_write_blocked)
+    {
+        Adc_Start();
+    }
+    return ok && !s_flash_write_blocked;
 }
 
 bool Flash_Init(void)

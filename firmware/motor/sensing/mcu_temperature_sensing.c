@@ -21,33 +21,16 @@ void McuTemperature_Update(MotorMeasurement *measurement, MotorControlState *mot
         uint32_t raw_ts, raw_vref;
         float celsius, vdda_mv;
     } poll = {0};
-    static bool raw_seen;
-    static uint32_t last_raw_sequence;
     bool good = false;
 
-    /* 软件触发的 ADC1 序列在两次 2 kHz 监督调用之间完成（序列约 30.7 µs）：端口在
-     * JEOS 就绪时读取两个 rank、清标志并请求下一次序列。ADC2/PWM 电流采样与
-     * 20 kHz 中断不受影响。 */
-    (void)BspAdc_UpdateAuxiliary();
-    BspAdcRawValue raw;
-    if (BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE, &raw) == BSP_OK &&
-        (!raw_seen || raw.sequence != last_raw_sequence))
-    {
-        raw_seen = true;
-        last_raw_sequence = raw.sequence;
-        poll.sample_ready = true;
-        poll.raw_ts = (uint32_t)raw.counts;
-        poll.raw_vref = raw.reference_valid ? (uint32_t)raw.reference_counts : 0U;
-        BspAdcValue value, supply;
-        poll.conversion_ok = BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE, &value) == BSP_OK;
-        if (poll.conversion_ok)
-        {
-            poll.celsius = value.value;
-        }
-        poll.vdda_mv = BspAdc_ReadChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE, &supply) == BSP_OK
-                           ? supply.value * 1000.0f
-                           : NAN;
-    }
+#if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
+    poll.raw_ts = (uint32_t)BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE);
+    poll.raw_vref = (uint32_t)BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE);
+    poll.celsius = BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE);
+    poll.vdda_mv = BspAdc_ReadChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE) * 1000.0f;
+    poll.sample_ready = true;
+    poll.conversion_ok = isfinite(poll.celsius);
+#endif
     if (poll.sample_ready)
     {
         s_mcu_temperature.raw_ts = poll.raw_ts;

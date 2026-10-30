@@ -13,7 +13,6 @@
 #include "sensorless_startup.h"
 #include "bsp_pwm.h"
 #include "bsp_system.h"
-#include "bsp_led.h"
 #include "application_config.h"
 #include "control_math.h"
 #include "maintenance_workspace.h"
@@ -289,12 +288,6 @@ void BspPwm_Disable(void)
                output_off,
                critical_depth);
     }
-}
-BspResult BspLed_SetCode(BspLedCodeChannel error, uint8_t count)
-{
-    (void)error;
-    (void)count;
-    return BSP_OK;
 }
 bool Encoder_IsOnline(const EncoderState *e)
 {

@@ -92,13 +92,13 @@ BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *sample)
     {
         if (s_read_race == 1U)
         {
-            g_r40_bus_current_diagnostic.sample_valid = false;
+            g_at32_bus_current_diagnostic.sample_valid = false;
             s_read_race = 0U;
         }
         else
         {
-            ++g_r40_bus_current_diagnostic.sequence;
-            g_r40_bus_current_diagnostic.filtered_a = 0.25f;
+            ++g_at32_bus_current_diagnostic.sequence;
+            g_at32_bus_current_diagnostic.filtered_a = 0.25f;
             if (s_read_race == 2U)
             {
                 s_read_race = 0U;
@@ -150,9 +150,9 @@ static void calibrate(void)
     {
         sample(2060U + (i & 1U));
     }
-    assert(g_r40_bus_current_diagnostic.offset_valid);
-    assert(g_r40_bus_current_diagnostic.offset_samples == 128U);
-    assert(g_r40_bus_current_diagnostic.offset_counts == 2060.5f);
+    assert(g_at32_bus_current_diagnostic.offset_valid);
+    assert(g_at32_bus_current_diagnostic.offset_samples == 128U);
+    assert(g_at32_bus_current_diagnostic.offset_counts == 2060.5f);
 }
 
 static void expect_invalid(void)
@@ -172,7 +172,7 @@ static void hardware_feedback(void)
     {
         BusCurrentFeedback_Sample();
     }
-    assert(g_r40_bus_current_diagnostic.offset_samples == 1U);
+    assert(g_at32_bus_current_diagnostic.offset_samples == 1U);
     expect_invalid();
 
     BusCurrentFeedback_Init();
@@ -181,22 +181,22 @@ static void hardware_feedback(void)
     {
         sample(2060U);
     }
-    assert(!g_r40_bus_current_diagnostic.offset_valid);
+    assert(!g_at32_bus_current_diagnostic.offset_valid);
     expect_invalid();
     s_disabled = true;
     calibrate();
 
-    float initial = g_r40_bus_current_diagnostic.filtered_a;
+    float initial = g_at32_bus_current_diagnostic.filtered_a;
     sample(2160U);
     float expected = (2160.0f - 2060.5f) * BUS_CURRENT_A_PER_COUNT;
-    assert(fabsf(g_r40_bus_current_diagnostic.current_a - expected) < 0.000001f);
+    assert(fabsf(g_at32_bus_current_diagnostic.current_a - expected) < 0.000001f);
     float filtered = initial + 0.05f * (expected - initial);
-    assert(fabsf(g_r40_bus_current_diagnostic.filtered_a - filtered) < 0.000001f);
+    assert(fabsf(g_at32_bus_current_diagnostic.filtered_a - filtered) < 0.000001f);
     for (unsigned i = 0U; i < 300U; ++i)
     {
         sample(2160U);
     }
-    assert(g_r40_bus_current_diagnostic.offset_counts == 2060.5f);
+    assert(g_at32_bus_current_diagnostic.offset_counts == 2060.5f);
     yg_protocol_motor_feedback_t value = feedback();
     assert(value.bus_current_mA == (int16_t)lroundf(expected * 1000.0f));
     assert(value.valid_bits & (1U << 5U));
@@ -213,15 +213,15 @@ static void hardware_feedback(void)
     }
     value = feedback();
     assert(value.bus_current_mA == (int16_t)-lroundf(expected * 1000.0f));
-    assert(g_r40_bus_current_diagnostic.offset_counts == 2060.5f);
+    assert(g_at32_bus_current_diagnostic.offset_counts == 2060.5f);
 
     for (unsigned i = 0U; i < 10U; ++i)
     {
         BusCurrentFeedback_Sample();
     }
-    float unchanged = g_r40_bus_current_diagnostic.filtered_a;
+    float unchanged = g_at32_bus_current_diagnostic.filtered_a;
     BusCurrentFeedback_Sample();
-    assert(unchanged == g_r40_bus_current_diagnostic.filtered_a);
+    assert(unchanged == g_at32_bus_current_diagnostic.filtered_a);
     s_now += 2U;
     assert(feedback().valid_bits & (1U << 5U));
     ++s_now;
@@ -254,7 +254,7 @@ static void hardware_feedback(void)
     sample(2060U);
     s_seq += 20U;
     sample(2060U);
-    assert(g_r40_bus_current_diagnostic.offset_samples == 1U);
+    assert(g_at32_bus_current_diagnostic.offset_samples == 1U);
     BusCurrentFeedback_Init();
     s_seq = UINT32_MAX - 64U;
     s_now = UINT32_MAX - 16U;
@@ -267,13 +267,13 @@ static void hardware_feedback(void)
     {
         sample(i & 1U ? 2040U : 2060U);
     }
-    assert(!g_r40_bus_current_diagnostic.offset_valid);
+    assert(!g_at32_bus_current_diagnostic.offset_valid);
     expect_invalid();
     for (unsigned i = 0U; i < 200U; ++i)
     {
         sample(2400U);
     }
-    assert(!g_r40_bus_current_diagnostic.offset_valid);
+    assert(!g_at32_bus_current_diagnostic.offset_valid);
     expect_invalid();
     calibrate();
     assert(!BusCurrentFeedback_Read(NULL));

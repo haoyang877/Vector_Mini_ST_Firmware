@@ -7,7 +7,7 @@
 #include "tim.h"
 #include "bsp_pwm.h"
 #include "bsp_system.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include <stdlib.h>
 void __disable_irq(void)
 {

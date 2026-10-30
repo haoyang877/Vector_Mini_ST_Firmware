@@ -1,5 +1,6 @@
 /* APP侧窄启动端口：只识别Loader启动、写ENTER邮箱并复位、喂继承看门狗。 */
 #include "boot_hw.h"
+#include "../../bsp_internal.h"
 #include "image_mailbox.h"
 #include "image_format.h"
 #include "loader_target.h"

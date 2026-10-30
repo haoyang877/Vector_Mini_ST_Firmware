@@ -1,4 +1,4 @@
-"""在真实单位下验证相电流换算、四分之一步长与无效偏置保护；不访问硬件。"""
+"""在真实单位下验证相电流换算与四分之一步长；不访问硬件。"""
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -34,19 +34,17 @@ def main():
 #include "control_math.h"
 static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 
-#define OVERCURRENT_CONFIRM_CYCLES 5U
 #define CURRENT_OFFSET_MIN_COUNTS 1948.0f
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 static MotorConfiguration configuration;
 static MotorControlState motor_state;
 static MotorMeasurement foc;
-static void MotorFault_Report(MotorControlState *m, MotorFaultCode x) {m->fault_code=x;}
 BspResult BspAdc_ReadFast(BspAdcFastSample *sample) {
     const uint32_t raw[3]={adc.JDR1,adc.JDR2,adc.JDR3};
     const float offsets[3]={configuration.device.phase_a_offset_counts,
         configuration.device.phase_b_offset_counts,configuration.device.phase_c_offset_counts};
     *sample=(BspAdcFastSample){.valid_mask=BSP_ADC_FAST_PHASE_CURRENT_VALID};
-    for(unsigned i=0;i<3;i++) sample->phase_current_a[i]=-(raw[i]*.25f-offsets[i])*MOTOR_SENSING_CURRENT_A_PER_COUNT;
+    for(unsigned i=0;i<3;i++) sample->phase_current_a[i]=-(raw[i]*.25f-offsets[i])*BSP_ADC_CURRENT_A_PER_COUNT;
     return BSP_OK;
 }
 
@@ -57,7 +55,7 @@ BspResult BspAdc_ReadFast(BspAdcFastSample *sample) {
 static void sample_current(void) {
     BspAdcFastSample sample;
     BspResult result=BspAdc_ReadFast(&sample);
-    MotorCurrent_Update(&configuration,&foc,&motor_state,result==BSP_OK?&sample:NULL);
+    MotorCurrent_Update(&foc,result==BSP_OK?&sample:NULL);
 }
 int main(void) {
 #ifdef TEST_EXPECT_DEFAULT_6_MILLIOHM
@@ -75,36 +73,22 @@ int main(void) {
     sample_current();
     assert(motor_state.fault_code==MOTOR_FAULT_NONE);
     assert(foc.phase_b_current_a==0 && foc.phase_c_current_a==0);
-    assert(fabsf(foc.phase_a_current_a+.125f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
+    assert(fabsf(foc.phase_a_current_a+.125f*BSP_ADC_CURRENT_A_PER_COUNT)<1e-6f);
     adc.JDR1+=1;sample_current();
-    assert(fabsf(foc.phase_a_current_a+.375f*MOTOR_SENSING_CURRENT_A_PER_COUNT)<1e-6f);
+    assert(fabsf(foc.phase_a_current_a+.375f*BSP_ADC_CURRENT_A_PER_COUNT)<1e-6f);
     /* Actual 1 A input is not inadvertently rescaled by four. */
-    adc.JDR2=(uint32_t)roundf(4*(configuration.device.phase_b_offset_counts-1/MOTOR_SENSING_CURRENT_A_PER_COUNT));
-    sample_current();assert(fabsf(foc.phase_b_current_a-1)<MOTOR_SENSING_CURRENT_A_PER_COUNT*.13f);
-    /* 两种分流策略均为18 A；严格大于阈值并连续5拍才报告过流。 */
-    {
-        BspAdcFastSample overcurrent={.valid_mask=BSP_ADC_FAST_PHASE_CURRENT_VALID};
-        overcurrent.phase_current_a[0]=18.0f;
-        for(unsigned i=0;i<OVERCURRENT_CONFIRM_CYCLES+1U;i++)
-            MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
-        assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-        overcurrent.phase_current_a[0]=18.1f;
-        for(unsigned i=0;i<OVERCURRENT_CONFIRM_CYCLES-1U;i++) {
-            MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
-            assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-        }
-        MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
-        assert(motor_state.fault_code==MOTOR_FAULT_OVERCURRENT);
-        overcurrent.phase_current_a[0]=0.0f;
-        MotorCurrent_Update(&configuration,&foc,&motor_state,&overcurrent);
-        motor_state.fault_code=MOTOR_FAULT_NONE;
-    }
-    MotorCurrent_Update(&configuration,&foc,&motor_state,NULL);
-    assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET && isnan(foc.phase_a_current_a));
+    adc.JDR2=(uint32_t)roundf(4*(configuration.device.phase_b_offset_counts-1/BSP_ADC_CURRENT_A_PER_COUNT));
+    sample_current();assert(fabsf(foc.phase_b_current_a-1)<BSP_ADC_CURRENT_A_PER_COUNT*.13f);
+    /* 缺帧只把三相置NAN，不再由采样模块报零偏故障。 */
     motor_state.fault_code=MOTOR_FAULT_NONE;
+    MotorCurrent_Update(&foc,NULL);
+    assert(motor_state.fault_code==MOTOR_FAULT_NONE);
+    assert(isnan(foc.phase_a_current_a) && isnan(foc.phase_b_current_a) &&
+           isnan(foc.phase_c_current_a));
+    /* 零偏无效不再影响搬运：相电流按平台换算结果写入，且不报故障。 */
     configuration.device.phase_c_offset_counts=NAN;sample_current();
-    assert(motor_state.fault_code==MOTOR_FAULT_CURRENT_OFFSET);
-    puts("PASS quarter-code current resolution, actual current scale, invalid-offset protection");
+    assert(motor_state.fault_code==MOTOR_FAULT_NONE && isnan(foc.phase_c_current_a));
+    puts("PASS quarter-code current resolution, actual current scale, NULL/NAN copy");
     return 0;
 }
 """

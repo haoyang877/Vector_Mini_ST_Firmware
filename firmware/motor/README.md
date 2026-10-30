@@ -26,7 +26,7 @@ FOC计算仍会报告故障并参与快环计时。Axis持有`MotorMeasurement`�
 
 - `motor_control.h`提供`MotorOuterLoop_SlowTick`和`MotorControl_Step`；APP决定调用许可。
 - `motor_sensing.h`提供电流零偏、`MotorCurrent_Update`、`MotorVoltage_Update`和
-  `McuTemperature_Update`；调用者提供快帧与运行对象，函数会报告相应故障。
+  `McuTemperature_Update`；调用者提供快帧与测量对象，快环更新函数只搬运物理值。
 - `encoder_feedback.h`和`flux_observer.h`提供反馈；调用者持有反馈对象并管理调度。
 - `motor_fault.h`和`motor_thermal_control.h`提供故障和热限流；热历史由热控制模块持有。
 - `encoder_calibration.h`提供标定任务入口；标定完成与Flash保存是独立事件。

@@ -1,5 +1,6 @@
 #include "r40_bench.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <string.h>
 #include "at32f45x.h"
@@ -8,17 +9,16 @@
 #include "board_config.h"
 #include "bsp_flash.h"
 #include "bsp_pwm.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "board_config.h"
 
 /* 命令结果：0空闲、1执行中、2通过、3失败、4拒绝；存储测试只接受原本全FF的两扇区。
  * 所有对象均归此验证模块所有；不把这些诊断命令接入产品CAN协议。 */
-volatile R40BenchMailbox g_r40_bench = {.magic = R40_BENCH_MAGIC, .version = 1U};
-volatile R40BenchSnapshot g_r40_snapshot;
-static uint8_t s_storage[2U * R40_FLASH_SECTOR_BYTES];
-static uint8_t s_pattern[R40_PARAM_RAW_BYTES];
+volatile AT32BenchMailbox g_at32_bench = {.magic = AT32_BENCH_MAGIC, .version = 1U};
+volatile AT32BenchSnapshot g_at32_snapshot;
+static uint8_t s_storage[2U * AT32_FLASH_SECTOR_BYTES];
+static uint8_t s_pattern[AT32_PARAM_RAW_BYTES];
 static uint32_t s_nonce, s_can_rx, s_can_tx_ok, s_can_tx_failed;
-static uint64_t s_ticket;
 static bool s_tx_pending, s_snapshot_held;
 
 static bool outputs_disabled(void)
@@ -53,9 +53,9 @@ static bool pwm_test(void)
         }
     }
     BspPwm_SetPhaseDuty(BSP_PWM_PHASE_B, 0.25f);
-    g_r40_bench.values[0] = TMR1->c2dt;
-    g_r40_bench.values[1] = TMR1->c3dt;
-    g_r40_bench.values[2] = TMR1->c4dt;
+    g_at32_bench.values[0] = TMR1->c2dt;
+    g_at32_bench.values[1] = TMR1->c3dt;
+    g_at32_bench.values[2] = TMR1->c4dt;
     bool ok =
         TMR1->c2dt == top && TMR1->c3dt == top / 4U && TMR1->c4dt == top / 2U && outputs_disabled();
     BspPwm_SetDuty(0.5f, 0.5f, 0.5f);
@@ -66,7 +66,7 @@ static bool storage_test(uint32_t command)
 {
     if (BspFlash_Read(s_storage, sizeof(s_storage)) != BSP_OK)
     {
-        g_r40_bench.detail = 1U;
+        g_at32_bench.detail = 1U;
         return false;
     }
     for (uint32_t i = 0U; i < sizeof(s_pattern); ++i)
@@ -80,7 +80,7 @@ static bool storage_test(uint32_t command)
                                                  0xFFU);
     if (!allowed)
     {
-        g_r40_bench.detail = 2U;
+        g_at32_bench.detail = 2U;
         return false;
     }
     if (command == 3U)
@@ -96,96 +96,91 @@ static bool storage_test(uint32_t command)
     dma_channel_enable(DMA1_CHANNEL3, FALSE);
     bool written = (BspFlash_Write(s_pattern, sizeof(s_pattern)) == BSP_OK);
     bool read = written && (BspFlash_Read(s_storage, sizeof(s_storage)) == BSP_OK);
-    g_r40_bench.values[0] = written;
-    g_r40_bench.values[1] = read;
-    g_r40_bench.values[2] = sizeof(s_pattern);
+    g_at32_bench.values[0] = written;
+    g_at32_bench.values[1] = read;
+    g_at32_bench.values[2] = sizeof(s_pattern);
     bool same =
         read && memcmp(s_storage, s_pattern, sizeof(s_pattern)) == 0 &&
         bytes_are(s_storage + sizeof(s_pattern), sizeof(s_storage) - sizeof(s_pattern), 0xFFU);
-    g_r40_bench.detail = same ? 0U : 3U;
+    g_at32_bench.detail = same ? 0U : 3U;
     return same && outputs_disabled();
 }
 
-bool R40_BenchPoll(void)
+bool AT32_BenchPoll(void)
 {
-    if (s_tx_pending)
+    if (s_tx_pending && !BspCan_IsTransmitBusy())
     {
-        BspCanCompletion done;
-        if (BspCan_TakeCompletion(&done) == BSP_OK)
+        if (BspCan_IsTransmitComplete())
         {
-            if ((done.result == BSP_CAN_TX_OK) && done.ticket == s_ticket)
-            {
-                ++s_can_tx_ok;
-            }
-            else
-            {
-                ++s_can_tx_failed;
-            }
-            s_tx_pending = false;
+            ++s_can_tx_ok;
         }
+        else
+        {
+            ++s_can_tx_failed;
+        }
+        s_tx_pending = false;
     }
     uint32_t mask = BspSystem_EnterCritical();
-    uint32_t command = g_r40_bench.command;
-    uint32_t inverse = g_r40_bench.command_inverse;
-    uint32_t nonce = g_r40_bench.nonce;
-    uint32_t confirmation = g_r40_bench.arguments[0];
+    uint32_t command = g_at32_bench.command;
+    uint32_t inverse = g_at32_bench.command_inverse;
+    uint32_t nonce = g_at32_bench.nonce;
+    uint32_t confirmation = g_at32_bench.arguments[0];
     BspSystem_ExitCritical(mask);
-    if (g_r40_bench.magic != R40_BENCH_MAGIC || g_r40_bench.version != 1U || command == 0U ||
+    if (g_at32_bench.magic != AT32_BENCH_MAGIC || g_at32_bench.version != 1U || command == 0U ||
         nonce == 0U || nonce == s_nonce || inverse != ~command)
     {
         return false;
     }
     s_nonce = nonce;
-    g_r40_bench.result = 1U;
-    g_r40_bench.detail = 0U;
+    g_at32_bench.result = 1U;
+    g_at32_bench.detail = 0U;
     bool stop = false;
     if (!outputs_disabled())
     {
-        g_r40_bench.result = 3U;
-        g_r40_bench.detail = 4U;
+        g_at32_bench.result = 3U;
+        g_at32_bench.detail = 4U;
         stop = true;
     }
     else if (command == 1U)
     {
         bool ok = pwm_test();
-        g_r40_bench.result = ok ? 2U : 3U;
+        g_at32_bench.result = ok ? 2U : 3U;
         stop = !ok;
     }
     else if ((command == 2U || command == 3U) && confirmation == 0x53544F52U)
     {
-        g_r40_bench.result = storage_test(command) ? 2U : 3U;
+        g_at32_bench.result = storage_test(command) ? 2U : 3U;
         stop = true;
     }
     else if (command == 5U || command == 6U)
     {
         s_snapshot_held = command == 5U;
-        g_r40_bench.result = 2U;
+        g_at32_bench.result = 2U;
     }
     else if (command == 7U && !s_tx_pending)
     {
         /* 由SWD显式触发单帧发送，独立诊断TX路径；不能伪造接收计数。 */
-        BspCanFrame frame = {.identifier = R40_BENCH_CAN_RESPONSE,
+        BspCanFrame frame = {.identifier = AT32_BENCH_CAN_RESPONSE,
                              .length = 8U,
                              .extended = true,
                              .fd = true,
                              .bitrate_switch = true};
         memcpy(frame.data, "R40BTX!!", 8U);
-        s_ticket = (2ULL << 32U) | nonce;
-        s_tx_pending = BspCan_TrySendTracked(&frame, s_ticket) == BSP_OK;
+        s_tx_pending = BspCan_TrySend(&frame);
         /* 这里只确认入队，实际发送结果仍由tx_ok/tx_failed记录。 */
-        g_r40_bench.result = s_tx_pending ? 2U : 3U;
+        g_at32_bench.result = s_tx_pending ? 2U : 3U;
     }
     else
     {
-        g_r40_bench.result = 4U;
+        g_at32_bench.result = 4U;
     }
-    g_r40_bench.completed_nonce = nonce;
+    g_at32_bench.completed_nonce = nonce;
     return stop;
 }
 
-void R40_BenchCanReceive(const BspCanFrame *frame)
+void AT32_BenchCanReceive(const BspCanFrame *frame)
 {
-    if (frame == NULL || frame->identifier != R40_BENCH_CAN_REQUEST || frame->length < 8U ||
+    if (frame == NULL || frame->identifier != AT32_BENCH_CAN_REQUEST || frame->length < 8U ||
         memcmp(frame->data, "R40B", 4U) != 0 || !outputs_disabled())
     {
         return;
@@ -194,9 +189,8 @@ void R40_BenchCanReceive(const BspCanFrame *frame)
     if (!s_tx_pending)
     {
         BspCanFrame reply = *frame;
-        reply.identifier = R40_BENCH_CAN_RESPONSE;
-        s_ticket = (1ULL << 32U) | s_can_rx;
-        if (BspCan_TrySendTracked(&reply, s_ticket) == BSP_OK)
+        reply.identifier = AT32_BENCH_CAN_RESPONSE;
+        if (BspCan_TrySend(&reply))
         {
             s_tx_pending = true;
         }
@@ -207,15 +201,15 @@ void R40_BenchCanReceive(const BspCanFrame *frame)
     }
 }
 
-void R40_BenchPublish(uint32_t supervisor_ticks,
-                      uint32_t fast_samples,
-                      uint32_t encoder_samples,
-                      uint32_t encoder_errors,
-                      uint32_t max_cycles,
-                      uint32_t angle,
-                      uint32_t angle_min,
-                      uint32_t angle_max,
-                      const AdcMotorTemperatureSample *temperature)
+void AT32_BenchPublish(uint32_t supervisor_ticks,
+                       uint32_t fast_samples,
+                       uint32_t encoder_samples,
+                       uint32_t encoder_errors,
+                       uint32_t max_cycles,
+                       uint32_t angle,
+                       uint32_t angle_min,
+                       uint32_t angle_max,
+                       const AdcMotorTemperatureSample *temperature)
 {
     static uint32_t s_published_ms = UINT32_MAX;
     uint32_t now = BspSystem_TimeMs();
@@ -225,50 +219,45 @@ void R40_BenchPublish(uint32_t supervisor_ticks,
     }
     s_published_ms = now;
     uint32_t state = BspSystem_EnterCritical();
-    uint32_t version = (g_r40_snapshot.begin + 2U) & ~1U;
-    g_r40_snapshot.begin = version | 1U;
-    g_r40_snapshot.milliseconds = now;
-    g_r40_snapshot.supervisor_ticks = supervisor_ticks;
-    g_r40_snapshot.fast_samples = fast_samples;
-    g_r40_snapshot.encoder_samples = encoder_samples;
-    g_r40_snapshot.encoder_errors = encoder_errors;
-    g_r40_snapshot.fast_max_cycles = max_cycles;
-    g_r40_snapshot.angle = angle;
-    g_r40_snapshot.angle_min = angle_min;
-    g_r40_snapshot.angle_max = angle_max;
-    g_r40_snapshot.cctrl = TMR1->cctrl;
-    g_r40_snapshot.brk = TMR1->brk;
-    g_r40_snapshot.gpioa_input = GPIOA->idt;
-    g_r40_snapshot.gpiob_input = GPIOB->idt;
-    BspAdcRawCurrent currents;
-    BspAdcRawValue voltage;
-    if (BspAdc_ReadRawCurrent(&currents) == BSP_OK &&
-        BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE, &voltage) == BSP_OK)
-    {
-        g_r40_snapshot.phase_a = (uint16_t)(currents.phase_counts[0] * R40_ADC_ACCUMULATIONS);
-        g_r40_snapshot.phase_b = (uint16_t)(currents.phase_counts[1] * R40_ADC_ACCUMULATIONS);
-        g_r40_snapshot.phase_c = (uint16_t)(currents.phase_counts[2] * R40_ADC_ACCUMULATIONS);
-        g_r40_snapshot.vbus = (uint16_t)(voltage.counts * R40_ADC_ACCUMULATIONS);
-    }
-    BspAdcRawValue fast_bus_raw = {0};
-    (void)BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT, &fast_bus_raw);
-    g_r40_snapshot.bus_current = BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT, &fast_bus_raw) == BSP_OK
-                                     ? (uint32_t)fast_bus_raw.counts
-                                     : UINT32_MAX;
-    g_r40_snapshot.ntc_sequence = temperature->sequence;
-    g_r40_snapshot.ntc_raw = temperature->raw_counts;
-    g_r40_snapshot.ntc_status = temperature->status;
+    uint32_t version = (g_at32_snapshot.begin + 2U) & ~1U;
+    g_at32_snapshot.begin = version | 1U;
+    g_at32_snapshot.milliseconds = now;
+    g_at32_snapshot.supervisor_ticks = supervisor_ticks;
+    g_at32_snapshot.fast_samples = fast_samples;
+    g_at32_snapshot.encoder_samples = encoder_samples;
+    g_at32_snapshot.encoder_errors = encoder_errors;
+    g_at32_snapshot.fast_max_cycles = max_cycles;
+    g_at32_snapshot.angle = angle;
+    g_at32_snapshot.angle_min = angle_min;
+    g_at32_snapshot.angle_max = angle_max;
+    g_at32_snapshot.cctrl = TMR1->cctrl;
+    g_at32_snapshot.brk = TMR1->brk;
+    g_at32_snapshot.gpioa_input = GPIOA->idt;
+    g_at32_snapshot.gpiob_input = GPIOB->idt;
+    g_at32_snapshot.phase_a =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_A) * AT32_ADC_ACCUMULATIONS);
+    g_at32_snapshot.phase_b =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_B) * AT32_ADC_ACCUMULATIONS);
+    g_at32_snapshot.phase_c =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_C) * AT32_ADC_ACCUMULATIONS);
+    g_at32_snapshot.vbus =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) * AT32_ADC_ACCUMULATIONS);
+    float bus_counts = BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT);
+    g_at32_snapshot.bus_current = isfinite(bus_counts) ? (uint32_t)bus_counts : UINT32_MAX;
+    g_at32_snapshot.ntc_sequence = temperature->sequence;
+    g_at32_snapshot.ntc_raw = temperature->raw_counts;
+    g_at32_snapshot.ntc_status = temperature->status;
     uint32_t bits;
     memcpy(&bits, &temperature->resistance_ohm, sizeof(bits));
-    g_r40_snapshot.ntc_ohm_bits = bits;
+    g_at32_snapshot.ntc_ohm_bits = bits;
     memcpy(&bits, &temperature->celsius, sizeof(bits));
-    g_r40_snapshot.ntc_celsius_bits = bits;
-    g_r40_snapshot.can_rx = s_can_rx;
-    g_r40_snapshot.can_tx_ok = s_can_tx_ok;
-    g_r40_snapshot.can_tx_failed = s_can_tx_failed;
-    g_r40_snapshot.can_ctrl = CAN1->ctrlstat;
-    g_r40_snapshot.core_hz = system_core_clock;
-    g_r40_snapshot.end = version;
-    g_r40_snapshot.begin = version;
+    g_at32_snapshot.ntc_celsius_bits = bits;
+    g_at32_snapshot.can_rx = s_can_rx;
+    g_at32_snapshot.can_tx_ok = s_can_tx_ok;
+    g_at32_snapshot.can_tx_failed = s_can_tx_failed;
+    g_at32_snapshot.can_ctrl = CAN1->ctrlstat;
+    g_at32_snapshot.core_hz = system_core_clock;
+    g_at32_snapshot.end = version;
+    g_at32_snapshot.begin = version;
     BspSystem_ExitCritical(state);
 }

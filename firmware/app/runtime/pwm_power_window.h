@@ -17,7 +17,7 @@ typedef enum
 typedef struct
 {
     PwmPowerWindowState state;
-    uint32_t duration_ms, armed_ms, started_ms, fast_ticks, disable_sequence;
+    uint32_t duration_ms, armed_ms, started_ms, fast_ticks;
 } PwmPowerWindow;
 
 extern volatile PwmPowerWindow g_pwm_power_window;
@@ -36,7 +36,7 @@ bool PwmPowerWindow_Arm(uint32_t duration_ms, uint32_t now_ms);
  * @brief 检查端口启相许可；首次成功时开始计时，重复调用不能续期。
  * @param now_ms 单调毫秒。
  * @return 窗口已装载且未过期时为true。
- * @note 仅应用功率所有者在临界区调用；通过BSP快照检查关相序号，不操作寄存器。
+ * @note 仅应用功率所有者调用；通过BSP直接读取通道位，不保存关相事件序号。
  */
 bool PwmPowerWindow_Start(uint32_t now_ms);
 /** @brief 实际停相后消费活动窗口；已过期状态保留。 */
@@ -50,7 +50,7 @@ void PwmPowerWindow_Abort(void);
  * @brief 每个20kHz快拍检查毫秒和独立拍数上限。
  * @param now_ms 单调毫秒。
  * @return 窗口过期返回false，调用方必须立即关相。
- * @note 仅快速ISR调用一次；不调用电机状态机、不访问硬件。
+ * @note 仅快速ISR调用一次；直接查询通道是否关闭，不调用电机状态机。
  */
 bool PwmPowerWindow_Tick(uint32_t now_ms);
 

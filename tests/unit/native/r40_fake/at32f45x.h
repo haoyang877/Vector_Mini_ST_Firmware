@@ -1,8 +1,8 @@
-#ifndef R40_FAKE_AT32_H
-#define R40_FAKE_AT32_H
+#ifndef AT32_FAKE_AT32_H
+#define AT32_FAKE_AT32_H
 
 #include <stdbool.h>
-#ifndef R40_IO_FAKE_H
+#ifndef AT32_IO_FAKE_H
 #include "../cmsis_preemption_fake.h"
 #endif
 #include <stdint.h>

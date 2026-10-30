@@ -1,5 +1,5 @@
-#ifndef R40_ENCODER_FAKE_H
-#define R40_ENCODER_FAKE_H
+#ifndef AT32_ENCODER_FAKE_H
+#define AT32_ENCODER_FAKE_H
 
 #include "../r40_fake/at32f45x.h"
 

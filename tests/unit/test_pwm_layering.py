@@ -18,11 +18,9 @@ class PwmLayeringTests(unittest.TestCase):
                 for node in ET.parse(project).findall(".//FilePath")
             ]
             board = "at32f456" if "at32f456" in project.parts else "stm32g4"
-            for path in (
-                PLATFORM / "bsp/bsp_pwm.c",
-                PLATFORM / "bsp/mcu" / board / "pwm.c",
-            ):
-                self.assertEqual([p for p in files if p.name == path.name], [path])
+            path = PLATFORM / "bsp/mcu" / board / "pwm.c"
+            self.assertEqual([p for p in files if p.name == "pwm.c"], [path])
+            self.assertFalse(any(p.name == "bsp_pwm.c" for p in files))
             self.assertEqual(
                 [p for p in files if p.name == "pwm_output_permit.c"],
                 [],
@@ -51,18 +49,14 @@ class PwmLayeringTests(unittest.TestCase):
         startup = (PLATFORM / "bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
         self.assertNotIn("HAL_TIM_PWM_Start", startup)
         self.assertNotIn("HAL_TIMEx_OCN_Start", startup)
-        common = (PLATFORM / "bsp/bsp_pwm.c").read_text(encoding="utf8")
-        self.assertIn("McuPwm_CommitThree(a, b, c)", common)
-        self.assertIn("McuPwm_Fatal()", common)
-        self.assertNotIn("PwmPowerWindow", common)
-        self.assertNotIn("pwm_output_config.h", common)
-        self.assertNotIn("APP_PWM_WINDOWED", common)
-        self.assertIn("BSP_PWM_HARD_LOCK", common)
+        self.assertFalse((PLATFORM / "bsp/bsp_pwm.c").exists())
         for board in ("at32f456", "stm32g4"):
-            self.assertNotIn(
-                "PwmOutputPermit_TryEnable",
-                (PLATFORM / "bsp/mcu" / board / "pwm.c").read_text(encoding="utf8"),
-            )
+            source = (PLATFORM / "bsp/mcu" / board / "pwm.c").read_text(encoding="utf8")
+            self.assertIn("void BspPwm_SetDuty(", source)
+            self.assertIn("void BspPwm_SetPhaseDuty(", source)
+            self.assertNotIn("PwmOutputPermit_TryEnable", source)
+            self.assertNotIn("PwmPowerWindow", source)
+            self.assertNotIn("APP_PWM_WINDOWED", source)
 
     def test_board_inputs_do_not_own_application_current_limits(self):
         """电气量程归板配置，命令/标定上限和软件跳闸值归应用策略。"""

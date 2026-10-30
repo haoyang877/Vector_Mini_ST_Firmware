@@ -8,7 +8,7 @@
 #include "bsp_system.h"
 #include "bsp_pwm.h"
 #include "board_config.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 FoundationDwt foundation_dwt;
 FoundationCoreDebug foundation_core_debug;
 void NVIC_SystemReset(void)
@@ -89,7 +89,7 @@ unsigned crm_sysclk_switch_status_get(void)
 void system_core_clock_update(void)
 {
     assert(fake_pll_p == CRM_PLL_FP_4);
-    system_core_clock = R40_HEXT_HZ / fake_pll_m * fake_pll_n / 4U;
+    system_core_clock = AT32_HEXT_HZ / fake_pll_m * fake_pll_n / 4U;
 }
 void crm_clocks_freq_get(crm_clocks_freq_type *clocks)
 {
@@ -368,8 +368,8 @@ int main(int argc, char **argv)
     assert(fake_tmr1.pr == 4500U && fake_tmr1.div == 0U);
     assert(fake_tmr6.pr == 499U && fake_tmr6.div == 179U);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
-    assert(R40_CAN_HZ / (R40_CAN_NOMINAL_SEG1 + R40_CAN_NOMINAL_SEG2) == 1000000U);
-    assert(R40_CAN_HZ / (R40_CAN_DATA_SEG1 + R40_CAN_DATA_SEG2) == 5000000U);
+    assert(AT32_CAN_HZ / (AT32_CAN_NOMINAL_SEG1 + AT32_CAN_NOMINAL_SEG2) == 1000000U);
+    assert(AT32_CAN_HZ / (AT32_CAN_DATA_SEG1 + AT32_CAN_DATA_SEG2) == 5000000U);
     bool started = McuSystem_Start();
     if (fake_failure == 5U)
     {
@@ -432,17 +432,6 @@ int main(int argc, char **argv)
         SysTick_Handler();
     }
     assert(BspSystem_TimeMs() == 2001U);
-    uint32_t us_origin = BspSystem_TimeUs();
-    uint64_t elapsed_cycles = 0U;
-    for (unsigned n = 0U; n < 600U; n++)
-    {
-        uint32_t advance = n < 100U ? 179U : 4000000000U;
-        foundation_dwt.CYCCNT += advance;
-        elapsed_cycles += advance;
-        fake_primask = n & 1U;
-        assert(BspSystem_TimeUs() == us_origin + (uint32_t)(elapsed_cycles / 180U));
-        assert(fake_primask == (n & 1U));
-    }
     for (unsigned mask = 0U; mask < 2U; ++mask)
     {
         fake_primask = mask;

@@ -20,7 +20,7 @@ static bool param_store_read(void *data, uint32_t length)
 }
 
 flash_type sim_flash;
-static uint8_t storage[R40_PARAM_BYTES + 2U * R40_FLASH_SECTOR_BYTES];
+static uint8_t storage[AT32_PARAM_BYTES + 2U * AT32_FLASH_SECTOR_BYTES];
 static bool power_off = true, blocked_unlock, missing_completion;
 static unsigned irq = 1U, ipsr, erases, programs, reads, polls, locks;
 static unsigned error_after, busy_after, corrupt_after, operation, remaining;
@@ -45,17 +45,17 @@ bool McuAdc_ResumeAfterStorage(void)
 
 static const uint8_t *flash_memory(uint32_t address)
 {
-    assert(address >= R40_PARAM_BASE && address < R40_PARAM_BASE + R40_PARAM_BYTES);
+    assert(address >= AT32_PARAM_BASE && address < AT32_PARAM_BASE + AT32_PARAM_BYTES);
     ++reads;
-    return storage + R40_FLASH_SECTOR_BYTES + address - R40_PARAM_BASE;
+    return storage + AT32_FLASH_SECTOR_BYTES + address - AT32_PARAM_BASE;
 }
 
 static void flash_store_word(uint32_t address, uint32_t value)
 {
     assert(sampling_paused);
     assert(!operation && !sim_flash.ctrl_bit.oplk && sim_flash.ctrl_bit.fprgm);
-    assert(address % 4U == 0U && address >= R40_PARAM_BASE);
-    assert(address + 4U <= R40_PARAM_BASE + 2U * R40_FLASH_SECTOR_BYTES);
+    assert(address % 4U == 0U && address >= AT32_PARAM_BASE);
+    assert(address + 4U <= AT32_PARAM_BASE + 2U * AT32_FLASH_SECTOR_BYTES);
     pending_address = address;
     pending_word = value;
     ++programs;
@@ -118,9 +118,9 @@ flag_status flash_flag_get(uint32_t flags)
             assert(!operation && !sim_flash.ctrl_bit.oplk);
             sim_flash.ctrl_bit.erstr = 0U;
             pending_address = sim_flash.addr;
-            assert(pending_address % R40_FLASH_SECTOR_BYTES == 0U);
-            assert(pending_address >= R40_PARAM_BASE);
-            assert(pending_address < R40_PARAM_BASE + 2U * R40_FLASH_SECTOR_BYTES);
+            assert(pending_address % AT32_FLASH_SECTOR_BYTES == 0U);
+            assert(pending_address >= AT32_PARAM_BASE);
+            assert(pending_address < AT32_PARAM_BASE + 2U * AT32_FLASH_SECTOR_BYTES);
             ++erases;
             operation = 1U;
             remaining = 2U;
@@ -141,7 +141,7 @@ flag_status flash_flag_get(uint32_t flags)
             }
             else if (operation == 1U)
             {
-                memset((void *)flash_memory(pending_address), 0xFF, R40_FLASH_SECTOR_BYTES);
+                memset((void *)flash_memory(pending_address), 0xFF, AT32_FLASH_SECTOR_BYTES);
             }
             else
             {
@@ -180,21 +180,21 @@ static void reset(void)
 
 static void guards_unchanged(void)
 {
-    for (unsigned i = 0; i < R40_FLASH_SECTOR_BYTES; ++i)
+    for (unsigned i = 0; i < AT32_FLASH_SECTOR_BYTES; ++i)
     {
         assert(storage[i] == 0xA5U);
-        assert(storage[R40_FLASH_SECTOR_BYTES + R40_PARAM_BYTES + i] == 0xA5U);
+        assert(storage[AT32_FLASH_SECTOR_BYTES + AT32_PARAM_BYTES + i] == 0xA5U);
     }
-    for (unsigned i = 2U * R40_FLASH_SECTOR_BYTES; i < R40_PARAM_BYTES; ++i)
+    for (unsigned i = 2U * AT32_FLASH_SECTOR_BYTES; i < AT32_PARAM_BYTES; ++i)
     {
-        assert(storage[R40_FLASH_SECTOR_BYTES + i] == 0xA5U);
+        assert(storage[AT32_FLASH_SECTOR_BYTES + i] == 0xA5U);
     }
 }
 
 int main(void)
 {
-    _Static_assert(sizeof(InterfaceParam) == R40_PARAM_RAW_BYTES, "RAW capacity drift");
-    uint8_t input[R40_PARAM_RAW_BYTES + 1U], result[R40_PARAM_BYTES + 1U];
+    _Static_assert(sizeof(InterfaceParam) == AT32_PARAM_RAW_BYTES, "RAW capacity drift");
+    uint8_t input[AT32_PARAM_RAW_BYTES + 1U], result[AT32_PARAM_BYTES + 1U];
     for (unsigned i = 0U; i < sizeof(input); ++i)
     {
         input[i] = (uint8_t)(i * 17U);
@@ -206,7 +206,7 @@ int main(void)
     assert(!param_store_read(result, sizeof(result)));
     assert(!param_store_write(NULL, 1U) && BspFlash_Write(NULL, 0U) == BSP_OK);
     assert(!param_store_write(input, sizeof(input)));
-    assert(!param_store_write((void *)(uintptr_t)R40_PARAM_BASE, 1U));
+    assert(!param_store_write((void *)(uintptr_t)AT32_PARAM_BASE, 1U));
     assert(!param_store_write((void *)(UINTPTR_MAX - 1U), 4U));
     assert(!erases && !programs && !reads);
     power_off = false;
@@ -221,7 +221,7 @@ int main(void)
     ipsr = 0U;
     assert(!erases && !programs);
 
-    const unsigned sizes[] = {1U, 2U, 3U, 4U, 2047U, 2048U, 2049U, R40_PARAM_RAW_BYTES};
+    const unsigned sizes[] = {1U, 2U, 3U, 4U, 2047U, 2048U, 2049U, AT32_PARAM_RAW_BYTES};
     for (unsigned i = 0U; i < sizeof(sizes) / sizeof(sizes[0]); ++i)
     {
         reset();
@@ -233,7 +233,7 @@ int main(void)
         unsigned padded = (size + 3U) & ~3U;
         for (unsigned j = size; j < padded; ++j)
         {
-            assert(flash_memory(R40_PARAM_BASE)[j] == 0xFFU);
+            assert(flash_memory(AT32_PARAM_BASE)[j] == 0xFFU);
         }
         unsigned before_erases = erases, before_programs = programs;
         assert(param_store_write(input, size) && erases == before_erases &&

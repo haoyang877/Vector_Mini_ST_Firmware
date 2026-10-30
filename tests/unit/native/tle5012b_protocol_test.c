@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "bsp_encoder.h"
-#include "bsp_internal.h"
+#include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "encoder_spi.h"
 #include "encoder_protocol.h"
 uint32_t BspSystem_EnterCritical(void)

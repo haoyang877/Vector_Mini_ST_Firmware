@@ -3,7 +3,6 @@
 #include <math.h>
 #include <stdio.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
-#include "../../../firmware/platform/bsp/bsp_adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
 
 int main(void)

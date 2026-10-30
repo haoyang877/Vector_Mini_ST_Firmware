@@ -98,7 +98,7 @@ int main(void)
                 probe_break = enabled ? 0x8000U : 0U;
                 g_pwm_power_window.state = (PwmPowerWindowState)state;
                 bool expected = (channels & 0x5550U) == 0U && !enabled;
-#if R40_APP_BOUNDED_TEST
+#if AT32_APP_BOUNDED_TEST
                 expected |= (channels & 0x5550U) == 0x5550U && enabled && state == PWM_POWER_ACTIVE;
 #endif
                 assert(power_contract_valid() == expected);

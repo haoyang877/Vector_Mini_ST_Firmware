@@ -38,13 +38,12 @@ void MotorStateMachine_Init(const MotorConfiguration *configuration,
 void MotorStateMachine_CheckFastFaults(void);
 /**
  * @brief 故障紧急关断快车道：故障锁存且功率级开启时立即关断硬件。
- * @note 仅由 20 kHz 快速中断调用；本板无 TIM1 BKIN 与驱动器故障引脚，软件是
- *       唯一关断路径，本入口把"故障 → 功率级关断"保持在快速环时延内。
+ * @note 仅由20 kHz快速采样上下文调用；发现故障后通过BSP请求关闭功率输出。
  */
 void MotorStateMachine_FastFaultStop(void);
 /**
  * @brief 快环执行worker前消费已准备的启相请求，STOP和故障优先。
- * @note 仅ADC最高优先级调用一次；不扫描配置、不重置控制器、不屏蔽中断。
+ * @note 仅快速采样上下文调用一次；不扫描配置、不重置控制器、不屏蔽中断。
  *   前台/监督最后发布原代际，实际启相前重核动态保护；受理不再同步启相。
  */
 void MotorStateMachine_BeginFastTick(void);
@@ -53,9 +52,9 @@ void MotorStateMachine_BeginFastTick(void);
  * @brief 上报本周期 worker 结果：20 kHz 快环写入，2 kHz 状态机消费。
  * @param epoch worker 执行前捕获的原始身份。
  * @param outcome 本周期功能结果；MOTOR_TASK_RUNNING 不入箱。
- * @note 仅由 ADC2 JEOS 的 20 kHz 快速中断末尾调用；每拍登记感测处理进展，
+ * @note 仅由20 kHz快速采样上下文末尾调用；每拍登记感测处理进展，
  *       非 RUNNING 结果先写载荷再发布，保留首个终态，失败优先。
- *       ADC是唯一快环发布者，监督和前台不能抢占；消费端负责自己的同步。
+ *       快速采样是唯一快环发布者，监督和前台不能抢占；消费端负责自己的同步。
  */
 void MotorStateMachine_PostOutcome(MotorTaskResult outcome, uint32_t epoch);
 /** @brief 单次监督的栈上计算载体；不是活动运行对象，禁止保留到下一拍。 */

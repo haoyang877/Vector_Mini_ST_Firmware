@@ -15,11 +15,11 @@ typedef struct
     uint32_t state, fault;
     float bus_v;
     uint32_t sequence;
-} R40RttFrame;
+} AT32RttFrame;
 
-_Static_assert(sizeof(R40RttFrame) == 48U, "RTT frame must match J-Scope format");
+_Static_assert(sizeof(AT32RttFrame) == 48U, "RTT frame must match J-Scope format");
 
-volatile R40OpenLoopDebug g_openloop_debug;
+volatile AT32OpenLoopDebug g_openloop_debug;
 static char s_wave_buffer[8192];
 static uint32_t s_previous_fast, s_velocity_fast, s_text_fast, s_sent, s_dropped;
 static uint16_t s_previous_angle;
@@ -27,7 +27,7 @@ static int32_t s_position, s_velocity_position;
 static float s_velocity_rpm;
 static bool s_initialized;
 
-void R40OpenLoopTelemetry_Init(void)
+void AT32OpenLoopTelemetry_Init(void)
 {
     memset((void *)&g_openloop_debug, 0, sizeof(g_openloop_debug));
     s_previous_fast = s_velocity_fast = s_text_fast = s_sent = s_dropped = 0U;
@@ -48,10 +48,10 @@ void R40OpenLoopTelemetry_Init(void)
         "RTT0: ms,state,fault,ia_mA,ib_mA,ic_mA,angle_mdeg,sin,cos,rpm_milli,drop\n");
 }
 
-void R40OpenLoopTelemetry_Publish(const R40OpenLoopTelemetrySample *sample)
+void AT32OpenLoopTelemetry_Publish(const AT32OpenLoopTelemetrySample *sample)
 {
     uint32_t fast = sample->fast_samples;
-    if (s_initialized && fast / R40_RTT_FAST_TICKS == s_previous_fast / R40_RTT_FAST_TICKS)
+    if (s_initialized && fast / AT32_RTT_FAST_TICKS == s_previous_fast / AT32_RTT_FAST_TICKS)
     {
         return;
     }
@@ -94,18 +94,18 @@ void R40OpenLoopTelemetry_Publish(const R40OpenLoopTelemetrySample *sample)
     g_openloop_debug.angle_deg = (float)angle * (360.0f / 65536.0f);
     g_openloop_debug.speed_rpm = s_velocity_rpm;
     g_openloop_debug.bus_v = sample->bus_v;
-    R40RttFrame frame = {fast * 50U,
-                         sample->ia_a,
-                         sample->ib_a,
-                         sample->ic_a,
-                         g_openloop_debug.angle_deg,
-                         sample->sin_raw,
-                         sample->cos_raw,
-                         s_velocity_rpm,
-                         sample->state,
-                         sample->fault,
-                         sample->bus_v,
-                         fast / R40_RTT_FAST_TICKS};
+    AT32RttFrame frame = {fast * 50U,
+                          sample->ia_a,
+                          sample->ib_a,
+                          sample->ic_a,
+                          g_openloop_debug.angle_deg,
+                          sample->sin_raw,
+                          sample->cos_raw,
+                          s_velocity_rpm,
+                          sample->state,
+                          sample->fault,
+                          sample->bus_v,
+                          fast / AT32_RTT_FAST_TICKS};
     if (SEGGER_RTT_WriteNoLock(1U, &frame, sizeof(frame)) == sizeof(frame))
     {
         ++s_sent;

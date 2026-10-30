@@ -37,7 +37,7 @@
 | communication/telemetry | 按目标选择的2kHz只读RTT波形，控制输入只读，不含电机命令 |
 | communication/commands | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
 | platform/bsp/include | 唯一公共硬件契约，保持单位、失败和执行上下文 |
-| config/config.h | 两个正式工程的板卡与电机型号选择 |
+| config/config.h | 板型编号和电机默认值；板型由工程BSP_BOARD宏提供 |
 | config/board_config.h | 板卡资源与硬件校验 |
 | config/motor_profile_config.h | 电机型号、物理输入与型号校验 |
 | platform/bsp/mcu/stm32g4 | STM32外设后端及私有生成Core，原厂Drivers在SDK目录 |
@@ -56,7 +56,7 @@
 
 ## 参数与运行状态
 
-板卡与电机选择归 `config/config.h`，板卡输入归 `config/board_config.h`，电机输入归 `config/motor_profile_config.h`，应用和派生参数归 `config/application_config.h`；
+板卡由工程编译宏BSP_BOARD选择，电机默认值归 `config/config.h`，板卡输入归 `config/board_config.h`，电机输入归 `config/motor_profile_config.h`，应用和派生参数归 `config/application_config.h`；
 实现归属见[双板对应表](platform_interface_implementations_v1.md)。
 电机、应用及设备默认输入归config，运行时默认值装配归parameters。
 MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `MotorControlState`。
@@ -80,9 +80,9 @@ schema14保持现有存储布局，由装载/导出边界映射，不能当作�
 ## 工程与工具接线
 
 双板完整APP共享APP/Motor/Parameters/Communication实现，按功能使能选择母线电流和诊断模块，
-通过相同BSP功能接口装配。板卡与电机选择集中于 `firmware/config/config.h`，板级资源集中于
+通过相同BSP功能接口装配。板卡由各工程BSP_BOARD宏选择，电机默认值集中于 `firmware/config/config.h`，板级资源集中于
 `firmware/config/board_config.h`，电机物理模型集中于 `firmware/config/motor_profile_config.h`；控制、保护和派生表达式集中于
-`firmware/config/application_config.h`。两套正式工程分别构建 STM32 APP 和 AT32 永久关相 APP；切换工程前在 `config.h` 中手动选择对应板卡和电机。
+`firmware/config/application_config.h`。两套正式工程分别构建STM32 APP和AT32 Off策略APP（PWM驱动已无永久锁）；切换工程即可选择板卡，无需修改公共源码；电机默认值可由工程覆盖。
 AT32 正式工程固定关相，未确认的电机热数据不作为有效默认值。
 具体迁移、对照及未验收项见[双板配置收敛计划](../plans/active/2026-10-24-dual-board-config-v1.md)。
 

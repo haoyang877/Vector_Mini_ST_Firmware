@@ -4,7 +4,6 @@
 #include "app.h"
 #include "motor_axis.h"
 #include "application_config.h"
-#include "bsp_led.h"
 #include "bsp_system.h"
 #include "yg_protocol_link.h"
 #include "yg_protocol_status_adapter.h"
@@ -25,7 +24,7 @@ void AppTasks_Process(void)
 {
 }
 static uint32_t model_now_ms, clock_reads, foreground_stage;
-static uint32_t fast_calls, supervisor_calls, led_calls, rgb_calls;
+static uint32_t fast_calls, supervisor_calls;
 
 void MotorAxis_ServiceBackground(void)
 {
@@ -73,18 +72,6 @@ MotorMaintenanceKind MotorStateMachine_GetMaintenanceKind(void)
 {
     return MOTOR_MAINTENANCE_NONE;
 }
-void indicator_hw_led_task(void)
-{
-    assert(supervisor_calls != 0U && supervisor_calls % (SUPERVISOR_FREQ / 5U) == 0U);
-    ++led_calls;
-}
-BspResult BspLed_SetColor(BspLedColor color)
-{
-    assert(supervisor_calls != 0U && supervisor_calls % (SUPERVISOR_FREQ / 20U) == 0U);
-    assert(color == BSP_LED_CYAN);
-    ++rgb_calls;
-    return BSP_OK;
-}
 static void process_at(uint32_t now_ms)
 {
     model_now_ms = now_ms;
@@ -101,7 +88,6 @@ static void test_tick_entries(void)
         App_SupervisorTick();
     }
     assert(supervisor_calls == SUPERVISOR_FREQ / 5U && fast_calls == 1U);
-    assert(led_calls == 0U && rgb_calls == 4U);
 }
 
 static uint32_t model_progress, feeds, calls;

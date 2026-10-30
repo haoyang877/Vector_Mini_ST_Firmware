@@ -5,6 +5,24 @@
 
 | 计划 | 当前状态 |
 | --- | --- |
+| [BSP公共接口最简化](2026-10-30-bsp-public-minimal-v1.md) | 公开头10→8，闲置时基/复位/诊断删除，内部及台架声明收回；未编译或测试 |
+| [ADC/PWM全部归MCU](2026-10-30-adc-pwm-mcu-local-v1.md) | 零偏及换算合入两板MCU，删除独立公共实现及辅助接口；未编译或测试 |
+| [CAN长度换算就地实现](2026-10-30-can-local-dlc-v1.md) | 已删除独立换算文件和函数；转换直接放入两板收发实现，未编译或测试 |
+| [BSP第一轮精简](2026-10-30-bsp-simplify-round1-v1.md) | 清理重复头、反向配置依赖及闲置初始化，统一启动归属；未测试或编译 |
+| [删除LED和UART](2026-10-30-remove-led-uart-v1.md) | 删除两功能、调用及资源配置；保留四外设、Flash及必要系统支撑；未编译或测试 |
+| [全BSP硬件边界核对](2026-10-30-bsp-hardware-boundary-audit-v1.md) | 共用层只保留逻辑，LED硬件初始化归MCU；接口和工程引用静态核对，未测试或编译 |
+| [PWM硬件与逻辑分离v2](2026-10-30-pwm-hardware-boundary-v2.md) | 已迁移供审阅；BSP只换算占空比，MCU处理全部PWM硬件；未测试或编译 |
+| [ADC硬件与逻辑分离v2](2026-10-30-adc-hardware-boundary-v2.md) | 已迁移供审阅；MCU处理ADC硬件，BSP只保留逻辑；未测试或编译 |
+| [双板ADC/PWM统一最简接口](2026-10-30-dual-adc-pwm-minimal-v1.md) | 两板共用值接口和运行源，工程宏选板，上层无ADC/PWM板型分支；未测试或编译 |
+| [Encoder硬件归MCU v3](2026-10-30-encoder-hardware-boundary-v3.md) | MCU直接实现统一接口及全部硬件操作，删除公共转发文件；未测试或编译 |
+| [两板编码器统一最简接口v2](2026-10-30-encoder-unified-minimal-v2.md) | 统一接口阶段记录；当前硬件边界见v3 |
+| [CAN硬件与逻辑分离v2](2026-10-30-can-hardware-boundary-v2.md) | BSP仅长度换算；MCU直接实现统一收发、启停和IRQ；未测试或编译 |
+| [两板CAN统一最简接口](2026-10-30-can-unified-interface-v1.md) | 统一接口阶段记录；当前分工见CAN硬件与逻辑分离v2 |
+| [AT32 CAN最简实现](2026-10-30-at32-can-minimal-v1.md) | 先行及codec合并阶段记录，当前实现见两板统一计划 |
+| [AT32编码器最简实现](2026-10-30-at32-encoder-minimal-v1.md) | AT32先行阶段记录；当前接口与硬件边界见v3 |
+| [AT32 PWM最简实现](2026-10-30-at32-pwm-minimal-v1.md) | 实现待审阅；MCU仅初始化，BSP直接写寄存器，删除保护/状态/结果码；按用户要求未测试或编译 |
+| [AT32 ADC最简实现](2026-10-30-at32-adc-minimal-v1.md) | 实现待审阅；MCU仅初始化/寄存器与DMA暴露，删除ADC保护；按用户要求未运行测试或编译 |
+| [采样快环删除软件保护](2026-10-30-remove-sensing-protection-v1.md) | 实施中：采样只搬运物理值并保留母线低通；离线验证，未烧录/未台架 |
 | [FOC 测量边界方案](2026-10-29-foc-measurement-boundary-v1.md) | 测量对象分离及两板离线验证完成；目标时序未测 |
 | [motor 归属与命名复核整改](2026-10-29-motor-followup-cleanup-v1.md) | 实施中；保持控制与保护行为，目标时序待验证 |
 | [motor 分层与命名整理](2026-10-29-motor-layering-v1.md) | 结构与命名整理及离线验证完成；目标时序和实机行为待验证 |

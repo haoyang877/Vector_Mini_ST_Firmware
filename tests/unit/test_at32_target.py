@@ -127,7 +127,6 @@ class At32TargetTests(unittest.TestCase):
                             (
                                 "firmware/platform/bsp/mcu/at32f456/",
                                 "firmware/platform/devices/",
-                                "firmware/platform/bsp/can_frame_codec.c",
                                 "firmware/platform/bsp/bsp_",
                             )
                         )
@@ -139,7 +138,6 @@ class At32TargetTests(unittest.TestCase):
                             "firmware/app/composition/bus_current_feedback.c",
                             "firmware/platform/bsp/pwm_output_permit.c",
                             "firmware/app/runtime/pwm_power_window.c",
-                            "firmware/platform/bsp/can_frame_codec.c",
                         }
                     )
                 for path, _ in actual["90_Vendor"]:
@@ -233,8 +231,8 @@ class At32TargetTests(unittest.TestCase):
         tree = ET.parse(project)
         defines = target_defines(tree, "r40_app_commissioning.h")
         for flag in (
-            "R40_APP_PHASE_LOCK=0",
-            "R40_APP_BOUNDED_TEST=1",
+            "AT32_APP_PHASE_LOCK=0",
+            "AT32_APP_BOUNDED_TEST=1",
             "APP_ENABLED_DIAGNOSTIC_TELEMETRY=0",
             "BSP_REQUIRED_MCU_TEMPERATURE=0",
             "FOC_ACTIVE_MOTOR_PROFILE=FOC_MOTOR_PROFILE_YQ_5708",
@@ -307,9 +305,9 @@ class At32TargetTests(unittest.TestCase):
         tree = ET.parse(project)
         defines = target_defines(tree, "r40_app_off.h")
         for flag in (
-            "R40_APP_PHASE_LOCK=1",
+            "AT32_APP_PHASE_LOCK=1",
             "BSP_APP_LIFECYCLE=1",
-            "APP_TARGET_R40_F456=1",
+            "APP_TARGET_AT32_F456=1",
             "FOC_ACTIVE_HW_PROFILE=BSP_BOARD_AT32F456",
             "FOC_ACTIVE_MOTOR_PROFILE=FOC_MOTOR_PROFILE_YQ_5708",
             "BSP_ENCODER_FAST_SPI=1",
@@ -324,7 +322,6 @@ class At32TargetTests(unittest.TestCase):
             "motor_axis.c",
             "motor_state_machine.c",
             "system.c",
-            "led.c",
             "boot.c",
         ):
             self.assertTrue(any(path.endswith("/" + name) for path in paths), name)
@@ -363,8 +360,8 @@ class At32TargetTests(unittest.TestCase):
         self.assertEqual(errors, [])
         tree = ET.parse(project)
         defines = tree.findtext(".//Cads/VariousControls/Define")
-        self.assertIn("R40_CLOSEDLOOP_TEST=1", defines)
-        self.assertIn("R40_OL_CURRENT_LIMIT_A=3.0f", defines)
+        self.assertIn("AT32_CLOSEDLOOP_TEST=1", defines)
+        self.assertIn("AT32_OL_CURRENT_LIMIT_A=3.0f", defines)
         self.assertEqual(tree.findtext(".//UpdateFlashBeforeDebugging"), "0")
         files = [node.text.replace("\\", "/") for node in tree.findall(".//FilePath")]
         for name in ("foc.c", "pi_controller.c", "speed_control.c"):
@@ -388,7 +385,7 @@ class At32TargetTests(unittest.TestCase):
         )
         for target, flag in zip(targets, ("0", "1", "1"), strict=True):
             self.assertIn(
-                f"R40_OPENLOOP_POWER_ENABLED={flag}",
+                f"AT32_OPENLOOP_POWER_ENABLED={flag}",
                 target.findtext(".//Cads/VariousControls/Define"),
             )
             self.assertEqual(target.findtext(".//UpdateFlashBeforeDebugging"), "0")
@@ -396,7 +393,7 @@ class At32TargetTests(unittest.TestCase):
         self.assertNotIn("BspCan_Init(", entry)
         self.assertNotIn("comm_hw_", entry)
         self.assertNotIn("param_store_", entry)
-        self.assertIn("#define R40_OPENLOOP_POWER_ENABLED 0", entry)
+        self.assertIn("#define AT32_OPENLOOP_POWER_ENABLED 0", entry)
         for project in projects:
             errors, _, _ = check_project(project)
             self.assertEqual(errors, [])
@@ -437,18 +434,18 @@ class At32TargetTests(unittest.TestCase):
         layout = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf-8")
         values = {
             name: int(value, 0)
-            for name, value in re.findall(r"#define (R40_\w+) (0x[0-9A-Fa-f]+|[0-9]+)U", layout)
+            for name, value in re.findall(r"#define (AT32_\w+) (0x[0-9A-Fa-f]+|[0-9]+)U", layout)
         }
         scatter = (ROOT / "projects/at32f456/bench/r40_foundation.sct").read_text(encoding="utf-8")
         ranges = re.findall(r"(?:LR_IROM1|ER_IROM1)\s+(0x\w+)\s+(0x\w+)", scatter)
         self.assertEqual(len(ranges), 2)
         for start, length in ranges:
-            self.assertEqual(int(start, 0) + int(length, 0), values["R40_PARAM_BASE"])
-        self.assertEqual(values["R40_PARAM_BASE"] % values["R40_FLASH_SECTOR_BYTES"], 0)
-        self.assertLessEqual(values["R40_PARAM_RAW_BYTES"], 2 * values["R40_FLASH_SECTOR_BYTES"])
+            self.assertEqual(int(start, 0) + int(length, 0), values["AT32_PARAM_BASE"])
+        self.assertEqual(values["AT32_PARAM_BASE"] % values["AT32_FLASH_SECTOR_BYTES"], 0)
+        self.assertLessEqual(values["AT32_PARAM_RAW_BYTES"], 2 * values["AT32_FLASH_SECTOR_BYTES"])
         self.assertEqual(
-            values["R40_PARAM_BASE"] + values["R40_PARAM_BYTES"],
-            values["R40_FLASH_BASE"] + values["R40_FLASH_BYTES"],
+            values["AT32_PARAM_BASE"] + values["AT32_PARAM_BYTES"],
+            values["AT32_FLASH_BASE"] + values["AT32_FLASH_BYTES"],
         )
 
     def test_vendor_import_retains_manifest_content(self):
@@ -464,7 +461,7 @@ class At32TargetTests(unittest.TestCase):
 
     def test_keil_rtt_is_isolated_and_vendor_files_are_pinned(self):
         tree = ET.parse(ROOT / "projects/at32f456/bench/R40_F456_OpenLoop_Combined.uvprojx")
-        self.assertIn("R40_KEIL_OPENLOOP=1", tree.findtext(".//Cads/VariousControls/Define"))
+        self.assertIn("AT32_KEIL_OPENLOOP=1", tree.findtext(".//Cads/VariousControls/Define"))
         for name in ("R40_F456_ClosedLoop", "R40_F456_Foundation", "R40_F456_OpenLoop_Dry"):
             self.assertNotIn(
                 "openloop_telemetry.c",

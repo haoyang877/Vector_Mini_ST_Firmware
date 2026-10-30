@@ -10,7 +10,6 @@
 #include "foc.h"
 #include "foc_internal.h"
 #include "reference_type.h"
-#include "fast_loop_profile.h"
 #include "motor_thermal_control.h"
 #include "application_config.h"
 
@@ -54,23 +53,6 @@ BspResult BspPwm_SetDuty_Reference(float a, float b, float c)
     captures[1].duty[2] = c;
     return BSP_OK;
 }
-void FastLoopProfile_Begin(unsigned stage)
-{
-    record(0, 100 + stage);
-}
-void FastLoopProfile_End(unsigned stage)
-{
-    record(0, 200 + stage);
-}
-void FastLoopProfile_Begin_Reference(unsigned stage)
-{
-    record(1, 100 + stage);
-}
-void FastLoopProfile_End_Reference(unsigned stage)
-{
-    record(1, 200 + stage);
-}
-
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
 {
     assert(allow_expected_fault);
@@ -367,17 +349,13 @@ int main(void)
                     return 1;
                 }
                 assert(captures[0].writes == 1);
-#if defined(BSP_ENABLED_FAST_LOOP_PROFILE) && BSP_ENABLED_FAST_LOOP_PROFILE
-                assert(captures[0].count == (active_mode == 2 ? 1U : 3U));
-#else
                 assert(captures[0].count == 1U);
-#endif
                 ++compared;
             }
         }
     }
     test_voltage_law();
     test_prepare_output_boundary();
-    printf("PASS %u FOC comparisons: complete state, PI, PWM and profiling order\n", compared);
+    printf("PASS %u FOC comparisons: complete state, PI and PWM order\n", compared);
     return 0;
 }

@@ -34,9 +34,7 @@ def main():
     ]
     subject = native / "bsp_feature_config_test.c"
     for board in (1, 2):
-        combinations = (
-            itertools.product((0, 1), repeat=4) if board == 2 else ((1, 0, 0, 0), (1, 0, 0, 0))
-        )
+        combinations = itertools.product((0, 1), repeat=4) if board == 2 else ((1, 0, 0, 0),)
         for index, (temperature, bus_current, motor_temperature, sincos) in enumerate(combinations):
             flags = [
                 f"-DBSP_BOARD={board}",
@@ -46,8 +44,6 @@ def main():
                 f"-DBSP_ENABLED_MOTOR_TEMPERATURE={motor_temperature}",
                 f"-DBSP_ENABLED_OUTPUT_SINCOS={sincos}",
             ]
-            if board == 1:
-                flags += [f"-DBSP_ENABLED_FAST_LOOP_PROFILE={index}"]
             exe = args.out / f"config_{board}_{index}.exe"
             subprocess.run(common + api + flags + [str(subject), "-o", str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
@@ -99,7 +95,7 @@ def main():
         exe = args.out / f"can_disabled_{board}.exe"
         sources = [
             native / "bsp_can_disabled_test.c",
-            platform / "bsp/bsp_can.c",
+            platform / "bsp/mcu" / board / "can.c",
         ]
         subprocess.run(
             common
@@ -120,16 +116,14 @@ def main():
         ["BSP_BOARD=1", "BSP_ENABLED_OUTPUT_SINCOS=1"],
         ["BSP_BOARD=2", "BSP_ENABLED_OUTPUT_SINCOS=2"],
         ["BSP_ENABLED_PHASE_VOLTAGE=1"],
-        ["BSP_BOARD=2", "BSP_ENABLED_FAST_LOOP_PROFILE=1"],
         ["BSP_ENABLED_PWM=2"],
         ["BSP_PWM_HARD_LOCK=2"],
         ["BSP_ENABLED_MCU_TEMPERATURE=0"],
         ["BSP_REQUIRED_MCU_TEMPERATURE=2"],
         ["BSP_BOARD=1", "BSP_REQUIRED_MCU_TEMPERATURE=0", "BSP_ENABLED_MCU_TEMPERATURE=0"],
-        ["APP_TARGET_R40_F456=1", "BSP_BOARD=2", "BSP_REQUIRED_MCU_TEMPERATURE=0"],
-        ["BSP_ENABLED_FAST_LOOP_PROFILE=2"],
+        ["APP_TARGET_AT32_F456=1", "BSP_BOARD=2", "BSP_REQUIRED_MCU_TEMPERATURE=0"],
         ["FIRMWARE_TARGET_AT32_BENCH=1"],
-        ["FIRMWARE_TARGET_AT32_BENCH=1", "BSP_BOARD=2", "APP_TARGET_R40_F456=1"],
+        ["FIRMWARE_TARGET_AT32_BENCH=1", "BSP_BOARD=2", "APP_TARGET_AT32_F456=1"],
     ]
     for feature in ("PHASE_CURRENT", "BUS_VOLTAGE", "ROTOR_ENCODER", "PWM", "CAN"):
         invalid.append([f"BSP_ENABLED_{feature}=0"])

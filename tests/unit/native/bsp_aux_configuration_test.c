@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
-#include "../../../firmware/platform/bsp/bsp_adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/temperature.c"
 
 int main(void)
@@ -14,10 +13,10 @@ int main(void)
                              (BSP_ENABLED_OUTPUT_SINCOS ? 0x60U : 0U);
     assert(sim_analog_pins == expected_pins);
     assert(sim_adc[1].enabled == !!(BSP_ENABLED_AUX_SAMPLING || BSP_ENABLED_BUS_CURRENT));
-    assert(sim_adc[1].ordinary_length == (R40_AUX_RANKS             ? R40_AUX_RANKS
+    assert(sim_adc[1].ordinary_length == (AT32_AUX_RANKS            ? AT32_AUX_RANKS
                                           : BSP_ENABLED_BUS_CURRENT ? 1U
                                                                     : 0U));
-    assert(sim_dma_config.buffer_size == 2U * R40_AUX_RANKS);
+    assert(sim_dma_config.buffer_size == 2U * AT32_AUX_RANKS);
     assert(sim_temperature_dma_config.buffer_size == (BSP_ENABLED_MCU_TEMPERATURE ? 4U : 0U));
     assert(Adc_Start());
     assert(sim_dma_enabled == !!BSP_ENABLED_AUX_SAMPLING);
@@ -26,7 +25,7 @@ int main(void)
     assert(((sim_nvic_enabled >> DMA1_Channel3_IRQn) & 1U) == !!BSP_ENABLED_MCU_TEMPERATURE);
     AdcAuxSample sample = {456U, 789U, 0U};
 #if BSP_ENABLED_AUX_SAMPLING
-    for (unsigned i = 0U; i < R40_AUX_RANKS; ++i)
+    for (unsigned i = 0U; i < AT32_AUX_RANKS; ++i)
     {
         s_sampling.aux_dma[i] = (uint16_t)(1000U + i);
     }

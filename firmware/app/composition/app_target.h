@@ -4,7 +4,7 @@
 #include "application_config.h"
 
 /* 唯一的APP目标身份选择；算法与协议不判断MCU。默认仍使用旧板目标。 */
-#if defined(APP_TARGET_R40_F456) && APP_TARGET_R40_F456
+#if defined(APP_TARGET_AT32_F456) && APP_TARGET_AT32_F456
 #include "r40_f456_bringup.h"
 #else
 #include "vector_mini_st_g431.h"

@@ -70,7 +70,7 @@ static void TestTemperature_Poll(TestTemperaturePoll *result)
         result->vdda_mv = value.vdda_v * 1000.0f;
     }
     /* 温度资格失败不能影响同帧有效VDDA。 */
-    if (R40_INTERNAL_REFERENCE_MV >= 1100.0f && R40_INTERNAL_REFERENCE_MV <= 1300.0f)
+    if (AT32_INTERNAL_REFERENCE_MV >= 1100.0f && AT32_INTERNAL_REFERENCE_MV <= 1300.0f)
     {
         assert(value.voltage_result == BSP_OK);
         assert(fabsf(value.vdda_v - 3.276f) < 0.0001f);
@@ -105,7 +105,7 @@ int main(void)
     AdcTemperatureValue values;
     McuAdc_ConvertTemperature(&invalid, &values);
     assert(values.temperature_result == BSP_NOT_CALIBRATED && isnan(values.celsius));
-    if (R40_INTERNAL_REFERENCE_MV >= 1100.0f && R40_INTERNAL_REFERENCE_MV <= 1300.0f)
+    if (AT32_INTERNAL_REFERENCE_MV >= 1100.0f && AT32_INTERNAL_REFERENCE_MV <= 1300.0f)
     {
         assert(values.voltage_result == BSP_OK && fabsf(values.vdda_v - 3.276f) < 0.0001f);
         invalid.reference_counts = 0U;
@@ -125,7 +125,7 @@ int main(void)
 #if BSP_ENABLED_MCU_TEMPERATURE
     assert(result.sample_ready && result.raw_ts == 1600U && result.raw_vref == 1500U);
     assert(result.conversion_ok == EXPECT_CALIBRATED);
-    if (!R40_TEMPERATURE_CALIBRATED)
+    if (!AT32_TEMPERATURE_CALIBRATED)
     {
         assert(result.celsius == 56.0f && result.vdda_mv == 78.0f);
     }

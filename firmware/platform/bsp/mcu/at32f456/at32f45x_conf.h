@@ -1,9 +1,9 @@
-#ifndef R40_AT32F45X_CONF_H
-#define R40_AT32F45X_CONF_H
+#ifndef AT32_AT32F45X_CONF_H
+#define AT32_AT32F45X_CONF_H
 
 /* 板卡晶振与厂商时钟计算共用同一输入。 */
 #include "board_config.h"
-#define HEXT_VALUE R40_HEXT_HZ
+#define HEXT_VALUE AT32_HEXT_HZ
 
 /* 仅启用本阶段使用的厂商外设模块；不复制基础工程的自动启相初始化。 */
 #define HEXT_STARTUP_TIMEOUT 0x3000U

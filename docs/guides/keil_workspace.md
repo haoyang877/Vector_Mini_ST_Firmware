@@ -6,7 +6,7 @@
 | 子工程 | 用途 |
 | --- | --- |
 | ESC-APP-STM32G431 | STM32G4 旧板 APP |
-| ESC-APP-AT32F456 | AT32F456 新板完整 APP，永久关相；工作区默认选中 |
+| ESC-APP-AT32F456 | AT32F456新板Off应用策略；工作区默认选中，PWM驱动已无永久锁 |
 | ESC-APP-AT32F456-Commissioning | AT32F456 新板完整 APP，限时调试 |
 
 ## 使用
@@ -34,3 +34,9 @@
 `outputs/build/keil/<工程名>/`。旧板Loader配套APP为`ESC-APP-STM32G431-LoaderApp`，
 独立构建，不加入上述三工程工作区。命令行仍沿用`normal`、`r40-app-off`、
 `r40-app-commissioning`选择器；历史实测报告保留当时文件名和哈希。
+
+## 板型选择
+
+各工程的C编译宏已设置BSP_BOARD：STM32为1U，AT32为2U。切换工程无需修改config.h。
+两板共用ADC/PWM公开接口；逻辑层不包含寄存器、引脚映射或板型判断。
+本轮统一改动按用户要求未运行测试或编译。

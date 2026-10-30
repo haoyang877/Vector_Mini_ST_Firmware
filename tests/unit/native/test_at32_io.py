@@ -50,7 +50,7 @@ def main() -> int:
         elif source_module == "adc_disabled":
             flags = ["-DBSP_ENABLED_MOTOR_TEMPERATURE=0"]
         elif module == "motor_ntc_bad_config":
-            flags = ["-DR40_MOTOR_NTC_BETA_K=0.0f", "-DEXPECT_BAD_NTC_CONFIG=1"]
+            flags = ["-DBSP_ADC_NTC_BETA_K=0.0f", "-DEXPECT_BAD_NTC_CONFIG=1"]
         if module == "motor_ntc":
             flags = ["-DEXPECT_BAD_NTC_CONFIG=0"]
         executable = args.out.resolve() / f"r40_{module}.exe"
@@ -85,9 +85,9 @@ def main() -> int:
     )[0]
     (args.out / "r40_can_clock.h").write_text(
         board
-        + "\n#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 16000000U\n"
-        + "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 60U\n"
-        + "#undef R40_PLL_PRE_DIVIDER\n#define R40_PLL_PRE_DIVIDER 3U\n",
+        + "\n#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 16000000U\n"
+        + "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 60U\n"
+        + "#undef AT32_PLL_PRE_DIVIDER\n#define AT32_PLL_PRE_DIVIDER 3U\n",
         encoding="utf-8",
     )
     clocked_can = args.out.resolve() / "r40_can_80mhz.exe"
@@ -120,7 +120,6 @@ def main() -> int:
         "McuAdc_ContinueTemperature",
     )
     production = "\n".join(function_source(sampling, name) for name in names)
-    production += '\n#include "' + (ROOT / "firmware/platform/bsp/bsp_adc.c").as_posix() + '"\n'
     for path, functions in (
         (
             "temperature.c",

@@ -1,6 +1,12 @@
 # BSP API v1（修订6）
 
-十个头文件、57个函数已接入两板。正式声明在[firmware/platform/bsp/include](../../../firmware/platform/bsp/include)，
+当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
+不保留接口、占位实现或工程引用。见[删除记录](../../plans/active/2026-10-30-remove-led-uart-v1.md)。
+
+2026-10-30更新：CAN两板已统一最简接口，本目录副本与当前公开头同步；
+旧票据/保护约定由[当前CAN链路](../can_chain_v1.md)取代，本轮未编译、未测试。
+
+当前为8个公开头、39个函数声明（含3个应用回调）；内部初始化和单相台架接口不计入公开面。正式声明在[firmware/platform/bsp/include](../../../firmware/platform/bsp/include)，
 本目录保留一致副本供接口文档引用。完整[分层、函数索引和两板差异](../bsp_interfaces_v1.md)。
 
 - [执行约定](EXECUTION.md)：生命周期、快帧、许可、事务、错误及恢复。
@@ -9,7 +15,7 @@
 - [Loader只读查询](BOOT_AVAILABILITY_REVIEW.md)：已获准实现，避免二次初始化。
 
 接口变更不再逐项等待用户评审；实现者须同步声明、文档、消费者和回归。
-UART和硬件版本ADC尚未接线；UART统一返回NOT_SUPPORTED，不提供虚构硬件实现。
+硬件版本ADC尚未接线；LED与UART接口已经删除。
 AT32母线电流已改为PWM同步注入快采样，原2kHz零点/滤波时间窗保留。
 按修订6的接口和职责重构已接入两板，双板构建及干净快照发布检查通过；统一实机验收尚未完成。
 相电流零偏满窗后的收尾已移至2kHz监督任务，属于有记录的调度调整，详见执行约定第2节。

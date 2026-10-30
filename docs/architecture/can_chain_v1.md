@@ -1,35 +1,40 @@
 # 双板CAN链路与职责 v1
 
-更新：2026-10-26。公开契约见[bsp_can.h](../../firmware/platform/bsp/include/bsp_can.h)。
+更新：2026-10-30。公开契约见[bsp_can.h](../../firmware/platform/bsp/include/bsp_can.h)。
 
-公共bsp_can.c拥有64位票据、100ms截止、一次性终态、取消隔离和1秒恢复节流。
-各板can.c拥有控制器配置、原生帧转换、收发、IRQ及恢复。
-can_frame_codec.c只校验元数据和换算DLC。协议CRC、地址、队列和业务属于communication。
-BSP通过BspApp_OnCanReceive通知应用，不依赖具体协议处理器。
+## 文件职责
 
-## 生命周期和结果
+两板共用公开头，DLC与字节数转换直接放在各MCU收发函数中，不再单独保留源文件或换算函数。
+mcu/*/can.c直接实现BspCan_Start/TrySend/Receive及硬件忙/完成查询，没有中间转发入口。
+AT32在其MCU实现中操作PTB/RX FIFO，STM32在其MCU实现中操作FDCAN消息RAM。
+两板初始化和接收中断也在各自can.c；初始化声明统一在bsp_internal.h，不暴露消息RAM全局指针。
+STM32保留生成的初始化和IRQ入口，HAL接收回调仅通知应用，收发不经过HAL包装。
+独立can_frame_codec.c/.h及旧STM32接口副本继续保持删除。
+协议CRC、地址、队列、重组及业务属于communication。
 
-Bsp_Init配置控制器；应用绑定端点后启动收发。公共代码确认启动后才开放接收事件。
-AT32保留PB8/PB9、原位时序、SSP、ISO FD、过滤器和4096拍配置读回。
-STM32保留原CubeMX/HAL初始化顺序。IRQ确认硬件事件后有界通知，协议接收预算保持。
+## 生命周期和收发
 
-TrySend/TrySendTracked/Receive/TakeTxCompletion/GetState/Recover统一返回BspResult，区分忙、未就绪、坏帧和硬件错误。
-失败读取保持输出。元数据支持合法标准/扩展、经典/FD组合，拒绝非法RTR/FD/BRS组合。
-板上过滤器和业务协议仍保持原EXT FD+BRS范围。
-终态区分成功、超时、取消、错误；已确认成功不被后续截止或bus-off覆盖。
-两板捕获接收溢出，先报告再消费幸存帧，不在IRQ无限排空。
-Recover受公共1秒节流，应用保留原调度。禁用构建返回NOT_SUPPORTED，不访问外设。
+Bsp_Init配置硬件，应用绑定端点后调用返回void的BspCan_Start。
+TrySend和Receive以bool表示硬件接受/忙和已取到帧/FIFO空，两板语义相同。
+length是字节数，ID是11位标准ID或29位扩展ID；发送者保证格式和DLC对应长度合法。
+BSP不加锁、不校验、不建立软件状态或票据、不处理超时/取消，也不自动恢复。
 
-## 验证
+两板均一次提交一帧。AT32使用PTB；STM32将TX设为FIFO模式，使用硬件写指针定位发送槽。
+初始化保留原位时序、引脚、ISO FD和扩展数据帧接收范围。
+RX通知由各MCU实现进入应用；AT32轮询台架不开接收中断。
 
-原生测试覆盖帧组合、DLC、票据、截止、迟到完成、成功后bus-off、溢出和恢复；协议/参数使用原黄金向量。
-AT32实测仅身份、健康、参数读取，检查坏CRC丢弃、有效请求恢复、连续收发和参数保持，不发送控制/写参数。
+## 发送完成
 
-## 快环抢占约束
+IsTransmitBusy直接读硬件挂起位；IsTransmitComplete只在最近一帧已成功发送且不忙时为true。
+STM32使用FIFO上一写入槽的TXBTO完成位，不保存软件句柄或完成队列。
+FIFO索引语义依据[ST FDCAN说明](https://www.st.com/content/st_com/en/technical-documents/an5348-introduction-to-fdcan-peripherals-for-stm32-mcus-stmicroelectronics_asset/chunk-002-topic-an5348-implementation-can-fd.html)。
 
-TrySend由唯一前台发送者串行调用，公共层拥有票据，但不以全局中断锁包围组帧、
-复制及硬件写入。后端负责实际控制器访问的互斥。AT32使用BASEPRI=优先级2隔离
-CAN错误/接收中断，ADC优先级0与载波优先级1保持可抢占；已有更严格屏蔽原样恢复。
-STM32保留HAL硬件调用的原短临界区，头部准备和接收解码在其外执行。
-接收仍只有目标选定的一位ISR/前台所有者；报文校验、溢出、100ms票据期限、
-完成身份及bus-off恢复语义不变。
+升级回复提交后，现有协议握手暂缓其它发送，实际完成后才推进交接。
+两板共用该流程，沿用业务层从排队到完成的100ms期限，不在BSP重建计时器。
+发送失败不会产生细分原因或自动恢复；上层CAN调用不再包含板型分支。
+
+## 当前验证状态
+
+按用户要求仅完成源码、文档与工程引用调整，未编译、未跑测试、未进行硬件验证。
+历史票据/保护测试仍需按新接口迁移，不代表当前实现通过。
+当前实现与回退副本见[CAN长度换算就地实现](../plans/active/2026-10-30-can-local-dlc-v1.md)。

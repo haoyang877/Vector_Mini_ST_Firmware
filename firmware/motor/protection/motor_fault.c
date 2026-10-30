@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <math.h>
 #include "motor_sensing.h"
-#include "board_config.h"
 #include "application_config.h"
 #include "control_math.h"
 
@@ -60,8 +59,7 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
     switch (error)
     {
     case MOTOR_FAULT_ENCODER:
-        return samples_fresh && Encoder_IsOnline(rotor_encoder) &&
-               Encoder_GetBadFrameStreak(rotor_encoder) == 0U;
+        return samples_fresh && Encoder_IsOnline(rotor_encoder);
     case MOTOR_FAULT_TEMPERATURE_SENSOR:
         return !BSP_REQUIRED_MCU_TEMPERATURE ||
                (temperature_fresh && isfinite(measurement->temperature_c));

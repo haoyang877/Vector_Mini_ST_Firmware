@@ -333,7 +333,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls />
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER</Define>
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U</Define>
               <Undefine />
               <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\config;..\..\..\firmware\config;..\..\..\firmware\platform\devices</IncludePath>
             </VariousControls>
@@ -415,71 +415,16 @@
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\can.c</FilePath>
             </File>
             <File>
-              <FileName>can_frame_codec.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\can_frame_codec.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_mt6835.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\devices\encoder_mt6835.c</FilePath>
-            </File>
-            <File>
               <FileName>encoder_spi.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\encoder_spi.c</FilePath>
-            </File>
-            <File>
-              <FileName>temperature.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\temperature.c</FilePath>
             </File>
             <File>
               <FileName>flash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\flash.c</FilePath>
             </File>
-            <File>
-              <FileName>bsp_adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_adc.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_led.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_led.c</FilePath>
-            </File>
-            <File>
-              <FileName>led.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\led.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_uart.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_uart.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_pwm.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_pwm.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_encoder.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_encoder.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_can.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\bsp\bsp_can.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_tle5012b.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\platform\devices\encoder_tle5012b.c</FilePath>
-            </File>
-          </Files>
+            </Files>
         </Group>
         <Group>
           <GroupName>Vendor CMSIS</GroupName>

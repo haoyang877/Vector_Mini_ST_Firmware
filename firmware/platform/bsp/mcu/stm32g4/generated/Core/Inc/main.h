@@ -57,8 +57,6 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define RGB_TIM_Pin GPIO_PIN_2
-#define RGB_TIM_GPIO_Port GPIOA
 #define ADC_TEMP_Pin GPIO_PIN_3
 #define ADC_TEMP_GPIO_Port GPIOA
 #define ADC_VBUS_Pin GPIO_PIN_4
@@ -83,10 +81,6 @@ void Error_Handler(void);
 #define PWM_BH_GPIO_Port GPIOA
 #define PWM_CH_Pin GPIO_PIN_10
 #define PWM_CH_GPIO_Port GPIOA
-#define LED_R_Pin GPIO_PIN_15
-#define LED_R_GPIO_Port GPIOA
-#define LED_G_Pin GPIO_PIN_10
-#define LED_G_GPIO_Port GPIOC
 #define EXT_ENC_CS_Pin GPIO_PIN_11
 #define EXT_ENC_CS_GPIO_Port GPIOC
 

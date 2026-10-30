@@ -13,9 +13,7 @@
 #include "motor_maintenance.h"
 #include "motor_command.h"
 #include "motor_sensing.h"
-#include "bsp_led.h"
 #include "application_config.h"
-#include "board_config.h"
 #include "motor_axis.h"
 #include "motor_thermal_control.h"
 #include "pi_controller.h"
@@ -39,14 +37,8 @@ static bool enable_owned_power(void)
         return false;
     }
 #endif
-    BspResult result = BspPwm_Enable();
-#if APP_PWM_WINDOWED
-    if (result != BSP_OK)
-    {
-        PwmPowerWindow_Stop();
-    }
-#endif
-    return result == BSP_OK;
+    BspPwm_Enable();
+    return true;
 }
 
 /* 普通自检仍为500ms；首次上电额外允许历史1秒零点采样，监督停摆不在此保证内。 */
@@ -166,8 +158,7 @@ static uint32_t read_self_test_measurements(void)
     {
         checks |= MOTOR_SELF_TEST_TEMPERATURE_VALID;
     }
-    if (Encoder_IsOnline(s_context.rotor_encoder) &&
-        Encoder_GetBadFrameStreak(s_context.rotor_encoder) == 0U)
+    if (Encoder_IsOnline(s_context.rotor_encoder))
     {
         checks |= MOTOR_SELF_TEST_ENCODER_VALID;
     }
@@ -1545,12 +1536,6 @@ void MotorStateMachine_CheckFastFaults(void)
     {
         MotorFault_Report(s_context.motor, MOTOR_FAULT_OVERVOLTAGE);
     }
-    if ((encoder_feedback_required(s_context.motor) || s_context.rules.state == MOTOR_STATE_IDLE) &&
-        Encoder_GetBadFrameStreak(s_context.rotor_encoder) >= ENCODER_BAD_FRAME_OFFLINE_COUNT)
-    {
-        MotorFault_Report(s_context.motor, MOTOR_FAULT_ENCODER);
-    }
-
     /* 检查实际输出和已受理控制，不依赖通信入口。 */
     if (!s_context.configuration->application.axis_profile_valid &&
         MotorStateMachine_OutputExpected())
@@ -1972,10 +1957,6 @@ void MotorStateMachine_CommitSupervisor(const MotorSupervisorStep *step)
         enable_prepared_control();
     }
     update_start_progress();
-    BspLed_SetCode(s_context.motor->fault_code != MOTOR_FAULT_NONE ? BSP_LED_FAULT : BSP_LED_MODE,
-                   (uint8_t)(s_context.motor->fault_code != MOTOR_FAULT_NONE
-                                 ? s_context.motor->fault_code
-                                 : (unsigned)s_context.motor->control_mode));
 }
 
 uint32_t MotorStateMachine_WorkEpoch(void)

@@ -104,87 +104,88 @@ BspResult BspCan_TakeCompletion(BspCanCompletion *out)
 
 static void request(uint32_t command, uint32_t nonce, uint32_t confirmation)
 {
-    g_r40_bench.command = command;
-    g_r40_bench.command_inverse = ~command;
-    g_r40_bench.nonce = nonce;
-    g_r40_bench.arguments[0] = confirmation;
+    g_at32_bench.command = command;
+    g_at32_bench.command_inverse = ~command;
+    g_at32_bench.nonce = nonce;
+    g_at32_bench.arguments[0] = confirmation;
 }
 
 int main(void)
 {
     memset(s_flash, 0xff, sizeof(s_flash));
-    assert(!R40_BenchPoll() && s_writes == 0U);
+    assert(!AT32_BenchPoll() && s_writes == 0U);
     request(2U, 1U, 0x53544f52U);
-    g_r40_bench.command_inverse = 0;
-    assert(!R40_BenchPoll() && s_writes == 0U);
+    g_at32_bench.command_inverse = 0;
+    assert(!AT32_BenchPoll() && s_writes == 0U);
     request(2U, 1U, 0);
-    assert(!R40_BenchPoll() && g_r40_bench.result == 4U && s_writes == 0U);
+    assert(!AT32_BenchPoll() && g_at32_bench.result == 4U && s_writes == 0U);
     request(1U, 2U, 0);
-    assert(!R40_BenchPoll() && g_r40_bench.result == 2U);
-    assert(g_r40_bench.values[0] == 4500U && g_r40_bench.values[1] == 1125U);
+    assert(!AT32_BenchPoll() && g_at32_bench.result == 2U);
+    assert(g_at32_bench.values[0] == 4500U && g_at32_bench.values[1] == 1125U);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
     request(2U, 3U, 0x53544f52U);
     s_flash[4000] = 0;
-    assert(R40_BenchPoll() && g_r40_bench.result == 3U && s_writes == 0U);
+    assert(AT32_BenchPoll() && g_at32_bench.result == 3U && s_writes == 0U);
     memset(s_flash, 0xff, sizeof(s_flash));
     request(2U, 4U, 0x53544f52U);
     fake_tmr1.running = fake_tmr6.running = true;
-    assert(R40_BenchPoll() && g_r40_bench.result == 2U && s_writes == 1U);
-    assert(!R40_BenchPoll() && s_writes == 1U);
+    assert(AT32_BenchPoll() && g_at32_bench.result == 2U && s_writes == 1U);
+    assert(!AT32_BenchPoll() && s_writes == 1U);
     /* 重启会清空镜像状态；验证仍仅取决于持久化Flash中的完整标记。 */
     s_nonce = 0;
     s_mask = 0;
     request(3U, 1U, 0x53544f52U);
-    assert(R40_BenchPoll() && g_r40_bench.result == 2U && s_writes == 2U);
+    assert(AT32_BenchPoll() && g_at32_bench.result == 2U && s_writes == 2U);
     assert(bytes_are(s_flash, sizeof(s_flash), 0xff));
     request(2U, 5U, 0x53544f52U);
     s_fail_write = true;
-    assert(R40_BenchPoll() && g_r40_bench.result == 3U && g_r40_bench.detail == 3U);
+    assert(AT32_BenchPoll() && g_at32_bench.result == 3U && g_at32_bench.detail == 3U);
     s_fail_write = false;
     request(1U, 6U, 0);
     fake_gpioa.idt = 1U << 9U;
-    assert(R40_BenchPoll() && g_r40_bench.result == 3U && g_r40_bench.detail == 4U);
+    assert(AT32_BenchPoll() && g_at32_bench.result == 3U && g_at32_bench.detail == 4U);
     fake_gpioa.idt = 0U;
-    g_r40_bench.command = 0;
-    BspCanFrame frame = {.identifier = R40_BENCH_CAN_REQUEST,
+    g_at32_bench.command = 0;
+    BspCanFrame frame = {.identifier = AT32_BENCH_CAN_REQUEST,
                          .length = 8U,
                          .extended = true,
                          .fd = true,
                          .bitrate_switch = true};
-    R40_BenchCanReceive(&frame);
+    AT32_BenchCanReceive(&frame);
     assert(!s_can_sent);
     memcpy(frame.data, "R40B1234", 8U);
-    R40_BenchCanReceive(&frame);
-    assert(s_can_sent && s_sent.identifier == R40_BENCH_CAN_RESPONSE && s_sent_ticket > UINT32_MAX);
-    assert(!R40_BenchPoll() && s_can_tx_ok == 1U);
+    AT32_BenchCanReceive(&frame);
+    assert(s_can_sent && s_sent.identifier == AT32_BENCH_CAN_RESPONSE &&
+           s_sent_ticket > UINT32_MAX);
+    assert(!AT32_BenchPoll() && s_can_tx_ok == 1U);
     AdcMotorTemperatureSample temp = {.sequence = 7,
                                       .raw_counts = 372,
                                       .status = ADC_MOTOR_TEMPERATURE_VALID,
                                       .resistance_ohm = 10000,
                                       .celsius = 25};
-    R40_BenchPublish(2, 20, 20, 0, 2000, 42, 40, 50, &temp);
-    assert(g_r40_snapshot.begin == g_r40_snapshot.end && (g_r40_snapshot.begin & 1U) == 0U);
-    assert(g_r40_snapshot.phase_c == 2 && g_r40_snapshot.ntc_raw == 372);
+    AT32_BenchPublish(2, 20, 20, 0, 2000, 42, 40, 50, &temp);
+    assert(g_at32_snapshot.begin == g_at32_snapshot.end && (g_at32_snapshot.begin & 1U) == 0U);
+    assert(g_at32_snapshot.phase_c == 2 && g_at32_snapshot.ntc_raw == 372);
     request(5U, 7U, 0U);
-    assert(!R40_BenchPoll() && g_r40_bench.result == 2U);
+    assert(!AT32_BenchPoll() && g_at32_bench.result == 2U);
     s_ms = 10U;
-    R40_BenchPublish(3, 40, 40, 0, 2000, 43, 40, 50, &temp);
-    assert(g_r40_snapshot.fast_samples == 20U);
+    AT32_BenchPublish(3, 40, 40, 0, 2000, 43, 40, 50, &temp);
+    assert(g_at32_snapshot.fast_samples == 20U);
     request(6U, 8U, 0U);
-    assert(!R40_BenchPoll());
-    R40_BenchPublish(3, 40, 40, 0, 2000, 43, 40, 50, &temp);
-    assert(g_r40_snapshot.fast_samples == 40U);
+    assert(!AT32_BenchPoll());
+    AT32_BenchPublish(3, 40, 40, 0, 2000, 43, 40, 50, &temp);
+    assert(g_at32_snapshot.fast_samples == 40U);
     uint32_t received_before = s_can_rx;
     request(7U, 9U, 0U);
-    assert(!R40_BenchPoll() && g_r40_bench.result == 2U && s_can_sent);
-    assert(s_sent.identifier == R40_BENCH_CAN_RESPONSE && s_sent.length == 8U);
+    assert(!AT32_BenchPoll() && g_at32_bench.result == 2U && s_can_sent);
+    assert(s_sent.identifier == AT32_BENCH_CAN_RESPONSE && s_sent.length == 8U);
     assert(s_sent.extended && s_sent.fd && s_sent.bitrate_switch && !s_sent.remote);
     assert(memcmp(s_sent.data, "R40BTX!!", 8U) == 0 && s_can_rx == received_before);
     assert(s_sent_ticket == ((2ULL << 32U) | 9U));
-    assert(!R40_BenchPoll() && s_can_tx_ok == 2U && outputs_disabled());
+    assert(!AT32_BenchPoll() && s_can_tx_ok == 2U && outputs_disabled());
     fake_gpioa.idt = 1U << 9U;
     request(7U, 10U, 0U);
-    assert(R40_BenchPoll() && g_r40_bench.result == 3U && !s_can_sent);
+    assert(AT32_BenchPoll() && g_at32_bench.result == 3U && !s_can_sent);
     puts("PASS bench: explicit commands only, PWM restoration, Flash guards/persistence "
          "restoration, CAN echo, coherent snapshot");
     return 0;

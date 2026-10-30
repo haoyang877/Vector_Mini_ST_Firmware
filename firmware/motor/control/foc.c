@@ -3,7 +3,6 @@
 #include <stdbool.h>
 
 #include "application_config.h"
-#include "fast_loop_profile.h"
 #include "control_math.h"
 #include "motor_thermal.h"
 #include "motor_fault.h"
@@ -276,16 +275,12 @@ bool Foc_Prepare(const MotorConfiguration *configuration,
         return false;
     }
     bool current_loop = law == FOC_CONTROL_CURRENT;
-    if (current_loop)
-    {
-        FAST_PROFILE_BEGIN(FAST_PROFILE_CURRENT);
-    }
     float limit_a = MotorThermal_ResolveLimit(
         configuration->application.current_limit_a, motor->thermal_current_limit_a, true);
     if (current_loop && !MotorThermal_LimitVector(limit_a, &d_reference, &q_reference))
     {
         MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
-        goto finish;
+        return false;
     }
 
     /* 实测abc -> alpha/beta -> 所选控制角度下的d/q；三路过流已在采样阶段检查。 */
@@ -299,7 +294,7 @@ bool Foc_Prepare(const MotorConfiguration *configuration,
                           !(foc->id_a * foc->id_a + foc->iq_a * foc->iq_a <= limit_a * limit_a)))
     {
         MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
-        goto finish;
+        return false;
     }
 
     /* 控制律只产生Vd/Vq，共用后续电压限幅、SVPWM和唯一PWM提交。 */
@@ -339,13 +334,6 @@ bool Foc_Prepare(const MotorConfiguration *configuration,
     Svm_SectorJudge(
         foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
     return true;
-
-finish:
-    if (current_loop)
-    {
-        FAST_PROFILE_END(FAST_PROFILE_CURRENT);
-    }
-    return false;
 }
 
 void Foc_Complete(FocState *foc, const MotorMeasurement *measurement, FocControlLaw law)
@@ -367,10 +355,6 @@ void Foc_Complete(FocState *foc, const MotorMeasurement *measurement, FocControl
             PiController_TrackOutput(&foc->iq_pi,
                                      foc->mod_q * measurement->bus_voltage_filtered_v / 1.5f);
         }
-    }
-    if (current_loop)
-    {
-        FAST_PROFILE_END(FAST_PROFILE_CURRENT);
     }
 }
 

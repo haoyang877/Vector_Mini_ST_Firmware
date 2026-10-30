@@ -491,9 +491,9 @@ def verify_custom_config(cc: list[str], out: Path) -> None:
     )
     (out / "custom_at32.h").write_text(
         '#include "at32f456.h"\n'
-        "#undef R40_PHASE_SHUNT_MILLIOHM\n#define R40_PHASE_SHUNT_MILLIOHM 5U\n"
-        "#undef R40_ADC_RESOLUTION_BITS\n#define R40_ADC_RESOLUTION_BITS 10U\n"
-        "#undef R40_CURRENT_GAIN\n#define R40_CURRENT_GAIN 10.0f\n",
+        "#undef AT32_PHASE_SHUNT_MILLIOHM\n#define AT32_PHASE_SHUNT_MILLIOHM 5U\n"
+        "#undef AT32_ADC_RESOLUTION_BITS\n#define AT32_ADC_RESOLUTION_BITS 10U\n"
+        "#undef AT32_CURRENT_GAIN\n#define AT32_CURRENT_GAIN 10.0f\n",
         encoding="utf-8",
     )
     (out / "invalid_motor.h").write_text(
@@ -502,8 +502,8 @@ def verify_custom_config(cc: list[str], out: Path) -> None:
         encoding="utf-8",
     )
     (out / "invalid_at32.h").write_text(
-        '#include "at32f456.h"\n#undef R40_ADC_RESOLUTION_BITS\n'
-        "#define R40_ADC_RESOLUTION_BITS 32U\n",
+        '#include "at32f456.h"\n#undef AT32_ADC_RESOLUTION_BITS\n'
+        "#define AT32_ADC_RESOLUTION_BITS 32U\n",
         encoding="utf-8",
     )
     (out / "invalid_capability.h").write_text(
@@ -512,14 +512,14 @@ def verify_custom_config(cc: list[str], out: Path) -> None:
     )
     (out / "invalid_clock.h").write_text(
         '#include "at32f456.h"\n'
-        "#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 8100000U\n"
-        "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 40U\n",
+        "#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 8100000U\n"
+        "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 40U\n",
         encoding="utf-8",
     )
     (out / "invalid_fast_clock.h").write_text(
         '#include "at32f456.h"\n'
-        "#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 10000000U\n"
-        "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 80U\n",
+        "#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 10000000U\n"
+        "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 80U\n",
         encoding="utf-8",
     )
     targets = out / "targets"
@@ -547,18 +547,18 @@ def verify_custom_config(cc: list[str], out: Path) -> None:
     # PLL /4 与 MCU 初始化一致；不同晶振、倍频和分频的时钟由同一组输入计算。
     (out / "custom_clock.h").write_text(
         '#include "at32f456.h"\n'
-        "#undef R40_HEXT_HZ\n#define R40_HEXT_HZ 16000000U\n"
-        "#undef R40_PLL_MULTIPLIER\n#define R40_PLL_MULTIPLIER 60U\n"
-        "#undef R40_PLL_PRE_DIVIDER\n#define R40_PLL_PRE_DIVIDER 3U\n",
+        "#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 16000000U\n"
+        "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 60U\n"
+        "#undef AT32_PLL_PRE_DIVIDER\n#define AT32_PLL_PRE_DIVIDER 3U\n",
         encoding="utf-8",
     )
     clock_test = out / "custom_clock_test.c"
     clock_test.write_text(
         '#include "board_config.h"\n#include "application_config.h"\n'
-        "_Static_assert(R40_CORE_HZ == 80000000U && R40_TIMER_HZ == 80000000U && "
-        'R40_CAN_HZ == 80000000U, "clock derivation failed");\n'
-        "_Static_assert(R40_CAN_NOMINAL_SEG1 == 60U && R40_CAN_NOMINAL_SEG2 == 20U && "
-        'R40_CAN_DATA_SEG1 == 12U && R40_CAN_DATA_SEG2 == 4U, "CAN timing failed");\n'
+        "_Static_assert(AT32_CORE_HZ == 80000000U && AT32_TIMER_HZ == 80000000U && "
+        'AT32_CAN_HZ == 80000000U, "clock derivation failed");\n'
+        "_Static_assert(AT32_CAN_NOMINAL_SEG1 == 60U && AT32_CAN_NOMINAL_SEG2 == 20U && "
+        'AT32_CAN_DATA_SEG1 == 12U && AT32_CAN_DATA_SEG2 == 4U, "CAN timing failed");\n'
         '_Static_assert(APP_FAST_MAX_CYCLES == 4000U, "fast-loop deadline failed");\n'
         "int main(void) { return 0; }\n",
         encoding="utf-8",

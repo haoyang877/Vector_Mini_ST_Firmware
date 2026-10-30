@@ -26,10 +26,7 @@ void Foc_Step(const MotorConfiguration *configuration,
     {
         return;
     }
-    if (BspPwm_SetDuty(foc->duty_a, foc->duty_b, foc->duty_c) != BSP_OK)
-    {
-        MotorFault_Report(motor, MOTOR_FAULT_CONTROL_OVERRUN);
-    }
+    BspPwm_SetDuty(foc->duty_a, foc->duty_b, foc->duty_c);
     Foc_Complete(foc, measurement, law);
 }
 

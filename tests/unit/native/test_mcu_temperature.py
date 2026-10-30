@@ -204,7 +204,7 @@ int main(void) {
             "r40_optional",
             [
                 "-DFOC_ACTIVE_HW_PROFILE=2",
-                "-DR40_APP_PHASE_LOCK=1",
+                "-DAT32_APP_PHASE_LOCK=1",
                 "-DBSP_PWM_HARD_LOCK=1",
                 "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
             ],
@@ -213,8 +213,8 @@ int main(void) {
             "r40_bounded_optional",
             [
                 "-DFOC_ACTIVE_HW_PROFILE=2",
-                "-DR40_APP_PHASE_LOCK=0",
-                "-DR40_APP_BOUNDED_TEST=1",
+                "-DAT32_APP_PHASE_LOCK=0",
+                "-DAT32_APP_BOUNDED_TEST=1",
                 "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
             ],
         ),
@@ -238,8 +238,8 @@ int main(void) {
     policy_header = out / "policy_header.c"
     policy_header.write_text('#include "application_config.h"\n', encoding="utf-8")
     for flags in (
-        ["-DAPP_TARGET_R40_F456=1", "-DBSP_REQUIRED_MCU_TEMPERATURE=0"],
-        ["-DBSP_REQUIRED_MCU_TEMPERATURE=2", "-DR40_APP_PHASE_LOCK=1"],
+        ["-DAPP_TARGET_AT32_F456=1", "-DBSP_REQUIRED_MCU_TEMPERATURE=0"],
+        ["-DBSP_REQUIRED_MCU_TEMPERATURE=2", "-DAT32_APP_PHASE_LOCK=1"],
     ):
         rejected = subprocess.run(
             compiler

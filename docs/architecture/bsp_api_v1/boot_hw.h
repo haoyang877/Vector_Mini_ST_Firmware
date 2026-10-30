@@ -15,13 +15,6 @@ extern "C"
 #endif
 
     /**
-     * @brief 启动最早期识别APP槽布局并设置VTOR。
-     * @return 链接于Loader APP槽为true；独立APP或无Loader支持为false。
-     * @note HAL_Init及开中断前调用一次；不读取持久记录，不授权电机使能。
-     */
-    bool BootHw_Init(void);
-
-    /**
      * @brief 写RAM ENTER邮箱并复位进入Loader。
      * @param node 当前合法节点，0..254。
      * @return 未由Loader启动、节点非法或邮箱失败为false；成功复位不返回。
@@ -61,7 +54,7 @@ extern "C"
 
     /**
      * @brief 查询本次启动是否已完成有效的Loader APP交接。
-     * @return BootHw_Init成功建立交接后为true；未初始化、独立APP或不支持为false。
+     * @return 启动阶段成功建立交接后为true；未初始化、独立APP或不支持为false。
      * @note 前台有界只读，不写VTOR/邮箱/Flash，不重置试运行时限，不授权运动。
      */
     bool BootHw_IsAvailable(void);

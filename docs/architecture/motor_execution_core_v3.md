@@ -7,6 +7,11 @@
 主状态机批准模式和目标，MotorAxis调度，motor层的motor_control执行一拍控制。
 控制任务不自行启相、不切换主状态、不写Flash；错误由所有者处理。
 
+磁链观测器接口只借用电机模型和αβ电流/电压物理值，不读取整份配置、测量对象或FOC状态。
+MotorAxis在观测器调用前完成本拍电流的Clarke变换，并以原式
+`上一拍mod_alpha/beta × 本拍滤波Vdc / 1.5`提供αβ电压；更新频率与位置模式跳过条件不变。
+观测器不再回写FOC或重复换算母线电压。
+
 | 源码 | 核心工作 |
 | --- | --- |
 | [motor_command.c](../../firmware/app/runtime/motor_command.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |

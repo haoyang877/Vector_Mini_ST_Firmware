@@ -17,11 +17,6 @@ const SensorlessStartupConfig SensorlessStartup_EncoderCalibConfig = {
     .align_hold_time_s = SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
 };
 
-void Clarke_Transform(float a, float b, float c, float *alpha, float *beta)
-{
-    *alpha = a;
-    *beta = (b - c) * 0.5773502692f;
-}
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
 {
     motor->fault_code = fault;
@@ -119,25 +114,27 @@ static void check_finite(void)
 
 static void check_observer(void)
 {
-    FocState foc = {0};
-    MotorMeasurement measurement = {0};
-    MotorConfiguration configuration = {0};
+    MotorModelConfig model = {0};
     FluxObserverState observer = {0};
-    configuration.model.motor_phase_resistance_ohm = 0.2f;
-    configuration.model.motor_d_inductance_h = 0.0002f;
-    configuration.model.motor_q_inductance_h = 0.0003f;
-    configuration.model.motor_flux_wb = 0.015f;
-    measurement.bus_voltage_filtered_v = 33.0f;
+    model.motor_phase_resistance_ohm = 0.2f;
+    model.motor_d_inductance_h = 0.0002f;
+    model.motor_q_inductance_h = 0.0003f;
+    model.motor_flux_wb = 0.015f;
     FluxObserver_Init(&observer);
     for (unsigned i = 0U; i < 8192U; ++i)
     {
         float phase = (float)i * 0.017f;
-        measurement.phase_a_current_a = 0.1f * sinf(phase);
-        measurement.phase_b_current_a = 0.1f * sinf(phase - 2.0943951f);
-        measurement.phase_c_current_a = 0.1f * sinf(phase + 2.0943951f);
-        foc.mod_alpha = 0.01f * cosf(phase);
-        foc.mod_beta = 0.01f * sinf(phase);
-        FluxObserver_Update(&configuration, &foc, &measurement, &observer);
+        float current_alpha_a = 0.1f * sinf(phase);
+        float current_beta_a =
+            (0.1f * sinf(phase - 2.0943951f) - 0.1f * sinf(phase + 2.0943951f)) * 0.5773502692f;
+        float voltage_alpha_v = 0.01f * cosf(phase) * (33.0f / 1.5f);
+        float voltage_beta_v = 0.01f * sinf(phase) * (33.0f / 1.5f);
+        FluxObserver_Update(
+            &model, current_alpha_a, current_beta_a, voltage_alpha_v, voltage_beta_v, &observer);
+        assert(observer.current_alpha_a == current_alpha_a);
+        assert(observer.current_beta_a == current_beta_a);
+        assert(observer.voltage_alpha_v == voltage_alpha_v);
+        assert(observer.voltage_beta_v == voltage_beta_v);
         float reference = Math_NormalizeAngle(Math_Atan2(observer.sin, observer.cos));
         assert(memcmp(&reference, &observer.electrical_angle_rad, sizeof(reference)) == 0);
         assert(isfinite(observer.electrical_velocity_rad_s));
@@ -146,8 +143,8 @@ static void check_observer(void)
     for (unsigned i = 0U; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
     {
         uint32_t epoch = observer.position_epoch;
-        configuration.model.motor_flux_wb = invalid[i];
-        FluxObserver_Update(&configuration, &foc, &measurement, &observer);
+        model.motor_flux_wb = invalid[i];
+        FluxObserver_Update(&model, 0.0f, 0.0f, 0.0f, 0.0f, &observer);
         assert(observer.position_epoch == epoch + 1U);
         assert(observer.electrical_angle_rad == 0.0f && observer.x1_last == 0.0f);
     }

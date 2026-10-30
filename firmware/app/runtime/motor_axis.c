@@ -232,8 +232,19 @@ void MotorAxis_FastTick(void)
     if (s_current_offset_calibration.complete &&
         s_motor_state.control_mode != MOTOR_CONTROL_POSITION)
     {
-        FluxObserver_Update(
-            &s_motor_configuration, &s_foc_state, &s_motor_measurement, &s_flux_observer);
+        /* 本拍电流配上一拍调制量；观测器只接收αβ物理量。 */
+        Clarke_Transform(s_motor_measurement.phase_a_current_a,
+                         s_motor_measurement.phase_b_current_a,
+                         s_motor_measurement.phase_c_current_a,
+                         &s_foc_state.current_alpha_a,
+                         &s_foc_state.current_beta_a);
+        float modulation_to_voltage_v = s_motor_measurement.bus_voltage_filtered_v / 1.5f;
+        FluxObserver_Update(&s_motor_configuration.model,
+                            s_foc_state.current_alpha_a,
+                            s_foc_state.current_beta_a,
+                            s_foc_state.mod_alpha * modulation_to_voltage_v,
+                            s_foc_state.mod_beta * modulation_to_voltage_v,
+                            &s_flux_observer);
     }
 
     /* SAVE可能暂停采样，重建测速以免将停顿中的位移按50us换算。 */

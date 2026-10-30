@@ -224,12 +224,19 @@ void MotorVoltage_Update(MotorMeasurement *measurement, const BspAdcFastSample *
     measurement->bus_voltage_v = measurement->bus_voltage_filtered_v =
         sample != NULL ? sample->bus_voltage_v : NAN;
 }
-void FluxObserver_Update(const MotorConfiguration *configuration,
-                         FocState *foc,
-                         const MotorMeasurement *measurement,
+void FluxObserver_Update(const MotorModelConfig *model,
+                         float current_alpha_a,
+                         float current_beta_a,
+                         float voltage_alpha_v,
+                         float voltage_beta_v,
                          FluxObserverState *observer)
 {
-    (void)measurement;
+    (void)model;
+    (void)current_alpha_a;
+    (void)current_beta_a;
+    (void)voltage_alpha_v;
+    (void)voltage_beta_v;
+    (void)observer;
     record_fast_call('O');
     ++observer_calls;
 }

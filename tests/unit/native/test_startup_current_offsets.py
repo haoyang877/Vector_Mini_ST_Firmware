@@ -41,6 +41,7 @@ def main() -> None:
         "Foc_ConfigureControllers",
         "Foc_UpdateCurrentLimits",
         "Foc_ResetCurrent",
+        "Clarke_Transform",
     ):
         production += function_source(algorithm, name)
     transaction = (ROOT / "firmware/app/runtime/motor_parameter_transaction.c").read_text(

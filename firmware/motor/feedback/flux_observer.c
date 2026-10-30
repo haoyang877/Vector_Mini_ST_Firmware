@@ -1,7 +1,6 @@
 #include "flux_observer.h"
 
 #include <float.h>
-#include <math.h>
 #include <string.h>
 
 #include "application_config.h"
@@ -57,22 +56,23 @@ void FluxObserver_Init(FluxObserverState *flux_observer)
 
 /**
  * @brief  执行一次磁链观测器更新。
- * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
- * @param  foc foc 状态指针。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
- * @param  flux_observer 观测器状态指针。
+ * @param model 本次调用期间保持稳定的只读电机模型。
+ * @param current_alpha_a 本拍α轴电流，单位A。
+ * @param current_beta_a 本拍β轴电流，单位A。
+ * @param voltage_alpha_v 本拍对应的α轴实际电压，单位V。
+ * @param voltage_beta_v 本拍对应的β轴实际电压，单位V。
+ * @param flux_observer 调用方持有的观测器状态。
  */
-void FluxObserver_Update(const MotorConfiguration *configuration,
-                         FocState *foc,
-                         const MotorMeasurement *measurement,
+void FluxObserver_Update(const MotorModelConfig *model,
+                         float current_alpha_a,
+                         float current_beta_a,
+                         float voltage_alpha_v,
+                         float voltage_beta_v,
                          FluxObserverState *flux_observer)
 {
-    float mod_to_V = measurement->bus_voltage_filtered_v / 1.5f;
-    float Rs = configuration->model.motor_phase_resistance_ohm;
-    float Ls =
-        (configuration->model.motor_d_inductance_h + configuration->model.motor_q_inductance_h) *
-        0.5f;
-    float flux = configuration->model.motor_flux_wb;
+    float Rs = model->motor_phase_resistance_ohm;
+    float Ls = (model->motor_d_inductance_h + model->motor_q_inductance_h) * 0.5f;
+    float flux = model->motor_flux_wb;
     float flux_sq;
     float gamma_limit;
     float gamma;
@@ -87,24 +87,18 @@ void FluxObserver_Update(const MotorConfiguration *configuration,
 
     if (!fluxobserver_is_finite(flux_observer->x1_last) ||
         !fluxobserver_is_finite(flux_observer->x2_last))
+    {
         fluxobserver_reset_state(flux_observer);
+    }
 
     flux_sq = flux * flux;
     gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (FOC_TS_S * flux_sq);
     gamma = flux_observer->gamma < gamma_limit ? flux_observer->gamma : gamma_limit;
 
-    /*Use phase currents sampled in the current ADC interrupt.*/
-    Clarke_Transform(measurement->phase_a_current_a,
-                     measurement->phase_b_current_a,
-                     measurement->phase_c_current_a,
-                     &foc->current_alpha_a,
-                     &foc->current_beta_a);
-
-    /*update input parameters*/
-    flux_observer->current_alpha_a = foc->current_alpha_a;
-    flux_observer->current_beta_a = foc->current_beta_a;
-    flux_observer->voltage_alpha_v = foc->mod_alpha * mod_to_V;
-    flux_observer->voltage_beta_v = foc->mod_beta * mod_to_V;
+    flux_observer->current_alpha_a = current_alpha_a;
+    flux_observer->current_beta_a = current_beta_a;
+    flux_observer->voltage_alpha_v = voltage_alpha_v;
+    flux_observer->voltage_beta_v = voltage_beta_v;
 
     /*flux observer*/
     flux_observer->y1_last = -Rs * flux_observer->current_alpha_a + flux_observer->voltage_alpha_v;
@@ -156,9 +150,13 @@ void FluxObserver_Update(const MotorConfiguration *configuration,
     flux_observer->previous_electrical_angle_rad = flux_observer->electrical_angle_rad;
 
     if (delta_theta < -4.0f)
+    {
         delta_theta += _2PI;
+    }
     else if (delta_theta > 4.0f)
+    {
         delta_theta -= _2PI;
+    }
 
     flux_observer->electrical_position_rad += delta_theta;
     UTILS_LP_FAST(flux_observer->electrical_velocity_rad_s, delta_theta / FOC_TS_S, 0.1f);

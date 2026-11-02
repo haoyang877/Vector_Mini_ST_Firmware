@@ -328,9 +328,12 @@ bool Foc_Prepare(const MotorConfiguration *configuration,
         foc->mod_d = foc->mod_q = foc->duty = 0.0f;
     }
 
-    /* 电压矢量已限幅：逆Park包含原一拍角度预测，SVPWM之后只提交一次。 */
-    Park_Inverse(
-        foc->mod_d, foc->mod_q, phase + phase_vel * FOC_TS_S, &foc->mod_alpha, &foc->mod_beta);
+    /* 电压矢量已限幅：逆Park按1.5个控制周期预测角度，SVPWM之后只提交一次。 */
+    Park_Inverse(foc->mod_d,
+                 foc->mod_q,
+                 phase + phase_vel * (1.5f * FOC_TS_S),
+                 &foc->mod_alpha,
+                 &foc->mod_beta);
     Svm_SectorJudge(
         foc->mod_alpha, foc->mod_beta, &foc->duty_a, &foc->duty_b, &foc->duty_c, &foc->sector);
     return true;

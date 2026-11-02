@@ -127,7 +127,7 @@ typedef enum
  * @param motor 电流保护额度和故障对象。
  * @param law d/q电流闭环、Id闭环加Vq给定或纯电压给定。
  * @param phase 本拍控制电角度，rad。
- * @param phase_vel 电角速度，rad/s，用于原一拍输出角度预测。
+ * @param phase_vel 电角速度，rad/s，用于1.5个控制周期的输出角度预测。
  * @param d_reference 电流律/Id律为A，纯电压律为V。
  * @param q_reference 电流律为A，其余为V。
  * @note 仅快速环；调用方先完成采样、过流/过压和输出准入；本函数不启相。

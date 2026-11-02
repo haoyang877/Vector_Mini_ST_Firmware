@@ -38,6 +38,11 @@ def main() -> None:
     # 退役的诊断钩子从冻结参考投影中一并移除，不改算术与控制分支。
     foc = foc.replace('#include "fast_loop_profile.h"', "")
     foc = re.sub(r"(?m)^\s*FAST_PROFILE_(?:BEGIN|END)\([^\n]*\);\n", "", foc)
+    # 唯一有意改变的控制行为：输出角度由1Ts提前改为1.5Ts；其余冻结参考不变。
+    advance = "phase + phase_vel * Current_Ts"
+    if foc.count(advance) != 2:
+        raise ValueError("冻结参考的两个输出角度预测位置发生变化")
+    foc = foc.replace(advance, "phase + phase_vel * (1.5f * Current_Ts)")
     pi = frozen("firmware/motor/foc/foc_pid.c")
     foc = foc.replace('"foc_algorithm.h"', '"foc.h"').replace('"foc_pid.h"', '"pi_controller.h"')
     pi = pi.replace('"foc_pid.h"', '"pi_controller.h"')

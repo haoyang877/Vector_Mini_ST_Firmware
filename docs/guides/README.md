@@ -15,7 +15,7 @@
 | 独立CAN地址 | [节点ID](motor_can_node_ids.md) |
 | SI单位及线路缩放 | [模型单位](motor_model_units.md) |
 | ADC过采样与计数口径 | [4×采样](current_oversampling.md) |
-| 电流PI目标、参数装载与电压反馈 | [1.2kHz电流环整定](current_loop_tuning_v1.md) |
+| 控制模型、延迟辨识、PI推导、扫频与阶跃结果 | [电流环整定全过程](current_loop_tuning_v1.md) |
 | 母线门限与硬件限制 | [8S保护](bus_voltage_8s.md) |
 | MCU温度来源与失效处理 | [温度检测](mcu_temperature.md) |
 | 调试只读符号、单位与枚举 | [Watch观测](watch_motor_commands.md) |

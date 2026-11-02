@@ -1,124 +1,62 @@
 # 代码框架与目录职责
 
-更新：2026-10-26。此页描述当前目录，不用历史报告代替当前实现和验证结果。
-产品依赖规则见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
-对照Keil阅读每个源文件时，使用[APP文件职责与分层对照](app_file_responsibilities_v1.md)：
-按当前七组说明主要源文件、对应头文件、物理路径与独立配置头。
+更新：2026-10-30。当前运行链路见[软件架构](software_architecture.md)，
+工程约束见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
-## 独立产品与共享契约
+## 产品边界
 
 | 目录 | 职责 |
 | --- | --- |
-| [firmware](../../firmware/README.md) | 电机驱动 APP，负责控制、运行管理、通信业务与硬件适配 |
-| [loader](../../loader/README.md) | 独立升级与启动产品，不把核心实现链接进 APP |
-| [host_app](../../host_app/README.md) | 独立主机应用边界，外部主机项目不复制进 APP |
-| [shared](../../shared/README.md) | APP/Loader 真正共用的协议 codec、CRC、镜像、启动邮箱和目标契约 |
-| tests / tools | 离线夹具、构建与实机工具；硬件操作不进入默认验证 |
-| outputs | 忽略的生成产物和证据，旧记录不能作为本轮 PASS |
+| [firmware](../../firmware/README.md) | 两板共用单轴电机 APP |
+| [loader](../../loader/README.md) | 独立的升级和启动产品 |
+| [host_app](../../host_app/README.md) | 独立主机应用 |
+| [shared](../../shared/README.md) | 真实跨产品共用的协议、CRC、镜像与启动契约 |
+| projects | 板级 main、启动汇编、Keil/scatter 和 CubeMX 输入 |
+| tests / tools | 离线验证、构建和显式硬件台架工具 |
+| outputs | 忽略的生成产物与证据，不作为源码或当前验收结论 |
 
-## APP 实际文件归属
+## 固件文件归属
 
-| 目录 | 内容与边界 |
+| 路径 | 责任 |
 | --- | --- |
-| app/composition | app.h：应用入口；app_startup：App_Init初始化和App_Process后台编排，Loader交接为私有实现；app_tasks：App_FastTick和App_SupervisorTick；yg_protocol_*_adapter：业务所有者与协议之间的组装 |
-| app/runtime | motor_axis：唯一电机对象组装及调度；motor_parameter_transaction：请求去重、修订及保存事务；motor_command：命令格式与范围校验；motor_maintenance：维护协调；maintenance_workspace：唯一固定维护工作区 |
-| app/interfaces | motor_control_command、motor_lifecycle_request、motor_readiness：窄值契约；motor_stop_request：停机请求与真实关闭确认；motor_status_mailbox：只读快照传递；不引用runtime或私有状态机 |
-| app/motor_state_machine | 唯一主状态所有者、实际动作与内部转换规则；内部头不作为其他模块接口 |
-| motor根目录 | 活动配置、运行类型、控制模式和任务结果等共享值契约 |
-| config | 板卡、电机、应用、目标输入与派生表达式；运行时参数由parameters装配 |
-| motor/control | 控制分发、位置/速度外环、PI、FOC及无感启动 |
-| motor/sensing | 上电零偏、相电流、母线电压和温度测量 |
-| motor/feedback | 编码器标定数据、反馈和磁链观测 |
-| motor/calibration | 编码器标定任务与计算核心 |
-| motor/protection | 电机故障与绕组热保护 |
-| motor/math | 数学、角度与滤波计算 |
-| parameters | parameter_record：schema14装载/导出；parameter_values：标量类型/权限/范围及缩放；motor_axis_profile：轴记录；不拥有通信节点变量 |
-| communication/can | CAN 接入、队列、中断接入、链路及端点调度 |
-| communication/telemetry | 按目标选择的2kHz只读RTT波形，控制输入只读，不含电机命令 |
-| communication/commands | APP 业务 Type 的解析、回复与服务适配；纯帧 codec 归 shared/protocol |
-| platform/bsp/include | 唯一公共硬件契约，保持单位、失败和执行上下文 |
-| config/config.h | 板型编号和电机默认值；板型由工程BSP_BOARD宏提供 |
-| config/board_config.h | 板卡资源与硬件校验 |
-| config/motor_profile_config.h | 电机型号、物理输入与型号校验 |
-| platform/bsp/mcu/stm32g4 | STM32外设后端及私有生成Core，原厂Drivers在SDK目录 |
-| platform/bsp/mcu/at32f456 | AT32外设后端、DMA/SPI物理事务及存储协调 |
-| platform/bsp根目录 | 两板共用的采样/PWM/编码器/CAN流程及软件状态；器件协议在devices，必要私有声明在bsp_internal.h |
-| platform/sdk | 厂商原目录，逐文件保持；不统一为同样的目录格式 |
-| config/application_config.h | 应用、控制、软件保护、配置派生与完整应用检查 |
-| projects | 完整APP目标装配、Keil工程、启动汇编、scatter和CubeMX元数据 |
-| tests/bench/at32f456 | 五个独立外设/电机台架的源代码 |
+| app/composition/app.c | 应用启动、前台服务、快慢调度、看门狗和 Loader 交接 |
+| app/composition/app_protocol.c | 服务绑定、协议与领域请求映射、最小状态刷新 |
+| app/runtime/motor_axis.c | 单份配置、运行对象、采样/控制/标定调度和候选发布 |
+| app/runtime/motor_lifecycle.c | 状态、启停、三类标定、会话代际、故障和功率许可 |
+| app/motor_state_machine | 五态纯迁移函数；不持有上下文或操作硬件 |
+| app/interfaces | 状态值类型和实际关相确认契约 |
+| motor/control | 位置/速度外环、控制模式、PI、FOC 与无感启动 |
+| motor/sensing | 电流零偏、物理量读取、母线滤波和 MCU 温度 |
+| motor/feedback | 编码器方向/LUT/零位、位置速度估计和磁链观测 |
+| motor/calibration | 单一实现文件内的LUT/电零位任务与私有计算，公共头只暴露任务入口 |
+| motor/protection | 故障发布与恢复；保留热模型，当前 APP 不调度 |
+| motor/math | 有实际调用的确定性数学函数和坐标类型 |
+| parameters | 默认值、值校验、轴记录与 schema14 转换 |
+| communication/can | CAN FD 队列、链路、端点、分片和前台路由 |
+| communication/commands | 线上字段校验、服务调用和回复编码 |
+| communication/telemetry | 保留的只读 RTT 编码；当前 APP 无调度调用 |
+| config | config.h、board_config.h、motor_profile_config.h、application_config.h |
+| platform/bsp/include | 八个公共功能头，只使用项目自有类型 |
+| platform/bsp/bsp_internal.h | 初始化、采样启停和台架专用声明 |
+| platform/bsp/mcu/{stm32g4,at32f456} | 对应 MCU 的初始化、硬件读写、换算和 IRQ |
+| platform/bsp/mcu/stm32g4/generated | CubeMX 生成区，手改限 USER CODE |
+| platform/sdk / third_party | 厂商和第三方源码，不重排或格式化 |
 
-源码与对应头文件按职责相邻，跨模块共享值契约放在motor根目录。目录按职责分组，不为单个函数新建目录，不创建空的未来配置目录。
-数据流和所有权见 [APP 命名与所有权](software_architecture.md)、
-[主状态机契约](motor_state_machine_v1.md)。
+BSP 根目录没有公共转发源文件，也没有独立 devices 层。
+两板通过同一组 BSP 接口调用各自实现，硬件资源映射只供对应 MCU 使用。
+文件与同职责头文件相邻；不为未来功能创建空目录或注册框架。
 
-各模块核心输入、结果、状态所有者和实际删减见[模块核心职责](module_core_responsibilities.md)。
+## 数据和执行
 
-## 参数与运行状态
+MotorAxis 持有 MotorConfiguration、MotorControlState、FocState、编码器及观测器。
+配置分 model/application/device；LUT 和零位只存一份，位于 device.encoder。
+FocState 直接持有电流、电压、温度及控制量，测量没有第二份所有者。
+生命周期上下文 s_context 在 motor_lifecycle.c；状态机文件只有纯函数。
 
-板卡由工程编译宏BSP_BOARD选择，电机默认值归 `config/config.h`，板卡输入归 `config/board_config.h`，电机输入归 `config/motor_profile_config.h`，应用和派生参数归 `config/application_config.h`；
-实现归属见[双板对应表](platform_interface_implementations_v1.md)。
-电机、应用及设备默认输入归config，运行时默认值装配归parameters。
-MotorAxis 独立持有 `MotorConfiguration`（model/application/device）和 `MotorControlState`。
-设备配置内的 `EncoderCalibration` 单份保存LUT/零位；`EncoderState`只含采样、位置/速度和诊断。
-运行对象不包含配置或配置指针，命令目标、模式、故障与测量留在易失状态中。
-算法接收const配置视图与可写运行对象，参数事务和校准提交通过明确入口修改配置。
-零偏观测实例仍由Axis持有，motor_sensing只通过显式参数累计；窗口满后由Axis监督任务发布零偏并增加修订，下一快拍换算电流。
-runtime不解析ADC计数、不实现位置/速度外环或热模型，仍通过平台能力查询时间及真实关相事实。
-按用户的 Watch 观测要求，MotorAxis 运行对象与主状态机上下文使用非静态全局符号；
-定义和运行写入仍集中在所属模块，其他模块通过既有命令、快照和显式对象参数交互。
-保留既有 s_ 名称属于本次调试兼容例外，详见[全局观测对象决策](../archive/plans/2026-09-29-watch-global-objects-v1.md)。
-schema14保持现有存储布局，由装载/导出边界映射，不能当作控制对象使用；旧版本不受支持。
-参数所有者给启动组合层传节点值，通信不再作为参数节点的存储所有者。
-参数记录和编码器标定复用一份 6 KiB 固定联合工作区，APP 管理占用与归还。
-编码器任务显式借用采样对象；LUT验证和停转后返回FINALIZE，仍保留候选工作区。
-主状态机确认关相后由Axis后台复核会话、STOP和故障，原子发布正式LUT及角度元数据。
-发布成功或取消才清除借用；实际归还后APP才允许独立SAVE复用工作区。
-没有 heap 分配器、空闲链表或三份常驻大数组。
-具体读写规则与持久层尚未拆开的兼容限制见[参数所有权](parameter_ownership_v1.md)。
+ADC 快环 20 kHz，监督 2 kHz；前台处理协议与 LUT 发布。
+启动零偏在关相 IDLE 累计 2048 拍，成功后一次发布，不产生参数修订号。
+编码器标定使用独占的 6144 字节静态工作区，记录装载使用另外的启动静态缓冲。
+没有堆分配，也没有在线保存任务与工作区复用协议。
 
-## 工程与工具接线
-
-双板完整APP共享APP/Motor/Parameters/Communication实现，按功能使能选择母线电流和诊断模块，
-通过相同BSP功能接口装配。板卡由各工程BSP_BOARD宏选择，电机默认值集中于 `firmware/config/config.h`，板级资源集中于
-`firmware/config/board_config.h`，电机物理模型集中于 `firmware/config/motor_profile_config.h`；控制、保护和派生表达式集中于
-`firmware/config/application_config.h`。两套正式工程分别构建STM32 APP和AT32 Off策略APP（PWM驱动已无永久锁）；切换工程即可选择板卡，无需修改公共源码；电机默认值可由工程覆盖。
-AT32 正式工程固定关相，未确认的电机热数据不作为有效默认值。
-具体迁移、对照及未验收项见[双板配置收敛计划](../plans/active/2026-10-24-dual-board-config-v1.md)。
-
-统一管理入口为仓库根目录`YG-ESC.uvmpw`，仅引用旧板APP及新板Off/Commissioning工程。
-三个子工程独立构建，公共代码保持引用同一份；默认活动工程为新板Off，初始不勾选批量构建。
-使用方法见[Keil工作区](../guides/keil_workspace.md)。
-旧板主工程为 projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx。
-Loader 配套 APP 为同目录 ESC-APP-STM32G431-LoaderApp.uvprojx；两者复用同一业务源码。
-两板各自`projects/<board>/application/main.c`定义真实`main()`，模板逐字节一致。
-入口固定调用`Bsp_Init → App_Init → Bsp_Start → App_Start`，前台循环调用`App_Process`。
-MCU的system.c负责硬件初始化和IRQ接线，app_startup.c负责共用对象、协议绑定和后台业务。
-不存在相邻platform_app.c或app_platform.h转发层；各板的具体职责见[BSP架构总图](bsp_architecture_v1.md)。
-旧板普通APP与Loader配套APP选择同一份板级入口；四个完整目标各只链接本板一个main。
-两板application源码均手工维护。IOC的MainLocation保持`Core/Src`，
-生成的Core/Src/main.c不能加入完整APP工程；再生成后核对源清单，避免双入口。
-本轮不执行CubeMX再生成，不能以静态配置检查代替生成器实测。
-实施和验证见[双板入口分离](../plans/active/2026-10-24-board-application-entry-v1.md)。
-普通 APP 独立从 Flash 起始地址链接；只有配套工程使用 Loader APP 槽，不能混称两者布局。
-
-双板完整APP的Keil工程保持同名七组：`00_App`、`10_Motor`、`20_Parameters`、
-`30_Communication`、`40_Platform`、`50_Shared`、`90_Vendor`。
-物理子目录不扩展为更多Keil分组，工程树只登记源文件，不登记.h。
-新板沿用旧板ARMCC 5.06、C99及公共逐文件优化；公共组的源文件与顺序一致。
-新板入口和采集归Platform，可选只读遥测归Communication，SEGGER RTT归Vendor。
-设备包、存储区、启动文件、SDK及目标配置预包含仍由各板独立选择；
-新板保持禁止自动下载及关相/限时约束。CubeMX Core/Drivers内部相对位置不变。
-本轮编译器切换后的新板镜像尚未实机验收，不能继承先前ARMClang镜像的快环测量。
-对照与验收见[Keil工程对齐](../plans/active/2026-10-24-keil-project-alignment-v1.md)。
-VS Code 按实际目录浏览；原生测试 include 路径统一由 tools/project_paths.py 提供。
-
-目录迁移映射见 [path_migration.json](path_migration.json)，
-本轮目标、回退和证据见[目录职责收口记录](../plans/completed/2026-09-29-directory-ownership-v1.md)。
-历史路径转换夹具和 git show 引用保持其原版本路径，当前测试输入更新为实际目录。
-
-## 校验与历史信息
-
-目录整理核对源文件内容不变、实际工程路径、架构方向与 normal HEX；不替代实机功能验收。
-历史目录迁移、USB 移除、全局状态收口和去重证据分别保存在 docs/plans 与 docs/reports。
-当前默认验证不会烧录或操作电机；实机测试由专用会话在明确台架场景下执行。
+构建和验证入口为 `tools/run.py`。`check_project_layout --all` 核对全部 APP、Loader
+和台架工程；PR 验证包括 Python/原生测试、分层、接口和文档检查，均不接触硬件。

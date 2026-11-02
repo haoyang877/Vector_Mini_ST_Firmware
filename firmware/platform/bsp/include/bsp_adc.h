@@ -20,13 +20,15 @@ extern "C"
         BSP_ADC_BUS_CURRENT,
         BSP_ADC_MOTOR_TEMPERATURE,
         BSP_ADC_MCU_TEMPERATURE,
-        BSP_ADC_ANALOG_SUPPLY_VOLTAGE
+        BSP_ADC_ANALOG_SUPPLY_VOLTAGE,
+        BSP_ADC_OUTPUT_SIN,
+        BSP_ADC_OUTPUT_COS
     } BspAdcChannel;
 
     /**
      * @brief 直接读取通道原码。
      * @param channel 板上模拟信号；供电电压通道返回内部VREF原码。
-     * @return 等效12位计数，保留四次累加的小数；未启用的通道返回NAN。
+     * @return sin/cos为原始12位辅助ADC码；其他通道为等效12位计数，保留四次累加的小数；未启用的通道返回NAN。
      * @note 直接读寄存器或DMA已完成的半缓冲；不返回状态，不缓存或等待。
      *       多次读取不保证同拍，也不判断是否已有首帧。
      */
@@ -35,7 +37,7 @@ extern "C"
     /**
      * @brief 直接读取并换算通道数值。
      * @param channel 相/母线电流单位A，母线/供电电压单位V，温度单位摄氏度。
-     * @return 物理量；通道未启用、缺换算参数或公式无定义时返回NAN。
+     * @return 物理量；sin/cos仅提供原码，此入口返回NAN；未启用、缺参数或公式无定义时返回NAN。
      * @note 不返回状态、有效位、序号或时间戳，不屏蔽中断，不做采样保护。
      */
     float BspAdc_ReadChannel(BspAdcChannel channel);

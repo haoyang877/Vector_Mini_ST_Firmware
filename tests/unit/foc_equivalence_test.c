@@ -28,30 +28,27 @@ typedef struct
 } Capture;
 static Capture captures[2];
 static bool allow_expected_fault;
-static BspResult pwm_result = BSP_OK;
 
 static void record(unsigned side, unsigned event)
 {
     assert(captures[side].count < 8);
     captures[side].events[captures[side].count++] = event;
 }
-BspResult BspPwm_SetDuty(float a, float b, float c)
+void BspPwm_SetDuty(float a, float b, float c)
 {
     record(0, 2);
     captures[0].writes++;
     captures[0].duty[0] = a;
     captures[0].duty[1] = b;
     captures[0].duty[2] = c;
-    return pwm_result;
 }
-BspResult BspPwm_SetDuty_Reference(float a, float b, float c)
+void BspPwm_SetDuty_Reference(float a, float b, float c)
 {
     record(1, 2);
     captures[1].writes++;
     captures[1].duty[0] = a;
     captures[1].duty[1] = b;
     captures[1].duty[2] = c;
-    return BSP_OK;
 }
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
 {
@@ -84,53 +81,42 @@ static void test_voltage_law(void)
     MotorConfiguration configuration = {0};
     configuration.application.current_limit_a = 3.0f;
     MotorControlState motor = {.thermal_current_limit_a = 3.0f};
-    FocState foc = {0};
-    MotorMeasurement measurement = {.bus_voltage_filtered_v = 29.0f,
-                                    .phase_a_current_a = 0.2f,
-                                    .phase_b_current_a = -0.1f,
-                                    .phase_c_current_a = -0.1f};
+    FocState foc = {.bus_voltage_filtered_v = 29.0f, .phase_current_a = {0.2f, -0.1f, -0.1f}};
     foc.id_pi.integral_output = 0.7f;
     foc.iq_pi.integral_output = -0.3f;
     PiController id = foc.id_pi, iq = foc.iq_pi;
     memset(captures, 0, sizeof(captures));
-    Foc_Step(
-        &configuration, &foc, &measurement, &motor, FOC_CONTROL_VOLTAGE, 0.0f, 0.0f, 0.0f, 2.0f);
-    assert(fabsf(foc.id_a - 0.2f) < 1e-6f && fabsf(foc.iq_a) < 1e-6f);
-    assert(fabsf(foc.mod_q - 3.0f / 29.0f) < 1e-6f && foc.mod_d == 0.0f);
-    assert(captures[0].writes == 1U && fabsf(foc.duty_a - 0.5f) < 1e-6f);
+    Foc_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0.0f, 0.0f, 0.0f, 2.0f);
+    assert(fabsf(foc.current_dq_a.d - 0.2f) < 1e-6f && fabsf(foc.current_dq_a.q) < 1e-6f);
+    assert(fabsf(foc.mod_dq.q - 3.0f / 29.0f) < 1e-6f && foc.mod_dq.d == 0.0f);
+    assert(foc.voltage_dq_v.d == 0.0f && fabsf(foc.voltage_dq_v.q - 2.0f) < 1e-6f);
+    assert(captures[0].writes == 1U && fabsf(foc.duty_abc.a - 0.5f) < 1e-6f);
     float delta = 3.0f / (29.0f * sqrtf(3.0f));
-    assert(fabsf(foc.duty_b - (0.5f - delta)) < 1e-6f);
-    assert(fabsf(foc.duty_c - (0.5f + delta)) < 1e-6f);
+    assert(fabsf(foc.duty_abc.b - (0.5f - delta)) < 1e-6f);
+    assert(fabsf(foc.duty_abc.c - (0.5f + delta)) < 1e-6f);
     assert(memcmp(&id, &foc.id_pi, sizeof(id)) == 0 && memcmp(&iq, &foc.iq_pi, sizeof(iq)) == 0);
-    Foc_Step(&configuration,
-             &foc,
-             &measurement,
-             &motor,
-             FOC_CONTROL_VOLTAGE,
-             0.0f,
-             0.0f,
-             100.0f,
-             100.0f);
-    assert(fabsf(foc.mod_d - foc.mod_q) < 1e-6f);
-    assert(fabsf(hypotf(foc.mod_d, foc.mod_q) - 0.95f * sqrtf(3.0f) * 0.5f) < 1e-6f);
-    assert(foc.duty_a >= 0 && foc.duty_a <= 1 && foc.duty_b >= 0 && foc.duty_b <= 1 &&
-           foc.duty_c >= 0 && foc.duty_c <= 1);
+    Foc_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0.0f, 0.0f, 100.0f, 100.0f);
+    assert(fabsf(foc.mod_dq.d - foc.mod_dq.q) < 1e-6f);
+    assert(fabsf(hypotf(foc.mod_dq.d, foc.mod_dq.q) - 0.95f * sqrtf(3.0f) * 0.5f) < 1e-6f);
+    assert(fabsf(hypotf(foc.voltage_dq_v.d, foc.voltage_dq_v.q) - Foc_MaxVoltage(29.0f)) < 2e-6f);
+    assert(foc.voltage_dq_v.d == foc.voltage_dq_v.q);
+    assert(foc.duty_abc.a >= 0 && foc.duty_abc.a <= 1 && foc.duty_abc.b >= 0 &&
+           foc.duty_abc.b <= 1 && foc.duty_abc.c >= 0 && foc.duty_abc.c <= 1);
     allow_expected_fault = true;
     memset(captures, 0, sizeof(captures));
-    measurement.phase_a_current_a = 4.0f;
-    measurement.phase_b_current_a = measurement.phase_c_current_a = -2.0f;
-    Foc_Step(&configuration, &foc, &measurement, &motor, FOC_CONTROL_VOLTAGE, 0, 0, 0, 2);
-    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL && captures[0].writes == 0);
+    foc.phase_current_a.a = 4.0f;
+    foc.phase_current_a.b = foc.phase_current_a.c = -2.0f;
+    Foc_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0, 0, 0, 2);
+    assert(motor.fault_code == MOTOR_FAULT_OVERCURRENT && captures[0].writes == 0);
     motor.fault_code = MOTOR_FAULT_NONE;
-    measurement.phase_a_current_a = measurement.phase_b_current_a = measurement.phase_c_current_a =
-        0;
-    pwm_result = BSP_IO_ERROR;
-    Foc_Step(&configuration, &foc, &measurement, &motor, FOC_CONTROL_VOLTAGE, 0, 0, 0, 2);
-    assert(motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && captures[0].writes == 1);
-    pwm_result = BSP_OK;
+    foc.phase_current_a.a = foc.phase_current_a.b = foc.phase_current_a.c = 0;
+    Foc_Step(&configuration, &foc, &motor, FOC_CONTROL_VOLTAGE, 0, 0, 0, 2);
+    assert(motor.fault_code == MOTOR_FAULT_NONE && captures[0].writes == 1);
     allow_expected_fault = false;
+    Foc_ResetCurrent(&foc);
+    assert(foc.voltage_dq_v.d == 0.0f && foc.voltage_dq_v.q == 0.0f);
     puts("PASS voltage law: measured dq, analytical SVPWM, vector limit, unchanged PI, current/PWM "
-         "faults");
+         "boundaries");
 }
 
 /* 计算与硬件提交分开后，不允许预计算提前写PWM或改变跟踪顺序。 */
@@ -142,47 +128,27 @@ static void test_prepare_output_boundary(void)
     config.model.id_ki = config.model.iq_ki = 0.1f;
     MotorControlState expected_motor = {.thermal_current_limit_a = 3.0f};
     MotorControlState actual_motor = expected_motor;
-    FocState expected = {0};
-    MotorMeasurement measurement = {.bus_voltage_filtered_v = 29.0f,
-                                    .phase_a_current_a = 0.2f,
-                                    .phase_b_current_a = -0.1f,
-                                    .phase_c_current_a = -0.1f};
+    FocState expected = {.bus_voltage_filtered_v = 29.0f, .phase_current_a = {0.2f, -0.1f, -0.1f}};
     bind_current_configuration(&expected, &config);
     FocState actual = expected;
     memset(captures, 0, sizeof(captures));
-    Foc_Step(&config,
-             &expected,
-             &measurement,
-             &expected_motor,
-             FOC_CONTROL_CURRENT,
-             0.2f,
-             2.0f,
-             0.1f,
-             0.5f);
+    Foc_Step(&config, &expected, &expected_motor, FOC_CONTROL_CURRENT, 0.2f, 2.0f, 0.1f, 0.5f);
     Capture expected_trace = captures[0];
 
     memset(captures, 0, sizeof(captures));
-    assert(Foc_Prepare(&config,
-                       &actual,
-                       &measurement,
-                       &actual_motor,
-                       FOC_CONTROL_CURRENT,
-                       0.2f,
-                       2.0f,
-                       0.1f,
-                       0.5f));
+    assert(
+        Foc_Prepare(&config, &actual, &actual_motor, FOC_CONTROL_CURRENT, 0.2f, 2.0f, 0.1f, 0.5f));
     assert(captures[0].writes == 0U);
-    assert(BspPwm_SetDuty(actual.duty_a, actual.duty_b, actual.duty_c) == BSP_OK);
-    Foc_Complete(&actual, &measurement, FOC_CONTROL_CURRENT);
+    BspPwm_SetDuty(actual.duty_abc.a, actual.duty_abc.b, actual.duty_abc.c);
+    Foc_Complete(&actual, FOC_CONTROL_CURRENT);
     assert(memcmp(&expected, &actual, sizeof(actual)) == 0);
     assert(memcmp(&expected_motor, &actual_motor, sizeof(actual_motor)) == 0);
     assert(memcmp(&expected_trace, &captures[0], sizeof(expected_trace)) == 0);
 
     allow_expected_fault = true;
     memset(captures, 0, sizeof(captures));
-    assert(!Foc_Prepare(
-        &config, &actual, &measurement, &actual_motor, FOC_CONTROL_CURRENT, 0, 0, 101, 0));
-    assert(actual_motor.fault_code == MOTOR_FAULT_WINDING_THERMAL && captures[0].writes == 0U);
+    assert(!Foc_Prepare(&config, &actual, &actual_motor, FOC_CONTROL_CURRENT, 0, 0, 101, 0));
+    assert(actual_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS && captures[0].writes == 0U);
     allow_expected_fault = false;
 }
 
@@ -200,7 +166,6 @@ int main(void)
         {
             FocState actual = {0};
             FocReference reference = {0};
-            MotorMeasurement measurement = {0};
             MotorConfiguration configuration = {0};
             MotorControlState motor = {0};
             configuration.application.current_limit_a = 100.0f;
@@ -244,16 +209,15 @@ int main(void)
                                            reference.iq_pi.output_max);
                 }
                 memset(captures, 0, sizeof(captures));
-                measurement.bus_voltage_filtered_v =
+                actual.bus_voltage_filtered_v =
                     tick % 37 == 0 ? 0 : bus[(scenario + tick / 73U) % 8];
-                measurement.phase_a_current_a = .2f * (float)((int)((tick * 7) % 41) - 20);
-                measurement.phase_b_current_a = .3f * (float)((int)((tick * 11) % 37) - 18);
-                measurement.phase_c_current_a =
-                    -(measurement.phase_a_current_a + measurement.phase_b_current_a);
-                reference.bus_voltage_filtered_v = measurement.bus_voltage_filtered_v;
-                reference.phase_a_current_a = measurement.phase_a_current_a;
-                reference.phase_b_current_a = measurement.phase_b_current_a;
-                reference.phase_c_current_a = measurement.phase_c_current_a;
+                actual.phase_current_a.a = .2f * (float)((int)((tick * 7) % 41) - 20);
+                actual.phase_current_a.b = .3f * (float)((int)((tick * 11) % 37) - 18);
+                actual.phase_current_a.c = -(actual.phase_current_a.a + actual.phase_current_a.b);
+                reference.bus_voltage_filtered_v = actual.bus_voltage_filtered_v;
+                reference.phase_a_current_a = actual.phase_current_a.a;
+                reference.phase_b_current_a = actual.phase_current_a.b;
+                reference.phase_c_current_a = actual.phase_current_a.c;
                 motor.id_target_a = .1f * (float)((int)(tick % 61) - 30);
                 motor.iq_target_a = .5f * (float)((int)(tick % 81) - 40);
                 motor.vq_target_v = (float)((int)(tick % 121) - 60);
@@ -262,13 +226,8 @@ int main(void)
                 unsigned active_mode = (mode + tick / 128U) % 3U;
                 if (active_mode == 0)
                 {
-                    Foc_RunCurrentRef(&configuration,
-                                      &actual,
-                                      &measurement,
-                                      &motor,
-                                      phase,
-                                      velocity,
-                                      motor.iq_target_a + .5f);
+                    Foc_RunCurrentRef(
+                        &configuration, &actual, &motor, phase, velocity, motor.iq_target_a + .5f);
                     Foc_RunCurrentRef_Reference(&configuration,
                                                 &reference,
                                                 &motor,
@@ -278,12 +237,12 @@ int main(void)
                 }
                 else if (active_mode == 1)
                 {
-                    Foc_RunCurrent(&configuration, &actual, &measurement, &motor, phase, velocity);
+                    Foc_RunCurrent(&configuration, &actual, &motor, phase, velocity);
                     Foc_RunCurrent_Reference(&configuration, &reference, &motor, phase, velocity);
                 }
                 else
                 {
-                    Foc_RunVq(&configuration, &actual, &measurement, &motor, phase, velocity);
+                    Foc_RunVq(&configuration, &actual, &motor, phase, velocity);
                     Foc_RunVq_Reference(&configuration, &reference, &motor, phase, velocity);
                 }
                 /* NaN符号不属于无效功率值的合同；有限值与其它状态仍逐字节核对。 */
@@ -291,53 +250,54 @@ int main(void)
                 {
                     reference.power_filtered_w = actual.power_filtered_w;
                 }
-                if (memcmp(&actual.bus_current_a,
+                if (memcmp(&actual.bus_current_estimated_a,
                            &reference.bus_current_a,
-                           sizeof(actual.bus_current_a)) ||
-                    memcmp(&actual.bus_current_filtered_a,
+                           sizeof(actual.bus_current_estimated_a)) ||
+                    memcmp(&actual.bus_current_estimated_filtered_a,
                            &reference.bus_current_filtered_a,
-                           sizeof(actual.bus_current_filtered_a)) ||
+                           sizeof(actual.bus_current_estimated_filtered_a)) ||
                     memcmp(&actual.power_filtered_w,
                            &reference.power_filtered_w,
                            sizeof(actual.power_filtered_w)) ||
-                    memcmp(&actual.voltage_alpha_v,
+                    memcmp(&actual.voltage_ab_v.alpha,
                            &reference.voltage_alpha_v,
-                           sizeof(actual.voltage_alpha_v)) ||
-                    memcmp(&actual.voltage_beta_v,
+                           sizeof(actual.voltage_ab_v.alpha)) ||
+                    memcmp(&actual.voltage_ab_v.beta,
                            &reference.voltage_beta_v,
-                           sizeof(actual.voltage_beta_v)) ||
-                    memcmp(&actual.vd_v, &reference.vd_v, sizeof(actual.vd_v)) ||
-                    memcmp(&actual.vq_v, &reference.vq_v, sizeof(actual.vq_v)) ||
-                    memcmp(&actual.current_alpha_a,
+                           sizeof(actual.voltage_ab_v.beta)) ||
+                    memcmp(&actual.current_ab_a.alpha,
                            &reference.current_alpha_a,
-                           sizeof(actual.current_alpha_a)) ||
-                    memcmp(&actual.current_beta_a,
+                           sizeof(actual.current_ab_a.alpha)) ||
+                    memcmp(&actual.current_ab_a.beta,
                            &reference.current_beta_a,
-                           sizeof(actual.current_beta_a)) ||
-                    memcmp(&actual.current_alpha_filtered_a,
+                           sizeof(actual.current_ab_a.beta)) ||
+                    memcmp(&actual.current_ab_filtered_a.alpha,
                            &reference.current_alpha_filtered_a,
-                           sizeof(actual.current_alpha_filtered_a)) ||
-                    memcmp(&actual.current_beta_filtered_a,
+                           sizeof(actual.current_ab_filtered_a.alpha)) ||
+                    memcmp(&actual.current_ab_filtered_a.beta,
                            &reference.current_beta_filtered_a,
-                           sizeof(actual.current_beta_filtered_a)) ||
-                    memcmp(&actual.id_a, &reference.id_a, sizeof(actual.id_a)) ||
-                    memcmp(&actual.iq_a, &reference.iq_a, sizeof(actual.iq_a)) ||
-                    memcmp(&actual.id_filtered_a,
+                           sizeof(actual.current_ab_filtered_a.beta)) ||
+                    memcmp(
+                        &actual.current_dq_a.d, &reference.id_a, sizeof(actual.current_dq_a.d)) ||
+                    memcmp(
+                        &actual.current_dq_a.q, &reference.iq_a, sizeof(actual.current_dq_a.q)) ||
+                    memcmp(&actual.current_dq_filtered_a.d,
                            &reference.id_filtered_a,
-                           sizeof(actual.id_filtered_a)) ||
-                    memcmp(&actual.iq_filtered_a,
+                           sizeof(actual.current_dq_filtered_a.d)) ||
+                    memcmp(&actual.current_dq_filtered_a.q,
                            &reference.iq_filtered_a,
-                           sizeof(actual.iq_filtered_a)) ||
+                           sizeof(actual.current_dq_filtered_a.q)) ||
                     memcmp(&actual.id_pi, &reference.id_pi, sizeof(actual.id_pi)) ||
                     memcmp(&actual.iq_pi, &reference.iq_pi, sizeof(actual.iq_pi)) ||
-                    memcmp(&actual.mod_d, &reference.mod_d, sizeof(actual.mod_d)) ||
-                    memcmp(&actual.mod_q, &reference.mod_q, sizeof(actual.mod_q)) ||
-                    memcmp(&actual.mod_alpha, &reference.mod_alpha, sizeof(actual.mod_alpha)) ||
-                    memcmp(&actual.mod_beta, &reference.mod_beta, sizeof(actual.mod_beta)) ||
+                    memcmp(&actual.mod_dq.d, &reference.mod_d, sizeof(actual.mod_dq.d)) ||
+                    memcmp(&actual.mod_dq.q, &reference.mod_q, sizeof(actual.mod_dq.q)) ||
+                    memcmp(
+                        &actual.mod_ab.alpha, &reference.mod_alpha, sizeof(actual.mod_ab.alpha)) ||
+                    memcmp(&actual.mod_ab.beta, &reference.mod_beta, sizeof(actual.mod_ab.beta)) ||
                     memcmp(&actual.duty, &reference.duty, sizeof(actual.duty)) ||
-                    memcmp(&actual.duty_a, &reference.duty_a, sizeof(actual.duty_a)) ||
-                    memcmp(&actual.duty_b, &reference.duty_b, sizeof(actual.duty_b)) ||
-                    memcmp(&actual.duty_c, &reference.duty_c, sizeof(actual.duty_c)) ||
+                    memcmp(&actual.duty_abc.a, &reference.duty_a, sizeof(actual.duty_abc.a)) ||
+                    memcmp(&actual.duty_abc.b, &reference.duty_b, sizeof(actual.duty_abc.b)) ||
+                    memcmp(&actual.duty_abc.c, &reference.duty_c, sizeof(actual.duty_abc.c)) ||
                     memcmp(&actual.sector, &reference.sector, sizeof(actual.sector)) ||
                     memcmp(&captures[0], &captures[1], sizeof(Capture)))
                 {
@@ -348,6 +308,11 @@ int main(void)
                             tick);
                     return 1;
                 }
+                /* 仅电压遥测有意改变；其余控制状态和PWM仍与冻结参考逐位比较。 */
+                const float vd = actual.mod_dq.d * actual.bus_voltage_filtered_v / 1.5f;
+                const float vq = actual.mod_dq.q * actual.bus_voltage_filtered_v / 1.5f;
+                assert((isnan(vd) && isnan(actual.voltage_dq_v.d)) || actual.voltage_dq_v.d == vd);
+                assert((isnan(vq) && isnan(actual.voltage_dq_v.q)) || actual.voltage_dq_v.q == vq);
                 assert(captures[0].writes == 1);
                 assert(captures[0].count == 1U);
                 ++compared;

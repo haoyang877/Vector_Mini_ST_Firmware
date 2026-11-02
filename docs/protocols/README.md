@@ -1,6 +1,16 @@
+当前核心范围见[核心v1.8](yg_protocol_core_v1_8.md)，在线参数读写已停用。
+当前目标和实时反馈见[接口v1.9](yg_protocol_motor_live_v1_9.md)；v1.7的目标拒绝语义仅为历史记录。
+2026-10-30核心裁剪行为见[电机状态语义v1.4](yg_protocol_motor_state_v1_4.md)，
+当前启停/标定核心范围见[状态语义v1.5](yg_protocol_motor_state_v1_5.md)。
+三类标定通信启动及兼容范围见[标定通信v1.6](yg_protocol_calibration_v1_6.md)。
+仅AT32 Commissioning启用的采集扩展见[统一电机测试协议v1](unified_motor_bench_v1.md)。
+D轴扫频的正弦激励扩展见[台架v1.1](unified_motor_bench_v1_1.md)。
+
 # yg_protocol 通信协议与软件设计
 
-核对日期：2026-10-29。适用分支：`the-system-refactor`，包含当前工作树中的 CAN/BSP 重构与正式开环扩展。
+当前状态语义补充见[五状态映射v1.3](yg_protocol_motor_state_v1_3.md)。
+
+核对日期：2026-10-31。适用分支：`the-system-refactor`，包含当前工作树中的 CAN/BSP 重构与正式开环扩展。
 本文描述当前源码的通信行为，供固件、主站和测试人员共同使用。文档日期不表示设备已烧录或完成验收。
 所有 **CMD ID 均用十六进制**；长度以字节（B）计，除非特别说明，表中的请求和回复长度均只指业务数据 payload。
 
@@ -15,20 +25,20 @@
 通信模块把收到的字节转换为请求，由对应模块决定是否执行，再把结果发回主站。
 
 当前实际使用 CAN FD，主站地址为 `0x02`。电机使用设备当前配置的 Node ID；
-公司多轴编号为 `0x03～0x07`，示例统一使用 `0x03`。不能把测试文件里曾使用的 `0x01` 当作设备默认地址。
+公司多轴示例编号为 `0x03～0x07`；当前构建默认节点为 `0x01`，实际设备地址须以已核对配置和身份为准。
 
 | 项目 | 当前情况 |
 | --- | --- |
 | 物理通信 | 29 位扩展 CAN FD 数据帧，开启 BRS；仲裁段 1 Mbit/s，数据段 5 Mbit/s |
 | 应用格式 | 公司统一应用头、业务数据、应用 CRC；APP 和 Loader 共用编解码代码 |
-| 对外公布的电机能力 | 速度、纯电压开环、电流闭环角度开环：启动、同模式目标更新、停机和反馈 |
-| 已有候选入口 | 电流、位置、q 轴电压控制；源码有接线，能力页尚未公布 |
-| 维护功能 | 编码器 LUT、电角零位、机械零位、保存、恢复默认值 |
+| 对外公布的电机能力 | 零目标启动、同模式目标提交、停机、实时状态及三类标定 |
+| 状态反馈 | 主状态、模式、故障及按有效位标识的现有测量 |
+| 维护功能 | 编码器 LUT、电角零位、机械零位；保存、恢复默认值和通用任务查询不支持 |
 | 硬件适配 | STM32G4 与 AT32F456 共用 BspCan 接口；具体构建可禁用 CAN |
 | 升级 | 已有 G431 配套 Loader/APP 方案；不能据此推定 AT32 已具备同样的升级能力 |
 | 尚未接入 | 五轴同步命令、每轴固定 1 kHz 反馈、RS485、以太网、MIT 控制、低侧制动 |
 
-能力页当前返回 `features=0x00001D00`、`supported_modes=0x0604`，公布 mode 2 速度控制和 mode 9/10 开环控制。
+当前目标与实时状态遵守[接口v1.9](yg_protocol_motor_live_v1_9.md)：116同模式直接提交，108/124提供有效测量；能力页为`features=0x1D00`、`supported_modes=0x064E`。
 开环请求布局见[扩展v0.3](yg_protocol_simplification_design_v1.md#正式开环控制扩展-v03-2026-10-29)。
 主站应先查询身份和能力，再决定允许哪些操作。能力位表示固件声明支持，不等同于本次设备测试已经通过。
 
@@ -195,10 +205,10 @@ START_CONTROL 的 payload 为 `mode:u8 + reserved[3]=0`。
 
 | mode | 控制方式 | 初始目标 | 当前能力 |
 | ---: | --- | --- | --- |
-| 1 | q 轴电流 | 0 mA | 候选 |
+| 1 | q 轴电流 | 0 mA | 已公布 |
 | 2 | 速度 | 0 mrad/s | 已公布 |
-| 3 | 位置 | 启动时的当前位置 | 候选 |
-| 6 | q 轴电压 | 0 mV | 候选 |
+| 3 | 位置 | 启动时的当前位置 | 已公布 |
+| 6 | q 轴电压 | 0 mV | 已公布 |
 | 9 | 纯电压开环 | Vd/Vq和电角频率均为0 | 已公布 |
 | 10 | 电流闭环、角度开环 | Id/Iq和电角频率均为0 | 已公布 |
 
@@ -227,35 +237,9 @@ CLEAR_FAULT 仅清除满足恢复条件的故障，也不会恢复上一次目�
 
 ### 4.2 速度控制的消息流程
 
-```mermaid
-sequenceDiagram
-    participant H as 主站
-    participant C as 通信模块
-    participant M as 电机控制模块
-    H->>C: 0x0075，mode=2，请求启动
-    C->>M: 检查状态并提交启动请求
-    C-->>H: 0x0075，result=1，已接受
-    M->>M: 完成启动，以零速度目标运行
-    H->>C: 同序号重试查询启动结果
-    C-->>H: 0x0075，完成时 result=0
-    H->>C: 0x006C，查询当前状态
-    C-->>H: RUNNING、mode=2
-    H->>C: 0x0074，新的速度目标
-    C->>M: 提交目标，等待控制周期
-    C-->>H: 0x0074，result=1
-    M->>M: 控制周期采用目标，或取消请求
-    M-->>C: 返回该请求的实际处理结果
-    C-->>H: 0x007C，原序号、结果、当前状态
-    H->>C: 0x006E，停机
-    C->>M: 关闭输出、撤销目标并结束相关工作
-    C-->>H: 0x006E，接受或完成结果
-```
-
-图中 result=1 是典型异步路径；状态、字段或范围不符合要求时会直接拒绝。
-第一次接受的控制目标，等实际控制周期给出结果后发送一次延迟反馈：
-已采用为 0，STOP 撤销为 5，故障为 17，应用前复核越限为 11。
-等待该结果期间，新目标返回 BUSY；STOP/CLEAR 仍可处理。
-重试会返回已有处理记录，不再次执行目标；反馈所带测量值是当前快照，不是历史采样的重放。
+117零目标启动，108确认RUNNING后发送116同模式目标；返回0表示目标已提交，
+124携带关联序号和当前快照，不表示机械响应已经完成。STOP后确认关相再切换模式。
+重复、旧序号、字段、范围和版本兼容规则见[接口v1.9](yg_protocol_motor_live_v1_9.md)。
 
 ### 4.3 45 B 电机状态
 
@@ -285,7 +269,7 @@ valid_bits 的 bit 0～11 依次对应：参考位置、实际位置、参考速
 无测量来源、不可用或缩放越界时，对应位清零，数值写入该整数类型的最小值。
 **不能把无效温度当成 0 °C，也不能用 MCU 温度充当电机温度。**
 
-当前电机温度、Vq、Vd 没有真实测量来源，保持无效。母线电流依板卡能力使用实测或已有估算，
+当前电机温度无来源，保持无效。Vq/Vd是运行时FOC估算电压；母线电流只使用有效硬件实测，
 不能仅凭相同字段名称认定两板都有电流传感器。Iq 是转矩电流，单位为 A 的缩放值，不是 N·m 转矩。
 
 fault_code 由适配器转换，不能直接当成固件内部故障枚举。当前映射如下：
@@ -390,6 +374,10 @@ SAVE 的 8 B 回复为 `result:u16, detail:u16, persisted_revision:u32`；
 
 ### 5.3 一次只启动一项维护
 
+当前v1.6只开放START的kind 1、2、6，其他kind及STATUS/CANCEL返回UNSUPPORTED。
+下表和阶段字段保留线路布局；不表示全部功能已恢复。受理编号不提供历史查询，
+完成通过现有电机状态观察，取消使用110。详见[标定通信v1.6](yg_protocol_calibration_v1_6.md)。
+
 START 请求为 `kind:u16, reserved=0:u16`；
 STATUS/CANCEL 请求为非零 `ticket:u32`，均为 4 B。
 
@@ -408,9 +396,8 @@ kind 3、4、5 已退役，分别是齿槽、相电阻和摩擦任务；不支�
 phase：0 无任务、1 执行中、2 完成、3 已请求取消、4 已取消、5 失败。
 effects：0 未知、1 结果尚未确认保存、2 已确认提交。
 
-主站保存 START 返回的 ticket，之后只查询或取消这项任务。
-查询 result=0 只表示查到了任务；phase=5 仍是任务失败。
-标定完成不等于结果已保存，取消请求被接受也不等于设备已归还工作区。
+当前START回复phase=1、effects=1，只确认运行层受理。标定完成后回空闲，
+不提供上述历史任务查询，也不保存Flash。STOP被接受仍须等待实际关相。
 
 ## 6. 固件升级流程
 
@@ -495,9 +482,9 @@ CAN FD 使用完整帧和硬件发送槽，不增加逐字节解包或 DMA 状�
 | `communication/commands/yg_protocol_motor.c` | 电机命令处理、32 条控制重试记录、请求完成关联和待发反馈 | 调用电机服务，生成结果或反馈消息 |
 | `communication/commands/yg_protocol_readonly.c` | 身份、能力、维护页和设备状态查询 | 查询回复内容 |
 | `communication/commands/yg_protocol_parameter/job/boot.c` | 各自解析命令、检查请求、调用绑定服务、构造回复；boot 保存待确认的升级票据 | 普通 C 值请求及结果 |
-| `app/composition/yg_protocol_owner_adapter.c` | 线路模式/参数/维护种类转换，调用业务模块 | 状态机请求、参数事务、维护请求 |
-| `app/composition/yg_protocol_status_adapter.c` | 采集业务状态并映射故障、模式和有效标志 | 供通信编码的快照 |
-| `app/composition/app_startup.c` | 初始化、绑定服务；前台先刷新状态再处理通信 | 显式装配关系 |
+| `app/composition/app_protocol.c` | 线路模式/参数/维护种类转换，调用业务模块 | 状态机请求、参数事务、维护请求 |
+| `app/composition/app_protocol.c` | 采集业务状态并映射故障、模式和有效标志 | 供通信编码的快照 |
+| `app/composition/app.c` | 初始化、绑定服务；前台先刷新状态再处理通信 | 显式装配关系 |
 | `platform/bsp/include/bsp_can.h` | 对上统一 CAN 接口与 BspCanFrame | 不暴露 HAL、寄存器和厂商句柄 |
 | `platform/bsp/bsp_can.c` | 共用发送跟踪编号、超时、完成消费和恢复协调 | 调用 BSP 内部 MCU 接口 |
 | `platform/bsp/mcu/*/can_backend.c` | STM32G4 或 AT32F456 的控制器、FIFO、IRQ、完成位和恢复 | 硬件操作结果 |
@@ -530,7 +517,7 @@ CAN FD 使用完整帧和硬件发送槽，不增加逐字节解包或 DMA 状�
 | `yg_protocol_endpoint_send` | 编码并复制到统一 TX 队列；队列满则调用方保留结果，稍后重试 |
 | `YgProtocolLink_Bind*Service` | 应用启动时绑定处理函数和上下文，不由通信层寻找电机全局对象 |
 | `yg_protocol_*_call` | 输入业务值，输出结果；后续异步工作由业务模块保存必要数据 |
-| `YgProtocolStatusAdapter_Refresh` | 刷新通信使用的状态副本；线路缩放和小端编码留给协议模块 |
+| `AppProtocol_Refresh` | 刷新通信使用的状态副本；线路缩放和小端编码留给协议模块 |
 
 ### 7.3 解耦已经做到哪一步
 
@@ -612,7 +599,7 @@ CRC 错误、地址错误、未知命令和队列溢出都可能造成主站收�
 [CAN ID](../../shared/protocol/yg_protocol_can_id.c)、
 [CRC](../../shared/protocol/yg_protocol_crc.c)、
 [命令注册与链路处理](../../firmware/communication/can/yg_protocol_link.c)、
-[应用适配器](../../firmware/app/composition/yg_protocol_owner_adapter.c)、
+[应用适配器](../../firmware/app/composition/app_protocol.c)、
 [BspCan 接口](../../firmware/platform/bsp/include/bsp_can.h)。
 
 字节回归使用普通启动、参数、维护、能力页的现行 JSON 向量及对应单元测试。

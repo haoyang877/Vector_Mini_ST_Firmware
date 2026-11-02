@@ -45,7 +45,7 @@ extern "C"
 
     /**
      * @brief 响应一次硬件快采样完成事件。
-     * @note 应用提供静态链接实现，对应MCU在ADC快中断位置调用；不是注册接口。
+     * @note 各板main.c提供静态链接实现，调用App_FastTick；对应MCU在ADC快中断位置调用。
      * @note MCU确认硬件完成事件后调用；应用有界执行，不阻塞、打印或写Flash。
      */
     void BspApp_OnFastSample(void);

@@ -1,100 +1,67 @@
-"""编译真实参数事务模块与 Axis 转发，核对请求/保存合同；不访问硬件。"""
+"""验证核心参数、三类标定通信入口及退役请求；不访问硬件。"""
 
 import argparse
+import json
 import subprocess
 from pathlib import Path
 
-from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
-
-# 逐函数从生产源码切片，夹具编译的正是真实实现；旧实现没有新辅助函数时跳过。
-REQUEST_FUNCTIONS = (
-    "advance_config_revision",
-    "same_write",
-    "stale_sequence",
-    "matches_cached_request",
-    "refresh_save_result",
-    "MotorAxis_ReadParameter",
-    "MotorAxis_WriteParameter",
-    "MotorAxis_RequestSave",
-    "MotorAxis_PollSave",
-    "MotorAxis_SaveIdle",
-    "MotorAxis_ConfigurationRevisionAvailable",
-    "MotorAxis_ServiceBackground",
-)
-
-
-def run_variant(source_path: Path, output: Path, compiler_path: str) -> str:
-    """编译实际生产实现，以桩提供边界，返回公共参数/保存路径的调用摘要。"""
-    output.mkdir(parents=True, exist_ok=True)
-    source = source_path.read_text(encoding="utf-8")
-    fixture = (ROOT / "tests/unit/native/motor_state_request_test.c").read_text(encoding="utf-8")
-    write_source = function_source(source, "MotorAxis_WriteParameter")
-    has_outer_critical = any(
-        name in write_source
-        for name in ("BspSystem_EnterCritical()", "BspSystem_EnterControlCritical()")
-    )
-    fixture = f"#define AXIS_WRITE_OUTER_CRITICAL {int(has_outer_critical)}\n" + fixture
-    if '#include "motor_parameter_transaction.h"' in source:
-        fixture = "#define MOTOR_PARAMETER_TRANSACTION_PRESENT 1\n" + fixture
-    if "configure_controllers()" in write_source:
-        controller_source = function_source(source, "configure_controllers")
-        if "Foc_ConfigureControllers(" in controller_source:
-            algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
-            fixture += "\n" + function_source(algorithm, "Foc_ConfigureControllers")
-        fixture += "\n" + controller_source
-    for name in REQUEST_FUNCTIONS:
-        try:
-            fixture += "\n" + function_source(source, name)
-        except ValueError:
-            continue
-    combined = output / "motor_state_request.c"
-    combined.write_text(fixture, encoding="utf-8")
-
-    compiler = [compiler_path] + (["cc"] if Path(compiler_path).stem == "zig" else [])
-    executable = output / "motor_state_request.exe"
-    command = (
-        compiler
-        + NATIVE_INCLUDE_FLAGS
-        + [
-            "-I",
-            str(ROOT / "firmware/app/interfaces"),
-            "-std=c99",
-            "-O1",
-            "-UNDEBUG",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
-            str(combined),
-            str(ROOT / "tests/unit/bsp_preemption_stubs.c"),
-            "-o",
-            str(executable),
-        ]
-    )
-    logs = []
-    for invocation in (command, [str(executable)]):
-        result = subprocess.run(invocation, capture_output=True, text=True)
-        logs.append(result.stdout + result.stderr)
-        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
-        print(logs[-1], end="")
-        result.check_returncode()
-    return next(line for line in logs[-1].splitlines() if line.startswith("EQUIVALENCE "))
+from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT
 
 
 def main() -> None:
-    """执行现实现，给定基点时比较相同输入下参数/保存结果与边界调用次序。"""
+    """编译真实参数所有者和协议适配器，检查标定映射及黄金向量。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True)
-    parser.add_argument("--out", type=Path, default=ROOT / "outputs/motor_state_request_tests")
-    parser.add_argument("--reference-source", type=Path)
+    parser.add_argument("--out", type=Path, default=ROOT / "outputs/core_parameter_tests")
     args = parser.parse_args()
-    output = args.out.resolve()
-    current = run_variant(ROOT / "firmware/app/runtime/motor_axis.c", output / "current", args.cc)
-    if args.reference_source:
-        reference = run_variant(args.reference_source, output / "reference", args.cc)
-        if current != reference:
-            raise RuntimeError(f"参数/保存行为与基点不同：{current} != {reference}")
-        print("PASS parameter/background baseline equivalence")
+    args.out.mkdir(parents=True, exist_ok=True)
+    compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
+    for name, implementation in (("core_protocol", "firmware/app/composition/app_protocol.c"),):
+        executable = args.out / f"{name}.exe"
+        command = (
+            compiler
+            + NATIVE_INCLUDE_FLAGS
+            + [
+                "-std=c99",
+                "-O1",
+                "-UNDEBUG",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-DBSP_BOARD=1",
+                str(ROOT / f"tests/unit/native/{name}_test.c"),
+                str(ROOT / implementation),
+                "-o",
+                str(executable),
+            ]
+        )
+        if name == "core_protocol":
+            command += [
+                str(ROOT / f"firmware/communication/commands/yg_protocol_{part}.c")
+                for part in ("parameter", "job", "motor", "motor_adapter")
+            ]
+            command += [
+                str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
+                str(ROOT / "shared/protocol/yg_protocol_crc.c"),
+                str(ROOT / "firmware/communication/commands/yg_protocol_readonly.c"),
+            ]
+        logs = []
+        for invocation in (command, [str(executable)]):
+            result = subprocess.run(invocation, capture_output=True, text=True, check=False)
+            logs.append(result.stdout + result.stderr)
+            (args.out / f"{name}.log").write_text("\n".join(logs), encoding="utf-8")
+            print(logs[-1], end="")
+            result.check_returncode()
+        if name == "core_protocol":
+            vectors = json.loads(
+                (ROOT / "docs/protocols/yg_protocol_core_v1_8_vectors.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for vector in vectors["vectors"]:
+                expected = f"VECTOR {vector['name']} {vector['payload_hex']}"
+                if expected not in logs[-1].splitlines():
+                    raise RuntimeError(f"协议向量不匹配: {expected}")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 #define MOTOR_FAULT_H
 #include "motor_types.h"
 #include "motor_config.h"
-#include "motor_measurement.h"
+#include "foc.h"
 #include "encoder_feedback.h"
 
 typedef struct
@@ -19,19 +19,19 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode error);
 /**
  * @brief 推进所属故障恢复的驻留证据。
  * @param recovery APP 独占的恢复计数。
- * @param measurement 本次三相电流测量，A。
+ * @param foc 本次三相电流测量，A。
  * @param error 当前锁存故障。
  * @note 2 kHz 监督调用，保留原计数和阈值。
  */
 void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
-                               const MotorMeasurement *measurement,
+                               const FocState *foc,
                                MotorFaultCode error);
 /**
  * @brief 按源恢复矩阵确认显式 CLEAR 的条件。
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param recovery 所属驻留证据，只读。
  * @param motor 电机易失运行状态；只读动态恢复事实。
- * @param measurement 电压 V、温度 °C 的稳定测量。
+ * @param foc 电压 V、温度 °C 的稳定测量。
  * @param encoder 所属反馈健康。
  * @param error 需要确认的原始故障编号。
  * @param samples_fresh 本次监督已获得新的有效快环测量。
@@ -43,7 +43,7 @@ void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
 bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
                                 const MotorFaultRecovery *recovery,
                                 const MotorControlState *motor,
-                                const MotorMeasurement *measurement,
+                                const FocState *foc,
                                 const EncoderState *encoder,
                                 MotorFaultCode error,
                                 bool samples_fresh,

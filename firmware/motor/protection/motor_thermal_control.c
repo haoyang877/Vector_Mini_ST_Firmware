@@ -77,7 +77,7 @@ void MotorThermalControl_Sample(
 }
 
 void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuration,
-                                          const MotorMeasurement *measurement,
+                                          const FocState *foc,
                                           MotorControlState *motor,
                                           bool samples_ready,
                                           bool outputs_disabled,
@@ -113,10 +113,9 @@ void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuratio
     }
     if (!outputs_disabled && MotorControlMode_IsVoltage(motor->control_mode))
     {
-        float vector_squared_a2 =
-            (2.0f / 3.0f) * (measurement->phase_a_current_a * measurement->phase_a_current_a +
-                             measurement->phase_b_current_a * measurement->phase_b_current_a +
-                             measurement->phase_c_current_a * measurement->phase_c_current_a);
+        float vector_squared_a2 = (2.0f / 3.0f) * (foc->phase_current_a.a * foc->phase_current_a.a +
+                                                   foc->phase_current_a.b * foc->phase_current_a.b +
+                                                   foc->phase_current_a.c * foc->phase_current_a.c);
         float limit_a = motor->thermal_current_limit_a;
         if (!(vector_squared_a2 <= limit_a * limit_a))
         {
@@ -221,7 +220,7 @@ void MotorThermalControl_Sample(
 }
 
 void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuration,
-                                          const MotorMeasurement *measurement,
+                                          const FocState *foc,
                                           MotorControlState *motor,
                                           bool samples_ready,
                                           bool outputs_disabled,
@@ -237,10 +236,9 @@ void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuratio
     /* 开环电压模式的瞬时电流边界属于限流，不能随热估算一起关闭。 */
     if (samples_ready && !outputs_disabled && MotorControlMode_IsVoltage(motor->control_mode))
     {
-        float vector_squared_a2 =
-            (2.0f / 3.0f) * (measurement->phase_a_current_a * measurement->phase_a_current_a +
-                             measurement->phase_b_current_a * measurement->phase_b_current_a +
-                             measurement->phase_c_current_a * measurement->phase_c_current_a);
+        float vector_squared_a2 = (2.0f / 3.0f) * (foc->phase_current_a.a * foc->phase_current_a.a +
+                                                   foc->phase_current_a.b * foc->phase_current_a.b +
+                                                   foc->phase_current_a.c * foc->phase_current_a.c);
         if (!(vector_squared_a2 <= limit_a * limit_a))
         {
             MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);

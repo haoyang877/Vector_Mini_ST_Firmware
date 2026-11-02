@@ -11,6 +11,18 @@
 #include "yg_protocol_readonly.h"
 #include "yg_protocol_common.h"
 
+#if defined(APP_ENABLE_MOTOR_BENCH) && APP_ENABLE_MOTOR_BENCH
+#include "yg_protocol_endpoint.h"
+/**
+ * @brief 仅在测试镜像启动期间绑定0x7F00处理器。
+ * @param handler 非空测试处理函数；不参与正式APP命令表。
+ * @param context 处理器借用上下文，可为NULL。
+ * @return 协议已初始化且函数非空返回true，否则false。
+ * @note 在CAN启动前调用，不与Service并发，不启相或修改电机对象。
+ */
+bool YgProtocolLink_BindBenchService(yg_protocol_command_handler_t handler, void *context);
+#endif
+
 /**
  * @brief 唯一 CAN FD RX FIFO0 中断入口。
  * @note 单次最多取 3 帧，只复制扩展 FD+BRS 帧并入队，不执行 CRC、分片或电机业务。

@@ -1,4 +1,4 @@
-/* 线路与参数数值编码差分检查；直接编译生产私有转换，不连接设备。 */
+/* 参数数值编码差分检查；生产测量编码已退役，只验证现用标量转换。 */
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -6,21 +6,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include "../../firmware/communication/commands/yg_protocol_motor.c"
 #include "../../firmware/parameters/parameter_values.c"
-static int32_t ref_measurement(float value, double scale, int32_t min, int32_t max)
-{
-    if (!isfinite(value))
-    {
-        return INT32_MIN;
-    }
-    double rounded = round((double)value * scale);
-    if (rounded < min || rounded > max)
-    {
-        return INT32_MIN;
-    }
-    return (int32_t)rounded;
-}
 static int ref_parameter(float value, float scale, uint32_t *raw)
 {
     if (!isfinite(value))
@@ -51,18 +37,7 @@ static void check(float value)
             printf("PARAM %a %u: %d %x vs %d %x\n", value, scales[i], ra, a, rb, b);
             exit(1);
         }
-        for (unsigned small = 0; small < 2; small++)
-        {
-            int32_t limit = small ? INT16_MAX : INT32_MAX;
-            int32_t ma = ref_measurement(value, scales[i], -limit, limit),
-                    mb = measurement(value, scales[i], -limit, limit);
-            if (ma != mb)
-            {
-                printf("MEAS %a %u: %d vs %d\n", value, scales[i], ma, mb);
-                exit(1);
-            }
-        }
-        cases += 3;
+        ++cases;
     }
 }
 /* 从真实目录读回所有标量，覆盖描述符缩放和私有结构偏移，而非只测转换函数。 */

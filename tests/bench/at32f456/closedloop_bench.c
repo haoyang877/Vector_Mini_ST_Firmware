@@ -53,12 +53,16 @@ void AT32Cl_Init(AT32ClBench *bench)
     bench->configuration.application.speed_deceleration_rad_s2 = 2.5f;
     bench->motor.thermal_current_limit_a = 0.8f;
     Foc_ConfigureControllers(&bench->configuration, &bench->foc, &bench->speed_pi);
-    Encoder_InitFeedback(&bench->configuration.device.encoder, &bench->encoder);
+    Encoder_InitFeedback(&bench->configuration.device.encoder,
+                         &bench->configuration.model.motor_pole_pairs,
+                         &bench->configuration.application.axis_profile,
+                         &bench->configuration.application.axis_profile_valid,
+                         &bench->encoder);
 }
 
 uint16_t AT32Cl_ReadEncoder(AT32ClBench *bench)
 {
-    Encoder_Update(&bench->configuration, &bench->encoder);
+    Encoder_Update(&bench->encoder);
     return bench->encoder.raw_q15;
 }
 
@@ -334,32 +338,24 @@ void AT32Cl_Step(AT32ClBench *bench, AT32OlModel *guard, uint16_t angle_q15)
         phase -= _2PI;
     }
     bench->motor.id_target_a = id;
-    bench->measurement.bus_voltage_filtered_v = guard->bus_v;
+    bench->foc.bus_voltage_filtered_v = guard->bus_v;
     /* 原中间层电流语义为负向采样差，与其SVM占空比方向配对。 */
-    bench->measurement.phase_a_current_a = -guard->current_a[0];
-    bench->measurement.phase_b_current_a = -guard->current_a[1];
-    bench->measurement.phase_c_current_a = -guard->current_a[2];
+    bench->foc.phase_current_a =
+        (ABCVect){-guard->current_a[0], -guard->current_a[1], -guard->current_a[2]};
     if (t->mode == 3U)
     {
-        Foc_RunVq(
-            &bench->configuration, &bench->foc, &bench->measurement, &bench->motor, phase, 0.0f);
+        Foc_RunVq(&bench->configuration, &bench->foc, &bench->motor, phase, 0.0f);
     }
     else
     {
-        Foc_RunCurrentRef(&bench->configuration,
-                          &bench->foc,
-                          &bench->measurement,
-                          &bench->motor,
-                          phase,
-                          0.0f,
-                          iq);
+        Foc_RunCurrentRef(&bench->configuration, &bench->foc, &bench->motor, phase, 0.0f, iq);
     }
     t->id_reference_a = id;
     t->iq_reference_a = iq;
-    t->id_a = bench->foc.id_a;
-    t->iq_a = bench->foc.iq_a;
-    t->vd_v = bench->foc.mod_d * guard->bus_v / 1.5f;
-    t->vq_v = bench->foc.mod_q * guard->bus_v / 1.5f;
+    t->id_a = bench->foc.current_dq_a.d;
+    t->iq_a = bench->foc.current_dq_a.q;
+    t->vd_v = bench->foc.mod_dq.d * guard->bus_v / 1.5f;
+    t->vq_v = bench->foc.mod_dq.q * guard->bus_v / 1.5f;
     t->phase_rad = phase;
     t->phase_sum_a = guard->current_a[0] + guard->current_a[1] + guard->current_a[2];
     uint32_t wave_index = g_closedloop_waveform_samples & 1023U;
@@ -417,7 +413,7 @@ void AT32Cl_Step(AT32ClBench *bench, AT32OlModel *guard, uint16_t angle_q15)
             return;
         }
     }
-    guard->duty[0] = bench->foc.duty_a;
-    guard->duty[1] = bench->foc.duty_b;
-    guard->duty[2] = bench->foc.duty_c;
+    guard->duty[0] = bench->foc.duty_abc.a;
+    guard->duty[1] = bench->foc.duty_abc.b;
+    guard->duty[2] = bench->foc.duty_abc.c;
 }

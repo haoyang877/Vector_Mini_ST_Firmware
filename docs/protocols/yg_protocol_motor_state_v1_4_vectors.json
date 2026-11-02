@@ -1,0 +1,8 @@
+{
+  "version": "1.4",
+  "byte_order": "little",
+  "vectors": [
+    {"name": "save_unsupported", "payload_hex": "02000100"},
+    {"name": "job_unsupported", "payload_hex": "020000000000000000000000"}
+  ]
+}

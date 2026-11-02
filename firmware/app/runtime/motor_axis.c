@@ -1,127 +1,106 @@
-#include "application_config.h"
-#ifndef APP_ENABLED_DIAGNOSTIC_TELEMETRY
-#define APP_ENABLED_DIAGNOSTIC_TELEMETRY 0
-#endif
-#if APP_ENABLED_DIAGNOSTIC_TELEMETRY
-#include "app_telemetry.h"
-#endif
-#if APP_PWM_WINDOWED
-#include "pwm_power_window.h"
-#endif
 #include "motor_axis.h"
-#include <math.h>
-#include "bsp_system.h"
-#include "bsp_adc.h"
-#include "bsp_encoder.h"
-#include "motor_maintenance.h"
-#include "bsp_pwm.h"
-#include "motor_sensing.h"
-#include "motor_parameter_transaction.h"
-#include "motor_thermal_control.h"
 #include "application_config.h"
+#include "bsp_encoder.h"
+#include "bsp_pwm.h"
+#include "bsp_system.h"
+#include "encoder_calibration.h"
+#include "motor_sensing.h"
+#include "bsp_flash.h"
+#include "parameter_record.h"
 
 #include "encoder_feedback.h"
 #include "foc.h"
 #include "motor_fault.h"
 #include "pi_controller.h"
 #include "motor_control.h"
-#include "motor_state_machine.h"
+#include "motor_lifecycle.h"
 #include "flux_observer.h"
 #include "sensorless_startup.h"
 
-/* 电机与控制对象全局符号供 Watch 观测；运行写入仍由 MotorAxis 组装和调度。 */
+#if APP_ENABLE_MOTOR_BENCH
+#include "motor_bench.h"
+#endif
+
+/* 持有单轴对象并编排快慢环；全局符号保留给只读 Watch。 */
 MotorConfiguration s_motor_configuration;
 MotorControlState s_motor_state;
 PiController s_speed_pi;
 EncoderState s_rotor_encoder;
 FluxObserverState s_flux_observer;
 SensorlessStartupState s_sensorless_startup;
-
 FocState s_foc_state;
-MotorMeasurement s_motor_measurement;
-
-/* Axis持有并显式借给采样模块；全局可见性保留既有只读Watch观测。 */
 CurrentOffsetCalibration s_current_offset_calibration;
 
-/* 快/慢ISR写完状态后推进；前台读者不能抢占写者，前台配置操作串行。 */
-static volatile uint32_t s_status_revision;
+/* 编码器线性化独占的6144字节静态工作区；发布或取消前不复用。 */
+static EncoderCalibrationWorkspace s_encoder_linearization_workspace;
 
-uint8_t MotorAxis_NodeId(void)
+static MotorTaskResult run_active_calibration_cycle(void)
 {
-    return s_motor_configuration.device.node_id;
-}
-
-/* 仅在配置装配/提交边界绑定固定参数；保留积分与动态限幅，重放请求不会放宽热额度。 */
-static void configure_controllers(void)
-{
-    Foc_ConfigureControllers(&s_motor_configuration, &s_foc_state, &s_speed_pi);
-}
-
-/* 每个新鲜母线样本后只刷新电压额度，不改变增益、时基或积分状态；空闲也有效。 */
-static void update_current_controller_limits(void)
-{
-    Foc_UpdateCurrentLimits(&s_foc_state, &s_motor_measurement);
-}
-
-/* 不把2048或上次存储零点当作本次上电校正资格；NAN阻止原自检/启动门禁通过。 */
-static void initialize_current_offsets(void)
-{
-    MotorCurrentOffsets_Init(
-        &s_current_offset_calibration, &s_motor_configuration, &s_motor_measurement);
-}
-
-/* 只能由新鲜快速采样调用；不启相、不分配、不阻塞、不保存、不自动重试。 */
-static void sample_phase_currents(const float phase_current_a[3])
-{
-    if (s_current_offset_calibration.complete)
+    const EncoderCalibrationControl control = {&s_motor_configuration,
+                                               &s_foc_state,
+                                               &s_motor_state,
+                                               &s_speed_pi,
+                                               &s_rotor_encoder,
+                                               &s_flux_observer,
+                                               &s_sensorless_startup};
+    switch (MotorLifecycle_GetCalibrationType())
     {
-        MotorCurrent_Update(&s_motor_measurement, phase_current_a);
-        return;
-    }
-    (void)MotorCurrentOffsets_Sample(&s_current_offset_calibration, &s_motor_state);
-}
-
-/* 一次性求均值/发布不占用第20000拍的快中断预算；发布前保持INIT和无效电流。 */
-static void finalize_current_offsets(void)
-{
-    if (MotorCurrentOffsets_Finalize(
-            &s_current_offset_calibration, &s_motor_configuration, &s_motor_state))
-    {
-        MotorParameterTransaction_AdvanceRevision();
+    case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:
+        return EncoderCalibrationTask_StepLut(&control, &s_encoder_linearization_workspace);
+    case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
+        return EncoderCalibrationTask_StepElectricalZero(&control);
+    case MOTOR_CALIBRATION_MECHANICAL_ZERO:
+        if (Encoder_SetMechanicalZero(&s_motor_configuration.device.encoder, &s_rotor_encoder))
+        {
+            MotorOuterLoop_RequestReset();
+            return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
+        }
+        return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
+    default:
+        return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_INVALID_PARAMETERS};
     }
 }
 
 void MotorAxis_Init(void)
 {
-    s_status_revision = 0U;
-    MotorParameterTransaction_Init(&s_motor_configuration);
+    s_foc_state.bus_voltage_filter_alpha = 0.05f;
+    s_foc_state.bus_current_filter_alpha = 0.05f;
+    /* 固定启动暂存区；装载失败沿用默认值，不在栈上分配整份记录。 */
+    static InterfaceParam record;
+    if (BspFlash_Read(&record, sizeof(record)) == BSP_OK)
+    {
+        Param_Download(&record, sizeof(record), &s_motor_configuration);
+    }
+    else
+    {
+        Param_Return_Default(&s_motor_configuration);
+    }
     if (s_motor_configuration.configuration_source != MOTOR_CONFIGURATION_STORED)
     {
         s_motor_state.vq_target_v = 0.0f;
     }
-    if (!MotorThermalControl_Init(&s_motor_configuration.model.thermal, BspSystem_TimeMs()))
-    {
-        MotorFault_Report(&s_motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
-    }
-    s_motor_state.thermal_current_limit_a =
-        MotorThermalControl_CurrentLimit(s_motor_configuration.application.current_limit_a);
-    s_motor_state.thermal_clear_ready = MotorThermalControl_CanClearFault();
-    initialize_current_offsets();
-    MotorStateMachine_Init(&s_motor_configuration,
-                           &s_motor_state,
-                           &s_foc_state,
-                           &s_motor_measurement,
-                           &s_speed_pi,
-                           &s_rotor_encoder,
-                           &s_sensorless_startup);
-    Encoder_InitFeedback(&s_motor_configuration.device.encoder, &s_rotor_encoder);
+    MotorCurrentOffsets_Init(&s_current_offset_calibration,
+                             &s_motor_configuration,
+                             &s_foc_state,
+                             BSP_ENABLED_BUS_CURRENT != 0);
+    MotorLifecycle_Init(&s_motor_configuration,
+                        &s_motor_state,
+                        &s_foc_state,
+                        &s_speed_pi,
+                        &s_rotor_encoder,
+                        &s_sensorless_startup);
+    Encoder_InitFeedback(&s_motor_configuration.device.encoder,
+                         &s_motor_configuration.model.motor_pole_pairs,
+                         &s_motor_configuration.application.axis_profile,
+                         &s_motor_configuration.application.axis_profile_valid,
+                         &s_rotor_encoder);
 
     FluxObserver_Init(&s_flux_observer);
     SensorlessStartup_Reset(&s_sensorless_startup);
     Foc_ResetCurrent(&s_foc_state);
     PiController_Reset(&s_speed_pi);
-    configure_controllers();
-    update_current_controller_limits();
+    Foc_ConfigureControllers(&s_motor_configuration, &s_foc_state, &s_speed_pi);
+    Foc_UpdateCurrentLimits(&s_foc_state);
     s_speed_pi.output_min = -1.0f;
     s_speed_pi.output_max = 1.0f;
 
@@ -129,351 +108,115 @@ void MotorAxis_Init(void)
         PARAM_APP_POSITION_ERROR_WINDOW_RAD;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
     MotorOuterLoop_RequestReset();
+#if APP_ENABLE_MOTOR_BENCH
+    MotorBench_Init(
+        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
+#endif
 
-    /* 未配置轴记录的关节在启动后保持禁用。 */
-    /* 上电零点校正和基础自检只在关相状态推进，完成也不自动使能电机。 */
-    s_motor_state.control_mode = MOTOR_CONTROL_NONE;
+    /* 状态机初始化已禁用控制；无轴记录时继续锁存参数故障。 */
     if (!s_motor_configuration.application.axis_profile_valid)
     {
         MotorFault_Report(&s_motor_state, MOTOR_FAULT_INVALID_PARAMETERS);
     }
 }
 
-MotorControlMode MotorAxis_SupervisorTick(void)
+void MotorAxis_SupervisorTick(void)
 {
-    finalize_current_offsets();
-    /* ADC快环丢失时仍由监督关断；只发布时钟失效事件，不重置热历史。 */
-#if APP_ENABLED_WINDING_THERMAL_MODEL
-    if (!MotorThermalControl_CheckWatchdog(BspSystem_TimeMs(), BspPwm_ArePhasesDisabled()))
-    {
-        s_motor_state.thermal_current_limit_a = 0.0f;
-        s_motor_state.thermal_clear_ready = false;
-        MotorFault_Report(&s_motor_state, MOTOR_FAULT_WINDING_THERMAL);
-        MotorStateMachine_FastFaultStop();
-    }
-#endif
-    /* 1. 编码器慢估计：多圈/机械角/速度是慢状态唯一写者。 */
-    Encoder_UpdateSlowEstimate(&s_motor_configuration, &s_rotor_encoder);
-
-    /* 2. 本拍温度事实先发布，状态/故障在正常控制计算前处理。 */
-    McuTemperature_Update(&s_motor_measurement, &s_motor_state);
-    MotorSupervisorStep step;
-    if (MotorStateMachine_PrepareSupervisor(&step))
-    {
-        /* 算法及求值顺序不变；结果和PI仅写入本拍副本。 */
-        MotorOuterLoop_SlowTick(
-            &s_motor_configuration, &step.motor, &step.speed_pi, &s_rotor_encoder);
-        step.calculated = true;
-    }
-    /* 3. 重读故障/STOP/代际及ready，最后才提交引用和启相。 */
-    MotorStateMachine_CommitSupervisor(&step);
-    ++s_status_revision;
-    return s_motor_state.control_mode;
-}
-/* 热采样使用本拍实际三相电流；限流只是运行快照，绝不覆盖活动参数。 */
-static void update_winding_thermal(void)
-{
-    bool outputs_disabled = BspPwm_ArePhasesDisabled();
-#if APP_ENABLED_WINDING_THERMAL_MODEL
-    if (s_current_offset_calibration.complete)
-    {
-        MotorThermalControl_Sample(s_motor_measurement.phase_a_current_a,
-                                   s_motor_measurement.phase_b_current_a,
-                                   s_motor_measurement.phase_c_current_a,
-                                   outputs_disabled,
-                                   BspSystem_TimeMs());
-    }
-    MotorMaintenanceKind kind = MotorStateMachine_GetMaintenanceKind();
-    bool calibration =
-        kind == MOTOR_MAINTENANCE_ENCODER_LUT || kind == MOTOR_MAINTENANCE_ELECTRICAL_ZERO;
-    bool derating_allowed = !calibration && !MotorControlMode_IsVoltage(s_motor_state.control_mode);
-    /* 保留原短路条件：模型允许时才查询功率事实；额外CanRun只读，不推进热历史。 */
-    bool output_expected = s_current_offset_calibration.complete &&
-                           MotorThermalControl_CanRun(true) && MotorStateMachine_OutputExpected();
-    MotorThermalControl_UpdateProtection(&s_motor_configuration,
-                                         &s_motor_measurement,
-                                         &s_motor_state,
-                                         s_current_offset_calibration.complete,
-                                         outputs_disabled,
-                                         output_expected,
-                                         derating_allowed);
-#else
-    MotorThermalControl_UpdateProtection(&s_motor_configuration,
-                                         &s_motor_measurement,
-                                         &s_motor_state,
-                                         s_current_offset_calibration.complete,
-                                         outputs_disabled,
-                                         false,
-                                         false);
-#endif
+    Encoder_UpdateSlowEstimate(&s_rotor_encoder);
+    McuTemperature_Update(&s_foc_state, &s_motor_state);
+    MotorLifecycle_SupervisorTick();
 }
 
 void MotorAxis_FastTick(void)
 {
-    /* 1. 取得本拍编码器事务，底层传输与后续计算重叠。 */
-
+    /* 编码器传输与采样和观测器计算重叠。 */
     BspEncoder_Begin();
 
-    /* 2. 读取电压和三相电流，测量模块只消费数值。 */
-    float phase_current_a[3] = {NAN, NAN, NAN};
-    float bus_voltage_v = NAN;
-    bus_voltage_v = BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE);
-    for (unsigned phase = 0U; phase < 3U; ++phase)
+    MotorVoltage_Update(&s_foc_state);
+    Foc_UpdateCurrentLimits(&s_foc_state);
+    /* 自检暂未实现；上电零偏采样在空闲且输出关闭时继续完成。 */
+    if (MotorLifecycle_GetState() == MOTOR_STATE_IDLE)
     {
-        phase_current_a[phase] =
-            BspAdc_ReadChannel((BspAdcChannel)(BSP_ADC_PHASE_CURRENT_A + phase));
+        (void)MotorCurrentOffsets_Calibrate(
+            &s_current_offset_calibration, &s_motor_configuration, &s_motor_state);
     }
-    MotorVoltage_Update(&s_motor_measurement, bus_voltage_v);
-    update_current_controller_limits();
-    sample_phase_currents(phase_current_a);
-    update_winding_thermal();
+    if (s_current_offset_calibration.complete)
+    {
+        MotorCurrent_Update(&s_foc_state);
+    }
 
-    /* 3. 读回与热保护/观测器计算重叠，之后完成角度更新；位置模式跳过观测器。 */
+    Clarke_Transform(&s_foc_state.phase_current_a, &s_foc_state.current_ab_a);
+
+    /* 位置模式跳过观测器，随后完成编码器角度更新。 */
     if (s_current_offset_calibration.complete &&
         s_motor_state.control_mode != MOTOR_CONTROL_POSITION)
     {
-        /* 本拍电流配上一拍调制量；观测器只接收αβ物理量。 */
-        Clarke_Transform(s_motor_measurement.phase_a_current_a,
-                         s_motor_measurement.phase_b_current_a,
-                         s_motor_measurement.phase_c_current_a,
-                         &s_foc_state.current_alpha_a,
-                         &s_foc_state.current_beta_a);
-        float modulation_to_voltage_v = s_motor_measurement.bus_voltage_filtered_v / 1.5f;
+        float modulation_to_voltage_v = s_foc_state.bus_voltage_filtered_v / 1.5f;
+        const AlphaBetaVector voltage_ab_v = {s_foc_state.mod_ab.alpha * modulation_to_voltage_v,
+                                              s_foc_state.mod_ab.beta * modulation_to_voltage_v};
         FluxObserver_Update(&s_motor_configuration.model,
-                            s_foc_state.current_alpha_a,
-                            s_foc_state.current_beta_a,
-                            s_foc_state.mod_alpha * modulation_to_voltage_v,
-                            s_foc_state.mod_beta * modulation_to_voltage_v,
+                            &s_foc_state.current_ab_a,
+                            &voltage_ab_v,
                             &s_flux_observer);
     }
 
-    /* SAVE可能暂停采样，重建测速以免将停顿中的位移按50us换算。 */
-    if (MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_SAVE)
-    {
-        Encoder_ResetVelocity(&s_rotor_encoder);
-    }
-    Encoder_Update(&s_motor_configuration, &s_rotor_encoder);
+    Encoder_Update(&s_rotor_encoder);
 
-    /* 4. 先完成编码器事务，再检查故障并立即关断。 */
-    MotorStateMachine_CheckFastFaults();
-    MotorStateMachine_FastFaultStop();
-    MotorStateMachine_BeginFastTick();
+    /* 先完成编码器事务，再检查故障并处理本拍启相。 */
+#if APP_ENABLE_MOTOR_BENCH
+    MotorBench_BeforeControl();
+#endif
+    MotorLifecycle_BeginFastTick();
 
-    /* 5. 执行前捕获代际和维护许可，分发维护、控制或空闲预载。 */
-    uint32_t work_epoch = MotorStateMachine_WorkEpoch();
-    bool maintenance_runnable = MotorStateMachine_MaintenanceRunnable();
+    /* 捕获本拍代际；标定和正常控制互斥执行。 */
+    uint32_t work_epoch = MotorLifecycle_WorkEpoch();
     MotorTaskResult outcome = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
-    MotorState state;
-    if (!s_current_offset_calibration.complete || s_motor_state.fault_code != MOTOR_FAULT_NONE)
+    if (s_current_offset_calibration.complete && s_motor_state.fault_code == MOTOR_FAULT_NONE)
     {
-        goto publish;
-    }
-    if (maintenance_runnable)
-    {
-        outcome = MotorMaintenance_Step(&s_motor_configuration,
-                                        MotorStateMachine_GetMaintenanceKind(),
+        MotorState state = MotorLifecycle_GetState();
+        if (state == MOTOR_STATE_CALIBRATION && MotorLifecycle_IsCalibrationRunnable())
+        {
+            outcome = run_active_calibration_cycle();
+        }
+        else if (state == MOTOR_STATE_RUNNING)
+        {
+            outcome = MotorControl_Step(&s_motor_configuration,
                                         &s_foc_state,
-                                        &s_motor_measurement,
                                         &s_motor_state,
-                                        &s_speed_pi,
                                         &s_rotor_encoder,
-                                        &s_flux_observer,
-                                        &s_sensorless_startup);
-        goto publish;
-    }
-    state = MotorStateMachine_GetState();
-    if (state != MOTOR_STATE_STARTING && state != MOTOR_STATE_RUNNING)
-    {
-        BspPwm_SetDuty(0.5f, 0.5f, 0.5f);
-        goto publish;
-    }
-    /* 普通路径只有模式选择和一条共用FOC，不进入维护/生命周期分发。 */
-    outcome = MotorControl_Step(&s_motor_configuration,
-                                &s_foc_state,
-                                &s_motor_measurement,
-                                &s_motor_state,
-                                &s_rotor_encoder,
-                                &s_flux_observer);
-
-publish:
-    /* 6. 发布维护修订和任务结果，再关断本拍执行中新产生的故障。 */
-    if (maintenance_runnable && s_motor_state.fault_code == MOTOR_FAULT_NONE &&
-        outcome.result == MOTOR_TASK_COMPLETED)
-    {
-        if (MotorStateMachine_GetMaintenanceKind() == MOTOR_MAINTENANCE_DEFAULTS)
-        {
-            configure_controllers();
-        }
-        MotorParameterTransaction_AdvanceMaintenanceRevision(work_epoch);
-    }
-    MotorStateMachine_PostOutcome(outcome, work_epoch);
-    MotorStateMachine_FastFaultStop();
-    ++s_status_revision;
-}
-
-static MotorState read_status_snapshot(MotorStatus *sample,
-                                       uint8_t *valid_bits,
-                                       MotorMaintenanceKind *maintenance_kind,
-                                       MotorControlProgress *control_progress)
-{
-    sample->fault = (uint16_t)s_motor_state.fault_code;
-    sample->mode = (uint16_t)s_motor_state.control_mode;
-    sample->position_target = s_motor_state.position_target_rad;
-    sample->position_feedback = Encoder_GetMechPos(&s_rotor_encoder);
-    sample->speed_target = s_motor_state.speed_target_rad_s;
-    sample->speed_feedback_rad_s = (s_motor_state.control_mode == MOTOR_CONTROL_POSITION)
-                                       ? s_motor_state.position_velocity_filtered_rad_s
-                                       : Encoder_GetMechVel(&s_rotor_encoder);
-    sample->current_reference = s_motor_state.iq_target_a;
-    sample->current_feedback = s_foc_state.iq_a;
-    sample->temperature = s_motor_measurement.temperature_c;
-    sample->bus_voltage = s_motor_measurement.bus_voltage_filtered_v;
-    sample->bus_current = s_foc_state.bus_current_filtered_a;
-    sample->position_planned = NAN;
-    sample->speed_planned = NAN;
-    *valid_bits = 0x54U;
-    if (s_motor_configuration.application.axis_profile_valid &&
-        Encoder_IsOnline(&s_rotor_encoder) &&
-        Encoder_GetCalibrationFlag(&s_motor_configuration.device.encoder) != 0U)
-    {
-        *valid_bits |= 0x03U;
-    }
-    if (McuTemperature_IsFresh())
-    {
-        *valid_bits |= 0x20U;
-    }
-    *maintenance_kind = MotorStateMachine_GetMaintenanceKind();
-    MotorStateMachine_ReadControlProgress(control_progress);
-    MotorState state = MotorStateMachine_GetState();
-    return state;
-}
-
-MotorState MotorAxis_ReadStatus(MotorStatus *sample,
-                                uint8_t *valid_bits,
-                                MotorMaintenanceKind *maintenance_kind,
-                                MotorControlProgress *control_progress)
-{
-    /* 锁只保护版本观察并约束编译器顺序，采集期间允许ISR完整发布下一版。 */
-    for (unsigned attempt = 0U; attempt < 3U; ++attempt)
-    {
-        uint32_t key = BspSystem_EnterControlCritical();
-        uint32_t revision = s_status_revision;
-        BspSystem_ExitControlCritical(key);
-        MotorState state =
-            read_status_snapshot(sample, valid_bits, maintenance_kind, control_progress);
-        key = BspSystem_EnterControlCritical();
-        bool coherent = revision == s_status_revision;
-        BspSystem_ExitControlCritical(key);
-        if (coherent)
-        {
-            return state;
-        }
-    }
-    /* 持续抢占时不冒充一致测量，也不阻塞快环；主机通过有效位识别本帧。 */
-    *valid_bits = 0U;
-    return MotorStateMachine_GetState();
-}
-
-void MotorAxis_ServiceBackground(void)
-{
-    FocBackgroundClaim claim;
-    if (!MotorStateMachine_BeginBackground(&claim))
-    {
-        return;
-    }
-    if (claim.kind == FOC_BACKGROUND_LUT_PUBLISH)
-    {
-        /* 关相后原子发布，避免快环读取半张表；STOP/故障先于写入复核。 */
-        uint32_t mask = BspSystem_EnterControlCritical();
-        bool published = MotorStateMachine_BackgroundValid(&claim) &&
-                         MotorMaintenance_PublishLut(&s_motor_configuration, &s_rotor_encoder);
-        if (published)
-        {
-            MotorParameterTransaction_AdvanceMaintenanceRevision(claim.epoch);
+                                        &s_flux_observer);
         }
         else
         {
-            MotorMaintenance_Cancel(MOTOR_MAINTENANCE_ENCODER_LUT);
+            BspPwm_SetDuty(0.5f, 0.5f, 0.5f);
         }
-        MotorStateMachine_FinishBackground(&claim, published);
-        BspSystem_ExitControlCritical(mask);
-        return;
     }
-    bool success = false;
-    if (claim.kind == FOC_BACKGROUND_SAVE)
-    {
-        success = MotorParameterTransaction_SaveRecord(&s_motor_configuration, &claim);
-    }
-    uint32_t mask = BspSystem_EnterControlCritical();
-    bool current = MotorStateMachine_BackgroundValid(&claim);
-    MotorStateMachine_FinishBackground(&claim, success);
-    if (claim.kind == FOC_BACKGROUND_SAVE)
-    {
-        MotorParameterTransaction_FinishSave(claim.epoch, current, success);
-    }
-    BspSystem_ExitControlCritical(mask);
-}
 
-/* 外部参数入口保留；事务状态与资格判断仅由参数事务模块推进。 */
-ParameterStatus MotorAxis_ReadParameter(const ParameterReadRequest *request, ParameterValue *value)
-{
-    return MotorParameterTransaction_Read(&s_motor_configuration, request, value);
-}
-
-ParameterStatus MotorAxis_WriteParameter(const ParameterWriteRequest *request,
-                                         ParameterValue *applied)
-{
-    uint32_t mask = BspSystem_EnterControlCritical();
-    ParameterStatus result = MotorParameterTransaction_Write(
-        &s_motor_configuration, &s_motor_state, &s_foc_state, &s_speed_pi, request, applied);
-    if (result == PARAMETER_OK)
-    {
-        configure_controllers();
-    }
-    BspSystem_ExitControlCritical(mask);
-    return result;
-}
-
-ParameterStatus MotorAxis_RequestSave(const ParameterSaveRequest *request, uint32_t *ticket)
-{
-    return MotorParameterTransaction_RequestSave(request, ticket);
-}
-
-ParameterStatus MotorAxis_PollSave(uint32_t ticket, uint32_t *persisted_revision)
-{
-    return MotorParameterTransaction_PollSave(ticket, persisted_revision);
-}
-
-bool MotorAxis_SaveIdle(void)
-{
-    return MotorParameterTransaction_SaveIdle();
-}
-
-bool MotorAxis_ConfigurationRevisionAvailable(void)
-{
-    return MotorParameterTransaction_RevisionAvailable();
-}
-
-void MotorAxis_ServiceFastDiagnostics(uint32_t fast_samples)
-{
-#if APP_PWM_WINDOWED
-    if (g_pwm_power_window.state == PWM_POWER_ACTIVE &&
-        fabsf(s_rotor_encoder.mechanical_velocity_continuous_rad_s) > 60.0f)
-    {
-        PwmPowerWindow_Abort();
-        BspPwm_Disable();
-    }
+    /* 所有分支统一发布，再关断本拍新产生的故障。 */
+    MotorLifecycle_PostOutcome(outcome, work_epoch);
+#if APP_ENABLE_MOTOR_BENCH
+    MotorBench_AfterControl(outcome);
 #endif
-#if APP_ENABLED_DIAGNOSTIC_TELEMETRY
-    AT32AppTelemetry_Capture(fast_samples,
-                             &s_foc_state,
-                             &s_motor_measurement,
-                             &s_motor_state,
-                             &s_rotor_encoder,
-                             MotorStateMachine_GetState(),
-                             s_motor_configuration.device.encoder.calib_flag,
-                             MotorStateMachine_GetMaintenanceKind());
-#else
-    (void)fast_samples;
+}
+
+void MotorAxis_ProcessCalibrationPublication(void)
+{
+    /* 与候选发布共用最终临界区；STOP或故障到达后不能发布旧会话。 */
+    uint32_t interrupt_mask = BspSystem_EnterCritical();
+    uint32_t calibration_epoch;
+    if (MotorLifecycle_ReadPendingCalibrationPublication(&calibration_epoch))
+    {
+        bool publication_succeeded = EncoderCalibrationTask_PublishLut(
+            &s_motor_configuration.device.encoder, &s_rotor_encoder);
+        MotorLifecycle_CompleteCalibrationPublication(calibration_epoch, publication_succeeded);
+#if APP_ENABLE_MOTOR_BENCH
+        MotorBench_CalibrationPublished(publication_succeeded);
 #endif
+    }
+    BspSystem_ExitCritical(interrupt_mask);
+}
+
+uint8_t MotorAxis_NodeId(void)
+{
+    return s_motor_configuration.device.node_id;
 }

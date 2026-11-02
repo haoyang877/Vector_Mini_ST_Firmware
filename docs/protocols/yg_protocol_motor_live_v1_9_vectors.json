@@ -1,0 +1,20 @@
+{
+  "version": "1.9",
+  "byte_order": "little",
+  "vectors": [
+    {
+      "name": "current_target_250mA",
+      "request_type": 116,
+      "request_payload_hex": "010000000000000000000000fa00000000000000",
+      "reply_payload_hex": "00000000"
+    },
+    {
+      "name": "live_current_feedback",
+      "payload_hex": "00007b0000000000000000801efbffff00000080c4090000fa0dea0b7d0006ff07fff609008024fa3f00010601"
+    },
+    {
+      "name": "caps",
+      "payload_hex": "001d00004e0640002e00000000000000"
+    }
+  ]
+}

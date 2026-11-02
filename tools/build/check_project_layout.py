@@ -107,14 +107,24 @@ def check_project(project):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")
+    parser.add_argument("--all", action="store_true", help="核对全部 APP、Loader 和台架工程")
     args = parser.parse_args()
+    if args.all and args.target:
+        parser.error("--all 与 --target 不能同时使用")
     profile = load_target(args.target)
     build = profile["build"]
     failed = False
-    for relative in dict.fromkeys(
-        (build["template"], build["loader_project"], build["app_project"])
-    ):
-        project = repository_path(ROOT, relative)
+    projects = (
+        sorted({*ROOT.glob("projects/**/*.uvprojx"), *ROOT.glob("loader/**/*.uvprojx")})
+        if args.all
+        else [
+            repository_path(ROOT, relative)
+            for relative in dict.fromkeys(
+                (build["template"], build["loader_project"], build["app_project"])
+            )
+        ]
+    )
+    for project in projects:
         name = project.stem
         errors, sources, includes = check_project(project)
         for error in errors:

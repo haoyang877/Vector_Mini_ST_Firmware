@@ -11,6 +11,15 @@ static void startup_failed(void)
     }
 }
 
+/**
+ * @brief ADC采样完成后执行应用快环。
+ * @note 由MCU在ADC中断上下文调用。
+ */
+void BspApp_OnFastSample(void)
+{
+    App_FastTick();
+}
+
 int main(void)
 {
     if (Bsp_Init() != BSP_OK)

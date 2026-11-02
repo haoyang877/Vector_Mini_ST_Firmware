@@ -3,4 +3,5 @@
 from _core_outer_checks import main
 
 if __name__ == "__main__":
-    main("runtime")
+    for case in ("configuration", "validation", "runtime"):
+        main(case)

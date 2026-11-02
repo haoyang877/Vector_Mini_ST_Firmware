@@ -6,7 +6,6 @@
 /* 唯一PWM提交入口；先计算，再提交，再更新诊断和积分跟踪。 */
 void Foc_Step(const MotorConfiguration *configuration,
               FocState *foc,
-              const MotorMeasurement *measurement,
               MotorControlState *motor,
               FocControlLaw law,
               float phase,
@@ -14,33 +13,23 @@ void Foc_Step(const MotorConfiguration *configuration,
               float d_reference,
               float q_reference)
 {
-    if (!Foc_Prepare(configuration,
-                     foc,
-                     measurement,
-                     motor,
-                     law,
-                     phase,
-                     phase_vel,
-                     d_reference,
-                     q_reference))
+    if (!Foc_Prepare(configuration, foc, motor, law, phase, phase_vel, d_reference, q_reference))
     {
         return;
     }
-    BspPwm_SetDuty(foc->duty_a, foc->duty_b, foc->duty_c);
-    Foc_Complete(foc, measurement, law);
+    BspPwm_SetDuty(foc->duty_abc.a, foc->duty_abc.b, foc->duty_abc.c);
+    Foc_Complete(foc, law);
 }
 
 /* 标定和台架兼容入口只绑定策略与参考，不再分别实现一套FOC。 */
 void Foc_RunCurrent(const MotorConfiguration *configuration,
                     FocState *foc,
-                    const MotorMeasurement *measurement,
                     MotorControlState *motor_state,
                     float phase,
                     float phase_vel)
 {
     Foc_Step(configuration,
              foc,
-             measurement,
              motor_state,
              FOC_CONTROL_CURRENT,
              phase,
@@ -51,7 +40,6 @@ void Foc_RunCurrent(const MotorConfiguration *configuration,
 
 void Foc_RunCurrentRef(const MotorConfiguration *configuration,
                        FocState *foc,
-                       const MotorMeasurement *measurement,
                        MotorControlState *motor_state,
                        float phase,
                        float phase_vel,
@@ -59,7 +47,6 @@ void Foc_RunCurrentRef(const MotorConfiguration *configuration,
 {
     Foc_Step(configuration,
              foc,
-             measurement,
              motor_state,
              FOC_CONTROL_CURRENT,
              phase,
@@ -70,14 +57,12 @@ void Foc_RunCurrentRef(const MotorConfiguration *configuration,
 
 void Foc_RunVq(const MotorConfiguration *configuration,
                FocState *foc,
-               const MotorMeasurement *measurement,
                MotorControlState *motor_state,
                float phase,
                float phase_vel)
 {
     Foc_Step(configuration,
              foc,
-             measurement,
              motor_state,
              FOC_CONTROL_ID_VQ,
              phase,

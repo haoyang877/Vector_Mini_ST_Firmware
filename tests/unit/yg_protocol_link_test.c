@@ -20,68 +20,43 @@ static bool tx_blocked;
 static BspCanFrame injected_frame;
 static bool inject_on_unlock;
 static bool inject_on_consume;
-static uint16_t sent_sequences[32];
+static uint16_t sent_sequences[128];
 static size_t sent_count;
 static unsigned can_starts;
-static unsigned bus_off_services;
 static yg_protocol_motor_operation_t power_operation;
 
 static bool tracked_allowed;
-static uint64_t tracked_ticket;
-static bool completion_pending;
-static BspCanCompletion pending_completion;
+static bool hardware_busy, hardware_complete;
 static unsigned boot_completion_calls;
 static bool boot_completion_success;
 static unsigned rx_reads;
 static unsigned rx_remaining;
 
 /* 直接验证迁入 link 的中断入口，FIFO 替身不接触硬件。 */
-BspResult BspCan_Receive(BspCanFrame *frame)
+bool BspCan_Receive(BspCanFrame *frame)
 {
     ++rx_reads;
     if (rx_remaining == 0U)
     {
-        return BSP_NOT_READY;
+        return false;
     }
     --rx_remaining;
     *frame = injected_frame;
-    return BSP_OK;
+    return true;
 }
 
-/* 只有交接夹具允许跟踪发送；完成事件由测试显式注入，普通回复仍走普通发送口。 */
-BspResult BspCan_TrySendTracked(const BspCanFrame *frame, uint64_t ticket)
+/* 单帧硬件完成标志由夹具注入；事务关联由真实link拥有。 */
+bool BspCan_IsTransmitBusy(void)
 {
-    assert(tracked_allowed && ticket != 0U);
-    if (BspCan_TrySend(frame) != BSP_OK)
-    {
-        return BSP_NOT_READY;
-    }
-    tracked_ticket = ticket;
-    return BSP_OK;
+    return hardware_busy;
 }
-
-BspResult BspCan_TakeCompletion(BspCanCompletion *completion)
+bool BspCan_IsTransmitComplete(void)
 {
-    if (!completion_pending)
-    {
-        return BSP_NOT_READY;
-    }
-    *completion = pending_completion;
-    completion_pending = false;
-    return BSP_OK;
+    return !hardware_busy && hardware_complete;
 }
-
-/* 运行时测试用的硬件替身：只计数，不接触真实外设。 */
-BspResult BspCan_Start(void)
+void BspCan_Start(void)
 {
     ++can_starts;
-    return BSP_OK;
-}
-
-BspResult BspCan_Recover(void)
-{
-    ++bus_off_services;
-    return BSP_OK;
 }
 
 uint32_t BspSystem_EnterCritical(void)
@@ -119,18 +94,23 @@ void BspSystem_MemoryBarrier(void)
 }
 
 /* 替代平台发送口，验证链路只读请求的编码、路由与响应，不接触真实 CAN 或电机。 */
-BspResult BspCan_TrySend(const BspCanFrame *frame)
+bool BspCan_TrySend(const BspCanFrame *frame)
 {
     assert(irq_mask == 0U);
-    if (frame == NULL || sent || tx_blocked)
+    if (frame == NULL || sent || tx_blocked || hardware_busy)
     {
-        return BSP_NOT_READY;
+        return false;
     }
     sent_frame = *frame;
+    if (tracked_allowed && frame->data[6] == YG_PROTOCOL_BOOT_TYPE_ENTER)
+    {
+        hardware_busy = true;
+        hardware_complete = false;
+    }
     sent = true;
     assert(sent_count < sizeof(sent_sequences) / sizeof(sent_sequences[0]));
     sent_sequences[sent_count++] = (uint16_t)frame->data[8] | ((uint16_t)frame->data[9] << 8U);
-    return BSP_OK;
+    return true;
 }
 
 static void motor_handler(void *context,
@@ -142,17 +122,6 @@ static void motor_handler(void *context,
     assert(request->operation == YG_PROTOCOL_MOTOR_STOP);
     ++motor_calls;
     reply->status = YG_PROTOCOL_SERVICE_OK;
-}
-
-static void control_handler(void *context,
-                            const yg_protocol_motor_request_t *request,
-                            yg_protocol_service_reply_t *reply)
-{
-    (void)context;
-    assert(request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL && request->mode == 3U &&
-           request->position_mrad == 1000);
-    ++motor_calls;
-    reply->status = YG_PROTOCOL_SERVICE_ACCEPTED;
 }
 
 /* 在发送持续忙时填满 TX，随后恢复发送：命令不得执行两次或乱序丢失。 */
@@ -316,47 +285,6 @@ static void control_reply_and_feedback(void)
            response.payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE &&
            response.payload[0] == 2U && response.payload[2] == 41U && response.payload[42] == 7U);
     assert(response.payload[24] == 0U && response.payload[25] == 0U);
-
-    /* 同序号重传重发回复与反馈，但不得再次提交目标。 */
-    {
-        yg_protocol_motor_service_t service = {NULL, control_handler};
-        yg_protocol_motor_status_source_t source = {
-            .control_progress = {.state = MOTOR_CONTROL_PROGRESS_PENDING,
-                                 .result = MOTOR_CONTROL_ACCEPTED,
-                                 .source_node = 2U,
-                                 .sequence = 41U}};
-        assert(YgProtocolLink_Init(7U));
-        assert(YgProtocolLink_BindMotorService(&service));
-        assert(YgProtocolLink_BindMotorStatusSource(&source));
-        motor_calls = 0U;
-        sent = false;
-        assert(YgProtocolLink_OnRxFrame(&received));
-        YgProtocolLink_Service(3U);
-        assert(motor_calls == 1U);
-        assert(sent && sent_frame.data[6] == YG_PROTOCOL_MOTOR_TYPE_CONTROL &&
-               sent_frame.data[16] == 1U);
-        sent = false;
-        YgProtocolLink_Service(4U);
-        assert(!sent); /* ACK 已受理，所有者尚未应用，不提前发送成功反馈。 */
-        source.control_progress.state = MOTOR_CONTROL_PROGRESS_APPLIED;
-        YgProtocolLink_Service(5U);
-        assert(sent && sent_frame.data[6] == YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK &&
-               sent_frame.data[16] == 0U && sent_frame.data[18] == 41U);
-        sent = false;
-        request.flags |= YG_PROTOCOL_FLAGS_RETRY;
-        assert(yg_protocol_canfd_pack(&request, 2U, &packed) == YG_PROTOCOL_OK);
-        received.length = packed.length;
-        memcpy(received.data, packed.data, packed.length);
-        assert(YgProtocolLink_OnRxFrame(&received));
-        YgProtocolLink_Service(6U);
-        assert(motor_calls == 1U);
-        assert(sent && sent_frame.data[6] == YG_PROTOCOL_MOTOR_TYPE_CONTROL &&
-               sent_frame.data[16] == 1U && sent_frame.data[18] == 0U);
-        sent = false;
-        YgProtocolLink_Service(7U);
-        assert(sent && sent_frame.data[6] == YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK &&
-               sent_frame.data[16] == 0U && sent_frame.data[18] == 41U);
-    }
 }
 
 static void enable_route(void)
@@ -413,21 +341,10 @@ static void enqueue_request(const yg_protocol_message_t *request)
     assert(YgProtocolLink_OnRxFrame(&received));
 }
 
-static void completed_control_handler(void *context,
-                                      const yg_protocol_motor_request_t *request,
-                                      yg_protocol_service_reply_t *reply)
-{
-    (void)context;
-    assert(request->operation == YG_PROTOCOL_MOTOR_SET_CONTROL);
-    ++motor_calls;
-    reply->status = YG_PROTOCOL_SERVICE_OK;
-}
-
 /* 历史槽覆盖后旧序号只能拒绝；仍在窗口内的重发须重放原结果。 */
-static void control_history_window(void)
+static void unsupported_control_requests(void)
 {
     uint8_t payload[YG_PROTOCOL_MOTOR_CONTROL_REQUEST_SIZE] = {3U, 0U, 0U, 0U, 0xE8U, 0x03U};
-    yg_protocol_motor_service_t service = {NULL, completed_control_handler};
     yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
                                      .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
                                      .source_node = 2U,
@@ -436,40 +353,19 @@ static void control_history_window(void)
                                      .payload_length = sizeof(payload),
                                      .payload = payload};
     assert(YgProtocolLink_Init(7U));
-    assert(YgProtocolLink_BindMotorService(&service));
-    motor_calls = 0U;
-    tx_blocked = false;
-    for (uint16_t index = 0U; index <= 32U; ++index)
+    sent_count = 0U;
+    for (uint16_t index = 0U; index < 35U; ++index)
     {
-        request.sequence = (uint16_t)(100U + index);
+        request.sequence = (uint16_t)(100U + index % 33U);
         sent = false;
-        sent_count = 0U;
         enqueue_request(&request);
         YgProtocolLink_Service((uint32_t)index * 2U);
-        assert(sent && sent_frame.data[16] == YG_PROTOCOL_SERVICE_OK);
+        assert(sent && sent_frame.data[16] == 2U);
         sent = false;
         YgProtocolLink_Service((uint32_t)index * 2U + 1U);
-        assert(sent);
+        assert(sent && sent_frame.data[6] == YG_PROTOCOL_READONLY_TYPE_MOTION_FEEDBACK &&
+               sent_frame.data[16] == 2U);
     }
-    assert(motor_calls == 33U);
-
-    request.sequence = 100U;
-    sent = false;
-    sent_count = 0U;
-    enqueue_request(&request);
-    YgProtocolLink_Service(100U);
-    assert(sent && sent_frame.data[16] == 4U);
-    assert(motor_calls == 33U);
-    sent = false;
-    YgProtocolLink_Service(101U);
-
-    request.sequence = 132U;
-    sent = false;
-    sent_count = 0U;
-    enqueue_request(&request);
-    YgProtocolLink_Service(102U);
-    assert(sent && sent_frame.data[16] == YG_PROTOCOL_SERVICE_OK);
-    assert(motor_calls == 33U);
 }
 
 static void start_handler(void *context,
@@ -762,7 +658,7 @@ static void runtime_start_boundary(void)
                                   .message_type = YG_PROTOCOL_MOTOR_TYPE_STOP,
                                   .sequence = 200U};
     YgProtocolRuntime_Service(1000U);
-    assert(can_starts == 0U && bus_off_services == 0U);
+    assert(can_starts == 0U);
     assert(!YgProtocolRuntime_Init(255U));
     assert(can_starts == 0U && !YgProtocolLink_IsReady());
     assert(YgProtocolRuntime_Init(1U));
@@ -771,19 +667,19 @@ static void runtime_start_boundary(void)
     sent = false;
     sent_count = 0U;
     YgProtocolRuntime_Service(999U);
-    assert(can_starts == 0U && bus_off_services == 0U && !sent);
+    assert(can_starts == 0U && !sent);
     assert(YgProtocolRuntime_Start());
     assert(YgProtocolRuntime_Start());
     YgProtocolRuntime_Service(999U);
-    assert(can_starts == 1U && bus_off_services == 0U && sent);
+    assert(can_starts == 1U && sent);
     /* 重新初始化撤销旧服务；仍从冻结的节点 1 返回未绑定结果。 */
     assert(sent_frame.data[4] == 1U && sent_frame.data[16] == 2U);
     sent = false;
     YgProtocolRuntime_Service(1000U);
     YgProtocolRuntime_Service(1999U);
-    assert(bus_off_services == 1U);
+    assert(can_starts == 1U);
     YgProtocolRuntime_Service(2000U);
-    assert(bus_off_services == 2U);
+    assert(can_starts == 1U);
 
     /* attempt-10实际Type1/seq12原始帧；只替换硬件端口，不以pack重建请求。 */
     const BspCanFrame captured = {.identifier = 0x0CEF0102U,
@@ -803,7 +699,7 @@ static void runtime_start_boundary(void)
     sent_count = 0U;
     assert(YgProtocolLink_OnRxFrame(&captured));
     YgProtocolRuntime_Service(2001U);
-    assert(sent && sent_count == 1U && can_starts == 1U && bus_off_services == 2U);
+    assert(sent && sent_count == 1U && can_starts == 1U);
     yg_protocol_transfer_frame_t response_frame = {.identifier = sent_frame.identifier,
                                                    .length = sent_frame.length,
                                                    .extended = sent_frame.extended,
@@ -858,8 +754,7 @@ static void boot_ready_queue_contract(void)
         assert(YgProtocolLink_BindMotorService(&motor_service));
         assert(YgProtocolLink_BindBootService(&boot_service));
         tracked_allowed = true;
-        tracked_ticket = 0U;
-        completion_pending = false;
+        hardware_busy = hardware_complete = false;
         boot_completion_calls = sent_count = 0U;
         tx_blocked = false;
         /* 先移动读写位置到末尾，让后续四条回复跨过环形边界。 */
@@ -886,7 +781,7 @@ static void boot_ready_queue_contract(void)
             enqueue_request(&request);
         }
         YgProtocolLink_Service(10U);
-        assert(boot_completion_calls == 0U && tracked_ticket == 0U);
+        assert(boot_completion_calls == 0U && !hardware_busy);
         if (scenario == 1U)
         {
             YgProtocolLink_Service(110U);
@@ -899,15 +794,13 @@ static void boot_ready_queue_contract(void)
             YgProtocolLink_Service((scenario == 1U ? 111U : 11U) + i);
             if (scenario != 1U && i == 2U)
             {
-                assert(tracked_ticket == 9U && boot_completion_calls == 0U);
-                /* 旧事务完成不得消费当前票据。 */
-                pending_completion = (BspCanCompletion){.ticket = 8U, .result = BSP_CAN_TX_OK};
-                completion_pending = true;
+                assert(hardware_busy && boot_completion_calls == 0U);
+                /* 查询未完成硬件不得消费票据，也不得发送后续普通帧。 */
+                size_t before = sent_count;
                 YgProtocolLink_Service(15U);
-                assert(boot_completion_calls == 0U);
-                pending_completion = (BspCanCompletion){
-                    .ticket = 9U, .result = scenario == 0U ? BSP_CAN_TX_OK : BSP_CAN_TX_ERROR};
-                completion_pending = true;
+                assert(boot_completion_calls == 0U && sent_count == before);
+                hardware_busy = false;
+                hardware_complete = scenario == 0U;
                 YgProtocolLink_Service(16U);
                 assert(boot_completion_calls == 1U && boot_completion_success == (scenario == 0U));
             }
@@ -923,6 +816,37 @@ static void boot_ready_queue_contract(void)
     }
     tracked_allowed = false;
 }
+/* 在途硬件一直忙时按应用期限失败；晚到完成不能重复消费事务。 */
+static void boot_inflight_deadline(void)
+{
+    const BootEntryService service = {NULL, ready_boot_request, ready_boot_complete, NULL};
+    uint8_t nonce[8] = {9U};
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = 2U,
+                                     .destination_node = 7U,
+                                     .message_type = YG_PROTOCOL_BOOT_TYPE_ENTER,
+                                     .payload = nonce,
+                                     .payload_length = sizeof(nonce)};
+    assert(YgProtocolLink_Init(7U));
+    assert(YgProtocolLink_BindBootService(&service));
+    tracked_allowed = true;
+    sent = tx_blocked = hardware_busy = hardware_complete = false;
+    boot_completion_calls = sent_count = 0U;
+    enqueue_request(&request);
+    YgProtocolLink_Service(10U);
+    assert(sent_count == 1U && hardware_busy && boot_completion_calls == 0U);
+    YgProtocolLink_Service(109U);
+    assert(boot_completion_calls == 0U);
+    YgProtocolLink_Service(110U);
+    assert(boot_completion_calls == 1U && !boot_completion_success && hardware_busy);
+    hardware_busy = false;
+    hardware_complete = true;
+    YgProtocolLink_Service(111U);
+    assert(boot_completion_calls == 1U && sent_count == 1U);
+    tracked_allowed = false;
+}
+
 static void boot_request(void *context, const BootEntryRequest *request, BootEntryReply *reply)
 {
     (void)context;
@@ -1148,11 +1072,12 @@ int main(void)
     control_reply_and_feedback();
     irq_receive_budget();
     backlog_and_interrupt_handoff();
-    control_history_window();
+    unsupported_control_requests();
     power_route_contract();
     status_binding_reset();
     boot_confirm_and_info_contract();
     boot_ready_queue_contract();
+    boot_inflight_deadline();
     runtime_start_boundary();
     return 0;
 }

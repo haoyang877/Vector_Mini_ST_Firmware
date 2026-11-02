@@ -2,18 +2,16 @@
 #define YG_PROTOCOL_MOTOR_ADAPTER_H
 
 #include "motor_stop_request.h"
-#include "motor_control_command.h"
+#include "motor_control_mode.h"
 #include "yg_protocol_motor.h"
 
-/* 通信侧适配器：STOP/失能接停机所有者；目标转 SI 单位后交给控制所有者。
+/* 通信侧适配器：STOP/失能接停机所有者；启动/清错交给生命周期所有者。
  * 处理器不持有请求指针，也不访问硬件。 */
 
 /** 组合层绑定对象；停止服务由业务所有者维护，生命周期必须覆盖所有 handler 调用。 */
 typedef struct
 {
     motor_stop_service_t *stop_service;
-    MotorControlSubmit submit_control;
-    void *control_context;
     /* APP组合层把ENABLE/CLEAR翻译为生命周期所有者命令，不让服务依赖协议头。 */
     yg_protocol_motor_handler_t lifecycle_handler;
     void *lifecycle_context;

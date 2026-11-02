@@ -28,15 +28,19 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     (output / "main.h").write_text("#pragma once\n#include <stdint.h>\n", encoding="utf-8")
     summary = []
-    for damping in (0, 1):
-        executable = output / f"observer_calibration_{damping}.exe"
+    for board, damping in ((1, 0), (1, 1), (2, 0), (2, 1)):
+        label = f"{board}_{damping}"
+        executable = output / f"observer_calibration_{label}.exe"
         command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
         command += ["-std=c99", "-O1", "-Wall", "-Wextra", "-Werror", "-I", str(output)]
-        command += NATIVE_INCLUDE_FLAGS + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
+        command += (
+            NATIVE_INCLUDE_FLAGS
+            + [f"-DBSP_BOARD={board}", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
+            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
+        )
         command += [
             f"-DMOTOR_HAS_DAMPING_RING={damping}",
             str(ROOT / "tests/unit/native/observer_calibration_hotpath_test.c"),
-            str(ROOT / "firmware/motor/calibration/encoder_calibration_core.c"),
             str(ROOT / "firmware/motor/control/pi_controller.c"),
             str(ROOT / "firmware/motor/math/control_math.c"),
             "-lm",
@@ -44,17 +48,16 @@ def main() -> int:
             str(executable),
         ]
         build = subprocess.run(command, capture_output=True, check=False)
-        (output / f"compile_{damping}.log").write_bytes(build.stdout + build.stderr)
+        (output / f"compile_{label}.log").write_bytes(build.stdout + build.stderr)
         run = (
             subprocess.run([str(executable)], capture_output=True, check=False)
             if build.returncode == 0
             else None
         )
-        (output / f"run_{damping}.log").write_bytes(
-            run.stdout + run.stderr if run else b"not run\n"
-        )
+        (output / f"run_{label}.log").write_bytes(run.stdout + run.stderr if run else b"not run\n")
         summary.append(
             {
+                "board": board,
                 "damping": damping,
                 "compile_exit": build.returncode,
                 "run_exit": run.returncode if run else None,
@@ -64,15 +67,16 @@ def main() -> int:
         if build.returncode != 0 or run is None or run.returncode != 0:
             break
     result = {
-        "success": len(summary) == 2
+        "success": len(summary) == 4
         and all(item["compile_exit"] == 0 and item["run_exit"] == 0 for item in summary),
         "hardware_validation": "not_run",
         "cases": summary,
+        "core_included_in_cases": True,
     }
     (output / "summary.json").write_text(
         json.dumps(result, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"
     )
-    print(json.dumps(result, ensure_ascii=True))
+    print(f"observer/calibration: {'PASS' if result['success'] else 'FAIL'}; logs: {output}")
     return 0 if result["success"] else 1
 
 

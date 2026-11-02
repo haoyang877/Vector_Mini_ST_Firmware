@@ -31,6 +31,7 @@ def main() -> None:
         command.append("cc")
     command.extend(
         NATIVE_INCLUDE_FLAGS
+        + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
         + [
             "-std=c99",
             "-UNDEBUG",

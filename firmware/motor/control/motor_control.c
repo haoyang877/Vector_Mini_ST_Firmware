@@ -7,9 +7,7 @@
 #include "speed_control.h"
 #include "axis_config.h"
 #include "control_math.h"
-#include "motor_thermal_control.h"
 #include "position_control.h"
-#include "application_config.h"
 
 /* 控制执行核心独占外环状态；调用方传入配置和运行对象，不反查APP生命周期。
  * 调用顺序、数学与故障发布保持原核心合同，不接管功率使能或参数事务。 */
@@ -47,11 +45,7 @@ static bool position_mode_update_control(const MotorConfiguration *configuration
     config.speed_ki = configuration->application.speed_ki;
     config.current_limit_a = configuration->application.current_limit_a;
     return PositionCascade_UpdateControlLimited(
-        &config,
-        position_rad,
-        speed_rad_s,
-        MotorThermalControl_CurrentLimit(configuration->application.current_limit_a),
-        output);
+        &config, position_rad, speed_rad_s, configuration->application.current_limit_a, output);
 }
 
 /* OUTER_RUNTIME_BEGIN
@@ -198,13 +192,12 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
     }
     else
     {
-        s_outer.ready = SpeedControl_UpdateOuter(
-            configuration,
-            m,
-            pi,
-            &s_outer.speed_feedforward,
-            speed,
-            MotorThermalControl_CurrentLimit(configuration->application.current_limit_a));
+        s_outer.ready = SpeedControl_UpdateOuter(configuration,
+                                                 m,
+                                                 pi,
+                                                 &s_outer.speed_feedforward,
+                                                 speed,
+                                                 configuration->application.current_limit_a);
         if (!s_outer.ready)
         {
             MotorFault_Report(m, MOTOR_FAULT_INVALID_PARAMETERS);
@@ -219,7 +212,6 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
 /* 模式只选择角度来源、控制律与参考，共用Foc_Step负责所有调制和PWM。 */
 MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
                                   FocState *foc,
-                                  const MotorMeasurement *measurement,
                                   MotorControlState *motor,
                                   EncoderState *encoder,
                                   FluxObserverState *observer)
@@ -288,8 +280,7 @@ MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
     default:
         return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     }
-    Foc_Step(
-        configuration, foc, measurement, motor, law, phase, velocity, d_reference, q_reference);
+    Foc_Step(configuration, foc, motor, law, phase, velocity, d_reference, q_reference);
     if (MotorControlMode_IsOpenLoop(motor->control_mode) && motor->fault_code == MOTOR_FAULT_NONE)
     {
         /* 200Hz上限保证每拍小于一圈；保持正/负频率连续，不做无界归一化。 */

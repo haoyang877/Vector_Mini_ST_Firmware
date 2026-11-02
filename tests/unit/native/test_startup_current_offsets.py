@@ -11,7 +11,7 @@ from run_position_servo_tests import function_source
 
 
 def main() -> None:
-    """仅替换存储/启动边界并在2/6mΩ下编译执行生产初始化及校正逻辑。"""
+    """在两板实际采样配置下执行生产初始化、校正和快环调度。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -22,18 +22,17 @@ def main() -> None:
     sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
     algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
     production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
-    if "s_status_revision" in axis:
-        production += "static volatile uint32_t s_status_revision;\n"
+    production += "static EncoderCalibrationWorkspace s_encoder_linearization_workspace;\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n"
     production += "#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
+    production += function_source(sensing, "current_offset_valid")
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
     production += function_source(sensing, "MotorCurrent_Update")
     for name in (
         "MotorCurrentOffsets_Init",
         "fail_current_offset_calibration",
-        "MotorCurrentOffsets_Sample",
-        "MotorCurrentOffsets_Finalize",
+        "MotorCurrentOffsets_Calibrate",
     ):
         production += function_source(sensing, name)
     for name in (
@@ -44,27 +43,18 @@ def main() -> None:
         "Clarke_Transform",
     ):
         production += function_source(algorithm, name)
-    transaction = (ROOT / "firmware/app/runtime/motor_parameter_transaction.c").read_text(
-        encoding="utf-8"
-    )
     for name in (
-        "MotorParameterTransaction_AdvanceRevision",
-        "MotorParameterTransaction_AdvanceMaintenanceRevision",
-        "MotorParameterTransaction_Init",
-    ):
-        production += function_source(transaction, name)
-    for name in (
-        "configure_controllers",
-        "update_current_controller_limits",
-        "initialize_current_offsets",
-        "sample_phase_currents",
-        "finalize_current_offsets",
+        "run_active_calibration_cycle",
         "MotorAxis_Init",
-        "update_winding_thermal",
         "MotorAxis_FastTick",
-        "MotorAxis_WriteParameter",
+        "MotorAxis_ProcessCalibrationPublication",
     ):
         production += function_source(axis, name)
+    start = production.index("    /* 固定启动暂存区")
+    end = production.index("    if (s_motor_configuration.configuration_source", start)
+    production = (
+        production[:start] + "    load_parameters(&s_motor_configuration);\n" + production[end:]
+    )
     fixture = (ROOT / "tests/unit/startup_current_offsets_test.c").read_text(encoding="utf-8")
     fixture = fixture.replace(
         "/* STARTUP_CURRENT_OFFSET_PRODUCTION：脚本插入真实生产体。 */", production
@@ -72,7 +62,7 @@ def main() -> None:
     source = output / "startup_current_offsets.c"
     source.write_text(fixture, encoding="utf-8")
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
-    for shunt in (2, 6):
+    for board, shunt in ((1, 6), (2, 4)):
         executable = output / f"startup_current_offsets_{shunt}.exe"
         command = (
             compiler
@@ -86,7 +76,7 @@ def main() -> None:
                 "-Wextra",
                 "-Werror",
                 "-Wno-unused-parameter",
-                f"-DCURRENT_SENSE_SHUNT_MILLIOHM={shunt}U",
+                f"-DBSP_BOARD={board}",
                 str(source),
                 str(ROOT / "firmware/motor/control/pi_controller.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),

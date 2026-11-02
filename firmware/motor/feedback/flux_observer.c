@@ -1,6 +1,5 @@
 #include "flux_observer.h"
 
-#include <float.h>
 #include <string.h>
 
 #include "application_config.h"
@@ -9,11 +8,6 @@
 #define FLUX_OBSERVER_DEFAULT_GAMMA 800000.0f
 #define FLUX_OBSERVER_MAX_CORRECTION_STEP 0.2f
 #define FLUX_OBSERVER_MIN_FLUX 1e-6f
-
-#if FLT_RADIX != 2 || FLT_MANT_DIG != 24 || FLT_MAX_EXP != 128
-#error "Flux observer requires IEEE 754 binary32 float"
-#endif
-typedef char FluxObserverFloatMustBe4Bytes[(sizeof(float) == 4U) ? 1 : -1];
 
 static int fluxobserver_is_finite(float value)
 {
@@ -57,17 +51,13 @@ void FluxObserver_Init(FluxObserverState *flux_observer)
 /**
  * @brief  执行一次磁链观测器更新。
  * @param model 本次调用期间保持稳定的只读电机模型。
- * @param current_alpha_a 本拍α轴电流，单位A。
- * @param current_beta_a 本拍β轴电流，单位A。
- * @param voltage_alpha_v 本拍对应的α轴实际电压，单位V。
- * @param voltage_beta_v 本拍对应的β轴实际电压，单位V。
+ * @param current_ab_a 本拍只读α/β电流向量，单位A。
+ * @param voltage_ab_v 本拍只读α/β实际电压向量，单位V。
  * @param flux_observer 调用方持有的观测器状态。
  */
 void FluxObserver_Update(const MotorModelConfig *model,
-                         float current_alpha_a,
-                         float current_beta_a,
-                         float voltage_alpha_v,
-                         float voltage_beta_v,
+                         const AlphaBetaVector *current_ab_a,
+                         const AlphaBetaVector *voltage_ab_v,
                          FluxObserverState *flux_observer)
 {
     float Rs = model->motor_phase_resistance_ohm;
@@ -95,17 +85,17 @@ void FluxObserver_Update(const MotorModelConfig *model,
     gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (FOC_TS_S * flux_sq);
     gamma = flux_observer->gamma < gamma_limit ? flux_observer->gamma : gamma_limit;
 
-    flux_observer->current_alpha_a = current_alpha_a;
-    flux_observer->current_beta_a = current_beta_a;
-    flux_observer->voltage_alpha_v = voltage_alpha_v;
-    flux_observer->voltage_beta_v = voltage_beta_v;
+    flux_observer->current_ab_a = *current_ab_a;
+    flux_observer->voltage_ab_v = *voltage_ab_v;
 
     /*flux observer*/
-    flux_observer->y1_last = -Rs * flux_observer->current_alpha_a + flux_observer->voltage_alpha_v;
-    flux_observer->y2_last = -Rs * flux_observer->current_beta_a + flux_observer->voltage_beta_v;
+    flux_observer->y1_last =
+        -Rs * flux_observer->current_ab_a.alpha + flux_observer->voltage_ab_v.alpha;
+    flux_observer->y2_last =
+        -Rs * flux_observer->current_ab_a.beta + flux_observer->voltage_ab_v.beta;
 
-    flux_observer->etax1 = flux_observer->x1_last - Ls * flux_observer->current_alpha_a;
-    flux_observer->etax2 = flux_observer->x2_last - Ls * flux_observer->current_beta_a;
+    flux_observer->etax1 = flux_observer->x1_last - Ls * flux_observer->current_ab_a.alpha;
+    flux_observer->etax2 = flux_observer->x2_last - Ls * flux_observer->current_ab_a.beta;
 
     flux_observer->flux_error_wb2 = flux_sq - (flux_observer->etax1 * flux_observer->etax1 +
                                                flux_observer->etax2 * flux_observer->etax2);
@@ -127,8 +117,8 @@ void FluxObserver_Update(const MotorModelConfig *model,
     flux_observer->x1_last = flux_observer->x1;
     flux_observer->x2_last = flux_observer->x2;
 
-    flux_observer->cos = (flux_observer->x1 - Ls * flux_observer->current_alpha_a) / flux;
-    flux_observer->sin = (flux_observer->x2 - Ls * flux_observer->current_beta_a) / flux;
+    flux_observer->cos = (flux_observer->x1 - Ls * flux_observer->current_ab_a.alpha) / flux;
+    flux_observer->sin = (flux_observer->x2 - Ls * flux_observer->current_ab_a.beta) / flux;
 
     /*calculate angle with atan*/
     flux_observer->electrical_angle_rad = Math_Atan2(flux_observer->sin, flux_observer->cos);

@@ -8,15 +8,15 @@
 | control | 模式分发、位置和速度外环、PI、FOC及无感启动 |
 | sensing | 相电流与上电零偏、母线电压、温度测量和关联故障 |
 | feedback | 编码器标定数据、采样、角度与速度估计及磁链观测 |
-| calibration | 编码器LUT、电零位任务和独立计算核心 |
+| [calibration](calibration/README.md) | 编码器LUT、电零位及文件内私有计算；接口与所有权见目录说明 |
 | protection | 故障、绕组热模型、降额和恢复条件 |
 | math | 确定性角度、滤波及数学运算 |
 
 活动配置值保留在motor域；编译期应用、电机、板卡和目标配置统一放在`firmware/config`。
 APP的MotorAxis调度20kHz快环和2kHz监督拍；状态机拥有启停与功率许可。
 sensing和feedback通过BSP接口访问硬件；FOC计算与PWM提交分别位于`foc.c`和`foc_output.c`。
-FOC计算仍会报告故障并参与快环计时。Axis持有`MotorMeasurement`供采样写入、
-控制和保护读取；FOC保留坐标变换及控制估算值。
+FOC计算仍会报告故障并参与快环计时。Axis持有`FocState`，直接包含采样值、
+坐标变换及控制估算值；采样、控制和保护统一使用该对象，不再传递独立测量结构。
 
 型号参数见[电机配置](../config/motors/README.md)，控制与维护流程分别见
 [控制执行](../../docs/architecture/motor_execution_core_v3.md)和
@@ -26,9 +26,10 @@ FOC计算仍会报告故障并参与快环计时。Axis持有`MotorMeasurement`�
 
 - `motor_control.h`提供`MotorOuterLoop_SlowTick`和`MotorControl_Step`；APP决定调用许可。
 - `motor_sensing.h`提供电流零偏、`MotorCurrent_Update`、`MotorVoltage_Update`和
-  `McuTemperature_Update`；调用者提供快帧与测量对象，快环更新函数只搬运物理值。
+  `McuTemperature_Update`；采样更新由sensing读取BSP通道，电流、电压更新接口只接收`FocState`。
+  `MotorCurrent_Update`统一更新三相及母线电流，母线电流、电压保留各自滤波。
 - `encoder_feedback.h`和`flux_observer.h`提供反馈；调用者持有反馈对象并管理调度。
-  磁链观测器只接收电机模型、αβ电流和αβ实际电压；Clarke变换及
+  磁链观测器只接收电机模型、αβ电流向量和αβ实际电压向量；Clarke变换及
   `mod × Vdc / 1.5`电压换算由调用方完成，观测器只修改自身状态。
 - `motor_fault.h`和`motor_thermal_control.h`提供故障和热限流；热历史由热控制模块持有。
 - `encoder_calibration.h`提供标定任务入口；标定完成与Flash保存是独立事件。

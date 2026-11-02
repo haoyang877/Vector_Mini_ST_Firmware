@@ -1,128 +1,56 @@
 # Architecture Map
 
-This is the stable top-level map. Detailed design and historical evidence live under
-[`docs/`](docs/README.md); current directory ownership is documented in
-[`docs/architecture/code_structure.md`](docs/architecture/code_structure.md).
+当前软件结构见[电机驱动软件架构](docs/architecture/software_architecture.md)，
+文件归属见[代码框架](docs/architecture/code_structure.md)。本页维护稳定边界，不复制历史阶段说明。
 
-For a plain-language walkthrough of products, control flow, scheduling, and data ownership,
-read [电机驱动软件架构说明](docs/architecture/software_architecture.md).
+## 产品与共享契约
 
-新旧板适配对象、允许修改与独立评审项见
-[统一框架适配范围草案](docs/architecture/dual_board_adaptation_scope_v1.md)。
-该页区分既有用户约束、待讨论变更与验证结果，不将当前工作树自动视为已接受基线。
+- `firmware/`：STM32G4 / AT32F456 共用的单轴电机 APP。
+- `loader/`：独立的 G431 升级与启动产品，不链接进 APP。
+- `host_app/`：独立主机应用，包含 Rust GUI 候选与 Qt6 CAN FD 工具。
+- `shared/`：跨产品协议、CRC32、镜像、启动邮箱、生产身份和目标布局契约。
+- `projects/`：板级 main、Keil 工程、启动汇编、scatter 和 CubeMX 输入。
+- `tests/`、`tools/`：离线验证和显式台架工具；`outputs/` 保存生成证据。
 
-platform只保留BSP、器件实现和原样厂商SDK；产品配置集中在firmware/config，项目入口装配在projects，台架源码在tests/bench。
-BSP公共接口、私有实现与配置的实际对应关系见
-[BSP逻辑与文件总图](docs/architecture/bsp_architecture_v1.md)。
+## 固件依赖边界
 
-2026-10-17 integration adds a deterministic winding-thermal core and optional speed
-feedforward without restoring the legacy runtime or wire protocol. APP schedules thermal
-updates; motor/protection owns the thermal history and explicit current limits. See the
-[integration plan](docs/archive/plans/2026-10-17-delivery-feature-integration-v1.md) and
-[schema13 extension](docs/protocols/parameter_schema13_delivery_v1.md) for feature semantics;
-current storage reads and writes only [schema14](docs/protocols/parameter_schema14_storage_v1.md).
-
-## Products and contracts
-
-- `firmware/` is the current STM32G4 motor-control APP.
-- `loader/` is the independently built G431 upgrade product.
-- `host_app/` contains the Rust GUI candidate and the Qt6 core CAN FD tool for real readback,
-  explicit speed/STOP commands, and matched APP-package upgrade through an independent Python client. They open disconnected;
-  GUI control and upgrade still require matching hardware acceptance. Neither product is linked into APP.
-- `shared/` owns only cross-product protocol, image, boot, target-layout contracts, and the pure CRC32 core.
-  Motor code may consume the shared CRC32 contract; shared never depends on firmware or hardware.
-
-## Firmware dependency direction
+APP 组装硬件、算法、参数和协议。MotorAxis 持有单轴对象；MotorLifecycle 负责状态和动作；
+MotorStateMachine 只提供五态纯迁移。通信使用显式绑定的服务，不访问 APP 运行实现或 Watch 对象。
+Motor 和参数代码不依赖 APP 实现；shared 不依赖固件或硬件。
 
 ```text
-shared pure contracts + motor/math + motor value types
-    ↓
-platform API + motor algorithms
-    ↓
-parameters + app/interfaces (value/owner contracts)
-    ↓
-protocol + communication
-    ↓
-app composition
+projects/main → app/composition → runtime → motor algorithms → BSP API
+                     ↓             ↓
+                 communication   parameters → configuration/value contracts
+                     ↓
+                 shared protocol
 
-Both targets link the same sampling, PWM, encoder, and CAN BSP implementations.
-MCU backends operate peripherals; device modules decode sensor protocols;
-its explicit App_Off target links shared APP with a compile-time power lock.
-Each board owns projects/<board>/application/main.c with the same entry template.
-BSP system.c owns hardware startup; app_startup.c and app_tasks.c own application services;
-CubeMX Core retains generated STM32 peripheral and interrupt implementations.
+BSP API ← corresponding MCU implementation ← vendor SDK/generated code
 ```
 
-New dependencies must follow this direction. The 2026-09-29 closure removes all recorded
-reverse dependencies; the machine-readable architecture debt baseline is empty and must not expand.
-The architecture checker resolves local quoted includes and rejects new violations.
+硬件只通过 `firmware/platform/bsp/include` 暴露能力与单位，不向上层暴露 HAL 类型、寄存器、
+外设句柄或板卡引脚。硬件实现全部位于对应 MCU；BSP 根目录仅保留内部声明头。
+板型、测量尺度和电机默认值集中在 `firmware/config`，不保留空的 devices 或转发层。
+详细规则见[BSP 职责约定](docs/architecture/bsp_design_rules.md)。
 
-## Runtime boundaries
+## 运行时边界
 
-- `app/composition/app.h` exposes application lifecycle and task entries: `App_Init`, `App_Start`, `App_Process`,
-  `App_FastTick`, and `App_SupervisorTick`. Startup/background assembly lives in
-  `app_startup.c`; bounded ADC/TIM scheduling lives in `app_tasks.c`. See the
-  [APP reading order](firmware/app/README.md).
-- Each board's `application/main.c` calls `Bsp_Init`, `App_Init`, `Bsp_Start`, `App_Start`,
-  then `App_Process`. MCU system code owns hardware startup; application composition
-  owns protocol binding and service scheduling. There is no AppPlatform forwarding layer.
-- The fast motor loop owns deterministic sensing, foc, protection, and actuation paths.
-- Parameters own configuration values and record conversion; app/interfaces owns command,
-  STOP-confirmation and read-only status contracts without platform peripherals.
-- Communication validates wire data at the boundary and invokes explicit services.
-- The motor main state machine and its private transition rules form one APP module at
-  `firmware/app/motor_state_machine/`; public interfaces carry requests, not a second lifecycle core.
-- Communication may include app/interfaces, but never app/runtime or private state-machine headers.
-  Motor and parameters never depend on APP implementations; board BSPs implement hardware only.
-- Application code assembles tasks and modes; it must not become a second protocol layer.
-- Hardware bench tools are outside normal verification and require explicit physical context.
+- 两板 main 依次调用 Bsp_Init、App_Init、Bsp_Start、App_Start；主循环调用 App_Process。
+- ADC 快中断执行 20 kHz 采样、反馈、控制或单项标定；监督中断以 2 kHz 更新外环和生命周期。
+- 前台处理协议、关相后的 LUT 发布和 Loader 交接；Flash 操作不进入快慢环。
+- 活动配置、运行状态和存储记录分别建模，内部枚举显式映射线上编号。
+- 固定存储替代固件堆分配；标定、外环和反馈仍是单轴实现。
+- STOP 请求受理不代表已关相；故障和过期会话结果不能恢复旧输出。
+- 当前 APP 不接入普通目标、在线参数读写/保存、标定进度服务或绕组热调度。
 
-## Embedded boundary contracts
+当前配置和未完成条件见[配置说明](firmware/config/README.md)；
+具体线上行为见[核心 v1.8](docs/protocols/yg_protocol_core_v1_8.md)。
 
-### Hardware independence
+## 验证边界
 
-- `firmware/platform/bsp/include/` defines the capabilities required by portable firmware. Contracts use
-  project-owned types and physical units, and state timing, blocking, ownership, and failure behavior.
-- `firmware/config/boards/` holds read-only electrical resources, scaling inputs and measurement limits.
-  Sampling scales derive from these data without changing capability contracts; board data must not depend
-  on motor, application, or peripheral implementations.
-- Board `bsp/` directories own chip and board primitives and directly implement
-  platform APIs. `application/main.c` owns the standalone and Loader-linked APP entry;
-  `mcu/*/system.c` owns hand-maintained hardware startup. CubeMX owns generated peripheral code.
-- `motor/`, `parameters/`, `app/interfaces/`, and `communication/` must not expose STM32 HAL types, peripheral handles,
-  registers, pin mappings, or vendor headers. Hardware revision and MCU selection stay below the API
-  or in application composition rather than being scattered as feature `#ifdef` branches.
-- A platform API models a capability needed by its caller; it is not a one-for-one wrapper around
-  every HAL call. Raw encodings and electrical details are converted at the boundary.
+`tools/run.py` 是统一命令入口。PR 验证检查全部工程路径、格式、lint、离线测试、分层、接口和文档。
+`doctor`、quick、PR 不接触硬件；release 构建也不下载固件。
+架构检查没有违规不代表工程可编译，编译通过也不代表时序、电气或电机行为已经验收。
+源码、协议和参数 ABI 改动须保留适当的比较证据；旧 outputs 不能作为当前 PASS。
 
-### Functional independence
-
-- Motor algorithms prefer deterministic data-in/data-out functions. Platform code performs I/O,
-  application code schedules and composes, and parameter code owns configuration conversion.
-- Mutable state has one owning module. Other modules use commands, immutable snapshots, or an
-  explicitly passed state object instead of writing another module's globals.
-- APP owns one fixed maintenance workspace for parameter records and encoder
-  calibration samples. Algorithms borrow explicit typed objects; no firmware heap allocator remains.
-- Interrupt handlers acknowledge hardware, capture bounded inputs, and perform required immediate
-  safety actions; encoding, logging, storage, and unbounded work remain outside the ISR.
-- Callbacks are used only when control must genuinely be inverted. Their context, lifetime,
-  reentrancy, ISR eligibility, and ownership are part of the public contract.
-
-### Substitution evidence
-
-A hardware boundary is complete only when the portable behavior can be exercised through a native
-fake/test seam or an explicitly scoped hardware check. Substitution must preserve units, timing and error
-semantics; merely compiling a second implementation is not sufficient evidence.
-
-These rules adapt the layered hardware independence of
-[AUTOSAR Classic](https://www.autosar.org/standards/classic-platform), the uniform peripheral
-contracts of [CMSIS-Driver](https://arm-software.github.io/CMSIS_6/main/Driver/index.html), and the
-[Zephyr device model](https://docs.zephyrproject.org/latest/kernel/drivers/index.html) without
-importing their framework complexity. Interface and state rules also follow the
-[C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines).
-
-## Verification boundary
-
-`tools/run.py` is the stable command router. `doctor` inspects prerequisites without
-hardware access; `verify` emits current, machine-readable evidence under `outputs/runs/`.
-Quick and PR profiles are offline. Release may invoke Keil but never flashes a device.
+本轮残留清理及基线见[清理计划](docs/plans/active/2026-10-30-firmware-cleanup-v1.md)。

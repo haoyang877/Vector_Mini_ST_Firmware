@@ -1,4 +1,4 @@
-"""核对共用BSP、MCU实现和器件协议的依赖边界。"""
+"""核对统一BSP声明、MCU实现和应用的依赖边界。"""
 
 import re
 import unittest
@@ -10,29 +10,26 @@ PLATFORM = ROOT / "firmware/platform"
 
 
 class PlatformLayoutTests(unittest.TestCase):
-    def test_platform_source_has_only_three_roots(self):
+    def test_platform_source_has_only_hardware_and_vendor_roots(self):
         roots = {
             p.relative_to(PLATFORM).parts[0]
             for p in PLATFORM.rglob("*")
             if p.is_file() and len(p.relative_to(PLATFORM).parts) > 1
         }
-        self.assertEqual(roots, {"bsp", "devices", "sdk"})
+        self.assertEqual(roots, {"bsp", "sdk"})
 
     def test_board_config_does_not_own_application_requirements(self):
         config = ROOT / "firmware/config"
         self.assertEqual(
             {p.name for p in config.glob("*.h")},
-            {"board_config.h", "motor_profile_config.h", "application_config.h"},
+            {"config.h", "board_config.h", "motor_profile_config.h", "application_config.h"},
         )
         resource = (config / "board_config.h").read_text(encoding="utf8")
-        boards = resource.split("#elif BSP_BOARD == BSP_BOARD_AT32F456", 1)[1].split(
-            '#error "Unknown BSP board"', 1
-        )[0]
         self.assertNotRegex(
-            boards, r"BSP_REQUIRED_|AT32_APP_(?:PHASE_LOCK|BOUNDED_TEST)|PARAM_MOTOR_THERMAL_"
+            resource, r"BSP_REQUIRED_|AT32_APP_(?:PHASE_LOCK|BOUNDED_TEST)|PARAM_MOTOR_THERMAL_"
         )
         app = (config / "application_config.h").read_text(encoding="utf8")
-        self.assertIn("Required BSP feature disabled", app)
+        self.assertIn("CURRENT_SENSE_PROFILE_OVERCURRENT_TRIP_A", app)
 
     def test_motor_and_board_inputs_are_separate(self):
         config = ROOT / "firmware/config"
@@ -56,10 +53,15 @@ class PlatformLayoutTests(unittest.TestCase):
             ]
             self.assertEqual(len(entries), 1, project.name)
             self.assertFalse(entries[0].is_relative_to(PLATFORM))
-            for kind in ("adc", "pwm", "encoder", "can"):
+            board = "at32f456" if "at32f456" in project.parts else "stm32g4"
+            for kind in ("adc", "pwm", "encoder_spi", "can"):
                 self.assertEqual(
-                    [p for p in sources if p.name == f"bsp_{kind}.c"],
-                    [PLATFORM / "bsp" / f"bsp_{kind}.c"],
+                    [
+                        path
+                        for path in sources
+                        if path.name == f"{kind}.c" and "generated" not in path.parts
+                    ],
+                    [PLATFORM / "bsp/mcu" / board / f"{kind}.c"],
                 )
 
     def test_common_bsp_does_not_know_board_or_sdk(self):
@@ -67,19 +69,10 @@ class PlatformLayoutTests(unittest.TestCase):
             self.assertNotRegex(
                 p.read_text(encoding="utf8"), r"at32f|stm32g|\b(?:TMR1|TIM1|ADC1|HAL_|R40_)"
             )
-        for p in (PLATFORM / "bsp/mcu").rglob("*.c"):
-            public_functions = set(
-                re.findall(
-                    r"(?m)^(?:bool|void|uint16_t|Bsp\w+) (Bsp(?:Sampling|Pwm|Encoder|Can)_\w+)\(",
-                    p.read_text(encoding="utf8"),
-                )
-            )
-            # 无状态的关相查询直接由MCU实现，公共保护和事务仍只有一份。
-            expected = {"BspPwm_ArePhasesDisabled"} if p.name == "pwm.c" else set()
-            self.assertEqual(public_functions, expected, str(p))
+        self.assertEqual(list((PLATFORM / "bsp").glob("*.c")), [])
 
     def test_one_private_header_without_implementation(self):
-        """私有声明集中，应用不依赖；器件协议继续独立于寄存器实现。"""
+        """私有声明集中，应用不依赖；无退役器件目录残留。"""
         bsp = PLATFORM / "bsp"
         self.assertFalse((bsp / "internal").exists())
         header = (bsp / "bsp_internal.h").read_text(encoding="utf8")
@@ -87,14 +80,8 @@ class PlatformLayoutTests(unittest.TestCase):
         self.assertNotRegex(header, r"(?m)^\s*(?:static|extern)\s+")
         self.assertNotRegex(header, r"\b(?:HAL_|TMR1|TIM1|ADC1|at32f45x|stm32g4xx)")
         self.assertNotIn("EncoderSpiRequest", header)
-        self.assertTrue((PLATFORM / "devices/encoder_protocol.h").is_file())
-        self.assertTrue((PLATFORM / "devices/encoder_spi.h").is_file())
-        # Git不跟踪空目录；只拒绝旧位置残留的实现或头文件。
+        self.assertFalse((PLATFORM / "devices").exists())
         self.assertEqual(list((bsp / "devices").rglob("*.[ch]")), [])
-        self.assertEqual(
-            {p.name for p in (PLATFORM / "devices").iterdir() if p.is_file()},
-            {"encoder_protocol.h", "encoder_spi.h", "encoder_mt6835.c", "encoder_tle5012b.c"},
-        )
         for directory in ("app", "motor", "parameters", "communication"):
             for path in (ROOT / "firmware" / directory).rglob("*.[ch]"):
                 self.assertNotIn('"bsp_internal.h"', path.read_text(encoding="utf8"), str(path))
@@ -133,7 +120,7 @@ class PlatformLayoutTests(unittest.TestCase):
         self.assertNotIn("AT32_KEIL_OPENLOOP", adc)
         self.assertNotRegex(adc, r"return\s+AdcSampling_\w+\(&s_sampling")
         self.assertNotIn("gpio_pin_mux_config", (mcu / "system.c").read_text(encoding="utf8"))
-        self.assertIn("McuPwm_PreparePins", (mcu / "pwm.c").read_text(encoding="utf8"))
+        self.assertIn("void McuPwm_Init(void)", (mcu / "pwm.c").read_text(encoding="utf8"))
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ CUBEMX = FIRMWARE / "platform/bsp/mcu/stm32g4/generated"
 KEIL = ROOT / "projects/stm32g4/MDK-ARM"
 BUILD = ROOT / "outputs/build/keil"
 
-# Existing tools remain directly executable without an editable installation.
+# 工具保持可直接执行，不依赖可编辑安装。
 for relative in (
     "tools/bench",
     "tools/analysis",
@@ -36,9 +36,7 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/motor",
     "firmware/motor/control",
     "firmware/config",
-    "firmware/motor/foc",
     "firmware/motor/sensing",
-    "firmware/motor/position",
     "firmware/motor/calibration",
     "firmware/motor/feedback",
     "firmware/motor/protection",
@@ -47,15 +45,8 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/communication/can",
     "firmware/communication/commands",
     "firmware/platform/bsp/include",
-    "firmware/platform/devices",
-    "firmware/config",
-    "firmware/platform/bsp",
-    "firmware/config",
-    "firmware/config",
     "firmware/communication/telemetry",
     "firmware/platform/bsp",
-    "firmware/config",
-    "firmware/config",
     "firmware/platform/bsp/mcu/stm32g4",
 )
 
@@ -78,7 +69,7 @@ def native_include_flags(tree: Path = ROOT) -> list[str]:
     )
     return [
         item
-        for relative in (*NATIVE_INCLUDE_DIRS, *legacy)
+        for relative in dict.fromkeys((*NATIVE_INCLUDE_DIRS, *legacy))
         if (tree / relative).is_dir()
         for item in ("-I", str(tree / relative))
     ]

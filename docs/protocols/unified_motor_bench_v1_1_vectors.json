@@ -1,0 +1,28 @@
+{
+  "version": "1.1",
+  "byte_order": "little",
+  "status": "request_bytes_verified_offline",
+  "vectors": [
+    {
+      "name": "id_sine",
+      "state": "stopped, valid limits current 3A and lease; separate fresh sequence",
+      "request_payload": "0200010008000000cdcccc3d400d0300204e000000401c440000003f",
+      "request_frame": "5aa501200203007f01001c00000000cc0200010008000000cdcccc3d400d0300204e000000401c440000003f47f00000",
+      "expected_reply_prefix": "01000200"
+    },
+    {
+      "name": "id_sine_invalid_frequency",
+      "state": "stopped, valid limits current 3A and lease; separate fresh sequence",
+      "request_payload": "0200010008000000cdcccc3d400d0300204e000000409c450000003f",
+      "request_frame": "5aa501200203007f01001c00000000cc0200010008000000cdcccc3d400d0300204e000000409c450000003f90ee0000",
+      "expected_reply_prefix": "0b000200"
+    },
+    {
+      "name": "id_sine_invalid_bias",
+      "state": "stopped, valid limits current 3A and lease; separate fresh sequence",
+      "request_payload": "0200010008000000cdcccc3d400d0300204e000000401c44cdcc4c3d",
+      "request_frame": "5aa501200203007f01001c00000000cc0200010008000000cdcccc3d400d0300204e000000401c44cdcc4c3db44e0000",
+      "expected_reply_prefix": "0b000200"
+    }
+  ]
+}

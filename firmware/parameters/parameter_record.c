@@ -100,7 +100,7 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->model.motor_d_inductance_h = PARAM_MOTOR_D_INDUCTANCE_H;
     configuration->model.motor_q_inductance_h = PARAM_MOTOR_Q_INDUCTANCE_H;
     configuration->model.motor_flux_wb = PARAM_MOTOR_FLUX_WB;
-    /* 仅首次/回退默认配置使用编译期派生 PI，已保存整定仍直接装载。 */
+    /* 默认模型和已保存模型均遵守当前电流环整定。 */
     configuration->model.id_kp = PARAM_MOTOR_DEFAULT_ID_KP;
     configuration->model.iq_kp = PARAM_MOTOR_DEFAULT_IQ_KP;
     configuration->model.id_ki = PARAM_MOTOR_DEFAULT_ID_KI;
@@ -297,10 +297,24 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         configuration->application.current_limit_a =
             Math_Constrain(param->current_limit_a, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A);
     }
-    configuration->model.id_kp = param->id_kp;
-    configuration->model.id_ki = param->id_ki;
-    configuration->model.iq_kp = param->iq_kp;
-    configuration->model.iq_ki = param->iq_ki;
+    /* 电流PI整定独立于观测器模型；原记录的R/L与标定仍原样装载。 */
+    if (CURRENT_LOOP_USE_IDENTIFIED_GAINS)
+    {
+        configuration->model.id_kp = PARAM_MOTOR_DEFAULT_ID_KP;
+        configuration->model.iq_kp = PARAM_MOTOR_DEFAULT_IQ_KP;
+        configuration->model.id_ki = PARAM_MOTOR_DEFAULT_ID_KI;
+        configuration->model.iq_ki = PARAM_MOTOR_DEFAULT_IQ_KI;
+    }
+    else
+    {
+        configuration->model.id_kp =
+            configuration->model.motor_d_inductance_h * CURRENT_LOOP_BANDWIDTH_RAD_S;
+        configuration->model.id_ki =
+            configuration->model.motor_phase_resistance_ohm * CURRENT_LOOP_BANDWIDTH_RAD_S;
+        configuration->model.iq_kp =
+            configuration->model.motor_q_inductance_h * CURRENT_LOOP_BANDWIDTH_RAD_S;
+        configuration->model.iq_ki = configuration->model.id_ki;
+    }
     configuration->application.speed_limit_rad_s =
         isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f &&
                 param->speed_limit_rad_s <= PARAM_APP_SPEED_CEILING_RAD_S

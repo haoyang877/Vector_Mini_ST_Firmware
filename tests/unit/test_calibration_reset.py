@@ -231,6 +231,7 @@ class CalibrationResetTests(unittest.TestCase):
             '#include <math.h>\n#include <stdio.h>\n#include <string.h>\n#include "parameter_record.h"\n'
             '#include "parameter_values.h"\n#include "motor_sensing.h"\n'
             "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
+            + function_source(sensing, "current_offset_valid")
             + function_source(sensing, "MotorCurrentOffsets_IsValid")
             + r"""
 #define CHECK(condition) do { if (!(condition)) { printf("FAIL %u: %s\n", __LINE__, #condition); return 1; } } while (0)
@@ -278,7 +279,8 @@ int main(int argc, char **argv) {
             "-Wall",
             "-Wextra",
             "-Werror",
-            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
+            "-DBSP_BOARD=1",
+            "-DFOC_ACTIVE_MOTOR_PROFILE=1",
             str(source),
         ]
         command += [

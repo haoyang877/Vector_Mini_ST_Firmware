@@ -25,22 +25,16 @@ static bool power_off = true, blocked_unlock, missing_completion;
 static unsigned irq = 1U, ipsr, erases, programs, reads, polls, locks;
 static unsigned error_after, busy_after, corrupt_after, operation, remaining;
 static uint32_t pending_address, pending_word, error_flag;
-static bool pause_fail, resume_fail, sampling_paused;
-bool McuAdc_PauseForStorage(void)
+static bool sampling_paused;
+void Adc_Stop(void)
 {
     assert(irq && !ipsr && power_off && !sampling_paused);
-    if (pause_fail)
-    {
-        return false;
-    }
     sampling_paused = true;
-    return true;
 }
-bool McuAdc_ResumeAfterStorage(void)
+void Adc_Start(void)
 {
     assert(sampling_paused && !operation && irq && power_off);
     sampling_paused = false;
-    return !resume_fail;
 }
 
 static const uint8_t *flash_memory(uint32_t address)
@@ -175,7 +169,7 @@ static void reset(void)
     ipsr = erases = programs = reads = polls = locks = 0U;
     error_after = busy_after = corrupt_after = operation = error_flag = 0U;
     blocked_unlock = s_flash_blocked = missing_completion = false;
-    pause_fail = resume_fail = sampling_paused = false;
+    sampling_paused = false;
 }
 
 static void guards_unchanged(void)
@@ -243,12 +237,6 @@ int main(void)
     reset();
     blocked_unlock = true;
     assert(!param_store_write(input, sizeof(input) - 1U) && !erases && !programs);
-    reset();
-    pause_fail = true;
-    assert(!param_store_write(input, 12U) && !erases && !programs && !sampling_paused);
-    reset();
-    resume_fail = true;
-    assert(!param_store_write(input, 12U) && erases == 1U && programs == 3U);
     reset();
     error_flag = FLASH_EPPERR_FLAG;
     assert(!param_store_write(input, 12U) && !erases && !programs && sim_flash.ctrl_bit.oplk);

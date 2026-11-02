@@ -1,5 +1,5 @@
 /* 电机 STOP/DISABLE 通信适配器离线测试：适配器 + 平台无关停机服务。
- * 所有者替身直接使用 MotorStateRulesContext 纯核心，证明处理器复用现有生命周期语义、不会恒返回成功，
+ * 所有者替身直接使用 五态纯核心，证明处理器复用现有生命周期语义、不会恒返回成功，
  * 且只有所有者确认功率输出禁止才报告 OK。不访问硬件、不接线 CAN 入口。 */
 
 #include <stdbool.h>
@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "motor_state_internal.h"
+#include "motor_state_machine.h"
 #include "motor_stop_request.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_motor_adapter.h"
@@ -28,111 +28,39 @@ extern bool test_application_capabilities(void);
         }                                                                                          \
     } while (0)
 
-/* ===== 所有者替身 1：直接复用 MotorStateRulesContext 纯核心的真实语义 ===== */
+/* ===== 所有者替身 1：直接复用 五态纯核心的真实语义 ===== */
 
 typedef struct
 {
-    MotorStateRulesContext lifecycle;
-    bool power_disabled;
+    MotorState state;
+    bool power_disabled, denied;
 } LifecycleOwner;
 
-static MotorStateFacts LifecycleOwner_Guards(const LifecycleOwner *owner)
-{
-    MotorStateFacts guards;
-
-    guards.active_faults = 0U;
-    guards.phases_disabled = owner->power_disabled;
-    guards.control_idle = true;
-    guards.operation_idle = true;
-    guards.maintenance_released = true;
-    guards.inputs_valid = true;
-    guards.configuration_valid = true;
-    guards.self_test_ready = true;
-    guards.start_permitted = true;
-    guards.operation_permitted = true;
-    guards.startup_confirmed = true;
-    guards.request_fresh = true;
-    return guards;
-}
-
-/* 与真实适配器一致的动作语义：核心只请求，所有者记录功率级状态。 */
-static void LifecycleOwner_Apply(LifecycleOwner *owner, uint32_t actions)
-{
-    if (actions & MOTOR_STATE_ACTION_DISABLE_POWER)
-    {
-        owner->power_disabled = true;
-    }
-}
-
-static void LifecycleOwner_Send(LifecycleOwner *owner, uint32_t events, MotorControlMode mode)
-{
-    MotorStateEvent event;
-    MotorStateFacts guards;
-    MotorStateDecision result;
-
-    memset(&event, 0, sizeof(event));
-    event.events = events;
-    event.control_mode = mode;
-    event.completion_epoch = owner->lifecycle.epoch;
-    guards = LifecycleOwner_Guards(owner);
-    result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
-    LifecycleOwner_Apply(owner, result.actions);
-}
-
-static void LifecycleOwner_Init(LifecycleOwner *owner)
-{
-    MotorStateRules_Init(&owner->lifecycle);
-    owner->power_disabled = true;
-}
-
-/* 走完 INIT → IDLE → STARTING → RUNNING，功率级记录为开。 */
 static void LifecycleOwner_PowerOn(LifecycleOwner *owner)
 {
-    LifecycleOwner_Init(owner);
-    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_SELF_TEST_DONE, MOTOR_CONTROL_NONE);
-    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_ENABLE, MOTOR_CONTROL_CURRENT);
-    /* 真实所有者在 STARTING 准备完成后独立启相，并非规则动作。 */
-    if (owner->lifecycle.state == MOTOR_STATE_STARTING)
-    {
-        owner->power_disabled = false;
-    }
-    LifecycleOwner_Send(owner, MOTOR_STATE_EVENT_START_DONE, MOTOR_CONTROL_NONE);
+    owner->state = MotorStateMachine_Step(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN);
+    owner->power_disabled = false;
+    owner->denied = false;
 }
 
 static void LifecycleOwner_Fatal(LifecycleOwner *owner)
 {
-    MotorStateEvent event;
-    MotorStateFacts guards;
-
-    memset(&event, 0, sizeof(event));
-    event.events = MOTOR_STATE_EVENT_FATAL;
-    event.faults = MOTOR_STATE_FAULT_INTERNAL;
-    guards = LifecycleOwner_Guards(owner);
-    (void)MotorStateRules_Step(&owner->lifecycle, &event, &guards);
+    owner->state = MotorStateMachine_Step(owner->state, MOTOR_STATE_EVENT_FAULT);
+    owner->denied = true;
 }
 
-/* 所有者窄端口：请求停机即向核心发送 STOP；只有核心请求关相时才回报确认。 */
-static motor_stop_owner_result_t
-LifecycleOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t sequence)
+static bool LifecycleOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t sequence)
 {
     LifecycleOwner *owner = owner_context;
-    MotorStateEvent event;
-    MotorStateFacts guards;
-    MotorStateDecision result;
-
     (void)source_node;
     (void)sequence;
-
-    memset(&event, 0, sizeof(event));
-    event.events = MOTOR_STATE_EVENT_STOP;
-    guards = LifecycleOwner_Guards(owner);
-    result = MotorStateRules_Step(&owner->lifecycle, &event, &guards);
-    LifecycleOwner_Apply(owner, result.actions);
-    if (result.accepted)
+    if (owner->denied)
     {
-        return MOTOR_STOP_OWNER_ACCEPTED;
+        return false;
     }
-    return MOTOR_STOP_OWNER_DENIED;
+    owner->power_disabled = true;
+    owner->state = MotorStateMachine_Step(owner->state, MOTOR_STATE_EVENT_STOP);
+    return true;
 }
 
 static bool LifecycleOwner_IsPowerDisabled(void *owner_context)
@@ -150,15 +78,14 @@ static const motor_stop_owner_port_t LIFECYCLE_PORT = {
 
 typedef struct
 {
-    motor_stop_owner_result_t request_result;
+    bool request_result;
     bool disabled;
     int request_calls;
     uint8_t last_source;
     uint16_t last_sequence;
 } ScriptedOwner;
 
-static motor_stop_owner_result_t
-ScriptedOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t sequence)
+static bool ScriptedOwner_RequestStop(void *owner_context, uint8_t source_node, uint16_t sequence)
 {
     ScriptedOwner *owner = owner_context;
     ++owner->request_calls;
@@ -282,7 +209,7 @@ static void test_lifecycle_owner_stop_confirmed(void)
     uint32_t first_token;
 
     LifecycleOwner_PowerOn(&owner);
-    CHECK(owner.lifecycle.state == MOTOR_STATE_RUNNING);
+    CHECK(owner.state == MOTOR_STATE_RUNNING);
     CHECK(!owner.power_disabled);
 
     CHECK(MotorStopService_Init(&stop, &LIFECYCLE_PORT, &owner));
@@ -296,7 +223,7 @@ static void test_lifecycle_owner_stop_confirmed(void)
     CHECK(reply.status == YG_PROTOCOL_SERVICE_OK);
     CHECK(reply.token != 0U);
     CHECK(owner.power_disabled);
-    CHECK(owner.lifecycle.state == MOTOR_STATE_STOPPING);
+    CHECK(owner.state == MOTOR_STATE_IDLE);
 
     /* 请求对象只借用：适配器与所有者都不得改动调用方数据。 */
     CHECK(memcmp(&request_before, &request, sizeof(request)) == 0);
@@ -320,7 +247,7 @@ static void test_lifecycle_owner_denied(void)
 
     LifecycleOwner_PowerOn(&owner);
     LifecycleOwner_Fatal(&owner);
-    CHECK(owner.lifecycle.state == MOTOR_STATE_FATAL);
+    CHECK(owner.state == MOTOR_STATE_FAULT);
 
     CHECK(MotorStopService_Init(&stop, &LIFECYCLE_PORT, &owner));
     handler.stop_service = &stop;
@@ -336,7 +263,7 @@ static void test_lifecycle_owner_denied(void)
 
 static void test_async_accept_then_confirm(void)
 {
-    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_ACCEPTED};
+    ScriptedOwner owner = {.request_result = true};
     motor_stop_service_t stop;
     yg_protocol_motor_adapter_t handler;
     yg_protocol_service_reply_t reply;
@@ -379,7 +306,7 @@ static void test_async_accept_then_confirm(void)
 
 static void test_first_denied_then_accepted(void)
 {
-    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_DENIED};
+    ScriptedOwner owner = {.request_result = false};
     motor_stop_service_t stop;
     yg_protocol_motor_adapter_t handler;
     yg_protocol_service_reply_t reply;
@@ -389,7 +316,7 @@ static void test_first_denied_then_accepted(void)
 
     /* 首次拒绝后服务不得停留在 pending：修正后再次请求必须重新下达。 */
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_STOP, &reply) == YG_PROTOCOL_SERVICE_DENIED);
-    owner.request_result = MOTOR_STOP_OWNER_ACCEPTED;
+    owner.request_result = true;
     owner.disabled = true;
     CHECK(call_handler(&handler, YG_PROTOCOL_MOTOR_STOP, &reply) == YG_PROTOCOL_SERVICE_OK);
     CHECK(owner.request_calls == 2);
@@ -399,7 +326,7 @@ static void test_first_denied_then_accepted(void)
 
 static void test_stop_identity_reaches_owner_in_every_phase(void)
 {
-    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_ACCEPTED};
+    ScriptedOwner owner = {.request_result = true};
     motor_stop_service_t stop;
     uint32_t token = 0U;
     uint32_t original;
@@ -418,7 +345,7 @@ static void test_stop_identity_reaches_owner_in_every_phase(void)
 
 static void test_unconfirmable_shutdown_never_ok(void)
 {
-    ScriptedOwner owner = {.request_result = MOTOR_STOP_OWNER_ACCEPTED};
+    ScriptedOwner owner = {.request_result = true};
     motor_stop_service_t stop;
     yg_protocol_motor_adapter_t handler;
     yg_protocol_service_reply_t reply;
@@ -451,75 +378,17 @@ static void test_unconfirmable_shutdown_never_ok(void)
     printf("PASS unconfirmable shutdown stays ACCEPTED and never reports OK\n");
 }
 
-typedef struct
-{
-    MotorControlCommand command;
-    MotorControlResult result;
-    unsigned calls;
-} ControlOwner;
-
-static MotorControlResult submit_control(void *context, const MotorControlCommand *command)
-{
-    ControlOwner *owner = context;
-    owner->command = *command;
-    ++owner->calls;
-    return owner->result;
-}
-
 static void test_control_boundary(void)
 {
-    ControlOwner owner = {.result = MOTOR_CONTROL_ACCEPTED};
-    yg_protocol_motor_adapter_t adapter = {.submit_control = submit_control,
-                                           .control_context = &owner};
-    yg_protocol_motor_request_t request = {.operation = YG_PROTOCOL_MOTOR_SET_CONTROL,
-                                           .mode = 3U,
-                                           .position_mrad = -1250,
-                                           .source_node = 2U,
-                                           .sequence = 41U};
+    yg_protocol_motor_adapter_t adapter = {0};
+    yg_protocol_motor_request_t request = {.operation = YG_PROTOCOL_MOTOR_SET_CONTROL};
     yg_protocol_service_reply_t reply;
-    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-    CHECK(reply.status == YG_PROTOCOL_SERVICE_ACCEPTED && owner.calls == 1U);
-    CHECK(owner.command.mode == MOTOR_CONTROL_POSITION &&
-          fabsf(owner.command.position_rad + 1.25f) < 0.00001f);
-    CHECK(request.position_mrad == -1250 && reply.token == 0U);
-    CHECK(owner.command.source_node == 2U && owner.command.sequence == 41U);
-
-    static const MotorControlResult results[] = {MOTOR_CONTROL_INVALID,
-                                                 MOTOR_CONTROL_DENIED,
-                                                 MOTOR_CONTROL_BUSY,
-                                                 MOTOR_CONTROL_OUT_OF_RANGE,
-                                                 MOTOR_CONTROL_FAULT};
-    static const uint16_t codes[] = {4U, 5U, 6U, 11U, 17U};
-    for (unsigned index = 0U; index < sizeof(results) / sizeof(results[0]); ++index)
+    for (uint8_t mode = 0; mode <= 10; ++mode)
     {
-        owner.result = results[index];
+        request.mode = mode;
         yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-        CHECK(yg_protocol_motor_result_code(reply.status) == codes[index]);
+        CHECK(reply.status == YG_PROTOCOL_SERVICE_UNSUPPORTED && reply.token == 0U);
     }
-    request.position_mrad = 0;
-    request.mode = 1U;
-    request.iq_mA = -500;
-    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-    CHECK(owner.command.mode == MOTOR_CONTROL_CURRENT &&
-          fabsf(owner.command.iq_a + 0.5f) < 0.00001f);
-    request.iq_mA = 0;
-    request.mode = 2U;
-    request.speed_mrad_s = 2000;
-    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-    CHECK(owner.command.mode == MOTOR_CONTROL_SPEED && owner.command.speed_rad_s == 2.0f);
-    request.speed_mrad_s = 0;
-    request.mode = 6U;
-    request.v_q_mV = 1000;
-    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-    CHECK(owner.command.mode == MOTOR_CONTROL_VQ && owner.command.vq_v == 1.0f);
-    unsigned calls = owner.calls;
-    request.mode = 4U;
-    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-    CHECK(reply.status == YG_PROTOCOL_SERVICE_UNSUPPORTED && owner.calls == calls);
-    request.mode = 5U;
-    yg_protocol_motor_adapter_handle(&adapter, &request, &reply);
-    CHECK(reply.status == YG_PROTOCOL_SERVICE_UNSUPPORTED && owner.calls == calls);
-    printf("PASS control boundary: mode/SI conversion and explicit owner results\n");
 }
 
 static void open_loop_service(void *context,
@@ -549,20 +418,10 @@ static void test_open_loop_vectors(void)
     CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_OK);
     CHECK(decoded.mode == 9 && decoded.electrical_frequency_mHz == 20000 && decoded.vd_mV == 1000 &&
           decoded.v_q_mV == 2000);
-    ControlOwner owner = {.result = MOTOR_CONTROL_ACCEPTED};
-    yg_protocol_motor_adapter_t adapter = {.submit_control = submit_control,
-                                           .control_context = &owner};
-    yg_protocol_service_reply_t reply;
-    yg_protocol_motor_adapter_handle(&adapter, &decoded, &reply);
-    CHECK(owner.command.mode == MOTOR_CONTROL_OPEN_VOLTAGE &&
-          owner.command.electrical_frequency_hz == 20.0f);
-    CHECK(owner.command.vd_v == 1.0f && owner.command.vq_v == 2.0f && owner.command.id_a == 0);
     message.payload = current;
     CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_OK);
-    yg_protocol_motor_adapter_handle(&adapter, &decoded, &reply);
-    CHECK(owner.command.mode == MOTOR_CONTROL_OPEN_CURRENT &&
-          owner.command.electrical_frequency_hz == -20.0f);
-    CHECK(owner.command.id_a == 1.0f && owner.command.iq_a == 2.0f && owner.command.vq_v == 0);
+    CHECK(decoded.mode == 10U && decoded.electrical_frequency_mHz == -20000 &&
+          decoded.id_mA == 1000 && decoded.iq_mA == 2000);
     yg_protocol_motor_request_t before = decoded;
     message.payload_length = 20U;
     CHECK(yg_protocol_motor_decode_control(&message, &decoded) == YG_PROTOCOL_INVALID_LENGTH);
@@ -605,19 +464,36 @@ static void test_open_loop_vectors(void)
     CHECK(yg_protocol_motor_handle_control(&context, &start, &result) == YG_PROTOCOL_OK);
     CHECK(calls[1] == 1U && calls[0] == 2U && result.response_payload[0] == 0U);
     CHECK(yg_protocol_motor_handle_control(&context, &start, &result) == YG_PROTOCOL_OK &&
-          calls[1] == 1U);
+          calls[1] == 2U);
     memcpy(invalid, voltage, sizeof(invalid));
     invalid[20] ^= 1U;
     start.payload = invalid;
     CHECK(yg_protocol_motor_handle_control(&context, &start, &result) == YG_PROTOCOL_OK &&
-          calls[1] == 1U);
-    CHECK(result.response_payload[0] == 4U);
+          calls[1] == 3U);
+    CHECK(result.response_payload[0] == 0U);
     printf("PASS v0.3 open-loop golden payloads, SI mapping, lengths, start whitelist and "
            "extended-payload replay\n");
 }
 
+static void test_minimal_state(void)
+{
+    yg_protocol_motor_status_source_t source = {.state = 5U, .sample_available = true};
+    yg_protocol_motor_feedback_t feedback;
+    uint8_t payload[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
+    CHECK(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) == YG_PROTOCOL_OK);
+    CHECK(feedback.valid_bits == 0U);
+    CHECK(yg_protocol_motor_feedback_encode(&feedback, payload, sizeof(payload)) == YG_PROTOCOL_OK);
+    printf("VECTOR minimal_state ");
+    for (unsigned i = 0; i < sizeof(payload); ++i)
+    {
+        printf("%02x", payload[i]);
+    }
+    printf("\n");
+}
+
 int main(void)
 {
+    test_minimal_state();
     test_early_returns();
     test_service_api_misuse();
     test_lifecycle_owner_stop_confirmed();
@@ -627,6 +503,15 @@ int main(void)
     test_stop_identity_reaches_owner_in_every_phase();
     test_unconfirmable_shutdown_never_ok();
     test_control_boundary();
+    ScriptedOwner wrap_owner = {.request_result = true};
+    motor_stop_service_t wrap_service;
+    uint32_t token;
+    CHECK(MotorStopService_Init(&wrap_service, &SCRIPTED_PORT, &wrap_owner));
+    wrap_service.token = UINT32_MAX;
+    wrap_service.confirmed = true;
+    CHECK(MotorStopService_RequestStop(&wrap_service, 2U, 0U, &token) ==
+          MOTOR_STOP_RESULT_ACCEPTED);
+    CHECK(token == 1U);
     test_open_loop_vectors();
     CHECK(test_application_capabilities());
 

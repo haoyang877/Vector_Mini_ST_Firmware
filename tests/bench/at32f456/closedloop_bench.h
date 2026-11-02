@@ -22,7 +22,6 @@ typedef struct
     MotorConfiguration configuration;
     MotorControlState motor;
     FocState foc;
-    MotorMeasurement measurement;
     PiController speed_pi;
     EncoderState encoder;
     AT32ClTelemetry telemetry;

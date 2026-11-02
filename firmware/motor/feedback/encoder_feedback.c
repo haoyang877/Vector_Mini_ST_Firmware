@@ -175,16 +175,15 @@ static void encoder_update_velocity_pll(EncoderState *encoder, uint32_t pole_pai
 }
 
 /* 首样本/重定多圈基准：用当前线性化角、机械零位与轴策略确立多圈位置基准；仅慢估计调用。
- * 输入：configuration（轴配置与校准）、encoder；无返回值。
+ * 输入：encoder（含初始化时绑定的轴配置与校准）；无返回值。
  * 输出：previous_linearized_q15、shadow_q15、mechanical_zero_shadow_q15。
  * 未标定机械零位：影子零位取 0，shadow 以当前线性化角为基准；
  * 已标定：影子零位取 mechanical_zero_q15，并用
  * MotorAxisProfile_InitialEncoderOffsetQ15() 解析首样本圈数，使便携轴重启后
  * 多圈位置连续、行程检查仍然有效。 */
-static void encoder_rebase_multi_turn_position(const MotorConfiguration *configuration,
-                                               EncoderState *encoder)
+static void encoder_rebase_multi_turn_position(EncoderState *encoder)
 {
-    const EncoderCalibration *calibration = &configuration->device.encoder;
+    const EncoderCalibration *calibration = encoder->calibration;
     encoder->previous_linearized_q15 = encoder->linearized_q15;
     encoder->shadow_q15 = encoder->linearized_q15;
     if ((calibration->calib_flag & ENC_CALIB_MECHANICAL_ZERO) == 0U)
@@ -197,8 +196,8 @@ static void encoder_rebase_multi_turn_position(const MotorConfiguration *configu
         /* 只解析首样本的圈数；便携轴策略保留已标定零位并保持行程检查有效。 */
         encoder->shadow_q15 =
             encoder->mechanical_zero_shadow_q15 +
-            MotorAxisProfile_InitialEncoderOffsetQ15(&configuration->application.axis_profile,
-                                                     configuration->application.axis_profile_valid,
+            MotorAxisProfile_InitialEncoderOffsetQ15(encoder->axis_profile,
+                                                     *encoder->axis_profile_valid,
                                                      (int32_t)encoder->linearized_q15 -
                                                          (int32_t)calibration->mechanical_zero_q15);
     }
@@ -250,10 +249,18 @@ void Encoder_SetReverse(EncoderCalibration *calibration, EncoderState *encoder, 
 }
 
 /* 上电初始化编码器反馈。
- * 输入：calibration、encoder；校准须在调用前由参数服务填充；无返回值。
- * 方向值归一化为 0/1；清空快/慢计算状态并复位速度窗口。 */
-void Encoder_InitFeedback(EncoderCalibration *calibration, EncoderState *encoder)
+ * 输入：calibration、pole_pairs、axis_profile、axis_profile_valid、encoder；无返回值。
+ * 配置须在调用前由参数服务填充，绑定后原位更新；方向归一化为 0/1，清空快慢状态。 */
+void Encoder_InitFeedback(EncoderCalibration *calibration,
+                          const int32_t *pole_pairs,
+                          const MotorAxisProfile *axis_profile,
+                          const bool *axis_profile_valid,
+                          EncoderState *encoder)
 {
+    encoder->calibration = calibration;
+    encoder->pole_pairs = pole_pairs;
+    encoder->axis_profile = axis_profile;
+    encoder->axis_profile_valid = axis_profile_valid;
     calibration->reverse = calibration->reverse != 0U ? 1U : 0U;
     encoder->raw_q15 = 0U;
     encoder->directed_q15 = 0U;
@@ -324,19 +331,20 @@ bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *en
 }
 
 /* 完成一帧读取：方向/LUT 校正、电角度与观测器速度更新（20 kHz 快路径）。
- * 输入：configuration（读 motor_pole_pairs，<= 0 按 1 处理）、encoder、
+ * 输入：encoder（含初始化时绑定的校准与极对数，极对数 <= 0 按 1 处理）、
  *       直接读取已经发起的传输；无返回值。
  * 流程：取帧 -> 方向校正 -> LUT 线性化 -> 更新 raw/directed/linearized
  *       -> 消费 velocity_restart_requested（以当前角重建观测器）
  *       -> 首个有效帧置 has_valid_sample 并请求重定多圈基准（由慢估计执行）
  *       -> sample_epoch++ -> 更新 electrical_angle_rad 与观测器速度。
  * 两板均不检查采集帧错误，本函数不写多圈/机械角。 */
-void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encoder)
+void Encoder_Update(EncoderState *encoder)
 {
-    const EncoderCalibration *calibration = &configuration->device.encoder;
+    const EncoderCalibration *calibration = encoder->calibration;
     uint16_t raw_q15;
     uint16_t directed_q15;
     uint16_t linearized_q15;
+    int32_t configured_pole_pairs;
     uint32_t pole_pairs;
 
     raw_q15 = BspEncoder_ReadAngle();
@@ -346,9 +354,8 @@ void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encod
     encoder->raw_q15 = raw_q15;
     encoder->directed_q15 = directed_q15;
     encoder->linearized_q15 = linearized_q15;
-    pole_pairs = configuration->model.motor_pole_pairs > 0
-                     ? (uint32_t)configuration->model.motor_pole_pairs
-                     : 1U;
+    configured_pole_pairs = *encoder->pole_pairs;
+    pole_pairs = configured_pole_pairs > 0 ? (uint32_t)configured_pole_pairs : 1U;
 
     if (encoder->velocity_restart_requested)
     {
@@ -370,11 +377,11 @@ void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encod
 }
 
 /* 2 kHz 慢估计：多圈/机械角为慢位置状态唯一写者；速度由 20 kHz 快路径观测器负责。
- * 输入：configuration（轴配置与校准）、encoder；无返回值。
+ * 输入：encoder（含初始化时绑定的轴配置与校准）；无返回值。
  * 顺序：有新样本时按 rebase_requested 走重定多圈基准，否则累积多圈；
  *       随后消费 zero_requested（机械零位影子对齐当前多圈值）；
  *       最后每拍重算 mechanical_position_rad——即使没有新样本也更新，保证零位请求下一拍立即生效。 */
-void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, EncoderState *encoder)
+void Encoder_UpdateSlowEstimate(EncoderState *encoder)
 {
     bool new_sample =
         encoder->has_valid_sample && encoder->sample_epoch != encoder->slow_sample_epoch;
@@ -383,7 +390,7 @@ void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, Encoder
     {
         if (encoder->rebase_requested)
         {
-            encoder_rebase_multi_turn_position(configuration, encoder);
+            encoder_rebase_multi_turn_position(encoder);
             encoder->rebase_requested = false;
         }
         else
@@ -434,20 +441,8 @@ float Encoder_GetMechVelContinuous(const EncoderState *encoder)
     return encoder->mechanical_velocity_continuous_rad_s;
 }
 
-/* 读取线性化后角度占整圈的比例。输入：encoder；返回：[0,1) 的比例，供调试与诊断。 */
-float Encoder_GetCprRatio(const EncoderState *encoder)
-{
-    return (float)encoder->linearized_q15 / (float)ENCODER_Q15_CPR;
-}
-
 /* 读取标定标志位。输入：calibration；返回：ENC_CALIB_* 位图（线性化/电零位/机械零位）。 */
 uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration)
 {
     return calibration->calib_flag;
-}
-
-/* 读取编码器方向配置。输入：calibration；返回：1 表示反向，0 表示正向。 */
-uint8_t Encoder_GetReverse(const EncoderCalibration *calibration)
-{
-    return calibration->reverse;
 }

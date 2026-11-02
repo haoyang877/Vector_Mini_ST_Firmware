@@ -5,7 +5,7 @@
 ADC2 在 `firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/adc.c` 的 `USER CODE ADC2_Init 2` 中启用注入组
 4×硬件过采样、不右移。每次原有 TIM1 CC4 触发，硬件为每个注入
 rank 连续完成4次采样和转换，将完整累加结果写入对应 JDR。
-顺序仍为 phase_a_current_a、phase_b_current_a、phase_c_current_a、bus_voltage_v；bus_voltage_v 同属此组，因此也使用4×。
+顺序仍为 phase_current_a.a、phase_current_a.b、phase_current_a.c、bus_voltage_v；bus_voltage_v 同属此组，因此也使用4×。
 ADC1 温度采样不变。PWM及电流环的名义频率保持20 kHz。
 
 此配置属于当前板级硬件初始化适配，不属于FOC算法。没有新增上层
@@ -20,7 +20,7 @@ CubeMX `.ioc` 中的 `EnableInjectedOversampling=DISABLE` 是**生成基线**，
 
 已有工作区改动已经使用 `ADC_IT_JEOS` 并关闭 `ADC_IT_JEOC`；
 回调还检查ADC2的JEOS标志。本次保留这些改动，避免在尚未完成
-phase_a_current_a/phase_b_current_a/phase_c_current_a/Vbus整组转换时执行FOC。没有按每个子样本运行FOC。
+phase_current_a.a/phase_current_a.b/phase_current_a.c/Vbus整组转换时执行FOC。没有按每个子样本运行FOC。
 
 ## 数值兼容性
 

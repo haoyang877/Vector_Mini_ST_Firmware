@@ -51,7 +51,7 @@ Axis 只装配单份电机/FOC/编码器/控制器对象、执行固定 20 kHz /
 
 源码提交：`4718d417d1b5917b84bcbed5e694a3b644bc77a1`。
 实际入口：[Axis](../../../firmware/app/runtime/motor_axis.c) →
-[参数事务](../../../firmware/app/runtime/motor_parameter_transaction.c)。
+[参数事务](../../../firmware/app/runtime/motor_axis.c)。
 原协议、board_config 和主状态机调用 Axis 的公开参数入口；Axis 显式传入原对象，
 不保留第二份状态或对象指针。参数事务不引用 Axis 全局运行对象或 CubeMX/HAL。
 
@@ -68,7 +68,7 @@ Axis 只装配单份电机/FOC/编码器/控制器对象、执行固定 20 kHz /
 
 ## 接线、证据与未完成
 
-新增一个生产源：`firmware/app/runtime/motor_parameter_transaction.c`。
+新增一个生产源：`firmware/app/runtime/motor_axis.c`。
 YG_ESC_APP / Vector_Mini_ST_LoaderApp 的 00_App 组在 motor_axis.c 后各追加该文件，
 继承现有组/目标选项；include 路径已覆盖 runtime。补丁为
 `outputs/motor-axis-v2/keil-wiring.patch`，公共工程、逐文件优化和用户 Watch 配置未写入。

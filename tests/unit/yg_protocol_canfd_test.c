@@ -9,11 +9,11 @@ static bool send_ok;
 static unsigned send_calls;
 static unsigned handler_calls;
 
-BspResult BspCan_TrySend(const BspCanFrame *frame)
+bool BspCan_TrySend(const BspCanFrame *frame)
 {
     sent = *frame;
     ++send_calls;
-    return send_ok ? BSP_OK : BSP_BUSY;
+    return send_ok;
 }
 
 static yg_protocol_result_t handle_test(void *context,

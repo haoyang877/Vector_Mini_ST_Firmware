@@ -5,7 +5,7 @@
 
 ## 结构与阅读入口
 
-- [转换规则](../../../firmware/app/motor_state_machine/motor_state_rules.c)：
+- [转换规则](../../../firmware/app/motor_state_machine/motor_state_machine.c)：
   MotorStateRules_Step 依次处理参数、公共优先级、普通状态事件和统一输出约束。
   handle_state_event 按九个主状态组织，入口、守卫和出口集中在对应分支。
 - [监督所有者](../../../firmware/app/motor_state_machine/motor_state_machine.c)：

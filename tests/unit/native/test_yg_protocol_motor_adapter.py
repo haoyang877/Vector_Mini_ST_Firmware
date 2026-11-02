@@ -1,6 +1,7 @@
 """电机 STOP/DISABLE 通信适配器离线测试入口；编译并运行原生夹具，不访问硬件。"""
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -30,7 +31,7 @@ def main() -> None:
         "yg_protocol_motor_adapter.exe" if os.name == "nt" else "yg_protocol_motor_adapter"
     )
     # 使用实际APP能力配置验证编码结果，防止控制入口已接通但发现页仍遗漏模式。
-    startup = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
+    startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
     capabilities = re.search(
         r"yg_protocol_readonly_caps_page0_t capabilities = \{.*?\};", startup, re.DOTALL
     )
@@ -41,7 +42,7 @@ def main() -> None:
         '#include "yg_protocol_readonly.h"\n#include <string.h>\n'
         "bool test_application_capabilities(void) {\n"
         + capabilities.group(0)
-        + "\nconst uint8_t expected[16] = {0x00,0x1d,0,0,0x04,0x06,0x40,0,"
+        + "\nconst uint8_t expected[16] = {0x00,0x1d,0,0,0x4e,0x06,0x40,0,"
         "0x2e,0,0,0,0,0,0,0};\nuint8_t payload[16]; size_t length = 0;\n"
         "return yg_protocol_readonly_encode_caps_page0(&capabilities, payload, sizeof(payload),"
         " &length) == YG_PROTOCOL_OK && length == sizeof(expected) &&"
@@ -63,7 +64,7 @@ def main() -> None:
             str(ROOT / "tests/unit/yg_protocol_motor_adapter_test.c"),
             str(caps_source),
             str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
-            str(ROOT / "firmware/app/motor_state_machine/motor_state_rules.c"),
+            str(ROOT / "firmware/app/motor_state_machine/motor_state_machine.c"),
             str(ROOT / "firmware/communication/commands/yg_protocol_motor_adapter.c"),
             str(ROOT / "firmware/communication/commands/yg_protocol_motor.c"),
             str(ROOT / "shared/protocol/yg_protocol_crc.c"),
@@ -73,7 +74,16 @@ def main() -> None:
         ]
     )
     subprocess.run(command, check=True)
-    subprocess.run([str(executable)], check=True)
+    result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+    print(result.stdout, end="")
+    vectors = json.loads(
+        (ROOT / "docs/protocols/yg_protocol_motor_state_v1_7_vectors.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    vector = next(item for item in vectors["vectors"] if item["name"] == "minimal_state")
+    if f"VECTOR minimal_state {vector['payload_hex']}" not in result.stdout.splitlines():
+        raise RuntimeError("最小状态反馈与v1.7黄金向量不符")
 
 
 if __name__ == "__main__":

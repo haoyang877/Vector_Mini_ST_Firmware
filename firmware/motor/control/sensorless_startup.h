@@ -17,7 +17,6 @@ void SensorlessStartup_Reset(SensorlessStartupState *startup);
  * @brief  执行无感启动状态机的单 tick 步骤。
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态指针。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param  motor_state 电机控制状态指针。
  * @param  controller 速度 PI 控制器指针。
  * @param  flux_observer 磁链观测器状态指针。
@@ -27,7 +26,6 @@ void SensorlessStartup_Reset(SensorlessStartupState *startup);
  */
 void SensorlessStartup_Run(const MotorConfiguration *configuration,
                            FocState *foc,
-                           const MotorMeasurement *measurement,
                            MotorControlState *motor_state,
                            PiController *controller,
                            FluxObserverState *flux_observer,

@@ -1,4 +1,4 @@
-"""对比生产参数与 CAN 编码的整数实现和冻结双精度参考；不访问设备。"""
+"""对比生产参数整数编码和冻结双精度参考；不访问设备。"""
 
 import argparse
 import subprocess
@@ -23,24 +23,26 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     executable = output / "numeric_encoding.exe"
     command = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
-    command += NATIVE_INCLUDE_FLAGS + [
-        "-std=c99",
-        "-O2",
-        "-UNDEBUG",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        str(ROOT / "tests/unit/numeric_encoding_test.c"),
-        str(ROOT / "shared/protocol/yg_protocol_crc.c"),
-        str(ROOT / "firmware/communication/commands/yg_protocol_readonly.c"),
-        str(ROOT / "firmware/parameters/motor_axis_profile.c"),
-        str(ROOT / "shared/checksum/crc32.c"),
-        str(ROOT / "firmware/motor/protection/motor_thermal.c"),
-        str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
-        str(ROOT / "firmware/motor/control/speed_feedforward.c"),
-        "-o",
-        str(executable),
-    ]
+    command += (
+        NATIVE_INCLUDE_FLAGS
+        + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
+        + [
+            "-std=c99",
+            "-O2",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(ROOT / "tests/unit/numeric_encoding_test.c"),
+            str(ROOT / "firmware/parameters/motor_axis_profile.c"),
+            str(ROOT / "shared/checksum/crc32.c"),
+            str(ROOT / "firmware/motor/protection/motor_thermal.c"),
+            str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
+            str(ROOT / "firmware/motor/control/speed_feedforward.c"),
+            "-o",
+            str(executable),
+        ]
+    )
     logs = []
     for cmd in (command, [str(executable)]):
         result = subprocess.run(cmd, capture_output=True, text=True)

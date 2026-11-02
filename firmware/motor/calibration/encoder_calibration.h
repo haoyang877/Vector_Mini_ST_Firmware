@@ -1,21 +1,42 @@
 #ifndef ENCODER_CALIBRATION_H
 #define ENCODER_CALIBRATION_H
 
-#include "encoder_calibration_core.h"
 #include "motor_types.h"
 #include "encoder_feedback.h"
 #include "foc.h"
 #include "pi_controller.h"
 #include "flux_observer.h"
-#include "sensorless_startup.h"
 
-/* Mode13/15 编码器标定任务适配，纯计算契约见 encoder_calibration_core.h：
+/** 调用方独占的采样区；计数与候选按构表阶段复用，布局保持 6144 B。 */
+typedef struct
+{
+    int32_t error_sum[ENCODER_OFFSET_LUT_SIZE];
+    union
+    {
+        uint16_t samples[ENCODER_OFFSET_LUT_SIZE];
+        int16_t candidate[ENCODER_OFFSET_LUT_SIZE];
+    } bins;
+} EncoderCalibrationWorkspace;
+
+/** @brief 当前调用借用的单轴控制对象；由调用方显式组装，不持有独立状态。 */
+typedef struct
+{
+    MotorConfiguration *configuration;
+    FocState *foc;
+    MotorControlState *motor;
+    PiController *speed_pi;
+    EncoderState *encoder;
+    FluxObserverState *observer;
+    SensorlessStartupState *startup;
+} EncoderCalibrationControl;
+
+/* 编码器标定任务：
  * - EncoderCalibrationTask_StepLut：无感观测器闭环下重建编码器 1024 点线性化 LUT；
  * - EncoderCalibrationTask_StepElectricalZero：d 轴对齐并写入电角度零位（需先完成 LUT 标定）。
- * 任务不自行停相、写模式或保存；完成/失败经 MotorTaskResult 上报，
+ * 任务为单轴非重入实现，不自行停相、写模式或保存；完成/失败经 MotorTaskResult 上报，
  * 功率级与模式迁移由运行状态机执行；本地中止只清理控制状态。 */
 
-/* 仅保留实际LUT/电零位阶段；显式编号保持原Watch与诊断数值。 */
+/* 仅保留实际LUT阶段；显式编号保持原Watch与诊断数值，电零位独立计时。 */
 typedef enum
 {
     CS_NULL = 0,
@@ -28,12 +49,7 @@ typedef enum
     CS_OBS_VERIFY_CW,
     CS_OBS_STOP_DECEL,
     CS_OBS_STOP_CURRENT,
-    CS_ENC_OFFSET_ALIGN,
-    CS_ENC_OFFSET_ALIGN_LOOP,
-    CS_ENC_OFFSET_RAMP_CW,
-    CS_ENC_OFFSET_SAMPLE_CW,
-    CS_ENC_OFFSET_END,
-    CS_LUT_PUBLISH_PENDING
+    CS_LUT_PUBLISH_PENDING = 36
 } EncoderCalibrationPhase;
 
 /* 当前标定阶段；前台与诊断只读，标定任务为唯一写者。 */
@@ -44,7 +60,7 @@ typedef enum
 EncoderCalibrationPhase EncoderCalibrationTask_GetStep(void);
 
 /**
- * @brief 退出观测器编码器标定并释放其工作区。
+ * @brief 取消LUT及电零位会话并释放工作区借用。
  * @note 只清理本模块的内存与阶段变量，不停相、不改模式、不写参数；可重复调用。
  */
 void EncoderCalibrationTask_Cancel(void);
@@ -66,53 +82,27 @@ bool EncoderCalibrationTask_PublishLut(EncoderCalibration *calibration, EncoderS
 
 /**
  * @brief 观测器 LUT 标定周期任务：无感闭环下重建 1024 点线性化 LUT。
- * @param configuration 活动配置只读视图，读取电机模型与应用限值。
- * @param calibration 保留既有调用形状；本快环入口不再写入正式LUT。
- * @param foc 电流控制与观测量。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
- * @param motor_state 电机与控制状态；任务只写指令类字段。
- * @param speed_pi 速度环控制器状态（无感启动复用）。
- * @param encoder 编码器运行状态，关相前仍使用原LUT反馈。
- * @param flux_observer 观测器状态；机械参考由静态对齐与过零插值建立。
- * @param startup 无感启动状态机状态。
+ * @param control 单轴控制绑定；所有对象在当前调用内有效，任务不保存绑定地址。
  * @param workspace 调用方独占采样区，活动任务期间地址须不变；NULL 表示不可借用。
  * @return 采集中返回 MOTOR_TASK_RUNNING；标定完成返回
- *         MOTOR_TASK_FINALIZE，所有者关相后在后台发布，再独立衔接保存；
+ *         MOTOR_TASK_FINALIZE，所有者关相后在后台发布，持久化由所有者决定；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；本地中止只清理采样区与控制状态，
  *       停相与模式回退由运行状态机按结果协议执行。FINALIZE保留候选借用，
  *       发布或取消后调用方确认 IsReleased 才可复用空间；不分配或释放内存。
  */
-MotorTaskResult EncoderCalibrationTask_StepLut(const MotorConfiguration *configuration,
-                                               EncoderCalibration *calibration,
-                                               FocState *foc,
-                                               const MotorMeasurement *measurement,
-                                               MotorControlState *motor_state,
-                                               PiController *speed_pi,
-                                               EncoderState *encoder,
-                                               FluxObserverState *flux_observer,
-                                               SensorlessStartupState *startup,
+MotorTaskResult EncoderCalibrationTask_StepLut(const EncoderCalibrationControl *control,
                                                EncoderCalibrationWorkspace *workspace);
 
 /**
  * @brief 电角度零位标定周期任务：d 轴对齐平均线性化角并写电角度零位。
- * @param configuration 活动配置只读视图，读取对齐电流与应用限值。
- * @param calibration configuration->device.encoder 的可写视图，要求已线性化并接收电零位。
- * @param foc 电流控制与观测量。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
- * @param motor_state 电机与控制状态；id_target_a 由本任务驱动。
- * @param encoder 编码器运行状态，提供在线状态与本拍线性化角。
+ * @param control 单轴绑定，仅访问配置、FOC、电机和编码器；其余成员可为NULL。
  * @return 对齐中返回 MOTOR_TASK_RUNNING；成功返回
- *         MOTOR_TASK_COMPLETED（随后由所有者受理独立保存）；
+ *         MOTOR_TASK_COMPLETED；是否保存由所有者决定；
  *         任一失败返回 MOTOR_TASK_FAILED（错误码已置位）。
  * @note 仅由 20 kHz 快速中断调用；完成/失败经结果协议上报，
- *       停相、任务衔接及保存由主状态机执行。
+ *       停相和任务衔接由主状态机执行，本任务只更新RAM标定。
  */
-MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const MotorConfiguration *configuration,
-                                                          EncoderCalibration *calibration,
-                                                          FocState *foc,
-                                                          const MotorMeasurement *measurement,
-                                                          MotorControlState *motor_state,
-                                                          EncoderState *encoder);
+MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const EncoderCalibrationControl *control);
 
 #endif

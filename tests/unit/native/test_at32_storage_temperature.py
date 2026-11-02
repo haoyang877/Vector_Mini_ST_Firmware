@@ -8,6 +8,8 @@ import argparse
 import subprocess
 from pathlib import Path
 
+from _adc_fixture import adc_source
+from _bsp_test_support import run_c
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 from run_position_servo_tests import function_source
 
@@ -25,10 +27,6 @@ def main() -> int:
     for primitive in ("flash_memory", "flash_store_word"):
         source = source.replace(function_source(source, primitive), "")
     (out / "r40_storage_production.inc").write_text(source, encoding="utf-8")
-    source = (ROOT / "firmware/motor/sensing/mcu_temperature_sensing.c").read_text(encoding="utf-8")
-    (out / "r40_temperature_production.inc").write_text(
-        function_source(source, "McuTemperature_Update"), encoding="utf-8"
-    )
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += ["-DBSP_BOARD=2", "-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     for include in (
@@ -45,41 +43,29 @@ def main() -> int:
         command + [str(native / "r40_storage_test.c"), "-o", str(executable)], check=True
     )
     subprocess.run([str(executable)], check=True)
-    calibrated = [
-        "-DBSP_ENABLED_MCU_TEMPERATURE=1",
-        "-DAT32_TEMPERATURE_CALIBRATED=1",
-        "-DAT32_INTERNAL_REFERENCE_MV=1200.0f",
-        "-DAT32_TEMPERATURE_CAL_MV=1280.0f",
-        "-DAT32_TEMPERATURE_SLOPE_MV_PER_C=4.27f",
-    ]
-    variants = [
-        ("disabled", ["-DBSP_ENABLED_MCU_TEMPERATURE=0"], 0),
-        ("uncalibrated", ["-DBSP_ENABLED_MCU_TEMPERATURE=1"], 0),
-        (
-            "reference_only",
-            ["-DBSP_ENABLED_MCU_TEMPERATURE=1", "-DAT32_INTERNAL_REFERENCE_MV=1200.0f"],
-            0,
-        ),
-        ("calibrated", calibrated, 1),
-        ("invalid_calibration", calibrated[:-1] + ["-DAT32_TEMPERATURE_SLOPE_MV_PER_C=0.0f"], 0),
-    ]
-    for name, flags, expected in variants:
-        if name != "disabled":
-            flags = flags + ["-DBSP_REQUIRED_MCU_TEMPERATURE=1"]
-        executable = out / f"temperature_{name}.exe"
-        subprocess.run(
-            command
-            + flags
-            + [
-                f"-DEXPECT_CALIBRATED={expected}",
-                str(native / "r40_temperature_test.c"),
-                "-lm",
-                "-o",
-                str(executable),
-            ],
-            check=True,
-        )
-        subprocess.run([str(executable)], check=True)
+    # 未提供逐板校准时仅暴露原码，不把典型值伪装成温度或供电电压。
+    run_c(
+        args,
+        "temperature_uncalibrated",
+        adc_source(2)
+        + r"""
+int main(void) {
+    s_temperature_dma[0]=1000; s_temperature_dma[1]=1500;
+    s_temperature_dma[2]=1200; s_temperature_dma[3]=1600;
+    dma_internal.dtcnt=2;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE)==1000);
+    assert(BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)==1500);
+    dma_internal.dtcnt=4;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE)==1200);
+    assert(BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)==1600);
+    assert(isnan(BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE)));
+    assert(isnan(BspAdc_ReadChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)));
+    puts("PASS AT32 uncalibrated temperature: completed DMA half and unavailable physical values");
+    return 0;
+}
+""",
+        2,
+    )
     return 0
 
 

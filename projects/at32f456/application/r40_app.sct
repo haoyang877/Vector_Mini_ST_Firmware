@@ -1,4 +1,4 @@
-; 关相APP：与限时APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
+; 普通APP：与调试APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
 ; 56KiB热代码与其余数据分区，RAM边界沿用既有布局；Flash参数布局不变。
 LR_IROM1 0x08000000 0x0003C000 {
   ER_IROM1 0x08000000 0x0003C000 {
@@ -9,11 +9,9 @@ LR_IROM1 0x08000000 0x0003C000 {
     system.o (i.McuSystem_Init)
     system.o (i.McuSystem_Start)
     adc.o (i.McuAdc_Init)
-    adc.o (i.adc_calibrate)
     pwm.o (i.McuPwm_Init)
     ; LUT发布仅在关相后台调用，不占用快速中断代码区。
     encoder_calibration.o (i.EncoderCalibrationTask_PublishLut)
-    motor_axis.o (i.MotorAxis_ServiceBackground)
     .ANY (+RO)
   }
   ER_FAST 0x20000000 0x0000E000 {
@@ -22,8 +20,6 @@ LR_IROM1 0x08000000 0x0003C000 {
     motor_axis.o (+RO)
     motor_control.o (+RO)
     motor_state_machine.o (+RO)
-    motor_state_rules.o (+RO)
-    motor_maintenance.o (+RO)
     motor_thermal*.o (+RO)
     adc.o (+RO)
     pwm.o (+RO)
@@ -39,7 +35,7 @@ LR_IROM1 0x08000000 0x0003C000 {
     mcu_temperature_sensing.o (+RO)
     speed*.o (+RO)
     control_math.o (+RO)
-    app_tasks.o (+RO)
+    main.o (i.BspApp_OnFastSample)
     ; SystemInit在scatterload之前调用CRM，CRM及启动用库函数必须留在Flash。
     at32f45x_adc.o (+RO)
     at32f45x_can.o (+RO)
@@ -47,8 +43,6 @@ LR_IROM1 0x08000000 0x0003C000 {
     at32f45x_gpio.o (+RO)
     at32f45x_spi.o (+RO)
     at32f45x_tmr.o (+RO)
-    motor_parameter_transaction.o (+RO)
-    maintenance_workspace.o (+RO)
     sqrtf.o (+RO)
     ; BSP快帧与编码器结果复制不能经Flash跳板；保留原库实现与计算顺序。
     rt_memcpy_v6.o (+RO)

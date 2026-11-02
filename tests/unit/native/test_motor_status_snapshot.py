@@ -1,4 +1,4 @@
-"""验证真实状态快照在快慢环抢占下保持一致，并保留有界兜底。"""
+"""验证最小状态元数据与标定、运行、故障的线路映射。"""
 
 import argparse
 import subprocess
@@ -8,16 +8,16 @@ from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT, function_source
 
 
 def main() -> None:
-    """编译真实读取函数，注入版本更新并验证完整结果。"""
+    """编译真实读取函数，确认只报告状态而不伪造测量。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", required=True, type=Path)
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/motor_status_snapshot")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    source = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
-    functions = "\n".join(
-        function_source(source, name) for name in ("read_status_snapshot", "MotorAxis_ReadStatus")
-    )
+    source = (ROOT / "firmware/app/runtime/motor_lifecycle.c").read_text(encoding="utf-8")
+    functions = "\n".join(function_source(source, name) for name in ("MotorLifecycle_ReadStatus",))
+    status_adapter = (ROOT / "firmware/app/composition/app_protocol.c").read_text(encoding="utf-8")
+    functions += "\n" + function_source(status_adapter, "protocol_state")
     fixture = (ROOT / "tests/unit/native/motor_status_snapshot_test.c").read_text(encoding="utf-8")
     generated = args.out / "snapshot.c"
     generated.write_text(fixture.replace("/* REAL_FUNCTIONS */", functions), encoding="utf-8")
@@ -33,6 +33,7 @@ def main() -> None:
             "-Wall",
             "-Wextra",
             "-Werror",
+            "-DBSP_BOARD=1",
             str(generated),
             "-o",
             str(exe),

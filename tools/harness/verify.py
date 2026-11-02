@@ -152,7 +152,7 @@ def main() -> int:
         checks.append(
             run_check(
                 "project-layout",
-                [sys.executable, str(ROOT / "tools/build/check_project_layout.py")],
+                [sys.executable, str(ROOT / "tools/build/check_project_layout.py"), "--all"],
                 run_dir,
             )
         )

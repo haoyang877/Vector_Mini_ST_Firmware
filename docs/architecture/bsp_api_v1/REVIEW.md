@@ -80,7 +80,7 @@ firmware/platform/bsp/mcu/at32f456/system.c的TMR6_DAC_GLOBAL_IRQHandler。
 “可按原有界时限阻塞”，容易被当成不存在的最坏执行时间保证。源缓冲与擦除区域重叠时
 如何拒绝也没有明确写入新契约，AT32当前有这项检查。
 
-现有证据：firmware/app/runtime/motor_parameter_transaction.c:97-102；
+现有证据：firmware/app/runtime/motor_axis.c:97-102；
 firmware/platform/bsp/mcu/at32f456/flash.c:10-12、:69-78；
 firmware/platform/bsp/mcu/stm32g4/flash.c:16-20。
 

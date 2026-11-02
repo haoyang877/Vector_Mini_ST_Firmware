@@ -43,7 +43,7 @@ Mode15 仅将说明注释改为中文，代码和 public header 未改。
 
 | 继承路径 | 冻结时 SHA256 |
 | --- | --- |
-| `firmware/app/composition/yg_protocol_owner_adapter.c` | `0132cddbaaaa614f52fa18527c76b87d170f46ff6b611b73db0742fafe2e292c` |
+| `firmware/app/composition/app_protocol.c` | `0132cddbaaaa614f52fa18527c76b87d170f46ff6b611b73db0742fafe2e292c` |
 | `firmware/app/motor_state_machine/motor_state_machine.c` | `a4bfbe3949d3e3f19b7321bac6bca6584873d262ada5151bbdb90b6a0c623e1c` |
 | `firmware/app/runtime/motor_axis.c` | `f12472f452b602aaf991a9eb08332b2ad877c32269dfc0a88bc64ffea6fac0bb` |
 | `firmware/communication/can/yg_protocol_link.c` | `e07eadcdfed0d0245a9127248fdf2d3259e1eb0f9ed2638524e9f062a1cdc3d4` |

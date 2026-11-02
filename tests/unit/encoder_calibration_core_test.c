@@ -3,9 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "encoder_calibration_core.h"
-
-/* 独立核心夹具仅用标定核心目录，不借助 motor/FOC/platform 的头文件或桩。 */
+/* 由完整标定夹具包含，直接验证文件内私有计算函数。 */
 static EncoderCalibrationWorkspace s_workspace;
 
 static int check_angles(void)
@@ -18,16 +16,14 @@ static int check_angles(void)
             int16_t expected = (int16_t)(uint16_t)(angle - anchors[anchor]);
             int64_t accumulated = 0;
             uint32_t samples = 0U;
-            EncoderCalibrationCore_AddAngleSample(
-                (uint16_t)angle, anchors[anchor], &accumulated, &samples);
-            if (EncoderCalibrationCore_Q15Difference((uint16_t)angle, anchors[anchor]) !=
-                    expected ||
+            add_angle_sample((uint16_t)angle, anchors[anchor], &accumulated, &samples);
+            if (q15_difference((uint16_t)angle, anchors[anchor]) != expected ||
                 accumulated != (int32_t)anchors[anchor] + expected || samples != 1U)
             {
                 return 1;
             }
 #ifdef ENCODER_CALIBRATION_LEGACY_RING_REFERENCE
-            if (EncoderCalibrationCore_Q15Difference((uint16_t)angle, anchors[anchor]) !=
+            if (q15_difference((uint16_t)angle, anchors[anchor]) !=
                 legacy_q15_difference((uint16_t)angle, anchors[anchor]))
             {
                 return 18;
@@ -38,32 +34,31 @@ static int check_angles(void)
     uint16_t anchor = 0U, mean = 123U;
     uint32_t count = 0U;
     int64_t sum = 0;
-    if (EncoderCalibrationCore_MeanQ15(sum, count, &mean) || mean != 123U)
+    if (mean_q15(sum, count, &mean) || mean != 123U)
     {
         return 2;
     }
     anchor = 65530U;
-    EncoderCalibrationCore_AddAngleSample(65530U, anchor, &sum, &count);
-    EncoderCalibrationCore_AddAngleSample(10U, anchor, &sum, &count);
-    if (anchor != 65530U || sum != 131076 || count != 2U ||
-        !EncoderCalibrationCore_MeanQ15(sum, count, &mean) || mean != 2U)
+    add_angle_sample(65530U, anchor, &sum, &count);
+    add_angle_sample(10U, anchor, &sum, &count);
+    if (anchor != 65530U || sum != 131076 || count != 2U || !mean_q15(sum, count, &mean) ||
+        mean != 2U)
     {
         return 3;
     }
     sum = 0;
     count = 0U;
-    EncoderCalibrationCore_AddAngleSample(65530U, anchor, &sum, &count);
-    EncoderCalibrationCore_AddAngleSample(10U, anchor, &sum, &count);
-    if (sum != 131076 || count != 2U || !EncoderCalibrationCore_MeanQ15(sum, count, &mean) ||
-        mean != 2U)
+    add_angle_sample(65530U, anchor, &sum, &count);
+    add_angle_sample(10U, anchor, &sum, &count);
+    if (sum != 131076 || count != 2U || !mean_q15(sum, count, &mean) || mean != 2U)
     {
         return 4;
     }
     memset(&s_workspace, 0, sizeof(s_workspace));
     s_workspace.bins.candidate[1023] = 64;
     s_workspace.bins.candidate[0] = -64;
-    if (EncoderCalibrationCore_ApplyLut(s_workspace.bins.candidate, 65535U) != 61U ||
-        EncoderCalibrationCore_ApplyLut(s_workspace.bins.candidate, 0U) != 64U)
+    if (apply_lut(s_workspace.bins.candidate, 65535U) != 61U ||
+        apply_lut(s_workspace.bins.candidate, 0U) != 64U)
     {
         return 5;
     }
@@ -81,10 +76,10 @@ static int check_sampling(void)
         .directed_q15 = 0U,
         .stable = false,
     };
-    EncoderCalibrationCore_SampleLut(&s_workspace, &window, &sample);
+    sample_lut(&s_workspace, &window, &sample);
     sample.stable = true;
     sample.observer_position_rad = 3.0f;
-    EncoderCalibrationCore_SampleLut(&s_workspace, &window, &sample);
+    sample_lut(&s_workspace, &window, &sample);
     if (window.valid_electrical_travel_rad != 1.0f ||
         window.previous_observer_position_rad != 3.0f || s_workspace.bins.samples[0] != 1U)
     {
@@ -92,7 +87,7 @@ static int check_sampling(void)
     }
     sample.relative_theta_rad = -1.0f;
     sample.observer_position_rad = 4.0f;
-    EncoderCalibrationCore_SampleLut(&s_workspace, &window, &sample);
+    sample_lut(&s_workspace, &window, &sample);
     if (window.valid_electrical_travel_rad != 2.0f || s_workspace.bins.samples[0] != 1U)
     {
         return 7;
@@ -101,7 +96,7 @@ static int check_sampling(void)
     sample.observer_position_rad = 3.5f;
     s_workspace.bins.samples[0] = UINT16_MAX;
     s_workspace.error_sum[0] = 7;
-    EncoderCalibrationCore_SampleLut(&s_workspace, &window, &sample);
+    sample_lut(&s_workspace, &window, &sample);
     if (window.valid_electrical_travel_rad != 2.0f || s_workspace.bins.samples[0] != UINT16_MAX ||
         s_workspace.error_sum[0] != 7)
     {
@@ -111,7 +106,7 @@ static int check_sampling(void)
     sample.observer_position_rad = 4.5f;
     s_workspace.bins.samples[0] = 0U;
     s_workspace.error_sum[0] = 0;
-    EncoderCalibrationCore_SampleLut(&s_workspace, &window, &sample);
+    sample_lut(&s_workspace, &window, &sample);
     if (window.valid_electrical_travel_rad != 3.0f ||
         window.previous_observer_position_rad != 4.5f || s_workspace.bins.samples[0] != 0U ||
         s_workspace.error_sum[0] != 0)
@@ -139,8 +134,7 @@ static int check_build(void)
     {
         uint16_t previous_index = build.candidate_lut_index;
         uint8_t previous_stage = build.candidate_lut_stage;
-        EncoderCalibrationBuildResult result =
-            EncoderCalibrationCore_BuildLutStep(&s_workspace, &build, 8U, 16U);
+        EncoderCalibrationBuildResult result = build_lut_step(&s_workspace, &build, 8U, 16U);
         if (result != (tick == 511U ? ENCODER_CALIBRATION_BUILD_COMPLETE
                                     : ENCODER_CALIBRATION_BUILD_RUNNING) ||
             (build.candidate_lut_stage == previous_stage &&
@@ -161,8 +155,7 @@ static int check_build(void)
     prepare_constant(0);
     build = (EncoderCalibrationBuildState){0};
     s_workspace.bins.samples[7] = 15U;
-    if (EncoderCalibrationCore_BuildLutStep(&s_workspace, &build, 8U, 16U) !=
-            ENCODER_CALIBRATION_BUILD_INVALID ||
+    if (build_lut_step(&s_workspace, &build, 8U, 16U) != ENCODER_CALIBRATION_BUILD_INVALID ||
         build.candidate_lut_index != 7U)
     {
         return 11;
@@ -172,14 +165,12 @@ static int check_build(void)
     build = (EncoderCalibrationBuildState){0};
     for (unsigned tick = 0U; tick < 384U; ++tick)
     {
-        if (EncoderCalibrationCore_BuildLutStep(&s_workspace, &build, 8U, 16U) !=
-            ENCODER_CALIBRATION_BUILD_RUNNING)
+        if (build_lut_step(&s_workspace, &build, 8U, 16U) != ENCODER_CALIBRATION_BUILD_RUNNING)
         {
             return 12;
         }
     }
-    if (EncoderCalibrationCore_BuildLutStep(&s_workspace, &build, 8U, 16U) !=
-            ENCODER_CALIBRATION_BUILD_INVALID ||
+    if (build_lut_step(&s_workspace, &build, 8U, 16U) != ENCODER_CALIBRATION_BUILD_INVALID ||
         build.candidate_lut_stage != 3U || build.candidate_lut_index != 0U)
     {
         return 13;
@@ -212,11 +203,11 @@ static int check_build_budgets(void)
         {
             if (old_result == ENCODER_CALIBRATION_BUILD_RUNNING)
             {
-                old_result = EncoderCalibrationCore_BuildLutStep(&reference, &old_state, 8U, 16U);
+                old_result = build_lut_step(&reference, &old_state, 8U, 16U);
             }
             if (new_result == ENCODER_CALIBRATION_BUILD_RUNNING)
             {
-                new_result = EncoderCalibrationCore_BuildLutStep(&candidate, &new_state, 1U, 16U);
+                new_result = build_lut_step(&candidate, &new_state, 1U, 16U);
             }
         }
         if (old_result != new_result || old_result == ENCODER_CALIBRATION_BUILD_RUNNING ||
@@ -241,22 +232,20 @@ static int check_verification(void)
         .directed_q15 = 1024U,
         .stable = true,
     };
-    if (EncoderCalibrationCore_ValidateLut(&verify, 256U, 1024U))
+    if (validate_lut(&verify, 256U, 1024U))
     {
         return 14;
     }
-    EncoderCalibrationCore_VerifyLut(&verify, s_workspace.bins.candidate, &sample);
+    verify_lut(&verify, s_workspace.bins.candidate, &sample);
     if (verify.residual_sample_count != 1U || verify.residual_squared_sum != 1048576U ||
-        verify.residual_peak_abs_q15 != 1024U ||
-        EncoderCalibrationCore_ValidateLut(&verify, 256U, 1024U) ||
-        !EncoderCalibrationCore_ValidateLut(&verify, 1024U, 1024U) ||
-        EncoderCalibrationCore_ValidateLut(&verify, 1024U, 1023U))
+        verify.residual_peak_abs_q15 != 1024U || validate_lut(&verify, 256U, 1024U) ||
+        !validate_lut(&verify, 1024U, 1024U) || validate_lut(&verify, 1024U, 1023U))
     {
         return 15;
     }
     sample.stable = false;
     sample.observer_position_rad = 2.0f;
-    EncoderCalibrationCore_VerifyLut(&verify, s_workspace.bins.candidate, &sample);
+    verify_lut(&verify, s_workspace.bins.candidate, &sample);
     if (verify.residual_sample_count != 1U || verify.window.valid_electrical_travel_rad != 1.0f ||
         verify.window.previous_observer_position_rad != 2.0f)
     {
@@ -265,7 +254,7 @@ static int check_verification(void)
     return 0;
 }
 
-int main(void)
+static int check_calibration_core(void)
 {
     int result = check_angles();
     if (result == 0)

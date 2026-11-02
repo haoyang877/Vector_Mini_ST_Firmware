@@ -23,9 +23,9 @@ RX ISR只复制输入；不处理业务、Flash或日志。前台有界处理队
 | [CAN接入](../../firmware/communication/can) | 节点运行态、队列、链路服务 |
 | [shared codec](../../shared/protocol/README.md) | CAN ID、公司头、CRC和分片；APP/Loader单份实现 |
 | [APP协议](../../firmware/communication/commands) | 命令处理、服务调用、重试与反馈状态及回复编码；不访问队列和硬件 |
-| [owner_adapter](../../firmware/app/composition/yg_protocol_owner_adapter.c) | 显式映射启动/清错/维护/参数请求 |
-| [status_adapter](../../firmware/app/composition/yg_protocol_status_adapter.c) | 将同一时刻快照编码为状态回复 |
-| [app_startup](../../firmware/app/composition/app_startup.c) | 绑定业务所有者、设备身份及Loader交接能力 |
+| [owner_adapter](../../firmware/app/composition/app_protocol.c) | 显式映射启动/清错/维护/参数请求 |
+| [status_adapter](../../firmware/app/composition/app_protocol.c) | 将同一时刻快照编码为状态回复 |
+| [app_startup](../../firmware/app/composition/app.c) | 绑定业务所有者、设备身份及Loader交接能力 |
 
 ## 保留的核心线路
 

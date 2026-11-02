@@ -43,12 +43,13 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 ## Watch 1：状态、安全与维护
 
-`s_motor_configuration`、`s_motor_state`、`s_motor_measurement`、`s_foc_state` 和 `s_rotor_encoder` 归
+`s_motor_configuration`、`s_motor_state`、`s_foc_state` 和 `s_rotor_encoder` 归
 `firmware/app/runtime/motor_axis.c`；`s_config_revision` 归
-`firmware/app/runtime/motor_parameter_transaction.c`；`s_context` 归
+`firmware/app/runtime/motor_axis.c`；`s_context` 归
 `firmware/app/motor_state_machine/motor_state_machine.c`。下表使用短名表示成员路径，
 实际 Watch 名称以加载的 AXF 和 Symbols 生成的限定名为准。
 
+采样值直接保存在 `s_foc_state` 的成员中，不再有 measurement 层或独立测量对象。
 配置单独保存在 `s_motor_configuration`；`s_motor_state` 只含运行态，
 `s_rotor_encoder` 只含采样、PLL和位置/速度动态状态。LUT、零位、方向和标定标志
 单份保存在 `s_motor_configuration.device.encoder`。
@@ -62,12 +63,13 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 | `s_motor_configuration.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
 | `s_context.self_test_stable_ticks` | INIT 连续健康计数 | 连续 4 个监督拍通过；STOP 不重启窗口，不是所有模式就绪缓存 |
 | `s_context.fast_sample_epoch` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
-| `s_motor_measurement.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
-| `s_foc_state.bus_current_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
-| `s_motor_measurement.phase_a_current_a` | A | A 相电流，检查零偏、方向及异常 |
-| `s_motor_measurement.phase_b_current_a` | A | B 相电流 |
-| `s_motor_measurement.phase_c_current_a` | A | C 相电流；软件低频观测不是瞬时峰值证据 |
-| `s_motor_measurement.temperature_c` | °C | 固件温度读数，不等于电机绕组温度 |
+| `s_foc_state.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
+| `s_foc_state.bus_current_estimated_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
+| `s_foc_state.bus_current_a` | A | 硬件实测母线电流；未提供或未校零时为 NaN |
+| `s_foc_state.phase_current_a.a` | A | A 相电流，检查零偏、方向及异常 |
+| `s_foc_state.phase_current_a.b` | A | B 相电流 |
+| `s_foc_state.phase_current_a.c` | A | C 相电流；软件低频观测不是瞬时峰值证据 |
+| `s_foc_state.temperature_c` | °C | 固件温度读数，不等于电机绕组温度 |
 | `s_context.last_maintenance` | 维护进度结构 | 展开查看对应 ticket 与终态；旧结果不代表当前任务 |
 | `s_context.background_busy` | bool | 后台工作是否仍占用；单独为 false 不证明全部资源已释放 |
 | `s_context.control_progress` | 控制进度结构 | 区分命令受理与实际应用结果，结合来源身份查看 |

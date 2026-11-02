@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <math.h>
 #include "motor_sensing.h"
-#include "application_config.h"
 #include "control_math.h"
 
 /* 保留既有 2 kHz 监督恢复计数 2000 拍（1 s），温度恢复阈值 80 °C。 */
@@ -26,7 +25,7 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode error)
 }
 
 void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
-                               const MotorMeasurement *measurement,
+                               const FocState *foc,
                                MotorFaultCode error)
 {
     if (error != MOTOR_FAULT_OVERCURRENT)
@@ -34,9 +33,9 @@ void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
         recovery->overcurrent_ticks = 0U;
         return;
     }
-    if (Math_Abs(measurement->phase_a_current_a) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f &&
-        Math_Abs(measurement->phase_b_current_a) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f &&
-        Math_Abs(measurement->phase_c_current_a) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f)
+    if (Math_Abs(foc->phase_current_a.a) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f &&
+        Math_Abs(foc->phase_current_a.b) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f &&
+        Math_Abs(foc->phase_current_a.c) < MOTOR_SENSING_OVERCURRENT_TRIP_A * 0.9f)
     {
         if (recovery->overcurrent_ticks < RUN_STATE_OC_RECOVER_TICKS)
         {
@@ -49,7 +48,7 @@ void MotorFault_UpdateRecovery(MotorFaultRecovery *recovery,
 bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
                                 const MotorFaultRecovery *recovery,
                                 const MotorControlState *motor_state,
-                                const MotorMeasurement *measurement,
+                                const FocState *foc,
                                 const EncoderState *rotor_encoder,
                                 MotorFaultCode error,
                                 bool samples_fresh,
@@ -61,16 +60,15 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
     case MOTOR_FAULT_ENCODER:
         return samples_fresh && Encoder_IsOnline(rotor_encoder);
     case MOTOR_FAULT_TEMPERATURE_SENSOR:
-        return !BSP_REQUIRED_MCU_TEMPERATURE ||
-               (temperature_fresh && isfinite(measurement->temperature_c));
+        return !BSP_REQUIRED_MCU_TEMPERATURE || (temperature_fresh && isfinite(foc->temperature_c));
     case MOTOR_FAULT_OVERTEMPERATURE:
         return !BSP_REQUIRED_MCU_TEMPERATURE ||
-               (temperature_fresh && measurement->temperature_c < RUN_STATE_TEMP_RECOVER_C);
+               (temperature_fresh && foc->temperature_c < RUN_STATE_TEMP_RECOVER_C);
     case MOTOR_FAULT_OVERVOLTAGE:
     case MOTOR_FAULT_UNDERVOLTAGE:
-        return (isfinite(measurement->bus_voltage_filtered_v) &&
-                measurement->bus_voltage_filtered_v >= BUS_VOLTAGE_ENABLE_MIN_V &&
-                measurement->bus_voltage_filtered_v <= BUS_VOLTAGE_ENABLE_MAX_V);
+        return (isfinite(foc->bus_voltage_filtered_v) &&
+                foc->bus_voltage_filtered_v >= BUS_VOLTAGE_ENABLE_MIN_V &&
+                foc->bus_voltage_filtered_v <= BUS_VOLTAGE_ENABLE_MAX_V);
     case MOTOR_FAULT_OVERCURRENT:
         return recovery->overcurrent_ticks >= RUN_STATE_OC_RECOVER_TICKS;
     case MOTOR_FAULT_CURRENT_OFFSET:

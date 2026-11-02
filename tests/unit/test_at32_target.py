@@ -13,26 +13,20 @@ sys.path.insert(0, str(ROOT / "tools/build"))
 from check_project_layout import check_project  # noqa: E402
 
 
-def target_defines(tree: ET.ElementTree, filename: str) -> str:
-    """检查实际预包含入口，再读取其公共及目标配置供结构断言使用。"""
+def check_target_options(tree: ET.ElementTree, target: str) -> None:
+    """工程只选择板卡和应用构建；不再解析已删除的逐项功能配置。"""
     options = tree.findtext(".//Cads/VariousControls/MiscControls").replace("\\", "/")
-    target = {"r40_app_off.h": "AT32_OFF", "r40_app_commissioning.h": "AT32_COMMISSIONING"}[
-        filename
-    ]
-    relative = "../../../firmware/config/board_config.h"
-    if options != f"--diag_suppress=1 -DFIRMWARE_TARGET_{target} --preinclude {relative}":
+    bench_option = "-DAPP_ENABLE_MOTOR_BENCH=1 " if target == "AT32_COMMISSIONING" else ""
+    expected = (
+        f"--diag_suppress=1 -DFIRMWARE_TARGET_{target} "
+        + bench_option
+        + "--preinclude ../../../firmware/config/board_config.h"
+    )
+    if options != expected:
         raise AssertionError(f"Unexpected target configuration entry: {options}")
-    resource = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
-    off, remainder = resource.split("#if defined(FIRMWARE_TARGET_AT32_OFF)\n", 1)[1].split(
-        "#elif defined(FIRMWARE_TARGET_AT32_COMMISSIONING)\n", 1
-    )
-    commissioning, common = remainder.split("#endif\n/* AT32完整APP", 1)
-    common = common.split("#elif defined(FIRMWARE_TARGET_AT32_BENCH)", 1)[0]
-    motor = (ROOT / "firmware/config/motor_profile_config.h").read_text(encoding="utf8")
-    text = (off if target == "AT32_OFF" else commissioning) + common + motor
-    return ",".join(
-        f"{key}={value}" for key, value in re.findall(r"^#define (\w+) ([^\n]+)", text, re.M)
-    )
+    defines = tree.findtext(".//Cads/VariousControls/Define")
+    if "BSP_BOARD=2U" not in defines:
+        raise AssertionError("AT32工程必须显式选择板卡")
 
 
 class At32TargetTests(unittest.TestCase):
@@ -65,7 +59,10 @@ class At32TargetTests(unittest.TestCase):
             )
 
         def shared_options(path, options):
-            if path.name in ("motor_state_machine.c", "motor_state_rules.c"):
+            if path.name in (
+                "motor_state_machine.c",
+                "motor_lifecycle.c",
+            ):
                 options = ET.fromstring(ET.tostring(options))
                 for tag in ("Optim", "oTime"):
                     options.find(f".//Cads/{tag}").text = "board-timing-option"
@@ -86,6 +83,10 @@ class At32TargetTests(unittest.TestCase):
                             (path, shared_options(path, options))
                             for path, options in actual[group]
                             if path.as_posix() != "firmware/communication/telemetry/app_telemetry.c"
+                            and not (
+                                name == "ESC-APP-AT32F456-Commissioning"
+                                and path.as_posix() == "firmware/app/runtime/motor_bench.c"
+                            )
                         ],
                         [
                             (path, shared_options(path, options))
@@ -95,7 +96,7 @@ class At32TargetTests(unittest.TestCase):
                 for file in tree.findall(".//File"):
                     if file.findtext("FileName") in (
                         "motor_state_machine.c",
-                        "motor_state_rules.c",
+                        "motor_lifecycle.c",
                     ):
                         self.assertEqual(file.findtext(".//Cads/Optim"), "4")
                         self.assertEqual(file.findtext(".//Cads/oTime"), "1")
@@ -137,7 +138,6 @@ class At32TargetTests(unittest.TestCase):
                             "firmware/platform/devices/encoder_mt6835.c",
                             "firmware/app/composition/bus_current_feedback.c",
                             "firmware/platform/bsp/pwm_output_permit.c",
-                            "firmware/app/runtime/pwm_power_window.c",
                         }
                     )
                 for path, _ in actual["90_Vendor"]:
@@ -197,7 +197,6 @@ class At32TargetTests(unittest.TestCase):
                     not in {
                         "firmware/communication/telemetry/app_telemetry.c",
                         "firmware/app/composition/bus_current_feedback.c",
-                        "firmware/app/runtime/pwm_power_window.c",
                     }
                     and not path.as_posix().startswith("firmware/app/targets/")
                     and any(
@@ -208,7 +207,24 @@ class At32TargetTests(unittest.TestCase):
             )
         self.assertTrue(source_sets[0])
         self.assertEqual(source_sets[0], source_sets[1])
-        self.assertEqual(source_sets[0], source_sets[2])
+        self.assertEqual(
+            source_sets[0] | {Path("firmware/app/runtime/motor_bench.c")}, source_sets[2]
+        )
+
+    def test_bench_is_exclusive_to_commissioning(self):
+        """只允许Commissioning编入并启用测试模块，普通APP不能获得测试指令。"""
+        bench = ROOT / "firmware/app/runtime/motor_bench.c"
+        for project in (ROOT / "projects").rglob("*.uvprojx"):
+            tree = ET.parse(project)
+            sources = [
+                (project.parent / node.text.replace("\\", "/")).resolve()
+                for node in tree.findall(".//FilePath")
+            ]
+            enabled = project.stem == "ESC-APP-AT32F456-Commissioning"
+            with self.subTest(target=project.stem):
+                self.assertEqual(sources.count(bench), int(enabled))
+                options = tree.findtext(".//Cads/VariousControls/MiscControls", "")
+                self.assertEqual("-DAPP_ENABLE_MOTOR_BENCH=1" in options, enabled)
 
     def test_optional_rtt_diagnostics_are_shared_source_selected_only_for_new_apps(self):
         """只读RTT为可选通信模块，不能扩大旧板资源或混入控制源码差异。"""
@@ -218,32 +234,19 @@ class At32TargetTests(unittest.TestCase):
                 (project.parent / node.text.replace("\\", "/")).resolve()
                 for node in ET.parse(project).findall(".//FilePath")
             ]
-            expected = project.stem in {"ESC-APP-AT32F456", "ESC-APP-AT32F456-Commissioning"}
+            expected = project.stem == "ESC-APP-AT32F456-Commissioning"
             self.assertEqual(sources.count(diagnostic), int(expected), project.name)
             if expected:
                 self.assertTrue(any(p.name == "SEGGER_RTT.c" for p in sources))
 
-    def test_commissioning_is_separate_bounded_full_app(self):
+    def test_commissioning_is_separate_full_app(self):
         base = ROOT / "projects/at32f456/application"
         project = base / "ESC-APP-AT32F456-Commissioning.uvprojx"
         errors, _, _ = check_project(project)
         self.assertEqual(errors, [])
         tree = ET.parse(project)
-        defines = target_defines(tree, "r40_app_commissioning.h")
-        for flag in (
-            "AT32_APP_PHASE_LOCK=0",
-            "AT32_APP_BOUNDED_TEST=1",
-            "APP_ENABLED_DIAGNOSTIC_TELEMETRY=0",
-            "BSP_REQUIRED_MCU_TEMPERATURE=0",
-            "FOC_ACTIVE_MOTOR_PROFILE=FOC_MOTOR_PROFILE_YQ_5708",
-            "BSP_ENCODER_FAST_SPI=1",
-            "BSP_ENCODER_WORD_TRANSFER=1",
-            "BSP_ENCODER_DMA_TRANSFER=1",
-        ):
-            self.assertIn(flag, defines)
+        check_target_options(tree, "AT32_COMMISSIONING")
         self.assertEqual(tree.findtext(".//UpdateFlashBeforeDebugging"), "0")
-        common = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
-        self.assertIn("#ifndef APP_ENABLED_DIAGNOSTIC_TELEMETRY", common)
         self.assertNotIn(
             "app_telemetry.o", (base / "r40_app_commissioning.sct").read_text(encoding="utf8")
         )
@@ -251,7 +254,6 @@ class At32TargetTests(unittest.TestCase):
         for name in (
             "motor_axis.c",
             "encoder_calibration.c",
-            "pwm_power_window.c",
             "app_telemetry.c",
         ):
             self.assertTrue(any(path.endswith("/" + name) for path in paths))
@@ -298,27 +300,16 @@ class At32TargetTests(unittest.TestCase):
         project = (base / "ESC-APP-AT32F456.uvprojx").read_text(encoding="utf8")
         self.assertIn("<FilePath>startup_at32f456_app.s</FilePath>", project)
 
-    def test_app_off_links_shared_application_and_cannot_enable_power(self):
+    def test_app_off_links_shared_application_and_explicit_board(self):
         project = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
         errors, _, _ = check_project(project)
         self.assertEqual(errors, [])
         tree = ET.parse(project)
-        defines = target_defines(tree, "r40_app_off.h")
-        for flag in (
-            "AT32_APP_PHASE_LOCK=1",
-            "BSP_APP_LIFECYCLE=1",
-            "APP_TARGET_AT32_F456=1",
-            "FOC_ACTIVE_HW_PROFILE=BSP_BOARD_AT32F456",
-            "FOC_ACTIVE_MOTOR_PROFILE=FOC_MOTOR_PROFILE_YQ_5708",
-            "BSP_ENCODER_FAST_SPI=1",
-            "BSP_ENCODER_WORD_TRANSFER=1",
-            "BSP_ENCODER_DMA_TRANSFER=1",
-        ):
-            self.assertIn(flag, defines)
+        check_target_options(tree, "AT32_OFF")
         paths = [value.text.replace("\\", "/") for value in tree.findall(".//FilePath")]
         for name in (
-            "app_startup.c",
-            "app_tasks.c",
+            "app.c",
+            "app_protocol.c",
             "motor_axis.c",
             "motor_state_machine.c",
             "system.c",
@@ -335,7 +326,7 @@ class At32TargetTests(unittest.TestCase):
                 self.assertEqual(tree.findtext(f".//{hook}/RunUserProg{index}"), "0")
         entry = (ROOT / "projects/at32f456/application/main.c").read_text(encoding="utf8")
         platform = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf8")
-        startup = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf8")
+        startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf8")
         for call in (
             "App_Init();",
             "App_Process();",
@@ -344,8 +335,9 @@ class At32TargetTests(unittest.TestCase):
             "App_Start();",
         ):
             self.assertIn(call, entry)
-        for call in ("BspApp_OnFastSample();", "BspApp_OnControlTick();"):
-            self.assertIn(call, platform)
+        adc = (ROOT / "firmware/platform/bsp/mcu/at32f456/adc.c").read_text(encoding="utf8")
+        self.assertIn("BspApp_OnFastSample();", adc)
+        self.assertIn("BspApp_OnControlTick();", platform)
         for method in ("Init", "Start"):
             self.assertIn(f"BspResult Bsp_{method}(void)", platform)
         self.assertIn("int main(void)", entry)
@@ -413,10 +405,10 @@ class At32TargetTests(unittest.TestCase):
         entry = (ROOT / "tests/bench/at32f456/main.c").read_text(encoding="utf-8")
         self.assertNotIn("BspPwm_Enable(", entry)
         self.assertNotIn("App_FastTick(", entry)
-        self.assertIn("../../../firmware/platform/devices/encoder_mt6835.c", paths)
+        self.assertFalse(any("/platform/devices/" in path for path in paths))
         self.assertIn("../../../firmware/platform/bsp/mcu/at32f456/encoder_spi.c", paths)
-        self.assertIn("Encoder_Init();", entry)
-        self.assertLess(entry.index("Encoder_Init();"), entry.index("Adc_Start()"))
+        self.assertIn("McuEncoder_Init();", entry)
+        self.assertLess(entry.index("McuEncoder_Init();"), entry.index("Adc_Start()"))
 
         old_project = ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx"
         # 器件协议由板配置选中，工程可纳入全部纯协议源；MCU实现仍必须隔离。
@@ -426,7 +418,7 @@ class At32TargetTests(unittest.TestCase):
         self.assertFalse(any("/mcu/at32f456/" in path for path in old_paths))
         self.assertNotIn("param_store_write(", entry)
         self.assertNotIn("AdcTemperature_Poll(", entry)
-        self.assertIn("../../../firmware/platform/bsp/mcu/at32f456/temperature.c", paths)
+        self.assertIn("../../../firmware/platform/bsp/mcu/at32f456/adc.c", paths)
         self.assertIn("BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE", entry)
         self.assertNotIn("motor_temperature_at32f456", old_project.read_text(encoding="utf-8"))
 
@@ -434,7 +426,9 @@ class At32TargetTests(unittest.TestCase):
         layout = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf-8")
         values = {
             name: int(value, 0)
-            for name, value in re.findall(r"#define (AT32_\w+) (0x[0-9A-Fa-f]+|[0-9]+)U", layout)
+            for name, value in re.findall(
+                r"#define\s+(AT32_\w+)\s+(0x[0-9A-Fa-f]+|[0-9]+)U", layout
+            )
         }
         scatter = (ROOT / "projects/at32f456/bench/r40_foundation.sct").read_text(encoding="utf-8")
         ranges = re.findall(r"(?:LR_IROM1|ER_IROM1)\s+(0x\w+)\s+(0x\w+)", scatter)

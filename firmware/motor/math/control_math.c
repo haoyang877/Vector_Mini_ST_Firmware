@@ -48,25 +48,11 @@ static const float s_sin_quarter_tab[257] = {
     0.9996988187f,  0.9998305818f,   0.9999247018f,  0.9999811753f,  1.0f,
 };
 
-//#pragma arm section code = "CCMRAMCODE"
-
-/**
-    * @brief  Constrain function
-    * @param  amt: value to be constrained
-    * @param  low: lower limit
-    * @param  high: upper limit
-    * @retval constrained value
- **/
 float Math_Constrain(float amt, float low, float high)
 {
     return ((amt < low) ? (low) : ((amt > high) ? high : amt));
 }
 
-/**
-    * @brief  Normalize angle to 0-2PI
-    * @param  angle: raw angle
-    * @retval normalized angle
- **/
 float Math_NormalizeAngle(float angle)
 {
     float a;
@@ -78,125 +64,14 @@ float Math_NormalizeAngle(float angle)
     return a >= 0 ? a : (a + _2PI);
 }
 
-/**
-    * @brief  Transform float to uint32 without precision loss
-    * @param  float_val: float value to be transformed
-    * @retval uint32 value
- **/
-uint32_t Math_FloatToBits(float float_val)
-{
-    uint32_t *integer_bits;
-    integer_bits = (uint32_t *)(&float_val);
-    return *integer_bits;
-}
-
-/**
-    * @brief  Transform uint32_t to float without precision loss
-    * @param  int_val: uint32 value to be transformed
-    * @retval float value
- **/
-float Math_BitsToFloat(uint32_t int_val)
-{
-    float *float_value;
-    float_value = (float *)(&int_val);
-    return *float_value;
-}
-
-/**
-    * @brief  IIR Butterworth low-pass filter
-              2 order
-    * @param  input: value to be filtered
-    * @param  *Math_FilterButterworth: Math_FilterButterworth struct pointer
-    * @retval filtered value
- **/
-float Math_FilterButterworth(float input, IirButterworthState *Math_FilterButterworth)
-{
-    float output;
-
-    Math_FilterButterworth->state_n =
-        Math_FilterButterworth->gain0 * input -
-        Math_FilterButterworth->a1 * Math_FilterButterworth->state_n_1 -
-        Math_FilterButterworth->a2 * Math_FilterButterworth->state_n_2;
-
-    output = Math_FilterButterworth->gain1 *
-             (Math_FilterButterworth->b0 * Math_FilterButterworth->state_n +
-              Math_FilterButterworth->b1 * Math_FilterButterworth->state_n_1 +
-              Math_FilterButterworth->b2 * Math_FilterButterworth->state_n_2);
-
-    Math_FilterButterworth->state_n_2 = Math_FilterButterworth->state_n_1;
-    Math_FilterButterworth->state_n_1 = Math_FilterButterworth->state_n;
-
-    return output;
-}
-
-/**
-    * @brief  Fast absolute value
-    * @param  x: input value
-    * @retval absolute value
- **/
 float Math_Abs(float x)
 {
     return x >= 0 ? x : -x;
 }
 
-/**
-    * @brief  Fast square calculation
-    * @param  x: input value
-    * @retval square value
- **/
-float Math_Square(float x)
-{
-    return x * x;
-}
-
-/**
-    * @brief  Fast maximum of two values
-    * @param  x: first input value
-    * @param  y: second input value
-    * @retval maximum value
- **/
-float Math_Max(float x, float y)
-{
-    return (((x) > (y)) ? (x) : (y));
-}
-
-/**
-    * @brief  Fast maximum of three values
-    * @param  x: first input value
-    * @param  y: second input value
-    * @param  z: third input value
-    * @retval maximum value
- **/
-float fast_max_3(float x, float y, float z)
-{
-    float max_xy = (x > y) ? x : y;
-
-    return (max_xy > z) ? max_xy : z;
-}
-
-/**
-    * @brief  Fast minimum of two values
-    * @param  x: first input value
-    * @param  y: second input value
-    * @retval minimum value
- **/
 float Math_Min(float x, float y)
 {
     return (((x) < (y)) ? (x) : (y));
-}
-
-/**
-    * @brief  Fast minimum of three values
-    * @param  x: first input value
-    * @param  y: second input value
-    * @param  z: third input value
-    * @retval minimum value
- **/
-float fast_min_3(float x, float y, float z)
-{
-    float min_xy = (x < y) ? x : y;
-
-    return (min_xy < z) ? min_xy : z;
 }
 
 /* 用象限对称读取单位圆节点，再旋转不足一个表间隔的小角；保持亚分度步长。 */
@@ -257,15 +132,9 @@ void Math_SinCos(float theta_rad, float *sin_out, float *cos_out)
     *sin_out = theta_rad < 0.0f ? -sine : sine;
 }
 
-/**
-    * @brief  Fast atan2 approximation
-    * @param  y: y input value
-    * @param  x: x input value
-    * @retval angle value
- **/
 float Math_Atan2(float y, float x)
 {
-    float abs_y = Math_Abs(y) + 1e-20f; // kludge to prevent 0/0 condition
+    float abs_y = Math_Abs(y) + 1e-20f; /* 零向量沿用微小偏置，避免除零。 */
     float angle;
 
     if (x >= 0)
@@ -291,11 +160,6 @@ float Math_Atan2(float y, float x)
     }
 }
 
-/**
-    * @brief  Fast square root approximation
-    * @param  val: input value
-    * @retval square root value
- **/
 float Math_Sqrt(float val)
 {
     if (val < 1.19209290e-7f)
@@ -303,33 +167,10 @@ float Math_Sqrt(float val)
         return 0.0f;
     }
 
-    /* Preserve the legacy small-input cutoff. The target compiler emits
-     * single-precision hardware sqrt, avoiding two Newton-step divisions
-     * and the old float/long aliasing (which also assumed a 32-bit long). */
+    /* 保留原小输入截断阈值，其余使用单精度平方根。 */
     return sqrtf(val);
 }
 
-/**
-    * @brief  Fast integer power calculation
-    * @param  x: base value
-    * @param  y: exponent value
-    * @retval power value
- **/
-float Math_Power(float x, int y)
-{
-    float result = 1.0f;
-    for (int i = 0; i < y; i++)
-    {
-        result *= x;
-    }
-    return result;
-}
-
-/**
-    * @brief  Hard sign function
-    * @param  x: input value
-    * @retval sign value
- **/
 float Math_Sign(float x)
 {
     if (x < 0)
@@ -341,23 +182,3 @@ float Math_Sign(float x)
         return 1;
     }
 }
-
-/**
-    * @brief  Copy sign from one value to another
-    * @param  x: magnitude value
-    * @param  y: sign source value
-    * @retval signed value
- **/
-float Math_CopySign(float x, float y)
-{
-    if (y >= 0)
-    {
-        return x;
-    }
-    else
-    {
-        return -x;
-    }
-}
-
-//#pragma arm section

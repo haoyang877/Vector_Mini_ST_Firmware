@@ -155,39 +155,3 @@ bool SpeedControl_UpdateOuter(const MotorConfiguration *configuration,
     motor_state->iq_target_a = total_a;
     return isfinite(total_a);
 }
-
-/**
- * @brief  顺序速度模式任务核心：分频执行速度环并保持电流闭环。
- * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
- * @param  foc foc 状态指针。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
- * @param  motor_state 电机控制状态指针。
- * @param  controller 速度 PI 控制器指针。
- * @param  electrical_angle_rad 电角度，单位 rad。
- * @param  electrical_velocity_rad_s 电角速度，单位 rad/s。
- * @param  mechanical_velocity_rad_s 机械角速度反馈，单位 rad/s。
- * @note 在 20kHz 快速环上下文调用；速度环按 SPEED_LOOP_DIVIDER 分频。
- */
-void SpeedControl_Run(const MotorConfiguration *configuration,
-                      FocState *foc,
-                      const MotorMeasurement *measurement,
-                      MotorControlState *motor_state,
-                      PiController *controller,
-                      float electrical_angle_rad,
-                      float electrical_velocity_rad_s,
-                      float mechanical_velocity_rad_s)
-{
-    static unsigned speedloop_count;
-
-    if (++speedloop_count >= SPEED_LOOP_DIVIDER)
-    {
-        SpeedControl_Update(configuration, motor_state, controller, mechanical_velocity_rad_s);
-        speedloop_count = 0U;
-    }
-    Foc_RunCurrent(configuration,
-                   foc,
-                   measurement,
-                   motor_state,
-                   electrical_angle_rad,
-                   electrical_velocity_rad_s);
-}

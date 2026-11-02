@@ -351,6 +351,16 @@ float BspAdc_ReadRawChannel(BspAdcChannel channel)
         return (float)s_aux_dma[offset + MCU_ADC_MOTOR_TEMPERATURE_DMA_INDEX];
     }
 #endif
+#if BSP_ENABLED_OUTPUT_SINCOS
+    case BSP_ADC_OUTPUT_SIN:
+    case BSP_ADC_OUTPUT_COS:
+    {
+        uint32_t remaining = MCU_ADC_AUX_DMA_CHANNEL->dtcnt;
+        uint32_t offset = remaining == 0U || remaining > ADC_AUX_RANKS ? ADC_AUX_RANKS : 0U;
+        uint32_t index = BSP_ENABLED_MOTOR_TEMPERATURE + (channel == BSP_ADC_OUTPUT_COS ? 1U : 0U);
+        return (float)s_aux_dma[offset + index];
+    }
+#endif
 #if BSP_ENABLED_INTERNAL_ANALOG_SAMPLING
     case BSP_ADC_MCU_TEMPERATURE:
     case BSP_ADC_ANALOG_SUPPLY_VOLTAGE:
@@ -402,11 +412,9 @@ float BspAdc_ReadChannel(BspAdcChannel channel)
         {
             return NAN;
         }
-        if (AT32_INTERNAL_REFERENCE_MV <= 0.0f)
-        {
-            return NAN;
-        }
-        return AT32_INTERNAL_REFERENCE_MV * AT32_ADC_MAX_COUNTS / counts / 1000.0f;
+        return AT32_INTERNAL_REFERENCE_MV <= 0.0f
+                   ? NAN
+                   : AT32_INTERNAL_REFERENCE_MV * AT32_ADC_MAX_COUNTS / counts / 1000.0f;
     case BSP_ADC_MCU_TEMPERATURE:
 #if AT32_TEMPERATURE_CALIBRATED
     {

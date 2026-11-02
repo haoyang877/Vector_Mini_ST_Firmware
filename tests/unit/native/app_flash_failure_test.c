@@ -65,15 +65,13 @@ void BspPwm_Disable(void)
 {
     phases_disabled = true;
 }
-bool McuAdc_PauseForStorage(void)
+void Adc_Stop(void)
 {
     assert(test_primask && phases_disabled);
-    return true;
 }
-bool McuAdc_ResumeAfterStorage(void)
+void Adc_Start(void)
 {
     assert(test_primask && phases_disabled);
-    return true;
 }
 
 static void start_result(bool error, bool busy)

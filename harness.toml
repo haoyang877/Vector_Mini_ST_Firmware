@@ -55,10 +55,6 @@ checks = ["format", "lint", "project-layout", "python-native-tests", "architectu
 [profiles.release]
 checks = ["format", "lint", "project-layout", "python-native-tests", "architecture", "interfaces", "docs", "hygiene", "keil-build", "release-manifest"]
 
-[architecture.layers.common]
-paths = ["firmware/common"]
-allows = ["common"]
-
 [architecture.layers.motor_math]
 paths = ["firmware/motor/math"]
 allows = ["motor_math"]
@@ -101,23 +97,11 @@ allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters",
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/bsp/mcu/stm32g4"]
-allows = ["platform_internal", "target_profile", "platform_api", "platform_encoder", "platform_pwm", "platform_can", "motor", "parameters", "platform_stm32", "platform_bsp", "cubemx", "shared", "platform_config", "app_config", "platform_common"]
+allows = ["platform_internal", "target_profile", "platform_api", "motor", "parameters", "platform_stm32", "cubemx", "shared", "platform_config", "app_config"]
 
 [architecture.layers.platform_at32]
 paths = ["firmware/platform/bsp/mcu/at32f456"]
-allows = ["platform_internal", "platform_api", "platform_config", "platform_encoder", "platform_pwm", "platform_can", "platform_at32", "platform_bsp", "app_config", "platform_common"]
-
-[architecture.layers.platform_can]
-paths = ["firmware/platform/bsp/can_frame_codec.c", "firmware/platform/bsp/can_frame_codec.h"]
-allows = ["platform_api", "platform_can"]
-
-[architecture.layers.platform_pwm]
-paths = []
-allows = ["platform_internal", "platform_api", "platform_config", "platform_pwm"]
-
-[architecture.layers.platform_encoder]
-paths = ["firmware/platform/devices"]
-allows = ["platform_api", "platform_encoder", "platform_config"]
+allows = ["platform_internal", "platform_api", "platform_config", "platform_at32", "app_config"]
 
 [architecture.layers.stm32_application]
 paths = ["projects/stm32g4/application"]
@@ -125,17 +109,16 @@ allows = ["platform_api", "app", "cubemx", "platform_config", "app_config", "com
 
 [architecture.layers.at32_application]
 paths = ["projects/at32f456/application"]
-allows = ["at32_application", "platform_pwm", "platform_api", "platform_at32", "platform_config", "app", "app_interfaces", "motor", "parameters", "target_profile", "communication", "telemetry", "app_config"]
+allows = ["at32_application", "platform_api", "platform_at32", "platform_config", "app", "app_interfaces", "motor", "parameters", "target_profile", "communication", "telemetry", "app_config"]
 
 [architecture.layers.at32_foundation]
 paths = ["tests/bench/at32f456"]
 # 独立台架入口是装配层；闭环验证直接复用motor，BSP仍禁止该依赖。
-allows = ["platform_internal", "platform_api", "platform_at32", "platform_config", "motor_math", "motor", "at32_foundation", "app_config", "platform_common", "platform_bsp", "platform_encoder"]
+allows = ["platform_internal", "platform_api", "platform_at32", "platform_config", "motor_math", "motor", "at32_foundation", "app_config"]
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/bsp/mcu/stm32g4/generated/Core"]
-allows = ["platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "app", "platform_stm32", "platform_bsp", "cubemx", "platform_config"]
-
+allows = ["platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "app", "platform_stm32", "cubemx", "platform_config"]
 
 [architecture.layers.loader_api]
 paths = ["loader/ports/include"]
@@ -169,10 +152,6 @@ allows = ["loader_board", "shared", "cubemx"]
 paths = ["shared/targets"]
 allows = ["target_profile", "shared"]
 
-[architecture.layers.platform_measurement]
-paths = ["firmware/platform/bsp/bus_current_feedback.c", "firmware/platform/bsp/bus_current_feedback.h"]
-allows = ["platform_api", "platform_config"]
-
 [architecture.layers.telemetry]
 paths = ["firmware/communication/telemetry"]
 allows = ["platform_api", "motor", "telemetry"]
@@ -180,14 +159,6 @@ allows = ["platform_api", "motor", "telemetry"]
 [architecture.layers.app_config]
 paths = ["firmware/config"]
 allows = ["app_config", "platform_config"]
-
-[architecture.layers.platform_common]
-paths = ["firmware/platform/bsp"]
-allows = ["platform_internal", "platform_common", "platform_api", "platform_config", "app_config", "platform_encoder", "platform_pwm", "platform_can", "platform_bsp"]
-
-[architecture.layers.platform_bsp]
-paths = []
-allows = ["platform_internal", "platform_bsp", "platform_api", "platform_config", "platform_encoder", "platform_pwm", "platform_can", "platform_common", "app_config"]
 
 [architecture.layers.platform_internal]
 paths = ["firmware/platform/bsp/bsp_internal.h"]

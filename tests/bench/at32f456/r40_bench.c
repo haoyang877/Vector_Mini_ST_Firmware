@@ -1,3 +1,4 @@
+#include "bsp_adc.h"
 #include "r40_bench.h"
 
 #include <math.h>

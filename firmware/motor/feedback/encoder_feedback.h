@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "application_config.h"
-#include "motor_config.h"
+#include "axis_config.h"
+#include "encoder_config.h"
 
 /* 角度反馈（motor 层拥有）：传感器采样 -> 方向/线性化/电零位/多圈/速度。
  * 两板消费统一的直接角度读数，数学处理使用65536计数域。
@@ -24,6 +24,12 @@
 /** 编码器运行状态：20 kHz 采样/速度与 2 kHz 位置；不拥有持久化校准。 */
 typedef struct
 {
+    /* 初始化时借用反馈配置；参数所有者原位更新，所有对象须持续有效。 */
+    const EncoderCalibration *calibration;
+    const int32_t *pole_pairs;
+    const MotorAxisProfile *axis_profile;
+    const bool *axis_profile_valid;
+
     /* 20 kHz 快路径写：原始读数、方向校正值、LUT 校正值与电角度。 */
     uint16_t raw_q15;
     uint16_t directed_q15;
@@ -55,29 +61,37 @@ typedef struct
 } EncoderState;
 
 /**
- * @brief 上电初始化编码器运行状态。
- * @param calibration 已装载的设备校准；仅将方向值归一化为 0/1。
+ * @brief 上电初始化编码器运行状态并绑定快慢估计所需配置。
+ * @param calibration 已装载的设备校准；方向归一化为 0/1，借用对象须持续有效。
+ * @param pole_pairs 电机极对数的只读借用；原位更新下拍生效，小于等于 0 时按 1 处理。
+ * @param axis_profile 只读轴记录，慢估计重定多圈基准时读取最新值。
+ * @param axis_profile_valid 轴记录有效标志的只读借用，与轴记录一起由参数所有者维护。
  * @param encoder 编码器运行状态指针。
- * @note 初始化一次；外设初始化由BSP启动流程完成。
+ * @note 使用前调用；所有配置指针须非空且持续有效，更换地址时须重新初始化。
+ *       外设初始化由BSP启动流程完成。
  */
-void Encoder_InitFeedback(EncoderCalibration *calibration, EncoderState *encoder);
+void Encoder_InitFeedback(EncoderCalibration *calibration,
+                          const int32_t *pole_pairs,
+                          const MotorAxisProfile *axis_profile,
+                          const bool *axis_profile_valid,
+                          EncoderState *encoder);
 
 /**
  * @brief 读取本拍角度并更新电角度、方向校正和速度估计。
- * @param configuration 活动配置只读视图，读取极对数、轴配置与设备校准。
  * @param encoder 编码器状态指针。
- * @note 两板调用前均须先BspEncoder_Begin；直接消费完成的传输，不返回采集状态。
+ * @note 须先通过 Encoder_InitFeedback 绑定校准与极对数；每拍读取绑定对象的最新值。
+ *       两板调用前均须先BspEncoder_Begin；直接消费完成的传输，不返回采集状态。
  */
-void Encoder_Update(const MotorConfiguration *configuration, EncoderState *encoder);
+void Encoder_Update(EncoderState *encoder);
 
 /**
  * @brief 执行一次 2 kHz 编码器慢估计：多圈累积与机械角。
- * @param configuration 活动配置只读视图，读取轴配置与机械零位，用于重定多圈基准。
  * @param encoder 编码器状态指针。
  * @note 仅由 2 kHz 监督 tick 调用；本函数是慢位置状态的唯一写者，快路径只能通过
  *       rebase_requested/zero_requested 请求变更。角速度不在此计算，见快路径 PLL。
+ *       须先通过 Encoder_InitFeedback 绑定配置；重定基准时读取最新轴记录与机械零位。
  */
-void Encoder_UpdateSlowEstimate(const MotorConfiguration *configuration, EncoderState *encoder);
+void Encoder_UpdateSlowEstimate(EncoderState *encoder);
 
 /**
  * @brief 判断编码器是否已有角度样本。
@@ -167,24 +181,10 @@ float Encoder_GetElecPhase(const EncoderState *encoder);
 float Encoder_GetMechPos(const EncoderState *encoder);
 
 /**
- * @brief 读取线性化后角度占整圈的比例。
- * @param encoder 编码器状态指针。
- * @return [0,1) 的比例值，供调试与诊断使用。
- */
-float Encoder_GetCprRatio(const EncoderState *encoder);
-
-/**
  * @brief 读取标定标志位。
  * @param calibration 设备校准只读视图。
  * @return 标定位图，取值为 ENC_CALIB_* 的组合。
  */
 uint8_t Encoder_GetCalibrationFlag(const EncoderCalibration *calibration);
-
-/**
- * @brief 读取编码器方向配置。
- * @param calibration 设备校准只读视图。
- * @return 1 表示反向，0 表示正向。
- */
-uint8_t Encoder_GetReverse(const EncoderCalibration *calibration);
 
 #endif

@@ -1,0 +1,10 @@
+{
+  "version": "1.5",
+  "byte_order": "little",
+  "vectors": [
+    {"name": "save_unsupported", "payload_hex": "02000100"},
+    {"name": "job_unsupported", "payload_hex": "020000000000000000000000"},
+    {"name": "target_unsupported", "payload_hex": "02000000"}
+  ],
+  "capabilities_payload_hex": "001c0000000040002e00000000000000"
+}

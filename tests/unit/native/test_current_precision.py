@@ -38,24 +38,34 @@ static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 #define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 static MotorConfiguration configuration;
 static MotorControlState motor_state;
-static MotorMeasurement foc;
-BspResult BspAdc_ReadFast(BspAdcFastSample *sample) {
-    const uint32_t raw[3]={adc.JDR1,adc.JDR2,adc.JDR3};
-    const float offsets[3]={configuration.device.phase_a_offset_counts,
-        configuration.device.phase_b_offset_counts,configuration.device.phase_c_offset_counts};
-    *sample=(BspAdcFastSample){.valid_mask=BSP_ADC_FAST_PHASE_CURRENT_VALID};
-    for(unsigned i=0;i<3;i++) sample->phase_current_a[i]=-(raw[i]*.25f-offsets[i])*BSP_ADC_CURRENT_A_PER_COUNT;
-    return BSP_OK;
+static FocState foc;
+static bool frame_available = true;
+float BspAdc_ReadChannel(BspAdcChannel channel) {
+    if (!frame_available) {
+        return NAN;
+    }
+    switch (channel) {
+    case BSP_ADC_PHASE_CURRENT_A:
+        return -(adc.JDR1*.25f-configuration.device.phase_a_offset_counts)*BSP_ADC_CURRENT_A_PER_COUNT;
+    case BSP_ADC_PHASE_CURRENT_B:
+        return -(adc.JDR2*.25f-configuration.device.phase_b_offset_counts)*BSP_ADC_CURRENT_A_PER_COUNT;
+    case BSP_ADC_PHASE_CURRENT_C:
+        return -(adc.JDR3*.25f-configuration.device.phase_c_offset_counts)*BSP_ADC_CURRENT_A_PER_COUNT;
+    case BSP_ADC_BUS_CURRENT:
+        return 0.0f;
+    default:
+        assert(0);
+        return NAN;
+    }
 }
 
 """
+        + function_source(sensing, "current_offset_valid")
         + function_source(sensing, "MotorCurrentOffsets_IsValid")
         + function_source(sensing, "MotorCurrent_Update")
         + r"""
 static void sample_current(void) {
-    BspAdcFastSample sample;
-    BspResult result=BspAdc_ReadFast(&sample);
-    MotorCurrent_Update(&foc,result==BSP_OK?&sample:NULL);
+    MotorCurrent_Update(&foc);
 }
 int main(void) {
 #ifdef TEST_EXPECT_DEFAULT_6_MILLIOHM
@@ -72,23 +82,25 @@ int main(void) {
     adc.JDR1=8131;adc.JDR2=8205;adc.JDR3=8146;
     sample_current();
     assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    assert(foc.phase_b_current_a==0 && foc.phase_c_current_a==0);
-    assert(fabsf(foc.phase_a_current_a+.125f*BSP_ADC_CURRENT_A_PER_COUNT)<1e-6f);
+    assert(foc.phase_current_a.b==0 && foc.phase_current_a.c==0);
+    assert(fabsf(foc.phase_current_a.a+.125f*BSP_ADC_CURRENT_A_PER_COUNT)<1e-6f);
     adc.JDR1+=1;sample_current();
-    assert(fabsf(foc.phase_a_current_a+.375f*BSP_ADC_CURRENT_A_PER_COUNT)<1e-6f);
+    assert(fabsf(foc.phase_current_a.a+.375f*BSP_ADC_CURRENT_A_PER_COUNT)<1e-6f);
     /* Actual 1 A input is not inadvertently rescaled by four. */
     adc.JDR2=(uint32_t)roundf(4*(configuration.device.phase_b_offset_counts-1/BSP_ADC_CURRENT_A_PER_COUNT));
-    sample_current();assert(fabsf(foc.phase_b_current_a-1)<BSP_ADC_CURRENT_A_PER_COUNT*.13f);
+    sample_current();assert(fabsf(foc.phase_current_a.b-1)<BSP_ADC_CURRENT_A_PER_COUNT*.13f);
     /* 缺帧只把三相置NAN，不再由采样模块报零偏故障。 */
     motor_state.fault_code=MOTOR_FAULT_NONE;
-    MotorCurrent_Update(&foc,NULL);
+    frame_available=false;
+    sample_current();
     assert(motor_state.fault_code==MOTOR_FAULT_NONE);
-    assert(isnan(foc.phase_a_current_a) && isnan(foc.phase_b_current_a) &&
-           isnan(foc.phase_c_current_a));
+    assert(isnan(foc.phase_current_a.a) && isnan(foc.phase_current_a.b) &&
+           isnan(foc.phase_current_a.c));
+    frame_available=true;
     /* 零偏无效不再影响搬运：相电流按平台换算结果写入，且不报故障。 */
     configuration.device.phase_c_offset_counts=NAN;sample_current();
-    assert(motor_state.fault_code==MOTOR_FAULT_NONE && isnan(foc.phase_c_current_a));
-    puts("PASS quarter-code current resolution, actual current scale, NULL/NAN copy");
+    assert(motor_state.fault_code==MOTOR_FAULT_NONE && isnan(foc.phase_current_a.c));
+    puts("PASS quarter-code current resolution, actual current scale, ABCVect copy and NAN propagation");
     return 0;
 }
 """
@@ -114,12 +126,10 @@ int main(void) {
         + NATIVE_INCLUDE_FLAGS
         + [str(fixture), str(ROOT / "firmware/motor/math/control_math.c"), "-lm", "-o", str(exe)]
     )
-    for shunt in (None, 2, 6):
-        profile_flags = (
-            ["-DTEST_EXPECT_DEFAULT_6_MILLIOHM"]
-            if shunt is None
-            else [f"-DCURRENT_SENSE_SHUNT_MILLIOHM={shunt}"]
-        )
+    for board in (1, 2):
+        profile_flags = [f"-DBSP_BOARD={board}"]
+        if board == 1:
+            profile_flags.append("-DTEST_EXPECT_DEFAULT_6_MILLIOHM")
         for step in (command + profile_flags, [str(exe)]):
             subprocess.run(step, check=True)
 

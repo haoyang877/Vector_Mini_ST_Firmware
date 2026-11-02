@@ -1,257 +1,64 @@
-"""离线编译并运行生产 MCU 温度换算与监督任务；不访问硬件。"""
+"""用真实ADC换算与温度监督验证校准、滤波、原始过温和无效采样超时。"""
 
-import sys as _sys
-from pathlib import Path as _Path
-
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / "tools"))
-import argparse
-import subprocess
-from pathlib import Path
-
-from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from _adc_fixture import adc_source
+from _bsp_test_support import ROOT, arguments, run_c
 from run_position_servo_tests import function_source
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--cc", required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
-    out = args.out.resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "main.h").write_text("#pragma once\n#include <stdint.h>\n")
+def main() -> None:
+    """当前端口没有样本序号；超时测试只使用无效结果，不伪造帧新鲜度。"""
+    args = arguments(__doc__)
     production = (ROOT / "firmware/motor/sensing/mcu_temperature_sensing.c").read_text(
         encoding="utf-8"
     )
-    production += "\n" + (ROOT / "firmware/motor/sensing/motor_current.c").read_text(
-        encoding="utf-8"
-    )
-    temperature = (ROOT / "firmware/platform/bsp/mcu/stm32g4/temperature.c").read_text(
-        encoding="utf8"
-    )
-    src = (
-        r"""
-#include <assert.h>
-#include <math.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
+    source = (
+        adc_source(1)
+        + r"""
 #include <string.h>
 #include "motor_sensing.h"
 #include "application_config.h"
-#include "application_config.h"
-#include "board_config.h"
-#include "bsp_internal.h"
-static struct {uint32_t JDR1,JDR2,flags;} adc;
-#define ADC_FLAG_JEOS 1U
-#define ADC_FLAG_JEOC 2U
-static uint16_t cal30=1000,cal130=1400,vrefcal=1500;
-static unsigned starts;
-static bool busy;
-static MotorControlState motor_state;
-static MotorMeasurement foc;
-volatile McuTemperatureTelemetry s_mcu_temperature;
-static void MotorFault_Report(MotorControlState *m, MotorFaultCode e) {m->fault_code=e;}
-"""
-        + function_source(temperature, "convert_sample")
-        + r"""
-static bool McuTemperature_Convert(uint32_t ts, uint32_t ref, uint16_t c30, uint16_t c130,
-                                   uint16_t vref, float *c, float *mv) {
-    AdcTemperatureSample sample = {(uint16_t)ts, (uint16_t)ref, 0U, 0U};
-    AdcTemperatureValue value;
-    convert_sample(&sample,c30,c130,vref,&value);
-    if(value.temperature_result != BSP_OK) return false;
-    *c=value.celsius;*mv=value.vdda_v*1000.0f;return true;
-}
-"""
-        + f'\n#include "{(ROOT / "tests/unit/native/temperature_api_fixture.h").as_posix()}"\n'
-        + r"""
-static void TestTemperature_Poll(TestTemperaturePoll *result) {
-    result->sample_ready=false; result->conversion_ok=false;
-    if(adc.flags & ADC_FLAG_JEOS) {
-        result->raw_ts=adc.JDR1; result->raw_vref=adc.JDR2;
-        adc.flags &= ~(ADC_FLAG_JEOS | ADC_FLAG_JEOC);
-        result->sample_ready=true;
-        result->conversion_ok=McuTemperature_Convert(result->raw_ts,result->raw_vref,cal30,cal130,
-                                                     vrefcal,&result->celsius,&result->vdda_mv);
-    }
-    if(!busy) {busy=true;++starts;}
+static volatile McuTemperatureTelemetry s_mcu_temperature;
+static FocState foc;
+static MotorControlState motor;
+void MotorFault_Report(MotorControlState *state, MotorFaultCode fault) {
+    if(state->fault_code==MOTOR_FAULT_NONE) state->fault_code=fault;
 }
 """
         + function_source(production, "McuTemperature_Update")
+        + function_source(production, "McuTemperature_IsFresh")
         + r"""
-static void fresh(uint32_t ts,uint32_t vr) {
- adc.JDR1=ts;adc.JDR2=vr;adc.flags=3;busy=false;McuTemperature_Update(&foc,&motor_state);
- assert(adc.flags==0 && busy);
+static void sample(unsigned ts,unsigned ref) {
+    MCU_ADC_TEMPERATURE_RESULT=ts; MCU_ADC_REFERENCE_RESULT=ref;
+    McuTemperature_Update(&foc,&motor);
 }
 static void reset(void) {
- memset((void*)&s_mcu_temperature,0,sizeof(s_mcu_temperature));memset(&foc,0,sizeof(foc));
- motor_state.fault_code=MOTOR_FAULT_NONE;adc.flags=0;busy=false;starts=0;
+    memset((void*)&s_mcu_temperature,0,sizeof(s_mcu_temperature));
+    memset(&foc,0,sizeof(foc)); memset(&motor,0,sizeof(motor));
 }
 int main(void) {
- float c,v;
- AdcTemperatureSample invalid={0U,1500U,0U,0U};
- AdcTemperatureValue values;
- convert_sample(&invalid,1000U,1400U,1500U,&values);
- assert(values.temperature_result==BSP_NOT_CALIBRATED && isnan(values.celsius));
- assert(values.voltage_result==BSP_OK && values.vdda_v==3.0f);
- invalid.mcu_temperature_counts=1000U;
- convert_sample(&invalid,0U,0U,1500U,&values);
- assert(values.temperature_result==BSP_NOT_CALIBRATED && values.voltage_result==BSP_OK);
- convert_sample(&invalid,1000U,1400U,0U,&values);
- assert(values.temperature_result==BSP_NOT_CALIBRATED && values.voltage_result==BSP_NOT_CALIBRATED);
- invalid.reference_counts=0U;
- convert_sample(&invalid,1000U,1400U,1500U,&values);
- assert(values.voltage_result==BSP_IO_ERROR && isnan(values.vdda_v));
- assert(McuTemperature_Convert(1000,1500,1000,1400,1500,&c,&v) && c==30 && v==3000);
- assert(McuTemperature_Convert(1400,1500,1000,1400,1500,&c,&v) && c==130);
- assert(McuTemperature_Convert(1000,1500,1100,1540,1650,&c,&v) && c==30 && v==3300);
- assert(McuTemperature_Convert(1425,1875,1000,1400,1500,&c,&v) && c==65 && v==2400);
- assert(McuTemperature_Convert(760,1500,1000,1400,1500,&c,&v) && c==-30);
- assert(!McuTemperature_Convert(0,1500,1000,1400,1500,&c,&v));
- assert(!McuTemperature_Convert(1000,0,1000,1400,1500,&c,&v));
- assert(!McuTemperature_Convert(4095,1500,1000,1400,1500,&c,&v));
- assert(!McuTemperature_Convert(1000,1500,1000,1000,1500,&c,&v));
- assert(!McuTemperature_Convert(1000,1500,0,65535,1500,&c,&v));
- assert(!McuTemperature_Convert(1000,100,1000,1400,1500,&c,&v));
- reset();McuTemperature_Update(&foc,&motor_state);assert(isnan(foc.temperature_c) && starts==1 && !s_mcu_temperature.valid);
- fresh(1000,1500);assert(foc.temperature_c==30 && s_mcu_temperature.valid && s_mcu_temperature.sample_count==1);
- fresh(1040,1500);assert(fabsf(foc.temperature_c-30.1f)<.0001f && s_mcu_temperature.raw_celsius==40);
- /* A pending conversion is never restarted and stale samples expire exactly at 100 ms
-    (200 supervision ticks at 2 kHz). */
- unsigned n=starts;
- for(unsigned i=0;i<199;i++) McuTemperature_Update(&foc,&motor_state);
- assert(s_mcu_temperature.valid && starts==n && motor_state.fault_code==MOTOR_FAULT_NONE);
- McuTemperature_Update(&foc,&motor_state);assert(!s_mcu_temperature.valid && isnan(foc.temperature_c) && motor_state.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
- fresh(1000,1500);assert(s_mcu_temperature.valid && foc.temperature_c==30 && motor_state.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
- reset();fresh(1239,1500);assert(motor_state.fault_code==MOTOR_FAULT_NONE);
- fresh(1240,1500);assert(motor_state.fault_code==MOTOR_FAULT_OVERTEMPERATURE && foc.temperature_c<90); /* unfiltered trip */
- motor_state.fault_code=MOTOR_FAULT_ENCODER;fresh(1400,1500);assert(motor_state.fault_code==MOTOR_FAULT_ENCODER);
- reset();fresh(1000,1500);fresh(0,1500);assert(!s_mcu_temperature.valid && isnan(foc.temperature_c));
- for(unsigned i=1;i<200;i++)fresh(0,1500);
- assert(motor_state.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
- reset();for(unsigned i=0;i<200;i++)McuTemperature_Update(&foc,&motor_state);
- assert(motor_state.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR); /* startup with no ADC */
- puts("PASS MCU 30/130C calibration, supply correction, invalid trim/ADC, filtering, raw hot trip, stale/startup timeout and fault preservation");
- return 0;
+    reset();sample(1000,1500);assert(foc.temperature_c==30 && McuTemperature_IsFresh());
+    assert(s_mcu_temperature.vdda_mv==3000 && s_mcu_temperature.sample_count==1);
+    sample(1040,1500);assert(fabsf(foc.temperature_c-30.1f)<0.0001f);
+    assert(s_mcu_temperature.raw_celsius==40);
+    sample(1425,1875);assert(s_mcu_temperature.raw_celsius==65 && s_mcu_temperature.vdda_mv==2400);
+    sample(1400,1500);assert(s_mcu_temperature.raw_celsius==130);
+    assert(motor.fault_code==MOTOR_FAULT_OVERTEMPERATURE && foc.temperature_c<90);
+    motor.fault_code=MOTOR_FAULT_ENCODER;sample(1400,1500);
+    assert(motor.fault_code==MOTOR_FAULT_ENCODER);
+    reset();sample(1000,0);assert(!McuTemperature_IsFresh() && isnan(foc.temperature_c));
+    for(unsigned i=1;i<MCU_TEMPERATURE_TIMEOUT_TICKS-1;i++) sample(1000,0);
+    assert(motor.fault_code==MOTOR_FAULT_NONE);
+    sample(1000,0);assert(motor.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
+    sample(1000,1500);assert(McuTemperature_IsFresh() && foc.temperature_c==30);
+    assert(motor.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
+    trim130=trim30;assert(isnan(BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE)));
+    trim130=1400;reset();sample(760,1500);assert(foc.temperature_c==-30);
+    puts("PASS temperature: factory trim, supply correction, filter, raw trip, invalid timeout, latched fault");
+    return 0;
 }
 """
     )
-    fixture = out / "mcu_temperature.c"
-    fixture.write_text(src, encoding="utf-8")
-    exe = out / "mcu_temperature.exe"
-    compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
-    subprocess.run(
-        compiler
-        + ["-std=c99", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
-        + NATIVE_INCLUDE_FLAGS
-        + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
-        + [str(fixture), "-lm", "-o", str(exe)],
-        check=True,
-    )
-    subprocess.run([str(exe)], check=True)
-
-    state = (ROOT / "firmware/app/motor_state_machine/motor_state_machine.c").read_text(
-        encoding="utf-8"
-    )
-    fault = (ROOT / "firmware/motor/protection/motor_fault.c").read_text(encoding="utf-8")
-    subject = (
-        '#include "bsp_system.h"\n'
-        + "\n".join(
-            line
-            for line in (production + "\n" + fault).splitlines()
-            if line.startswith(("#define CURRENT_OFFSET_", "#define RUN_STATE_"))
-        )
-        + "\n"
-    )
-    for content, names in (
-        (fault, ("MotorFault_Report",)),
-        (
-            production,
-            ("McuTemperature_Update", "McuTemperature_IsFresh", "MotorCurrentOffsets_IsValid"),
-        ),
-        (
-            state,
-            (
-                "bus_measurements_finite",
-                "phase_currents_finite",
-                "temperature_measurement_fresh",
-                "state_inputs_valid",
-                "self_test_checks_complete",
-                "read_self_test_measurements",
-            ),
-        ),
-        (fault, ("MotorFault_SourceRecovered",)),
-    ):
-        for name in names:
-            subject += "\n" + function_source(content, name)
-    (out / "mcu_temperature_policy_subject.inc").write_text(subject, encoding="utf-8")
-    for name, flags in (
-        ("old_required", ["-DFOC_ACTIVE_HW_PROFILE=1"]),
-        (
-            "old_ignores_r40_flag",
-            ["-DFOC_ACTIVE_HW_PROFILE=1", "-DBSP_REQUIRED_MCU_TEMPERATURE=1"],
-        ),
-        (
-            "r40_required",
-            [
-                "-DFOC_ACTIVE_HW_PROFILE=2",
-                "-DBSP_REQUIRED_MCU_TEMPERATURE=1",
-                "-DBSP_ENABLED_MCU_TEMPERATURE=1",
-            ],
-        ),
-        (
-            "r40_optional",
-            [
-                "-DFOC_ACTIVE_HW_PROFILE=2",
-                "-DAT32_APP_PHASE_LOCK=1",
-                "-DBSP_PWM_HARD_LOCK=1",
-                "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
-            ],
-        ),
-        (
-            "r40_bounded_optional",
-            [
-                "-DFOC_ACTIVE_HW_PROFILE=2",
-                "-DAT32_APP_PHASE_LOCK=0",
-                "-DAT32_APP_BOUNDED_TEST=1",
-                "-DBSP_REQUIRED_MCU_TEMPERATURE=0",
-            ],
-        ),
-    ):
-        policy_exe = out / (name + ".exe")
-        subprocess.run(
-            compiler
-            + ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
-            + NATIVE_INCLUDE_FLAGS
-            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
-            + flags
-            + [
-                str(ROOT / "tests/unit/native/mcu_temperature_policy_test.c"),
-                "-lm",
-                "-o",
-                str(policy_exe),
-            ],
-            check=True,
-        )
-        subprocess.run([str(policy_exe)], check=True)
-    policy_header = out / "policy_header.c"
-    policy_header.write_text('#include "application_config.h"\n', encoding="utf-8")
-    for flags in (
-        ["-DAPP_TARGET_AT32_F456=1", "-DBSP_REQUIRED_MCU_TEMPERATURE=0"],
-        ["-DBSP_REQUIRED_MCU_TEMPERATURE=2", "-DAT32_APP_PHASE_LOCK=1"],
-    ):
-        rejected = subprocess.run(
-            compiler
-            + NATIVE_INCLUDE_FLAGS
-            + [str(ROOT / "tests/unit/bsp_preemption_stubs.c")]
-            + ["-DFOC_ACTIVE_HW_PROFILE=2"]
-            + flags
-            + ["-c", str(policy_header), "-o", str(out / "invalid.o")],
-            capture_output=True,
-        )
-        if rejected.returncode == 0:
-            raise RuntimeError("非法温度策略或未锁定输出的目标没有被编译期拒绝")
+    run_c(args, "mcu_temperature", source, 1)
 
 
 if __name__ == "__main__":

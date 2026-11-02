@@ -31,7 +31,7 @@ firmware/app/                     组合、唯一运行所有者、值命令适�
   board_config.c                 初始化 → 服务绑定 → 协议硬件启动
   motor_state_machine.c         生命周期调度、统一命令准入、Watch、故障与代际撤销
   motor_state.c                  私有电机对象、参数活动版本、维护资源与保存实际结果
-  yg_protocol_owner_adapter.c    参数/维护/生命周期服务适配
+  app_protocol.c    参数/维护/生命周期服务适配
 firmware/services/
   lifecycle/                     纯状态转换、动作与实际资源 guards
   parameters/                    参数值契约与单值操作服务

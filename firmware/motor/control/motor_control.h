@@ -37,7 +37,6 @@ void MotorOuterLoop_RequestReset(void);
  * @brief 选择反馈/开环角度和电流/电压控制律，再执行共用FOC流水线。
  * @param configuration 只读活动配置。
  * @param foc 电流环对象。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param motor 可写运行对象，不含配置。
  * @param encoder 编码器状态。
  * @param observer 磁链观测器。
@@ -47,7 +46,6 @@ void MotorOuterLoop_RequestReset(void);
  */
 MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
                                   FocState *foc,
-                                  const MotorMeasurement *measurement,
                                   MotorControlState *motor,
                                   EncoderState *encoder,
                                   FluxObserverState *observer);

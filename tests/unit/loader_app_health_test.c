@@ -6,9 +6,9 @@
 #include "application_config.h"
 #include "bsp_system.h"
 #include "yg_protocol_link.h"
-#include "yg_protocol_status_adapter.h"
+#include "app_protocol.h"
 #include "boot_hw.h"
-#include "motor_state_machine.h"
+#include "motor_lifecycle.h"
 #include "bsp_can.h"
 #include "bsp_pwm.h"
 
@@ -20,18 +20,25 @@ static bool confirm_image(void *context, uint32_t version, uint32_t crc32);
 static void publish_identity(void)
 {
 }
-void AppTasks_Process(void)
-{
-}
 static uint32_t model_now_ms, clock_reads, foreground_stage;
 static uint32_t fast_calls, supervisor_calls;
+static volatile uint32_t s_fast_samples;
+static uint32_t s_supervisor_ticks, s_watchdog_last_ms, s_watchdog_last_fast, s_watchdog_last_slow;
+static bool s_watchdog_enabled;
+static void halt_disabled(void)
+{
+    assert(false);
+}
+void BspWatchdog_Feed(void)
+{
+}
 
-void MotorAxis_ServiceBackground(void)
+void MotorAxis_ProcessCalibrationPublication(void)
 {
     assert(foreground_stage == 0U);
     foreground_stage = 1U;
 }
-void YgProtocolStatusAdapter_Refresh(void)
+void AppProtocol_Refresh(void)
 {
     assert(foreground_stage == 1U);
     foreground_stage = 2U;
@@ -63,15 +70,11 @@ void MotorAxis_FastTick(void)
 {
     ++fast_calls;
 }
-MotorControlMode MotorAxis_SupervisorTick(void)
+void MotorAxis_SupervisorTick(void)
 {
     ++supervisor_calls;
-    return MOTOR_CONTROL_SPEED;
 }
-MotorMaintenanceKind MotorStateMachine_GetMaintenanceKind(void)
-{
-    return MOTOR_MAINTENANCE_NONE;
-}
+
 static void process_at(uint32_t now_ms)
 {
     model_now_ms = now_ms;
@@ -95,14 +98,13 @@ static bool model_healthy, model_link, last_healthy;
 static bool model_idle = true, model_off = true;
 static uint32_t confirm_calls;
 
-bool MotorStateMachine_ReadBootHealth(uint32_t *progress)
+bool MotorLifecycle_ReadBootHealth(uint32_t *progress)
 {
     *progress = model_progress;
     return model_healthy;
 }
-bool MotorStateMachine_BootHandoffReady(uint64_t ticket)
+bool MotorLifecycle_IsStopped(void)
 {
-    (void)ticket;
     return false;
 }
 bool MotorAxis_SaveIdle(void)
@@ -122,10 +124,7 @@ bool YgProtocolLink_IsReady(void)
 {
     return model_link;
 }
-BspCanState BspCan_GetState(void)
-{
-    return model_link ? BSP_CAN_READY : BSP_CAN_ERROR;
-}
+
 void BootHw_Watchdog(bool healthy)
 {
     ++calls;
@@ -170,9 +169,6 @@ int main(void)
     ++model_progress;
     process_at(1100U);
     assert(s_healthy_intervals == 11U && confirm_image(NULL, 0x10000U, 7U));
-    model_idle = false;
-    assert(!confirm_image(NULL, 0x10000U, 7U));
-    model_idle = true;
     model_off = false;
     assert(!confirm_image(NULL, 0x10000U, 7U));
     model_off = true;

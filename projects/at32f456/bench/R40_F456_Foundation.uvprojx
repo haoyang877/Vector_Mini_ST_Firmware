@@ -335,7 +335,7 @@
               <MiscControls />
               <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry;..\..\..\firmware\config;..\..\..\firmware\config;..\..\..\firmware\platform\devices</IncludePath>
+              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\config;..\..\..\firmware\platform\bsp;..\..\..\firmware\communication\telemetry</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>

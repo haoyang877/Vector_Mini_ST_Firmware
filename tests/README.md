@@ -1,5 +1,8 @@
 # 离线测试
 
+统一实机测试草案见[电机统一台架测试用例v1.1](../docs/plans/active/2026-10-31-unified-motor-test-cases-v1.md)。
+该用例待评审，包含三相/sin-cos纹波、dq闭环/阶跃、速度、标定波形和协议；不接入默认离线测试执行。
+
 - `unit/`：Python 单元测试及 C 用例；`unit/native/` 为原生 C 编译驱动。
 - `integration/`：固件接口边界、工程配置和工具流程测试，使用模拟设备。
 

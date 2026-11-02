@@ -59,8 +59,8 @@ HARDWARE_VERSION和ANALOG_SUPPLY_VOLTAGE的SUPPORTED/ENABLED/REQUIRED已按已�
 
 | 独立审核建议 | 当前处理 | 验证约束 |
 | --- | --- | --- |
-| P1 母线电流没有标定原码 | 快原码帧bus_current_counts或ReadRawChannel(BUS_CURRENT)与Setter配对 | 保留128个连续稳定样本和轨限检查 |
-| P1 零偏提交仅前台，与快ISR冲突 | Setter允许关相ISR原子提交；应用满窗收尾移至监督任务 | 成功才置complete；BSP同缓存可读，应用下一快拍使用，见EXECUTION第2节 |
+| P1 母线电流没有标定原码 | ReadRawChannel(BUS_CURRENT)与Setter配对 | INIT阶段与三相共用2048拍，检查原码及均值范围 |
+| P1 零偏提交仅前台，与快ISR冲突 | INIT校正功能满窗后在关相临界区统一提交 | 全部成功才置complete，失败不发布部分偏置，见EXECUTION第2节 |
 | P1 Flash屏蔽责任不明 | Write拥有完整屏蔽、暂停、恢复与失败锁存；不保证墙钟上限 | 两板移植时对照所有提前退出及中断状态 |
 | P1 窗口迁移后关断不消费许可 | GetStatus关相序号加唯一功率所有者；检查和Enable同一短临界区 | 正常停止、故障、部分启相、到期、重放均须覆盖 |
 | P2 未标定电流屏蔽母线电压 | ReadFast分组有效位及BUS_VOLTAGE独立缓存读取 | 上电未标定可读电压，不能使用无效电流 |

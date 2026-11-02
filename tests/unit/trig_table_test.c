@@ -69,10 +69,11 @@ int main(void)
     {
         float angle = (float)(i * (2.0 * pi / 524288.0));
         check(angle, 1e-6);
-        float d, q, alpha, beta;
-        Park_Transform(2.0f, -3.0f, angle, &d, &q);
-        Park_Inverse(d, q, angle, &alpha, &beta);
-        assert(fabsf(alpha - 2.0f) < 1e-5f && fabsf(beta + 3.0f) < 1e-5f);
+        AlphaBetaVector ab = {2.0f, -3.0f}, recovered;
+        DqVector dq;
+        Park_Transform(&ab, angle, &dq);
+        Park_Inverse(&dq, angle, &recovered);
+        assert(fabsf(recovered.alpha - 2.0f) < 1e-5f && fabsf(recovered.beta + 3.0f) < 1e-5f);
     }
     double single_error = max_error;
     for (int i = -4096; i <= 4096; ++i)

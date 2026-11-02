@@ -1,0 +1,19 @@
+{
+  "version": "1.6",
+  "byte_order": "little",
+  "vectors": [
+    {"name": "encoder_linearization_accepted", "request_type": 160, "request_payload_hex": "01000000", "payload_hex": "010000000100000001000101"},
+    {"name": "electrical_zero_accepted", "request_type": 160, "request_payload_hex": "02000000", "payload_hex": "010000000200000002000101"},
+    {"name": "mechanical_zero_accepted", "request_type": 160, "request_payload_hex": "06000000", "payload_hex": "010000000300000006000101"},
+    {"name": "calibration_query_unsupported", "payload_hex": "020000000000000000000000"},
+    {"name": "calibration_cancel_unsupported", "payload_hex": "020000000000000000000000"},
+    {"name": "calibration_busy", "payload_hex": "060000000000000000000000"},
+    {"name": "calibration_denied", "payload_hex": "050003000000000000000000"},
+    {"name": "calibration_fault", "payload_hex": "110000000000000000000000"},
+    {"name": "calibration_invalid", "payload_hex": "040006000000000000000000"},
+    {"name": "calibration_out_of_range", "payload_hex": "0b0000000000000000000000"},
+    {"name": "save_unsupported", "payload_hex": "02000100"},
+    {"name": "unbound_job_unsupported", "payload_hex": "020000000000000000000000"},
+    {"name": "target_unsupported", "payload_hex": "02000000"}
+  ]
+}

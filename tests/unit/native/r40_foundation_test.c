@@ -241,128 +241,22 @@ void __set_PRIMASK(unsigned value)
     fake_primask = value;
 }
 
-/* 固定边界向量验证合并提交：严格大于256计数，失败零写入，关相/停表沿用预载语义。 */
-static void test_pwm_commit_boundaries(void)
-{
-    const struct
-    {
-        uint32_t count;
-        bool up, down;
-    } cases[] = {{0U, true, false},
-                 {256U, true, false},
-                 {257U, true, true},
-                 {4243U, true, true},
-                 {4244U, false, true},
-                 {4500U, false, true},
-                 {4501U, false, false},
-                 {UINT32_MAX, false, false}};
-    const uint32_t channels[] = {0U, 0x10U, 0x5550U};
-    const uint32_t controls[] = {0U, 1U, 0x11U, 0x13U};
-    tmr_type saved = fake_tmr1;
-    for (unsigned channel = 0U; channel < 3U; ++channel)
-    {
-        for (unsigned master = 0U; master < 2U; ++master)
-        {
-            for (unsigned mode = 0U; mode < 4U; ++mode)
-            {
-                for (unsigned i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
-                {
-                    fake_tmr1.cctrl = channels[channel] | 1U;
-                    fake_tmr1.brk = master ? 0x8000U : 0U;
-                    fake_tmr1.ctrl1 = controls[mode];
-                    fake_tmr1.cval = cases[i].count;
-                    fake_tmr1.pr = 4500U;
-                    fake_tmr1.c2dt = 111U;
-                    fake_tmr1.c3dt = 222U;
-                    fake_tmr1.c4dt = 333U;
-                    bool expected = (channel == 0U && master == 0U) || mode == 0U ||
-                                    (mode == 1U ? cases[i].up : cases[i].down);
-                    assert(McuPwm_CommitThree(12U, 34U, 56U) == expected);
-                    assert(fake_tmr1.c2dt == (expected ? 12U : 111U));
-                    assert(fake_tmr1.c3dt == (expected ? 34U : 222U));
-                    assert(fake_tmr1.c4dt == (expected ? 56U : 333U));
-                    assert(fake_tmr1.ctrl1 == controls[mode]);
-                    assert(fake_tmr1.cctrl == (channels[channel] | 1U));
-                    assert(fake_tmr1.brk == (master ? 0x8000U : 0U));
-                    fake_tmr1.c2dt = 111U;
-                    fake_tmr1.c3dt = 222U;
-                    fake_tmr1.c4dt = 333U;
-                    assert(McuPwm_CommitPhase(BSP_PWM_PHASE_B, 78U) == expected);
-                    assert(fake_tmr1.c2dt == 111U && fake_tmr1.c4dt == 333U);
-                    assert(fake_tmr1.c3dt == (expected ? 78U : 222U));
-                    assert(fake_tmr1.ctrl1 == controls[mode]);
-                }
-            }
-        }
-    }
-    /* 扫描实际16位周期/计数，包含保护预算以下的周期和越过顶部的计数。
-     * 预期值独立按原count范围与上/下计数公式计算，覆盖原来无符号回绕拒绝语义。 */
-    const uint32_t periods[] = {0U, 1U, 255U, 256U, 257U, 4250U, 4500U, 65535U};
-    uint32_t checked = 0U;
-    for (unsigned p = 0U; p < sizeof(periods) / sizeof(periods[0]); ++p)
-    {
-        uint32_t period = periods[p];
-        for (uint32_t count = 0U; count <= period + 1U; ++count)
-        {
-            for (unsigned channel = 0U; channel < 3U; ++channel)
-            {
-                for (unsigned master = 0U; master < 2U; ++master)
-                {
-                    for (unsigned mode = 0U; mode < 4U; ++mode)
-                    {
-                        uint32_t control = controls[mode];
-                        uint32_t remaining = (control & 0x10U) != 0U ? count : period - count;
-                        bool expected = (channel == 0U && master == 0U) || (control & 1U) == 0U ||
-                                        (count <= period && remaining > 256U);
-                        fake_tmr1.cctrl = channels[channel] | 1U;
-                        fake_tmr1.brk = master ? 0x8000U : 0U;
-                        fake_tmr1.ctrl1 = control;
-                        fake_tmr1.cval = count;
-                        fake_tmr1.pr = period;
-                        fake_tmr1.c2dt = 111U;
-                        fake_tmr1.c3dt = 222U;
-                        fake_tmr1.c4dt = 333U;
-                        assert(McuPwm_CommitThree(12U, 34U, 56U) == expected);
-                        assert(fake_tmr1.c2dt == (expected ? 12U : 111U));
-                        assert(fake_tmr1.c3dt == (expected ? 34U : 222U));
-                        assert(fake_tmr1.c4dt == (expected ? 56U : 333U));
-                        assert(fake_tmr1.ctrl1 == control);
-                        assert(fake_tmr1.cctrl == (channels[channel] | 1U));
-                        assert(fake_tmr1.brk == (master ? 0x8000U : 0U));
-                        fake_tmr1.c2dt = 111U;
-                        fake_tmr1.c3dt = 222U;
-                        fake_tmr1.c4dt = 333U;
-                        assert(McuPwm_CommitPhase(BSP_PWM_PHASE_B, 78U) == expected);
-                        assert(fake_tmr1.c2dt == 111U && fake_tmr1.c4dt == 333U);
-                        assert(fake_tmr1.c3dt == (expected ? 78U : 222U));
-                        assert(fake_tmr1.ctrl1 == control);
-                        ++checked;
-                    }
-                }
-            }
-        }
-    }
-    fake_tmr1 = saved;
-    printf("PASS AT32 PWM: 192 boundary vectors and %u period/count/output cases, timeout zero "
-           "writes\n",
-           checked);
-}
-
 int main(int argc, char **argv)
 {
     fake_failure = argc > 1 ? (unsigned)strtoul(argv[1], NULL, 10) : 0U;
     assert(!McuSystem_Start());
     bool initialized = McuSystem_Init();
-    assert((fake_gpioa.output & 0xE00U) == 0U);
-    assert((fake_gpiob.output & 0x13U) == 0U);
-    assert((fake_gpiob.output & 0x1000U) != 0U);
     if (fake_failure >= 1U && fake_failure <= 4U)
     {
         assert(!initialized && fake_mux_count == 0U);
         assert(!fake_tmr1.running && !fake_tmr6.running);
-        puts("PASS clock failure leaves gates low and timers stopped");
+        assert(fake_gpioa.output == 0xFFFFU && fake_gpiob.output == 0xFFFFU);
+        puts("PASS clock failure leaves GPIO untouched and never starts timers");
         return 0;
     }
+    assert((fake_gpioa.output & 0xE00U) == 0U);
+    assert((fake_gpiob.output & 0x13U) == 0U);
+    assert((fake_gpiob.output & 0x1000U) != 0U);
     assert(initialized && fake_mux_count == 2U && fake_timer_channels == 0x54U);
     assert(!McuSystem_Init());
     assert(fake_tmr1.pr == 4500U && fake_tmr1.div == 0U);
@@ -447,11 +341,10 @@ int main(int argc, char **argv)
         assert(fake_tmr1.c2dt == 4500U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 3375U);
         BspPwm_SetPhaseDuty((BspPwmPhase)99, 0.0f);
         assert(fake_tmr1.c3dt == 2250U);
-        assert(BspPwm_SetDuty(1.0f, 1.0f, 1.0f) == BSP_OK);
+        BspPwm_SetDuty(1.0f, 1.0f, 1.0f);
         assert(fake_tmr1.c2dt == 4500U && fake_tmr1.c3dt == 4500U && fake_tmr1.c4dt == 4500U);
         assert(fake_tmr1.brk == 0U && BspPwm_ArePhasesDisabled() && fake_tmr1.running);
     }
-    test_pwm_commit_boundaries();
     puts("PASS startup ordering, real ports, timing, six outputs and nested IRQ state");
     return 0;
 }

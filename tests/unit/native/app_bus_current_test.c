@@ -1,22 +1,20 @@
-/* 真实APP状态装配及协议编码测试；仅用内存替身提供ADC、时钟和关相事实。 */
+/* 验证真实APP状态适配器与固定协议布局；无测量源或硬件访问。 */
 #include <assert.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
-#include <string.h>
-#include "board_config.h"
-#include "bus_current_feedback.h"
+#include "motor_lifecycle.h"
 #include "motor_axis.h"
 #include "yg_protocol_link.h"
-#include "yg_protocol_status_adapter.h"
+#include "app_protocol.h"
 
 static const yg_protocol_motor_status_source_t *s_bound;
-static MotorStatus s_motor = {.bus_current = 0.75f, .bus_voltage = 29.0f};
+static MotorStatus s_status;
 
 bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_t *source)
 {
     s_bound = source;
-    return true;
+    return source != NULL;
 }
 
 bool YgProtocolLink_BindDeviceStatusSource(const yg_protocol_readonly_device_status_t *source)
@@ -24,288 +22,116 @@ bool YgProtocolLink_BindDeviceStatusSource(const yg_protocol_readonly_device_sta
     return source != NULL;
 }
 
-MotorState MotorAxis_ReadStatus(MotorStatus *sample,
-                                uint8_t *valid_bits,
-                                MotorMaintenanceKind *kind,
-                                MotorControlProgress *progress)
+MotorStatus MotorLifecycle_ReadStatus(void)
 {
-    *sample = s_motor;
-    *valid_bits = 0x54U;
-    *kind = MOTOR_MAINTENANCE_NONE;
-    *progress = (MotorControlProgress){0};
-    return MOTOR_STATE_IDLE;
+    return s_status;
 }
 
-static yg_protocol_motor_feedback_t feedback(void)
+bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
 {
-    YgProtocolStatusAdapter_Refresh();
-    yg_protocol_motor_feedback_t value;
-    assert(yg_protocol_motor_feedback_from_source(s_bound, 1U, 0U, 0U, &value) == YG_PROTOCOL_OK);
-    /* 除母线电流外，装配不能污染原电机状态或有效位。 */
-    MotorStatus copy = s_bound->sample;
-    copy.bus_current = s_motor.bus_current;
-    assert(memcmp(&copy, &s_motor, sizeof(copy)) == 0);
-    assert((s_bound->measurement_valid_bits & (uint8_t)~0x40U) == 0x14U);
-    assert(s_motor.bus_current == 0.75f);
-    return value;
+    return service != NULL;
 }
-
-#if BSP_ENABLED_BUS_CURRENT
-#include "../../../firmware/app/composition/bus_current_feedback.c"
-#define BUS_CURRENT_A_PER_COUNT                                                                    \
-    (BUS_CURRENT_ADC_REFERENCE_V / (float)BUS_CURRENT_ADC_MAX_COUNTS / BUS_CURRENT_GAIN /          \
-     BUS_CURRENT_SHUNT_OHM)
-
-static uint32_t s_now, s_seq, s_critical_depth, s_control_lock_calls;
-static bool s_available = true, s_disabled = true;
-static uint16_t s_raw;
-static unsigned s_read_race, s_raw_reads;
-
-uint32_t BspSystem_TimeMs(void)
+bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *service)
 {
-    return s_now;
+    return service != NULL;
 }
-
-uint32_t BspSystem_EnterControlCritical(void)
+bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service)
 {
-    ++s_control_lock_calls;
-    return s_critical_depth++;
+    return service != NULL;
 }
-
-void BspSystem_ExitControlCritical(uint32_t previous)
-{
-    assert(s_critical_depth == previous + 1U);
-    s_critical_depth = previous;
-}
-
 bool BspPwm_ArePhasesDisabled(void)
 {
-    return s_disabled;
+    return true;
 }
-
-static float s_offset;
-BspResult BspAdc_ReadRawCurrent(BspAdcRawCurrent *sample)
+bool MotorLifecycle_RequestRemoteStop(void)
 {
-    assert(s_critical_depth == 0U && s_control_lock_calls != 0U);
-    ++s_raw_reads;
-    if (s_read_race != 0U)
-    {
-        if (s_read_race == 1U)
-        {
-            g_at32_bus_current_diagnostic.sample_valid = false;
-            s_read_race = 0U;
-        }
-        else
-        {
-            ++g_at32_bus_current_diagnostic.sequence;
-            g_at32_bus_current_diagnostic.filtered_a = 0.25f;
-            if (s_read_race == 2U)
-            {
-                s_read_race = 0U;
-            }
-        }
-    }
-    if (!s_available)
-    {
-        return BSP_STALE;
-    }
-    *sample = (BspAdcRawCurrent){.bus_current_counts = s_raw,
-                                 .valid_mask = BSP_ADC_FAST_BUS_CURRENT_VALID,
-                                 .sequence = s_seq};
-    return BSP_OK;
+    return true;
 }
-BspResult BspAdc_SetBusCurrentOffset(float offset)
+MotorControlResult MotorLifecycle_RequestEnable(MotorControlMode mode)
 {
-    if (!s_disabled)
-    {
-        return BSP_REJECTED;
-    }
-    s_offset = offset;
-    return BSP_OK;
+    (void)mode;
+    return MOTOR_CONTROL_DENIED;
 }
-BspResult BspAdc_ReadFast(BspAdcFastSample *sample)
+MotorControlResult MotorLifecycle_RequestCalibration(MotorCalibrationType type)
 {
-    if (!s_available)
-    {
-        return BSP_STALE;
-    }
-    *sample =
-        (BspAdcFastSample){.bus_current_a = ((float)s_raw - s_offset) * BUS_CURRENT_A_PER_COUNT,
-                           .valid_mask = BSP_ADC_FAST_BUS_CURRENT_VALID,
-                           .sequence = s_seq};
-    return BSP_OK;
+    (void)type;
+    return MOTOR_CONTROL_DENIED;
 }
-
-static void sample(uint16_t raw)
+MotorControlResult MotorLifecycle_RequestClear(void)
 {
-    s_raw = raw;
-    s_seq += 10U;
-    s_now += (s_seq / 10U) & 1U;
-    BusCurrentFeedback_Sample();
+    return MOTOR_CONTROL_DENIED;
 }
-
-static void calibrate(void)
-{
-    for (unsigned i = 0U; i < 128U; ++i)
-    {
-        sample(2060U + (i & 1U));
-    }
-    assert(g_at32_bus_current_diagnostic.offset_valid);
-    assert(g_at32_bus_current_diagnostic.offset_samples == 128U);
-    assert(g_at32_bus_current_diagnostic.offset_counts == 2060.5f);
-}
-
-static void expect_invalid(void)
-{
-    yg_protocol_motor_feedback_t value = feedback();
-    assert(value.bus_current_mA == INT16_MIN && !(value.valid_bits & (1U << 5U)));
-    assert(isnan(s_bound->sample.bus_current));
-    assert(s_critical_depth == 0U);
-}
-
-static void hardware_feedback(void)
-{
-    BusCurrentFeedback_Init();
-    expect_invalid();
-    sample(2060U);
-    for (unsigned i = 0U; i < 150U; ++i)
-    {
-        BusCurrentFeedback_Sample();
-    }
-    assert(g_at32_bus_current_diagnostic.offset_samples == 1U);
-    expect_invalid();
-
-    BusCurrentFeedback_Init();
-    s_disabled = false;
-    for (unsigned i = 0U; i < 150U; ++i)
-    {
-        sample(2060U);
-    }
-    assert(!g_at32_bus_current_diagnostic.offset_valid);
-    expect_invalid();
-    s_disabled = true;
-    calibrate();
-
-    float initial = g_at32_bus_current_diagnostic.filtered_a;
-    sample(2160U);
-    float expected = (2160.0f - 2060.5f) * BUS_CURRENT_A_PER_COUNT;
-    assert(fabsf(g_at32_bus_current_diagnostic.current_a - expected) < 0.000001f);
-    float filtered = initial + 0.05f * (expected - initial);
-    assert(fabsf(g_at32_bus_current_diagnostic.filtered_a - filtered) < 0.000001f);
-    for (unsigned i = 0U; i < 300U; ++i)
-    {
-        sample(2160U);
-    }
-    assert(g_at32_bus_current_diagnostic.offset_counts == 2060.5f);
-    yg_protocol_motor_feedback_t value = feedback();
-    assert(value.bus_current_mA == (int16_t)lroundf(expected * 1000.0f));
-    assert(value.valid_bits & (1U << 5U));
-    uint8_t wire[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
-    assert(yg_protocol_motor_feedback_encode(&value, wire, sizeof(wire)) == YG_PROTOCOL_OK);
-    assert(wire[28] == (uint8_t)value.bus_current_mA);
-    assert(wire[29] == (uint8_t)((uint16_t)value.bus_current_mA >> 8U));
-
-    /* 再生负电流保留符号，且运行中始终使用相同偏置。 */
-    s_disabled = false;
-    for (unsigned i = 0U; i < 300U; ++i)
-    {
-        sample(1961U);
-    }
-    value = feedback();
-    assert(value.bus_current_mA == (int16_t)-lroundf(expected * 1000.0f));
-    assert(g_at32_bus_current_diagnostic.offset_counts == 2060.5f);
-
-    for (unsigned i = 0U; i < 10U; ++i)
-    {
-        BusCurrentFeedback_Sample();
-    }
-    float unchanged = g_at32_bus_current_diagnostic.filtered_a;
-    BusCurrentFeedback_Sample();
-    assert(unchanged == g_at32_bus_current_diagnostic.filtered_a);
-    s_now += 2U;
-    assert(feedback().valid_bits & (1U << 5U));
-    ++s_now;
-    expect_invalid();
-    BusCurrentFeedback_Sample();
-    expect_invalid();
-    sample(2060U);
-    assert(feedback().valid_bits & (1U << 5U));
-
-    const uint16_t invalid[] = {0U, 2U, 4093U, 4095U, 65535U};
-    for (unsigned i = 0U; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
-    {
-        sample(invalid[i]);
-        expect_invalid();
-        sample(2060U);
-        assert(feedback().valid_bits & (1U << 5U));
-    }
-    s_available = false;
-    expect_invalid();
-    BusCurrentFeedback_Sample();
-    expect_invalid();
-    s_available = true;
-    sample(2060U);
-    assert(feedback().valid_bits & (1U << 5U));
-
-    /* 序号缺口不继续累计校准；计数与毫秒自然回绕仍能采集。 */
-    BusCurrentFeedback_Init();
-    s_disabled = true;
-    sample(2060U);
-    sample(2060U);
-    s_seq += 20U;
-    sample(2060U);
-    assert(g_at32_bus_current_diagnostic.offset_samples == 1U);
-    BusCurrentFeedback_Init();
-    s_seq = UINT32_MAX - 64U;
-    s_now = UINT32_MAX - 16U;
-    calibrate();
-    assert(feedback().valid_bits & (1U << 5U));
-
-    /* 噪声窗口和偏离中点的直流电平不能获准成为零点。 */
-    BusCurrentFeedback_Init();
-    for (unsigned i = 0U; i < 200U; ++i)
-    {
-        sample(i & 1U ? 2040U : 2060U);
-    }
-    assert(!g_at32_bus_current_diagnostic.offset_valid);
-    expect_invalid();
-    for (unsigned i = 0U; i < 200U; ++i)
-    {
-        sample(2400U);
-    }
-    assert(!g_at32_bus_current_diagnostic.offset_valid);
-    expect_invalid();
-    calibrate();
-    assert(!BusCurrentFeedback_Read(NULL));
-    float current_a;
-    s_read_race = 1U;
-    s_raw_reads = 0U;
-    assert(!BusCurrentFeedback_Read(&current_a) && isnan(current_a));
-    assert(s_raw_reads == 2U);
-    sample(2060U);
-    s_read_race = 2U;
-    s_raw_reads = 0U;
-    assert(BusCurrentFeedback_Read(&current_a) && current_a == 0.25f);
-    assert(s_raw_reads == 2U);
-    s_read_race = 3U;
-    s_raw_reads = 0U;
-    assert(!BusCurrentFeedback_Read(&current_a) && isnan(current_a));
-    assert(s_raw_reads == 2U);
-    s_read_race = 0U;
-    assert(s_critical_depth == 0U);
-    puts("PASS PA4 offset, signed conversion, filter, stale/fault invalidity and APP wire path");
-}
-#endif
 
 int main(void)
 {
-    assert(YgProtocolStatusAdapter_Init());
-#if BSP_ENABLED_BUS_CURRENT
-    hardware_feedback();
-#else
-    yg_protocol_motor_feedback_t value = feedback();
-    assert(value.bus_current_mA == 750 && (value.valid_bits & (1U << 5U)));
-    puts("PASS legacy hardware-free estimate and validity remain unchanged");
-#endif
+    assert(AppProtocol_Init());
+    const uint8_t states[] = {5U, 3U, 4U, 6U, 8U};
+    for (unsigned i = 0; i <= MOTOR_STATE_FAULT; ++i)
+    {
+        s_status = (MotorStatus){
+            .state = (MotorState)i, .mode = MOTOR_CONTROL_SPEED, .fault = MOTOR_FAULT_NONE};
+        AppProtocol_Refresh();
+        assert(s_bound->state == states[i] && s_bound->mode == 2U && s_bound->sample_available);
+        yg_protocol_motor_feedback_t feedback;
+        assert(yg_protocol_motor_feedback_from_source(s_bound, 1U, 0U, 0U, &feedback) ==
+               YG_PROTOCOL_OK);
+        assert(feedback.valid_bits == 0U && feedback.bus_current_mA == INT16_MIN &&
+               feedback.reference_position_mrad == INT32_MIN);
+    }
+    s_status = (MotorStatus){.state = MOTOR_STATE_RUNNING,
+                             .mode = MOTOR_CONTROL_CURRENT,
+                             .measurements_valid = true,
+                             .position_reference_rad = NAN,
+                             .position_rad = -1.25f,
+                             .speed_reference_rad_s = NAN,
+                             .speed_rad_s = 2.5f,
+                             .bus_voltage_v = 30.5f,
+                             .bus_current_a = 0.125f,
+                             .iq_reference_a = -0.25f,
+                             .iq_a = -0.249f,
+                             .temperature_c = 25.5f,
+                             .vq_v = -1.5f,
+                             .vd_v = 0.0625f};
+    AppProtocol_Refresh();
+    yg_protocol_motor_feedback_t live;
+    assert(yg_protocol_motor_feedback_from_source(s_bound, 1U, 0U, 123U, &live) == YG_PROTOCOL_OK);
+    assert(live.valid_bits == 0x0DFAU && live.actual_position_mrad == -1250 &&
+           live.actual_speed_mrad_s == 2500 && live.bus_voltage_cV == 3050 &&
+           live.bus_current_mA == 125 && live.reference_iq_mA == -250 &&
+           live.actual_iq_mA == -249 && live.mcu_temperature_centi_c == 2550 &&
+           live.motor_temperature_centi_c == INT16_MIN && live.v_q_mV == -1500 &&
+           live.v_d_mV == 63 && live.correlated_seq == 123U);
+    uint8_t payload[45];
+    assert(yg_protocol_motor_feedback_encode(&live, payload, sizeof(payload)) == YG_PROTOCOL_OK);
+    printf("VECTOR live_current_feedback ");
+    for (unsigned i = 0; i < sizeof(payload); ++i)
+    {
+        printf("%02x", payload[i]);
+    }
+    puts("");
+    s_status.bus_current_a = INFINITY;
+    s_status.position_rad = 3000000.0f;
+    s_status.temperature_c = -327.68f;
+    AppProtocol_Refresh();
+    assert(yg_protocol_motor_feedback_from_source(s_bound, 1U, 0U, 0U, &live) == YG_PROTOCOL_OK);
+    assert((live.valid_bits & ((1U << 1) | (1U << 5) | (1U << 8))) == 0U &&
+           live.actual_position_mrad == INT32_MIN && live.bus_current_mA == INT16_MIN &&
+           live.mcu_temperature_centi_c == INT16_MIN);
+    s_status = (MotorStatus){.state = MOTOR_STATE_RUNNING,
+                             .mode = MOTOR_CONTROL_CURRENT,
+                             .fault = MOTOR_FAULT_OVERCURRENT};
+    AppProtocol_Refresh();
+    assert(s_bound->state == 8U && s_bound->faults == 1U && s_bound->mode == 1U);
+    puts("PASS APP state/fault mapping and invalid measurement feedback");
     return 0;
+}
+
+MotorControlResult MotorLifecycle_SetTarget(const MotorTarget *target)
+{
+    (void)target;
+    return MOTOR_CONTROL_DENIED;
+}
+uint32_t MotorLifecycle_WorkEpoch(void)
+{
+    return 1U;
 }

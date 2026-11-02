@@ -239,21 +239,14 @@ static void motor_status_adapter(void)
                                      NULL};
     uint32_t payload_length = sizeof(payload);
 
-    source.sample.position_feedback = 1.2345F;
-    source.sample.speed_feedback_rad_s = -40.0F;
-    source.sample.current_feedback = 1.2F;
-    source.sample.bus_voltage = 24.0F;
-    source.sample.bus_current = 1.5F;
-    source.sample.temperature = 25.25F;
     source.state = 3U;
     source.mode = 3U;
-    source.measurement_valid_bits = YG_PROTOCOL_MOTOR_MEASUREMENT_MASK;
     source.sample_available = true;
     assert(yg_protocol_motor_status_provider(&source, &request, payload, &payload_length) ==
            YG_PROTOCOL_OK);
     assert(payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE);
     assert(payload[0] == 0U && payload[2] == 0U && payload[42] == 3U);
-    assert(payload[12] == 0xD3U && payload[13] == 0x04U && payload[24] == 0xFFU);
+    assert(payload[15] == 0x80U && payload[24] == 0U && payload[25] == 0U);
     request.payload_length = 1U;
     request.payload = payload;
     payload_length = sizeof(payload);
@@ -370,7 +363,7 @@ static void transfer_queue_is_bounded(void)
     }
 }
 
-/* 直接调用业务模块，验证历史和反馈无需依赖全局链路状态。 */
+/* 直接调用业务模块，验证拒绝目标和反馈无需依赖全局链路状态。 */
 static void isolated_control(void *context,
                              const yg_protocol_motor_request_t *request,
                              yg_protocol_service_reply_t *reply)
@@ -447,7 +440,7 @@ static void business_contexts_are_independent(void)
     request.destination_node = 3U;
     request.flags |= YG_PROTOCOL_FLAGS_RETRY;
     assert(yg_protocol_motor_handle_control(&a, &request, &response) == YG_PROTOCOL_OK);
-    assert(calls_a == 1U && calls_b == 1U);
+    assert(calls_a == 2U && calls_b == 1U);
     assert(yg_protocol_motor_flush_feedback(&a, isolated_send, &sink) == YG_PROTOCOL_OK);
     assert(sink.sequence == 1U && sink.calls == 3U);
 

@@ -41,14 +41,14 @@ typedef struct
     uint32_t revision, raw_value;
 } ParameterValue;
 
-/** 只读请求身份；同一来源与序号只能查询同一个参数。 */
+/** 只读请求值；来源与序号保留线路字段，APP不缓存重放结果。 */
 typedef struct
 {
     uint8_t parameter_id, source_node;
     uint16_t sequence;
 } ParameterReadRequest;
 
-/** 有身份的单标量写请求；同 source/sequence 只能重放同一原始请求。 */
+/** 单标量写请求；APP按expected_revision检查版本，不维护来源重放缓存。 */
 typedef struct
 {
     uint8_t parameter_id, value_type, source_node, reserved;

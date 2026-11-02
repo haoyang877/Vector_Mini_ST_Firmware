@@ -20,14 +20,15 @@ def main(case: str) -> None:
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
-    executable = output / "core_outer.exe"
+    executable = output / f"core_outer_{case}.exe"
     reference = args.reference_root.resolve()
     flags = ["-I", str(ROOT / "firmware/app/runtime"), *native_include_flags(reference)]
     fixture = ROOT / "tests/unit/native/core_outer_test.c"
     position_sources = []
+    fixture_text = fixture.read_text(encoding="utf-8")
     if case == "runtime":
         # 运行检查链接真实位置核心；配置/拒绝检查使用明确的边界桩。
-        text = fixture.read_text(encoding="utf-8")
+        text = fixture_text
         for name in ("PositionCascade_Reset", "PositionCascade_UpdateControlLimited"):
             text = text.replace(function_source(text, name), "")
         text = text.replace("unsigned resets = s_resets;", "")
@@ -50,6 +51,9 @@ def main(case: str) -> None:
                 )
             )
         ]
+    else:
+        fixture = output / f"fixture_{case}.c"
+        fixture.write_text(fixture_text, encoding="utf-8")
     command = (
         compiler
         + flags
@@ -59,9 +63,9 @@ def main(case: str) -> None:
             "-Wall",
             "-Wextra",
             "-Werror",
+            "-DBSP_BOARD=1",
             "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
             str(fixture),
-            str(ROOT / "firmware/app/runtime/motor_command.c"),
             str(ROOT / "firmware/motor/control/motor_control.c"),
             str(ROOT / "firmware/motor/control/speed_control.c"),
             str(ROOT / "firmware/motor/control/speed_feedforward.c"),
@@ -77,6 +81,6 @@ def main(case: str) -> None:
     for invocation in (command, [str(executable), case]):
         result = subprocess.run(invocation, cwd=ROOT, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
-        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
+        (output / f"{case}.log").write_text("\n".join(logs), encoding="utf-8")
         print(logs[-1], end="")
         result.check_returncode()

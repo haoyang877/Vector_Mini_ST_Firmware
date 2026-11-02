@@ -56,7 +56,7 @@ def main() -> None:
         image, _, _ = build_package(source, 7, target)
     header = "static const uint8_t LoaderV2Image[] = {" + ",".join(map(str, image)) + "};\n"
     (output / "loader_image_v2_vector.h").write_text(header, encoding="utf-8")
-    board = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
+    board = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
     health_fixture = (ROOT / "tests/unit/loader_app_health_test.c").read_text(encoding="utf-8")
     interval = next(
         line for line in board.splitlines() if line.startswith("#define BOOT_HEALTH_INTERVAL_MS")
@@ -74,12 +74,12 @@ def main() -> None:
         + function_source(board, "App_Process")
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
+            (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8"),
             "App_FastTick",
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8"),
+            (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8"),
             "App_SupervisorTick",
         ),
         encoding="utf-8",
@@ -131,6 +131,17 @@ def main() -> None:
         + "\n"
         + (ROOT / "tests/unit/loader_app_confirm_test.c").read_text(encoding="utf-8")
         + "\n"
+        + "\n".join(
+            line
+            for line in (
+                ROOT
+                / "firmware/platform/sdk/stm32g4/Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_gpio.h"
+            )
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line.startswith("#define GPIO_PIN_")
+        )
+        + '\n#include "mcu_resources.h"\n'
         + "\n".join(
             function_source(boot, name)
             for name in (
@@ -189,28 +200,32 @@ def main() -> None:
         encoding="utf-8",
     )
     base = [str(compiler)] + (["cc"] if compiler.stem.lower() == "zig" else [])
-    base += NATIVE_INCLUDE_FLAGS + [
-        "-I",
-        str(ROOT / "firmware/app/interfaces"),
-        "-I",
-        str(ROOT / "loader/ports/include"),
-        "-I",
-        str(ROOT / "loader/product"),
-        "-I",
-        str(ROOT / "shared/targets/vector_mini_st_g431"),
-        "-I",
-        str(ROOT / "loader/core"),
-        "-I",
-        str(output),
-        "-std=c99",
-        "-O1",
-        "-UNDEBUG",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-ffunction-sections",
-        "-Wl,--gc-sections",
-    ]
+    base += (
+        NATIVE_INCLUDE_FLAGS
+        + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
+        + [
+            "-I",
+            str(ROOT / "firmware/app/interfaces"),
+            "-I",
+            str(ROOT / "loader/ports/include"),
+            "-I",
+            str(ROOT / "loader/product"),
+            "-I",
+            str(ROOT / "shared/targets/vector_mini_st_g431"),
+            "-I",
+            str(ROOT / "loader/core"),
+            "-I",
+            str(output),
+            "-std=c99",
+            "-O1",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-ffunction-sections",
+            "-Wl,--gc-sections",
+        ]
+    )
     sources = (
         "loader/core/upgrade.c",
         "loader/product/parameters.c",

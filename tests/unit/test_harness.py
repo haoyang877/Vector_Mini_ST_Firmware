@@ -22,6 +22,32 @@ import doctor
 
 
 class HarnessTests(unittest.TestCase):
+    def test_interface_scanner_skips_macro_continuations(self):
+        """宏续行中的调用/花括号不污染下一条声明，真实缺失契约仍被报告。"""
+        source = r"""#define FILTER(value, sample) \
+    (value -= (sample))
+#define BLOCK(call) \
+    do { call(); } while (0)
+/**
+ * @brief 限制输入值。
+ * @param value 输入数值。
+ * @return 限制后的数值。
+ */
+float Value_Limit(float value);
+void Missing_Contract(void);
+"""
+        declarations = check_interfaces._prototypes(source)
+        self.assertEqual(
+            [entry["name"] for entry in declarations], ["Value_Limit", "Missing_Contract"]
+        )
+        self.assertEqual(declarations[0]["line"], 10)
+        with tempfile.TemporaryDirectory() as folder:
+            header = _Path(folder) / "macro.h"
+            header.write_text(source, encoding="utf-8")
+            with patch.object(check_interfaces, "relative", lambda path: path.name):
+                problems = check_interfaces.scan([header])
+            self.assertEqual([entry["interface"] for entry in problems], ["Missing_Contract"])
+
     def test_interface_contract_covers_split_return_type(self):
         """换行返回类型不能跳过契约检查，void 也不能误判需要 return。"""
         source = """/**

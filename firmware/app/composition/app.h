@@ -16,20 +16,20 @@ void App_Start(void);
 
 /**
  * @brief 按顺序推进后台事务、状态刷新、通信及Loader交接。
- * @note 仅在main前台循环调用；Flash保存留在前台，不能从中断或并发上下文调用。
+ * @note 仅在main前台循环调用；不能从中断或并发上下文调用。
  *       通信和交接分别读取当时毫秒时钟，不能合并为提前捕获的时间快照。
  */
 void App_Process(void);
 
 /**
- * @brief 执行一次20 kHz电机采样、快速保护及控制或标定步骤。
- * @note 仅由平台完整ADC采样回调调用；保持既有立即关断路径，不阻塞或执行Flash操作。
+ * @brief 执行一次20 kHz电机快环及应用采样计数。
+ * @note 由main.c的ADC完成回调在中断上下文调用；不阻塞或执行Flash操作。
  */
 void App_FastTick(void);
 
 /**
- * @brief 执行一次2 kHz电机监督、主状态推进及指示器分频。
- * @note 仅由平台2kHz监督中断调用；LED/RGB在电机监督之后按原分频执行，不替代快环故障关断。
+ * @brief 执行一次2 kHz电机监督及主状态推进。
+ * @note 仅由平台2kHz监督中断调用；不阻塞。
  */
 void App_SupervisorTick(void);
 

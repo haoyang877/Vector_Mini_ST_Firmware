@@ -39,7 +39,6 @@ void AT32AppTelemetry_Init(void);
  * @brief 每10个真实快拍复制一帧，不调用RTT、不等待前台。
  * @param fast_samples 已完成的20kHz快拍序号。
  * @param foc 快环所有者的本拍电流与电压，只读。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param motor 快环控制目标和故障，只读。
  * @param encoder 本拍角度与速度，只读。
  * @param state 当前生命周期值。
@@ -49,7 +48,6 @@ void AT32AppTelemetry_Init(void);
  */
 void AT32AppTelemetry_Capture(uint32_t fast_samples,
                               const FocState *foc,
-                              const MotorMeasurement *measurement,
                               const MotorControlState *motor,
                               const EncoderState *encoder,
                               uint32_t state,

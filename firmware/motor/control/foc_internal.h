@@ -7,7 +7,6 @@
  * @brief 计算一拍电流或电压控制与占空比，不提交硬件。
  * @param configuration 本拍稳定的活动配置。
  * @param foc 控制器状态，成功时包含待提交占空比。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param motor 动态限流及故障对象。
  * @param law 控制律。
  * @param phase 电角度，rad。
@@ -19,7 +18,6 @@
  */
 bool Foc_Prepare(const MotorConfiguration *configuration,
                  FocState *foc,
-                 const MotorMeasurement *measurement,
                  MotorControlState *motor,
                  FocControlLaw law,
                  float phase,
@@ -30,10 +28,9 @@ bool Foc_Prepare(const MotorConfiguration *configuration,
 /**
  * @brief 提交PWM后更新滤波、功率和PI跟踪并结束本拍计时。
  * @param foc 与Foc_Prepare相同的控制状态。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param law 与Foc_Prepare相同的控制律。
  * @note 无硬件访问；PWM提交失败也必须调用，以保持原故障路径顺序。
  */
-void Foc_Complete(FocState *foc, const MotorMeasurement *measurement, FocControlLaw law);
+void Foc_Complete(FocState *foc, FocControlLaw law);
 
 #endif

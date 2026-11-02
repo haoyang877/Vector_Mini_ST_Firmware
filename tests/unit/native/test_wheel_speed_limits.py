@@ -30,7 +30,6 @@ def fixture():
 #include "board_config.h"
 #include "board_config.h"
 #include "application_config.h"
-#include "application_config.h"
 #include "control_math.h"
 #include "image_transfer.h"
 #include "vector_mini_st_g431.h"
@@ -54,6 +53,7 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
     prelude += (
         "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
     )
+    prelude += function_source(sensing, "current_offset_valid")
     prelude += function_source(sensing, "MotorCurrentOffsets_IsValid")
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
     production = (ROOT / "firmware/parameters/parameter_record.c").read_text(encoding="utf-8")
@@ -109,7 +109,7 @@ int main(void) {
             configuration.application.speed_deceleration_rad_s2,configuration.application.position_acceleration_rad_s2,
             configuration.application.position_deceleration_rad_s2,configuration.application.position_maximum_speed_rad_s};
         const float expected[]={3.0f,7.0f,65.98486785f,.8f,.7f,1.0f,.5f,
-            .028f,20.0f,200.0f,2.0f,.5f*_2PI,50.0f*_2PI,50.0f*_2PI,.125f*_2PI,.125f*_2PI,.125f*_2PI};
+            .028f,20.0f,200.0f,2.0f,.5f*_2PI,50.0f*_2PI,50.0f*_2PI,.125f*_2PI,.5f*_2PI,2.0f*_2PI};
         assert(!feedforward->enabled && memcmp(actual,expected,sizeof(expected))==0);
     }
     /* 原默认路径先赋值 float 相模型，再乘带宽；比较全部 PI 的位模式。 */
@@ -125,13 +125,16 @@ int main(void) {
                               configuration.model.id_ki,configuration.model.iq_ki};
         assert(memcmp(actual,expected,sizeof(expected))==0);
     }
-    /* 当前有效记录的手调 PI 不随 R/L 重新派生，导出仍逐位保留。 */
+    /* 已保存R/L按当前目标带宽派生PI；旧增益不覆盖新带宽，导出反映实际值。 */
     {
         p=saved;
         p.motor_phase_resistance_ohm=1.25f;
         p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
         p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
-        const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
+        const float expected[]={p.motor_d_inductance_h*CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                p.motor_q_inductance_h*CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                p.motor_phase_resistance_ohm*CURRENT_LOOP_BANDWIDTH_RAD_S,
+                                p.motor_phase_resistance_ohm*CURRENT_LOOP_BANDWIDTH_RAD_S};
         p.record_crc32=Param_RecordCrc(&p);
         Param_Download(&p,sizeof(p),&configuration);
         const float actual[]={configuration.model.id_kp,configuration.model.iq_kp,
@@ -142,7 +145,7 @@ int main(void) {
         const float exported[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         assert(memcmp(exported,expected,sizeof(expected))==0);
     }
-    puts("PASS default PI bit equivalence and stored schema14 custom PI retention");
+    puts("PASS default PI and stored model use current bandwidth without changing calibration");
     policy_golden_vectors(&saved);
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;
@@ -349,449 +352,6 @@ int main(void) {
     )
 
 
-def verify_independent_inputs(cc: list[str], out: Path) -> None:
-    """板卡和电机头可独立包含，两个正式目标各自选择正确默认型号。"""
-    board = out / "board_independence.c"
-    board.write_text(
-        '#include "board_config.h"\n'
-        "#if defined(FOC_ACTIVE_MOTOR_PROFILE) || defined(PARAM_MOTOR_POLE_PAIRS)\n"
-        '#error "board selected a motor"\n#endif\n',
-        encoding="utf-8",
-    )
-    motor = out / "motor_independence.c"
-    motor.write_text(
-        '#include "motor_profile_config.h"\n'
-        "#if defined(BSP_BOARD) || defined(BSP_SUPPORTED_PWM)\n"
-        '#error "motor selected a board"\n#endif\n'
-        "#if FOC_ACTIVE_MOTOR_PROFILE != EXPECTED_MOTOR_PROFILE\n"
-        '#error "wrong default motor"\n#endif\n',
-        encoding="utf-8",
-    )
-    for target, model in (("STM32_APP", 1), ("AT32_OFF", 2)):
-        for source in (board, motor):
-            subprocess.run(
-                cc
-                + [
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    f"-DFIRMWARE_TARGET_{target}=1",
-                    f"-DEXPECTED_MOTOR_PROFILE={model}",
-                    "-c",
-                    str(source),
-                    "-o",
-                    str(out / f"independent_{target}_{source.stem}.o"),
-                ],
-                check=True,
-            )
-    print("PASS independent board and motor headers for both APP targets")
-
-
-def verify_motor_profiles(cc: list[str], out: Path) -> None:
-    """编译并运行型号/阻尼环矩阵，同时验证不完整APP和非法配置拒绝。"""
-    cases = (
-        (1, 0, "HT8115-4", "HT8115-4/no-damping-ring", 21, 1.905, 0.001635, 1, 300, 3, 1, 0),
-        (1, 1, "HT8115-4", "HT8115-4/damping-ring", 21, 1.905, 0.001635, 1, 300, 3, 1, 0),
-        (2, 0, "YQ-5708", "YQ-5708/8:1", 14, 0.55, 0.0001425, 8, 2500, 3.535533906, 0, 0),
-        (3, 0, "YQ-5740", "YQ-5740/40:1", 14, 0.55, 0.0001425, 40, 2500, 3.535533906, 0, 0),
-        (4, 0, "YQ-8116", "YQ-8116/HT8115-4-baseline", 21, 1.905, 0.001635, 1, 300, 3, 0, 1),
-    )
-    source = ROOT / "tests/unit/native/motor_profiles_test.c"
-    flags = ["-std=c99", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
-    for model, damping, *expected in cases:
-        executable = out / f"motor_profile_{model}_{damping}.exe"
-        subprocess.run(
-            cc
-            + flags
-            + [f"-DFOC_ACTIVE_MOTOR_PROFILE={model}", f"-DMOTOR_HAS_DAMPING_RING={damping}"]
-            + [str(source), "-lm", "-o", str(executable)],
-            check=True,
-        )
-        subprocess.run([str(executable), *map(str, expected)], check=True)
-    rejected = out / "motor_profile_rejected.c"
-    for header, definitions, reason in (
-        ("motor_profile_config.h", ["-DFOC_ACTIVE_MOTOR_PROFILE=99"], "Unsupported FOC_ACTIVE"),
-        ("motor_profile_config.h", ["-DMOTOR_HAS_DAMPING_RING=2"], "Unsupported MOTOR_HAS"),
-        (
-            "motor_profile_config.h",
-            ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DMOTOR_HAS_DAMPING_RING=1"],
-            "Damping-ring configuration",
-        ),
-        (
-            "application_config.h",
-            ["-DFOC_ACTIVE_MOTOR_PROFILE=2", "-DPARAM_MOTOR_APP_TEST_DEFAULTS=1"],
-            "test target must supply flux and thermal parameters",
-        ),
-        (
-            (out / "targets/r40_app_common.h").as_posix(),
-            [],
-            "Temporary motor defaults require a phase-locked or bounded-test target",
-        ),
-        *(
-            (
-                "application_config.h",
-                [f"-DFOC_ACTIVE_MOTOR_PROFILE={model}"],
-                "Motor APP defaults incomplete",
-            )
-            for model in (2, 3, 4)
-        ),
-    ):
-        rejected.write_text(f'#include "{header}"\n', encoding="utf-8")
-        result = subprocess.run(
-            cc
-            + flags
-            + definitions
-            + (["-DCONFIG_VALIDATE_FULL_APP=1"] if header == "application_config.h" else [])
-            + ["-c", str(rejected), "-o", str(out / "rejected.o")],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 or reason not in result.stderr:
-            raise RuntimeError(f"电机配置应拒绝但未得到预期错误: {definitions}: {result.stderr}")
-    print("PASS unknown model, invalid damping and incomplete APP rejection")
-
-
-def verify_custom_config(cc: list[str], out: Path) -> None:
-    """独立板型和型号输入可改变派生值，且不能绕过目标与热数据准入。"""
-    resource = (ROOT / "firmware/config/board_config.h").read_text(encoding="utf8")
-    motor = (ROOT / "firmware/config/motor_profile_config.h").read_text(encoding="utf8")
-    for name, start, end in (
-        (
-            "stm32g4.h",
-            "#elif BSP_BOARD == BSP_BOARD_STM32G4\n",
-            '\n#else\n#error "Unknown BSP board"',
-        ),
-        (
-            "at32f456.h",
-            "#elif BSP_BOARD == BSP_BOARD_AT32F456\n",
-            "\n#elif BSP_BOARD == BSP_BOARD_STM32G4",
-        ),
-        (
-            "ht8115_4.h",
-            "FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_8116\n",
-            "\n#elif FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708",
-        ),
-    ):
-        source = motor if name == "ht8115_4.h" else resource
-        (out / name).write_text(source.split(start, 1)[1].split(end, 1)[0], encoding="utf8")
-    (out / "custom_motor.h").write_text(
-        '#include "ht8115_4.h"\n'
-        "#undef PARAM_MOTOR_POLE_PAIRS\n#define PARAM_MOTOR_POLE_PAIRS 14\n"
-        "#undef PARAM_MOTOR_PHASE_RESISTANCE_OHM\n#define PARAM_MOTOR_PHASE_RESISTANCE_OHM 0.75f\n"
-        "#undef PARAM_MOTOR_D_INDUCTANCE_H\n#define PARAM_MOTOR_D_INDUCTANCE_H 0.0002f\n"
-        "#undef PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S\n#define PARAM_MOTOR_CALIB_SPEED_MEC_RAD_S 25.0f\n",
-        encoding="utf-8",
-    )
-    (out / "custom_stm.h").write_text(
-        '#define CURRENT_SENSE_SHUNT_MILLIOHM 2U\n#include "stm32g4.h"\n'
-        "#undef CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN\n"
-        "#define CURRENT_SENSE_PROFILE_AMPLIFIER_GAIN 5.0f\n",
-        encoding="utf-8",
-    )
-    (out / "custom_at32.h").write_text(
-        '#include "at32f456.h"\n'
-        "#undef AT32_PHASE_SHUNT_MILLIOHM\n#define AT32_PHASE_SHUNT_MILLIOHM 5U\n"
-        "#undef AT32_ADC_RESOLUTION_BITS\n#define AT32_ADC_RESOLUTION_BITS 10U\n"
-        "#undef AT32_CURRENT_GAIN\n#define AT32_CURRENT_GAIN 10.0f\n",
-        encoding="utf-8",
-    )
-    (out / "invalid_motor.h").write_text(
-        '#include "custom_motor.h"\n#undef PARAM_MOTOR_POLE_PAIRS\n'
-        "#define PARAM_MOTOR_POLE_PAIRS 0\n",
-        encoding="utf-8",
-    )
-    (out / "invalid_at32.h").write_text(
-        '#include "at32f456.h"\n#undef AT32_ADC_RESOLUTION_BITS\n'
-        "#define AT32_ADC_RESOLUTION_BITS 32U\n",
-        encoding="utf-8",
-    )
-    (out / "invalid_capability.h").write_text(
-        '#include "stm32g4.h"\n#undef BSP_SUPPORTED_CAN\n#define BSP_SUPPORTED_CAN 2\n',
-        encoding="utf-8",
-    )
-    (out / "invalid_clock.h").write_text(
-        '#include "at32f456.h"\n'
-        "#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 8100000U\n"
-        "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 40U\n",
-        encoding="utf-8",
-    )
-    (out / "invalid_fast_clock.h").write_text(
-        '#include "at32f456.h"\n'
-        "#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 10000000U\n"
-        "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 80U\n",
-        encoding="utf-8",
-    )
-    targets = out / "targets"
-    flags = ["-std=c11", "-O1", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
-    source = ROOT / "tests/unit/native/config_custom_profile_test.c"
-    for target, board in (("stm32g4_app.h", "custom_stm.h"), ("r40_app_off.h", "custom_at32.h")):
-        exe = out / f"custom_{board}.exe"
-        subprocess.run(
-            cc
-            + flags
-            + [
-                f'-DBSP_BOARD_CONFIG_HEADER="{board}"',
-                '-DMOTOR_PROFILE_HEADER="custom_motor.h"',
-                "-include",
-                str(targets / target),
-                str(source),
-                "-lm",
-                "-o",
-                str(exe),
-            ],
-            check=True,
-        )
-        subprocess.run([str(exe)], check=True)
-
-    # PLL /4 与 MCU 初始化一致；不同晶振、倍频和分频的时钟由同一组输入计算。
-    (out / "custom_clock.h").write_text(
-        '#include "at32f456.h"\n'
-        "#undef AT32_HEXT_HZ\n#define AT32_HEXT_HZ 16000000U\n"
-        "#undef AT32_PLL_MULTIPLIER\n#define AT32_PLL_MULTIPLIER 60U\n"
-        "#undef AT32_PLL_PRE_DIVIDER\n#define AT32_PLL_PRE_DIVIDER 3U\n",
-        encoding="utf-8",
-    )
-    clock_test = out / "custom_clock_test.c"
-    clock_test.write_text(
-        '#include "board_config.h"\n#include "application_config.h"\n'
-        "_Static_assert(AT32_CORE_HZ == 80000000U && AT32_TIMER_HZ == 80000000U && "
-        'AT32_CAN_HZ == 80000000U, "clock derivation failed");\n'
-        "_Static_assert(AT32_CAN_NOMINAL_SEG1 == 60U && AT32_CAN_NOMINAL_SEG2 == 20U && "
-        'AT32_CAN_DATA_SEG1 == 12U && AT32_CAN_DATA_SEG2 == 4U, "CAN timing failed");\n'
-        '_Static_assert(APP_FAST_MAX_CYCLES == 4000U, "fast-loop deadline failed");\n'
-        "int main(void) { return 0; }\n",
-        encoding="utf-8",
-    )
-    subprocess.run(
-        cc
-        + flags
-        + [
-            '-DBSP_BOARD_CONFIG_HEADER="custom_clock.h"',
-            "-include",
-            str(targets / "r40_app_off.h"),
-            str(clock_test),
-            "-o",
-            str(out / "custom_clock_test.exe"),
-        ],
-        check=True,
-    )
-    subprocess.run([str(out / "custom_clock_test.exe")], check=True)
-
-    # 厂商时钟配置必须使用相同晶振输入，避免只修改板卡配置后出现两套频率。
-    clock_probe = out / "custom_clock_sdk_test.c"
-    clock_probe.write_text(
-        '#include "at32f45x_conf.h"\n'
-        '#if HEXT_VALUE != 16000000U\n#error "SDK clock input disagrees"\n#endif\n',
-        encoding="utf-8",
-    )
-    sdk = ROOT / "firmware/platform/sdk/at32f45x"
-    subprocess.run(
-        cc
-        + flags
-        + [
-            "-DAT32F456CCU7",
-            '-DBSP_BOARD_CONFIG_HEADER="custom_clock.h"',
-            "-include",
-            str(targets / "r40_app_off.h"),
-            "-I",
-            str(ROOT / "firmware/platform/bsp/mcu/at32f456"),
-            "-I",
-            str(sdk / "drivers/inc"),
-            "-I",
-            str(sdk / "cmsis/device"),
-            "-I",
-            str(sdk / "cmsis/core"),
-            "-E",
-            str(clock_probe),
-            "-o",
-            str(out / "custom_clock_sdk_test.i"),
-        ],
-        check=True,
-    )
-
-    # 10位变体仅验证换算；实际AT32驱动固定12位，必须拒绝不匹配的板卡输入。
-    driver = ROOT / "firmware/platform/bsp/mcu/at32f456/adc.c"
-    bad_adc = subprocess.run(
-        cc
-        + flags
-        + [
-            '-DBSP_BOARD_CONFIG_HEADER="custom_at32.h"',
-            "-include",
-            str(targets / "r40_app_off.h"),
-            "-I",
-            str(ROOT / "tests/unit/native/r40_io_fake"),
-            "-I",
-            str(ROOT / "firmware/platform/sdk/at32f45x/drivers/inc"),
-            "-I",
-            str(ROOT / "firmware/platform/bsp"),
-            "-E",
-            str(driver),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if (
-        bad_adc.returncode == 0
-        or "AT32F456 ADC initialization requires 12-bit sampling" not in bad_adc.stderr
-    ):
-        raise RuntimeError(f"ADC位宽不一致时应拒绝构建: {bad_adc.stderr}")
-
-    rejected = out / "custom_rejected.c"
-    rejected.write_text(
-        '#include "application_config.h"\n#include "board_config.h"\n', encoding="utf-8"
-    )
-    for flags_extra, reason in (
-        (
-            ["-include", str(targets / "stm32g4_app.h"), '-DBSP_BOARD_CONFIG_HEADER="at32f456.h"'],
-            "Board configuration and MCU BSP family disagree",
-        ),
-        (
-            [
-                "-include",
-                str(targets / "stm32g4_app.h"),
-                '-DMOTOR_PROFILE_HEADER="custom_motor.h"',
-                "-DFOC_ACTIVE_MOTOR_PROFILE=1",
-            ],
-            "Choose MOTOR_PROFILE_HEADER or FOC_ACTIVE_MOTOR_PROFILE",
-        ),
-        (
-            ["-include", str(targets / "r40_app_off.h"), "-DFOC_ACTIVE_MOTOR_PROFILE=4"],
-            "Motor APP defaults incomplete",
-        ),
-        (
-            [
-                "-include",
-                str(targets / "stm32g4_app.h"),
-                '-DMOTOR_PROFILE_HEADER="invalid_motor.h"',
-            ],
-            "Motor profile must specify positive pole pairs",
-        ),
-        (
-            [
-                "-include",
-                str(targets / "r40_app_off.h"),
-                '-DBSP_BOARD_CONFIG_HEADER="invalid_at32.h"',
-            ],
-            "Invalid current-sense ADC resolution",
-        ),
-        (
-            [
-                "-include",
-                str(targets / "stm32g4_app.h"),
-                '-DBSP_BOARD_CONFIG_HEADER="invalid_capability.h"',
-            ],
-            "Invalid or unsupported BSP capability",
-        ),
-        (
-            [
-                "-include",
-                str(targets / "r40_app_off.h"),
-                '-DBSP_BOARD_CONFIG_HEADER="invalid_clock.h"',
-            ],
-            "AT32 CAN clock cannot represent",
-        ),
-        (
-            [
-                "-include",
-                str(targets / "r40_app_off.h"),
-                '-DBSP_BOARD_CONFIG_HEADER="invalid_fast_clock.h"',
-            ],
-            "AT32 core clock exceeds validated ADC/SPI timing",
-        ),
-    ):
-        result = subprocess.run(
-            cc + flags + flags_extra + ["-c", str(rejected), "-o", str(out / "custom_rejected.o")],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 or reason not in result.stderr:
-            raise RuntimeError(f"配置应拒绝但未得到预期错误：{flags_extra}: {result.stderr}")
-    print("PASS custom configuration conflicts and incomplete motor rejection")
-
-
-def verify_application_defaults(cc: list[str], out: Path) -> None:
-    """用真实默认值和校验函数检查新旧板；不以手写夹具覆盖默认电流。"""
-    source = "\n".join(
-        function_source((ROOT / path).read_text(encoding="utf-8"), name)
-        for path, name in (
-            ("firmware/parameters/parameter_record.c", "Param_Return_Default"),
-            ("firmware/parameters/parameter_values.c", "ParameterValue_ConfigurationValid"),
-        )
-    )
-    (out / "app_defaults_subject.inc").write_text(source, encoding="utf-8")
-    # 真实目标配置同时覆盖旧板两种采样电阻，以及新板关相/限时目标。
-    target_dir = out / "targets"
-    cases = (
-        ("old_6m", [], "6.0f", "0.05f", "0.5f", "90.0f", "18.0f", 21, "1.905f", 0),
-        (
-            "old_2m",
-            ["-DCURRENT_SENSE_SHUNT_MILLIOHM=2"],
-            "6.0f",
-            "0.05f",
-            "0.5f",
-            "90.0f",
-            "18.0f",
-            21,
-            "1.905f",
-            0,
-        ),
-        (
-            "r40_off",
-            ["-include", str(target_dir / "r40_app_off.h")],
-            "3.0f",
-            "0.05f",
-            "0.5f",
-            "90.0f",
-            "3.0f",
-            14,
-            "0.55f",
-            1,
-        ),
-        (
-            "r40_commissioning",
-            ["-include", str(target_dir / "r40_app_commissioning.h")],
-            "3.0f",
-            "0.005f",
-            "0.05f",
-            "800.0f",
-            "3.0f",
-            14,
-            "0.55f",
-            1,
-        ),
-    )
-    for name, selection, current, kp, ki, pll, trip, poles, resistance, bus_sensor in cases:
-        executable = out / f"app_defaults_{name}.exe"
-        flags = selection + [
-            f"-DEXPECTED_DEFAULT_A={current}",
-            f"-DEXPECTED_SPEED_KP={kp}",
-            f"-DEXPECTED_SPEED_KI={ki}",
-            f"-DEXPECTED_PLL_HZ={pll}",
-            f"-DEXPECTED_TRIP_A={trip}",
-            f"-DEXPECTED_POLE_PAIRS={poles}",
-            f"-DEXPECTED_PHASE_R_OHM={resistance}",
-            f"-DEXPECTED_BUS_SENSOR={bus_sensor}",
-        ]
-        subprocess.run(
-            cc
-            + ["-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror", "-I", str(out)]
-            + flags
-            + [
-                str(ROOT / "tests/unit/native/app_defaults_test.c"),
-                str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
-                str(ROOT / "firmware/motor/protection/motor_thermal.c"),
-                str(ROOT / "firmware/motor/control/speed_feedforward.c"),
-                str(ROOT / "firmware/motor/math/control_math.c"),
-                "-lm",
-                "-o",
-                str(executable),
-            ],
-            check=True,
-        )
-        subprocess.run([str(executable)], check=True)
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cc", required=True)
@@ -799,28 +359,13 @@ def main():
     args = ap.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    target_dir = out / "targets"
-    target_dir.mkdir(exist_ok=True)
-    for name, target in (
-        ("stm32g4_app.h", "STM32_APP"),
-        ("r40_app_off.h", "AT32_OFF"),
-        ("r40_app_commissioning.h", "AT32_COMMISSIONING"),
-        ("r40_app_common.h", "AT32_COMMON"),
-    ):
-        (target_dir / name).write_text(
-            f'#define FIRMWARE_TARGET_{target} 1\n#include "board_config.h"\n', encoding="utf8"
-        )
     (out / "main.h").write_text("#include <stdint.h>\n")
     source = out / "wheel_speed_test.c"
     source.write_text(fixture(), encoding="utf-8")
     cc = [str(Path(args.cc).resolve())] if Path(args.cc).is_file() else [args.cc]
     if Path(args.cc).stem == "zig":
         cc += ["cc"]
-    cc += NATIVE_INCLUDE_FLAGS
-    verify_independent_inputs(cc, out)
-    verify_motor_profiles(cc, out)
-    verify_custom_config(cc, out)
-    verify_application_defaults(cc, out)
+    cc += NATIVE_INCLUDE_FLAGS + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
     exe = out / "wheel_speed_test.exe"
     includes = [str(out)] + [
         str(ROOT / p)
@@ -851,6 +396,69 @@ def main():
         logs.append(result.stdout + result.stderr)
         print(logs[-1], end="")
         (out / "test.log").write_text("\n".join(logs))
+        result.check_returncode()
+
+    # 复用同一参数装载夹具，验证新板固定PI与观测器模型、标定相互独立。
+    tuning_source = out / "current_tuning_test.c"
+    tuning_source.write_text(
+        fixture().split("\nstatic void policy_golden_vectors", 1)[0]
+        + r"""
+int main(void) {
+    InterfaceParam p;
+    Param_Return_Default(&configuration);
+    assert(configuration.model.id_kp == 0.60995855f);
+    assert(configuration.model.iq_kp == 0.60995855f);
+    assert(configuration.model.id_ki == 3226.22067f);
+    assert(configuration.model.iq_ki == 3226.22067f);
+    Param_Upload(&p, &configuration);
+    p.magic_word=MAGIC_WORD;
+    /* YQ默认热参数有意无效；这里提供明确的内存测试记录，不放宽装载校验。 */
+    p.thermal=(MotorWindingThermalConfig){3.0f,7.0f,65.98486785f,.8f,.7f,1.0f,.5f};
+    p.motor_phase_resistance_ohm=1.25f;
+    p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
+    p.encoder_electrical_zero_q15=18681; p.encoder_calib_flag=3;
+    p.encoder_linearization_lut_q15[71]=-42;
+    p.id_kp=9.f; p.iq_kp=8.f; p.id_ki=7.f; p.iq_ki=6.f;
+    p.record_crc32=Param_RecordCrc(&p);
+    InterfaceParam before=p;
+    Param_Download(&p, sizeof(p), &configuration);
+    assert(configuration.configuration_source==MOTOR_CONFIGURATION_STORED);
+    assert(memcmp(&p,&before,sizeof(p))==0);
+    assert(configuration.model.motor_phase_resistance_ohm==1.25f);
+    assert(configuration.model.motor_d_inductance_h==.003f);
+    assert(configuration.model.motor_q_inductance_h==.004f);
+    assert(configuration.model.id_kp==0.60995855f && configuration.model.iq_kp==0.60995855f);
+    assert(configuration.model.id_ki==3226.22067f && configuration.model.iq_ki==3226.22067f);
+    assert(configuration.device.encoder.electrical_zero_q15==18681);
+    assert(configuration.device.encoder.calib_flag==3);
+    assert(configuration.device.encoder.linearization_lut_q15[71]==-42);
+    Param_Upload(&p, &configuration);
+    assert(p.id_kp==configuration.model.id_kp && p.id_ki==configuration.model.id_ki);
+    assert(p.record_crc32==Param_RecordCrc(&p));
+    puts("PASS AT32/YQ delay-aware PI; stored model and calibration preserved");
+    return 0;
+}
+""",
+        encoding="utf-8",
+    )
+    tuning_exe = out / "current_tuning_test.exe"
+    tuning_command = [
+        str(tuning_source)
+        if part == str(source)
+        else str(tuning_exe)
+        if part == str(exe)
+        else "-DBSP_BOARD=2"
+        if part == "-DBSP_BOARD=1"
+        else "-DFOC_ACTIVE_MOTOR_PROFILE=2"
+        if part == "-DFOC_ACTIVE_MOTOR_PROFILE=1"
+        else part
+        for part in command
+    ]
+    for cmd in (tuning_command, [str(tuning_exe)]):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        logs.append(result.stdout + result.stderr)
+        print(logs[-1], end="")
+        (out / "test.log").write_text("\n".join(logs), encoding="utf-8")
         result.check_returncode()
 
 

@@ -87,9 +87,15 @@ def _prototypes(source: str) -> list[dict]:
     start_offset = 0
     offset = 0
     brace_depth = 0
+    preprocessor_continuation = False
     for number, line in enumerate(clean_lines, 1):
         original_line = original_lines[number - 1]
         stripped = line.strip()
+        # 预处理器逻辑行不属于C声明；续行中的调用和花括号也不能进入扫描状态。
+        if preprocessor_continuation or stripped.startswith("#"):
+            preprocessor_continuation = stripped.endswith("\\")
+            offset += len(original_line)
+            continue
         depth_before = brace_depth
         brace_depth += line.count("{") - line.count("}")
         if not current:

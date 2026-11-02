@@ -7,7 +7,6 @@
 #include "speed_control.h"
 #include "pi_controller.h"
 #include "application_config.h"
-#include "application_config.h"
 #include "control_math.h"
 
 /* 无感运行应用：启动序列（对准→开环→速度锁定→交接→闭环）与速度模式。
@@ -219,7 +218,7 @@ typedef struct
 {
     const MotorConfiguration *configuration;
     FocState *foc;
-    const MotorMeasurement *measurement;
+
     MotorControlState *motor_state;
     PiController *controller;
     FluxObserverState *flux_observer;
@@ -282,7 +281,7 @@ static void sensorless_run_align(SensorlessStartupRunState *Run)
                                                  0.0f,
                                                  1.0f);
     motor_state->iq_target_a = 0.0f;
-    Foc_RunCurrent(Run->configuration, Run->foc, Run->measurement, motor_state, 0.0f, 0.0f);
+    Foc_RunCurrent(Run->configuration, Run->foc, motor_state, 0.0f, 0.0f);
     if (++startup->state_ticks >=
         (uint32_t)((Config->align_current_ramp_time_s + Config->align_hold_time_s) / FOC_TS_S))
     {
@@ -335,7 +334,6 @@ static void sensorless_run_open_loop(SensorlessStartupRunState *Run)
          (Config->startup_iq_a - Config->startup_iq_initial_a) * iq_ramp_ratio);
     Foc_RunCurrent(Run->configuration,
                    Run->foc,
-                   Run->measurement,
                    motor_state,
                    startup->open_loop_angle_rad,
                    startup->open_loop_velocity_rad_s);
@@ -374,7 +372,6 @@ static void sensorless_run_speed_lock(SensorlessStartupRunState *Run)
     motor_state->iq_target_a = startup->direction * Config->startup_iq_a;
     Foc_RunCurrent(Run->configuration,
                    Run->foc,
-                   Run->measurement,
                    motor_state,
                    startup->open_loop_angle_rad,
                    startup->open_loop_velocity_rad_s);
@@ -479,7 +476,7 @@ static void sensorless_run_handoff(SensorlessStartupRunState *Run)
                                           frame_cos,
                                           &foc->id_pi.integral_output,
                                           &foc->iq_pi.integral_output);
-    Foc_RunCurrent(Run->configuration, Run->foc, Run->measurement, motor_state, phase, phase_vel);
+    Foc_RunCurrent(Run->configuration, Run->foc, motor_state, phase, phase_vel);
 
     if (blend >= 1.0f)
     {
@@ -547,7 +544,6 @@ static void sensorless_run_closed_loop(SensorlessStartupRunState *Run)
 
     Foc_RunCurrent(Run->configuration,
                    Run->foc,
-                   Run->measurement,
                    motor_state,
                    FluxObserver_GetElecPhase(flux_observer),
                    observer_vel);
@@ -557,7 +553,6 @@ static void sensorless_run_closed_loop(SensorlessStartupRunState *Run)
  * @brief  无感速度控制任务：对准、开环启动与观测器交接。
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态指针。
- * @param measurement Axis持有的只读测量对象；电流A、电压V、温度°C。
  * @param  motor_state 电机控制状态指针。
  * @param  controller 速度 PI 控制器指针。
  * @param  flux_observer 磁链观测器状态指针。
@@ -567,7 +562,6 @@ static void sensorless_run_closed_loop(SensorlessStartupRunState *Run)
  */
 void SensorlessStartup_Run(const MotorConfiguration *configuration,
                            FocState *foc,
-                           const MotorMeasurement *measurement,
                            MotorControlState *motor_state,
                            PiController *controller,
                            FluxObserverState *flux_observer,
@@ -599,7 +593,7 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
         motor_state->speed_ramped_rad_s = 0.0f;
         motor_state->id_target_a = 0.0f;
         motor_state->iq_target_a = 0.0f;
-        Foc_RunCurrent(configuration, foc, measurement, motor_state, 0.0f, 0.0f);
+        Foc_RunCurrent(configuration, foc, motor_state, 0.0f, 0.0f);
         return;
     }
 
@@ -618,7 +612,6 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
 
     run.configuration = configuration;
     run.foc = foc;
-    run.measurement = measurement;
     run.motor_state = motor_state;
     run.controller = controller;
     run.flux_observer = flux_observer;

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "byte_order": "little",
+  "status": "request_bytes_verified_offline",
+  "vectors": [
+    {
+      "name": "info",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "00000100",
+      "request_frame": "5aa501200203007f0100040000000036000001006a450000",
+      "expected_reply_prefix": "00000000"
+    },
+    {
+      "name": "wrong_version",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "00000200",
+      "request_frame": "5aa501200203007f010004000000003600000200fa1e0000",
+      "expected_reply_prefix": "04000000"
+    },
+    {
+      "name": "unknown_operation",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "ffff0100",
+      "request_frame": "5aa501200203007f0100040000000036ffff0100d8d60000",
+      "expected_reply_prefix": "0400ffff"
+    },
+    {
+      "name": "run_without_limits",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "0200010002000000cdcccc3d8813000010270000",
+      "request_frame": "5aa501200203007f01001400000000130200010002000000cdcccc3d8813000010270000c1b000000000000000000000",
+      "expected_reply_prefix": "05000200"
+    },
+    {
+      "name": "capture_bad_group",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "0300010000000100000000000000000000000000",
+      "request_frame": "5aa501200203007f010014000000001303000100000001000000000000000000000000005a4400000000000000000000",
+      "expected_reply_prefix": "0b000300"
+    },
+    {
+      "name": "read_without_capture",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "040001000100000000000000",
+      "request_frame": "5aa501200203007f01000c00000000e90400010001000000000000003e620000",
+      "expected_reply_prefix": "06000400"
+    },
+    {
+      "name": "stale_heartbeat",
+      "state": "independent fresh session; current configuration valid",
+      "request_payload": "0500010001000000",
+      "request_frame": "5aa501200203007f010008000000004b05000100010000009fef000000000000",
+      "expected_reply_prefix": "05000500"
+    }
+  ]
+}

@@ -54,6 +54,37 @@ static yg_protocol_commands_t s_commands;
 static yg_protocol_endpoint_t s_endpoint;
 static bool s_ready;
 
+#if defined(APP_ENABLE_MOTOR_BENCH) && APP_ENABLE_MOTOR_BENCH
+static yg_protocol_command_handler_t s_bench_handler;
+static void *s_bench_context;
+
+static yg_protocol_result_t handle_bench(void *context,
+                                         const yg_protocol_message_t *request,
+                                         yg_protocol_service_result_t *result)
+{
+    (void)context;
+    if (s_bench_handler != NULL)
+    {
+        return s_bench_handler(s_bench_context, request, result);
+    }
+    YgProtocol_WriteU16Le(result->response_payload, 2U);
+    YgProtocol_WriteU16Le(result->response_payload + 2U, 0U);
+    result->response_payload_length = 4U;
+    return YG_PROTOCOL_OK;
+}
+
+bool YgProtocolLink_BindBenchService(yg_protocol_command_handler_t handler, void *context)
+{
+    if (!s_ready || handler == NULL)
+    {
+        return false;
+    }
+    s_bench_handler = handler;
+    s_bench_context = context;
+    return true;
+}
+#endif
+
 bool YgProtocolLink_Init(uint8_t node_id)
 {
     /* 唯一命令表：ID、分片许可、处理函数、上下文。末两项按升级服务绑定开放。 */
@@ -98,6 +129,9 @@ bool YgProtocolLink_Init(uint8_t node_id)
         {YG_PROTOCOL_JOB_TYPE_START, false, yg_protocol_job_handle, &s_job_service},
         {YG_PROTOCOL_JOB_TYPE_STATUS, false, yg_protocol_job_handle, &s_job_service},
         {YG_PROTOCOL_JOB_TYPE_CANCEL, false, yg_protocol_job_handle, &s_job_service},
+#if defined(APP_ENABLE_MOTOR_BENCH) && APP_ENABLE_MOTOR_BENCH
+        {0x7F00U, false, handle_bench, NULL},
+#endif
         {YG_PROTOCOL_BOOT_TYPE_ENTER, false, yg_protocol_boot_handle, &s_boot_context},
         {YG_PROTOCOL_BOOT_TYPE_CONFIRM, false, yg_protocol_boot_handle, &s_boot_context},
     };
@@ -109,6 +143,10 @@ bool YgProtocolLink_Init(uint8_t node_id)
         return false;
     }
     s_ready = false;
+#if defined(APP_ENABLE_MOTOR_BENCH) && APP_ENABLE_MOTOR_BENCH
+    s_bench_handler = NULL;
+    s_bench_context = NULL;
+#endif
     if (node_id == YG_PROTOCOL_BROADCAST_NODE_ID ||
         !yg_protocol_transfer_queue_init(&s_rx_queue, s_rx_storage, YG_LINK_RX_QUEUE_CAPACITY) ||
         !yg_protocol_transfer_queue_init(&s_tx_queue, s_tx_storage, YG_LINK_TX_QUEUE_CAPACITY))

@@ -90,6 +90,7 @@ def main() -> None:
     command = (
         cc
         + NATIVE_INCLUDE_FLAGS
+        + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
         + ["-I", str(out)]
         + [
             "-std=c99",

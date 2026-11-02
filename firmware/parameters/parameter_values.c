@@ -7,7 +7,6 @@
 
 #include "board_config.h"
 #include "application_config.h"
-#include "application_config.h"
 
 /* 只登记有真实字段和已冻结缩放的项；单位缩放不等于允许的产品范围。 */
 typedef struct

@@ -4,11 +4,11 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "motor_command.h"
+#include "motor_lifecycle.h"
+#include "axis_config.h"
+#include "control_math.h"
 #include "motor_control.h"
 #include "speed_control.h"
-#include "application_config.h"
-#include "application_config.h"
 #include "application_config.h"
 
 static MotorConfiguration s_configuration;
@@ -21,7 +21,6 @@ static float s_output_iq_a = 99.0f;
 static bool s_core_valid = true;
 static unsigned s_updates, s_resets, s_current_calls;
 static float s_phase_rad, s_phase_velocity_rad_s;
-static float s_available_current_limit_a;
 static unsigned s_failures;
 
 #define CHECK(condition)                                                                           \
@@ -82,24 +81,19 @@ void MotorFault_Report(MotorControlState *motor, MotorFaultCode fault)
         motor->fault_code = fault;
     }
 }
-float MotorThermalControl_CurrentLimit(float configured_a)
-{
-    return fminf(configured_a, s_available_current_limit_a);
-}
 float Foc_MaxVoltage(float voltage_v)
 {
     return isfinite(voltage_v) && voltage_v > 0.0f ? voltage_v * 0.5f : 0.0f;
 }
 void Foc_RunCurrent(const MotorConfiguration *configuration,
                     FocState *foc,
-                    const MotorMeasurement *measurement,
                     MotorControlState *motor,
                     float phase,
                     float speed)
 {
     (void)configuration;
     (void)foc;
-    (void)measurement;
+    (void)foc;
     (void)motor;
     ++s_current_calls;
     s_phase_rad = phase;
@@ -107,12 +101,11 @@ void Foc_RunCurrent(const MotorConfiguration *configuration,
 }
 void Foc_RunVq(const MotorConfiguration *configuration,
                FocState *foc,
-               const MotorMeasurement *measurement,
                MotorControlState *motor,
                float phase,
                float speed)
 {
-    Foc_RunCurrent(configuration, foc, measurement, motor, phase, speed);
+    Foc_RunCurrent(configuration, foc, motor, phase, speed);
 }
 void PositionCascade_Reset(void)
 {
@@ -149,7 +142,6 @@ static void setup(MotorControlMode mode)
     s_position_rad = 0.3f;
     s_speed_rad_s = 0.0f;
     s_core_valid = true;
-    s_available_current_limit_a = INFINITY;
     s_motor.control_mode = mode;
     s_configuration.application.axis_profile_valid = true;
     s_configuration.application.current_limit_a = 4.0f;
@@ -183,10 +175,9 @@ static void check_configuration(void)
     CHECK(s_config.call_divider == 1U && s_config.update_period_s == SPEED_LOOP_TS_S);
     CHECK(s_config.target_position == 0.3f &&
           s_config.velocity_filter_hz == POSITION_SERVO_VELOCITY_FILTER_HZ);
-    s_available_current_limit_a = 0.5f;
+    s_configuration.application.current_limit_a = 0.5f;
     tick();
-    CHECK(s_config.current_limit_a == 4.0f && s_motor.iq_target_a == 0.5f);
-    s_available_current_limit_a = INFINITY;
+    CHECK(s_config.current_limit_a == 0.5f && s_motor.iq_target_a == 0.5f);
     s_motor.position_target_rad = -0.4f;
     s_configuration.application.current_limit_a = 1.0f;
     s_configuration.application.speed_kp = 0.7f;
@@ -231,22 +222,6 @@ static void check_validation(void)
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS && s_motor.iq_target_a == 0.0f);
     s_output_iq_a = 99.0f;
     setup(MOTOR_CONTROL_SPEED);
-    MotorMeasurement measurement = {0};
-    MotorControlCommand command = {.mode = MOTOR_CONTROL_SPEED, .speed_rad_s = 0.2f};
-    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &measurement, &s_encoder) ==
-          MOTOR_CONTROL_ACCEPTED);
-    command.iq_a = 0.01f;
-    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &measurement, &s_encoder) ==
-          MOTOR_CONTROL_INVALID);
-    command.iq_a = 0.0f;
-    command.speed_rad_s = 1.0f;
-    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &measurement, &s_encoder) ==
-          MOTOR_CONTROL_OUT_OF_RANGE);
-    command.speed_rad_s = NAN;
-    CHECK(MotorCommand_ValidateTarget(&s_configuration, &command, &measurement, &s_encoder) ==
-          MOTOR_CONTROL_INVALID);
-    CHECK(MotorCommand_ValidateTarget(&s_configuration, NULL, &measurement, &s_encoder) ==
-          MOTOR_CONTROL_INVALID);
 }
 static void check_runtime(void)
 {
@@ -286,23 +261,22 @@ static void check_runtime(void)
     }
     setup(MOTOR_CONTROL_POSITION);
     s_motor.position_target_rad = 0.6f;
-    s_available_current_limit_a = 0.5f;
+    s_configuration.application.current_limit_a = 0.5f;
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.5f);
-    CHECK(s_configuration.application.current_limit_a == 4.0f);
-    s_available_current_limit_a = 0.0f;
+    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a > 0.0f && s_motor.iq_target_a <= 0.5f);
+    s_configuration.application.current_limit_a = 0.0f;
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
     setup(MOTOR_CONTROL_CURRENT);
     FocState foc = {0};
-    MotorMeasurement measurement = {0};
     FluxObserverState observer = {0};
-    (void)MotorControl_Step(&s_configuration, &foc, &measurement, &s_motor, &s_encoder, &observer);
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
     CHECK(s_current_calls == 1U && s_phase_rad == 0.75f && s_phase_velocity_rad_s == 2.5f);
     s_motor.uses_sensorless_feedback = true;
     observer.electrical_angle_rad = 1.25f;
     observer.electrical_velocity_rad_s = 5.0f;
-    (void)MotorControl_Step(&s_configuration, &foc, &measurement, &s_motor, &s_encoder, &observer);
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
     CHECK(s_current_calls == 2U && s_phase_rad == 1.25f && s_phase_velocity_rad_s == 5.0f);
 }
 
@@ -418,7 +392,8 @@ static void check_feedforward_runtime(void)
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
 
     start_feedforward();
-    s_available_current_limit_a = 0.5f;
+    /* 显式预算属于速度控制接口，当前APP不调度热降额。 */
+    SpeedFeedforwardState limited = {0};
     SpeedFeedforwardState planned = {0};
     for (unsigned tick_index = 0U; tick_index < 10000U; ++tick_index)
     {
@@ -431,8 +406,9 @@ static void check_feedforward_runtime(void)
         s_speed_rad_s = tick_index == 0U     ? 0.0f
                         : tick_index < 1000U ? -100.0f
                                              : planned.speed_rad_s;
-        tick();
-        CHECK(MotorOuterLoop_IsReady() && s_motor.speed_ramped_rad_s == planned.speed_rad_s);
+        CHECK(SpeedControl_UpdateOuter(
+            &s_configuration, &s_motor, &s_pi, &limited, s_speed_rad_s, 0.5f));
+        CHECK(s_motor.speed_ramped_rad_s == planned.speed_rad_s);
         CHECK(fabsf(s_motor.iq_target_a) <= 0.500001f && isfinite(s_pi.integral_output));
         CHECK(fabsf(planned.current_a) <= 0.250001f);
         CHECK(s_pi.proportional_gain == 0.5f && s_pi.integral_gain == 2.0f);
@@ -442,13 +418,13 @@ static void check_feedforward_runtime(void)
             CHECK(fabsf(s_motor.iq_target_a) < 0.01f);
         }
     }
-    s_available_current_limit_a = 0.0f;
-    tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.fault_code == MOTOR_FAULT_NONE);
+    CHECK(
+        SpeedControl_UpdateOuter(&s_configuration, &s_motor, &s_pi, &limited, s_speed_rad_s, 0.0f));
+    CHECK(s_motor.fault_code == MOTOR_FAULT_NONE);
     CHECK(s_motor.iq_target_a == 0.0f && s_pi.integral_output == 0.0f);
     s_speed_rad_s = 0.0f;
-    s_available_current_limit_a = 0.5f;
-    tick();
+    CHECK(
+        SpeedControl_UpdateOuter(&s_configuration, &s_motor, &s_pi, &limited, s_speed_rad_s, 0.5f));
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
 
     start_feedforward();
@@ -463,7 +439,7 @@ static void check_feedforward_runtime(void)
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
     CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_SPEED);
-    s_available_current_limit_a = 0.5f;
+    s_configuration.application.current_limit_a = 0.5f;
     s_speed_rad_s = 100.0f;
     tick();
     CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == -0.5f);
@@ -500,7 +476,6 @@ int main(int argc, char **argv)
 
 void Foc_Step(const MotorConfiguration *configuration,
               FocState *foc,
-              const MotorMeasurement *measurement,
               MotorControlState *motor,
               FocControlLaw law,
               float phase,
@@ -511,5 +486,5 @@ void Foc_Step(const MotorConfiguration *configuration,
     (void)law;
     (void)d_reference;
     (void)q_reference;
-    Foc_RunCurrent(configuration, foc, measurement, motor, phase, speed);
+    Foc_RunCurrent(configuration, foc, motor, phase, speed);
 }

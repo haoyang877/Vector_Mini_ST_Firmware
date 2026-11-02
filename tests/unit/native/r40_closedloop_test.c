@@ -17,23 +17,12 @@ static bool s_voltage_stalled;
 extern volatile float g_closedloop_motion[2048][8];
 extern volatile uint32_t g_closedloop_motion_samples;
 
-BspResult BspEncoder_ReadDiagnostics(BspEncoderDiagnostics *d)
+void BspEncoder_Begin(void)
 {
-    *d = (BspEncoderDiagnostics){.sample_result = BSP_OK};
-    return BSP_OK;
 }
-BspResult BspEncoder_Begin(void)
+uint16_t BspEncoder_ReadAngle(void)
 {
-    return BSP_OK;
-}
-BspResult BspEncoder_BeginReadback(void)
-{
-    return BSP_OK;
-}
-BspResult BspEncoder_Complete(BspEncoderSample *sample)
-{
-    *sample = (BspEncoderSample){.angle_counts = s_angle};
-    return BSP_OK;
+    return s_angle;
 }
 
 uint32_t BspSystem_EnterCritical(void)
@@ -46,7 +35,7 @@ void BspSystem_ExitCritical(uint32_t state)
     (void)state;
 }
 
-BspResult BspPwm_SetDuty(float a, float b, float c)
+void BspPwm_SetDuty(float a, float b, float c)
 {
     s_duty[0] = a;
     s_duty[1] = b;
@@ -55,7 +44,6 @@ BspResult BspPwm_SetDuty(float a, float b, float c)
     {
         assert(isfinite(s_duty[i]) && s_duty[i] > 0.4f && s_duty[i] < 0.6f);
     }
-    return BSP_OK;
 }
 
 void MotorFault_Report(MotorControlState *motor, MotorFaultCode code)
@@ -72,8 +60,7 @@ static void initialize(AT32ClBench *bench, AT32OlModel *guard)
     {
         AT32Ol_Step(guard, raw, true, true, i / 20U);
         s_angle = 10000U;
-        uint16_t angle;
-        assert(AT32Cl_ReadEncoder(bench, 1U, &angle));
+        assert(AT32Cl_ReadEncoder(bench) == s_angle);
         AT32Cl_Step(bench, guard, 10000U);
     }
     assert(guard->state == AT32_OL_READY);
@@ -114,9 +101,13 @@ static void run(AT32ClBench *bench, AT32OlModel *guard, unsigned mode)
         if (mode == 4U && s_mechanical_gain > 0.0f)
         {
             /* 电流环驱动机械积分器，加入14阶周期扰动；不把控制输出当作速度反馈。 */
-            float alpha, beta, direct, torque_current;
-            Clarke_Transform(-s_current[0], -s_current[1], -s_current[2], &alpha, &beta);
-            Park_Transform(alpha, beta, position_rad * 14.0f, &direct, &torque_current);
+            float torque_current;
+            const ABCVect phase_current = {-s_current[0], -s_current[1], -s_current[2]};
+            AlphaBetaVector ab;
+            DqVector dq;
+            Clarke_Transform(&phase_current, &ab);
+            Park_Transform(&ab, position_rad * 14.0f, &dq);
+            torque_current = dq.q;
             speed_rad_s += s_mechanical_gain *
                            (torque_current - s_periodic_disturbance_a * sinf(position_rad * 14.0f) -
                             0.02f * speed_rad_s) *
@@ -141,7 +132,7 @@ static void run(AT32ClBench *bench, AT32OlModel *guard, unsigned mode)
         }
         AT32Ol_Step(guard, raw, true, true, ms);
         s_angle = angle;
-        assert(AT32Cl_ReadEncoder(bench, 1U, &angle));
+        assert(AT32Cl_ReadEncoder(bench) == angle);
         AT32Cl_Step(bench, guard, angle);
         assert(bench->telemetry.phase_rad >= 0.0f && bench->telemetry.phase_rad < 6.283185307f);
         if (guard->state == AT32_OL_DONE || guard->state == AT32_OL_FAULT)

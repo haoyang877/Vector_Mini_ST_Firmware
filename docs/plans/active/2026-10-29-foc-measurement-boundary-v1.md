@@ -1,5 +1,8 @@
 # FocState 测量边界方案 v1（离线实施与验证完成）
 
+> 所有权更新：测量对象现已合入 `s_foc_state.measurement`，见
+> [FOC 合并测量对象 v1](2026-10-30-foc-measurement-merge-v1.md)。下文独立 Watch 对象为当时方案。
+
 ## 目标与范围
 
 将采样模块直接写入的测量值从FOC控制状态分离，令控制、保护和状态机显式读取

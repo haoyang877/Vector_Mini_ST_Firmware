@@ -1,48 +1,53 @@
-"""执行真实共用功能接口和MCU边界故障注入，不连接硬件。"""
+"""核对两板实际ADC原码域、量纲、独立偏置与不支持通道。"""
 
-import argparse
-import subprocess
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
-from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from _adc_fixture import adc_source
+from _bsp_test_support import arguments, run_c
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cc", required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
-    compiler = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
-    for board, internal in ((1, False), (2, False), (2, True)):
-        executable = args.out.resolve() / f"bsp_contract_{board}_{internal}.exe"
-        subprocess.run(
-            compiler
-            + NATIVE_INCLUDE_FLAGS
-            + [
-                "-std=c11",
-                "-O2",
-                "-UNDEBUG",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                f"-DBSP_BOARD={board}",
-                *(["-DBSP_ENABLED_MCU_TEMPERATURE=1"] if internal else []),
-                str(ROOT / "tests/unit/native/bsp_function_contract_test.c"),
-                *[
-                    str(ROOT / "firmware/platform/bsp/mcu" / ("at32f456" if board == 2 else "stm32g4") / name)
-                    for name in ("adc.c", "pwm.c")
-                ],
-                "-lm",
-                "-o",
-                str(executable),
-            ],
-            check=True,
+def main() -> None:
+    """穷举四次累加域，参考公式不复用生产换算宏。"""
+    args = arguments(__doc__)
+    for board in (1, 2):
+        source = (
+            adc_source(board)
+            + r"""
+int main(void) {
+    assert(isnan(BspAdc_ReadChannel(BSP_ADC_PHASE_CURRENT_A)));
+    const float offsets[3]={2047.25f,2048.5f,2049.75f};
+    BspAdc_SetPhaseOffsets(offsets);
+    BspAdc_SetBusCurrentOffset(2010.5f);
+    for(unsigned sum=0;sum<=16380;sum++) {
+        MCU_ADC_PHASE_A_RESULT=sum; MCU_ADC_PHASE_B_RESULT=sum; MCU_ADC_PHASE_C_RESULT=sum;
+        MCU_ADC_BUS_VOLTAGE_RESULT=sum;
+        float counts=(float)sum/4.0f;
+        for(unsigned phase=0;phase<3;phase++) {
+            assert(BspAdc_ReadRawChannel((BspAdcChannel)phase)==counts);
+            float expected=-(counts-offsets[phase])*3.3f/4095.0f/
+                          (BSP_BOARD==1 ? 0.060f : 0.080f);
+            assert(fabsf(BspAdc_ReadChannel((BspAdcChannel)phase)-expected)<0.00002f);
+        }
+        float volts=counts*3.3f/4095.0f*(BSP_BOARD==1 ? 11.0f : 103.3f/3.3f);
+        assert(fabsf(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE)-volts)<0.00003f);
+    }
+#if BSP_BOARD==2
+    for(unsigned raw=0;raw<=4095;raw++) {
+        MCU_ADC_BUS_CURRENT_RESULT=raw;
+        assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT)==(float)raw);
+        float expected=((float)raw-2010.5f)*3.3f/4095.0f/0.040f;
+        assert(fabsf(BspAdc_ReadChannel(BSP_ADC_BUS_CURRENT)-expected)<0.00002f);
+    }
+#else
+    assert(isnan(BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT)));
+    assert(isnan(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE)));
+#endif
+    assert(isnan(BspAdc_ReadRawChannel((BspAdcChannel)99)));
+    assert(isnan(BspAdc_ReadChannel((BspAdcChannel)99)));
+    puts("PASS ADC: full sum domain, independent phase/bus offsets, units and unavailable channels");
+    return 0;
+}
+"""
         )
-        for scenario in range(5):
-            subprocess.run([str(executable), str(scenario)], check=True)
+        run_c(args, f"adc_contract_{board}", source, board)
 
 
 if __name__ == "__main__":

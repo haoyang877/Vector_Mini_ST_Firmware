@@ -8,11 +8,14 @@
 | 仅下载匹配LoaderApp | [Keil调试](keil_loader_app_debug.md) |
 | 更换MCU的输入与验收边界 | [Loader移植](loader_mcu_porting_v1.md) |
 | 单项LUT/零位与真实保存 | [标定流程](calibration_process.md) |
+| 当前运行层标定入口与完成事件 | [标定请求接口](motor_calibration_request.md) |
+| 统一采集代码、报告入口及未覆盖范围 | [统一电机采集](unified_motor_bench.md) |
 | 直接位置串级 | [位置控制](position_servo_control.md) |
 | AXS1/AXS2身份及应用包络 | [轴配置](motor_axis_profiles.md) |
 | 独立CAN地址 | [节点ID](motor_can_node_ids.md) |
 | SI单位及线路缩放 | [模型单位](motor_model_units.md) |
 | ADC过采样与计数口径 | [4×采样](current_oversampling.md) |
+| 电流PI目标、参数装载与电压反馈 | [1.2kHz电流环整定](current_loop_tuning_v1.md) |
 | 母线门限与硬件限制 | [8S保护](bus_voltage_8s.md) |
 | MCU温度来源与失效处理 | [温度检测](mcu_temperature.md) |
 | 调试只读符号、单位与枚举 | [Watch观测](watch_motor_commands.md) |

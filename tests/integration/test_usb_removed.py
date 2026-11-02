@@ -25,7 +25,7 @@ class UsbRemovalTests(unittest.TestCase):
     def test_startup_and_supervisor_keep_can_without_usb_calls(self):
         main = (ROOT / "projects/stm32g4/application/main.c").read_text(encoding="utf-8")
         platform = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
-        task = (ROOT / "firmware/app/composition/app_tasks.c").read_text(encoding="utf-8")
+        task = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
         self.assertIn("Can_Init()", platform)
         controller = (ROOT / "firmware/platform/bsp/mcu/stm32g4/can.c").read_text(encoding="utf-8")
         resources = (ROOT / "firmware/platform/bsp/mcu/stm32g4/mcu_resources.h").read_text(
@@ -43,7 +43,7 @@ class UsbRemovalTests(unittest.TestCase):
         self.assertIn("int main(void)", main)
         self.assertIn("App_Init();", main)
         self.assertIn("App_Process();", main)
-        startup = (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
+        startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
         self.assertIn("YgProtocolRuntime_Service", startup)
         self.assertIn("void App_Process(void)", startup)
         self.assertNotIn("int main(void)", startup)

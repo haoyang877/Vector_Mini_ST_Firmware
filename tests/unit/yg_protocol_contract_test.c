@@ -80,72 +80,50 @@ static void service_boundaries(void)
 
 static yg_protocol_motor_status_source_t status_source(void)
 {
-    yg_protocol_motor_status_source_t source = {0};
-    source.sample.position_feedback = 0.0625F;
-    source.sample.speed_feedback_rad_s = -0.0625F;
-    source.sample.current_feedback = 1.25F;
-    source.sample.bus_voltage = 24.0F;
-    source.sample.bus_current = 1.5F;
-    source.sample.temperature = -25.25F;
-    source.measurement_valid_bits = YG_PROTOCOL_MOTOR_MEASUREMENT_MASK;
-    source.sample_available = true;
-    source.state = 1U;
-    return source;
+    return (yg_protocol_motor_status_source_t){.state = 1U, .sample_available = true};
 }
 
 static void numeric_boundaries(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
-    yg_protocol_motor_feedback_t feedback;
-    source.sample.position_feedback = NAN;
-    source.sample.speed_feedback_rad_s = INFINITY;
-    source.sample.current_feedback = -INFINITY;
-    source.sample.bus_voltage = 400.0F;
-    source.sample.bus_current = NAN;
-    source.sample.temperature = 400.0F;
+    yg_protocol_motor_feedback_t feedback = {.result = 0x1234U};
+    source.state = 10U;
     assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
-           YG_PROTOCOL_OK);
-    assert(feedback.actual_position_mrad == INT32_MIN &&
-           feedback.actual_speed_mrad_s == INT32_MIN && feedback.actual_iq_mA == INT16_MIN);
-    assert(feedback.bus_voltage_cV == INT16_MIN && feedback.bus_current_mA == INT16_MIN &&
-           feedback.mcu_temperature_centi_c == INT16_MIN);
-    source = status_source();
-    source.sample.position_feedback = 2147483.75F;
-    source.sample.speed_feedback_rad_s = 32.767F;
-    source.sample.current_feedback = -32.768F;
-    source.measurement_valid_bits = 0U;
-    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
-           YG_PROTOCOL_OK);
-    assert((feedback.valid_bits & 0x1BAU) == 0U);
-    source.mode = 18U;
-    feedback.result = 0x1234U;
+               YG_PROTOCOL_INVALID_FIELD &&
+           feedback.result == 0x1234U);
+    source.state = 1U;
+    source.mode = 11U;
     assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
            YG_PROTOCOL_INVALID_FIELD);
-    assert(feedback.result == 0x1234U);
+    source.mode = 0U;
+    source.faults = 0x40000U;
+    assert(yg_protocol_motor_feedback_from_source(&source, 3U, 0U, 0U, &feedback) ==
+           YG_PROTOCOL_INVALID_FIELD);
 }
 
 static void full_feedback_snapshot(void)
 {
     yg_protocol_motor_status_source_t source = status_source();
     yg_protocol_motor_feedback_t feedback;
-    source.sample.position_target = 1.0F;
-    source.sample.speed_target = 2.0F;
-    source.sample.current_reference = 3.0F;
+    source.mode = 2U;
     source.faults = 4U;
-    source.mode = 3U;
     assert(yg_protocol_motor_feedback_from_source(&source, 3U, 1U, 41U, &feedback) ==
            YG_PROTOCOL_OK);
     assert(feedback.result == 1U && feedback.correlated_seq == 41U && feedback.fault_code == 4U &&
-           feedback.reference_position_mrad == 1000 && feedback.actual_position_mrad == 63 &&
-           feedback.reference_speed_mrad_s == 2000 && feedback.bus_voltage_cV == 2400 &&
-           feedback.reference_iq_mA == 3000 && feedback.actual_iq_mA == 1250 &&
-           feedback.valid_bits == 0x01FFU && feedback.motor_temperature_centi_c == INT16_MIN &&
-           feedback.v_q_mV == INT16_MIN);
+           feedback.control_mode == 2U && feedback.motor_state == 1U && feedback.valid_bits == 0U);
+    assert(feedback.reference_position_mrad == INT32_MIN &&
+           feedback.actual_position_mrad == INT32_MIN &&
+           feedback.reference_speed_mrad_s == INT32_MIN &&
+           feedback.actual_speed_mrad_s == INT32_MIN && feedback.reference_iq_mA == INT16_MIN &&
+           feedback.actual_iq_mA == INT16_MIN && feedback.bus_voltage_cV == INT16_MIN &&
+           feedback.bus_current_mA == INT16_MIN && feedback.mcu_temperature_centi_c == INT16_MIN &&
+           feedback.motor_temperature_centi_c == INT16_MIN && feedback.v_q_mV == INT16_MIN &&
+           feedback.v_d_mV == INT16_MIN);
     source.sample_available = false;
     assert(yg_protocol_motor_feedback_from_source(&source, 3U, 6U, 42U, &feedback) ==
            YG_PROTOCOL_OK);
-    assert(feedback.valid_bits == 0U && feedback.actual_position_mrad == INT32_MIN &&
-           feedback.fault_code == 4U && feedback.correlated_seq == 42U);
+    assert(feedback.valid_bits == 0U && feedback.correlated_seq == 42U &&
+           feedback.fault_code == 4U);
 }
 
 static void full_feedback_vector(void)
@@ -383,7 +361,7 @@ static void endpoint_round_trip(void)
     assert(response.payload_length == YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE);
     assert(response.payload[0] == 0U && response.payload[1] == 0U && response.payload[2] == 0U &&
            response.payload[3] == 0U);
-    assert(response.payload[12] == 63U && response.payload[42] == 3U);
+    assert(response.payload[15] == 0x80U && response.payload[42] == 3U);
     /* TX 满后仍发原先的 OK 快照，没有重新调用 provider 变成 BUSY。 */
     assert(yg_protocol_canfd_pack(&request, 6U, &frame) == YG_PROTOCOL_OK);
     assert(yg_protocol_transfer_queue_push(&rx, &frame));

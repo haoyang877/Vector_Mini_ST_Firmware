@@ -3,35 +3,15 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include "motor_status_mailbox.h"
-#include "motor_control_command.h"
 #include "yg_protocol_common.h"
 #include "yg_protocol_service.h"
 
-#define YG_PROTOCOL_MOTOR_MEASUREMENT_MASK 0x77U
 #define YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE 45U
 #define YG_PROTOCOL_MOTOR_FEEDBACK_VALID_MASK 0x0FFFU
 
 /**
- * @brief 调用方拥有的只读快照与线上元数据，不含硬件句柄。
- * @note sample 与 control_progress 来自同一短临界区；state/mode/faults 必须由所有者映射到线上枚举，
- *       不能直接复制 sample.mode/fault。measurement_valid_bits 使用详细状态的位 0/1/2/4/5。
- *       sample_available 由调度者检查新鲜度后设置；本模块不读时钟或消费 MotorStatus 邮箱。
- */
-typedef struct
-{
-    MotorStatus sample;
-    MotorControlProgress control_progress;
-    uint32_t faults;
-    uint8_t state;
-    uint8_t mode;
-    uint8_t measurement_valid_bits;
-    bool sample_available;
-} yg_protocol_motor_status_source_t;
-
-/**
  * @brief 飞书状态反馈字段的固定单位值对象；结构体内存布局不是线路布局。
- * @note result/关联序号由控制事务提供，valid_bits 的位 0～11 对应十二个测量量。
+ * @note result/关联序号来自当前请求，valid_bits 的位 0～11 对应十二个测量量。
  *       无效测量由所有者填入对应整数最小值，编码器只写入这些显式值。
  */
 typedef struct
@@ -58,6 +38,20 @@ typedef struct
 } yg_protocol_motor_feedback_t;
 
 /**
+ * @brief 调用方提供的只读状态；所有编号已在APP边界转换为线路编号。
+ * @note 不含运行对象或请求历史；测量为已缩放值，sample_available表示状态已完成初始化。
+ */
+typedef struct
+{
+    uint32_t faults;
+    uint8_t state;
+    uint8_t mode;
+    bool sample_available;
+    bool measurements_available;
+    yg_protocol_motor_feedback_t measurements;
+} yg_protocol_motor_status_source_t;
+
+/**
  * @brief 将飞书全量状态值编码为 45B 的 124 反馈 payload。
  * @param feedback 调用方提供的稳定、已缩放状态值；返回后不保留指针。
  * @param payload 输出缓冲区，失败保持不变。
@@ -70,14 +64,14 @@ yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_f
                                                        size_t capacity);
 
 /**
- * @brief 从同一稳定电机快照生成 124 全量反馈值对象。
+ * @brief 生成124状态反馈；复用来源的测量有效位和数值。
  * @param source 可为空；缺失或无新鲜样本时所有测量字段标为无效。
  * @param node_id 本机电机节点 ID。
  * @param result 本条 116 的线路结果码。
  * @param correlated_seq 本条 116 的公司帧序号。
  * @param feedback 输出反馈值；参数错误时保持不变。
  * @return 成功或节点/参数错误。
- * @note 不读取硬件或控制目标；无电机温度、vq_v/vd_v 测量源时相应位保持无效。
+ * @note 不读取硬件或控制目标；保留固定线路布局，元数据由本次请求和状态重新填写。
  */
 yg_protocol_result_t
 yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *source,
@@ -217,17 +211,6 @@ yg_protocol_result_t yg_protocol_motor_encode_reply(const yg_protocol_service_re
                                                     size_t capacity,
                                                     size_t *written);
 
-#define YG_PROTOCOL_MOTOR_HISTORY_SIZE 32U
-typedef struct
-{
-    uint16_t sequence;
-    uint16_t request_crc;
-    uint16_t result;
-    /* result=1 时复用为该请求的最终反馈结果；ACK 的 detail 仍为 0。 */
-    uint16_t detail;
-    bool valid;
-} yg_protocol_motor_history_t;
-
 /** @brief 电机通信状态；不拥有电机运行对象，仅引用应用提供的值快照。 */
 typedef struct
 {
@@ -235,14 +218,8 @@ typedef struct
     yg_protocol_motor_service_t motor_service;
     yg_protocol_motor_status_source_t empty_motor_status;
     const yg_protocol_motor_status_source_t *motor_status_source;
-    yg_protocol_motor_history_t control_history[YG_PROTOCOL_MOTOR_HISTORY_SIZE];
-    uint16_t last_control_sequence;
     uint16_t feedback_sequence;
-    bool control_sequence_seen;
     bool feedback_pending;
-    bool control_completion_pending;
-    uint8_t control_completion_source;
-    uint16_t control_completion_sequence;
     uint8_t feedback_destination;
     uint8_t feedback_payload[YG_PROTOCOL_MOTOR_FEEDBACK_PAYLOAD_SIZE];
 } yg_protocol_motor_context_t;

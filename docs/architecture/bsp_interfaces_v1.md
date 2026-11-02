@@ -4,7 +4,7 @@
 不保留接口、占位实现或工程引用。见[删除记录](../plans/active/2026-10-30-remove-led-uart-v1.md)。
 
 状态：修订6接口已接入两板固件，双板构建与离线发布检查通过；统一实机验收尚未完成。日期：2026-10-26。
-相电流零偏的应用收尾已移至2kHz监督任务，属于明确记录的调度调整，详见执行约定第2节。
+电流零偏现由INIT阶段的独立校正函数统一处理三相与母线，详见[校正调整](../plans/active/2026-10-30-current-offset-init-v2.md)。
 完整文件树和所有权见[BSP架构总图](bsp_architecture_v1.md)。
 本页是职责与函数索引，参数、单位、失败和上下文的权威说明位于[公开头文件](../../firmware/platform/bsp/include)。
 `bsp_api_v1`保留同步的接口说明副本；修改接口直接实现并同步文档和测试，不再等待逐项评审。
@@ -23,8 +23,10 @@ firmware/platform/
 
 应用入口在`projects/<board>/application/main.c`，流程统一为
 `Bsp_Init → App_Init → Bsp_Start → App_Start → App_Process`。
+两板main.c显式定义ADC应用入口`BspApp_OnFastSample → App_FastTick`；
+MCU确认ADC完成后在中断上下文调用，硬件标志处理仍归MCU。
 BSP初始化时钟及外设、发布采样和中断事件；应用初始化对象、处理协议、控制和健康判定。
-BSP不调用具体协议处理器，不持有电机对象；Axis通过自身接口发布诊断，禁止跨模块extern Watch对象。
+BSP不调用具体协议处理器，不持有电机对象；Axis只提供初始化和快慢环，禁止跨模块extern Watch对象。
 Flash写入的暂停采样、擦写、回读和中断恢复由BSP拥有；应用外层临界区只保护保存任务身份不被取消后继续使用。
 
 ## 模块接口
@@ -174,7 +176,7 @@ STM32生成初始化须与板配置一致，换接线要同步生成配置；不
 
 三相采样四次累加、算术顺序、母线电压保护、编码器65536计数和协议/参数ABI保持。
 编码器不再提供原始诊断字、错误枚举或坏帧计数。
-AT32母线电流仍为PWM同步采样；应用在2kHz监督拍读取数值并处理128个校零读数及滤波，ADC不提供快序号。
+AT32母线电流仍为PWM同步采样；INIT校正与三相共用2048个快拍，正常快拍读取物理量并滤波，ADC不提供快序号。
 两板都不提供ADC快帧或有效位；未设置零偏的物理电流为NAN，原码直接用于校零。
 AT32内部温度/VREF没有实测校准时只发布原码，不把典型值诊断当作保护资格。
 
@@ -183,8 +185,8 @@ CAN不报告溢出或维护软件终态；发送完成查询直接读取硬件�
 Flash双方沿用各自存储处理；两板编码器均不提供配置缓存和读取错误状态。
 CAN按调用方提供的合法经典/FD元数据读写硬件；上层协议仍只使用原扩展FD+BRS及原过滤器。
 
-一次性功率窗口在`firmware/app/runtime/pwm_power_window.*`，母线电流零点/滤波在
-`firmware/app/composition/bus_current_feedback.*`。它们是应用状态与策略，不回放到BSP中。
+一次性通电窗口及相关功率契约已删除；电流零点由`MotorCurrentOffsets_Calibrate`统一处理，
+三相与母线电流采样及母线滤波由`MotorCurrent_Update`统一处理，均位于`motor/sensing/motor_current.c`。
 没有驱动注册表、运行时板检测、虚表或为对称而制造的MCU空文件。
 
 ## 验证入口

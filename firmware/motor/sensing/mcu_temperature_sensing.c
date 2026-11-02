@@ -3,9 +3,7 @@
 
 #include <math.h>
 
-#include "application_config.h"
 #include "motor_fault.h"
-#include "application_config.h"
 #include "bsp_adc.h"
 
 /* 监督 ISR 更新、前台快照读取。 */
@@ -13,7 +11,7 @@ static volatile McuTemperatureTelemetry s_mcu_temperature;
 
 /* 内部温度轮询、结果发布、失效超时与过温跳闸。
  * 板级可选策略只影响故障判定，绝不把缺失样本转换成有效温度。 */
-void McuTemperature_Update(MotorMeasurement *measurement, MotorControlState *motor_state)
+void McuTemperature_Update(FocState *foc, MotorControlState *motor_state)
 {
     struct
     {
@@ -39,10 +37,10 @@ void McuTemperature_Update(MotorMeasurement *measurement, MotorControlState *mot
         if (good)
         {
             /* 0.01 @2 kHz 与原 1 kHz 的 0.02 等效，保持约 50 ms 时间常数。 */
-            measurement->temperature_c =
-                s_mcu_temperature.valid ? measurement->temperature_c +
-                                              0.01f * (poll.celsius - measurement->temperature_c)
-                                        : poll.celsius;
+            foc->temperature_c =
+                s_mcu_temperature.valid
+                    ? foc->temperature_c + 0.01f * (poll.celsius - foc->temperature_c)
+                    : poll.celsius;
             s_mcu_temperature.raw_celsius = poll.celsius;
             s_mcu_temperature.vdda_mv = poll.vdda_mv;
             s_mcu_temperature.valid = 1U;
@@ -59,7 +57,7 @@ void McuTemperature_Update(MotorMeasurement *measurement, MotorControlState *mot
         else
         {
             s_mcu_temperature.valid = 0U;
-            measurement->temperature_c = NAN;
+            foc->temperature_c = NAN;
         }
     }
     if (!good)
@@ -72,7 +70,7 @@ void McuTemperature_Update(MotorMeasurement *measurement, MotorControlState *mot
             s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS)
         {
             s_mcu_temperature.valid = 0U;
-            measurement->temperature_c = NAN;
+            foc->temperature_c = NAN;
         }
         if (BSP_REQUIRED_MCU_TEMPERATURE &&
             s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&

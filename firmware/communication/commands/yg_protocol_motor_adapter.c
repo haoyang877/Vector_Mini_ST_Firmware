@@ -24,57 +24,6 @@ map_stop_result(motor_stop_result_t result, uint32_t token, yg_protocol_service_
     }
 }
 
-static yg_protocol_service_status_t map_control_result(MotorControlResult result)
-{
-    switch (result)
-    {
-    case MOTOR_CONTROL_ACCEPTED:
-        return YG_PROTOCOL_SERVICE_ACCEPTED;
-    case MOTOR_CONTROL_INVALID:
-        return YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-    case MOTOR_CONTROL_DENIED:
-        return YG_PROTOCOL_SERVICE_DENIED;
-    case MOTOR_CONTROL_BUSY:
-        return YG_PROTOCOL_SERVICE_BUSY;
-    case MOTOR_CONTROL_OUT_OF_RANGE:
-        return YG_PROTOCOL_SERVICE_OUT_OF_RANGE;
-    case MOTOR_CONTROL_FAULT:
-        return YG_PROTOCOL_SERVICE_FAULT;
-    default:
-        return YG_PROTOCOL_SERVICE_FAILED;
-    }
-}
-
-static yg_protocol_service_status_t submit_control(yg_protocol_motor_adapter_t *adapter,
-                                                   const yg_protocol_motor_request_t *request)
-{
-    MotorControlCommand command = {.mode = MOTOR_CONTROL_CURRENT};
-    if (adapter->submit_control == NULL)
-    {
-        return YG_PROTOCOL_SERVICE_UNSUPPORTED;
-    }
-    if (!yg_protocol_motor_decode_mode(request->mode, &command.mode))
-    {
-        return request->mode == 4U || request->mode == 5U ? YG_PROTOCOL_SERVICE_UNSUPPORTED
-                                                          : YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;
-    }
-    command.position_rad = (float)request->position_mrad * 0.001f;
-    command.speed_rad_s = (float)request->speed_mrad_s * 0.001f;
-    command.iq_a = (float)request->iq_mA * 0.001f;
-    command.vq_v = (float)request->v_q_mV * 0.001f;
-    command.id_a = (float)request->id_mA / 1000.0f;
-    command.vd_v = (float)request->vd_mV / 1000.0f;
-    command.electrical_frequency_hz = (float)request->electrical_frequency_mHz / 1000.0f;
-    if (MotorControlMode_IsOpenLoop(command.mode))
-    {
-        command.iq_a = (float)request->iq_mA / 1000.0f;
-        command.vq_v = (float)request->v_q_mV / 1000.0f;
-    }
-    command.source_node = request->source_node;
-    command.sequence = request->sequence;
-    return map_control_result(adapter->submit_control(adapter->control_context, &command));
-}
-
 void yg_protocol_motor_adapter_handle(void *context,
                                       const yg_protocol_motor_request_t *request,
                                       yg_protocol_service_reply_t *reply)
@@ -111,6 +60,7 @@ void yg_protocol_motor_adapter_handle(void *context,
     case YG_PROTOCOL_MOTOR_ENABLE:
     case YG_PROTOCOL_MOTOR_START_CONTROL:
     case YG_PROTOCOL_MOTOR_CLEAR_FAULT:
+    case YG_PROTOCOL_MOTOR_SET_CONTROL:
         /* 只有APP注入的生命周期映射可以请求动作；此处不操作功率或故障对象。 */
         if (handler->lifecycle_handler == NULL)
         {
@@ -118,9 +68,6 @@ void yg_protocol_motor_adapter_handle(void *context,
             return;
         }
         handler->lifecycle_handler(handler->lifecycle_context, request, reply);
-        return;
-    case YG_PROTOCOL_MOTOR_SET_CONTROL:
-        reply->status = submit_control(handler, request);
         return;
     default:
         reply->status = YG_PROTOCOL_SERVICE_INVALID_ARGUMENT;

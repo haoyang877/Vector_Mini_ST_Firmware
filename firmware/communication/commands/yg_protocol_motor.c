@@ -1,9 +1,7 @@
-#include "yg_protocol_crc.h"
 #include "yg_protocol_motor.h"
 #include "yg_protocol_common.h"
 #include <stddef.h>
 #include <limits.h>
-#include <math.h>
 #include <string.h>
 #include "yg_protocol_readonly.h"
 
@@ -170,71 +168,6 @@ uint16_t yg_protocol_motor_result_code(yg_protocol_service_status_t status)
 
 /* 电机快照到线路状态的单向适配；不消费旧邮箱，不改变控制状态或发送节拍。 */
 
-/* 当前线路缩放仅为 100/1000。拆解 binary32 的符号、尾数和指数，整数乘积
- * 精确表示缩放结果，以最高丢弃位实现半值远离零，避免引入软件双精度库。
- * 输入非有限或舍入后越界返回 INT32_MIN；状态 i16/i32 均保留最小值作无效哨兵。
- * 循环有界且无浮点近似；与参数编码的加半后边界检查语义不同，不合并入口。 */
-static int32_t measurement(float value, uint32_t scale, int32_t minimum, int32_t maximum)
-{
-    uint32_t bits;
-    memcpy(&bits, &value, sizeof(bits));
-    unsigned exponent = (bits >> 23U) & 255U;
-    if (exponent == 255U)
-    {
-        return INT32_MIN;
-    }
-    uint64_t product = (uint64_t)((bits & 0x7fffffU) | (exponent ? 0x800000U : 0U)) * scale;
-    int shift = exponent ? 150 - (int)exponent : 149;
-    uint64_t magnitude;
-    if (shift > 63)
-    {
-        magnitude = 0U;
-    }
-    else if (shift > 0)
-    {
-        uint64_t midpoint = (uint64_t)1U << (shift - 1);
-        magnitude = (product >> shift) + ((product & midpoint) != 0U);
-    }
-    else
-    {
-        if (shift < -31 || product > (UINT32_MAX >> -shift))
-        {
-            return INT32_MIN;
-        }
-        magnitude = product << -shift;
-    }
-    bool negative = (bits >> 31U) != 0U;
-
-    uint32_t limit = negative ? 0U - (uint32_t)minimum : (uint32_t)maximum;
-    if (magnitude > limit)
-    {
-        return INT32_MIN;
-    }
-    return negative ? -(int32_t)magnitude : (int32_t)magnitude;
-}
-
-static int32_t feedback_i32(float sample, bool available, uint16_t *valid_bits, uint8_t bit)
-{
-    int32_t value = available ? measurement(sample, 1000U, -INT32_MAX, INT32_MAX) : INT32_MIN;
-    if (value != INT32_MIN)
-    {
-        *valid_bits |= (uint16_t)(1U << bit);
-    }
-    return value;
-}
-
-static int16_t
-feedback_i16(float sample, uint32_t scale, bool available, uint16_t *valid_bits, uint8_t bit)
-{
-    int32_t value = available ? measurement(sample, scale, -INT16_MAX, INT16_MAX) : INT32_MIN;
-    if (value == INT32_MIN)
-    {
-        return INT16_MIN;
-    }
-    *valid_bits |= (uint16_t)(1U << bit);
-    return (int16_t)value;
-}
-
 yg_protocol_result_t yg_protocol_motor_feedback_encode(const yg_protocol_motor_feedback_t *feedback,
                                                        uint8_t *payload,
                                                        size_t capacity)
@@ -308,53 +241,20 @@ yg_protocol_motor_feedback_from_source(const yg_protocol_motor_status_source_t *
         *feedback = value;
         return YG_PROTOCOL_OK;
     }
-    if (source->state > 9U || source->mode > 10U || source->faults > 0x3FFFFU ||
-        (source->measurement_valid_bits & ~YG_PROTOCOL_MOTOR_MEASUREMENT_MASK) != 0U)
+    if (source->state > 9U || source->mode > 10U || source->faults > 0x3FFFFU)
     {
         return YG_PROTOCOL_INVALID_FIELD;
+    }
+    if (source->sample_available && source->measurements_available)
+    {
+        value = source->measurements;
+        value.node_id = node_id;
+        value.result = result;
+        value.correlated_seq = correlated_seq;
     }
     value.fault_code = source->faults;
     value.motor_state = source->state;
     value.control_mode = source->mode;
-    if (!source->sample_available)
-    {
-        *feedback = value;
-        return YG_PROTOCOL_OK;
-    }
-    value.reference_position_mrad =
-        feedback_i32(source->sample.position_target, true, &value.valid_bits, 0U);
-    value.actual_position_mrad = feedback_i32(source->sample.position_feedback,
-                                              (source->measurement_valid_bits & 0x01U) != 0U,
-                                              &value.valid_bits,
-                                              1U);
-    value.reference_speed_mrad_s =
-        feedback_i32(source->sample.speed_target, true, &value.valid_bits, 2U);
-    value.actual_speed_mrad_s = feedback_i32(source->sample.speed_feedback_rad_s,
-                                             (source->measurement_valid_bits & 0x02U) != 0U,
-                                             &value.valid_bits,
-                                             3U);
-    value.bus_voltage_cV = feedback_i16(source->sample.bus_voltage,
-                                        100U,
-                                        (source->measurement_valid_bits & 0x10U) != 0U,
-                                        &value.valid_bits,
-                                        4U);
-    value.bus_current_mA = feedback_i16(source->sample.bus_current,
-                                        1000U,
-                                        (source->measurement_valid_bits & 0x40U) != 0U,
-                                        &value.valid_bits,
-                                        5U);
-    value.reference_iq_mA =
-        feedback_i16(source->sample.current_reference, 1000U, true, &value.valid_bits, 6U);
-    value.actual_iq_mA = feedback_i16(source->sample.current_feedback,
-                                      1000U,
-                                      (source->measurement_valid_bits & 0x04U) != 0U,
-                                      &value.valid_bits,
-                                      7U);
-    value.mcu_temperature_centi_c = feedback_i16(source->sample.temperature,
-                                                 100U,
-                                                 (source->measurement_valid_bits & 0x20U) != 0U,
-                                                 &value.valid_bits,
-                                                 8U);
     *feedback = value;
     return YG_PROTOCOL_OK;
 }
@@ -414,62 +314,6 @@ static yg_protocol_result_t prepare_control_feedback(yg_protocol_motor_context_t
     motor->feedback_destination = destination;
     motor->feedback_pending = true;
     return YG_PROTOCOL_OK;
-}
-
-static void prepare_completed_control(yg_protocol_motor_context_t *motor)
-{
-    if (!motor->control_completion_pending || motor->feedback_pending)
-    {
-        return;
-    }
-    const MotorControlProgress *progress = &motor->motor_status_source->control_progress;
-    if (progress->source_node != motor->control_completion_source ||
-        progress->sequence != motor->control_completion_sequence ||
-        (progress->state != MOTOR_CONTROL_PROGRESS_APPLIED &&
-         progress->state != MOTOR_CONTROL_PROGRESS_REJECTED))
-    {
-        return;
-    }
-    uint16_t code = 8U;
-    if (progress->state == MOTOR_CONTROL_PROGRESS_APPLIED)
-    {
-        code = 0U;
-    }
-    else
-    {
-        switch (progress->result)
-        {
-        case MOTOR_CONTROL_INVALID:
-            code = 4U;
-            break;
-        case MOTOR_CONTROL_DENIED:
-            code = 5U;
-            break;
-        case MOTOR_CONTROL_BUSY:
-            code = 6U;
-            break;
-        case MOTOR_CONTROL_OUT_OF_RANGE:
-            code = 11U;
-            break;
-        case MOTOR_CONTROL_FAULT:
-            code = 17U;
-            break;
-        default:
-            break;
-        }
-    }
-    if (prepare_control_feedback(motor, progress->source_node, progress->sequence, code) !=
-        YG_PROTOCOL_OK)
-    {
-        return;
-    }
-    yg_protocol_motor_history_t *entry =
-        &motor->control_history[progress->sequence % YG_PROTOCOL_MOTOR_HISTORY_SIZE];
-    if (entry->valid && entry->sequence == progress->sequence && entry->result == 1U)
-    {
-        entry->detail = code;
-    }
-    motor->control_completion_pending = false;
 }
 
 yg_protocol_result_t yg_protocol_motor_handle_action(void *context,
@@ -570,80 +414,31 @@ yg_protocol_result_t yg_protocol_motor_handle_control(void *context,
 {
     yg_protocol_motor_context_t *motor = context;
     yg_protocol_motor_request_t command;
-    yg_protocol_service_reply_t reply;
-    yg_protocol_motor_history_t *entry;
-    yg_protocol_result_t decoded;
-    uint16_t code, feedback_code, detail = 0U, digest = 0U;
-    bool defer_feedback = false;
     if (!yg_protocol_service_request_valid(motor, request, result))
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    code = 7U;
-    feedback_code = code;
+    uint16_t code = 7U;
     if (request->source_node == YG_PROTOCOL_MASTER_NODE_ID)
     {
-        decoded = yg_protocol_motor_decode_control(request, &command);
-        code = decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U;
-        feedback_code = code;
+        yg_protocol_result_t decoded = yg_protocol_motor_decode_control(request, &command);
         if (decoded == YG_PROTOCOL_OK)
         {
-            digest = yg_protocol_crc16(request->payload, request->payload_length);
-            entry = &motor->control_history[request->sequence % YG_PROTOCOL_MOTOR_HISTORY_SIZE];
-            if (entry->valid && entry->sequence == request->sequence)
-            {
-                code = entry->request_crc == digest ? entry->result : 4U;
-                detail = entry->request_crc == digest && code != 1U ? entry->detail : 0U;
-                feedback_code = entry->request_crc == digest && code == 1U ? entry->detail : code;
-            }
-            else if (motor->control_sequence_seen &&
-                     (request->sequence == motor->last_control_sequence ||
-                      (uint16_t)(request->sequence - motor->last_control_sequence) >= 0x8000U))
-            {
-                code = 4U; /* 未缓存的相同或旧序号不得在终态发布后重新执行。 */
-                feedback_code = code;
-            }
-            else
-            {
-                if (motor->control_completion_pending)
-                {
-                    code = 6U;
-                }
-                else
-                {
-                    (void)yg_protocol_motor_call(&motor->motor_service, &command, &reply);
-                    code = yg_protocol_motor_result_code(reply.status);
-                    detail = reply.detail;
-                }
-                feedback_code = code;
-                /* 不能让拥塞拒绝覆盖仍待发布终态的历史槽。 */
-                if (!motor->control_completion_pending ||
-                    request->sequence % YG_PROTOCOL_MOTOR_HISTORY_SIZE !=
-                        motor->control_completion_sequence % YG_PROTOCOL_MOTOR_HISTORY_SIZE)
-                {
-                    *entry = (yg_protocol_motor_history_t){
-                        request->sequence, digest, code, code == 1U ? 1U : detail, true};
-                }
-                if (code == 1U)
-                {
-                    motor->control_completion_pending = true;
-                    motor->control_completion_source = request->source_node;
-                    motor->control_completion_sequence = request->sequence;
-                    defer_feedback = true;
-                    detail = 0U;
-                }
-                motor->last_control_sequence = request->sequence;
-                motor->control_sequence_seen = true;
-            }
+            yg_protocol_service_reply_t reply;
+            (void)yg_protocol_motor_call(&motor->motor_service, &command, &reply);
+            code = yg_protocol_motor_result_code(reply.status);
+        }
+        else
+        {
+            code = decoded == YG_PROTOCOL_INVALID_LENGTH ? 3U : 4U;
         }
     }
-    if (!defer_feedback &&
-        prepare_control_feedback(motor, request->source_node, request->sequence, feedback_code) !=
-            YG_PROTOCOL_OK)
+    if (prepare_control_feedback(motor, request->source_node, request->sequence, code) !=
+        YG_PROTOCOL_OK)
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    yg_protocol_service_write_result(result, code, detail);
+    yg_protocol_service_write_result(result, code, 0U);
     return YG_PROTOCOL_OK;
 }
 
@@ -671,7 +466,6 @@ yg_protocol_result_t yg_protocol_motor_flush_feedback(yg_protocol_motor_context_
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
-    prepare_completed_control(motor);
     if (!motor->feedback_pending)
     {
         return YG_PROTOCOL_OK;

@@ -34,19 +34,25 @@ def function_source(source: str, name: str) -> str:
 
 
 def board_startup_fixture() -> str:
-    """执行真实Bsp_Start，采样成功才能开放监督，失败关相且禁止重复启动。"""
+    """执行真实启动入口，验证采样/计数器/监督顺序及失败关相。"""
     source = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
     return (
         r"""
 #include <assert.h>
 #include <stdio.h>
 #include "bsp.h"
-#define HAL_OK 0
 static unsigned s_startup_state,step,off;
-static int htim7;
-static bool adc_ok=true,timer_ok=true;
-static bool Adc_Start(void) { assert(++step==1U); return adc_ok; }
-static int HAL_TIM_Base_Start_IT(int *h) { assert(h==&htim7 && ++step==2U); return timer_ok ? HAL_OK : 1; }
+static struct {unsigned CR1;} timer;
+static int handle;
+#define MCU_PWM_TIMER (&timer)
+#define MCU_CONTROL_TIMER_HANDLE handle
+#define TIM_CR1_CEN 1U
+#define HAL_OK 0
+static bool timer_ok=true;
+static void Adc_Start(void) { assert(++step==1U && !(timer.CR1&1U)); }
+static int HAL_TIM_Base_Start_IT(int *h) {
+ assert(h==&handle && ++step==2U && (timer.CR1&1U)); return timer_ok ? HAL_OK : 1;
+}
 static void BspPwm_Disable(void) { ++off; }
 """
         + function_source(source, "Bsp_Start")
@@ -55,49 +61,51 @@ int main(void) {
  assert(Bsp_Start()==BSP_NOT_READY && step==0U);
  s_startup_state=2U; assert(Bsp_Start()==BSP_OK && step==2U && off==0U);
  assert(Bsp_Start()==BSP_NOT_READY && step==2U);
- s_startup_state=2U;step=0U;adc_ok=false;
- assert(Bsp_Start()==BSP_IO_ERROR && step==1U && off==1U && s_startup_state==4U);
- s_startup_state=2U;step=0U;adc_ok=true;timer_ok=false;
- assert(Bsp_Start()==BSP_IO_ERROR && step==2U && off==2U && s_startup_state==4U);
- puts("PASS sampling/supervisor order, repeated Start, failure closes output"); return 0;
+ s_startup_state=2U;step=0U;timer.CR1=0;timer_ok=false;
+ assert(Bsp_Start()==BSP_IO_ERROR && step==2U && off==1U && s_startup_state==4U);
+ assert(Bsp_Start()==BSP_NOT_READY && step==2U);
+ puts("PASS sampling, PWM counter, supervisor order and failure closes output"); return 0;
 }
 """
     )
 
 
 def board_orchestration_fixture(source: str | None = None) -> str:
-    """执行真实应用Init/Start，硬件准备和应用对象生命周期分离。"""
-    source = source or (ROOT / "firmware/app/composition/app_startup.c").read_text(encoding="utf-8")
+    """执行真实应用Init/Start，核对协议、采样和健康监督先后关系。"""
+    source = source or (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
     return (
         r"""
 #include <assert.h>
 #include <stdio.h>
 #include <stdbool.h>
-static unsigned order[16],count;
-static bool s_communication_ready,ready=true;
+#include "bsp_system.h"
+static unsigned order[24],count;
+static bool s_communication_ready,ready=true,s_watchdog_enabled;
+static volatile uint32_t s_fast_samples,s_supervisor_ticks;
+static uint32_t s_watchdog_last_ms,s_watchdog_last_fast,s_watchdog_last_slow;
 static void log_step(unsigned n) { order[count++]=n; }
-static void AppTasks_Init(void) { log_step(1); }
-static void MotorAxis_Init(void) { log_step(2); }
+static void MotorAxis_Init(void) { log_step(1); }
 static unsigned MotorAxis_NodeId(void) { return 7; }
-static bool YgProtocolRuntime_Init(unsigned n) { assert(n==7);log_step(3);return ready; }
-static bool YgProtocolStatusAdapter_Init(void) { log_step(4);return ready; }
-static bool bind_motor_stop(void) { log_step(5);return ready; }
-static bool YgProtocolOwner_BindServices(void) { log_step(6);return ready; }
-static bool bind_device_description(void) { log_step(7);return ready; }
-static bool YgProtocolRuntime_Start(void) { log_step(8);return ready; }
-static void AppTasks_Start(void) { log_step(9); }
-static void BspPwm_Disable(void) { log_step(10); }
+static bool YgProtocolRuntime_Init(unsigned n) { assert(n==7);log_step(2);return ready; }
+static bool AppProtocol_Init(void) { log_step(3);return ready; }
+static bool bind_device_description(void) { log_step(4);return ready; }
+static bool YgProtocolRuntime_Start(void) { log_step(5);return ready; }
+BspResult BspWatchdog_Start(void) { log_step(6);return BSP_OK; }
+uint32_t BspSystem_TimeMs(void) { log_step(7);return 123; }
+static void BspPwm_Disable(void) { log_step(8); }
+static void halt_disabled(void) { assert(false); }
 """
         + function_source(source, "App_Init")
         + function_source(source, "App_Start")
         + r"""
 int main(void) {
- App_Init();assert(count==7 && s_communication_ready);
- App_Start();assert(count==9);
- for(unsigned i=0;i<9;i++) assert(order[i]==i+1);
- count=0;ready=false;App_Init();assert(!s_communication_ready && count==4 && order[3]==10);
- App_Start();assert(count==6 && order[4]==10 && order[5]==9);
- puts("PASS object binding before BSP Start, communication failure closes output");return 0;
+ s_fast_samples=s_supervisor_ticks=9;
+ App_Init();assert(count==4 && s_communication_ready && s_fast_samples==0 && s_supervisor_ticks==0);
+ App_Start();assert(count==7 && s_watchdog_enabled && s_watchdog_last_ms==123);
+ for(unsigned i=0;i<7;i++) assert(order[i]==i+1);
+ count=0;ready=false;App_Init();assert(!s_communication_ready && count==3 && order[2]==8);
+ App_Start();assert(count==6 && order[3]==8 && order[4]==6 && order[5]==7);
+ puts("PASS app binding order, watchdog startup and failed communication shuts output");return 0;
 }
 """
     )
@@ -140,37 +148,48 @@ int main(void) {
 
 
 def platform_init_fixture() -> str:
-    """核对真实STM32初始化原外设相对顺序及新BSP唯一所有者。"""
+    """核对真实STM32初始化顺序、唯一所有者及Flash失败后不可重复启动。"""
     source = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf-8")
     calls = (
         "BootHw_Init",
         "HAL_Init",
         "system_clock_init",
         "MX_GPIO_Init",
-        "MX_ADC2_Init",
-        "Can_Init",
-        "Pwm_Init",
-        "MX_TIM7_Init",
-        "MX_ADC1_Init",
-        "MX_SPI1_Init",
-        "MX_SPI2_Init",
+        "McuCan_Init",
+        "McuPwm_Init",
+        "MCU_CONTROL_TIMER_INIT",
         "__HAL_FLASH_PREFETCH_BUFFER_ENABLE",
-        "Adc_Init",
+        "McuAdc_Init",
         "Flash_Init",
-        "Encoder_Init",
+        "McuEncoder_Init",
     )
+    stubs = []
+    for index, name in enumerate(calls, 1):
+        result = "bool" if name in ("BootHw_Init", "Flash_Init") else "void"
+        returned = (
+            "return flash_ok;"
+            if name == "Flash_Init"
+            else "return true;"
+            if result == "bool"
+            else ""
+        )
+        stubs.append(f"static {result} {name}(void) {{ assert(++count=={index});{returned} }}")
     return (
         '#include <assert.h>\n#include <stdio.h>\n#include "bsp.h"\n#include "board_config.h"\n'
-        "static unsigned s_startup_state,count,off;\n"
-        + "\n".join(
-            f"static bool {name}(void) {{ assert(++count=={index});return true; }}"
-            for index, name in enumerate(calls, 1)
-        )
+        "static unsigned s_startup_state,count,off; static bool flash_ok=true;\n"
+        + "\n".join(stubs)
         + "\nstatic void BspPwm_Disable(void) { ++off; }\n"
         + function_source(source, "Bsp_Init")
-        + "\nint main(void) { assert(Bsp_Init()==BSP_OK && count==19 && off==0);"
-        "assert(Bsp_Init()==BSP_NOT_READY && count==19);"
-        'puts("PASS STM32 19-step initialization, original peripheral order, exactly once");return 0;}\n'
+        + r"""
+int main(void) {
+ assert(Bsp_Init()==BSP_OK && count==11 && off==0 && s_startup_state==2);
+ assert(Bsp_Init()==BSP_NOT_READY && count==11);
+ s_startup_state=count=0;flash_ok=false;
+ assert(Bsp_Init()==BSP_IO_ERROR && count==10 && off==1 && s_startup_state==4);
+ assert(Bsp_Init()==BSP_NOT_READY && count==10);
+ puts("PASS STM32 initialization order, exactly once, Flash failure closes output");return 0;
+}
+"""
     )
 
 
@@ -186,7 +205,12 @@ def main() -> None:
     cc = str(Path(cc).resolve()) if Path(cc).is_file() else cc
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    compiler = [cc] + (["cc"] if Path(cc).stem == "zig" else []) + NATIVE_INCLUDE_FLAGS
+    compiler = (
+        [cc]
+        + (["cc"] if Path(cc).stem == "zig" else [])
+        + NATIVE_INCLUDE_FLAGS
+        + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
+    )
     logs = []
 
     def run(command: list[str]) -> None:

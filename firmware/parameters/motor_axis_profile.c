@@ -4,6 +4,21 @@
 #include "crc32.h"
 #include "application_config.h"
 
+/* 已发布AXS关节修订1的冻结解释；仅记录解码器持有，不随当前默认配置变化。 */
+#define AXIS_JOINT_V1_POSITION_KP 8.0f
+#define AXIS_JOINT_V1_POSITION_KD 2.0f
+#define AXIS_JOINT_V1_SPEED_KP 0.5f
+#define AXIS_JOINT_V1_ROLL_SPEED_KI 1.0f
+#define AXIS_JOINT_V1_PITCH_SPEED_KI 2.0f
+#define AXIS_JOINT_V1_ACCEL_RAD_S2 0.785398163f
+#define AXIS_JOINT_V1_DECEL_RAD_S2 0.785398163f
+#define AXIS_JOINT_V1_CURRENT_LIMIT_A 6.0f
+#define AXIS_JOINT_V1_SPEED_LIMIT_RAD_S 0.785398163f
+#define AXIS_JOINT_V1_ROLL_MIN_RAD (-1.57079633f)
+#define AXIS_JOINT_V1_ROLL_MAX_RAD (1.57079633f)
+#define AXIS_JOINT_V1_PITCH_MIN_RAD (-0.3f)
+#define AXIS_JOINT_V1_PITCH_MAX_RAD (0.9f)
+
 typedef char axis_record_size_check[(sizeof(MotorAxisProfile) == 32U) ? 1 : -1];
 typedef char axis_crc_offset_check[(offsetof(MotorAxisProfile, crc32) == 28U) ? 1 : -1];
 typedef char axis_identity_offset_check[(offsetof(MotorAxisProfile, identity) == 8U) ? 1 : -1];
@@ -152,13 +167,13 @@ bool MotorAxisProfile_CreateJoint(MotorAxisProfile *output,
 bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControlConfig *output)
 {
     MotorAxisProfile checked;
-    MotorJointControlConfig config = {PARAM_APP_JOINT_V1_POSITION_KP,
-                                      PARAM_APP_JOINT_V1_POSITION_KD,
-                                      PARAM_APP_JOINT_V1_SPEED_KP,
-                                      PARAM_APP_JOINT_V1_ROLL_SPEED_KI,
-                                      PARAM_APP_JOINT_V1_ACCEL_RAD_S2,
-                                      PARAM_APP_JOINT_V1_DECEL_RAD_S2,
-                                      PARAM_APP_JOINT_V1_CURRENT_LIMIT_A};
+    MotorJointControlConfig config = {AXIS_JOINT_V1_POSITION_KP,
+                                      AXIS_JOINT_V1_POSITION_KD,
+                                      AXIS_JOINT_V1_SPEED_KP,
+                                      AXIS_JOINT_V1_ROLL_SPEED_KI,
+                                      AXIS_JOINT_V1_ACCEL_RAD_S2,
+                                      AXIS_JOINT_V1_DECEL_RAD_S2,
+                                      AXIS_JOINT_V1_CURRENT_LIMIT_A};
     float minimum, maximum;
     if (output == NULL || !MotorAxisProfile_Load(profile, &checked) ||
         checked.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
@@ -169,19 +184,19 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
     switch (checked.identity.numeric.joint_type)
     {
     case MOTOR_JOINT_ROLL:
-        minimum = PARAM_APP_JOINT_V1_ROLL_MIN_RAD;
-        maximum = PARAM_APP_JOINT_V1_ROLL_MAX_RAD;
+        minimum = AXIS_JOINT_V1_ROLL_MIN_RAD;
+        maximum = AXIS_JOINT_V1_ROLL_MAX_RAD;
         break;
     case MOTOR_JOINT_PITCH:
-        minimum = PARAM_APP_JOINT_V1_PITCH_MIN_RAD;
-        maximum = PARAM_APP_JOINT_V1_PITCH_MAX_RAD;
-        config.speed_ki = PARAM_APP_JOINT_V1_PITCH_SPEED_KI;
+        minimum = AXIS_JOINT_V1_PITCH_MIN_RAD;
+        maximum = AXIS_JOINT_V1_PITCH_MAX_RAD;
+        config.speed_ki = AXIS_JOINT_V1_PITCH_SPEED_KI;
         break;
     default:
         return false;
     }
     if (checked.minimum_position_rad < minimum || checked.maximum_position_rad > maximum ||
-        checked.maximum_speed_rad_s > PARAM_APP_JOINT_V1_SPEED_LIMIT_RAD_S)
+        checked.maximum_speed_rad_s > AXIS_JOINT_V1_SPEED_LIMIT_RAD_S)
     {
         return false;
     }

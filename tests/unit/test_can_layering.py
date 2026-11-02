@@ -41,7 +41,7 @@ class CanLayeringTests(unittest.TestCase):
         st = (ROOT / "firmware/platform/bsp/mcu/stm32g4/system.c").read_text(encoding="utf8")
         at_can = (BSP / "mcu/at32f456/can.c").read_text(encoding="utf8")
         st_can = (BSP / "mcu/stm32g4/can.c").read_text(encoding="utf8")
-        self.assertIn("void CAN1_RX_IRQHandler(void)", at_can)
+        self.assertIn("void MCU_CAN_IRQ_HANDLER(void)", at_can)
         self.assertIn("BspApp_OnCanReceive();", at_can)
         self.assertIn("McuCan_Init();", at)
         self.assertIn("HAL_FDCAN_RxFifo0Callback", st_can)

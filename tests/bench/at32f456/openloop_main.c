@@ -1,3 +1,4 @@
+#include <math.h>
 #include "bsp_adc.h"
 #include "application_config.h"
 #include "board_config.h"

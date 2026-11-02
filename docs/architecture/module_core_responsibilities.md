@@ -28,11 +28,11 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 
 | 模块及源码入口 | 输入 → 核心处理 → 输出 | 状态归属与边界 |
 | --- | --- | --- |
-| [composition](../../firmware/app/composition/app_startup.c) | 四入口契约 → 初始化、前台、快环、监督编排 → 可调度的电机及通信端点 | 只组装，不计算控制算法 |
+| [composition](../../firmware/app/composition/app.c) | 四入口契约 → 初始化、前台、快环、监督编排 → 可调度的电机及通信端点 | 只组装，不计算控制算法 |
 | [motor_axis](../../firmware/app/runtime/motor_axis.c) | 采样与受理请求 → 快慢拍调度 → 控制输出及一致快照 | 持有单份电机、编码器、FOC、PI与观测器对象 |
 | [主状态机](motor_state_machine_v1.md) | 请求、健康与任务结果 → 准入、启停、清理 → 许可及进展 | 独占生命周期和功率动作；不计算标定数学 |
 | [控制执行](motor_execution_core_v3.md) | 已准入模式、目标与反馈 → 外环/电流环 → 电流参考及一拍结果 | 控制器拥有积分/滤波；不决定启动 |
-| [维护与标定](motor_maintenance_core_v3.md) | 单项任务与显式对象 → 标定或配置处理 → RAM结果、完成/失败 | 任务拥有阶段；主状态机关相；前台保存 |
+| [维护与标定](motor_maintenance_core_v3.md) | 已退役，不再提供标定、保存或任务进度 | 旧Flash记录仍可读取 |
 | [参数](parameter_ownership_v1.md) | 默认值、RAW记录、标量请求 → 装载/校验/事务 → 活动配置及保存结果 | Axis持有值，事务模块持有revision与重试记录 |
 | [反馈与保护](../../firmware/motor/README.md) | 角度、电流、电压和温度 → 校正/估计/故障判定 → 测量及故障事实 | 不创建第二份生命周期 |
 | [通信](communication_layering.md) | CAN FD帧 → 共享codec/业务映射 → 所有者请求与回复 | 不直接修改电机对象或访问PWM/Flash |
@@ -41,7 +41,7 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 | [shared](../../shared/README.md) | 跨产品字节和值 → 纯编解码/契约 → 统一数据 | 不依赖APP或HAL，不拥有运行电机 |
 | [上位机](../../host_app/README.md) | CAN读回、速度/STOP请求与匹配APP包 → 单页展示及升级客户端 → 实际回复与结果 | 默认断开，无演示或标定入口；GUI实机控制/升级尚待验收 |
 
-runtime中的`motor_command`只验证命令；`motor/control/motor_control`独占控制执行和外环。
+runtime中的`motor_lifecycle`内部验证命令并管理生命周期；`motor/control/motor_control`独占控制执行和外环。
 `motor_sensing`推进上电零偏累计，`foc`绑定PI配置与电压额度；Axis只传对象和安排顺序。
 热保护计算留在motor，功率事实和生命周期许可由APP提供，不从motor反查主状态机。
 
@@ -49,14 +49,13 @@ runtime中的`motor_command`只验证命令；`motor/control/motor_control`独�
 
 | 所有者 | 当前关键符号或对象 | 允许的使用方式 |
 | --- | --- | --- |
-| MotorAxis | `s_motor_state`、`s_motor_measurement`、`s_foc_state`、`s_speed_pi`、`s_rotor_encoder`、`s_flux_observer`、`s_sensorless_startup`、`s_current_offset_calibration` | 显式传给功能任务；外部读状态快照 |
-| 主状态机 | `s_context` | 请求入口串行化启停、目标、维护和清错 |
+| MotorAxis | `s_motor_state`、`s_foc_state`（直接含采样成员）、`s_speed_pi`、`s_rotor_encoder`、`s_flux_observer`、`s_sensorless_startup`、`s_current_offset_calibration` | 只公开初始化和快慢环，显式传给功能任务 |
+| 主状态机 | `s_context` | 请求入口串行化启停、目标、维护和清错；对外提供一致状态快照 |
 | 参数事务 | `s_config_revision`、请求缓存与SAVE记录 | 参数请求入口更新；成功写仅增一次revision |
 | 位置控制器 | `position_control.c`中的私有`s_state` | Update/Reset接口；调用方不写内部积分 |
 | 外环控制 | `motor_control.c`中的私有`s_outer` | 请求复位/慢拍接口；只拥有外环就绪与前馈历史 |
 | 绕组热保护 | `motor_thermal_control.c`中的私有`s_thermal` | 显式采样/配置/保护接口；快照不可写回 |
 | 编码器标定 | 任务阶段、窗口和零位累积 | Step/Cancel接口；纯核心通过显式对象计算 |
-| 维护工作区 | `maintenance_workspace.c`中的联合区 | 编码器采样与参数记录互斥借用、确认归还 |
 
 部分运行符号因Watch需求是非静态全局，位置/标定内部仍有静态状态。
 **全局可见不等于公共写接口，也不等于已消除所有全局状态。**

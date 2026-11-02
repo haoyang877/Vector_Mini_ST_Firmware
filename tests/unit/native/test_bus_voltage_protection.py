@@ -25,14 +25,20 @@ PRELUDE = r"""
 #include "motor_config.h"
 #include "application_config.h"
 #include "board_config.h"
+#include "foc.h"
 #define UTILS_LP_FAST(y,x,a) ((y) -= (a) * ((y) - (x)))
-typedef struct { float bus_voltage_v, bus_voltage_filtered_v; } MotorMeasurement;
-static MotorMeasurement s_foc_state;
+static FocState s_foc_state = {.bus_voltage_filter_alpha = 0.05f};
+static float voltage_sample_v;
+float BspAdc_ReadChannel(BspAdcChannel channel) {
+    assert(channel == BSP_ADC_BUS_VOLTAGE);
+    return voltage_sample_v;
+}
 """
 
 CASES = r"""
-static void sample_voltage(const BspAdcFastSample *sample) {
-    MotorVoltage_Update(&s_foc_state, sample);
+static void sample_voltage(float sample) {
+    voltage_sample_v = sample;
+    MotorVoltage_Update(&s_foc_state);
 }
 /* 正有限 float 的位模式有序；独立整数区间作参考，不复用待测浮点判定。 */
 static void test_enable_window(void) {
@@ -74,30 +80,30 @@ static void test_enable_window(void) {
 
 int main(void) {
     unsigned i;
-    BspAdcFastSample sample = {.bus_voltage_v = 30.0f};
+    float sample = 30.0f;
 
     test_enable_window();
 
     /* 原始值逐拍搬运；首拍低通从原状态向新输入收敛。 */
     s_foc_state.bus_voltage_filtered_v = 0.0f;
-    sample_voltage(&sample);
+    sample_voltage(sample);
     assert(s_foc_state.bus_voltage_v == 30.0f);
     assert(fabsf(s_foc_state.bus_voltage_filtered_v - 1.5f) < 1e-6f);
     puts("PASS raw bus voltage copied and low-pass seeded");
 
     const float target_v = 32.5f;
-    sample.bus_voltage_v = target_v;
+    sample = target_v;
     for (i = 0; i < 1000; ++i) {
-        sample_voltage(&sample);
+        sample_voltage(sample);
     }
     assert(s_foc_state.bus_voltage_v == target_v);
     assert(fabsf(s_foc_state.bus_voltage_filtered_v - target_v) < 0.01f);
     puts("PASS low-pass converges to input");
 
     /* 缺帧不再报故障；两个字段均为NAN。 */
-    sample_voltage(NULL);
+    sample_voltage(NAN);
     assert(isnan(s_foc_state.bus_voltage_v) && isnan(s_foc_state.bus_voltage_filtered_v));
-    puts("PASS NULL frame yields NAN fields");
+    puts("PASS NAN input yields NAN fields");
     return 0;
 }
 """
@@ -120,11 +126,14 @@ def main():
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/motor_state_machine/motor_state_machine.c").read_text(
-                encoding="utf-8"
-            ),
+            (ROOT / "firmware/app/runtime/motor_lifecycle.c").read_text(encoding="utf-8"),
             "state_vbus_in_enable_window",
-        ).replace("s_context.measurement->", "s_foc_state.")
+        )
+        .replace(
+            "state_vbus_in_enable_window(void)",
+            "state_vbus_in_enable_window(void)",
+        )
+        .replace("s_context.foc->", "s_foc_state.")
         + CASES
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]
@@ -139,6 +148,7 @@ def main():
         "-Wall",
         "-Wextra",
         "-Werror",
+        "-DBSP_BOARD=1",
         "-I",
         str(out),
         "-I",
@@ -146,8 +156,6 @@ def main():
         "-I",
         str(ROOT / "firmware/motor/control"),
         str(fixture),
-        str(ROOT / "shared/checksum/crc32.c"),
-        str(ROOT / "firmware/parameters/motor_axis_profile.c"),
         "-o",
         str(exe),
     ]

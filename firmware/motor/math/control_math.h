@@ -2,33 +2,17 @@
 #define CONTROL_MATH_H
 
 /* 通用数学工具：纯函数，无硬件依赖与可变全局。 */
-#include <stdint.h>
 
 #define _PI 3.1415926536f
-#define _PI_2 1.5707963268f
-#define _PI_3 1.0471975512f
 #define _2PI 6.2831853072f
-#define _3PI_2 4.7123889804f
 #define ONE_BY_2PI 0.1591549431f
 
-#define _SQRT_3 1.732050807f
 #define ONE_BY_SQRT_3 0.577350269f
 #define TWO_BY_SQRT_3 1.154700538f
 #define SQRT_3_BY_2 0.866025403f
 
 #define UTILS_LP_FAST(value, sample, filter_constant)                                              \
     (value -= (filter_constant) * ((value) - (sample)))
-
-#define UTILS_LP_MOVING_AVG_APPROX(value, sample, N)                                               \
-    UTILS_LP_FAST(value, sample, 2.0f / ((N) + 1.0f))
-
-typedef struct
-{
-    float state_n, state_n_1, state_n_2;
-    float a0, a1, a2;
-    float b0, b1, b2;
-    float gain0, gain1;
-} IirButterworthState;
 
 /**
  * @brief  把数值限制到闭区间 [low, high]。
@@ -47,48 +31,11 @@ float Math_Constrain(float amt, float low, float high);
 float Math_NormalizeAngle(float angle);
 
 /**
- * @brief  读取 float 的 IEEE-754 位模式。
- * @param  x 输入浮点数。
- * @return 对应的 32 位位模式；用于位级比较（NaN/±0 安全）。
- */
-uint32_t Math_FloatToBits(float x);
-
-/**
- * @brief  由 IEEE-754 位模式重建 float。
- * @param  x 32 位位模式。
- * @return 对应浮点数。
- */
-float Math_BitsToFloat(uint32_t x);
-
-/**
- * @brief  执行一次二阶 IIR 巴特沃斯滤波。
- * @param  input 本次采样值。
- * @param  filter 滤波器状态与系数指针。
- * @return 滤波输出；状态保存在调用方结构体中。
- */
-float Math_FilterButterworth(float input, IirButterworthState *filter);
-
-/**
  * @brief  求绝对值。
  * @param  x 输入值。
  * @return |x|。
  */
 float Math_Abs(float x);
-
-/**
- * @brief  求平方。
- * @param  x 输入值。
- * @return x²。
- */
-float Math_Square(float x);
-
-/**
- * @brief  求较大值。
- * @param  x 第一个值。
- * @param  y 第二个值。
- * @return 两者中的较大值。
- */
-float Math_Max(float x, float y);
 
 /**
  * @brief  求较小值。
@@ -125,26 +72,10 @@ float Math_Atan2(float y, float x);
 float Math_Sqrt(float x);
 
 /**
- * @brief  整数幂。
- * @param  x 底数。
- * @param  y 指数；仅支持 y >= 0。
- * @return x 的 y 次幂。
- */
-float Math_Power(float x, int y);
-
-/**
  * @brief  硬符号：按符号返回 ±1。
  * @param  x 输入值。
  * @return x < 0 返回 -1，否则返回 1（含 0 与 NaN 返回 1）。
  */
 float Math_Sign(float x);
-
-/**
- * @brief  取 x 的绝对值并赋予 y 的符号。
- * @param  x 数值来源。
- * @param  y 符号来源；y < 0 取负。
- * @return |x| 带 y 的符号。
- */
-float Math_CopySign(float x, float y);
 
 #endif

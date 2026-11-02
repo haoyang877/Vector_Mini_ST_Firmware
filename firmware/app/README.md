@@ -1,40 +1,28 @@
-# APP组装与运行
+# APP应用层
 
-当前核心范围；[完整模块导航](../../docs/architecture/module_core_responsibilities.md)。
+应用层保留启停、同模式目标、三类标定、实时状态、开机参数装载和必要保护。
+116直接提交现有目标，108/124共用状态读取；见[接口v1.9](../../docs/protocols/yg_protocol_motor_live_v1_9.md)。
+在线参数保存和任务进度仍不提供。
 
-从[app.h](composition/app.h)开始读；只向芯片入口公开四个应用调用：
-
-完整调用流程及2kHz执行次序评审统一维护在[软件架构主流程](../../docs/architecture/software_architecture.md)。
-
-| 入口 | 实现 | 调用方与职责 |
+| 模块 | 职责 | 入口 |
 | --- | --- | --- |
-| App_Init | app_startup.c前部 | main完成外设初始化后调用一次：参数/电机、采样、通信依次启动 |
-| App_Process | app_startup.c前部 | main的while循环：后台事务、状态刷新、通信及私有Loader交接 |
-| App_FastTick | app_tasks.c | ADC完整JEOS回调，执行既有20kHz采样、保护和控制/标定 |
-| App_SupervisorTick | app_tasks.c | TIM7回调，执行既有2kHz监督、主状态推进和指示器分频 |
+| composition/app.c | 初始化、前台、快慢调度、看门狗与Loader交接 | [app.h](composition/app.h) |
+| composition/app_protocol.c | 协议绑定、请求/结果映射和只读状态刷新 | [app_protocol.h](composition/app_protocol.h) |
+| runtime/motor_axis.c | 持有单轴对象，执行采样和控制/标定调度 | [motor_axis.h](runtime/motor_axis.h) |
+| runtime/motor_lifecycle.c | 启停、同模式目标、标定会话、状态读取与功率保护 | [motor_lifecycle.h](runtime/motor_lifecycle.h) |
+| motor_state_machine | 五态纯迁移，自检占位 | [motor_state_machine.h](motor_state_machine/motor_state_machine.h) |
+| interfaces | 核心状态值、停机请求和实际关相确认 | [说明](interfaces/README.md) |
 
-随后阅读runtime/motor_axis.c的Init、FastTick、SupervisorTick和ServiceBackground，
-再从MotorStateMachine_PrepareSupervisor及CommitSupervisor进入同一主状态机。四入口是执行上下文边界，不增加线程或调度器。
+两板main依次调用Bsp_Init、App_Init、Bsp_Start、App_Start，前台循环调用App_Process。
+main的ADC回调进入App_FastTick；BSP监督回调进入App_SupervisorTick。
+20kHz快环先完成采样，再执行当前控制或标定；2kHz监督完成状态检查、外环和安全提交。
+前台依次处理标定候选发布、状态刷新、通信、Loader交接和健康监督。
 
-| 目录 | 职责 | 阅读入口 |
-| --- | --- | --- |
-| composition | 四个公开入口；后台编排、协议与所有者绑定，以及母线电流测量的校零、滤波和状态装配 | [app.h](composition/app.h)、[app_startup.c](composition/app_startup.c)、[bus_current_feedback.c](composition/bus_current_feedback.c) |
-| runtime | 单轴对象、控制/维护调度、参数事务和固定工作区 | [motor_axis.c](runtime/motor_axis.c) |
-| motor_state_machine | 唯一生命周期、启停准入、故障及资源归还 | [motor_state_machine.c](motor_state_machine/motor_state_machine.c) |
+三类标定通过通信160的kind 1、2、6进入生命周期，完成后关相回空闲；
+编码器LUT候选在前台核对原会话并发布。标定结果仅更新RAM，不自动写Flash。
+看门狗独立核对快慢拍是否推进；Loader确认和交接保留健康、超时及最终关相复核。
 
-20kHz快拍执行采样、保护及一拍控制/标定；2kHz慢拍先更新输入及状态，再计算获准外环副本，最后复核并提交。
-前台处理通信和停机SAVE，Flash不在ISR执行。
-runtime不实现外环、热模型或ADC计数处理：分别调用motor控制执行、保护及采样接口，
-只传入所属对象和当前事实。命令格式/范围校验仍归APP，不反向引入motor算法。
-单轴对象保留Watch可见全局符号，跨模块写入仍通过请求或显式借用对象。
-状态机上下文拥有迁移；控制器拥有积分/滤波；维护任务拥有标定内部阶段。
-固定工作区仅由编码器采样与参数记录互斥使用，不包含齿槽候选或heap。
-RTT、组合计划、运行租约、摩擦/电阻辨识和齿槽任务已删除。
+运行对象仅由Axis持有，生命周期拥有运行状态；控制算法留在motor，硬件操作经BSP。
+协议层只接收值对象和明确服务，不读取Watch对象或持有可写电机对象。
 
-详见[主状态机](../../docs/architecture/motor_state_machine_v1.md)、
-[控制执行](../../docs/architecture/motor_execution_core_v3.md)、
-[维护](../../docs/architecture/motor_maintenance_core_v3.md)、
-[四类参数](../../docs/architecture/parameter_ownership_v1.md)。
-
-两板的真实main位于各自platform/application目录，调用同一套App接口；
-平台实现归相邻platform_app.c，入口装配声明归app_platform.h，app.h只保留四个App入口。
+在线参数读写和修订号已删除，协议返回UNSUPPORTED；见[核心v1.8](../../docs/protocols/yg_protocol_core_v1_8.md)。

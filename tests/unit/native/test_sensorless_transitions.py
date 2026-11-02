@@ -22,7 +22,7 @@ PRELUDE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "motor_command.h"
+#include "motor_lifecycle.h"
 #include "motor_control.h"
 #include "sensorless_startup.h"
 #include "speed_control.h"
@@ -33,7 +33,6 @@ PRELUDE = r"""
 static MotorConfiguration configuration;
 static MotorControlState motor;
 static FocState foc;
-static MotorMeasurement measurement;
 static PiController pi;
 static FluxObserverState observer;
 static SensorlessStartupState startup;
@@ -45,8 +44,8 @@ void MotorFault_Report(MotorControlState *m, MotorFaultCode e) { m->fault_code=e
 void Foc_ResetCurrent(FocState *f) {
     PiController_Reset(&f->id_pi); PiController_Reset(&f->iq_pi);
 }
-void Foc_RunCurrent(const MotorConfiguration *configuration, FocState *f, const MotorMeasurement *measurement, MotorControlState *m, float phase, float velocity) {
-    (void)measurement;
+void Foc_RunCurrent(const MotorConfiguration *configuration, FocState *f, MotorControlState *m, float phase, float velocity) {
+    (void)f;
     (void)configuration; (void)f;
     float offset=phase-observer.electrical_angle_rad;
     applied_observer_iq=m->id_target_a*sinf(offset)+m->iq_target_a*cosf(offset);
@@ -104,7 +103,7 @@ static void setup(void) {
     startup.speed_feedback_rad_s=motor.speed_target_rad_s;
     current_calls=stop_calls=0; pwm_enabled=true;
 }
-static void tick(void) { SensorlessStartup_Run(&configuration,&foc, &measurement,&motor,&pi,&observer,&startup,cfg); }
+static void tick(void) { SensorlessStartup_Run(&configuration,&foc,&motor,&pi,&observer,&startup,cfg); }
 static void enter_handoff(float direction, float phase_delta) {
     setup(); motor.speed_target_rad_s*=direction; motor.speed_ramped_rad_s=motor.speed_target_rad_s;
     observer.electrical_velocity_rad_s*=direction;
@@ -209,6 +208,7 @@ def main():
             compiler
             + ["-I", str(out)]
             + NATIVE_INCLUDE_FLAGS
+            + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
             + [
                 "-std=c99",
                 "-O1",

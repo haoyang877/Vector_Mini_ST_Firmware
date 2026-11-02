@@ -1,72 +1,50 @@
-"""仅编译真实绕组热保护、纯核与FOC入口；不访问硬件。"""
+"""编译真实热纯核及当前关闭热调度的兼容入口；不强开退役运行功能。"""
 
-import argparse
-import subprocess
-from pathlib import Path
-
-from run_position_servo_tests import NATIVE_INCLUDE_FLAGS, ROOT
+from _bsp_test_support import ROOT, arguments, run_c
 
 
 def main() -> None:
-    """编译一次，在各自冷启动进程中执行热模型、调度及功率策略边界。"""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cc", required=True, type=Path)
-    parser.add_argument("--out", type=Path, default=ROOT / "outputs/motor_thermal")
-    args = parser.parse_args()
-    output = args.out.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    executable = output / "motor_thermal.exe"
-    compiler = [str(args.cc)] + (["cc"] if args.cc.stem.lower() == "zig" else [])
-    command = (
-        compiler
-        + NATIVE_INCLUDE_FLAGS
-        + [
-            "-std=c99",
-            "-O1",
-            "-UNDEBUG",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            str(ROOT / "tests/unit/motor_thermal_test.c"),
-            str(ROOT / "firmware/motor/protection/motor_thermal.c"),
-            str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
-            str(ROOT / "firmware/motor/protection/motor_thermal_control.c"),
-            str(ROOT / "firmware/motor/control/foc.c"),
-            str(ROOT / "firmware/motor/control/foc_output.c"),
-            str(ROOT / "firmware/motor/control/pi_controller.c"),
-            str(ROOT / "firmware/motor/math/control_math.c"),
-            "-lm",
-            "-o",
-            str(executable),
-        ]
-    )
-    logs = []
-    for invocation in [command] + [
-        [str(executable), name]
-        for name in ("core", "runtime", "watchdog", "protection", "foc", "submission")
-    ]:
-        result = subprocess.run(invocation, capture_output=True, text=True, check=False)
-        logs.append(result.stdout + result.stderr)
-        (output / "test.log").write_text("\n".join(logs), encoding="utf-8")
-        print(logs[-1], end="")
-        result.check_returncode()
-    disabled = output / "motor_thermal_disabled.exe"
-    disabled_command = command[:-2] + [
-        "-DFIRMWARE_TARGET_AT32_COMMISSIONING=1",
-        "-o",
-        str(disabled),
+    """保留物理配置、热历史和瞬时电压模式限流保护检查。"""
+    args = arguments(__doc__)
+    sources = [
+        ROOT / path
+        for path in (
+            "tests/unit/motor_thermal_test.c",
+            "firmware/motor/protection/motor_thermal.c",
+            "firmware/motor/protection/motor_thermal_config.c",
+            "firmware/motor/protection/motor_thermal_control.c",
+        )
     ]
-    subprocess.run(disabled_command, check=True)
-    subprocess.run([str(disabled), "disabled"], check=True)
-    subprocess.run([str(disabled), "submission"], check=True)
-    rejected = subprocess.run(
-        command + ["-DAPP_ENABLED_WINDING_THERMAL_MODEL=0"],
-        capture_output=True,
-        text=True,
-        check=False,
+    run_c(
+        args,
+        "motor_thermal",
+        "#define FOC_ACTIVE_MOTOR_PROFILE 1\n",
+        1,
+        ["-DFOC_ACTIVE_MOTOR_PROFILE=1", *sources],
     )
-    if rejected.returncode == 0 or "requires the bounded AT32" not in rejected.stderr:
-        raise RuntimeError("Unbounded thermal-disable configuration was not rejected")
+    run_c(
+        args,
+        "unconfigured_thermal",
+        r"""
+#include <assert.h>
+#include <stdio.h>
+#include "motor_thermal_config.h"
+int main(void) {
+    MotorWindingThermalConfig config;
+    MotorThermalConfig derived;
+    MotorWindingThermal_Default(&config);
+    assert(config.continuous_vector_a==0 && config.peak_a==0);
+    assert(!MotorWindingThermal_Derive(&config,&derived));
+    puts("PASS YQ missing thermal inputs rejected; no invented calibration defaults");
+    return 0;
+}
+""",
+        2,
+        [
+            ROOT / "firmware/motor/protection/motor_thermal_config.c",
+            ROOT / "firmware/motor/protection/motor_thermal.c",
+        ],
+    )
 
 
 if __name__ == "__main__":

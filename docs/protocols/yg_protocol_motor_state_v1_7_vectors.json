@@ -1,0 +1,14 @@
+{
+  "version": "1.7",
+  "byte_order": "little",
+  "vectors": [
+    {
+      "name": "target_unsupported",
+      "payload_hex": "02000000"
+    },
+    {
+      "name": "minimal_state",
+      "payload_hex": "000000000000000000000080000000800000008000000080000000800080008000800080008000800080030500"
+    }
+  ]
+}

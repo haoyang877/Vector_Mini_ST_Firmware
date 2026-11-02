@@ -3,11 +3,12 @@
 
 #include <stdint.h>
 #include "motor_config.h"
+#include "coordinate_types.h"
 
 typedef struct
 {
-    float voltage_alpha_v, voltage_beta_v;
-    float current_alpha_a, current_beta_a;
+    AlphaBetaVector voltage_ab_v;
+    AlphaBetaVector current_ab_a;
 
     float sin, cos;
 
@@ -84,18 +85,15 @@ void FluxObserver_Init(FluxObserverState *flux_observer);
 /**
  * @brief  执行一次磁链观测器更新。
  * @param model 只读电机模型；使用相电阻、d/q电感和磁链，本次调用期间须保持稳定。
- * @param current_alpha_a 本拍α轴电流，单位A。
- * @param current_beta_a 本拍β轴电流，单位A。
- * @param voltage_alpha_v 作用于本拍采样的α轴电压，单位V，已由调用方结合母线电压换算。
- * @param voltage_beta_v 作用于本拍采样的β轴电压，单位V，已由调用方结合母线电压换算。
+ * @param current_ab_a 本拍只读α/β电流向量，单位A，调用期间有效。
+ * @param voltage_ab_v 本拍只读α/β实际电压向量，单位V，已由调用方结合母线电压换算。
  * @param flux_observer 调用方持有的观测器状态；仅修改此对象。
- * @note 在20kHz快速环调用；模型无效或积分/角度非有限时复位状态并推进位置纪元。
+ * @note 在20kHz快速环调用，不保留输入指针，输入不可与输出状态重叠。
+ *       模型无效或积分/角度非有限时复位状态并推进位置纪元。
  */
 void FluxObserver_Update(const MotorModelConfig *model,
-                         float current_alpha_a,
-                         float current_beta_a,
-                         float voltage_alpha_v,
-                         float voltage_beta_v,
+                         const AlphaBetaVector *current_ab_a,
+                         const AlphaBetaVector *voltage_ab_v,
                          FluxObserverState *flux_observer);
 
 /**

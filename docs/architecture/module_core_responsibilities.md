@@ -7,7 +7,7 @@
 `motor/protection/motor_thermal_control`持有热历史并处理显式采样/监督事件，`motor_axis`
 负责调度，STOP/CLEAR/DEFAULTS不重置热量。`motor/control/speed_feedforward`只做可选目标
 整形与惯量电流计算，规划状态由既有`s_outer`独占；前馈默认关闭。
-配置归原model/application分组，保存及兼容见[schema13](../protocols/parameter_schema13_delivery_v1.md)。
+配置归原model/application分组，保存及兼容见[schema13](../../firmware/parameters/README.md#storage)。
 
 ## 先看完整流程
 
@@ -35,7 +35,7 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 | [维护与标定](motor_maintenance_core_v3.md) | 已退役，不再提供标定、保存或任务进度 | 旧Flash记录仍可读取 |
 | [参数](parameter_ownership_v1.md) | 默认值、RAW记录、标量请求 → 装载/校验/事务 → 活动配置及保存结果 | Axis持有值，事务模块持有revision与重试记录 |
 | [反馈与保护](../../firmware/motor/README.md) | 角度、电流、电压和温度 → 校正/估计/故障判定 → 测量及故障事实 | 不创建第二份生命周期 |
-| [通信](communication_layering.md) | CAN FD帧 → 共享codec/业务映射 → 所有者请求与回复 | 不直接修改电机对象或访问PWM/Flash |
+| [通信](../protocols/README.md#implementation) | CAN FD帧 → 共享codec/业务映射 → 所有者请求与回复 | 不直接修改电机对象或访问PWM/Flash |
 | [平台](../../firmware/platform/bsp/include) | 能力调用 → BSP/ports执行I/O → 值、时间与失败结果 | HAL、寄存器和硬件变体只在平台 |
 | [Loader](loader/loader_product_v3.md) | 匹配目标的镜像 → 边界/CRC/提交/试运行 → 启动或恢复升级 | 独立产品；升级会话不等于电机运行会话 |
 | [shared](../../shared/README.md) | 跨产品字节和值 → 纯编解码/契约 → 统一数据 | 不依赖APP或HAL，不拥有运行电机 |

@@ -12,7 +12,7 @@
 - 未配置设备使用有效节点 1；默认速度保持 0.5 rev/s，避免新节点套用更大的轮子默认硬上限。
 
 [详细设计](../../architecture/motor_readiness_v1.md)、
-[存储契约](../../protocols/parameter_schema12_loading_policy_v1.md)、
+[存储契约](../../../firmware/parameters/README.md#storage)、
 [执行与回退](../../plans/completed/2026-09-29-self-test-readiness-v1.md)。
 
 ## 验证与容量

@@ -48,12 +48,6 @@ void McuCan_Init(void);
 void Adc_Start(void);
 /** @brief 关闭采样触发并等待当前转换停止；Flash事务调用，不维护恢复状态。 */
 void Adc_Stop(void);
-/**
- * @brief 确认本拍硬件ADC完成事件。
- * @return 本拍完成为true，否则false。
- * @note ADC中断调用，按本板IRQ顺序清除硬件完成位。
- */
-bool Adc_CompleteFast(void);
 /* Flash初始化 */
 /**
  * @brief 在芯片准备完成后建立固定存储区的访问资格。
@@ -62,13 +56,21 @@ bool Adc_CompleteFast(void);
  */
 bool Flash_Init(void);
 
+/**
+ * @brief AT32停机Flash事务切换有界看门狗窗口，结束时恢复原重载值。
+ * @param saving true进入事务，false退出；必须成对调用。
+ * @return 未启用看门狗或切换并核对成功为true，否则false。
+ * @note 仅已关相且全中断屏蔽的前台；等待硬件期间不循环喂狗，不启动看门狗。
+ */
+bool McuSystem_SetFlashWatchdog(bool saving);
+
 /* AT32启动编排；测试入口与完整APP复用初始化顺序。 */
 /** @brief 准备系统时钟、PWM和监督定时器。
- * @return 首次初始化成功返回true，否则false。
+ * @note 外设初始化按默认成功处理；前台一次调用，等待时钟就绪后继续。
  */
-bool McuSystem_Init(void);
+void McuSystem_Init(void);
 /** @brief 开放时基和采样载波，不修改六路输出位。
- * @return 首次启动成功返回true，否则false。
+ * @note 仅在McuSystem_Init之后由前台一次调用，不提供初始化错误返回。
  */
-bool McuSystem_Start(void);
+void McuSystem_Start(void);
 #endif /* BSP_INTERNAL_H */

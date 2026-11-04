@@ -81,28 +81,30 @@ def board_orchestration_fixture(source: str | None = None) -> str:
 #include "bsp_system.h"
 static unsigned order[24],count;
 static bool s_communication_ready,ready=true,s_watchdog_enabled;
-static volatile uint32_t s_fast_samples,s_supervisor_ticks;
+volatile uint32_t g_app_fast_samples;
+static volatile uint32_t s_supervisor_ticks;
 static uint32_t s_watchdog_last_ms,s_watchdog_last_fast,s_watchdog_last_slow;
 static void log_step(unsigned n) { order[count++]=n; }
 static void MotorAxis_Init(void) { log_step(1); }
 static unsigned MotorAxis_NodeId(void) { return 7; }
-static bool YgProtocolRuntime_Init(unsigned n) { assert(n==7);log_step(2);return ready; }
-static bool AppProtocol_Init(void) { log_step(3);return ready; }
+static bool Protocol_Init(unsigned n) { assert(n==7);log_step(2);return ready; }
 static bool bind_device_description(void) { log_step(4);return ready; }
-static bool YgProtocolRuntime_Start(void) { log_step(5);return ready; }
+static bool Protocol_Start(void) { log_step(5);return ready; }
 BspResult BspWatchdog_Start(void) { log_step(6);return BSP_OK; }
 uint32_t BspSystem_TimeMs(void) { log_step(7);return 123; }
 static void BspPwm_Disable(void) { log_step(8); }
 static void halt_disabled(void) { assert(false); }
 """
+        + function_source(source, "start_watchdog")
         + function_source(source, "App_Init")
         + function_source(source, "App_Start")
         + r"""
 int main(void) {
- s_fast_samples=s_supervisor_ticks=9;
- App_Init();assert(count==4 && s_communication_ready && s_fast_samples==0 && s_supervisor_ticks==0);
- App_Start();assert(count==7 && s_watchdog_enabled && s_watchdog_last_ms==123);
- for(unsigned i=0;i<7;i++) assert(order[i]==i+1);
+ g_app_fast_samples=s_supervisor_ticks=9;
+ App_Init();assert(count==3 && s_communication_ready && g_app_fast_samples==0 && s_supervisor_ticks==0);
+ App_Start();assert(count==6 && s_watchdog_enabled && s_watchdog_last_ms==123);
+ const unsigned expected[]={1,2,4,5,6,7};
+ for(unsigned i=0;i<6;i++) assert(order[i]==expected[i]);
  count=0;ready=false;App_Init();assert(!s_communication_ready && count==3 && order[2]==8);
  App_Start();assert(count==6 && order[3]==8 && order[4]==6 && order[5]==7);
  puts("PASS app binding order, watchdog startup and failed communication shuts output");return 0;
@@ -193,6 +195,53 @@ int main(void) {
     )
 
 
+def at32_lifecycle_fixture() -> str:
+    """验证AT32无启动状态缓存的初始化顺序及独立看门狗重复启动保护。"""
+    source = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf-8")
+    return (
+        r"""
+#include <assert.h>
+#include <stdio.h>
+#include "bsp.h"
+#include "board_config.h"
+static unsigned trace[8],count,watchdog_calls;
+static bool s_watchdog_started,watchdog_ok=true;
+static void step(unsigned value) { assert(count<8U);trace[count++]=value; }
+static bool BootHw_Init(void) { step(1);return false; }
+static void McuSystem_Init(void) { step(2); }
+static void McuCan_Init(void) { step(3); }
+static void McuAdc_Init(void) { step(4); }
+static bool Flash_Init(void) { step(5);return true; }
+static void McuEncoder_Init(void) { step(6); }
+static void Adc_Start(void) { step(7); }
+static void McuSystem_Start(void) { step(8); }
+static bool watchdog_init(void) { ++watchdog_calls;return watchdog_ok; }
+"""
+        + function_source(source, "Bsp_Init")
+        + function_source(source, "Bsp_Start")
+        + function_source(source, "BspWatchdog_Start")
+        + r"""
+static void expect_trace(const unsigned *expected,unsigned length) {
+ assert(count==length);
+ for(unsigned i=0U;i<length;++i) { assert(trace[i]==expected[i]); }
+}
+int main(void) {
+ const unsigned ok[]={1,2,3,4,5,6,7,8};
+ assert(Bsp_Init()==BSP_OK && count==6U);
+ assert(Bsp_Start()==BSP_OK);
+ expect_trace(ok,8U);
+ watchdog_ok=false;
+ assert(BspWatchdog_Start()==BSP_IO_ERROR && !s_watchdog_started && watchdog_calls==1U);
+ watchdog_ok=true;
+ assert(BspWatchdog_Start()==BSP_OK && s_watchdog_started && watchdog_calls==2U);
+ assert(BspWatchdog_Start()==BSP_NOT_READY && watchdog_calls==2U);
+ puts("PASS AT32 lifecycle: no startup state, ordered initialization, independent watchdog guard");
+ return 0;
+}
+"""
+    )
+
+
 def main() -> None:
     """只构建基础位置和真实板级初始化的主机夹具，无硬件访问。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -245,6 +294,7 @@ def main() -> None:
         ("platform_init_test", platform_init_fixture()),
         ("board_startup_test", board_startup_fixture()),
         ("board_orchestration_test", board_orchestration_fixture()),
+        ("at32_lifecycle_test", at32_lifecycle_fixture()),
     ):
         path = out / (name + ".c")
         path.write_text(fixture, encoding="utf-8")

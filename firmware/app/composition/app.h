@@ -1,6 +1,14 @@
 #ifndef APP_H
 #define APP_H
 
+#include <stdint.h>
+
+/**
+ * @brief 已完成的轴快环次数，供应用看门狗观察进展。
+ * @note 仅ADC快环完成后递增；App_Init在开放采样前清零，前台只读，无符号回绕。
+ */
+extern volatile uint32_t g_app_fast_samples;
+
 /**
  * @brief 装载配置、初始化电机和通信对象，不开放采样或功率输出。
  * @note main完成芯片外设初始化后调用一次；随后由main通过Bsp_Start开放采样。
@@ -20,12 +28,6 @@ void App_Start(void);
  *       通信和交接分别读取当时毫秒时钟，不能合并为提前捕获的时间快照。
  */
 void App_Process(void);
-
-/**
- * @brief 执行一次20 kHz电机快环及应用采样计数。
- * @note 由main.c的ADC完成回调在中断上下文调用；不阻塞或执行Flash操作。
- */
-void App_FastTick(void);
 
 /**
  * @brief 执行一次2 kHz电机监督及主状态推进。

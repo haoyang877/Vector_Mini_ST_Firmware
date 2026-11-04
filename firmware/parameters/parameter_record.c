@@ -227,7 +227,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     }
     current_sense_profile_changed =
         param->current_sense_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
-    if (param->encoder_reverse > 1U || (param->encoder_calib_flag & ~ENC_CALIB_ALL) != 0U)
+    if (param->encoder_reverse > 1U ||
+        (param->encoder_calib_flag & ~(ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO)) != 0U)
     {
         Param_Return_Default(configuration);
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;

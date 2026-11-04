@@ -132,7 +132,7 @@ class LoaderPackageTests(unittest.TestCase):
         """跨端黄金向量必须引用同一清单，nonce以载荷小端传输。"""
         image = json.loads(GOLDEN.read_text(encoding="utf-8"))
         wire = json.loads(
-            (ROOT / "docs/protocols/yg_protocol_upgrade_wire_v3_vectors.json").read_text(
+            (ROOT / "tests/fixtures/protocol/yg_protocol_upgrade_wire_v3_vectors.json").read_text(
                 encoding="utf-8"
             )
         )

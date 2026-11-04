@@ -38,4 +38,4 @@
 主状态为 INIT、IDLE、STARTING、RUNNING、MAINTENANCE、STOPPING、FAULT、FATAL。
 INIT／IDLE STOP 保持原状态；停止完成与 CLEAR 成功直接 IDLE；FATAL 没有软件恢复出口。
 不再观察已删除的 tested 字段；INIT 的期限和连续健康窗口不因 STOP 重启。
-Watch 内部状态数值不能当作 CAN 枚举，当前契约见[状态恢复 v1.2](../../protocols/yg_protocol_motor_state_v1_2.md)。
+Watch 内部状态数值不能当作 CAN 枚举，当前契约见[状态恢复 v1.2](../../protocols/README.md#feedback)。

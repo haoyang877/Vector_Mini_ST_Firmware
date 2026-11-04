@@ -88,7 +88,7 @@ extern "C"
 
     /**
      * @brief 按目标配置启动应用看门狗。
-     * @return 启动为BSP_OK；未启用为NOT_SUPPORTED；未初始化或已启动为NOT_READY。
+     * @return 启动为BSP_OK；未启用为NOT_SUPPORTED；已启动为NOT_READY；硬件配置失败为IO_ERROR。
      * @note 启动前台一次，保留原时点和重装参数；不得重配Loader继承的看门狗。
      */
     BspResult BspWatchdog_Start(void);

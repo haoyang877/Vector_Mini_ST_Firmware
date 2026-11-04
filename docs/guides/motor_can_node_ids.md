@@ -7,7 +7,7 @@ APP要求1～254的有限精确整数。CAN在启动时用该地址配置端点�
 默认救援地址仍为1，已保存配置使用其显式node。地址分配需避开当前主控和其他设备，
 不能以roll=3、pitch=4、wheel_right=2等旧映射推断地址。
 旧record如roll/node7，旧APP实际用3、Loader用7；新APP/Loader均用7，可能改变现有连接地址。
-应用运行限值也不再由节点决定。完整前后例子见[地址与应用包络v2](../protocols/parameter_node_application_v2.md)。
+应用运行限值也不再由节点决定。完整前后例子见[地址与应用包络v2](../../firmware/parameters/README.md#storage)。
 
 现有协议使用公司 CAN FD：29 位扩展 ID、FD+BRS、1 Mbit/s 仲裁段和 5 Mbit/s 数据段。
 节点 ID 是地址字段，不是完整 CAN ID 或业务 Type；已删除旧 `(node << 8) | 参数号` 规则。
@@ -18,7 +18,7 @@ CAN ID 还包含方向、优先级及业务标识，按共享编解码契约生�
 Type 108 查询状态，Type 116 提交控制目标，Type 124 返回 45 B 电机反馈；
 逐命令反馈中的关联序列号与反馈帧自己的 header seq 分开。
 旧 48 B 状态流及其 `0x64/0x65` 启停指令已经删除。
-当前载荷、单位和结果语义见 [电机线路契约](../protocols/yg_protocol_motor_wire_v1.md)。
+当前载荷、单位和结果语义见 [电机线路契约](../protocols/README.md#control)。
 
 协议文档的示例范围不能覆盖现场配置；部署与回退都应核对记录中的显式node和匹配镜像。
 本轮仅更改软件装载策略，没有写入设备或改变Flash记录。

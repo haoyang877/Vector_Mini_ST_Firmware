@@ -7,11 +7,13 @@
 #include "encoder_feedback.h"
 #include "control_math.h"
 #include "motor_config.h"
+#include "bsp_encoder.h"
 
 static uint16_t s_raw_q15;
 
-uint16_t BspEncoder_ReadAngle(void)
+uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution)
 {
+    assert(resolution == BSP_ENCODER_16BIT);
     return s_raw_q15;
 }
 

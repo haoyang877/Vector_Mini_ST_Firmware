@@ -1,7 +1,7 @@
 # 电机驱动软件架构
 
 更新：2026-10-30。本页描述当前工作树，旧阶段报告不代表当前行为或实机验收。
-目录归属见[代码框架](code_structure.md)，协议开放范围见[核心 v1.8](../protocols/yg_protocol_core_v1_8.md)。
+目录归属见[代码框架](code_structure.md)，协议开放范围见[核心 v1.8](../protocols/README.md#implementation)。
 
 ## 结构与所有权
 
@@ -31,7 +31,7 @@ BSP 先准备关相硬件，APP 再装载配置和绑定服务，之后才开放
 
 | 上下文 | 入口 | 顺序 |
 | --- | --- | --- |
-| 20 kHz ADC | BspApp_OnFastSample → App_FastTick | 编码器 Begin、母线电压、零偏/电流、Clarke、观测器、编码器读回、生命周期复核、控制或标定、结果与故障关相 |
+| 20 kHz ADC | main直接调用（AT32）或HAL回调（STM32） → MotorAxis_SampleFast → MotorAxis_ControlFast | 编码器 Begin、母线电压、零偏/电流、Clarke、观测器、编码器读回、生命周期复核、控制或标定、结果与故障关相 |
 | 2 kHz 监督 | BspApp_OnControlTick → App_SupervisorTick | 编码器慢估计、MCU 温度、STOP/故障/标定收尾、外环计算和最终提交 |
 | 前台 | App_Process | LUT 候选发布、状态刷新、协议服务、Loader 交接、看门狗健康检查 |
 

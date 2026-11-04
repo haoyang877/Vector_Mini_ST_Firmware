@@ -144,7 +144,7 @@ outputs/reviews/loader-simplification-20260928/native-review.log、review_probe.
 另修复ACTIVATE后整包复核失败仍显示VERIFIED的问题，现转ERROR/DIGEST且不复位；
 ENTER邮箱node改为本机节点，与字段含义一致。保留无持久ACTIVATE门槛的简化取舍，
 不新增日志页，不承诺掉电续传、签名认证或旧镜像自动回滚。
-协议/迁移和黄金向量见[载荷v2](../../archive/protocols/yg_protocol_upgrade_wire_v2.md)。
+协议/迁移和黄金向量见[载荷v2](../../protocols/README.md#upgrade)。
 
 验收命令通过工作树已有`.venv`执行（此机未提供uv命令）；不安装依赖、不接触硬件。
 

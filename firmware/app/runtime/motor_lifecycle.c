@@ -100,7 +100,7 @@ static void stop_motor(MotorStateEvent event)
     BspPwm_Disable();
     if (calibration_was_active)
     {
-        EncoderCalibrationTask_Cancel();
+        EncoderCalibration_Cancel();
     }
     s_context.motor->control_mode = MOTOR_CONTROL_NONE;
     clear_running_data();
@@ -464,7 +464,7 @@ MotorControlResult MotorLifecycle_RequestCalibration(MotorCalibrationType calibr
         result = MOTOR_CONTROL_FAULT;
     }
     else if (s_context.enable_pending || s_context.stop_pending || s_context.starts_locked ||
-             !EncoderCalibrationTask_IsReleased())
+             !EncoderCalibration_IsIdle())
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -570,8 +570,7 @@ static bool clear_fault(void)
 {
     MotorFaultCode fault = (MotorFaultCode)s_context.motor->fault_code;
     if (s_context.fault_locked || !BspPwm_ArePhasesDisabled() || !state_inputs_valid() ||
-        !EncoderCalibrationTask_IsReleased() ||
-        !ParameterValue_ConfigurationValid(s_context.configuration))
+        !EncoderCalibration_IsIdle() || !ParameterValue_ConfigurationValid(s_context.configuration))
     {
         return false;
     }

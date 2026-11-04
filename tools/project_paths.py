@@ -42,10 +42,8 @@ NATIVE_INCLUDE_DIRS = (
     "firmware/motor/protection",
     "firmware/app/interfaces",
     "firmware/parameters",
-    "firmware/communication/can",
-    "firmware/communication/commands",
+    "firmware/communication",
     "firmware/platform/bsp/include",
-    "firmware/communication/telemetry",
     "firmware/platform/bsp",
     "firmware/platform/bsp/mcu/stm32g4",
 )

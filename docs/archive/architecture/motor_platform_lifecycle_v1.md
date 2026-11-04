@@ -60,8 +60,8 @@ SAVE 是独立 MAINTENANCE 会话，RAM 完成不等于持久保存。
 | SAVE 前台 | `BeginBackground`／`BackgroundValid`／`FinishBackground`；只认领当前 SAVE，真实归还后记录结果 |
 | Loader 交接 | `RequestBootStop`／`BootHandoffReady`；持票据禁止新工作，IDLE 或 FAULT 下确认关相及释放后交接 |
 
-载荷见[普通启动 v0.2](../../protocols/yg_protocol_ordinary_start_wire_v0_2.md)、
-[单项维护 v1.2](../../protocols/yg_protocol_calibration_wire_v1_2.md)及[状态反馈 v1.2](../../protocols/yg_protocol_motor_state_v1_2.md)。
+载荷见[普通启动 v0.2](../../protocols/README.md#control)、
+[单项维护 v1.2](../../protocols/README.md#parameters)及[状态反馈 v1.2](../../protocols/README.md#feedback)。
 控制量分别为 A、rad/s、rad、V；CURRENT 不代表新增 Nm 力矩换算。
 
 ## 退役和验证边界

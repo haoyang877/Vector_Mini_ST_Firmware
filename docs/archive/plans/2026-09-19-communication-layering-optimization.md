@@ -4,7 +4,7 @@
 
 日期：2026-09-19。状态：**S0–S4、S6 已实施并提交；S5 未执行（用户裁决为"需先出最坏时延分析
 并授权实机 CAN 回归"）**。
-依据：[通信分层说明（CAN 接入）](../../architecture/communication_layering.md)的三层划分
+依据：[通信分层说明（CAN 接入）](../../protocols/README.md#implementation)的三层划分
 （协议约定 / 协议实现 / 耦合）。自评结论见 §13（按用户要求由主会话自行评审，未使用外部评审代理）。
 
 ## 1. 意图
@@ -411,7 +411,7 @@ S3/S4 的提交边界说明：`interface_can.{c,h}` 在 S3 被整体重写（同
 **开工前置**
 
 1. 读 §1 意图、§3 不变行为、§5 目标结构、§6 阶段、§7 夹具清单、§8 决策点、§11 验收；
-2. 读 [通信分层说明](../../architecture/communication_layering.md)与
+2. 读 [通信分层说明](../../protocols/README.md#implementation)与
    [硬件边界收口](2026-09-19-hardware-boundary-closure.md)（S1 = 其 T3，不得重新设计）；
 3. 顺序 S0 → S1 → S2 → S3 → S4 → S6；**S5 不执行**。
 

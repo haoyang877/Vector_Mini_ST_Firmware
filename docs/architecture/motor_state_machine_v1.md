@@ -45,8 +45,8 @@ ADC只在当前请求代际和许可匹配时启相。STOP先撤销许可、关�
 迟到的完成或发布结果不能影响新请求。三类标定只改变RAM配置，不自动写Flash。
 
 调用示例见[标定请求接口](../guides/motor_calibration_request.md)，
-状态在线路上的映射见[标定接入语义v1.5](../protocols/yg_protocol_motor_state_v1_5.md)。
-三类通信启动见[标定通信v1.6](../protocols/yg_protocol_calibration_v1_6.md)。
+状态在线路上的映射见[标定接入语义v1.5](../protocols/README.md#feedback)。
+三类通信启动见[标定通信v1.6](../protocols/README.md#parameters)。
 
 监督准备、外环计算和提交现由MotorLifecycle_SupervisorTick一次完成。目标命令、启动资格明细和测量快照已删除，状态接口仅保留模式/故障/主状态。
 

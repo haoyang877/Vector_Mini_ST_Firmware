@@ -23,15 +23,18 @@ firmware/platform/
 
 应用入口在`projects/<board>/application/main.c`，流程统一为
 `Bsp_Init → App_Init → Bsp_Start → App_Start → App_Process`。
-两板main.c显式定义ADC应用入口`BspApp_OnFastSample → App_FastTick`；
-MCU确认ADC完成后在中断上下文调用，硬件标志处理仍归MCU。
+两板main.c集中定义ADC、监督及SysTick向量，通过工程包含路径引用各MCU目录的interrupt_map.h。
+AT32 ADC向量通过BspAdc_CompleteFast确认并清标志后，在main直接执行轴快环和健康计数；
+STM32 ADC仍通过BspAdc_HandleInterrupt派发HAL回调，由BspApp_OnFastSample执行相同任务；
+监督事件仍经main中的BspApp_OnControlTick执行应用慢环。
+硬件标志、HAL派发和时基维护仍归MCU，main不访问寄存器。
 BSP初始化时钟及外设、发布采样和中断事件；应用初始化对象、处理协议、控制和健康判定。
 BSP不调用具体协议处理器，不持有电机对象；Axis只提供初始化和快慢环，禁止跨模块extern Watch对象。
 Flash写入的暂停采样、擦写、回读和中断恢复由BSP拥有；应用外层临界区只保护保存任务身份不被取消后继续使用。
 
 ## 模块接口
 
-当前公开面为8个头、39个函数声明（其中3个为应用实现的事件回调）。
+当前公开面为8个头，包含3个应用实现的事件回调及ADC、监督、SysTick的硬件处理入口。
 BootHw_Init和单相PWM仅在根目录内部头声明；已删除闲置微秒时基、复位入口和阶段诊断。
 本轮未编译或运行测试，见[公共接口最简化](../plans/active/2026-10-30-bsp-public-minimal-v1.md)。
 
@@ -105,14 +108,16 @@ bool BspPwm_ArePhasesDisabled(void);
 
 ```c
 void BspEncoder_Begin(void);
-uint16_t BspEncoder_ReadAngle(void);
+uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution);
 ```
 
-Begin发起本拍读取，ReadAngle等待已发起的传输完成并返回0..65535计数域，一圈为65536。
-MT6835取高16位，TLE5012B的15位角度乘2；不施加方向、零位或LUT。
+Begin发起本拍读取，ReadAngle等待传输完成；BSP_ENCODER_16BIT为每圈65536计数，
+BSP_ENCODER_21BIT为每圈2097152计数，均用uint32_t返回。现有控制环固定选择16位。
+MT6835返回高16位或完整21位；TLE5012B原15位左移补零；不施加方向、零位或LUT。
 工程只编译本板MCU的encoder_spi.c，由其直接实现统一接口；不再保留事务/诊断/配置缓存。
 硬件读写和启停归MCU，BSP没有额外Encoder转发实现。
-两板均无CRC、状态和超时检查。本次统一实现尚未测试或编译。
+两板均无CRC、状态和超时检查。位宽选择的离线验证和工程构建见
+[验证记录](../plans/completed/2026-11-03-encoder-output-bits-v1.md)。
 
 ### CAN帧
 

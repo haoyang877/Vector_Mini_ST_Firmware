@@ -1,6 +1,9 @@
 #include "app.h"
 #include "bsp.h"
+#include "bsp_adc.h"
 #include "bsp_pwm.h"
+#include "bsp_system.h"
+#include "interrupt_map.h"
 
 static void startup_failed(void)
 {
@@ -11,13 +14,28 @@ static void startup_failed(void)
     }
 }
 
-/**
- * @brief ADC采样完成后执行应用快环。
- * @note 由MCU在ADC中断上下文调用。
- */
-void BspApp_OnFastSample(void)
+/** @brief 在BSP确认监督事件后执行应用慢环。 */
+void BspApp_OnControlTick(void)
 {
-    App_FastTick();
+    App_SupervisorTick();
+}
+
+/** @brief 将ADC向量交给本板BSP，保留完成确认与回调顺序。 */
+void MCU_ADC_IRQ_HANDLER(void)
+{
+    BspAdc_HandleInterrupt();
+}
+
+/** @brief 将监督定时器向量交给本板BSP。 */
+void MCU_CONTROL_IRQ_HANDLER(void)
+{
+    BspSystem_HandleControlInterrupt();
+}
+
+/** @brief 将1ms时基向量交给本板BSP。 */
+void MCU_SYSTICK_IRQ_HANDLER(void)
+{
+    BspSystem_HandleTickInterrupt();
 }
 
 int main(void)

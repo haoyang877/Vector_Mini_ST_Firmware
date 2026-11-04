@@ -132,7 +132,7 @@ position_acceleration_rad_s2/Dec   = 0.125 × 2π  rad/s²
 
 `speed_limit_rad_s`同时作为运行默认值和硬上限：Flash中更大的旧值在加载时会被限制到`0.5 rev/s`，USB/CAN也拒绝设置超过该值。位置轨迹的`position_maximum_speed_rad_s`默认仍为`0.125 rev/s`，但允许在运行时配置到`0.5 rev/s`；例如内部值`2 rad/s`约等于`0.318 rev/s`，属于有效范围。
 
-schema12 不再提供旧位置增益字段；两个退役槽用于配置确认与记录 CRC，其余旧位置槽保持保留。当前级联位置环参数入口见 [模式3参数指南](mode3_parameter_guide.md)，存储契约见 [schema12 装载策略](../../protocols/parameter_schema12_loading_policy_v1.md)。
+schema12 不再提供旧位置增益字段；两个退役槽用于配置确认与记录 CRC，其余旧位置槽保持保留。当前级联位置环参数入口见 [模式3参数指南](mode3_parameter_guide.md)，存储契约见 [schema12 装载策略](../../../firmware/parameters/README.md#storage)。
 
 > 注意：当前 CAN 参数协议不再暴露 rev/s 或圈数 API。速度载荷为 `int32`、
 > 1 LSB=`0.01 rad/s`，位置载荷为 `int32`、1 LSB=`0.001 rad`；协议层解码后

@@ -6,7 +6,7 @@
 #include "config.h"
 
 /* AT32正式工程的应用装配。 */
-#if defined(FIRMWARE_TARGET_AT32_OFF) || defined(FIRMWARE_TARGET_AT32_COMMISSIONING)
+#if defined(FIRMWARE_TARGET_AT32_OFF)
 #define BSP_APP_LIFECYCLE              1
 #endif
 

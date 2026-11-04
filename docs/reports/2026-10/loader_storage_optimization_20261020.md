@@ -20,7 +20,7 @@ Flash 读回、安全关相、升级超时或失败回退。APP/Loader/CAN 的�
 参数保留 schema12/13 的只读兼容，检查原始整条 CRC 后按旧偏移装载；
 显式保存才使用新格式。schema10 通过离线工具迁移，必须提供快照哈希和已核对的旧布局。
 工具保留有效标定，但清除配置确认；清标定工具仍明确清除零位、表和标定位。
-详细规则见[schema14存储与迁移](../../protocols/parameter_schema14_storage_v1.md)。
+详细规则见[schema14存储与迁移](../../../firmware/parameters/README.md#storage)。
 
 ## 验证证据
 

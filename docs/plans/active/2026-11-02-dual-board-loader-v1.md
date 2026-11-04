@@ -394,5 +394,5 @@ release 要求的干净源码门禁如未满足，应如实记录，不能修改
 
 相关依据：[现有 Loader 设计](../../architecture/loader/loader_product_v3.md)、
 [MCU 适配指南](../../guides/loader_mcu_porting_v1.md)、
-[升级协议 v3](../../protocols/yg_protocol_upgrade_wire_v3.md)、
+[升级协议 v3](../../protocols/README.md#upgrade)、
 [板卡资源](../../hardware/board_resource_registry_v1.md)。

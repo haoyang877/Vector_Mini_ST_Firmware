@@ -5,7 +5,7 @@ from run_position_servo_tests import function_source
 
 
 def main() -> None:
-    """用边界桩记录真实MotorAxis_FastTick，不重写生产分支。"""
+    """用边界桩记录真实采样/控制阶段，不重写生产分支。"""
     args = arguments(__doc__)
     production = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
     source = (
@@ -45,7 +45,8 @@ static MotorTaskResult result(unsigned n) {step(n);return (MotorTaskResult){MOTO
 static void post(MotorTaskResult r,unsigned epoch) {(void)r;assert(epoch==17);step(14);}
 #define MotorLifecycle_PostOutcome(a,b) post(a,b)
 """
-        + function_source(production, "MotorAxis_FastTick")
+        + function_source(production, "MotorAxis_SampleFast")
+        + function_source(production, "MotorAxis_ControlFast")
         + r"""
 int main(void) {
     unsigned cases=0;
@@ -56,7 +57,8 @@ int main(void) {
         selected_state=(MotorState)st; s_current_offset_calibration.complete=complete;
         s_motor_state.control_mode=position ? MOTOR_CONTROL_POSITION : MOTOR_CONTROL_SPEED;
         s_motor_state.fault_code=fault ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
-        count=0;MotorAxis_FastTick();
+        count=0;MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
         unsigned expected[16]={1,2,3},n=3;
         if(selected_state==MOTOR_STATE_IDLE) expected[n++]=4;
         if(complete) expected[n++]=5;

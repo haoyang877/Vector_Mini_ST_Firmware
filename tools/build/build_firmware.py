@@ -25,7 +25,6 @@ def main():
             "r40-openloop-combined",
             "r40-closedloop",
             "r40-app-off",
-            "r40-app-commissioning",
         ),
         default="all",
     )
@@ -44,9 +43,6 @@ def main():
     }
     targets["r40-closedloop"] = ROOT / "projects/at32f456/bench/R40_F456_ClosedLoop.uvprojx"
     targets["r40-app-off"] = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
-    targets["r40-app-commissioning"] = (
-        ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Commissioning.uvprojx"
-    )
     for kind, project in targets.items():
         # all保留既有含义，底层验证镜像只接受显式选择，不能混入APP发布。
         if args.target != kind and not (args.target == "all" and kind == "normal"):

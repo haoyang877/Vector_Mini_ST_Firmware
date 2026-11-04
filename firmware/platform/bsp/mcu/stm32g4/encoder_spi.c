@@ -54,7 +54,7 @@ void BspEncoder_Begin(void)
     *(__IO uint16_t *)&MCU_ENCODER_SPI->DR = 0U;
 }
 
-uint16_t BspEncoder_ReadAngle(void)
+uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution)
 {
     while ((MCU_ENCODER_SPI->SR & SPI_SR_RXNE) == 0U)
     {
@@ -67,5 +67,7 @@ uint16_t BspEncoder_ReadAngle(void)
         (BSP_ENCODER_GPIO_PORT->MODER & ~(3U << (2U * BSP_ENCODER_MOSI_PIN))) |
         (2U << (2U * BSP_ENCODER_MOSI_PIN));
     BSP_ENCODER_GPIO_PORT->BSRR = 1U << BSP_ENCODER_CS_PIN;
-    return (uint16_t)((word & 0x7FFFU) << 1U);
+    uint32_t angle_counts = (uint32_t)(word & 0x7FFFU) << 1U;
+    /* TLE5012B原始只有15位，21位格式只改变计数比例，不增加测量信息。 */
+    return resolution == BSP_ENCODER_21BIT ? angle_counts << 5U : angle_counts;
 }

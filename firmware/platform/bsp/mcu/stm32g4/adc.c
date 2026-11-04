@@ -73,15 +73,10 @@ void Adc_Stop(void)
     MCU_ADC_FAST->ISR = ADC_ISR_JEOS | ADC_ISR_JEOC;
 }
 
-bool Adc_CompleteFast(void)
-{
-    /* HAL完成回调返回后清JEOS，应用读取时寄存器仍保存本拍结果。 */
-    return (MCU_ADC_FAST->ISR & ADC_ISR_JEOS) != 0U;
-}
-
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *adc)
 {
-    if (adc == &MCU_ADC_FAST_HANDLE && Adc_CompleteFast())
+    /* HAL完成回调返回后才清JEOS，应用读取时寄存器仍保存本拍结果。 */
+    if (adc == &MCU_ADC_FAST_HANDLE && (MCU_ADC_FAST->ISR & ADC_ISR_JEOS) != 0U)
     {
         BspApp_OnFastSample();
     }

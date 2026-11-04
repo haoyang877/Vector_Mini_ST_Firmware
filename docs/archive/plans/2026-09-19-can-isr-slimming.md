@@ -5,7 +5,7 @@
 日期：2026-09-19。状态：**立项，待授权实施**（用户已裁决 S5 执行，但按约定必须先完成本
 最坏时延分析与台架授权，本次不动代码）。
 依据：[通信分层优化设计](2026-09-19-communication-layering-optimization.md) §6 S5 与 §8 D3、
-[通信分层说明](../../architecture/communication_layering.md) §3 已接受的偏差。
+[通信分层说明](../../protocols/README.md#implementation) §3 已接受的偏差。
 
 **2026-09-20：已按方案 A 实施**（全部命令统一入队，不保留中断内快速路径）；
 实现记录与证据见 §10。

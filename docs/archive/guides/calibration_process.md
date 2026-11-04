@@ -19,7 +19,7 @@
 
 当前正式入口为 CAN `0x00A0`（160）：kind 1 执行 LUT 线性化，kind 2 执行电角度
 零位；使用 `0x00A1`（161）查询原 ticket。不得通过修改 Watch 的内部模式值启动。
-详见[标定线路契约](../protocols/yg_protocol_calibration_wire_v1.md)。下文旧 USB 模式编号
+详见[标定线路契约](../../protocols/README.md#parameters)。下文旧 USB 模式编号
 仅作历史说明，不表示这些入口仍可用。
 
 原标定任务完成与参数保存完成是两个事实：原 ticket 的 `COMPLETED/UNCOMMITTED`

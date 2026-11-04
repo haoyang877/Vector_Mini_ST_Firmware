@@ -58,12 +58,20 @@ def main() -> None:
     (output / "loader_image_v2_vector.h").write_text(header, encoding="utf-8")
     board = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
     health_fixture = (ROOT / "tests/unit/loader_app_health_test.c").read_text(encoding="utf-8")
-    interval = next(
-        line for line in board.splitlines() if line.startswith("#define BOOT_HEALTH_INTERVAL_MS")
+    intervals = "\n".join(
+        line
+        for line in board.splitlines()
+        if line.startswith(
+            (
+                "#define BOOT_HEALTH_INTERVAL_MS",
+                "#define BOOT_REQUIRED_HEALTHY_INTERVALS",
+                "#define APP_WATCHDOG_INTERVAL_MS",
+            )
+        )
     )
     health_source = output / "app_health.c"
     health_source.write_text(
-        interval
+        intervals
         + "\n"
         + health_fixture
         + "\n"
@@ -71,11 +79,13 @@ def main() -> None:
         + "\n"
         + function_source(board, "confirm_image")
         + "\n"
+        + function_source(board, "service_watchdog")
+        + "\n"
         + function_source(board, "App_Process")
         + "\n"
         + function_source(
             (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8"),
-            "App_FastTick",
+            "BspApp_OnFastSample",
         )
         + "\n"
         + function_source(

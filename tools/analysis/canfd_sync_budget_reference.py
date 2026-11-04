@@ -17,7 +17,7 @@ import struct
 
 from project_paths import ROOT
 
-DOCS = ROOT / "docs/protocols"
+FIXTURES = ROOT / "tests/fixtures/protocol"
 CODEC = runpy.run_path(str(ROOT / "tools/analysis/protocol_vectors_reference.py"))
 
 
@@ -109,7 +109,7 @@ def main():
         },
         "estimates": estimates,
     }
-    (DOCS / "canfd_1khz_sync_proposal_vectors.json").write_text(
+    (FIXTURES / "canfd_1khz_sync_proposal_vectors.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(json.dumps(result["timing_model"]["frame_time_us"]))

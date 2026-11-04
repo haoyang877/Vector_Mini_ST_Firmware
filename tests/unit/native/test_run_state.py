@@ -24,11 +24,11 @@ def main() -> None:
         *sorted((ROOT / "firmware/app/runtime").glob("motor_lifecycle*.c")),
         ROOT / "firmware/motor/protection/motor_fault.c",
         ROOT / "firmware/app/composition/app_protocol.c",
-        ROOT / "firmware/communication/commands/yg_protocol_job.c",
-        ROOT / "firmware/communication/commands/yg_protocol_motor.c",
-        ROOT / "firmware/communication/commands/yg_protocol_readonly.c",
         ROOT / "shared/protocol/yg_protocol_crc.c",
-        ROOT / "firmware/communication/commands/yg_protocol_motor_adapter.c",
+        ROOT / "shared/protocol/yg_protocol_frame_codec.c",
+        ROOT / "shared/protocol/yg_protocol_can_id.c",
+        ROOT / "tests/unit/yg_protocol_bsp_stubs.c",
+        ROOT / "tests/unit/bsp_preemption_stubs.c",
         ROOT / "firmware/app/interfaces/motor_stop_request.c",
     ]
     summary = []

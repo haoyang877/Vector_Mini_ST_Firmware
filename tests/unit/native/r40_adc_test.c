@@ -43,11 +43,11 @@ int main(void)
     assert(sim_dma_enabled && sim_temperature_dma_enabled);
     assert(sim_adc[0].edge == ADC_PREEMPT_TRIG_EDGE_RISING &&
            sim_adc[1].edge == ADC_PREEMPT_TRIG_EDGE_RISING);
-    assert(!Adc_CompleteFast());
+    assert(!BspAdc_CompleteFast());
     sim_adc[0].flags = ADC_PCCE_FLAG;
-    assert(!Adc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG));
+    assert(!BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG));
     sim_adc[0].flags = sim_adc[1].flags = ADC_PCCE_FLAG;
-    assert(Adc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
+    assert(BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
     for (unsigned remaining = 0; remaining <= 6; remaining++)
     {

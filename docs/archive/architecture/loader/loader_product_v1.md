@@ -175,7 +175,7 @@ package_image.py 现在补齐并回填长度/CRC，输出 image.bin 和 manifest
 旧 profile/布局/描述符版本和维护 role=2 显式拒绝；打包、C 解码和协议使用同一黄金镜像。
 
 Type 50..55 字节布局沿用公司载荷 v1，升级语义明确版本化为
-[载荷 v2](../../protocols/yg_protocol_upgrade_wire_v2.md)：回复 flags bit2=HOST_NONCE，
+[载荷 v2](../../../protocols/README.md#upgrade)：回复 flags bit2=HOST_NONCE，
 空 STATUS 可返回 boot_epoch=0，主机新建非零随机 nonce，成功 BEGIN 后绑定并回显。
 活动 BEGIN 必须同时匹配 source、nonce、完整清单；跨复位 session/ticket 计数不持久保存。
 旧 v1 主机发现设备启动号的流程不兼容，须配套适配，不能宣称持久报文隔离或防恶意重放。

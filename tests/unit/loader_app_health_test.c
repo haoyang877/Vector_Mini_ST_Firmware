@@ -5,7 +5,7 @@
 #include "motor_axis.h"
 #include "application_config.h"
 #include "bsp_system.h"
-#include "yg_protocol_link.h"
+#include "yg_protocol.h"
 #include "app_protocol.h"
 #include "boot_hw.h"
 #include "motor_lifecycle.h"
@@ -22,7 +22,7 @@ static void publish_identity(void)
 }
 static uint32_t model_now_ms, clock_reads, foreground_stage;
 static uint32_t fast_calls, supervisor_calls;
-static volatile uint32_t s_fast_samples;
+volatile uint32_t g_app_fast_samples;
 static uint32_t s_supervisor_ticks, s_watchdog_last_ms, s_watchdog_last_fast, s_watchdog_last_slow;
 static bool s_watchdog_enabled;
 static void halt_disabled(void)
@@ -56,7 +56,7 @@ uint32_t BspSystem_TimeMs(void)
     foreground_stage = 5U;
     return model_now_ms;
 }
-void YgProtocolRuntime_Service(uint32_t now_ms)
+void Protocol_Process(uint32_t now_ms)
 {
     assert(foreground_stage == 3U && now_ms == model_now_ms - 1U);
     foreground_stage = 4U;
@@ -66,7 +66,11 @@ static void poll_entry(uint32_t now_ms)
     assert(foreground_stage == 5U && now_ms == model_now_ms);
     foreground_stage = 6U;
 }
-void MotorAxis_FastTick(void)
+void MotorAxis_SampleFast(void)
+{
+}
+
+void MotorAxis_ControlFast(void)
 {
     ++fast_calls;
 }
@@ -84,7 +88,7 @@ static void process_at(uint32_t now_ms)
 }
 static void test_tick_entries(void)
 {
-    App_FastTick();
+    BspApp_OnFastSample();
     assert(fast_calls == 1U && supervisor_calls == 0U);
     for (unsigned tick = 0U; tick < SUPERVISOR_FREQ / 5U; ++tick)
     {
@@ -120,7 +124,7 @@ bool BootHw_Confirm(uint32_t version, uint32_t crc32)
     ++confirm_calls;
     return version == 0x10000U && crc32 == 7U;
 }
-bool YgProtocolLink_IsReady(void)
+bool Protocol_IsReady(void)
 {
     return model_link;
 }

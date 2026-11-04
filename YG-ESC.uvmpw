@@ -20,7 +20,6 @@
 
   <project>
     <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456-Commissioning.uvprojx</PathAndName>
-    <NodeIsExpanded>1</NodeIsExpanded>
   </project>
 
 </ProjectWorkspace>

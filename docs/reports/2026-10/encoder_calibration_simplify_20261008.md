@@ -46,7 +46,7 @@ Mode15 仅将说明注释改为中文，代码和 public header 未改。
 | `firmware/app/composition/app_protocol.c` | `0132cddbaaaa614f52fa18527c76b87d170f46ff6b611b73db0742fafe2e292c` |
 | `firmware/app/motor_state_machine/motor_state_machine.c` | `a4bfbe3949d3e3f19b7321bac6bca6584873d262ada5151bbdb90b6a0c623e1c` |
 | `firmware/app/runtime/motor_axis.c` | `f12472f452b602aaf991a9eb08332b2ad877c32269dfc0a88bc64ffea6fac0bb` |
-| `firmware/communication/can/yg_protocol_link.c` | `e07eadcdfed0d0245a9127248fdf2d3259e1eb0f9ed2638524e9f062a1cdc3d4` |
+| `firmware/communication/yg_protocol.c` | `e07eadcdfed0d0245a9127248fdf2d3259e1eb0f9ed2638524e9f062a1cdc3d4` |
 | `firmware/communication/protocol/yg_protocol_job.c` | `7a295c3ce523b7ab3878637c6d8469ac08dfad9b5aa5876e6262fd9e9256ab2d` |
 | `firmware/communication/protocol/yg_protocol_job.h` | `8ee0f07b59cab40b52c3ffe2ccdbdacab00512915c05883fac0cd9ad0930727f` |
 | `firmware/communication/protocol/yg_protocol_motor.c` | `60b0c2d316634f162c08cff80111bf401c92e1f231871e1c90f555fe2f02f6a7` |

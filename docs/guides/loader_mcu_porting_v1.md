@@ -311,5 +311,5 @@ Loader / APP / 参数 / 身份区容量和余量目标：待确认
 > 按验收项目保存结果，分别报告构建、离线和实机状态，不把未测项标为通过。
 
 相关入口：[当前 Loader 设计](../architecture/loader/loader_product_v3.md)、
-[升级协议](../protocols/yg_protocol_upgrade_wire_v3.md)、
+[升级协议](../protocols/README.md#upgrade)、
 [项目验证工具](project_harness.md)、[Loader 使用说明](../../loader/README.md)。

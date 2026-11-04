@@ -28,11 +28,11 @@ class EncoderLayeringTests(unittest.TestCase):
     def test_feedback_uses_public_angle_contract(self):
         """反馈只消费统一角度接口，方向和LUT保留在motor域。"""
         source = (ROOT / "firmware/motor/feedback/encoder_feedback.c").read_text(encoding="utf-8")
-        self.assertIn("BspEncoder_ReadAngle()", source)
+        self.assertIn("BspEncoder_ReadAngle(BSP_ENCODER_16BIT)", source)
         self.assertNotRegex(source, r"HAL_|SPI[0-9]|at32f45x|EncoderSpi_")
         header = (BSP / "include/bsp_encoder.h").read_text(encoding="utf-8")
         self.assertIn("void BspEncoder_Begin(void)", header)
-        self.assertIn("uint16_t BspEncoder_ReadAngle(void)", header)
+        self.assertIn("uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution)", header)
         self.assertFalse((ROOT / "firmware/platform/devices").exists())
 
 

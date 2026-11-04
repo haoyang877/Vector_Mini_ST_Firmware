@@ -4,9 +4,9 @@
 
 日期：2026-09-21。状态：离线实现与 native 测试完成；未接入运行入口，未做硬件验证。
 
-上游依据：[yg_protocol 核心接口契约 v0.1](../../archive/protocols/yg_protocol_core_interfaces_v0_1.md)、
+上游依据：[yg_protocol 核心接口契约 v0.1](../../protocols/README.md#implementation)、
 [模块开发交接单](../../archive/plans/2026-09-21-yg-protocol-module-handoff.md)（P 任务）、
-[电机通信协议评审稿 §8.4](../../archive/protocols/motor_protocol_v1.md)。
+[电机通信协议评审稿 §8.4](../../protocols/README.md#implementation)。
 旧 CAN 参数仅作为字段来源参考，不复用其编号或编码。
 
 ## 1. 目标与边界

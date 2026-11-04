@@ -65,5 +65,5 @@ PI输出限制在相电流额度内，保留原积分抗饱和；电流限值下
 
 先看MotorAxis的SupervisorTick/FastTick，再看执行模块，最后读具体算法。
 启动用117，运行中同模式目标用116，切模式先STOP再START。
-请求格式见[启动v0.2](../protocols/yg_protocol_ordinary_start_wire_v0_2.md)。
+请求格式见[启动v0.2](../protocols/README.md#control)。
 软件接线不等于完成当前候选的实机验收。

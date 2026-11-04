@@ -17,6 +17,18 @@ extern "C"
 #define BSP_SYSTEM_IDENTITY_BYTES 64U
 
     /**
+     * @brief 处理本板监督定时器中断，确认事件后通知应用慢环。
+     * @note 仅由APP映射的监督向量调用；保留HAL处理及辅助采样触发顺序。
+     */
+    void BspSystem_HandleControlInterrupt(void);
+
+    /**
+     * @brief 推进本板1ms时基。
+     * @note 仅由SysTick向量调用；AT32累加毫秒计数，STM32维护原HAL时基。
+     */
+    void BspSystem_HandleTickInterrupt(void);
+
+    /**
      * @brief 读取单调递增的毫秒时间。
      * @return 毫秒计数，按2^32自然回绕。
      * @note Init成功后前台/ISR有界调用；差值使用uint32_t无符号减法。
@@ -88,7 +100,7 @@ extern "C"
 
     /**
      * @brief 按目标配置启动应用看门狗。
-     * @return 启动为BSP_OK；未启用为NOT_SUPPORTED；未初始化或已启动为NOT_READY。
+     * @return 启动为BSP_OK；未启用为NOT_SUPPORTED；已启动为NOT_READY；硬件配置失败为IO_ERROR。
      * @note 启动前台一次，保留原时点和重装参数；不得重配Loader继承的看门狗。
      */
     BspResult BspWatchdog_Start(void);

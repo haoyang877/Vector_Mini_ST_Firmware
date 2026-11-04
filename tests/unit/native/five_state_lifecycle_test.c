@@ -16,7 +16,8 @@
 #include "encoder_calibration.h"
 #include "motor_axis.h"
 #include "app_protocol.h"
-#include "yg_protocol_link.h"
+#include "../../../firmware/communication/yg_protocol.c"
+#include "../../../firmware/communication/yg_protocol_boot.c"
 
 static MotorConfiguration configuration;
 static MotorControlState motor;
@@ -28,40 +29,14 @@ static bool phases_disabled, start_fails, stop_fails, outer_ready;
 static unsigned critical_depth, critical_calls, fault_on_enter;
 static unsigned calibration_cancel_count;
 static bool calibration_resources_released;
-static yg_protocol_job_service_t calibration_service;
 
-bool YgProtocolLink_BindMotorStatusSource(const yg_protocol_motor_status_source_t *source)
-{
-    return source != NULL;
-}
-bool YgProtocolLink_BindDeviceStatusSource(const yg_protocol_readonly_device_status_t *source)
-{
-    return source != NULL;
-}
-bool YgProtocolLink_BindMotorService(const yg_protocol_motor_service_t *service)
-{
-    return service != NULL && service->handler != NULL;
-}
-
-bool YgProtocolLink_BindParameterService(const yg_protocol_parameter_service_t *service)
-{
-    return service != NULL;
-}
-
-bool YgProtocolLink_BindJobService(const yg_protocol_job_service_t *service)
-{
-    assert(service != NULL && service->handler != NULL);
-    calibration_service = *service;
-    return true;
-}
-
-void EncoderCalibrationTask_Cancel(void)
+void EncoderCalibration_Cancel(void)
 {
     ++calibration_cancel_count;
     calibration_resources_released = true;
 }
 
-bool EncoderCalibrationTask_IsReleased(void)
+bool EncoderCalibration_IsIdle(void)
 {
     return calibration_resources_released;
 }
@@ -394,6 +369,16 @@ static void test_calibration_completes_to_idle(void)
 static void test_calibration_stop_fault_and_late_result(void)
 {
     reset();
+    encoder.has_valid_sample = false;
+    assert(MotorLifecycle_RequestCalibration(MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
+           MOTOR_CONTROL_DENIED);
+    assert(MotorLifecycle_RequestCalibration(MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+           MOTOR_CONTROL_DENIED);
+    assert(MotorLifecycle_RequestCalibration(MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
+           MOTOR_CONTROL_DENIED);
+    assert(MotorLifecycle_GetState() == MOTOR_STATE_IDLE && phases_disabled);
+
+    reset();
     configuration.device.encoder.calib_flag = 0U;
     assert(MotorLifecycle_RequestCalibration(MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
            MOTOR_CONTROL_DENIED);
@@ -487,10 +472,10 @@ static void test_linearization_waits_for_publication(void)
 
 static void test_calibration_communication_to_idle(void)
 {
-    assert(AppProtocol_Init());
-    const uint16_t kinds[] = {YG_PROTOCOL_JOB_KIND_ENCODER_LUT,
-                              YG_PROTOCOL_JOB_KIND_ELECTRICAL_ZERO,
-                              YG_PROTOCOL_JOB_KIND_MECHANICAL_ZERO};
+    assert(Protocol_Init(1U));
+    const uint16_t kinds[] = {PROTOCOL_JOB_KIND_ENCODER_LUT,
+                              PROTOCOL_JOB_KIND_ELECTRICAL_ZERO,
+                              PROTOCOL_JOB_KIND_MECHANICAL_ZERO};
     const MotorCalibrationType types[] = {MOTOR_CALIBRATION_ENCODER_LINEARIZATION,
                                           MOTOR_CALIBRATION_ELECTRICAL_ZERO,
                                           MOTOR_CALIBRATION_MECHANICAL_ZERO};
@@ -499,25 +484,24 @@ static void test_calibration_communication_to_idle(void)
         reset();
         uint8_t payload[4] = {0};
         YgProtocol_WriteU16Le(payload, kinds[index]);
-        yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
-                                         .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
-                                         .source_node = YG_PROTOCOL_MASTER_NODE_ID,
-                                         .destination_node = 1U,
-                                         .message_type = YG_PROTOCOL_JOB_TYPE_START,
-                                         .sequence = (uint16_t)(index + 1U),
-                                         .payload_length = sizeof(payload),
-                                         .payload = payload};
-        yg_protocol_service_result_t response = {0};
-        assert(yg_protocol_job_handle(&calibration_service, &request, &response) == YG_PROTOCOL_OK);
-        assert(YgProtocol_ReadU16Le(response.response_payload) == 1U);
-        assert(YgProtocol_ReadU32Le(response.response_payload + 4U) != 0U);
+        ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                                 .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                                 .source_node = PROTOCOL_MASTER_ID,
+                                                 .destination_node = 1U,
+                                                 .message_type = PROTOCOL_START_JOB,
+                                                 .sequence = (uint16_t)(index + 1U),
+                                                 .payload_length = sizeof(payload),
+                                                 .payload = payload}};
+        assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+        assert(YgProtocol_ReadU16Le(exchange.reply.data) == 1U);
+        assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) != 0U);
         assert(MotorLifecycle_GetState() == MOTOR_STATE_CALIBRATION);
         assert(MotorLifecycle_GetCalibrationType() == types[index]);
         assert(phases_disabled);
 
         /* 同一运行会话不能被第二个通信请求覆盖。 */
-        assert(yg_protocol_job_handle(&calibration_service, &request, &response) == YG_PROTOCOL_OK);
-        assert(YgProtocol_ReadU16Le(response.response_payload) != 1U);
+        assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+        assert(YgProtocol_ReadU16Le(exchange.reply.data) != 1U);
         MotorLifecycle_BeginFastTick();
         assert(phases_disabled == (types[index] == MOTOR_CALIBRATION_MECHANICAL_ZERO));
         assert(MotorLifecycle_IsCalibrationRunnable());

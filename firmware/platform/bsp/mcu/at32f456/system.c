@@ -13,64 +13,36 @@
 #include "bsp_pwm.h"
 #include "bsp_can.h"
 
-/* 等待上限是启动阶段的轮询次数，不冒充准确的毫秒超时。 */
-#define AT32_CLOCK_WAIT_ITERATIONS 2000000U
-
-static bool wait_clock_flag(uint32_t flag)
+/* 外设初始化按默认成功处理，切换时钟前等待硬件就绪。 */
+static void wait_clock_flag(uint32_t flag)
 {
-    for (uint32_t remaining = AT32_CLOCK_WAIT_ITERATIONS; remaining > 0U; --remaining)
+    while (crm_flag_get(flag) != SET)
     {
-        if (crm_flag_get(flag) == SET)
-        {
-            return true;
-        }
     }
-    return false;
 }
 
-static bool clock_init(void)
+static void clock_init(void)
 {
     /* 复用SDK在192MHz使用的5等待周期和1.3V内核档位，不降低访问裕量。 */
     flash_psr_set(FLASH_WAIT_CYCLE_5);
     crm_periph_clock_enable(CRM_PWC_PERIPH_CLOCK, TRUE);
     pwc_ldo_output_voltage_set(PWC_LDO_OUTPUT_1V3);
     crm_clock_source_enable(CRM_CLOCK_SOURCE_HEXT, TRUE);
-    if (!wait_clock_flag(CRM_HEXT_STABLE_FLAG))
-    {
-        return false;
-    }
+    wait_clock_flag(CRM_HEXT_STABLE_FLAG);
     crm_pll_config(CRM_PLL_SOURCE_HEXT, AT32_PLL_MULTIPLIER, AT32_PLL_PRE_DIVIDER, CRM_PLL_FP_4);
     crm_clock_source_enable(CRM_CLOCK_SOURCE_PLL, TRUE);
-    if (!wait_clock_flag(CRM_PLL_STABLE_FLAG))
-    {
-        return false;
-    }
+    wait_clock_flag(CRM_PLL_STABLE_FLAG);
     crm_ahb_div_set(CRM_AHB_DIV_1);
     crm_apb1_div_set(CRM_APB1_DIV_1);
     crm_apb2_div_set(CRM_APB2_DIV_1);
     crm_apb3_div_set(CRM_APB3_DIV_4);
     crm_auto_step_mode_enable(TRUE);
     crm_sysclk_switch(CRM_SCLK_PLL);
-    bool switched = false;
-    for (uint32_t remaining = AT32_CLOCK_WAIT_ITERATIONS; remaining > 0U; --remaining)
+    while (crm_sysclk_switch_status_get() != CRM_SCLK_PLL)
     {
-        if (crm_sysclk_switch_status_get() == CRM_SCLK_PLL)
-        {
-            switched = true;
-            break;
-        }
     }
     crm_auto_step_mode_enable(FALSE);
-    if (!switched)
-    {
-        return false;
-    }
     system_core_clock_update();
-    crm_clocks_freq_type clocks;
-    crm_clocks_freq_get(&clocks);
-    return system_core_clock == AT32_CORE_HZ && clocks.ahb_freq == AT32_CORE_HZ &&
-           clocks.apb1_freq == AT32_CORE_HZ && clocks.apb2_freq == AT32_CORE_HZ &&
-           CRM->misc2_bit.apb3div == CRM_APB3_DIV_4;
 }
 
 /* 中央对齐完整周期为2*PR，单向监督计数周期才是PR+1（手册15.4.3.2）。 */
@@ -80,9 +52,6 @@ static bool clock_init(void)
 #error "R40 timer clock must divide the frozen control frequencies exactly"
 #endif
 
-static bool s_hardware_initialized;
-static bool s_timing_started;
-
 static void supervisor_timer_init(void)
 {
     crm_periph_clock_enable(MCU_CONTROL_TIMER_CLOCK, TRUE);
@@ -91,32 +60,17 @@ static void supervisor_timer_init(void)
     tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
 }
 
-bool McuSystem_Init(void)
+/* 链接脚本将初始化函数单独留在Flash，避免内联进SRAM中的调用者。 */
+__attribute__((noinline)) void McuSystem_Init(void)
 {
-    if (s_hardware_initialized)
-    {
-        return false;
-    }
-    if (!clock_init())
-    {
-        return false;
-    }
+    clock_init();
     McuPwm_Init();
     supervisor_timer_init();
-    s_hardware_initialized = true;
-    return true;
 }
 
-bool McuSystem_Start(void)
+__attribute__((noinline)) void McuSystem_Start(void)
 {
-    if (!s_hardware_initialized || s_timing_started)
-    {
-        return false;
-    }
-    if (SysTick_Config(AT32_CORE_HZ / 1000U) != 0U)
-    {
-        return false;
-    }
+    (void)SysTick_Config(AT32_CORE_HZ / 1000U);
     NVIC_SetPriority(MCU_SYSTICK_IRQ, MCU_SYSTICK_IRQ_PRIORITY);
     tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
     tmr_interrupt_enable(MCU_CONTROL_TIMER, TMR_OVF_INT, TRUE);
@@ -124,14 +78,12 @@ bool McuSystem_Start(void)
     NVIC_EnableIRQ(MCU_CONTROL_IRQ);
     tmr_counter_enable(MCU_PWM_TIMER, TRUE);
     tmr_counter_enable(MCU_CONTROL_TIMER, TRUE);
-    s_timing_started = true;
-    return true;
 }
 
 /* 1ms时基归本端口所有；沿用uint32_t自然回绕语义。 */
 static volatile uint32_t s_milliseconds;
 
-void MCU_SYSTICK_IRQ_HANDLER(void)
+void BspSystem_HandleTickInterrupt(void)
 {
     ++s_milliseconds;
 }
@@ -183,9 +135,6 @@ BspResult BspSystem_ReadIdentity(uint8_t record[64])
 }
 
 #if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
-/* 启动状态只由本MCU实现持有；失败不允许同次启动重试。 */
-static unsigned s_startup_state;
-
 static void halt_disabled(void)
 {
     __disable_irq();
@@ -202,6 +151,59 @@ static void halt_disabled(void)
 #define BSP_WATCHDOG_RELOAD 511U
 #endif
 static bool s_watchdog_started;
+static bool s_flash_watchdog_active;
+static uint32_t s_flash_watchdog_reload;
+
+static bool set_watchdog_reload(uint32_t reload)
+{
+    WDT->cmd = 0x5555U;
+    WDT->rld = reload;
+    uint32_t remaining = 200000U;
+    while (WDT->sts != 0U && remaining > 0U)
+    {
+        --remaining;
+    }
+    if (remaining == 0U || WDT->rld != reload)
+    {
+        return false;
+    }
+    WDT->cmd = 0xAAAAU;
+    return true;
+}
+
+bool McuSystem_SetFlashWatchdog(bool saving)
+{
+    if (!s_watchdog_started)
+    {
+        return true;
+    }
+    if (!BspPwm_ArePhasesDisabled() || __get_PRIMASK() == 0U || __get_IPSR() != 0U)
+    {
+        return false;
+    }
+    if (saving)
+    {
+        if (s_flash_watchdog_active || WDT->sts != 0U)
+        {
+            return false;
+        }
+        s_flash_watchdog_reload = WDT->rld;
+        s_flash_watchdog_active = true;
+        /* 分频保持不变；仅停机擦写期间使用12位重载上限，等待不循环喂狗。 */
+        return set_watchdog_reload(4095U);
+    }
+    if (!s_flash_watchdog_active)
+    {
+        return true;
+    }
+    bool restored = set_watchdog_reload(s_flash_watchdog_reload);
+    if (restored)
+    {
+        s_flash_watchdog_active = false;
+    }
+    return restored;
+}
+
 static bool watchdog_init(void)
 {
     DEBUGMCU->apb1_frz &= ~(1U << 12U);
@@ -235,57 +237,26 @@ static bool watchdog_init(void)
 
 BspResult Bsp_Init(void)
 {
-    if (s_startup_state != 0U)
-    {
-        return BSP_NOT_READY;
-    }
-    s_startup_state = 1U;
     (void)BootHw_Init();
-    if (!McuSystem_Init())
-    {
-        goto failed;
-    }
-#if BSP_ENABLED_CAN
+    McuSystem_Init();
     McuCan_Init();
-#endif
     McuAdc_Init();
-
-    if (!Flash_Init())
-    {
-        goto failed;
-    }
+    (void)Flash_Init();
     McuEncoder_Init();
-    s_startup_state = 2U;
     return BSP_OK;
-failed:
-    BspPwm_Disable();
-    s_startup_state = 4U;
-    return BSP_IO_ERROR;
 }
 
 BspResult Bsp_Start(void)
 {
-    if (s_startup_state != 2U)
-    {
-        return BSP_NOT_READY;
-    }
-    s_startup_state = 3U;
     Adc_Start();
-    if (!McuSystem_Start())
-    {
-        goto failed;
-    }
+    McuSystem_Start();
 
     return BSP_OK;
-failed:
-    BspPwm_Disable();
-    s_startup_state = 4U;
-    return BSP_IO_ERROR;
 }
 
 BspResult BspWatchdog_Start(void)
 {
-    if ((s_startup_state != 2U && s_startup_state != 3U) || s_watchdog_started)
+    if (s_watchdog_started)
     {
         return BSP_NOT_READY;
     }
@@ -305,7 +276,7 @@ void BspWatchdog_Feed(void)
     }
 }
 
-void MCU_CONTROL_IRQ_HANDLER(void)
+void BspSystem_HandleControlInterrupt(void)
 {
     if (tmr_flag_get(MCU_CONTROL_TIMER, TMR_OVF_FLAG))
     {
@@ -377,3 +348,11 @@ bool BspSystem_CompareExchange32(volatile uint32_t *address, uint32_t expected, 
     __DMB();
     return true;
 }
+
+#if !defined(BSP_APP_LIFECYCLE) || !BSP_APP_LIFECYCLE
+bool McuSystem_SetFlashWatchdog(bool saving)
+{
+    (void)saving;
+    return true;
+}
+#endif

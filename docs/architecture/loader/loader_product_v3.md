@@ -117,7 +117,7 @@ Flash 每页 2 KiB，该记录覆盖两个页：末页内余 1,808 B，另有五
 APP 槽内依次放启动向量、镜像描述符和代码。描述符还包含“已激活、已试运行、已确认”
 三个独立提交标记；它们与 APP 槽一起擦除，不额外占用参数页。CRC 校验时对这些会变化的
 字段按固定规则归一化，避免确认动作改变固件身份。标记只写一次，半写或 ECC 读取失败
-均拒绝启动。准确偏移、字节序和 CRC 规则见[升级协议与镜像格式](../../protocols/yg_protocol_upgrade_wire_v3.md)。
+均拒绝启动。准确偏移、字节序和 CRC 规则见[升级协议与镜像格式](../../protocols/README.md#upgrade)。
 
 ### 实际资源占用
 
@@ -157,7 +157,7 @@ Flash；只写身份页，随后读回并核对保护区。失败时保持停机
 与新址 APP；之后才能使用 CAN FD 升级同布局 APP。构建工具分别编译两端，并生成
 合并 HEX、CAN 包、清单及哈希；离线检查不会连接设备。
 具体命令和线上字段见 [Loader 使用说明](../../../loader/README.md)与
-[升级协议](../../protocols/yg_protocol_upgrade_wire_v3.md)。
+[升级协议](../../protocols/README.md#upgrade)。
 
 硬件修订号、APP 版本和 Loader 版本统一由共享目标清单配置。构建后，硬件修订号和 APP
 版本写入 APP 描述符，Loader 同时固化硬件修订号与自身版本；维护查询按这些镜像信息上报。
@@ -176,7 +176,7 @@ Flash；只写身份页，随后读回并核对保护区。失败时保持停机
 ## 本轮紧凑参数候选
 
 APP v1.5.0 / Loader v2.1.0 删除退役齿槽表，参数仍单份，详见
-[schema14存储](../../protocols/parameter_schema14_storage_v1.md)。APP只接受schema14；
+[schema14存储](../../../firmware/parameters/README.md#storage)。APP只接受schema14；
 Loader独立节点识别行为不在本轮范围。布局地址和升级期间不写参数的规则不变。
 
 Loader 改用较小的 C 运行库，未缩减栈或删除安全检查。前面的二十轮实测属于旧配套版本；

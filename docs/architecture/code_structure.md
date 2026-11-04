@@ -31,10 +31,8 @@
 | motor/calibration | 单一实现文件内的LUT/电零位任务与私有计算，公共头只暴露任务入口 |
 | motor/protection | 故障发布与恢复；保留热模型，当前 APP 不调度 |
 | motor/math | 有实际调用的确定性数学函数和坐标类型 |
+| communication | yg_protocol.c 负责收发和普通业务，yg_protocol_boot.c 负责 Loader 通信，共用 yg_protocol.h |
 | parameters | 默认值、值校验、轴记录与 schema14 转换 |
-| communication/can | CAN FD 队列、链路、端点、分片和前台路由 |
-| communication/commands | 线上字段校验、服务调用和回复编码 |
-| communication/telemetry | 保留的只读 RTT 编码；当前 APP 无调度调用 |
 | config | config.h、board_config.h、motor_profile_config.h、application_config.h |
 | platform/bsp/include | 八个公共功能头，只使用项目自有类型 |
 | platform/bsp/bsp_internal.h | 初始化、采样启停和台架专用声明 |
@@ -44,6 +42,8 @@
 
 BSP 根目录没有公共转发源文件，也没有独立 devices 层。
 两板通过同一组 BSP 接口调用各自实现，硬件资源映射只供对应 MCU 使用。
+ADC、监督和SysTick向量统一放在各板projects目录的main.c，由各BSP MCU目录的interrupt_map.h映射名称；
+事件确认、清标志、HAL调用和时基仍由BSP负责，CAN及故障异常入口保持原位置。
 文件与同职责头文件相邻；不为未来功能创建空目录或注册框架。
 
 ## 数据和执行

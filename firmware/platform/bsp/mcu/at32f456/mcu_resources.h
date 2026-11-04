@@ -147,18 +147,15 @@
 #define MCU_CAN_GPIO_AF GPIO_MUX_9
 
 /* 中断：数值越小优先级越高；控制临界区只屏蔽优先级>=2。
- * 外设、IRQn和向量入口必须成组修改，不能只改NVIC编号。 */
+ * 外设、IRQn和本目录interrupt_map.h必须成组修改，不能只改NVIC编号。 */
 #define MCU_ADC_IRQ ADC1_2_IRQn
-#define MCU_ADC_IRQ_HANDLER ADC1_2_IRQHandler
 #define MCU_ADC_IRQ_PRIORITY 0U
 #define MCU_CONTROL_IRQ TMR6_DAC_GLOBAL_IRQn
-#define MCU_CONTROL_IRQ_HANDLER TMR6_DAC_GLOBAL_IRQHandler
 #define MCU_CONTROL_IRQ_PRIORITY 2U
 #define MCU_CAN_IRQ CAN1_RX_IRQn
 #define MCU_CAN_IRQ_HANDLER CAN1_RX_IRQHandler
 #define MCU_CAN_IRQ_PRIORITY 3U
 #define MCU_SYSTICK_IRQ SysTick_IRQn
-#define MCU_SYSTICK_IRQ_HANDLER SysTick_Handler
 #define MCU_SYSTICK_IRQ_PRIORITY 3U
 #define MCU_CONTROL_CRITICAL_PRIORITY 2U
 

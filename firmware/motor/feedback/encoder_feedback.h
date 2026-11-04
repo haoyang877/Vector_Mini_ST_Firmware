@@ -80,7 +80,7 @@ void Encoder_InitFeedback(EncoderCalibration *calibration,
  * @brief 读取本拍角度并更新电角度、方向校正和速度估计。
  * @param encoder 编码器状态指针。
  * @note 须先通过 Encoder_InitFeedback 绑定校准与极对数；每拍读取绑定对象的最新值。
- *       两板调用前均须先BspEncoder_Begin；直接消费完成的传输，不返回采集状态。
+ *       两板调用前均须先BspEncoder_Begin；固定选择16位计数，直接消费传输，不返回采集状态。
  */
 void Encoder_Update(EncoderState *encoder);
 

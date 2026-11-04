@@ -52,6 +52,6 @@ worker 归零控制参考并报告结果，主状态机负责功率关断及生�
 当前只装载 schema 12，不自动迁移旧参数。
 
 接入时依据 [主状态机契约](../../architecture/motor_state_machine_v1.md)、
-[标定线路契约](../protocols/yg_protocol_calibration_wire_v1.md) 和
-[schema 12 装载策略](../../protocols/parameter_schema12_loading_policy_v1.md)。
+[标定线路契约](../../protocols/README.md#parameters) 和
+[schema 12 装载策略](../../../firmware/parameters/README.md#storage)。
 本轮离线重构没有开放新的运动或参数写入入口。

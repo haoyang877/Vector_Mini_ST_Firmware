@@ -65,7 +65,7 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 
 轴配置：[AXS1/AXS2身份、范围与持久化](docs/guides/motor_axis_profiles.md)。
 
-速度包络由应用配置及轴记录决定，不再按节点派生，见[节点与应用策略](docs/protocols/parameter_node_application_v2.md)。
+速度包络由应用配置及轴记录决定，不再按节点派生，见[节点与应用策略](firmware/parameters/README.md#storage)。
 
 * 基础有感FOC算法 电流 速度 位置 可控
 * 直接位置→速度→电流串级，保留原增益、限幅和抗饱和
@@ -86,7 +86,7 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 
 > 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/guides/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
 
-> 原始手册见 [Vector_User Manual.pdf](<docs/hardware/Vector_User Manual.pdf>)。其中 USB/VOFA 章节属于历史功能；当前接口见[设备发现与支持范围](docs/protocols/yg_protocol_device_discovery_v1.md)。
+> 原始手册见 [Vector_User Manual.pdf](<docs/hardware/Vector_User Manual.pdf>)。其中 USB/VOFA 章节属于历史功能；当前接口见[设备发现与支持范围](docs/protocols/README.md#device)。
 
 ## 参考项目
 

@@ -69,21 +69,6 @@ typedef struct
 /** @brief 协议消息名称，语义上表示已完成帧校验的业务消息。 */
 typedef yg_protocol_frame_view_t yg_protocol_message_t;
 
-/** @brief 服务回复值；response_sequence 仅关联请求，不表示目标已应用或对端已收到。 */
-typedef struct
-{
-    yg_protocol_result_t result;
-    bool reply_ready; /* 内部控制字段，不在 CAN 数据中；false 表示本次不自动回复。 */
-    uint16_t response_sequence;
-    uint16_t response_type;
-    uint8_t response_flags;
-    uint8_t response_source_node;
-    uint8_t response_destination_node;
-    uint8_t response_reserved;
-    uint32_t response_payload_length;
-    uint8_t response_payload[YG_PROTOCOL_MAX_PAYLOAD_SIZE];
-} yg_protocol_service_result_t;
-
 /* 固定宽度字节转换无共享状态，允许未对齐地址；容量由编解码调用方验证。 */
 
 /**
@@ -172,36 +157,6 @@ static inline bool YgProtocol_IsAckUnicastRequest(const yg_protocol_message_t *m
            message->destination_node != YG_PROTOCOL_BROADCAST_NODE_ID &&
            (message->flags == YG_PROTOCOL_FLAGS_ACK_REQUEST ||
             message->flags == (YG_PROTOCOL_FLAGS_ACK_REQUEST | YG_PROTOCOL_FLAGS_RETRY));
-}
-
-/**
- * @brief 检查业务上下文与需要回复的单播请求。
- * @param context 业务上下文。
- * @param request 请求。
- * @param result 回复缓冲。
- * @return 上下文及请求格式有效时返回 true。
- */
-static inline bool yg_protocol_service_request_valid(const void *context,
-                                                     const yg_protocol_message_t *request,
-                                                     const yg_protocol_service_result_t *result)
-{
-    return context != NULL && request != NULL && result != NULL &&
-           YgProtocol_IsAckUnicastRequest(request);
-}
-
-/**
- * @brief 写入公共的四字节结果回复。
- * @param response 已由调用方验证的回复缓冲。
- * @param code 线路结果码。
- * @param detail 业务细节码。
- */
-static inline void yg_protocol_service_write_result(yg_protocol_service_result_t *response,
-                                                    uint16_t code,
-                                                    uint16_t detail)
-{
-    YgProtocol_WriteU16Le(response->response_payload, code);
-    YgProtocol_WriteU16Le(response->response_payload + 2U, detail);
-    response->response_payload_length = 4U;
 }
 
 #endif

@@ -45,7 +45,9 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
 }
 """
     vectors14 = json.loads(
-        (ROOT / "docs/protocols/parameter_schema14_vectors.json").read_text(encoding="utf-8")
+        (ROOT / "tests/fixtures/protocol/parameter_schema14_vectors.json").read_text(
+            encoding="utf-8"
+        )
     )
     prelude += f"\n#define PARAM_RECORD14_GOLDEN_CRC {vectors14['vectors'][0]['crc32']}U\n"
     utils = (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8")
@@ -60,7 +62,7 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
     prelude += re.sub(r"^#include.*$", "", production, flags=re.M)
     prelude += "\n" + (ROOT / "loader/product/parameters.c").read_text(encoding="utf-8")
     policy = json.loads(
-        (ROOT / "docs/protocols/parameter_node_application_v2_vectors.json").read_text(
+        (ROOT / "tests/fixtures/protocol/parameter_node_application_v2_vectors.json").read_text(
             encoding="utf-8"
         )
     )

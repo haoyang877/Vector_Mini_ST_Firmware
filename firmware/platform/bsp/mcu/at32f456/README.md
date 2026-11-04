@@ -26,7 +26,8 @@ sin/cos在adc.c私有s_aux_dma中观察；顺序按启用的NTC、sin、cos排�
 实现中不保留临时诊断入口、测试快照和测试统计。
 先前ADC/PWM接口精简未运行测试和编译；资源配置收拢的独立离线验证见
 [资源配置计划](../../../../../docs/plans/active/2026-10-30-mcu-resources-v1.md)。
-两板编码器在各自MCU的encoder_spi.c直接实现Begin和ReadAngle，使用相同65536计数域；无CRC/超时/事务状态。
+两板编码器在各自MCU的encoder_spi.c直接实现Begin和ReadAngle，可选16/21位单圈计数；
+现有控制环使用65536计数域，无CRC/超时/事务状态。
 DMA缓冲为本文件私有，BSP不增加空转发层。
 
 AT32 CAN硬件运行和RX IRQ在本目录can.c，直接实现统一BspCan接口。

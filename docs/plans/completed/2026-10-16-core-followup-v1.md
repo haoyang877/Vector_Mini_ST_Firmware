@@ -17,7 +17,7 @@
 
 schema12/4304B/CRC/16KiB、控制数学/阈值、START零目标、STOP关相和CLEAR不启动保持。
 不在线改地址，不迁移Flash，不新增配置框架、命令编号或协议字段。
-能力页使用已定义bit8/bit2，详见[核心SPEED能力v2](../../protocols/yg_protocol_core_speed_caps_v2.md)。
+能力页使用已定义bit8/bit2，详见[核心SPEED能力v2](../../protocols/README.md#device)。
 
 使用现有夹具保留DEFAULTS地址反例及工作区反例；修复后检查真实维护、装载/导出和Loader
 节点一致性，主机检查能力缺失/清零/过期时禁启但可STOP。最终冻结输入只跑一次PR、

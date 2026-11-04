@@ -37,7 +37,7 @@ ROOT裁决冻结空请求、4B result/detail回复，不引入掩码或新增控
 - `63007db8`：107 与参数字段、错误、修订号和所有者接口契约。
 - `4cd70e6c`：107/120/121/122 实际通信路由及回复编解码；APP 所有者绑定由 E 接入。
 - 公共帧核心：九个文件内容不变，移到 `shared/protocol/`；APP/Loader 工程输入分别由 ROOT/D 接入。
-  [迁移清单 v1](../protocols/yg_protocol_shared_codec_migration_v1.md) 列出全部路径变化和边界。
+  [迁移清单 v1](../../protocols/README.md#implementation) 列出全部路径变化和边界。
 
 以上均为代码进度，不代表生产接线、构建、测试或硬件验证通过。
 
@@ -55,14 +55,14 @@ ROOT裁决冻结空请求、4B result/detail回复，不引入掩码或新增控
 
 ROOT批准50～55的最小字段及分片序号澄清；实现shared纯请求解码、40B回复编码和版本化黄金载荷。
 升级seq仅关联本次回复；业务幂等使用真实source/boot/session/offset/operation及内容，
-不能对不同块的相同分片尾seq全局拒绝。详情见[升级v1](../protocols/yg_protocol_upgrade_wire_v1.md)。
+不能对不同块的相同分片尾seq全局拒绝。详情见[升级v1](../../protocols/README.md#upgrade)。
 D接入实际Loader命令分支、存储及精确TX票据；56等待真实APP静默与handoff后再注册。
 
 ## 标定任务v1
 
 ROOT批准160～162单帧kind/ticket最小布局；H实现专用任务reply、4B请求codec、12B结果与link绑定/路由。
 取消身份、START重放及结果均由E维护所有者决定，163与未定义任务不注册。
-[任务v1](../protocols/yg_protocol_calibration_wire_v1.md)列出内部枚举映射及统一测试前的旧contract调用适配。
+[任务v1](../../protocols/README.md#parameters)列出内部枚举映射及统一测试前的旧contract调用适配。
 
 ## APP进入Loader
 
@@ -70,7 +70,7 @@ ROOT批准160～162单帧kind/ticket最小布局；H实现专用任务reply、4B
 复用ROOT固定`6592f64f`的三个platform文件，完成56的link路由及精确TX旁记录关联，
 Service先消费真实完成、匹配完整u64票据，再交E所有者；不扩普通帧队列。
 E实际APP静默/启动身份/ENTER复位仍由E交付，不能把codec或回调存在当成已安装Loader。
-字段和依赖见[进入Loader v1](../protocols/yg_protocol_boot_entry_wire_v1.md)。
+字段和依赖见[进入Loader v1](../../protocols/README.md#upgrade)。
 
 ## 移除旧升级空接口
 
@@ -83,7 +83,7 @@ ROOT需在统一测试前移除native core旧源码项，并将contract中的旧
 
 ROOT冻结Type3空请求/16B角色、阶段、有效位及boot64回复；H在既有readonly_payload模块实现，
 link借用稳定APP快照，无新服务、无硬件访问。未绑定仍16B返回当前数据不可用，不猜补高位。
-[发现v1](../protocols/yg_protocol_device_status_wire_v1.md)连接主机Type3→56的实际流程；
+[发现v1](../../protocols/README.md#device)连接主机Type3→56的实际流程；
 E须用真实BootHwInfo来源接线，Loader可继续用53，不要求重复实现。
 
 ## 确定软件绑定早于RX启动

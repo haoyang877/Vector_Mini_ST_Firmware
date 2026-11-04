@@ -30,7 +30,7 @@ uvprojx 的现场差异只有换行，Git 内容一致；当前用户逐文件�
 | `firmware/app/composition/app_protocol.c` | 修改 |
 | `firmware/app/motor_state_machine/motor_state_machine.c` | 修改 |
 | `firmware/app/runtime/motor_axis.c` | 修改 |
-| `firmware/communication/can/yg_protocol_link.c` | 修改 |
+| `firmware/communication/yg_protocol.c` | 修改 |
 | `firmware/communication/protocol/yg_protocol_job.c` | 修改 |
 | `firmware/communication/protocol/yg_protocol_job.h` | 修改 |
 | `firmware/communication/protocol/yg_protocol_motor.c` | 修改 |

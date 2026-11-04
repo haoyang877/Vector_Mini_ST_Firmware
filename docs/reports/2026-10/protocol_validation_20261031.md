@@ -43,9 +43,9 @@ AT32F456＋YQ-5708（8:1），节点1，USB-CAN FD适配器，仲裁1M、数据5
 - 101 enable=1低侧制动候选、161标定查询和162取消目前不支持；117仅测错误请求拒绝，未测带载启动。
 - 没有物理拔线、线路干扰、CAN总线错误注入、Loader升级或复位测试。
 
-当前语义来源为[核心协议v1.8](../../protocols/yg_protocol_core_v1_8.md)、
-[电机状态v1.7](../../protocols/yg_protocol_motor_state_v1_7.md)及
-[统一台架协议v1](../../protocols/unified_motor_bench_v1.md)。
+当前语义来源为[核心协议v1.8](../../protocols/README.md#implementation)、
+[电机状态v1.7](../../protocols/README.md#feedback)及
+[统一台架协议v1](../../protocols/README.md#implementation)。
 
 ## 原始证据
 

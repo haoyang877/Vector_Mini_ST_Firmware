@@ -20,8 +20,9 @@ extern volatile uint32_t g_closedloop_motion_samples;
 void BspEncoder_Begin(void)
 {
 }
-uint16_t BspEncoder_ReadAngle(void)
+uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution)
 {
+    assert(resolution == BSP_ENCODER_16BIT);
     return s_angle;
 }
 

@@ -24,8 +24,8 @@
 - 当前 `platform/api/comm_hw.h` 及 STM32 端口仍以旧协议的标准 ID 和发送接口为主。
 - 现有旧协议必须在迁移完成前保持可回滚；新协议不能通过悄悄改变旧接口来接入。
 
-依据：[通信分层说明](../../architecture/communication_layering.md) 和
-[公司协议源代码回读](../protocols/company_protocol_source_readback.md)。
+依据：[通信分层说明](../../protocols/README.md#implementation) 和
+[公司协议源代码回读](../../protocols/README.md#implementation)。
 
 ## 2. 目标架构
 

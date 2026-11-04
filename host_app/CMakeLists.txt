@@ -95,8 +95,8 @@ if(BUILD_TESTING)
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures"
         FILES ../tests/fixtures/loader_image_v3.json)
     qt_add_resources(host_core_test host_caps_fixture PREFIX "/fixtures"
-        BASE "${CMAKE_CURRENT_SOURCE_DIR}/../docs/protocols"
-        FILES ../docs/protocols/yg_protocol_core_speed_caps_v2_vectors.json)
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures/protocol"
+        FILES ../tests/fixtures/protocol/yg_protocol_core_speed_caps_v2_vectors.json)
     add_test(NAME host_core_offline COMMAND host_core_test)
     set_tests_properties(host_core_offline PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
 endif()

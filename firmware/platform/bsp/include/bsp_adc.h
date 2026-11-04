@@ -5,6 +5,8 @@
 #ifndef BSP_ADC_H
 #define BSP_ADC_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -24,6 +26,20 @@ extern "C"
         BSP_ADC_OUTPUT_SIN,
         BSP_ADC_OUTPUT_COS
     } BspAdcChannel;
+
+    /**
+     * @brief 确认AT32主ADC与启用的母线电流ADC均已完成，并清除完成位。
+     * @return 两路所需采样都完成时返回true；无主事件或辅ADC未完成时返回false。
+     * @note 仅AT32 ADC中断及独立台架调用。辅ADC未完成时仍清除主事件，不执行快环。
+     */
+    bool BspAdc_CompleteFast(void);
+
+    /**
+     * @brief 处理STM32共享ADC中断并在快采样完成时通知应用。
+     * @note 仅由APP映射的ADC向量调用；保持各板清标志、HAL派发和回调的原有顺序。
+     *       不开放中断，不改变采样配置；应用回调仍在当前ADC中断上下文执行。
+     */
+    void BspAdc_HandleInterrupt(void);
 
     /**
      * @brief 直接读取通道原码。

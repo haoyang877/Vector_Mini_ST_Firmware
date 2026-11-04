@@ -16,7 +16,8 @@
 两板入口分别为 `projects/stm32g4/application/main.c` 和
 `projects/at32f456/application/main.c`。启动顺序为
 `Bsp_Init → App_Init → Bsp_Start → App_Start`，主循环调用 `App_Process`。
-ADC 完成事件经 main 中的 `BspApp_OnFastSample → App_FastTick → MotorAxis_FastTick`；
+AT32 ADC 入口确认完成后直接执行 `MotorAxis_SampleFast → MotorAxis_ControlFast` 并递增 `g_app_fast_samples`；
+STM32 保留 HAL 完成回调，经 `BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast`；
 监督事件经 `BspApp_OnControlTick → App_SupervisorTick → MotorAxis_SupervisorTick`。
 
 当前 APP 开放零目标启动、STOP、清错和三类编码器标定。

@@ -2,7 +2,7 @@
 
 # 电机控制端目标适配 v1
 
-日期：2026-09-28。依据[单轴线路契约 v1](../protocols/yg_protocol_motor_wire_v1.md)。
+日期：2026-09-28。依据[单轴线路契约 v1](../../protocols/README.md#control)。
 
 ## 目标和范围
 

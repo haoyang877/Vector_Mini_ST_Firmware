@@ -292,28 +292,28 @@ static void dispatch(const yg_protocol_message_t *message)
         binding.source_node = request.source_node;
         switch (request.message_type)
         {
-        case YG_PROTOCOL_UPGRADE_TYPE_BEGIN:
+        case YG_PROTOCOL_UPGRADE_BEGIN:
             result = LoaderUpgrade_Begin(
                 &upgrade, request.source_node, request.boot_epoch, request.data, &status);
             break;
-        case YG_PROTOCOL_UPGRADE_TYPE_WRITE:
+        case YG_PROTOCOL_UPGRADE_WRITE:
             result = LoaderUpgrade_Write(
                 &upgrade, &binding, request.image_offset_bytes, request.data, request.data_bytes);
             break;
-        case YG_PROTOCOL_UPGRADE_TYPE_FINISH:
+        case YG_PROTOCOL_UPGRADE_FINISH:
             result = LoaderUpgrade_Finish(&upgrade, &binding);
             break;
-        case YG_PROTOCOL_UPGRADE_TYPE_STATUS:
+        case YG_PROTOCOL_UPGRADE_STATUS:
             result = LoaderUpgrade_Status(&upgrade, request.discover ? NULL : &binding, &status);
             if (request.discover && result == YI_OK)
             {
                 resident = true;
             }
             break;
-        case YG_PROTOCOL_UPGRADE_TYPE_ACTIVATE:
+        case YG_PROTOCOL_UPGRADE_ACTIVATE:
             result = LoaderUpgrade_Activate(&upgrade, &binding, &ticket);
             break;
-        case YG_PROTOCOL_UPGRADE_TYPE_ABORT:
+        case YG_PROTOCOL_UPGRADE_ABORT:
             result = LoaderUpgrade_Abort(&upgrade, &binding);
             break;
         default:
@@ -321,13 +321,13 @@ static void dispatch(const yg_protocol_message_t *message)
             break;
         }
         status_reply(&reply);
-        if (result != YI_OK || request.message_type != YG_PROTOCOL_UPGRADE_TYPE_STATUS)
+        if (result != YI_OK || request.message_type != YG_PROTOCOL_UPGRADE_STATUS)
         {
             result_code(result, &reply);
         }
-        if (result == YI_OK && (request.message_type == YG_PROTOCOL_UPGRADE_TYPE_BEGIN ||
-                                request.message_type == YG_PROTOCOL_UPGRADE_TYPE_FINISH ||
-                                request.message_type == YG_PROTOCOL_UPGRADE_TYPE_ACTIVATE))
+        if (result == YI_OK && (request.message_type == YG_PROTOCOL_UPGRADE_BEGIN ||
+                                request.message_type == YG_PROTOCOL_UPGRADE_FINISH ||
+                                request.message_type == YG_PROTOCOL_UPGRADE_ACTIVATE))
         {
             reply.result = YG_PROTOCOL_UPGRADE_RESULT_ACCEPTED;
         }
@@ -373,7 +373,7 @@ static void receive(void)
     }
     /* 有效主站BEGIN首片抢占启动窗口，不能在重组96B清单期间跳进APP。 */
     if (message.source_node == TARGET_HOST_NODE && message.destination_node == node &&
-        message.message_type == YG_PROTOCOL_UPGRADE_TYPE_BEGIN && message.sequence == 0 &&
+        message.message_type == YG_PROTOCOL_UPGRADE_BEGIN && message.sequence == 0 &&
         (message.flags & YG_PROTOCOL_FLAGS_FRAGMENT_MASK) == YG_PROTOCOL_FLAGS_FRAGMENT_FIRST)
     {
         resident = true;

@@ -44,7 +44,7 @@ BSP API ← corresponding MCU implementation ← vendor SDK/generated code
 - 当前 APP 不接入普通目标、在线参数读写/保存、标定进度服务或绕组热调度。
 
 当前配置和未完成条件见[配置说明](firmware/config/README.md)；
-具体线上行为见[核心 v1.8](docs/protocols/yg_protocol_core_v1_8.md)。
+具体线上行为见[核心 v1.8](docs/protocols/README.md#implementation)。
 
 ## 验证边界
 

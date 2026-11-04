@@ -17,8 +17,8 @@
 - 将已被当前架构替代的阶段计划和候选快照归入历史区，修正参数目录与上位机入口。
 
 当前有效实现见 [主状态机](../../architecture/motor_state_machine_v1.md)、
-[参数线路契约](../../protocols/yg_protocol_parameter_wire_v1.md) 和
-[Loader 线路契约 v2](../protocols/yg_protocol_upgrade_wire_v2.md)。
+[参数线路契约](../../protocols/README.md#parameters) 和
+[Loader 线路契约 v2](../../protocols/README.md#upgrade)。
 
 ## 不变行为与边界
 

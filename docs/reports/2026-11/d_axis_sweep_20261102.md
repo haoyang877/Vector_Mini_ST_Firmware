@@ -24,7 +24,7 @@
 原FOC和PI不变。只在原Commissioning测试RUN增加kind=8正弦参考；使用现有Math_SinCos、
 20kHz控制前钩子、GROUP_DQ冻结缓冲和原停止流程。正常AT32和STM32镜像逐字节不变。
 测试镜像相对上轮增加约304字节代码、16字节ZI，没有新增控制模块或公共控制接口。
-参数布局、标定与1.2kHz整定策略没有改变；协议说明见[台架v1.1](../../protocols/unified_motor_bench_v1_1.md)。
+参数布局、标定与1.2kHz整定策略没有改变；协议说明见[台架v1.1](../../protocols/README.md#implementation)。
 
 每次独立启动，偏置预热20ms，再给正弦；等待至少5周期且不小于50ms后，记录128点。
 采样stride按频率选择，窗口至少4个完整周期，所有频率来自名义20kHz时基。

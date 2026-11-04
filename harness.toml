@@ -83,17 +83,13 @@ allows = ["motor_math", "platform_api", "motor", "parameters", "shared", "platfo
 paths = ["firmware/app/interfaces"]
 allows = ["motor", "app_interfaces"]
 
-[architecture.layers.protocol]
-paths = ["firmware/communication/commands"]
-allows = ["motor", "parameters", "app_interfaces", "protocol", "shared"]
-
 [architecture.layers.communication]
-paths = ["firmware/communication/can"]
-allows = ["platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "shared"]
+paths = ["firmware/communication"]
+allows = ["platform_api", "motor", "parameters", "app_interfaces", "communication", "shared"]
 
 [architecture.layers.app]
 paths = ["firmware/app"]
-allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "app", "shared", "platform_config", "app_config", "telemetry"]
+allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters", "app_interfaces", "communication", "app", "shared", "platform_config", "app_config"]
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/bsp/mcu/stm32g4"]
@@ -103,13 +99,18 @@ allows = ["platform_internal", "target_profile", "platform_api", "motor", "param
 paths = ["firmware/platform/bsp/mcu/at32f456"]
 allows = ["platform_internal", "platform_api", "platform_config", "platform_at32", "app_config"]
 
+# 应用仅可读取不含SDK类型的向量映射，不因此开放其它MCU实现头。
+[architecture.layers.platform_interrupt_map]
+paths = ["firmware/platform/bsp/mcu/stm32g4/interrupt_map.h", "firmware/platform/bsp/mcu/at32f456/interrupt_map.h"]
+allows = []
+
 [architecture.layers.stm32_application]
 paths = ["projects/stm32g4/application"]
-allows = ["platform_api", "app", "cubemx", "platform_config", "app_config", "communication"]
+allows = ["platform_interrupt_map", "platform_api", "app", "cubemx", "platform_config", "app_config", "communication"]
 
 [architecture.layers.at32_application]
 paths = ["projects/at32f456/application"]
-allows = ["at32_application", "platform_api", "platform_at32", "platform_config", "app", "app_interfaces", "motor", "parameters", "target_profile", "communication", "telemetry", "app_config"]
+allows = ["at32_application", "platform_interrupt_map", "platform_api", "platform_at32", "platform_config", "app", "app_interfaces", "motor", "parameters", "target_profile", "communication", "app_config"]
 
 [architecture.layers.at32_foundation]
 paths = ["tests/bench/at32f456"]
@@ -118,7 +119,7 @@ allows = ["platform_internal", "platform_api", "platform_at32", "platform_config
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/bsp/mcu/stm32g4/generated/Core"]
-allows = ["platform_api", "motor", "parameters", "app_interfaces", "protocol", "communication", "app", "platform_stm32", "cubemx", "platform_config"]
+allows = ["platform_api", "motor", "parameters", "app_interfaces", "communication", "app", "platform_stm32", "cubemx", "platform_config"]
 
 [architecture.layers.loader_api]
 paths = ["loader/ports/include"]
@@ -151,10 +152,6 @@ allows = ["loader_board", "shared", "cubemx"]
 [architecture.layers.target_profile]
 paths = ["shared/targets"]
 allows = ["target_profile", "shared"]
-
-[architecture.layers.telemetry]
-paths = ["firmware/communication/telemetry"]
-allows = ["platform_api", "motor", "telemetry"]
 
 [architecture.layers.app_config]
 paths = ["firmware/config"]

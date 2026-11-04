@@ -25,6 +25,9 @@ NATIVE = (
     "test_current_precision",
     "test_startup_current_offsets",
     "test_adc_fast_dispatch",
+    "test_interrupt_routing",
+    "test_app_orchestration",
+    "test_calibration_save",
     "test_encoder_sample_overlap",
     "test_encoder_update",
     "test_fast_loop_math",
@@ -41,7 +44,7 @@ NATIVE = (
     "test_mcu_temperature",
     "test_yg_protocol_core",
     "test_yg_protocol_fragment",
-    "test_yg_protocol_motor_adapter",
+    "test_yg_protocol_motor_wire",
     "test_parameter_value_service",
     "test_yg_protocol_link",
     "test_can_hardware",
@@ -49,7 +52,6 @@ NATIVE = (
     "test_motor_status_snapshot",
     "test_speed_feedforward",
     "test_observer_calibration_hotpath",
-    "test_unified_motor_bench",
 )
 
 

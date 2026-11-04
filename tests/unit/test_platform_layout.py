@@ -22,7 +22,13 @@ class PlatformLayoutTests(unittest.TestCase):
         config = ROOT / "firmware/config"
         self.assertEqual(
             {p.name for p in config.glob("*.h")},
-            {"config.h", "board_config.h", "motor_profile_config.h", "application_config.h"},
+            {
+                "config.h",
+                "board_config.h",
+                "motor_profile_config.h",
+                "application_config.h",
+                "SEGGER_RTT_Conf.h",
+            },
         )
         resource = (config / "board_config.h").read_text(encoding="utf8")
         self.assertNotRegex(

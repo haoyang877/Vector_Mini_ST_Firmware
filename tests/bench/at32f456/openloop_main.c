@@ -211,11 +211,17 @@ static bool watchdog_init(void)
     return true;
 }
 
+/** @brief 独立台架继续使用MCU提供的1ms时基。 */
+void SysTick_Handler(void)
+{
+    BspSystem_HandleTickInterrupt();
+}
+
 void ADC1_2_IRQHandler(void)
 {
     uint32_t began = DWT->CYCCNT;
     record_fault_stage(1U);
-    bool adc_ok = Adc_CompleteFast();
+    bool adc_ok = BspAdc_CompleteFast();
     if (!adc_ok)
     {
         AT32Ol_Stop(&s_model, AT32_OL_ADC_ERROR);
@@ -245,7 +251,7 @@ void ADC1_2_IRQHandler(void)
     AT32Ol_Step(&s_model, raw, adc_ok, true, BspSystem_TimeMs());
     s_angle = AT32Cl_ReadEncoder(&s_closedloop);
 #else
-    s_angle = BspEncoder_ReadAngle();
+    s_angle = (uint16_t)BspEncoder_ReadAngle(BSP_ENCODER_16BIT);
 #endif
     ++s_encoder_samples;
     bool gate_ok = s_output_on ? ((TMR1->cctrl & 0x5550U) == 0x5550U && (TMR1->brk & 0x8000U) != 0U)
@@ -492,10 +498,7 @@ static void keil_poll(void)
 
 int main(void)
 {
-    if (!McuSystem_Init())
-    {
-        fatal_stop();
-    }
+    McuSystem_Init();
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     s_reset_cause = CRM->ctrlsts;
@@ -527,10 +530,7 @@ int main(void)
     McuAdc_Init();
     McuEncoder_Init();
     Adc_Start();
-    if (!McuSystem_Start())
-    {
-        fatal_stop();
-    }
+    McuSystem_Start();
     for (;;)
     {
         command_poll();

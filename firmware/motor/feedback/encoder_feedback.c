@@ -347,7 +347,7 @@ void Encoder_Update(EncoderState *encoder)
     int32_t configured_pole_pairs;
     uint32_t pole_pairs;
 
-    raw_q15 = BspEncoder_ReadAngle();
+    raw_q15 = (uint16_t)BspEncoder_ReadAngle(BSP_ENCODER_16BIT);
 
     directed_q15 = encoder_apply_direction_q15(calibration, raw_q15);
     linearized_q15 = encoder_apply_linearization_q15(calibration, directed_q15);

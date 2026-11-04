@@ -9,12 +9,14 @@ include仅含8个公开功能头；bsp_internal.h位于BSP根目录。
 完整文件树、每个文件的职责和数据所有权统一维护在[BSP架构总图](bsp_architecture_v1.md)。
 函数签名、单位、失败和上下文统一维护在[BSP接口](bsp_interfaces_v1.md)及[公开头文件](../../firmware/platform/bsp/include)。
 
-两板编码器由各自MCU encoder_spi.c直接实现统一Begin/ReadAngle，负责初始化和SPI/DMA收发，返回65536计数域。
+两板编码器由各自MCU encoder_spi.c实现统一Begin/ReadAngle，负责初始化和SPI/DMA收发，可选16/21位计数域；当前控制环使用16位。
 BSP仅保留公开头，不增加转发层；无旧事务、诊断缓存或devices包装。
 CAN两板共用同一公开头；DLC转换直接放入各MCU收发函数，MCU实现统一入口、启停和IRQ。
 Start返回void，其余收发与忙/完成查询返回bool，没有状态枚举、软件票据或自动恢复。
 其它功能的共享边界见下述模块约定。
-两板ADC的初始化、原码、换算、零偏、启停和中断均在MCU实现，统一接口直接返回float。
+两板ADC的初始化、原码、换算、零偏、启停和硬件中断处理均在MCU实现，数值接口直接返回float。
+ADC、监督及SysTick的向量入口集中到各板main.c，各BSP MCU目录的interrupt_map.h独立映射向量符号；
+main只调用公开BSP处理函数并接线快慢环事件，不读取寄存器或HAL句柄。
 Flash、系统、启动交接根据MCU直接实现相同契约。
 两板PWM的MCU实现周期读取、比较值写入、启停和通道查询；占空比换算也在MCU中，无状态/结果码/永久锁。
 应用限流与功率窗口仍在原应用模块，限时窗口不再依赖BSP关相序号。

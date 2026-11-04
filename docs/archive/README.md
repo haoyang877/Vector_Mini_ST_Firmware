@@ -5,9 +5,9 @@
 归档不是“全部完成”，也不是恢复旧功能的任务授权。每项索引列出原路径、原因和当前入口。
 
 - [架构提案与旧分区](architecture/README.md)
-- [旧协议、提案与历史版本](protocols/README.md)
 - [退役指南与合并前快照](guides/README.md)
 - [旧计划及阶段交接](plans/README.md)
 
 当前文档见[总入口](../README.md)，仍有效的未测项见[当前限制](../plans/tech-debt-tracker.md)。
-历史JSON黄金向量留在原路径供现有回归消费者读取，不根据归档叙述改写字节或恢复支持能力。
+旧通信协议说明已删除，唯一现行说明见[通信协议](../protocols/README.md)。
+历史 JSON 字节夹具位于 `tests/fixtures/protocol/`，仅用于回归和拒绝测试。

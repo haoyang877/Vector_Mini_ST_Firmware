@@ -27,7 +27,7 @@
 | 四类配置与运行对象 | [参数所有权](parameter_ownership_v1.md) |
 | 参数默认/派生/标定来源 | [参数来源](parameter_sources_v1.md) |
 | 故障、快速关相、热保护与恢复 | [故障保护](fault_protection.md) |
-| 通信到业务的依赖 | [通信分层](communication_layering.md) |
+| 通信到业务的依赖 | [通信分层](../protocols/README.md#implementation) |
 | 独立Loader启动/升级/分区 | [Loader设计](loader/loader_product_v3.md) |
 
 文件名中保留版本后缀是为减少无意义路径变更；是否现行以本索引、正文和实际代码为准。

@@ -11,10 +11,12 @@
 两板使用同一公开头；工程选择对应MCU的完整ADC实现，应用不按板型选择调用。
 
 应用中断入口显式定义于各板`projects/<board>/application/main.c`：
-`MCU ADC IRQ → BspApp_OnFastSample → App_FastTick → MotorAxis_FastTick`。
-MCU处理完成标志，main.c中的回调直接调用共用App_FastTick；快环不进入main前台循环。
-App_FastTick只执行轴快环和采样计数；诊断调度、一次性通电窗口及其功率契约已删除。
-AT32两份APP链接脚本将main.c中的回调保留在快速SRAM区。
+AT32：`MCU ADC IRQ → BspAdc_CompleteFast → MotorAxis_SampleFast → MotorAxis_ControlFast → ++g_app_fast_samples`。
+BSP公开接口负责主/辅ADC配对和清标志；main依次调用采样、控制并递增计数。
+SampleFast包含三相/母线电流、电压、零偏校正及编码器反馈，ControlFast只消费本拍结果。
+STM32保留`BspAdc_HandleInterrupt → HAL完成回调 → BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast`，
+仍先执行快环再清JEOS。两板共用g_app_fast_samples供前台看门狗读取，不增加计数转发函数。
+AT32链接脚本将整个main ADC入口保留在快速SRAM区。
 
 | 项目 | AT32F456 | STM32G4 |
 | --- | --- | --- |

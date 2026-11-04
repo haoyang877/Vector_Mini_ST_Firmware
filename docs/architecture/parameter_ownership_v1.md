@@ -1,7 +1,7 @@
 # 参数所有权与四类配置
 
-更新：2026-10-30。当前 APP 只接入启动参数装载和配置校验，在线参数事务已删除。
-存储契约见[schema14](../protocols/parameter_schema14_storage_v1.md)。
+更新：2026-11-03。当前 APP 接入启动参数装载与配置校验，Keil调试命令及在线参数事务已删除。
+存储契约见[schema14](../../firmware/parameters/README.md#storage)。
 
 | 类别 | 默认来源 | 活动对象 |
 | --- | --- | --- |
@@ -26,10 +26,11 @@ Watch 全局符号只用于观测，不构成跨模块写接口。
 - 标定：任务写入候选；LUT 完成后先关相，前台复核原会话、STOP 和故障后发布。
 - 运行状态：模式、目标、PI 积分、测量和观测历史不写入参数记录。
 
-启动参数记录使用静态暂存区；LUT 标定独占另一份 6144 字节工作区。
-两者不是参数保存与标定共用的事务工作区，也没有在线修订号、保存票据或自动 SAVE。
-当前协议参数命令返回 UNSUPPORTED。ParameterValue_Read/Apply 和 Param_Upload
-保留作为值/记录契约及离线验证接口，不代表 APP 已绑定在线服务。
+启动参数记录与停机保存复用同一份2288字节静态暂存区；LUT 标定独占另一份6144字节工作区。
+没有在线修订号、保存票据或自动SAVE。MotorAxis_SaveCalibration仅在空闲关相且标定结果有效时
+调用Param_Upload及BspFlash_Write，返回成功表示写入及回读完成。
+当前协议参数命令仍返回UNSUPPORTED；ParameterValue_Read/Apply未绑定在线服务。
+Keil保存命令已删除，保留的MotorAxis_SaveCalibration目前没有APP请求入口。
 
 ## 合法性与硬件边界
 
@@ -38,5 +39,6 @@ Watch 全局符号只用于观测，不构成跨模块写接口。
 当前 YQ 热默认值为空，因此关闭热调度后仍不能跳过配置校验。
 
 固定区域实际字节读写归 BspFlash。写入要求前台和真实关相，由 BSP 协调采样暂停、
-擦写及回读；失败保持关相并禁止不确定状态下重试。此能力当前无 APP 保存调用者。
+擦写及回读；失败保持关相并禁止不确定状态下重试。MotorAxis_SaveCalibration封装该调用，
+不在外层临界区包裹CRC或Flash操作。
 Loader 的参数读取与镜像产品保持独立，不能因 APP 内部结构整理改变共享存储 ABI。

@@ -39,11 +39,11 @@ def main() -> int:
                 f"-DBSP_BOARD={profile}",
                 str(native / "app_bus_current_test.c"),
                 str(ROOT / "firmware/app/composition/app_protocol.c"),
-                str(ROOT / "firmware/communication/commands/yg_protocol_motor_adapter.c"),
                 str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
-                str(ROOT / "firmware/communication/commands/yg_protocol_motor.c"),
                 str(ROOT / "shared/protocol/yg_protocol_crc.c"),
-                str(ROOT / "firmware/communication/commands/yg_protocol_readonly.c"),
+                str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
+                str(ROOT / "shared/protocol/yg_protocol_can_id.c"),
+                str(ROOT / "tests/unit/yg_protocol_bsp_stubs.c"),
                 "-lm",
                 "-o",
                 str(feedback_executable),
@@ -55,7 +55,7 @@ def main() -> int:
         )
         print(result.stdout, end="")
         vectors = json.loads(
-            (ROOT / "docs/protocols/yg_protocol_motor_live_v1_9_vectors.json").read_text(
+            (ROOT / "tests/fixtures/protocol/yg_protocol_motor_live_v1_9_vectors.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -95,8 +95,7 @@ def main() -> int:
         native / "r40_foundation_test.c",
     ]
     subprocess.run(command + [str(p) for p in sources] + ["-o", str(executable)], check=True)
-    for failure in range(6):
-        subprocess.run([str(executable), str(failure)], check=True)
+    subprocess.run([str(executable)], check=True)
     for voltage, duration, current, frequency in (
         ("0.20", 1000, "0.60", "2.0"),
         ("0.30", 1000, "0.60", "2.0"),
@@ -190,7 +189,7 @@ def main() -> int:
             "-I",
             str(ROOT / "firmware/config"),
             "-I",
-            str(ROOT / "firmware/communication/telemetry"),
+            str(ROOT / "firmware/config"),
             "-I",
             str(ROOT / "firmware/config"),
             "-I",

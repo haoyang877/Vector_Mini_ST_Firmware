@@ -18,10 +18,10 @@ SPEED模式独立的可选速度整形/惯量前馈不等于恢复位置轨迹�
 
 ## 配置与入口
 
-配置字段见 `PositionCascadeConfig`；活动参数读写见[参数目录](../protocols/yg_protocol_parameter_catalog_v0_1.md)。
+配置字段见 `PositionCascadeConfig`；活动参数读写见[参数目录](../protocols/README.md#parameters)。
 AXS数值配置可能使位置增益/最大速度参数只读，见[轴配置](motor_axis_profiles.md)。
 固件保留线路mode3的候选启动实现；GET_CAPS目前只公布SPEED，不能把候选编码当作已公布的主机能力。
-具体请求见[启动v0.2](../protocols/yg_protocol_ordinary_start_wire_v0_2.md)。
+具体请求见[启动v0.2](../protocols/README.md#control)。
 运行中Type116只更新同模式目标；切模式先STOP并确认IDLE，再显式START。
 
 ## 验证入口

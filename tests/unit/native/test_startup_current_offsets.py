@@ -46,12 +46,13 @@ def main() -> None:
     for name in (
         "run_active_calibration_cycle",
         "MotorAxis_Init",
-        "MotorAxis_FastTick",
+        "MotorAxis_SampleFast",
+        "MotorAxis_ControlFast",
         "MotorAxis_ProcessCalibrationPublication",
     ):
         production += function_source(axis, name)
     start = production.index("    /* 固定启动暂存区")
-    end = production.index("    if (s_motor_configuration.configuration_source", start)
+    end = production.index("    MotorCurrentOffsets_Init(", start)
     production = (
         production[:start] + "    load_parameters(&s_motor_configuration);\n" + production[end:]
     )

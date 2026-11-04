@@ -1,4 +1,5 @@
 #include "bsp_adc.h"
+#include "bsp_system.h"
 #include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "application_config.h"
 #include "at32f45x.h"
@@ -35,14 +36,20 @@ static void halt_disabled(void)
     }
 }
 
+/** @brief 独立台架继续使用MCU提供的1ms时基。 */
+void SysTick_Handler(void)
+{
+    BspSystem_HandleTickInterrupt();
+}
+
 void ADC1_2_IRQHandler(void)
 {
     uint32_t begin = DWT->CYCCNT;
-    if (Adc_CompleteFast())
+    if (BspAdc_CompleteFast())
     {
         ++s_fast_samples;
         BspEncoder_Begin();
-        s_encoder_angle = BspEncoder_ReadAngle();
+        s_encoder_angle = (uint16_t)BspEncoder_ReadAngle(BSP_ENCODER_16BIT);
         ++s_encoder_samples;
         if (s_encoder_angle < s_angle_min)
         {
@@ -96,10 +103,8 @@ void UsageFault_Handler(void)
 
 int main(void)
 {
-    if (!McuSystem_Init() || !Flash_Init())
-    {
-        halt_disabled();
-    }
+    McuSystem_Init();
+    (void)Flash_Init();
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     McuAdc_Init();
@@ -111,10 +116,7 @@ int main(void)
     }
     McuEncoder_Init();
     Adc_Start();
-    if (!McuSystem_Start())
-    {
-        halt_disabled();
-    }
+    McuSystem_Start();
     BspCan_Start();
     for (;;)
     {

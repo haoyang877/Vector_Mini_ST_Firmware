@@ -4,6 +4,8 @@
 本页描述人工观测步骤和当前源码中的变量，不授权烧录、复位或电机运动。
 旧SWD台架邮箱的删除范围见[历史附录](../archive/guides/watch_motor_commands_retirement.md)。
 
+2026-11-03已删除Keil全局命令入口。本页运行对象和参数仅供只读观测。
+
 ## 调试前检查
 
 1. 先确保电机功率输出关闭。连接调试器可能暂停或复位 MCU；首次配置宜在电机功率断电、
@@ -169,7 +171,7 @@ FATAL 没有软件出口。完整条件见[状态输入与跳转表](../architec
 
 - Watch 不用于写模式、目标、故障、生命周期上下文或 PWM；不调用内部函数绕过正式受理入口。
 - 当前 117 普通启动候选已接 CURRENT／SPEED／POSITION／VQ，116 只更新 RUNNING 同模式目标；
-  能力及实机边界见[普通启动 v0.2](../protocols/yg_protocol_ordinary_start_wire_v0_2.md)，Watch 不代替正式入口。
+  能力及实机边界见[普通启动 v0.2](../protocols/README.md#control)，Watch 不代替正式入口。
 - 电机出力时不用断点、单步或 Keil CPU Stop 停车。CPU 停止不保证定时器输出停止，
   固件保护与命令处理也可能停止运行。
 - 运行中的 Periodic Window Update 适合趋势观察，不能证明电流尖峰、周期抖动或 STOP 最坏延迟。

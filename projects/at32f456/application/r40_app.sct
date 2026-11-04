@@ -11,7 +11,7 @@ LR_IROM1 0x08000000 0x0003C000 {
     adc.o (i.McuAdc_Init)
     pwm.o (i.McuPwm_Init)
     ; LUT发布仅在关相后台调用，不占用快速中断代码区。
-    encoder_calibration.o (i.EncoderCalibrationTask_PublishLut)
+    encoder_calibration.o (i.EncoderCalibration_PublishLut)
     .ANY (+RO)
   }
   ER_FAST 0x20000000 0x0000E000 {
@@ -35,7 +35,10 @@ LR_IROM1 0x08000000 0x0003C000 {
     mcu_temperature_sensing.o (+RO)
     speed*.o (+RO)
     control_math.o (+RO)
-    main.o (i.BspApp_OnFastSample)
+    ; APP向量移到main后仍在SRAM执行，避免Flash到SRAM跳板。
+    main.o (i.ADC1_2_IRQHandler)
+    main.o (i.TMR6_DAC_GLOBAL_IRQHandler)
+    main.o (i.SysTick_Handler)
     ; SystemInit在scatterload之前调用CRM，CRM及启动用库函数必须留在Flash。
     at32f45x_adc.o (+RO)
     at32f45x_can.o (+RO)

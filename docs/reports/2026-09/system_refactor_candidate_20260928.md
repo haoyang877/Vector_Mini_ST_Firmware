@@ -97,9 +97,9 @@ Loader 配套 APP 的交接调用链为：56 请求当前完整 boot_epoch → A
 
 线上协议使用共享 codec，没有恢复旧 YI 线协议。升级为单槽方案，SHA 用于完整性，
 不声称签名认证、旧版本回滚或断点续传。逐字节协议见
-[参数协议](../../protocols/yg_protocol_parameter_wire_v1.md)、
-[升级协议](../../archive/protocols/yg_protocol_upgrade_wire_v1.md)、
-[启动交接协议](../../archive/protocols/yg_protocol_boot_entry_wire_v1.md)。
+[参数协议](../../protocols/README.md#parameters)、
+[升级协议](../../protocols/README.md#upgrade)、
+[启动交接协议](../../protocols/README.md#upgrade)。
 
 **原 `FocBenchSpeed`（版本 3）SWD 台架邮箱已随容量批次退役**，不再是 Watch 入口，
 也不再提供 command 1..12 直达。控制、维护与清错改由运行所有者公开 API（CAN 或前台）

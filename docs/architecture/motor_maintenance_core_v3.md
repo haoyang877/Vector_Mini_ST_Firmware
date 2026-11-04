@@ -6,4 +6,4 @@
 
 默认恢复、Flash保存、通用任务查询/按编号取消及旧维护模块继续退役。
 旧Flash标定数据仍可读取，新标定结果只更新RAM；停止沿用110，不保留任务历史。
-协议范围见[标定通信v1.6](../protocols/yg_protocol_calibration_v1_6.md)。
+协议范围见[标定通信v1.6](../protocols/README.md#parameters)。

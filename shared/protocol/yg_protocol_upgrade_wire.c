@@ -38,25 +38,25 @@ yg_protocol_result_t YgProtocolUpgrade_DecodeRequest(const yg_protocol_message_t
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    if (message->message_type < YG_PROTOCOL_UPGRADE_TYPE_BEGIN ||
-        message->message_type > YG_PROTOCOL_UPGRADE_TYPE_ABORT)
+    if (message->message_type < YG_PROTOCOL_UPGRADE_BEGIN ||
+        message->message_type > YG_PROTOCOL_UPGRADE_ABORT)
     {
         return YG_PROTOCOL_INVALID_MESSAGE_TYPE;
     }
     candidate.message_type = message->message_type;
     candidate.source_node = message->source_node;
     candidate.sequence = message->sequence;
-    if (message->message_type == YG_PROTOCOL_UPGRADE_TYPE_STATUS && message->payload_length == 0U)
+    if (message->message_type == YG_PROTOCOL_UPGRADE_STATUS && message->payload_length == 0U)
     {
         candidate.discover = true;
         *request = candidate;
         return YG_PROTOCOL_OK;
     }
-    if (message->message_type == YG_PROTOCOL_UPGRADE_TYPE_BEGIN)
+    if (message->message_type == YG_PROTOCOL_UPGRADE_BEGIN)
     {
         expected_bytes = YG_PROTOCOL_UPGRADE_BEGIN_BYTES;
     }
-    else if (message->message_type == YG_PROTOCOL_UPGRADE_TYPE_WRITE)
+    else if (message->message_type == YG_PROTOCOL_UPGRADE_WRITE)
     {
         if (message->payload_length < YG_PROTOCOL_UPGRADE_WRITE_PREFIX_BYTES)
         {
@@ -78,7 +78,7 @@ yg_protocol_result_t YgProtocolUpgrade_DecodeRequest(const yg_protocol_message_t
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
-    if (message->message_type == YG_PROTOCOL_UPGRADE_TYPE_BEGIN)
+    if (message->message_type == YG_PROTOCOL_UPGRADE_BEGIN)
     {
         candidate.data = message->payload + 8U;
         candidate.data_bytes = YG_PROTOCOL_UPGRADE_MANIFEST_BYTES;
@@ -91,7 +91,7 @@ yg_protocol_result_t YgProtocolUpgrade_DecodeRequest(const yg_protocol_message_t
             return YG_PROTOCOL_INVALID_FIELD;
         }
     }
-    if (message->message_type == YG_PROTOCOL_UPGRADE_TYPE_WRITE)
+    if (message->message_type == YG_PROTOCOL_UPGRADE_WRITE)
     {
         candidate.image_offset_bytes = YgProtocol_ReadU32Le(message->payload + 12U);
         if (candidate.data_bytes < YG_PROTOCOL_UPGRADE_ALIGNMENT_BYTES ||

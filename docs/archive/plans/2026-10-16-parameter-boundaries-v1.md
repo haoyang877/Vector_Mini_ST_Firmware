@@ -5,7 +5,7 @@
 日期：2026-10-16。基准`6e7566add8d0fed4603ebfd945a0f763b72df339`，P1完成后在同集成树实施。
 
 目标：删除应用角色决定设备地址、设备地址决定运行限值的历史策略，四类配置各归所有者。
-这不是行为等价重构；具体前后变化见[地址与应用包络v2](../../protocols/parameter_node_application_v2.md)。
+这不是行为等价重构；具体前后变化见[地址与应用包络v2](../../../firmware/parameters/README.md#storage)。
 
 保持：schema12/4304 B/16 KiB、CRC、模型与控制数学、硬保护门槛、0.5 rev/s与6 A默认值，
 参数ID/缩放/权限、单份活动状态及SAVE事务。无新profile、在线换地址、自动Flash迁移或硬件动作。

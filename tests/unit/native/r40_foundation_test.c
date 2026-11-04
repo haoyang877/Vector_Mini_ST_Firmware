@@ -28,7 +28,6 @@ unsigned fake_timer_channels, fake_mux_count, fake_core_clock;
 uint32_t system_core_clock;
 static unsigned s_main_outputs = 0x1110U, s_complement_outputs = 0x4440U;
 
-void SysTick_Handler(void);
 void crm_periph_clock_enable(unsigned id, unsigned enabled)
 {
     (void)id;
@@ -241,37 +240,21 @@ void __set_PRIMASK(unsigned value)
     fake_primask = value;
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
-    fake_failure = argc > 1 ? (unsigned)strtoul(argv[1], NULL, 10) : 0U;
-    assert(!McuSystem_Start());
-    bool initialized = McuSystem_Init();
-    if (fake_failure >= 1U && fake_failure <= 4U)
-    {
-        assert(!initialized && fake_mux_count == 0U);
-        assert(!fake_tmr1.running && !fake_tmr6.running);
-        assert(fake_gpioa.output == 0xFFFFU && fake_gpiob.output == 0xFFFFU);
-        puts("PASS clock failure leaves GPIO untouched and never starts timers");
-        return 0;
-    }
+    McuSystem_Init();
     assert((fake_gpioa.output & 0xE00U) == 0U);
     assert((fake_gpiob.output & 0x13U) == 0U);
     assert((fake_gpiob.output & 0x1000U) != 0U);
-    assert(initialized && fake_mux_count == 2U && fake_timer_channels == 0x54U);
-    assert(!McuSystem_Init());
+    assert(fake_mux_count == 2U && fake_timer_channels == 0x54U);
+    assert(system_core_clock == AT32_CORE_HZ && fake_crm.misc2_bit.apb3div == CRM_APB3_DIV_4);
     assert(fake_tmr1.pr == 4500U && fake_tmr1.div == 0U);
     assert(fake_tmr6.pr == 499U && fake_tmr6.div == 179U);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
     assert(AT32_CAN_HZ / (AT32_CAN_NOMINAL_SEG1 + AT32_CAN_NOMINAL_SEG2) == 1000000U);
     assert(AT32_CAN_HZ / (AT32_CAN_DATA_SEG1 + AT32_CAN_DATA_SEG2) == 5000000U);
-    bool started = McuSystem_Start();
-    if (fake_failure == 5U)
-    {
-        assert(!started && !fake_tmr1.running && !fake_tmr6.running);
-        puts("PASS SysTick failure leaves timers stopped");
-        return 0;
-    }
-    assert(started && !McuSystem_Start());
+    McuSystem_Start();
+    assert(fake_tmr1.running && fake_tmr6.running);
     assert(BspPwm_ArePhasesDisabled() && fake_tmr1.brk == 0U);
     fake_tmr1.cctrl = 0xAU;
     BspPwm_Enable();
@@ -323,7 +306,7 @@ int main(int argc, char **argv)
     assert(BspSystem_TimeMs() == 0U);
     for (unsigned i = 0U; i < 2001U; ++i)
     {
-        SysTick_Handler();
+        BspSystem_HandleTickInterrupt();
     }
     assert(BspSystem_TimeMs() == 2001U);
     for (unsigned mask = 0U; mask < 2U; ++mask)

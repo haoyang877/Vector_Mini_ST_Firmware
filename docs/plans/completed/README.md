@@ -2,6 +2,47 @@
 
 结果只适用于各记录的原始范围和基线，未测/失败/限制仍按原文保留。
 
+- [最近一条协议命令的全局观测](2026-11-04-protocol-last-command-v1.md)：一个48B全局符号覆盖APP各类命令，跨类型与坏帧测试、完整PR和三套Keil构建通过。
+
+- [协议单调用点合并](2026-11-04-protocol-inline-v1.md)：合并六个辅助函数，通信实现净减74行，完整PR、前后行为对照和三个APP构建通过。
+
+- [通信业务结构体聚合](2026-11-04-protocol-structs-v1.md)：请求回复、编码载荷和电机绑定聚合，净减71行；128,592组对照、完整PR与三个APP构建通过。
+
+- [普通通信与Loader通信分离](2026-11-04-protocol-boot-split-v1.md)：两个实现加一个头文件，净减142行；删除重复检查，128,592组对照、完整PR与三个APP构建通过。
+
+- [通信函数按用途命名](2026-11-03-protocol-function-names-v1.md)：46处函数命名统一，名称还原后代码一致；完整PR和三个APP构建通过，Flash/RAM总量不变。
+
+- [通信静态初始化与直接调用](2026-11-03-protocol-direct-calls-v1.md)：删除注册和二次分发，通信净减202行；协议对照、原生回归、三工程构建通过，整仓三项并行变更检查未过。
+
+- [通信实现可读性整理](2026-11-03-protocol-readability-v1.md)：入口前置、直接命令处理、具名结果码；128,592组前后对照、完整PR和三个APP构建通过。
+
+- [协议按内容拆分](2026-11-03-protocol-three-units-v1.md)：yg_protocol、motor、device 三个同级实现及一个公共头；PR、四配置轨迹和三个 APP 构建通过。
+
+- [协议说明合并](2026-11-03-single-protocol-doc-v1.md)：删除68份旧说明，保留一个现行入口；29份夹具字节不变，完整PR通过。
+
+- [通信收敛为两个文件](2026-11-03-protocol-two-files-v1.md)：18→2文件，净减1038行；命名精简、无用遥测和参数后端删除，完整PR与三个APP构建通过。
+
+- [通信调用链压平](2026-11-03-protocol-flatten-v1.md)：删除 Endpoint/Runtime 包装/adapter/provider，通信净减854行；PR与三个APP前后编译通过，RAM各减1944B。
+
+- [协议消息宏名简化v2](2026-11-03-protocol-message-names-v2.md)：同步电机、参数、任务、Boot、升级消息名，19 个编号不变；完整 PR 和四个固件工程通过。
+- [协议消息宏名同步](2026-11-03-protocol-message-macro-names-v1.md)：同步五个文件的 24 处引用，编号与报文不变；完整 PR、三个 APP 构建通过，HEX 相同。
+- [APP启动分步表达](2026-11-03-app-start-readable-v1.md)：App_Start改为显式判断，原顺序及失败处理不变；四配置轨迹、PR和三个APP构建通过。
+- [APP通信初始化分步表达](2026-11-03-app-init-stages-v1.md)：展开短路调用并说明各阶段职责；前后轨迹、完整PR和三个APP构建通过。
+- [删除启动重复Vq清零](2026-11-03-remove-startup-vq-reset-v1.md)：移除四行重复分支，保留参数读取和默认回退；启动专项及最终PR通过。
+- [编码器16/21位输出选择](2026-11-03-encoder-output-bits-v1.md)：读取参数选择位宽，控制环保留16位；全角度域、PR及八工程通过，未烧录。
+- [MT6835直接字段v2](2026-11-03-mt6835-direct-fields-v2.md)：命令/地址、角度高低位、状态/CRC独立访问；ARMCC位布局、PR和AT32构建通过。
+- [MT6835收发帧结构化](2026-11-03-mt6835-frame-struct-v1.md)：命名字段直接用于DMA，6字节布局固定；PR与AT32构建通过，HEX相同。
+- [APP函数说明与可读性整理](2026-11-03-app-function-comments-v1.md)：18个函数补齐说明并整理命名；PR、双板构建及四配置对照通过，HEX相同。
+- [删除APP调试命令入口](2026-11-03-app-debug-removal-v1.md)：调试邮箱、命令分派和专用测试已删除；PR、双板构建及四配置行为对照通过，未烧录。
+- [APP组合入口可读性重构](2026-11-03-app-readability-v1.md)：职责分组、命令分派及健康监督整理；前后PR、双板构建和四配置行为对照通过，未烧录。
+- [删除MotorBench及Commissioning工程](2026-11-03-motor-bench-removal-v1.md)：专用命令、工具和工程已移除；PR、冻结release与八目标通过，未烧录。
+- [删除AT32启动状态](2026-11-03-at32-startup-state-removal-v1.md)：移除s_startup_state及全部依赖判断；PR与四个正式目标通过，未烧录。
+- [AT32初始化默认成功](2026-11-03-at32-init-assumed-success-v1.md)：删除初始化异常返回，保留就绪等待和运行保护；PR、最终冻结release及九目标通过，未烧录。
+- [Keil标定结果保存](2026-11-03-keil-calibration-save-v1.md)：命令5同步保存及回读，机械零位加载与AT32 Flash看门狗窗口修复；最终PR及九目标通过，未上板。
+- [Keil全局标定控制](2026-11-03-keil-calibration-control-v1.md)：非static选择量与命令4接入三类标定；完整PR及四个正式目标编译通过，未烧录。
+- [正式APP全局调试命令](2026-11-03-keil-global-control-v1.md)：Keil前台单次启停与目标提交，原准入保留；完整PR及四个正式目标构建通过，未烧录。
+- [双板中断入口集中到main](2026-11-02-main-interrupt-routing-v1.md)：三类向量由各板映射，BSP保留硬件处理；9目标、PR及冻结release通过，未烧录。
+- [AT32启动失败分支去除goto](2026-11-02-at32-startup-no-goto-v1.md)：指定system.c三处跳转改为直接返回；修改前后生命周期检查及完整PR档通过，未烧录。
 - [FOC输出角度按1.5Ts补偿](2026-11-02-foc-phase-advance-1p5ts-v1.md)：共用逆Park按75μs预测；当前工作区PR、84组解析检查与双板构建通过，未烧录。
 - [低电流短脉冲与角度速度复核](2026-11-02-current-short-pulse-v1.md)：12次正常结束，0.3A阶跃通过，0.1/0.2A未全达标；同步角度/速度复核完成，未修改固件。
 - [D轴正弦扫频](2026-11-02-d-axis-frequency-sweep-v1.md)：低电流25点×2次完成，−3dB约2.96kHz；1.5A档记录前限速，高电流未完成。

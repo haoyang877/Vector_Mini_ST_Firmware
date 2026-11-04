@@ -1,9 +1,5 @@
 # 独立生成协议黄金向量，固定字节顺序和 CRC 契约。
-"""Reference wire vectors for the company CAN FD protocol, not MCU firmware.
-
-Run with Python 3. The two CRC computations use different formulations.
-Outputs the adjacent JSON fixture and refreshes Appendix A in the design spec.
-"""
+"""生成历史协议的字节回归夹具；不写说明文档，也不代表当前支持的消息。"""
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -14,7 +10,7 @@ import struct
 
 from project_paths import ROOT
 
-DOCS = ROOT / "docs/protocols"
+FIXTURES = ROOT / "tests/fixtures/protocol"
 
 
 def crc_shift(data, width, poly, initial):
@@ -318,54 +314,7 @@ def write_catalog():
             "overflow_policy": "invalid sentinel for affected field; never wrap or saturate",
         }
     )
-    spec = (DOCS / "motor_protocol_v1.md").read_text(encoding="utf-8")
-    for entry in active:
-        assert entry["name"] in spec, entry["name"]
-    lines = [
-        "# CAN FD 通信协议命令总表",
-        "",
-        "版本 1.2.3 评审稿，2026-09-08。当前仅 CAN FD：65 种有效消息，63 条请求、2 种上报。另有 120～123 四个历史退出编号，含历史记录的登记总数为 69，不代表本版实现 69 种消息。",
-        "",
-        "29 位扩展 ID；仲裁 500 kbit/s，数据 5 Mbit/s，BRS=1。全部报文使用公司 16 B 帧头 + payload + 2 B CRC16；完整格式、会话、错误码和分片见[协议设计规范](motor_protocol_v1.md)。",
-        "",
-        "目标和合并运动反馈各 200 Hz，8 B payload 各封装为一个 32 B FD 帧；心跳 1 Hz，状态事件额外发送。无裸 8 B 业务帧、无 J1939 TP。具体可选功能以 GET_CAPS 为准；本表未表示固件已实现。",
-        "",
-        "命令简化仍见[独立建议稿](motor_command_consolidation_review.md)，尚未替换本表编号。",
-        "",
-        "| type | 十六进制 | 类别 | 名称 | 方向 | 业务 ACK | 周期 | 说明 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for e in active:
-        period = (
-            f"{e['default_frequency_hz']} Hz / {e['default_period_ms']} ms"
-            if e["default_period_ms"]
-            else ("事件立即" if e["trigger"] == "event" else "按需")
-        )
-        lines.append(
-            f"| {e['type']} | {e['hex']} | {e['group']} | {e['name']} | {'上报' if e['role'] == 'report' else '请求'} | {'是' if e['business_ack'] else '否'} | {period} | {e['schedule_note']} |"
-        )
-    lines.extend(
-        [
-            "",
-            "历史编号仅作防复用登记；当前收发和能力声明均不支持：",
-            "",
-            "| type | 历史含义 | 当前替代 |",
-            "| --- | --- | --- |",
-            "| 120 | 旧位置反馈 | 124 |",
-            "| 121 | 旧速度反馈 | 124 |",
-            "| 122 | 旧电流反馈 | 124 |",
-            "| 123 | 经典 CAN 心跳/状态事件 | 3 |",
-            "",
-            "JSON 的 status=active 表示本版消息，retired 表示历史退出；active 的 supported_profiles 仅为 canfd，retired 为空。default_period_ms 为 null 表示无固定周期。",
-            "",
-            "默认运动看门狗 50 ms，只由合法新目标或对应高级任务保活刷新；重复报文、查询、反馈和心跳均不刷新。实时业务单帧禁止分片；长管理/升级消息按公司 flags/seq 分片，每片独立 CRC。",
-            "",
-            "示例见 [CAN FD 帧示例](motor_control_frame_example.md)，机器可读登记见 [motor_command_catalog.json](motor_command_catalog.json)。",
-            "",
-        ]
-    )
-    (DOCS / "motor_command_catalog.md").write_text("\n".join(lines), encoding="utf-8")
-    (DOCS / "motor_command_catalog.json").write_text(
+    (FIXTURES / "motor_command_catalog.json").write_text(
         json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return entries
@@ -503,42 +452,8 @@ def main():
         ),
         "advanced_payloads": advanced,
     }
-    (DOCS / "motor_protocol_vectors.json").write_text(
+    (FIXTURES / "motor_protocol_vectors.json").write_text(
         json.dumps(fixtures, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    sections = [
-        f"CRC 校验串 ASCII `123456789`：CRC8=0x{checks['crc8_123456789']}，CRC16=0x{checks['crc16_123456789']}，CRC16 低字节在前。以下全部线上帧使用 CAN FD、29 位 ID、BRS=1，500 kbit/s 仲裁、5 Mbit/s 数据。"
-    ]
-    for name in ["fd_test_request", "fd_test_response", "fd_speed", "fd_feedback", "fd_stop"]:
-        for rec in fixtures[name]:
-            sections.append(
-                f"{name}：CAN ID `{rec['can_id']}`，公司有效报文 {rec['logical_frame_bytes']} B，FD 数据区 {rec['fd_data_bytes']} B，CRC 后为 00 填充。\n\n```text\n{rec['data']}\n```"
-            )
-    sections.append(
-        "速度目标为 10 rad/s，lease=0x1234，command_seq=1。合并反馈同一快照：位置 1.570 rad、速度 9.500 rad/s、Iq=1.200 A；8 B payload 不含模式或执行序号，由状态消息提供。"
-    )
-    sections.append(
-        "CAN FD 的 128 B 写块示例：业务 payload 共 144 B，分成 46+46+46+6 B。以下四帧每帧都含独立公司帧头与 CRC；物理填充位于各帧 CRC 之后。\n\n| 片 | CAN ID | FD 数据区长度 | 公司帧有效长度 |\n| --- | --- | --- | --- |\n"
-        + "\n".join(
-            f"| {i} | {r['can_id']} | {r['fd_data_bytes']} | {r['logical_frame_bytes']} |"
-            for i, r in enumerate(fd_write)
-        )
-    )
-    for i, rec in enumerate(fd_write):
-        sections.append(f"CAN FD 写块片 {i}：\n\n```text\n{rec['data']}\n```")
-    sections.append(
-        "1.2 高级命令 payload 向量如下，仅验证字节编码，不表示设备已满足执行前置条件；公司完整帧仍需封装后放入 CAN FD 数据区。"
-    )
-    for name, encoded in advanced.items():
-        if name != "trajectory_crc16":
-            sections.append(f"{name}：\n\n```text\n{encoded}\n```")
-    sections.append(
-        f"上述两段轨迹的 content_crc16 数值为 `0x{advanced['trajectory_crc16']}`，TRAJ_COMMIT 中按小端 u16 编码。"
-    )
-    path = DOCS / "motor_protocol_v1.md"
-    content = path.read_text(encoding="utf-8").split("<!-- VECTORS -->")[0]
-    path.write_text(
-        content + "<!-- VECTORS -->\n\n" + "\n\n".join(sections) + "\n", encoding="utf-8"
     )
     print(
         json.dumps(
@@ -549,7 +464,7 @@ def main():
                 "catalog_messages": len(catalog),
                 "active_messages": 65,
                 "fd_write_fragments": len(fd_write),
-                "document": str(path),
+                "fixture": str(FIXTURES / "motor_protocol_vectors.json"),
             },
             ensure_ascii=False,
         )

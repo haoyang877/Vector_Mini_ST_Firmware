@@ -27,17 +27,17 @@ extern "C"
 
     /**
      * @brief 初始化已启用的硬件并建立安全初始状态。
-     * @return 完成为BSP_OK；重复调用为BSP_NOT_READY；硬件失败返回对应错误或进入既有致命路径。
-     * @note 启动前台一次，可包含原有有界校准等待；不从ISR调用。
+     * @return AT32完成为BSP_OK；STM32重复调用为BSP_NOT_READY，硬件失败沿原错误路径处理。
+     * @note 启动前台一次，等待平台时钟和校准就绪；不从ISR调用。
      * @note 先执行BootHw早期交接再进行时钟/外设准备；
      *   不启相、不开放应用控制事件、不写参数或启动应用看门狗。
-     * @note 失败保持关相并锁存初始化失败，不能继续Start或在同一次启动中重试Init。
+     * @note AT32不维护启动状态，由调用方保证顺序及单次初始化；STM32保留原状态和失败语义。
      */
     BspResult Bsp_Init(void);
 
     /**
      * @brief 按原顺序开放采样触发及监督节拍。
-     * @return 成功为BSP_OK；Init未完成或已经启动为BSP_NOT_READY；硬件失败返回对应错误。
+     * @return AT32完成为BSP_OK；STM32未初始化或已启动为BSP_NOT_READY，硬件失败沿原错误路径处理。
      * @note 启动前台一次，应用对象及必需的静态事件实现已就绪。
      * @note 不启相；CAN和看门狗由各自Start按原目标时点开放。
      */

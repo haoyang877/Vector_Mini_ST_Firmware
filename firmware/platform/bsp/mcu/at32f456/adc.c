@@ -298,7 +298,7 @@ void Adc_Stop(void)
 #endif
 }
 
-bool Adc_CompleteFast(void)
+bool BspAdc_CompleteFast(void)
 {
     if (!adc_flag_get(MCU_ADC_FAST, ADC_PCCE_FLAG))
     {
@@ -316,16 +316,6 @@ bool Adc_CompleteFast(void)
     }
     return true;
 }
-
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
-void MCU_ADC_IRQ_HANDLER(void)
-{
-    if (Adc_CompleteFast())
-    {
-        BspApp_OnFastSample();
-    }
-}
-#endif
 
 float BspAdc_ReadRawChannel(BspAdcChannel channel)
 {

@@ -22,6 +22,13 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bsp_adc.h"
+#include "bsp_system.h"
+/* APP main.c持有真实向量；生成的原函数体继续负责硬件与HAL处理。
+ * 保留此USER CODE映射，CubeMX再生成后不重新定义同名向量。 */
+#define ADC1_2_IRQHandler BspAdc_HandleInterrupt
+#define TIM7_IRQHandler BspSystem_HandleControlInterrupt
+#define SysTick_Handler BspSystem_HandleTickInterrupt
 #include "adc.h"
 #include "fdcan.h"
 #include "bsp_can.h"

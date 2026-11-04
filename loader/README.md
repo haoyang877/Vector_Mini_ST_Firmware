@@ -7,7 +7,7 @@
 - [软件框图、紧凑流程图与内存分配](../docs/architecture/loader/loader_product_v3.md)
 - [更换 MCU：资料、适配步骤和验收标准](../docs/guides/loader_mcu_porting_v1.md)
 - [多目标边界改造与离线验证](../docs/reports/2026-10/loader_mcu_boundaries_20261021.md)
-- [升级线路、设备身份页及容器v3](../docs/protocols/yg_protocol_upgrade_wire_v3.md)
+- [升级线路、设备身份页及容器v3](../docs/protocols/README.md#upgrade)
 - [实施、验收与回退计划](../docs/archive/plans/2026-09-29-loader-p0-p1-v1.md)
 - [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)
 - `core/`：单事务、5s租约、主机nonce/session与精确ACTIVATE发送票据。
@@ -36,7 +36,7 @@
 CAN 通道固定为 0。设备索引和通道索引不是同一个编号，不能以适配器可打开代替目标 UID 核对。
 不支持USB、UART、第二MCU、跨复位续传、旧APP回滚、维护角色或签名。
 layout 5 到 layout 6 必须通过受控 SWD 同时迁移 Loader 与 APP；不能混用旧址 APP
-或以 CAN 改写 Loader。当前候选为 Loader v2.1.0、APP v1.5.0，参数使用[schema14](../docs/protocols/parameter_schema14_storage_v1.md)。
+或以 CAN 改写 Loader。当前候选为 Loader v2.1.0、APP v1.5.0，参数使用[schema14](../firmware/parameters/README.md#storage)。
 旧版本的二十轮实测不计入新候选次数。当前候选已完成三次连续升级及三项故障恢复，
 真实掉电和参数保存断电仍未覆盖。
 APP 的 READY 回复必须关联队列入队位置，并等待该帧真实发送完成后才能复位；

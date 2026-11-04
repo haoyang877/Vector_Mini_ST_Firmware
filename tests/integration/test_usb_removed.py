@@ -44,7 +44,7 @@ class UsbRemovalTests(unittest.TestCase):
         self.assertIn("App_Init();", main)
         self.assertIn("App_Process();", main)
         startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
-        self.assertIn("YgProtocolRuntime_Service", startup)
+        self.assertIn("Protocol_Process", startup)
         self.assertIn("void App_Process(void)", startup)
         self.assertNotIn("int main(void)", startup)
         self.assertNotIn("int main(void)", platform)

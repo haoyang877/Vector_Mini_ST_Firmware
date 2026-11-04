@@ -3,7 +3,7 @@
 # 参数描述符模型与 ID 分区设计 v1.0
 
 日期：2026-09-20。状态：**设计稿（仅文档，不含代码实施）**。
-上游依据：[通信分层说明（CAN 接入）](../../architecture/communication_layering.md)（协议约定层 =
+上游依据：[通信分层说明（CAN 接入）](../../protocols/README.md#implementation)（协议约定层 =
 `communication/protocol/can_parameter_wire.*`）与
 [通信分层优化设计](2026-09-19-communication-layering-optimization.md)（S0–S4/S6 已落地）。
 

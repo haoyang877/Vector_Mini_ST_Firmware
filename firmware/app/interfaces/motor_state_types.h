@@ -22,7 +22,8 @@ typedef enum
     MOTOR_CONTROL_DENIED,
     MOTOR_CONTROL_BUSY,
     MOTOR_CONTROL_OUT_OF_RANGE,
-    MOTOR_CONTROL_FAULT
+    MOTOR_CONTROL_FAULT,
+    MOTOR_CONTROL_PERSIST_FAILED
 } MotorControlResult;
 
 /** @brief 独立标定类型；标定不自动保存到Flash。 */

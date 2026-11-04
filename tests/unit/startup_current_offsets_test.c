@@ -79,8 +79,8 @@ void MotorLifecycle_CompleteCalibrationPublication(uint32_t calibration_epoch,
     ++calibration_publication_calls;
 }
 
-MotorTaskResult EncoderCalibrationTask_StepLut(const EncoderCalibrationControl *control,
-                                               EncoderCalibrationWorkspace *workspace)
+MotorTaskResult EncoderCalibration_StepLut(const EncoderCalibrationControl *control,
+                                           EncoderCalibrationWorkspace *workspace)
 {
     assert(control->configuration == &s_motor_configuration);
     assert(control->foc == &s_foc_state && control->motor == &s_motor_state &&
@@ -91,7 +91,7 @@ MotorTaskResult EncoderCalibrationTask_StepLut(const EncoderCalibrationControl *
     return simulated_calibration_outcome;
 }
 
-MotorTaskResult EncoderCalibrationTask_StepElectricalZero(const EncoderCalibrationControl *control)
+MotorTaskResult EncoderCalibration_StepElecZero(const EncoderCalibrationControl *control)
 {
     assert(control->configuration == &s_motor_configuration);
     assert(control->foc == &s_foc_state && control->motor == &s_motor_state &&
@@ -107,7 +107,7 @@ bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *en
     return true;
 }
 
-bool EncoderCalibrationTask_PublishLut(EncoderCalibration *calibration, EncoderState *encoder)
+bool EncoderCalibration_PublishLut(EncoderCalibration *calibration, EncoderState *encoder)
 {
     assert(output_off && calibration == &s_motor_configuration.device.encoder);
     assert(encoder == &s_rotor_encoder);
@@ -373,7 +373,8 @@ MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
 
 static void sample_test_currents(void)
 {
-    MotorAxis_FastTick();
+    MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
 }
 
 static void initialize(void)
@@ -433,7 +434,8 @@ static void test_full_window(void)
         samples[0] = (i & 1U) ? 8131U : 8130U;
         bus_sample_raw = BSP_ENABLED_BUS_CURRENT ? ((i & 1U) ? 2050.0f : 2049.0f) : NAN;
         assert(!s_current_offset_calibration.complete);
-        MotorAxis_FastTick();
+        MotorAxis_SampleFast();
+        MotorAxis_ControlFast();
         if (i < CURRENT_OFFSET_SAMPLE_COUNT - 1U)
         {
             assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
@@ -463,7 +465,8 @@ static void test_full_window(void)
     uint32_t old_sum = s_current_offset_calibration.phase_sum_raw[0];
     for (unsigned i = 0U; i < 20U; ++i)
     {
-        MotorAxis_FastTick();
+        MotorAxis_SampleFast();
+        MotorAxis_ControlFast();
     }
     assert(current_reads + bus_raw_reads == prior_raw_reads);
     assert(s_current_offset_calibration.phase_sum_raw[0] == old_sum);
@@ -549,7 +552,8 @@ static void test_idle_only(void)
         simulated_state = state;
         for (unsigned i = 0U; i < 10U; ++i)
         {
-            MotorAxis_FastTick();
+            MotorAxis_SampleFast();
+            MotorAxis_ControlFast();
         }
         assert(current_reads == 0U && bus_raw_reads == 0U);
         assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
@@ -565,7 +569,8 @@ static void test_idle_only(void)
     for (MotorState state = MOTOR_STATE_IDLE; state <= MOTOR_STATE_FAULT; ++state)
     {
         simulated_state = state;
-        MotorAxis_FastTick();
+        MotorAxis_SampleFast();
+        MotorAxis_ControlFast();
     }
     assert(current_reads + bus_raw_reads == reads);
     assert(phase_offset_writes == 1U && bus_offset_writes == (BSP_ENABLED_BUS_CURRENT ? 1U : 0U));
@@ -592,7 +597,8 @@ static void test_voltage_limits_refresh_only(void)
         float maximum_voltage_v = Foc_MaxVoltage(simulated_bus_voltage_v);
         expected_id.output_min = expected_iq.output_min = -maximum_voltage_v;
         expected_id.output_max = expected_iq.output_max = maximum_voltage_v;
-        MotorAxis_FastTick();
+        MotorAxis_SampleFast();
+        MotorAxis_ControlFast();
         assert(memcmp(&s_foc_state.id_pi, &expected_id, sizeof(expected_id)) == 0);
         assert(memcmp(&s_foc_state.iq_pi, &expected_iq, sizeof(expected_iq)) == 0);
         assert(memcmp(&s_speed_pi, &expected_speed, sizeof(expected_speed)) == 0);
@@ -608,7 +614,8 @@ static void expect_fast_tick_order(const char *expected)
     unsigned prior_reads = fast_frame_reads;
     fast_trace_length = 0U;
     trace_enabled = true;
-    MotorAxis_FastTick();
+    MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
     trace_enabled = false;
     assert(strcmp(fast_trace, expected) == 0);
     assert(fast_frame_reads == prior_reads + 1U);
@@ -720,7 +727,8 @@ static void test_calibration_dispatch_and_publication(void)
             calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ? MOTOR_TASK_FINALIZE
                                                                         : MOTOR_TASK_COMPLETED,
             MOTOR_FAULT_NONE};
-        MotorAxis_FastTick();
+        MotorAxis_SampleFast();
+        MotorAxis_ControlFast();
         assert(calibration_cycle_calls == 1U && control_calls == 0U);
     }
     prepare_fast_tick_order(MOTOR_STATE_IDLE, MOTOR_CONTROL_NONE);
@@ -758,15 +766,19 @@ int main(void)
     simulated_save = true;
     output_off = true;
     velocity_restarts = 0U;
-    MotorAxis_FastTick();
-    MotorAxis_FastTick();
+    MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
+    MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
     assert(velocity_restarts == 0U);
     simulated_save = false;
-    MotorAxis_FastTick();
+    MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
     assert(velocity_restarts == 0U);
     initialize();
     simulated_state = MOTOR_STATE_RUNNING;
-    MotorAxis_FastTick();
+    MotorAxis_SampleFast();
+    MotorAxis_ControlFast();
     assert(control_calls == 0U && observer_calls == 0U && progress_calls == 1U);
     initialize();
     s_foc_state.bus_voltage_filtered_v = 30.0f;

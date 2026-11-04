@@ -8,8 +8,8 @@
 ## 1. 先准备共同基线
 
 必读：仓库 `AGENTS.md`、`STYLE.md`、
-[核心接口契约](../protocols/yg_protocol_core_interfaces_v0_1.md)、
-[技术实现规范](../architecture/communication_protocol_refactor_spec_v1.md)、
+[核心接口契约](../../protocols/README.md#implementation)、
+[技术实现规范](../../protocols/README.md#implementation)、
 [迁移计划](2026-09-20-company-canfd-protocol-migration.md)。任务只需额外阅读自己负责的公共头。
 
 当前核对结果：不少 `yg_protocol_*` 源码和测试仍是未跟踪文件，其余文档存在暂存/未暂存修改。

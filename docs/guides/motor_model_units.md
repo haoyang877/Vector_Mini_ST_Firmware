@@ -18,8 +18,8 @@
 | 温度 | °C | 反馈i16为0.01°C；仅MCU实测来源 |
 | 编码器环形角 | 65536 counts/转 | Q15历史命名不表示32768 counts/转 |
 
-尺度和权限最终见[参数目录](../protocols/yg_protocol_parameter_catalog_v0_1.md)及
-[45B状态字段](../protocols/yg_protocol_motor_wire_v1.md)。无效或溢出反馈必须清有效位并用哨兵，
+尺度和权限最终见[参数目录](../protocols/README.md#parameters)及
+[45B状态字段](../protocols/README.md#control)。无效或溢出反馈必须清有效位并用哨兵，
 不能饱和成看似有效的测量。Iq命令是电流，当前没有由Nm目标到电流的公开线路。
 
 Id=0时，`Te=1.5×p×ψ×Iq`，因此`ψ=Kt/(1.5×p)`；此处Kt为电机轴总转矩/Iq幅值。

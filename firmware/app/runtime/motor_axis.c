@@ -7,6 +7,7 @@
 #include "motor_sensing.h"
 #include "bsp_flash.h"
 #include "parameter_record.h"
+#include "parameter_values.h"
 
 #include "encoder_feedback.h"
 #include "foc.h"
@@ -16,10 +17,6 @@
 #include "motor_lifecycle.h"
 #include "flux_observer.h"
 #include "sensorless_startup.h"
-
-#if APP_ENABLE_MOTOR_BENCH
-#include "motor_bench.h"
-#endif
 
 /* 持有单轴对象并编排快慢环；全局符号保留给只读 Watch。 */
 MotorConfiguration s_motor_configuration;
@@ -33,6 +30,8 @@ CurrentOffsetCalibration s_current_offset_calibration;
 
 /* 编码器线性化独占的6144字节静态工作区；发布或取消前不复用。 */
 static EncoderCalibrationWorkspace s_encoder_linearization_workspace;
+/* 启动装载和停机前台保存串行复用，避免再分配整条记录。 */
+static InterfaceParam s_parameter_record;
 
 static MotorTaskResult run_active_calibration_cycle(void)
 {
@@ -46,9 +45,9 @@ static MotorTaskResult run_active_calibration_cycle(void)
     switch (MotorLifecycle_GetCalibrationType())
     {
     case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:
-        return EncoderCalibrationTask_StepLut(&control, &s_encoder_linearization_workspace);
+        return EncoderCalibration_StepLut(&control, &s_encoder_linearization_workspace);
     case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
-        return EncoderCalibrationTask_StepElectricalZero(&control);
+        return EncoderCalibration_StepElecZero(&control);
     case MOTOR_CALIBRATION_MECHANICAL_ZERO:
         if (Encoder_SetMechanicalZero(&s_motor_configuration.device.encoder, &s_rotor_encoder))
         {
@@ -65,19 +64,14 @@ void MotorAxis_Init(void)
 {
     s_foc_state.bus_voltage_filter_alpha = 0.05f;
     s_foc_state.bus_current_filter_alpha = 0.05f;
-    /* 固定启动暂存区；装载失败沿用默认值，不在栈上分配整份记录。 */
-    static InterfaceParam record;
-    if (BspFlash_Read(&record, sizeof(record)) == BSP_OK)
+    /* 固定启动暂存区与停机保存共用；装载失败沿用默认值。 */
+    if (BspFlash_Read(&s_parameter_record, sizeof(s_parameter_record)) == BSP_OK)
     {
-        Param_Download(&record, sizeof(record), &s_motor_configuration);
+        Param_Download(&s_parameter_record, sizeof(s_parameter_record), &s_motor_configuration);
     }
     else
     {
         Param_Return_Default(&s_motor_configuration);
-    }
-    if (s_motor_configuration.configuration_source != MOTOR_CONFIGURATION_STORED)
-    {
-        s_motor_state.vq_target_v = 0.0f;
     }
     MotorCurrentOffsets_Init(&s_current_offset_calibration,
                              &s_motor_configuration,
@@ -107,11 +101,8 @@ void MotorAxis_Init(void)
     s_motor_configuration.application.position_error_window_rad =
         PARAM_APP_POSITION_ERROR_WINDOW_RAD;
     s_motor_state.position_velocity_filtered_rad_s = 0.0f;
+
     MotorOuterLoop_RequestReset();
-#if APP_ENABLE_MOTOR_BENCH
-    MotorBench_Init(
-        &s_motor_configuration, &s_foc_state, &s_motor_state, &s_rotor_encoder, &s_flux_observer);
-#endif
 
     /* 状态机初始化已禁用控制；无轴记录时继续锁存参数故障。 */
     if (!s_motor_configuration.application.axis_profile_valid)
@@ -127,7 +118,7 @@ void MotorAxis_SupervisorTick(void)
     MotorLifecycle_SupervisorTick();
 }
 
-void MotorAxis_FastTick(void)
+void MotorAxis_SampleFast(void)
 {
     /* 编码器传输与采样和观测器计算重叠。 */
     BspEncoder_Begin();
@@ -161,11 +152,11 @@ void MotorAxis_FastTick(void)
     }
 
     Encoder_Update(&s_rotor_encoder);
+}
 
-    /* 先完成编码器事务，再检查故障并处理本拍启相。 */
-#if APP_ENABLE_MOTOR_BENCH
-    MotorBench_BeforeControl();
-#endif
+void MotorAxis_ControlFast(void)
+{
+    /* 采样阶段已完成编码器事务，再检查故障并处理本拍启相。 */
     MotorLifecycle_BeginFastTick();
 
     /* 捕获本拍代际；标定和正常控制互斥执行。 */
@@ -194,9 +185,6 @@ void MotorAxis_FastTick(void)
 
     /* 所有分支统一发布，再关断本拍新产生的故障。 */
     MotorLifecycle_PostOutcome(outcome, work_epoch);
-#if APP_ENABLE_MOTOR_BENCH
-    MotorBench_AfterControl(outcome);
-#endif
 }
 
 void MotorAxis_ProcessCalibrationPublication(void)
@@ -206,14 +194,49 @@ void MotorAxis_ProcessCalibrationPublication(void)
     uint32_t calibration_epoch;
     if (MotorLifecycle_ReadPendingCalibrationPublication(&calibration_epoch))
     {
-        bool publication_succeeded = EncoderCalibrationTask_PublishLut(
-            &s_motor_configuration.device.encoder, &s_rotor_encoder);
+        bool publication_succeeded =
+            EncoderCalibration_PublishLut(&s_motor_configuration.device.encoder, &s_rotor_encoder);
         MotorLifecycle_CompleteCalibrationPublication(calibration_epoch, publication_succeeded);
-#if APP_ENABLE_MOTOR_BENCH
-        MotorBench_CalibrationPublished(publication_succeeded);
-#endif
     }
     BspSystem_ExitCritical(interrupt_mask);
+}
+
+MotorControlResult MotorAxis_SaveCalibration(void)
+{
+    if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
+    {
+        return MOTOR_CONTROL_FAULT;
+    }
+    if (MotorLifecycle_GetState() != MOTOR_STATE_IDLE || !MotorLifecycle_IsStopped() ||
+        !EncoderCalibration_IsIdle())
+    {
+        return MOTOR_CONTROL_BUSY;
+    }
+    uint8_t flags = s_motor_configuration.device.encoder.calib_flag;
+    if (!s_current_offset_calibration.complete || s_current_offset_calibration.failed ||
+        !MotorCurrentOffsets_IsValid(&s_motor_configuration) ||
+        !ParameterValue_ConfigurationValid(&s_motor_configuration) || flags == 0U ||
+        (flags & ~(ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO)) != 0U ||
+        s_motor_configuration.device.encoder.reverse > 1U)
+    {
+        return MOTOR_CONTROL_DENIED;
+    }
+    /* 前台串行，空闲且零偏完成后中断不改配置；不在整条CRC期间屏蔽中断。 */
+    Param_Upload(&s_parameter_record, &s_motor_configuration);
+    if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
+    {
+        return MOTOR_CONTROL_FAULT;
+    }
+    if (MotorLifecycle_GetState() != MOTOR_STATE_IDLE || !MotorLifecycle_IsStopped())
+    {
+        return MOTOR_CONTROL_BUSY;
+    }
+    BspResult result = BspFlash_Write(&s_parameter_record, sizeof(s_parameter_record));
+    if (result == BSP_OK)
+    {
+        return MOTOR_CONTROL_ACCEPTED;
+    }
+    return result == BSP_REJECTED ? MOTOR_CONTROL_DENIED : MOTOR_CONTROL_PERSIST_FAILED;
 }
 
 uint8_t MotorAxis_NodeId(void)

@@ -39,13 +39,13 @@ AT32F456＋YQ-5708（8:1），节点1，CAN FD 1M/5M。沿用用户批准的3A�
   状态读取与目标提交都用短临界区，缩放和CAN发送在临界区之外。
 - [APP协议适配](../../../firmware/app/composition/app_protocol.c)负责单位、结果和最后一次成功请求的重试处理；
   16位序号回绕和STOP后旧请求均有离线回归。
-- [协议编码](../../../firmware/communication/commands/yg_protocol_motor.c)继续共用原45字节布局。
+- [协议编码](../../../firmware/communication/yg_protocol.c)继续共用原45字节布局。
   124由116触发，不另设周期广播器，不把反馈当成机械到位确认。
-- [台架监护](../../../firmware/app/runtime/motor_bench.c)允许受限的原117启动，
+- [当时的台架监护（现已退役）](../../guides/unified_motor_bench.md)允许受限的原117启动，
   116目标不被私有RUN参考覆盖；普通APP没有新增私有租约或通用失联看门狗。
 
-语义、单位、有效位和兼容说明见[协议v1.9](../../protocols/yg_protocol_motor_live_v1_9.md)，
-对应[黄金向量](../../protocols/yg_protocol_motor_live_v1_9_vectors.json)由真实编码与适配测试核对。
+语义、单位、有效位和兼容说明见[协议v1.9](../../protocols/README.md#control)，
+对应[黄金向量](../../../tests/fixtures/protocol/yg_protocol_motor_live_v1_9_vectors.json)由真实编码与适配测试核对。
 位置和速度继续使用电机轴坐标，没有隐式换算8:1。
 
 ## 构建、回读与数据保留

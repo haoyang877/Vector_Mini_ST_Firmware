@@ -14,7 +14,7 @@ worker 只返回功能结果，不改写主状态或自行启相关断。
 当前 CAN Type 160 的线路 kind 1 对应 LUT、kind 2 对应电角零位；Type 161 查询 ticket，
 Type 162 取消 ticket。线路 kind 与内部枚举分别定义，必须显式映射。
 任务 COMPLETED 与 Flash COMMITTED 分开；只有效果状态确认提交，才能认为结果已经持久化。
-详见 [标定线路契约](../protocols/yg_protocol_calibration_wire_v1.md) 和
+详见 [标定线路契约](../../protocols/README.md#parameters) 和
 [主状态机](../../architecture/motor_state_machine_v1.md)。
 
 ## LUT 参考坐标与算法

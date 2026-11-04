@@ -8,8 +8,8 @@
 | [含延迟的电流PI重整定](2026-11-02-delay-aware-current-loop-v1.md) | D轴实测1193.9Hz达标；0.75A限速停止，剩余稳态与阶跃未测 |
 | [双板 Loader 开发与评审 v1](2026-11-02-dual-board-loader-v1.md) | main功能对照修订；协议不变、Keil仅下APP、前128 KiB统一16/96/16，AT32参数首次原样迁移；待执行指令，未实施/未上板 |
 | [无感启动跑通v1](2026-10-31-sensorless-bringup-v1.md) | 无感标定连续三次完成，配套电零位完成；无感算法未改，新标定在RAM |
-| [统一电机测试执行v1](2026-10-31-unified-motor-validation-v1.md) | 新镜像回读、关相采样和1000次只读通信完成；带电工况待限值与安装条件 |
-| [统一电机测试代码接入v1](2026-10-31-unified-motor-code-v1.md) | 代码接入与离线编译；采集/协议/硬件测试后置，未执行 |
+| [统一电机测试执行v1](2026-10-31-unified-motor-validation-v1.md) | 历史实测记录；2026-11-03 对应代码与工程已退役 |
+| [统一电机测试代码接入v1](2026-10-31-unified-motor-code-v1.md) | 历史阶段；2026-11-03 已删除对应代码与工程 |
 | [电机统一台架测试用例v1.1](2026-10-31-unified-motor-test-cases-v1.md) | 已确认新板5708/8:1及现有设备；按板载采样/空载收敛，缺设备项目标记阻塞；待评审，未执行 |
 | [编码器标定最小实现v3](2026-10-30-calibration-control-boundary-v3.md) | 合并core，单一实现文件；StepLut两参数，电零位共享绑定；验证见记录 |
 | [编码器标定最小化v2](2026-10-30-calibration-minimal-v2.md) | 私有会话与阶段存储复用，任务代码减少464字节、BSS减少48字节；双板等价及故障测试通过，整仓仍有既有失败 |
@@ -76,7 +76,7 @@
 | [共用APP新板启动与速度实测](2026-10-24-shared-app-speed-hil-v1.md) | 关相启动及2kHz零缺口采集通过；±1/±2点达标，±3仍未达；release通过，参数未保存、已关相 |
 | [双板release检查修复](2026-10-24-release-check-repair-v1.md) | 工作树PR与干净冻结副本release全通过；三个目标HEX不变，未接触硬件 |
 | [双板共用配置收敛](2026-10-24-dual-board-config-v1.md) | 配置收敛、三个目标编译和定向离线验证完成；后续冻结副本release已通过 |
-| [新板完整APP标定与闭环](2026-10-23-r40-app-commissioning-v1.md) | LUT/电零位、动态Id及双向Iq短脉冲通过；关相快照竞态已修复；速度±3rad/s可运行但精度未过，试验增益未落盘 |
+| [新板完整APP标定与闭环](2026-10-23-r40-app-commissioning-v1.md) | 历史实测记录；2026-11-03 已删除 Commissioning 工程 |
 | [新板MCU温度可选策略](2026-10-23-mcu-temperature-optional-v1.md) | 关相调试目标临时可选；默认限流修正为3A，实机待机/故障0及120次CAN读取通过 |
 | [PA4母线电流APP接入](2026-10-23-pa4-bus-current-app-v1.md) | 按硬件能力选择反馈；关相偏置及120次CAN读取通过，带载绝对精度待验证 |
 | [STM32G4 APP入口统一](2026-10-23-stm32-application-entry-v1.md) | 历史目录迁移完成；当前各板application/main.c为真实入口，平台实现归platform_app.c；本次入口分离仅离线验证 |

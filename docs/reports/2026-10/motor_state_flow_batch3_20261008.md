@@ -12,7 +12,7 @@
 - 删除 tested、自检重启动作、enter_initialization 和返回 INIT 分支；生产 C 净减少 35 行。
 - [当前总图](../../architecture/motor_state_machine_v1.md)重新排版并逐图检查，文字与箭头不重叠。
 
-线上值、载荷及参数 ABI 保持；行为兼容说明见[协议 v1.2](../../protocols/yg_protocol_motor_state_v1_2.md)。
+线上值、载荷及参数 ABI 保持；行为兼容说明见[协议 v1.2](../../protocols/README.md#feedback)。
 任务、SAVE、实际输出确认、取消身份、借用归还、故障优先级、控制数学和保护阈值保持。
 故障恢复仍使用现有明确 CLEAR 入口；没有新增自动清错或自动启动。
 

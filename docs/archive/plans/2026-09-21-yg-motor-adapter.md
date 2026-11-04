@@ -106,5 +106,5 @@
 
 ## 8. 依据
 
-- [核心接口契约 v0.1](../protocols/yg_protocol_core_interfaces_v0_1.md)
+- [核心接口契约 v0.1](../../protocols/README.md#implementation)
 - [模块开发交接单 v0.1](2026-09-21-yg-protocol-module-handoff.md)

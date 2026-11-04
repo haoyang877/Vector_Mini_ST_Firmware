@@ -37,13 +37,12 @@ def main() -> None:
         )
         if name == "core_protocol":
             command += [
-                str(ROOT / f"firmware/communication/commands/yg_protocol_{part}.c")
-                for part in ("parameter", "job", "motor", "motor_adapter")
-            ]
-            command += [
                 str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
                 str(ROOT / "shared/protocol/yg_protocol_crc.c"),
-                str(ROOT / "firmware/communication/commands/yg_protocol_readonly.c"),
+                str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
+                str(ROOT / "shared/protocol/yg_protocol_can_id.c"),
+                str(ROOT / "tests/unit/yg_protocol_bsp_stubs.c"),
+                str(ROOT / "tests/unit/bsp_preemption_stubs.c"),
             ]
         logs = []
         for invocation in (command, [str(executable)]):
@@ -54,7 +53,7 @@ def main() -> None:
             result.check_returncode()
         if name == "core_protocol":
             vectors = json.loads(
-                (ROOT / "docs/protocols/yg_protocol_core_v1_8_vectors.json").read_text(
+                (ROOT / "tests/fixtures/protocol/yg_protocol_core_v1_8_vectors.json").read_text(
                     encoding="utf-8"
                 )
             )

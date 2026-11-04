@@ -28,14 +28,14 @@ Loader APP 的 ROM 与加载跨度相差 40 B，为向量表到固定镜像描�
 提交 `afe1920` 删除没有控制调用者的四个位置增益/积分限值运行字段、赋值和校验。
 schema11 原槽位改名为 reserved，读取忽略、导出清零；有效参数及标定偏移不变。
 不提供旧 API 别名、转换或自动 Flash 回写。私有运行结构缩小 16 B，SWD 必须使用
-同版 ELF。见 [schema11 退役槽位约定](../../protocols/parameter_schema12_loading_policy_v1.md)。
+同版 ELF。见 [schema11 退役槽位约定](../../../firmware/parameters/README.md#storage)。
 
 ### 软件双精度依赖
 
 提交 `e13e150` 用 binary32 位分解与有界整数运算实现原有舍入，分别保持状态编码
 和参数编码不同的端点规则。当前缩放的乘积精确，未改变浮点编译语义或控制算法。
 软件双精度加减、乘法、转换、比较和 round 对象退出链接；替代代码开销已计入
-2096 B 整包净收益。见 [数值编码等价契约](../../protocols/numeric_encoding_v1.md)。
+2096 B 整包净收益。见 [数值编码等价契约](../../protocols/README.md#feedback)。
 
 ### 逐模块编译空间对比
 

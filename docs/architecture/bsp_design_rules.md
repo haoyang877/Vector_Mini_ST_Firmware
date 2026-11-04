@@ -1,6 +1,6 @@
 # BSP 职责约定
 
-更新：2026-10-30。这里汇总当前有效约定，阶段过程保留在对应计划和报告。
+更新：2026-11-03。这里汇总当前有效约定，阶段过程保留在对应计划和报告。
 文件对应关系见[BSP 架构](bsp_architecture_v1.md)。
 
 ## 公开能力与实现
@@ -36,11 +36,22 @@ PWM 三个比较寄存器分别写入，不承诺跨更新事件原子提交。
 
 `firmware/config/config.h` 提供板型编号、工程输入要求、电机默认值和公共快慢时基。
 `board_config.h` 提供能力、电路、时钟和存储范围；功能直接由实际板卡能力决定。
-每个 MCU 的 `mcu_resources.h` 统一管理引脚、外设、采样结果、DMA 和 IRQ 映射，
+每个 MCU 的 `mcu_resources.h` 统一管理引脚、外设、采样结果、DMA、IRQ编号和优先级，
 仅供该 MCU 使用。STM32 改动资源必须同步审查 `.ioc` 与生成区，手改限 USER CODE。
+各MCU的 `firmware/platform/bsp/mcu/<平台>/interrupt_map.h` 只映射ADC、监督与SysTick的向量符号，
+各板main.c通过工程选定的MCU包含目录引用它，并定义三个真实中断入口。
+映射头不包含SDK类型或寄存器，应用引用权限仅限该头；资源变更时须同步核对向量映射。
 
 main 使用 `Bsp_Init → App_Init → Bsp_Start → App_Start`，BSP 初始化不启相。
-ADC 回调由 main 连接 APP，监督与 CAN 业务回调由组合层实现；MCU 只通知已约定的事件。
+AT32外设初始化按默认成功处理：McuSystem_Init/Start为void，仅等待时钟就绪并按序配置，
+不维护启动状态或上报初始化异常。Bsp_Init/Start也不缓存启动阶段，调用者负责按顺序各调用一次。
+Flash_Init不参与AT32初始化失败分支；Flash运行期读写、看门狗和电机故障仍保留原检查。
+AT32 main的ADC入口通过BspAdc_CompleteFast确认并清标志，直接执行MotorAxis_SampleFast → MotorAxis_ControlFast，
+完成后递增g_app_fast_samples。STM32 ADC入口仍调用BspAdc_HandleInterrupt，保留HAL回调后清标志。
+监督与SysTick入口调用BspSystem_HandleControlInterrupt和BspSystem_HandleTickInterrupt；
+CAN事件由APP组合层实现，监督回调仍由main连接APP。
+MCU保留完成确认、清标志、HAL派发及1ms时基；main不读取寄存器、句柄或引入SDK类型。
+STM32生成文件只在USER CODE区把原三个函数映射为BSP处理函数，保留原函数体和再生成入口。
 快采样可抢占低频监督，原有中断优先级和短临界区语义不因整理改变。
 
 ## 验证

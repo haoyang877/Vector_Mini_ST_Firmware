@@ -193,7 +193,10 @@ BspResult BspFlash_Write(const void *data, size_t length)
         BspSystem_ExitCritical(key);
         return BSP_REJECTED;
     }
-    bool ok = write_record(data, (uint32_t)length);
+    bool watchdog_ready = McuSystem_SetFlashWatchdog(true);
+    bool ok = watchdog_ready && write_record(data, (uint32_t)length);
+    bool watchdog_restored = McuSystem_SetFlashWatchdog(false);
+    ok = ok && watchdog_restored;
     if (!ok)
     {
         s_flash_blocked = true;

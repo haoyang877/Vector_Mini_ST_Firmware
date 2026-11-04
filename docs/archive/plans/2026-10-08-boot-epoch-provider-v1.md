@@ -14,7 +14,7 @@
 不是 Loader nonce、UID、生产 SN、参数修订号或电机任务代际。
 
 保持 layout5 总分区、RAW schema12 的4304B记录、身份页格式、控制数学、模式、Watch、
-保护和开发入口。两页所有权见[记录与兼容契约](../protocols/boot_epoch_record_v1.md)。
+保护和开发入口。两页所有权见[记录与兼容契约](../../protocols/README.md#device)。
 保留页不擦，未知非空不迁移；不恢复旧 dual 参数 journal。
 
 ## 实际调用与修改

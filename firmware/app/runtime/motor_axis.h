@@ -2,21 +2,21 @@
 #define MOTOR_AXIS_H
 #include <stdint.h>
 #include "motor_state_types.h"
+#include "encoder_feedback.h"
+#include "foc.h"
 
-/** @brief 同一快环中的只读波形，按三相电流A、电角度rad、反馈/目标转速rad/s排列。 */
+/** @brief 轴所有者提供的只读反馈引用，状态仍由MotorAxis独占。 */
 typedef struct
 {
-    float phase_a_a, phase_b_a, phase_c_a;
-    float electrical_angle_rad;
-    float speed_rad_s, speed_target_rad_s;
-} MotorAxisTrace;
+    const FocState *foc;
+    const EncoderState *encoder;
+} MotorAxisFeedback;
 
 /**
- * @brief 读取本拍电流、编码器角度和机械转速波形，不改变控制状态。
- * @return 六路float快照，电流A、角度rad、机械转速rad/s。
- * @note 仅由ADC快环在采样和控制完成后调用，避免与采样并发。
+ * @brief 静态绑定的轴反馈，供APP在同一ADC快环末尾采样。
+ * @note 不修改或缓存所指状态；跨中断读取需另外取得一致快照。
  */
-MotorAxisTrace MotorAxis_ReadTrace(void);
+extern const MotorAxisFeedback MotorAxis_Feedback;
 
 /**
  * @brief 装载参数、初始化并绑定单轴运行对象。

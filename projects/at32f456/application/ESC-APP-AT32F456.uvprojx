@@ -388,6 +388,11 @@
               <FilePath>..\..\..\firmware\app\composition\app.c</FilePath>
             </File>
             <File>
+              <FileName>app_rtt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\app\composition\app_rtt.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\app\runtime\motor_axis.c</FilePath>

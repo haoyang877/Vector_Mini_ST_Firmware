@@ -21,6 +21,7 @@
 | --- | --- |
 | app/composition/app.c | 应用启动、前台服务、快慢调度、看门狗和 Loader 交接 |
 | app/composition/app_protocol.c | 服务绑定、协议与领域请求映射、最小状态刷新 |
+| app/composition/app_rtt.c | 可选RTT波形的静态缓冲、初始化和快环采样发送 |
 | app/runtime/motor_axis.c | 单份配置、运行对象、采样/控制/标定调度和候选发布 |
 | app/runtime/motor_lifecycle.c | 状态、启停、三类标定、会话代际、故障和功率许可 |
 | app/motor_state_machine | 五态纯迁移函数；不持有上下文或操作硬件 |

@@ -35,4 +35,16 @@ void App_Process(void);
  */
 void App_SupervisorTick(void);
 
+/**
+ * @brief 初始化六路浮点RTT上行缓冲区。
+ * @note 由启用RTT的板级入口在启动采样中断前调用一次，不启相。
+ */
+void RTT_Init(void);
+
+/**
+ * @brief 发送本拍三相电流、电角度、转速反馈和q轴电流反馈。
+ * @note 仅在初始化后的ADC快环采样与控制完成后调用；单写者，缓冲满则丢整帧，不阻塞。
+ */
+void RTT_Sampling(void);
+
 #endif

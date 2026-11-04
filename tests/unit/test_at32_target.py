@@ -77,13 +77,19 @@ class At32TargetTests(unittest.TestCase):
                     [path.as_posix() for path, _ in actual["RTT"]],
                     ["firmware/third_party/segger_rtt/SEGGER_RTT.c"],
                 )
+                self.assertIn(
+                    Path("firmware/app/composition/app_rtt.c"),
+                    [path for path, _ in actual["00_App"]],
+                )
                 for setting in ("ToolsetNumber", "ToolsetName", "pCCUsed", "uAC6"):
                     self.assertEqual(tree.findtext(f".//{setting}"), old.findtext(f".//{setting}"))
                 for group in shared_groups:
                     # 文件显示顺序可因板工程整理不同；共享源码和编译选项必须一致。
                     self.assertEqual(
                         sorted(
-                            (path, shared_options(path, options)) for path, options in actual[group]
+                            (path, shared_options(path, options))
+                            for path, options in actual[group]
+                            if path != Path("firmware/app/composition/app_rtt.c")
                         ),
                         sorted(
                             (path, shared_options(path, options))
@@ -190,6 +196,7 @@ class At32TargetTests(unittest.TestCase):
                     and path.as_posix()
                     not in {
                         "firmware/app/composition/bus_current_feedback.c",
+                        "firmware/app/composition/app_rtt.c",  # 板级选择的调试通道。
                     }
                     and not path.as_posix().startswith("firmware/app/targets/")
                     and any(

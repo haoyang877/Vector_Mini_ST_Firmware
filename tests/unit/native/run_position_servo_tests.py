@@ -119,15 +119,7 @@ def application_entry_fixture(platform: str) -> str:
     rtt = ""
     if platform == "at32f456":
         rtt = r"""
-#include <string.h>
-static char s_rtt_buffer[4096];
-#define SEGGER_RTT_MODE_NO_BLOCK_SKIP 0U
-int SEGGER_RTT_ConfigUpBuffer(unsigned channel, const char *name, void *data,
-                             unsigned bytes, unsigned flags) {
- assert(count==2U && channel==1U && data==s_rtt_buffer && bytes==4096U && flags==0U);
- assert(strcmp(name,"JScope_f4f4f4f4f4f4")==0);
- return 0;
-}
+void RTT_Init(void) { assert(count==2U); }
 """
     return (
         r"""

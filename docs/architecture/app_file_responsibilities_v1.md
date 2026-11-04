@@ -11,6 +11,7 @@
 | 5 | firmware/app/motor_state_machine/motor_state_machine.c/h | 五态纯迁移，不保存 s_context 或访问硬件 |
 | 6 | firmware/app/composition/app_protocol.c/h | 服务绑定、请求结果映射、实时状态缩放 |
 | 7 | firmware/app/interfaces | 状态/请求值与 STOP 实际关相确认 |
+| 8 | firmware/app/composition/app_rtt.c | RTT缓冲与发送；板级初始化调用RTT_Init，快环调用RTT_Sampling |
 
 配置与运行对象分离；算法位于 motor，记录和值校验位于 parameters，
 线上编码位于 communication，寄存器和引脚操作位于 platform。

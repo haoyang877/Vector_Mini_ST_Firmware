@@ -4,20 +4,53 @@ from _bsp_test_support import arguments, production, run_c
 from run_position_servo_tests import ROOT, function_source
 
 RTT_FIXTURE = r"""
-#include "motor_axis.h"
 static unsigned rtt_writes;
-MotorAxisTrace MotorAxis_ReadTrace(void) {
+void RTT_Sampling(void) {
  assert(g_app_fast_samples == rtt_writes + 1U);
- return (MotorAxisTrace){1.0f, -2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+ ++rtt_writes;
+}
+"""
+
+
+def rtt_sampling_fixture() -> str:
+    """编译真实APP RTT模块，核对格式、六路次序和满缓冲不重试。"""
+    return r"""
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+#include "app.h"
+#include "motor_axis.h"
+static FocState foc;
+static EncoderState encoder;
+const MotorAxisFeedback MotorAxis_Feedback = {&foc, &encoder};
+static unsigned configured, writes;
+float Encoder_GetElecPhase(const EncoderState *source) {
+ assert(source == &encoder); return 4.0f;
+}
+float Encoder_GetMechVelContinuous(const EncoderState *source) {
+ assert(source == &encoder); return 5.0f;
+}
+int SEGGER_RTT_ConfigUpBuffer(unsigned channel, const char *name, void *buffer,
+                             unsigned bytes, unsigned flags) {
+ assert(channel == 1U && buffer != NULL && bytes == 4096U && flags == 0U);
+ assert(strcmp(name, "JScope_f4f4f4f4f4f4") == 0);
+ ++configured;
+ return 0;
 }
 unsigned SEGGER_RTT_WriteSkipNoLock(unsigned channel, const void *data, unsigned bytes) {
- const MotorAxisTrace *trace = data;
- assert(channel == 1U && bytes == 24U);
- assert(trace->phase_a_a == 1.0f && trace->phase_b_a == -2.0f && trace->phase_c_a == 3.0f);
- assert(trace->electrical_angle_rad == 4.0f && trace->speed_rad_s == 5.0f);
- assert(trace->speed_target_rad_s == 6.0f);
- ++rtt_writes;
- return bytes;
+ assert(configured == 1U && channel == 1U && bytes == 24U);
+ float channels[6]; memcpy(channels, data, sizeof(channels));
+ assert(channels[0] == 1.0f && channels[1] == -2.0f && channels[2] == 3.0f);
+ assert(channels[3] == 4.0f && channels[4] == 5.0f && channels[5] == 6.0f);
+ return writes++ == 0U ? bytes : 0U;
+}
+int main(void) {
+ foc.phase_current_a = (ABCVect){1.0f, -2.0f, 3.0f};
+ foc.current_dq_a.q = 6.0f;
+ RTT_Init(); RTT_Sampling(); RTT_Sampling();
+ assert(configured == 1U && writes == 2U);
+ puts("PASS APP RTT: six float channels, single write, full buffer does not retry");
+ return 0;
 }
 """
 
@@ -267,6 +300,17 @@ def main() -> None:
     for board, platform in ((1, "stm32g4"), (2, "at32f456")):
         run_c(args, f"{platform}_main_irqs", routing_fixture(platform), board)
     run_c(args, "at32_hardware_irqs", at32_hardware_fixture(), 2)
+    run_c(
+        args,
+        "at32_rtt_sampling",
+        rtt_sampling_fixture(),
+        2,
+        [
+            "-I",
+            ROOT / "firmware/third_party/segger_rtt",
+            ROOT / "firmware/app/composition/app_rtt.c",
+        ],
+    )
     run_c(args, "stm32_adc_irqs", stm32_adc_fixture(), 1)
     run_c(args, "stm32_timer_irqs", stm32_timer_fixture(), 1)
 

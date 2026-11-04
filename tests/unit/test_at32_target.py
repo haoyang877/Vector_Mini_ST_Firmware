@@ -72,7 +72,11 @@ class At32TargetTests(unittest.TestCase):
             tree = ET.parse(project)
             with self.subTest(target=name):
                 actual = files_by_group(tree, project)
-                self.assertEqual(list(actual), group_names)
+                self.assertEqual(list(actual), [*group_names, "RTT"])
+                self.assertEqual(
+                    [path.as_posix() for path, _ in actual["RTT"]],
+                    ["firmware/third_party/segger_rtt/SEGGER_RTT.c"],
+                )
                 for setting in ("ToolsetNumber", "ToolsetName", "pCCUsed", "uAC6"):
                     self.assertEqual(tree.findtext(f".//{setting}"), old.findtext(f".//{setting}"))
                 for group in shared_groups:

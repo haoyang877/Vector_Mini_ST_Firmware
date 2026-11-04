@@ -116,6 +116,19 @@ int main(void) {
 def application_entry_fixture(platform: str) -> str:
     """两板真实main必须依次Init BSP、Init APP、Start BSP、Start APP并服务前台。"""
     source = (ROOT / f"projects/{platform}/application/main.c").read_text(encoding="utf-8")
+    rtt = ""
+    if platform == "at32f456":
+        rtt = r"""
+#include <string.h>
+static char s_rtt_buffer[4096];
+#define SEGGER_RTT_MODE_NO_BLOCK_SKIP 0U
+int SEGGER_RTT_ConfigUpBuffer(unsigned channel, const char *name, void *data,
+                             unsigned bytes, unsigned flags) {
+ assert(count==2U && channel==1U && data==s_rtt_buffer && bytes==4096U && flags==0U);
+ assert(strcmp(name,"JScope_f4f4f4f4f4f4")==0);
+ return 0;
+}
+"""
     return (
         r"""
 #include <assert.h>
@@ -132,6 +145,7 @@ static void App_Start(void) { step(4); }
 static void App_Process(void) { step(5);if(++iterations==2)longjmp(exit_entry,1); }
 static void startup_failed(void) { longjmp(exit_entry,1); }
 """.replace("static BspResult Bsp_", "BspResult Bsp_")
+        + rtt
         + function_source(source, "main").replace(
             "int main(void)", "static int application_entry(void)"
         )

@@ -5,6 +5,10 @@
 #include "bsp_pwm.h"
 #include "bsp_system.h"
 #include "interrupt_map.h"
+#include "SEGGER_RTT.h"
+
+/* RTT仅由ADC中断写入；主机未读取或缓冲满时丢整帧，不等待。 */
+static char s_rtt_buffer[4096];
 
 static void startup_failed(void)
 {
@@ -29,6 +33,8 @@ void MCU_ADC_IRQ_HANDLER(void)
         MotorAxis_SampleFast();
         MotorAxis_ControlFast();
         ++g_app_fast_samples;
+        MotorAxisTrace trace = MotorAxis_ReadTrace();
+        (void)SEGGER_RTT_WriteSkipNoLock(1U, &trace, sizeof(trace));
     }
 }
 
@@ -51,6 +57,11 @@ int main(void)
         startup_failed();
     }
     App_Init();
+    (void)SEGGER_RTT_ConfigUpBuffer(1U,
+                                    "JScope_f4f4f4f4f4f4",
+                                    s_rtt_buffer,
+                                    sizeof(s_rtt_buffer),
+                                    SEGGER_RTT_MODE_NO_BLOCK_SKIP);
     if (Bsp_Start() != BSP_OK)
     {
         startup_failed();

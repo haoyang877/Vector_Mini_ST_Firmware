@@ -3,6 +3,24 @@
 from _bsp_test_support import arguments, production, run_c
 from run_position_servo_tests import ROOT, function_source
 
+RTT_FIXTURE = r"""
+#include "motor_axis.h"
+static unsigned rtt_writes;
+MotorAxisTrace MotorAxis_ReadTrace(void) {
+ assert(g_app_fast_samples == rtt_writes + 1U);
+ return (MotorAxisTrace){1.0f, -2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+}
+unsigned SEGGER_RTT_WriteSkipNoLock(unsigned channel, const void *data, unsigned bytes) {
+ const MotorAxisTrace *trace = data;
+ assert(channel == 1U && bytes == 24U);
+ assert(trace->phase_a_a == 1.0f && trace->phase_b_a == -2.0f && trace->phase_c_a == 3.0f);
+ assert(trace->electrical_angle_rad == 4.0f && trace->speed_rad_s == 5.0f);
+ assert(trace->speed_target_rad_s == 6.0f);
+ ++rtt_writes;
+ return bytes;
+}
+"""
+
 
 def routing_fixture(platform: str) -> str:
     """编译实际入口和应用节拍，BSP替身只产生已确认事件。"""
@@ -37,6 +55,7 @@ void BspSystem_HandleControlInterrupt(void) {
 }
 void BspSystem_HandleTickInterrupt(void) { ++ticks; }
 """
+        + RTT_FIXTURE
         + "\n".join(
             function_source(app, name) for name in ("BspApp_OnFastSample", "App_SupervisorTick")
         )
@@ -112,6 +131,7 @@ void MotorAxis_ControlFast(void) {
 }
 void BspApp_OnControlTick(void) { assert(timer_flag == 0U); ++control_calls; step(5U); }
 """
+        + RTT_FIXTURE
         + production(2, "adc", "BspAdc_CompleteFast")
         + function_source(
             (ROOT / "projects/at32f456/application/main.c").read_text(encoding="utf-8"),
@@ -122,14 +142,15 @@ void BspApp_OnControlTick(void) { assert(timer_flag == 0U); ++control_calls; ste
         )
         + r"""
 int main(void) {
- MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 0U);
+ MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 0U && rtt_writes == 0U);
  fast_adc.flags = ADC_PCCE_FLAG;
  MCU_ADC_IRQ_HANDLER(); assert(count == 1U && trace[0] == 1U && fast_calls == 0U);
  count = 0U; fast_adc.flags = aux_adc.flags = ADC_PCCE_FLAG;
  MCU_ADC_IRQ_HANDLER(); assert(count == 4U && fast_calls == 1U && g_app_fast_samples == 1U);
  assert(trace[0] == 1U && trace[1] == 2U && trace[2] == 3U && trace[3] == 4U);
+ assert(rtt_writes == 1U);
  count = 0U; aux_adc.flags = ADC_PCCE_FLAG;
- MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 1U);
+ MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 1U && rtt_writes == 1U);
  BspSystem_HandleControlInterrupt(); assert(count == 0U && control_calls == 0U);
  timer_flag = 1U; BspSystem_HandleControlInterrupt();
  assert(count == 2U && trace[0] == 4U && trace[1] == 5U && control_calls == 1U);

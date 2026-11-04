@@ -33,6 +33,16 @@ static EncoderCalibrationWorkspace s_encoder_linearization_workspace;
 /* 启动装载和停机前台保存串行复用，避免再分配整条记录。 */
 static InterfaceParam s_parameter_record;
 
+MotorAxisTrace MotorAxis_ReadTrace(void)
+{
+    return (MotorAxisTrace){s_foc_state.phase_current_a.a,
+                            s_foc_state.phase_current_a.b,
+                            s_foc_state.phase_current_a.c,
+                            Encoder_GetElecPhase(&s_rotor_encoder),
+                            Encoder_GetMechVelContinuous(&s_rotor_encoder),
+                            s_motor_state.speed_target_rad_s};
+}
+
 static MotorTaskResult run_active_calibration_cycle(void)
 {
     const EncoderCalibrationControl control = {&s_motor_configuration,

@@ -20,7 +20,7 @@ volatile struct
     uint32_t end;
 } g_closedloop_snapshot;
 /* 独立链接区不由C运行库清零；WDT复位后只读保留，下一次正常复位才清理。 */
-__attribute__((section(".bss.R40_RETAIN"))) volatile struct
+__attribute__((section(".bss.AT32F456_RETAIN"))) volatile struct
 {
     uint32_t magic, stage, milliseconds, fast_samples, main_sample, max_cycles;
     uint32_t model_state, model_fault, adc_phase_a_counts, adc1_flags, adc2_flags,

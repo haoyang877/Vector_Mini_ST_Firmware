@@ -47,11 +47,11 @@ PR和干净快照release通过：119项单元、14项集成、38组原生回归�
 | --- | --- | --- | --- |
 | ESC-APP-AT32F456-Commissioning | +0 | +0 | 612 → 612 |
 | ESC-APP-AT32F456 | +0 | +0 | 612 → 612 |
-| R40_F456_ClosedLoop | -60 | +0 | 280 → 280 |
-| R40_F456_Foundation | -8 | +0 | 424 → 424 |
-| R40_F456_OpenLoop_Combined | -60 | +0 | 536 → 536 |
-| R40_F456_OpenLoop_Dry | -24 | +0 | 168 → 168 |
-| R40_F456_OpenLoop_Power | -44 | +0 | 168 → 168 |
+| AT32F456_ClosedLoop | -60 | +0 | 280 → 280 |
+| AT32F456_Foundation | -8 | +0 | 424 → 424 |
+| AT32F456_OpenLoop_Combined | -60 | +0 | 536 → 536 |
+| AT32F456_OpenLoop_Dry | -24 | +0 | 168 → 168 |
+| AT32F456_OpenLoop_Power | -44 | +0 | 168 → 168 |
 | ESC-APP-STM32G431-LoaderApp | -376 | +0 | 580 → 580 |
 | ESC-APP-STM32G431 | -376 | +0 | 580 → 580 |
 

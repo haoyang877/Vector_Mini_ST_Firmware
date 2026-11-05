@@ -9,7 +9,8 @@ typedef struct
 {
     float update_period_s;
     uint16_t call_divider;
-    float target_position;
+    float target_position;       /* 本拍位置参考，rad。 */
+    float reference_speed_rad_s; /* 本拍规划速度，rad/s。 */
     float position_error_window;
     float velocity_filter_hz;
     float maximum_speed;
@@ -21,7 +22,7 @@ typedef struct
     float current_limit_a;
 } PositionCascadeConfig;
 
-/* 仅执行结果；position_reference 等于目标，没有内部运动轨迹。 */
+/* 串级输出；position_reference 为本拍所跟踪的位置。 */
 typedef struct
 {
     float position_reference;

@@ -4,7 +4,7 @@
   <Header>### uVision Project, (C) Keil Software</Header>
   <Targets>
     <Target>
-      <TargetName>R40_F456_OpenLoop_Dry</TargetName>
+      <TargetName>AT32F456_OpenLoop_Power</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
       <pCCUsed>6220000::V6.22::ARMCLANG</pCCUsed>
@@ -44,14 +44,14 @@
             <NotGenerated>0</NotGenerated>
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
-          <OutputDirectory>..\..\..\outputs\build\at32_openloop_dry\</OutputDirectory>
-          <OutputName>R40_F456_OpenLoop_Dry</OutputName>
+          <OutputDirectory>..\..\..\outputs\build\at32_openloop_power\</OutputDirectory>
+          <OutputName>AT32F456_OpenLoop_Power</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
           <CreateHexFile>1</CreateHexFile>
           <DebugInformation>1</DebugInformation>
           <BrowseInformation>1</BrowseInformation>
-          <ListingPath>..\..\..\outputs\build\at32_openloop_dry\</ListingPath>
+          <ListingPath>..\..\..\outputs\build\at32_openloop_power\</ListingPath>
           <HexFormatSelection>1</HexFormatSelection>
           <Merge32K>0</Merge32K>
           <CreateBatchFile>0</CreateBatchFile>
@@ -333,7 +333,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH</MiscControls>
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=0,BSP_BOARD=2U</Define>
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=1,BSP_BOARD=2U</Define>
               <Undefine />
               <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>
@@ -366,7 +366,7 @@
             <TextAddressRange>0x08000000</TextAddressRange>
             <DataAddressRange>0x20000000</DataAddressRange>
             <pXoBase />
-            <ScatterFile>r40_foundation.sct</ScatterFile>
+            <ScatterFile>at32f456_foundation.sct</ScatterFile>
             <IncludeLibs />
             <IncludeLibsPath />
             <Misc />

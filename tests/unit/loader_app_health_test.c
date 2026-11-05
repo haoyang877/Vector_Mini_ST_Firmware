@@ -12,7 +12,7 @@
 #include "bsp_can.h"
 #include "bsp_pwm.h"
 
-static uint32_t s_health_checked_ms, s_observed_supervisor_epoch;
+static uint32_t s_health_checked_ms, s_observed_supervisor_ticks;
 static bool s_communication_ready;
 static uint8_t s_healthy_intervals;
 static bool s_boot_supported, s_entry_requested;
@@ -33,6 +33,9 @@ void BspWatchdog_Feed(void)
 {
 }
 
+void MotorAxis_ProcessPositionPlan(void)
+{
+}
 void MotorAxis_ProcessCalibrationPublication(void)
 {
     assert(foreground_stage == 0U);
@@ -157,7 +160,7 @@ int main(void)
     assert(feeds == 1U && !last_healthy);
     model_healthy = true;
     s_health_checked_ms = UINT32_MAX - 50U;
-    s_observed_supervisor_epoch = UINT32_MAX;
+    s_observed_supervisor_ticks = UINT32_MAX;
     model_progress = 0U;
     process_at(49U);
     assert(feeds == 2U && last_healthy);

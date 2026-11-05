@@ -48,7 +48,7 @@ void MotorLifecycle_PostOutcome(MotorTaskResult outcome, uint32_t epoch);
 MotorState MotorLifecycle_GetState(void);
 
 /**
- * @brief 由后台提出远程停机请求，下一 2 kHz 监督拍执行正常关相路径。
+ * @brief 由后台提出远程停机请求，下一监督拍执行正常关相路径。
  * @return 请求已登记返回 true；不表示功率输出已经关闭。
  * @note 撤销待启相请求；运行在关相后回IDLE，故障保持锁存。
  *       与监督中断通过短临界区交接。
@@ -134,10 +134,13 @@ bool MotorLifecycle_ReadBootHealth(uint32_t *progress);
 uint32_t MotorLifecycle_WorkEpoch(void);
 
 /**
- * @brief 完成一次状态监督、外环计算与安全提交。
- * @note 仅2kHz监督调用；用栈上副本计算，STOP、故障或代际改变时丢弃结果。
+ * @brief 完成一次 2 kHz 状态监督和故障恢复检查。
+ * @note 仅由监督上下文调用。
  */
 void MotorLifecycle_SupervisorTick(void);
+
+/** @brief 快拍分频或同步监督上下文调用；只在代际和故障状态仍有效时发布外环输出。 */
+void MotorLifecycle_OuterTick(void);
 /**
  * @brief 永久禁止本次上电再启动，并登记停机请求。
  * @return 已锁定返回true；不可恢复故障返回false。

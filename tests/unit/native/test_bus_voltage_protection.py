@@ -133,7 +133,7 @@ def main():
             "state_vbus_in_enable_window(void)",
             "state_vbus_in_enable_window(void)",
         )
-        .replace("s_context.foc->", "s_foc_state.")
+        .replace("g_motor_context.foc->", "s_foc_state.")
         + CASES
     )
     cc = [str(Path(a.cc).resolve())] if Path(a.cc).is_file() else [a.cc]

@@ -46,10 +46,10 @@ HEAD不是当前源码快照；本轮静态接口清单及134个相关源码/构
 | `api/mcu_temperature.h` | 芯片专用出厂标定计算与通用保护常量混放 | STM32换算归私有驱动；通用温度输出不要求同一种标定方式 |
 | `ports/motor/*_stm32g4.c`与AT32平铺的`*_at32f456.c` | 同一职责的层级、后缀和拆分方式不同 | 两板BSP门面同名、同层；私有实现允许按真实芯片结构不同 |
 | `critical_hw_*`在STM32的`bsp/critical.c`，AT32的`ports/time_at32f456.c` | 临界区与时间职责混合，无法按能力定位 | 各自归统一的critical/time端口 |
-| AT32的`r40_adc.h`、`R40_MotorTemperaturePoll`、`r40_sincos_diagnostic.h` | 新增能力绕过公共功能模型，APP装配需理解板级原码 | 纳入采样/温度/诊断的明确边界；不把原始sin/cos宣布为输出轴角度 |
+| AT32的`at32f456_adc.h`、`AT32_MotorTemperaturePoll`、`at32f456_sincos_diagnostic.h` | 新增能力绕过公共功能模型，APP装配需理解板级原码 | 纳入采样/温度/诊断的明确边界；不把原始sin/cos宣布为输出轴角度 |
 | `application/bus_current_feedback.c`和`app_bus_current.h` | 独立母线电流测量、零点与滤波绕行APP扩展；无硬件时只保留估算 | 测量能力与APP来源选择分开，保持现有实测/估算及无效行为 |
-| `R40_*`、`motor_hw_*`、`BootHw_*`、`AppPlatform_*`并存 | 历史板名、硬件能力、APP装配的命名层次不清 | 公共硬件统一Bsp前缀；AppPlatform保留为应用装配契约 |
-| `config/boards/r40_profile.h`同时读取测试宏、保存采样输入和3A限值 | 硬件事实、功能使能和测试策略混合 | 分开supported/enabled/required/许可与限值来源 |
+| `AT32_*`、`motor_hw_*`、`BootHw_*`、`AppPlatform_*`并存 | 历史板名、硬件能力、APP装配的命名层次不清 | 公共硬件统一Bsp前缀；AppPlatform保留为应用装配契约 |
+| `config/boards/at32f456_profile.h`同时读取测试宏、保存采样输入和3A限值 | 硬件事实、功能使能和测试策略混合 | 分开supported/enabled/required/许可与限值来源 |
 | STM32中断经CubeMX回调，AT32中断在platform_app中 | 原生接入不同是必要差异，但采样就绪与APP调度边界不统一 | 保留厂商入口，只转发到同名的板级事件适配函数 |
 | `FAST_LOOP_STAGE_PROFILE`公共声明在两板都有，但当前实现只见于STM32中断文件 | 可选配置的可用范围未由公共能力模型约束；AT32当前显式关闭 | 诊断开关同样声明支持范围，未提供实现的目标不得开启，不能以默认关闭掩盖悬空符号 |
 
@@ -107,17 +107,17 @@ platform/
 ### 3.1 固定公共模块与命名
 
 公共函数使用仓库已有的Module_Action风格；文件用snake_case。
-公共符号不带STM32、AT32、R40、TLE、MT型号；型号只出现在私有驱动、配置和诊断身份中。
+公共符号不带STM32、AT32、AT32F456、TLE、MT型号；型号只出现在私有驱动、配置和诊断身份中。
 
 | 公共头 / 两板同名实现文件 | 职责及建议符号族 | 当前来源 |
 | --- | --- | --- |
-| `bsp_sampling.h / bsp_sampling.c` | `BspSampling_ReadFast/ReadAux`：相电流、母线电压、可选相电压/母线电流的真实快照 | 两板motor_sensing、AT32 r40_adc及辅助采样 |
+| `bsp_sampling.h / bsp_sampling.c` | `BspSampling_ReadFast/ReadAux`：相电流、母线电压、可选相电压/母线电流的真实快照 | 两板motor_sensing、AT32 at32f456_adc及辅助采样 |
 | `bsp_pwm.h / bsp_pwm.c` | `BspPwm_SetDuty/SetPhaseDuty/Enable/Disable/ReadOutputState`：比较值和功率使能分开 | motor_hw、power_stage_hw及对应ports |
 | `bsp_encoder.h / bsp_encoder.c` | `BspEncoder_Begin/BeginReadback/Complete`：转子编码器分段采样与健康状态 | encoder_sensor及两板器件实现 |
 | `bsp_can.h / bsp_can.c` | `BspCan_TrySend/TrySendTracked/TakeCompletion/Receive/Service`：帧及物理发送终态 | comm_hw及两板comm实现 |
 | `bsp_temperature.h / bsp_temperature.c` | `BspTemperature_Read`：按MCU/电机/MOS等已定义来源报告温度、原码与质量 | motor_sensing中的MCU轮询及AT32 NTC端口 |
 | `bsp_storage.h / bsp_storage.c` | `BspStorage_Read/Write`：停机前台字节记录访问 | param_store及两板Flash端口 |
-| `bsp_board.h / bsp_board.c` | 身份、能力说明及板内硬件初始化支持，不接收隐式启相布尔参数 | board_hw、r40_platform及启动端口 |
+| `bsp_board.h / bsp_board.c` | 身份、能力说明及板内硬件初始化支持，不接收隐式启相布尔参数 | board_hw、at32f456_platform及启动端口 |
 | `bsp_time.h / bsp_time.c` | `BspTime_NowMs`：明确回绕规则的单调时基 | time_hw及两板time实现 |
 | `bsp_critical.h / bsp_critical.c` | `BspCritical_Enter/Exit`：保持嵌套中断屏蔽语义 | STM32 critical及AT32 time中的临界区 |
 | `bsp_indicator.h / bsp_indicator.c` | 统一逻辑灯状态到实际LED/RGB资源的映射 | indicator_hw及两板指示实现 |
@@ -193,7 +193,7 @@ AT32已有保护不因旧板尚无相同行为而删除或降级。
 所有目标均可包含同一套公共头、链接同名功能门面。
 未支持或禁用的可选功能通过明确实现返回状态；禁用后不配置对应GPIO/ADC/DMA/中断。
 底层器件文件可根据目标裁剪，但不能使公共声明/调用方式随板卡消失。
-共用控制代码不写`#if AT32`、`#if R40`或按板名选择实现。
+共用控制代码不写`#if AT32`、`#if AT32F456`或按板名选择实现。
 
 ### 4.2 必须区分的运行状态
 
@@ -214,7 +214,7 @@ CAN的BUSY、输入错误、发送完成/失败、PWM许可拒绝保持各自明
 
 ### 4.3 当前两板能力矩阵
 
-| 功能 | STM32G4 / Vector Mini ST | AT32F456 / YG-ESC_V1.0 | 统一策略 |
+| 功能 | STM32G4 / Vector Mini ST | AT32F456 | 统一策略 |
 | --- | --- | --- | --- |
 | 三相电流 | 已有快采样 | 已有ADC1抢占/DMA相关保护 | 控制目标必需；同一快帧和尺度契约 |
 | 三相PWM与关相 | TIM1 | TMR1 | 同一API；启停不隐式改占空比，许可独立 |
@@ -294,18 +294,18 @@ CubeMX只在USER CODE回调点转发，生成区不手工重写。
 | 现有输入 | 目标归属与删除条件 |
 | --- | --- |
 | `api/motor_hw.h`、`api/power_stage_hw.h`，两板motor_pwm/power_stage实现 | 合为bsp_pwm契约/门面；旧声明与适配别名在全部调用点迁移后删除 |
-| 两板motor_sensing、AT32 r40_adc | bsp_sampling门面；ADC/DMA配置按实际复杂度留私有drivers |
+| 两板motor_sensing、AT32 at32f456_adc | bsp_sampling门面；ADC/DMA配置按实际复杂度留私有drivers |
 | STM32 motor_sensing中的温度部分、AT32 temperature/motor_temperature | bsp_temperature门面；STM32校准与NTC换算私有化 |
 | `api/encoder_sensor.h`及两板encoder器件实现 | bsp_encoder门面 + 私有tle5012b/mt6835；同一工程只选择一套转子实现 |
 | `api/encoder_spi.h`及STM32 encoder_spi | 从公共API移除，归TLE驱动私有；不为AT32补无意义的半双工占位 |
 | `api/comm_hw.h`及STM32 comm_control/comm_status、AT32 comm | bsp_can门面；是否保留私有分文件取决于真实职责，不影响公共命名 |
-| 两板board启动、r40_platform、r40_clock | bsp_board与私有clock/引脚驱动；APP阶段接线仍归platform_app |
+| 两板board启动、at32f456_platform、at32f456_clock | bsp_board与私有clock/引脚驱动；APP阶段接线仍归platform_app |
 | 两板time、STM32 critical、AT32 time中的critical | bsp_time/bsp_critical分开，保留回绕及嵌套语义 |
 | param_store、两板Flash实现、sampling_storage私有协作 | bsp_storage门面；暂停采样与恢复协议仍是本板内部契约 |
 | indicator、BootHw及unavailable实现 | bsp_indicator/bsp_boot门面；固定公共符号，具体能力由目标选择 |
 | AT32 bus_current_feedback、APP来源扩展 | 原码取得走公共采样；校零/换算/滤波按原所有者显式迁移；APP只选择来源和发布 |
-| app_telemetry、r40_sincos诊断及fast_loop_profile | 诊断边界；非控制必需API，不借命名统一开放输出闭环或新遥测字段 |
-| boards中的r40_analog/r40_profile、targets中的r40_app_* | 产品板名与模式名统一；去除历史R40公共命名，旧名只留历史映射 |
+| app_telemetry、at32f456_sincos诊断及fast_loop_profile | 诊断边界；非控制必需API，不借命名统一开放输出闭环或新遥测字段 |
+| boards中的at32f456_analog/at32f456_profile、targets中的at32f456_app_* | 产品板名与模式名统一；统一公共接口命名 |
 | 两板Keil、scatter、tests和project_paths/harness | 每批同步路径、同名对象定位、源清单、SRAM执行段与验证目标 |
 
 同名bsp对象只能来自所选板卡；工程源清单测试必须拒绝两板实现同时链接。

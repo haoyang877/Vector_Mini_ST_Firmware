@@ -348,7 +348,7 @@ logs/                    执行顺序、人工检查点、STOP与关相确认
 ## 9. 依据
 
 - [采样链路](../../architecture/sampling_chain_v1.md)及当前[AT32 ADC实现](../../../firmware/platform/bsp/mcu/at32f456/adc.c)：源码优先于旧文档中的目标开关描述。
-- [硬件与电机输入](../../hardware/r40_at32f456_configuration_v1.md)：历史台架限值不自动继承到本批。
+- [硬件与电机输入](../../hardware/at32f456_configuration_v1.md)：历史台架限值不自动继承到本批。
 - [当前核心协议](../../protocols/README.md#implementation)、[运行状态语义](../../protocols/README.md#feedback)、[标定通信](../../protocols/README.md#parameters)。
 - [当前标定实现](../../../firmware/motor/calibration/README.md)、[标定请求](../../guides/motor_calibration_request.md)。
 - [历史标定/速度问题](2026-10-29-at32-cal-speed-hil-v1.md)：只作为回归风险，不作为当前通过证据。

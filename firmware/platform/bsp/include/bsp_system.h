@@ -21,6 +21,10 @@ extern "C"
      * @note 仅由APP映射的监督向量调用；保留HAL处理及辅助采样触发顺序。
      */
     void BspSystem_HandleControlInterrupt(void);
+#if defined(FIRMWARE_TARGET_AT32_OFF)
+    /** @brief AT32 正式 APP 在有效 ADC 分频后请求可由快环抢占的外环执行。 */
+    void BspSystem_PendOuterTick(void);
+#endif
 
     /**
      * @brief 推进本板1ms时基。

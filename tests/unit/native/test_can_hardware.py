@@ -35,7 +35,7 @@ static struct {struct {uintptr_t TxFIFOQSA,RxFIFO0SA;} msgRam;} hfdcan1;
             source += '\n#include "at32f45x.h"\n#define BSP_APP_LIFECYCLE 1\ncan_type sim_can;\n'
             extra = [
                 "-I",
-                ROOT / "tests/unit/native/r40_io_fake",
+                ROOT / "tests/unit/native/at32f456_io_fake",
                 "-I",
                 ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
             ]

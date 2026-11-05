@@ -4,7 +4,7 @@
   <Header>### uVision Project, (C) Keil Software</Header>
   <Targets>
     <Target>
-      <TargetName>R40_F456_ClosedLoop</TargetName>
+      <TargetName>AT32F456_Foundation</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
       <pCCUsed>6220000::V6.22::ARMCLANG</pCCUsed>
@@ -44,14 +44,14 @@
             <NotGenerated>0</NotGenerated>
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
-          <OutputDirectory>..\..\..\outputs\build\at32_closedloop\</OutputDirectory>
-          <OutputName>R40_F456_ClosedLoop</OutputName>
+          <OutputDirectory>..\..\..\outputs\build\at32_foundation\</OutputDirectory>
+          <OutputName>AT32F456_Foundation</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
           <CreateHexFile>1</CreateHexFile>
           <DebugInformation>1</DebugInformation>
           <BrowseInformation>1</BrowseInformation>
-          <ListingPath>..\..\..\outputs\build\at32_closedloop\</ListingPath>
+          <ListingPath>..\..\..\outputs\build\at32_foundation\</ListingPath>
           <HexFormatSelection>1</HexFormatSelection>
           <Merge32K>0</Merge32K>
           <CreateBatchFile>0</CreateBatchFile>
@@ -311,7 +311,7 @@
             <interw>1</interw>
             <Optim>4</Optim>
             <oTime>0</oTime>
-            <SplitLS>1</SplitLS>
+            <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
             <Strict>0</Strict>
             <EnumInt>0</EnumInt>
@@ -332,10 +332,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH </MiscControls>
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=1,AT32_OL_VOLTAGE_V=1.0f,AT32_OL_DURATION_MS=10000U,AT32_OL_CURRENT_LIMIT_A=3.0f,AT32_CLOSEDLOOP_TEST=1,BSP_BOARD=2U</Define>
+              <MiscControls />
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\calibration;..\..\..\firmware\platform\bsp</IncludePath>
+              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\config;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -343,7 +343,7 @@
             <Ropi>0</Ropi>
             <Rwpi>0</Rwpi>
             <thumb>0</thumb>
-            <SplitLS>1</SplitLS>
+            <SplitLS>0</SplitLS>
             <SwStkChk>0</SwStkChk>
             <NoWarn>0</NoWarn>
             <uSurpInc>0</uSurpInc>
@@ -366,7 +366,7 @@
             <TextAddressRange>0x08000000</TextAddressRange>
             <DataAddressRange>0x20000000</DataAddressRange>
             <pXoBase />
-            <ScatterFile>r40_closedloop.sct</ScatterFile>
+            <ScatterFile>at32f456_foundation.sct</ScatterFile>
             <IncludeLibs />
             <IncludeLibsPath />
             <Misc />
@@ -380,79 +380,14 @@
           <GroupName>Foundation</GroupName>
           <Files>
             <File>
-              <FileName>openloop_main.c</FileName>
+              <FileName>main.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\tests\bench\at32f456\openloop_main.c</FilePath>
+              <FilePath>..\..\..\tests\bench\at32f456\main.c</FilePath>
             </File>
             <File>
-              <FileName>openloop_model.c</FileName>
+              <FileName>at32f456_bench.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\tests\bench\at32f456\openloop_model.c</FilePath>
-            </File>
-            <File>
-              <FileName>control_math.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\math\control_math.c</FilePath>
-            </File>
-            <File>
-              <FileName>closedloop_bench.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\tests\bench\at32f456\closedloop_bench.c</FilePath>
-            </File>
-            <File>
-              <FileName>foc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\control\foc.c</FilePath>
-            </File>
-            <File>
-              <FileName>foc_output.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\control\foc_output.c</FilePath>
-            </File>
-            <File>
-              <FileName>pi_controller.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\control\pi_controller.c</FilePath>
-            </File>
-            <File>
-              <FileName>speed_control.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\control\speed_control.c</FilePath>
-            </File>
-            <File>
-              <FileName>speed_feedforward.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\control\speed_feedforward.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_thermal.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\protection\motor_thermal.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_fault.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\protection\motor_fault.c</FilePath>
-            </File>
-            <File>
-              <FileName>encoder_feedback.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\feedback\encoder_feedback.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_current.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\sensing\motor_current.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_voltage.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\sensing\motor_voltage.c</FilePath>
-            </File>
-            <File>
-              <FileName>mcu_temperature_sensing.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\motor\sensing\mcu_temperature_sensing.c</FilePath>
+              <FilePath>..\..\..\tests\bench\at32f456\at32f456_bench.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -564,11 +499,6 @@
       </Groups>
     </Target>
   </Targets>
-  <RTE>
-    <apis />
-    <components />
-    <files />
-  </RTE>
   <LayerInfo>
     <Layers>
       <Layer>

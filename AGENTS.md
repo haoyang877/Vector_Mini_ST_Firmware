@@ -31,6 +31,7 @@ commands require an explicit bench context and scenario.
 
 ## Change rules
 
+- Use AT32F456 for the AT32F456 board name in source, project targets, build selectors, and documentation. Use lowercase `at32f456` for path and CLI prefixes.
 - Preserve unrelated user changes and ignored experiment data.
 - Do not hand-edit CubeMX-generated sections outside `USER CODE` markers. After a
   CubeMX regeneration, review project inputs and run release verification.

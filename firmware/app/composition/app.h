@@ -30,20 +30,21 @@ void App_Start(void);
 void App_Process(void);
 
 /**
- * @brief 执行一次2 kHz电机监督及主状态推进。
- * @note 仅由平台2kHz监督中断调用；不阻塞。
+ * @brief 执行一次电机监督及主状态推进。
+ * @note 仅由平台监督中断调用；不阻塞。
  */
 void App_SupervisorTick(void);
 
 /**
- * @brief 初始化六路浮点RTT上行缓冲区。
+ * @brief 初始化电流与位置两个 RTT 上行通道。
  * @note 由启用RTT的板级入口在启动采样中断前调用一次，不启相。
  */
 void RTT_Init(void);
 
 /**
- * @brief 发送本拍三相电流、电角度、转速反馈和q轴电流反馈。
- * @note 仅在初始化后的ADC快环采样与控制完成后调用；单写者，缓冲满则丢整帧，不阻塞。
+ * @brief 通道 1 发送电流与电角度反馈，通道 2 发送位置规划、跟随误差、速度和 Iq。
+ * @note 仅在初始化后的 2 kHz 监督回调完成后调用；单写者，缓冲满则丢整帧，不阻塞。
+ *       换算按int16饱和并截断取整，启动零偏未就绪的NaN记为0。
  */
 void RTT_Sampling(void);
 

@@ -26,11 +26,11 @@ def main() -> int:
     source = (platform / "flash.c").read_text(encoding="utf-8")
     for primitive in ("flash_memory", "flash_store_word"):
         source = source.replace(function_source(source, primitive), "")
-    (out / "r40_storage_production.inc").write_text(source, encoding="utf-8")
+    (out / "at32f456_storage_production.inc").write_text(source, encoding="utf-8")
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += ["-DBSP_BOARD=2", "-std=c11", "-O2", "-UNDEBUG", "-Wall", "-Wextra", "-Werror"]
     for include in (
-        native / "r40_storage_fake",
+        native / "at32f456_storage_fake",
         ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
         platform,
         platform,
@@ -40,7 +40,7 @@ def main() -> int:
     command += NATIVE_INCLUDE_FLAGS
     executable = out / "storage.exe"
     subprocess.run(
-        command + [str(native / "r40_storage_test.c"), "-o", str(executable)], check=True
+        command + [str(native / "at32f456_storage_test.c"), "-o", str(executable)], check=True
     )
     subprocess.run([str(executable)], check=True)
     # 未提供逐板校准时仅暴露原码，不把典型值伪装成温度或供电电压。

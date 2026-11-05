@@ -68,7 +68,7 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 速度包络由应用配置及轴记录决定，不再按节点派生，见[节点与应用策略](firmware/parameters/README.md#storage)。
 
 * 基础有感FOC算法 电流 速度 位置 可控
-* 直接位置→速度→电流串级，保留原增益、限幅和抗饱和
+* 单轴限 jerk 的 S 曲线位置规划，位置与速度参考接入串级电流控制
 * 磁编码器偏心补偿
 * FDCAN基本启停、目标、反馈、参数读写与Loader交接
 * 绝对式 SPI 编码器：板载 TLE5012B（传感器通道已解耦，其他型号按 driver 接入）
@@ -77,7 +77,7 @@ Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/
 
 当前功能、支持范围与产品边界见[软件架构](docs/architecture/software_architecture.md)，
 已公布的主机控制能力仅为SPEED，其他候选模式须按实际能力与验收范围判断。
-轨迹、摩擦/相电阻辨识、齿槽标定/补偿、运行租约、持久启动计数和自动RTT已退役。
+旧 Mode3 轨迹、摩擦/相电阻辨识、齿槽标定/补偿、运行租约、持久启动计数和自动RTT已退役。
 历史报告与归档镜像保留，但不能作为当前功能或实机通过证据。
 
 ## 注意事项

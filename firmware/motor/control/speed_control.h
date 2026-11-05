@@ -35,11 +35,11 @@ void SpeedControl_Update(const MotorConfiguration *configuration,
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param motor_state 非空运行状态，读取目标，发布斜坡和电流参考。
  * @param controller 调用方独占的非空归一化速度 PI 状态。
- * @param state 2 kHz 外环独占的非空前馈状态；停机、故障或切模式后须复位。
+ * @param state 外环独占的非空前馈状态；停机、故障或切模式后须复位。
  * @param mechanical_velocity_rad_s 机械速度反馈，rad/s。
  * @param current_limit_a 当前有效总限流，A；只允许收窄配置上限，零值关断电流。
  * @return 输入合法且输出有限时返回 true；非法输入或计算失败返回 false。
- * @note 只在 2 kHz 运行速度模式调用；前馈关闭且未降额时逐拍保留原数学。
+ * @note 只在 运行速度模式调用；前馈关闭且未降额时逐拍保留原数学。
  *       PI 仍以原配置电流缩放，动态限流和前馈只改变抗饱和输出区间。
  */
 bool SpeedControl_UpdateOuter(const MotorConfiguration *configuration,

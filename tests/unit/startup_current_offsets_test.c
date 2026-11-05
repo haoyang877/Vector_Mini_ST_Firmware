@@ -645,7 +645,7 @@ static void test_fast_tick_order(void)
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
     expect_fast_tick_order("BAVOEFSWCTS");
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_SPEED);
-    expect_fast_tick_order("BAVOEFSWCTS");
+    expect_fast_tick_order("BAVEFSWCTS");
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_POSITION);
     expect_fast_tick_order("BAVEFSWCTS");
     prepare_fast_tick_order(MOTOR_STATE_IDLE, MOTOR_CONTROL_NONE);

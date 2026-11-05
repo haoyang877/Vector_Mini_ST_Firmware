@@ -1,4 +1,4 @@
-/* 直接位置串级：目标经速度限幅进入 PI；单实例串行，无轨迹、前馈或保持状态机。 */
+/* 位置串级跟踪外环给定的位置和速度参考，速度 PI 输出限幅电流。 */
 #include "position_control.h"
 
 #include <math.h>
@@ -41,7 +41,8 @@ static bool position_cascade_config_valid(const PositionCascadeConfig *config)
 {
     return config != NULL && isfinite(config->update_period_s) && config->update_period_s > 0.0f &&
            config->call_divider > 0U && isfinite(config->target_position) &&
-           isfinite(config->position_error_window) && config->position_error_window > 0.0f &&
+           isfinite(config->reference_speed_rad_s) && isfinite(config->position_error_window) &&
+           config->position_error_window > 0.0f &&
            config->position_error_window <= POSITION_CASCADE_POSITION_ERROR_WINDOW_MAX_RAD &&
            isfinite(config->velocity_filter_hz) && config->velocity_filter_hz >= 0.0f &&
            config->velocity_filter_hz * config->update_period_s <= 0.5f &&
@@ -89,7 +90,8 @@ static bool position_cascade_run(float measured_position_rad,
         {
             speed_limit_rad_s = config->speed_limit_rad_s;
         }
-        speed_command_rad_s = position_cascade_clamp(config->position_kp * position_error_rad -
+        speed_command_rad_s = position_cascade_clamp(config->reference_speed_rad_s +
+                                                         config->position_kp * position_error_rad -
                                                          config->position_kd * filtered_speed_rad_s,
                                                      speed_limit_rad_s);
         if (!isfinite(speed_command_rad_s) || !isfinite(speed_command_rad_s - filtered_speed_rad_s))

@@ -1,6 +1,6 @@
 # YG-ESC-板卡资源与适配电机配置
 
-更新：2026-10-23。统一记录 Vector Mini ST 和 YG_ESC_V1.0（原R40）的资源及适配电机。
+更新：2026-10-23。统一记录 Vector Mini ST 和 AT32F456的资源及适配电机。
 
 适配对象、修改边界和后置事项见[统一框架适配范围草案](../architecture/dual_board_adaptation_scope_v1.md)。
 本表登记资源和参数，不以型号已列出表示完整APP或实机验收通过。
@@ -12,7 +12,7 @@
 
 ## 板卡资源
 
-| 项目 | Vector Mini ST 旧板 | YG_ESC_V1.0 新板 |
+| 项目 | Vector Mini ST 旧板 | AT32F456 新板 |
 | --- | --- | --- |
 | MCU | STM32G431CBUx | AT32F456CCU7 |
 | 主频 / 外部晶振 | 170MHz / 8MHz | 180MHz / 8MHz |
@@ -42,12 +42,12 @@
 
 ## 适配电机配置
 
-板卡和电机独立选择；YG_ESC_V1.0支持配置多个电机型号，后续继续扩展。
+板卡和电机独立选择；AT32F456支持配置多个电机型号，后续继续扩展。
 电流统一为幅值A，所有型号的电流环默认带宽为1kHz。
 
 | 项目 | HT8115-4 | YQ-5708 | YQ-5740 | YQ-8116 |
 | --- | --- | --- | --- | --- |
-| 当前配套板卡 | Vector Mini ST | YG_ESC_V1.0 | YG_ESC_V1.0 | YG_ESC_V1.0 |
+| 当前配套板卡 | Vector Mini ST | AT32F456 | AT32F456 | AT32F456 |
 | 配置段 | [HT8115-4](../../firmware/config/motor_profile_config.h) | [YQ-5708](../../firmware/config/motor_profile_config.h) | [YQ-5740](../../firmware/config/motor_profile_config.h) | [YQ-8116](../../firmware/config/motor_profile_config.h) |
 | 选择标识后缀 `FOC_MOTOR_PROFILE_` | `HT8115_4`（1） | `YQ_5708`（2） | `YQ_5740`（3） | `YQ_8116`（4） |
 | 装配配置 | 无阻尼环 / 有阻尼环 | 当前装配 | 当前装配 | 暂定HT基线 |
@@ -75,8 +75,8 @@ YQ-5740复用5708电气参数，只更改型号和减速比。YQ-8116全部继�
 ## 配置入口与备注
 
 - 旧板：[板卡配置](../../firmware/config/board_config.h)、[电机选择入口](../../firmware/config/motor_profile_config.h)。
-- YG_ESC_V1.0：[板卡配置](../../firmware/config/board_config.h)、[台架电机配置](../../tests/bench/at32f456/closedloop_bench.c)。现有文件名及宏暂保留R40。
+- AT32F456：[板卡配置](../../firmware/config/board_config.h)、[台架电机配置](../../tests/bench/at32f456/closedloop_bench.c)。
 - 旧板图纸为2mΩ，当前默认工程为6mΩ；新板PA3电压、PA4电流按实板确认。PB5有对地0Ω，使用LED前需确认实装。
-- 详细参数依据与电流能力核算见[新板输入记录](r40_at32f456_configuration_v1.md)；过程和测试结果见[适配计划](../plans/active/2026-10-22-at32f456-port-v1.md)。
+- 详细参数依据与电流能力核算见[新板输入记录](at32f456_configuration_v1.md)；过程和测试结果见[适配计划](../plans/active/2026-10-22-at32f456-port-v1.md)。
 
 后续更换板卡或电机时，分别更新对应列及其配置入口；不修改中间层与BSP公共接口。

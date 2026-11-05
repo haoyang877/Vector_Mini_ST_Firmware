@@ -12,7 +12,7 @@ def main() -> None:
     native = ROOT / "tests/unit/native"
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
     includes = [
-        native / "r40_io_fake",
+        native / "at32f456_io_fake",
         ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
         ROOT / "firmware/platform/bsp/include",
         ROOT / "firmware/config",
@@ -29,13 +29,13 @@ def main() -> None:
     ]
     for directory in includes:
         command += ["-I", str(directory)]
-    executable = args.out / "r40_adc.exe"
+    executable = args.out / "at32f456_adc.exe"
     logs = []
     for invocation in (
         command
         + [
-            str(native / "r40_adc_test.c"),
-            str(native / "r40_io_fake/sdk.c"),
+            str(native / "at32f456_adc_test.c"),
+            str(native / "at32f456_io_fake/sdk.c"),
             "-lm",
             "-o",
             str(executable),

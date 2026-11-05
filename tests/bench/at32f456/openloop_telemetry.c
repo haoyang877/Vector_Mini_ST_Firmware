@@ -43,7 +43,7 @@ void AT32OpenLoopTelemetry_Init(void)
                               SEGGER_RTT_MODE_NO_BLOCK_SKIP);
     SEGGER_RTT_WriteString(
         0U,
-        "R40 openloop: Watch g_openloop_enable=1 starts once; 0 stops.\n"
+        "AT32F456 openloop: Watch g_openloop_enable=1 starts once; 0 stops.\n"
         "RTT1: us,ia,ib,ic,angle_deg,sin_raw,cos_raw,rpm,state,fault,vbus,seq\n"
         "RTT0: ms,state,fault,ia_mA,ib_mA,ic_mA,angle_mdeg,sin,cos,rpm_milli,drop\n");
 }

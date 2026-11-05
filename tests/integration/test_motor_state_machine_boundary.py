@@ -174,9 +174,9 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             )
             self.assertNotIn("MotorStateRules_", source)
         core = production_text(module / "motor_state_machine.c")
-        self.assertNotRegex(core, r"Bsp|MotorMaintenance|MotorLifecycle|s_context")
+        self.assertNotRegex(core, r"Bsp|MotorMaintenance|MotorLifecycle|g_motor_context")
         owner = production_text(ROOT / "firmware/app/runtime/motor_lifecycle.c")
-        self.assertIn("s_context.state = MOTOR_STATE_IDLE;", owner)
+        self.assertIn("g_motor_context.state = MOTOR_STATE_IDLE;", owner)
         self.assertNotRegex(owner, r"\b(?:run|execute|start)_self_test\s*\(")
         self.assertNotIn("MotorLifecycle_ReadReadiness", owner)
 

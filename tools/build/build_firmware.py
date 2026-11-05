@@ -19,12 +19,12 @@ def main():
         choices=(
             "normal",
             "all",
-            "r40-foundation",
-            "r40-openloop-dry",
-            "r40-openloop-power",
-            "r40-openloop-combined",
-            "r40-closedloop",
-            "r40-app-off",
+            "at32f456-foundation",
+            "at32f456-openloop-dry",
+            "at32f456-openloop-power",
+            "at32f456-openloop-combined",
+            "at32f456-closedloop",
+            "at32f456-app-off",
         ),
         default="all",
     )
@@ -35,20 +35,20 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
     targets = {
         "normal": KEIL / "ESC-APP-STM32G431.uvprojx",
-        "r40-foundation": ROOT / "projects/at32f456/bench/R40_F456_Foundation.uvprojx",
-        "r40-openloop-dry": ROOT / "projects/at32f456/bench/R40_F456_OpenLoop_Dry.uvprojx",
-        "r40-openloop-power": ROOT / "projects/at32f456/bench/R40_F456_OpenLoop_Power.uvprojx",
-        "r40-openloop-combined": ROOT
-        / "projects/at32f456/bench/R40_F456_OpenLoop_Combined.uvprojx",
+        "at32f456-foundation": ROOT / "projects/at32f456/bench/AT32F456_Foundation.uvprojx",
+        "at32f456-openloop-dry": ROOT / "projects/at32f456/bench/AT32F456_OpenLoop_Dry.uvprojx",
+        "at32f456-openloop-power": ROOT / "projects/at32f456/bench/AT32F456_OpenLoop_Power.uvprojx",
+        "at32f456-openloop-combined": ROOT
+        / "projects/at32f456/bench/AT32F456_OpenLoop_Combined.uvprojx",
     }
-    targets["r40-closedloop"] = ROOT / "projects/at32f456/bench/R40_F456_ClosedLoop.uvprojx"
-    targets["r40-app-off"] = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
+    targets["at32f456-closedloop"] = ROOT / "projects/at32f456/bench/AT32F456_ClosedLoop.uvprojx"
+    targets["at32f456-app-off"] = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
     for kind, project in targets.items():
         # all保留既有含义，底层验证镜像只接受显式选择，不能混入APP发布。
         if args.target != kind and not (args.target == "all" and kind == "normal"):
             continue
         selection = project.stem
-        is_openloop = kind.startswith("r40-openloop-")
+        is_openloop = kind.startswith("at32f456-openloop-")
         log = log_dir / ((selection if is_openloop else project.stem) + ".log")
         command = [args.uv4, "-r", str(project), "-j0", "-o", str(log)]
         if is_openloop:

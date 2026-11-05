@@ -369,7 +369,7 @@
             <TextAddressRange>0x08000000</TextAddressRange>
             <DataAddressRange>0x20000000</DataAddressRange>
             <pXoBase></pXoBase>
-            <ScatterFile>r40_app.sct</ScatterFile>
+            <ScatterFile>at32f456_app.sct</ScatterFile>
             <IncludeLibs></IncludeLibs>
             <IncludeLibsPath></IncludeLibsPath>
             <Misc></Misc>
@@ -380,7 +380,7 @@
       </TargetOption>
       <Groups>
         <Group>
-          <GroupName>00_App</GroupName>
+          <GroupName>App</GroupName>
           <Files>
             <File>
               <FileName>app.c</FileName>
@@ -675,7 +675,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>10_Motor</GroupName>
+          <GroupName>Motor</GroupName>
           <Files>
             <File>
               <FileName>motor_control.c</FileName>
@@ -1472,6 +1472,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>position_otg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\control\position_otg.c</FilePath>
+            </File>
+            <File>
               <FileName>encoder_calibration.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\calibration\encoder_calibration.c</FilePath>
@@ -1591,7 +1596,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>20_Parameters</GroupName>
+          <GroupName>Parameters</GroupName>
           <Files>
             <File>
               <FileName>parameter_record.c</FileName>
@@ -1764,7 +1769,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>30_Communication</GroupName>
+          <GroupName>Communication</GroupName>
           <Files>
             <File>
               <FileName>yg_protocol.c</FileName>
@@ -1776,11 +1781,10 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\communication\yg_protocol_boot.c</FilePath>
             </File>
-
           </Files>
         </Group>
         <Group>
-          <GroupName>40_Platform</GroupName>
+          <GroupName>Platform</GroupName>
           <Files>
             <File>
               <FileName>main.c</FileName>
@@ -1830,7 +1834,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>50_Shared</GroupName>
+          <GroupName>Shared</GroupName>
           <Files>
             <File>
               <FileName>yg_protocol_can_id.c</FileName>
@@ -1911,7 +1915,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>90_Vendor</GroupName>
+          <GroupName>Mcu_SDK</GroupName>
           <Files>
             <File>
               <FileName>system_at32f45x.c</FileName>

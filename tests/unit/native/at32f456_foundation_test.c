@@ -1,4 +1,4 @@
-/* 验证真实R40启动、关相及时基端口；替身只提供寄存器和SDK调用效果。 */
+/* 验证真实AT32F456启动、关相及时基端口；替身只提供寄存器和SDK调用效果。 */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,7 +7,7 @@
 #include "at32f45x.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
-#include "board_config.h"
+#include "application_config.h"
 #include "../../../firmware/platform/bsp/bsp_internal.h"
 FoundationDwt foundation_dwt;
 FoundationCoreDebug foundation_core_debug;
@@ -250,6 +250,8 @@ int main(void)
     assert(system_core_clock == AT32_CORE_HZ && fake_crm.misc2_bit.apb3div == CRM_APB3_DIV_4);
     assert(fake_tmr1.pr == 4500U && fake_tmr1.div == 0U);
     assert(fake_tmr6.pr == 499U && fake_tmr6.div == 179U);
+    assert(FOC_FREQ == 20000U && SUPERVISOR_FREQ == 2000U && SPEED_LOOP_FREQ == 4000U &&
+           POSITION_LOOP_FREQ == SPEED_LOOP_FREQ && CASCADE_POSITION_LOOP_FREQ == SPEED_LOOP_FREQ);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
     assert(AT32_CAN_HZ / (AT32_CAN_NOMINAL_SEG1 + AT32_CAN_NOMINAL_SEG2) == 1000000U);
     assert(AT32_CAN_HZ / (AT32_CAN_DATA_SEG1 + AT32_CAN_DATA_SEG2) == 5000000U);

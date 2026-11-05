@@ -223,7 +223,7 @@ static void encoder_rebase_multi_turn_position(EncoderState *encoder)
  * 可从任意中断上下文调用，不会与慢估计写者撕裂。 */
 void Encoder_ResetVelocity(EncoderState *encoder)
 {
-    /* 慢状态由 2 kHz 慢估计独占写：此处只登记请求，避免跨中断撕裂。 */
+    /* 慢状态由 慢估计独占写：此处只登记请求，避免跨中断撕裂。 */
     encoder->velocity_restart_requested = true;
 }
 
@@ -325,7 +325,7 @@ bool Encoder_SetElectricalZero(EncoderCalibration *calibration, EncoderState *en
 
 /* 以当前线性化角度作为机械零位（位置原点）。
  * 输入：encoder；返回：设置成功 true；尚无角度样本时 false 且不改写。
- * 零位在下一 2 kHz 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零；
+ * 零位在下一 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零；
  * 只影响位置原点，不等价于电零位标定。临界区内写入并置 zero_requested。 */
 bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *encoder)
 {
@@ -339,7 +339,7 @@ bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *en
     primask = BspSystem_EnterControlCritical();
     calibration->mechanical_zero_q15 = encoder->linearized_q15;
     calibration->calib_flag |= ENC_CALIB_MECHANICAL_ZERO;
-    /* 零位在下一 2 kHz 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零。 */
+    /* 零位在下一 慢估计时生效：机械零位影子取当时多圈值，mechanical_position_rad 归零。 */
     encoder->zero_requested = true;
     BspSystem_ExitControlCritical(primask);
     return true;
@@ -382,7 +382,7 @@ void Encoder_Update(EncoderState *encoder)
     if (!encoder->has_valid_sample)
     {
         encoder->has_valid_sample = true;
-        /* 首个有效帧：2 kHz 慢估计重建多圈基准；观测器在下一拍自初始化。 */
+        /* 首个有效帧：慢估计重建多圈基准；观测器在下一拍自初始化。 */
         encoder->rebase_requested = true;
         encoder->velocity_ready = false;
     }
@@ -391,7 +391,7 @@ void Encoder_Update(EncoderState *encoder)
     encoder_update_velocity_pll(encoder, pole_pairs);
 }
 
-/* 2 kHz 慢估计：多圈/机械角为慢位置状态唯一写者；速度由 20 kHz 快路径观测器负责。
+/* 慢估计：多圈/机械角为慢位置状态唯一写者；速度由 20 kHz 快路径观测器负责。
  * 输入：encoder（含初始化时绑定的轴配置与校准）；无返回值。
  * 顺序：有新样本时按 rebase_requested 走重定多圈基准，否则累积多圈；
  *       随后消费 zero_requested（机械零位影子对齐当前多圈值）；

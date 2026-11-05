@@ -73,7 +73,7 @@ class PlatformLayoutTests(unittest.TestCase):
     def test_common_bsp_does_not_know_board_or_sdk(self):
         for p in (PLATFORM / "bsp").glob("bsp_*.c"):
             self.assertNotRegex(
-                p.read_text(encoding="utf8"), r"at32f|stm32g|\b(?:TMR1|TIM1|ADC1|HAL_|R40_)"
+                p.read_text(encoding="utf8"), r"at32f|stm32g|\b(?:TMR1|TIM1|ADC1|HAL_|AT32F456_)"
             )
         self.assertEqual(list((PLATFORM / "bsp").glob("*.c")), [])
 

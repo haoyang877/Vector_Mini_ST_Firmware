@@ -141,9 +141,9 @@ static void setup(MotorControlMode mode)
     memset(&s_pi, 0, sizeof(s_pi));
     s_position_rad = 0.3f;
     s_speed_rad_s = 0.0f;
-    s_encoder.speed_pll_hz = ENCODER_SPEED_PLL_HZ;
     s_core_valid = true;
     s_motor.control_mode = mode;
+    s_encoder.speed_pll_hz = ENCODER_SPEED_PLL_HZ;
     s_configuration.application.axis_profile_valid = true;
     s_configuration.application.current_limit_a = 4.0f;
     s_configuration.application.speed_kp = 0.5f;
@@ -154,6 +154,8 @@ static void setup(MotorControlMode mode)
         (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
     s_configuration.application.position_error_window_rad = 0.001f;
     s_configuration.application.position_maximum_speed_rad_s = 0.6f;
+    s_configuration.application.position_acceleration_rad_s2 = 1.0f;
+    s_configuration.application.position_deceleration_rad_s2 = 2.0f;
     s_configuration.application.speed_limit_rad_s = 0.8f;
     s_configuration.application.cascade_position_kp = 8.0f;
     s_configuration.application.cascade_position_kd = 2.0f;
@@ -161,11 +163,22 @@ static void setup(MotorControlMode mode)
     s_motor.speed_target_rad_s = 0.2f;
     MotorOuterLoop_RequestReset();
 }
-static void tick(void)
+static void tick_without_foreground(void)
 {
     MotorConfiguration before = s_configuration;
     MotorOuterLoop_SlowTick(&s_configuration, &s_motor, &s_pi, &s_encoder);
     CHECK(memcmp(&before, &s_configuration, sizeof(before)) == 0);
+}
+
+static void tick(void)
+{
+    tick_without_foreground();
+    MotorPositionPlan plan;
+    if (MotorOuterLoop_TakePositionPlan(&plan))
+    {
+        bool ok = MotorOuterLoop_BuildPositionPlan(&plan);
+        MotorOuterLoop_PublishPositionPlan(&plan, ok);
+    }
 }
 
 static void check_configuration(void)
@@ -187,11 +200,17 @@ static void check_configuration(void)
     s_configuration.application.axis_profile.minimum_position_rad = -1.0f;
     s_configuration.application.axis_profile.maximum_position_rad = 1.0f;
     s_configuration.application.axis_profile.maximum_speed_rad_s = 0.4f;
-    tick();
-    CHECK(s_config.target_position == -0.4f && s_config.speed_kp == 0.7f);
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 100U; ++i)
+    {
+        tick();
+    }
+    CHECK(s_config.target_position <= 0.3f && s_config.target_position > -0.4f &&
+          s_config.speed_kp == 0.7f);
     CHECK(s_config.maximum_speed == 0.4f && s_motor.iq_target_a == 1.0f);
-    CHECK(s_motor.position_reference_rad == -0.4f &&
-          isnan(s_motor.position_trajectory_speed_rad_s));
+    CHECK(s_config.velocity_filter_hz == POSITION_SERVO_VELOCITY_FILTER_HZ);
+    CHECK(s_motor.position_reference_rad == s_config.target_position &&
+          s_motor.position_trajectory_speed_rad_s == s_config.reference_speed_rad_s &&
+          s_motor.position_trajectory_speed_rad_s < 0.0f && !s_motor.position_target_reached);
 }
 static void check_validation(void)
 {
@@ -200,6 +219,8 @@ static void check_validation(void)
         offsetof(MotorConfiguration, application.speed_kp),
         offsetof(MotorConfiguration, application.speed_ki),
         offsetof(MotorConfiguration, application.position_error_window_rad),
+        offsetof(MotorConfiguration, application.position_acceleration_rad_s2),
+        offsetof(MotorConfiguration, application.position_deceleration_rad_s2),
         offsetof(MotorConfiguration, application.position_maximum_speed_rad_s),
         offsetof(MotorConfiguration, application.speed_limit_rad_s),
         offsetof(MotorConfiguration, application.cascade_position_kp),
@@ -214,6 +235,15 @@ static void check_validation(void)
         CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
         CHECK(s_motor.iq_target_a == 0.0f && !MotorOuterLoop_IsReady());
     }
+    /* 最终目标与实测位置均在界内，但已有速度使本拍参考越过上界。 */
+    setup(MOTOR_CONTROL_POSITION);
+    s_configuration.application.axis_profile.magic = 1U;
+    s_configuration.application.axis_profile.minimum_position_rad = -1.0f;
+    s_configuration.application.axis_profile.maximum_position_rad = 0.30001f;
+    s_configuration.application.axis_profile.maximum_speed_rad_s = 0.6f;
+    s_speed_rad_s = 0.2f;
+    tick();
+    CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS && s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_POSITION);
     s_core_valid = false;
     tick();
@@ -264,12 +294,64 @@ static void check_runtime(void)
     setup(MOTOR_CONTROL_POSITION);
     s_motor.position_target_rad = 0.6f;
     s_configuration.application.current_limit_a = 0.5f;
-    tick();
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 100U; ++i)
+    {
+        tick();
+    }
     CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a > 0.0f && s_motor.iq_target_a <= 0.5f);
     s_configuration.application.current_limit_a = 0.0f;
     tick();
     CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
+    setup(MOTOR_CONTROL_POSITION);
+    s_motor.position_target_rad = 0.6f;
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 5U; ++i)
+    {
+        tick();
+        s_position_rad = s_motor.position_reference_rad;
+        s_speed_rad_s = s_motor.position_trajectory_speed_rad_s;
+    }
+    float previous_speed = s_speed_rad_s;
+    s_motor.position_target_rad = -0.2f;
+    tick();
+    CHECK(s_motor.position_trajectory_speed_rad_s > 0.0f &&
+          fabsf(s_motor.position_trajectory_speed_rad_s - previous_speed) <= SPEED_LOOP_TS_S);
+    CHECK(!s_motor.position_target_reached);
+    float last_acceleration =
+        (s_motor.position_trajectory_speed_rad_s - previous_speed) / CASCADE_POSITION_LOOP_TS_S;
+    for (unsigned i = 0; i < 4U * CASCADE_POSITION_LOOP_FREQ && !s_motor.position_target_reached;
+         ++i)
+    {
+        s_position_rad = s_motor.position_reference_rad;
+        s_speed_rad_s = s_motor.position_trajectory_speed_rad_s;
+        tick();
+        float acceleration =
+            (s_motor.position_trajectory_speed_rad_s - s_speed_rad_s) / CASCADE_POSITION_LOOP_TS_S;
+        CHECK(fabsf(acceleration - last_acceleration) <=
+              10.0f * CASCADE_POSITION_LOOP_TS_S + 0.0006f);
+        last_acceleration = acceleration;
+        CHECK(MotorOuterLoop_IsReady() &&
+              fabsf(s_motor.speed_ramped_rad_s) <=
+                  s_configuration.application.position_maximum_speed_rad_s);
+    }
+    CHECK(s_motor.position_target_reached && s_motor.position_reference_rad == -0.2f &&
+          s_motor.position_trajectory_speed_rad_s == 0.0f);
+    /* 前台遗漏截止须故障关输出；上一运行的结果不得覆盖复位后的新请求。 */
+    setup(MOTOR_CONTROL_POSITION);
+    tick_without_foreground();
+    MotorPositionPlan stale;
+    CHECK(MotorOuterLoop_TakePositionPlan(&stale));
+    MotorOuterLoop_RequestReset();
+    tick_without_foreground();
+    MotorPositionPlan fresh;
+    CHECK(MotorOuterLoop_TakePositionPlan(&fresh) && fresh.serial != stale.serial);
+    MotorOuterLoop_PublishPositionPlan(&stale, MotorOuterLoop_BuildPositionPlan(&stale));
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 250U; ++i)
+    {
+        tick_without_foreground();
+    }
+    CHECK(s_motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && !MotorOuterLoop_IsReady() &&
+          s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_CURRENT);
     FocState foc = {0};
     FluxObserverState observer = {0};

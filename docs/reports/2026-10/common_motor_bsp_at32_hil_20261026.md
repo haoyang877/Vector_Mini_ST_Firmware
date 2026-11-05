@@ -38,11 +38,11 @@ STM32生成外设配置仍须与板配置同步，不能仅凭更改宏就支持
 | --- | --- | --- | --- |
 | ESC-APP-AT32F456-Commissioning | +152 | +0 | 608 → 612 |
 | ESC-APP-AT32F456 | +104 | +16 | 608 → 612 |
-| R40_F456_ClosedLoop | +728 | -8 | 280 → 280 |
-| R40_F456_Foundation | +740 | +0 | 416 → 424 |
-| R40_F456_OpenLoop_Combined | +728 | -8 | 536 → 536 |
-| R40_F456_OpenLoop_Dry | +680 | -8 | 176 → 168 |
-| R40_F456_OpenLoop_Power | +724 | -8 | 176 → 168 |
+| AT32F456_ClosedLoop | +728 | -8 | 280 → 280 |
+| AT32F456_Foundation | +740 | +0 | 416 → 424 |
+| AT32F456_OpenLoop_Combined | +728 | -8 | 536 → 536 |
+| AT32F456_OpenLoop_Dry | +680 | -8 | 176 → 168 |
+| AT32F456_OpenLoop_Power | +724 | -8 | 176 → 168 |
 | ESC-APP-STM32G431-LoaderApp | +500 | +16 | 568 → 580 |
 | ESC-APP-STM32G431 | +484 | +16 | 568 → 580 |
 

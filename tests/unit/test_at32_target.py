@@ -1,4 +1,4 @@
-"""R40基础工程的来源、隔离和构建安全检查；不编译或连接硬件。"""
+"""AT32F456基础工程的来源、隔离和构建安全检查；不编译或连接硬件。"""
 
 import hashlib
 import json
@@ -211,7 +211,7 @@ class At32TargetTests(unittest.TestCase):
     def test_fast_control_and_sensing_remain_in_sram(self):
         """控制和测量拆分后保留原SRAM快环，LUT提交仍留在Flash。"""
         base = ROOT / "projects/at32f456/application"
-        for filename in ("r40_app.sct",):
+        for filename in ("at32f456_app.sct",):
             with self.subTest(filename=filename):
                 text = (base / filename).read_text(encoding="utf-8")
                 flash, fast = text.split("ER_FAST", 1)
@@ -298,7 +298,7 @@ class At32TargetTests(unittest.TestCase):
 
     def test_closedloop_is_explicit_and_uses_unchanged_control_modules(self):
         base = ROOT / "tests/bench/at32f456"
-        project = ROOT / "projects/at32f456/bench/R40_F456_ClosedLoop.uvprojx"
+        project = ROOT / "projects/at32f456/bench/AT32F456_ClosedLoop.uvprojx"
         errors, _, _ = check_project(project)
         self.assertEqual(errors, [])
         tree = ET.parse(project)
@@ -318,13 +318,13 @@ class At32TargetTests(unittest.TestCase):
     def test_openloop_is_explicit_and_defaults_to_no_power(self):
         base = ROOT / "tests/bench/at32f456"
         projects = [
-            ROOT / f"projects/at32f456/bench/R40_F456_OpenLoop_{kind}.uvprojx"
+            ROOT / f"projects/at32f456/bench/AT32F456_OpenLoop_{kind}.uvprojx"
             for kind in ("Dry", "Power", "Combined")
         ]
         targets = [ET.parse(project).find(".//Target") for project in projects]
         self.assertEqual(
             [t.findtext("TargetName") for t in targets],
-            ["R40_F456_OpenLoop_Dry", "R40_F456_OpenLoop_Power", "R40_F456_OpenLoop_Combined"],
+            ["AT32F456_OpenLoop_Dry", "AT32F456_OpenLoop_Power", "AT32F456_OpenLoop_Combined"],
         )
         for target, flag in zip(targets, ("0", "1", "1"), strict=True):
             self.assertIn(
@@ -342,7 +342,7 @@ class At32TargetTests(unittest.TestCase):
             self.assertEqual(errors, [])
 
     def test_foundation_project_is_isolated_and_has_no_build_hooks(self):
-        project = ROOT / "projects/at32f456/bench/R40_F456_Foundation.uvprojx"
+        project = ROOT / "projects/at32f456/bench/AT32F456_Foundation.uvprojx"
         errors, _, _ = check_project(project)
         self.assertEqual(errors, [])
         tree = ET.parse(project)
@@ -381,7 +381,9 @@ class At32TargetTests(unittest.TestCase):
                 r"#define\s+(AT32_\w+)\s+(0x[0-9A-Fa-f]+|[0-9]+)U", layout
             )
         }
-        scatter = (ROOT / "projects/at32f456/bench/r40_foundation.sct").read_text(encoding="utf-8")
+        scatter = (ROOT / "projects/at32f456/bench/at32f456_foundation.sct").read_text(
+            encoding="utf-8"
+        )
         ranges = re.findall(r"(?:LR_IROM1|ER_IROM1)\s+(0x\w+)\s+(0x\w+)", scatter)
         self.assertEqual(len(ranges), 2)
         for start, length in ranges:
@@ -405,9 +407,9 @@ class At32TargetTests(unittest.TestCase):
                 )
 
     def test_keil_rtt_is_isolated_and_vendor_files_are_pinned(self):
-        tree = ET.parse(ROOT / "projects/at32f456/bench/R40_F456_OpenLoop_Combined.uvprojx")
+        tree = ET.parse(ROOT / "projects/at32f456/bench/AT32F456_OpenLoop_Combined.uvprojx")
         self.assertIn("AT32_KEIL_OPENLOOP=1", tree.findtext(".//Cads/VariousControls/Define"))
-        for name in ("R40_F456_ClosedLoop", "R40_F456_Foundation", "R40_F456_OpenLoop_Dry"):
+        for name in ("AT32F456_ClosedLoop", "AT32F456_Foundation", "AT32F456_OpenLoop_Dry"):
             self.assertNotIn(
                 "openloop_telemetry.c",
                 (ROOT / f"projects/at32f456/bench/{name}.uvprojx").read_text(),

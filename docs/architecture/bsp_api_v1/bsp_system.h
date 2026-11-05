@@ -16,6 +16,11 @@ extern "C"
 #define BSP_SYSTEM_UID_BYTES 12U
 #define BSP_SYSTEM_IDENTITY_BYTES 64U
 
+#if defined(FIRMWARE_TARGET_AT32_OFF)
+    /** @brief AT32 正式 APP 在有效 ADC 分频后请求可由快环抢占的外环执行。 */
+    void BspSystem_PendOuterTick(void);
+#endif
+
     /**
      * @brief 读取单调递增的毫秒时间。
      * @return 毫秒计数，按2^32自然回绕。

@@ -2,7 +2,7 @@
 
 ## 目标与边界
 
-将原合并资源头拆为 `board_config.h` 和 `motor_profile_config.h`，应用配置继续在 `application_config.h`；板卡、电机可独立选择，保留自定义配置入口、四种已有型号、自动派生、软件保护、电流策略、schema14 和已保存参数优先级。STM32G431 默认 STM32G4/HT8115-4；AT32F456 默认 R40/YQ-5708 并永久关相，临时热数据不得泄漏到其他电机或无约束目标。
+将原合并资源头拆为 `board_config.h` 和 `motor_profile_config.h`，应用配置继续在 `application_config.h`；板卡、电机可独立选择，保留自定义配置入口、四种已有型号、自动派生、软件保护、电流策略、schema14 和已保存参数优先级。STM32G431 默认 STM32G4/HT8115-4；AT32F456 默认 YQ-5708 并永久关相，临时热数据不得泄漏到其他电机或无约束目标。
 
 ## 验收与回退
 

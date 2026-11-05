@@ -31,7 +31,7 @@ bool SpeedFeedforward_IsValid(const SpeedFeedforwardConfig *config);
 /**
  * @brief 清除规划及前馈状态，不改变控制增益或输出使能。
  * @param state 需要清除的非空规划状态。
- * @note 调用方串行访问；运行时仅由 2 kHz 外环调用。
+ * @note 调用方串行访问；运行时仅由 外环调用。
  */
 void SpeedFeedforward_Reset(SpeedFeedforwardState *state);
 /**

@@ -52,7 +52,7 @@ ADC、监督和SysTick向量统一放在各板projects目录的main.c，由各BS
 MotorAxis 持有 MotorConfiguration、MotorControlState、FocState、编码器及观测器。
 配置分 model/application/device；LUT 和零位只存一份，位于 device.encoder。
 FocState 直接持有电流、电压、温度及控制量，测量没有第二份所有者。
-生命周期上下文 s_context 在 motor_lifecycle.c；状态机文件只有纯函数。
+生命周期上下文 g_motor_context 在 motor_lifecycle.c；状态机文件只有纯函数。
 
 ADC 快环 20 kHz，监督 2 kHz；前台处理协议与 LUT 发布。
 启动零偏在关相 IDLE 累计 2048 拍，成功后一次发布，不产生参数修订号。

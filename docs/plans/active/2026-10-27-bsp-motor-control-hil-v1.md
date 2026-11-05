@@ -289,7 +289,7 @@ DWT比较器释放、看门狗未冻结及参数CRC，证据为hil-rx-reservatio
 ### 用户指定暂时关闭绕组热模型（2026-10-27）
 
 用户明确要求“先关闭热模型处理”，作为继续核定截止时间与实测控制的本轮配置。
-新增APP_ENABLED_WINDING_THERMAL_MODEL，默认1；仅r40_app_commissioning设为0，
+新增APP_ENABLED_WINDING_THERMAL_MODEL，默认1；仅at32f456_app_commissioning设为0，
 关闭只允许AT32限时台架目标编译。停止热量累计、热降额和热更新看门狗；
 不伪造有效热模型，GetDiagnostics返回false且不写输出。固定配置电流限幅、
 Vq瞬时电流判定、ADC/编码器健康、母线电压、PWM提交期限、硬件看门狗及一次性功率窗口保留。

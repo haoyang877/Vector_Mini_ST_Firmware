@@ -55,7 +55,7 @@ extern volatile AT32BenchSnapshot g_at32_snapshot;
  * @note 只由验证前台调用；存储命令另需arguments[0]=0x53544F52，默认不写Flash。
  */
 bool AT32_BenchPoll(void);
-/** @brief 接收带R40B标记的诊断帧，仅回显数据，不解释控制指令。
+/** @brief 接收带固定四字节标记的诊断帧，仅回显数据，不解释控制指令。
  * @param frame 已通过公共CAN端口解码的输入帧。
  * @note 前台调用，繁忙时丢弃额外测试帧；不会启动功率输出。
  */

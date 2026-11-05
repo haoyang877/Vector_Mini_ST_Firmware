@@ -80,7 +80,7 @@ ESC-APP-STM32G431，新板默认关相工程为ESC-APP-AT32F456。
 新板限时版保留-Commissioning后缀，旧板Loader配套APP保留-LoaderApp后缀。
 同步uvmpw、uvprojx、本地调试伴随文件、目标名、输出名、构建输出目录、
 构建脚本及目标生成元数据和当前操作文档，不新增生产源文件。
-保留原有normal/r40-app-off/r40-app-commissioning命令选择器以兼容脚本调用。
+保留原有normal/at32f456-app-off/at32f456-app-commissioning命令选择器以兼容脚本调用。
 
 不修改C/H/汇编/散装源文件、源码分组、编译选项、设备、Flash、BSP接口或控制行为。
 工作区仍有三个APP，默认关相版，批量构建全不勾选；不更改下载设置、不再连接或烧录。

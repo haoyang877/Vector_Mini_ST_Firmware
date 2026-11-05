@@ -266,7 +266,7 @@ int main(void)
     uint16_t zero[4] = {8192U, 8192U, 8192U, 4704U};
     AT32Ol_Step(&guard, zero, true, true, 2300U);
     assert(guard.state == AT32_OL_FAULT && guard.fault == AT32_OL_LEASE_EXPIRED);
-    puts("PASS R40 closed-loop sequencing, real PI/RL plant, angle calibration, stalled speed "
+    puts("PASS AT32F456 closed-loop sequencing, real PI/RL plant, angle calibration, stalled speed "
          "rejection, 3A and lease stop");
     return 0;
 }

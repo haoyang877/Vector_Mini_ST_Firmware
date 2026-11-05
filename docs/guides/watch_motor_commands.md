@@ -33,8 +33,8 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 - 在 Debug 会话打开 `View → Watch Windows → Watch 1/2`，双击 `<Enter expression>` 添加表达式。
 - 开启 `View → Periodic Window Update`，支持的调试驱动可在 CPU 运行时刷新值。
-- 当前源码按用户要求将 MotorAxis 配置/运行对象和 `s_context` 保留为非静态全局符号，
-  保留既有 `s_` 名称，可直接添加短名并展开成员。历史冻结 AXF 仍可能是 `static` 实例；
+- 当前源码将 MotorAxis 配置/运行对象和 `g_motor_context` 提供为非静态全局符号，
+  可直接添加这些短名并展开成员。历史冻结 AXF 仍可能是 `static` 实例；
   短名无法解析时，在 `View → Symbols` 中选择对应源码模块实例并添加完整限定名。
   始终以匹配板上镜像的 AXF 为准，不硬编码 RAM 地址。
 - 全局符号便于观察，公共头不提供这些对象的可写 `extern` 接口；产品代码仍通过请求、快照和显式对象参数访问。
@@ -47,8 +47,8 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 `s_motor_configuration`、`s_motor_state`、`s_foc_state` 和 `s_rotor_encoder` 归
 `firmware/app/runtime/motor_axis.c`；`s_config_revision` 归
-`firmware/app/runtime/motor_axis.c`；`s_context` 归
-`firmware/app/motor_state_machine/motor_state_machine.c`。下表使用短名表示成员路径，
+`firmware/app/runtime/motor_axis.c`；`g_motor_context` 归
+`firmware/app/runtime/motor_lifecycle.c`。下表使用短名表示成员路径，
 实际 Watch 名称以加载的 AXF 和 Symbols 生成的限定名为准。
 
 采样值直接保存在 `s_foc_state` 的成员中，不再有 measurement 层或独立测量对象。
@@ -58,13 +58,13 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
-| `s_context.rules.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方八状态映射 |
+| `g_motor_context.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方八状态映射 |
 | `s_motor_state.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
 | `s_motor_state.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
 | `s_motor_configuration.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
 | `s_motor_configuration.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
-| `s_context.self_test_stable_ticks` | INIT 连续健康计数 | 连续 4 个监督拍通过；STOP 不重启窗口，不是所有模式就绪缓存 |
-| `s_context.fast_sample_epoch` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
+| `g_motor_context.self_test_stable_ticks` | INIT 连续健康计数 | 连续 4 个监督拍通过；STOP 不重启窗口，不是所有模式就绪缓存 |
+| `g_motor_context.fast_sample_ticks` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
 | `s_foc_state.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
 | `s_foc_state.bus_current_estimated_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
 | `s_foc_state.bus_current_a` | A | 硬件实测母线电流；未提供或未校零时为 NaN |
@@ -72,9 +72,9 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 | `s_foc_state.phase_current_a.b` | A | B 相电流 |
 | `s_foc_state.phase_current_a.c` | A | C 相电流；软件低频观测不是瞬时峰值证据 |
 | `s_foc_state.temperature_c` | °C | 固件温度读数，不等于电机绕组温度 |
-| `s_context.last_maintenance` | 维护进度结构 | 展开查看对应 ticket 与终态；旧结果不代表当前任务 |
-| `s_context.background_busy` | bool | 后台工作是否仍占用；单独为 false 不证明全部资源已释放 |
-| `s_context.control_progress` | 控制进度结构 | 区分命令受理与实际应用结果，结合来源身份查看 |
+| `g_motor_context.last_maintenance` | 维护进度结构 | 展开查看对应 ticket 与终态；旧结果不代表当前任务 |
+| `g_motor_context.background_busy` | bool | 后台工作是否仍占用；单独为 false 不证明全部资源已释放 |
+| `g_motor_context.control_progress` | 控制进度结构 | 区分命令受理与实际应用结果，结合来源身份查看 |
 | `s_config_revision` | 活动配置修订 | 不等于存储 schema，也不直接证明已经保存到 Flash |
 | `(htim1.Instance->CCER & 0x0555)` | STM32G4 三相使能位 | 关闭时为 0；仅平台寄存器只读核对，不替代实际驱动关断测量 |
 

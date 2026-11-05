@@ -49,7 +49,7 @@ static void clock_init(void)
 #define AT32_SUPERVISOR_TOP (1000000U / SUPERVISOR_FREQ - 1U)
 
 #if (AT32_CORE_CLOCK_DERIVED_HZ % (2U * FOC_FREQ)) != 0U || (1000000U % SUPERVISOR_FREQ) != 0U
-#error "R40 timer clock must divide the frozen control frequencies exactly"
+#error "AT32F456 timer clock must divide the frozen control frequencies exactly"
 #endif
 
 static void supervisor_timer_init(void)
@@ -75,6 +75,9 @@ __attribute__((noinline)) void McuSystem_Start(void)
     tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
     tmr_interrupt_enable(MCU_CONTROL_TIMER, TMR_OVF_INT, TRUE);
     NVIC_SetPriority(MCU_CONTROL_IRQ, MCU_CONTROL_IRQ_PRIORITY);
+#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE && OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
+    NVIC_SetPriority(PendSV_IRQn, MCU_CONTROL_IRQ_PRIORITY);
+#endif
     NVIC_EnableIRQ(MCU_CONTROL_IRQ);
     tmr_counter_enable(MCU_PWM_TIMER, TRUE);
     tmr_counter_enable(MCU_CONTROL_TIMER, TRUE);
@@ -274,6 +277,11 @@ void BspWatchdog_Feed(void)
     {
         WDT->cmd = 0xAAAAU;
     }
+}
+
+void BspSystem_PendOuterTick(void)
+{
+    SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
 }
 
 void BspSystem_HandleControlInterrupt(void)

@@ -10,10 +10,11 @@ typedef struct
 {
     const FocState *foc;
     const EncoderState *encoder;
+    const MotorControlState *motor;
 } MotorAxisFeedback;
 
 /**
- * @brief 静态绑定的轴反馈，供APP在同一ADC快环末尾采样。
+ * @brief 静态绑定的轴反馈，供 APP 在 2 kHz 维护拍读取最近的外环输出。
  * @note 不修改或缓存所指状态；跨中断读取需另外取得一致快照。
  */
 extern const MotorAxisFeedback MotorAxis_Feedback;
@@ -38,10 +39,22 @@ void MotorAxis_SampleFast(void);
 void MotorAxis_ControlFast(void);
 
 /**
- * @brief 执行慢估计、外环和生命周期监督。
- * @note 仅2kHz监督上下文调用。
+ * @brief 执行 2 kHz 生命周期监督及温度维护。
+ * @note 仅监督上下文调用。
  */
 void MotorAxis_SupervisorTick(void);
+
+/** @brief 外环执行上下文更新位置估计、速度或位置控制，发布本拍电流参考。 */
+void MotorAxis_OuterTick(void);
+
+/** @brief 外环超过一个更新周期时锁存时序故障并立即关闭 PWM，仅 ADC 快拍调用。 */
+void MotorAxis_OuterOverrun(void);
+
+/**
+ * @brief 前台承接位置轨迹建表，仅短暂屏蔽外环交接副本。
+ * @note 仅主循环调用，建表期间 ADC 与外环可以抢占。
+ */
+void MotorAxis_ProcessPositionPlan(void);
 
 /**
  * @brief 在关相前台发布已完成的编码器线性化候选。

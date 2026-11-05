@@ -8,6 +8,8 @@
 
 | 计划 | 当前状态 |
 | --- | --- |
+| [AT32 位置和速度外环 4 kHz](2026-11-05-outer-4khz-v1.md) | ADC 每五拍派发；板上时序和参数由轨迹会话调试 |
+| [单轴位置 S 曲线 OTG](2026-11-05-position-otg-v1.md) | 重构分支实现与离线连续性验证，板上时序待测 |
 | [运行中 q 轴与低延迟测速验证](2026-11-05-speed-120hz-validation-v1.md) | 运行中 q 轴幅相和 120 Hz 目标按板上证据验收，低速波动独立核对 |
 | [标定参考角精度修正](2026-11-05-calibration-angle-precision-v1.md) | 精度和四组回归通过；已烧录并重标定，快环最坏执行时间待测 |
 | [全速度域阶梯与闭环带宽上限](2026-11-05-speed-domain-bandwidth-v1.md) | 阶梯与频响矩阵完成，中高速约70 Hz；低速精度和标定参考质量待闭环 |
@@ -83,7 +85,7 @@
 | [共用APP新板启动与速度实测](2026-10-24-shared-app-speed-hil-v1.md) | 关相启动及2kHz零缺口采集通过；±1/±2点达标，±3仍未达；release通过，参数未保存、已关相 |
 | [双板release检查修复](2026-10-24-release-check-repair-v1.md) | 工作树PR与干净冻结副本release全通过；三个目标HEX不变，未接触硬件 |
 | [双板共用配置收敛](2026-10-24-dual-board-config-v1.md) | 配置收敛、三个目标编译和定向离线验证完成；后续冻结副本release已通过 |
-| [新板完整APP标定与闭环](2026-10-23-r40-app-commissioning-v1.md) | 历史实测记录；2026-11-03 已删除 Commissioning 工程 |
+| [新板完整APP标定与闭环](2026-10-23-at32f456-app-commissioning-v1.md) | 历史实测记录；2026-11-03 已删除 Commissioning 工程 |
 | [新板MCU温度可选策略](2026-10-23-mcu-temperature-optional-v1.md) | 关相调试目标临时可选；默认限流修正为3A，实机待机/故障0及120次CAN读取通过 |
 | [PA4母线电流APP接入](2026-10-23-pa4-bus-current-app-v1.md) | 按硬件能力选择反馈；关相偏置及120次CAN读取通过，带载绝对精度待验证 |
 | [STM32G4 APP入口统一](2026-10-23-stm32-application-entry-v1.md) | 历史目录迁移完成；当前各板application/main.c为真实入口，平台实现归platform_app.c；本次入口分离仅离线验证 |

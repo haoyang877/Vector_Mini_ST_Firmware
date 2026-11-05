@@ -50,7 +50,7 @@ runtime中的`motor_lifecycle`内部验证命令并管理生命周期；`motor/c
 | 所有者 | 当前关键符号或对象 | 允许的使用方式 |
 | --- | --- | --- |
 | MotorAxis | `s_motor_state`、`s_foc_state`（直接含采样成员）、`s_speed_pi`、`s_rotor_encoder`、`s_flux_observer`、`s_sensorless_startup`、`s_current_offset_calibration` | 只公开初始化和快慢环，显式传给功能任务 |
-| 主状态机 | `s_context` | 请求入口串行化启停、目标、维护和清错；对外提供一致状态快照 |
+| 主状态机 | `g_motor_context` | 请求入口串行化启停、目标、维护和清错；对外提供一致状态快照 |
 | 参数事务 | `s_config_revision`、请求缓存与SAVE记录 | 参数请求入口更新；成功写仅增一次revision |
 | 位置控制器 | `position_control.c`中的私有`s_state` | Update/Reset接口；调用方不写内部积分 |
 | 外环控制 | `motor_control.c`中的私有`s_outer` | 请求复位/慢拍接口；只拥有外环就绪与前馈历史 |
@@ -65,7 +65,7 @@ runtime中的`motor_lifecycle`内部验证命令并管理生命周期；`motor/c
 
 删除电机运行租约、持久启动计数、组合计划、复杂轨迹、摩擦/电阻辨识、
 齿槽标定/补偿、RTT及堆分配。齿槽历史文档和schema12占位仅作历史/字节兼容。
-保留电流、速度、直接位置串级、q轴电压，LUT、电/机械零位，参数保存，保护和Loader升级恢复。
+保留电流、速度、S 曲线位置规划和位置串级、q轴电压，LUT、电/机械零位，参数保存，保护和Loader升级恢复。
 LUT依赖的无感启动/观测器保留，不表示新增独立无感控制产品功能。
 
 当前范围见[删减决定](../archive/plans/2026-10-08-core-only-v3.md)，

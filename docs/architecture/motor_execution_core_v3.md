@@ -24,8 +24,8 @@ MotorAxis在观测器调用前完成本拍电流的Clarke变换，并以原式
 | 源码 | 核心工作 |
 | --- | --- |
 | [motor_lifecycle.c](../../firmware/app/runtime/motor_lifecycle.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
-| [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调2kHz速度/位置外环，分发20kHz任务；不读取APP状态机或服务命令 |
-| [position_control.c](../../firmware/motor/control/position_control.c) | 直接位置PD → 限幅速度参考 → 速度PI → 电流参考 |
+| [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调速度/位置外环（AT32F456/YQ-5708 每 250 µs，其余配置每 500 µs），分发20kHz任务；不读取APP状态机或服务命令 |
+| [position_control.c](../../firmware/motor/control/position_control.c) | 位置 OTG 参考 → 位置PD → 限幅速度参考 → 速度PI → 电流参考 |
 | [foc.c](../../firmware/motor/control/foc.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
 | [foc_output.c](../../firmware/motor/control/foc_output.c) | 调用FOC计算、提交PWM并完成后处理；提交失败仍报告故障 |
 | [pi_controller.c](../../firmware/motor/control/pi_controller.c) | PI状态更新、限幅和输出跟踪 |
@@ -49,17 +49,13 @@ Axis持有的`FocState`直接包含母线电压、三相电流及MCU温度；
 | VQ | 不执行位置/速度闭环 | 按编码器电角度施加q轴电压 |
 | OPEN_VOLTAGE / OPEN_CURRENT | 不执行位置/速度闭环 | 按指定电角频率执行开环电压或电流控制 |
 
-## 位置串级只保留什么
+## 位置外环
 
-位置误差乘Kp，减去Kd乘滤波速度，经过原速度包络限幅后送速度PI。
-PI输出限制在相电流额度内，保留原积分抗饱和；电流限值下调立即生效。
-状态只有配置、速度PI、滤波速度和分频计数，单实例串行调用。
-目标更新不清支撑积分，Reset清控制状态。
-到位结果仅是观测事实，不自动STOP；RUNNING下仍可维持位置控制。
-
-已删除轨迹规划、加减速/S曲线、摩擦前馈、复杂保持阶段和独立遥测协调。
-参数与测量非法时返回失败，由运行所有者决定关相及故障。
-增益、限值与PI单位保持已有约定；简化后的运动行为需要当前候选实机确认。
+外环执行上下文独占一个 PositionOtg 实例，从上一规划位置、速度和加速度接续到零速、零加速度终点。
+外环只采样多项式；目标变化时前台按 4 ms 交接点预测并建表，按代际发布。规划速度叠加位置误差修正和速度阻尼后限幅，进入速度 PI。
+PI 输出受相电流额度约束，限流下调立即生效。目标更新保留积分，模式切换或复位重建轨迹。
+轨迹结束且实测位置和速度均满足窗口时报告到位。非法参数或参考走现有故障路径。
+接口与限值见[位置控制指南](../guides/position_servo_control.md)。
 
 ## 阅读与操作入口
 

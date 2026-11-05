@@ -409,7 +409,7 @@
       "entry_ticket": "s_entry_ticket",
       "health_checked_ms": "s_health_checked_ms",
       "motor_adapter": "s_motor_adapter",
-      "observed_supervisor_epoch": "s_observed_supervisor_epoch",
+      "observed_supervisor_epoch": "s_observed_supervisor_ticks",
       "stop_service": "s_stop_service"
     },
     "firmware/app/bsp_task.c": {

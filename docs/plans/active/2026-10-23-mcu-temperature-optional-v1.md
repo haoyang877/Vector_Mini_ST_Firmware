@@ -38,8 +38,8 @@
 
 `BOARD_REQUIRE_MCU_TEMPERATURE`是板级只读策略：旧板固定为1；
 新板默认也为1。只有完整App_Off工程显式设置
-`R40_APP_MCU_TEMPERATURE_OPTIONAL=1`时才为0。
-该临时开关仅允许与`R40_APP_PHASE_LOCK=1`组合，否则编译拒绝；非法开关值也编译拒绝。
+`AT32_APP_MCU_TEMPERATURE_OPTIONAL=1`时才为0。
+该临时开关仅允许与`AT32_APP_PHASE_LOCK=1`组合，否则编译拒绝；非法开关值也编译拒绝。
 其他新板工程不继承这次放宽。既有内部温度ADC诊断开关不变。
 
 可选策略不改`McuTemperature_IsFresh`语义，不修改NaN、有效位、超时计数或滤波。

@@ -16,11 +16,11 @@
 Stack_Size      EQU     0x00002000
 
                 AREA    STACK, NOINIT, READWRITE, ALIGN=3
-                EXPORT  __r40_stack_bottom
-                EXPORT  __r40_stack_top
-__r40_stack_bottom
+                EXPORT  __at32f456_stack_bottom
+                EXPORT  __at32f456_stack_top
+__at32f456_stack_bottom
 Stack_Mem       SPACE   Stack_Size
-__r40_stack_top
+__at32f456_stack_top
 __initial_sp
 
 ; <h> Heap Configuration

@@ -49,7 +49,7 @@ typedef struct
     float position_target_rad, position_reference_rad;
     float position_velocity_filtered_rad_s;
     /* 模式 3 规划轨迹速度；遥测无效窗口为 NaN。 */
-    float position_trajectory_speed_rad_s;
+    float position_trajectory_speed_rad_s, position_trajectory_acceleration_rad_s2;
 
     /* 正式开环模式的易失参考；停止/启动清零，频率为电角Hz，相位为下一拍rad。 */
     float vd_target_v, open_loop_frequency_hz, open_loop_angle_rad;

@@ -1,7 +1,7 @@
 #ifndef AT32_IO_FAKE_H
 #define AT32_IO_FAKE_H
 
-#include "../r40_fake/at32f45x.h"
+#include "../at32f456_fake/at32f45x.h"
 #include <stddef.h>
 
 /* 使用真实SDK类型和函数声明，模拟外设副作用，不缩写ADC/CAN接口签名。 */

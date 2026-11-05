@@ -50,6 +50,19 @@ typedef struct
 } MotorJointControlConfig;
 
 /**
+ * @brief 检查位置指令是否位于轴的闭区间内。
+ * @param profile 调用方已验证且启用行程限制的轴记录。
+ * @param target_rad 有限的位置指令，rad。
+ * @return 指令位于闭区间内时返回 true。
+ */
+static inline bool MotorAxisProfile_TargetWithinBounds(const MotorAxisProfile *profile,
+                                                       float target_rad)
+{
+    return target_rad >= profile->minimum_position_rad &&
+           target_rad <= profile->maximum_position_rad;
+}
+
+/**
  * @brief 检查已验证轴记录的运行范围，不执行 CRC。
  * @param profile 只读轴记录，NULL 返回 false。
  * @param valid 参数恢复已通过记录校验。
@@ -73,7 +86,7 @@ static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profi
              profile->identity.numeric.joint_type <= MOTOR_JOINT_YAW)) &&
            (profile->magic == 0U ||
             (actual > profile->minimum_position_rad && actual < profile->maximum_position_rad &&
-             target >= profile->minimum_position_rad && target <= profile->maximum_position_rad));
+             MotorAxisProfile_TargetWithinBounds(profile, target)));
 }
 
 /**

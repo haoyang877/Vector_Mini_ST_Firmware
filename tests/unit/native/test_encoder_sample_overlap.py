@@ -52,10 +52,10 @@ int main(void) {
     unsigned cases=0;
     for(unsigned st=MOTOR_STATE_IDLE;st<=MOTOR_STATE_FAULT;st++)
     for(unsigned complete=0;complete<2;complete++)
-    for(unsigned position=0;position<2;position++)
+    for(unsigned mode=0;mode<3;mode++)
     for(unsigned fault=0;fault<2;fault++) {
         selected_state=(MotorState)st; s_current_offset_calibration.complete=complete;
-        s_motor_state.control_mode=position ? MOTOR_CONTROL_POSITION : MOTOR_CONTROL_SPEED;
+        s_motor_state.control_mode=mode==0 ? MOTOR_CONTROL_POSITION : mode==1 ? MOTOR_CONTROL_SPEED : MOTOR_CONTROL_CURRENT;
         s_motor_state.fault_code=fault ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
         count=0;MotorAxis_SampleFast();
     MotorAxis_ControlFast();
@@ -63,7 +63,7 @@ int main(void) {
         if(selected_state==MOTOR_STATE_IDLE) expected[n++]=4;
         if(complete) expected[n++]=5;
         expected[n++]=6;
-        if(complete && !position) expected[n++]=7;
+        if(complete && mode==2) expected[n++]=7;
         expected[n++]=8;expected[n++]=9;expected[n++]=10;
         if(complete && !fault) expected[n++]=selected_state==MOTOR_STATE_CALIBRATION ? 11 : selected_state==MOTOR_STATE_RUNNING ? 12 : 13;
         expected[n++]=14;

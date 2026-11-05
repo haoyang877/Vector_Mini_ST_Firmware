@@ -3,9 +3,9 @@
 截至2026-10-26的旧平台README存档。以下是历史过程，路径、入口和未验收状态不代表当前实现。
 现行职责见[当前BSP架构](../../architecture/bsp_architecture_v1.md)。
 
-# YG-ESC_V1.0 AT32F456 平台
+# AT32F456 平台
 
-板卡原名R40；现有文件名、工程名及宏暂保留R40。适配电机型号为YQ-5708，灯的使用逻辑后续适配。
+适配电机型号为YQ-5708，灯的使用逻辑后续适配。
 
 ports现与旧板统一为board/boot/comm/motor/time五类目录；仅调整文件路径和工程引用，
 公共接口与真实实现位置见双板对应表（历史路径：`../../../docs/architecture/platform_interface_implementations_v1.md`）。
@@ -27,7 +27,7 @@ ports现与旧板统一为board/boot/comm/motor/time五类目录；仅调整文�
 本页包含分阶段实现记录，最新实测状态以资源管理表和适配计划的日期条目为准。
 
 2026-10-24配置整理：完整APP两个工程的C/C++ Misc Controls分别预包含
-`../config/targets/r40_app_off.h`和`../config/targets/r40_app_commissioning.h`
+`../config/targets/at32f456_app_off.h`和`../config/targets/at32f456_app_commissioning.h`
 （以上路径从本平台目录看；工程实际使用`../../config/targets/`）。
 板型/电机选择、测试保护模式、速度整定、外设选项与临时热值集中在目标头，
 Keil Define只保留`AT32F456CCU7,USE_STDPERIPH_DRIVER`。
@@ -43,8 +43,8 @@ Keil Define只保留`AT32F456CCU7,USE_STDPERIPH_DRIVER`。
 
 ### 独立开环验证目标
 
-`R40_F456_OpenLoop_Dry.uvprojx`和`R40_F456_OpenLoop_Power.uvprojx`提供独立目标，显式构建选择
-`r40-openloop-dry`或`r40-openloop-power`，不改变默认APP或原Foundation的含义。
+`AT32F456_OpenLoop_Dry.uvprojx`和`AT32F456_OpenLoop_Power.uvprojx`提供独立目标，显式构建选择
+`at32f456-openloop-dry`或`at32f456-openloop-power`，不改变默认APP或原Foundation的含义。
 Dry移除启相调用；Power也不自动开始，须通过私有调试内存接口显式请求一次脉冲。
 两种目标均不访问CAN或Flash参数，使用既有数学函数计算旋转电压，反馈只做故障检查。
 
@@ -91,7 +91,7 @@ ADC1为PA0/1/2三相电流、PA3母线电压的四rank抢占序列；每rank硬�
 当前`BSP_ENABLED_MOTOR_TEMPERATURE=1`、`BSP_ENABLED_MCU_TEMPERATURE=0`：
 ADC2采PA4母线电流和PA7电机NTC，DMA1通道2使用两个双样本半缓冲。
 完整App_Off现通过顶层装配将PA4实测电流用于CAN状态反馈；每次上电关相采128个
-稳定新样本，独立记录零点后换算。`g_r40_bus_current_diagnostic`保留原码、偏置及资格，
+稳定新样本，独立记录零点后换算。`g_at32_bus_current_diagnostic`保留原码、偏置及资格，
 未校零/过期/异常时反馈无效，不切回估算。中间层FOC估算对象保持原语义，
 旧板继续使用估算；详见接入计划（历史路径：`../../../docs/plans/active/2026-10-23-pa4-bus-current-app-v1.md`）。
 ADC1普通温度序列、内部温度/VINTRV使能和DMA1通道3均不启动。
@@ -113,18 +113,18 @@ ADC2由2kHz TMR6触发。以下内部温度采样保留供离线回归，当前�
 被相电流抢占并重做被打断通道，完成延迟须实测，不按无抢占预算证明时序。
 使能内部传感器后至少等待18000个内核周期再启动，满足100us建立要求。
 普通目标不采PA5/PA6；关相Dry诊断目标可启用下述输出轴原始观测。
-电机NTC的R25=10kΩ、B=3950K记录于硬件输入（历史路径：`../../../docs/hardware/r40_at32f456_configuration_v1.md`），
+电机NTC的R25=10kΩ、B=3950K记录于硬件输入（历史路径：`../../../docs/hardware/at32f456_configuration_v1.md`），
 不可填入下方MCU内部温度校准项。
-`r40_analog.h`记录模拟链路数据；完整APP的目标选择和保护限值仍需后续定版。
+`at32f456_analog.h`记录模拟链路数据；完整APP的目标选择和保护限值仍需后续定版。
 
 ### 输出轴sin/cos原始观测
 
-`BSP_ENABLED_OUTPUT_SINCOS`默认0，仅`R40_F456_OpenLoop_Dry`显式设为1。
+`BSP_ENABLED_OUTPUT_SINCOS`默认0，仅`AT32F456_OpenLoop_Dry`显式设为1。
 此时ADC2在原有母线电流/可选NTC之后追加PA5、PA6，不修改公共BSP函数、类型或计数域。
 四路顺序采样约87.1us，仍小于2kHz触发的500us周期；PA5与PA6相隔约21.8us，
 只能用于当前慢速手动信号检查，不宣称两路同步或完成输出轴角度解算。
 
-板内私有`g_r40_sincos_snapshot`为6个32位字：begin、sequence、milliseconds、
+板内私有`g_at32_sincos_snapshot`为6个32位字：begin、sequence、milliseconds、
 pa5_counts、pa6_counts、end。DMA每40帧发布一次（50Hz），原始计数0..4095，
 电压仅可按名义VDDA=3.3V估算。读取须满足begin=end、非零偶数，并确认时间与sequence前进。
 CPU与ADC须持续运行；若ADC故障或时间不前进，旧快照不可当作有效新信号。
@@ -133,7 +133,7 @@ CPU与ADC须持续运行；若ADC故障或时间不前进，旧快照不可当�
 
 Dry链接不含功率启动函数，不初始化CAN、不读写参数Flash。
 普通Power目标与sin/cos诊断同时使能仍会编译失败。新增的显式
-`r40-openloop-combined`目标另外要求`R40_OPENLOOP_SINCOS_TEST=1`，
+`at32f456-openloop-combined`目标另外要求`AT32_OPENLOOP_SINCOS_TEST=1`，
 仅用于用户授权的1秒开环与两路原始采样联合测试；不属于产品APP，不连接输出轴闭环。
 三个目标默认都不启动；Dry/Power默认0.20V和1秒，Combined经用户追加授权为1.0V和10秒；
 均保留2Hz、毫秒和采样步数双重时限；Dry/Power相电流跳闸默认0.60A，
@@ -168,7 +168,7 @@ R91为22Ω ADC支路串阻、C119为100nF。R91不在直流分压下臂，不把
 此处只使用12位单次ADC计数，不套用相电流的四次累加缩放。
 
 `bsp/motor_temperature_at32f456.h`是AT32平台私有诊断头，公共BSP没有新增或修改。
-`R40_MotorTemperaturePoll`只在验证工程前台消费辅助快照并执行`logf`，
+`AT32_MotorTemperaturePoll`只在验证工程前台消费辅助快照并执行`logf`，
 不在20kHz采样或2kHz监督中断计算对数。输出独立的原始值、序列号、阻值、温度和状态，
 不写入`MotorHwTemperaturePoll`、`foc.temperature_c`或既有遥测字段。
 重复帧不重复计数；辅助数据超过2ms、未采到或ADC故障时立即无效，温度设NaN，
@@ -209,11 +209,11 @@ NTC故障状态不代替完整APP的故障管理，现有驱动级ADC丢帧/错�
 
 | 配置 | 含义 |
 | --- | --- |
-| `R40_TEMPERATURE_CALIBRATED` | 取得且核对实测数据后才设为1，默认0 |
-| `R40_TEMPERATURE_CAL_C` | 第一个稳定校准温度，°C |
-| `R40_TEMPERATURE_CAL_MV` | 该温度下内部VTS实测电压，mV |
-| `R40_TEMPERATURE_SLOPE_MV_PER_C` | 两点实测有符号dVTS/dT，mV/°C |
-| `R40_INTERNAL_REFERENCE_MV` | 本芯片VINTRV实测值，mV |
+| `AT32_TEMPERATURE_CALIBRATED` | 取得且核对实测数据后才设为1，默认0 |
+| `AT32_TEMPERATURE_CAL_C` | 第一个稳定校准温度，°C |
+| `AT32_TEMPERATURE_CAL_MV` | 该温度下内部VTS实测电压，mV |
+| `AT32_TEMPERATURE_SLOPE_MV_PER_C` | 两点实测有符号dVTS/dT，mV/°C |
+| `AT32_INTERNAL_REFERENCE_MV` | 本芯片VINTRV实测值，mV |
 
 在两个已知稳定温度T1/T2记录ADC1内部温度/VREF的平均原始值和实测VDDA：
 `VTS=raw_ts*VDDA/4095`，`VINTRV=raw_vref*VDDA/4095`，
@@ -222,7 +222,7 @@ NTC故障状态不代替完整APP的故障管理，现有驱动级ADC丢帧/错�
 这个斜率是实测电压导数，不能直接套用手册公式中另一符号定义的Avg_Slope。
 未取得这些数据前不以典型V25/VINTRV或旧板地址冒充逐颗标定。
 
-`param_store_at32f456.c`实现冻结的字节读写接口，地址由私有`r40_storage_layout.h`定义：
+`param_store_at32f456.c`实现冻结的字节读写接口，地址由私有`at32f456_storage_layout.h`定义：
 256KiB Flash末16KiB（0x0803C000至0x0803FFFF）从链接区排除；当前RAW记录2288字节，
 最多擦写前两个2KiB扇区，剩余扩展空间不被擦除。读操作允许完整保留区范围，
 写操作拒绝超容量、空指针、源缓冲与保留区重叠、运行态、ISR及未屏蔽中断的调用。
@@ -276,11 +276,11 @@ CRC错误映射帧错误，SPI错误/超时映射总线超时。失败不覆盖�
 从仓库根目录运行，使用本机实际的Keil路径：
 
 ```text
-python tools/run.py build_firmware --uv4 <UV4.exe路径> --target r40-foundation
+python tools/run.py build_firmware --uv4 <UV4.exe路径> --target at32f456-foundation
 python tools/run.py verify --profile pr
 ```
 
-显式`r40-foundation`只构建、不下载，产物在`outputs/build/at32_foundation/`。
+显式`at32f456-foundation`只构建、不下载，产物在`outputs/build/at32_foundation/`。
 旧`normal`及`all`的含义不变，默认发布流程不会收录本验证镜像。
 工程关闭构建前后命令和调试前自动下载；构建命令本身不连接调试器。
 
@@ -292,17 +292,17 @@ python tools/run.py verify --profile pr
 
 ### 关相外设验收入口
 
-验证工程的`r40_bench.c`提供独立调试内存接口，未接入完整APP或产品协议。
-`g_r40_snapshot`只在`begin=end`、非零且为偶数时可作为一致快照读取，包含时基计数、
+验证工程的`at32f456_bench.c`提供独立调试内存接口，未接入完整APP或产品协议。
+`g_at32_snapshot`只在`begin=end`、非零且为偶数时可作为一致快照读取，包含时基计数、
 ADC与编码器结果、采样中断最大周期数、NTC状态和关相寄存器证据。
 中断用时包含此次诊断计数开销，不能直接当作最终完整APP快环预算。
 
-`g_r40_bench`的magic为0x52343042、version为1。主机先写command=0，
+`g_at32_bench`的magic为0x52343042、version为1。主机先写command=0，
 再写nonce（非零且不同于上一请求）、command_inverse及arguments，最后发布command。
 结果0/1/2/3/4分别为空闲/执行中/通过/失败/拒绝，completed_nonce用于对应请求。
 全部测试入口都先检查六路输出使能、总输出使能及驱动输入电平；失败停止，不能自动继续运行。
 命令5保持最近发布快照供慢速SWD读取，命令6释放；两者不停止采样，也不暂停CPU。
-命令7仅在无待发送帧时向诊断响应ID发送一帧`R40BTX!!`，独立检查板端发送方向，
+命令7仅在无待发送帧时向诊断响应ID发送一帧`52 34 30 42 54 58 21 21`，独立检查板端发送方向，
 不会增加接收计数；命令成功仅表示入队，物理完成须核对`can_tx_ok`及主机实际接收。
 
 - command=1：调用真实PWM端口检查0/12.5/50/87.5/100%与单相25%比较值，最后恢复50%。
@@ -312,7 +312,7 @@ ADC与编码器结果、采样中断最大周期数、NTC状态和关相寄存�
   两个存储命令都会停止采样定时器/DMA并屏蔽中断，结束后保持停止，下一步必须显式复位。
   实机执行前必须由主机备份并核对参数区，执行后再全区核对恢复结果。
 
-专用CAN诊断只接受扩展FD+BRS帧，ID=0x1FFF0001、长度至少8且前四字节为`R40B`，
+专用CAN诊断只接受扩展FD+BRS帧，ID=0x1FFF0001、长度至少8且前四字节为`52 34 30 42`，
 以ID=0x1FFF0002原样回显，通过真实64位票据端口确认发送完成。
 此回显不是产品协议，不解释电机运行、参数或Flash命令；未匹配帧只统计接收次数。
 波特率固定1M/5M。外部回显通过才能证明CAN收发器和主机链路，不以内环测试代替。
@@ -342,7 +342,7 @@ RETLIM/REALIM受软件复位影响，在退出RESET后设置并有界读回，�
 
 ## 独立闭环台架工程
 
-`foundation/R40_F456_ClosedLoop.uvprojx`通过`r40-closedloop`显式构建。它是台架装配入口，
+`foundation/AT32F456_ClosedLoop.uvprojx`通过`at32f456-closedloop`显式构建。它是台架装配入口，
 直接复用未修改的FOC、PI和速度算法；不是完整产品APP。BSP/ports仍不允许依赖motor，
 只有foundation装配层允许连接算法和硬件。默认启动关相，不通过CAN接受功率命令。
 
@@ -386,7 +386,7 @@ Vd/Vq；固定占用64KiB，仅本台架链接，不进入产品APP。20kHz末�
 
 ## Keil直接控制与RTT
 
-仅`R40_F456_OpenLoop_Combined`启用`R40_KEIL_OPENLOOP=1`，固定20Hz电频率、2V相电压幅值、
+仅`AT32F456_OpenLoop_Combined`启用`AT32_KEIL_OPENLOOP=1`，固定20Hz电频率、2V相电压幅值、
 3A瞬时相电流保护和10秒上限。Keil选J-Link、SWD，当前台架采用4MHz；禁止冻结WDT。
 进入调试后运行CPU，等待`g_openloop_debug.state=1`及`fault=0`，再在Watch写
 `g_openloop_enable=1`，不需要PC持续刷新心跳。`g_openloop_enable=0`立即请求关相。
@@ -456,9 +456,9 @@ Ki=10、目标正反20rpm、加减速2.5rad/s²。这些参数尚非产品验收
 2026-10-23增加完整APP的2kHz只读RTT，仍未解除App_Off功率锁。
 YQ-5708标定速度选择改为30rad/s机械、420rad/s电角，适配14对极，
 避免旧21对极配置的机械目标落入观测器下限以下；旧型号配置不变。
-具体流程及未验收边界见完整APP标定与闭环计划（历史路径：`../../../docs/plans/active/2026-10-23-r40-app-commissioning-v1.md`）。
+具体流程及未验收边界见完整APP标定与闭环计划（历史路径：`../../../docs/plans/active/2026-10-23-at32f456-app-commissioning-v1.md`）。
 
-Keil可观察`g_r40_app_telemetry`及其`sample`；采样每10个快拍产生一次，
+Keil可观察`g_at32_app_telemetry`及其`sample`；采样每10个快拍产生一次，
 RTT1输出88字节J-Scope帧。电流单位A，角速度为电机轴rad/s，角度为rad或Q15，
 具体字段名带单位。满队列/满RTT丢整帧并计数，不等待主机，不含RTT控制入口。
 2kHz是采集频率，主机实际收到的连续性须用sequence和丢帧计数确认。
@@ -473,11 +473,11 @@ drivers/measurement/bus_current_feedback承担PA4零偏/换算/滤波/有效性�
 入口精简后不再接入临时5kHz角度缓存、Iq脉冲和分阶段调度探针。
 保留现有2kHz RTT及一次功率窗口；控制启动和目标只能走共享APP命令。
 
-`application/ESC-APP-AT32F456.uvprojx`通过`build_firmware --target r40-app-off`显式构建。
+`application/ESC-APP-AT32F456.uvprojx`通过`build_firmware --target at32f456-app-off`显式构建。
 它链接原有APP、状态机、FOC、参数管理和CAN协议，使用AT32启动入口及平台端口；
 不链接closedloop_bench或openloop_model。旧板normal和已有台架目标保持独立，all仍只构建旧板。
 
-本目标固定`R40_APP_PHASE_LOCK=1`。原有start接口的本目标实现始终保持六路关闭并计数，
+本目标固定`AT32_APP_PHASE_LOCK=1`。原有start接口的本目标实现始终保持六路关闭并计数，
 没有RAM/CAN解锁入口。ADC 20kHz和监督2kHz调用原App_FastTick/App_SupervisorTick，
 前台执行App_Process；独立WDT只在前台、采样和监督都有进展时刷新。
 这是完整共享软件的关相验证镜像，不是可驱动电机的正式固件。
@@ -487,13 +487,13 @@ drivers/measurement/bus_current_feedback承担PA4零偏/换算/滤波/有效性�
 接收优先级低于电流采样和电机监督，位时序始终为1M/5M。
 
 完整APP使用本目录的独立启动文件，栈为8KiB且不分配堆；SDK原启动文件不改。
-早期台架用的`g_r40_reset_diagnostic`跨复位记录、异常批量快照和快环历史峰值已删除。
+早期台架用的`g_at32_reset_diagnostic`跨复位记录、异常批量快照和快环历史峰值已删除。
 故障入口只执行禁中断、关相、屏障和停止喂狗，不再维护另一份运行状态或复位历史。
 原UNINIT记录及其链接选择已退役，其他RAM区域和Flash/参数布局不变。
 保留50us单拍超时关断、2kHz RTT和限时目标一次功率许可；SCB故障寄存器可直接由调试器读取。
 旧台架脚本若依赖已删的符号，必须按当前MAP调整；不得从固定旧地址推断仍有有效诊断对象。
 
-J-Link会话必须加载`application/r40_debug.JLinkScript`，或显式执行
+J-Link会话必须加载`application/at32f456_debug.JLinkScript`，或显式执行
 `SetSkipDebugDeInit = 1`及`SetDbgPowerDownOnClose = 0`。
 固件以DWT监测采样时序，探针退出时清除DWT会触发正常的时基失效关断和WDT复位。
 这是探针退出配置，不可通过删除ADC保护绕过；详见
@@ -503,7 +503,7 @@ Keil需在J-Link设置中指定该脚本；若使用其他调试驱动，不能�
 
 MT6835在完整APP中使用40us整帧预算，包含两段SPI之间的原有热模型与观测器计算；
 独立台架保持20us。全部目标仍检查CRC、传感器状态和有界轮询，APP整拍50us超时关断不变。
-`g_r40_mt6835_frames`、`g_r40_mt6835_transfer_errors`和`g_r40_mt6835_max_cycles`
+`g_at32_mt6835_frames`、`g_at32_mt6835_transfer_errors`和`g_at32_mt6835_max_cycles`
 用于只读核对采样进展、总线错误及实际整帧周期；后者除以180得到us。
 
 板级配置选择`FOC_ACTIVE_HW_PROFILE=2`，电机复用YQ-5708的配置选择，不再复制台架参数。
@@ -515,7 +515,7 @@ YQ-5708磁链采用已确认的电机轴Kt/Iq口径，数值为0.003814286Wb。
 MCU温度未校准时仍无效，不能用电机NTC替代。
 
 目标身份通过app/composition/app_target.h选择：旧板继续使用原G431清单，
-新目标使用r40_f456_bringup.h；产品、硬件修订、布局和发布版本均为未分配0，
+新目标使用at32f456_bringup.h；产品、硬件修订、布局和发布版本均为未分配0，
 不冒充G431或可在线升级目标。不提供Loader及生产身份能力；UID读取真实96位硬件值。
 APP从0x08000000启动，程序上界0x0803C000，末16KiB参数区保持。
 
@@ -524,7 +524,7 @@ PC13红灯、PC14蓝灯均低有效，上电先熄灭再设输出。PB5/PB6不�
 无闪烁码时，RED/YELLOW降级红，GREEN/BLUE/CYAN降级蓝，PURPLE/WHITE为红蓝同时，
 NULL熄灭；保留原20Hz呼吸包络并由1ms软件调光执行。这里不声称双色灯能还原RGB颜色。
 
-入口精简后删除`g_r40_app_led_test`和重复的`g_r40_app_snapshot`；
+入口精简后删除`g_at32_app_led_test`和重复的`g_at32_app_snapshot`；
 LED由正常APP指示驱动，状态/身份/电流/角度改用既有CAN读取和2kHz RTT查看。
 采样失败、快环超过50us、主循环检测进展丢失或功率输出意外开启均立即关断。
 
@@ -557,7 +557,7 @@ ARMCC限时版控制仍未实测，既有ARMClang镜像的速度/时序数据属
 ADC1_IN17内部参考电压；独立台架的默认开关与旧板实现不改。沿用ADC1普通序列、
 DMA1通道3和2kHz监督轮询，不改变相电流抢占序列或公共`BspTemperature_PollMcu`契约。
 
-Keil Watch可添加`g_r40_mcu_temperature_diagnostic`。读取时要求`begin=end`且为非零偶数。
+Keil Watch可添加`g_at32_mcu_temperature_diagnostic`。读取时要求`begin=end`且为非零偶数。
 `raw_ts/raw_vref`为12位单次转换计数；`sequence/sample_count`用于确认新样本持续推进。
 
 | status | 含义 | temperature_c / vdda_mv | protection_valid |
@@ -574,9 +574,9 @@ Keil Watch可添加`g_r40_mcu_temperature_diagnostic`。读取时要求`begin=en
 共享APP继续报告温度失效，不能据此宣称故障17解除。典型估算也不代替MOS或电机温度。
 
 后续在两个已知且均温稳定的工况下，记录参考温度、TS/VINTRV ADC及实测VDDA。
-在板级配置或目标Define中填入`R40_TEMPERATURE_CAL_C`、`R40_TEMPERATURE_CAL_MV`、
-`R40_TEMPERATURE_SLOPE_MV_PER_C`及`R40_INTERNAL_REFERENCE_MV`，验收后再设
-`R40_TEMPERATURE_CALIBRATED=1`；斜率为实测(V2−V1)/(T2−T1)，不能直接照搬
+在板级配置或目标Define中填入`AT32_TEMPERATURE_CAL_C`、`AT32_TEMPERATURE_CAL_MV`、
+`AT32_TEMPERATURE_SLOPE_MV_PER_C`及`AT32_INTERNAL_REFERENCE_MV`，验收后再设
+`AT32_TEMPERATURE_CALIBRATED=1`；斜率为实测(V2−V1)/(T2−T1)，不能直接照搬
 手册公式中带相反符号的Avg_Slope。校准值非法时不回退成典型有效值。
 
 验证顺序：先离线校验禁用/未校准/已校准/坏校准和原保护，再关相实测样本推进、
@@ -585,7 +585,7 @@ Keil Watch可添加`g_r40_mcu_temperature_diagnostic`。读取时要求`begin=en
 
 ### 限时APP：保存恢复与SPI DMA验证
 
-完整APP的Off和限时目标共用`R40_MT6835_DMA_TRANSFER=1`：
+完整APP的Off和限时目标共用`AT32_MT6835_DMA_TRANSFER=1`：
 SPI2以11.25MHz/16位传输，三半字收发由DMA2通道1/2完成，ADC仍使用DMA1通道2/3。
 基础目标默认保留PIO；BSP函数/类型/单位契约不变。
 参数保存由AT32端口内部协调ADC暂停、DMA边界重建和新鲜数据恢复，仍须关相前台调用。
@@ -596,7 +596,7 @@ MT6835片选等待按DWT周期计时，保留至少200ns及迭代上界。
 这只通过当前限时台架流程，并非最坏情况时序证明；WDT重载2047没有恢复默认511，
 后续v26已修正保存后的测速假尖峰，并完成3次电零位保存/复位加载验证；
 动态电流与速度闭环尚未验收。证据与失败边界见
-完整APP计划（历史路径：`../../../docs/plans/active/2026-10-23-r40-app-commissioning-v1.md`）。
+完整APP计划（历史路径：`../../../docs/plans/active/2026-10-23-at32f456-app-commissioning-v1.md`）。
 
 平台归属已收拢：application只保留main和platform_app；原ports并入bsp；
 母线电流测量归共享drivers/measurement，2kHz只读RTT归communication/telemetry。

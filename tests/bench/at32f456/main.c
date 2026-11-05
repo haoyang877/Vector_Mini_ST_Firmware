@@ -10,7 +10,7 @@
 #include "bsp_pwm.h"
 #include "bsp_can.h"
 #include "../../../firmware/platform/bsp/bsp_internal.h"
-#include "r40_bench.h"
+#include "at32f456_bench.h"
 #include <math.h>
 
 /* 仅用于底层启动/链接验收的独立镜像，未连接APP或电机控制。

@@ -4,7 +4,7 @@
 
 状态：按main实现、协议冻结、Keil直下及前128 KiB约束完成代码侧重新评审；等待用户执行指令。
 尚未实施本方案、生成新固件或操作硬件。
-用户已确认范围：双板共用升级核心，补齐 YG_ESC_V1.0 / AT32F456CCU7 Loader，并保留 G431。
+用户已确认范围：双板共用升级核心，补齐 AT32F456（AT32F456CCU7） Loader，并保留 G431。
 本次范围确认不包含执行指令。方案评审是调用链、布局和失败路径审查，不表示新目标已通过测试。
 本轮新增内容为 main 功能承接、完整保护区证据、Keil直下、受控初装和维护工具；不改变线上协议。
 用户新增容量约束：两板全部运行分区位于Flash前128 KiB，预算冻结为16 + 96 + 16 KiB。
@@ -79,10 +79,10 @@ main 的 2026-10-14 冻结候选完成单板100次完整升级、0失败、0报�
 | --- | --- | --- |
 | 只有一个正式目标 G431 | `shared/targets/vector_mini_st_g431.json` | 新增独立 AT32 目标，不覆盖默认目标 |
 | AT32 BootHw 全部是不可用占位 | `firmware/platform/bsp/mcu/at32f456/boot.c` | 配套LoaderApp启用真实交接；不可用分支仍供离线/专用测试 |
-| AT32身份/布局编号为零 | `shared/targets/r40_f456_bringup.h` | 配套APP使用新目标头，旧bringup头不进入日常下载产物 |
+| AT32身份/布局编号为零 | `shared/targets/at32f456_bringup.h` | 配套APP使用新目标头，旧bringup头不进入日常下载产物 |
 | 公共内核和目标校验均限制 APP 不超过128 KiB | `shared/image/image_transfer.c`、`shared/targets/target_contract.py` | APP只分配96 KiB，保留现有上限，不再扩容公共内核 |
 | AT32参数从 `0x0803C000` 开始，当前记录2288B | `firmware/config/board_config.h`、AT32 `flash.c` | 首次迁移完整16 KiB到0x0801C000；字节、schema与ABI保持 |
-| 普通 APP 把快环代码装入 SRAM | `projects/at32f456/application/r40_app.sct` | 配套 APP 必须保留此布局 |
+| 普通 APP 把快环代码装入 SRAM | `projects/at32f456/application/at32f456_app.sct` | 配套 APP 必须保留此布局 |
 
 ## 评审结论与必须修正的问题
 

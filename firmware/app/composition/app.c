@@ -13,7 +13,7 @@
 
 #include "application_config.h"
 #if defined(APP_TARGET_AT32_F456) && APP_TARGET_AT32_F456
-#include "r40_f456_bringup.h"
+#include "at32f456_bringup.h"
 #else
 #include "vector_mini_st_g431.h"
 #endif
@@ -105,6 +105,7 @@ void App_Start(void)
  */
 void App_Process(void)
 {
+    MotorAxis_ProcessPositionPlan();
     MotorAxis_ProcessCalibrationPublication();
     AppProtocol_Refresh();
     Protocol_Process(BspSystem_TimeMs());
@@ -124,7 +125,7 @@ void BspApp_OnFastSample(void)
 }
 
 /**
- * @brief 执行一次2 kHz电机监督任务，完成后递增监督进展计数。
+ * @brief 执行一次电机监督任务，完成后递增监督进展计数。
  * @note 由监督定时器中断调用；与快环计数一起供前台判断任务是否持续推进。
  */
 void App_SupervisorTick(void)
@@ -270,7 +271,7 @@ static BootEntryRequest s_entry_request;
 static BootEntryResult s_entry_result;
 static uint32_t s_entry_started_ms;
 static uint32_t s_health_checked_ms;
-static uint32_t s_observed_supervisor_epoch;
+static uint32_t s_observed_supervisor_ticks;
 /* requested表示事务已登记，包括拒绝/失败终态；终态不能因同一请求重试而恢复。 */
 static bool s_entry_requested;
 static bool s_boot_supported;
@@ -287,10 +288,10 @@ static uint8_t s_healthy_intervals;
 static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
 {
     (void)context;
-    uint32_t supervisor_epoch;
+    uint32_t supervisor_ticks;
     bool confirmed = s_boot_supported && !s_entry_requested &&
                      s_healthy_intervals >= BOOT_REQUIRED_HEALTHY_INTERVALS &&
-                     MotorLifecycle_ReadBootHealth(&supervisor_epoch) && s_communication_ready &&
+                     MotorLifecycle_ReadBootHealth(&supervisor_ticks) && s_communication_ready &&
                      Protocol_IsReady() && BspPwm_ArePhasesDisabled() &&
                      BootHw_Confirm(version, crc32);
     publish_identity();
@@ -423,7 +424,7 @@ const BootEntryService Protocol_Boot = {0};
 /**
  * @brief 推进Loader停机事务，并按100 ms间隔检查应用健康以维护继承看门狗。
  * @param now_ms 通信服务执行之后读取的当前毫秒计数，允许32位自然回绕。
- * @note 前台调用；健康要求监督代际有进展、生命周期输入有效且通信就绪。
+ * @note 前台调用；健康要求监督拍数有进展、生命周期输入有效且通信就绪。
  *       连续11次健康才满足镜像确认门槛，任一次失败清零；独立APP编译为空操作。
  */
 static void service_boot(uint32_t now_ms)
@@ -434,12 +435,12 @@ static void service_boot(uint32_t now_ms)
     {
         return;
     }
-    uint32_t supervisor_epoch = 0U;
+    uint32_t supervisor_ticks = 0U;
     s_health_checked_ms = now_ms;
-    bool healthy = MotorLifecycle_ReadBootHealth(&supervisor_epoch);
-    healthy = healthy && supervisor_epoch != s_observed_supervisor_epoch && s_communication_ready &&
+    bool healthy = MotorLifecycle_ReadBootHealth(&supervisor_ticks);
+    healthy = healthy && supervisor_ticks != s_observed_supervisor_ticks && s_communication_ready &&
               Protocol_IsReady();
-    s_observed_supervisor_epoch = supervisor_epoch;
+    s_observed_supervisor_ticks = supervisor_ticks;
     if (!healthy)
     {
         s_healthy_intervals = 0U;

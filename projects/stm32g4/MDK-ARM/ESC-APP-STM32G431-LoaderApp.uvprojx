@@ -1465,6 +1465,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>position_otg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\control\position_otg.c</FilePath>
+            </File>
+            <File>
               <FileName>encoder_calibration.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\calibration\encoder_calibration.c</FilePath>

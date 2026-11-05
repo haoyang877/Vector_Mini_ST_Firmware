@@ -16,7 +16,7 @@
 两板main依次调用Bsp_Init、App_Init、Bsp_Start、App_Start，前台循环调用App_Process。
 AT32在main的ADC入口确认完成后直接执行轴快环和健康计数；STM32保留HAL完成回调。
 两板共享g_app_fast_samples供前台看门狗观察，监督回调进入App_SupervisorTick。
-20kHz快环先完成采样，再执行当前控制或标定；2kHz监督完成状态检查、外环和安全提交。
+20kHz快环先完成采样，再执行当前控制或标定；2 kHz 监督拍执行状态检查。AT32F456/YQ-5708 每五个有效 ADC 快拍派发一次 4 kHz 外环，其他配置在监督拍执行外环。
 前台依次处理标定候选发布、状态刷新、通信、Loader交接和健康监督。
 
 三类标定通过通信160的kind 1、2、6进入生命周期，完成后关相回空闲；

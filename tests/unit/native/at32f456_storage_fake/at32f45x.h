@@ -1,7 +1,7 @@
 #ifndef AT32_STORAGE_FAKE_H
 #define AT32_STORAGE_FAKE_H
 
-#include "../r40_fake/at32f45x.h"
+#include "../at32f456_fake/at32f45x.h"
 #define __IO volatile
 #undef FLASH_WAIT_CYCLE_5
 typedef enum

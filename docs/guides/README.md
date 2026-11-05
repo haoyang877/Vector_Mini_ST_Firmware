@@ -10,7 +10,7 @@
 | 单项LUT/零位与真实保存 | [标定流程](calibration_process.md) |
 | 当前运行层标定入口与完成事件 | [标定请求接口](motor_calibration_request.md) |
 | 已删除的台架功能及历史记录 | [MotorBench 退役说明](unified_motor_bench.md) |
-| 直接位置串级 | [位置控制](position_servo_control.md) |
+| S 曲线位置规划与串级 | [位置控制](position_servo_control.md) |
 | AXS1/AXS2身份及应用包络 | [轴配置](motor_axis_profiles.md) |
 | AT32F456 五节点启动装载 | [五轴配置与工装](at32f456_five_axes.md) |
 | 独立CAN地址 | [节点ID](motor_can_node_ids.md) |

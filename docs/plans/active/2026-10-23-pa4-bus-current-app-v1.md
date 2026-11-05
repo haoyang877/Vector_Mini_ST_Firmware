@@ -19,7 +19,7 @@
 - `app/composition/app_bus_current.h`是APP内部装配扩展，不是BSP接口。
   旧板内联空操作，保留原电流及全部有效位，不链接AT32代码。
 - AT32独立APP装配`application/bus_current_feedback.c`，通过原有
-  `R40_AdcReadAux`读取PA4；新板TMR6每个2kHz监督拍处理上一帧已完成的DMA结果。
+  `AT32_AdcReadAux`读取PA4；新板TMR6每个2kHz监督拍处理上一帧已完成的DMA结果。
   不改变20kHz控制路径、ADC序列、DMA实现或CAN的1M/5M时序。
 - 仅`yg_protocol_status_adapter.c`在已有状态快照后调用装配；协议编码器不变。
 - 有硬件而读数无效时清除APP测量位0x40，写NAN；既有编码器发送
@@ -28,7 +28,7 @@
 ## 偏置与换算
 
 每次启动记录独立PA4偏置，不复用三相偏置、不使用固定2048、不写Flash。
-`g_r40_bus_current_diagnostic`供Keil只读观察：
+`g_at32_bus_current_diagnostic`供Keil只读观察：
 
 | 字段 | 含义 |
 | --- | --- |

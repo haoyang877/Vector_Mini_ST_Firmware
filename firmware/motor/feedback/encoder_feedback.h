@@ -21,7 +21,7 @@
  * mechanical_velocity_continuous_rad_s 不受影响）。电角速度供换相预测使用。
  * 配置 ENCODER_SPEED_PLL_HZ 的机型用同一线性化角并行估算速度 PI 的反馈。 */
 
-/** 编码器运行状态：20 kHz 采样/速度与 2 kHz 位置；不拥有持久化校准。 */
+/** 编码器运行状态：20 kHz 采样/速度与外环位置；不拥有持久化校准。 */
 typedef struct
 {
     /* 初始化时借用反馈配置；参数所有者原位更新，所有对象须持续有效。 */
@@ -40,7 +40,7 @@ typedef struct
     /* 快路径每产生一帧有效样本递增；慢估计据此判断是否有新样本。 */
     volatile uint32_t sample_epoch;
 
-    /* 2 kHz 慢估计为下列位置的唯一写者；快路径只置请求标志。 */
+    /* 慢估计为下列位置的唯一写者；快路径只置请求标志。 */
     uint16_t previous_linearized_q15;
     int64_t shadow_q15;
     int64_t mechanical_zero_shadow_q15;
@@ -89,9 +89,9 @@ void Encoder_InitFeedback(EncoderCalibration *calibration,
 void Encoder_Update(EncoderState *encoder);
 
 /**
- * @brief 执行一次 2 kHz 编码器慢估计：多圈累积与机械角。
+ * @brief 执行一次 编码器慢估计：多圈累积与机械角。
  * @param encoder 编码器状态指针。
- * @note 仅由 2 kHz 监督 tick 调用；本函数是慢位置状态的唯一写者，快路径只能通过
+ * @note 仅由外环执行上下文调用；本函数是慢位置状态的唯一写者，快路径只能通过
  *       rebase_requested/zero_requested 请求变更。角速度不在此计算，见快路径 PLL。
  *       须先通过 Encoder_InitFeedback 绑定配置；重定基准时读取最新轴记录与机械零位。
  */

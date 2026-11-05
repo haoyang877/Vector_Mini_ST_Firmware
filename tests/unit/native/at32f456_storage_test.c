@@ -9,7 +9,7 @@
 
 static const uint8_t *flash_memory(uint32_t address);
 static void flash_store_word(uint32_t address, uint32_t value);
-#include "r40_storage_production.inc"
+#include "at32f456_storage_production.inc"
 static bool param_store_write(const void *data, uint32_t length)
 {
     return BspFlash_Write(data, length) == BSP_OK;

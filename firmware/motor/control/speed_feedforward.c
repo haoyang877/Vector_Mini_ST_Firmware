@@ -1,4 +1,4 @@
-/* 冻结 5665ff87 的纯整形核心；状态由 2 kHz 外环独占，无硬件访问。 */
+/* 冻结 5665ff87 的纯整形核心；状态由 外环独占，无硬件访问。 */
 #include "speed_feedforward.h"
 
 #include <math.h>

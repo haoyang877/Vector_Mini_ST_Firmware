@@ -10,7 +10,7 @@
 
 ## 基线、验收、回退
 
-当前工作树源码、工程及测试快照为 `outputs/state_irq_simplification_v2/baseline_source/`；原生规则262144组合与状态所有者、R40变体基线见 `outputs/state_irq_simplification_v2/baseline/`。针对每项改动验证访问上下文与被保护不变量，补充必要的嵌套屏蔽/抢占反例，比较原生状态、故障与功率轨迹。运行格式、lint、PR验证及两板快照构建；评估资源和时序影响，未授权实机时记录未测。仅回退本轮代码，保留已有未提交修改和忽略数据。
+当前工作树源码、工程及测试快照为 `outputs/state_irq_simplification_v2/baseline_source/`；原生规则262144组合与状态所有者、AT32F456变体基线见 `outputs/state_irq_simplification_v2/baseline/`。针对每项改动验证访问上下文与被保护不变量，补充必要的嵌套屏蔽/抢占反例，比较原生状态、故障与功率轨迹。运行格式、lint、PR验证及两板快照构建；评估资源和时序影响，未授权实机时记录未测。仅回退本轮代码，保留已有未提交修改和忽略数据。
 
 ## 审核记录
 

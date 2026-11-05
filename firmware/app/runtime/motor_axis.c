@@ -28,7 +28,7 @@ SensorlessStartupState s_sensorless_startup;
 FocState s_foc_state;
 CurrentOffsetCalibration s_current_offset_calibration;
 
-const MotorAxisFeedback MotorAxis_Feedback = {&s_foc_state, &s_rotor_encoder};
+const MotorAxisFeedback MotorAxis_Feedback = {&s_foc_state, &s_rotor_encoder, &s_motor_state};
 
 /* 编码器线性化独占的6144字节静态工作区；发布或取消前不复用。 */
 static EncoderCalibrationWorkspace s_encoder_linearization_workspace;
@@ -119,9 +119,23 @@ void MotorAxis_Init(void)
 
 void MotorAxis_SupervisorTick(void)
 {
-    Encoder_UpdateSlowEstimate(&s_rotor_encoder);
     McuTemperature_Update(&s_foc_state, &s_motor_state);
     MotorLifecycle_SupervisorTick();
+#if OUTER_LOOP_DIVIDER == SUPERVISOR_DIVIDER
+    MotorAxis_OuterTick();
+#endif
+}
+
+void MotorAxis_OuterTick(void)
+{
+    Encoder_UpdateSlowEstimate(&s_rotor_encoder);
+    MotorLifecycle_OuterTick();
+}
+
+void MotorAxis_OuterOverrun(void)
+{
+    MotorFault_Report(&s_motor_state, MOTOR_FAULT_CONTROL_OVERRUN);
+    BspPwm_Disable();
 }
 
 void MotorAxis_SampleFast(void)
@@ -144,9 +158,10 @@ void MotorAxis_SampleFast(void)
 
     Clarke_Transform(&s_foc_state.phase_current_a, &s_foc_state.current_ab_a);
 
-    /* 位置模式跳过观测器，随后完成编码器角度更新。 */
+    /* 编码器闭环使用实测角；标定及无感控制仍更新磁链观测器。 */
     if (s_current_offset_calibration.complete &&
-        s_motor_state.control_mode != MOTOR_CONTROL_POSITION)
+        s_motor_state.control_mode != MOTOR_CONTROL_POSITION &&
+        s_motor_state.control_mode != MOTOR_CONTROL_SPEED)
     {
         float modulation_to_voltage_v = s_foc_state.bus_voltage_filtered_v / 1.5f;
         const AlphaBetaVector voltage_ab_v = {s_foc_state.mod_ab.alpha * modulation_to_voltage_v,
@@ -191,6 +206,21 @@ void MotorAxis_ControlFast(void)
 
     /* 所有分支统一发布，再关断本拍新产生的故障。 */
     MotorLifecycle_PostOutcome(outcome, work_epoch);
+}
+
+void MotorAxis_ProcessPositionPlan(void)
+{
+    static MotorPositionPlan work;
+    uint32_t mask = BspSystem_EnterControlCritical();
+    bool pending = MotorOuterLoop_TakePositionPlan(&work);
+    BspSystem_ExitControlCritical(mask);
+    if (pending)
+    {
+        bool valid = MotorOuterLoop_BuildPositionPlan(&work);
+        mask = BspSystem_EnterControlCritical();
+        MotorOuterLoop_PublishPositionPlan(&work, valid);
+        BspSystem_ExitControlCritical(mask);
+    }
 }
 
 void MotorAxis_ProcessCalibrationPublication(void)

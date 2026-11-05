@@ -1,4 +1,4 @@
-"""编译真实R40端口并通过SDK替身检查启动、关相和故障；不连接硬件。"""
+"""编译真实AT32F456端口并通过SDK替身检查启动、关相和故障；不连接硬件。"""
 
 import sys as _sys
 from pathlib import Path as _Path
@@ -66,7 +66,7 @@ def main() -> int:
         )
         if "VECTOR live_current_feedback " + expected not in result.stdout.splitlines():
             raise RuntimeError("实时反馈黄金向量不匹配")
-    executable = args.out.resolve() / "r40_foundation.exe"
+    executable = args.out.resolve() / "at32f456_foundation.exe"
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += [
         "-DBSP_BOARD=2",
@@ -80,7 +80,7 @@ def main() -> int:
         "-Werror",
     ]
     for include in (
-        native / "r40_fake",
+        native / "at32f456_fake",
         base,
         ROOT / "firmware/platform/bsp/include",
         ROOT / "firmware/config",
@@ -92,7 +92,7 @@ def main() -> int:
     sources = [
         base / "pwm.c",
         base / "system.c",
-        native / "r40_foundation_test.c",
+        native / "at32f456_foundation_test.c",
     ]
     subprocess.run(command + [str(p) for p in sources] + ["-o", str(executable)], check=True)
     subprocess.run([str(executable)], check=True)
@@ -106,7 +106,7 @@ def main() -> int:
         ("2.0", 10000, "3.0", "20.0"),
     ):
         openloop_executable = (
-            args.out.resolve() / f"r40_openloop_{voltage}_{duration}_{current}_{frequency}.exe"
+            args.out.resolve() / f"at32f456_openloop_{voltage}_{duration}_{current}_{frequency}.exe"
         )
         subprocess.run(
             command[: command.index("-I")]
@@ -117,7 +117,7 @@ def main() -> int:
                 f"-DAT32_OL_ELECTRICAL_HZ={frequency}f",
                 str(ROOT / "tests/bench/at32f456/openloop_model.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
-                str(native / "r40_openloop_test.c"),
+                str(native / "at32f456_openloop_test.c"),
                 "-lm",
                 "-o",
                 str(openloop_executable),
@@ -125,7 +125,7 @@ def main() -> int:
             check=True,
         )
         subprocess.run([str(openloop_executable)], check=True)
-    closedloop_executable = args.out.resolve() / "r40_closedloop.exe"
+    closedloop_executable = args.out.resolve() / "at32f456_closedloop.exe"
     motor = ROOT / "firmware/motor"
     subprocess.run(
         command[: command.index("-I")]
@@ -150,14 +150,14 @@ def main() -> int:
                 motor / "control/speed_feedforward.c",
                 motor / "feedback/encoder_feedback.c",
                 motor / "protection/motor_thermal.c",
-                native / "r40_closedloop_test.c",
+                native / "at32f456_closedloop_test.c",
             )
         ]
         + ["-lm", "-o", str(closedloop_executable)],
         check=True,
     )
     subprocess.run([str(closedloop_executable)], check=True)
-    keil_executable = args.out.resolve() / "r40_keil_control.exe"
+    keil_executable = args.out.resolve() / "at32f456_keil_control.exe"
     subprocess.run(
         command[: command.index("-I")]
         + [
@@ -170,7 +170,7 @@ def main() -> int:
             str(ROOT / "tests/bench/at32f456/openloop_keil_control.c"),
             str(ROOT / "tests/bench/at32f456/openloop_model.c"),
             str(motor / "math/control_math.c"),
-            str(native / "r40_keil_control_test.c"),
+            str(native / "at32f456_keil_control_test.c"),
             "-lm",
             "-o",
             str(keil_executable),
@@ -178,7 +178,7 @@ def main() -> int:
         check=True,
     )
     subprocess.run([str(keil_executable)], check=True)
-    rtt_executable = args.out.resolve() / "r40_rtt.exe"
+    rtt_executable = args.out.resolve() / "at32f456_rtt.exe"
     subprocess.run(
         command[: command.index("-I")]
         + [
@@ -196,7 +196,7 @@ def main() -> int:
             str(ROOT / "firmware/platform/bsp"),
             str(ROOT / "tests/bench/at32f456/openloop_telemetry.c"),
             str(ROOT / "firmware/third_party/segger_rtt/SEGGER_RTT.c"),
-            str(native / "r40_rtt_test.c"),
+            str(native / "at32f456_rtt_test.c"),
             "-lm",
             "-o",
             str(rtt_executable),

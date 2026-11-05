@@ -294,6 +294,10 @@ def main() -> None:
             "firmware/motor/control/pi_controller.c",
         ],
     )
+    build(
+        "position_otg_test",
+        ["tests/unit/position_otg_test.c", "firmware/motor/control/position_otg.c"],
+    )
     for name, fixture in (
         ("application_entry_stm32_test", application_entry_fixture("stm32g4")),
         ("application_entry_at32_test", application_entry_fixture("at32f456")),

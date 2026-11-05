@@ -16,8 +16,20 @@ def main(case: str) -> None:
     parser.add_argument("--cc", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--reference-root", type=Path, default=ROOT)
+    parser.add_argument("--board", type=int, choices=(1, 2))
     args = parser.parse_args()
-    output = args.out.resolve()
+    boards = (
+        [args.board]
+        if args.board is not None
+        else ([1, 2] if case in ("configuration", "validation", "runtime") else [1])
+    )
+    for board in boards:
+        run_case(case, args, board)
+
+
+def run_case(case: str, args: argparse.Namespace, board: int) -> None:
+    """运行一块板的夹具，输出按配置隔离。"""
+    output = args.out.resolve() / f"board_{board}"
     output.mkdir(parents=True, exist_ok=True)
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
     executable = output / f"core_outer_{case}.exe"
@@ -63,10 +75,11 @@ def main(case: str) -> None:
             "-Wall",
             "-Wextra",
             "-Werror",
-            "-DBSP_BOARD=1",
-            "-DCURRENT_SENSE_SHUNT_MILLIOHM=6U",
+            f"-DBSP_BOARD={board}",
+            *(["-DCURRENT_SENSE_SHUNT_MILLIOHM=6U"] if board == 1 else []),
             str(fixture),
             str(ROOT / "firmware/motor/control/motor_control.c"),
+            str(ROOT / "firmware/motor/control/position_otg.c"),
             str(ROOT / "firmware/motor/control/speed_control.c"),
             str(ROOT / "firmware/motor/control/speed_feedforward.c"),
             str(ROOT / "firmware/motor/control/pi_controller.c"),

@@ -181,6 +181,7 @@ static void tick(void)
     MotorLifecycle_PostOutcome((MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
                                MotorLifecycle_WorkEpoch());
     MotorLifecycle_SupervisorTick();
+    MotorLifecycle_OuterTick();
     MotorLifecycle_BeginFastTick();
     assert(critical_depth == 0U);
 }

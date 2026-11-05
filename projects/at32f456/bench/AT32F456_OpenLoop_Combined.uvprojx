@@ -4,7 +4,7 @@
   <Header>### uVision Project, (C) Keil Software</Header>
   <Targets>
     <Target>
-      <TargetName>R40_F456_OpenLoop_Power</TargetName>
+      <TargetName>AT32F456_OpenLoop_Combined</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
       <pCCUsed>6220000::V6.22::ARMCLANG</pCCUsed>
@@ -44,14 +44,14 @@
             <NotGenerated>0</NotGenerated>
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
-          <OutputDirectory>..\..\..\outputs\build\at32_openloop_power\</OutputDirectory>
-          <OutputName>R40_F456_OpenLoop_Power</OutputName>
+          <OutputDirectory>..\..\..\outputs\build\at32_openloop_combined\</OutputDirectory>
+          <OutputName>AT32F456_OpenLoop_Combined</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
           <CreateHexFile>1</CreateHexFile>
           <DebugInformation>1</DebugInformation>
           <BrowseInformation>1</BrowseInformation>
-          <ListingPath>..\..\..\outputs\build\at32_openloop_power\</ListingPath>
+          <ListingPath>..\..\..\outputs\build\at32_openloop_combined\</ListingPath>
           <HexFormatSelection>1</HexFormatSelection>
           <Merge32K>0</Merge32K>
           <CreateBatchFile>0</CreateBatchFile>
@@ -332,10 +332,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH</MiscControls>
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=1,BSP_BOARD=2U</Define>
+              <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH </MiscControls>
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=1,AT32_OPENLOOP_CAPTURE=1,AT32_KEIL_OPENLOOP=1,AT32_OL_ELECTRICAL_HZ=20.0f,AT32_OL_VOLTAGE_V=2.0f,AT32_OL_DURATION_MS=10000U,AT32_OL_CURRENT_LIMIT_A=3.0f,BSP_BOARD=2U</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\platform\bsp</IncludePath>
+              <IncludePath>..\..\..\tests\bench\at32f456;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -366,7 +366,7 @@
             <TextAddressRange>0x08000000</TextAddressRange>
             <DataAddressRange>0x20000000</DataAddressRange>
             <pXoBase />
-            <ScatterFile>r40_foundation.sct</ScatterFile>
+            <ScatterFile>at32f456_foundation.sct</ScatterFile>
             <IncludeLibs />
             <IncludeLibsPath />
             <Misc />
@@ -383,6 +383,21 @@
               <FileName>openloop_main.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\tests\bench\at32f456\openloop_main.c</FilePath>
+            </File>
+            <File>
+              <FileName>openloop_keil_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\tests\bench\at32f456\openloop_keil_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>openloop_telemetry.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\tests\bench\at32f456\openloop_telemetry.c</FilePath>
+            </File>
+            <File>
+              <FileName>SEGGER_RTT.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\third_party\segger_rtt\SEGGER_RTT.c</FilePath>
             </File>
             <File>
               <FileName>openloop_model.c</FileName>
@@ -504,6 +519,11 @@
       </Groups>
     </Target>
   </Targets>
+  <RTE>
+    <apis />
+    <components />
+    <files />
+  </RTE>
   <LayerInfo>
     <Layers>
       <Layer>

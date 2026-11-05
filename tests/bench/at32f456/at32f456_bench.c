@@ -1,5 +1,5 @@
 #include "bsp_adc.h"
-#include "r40_bench.h"
+#include "at32f456_bench.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -12,6 +12,9 @@
 #include "bsp_pwm.h"
 #include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "board_config.h"
+
+/* 已发布的台架诊断字节，前四字节同时用于请求匹配。 */
+static const uint8_t s_diagnostic_payload[8] = {0x52, 0x34, 0x30, 0x42, 0x54, 0x58, 0x21, 0x21};
 
 /* 命令结果：0空闲、1执行中、2通过、3失败、4拒绝；存储测试只接受原本全FF的两扇区。
  * 所有对象均归此验证模块所有；不把这些诊断命令接入产品CAN协议。 */
@@ -166,7 +169,7 @@ bool AT32_BenchPoll(void)
                              .extended = true,
                              .fd = true,
                              .bitrate_switch = true};
-        memcpy(frame.data, "R40BTX!!", 8U);
+        memcpy(frame.data, s_diagnostic_payload, sizeof(s_diagnostic_payload));
         s_tx_pending = BspCan_TrySend(&frame);
         /* 这里只确认入队，实际发送结果仍由tx_ok/tx_failed记录。 */
         g_at32_bench.result = s_tx_pending ? 2U : 3U;
@@ -182,7 +185,7 @@ bool AT32_BenchPoll(void)
 void AT32_BenchCanReceive(const BspCanFrame *frame)
 {
     if (frame == NULL || frame->identifier != AT32_BENCH_CAN_REQUEST || frame->length < 8U ||
-        memcmp(frame->data, "R40B", 4U) != 0 || !outputs_disabled())
+        memcmp(frame->data, s_diagnostic_payload, 4U) != 0 || !outputs_disabled())
     {
         return;
     }

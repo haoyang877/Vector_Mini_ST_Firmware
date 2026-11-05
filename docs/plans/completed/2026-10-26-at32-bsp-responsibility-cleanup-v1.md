@@ -27,7 +27,7 @@
 - AT32 ADC四个文件收回一个adc.c，状态仅文件内可见；删除配置/存储跨文件状态参数和转发。
 - system_setup并入system.c；门极GPIO操作归pwm.c，原启动调用顺序保留。
 - MCU温度和NTC换算归temperature.c；已有辅助数据头合并为adc_diagnostics.h。
-- Flash范围并入板配置，不再保留单独的r40_storage_layout.h。
+- Flash范围并入板配置，不再保留单独的at32f456_storage_layout.h。
 - 删除无生产调用者的LED诊断命令、MCU温度调试镜像与典型值回退显示、
   SPI调试计数、ADC存储统计和故障现场测试数组；实际采样错误与保护仍保留。
 - SPI期限、辅助数据发布节拍由配置提供，驱动不再识别相应的APP/Keil测试目标名。

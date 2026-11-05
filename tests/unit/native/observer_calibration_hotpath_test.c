@@ -742,8 +742,30 @@ static void check_braking_cutoff(void)
 
 #include "../encoder_calibration_core_test.c"
 
+static void check_atan2_accuracy(void)
+{
+    /* 标定参考角不能把电角周期近似误差写入编码器补偿表。 */
+    const float scales[] = {1.0e-10f, 1.0f, 1.0e10f};
+    for (unsigned scale = 0U; scale < sizeof(scales) / sizeof(scales[0]); ++scale)
+    {
+        for (unsigned sample = 0U; sample < 4096U; ++sample)
+        {
+            float angle = -_PI + _2PI * (float)sample / 4096.0f;
+            float x = scales[scale] * cosf(angle);
+            float y = scales[scale] * sinf(angle);
+            double error = (double)Math_Atan2(y, x) - atan2((double)y, (double)x);
+            assert(fabs(error) < 2.0e-6);
+        }
+    }
+    assert(isnan(Math_Atan2(NAN, 1.0f)));
+    assert(isnan(Math_Atan2(1.0f, INFINITY)));
+    assert(fabsf(Math_Atan2(0.0f, 0.0f) - _PI / 2.0f) < 2.0e-6f);
+    puts("PASS atan2 calibration reference precision");
+}
+
 int main(void)
 {
+    check_atan2_accuracy();
     assert(check_calibration_core() == 0);
     check_finite();
     check_observer();

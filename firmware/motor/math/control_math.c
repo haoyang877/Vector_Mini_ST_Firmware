@@ -134,30 +134,17 @@ void Math_SinCos(float theta_rad, float *sin_out, float *cos_out)
 
 float Math_Atan2(float y, float x)
 {
-    float abs_y = Math_Abs(y) + 1e-20f; /* 零向量沿用微小偏置，避免除零。 */
-    float angle;
-
-    if (x >= 0)
+    /* 观测器角度同时作为标定参考，周期近似误差会进入编码器补偿表。 */
+    if (!isfinite(x) || !isfinite(y))
     {
-        float r = (x - abs_y) / (x + abs_y);
-        float rsq = r * r;
-        angle = ((0.1963f * rsq) - 0.9817f) * r + (_PI / 4.0f);
+        return NAN;
     }
-    else
+    if (x == 0.0f && y == 0.0f)
     {
-        float r = (x + abs_y) / (abs_y - x);
-        float rsq = r * r;
-        angle = ((0.1963f * rsq) - 0.9817f) * r + (3.0f * _PI / 4.0f);
+        /* 保留既有零向量方向，避免改变观测器起始状态。 */
+        return _PI / 2.0f;
     }
-
-    if (y < 0)
-    {
-        return (-angle);
-    }
-    else
-    {
-        return (angle);
-    }
+    return atan2f(y, x);
 }
 
 float Math_Sqrt(float val)

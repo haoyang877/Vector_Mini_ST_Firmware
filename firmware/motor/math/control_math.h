@@ -57,10 +57,11 @@ float Math_Min(float x, float y);
 void Math_SinCos(float theta_rad, float *sin_out, float *cos_out);
 
 /**
- * @brief  atan2 近似。
+ * @brief 单精度反正切，供观测器及标定参考角使用。
  * @param  y y 分量。
  * @param  x x 分量。
- * @return 角度，单位 rad，范围约 (-pi, pi]。
+ * @return 角度，单位rad，范围[-pi, pi]；非有限输入返回NaN。
+ * @note 零向量沿用pi/2方向；普通有限向量使用标准atan2f精度。
  */
 float Math_Atan2(float y, float x);
 

@@ -1,6 +1,7 @@
 #include "app.h"
-#include "config.h"
+#include "application_config.h"
 #include "motor_axis.h"
+#include "motor_lifecycle.h"
 #include "bsp.h"
 #include "bsp_adc.h"
 #include "bsp_pwm.h"
@@ -35,11 +36,23 @@ void BspApp_OnControlTick(void)
     RTT_Sampling();
 }
 
+/* Watch 只读；两组分别累计编码器和 Hall 有功率输出期间的快环时间。 */
+typedef struct
+{
+    uint32_t samples, peak_cycles, over_budget, long_intervals;
+} CalibrationTiming;
+static volatile CalibrationTiming s_calibration_timing[2];
+
 /** @brief 确认并清除ADC完成事件后直接执行轴快环，完成后推进健康计数。 */
 void MCU_ADC_IRQ_HANDLER(void)
 {
+    uint32_t start = BspSystem_CycleCount();
     if (BspAdc_CompleteFast())
     {
+        MotorCalibrationType kind = MotorLifecycle_GetCalibrationType();
+        bool measuring = (kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
+                          kind == MOTOR_CALIBRATION_LINEAR_HALL) &&
+                         MotorLifecycle_IsCalibrationRunnable();
         MotorAxis_SampleFast();
         MotorAxis_ControlFast();
         ++g_app_fast_samples;
@@ -59,6 +72,24 @@ void MCU_ADC_IRQ_HANDLER(void)
             }
         }
 #endif
+        static uint32_t previous_start;
+        static MotorCalibrationType previous_kind;
+        if (measuring)
+        {
+            volatile CalibrationTiming *timing =
+                &s_calibration_timing[kind == MOTOR_CALIBRATION_LINEAR_HALL];
+            uint32_t cycles = BspSystem_CycleCount() - start;
+            ++timing->samples;
+            if (cycles > timing->peak_cycles)
+            {
+                timing->peak_cycles = cycles;
+            }
+            timing->over_budget += cycles >= APP_FAST_MAX_CYCLES;
+            timing->long_intervals +=
+                previous_kind == kind && start - previous_start > APP_FAST_MAX_CYCLES * 3U / 2U;
+        }
+        previous_start = start;
+        previous_kind = measuring ? kind : MOTOR_CALIBRATION_NONE;
     }
 }
 
@@ -82,6 +113,7 @@ int main(void)
     }
     App_Init();
     RTT_Init();
+    BspSystem_StartCycleCounter();
     if (Bsp_Start() != BSP_OK)
     {
         startup_failed();

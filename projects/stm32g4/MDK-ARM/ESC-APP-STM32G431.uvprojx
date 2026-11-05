@@ -1412,6 +1412,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>linear_hall.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\feedback\linear_hall.c</FilePath>
+            </File>
+            <File>
               <FileName>position_control.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\control\position_control.c</FilePath>

@@ -23,12 +23,12 @@ extern "C"
         BSP_ADC_MOTOR_TEMPERATURE,
         BSP_ADC_MCU_TEMPERATURE,
         BSP_ADC_ANALOG_SUPPLY_VOLTAGE,
-        BSP_ADC_OUTPUT_SIN,
-        BSP_ADC_OUTPUT_COS
+        BSP_ADC_LINEAR_HALL_SIN,
+        BSP_ADC_LINEAR_HALL_COS
     } BspAdcChannel;
 
     /**
-     * @brief 确认AT32主ADC与启用的母线电流ADC均已完成，并清除完成位。
+     * @brief 确认AT32两组快采样均已完成，并清除完成位。
      * @return 两路所需采样都完成时返回true；无主事件或辅ADC未完成时返回false。
      * @note 仅AT32 ADC中断及独立台架调用。辅ADC未完成时仍清除主事件，不执行快环。
      */
@@ -44,8 +44,8 @@ extern "C"
     /**
      * @brief 直接读取通道原码。
      * @param channel 板上模拟信号；供电电压通道返回内部VREF原码。
-     * @return sin/cos为原始12位辅助ADC码；其他通道为等效12位计数，保留四次累加的小数；未启用的通道返回NAN。
-     * @note 直接读寄存器或DMA已完成的半缓冲；不返回状态，不缓存或等待。
+     * @return sin/cos和电机NTC为原始12位ADC码；其他通道为等效12位计数，保留四次累加的小数；未启用的通道返回NAN。
+     * @note 直接读ADC结果寄存器；不返回状态，不缓存或等待。
      *       多次读取不保证同拍，也不判断是否已有首帧。
      */
     float BspAdc_ReadRawChannel(BspAdcChannel channel);

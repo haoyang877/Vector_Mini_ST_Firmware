@@ -28,6 +28,8 @@ typedef enum
     MOTOR_FAULT_TEMPERATURE_SENSOR,
     MOTOR_FAULT_SELF_TEST_TIMEOUT,
     MOTOR_FAULT_WINDING_THERMAL,
+    MOTOR_FAULT_LINEAR_HALL_CALIBRATION,
+    MOTOR_FAULT_CALIBRATION_STORAGE,
 } MotorFaultCode;
 
 /** @brief 单轴易失运行状态；不包含配置或配置指针，目标、故障和测量永不持久化。 */

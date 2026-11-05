@@ -43,24 +43,18 @@ def main() -> int:
         command + [str(native / "at32f456_storage_test.c"), "-o", str(executable)], check=True
     )
     subprocess.run([str(executable)], check=True)
-    # 未提供逐板校准时仅暴露原码，不把典型值伪装成温度或供电电压。
     run_c(
         args,
-        "temperature_uncalibrated",
+        "motor_temperature",
         adc_source(2)
         + r"""
 int main(void) {
-    s_temperature_dma[0]=1000; s_temperature_dma[1]=1500;
-    s_temperature_dma[2]=1200; s_temperature_dma[3]=1600;
-    dma_internal.dtcnt=2;
-    assert(BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE)==1000);
-    assert(BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)==1500);
-    dma_internal.dtcnt=4;
-    assert(BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE)==1200);
-    assert(BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)==1600);
-    assert(isnan(BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE)));
-    assert(isnan(BspAdc_ReadChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)));
-    puts("PASS AT32 uncalibrated temperature: completed DMA half and unavailable physical values");
+    adc2.odt=372;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_MOTOR_TEMPERATURE)==372);
+    assert(fabsf(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE)-25.0f)<0.1f);
+    assert(isnan(BspAdc_ReadRawChannel(BSP_ADC_MCU_TEMPERATURE)));
+    assert(isnan(BspAdc_ReadRawChannel(BSP_ADC_ANALOG_SUPPLY_VOLTAGE)));
+    puts("PASS motor NTC, internal ADC channels disabled");
     return 0;
 }
 """,

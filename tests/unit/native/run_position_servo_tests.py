@@ -120,6 +120,7 @@ def application_entry_fixture(platform: str) -> str:
     if platform == "at32f456":
         rtt = r"""
 void RTT_Init(void) { assert(count==2U); }
+void BspSystem_StartCycleCounter(void) { assert(count==2U); }
 """
     return (
         r"""

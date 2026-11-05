@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "motor_config.h"
+#include "linear_hall.h"
 /* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。
  * 字段顺序是已发布ABI，不按参数分类重排：基础配置、标定结果和兼容派生值在此编码，
@@ -70,12 +71,10 @@ typedef struct
     /* Appended in schema v8; legacy cascade outer-loop gains. */
     float cascade_pos_kp;
     float cascade_pos_kd;
-    /* 退役摩擦模型占位：读取忽略，导出清零。 */
-    float friction_coulomb_pos_a;
-    float friction_coulomb_neg_a;
-    float friction_viscous_pos_a_per_rad_s;
-    float friction_viscous_neg_a_per_rad_s;
-    uint32_t friction_model_valid;
+    /* 原摩擦模型保留的20字节；只有带 Hall v1 标记的数据才解释为霍尔系数。 */
+    float hall_sin_off_counts, hall_cos_off_counts;
+    float hall_sin_amp, hall_cos_amp;
+    uint32_t hall_tag_status;
     /* Optional AXS1 extension; legacy schema/calibration offsets are unchanged. */
     MotorAxisProfile axis_profile;
     /* schema14的热模型和速度前馈。 */
@@ -86,6 +85,20 @@ typedef struct
     float speed_feedforward_jerk_rad_s3;
     float speed_feedforward_current_limit_a;
 } InterfaceParam;
+
+/**
+ * @brief 将本轴最近一次 Hall 标定结果加入已导出的记录，并重新计算整条 CRC。
+ * @param param Param_Upload 刚生成的本机记录。
+ * @param hall 已完成标定的霍尔对象，包含当前有效系数及最后一次结果。
+ */
+void Param_StoreLinearHall(InterfaceParam *param, const LinearHall *hall);
+
+/**
+ * @brief 从完成基本记录校验的本机参数中恢复 Hall 系数及最后一次标定结果。
+ * @param param 与已装载节点匹配的有效记录。
+ * @param hall 已初始化的轴对象；旧记录或系数非法时保留初值。
+ */
+void Param_RestoreLinearHall(const InterfaceParam *param, LinearHall *hall);
 
 /**
  * @brief 将编译期默认配置应用到指定对象。

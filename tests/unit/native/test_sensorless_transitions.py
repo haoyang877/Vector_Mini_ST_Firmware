@@ -83,7 +83,7 @@ static const SensorlessStartupConfig test_startup_config = {
     SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
     SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
     SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
-    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S};
+    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S, 0.0f};
 static const SensorlessStartupConfig *cfg=&test_startup_config;
 static void setup(void) {
     memset(&configuration,0,sizeof(configuration));
@@ -185,6 +185,14 @@ int main(void) {
         assert(motor.fault_code == MOTOR_FAULT_NONE && startup.state == SENSORLESS_STARTUP_ALIGN);
         assert(observer.gamma == preset->electrical->observer_gamma);
         assert(startup_current_limit(&configuration) == preset->calibration_limit_a);
+        startup.state = SENSORLESS_STARTUP_CLOSED_LOOP;
+        observer.electrical_velocity_rad_s = cfg->target_electrical_velocity_rad_s;
+        for(unsigned i=0;i<SPEED_LOOP_DIVIDER;++i) tick();
+        assert(pi.proportional_gain == (node == 6 ? .012f : configuration.application.speed_kp));
+        assert(pi.integral_gain == configuration.application.speed_ki);
+        configuration.application.speed_kp = .008f;
+        for(unsigned i=0;i<SPEED_LOOP_DIVIDER;++i) tick();
+        assert(pi.proportional_gain == .008f);
         configuration.model.calibration_current_a = 0.01f;
         tick();
         assert(motor.fault_code == MOTOR_FAULT_SENSORLESS);

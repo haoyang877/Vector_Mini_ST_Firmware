@@ -96,8 +96,6 @@ static bool storage_test(uint32_t command)
     BspPwm_Disable();
     tmr_counter_enable(TMR1, FALSE);
     tmr_counter_enable(TMR6, FALSE);
-    dma_channel_enable(DMA1_CHANNEL2, FALSE);
-    dma_channel_enable(DMA1_CHANNEL3, FALSE);
     bool written = (BspFlash_Write(s_pattern, sizeof(s_pattern)) == BSP_OK);
     bool read = written && (BspFlash_Read(s_storage, sizeof(s_storage)) == BSP_OK);
     g_at32_bench.values[0] = written;

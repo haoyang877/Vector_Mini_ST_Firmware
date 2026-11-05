@@ -156,7 +156,8 @@ static bool output_inputs_valid(void)
 static bool calibration_requires_power(MotorCalibrationType calibration_type)
 {
     return calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
-           calibration_type == MOTOR_CALIBRATION_ELECTRICAL_ZERO;
+           calibration_type == MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
+           calibration_type == MOTOR_CALIBRATION_LINEAR_HALL;
 }
 
 static bool calibration_inputs_valid(void)
@@ -186,7 +187,8 @@ static bool calibration_inputs_valid(void)
     }
     return config->configuration_confirmed && state_vbus_in_enable_window() &&
            g_motor_context.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V &&
-           (g_motor_context.calibration_type != MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
+           ((g_motor_context.calibration_type != MOTOR_CALIBRATION_ELECTRICAL_ZERO &&
+             g_motor_context.calibration_type != MOTOR_CALIBRATION_LINEAR_HALL) ||
             (Encoder_GetCalibrationFlag(&g_motor_context.configuration->device.encoder) &
              ENC_CALIB_LINEARIZED) != 0U);
 }
@@ -302,7 +304,9 @@ void MotorLifecycle_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
             {
                 MotorFault_Report(g_motor_context.motor, MOTOR_FAULT_CONTROL_OVERRUN);
             }
-            else if (outcome.result == MOTOR_TASK_FINALIZE)
+            else if (outcome.result == MOTOR_TASK_FINALIZE ||
+                     (BSP_ENABLED_LINEAR_HALL &&
+                      MotorAxisPreset_HasLinearHall(g_motor_context.configuration->preset)))
             {
                 g_motor_context.calibration_publication_pending = true;
             }
@@ -552,6 +556,23 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoc
         return false;
     }
     *calibration_epoch = g_motor_context.epoch;
+    return true;
+}
+
+bool MotorLifecycle_ContinueLinearHall(uint32_t epoch)
+{
+    uint32_t pending;
+    if (!MotorLifecycle_ReadPendingCalibrationPublication(&pending) || epoch != pending ||
+        g_motor_context.starts_locked ||
+        g_motor_context.calibration_type != MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
+        !MotorAxisPreset_HasLinearHall(g_motor_context.configuration->preset))
+    {
+        return false;
+    }
+    g_motor_context.calibration_type = MOTOR_CALIBRATION_LINEAR_HALL;
+    g_motor_context.calibration_publication_pending = false;
+    BspSystem_MemoryBarrier();
+    g_motor_context.power_enable_epoch = epoch;
     return true;
 }
 

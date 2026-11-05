@@ -30,10 +30,10 @@ typedef struct
 typedef struct
 {
     float start_elec_rad;
-    float prev_elec_rad;
-    float elec_travel_rad;
+    int32_t motor_travel_q15;
     float q15_per_elec_rad;
     uint16_t start_q15;
+    uint16_t previous_q15;
     uint32_t ticks;
     uint32_t position_epoch;
 } EncoderCalibrationSamplingState;
@@ -139,17 +139,13 @@ static void sample_lut(EncoderCalibrationWorkspace *workspace,
                        EncoderCalibrationSamplingState *sampling,
                        const EncoderCalibrationSample *sample)
 {
-    float delta_rad = sample->elec_pos_rad - sampling->prev_elec_rad;
     float from_start_rad = sample->elec_pos_rad - sampling->start_elec_rad;
-    /* 每帧推进前次位置，失稳期间的位移不会算入合格行程。 */
-    sampling->prev_elec_rad = sample->elec_pos_rad;
+    /* 行程按真实电机轴的净位移计数；失稳帧不参与构表，但不能因此额外转圈。 */
+    sampling->motor_travel_q15 += delta_q15(sample->directed_q15, sampling->previous_q15);
+    sampling->previous_q15 = sample->directed_q15;
     if (!sample->stable || !(from_start_rad >= 0.0f))
     {
         return;
-    }
-    if (delta_rad > 0.0f)
-    {
-        sampling->elec_travel_rad += delta_rad;
     }
 
     uint16_t bin = sample->directed_q15 >> (16U - ENCODER_OFFSET_LUT_BITS);
@@ -409,11 +405,11 @@ static MotorTaskResult step_measure(const EncoderCalibrationControl *drive)
                 float elec_pos_rad = FluxObserver_GetElecPos(drive->observer);
                 s_lut.stage.sampling = (EncoderCalibrationSamplingState){
                     .start_elec_rad = elec_pos_rad,
-                    .prev_elec_rad = elec_pos_rad,
                     .q15_per_elec_rad =
                         (float)ENCODER_Q15_CPR /
                         (_2PI * (float)drive->configuration->model.motor_pole_pairs),
                     .start_q15 = drive->encoder->directed_q15,
+                    .previous_q15 = drive->encoder->directed_q15,
                     .position_epoch = FluxObserver_GetPositionEpoch(drive->observer),
                 };
                 s_lut.phase = CS_OBS_SAMPLE_CW;
@@ -443,10 +439,20 @@ static MotorTaskResult step_measure(const EncoderCalibrationControl *drive)
             .stable = speed_is_stable(drive),
         };
         sample_lut(s_lut.workspace, sampling, &sample);
-        float target_travel_rad = (float)SENSORLESS_ENCODER_CALIB_MECH_TURNS *
-                                  (_2PI * (float)drive->configuration->model.motor_pole_pairs);
-        if (sampling->elec_travel_rad >= target_travel_rad)
+        if (sampling->motor_travel_q15 < -(int32_t)ENCODER_Q15_CPR)
         {
+            return fail_lut(drive, MOTOR_FAULT_ENCODER);
+        }
+        if (sampling->motor_travel_q15 >=
+            (int32_t)(SENSORLESS_ENCODER_CALIB_MECH_TURNS * ENCODER_Q15_CPR))
+        {
+            /* 整圈处的观测器参考应回到相同电角相位，丢失电周期的参考不能写表。 */
+            float expected_rad = (float)SENSORLESS_ENCODER_CALIB_MECH_TURNS *
+                                 (_2PI * (float)drive->configuration->model.motor_pole_pairs);
+            if (!(Math_Abs(sample.elec_pos_rad - sampling->start_elec_rad - expected_rad) <= _PI))
+            {
+                return fail_lut(drive, MOTOR_FAULT_SENSORLESS);
+            }
             uint32_t position_epoch = sampling->position_epoch;
             s_lut.stage.build = (EncoderCalibrationBuildState){.position_epoch = position_epoch};
             s_lut.phase = CS_OBS_BUILD_LUT;

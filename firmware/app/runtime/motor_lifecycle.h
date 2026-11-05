@@ -94,18 +94,26 @@ MotorCalibrationType MotorLifecycle_GetCalibrationType(void);
 bool MotorLifecycle_IsCalibrationRunnable(void);
 
 /**
- * @brief 读取待发布的编码器线性化候选及原会话代际。
+ * @brief 读取待发布或保存的角度标定会话代际。
  * @param calibration_epoch 返回待发布会话的代际，不可使用后续代际替代。
  * @return 当前候选仍有效且已关相时返回true。
- * @note 前台在同一全中断临界区内读取、发布候选并调用CompleteCalibrationPublication。
+ * @note 前台发布、写 Flash 和完成通知前均复核原代际。
  */
 bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoch);
 
 /**
- * @brief 提交原会话的LUT发布结果，成功后由监督层触发COMPLETE。
+ * @brief 关相发布编码器结果后，在同一会话内转入 Hall 扫圈。
+ * @param epoch 当前标定代际。
+ * @return 已排队在下一快拍重新检查准入并启相时返回 true。
+ * @note 前台持全中断临界区调用。
+ */
+bool MotorLifecycle_ContinueLinearHall(uint32_t epoch);
+
+/**
+ * @brief 提交原会话的发布结果，成功后由监督层触发COMPLETE。
  * @param calibration_epoch ReadPendingCalibrationPublication返回的原代际。
  * @param publication_succeeded 候选是否已经成功发布到活动配置。
- * @note 与候选发布位于同一全中断临界区；过期结果忽略，失败锁存编码器故障。
+ * @note 进入全中断临界区后复核原会话；过期结果忽略，候选发布失败锁存编码器故障。
  */
 void MotorLifecycle_CompleteCalibrationPublication(uint32_t calibration_epoch,
                                                    bool publication_succeeded);

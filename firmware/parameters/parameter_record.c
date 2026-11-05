@@ -25,8 +25,50 @@ uint32_t Param_RecordCrc(const InterfaceParam *param)
     return record_crc(param, sizeof(*param));
 }
 
-typedef char Schema14Layout
-    [(offsetof(InterfaceParam, thermal) == 2240U && sizeof(InterfaceParam) == 2288U) ? 1 : -1];
+typedef char
+    Schema14Layout[(offsetof(InterfaceParam, hall_sin_off_counts) == 2188U &&
+                    offsetof(InterfaceParam, hall_tag_status) == 2204U &&
+                    offsetof(InterfaceParam, thermal) == 2240U && sizeof(InterfaceParam) == 2288U)
+                       ? 1
+                       : -1];
+
+/* 高24位识别 Hall v1，低字节 bit7 成功、bit0..6 为标定故障。旧槽为0/1。 */
+#define PARAM_HALL_V1 0x48410100U
+#define PARAM_HALL_SUCCESS 0x80U
+
+void Param_StoreLinearHall(InterfaceParam *param, const LinearHall *hall)
+{
+    if (!hall->calibration_success && hall->calibration_faults == 0U)
+    {
+        return;
+    }
+    param->hall_sin_off_counts = hall->sin_off_counts;
+    param->hall_cos_off_counts = hall->cos_off_counts;
+    param->hall_sin_amp = hall->sin_amp;
+    param->hall_cos_amp = hall->cos_amp;
+    param->hall_tag_status = PARAM_HALL_V1 | hall->calibration_faults |
+                             (hall->calibration_success ? PARAM_HALL_SUCCESS : 0U);
+    param->record_crc32 = Param_RecordCrc(param);
+}
+
+void Param_RestoreLinearHall(const InterfaceParam *param, LinearHall *hall)
+{
+    uint32_t status = param->hall_tag_status;
+    bool success = (status & PARAM_HALL_SUCCESS) != 0U;
+    uint8_t faults = (uint8_t)(status & 0x7fU);
+    if ((status & 0xffffff00U) != PARAM_HALL_V1 || success != (faults == 0U) ||
+        !LinearHall_CoefficientsInRange(param->hall_sin_off_counts, param->hall_sin_amp) ||
+        !LinearHall_CoefficientsInRange(param->hall_cos_off_counts, param->hall_cos_amp))
+    {
+        return;
+    }
+    hall->sin_off_counts = param->hall_sin_off_counts;
+    hall->cos_off_counts = param->hall_cos_off_counts;
+    hall->sin_amp = param->hall_sin_amp;
+    hall->cos_amp = param->hall_cos_amp;
+    hall->calibration_success = success;
+    hall->calibration_faults = faults;
+}
 
 /* 应用包络来自编译配置；有效轴记录只收窄，通信地址不参与控制限值。 */
 static float application_speed_ceiling_rad_s(const MotorAxisProfile *profile, bool valid)
@@ -246,11 +288,6 @@ void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration
     param->current_sense_shunt_milliohm = CURRENT_SENSE_SHUNT_MILLIOHM;
     param->cascade_pos_kp = configuration->application.cascade_position_kp;
     param->cascade_pos_kd = configuration->application.cascade_position_kd;
-    param->friction_coulomb_pos_a = 0.0f;
-    param->friction_coulomb_neg_a = 0.0f;
-    param->friction_viscous_pos_a_per_rad_s = 0.0f;
-    param->friction_viscous_neg_a_per_rad_s = 0.0f;
-    param->friction_model_valid = 0U;
     param->schema_version = PARAM_SCHEMA_VERSION;
     param->magic_word = MAGIC_WORD;
     param->configuration_flags = configuration->configuration_confirmed ? 1U : 0U;

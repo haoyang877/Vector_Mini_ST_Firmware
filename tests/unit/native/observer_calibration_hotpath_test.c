@@ -153,6 +153,26 @@ static MotorTaskResult step_electrical_zero(MotorConfiguration *configuration,
     return EncoderCalibration_StepElecZero(&control);
 }
 
+static void check_long_sweep_position(void)
+{
+    const MotorModelConfig model = {.motor_flux_wb = 0.015f};
+    const AlphaBetaVector zero = {0};
+    /* 14极对、420电rad/s下连续100电机圈，参考角应保持在单精度表示误差内。 */
+    for (int direction = -1; direction <= 1; direction += 2)
+    {
+        FluxObserverState observer = {0};
+        FluxObserver_Init(&observer);
+        for (unsigned i = 0; i <= 418880U; ++i)
+        {
+            double expected = direction * (double)i * 420.0 / 20000.0;
+            observer.x1_last = model.motor_flux_wb * (float)cos(expected);
+            observer.x2_last = model.motor_flux_wb * (float)sin(expected);
+            FluxObserver_Update(&model, &zero, &zero, &observer);
+            assert(fabs(observer.electrical_position_rad - expected) < 0.002);
+        }
+    }
+}
+
 static void check_finite(void)
 {
     /* 指数、符号和尾数跨全binary32范围；含无穷、正负零及各种NaN。 */
@@ -413,6 +433,9 @@ sample_motion(const CalibrationMotion *motion, FluxObserverState *observer, Enco
     encoder->directed_q15 = motion_angle_q15(mechanical_q15, motion);
 }
 
+/* 模拟每圈8192拍，额外留出启动、构表和停止时间。 */
+#define LUT_FLOW_MAX_TICKS (SENSORLESS_ENCODER_CALIB_MECH_TURNS * 8192U + 200000U)
+
 static void check_lut_flow(const CalibrationMotion *motion)
 {
     MotorConfiguration configuration = {0};
@@ -436,7 +459,7 @@ static void check_lut_flow(const CalibrationMotion *motion)
     uint32_t phases = 0U;
     unsigned ticks = 0U;
     float reference_offset_q15 = 0.0f;
-    while (result.result == MOTOR_TASK_RUNNING && ticks < 200000U)
+    while (result.result == MOTOR_TASK_RUNNING && ticks < LUT_FLOW_MAX_TICKS)
     {
         sample_motion(motion, &observer, &encoder);
         EncoderCalibrationPhase previous_phase = EncoderCalibration_GetPhase();
@@ -462,7 +485,7 @@ static void check_lut_flow(const CalibrationMotion *motion)
         (1U << (CS_OBS_STARTUP - CS_OBS_STARTUP)) | (1U << (CS_OBS_SAMPLE_CW - CS_OBS_STARTUP)) |
         (1U << (CS_OBS_BUILD_LUT - CS_OBS_STARTUP)) | (1U << (CS_OBS_STOP_DECEL - CS_OBS_STARTUP)) |
         (1U << (CS_OBS_STOP_CURRENT - CS_OBS_STARTUP));
-    assert(result.result == MOTOR_TASK_FINALIZE && ticks < 200000U);
+    assert(result.result == MOTOR_TASK_FINALIZE && ticks < LUT_FLOW_MAX_TICKS);
     assert(phases == expected_phases && !EncoderCalibration_IsIdle());
     assert(configuration.device.encoder.calib_flag == 0U);
     assert(EncoderCalibration_PublishLut(&configuration.device.encoder, &encoder));
@@ -588,12 +611,12 @@ static MotorTaskResult step_fixture(CalibrationFixture *fixture)
 static void reach_phase(CalibrationFixture *fixture, EncoderCalibrationPhase target)
 {
     unsigned ticks = 0U;
-    while (EncoderCalibration_GetPhase() != target && ticks++ < 200000U)
+    while (EncoderCalibration_GetPhase() != target && ticks++ < LUT_FLOW_MAX_TICKS)
     {
         MotorTaskResult result = step_fixture(fixture);
         assert(result.result == MOTOR_TASK_RUNNING || EncoderCalibration_GetPhase() == target);
     }
-    assert(EncoderCalibration_GetPhase() == target && ticks < 200000U);
+    assert(EncoderCalibration_GetPhase() == target && ticks < LUT_FLOW_MAX_TICKS);
 }
 
 static void check_cancel(void)
@@ -766,6 +789,7 @@ static void check_atan2_accuracy(void)
 int main(void)
 {
     check_atan2_accuracy();
+    check_long_sweep_position();
     assert(check_calibration_core() == 0);
     check_finite();
     check_observer();

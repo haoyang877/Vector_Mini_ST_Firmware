@@ -279,6 +279,17 @@ void BspWatchdog_Feed(void)
     }
 }
 
+void BspSystem_StartCycleCounter(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t BspSystem_CycleCount(void)
+{
+    return DWT->CYCCNT;
+}
+
 void BspSystem_PendOuterTick(void)
 {
     SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;

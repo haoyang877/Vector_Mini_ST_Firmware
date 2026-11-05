@@ -33,7 +33,7 @@ int main(void)
         assert(configuration.application.speed_ki == (node == 5 ? 1.f : .5f));
         assert(fabsf(configuration.model.iq_kp - (ht ? 12.32761f : .60995855f)) < .0001f);
         assert(fabsf(configuration.model.iq_ki - (ht ? 14363.36f : 3226.22067f)) < .01f);
-        assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : 420));
+        assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : node == 6 ? 336 : 420));
         assert(p->electrical->speed_pll_hz == (ht ? 0 : 600));
         assert(p->electrical->gear_ratio == (ht ? 1 : 8));
         assert(p->electrical->observer_gamma == 800000);

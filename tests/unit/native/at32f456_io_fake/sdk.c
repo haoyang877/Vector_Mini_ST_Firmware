@@ -234,7 +234,9 @@ void adc_preempt_channel_set(adc_type *a,
 {
     assert((a == ADC1 && ch <= ADC_CHANNEL_3 &&
             sample == (ch == ADC_CHANNEL_3 ? ADC_SAMPLETIME_24_5 : ADC_SAMPLETIME_12_5)) ||
-           (a == ADC2 && ch == ADC_CHANNEL_4 && sample == ADC_SAMPLETIME_92_5));
+           (a == ADC2 && ch == ADC_CHANNEL_4 && sample == ADC_SAMPLETIME_92_5) ||
+           (a == ADC2 && (ch == ADC_CHANNEL_5 || ch == ADC_CHANNEL_6) &&
+            sample == ADC_SAMPLETIME_24_5));
     sim_adc[index_of(a)].channels[rank - 1U] = ch;
     sim_adc[index_of(a)].sample_times[rank - 1U] = sample;
 }
@@ -243,9 +245,7 @@ void adc_ordinary_channel_set(adc_type *a,
                               uint8_t rank,
                               adc_sampletime_select_type sample)
 {
-    const bool hall = a == ADC2 && (ch == ADC_CHANNEL_5 || ch == ADC_CHANNEL_6);
-    assert(sample == (hall ? ADC_SAMPLETIME_24_5 : ADC_SAMPLETIME_640_5));
-    assert((a == ADC1 && (ch == 16U || ch == 17U)) || (a == ADC2 && ch >= 4U && ch <= 7U));
+    assert(a == ADC2 && ch == ADC_CHANNEL_7 && sample == ADC_SAMPLETIME_640_5);
     assert(rank >= 1U && rank <= 4U);
     sim_adc[index_of(a)].ordinary_channels[rank - 1U] = ch;
     sim_adc[index_of(a)].ordinary_sample_times[rank - 1U] = sample;
@@ -272,6 +272,10 @@ void adc_ordinary_oversample_trig_enable(adc_type *a, confirm_state enabled)
 void adc_ordinary_oversample_restart_set(adc_type *a, adc_ordinary_oversample_restart_type recovery)
 {
     sim_adc[index_of(a)].ordinary_oversample_recovery = recovery;
+}
+void adc_ordinary_software_trigger_enable(adc_type *a, confirm_state state)
+{
+    a->ctrl2_bit.ocswtrg = state;
 }
 void adc_preempt_conversion_trigger_set(adc_type *a,
                                         adc_preempt_trig_select_type trigger,

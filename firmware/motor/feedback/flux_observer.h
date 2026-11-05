@@ -22,6 +22,7 @@ typedef struct
     float electrical_angle_rad, electrical_velocity_rad_s;
     float previous_electrical_angle_rad, previous_electrical_velocity_rad_s;
     float electrical_position_rad;
+    int32_t electrical_turns; /* 多圈参考由整圈数和当前单圈角组成，避免长扫圈累计舍入。 */
     uint32_t position_epoch;
 } FluxObserverState;
 

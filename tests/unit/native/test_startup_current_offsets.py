@@ -23,6 +23,10 @@ def main() -> None:
     algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
     production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
     production += "static EncoderCalibrationWorkspace s_encoder_linearization_workspace;\n"
+    production += "#if BSP_ENABLED_LINEAR_HALL\nstatic LinearHall s_linear_hall;\n"
+    production += "static LinearHallCalibration s_hall_sweep;\n"
+    production += "static float s_hall_start_rad, s_hall_field_rad; static uint32_t s_hall_ticks;\n"
+    production += function_source(axis, "step_hall") + "\n#endif\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
     production += function_source(sensing, "MotorCurrent_Update")
@@ -45,6 +49,7 @@ def main() -> None:
         "MotorAxis_Init",
         "MotorAxis_SampleFast",
         "MotorAxis_ControlFast",
+        "MotorAxis_OuterTick",
         "MotorAxis_ProcessCalibrationPublication",
     ):
         production += function_source(axis, name)
@@ -78,6 +83,7 @@ def main() -> None:
                 str(source),
                 str(ROOT / "firmware/motor/control/pi_controller.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
+                str(ROOT / "firmware/motor/feedback/linear_hall.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_control.c"),

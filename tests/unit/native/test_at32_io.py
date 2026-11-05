@@ -20,6 +20,7 @@ def main() -> None:
     ]
     command = compiler + [
         "-DBSP_BOARD=2",
+        "-DFIRMWARE_TARGET_AT32_OFF",
         "-std=c11",
         "-O2",
         "-UNDEBUG",

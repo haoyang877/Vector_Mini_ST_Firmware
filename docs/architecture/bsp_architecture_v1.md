@@ -20,7 +20,7 @@ firmware/platform/
 | --- | --- |
 | bsp.h / system.c / main.c / app.c | Bsp_Init、Bsp_Start、静态应用事件、时钟和系统初始化 |
 | bsp_system.h / system.c | 时基与监督中断处理、毫秒时间、短临界区、内存屏障、UID、生产身份和看门狗 |
-| bsp_adc.h / adc.c | ADC 初始化、触发、DMA、中断事件处理、原码读取、零偏及单位换算 |
+| bsp_adc.h / adc.c | ADC 初始化、触发、中断事件处理、原码读取、零偏及单位换算 |
 | bsp_pwm.h / pwm.c | PWM 初始化、占空比到比较值、直接启停和通道查询 |
 | bsp_encoder.h / encoder_spi.c | 编码器初始化、SPI/DMA 传输和单圈原始角度 |
 | bsp_can.h / can.c | 引脚、位时序、DLC 换算、单帧收发、硬件忙/完成和 RX IRQ |
@@ -61,7 +61,7 @@ AT32的系统外设初始化按用户约定默认成功，McuSystem_Init/Start�
 | 相电流/母线电压 | ADC 硬件四次累计 | ADC 硬件四次累计 |
 | 独立母线电流 | 无 | ADC2 单次域 |
 | 电机 NTC / 输出 sin/cos | 无 | 有采样；输出角度未接入控制 |
-| MCU 温度 | 片内校准值换算 | 实板校准尚缺，返回 NaN |
+| MCU 温度 | 片内校准值换算 | 关闭片内温度采样 |
 | 应用看门狗 | 未提供；Loader 继承路径独立 | APP 已提供 |
 | Loader | 独立 APP 和 LoaderApp 选择 | 当前不可用 |
 

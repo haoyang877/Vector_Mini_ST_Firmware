@@ -440,6 +440,11 @@
               <FilePath>..\..\..\firmware\motor\feedback\encoder_feedback.c</FilePath>
             </File>
             <File>
+              <FileName>linear_hall.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\feedback\linear_hall.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_current.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\sensing\motor_current.c</FilePath>

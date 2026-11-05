@@ -9,7 +9,7 @@
 | --- | --- |
 | mcu_resources.h | PWM/TMR、ADC输入与结果、GPIO、SPI、CAN、DMA及IRQ资源映射；登记未启用资源 |
 | system.c | 系统时钟、时基、看门狗、BSP启动顺序及系统IRQ |
-| adc.c | ADC初始化、DMA、原码读取、启停、IRQ及片内校准量换算 |
+| adc.c | ADC初始化、原码读取、启停、中断及单位换算 |
 | pwm.c | PWM初始化、周期读取、比较值写入、启停与通道查询 |
 | encoder_spi.c | GPIO/SPI2/DMA2初始化及收发，直接实现统一Begin/ReadAngle |
 | can.c | CAN初始化、寄存器收发、启动及接收IRQ；初始化声明集中在bsp_internal.h |
@@ -19,16 +19,16 @@
 
 引脚、外设通道与IRQ在本目录mcu_resources.h；比例、时钟数值和Flash范围仍在
 firmware/config/board_config.h，控制周期在firmware/config/config.h。
-ADC硬件读取、启停与IRQ集中在本目录adc.c；读取直接返回float，没有帧状态或采样缓存。
+ADC硬件读取、启停与IRQ集中在本目录adc.c。
 ADC零偏、单位换算和NTC公式也在本目录adc.c内完成。
 PWM占空比换算和硬件操作全部在本目录pwm.c，不保留转发文件、状态或保护。
-sin/cos在adc.c私有s_aux_dma中观察；顺序按启用的NTC、sin、cos排列，每组两半。
+PA5/PA6 的 sin/cos 与相电流共用 TMR1 的 20 kHz 触发，每路只转换一次。快环将 ADC2 的两个结果一起发布给 4 kHz 外环。
 实现中不保留临时诊断入口、测试快照和测试统计。
 先前ADC/PWM接口精简未运行测试和编译；资源配置收拢的独立离线验证见
 [资源配置计划](../../../../../docs/plans/active/2026-10-30-mcu-resources-v1.md)。
 两板编码器在各自MCU的encoder_spi.c直接实现Begin和ReadAngle，可选16/21位单圈计数；
 现有控制环使用65536计数域，无CRC/超时/事务状态。
-DMA缓冲为本文件私有，BSP不增加空转发层。
+PA7 电机 NTC 使用 2 kHz 普通组，直接从 ADC2 普通结果寄存器读取。
 
 AT32 CAN硬件运行和RX IRQ在本目录can.c，直接实现统一BspCan接口。
 DLC/字节数换算直接在CAN收发函数中完成；没有独立文件、票据、状态枚举或自动恢复。

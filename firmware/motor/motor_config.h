@@ -42,6 +42,7 @@ typedef struct
     float lock_timeout_s;
     float id_ramp_down_time_s;
     float observer_loss_time_s;
+    float speed_kp_limit; /* 标定用归一化速度 Kp 上限；零表示沿用运行增益。 */
 } SensorlessStartupConfig;
 
 /* 由经过校验的轴身份在启动时绑定；算法只使用只读配置。 */
@@ -62,6 +63,17 @@ typedef struct
     float calibration_speed_rad_s, calibration_limit_a, speed_ceiling_rad_s;
     MotorJointControlConfig control;
 } MotorAxisPreset;
+
+/**
+ * @brief 查询该装配是否带有用于输出轴测角的正交双线性霍尔。
+ * @param preset 启动时匹配的轴配置，未配置时为 NULL。
+ * @return PITCH 和 YAW 返回 true；三个直驱轴返回 false。
+ */
+static inline bool MotorAxisPreset_HasLinearHall(const MotorAxisPreset *preset)
+{
+    return preset != NULL &&
+           (preset->joint == MOTOR_JOINT_PITCH || preset->joint == MOTOR_JOINT_YAW);
+}
 
 /** @brief 应用运行包络、轨迹和外环整定；不含命令目标或 PI 积分状态。 */
 typedef struct

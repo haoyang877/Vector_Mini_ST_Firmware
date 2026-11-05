@@ -24,6 +24,12 @@ extern "C"
 #if defined(FIRMWARE_TARGET_AT32_OFF)
     /** @brief AT32 正式 APP 在有效 ADC 分频后请求可由快环抢占的外环执行。 */
     void BspSystem_PendOuterTick(void);
+    /** @brief 在开放 ADC 中断前启用 CPU 周期计数。 */
+    void BspSystem_StartCycleCounter(void);
+    /** @brief 读取用于快环执行时间测量的硬件周期计数。
+     * @return 自然回绕的 CPU 周期数。
+     */
+    uint32_t BspSystem_CycleCount(void);
 #endif
 
     /**

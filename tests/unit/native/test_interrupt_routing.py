@@ -14,6 +14,16 @@ void RTT_Sampling(void) {
 
 OUTER_STUB = r"""
 #include "config.h"
+#if BSP_BOARD == BSP_BOARD_AT32F456
+#include "motor_state_types.h"
+#include "board_config.h"
+#define APP_FAST_MAX_CYCLES (AT32_CORE_HZ / FOC_FREQ)
+typedef struct { uint32_t samples, peak_cycles, over_budget, long_intervals; } CalibrationTiming;
+static CalibrationTiming s_calibration_timing[2];
+uint32_t BspSystem_CycleCount(void) { return 0U; }
+static MotorCalibrationType MotorLifecycle_GetCalibrationType(void) { return MOTOR_CALIBRATION_NONE; }
+static bool MotorLifecycle_IsCalibrationRunnable(void) { return false; }
+#endif
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
 static volatile bool s_outer_outstanding;
 static unsigned requests, outer_calls, overruns;
@@ -25,55 +35,39 @@ void MotorAxis_OuterOverrun(void) { ++overruns; }
 
 
 def rtt_sampling_fixture() -> str:
-    """核对通道名、帧宽、位置进入原点、字段次序、缩放及满缓冲丢帧。"""
+    """检查通道1的帧宽、单圈角缩放及两路霍尔原码。"""
     return r"""
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "app.h"
+#include "bsp_adc.h"
 #include "motor_axis.h"
-static FocState foc;
-static EncoderState encoder;
-static MotorControlState motor;
-const MotorAxisFeedback MotorAxis_Feedback = {&foc, &encoder, &motor};
-static unsigned configured, writes[3];
-static float pos;
-float Encoder_GetElecPhase(const EncoderState *source) { assert(source==&encoder); return 4; }
-float Encoder_GetMechVelContinuous(const EncoderState *source) { assert(source==&encoder); return 5; }
-float Encoder_GetMechPos(const EncoderState *source) { assert(source==&encoder); return pos; }
-int SEGGER_RTT_ConfigUpBuffer(unsigned ch, const char *name, void *buf, unsigned bytes, unsigned flags) {
- assert(buf && bytes==4096 && flags==0 && (ch==1 || ch==2));
- assert(strcmp(name, ch==1 ? "JScope_i2i2i2i2i2i2" : "JScope_i2i2i2i2i2i2i2i2i2i2i2i2")==0);
+static const LinearHall hall = {.val = {.angle_rad = 1.75f}};
+const MotorAxisFeedback MotorAxis_Feedback = {.linear_hall = &hall};
+static unsigned configured, position_frames;
+float BspAdc_ReadRawChannel(BspAdcChannel channel) {
+ assert(channel==BSP_ADC_LINEAR_HALL_SIN || channel==BSP_ADC_LINEAR_HALL_COS);
+ return channel==BSP_ADC_LINEAR_HALL_SIN ? 1234 : 4095;
+}
+int SEGGER_RTT_ConfigUpBuffer(unsigned ch,const char *name,void *buf,unsigned bytes,unsigned flags) {
+ assert(buf && bytes==4096 && flags==0 && ch==1);
+ assert(strcmp(name,"JScope_i2i2i2i2i2i2i2i2")==0);
  ++configured; return 0;
 }
-unsigned SEGGER_RTT_Write(unsigned ch, const void *data, unsigned bytes) {
- assert(configured==2 && (ch==1 || ch==2)); int16_t d[12]; memcpy(d,data,bytes);
- if(ch==1) {
-  assert(bytes==12 && d[0]==1000 && d[1]==-2000 && d[2]==3000 && d[3]==4000 && d[4]==500 && d[5]==6000);
- } else {
-  assert(bytes==24 && d[11]==(int)writes[ch]);
-  if(writes[ch]==0 || writes[ch]==3) { for(unsigned i=0;i<11;++i) assert(d[i]==0); }
-  else if(writes[ch]==1 || writes[ch]==2) {
-   assert(d[0]==21000 && d[1]==250 && d[2]==(writes[ch]==1?0:125));
-   assert(d[3]==(writes[ch]==1?5000:2500) && d[4]==-500 && d[5]==750 && d[6]==250);
-   assert(d[7]==-1250 && d[8]==1500 && d[9]==6000 && d[10]==(writes[ch]==1?1:2));
-  } else {assert(d[2]==0 && d[0]==0 && d[1]==0 && d[10]==1);}
- }
- ++writes[ch]; return 0;
+unsigned SEGGER_RTT_Write(unsigned ch,const void *data,unsigned bytes) {
+ int16_t frame[8];
+ assert(ch==1 && bytes==sizeof(frame)); memcpy(frame,data,sizeof(frame));
+ for(unsigned i=0;i<5;++i) assert(frame[i]==0);
+ assert(frame[5]==1750);
+ assert(frame[6]==1234 && frame[7]==4095);
+ ++position_frames; return bytes;
 }
 int main(void) {
- foc.phase_current_a=(ABCVect){1,-2,3}; foc.current_dq_a.q=6;
- RTT_Init(); pos=128;motor.control_mode=MOTOR_CONTROL_NONE;RTT_Sampling();
- pos=256; motor.control_mode=MOTOR_CONTROL_POSITION; motor.position_target_rad=298;
- motor.position_reference_rad=256.5f;motor.position_trajectory_speed_rad_s=-.5f;
- motor.speed_ramped_rad_s=.75f;motor.position_velocity_filtered_rad_s=.25f;
- motor.position_trajectory_acceleration_rad_s2=-1.25f;motor.iq_target_a=1.5f;
- RTT_Sampling();pos+=.25f;motor.position_target_reached=true;RTT_Sampling();
- motor.control_mode=MOTOR_CONTROL_NONE;RTT_Sampling();
- pos=-100;motor.position_target_rad=motor.position_reference_rad=pos;
- motor.position_target_reached=false;motor.control_mode=MOTOR_CONTROL_POSITION;RTT_Sampling();
- assert(writes[1]==5 && writes[2]==5);puts("PASS RTT current and position channels");return 0;
+ RTT_Init(); assert(configured==1);
+ RTT_Sampling(); assert(position_frames==1);
+ puts("PASS RTT Hall angle and raw counts"); return 0;
 }
 """
 
@@ -157,6 +151,7 @@ def at32_hardware_fixture() -> str:
 #include "board_config.h"
 typedef struct { unsigned flags; } FakeAdc;
 static FakeAdc fast_adc, aux_adc;
+#define ADC_AUX_FAST_RANKS (BSP_ENABLED_BUS_CURRENT + 2U * BSP_ENABLED_LINEAR_HALL)
 #define MCU_ADC_FAST (&fast_adc)
 #define MCU_ADC_AUX (&aux_adc)
 #define ADC_PCCE_FLAG 4U
@@ -245,6 +240,7 @@ typedef struct { uint32_t ISR; } Registers;
 typedef struct { Registers *Instance; } ADC_HandleTypeDef;
 static Registers fast_adc;
 static ADC_HandleTypeDef fast_handle = { &fast_adc }, other_handle;
+#define ADC_AUX_FAST_RANKS (BSP_ENABLED_BUS_CURRENT + 2U * BSP_ENABLED_LINEAR_HALL)
 #define MCU_ADC_FAST (&fast_adc)
 #define MCU_ADC_FAST_HANDLE fast_handle
 #define ADC_ISR_JEOS 64U
@@ -346,6 +342,8 @@ def main() -> None:
             "-I",
             ROOT / "firmware/third_party/segger_rtt",
             ROOT / "firmware/app/composition/app_rtt.c",
+            ROOT / "firmware/motor/feedback/linear_hall.c",
+            ROOT / "firmware/motor/math/control_math.c",
         ],
     )
     run_c(args, "stm32_adc_irqs", stm32_adc_fixture(), 1)

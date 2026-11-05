@@ -262,19 +262,19 @@ int main(void) {
     }
     /* 退役槽不应用到控制；导出清零，当前记录的CRC完整性保持。 */
     p=saved;
-    p.friction_model_valid=1U; p.friction_coulomb_pos_a=.2f;
+    p.hall_tag_status=1U; p.hall_sin_off_counts=.2f;
     p.record_crc32=Param_RecordCrc(&p);
     Param_Download(&p,sizeof(p),&configuration);
     assert(configuration.device.encoder.calib_flag==3 && configuration.device.encoder.linearization_lut_q15[71]==-42);
     Param_Upload(&p,&configuration);
-    assert(p.friction_model_valid==0);
+    assert(p.hall_tag_status==0);
     puts("PASS schema14 golden layout and retired fields ignored/zero export");
     /* 当前硬件配置变化仍使电流域参数失效，不属于已删除的版本迁移。 */
     p=saved;
     p.current_sense_shunt_milliohm=CURRENT_SENSE_SHUNT_MILLIOHM==2U ? 6U : 2U;
     p.calibration_current_a=.1f; p.current_limit_a=.1f;
-    p.friction_model_valid=1U;
-    p.friction_coulomb_pos_a=.2f; p.friction_coulomb_neg_a=.2f;
+    p.hall_tag_status=1U;
+    p.hall_sin_off_counts=.2f; p.hall_cos_off_counts=.2f;
     p.record_crc32=Param_RecordCrc(&p); Param_Download(&p,sizeof(p),&configuration);
     assert(configuration.model.calibration_current_a==PARAM_MOTOR_CALIB_CURRENT_A);
     assert(configuration.application.current_limit_a==PARAM_APP_DEFAULT_CURRENT_LIMIT_A);

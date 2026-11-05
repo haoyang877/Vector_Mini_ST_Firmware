@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "motor_state_types.h"
 #include "encoder_feedback.h"
+#include "linear_hall.h"
 #include "foc.h"
 
 /** @brief 轴所有者提供的只读反馈引用，状态仍由MotorAxis独占。 */
@@ -11,6 +12,7 @@ typedef struct
     const FocState *foc;
     const EncoderState *encoder;
     const MotorControlState *motor;
+    const LinearHall *linear_hall;
 } MotorAxisFeedback;
 
 /**
@@ -57,8 +59,8 @@ void MotorAxis_OuterOverrun(void);
 void MotorAxis_ProcessPositionPlan(void);
 
 /**
- * @brief 在关相前台发布已完成的编码器线性化候选。
- * @note 仅主循环调用；发布和原会话复核共用短临界区，不写Flash。
+ * @brief 在关相前台发布标定结果；有输出霍尔的轴同时保存本机参数并回读。
+ * @note 仅主循环调用；CRC 编码允许中断，擦写前复核会话代际与关相状态。
  */
 void MotorAxis_ProcessCalibrationPublication(void);
 

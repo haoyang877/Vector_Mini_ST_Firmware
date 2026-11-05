@@ -49,7 +49,7 @@ static int check_sampling(void)
     memset(&s_workspace, 0, sizeof(s_workspace));
     EncoderCalibrationSamplingState state = {
         .start_elec_rad = 1.0f,
-        .prev_elec_rad = 1.0f,
+        .previous_q15 = 65500U,
         .q15_per_elec_rad = 64.0f,
         .start_q15 = 65500U,
     };
@@ -63,7 +63,7 @@ static int check_sampling(void)
     sample.elec_pos_rad = 3.0f;
     sample.directed_q15 = 100U;
     sample_lut(&s_workspace, &state, &sample);
-    if (state.elec_travel_rad != 1.0f || state.prev_elec_rad != 3.0f ||
+    if (state.motor_travel_q15 != 136 || state.previous_q15 != 100U ||
         s_workspace.bins.samples[1] != 1U || s_workspace.error_sum[1] != 8)
     {
         return 5;
@@ -77,18 +77,19 @@ static int check_sampling(void)
     sample.elec_pos_rad = 4.5f;
     sample_lut(&s_workspace, &state, &sample);
     if (s_workspace.bins.samples[1] != 1U || s_workspace.error_sum[1] != 8 ||
-        state.prev_elec_rad != 4.5f)
+        state.motor_travel_q15 != 136)
     {
         return 6;
     }
 
     state.start_elec_rad = 1.0f;
-    float travel_before_reverse = state.elec_travel_rad;
+    int32_t travel_before_reverse = state.motor_travel_q15;
+    sample.directed_q15 = 90U;
     sample.elec_pos_rad = 4.0f;
     s_workspace.bins.samples[1] = UINT16_MAX;
     s_workspace.error_sum[1] = 7;
     sample_lut(&s_workspace, &state, &sample);
-    if (state.elec_travel_rad != travel_before_reverse ||
+    if (state.motor_travel_q15 != travel_before_reverse - 10 ||
         s_workspace.bins.samples[1] != UINT16_MAX || s_workspace.error_sum[1] != 7)
     {
         return 7;
@@ -98,7 +99,7 @@ static int check_sampling(void)
     memset(&s_workspace, 0, sizeof(s_workspace));
     state = (EncoderCalibrationSamplingState){
         .start_elec_rad = 3.0f,
-        .prev_elec_rad = 3.0f,
+        .previous_q15 = 65530U,
         .q15_per_elec_rad = 1024.0f,
         .start_q15 = 65530U,
     };

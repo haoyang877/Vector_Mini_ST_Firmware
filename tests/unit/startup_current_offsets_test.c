@@ -48,10 +48,51 @@ static MotorCalibrationType simulated_calibration_type = MOTOR_CALIBRATION_NONE;
 static MotorTaskResult simulated_calibration_outcome;
 static bool calibration_publication_pending, calibration_publication_succeeds;
 static unsigned calibration_cycle_calls, calibration_publication_calls;
+static float hall_raw_sin = 2048.0f, hall_raw_cos = 2048.0f;
+#if BSP_ENABLED_LINEAR_HALL
+static uint32_t test_ms;
+bool MotorLifecycle_ContinueLinearHall(uint32_t epoch)
+{
+    assert(calibration_publication_pending && epoch == 1U);
+    calibration_publication_pending = false;
+    simulated_calibration_type = MOTOR_CALIBRATION_LINEAR_HALL;
+    return true;
+}
+float Encoder_GetMechVelContinuous(const EncoderState *encoder)
+{
+    return 0.0f;
+}
+void Foc_RunCurrent(const MotorConfiguration *config,
+                    FocState *foc,
+                    MotorControlState *motor,
+                    float phase,
+                    float speed)
+{
+    assert(simulated_calibration_type == MOTOR_CALIBRATION_LINEAR_HALL);
+}
+static bool can_save_calibration(const uint32_t *epoch)
+{
+    return calibration_publication_pending && *epoch == 1U;
+}
+static MotorControlResult save_calibration(const uint32_t *epoch)
+{
+    assert(can_save_calibration(epoch));
+    return MOTOR_CONTROL_ACCEPTED;
+}
+#endif
 
 MotorCalibrationType MotorLifecycle_GetCalibrationType(void)
 {
     return simulated_calibration_type;
+}
+
+void MotorLifecycle_OuterTick(void)
+{
+}
+
+void Encoder_UpdateSlowEstimate(EncoderState *encoder)
+{
+    assert(encoder == &s_rotor_encoder);
 }
 
 bool MotorLifecycle_IsCalibrationRunnable(void)
@@ -214,6 +255,10 @@ bool BspPwm_ArePhasesDisabled(void)
 static float bsp_offsets[3];
 float BspAdc_ReadRawChannel(BspAdcChannel channel)
 {
+    if (channel == BSP_ADC_LINEAR_HALL_SIN || channel == BSP_ADC_LINEAR_HALL_COS)
+    {
+        return channel == BSP_ADC_LINEAR_HALL_SIN ? hall_raw_sin : hall_raw_cos;
+    }
     if (channel == BSP_ADC_BUS_CURRENT)
     {
         ++bus_raw_reads;
@@ -285,11 +330,15 @@ void Encoder_ResetVelocity(EncoderState *encoder)
 }
 uint32_t BspSystem_TimeMs(void)
 {
+#if BSP_ENABLED_LINEAR_HALL
+    return test_ms;
+#else
     return 0U;
+#endif
 }
 float Encoder_GetMechPos(const EncoderState *encoder)
 {
-    return 0.0f;
+    return encoder->mechanical_position_rad;
 }
 float Encoder_GetMechVel(const EncoderState *encoder)
 {
@@ -732,6 +781,7 @@ static void test_calibration_dispatch_and_publication(void)
         assert(calibration_cycle_calls == 1U && control_calls == 0U);
     }
     prepare_fast_tick_order(MOTOR_STATE_IDLE, MOTOR_CONTROL_NONE);
+    simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
     calibration_publication_pending = true;
     MotorAxis_ProcessCalibrationPublication();
     assert(calibration_publication_calls == 1U);
@@ -741,6 +791,41 @@ static void test_calibration_dispatch_and_publication(void)
     calibration_publication_succeeds = false;
     MotorAxis_ProcessCalibrationPublication();
     assert(calibration_publication_calls == 2U);
+#if BSP_ENABLED_LINEAR_HALL
+    /* 编码器阶段的越界原码不进入 Hall 工作区；关相发布并完成对齐才开始采集。 */
+    static const MotorElectricalPreset electrical = {.gear_ratio = 8.0f};
+    static const MotorAxisPreset pitch = {.joint = MOTOR_JOINT_PITCH, .electrical = &electrical};
+    s_motor_configuration.preset = &pitch;
+    LinearHall_Init(&s_linear_hall);
+    hall_raw_sin = 0;
+    simulated_state = MOTOR_STATE_CALIBRATION;
+    MotorAxis_OuterTick();
+    (void)run_active_calibration_cycle();
+    assert(!s_hall_sweep.active);
+    calibration_publication_pending = calibration_publication_succeeds = true;
+    MotorAxis_ProcessCalibrationPublication();
+    test_ms = 201U;
+    MotorAxis_ProcessCalibrationPublication();
+    assert(simulated_calibration_type == MOTOR_CALIBRATION_LINEAR_HALL && !s_hall_sweep.active);
+    simulated_calibration_outcome.result = MOTOR_TASK_COMPLETED;
+    assert(run_active_calibration_cycle().result == MOTOR_TASK_RUNNING && s_hall_sweep.active);
+    hall_raw_sin = 100;
+    hall_raw_cos = 600;
+    MotorAxis_OuterTick();
+    hall_raw_sin = 3500;
+    hall_raw_cos = 3600;
+    MotorAxis_OuterTick();
+    s_rotor_encoder.mechanical_position_rad = s_hall_start_rad + 49.0f;
+    assert(run_active_calibration_cycle().result == MOTOR_TASK_RUNNING);
+    s_rotor_encoder.mechanical_position_rad = s_hall_start_rad + 51.0f;
+    assert(run_active_calibration_cycle().result == MOTOR_TASK_COMPLETED);
+    calibration_publication_pending = true;
+    MotorAxis_ProcessCalibrationPublication();
+    assert(calibration_publication_calls == 3 && s_linear_hall.calibration_success);
+    assert(s_linear_hall.sin_off_counts == 1800 && s_linear_hall.sin_amp == 1700);
+    assert(s_linear_hall.cos_off_counts == 2100 && s_linear_hall.cos_amp == 1500);
+    s_motor_configuration.preset = NULL;
+#endif
     puts("PASS calibration dispatch: linearization/electrical/mechanical, publication");
 }
 

@@ -38,4 +38,8 @@ BspFlash_Write 负责固定区域的硬件写入，本目录不直接擦写 Flas
 实际字段和合法性以 parameter_record.c/h 为准，固定字节见
 [存储夹具](../../tests/fixtures/protocol/parameter_schema14_vectors.json)。
 
+PITCH、YAW 完成编码器角度标定后，前台关相保存同一条 2288 B 记录。Hall v1 使用旧摩擦模型退役的 20 B：偏移 2188、2192、2196、2200 分别为 sin 偏置、cos 偏置、sin 幅值、cos 幅值（小端 float32，单位 count）。偏移 2204 的小端 uint32 为 `0x48410100 | 状态`，低字节 bit7 表示最近一次标定成功，bit0..6 为 Hall 标定故障位；这些字节受整条记录 CRC 保护。见[黄金字节](../../tests/fixtures/protocol/hall_calibration_v1.json)。
+
+启动先校验本机节点和基本记录，再恢复 Hall 系数及结果。旧槽的 0/1 不代表 Hall 标定；无标记或系数不合理时使用固件初值。成功后再次标定失败的记录保存上次系数和本次故障位。回滚到原先忽略摩擦槽的 schema14 APP 可读取其余配置；旧 APP 再次保存会清除 Hall 标记。
+
 AT32F456 产品记录继续使用 schema14 的固定长度和 CRC。AXS2 修订 2 中两个轮节点的行程填零，三个关节要求实际上下界；速度为电机轴单位。旧 APP 拒绝新修订，新 AT32F456 APP 须显式重新配参后才能启用旧设备。详见[五轴工装](../../docs/guides/at32f456_five_axes.md)。

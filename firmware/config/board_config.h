@@ -22,10 +22,10 @@
 #define BSP_SUPPORTED_ROTOR_ENCODER      1
 #define BSP_SUPPORTED_PWM                1
 #define BSP_SUPPORTED_CAN                1
-#define BSP_SUPPORTED_MCU_TEMPERATURE    1
+#define BSP_SUPPORTED_MCU_TEMPERATURE    0
 #define BSP_SUPPORTED_MOTOR_TEMPERATURE  1
-/* 提供两路线性霍尔原码观测；不表示已有输出轴角度解算或控制。 */
-#define BSP_SUPPORTED_OUTPUT_SINCOS      1
+/* ADC2采集两路输出霍尔；装配了传感器的轴在外环计算观测角。 */
+#define BSP_SUPPORTED_LINEAR_HALL      1
 
 
 #define BSP_PWM_DEADTIME_NS               200U
@@ -52,18 +52,6 @@
 /* 诊断换算有效窗口，不是传感器额定范围或电机过温跳闸阈值。 */
 #define AT32_MOTOR_NTC_MIN_C  (-40.0f)
 #define AT32_MOTOR_NTC_MAX_C  150.0f
-
-/* 必须来自此板实测的温度校准，不能把数据手册典型值当作逐颗出厂校准。
- * 尚未提供校准数据时，温度端口仍报告新原始样本，但conversion_ok保持false。
- * 斜率为实测有符号dVts/dT=(V2-V1)/(T2-T1)，不是手册公式的Avg_Slope。
- * 可由目标编译配置提供实测值；不修改公共BSP或参数记录ABI。 */
-
-#define AT32_TEMPERATURE_CALIBRATED  0
-#define AT32_TEMPERATURE_CAL_C  25.0f
-#define AT32_TEMPERATURE_CAL_MV  0.0f
-#define AT32_TEMPERATURE_SLOPE_MV_PER_C  0.0f
-#define AT32_INTERNAL_REFERENCE_MV  0.0f
-
 
 /* 完整 APP 关相接入使用实板采样尺度，保护阈值由应用配置提供。 */
 #define CURRENT_SENSE_PROFILE_ADC_REFERENCE_V            AT32_ADC_REFERENCE_V
@@ -128,7 +116,7 @@
 #define BSP_SUPPORTED_CAN                1
 #define BSP_SUPPORTED_MCU_TEMPERATURE    1
 #define BSP_SUPPORTED_MOTOR_TEMPERATURE  0
-#define BSP_SUPPORTED_OUTPUT_SINCOS      0
+#define BSP_SUPPORTED_LINEAR_HALL      0
 
 
 
@@ -170,12 +158,11 @@
 #define BSP_ENABLED_CAN            BSP_SUPPORTED_CAN
 #define BSP_ENABLED_MCU_TEMPERATURE        BSP_SUPPORTED_MCU_TEMPERATURE
 #define BSP_ENABLED_MOTOR_TEMPERATURE      BSP_SUPPORTED_MOTOR_TEMPERATURE
-#define BSP_ENABLED_OUTPUT_SINCOS          BSP_SUPPORTED_OUTPUT_SINCOS
+#define BSP_ENABLED_LINEAR_HALL          BSP_SUPPORTED_LINEAR_HALL
 #define BSP_ENABLED_ANALOG_SUPPLY_VOLTAGE  BSP_ENABLED_MCU_TEMPERATURE
 #define BSP_ENABLED_HARDWARE_VERSION       0
 #define BSP_ENABLED_INTERNAL_ANALOG_SAMPLING                                                       \
     (BSP_ENABLED_MCU_TEMPERATURE || BSP_ENABLED_ANALOG_SUPPLY_VOLTAGE)
-#define BSP_ENABLED_AUX_SAMPLING  (BSP_ENABLED_MOTOR_TEMPERATURE || BSP_ENABLED_OUTPUT_SINCOS)
 
 /* 初始中点不是实测零点；三相仍分别在启动采样后取得各自偏置。 */
 #define PARAM_HW_CURRENT_OFFSET_A_COUNTS  (1UL << (CURRENT_SENSE_PROFILE_ADC_RESOLUTION_BITS - 1U))

@@ -5,6 +5,11 @@
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/can.c"
 
+void BspApp_OnCanReceive(void)
+{
+    assert(0 && "unexpected CAN receive");
+}
+
 int main(void)
 {
     McuCan_Init();
@@ -22,7 +27,7 @@ int main(void)
     assert(sim_can.lbtcfg_bit.realim == CAN_RE_ARBI_TIMES_UNLIMIT);
     McuAdc_Init();
     assert(sim_analog_pins == 0xFFU);
-    assert(sim_adc_common.div == ADC_HCLK_DIV_3 && sim_adc_common.tempervintrv_state);
+    assert(sim_adc_common.div == ADC_HCLK_DIV_3 && !sim_adc_common.tempervintrv_state);
     assert(sim_adc[0].enabled && sim_adc[1].enabled);
     for (unsigned rank = 0; rank < 4; rank++)
     {
@@ -31,47 +36,47 @@ int main(void)
     assert(sim_adc[0].sample_times[0] == ADC_SAMPLETIME_12_5);
     assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_24_5);
     assert(sim_adc[1].channels[0] == 4 && sim_adc[1].sample_times[0] == ADC_SAMPLETIME_92_5);
-    assert(sim_adc[0].ordinary_channels[0] == 16 && sim_adc[0].ordinary_channels[1] == 17);
-    assert(sim_adc[1].ordinary_channels[0] == 7 && sim_adc[1].ordinary_channels[1] == 5 &&
-           sim_adc[1].ordinary_channels[2] == 6);
+    assert(sim_adc[1].length == 3 && sim_adc[1].channels[1] == 5 && sim_adc[1].channels[2] == 6);
+    assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);
-    assert(!sim_adc[1].oversampled && sim_adc[1].ordinary_oversampled);
-    assert(sim_dma_config.buffer_size == 6 && sim_temperature_dma_config.buffer_size == 4);
-    assert(!sim_dma_enabled && !sim_temperature_dma_enabled);
+    assert(!sim_adc[1].oversampled && !sim_adc[1].ordinary_oversampled);
     Adc_Start();
-    assert(sim_dma_enabled && sim_temperature_dma_enabled);
+    assert(!sim_dma_enabled && !sim_temperature_dma_enabled);
     assert(sim_adc[0].edge == ADC_PREEMPT_TRIG_EDGE_RISING &&
            sim_adc[1].edge == ADC_PREEMPT_TRIG_EDGE_RISING);
+    assert(sim_adc[0].trigger == ADC_PREEMPT_TRIG_TMR1TRGOUT &&
+           sim_adc[1].trigger == ADC_PREEMPT_TRIG_TMR1TRGOUT);
+    assert(sim_adc[1].ordinary_trigger == ADC_ORDINARY_TRIG_TMR6TRGOUT &&
+           sim_adc[1].ordinary_edge == ADC_ORDINARY_TRIG_EDGE_RISING);
     assert(!BspAdc_CompleteFast());
     sim_adc[0].flags = ADC_PCCE_FLAG;
     assert(!BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG));
     sim_adc[0].flags = sim_adc[1].flags = ADC_PCCE_FLAG;
     assert(BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
-    for (unsigned remaining = 0; remaining <= 6; remaining++)
-    {
-        s_aux_dma[0] = 372;
-        s_aux_dma[3] = 2000;
-        sim_dma_channel.dtcnt = remaining;
-        assert(BspAdc_ReadRawChannel(BSP_ADC_MOTOR_TEMPERATURE) ==
-               (remaining == 0 || remaining > 3 ? 2000 : 372));
-    }
-    sim_dma_channel.dtcnt = 3;
-    s_aux_dma[0] = 372;
+    ADC2->pdt1 = 1999;
+    ADC2->pdt2 = 1234;
+    ADC2->pdt3 = 2345;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT) == 1999);
+    assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN) == 1234);
+    assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS) == 2345);
+    ADC2->pdt2 = 0;
+    ADC2->pdt3 = 4095;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN) == 0);
+    assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS) == 4095);
+    ADC2->odt = 372;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_MOTOR_TEMPERATURE) == 372);
     assert(fabsf(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE) - 25.0f) < 0.1f);
-    s_aux_dma[0] = 0;
-    assert(isnan(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE)));
-    s_aux_dma[0] = 4095;
+    ADC2->odt = 0;
     assert(isnan(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE)));
     Adc_Stop();
     assert(!sim_dma_enabled && !sim_temperature_dma_enabled);
     assert(sim_adc[0].edge == ADC_PREEMPT_TRIG_EDGE_NONE &&
            sim_adc[1].edge == ADC_PREEMPT_TRIG_EDGE_NONE);
     Adc_Start();
-    assert(sim_dma_channel.dtcnt == 6 && sim_temperature_dma_channel.dtcnt == 4);
-    assert(sim_dma_enabled && sim_temperature_dma_enabled);
-    puts("PASS full AT32 CAN initialization and ADC: ranks, trigger, accumulation domains, DMA "
-         "halves, NTC, stop/restart");
+    assert(sim_adc[1].edge == ADC_PREEMPT_TRIG_EDGE_RISING);
+    puts("PASS AT32 CAN and ADC: shared fast trigger, single Hall conversions, raw NTC, "
+         "stop/restart");
     return 0;
 }

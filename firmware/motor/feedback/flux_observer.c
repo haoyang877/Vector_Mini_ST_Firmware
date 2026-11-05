@@ -35,6 +35,7 @@ static void fluxobserver_reset_state(FluxObserverState *flux_observer)
     flux_observer->previous_electrical_angle_rad = 0.0f;
     flux_observer->previous_electrical_velocity_rad_s = 0.0f;
     flux_observer->electrical_position_rad = 0.0f;
+    flux_observer->electrical_turns = 0;
     flux_observer->position_epoch++;
 }
 
@@ -142,13 +143,26 @@ void FluxObserver_Update(const MotorModelConfig *model,
     if (delta_theta < -4.0f)
     {
         delta_theta += _2PI;
+        if (flux_observer->electrical_turns == INT32_MAX)
+        {
+            fluxobserver_reset_state(flux_observer);
+            return;
+        }
+        ++flux_observer->electrical_turns;
     }
     else if (delta_theta > 4.0f)
     {
         delta_theta -= _2PI;
+        if (flux_observer->electrical_turns == INT32_MIN)
+        {
+            fluxobserver_reset_state(flux_observer);
+            return;
+        }
+        --flux_observer->electrical_turns;
     }
 
-    flux_observer->electrical_position_rad += delta_theta;
+    flux_observer->electrical_position_rad =
+        (float)flux_observer->electrical_turns * _2PI + flux_observer->electrical_angle_rad;
     UTILS_LP_FAST(flux_observer->electrical_velocity_rad_s, delta_theta / FOC_TS_S, 0.1f);
 }
 

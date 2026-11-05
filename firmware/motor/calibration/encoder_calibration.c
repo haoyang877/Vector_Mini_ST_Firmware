@@ -7,6 +7,7 @@
 
 #include "application_config.h"
 #include "motor_fault.h"
+#include "pi_controller.h"
 #include "sensorless_startup.h"
 #include "control_math.h"
 
@@ -92,6 +93,7 @@ typedef struct
         EncoderCalibrationBuildState build;
         EncoderCalibrationStopState stop;
     } stage;
+    PiController speed_pi; /* 同一会话连续使用；取消或新建时连同积分状态清零。 */
 } EncoderLutSession;
 
 typedef struct
@@ -252,7 +254,7 @@ static void reset_drive(const EncoderCalibrationControl *drive)
 {
     SensorlessStartup_Reset(drive->startup);
     Foc_ResetCurrent(drive->foc);
-    PiController_Reset(drive->speed_pi);
+    PiController_Reset(&s_lut.speed_pi);
     drive->motor->speed_target_rad_s = 0.0f;
     drive->motor->speed_ramped_rad_s = 0.0f;
     drive->motor->id_target_a = 0.0f;
@@ -360,7 +362,7 @@ static MotorTaskResult run_sensorless(const EncoderCalibrationControl *drive)
     SensorlessStartup_Run(drive->configuration,
                           drive->foc,
                           drive->motor,
-                          drive->speed_pi,
+                          &s_lut.speed_pi,
                           drive->observer,
                           drive->startup,
                           calibration_startup(drive->configuration));

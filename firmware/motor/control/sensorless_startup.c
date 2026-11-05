@@ -58,7 +58,8 @@ const SensorlessStartupConfig SensorlessStartup_EncoderCalibConfig =
     CALIB_STARTUP_CONFIG(SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
                          SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
                          SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
-                         0.0f);
+                         0.05f,
+                         0.5f);
 
 /* 观测器可用性：有限值且角速度在最大电角速度以内。 */
 static bool sensorless_observer_is_usable(const FluxObserverState *flux_observer)
@@ -99,7 +100,8 @@ static bool sensorless_observer_is_usable(const FluxObserverState *flux_observer
      id_ramp_down_time_s > 0.0f && observer_loss_time_s > 0.0f)
 static bool sensorless_startup_config_is_valid(const SensorlessStartupConfig *Config)
 {
-    return Config != NULL && Config->speed_kp_limit >= 0.0f &&
+    return Config != NULL && isfinite(Config->speed_kp) && Config->speed_kp >= 0.0f &&
+           isfinite(Config->speed_ki) && Config->speed_ki >= 0.0f &&
            SENSORLESS_STARTUP_VALUES_VALID(Config->align_current_ramp_time_s,
                                            Config->align_hold_time_s,
                                            Config->align_current_a,
@@ -161,20 +163,14 @@ static bool sensorless_startup_currents_are_valid(const MotorConfiguration *conf
            startup_current_squared <= limit * limit;
 }
 
-/* 交接预置和稳速更新使用同一标定增益；低于上限的设备整定原样生效。 */
-static void configure_speed_pi(const MotorConfiguration *configuration,
-                               const SensorlessStartupConfig *config,
+/* 交接预置和闭环调速共用标定增益；配置限幅时保留积分状态。 */
+static void configure_speed_pi(const SensorlessStartupConfig *config,
                                const SensorlessStartupState *startup,
                                PiController *controller)
 {
-    float kp = configuration->application.speed_kp;
-    if (config->speed_kp_limit > 0.0f)
-    {
-        kp = Math_Min(kp, config->speed_kp_limit);
-    }
     PiController_Configure(controller,
-                           kp,
-                           configuration->application.speed_ki,
+                           config->speed_kp,
+                           config->speed_ki,
                            SPEED_LOOP_TS_S,
                            -1.0f,
                            startup->speed_pi_output_max);
@@ -194,7 +190,7 @@ static float sensorless_update_speed_loop(const MotorConfiguration *configuratio
         startup->speed_feedback_rad_s += SENSORLESS_SPEED_FEEDBACK_LPF_ALPHA *
                                          (observer_mech_vel - startup->speed_feedback_rad_s);
         SpeedControl_UpdateRamp(configuration, motor_state);
-        configure_speed_pi(configuration, config, startup, controller);
+        configure_speed_pi(config, startup, controller);
         PiController_Run(
             controller, motor_state->speed_ramped_rad_s, startup->speed_feedback_rad_s);
         startup->speed_loop_ticks = 0U;
@@ -259,7 +255,7 @@ static void sensorless_begin_handoff(SensorlessStartupRunState *Run)
     motor_state->speed_ramped_rad_s = startup->speed_feedback_rad_s;
     startup->speed_loop_ticks = 0U;
     PiController_Reset(Run->controller);
-    configure_speed_pi(configuration, Run->Config, startup, Run->controller);
+    configure_speed_pi(Run->Config, startup, Run->controller);
     PiController_TrackOutput(Run->controller,
                              Math_Constrain(observer_iq / startup_current_limit(configuration),
                                             -1.0f,

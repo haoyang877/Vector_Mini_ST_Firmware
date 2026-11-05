@@ -124,8 +124,7 @@ MotorTaskResult EncoderCalibration_StepLut(const EncoderCalibrationControl *cont
                                            EncoderCalibrationWorkspace *workspace)
 {
     assert(control->configuration == &s_motor_configuration);
-    assert(control->foc == &s_foc_state && control->motor == &s_motor_state &&
-           control->speed_pi == &s_speed_pi);
+    assert(control->foc == &s_foc_state && control->motor == &s_motor_state);
     assert(control->encoder == &s_rotor_encoder && control->observer == &s_flux_observer &&
            control->startup == &s_sensorless_startup && workspace != NULL);
     ++calibration_cycle_calls;

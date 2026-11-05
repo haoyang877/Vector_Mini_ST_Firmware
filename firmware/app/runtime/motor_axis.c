@@ -94,7 +94,6 @@ static MotorTaskResult run_active_calibration_cycle(void)
     const EncoderCalibrationControl control = {&s_motor_configuration,
                                                &s_foc_state,
                                                &s_motor_state,
-                                               &s_speed_pi,
                                                &s_rotor_encoder,
                                                &s_flux_observer,
                                                &s_sensorless_startup};

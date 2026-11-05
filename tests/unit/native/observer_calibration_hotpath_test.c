@@ -130,14 +130,13 @@ bool Encoder_SetElectricalZeroQ15(EncoderCalibration *calibration,
 static MotorTaskResult step_lut(MotorConfiguration *configuration,
                                 FocState *foc,
                                 MotorControlState *motor,
-                                PiController *speed_pi,
                                 EncoderState *encoder,
                                 FluxObserverState *observer,
                                 SensorlessStartupState *startup,
                                 EncoderCalibrationWorkspace *workspace)
 {
     const EncoderCalibrationControl control = {
-        configuration, foc, motor, speed_pi, encoder, observer, startup};
+        configuration, foc, motor, encoder, observer, startup};
     return EncoderCalibration_StepLut(&control, workspace);
 }
 
@@ -241,7 +240,6 @@ static void check_prepare(void)
     FocState foc = {0};
     MotorConfiguration configuration = {0};
     MotorControlState motor = {0};
-    PiController speed = {0};
     EncoderState encoder = {0};
     FluxObserverState observer = {0};
     SensorlessStartupState startup = {0};
@@ -265,29 +263,29 @@ static void check_prepare(void)
     motor.id_target_a = 1.0f;
     motor.iq_target_a = -1.0f;
     MotorTaskResult result =
-        step_lut(&configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+        step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING && s_lut.stage.startup.clear_bin == 0U);
     assert(motor.speed_target_rad_s == 3.0f && motor.speed_ramped_rad_s == 2.0f);
     assert(motor.id_target_a == 1.0f && motor.iq_target_a == -1.0f);
     motor = (MotorControlState){0};
     assert(startup.state == SENSORLESS_STARTUP_IDLE && startup.state_ticks == 0U);
     assert(workspace.bins.samples[0] == 0xA5A5U && current_calls == 0U);
-    result =
-        step_lut(&configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+    result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING &&
            s_lut.stage.startup.clear_bin == ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
     assert(workspace.error_sum[0] == 0 &&
            workspace.bins.samples[ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK - 1U] == 0U);
     assert(workspace.bins.samples[ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK] ==
            0xA5A5U); /* 首拍不再清6 KiB。 */
+    s_lut.speed_pi.integral_output = 0.4f;
     EncoderCalibration_Cancel();
     assert(EncoderCalibration_IsIdle() && s_lut.stage.startup.clear_bin == 0U);
+    assert(s_lut.speed_pi.integral_output == 0.0f);
     memset(&workspace, 0xA5, sizeof(workspace));
     for (unsigned i = 0U; i <= ENCODER_OFFSET_LUT_SIZE / ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK;
          ++i)
     {
-        result = step_lut(
-            &configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+        result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
         assert(result.result == MOTOR_TASK_RUNNING);
         assert(s_lut.stage.startup.clear_bin == i * ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
     }
@@ -297,24 +295,20 @@ static void check_prepare(void)
         assert((uint16_t)configuration.device.encoder.linearization_lut_q15[i] == 0x5A5AU);
     }
     leave_align = true;
-    result =
-        step_lut(&configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+    result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING);
     assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
     simulate_motion = true;
     motion_ticks = 4096U;
-    result =
-        step_lut(&configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+    result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING);
     assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
     assert(s_lut.stage.startup.stable_ticks == 1U);
     simulate_motion = false;
     EncoderCalibration_Cancel();
-    result =
-        step_lut(&configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+    result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING && startup.state_ticks == 0U);
-    result =
-        step_lut(&configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+    result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING);
     assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
     EncoderCalibration_Cancel();
@@ -351,10 +345,9 @@ static void check_commit(void)
         s_lut.phase = CS_OBS_STOP_DECEL;
         FocState foc = {0};
         MotorControlState motor = {0};
-        PiController pi = {0};
         SensorlessStartupState startup = {0};
-        assert(finish_lut(&(EncoderCalibrationControl){
-                              .foc = &foc, .motor = &motor, .speed_pi = &pi, .startup = &startup})
+        assert(finish_lut(
+                   &(EncoderCalibrationControl){.foc = &foc, .motor = &motor, .startup = &startup})
                    .result == MOTOR_TASK_FINALIZE);
         assert(!EncoderCalibration_IsIdle());
         assert(calibration->calib_flag == (ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO));
@@ -441,7 +434,6 @@ static void check_lut_flow(const CalibrationMotion *motion)
     MotorConfiguration configuration = {0};
     FocState foc = {0};
     MotorControlState motor = {0};
-    PiController speed = {0};
     EncoderState encoder = {.has_valid_sample = true};
     FluxObserverState observer = {.electrical_position_rad = motion->initial_position_rad};
     SensorlessStartupState startup = {0};
@@ -463,8 +455,7 @@ static void check_lut_flow(const CalibrationMotion *motion)
     {
         sample_motion(motion, &observer, &encoder);
         EncoderCalibrationPhase previous_phase = EncoderCalibration_GetPhase();
-        result = step_lut(
-            &configuration, &foc, &motor, &speed, &encoder, &observer, &startup, &workspace);
+        result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
         EncoderCalibrationPhase phase = EncoderCalibration_GetPhase();
         if (phase >= CS_OBS_STARTUP && phase <= CS_OBS_STOP_CURRENT)
         {
@@ -569,7 +560,6 @@ typedef struct
     MotorConfiguration configuration;
     FocState foc;
     MotorControlState motor;
-    PiController speed;
     EncoderState encoder;
     FluxObserverState observer;
     SensorlessStartupState startup;
@@ -601,7 +591,6 @@ static MotorTaskResult step_fixture(CalibrationFixture *fixture)
     return step_lut(&fixture->configuration,
                     &fixture->foc,
                     &fixture->motor,
-                    &fixture->speed,
                     &fixture->encoder,
                     &fixture->observer,
                     &fixture->startup,

@@ -18,7 +18,7 @@ void SensorlessStartup_Reset(SensorlessStartupState *startup);
  * @param configuration 活动配置只读视图；本次调用期间须保持稳定。
  * @param  foc foc 状态指针。
  * @param  motor_state 电机控制状态指针。
- * @param  controller 速度 PI 控制器指针。
+ * @param  controller 标定会话独占的速度 PI，用于交接、扫圈和减速。
  * @param  flux_observer 磁链观测器状态指针。
  * @param  startup 无感启动状态机指针。
  * @param  Config 启动参数集，编码器标定配置。

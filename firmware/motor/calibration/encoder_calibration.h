@@ -4,7 +4,6 @@
 #include "motor_types.h"
 #include "encoder_feedback.h"
 #include "foc.h"
-#include "pi_controller.h"
 #include "flux_observer.h"
 
 /** 调用方独占的采样区；计数与候选按构表阶段复用，布局保持 6144 B。 */
@@ -24,7 +23,6 @@ typedef struct
     MotorConfiguration *configuration;
     FocState *foc;
     MotorControlState *motor;
-    PiController *speed_pi;
     EncoderState *encoder;
     FluxObserverState *observer;
     SensorlessStartupState *startup;

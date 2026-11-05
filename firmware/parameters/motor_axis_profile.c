@@ -43,15 +43,15 @@ static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
 
 /* 阻尼轴参数只作脱开负载的离线/工装起点。 */
 static const SensorlessStartupConfig s_wheel_start =
-    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.0f);
+    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.05f, 0.5f);
 static const SensorlessStartupConfig s_roll_start =
-    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.0f);
+    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.5f, 1.0f);
 /* PITCH 长扫圈的电机轴速度目标，保持在观测器最低锁定速度以上。 */
 #define PITCH_CALIB_SPEED_RAD_S 24.0f
 static const SensorlessStartupConfig s_pitch_start =
-    CALIB_STARTUP_CONFIG(1.6f, 0.5f, PITCH_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.012f);
+    CALIB_STARTUP_CONFIG(1.6f, 0.5f, PITCH_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.012f, 0.5f);
 static const SensorlessStartupConfig s_yq_start =
-    CALIB_STARTUP_CONFIG(1.6f, 0.5f, YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.0f);
+    CALIB_STARTUP_CONFIG(1.6f, 0.5f, YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.048f, 0.5f);
 static const MotorAxisPreset s_presets[] = {
     {0x03,
      MOTOR_JOINT_WHEEL_LEFT,

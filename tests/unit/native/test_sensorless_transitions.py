@@ -83,7 +83,7 @@ static const SensorlessStartupConfig test_startup_config = {
     SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
     SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
     SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
-    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S, 0.0f};
+    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S, 0.02f, 0.5f};
 static const SensorlessStartupConfig *cfg=&test_startup_config;
 static void setup(void) {
     memset(&configuration,0,sizeof(configuration));
@@ -115,6 +115,7 @@ static void enter_handoff(float direction, float phase_delta) {
     startup.open_loop_angle_rad=Math_NormalizeAngle(observer.electrical_angle_rad+phase_delta-observer.electrical_velocity_rad_s*FOC_TS_S);
     startup.lock_ticks=(uint32_t)(cfg->speed_lock_time_s/FOC_TS_S)-1U;
     tick(); assert(startup.state==SENSORLESS_STARTUP_HANDOFF);
+    assert(pi.proportional_gain==cfg->speed_kp && pi.integral_gain==cfg->speed_ki);
 }
 static void check_handoff(float direction) {
     float delta=-direction*.7f;
@@ -188,11 +189,13 @@ int main(void) {
         startup.state = SENSORLESS_STARTUP_CLOSED_LOOP;
         observer.electrical_velocity_rad_s = cfg->target_electrical_velocity_rad_s;
         for(unsigned i=0;i<SPEED_LOOP_DIVIDER;++i) tick();
-        assert(pi.proportional_gain == (node == 6 ? .012f : configuration.application.speed_kp));
-        assert(pi.integral_gain == configuration.application.speed_ki);
+        const float kp[] = {.05f,.05f,.5f,.012f,.048f};
+        const float ki[] = {.5f,.5f,1.0f,.5f,.5f};
+        assert(pi.proportional_gain == kp[node-3] && pi.integral_gain == ki[node-3]);
         configuration.application.speed_kp = .008f;
+        configuration.application.speed_ki = .05f;
         for(unsigned i=0;i<SPEED_LOOP_DIVIDER;++i) tick();
-        assert(pi.proportional_gain == .008f);
+        assert(pi.proportional_gain == kp[node-3] && pi.integral_gain == ki[node-3]);
         configuration.model.calibration_current_a = 0.01f;
         tick();
         assert(motor.fault_code == MOTOR_FAULT_SENSORLESS);

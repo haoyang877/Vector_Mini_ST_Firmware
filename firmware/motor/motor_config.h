@@ -42,7 +42,7 @@ typedef struct
     float lock_timeout_s;
     float id_ramp_down_time_s;
     float observer_loss_time_s;
-    float speed_kp_limit; /* 标定用归一化速度 Kp 上限；零表示沿用运行增益。 */
+    float speed_kp, speed_ki; /* 标定专用归一化速度 PI 增益。 */
 } SensorlessStartupConfig;
 
 /* 由经过校验的轴身份在启动时绑定；算法只使用只读配置。 */

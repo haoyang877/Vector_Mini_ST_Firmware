@@ -73,8 +73,16 @@
 /* 速度环控制参数 */
 #define PARAM_APP_SPEED_ACCEL_RPS2  50.0f
 #define PARAM_APP_SPEED_DECEL_RPS2  50.0f
-#define PARAM_APP_SPEED_KP  0.05f
-#define PARAM_APP_SPEED_KI  0.5f
+#if BSP_BOARD == BSP_BOARD_AT32F456 && FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708
+/* YQ-5708 电机侧速度模式的实测整定。独立测速 PLL 只供速度 PI 使用。 */
+#define ENCODER_SPEED_PLL_HZ  600U
+#define PARAM_APP_SPEED_KP    0.0335f
+#define PARAM_APP_SPEED_KI    0.67f
+#else
+#define ENCODER_SPEED_PLL_HZ  0U
+#define PARAM_APP_SPEED_KP    0.05f
+#define PARAM_APP_SPEED_KI    0.5f
+#endif
 
 /* 速度前馈参数*/
 #define PARAM_APP_FEEDFORWARD_ENABLED            false

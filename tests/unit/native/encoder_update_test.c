@@ -8,6 +8,7 @@
 #include "control_math.h"
 #include "motor_config.h"
 #include "bsp_encoder.h"
+#include "application_config.h"
 
 static uint16_t s_raw_q15;
 
@@ -158,6 +159,7 @@ int main(void)
     assert(first.electrical_angle_rad == 224.0f * (_2PI / 65536.0f));
     assert(first.mechanical_zero_shadow_q15 == 65000);
     assert(first.mechanical_velocity_rad_s == 0.0f);
+    assert(Encoder_GetMechVel(&first) == 0.0f);
     update(&second_configuration, &second, 21, 64U);
     assert(second.directed_q15 == 65472U && second.linearized_q15 == 65468U);
     assert(first.linearized_q15 == 64U);
@@ -179,6 +181,19 @@ int main(void)
     {
         update(&first_configuration, &first, 7, angle);
         assert(first.electrical_velocity_rad_s == first.mechanical_velocity_rad_s * 7.0f);
+        if (angle == 100U)
+        {
+            /* 表已减 8 count，首个机械角增量为 28 count；换相继续使用 90 Hz。 */
+            float step = 28.0f * (_2PI / 65536.0f) * FOC_TS_S;
+            float w90 = _2PI * 90.0f;
+            assert(fabsf(Encoder_GetMechVelContinuous(&first) - w90 * w90 * step) < 0.0001f);
+#if BSP_BOARD == BSP_BOARD_AT32F456 && FOC_ACTIVE_MOTOR_PROFILE == FOC_MOTOR_PROFILE_YQ_5708
+            float w600 = _2PI * 600.0f;
+            assert(fabsf(Encoder_GetMechVel(&first) - w600 * w600 * step) < 0.0001f);
+#else
+            assert(Encoder_GetMechVel(&first) == first.mechanical_velocity_rad_s);
+#endif
+        }
     }
     assert(first.mechanical_velocity_rad_s > 0.0f);
 
@@ -197,6 +212,7 @@ int main(void)
     Encoder_ResetVelocity(&first);
     update(&first_configuration, &first, 7, 1000U);
     assert(first.mechanical_velocity_rad_s == 0.0f && !first.velocity_restart_requested);
+    assert(Encoder_GetMechVel(&first) == 0.0f && first.speed_pll_omega_rad_s == 0.0f);
     assert(Encoder_SetMechanicalZero(calibration, &first));
     update(&first_configuration, &first, 7, 1000U);
     assert(first.mechanical_position_rad == 0.0f);

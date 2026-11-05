@@ -2,7 +2,8 @@
 
 对照两代估计器（均按固件离散实现）：
 - 旧：2 kHz 16 点割线（8 ms 窗口），`v=(theta[k]-theta[k-16])/(16*0.5ms)`；
-- 新：20 kHz 二阶角度跟踪观测器（PLL），带宽读取生产头文件、ζ=0.707。
+- 主观测器：20 kHz 二阶角度跟踪 PLL，使用换相路径的自然频率、ζ=0.707。
+- YQ-5708 速度模式：同一算法，速度 PI 使用单独配置的自然频率。
 
 方法：扫频测出"真实转速 -> 估计转速"的群延迟；以**同一连续噪声 PSD**（逐样本 σ 按
 sqrt(fs) 缩放）比较噪声；再按延迟预算（含 2 kHz 半拍与电流环滞后）估算转速环
@@ -162,10 +163,15 @@ class SpeedLoopBandwidth(unittest.TestCase):
         self.assertGreater(velocity_response("pll", 40.0)[1], velocity_response("secant", 40.0)[1])
 
     def test_summary(self):
-        agg = 150.0
+        config = Path(__file__).resolve().parents[2] / "firmware/config/application_config.h"
+        match = re.search(
+            r"#define ENCODER_SPEED_PLL_HZ\s+(\d+)U", config.read_text(encoding="utf-8")
+        )
+        self.assertIsNotNone(match)
+        agg = float(match.group(1))
         lines = [
             "",
-            "speed-loop bandwidth (delay-limited, offline; white angle noise):",
+            "observer comparison (delay-limited model, offline; white angle noise):",
             f"  group delay : secant {group_delay_s('secant') * 1e3:.2f} ms"
             f" | PLL {PLL_WN_HZ:.0f}Hz {group_delay_s('pll') * 1e3:.2f} ms"
             f" | PLL {agg:.0f}Hz {group_delay_s('pll', 5.0, agg) * 1e3:.2f} ms",
@@ -181,7 +187,7 @@ class SpeedLoopBandwidth(unittest.TestCase):
                 f" -> {crossover_hz('pll', pm, agg):.0f} Hz ({agg:.0f}Hz)"
             )
         print("\n".join(lines))
-        self.assertTrue(True)
+        self.assertLess(group_delay_s("pll", 5.0, agg), group_delay_s("pll"))
 
 
 if __name__ == "__main__":

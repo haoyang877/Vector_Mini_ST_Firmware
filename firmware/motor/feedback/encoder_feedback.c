@@ -73,6 +73,8 @@ static void encoder_reset_velocity_estimate(EncoderState *encoder)
 {
     encoder->pll_theta_rad = 0.0f;
     encoder->pll_omega_rad_s = 0.0f;
+    encoder->speed_pll_theta_rad = 0.0f;
+    encoder->speed_pll_omega_rad_s = 0.0f;
     encoder->velocity_ready = false;
     encoder->mechanical_velocity_rad_s = 0.0f;
     encoder->mechanical_velocity_continuous_rad_s = 0.0f;
@@ -103,6 +105,48 @@ static void encoder_update_shadow(EncoderState *encoder)
     encoder->shadow_q15 += delta_q15;
 }
 
+/* 单个二阶观测器推进一拍；角度单位 rad，角速度单位 rad/s。 */
+static inline void
+encoder_step_pll(float theta_meas, float frequency_hz, float *theta, float *omega)
+{
+    const float omega_n = _2PI * frequency_hz;
+    float err = theta_meas - *theta;
+    if (err > _PI)
+    {
+        err -= _2PI;
+    }
+    else if (err < -_PI)
+    {
+        err += _2PI;
+    }
+    *theta += FOC_TS_S * *omega + (2.0f * ENCODER_PLL_ZETA * omega_n * FOC_TS_S) * err;
+    *omega += (omega_n * omega_n * FOC_TS_S) * err;
+    if (*theta > _2PI)
+    {
+        *theta -= _2PI;
+    }
+    else if (*theta < 0.0f)
+    {
+        *theta += _2PI;
+    }
+    if (*omega > ENCODER_PLL_OMEGA_MAX_RAD_S)
+    {
+        *omega = ENCODER_PLL_OMEGA_MAX_RAD_S;
+    }
+    else if (*omega < -ENCODER_PLL_OMEGA_MAX_RAD_S)
+    {
+        *omega = -ENCODER_PLL_OMEGA_MAX_RAD_S;
+    }
+}
+
+static inline float encoder_apply_velocity_deadband(float vel)
+{
+    return (vel < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S &&
+            vel > -ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S)
+               ? 0.0f
+               : vel;
+}
+
 /* 20 kHz 快路径二阶角度跟踪观测器（PLL）：由线性化单圈角估计机械角速度。
  * 输入：encoder（读 linearized_q15）、pole_pairs 极对数（调用方保证 >= 1）；仅有效帧调用。
  * 输出：pll_theta_rad、pll_omega_rad_s、velocity_ready、mechanical_velocity_continuous_rad_s、
@@ -113,16 +157,14 @@ static void encoder_update_shadow(EncoderState *encoder)
 static void encoder_update_velocity_pll(EncoderState *encoder, uint32_t pole_pairs)
 {
     float theta_meas = (float)encoder->linearized_q15 * (_2PI / (float)ENCODER_Q15_CPR);
-    float omega_n;
-    float kp;
-    float ki;
-    float err;
     float vel;
 
     if (!encoder->velocity_ready)
     {
         encoder->pll_theta_rad = theta_meas;
         encoder->pll_omega_rad_s = 0.0f;
+        encoder->speed_pll_theta_rad = theta_meas;
+        encoder->speed_pll_omega_rad_s = 0.0f;
         encoder->velocity_ready = true;
         encoder->mechanical_velocity_rad_s = 0.0f;
         encoder->mechanical_velocity_continuous_rad_s = 0.0f;
@@ -130,47 +172,18 @@ static void encoder_update_velocity_pll(EncoderState *encoder, uint32_t pole_pai
         return;
     }
 
-    omega_n = _2PI * ENCODER_PLL_OMEGA_N_HZ;
-    kp = 2.0f * ENCODER_PLL_ZETA * omega_n * FOC_TS_S;
-    ki = omega_n * omega_n * FOC_TS_S;
-    err = theta_meas - encoder->pll_theta_rad;
-
-    if (err > _PI)
-    {
-        err -= _2PI;
-    }
-    else if (err < -_PI)
-    {
-        err += _2PI;
-    }
-
-    encoder->pll_theta_rad += FOC_TS_S * encoder->pll_omega_rad_s + kp * err;
-    encoder->pll_omega_rad_s += ki * err;
-
-    if (encoder->pll_theta_rad > _2PI)
-    {
-        encoder->pll_theta_rad -= _2PI;
-    }
-    else if (encoder->pll_theta_rad < 0.0f)
-    {
-        encoder->pll_theta_rad += _2PI;
-    }
-
-    if (encoder->pll_omega_rad_s > ENCODER_PLL_OMEGA_MAX_RAD_S)
-    {
-        encoder->pll_omega_rad_s = ENCODER_PLL_OMEGA_MAX_RAD_S;
-    }
-    else if (encoder->pll_omega_rad_s < -ENCODER_PLL_OMEGA_MAX_RAD_S)
-    {
-        encoder->pll_omega_rad_s = -ENCODER_PLL_OMEGA_MAX_RAD_S;
-    }
+    encoder_step_pll(
+        theta_meas, ENCODER_PLL_OMEGA_N_HZ, &encoder->pll_theta_rad, &encoder->pll_omega_rad_s);
+#if ENCODER_SPEED_PLL_HZ > 0U
+    encoder_step_pll(theta_meas,
+                     ENCODER_SPEED_PLL_HZ,
+                     &encoder->speed_pll_theta_rad,
+                     &encoder->speed_pll_omega_rad_s);
+#endif
 
     vel = encoder->pll_omega_rad_s;
     encoder->mechanical_velocity_continuous_rad_s = vel;
-    encoder->mechanical_velocity_rad_s =
-        (vel < ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S && vel > -ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S)
-            ? 0.0f
-            : vel;
+    encoder->mechanical_velocity_rad_s = encoder_apply_velocity_deadband(vel);
     encoder->electrical_velocity_rad_s = encoder->mechanical_velocity_rad_s * (float)pole_pairs;
 }
 
@@ -427,11 +440,14 @@ float Encoder_GetElecVel(const EncoderState *encoder)
     return encoder->electrical_velocity_rad_s;
 }
 
-/* 读取机械角速度。输入：encoder；返回：mechanical_velocity_rad_s，单位 rad/s；
- * 速度窗口未满或窗口增量低于零速死区时为 0。 */
+/* 速度模式读取独立测速结果，未配置独立 PLL 的机型沿用主反馈。 */
 float Encoder_GetMechVel(const EncoderState *encoder)
 {
+#if ENCODER_SPEED_PLL_HZ > 0U
+    return encoder_apply_velocity_deadband(encoder->speed_pll_omega_rad_s);
+#else
     return encoder->mechanical_velocity_rad_s;
+#endif
 }
 
 /* 读取连续机械角速度，不含零速死区。输入：encoder；返回：mechanical_velocity_continuous_rad_s，

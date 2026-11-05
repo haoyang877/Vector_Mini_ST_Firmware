@@ -18,8 +18,8 @@
  * 带宽 ENCODER_PLL_OMEGA_N_HZ、阻尼比 ENCODER_PLL_ZETA；输出机械角速度 rad/s。
  * ENCODER_PLL_OMEGA_MAX_RAD_S 为输出限幅（防坏帧/极端输入发散）；
  * ENCODER_PLL_VEL_ZERO_THRESHOLD_RAD_S 为软零速死区（|vel| 低于它时 mechanical_velocity_rad_s 归零，
- * mechanical_velocity_continuous_rad_s 不受影响）。观测器只出速度，不参与换相、位置或标定路径。 */
-/* 默认取低纹波点；PLL 常量位于反馈实现，不叠加滤波器，取舍见决策0002。 */
+ * mechanical_velocity_continuous_rad_s 不受影响）。电角速度供换相预测使用。
+ * 配置 ENCODER_SPEED_PLL_HZ 的机型用同一线性化角并行估算速度 PI 的反馈。 */
 
 /** 编码器运行状态：20 kHz 采样/速度与 2 kHz 位置；不拥有持久化校准。 */
 typedef struct
@@ -58,6 +58,9 @@ typedef struct
     float electrical_velocity_rad_s;
     float mechanical_velocity_rad_s;
     float mechanical_velocity_continuous_rad_s;
+    /* 独立速度 PI 反馈的快拍状态；与主 PLL 共用首帧/复位时机。 */
+    float speed_pll_theta_rad;
+    float speed_pll_omega_rad_s;
 } EncoderState;
 
 /**
@@ -153,7 +156,7 @@ void Encoder_ResetVelocity(EncoderState *encoder);
 float Encoder_GetElecVel(const EncoderState *encoder);
 
 /**
- * @brief 读取机械角速度。
+ * @brief 读取速度 PI 使用的机械角速度（使用本机型的速度反馈 PLL）。
  * @param encoder 编码器状态指针。
  * @return 机械角速度，单位 rad/s；观测器未就绪或低于软零速死区时为 0。
  */

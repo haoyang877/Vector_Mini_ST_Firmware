@@ -80,6 +80,28 @@ typedef struct
 bool McuTemperature_IsFresh(void);
 
 /**
+ * @brief 检查 ADC 零偏是否处于启动校正允许范围。
+ * @param counts 单个相电流 ADC 偏置，counts。
+ * @return 有限且在闭区间内返回 true。
+ */
+static inline bool MotorCurrentOffset_InRange(float counts)
+{
+    return counts >= 1948.0f && counts <= 2148.0f;
+}
+
+/**
+ * @brief 在无硬件 IO 的记录编解码及启动校正中验证三相偏置。
+ * @param device 待检查的设备配置。
+ * @return 三相偏置均有效返回 true。
+ */
+static inline bool MotorDeviceOffsets_InRange(const MotorDeviceConfig *device)
+{
+    return MotorCurrentOffset_InRange(device->phase_a_offset_counts) &&
+           MotorCurrentOffset_InRange(device->phase_b_offset_counts) &&
+           MotorCurrentOffset_InRange(device->phase_c_offset_counts);
+}
+
+/**
  * @brief 按既有 ADC 零偏范围验证三相偏置。
  * @param configuration 所属活动配置，只读，偏置单位为 ADC counts。
  * @return 三个偏置均有限且位于原保护范围时返回 true。

@@ -22,6 +22,47 @@ typedef struct
     MotorWindingThermalConfig thermal;
 } MotorModelConfig;
 
+typedef struct
+{
+    float align_current_ramp_time_s;
+    float align_hold_time_s;
+    float align_current_a;
+    float startup_iq_initial_a;
+    float startup_iq_a;
+    float startup_iq_ramp_time_s;
+    float startup_id_a;
+    float minimum_current_limit_a;
+    float minimum_electrical_velocity_rad_s;
+    float target_electrical_velocity_rad_s;
+    float startup_ramp_time_s;
+    float speed_lock_time_s;
+    float speed_lock_filter_alpha;
+    float observer_lock_ratio;
+    float angle_handoff_time_s;
+    float lock_timeout_s;
+    float id_ramp_down_time_s;
+    float observer_loss_time_s;
+} SensorlessStartupConfig;
+
+/* 由经过校验的轴身份在启动时绑定；算法只使用只读配置。 */
+typedef struct
+{
+    int32_t pole_pairs;
+    float resistance_ohm, inductance_h, flux_wb;
+    float id_kp, id_ki, observer_gamma;
+    float speed_pll_hz, gear_ratio;
+} MotorElectricalPreset;
+
+typedef struct
+{
+    uint8_t node_id;
+    MotorJointType joint;
+    const MotorElectricalPreset *electrical;
+    const SensorlessStartupConfig *startup;
+    float calibration_speed_rad_s, calibration_limit_a, speed_ceiling_rad_s;
+    MotorJointControlConfig control;
+} MotorAxisPreset;
+
 /** @brief 应用运行包络、轨迹和外环整定；不含命令目标或 PI 积分状态。 */
 typedef struct
 {
@@ -67,6 +108,23 @@ typedef struct
     /* 参数所有者元数据，不写入运行状态；存储层显式编码确认位。 */
     bool configuration_confirmed;
     MotorConfigurationSource configuration_source;
+    const MotorAxisPreset *preset;
 } MotorConfiguration;
+
+/**
+ * @brief 将产品轴活动机械速度上限转换为开环电频率上限。
+ * @param configuration 当前活动配置，机械速度为电机轴 rad/s。
+ * @param hardware_hz 公共电频率硬上限，Hz。
+ * @return 受两种约束的电频率上限，旧配置沿用公共上限。
+ */
+static inline float MotorConfiguration_OpenLoopLimitHz(const MotorConfiguration *configuration,
+                                                       float hardware_hz)
+{
+    return configuration->preset == NULL
+               ? hardware_hz
+               : fminf(hardware_hz,
+                       configuration->application.speed_limit_rad_s *
+                           configuration->model.motor_pole_pairs / 6.283185307f);
+}
 
 #endif

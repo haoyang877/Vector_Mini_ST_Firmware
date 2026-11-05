@@ -299,16 +299,27 @@ bool EncoderCalibration_PublishLut(EncoderCalibration *calibration, EncoderState
     return true;
 }
 
+static const SensorlessStartupConfig *calibration_startup(const MotorConfiguration *config)
+{
+    return config->preset != NULL ? config->preset->startup : &SensorlessStartup_EncoderCalibConfig;
+}
+
+static float calibration_speed(const MotorConfiguration *config)
+{
+    return config->preset != NULL ? config->preset->calibration_speed_rad_s
+                                  : SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+}
+
 static bool speed_is_stable(const EncoderCalibrationControl *drive)
 {
     float tolerance_rad_s =
-        SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO;
+        calibration_speed(drive->configuration) * SENSORLESS_ENCODER_CALIB_SPEED_ERROR_RATIO;
     /* 复位后的滤波速度可能暂存旧值，原始速度须已恢复到观测器可用范围。 */
     return FluxObserver_GetElecVel(drive->observer) >=
-               SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s &&
+               calibration_startup(drive->configuration)->minimum_electrical_velocity_rad_s &&
            Math_Abs(drive->startup->speed_feedback_rad_s -
-                    SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S) <= tolerance_rad_s &&
-           Math_Abs(drive->motor->speed_ramped_rad_s - SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S) <=
+                    calibration_speed(drive->configuration)) <= tolerance_rad_s &&
+           Math_Abs(drive->motor->speed_ramped_rad_s - calibration_speed(drive->configuration)) <=
                tolerance_rad_s;
 }
 
@@ -320,15 +331,16 @@ static bool tracks_epoch(const EncoderCalibrationControl *drive, uint32_t positi
 
 static float get_stop_speed(const MotorConfiguration *config)
 {
-    float min_mech_rad_s = SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s /
+    float min_mech_rad_s = calibration_startup(config)->minimum_electrical_velocity_rad_s /
                            (float)config->model.motor_pole_pairs;
     return Math_Min(min_mech_rad_s * SENSORLESS_ENCODER_CALIB_STOP_SPEED_MARGIN,
-                    SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S);
+                    calibration_speed(config));
 }
 
 static bool can_brake(const EncoderCalibrationControl *drive)
 {
-    float min_elec_rad_s = SensorlessStartup_EncoderCalibConfig.minimum_electrical_velocity_rad_s;
+    float min_elec_rad_s =
+        calibration_startup(drive->configuration)->minimum_electrical_velocity_rad_s;
     float elec_vel_rad_s = FluxObserver_GetElecVel(drive->observer);
     float phase_rad = FluxObserver_GetElecPhase(drive->observer);
     float mech_vel_rad_s = Encoder_GetMechVelContinuous(drive->encoder);
@@ -355,7 +367,7 @@ static MotorTaskResult run_sensorless(const EncoderCalibrationControl *drive)
                           drive->speed_pi,
                           drive->observer,
                           drive->startup,
-                          &SensorlessStartup_EncoderCalibConfig);
+                          calibration_startup(drive->configuration));
     if (drive->motor->fault_code != MOTOR_FAULT_NONE)
     {
         reset_drive(drive);
@@ -369,7 +381,7 @@ static MotorTaskResult run_sensorless(const EncoderCalibrationControl *drive)
 static MotorTaskResult step_measure(const EncoderCalibrationControl *drive)
 {
     drive->startup->speed_pi_output_max = 1.0f;
-    drive->motor->speed_target_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
+    drive->motor->speed_target_rad_s = calibration_speed(drive->configuration);
     MotorTaskResult result = run_sensorless(drive);
     if (result.result != MOTOR_TASK_RUNNING)
     {

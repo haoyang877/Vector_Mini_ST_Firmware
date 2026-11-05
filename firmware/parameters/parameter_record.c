@@ -77,8 +77,23 @@ static bool param_apply_joint_profile(MotorConfiguration *configuration)
     return true;
 }
 
+/* 配置确认绑定节点、AXS 修订和电气模型。型号错配不能沿用原编码器标定。 */
+static void bind_preset(MotorConfiguration *configuration, const MotorAxisPreset *preset)
+{
+    const MotorElectricalPreset *m = preset->electrical;
+    MotorModelConfig *model = &configuration->model;
+    configuration->preset = preset;
+    model->motor_pole_pairs = m->pole_pairs;
+    model->motor_phase_resistance_ohm = m->resistance_ohm;
+    model->motor_d_inductance_h = model->motor_q_inductance_h = m->inductance_h;
+    model->motor_flux_wb = m->flux_wb;
+    model->id_kp = model->iq_kp = m->id_kp;
+    model->id_ki = model->iq_ki = m->id_ki;
+}
+
 void Param_Return_Default(MotorConfiguration *configuration)
 {
+    configuration->preset = NULL;
     MotorWindingThermal_Default(&configuration->model.thermal);
     configuration->application.speed_feedforward =
         (SpeedFeedforwardConfig)PARAM_APP_FEEDFORWARD_INITIALIZER;
@@ -88,7 +103,10 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->application.axis_profile_valid = true;
     configuration->configuration_confirmed = false;
     configuration->configuration_source = MOTOR_CONFIGURATION_DEFAULTS;
-    configuration->device.node_id = PARAM_DEVICE_CAN_NODE_ID;
+    /* 未装配的产品板不注册整车 CAN 地址。 */
+    configuration->device.node_id =
+        BSP_BOARD == BSP_BOARD_AT32F456 ? UINT8_MAX : PARAM_DEVICE_CAN_NODE_ID;
+    configuration->application.axis_profile_valid = BSP_BOARD != BSP_BOARD_AT32F456;
     configuration->application.speed_ceiling_rad_s = PARAM_APP_SPEED_CEILING_RAD_S;
 
     configuration->device.phase_a_offset_counts = PARAM_HW_CURRENT_OFFSET_A_COUNTS;
@@ -128,6 +146,64 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->application.position_maximum_speed_rad_s = PARAM_APP_POSITION_MAX_SPEED_RAD_S;
     configuration->application.cascade_position_kp = PARAM_APP_CASCADE_POSITION_KP;
     configuration->application.cascade_position_kd = PARAM_APP_CASCADE_POSITION_KD;
+}
+
+bool Param_CreateAxis(uint8_t node_id,
+                      float minimum_rad,
+                      float maximum_rad,
+                      float speed_rad_s,
+                      const MotorWindingThermalConfig *thermal,
+                      MotorConfiguration *configuration)
+{
+    if (configuration == NULL)
+    {
+        return false;
+    }
+    Param_Return_Default(configuration);
+    const MotorAxisPreset *p = MotorAxisProfile_ForNode(node_id);
+    MotorAxisProfile axis;
+    if (p == NULL ||
+        !MotorAxisProfile_CreateJoint(
+            &axis, p->joint, MOTOR_PRODUCT_AXIS_REVISION, minimum_rad, maximum_rad, speed_rad_s))
+    {
+        return false;
+    }
+    /* HT 采用型号已有热输入；YQ 必须显式提供已核对的热输入。 */
+    MotorWindingThermalConfig heat = HT8115_HEAT_INITIALIZER;
+    if (thermal != NULL)
+    {
+        heat = *thermal;
+    }
+    else if (p->electrical->gear_ratio != 1.0f)
+    {
+        return false;
+    }
+    if (!MotorWindingThermal_Valid(&heat))
+    {
+        return false;
+    }
+    bind_preset(configuration, p);
+    configuration->model.thermal = heat;
+    configuration->model.calibration_current_a = p->calibration_limit_a;
+    configuration->device.node_id = node_id;
+    MotorApplicationConfig *app = &configuration->application;
+    app->axis_profile = axis;
+    app->axis_profile_valid = true;
+    app->current_limit_a = fminf(p->control.maximum_current_a, heat.continuous_vector_a);
+    app->speed_ceiling_rad_s = app->speed_limit_rad_s = speed_rad_s;
+    app->speed_feedforward.current_limit_a =
+        fminf(app->current_limit_a, app->speed_feedforward.current_limit_a);
+    app->speed_feedforward.acceleration_limit_rad_s2 = p->control.acceleration_rad_s2;
+    app->position_maximum_speed_rad_s = speed_rad_s;
+    app->speed_kp = p->control.speed_kp;
+    app->speed_ki = p->control.speed_ki;
+    app->cascade_position_kp = p->control.position_kp;
+    app->cascade_position_kd = p->control.position_kd;
+    app->position_acceleration_rad_s2 = app->speed_acceleration_rad_s2 =
+        p->control.acceleration_rad_s2;
+    app->position_deceleration_rad_s2 = app->speed_deceleration_rad_s2 =
+        p->control.deceleration_rad_s2;
+    return true;
 }
 
 void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration)
@@ -225,6 +301,35 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
         return;
     }
+    configuration->preset = NULL;
+    const MotorAxisPreset *preset = NULL;
+    if (BSP_BOARD == BSP_BOARD_AT32F456)
+    {
+        preset = MotorAxisProfile_ForNode((uint8_t)param->node_id);
+        MotorAxisProfile axis;
+        if (preset == NULL || !MotorAxisProfile_Load(&param->axis_profile, &axis) ||
+            axis.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
+            axis.identity.numeric.config_revision != MOTOR_PRODUCT_AXIS_REVISION ||
+            axis.identity.numeric.joint_type != preset->joint ||
+            axis.maximum_speed_rad_s > preset->speed_ceiling_rad_s ||
+            param->motor_pole_pairs != (float)preset->electrical->pole_pairs ||
+            param->motor_phase_resistance_ohm != preset->electrical->resistance_ohm ||
+            param->motor_d_inductance_h != preset->electrical->inductance_h ||
+            param->motor_q_inductance_h != preset->electrical->inductance_h ||
+            param->motor_flux_wb != preset->electrical->flux_wb)
+        {
+            Param_Return_Default(configuration);
+            configuration->configuration_source = MOTOR_CONFIGURATION_UNSUPPORTED;
+            return;
+        }
+    }
+    else if (param->axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+             param->axis_profile.identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
+    {
+        Param_Return_Default(configuration);
+        configuration->configuration_source = MOTOR_CONFIGURATION_UNSUPPORTED;
+        return;
+    }
     current_sense_profile_changed =
         param->current_sense_shunt_milliohm != CURRENT_SENSE_SHUNT_MILLIOHM;
     if (param->encoder_reverse > 1U ||
@@ -299,7 +404,16 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             Math_Constrain(param->current_limit_a, 0.0f, CURRENT_SENSE_PROFILE_COMMAND_LIMIT_MAX_A);
     }
     /* 电流PI整定独立于观测器模型；原记录的R/L与标定仍原样装载。 */
-    if (CURRENT_LOOP_USE_IDENTIFIED_GAINS)
+    if (preset != NULL)
+    {
+        bind_preset(configuration, preset);
+        configuration->model.calibration_current_a =
+            fminf(configuration->model.calibration_current_a, preset->calibration_limit_a);
+        configuration->application.current_limit_a =
+            fminf(configuration->application.current_limit_a, preset->control.maximum_current_a);
+        configuration->application.speed_ceiling_rad_s = param->axis_profile.maximum_speed_rad_s;
+    }
+    else if (CURRENT_LOOP_USE_IDENTIFIED_GAINS)
     {
         configuration->model.id_kp = PARAM_MOTOR_DEFAULT_ID_KP;
         configuration->model.iq_kp = PARAM_MOTOR_DEFAULT_IQ_KP;
@@ -318,7 +432,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     }
     configuration->application.speed_limit_rad_s =
         isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f &&
-                param->speed_limit_rad_s <= PARAM_APP_SPEED_CEILING_RAD_S
+                param->speed_limit_rad_s <=
+                    (preset == NULL ? PARAM_APP_SPEED_CEILING_RAD_S : preset->speed_ceiling_rad_s)
             ? Math_Constrain(
                   param->speed_limit_rad_s, 0.0f, configuration->application.speed_ceiling_rad_s)
             : Math_Min(configuration->application.speed_ceiling_rad_s,
@@ -351,12 +466,40 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         isfinite(param->cascade_pos_kd) && param->cascade_pos_kd >= 0.0f
             ? Math_Constrain(param->cascade_pos_kd, 0.0f, CASCADE_POSITION_KD_MAX)
             : PARAM_APP_CASCADE_POSITION_KD;
-    configuration->application.axis_profile_valid = param_apply_joint_profile(configuration);
+    if (preset == NULL)
+    {
+        configuration->application.axis_profile_valid = param_apply_joint_profile(configuration);
+    }
+    else
+    {
+        MotorApplicationConfig *app = &configuration->application;
+        app->speed_acceleration_rad_s2 =
+            fminf(app->speed_acceleration_rad_s2, preset->control.acceleration_rad_s2);
+        app->speed_deceleration_rad_s2 =
+            fminf(app->speed_deceleration_rad_s2, preset->control.deceleration_rad_s2);
+        app->position_acceleration_rad_s2 =
+            fminf(app->position_acceleration_rad_s2, preset->control.acceleration_rad_s2);
+        app->position_deceleration_rad_s2 =
+            fminf(app->position_deceleration_rad_s2, preset->control.deceleration_rad_s2);
+        if (isfinite(param->position_maximum_speed_rad_s) &&
+            param->position_maximum_speed_rad_s > 0.0f)
+        {
+            app->position_maximum_speed_rad_s =
+                fminf(app->speed_limit_rad_s, param->position_maximum_speed_rad_s);
+        }
+        app->current_limit_a =
+            fminf(app->current_limit_a, configuration->model.thermal.continuous_vector_a);
+        app->speed_feedforward.current_limit_a =
+            fminf(app->current_limit_a, app->speed_feedforward.current_limit_a);
+        app->speed_feedforward.acceleration_limit_rad_s2 =
+            fminf(app->speed_feedforward.acceleration_limit_rad_s2,
+                  fminf(app->speed_acceleration_rad_s2, app->speed_deceleration_rad_s2));
+    }
     configuration->configuration_source = MOTOR_CONFIGURATION_STORED;
     configuration->configuration_confirmed =
         param->configuration_flags == 1U && !current_sense_profile_changed;
     if (!ParameterValue_ConfigurationValid(configuration) ||
-        !MotorCurrentOffsets_IsValid(configuration))
+        !MotorDeviceOffsets_InRange(&configuration->device))
     {
         Param_Return_Default(configuration);
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;

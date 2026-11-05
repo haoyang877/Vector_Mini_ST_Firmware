@@ -222,6 +222,11 @@ bool Foc_Prepare(const MotorConfiguration *configuration,
     }
     bool current_loop = law == FOC_CONTROL_CURRENT;
     float limit_a = configuration->application.current_limit_a;
+    /* 标定保持 NONE 控制模式，启动、交接和制动均执行同一矢量预算。 */
+    if (configuration->preset != NULL && motor->control_mode == MOTOR_CONTROL_NONE)
+    {
+        limit_a = fminf(limit_a, configuration->model.calibration_current_a);
+    }
     if (!(limit_a > 0.0f && limit_a <= 100.0f) ||
         (current_loop && !(fabsf(d_reference) <= 100.0f && fabsf(q_reference) <= 100.0f)))
     {

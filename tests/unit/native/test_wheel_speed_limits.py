@@ -52,10 +52,6 @@ bool LoaderPlatform_ReadParameters(uint32_t offset, void *output, uint32_t count
     prelude += f"\n#define PARAM_RECORD14_GOLDEN_CRC {vectors14['vectors'][0]['crc32']}U\n"
     utils = (ROOT / "firmware/motor/math/control_math.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
-    prelude += (
-        "\n#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
-    )
-    prelude += function_source(sensing, "current_offset_valid")
     prelude += function_source(sensing, "MotorCurrentOffsets_IsValid")
     prelude += "\n".join(function_source(utils, n) for n in ("Math_Constrain", "Math_Min"))
     production = (ROOT / "firmware/parameters/parameter_record.c").read_text(encoding="utf-8")
@@ -400,47 +396,18 @@ def main():
         (out / "test.log").write_text("\n".join(logs))
         result.check_returncode()
 
-    # 复用同一参数装载夹具，验证新板固定PI与观测器模型、标定相互独立。
+    # 五个节点由同一二进制解析；旧型号/错误角色不能复用保存的标定。
     tuning_source = out / "current_tuning_test.c"
+    vectors = json.loads(
+        (ROOT / "tests/fixtures/protocol/at32f456_axis_rev2_vectors.json").read_text(
+            encoding="utf-8"
+        )
+    )["vectors"]
+    expected_crc = ", ".join(vector["record_crc"] + "U" for vector in vectors)
     tuning_source.write_text(
         fixture().split("\nstatic void policy_golden_vectors", 1)[0]
-        + r"""
-int main(void) {
-    InterfaceParam p;
-    Param_Return_Default(&configuration);
-    assert(configuration.model.id_kp == 0.60995855f);
-    assert(configuration.model.iq_kp == 0.60995855f);
-    assert(configuration.model.id_ki == 3226.22067f);
-    assert(configuration.model.iq_ki == 3226.22067f);
-    Param_Upload(&p, &configuration);
-    p.magic_word=MAGIC_WORD;
-    /* YQ默认热参数有意无效；这里提供明确的内存测试记录，不放宽装载校验。 */
-    p.thermal=(MotorWindingThermalConfig){3.0f,7.0f,65.98486785f,.8f,.7f,1.0f,.5f};
-    p.motor_phase_resistance_ohm=1.25f;
-    p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
-    p.encoder_electrical_zero_q15=18681; p.encoder_calib_flag=3;
-    p.encoder_linearization_lut_q15[71]=-42;
-    p.id_kp=9.f; p.iq_kp=8.f; p.id_ki=7.f; p.iq_ki=6.f;
-    p.record_crc32=Param_RecordCrc(&p);
-    InterfaceParam before=p;
-    Param_Download(&p, sizeof(p), &configuration);
-    assert(configuration.configuration_source==MOTOR_CONFIGURATION_STORED);
-    assert(memcmp(&p,&before,sizeof(p))==0);
-    assert(configuration.model.motor_phase_resistance_ohm==1.25f);
-    assert(configuration.model.motor_d_inductance_h==.003f);
-    assert(configuration.model.motor_q_inductance_h==.004f);
-    assert(configuration.model.id_kp==0.60995855f && configuration.model.iq_kp==0.60995855f);
-    assert(configuration.model.id_ki==3226.22067f && configuration.model.iq_ki==3226.22067f);
-    assert(configuration.device.encoder.electrical_zero_q15==18681);
-    assert(configuration.device.encoder.calib_flag==3);
-    assert(configuration.device.encoder.linearization_lut_q15[71]==-42);
-    Param_Upload(&p, &configuration);
-    assert(p.id_kp==configuration.model.id_kp && p.id_ki==configuration.model.id_ki);
-    assert(p.record_crc32==Param_RecordCrc(&p));
-    puts("PASS AT32/YQ delay-aware PI; stored model and calibration preserved");
-    return 0;
-}
-""",
+        + f"\nstatic const uint32_t five_axis_crc[] = {{{expected_crc}}};\n"
+        + (ROOT / "tests/unit/native/five_axis_records.inc").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     tuning_exe = out / "current_tuning_test.exe"

@@ -12,6 +12,7 @@
 #define MOTOR_AXIS_PROFILE_NUMERIC_MAGIC 0x32535841U /* AXS2 */
 #define MOTOR_AXIS_PROFILE_NUMERIC_VERSION 2U
 #define MOTOR_JOINT_CONFIG_REVISION 1U
+#define MOTOR_PRODUCT_AXIS_REVISION 2U
 
 /* 协议/存储稳定编号不得重排或复用；持久记录以 uint32_t 存储，不依赖枚举宽度。 */
 typedef enum
@@ -66,7 +67,10 @@ static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profi
            (profile->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
             (profile->identity.numeric.config_revision == MOTOR_JOINT_CONFIG_REVISION &&
              (profile->identity.numeric.joint_type == MOTOR_JOINT_ROLL ||
-              profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH))) &&
+              profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH)) ||
+            (profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION &&
+             profile->identity.numeric.joint_type >= MOTOR_JOINT_ROLL &&
+             profile->identity.numeric.joint_type <= MOTOR_JOINT_YAW)) &&
            (profile->magic == 0U ||
             (actual > profile->minimum_position_rad && actual < profile->maximum_position_rad &&
              target >= profile->minimum_position_rad && target <= profile->maximum_position_rad));

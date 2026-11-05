@@ -54,25 +54,10 @@ static float sensorless_angle_difference(float target, float source)
 
 /* 编码器标定（Mode 13）观测器启动参数集：更强的对准/启动电流与低频稳定目标，
  * 由 foc_encoder_calibration 模块使用；保留现有启动结构契约。 */
-const SensorlessStartupConfig SensorlessStartup_EncoderCalibConfig = {
-    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_RAMP_TIME_S,
-    SENSORLESS_ENCODER_CALIB_ALIGN_HOLD_TIME_S,
-    SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
-    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_INITIAL_A,
-    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
-    SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
-    SENSORLESS_ENCODER_CALIB_STARTUP_ID_A,
-    SENSORLESS_ENCODER_CALIB_MIN_CURRENT_LIMIT_A,
-    SENSORLESS_ENCODER_CALIB_MIN_ELEC_VEL_RAD_S,
-    SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
-    SENSORLESS_ENCODER_CALIB_STARTUP_RAMP_TIME_S,
-    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_TIME_S,
-    SENSORLESS_ENCODER_CALIB_SPEED_LOCK_FILTER_ALPHA,
-    SENSORLESS_ENCODER_CALIB_OBSERVER_LOCK_RATIO,
-    SENSORLESS_ENCODER_CALIB_ANGLE_HANDOFF_TIME_S,
-    SENSORLESS_ENCODER_CALIB_LOCK_TIMEOUT_S,
-    SENSORLESS_ENCODER_CALIB_ID_RAMP_DOWN_TIME_S,
-    SENSORLESS_ENCODER_CALIB_OBSERVER_LOSS_TIME_S};
+const SensorlessStartupConfig SensorlessStartup_EncoderCalibConfig =
+    CALIB_STARTUP_CONFIG(SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
+                         SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S);
 
 /* 观测器可用性：有限值且角速度在最大电角速度以内。 */
 static bool sensorless_observer_is_usable(const FluxObserverState *flux_observer)
@@ -157,17 +142,22 @@ static const bool s_encoder_startup_config_valid =
 #undef SENSORLESS_STARTUP_VALUES_VALID
 
 /* 启动电流准入：对准与开环电流的合成矢量不得超出电流限制。 */
+static float startup_current_limit(const MotorConfiguration *configuration)
+{
+    float limit = configuration->application.current_limit_a;
+    return configuration->preset == NULL ? limit
+                                         : fminf(limit, configuration->model.calibration_current_a);
+}
+
 static bool sensorless_startup_currents_are_valid(const MotorConfiguration *configuration,
                                                   const SensorlessStartupConfig *Config)
 {
-    float current_limit_squared =
-        configuration->application.current_limit_a * configuration->application.current_limit_a;
+    float limit = startup_current_limit(configuration);
     float startup_current_squared =
         Config->startup_iq_a * Config->startup_iq_a + Config->startup_id_a * Config->startup_id_a;
 
-    return configuration->application.current_limit_a >= Config->minimum_current_limit_a &&
-           configuration->application.current_limit_a >= Config->align_current_a &&
-           startup_current_squared <= current_limit_squared;
+    return limit >= Config->minimum_current_limit_a && limit >= Config->align_current_a &&
+           startup_current_squared <= limit * limit;
 }
 
 /* 速度 PI 在角度交接与正常跟踪期间保持同一实例运行；
@@ -194,7 +184,7 @@ static float sensorless_update_speed_loop(const MotorConfiguration *configuratio
         startup->speed_loop_ticks = 0U;
     }
     return Math_Constrain(controller->output, -1.0f, startup->speed_pi_output_max) *
-           configuration->application.current_limit_a;
+           startup_current_limit(configuration);
 }
 
 /* 正向旋转 dq 参考到观测器坐标系（+delta）。 */
@@ -259,11 +249,10 @@ static void sensorless_begin_handoff(SensorlessStartupRunState *Run)
                            SPEED_LOOP_TS_S,
                            -1.0f,
                            startup->speed_pi_output_max);
-    PiController_TrackOutput(
-        Run->controller,
-        Math_Constrain(observer_iq / configuration->application.current_limit_a,
-                       -1.0f,
-                       startup->speed_pi_output_max));
+    PiController_TrackOutput(Run->controller,
+                             Math_Constrain(observer_iq / startup_current_limit(configuration),
+                                            -1.0f,
+                                            startup->speed_pi_output_max));
     startup->state = SENSORLESS_STARTUP_HANDOFF;
     startup->state_ticks = 0U;
 }
@@ -572,9 +561,14 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
     float min_mech_vel;
     SensorlessStartupRunState run;
 
-    bool config_valid = Config == &SensorlessStartup_EncoderCalibConfig
-                            ? s_encoder_startup_config_valid
-                            : sensorless_startup_config_is_valid(Config);
+    bool config_valid = s_encoder_startup_config_valid;
+    if (Config != &SensorlessStartup_EncoderCalibConfig)
+    {
+        /* 固件内只读型号表在会话首拍完整校验；其他调用者仍逐拍校验。 */
+        bool bound = configuration->preset != NULL && Config == configuration->preset->startup;
+        config_valid = (bound && startup->state != SENSORLESS_STARTUP_IDLE) ||
+                       sensorless_startup_config_is_valid(Config);
+    }
     if (!config_valid || pole_pairs <= 0.0f ||
         configuration->model.motor_phase_resistance_ohm <= 0.0f ||
         configuration->model.motor_d_inductance_h <= 0.0f ||
@@ -622,7 +616,7 @@ void SensorlessStartup_Run(const MotorConfiguration *configuration,
 
     if (startup->state == SENSORLESS_STARTUP_IDLE)
     {
-        FluxObserver_Init(flux_observer);
+        FluxObserver_InitConfigured(flux_observer, configuration);
         Foc_ResetCurrent(foc);
         PiController_Reset(controller);
         startup->state = SENSORLESS_STARTUP_ALIGN;

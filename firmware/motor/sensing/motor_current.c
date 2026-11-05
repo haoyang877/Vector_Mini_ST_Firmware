@@ -10,8 +10,6 @@
 #include "control_math.h"
 
 /* 正常电流测量与独立的INIT零偏校正。 */
-#define CURRENT_OFFSET_MIN_COUNTS 1948.0f
-#define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 
 /* 不把2048或上次存储零点当作本次上电校正资格。 */
 void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
@@ -35,12 +33,6 @@ static void fail_current_offset_calibration(CurrentOffsetCalibration *calibratio
 {
     calibration->failed = true;
     MotorFault_Report(motor_state, MOTOR_FAULT_CURRENT_OFFSET);
-}
-
-/* 闭区间比较同时拒绝NaN和无穷，不另设校准容差。 */
-static bool current_offset_valid(float counts)
-{
-    return counts >= CURRENT_OFFSET_MIN_COUNTS && counts <= CURRENT_OFFSET_MAX_COUNTS;
 }
 
 bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
@@ -90,14 +82,14 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
                               (float)calibration->phase_sum_raw[2] * scale};
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
-        if (!current_offset_valid(offsets[phase]))
+        if (!MotorCurrentOffset_InRange(offsets[phase]))
         {
             fail_current_offset_calibration(calibration, motor_state);
             return false;
         }
     }
     float bus_offset_counts = (float)calibration->bus_sum_raw / (float)CURRENT_OFFSET_SAMPLE_COUNT;
-    if (calibration->bus_current_enabled && !current_offset_valid(bus_offset_counts))
+    if (calibration->bus_current_enabled && !MotorCurrentOffset_InRange(bus_offset_counts))
     {
         fail_current_offset_calibration(calibration, motor_state);
         return false;
@@ -141,7 +133,5 @@ void MotorCurrent_Update(FocState *foc)
 
 bool MotorCurrentOffsets_IsValid(const MotorConfiguration *configuration)
 {
-    return current_offset_valid(configuration->device.phase_a_offset_counts) &&
-           current_offset_valid(configuration->device.phase_b_offset_counts) &&
-           current_offset_valid(configuration->device.phase_c_offset_counts);
+    return MotorDeviceOffsets_InRange(&configuration->device);
 }

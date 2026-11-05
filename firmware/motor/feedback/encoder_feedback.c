@@ -174,12 +174,13 @@ static void encoder_update_velocity_pll(EncoderState *encoder, uint32_t pole_pai
 
     encoder_step_pll(
         theta_meas, ENCODER_PLL_OMEGA_N_HZ, &encoder->pll_theta_rad, &encoder->pll_omega_rad_s);
-#if ENCODER_SPEED_PLL_HZ > 0U
-    encoder_step_pll(theta_meas,
-                     ENCODER_SPEED_PLL_HZ,
-                     &encoder->speed_pll_theta_rad,
-                     &encoder->speed_pll_omega_rad_s);
-#endif
+    if (encoder->speed_pll_hz > 0.0f)
+    {
+        encoder_step_pll(theta_meas,
+                         encoder->speed_pll_hz,
+                         &encoder->speed_pll_theta_rad,
+                         &encoder->speed_pll_omega_rad_s);
+    }
 
     vel = encoder->pll_omega_rad_s;
     encoder->mechanical_velocity_continuous_rad_s = vel;
@@ -274,6 +275,7 @@ void Encoder_InitFeedback(EncoderCalibration *calibration,
     encoder->pole_pairs = pole_pairs;
     encoder->axis_profile = axis_profile;
     encoder->axis_profile_valid = axis_profile_valid;
+    encoder->speed_pll_hz = ENCODER_SPEED_PLL_HZ;
     calibration->reverse = calibration->reverse != 0U ? 1U : 0U;
     encoder->raw_q15 = 0U;
     encoder->directed_q15 = 0U;
@@ -443,11 +445,9 @@ float Encoder_GetElecVel(const EncoderState *encoder)
 /* 速度模式读取独立测速结果，未配置独立 PLL 的机型沿用主反馈。 */
 float Encoder_GetMechVel(const EncoderState *encoder)
 {
-#if ENCODER_SPEED_PLL_HZ > 0U
-    return encoder_apply_velocity_deadband(encoder->speed_pll_omega_rad_s);
-#else
-    return encoder->mechanical_velocity_rad_s;
-#endif
+    return encoder->speed_pll_hz > 0.0f
+               ? encoder_apply_velocity_deadband(encoder->speed_pll_omega_rad_s)
+               : encoder->mechanical_velocity_rad_s;
 }
 
 /* 读取连续机械角速度，不含零速死区。输入：encoder；返回：mechanical_velocity_continuous_rad_s，

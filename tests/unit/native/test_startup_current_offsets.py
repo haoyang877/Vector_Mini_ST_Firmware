@@ -24,9 +24,6 @@ def main() -> None:
     production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
     production += "static EncoderCalibrationWorkspace s_encoder_linearization_workspace;\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
-    production += "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n"
-    production += "#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
-    production += function_source(sensing, "current_offset_valid")
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
     production += function_source(sensing, "MotorCurrent_Update")
     for name in (

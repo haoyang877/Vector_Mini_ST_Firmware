@@ -29,6 +29,7 @@ typedef struct
     const int32_t *pole_pairs;
     const MotorAxisProfile *axis_profile;
     const bool *axis_profile_valid;
+    float speed_pll_hz;
 
     /* 20 kHz 快路径写：原始读数、方向校正值、LUT 校正值与电角度。 */
     uint16_t raw_q15;

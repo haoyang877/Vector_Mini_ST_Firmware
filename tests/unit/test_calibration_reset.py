@@ -230,8 +230,6 @@ class CalibrationResetTests(unittest.TestCase):
         source.write_text(
             '#include <math.h>\n#include <stdio.h>\n#include <string.h>\n#include "parameter_record.h"\n'
             '#include "parameter_values.h"\n#include "motor_sensing.h"\n'
-            "#define CURRENT_OFFSET_MIN_COUNTS 1948.0f\n#define CURRENT_OFFSET_MAX_COUNTS 2148.0f\n"
-            + function_source(sensing, "current_offset_valid")
             + function_source(sensing, "MotorCurrentOffsets_IsValid")
             + r"""
 #define CHECK(condition) do { if (!(condition)) { printf("FAIL %u: %s\n", __LINE__, #condition); return 1; } } while (0)

@@ -1,5 +1,7 @@
 # 轴身份、应用包络与持久化
 
+AT32F456 五轴使用 AXS2 修订 2，按节点、角色及电机模型匹配；见[五轴配置](at32f456_five_axes.md)。以下修订 0/1 的解释供旧记录使用。
+
 核对日期：2026-10-21。当前结构见[`axis_config.h`](../../firmware/motor/axis_config.h)，
 装载/创建服务见[`motor_axis_profile.h`](../../firmware/parameters/motor_axis_profile.h)。
 轴记录是32B独立版本记录，含身份、位置范围rad、最大速度rad/s与CRC32，保存在参数记录中。

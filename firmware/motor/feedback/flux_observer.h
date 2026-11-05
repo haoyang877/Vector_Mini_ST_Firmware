@@ -37,28 +37,6 @@ typedef enum
 
 typedef struct
 {
-    float align_current_ramp_time_s;
-    float align_hold_time_s;
-    float align_current_a;
-    float startup_iq_initial_a;
-    float startup_iq_a;
-    float startup_iq_ramp_time_s;
-    float startup_id_a;
-    float minimum_current_limit_a;
-    float minimum_electrical_velocity_rad_s;
-    float target_electrical_velocity_rad_s;
-    float startup_ramp_time_s;
-    float speed_lock_time_s;
-    float speed_lock_filter_alpha;
-    float observer_lock_ratio;
-    float angle_handoff_time_s;
-    float lock_timeout_s;
-    float id_ramp_down_time_s;
-    float observer_loss_time_s;
-} SensorlessStartupConfig;
-
-typedef struct
-{
     SensorlessStartupPhase state;
     float open_loop_angle_rad;
     float open_loop_velocity_rad_s;
@@ -81,6 +59,21 @@ typedef struct
  * @param  flux_observer 观测器状态指针。
  */
 void FluxObserver_Init(FluxObserverState *flux_observer);
+
+/**
+ * @brief 上电及标定重启时复位状态并装入同一份型号整定。
+ * @param observer 当前观测器。
+ * @param configuration 启动装载的活动配置。
+ */
+static inline void FluxObserver_InitConfigured(FluxObserverState *observer,
+                                               const MotorConfiguration *configuration)
+{
+    FluxObserver_Init(observer);
+    if (configuration->preset != NULL)
+    {
+        observer->gamma = configuration->preset->electrical->observer_gamma;
+    }
+}
 
 /**
  * @brief  执行一次磁链观测器更新。

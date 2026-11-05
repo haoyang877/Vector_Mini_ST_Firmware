@@ -48,17 +48,18 @@ static void observed_upload(InterfaceParam *record, const MotorConfiguration *co
  if (inject_fault) { s_motor_state.fault_code = MOTOR_FAULT_ENCODER; }
  if (inject_start) { stopped = false; }
 }
-#define CURRENT_OFFSET_MIN_COUNTS 1948.0f
-#define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 """
-        + function_source(current, "current_offset_valid")
         + function_source(current, "MotorCurrentOffsets_IsValid")
         + "\n#define Param_Upload observed_upload\n"
         + function_source(axis, "MotorAxis_SaveCalibration")
         + r"""
 #undef Param_Upload
 static void reset(void) {
+#if BSP_BOARD == BSP_BOARD_AT32F456
+ assert(Param_CreateAxis(3, 0, 0, 2, NULL, &s_motor_configuration));
+#else
  Param_Return_Default(&s_motor_configuration);
+#endif
  s_motor_configuration.model.thermal = (MotorWindingThermalConfig){3.0f,7.0f,65.98486785f,.8f,.7f,1.0f,.5f};
  s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
  s_motor_configuration.device.phase_b_offset_counts = 2048.0f;

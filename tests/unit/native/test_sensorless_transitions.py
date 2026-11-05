@@ -25,6 +25,7 @@ PRELUDE = r"""
 #include "motor_lifecycle.h"
 #include "motor_control.h"
 #include "sensorless_startup.h"
+#include "motor_axis_profile.h"
 #include "speed_control.h"
 #include "board_config.h"
 #include "application_config.h"
@@ -171,6 +172,23 @@ int main(void) {
         check_handoff(1); check_handoff(-1); check_voltage_rotation();
         check_braking_cap();
     }
+    for (unsigned node = 3; node <= 7; ++node) {
+        const MotorAxisPreset *preset = MotorAxisProfile_ForNode(node);
+        cfg = preset->startup;
+        setup();
+        configuration.preset = preset;
+        configuration.model.motor_pole_pairs = preset->electrical->pole_pairs;
+        configuration.model.calibration_current_a = preset->calibration_limit_a;
+        motor.speed_target_rad_s = preset->calibration_speed_rad_s;
+        observer.gamma = -1;
+        tick();
+        assert(motor.fault_code == MOTOR_FAULT_NONE && startup.state == SENSORLESS_STARTUP_ALIGN);
+        assert(observer.gamma == preset->electrical->observer_gamma);
+        assert(startup_current_limit(&configuration) == preset->calibration_limit_a);
+        configuration.model.calibration_current_a = 0.01f;
+        tick();
+        assert(motor.fault_code == MOTOR_FAULT_SENSORLESS);
+    }
     puts("PASS observer-frame current continuity, state-4 speed feedback, PI cap, braking authority");
 }
 """
@@ -220,6 +238,8 @@ def main():
                 "-DMOTOR_HAS_DAMPING_RING=" + str(damping),
                 str(source),
                 str(ROOT / "firmware/motor/control/pi_controller.c"),
+                str(ROOT / "firmware/parameters/motor_axis_profile.c"),
+                str(ROOT / "shared/checksum/crc32.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 "-o",
                 str(exe),

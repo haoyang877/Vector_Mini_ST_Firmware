@@ -19,6 +19,90 @@
 #define AXIS_JOINT_V1_PITCH_MIN_RAD (-0.3f)
 #define AXIS_JOINT_V1_PITCH_MAX_RAD (0.9f)
 
+/* 五个产品节点共用两种电气模型。角速度和行程均以电机轴表示。
+ * YQ 电流 PI 来自 AT32 台架；HT 按额定 R/L 与 1.2 kHz 带宽派生。 */
+static const MotorElectricalPreset s_ht = {
+    HT8115_POLE_PAIRS,
+    HT8115_PHASE_RESISTANCE_OHM,
+    HT8115_INDUCTANCE_H,
+    HT8115_FLUX_WB,
+    HT8115_INDUCTANCE_H *CURRENT_LOOP_BANDWIDTH_RAD_S,
+    HT8115_PHASE_RESISTANCE_OHM *CURRENT_LOOP_BANDWIDTH_RAD_S,
+    800000.0f,
+    0.0f,
+    1.0f};
+static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
+                                           YQ5708_PHASE_RESISTANCE_OHM,
+                                           YQ5708_INDUCTANCE_H,
+                                           YQ5708_FLUX_WB,
+                                           AT32_YQ5708_CURRENT_KP,
+                                           AT32_YQ5708_CURRENT_KI,
+                                           800000.0f,
+                                           600.0f,
+                                           8.0f};
+
+/* 阻尼轴参数只作脱开负载的离线/工装起点。 */
+static const SensorlessStartupConfig s_wheel_start =
+    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS);
+static const SensorlessStartupConfig s_roll_start =
+    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS);
+static const SensorlessStartupConfig s_yq_start =
+    CALIB_STARTUP_CONFIG(1.6f, 0.5f, YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS);
+static const MotorAxisPreset s_presets[] = {
+    {0x03,
+     MOTOR_JOINT_WHEEL_LEFT,
+     &s_ht,
+     &s_wheel_start,
+     HT8115_CALIB_SPEED_RAD_S,
+     3.0f,
+     20.0f,
+     {0, 0, 0.05f, 0.5f, 1.0f, 1.0f, 3.0f}},
+    {0x04,
+     MOTOR_JOINT_WHEEL_RIGHT,
+     &s_ht,
+     &s_wheel_start,
+     HT8115_CALIB_SPEED_RAD_S,
+     3.0f,
+     20.0f,
+     {0, 0, 0.05f, 0.5f, 1.0f, 1.0f, 3.0f}},
+    {0x05,
+     MOTOR_JOINT_ROLL,
+     &s_ht,
+     &s_roll_start,
+     HT8115_CALIB_SPEED_RAD_S,
+     3.0f,
+     0.785398163f,
+     {8.0f, 2.0f, 0.5f, 1.0f, 0.785398163f, 0.785398163f, 3.0f}},
+    {0x06,
+     MOTOR_JOINT_PITCH,
+     &s_yq,
+     &s_yq_start,
+     YQ5708_CALIB_SPEED_RAD_S,
+     1.6f,
+     6.2831853f,
+     {2.0f, 0.0f, 0.048f, 0.5f, 6.2831853f, 6.2831853f, 3.0f}},
+    {0x07,
+     MOTOR_JOINT_YAW,
+     &s_yq,
+     &s_yq_start,
+     YQ5708_CALIB_SPEED_RAD_S,
+     1.6f,
+     6.2831853f,
+     {2.0f, 0.0f, 0.048f, 0.5f, 6.2831853f, 6.2831853f, 3.0f}},
+};
+
+const MotorAxisPreset *MotorAxisProfile_ForNode(uint8_t node_id)
+{
+    for (unsigned i = 0; i < sizeof(s_presets) / sizeof(s_presets[0]); ++i)
+    {
+        if (s_presets[i].node_id == node_id)
+        {
+            return &s_presets[i];
+        }
+    }
+    return NULL;
+}
+
 typedef char axis_record_size_check[(sizeof(MotorAxisProfile) == 32U) ? 1 : -1];
 typedef char axis_crc_offset_check[(offsetof(MotorAxisProfile, crc32) == 28U) ? 1 : -1];
 typedef char axis_identity_offset_check[(offsetof(MotorAxisProfile, identity) == 8U) ? 1 : -1];
@@ -77,6 +161,22 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
     if (stored->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         stored->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION)
     {
+        if (stored->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
+        {
+            const uint32_t role = stored->identity.numeric.joint_type;
+            if (role < MOTOR_JOINT_ROLL || role > MOTOR_JOINT_WHEEL_LEFT ||
+                !isfinite(stored->maximum_speed_rad_s) || stored->maximum_speed_rad_s <= 0.0f)
+            {
+                return false;
+            }
+            if (role == MOTOR_JOINT_WHEEL_LEFT || role == MOTOR_JOINT_WHEEL_RIGHT)
+            {
+                return stored->minimum_position_rad == 0.0f && stored->maximum_position_rad == 0.0f;
+            }
+            return isfinite(stored->minimum_position_rad) &&
+                   isfinite(stored->maximum_position_rad) &&
+                   stored->minimum_position_rad < stored->maximum_position_rad;
+        }
         if (stored->identity.numeric.joint_type > MOTOR_JOINT_WHEEL_LEFT ||
             stored->identity.numeric.config_revision > MOTOR_JOINT_CONFIG_REVISION)
         {
@@ -175,6 +275,22 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
                                       AXIS_JOINT_V1_DECEL_RAD_S2,
                                       AXIS_JOINT_V1_CURRENT_LIMIT_A};
     float minimum, maximum;
+    if (output != NULL && MotorAxisProfile_Load(profile, &checked) &&
+        checked.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+        checked.identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
+    {
+        for (unsigned i = 0; i < sizeof(s_presets) / sizeof(s_presets[0]); ++i)
+        {
+            const MotorAxisPreset *p = &s_presets[i];
+            if (p->joint == checked.identity.numeric.joint_type &&
+                checked.maximum_speed_rad_s <= p->speed_ceiling_rad_s)
+            {
+                *output = p->control;
+                return true;
+            }
+        }
+        return false;
+    }
     if (output == NULL || !MotorAxisProfile_Load(profile, &checked) ||
         checked.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
         checked.identity.numeric.config_revision != MOTOR_JOINT_CONFIG_REVISION)

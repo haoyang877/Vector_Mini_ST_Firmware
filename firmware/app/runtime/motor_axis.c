@@ -91,7 +91,11 @@ void MotorAxis_Init(void)
                          &s_motor_configuration.application.axis_profile_valid,
                          &s_rotor_encoder);
 
-    FluxObserver_Init(&s_flux_observer);
+    FluxObserver_InitConfigured(&s_flux_observer, &s_motor_configuration);
+    if (s_motor_configuration.preset != NULL)
+    {
+        s_rotor_encoder.speed_pll_hz = s_motor_configuration.preset->electrical->speed_pll_hz;
+    }
     SensorlessStartup_Reset(&s_sensorless_startup);
     Foc_ResetCurrent(&s_foc_state);
     PiController_Reset(&s_speed_pi);

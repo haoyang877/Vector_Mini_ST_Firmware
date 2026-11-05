@@ -26,7 +26,7 @@ def main():
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
-#include "motor_types.h"
+#include "motor_sensing.h"
 #include "foc.h"
 #include "board_config.h"
 #include "application_config.h"
@@ -34,8 +34,6 @@ def main():
 #include "control_math.h"
 static struct {uint32_t JDR1,JDR2,JDR3;} adc;
 
-#define CURRENT_OFFSET_MIN_COUNTS 1948.0f
-#define CURRENT_OFFSET_MAX_COUNTS 2148.0f
 static MotorConfiguration configuration;
 static MotorControlState motor_state;
 static FocState foc;
@@ -60,7 +58,6 @@ float BspAdc_ReadChannel(BspAdcChannel channel) {
 }
 
 """
-        + function_source(sensing, "current_offset_valid")
         + function_source(sensing, "MotorCurrentOffsets_IsValid")
         + function_source(sensing, "MotorCurrent_Update")
         + r"""

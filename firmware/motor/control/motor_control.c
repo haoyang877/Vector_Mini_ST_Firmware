@@ -27,6 +27,7 @@ static float position_mode_maximum_speed(const MotorConfiguration *configuration
 /* 只装配位置串级核心输入，扩展规划与摩擦字段不再组装。 */
 static bool position_mode_update_control(const MotorConfiguration *configuration,
                                          const MotorControlState *motor,
+                                         float velocity_filter_hz,
                                          float position_rad,
                                          float speed_rad_s,
                                          PositionCascadeControlOutput *output)
@@ -36,7 +37,7 @@ static bool position_mode_update_control(const MotorConfiguration *configuration
     config.call_divider = 1U;
     config.target_position = motor->position_target_rad;
     config.position_error_window = configuration->application.position_error_window_rad;
-    config.velocity_filter_hz = POSITION_SERVO_VELOCITY_FILTER_HZ;
+    config.velocity_filter_hz = velocity_filter_hz;
     config.maximum_speed = position_mode_maximum_speed(configuration);
     config.speed_limit_rad_s = configuration->application.speed_limit_rad_s;
     config.position_kp = configuration->application.cascade_position_kp;
@@ -130,8 +131,12 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
     bool active =
         m->control_mode == MOTOR_CONTROL_POSITION || m->control_mode == MOTOR_CONTROL_SPEED;
     float position = Encoder_GetMechPos(encoder);
-    float speed = m->control_mode == MOTOR_CONTROL_SPEED ? Encoder_GetMechVel(encoder)
-                                                         : Encoder_GetMechVelContinuous(encoder);
+    bool position_speed_pll =
+        m->control_mode == MOTOR_CONTROL_POSITION && encoder->speed_pll_hz > 0.0f &&
+        (configuration->preset != NULL || configuration->application.axis_profile.magic == 0U);
+    float speed = (m->control_mode == MOTOR_CONTROL_SPEED || position_speed_pll)
+                      ? Encoder_GetMechVel(encoder)
+                      : Encoder_GetMechVelContinuous(encoder);
 
     if (m->control_mode != s_outer.mode)
     {
@@ -168,7 +173,13 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
 
     if (m->control_mode == MOTOR_CONTROL_POSITION)
     {
-        bool valid = position_mode_update_control(configuration, m, position, speed, &output);
+        bool valid = position_mode_update_control(
+            configuration,
+            m,
+            position_speed_pll ? 0.0f : POSITION_SERVO_VELOCITY_FILTER_HZ,
+            position,
+            speed,
+            &output);
         valid = valid && isfinite(output.iq_reference);
         if (!valid)
         {
@@ -261,7 +272,9 @@ MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
     case MOTOR_CONTROL_OPEN_VOLTAGE:
     case MOTOR_CONTROL_OPEN_CURRENT:
         if (!isfinite(motor->open_loop_frequency_hz) ||
-            fabsf(motor->open_loop_frequency_hz) > MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ ||
+            fabsf(motor->open_loop_frequency_hz) >
+                MotorConfiguration_OpenLoopLimitHz(configuration,
+                                                   MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ) ||
             !isfinite(motor->open_loop_angle_rad) || motor->open_loop_angle_rad < 0.0f ||
             motor->open_loop_angle_rad >= _2PI)
         {

@@ -1,7 +1,14 @@
 /* 轴记录服务只处理验证、身份与基线解析；电机值契约在 axis_config.h。 */
 #ifndef MOTOR_AXIS_PROFILE_H
 #define MOTOR_AXIS_PROFILE_H
-#include "axis_config.h"
+#include "motor_config.h"
+
+/**
+ * @brief 按产品节点解析只读轴参数。
+ * @param node_id CAN 节点地址。
+ * @return 匹配的配置；保留地址返回 NULL。
+ */
+const MotorAxisPreset *MotorAxisProfile_ForNode(uint8_t node_id);
 
 /**
  * @brief 把稳定轴编号映射为显示名。

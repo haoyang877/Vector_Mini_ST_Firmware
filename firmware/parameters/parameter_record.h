@@ -95,6 +95,23 @@ typedef struct
 void Param_Return_Default(MotorConfiguration *configuration);
 
 /**
+ * @brief 为工装建立未确认、无编码器标定的 AT32F456 产品配置。
+ * @param node_id 产品节点 3..7。
+ * @param minimum_rad 电机轴行程下界，车轮填零。
+ * @param maximum_rad 电机轴行程上界，车轮填零。
+ * @param speed_rad_s 电机轴运行速度上限。
+ * @param thermal YQ 必须提供有效热输入，HT 可用 NULL 选型号默认值。
+ * @param configuration 输出配置，失败时不能用于运行。
+ * @return 成功返回 true。
+ */
+bool Param_CreateAxis(uint8_t node_id,
+                      float minimum_rad,
+                      float maximum_rad,
+                      float speed_rad_s,
+                      const MotorWindingThermalConfig *thermal,
+                      MotorConfiguration *configuration);
+
+/**
  * @brief 导出含配置确认、识别字与整条 CRC32 的 schema14 参数记录。
  * @param param 调用方独占的记录空间。
  * @param configuration 稳定的电机、应用、设备配置及编码器标定。

@@ -141,6 +141,7 @@ static void setup(MotorControlMode mode)
     memset(&s_pi, 0, sizeof(s_pi));
     s_position_rad = 0.3f;
     s_speed_rad_s = 0.0f;
+    s_encoder.speed_pll_hz = ENCODER_SPEED_PLL_HZ;
     s_core_valid = true;
     s_motor.control_mode = mode;
     s_configuration.application.axis_profile_valid = true;
@@ -174,7 +175,8 @@ static void check_configuration(void)
     CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == 4.0f);
     CHECK(s_config.call_divider == 1U && s_config.update_period_s == SPEED_LOOP_TS_S);
     CHECK(s_config.target_position == 0.3f &&
-          s_config.velocity_filter_hz == POSITION_SERVO_VELOCITY_FILTER_HZ);
+          s_config.velocity_filter_hz ==
+              (ENCODER_SPEED_PLL_HZ > 0U ? 0.0f : POSITION_SERVO_VELOCITY_FILTER_HZ));
     s_configuration.application.current_limit_a = 0.5f;
     tick();
     CHECK(s_config.current_limit_a == 0.5f && s_motor.iq_target_a == 0.5f);

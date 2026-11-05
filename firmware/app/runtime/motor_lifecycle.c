@@ -167,7 +167,21 @@ static bool calibration_inputs_valid(void)
     {
         return true;
     }
-    return s_context.configuration->configuration_confirmed && state_vbus_in_enable_window() &&
+    const MotorConfiguration *config = s_context.configuration;
+    if (s_context.calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION &&
+        config->preset != NULL)
+    {
+        const SensorlessStartupConfig *startup = config->preset->startup;
+        float budget =
+            fminf(config->model.calibration_current_a, config->application.current_limit_a);
+        if (budget < startup->align_current_a ||
+            budget * budget < startup->startup_iq_a * startup->startup_iq_a +
+                                  startup->startup_id_a * startup->startup_id_a)
+        {
+            return false;
+        }
+    }
+    return config->configuration_confirmed && state_vbus_in_enable_window() &&
            s_context.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V &&
            (s_context.calibration_type != MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
             (Encoder_GetCalibrationFlag(&s_context.configuration->device.encoder) &
@@ -416,7 +430,9 @@ MotorControlResult MotorLifecycle_SetTarget(const MotorTarget *target)
                                        s_context.configuration->application.axis_profile_valid,
                                        Encoder_GetMechPos(s_context.rotor_encoder),
                                        target->position_rad)) &&
-                     (!open || fabsf(target->frequency_hz) <= MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ);
+                     (!open || fabsf(target->frequency_hz) <=
+                                   MotorConfiguration_OpenLoopLimitHz(
+                                       s_context.configuration, MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ));
         result = !fields  ? MOTOR_CONTROL_INVALID
                  : !range ? MOTOR_CONTROL_OUT_OF_RANGE
                           : MOTOR_CONTROL_ACCEPTED;

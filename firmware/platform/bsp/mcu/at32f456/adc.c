@@ -135,8 +135,10 @@ void McuAdc_Init(void)
     trigger.oc_output_state = FALSE;
     trigger.occ_output_state = FALSE;
     tmr_output_channel_config(MCU_ADC_TRIGGER_TIMER, MCU_ADC_TRIGGER_CHANNEL, &trigger);
+    /* 20kHz中心对齐PWM：三相4倍采样共约5us，以25us计数峰值为中心。
+     * 触发放在22.5us，避免首相采样过早落在开关沿附近。 */
     tmr_channel_value_set(
-        MCU_ADC_TRIGGER_TIMER, MCU_ADC_TRIGGER_CHANNEL, AT32_TIMER_HZ * 3U / (8U * FOC_FREQ));
+        MCU_ADC_TRIGGER_TIMER, MCU_ADC_TRIGGER_CHANNEL, AT32_TIMER_HZ * 9U / (20U * FOC_FREQ));
     tmr_primary_mode_select(MCU_ADC_TRIGGER_TIMER, MCU_ADC_TRIGGER_OUTPUT);
     tmr_primary_mode_select(MCU_CONTROL_TIMER, TMR_PRIMARY_SEL_OVERFLOW);
     adc_interrupt_enable(MCU_ADC_FAST, ADC_PCCE_INT, TRUE);
